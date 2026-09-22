@@ -16,33 +16,28 @@ import {
 // The same season-by-season prompt lines and "argue from the numbers" rules the
 // draft advisor runs on (server/routes/drafts.js) — one voice for both rooms.
 import { evidenceLines, evidenceHeadline, STAT_ROOTED_INSTRUCTIONS } from '../services/draft-assist.js';
-import { dvpTable, relevantSplits, matchupModel, matchupSignalActive, MATCHUP_SIGNAL_REASON } from '../services/matchups.js';
-import { leagueCurrentWeek, leagueLastCompletedWeek } from '../services/league-week.js';
+import { dvpTable, matchupModel, matchupSignalActive, MATCHUP_SIGNAL_REASON } from '../services/matchups.js';
+import { leagueCurrentWeek } from '../services/league-week.js';
 import { waiverBoard } from '../services/waiver-wire.js';
 import { lineupPosture } from '../services/lineup-posture.js';
 import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
-import { brainState, managerProfiles, setManagerProfile } from '../services/league-brain.js';
+import { managerProfiles, setManagerProfile } from '../services/league-brain.js';
 // The measured manager layer: what has been observed about each counterparty, as
 // opposed to `manager_profiles`, which is the tier Nick set by hand.
-import { SIGNAL_SOURCES, refreshManagerData } from '../services/manager-signals.js';
+import { SIGNAL_SOURCES, refreshManagerData, signalRowsFor, transactionsCollected, chatCorpusState,
+  archetypesBuilt }
+  from '../services/manager-signals.js';
 import { identityMap, identityRows, identityWarnings } from '../services/manager-identity.js';
-import { counterpartyLayer, RECEPTIVENESS_RANGE } from '../services/counterparty-pricing.js';
+import { counterpartyLayer, valuationMap, playerValuation, RECEPTIVENESS_RANGE, managerModelReads }
+  from '../services/counterparty-pricing.js';
 // Every other route in this file is a read behind a bearer session; the one that
 // triggers work needs the administrator grant on top (server/platform/legacy-access.js).
 import { requirePlatformAdmin } from '../platform/legacy-access.js';
 import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE } from '../services/trade-proposals.js';
-import { waiverUpgrades, freeAgents } from '../services/waiver-brain.js';
-import { byeOutlook, byePatches, fragility } from '../services/roster-risk.js';
-import { positionLiquidity } from '../services/position-liquidity.js';
-import { trendExploits } from '../services/trend-exploits.js';
 import { lineupCall } from '../services/lineup-brain.js';
-import { teamTrends, playerTrends } from '../services/weekly-trends.js';
-import { scanTrends, conflicts, trendHistory } from '../services/trend-watch.js';
-import { regressionCandidates, regressionForLeague, touchdownRates } from '../services/td-regression.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
-import { weekPostmortem } from '../services/week-postmortem.js';
 import { tradeImpact } from '../services/season-sim.js';
 import {
   proposeVerifyRetryTrade, judgeTradeVerdict, tradeChallengeText, SENSE_CHECK_SIM_RUNS
@@ -146,24 +141,22 @@ r.get('/:leagueId/post-draft-plan', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* ------------------------------------------------- the brain, what is left of it */
 /**
  * A route that existed and was deliberately removed. 410 (Gone), never 404, and
  * always with a pointer: a caller that finds a missing path deserves to be told
  * where the capability went, and a silent 404 reads like a bug.
+ *
+ * A tombstone is not free — it is code that must keep working — so it is earned
+ * by having somewhere to point. The routes cut on 2026-09-20 had nowhere: no
+ * page, script or test dialled them, and the capability was not moved, it was
+ * abandoned. They are simply gone, and a 404 is the honest answer for a path
+ * that never had a successor. `/splits/:playerId` is the one exception below.
  */
 const retired = (use, why) => (_req, res) => res.status(410).json({
   error: `This endpoint was retired on 2026-09-18. ${why}`, use,
 });
 
-/* ----------------------------------------------------------------- the brain */
-
-/** Where you stand: rank, holes, and which hole is worth paying to fix. */
-r.get('/:leagueId/brain/state', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(brainState(lg.id, req.query.team_id ?? null));
-  } catch (e) { next(e); }
-});
 
 /**
  * RETIRED 2026-09-18 (trade-engine-correctness, GATE G7).
@@ -171,29 +164,18 @@ r.get('/:leagueId/brain/state', (req, res, next) => {
  * `brainPlan` ranked its own enumerated deals by its own tier-based acceptance
  * curve, neither of which read the counterparty layer or the horizon — a second,
  * quietly different answer to "what trade should I send". Both are retired with
- * it (see league-brain.js). The ranked weekly plan across lineup, waivers and
- * trades is being rebuilt as a deterministic service on the Decision Inbox
- * (master plan 00, D5), fed by waiverBoard and the one trade-idea entry point.
+ * it (see league-brain.js).
+ *
+ * This comment used to promise the ranked weekly plan was "being rebuilt as a
+ * deterministic service on the Decision Inbox (master plan 00, D5)". The
+ * Decision Inbox was itself retired on 2026-09-20, so that successor does not
+ * exist and the served message no longer claims one. The trade half is at
+ * /find; the weekly plan across lineup, waivers and trades has no successor
+ * today, and saying so is the point of a tombstone.
  */
 r.get('/:leagueId/brain/plan', retired('/api/trades/:leagueId/find',
-  'The plan\'s trade half was a second enumerator with its own acceptance curve. Trade ideas now come from one place, which prices how each manager reads a deal; the weekly plan service is being rebuilt on top of it.'));
+  'The plan\'s trade half was a second enumerator with its own acceptance curve. Trade ideas now come from one place, which prices how each manager reads a deal. The weekly plan across lineup, waivers and trades has no replacement today.'));
 
-/**
- * Free agents who would crack your lineup.
- *
- * Separate from the plan because it answers on its own: a waiver claim needs no
- * counterparty, so it is the one move available every week regardless of who is
- * talking to you.
- */
-r.get('/:leagueId/brain/waivers', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(waiverUpgrades(lg.id, {
-      myTeamId: req.query.team_id ?? null,
-      limit: Math.min(25, Number(req.query.limit) || 10)
-    }));
-  } catch (e) { next(e); }
-});
 
 /**
  * RETIRED 2026-09-18 (trade-engine-correctness, GATE G7).
@@ -209,143 +191,17 @@ r.get('/:leagueId/brain/waivers', (req, res, next) => {
 r.get('/:leagueId/brain/sell-high', retired('/api/trades/:leagueId/find',
   'Selling high on a player is a trade idea, not a list: the finder names the buyer, the package and how he reads it. sellHigh() remains an input to the hype-window tactic.'));
 
-/** The unrostered pool, ranked on the horizon that matters this week. */
-r.get('/:leagueId/brain/free-agents', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    const list = freeAgents(lg, { limit: Math.min(200, Number(req.query.limit) || 60) });
-    res.json({ count: list.length, players: list });
-  } catch (e) { next(e); }
-});
 
-/** Which future weeks already cost you points, and who on the wire fixes them. */
-r.get('/:leagueId/brain/bye-risk', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(byePatches(lg.id, { myTeamId: req.query.team_id ?? null }));
-  } catch (e) { next(e); }
-});
 
-/** Where one injury ends the season, weighted by how often each player misses time. */
-r.get('/:leagueId/brain/fragility', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(fragility(lg.id, { myTeamId: req.query.team_id ?? null }));
-  } catch (e) { next(e); }
-});
 
-/** What the other rosters can actually spare, position by position. */
-r.get('/:leagueId/brain/liquidity', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(positionLiquidity(lg.id, { myTeamId: req.query.team_id ?? null }));
-  } catch (e) { next(e); }
-});
 
-/* ------------------------------------------------------------ weekly trends */
 
-/**
- * What has changed lately, crossed against what you can do about it.
- *
- * The statistics live in weekly-trends.js and refuse to say anything that does
- * not clear a corrected significance bar; this is the join onto your roster,
- * the wire, and the schedule.
- */
-r.get('/:leagueId/trends', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(trendExploits(lg.id, {
-      myTeamId: req.query.team_id ?? null,
-      lookback: Math.max(2, Math.min(6, Number(req.query.lookback) || 3))
-    }));
-  } catch (e) { next(e); }
-});
 
-/** One team's trajectory across its recent games. */
-r.get('/trends/team/:team', (req, res, next) => {
-  try {
-    const season = Number(req.query.season) || null;
-    const latest = season ?? row('SELECT MAX(season) AS s FROM nfl_team_week_features')?.s;
-    res.json(teamTrends(String(req.params.team).toUpperCase(), latest, {
-      throughWeek: Number(req.query.week) || null,
-      lookback: Math.max(2, Math.min(6, Number(req.query.lookback) || 3))
-    }));
-  } catch (e) { next(e); }
-});
 
-/** One player's usage trajectory — share rather than points, on purpose. */
-r.get('/trends/player/:playerId', (req, res, next) => {
-  try {
-    const latest = Number(req.query.season) || row('SELECT MAX(season) AS s FROM player_week_usage')?.s;
-    res.json(playerTrends(Number(req.params.playerId), latest, {
-      throughWeek: Number(req.query.week) || null,
-      lookback: Math.max(2, Math.min(6, Number(req.query.lookback) || 3))
-    }));
-  } catch (e) { next(e); }
-});
 
-/**
- * Sweep every offence and report the DIFFERENCE against the last sweep.
- *
- * The diff is the product: a trend reported every week forever is wallpaper.
- * New ones are the alert, faded ones are the signal to stop acting on an old
- * read, and ongoing ones are context the league has already priced.
- */
-r.post('/trends/scan', (req, res, next) => {
-  try {
-    res.json(scanTrends({
-      season: Number(req.body?.season) || null,
-      throughWeek: Number(req.body?.through_week) || null,
-      lookback: Math.max(2, Math.min(6, Number(req.body?.lookback) || 3))
-    }));
-  } catch (e) { next(e); }
-});
 
-/** The stored picture, without running a sweep. */
-r.get('/trends/watch', (req, res, next) => {
-  try {
-    const lookback = Math.max(2, Math.min(6, Number(req.query.lookback) || 3));
-    const history = trendHistory({ season: Number(req.query.season) || null, lookback });
-    res.json({
-      ...history,
-      conflicts: history.season ? conflicts(history.season, null, lookback).conflicts : []
-    });
-  } catch (e) { next(e); }
-});
 
-/**
- * Touchdown luck, and who it is about to stop favouring.
- *
- * Touchdown rate is the least stable number in football while target share is
- * among the most stable, so the gap between a player's touchdowns and his
- * opportunities is the most reliable inefficiency in the sport.
- */
-r.get('/:leagueId/regression', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(regressionForLeague(lg.id, {
-      myTeamId: req.query.team_id ?? null,
-      season: Number(req.query.season) || null,
-      throughWeek: Number(req.query.week) || null
-    }));
-  } catch (e) { next(e); }
-});
 
-/** The league-wide board, without a roster join. */
-r.get('/regression/board', (req, res, next) => {
-  try {
-    res.json(regressionCandidates({
-      season: Number(req.query.season) || null,
-      throughWeek: Number(req.query.week) || null,
-      minOpportunities: Math.max(5, Math.min(200, Number(req.query.min_opportunities) || 20))
-    }));
-  } catch (e) { next(e); }
-});
-
-/** The fitted conversion rates themselves, per position group. */
-r.get('/regression/rates', (_req, res, next) => {
-  try { res.json(touchdownRates()); } catch (e) { next(e); }
-});
 
 /**
  * Who to start this week, with every call graded by how close it was.
@@ -410,6 +266,62 @@ const NO_MANAGER_SIGNALS_REASON =
   'no manager signals for this league yet — scripts/build-manager-signals.mjs has not built it';
 
 /**
+ * The one error this page's archetype read is allowed to continue past.
+ *
+ * `league_season_teams` is created only by `scripts/backfill-league-history.mjs`,
+ * so on a database where that has never run the read cannot succeed however
+ * correct the code is. That is an absence, and absences are reported and
+ * survived. Everything else — a renamed column, a corrupt file, a TypeError in
+ * the archetype code — is a fault and must reach the error handler.
+ *
+ * Matching on the message is what node:sqlite gives us; it carries no error
+ * code for this. The match is deliberately narrow: `no such column` and
+ * `no such function` are faults and must NOT match.
+ */
+const isMissingTable = e => /no such table/i.test(String(e?.message ?? ''));
+
+/**
+ * The archetype object without the store's raw `jev`.
+ *
+ * `archetypesFor` carries the stored probabilities straight through: no
+ * evaluation date, and no statement of which of them have evidence under them
+ * and which are priors the model was told to give. The manager payload serves
+ * `model_read` instead, which is the same answers dated and shaped, so this
+ * strips the undated copy rather than leaving two shapes of one answer on one
+ * page.
+ */
+/**
+ * WHAT THE SEASON NUMBER ACTUALLY COVERS, in the explain prompt's own words.
+ *
+ * `season_delta` is the weekly lineup gain multiplied out. This sentence used
+ * to say "a full 17-week season" on every date, so in week 15 a gain worth
+ * three more weeks was handed to the model as seventeen and it reasoned about a
+ * number five times the real one — a made-up span stated to a reader as a fact,
+ * which is the same defect as an undated stamp in a different place.
+ *
+ * The lineup diff serves what it actually multiplied by (`season_delta_weeks`)
+ * and whether that is the weeks left or a season-length default
+ * (`season_delta_basis`). A payload carrying neither keeps the old wording:
+ * guessing a count would be worse than the sentence it replaced.
+ */
+// TEST SEAM: exported for test/trade-season-span.test.js, which pins all three
+// branches; the only production caller is `fmtSide` in the explain route below.
+export const fmtSeasonSpan = s => {
+  const weeks = s?.season_delta_weeks;
+  if (!Number.isFinite(weeks)) return 'if that weekly gain held for a full 17-week season';
+  const plural = weeks === 1 ? 'week' : 'weeks';
+  return s?.season_delta_basis === 'full_season_default'
+    ? `over ${weeks} ${plural}, the season-length default used when the weeks left are not known`
+    : `over the ${weeks} ${plural} left in the season`;
+};
+
+const withoutRawJev = archetype => {
+  if (!archetype) return null;
+  const { jev: _rawUndated, ...rest } = archetype;
+  return rest;
+};
+
+/**
  * `res.json()` turns a Map or a Set into `{}` — silently, with a 200. That bug
  * has already happened in this codebase (valuationMap and counterpartyLayer both
  * hand back Maps of Maps, and `owned` is a Set), and this payload is assembled
@@ -427,42 +339,23 @@ function jsonSafe(value) {
   return value;
 }
 
-/**
- * One stored signal, with what its source is allowed to be used for and why.
- *
- * `priceable` is LOAD-BEARING, not decoration. The `manager_signals` table has no
- * such column — SIGNAL_SOURCES carries it per source — so the join has to happen
- * here, and a consumer left to guess from the sample size alone would print a
- * draft-sourced metric with a big `n` as a measured fact. `draft` is the one
- * declared source with `priceable: false`, because no draft metric survived the
- * year-over-year repeatability test, and that is exactly the number this layer
- * exists to stop anyone pricing on.
- *
- * `why` is derived from the same registry (its label and its refresh cadence),
- * never written per metric: there is no per-metric explanation in the data, and
- * inventing one would be the first thing here to quietly stop being true.
- */
-function signalOf(r) {
-  const spec = SIGNAL_SOURCES[r.source] ?? null;
-  const priceable = spec?.priceable ?? false;
-  return {
-    metric: r.metric, value: r.value, n: r.n, source: r.source, priceable,
-    why: spec
-      ? `${spec.label}; refreshed ${spec.refreshed}${priceable ? '' : ' — context only, never priced'}`
-      : `source '${r.source}' is not declared in SIGNAL_SOURCES, so nothing may price on it`,
-  };
-}
-
 async function managerSignalsPayload(lg, { week = null } = {}) {
   const leagueId = lg.id;
   const season = lg.season ?? null;
-  const signalRows = rows(`SELECT roster_id, metric, value, n, source, computed_at FROM manager_signals
-                           WHERE league_id = ? ORDER BY roster_id, source, metric`, leagueId);
+  // `signalRowsFor` does the join, not this route. `priceable` is LOAD-BEARING,
+  // not decoration: a consumer left to guess from the sample size alone would
+  // print a draft-sourced metric with a big `n` as a measured fact, and `draft`
+  // is declared priceable: false precisely because no draft metric survived the
+  // year-over-year repeatability test. That rule used to live in a helper here,
+  // in the one layer that prices nothing, while the layer that does price read
+  // through an accessor that could not see it. It now lives beside the registry.
+  const signalRows = signalRowsFor(leagueId);
   const computedAt = signalRows.reduce((max, r) => (max == null || r.computed_at > max ? r.computed_at : max), null);
   const byRoster = new Map();
   for (const r of signalRows) {
     if (!byRoster.has(r.roster_id)) byRoster.set(r.roster_id, []);
-    byRoster.get(r.roster_id).push(signalOf(r));
+    byRoster.get(r.roster_id).push({ metric: r.metric, value: r.value, n: r.n,
+      source: r.source, priceable: r.priceable, why: r.why });
   }
 
   // The synced payload is the roster set of record — a manager with no signals
@@ -497,14 +390,66 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
   // lazily, rather than at the top of the trade path (the same line
   // counterparty-pricing.js draws) and an absent store is simply no archetype.
   let archetypes = new Map();
+  // A read that THREW and a store that is empty are different facts with
+  // different fixes, and the bare `catch {}` that used to sit here made them
+  // identical. Not hypothetical: `archetypesFor` joins `league_season_teams`,
+  // whose only CREATE TABLE is in `scripts/backfill-league-history.mjs`, so on
+  // a database where that backfill has never run this throws and every manager
+  // came back with no archetype under a page that said the build had not run.
+  let archetypeError = null;
+  let archetypeState = 'present';
   try {
-    const { archetypesFor } = await import('../services/manager-archetypes.js');
-    archetypes = archetypesFor(leagueId, season);
-  } catch { archetypes = new Map(); }
-
+    const { archetypesFor, leagueHistoryState } = await import('../services/manager-archetypes.js');
+    // ASK, RATHER THAN WAIT TO BE THROWN AT. `manager-archetypes.js` exports the
+    // state of the table this read depends on, and returns an empty Map rather
+    // than raising when it is missing — deliberately, because a caller that can
+    // ask should not need an exception to learn a fact about the schema.
+    //
+    // This route's reporting used to be keyed to that throw, and when the module
+    // stopped throwing the two changes cancelled: the catch never fired, and the
+    // page served `read_failed: ''` for a read that never happened. That is the
+    // defect the catch below was narrowed to remove, arriving by the other door.
+    // A report that only works when something raises is not a report; it is a
+    // side effect of an exception, and it lasts exactly as long as the exception
+    // does.
+    const historyState = leagueHistoryState();
+    if (!historyState.present) {
+      archetypeState = 'table_absent';
+      // The module's own sentence, not a second one written here. Two
+      // vocabularies for one state is how two surfaces come to disagree.
+      archetypeError = historyState.reason;
+      archetypes = new Map();
+    } else {
+      archetypes = archetypesFor(leagueId, season);
+    }
+  } catch (e) {
+    // STILL LOAD-BEARING, and now the SECOND line rather than the only one. The
+    // ask above covers `league_season_teams`, the one table whose state the
+    // module publishes; every other table this read touches can still vanish,
+    // and a throw is all the warning there is for those.
+    //
+    // ONLY THE ABSENCE IS ABSORBED. A missing table is a fact about this
+    // database — the backfill has never run here — and this page's own job,
+    // serving the measured signals, does not depend on the archetypes, so it
+    // continues and says which state it is in. Anything else is a fault: a
+    // `no such column` means the query and the schema disagree, and a catch
+    // wide enough to take that turns every future mistake in the archetype code
+    // into a quietly empty panel. Reporting the sentence was not enough on its
+    // own; a page that says "the archetype read failed: <TypeError>" still
+    // serves a 200 that a caller will read as data.
+    if (!isMissingTable(e)) throw e;
+    archetypeState = 'table_absent';
+    archetypeError = String(e?.message ?? e);
+    archetypes = new Map();
+  }
   const rosterIds = teams.length
     ? teams.map(t => String(t.id))
     : [...new Set([...idents.keys(), ...byRoster.keys()])].sort((a, b) => Number(a) - Number(b));
+  // The model read of each person, from the same call the counterparty layer
+  // makes — not through the layer, which exists only for rosters that have
+  // signals. A manager with no signals still has a draft record somebody paid a
+  // gateway call to read.
+  const modelReads = managerModelReads(leagueId, rosterIds);
 
   const managers = rosterIds.map(id => {
     const team = teamById.get(id) ?? null;
@@ -518,9 +463,21 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
       // null, not 'fair': "nobody has said" and "he was judged tradeable" are
       // different facts, and league-brain.js's default hides the difference.
       tradeability_set: profiles.get(id)?.tradeability ?? null,
-      archetype: archetypes.get(id) ?? null,
+      // The store's own `jev` is stripped: it is the raw probabilities with no
+      // evaluation date and no statement of what is under them, and `model_read`
+      // below is the same answers dated and shaped. Two shapes of one answer on
+      // one payload is how a page ends up rendering the undated one.
+      archetype: withoutRawJev(archetypes.get(id)),
+      model_read: modelReads.get(id) ?? null,
       receptiveness: mp ? {
         value: mp.receptiveness, range: RECEPTIVENESS_RANGE,
+        // What priced him, and on how much. `tier` here is the value the layer
+        // USED; `tradeability_set` above is still the raw stored value, null when
+        // nobody has judged him. Both are served because they answer different
+        // questions and a page that has only the first cannot tell an assumed
+        // "fair" from a stated one.
+        tier: mp.tier, tier_source: mp.tier_source, tier_is_assumption: mp.tier_is_assumption,
+        accept_rate_weight: mp.accept_rate_weight, priced_by: mp.priced_by,
         chat_msgs: mp.chat_msgs, chat_weight: mp.chat_weight,
         open_to_trade_pct: mp.open_to_trade_pct, trade_talk_pct: mp.trade_talk_pct,
         accept_rate: mp.accept_rate, accept_rate_n: mp.accept_rate_n,
@@ -543,6 +500,25 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
       ? (layerError ? `the signals are built, but the receptiveness layer failed: ${layerError}` : null)
       : NO_MANAGER_SIGNALS_REASON,
     computed_at: computedAt,
+    // WHEN THE BUILD RAN vs WHEN ITS EVIDENCE WAS COLLECTED. `computed_at`
+    // above is the first; this is the second, and they are not the same fact.
+    // The transaction rows every tx signal, archetype and counterparty price
+    // rests on are written only by an off-server collector run by hand, so on
+    // the deployed app they age silently while everything above them keeps
+    // recomputing. A page that shows a manager read can now say how old the
+    // evidence is instead of implying it is live.
+    transactions: transactionsCollected(leagueId, season),
+    // The chat half, same shape. Its absence is the normal case on the deployed
+    // app rather than the exception — the corpus never ships in the image — so a
+    // page that cannot say "the corpus is not here" will say "he never talks".
+    chat: chatCorpusState(),
+    // THE ARCHETYPE STORE, on the same footing as the two above, and the place
+    // a failed read is reported instead of vanishing.
+    archetypes: { ...archetypesBuilt(leagueId, season),
+      // `read_state` is the machine-readable fact and `read_failed` the sentence
+      // under it. The word is `manager-archetypes.js`'s own for this state, not
+      // a second vocabulary for one thing.
+      read_state: archetypeState, read_failed: archetypeError },
     sources: SIGNAL_SOURCES,
     identity_warnings: identityWarnings(leagueId),
     managers,
@@ -680,22 +656,6 @@ r.get('/:leagueId/title-trades', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/**
- * Was I wrong, or unlucky? Separates decision cost from projection error from
- * variance for a completed week.
- */
-r.get('/:leagueId/postmortem', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    const lineup = idList(req.query.lineup);
-    res.json(weekPostmortem(lg.id, {
-      teamId: req.query.team_id,
-      season: Number(req.query.season) || undefined,
-      week: Math.min(18, Math.max(1, Number(req.query.week) || leagueLastCompletedWeek(lg))),
-      lineup: lineup.length ? lineup : null
-    }));
-  } catch (e) { next(e); }
-});
 
 /**
  * The waiver wire, ranked by points added to the starting lineup.
@@ -733,71 +693,6 @@ r.get('/:leagueId/posture', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/* ------------------------------------------------------------ decision inbox */
-/**
- * "What should I actually do today" — the Dashboard's Phase 1 flagship item
- * from the platform audit. Deliberately not a new analysis engine: every
- * signal here is something the app already computes (selfScout's prioritized
- * fixes, findTrades' real mutual-win deals, news_items' importance flag) —
- * this just merges them into one ranked queue instead of leaving them
- * scattered across three separate pages the user has to remember to check.
- */
-r.get('/:leagueId/inbox', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    const teamId = req.query.team_id;
-    const items = [];
-
-    const scout = selfScout(lg, teamId);
-    if (!scout.error) {
-      for (const f of scout.fixes.slice(0, 3)) {
-        items.push({
-          type: 'roster', priority: f.priority, title: f.issue, action: f.action,
-          link: '/my-team'
-        });
-      }
-
-      // MAJOR news about a team any of my rostered players actually plays for —
-      // not a global news skim, scoped to what could move my own lineup.
-      const myTeamAbbrs = [...new Set(scout.lineup.slots.map(s => s.player?.team_abbr).filter(Boolean)
-        .concat(scout.lineup.bench.map(p => p.team_abbr).filter(Boolean)))];
-      if (myTeamAbbrs.length) {
-        const placeholders = myTeamAbbrs.map(() => '?').join(',');
-        const news = rows(`SELECT n.headline, n.fantasy_impact, n.date, t.abbr AS team_abbr
-                           FROM news_items n JOIN nfl_teams t ON t.id = n.team_id
-                           WHERE n.importance = 3 AND t.abbr IN (${placeholders})
-                             AND n.date >= date('now', '-7 days')
-                           ORDER BY n.date DESC LIMIT 3`, ...myTeamAbbrs);
-        for (const n of news) {
-          items.push({
-            type: 'news', priority: 'high',
-            title: n.headline, action: n.fantasy_impact || `Major ${n.team_abbr} news this week — check the impact.`,
-            link: `/teams/${n.team_abbr}`
-          });
-        }
-      }
-    }
-
-    // One real, mutual-win trade if one exists — not the whole board, just
-    // "here's a deal actually worth looking at today."
-    if (teamId) {
-      const trades = findTrades(lg, { myTeamId: teamId, requireMutual: true, limit: 5 });
-      const best = (trades.deals ?? []).find(d => d.mutual);
-      if (best) {
-        items.push({
-          type: 'trade', priority: 'medium',
-          title: `${best.partner} would plausibly take a deal that helps both lineups`,
-          action: `${best.i_give.map(p => p.name).join(' + ')} for ${best.i_get.map(p => p.name).join(' + ')}`,
-          link: '/trade-lab'
-        });
-      }
-    }
-
-    const rank = { high: 0, medium: 1, low: 2 };
-    items.sort((a, b) => (rank[a.priority] ?? 2) - (rank[b.priority] ?? 2));
-    res.json({ items: items.slice(0, 6) });
-  } catch (e) { next(e); }
-});
 
 /* --------------------------------------------------- submitted vs. recommended */
 r.get('/:leagueId/lineup-diff', (req, res, next) => {
@@ -969,10 +864,107 @@ r.get('/:leagueId/rosters', (req, res, next) => {
 });
 
 /* --------------------------------------------------------- player deep dive */
+
+/**
+ * WHERE THIS PRICE COMES FROM — the valuation map, on the surface that shows it.
+ *
+ * `valuationMap` has priced every player for every manager, with a named source
+ * and a sample size on each factor, since 2026-09-18, and until now nothing in
+ * the running app imported it: the layer that measured the thing had no reader.
+ * It is wired here rather than rebuilt, onto the detail Trade Lab already fetches
+ * (client/src/pages/TradeLab.tsx), so there is no second answer to "what is he
+ * worth to them".
+ *
+ * IT IS A READ, NOT A PRICE. Nothing on this panel feeds the deal score. The
+ * clamp reported per player is `PLAYER_VALUATION_CAP` (0.20); the deal score's
+ * own clamp is the separate +/-10% at `perceptionFactorFor` in trade-engine.js
+ * and is untouched by anything here.
+ *
+ * The ablation is a RE-RUN, not arithmetic on each factor's effect: the source is
+ * suppressed entirely and the price recomputed. Once a cap binds, the two stop
+ * agreeing, and the re-run is the one that answers "does this source do anything".
+ *
+ * It reports the MULTIPLIER as well as the value, and that is not redundancy.
+ * `their_value` is `our_value` times the multiplier, so for a player our own
+ * model has not priced (`our_value` 0 — a rookie, or anyone with no projection
+ * yet) every value delta is exactly 0 however hard the sources are pulling. The
+ * multiplier is the only place the ablation is visible there, and a panel that
+ * carried the value alone would report "this source does nothing" about a source
+ * doing plenty.
+ */
+function valuationPanel(lg, playerId) {
+  const season = lg.season ?? null;
+  let week = null;
+  try { week = leagueCurrentWeek(lg); } catch { week = null; }
+  const blank = reason => ({
+    league_id: lg.id, season, week, available: false, reason,
+    my_roster_id: null, sources_used: [], sources_absent: [], managers: [],
+  });
+
+  const { formatKey } = deriveFormat(lg);
+  const assets = assetUniverse(lg, formatKey);
+  const teams = loadRosters(lg, assets);
+  const player = resolvePlayer(playerId, assets, teams);
+  if (!player) {
+    return blank('he is not in this league\'s priced universe, so no manager has a price for him');
+  }
+
+  // Built ONCE and handed to both calls below. A layer rebuilt per manager would
+  // let the panel and the ablation disagree about the same league.
+  const layer = counterpartyLayer(lg.id, { season, week });
+  const map = valuationMap(lg.id, { season, week, players: [player], layer });
+  if (!map.available) return blank(map.reason);
+
+  const owner = new Map(teams.map(t => [String(t.roster_id), t.owner ?? null]));
+  const key = String(player.name ?? '').toLowerCase();
+  const managers = [];
+  for (const [rid, m] of map.managers) {
+    const valuation = m.players?.get(key) ?? null;
+    const mp = layer.get(rid) ?? layer.get(String(rid)) ?? null;
+    const ablation = [];
+    for (const f of valuation?.factors ?? []) {
+      if (!mp) continue;
+      const without = playerValuation(mp, player, { zero: [f.source] });
+      ablation.push({
+        source: f.source,
+        their_value_without: without.their_value,
+        delta: +(valuation.their_value - without.their_value).toFixed(4),
+        multiplier_without: without.multiplier,
+        multiplier_delta: +(valuation.multiplier - without.multiplier).toFixed(4),
+      });
+    }
+    managers.push({
+      roster_id: String(rid), owner: owner.get(String(rid)) ?? null,
+      receptiveness: m.receptiveness ?? null, tier: m.tier ?? null,
+      valuation: jsonSafe(valuation), ablation,
+    });
+  }
+
+  return {
+    league_id: lg.id, season: map.season, week: map.week,
+    available: true, reason: null, my_roster_id: map.my_roster_id,
+    sources_used: map.sources_used, sources_absent: map.sources_absent, managers,
+  };
+}
+
 r.get('/:leagueId/player/:id', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    res.json(playerOutlook(lg, req.params.id));
+    // The panel is an extra read on a page that already works without it, so a
+    // fault in it must not take the deep dive down with it -- but it is never
+    // swallowed either: the surface says the panel went inert and why, which is
+    // the whole point of a panel about provenance.
+    let panel;
+    try { panel = valuationPanel(lg, req.params.id); }
+    catch (e) {
+      panel = {
+        league_id: lg.id, season: lg.season ?? null, week: null,
+        available: false,
+        reason: `the valuation layer failed to build for this league: ${String(e?.message ?? e)}`,
+        my_roster_id: null, sources_used: [], sources_absent: [], managers: [],
+      };
+    }
+    res.json({ ...playerOutlook(lg, req.params.id), valuation_map: panel });
   } catch (e) { next(e); }
 });
 
@@ -988,15 +980,18 @@ r.get('/dvp', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Opponent-history splits for one player: "when he plays X he usually does Y". */
-r.get('/splits/:playerId', (req, res, next) => {
-  try {
-    const p = row(`SELECT p.id, p.name, p.position, t.abbr FROM players p
-                   LEFT JOIN nfl_teams t ON t.id = p.team_id WHERE p.id = ?`, req.params.playerId);
-    if (!p) return res.status(404).json({ error: 'player not found' });
-    res.json({ ...p, ...relevantSplits(p.id, p.abbr, 5) });
-  } catch (e) { next(e); }
-});
+/**
+ * RETIRED 2026-09-20. Nothing dialled this route — no page, no script, no test.
+ *
+ * `relevantSplits()` is NOT retired with it, and this is the one cut of the
+ * sixteen that earns a tombstone rather than a 404, because the data it served
+ * is still served: `playerOutlook` calls the same function
+ * (server/services/trade-engine.js) and Trade Lab renders the result as the
+ * "his average against each" panel. A second route answering the same question
+ * from the same function is a second answer waiting to drift.
+ */
+r.get('/splits/:playerId', retired('/api/trades/:leagueId/player/:id',
+  'The opponent-history splits are on the player detail, computed by the same relevantSplits() this route called; Trade Lab already renders them there.'));
 
 /* -------------------------------------------------------------- AI sense check */
 /**
@@ -1016,7 +1011,7 @@ r.get('/splits/:playerId', (req, res, next) => {
  * those numbers clearly contradict the verdict Claude proposed, Claude gets the
  * numbers and exactly ONE re-think; never a loop. The response carries a
  * `verification` block saying whether the first read held or was corrected.
- * See docs/TRADE_LAB_VERIFY_LOOP.md.
+ * See docs/reference/fantasy/TRADE_LAB_VERIFY_LOOP.md.
  */
 r.post('/:leagueId/sense-check', async (req, res, next) => {
   try {
@@ -1052,7 +1047,7 @@ r.post('/:leagueId/sense-check', async (req, res, next) => {
     const fmtSide = (label, s) => `${label} (${s.owner}):
   Sends: ${s.gives.length ? s.gives.map(fmtPlayer).join('\n    ') : 'nothing'}
   Receives: ${s.gets.length ? s.gets.map(fmtPlayer).join('\n    ') : 'nothing'}
-  Starting lineup: ${s.lineup_before} -> ${s.lineup_after} ppg (${s.ppg_delta > 0 ? '+' : ''}${s.ppg_delta}/wk, ${s.season_delta > 0 ? '+' : ''}${s.season_delta} over the season)
+  Starting lineup: ${s.lineup_before} -> ${s.lineup_after} ppg (${s.ppg_delta > 0 ? '+' : ''}${s.ppg_delta}/wk, ${s.season_delta > 0 ? '+' : ''}${s.season_delta} ${fmtSeasonSpan(s)})
   Market value: ${s.value_delta > 0 ? '+' : ''}${s.value_delta}
   Starting lineup's weekly total, change in its bad week (10th percentile) / good week (90th percentile): ${s.floor_delta ?? '?'}/${s.ceiling_delta ?? '?'}
 ${fmtRisk(s.risk)}

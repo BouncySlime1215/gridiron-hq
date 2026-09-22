@@ -239,14 +239,22 @@ insFf.run(SEASON, WEEK, 'gsis-hot-now', 'Hot Hype', 'KC', 'WR', 8, 60);
 insFf.run(SEASON, WEEK, 'gsis-riser-now', 'Silent Riser', 'KC', 'WR', 7, 60);
 
 // ---- archetypes: luck for league 21, one with a real sample and one with n = 1
-const arch = (memberId, league, season, metric, value, n, source) => run(`INSERT INTO manager_archetypes
+// The build stamps are PINNED and deliberately UNEQUAL. manager_archetypes is
+// written only by scripts/build-manager-archetypes.mjs, by hand, and the luck
+// half of it becomes `luck_self_view` — a term in the trade price. A fixture
+// where every row shares one stamp cannot tell the newest build from the oldest,
+// which is how a MIN-for-MAX mutation survives (docs/tdd/transactions-as-of.tdd.md).
+const ARCH_BUILT_EARLY = '2026-09-18T01:38:39.383Z';
+const ARCH_BUILT_AT = '2026-09-18T02:10:00.000Z';   // the newest — the real "as of"
+const arch = (memberId, league, season, metric, value, n, source, builtAt = ARCH_BUILT_EARLY) =>
+  run(`INSERT INTO manager_archetypes
   (member_id, league_id, season, metric, value, label, n, source, version, computed_at)
-  VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 'manager-archetypes-v1', '2026-09-18T01:38:39.383Z')`,
-memberId, league, season, metric, value, n, source);
+  VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 'manager-archetypes-v1', ?)`,
+  memberId, league, season, metric, value, n, source, builtAt);
 arch(HAY, 21, SEASON, 'luck_wins', 1.6, 4, 'outcome');   // flattered, and enough weeks to count
 arch(HAY, 21, SEASON, 'all_play', 0.3, 36, 'outcome');
 arch(CARL, 21, SEASON, 'luck_wins', 1.6, 1, 'outcome');  // same flattery, ONE week — must stay inert
-arch(CARL, 21, SEASON, 'all_play', 0.6, 9, 'outcome');
+arch(CARL, 21, SEASON, 'all_play', 0.6, 9, 'outcome', ARCH_BUILT_AT);
 arch(HAY, 22, SEASON, 'luck_wins', 1.6, 4, 'outcome');
 arch(CARL, 22, SEASON, 'luck_wins', -1.2, 4, 'outcome');
 
@@ -430,7 +438,10 @@ test('G2b: a source under its minimum sample is reported inert with its reason, 
   assert.ok(!factorNames(riser).includes('luck_self_view'), 'one week of luck must not price anything');
   const inert = (riser.inert ?? []).find(i => i.source === 'luck_self_view');
   assert.ok(inert, 'the map must say the luck read exists and is not firing');
-  assert.match(inert.reason, /1 .*(week|sample)|below/i);
+  // The sentence the min_n branch writes, whole. A pattern loose enough to take
+  // "1 week" or "below" would pass on a reason that named neither the sample it
+  // has nor the sample it needs.
+  assert.equal(inert.reason, 'rests on 1 of the 4 needed (scored weeks in the archetype build)');
 });
 
 test('G2c: the source registry is the contract — caps, minimum samples and what each needs', () => {
@@ -480,7 +491,11 @@ test('G4b: a league with no manager data says so instead of inventing a map', ()
   const map = mapFor(23);
   assert.equal(map.available, false);
   assert.equal(map.managers.size, 0);
-  assert.match(map.reason, /manager signals|no manager data/i);
+  // One producer, one sentence: counterparty-pricing.js's `empty(...)` call for
+  // a league with no signal rows. It names the script that would build them,
+  // which is the whole value of the sentence and the part a looser pattern drops.
+  assert.equal(map.reason,
+    'no manager signals for this league yet — scripts/build-manager-signals.mjs has not built it');
 });
 
 test('G4c: the chat league lists its chat sources as used', () => {
@@ -516,6 +531,136 @@ test('a declared untouchable whose word has held costs more, and a bluffer\'s do
   assert.ok(cred.effect > 0, 'a refusal that holds makes the player more expensive, never cheaper');
   // A player nobody has declared carries no such factor at all.
   assert.ok(!factorNames(byName(map.managers.get('2'), 'Bench Guy')).includes('untouchable_credibility'));
+});
+
+test('G10: with the corpus off the machine, a refusal is not priced as a refusal that held', () => {
+  // THE DEPLOYED APP IS THIS CASE. `manager_player_view` lives in the app
+  // database and survives; the declaration RECORD that says whether his refusals
+  // hold lives in the Mac-only chat corpus and does not. So `declarationCredibility()`
+  // comes back `available: false`, `untouchableStance` finds no entry for him, and
+  // falls back to the prior 1 - PRIOR_BLUFF_RATE = 0.65 — which clears the 0.45
+  // bar, lands him in `probe`, and PRICES the player up on a sentence that says
+  // his word has held. Nothing about his word was ever read.
+  const saved = process.env.GRIDIRON_CHAT_DB_PATH;
+  process.env.GRIDIRON_CHAT_DB_PATH = path.join(os.tmpdir(), 'gridiron-vm-no-corpus.sqlite');
+  try {
+    const map = pricing.valuationMap(21, { season: SEASON, week: WEEK, players: PLAYERS, rosterContext: NEEDS });
+    const star = byName(map.managers.get('2'), 'Quiet Star');
+    const priced = (star?.factors ?? []).find(f => f.source === 'untouchable_credibility');
+    assert.equal(priced, undefined,
+      'an unread declaration record must not price a player as a refusal that held');
+    const inert = (star?.inert ?? []).find(i => i.source === 'untouchable_credibility');
+    assert.ok(inert, 'and it must be reported as not firing, not silently dropped');
+    assert.match(inert.reason, /the chat corpus is not on this machine/,
+      `the reason must name THIS absence — we asked and could not read it — got ${JSON.stringify(inert?.reason)}`);
+    assert.doesNotMatch(inert.reason, /no confirmed chat identity/,
+      'and it must not be the other absence, where no lookup was ever attempted');
+  } finally { process.env.GRIDIRON_CHAT_DB_PATH = saved; }
+  // And the fixture is restored: with the corpus present it prices again.
+  const back = byName(mapFor(21).managers.get('2'), 'Quiet Star');
+  assert.ok(back.factors.find(f => f.source === 'untouchable_credibility'),
+    'the corpus is back and the measured refusal prices again');
+});
+
+test('G10b: with no trusted chat identity, a refusal is not priced either', () => {
+  // THE OTHER HALF OF G10, and the one G10 missed. G10 covers the corpus being
+  // absent, where declarationCredibility() answers `available: false`. This is
+  // the case where the corpus is fine and there is no CONFIRMED identity for this
+  // manager, so counterparty-pricing never asks at all: `identityMap(league).size`
+  // is 0, `credibility` is null, and `declarations_read` was neither true nor
+  // false.
+  //
+  // untouchableStance still finds his declarations — manager_player_view lives in
+  // the app database — and with no credibility entry it falls back to
+  // 1 - PRIOR_BLUFF_RATE = 0.65, which clears the 0.45 bar, lands him in `probe`
+  // and prices the player up under the sentence "his word holds only 65% of the
+  // time". Nothing about his word was read. "We asked and could not read it" and
+  // "we never asked" are two absences and both must refuse to price.
+  //
+  // League 22 has no identity rows (matchIdentities(22, { chatNames: [] })), so
+  // seeding his declarations here is the whole reproduction.
+  run(`INSERT OR REPLACE INTO manager_player_view
+         (league_id, roster_id, player_name, sentiment, n, last_mention, source)
+       VALUES (22, '2', 'hot hype', 3.6, 6, date('now', '-2 days'), 'chat')`);
+  try {
+    const map = pricing.valuationMap(22, { season: SEASON, week: WEEK, players: PLAYERS, rosterContext: NEEDS });
+    const hype = byName(map.managers.get('2'), 'Hot Hype');
+    assert.ok(hype, 'his own player is in the map');
+    const priced = (hype.factors ?? []).find(f => f.source === 'untouchable_credibility');
+    assert.equal(priced, undefined,
+      'a declaration record nobody looked up must not price a player as a refusal that held');
+    const inert = (hype.inert ?? []).find(i => i.source === 'untouchable_credibility');
+    assert.ok(inert, 'and it must be reported as not firing, not silently dropped');
+    assert.match(inert.reason, /no confirmed chat identity for him/,
+      `the reason must name THIS absence — nobody ever looked him up — got ${JSON.stringify(inert?.reason)}`);
+    assert.doesNotMatch(inert.reason, /not on this machine/,
+      'and it must not be the other absence, where the corpus was asked for and was missing');
+  } finally {
+    run(`DELETE FROM manager_player_view WHERE league_id = 22 AND player_name = 'hot hype'`);
+  }
+});
+
+test('G10d: the mixed league — his roster is unconfirmed while the rest are not', () => {
+  // THE CASE A LEAGUE-LEVEL FLAG CANNOT SEE, and the reason the guard reads the
+  // credibility RECORD rather than a flag beside it. League 21 has a corpus and a
+  // working credibility map; roster 4 (Danny Echo) has no confirmed identity row,
+  // so untouchableStance finds no entry for HIM and falls back to the prior while
+  // `declarations_read` for the league is perfectly true.
+  //
+  // Without this the mixed league is the one shape nothing covers: every test has
+  // either all rosters confirmed or none, so a guard that keys on the league flag
+  // passes them all and still prices a refusal nobody read.
+  run(`INSERT OR REPLACE INTO manager_player_view
+         (league_id, roster_id, player_name, sentiment, n, last_mention, source)
+       VALUES (21, '4', 'nobody talks', 3.6, 6, date('now', '-2 days'), 'chat')`);
+  try {
+    const danny = pricing.valuationMap(21,
+      { season: SEASON, week: WEEK, players: PLAYERS, rosterContext: NEEDS }).managers.get('4');
+    assert.ok(danny, 'the unconfirmed manager is still in the map');
+    const nobody = byName(danny, 'Nobody Talks');
+    const priced = (nobody?.factors ?? []).find(f => f.source === 'untouchable_credibility');
+    assert.equal(priced, undefined,
+      'his word was never read, whatever the rest of the league\'s identities say');
+    const inert = (nobody?.inert ?? []).find(i => i.source === 'untouchable_credibility');
+    assert.ok(inert, 'and it is reported inert with its reason');
+
+    // And the confirmed manager in the SAME league still prices, so the guard is
+    // per-manager and not a switch that turned the source off for everyone.
+    const star = byName(pricing.valuationMap(21,
+      { season: SEASON, week: WEEK, players: PLAYERS, rosterContext: NEEDS }).managers.get('2'), 'Quiet Star');
+    assert.ok((star?.factors ?? []).find(f => f.source === 'untouchable_credibility'),
+      'the manager whose record WAS read still prices in the same league');
+  } finally {
+    run(`DELETE FROM manager_player_view WHERE league_id = 21 AND player_name = 'nobody talks'`);
+  }
+});
+
+test('G10c: the two unread-declaration absences do not share one sentence', () => {
+  // The rule the whole as-of family rests on: an absence must say WHICH absence
+  // it is. If "the corpus is not on this machine" and "there is no confirmed
+  // identity for him" read alike, a reader fixes the wrong one — one is a machine,
+  // the other is a name Nick never confirmed.
+  run(`INSERT OR REPLACE INTO manager_player_view
+         (league_id, roster_id, player_name, sentiment, n, last_mention, source)
+       VALUES (22, '2', 'hot hype', 3.6, 6, date('now', '-2 days'), 'chat')`);
+  const saved = process.env.GRIDIRON_CHAT_DB_PATH;
+  try {
+    const noIdentity = (byName(pricing.valuationMap(22,
+      { season: SEASON, week: WEEK, players: PLAYERS, rosterContext: NEEDS }).managers.get('2'), 'Hot Hype')
+      .inert ?? []).find(i => i.source === 'untouchable_credibility');
+
+    process.env.GRIDIRON_CHAT_DB_PATH = path.join(os.tmpdir(), 'gridiron-vm-no-corpus-2.sqlite');
+    const noCorpus = (byName(pricing.valuationMap(21,
+      { season: SEASON, week: WEEK, players: PLAYERS, rosterContext: NEEDS }).managers.get('2'), 'Quiet Star')
+      .inert ?? []).find(i => i.source === 'untouchable_credibility');
+
+    assert.ok(noIdentity && noCorpus, 'both absences report the source inert');
+    assert.notEqual(noIdentity.reason, noCorpus.reason,
+      'an unconfirmed identity and an absent corpus are different absences');
+  } finally {
+    process.env.GRIDIRON_CHAT_DB_PATH = saved;
+    run(`DELETE FROM manager_player_view WHERE league_id = 22 AND player_name = 'hot hype'`);
+  }
 });
 
 test('the negotiation profile\'s own over/undervalues list reaches the price', () => {
@@ -657,4 +802,378 @@ test('readDeal prices through the same valuation map the manager view shows', ()
   const mapped = byName(mapFor(21).managers.get('2'), 'Hot Hype');
   assert.equal(reason.multiplier, mapped.multiplier,
     'the deal read and the valuation map must not be able to disagree');
+});
+
+// ============================================ G9 a source that is not firing
+// The header promises that "a source below its minimum sample is reported INERT
+// WITH A REASON rather than dropped". G2b proves that for a reading that exists
+// and is too small a sample. These four cover the states G2b does not reach, in
+// which the served object says nothing at all — or, worse, says something false.
+//
+// League 24 is a league with managers and signals and NO archetype rows, which
+// is the live shape of four of Nick's five leagues.
+insertLeague(24, {
+  members: [member(NICK, 'Nick', 'Matta'), member(HAY, 'Hayden', 'Brook')],
+  teams: [team(1, NICK, { wins: 2, losses: 2, pf: 440, entries: [rosterEntry(701, 'Shopped Man')] }),
+    team(2, HAY, { wins: 2, losses: 2, pf: 440, entries: [rosterEntry(712, 'Quiet Star')] })],
+  schedule: [{ matchupPeriodId: 4, home: { teamId: 1, totalPoints: 100 },
+    away: { teamId: 2, totalPoints: 99 }, winner: 'HOME' }],
+}, { name: 'VM24 no archetypes' });
+identity.matchIdentities(24, { chatNames: [] });
+signals.buildManagerSignals(24, { chat: null });
+
+const NEEDS_24 = new Map([
+  ['1', { needs: new Set(), surplus: new Set(), window: 'contend' }],
+  ['2', { needs: new Set(), surplus: new Set(), window: 'contend' }],
+]);
+const ownerOf = (extra = {}) => ({
+  roster_id: '2', receptiveness: 1, roster_size: 3, owned: new Set(['quiet star']),
+  players: new Map(), reads: new Map(), gaps: new Map(),
+  needs: new Set(), surplus: new Set(), stance: null, negotiation: null, ...extra,
+});
+const QUIET_STAR = { name: 'Quiet Star', position: 'RB', value: 1200 };
+const inertFor = (prof, source) => (pricing.playerValuation(prof, QUIET_STAR).inert ?? [])
+  .find(i => i.source === source) ?? null;
+
+test('G9a: a manager with no luck reading at all is reported, not passed over in silence', () => {
+  // The archetype build produces no luck row for him — the week-2 case for four
+  // of five live leagues. `luck: null` short-circuits the branch before `add` is
+  // ever called, so nothing reaches `inert` and the page has no sentence to say.
+  // "We have never measured his luck" and "we measured it and it says nothing"
+  // are different facts and a reader acts on the second.
+  const inert = inertFor(ownerOf({ luck: null }), 'luck_self_view');
+  assert.ok(inert, 'a source with no reading must still be named as not firing');
+  assert.equal(inert.reason, 'rests on 0 of the 4 needed (scored weeks in the archetype build)',
+    'the reason must name the sample it has AND the sample it needs, not one of the two');
+});
+
+test('G9b: a reading below its sample is reported even when its effect rounds small', () => {
+  // `add` returns on |effect| < 0.001 BEFORE it checks min_n, so smallness wins
+  // over provenance: 0.05 * (0.01 / 2) = 0.00025. The reading is real, the
+  // sample is one week, and the page is told nothing about either.
+  const inert = inertFor(ownerOf({ luck: { value: 0.01, n: 1 } }), 'luck_self_view');
+  assert.ok(inert, 'a real reading on too small a sample must be reported inert whatever its size');
+  assert.equal(inert.reason, 'rests on 1 of the 4 needed (scored weeks in the archetype build)',
+    'one week reads as one of four, not as a sentence that merely mentions weeks');
+});
+
+test('G9c: a manager exactly at expectation is a luck reading, not a missing one', () => {
+  // value 0 is the most confident reading there is — his record is precisely
+  // what his scores earn. It is also the one that disappears entirely.
+  const inert = inertFor(ownerOf({ luck: { value: 0, n: 1 } }), 'luck_self_view');
+  assert.ok(inert, 'a reading of exactly zero is a reading');
+});
+
+test('G9d: a league with no archetype rows is not told the data exists', () => {
+  // valuationMap's last branch is an else: a source that is neither used, nor
+  // chat-blocked, nor inert, nor positional_need is reported as "the data exists
+  // but no player in this league matched it". For luck in a league with no
+  // archetype rows that sentence is false in both halves.
+  const map = pricing.valuationMap(24, { season: SEASON, week: WEEK, players: PLAYERS, rosterContext: NEEDS_24 });
+  assert.equal(map.available, true, 'league 24 has signals, so it gets a map');
+  assert.ok(!map.sources_used.includes('luck_self_view'), 'nothing can be pricing on luck here');
+  const absent = map.sources_absent.find(a => a.source === 'luck_self_view');
+  assert.ok(absent, 'luck must be listed as absent');
+  assert.doesNotMatch(absent.reason, /the data exists/i,
+    `a league with no archetype rows must not be told the data exists, got ${JSON.stringify(absent.reason)}`);
+  assert.equal(absent.reason, 'rests on 0 of the 4 needed (scored weeks in the archetype build)',
+    'it must name the missing measurement instead, in the inert branch\'s own words');
+});
+
+test('G9g: the priced luck term says when the store behind it was built', () => {
+  // `luck_self_view` is a TERM IN THE PRICE, and it comes from manager_archetypes,
+  // which is written only by scripts/build-manager-archetypes.mjs — by hand,
+  // off-server. A stale luck read priced into a trade is worse than a stale card,
+  // because nothing on the card says the number moved the money.
+  const layer = layerFor(21);
+  const hayden = layer.get('2');
+  assert.ok(hayden.archetypes, 'the manager entry carries the archetype build block');
+  assert.equal(hayden.archetypes.as_of, ARCH_BUILT_AT,
+    'as_of is the NEWEST build stamp in the store for this league-season');
+  assert.match(hayden.archetypes.collected_by, /build-manager-archetypes\.mjs/);
+  // And on the reading itself, which is what playerValuation is handed.
+  assert.equal(hayden.luck.as_of, ARCH_BUILT_AT,
+    'the luck reading carries the stamp of the build that produced it');
+
+  // Through to the priced factor. This is the assertion the item was about; the
+  // per-player valuations live on the MAP, not on the layer entry (whose
+  // `players` is the chat sentiment index).
+  const priced = byName(mapFor(21).managers.get('2'), 'Quiet Star')
+    .factors.find(f => f.source === 'luck_self_view');
+  assert.ok(priced, 'four scored weeks prices, per G2b');
+  assert.equal(priced.as_of, ARCH_BUILT_AT, 'the priced term carries the build date through');
+});
+
+test('G9h: a luck read that is NOT firing still says how old the store is', () => {
+  // The state the live app is actually in: week 2, one scored week, luck inert
+  // league-wide until week 5. "Not enough weeks yet" and "not enough weeks as of
+  // a build three days ago" are different answers, and only the second tells him
+  // whether running the build would change it.
+  const carl = mapFor(21).managers.get('3');
+  const inert = (byName(carl, 'Silent Riser')?.inert ?? []).find(i => i.source === 'luck_self_view');
+  assert.ok(inert, 'one week of luck is inert, per G2b');
+  assert.equal(inert.as_of, ARCH_BUILT_AT, 'an inert entry carries the build date too');
+});
+
+test('G9i: a league with no archetype store at all is not given a build date', () => {
+  // League 24 has signals but no archetype rows. A stamp here would be borrowed
+  // from another league, which is the whole defect class this pass is closing.
+  const layer = pricing.counterpartyLayer(24, { season: SEASON, week: WEEK, rosterContext: NEEDS_24 });
+  const entry = [...layer.values()][0];
+  assert.ok(entry.archetypes, 'the block is served even when the store is empty for this league');
+  assert.equal(entry.archetypes.as_of, null, 'no rows for this league-season is null, never borrowed');
+  assert.equal(entry.archetypes.rows, 0);
+  assert.ok(typeof entry.archetypes.reason === 'string' && entry.archetypes.reason.length > 0);
+});
+
+test('G9e: zeroing a source still suppresses it completely — no factor and no inert entry', () => {
+  // The regression pin for G9a-d. The ablation in the valuation-map report
+  // depends on `zero` removing a source from the arithmetic ENTIRELY; if the
+  // fixes above start emitting an inert entry for a zeroed source, every
+  // "deals repriced" count in that table silently changes meaning.
+  // A source with ENOUGH sample: zeroing it must remove the factor.
+  const firing = pricing.playerValuation(ownerOf({ luck: { value: 1.6, n: 4 } }),
+    QUIET_STAR, { zero: ['luck_self_view'] });
+  assert.ok(!(firing.factors ?? []).some(f => f.source === 'luck_self_view'), 'zeroed: no factor');
+  assert.ok(!(firing.inert ?? []).some(i => i.source === 'luck_self_view'), 'zeroed: and no inert entry');
+
+  // The case that actually pins the ORDER, and the first version of this test
+  // missed it. A sample of 4 is not below min_n of 4, so that profile never
+  // reaches the inert branch at all and passes however the checks are ordered —
+  // mutating `off.has` to sit after min_n killed nothing. Below the sample and
+  // zeroed is the only state where the two compete.
+  for (const luck of [{ value: 1.6, n: 1 }, { value: 0.01, n: 1 }, null]) {
+    const off = pricing.playerValuation(ownerOf({ luck }), QUIET_STAR, { zero: ['luck_self_view'] });
+    assert.ok(!(off.inert ?? []).some(i => i.source === 'luck_self_view'),
+      `zeroed and below its sample (${JSON.stringify(luck)}): still no inert entry`);
+    assert.ok(!(off.factors ?? []).some(f => f.source === 'luck_self_view'),
+      `zeroed and below its sample (${JSON.stringify(luck)}): still no factor`);
+  }
+});
+
+test('G9f: a reading with enough sample still prices, unchanged', () => {
+  // The other regression pin: none of this may turn a real factor into a note.
+  const on = pricing.playerValuation(ownerOf({ luck: { value: 1.6, n: 4 } }), QUIET_STAR);
+  const f = (on.factors ?? []).find(x => x.source === 'luck_self_view');
+  assert.ok(f, 'four scored weeks still prices');
+  // 1.6 wins above expectation against LUCK_FULL_WINS of 2 is 0.8 of the cap,
+  // not the cap: this pins the arithmetic, so a fix that changed the strength
+  // curve while keeping the source firing would still be caught here.
+  assert.equal(f.effect, +(pricing.VALUATION_SOURCES.luck_self_view.cap * 0.8).toFixed(4),
+    'at 0.8 of its cap, unchanged');
+  assert.ok(!(on.inert ?? []).some(i => i.source === 'luck_self_view'), 'a firing source is not also inert');
+});
+
+// ======================================================= G11 the Jev model read
+//
+// `manager_archetype_jev` has existed since the archetype build shipped and
+// NOTHING in the trade path read it. It holds a model's answers to exactly the
+// questions the trade engine wants about a person — does he overvalue his own
+// roster, does he counter or decline outright, does he sell low after a bad week
+// — and the trade path priced without ever looking.
+//
+// It is brought in DISPLAYED, not priced, and these gates are what make that
+// claim mean something:
+//
+//  G11a the block carries the stamp of the JEV pass, per manager, and that stamp
+//       is neither the league's newest nor the archetype build's;
+//  G11b `basis` travels, so an answer with no evidence under it cannot read as a
+//       measurement of him;
+//  G11c a flat answer is reported as carrying no information rather than as a
+//       33% chance of something;
+//  G11d deleting the whole store moves no price, multiplier, factor or
+//       receptiveness — the guarantee that this added no weight;
+//  G11e a manager the pass never covered and a store that was never built are
+//       different absences with different sentences;
+//  G11f the read travels with the PERSON, across leagues, because that is what
+//       the store is keyed by.
+//
+// The stamps below are pinned and deliberately unequal to each other AND to
+// ARCH_BUILT_AT. The Jev pass is opt-in (`--jev`, needs a gateway key) while the
+// archetype build is not, so the two run at different times by design — reusing
+// the archetype stamp here would be the exact substitution this family of
+// accessors exists to prevent.
+const JEV_EVAL_HAY = '2026-09-18T03:00:00.000Z';
+const JEV_EVAL_CARL = '2026-09-19T04:30:00.000Z';   // the NEWEST in league 21
+const JEV_MODEL = 'test-model-v1';
+
+function insertJevFixture() {
+  const ins = (memberId, question, outcome, probability, basis, evaluatedAt,
+    { nSeasons = 3, nPicks = 45 } = {}) =>
+    run(`INSERT OR REPLACE INTO manager_archetype_jev
+           (member_id, question, outcome, probability, basis, n_seasons, n_picks, model, state_chars, evaluated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 4000, ?)`,
+    memberId, question, outcome, probability, basis, nSeasons, nPicks, JEV_MODEL, evaluatedAt);
+
+  // Hayden: one answer with evidence and a clear lean, two without evidence and
+  // flat — which is the honest shape of the live store, where five of the eight
+  // questions are `inference_only`.
+  for (const [outcome, p] of Object.entries(
+    { rb_heavy: 0.60, wr_heavy: 0.10, qb_early: 0.10, te_early: 0.10, balanced: 0.10 })) {
+    ins(HAY, 'position_bias', outcome, p, 'draft', JEV_EVAL_HAY);
+  }
+  for (const [outcome, p] of Object.entries({ counters: 0.34, binary: 0.33, never: 0.33 })) {
+    ins(HAY, 'trade_style', outcome, p, 'inference_only', JEV_EVAL_HAY);
+  }
+  ins(HAY, 'sells_low_after_bad_week', 'true', 0.5, 'inference_only', JEV_EVAL_HAY);
+  // A boolean that DOES lean, and still has no evidence under it. Stored as its
+  // 'true' leg alone, like every boolean in this store, so it is also the row
+  // that catches a reader who forgets the other leg exists: 0.8 against a
+  // missing 'false' is a one-outcome distribution, which has no spread at all.
+  ins(HAY, 'buys_high', 'true', 0.8, 'inference_only', JEV_EVAL_HAY);
+  // A score question, which stores a 'mean' summary BESIDE its per-level
+  // probabilities. The summary is not an outcome and must not be ranked as one.
+  ins(HAY, 'risk_appetite', 'mean', 3.2, 'draft', JEV_EVAL_HAY);
+  for (const [outcome, p] of Object.entries({ 0: 0.05, 1: 0.10, 2: 0.15, 3: 0.30, 4: 0.40 })) {
+    ins(HAY, 'risk_appetite', outcome, p, 'draft', JEV_EVAL_HAY);
+  }
+
+  // Carl: evaluated a day later than Hayden, so the newest stamp in the league
+  // belongs to somebody else. A league-wide MAX() reported on Hayden's block
+  // would print Carl's date under Hayden's name.
+  for (const [outcome, p] of Object.entries(
+    { rb_heavy: 0.15, wr_heavy: 0.55, qb_early: 0.10, te_early: 0.10, balanced: 0.10 })) {
+    ins(CARL, 'position_bias', outcome, p, 'draft', JEV_EVAL_CARL, { nSeasons: 2, nPicks: 30 });
+  }
+  // Danny (roster 4 of league 21) is deliberately NOT evaluated.
+}
+insertJevFixture();
+
+const jevOf = (leagueId, rosterId, opts = {}) => layerFor(leagueId, opts).get(rosterId).jev;
+const answerFor = (block, question) => (block?.answers ?? []).find(a => a.question === question);
+
+test('G11a: each manager\'s model read carries HIS OWN evaluation date', () => {
+  const hay = jevOf(21, '2');
+  assert.ok(hay, 'the manager entry carries the Jev block');
+  assert.equal(hay.as_of, JEV_EVAL_HAY, 'his own stamp');
+  assert.notEqual(hay.as_of, JEV_EVAL_CARL,
+    'not the newest evaluation in the league — that one is somebody else\'s');
+  assert.notEqual(hay.as_of, ARCH_BUILT_AT,
+    'and not the archetype build\'s stamp: the Jev pass is a separate, opt-in process');
+  assert.match(hay.evaluated_by, /--jev/, 'the block names what would refresh it');
+  assert.equal(hay.model, JEV_MODEL, 'and which model answered');
+  assert.equal(jevOf(21, '3').as_of, JEV_EVAL_CARL, 'and the other manager carries his');
+});
+
+test('G11b: an answer with no evidence under it cannot read as a measurement of him', () => {
+  const hay = jevOf(21, '2');
+  const bias = answerFor(hay, 'position_bias');
+  const style = answerFor(hay, 'trade_style');
+  assert.ok(bias && style, 'both answers are served');
+
+  assert.equal(bias.basis, 'draft');
+  assert.equal(bias.measured, true, 'the draft record bears on positional habit');
+  assert.equal(style.basis, 'inference_only');
+  assert.equal(style.measured, false,
+    'the store holds no trades at all, so trade style is a prior and not a reading');
+
+  assert.match(style.why, /prior/i, 'and the sentence says so in words, not just in a flag');
+  assert.doesNotMatch(bias.why, /prior/i,
+    'a measured answer must not be described as a prior — the two must not read alike');
+  assert.notEqual(style.why, bias.why);
+});
+
+test('G11c: a flat answer is reported as carrying no information, not as a 33% chance', () => {
+  const hay = jevOf(21, '2');
+  const style = answerFor(hay, 'trade_style');
+  const sells = answerFor(hay, 'sells_low_after_bad_week');
+  const bias = answerFor(hay, 'position_bias');
+
+  // 0.34/0.33/0.33 is what "spread the probability evenly" looks like when a
+  // model rounds. Served as three numbers it invites a page to draw a bar chart
+  // of noise and a reader to conclude he counters slightly more often than not.
+  assert.equal(style.informative, false, 'an even spread across three options says nothing');
+  assert.equal(sells.informative, false, 'and a boolean at 0.5 is the same non-answer');
+  assert.equal(bias.informative, true, '0.60 on one option is a real lean');
+  // `shapeJevAnswer` writes two different flat sentences: this one, where there
+  // was no evidence to begin with, and one for a draft record that WAS read and
+  // still came back flat. A pattern matching either would pass on the wrong one,
+  // and the difference is the whole point of the flag above.
+  assert.match(style.why,
+    /the answer came back an even spread across the options, which is the honest answer when there is no evidence/,
+    `a flat prior must say it is flat BECAUSE there is nothing under it, got ${JSON.stringify(style.why)}`);
+  assert.doesNotMatch(style.why, /his draft record bears on this question/,
+    'and it must not borrow the sentence for a record that was read and came back flat');
+
+  // The boolean's OTHER leg. A boolean is stored as its 'true' row alone, so a
+  // reader that takes the stored rows as the whole distribution sees one
+  // outcome, and one outcome has no spread to measure — every boolean in the
+  // store would come back unmeasurable, the 0.5 non-answer and a real 0.8 lean
+  // alike.
+  assert.equal(sells.spread, 0, 'a boolean at 0.5 is exactly an even spread, not an unmeasurable one');
+  assert.ok(sells.top, 'and it still has a leading outcome');
+  const buys = answerFor(hay, 'buys_high');
+  assert.equal(buys.spread, 0.3, '0.8 against its missing 0.2 leg');
+  assert.equal(buys.informative, true, 'a lopsided answer says something');
+  assert.match(buys.why, /prior/i, 'and it is still a prior — leaning is not evidence');
+});
+
+test('G11g: a score question\'s summary is not one of its outcomes', () => {
+  // `risk_appetite` stores a 'mean' of 3.2 beside its five level probabilities.
+  // Ranked as an outcome, 3.2 beats every real probability and the answer reads
+  // as "most likely: mean".
+  const risk = answerFor(jevOf(21, '2'), 'risk_appetite');
+  assert.ok(risk, 'the score question is served');
+  assert.equal(risk.score_mean, 3.2, 'the summary is served, under its own name');
+  assert.equal(risk.top.outcome, '4', 'and the leading OUTCOME is a level, never the summary');
+  assert.equal(risk.top.probability, 0.4);
+});
+
+test('G11d: the model read is DISPLAYED and never priced — deleting the store moves no number', () => {
+  // The guarantee the whole item rests on. Half these answers are priors, and a
+  // prior that moves a price is a number invented about a person. If anyone ever
+  // wires `jev` into a factor, a cap or receptiveness, this goes red.
+  const priced = () => {
+    const managers = mapFor(21).managers;
+    return JSON.stringify([...managers.entries()].map(([rid, entry]) => [rid,
+      [...entry.players.entries()].map(([name, v]) =>
+        [name, v.our_value, v.their_value, v.multiplier, factorNames(v),
+          (v.inert ?? []).map(i => i.source).sort()])]));
+  };
+  const before = layerFor(21);
+  assert.ok(answerFor(before.get('2').jev, 'position_bias'), 'precondition: there is a read to remove');
+  assert.equal(before.get('2').jev.priced, false, 'the block says outright that it prices nothing');
+  const pricedBefore = priced();
+  const receptivenessBefore = [...before.entries()].map(([rid, e]) => [rid, e.receptiveness]);
+
+  run('DELETE FROM manager_archetype_jev');
+  try {
+    const after = layerFor(21);
+    assert.equal((after.get('2').jev.answers ?? []).length, 0, 'precondition: the read is gone');
+    assert.equal(priced(), pricedBefore,
+      'no price, multiplier, factor or inert entry may depend on the model read');
+    assert.deepEqual([...after.entries()].map(([rid, e]) => [rid, e.receptiveness]), receptivenessBefore,
+      'and receptiveness is untouched too — it is the other number a "style" read would tempt someone into');
+  } finally {
+    insertJevFixture();
+  }
+});
+
+test('G11e: a manager the pass never covered and a store never built are different absences', () => {
+  const danny = jevOf(21, '4');
+  assert.ok(danny, 'the block is served even when there is nothing in it');
+  assert.equal(danny.as_of, null, 'no stamp is borrowed from the managers who WERE evaluated');
+  assert.equal((danny.answers ?? []).length, 0);
+  assert.ok(typeof danny.reason === 'string' && danny.reason.length > 0);
+
+  run('DELETE FROM manager_archetype_jev');
+  try {
+    const neverRun = jevOf(21, '4');
+    assert.equal(neverRun.as_of, null);
+    assert.notEqual(neverRun.reason, danny.reason,
+      '"the pass has not covered him" and "the pass has never been run" send a reader to different fixes');
+  } finally {
+    insertJevFixture();
+  }
+});
+
+test('G11f: the read travels with the person, not the league', () => {
+  // `manager_archetype_jev` is keyed by member_id alone, deliberately: how a
+  // person negotiates is a fact about him, and archetypesFor() already carries
+  // the career profile across leagues for the same reason.
+  const inTwentyOne = jevOf(21, '2');
+  const inTwentyTwo = jevOf(22, '2');
+  assert.equal(inTwentyTwo.as_of, inTwentyOne.as_of, 'same person, same evaluation');
+  assert.equal(answerFor(inTwentyTwo, 'position_bias')?.top?.outcome,
+    answerFor(inTwentyOne, 'position_bias')?.top?.outcome);
 });

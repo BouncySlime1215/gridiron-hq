@@ -1,0 +1,16 @@
+---
+name: gridiron-wiring-allocation-2-2026-09-20
+description: Page 2 of the 2026-09-20 file-allocation record (which thread edits which server file during the freeze); additions from 11:37Z on.
+metadata:
+  type: project
+---
+
+Continues [[gridiron-wiring-allocation-2026-09-20]].
+
+- server/services/backtest-significance.js → fantasy plan (coordinator 11:37Z, with D34): the :80 === guard passes when groups is sized to the shorter array while its comment claims a fallback; the guard comment and behaviour must agree; fixed together with the offseason-model.js caller sites (:1116-1118/:1149 and :1465-1471, already the fantasy plan's since 06:15Z), bare catch → a served field, on a new no-PR hold off main, RED = Model audit's probe scripts/probe-paired-bootstrap-alignment.mjs at 861bbd8.
+- server/db/schema/nfl-a-to-m.js:18 and nfl-n-to-z.js:11, the two `sources` array entries naming nfl-clv.js and nfl-neural-replay.js (both modules collapsed by 47965a5) → wiring map (coordinator 11:44Z; two entries only, found by its served-string rule on real data; report-only until edited).
+  DONE 11:50Z: both entries are now comments naming the collapse, the commit and the manifest line ranges (nothing deleted); the rule reports zero; test rewritten with a verbatim fixture.
+- server/services/nfl-offseason-change.js and nfl-team-strength.js → fantasy plan (coordinator 11:56Z), for the `clustered` assertions on their pairedBootstrapDiff calls only, after its queue (swap, M5, season-sim :153-154, D31, snap-guard hashes); nfl-prop-player-heads.js (three sites, :273-318 the same pooled-arm shape) is betting code, out of scope, Nick's decision (Pending item ten). pooled-arms.js is the fantasy plan's (5674cf1).
+- ≥12:22Z (alternation sweep, feature audit's verdicts): server/services/consensus-weights.js → feature audit (was in nobody's allocation; :336-337 ORs two causes into one sentence); server/services/trade-proposals.js → Trade Brain (trade-proposals.test.js :194/:203/:535 assert the RESPONSE_PROBLEMS code); scripts/collect-roster-snapshots.mjs → Google sign-in for this item only (roster-snapshots.test.js :329/:371 secrets split, RED by leaking one secret). Unowned: the model-integrity test's subject (fantasy plan or wiring map).
+- ≥12:37Z (stale docs citations, overlap 111; the wiring map's tool list replaces the hand counts): fixes by file owner as comment edits inside commits touching the file, never docs-only: feature audit 11 sites (consensus-weights.js 2, draft-abstention-audit.js 2, draft-assist.js 3, draft-lookahead.js 3, routes/aggregates.js 1); fantasy plan routes/drafts.js 3, offseason-model.js 5; Trade Brain trade-verify.js; wiring map gridiron-model.js 9 (in the report-extension commit). Betting-side files (preseason-model, betting-fantasy-link, clv-core, model-governance and the nine gone paths) untouched, Nick's to decide.
+- ≥12:38Z: server/services/preseason-model.js → FANTASY PLAN (was unallocated; the shared fantasy preseason model, market curve and seasonTotals, imported by draft-assist, draft-lookahead, lineup-brain, trade-engine, ros-projection, shrinkage-fit, draft-abstention-audit, gridiron-model, model-governance and two betting heads; nine stale citations at the very end of the queue). model-governance.js and clv-core.js: ownership pending the importer check (flagged for the report, not a finding).

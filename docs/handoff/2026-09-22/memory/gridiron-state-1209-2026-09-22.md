@@ -1,0 +1,16 @@
+---
+name: gridiron-state-1209-2026-09-22
+description: "16:16Z-16:21Z: Opportunity inventory range 112-123, EA #108 REAL/CI-red-is-check:wiring, Auditor R27 ladder frozen, Chat sync main-red real cause (routes/trades.js), Scheduler/Feature audit/Fantasy plan pushes, coordinator thread-health sweep"
+metadata:
+  type: project
+  modified: 2026-09-22T16:24:00.428Z
+---
+- **16:18Z Opportunity** (cmsg_01YAsw8AnFv4ioRMQw8dfPmTYHRPrJfU1P8m663HWQKv3N): inventory figure revised to a RANGE 112-123 (only 2 of 10 promoted files confirmed web-reachable by its tool, 8 rest on an unchecked assumption); fifth move of the figure; #99 CI running.
+- **16:18Z Evidence Auditor** (cmsg_01YAsw8AnFv4ioRMQw8dfPmTPoTbixg8KqjSyh7rX7sXsb): #108 (1161c16) work REAL, own full check 3,210/3,169/0/41 matches; CI red because check:wiring (added by the branch) runs on the merge with main and reports 11 findings that are exactly #89/#91 changes (league_draft_picks table, roster-risk.js orphaned). Verdict: rebase + fresh check:wiring. Write-up /mnt/project-files/audit-pr108-wiring-map-2026-09-22.md.
+- **16:18Z Auditor R27:** scheduler leak cleared, 183 not contaminated; accepted 10+4 split; FLAGGED nine betting files promoted into the fantasy count, ladder FROZEN until each names its fantasy route; kickoff criteria registered for Model evidence audit's target-share prior; waiting on Explorer's kicker-yards submission.
+- **16:18Z Chat sync (status):** main red run 355 is NOT the ENOTEMPTY race; real regression: #89's leagueHistoryState() no-throw guard breaks #91's catch-based archetype-read-failure reporting in routes/trades.js; fix verified in a throwaway worktree 27/27 (trades.js consults leagueHistoryState() directly; test assertion uses module reason text); #110 (ENOTEMPTY retry fix) still open, CI running; next manager-archetypes.js:833 unowned-slot fix.
+- **16:20Z Scheduler:** #95 at c66f9b9b waiting on CI; depth zero-row pin 2b5b19ad, 6 tests, 5/5 mutations killed; swallow masked in every cheap fixture; status-decision extraction held on file ownership.
+- **16:16Z Feature audit:** rate-limited 15:51Z-16:11Z, resumed; #87 (feed-zero) merged with main 1a13614 → head 1de60de, guard running one run, then push; flags #105 and held bc03222 moot because #91 deleted trend-exploits.js.
+- **16:11Z Fantasy plan:** #106 red cause = stale base missing migration 064; merged main → 4e8a275, guard running, then push; new unit assigned: level vs information decomposition (Auditor R25).
+- **16:21Z Coordinator,** acting on Nick 16:17:44Z 'clean tgreads make sure they good': list_thread_sessions all 15 active threads working/review_ready, none failed or disconnected; Google sign-in thread RESOLVED (completed 08:55Z); relays: Trade Brain to land the trades.js main-red fix as its own PR (priority over rebase pushes), Wiring map to rebase #108 + check:wiring, Auditor got Opportunity's range + asked to rule on range vs number, Opportunity asked to name fantasy routes for the nine betting files, Explorer nudged for kicker-yards submission. Nick told 16:21Z (main red = real bug confirmed, correcting the earlier 'flaky test' line; #108 needs rebase; nothing for him to do).
+Prev [[gridiron-state-1208-2026-09-22]].

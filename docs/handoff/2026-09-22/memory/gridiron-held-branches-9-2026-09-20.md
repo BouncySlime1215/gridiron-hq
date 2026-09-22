@@ -1,0 +1,20 @@
+---
+name: gridiron-held-branches-9-2026-09-20
+description: Page 9 of the no-PR "-hold" branch ledger for the 2026-09-20 GitHub freeze; the UI seven-commit stack at 96ea84d (one PR from the tip) and heads reported after 07:11Z.
+metadata:
+  type: project
+---
+
+Continues [[gridiron-held-branches-8-2026-09-20]] (same rule: `git merge-base --is-ancestor <recorded-head> <hold-branch-head>` before the morning fast-forward). Heads as reported by each thread; Opportunity's remote-existence and ancestor sweep (R7) is running against pages 1-9 and the morning copy's table.
+
+| thread | hold branch | head | fast-forwards onto | note |
+|---|---|---|---|---|
+| UI (stack tip) | claude/project-thread-xiezr0-capture-pill-hold | 96ea84d → 01645a0 (07:24Z, p10) | ONE new PR from 96ea84d after #43 #46 #53 #57 #58 #60 #78 merge; linear above main: 4536340 adopt-chip → deb492a teams-basis → d1cc317 title-drill → 22b2cb9 odds-gate → ce66060 number-roll → b502852 delete-pages → 96ea84d capture-pill | typecheck clean, 3,152 / 3,111 / 0 / 41, build 2.49 s, smoke passed; mutation APPLIED, 11 runs all red; check numbers cumulative at the tip. SourcePill bookmarklet fixed (had always returned 400); key handled as a credential; nine fields served, seven rendered, draft_id and key_source dropped with reasons; no server file touched |
+| Wiring map (#36) | claude/wiring-map-8f96ur-route-gate-hold | 8307d09 → 4389a7a (11:12Z, p17) (07:25Z depth report, 3,016 / 2,975 / 0 / 41; was caac88a CLEAN HEAD 07:12Z) | #36 252c896 | STOP LIFTED on it (after 07:12Z): route-no-caller 63 in-scope / 382 total; check exit 0; 3,011 / 2,970 / 0 / 41; smoke isolated DB; map tests 64/64; Route verdicts file rebuilt (status, dials/mentions, branch-labelled offsets); depth report next; gameScriptFor prefixed in vegas-fantasy.js; Decision Inbox ARTEFACT = caac88a on this branch (index.js :46 import and :129 mount removed, four routes out, test/decision-inbox-retired.test.js; 07:54Z) |
+| Feature audit | claude/project-thread-5f9c3y-draft-chain-hold | ~~2692006~~ → c6df372 (PUSHED 08:01Z, p14) | new PR off main | pick clock one number: DEFAULT_PICK_SECONDS exported from server/draft/store.js (hand-set, not a model), consumed at store.js:103, create-draft default and the live-advice prompt drafts.js:1095 (fourth copy, found by its drift guard); 5 tests + 2 controls; 2,962/2,921/0 |
+| Feature audit | claude/project-thread-5f9c3y-roster-read-hold | 9fc851e (CONFIRMED 07:21Z; SUPERSEDES 857aec6, do not report it) | on trade-week-hold eb55f1d; onto #57 after trade-week | rosterContext export; 0.92 labels; tripwire decoupled: FALLBACK_ACTIVE_PROBABILITY in trade-engine.js, same-file single-definition guard (no cross-file assertion); 2,990/2,949/0 |
+| Feature audit | claude/project-thread-5f9c3y-espn-market-auth-hold | 0055a89 (07:21Z; SUPERSEDES 78f23ab on p7) | new PR off main; MERGE BEFORE #50 | espn-market.js:31 throws EspnCredentialsMissing before the fetch; 2,958/2,917/0 |
+| Feature audit (all eight) | trade-week eb55f1d, roster-read 9fc851e, espn-market-auth 0055a89, draft-chain 2692006, 55-hold 9d44431, 62-hold b61b557, 64-hold 1b66a80, 74-hold b5f3996 | 07:21Z: full inventory on origin, all green (npm run check + start:smoke exit 0, 41 skipped) | see p2/p3 for the PR holds | nothing to a PR branch since 02:12Z |
+| Scheduler (PR #77 itself) | claude/project-thread-o3wt2p-mainthread-holds | 3902ba7 = PR #77's head (CORRECTED 07:14Z from the GitHub API; the earlier "pointer, carries nothing" row was WRONG) | not a hold: PR #77, OPEN draft, base claude/project-thread-o3wt2p-timer-tier 64f3ef2, one commit, 413/6 over 4 files; merges after #63; frozen; DO NOT DELETE | allow-list fix: resolveOffThread consults MAIN_THREAD_ONLY on every path, trade_asset_universe_warm added, nine guarded rules in test/main-thread-only-holds.test.js, docs/tdd/main-thread-only-holds.tdd.md; content also carried in 8709ec6 |
+
+Continues: [[gridiron-held-branches-10-2026-09-20]] (rows from 07:23Z: O4 803074d as one PR, memo-key b1ee48d, weekly-scores no PR).

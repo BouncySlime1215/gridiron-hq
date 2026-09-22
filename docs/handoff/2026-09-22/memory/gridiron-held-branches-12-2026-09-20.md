@@ -1,0 +1,18 @@
+---
+name: gridiron-held-branches-12-2026-09-20
+description: Page 12 of the no-PR "-hold" branch ledger for the 2026-09-20 GitHub freeze; heads reported from 07:36Z (chat sync 9ee6647, UI d4685f2, Trade Brain ef3164e, Coach f5406ee) and later.
+metadata:
+  type: project
+---
+
+Continues [[gridiron-held-branches-11-2026-09-20]] (merge order for stacked holds: /mnt/project-files/hold-branch-sweep-2026-09-20T0736Z.md, fresh file at the go).
+
+| Thread | Branch | Head | Lands how | Notes |
+|---|---|---|---|---|
+| Chat sync | claude/project-thread-sytruo-asof-hold | 9ee6647 → 572e838 (11:01Z, p16) | #47 4c624ac | corpusStats read MAX(sent_at) on a column named ts_utc; threw on every corpus, swallowed by a bare catch (newest_message always null). ISO at the producer for all four chat stamps; normalise_stamps() before the watermark read; one age = newest message ISO, rollup/pull stamps provenance; STATE_MAPPING five; isoStamp() exported; two old-rule tests rewritten with a dated comment. 2,992 / 2,951 / 0 / 41 in 361.1 s; Python 28 OK; eleven mutations caught. Next (07:39Z): wire freshness() to Trade Brain's block on this hold |
+| UI (stack tip) | claude/project-thread-xiezr0-avail-basis-hold | d4685f2 → af7f01a (07:51Z, p13) | ONE new PR from the tip; nine commits above main | 3,165 / 3,124 / 0 / 41, build 2.42 s, smoke; 11 mutations red; docs/tdd/availability-basis-per-row.tdd.md. Row's own availability_basis wins; process basis last; seventh chip tier unknown "Unverified"; old constants key kept mapped until the new server is live. 07:39Z: legacy constants → durability_prior only with durability_prior_measured true, else Unverified; four usePageExplain registrations for Coach next; then the League Hub outlook panel |
+| Trade Brain | claude/project-thread-3xqh5l-accessor-hold | ef3164e → 3f7a82d → 1e6a205 (11:01Z, p16) | #41 45323ce | 2246178/9bd238e valuation_map on GET /api/trades/:leagueId/player/:id; d6c2acf/34250dc chat block final shape (as_of = MAX(last_msg) ISO, computed_at, rows, path, path_source, collected_by, reason); ef3164e sixteen-handler cut. typecheck 0, lint 0, 2,990 / 2,949 / 0 / 41 in 351.8 s, smoke; mutations 10/10, 8/8, 3/3. npm ci not run in its container. 07:39Z: all three feature-audit routes were in the sixteen; add /brain/fragility and GET /api/trades/:leagueId/inbox (trades.js:579, delete/404) in the next commit; 07:40Z: owns the whole trend-exploits retirement in one commit (route, import, service file under a one-commit claim, tests); then draft /mnt/project-files/pr-41-body-<head>.md |
+| Coach | claude/coach-grounded-4l8hno-hold | f5406ee (07:37Z; was 73e0760; f5406ee3a25abe02254ecf60b49b058f60802364) | new PR off main | 3,045 / 0 / 41 in 459 s; lexicon 11 of 11 (38 concepts, 44 fields, 4 named gaps), re-emitted; surface list /mnt/project-files/coach-surface-integration.md (one root mount, usePageExplain registrations). 07:39Z: draft /mnt/project-files/pr-coach-body-f5406ee.md and report the two run-sheet scripts |
+| Feature audit (NEW) | claude/project-thread-5f9c3y-unpriced-hold | ec13adb (07:43Z; RED 799e83f); PUSHED 08:01Z, 2,954 / 2,913 / 0 / 41 (p14) | new PR after the morning; off main 791b131; declared stacks on nothing | D13: trade-engine.js:417-421 gave an unpriced player value 0, so an unpriced give-away read 'lopsided my way'; value_priced on the asset (the ONE unpriced flag site-wide), value_out_unpriced/value_in_unpriced per side, fairnessLabel 'partly unpriced'; fairEnough :1146 not fixed (follow-up); four injections caught; evidence docs/tdd/unpriced-players-are-not-free.tdd.md |
+
+Continues: [[gridiron-held-branches-13-2026-09-20]] (rows from 07:51Z: UI tip af7f01a).

@@ -1,0 +1,11 @@
+---
+name: gridiron-state-1291-2026-09-22
+description: "18:19Z-18:23Z USAGE READINGS: Nick 18:19:53Z three screenshots (Max 20x: 5-hour limit 9% used, resets in 4h41m = TIGHTEST; weekly all models 3% resets Tue 01:00Z; Fable 2%; 92.9B tokens, 25 threads, 99% cache; per-model and per-thread breakdown) and 18:21:21Z 'what do i do in github step by step' → five steps; coordinator's read: 5-HOUR ROLLING PACE is the headline metric (≈28%/h, needs <20%/h), weekly not the constraint; USAGE-LEDGER.md rewritten with rows 1-2; next screenshot ~19:20Z"
+metadata:
+  type: project
+  modified: 2026-09-22T18:23:00.000Z
+---
+- **NICK 18:19:53Z** (cmsg_01YAsw8AnFv4ioRMQw8dfPmTRkER2nstuCHFy3WzHPJNwY, three screenshots) — plan **Max 20x**: **5-hour limit 9% used, resets in 4h41m (window opened ~18:00Z) = tightest limit**; weekly all models **3%**, resets Mon 9:00 PM Nick-local (UTC-4 → **Tue 01:00Z**); weekly Fable 2%; project 92.9B tokens, 25 threads, cache hit 99%, code +63.6k/−1k. Breakdown: Opus input 11.9M / output 301.5M / cache write 989.9M / cache read 83.2B (24 threads); Sonnet 264.3k / 16.5M / 73.7M / 5.8B (1); Fable 658.3k / 15.5M / 64.1M / 2.4B (0 threads). Per thread: Scheduler 11.7B 13%, Release 9B 10%, Feature audit 8.6B 9%, Trade Brain 7.5B 8%, UI 7.2B 8%, Chat sync 6.6B 7%, Opportunity 6.6B 7%, Wiring map 6.4B 7%, coordinator 2.5B 3%, 19 others 42.5B 46%.
+- **NICK 18:21:21Z** (cmsg_01YAsw8AnFv4ioRMQw8dfPmT4Anr85mnHYG29px8ysNgn9): "what do i do in github step by step" → answered with five steps (Ready for review + Squash and merge on #132 → #122 → #123 → #137, [[gridiron-state-1290-2026-09-22]]).
+- **Coordinator's read:** weekly is NOT the constraint (today's pace at 24/7 ≈ 29% of the week); **the 5-HOUR ROLLING LIMIT is** — 9% in ~19 min ≈ 28%/h, needs <20%/h to run flat. **Headline metric from now on = 5-hour pace.** `/mnt/project-files/USAGE-LEDGER.md` rewritten: columns time / 5h % / 5h reset / weekly % / weekly reset / project tokens / pace / source id / action taken; rows 1-2 = 18:06:52Z and 18:19:53Z. Nick asked to send the screenshot again ~19:20Z. Rule file updated [[gridiron-usage-priority-rule]].
+Prev [[gridiron-state-1290-2026-09-22]]. Next [[gridiron-state-1292-2026-09-22]].

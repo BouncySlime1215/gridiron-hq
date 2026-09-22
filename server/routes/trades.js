@@ -399,9 +399,35 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
   let archetypeError = null;
   let archetypeState = 'present';
   try {
-    const { archetypesFor } = await import('../services/manager-archetypes.js');
-    archetypes = archetypesFor(leagueId, season);
+    const { archetypesFor, leagueHistoryState } = await import('../services/manager-archetypes.js');
+    // ASK, RATHER THAN WAIT TO BE THROWN AT. `manager-archetypes.js` exports the
+    // state of the table this read depends on, and returns an empty Map rather
+    // than raising when it is missing — deliberately, because a caller that can
+    // ask should not need an exception to learn a fact about the schema.
+    //
+    // This route's reporting used to be keyed to that throw, and when the module
+    // stopped throwing the two changes cancelled: the catch never fired, and the
+    // page served `read_failed: ''` for a read that never happened. That is the
+    // defect the catch below was narrowed to remove, arriving by the other door.
+    // A report that only works when something raises is not a report; it is a
+    // side effect of an exception, and it lasts exactly as long as the exception
+    // does.
+    const historyState = leagueHistoryState();
+    if (!historyState.present) {
+      archetypeState = 'table_absent';
+      // The module's own sentence, not a second one written here. Two
+      // vocabularies for one state is how two surfaces come to disagree.
+      archetypeError = historyState.reason;
+      archetypes = new Map();
+    } else {
+      archetypes = archetypesFor(leagueId, season);
+    }
   } catch (e) {
+    // STILL LOAD-BEARING, and now the SECOND line rather than the only one. The
+    // ask above covers `league_season_teams`, the one table whose state the
+    // module publishes; every other table this read touches can still vanish,
+    // and a throw is all the warning there is for those.
+    //
     // ONLY THE ABSENCE IS ABSORBED. A missing table is a fact about this
     // database — the backfill has never run here — and this page's own job,
     // serving the measured signals, does not depend on the archetypes, so it

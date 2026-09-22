@@ -55,8 +55,33 @@ import { crps } from './backtest.js';
  *   better-or-tied on a lower-is-better metric like CRPS or absolute error).
  */
 export function pairedBootstrapDiff(valuesA, valuesB, { iterations = 2000, seed = 1, groups } = {}) {
+  // TWO ARRAYS OF DIFFERENT LENGTHS HAVE NO PAIRING, so there is nothing for a paired test to
+  // report. This used to truncate to `Math.min(...)` and carry on, and that truncation is the
+  // whole of the defect the model evidence audit called D34: a pooled caller builds `groups` in
+  // lockstep with ONE of the two arrays, so when that array is the shorter one
+  // `groups.length === n` holds, the clustered path below is GRANTED, and the first `n` entries
+  // of the longer array are paired against rows they do not describe. Measured on the audit's
+  // own fixture: 60 values against 30 with 30 groups returned mean_diff -0.8, ci90 [-0.8, -0.8],
+  // significant, clustered, where the truth was +0.10 -- the sign inverted, on an interval of
+  // zero width.
+  //
+  // It is a refusal and not a throw because this function has around twenty callers and a
+  // refusal cannot take one down, and because the refusal is a fact a caller can print. The
+  // wrapper `clusteredDiff` in pooled-arms.js throws on the same condition, for callers that
+  // have already established their rows line up and want a failed audit over a published
+  // number.
+  if (valuesA.length !== valuesB.length) {
+    return {
+      error: `two value arrays of different lengths (${valuesA.length} and ${valuesB.length}) `
+        + `have no pairing, so a paired bootstrap has nothing to measure`,
+      lengths: [valuesA.length, valuesB.length], clustered: false
+    };
+  }
   const n = Math.min(valuesA.length, valuesB.length);
-  if (n < 10) return { error: `too few paired observations (${n}) to bootstrap meaningfully` };
+  if (n < 10) {
+    return { error: `too few paired observations (${n}) to bootstrap meaningfully`,
+      n, clustered: false };
+  }
 
   const diffs = new Array(iterations);
   // CORRECTED 2026-09-12 sweep item 16(ii): this used to accept any `groups`
@@ -77,7 +102,18 @@ export function pairedBootstrapDiff(valuesA, valuesB, { iterations = 2000, seed 
   // below (the same safe fallback the too-SHORT case already used), exactly
   // like the existing 'groups shorter than n is ignored gracefully' test
   // already expects for the other direction.
-  if (groups && groups.length === n) {
+  // Whether the clustered path was actually taken, and therefore whether this
+  // interval accounts for within-group correlation. A caller that passes
+  // `groups` is asserting its observations are correlated within a unit, and
+  // the fallback below is HONEST but WIDER-than-it-should-be in the other
+  // direction: it under-covers exactly as the ungrouped bootstrap always did.
+  // Both refusals above and below are silent from the caller's side -- the
+  // returned interval looks identical either way -- so the caller cannot tell
+  // that its clustering request was declined unless the answer says so. It
+  // says so now: `clustered` is on every return, and a caller that passes
+  // `groups` should assert it is true rather than trust that it was used.
+  const clustered = Boolean(groups && groups.length === n);
+  if (clustered) {
     const byGroup = new Map();
     for (let i = 0; i < n; i++) {
       const key = groups[i];
@@ -119,7 +155,7 @@ export function pairedBootstrapDiff(valuesA, valuesB, { iterations = 2000, seed 
     mean_diff: +mean_diff.toFixed(4), ci90: [+lo.toFixed(4), +hi.toFixed(4)],
     p_b_better: +p_b_better.toFixed(3),
     significant: !(lo <= 0 && hi >= 0),
-    n, iterations
+    n, iterations, clustered
   };
 }
 

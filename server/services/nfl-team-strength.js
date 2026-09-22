@@ -50,7 +50,7 @@ import { preseasonProjections } from './preseason-model.js';
 // One-way: nfl-gbm.js never imports this file (the challenger is injected into
 // it as a plain object), so there is no import cycle to reason about.
 import { buildGbmDataset, fitGbm, predictGbm } from './nfl-gbm.js';
-import { pairedBootstrapDiff } from './backtest-significance.js';
+import { clusteredDiff } from './pooled-arms.js';
 import { canonicalTeamCode } from './team-codes.js';
 import { recordGateAudit } from './model-governance.js';
 
@@ -281,7 +281,7 @@ export function clearTeamStrengthCache() { cache.clear(); }
  * seed, trained on the same games; the ONLY difference is the six extra
  * columns. So the comparison isolates the features rather than the tuning.
  *
- * Significance is `pairedBootstrapDiff` over the same games in the same order,
+ * Significance is `clusteredDiff` over the same games in the same order,
  * BLOCK-resampled by week: two games in the same week share weather regimes,
  * bye structure and market conditions, and resampling them independently would
  * report an interval narrower than the truth (backtest-significance.js documents
@@ -349,7 +349,11 @@ export function teamStrengthWalkForward({
     const n = testIdx.length;
     const maeA = errA.reduce((a, b) => a + b, 0) / n;
     const maeB = errB.reduce((a, b) => a + b, 0) / n;
-    const boot = pairedBootstrapDiff(errA, errB, { iterations, seed: season, groups });
+    // errA, errB and groups are pushed together in the loop above, one entry per test game.
+    // clusteredDiff refuses rather than silently resampling ungrouped if that ever stops being
+    // true, which matters because an ungrouped interval on week-correlated games is narrower
+    // than the truth and reads exactly like a clustered one.
+    const boot = clusteredDiff(errA, errB, { iterations, seed: season, groups });
 
     perSeason.push({
       season, games: n, train_games: trainIdx.length,
@@ -368,7 +372,10 @@ export function teamStrengthWalkForward({
   if (!perSeason.length) return { error: 'no test season had enough training history' };
 
   const wins = perSeason.filter(s => s.significant_improvement).length;
-  const pooled = pairedBootstrapDiff(pooledA, pooledB, { iterations, seed: 7, groups: pooledGroups });
+  // Same lockstep, accumulated across seasons: the three pooled arrays are extended together
+  // at the end of each season's block, so a season that pushed errors without its groups would
+  // be caught here rather than quietly widening the pooled verdict's confidence.
+  const pooled = clusteredDiff(pooledA, pooledB, { iterations, seed: 7, groups: pooledGroups });
   const maeA = pooledA.reduce((a, b) => a + b, 0) / pooledA.length;
   const maeB = pooledB.reduce((a, b) => a + b, 0) / pooledB.length;
 

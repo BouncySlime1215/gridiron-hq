@@ -217,8 +217,63 @@ const memo = (key, fn) => {
   return cache.get(key);
 };
 
+/**
+ * What each optional layer under the board did when it was last read.
+ *
+ * Three layers here are genuinely optional -- a database that has never run an offseason
+ * sync must still produce a board -- and the old code expressed that with a bare catch
+ * per layer. That makes an EXPECTED absence and a REAL fault indistinguishable: a
+ * renamed column, a locked file and a never-synced table all arrived as the same empty
+ * Map, every feature in the block was imputed to the median, and the drivers went on to
+ * describe median values as if they were this player's own.
+ *
+ * So each layer records what happened, and `preseasonLayerHealth` hands it to a caller.
+ * This changes no number the board produces. It changes whether anybody can find out
+ * that a number was produced from nothing.
+ *
+ * Keyed by season, and cleared with the fit cache, because a layer's state is a fact
+ * about the read that populated the cache -- keeping a stale verdict beside a fresh
+ * table would be its own version of this bug.
+ */
+const layerHealth = new Map();
+
+const LAYER_NAMES = Object.freeze(['season_totals', 'charting', 'in_house_projections']);
+
+/** The state of one layer before anything has read it: nothing known, nothing claimed. */
+const freshLayers = () => ({
+  season_totals: { ok: true, state: 'ok', reason: null, unparsed_rows: 0, samples: [] },
+  charting: { ok: true, state: 'ok', reason: null },
+  in_house_projections: { ok: true, state: 'ok', reason: null }
+});
+
+const layersFor = season => {
+  const key = String(season);
+  if (!layerHealth.has(key)) layerHealth.set(key, freshLayers());
+  return layerHealth.get(key);
+};
+
+/**
+ * Which layer, if any, went inert while building `season`'s board, and why.
+ *
+ * Reading this FORCES the layers rather than reporting on whatever happens to be cached,
+ * because a caller asking "is this board sound" before the board is built would
+ * otherwise get a clean bill of health for reads that never happened. A confident
+ * `unparsed_rows: 0` is a measurement; an absent field is not.
+ *
+ * `state` is one of 'ok', 'absent' (a known, tolerated state -- the sync has never run)
+ * or 'error' (a fault). The distinction is the whole point: those two call for opposite
+ * responses, and the bare catch this replaces could not tell them apart.
+ */
+export function preseasonLayerHealth(season = DEFAULT_SEASON) {
+  seasonTotals(season);
+  chartRows(season);
+  inHouseProjections(season - 1);
+  const layers = layersFor(season);
+  return Object.fromEntries(LAYER_NAMES.map(n => [n, { ...layers[n] }]));
+}
+
 /** Test seam: drop every cached table/fit. */
-export function resetPreseasonCache() { cache.clear(); }
+export function resetPreseasonCache() { cache.clear(); layerHealth.clear(); }
 
 /**
  * gsis_id -> every normalized name that source tables have used for him.
@@ -268,10 +323,29 @@ export const seasonTotals = season => memo(`totals:${season}`, () => {
   const agg = new Map();
   const teamTargets = new Map(), teamCarries = new Map(), teamAttempts = new Map();
   for (const r of rows(
-    `SELECT player_id g, player_name pn, position pos, team, features f
+    `SELECT player_id g, player_name pn, position pos, team, week, features f
      FROM nfl_player_week_features WHERE season = ? AND week BETWEEN 1 AND 18`, season)) {
     let f;
-    try { f = JSON.parse(r.f); } catch { continue; }
+    try {
+      f = JSON.parse(r.f);
+    } catch (err) {
+      // Counted, not dropped in silence. This row does not reach `cur.games += 1` below,
+      // so an unreadable week reduces the player's games count -- and games_1, games_2
+      // and availability_3 are built from those counts. Still not counted as played,
+      // because stats that cannot be read are not evidence that he played; but a run
+      // that dropped rows must not look identical to one that read all of them.
+      const layer = layersFor(season).season_totals;
+      layer.unparsed_rows += 1;
+      layer.ok = false;
+      layer.state = 'error';
+      layer.reason = `${layer.unparsed_rows} player-week feature row(s) could not be parsed, `
+        + 'so those weeks are missing from every games-played and per-game figure below';
+      if (layer.samples.length < 10) {
+        layer.samples.push({ player_id: r.g, week: r.week ?? null,
+          error: err?.message ?? String(err) });
+      }
+      continue;
+    }
     let pts = 0;
     for (const [k, w] of Object.entries(PPR_W)) pts += num(f[k]) * w;
     const pos = r.pos === 'FB' ? 'RB' : r.pos;
@@ -428,7 +502,26 @@ const chartRows = season => memo(`chart:${season}`, () => {
     return new Map(rows(
       `SELECT gsis_id, ${CHART_COLUMNS.join(', ')} FROM off_player_season_features
        WHERE season = ?`, season).map(r => [r.gsis_id, r]));
-  } catch { return new Map(); }
+  } catch (err) {
+    // Absent and broken are different states that the old bare catch could not tell
+    // apart, and they call for opposite responses. A table that was never created is
+    // this function's documented, tolerated case: the offseason sync has not run. A
+    // table that EXISTS but will not answer this query -- a renamed column, a typo in
+    // CHART_COLUMNS, a corrupt or locked file -- is a fault, and reporting it as the
+    // tolerated case is how a board built entirely on imputed medians passes for a
+    // board built on charting data.
+    const message = err?.message ?? String(err);
+    const absent = /no such table/i.test(message);
+    Object.assign(layersFor(season).charting, {
+      ok: false,
+      state: absent ? 'absent' : 'error',
+      reason: absent
+        ? 'off_player_season_features does not exist, so the offseason sync has never run; '
+          + 'every charting feature is imputed to its median'
+        : `the charting table exists but would not answer: ${message}`
+    });
+    return new Map();
+  }
 });
 
 /**
@@ -459,7 +552,17 @@ const inHouseProjections = through => memo(`proj:${through}`, () => {
     for (const p of buildProjections({ through }).values()) {
       if (p.gsis_id) out.set(p.gsis_id, p);
     }
-  } catch { /* projections are a feature, not a dependency — absence is imputed */ }
+  } catch (err) {
+    // Projections are a feature, not a dependency, so absence is imputed and the board
+    // is still produced. But `buildProjections` THROWING is a fault, not an absence, and
+    // the two were indistinguishable here. Recorded rather than rethrown: the degraded
+    // board is the long-standing behaviour, and changing it is a product decision.
+    Object.assign(layersFor(through + 1).in_house_projections, {
+      ok: false, state: 'error',
+      reason: `buildProjections({ through: ${through} }) threw, so every in-house `
+        + `projection feature is imputed: ${err?.message ?? String(err)}`
+    });
+  }
   return out;
 });
 

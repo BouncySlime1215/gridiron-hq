@@ -48,9 +48,14 @@ const insertWeek = (playerId, season, week, team, targets) => run(
 // must weight the back=1 player's rows at 0.35x the back=0 player's.
 insertPlayer(1, 'Current Season WR', 'WR', 9101);
 insertPlayer(2, 'Prior Season WR', 'WR', 9102);
+// Same season as player 1, double the weekly opportunity count -- isolates
+// the opp-scaling half of the fix from the recency half, so a mutation that
+// drops one factor and keeps only the other cannot pass both assertions.
+insertPlayer(3, 'Current Season WR, Double Targets', 'WR', 9103);
 for (let w = 1; w <= 8; w++) {
   insertWeek(1, 2024, w, 'AAA', 10);
   insertWeek(2, 2023, w, 'BBB', 10);
+  insertWeek(3, 2024, w, 'CCC', 20);
 }
 
 test('the ypt spec weights a prior-season row by RECENCY.seasonDecay, not by raw opportunity count alone', () => {
@@ -58,16 +63,29 @@ test('the ypt spec weights a prior-season row by RECENCY.seasonDecay, not by raw
   const ypt = specs.find(s => s.metric === 'ypt' && s.position === 'WR');
   assert.ok(ypt, 'expected a WR ypt spec');
 
-  const currentSeasonWeight = ypt.observations.filter(o => o.group === 1).reduce((s, o) => s + o.weight, 0);
-  const priorSeasonWeight = ypt.observations.filter(o => o.group === 2).reduce((s, o) => s + o.weight, 0);
+  const weightOf = group => ypt.observations.filter(o => o.group === group).reduce((s, o) => s + o.weight, 0);
+  const currentSeasonWeight = weightOf(1);
+  const priorSeasonWeight = weightOf(2);
+  const doubleOppWeight = weightOf(3);
 
-  assert.ok(currentSeasonWeight > 0 && priorSeasonWeight > 0, 'both players must contribute observations');
-  // Both players have identical raw opportunity totals (10 targets x 8 weeks = 80),
-  // so an unweighted fitter (the bug) reports these as EQUAL. A correctly
-  // recency-weighted fitter must report the prior-season total at
-  // RECENCY.seasonDecay (0.35x) of the current-season total.
-  const ratio = priorSeasonWeight / currentSeasonWeight;
-  assert.ok(Math.abs(ratio - RECENCY.seasonDecay) < 1e-9,
+  assert.ok(currentSeasonWeight > 0 && priorSeasonWeight > 0 && doubleOppWeight > 0,
+    'all three players must contribute observations');
+
+  // Both players 1 and 2 have identical raw opportunity totals (10 targets x
+  // 8 weeks = 80), so an unweighted fitter (the bug) reports these as EQUAL.
+  // A correctly recency-weighted fitter must report the prior-season total
+  // at RECENCY.seasonDecay (0.35x) of the current-season total.
+  const seasonRatio = priorSeasonWeight / currentSeasonWeight;
+  assert.ok(Math.abs(seasonRatio - RECENCY.seasonDecay) < 1e-9,
     `expected prior-season weight to be current-season weight x RECENCY.seasonDecay (${RECENCY.seasonDecay}), ` +
-    `got ratio ${ratio} (current=${currentSeasonWeight}, prior=${priorSeasonWeight})`);
+    `got ratio ${seasonRatio} (current=${currentSeasonWeight}, prior=${priorSeasonWeight})`);
+
+  // Player 3 shares player 1's season but doubles the weekly opportunity
+  // count, so its weight must be exactly double player 1's -- catches a
+  // mutation that keeps the recency factor but drops the opp multiplier
+  // (which the season-ratio assertion above cannot see, since dropping opp
+  // leaves the season ratio unchanged).
+  const oppRatio = doubleOppWeight / currentSeasonWeight;
+  assert.ok(Math.abs(oppRatio - 2) < 1e-9,
+    `expected double the weekly opportunity count to double the weight, got ratio ${oppRatio}`);
 });

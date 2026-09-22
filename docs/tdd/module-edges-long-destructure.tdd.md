@@ -1,6 +1,6 @@
 # 147 findings under the wrong rule, because a lookbehind window was 220 characters
 
-RED (the module-edges RED commit on this branch) · GREEN this commit · `scripts/wiring-map.mjs`, `test/module-edges-long-destructure.test.js`
+RED `d5438f3` · GREEN this commit · `scripts/wiring-map.mjs`, `test/module-edges-long-destructure.test.js`
 
 ## What was wrong
 

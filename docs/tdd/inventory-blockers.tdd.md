@@ -1,6 +1,6 @@
 # 597 unresolved rows are six questions, not one pile
 
-RED `<the RED commit on this branch>` · GREEN this commit · `scripts/inventory.mjs`, `test/inventory-blockers.test.js`
+RED `2095e57` · GREEN this commit · `scripts/inventory.mjs`, `test/inventory-blockers.test.js`
 
 ## What was missing
 

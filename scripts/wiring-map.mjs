@@ -339,6 +339,45 @@ export function callSites(code, name) {
     + count(new RegExp(`\\brun\\s*:\\s*${name}\\b`, 'g'));
 }
 
+
+/**
+ * Every query running on a receiver this resolver could not identify.
+ *
+ * Naming an unrecognised receiver instead of calling it 'app' fixes a false
+ * positive and buys a FALSE NEGATIVE if nothing says so: a table whose only
+ * reads go through an unidentified receiver is filed as belonging to another
+ * database, and table-in-another-database is `context`, which the gate does not
+ * print. A real app table read that way would leave the gate's output without a
+ * word. Trading a finding you can see for one you cannot is not an improvement.
+ *
+ * So the resolver's ignorance is reported, with a count and the list, on every
+ * run. Report, never gate -- the same posture the stale accept-list entries
+ * have, and for the same reason: this is a note to a human, and a build that
+ * fails on it teaches people to rename their variable `db`.
+ *
+ * "Resolved" means the file opened that handle itself. A receiver the file was
+ * HANDED -- a parameter, a property, a return value -- is exactly what this
+ * cannot see, and is the whole list.
+ */
+export function unresolvedReceivers(tables, files) {
+  const byKey = new Map();
+  for (const t of tables.values()) {
+    for (const e of [...t.reads, ...t.writes]) {
+      if (!e.handle || e.handle === 'app') continue;
+      const f = files.get(e.file);
+      if ((f?.foreign_handles ?? []).includes(e.handle)) continue;
+      const key = `${e.file}:${e.line}:${e.handle}`;
+      if (!byKey.has(key)) {
+        byKey.set(key, { file: e.file, line: e.line, receiver: e.handle, tables: new Set() });
+      }
+      byKey.get(key).tables.add(t.table);
+    }
+  }
+  return [...byKey.values()]
+    .map(r => ({ file: r.file, line: r.line, receiver: r.receiver, tables: [...r.tables].sort() }))
+    .sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+}
+
 // Receivers that are the app's own connection by convention. Anything else
 // named in front of .prepare/.exec/.run is a handle this resolver has not
 // identified, and is reported as itself rather than as the app.
@@ -4123,6 +4162,20 @@ const NEW_ORPHAN = new Set(['module-reaches-no-surface', 'module-only-tested',
         + 'module that is wired now; an entry that outlives its reason silences nothing and still '
         + 'reads as a decision:');
       for (const s of stale) console.log(`  ${s.entry} — ${s.why}`);
+    }
+
+    // The resolver's own ignorance, printed so that naming an unrecognised
+    // receiver cannot quietly turn a finding into a silence. See
+    // unresolvedReceivers above for why this is reported and never gated.
+    const unresolved = unresolvedReceivers(model.tables, model.files);
+    if (unresolved.length) {
+      console.log(`\n${unresolved.length} quer(ies) run on a receiver this resolver could not identify. `
+        + 'Each is a handle the file was handed rather than one it opened, so which database it is '
+        + 'cannot be read from this file alone. They are reported as their own handle, NOT as the app, '
+        + 'which means any table read only this way is filed as belonging to another database:');
+      for (const u of unresolved) {
+        console.log(`  ${u.file}:${u.line} \`${u.receiver}\` — ${u.tables.join(', ')}`);
+      }
     }
 
     const blocking = found.filter(f =>

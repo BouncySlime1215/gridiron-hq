@@ -1780,7 +1780,7 @@ test('the rule reproduces the citation that was found by hand', async () => {
  *
  * Fixture tables are zz_fixture_* for the reason written above test 76.
  */
-test('a query handed to a handle by method call is that handle, and the app is the default', () => {
+test('a query handed to a handle by method call is that handle, and an unrecognised receiver is named rather than assumed', () => {
   // The fixture SQL reuses the two zz_fixture_* tables test 76 and test 77 already
   // create, and adds no CREATE of its own. A fixture that creates a table adds a row
   // to the census — that is how zz_fixture_method_foreign appeared for one run of this

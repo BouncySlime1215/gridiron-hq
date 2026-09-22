@@ -37,7 +37,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { handleFor, callSites } = await import('../scripts/wiring-map.mjs');
+const { handleFor, callSites, unresolvedReceivers } = await import('../scripts/wiring-map.mjs');
 
 const fileWith = (text, foreignOnly = false) => ({ text, foreignOnlyFile: foreignOnly });
 const at = (text, needle) => text.indexOf(needle) + needle.length;
@@ -82,4 +82,61 @@ test('a name that merely appears in prose does not count', () => {
 
 test('a longer name sharing a prefix is not counted', () => {
   assert.equal(callSites('run: refreshLeagueRostersLater', 'refreshLeagueRosters'), 0);
+});
+
+/*
+ * THE OTHER HALF, and the reason naming the receiver is not enough on its own.
+ *
+ * Calling an unrecognised receiver 'app' was a false positive you could see.
+ * Calling it by its own name, and stopping there, is a false NEGATIVE you
+ * cannot: the table is filed as belonging to another database, that rule is
+ * `context`, and the gate does not print context. A real app table read only
+ * through a handle the file was handed would leave the output without a word.
+ * Trading a finding you can see for one you cannot is not an improvement, so
+ * the resolver's ignorance is reported with a count and a list on every run.
+ */
+const filesOf = (rows) => new Map(rows.map(([path, handles]) => [path, { path, foreign_handles: handles }]));
+const tablesOf = (rows) => new Map(rows.map(t => [t.table, { table: t.table, reads: t.reads ?? [], writes: t.writes ?? [] }]));
+
+test('a receiver the file was handed is reported, with where it is and what it touches', () => {
+  const got = unresolvedReceivers(
+    tablesOf([{ table: 'play_by_play', reads: [{ file: 'a.js', line: 188, handle: 'nflDb' }] }]),
+    filesOf([['a.js', []]]));
+  assert.deepEqual(got, [{ file: 'a.js', line: 188, receiver: 'nflDb', tables: ['play_by_play'] }]);
+});
+
+test('a handle the file opened itself is resolved and is not on the list', () => {
+  const got = unresolvedReceivers(
+    tablesOf([{ table: 'chat', reads: [{ file: 'a.js', line: 4, handle: 'hist' }] }]),
+    filesOf([['a.js', ['hist']]]));
+  assert.deepEqual(got, []);
+});
+
+test("the app's own queries are not on the list", () => {
+  const got = unresolvedReceivers(
+    tablesOf([{ table: 'players', reads: [{ file: 'a.js', line: 9, handle: 'app' }] }]),
+    filesOf([['a.js', []]]));
+  assert.deepEqual(got, []);
+});
+
+test('one site touching several tables is one entry, tables listed', () => {
+  const got = unresolvedReceivers(
+    tablesOf([
+      { table: 'play_by_play', reads: [{ file: 'a.js', line: 188, handle: 'nflDb' }] },
+      { table: 'pbp_participation', reads: [{ file: 'a.js', line: 188, handle: 'nflDb' }] },
+    ]),
+    filesOf([['a.js', []]]));
+  assert.equal(got.length, 1);
+  assert.deepEqual(got[0].tables, ['pbp_participation', 'play_by_play']);
+});
+
+test('both halves hold together: not the app, and on the list', () => {
+  const text = 'const plays = nflDb.prepare(`SELECT 1`)';
+  const handle = handleFor(fileWith(text), at(text, 'nflDb.prepare('), new Map()).handle;
+  assert.notEqual(handle, 'app', 'not silently the app');
+  const listed = unresolvedReceivers(
+    tablesOf([{ table: 't', reads: [{ file: 'a.js', line: 1, handle }] }]),
+    filesOf([['a.js', []]]));
+  assert.equal(listed.length, 1, 'and not silently anything else either');
+  assert.equal(listed[0].receiver, 'nflDb');
 });

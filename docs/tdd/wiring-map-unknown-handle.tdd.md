@@ -97,3 +97,46 @@ merge-order accident cannot fail a build. It stays.
   made every unrecognised handle the app's, and `name(` made every
   registry-dispatched function uncalled. Each is a single answer standing in for
   a question that was never asked.
+
+## Addendum: the false negative naming the receiver would have bought
+
+Raised by the Evidence Auditor (R52.1(b)) before this was pushed, and it was
+right. Calling an unrecognised receiver `'app'` was a false positive you could
+see. Calling it by its own name and stopping there is a false **negative** you
+cannot: the table is filed as belonging to another database,
+`table-in-another-database` is `context`, and the gate does not print context.
+A real app table read only through a handle the file was handed would have left
+the gate's output without a word. Trading a finding you can see for one you
+cannot is not an improvement.
+
+So `unresolvedReceivers` reports the resolver's ignorance with a count and the
+list on every run — report, never gate, the same posture the stale accept-list
+entries have, and for the same reason: a build that fails on it teaches people
+to rename their variable `db`.
+
+On this head, 19 sites:
+
+```
+scripts/run-historical-leaderboard.mjs  8 sites  `rdb`
+server/services/td-features.js          7 sites  `appDb` (5), `nflDb` (2)
+test/model-registry-persistence.test.js 4 sites  `upgradeDb`
+```
+
+`appDb` and `nflDb` sitting side by side in the same file is the clearest
+statement of what this cannot see: the two handles are told apart only at the
+call site of `buildTdFeatures`, and following an argument there is work this map
+does not do. The list says so out loud instead of guessing.
+
+Both halves are pinned together: the receiver is not the app, **and** it appears
+on the list.
+
+## RED / GREEN
+
+- RED `4bab4fd` — *test: RED — a handle passed in as a parameter, and a function
+  a job registry calls*. Verified red at its own tree: 3 pass / 5 fail. Failing
+  message: `an unrecognised receiver is named, not claimed as the app` —
+  `'app' !== 'nflDb'`.
+- GREEN `a997747` — *fix: GREEN — an unrecognised handle is not the app, and a
+  registration is a call*. 8/8.
+- `ae84ac6` — *test: reverse the assertion that pinned the fallback which took
+  main red*, with the old assertion quoted in place.

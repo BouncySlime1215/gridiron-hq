@@ -8,8 +8,25 @@ const WIKI_API = 'https://en.wikipedia.org/w/api.php';
 
 /** Pull the infobox "highlights" block and count accolades. */
 export function parseHighlights(wikitext) {
-  const block = wikitext.match(/highlights\s*=([\s\S]{0,4000}?)(?:\n\s*\|\s*[a-zA-Z_]+\s*=|\n\}\})/i);
-  const text = block ? block[1] : '';
+  // Scan from `highlights =` to the block's real terminator. This was a lazy
+  // [\s\S]{0,4000}? and the cap was not a safety rail, it was a cliff: when the
+  // terminator sat further than 4,000 characters away the match failed
+  // ENTIRELY, text became '' and every count below returned zero — and those
+  // zeros get written to the table by the caller as a successful sync. The
+  // window is exceeded exactly when the highlights block is long, which is to
+  // say for the players with the most to report.
+  //
+  // Raising the cap only moves the cliff. What bounds the block is its
+  // terminator, so find that instead and let the block be as long as it is.
+  const start = wikitext.match(/highlights\s*=/i);
+  const rest = start ? wikitext.slice(start.index + start[0].length) : null;
+  // The terminator is still required: a block with neither a following key nor
+  // a closing `}}` is a malformed infobox, and reading to end-of-article would
+  // count every award mentioned in the prose. `found:false` is also load-
+  // bearing — the caller labels the row `espn` rather than `wikipedia+espn`.
+  const end = rest === null ? null : rest.match(/\n\s*\|\s*[a-zA-Z_]+\s*=|\n\}\}/);
+  const block = end ? rest.slice(0, end.index) : null;
+  const text = block ?? '';
   const num = re => {
     const m = text.match(re);
     if (!m) return 0;
@@ -33,7 +50,11 @@ export function parseHighlights(wikitext) {
     super_bowls: num(/(\d+)×\s*\[?\[?Super Bowl champion/i) || (/Super Bowl\s*(champion|[IVXL]+\s*champion)/i.test(text) ? 1 : 0),
     all_rookie: /All-Rookie/i.test(text) ? 1 : 0,
     major_awards: majors.join(', ') || null,
-    found: !!block
+    // `block` is now the block's TEXT, not a match object, so an empty block is
+    // falsy where the match used to be truthy. An empty highlights block is
+    // still a block that was found — a player with no accolades — and must stay
+    // distinguishable from an article where the field is absent entirely.
+    found: block !== null
   };
 }
 

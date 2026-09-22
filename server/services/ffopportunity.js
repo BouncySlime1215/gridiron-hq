@@ -6,8 +6,11 @@
  * never legal as a same-week pregame feature. We store them by season/week and
  * expose only strictly-prior rolling summaries to the shared player engine.
  *
- * Data license: CC BY 4.0 (ffverse/ffopportunity data). Package code is GPL-3;
- * no package code is copied or executed here.
+ * Data license: CC BY-SA 4.0. The ffopportunity README's "Terms of Use" says
+ * the models and expected points data are licensed under Creative Commons
+ * Attribution-ShareAlike 4.0 (read 2026-09-22 at the pinned commit below; this
+ * said CC BY 4.0 until then). Package code is GPL-3; no package code is copied
+ * or executed here.
  */
 import { db, rows } from '../db/index.js';
 import { parseCsv } from './nflverse.js';
@@ -18,7 +21,8 @@ export const FFOPPORTUNITY_SOURCE = Object.freeze({
   repo: 'ffverse/ffopportunity',
   release: 'latest-data',
   pinned_code_commit: '74dcb35a112a71e5349b36abe940316067ec4fec',
-  data_license: 'CC BY 4.0',
+  data_license: 'CC BY-SA 4.0',
+  license_url: 'https://creativecommons.org/licenses/by-sa/4.0/',
   code_copied: false
 });
 

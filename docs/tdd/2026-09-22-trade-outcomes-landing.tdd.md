@@ -231,3 +231,9 @@ ledger's state reaches its response as `outcome_ledger` (:783).
   `1898948e`). All SQL is parameterised. No credential column is read or
   written. The only migration is additive `067`. Nav, pages and the client are
   untouched.
+- Main moved during this pass. `f9cf30a8` merges `origin/main` `d6d7bd5a`
+  (#116). That merge touched only `scripts/symbol-reach.mjs`, its test, and its
+  doc (`git diff --name-only 6a61a905 f9cf30a8`). The `server` subtree hash is
+  `3fa8b5079d19` on both `1898948e` (where the 50-row sweep ran) and `f9cf30a8`,
+  and so is every swept file's blob. So the figures above describe the pushed
+  code. `test/symbol-reach-two-counts.test.js` passed 18/18 on `f9cf30a8`.

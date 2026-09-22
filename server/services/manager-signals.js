@@ -575,21 +575,57 @@ export function signalRowsFor(leagueId) {
  *
  * Absent table or no rows is `as_of: null` with a reason, never a borrowed
  * stamp: "collected this morning" and "never collected" must not look alike.
+ *
+ * THREE STATES, NOT TWO, and `read_state` names which one rather than leaving a
+ * consumer to read the sentence. `tableExists` followed by a read covers "not
+ * there" and "there and readable" and silently assumes there is no third — but
+ * this table is in NO migration. collect-league-transactions.mjs creates it with
+ * CREATE TABLE IF NOT EXISTS, and IF NOT EXISTS means a script that gains a
+ * column does not add it to a database that already has the table. A database
+ * collected before `last_seen_at` existed keeps the old shape forever, and no
+ * migration will ever repair it.
+ *
+ * Unguarded, that third state raised ERR_SQLITE_ERROR out of here and through
+ * all four call sites — selfRead, timingRead, vetoClimate and the managers
+ * route — so one drifted column in one hand-run script took down the trade read
+ * entirely. The fix is not a bare catch: swallowing it would recreate the defect
+ * this accessor's own consumers were written to remove, reporting "nobody has
+ * collected anything" about a table that is full. It is REPORTED, as its own
+ * state, with the error kept.
+ *
+ * The words are selfRead's ('absent' | 'unreadable' | 'read'), not a second
+ * vocabulary for the same distinction: two names for one state is how two
+ * surfaces come to disagree about the same rows.
  */
 export function transactionsCollected(leagueId, season) {
   const collector = 'scripts/collect-league-transactions.mjs (off-server; nothing on the deployed app writes this table)';
   const empty = { as_of: null, rows: 0, first_seen: null, collected_by: collector };
   if (!tableExists('league_transactions_raw')) {
-    return { ...empty, reason: 'league_transactions_raw does not exist on this database — the collector has never run here' };
+    return { ...empty, read_state: 'absent',
+      reason: 'league_transactions_raw does not exist on this database — the collector has never run here' };
   }
-  const [r] = rows(`SELECT COUNT(*) AS n, MAX(last_seen_at) AS as_of, MIN(first_seen_at) AS first_seen
-                    FROM league_transactions_raw WHERE league_id = ? AND (? IS NULL OR season = ?)`,
-  leagueId, season ?? null, season ?? null);
+  let r;
+  try {
+    [r] = rows(`SELECT COUNT(*) AS n, MAX(last_seen_at) AS as_of, MIN(first_seen_at) AS first_seen
+                FROM league_transactions_raw WHERE league_id = ? AND (? IS NULL OR season = ?)`,
+    leagueId, season ?? null, season ?? null);
+  } catch (e) {
+    // Named, with the database's own words kept. "The table is there and would
+    // not read" sends whoever sees it to the collector script's DDL; "the
+    // collector has never run here" sends him to run the collector, which would
+    // not fix this and would not tell him so.
+    return { ...empty, read_state: 'unreadable',
+      reason: `league_transactions_raw is on this database but would not read: ${e?.message ?? e}`
+            + ` — its shape is whatever ${collector.split(' (')[0]} last created, and no migration owns it` };
+  }
   if (!r || !r.n) {
-    return { ...empty, reason: `no transactions collected for this league yet — run ${collector.split(' (')[0]}` };
+    // A read that worked and found nothing. Empty is a finding, so it is 'read'
+    // and not a third kind of absence.
+    return { ...empty, read_state: 'read',
+      reason: `no transactions collected for this league yet — run ${collector.split(' (')[0]}` };
   }
   return { as_of: r.as_of ?? null, rows: r.n, first_seen: r.first_seen ?? null,
-    collected_by: collector, reason: null };
+    collected_by: collector, read_state: 'read', reason: null };
 }
 
 /**

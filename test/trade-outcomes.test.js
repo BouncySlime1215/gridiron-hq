@@ -55,7 +55,7 @@ await runMigrations();
 
 const {
   settleObservedOutcomes, recordProposedOutcome, recordConsideredOnly,
-  recordSyntheticOutcome, outcomesFor,
+  recordSyntheticOutcome, outcomesFor, recordProposalSlate: slateRecorder,
 } = await import('../server/services/trade-outcomes.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -355,4 +355,98 @@ test('a not_proposed row without a reason is refused by the table itself', () =>
   assert.throws(() => run(`INSERT INTO trade_outcomes (league_id, season, source, status, created_at)
     VALUES (7, 2025, 'considered_only', 'not_proposed', '2025-10-08T12:00:00Z')`),
   /CHECK|constraint/i, 'the reason is what makes a non-event a datum');
+});
+
+/* ----------------- the slate recorder: what was sent AND what was not */
+
+const idea = (id, o = {}) => ({
+  id, counterparty: { roster_id: '9' },
+  give: [{ player_id: 1 }], get: [{ player_id: 2 }],
+  acceptance: { band: { low: 0.4, mid: 0.55, high: 0.7 }, basis: 'heuristic_anchored' },
+  ...o,
+});
+
+test('slate: a run records what it sent AND what it considered and did not send', () => {
+  const r = slateRecorder(11, 2025, {
+    ideas: [idea('idea-a'), idea('idea-b'), idea('idea-c')],
+    result: {
+      source: 'model',
+      proposals: [{ idea_id: 'idea-a' }],
+      rejected: [{ idea_id: 'idea-b', reason: 'cited a player who is not in this league' }],
+    },
+    modelVersion: 'trade-proposals-v1', proposerTeamId: '1',
+  });
+  assert.equal(r.state, 'recorded');
+  assert.equal(r.proposed, 1);
+  assert.equal(r.considered, 2, 'the two that were not sent are the control group, and both are rows');
+
+  const byIdea = Object.fromEntries(outcomesFor(11, 2025).map(o => [o.idea_id, o]));
+  assert.equal(byIdea['idea-a'].source, 'app_proposed');
+  assert.equal(byIdea['idea-a'].model_p_accept, 0.55);
+  assert.equal(byIdea['idea-a'].model_basis, 'heuristic_anchored');
+  assert.equal(byIdea['idea-a'].counterparty_team_id, '9');
+
+  // The verifier's own words where it gave them.
+  assert.equal(byIdea['idea-b'].source, 'considered_only');
+  assert.match(byIdea['idea-b'].not_proposed_reason, /not in this league/);
+  // And an honest sentence where it did not, rather than a reason invented for it.
+  assert.match(byIdea['idea-c'].not_proposed_reason, /did not select it/);
+  assert.match(byIdea['idea-c'].not_proposed_reason, /gave no reason of its own/);
+  // The low number is the datum: a considered_only row still carries the prediction.
+  assert.equal(byIdea['idea-c'].model_p_accept, 0.55);
+});
+
+test('slate: a cache hit records NOTHING, because no decision was made on that request', () => {
+  const before = outcomesFor(11, 2025).length;
+  const r = slateRecorder(11, 2025, {
+    ideas: [idea('idea-d')],
+    result: { source: 'cache', proposals: [{ idea_id: 'idea-d' }], rejected: [] },
+    modelVersion: 'trade-proposals-v1',
+  });
+  assert.equal(r.state, 'no_decision_made');
+  assert.equal(r.proposed, 0);
+  assert.equal(r.considered, 0);
+  assert.equal(outcomesFor(11, 2025).length, before,
+    'GET /proposals is called on every page open; writing on a re-read would weight one '
+    + 'decision by how often somebody refreshed');
+  assert.match(r.reason, /cache/);
+  assert.match(r.reason, /once per page open/);
+});
+
+test('slate: a second fresh run over the same slate adds nothing', () => {
+  const before = outcomesFor(11, 2025).length;
+  const r = slateRecorder(11, 2025, {
+    ideas: [idea('idea-a'), idea('idea-b'), idea('idea-c')],
+    result: { source: 'model', proposals: [{ idea_id: 'idea-a' }], rejected: [] },
+    modelVersion: 'trade-proposals-v1', proposerTeamId: '1',
+  });
+  assert.equal(r.proposed, 0);
+  assert.equal(r.considered, 0);
+  assert.equal(r.skipped, 3, 'all three are already recorded for this source');
+  assert.equal(outcomesFor(11, 2025).length, before);
+});
+
+test('slate: the same idea may be proposed in one slate and dropped in another', () => {
+  // Deliberate: the unique index includes `source`. Collapsing these two would
+  // delete the contrast the ledger exists to measure — the model changed its mind
+  // about the same package, which is exactly what a calibration wants to see.
+  const r = slateRecorder(11, 2025, {
+    ideas: [idea('idea-b')],
+    result: { source: 'model', proposals: [{ idea_id: 'idea-b' }], rejected: [] },
+    modelVersion: 'trade-proposals-v1', proposerTeamId: '1',
+  });
+  assert.equal(r.proposed, 1, 'idea-b was considered_only before; as app_proposed it is a new fact');
+  const both = outcomesFor(11, 2025).filter(o => o.idea_id === 'idea-b');
+  assert.deepEqual(both.map(o => o.source).sort(), ['app_proposed', 'considered_only']);
+});
+
+test('slate: an idea with no acceptance band is skipped, never written unscoreable', () => {
+  const r = slateRecorder(11, 2025, {
+    ideas: [idea('idea-noband', { acceptance: null })],
+    result: { source: 'model', proposals: [{ idea_id: 'idea-noband' }], rejected: [] },
+    modelVersion: 'trade-proposals-v1', proposerTeamId: '1',
+  });
+  assert.equal(r.proposed, 0);
+  assert.equal(r.skipped, 1,
+    'the table requires the prediction on an app_proposed row, so an unscoreable one is not a row');
 });

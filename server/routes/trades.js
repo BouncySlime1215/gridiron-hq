@@ -34,7 +34,9 @@ import { counterpartyLayer, valuationMap, playerValuation, RECEPTIVENESS_RANGE, 
 // Every other route in this file is a read behind a bearer session; the one that
 // triggers work needs the administrator grant on top (server/platform/legacy-access.js).
 import { requirePlatformAdmin } from '../platform/legacy-access.js';
-import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE } from '../services/trade-proposals.js';
+import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE, PROMPT_VERSION }
+  from '../services/trade-proposals.js';
+import { recordProposalSlate } from '../services/trade-outcomes.js';
 import { lineupCall } from '../services/lineup-brain.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
@@ -756,9 +758,29 @@ r.get('/:leagueId/proposals', async (req, res, next) => {
     // offering someone who exists in the league but is in no idea here — and a
     // universe built from the deals themselves is blind to exactly that.
     const universe = found?.league_player_names ?? [];
-    res.json(await proposalsFor(lg.id, {
+    const result = await proposalsFor(lg.id, {
       ideas, universe, call: liveCaller(callClaude), cache: dbCache(lg.id),
-    }));
+    });
+    // THE LEDGER WRITE, HERE AND NOWHERE DOWNSTREAM. This is the only layer that
+    // holds both the whole slate that passed the edge test and the model's answer,
+    // so it is the only layer that can see which candidates were considered and
+    // NOT sent. Those are the control group for any later calibration, and past
+    // this point they are gone. `recordProposalSlate` no-ops on a cache hit, so a
+    // page refresh does not turn one decision into many rows.
+    //
+    // Wrapped, because the proposals are the product and the ledger is the
+    // measurement: a measurement must never be able to fail the thing it measures.
+    // NOT a bare catch — the reason is attached to the response, so a ledger that
+    // has gone inert says so on the surface instead of going quiet.
+    let ledger = null;
+    try {
+      ledger = recordProposalSlate(lg.id, lg.season ?? null, {
+        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: req.query.team_id ?? null,
+      });
+    } catch (e) {
+      ledger = { state: 'write_failed', reason: String(e?.message ?? e) };
+    }
+    res.json({ ...result, outcome_ledger: ledger });
   } catch (e) { next(e); }
 });
 

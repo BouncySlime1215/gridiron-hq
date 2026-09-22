@@ -21,26 +21,27 @@ mutation the old pattern also killed is marked as such rather than claimed.
 
 ## The five questions
 
-- **Well built?** The subject is the test suite itself. Twenty-one assertions
+- **Well built?** The subject is the test suite itself. Twenty-two assertions
   across seven files asserted the existence of a sentence rather than its
   content; each now names the one clause that carries the fact, and, where two
   sentences in the same code are confusable, rules the other one out by name.
-  Fourteen were found in the first pass (§1, §2) and seven in the second (§2c),
+  Fourteen were found in the first pass (§1, §2) and eight in the second (§2c),
   which covers the rest of this thread's allocated suites.
 - **Stats or made up?** Neither — these are string contracts. The numbers here
   are mutation counts, and every one of them was run, not reasoned about.
-- **How do we know?** Twenty-nine mutations, each applied to the PRODUCER of
-  the sentence, with the file's SHA-256 before and after, plus a control that
-  must be a no-op. Twenty-one are positives: all twenty-one are killed by the
-  new assertion, and twenty of twenty-one survived the assertion they replaced.
-  The twenty-first (M9) was killed by a different test in the same file, which
-  is recorded as such. Eight are negations and are counted separately, for the
+- **How do we know?** Thirty mutations, each applied to the PRODUCER of the
+  sentence, with the file's SHA-256 before and after, plus a control that must
+  be a no-op. Twenty-two are positives: all twenty-two are killed by the new
+  assertion, and twenty-one of twenty-two survived the assertion they replaced.
+  The exception (M9) was killed by a different test in the same file, which is
+  recorded as such. Eight are negations and are counted separately, for the
   reason in §2b. The table is re-derivable by anyone: the runner and the
   mutation list are committed under `docs/tdd/sweeps/`.
 - **Pointed anywhere else?** It was, and §2c is the result: the sweep was
-  carried over the rest of this thread's allocated suites and found seven more,
-  including one (site 21) whose alternation had a branch the code cannot
-  produce at all. Files outside this thread's allocation were read and left
+  carried over the rest of this thread's allocated suites and found eight more,
+  including one (site 21) whose alternation had a branch the code cannot produce
+  at all, and one (site 22) that the pass's own new rule caught after its first
+  application had missed it. Files outside this thread's allocation were read and left
   alone: `trade-verify.test.js:212` is a tense variant of one phrase, which is
   a real closed set.
 - **How does it unify?** One question answers every case: *can the fixture
@@ -130,12 +131,12 @@ absence of an assertion as the strength of one. The eleven-of-twelve figure
 belongs to the positive rows alone and should always be quoted that way.
 
 The same rule was applied to the second pass without being re-argued: §2c's
-seven sites were checked the same way and all seven were `assert.match`, so the
-nine-of-nine figure is homogeneous too; the two negations that pass added carry
-their own rows (M28, M29). The combined table, split by shape, is at the end of
-§3.
+eight sites were checked the same way and all eight were positive assertions, so
+the ten-of-ten figure is homogeneous too; the two negations that pass added
+carry their own rows (M28, M29), and the eighth site's row is M30. The combined
+table, split by shape, is at the end of §3.
 
-## 2c. The second pass: seven more sites, in three more suites
+## 2c. The second pass: eight sites, in three more suites
 
 The file's own answer to *pointed anywhere else?* was "the same shape is worth
 a pass over every suite, not only these four." This is that pass, over the rest
@@ -152,8 +153,22 @@ reach.
 | 19 | `manager-data-pipeline.test.js:394` the declared-unpriceable reason | `/priceable\|never priced\|context only/i` | 3 of 3, all in one sentence | the whole clause, and rules out the undeclared-source sentence |
 | 20 | `manager-data-pipeline.test.js:412` the undeclared-source reason | `/not declared\|undeclared\|SIGNAL_SOURCES/i` | **2 of 3** | the whole clause, the offending source's own name, and rules out the declared-unpriceable sentence |
 | 21 | `trade-route-retirement.test.js:61` the tombstone pointer | `/\/api\/\|trade-engine/` | **1 of 2** | anchored, `^\/api\//` |
+| 22 | `manager-signals-api.test.js:633` `SIGNAL_SOURCES.tx.refreshed` | `/collect-league-transactions\.mjs/` | not an alternation — a FRAGMENT of a constant | equality on the registry string |
 
-All seven were `assert.match` before the sweep — checked with
+**Site 22 is this section finding its own miss, and it is recorded rather than
+quietly folded in.** Sites 15 and 18 established the rule that a registry
+CONSTANT is asserted whole. Applying it, I fixed `SIGNAL_SOURCES.chat.refreshed`
+and left `SIGNAL_SOURCES.tx.refreshed` — its sibling, three entries down the
+same frozen object, interpolated into the served `why` the same way, and
+asserted by a bare fragment naming only the script. It is not an alternation, so
+the grep that found the other seven could not see it; it took re-reading the
+suites for the SHAPE rather than for the pattern. The lesson is the useful half:
+a rule stated from two examples is worth re-running over the files that produced
+them, because the first application of a new rule is where its own siblings get
+missed. `tx.refreshed` carries three facts — the script, that it runs
+off-server, and where the date lives — and the fragment pinned one.
+
+The first seven were `assert.match` before the sweep — checked with
 `git show 6422367:<file> | sed -n '<line>p'`, not assumed — so §2b's rule
 applies unchanged and the second pass's survival figure is drawn over a
 homogeneous set. The two `assert.doesNotMatch` assertions this pass ADDED are
@@ -185,6 +200,25 @@ somewhere LIVE to point, and a live place is a route. The fix is an anchor
 rather than a phrase: `^\/api\//` also rules out a pointer that merely mentions
 an API path somewhere inside a sentence.
 
+**The sweep is now complete over this thread's suites, and that is a measured
+claim rather than a stopping point.** After the second pass, a grep for a
+single-line `assert.match` or `assert.doesNotMatch` carrying a `|` returns
+**zero** across all sixteen of them — `find-trades`, `league-brain`,
+`manager-data-pipeline`, `manager-identity-seeding`, `manager-signals-api`,
+`trade-acceptance`, `trade-brain-surface`, `trade-engine-correctness`,
+`trade-evidence`, `trade-manager-read`, `trade-proposals`,
+`trade-route-retirement`, `trade-season-span`, `trade-tactics`, `valuation-map`,
+`valuation-panel`. A multiline search, which catches an alternation whose regex
+sits on a later line than the `assert`, returns exactly one site in the whole
+set and it is outside this thread's allocation: `trade-verify.test.js:212`,
+`/you (were|are) wrong/i`, a tense variant of one phrase and a real closed set.
+
+What that number does NOT say is that the suites are free of the defect. Site 22
+is the proof: it is not an alternation, so no grep for a pipe could ever have
+found it, and the count above would have read zero with it still in place. The
+pattern is findable by grep; the SHAPE is not. Any later pass should read for
+the shape.
+
 ## 3. Mutations
 
 Every row: the producer file's SHA-256 (first 12) before and after, the exact
@@ -205,7 +239,7 @@ again, which is where the `survived` column comes from. Every injection is
 reverted and the file is re-hashed against its baseline before the next row;
 the runner exits non-zero if any row did not behave as the list says.
 
-Re-derived with that runner: **30 of 30 rows behaved as the list says** — 29
+Re-derived with that runner: **31 of 31 rows behaved as the list says** — 30
 injections that APPLIED and one CONTROL that did not, over both passes — and
 the seven suites are left byte-identical to `HEAD` afterwards. The runner also
 reports the `file:line` of the assertion that threw, which is what the shape
@@ -249,6 +283,7 @@ Baselines: `server/services/trade-tactics.js` `c5808df9aa97`,
 | M27 | a tombstone points at a module instead of a live route | `APPLIED d17644bbc58d -> a21bb2ebc332` | **RED** 5/4/1 at `:66` | **survived** 5/5/0 |
 | M28 | the declared-unpriceable reason also claims the source is undeclared | `APPLIED bbc1ebea6dab -> 9366cb155c7e` | **RED** 27/26/1 at `:399` | pass, not comparable |
 | M29 | the undeclared-source reason also claims declared priceable: false | `APPLIED bbc1ebea6dab -> 29889afda31e` | **RED** 27/26/1 at `:422` | pass, not comparable |
+| M30 | the transactions cadence keeps the script name and drops everything else | `APPLIED bbc1ebea6dab -> 3d4be4b1d5f7` | **RED** 27/26/1 at `:638` | **survived** 27/27/0 |
 | CONTROL | a pattern that is not in the file | `NO-OP - pattern not found` | — | — |
 
 M13 to M18 are the first pass's negation rows, added after §2b. Each is killed
@@ -274,14 +309,14 @@ diff.
 | shape | rows | killed by the new assertion | survived the assertion it replaced |
 |---|---|---|---|
 | positive, first pass (M1-M12) | 12 | 12 of 12 | **11 of 12** |
-| positive, second pass (M19-M27) | 9 | 9 of 9 | **9 of 9** |
-| positive, total | 21 | 21 of 21 | **20 of 21** |
+| positive, second pass (M19-M27, M30) | 10 | 10 of 10 | **10 of 10** |
+| positive, total | 22 | 22 of 22 | **21 of 22** |
 | negation (M13-M18, M28-M29) | 8 | 8 of 8 | **not comparable** |
 | control | 1 | `NO-OP` as listed | — |
 
 The one positive that did not survive its old assertion is M9, in the first
 pass, and it is recorded in the table as killed by a DIFFERENT test in the same
-file rather than by the assertion under measurement. Every one of the nine
+file rather than by the assertion under measurement. Every one of the ten
 second-pass positives survived, which is the stronger result and the expected
 one: a hedge that the fixture can only satisfy one branch of will pass any
 rewording that keeps any branch.
@@ -556,6 +591,18 @@ was unreachable in the real code — so the injection is exactly the defect the
 dead branch was hiding: a tombstone pointing a caller at a source file instead
 of a live route, passing.
 
+**M30** — `manager-signals.js`, APPLIED `bbc1ebea6dab -> 3d4be4b1d5f7`
+
+```diff
+-    refreshed: 'only when scripts/collect-league-transactions.mjs is run (off-server; see transactions.as_of)',
++    refreshed: 'scripts/collect-league-transactions.mjs',
+```
+
+Old `/collect-league-transactions\.mjs/` matches the bare script path exactly,
+which is the whole defect: the fragment was satisfied by a string that had lost
+both of the other facts the sentence carries. Site 22, the sibling entry §2c
+records as this section's own miss.
+
 **M28** — `manager-signals.js`, APPLIED `bbc1ebea6dab -> 9366cb155c7e`, NEGATION
 
 ```diff
@@ -577,6 +624,47 @@ Killed at the `assert.doesNotMatch` on `manager-data-pipeline.test.js:422`. The
 clause is appended rather than inserted, for the reason given in §3: inserted
 mid-sentence it broke the positive assertion's contiguous match and measured
 the wrong assertion.
+
+## 3b. The check, and what the numbers are worth
+
+Full check on the tree these commits carry, `npm run check` — typecheck, lint,
+the whole suite, build and `start:smoke` — exit 0:
+
+**3,007 tests, 2,966 pass, 0 fail**; lint clean over 877 JavaScript files, which
+is also the tracked count from `git ls-tree` (the walker counts untracked files
+too, so the two agreeing is worth stating rather than assuming); build clean;
+startup smoke passed on an isolated database.
+
+Two things about that figure, because a suite number with neither is a number
+nobody can grade.
+
+**What moved during the run, measured either side.** `git write-tree` before and
+after: `796327de6fe4` both times. `node_modules` mtime before and after:
+`1789835330` both times. A tree that moves inside the window voids the run
+whatever the numbers say, and an install anywhere in the container voids it the
+same way with nothing failing visibly — neither shows up as anything but a wrong
+number, so a recorded hash that either matches or does not is the only check that
+works. Both matched.
+
+**Which isolation this was.** Not source-isolated and not dependency-isolated:
+this ran in place in the container's own working tree against the container's
+single `node_modules`, with nothing else running against either. That is a weaker
+guarantee than an isolated run and the pair of hashes above is what stands in for
+it — they say nothing moved, not that nothing could have.
+
+`npm ci` has not been run in this container. A fresh clone fails the
+offline-guard tests with `ERR_MODULE_NOT_FOUND` until it is, which looks exactly
+like a regression and is not one.
+
+**One caveat on the "docs are invisible to the suite" shortcut**, which this file
+is a natural place to get wrong. It is false in exactly one place:
+`test/nfl-execution-integrity.test.js:258` reads `docs/CLAUDE-NEXT-STEPS.md` byte
+for byte, because `nfl-research-lab.js:279` serves that file at runtime and
+`paths.js:55` names it `CANONICAL_PLAN`. Editing that one path can turn the suite
+red. No commit on this branch touches it — checked against each commit, not
+assumed — so reusing a suite figure across the docs-only commits here is sound.
+Every other path under `docs/` is invisible to typecheck, lint, the suite, the
+build and the smoke.
 
 ## 4. Coverage of the suites these mutations reach
 

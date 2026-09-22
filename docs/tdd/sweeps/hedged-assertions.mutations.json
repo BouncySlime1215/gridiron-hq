@@ -352,6 +352,18 @@
    "to": "    return `source '${source}' is not declared in SIGNAL_SOURCES, so nothing may price on it (declared priceable: false)`;"
   },
   {
+   "id": "M30",
+   "what": "the transactions cadence keeps the script name and drops everything else",
+   "shape": "positive",
+   "file": "server/services/manager-signals.js",
+   "suites": [
+    "test/manager-signals-api.test.js"
+   ],
+   "expect": "red",
+   "from": "    refreshed: 'only when scripts/collect-league-transactions.mjs is run (off-server; see transactions.as_of)',",
+   "to": "    refreshed: 'scripts/collect-league-transactions.mjs',"
+  },
+  {
    "id": "CONTROL",
    "what": "a pattern that is not in the file",
    "file": "server/services/counterparty-pricing.js",

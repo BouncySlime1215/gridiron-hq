@@ -225,14 +225,55 @@ function storeYardageCv(season, gsisId) {
   if (!gsisId) return null;
   const key = `${season}|${gsisId}`;
   if (storeCvCache.has(key)) return storeCvCache.get(key);
+  // No try/catch. A player the store has nothing on never throws — it answers
+  // `{ error: 'no earlier player observations' }`, which the `?.vector ?? {}`
+  // below turns into the honest null. So the only thing a catch here could
+  // ever have caught was a genuine read fault (a dropped column, a locked
+  // database), and flattening that to the same null is what made a store that
+  // could not be read indistinguishable from a player with nothing to measure.
+  // Table absence is asked about up front instead, by featureStoreState().
   let cv = null;
-  try {
-    const v = buildPlayerFeatureVector(season, 1, gsisId)?.vector ?? {};
-    const m = v.base_total_yards__mean_6, s = v.base_total_yards__sd_6;
-    if (Number.isFinite(m) && Number.isFinite(s) && m > 10) cv = s / m;
-  } catch { cv = null; }
+  const v = buildPlayerFeatureVector(season, 1, gsisId)?.vector ?? {};
+  const m = v.base_total_yards__mean_6, s = v.base_total_yards__sd_6;
+  if (Number.isFinite(m) && Number.isFinite(s) && m > 10) cv = s / m;
   storeCvCache.set(key, cv);
   return cv;
+}
+
+/**
+ * WHAT `storeYardageCv()` READS, AND WHY IT CAN BE MISSING.
+ *
+ * `playerHistory()` (nfl-weekly-feature-store.js:215) reads these three tables
+ * raw, so any one of them being absent takes the whole weekly-yardage read down
+ * — not one player's worth of it.
+ */
+export const FEATURE_STORE_TABLES = Object.freeze([
+  'nfl_player_week_features', 'nfl_ngs', 'nfl_pfr_adv',
+]);
+
+export const FEATURE_STORE_SOURCE =
+  'server/services/nfl-weekly-feature-store.js reads them; they are filled by the '
+  + 'weekly ingest jobs, so a fresh box or a database restored from before those '
+  + 'migrations has them empty or absent';
+
+/**
+ * Are the weekly feature store's tables there, right now.
+ *
+ * Deliberately not cached, for the same reason as leagueHistoryState(): a
+ * migration can create these inside the life of a process, and a cached absence
+ * would outlive the thing that fixes it.
+ */
+export function featureStoreState() {
+  const missing = FEATURE_STORE_TABLES.filter(t =>
+    !rows(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, t).length);
+  if (!missing.length) return Object.freeze({ present: true, reason: null, source: FEATURE_STORE_SOURCE });
+  return Object.freeze({
+    present: false,
+    reason: `${missing.join(', ')} ${missing.length > 1 ? 'are' : 'is'} not on this database, so `
+      + 'weekly yardage volatility cannot be read at all. This is "we cannot look", not '
+      + '"this manager drafted nobody measurable".',
+    source: FEATURE_STORE_SOURCE,
+  });
 }
 
 /** roster_id -> espn_member_id for one league-season, used to attribute the
@@ -411,7 +452,7 @@ function metricsForPicks(list, rounds) {
  * draft, so a last-round flyer can otherwise score as a 20-round "reach" and
  * swamp a manager's mean. Clipping was added after exactly that happened.
  */
-function draftSeason(leagueId, season, allPicks, teamAbbr, currentSeason) {
+function draftSeason(leagueId, season, allPicks, teamAbbr, currentSeason, storePresent = true) {
   const picks = allPicks.filter(p => p.league_id === leagueId && p.season === season);
   if (!picks.length) return null;
   const members = teamMembers(leagueId, season);
@@ -446,7 +487,10 @@ function draftSeason(leagueId, season, allPicks, teamAbbr, currentSeason) {
       brand_gap: rank != null && priorRank != null ? (rank - priorRank) / skillPerRound : null,
       nfl_team: nflTeamOf(season, p, teamAbbr, currentSeason),
       prior_cv: priorCv.get(p.app_player_id) ?? null,
-      store_cv: SKILL.has(p.position) ? storeYardageCv(season, p.gsis_id) : null,
+      // Asked once per build rather than per player: with the store's tables
+      // absent this would throw on every skill pick, and the answer is the same
+      // for all of them. The absence is named on the build's own result.
+      store_cv: storePresent && SKILL.has(p.position) ? storeYardageCv(season, p.gsis_id) : null,
       // Linear pick-value weight. Any decay curve here is a choice; a linear one
       // at least cannot be tuned after the fact to flatter a conclusion.
       capital: (totalPicks + 1 - (p.overall_pick ?? totalPicks)) / totalPicks,
@@ -622,6 +666,7 @@ export function leagueDraftPicksState() {
  */
 export function buildManagerArchetypes({ luckPanel = null } = {}) {
   const draftState = leagueDraftPicksState();
+  const storeState = featureStoreState();
   let allPicks = [];
   let leagueSeasons = [];
   let currentSeason = null;
@@ -640,7 +685,7 @@ export function buildManagerArchetypes({ luckPanel = null } = {}) {
     // only an honest answer for this season; nflTeamOf refuses it for older ones.
     currentSeason = Math.max(...leagueSeasons.map(l => l.season));
     for (const { league_id, season } of leagueSeasons) {
-      const got = draftSeason(league_id, season, allPicks, teamAbbr, currentSeason);
+      const got = draftSeason(league_id, season, allPicks, teamAbbr, currentSeason, storeState.present);
       if (got) draftRows.push(...got);
     }
   }
@@ -689,6 +734,11 @@ export function buildManagerArchetypes({ luckPanel = null } = {}) {
     // are unaffected — they never read league_draft_picks.
     draft_data_state: draftState.present ? 'present' : 'table_absent',
     draft_data_reason: draftState.reason,
+    // Same two-nulls-apart rule for the weekly feature store: risk_store_yard_cv
+    // is absent both when fewer than four skill picks had a computable CV and
+    // when the store could not be read at all, and only this says which.
+    feature_store_state: storeState.present ? 'present' : 'table_absent',
+    feature_store_reason: storeState.reason,
     league_seasons: leagueSeasons.length,
     managers: new Set(tagged.map(r => r.member_id)).size,
     draft_manager_seasons: draftRows.length,

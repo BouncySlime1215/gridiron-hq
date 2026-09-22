@@ -133,6 +133,14 @@ test('G1 settle turns a proposal and its answer into one observed row', () => {
   assert.equal(out[0].espn_tx_id, 'tx-accepted', 'the row carries its join key back to the raw table');
   assert.equal(out[0].proposer_team_id, '1');
   assert.equal(out[0].counterparty_team_id, '2');
+  // The package's DIRECTION. items(1, 2) moves player 101 from team 1 to team 2
+  // and player 202 back, and team 1 proposed, so 101 is what the proposer gives.
+  // A writer that filed the two sides the wrong way round passes every other
+  // assertion here and teaches a later model that people accept the reverse deal.
+  assert.deepEqual(JSON.parse(out[0].give_json).map(i => i.playerId), [101],
+    'give is what left the proposer\'s roster');
+  assert.deepEqual(JSON.parse(out[0].get_json).map(i => i.playerId), [202],
+    'get is what arrived on the proposer\'s roster');
   assert.equal(out[0].proposed_at, '2025-10-01T12:00:00Z');
   assert.equal(out[0].resolved_at, '2025-10-01T18:00:00Z',
     'the stamp of the ANSWER, not of the proposal and not of this run');

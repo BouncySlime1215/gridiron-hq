@@ -179,7 +179,8 @@ S-00"). Nothing above the line was edited afterwards.*
 | contract + BH run | `a9a2d80c` | docs: statistical method contract with BH over the holdout ledger |
 | this evidence file | `7da8facb` | docs: S-00 evidence: census, BH result, forward weeks, mutation sweep, findings |
 | review round 1 fixes (section 13) | `1c9d6650` | docs: S-00 review round 1: name the 2026 job, the second pair-accuracy producer and the registry's sealed season |
-| review round 2 fixes (section 14) | listed in section 14 | docs: S-00 review round 2: name nfl_model_growth as the second caller of the weekly retrain |
+| review round 2 fixes (section 14) | `d46ea75b` | docs: S-00 review round 2: name nfl_model_growth as the second caller of the weekly retrain |
+| round 2 sha record | the commit after `d46ea75b` | docs: S-00 evidence: record the round-2 commit sha |
 
 The PR number is not assigned yet. The branch is pushed and no PR is opened,
 per the unit's instructions. Cite these as `#N` + subject + sha once a PR
@@ -765,7 +766,7 @@ Read together:
   one started with the web server about 25 minutes earlier. That is reported
   here, not acted on (see the report's open questions).
 
-What changed, text only:
+What changed, text only, in commit `d46ea75b`:
 
 | file | change |
 |---|---|

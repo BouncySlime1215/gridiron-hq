@@ -4,16 +4,28 @@
 its 8 call sites in `buildFitSpecs`), `test/shrinkage-fit-efficiency-
 weighting.test.js` (new). Off `main` `654ff93`.
 
-**GATE CLOSED, per Plan 07 §2.3 and Auditor unit 17b.** Reproduction run
-below, against the real in-file `fitAllK`/`buildFitSpecs` (not a mirror),
-matches the Explorer's package #22 (`EFFW-SPEC.md`) on all five headline k
-values (within 0.02%–1.1%) and both MAE-delta/CI verdicts (2024
-indistinguishable, 2023 still significantly worse). Confirms the fitted
-efficiency k does NOT beat the hardcoded constants even after the fix —
-`projections.js:88-92` stands, not built or gated as a performance change,
-per Plan 07 §2.2's binding wording: **the fix removes most of the harm
-(98.0% in 2024, 63.4% in 2023) and the 2023 residual is still significant —
-never "harmless", never "~90%".**
+**GATE CLOSED, per Plan 07 §2.3 and Auditor unit 17b / §R13.** Reproduction
+run below, against the real in-file `fitAllK`/`buildFitSpecs` (not a
+mirror), matches the Explorer's package #22 (`EFFW-SPEC.md`) on all five
+headline k values (within 0.02%–1.1%) and both MAE-delta/CI verdicts (2024
+indistinguishable, 2023 still significantly worse). **This is a
+correctness fix, not a model improvement**: the efficiency k is not applied
+in production (`activeKVector()` — see "Local dev database read" below), so
+#106 changes no shipped number. It closes the gap between
+`shrinkage-fit.js:60-67`'s stated recency-weighting invariant and the dead
+`effW` assignment at `:323` — `projections.js:88-92` stands either way, not
+built or gated as a performance change.
+
+**The load-bearing finding survives wiring `effW` in:** 2023's corrected fit
+is still significantly worse than hardcoded — **+0.0160 `[0.0076, 0.0238]`
+worse than hardcoded** — and 2024 is indistinguishable (**+0.0000
+`[-0.0039, 0.0039]`**). Quote these absolute deltas, not a "harm removed"
+percentage: an earlier version of this document computed 98.0%/63.4% by
+mixing package #22's RAW-arm delta (measured on #22's original rig) with
+this run's EFFW-arm delta (measured on a freshly re-fetched rig) — a
+cross-rig subtraction, per the Evidence Auditor's §R13. The percentage is
+dropped rather than re-measured (the RAW arm was not re-run here); **the
+shippable statement is the absolute delta above.**
 
 `activeKVector()` returning `null` is now backed by a real, dated read-only
 query — not "a live read" (that word means the Fly app's production
@@ -96,13 +108,15 @@ grouped by `player_id`, iterations 2000, seed 20260922) — #22 vs. this run:**
 | 2023 | +0.0150 `[0.0072, 0.0236]` worse | +0.0160 `[0.0076, 0.0238]` worse |
 
 Every headline figure matches within 1.1% or better, and both seasons'
-significance verdicts match exactly. **The mirror in `effw-test.mjs` was
-faithful to this file's real fitting/scoring path.** The residual few-tenths
-of a percent (and the ~4-point difference in row counts vs. the original
-rig) is consistent with the nflverse release having been re-published
-between the original CSV pull and this fresh fetch, not with a
-methodological gap — both are far smaller than any CI width here (0.004 to
-0.02).
+significance verdicts match exactly. **This is same-code / near-same-data,
+not same-data** — the CSVs were re-fetched fresh from the nflverse release
+rather than reusing the original pull (which no longer exists in this
+container), so a 0.2-1.1% spread this small **cannot separate mirror
+infidelity from an nflverse revision between the two pulls**; it rules out
+neither. What it does establish: no divergence anywhere near the CI widths
+here (0.004 to 0.02) turned up, and both seasons' significance verdicts
+(indistinguishable / worse) match exactly — the two things the reproduction
+gate actually needed to close.
 
 Also fitted all 18 (metric, position) pairs, not just the five headlined:
 rare-event metrics (`rec_td_rate`, `pass_td_rate`, `int_rate`, and
@@ -132,6 +146,11 @@ efficiency fit, and its own `note` field claims "activated" while the
 `fit-shrinkage-weekly.mjs`'s note-text ternary. `activeKVector()` therefore
 returns `null` against this local dev database today, confirmed directly
 rather than inferred from `projections.js:198-201`'s comment.
+
+**This proves nothing about production.** It is consistent with, but is
+not evidence for, the standing finding that no promoted fit has ever run
+there — a local dev sqlite with one inactive volume fit says nothing about
+a database this session cannot reach.
 
 **Production's `shrinkage_fits` has never been read.** The Fly deployment's
 own database is a separate file this session has no route to; the 08:04Z
@@ -220,17 +239,25 @@ this document as "20 tests, untouched," does not exist on this branch or on
 per the Evidence Auditor's `audit-pr106-effw-gate-2026-09-22.md` finding 4.)
 
 **Full local check `npm run check`, measured on the tree actually pushed
-(commit `609fa42`, off `main` `654ff93`), isolated worktree, hard-linked
-`node_modules`, two independent runs:** exit 0 both runs, **2,989 tests,
-2,948 passed, 0 failed, 41 skipped**, identical both runs. Reconciles
-against main's own 2,986 (per the Evidence Auditor's independent
-measurement) + 3 — this unit's three new tests (the original effW-weighting
-test, RED test 4, RED test 3). **The earlier "3,056/3,015" figure in this
-document was measured on `origin/effk` (branch `da5738e`), which is not an
-ancestor of this PR's commits — a green figure quoted for a tree other than
-the one pushed. Corrected per the same Evidence Auditor finding.** Atomic
-guard v4 (worktree-isolated, `git status --porcelain` + `git write-tree` +
-`node_modules` mtime, before/after, on both the primary tree and each
+(commit `609fa42`, off `main` `654ff93`; two later commits on this branch
+are doc-only wording fixes and do not change this code tree or these
+figures), isolated worktree, hard-linked `node_modules`, two independent
+runs:** exit 0 both runs, **2,989 tests, 2,948 passed, 0 failed, 41
+skipped**, identical both runs. The 41 skips are all environment-gated, the
+same categories main itself skips, none introduced by this unit: 16 need
+real `game_lines` history (≥5,000 rows — historical betting-market win-rate
+checks), 14 need real `nfl_player_week_features`/`nfl_team_week_features`
+history, 3 need `nfl_policy_audits` rows, 2 need `GRIDIRON_RESEARCH_PYTHON`
+configured, 1 needs `GRIDIRON_REAL_DB_SMOKE=1`, 5 skip on a missing audit
+fixture file. Reconciles against main's own 2,986 (per the Evidence
+Auditor's independent measurement) + 3 — this unit's three new tests (the
+original effW-weighting test, RED test 4, RED test 3). **The earlier
+"3,056/3,015" figure in this document was measured on `origin/effk` (branch
+`da5738e`), which is not an ancestor of this PR's commits — a green figure
+quoted for a tree other than the one pushed. Corrected per the same
+Evidence Auditor finding.** Atomic guard v4 (worktree-isolated, `git status
+--porcelain` + `git write-tree` + `node_modules` mtime, before/after, on
+both the primary tree and each
 worktree run): stable across both runs and both before/after captures, no
 other write landed mid-run.
 

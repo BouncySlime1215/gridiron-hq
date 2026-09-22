@@ -16,6 +16,13 @@ all the way to the caller.
 Phase 0 item 4. Branch `claude/project-thread-3xqh5l-outcome-ledger`, cut from
 `origin/main` `654ff93`.
 
+**Landing record (work-queue F-05, 2026-09-22):** see
+`docs/tdd/2026-09-22-trade-outcomes-landing.tdd.md`. Two things below stopped
+being true there. The slate tests in §5 used shapes no producer emits, so the
+real route would have recorded every sent idea as `considered_only`. That was
+fixed at RED `88ed3722` / GREEN `031e4931`. And on Node 25 the sweep in §7
+scored every row SURVIVED until its reporter was pinned (`b11b74c7`).
+
 ## The five questions
 
 - **Is it well built?** It stores what was already being computed and thrown
@@ -287,9 +294,10 @@ the sweep is the only part of this file that measures the difference.
 
 `npm run check` — typecheck, lint, the whole suite, build, `start:smoke`.
 
-- **Numbers and the tree they were measured on:** see the commit message of the
-  final commit on this branch, which states them with the `git write-tree` hash
-  either side of the run and the `node_modules` mtime either side. A tree that
+- **Numbers and the tree they were measured on:** in the PR body's "Merge gate"
+  section, for the head that merges. This line used to point at "the commit
+  message of the final commit on this branch". That stopped being true once the
+  branch took merges from main. A tree that
   moves inside the window voids the run whatever the numbers say, and an install
   anywhere in the container voids it with nothing failing visibly.
 - **Isolation:** NOT isolated. In place in the container's working tree against

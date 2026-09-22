@@ -1,0 +1,643 @@
+{
+ "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+ "schemaNote": "status is one of wired, half_done, dead, silently_broken, decoration. All 28 rows here are half_done: each exists and is mounted or imported, and none has a consumer on a live surface. kind is \"model\" for the 16 services and \"route\" for the 12 route files.",
+ "counts": {
+  "model": 16,
+  "route": 12,
+  "total": 28
+ },
+ "rows": [
+  {
+   "id": "football-context",
+   "name": "football context",
+   "kind": "model",
+   "path": "server/services/football-context.js",
+   "status": "half_done",
+   "scope": "betting-facing, outside the fantasy scope",
+   "evidence": [
+    "server/routes/nfl-betting.js:6",
+    "server/services/football-first.js:84",
+    "server/services/nfl-player-value.js:15",
+    "server/services/player-case.js:34",
+    "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+   ],
+   "reads": [
+    "game_lines",
+    "nfl_injuries",
+    "nfl_player_week_features",
+    "nfl_team_week_features",
+    "nfl_teams",
+    "player_week_usage",
+    "players"
+   ],
+   "writes": [],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "nfl-drive-sim",
+   "name": "nfl drive sim",
+   "kind": "model",
+   "path": "server/services/nfl-drive-sim.js",
+   "status": "half_done",
+   "scope": "betting-facing, outside the fantasy scope",
+   "evidence": [
+    "server/betting/nfl/forecast/spread-family-adapters.js:93",
+    "server/routes/nfl-betting.js:1180",
+    "server/services/nfl-espn-pbp.js:32",
+    "server/services/nfl-expert-council.js:20",
+    "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+   ],
+   "reads": [
+    "game_lines"
+   ],
+   "writes": [],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "nfl-ensemble",
+   "name": "nfl ensemble",
+   "kind": "model",
+   "path": "server/services/nfl-ensemble.js",
+   "status": "half_done",
+   "scope": "betting-facing, outside the fantasy scope",
+   "evidence": [
+    "server/betting/nfl/forecast/spread-family-adapters.js:92",
+    "server/routes/nfl-betting.js:34",
+    "server/services/decision-basis.js:129",
+    "server/services/forecast-combination.js:40",
+    "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+   ],
+   "reads": [
+    "game_lines",
+    "nfl_ensemble_fit_artifacts",
+    "nfl_team_week_features"
+   ],
+   "writes": [
+    "nfl_ensemble_fit_artifacts"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "nfl-espn-pbp",
+   "name": "nfl espn pbp",
+   "kind": "model",
+   "path": "server/services/nfl-espn-pbp.js",
+   "status": "half_done",
+   "scope": "betting-facing, outside the fantasy scope",
+   "evidence": [
+    "server/routes/nfl-betting.js:1264",
+    "server/services/live-edge.js:179",
+    "server/services/scheduler.js:1351",
+    "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+   ],
+   "reads": [
+    "game_lines",
+    "nfl_play_by_play"
+   ],
+   "writes": [
+    "nfl_play_by_play"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "nfl-expert-council",
+   "name": "nfl expert council",
+   "kind": "model",
+   "path": "server/services/nfl-expert-council.js",
+   "status": "half_done",
+   "scope": "betting-facing, outside the fantasy scope",
+   "evidence": [
+    "server/routes/nfl-betting.js:84",
+    "server/services/evidence-daemon.js:19",
+    "server/services/nfl-blind-audit.js:25",
+    "server/services/nfl-diagnostic.js:13",
+    "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+   ],
+   "reads": [
+    "game_lines",
+    "news_items",
+    "nfl_expert_forward_predictions",
+    "nfl_expert_forward_settlements",
+    "nfl_line_snapshots",
+    "nfl_live_possession_predictions",
+    "nfl_live_possession_settlements",
+    "nfl_pick_decisions",
+    "nfl_player_week_features",
+    "nfl_teams",
+    "nfl_weekly_expert_examples"
+   ],
+   "writes": [
+    "nfl_expert_forward_predictions",
+    "nfl_expert_forward_settlements",
+    "nfl_weekly_expert_examples"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "nfl-external-ratings",
+   "name": "nfl external ratings",
+   "kind": "model",
+   "path": "server/services/nfl-external-ratings.js",
+   "status": "half_done",
+   "scope": "betting-facing, outside the fantasy scope",
+   "evidence": [
+    "server/routes/nfl-market.js:20",
+    "server/services/beat-the-close.js:35",
+    "server/services/line-move-study.js:33",
+    "server/services/nfl-matchup-specialists.js:29",
+    "server/routes/nfl-market.js is mounted at server/index.js:139, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+   ],
+   "reads": [
+    "game_lines",
+    "nfl_external_ratings"
+   ],
+   "writes": [
+    "nfl_external_ratings"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "nfl-gbm",
+   "name": "nfl gbm",
+   "kind": "model",
+   "path": "server/services/nfl-gbm.js",
+   "status": "half_done",
+   "scope": "betting-facing, outside the fantasy scope",
+   "evidence": [
+    "server/routes/nfl-betting.js:1595",
+    "server/services/boom-bust.js:73",
+    "server/services/nfl-expert-council.js:14",
+    "server/services/nfl-team-strength.js:52",
+    "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+   ],
+   "reads": [
+    "game_lines",
+    "nfl_game_weather",
+    "nfl_team_week_features"
+   ],
+   "writes": [],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "nfl-online-neural",
+   "name": "nfl online neural",
+   "kind": "model",
+   "path": "server/services/nfl-online-neural.js",
+   "status": "half_done",
+   "scope": "betting-facing, outside the fantasy scope",
+   "evidence": [
+    "server/routes/nfl-betting.js:65",
+    "server/services/evidence-daemon.js:17",
+    "server/services/nfl-auto-picks.js:14",
+    "server/services/nfl-coordination-audit.js:4",
+    "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+   ],
+   "reads": [
+    "game_lines",
+    "nfl_online_neural_artifacts",
+    "nfl_online_neural_examples"
+   ],
+   "writes": [
+    "nfl_online_neural_artifacts",
+    "nfl_online_neural_examples"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "nfl-player-value",
+   "name": "nfl player value",
+   "kind": "model",
+   "path": "server/services/nfl-player-value.js",
+   "status": "half_done",
+   "scope": "betting-facing, outside the fantasy scope",
+   "evidence": [
+    "server/betting/nfl/forecast/spread-family-adapters.js:94",
+    "server/routes/nfl-betting.js:47",
+    "server/services/nfl-availability.js:28",
+    "server/services/nfl-ensemble.js:34",
+    "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+   ],
+   "reads": [
+    "game_lines",
+    "nfl_depth",
+    "nfl_injuries",
+    "nfl_ngs",
+    "nfl_pfr_adv",
+    "nfl_player_week_features",
+    "nfl_pregame_snapshot_history",
+    "nfl_snaps"
+   ],
+   "writes": [],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "nfl-policy",
+   "name": "nfl policy",
+   "kind": "model",
+   "path": "server/services/nfl-policy.js",
+   "status": "half_done",
+   "scope": "betting-facing, outside the fantasy scope",
+   "evidence": [
+    "server/betting/nfl/strategy/t60-runner.js:49",
+    "server/routes/nfl-market.js:8",
+    "server/services/nfl-auto-picks.js:10",
+    "server/services/nfl-blind-audit.js:21",
+    "server/routes/nfl-market.js is mounted at server/index.js:139, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+   ],
+   "reads": [],
+   "writes": [],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "nfl-replay",
+   "name": "nfl replay",
+   "kind": "model",
+   "path": "server/services/nfl-replay.js",
+   "status": "half_done",
+   "scope": "betting-facing, outside the fantasy scope",
+   "evidence": [
+    "server/routes/nfl-betting.js:36",
+    "server/routes/nfl-market.js:10",
+    "server/services/decision-basis.js:128",
+    "server/services/model-intelligence.js:8",
+    "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches",
+    "server/routes/nfl-market.js is mounted at server/index.js:139, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+   ],
+   "reads": [
+    "game_lines",
+    "nfl_candidate_input_audits",
+    "nfl_decision_runs",
+    "nfl_neural_replay_audits",
+    "nfl_policy_audits"
+   ],
+   "writes": [
+    "nfl_candidate_input_audits",
+    "nfl_neural_replay_audits",
+    "nfl_policy_audits",
+    "nfl_replay_bets",
+    "nfl_replay_runs"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "nfl-rookies",
+   "name": "nfl rookies",
+   "kind": "model",
+   "path": "server/services/nfl-rookies.js",
+   "status": "half_done",
+   "scope": "betting-facing, outside the fantasy scope",
+   "evidence": [
+    "server/routes/nfl-betting.js:632",
+    "server/services/nfl-rookie-ingest.js:10",
+    "server/services/nfl-roster-strength.js:15",
+    "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+   ],
+   "reads": [
+    "nfl_depth",
+    "nfl_rookie_evidence",
+    "player_accolades",
+    "player_week_usage",
+    "players",
+    "roster_players"
+   ],
+   "writes": [
+    "nfl_rookie_evidence"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "nfl-roster-strength",
+   "name": "nfl roster strength",
+   "kind": "model",
+   "path": "server/services/nfl-roster-strength.js",
+   "status": "half_done",
+   "scope": "betting-facing, outside the fantasy scope",
+   "evidence": [
+    "server/betting/nfl/forecast/spread-family-adapters.js:95",
+    "server/routes/nfl-betting.js:76",
+    "server/services/nfl-ensemble.js:36",
+    "server/services/nfl-expert-council.js:24",
+    "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+   ],
+   "reads": [
+    "game_lines",
+    "nfl_depth",
+    "nfl_external_player_grades",
+    "nfl_player_roster_events",
+    "nfl_player_week_features",
+    "nfl_rookie_evidence",
+    "nfl_snaps",
+    "nfl_teams",
+    "player_accolades",
+    "player_team_changes",
+    "players",
+    "roster_players"
+   ],
+   "writes": [
+    "nfl_external_player_grades"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "nfl-specialists",
+   "name": "nfl specialists",
+   "kind": "model",
+   "path": "server/services/nfl-specialists.js",
+   "status": "half_done",
+   "scope": "betting-facing, outside the fantasy scope",
+   "evidence": [
+    "server/routes/nfl-betting.js:1438",
+    "server/services/nfl-rookies.js:38",
+    "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+   ],
+   "reads": [
+    "game_lines",
+    "news_items",
+    "nfl_line_snapshots",
+    "nfl_team_week_features",
+    "nfl_teams"
+   ],
+   "writes": [],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "nfl-weather-history",
+   "name": "nfl weather history",
+   "kind": "model",
+   "path": "server/services/nfl-weather-history.js",
+   "status": "half_done",
+   "scope": "betting-facing, outside the fantasy scope",
+   "evidence": [
+    "server/routes/nfl-market.js:21",
+    "server/services/line-move-study.js:31",
+    "server/services/scheduler.js:526",
+    "server/routes/nfl-market.js is mounted at server/index.js:139, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+   ],
+   "reads": [
+    "game_lines",
+    "nfl_game_weather_forecast_history"
+   ],
+   "writes": [
+    "nfl_game_weather_forecast_history"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "pick-confidence",
+   "name": "pick confidence",
+   "kind": "model",
+   "path": "server/services/pick-confidence.js",
+   "status": "half_done",
+   "scope": "betting-facing, outside the fantasy scope",
+   "evidence": [
+    "server/routes/nfl-betting.js:7",
+    "server/services/forward-ledger.js:273",
+    "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+   ],
+   "reads": [
+    "game_lines"
+   ],
+   "writes": [],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "accolades-route",
+   "name": "accolades route",
+   "kind": "route",
+   "path": "server/routes/accolades.js",
+   "status": "half_done",
+   "reason": "mounted and serving 5 handler paths, and no client file the App shell can reach requests any of them",
+   "scope": "in the fantasy scope",
+   "handlerPaths": 5,
+   "evidence": [
+    "mounted at server/index.js:123 on /api/accolades",
+    "server/routes/accolades.js:143 declares POST /sync, i.e. /api/accolades/sync",
+    "server/routes/accolades.js:152 declares GET /:abbr, i.e. /api/accolades/:abbr",
+    "server/routes/accolades.js:185 declares POST /weakness/:abbr, i.e. /api/accolades/weakness/:abbr",
+    "every /api path requested by any of the 68 files in the import closure of client/src/App.tsx, matched longest-prefix-first against the 31 mounts -> 0 match /api/accolades",
+    "the closure was taken from client/src/App.tsx and includes the shell components rendered outside <Routes> (EspnConnectGate, DataSetupBanner, QuickJump, RefreshAll, DevHub, PageExplainAssistant), so a chrome-only caller would have been found",
+    "no file under client/src requests this prefix at all, reachable or not"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "aggregates-route",
+   "name": "aggregates route",
+   "kind": "route",
+   "path": "server/routes/aggregates.js",
+   "status": "half_done",
+   "reason": "mounted and serving 4 handler paths, and no client file the App shell can reach requests any of them",
+   "scope": "in the fantasy scope",
+   "handlerPaths": 4,
+   "evidence": [
+    "mounted at server/index.js:117 on /api/aggregates",
+    "server/routes/aggregates.js:187 declares POST /sync, i.e. /api/aggregates/sync",
+    "server/routes/aggregates.js:261 declares GET /, i.e. /api/aggregates",
+    "server/routes/aggregates.js:264 declares POST /create-board, i.e. /api/aggregates/create-board",
+    "every /api path requested by any of the 68 files in the import closure of client/src/App.tsx, matched longest-prefix-first against the 31 mounts -> 0 match /api/aggregates",
+    "the closure was taken from client/src/App.tsx and includes the shell components rendered outside <Routes> (EspnConnectGate, DataSetupBanner, QuickJump, RefreshAll, DevHub, PageExplainAssistant), so a chrome-only caller would have been found",
+    "it does have client callers, but every one of them is in a file the App shell cannot reach: client/src/pages/Projections.tsx requests /api/aggregates; client/src/pages/Projections.tsx requests /api/aggregates/sync; client/src/pages/Projections.tsx requests /api/aggregates/create-board"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "decision-inbox-route",
+   "name": "decision inbox route",
+   "kind": "route",
+   "path": "server/routes/decision-inbox.js",
+   "status": "half_done",
+   "reason": "mounted and serving 4 handler paths, and no client file the App shell can reach requests any of them",
+   "scope": "in the fantasy scope",
+   "handlerPaths": 4,
+   "evidence": [
+    "mounted at server/index.js:137 on /api/decision-inbox",
+    "server/routes/decision-inbox.js:123 declares GET /, i.e. /api/decision-inbox",
+    "server/routes/decision-inbox.js:143 declares GET /summary, i.e. /api/decision-inbox/summary",
+    "server/routes/decision-inbox.js:161 declares POST /, i.e. /api/decision-inbox",
+    "every /api path requested by any of the 68 files in the import closure of client/src/App.tsx, matched longest-prefix-first against the 31 mounts -> 0 match /api/decision-inbox",
+    "the closure was taken from client/src/App.tsx and includes the shell components rendered outside <Routes> (EspnConnectGate, DataSetupBanner, QuickJump, RefreshAll, DevHub, PageExplainAssistant), so a chrome-only caller would have been found",
+    "no file under client/src requests this prefix at all, reachable or not"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "execution-slate-route",
+   "name": "execution slate route",
+   "kind": "route",
+   "path": "server/routes/execution-slate.js",
+   "status": "half_done",
+   "reason": "mounted and serving 2 handler paths, and no client file the App shell can reach requests any of them",
+   "scope": "betting or MLB, outside the fantasy scope",
+   "handlerPaths": 2,
+   "evidence": [
+    "mounted at server/index.js:143 on /api/execution-slate",
+    "server/routes/execution-slate.js:60 declares POST /recommend, i.e. /api/execution-slate/recommend",
+    "server/routes/execution-slate.js:123 declares GET /opportunities, i.e. /api/execution-slate/opportunities",
+    "every /api path requested by any of the 68 files in the import closure of client/src/App.tsx, matched longest-prefix-first against the 31 mounts -> 0 match /api/execution-slate",
+    "the closure was taken from client/src/App.tsx and includes the shell components rendered outside <Routes> (EspnConnectGate, DataSetupBanner, QuickJump, RefreshAll, DevHub, PageExplainAssistant), so a chrome-only caller would have been found",
+    "no file under client/src requests this prefix at all, reachable or not"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "mlb-route",
+   "name": "mlb route",
+   "kind": "route",
+   "path": "server/routes/mlb.js",
+   "status": "half_done",
+   "reason": "mounted and serving 28 handler paths, and no client file the App shell can reach requests any of them",
+   "scope": "betting or MLB, outside the fantasy scope",
+   "handlerPaths": 28,
+   "evidence": [
+    "mounted at server/index.js:138 on /api/mlb",
+    "server/routes/mlb.js:23 declares POST /sync, i.e. /api/mlb/sync",
+    "server/routes/mlb.js:31 declares POST /sync/schedule, i.e. /api/mlb/sync/schedule",
+    "server/routes/mlb.js:34 declares POST /sync/pitchers, i.e. /api/mlb/sync/pitchers",
+    "every /api path requested by any of the 68 files in the import closure of client/src/App.tsx, matched longest-prefix-first against the 31 mounts -> 0 match /api/mlb",
+    "the closure was taken from client/src/App.tsx and includes the shell components rendered outside <Routes> (EspnConnectGate, DataSetupBanner, QuickJump, RefreshAll, DevHub, PageExplainAssistant), so a chrome-only caller would have been found",
+    "no file under client/src requests this prefix at all, reachable or not"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "nfl-betting-route",
+   "name": "nfl betting route",
+   "kind": "route",
+   "path": "server/routes/nfl-betting.js",
+   "status": "half_done",
+   "reason": "mounted and serving 170 handler paths, and no client file the App shell can reach requests any of them",
+   "scope": "betting or MLB, outside the fantasy scope",
+   "handlerPaths": 170,
+   "evidence": [
+    "mounted at server/index.js:140 on /api/nfl-betting",
+    "server/routes/nfl-betting.js:110 declares GET /catalog, i.e. /api/nfl-betting/catalog",
+    "server/routes/nfl-betting.js:121 declares GET /signal-quality, i.e. /api/nfl-betting/signal-quality",
+    "server/routes/nfl-betting.js:126 declares GET /features/team, i.e. /api/nfl-betting/features/team",
+    "every /api path requested by any of the 68 files in the import closure of client/src/App.tsx, matched longest-prefix-first against the 31 mounts -> 0 match /api/nfl-betting",
+    "the closure was taken from client/src/App.tsx and includes the shell components rendered outside <Routes> (EspnConnectGate, DataSetupBanner, QuickJump, RefreshAll, DevHub, PageExplainAssistant), so a chrome-only caller would have been found",
+    "no file under client/src requests this prefix at all, reachable or not"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "nfl-market-route",
+   "name": "nfl market route",
+   "kind": "route",
+   "path": "server/routes/nfl-market.js",
+   "status": "half_done",
+   "reason": "mounted and serving 56 handler paths, and no client file the App shell can reach requests any of them",
+   "scope": "betting or MLB, outside the fantasy scope",
+   "handlerPaths": 56,
+   "evidence": [
+    "mounted at server/index.js:139 on /api/nfl-market",
+    "server/routes/nfl-market.js:43 declares GET /research-lab, i.e. /api/nfl-market/research-lab",
+    "server/routes/nfl-market.js:46 declares GET /research-lab/plan, i.e. /api/nfl-market/research-lab/plan",
+    "server/routes/nfl-market.js:51 declares GET /board, i.e. /api/nfl-market/board",
+    "every /api path requested by any of the 68 files in the import closure of client/src/App.tsx, matched longest-prefix-first against the 31 mounts -> 0 match /api/nfl-market",
+    "the closure was taken from client/src/App.tsx and includes the shell components rendered outside <Routes> (EspnConnectGate, DataSetupBanner, QuickJump, RefreshAll, DevHub, PageExplainAssistant), so a chrome-only caller would have been found",
+    "no file under client/src requests this prefix at all, reachable or not"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "props-tickets-route",
+   "name": "props tickets route",
+   "kind": "route",
+   "path": "server/routes/props-tickets.js",
+   "status": "half_done",
+   "reason": "mounted and serving 3 handler paths, and no client file the App shell can reach requests any of them",
+   "scope": "betting or MLB, outside the fantasy scope",
+   "handlerPaths": 3,
+   "evidence": [
+    "mounted at server/index.js:136 on /api/props-tickets",
+    "server/routes/props-tickets.js:27 declares GET /, i.e. /api/props-tickets",
+    "server/routes/props-tickets.js:33 declares POST /, i.e. /api/props-tickets",
+    "server/routes/props-tickets.js:50 declares DELETE /:id, i.e. /api/props-tickets/:id",
+    "every /api path requested by any of the 68 files in the import closure of client/src/App.tsx, matched longest-prefix-first against the 31 mounts -> 0 match /api/props-tickets",
+    "the closure was taken from client/src/App.tsx and includes the shell components rendered outside <Routes> (EspnConnectGate, DataSetupBanner, QuickJump, RefreshAll, DevHub, PageExplainAssistant), so a chrome-only caller would have been found",
+    "no file under client/src requests this prefix at all, reachable or not"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "props-route",
+   "name": "props route",
+   "kind": "route",
+   "path": "server/routes/props.js",
+   "status": "half_done",
+   "reason": "mounted and serving 4 handler paths, and no client file the App shell can reach requests any of them",
+   "scope": "betting or MLB, outside the fantasy scope",
+   "handlerPaths": 4,
+   "evidence": [
+    "mounted at server/index.js:135 on /api/props",
+    "server/routes/props.js:134 declares GET /board, i.e. /api/props/board",
+    "server/routes/props.js:172 declares GET /auto-picks, i.e. /api/props/auto-picks",
+    "server/routes/props.js:190 declares GET /results, i.e. /api/props/results",
+    "every /api path requested by any of the 68 files in the import closure of client/src/App.tsx, matched longest-prefix-first against the 31 mounts -> 0 match /api/props",
+    "the closure was taken from client/src/App.tsx and includes the shell components rendered outside <Routes> (EspnConnectGate, DataSetupBanner, QuickJump, RefreshAll, DevHub, PageExplainAssistant), so a chrome-only caller would have been found",
+    "no file under client/src requests this prefix at all, reachable or not"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "stats-route",
+   "name": "stats route",
+   "kind": "route",
+   "path": "server/routes/stats.js",
+   "status": "half_done",
+   "reason": "mounted and serving 3 handler paths, and no client file the App shell can reach requests any of them",
+   "scope": "in the fantasy scope",
+   "handlerPaths": 3,
+   "evidence": [
+    "mounted at server/index.js:121 on /api/stats",
+    "server/routes/stats.js:77 declares POST /sync, i.e. /api/stats/sync",
+    "server/routes/stats.js:135 declares GET /projections, i.e. /api/stats/projections",
+    "server/routes/stats.js:164 declares GET /teams, i.e. /api/stats/teams",
+    "every /api path requested by any of the 68 files in the import closure of client/src/App.tsx, matched longest-prefix-first against the 31 mounts -> 0 match /api/stats",
+    "the closure was taken from client/src/App.tsx and includes the shell components rendered outside <Routes> (EspnConnectGate, DataSetupBanner, QuickJump, RefreshAll, DevHub, PageExplainAssistant), so a chrome-only caller would have been found",
+    "no file under client/src requests this prefix at all, reachable or not"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "tradelab-route",
+   "name": "tradelab route",
+   "kind": "route",
+   "path": "server/routes/tradelab.js",
+   "status": "half_done",
+   "reason": "mounted and serving 5 handler paths, and no client file the App shell can reach requests any of them",
+   "scope": "in the fantasy scope",
+   "handlerPaths": 5,
+   "evidence": [
+    "mounted at server/index.js:125 on /api/tradelab",
+    "server/routes/tradelab.js:195 declares GET /:leagueId/analysis, i.e. /api/tradelab/:leagueId/analysis",
+    "server/routes/tradelab.js:230 declares GET /:leagueId/partners, i.e. /api/tradelab/:leagueId/partners",
+    "server/routes/tradelab.js:233 declares POST /:leagueId/pitch, i.e. /api/tradelab/:leagueId/pitch",
+    "every /api path requested by any of the 68 files in the import closure of client/src/App.tsx, matched longest-prefix-first against the 31 mounts -> 0 match /api/tradelab",
+    "the closure was taken from client/src/App.tsx and includes the shell components rendered outside <Routes> (EspnConnectGate, DataSetupBanner, QuickJump, RefreshAll, DevHub, PageExplainAssistant), so a chrome-only caller would have been found",
+    "no file under client/src requests this prefix at all, reachable or not"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  },
+  {
+   "id": "wong-route",
+   "name": "wong route",
+   "kind": "route",
+   "path": "server/routes/wong.js",
+   "status": "half_done",
+   "reason": "mounted and serving 9 handler paths, and no client file the App shell can reach requests any of them",
+   "scope": "betting or MLB, outside the fantasy scope",
+   "handlerPaths": 9,
+   "evidence": [
+    "mounted at server/index.js:141 on /api/betting/wong",
+    "server/routes/wong.js:158 declares GET /board, i.e. /api/betting/wong/board",
+    "server/routes/wong.js:248 declares POST /refresh, i.e. /api/betting/wong/refresh",
+    "server/routes/wong.js:295 declares GET /settings, i.e. /api/betting/wong/settings",
+    "every /api path requested by any of the 68 files in the import closure of client/src/App.tsx, matched longest-prefix-first against the 31 mounts -> 0 match /api/betting/wong",
+    "the closure was taken from client/src/App.tsx and includes the shell components rendered outside <Routes> (EspnConnectGate, DataSetupBanner, QuickJump, RefreshAll, DevHub, PageExplainAssistant), so a chrome-only caller would have been found",
+    "no file under client/src requests this prefix at all, reachable or not"
+   ],
+   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3"
+  }
+ ]
+}

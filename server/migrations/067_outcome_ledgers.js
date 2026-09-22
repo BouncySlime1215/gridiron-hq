@@ -74,6 +74,7 @@ export function up(db) {
       not_proposed_reason  TEXT,
       counter_json         TEXT,
       espn_tx_id           TEXT,
+      idea_id              TEXT,
       resolved_at          TEXT,
       created_at           TEXT NOT NULL,
 
@@ -112,6 +113,21 @@ export function up(db) {
       ON trade_outcomes(league_id, season, espn_tx_id)
       WHERE espn_tx_id IS NOT NULL;
 
+    -- Idempotency for the APP side, needed for the same reason the ESPN side is:
+    -- a route can be hit twice. GET /:leagueId/proposals is a GET that a page
+    -- calls on every open, so without this one browser refresh would write the
+    -- whole slate again and a calibration would count one decision as many.
+    -- idea_id is trade-engine's own ideaKey, which every proposal already has to
+    -- cite, so it is the app-side equivalent of espn_tx_id.
+    --
+    -- The index includes the source column deliberately: the same idea can
+    -- legitimately appear once as app_proposed and once as considered_only across
+    -- different slates, and collapsing those two would delete exactly the
+    -- contrast this ledger exists to measure.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_trade_outcomes_idea
+      ON trade_outcomes(league_id, season, idea_id, source)
+      WHERE idea_id IS NOT NULL;
+
     CREATE INDEX IF NOT EXISTS idx_trade_outcomes_league
       ON trade_outcomes(league_id, season, proposed_at);
 
@@ -145,6 +161,7 @@ export function up(db) {
       not_proposed_reason  TEXT,
       counter_json         TEXT,
       espn_tx_id           TEXT,
+      idea_id              TEXT,
       resolved_at          TEXT,
       created_at           TEXT NOT NULL
     );
@@ -160,6 +177,7 @@ export function down(db) {
     DROP TABLE IF EXISTS trade_outcomes_synthetic;
     DROP INDEX IF EXISTS idx_trade_outcomes_model;
     DROP INDEX IF EXISTS idx_trade_outcomes_league;
+    DROP INDEX IF EXISTS idx_trade_outcomes_idea;
     DROP INDEX IF EXISTS idx_trade_outcomes_espn;
     DROP TABLE IF EXISTS trade_outcomes;
   `);

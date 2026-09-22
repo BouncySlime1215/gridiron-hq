@@ -217,12 +217,13 @@ export function recordProposedOutcome(o) {
   const info = run(`INSERT INTO trade_outcomes
       (league_id, season, source, proposer_team_id, counterparty_team_id,
        give_json, get_json, proposed_at, model_p_accept, model_p_accept_low,
-       model_p_accept_high, model_basis, model_version, status, created_at)
-    VALUES (?, ?, 'app_proposed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', ?)`,
+       model_p_accept_high, model_basis, model_version, idea_id, status, created_at)
+    VALUES (?, ?, 'app_proposed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', ?)`,
   o.league_id, o.season, o.proposer_team_id ?? null, o.counterparty_team_id ?? null,
   JSON.stringify(o.give ?? []), JSON.stringify(o.get ?? []),
   o.proposed_at ?? new Date().toISOString(),
-  p.mid, p.low, p.high, p.basis, o.model_version, new Date().toISOString());
+  p.mid, p.low, p.high, p.basis, o.model_version, o.idea_id ?? null,
+  new Date().toISOString());
   return Number(info.lastInsertRowid);
 }
 
@@ -244,13 +245,13 @@ export function recordConsideredOnly(o) {
   const info = run(`INSERT INTO trade_outcomes
       (league_id, season, source, proposer_team_id, counterparty_team_id,
        give_json, get_json, proposed_at, model_p_accept, model_p_accept_low,
-       model_p_accept_high, model_basis, model_version,
+       model_p_accept_high, model_basis, model_version, idea_id,
        status, not_proposed_reason, created_at)
-    VALUES (?, ?, 'considered_only', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_proposed', ?, ?)`,
+    VALUES (?, ?, 'considered_only', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_proposed', ?, ?)`,
   o.league_id, o.season, o.proposer_team_id ?? null, o.counterparty_team_id ?? null,
   JSON.stringify(o.give ?? []), JSON.stringify(o.get ?? []),
   o.proposed_at ?? new Date().toISOString(), p.mid, p.low, p.high, p.basis, o.model_version ?? null,
-  o.not_proposed_reason, new Date().toISOString());
+  o.idea_id ?? null, o.not_proposed_reason, new Date().toISOString());
   return Number(info.lastInsertRowid);
 }
 
@@ -273,6 +274,96 @@ export function recordSyntheticOutcome(o) {
   o.proposed_at ?? new Date().toISOString(), o.model_p_accept ?? null, o.model_version ?? null,
   o.status, new Date().toISOString());
   return Number(info.lastInsertRowid);
+}
+
+/**
+ * Record what one proposals run decided: what it sent, and what it considered and
+ * did not send.
+ *
+ * THIS IS THE SELECTION-BIAS HALF, AT THE ONLY LAYER THAT CAN SEE BOTH. The
+ * route has the whole slate that passed the edge test AND the model's answer, so
+ * it is the one place that knows which candidates were dropped. Downstream of
+ * here the rejected ones are gone, and a ledger written downstream would be a
+ * ledger of the model's own filter.
+ *
+ * A CACHE HIT WRITES NOTHING. `GET /:leagueId/proposals` is a GET a page calls on
+ * every open, and `source: 'cache'` means no decision was made this time — the
+ * answer was paid for once and is being re-read. Writing on a re-read would let
+ * one decision become a hundred rows and a calibration would weight it by how
+ * often somebody refreshed the page. The unique index on
+ * (league_id, season, idea_id, source) is the second guard, for a fresh call over
+ * a slate already recorded.
+ *
+ * Absence-safe: if the tables are not there, this no-ops with a state rather than
+ * throwing. A ledger write must never be able to take down the page whose work it
+ * is recording — the proposals are the product, the ledger is the measurement.
+ */
+export function recordProposalSlate(leagueId, season, { ideas = [], result = null,
+  modelVersion = null, proposerTeamId = null } = {}) {
+  const out = { state: 'recorded', proposed: 0, considered: 0, skipped: 0, reason: null };
+  if (!tableExists('trade_outcomes')) {
+    return { ...out, state: 'ledger_absent',
+      reason: 'trade_outcomes does not exist on this database — migration 067 has not run here' };
+  }
+  if (!result || result.source === 'cache') {
+    return { ...out, state: 'no_decision_made',
+      reason: result
+        ? 'this slate was served from cache, so no decision was made on this request and '
+          + 'recording one would count a single decision once per page open'
+        : 'no proposals result was given, so there is nothing to record' };
+  }
+
+  const sent = new Set((result.proposals ?? [])
+    .map(p => (p?.idea_id ?? p?.idea ?? p?.id) == null ? null : String(p.idea_id ?? p.idea ?? p.id))
+    .filter(Boolean));
+
+  // Why each dropped idea was dropped, from the run's own words where it has
+  // them. `rejected` carries the verifier's reason per proposal; anything else
+  // the model simply did not choose, and saying so is more honest than
+  // attributing a reason the run never gave.
+  const rejectedReason = new Map();
+  for (const r of result.rejected ?? []) {
+    const id = (r?.idea_id ?? r?.idea ?? r?.id);
+    if (id != null && r?.reason) rejectedReason.set(String(id), String(r.reason));
+  }
+
+  for (const idea of ideas) {
+    const id = idea?.id == null ? null : String(idea.id);
+    if (!id) { out.skipped++; continue; }
+    const common = {
+      league_id: leagueId, season, idea_id: id,
+      proposer_team_id: proposerTeamId, counterparty_team_id: counterpartyOf(idea),
+      give: idea?.give ?? idea?.send ?? [], get: idea?.get ?? idea?.receive ?? [],
+      acceptance: idea?.acceptance ?? null, model_version: modelVersion,
+    };
+    const already = row(`SELECT id FROM trade_outcomes
+      WHERE league_id = ? AND season = ? AND idea_id = ? AND source = ?`,
+    leagueId, season, id, sent.has(id) ? 'app_proposed' : 'considered_only');
+    if (already) { out.skipped++; continue; }
+
+    if (sent.has(id)) {
+      // An idea with no acceptance band cannot be an app_proposed row: the table
+      // requires the prediction, precisely so an unscoreable row is not written.
+      if (common.acceptance?.band?.mid == null) { out.skipped++; continue; }
+      recordProposedOutcome(common);
+      out.proposed++;
+    } else {
+      recordConsideredOnly({
+        ...common,
+        not_proposed_reason: rejectedReason.get(id)
+          ?? 'the model did not select it from the slate, and the run gave no reason of its own',
+      });
+      out.considered++;
+    }
+  }
+  return out;
+}
+
+/** The other side of a deal, from whichever shape the engine handed back. */
+function counterpartyOf(idea) {
+  const v = idea?.counterparty?.roster_id ?? idea?.partner?.roster_id
+    ?? idea?.partner_roster_id ?? idea?.their_team_id ?? null;
+  return v == null ? null : String(v);
 }
 
 /** Every real outcome for one league-season, oldest first. Synthetic rows are not here. */

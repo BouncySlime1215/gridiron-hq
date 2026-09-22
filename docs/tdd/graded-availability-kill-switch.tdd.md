@@ -55,73 +55,104 @@ build if one *switches it on*.
 
 ## §R51.1 condition 1: the override is scanned for, not agreed to
 
-`test/nfl-player-context-graded-availability.test.js` walks every `.js`,
-`.mjs` and `.cjs` file under `server/` and `scripts/`, strips comments,
-parses each `gradedAvailabilityMultiplier(...)` call site's balanced
-argument list, and fails if any of them passes a 6th argument at all.
-
 Why a scan and not a rule in this document: the failure mode §R51.1 names is
 a caller forwarding its own `options` object through. That is a diff which
 reads as plumbing, so no reviewer instruction catches it reliably and no
 assertion about a *value* catches it either — the value is decided at run
 time. What can be checked is the shape of the call.
 
-Comments are stripped first because the flag's docstring spells out
-`gradedAvailabilityMultiplier(..., { enabled: true })` as prose. A scan that
-read comments would report the documentation as the violation, which is the
-kind of false positive that gets a gate disabled.
+The scanner in `test/nfl-player-context-graded-availability.test.js` is a
+function over `{ path, source }` records rather than over the file system
+(§R54.3). It resolves every local name that refers to the target, finds each
+call site by balanced-paren parse, and reports one if the call passes a 6th
+argument at all. Wiring the multiplier in stays permitted; switching it on
+does not.
+
+Two things are removed from a source before it is scanned, for two different
+reasons:
+
+- **comments**, because the flag's own docstring spells out
+  `gradedAvailabilityMultiplier(..., { enabled: true })` as prose, and a scan
+  that read comments would report the documentation as the violation — the
+  kind of false positive that gets a gate disabled;
+- **string bodies**, because the fixtures below are violating source code held
+  in template literals *in that same test file*, so a scanner that read string
+  bodies would report its own fixtures as real findings the moment it reached
+  `test/`.
 
 A second test pins the test side: every opt-in must be the literal
-`{ enabled: true }`, or `ENABLED` where that name is bound to that literal
-in the same file's source. Both tests carry sanity assertions that fail
-loudly if the scan stops actually reading the repository — a file-count
-floor, and "exactly one declaration seen", whose failure message says a zero
-there means the comment stripper broke rather than the repository changing.
+`{ enabled: true }`, or `ENABLED` where that name is bound to that literal in
+the same file's source, so reading a call site is enough to know what was
+passed without running anything.
 
-### RED for the scan tests — a deliberate violation, not a committed state
+Three sanity assertions fail loudly if the scan stops actually reading the
+repository: a file-count floor; "exactly one declaration seen", whose message
+says a zero there means the source normaliser broke rather than the repository
+changing; and — in the declaring file — that the binding resolver finds
+exactly one local name, the exported one, since anything extra would mean it
+is reading a call as an alias and every later finding would be suspect rather
+than merely noisy.
 
-A guard test has no honest committed RED: the only way to make one is to
-commit a deliberate violation into production code for one commit. It was
-done as a working-tree violation instead, introduced and removed, and both
-failures are quoted here in full. Stated plainly rather than presented as a
-normal RED/GREEN pair.
+### RED and GREEN, in §R54.3's committed-fixture form
 
-**Violation A** — appended to `scripts/r25-level-vs-information.mjs`, a call
-forwarding a *variable* rather than a literal, which is the shape §R51.1
-actually warns about:
+§R54.3 refused both forms of RED otherwise available here. A committed
+production violation would put the override into this repository's history. A
+working-tree violation is not reproducible by anyone else. So the cases are
+committed as inline fixtures: five that must be flagged, three that must not.
 
-```js
-const _redOpts = { enabled: true };
-gradedAvailabilityMultiplier('x', 2024, 1, '2024-01-01T00:00:00Z', {}, _redOpts);
-```
+The must-not-flag cases exist because a scanner that flagged everything would
+pass all five must-flag cases and still be useless. They are: wiring without
+an override (what condition 3 permits), the override as docstring prose, and
+the override held in a string.
 
-`not ok 11 - Auditor §R51.1: no caller under server/ or scripts/ passes the enabled override`, failing on:
+**RED — `60dc4f0`, `# tests 20 # pass 18 # fail 2`.** Two of the five
+required shapes fail against a bare-name parse, which is the §R33 blind spot
+§R54.3 required them for:
 
-> a caller under server/ or scripts/ passes a 6th argument to
-> gradedAvailabilityMultiplier. Production code inherits
-> GRADED_AVAILABILITY_ENABLED; it never overrides it. Forwarding the
-> override out of caller options is precisely how an ungraded multiplier
-> gets switched on in a diff that reads as wiring (Auditor §R51.1). Turning
-> it on belongs at the coupled grade's named call site, where §R19.6's
-> as-of refit binds
+`not ok 13 - Auditor §R54.3: the scan flags an ALIASED import, which a bare-name parse misses entirely (R33)`:
+
+> this shape must be flagged exactly once and was not (0 findings). It is an
+> ALIASED import, which a bare-name parse misses entirely (R33). Fixture
+> source:
+> `import { gradedAvailabilityMultiplier as gam } from './nfl-player-context.js';`
+> `export const m = (id, fit) => gam(id, 2024, 1, 'now', fit, { enabled: true });`
 >
-> `+ [ "scripts/r25-level-vs-information.mjs: 6 args -- 'x', 2024, 1, '2024-01-01T00:00:00Z', {}, _redOpts" ]`
-> `- []`
+> `0 !== 1`
 
-**Violation B** — the retained-bucket test's opt-in replaced with a computed
-value, `{ enabled: process.env.X !== '0' }`:
+`not ok 15 - Auditor §R54.3: the scan flags a destructured dynamic import, renamed on the way out`:
 
-`not ok 12 - Auditor §R51.1: every opt-in under test/ is the literal { enabled: true }, never a computed value`, failing on:
-
-> an opt-in that is not the literal { enabled: true } (or ENABLED, bound to
-> that literal in the same file) can carry a value decided at run time,
-> which is a forwarded override in a test's clothes
+> this shape must be flagged exactly once and was not (0 findings). It is a
+> destructured dynamic import, renamed on the way out. Fixture source:
+> `const { gradedAvailabilityMultiplier: gam } = await import('./nfl-player-context.js');`
+> `return gam(id, 2024, 1, 'now', fit, { enabled: true });`
 >
-> `+ [ "test/nfl-player-context-graded-availability.test.js: { enabled: process.env.X !== '0' }" ]`
+> `0 !== 1`
 
-Both violations were reverted and `git diff --stat` confirmed
+The namespace case (`ctx.gradedAvailabilityMultiplier(...)`) passed in the
+RED, and it is kept as a fixture rather than a remark: it works because the
+call-site pattern is anchored on a word boundary and `.` is not a word
+character. That is a property worth pinning, not an accident worth trusting.
+
+**GREEN — `d01aac8`, `# tests 20 # pass 20 # fail 0`.** Binding resolution
+for the renamed static import (`as`), the renamed destructuring of a dynamic
+import (`:`), and the indirect form (`const gam = ctx.target`). The real tree
+still scans clean, so the resolution introduced no false positives.
+
+### The earlier working-tree demonstration (extra, and labelled as such)
+
+Before §R54.3 settled the form, the same two behaviours were demonstrated as
+working-tree violations. Kept here as corroboration only — it is not the RED,
+and it is not reproducible from this history:
+
+- a call appended to `scripts/r25-level-vs-information.mjs` forwarding a
+  *variable*, `const _redOpts = { enabled: true }`, reported as
+  `scripts/r25-level-vs-information.mjs: 6 args -- 'x', 2024, 1, '2024-01-01T00:00:00Z', {}, _redOpts`;
+- the retained-bucket test's opt-in replaced with `{ enabled: process.env.X !== '0' }`,
+  reported as `test/nfl-player-context-graded-availability.test.js: { enabled: process.env.X !== '0' }`.
+
+Both were reverted, and `git diff --stat` confirmed
 `scripts/r25-level-vs-information.mjs` byte-identical to its committed form
-before the commit was made.
+before any commit was made. The first of those two is now fixture case 2.
 
 ## §R51.1 condition 2: each opt-in names itself
 
@@ -135,14 +166,18 @@ kill switch would hollow out while leaving the test passing.
 
 | stage | PR | commit subject | sha |
 | --- | --- | --- | --- |
-| flag, RED | #106 | (working tree, not committed separately — see RED below) | — |
+| flag, RED | #106 | (working tree, not a separate commit — see RED below) | — |
 | flag, GREEN | #106 | `feat: Plan 01 ships default-off behind GRADED_AVAILABILITY_ENABLED (R40)` | `d4c6e49` |
-| scan tests, RED | #106 | (working-tree violations A and B above, quoted in full) | — |
-| scan tests, GREEN | #106 | `test: source-scan the enabled override, name every opt-in (R51.1)` | `7c00e40` |
+| scan, first form | #106 | `test: source-scan the enabled override, name every opt-in (R51.1)` | `7c00e40` |
+| scan, RED | #106 | `test: RED -- commit the scanner's cases as fixtures (R54.3)` | `60dc4f0` |
+| scan, GREEN | #106 | `test: GREEN -- resolve local bindings so aliases cannot hide the override` | `d01aac8` |
 
-Both shas are on `refs/pull/106/head`, unreachable from `main` until #106
-merges. Neither RED was a separate commit, and this table says so rather
-than citing a sha that does not exist.
+Every sha is on `refs/pull/106/head` and unreachable from `main` until #106
+merges, which is why the branch ref is named rather than left implied.
+
+The flag's own RED was not a separate commit and this table says so rather
+than citing a sha that does not exist. The scan's RED is a real commit
+(`60dc4f0`), per §R54.3.
 
 ## RED
 
@@ -168,7 +203,9 @@ before the flag existed:
 ## GREEN
 
 `# tests 10 / # pass 10 / # fail 0` at `d4c6e49`; `# tests 12 / # pass 12 /
-# fail 0` at `7c00e40`, once the two §R51.1 scan tests joined the file.
+# fail 0` at `7c00e40`, once the first form of the §R51.1 scan joined the
+file; `# tests 20 / # pass 20 / # fail 0` at `d01aac8`, once §R54.3's
+committed fixtures replaced it.
 
 The kill-switch test does not merely assert "returns 1": it first asserts
 `fit.ratios.Questionable` is strictly between 0 and 1 on the fixture, then

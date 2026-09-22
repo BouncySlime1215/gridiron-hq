@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db, rows, row, run } from '../db/index.js';
 import { leagueTypeFromPayload } from '../services/format.js';
-import { BROWSER_HEADERS } from '../services/espn-draft.js';
+import { BROWSER_HEADERS, SLOT_NAME } from '../services/espn-draft.js';
 import { assertLeagueMember, assertCommissioner } from '../platform/auth.js';
 
 const r = Router();
@@ -115,8 +115,6 @@ r.delete('/:id', (req, res) => {
   res.json({ ok: true, purged: true, removed: impact });
 });
 
-const ESPN_SLOT_NAME = { 0: 'QB', 2: 'RB', 4: 'WR', 6: 'TE', 16: 'DEF', 17: 'K', 23: 'FLEX' };
-
 async function fetchEspn(lg, season) {
   // No scoringPeriodId: ESPN then answers for the CURRENT period. Pinning it to 1
   // froze every roster at week 1 for the whole season — leagues looked connected
@@ -151,18 +149,27 @@ export async function syncEspnLeague(lg) {
     } catch { /* keep the empty current-season payload */ }
   }
   const lineup = data.settings?.rosterSettings?.lineupSlotCounts ?? {};
+  // SLOT_NAME (espn-draft.js) is the same map trade-engine.js's IR_SLOT_ID
+  // already depends on — it has BENCH(20)/IR(21)/OP(7) that this file's own
+  // former copy of the map did not, silently dropping those slots at the
+  // .filter(Boolean) below (docs/wiring/league-ingest-field-contract.md #2).
   const rosterPositions = Object.entries(lineup)
-    .flatMap(([slot, n]) => Array(n).fill(ESPN_SLOT_NAME[slot]).filter(Boolean));
+    .flatMap(([slot, n]) => Array(n).fill(SLOT_NAME[slot]).filter(Boolean));
   const currentWeek = currentSeasonWeek;
+  // scheduleSettings.playoffTeamCount is already re-parsed from payload on
+  // every call by season-sim.js:198 and trade-horizon.js's leagueSchedule();
+  // storing it at sync time (contract #6) gives both a column to read instead.
+  const playoffTeams = data.settings?.scheduleSettings?.playoffTeamCount ?? null;
   // `season_used` and `fell_back` were returned and then thrown away by the
   // scheduled path (scheduler.js refreshLeagueRosters keeps only counts), so a
   // league running on last season's rosters looked freshly connected to every
   // reader except the one manual-sync message. Persist them.
   run(`UPDATE leagues SET name = ?, team_count = ?, payload = ?, roster_positions = ?,
-       league_type = ?, current_week = ?, payload_season = ?, fetched_at = datetime('now') WHERE id = ?`,
+       league_type = ?, current_week = ?, payload_season = ?, playoff_teams = ?,
+       fetched_at = datetime('now') WHERE id = ?`,
     data.settings?.name ?? `ESPN ${lg.league_id}`, data.teams?.length ?? null,
     JSON.stringify(data), rosterPositions.length ? JSON.stringify(rosterPositions) : null,
-    leagueTypeFromPayload('espn', data), currentWeek, usedSeason, lg.id);
+    leagueTypeFromPayload('espn', data), currentWeek, usedSeason, playoffTeams, lg.id);
   return { teams: data.teams?.length ?? 0, roster_players: rosterCount(data), season_used: usedSeason, fell_back: fellBack };
 }
 
@@ -182,14 +189,28 @@ export async function syncSleeperLeague(lg) {
   const scoring = league.scoring_settings ?? {};
   const rp = league.roster_positions ?? [];
   const payload = { league, rosters, users, traded_picks: tradedPicks, drafts };
+  // league.scoring_settings is already stored in full inside payload.league
+  // above (contract #1) — the columns below are the fields league.settings
+  // carries that nothing ever reads out of it (contract #3/#4/#5/#6). Stored
+  // RAW, undecoded: waiver_type's 0/1/2 meaning and ESPN's equivalent fields
+  // are not confirmed against a real payload, so this does not guess at them
+  // (see migration 068's comment).
+  const settings = league.settings ?? {};
   run(`UPDATE leagues SET name = ?, team_count = ?, ppr = ?, superflex = ?, roster_positions = ?,
-       league_type = ?, payload = ?, fetched_at = datetime('now') WHERE id = ?`,
+       league_type = ?, payload = ?, waiver_type = ?, faab_budget = ?, trade_deadline = ?,
+       playoff_teams = ?, playoff_week_start = ?, fetched_at = datetime('now') WHERE id = ?`,
     league.name, league.total_rosters ?? rosters.length,
     scoring.rec >= 1 ? 1 : scoring.rec >= 0.5 ? 0.5 : 0,
     rp.includes('SUPER_FLEX') ? 1 : 0,
     JSON.stringify(rp),
     leagueTypeFromPayload('sleeper', payload),
-    JSON.stringify(payload), lg.id);
+    JSON.stringify(payload),
+    settings.waiver_type != null ? String(settings.waiver_type) : null,
+    settings.waiver_budget ?? null,
+    settings.trade_deadline ?? null,
+    settings.playoff_teams ?? null,
+    settings.playoff_week_start ?? null,
+    lg.id);
   return { teams: rosters.length, traded_picks: tradedPicks.length, drafts: drafts.length };
 }
 

@@ -40,7 +40,7 @@ is not a bare identifier.
 ## 3. RED → GREEN
 
 - `9230d3d` RED: `test/data-freshness.test.js`, module absent, all fail as one.
-- `4277495` GREEN: `server/services/data-freshness.js`; 13 tests pass. Two test
+- `4277495` GREEN: `server/services/data-freshness.js`; 13 tests pass (17 after the second-grain fields). Two test
   fixes folded in from the module-absent RED, both stated in the commit: the
   fixture seeds a `players` row because `player_week_usage` carries a FK to it,
   and a local variable named `pwu` shadowed the insert helper.
@@ -69,6 +69,28 @@ A table with a connection and rows present, but none current, comes back
 `stale` and `all_fresh` is `false`. A check that said OK here would be wrong by
 construction, and this one does not.
 
+## 4a. Second grain: fit stores, not just feeds
+
+The model-audit thread's reconciliation against the scheduler's `servedTables()`
+found the feed-only registry has this feature's own bug one layer up: 73 of the
+82 tables the models read are not in it, and none of the ten fit-artifact stores
+(`correlation_estimates`, `fantasy_coordinator_fits`, `shrinkage_fits`,
+`weekly_ensemble_fits`, …) are covered — so a model can read a stale or
+wrong-season fit, answer anyway, and its store still reads "fresh" because rows
+exist.
+
+Decided now, before the registry shape locks, because it is a field now and a
+schema change later. An entry carries two optional passthrough fields: `grain`
+(`feed` or `fit`) and `reader` (the model that consumes a fit). Feeds leave
+them at `feed`/`null` and are unchanged. The point that must not regress: a fit
+store's verdict is still **coverage, never a timestamp** — `fresh` means a fit
+exists for the season being played, and a recent `fitted_at` over
+last-season-only fits reads `stale`, because that is the stale-fit trap. The
+`fitted_at` populates `last_write` for display and is not the verdict. Tests pin
+exactly this: a 2025-only fit stamped one minute before midnight tonight reads
+`stale` with its `last_write` still shown. The service already computed coverage
+this way; only the two passthrough fields were added.
+
 ## 5. Mutation sweep
 
 `docs/tdd/sweeps/data-freshness.mutations.json`, run with
@@ -92,6 +114,8 @@ file differed when the suite ran. Every behavioural test has a killing row.
 | R1 route always claims all_fresh | all_fresh | f994a28f130b→309c550b9011 | killed |
 | R2 route stops reporting the week | season/week | →6db8cbece63a | killed |
 | R3 route passes a fixed week (1) | route's current-week plumbing | →8f640c5e9332 | killed |
+| G1 grain default flipped to fit | feed-default | →d65e07fac33d | killed |
+| G2 reader never carried through | grain/reader carried | →eb43f3875d28 | killed |
 | C1 a comment reworded | designed survivor | →e5ca1f945621 | SURVIVED |
 | C2 anchor `database.prepare(` | designed NOT APPLIED | (anchor x5) | NOT APPLIED |
 
@@ -116,19 +140,19 @@ green suite is not evidence that the thing you built is the thing under test.
 
 Measured on the tree at HEAD after the backout and the added route test,
 source-isolated (own source tree, `node_modules` symlinked to the primary
-clone), `git write-tree` identical before and after the run, `node_modules`
-mtime unmoved:
+clone), tree `56f06dfb1137` (measured before this evidence edit), identical
+`git write-tree` before and after the run, `node_modules` mtime unmoved:
 
 | Step | Result |
 |---|---|
 | typecheck | clean |
 | lint | clean |
-| test | 3,008 tests, 2,967 pass, 0 fail, 41 skipped |
+| test | 3,012 tests, 2,971 pass, 0 fail, 41 skipped |
 | build | ✓ |
 | start:smoke | passed on isolated DB (32 teams) |
 
-(The count is one above the 3,007 reported at `fe6ba16`: the route test that
-closes R3.)
+(Five above the 3,007 at `fe6ba16`: the route test that closes R3, plus
+four for the second grain.)
 
 ## 7. What this does NOT settle
 

@@ -72,6 +72,16 @@ export function tableFreshness(entry, { currentSeason, currentWeek, database = d
   const base = {
     table,
     label: entry.label ?? table,
+    // grain distinguishes a data feed from a fit-artifact store; reader names
+    // the model that consumes a fit. Both are optional passthrough from the
+    // registry — a feed leaves them at 'feed'/null. They exist because a
+    // feed-only registry has the banner's own bug one layer up: a model can
+    // read a stale or wrong-season fit and still answer while its store reads
+    // fresh. The VERDICT for a fit store is still coverage, never a timestamp —
+    // fresh means a fit exists for the current season, and the fitted_at only
+    // populates last_write for display.
+    grain: entry.grain ?? 'feed',
+    reader: entry.reader ?? null,
     row_count: 0,
     earliest: null,
     latest: null,

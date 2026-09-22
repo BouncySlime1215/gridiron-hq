@@ -155,3 +155,56 @@ test('servedTablesRegistry falls back to the built-in registry until source-regi
 });
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
+
+/**
+ * Second grain: fit-artifact stores, not just feeds.
+ *
+ * The model-audit thread's reconciliation found that a feed-only registry has
+ * the banner's own bug one layer up — a model can read a stale or wrong-season
+ * fit and still answer, and the store still reads "fresh" because rows exist.
+ * So an entry carries an optional grain ('feed' or 'fit') and the model that
+ * reads it, and — this is the part that must not regress — a fit store's verdict
+ * is still COVERAGE, not a timestamp: fresh means a fit exists FOR THE CURRENT
+ * season, never merely that a fit ran recently. A recent fitted_at over
+ * last-season-only fits is exactly the stale-fit trap, and it must read stale.
+ */
+const fitEntry = (over = {}) => ({
+  table: 'has_updated', label: 'Correlation estimates',
+  grain: 'fit', reader: 'nfl-ensemble',
+  season_col: 'season', week_col: null, updated_col: 'updated_at',
+  current_rule: {
+    description: 'A fit exists for the season being played.',
+    predicate: 'season = ?', bind: ['season']
+  }, ...over
+});
+
+test('grain and reader are carried through so a fit store is distinguishable from a feed', () => {
+  clear();
+  db.prepare(`INSERT INTO has_updated VALUES (1, ?, NULL, '2026-09-01T00:00:00Z')`).run(SEASON);
+  const f = tableFreshness(fitEntry(), ctx());
+  assert.equal(f.grain, 'fit');
+  assert.equal(f.reader, 'nfl-ensemble');
+});
+
+test('an entry with no grain defaults to feed and reader null — feeds are unchanged', () => {
+  clear();
+  pwu(SEASON, WEEK);
+  const f = one();
+  assert.equal(f.grain, 'feed');
+  assert.equal(f.reader, null);
+});
+
+test('a fit store is stale when its only fit is last season, even with a recent fitted_at', () => {
+  clear();
+  // A fit for 2025 only, fitted just now. Timestamp-fresh, coverage-stale.
+  db.prepare(`INSERT INTO has_updated VALUES (1, 2025, NULL, '2026-09-20T23:59:00Z')`).run();
+  const f = tableFreshness(fitEntry(), ctx());
+  assert.equal(f.status, 'stale', 'a recent fitted_at over a last-season fit was called fresh — the stale-fit trap');
+  assert.equal(f.last_write, '2026-09-20T23:59:00Z', 'the fitted_at is still shown, just not used for the verdict');
+});
+
+test('a fit store is fresh when a fit exists for the current season', () => {
+  clear();
+  db.prepare(`INSERT INTO has_updated VALUES (1, ?, NULL, '2026-08-01T00:00:00Z')`).run(SEASON);
+  assert.equal(tableFreshness(fitEntry(), ctx()).status, 'fresh');
+});

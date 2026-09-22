@@ -130,6 +130,26 @@
   "new": "    currentWeek: 1"
  },
  {
+  "name": "G1 grain default flipped to fit",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "feed-default",
+  "old": "    grain: entry.grain ?? 'feed',",
+  "new": "    grain: entry.grain ?? 'fit',"
+ },
+ {
+  "name": "G2 reader never carried through",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "grain/reader carried",
+  "old": "    reader: entry.reader ?? null,",
+  "new": "    reader: null,"
+ },
+ {
   "name": "C1 NO-OP control: a comment reworded (designed survivor)",
   "file": "server/services/data-freshness.js",
   "tests": [

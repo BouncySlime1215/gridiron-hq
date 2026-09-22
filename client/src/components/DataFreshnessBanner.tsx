@@ -11,6 +11,8 @@ interface TableFreshness {
   current_rule: string | null;
   status: 'fresh' | 'stale' | 'empty';
   note: string | null;
+  grain?: 'feed' | 'fit';
+  reader?: string | null;
 }
 interface FreshnessReport {
   season: number;
@@ -46,6 +48,21 @@ function span(t: TableFreshness): string {
     : null;
   const written = t.last_write ? `, updated ${t.last_write.slice(0, 10)}` : '';
   return `${t.row_count.toLocaleString()} rows${range ? `, ${range}` : ''}${written}`;
+}
+
+/**
+ * A fit store that is behind is not the same failure as a feed that is behind: a
+ * feed is late, a fit means the model that reads it is answering on a fallback.
+ * The reader names which model, so the sentence is specific.
+ */
+function behindSentence(t: TableFreshness): string {
+  if (t.grain === 'fit') {
+    const who = t.reader ? `The ${t.reader} model` : 'A model';
+    return t.status === 'empty'
+      ? `${who} has no fit on file and is answering on a fallback.`
+      : `${who} is answering on a fit from an earlier season, not this one.`;
+  }
+  return t.status === 'empty' ? 'This feed has no rows on file yet.' : 'This feed has not been updated for the current week.';
 }
 
 export default function DataFreshnessBanner() {
@@ -98,7 +115,12 @@ export default function DataFreshnessBanner() {
                 return (
                   <tr key={t.table} className="border-t border-slate-100 align-top">
                     <td className="py-1.5 pr-3 font-semibold text-slate-800">{t.label}</td>
-                    <td className="py-1.5 pr-3 text-slate-600">{span(t)}</td>
+                    <td className="py-1.5 pr-3 text-slate-600">
+                      {span(t)}
+                      {t.status !== 'fresh' && (
+                        <div className="mt-0.5 text-[11px] text-amber-700">{behindSentence(t)}</div>
+                      )}
+                    </td>
                     <td className="py-1.5 pr-3 text-slate-500">{t.current_rule ?? '—'}</td>
                     <td className="py-1.5">
                       <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${s.chip}`}>{s.word}</span>

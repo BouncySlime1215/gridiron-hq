@@ -36,10 +36,22 @@ test('nfl_metric_reliability table exists after migrations and starts empty', ()
 });
 
 test('saveMetricReliability requires population, metric and weightingScheme -- no anonymous row', () => {
+  // Matched on the specific message, not just "something threw": the
+  // NOT NULL columns would also throw on a missing field, and a bare
+  // assert.throws can't tell that apart from this function's own guard
+  // actually firing.
   const fit = realFit();
-  assert.throws(() => saveMetricReliability({ metric: 'target_share', weightingScheme: 'flat_per_player_week', fit }));
-  assert.throws(() => saveMetricReliability({ population: 'pbp', weightingScheme: 'flat_per_player_week', fit }));
-  assert.throws(() => saveMetricReliability({ population: 'pbp', metric: 'target_share', fit }));
+  const msg = /requires population, metric and weightingScheme/;
+  assert.throws(() => saveMetricReliability({ metric: 'target_share', weightingScheme: 'flat_per_player_week', fit }), msg);
+  assert.throws(() => saveMetricReliability({ population: 'pbp', weightingScheme: 'flat_per_player_week', fit }), msg);
+  assert.throws(() => saveMetricReliability({ population: 'pbp', metric: 'target_share', fit }), msg);
+});
+
+test('saveMetricReliability requires a real fitK() shape -- rejects a malformed fit before it ever reaches the database', () => {
+  const msg = /requires a fitK\(\) result with a finite icc/;
+  assert.throws(() => saveMetricReliability({ population: 'pbp', metric: 'x', weightingScheme: 'flat', fit: null }), msg);
+  assert.throws(() => saveMetricReliability({ population: 'pbp', metric: 'x', weightingScheme: 'flat', fit: { k: 1 } }), msg);
+  assert.throws(() => saveMetricReliability({ population: 'pbp', metric: 'x', weightingScheme: 'flat', fit: { icc: 0.5, k: NaN } }), msg);
 });
 
 test('saveMetricReliability persists a real fitK result and loadMetricReliability reads it back exactly', () => {
@@ -60,21 +72,47 @@ test('saveMetricReliability persists a real fitK result and loadMetricReliabilit
   assert.ok(stored.fitted_at);
 });
 
-test('the same (population, metric, weighting_scheme) upserts -- refitting replaces, it does not duplicate', () => {
-  const fit = realFit();
-  saveMetricReliability({ population: 'pbp', metric: 'carry_share', weightingScheme: 'flat_per_player_week', fit });
-  saveMetricReliability({ population: 'pbp', metric: 'carry_share', weightingScheme: 'flat_per_player_week', fit });
+test('the same (population, metric, weighting_scheme) upserts -- refitting REPLACES the stored values, it does not just avoid duplicating the row', () => {
+  // Distinct from a bare COUNT(*) check: ON CONFLICT DO NOTHING would also
+  // keep the count at 1, but would silently keep serving the FIRST fit's
+  // stale numbers forever. The second fit here is built to have a visibly
+  // different icc/k from the first, so a stale row is caught, not just an
+  // extra one.
+  const stableFit = fitK(Array.from({ length: 8 }, (_, i) =>
+    [1, 2, 3].map(v => ({ group: `g${i}`, weight: 1, value: v }))).flat());
+  const separatedFit = realFit();
+  assert.notEqual(stableFit.icc, separatedFit.icc);
+
+  saveMetricReliability({ population: 'pbp', metric: 'carry_share', weightingScheme: 'flat_per_player_week', fit: stableFit });
+  saveMetricReliability({ population: 'pbp', metric: 'carry_share', weightingScheme: 'flat_per_player_week', fit: separatedFit });
+
   const count = db.prepare(`SELECT COUNT(*) AS n FROM nfl_metric_reliability
     WHERE population='pbp' AND metric='carry_share' AND weighting_scheme='flat_per_player_week'`).get().n;
-  assert.equal(count, 1);
+  assert.equal(count, 1, 'still one row, not two');
+
+  const stored = loadMetricReliability('pbp', 'carry_share', 'flat_per_player_week');
+  assert.equal(stored.icc, separatedFit.icc, 'the SECOND fit\'s numbers, not the first\'s');
 });
 
-test('the same metric under a DIFFERENT weighting scheme is a separate row, not a collision', () => {
-  const fit = realFit();
-  saveMetricReliability({ population: 'pbp', metric: 'target_share', weightingScheme: 'flat_per_player_week', fit });
-  saveMetricReliability({ population: 'pbp', metric: 'target_share', weightingScheme: 'weighted_by_team_attempts', fit });
-  const rows = db.prepare(`SELECT weighting_scheme FROM nfl_metric_reliability WHERE population='pbp' AND metric='target_share'`).all();
-  assert.equal(rows.length, 2);
+test('the same metric under a DIFFERENT weighting scheme is a separate row, and loadMetricReliability returns the one actually asked for', () => {
+  // Distinct from a raw row-count check: dropping weighting_scheme from
+  // loadMetricReliability's WHERE clause would still leave two rows in the
+  // table, but .get() would return whichever one SQLite happens to pick
+  // first regardless of which scheme was requested. Two fits with visibly
+  // different icc catch that.
+  const flatFit = realFit();
+  const otherFit = fitK(Array.from({ length: 8 }, (_, i) =>
+    [1, 2, 3].map(v => ({ group: `g${i}`, weight: 1, value: v }))).flat());
+  assert.notEqual(flatFit.icc, otherFit.icc);
+
+  saveMetricReliability({ population: 'pbp', metric: 'target_share', weightingScheme: 'flat_per_player_week', fit: flatFit });
+  saveMetricReliability({ population: 'pbp', metric: 'target_share', weightingScheme: 'weighted_by_team_attempts', fit: otherFit });
+
+  const rowCount = db.prepare(`SELECT COUNT(*) AS n FROM nfl_metric_reliability WHERE population='pbp' AND metric='target_share'`).get().n;
+  assert.equal(rowCount, 2);
+
+  assert.equal(loadMetricReliability('pbp', 'target_share', 'flat_per_player_week').icc, flatFit.icc);
+  assert.equal(loadMetricReliability('pbp', 'target_share', 'weighted_by_team_attempts').icc, otherFit.icc);
 });
 
 test('a k of Infinity (no detectable signal) round-trips through storage, not dropped or coerced', () => {

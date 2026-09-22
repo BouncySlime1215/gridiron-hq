@@ -1,0 +1,172 @@
+[
+ {
+  "name": "S1 every table is reported fresh",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "specimen, F2, F3, F11",
+  "old": "  base.status = currentCount > 0 ? 'fresh' : 'stale';",
+  "new": "  base.status = 'fresh';"
+ },
+ {
+  "name": "S2 a future-week row is treated as current (>= instead of <=)",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "F3",
+  "old": "  const currentCount = predicate",
+  "new": "  const currentCount = false && predicate"
+ },
+ {
+  "name": "S3 empty and stale are collapsed (empty table computes the predicate)",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "F4-empty",
+  "old": "  if (base.row_count === 0) return base;",
+  "new": "  if (false) return base;"
+ },
+ {
+  "name": "S4 a missing table is not caught (present-check removed)",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "missing-table",
+  "old": "  if (!present) return { ...base, note: 'table not present in this database' };",
+  "new": "  if (false) return { ...base, note: 'table not present in this database' };"
+ },
+ {
+  "name": "S5 the identifier guard is disabled",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "injection",
+  "old": "  if (typeof name !== 'string' || !IDENTIFIER.test(name)) {",
+  "new": "  if (false) {"
+ },
+ {
+  "name": "S6 the placeholder/bind mismatch check is disabled",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "bind-mismatch",
+  "old": "  if (placeholders !== bind.length) {",
+  "new": "  if (false) {"
+ },
+ {
+  "name": "S7 last_write is always null (updated-col branch skipped)",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "last_write",
+  "old": "  if (entry.updated_col) {",
+  "new": "  if (false && entry.updated_col) {"
+ },
+ {
+  "name": "S8 earliest/latest never populated",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "row_count/earliest/latest",
+  "old": "  if (orderCol) {",
+  "new": "  if (false) {"
+ },
+ {
+  "name": "S9 the rule sentence is dropped from the row",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "verbatim-rule",
+  "old": "    current_rule: rule.description ?? null,",
+  "new": "    current_rule: null,"
+ },
+ {
+  "name": "S10 the fallback registry is emptied",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "F11, servedTablesRegistry",
+  "old": "export const FALLBACK_REGISTRY = [\n  {\n    table: 'player_week_usage',",
+  "new": "export const FALLBACK_REGISTRY = [\n  {\n    table: 'ZZZ_absent',"
+ },
+ {
+  "name": "R1 the route always claims all_fresh",
+  "file": "server/routes/data-freshness.js",
+  "tests": [
+   "test/data-freshness-route.test.js"
+  ],
+  "aimed_at": "all_fresh",
+  "old": "    all_fresh: tables.every(t => t.status === 'fresh'),",
+  "new": "    all_fresh: true,"
+ },
+ {
+  "name": "R2 the route stops reporting the week",
+  "file": "server/routes/data-freshness.js",
+  "tests": [
+   "test/data-freshness-route.test.js"
+  ],
+  "aimed_at": "season/week",
+  "old": "    week: now.week,\n    all_fresh:",
+  "new": "    all_fresh:"
+ },
+ {
+  "name": "R3 the route passes the wrong current week (1)",
+  "file": "server/routes/data-freshness.js",
+  "tests": [
+   "test/data-freshness-route.test.js"
+  ],
+  "aimed_at": "specimen-over-http",
+  "old": "    currentWeek: now.week",
+  "new": "    currentWeek: 1"
+ },
+ {
+  "name": "G1 grain default flipped to fit",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "feed-default",
+  "old": "    grain: entry.grain ?? 'feed',",
+  "new": "    grain: entry.grain ?? 'fit',"
+ },
+ {
+  "name": "G2 reader never carried through",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "grain/reader carried",
+  "old": "    reader: entry.reader ?? null,",
+  "new": "    reader: null,"
+ },
+ {
+  "name": "C1 NO-OP control: a comment reworded (designed survivor)",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "(designed survivor)",
+  "old": "A live connection is",
+  "new": "A working connection is"
+ },
+ {
+  "name": "C2 NOT-APPLIED control: an anchor that matches four times",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "(designed NOT APPLIED, anchor x4)",
+  "old": "database.prepare(",
+  "new": "DATABASE.prepare("
+ }
+]

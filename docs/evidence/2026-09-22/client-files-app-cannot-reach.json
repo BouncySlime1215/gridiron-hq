@@ -1,0 +1,10 @@
+[
+ "client/src/components/StaleBanner.tsx",
+ "client/src/components/StatTable.tsx",
+ "client/src/features/model-lab/ModelRegistryPanel.tsx",
+ "client/src/main.tsx",
+ "client/src/pages/Edge.tsx",
+ "client/src/pages/Model.tsx",
+ "client/src/pages/Projections.tsx",
+ "client/src/pages/Rankings.tsx"
+]

@@ -739,12 +739,18 @@ test('resolveSuspensionClaim: unresolved when no suspension direction classifies
 // ---- resolveSuspensionClaims (batch) ----------------------------------------
 
 test('resolveSuspensionClaims writes one upserted row per suspension event, and leaves other claim types alone', () => {
+  // This game's date must sort AFTER the suspension claim's own game below —
+  // locateGameAndPlayer's lookup is team-wide (WHERE team_id = ? AND date >= ?
+  // ORDER BY date ASC LIMIT 1), so an earlier-or-equal-dated game for the same
+  // team (KC) would be picked up by the suspension claim's own date search
+  // regardless of which player it names, silently resolving against the wrong
+  // player's absence. A week 41 date past week 39's keeps the two independent.
   const injuryPlayer = makePlayer('Untouched Injury WR 3', 'WR');
-  makeGame(2026, 40, '2027-08-21');
-  setSnaps(injuryPlayer, 2026, 40, 0);
+  makeGame(2026, 41, '2027-08-30');
+  setSnaps(injuryPlayer, 2026, 41, 0);
   const injuryEventId = makeEvent({
     playerName: 'Untouched Injury WR 3', claimText: 'Ruled out this week.',
-    publishedAt: '2027-08-19T12:00:00Z',
+    publishedAt: '2027-08-28T12:00:00Z',
   });
 
   const suspensionPlayer = makePlayer('Batch Suspension RB', 'RB');

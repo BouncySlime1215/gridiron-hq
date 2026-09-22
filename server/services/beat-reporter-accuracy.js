@@ -1,20 +1,22 @@
 /**
  * Beat reporter source map — historical accuracy for injury_status,
- * role_change, and return_from_injury.
+ * role_change, return_from_injury, and suspension.
  *
  * Nick's ask (PART 5): "Score sources historically: whose reports actually
  * predicted outcomes vs. who cried wolf." `source-validation.js` already
  * answers a different question — is this handle who it claims to be — and
  * this does not repeat that check. This answers: when this handle said a
- * player would or wouldn't play (injury_status, return_from_injury) or take
- * on more/less of the offense (role_change), did that actually happen?
+ * player would or wouldn't play (injury_status, return_from_injury,
+ * suspension) or take on more/less of the offense (role_change), did that
+ * actually happen?
  *
- * All three share player_week_snaps as ground truth. injury_status and
- * return_from_injury both reduce to the same played-or-not read (shared via
- * playedOrNot()) and differ only in the vocabulary that decides which side of
- * "played" a claim commits to; role_change reads the swing in offense_pct
- * against the player's own prior week instead. The remaining two types
- * (transaction, suspension) each need their own ground-truth read and are
+ * Three of the four share player_week_snaps as ground truth. injury_status,
+ * return_from_injury, and suspension all reduce to the same played-or-not
+ * read (shared via playedOrNot()) and differ only in the vocabulary that
+ * decides which side of "played" a claim commits to; role_change reads the
+ * swing in offense_pct against the player's own prior week instead. The
+ * remaining type (transaction) needs its own ground-truth read — a roster/
+ * ownership-change signal, not a played/did-not-play one — and is
  * deliberately not attempted here — "prove a small slice before building on
  * it" (Composer protocol).
  *
@@ -368,6 +370,71 @@ export function resolveRoleChangeClaim(event, { asOf = new Date().toISOString() 
 export function resolveRoleChangeClaims({ limit = 500, asOf } = {}) {
   const events = rows(`SELECT * FROM nfl_news_events WHERE claim_type = 'role_change' ORDER BY event_id LIMIT ?`, limit);
   return resolveAndStore(events, resolveRoleChangeClaim, asOf);
+}
+
+const SUSPENDED = /\b(suspended|serving (a |his |her )?\d+-game suspension|suspension (has been |was )?(upheld|announced|imposed)|banned (for|through) \d+ games?|remains? suspended|still suspended|ineligible (to play|for (the )?season) (due to|following) (a |his |her )?suspension)\b/i;
+const REINSTATED = /\b(reinstated( from (his |her )?suspension)?|suspension (has been |was )?lifted|eligible to (return|play) (following|after) (his |her )?suspension|back from suspension|cleared to (return|play) after serving (his |her )?suspension|suspension (is )?over)\b/i;
+
+/**
+ * Read the direction a suspension claim's text commits to.
+ *
+ * Ground truth is the same playedOrNot() read return_from_injury already
+ * uses — a suspended player logs no offensive snaps for exactly the same
+ * reason an IR player does not, and player_week_snaps does not distinguish
+ * why a player is missing. `suspended` and `reinstated` get their own
+ * vocabulary (not a reuse of RETURNING/STILL_OUT) because "eligible to
+ * return" and "reinstated" describe different real events even though both
+ * predict the same played/did-not-play outcome — collapsing them would
+ * blur what the claim actually said in `predicted_direction`.
+ */
+export function classifySuspensionDirection(text) {
+  const t = String(text ?? '');
+  if (SUSPENDED.test(t)) return 'suspended';
+  if (REINSTATED.test(t)) return 'reinstated';
+  return null;
+}
+
+/**
+ * Resolve one suspension event. Same played-or-not ground truth as
+ * resolveInjuryClaim/resolveReturnFromInjuryClaim (via the shared
+ * playedOrNot helper) — only the vocabulary deciding which side of "played"
+ * the claim commits to differs.
+ */
+export function resolveSuspensionClaim(event, { asOf = new Date().toISOString() } = {}) {
+  const base = { event_id: event.event_id, reporter_handle: event.reporter_handle ?? null,
+    claim_type: event.claim_type, resolved_at: new Date().toISOString(), season: null, week: null };
+
+  const direction = classifySuspensionDirection(event.evidence_span || event.claim_text);
+  if (direction === null) {
+    return { ...base, predicted_direction: null, resolved_state: 'unresolved',
+      resolved_reason: 'no suspension direction classified from the claim text' };
+  }
+
+  const located = locateGameAndPlayer(event, asOf);
+  if (!located.ok) {
+    return { ...base, predicted_direction: direction, resolved_state: 'unresolved',
+      season: located.season, week: located.week, resolved_reason: located.resolved_reason };
+  }
+  const { team, game, playerId } = located;
+
+  const outcome = playedOrNot(team, game, playerId);
+  if (!outcome.known) {
+    return { ...base, predicted_direction: direction, resolved_state: 'unresolved', season: game.season,
+      week: game.week, resolved_reason: outcome.reason };
+  }
+
+  const predicted = direction === 'reinstated' ? 'played' : 'did_not_play';
+  const actual = outcome.played ? 'played' : 'did_not_play';
+  const resolved_state = predicted === actual ? 'confirmed' : 'contradicted';
+
+  return { ...base, predicted_direction: direction, resolved_state, season: game.season, week: game.week,
+    resolved_reason: outcome.reason };
+}
+
+/** Resolve every suspension event and upsert the verdict. */
+export function resolveSuspensionClaims({ limit = 500, asOf } = {}) {
+  const events = rows(`SELECT * FROM nfl_news_events WHERE claim_type = 'suspension' ORDER BY event_id LIMIT ?`, limit);
+  return resolveAndStore(events, resolveSuspensionClaim, asOf);
 }
 
 /**

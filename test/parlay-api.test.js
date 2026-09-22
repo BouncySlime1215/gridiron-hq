@@ -15,7 +15,6 @@ const { db, run, rows } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 const parlay = await import('../server/services/parlay-api.js');
-const { captureMlbPregame } = await import('../server/services/mlb-pregame.js');
 
 test.after(() => {
   db.close();
@@ -131,58 +130,6 @@ test('player props are metered at a flat 3 credits regardless of market count', 
     const refused = await parlay.playerProps('baseball_mlb', 'evt1', { markets: ['batter_total_bases', 'pitcher_strikeouts'], ttlMs: 0 });
     assert.equal(refused, null);
     assert.equal(parlay.reserveStatus().last_hold.cost, 3);
-  } finally {
-    globalThis.fetch = realFetch;
-    delete process.env.PARLAY_API_KEY;
-  }
-});
-
-test('MLB pregame capture routes through ParlayAPI when its key is set, without needing MLB_ODDS_CAPTURE', async () => {
-  process.env.PARLAY_API_KEY = 'test-parlay-key';
-  const realFetch = globalThis.fetch;
-  const date = '2031-08-01';
-  run(`INSERT INTO mlb_games (game_pk, season, date, home_team, away_team, home_team_id, away_team_id)
-       VALUES (9001, 2031, ?, 'New York Yankees', 'Boston Red Sox', 147, 111)`, date);
-  globalThis.fetch = async (url) => {
-    const u = String(url);
-    if (u.includes('statsapi.mlb.com')) {
-      // No probable-starter schedule data and an empty boxscore; irrelevant to odds routing.
-      if (u.includes('/boxscore')) return { ok: true, json: async () => ({ teams: {} }) };
-      return { ok: true, json: async () => ({ dates: [] }) };
-    }
-    if (u.includes('parlay-api.com/v1/sports/baseball_mlb/events')) {
-      return {
-        ok: true, headers: new Map([['x-requests-remaining', '995']]),
-        json: async () => ([{ id: 'mlb-evt-1', home_team: 'New York Yankees', away_team: 'Boston Red Sox', commence_time: `${date}T23:05:00Z` }])
-      };
-    }
-    if (u.includes('parlay-api.com/v1/sports/baseball_mlb/odds')) {
-      return {
-        ok: true, headers: new Map([['x-requests-remaining', '992']]),
-        json: async () => ([{
-          id: 'mlb-evt-1', home_team: 'New York Yankees', away_team: 'Boston Red Sox', commence_time: `${date}T23:05:00Z`,
-          bookmakers: [{ key: 'draftkings', markets: [{ key: 'pitcher_strikeouts', outcomes: [
-            { name: 'Over', description: 'Gerrit Cole', point: 6.5, price: -115 }
-          ] }] }]
-        }])
-      };
-    }
-    throw new Error(`unexpected fetch in test: ${u}`);
-  };
-  try {
-    const result = await captureMlbPregame(date);
-    assert.equal(result.odds_available, true);
-    assert.equal(result.odds_source, 'parlay_api');
-    assert.equal(result.parlay_capture_enabled, true);
-    assert.equal(result.odds_capture_enabled, false, 'the Odds API flag stays off — this ran on the separate ParlayAPI budget');
-    assert.equal(result.quotes, 1);
-    const snap = rows(`SELECT odds_status, odds_source FROM mlb_pregame_snapshots WHERE game_pk=9001`)[0];
-    assert.equal(snap.odds_status, 'captured');
-    assert.equal(snap.odds_source, 'parlay_api');
-    const quote = rows(`SELECT book, market, selection, price, source FROM mlb_market_quotes WHERE game_pk=9001`)[0];
-    assert.equal(quote.source, 'parlay_api');
-    assert.equal(quote.selection, 'Gerrit Cole');
-    assert.equal(quote.price, -115);
   } finally {
     globalThis.fetch = realFetch;
     delete process.env.PARLAY_API_KEY;

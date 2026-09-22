@@ -27,8 +27,11 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 
-const { receiverRatchet, receiverKey, staleOrphanEntries } = await import('../scripts/wiring-map.mjs');
+const {
+  receiverRatchet, receiverKey, staleOrphanEntries, receiverBaseline, preRegisteredEntries,
+} = await import('../scripts/wiring-map.mjs');
 
 const site = (file, line, receiver) => ({ file, line, receiver, tables: ['t'] });
 const keysOf = list => list.map(b => b.key).sort();
@@ -149,4 +152,67 @@ test('the wired-now half is unchanged and carries its own kind', () => {
   });
   assert.equal(stale[0].kind, 'silences-nothing');
   assert.match(stale[0].why, /wired now/);
+});
+
+/**
+ * THE CALL SITE, WHICH A UNIT TEST OF THE UNIT DOES NOT REACH.
+ *
+ * The mutation sweep for this change killed every mutation inside
+ * `receiverRatchet` and `staleOrphanEntries` and **survived both mutations at
+ * the call site**: pass `{}` as the baseline instead of the annotation key, and
+ * pass `() => false` instead of the pre-registered predicate. Both leave all
+ * thirteen tests above green while turning the checker off — one makes the
+ * ratchet fail on everything, the other makes the stale report tell a reader to
+ * delete a correct entry.
+ *
+ * `--check` is a CLI branch no test runs, so the fix is not a bigger test, it
+ * is a smaller branch: the two decisions live in pure functions now and the
+ * branch is left holding a call.
+ */
+test('the baseline comes from accepted_unresolved_receivers, by that name', () => {
+  assert.deepEqual(receiverBaseline({ accepted_unresolved_receivers: { 'a/b.js rdb': 2 } }), { 'a/b.js rdb': 2 });
+  // A file with no baseline block yields an empty baseline, not undefined —
+  // receiverRatchet would treat undefined as "no key at all" and block on
+  // everything, which is the red-on-day-one this list exists to avoid.
+  assert.deepEqual(receiverBaseline({}), {});
+  assert.deepEqual(receiverBaseline(), {});
+});
+
+test('the baseline is not read from some other key that happens to look right', () => {
+  assert.deepEqual(receiverBaseline({ unresolved_receivers: { 'a/b.js rdb': 2 } }), {});
+});
+
+test('PRE-REGISTERED in the reason text is what marks an entry deliberate', () => {
+  const isPre = preRegisteredEntries({
+    _PERMANENT_ORPHAN_REASONS: {
+      'server/services/cascade-grade.js': 'PRE-REGISTERED: the file is not in this tree yet, it arrives with PR #72.',
+      'server/services/other.js': 'Deliberately unwired research. RETIRE THIS ENTRY WHEN a surface reads it.',
+    },
+  });
+  assert.equal(isPre('server/services/cascade-grade.js'), true);
+  assert.equal(isPre('server/services/other.js'), false);
+  assert.equal(isPre('server/services/not-listed-at-all.js'), false);
+});
+
+test('an annotations file with no reasons block marks nothing pre-registered', () => {
+  assert.equal(preRegisteredEntries({})('anything.js'), false);
+  assert.equal(preRegisteredEntries()('anything.js'), false);
+});
+
+test('every baselined receiver in the real annotations file carries an owner and a retirement condition', () => {
+  // The list's own discipline, pinned: a line can be added to the baseline, but
+  // not without saying who owns it and what would retire it. That is the whole
+  // difference between this file and a junk drawer.
+  const ann = JSON.parse(fs.readFileSync(new URL('../docs/wiring/annotations.json', import.meta.url), 'utf8'));
+  const baseline = receiverBaseline(ann);
+  const reasons = ann._UNRESOLVED_RECEIVERS_REASONS ?? {};
+  assert.ok(Object.keys(baseline).length > 0, 'the baseline block is missing from annotations.json');
+  for (const key of Object.keys(baseline)) {
+    assert.ok(Number.isInteger(baseline[key]) && baseline[key] > 0, `${key} is not a positive count`);
+    assert.match(key, /^\S+ \S+$/, `${key} is not "<file> <receiver>" — a line number would rot on every edit`);
+    const why = reasons[key];
+    assert.ok(why, `${key} has no entry in _UNRESOLVED_RECEIVERS_REASONS`);
+    assert.match(why, /RETIRES WHEN/, `${key} has no retirement condition`);
+    assert.match(why, /Owner:/, `${key} has no owner`);
+  }
 });

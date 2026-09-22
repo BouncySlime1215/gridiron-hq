@@ -108,6 +108,51 @@ were observed on this tree, in this order:
 
 The exit 0 is therefore a measurement and not an absence of wiring.
 
+## Mutation sweep, including the call site
+
+Seven mutations, each applied to the working tree and reverted, with
+`node --test test/wiring-map-receiver-ratchet.test.js` run against each.
+
+| # | mutation | result |
+|---|---|---|
+| M1 | `count > was` → `count >= was` | **killed** (3 fail) |
+| M2 | `receiverKey` includes the line | **killed** (8 fail) |
+| M3 | a shrinking pair blocks instead of reporting | **killed** (1 fail) |
+| M4 | `preRegistered` ignored in `staleOrphanEntries` | **killed** (1 fail) |
+| M5 | **call site:** the gate passes `{}` as the baseline | **SURVIVED** |
+| M6 | **call site:** the gate passes `() => false` as the predicate | **SURVIVED** |
+| M7 | the baseline is read from a near-miss key name | **killed** (3 fail) after the fix |
+
+**M5 and M6 survived, and both turn the checker off.** `{}` as the baseline
+makes the ratchet block on all nineteen sites; `() => false` makes the stale
+report tell a reader to delete a correct entry. Thirteen green tests said
+nothing about either, because `--check` is a CLI branch no test runs.
+
+The fix is not a bigger test, it is a smaller branch: `receiverBaseline(ann)`
+and `preRegisteredEntries(ann)` are pure and exported, the branch is left
+holding a call, and five tests pin what they decide — including that the
+baseline comes from `accepted_unresolved_receivers` **by that name** and not
+from a key that merely looks right. Re-run after the fix: **M5 killed (2 fail),
+M6 killed (1 fail), M7 killed (3 fail).** 18/18 green on the restored file,
+which is byte-identical to the pre-mutation copy.
+
+**One thing the sweep taught about sweeps.** The first attempt at M6 used a
+`sed` pattern that did not match the source, so nothing was mutated and the
+suite reported 18/18 — which reads exactly like "survived". A mutation that
+never applied is a false all-clear, and it is the same defect as trusting a
+zero out of a bespoke check: confirm the mutation landed before reading its
+result. M6 was re-applied with an anchored replacement that asserts its anchor
+exists, and only then did it kill.
+
+## Liveness: this runs in the gate, not only in tests
+
+The contradiction test above **is** the liveness proof, on the real tree rather
+than on a fixture: `node scripts/wiring-map.mjs --check` exits 1 and names four
+pairs when the baseline is absent, and exits 0 when it is present, with the
+nineteen-site census printed either way. A behaviour that only ever appears
+under `node --test` is not wired, and this one was observed doing its job from
+the command the CI step actually runs.
+
 ## The second half: a report that invited a mistake
 
 `staleOrphanEntries` reports an accept-list entry naming a file that is not in

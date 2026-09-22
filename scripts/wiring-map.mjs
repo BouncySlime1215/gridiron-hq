@@ -3747,6 +3747,32 @@ export function receiverKey({ file, receiver }) {
  * Pure and exported, because a checker nobody has deliberately broken has not
  * been tested. Pinned in test/wiring-map-receiver-ratchet.test.js.
  */
+/**
+ * Where the two checkers get their inputs from `annotations.json`.
+ *
+ * These exist because the `--check` block is a CLI branch no unit test runs, so
+ * a mutation to the key it reads, or to the marker it matches, survives the
+ * whole suite. Both mutations DID survive the sweep for this change. Lifting
+ * the two decisions out of the branch and into pure functions is the fix: the
+ * branch is left with a call, and what the call decides is pinned.
+ *
+ * `accepted_unresolved_receivers` is the baseline map; a missing key means the
+ * ratchet has nothing to stand on and every pair reads as new, which is a red
+ * build on day one and the thing the baseline exists to avoid.
+ *
+ * `PRE-REGISTERED` in `_PERMANENT_ORPHAN_REASONS` is how an accept-list entry
+ * says out loud that its file is coming on a branch. Without it the stale
+ * report tells a reader to delete a correct entry.
+ */
+export function receiverBaseline(ann = {}) {
+  return ann.accepted_unresolved_receivers ?? {};
+}
+
+export function preRegisteredEntries(ann = {}) {
+  const reasons = ann._PERMANENT_ORPHAN_REASONS ?? {};
+  return entry => /PRE-REGISTERED/.test(String(reasons[entry] ?? ''));
+}
+
 export function receiverRatchet({ found = [], baseline = {} }) {
   const now = new Map();
   for (const site of found) {
@@ -4231,12 +4257,11 @@ const NEW_ORPHAN = new Set(['module-reaches-no-surface', 'module-only-tested',
     // rather than from a heuristic: an entry is spent when the tree no longer
     // holds the file, or when no finding in the orphan family names it any more.
     const orphanNamed = new Set(found.filter(f => NEW_ORPHAN.has(f.rule)).map(f => f.subject));
-    const reasons = ann._PERMANENT_ORPHAN_REASONS ?? {};
     const stale = staleOrphanEntries({
       entries: (ann.accepted_orphan_modules ?? []).concat(ann.expected_orphans ?? []),
       exists: e => fs.existsSync(path.join(ROOT, e)),
       silences: e => orphanNamed.has(e),
-      preRegistered: e => /PRE-REGISTERED/.test(String(reasons[e] ?? '')),
+      preRegistered: preRegisteredEntries(ann),
     });
     if (stale.length) {
       const rotted = stale.filter(s => s.kind !== 'pre-registered');
@@ -4263,10 +4288,7 @@ const NEW_ORPHAN = new Set(['module-reaches-no-surface', 'module-only-tested',
 
     // And the ratchet over that census. Reporting it was the whole safeguard,
     // and a report with nothing behind it drifts. See receiverRatchet above.
-    const ratchet = receiverRatchet({
-      found: unresolved,
-      baseline: ann.accepted_unresolved_receivers ?? {},
-    });
+    const ratchet = receiverRatchet({ found: unresolved, baseline: receiverBaseline(ann) });
     if (ratchet.loosened.length) {
       console.log(`\n${ratchet.loosened.length} baselined receiver(s) now resolve better than the `
         + 'baseline says. Nothing is wrong; the baseline line is what is out of date, and lowering it '

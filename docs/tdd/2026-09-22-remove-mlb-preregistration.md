@@ -179,14 +179,45 @@ Removing these files also changes what the wiring map counts, so the inventory
 ladder (wired / route / script-only) moves and must be re-derived on the head
 after the deletion rather than adjusted by subtraction.
 
-## One thing the Auditor's note does not match
+## Correction: the Auditor was right about CONTRACT.md, and I was wrong
 
-The note relayed at 17:44Z says "CONTRACT.md carries an mlb column". **There is
-no `CONTRACT.md` in this repository at `f620a120`** — `find . -iname "*contract*"`
-returns `server/services/nfl-contract-key.js`, `server/modeling/contracts.js`,
-`server/betting/nfl/contracts`, two test files and `docs/evidence/contracts`,
-and none is a `CONTRACT.md` with an mlb column. Recorded rather than worked
-around, in case it names a file on a branch this tree does not have.
+An earlier revision of this file said "there is no `CONTRACT.md` in this
+repository at `f620a120`" and treated the Auditor's note about its mlb column as
+naming a file this tree does not have. **That was wrong, and it was wrong the
+same way the census itself was wrong the first time:** the `find` behind it ran
+in the stale primary worktree, and the follow-up check on the correct tree only
+looked for `CONTRACT.md` at the repository root. `docs/inventory/CONTRACT.md`
+exists, is 400-plus lines, and carries MLB throughout. Asserting a negative from
+a search that did not cover the tree is worse than not checking, because it
+reads as a finding.
+
+**`docs/inventory/CONTRACT.md` — the exact edits the removal implies.** This
+file belongs to the Wiring map thread under the one-editor rule, so it is
+**listed here and not touched**:
+
+| Line | What it says now | What the removal makes it |
+| --- | --- | --- |
+| `:126` | the first-sweep bracket, `3–6 wired-mlb-only` | `0 wired-mlb-only`; the 319-file column totals have to be re-derived, not adjusted |
+| `:162` | grade table row `wired-mlb-only` \| 6 \| 3 | zero on both columns, or the row goes |
+| `:174` | "§2c — `/api/mlb` is neither betting nor fantasy" | the surface no longer exists |
+| `:182` | the 172 figure, which the `/api/mlb` label produced by moving 24 files out of fantasy `wired` | those 24 files change grade again; the number must be re-measured |
+| `:199` | surface-label table row `mlb.js` \| `mlb` | removed |
+| `:205` | the `wired-mlb-only` grade definition | removed, and the three-way off-product split becomes two-way |
+| `:285`, `:300`, `:348-352`, `:395`, `:399` | prose and evidence rows resting on `/api/mlb` being a live surface | each needs re-reading against a tree without it |
+
+**A consequence worth stating before the deletion, not after.** `wired-mlb-only`
+files are NFL modules reached *only* through `/api/mlb` — `:348-349` names the
+chain `nfl-auto-picks.js <- model-intelligence.js <- routes/mlb.js`. Deleting
+the route does not delete those modules; it moves them from `wired-mlb-only` to
+**`unreached`**. So the removal is expected to *raise* the unreached count and
+may make the wiring gate report new findings on files this PR never touches.
+That is the Wiring map commit's to resolve, and it is not a reason to widen this
+one.
+
+**`scripts/wiring-map.mjs:2164-2165`** likewise belongs to Wiring map and is not
+touched here. `BETTING_FILE` matches `mlb` and `BETTING_TABLE` matches `mlb_`;
+with the MLB files gone the first pattern matches nothing, and the table pattern
+must stay, because the eleven `mlb_*` tables remain on disk.
 
 ## Superseded work
 

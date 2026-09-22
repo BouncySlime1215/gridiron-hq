@@ -19,6 +19,16 @@ function rowsFor(values, weight = 1) {
   return obs;
 }
 
+test('icc is 0, not NaN, when both variance components are exactly zero (every observation identical)', () => {
+  // Distinct from the next test: there, within-group noise is nonzero and only
+  // sigma2_between rounds to ~0. Here EVERY value is the same number, so
+  // sigma2_within is also exactly 0 -- an unguarded sigma2Between /
+  // (sigma2Between + sigma2Within) divides 0 by 0 and produces NaN.
+  const values = Array.from({ length: 8 }, () => [7, 7, 7, 7]);
+  const fit = fitK(rowsFor(values));
+  assert.equal(fit.icc, 0);
+});
+
 test('icc is 0 when there is no detectable between-group variance (matches k=Infinity)', () => {
   // Every group has the exact same values -- all the variance is within-group
   // noise, none of it is "the player." fitK already reports this as k=Infinity;

@@ -160,7 +160,15 @@ export function fitK(observations) {
   // No detectable between-player variance: the data can't rule out "everyone
   // is the same," so the safest reading is "trust the prior completely."
   const k = sigma2Between > 1e-9 ? sigma2Within / sigma2Between : Infinity;
-  return { k, sigma2_within: sigma2Within, sigma2_between: sigma2Between, n_groups: I, n_obs: totalN };
+  // ICC -- what fraction of the week-to-week variance is the player, not
+  // noise. Same two variance components fitK already computed; this reads
+  // them the other way around from k, in [0, 1] rather than in weeks/targets/
+  // etc. Data & techniques R&D, RELIABILITY-SPEC.md 2026-09-22: this is NOT
+  // invariant to the observations' weighting scheme (sigma2_within scales
+  // with weight, sigma2_between does not) -- a caller comparing icc across
+  // fits MUST hold the weighting scheme fixed, or the comparison is invalid.
+  const icc = sigma2Between > 1e-9 ? sigma2Between / (sigma2Between + sigma2Within) : 0;
+  return { k, icc, sigma2_within: sigma2Within, sigma2_between: sigma2Between, n_groups: I, n_obs: totalN };
 }
 
 /* --------------------------------------------------------- dataset builders */

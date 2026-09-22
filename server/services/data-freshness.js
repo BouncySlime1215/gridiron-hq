@@ -269,6 +269,89 @@ export function tableState(entry, { currentSeason = null, currentWeek = null, da
   };
 }
 
+/**
+ * The hand-fed fantasy tables (S-18): three tables that change only when a person
+ * runs something, each read by a product surface that has to say which absence it
+ * works from. ONE entry per table, and the served-table registry wins: when
+ * source-registry.js exports `servedTables()` with an entry for a table, that entry
+ * is the rule (servedTableEntry below) and the one here is dead weight to delete.
+ *
+ * The roster-snapshot and correlation entries are copied verbatim from that registry
+ * as it stands on claude/project-thread-o3wt2p-freshness-evaluator @ e3a86764
+ * (source-registry.js:436-447 and :505-517, PR #104), so a reader and the Data Health
+ * panel give one verdict on the same input, before and after that PR merges. Both are
+ * coverage rules, which is also this module's own contract for a fit store (see
+ * `grain` in tableFreshness). The registry has no trending entry: its 2-day window is
+ * hand-set (Sleeper looks back 24 hours; #104's news_items uses the same two days)
+ * and is the one guess in this list.
+ */
+export const HAND_FED_ENTRIES = Object.freeze([
+  Object.freeze({
+    table: 'league_roster_snapshots',
+    season_col: 'season', week_col: null, updated_col: null, grain: 'week',
+    current_rule: Object.freeze({
+      text: 'Roster history is current when this season has at least one '
+        + 'snapshot. It is an append-only record, so the question is whether '
+        + 'we started collecting this season, not whether it moved today.',
+      sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current '
+        + 'FROM league_roster_snapshots WHERE season = ?',
+      params: Object.freeze(['season'])
+    })
+  }),
+  Object.freeze({
+    table: 'correlation_estimates',
+    season_col: null, week_col: null, updated_col: 'fitted_at',
+    grain: 'fit', fitted_col: 'fitted_at', reader: 'correlation.js',
+    current_rule: Object.freeze({
+      text: 'Correlations are fitted when estimates exist AND carry a fitted '
+        + 'stamp. fitted_at is nullable, so a row written without one is an '
+        + 'estimate nobody can date.',
+      sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current '
+        + 'FROM correlation_estimates WHERE fitted_at IS NOT NULL',
+      params: Object.freeze([])
+    })
+  }),
+  Object.freeze({
+    table: 'trending_players',
+    label: 'Sleeper trending adds and drops',
+    season_col: null, week_col: null, updated_col: 'fetched_at', grain: 'week',
+    current_rule: Object.freeze({
+      description: 'fetched in the last 2 days (Sleeper looks back 24 hours; hand-set window)',
+      predicate: "julianday(fetched_at) >= julianday('now', '-2 days')",
+      bind: Object.freeze([])
+    })
+  })
+]);
+
+/**
+ * The one entry a reader asks about a table: the served-table registry's when it
+ * exports one for that table, else HAND_FED_ENTRIES. A table with neither is a
+ * developer error, not a state, so it throws.
+ */
+export function servedTableEntry(table) {
+  const entry = servedTablesRegistry().find(e => e?.table === table)
+    ?? HAND_FED_ENTRIES.find(e => e.table === table);
+  if (!entry) throw new Error(`data-freshness: no served-table entry for "${table}"`);
+  return entry;
+}
+
+/**
+ * tableState for a table by name, from servedTableEntry. The caller supplies the
+ * season / week its rule binds, from the producer the Data Health route uses
+ * (weekly-learning.js currentNflWeek). A bound value the caller did not supply would
+ * bind NULL, match nothing and read `stale`, a claim about the data made from a
+ * missing input, so that case is `unknown`.
+ */
+export function servedTableState(table, { currentSeason = null, currentWeek = null, database = defaultDb } = {}) {
+  const entry = servedTableEntry(table);
+  const rule = entry.current_rule ?? {};
+  const binds = [...(Array.isArray(rule.params) ? rule.params : []), ...(Array.isArray(rule.bind) ? rule.bind : [])];
+  const given = { season: currentSeason, week: currentWeek };
+  const unsupplied = binds.some(name => name in given && given[name] == null);
+  const s = tableState(entry, { currentSeason, currentWeek, database });
+  return unsupplied && (s.state === 'fresh' || s.state === 'stale') ? { ...s, state: 'unknown' } : s;
+}
+
 /** Freshness for every entry in a registry. */
 export function dataFreshness({ registry: reg = servedTablesRegistry(), currentSeason, currentWeek, database = defaultDb }) {
   return reg.map(entry => tableFreshness(entry, { currentSeason, currentWeek, database }));

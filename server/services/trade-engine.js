@@ -76,7 +76,7 @@ import { normalCdf, withRandomSeed } from './stats-util.js';
 // correlations, for the lineup-total floor/ceiling.
 import { sampleWeeks } from './projections.js';
 import { correlationMatrix, correlationBasis } from './correlation.js';
-import { tableState } from './data-freshness.js';
+import { servedTableState } from './data-freshness.js';
 import { run as dbRun } from '../db/index.js';
 // Evidence layers (see the "evidence" section below). Read-only sources: the
 // engine never re-prices on them, it explains with them.
@@ -236,26 +236,17 @@ export const ASSET_INPUT_TABLES = [
 
 /**
  * The inputs above that only change when a person runs something (S-18), as named
- * states from data-freshness.js#tableState ('table_absent' | 'empty' | 'stale' |
- * 'fresh'). Served on `context.hand_fed`, which routes carry as `model_context`:
+ * states from data-freshness.js#servedTableState ('table_absent' | 'empty' | 'stale' |
+ * 'fresh' | 'unknown'), each from that table's one entry (servedTableEntry). Served on
+ * `context.hand_fed`, which routes carry as `model_context`:
  *   trending_players       every asset's trend_kind / trend_count; written only by
  *                          POST /api/tradelab/trending/sync. Empty, `trend_kind: null`
  *                          is "nothing fetched", not "not trending".
  *   correlation_estimates  lineupSpread's copula; written only by POST /api/model/sync.
  *                          Empty, every archetype is correlation.js's DEFAULTS.
- * The 2-day trending window is hand-set (Sleeper looks back 24 hours), not fitted.
  */
-const TRENDING_STORE = Object.freeze({
-  table: 'trending_players',
-  label: 'Sleeper trending adds and drops',
-  updated_col: 'fetched_at',
-  current_rule: Object.freeze({
-    description: 'fetched in the last 2 days (Sleeper looks back 24 hours; hand-set window)',
-    predicate: "julianday(fetched_at) >= julianday('now', '-2 days')",
-    bind: Object.freeze([])
-  })
-});
-const handFedInputs = () => ({ trending_players: tableState(TRENDING_STORE), correlation_estimates: correlationBasis() });
+const handFedInputs = () => ({ trending_players: servedTableState('trending_players'),
+  correlation_estimates: correlationBasis() });
 // The states key the cache too: a table going stale with time moves no row and no stamp.
 const handFedKey = inputs => Object.values(inputs).map(s => `${s.table}=${s.state}`).join(',');
 

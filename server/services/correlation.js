@@ -23,7 +23,7 @@
  * each player's outcomes stays exactly as the projection model produced it.
  */
 import { db, rows } from '../db/index.js';
-import { tableState } from './data-freshness.js';
+import { servedTableState } from './data-freshness.js';
 import { PPR, scoreLine } from './scoring.js';
 import { cholesky, correlatedNormals, normalCdf, mean } from './stats-util.js';
 
@@ -126,31 +126,17 @@ function table() {
 const DEFAULTS = { team: 0.05, opp: 0.02 };
 
 /**
- * The fitted store, as data-freshness.js reads it. `fitCorrelations` is its only
- * writer and only `POST /api/model/sync` calls that, so the table is hand-fed: on
- * an install where nobody ran the sync it is empty and every archetype is DEFAULTS.
- * The 8-day window is hand-set (one NFL week of new usage plus a day), not fitted.
- */
-const CORRELATION_STORE = Object.freeze({
-  table: 'correlation_estimates',
-  label: 'Archetype score correlations',
-  grain: 'fit',
-  updated_col: 'fitted_at',
-  current_rule: Object.freeze({
-    description: 'refit within the last 8 days (one NFL week plus a day; hand-set window)',
-    predicate: "julianday(fitted_at) >= julianday('now', '-8 days')",
-    bind: Object.freeze([])
-  })
-});
-
-/**
  * What the correlated draws are built from, for a surface that shows a spread, a
- * ceiling or an odd to carry beside it. `fallback` is the pair of defaults every
- * archetype became when the store holds nothing, and null otherwise — an archetype
- * below MIN_PAIRS still falls back alone, which the row count does not show.
+ * ceiling or an odd to carry beside it. The state comes from the one entry for
+ * `correlation_estimates` (data-freshness.js servedTableEntry): a coverage rule, "fitted
+ * rows exist", not an age. `fitCorrelations` is the store's only writer and only
+ * `POST /api/model/sync` calls it, so on an install where nobody ran the sync the store
+ * is empty and every archetype is DEFAULTS. `fallback` is that pair of defaults when the
+ * store holds nothing, and null otherwise — an archetype below MIN_PAIRS still falls
+ * back alone, which the row count does not show.
  */
 export function correlationBasis() {
-  const s = tableState(CORRELATION_STORE);
+  const s = servedTableState('correlation_estimates');
   return {
     ...s,
     writer: 'correlation.js#fitCorrelations, called only by POST /api/model/sync',

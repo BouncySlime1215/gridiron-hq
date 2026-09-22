@@ -98,46 +98,31 @@ argument for showing it.
 > comparison.
 
 **The judgement is confirmed.** Measured MAE for a startable projection
-(`yhat ≥ 8.0`, n=11,910) is **6.085** — WR 6.190, TE 5.488, RB 6.175. "Five to
+(`yhat >= 8.0`, n=11,910) is **6.085** — WR 6.190, TE 5.488, RB 6.175. "Five to
 six points for a starter" was right, and whoever wrote it deserves to know that
 a measurement now backs it.
 
-What can now be replaced is the pair of thresholds at
-`lineup-brain.js:328-329` — `TIE_THRESHOLD = 1.5`, `CLEAR_THRESHOLD = 4.0`.
+### The start/sit threshold table that was here is WITHDRAWN
 
-First, a measured fact that makes comparisons harder than they look: two
-players' residuals in the same week are **essentially independent** —
-correlation **+0.0068** over 43,200 sampled same-week pairs. So the noise on a
-*difference* is √2 times a single projection's: residual-difference sd **8.991**,
-against 9.021 for fully independent. There is no shared-week effect to lean on.
+An earlier version of this section carried a decision curve and used it to argue
+that `CLEAR_THRESHOLD` should move from 4.0 to about 6.0 points. **Do not use
+it.** It was wrong twice over:
 
-The decision curve — how often the higher projection actually outscores the
-lower, by margin:
+1. It was a **sample** of 43,200 pairs, and its smallest-margin bin read 48.4%,
+   which implies the projection is *anti*-informative at small margins. Full
+   enumeration of the same universe — 2,993,309 pairs — gives 51.4%.
+2. More seriously, it was computed over **all pairs**, including comparisons
+   nobody makes (a 20-point WR1 against a 2-point WR5). A start/sit decision is
+   between two players you would actually start.
 
-| projected margin | n | higher projection wins | mean actual margin |
-|---|---|---|---|
-| 0.0 – 0.5 | 2,925 | **48.4%** | +0.13 |
-| 0.5 – 1.0 | 2,711 | 51.1% | +0.53 |
-| 1.0 – 1.5 | 2,778 | 54.0% | +0.94 |
-| 1.5 – 2.5 | 5,346 | 59.0% | +1.84 |
-| 2.5 – 4.0 | 7,166 | 65.3% | +3.20 |
-| 4.0 – 6.0 | 7,681 | 72.8% | +5.14 |
-| 6.0 – 9.0 | 8,201 | 81.4% | +7.47 |
-| 9.0 + | 6,392 | **90.3%** | +11.80 |
+Re-derived on the 656,705 pairs where both projections clear 8.0,
+`CLEAR_THRESHOLD = 4.0` buys **72.6%**, and an 80% call needs about **7.15**
+points, not 6.0. `TIE_THRESHOLD = 1.5` survives unchanged at 52.9%.
 
-Read against the current thresholds:
-
-- **`TIE_THRESHOLD = 1.5` is well chosen.** Below it the win rate is 48.4% to
-  54.0% — a coin flip in fact as well as in name.
-- **`CLEAR_THRESHOLD = 4.0` is optimistic.** At the margin it buys 72.8%, which
-  is a lean rather than a clear call. An 80% call needs about **6.0 points**.
-
-Recommended change, stated as measured win probability rather than as points, so
-it can be re-derived when the model changes: *coin flip* below 60% (margin under
-about 2.5), *lean* 60-80% (about 2.5 to 6.0), *clear* at or above 80% (about
-6.0+). The virtue of defining the labels by win rate is that the point
-thresholds then follow from a measurement and can be refreshed, instead of being
-argued about.
+The replacement, with every definition stated and the tail rates a threshold
+actually depends on, is
+**`docs/evidence/2026-09-22/start-sit-decision-curve.md`**. Read that. The
+figure above (6.085 startable MAE) is unaffected by the error and still stands.
 
 ## 5. Serving contract
 
@@ -181,8 +166,11 @@ Rules for whoever implements it:
   not "80% CI".
 - Show the asymmetry honestly. The upside tail is genuinely longer; a symmetric
   graphic would be a lie about the data.
-- The start/sit margin labels should come from the win-rate table in §4, so
-  "clear" means a measured ~80% and not a hopeful 4 points.
+- The start/sit margin labels should come from the win-rate curve in
+  `docs/evidence/2026-09-22/start-sit-decision-curve.md`, not from the
+  withdrawn table in §4. That file's own conclusion is that **showing the
+  measured win rate beats keeping the word**: there is no margin at which a
+  weekly start/sit call is near-certain, so "clear" overclaims at any threshold.
 
 ## 7. Provenance, limits, and one reconciliation
 

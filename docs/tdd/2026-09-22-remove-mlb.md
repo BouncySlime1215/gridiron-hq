@@ -172,7 +172,13 @@ reached only through `/api/mlb` (`CONTRACT.md:348-349` names
 `nfl-auto-picks.js <- model-intelligence.js <- routes/mlb.js`), and deleting the
 route does not delete them.
 
-## Five questions
+## Merge gate: defect, incumbent, coverage, falsifiers
+
+The gridiron-merge-gate skill was superseded by v2 while this branch was open.
+v1's list is kept below under its own heading because those four answers are
+still required by v2's section 4; what v1 called "the five questions" was never
+Nick's five. Nick's five follow after them, answered for the first time here.
+
 
 **1. What defect or gap does this fix, with `file:line` on a stated tree?**
 Not a defect — a product decision, executed. On `f620a120`: `server/routes/mlb.js`
@@ -206,3 +212,60 @@ client, or a bookmark somebody uses directly. The census's evidence is a grep of
 `client/src` plus the wiring map's own reachability, and both read source, not
 the running app. If Nick opens a page and something is missing, that is the case
 this missed, and the branch is a clean revert.
+
+## Nick's five questions
+
+**1. Well built?** Yes, for what it is: a deletion with a structural pin behind
+it. The six tests in `test/mlb-removed.test.js` do not assert "the files are
+gone" and stop there. Test 2 reads `BOOT_JOBS` and `refreshInBackground`'s
+default out of `server/services/scheduler.js` and asserts every name they carry
+resolves in `JOBS`, because `runIfStale` on an unknown name returns
+`{ error: 'unknown job' }` rather than throwing, and both call sites are
+fire-and-forget: a dangling name after this deletion would have been silent
+forever. Test 4 pins the eleven `mlb_*` tables as still declared and asserts no
+file under `server/migrations/` matches `/DROP TABLE[^;]*\bmlb_/i`. Test 5 pins
+Middle Linebacker in seven places across two files. The weak part is stated in
+question 4 of the section above: no latency distribution was measured, and the
+deleted code was never executed before deletion.
+
+**2. Stats or made up?** Neither — this makes no statistical claim. Every figure
+in this document is a count from a command on a named tree: 28 endpoints, 1,898
+service lines, 5 job entries, 11 tables, 8 mutations applied and 8 killed, the
+on-thread ratchet 29 -> 26. The one number that is *not* a count is the "1.5s"
+production log line, and question 4 above says plainly that it is one line and
+not a distribution. Nothing here is fitted, and nothing is guessed.
+
+**3. How we know: backtest, hand-set constant, or nothing.** Nothing — and that
+is correct for a deletion. There is no model here to backtest and no constant to
+set. What stands in for evidence is the mutation sweep: 8 mutants, each verified
+applied by md5 before and after rather than by grep, three of them at the call
+site rather than the unit, and all 8 killed. The designed controls are in the
+table above. The one behavioural claim, "nothing in the app reaches `/api/mlb`",
+rests on `grep -rn "api/mlb" client/src/` returning zero on `f620a120` plus the
+wiring map's reachability, and question 5 of the section above states exactly
+what that grep cannot see.
+
+**4. Pointed anywhere else on the platform?** Yes, in three directions, all of
+them audited rather than assumed.
+- **The scheduler.** Removing three inline MLB jobs took the request thread from
+  29 accountable jobs to 26. `node:sqlite` is synchronous, so every one of those
+  blocked all HTTP for its duration. The ratchet in
+  `test/growth-jobs-off-thread.test.js` was lowered 29 -> 26 so the gain cannot
+  be given back silently.
+- **The betting readers.** Deleting `mlb-pregame.js` removed the only writer of
+  `mlb_market_quotes`, which left `market-movement.js` and
+  `nfl-shopping-board.js` reading a table nothing fills. The wiring gate caught
+  it; `GET /hold` would otherwise have reported `comparison: null` against an
+  unwritten table, which reads as "no prop premium found" rather than "the
+  source is gone". Both readers were severed.
+- **The evidence daemon.** Pre-existing MLB capture windows are marked
+  `retired` with a reason, not dropped, so they stop reading as outstanding work
+  without vanishing from the ledger.
+
+**5. How it unifies.** It removes the second sport, so every surface below the
+scheduler now answers for one. `refreshInBackground`'s default is a single NFL
+job instead of a sport-dependent list; `bookHold()` no longer takes a `sport`
+and no longer branches on it; `model-intelligence.js`'s `IN ('NFL','MLB')`
+becomes `'NFL'`. The `sport` dimension does not disappear from the schema — the
+tables and the column stay — but it stops being a live branch in code that the
+product never reaches. One sport in, one set of jobs, one code path.

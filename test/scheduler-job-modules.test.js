@@ -34,9 +34,13 @@ import { readFile } from 'node:fs/promises';
 const { scan, moduleEdges, schedulerJobs } = await import('../scripts/wiring-map.mjs');
 
 const SCHED = 'server/services/scheduler.js';
+// The `text` view, not `code`: scan() blanks string BODIES out of the code
+// view, which would erase the very specifier this resolver reads. That is how
+// build() calls it at the one production site, and a test that fed it `code`
+// would be testing a call nobody makes.
 const build = (src) => {
-  const { code, text } = scan(src);
-  return schedulerJobs(code, SCHED, moduleEdges(text).imports);
+  const { text } = scan(src);
+  return schedulerJobs(text, SCHED, moduleEdges(text).imports);
 };
 const job = (jobs, name) => jobs.find((j) => j.name === name);
 
@@ -58,11 +62,11 @@ test('a run function defined in the scheduler resolves through its own import', 
 
 test('a statically imported run function resolves to the module it came from', () => {
   const jobs = build(`
-    import { refreshLines } from './nfl-lines.js';
+    import { refreshLines } from './mlb.js';
     export const JOBS = { nfl_lines: { run: refreshLines, tier: 'live', label: 'lines' } };
   `);
   const j = job(jobs, 'nfl_lines');
-  assert.equal(j.runModule, 'server/services/nfl-lines.js');
+  assert.equal(j.runModule, 'server/services/mlb.js');
   assert.equal(j.runVia, 'static-import');
 });
 
@@ -79,15 +83,15 @@ test('an import written inside the job entry still wins', () => {
   // is the most specific statement of what the job runs.
   const jobs = build(`
     async function refreshBoth() {
-      const { other } = await import('./other.js');
+      const { other } = await import('./nflverse.js');
       return other();
     }
     export const JOBS = {
-      direct: { run: () => import('./direct.js').then(m => m.go()), tier: 'live', label: 'direct' },
+      direct: { run: () => import('./mlb.js').then(m => m.go()), tier: 'live', label: 'direct' },
     };
   `);
   const j = job(jobs, 'direct');
-  assert.equal(j.runModule, 'server/services/direct.js');
+  assert.equal(j.runModule, 'server/services/mlb.js');
   assert.equal(j.runVia, 'inline-import');
 });
 
@@ -117,15 +121,55 @@ test('the first import in a run function is the one taken, and it is named', () 
   // the row can say so rather than implying there is only one.
   const jobs = build(`
     async function refreshTwo() {
-      const { a } = await import('./first.js');
-      const { b } = await import('./second.js');
+      const { a } = await import('./mlb.js');
+      const { b } = await import('./nflverse.js');
       return a() + b();
     }
     export const JOBS = { two: { run: refreshTwo, tier: 'heavy', label: 'two' } };
   `);
   const j = job(jobs, 'two');
-  assert.equal(j.runModule, 'server/services/first.js');
-  assert.deepEqual(j.runImports, ['server/services/first.js', 'server/services/second.js']);
+  assert.equal(j.runModule, 'server/services/mlb.js');
+  assert.deepEqual(j.runImports, ['server/services/mlb.js', 'server/services/nflverse.js']);
+});
+
+test('a brace inside a string does not swallow the run function body', () => {
+  // server/services/scheduler.js:1471 manager_archetypes was the one job that
+  // resolved to nothing, and the cause was not the job. bodyRange counts braces
+  // on whatever view it is handed, and the production call hands it the `text`
+  // view, where string bodies are intact. refreshManagerArchetypes contains
+  // `stdout.indexOf('{')`, so the count never returned to zero, the range ran
+  // past the end of the file and came back null. The resolver blanks strings
+  // for the structural pass and keeps the intact view for the specifier.
+  const jobs = build(`
+    async function refreshBraced() {
+      const { syncDepthChart } = await import('../routes/nfldata.js');
+      const report = JSON.parse(stdout.slice(stdout.indexOf('{')));
+      return syncDepthChart(report);
+    }
+    export const JOBS = { braced: { run: refreshBraced, tier: 'heavy', label: 'braced' } };
+  `);
+  const j = job(jobs, 'braced');
+  assert.equal(j.runModule, 'server/routes/nfldata.js');
+  assert.equal(j.runVia, 'local-function');
+});
+
+test('a job that spawns a script resolves to the script, not to a path helper', () => {
+  // manager_archetypes imports node:child_process, node:util, node:path and
+  // ../platform/paths.js, then execFiles scripts/build-manager-archetypes.mjs.
+  // paths.js is path arithmetic; the script is the work. Reporting the helper
+  // would be a wrong answer wearing the shape of a right one.
+  const jobs = build(`
+    async function refreshArchetypes() {
+      const { execFile } = await import('node:child_process');
+      const { PROJECT_ROOT } = await import('../platform/paths.js');
+      const script = path.join(PROJECT_ROOT, 'scripts/build-manager-archetypes.mjs');
+      return promisify(execFile)(process.execPath, [script, '--json']);
+    }
+    export const JOBS = { arch: { run: refreshArchetypes, tier: 'heavy', label: 'arch' } };
+  `);
+  const j = job(jobs, 'arch');
+  assert.equal(j.runModule, 'scripts/build-manager-archetypes.mjs');
+  assert.equal(j.runVia, 'spawned-script');
 });
 
 test('every job in the real scheduler resolves to something', async () => {

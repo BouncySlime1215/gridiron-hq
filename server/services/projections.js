@@ -279,12 +279,28 @@ export const LEVEL_UNCERTAINTY = { a: 0, b: 1.15, lo: 0.30, hi: 0.70, downMult: 
  * scripts/analyze-qbr-fantasy-signal.mjs is what would settle both.
  *
  * STRUCK 2026-09-22: the "worth roughly nothing" verdict in the sentence above
- * is WITHDRAWN. 4.749 against 4.751 is a season-long MAE difference, and the
- * thing being judged is a weekly signal — a season-long aggregate can average
- * a real weekly effect away against itself, so that pair cannot support the
- * dismissal it was used for. The numbers are left in place because they were
- * measured and are not in dispute; what is withdrawn is the conclusion drawn
- * from them.
+ * is WITHDRAWN. The defect is CONFIGURATION, not aggregation. The pair was
+ * produced by scripts/verify-qbr-integration.mjs:12-13, which calls
+ * replaySeasonWeekly(season, { qbrSignal, distributions: false }) with NO
+ * roleRecency. That argument is forwarded at weekly-backtest.js:129, so when it
+ * is absent buildProjections falls back to RECENCY (:170 of this file,
+ * seasonDecay 0.35, weekHalfLife null) and activeKVectorFor withholds the
+ * fitted volume k. The app serves WEEKLY_ROLE_RECENCY instead
+ * (weekly-ensemble.js:55, seasonDecay 0.05, weekHalfLife 5), passed explicitly
+ * at player-week-engine.js:271-273. So 4.749 against 4.751 measures a model
+ * this application does not run.
+ *
+ * An earlier draft of this strike gave a different reason — that the pair was a
+ * season-long aggregate averaging a weekly effect away against itself — and
+ * that reason was FALSE. The pair is a MAE over player-weeks pooled across a
+ * season, which is a weekly metric; pooling nets weeks the signal helps against
+ * weeks it hurts, and that net IS the signal's weekly effect. "Season-long"
+ * named a CONFIGURATION, and the draft turned it into an aggregation. A strike
+ * that gives a false reason is one more comment asserting something the code
+ * does not do, which is the defect being corrected everywhere else here.
+ *
+ * The numbers are left in place because they were measured and are not in
+ * dispute; what is withdrawn is the conclusion drawn from them.
  *
  * Nothing replaces it. This is not a reversal and must not be read as one:
  * there is no claim here that the signal IS worth something. It is now

@@ -27,7 +27,9 @@ only on branch `shrinkage-efficiency-weighting` at `1a70355`:
 - Defined `nfl-player-context.js:525`, with **zero call sites anywhere in
   `server/`**. It is built and ungraded: there is **no applying line today**, so
   "where in the projection path it multiplies" has no answer yet and this
-  pre-registration must specify the site rather than describe one.
+  pre-registration must specify the site rather than describe one. **It does, in
+  §1b: `projections.js:605` on `origin/main` @ `c90d2834`, multiplying projected
+  targets.**
 - **Serve side is as-of**: `valueAsKnown(entity, 'injury_report', decisionAt)`
   (`:528`), reading `nfl_feature_revisions`.
 - **Fit side**: `fitGradedAvailability` (`:424`), refit under R19.6 to each
@@ -37,7 +39,159 @@ only on branch `shrinkage-efficiency-weighting` at `1a70355`:
   earliest `injury_report` revision for the following week (`:452-469`); `minN`
   30 pools to 1.0; seasons as passed minus the in-progress one (`:425`).
 
-Every citation in this unit is to that branch at that commit, never to `main`.
+Every citation in this section is to that branch at that commit, never to
+`main`.
+
+**The branch has moved since, and the difference is material rather than
+cosmetic.** Its head is now `771bf644`, where `gradedAvailabilityMultiplier`
+takes a **sixth options argument** and is gated by
+`GRADED_AVAILABILITY_ENABLED = false` (`:537`), with a committed source scan
+refusing any caller under `server/` or `scripts/` that passes that argument.
+**Neither the flag nor the scan existed at `1a70355`**, where the function was a
+five-argument call with no gate. So the citations above (`:525`, `:528`, `:424`)
+are right for `1a70355` and the ones in §1b (`:537`, `:558`, `:566`) are right
+for `771bf644`, and they are not the same code. §1b is the one the implementing
+PR has to satisfy, because it is the one that exists now.
+
+## 1b. The call site, NAMED — file, line, tree, and what it multiplies
+
+**This section exists because §5's binding sentence binds to "the site named
+here", and until now no site was named anywhere in this document (Auditor
+R57.3(1)). A binding sentence with nothing to bind to is decoration.**
+
+### The site
+
+**`server/services/projections.js:605`, on `origin/main` @ `c90d2834`.**
+The tree is stated as `main` deliberately: this branch's own line numbers move
+every time a comment block in this file is edited, and they have moved twice
+already today. `main` is where the implementing PR will branch from and is the
+tree a reader can check without this branch. That line is:
+
+```js
+const targets = a.pos === 'QB' ? 0 : Math.max(0, tgtShare * tv.pass_att);
+```
+
+The multiplier is applied **to the right-hand side of that assignment**, after
+the team-volume multiply and inside the `Math.max(0, …)`:
+
+```js
+const av = gradedAvailabilityMultiplier(a.gsis_id, season, week, decisionAt, availabilityFit);
+const targets = a.pos === 'QB' ? 0 : Math.max(0, tgtShare * tv.pass_att * av.multiplier);
+```
+
+**Line numbers drift, so the binding anchor is the expression, not the
+number:** the site is **the assignment to `targets` whose right-hand side is
+`tgtShare * tv.pass_att`**. If the number and the expression ever disagree, the
+expression wins. The Auditor's R39 citations read `:599`/`:605` against the same
+tree, so they name the same two expressions this section does.
+
+### What it multiplies, and why this one of the three candidates
+
+**It multiplies PROJECTED TARGETS PER GAME** — the quantity after the share has
+been shrunk and multiplied by team pass attempts. Not the shrunk share, and not
+fantasy points. The three candidates and the reasons:
+
+- **Not the shrunk share at `:599`.** `tgtShare` is a *rate*: the fraction of
+  his team's pass attempts a player takes **in the weeks he plays**. Availability
+  does not change that rate; it changes how often the rate is realised.
+  Multiplying a conditional rate by a probability of playing produces a number
+  that is neither, and it would then be multiplied by team volume as if it were
+  still a share.
+- **Not fantasy points.** Points run through catch rate, yards per target and
+  touchdown rate, none of which this unit touches, and the primary metric is in
+  targets. Applying the multiplier at the points end would make the grade's
+  headline quantity depend on three efficiency estimates the grade is not
+  testing — the scale-through-an-assumption shape this series has already
+  withdrawn a figure for (§4, option (i)).
+- **Projected targets, at `:605`.** This is the quantity the primary metric
+  scores, the quantity the 0.05 MDE and the 0.0220 SE are both in, and the
+  quantity the legacy prior's downward bias was accidentally hedging. The hedge
+  and its replacement act on the same number, which is the whole claim of §0.
+
+### The scope limit this choice creates, declared rather than discovered
+
+`carries` (`:606`) and quarterback attempts are **not** multiplied. A running
+back's targets would be availability-adjusted while his carries are not, which
+is internally inconsistent as a projection even though it is correct for this
+grade's metric. **That inconsistency is this unit's, it is deliberate, and it is
+a limit on what the result licenses**: a passing grade licenses wiring the
+multiplier at that one expression and nothing wider. Extending it to carries, attempts or
+points is a separate unit with its own pre-registration, and no result here may
+be cited for it.
+
+### `decisionAt` at the site — R57.3(2)
+
+`gradedAvailabilityMultiplier` reads `valueAsKnown(entity, 'injury_report',
+decisionAt)` (`nfl-player-context.js:566` on
+`origin/shrinkage-efficiency-weighting` @ `771bf644`; `:528` on the tree §1
+cites). In a replay, **`decisionAt` must be the decision time a manager actually
+had, which is before that player's game starts.** Anything later is look-ahead
+on the exact quantity being graded, and `undefined` is worse than late because
+it is silent.
+
+**The rule, fixed here:**
+
+1. **Primary: that player's own game kickoff, minus 90 minutes**, read for his
+   team-week. Ninety minutes is the conventional lineup-lock margin and is
+   stated as a choice, not a discovery.
+2. **Fallback when the rig holds no kickoff time for a team-week: 00:00:00 ET on
+   the Wednesday of that NFL week** — strictly earlier than every game of the
+   week, Thursday night included. It is deliberately **conservative**: it
+   discards late-week report movement and can therefore only *weaken* arm (b).
+   A null under a conservative `decisionAt` is not evidence the multiplier does
+   nothing, and this document says so in advance.
+3. **Never `undefined`, never "now", never the end of the week.** The harness
+   asserts `decisionAt` is a parseable ISO timestamp for every player-week
+   before any arm runs, and **stops** if one is missing.
+4. **The count and share of player-weeks on the fallback is reported with the
+   result.** Above 10%, the result carries that as a stated caveat in its
+   headline, not a footnote.
+
+### The revised-after-kickoff control, and the way it is allowed to fail
+
+**The control:** take the player-weeks whose `injury_report` was revised
+**after** that week's kickoff, and assert that the multiplier used the
+**pre-kickoff** value — `known.published_at <= decisionAt` for every one of
+them, and that at least one such player's pre-kickoff `report_status` **differs
+from** his final designation.
+
+**That second half is the part that can fail, and it is meant to.** A control
+that passes vacuously proves nothing. If the rig's revision store holds a single
+snapshot per entity — which is the condition `nfl-player-context.js`'s own flag
+docstring records for the R19.6 refit, where the as-of refit came back
+numerically identical on this container's data — then **no such player exists**,
+the control cannot bite, and **the as-of protection is untested on this rig**.
+In that case the result is still reported, and it is reported with that stated
+in the same sentence as the number: *the multiplier's as-of safety is asserted
+by construction and unverified by this run*. It is not quietly dropped and the
+run is not declared clean.
+
+### How arm (b) turns the multiplier on, given that production may not
+
+`GRADED_AVAILABILITY_ENABLED` is `false`
+(`nfl-player-context.js:537` on `771bf644`), and a committed source scan in
+`test/nfl-player-context-graded-availability.test.js` **fails the build if any
+caller under `server/` or `scripts/` passes the options argument**. So the
+implementing PR wires the call at `:625` with **five arguments and no options
+object**: it inherits the constant, returns a flat `1`, and changes no served
+number. Wiring is allowed; switching on is not.
+
+**Arm (b) therefore enables the multiplier from the harness side, outside
+`server/` and `scripts/`**, by substituting `gradedAvailabilityMultiplier` with
+a wrapper that forwards to the real implementation with `{ enabled: true }`.
+The real logic is graded; only the flag is bypassed, and it is bypassed where
+the scan permits. **Two controls on that substitution, both reported:**
+
+- In arms **(a)** and **(c)** the wrapper is **absent** and the multiplier must
+  be exactly `1` for **every** player-week. Any deviation voids the run.
+- In arm **(b)** at least one player-week must come back `retained: true` with a
+  multiplier `!= 1`. If every value is `1`, the wrapper did not take effect and
+  arm (b) is arm (c) with extra steps — the run is void, not a null.
+
+*(If the substitution is done with `mock.module()`, note that this repository has
+already shipped a bug from passing `exports: { default: … }` where the API takes
+`defaultExport`; the wrong shape is accepted in silence and the mocked default
+becomes an empty object. The controls above are what catch it.)*
 
 ## 2. The three-support mismatch, which is prior work this grade must not repeat
 
@@ -179,11 +333,37 @@ default is wrong and this document says so.
 
 ### Arms — three, same code, flags apart
 
-| arm | prior | multiplier | role |
-|---|---|---|---|
-| **(a)** | legacy `0.06`, zeros irrelevant | none | **incumbent** — what ships today |
-| **(b)** | per-position, **zeros excluded** | applied | **the default hypothesis** |
-| **(c)** | per-position, **zeros included** | none | **the alternative**, already measured |
+| arm | prior | **observation support** | `k` | multiplier | role |
+|---|---|---|---|---|---|
+| **(a)** | legacy `0.06`, zeros irrelevant | **zeros INCLUDED**, as shipped | fitted (config B) | none | **incumbent** — what ships today |
+| **(b)** | per-position, **zeros excluded** | **zeros EXCLUDED** — moved with the prior | fitted (config B) | applied | **the default hypothesis** |
+| **(c)** | per-position, **zeros included** | **zeros INCLUDED**, as shipped | fitted (config B) | none | **the alternative** |
+
+**The observation-support column is not bookkeeping, and it is the answer to
+R57.3(3).** The observation is `a.tgtShare / a.tgtShareW`
+(`projections.js:544` on `origin/main` @ `c90d2834`; `:515` on the tree R39 was
+read against), and it **includes zero-target weeks**. Section 3 reason 2 says the observation
+and the prior *"can both be moved to the conditional support"*. **Can is not
+are, and in arm (b) they ARE**: arm (b) moves the observation with the prior, so
+all three supports — observation, prior and the fitted `k` — sit on the
+zero-excluded support together. That is the whole point of arm (b), and it is
+now stated rather than implied.
+
+**What arm (b) would have been if only the prior moved**: a zero-*including*
+observation shrunk toward a zero-*excluding* prior under a zero-*excluding* `k`
+— the R39 three-support mismatch exactly, with a multiplier on top pricing
+availability a second time. That arm is **not run**, and it is not run because
+it would grade the defect rather than the fix.
+
+**Arms (a) and (c) keep the zero-including observation deliberately**, because
+they are the incumbent and the shipped alternative and must run as they actually
+are. Their mismatch is the incumbent's, and measuring it is the point.
+
+**One consequence of configuration B, stated so nobody carries a stale number
+in:** arm (c) is *not* "already measured". The previous unit's figures for the
+zero-included prior ran on the hand-picked `K.share = 6` (§2b), and this unit
+runs the fitted `k`. **The previous unit's numbers do not transfer to arm (c)
+and may not be quoted for it.** Arm (c) is re-measured here from scratch.
 
 Arm (c) exists so this grade can **reject** the pre-registered default rather
 than only confirm it. If (c) beats (b) on the primary metric, section 3's
@@ -336,12 +516,24 @@ points co-primary, or from any subgroup to rescue the primary.
 
 - Every figure grades a **replay** predictor on a rig holding a subset of
   production's tables; equivalence to the serving predictor is unestablished.
-- The multiplier has **no call site**, so arm (b) specifies one. That is this
-  unit's own construction and any result is about the site it chose.
+- The multiplier has **no call site**, so arm (b) specifies one: **the
+  assignment to `targets` whose right-hand side is `tgtShare * tv.pass_att`,
+  `projections.js:605` on `origin/main` @ `c90d2834`, multiplying projected
+  targets per game.** §1b names it in full, with the two
+  candidates it was chosen over and why. That is this unit's own construction
+  and any result is about the site it chose.
   **The call site binds the build:** the implementing PR wires the multiplier at
-  exactly the site named here, or this grade is void and re-runs. A result
+  exactly that expression, or this grade is void and re-runs. A result
   measured at one site is not evidence about a different one, and "close enough
   to where it was graded" is not a thing this document permits.
+- **`carries` and quarterback attempts are not multiplied**, so a passing grade
+  licenses that one expression and nothing wider (§1b). Extending the multiplier to carries,
+  attempts or points is a separate unit.
+- **`decisionAt` is pre-kickoff by construction, and its as-of protection may go
+  unverified on this rig** if the revision store holds one snapshot per entity.
+  §1b states the rule, the conservative fallback, and the control that is allowed
+  to fail — and requires the failure to be reported in the same sentence as the
+  result rather than footnoted.
 - `K.share = 6` against the fitter's ~0.4 stays untouched and open.
 
 ## The five questions

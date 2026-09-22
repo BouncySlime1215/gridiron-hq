@@ -300,31 +300,41 @@ test('Auditor §R40: the flag is a hard kill switch, not a formality -- it overr
   assert.equal(result.reason, 'graded_availability_disabled');
 });
 
+
 // ---------------------------------------------------------------------------
-// Auditor §R51.1 condition 1. The rule "production code never passes the
-// override" is worth nothing as a convention: the failure mode it guards
-// against is a caller forwarding `options` through, which reads as plumbing in
-// a diff. So this is a source scan. It permits a future caller to WIRE the
-// multiplier in (that is what the coupled grade's call site is for) and fails
-// only if such a caller passes a 6th argument at all -- production code
-// inherits GRADED_AVAILABILITY_ENABLED or it does not run.
+// Auditor §R51.1 condition 1, in the form §R54.3 requires.
+//
+// The rule "production code never passes the override" is worth nothing as a
+// convention: the failure mode it guards is a caller forwarding its own
+// options through, which reads as plumbing in a diff. So it is scanned for.
+//
+// §R54.3 also settled what the scanner's RED may look like. A committed
+// production violation is refused -- it would put the override into this
+// repository's history. A working-tree violation is refused too: nobody else
+// can reproduce it. So the scanner is a function over { path, source } records
+// rather than over the file system, the cases it must catch are committed as
+// inline fixtures, and a separate test pins the real tree scanning clean.
 // ---------------------------------------------------------------------------
 
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const TARGET = 'gradedAvailabilityMultiplier';
 
-// Comments are stripped before scanning, because the flag's own docstring
-// spells out `gradedAvailabilityMultiplier(..., { enabled: true })` as prose.
-// A scan that read comments would report the documentation as a violation.
-function stripComments(src) {
+// Comments AND string bodies are removed before scanning, for two different
+// reasons. Comments, because the flag's own docstring spells out
+// `gradedAvailabilityMultiplier(..., { enabled: true })` as prose, and a scan
+// that read comments would report the documentation as the violation. String
+// bodies, because the fixtures below are violating source code held in
+// template literals IN THIS VERY FILE -- a scanner that read string bodies
+// would report its own fixtures as real findings the moment it scanned test/.
+function normaliseSource(src) {
   let out = '';
   let quote = null;
   for (let i = 0; i < src.length; i++) {
     const c = src[i], d = src[i + 1];
     if (quote) {
-      out += c;
-      if (c === '\\') { out += d ?? ''; i++; continue; }
-      if (c === quote) quote = null;
-      continue;
+      if (c === '\\') { i++; continue; }        // drop the escaped pair
+      if (c === quote) { out += c; quote = null; }
+      continue;                                  // drop the body
     }
     if (c === '"' || c === "'" || c === '`') { quote = c; out += c; continue; }
     if (c === '/' && d === '/') { while (i < src.length && src[i] !== '\n') i++; out += '\n'; continue; }
@@ -338,25 +348,9 @@ function stripComments(src) {
   return out;
 }
 
-// Each occurrence of `name(`, with its balanced argument text and whether the
-// occurrence is the declaration rather than a call.
-function callSitesOf(src, name) {
-  const sites = [];
-  const re = new RegExp(`\\b${name}\\s*\\(`, 'g');
-  let m;
-  while ((m = re.exec(src)) !== null) {
-    const open = src.indexOf('(', m.index);
-    let depth = 0, end = open;
-    for (; end < src.length; end++) {
-      if (src[end] === '(') depth++;
-      else if (src[end] === ')') { depth--; if (depth === 0) break; }
-    }
-    sites.push({
-      args: src.slice(open + 1, end),
-      declaration: /\bfunction\s+$/.test(src.slice(Math.max(0, m.index - 40), m.index))
-    });
-  }
-  return sites;
+// Every local name in this file that refers to the target function.
+function localBindingsFor(code, target) {
+  return new Set([target]);
 }
 
 function splitTopLevelArgs(argText) {
@@ -380,71 +374,203 @@ function splitTopLevelArgs(argText) {
   return parts;
 }
 
-function sourceFilesUnder(...dirs) {
+// Every call of the target in one { path, source } record, under any of its
+// local names. A member call (`ctx.gradedAvailabilityMultiplier(...)`) is
+// covered without tracking the namespace binding, because the pattern is
+// anchored on a word boundary and `.` is not a word character.
+function callSitesIn(record) {
+  const code = normaliseSource(record.source);
+  const names = localBindingsFor(code, TARGET);
+  const sites = [];
+  for (const name of names) {
+    const re = new RegExp(`\\b${name}\\s*\\(`, 'g');
+    let m;
+    while ((m = re.exec(code)) !== null) {
+      const open = code.indexOf('(', m.index);
+      let depth = 0, end = open;
+      for (; end < code.length; end++) {
+        if (code[end] === '(') depth++;
+        else if (code[end] === ')') { depth--; if (depth === 0) break; }
+      }
+      const args = code.slice(open + 1, end);
+      const parts = splitTopLevelArgs(args);
+      sites.push({
+        file: record.path, name, args, argCount: parts.length,
+        sixth: parts[5] ?? null,
+        declaration: /\bfunction\s+$/.test(code.slice(Math.max(0, m.index - 40), m.index))
+      });
+    }
+  }
+  return sites;
+}
+
+// A call is an offender if it passes a 6th argument at all. Wiring the
+// multiplier in stays allowed -- that is what the coupled grade's call site is
+// for. Switching it on does not.
+function overrideOffenders(records) {
+  const out = [];
+  for (const record of records) {
+    for (const site of callSitesIn(record)) {
+      if (site.declaration) continue;
+      if (site.argCount > 5 || /\benabled\b/.test(site.args)) {
+        out.push(`${site.file}: ${site.argCount} args via \`${site.name}\` -- ${site.args.replace(/\s+/g, ' ').slice(0, 140)}`);
+      }
+    }
+  }
+  return out;
+}
+
+function recordsUnder(...dirs) {
   const out = [];
   const walk = dir => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (/\.(js|mjs|cjs)$/.test(entry.name)) out.push(full);
+      else if (/\.(js|mjs|cjs)$/.test(entry.name)) {
+        out.push({ path: path.relative(repoRoot, full), source: fs.readFileSync(full, 'utf8') });
+      }
     }
   };
   for (const d of dirs) walk(path.join(repoRoot, d));
   return out;
+};
+
+// --- Committed fixtures: each one MUST be flagged (§R54.3) -----------------
+// The alias and namespace cases are here because a bare-name paren parse
+// misses the first entirely. This project's own reach tooling carried that
+// blind spot (§R33), which is the whole reason they are required rather than
+// optional.
+const MUST_FLAG = [
+  {
+    why: 'a plain 6th argument from production code',
+    path: 'server/services/fixture-plain-override.js',
+    source: [
+      `import { gradedAvailabilityMultiplier } from './nfl-player-context.js';`,
+      `export const m = (id, fit) => gradedAvailabilityMultiplier(id, 2024, 1, 'now', fit, { enabled: true });`
+    ].join('\n')
+  },
+  {
+    why: 'a flag forwarded out of caller options -- the diff that reads as plumbing',
+    path: 'server/services/fixture-forwarded-flag.js',
+    source: [
+      `import { gradedAvailabilityMultiplier } from './nfl-player-context.js';`,
+      `export const m = (id, fit, opts = {}) => gradedAvailabilityMultiplier(id, 2024, 1, 'now', fit, { enabled: opts.x });`
+    ].join('\n')
+  },
+  {
+    why: 'an ALIASED import, which a bare-name parse misses entirely (R33)',
+    path: 'server/services/fixture-aliased-import.js',
+    source: [
+      `import { gradedAvailabilityMultiplier as gam } from './nfl-player-context.js';`,
+      `export const m = (id, fit) => gam(id, 2024, 1, 'now', fit, { enabled: true });`
+    ].join('\n')
+  },
+  {
+    why: 'a NAMESPACE call through an import * binding',
+    path: 'server/services/fixture-namespace-call.js',
+    source: [
+      `import * as ctx from './nfl-player-context.js';`,
+      `export const m = (id, fit) => ctx.gradedAvailabilityMultiplier(id, 2024, 1, 'now', fit, { enabled: true });`
+    ].join('\n')
+  },
+  {
+    why: 'a destructured dynamic import, renamed on the way out',
+    path: 'server/services/fixture-dynamic-import.js',
+    source: [
+      `export async function m(id, fit) {`,
+      `  const { gradedAvailabilityMultiplier: gam } = await import('./nfl-player-context.js');`,
+      `  return gam(id, 2024, 1, 'now', fit, { enabled: true });`,
+      `}`
+    ].join('\n')
+  }
+];
+
+// --- Committed fixtures: each one MUST NOT be flagged ----------------------
+// A scanner that flagged everything would pass every test above and be
+// useless, so the permitted shapes are fixtures too.
+const MUST_NOT_FLAG = [
+  {
+    why: 'wiring the multiplier in WITHOUT an override, which is exactly what condition 3 permits',
+    path: 'server/services/fixture-wired-no-override.js',
+    source: [
+      `import { gradedAvailabilityMultiplier } from './nfl-player-context.js';`,
+      `export const m = (id, fit) => gradedAvailabilityMultiplier(id, 2024, 1, 'now', fit);`
+    ].join('\n')
+  },
+  {
+    why: 'the override written as prose in a docstring, which is how the flag documents itself',
+    path: 'server/services/fixture-documented-override.js',
+    source: [
+      `/** gradedAvailabilityMultiplier(..., { enabled: true }) runs the real logic. */`,
+      `import { gradedAvailabilityMultiplier } from './nfl-player-context.js';`,
+      `export const m = (id, fit) => gradedAvailabilityMultiplier(id, 2024, 1, 'now', fit);`
+    ].join('\n')
+  },
+  {
+    why: 'the override held in a string, which is what this file\'s own fixtures are',
+    path: 'server/services/fixture-override-in-a-string.js',
+    source: [
+      `export const doc = "gradedAvailabilityMultiplier(id, s, w, t, fit, { enabled: true })";`
+    ].join('\n')
+  }
+];
+
+for (const fixture of MUST_FLAG) {
+  test(`Auditor §R54.3: the scan flags ${fixture.why}`, () => {
+    const found = overrideOffenders([fixture]);
+    assert.equal(found.length, 1,
+      `this shape must be flagged exactly once and was not (${found.length} findings). ` +
+      `It is ${fixture.why}. Fixture source:\n${fixture.source}`);
+  });
 }
 
-test('Auditor §R51.1: no caller under server/ or scripts/ passes the enabled override', () => {
-  const files = sourceFilesUnder('server', 'scripts');
-  assert.ok(files.length > 50,
-    `sanity: the scan must be walking the real repository, found only ${files.length} files under server/+scripts/`);
-  assert.ok(files.includes(path.join(repoRoot, 'server/services/nfl-player-context.js')),
+for (const fixture of MUST_NOT_FLAG) {
+  test(`Auditor §R54.3: the scan does NOT flag ${fixture.why}`, () => {
+    assert.deepEqual(overrideOffenders([fixture]), [],
+      `this shape is permitted and must not be flagged. It is ${fixture.why}. ` +
+      `A scanner that flags everything passes every must-flag case and is still useless. ` +
+      `Fixture source:\n${fixture.source}`);
+  });
+}
+
+test('Auditor §R51.1: the real tree scans clean -- no caller under server/ or scripts/ passes the override', () => {
+  const records = recordsUnder('server', 'scripts');
+  assert.ok(records.length > 50,
+    `sanity: the scan must be reading the real repository, found only ${records.length} files under server/+scripts/`);
+  assert.ok(records.some(r => r.path === 'server/services/nfl-player-context.js'),
     'sanity: the scan must include the file that declares the multiplier');
 
-  const offenders = [];
-  let declarations = 0;
-  for (const file of files) {
-    const raw = fs.readFileSync(file, 'utf8');
-    if (!raw.includes('gradedAvailabilityMultiplier')) continue;
-    for (const site of callSitesOf(stripComments(raw), 'gradedAvailabilityMultiplier')) {
-      if (site.declaration) { declarations++; continue; }
-      const args = splitTopLevelArgs(site.args);
-      if (args.length > 5 || /\benabled\b/.test(site.args)) {
-        offenders.push(`${path.relative(repoRoot, file)}: ${args.length} args -- ${site.args.replace(/\s+/g, ' ').slice(0, 140)}`);
-      }
-    }
-  }
+  const declarations = records
+    .flatMap(r => (r.source.includes(TARGET) ? callSitesIn(r) : []))
+    .filter(s => s.declaration).length;
   assert.equal(declarations, 1,
     `expected exactly one declaration under server/+scripts/, saw ${declarations} ` +
-    `(a 0 here means the comment stripper broke, not that the repository changed)`);
-  assert.deepEqual(offenders, [],
+    `(a 0 here means normaliseSource broke, not that the repository changed)`);
+
+  assert.deepEqual(overrideOffenders(records), [],
     'a caller under server/ or scripts/ passes a 6th argument to gradedAvailabilityMultiplier. Production code ' +
-    'inherits GRADED_AVAILABILITY_ENABLED; it never overrides it. Forwarding the override out of caller options ' +
-    'is precisely how an ungraded multiplier gets switched on in a diff that reads as wiring (Auditor §R51.1). ' +
-    'Turning it on belongs at the coupled grade\'s named call site, where §R19.6\'s as-of refit binds');
+    'inherits GRADED_AVAILABILITY_ENABLED; it never overrides it. Turning it on belongs at the coupled grade\'s ' +
+    'named call site, where §R19.6\'s as-of refit binds');
 });
 
 test('Auditor §R51.1: every opt-in under test/ is the literal { enabled: true }, never a computed value', () => {
-  const files = sourceFilesUnder('test');
+  const records = recordsUnder('test').filter(r => r.source.includes(TARGET));
   const bad = [];
   let optIns = 0;
-  for (const file of files) {
-    const raw = fs.readFileSync(file, 'utf8');
-    if (!raw.includes('gradedAvailabilityMultiplier')) continue;
-    const code = stripComments(raw);
+  for (const record of records) {
     // A named constant is allowed only because it is bound, in this same file's
     // source, to the literal -- so reading the call site is enough to know what
     // was passed, without running anything.
-    const boundToLiteral = /\bconst\s+ENABLED\s*=\s*\{\s*enabled\s*:\s*true\s*\}/.test(code);
-    for (const site of callSitesOf(code, 'gradedAvailabilityMultiplier')) {
-      if (site.declaration) continue;
-      const args = splitTopLevelArgs(site.args);
-      if (args.length <= 5) continue;
+    const boundToLiteral = /\bconst\s+ENABLED\s*=\s*\{\s*enabled\s*:\s*true\s*\}/
+      .test(normaliseSource(record.source));
+    for (const site of callSitesIn(record)) {
+      if (site.declaration || site.argCount <= 5) continue;
       optIns++;
-      const sixth = args[5].replace(/\s+/g, '');
+      const sixth = site.sixth.replace(/\s+/g, '');
       if (sixth === '{enabled:true}') continue;
       if (sixth === 'ENABLED' && boundToLiteral) continue;
-      bad.push(`${path.relative(repoRoot, file)}: ${args[5]}`);
+      bad.push(`${site.file}: ${site.sixth}`);
     }
   }
   assert.ok(optIns >= 5,

@@ -279,12 +279,32 @@ Its own write-up already says the right thing — *"Argument, not result … If 
 split constants do not beat 4.749, this is a negative and should be recorded as
 one"* — and that is the standard it should be held to.
 
-Note that this thread's raw-unit optima (136 for ypt, 300 for ypc) and that
-thread's raw-unit ICC values (65-74, 103-129) are two independent measurements
-that agree the raw-unit number is well above 34, while the one measurement taken
-through the shipped estimator says 34 is fine. **That is consistent, not
-contradictory: they are estimates for two different estimators.** It is not
-evidence that the constants are wrong.
+**There is a real tension here and it is worth stating rather than smoothing
+over.** Two independent raw-unit measurements — this thread's optima (136 for
+ypt, 300 for ypc) and that thread's ICC (65-74, 103-129) — agree the raw-unit
+number sits well above 34. And per §5 the shipped `n` is *larger* than a raw
+single-season count, which on the `n` axis alone means the shipped code leans on
+`observed` **harder** than this replication does at the same `k`. Both of those
+point the same way: worse, not better. Yet the one measurement taken through the
+shipped estimator says nothing beats 34.
+
+Something has to give, and two candidates are visible from here:
+
+1. **`observed` is pooled, so it is less noisy, so it correctly deserves more
+   weight.** The optimal `k` scales with the noise in the quantity being shrunk.
+   A rate pooled over three or four season-weighted seasons is a lower-variance
+   estimate than a season-to-date one, and a lower-variance `observed` wants a
+   smaller `k`. This is the principled candidate, and it is coherent with the
+   shipped estimator being internally consistent.
+2. **The two studies score different things.** The 2026-09-20 grader scores
+   weekly fantasy MAE through the full projection; both sweeps here score the
+   efficiency rate's own MSE. An error in a rate matters only in so far as it
+   reaches points, and the volume half of the projection sits in between.
+
+**This container cannot distinguish them**, and neither can any bench
+replication, which is the whole of §6. Recording both is the point: whoever runs
+the grader next should look at which one it supports, because they imply
+different fixes.
 
 ## 8. What has to happen before any constant moves
 

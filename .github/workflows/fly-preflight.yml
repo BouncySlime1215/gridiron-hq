@@ -1,0 +1,39 @@
+# Read-only pre-deploy check: is there room on the Fly volume for the pre-migration snapshot?
+#
+# server/db/index.js (assertRoomForSnapshot) refuses to migrate unless the volume has the
+# database's size plus 2 GiB free, and a deploy that carries a migration takes a VACUUM INTO
+# snapshot on boot. docs/runbooks/deploy-654ff93.md says that whenever a deploy carries a
+# migration, this headroom must be read before pressing Deploy. This workflow reads it and
+# changes nothing: no secrets set, no deploy, no restart.
+#
+# The repository is public, so this log is too. It prints only byte counts and a file count,
+# never secrets, env or app logs.
+name: Fly preflight (read-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Set up flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # 1.6
+      - name: Volume headroom vs database size
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          flyctl volumes list --app gridiron-hq
+          out="$(flyctl ssh console --app gridiron-hq -C "sh -c 'df -B1 --output=size,avail /data | tail -1; stat -c %s /data/data.sqlite; ls /data | grep -c pre-migration || true'")"
+          read -r size avail <<<"$(sed -n 1p <<<"$out")"
+          db="$(sed -n 2p <<<"$out")"; baks="$(sed -n 3p <<<"$out")"
+          need=$(( db + 2 * 1024 * 1024 * 1024 ))
+          gib() { awk -v b="$1" 'BEGIN{printf "%.2f GiB", b/1073741824}'; }
+          echo "volume size: $(gib "$size") · available: $(gib "$avail") · database: $(gib "$db") · pre-migration snapshots on disk: $baks"
+          echo "needed for a migrating deploy (database + 2 GiB): $(gib "$need")"
+          if [ "$avail" -ge "$need" ]; then echo "HEADROOM OK: a deploy that carries a migration can take its snapshot."; else echo "::error::HEADROOM SHORT: a migrating deploy would refuse to start. Free space (old snapshots are Nick's call) or grow the volume first."; exit 1; fi

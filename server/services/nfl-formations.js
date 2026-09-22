@@ -80,10 +80,23 @@ export async function ingestFormations(season, { timeoutMs = 900000 } = {}) {
   const idx = Object.fromEntries(header.map((h, i) => [h, i]));
 
   let stored = 0, withFormation = 0;
+  // Upsert, not insert-or-ignore, for the same reason ingestCharting is one: rows
+  // stored before the charted columns existed (migration 070) only get them on a
+  // re-ingest, and DO NOTHING would leave them null forever.
   const stmt = db.prepare(`INSERT INTO nfl_play_formations
          (game_id, play_id, season, possession, offense_formation, offense_personnel,
-          defense_personnel, defenders_in_box, pass_rushers)
-         VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(game_id, play_id) DO NOTHING`,
+          defense_personnel, defenders_in_box, pass_rushers,
+          time_to_throw, was_pressure, defense_man_zone_type, defense_coverage_type)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(game_id, play_id) DO UPDATE SET
+           season = excluded.season, possession = excluded.possession,
+           offense_formation = excluded.offense_formation,
+           offense_personnel = excluded.offense_personnel,
+           defense_personnel = excluded.defense_personnel,
+           defenders_in_box = excluded.defenders_in_box, pass_rushers = excluded.pass_rushers,
+           time_to_throw = excluded.time_to_throw, was_pressure = excluded.was_pressure,
+           defense_man_zone_type = excluded.defense_man_zone_type,
+           defense_coverage_type = excluded.defense_coverage_type`,
   );
   db.exec('BEGIN');
   try {
@@ -95,10 +108,21 @@ export async function ingestFormations(season, { timeoutMs = 900000 } = {}) {
       if (!gameId || playId == null) continue;
       const formation = (p[idx.offense_formation] ?? '').trim() || null;
       if (formation) withFormation++;
+      const manZone = (p[idx.defense_man_zone_type] ?? '').trim() || null;
+      const shell = (p[idx.defense_coverage_type] ?? '').trim() || null;
+      // Coverage charted is what marks a dropback. `was_pressure` still reads
+      // FALSE on runs, kneels, punts and kicks — 51.2% of the 2024 rows — and
+      // averaging those in halves the pressure rate (0.1539 against 0.3145).
+      // The gate is coverage and not time_to_throw on purpose: 2,689 rows have
+      // coverage and no time_to_throw and 74% of them are pressured, because
+      // they are the sacks and scrambles.
+      const dropback = manZone != null || shell != null;
       stmt.run(gameId, playId, season, p[idx.possession_team] ?? null, formation,
         (p[idx.offense_personnel] ?? '').trim() || null,
         (p[idx.defense_personnel] ?? '').trim() || null,
-        num(p[idx.defenders_in_box]), num(p[idx.number_of_pass_rushers]));
+        num(p[idx.defenders_in_box]), num(p[idx.number_of_pass_rushers]),
+        num(p[idx.time_to_throw]), dropback ? bool(p[idx.was_pressure]) : null,
+        manZone, shell);
       stored++;
     }
     db.exec('COMMIT');
@@ -183,8 +207,13 @@ export function formationDistribution({ season = null, team = null } = {}) {
 
   const byFormation = rows(
     `SELECT offense_formation AS formation, COUNT(*) AS n,
-            AVG(CAST(defenders_in_box AS REAL)) AS mean_box,
-            AVG(CAST(pass_rushers AS REAL)) AS mean_rushers
+            -- NULLIF, because the file writes 0 rather than blank on plays that
+            -- were never a dropback: 9,219 of the 2024 rows for box count, 23,754
+            -- for rushers. The histogram below already filters them with
+            -- defenders_in_box > 0; leaving them in the mean read a league
+            -- average box of 4.87 against a real 5.84.
+            AVG(CAST(NULLIF(defenders_in_box, 0) AS REAL)) AS mean_box,
+            AVG(CAST(NULLIF(pass_rushers, 0) AS REAL)) AS mean_rushers
      FROM nfl_play_formations ${clause}
      GROUP BY offense_formation ORDER BY n DESC`, ...args);
 

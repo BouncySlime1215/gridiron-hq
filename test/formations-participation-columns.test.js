@@ -41,7 +41,10 @@ after(() => { globalThis.fetch = realFetch; db.close(); fs.rmSync(temp, { recurs
 const COLS = ['nflverse_game_id', 'play_id', 'possession_team', 'offense_formation',
   'offense_personnel', 'defenders_in_box', 'defense_personnel', 'number_of_pass_rushers',
   'time_to_throw', 'was_pressure', 'route', 'defense_man_zone_type', 'defense_coverage_type'];
-const line = o => COLS.map(c => (o[c] ?? '')).join(',');
+// Personnel strings contain commas, which is why splitCsv honours quotes —
+// the fixture has to quote them or every later column shifts.
+const cell = v => (String(v).includes(',') ? `"${v}"` : String(v));
+const line = o => COLS.map(c => cell(o[c] ?? '')).join(',');
 
 /** Shapes taken from real 2024 rows; see the header. */
 const PLAYS = [
@@ -71,7 +74,7 @@ const PLAYS = [
 const csv = [COLS.join(','), ...PLAYS.map(line)].join('\n') + '\n';
 globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => csv });
 
-const { ingestFormations, formationStatus } = await import('../server/services/nfl-formations.js');
+const { ingestFormations, formationDistribution } = await import('../server/services/nfl-formations.js');
 
 // A row stored before the columns existed, to prove a re-ingest fills them in.
 run(`INSERT INTO nfl_play_formations (game_id, play_id, season, possession, offense_formation,
@@ -118,12 +121,16 @@ test('a re-ingest backfills rows stored before the columns existed', () => {
 });
 
 test('the mean box count excludes the zeros its own distribution query already excludes', () => {
-  // formationStatus filters `defenders_in_box > 0` for the histogram at :197 but
-  // not for AVG() at :185. I_FORM's only play has box 0, so a mean of 0 is the
-  // tell. Shotgun's three plays are 7, 5 and 6.
-  const s = formationStatus(2024);
+  // formationDistribution filters defenders_in_box > 0 for its histogram but
+  // not for AVG(). I_FORM's only play has box 0, so a mean of 0 is the tell.
+  // Shotgun's three plays are 7, 5 and 6.
+  const s = formationDistribution({ season: 2024 });
   const iform = s.formations.find(f => f.formation === 'I_FORM');
   assert.equal(iform.mean_defenders_in_box, null, 'zero defenders in the box is not a measurement');
   const shotgun = s.formations.find(f => f.formation === 'SHOTGUN');
   assert.equal(shotgun.mean_defenders_in_box, 6);
+  // Same for the rusher mean: 23,754 of the 2024 rows read 0 because the play
+  // was not a dropback, and a formation whose only play is a run has no mean.
+  assert.equal(iform.mean_pass_rushers, null);
+  assert.equal(shotgun.mean_pass_rushers, 4.33);
 });

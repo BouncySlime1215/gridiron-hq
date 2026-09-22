@@ -4,8 +4,15 @@
  * Nick: "start/sit must beat 'start highest projection' ... If it can't beat dumb,
  * it's decoration." The app's start/sit already starts the higher projection
  * (lineup-brain.js#lineupCall solves on week_points), so what has to earn its place
- * is the PROJECTION: does starting by ours beat starting by the dumbest projection a
- * manager has, his season-to-date average?
+ * is the PROJECTION.
+ *
+ * THE VERDICT is the plan's own rule (Independent Auditor ruling, 2026-09-22; prereg
+ * addendum 2): the projection the app served against ESPN's weekly projection, the one a
+ * manager in Nick's ESPN leagues actually starts by. See planRuleVerdict. The
+ * pre-registered season-average rule below still runs exactly as registered, as
+ * `average_check`: a floor, reported beside the verdict and never as it.
+ *
+ * The average check (prereg §8, H1):
  *
  *   our policy   start the higher weekly projection from production's CURRENT model
  *                settings, replayed week by week with only what was known before each
@@ -24,21 +31,22 @@
  * decision population is its `_decision_rows` (players active the week before). The
  * grading is baseline-gate.js, shared with the waiver and trade gates to come.
  *
- * Two descriptive arms on the forward weeks (prereg addendum 1), never part of the
- * verdict. Both keep the replay rows' population and actual scores and swap only the
- * projections:
+ * Two arms on the forward weeks (prereg addendum 1). Both keep the replay rows' population
+ * and actual scores and swap only the projections:
  *   served vs average  the projection the app actually served, from
  *                      weekly_prediction_snapshots (weekly-learning.js#captureWeeklyPredictions);
- *   served vs ESPN     the literal "start the highest projection": ESPN's weekly
+ *   served vs ESPN     the plan's "start the highest projection": ESPN's weekly
  *                      projection, from league_roster_snapshots, settled rows
- *                      (scripts/collect-roster-snapshots.mjs#writePeriod).
+ *                      (scripts/collect-roster-snapshots.mjs#writePeriod). Since addendum 2
+ *                      this arm, pooled over every served week, IS the verdict's input
+ *                      (its "at lock" source).
  *
  * Standing rule 3: replay magnitudes and lineup rates never reach Nick. Every window
  * carries a `direction`; the Lineup panel and the job's sync_log detail use only that.
  * The magnitudes stay in the stored evidence for the Auditor.
  *
  * Pre-registration (windows, ship rule, controls, sign convention):
- * docs/evidence/2026-09-22/start-sit-baseline-gate-prereg.md, and its addendum 1.
+ * docs/evidence/2026-09-22/start-sit-baseline-gate-prereg.md, and its addenda 1 and 2.
  *
  * WHAT THIS DOES NOT GRADE. The replay predictor is production's weekly projection in
  * production's configuration, not the full live week_points chain: the coordinator
@@ -57,9 +65,13 @@ import { recordGateAudit } from '../model-governance.js';
 import { gradeDecisions, baselineGateVerdict, SIGN_CONVENTION } from './baseline-gate.js';
 
 export const GATE_ID = 'start_sit';
-export const GATE_VERSION = 'start-sit-gate-v2';
+export const GATE_VERSION = 'start-sit-gate-v3';
 export const PREREG = 'docs/evidence/2026-09-22/start-sit-baseline-gate-prereg.md';
 export const PREREG_ADDENDUM = 'docs/evidence/2026-09-22/start-sit-baseline-gate-prereg-addendum-1.md';
+/** The plan-rule verdict's own pre-registration (Auditor ruling A8), filed before 2026 week 3. */
+export const PREREG_ADDENDUM_2 = 'docs/evidence/2026-09-22/start-sit-baseline-gate-prereg-addendum-2.md';
+/** Graded weeks a source needs before the plan rule can pass or lose on it (addendum 2 §5, gate P3). */
+export const PLAN_RULE_MIN_WEEKS = 4;
 /** The startable line DECISION_CURVE (lineup-brain.js) is stated on: both projections >= 8.0 PPR. */
 export const STARTABLE_PPR = 8;
 /**
@@ -104,6 +116,63 @@ export function directionOf(grade) {
 }
 
 const notAvailable = reason => ({ status: 'not_available', reason, direction: 'not_available' });
+
+/** An arm that carries a status is a named absence (not_available), not a grade. */
+const isGraded = arm => !!arm && !arm.status;
+const weeksGraded = arm => (isGraded(arm) ? (arm.per_week ?? []).length : 0);
+
+/**
+ * The plan-rule verdict (prereg addendum 2 §4-5): the projection the app served against
+ * ESPN's weekly projection, as a pure function of two graded served-vs-ESPN arms, each
+ * pooled over every served week from 2026 week 2 on.
+ *
+ *   atLock      ESPN's settled value (league_roster_snapshots, source 'final'). It carries
+ *               news from after our snapshot, which favours ESPN, so it can support a pass
+ *               but never a loss.
+ *   sameCutoff  ESPN captured with our snapshot (RL-1-1) or ours captured at lock (S-12).
+ *               Neither exists yet. Once it has PLAN_RULE_MIN_WEEKS graded weeks it alone
+ *               decides; until then the at-lock arm decides.
+ *
+ * On the deciding arm: P1 points CI lower bound > 0 and P2 win-rate CI lower bound > 0.5
+ * (player-clustered, pooled), P3 at least PLAN_RULE_MIN_WEEKS graded weeks (a week with at
+ * least one disagreement). Every bound is strict. beats_dumb = P1 and P2 and P3;
+ * loses_to_dumb = the same-cutoff arm decides, P3, and the points CI upper bound < 0;
+ * anything else is not_shown with a reason: too_few_weeks, espn_ahead_at_lock_only (an
+ * at-lock "loss" the source cannot support) or not_distinguishable. No week-clustered
+ * criterion: addendum 2 §5 allows one only at a cluster count its own calibration supports.
+ */
+export function planRuleVerdict({ atLock = null, sameCutoff = null } = {}) {
+  const sameDecides = weeksGraded(sameCutoff) >= PLAN_RULE_MIN_WEEKS;
+  const arm = sameDecides ? sameCutoff : atLock;
+  const weeks = weeksGraded(arm);
+  const lo = ci => (Array.isArray(ci) && Number.isFinite(ci[0]) ? ci[0] : null);
+  const hi = ci => (Array.isArray(ci) && Number.isFinite(ci[1]) ? ci[1] : null);
+  const points = isGraded(arm) ? arm.ci90?.player?.points : null;
+  const winRate = isGraded(arm) ? arm.ci90?.player?.win_rate : null;
+  const gates = [
+    { id: 'P1', label: 'points per disagreement vs ESPN, player-clustered 90% CI lower bound > 0',
+      value: lo(points), passed: lo(points) != null && lo(points) > 0 },
+    { id: 'P2', label: 'decision win rate vs ESPN, player-clustered 90% CI lower bound > 0.5',
+      value: lo(winRate), passed: lo(winRate) != null && lo(winRate) > 0.5 },
+    { id: 'P3', label: `at least ${PLAN_RULE_MIN_WEEKS} graded weeks`, value: weeks, passed: weeks >= PLAN_RULE_MIN_WEEKS },
+  ];
+  const [p1, p2, p3] = gates.map(g => g.passed);
+  const espnAhead = hi(points) != null && hi(points) < 0;
+  let verdict = 'not_shown';
+  let reason = null;
+  if (p1 && p2 && p3) verdict = 'beats_dumb';
+  else if (!p3) reason = 'too_few_weeks';
+  else if (espnAhead && sameDecides) verdict = 'loses_to_dumb';
+  else if (espnAhead) reason = 'espn_ahead_at_lock_only';
+  else reason = 'not_distinguishable';
+  return {
+    verdict, reason, source: sameDecides ? 'espn_same_cutoff' : 'espn_at_lock', weeks_graded: weeks,
+    direction: arm ? directionOf(arm) : 'not_available',
+    gates,
+    mde80: isGraded(arm) ? arm.mde80 ?? null : null,
+    prereg: PREREG_ADDENDUM_2,
+  };
+}
 
 /**
  * Pairs, disagreements and each rule's pair accuracy.
@@ -379,8 +448,10 @@ function instrumentControls(windowRows) {
 }
 
 /**
- * Run the gate: k control, replays, pairs, grades, controls, verdict. Pure of side
- * effects apart from reads; refreshStartSitGate stores the result.
+ * Run the gate: k control, replays, pairs, grades, controls, then both rules: the
+ * plan-rule verdict (top-level `verdict`, `plan_rule`) and the pre-registered average
+ * check (`average_check`, never the top-level verdict). Pure of side effects apart from
+ * reads; refreshStartSitGate stores the result.
  */
 export function runStartSitGate({
   pastSeasons = PAST_SEASONS, pastWeeks = PAST_WEEKS, iterations = 2000, seed = 1,
@@ -424,13 +495,22 @@ export function runStartSitGate({
   }
 
   const controls = instrumentControls(pastRows);
-  // G4 reads the replay's forward grade only; the served arms are descriptive (addendum 1).
+  // H1 exactly as pre-registered (prereg §8): G4 reads the replay's forward grade only.
+  // It is a floor check now (Auditor ruling (a)): reported beside the verdict, never as it.
   const ruled = baselineGateVerdict({ past, forward: forward.status ? null : forward });
+  const averageCheck = { verdict: controls.passed ? ruled.verdict : 'instrument_fault', gates: ruled.gates,
+    rule: BASELINE_TEXT, prereg: PREREG };
+  // The verdict: the plan's rule, what the app served against ESPN's weekly projection
+  // (prereg addendum 2). Its only source today is at lock; no same-cutoff capture exists
+  // yet (RL-1-1, S-12), so it can pass or stay not_shown but never lose.
+  const planned = planRuleVerdict({ atLock: forward.status ? null : forward.served.vs_espn, sameCutoff: null });
+  const planRule = controls.passed ? planned : { ...planned, verdict: 'instrument_fault', reason: null };
   const fit = activeFitMeta();
   const championIds = [...new Set(Object.values(champions).flatMap(c => Object.values(c)))];
   return {
     gate: GATE_ID, version: GATE_VERSION, prereg: PREREG, prereg_addendum: PREREG_ADDENDUM,
-    policy: POLICY_TEXT, baseline: BASELINE_TEXT, universe: UNIVERSE_TEXT, scoring: 'PPR',
+    prereg_addendum_2: PREREG_ADDENDUM_2,
+    policy: POLICY_TEXT, baseline: ESPN_BASELINE_TEXT, universe: UNIVERSE_TEXT, scoring: 'PPR',
     sign_convention: SIGN_CONVENTION, replay_caveat: REPLAY_CAVEAT,
     configuration: {
       role_recency: { seasonDecay: WEEKLY_ROLE_RECENCY.seasonDecay, weekHalfLife: WEEKLY_ROLE_RECENCY.weekHalfLife },
@@ -438,8 +518,9 @@ export function runStartSitGate({
     },
     model_version: `configB|${fit ? `shrinkage-fit-${fit.id}` : 'no-fit'}|${championIds.join('+')}`,
     past, forward, controls,
-    gates: ruled.gates,
-    verdict: controls.passed ? ruled.verdict : 'instrument_fault',
+    average_check: averageCheck,
+    plan_rule: planRule,
+    verdict: planRule.verdict,
   };
 }
 

@@ -40,20 +40,28 @@ The third row is the bug: byte-identical to the second, with
 
 ## Commits
 
-Every sha below is on this branch as pushed, rebased onto `main` at `c90d2834`.
+Every sha below is an ancestor of this branch's head as pushed, rebased onto
+`main` at `6e72271`. An earlier revision of this table cited the pre-rebase
+shas (`77ccbbc` … `5b8a345`); the rebase orphaned every one of them, and the
+merge gate requires the shas to be rewritten in the same push that rewrites the
+commits. They were not, so the table below replaces them. The orphaned shas are
+not cited anywhere in this file or the PR body any more.
 
 | stage | commit | subject |
 |---|---|---|
-| RED (round 1) | `77ccbbc` | `RED: a failed career-evidence read is stated as "no NFL record"` |
-| GREEN (round 1) | `6412283` | `GREEN: a career layer that could not be read says so instead of "no NFL record"` |
-| docs (round 1) | `48c8eaa` | `docs: evidence for the unreadable-career-layer fix` |
-| RED (round 2) | `cc97eb2` | `RED: a partly unreadable package reports the readable half as the whole` |
-| GREEN (round 2) | `8b522d1` | `GREEN: the evidence line says how much of a package it could read` |
-| docs (round 2) | `d01a003` | `docs: evidence for the unreadable-career-layer fix, rounds 1 and 2` |
-| RED (round 3) | `e7d2a84` | `RED: the trade card's Floor cell calls an unreadable package "no record"` |
-| GREEN (round 3) | `389c2ac` | `GREEN: the trade card says which records it could not read` |
-| docs (round 3) | `5b8a345` | `docs: RED round 3 and the rebased shas` |
-| docs (gate) | *this head* | `docs: the guard result on the pushed head` — cited as the head rather than by sha, since a commit cannot carry its own hash |
+| RED (round 1) | `b6e0641` | `RED: a failed career-evidence read is stated as "no NFL record"` |
+| GREEN (round 1) | `5c1560d` | `GREEN: a career layer that could not be read says so instead of "no NFL record"` |
+| docs (round 1) | `59dd5a1` | `docs: evidence for the unreadable-career-layer fix` |
+| RED (round 2) | `44adbca` | `RED: a partly unreadable package reports the readable half as the whole` |
+| GREEN (round 2) | `bce6958` | `GREEN: the evidence line says how much of a package it could read` |
+| docs (round 2) | `1c8ad78` | `docs: evidence for the unreadable-career-layer fix, rounds 1 and 2` |
+| RED (round 3) | `b8b29f9` | `RED: the trade card's Floor cell calls an unreadable package "no record"` |
+| GREEN (round 3) | `07af90c` | `GREEN: the trade card says which records it could not read` |
+| docs (round 3) | `c38abb6` | `docs: RED round 3 and the rebased shas` |
+| docs (gate, round 1) | `3fcb752` | `docs: the guard result on the pushed head` |
+| test (mutation fix) | `d84dfb0` | `test: run floorOf instead of grepping it — a surviving mutant said so` |
+| docs (v2 gate) | `4807e2e` | `docs: the v2 merge gate sections, including the surviving mutant` |
+| docs (sha rewrite) | *this head* | `docs: the post-rebase shas` — cited as the head rather than by sha, since a commit cannot carry its own hash |
 
 ### RED round 1 — the failing assertion, verbatim
 

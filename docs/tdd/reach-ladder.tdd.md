@@ -223,6 +223,17 @@ miniature.
   > `wired-betting-only`, `wired-mlb-only`, `wired-offproduct-only`, the low
   > end and the population are settled.
 
+  **Where the bound comes OFF, and only there (R67.2).** A re-run with all
+  twelve edges restored reproduced `wired` cell for cell, so **225 is exact
+  on `c90d2834`, population subtree `2c900fff`, and nowhere else yet.** It
+  remains a floor for **228 on `500bab36`** until that tree is re-measured;
+  for **every other tree**, including the one this branch is on, until
+  `buildImporterGraph` parses bare imports itself; and for
+  **`hand-run-script` and `unreached`** until the 10/26-against-11/25
+  disagreement is settled. This command therefore keeps printing the bound:
+  it runs on whatever tree it is given, and the exactness is a property of
+  one tree, not of the command.
+
   **The 12-versus-9 disagreement is itself a measurement defect, not a
   judgement call.** The two counts differ by exactly `clv-core.js:47`,
   `prop-feeds.js:35` and `signal-latency.js:30` — the three bare imports with

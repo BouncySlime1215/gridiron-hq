@@ -123,13 +123,55 @@ quoted anywhere. Run:
 **First sweep, 2026-09-22. Quote this as a BRACKET, not a point.** Across the
 319 tracked files in `server/services/` and `server/modeling/`:
 
-> **220–233 `wired` · 55–68 `wired-betting-only` · 31 `unreached`
-> (10 `hand-run-script` + 21 unreached-in-code)**
+> **196–233 `wired` · 55–65 `wired-betting-only` · 21–47 `unreached`
+> · 10–11 `hand-run-script`  — each column summing to 319**
 
-**The two ends are bounds, not alternatives.** The spread is the 13 files whose
-grade turns on how a `package.json` script entry point is classified (§2a), and
-it stays a bracket until all 13 are traced to the evidence bar there. The
-bracket, not either end, is what goes into the Phase A plan.
+**The ends are bounds, not alternatives**, and the bracket, never either end, is
+what goes into the Phase A plan. Two things widen it:
+
+- **The script rule (§2a)** — 13 files whose grade turns on how a `package.json`
+  script entry point is classified.
+- **Request reach against job reach (§2b)** — 26 files with no request path at
+  all. This is the larger of the two and it overlaps the first.
+
+The Auditor's §R17 put the lower end at 205, derived by excluding paths through
+`scheduler.js`. **Measured by mechanism rather than by file name it is 196**,
+because a function-body import defers reach wherever it occurs and
+`scheduler.js` is not the only place it occurs. The two figures are the same
+finding at different precision; 196 is the one to quote.
+
+| | request reach only | request + job reach |
+|---|---|---|
+| `wired` | 196 | 233 |
+| `wired-betting-only` | 65 | 55 |
+| `hand-run-script` | 11 | 10 |
+| `unreached` | 47 | 21 |
+
+## 2b. Request reach and job reach are two reaches, never summed (Auditor §R17.4)
+
+**REQUEST REACH** — a handler can call in. **JOB REACH** — the module executes
+because a scheduled job runs it. A row reached only the second way gets the
+bucket **`job-reach only`**, and it is never added to the request-reach total.
+
+**The bucket is named by mechanism, and the mechanism is in the syntax.** An
+import at module scope runs when the module loads, so any handler that loads the
+module has it; an import inside a function body runs only when that function is
+called. This repo has **1,687 module-scope imports against 240 inside function
+bodies**, and `scheduler.js:1064` is the live case: `await import('./nfl-auto-picks.js')`
+inside `refreshNflDecisionLedger()`. Calling the bucket "via `scheduler.js`"
+would encode one file where the mechanism is what matters.
+
+**`SCHEDULER_DISABLED=1` is excluded from the criterion.** It is operational
+state, not architecture, and it is not in `fly.toml`, so a deploy can drop it.
+It is recorded beside the bucket as a live-state note and never inside the
+grade: **26 files are `job-reach only`, and on the live app today the scheduler
+is braked, so none of the 26 is executing there.**
+
+**Worked case.** `nfl-candidate-findings.js` on request reach is `wired`
+through `betting-hub.js`, `execution-slate.js`, `nfl-betting.js`,
+`nfl-market.js` and `routes/mlb.js` — every one a betting surface or MLB, and
+**no fantasy route**. That is the mechanism behind §R17.3's ruling that it is
+not a fantasy reader.
 
 The point figure the grader prints today, on the five-surface list and with
 script entry points counted as non-betting, is **233 / 55 / 10 / 21**.
@@ -213,9 +255,14 @@ which is the more expensive error.
 
 Three sub-cases:
 
-1. **No durable output at all** — stdout does not count, because nothing reads
-   it. These go to a **third bucket, `no-surface-reach`**, reported separately
-   and **never folded into `wired-betting-only`.**
+1. **No durable output at all, OR durable output that no surface reads** —
+   stdout does not count, because nothing reads it, and neither does a file
+   only its own writer opens. These go to a **third bucket,
+   `no-surface-reach`**, reported separately and **never folded into
+   `wired-betting-only`.** *(Widened by §R17.1: the first draft of this rule
+   said "no durable output at all", which put `build-evidence-dataset.mjs` and
+   `build-role-scenario-lab.mjs` in the wrong bucket — they write frozen
+   artifacts that nothing in `server/` reads. Four of the six, not two.)*
 2. **Output read only by another script** — follow it transitively. One hop is
    not enough.
 3. **Output read by a fantasy surface** — `wired`, whatever the header says.
@@ -232,12 +279,12 @@ criterion.
 
 | script | (a) invocation | (b) durable writes | (c) readers | verdict |
 |---|---|---|---|---|
-| `nfl-blind-audit.mjs` | `audit:nfl` → `:5` | `nfl-blind-audit.js` `:223` `:926` `:940` INSERT `nfl_blind_audit_runs` / `_weeks` / `_week_performance`, `:866` `_retries`, `:937` `:955` UPDATE `_runs` | `nfl-audit-overview.js`, `nfl-profitability.js`, `nfl-research-lab.js` — all `wired-betting-only`; and `nfl-candidate-findings.js:249` | **HELD** pending the joint ruling on `nfl-candidate-findings.js` |
-| `build-evidence-dataset.mjs` | `build:evidence-dataset` → `:18` | none in `data.sqlite`; files under `server/data/evidence-datasets` (`nfl-evidence-dataset.js:44`) | nothing in `server/` reads that directory except its writer | betting-only candidate, sub-case 1-adjacent |
+| `nfl-blind-audit.mjs` | `audit:nfl` → `:5` | `nfl-blind-audit.js` `:223` `:926` `:940` INSERT `nfl_blind_audit_runs` / `_weeks` / `_week_performance`, `:866` `_retries`, `:937` `:955` UPDATE `_runs` | `nfl-audit-overview.js`, `nfl-profitability.js`, `nfl-research-lab.js` — all `wired-betting-only`; and `nfl-candidate-findings.js:249` | **`wired-betting-only` on request reach** (§R17.3: `nfl-candidate-findings.js` is not a fantasy reader), with the job-reach caveat of §2b recorded |
+| `build-evidence-dataset.mjs` | `build:evidence-dataset` → `:18` | none in `data.sqlite`; files under `server/data/evidence-datasets` (`nfl-evidence-dataset.js:44`) | nothing in `server/` reads that directory except its writer | **`no-surface-reach`** (§R17.1) |
 | `audit-passing-specialists.mjs` | `audit:nfl-passing-specialists` → `:1` | **(d) no durable writes.** Three lines; `passingSpecialistAudit()` to stdout | none possible | **`no-surface-reach`** |
 | `diagnose-passing-components.mjs` | `diagnose:nfl-passing` → `:2` | **(d) no durable writes.** `passingComponentDiagnostic(…, { useCache: false })` to stdout | none possible | **`no-surface-reach`** |
-| `run-news-event-impact.mjs` | `news:event-impact` → `:29` `:31` (dynamic, after `runMigrations`) | `nfl-news-events.js:83` `nfl_news_event_extraction_cache`, `:109` `nfl_news_events`, `:302` `:305` `:352` `:372` UPDATE `nfl_news_events`; `nfl-news-event-impact.js:324` `:325` `server/data/news-event-impact/{manifest,latest}.json` | `nfl-t60-packet.js:435` reads `nfl_news_events`; `nfl-research-lab.js:132` reads `latest.json` (`wired-betting-only`). `nfl-t60-packet.js` off the scheduler reaches the three betting routes and `/api/mlb`, **no fantasy route.** `trade-proposals.js:46` is a comment naming the cache table, not a query | betting-only candidate |
-| `build-role-scenario-lab.mjs` | `build:role-scenario-lab` → `:9` | files under `server/data/role-scenario-lab` (`role-scenario-lab.js:32`); header says read-only against `data.sqlite` | nothing in `server/` reads that directory except its writer | betting-only candidate, sub-case 1-adjacent |
+| `run-news-event-impact.mjs` | `news:event-impact` → `:29` `:31` (dynamic, after `runMigrations`) | `nfl-news-events.js:83` `nfl_news_event_extraction_cache`, `:109` `nfl_news_events`, `:302` `:305` `:352` `:372` UPDATE `nfl_news_events`; `nfl-news-event-impact.js:324` `:325` `server/data/news-event-impact/{manifest,latest}.json` | `nfl-t60-packet.js:435` reads `nfl_news_events`; `nfl-research-lab.js:132` reads `latest.json` (`wired-betting-only`). `nfl-t60-packet.js` off the scheduler reaches the three betting routes and `/api/mlb`, **no fantasy route.** `trade-proposals.js:46` is a comment naming the cache table, not a query | **`wired-betting-only`** (§R17.2: the negative is proven, so the untraced-defaults-to-wired rule does not apply) |
+| `build-role-scenario-lab.mjs` | `build:role-scenario-lab` → `:9` | files under `server/data/role-scenario-lab` (`role-scenario-lab.js:32`); header says read-only against `data.sqlite` | nothing in `server/` reads that directory except its writer | **`no-surface-reach`** (§R17.1) |
 
 **Headers, as intent only, not the criterion:** "CLI for the content-addressed,
 week-at-a-time NFL audit" (`nfl-blind-audit.mjs:2`); "Build and freeze one

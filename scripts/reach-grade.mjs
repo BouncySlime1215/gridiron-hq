@@ -23,9 +23,12 @@
  *   node scripts/reach-grade.mjs server/services/player-week-engine.js [...]
  *   node scripts/reach-grade.mjs --json server/services/contingency.js
  */
+import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+
+const ts = createRequire(import.meta.url)('typescript');
 
 /**
  * The betting surfaces CONTRACT.md names. Betting is out of scope for this
@@ -80,6 +83,62 @@ export function buildImporterGraph({ files, read }) {
     }
   }
   return importers;
+}
+
+/**
+ * Split the import edges by the mechanism that runs them (Auditor §R17.4).
+ *
+ * REQUEST REACH — an import at module scope, static or `await import(...)` at
+ * the top level. It runs when the module loads, so any handler that loads the
+ * module has it. `server/index.js` mounts every route this way.
+ *
+ * JOB REACH — an import inside a function body. It runs only when that function
+ * is called, which for a scheduled job means only when the job runs.
+ * `scheduler.js:1064` is the live case: `await import('./nfl-auto-picks.js')`
+ * inside `refreshNflDecisionLedger()`, which is how a betting veto reads as
+ * reachable from a fantasy route.
+ *
+ * The two are never summed. Naming this "via scheduler.js" would encode one
+ * file where the mechanism is what matters, and the mechanism is in the syntax.
+ * This repo: 1,687 module-scope imports against 240 inside function bodies.
+ */
+export function classifyImportEdges({ files, read }) {
+  const known = new Set(files);
+  const request = Object.create(null);
+  const deferred = Object.create(null);
+  for (const file of files) {
+    if (NOT_A_CONSUMER(file)) continue;
+    const src = read(file);
+    if (typeof src !== 'string') continue;
+    const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    const add = (bucket, spec) => {
+      const target = path.posix.normalize(path.posix.join(path.posix.dirname(file), spec));
+      if (!known.has(target) || target === file) return;
+      (bucket[target] ??= new Set()).add(file);
+    };
+    const insideFunction = node => {
+      for (let p = node.parent; p; p = p.parent) {
+        if (ts.isFunctionDeclaration(p) || ts.isFunctionExpression(p)
+            || ts.isArrowFunction(p) || ts.isMethodDeclaration(p)
+            || ts.isConstructorDeclaration(p) || ts.isGetAccessor(p) || ts.isSetAccessor(p)) return true;
+      }
+      return false;
+    };
+    const visit = node => {
+      if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)
+          && node.moduleSpecifier.text.startsWith('.')) {
+        add(request, node.moduleSpecifier.text);
+      }
+      if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword
+          && node.arguments[0] && ts.isStringLiteral(node.arguments[0])
+          && node.arguments[0].text.startsWith('.')) {
+        add(insideFunction(node) ? deferred : request, node.arguments[0].text);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+  }
+  return { request, deferred };
 }
 
 /**

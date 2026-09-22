@@ -28,6 +28,7 @@ import assert from 'node:assert/strict';
 import {
   BETTING_ENTRY_POINTS,
   buildImporterGraph,
+  classifyImportEdges,
   dropRouteBootEdges,
   gradeReach,
   isBettingEntryPoint,
@@ -328,4 +329,71 @@ test('an unmounted route is still unreached: being a route file is not being an 
   const isEntry = f => f === 'server/routes/model.js';
   const graded = gradeReach(reachableEntries(importers, 'server/routes/ghost.js', { isEntry }));
   assert.equal(graded.grade, 'unreached');
+});
+
+/*
+ * Auditor R17.4: request reach and job reach are two kinds of reach and are
+ * never summed. The mechanism that separates them is in the syntax, not in a
+ * file name: an import at MODULE SCOPE runs when the module loads, so a handler
+ * that loads the module has it; an import inside a FUNCTION BODY runs only when
+ * that function is called, which for a scheduled job means only when the job
+ * runs. `scheduler.js:1064` is the live case — a lazy `await import` inside a
+ * job body — and naming the bucket "via scheduler.js" would have encoded one
+ * file instead of the mechanism.
+ */
+
+test('classifyImportEdges puts a module-scope import in request reach and a function-body import in job reach', () => {
+  const sources = {
+    'a.js': `
+import { x } from './b.js';
+
+export async function job() {
+  const { y } = await import('./c.js');
+  return y;
+}
+`,
+    'b.js': 'export const x = 1;',
+    'c.js': 'export const y = 2;',
+  };
+  const { request, deferred } = classifyImportEdges({
+    files: Object.keys(sources),
+    read: f => sources[f],
+  });
+  assert.deepEqual([...(request['b.js'] || [])], ['a.js'],
+    'a static import runs at load, so anything that loads a.js has b.js');
+  assert.equal(request['c.js'], undefined,
+    'a function-body import does not run at load; counting it as request reach is the error');
+  assert.deepEqual([...(deferred['c.js'] || [])], ['a.js']);
+});
+
+test('a top-level await import is request reach, because it runs at load', () => {
+  const sources = {
+    'a.js': "const { y } = await import('./c.js');\nexport const z = y;",
+    'c.js': 'export const y = 2;',
+  };
+  const { request, deferred } = classifyImportEdges({
+    files: Object.keys(sources),
+    read: f => sources[f],
+  });
+  assert.deepEqual([...(request['c.js'] || [])], ['a.js'],
+    'server/index.js mounts every route this way; it is not deferred');
+  assert.equal(deferred['c.js'], undefined);
+});
+
+test('job-reach-only is a grade about mechanism, and is never added to the request-reach total', () => {
+  const request = { 'server/services/subject.js': [] };
+  const deferred = { 'server/services/subject.js': ['server/services/job-host.js'] };
+  const importers = { 'server/services/subject.js': ['server/services/job-host.js'],
+    'server/services/job-host.js': ['server/routes/model.js'] };
+  const isEntry = f => f.startsWith('server/routes/');
+
+  const onRequest = gradeReach(reachableEntries(request, 'server/services/subject.js', { isEntry }));
+  const onEither = gradeReach(reachableEntries(importers, 'server/services/subject.js', { isEntry }));
+
+  assert.equal(onRequest.grade, 'unreached',
+    'no handler reaches it: the only edge in is a function-body import');
+  assert.equal(onEither.grade, 'wired');
+  assert.notEqual(onRequest.grade, onEither.grade,
+    'the two reaches disagree here, which is the whole reason they are reported apart');
+  void deferred;
 });

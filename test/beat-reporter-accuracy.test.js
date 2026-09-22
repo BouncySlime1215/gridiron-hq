@@ -39,6 +39,7 @@ await (await import('../server/db/migrate.js')).runMigrations();
 const {
   classifyInjuryDirection, resolveInjuryClaim, resolveInjuryClaims,
   classifyRoleDirection, resolveRoleChangeClaim, resolveRoleChangeClaims,
+  classifyReturnDirection, resolveReturnFromInjuryClaim, resolveReturnFromInjuryClaims,
   sourceTrustScore, orderByTrust
 } = await import('../server/services/beat-reporter-accuracy.js');
 
@@ -440,6 +441,169 @@ test('resolveRoleChangeClaims writes one upserted row per role_change event, and
   // Re-running does not duplicate the row (upsert on event_id).
   resolveRoleChangeClaims({ asOf: '2027-04-06T00:00:00Z' });
   const count = row(`SELECT COUNT(*) AS n FROM beat_reporter_claim_resolutions WHERE event_id=?`, roleEventId).n;
+  assert.equal(count, 1);
+});
+
+// ---- classifyReturnDirection -----------------------------------------------
+
+test('classifyReturnDirection reads activation/return language as returning', () => {
+  assert.equal(classifyReturnDirection('He has been activated from injured reserve.'), 'returning');
+  assert.equal(classifyReturnDirection('Cleared to return and expected to play this week.'), 'returning');
+});
+
+test('classifyReturnDirection reads not-yet-ready language as still_out', () => {
+  assert.equal(classifyReturnDirection('He remains on injured reserve and will not return this week.'), 'still_out');
+  assert.equal(classifyReturnDirection('Not yet ready to return, will miss another week.'), 'still_out');
+});
+
+test('classifyReturnDirection returns null when the text carries no return-from-injury signal', () => {
+  assert.equal(classifyReturnDirection('Signed a two-year contract extension.'), null);
+});
+
+// ---- resolveReturnFromInjuryClaim ------------------------------------------
+//
+// Same date-collision discipline as the role_change block above: fresh weeks
+// (22-29) and dates continuing forward from where that block left off, so no
+// earlier or later test's game can answer this one's "next game on/after the
+// claim date" lookup.
+
+test('resolveReturnFromInjuryClaim: returning confirmed when the player actually played', () => {
+  const player = makePlayer('Return Confirmed RB', 'RB');
+  makeGame(2026, 22, '2027-04-12');
+  setSnaps(player, 2026, 22, 40);
+  const eventId = makeEvent({
+    playerName: 'Return Confirmed RB', claimText: 'He has been activated from injured reserve.',
+    publishedAt: '2027-04-10T12:00:00Z', claimType: 'return_from_injury',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveReturnFromInjuryClaim(ev, { asOf: '2027-04-13T00:00:00Z' });
+  assert.equal(res.predicted_direction, 'returning');
+  assert.equal(res.resolved_state, 'confirmed');
+});
+
+test('resolveReturnFromInjuryClaim: returning contradicted when the player still did not play', () => {
+  const player = makePlayer('Return Contradicted WR', 'WR');
+  makeGame(2026, 23, '2027-04-19');
+  setSnaps(player, 2026, 23, 0);
+  const eventId = makeEvent({
+    playerName: 'Return Contradicted WR', claimText: 'Cleared to return and expected to play this week.',
+    publishedAt: '2027-04-17T12:00:00Z', claimType: 'return_from_injury',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveReturnFromInjuryClaim(ev, { asOf: '2027-04-20T00:00:00Z' });
+  assert.equal(res.resolved_state, 'contradicted');
+});
+
+test('resolveReturnFromInjuryClaim: still_out confirmed when the player really did not play', () => {
+  const player = makePlayer('Still Out Confirmed WR', 'WR');
+  makeGame(2026, 24, '2027-04-26');
+  setSnaps(player, 2026, 24, 0);
+  const eventId = makeEvent({
+    playerName: 'Still Out Confirmed WR', claimText: 'Not yet ready to return, will miss another week.',
+    publishedAt: '2027-04-24T12:00:00Z', claimType: 'return_from_injury',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveReturnFromInjuryClaim(ev, { asOf: '2027-04-27T00:00:00Z' });
+  assert.equal(res.predicted_direction, 'still_out');
+  assert.equal(res.resolved_state, 'confirmed');
+});
+
+test('resolveReturnFromInjuryClaim: still_out contradicted when the player actually played', () => {
+  const player = makePlayer('Still Out Contradicted RB', 'RB');
+  makeGame(2026, 25, '2027-05-03');
+  setSnaps(player, 2026, 25, 35);
+  const eventId = makeEvent({
+    playerName: 'Still Out Contradicted RB', claimText: 'Remains on injured reserve and will not return this week.',
+    publishedAt: '2027-05-01T12:00:00Z', claimType: 'return_from_injury',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveReturnFromInjuryClaim(ev, { asOf: '2027-05-04T00:00:00Z' });
+  assert.equal(res.resolved_state, 'contradicted');
+});
+
+test('resolveReturnFromInjuryClaim: unresolved when no snap data exists yet for that week', () => {
+  const player = makePlayer('Return No Data WR', 'WR');
+  makeGame(2026, 26, '2027-05-10');
+  const eventId = makeEvent({
+    playerName: 'Return No Data WR', claimText: 'He has been activated from injured reserve.',
+    publishedAt: '2027-05-08T12:00:00Z', claimType: 'return_from_injury',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveReturnFromInjuryClaim(ev, { asOf: '2027-05-11T00:00:00Z' });
+  assert.equal(res.resolved_state, 'unresolved');
+  assert.match(res.resolved_reason, /no snap data/i);
+});
+
+test('resolveReturnFromInjuryClaim: unresolved for a defensive position, same offense-snap guard reused', () => {
+  const player = makePlayer('Return Defensive CB', 'CB');
+  makeGame(2026, 27, '2027-05-17');
+  const eventId = makeEvent({
+    playerName: 'Return Defensive CB', claimText: 'He has been activated from injured reserve.',
+    publishedAt: '2027-05-15T12:00:00Z', claimType: 'return_from_injury',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveReturnFromInjuryClaim(ev, { asOf: '2027-05-18T00:00:00Z' });
+  assert.equal(res.resolved_state, 'unresolved');
+  assert.match(res.resolved_reason, /position.*not covered/i);
+});
+
+test('resolveReturnFromInjuryClaim: unresolved when the game has not been played yet, same guard reused', () => {
+  const player = makePlayer('Return Future WR', 'WR');
+  makeGame(2026, 28, '2027-05-24');
+  const eventId = makeEvent({
+    playerName: 'Return Future WR', claimText: 'He has been activated from injured reserve.',
+    publishedAt: '2027-05-22T12:00:00Z', claimType: 'return_from_injury',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveReturnFromInjuryClaim(ev, { asOf: '2027-05-23T00:00:00Z' });
+  assert.equal(res.resolved_state, 'unresolved');
+  assert.match(res.resolved_reason, /not.*played/i);
+});
+
+test('resolveReturnFromInjuryClaim: unresolved when no return direction classifies from the claim text', () => {
+  const player = makePlayer('Return No Direction WR', 'WR');
+  makeGame(2026, 29, '2027-06-07');
+  const eventId = makeEvent({
+    playerName: 'Return No Direction WR', claimText: 'Practiced fully and is on track for Sunday.',
+    publishedAt: '2027-06-05T12:00:00Z', claimType: 'return_from_injury',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveReturnFromInjuryClaim(ev, { asOf: '2027-06-08T00:00:00Z' });
+  assert.equal(res.predicted_direction, null);
+  assert.equal(res.resolved_state, 'unresolved');
+  assert.match(res.resolved_reason, /no return-from-injury direction/i);
+});
+
+// ---- resolveReturnFromInjuryClaims (batch) ---------------------------------
+
+test('resolveReturnFromInjuryClaims writes one upserted row per return_from_injury event, and leaves other claim types alone', () => {
+  const injuryPlayer = makePlayer('Untouched Injury WR 2', 'WR');
+  makeGame(2026, 1, '2027-06-14');
+  setSnaps(injuryPlayer, 2026, 1, 0);
+  const injuryEventId = makeEvent({
+    playerName: 'Untouched Injury WR 2', claimText: 'Ruled out this week.',
+    publishedAt: '2027-06-12T12:00:00Z',
+  });
+
+  const returnPlayer = makePlayer('Batch Return RB', 'RB');
+  makeGame(2026, 30, '2027-06-21');
+  setSnaps(returnPlayer, 2026, 30, 38);
+  const returnEventId = makeEvent({
+    playerName: 'Batch Return RB', claimText: 'He has been activated from injured reserve.',
+    publishedAt: '2027-06-19T12:00:00Z', claimType: 'return_from_injury', handle: 'ReturnReporter',
+  });
+
+  const result = resolveReturnFromInjuryClaims({ asOf: '2027-06-22T00:00:00Z' });
+  assert.ok(result.resolved >= 1);
+  const stored = row(`SELECT * FROM beat_reporter_claim_resolutions WHERE event_id=?`, returnEventId);
+  assert.equal(stored.resolved_state, 'confirmed');
+  assert.equal(stored.reporter_handle, 'ReturnReporter');
+  assert.equal(row(`SELECT * FROM beat_reporter_claim_resolutions WHERE event_id=?`, injuryEventId), undefined,
+    'resolveReturnFromInjuryClaims must not touch injury_status events');
+
+  // Re-running does not duplicate the row (upsert on event_id).
+  resolveReturnFromInjuryClaims({ asOf: '2027-06-22T00:00:00Z' });
+  const count = row(`SELECT COUNT(*) AS n FROM beat_reporter_claim_resolutions WHERE event_id=?`, returnEventId).n;
   assert.equal(count, 1);
 });
 

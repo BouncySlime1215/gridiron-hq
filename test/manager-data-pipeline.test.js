@@ -488,6 +488,75 @@ test('signals: a re-run with no new data writes nothing, and new data rewrites t
   assert.notEqual(pricing.counterpartyDataKey(12), keyBefore, 'new data must change the key');
 });
 
+/**
+ * Put `name` back exactly as it was, whatever the body does to it. The DDL and
+ * the indexes come out of `sqlite_master` rather than being retyped here: a
+ * retyped copy drifts from the migration that owns the table and the test then
+ * pins a shape the app does not have.
+ */
+function withTableReplaced(name, newDdl, fn) {
+  const ddl = rows(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`, name)[0]?.sql;
+  assert.ok(ddl, `this test needs the real ${name} DDL to put back`);
+  const idx = rows(`SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ?
+                    AND sql IS NOT NULL`, name).map(r => r.sql);
+  const saved = rows(`SELECT * FROM ${name}`);
+  run(`DROP TABLE ${name}`);
+  try {
+    if (newDdl) run(newDdl);
+    return fn();
+  } finally {
+    run(`DROP TABLE IF EXISTS ${name}`);
+    run(ddl);
+    for (const sql of idx) run(sql);
+    for (const r of saved) {
+      const cols = Object.keys(r);
+      run(`INSERT INTO ${name} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+        ...cols.map(c => r[c]));
+    }
+  }
+}
+
+/**
+ * `counterpartyDataKey` is a cache fingerprint: `trade-engine.js#findTradesKey`
+ * concatenates it into the key a whole findTrades result is stored under. So a
+ * fingerprint that gives two different states the same word does not merely
+ * report badly — it serves the cached answer computed in one state as the answer
+ * for the other.
+ *
+ * Two states, and they are not the same thing:
+ *  - the table is not there. A league that has never built signals. There is
+ *    genuinely nothing to stamp.
+ *  - the table is there and will not read. Schema drift, a renamed column, a
+ *    half-applied migration. There IS data, and we could not see it.
+ *
+ * Both are exercised through raw SQL because no writer in this repo can produce
+ * the second one, which is exactly why it has never had a test. Asserting on
+ * the whole key rather than on a substring keeps the claim about what a caller
+ * can observe.
+ */
+test('signals: the key says WHICH absence — a table that is gone is not a table that will not read', () => {
+  const live = pricing.counterpartyDataKey(12);
+  assert.ok(/\bms:\d+:/.test(live), 'the fixtures must have built signals for league 12, or this pins nothing');
+
+  const gone = withTableReplaced('manager_signals', null,
+    () => pricing.counterpartyDataKey(12));
+
+  // Present, and unreadable by this query: the columns it stamps are not there.
+  const unreadable = withTableReplaced('manager_signals',
+    'CREATE TABLE manager_signals (league_id INTEGER NOT NULL, roster_id TEXT NOT NULL)',
+    () => pricing.counterpartyDataKey(12));
+
+  assert.notEqual(gone, live, 'a table that is not there must change the fingerprint');
+  assert.notEqual(unreadable, live, 'a table that will not read must change the fingerprint');
+  assert.notEqual(unreadable, gone,
+    'these are two different states, and one word for both means the cache entry built while '
+    + 'the table was unreadable is served as the entry for a league that never built one');
+
+  // And the restore has to be real, or every later test in this file is reading
+  // a table this one rebuilt wrong.
+  assert.equal(pricing.counterpartyDataKey(12), live, 'the table must come back exactly as it was');
+});
+
 test('signals: a chat league is never rebuilt without its chat DB (that would strip every chat read)', () => {
   const before = sigRows(11).length;
   const views = rows('SELECT COUNT(*) AS n FROM manager_player_view WHERE league_id = 11')[0].n;

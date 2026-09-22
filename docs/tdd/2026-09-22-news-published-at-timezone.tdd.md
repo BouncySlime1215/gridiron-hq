@@ -154,13 +154,13 @@ future-stamp allowance (R-07)` after the first sweep found a surviving mutant (s
   `zonedDateTime` (`server/services/date-util.js:17`), which supplies that date's real
   offset. Every other spelling keeps `new Date(text).toISOString()`, the old behaviour. An
   impossible date (`31 Sep`) throws `RangeError`, which `ingestRssSource` already catches
-  per item into its `failed` list (`ingest.js:83-86`). Both `published_at` and the
+  per item into its `failed` list (`ingest.js:83-85` at d3d1f8b1). Both `published_at` and the
   defaulted `updated_at` use it.
 - `server/news/ingest.js` `ingestRssSource`: counts `future_stamped`, items whose parsed
   stamp is still more than 5 minutes after this fetch's clock. The row keeps the feed's
   value; `published_at > ingested_at` on the row is the per-row label. `ingestAllSources`
   reports `future_stamped: null` (not checked) for a source it could not read.
-  Reader: the ingest result is returned by `POST /api/news/ingest` (`routes/news.js:34-43`)
+  Reader: the ingest result is returned by `POST /api/news/ingest` (`routes/news.js:26-44`)
   and served again as the desk's `refresh.last_result` (`routes/news.js:100`), and it is
   the `rss_news` job's return (`scheduler.js:769-778`).
 
@@ -243,7 +243,7 @@ Full sweep on d3d1f8b1, baseline 33 pass / 0 fail:
 | M5 | unit | impossible date falls back to Date rollover | KILLED 32/1 |
 | M6 | unit | seconds dropped from the wall time | KILLED 28/5 |
 | M7 | unit | day and month swapped | KILLED 27/6 |
-| M8 | `ingest.js:67` writer call site | pre-parses `pubDate` before normalize sees it | KILLED 31/2 |
+| M8 | `ingest.js:67` (d6d7bd5a; `:81` at d3d1f8b1) writer call site | pre-parses `pubDate` before normalize sees it | KILLED 31/2 |
 | M9 | guard | tolerance 5 → 10 min | KILLED 32/1 |
 | M10 | guard | tolerance 5 → 3 min | KILLED 32/1 |
 | M11 | guard | sign flipped (counts stale stamps) | KILLED 31/2 |

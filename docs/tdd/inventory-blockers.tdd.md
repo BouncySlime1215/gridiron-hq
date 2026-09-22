@@ -90,7 +90,12 @@ with the summing invariant as its own test rather than as a comment.
 that fixes the order.
 
 **How do we know?** `node --test test/inventory-blockers.test.js` 0/10 at RED,
-11/0 at GREEN; `node scripts/inventory.mjs --check` passes. Six injections
+11/0 at GREEN; `node scripts/inventory.mjs --check` passes. Whole tree:
+`npm run check` exit 0, `npm test` **3130 tests / 3089 pass / 0 fail / 41
+skipped**, up from 3119 / 3078 — the 11 tests here. Tree `61d3b7f4` and the
+`node_modules` mtime identical either side of the run; that tree is this
+file's parent commit, which the commit adding this paragraph does not change
+in any way the suite reads. Six injections
 killed with the killing test named, one control, and one survivor recorded and
 then closed.
 

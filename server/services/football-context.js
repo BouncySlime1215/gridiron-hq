@@ -139,6 +139,16 @@ export function availabilityPicture(team, season, week, { lookback = 4 } = {}) {
 
   const totalLost = r3(flagged.reduce((s, f) => s + (f.expected_usage_lost ?? 0), 0));
 
+  // Zero flagged players is ambiguous on its own: it means "genuinely healthy"
+  // only if the injury feed has actually been loaded for this team this season.
+  // An empty nfl_injuries table (never synced, or a rig with no injury feed at
+  // all) produces the exact same zero rows as a healthy roster, and without this
+  // check the reading below can't tell them apart — it would call a data outage
+  // "close to healthy on offence" instead of saying it doesn't know.
+  const injuryDataAvailable = (row(
+    `SELECT COUNT(*) c FROM nfl_injuries WHERE team = ? AND season = ?`,
+    team, season)?.c ?? 0) > 0;
+
   return {
     team, season, week,
     injury_report: flagged.slice(0, 8),
@@ -146,14 +156,19 @@ export function availabilityPicture(team, season, week, { lookback = 4 } = {}) {
     // Surfaced rather than assumed. A resolution rate that quietly falls is the
     // shape this bug had, and it raised no error either time.
     id_resolution_rate: gsisOf.rate,
+    // State, not a guess: false means no injury rows exist for this team this
+    // season, so the reading below is a data gap, not a health claim.
+    injury_data_available: injuryDataAvailable,
     // Said in words because a share is abstract and "a fifth of their offence"
     // is not.
-    reading: totalLost >= 0.20
-      ? `About ${Math.round(totalLost * 100)}% of ${team}'s recent touches belong to players who may not play.`
-      : totalLost >= 0.08
-        ? `${team} is carrying a modest injury burden — roughly ${Math.round(totalLost * 100)}% of ` +
-          'recent touches are in doubt.'
-        : `${team} is close to healthy on offence.`,
+    reading: !injuryDataAvailable
+      ? `No injury data on file for ${team} in ${season} — this is a data gap, not a health reading.`
+      : totalLost >= 0.20
+        ? `About ${Math.round(totalLost * 100)}% of ${team}'s recent touches belong to players who may not play.`
+        : totalLost >= 0.08
+          ? `${team} is carrying a modest injury burden — roughly ${Math.round(totalLost * 100)}% of ` +
+            'recent touches are in doubt.'
+          : `${team} is close to healthy on offence.`,
     caveat: 'Play probabilities come from published report-status base rates adjusted by Friday ' +
       'practice, not fitted here — this database has injury designations but no reliable record of ' +
       'who actually dressed, and fitting on that would give a worse number better provenance.'

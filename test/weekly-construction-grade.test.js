@@ -523,14 +523,21 @@ test('levelBands splits played rows by A and reads the starter proxy on played a
   assert.equal(bands.starters_played.n, starters.filter(r => r.played).length);
   assert.equal(bands.starters_decision.n, starters.filter(r => r.decision).length);
   assert.ok(Math.abs(bands.played_all.arms.B.mean - lib.armSummary(rows, 'B').signed_error) < 1e-12);
+  // The band edge: a projection of exactly 10 is in the A >= 10 band.
+  const edge = lib.levelBands([{ player_id: 1, week: 5, position: 'WR', played: true, decision: true, actual: 9, preds: { A: 10 } }], ['A']);
+  assert.deepEqual([edge.played_A_ge_10.n, edge.played_A_lt_10.n], [1, 0]);
 });
 
 test('reproductionMismatches compares dumped rows against a committed arm table to 4 dp', () => {
   const rows = allArmRows();
   const table = Object.fromEntries(['A', 'B'].map(a => [a, lib.armSummary(rows, a)]));
   assert.deepEqual(lib.reproductionMismatches(rows, table, ['A', 'B']), []);
-  const off = { ...table, B: { ...table.B, mae: table.B.mae + 0.0002 } };
-  assert.deepEqual(lib.reproductionMismatches(rows, off, ['A', 'B']).map(m => [m.arm, m.field]), [['B', 'mae']]);
+  for (const field of ['n_played', 'n_decision', 'mae', 'signed_error']) {
+    const off = { ...table, B: { ...table.B, [field]: table.B[field] + 0.0002 } };
+    assert.deepEqual(lib.reproductionMismatches(rows, off, ['A', 'B']).map(m => [m.arm, m.field]), [['B', field]], field);
+  }
+  const close = { ...table, B: { ...table.B, mae: table.B.mae + 0.00002 } };
+  assert.deepEqual(lib.reproductionMismatches(rows, close, ['A', 'B']), [], 'a difference below the 4th decimal passes');
   assert.equal(lib.reproductionMismatches(rows, { A: table.A }, ['A', 'B']).length, 1, 'a missing arm is a mismatch');
 });
 

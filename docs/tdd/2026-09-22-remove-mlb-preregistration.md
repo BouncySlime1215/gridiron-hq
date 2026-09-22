@@ -54,7 +54,7 @@ router, the scheduler and the four files in the next section:
 | `server/services/mlb-experiments.js` | 79 |
 | `server/services/mlb-research.js` | 74 |
 
-**Scheduler jobs** — five, `server/services/scheduler.js:1191-1195`:
+**Scheduler jobs** — five, `server/services/scheduler.js:1234-1238`:
 
 | Job | Tier | Cadence | Thread |
 | --- | --- | --- | --- |
@@ -66,8 +66,8 @@ router, the scheduler and the four files in the next section:
 
 Their job bodies are `refreshMlbSchedule`, `refreshMlbLogs`,
 `refreshMlbBoxscores`, `refreshMlbProbables` and `prepareTomorrowPicks`
-(`scheduler.js:274-448`). Three of the five are also in `BOOT_JOBS:1821`, and
-`refreshInBackground` (`:2058`) **defaults its argument to `['mlb_schedule']`**.
+(`scheduler.js:274-448`). Three of the five are also in `BOOT_JOBS` (`:1827`),
+and `refreshInBackground` (`:2064`) **defaults its argument to `['mlb_schedule']`**.
 
 **Script and test** — `scripts/bootstrap-mlb.mjs` (29),
 `test/mlb-nrfi-shrinkage.test.js` (167). MLB assertions also live inside
@@ -138,6 +138,55 @@ structural finding of this census.
    `test/growth-jobs-off-thread.test.js` — three entries leave it, so the
    bound moves again and the arithmetic is re-derived by running the module,
    not by subtracting.
+
+## Correction: which tree this was measured on
+
+**The first pass of this census was run against the wrong tree, and the numbers
+here are the re-run.** The greps went to the primary worktree at
+`/home/user/gridiron-hq`, which is checked out on
+`claude/project-thread-o3wt2p-child-flush` at `47e01e72` — **204 tracked files
+behind** `f620a120` (1327 vs 1531), because today's merges of #108 and #99 are
+not on it. A census that names a sha it did not read is worth nothing, so every
+figure above was re-measured in a clean worktree at `f620a120`.
+
+What changed on the re-run: **the MLB footprint itself is identical** — same
+eight services at the same line counts, same 209-line router, same 28 endpoints,
+same five jobs, same eleven tables, same four outside readers, same two client
+false positives. What was wrong was the **line numbers**, which this file now
+carries corrected (jobs `:1234-1238`, not `:1191-1195`; `BOOT_JOBS` `:1827`;
+`refreshInBackground` `:2064`), and two files the older tree did not have:
+`scripts/wiring-map.mjs` and `test/wiring-map.test.js`.
+
+## The wiring map already calls MLB betting
+
+`scripts/wiring-map.mjs:2164-2165`, which arrived with #108 and #99 today,
+classifies MLB as betting-side in its own patterns:
+
+```js
+const BETTING_FILE  = /(betting|…|market-movement|nfl-market|edge\.js|mlb)/i;
+const BETTING_TABLE = /^(nfl_odds|…|polymarket_|prediction_market|mlb_|…)/i;
+```
+
+So the repo's own grader treats every MLB file and every `mlb_*` table as
+betting. **Betting is out of scope for this thread by standing rule**, which is
+why the four outside readers in the section above are listed rather than edited
+— and it is worth the coordinator's ruling whether that same classification
+makes the MLB removal itself another thread's work or this one's. Nick's
+instruction is not ambiguous; who executes it is a routing question, not a
+scope question.
+
+Removing these files also changes what the wiring map counts, so the inventory
+ladder (wired / route / script-only) moves and must be re-derived on the head
+after the deletion rather than adjusted by subtraction.
+
+## One thing the Auditor's note does not match
+
+The note relayed at 17:44Z says "CONTRACT.md carries an mlb column". **There is
+no `CONTRACT.md` in this repository at `f620a120`** — `find . -iname "*contract*"`
+returns `server/services/nfl-contract-key.js`, `server/modeling/contracts.js`,
+`server/betting/nfl/contracts`, two test files and `docs/evidence/contracts`,
+and none is a `CONTRACT.md` with an mlb column. Recorded rather than worked
+around, in case it names a file on a branch this tree does not have.
 
 ## Superseded work
 

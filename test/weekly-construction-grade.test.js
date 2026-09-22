@@ -533,3 +533,20 @@ test('reproductionMismatches compares dumped rows against a committed arm table 
   assert.deepEqual(lib.reproductionMismatches(rows, off, ['A', 'B']).map(m => [m.arm, m.field]), [['B', 'mae']]);
   assert.equal(lib.reproductionMismatches(rows, { A: table.A }, ['A', 'B']).length, 1, 'a missing arm is a mismatch');
 });
+
+test('summarizeConsumerParity: counts, page / arm D, p for players with no injury status, and the starter proxy', () => {
+  const c = (position, armD, p, extra = {}) => ({ position, arm_D: armD, page: lib.round2(armD * p), p,
+    page_over_D: lib.round2(armD * p) / armD, mult: 1, bye: false, b_parity: true, current_week_identity: true,
+    team_differs: false, no_report: true, p_is_durability_prior: true, ...extra });
+  const checked = [
+    c('QB', 20, 0.75), c('QB', 10, 0.5, { no_report: false, p_is_durability_prior: false }), c('QB', 5, 1, { team_differs: true }),
+    { ...c('WR', 12, 0.8), bye: true, page: 0, page_over_D: 0, mult: 0 }
+  ];
+  const s = lib.summarizeConsumerParity(checked, { QB: 2 });
+  assert.deepEqual([s.n_checked, s.byes, s.team_differs, s.b_parity_holds, s.current_week_identity_holds], [4, 1, 1, 4, 4]);
+  assert.equal(s.page_differs_from_arm_D, 2, 'the p = 1 player reads the same; the other two do not');
+  assert.equal(s.active_probability.no_injury_status_n, 2);
+  assert.equal(s.active_probability.no_injury_status_share_at_durability_prior, 1);
+  assert.deepEqual([s.starter_proxy.n, s.starter_proxy.mean_arm_D, s.starter_proxy.mean_page, s.starter_proxy.median_p], [2, 15, 10, 0.5]);
+  assert.deepEqual(s.game_mult_values, [1]);
+});

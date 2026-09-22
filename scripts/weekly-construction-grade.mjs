@@ -17,6 +17,15 @@
  *                     pre-registration is committed and unchanged.
  *   --forward-only    2026 weeks only, for S-03 after week 4: reads lambda from
  *                     --lambda-from <a --full output>, never opens a 2025 grade.
+ *   --consumer-parity amendment 1 §3.1: the copy's current 2026 week (no actuals, not a
+ *                     grade). Lays the page's number (assetUniverse -> startSitWeekPoints)
+ *                     against the study's arms and stops if B or current_week_ppg does not
+ *                     decompose as trade-engine.js:359 says. Reads no leagues row.
+ *
+ * Options:
+ *   --out <file.json>  aggregates (default for --full: the committed output file).
+ *   --rows-dir <dir>   also write each graded season's row objects to <dir>/rows-<season>.ndjson
+ *                      (player ids and fantasy points only; local diagnostics, never commit).
  *
  * Output: aggregates only (no player rows, no league or manager data), labelled
  * "local copy, not production".
@@ -52,8 +61,8 @@ function preregState() {
 }
 
 async function main() {
-  const mode = ['--smoke', '--full', '--forward-only'].find(m => process.argv.includes(m));
-  if (!mode) throw new Error('choose one mode: --smoke, --full or --forward-only');
+  const mode = ['--smoke', '--full', '--forward-only', '--consumer-parity'].find(m => process.argv.includes(m));
+  if (!mode) throw new Error('choose one mode: --smoke, --full, --forward-only or --consumer-parity');
   if (!process.env.GRIDIRON_DB_PATH) throw new Error('set GRIDIRON_DB_PATH to a COPY of the app database');
   if (path.resolve(process.env.GRIDIRON_DB_PATH) === path.resolve(ORIGINAL_DB)) {
     throw new Error(`refusing to run on ${ORIGINAL_DB}; make a .backup copy first`);
@@ -79,7 +88,9 @@ async function main() {
     database: { path_basename: path.basename(dbPath) }, prereg,
     configuration: {
       engine: 'buildPlayerWeekEngine (player-week-engine.js:256), roleRecency WEEKLY_ROLE_RECENCY hardcoded at :273, kOverride omitted',
-      scoring: 'PPR', availability: 'none (common factor, graded by S-04)', matchup_mult: 1,
+      scoring: 'PPR',
+      availability: 'none: the arms stop before thisGame.mult x active_probability (trade-engine.js:359), so they are the construction, not the page number (amendment 1)',
+      matchup_mult: 1,
       population: 'weekly-backtest.js rules: QB/RB/WR/TE, >= 1 prior played week; played rows for MAE/Spearman, decision rows (played week-1) for DNP-included MAE',
       bootstrap: 'pairedBootstrapDiff, groups = player_id, 2000 iterations, seed 1, 90% CI'
     },
@@ -98,6 +109,14 @@ async function main() {
   report.weight_sets = Object.fromEntries([[FIT_SPLIT, 6], [HELD_OUT, 3], [HELD_OUT, 6], [FORWARD, 2], [FORWARD, 6]]
     .map(([s, w]) => [`${s}-W${w}`, activeWeeklyWeightSet({ season: s, week: w }).id]));
   log('k control', report.k_control, 'weight sets', report.weight_sets);
+
+  if (mode === '--consumer-parity') {
+    report.consumer_parity = await consumerParity({ lib, PPR, buildPlayerWeekEngine, activeFantasyCoordinatorFit, startSitWeekPoints, log });
+    report.finished_at = new Date().toISOString();
+    write();
+    log('consumer parity', JSON.stringify(report.consumer_parity, null, 1));
+    return;
+  }
 
   // ---- Fits (prereg §3). One served example build; each fit is a season-filtered subset.
   // buildFantasyCoordinatorExamples loops per season (fantasy-coordinator.js:293), so the
@@ -163,9 +182,16 @@ async function main() {
     const projPinned = { ...proj, ppg: +raw.toFixed(2), ensemble_shift: +(raw - proj.structural_ppg).toFixed(4) };
     return lib.constructArms(projPinned, { season, week, ...ctx });
   };
-  // Every grade receives the whole `fits` registry; lib.gradingContext picks the season's
-  // fits and checks their cutoff, so no call site chooses a fit (prereg §3, §10.2).
-  const gradeSeason = (season, weeks, lambdaFor, { servedWrapperParity = false, sensitivity = false } = {}) => {
+  // Every grade receives the whole `fits` registry and the λ-by-window map; the lib picks
+  // the season's fits (gradingContext) and each week's λ (lambdaForWeek), so no call site
+  // chooses a fit or a λ (prereg §3, §10.2).
+  const rowsDir = arg('--rows-dir');
+  const dumpRows = (season, list) => {
+    if (!rowsDir) return;
+    fs.mkdirSync(path.resolve(ROOT, rowsDir), { recursive: true });
+    fs.writeFileSync(path.resolve(ROOT, rowsDir, `rows-${season}.ndjson`), list.map(r => JSON.stringify(r)).join('\n') + '\n');
+  };
+  const gradeSeason = (season, weeks, lambdaByWindow, { servedWrapperParity = false, sensitivity = false } = {}) => {
     const truth = actuals(season, PPR);
     const all = [];
     for (const week of weeks) {
@@ -174,11 +200,12 @@ async function main() {
       // twice on purpose: inside gradingContext against the season it was asked for, and
       // here against the season this function actually builds and grades, so a wrong
       // season argument cannot fetch later fits past both.
-      const ctx = lib.gradingContext(season, fits, lambdaFor(week));
+      const { ctx, rows } = lib.gradeWeekRows({ season, week, engine, truth, fits, lambdaByWindow, scoring: PPR });
       lib.assertContextCutoff(ctx, season);
-      for (const row of lib.eligibleRows(week, engine, truth)) {
-        const arms = lib.constructArms(row.proj, { season, week, scoring: PPR, ...ctx });
-        // ---- Stop condition 3a: D equals Start/Sit's own week_points on the same input.
+      for (const { arms, ...row } of rows) {
+        // ---- Stop condition 3a: the lift step only. D equals startSitWeekPoints on B as
+        // current_week_ppg. This is NOT the page number: the page multiplies B by
+        // thisGame.mult x active_probability first (amendment 1 §1; --consumer-parity).
         const served = startSitWeekPoints({ team_abbr: row.proj.team, position: row.position, current_week_ppg: arms.B }, season, week).week_points;
         if (lib.round2(arms.D) !== served) throw new Error(`parity: ${season} W${week} player ${row.player_id} D ${arms.D} vs startSitWeekPoints ${served}`);
         // ---- Stop condition 3b: on served-fit rows, B equals the served wrapper.
@@ -205,7 +232,7 @@ async function main() {
     .map(w => [w, { played: list.filter(r => r.week === w && r.played).length, decision: list.filter(r => r.week === w && r.decision).length }]));
 
   if (mode === '--smoke') {
-    const rows = gradeSeason(2024, [6], () => 1, { sensitivity: true });
+    const rows = gradeSeason(2024, [6], lib.UNIT_LAMBDA, { sensitivity: true });
     // ---- Stop condition 4: known-nonzero control.
     if (!rows.some(r => r.played) || !rows.some(r => r.decision)) throw new Error('smoke: 2024 W6 produced no graded rows');
     report.smoke = { rows_2024_w6: weekCounts(rows), parity_rows_checked: parityChecked,
@@ -219,7 +246,7 @@ async function main() {
   // ---- λ for S3 (and m0) on the 2024 fit split; coordinator arms use the <=2023 fits.
   let lambda;
   if (mode === '--full') {
-    const split = gradeSeason(FIT_SPLIT, range(2, 17), () => 1);
+    const split = gradeSeason(FIT_SPLIT, range(2, 17), lib.UNIT_LAMBDA);
     lambda = {};
     report.fit_split = { season: FIT_SPLIT, rows: weekCounts(split), lambda: {}, m0: {} };
     for (const w of WINDOWS) {
@@ -231,6 +258,7 @@ async function main() {
       for (const r of rowsW) r.preds.S3 = r.lift_applied ? r.preds.A * r.lift ** lambda[w] : r.preds.A;
       report.fit_split.m0[w] = Object.fromEntries(ARMS.map(a => [a, lib.m0For(rowsW, a)]));
     }
+    dumpRows(FIT_SPLIT, split);
     log('fit split', report.fit_split.lambda, report.fit_split.m0);
     write();
   } else {
@@ -245,18 +273,21 @@ async function main() {
   if (mode === '--full') {
     console.log(`HOLDOUT LOOK: grading ${HELD_OUT} weeks 2-17 once, against ${prereg.path} @ ${prereg.commit}`);
     report.holdout_look = { season: HELD_OUT, at: new Date().toISOString(), prereg_commit: prereg.commit };
-    const held = gradeSeason(HELD_OUT, range(2, 17), week => lambda[lib.weekWindow(week)], { sensitivity: true });
+    const held = gradeSeason(HELD_OUT, range(2, 17), lambda, { sensitivity: true });
+    // ---- The λ each row used, read back against the λ recorded from the fit split.
+    lib.assertS3UsedLambda(held, recordedLambda(report));
+    dumpRows(HELD_OUT, held);
     report.held_out = { season: HELD_OUT, rows: weekCounts(held), parity_rows_checked: parityChecked, windows: {} };
     for (const w of [...WINDOWS, '2-17 (report-only)']) {
       const rowsW = w.startsWith('2-17') ? held : inWindow(held, w);
       // ---- Stop condition 4 on the graded season itself.
       if (!rowsW.some(r => r.played)) throw new Error(`held-out window ${w} has no played rows`);
-      report.held_out.windows[w] = gradeWindow(lib, rowsW, { ARMS, CANDIDATES, m0: w.startsWith('2-17') ? null : report.fit_split.m0[w] });
+      report.held_out.windows[w] = lib.gradeWindow(rowsW, { m0: w.startsWith('2-17') ? null : report.fit_split.m0[w] });
       if (w !== '2-17 (report-only)') {
         const pinnedRows = rowsW.filter(r => r.pinned).map(r => ({ ...r, preds: r.pinned }));
         report.held_out.windows[w].sensitivity_pinned_fit2 = {
           label: w === '5-17' ? 'base = fit-2 vector, fit on 2021-2025: IN-SAMPLE for 2025' : 'base = fit-2 early rule (structural head for 1-3 prior games)',
-          ...gradeWindow(lib, pinnedRows, { ARMS, CANDIDATES, m0: null, light: true })
+          ...lib.gradeWindow(pinnedRows, { m0: null, light: true })
         };
       }
       log(`2025 window ${w} graded`);
@@ -269,10 +300,12 @@ async function main() {
   report.forward = { season: FORWARD, weeks: forwardWeeks, coordinator_fit: 'served (activeFantasyCoordinatorFit) for B, D, S1; <=2025 ensemble-residual refit for S2' };
   if (forwardWeeks.length) {
     const before = parityChecked;
-    const fwd = gradeSeason(FORWARD, forwardWeeks, week => lambda[lib.weekWindow(week)], { servedWrapperParity: true });
+    const fwd = gradeSeason(FORWARD, forwardWeeks, lambda, { servedWrapperParity: true });
+    lib.assertS3UsedLambda(fwd, recordedLambda(report));
+    dumpRows(FORWARD, fwd);
     report.forward.rows = weekCounts(fwd);
     report.forward.parity_rows_checked = parityChecked - before;
-    report.forward.all = gradeWindow(lib, fwd, { ARMS, CANDIDATES, m0: null, light: true });
+    report.forward.all = lib.gradeWindow(fwd, { m0: null, light: true });
   }
 
   // ---- Decisions (prereg §7).
@@ -293,26 +326,53 @@ async function main() {
 
 function range(a, b) { return Array.from({ length: b - a + 1 }, (_, i) => a + i); }
 
-/** Every metric for one window (prereg §6-7). `light` skips pair metrics and per-position splits. */
-function gradeWindow(lib, rows, { ARMS, CANDIDATES, m0, light = false }) {
-  const arms = Object.fromEntries(ARMS.map(a => [a, lib.armSummary(rows, a)]));
-  const vsA = Object.fromEntries(CANDIDATES.map(a => [a, lib.compareArms(rows, a, 'A')]));
-  const verdicts = Object.fromEntries(CANDIDATES.map(a => [a, lib.shipVerdict(vsA[a])]));
-  const result = { arms, vs_A: vsA, verdicts };
-  if (light) return result;
-  result.marginal = { lift_given_coordinator: lib.compareArms(rows, 'D', 'B'), coordinator_given_lift: lib.compareArms(rows, 'D', 'C') };
-  const decisionRows = rows.filter(r => r.decision);
-  result.pair_accuracy = lib.pairAccuracy(decisionRows, ARMS);
-  result.decision_win_rate_vs_A = Object.fromEntries(CANDIDATES.map(a => [a, lib.decisionWinRate(decisionRows, a, 'A', { models: [...ARMS] })]));
-  result.by_position = {};
-  for (const pos of ['QB', 'RB', 'WR', 'TE']) {
-    const rp = rows.filter(r => r.position === pos);
-    result.by_position[pos] = Object.fromEntries(['B', 'C', 'D'].map(a => [a, lib.compareArms(rp, a, 'A').d_mae]));
+/** The λ recorded in the report (fit split or --lambda-from), independent of the variable the grade was handed. */
+function recordedLambda(report) {
+  if (report.fit_split?.lambda) return Object.fromEntries(WINDOWS.map(w => [w, report.fit_split.lambda[w].chosen]));
+  if (report.lambda_from?.lambda) return { ...report.lambda_from.lambda };
+  throw new Error('lambda: no recorded lambda in the report');
+}
+
+/**
+ * Amendment 1 §3.1. A synthetic 12-team PPR league object stands in for a league row, so no
+ * leagues column (and no cookie column) is read; the per-player week number does not depend
+ * on the league beyond its scoring.
+ */
+const SYNTHETIC_PPR_LEAGUE = Object.freeze({ id: 0, platform: 'sleeper', ppr: 1, team_count: 12, league_type: 'redraft' });
+
+async function consumerParity({ lib, PPR, buildPlayerWeekEngine, activeFantasyCoordinatorFit, startSitWeekPoints, log }) {
+  const { assetUniverse, tradeWeekContext } = await import('../server/services/trade-engine.js');
+  const { deriveFormat } = await import('../server/services/format.js');
+  const { scoringFor } = await import('../server/services/scoring.js');
+  const { weeklyAvailability } = await import('../server/services/contingency.js');
+  const target = tradeWeekContext();
+  if (target.season !== FORWARD) throw new Error(`consumer parity runs on the ${FORWARD} current week only (got ${target.season})`);
+  if (JSON.stringify(scoringFor(SYNTHETIC_PPR_LEAGUE)) !== JSON.stringify(PPR)) throw new Error('the synthetic league does not score PPR');
+  const servedFit = activeFantasyCoordinatorFit();
+  if (!servedFit.ready) throw new Error('served coordinator fit is not ready on this copy');
+  const assets = assetUniverse(SYNTHETIC_PPR_LEAGUE, deriveFormat(SYNTHETIC_PPR_LEAGUE).formatKey, target);
+  const engine = buildPlayerWeekEngine({ season: target.season, week: target.week, scoring: PPR });
+  const avail = weeklyAvailability(target.season, target.week, { through: target.season - 1 });
+  const checked = [];
+  const skipped = { no_engine_projection: 0, no_coordinator_correction: 0 };
+  for (const [id, asset] of assets) {
+    if (!lib.SKILL_POSITIONS.has(asset?.position)) continue;
+    const proj = engine.get(id);
+    if (!proj) { skipped.no_engine_projection++; continue; }
+    if (!asset.fantasy_coordinator) { skipped.no_coordinator_correction++; continue; }
+    const arms = lib.constructArms(proj, { season: target.season, week: target.week, scoring: PPR, fitS: servedFit, fitE: servedFit, lambda: 1 });
+    const page = startSitWeekPoints(asset, target.season, target.week).week_points;
+    const d = lib.consumerDecomposition(asset, arms, page, proj.team);
+    if (!d.b_parity) throw new Error(`consumer parity: player ${id} served B ${asset.fantasy_coordinator.corrected_ppg} vs study B ${arms.B}`);
+    if (!d.current_week_identity) throw new Error(`consumer parity: player ${id} current_week_ppg ${asset.current_week_ppg} vs B x mult x p ${d.expected_current_week_ppg}`);
+    const a = avail.get(id);
+    checked.push({ ...d, position: asset.position, no_report: !asset.injury_status,
+      p_is_durability_prior: a ? a.active_probability === a.durability_prior : null });
   }
-  if (m0) {
-    result.m0_headroom = Object.fromEntries(ARMS.map(a => [a, { m0_from_2024: m0[a], ...lib.headroom(rows, a, m0[a]) }]));
-  }
-  return result;
+  log(`consumer parity: ${checked.length} assets checked`);
+  return { target, league: 'synthetic 12-team PPR (no leagues row read)',
+    availability_basis: assets.context?.availability_basis ?? null, skipped,
+    ...lib.summarizeConsumerParity(checked) };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

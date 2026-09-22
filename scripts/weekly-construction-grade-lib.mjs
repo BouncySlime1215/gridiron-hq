@@ -6,6 +6,8 @@
  * (SERVED below, pinned by identity in test/weekly-construction-grade.test.js), and every
  * metric reuses an existing helper: pairedBootstrapDiff, spearman, startSitPairAccuracy,
  * predictionWeightedMedianRatio. The runner is scripts/weekly-construction-grade.mjs.
+ * Amendment 1 (weekly-construction-grade-preregistration-amendment-1.md) adds the consumer
+ * decomposition and the level-band diagnostics at the end of this file.
  *
  * Sign conventions: signed error = prediction - actual; ΔMAE = MAE(arm) - MAE(reference),
  * negative = arm better; ΔSpearman = ρ(arm) - ρ(reference), positive = arm better;
@@ -49,12 +51,15 @@ const mean = xs => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null
  *   A  = proj.ppg                                   trade-engine.js:347
  *   B  = coordinateFantasy(fitS, experts, A)        trade-engine.js:353-355 (base = ensemble)
  *   C  = A x vegasLift                              lineup-brain.js:356-363 on an uncoordinated base
- *   D  = B x vegasLift                              Start/Sit week_points today
+ *   D  = B x vegasLift                              served construction before availability and the game factor
  *   S1 = coordinateFantasy(fitS, experts, structural)   the base the fit was gated on
  *   S2 = coordinateFantasy(fitE, experts, A)        fitE = refit on the ensemble residual
  *   S3 = A x multiplier^lambda                      lambda chosen on 2024
- * No availability, bye or matchup term: those multiply every arm alike (prereg §4).
- * The lift reads proj.team, the engine's team at the cutoff (prereg §11).
+ * No availability, bye or game factor. The page multiplies B by thisGame.mult x
+ * active_probability before the lift (trade-engine.js:359), so these arms are the
+ * construction, not the page number (amendment 1 §1; consumerDecomposition checks it).
+ * The lift reads proj.team, the engine's team at the cutoff (prereg §11); the page keys it
+ * on players.team_abbr.
  */
 export function constructArms(proj, { season, week, scoring, fitS, fitE, lambda = 1 }, deps = SERVED) {
   const A = proj.ppg;
@@ -323,4 +328,195 @@ export function gradingContext(season, fits, lambda) {
   const ctx = { fitS: s.fitS, fitE: e.fitE, fitSThrough: s.through, fitEThrough: e.through, lambda };
   assertContextCutoff(ctx, season);
   return ctx;
+}
+
+/** λ = 1 in both windows: the smoke run and the 2024 fit split, before λ is chosen. */
+export const UNIT_LAMBDA = Object.freeze({ '2-4': 1, '5-17': 1 });
+
+/** S3's exponent for one week: its own window's λ (prereg §3). A week outside both windows stops. */
+export function lambdaForWeek(lambdaByWindow, week) {
+  const window = weekWindow(week);
+  const lambda = window ? lambdaByWindow?.[window] : undefined;
+  if (!Number.isFinite(lambda)) throw new Error(`lambda: no lambda for week ${week} (window ${window})`);
+  return lambda;
+}
+
+/**
+ * One graded week: the season's registered fits (gradingContext), the week's window λ, and
+ * every eligible row's arms. The runner adds the parity checks and strips the engine.
+ */
+export function gradeWeekRows({ season, week, engine, truth, fits, lambdaByWindow, scoring }, deps = SERVED) {
+  const ctx = gradingContext(season, fits, lambdaForWeek(lambdaByWindow, week));
+  const rows = eligibleRows(week, engine, truth)
+    .map(row => ({ ...row, arms: constructArms(row.proj, { season, week, scoring, ...ctx }, deps) }));
+  return { ctx, rows };
+}
+
+/**
+ * Run-time check that every graded row's S3 was built with its window's λ, read back from
+ * the recorded choice rather than from the value the grade was handed.
+ */
+export function assertS3UsedLambda(rows, lambdaByWindow) {
+  for (const row of rows) {
+    const lambda = lambdaForWeek(lambdaByWindow, row.week);
+    const expected = row.lift_applied ? row.preds.A * row.lift ** lambda : row.preds.A;
+    if (!(Math.abs(row.preds.S3 - expected) < 1e-9)) {
+      throw new Error(`lambda: W${row.week} S3 ${row.preds.S3} was not built with lambda ${lambda} (expected ${expected})`);
+    }
+  }
+  return rows.length;
+}
+
+/**
+ * Every metric for one window (prereg §6-7), arm X always against reference A.
+ * `light` skips the marginals, pair metrics and per-position splits.
+ */
+export function gradeWindow(rows, { m0 = null, light = false } = {}) {
+  const arms = Object.fromEntries(ARMS.map(a => [a, armSummary(rows, a)]));
+  const vsA = Object.fromEntries(CANDIDATES.map(a => [a, compareArms(rows, a, 'A')]));
+  const verdicts = Object.fromEntries(CANDIDATES.map(a => [a, shipVerdict(vsA[a])]));
+  const result = { arms, vs_A: vsA, verdicts };
+  if (light) return result;
+  result.marginal = { lift_given_coordinator: compareArms(rows, 'D', 'B'), coordinator_given_lift: compareArms(rows, 'D', 'C') };
+  const decisionRows = rows.filter(r => r.decision);
+  result.pair_accuracy = pairAccuracy(decisionRows, ARMS);
+  result.decision_win_rate_vs_A = Object.fromEntries(CANDIDATES.map(a => [a, decisionWinRate(decisionRows, a, 'A', { models: [...ARMS] })]));
+  result.by_position = {};
+  for (const pos of ['QB', 'RB', 'WR', 'TE']) {
+    const rp = rows.filter(r => r.position === pos);
+    result.by_position[pos] = Object.fromEntries(['B', 'C', 'D'].map(a => [a, compareArms(rp, a, 'A').d_mae]));
+  }
+  if (m0) {
+    result.m0_headroom = Object.fromEntries(ARMS.map(a => [a, { m0_from_2024: m0[a], ...headroom(rows, a, m0[a]) }]));
+  }
+  return result;
+}
+
+/* ---------------------------------------------------------------------------------------
+ * Amendment 1 diagnostics (report-only, no rule attached).
+ * ------------------------------------------------------------------------------------- */
+
+/**
+ * The page's number for one asset, laid against the study's arms (amendment 1 §3.1):
+ *   current_week_ppg = B × thisGame.mult × active_probability, 0 on a bye   trade-engine.js:359
+ *   week_points      = round2(current_week_ppg × lift(players.team_abbr))    lineup-brain.js:356-363
+ * The arms stop before thisGame.mult × active_probability, so page / arm D carries p.
+ * This is a check on the served output, not a producer: it builds no served number.
+ */
+export function consumerDecomposition(asset, arms, pageWeekPoints, engineTeam) {
+  const servedB = asset.fantasy_coordinator?.corrected_ppg ?? null;
+  const bye = !asset.matchup;
+  const mult = bye ? 0 : asset.matchup.mult;
+  const p = asset.active_probability;
+  const expected = bye ? 0 : +(servedB * mult * p).toFixed(2);
+  return {
+    b_parity: servedB === arms.B,
+    current_week_identity: asset.current_week_ppg === expected,
+    expected_current_week_ppg: expected,
+    p, mult, bye,
+    arm_D: round2(arms.D), page: pageWeekPoints,
+    page_over_D: arms.D ? pageWeekPoints / arms.D : null,
+    team_differs: (asset.team_abbr ?? null) !== (engineTeam ?? null)
+  };
+}
+
+/** The weekly starter proxy: QB 12 / RB 30 / WR 36 / TE 12, a 12-team one-flex league. */
+export const STARTER_QUOTA = Object.freeze({ QB: 12, RB: 30, WR: 36, TE: 12 });
+
+/** Each week's top N per position by the reference arm's prediction. */
+export function starterProxy(rows, ref = 'A', quota = STARTER_QUOTA) {
+  const groups = new Map();
+  for (const row of rows) {
+    if (!quota[row.position]) continue;
+    const key = `${row.week}|${row.position}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  const out = [];
+  for (const list of groups.values()) {
+    out.push(...[...list].sort((a, b) => b.preds[ref] - a.preds[ref]).slice(0, quota[list[0].position]));
+  }
+  return out;
+}
+
+/** Mean signed error (prediction − actual; negative = reads low) with a player-clustered 90% CI. */
+export function meanSignedError(rows, arm, { iterations = 2000, seed = 1 } = {}) {
+  const errs = rows.map(r => r.preds[arm] - r.actual);
+  const boot = pairedBootstrapDiff(errs.map(() => 0), errs, { iterations, seed, groups: rows.map(r => r.player_id) });
+  return { n: rows.length, mean: mean(errs), ci90: boot.ci90 ?? null, ...(boot.error ? { error: boot.error } : {}) };
+}
+
+/** Amendment 1 §3.2: signed error by projection band and by the weekly starter proxy. */
+export function levelBands(rows, arms, { ref = 'A', band = 10, quota = STARTER_QUOTA, iterations = 2000, seed = 1 } = {}) {
+  const played = rows.filter(r => r.played);
+  const starters = starterProxy(rows, ref, quota);
+  const sets = {
+    played_all: played,
+    [`played_${ref}_ge_${band}`]: played.filter(r => r.preds[ref] >= band),
+    [`played_${ref}_lt_${band}`]: played.filter(r => r.preds[ref] < band),
+    starters_played: starters.filter(r => r.played),
+    starters_decision: starters.filter(r => r.decision)
+  };
+  return Object.fromEntries(Object.entries(sets).map(([key, list]) => [key, {
+    n: list.length,
+    arms: Object.fromEntries(arms.map(a => [a, meanSignedError(list, a, { iterations, seed })]))
+  }]));
+}
+
+/**
+ * Amendment 1 §3.2's stop condition: rows dumped from a run must reproduce that run's
+ * committed arm table (n_played, n_decision, mae, signed_error) to 4 decimal places.
+ */
+export function reproductionMismatches(rows, table, arms, tolerance = 5e-5) {
+  const out = [];
+  for (const arm of arms) {
+    const want = table?.[arm];
+    if (!want) { out.push({ arm, field: 'missing' }); continue; }
+    const got = armSummary(rows, arm);
+    for (const field of ['n_played', 'n_decision', 'mae', 'signed_error']) {
+      if (!(Math.abs(got[field] - want[field]) < tolerance)) out.push({ arm, field, got: got[field], want: want[field] });
+    }
+  }
+  return out;
+}
+
+const quantiles = (xs, qs = [0.1, 0.25, 0.5, 0.75, 0.9]) => {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  return Object.fromEntries(qs.map(q => [`q${Math.round(q * 100)}`, +s[Math.floor(q * (s.length - 1))].toFixed(3)]));
+};
+
+/**
+ * Amendment 1 §3.1's aggregates over consumerDecomposition rows (each also carrying
+ * `position`, `no_report` and `p_is_durability_prior`). Byes are counted, then left out of
+ * the ratios. The starter proxy is the top N per position by arm D.
+ */
+export function summarizeConsumerParity(checked, quota = STARTER_QUOTA) {
+  const playing = checked.filter(c => !c.bye);
+  const noReport = playing.filter(c => c.no_report);
+  const withPrior = noReport.filter(c => c.p_is_durability_prior != null);
+  const starters = starterProxy(playing.map(c => ({ ...c, week: 0, preds: { D: c.arm_D } })), 'D', quota);
+  const meanOf = (xs, f) => (xs.length ? +(xs.reduce((s, x) => s + f(x), 0) / xs.length).toFixed(3) : null);
+  return {
+    n_checked: checked.length,
+    b_parity_holds: checked.filter(c => c.b_parity).length,
+    current_week_identity_holds: checked.filter(c => c.current_week_identity).length,
+    byes: checked.length - playing.length,
+    page_differs_from_arm_D: playing.filter(c => c.page !== c.arm_D).length,
+    page_over_arm_D: quantiles(playing.filter(c => c.arm_D > 0).map(c => c.page_over_D)),
+    active_probability: {
+      all: quantiles(playing.map(c => c.p)),
+      no_injury_status: quantiles(noReport.map(c => c.p)),
+      no_injury_status_n: noReport.length,
+      no_injury_status_share_at_durability_prior: withPrior.length
+        ? +(withPrior.filter(c => c.p_is_durability_prior).length / withPrior.length).toFixed(3) : null
+    },
+    game_mult_values: [...new Set(playing.map(c => c.mult))].sort((a, b) => a - b),
+    team_differs: checked.filter(c => c.team_differs).length,
+    starter_proxy: {
+      quota, n: starters.length,
+      mean_arm_D: meanOf(starters, c => c.arm_D), mean_page: meanOf(starters, c => c.page),
+      median_p: quantiles(starters.map(c => c.p))?.q50 ?? null
+    }
+  };
 }

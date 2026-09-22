@@ -123,16 +123,41 @@ quoted anywhere. Run:
 **First sweep, 2026-09-22. Quote this as a BRACKET, not a point.** Across the
 319 tracked files in `server/services/` and `server/modeling/`:
 
-> **172–228 `wired` · 55–65 `wired-betting-only` · 3–6 `wired-mlb-only`
+> **178–228 `wired` · 55–65 `wired-betting-only` · 3–6 `wired-mlb-only`
 > · 2–18 `wired-offproduct-only` · 10–11 `hand-run-script` · 21–47 `unreached`
 > — each column summing to 319**
 
-**The ends are bounds, not alternatives**, and the bracket, never either end, is
+**THIS IS NOT A CONFIDENCE INTERVAL. It is two definitions** (Auditor §R19.2),
+and each end must be quoted with its definition attached:
+
+- **178 = request reach only** — a route handler can call in.
+- **228 = request + job reach** — including modules that execute only because a
+  scheduled job runs them.
+
+Width 50 files, **15.7% of the inventory.** The bracket, never either end, is
 what goes into the Phase A plan.
+
+**A monotone revision sequence is evidence of a biased estimator, not of
+convergence.** The lower end has gone 205 → 196 → 172 → 178 and the upper end
+233 → 228; every step but the last moved the same way. **178 is the current
+estimate, not a demonstrated floor**, and the next correction should be expected
+to move it again.
+
+**And 178 still contains a category that is not a surface at all.** A
+`package.json` script is an entry point by §2's own `wired` test, so a module
+reached only by one grades `wired` — but a script is not the fantasy product,
+it is a command somebody types or a job runs. Of the 178, **109 reach a real
+fantasy route and 69 reach only a script.** Read 109 as "reachable when a
+person uses the app" and 178 as "reachable by any non-betting entry point
+including the command line". §2a is where the 69 get decided one at a time;
+until then the honest statement of how much fantasy product is wired to a
+route is **109**, and that number should be the one a plan reads before it
+reads any other. The Auditor confirmed the method and internal consistency
+only, not the 27-member `job-reach only` list against another thread's map.
 
 | | request reach only | request + job reach |
 |---|---|---|
-| `wired` (fantasy) | **172** | **228** |
+| `wired` (fantasy) | **178** | **228** |
 | `wired-betting-only` | 65 | 55 |
 | `wired-mlb-only` | 6 | 3 |
 | `wired-offproduct-only` | 18 | 2 |
@@ -213,6 +238,23 @@ called. This repo has **1,687 module-scope imports against 240 inside function
 bodies**, and `scheduler.js:1064` is the live case: `await import('./nfl-auto-picks.js')`
 inside `refreshNflDecisionLedger()`. Calling the bucket "via `scheduler.js`"
 would encode one file where the mechanism is what matters.
+
+**Subtracting the whole function-body edge class overshot, by 6 files
+(§R19.1).** The class is syntactic, and **a route handler may lazily import**,
+so deleting all of it deletes real request reach. Counted: of the function-body
+import edges, **21 sit in an exported function that a route-reached module
+imports**, in 10 files. Adding just those back moves `wired` from 172 to **190**
+— so 172 was too low and the subtraction is not free.
+
+**But 190 overshoots the other way**, and the reason is worth keeping: **9 of
+the 21 are in `scheduler.js`**, whose exported `startScheduler` is imported by
+`server/index.js`. That is boot, not a request handler, so those 9 are job reach
+wearing a request-shaped proxy. Excluding them, the remaining 12 edges give
+**178**, and that is the figure in the headline. The honest statement is that
+the request-reach end lies **between 172 and 190**, that 178 is the best current
+placement, and that closing it properly needs a call graph rather than an import
+graph — "an exported function that a route-reached module imports" is not "a
+function a route handler calls", and this tool does not know the difference.
 
 **The 27 were re-derived exhaustively, and the method is the point (§R18.3).**
 The earlier figure of 28 came from a proxy — excluding paths through
@@ -350,7 +392,7 @@ criterion.
 
 | script | (a) invocation | (b) durable writes | (c) readers | verdict |
 |---|---|---|---|---|
-| `nfl-blind-audit.mjs` | `audit:nfl` → `:5` | `nfl-blind-audit.js` `:223` `:926` `:940` INSERT `nfl_blind_audit_runs` / `_weeks` / `_week_performance`, `:866` `_retries`, `:937` `:955` UPDATE `_runs` | `nfl-audit-overview.js`, `nfl-profitability.js`, `nfl-research-lab.js` — all `wired-betting-only`; and `nfl-candidate-findings.js:249` | **`wired-betting-only` on request reach** (§R17.3: `nfl-candidate-findings.js` is not a fantasy reader), with the job-reach caveat of §2b recorded |
+| `nfl-blind-audit.mjs` | `audit:nfl` → `:5` | `nfl-blind-audit.js` `:223` `:926` `:940` INSERT `nfl_blind_audit_runs` / `_weeks` / `_week_performance`, `:866` `_retries`, `:937` `:955` UPDATE `_runs`. **Plus two at IMPORT time, before any audit runs** — `model-governance.js:68` seeds 32 rows into `model_feature_contracts` and `:90` seeds 11 into `model_registry`, because `seedContracts()` and `seedRegistry()` are bare top-level calls at `:88-89`, reached statically through `nfl-ensemble.js → nfl-player-value.js → nfl-pregame.js`. Both are `INSERT … ON CONFLICT DO NOTHING` seeds of constants the server also writes at boot | `nfl-audit-overview.js`, `nfl-profitability.js`, `nfl-research-lab.js` — all `wired-betting-only`; and `nfl-candidate-findings.js:249`. For the two seed tables: the only read sites are `model-governance.js:100-101` (`featureContracts()`) and `:107-108` (`registry()`); their importers outside the defining file are `nfl-research.js` (`/api/nfl-market`, betting), `mlb-research.js` (`/api/mlb`), and `nfl-pick-watch.js:54` (`/api/betting`). `nfl-betting.js:665` calls a *different* `featureContracts`, from `nfl-ensemble.js:2796` — a name collision, not a reader. **No fantasy reader** | **`wired-betting-only` on request reach** (§R17.3: `nfl-candidate-findings.js` is not a fantasy reader), with the job-reach caveat of §2b recorded |
 | `build-evidence-dataset.mjs` | `build:evidence-dataset` → `:18` | none in `data.sqlite`; files under `server/data/evidence-datasets` (`nfl-evidence-dataset.js:44`) | nothing in `server/` reads that directory except its writer | **`no-surface-reach`** (§R17.1) |
 | `audit-passing-specialists.mjs` | `audit:nfl-passing-specialists` → `:1` | **(d) no durable writes.** Three lines; `passingSpecialistAudit()` to stdout | none possible | **`no-surface-reach`** |
 | `diagnose-passing-components.mjs` | `diagnose:nfl-passing` → `:2` | **(d) no durable writes.** `passingComponentDiagnostic(…, { useCache: false })` to stdout | none possible | **`no-surface-reach`** |

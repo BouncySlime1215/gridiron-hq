@@ -559,6 +559,17 @@ export function buildProjections({
      * has another source — the carry-share prior or the QB attempts arm — and
      * is not evidence about this constant.
      *
+     * GRADED, and read the caveat with the number: held-out 2025, paired
+     * bootstrap clustered by player, +0.1044 targets of MAE against the legacy
+     * constant on the weeks a player plays (significant), but a NULL of -0.0136
+     * [-0.0499, +0.0225] on decision_including_dnp, which scores a missed week
+     * as a real 0. After each arm's own level is removed the fitted prior is
+     * ahead on both metrics (+0.1273 and +0.0482, both significant), so the
+     * prior carries information; what the DNP metric exposes is that 0.06 was
+     * under-projecting everyone and that low bias was standing in for an
+     * availability term this model does not have. See
+     * docs/evidence/2026-09-22/target-share-prior-result.md section 5.
+     *
      * STILL OPEN, and deliberately not changed here: K.share = 6 against the
      * fitter's ~0.4. The prior and the weight it carries interact — a weaker k
      * reduces how much any prior matters — so they have to be fitted together,

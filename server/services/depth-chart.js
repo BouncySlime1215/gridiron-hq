@@ -36,6 +36,24 @@ import { rows } from '../db/index.js';
  * caller's job.
  */
 
+/**
+ * The positions `player_week_snaps.offense_pct` can describe.
+ *
+ * It counts OFFENSIVE snaps, so it is a real measurement of an offensive player
+ * and says nothing about anyone else. A linebacker who played every defensive
+ * snap has an offense_pct of 0, and reporting that beside his rank claims the
+ * team's best defender did nothing — the column put there to settle an argument
+ * with the listing instead losing it on his behalf.
+ *
+ * Special teams are out for the same reason, and deliberately not replaced with
+ * a kicker's own snap count: this field means one thing, and a field that means
+ * different things per row is worse than one that is absent.
+ */
+const OFFENSIVE_POSITIONS = new Set([
+  'QB', 'RB', 'FB', 'HB', 'TB', 'WR', 'TE',
+  'LT', 'LG', 'C', 'RG', 'RT', 'G', 'T', 'OL', 'OT', 'OG'
+]);
+
 /** Ordered freshest-first by the timestamp each source reports for itself. */
 const SOURCES = [
   {
@@ -102,13 +120,21 @@ export function teamDepthChart(abbr, { season, week, currentSeason = null } = {}
     const pos = row.pos_abb;
     if (!byPos.has(pos)) byPos.set(pos, []);
     const raw = snaps.get(row.gsis_id);
+    // Three different facts, which a single number cannot carry:
+    //   offensive_snaps  — measured, and the stat describes him
+    //   not_measured     — an offensive player with no snap row this week
+    //   not_applicable…  — a defender or specialist, for whom offensive snap
+    //                      share is not a low score but the wrong question
+    // Collapsing any two of these renders someone as having done nothing.
+    const describable = OFFENSIVE_POSITIONS.has(String(pos).toUpperCase());
+    const measured = raw != null;
     byPos.get(pos).push({
       gsis_id: row.gsis_id,
       name: row.player_name,
       rank: row.pos_rank == null ? null : Number(row.pos_rank),
-      // Absent and zero are different facts. A listed starter with no snap row
-      // is someone we have not measured; rendering him as 0 says he was benched.
-      snap_share: raw == null ? null : Number(raw)
+      snap_share: describable && measured ? Number(raw) : null,
+      snap_share_basis: !describable ? 'not_applicable_to_this_position'
+        : measured ? 'offensive_snaps' : 'not_measured'
     });
   }
 

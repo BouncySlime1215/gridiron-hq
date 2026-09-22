@@ -49,20 +49,42 @@ const EXECUTED = 'EXECUTE';
  * team that ACTED — the proposer on a proposal — and is not enough on its own:
  * it says who sent the offer, never who received it.
  */
-function partiesOf(itemsJson) {
-  let items = [];
-  try { items = JSON.parse(itemsJson || '[]'); } catch { items = []; }
-  if (!Array.isArray(items)) items = [];
+function partiesOf(items) {
   return new Set(items.flatMap(i => [i?.fromTeamId, i?.toTeamId])
     .filter(x => x != null && Number(x) > 0)
     .map(String));
+}
+
+/**
+ * A raw row's items, or the reason they could not be read.
+ *
+ * NOT a catch that defaults to []. That version turned a corrupt items_json into
+ * "the raw row names no counterparty in its items", which is a sentence about the
+ * deal produced by a read that failed. The two have different fixes (one is in
+ * the collector, the other is not a deal at all), so the reason names which.
+ */
+function itemsOf(itemsJson) {
+  if (itemsJson == null || itemsJson === '') return { items: [] };
+  let parsed;
+  try {
+    parsed = JSON.parse(itemsJson);
+  } catch (e) {
+    return { error: `its items_json is not valid JSON (${e.message}), so the parties cannot be read` };
+  }
+  if (!Array.isArray(parsed)) {
+    return { error: 'its items_json is not a list of items, so the parties cannot be read' };
+  }
+  return { items: parsed };
 }
 
 /** The two sides of one raw proposal, or null with the reason it is not a deal. */
 function sidesOf(tx) {
   const proposer = tx.team_id == null ? null : String(tx.team_id);
   if (!proposer) return { error: 'the raw row names no acting team, so there is no proposer' };
-  const parties = partiesOf(tx.items_json);
+  const read = itemsOf(tx.items_json);
+  if (read.error) return { error: read.error };
+  const { items } = read;
+  const parties = partiesOf(items);
   const others = [...parties].filter(p => p !== proposer);
   if (!others.length) {
     return { error: 'the raw row names no counterparty in its items, and a deal with one side is not a deal' };
@@ -72,9 +94,7 @@ function sidesOf(tx) {
   }
   const give = [];
   const get = [];
-  let items = [];
-  try { items = JSON.parse(tx.items_json || '[]'); } catch { items = []; }
-  for (const i of Array.isArray(items) ? items : []) {
+  for (const i of items) {
     if (String(i?.fromTeamId) === proposer) give.push(i);
     else if (String(i?.toTeamId) === proposer) get.push(i);
   }
@@ -313,18 +333,37 @@ export function recordProposalSlate(leagueId, season, { ideas = [], result = nul
         : 'no proposals result was given, so there is nothing to record' };
   }
 
-  const sent = new Set((result.proposals ?? [])
-    .map(p => (p?.idea_id ?? p?.idea ?? p?.id) == null ? null : String(p.idea_id ?? p.idea ?? p.id))
-    .filter(Boolean));
+  // A refused run made no selection. The call was refused (no key, budget
+  // spent), or the answer could not be read, so the model never chose or passed
+  // over any idea on this slate. Writing the slate as "not selected" would put a
+  // decision in the ledger that nobody made. `all_rejected` is the exception: the
+  // model did choose, and the verifier said why each choice died.
+  if (result.refused && result.problem !== 'all_rejected') {
+    return { ...out, state: 'no_decision_made',
+      reason: `the proposals run made no selection (${result.problem ?? 'refused'}: `
+        + `${result.reason ?? 'no reason given'}), so no idea on this slate was chosen or passed over` };
+  }
+
+  // What was sent, in the verifier's shape: a proposal cites `idea_ids`, a LIST,
+  // because one proposal may merge two ideas (trade-proposals.js
+  // REQUIRED_PROPOSAL_FIELDS). Every cited idea was sent.
+  const sent = new Set((result.proposals ?? []).flatMap(citedIdeas));
 
   // Why each dropped idea was dropped, from the run's own words where it has
-  // them. `rejected` carries the verifier's reason per proposal; anything else
-  // the model simply did not choose, and saying so is more honest than
-  // attributing a reason the run never gave.
+  // them. A rejection is `{ proposal, violations }`; every idea the discarded
+  // proposal cited carries the verifier's violations. Anything else the model
+  // simply did not choose, and saying so is more honest than attributing a
+  // reason the run never gave.
   const rejectedReason = new Map();
   for (const r of result.rejected ?? []) {
-    const id = (r?.idea_id ?? r?.idea ?? r?.id);
-    if (id != null && r?.reason) rejectedReason.set(String(id), String(r.reason));
+    const violations = Array.isArray(r?.violations) ? r.violations.map(String).filter(Boolean) : [];
+    if (!violations.length) continue;
+    for (const id of citedIdeas(r?.proposal)) {
+      const prior = rejectedReason.get(id);
+      rejectedReason.set(id, prior
+        ? `${prior}; ${violations.join('; ')}`
+        : `the proposals verifier discarded the proposal citing it: ${violations.join('; ')}`);
+    }
   }
 
   for (const idea of ideas) {
@@ -333,7 +372,8 @@ export function recordProposalSlate(leagueId, season, { ideas = [], result = nul
     const common = {
       league_id: leagueId, season, idea_id: id,
       proposer_team_id: proposerTeamId, counterparty_team_id: counterpartyOf(idea),
-      give: idea?.give ?? idea?.send ?? [], get: idea?.get ?? idea?.receive ?? [],
+      // The engine's own names for the package (trade-engine.js:1691).
+      give: idea?.i_give ?? [], get: idea?.i_get ?? [],
       acceptance: idea?.acceptance ?? null, model_version: modelVersion,
     };
     const already = row(`SELECT id FROM trade_outcomes
@@ -359,10 +399,20 @@ export function recordProposalSlate(leagueId, season, { ideas = [], result = nul
   return out;
 }
 
-/** The other side of a deal, from whichever shape the engine handed back. */
+/** The slate ids one proposal cites, as strings. `idea_ids` is a list. */
+function citedIdeas(proposal) {
+  return (Array.isArray(proposal?.idea_ids) ? proposal.idea_ids : [])
+    .filter(x => x != null && String(x).trim())
+    .map(String);
+}
+
+/**
+ * The other side of a deal: the engine's `partner_id` (trade-engine.js:1689,
+ * `them.roster_id`). `idea.counterparty` is the engine's read of that manager
+ * and carries no roster id, and `idea.partner` is his display name.
+ */
 function counterpartyOf(idea) {
-  const v = idea?.counterparty?.roster_id ?? idea?.partner?.roster_id
-    ?? idea?.partner_roster_id ?? idea?.their_team_id ?? null;
+  const v = idea?.partner_id ?? null;
   return v == null ? null : String(v);
 }
 

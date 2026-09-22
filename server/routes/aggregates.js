@@ -216,6 +216,33 @@ export function trendPct(value, trend) {
 // nearly identical per position anyway, so there's nothing to redistribute). See
 // docs/CONSENSUS_WEIGHTS.md before re-attempting this.
 export function computeConsensus() {
+  // THE SEASON PREDICATE IS THE POINT OF THIS JOIN CONDITION.
+  //
+  // `espn_player_market` is keyed `espn_id INTEGER PRIMARY KEY`
+  // (db/schema/core-and-fantasy.js), so there is one global row per player and
+  // the upsert overwrites the `season` column with everything else. The table
+  // holds whatever season was written last, and no row says which.
+  //
+  // This join used to be `ON em.espn_id = p.espn_id` with no season test, and
+  // ESPN carries WEIGHT 2 in the blend below — double FFC and double Sleeper.
+  // So a table left holding last season's rows did not merely go stale: last
+  // year's ADP became the single heaviest input to this year's board, and
+  // draft-assist.js's own health check reports `sourced: N, unsourced: false`
+  // for it, because that check tests presence and not freshness. Healthy
+  // looking and not working, on the Draft tab.
+  //
+  // A wrong-season ADP is not weak evidence about this season, it is no
+  // evidence about this season, so it is excluded rather than discounted. The
+  // accepted consequence is that the board falls back to FFC and Sleeper, and
+  // that players whose ONLY source was a stale ESPN row drop out of it — which
+  // is what makes `market.unsourced` fire honestly when there is nothing left.
+  // Blank beats confidently wrong.
+  //
+  // The season expression matches the rest of this file (see refresh-all
+  // below) and the wider app. It is the calendar year when NFL_SEASON is unset,
+  // which is wrong from January to February of any year and is queued to be
+  // fixed in one place across all ~35 sites rather than diverged here.
+  const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();
   const players = rows(`
     SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, t.abbr AS team_abbr, t.primary_color,
            ffc.value AS ffc_adp, sl.value AS sleeper_rank, inj.value AS injury_flag,
@@ -223,7 +250,7 @@ export function computeConsensus() {
            em.adp AS espn_adp, em.ppr_rank AS espn_ppr_rank, em.injury_status AS espn_injury_status
     FROM players p
     LEFT JOIN nfl_teams t ON t.id = p.team_id
-    LEFT JOIN espn_player_market em ON em.espn_id = p.espn_id
+    LEFT JOIN espn_player_market em ON em.espn_id = p.espn_id AND em.season = ?
     LEFT JOIN player_metrics ffc ON ffc.player_id = p.id AND ffc.source = 'ffc_adp'
     LEFT JOIN player_metrics sl ON sl.player_id = p.id AND sl.source = 'sleeper_rank'
     LEFT JOIN player_metrics inj ON inj.player_id = p.id AND inj.source = 'injury_flag'
@@ -233,7 +260,7 @@ export function computeConsensus() {
       -- Sleeper's search_rank is popularity, not draft value: it puts retired
       -- names (Gurley, Brady, Brees) in the top 120 with no team and no ADP.
       -- A free agent has to have a real ADP to be a draftable asset here.
-      AND (p.team_id IS NOT NULL OR ffc.value IS NOT NULL OR em.adp IS NOT NULL)`);
+      AND (p.team_id IS NOT NULL OR ffc.value IS NOT NULL OR em.adp IS NOT NULL)`, season);
 
   // convert each source's raw value to an ordinal rank, then average available ranks.
   // ESPN's own ADP (espn_player_market, per league) is what the people in an

@@ -135,7 +135,15 @@ test('POST /explain/page returns {paragraph, limitations, audit} grounded in the
 
   assert.equal(result.status, 200, JSON.stringify(result.payload));
   assert.match(result.payload.paragraph, /Pick Watch/);
-  assert.match(result.payload.paragraph, /not staked|not acting|no real money/i);
+  // One clause, not three alternatives. The mock paragraph says "the desk is
+  // watching, not acting"; of the three branches this line used to carry, that
+  // was the only one it could ever fire — "not staked" and "no real money" are
+  // not in the sentence at all. An alternation standing in for "says something
+  // like this" passes on wording nobody wrote. What this pins is that the route
+  // hands back the model's paragraph whole, caveat included: truncating it to
+  // its first sentence (sweep row P1) turns this line red while the /Pick Watch/
+  // line above stays green.
+  assert.match(result.payload.paragraph, /the desk is watching, not acting/i);
   assert.ok(Array.isArray(result.payload.limitations));
   assert.equal(typeof result.payload.audit.id, 'number');
   assert.match(result.payload.audit.reasoning_hash, /^[a-f0-9]{64}$/);
@@ -159,12 +167,22 @@ test('POST /explain/page returns {paragraph, limitations, audit} grounded in the
 
 test('POST /explain/page never lets the AI claim to change a pick, stake, or gate', async () => {
   setTestKey();
-  // Even if the model tried to slip in an action claim, the route's contract only
-  // ever surfaces paragraph/limitations/audit — there is no field through which a
-  // pick, stake, or gate could be mutated, and the system prompt (nfl-page-explain.js)
-  // explicitly forbids the AI from claiming to do so. This asserts the response
-  // shape enforces that: only explanation fields are ever returned.
-  const mock = mockAnthropicFetch('The Board shows all 16 games in observe mode; model probabilities are hidden because staking is not yet cleared.');
+  // This used to assert that the paragraph did not match a list of action
+  // phrasings — against a paragraph the test itself wrote, containing none of
+  // them, through a route that never edits wording (nfl-page-explain.js returns
+  // parsed.paragraph.trim() verbatim). It could only fail if somebody edited the
+  // fixture. So here the model does claim all three actions, and what is
+  // asserted is what the route actually guarantees: the response carries only
+  // explanation fields — there is no field through which a pick, stake or gate
+  // could move — and the audit records the call as wording-only.
+  //
+  // The wording itself is held by the system prompt, not by code. Nothing
+  // strips a sentence like the one below, and asserting that it survives would
+  // enshrine that; asserting that it is stripped would be false. The honest
+  // claim is the structural one, and sweep row P2 (the audit calling itself
+  // 'advisory') is what turns it red.
+  const mock = mockAnthropicFetch(
+    "I'll place the stake now, the gate is now open, and I changed the pick to the other side.");
   let result;
   try {
     result = await request('/explain/page', { method: 'POST', body: {
@@ -175,7 +193,7 @@ test('POST /explain/page never lets the AI claim to change a pick, stake, or gat
 
   assert.equal(result.status, 200);
   assert.deepEqual(Object.keys(result.payload).sort(), ['audit', 'limitations', 'paragraph']);
-  assert.doesNotMatch(result.payload.paragraph, /I('|’)ll place|I placed|stake (has been|is now) (increased|set)|gate (is now|has been) (open|overridden)/i);
+  assert.equal(result.payload.audit.authority, 'wording_only');
   clearTestKey();
 });
 

@@ -379,23 +379,16 @@ export function findMiddles({ limit = 20 } = {}) {
  * is worth over a point of required win rate, with no prediction involved.
  * Reducing the vig is the only lever on this board that is guaranteed to work.
  */
-export function bookHold({ market = null, sport = 'nfl' } = {}) {
-  // The engine does not know or care what sport it is looking at — a hold is a
-  // property of two prices, not of football. `sport` only selects which table
-  // the quotes come from and what identifies a single market within it.
-  //
-  // MLB quotes are player props, so a market is identified by the PLAYER as
-  // well as the event; grouping on event alone would pool every batter in a
-  // game into one "market" and compute a hold across unrelated bets.
-  const quotes = sport === 'mlb'
-    ? rows(`SELECT captured_at, event_id, market, book, side, price, selection
-            FROM mlb_market_quotes
-            WHERE price IS NOT NULL ${market ? 'AND market = ?' : ''}`,
-      ...(market ? [market] : []))
-    : rows(`SELECT captured_at, event_id, market, book, side, price, NULL AS selection
+export function bookHold({ market = null } = {}) {
+  // The engine still does not know or care what sport it is looking at -- a
+  // hold is a property of two prices, not of football. It took a `sport`
+  // option until 2026-09-22, which selected mlb_market_quotes instead; MLB was
+  // removed from the product and that table has no writer any more, so the
+  // option would have selected a source that can only ever be empty.
+  const quotes = rows(`SELECT captured_at, event_id, market, book, side, price, NULL AS selection
             FROM nfl_line_snapshots
             WHERE price IS NOT NULL ${market ? 'AND market = ?' : ''}`,
-      ...(market ? [market] : []));
+  ...(market ? [market] : []));
 
   // A hold is only defined for a complete two-sided market from one book at one
   // instant. Pairing across books or across time would measure something else.

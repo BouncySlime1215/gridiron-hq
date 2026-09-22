@@ -21,16 +21,16 @@ const CONTRACTS = [
   ['NFL', 'player_props', 'joint_event_state', 'shared player-week engine', 'all usage and efficiency rows strictly before target week', 'weekly', 10080, 'abstain player', 'critical'],
   ['NFL', 'player_props', 'sportsbook_quote', 'timestamped player prop quote', 'quote_at < kickoff and quote_at <= prediction_at', 'on refresh', 30, 'model-only; never report edge or ROI', 'critical'],
   ['NFL', 'player_props', 'game_environment', 'pregame spread, total, weather and venue snapshot', 'snapshot timestamp <= prediction_at and < kickoff', 'on refresh', 180, 'neutral game script', 'high'],
-  ['MLB', 'nrfi', 'first_inning_market', 'timestamped sportsbook quotes', 'quote_at < first pitch and quote_at <= prediction_at', 'on refresh', 15, 'abstain', 'critical'],
-  ['MLB', 'nrfi', 'confirmed_lineup', 'MLB pregame boxscore', 'lineup captured before first pitch', 'on refresh', 30, 'abstain', 'critical'],
-  ['MLB', 'nrfi', 'probable_starters', 'MLB probable starter feed', 'snapshot captured before first pitch', 'on refresh', 60, 'abstain', 'critical'],
-  ['MLB', 'nrfi', 'park_weather_umpire', 'pregame context feeds', 'captured before first pitch', 'hourly', 120, 'shrink to league prior', 'high'],
-  ['MLB', 'pitcher_strikeouts', 'pitcher_workload', 'prior pitcher game logs', 'date strictly before slate date', 'daily', 1440, 'abstain', 'critical'],
-  ['MLB', 'pitcher_strikeouts', 'opponent_lineup_k', 'confirmed lineup + prior batter logs', 'lineup pregame; batter outcomes strictly earlier', 'on refresh', 30, 'abstain', 'critical'],
-  ['MLB', 'pitcher_strikeouts', 'strikeout_price', 'timestamped player prop quote', 'quote_at < first pitch and quote_at <= prediction_at', 'on refresh', 15, 'abstain', 'critical'],
-  ['MLB', 'batter_total_bases', 'plate_appearance_context', 'confirmed batting order', 'lineup captured before first pitch', 'on refresh', 30, 'abstain', 'critical'],
-  ['MLB', 'batter_total_bases', 'pitch_mix_matchup', 'prior pitch/batter observations', 'date strictly before slate date', 'daily', 1440, 'shrink to population prior', 'high'],
-  ['MLB', 'batter_total_bases', 'total_bases_price', 'timestamped player prop quote', 'quote_at < first pitch and quote_at <= prediction_at', 'on refresh', 15, 'abstain', 'critical'],
+  // MLB was removed from the product by #128 (2026-09-22). This file used to
+  // seed 10 feature contracts here for its three models (nrfi,
+  // pitcher_strikeouts, batter_total_bases — first_inning_market,
+  // confirmed_lineup, probable_starters, park_weather_umpire, pitcher_workload,
+  // opponent_lineup_k, strikeout_price, plate_appearance_context,
+  // pitch_mix_matchup, total_bases_price). model_feature_contracts has no
+  // status/retired column of its own, so retiring them means not seeding them
+  // as live rather than flipping a flag: they are cut from CONTRACTS here.
+  // Any row a database already has from an earlier seed run is untouched —
+  // this only changes what a fresh seed inserts.
   // Fantasy weekly ensemble (player-week-engine.js / weekly-ensemble.js): no
   // gate existed here before this contract, unlike spread and props, even
   // though it is the same weekly-graded decision. Mirrors the player_props
@@ -82,10 +82,13 @@ function seedRegistry() {
     ['NFL', 'player_props', 'champion', 'shared-event-structural-v1', 'baseline', 'Shared structural event state; no betting promotion without real priced evidence.'],
     ['NFL', 'player_props', 'challenger', 'player-head-registry-v1', 'research_only', 'Must pass chronological accuracy, calibration, null, coverage and forward CLV gates.'],
     ['NFL', 'fantasy_weekly', 'champion', 'structural-ensemble-v1', 'baseline', 'Volume x efficiency structural head plus the frozen weekly ensemble; walk-forward MAE/calibration baseline.'],
-    ['NFL', 'fantasy_weekly', 'challenger', 'qbr-augmented-structural-v1', 'research_only', 'Adds trailing ESPN QBR to the QB structural head. Must beat the structural-ensemble-v1 baseline on out-of-sample walk-forward MAE and calibration_error, gated the same way spread specialists are (real correlation, real cross-half gain), before any promotion.'],
-    ['MLB', 'nrfi', 'challenger', 'mlb-nrfi-v2-cutoff', 'blocked', 'Overconfident retrospective audit; real priced forward evidence required.'],
-    ['MLB', 'pitcher_strikeouts', 'challenger', 'mlb-k-v2-cutoff', 'blocked', 'No cutoff-valid validation sample or priced forward evidence.'],
-    ['MLB', 'batter_total_bases', 'challenger', 'mlb-tb-v2-cutoff', 'blocked', 'No cutoff-valid validation sample or priced forward evidence.']
+    ['NFL', 'fantasy_weekly', 'challenger', 'qbr-augmented-structural-v1', 'research_only', 'Adds trailing ESPN QBR to the QB structural head. Must beat the structural-ensemble-v1 baseline on out-of-sample walk-forward MAE and calibration_error, gated the same way spread specialists are (real correlation, real cross-half gain), before any promotion.']
+    // MLB was removed from the product by #128 (2026-09-22): its three
+    // challenger rows (nrfi/mlb-nrfi-v2-cutoff, pitcher_strikeouts/mlb-k-v2-cutoff,
+    // batter_total_bases/mlb-tb-v2-cutoff) are cut from this seed list rather
+    // than left registered as 'blocked' models for a sport with no capture path.
+    // Any row a database already has from an earlier seed run is untouched —
+    // this only changes what a fresh seed inserts.
   ];
   for (const x of defaults) run(`INSERT INTO model_registry
     (sport,market,role,model_version,state,reason,registered_at,updated_at)

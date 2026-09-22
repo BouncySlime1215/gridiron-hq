@@ -1,0 +1,103 @@
+{
+  "unit": "S-02",
+  "mode": "--consumer-parity",
+  "label": "local copy, not production",
+  "tree": {
+    "head": "9b541006295d797cdf5c9d8ef206cdd4396cdee7",
+    "write_tree": "cf32a7dac5d1f8d66f9af9549d75a9a32008a009"
+  },
+  "database": {
+    "path_basename": "data.sqlite"
+  },
+  "prereg": null,
+  "configuration": {
+    "engine": "buildPlayerWeekEngine (player-week-engine.js:256), roleRecency WEEKLY_ROLE_RECENCY hardcoded at :273, kOverride omitted",
+    "scoring": "PPR",
+    "availability": "none: the arms stop before thisGame.mult x active_probability (trade-engine.js:359), so they are the construction, not the page number (amendment 1)",
+    "matchup_mult": 1,
+    "population": "weekly-backtest.js rules: QB/RB/WR/TE, >= 1 prior played week; played rows for MAE/Spearman, decision rows (played week-1) for DNP-included MAE",
+    "bootstrap": "pairedBootstrapDiff, groups = player_id, 2000 iterations, seed 1, 90% CI"
+  },
+  "started_at": "2026-09-22T21:27:19.403Z",
+  "k_control": {
+    "2024": 0.2747295364732937,
+    "2025": 0.20863763121754172,
+    "2026": 0.17332678990952072
+  },
+  "weight_sets": {
+    "2024-W6": "frozen-2023",
+    "2025-W3": "frozen-2023",
+    "2025-W6": "frozen-2023",
+    "2026-W2": "fit-2",
+    "2026-W6": "fit-2"
+  },
+  "consumer_parity": {
+    "target": {
+      "season": 2026,
+      "week": 3
+    },
+    "league": "synthetic 12-team PPR (no leagues row read)",
+    "availability_basis": {
+      "basis": "pooled",
+      "missing": [
+        "nfl_availability_role_rates"
+      ],
+      "stamp": "139:2026-09-18T00:07:01.316Z|absent"
+    },
+    "skipped": {
+      "no_engine_projection": 7194,
+      "no_coordinator_correction": 0
+    },
+    "n_checked": 1196,
+    "b_parity_holds": 1196,
+    "current_week_identity_holds": 1196,
+    "no_game_this_week": {
+      "total": 674,
+      "no_team": 674,
+      "bye_with_team": 0
+    },
+    "page_differs_from_arm_D": 521,
+    "page_over_arm_D": {
+      "q10": 0.263,
+      "q25": 0.431,
+      "q50": 0.61,
+      "q75": 0.748,
+      "q90": 0.831
+    },
+    "active_probability": {
+      "all": {
+        "q10": 0.268,
+        "q25": 0.432,
+        "q50": 0.607,
+        "q75": 0.75,
+        "q90": 0.831
+      },
+      "no_injury_status": {
+        "q10": 0.296,
+        "q25": 0.449,
+        "q50": 0.63,
+        "q75": 0.758,
+        "q90": 0.831
+      },
+      "no_injury_status_n": 492,
+      "no_injury_status_share_at_durability_prior": 0.856
+    },
+    "game_mult_values": [
+      1
+    ],
+    "team_differs_among_playing": 56,
+    "starter_proxy": {
+      "quota": {
+        "QB": 12,
+        "RB": 30,
+        "WR": 36,
+        "TE": 12
+      },
+      "n": 90,
+      "mean_arm_D": 14.564,
+      "mean_page": 10.035,
+      "median_p": 0.746
+    }
+  },
+  "finished_at": "2026-09-22T21:27:29.482Z"
+}

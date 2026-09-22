@@ -711,25 +711,116 @@ async function refreshManagerSignals() {
  * stage calls a paid gateway and needs AI_GATEWAY_API_KEY, so it stays opt-in
  * (`npm run build:manager-archetypes -- --jev`).
  */
+const ARCHETYPE_MAX_BUFFER = 32 * 1024 * 1024;
+
+/**
+ * Turn the archetype build's stdout into the summary row, or into the reason
+ * there isn't one — and say WHICH reason.
+ *
+ * Three things can go wrong here and they need three different answers, because
+ * they send whoever reads the sync_log row to three different places:
+ *
+ *   nothing parseable  the script died before printing. Look at the script.
+ *   will not parse     it printed, and the output is damaged. Look at the pipe.
+ *   no summary key      it printed fine and the shape changed. Look at the report.
+ *
+ * The middle one used to be indistinguishable from the first, and reported as
+ * it: "printed no JSON summary" when the script had printed a great deal of
+ * JSON. It is also the one most likely to happen. `build-manager-archetypes.mjs`
+ * ends with `process.exit(0)` immediately after `console.log` of the whole
+ * report, and `process.exit` does not flush a pipe. Measured with stdout piped
+ * under execFile: 1 KB and 100 KB arrive whole, while 1 MB and 5 MB both arrive
+ * cut at exactly 146,176 bytes with `Unterminated string in JSON`. A hard cliff
+ * just under 146 KB that the report grows towards as leagues are added, so
+ * `stdout_bytes` is reported next to the parse error — a failure sitting at a
+ * suspiciously round byte count is a truncated pipe, not a broken script. The
+ * flush itself is the script's to fix, not this function's.
+ *
+ * The report is found from the END of stdout, at the last line beginning with
+ * `{` in column zero, which is what `console.log(JSON.stringify(x, null, 2))`
+ * produces for a top-level object and what nothing nested produces. The previous
+ * `stdout.indexOf('{')` took the first brace anywhere, which works only while
+ * `--json` suppresses the human report — whose second line is
+ * `consensus source by season: {...}`. One change to that gate and a successful
+ * build would have started reporting itself as having printed nothing.
+ */
+export function parseArchetypeReport(stdout) {
+  const text = typeof stdout === 'string' ? stdout : '';
+  const trimmed = text.trim();
+  const tail = trimmed ? trimmed.split('\n').at(-1).slice(0, 200) : null;
+  const failure = (error, parseError = null) =>
+    ({ error, tail, parse_error: parseError, stdout_bytes: text.length });
+
+  const lines = text.split('\n');
+  let start = -1;
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (lines[i].startsWith('{')) { start = i; break; }
+  }
+  if (start < 0) return failure('the archetype build printed no JSON at all');
+
+  let report;
+  try {
+    report = JSON.parse(lines.slice(start).join('\n'));
+  } catch (err) {
+    // Kept, not discarded: "Unexpected end of JSON input" and "Unexpected token
+    // x" are different faults, and the message is the only thing that separates
+    // a truncated pipe from a malformed report.
+    return failure('the archetype build printed JSON that could not be parsed', err.message);
+  }
+
+  const s = report?.summary ?? null;
+  if (!s) return failure('the archetype build printed JSON with no summary');
+
+  return {
+    league_seasons: s.league_seasons, managers: s.managers, rows_written: s.rows_written,
+    draft_manager_seasons: s.draft_manager_seasons, outcome_manager_seasons: s.outcome_manager_seasons,
+    jev: 'not run — opt-in, needs AI_GATEWAY_API_KEY',
+  };
+}
+
+/**
+ * Say what an overflowing or timed-out child actually hit, then hand the error
+ * back to be thrown.
+ *
+ * The control flow is deliberately unchanged: a child that overflows its buffer
+ * or runs past its timeout is a job failure and must throw, not become a summary
+ * row saying everything is fine. What changes is the message. Node's own is
+ * `stdout maxBuffer length exceeded`, which names neither the limit nor the fact
+ * that the report itself may simply have outgrown it — and this job's report
+ * grows with the number of leagues, so that is the first thing to check rather
+ * than the last.
+ */
+export function describeArchetypeSpawnError(err, limit = ARCHETYPE_MAX_BUFFER) {
+  const message = String(err?.message ?? '');
+  if (err?.code === 'ENOBUFS' || /maxBuffer/i.test(message)) {
+    err.message = `the archetype build wrote more than ${limit} bytes to stdout and was cut `
+      + `off; the report may have outgrown the buffer rather than the build being broken `
+      + `(${message})`;
+  } else if (err?.killed === true || err?.signal) {
+    err.message = `the archetype build was killed after its timeout `
+      + `(signal ${err.signal ?? 'unknown'}) (${message})`;
+  }
+  return err;
+}
+
 async function refreshManagerArchetypes() {
   const { execFile } = await import('node:child_process');
   const { promisify } = await import('node:util');
   const path = await import('node:path');
   const { PROJECT_ROOT } = await import('../platform/paths.js');
   const script = path.join(PROJECT_ROOT, 'scripts/build-manager-archetypes.mjs');
-  const { stdout } = await promisify(execFile)(process.execPath, [script, '--json'],
-    { cwd: PROJECT_ROOT, env: process.env, encoding: 'utf8', timeout: 9 * 60_000, maxBuffer: 32 * 1024 * 1024 });
+  let stdout;
+  try {
+    ({ stdout } = await promisify(execFile)(process.execPath, [script, '--json'],
+      { cwd: PROJECT_ROOT, env: process.env, encoding: 'utf8', timeout: 9 * 60_000,
+        maxBuffer: ARCHETYPE_MAX_BUFFER }));
+  } catch (err) {
+    // Still throws — an overflowing child is a job failure, not a summary row.
+    throw describeArchetypeSpawnError(err);
+  }
   // The script's --json tail is the whole report; only its summary belongs in a
   // sync_log row, small enough that the Data Health page can show it.
-  let report = null;
-  try { report = JSON.parse(stdout.slice(stdout.indexOf('{'))); } catch { report = null; }
-  const s = report?.summary ?? null;
-  return s
-    ? { league_seasons: s.league_seasons, managers: s.managers, rows_written: s.rows_written,
-      draft_manager_seasons: s.draft_manager_seasons, outcome_manager_seasons: s.outcome_manager_seasons,
-      jev: 'not run — opt-in, needs AI_GATEWAY_API_KEY' }
-    : { error: 'the archetype build printed no JSON summary',
-      tail: stdout.trim().split('\n').at(-1)?.slice(0, 200) ?? null };
+  return parseArchetypeReport(stdout);
 }
 
 /**

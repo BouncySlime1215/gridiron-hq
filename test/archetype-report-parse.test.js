@@ -48,7 +48,8 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.GRIDIRON_DB_INTEGRITY_CHECK = 'off';
 process.env.SCHEDULER_DISABLED = '1';
 
-const { parseArchetypeReport } = await import('../server/services/scheduler.js');
+const { parseArchetypeReport, describeArchetypeSpawnError } =
+  await import('../server/services/scheduler.js');
 
 const SUMMARY = {
   league_seasons: 7, managers: 12, rows_written: 340,
@@ -138,4 +139,34 @@ test('empty stdout is a failure with a null tail rather than a crash', () => {
   assert.ok(out.error);
   assert.equal(out.tail, null);
   assert.equal(out.stdout_bytes, 0);
+});
+
+test('a whole JSON object printed at column zero BEFORE the report loses to the report', () => {
+  // This is what makes "search from the end" load-bearing rather than
+  // incidental. The noisy case above is indented past column zero, so a search
+  // in either direction finds the same brace; here both candidates start at
+  // column zero and only the last one is the report.
+  const decoy = JSON.stringify({ summary: { managers: 999 } });
+  const out = parseArchetypeReport(`${decoy}\nsome progress line\n${report()}`);
+  assert.equal(out.error, undefined);
+  assert.equal(out.managers, 12, 'the report is the LAST top-level object, not the first');
+});
+
+test('an overflowing child says the report may have outgrown the buffer, and still throws', () => {
+  const err = Object.assign(new Error('stdout maxBuffer length exceeded'), { code: 'ENOBUFS' });
+  const described = describeArchetypeSpawnError(err, 1024);
+  assert.equal(described, err, 'the same error object goes back out, so the throw is unchanged');
+  assert.match(described.message, /more than 1024 bytes/);
+  assert.match(described.message, /outgrown the buffer/,
+    'the first thing to check is whether the report simply got bigger');
+  assert.match(described.message, /stdout maxBuffer length exceeded/,
+    "Node's own message is kept rather than replaced");
+});
+
+test('a timed-out child says so instead of reporting a buffer problem', () => {
+  const err = Object.assign(new Error('Command failed'), { killed: true, signal: 'SIGTERM' });
+  const described = describeArchetypeSpawnError(err, 1024);
+  assert.match(described.message, /killed after its timeout/);
+  assert.match(described.message, /SIGTERM/);
+  assert.doesNotMatch(described.message, /bytes/, 'a timeout is not a buffer overflow');
 });

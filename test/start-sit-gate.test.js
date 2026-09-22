@@ -142,6 +142,10 @@ test('a player whose team does not play in week W is a bye and leaves the pool; 
   const out = S.removeByes(rows, usage);
   assert.deepEqual(out.kept.map(x => x.player_id), [1, 3]);
   assert.deepEqual(out.removed.map(x => x.player_id), [2]);
+  // No week-5 team on record: the bye cannot be known, so he stays in and is counted.
+  const unknown = S.removeByes([...rows, r(2025, 6, 'WR', 4, 12, 13, 7)], usage);
+  assert.deepEqual(unknown.kept.map(x => x.player_id), [1, 3, 4]);
+  assert.equal(unknown.team_unknown, 1);
 });
 
 test('the k control stops at the hardcoded K.share = 6, and when no fitted k resolves', () => {
@@ -335,6 +339,9 @@ test('the default fixture grades to the hand-counted values: ours loses, so a sw
   assert.equal(result.past.points_per_decision, -0.5333);
   assert.equal(result.past.win_rate, 0.4722);
   assert.equal(result.past.direction, 'dumb_ahead');
+  // Error beside decisions (discipline d), by hand over the 28 past rows:
+  // mean |(9 + id) - actual| and mean |(18 - id) - actual|.
+  assert.deepEqual(result.past.mae_including_dnp, { policy: 6.0714, baseline: 6.1429, rows: 28 });
   assert.equal(result.forward.n, 28);
   assert.equal(result.forward.points_per_decision, -0.25);
   assert.equal(result.forward.win_rate, 0.4821);

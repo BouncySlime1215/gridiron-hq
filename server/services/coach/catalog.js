@@ -84,19 +84,12 @@ const SCRIPT_PERSON_PROFILES =
 const SCRIPT_LEAGUE_TRANSACTIONS =
   '`scripts/collect-league-transactions.mjs` creates it, and nothing else does, so it has '
   + 'not been built on any machine where that script has not been run';
-const SCRIPT_LEAGUE_HISTORY =
-  '`scripts/backfill-league-history.mjs` creates it, and nothing else does, so it has not '
-  + 'been built on any machine where that script has not been run';
-/**
- * Same shape, with an end date. On main nothing but the backfill script creates
- * league_season_teams; migration 064 on PR #47 creates it, so this sentence is
- * true of main and stops being true the day that branch merges. It is written
- * out rather than folded into the line above precisely so it is noticed then.
- */
-const SCRIPT_LEAGUE_SEASON_TEAMS =
-  '`scripts/backfill-league-history.mjs` creates it on main, and nothing else does, so it has '
-  + 'not been built on any machine where that script has not been run; migration 064 in PR #47 '
-  + 'creates it after merge';
+// league_season_teams and league_week_scores used to name the backfill script
+// here, with a note that migration 064 (then unmerged, on PR #47) would create
+// both the day that branch landed. It has landed —
+// `server/migrations/064_league_history_tables.js` creates both — so neither
+// claims a runtime creator any more, and the two constants that said so are
+// gone rather than left behind saying something untrue.
 const SCRIPT_FIT_AVAILABILITY =
   '`scripts/fit-availability.mjs` creates it from the DDL in `server/services/contingency.js`, and '
   + 'nothing else does, so it has not been built on any machine where that script has not been run';
@@ -323,14 +316,17 @@ export const COACH_TABLES = Object.freeze({
     'every add, drop, trade and waiver claim as ESPN returned it: who did it, when it was proposed and processed, what was bid, whether it went through, and the raw payload behind it. The only record of what a manager has actually done',
     'collected by hand; nothing refreshes it on a schedule', 'by_hand', [],
     SCRIPT_LEAGUE_TRANSACTIONS),
+  // Migration 064 creates both of these now, so neither names a runtime
+  // creator. `collection` stays 'by_hand': the migration makes the table, the
+  // backfill script is still the only thing that puts rows in it, and an empty
+  // table on a machine where that script never ran is the state a reader has
+  // to be told about.
   league_season_teams: t('one team in one league and season',
     'the finished season for a team: record, points for and against, final rank and playoff seed, with the owner behind it',
-    'backfilled by hand, one run per league', 'by_hand', [],
-    SCRIPT_LEAGUE_SEASON_TEAMS),
+    'backfilled by hand, one run per league', 'by_hand'),
   league_week_scores: t('one team in one week of one season',
     'what a team actually scored that week, who it played and whether the week was a playoff week — the history behind "is he lucky or good"',
-    'backfilled with league_season_teams, by hand', 'by_hand', [],
-    SCRIPT_LEAGUE_HISTORY),
+    'backfilled with league_season_teams, by hand', 'by_hand'),
 
   // --- what the app has already told Nick to do ---
   decision_recommendations: t('one recommendation the app has made',

@@ -23,8 +23,18 @@ const DIR = 'docs/tdd/sweeps';
 // A spec is a top-level .json in this directory holding an array of rows.
 // The harness's own output (`*.results.json`) and the coverage analysis under
 // analysis/ are not specs and must not be mistaken for one.
+//
+// `*.mutations.json` is excluded for a different reason: other threads keep
+// their own mutation specs in this directory under that suffix, in their own
+// schema (`name`/`aimed_at`/`kind`, an array of suites, no no-op control).
+// What this file guards is Coach's evidence standard — row ids, a quoted
+// injection per row, a no-op control so a zero means something — and that
+// standard is Coach's, not the repository's. Policing another thread's file
+// against a contract it never adopted fails the gate for their choices, not
+// for a real defect, and it is their file to shape. Coach's own nine specs
+// (`<name>.json`, with `id` and `desc`) are all still covered.
 const specs = fs.readdirSync(DIR)
-  .filter(f => f.endsWith('.json') && !f.endsWith('.results.json'))
+  .filter(f => f.endsWith('.json') && !f.endsWith('.results.json') && !f.endsWith('.mutations.json'))
   .filter(f => Array.isArray(JSON.parse(fs.readFileSync(path.join(DIR, f), 'utf8'))));
 
 test('every sweep spec is readable and names a file that exists', () => {

@@ -91,6 +91,14 @@ const GAMES = 17;
  * because "player" is not a stable group for efficiency within a season and the
  * method-of-moments between-player variance is inflated for those metrics.
  */
+/**
+ * The single target-share prior every pass-catcher is shrunk toward. It is NOT
+ * a measured mean of anything — see positionalPriors() — and it is still the
+ * default, because the measured replacement is only better on a metric that
+ * cannot see availability. Also the no-rows fallback.
+ */
+const LEGACY_TARGET_SHARE_PRIOR = 0.06;
+
 const K = {
   share: 6,          // target/carry share — stable, trust it early (weighted games)
   team_volume: 10,   // team pass/rush rate — stable (weighted games)
@@ -387,12 +395,17 @@ function positionalPriors(log) {
   const byPos = {};
   for (const u of log) {
     const p = (byPos[u.pos] ??= {
-      tgtShare: [], carShare: [],
+      tgtShareSum: 0, tgtShareN: 0,
       recYds: 0, receptions: 0, recTds: 0, targets: 0,
       rushYds: 0, rushTds: 0, carries: 0,
       passYds: 0, passTds: 0, ints: 0, attempts: 0
     });
-    if (u.target_share != null && u.target_share > 0) p.tgtShare.push(u.target_share);
+    // Every week with a KNOWN share, including the ones he saw no targets. That
+    // is the estimand this prior shrinks toward (`a.tgtShare / a.tgtShareW`
+    // below counts a zero week), and dropping zeros inflates it by a third:
+    // 0.1516 against 0.1322 for WR on 2021-2024. A null is unknown, not zero,
+    // so it stays out of both.
+    if (u.target_share != null) { p.tgtShareSum += u.target_share; p.tgtShareN += 1; }
     if (u.targets > 0) {
       p.recYds += u.receiving_yards ?? 0;
       p.receptions += u.receptions ?? 0;
@@ -414,7 +427,12 @@ function positionalPriors(log) {
   const rate = (num, den) => (den > 0 ? num / den : null);
   const out = {};
   for (const [pos, p] of Object.entries(byPos)) {
+    const tgtSharePrior = rate(p.tgtShareSum, p.tgtShareN);
     out[pos] = {
+      // `??`, not `||`: a position whose true mean share is 0 — which is what a
+      // quarterback's is — must keep its 0 rather than fall back to a
+      // pass-catcher's number. The fallback is for no rows at all.
+      target_share: tgtSharePrior ?? LEGACY_TARGET_SHARE_PRIOR,
       ypt: rate(p.recYds, p.targets) || 7.5,
       ypc: rate(p.rushYds, p.carries) || 4.3,
       ypa: rate(p.passYds, p.attempts) || 7.0,
@@ -435,6 +453,11 @@ function positionalPriors(log) {
  *
  * @param through   last season allowed as evidence (exclusive of the season being predicted)
  * @param scoring   league scoring rules
+ * @param sharePrior `'per_position'` selects the measured per-position
+ *   target-share prior. The DEFAULT is the single 0.06 constant, which is what
+ *   ships: the per-position prior is better on the weeks a player plays and a
+ *   null once missed weeks are counted, and the audit ruled it must not become
+ *   the default on its own. See the block at the shrink call below.
  * @param kOverride fitted shrinkage vector {metric: {position: k}} to use instead of
  *   the hardcoded K constants below. Omit to use whichever fit (if any) has been
  *   proven to beat hardcoded and marked active (see shrinkage-fit.js); pass `null`
@@ -444,7 +467,7 @@ function positionalPriors(log) {
  */
 export function buildProjections({
   through = SEASON - 1, throughWeek = null, scoring = PPR, kOverride, recency,
-  roleRecency, qbrSignal = QBR_SIGNAL
+  roleRecency, qbrSignal = QBR_SIGNAL, sharePrior
 } = {}) {
   const r = { ...RECENCY, ...recency };
   // Opportunity and efficiency are different processes. `roleRecency` lets an
@@ -521,30 +544,58 @@ export function buildProjections({
     const tgtShareObs = a.tgtShareW ? a.tgtShare / a.tgtShareW : 0;
     const tgtShareK = pickK(k, 'target_share', 'ALL', a.tgtShareW, a.tgtShareW, K.share);
     /*
-     * OPEN, 2026-09-17: one global prior for three non-exchangeable positions.
+     * MEASURED 2026-09-22, and deliberately NOT made the default. Was one
+     * global 0.06 for three non-exchangeable
+     * positions. 0.06 is not the mean of anything: opportunity rows 2021-2024,
+     * with 2025 held out and zero-target weeks included, give WR 0.1322
+     * (n=9,787), TE 0.0972 (n=4,825), RB 0.0647 (n=6,112). Only RB was near it,
+     * so a thin-evidence receiver was being pulled toward half his position's
+     * normal workload. positionalPriors() now measures the prior per position
+     * on the same estimand this shrinks toward, and `sharePrior:
+     * 'per_position'` selects it for a paired backtest. Omitting the flag —
+     * which is what every live call does — keeps the old constant.
      *
-     * 0.06 is not the mean of anything. Opportunity rows 2021-2025, including
-     * zero-target games: WR 0.1311 (n=12,274), TE 0.0981 (n=6,112), RB 0.0624
-     * (n=8,088), pooled non-QB 0.1025. Only RB is anywhere near 0.06.
+     * CORRECTION to the note this replaces, so it is not repeated: it cited a
+     * +6.60 pts/g bias on QBs with under two effective games as evidence for
+     * this fix. It cannot be. `targets` is forced to 0 for QBs a few lines
+     * below, so the target-share prior never reaches a quarterback. That figure
+     * has another source — the carry-share prior or the QB attempts arm — and
+     * is not evidence about this constant.
      *
-     * Paired with K.share = 6 (which the fitter says should be ~0.4) this
-     * produces a clean monotone bias in evidence: over 2025 weeks 5-17 the head
-     * runs +6.60 pts/g on QBs with under two effective games, +4.65 on RBs,
-     * +2.60 on TEs, against -0.99 on RBs with 16+ and -0.90 on TEs with 16+.
-     * The low-evidence end is the waiver wire and the fringe start/sit call, and
-     * a one-game backup RB is being projected further above his actual than the
-     * model's whole MAE. Projected carries for RBs under two games: 6.15 against
-     * 3.37 actual.
+     * NOT THE DEFAULT, by audit ruling 2026-09-22. `sharePrior: 'per_position'`
+     * selects it; omitting the flag keeps the 0.06 constant. The reason is
+     * below, and it is not that the measurement was weak.
      *
-     * positionalPriors() already accumulates per-position tgtShare and carShare
-     * arrays and then throws them away — its return object (see the `out[pos]`
-     * literal) has no share key — so the material for a per-position prior is
-     * collected on every build and discarded. Not fixed here because it changes
-     * live projections and interacts with the volume-k fix above (a weaker k
-     * reduces how much the prior matters, so the two have to be fitted together,
-     * and neither may be tuned on 2025).
+     * GRADED, and read the caveat with the number: held-out 2025, paired
+     * bootstrap clustered by player, +0.1044 targets of MAE against the legacy
+     * constant on the weeks a player plays (significant), but a NULL of -0.0136
+     * [-0.0499, +0.0225] on decision_including_dnp, which scores a missed week
+     * as a real 0. After each arm's own level is removed the fitted prior is
+     * ahead on both metrics (+0.1273 and +0.0482, both significant), so the
+     * prior carries information; what the DNP metric exposes is that 0.06 was
+     * under-projecting everyone and that low bias was standing in for an
+     * availability term this model does not have. See
+     * docs/evidence/2026-09-22/target-share-prior-result.md section 5.
+     *
+     * THE RULING, and why it is not a rejection: the legacy bias and the
+     * availability multiplier Plan 01 is fitting are one finding from two
+     * sides. Shipping this prior alone removes a hedge with nothing to replace
+     * it; shipping the multiplier alone over a biased prior double-counts. So
+     * the two must be graded TOGETHER, pre-registered, and neither ships alone.
+     * Until that grade exists this flag stays off by default and the constant
+     * below stays wrong about the population on purpose, which is a trade the
+     * next unit is meant to end rather than a state to leave alone.
+     *
+     * STILL OPEN, and deliberately not changed here: K.share = 6 against the
+     * fitter's ~0.4. The prior and the weight it carries interact — a weaker k
+     * reduces how much any prior matters — so they have to be fitted together,
+     * and neither may be tuned on 2025. This unit moves only the prior, and
+     * only because the old one was wrong about the population rather than
+     * mistuned against it.
      */
-    const targetSharePrior = 0.06;
+    const targetSharePrior = sharePrior === 'per_position'
+      ? (prior.target_share ?? LEGACY_TARGET_SHARE_PRIOR)
+      : LEGACY_TARGET_SHARE_PRIOR;
     const tgtShare = shrinkSafe(tgtShareObs, targetSharePrior, tgtShareK.n, tgtShareK.k);
     const carShareObs = tv.rush_att ? rolePerGame(a.roleCarries) / tv.rush_att : 0;
     const carShareK = pickK(k, 'carry_share', carryShareGroup, a.roleW, a.roleW, K.share);
@@ -716,8 +767,12 @@ export function buildProjections({
       player_id: a.id, name: a.name, position: a.pos, team: a.team,
       espn_id: a.espn_id, sleeper_id: a.sleeper_id, gsis_id: a.gsis_id,
       evidence_games: a.games, evidence_weight: +n.toFixed(1), seasons: [...a.seasons].sort(),
-      role_prior: { mode: 'flat_structural_head', target_share: 0.06,
-        carry_share: a.pos === 'RB' ? 0.25 : 0.02 },
+      role_prior: {
+        mode: sharePrior === 'per_position' ? 'per_position_structural_head' : 'flat_structural_head',
+        // The prior actually used, not a literal beside it.
+        target_share: +targetSharePrior.toFixed(4),
+        carry_share: a.pos === 'RB' ? 0.25 : 0.02
+      },
       expected_games: +expectedGames.toFixed(1),
       volume: {
         target_share: +tgtShare.toFixed(4), targets_per_game: +targets.toFixed(2),

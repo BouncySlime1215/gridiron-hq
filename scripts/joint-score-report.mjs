@@ -31,9 +31,9 @@
  *   --iterations N        Nelder-Mead iteration cap per season fit. Default 700.
  *   --out PATH            Where to write the JSON report.
  */
-import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
+import { writeEvidenceReport } from './lib/evidence-report.mjs';
 
 const root = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -251,11 +251,45 @@ const report = {
 };
 
 const out = value('out', path.join(root, `docs/evidence/2026-09-12/joint-score-report-${fixture ? scoring : 'real'}.json`));
-fs.mkdirSync(path.dirname(out), { recursive: true });
-// Indent everything except the per-game rows, which stay one line per game.
-fs.writeFileSync(out, JSON.stringify(report, null, 2)
-  .replace(/\[\n\s+(?=(?:-?\d|"[A-Z]))((?:[^[\]]|\[[^\]]*\])*?)\n\s+\]/g,
-    (whole, body) => (/^[^{}]*$/.test(body) ? `[${body.replace(/\s*\n\s*/g, ' ')}]` : whole)));
+
+/* Everything this run actually produced, and what must be non-empty for the
+ * bake-off to mean anything.
+ *
+ * Without this the report writes on an empty run: `aligned_games` reports 0,
+ * `comparisons` carries entries whose every field is a degenerate-guard string,
+ * `same_game_correlation` is null, and the file lands with a model version, a
+ * harness version, a season list and a disclaimer -- everything that makes it
+ * look like a measurement, and no measurement. Nothing throws, because the
+ * per-comparison guards downstream are written to survive thin data, which is
+ * the right behaviour for one comparison and the wrong behaviour for all of them.
+ *
+ * `test_seasons_requested` is recorded, not required: it is an argument, so
+ * requiring it asserts that the caller typed something, which is not a fact
+ * about the data.
+ */
+const SOURCES = {
+  test_seasons_requested: testSeasons.length,
+  challenger_seasons_fit: challenger.seasons.length,
+  aligned_games: aligned.joint_gas?.length ?? 0,
+  methods_aligned: Object.keys(aligned).length,
+  comparison_pairs: comparisons.length,
+  same_game_correlations: correlationSummary?.n ?? 0,
+};
+
+// Indent everything except the per-game rows, which stay one line per game:
+// the object form pretty-printed to 580KB, which is not an evidence file anyone
+// opens. Passed to the guard rather than replacing it, so the refusal stays on
+// the write path.
+const { file: outFile } = writeEvidenceReport({
+  outDir: path.dirname(out), filename: path.basename(out), report,
+  sources: SOURCES,
+  required: ['challenger_seasons_fit', 'aligned_games', 'methods_aligned',
+    'comparison_pairs', 'same_game_correlations'],
+  stampAt: 'inputs',
+  serialize: (r) => JSON.stringify(r, null, 2)
+    .replace(/\[\n\s+(?=(?:-?\d|"[A-Z]))((?:[^[\]]|\[[^\]]*\])*?)\n\s+\]/g,
+      (whole, body) => (/^[^{}]*$/.test(body) ? `[${body.replace(/\s*\n\s*/g, ' ')}]` : whole)),
+});
 
 console.log(`\n=== ${fixture ? `SYNTHETIC (${scoring} scoring)` : 'DATABASE'} — ${report.aligned_games} held-out games ===`);
 console.log('metric'.padEnd(30), 'RMSE'.padStart(9), 'MAE'.padStart(8), 'CRPS'.padStart(9), 'LogS'.padStart(9), 'CovBrier'.padStart(10));
@@ -272,4 +306,4 @@ for (const c of comparisons) {
     console.log(`  ${loss.padEnd(16)} DM* ${String(r.statistic).padStart(8)}  p=${String(r.p_two_sided).padStart(6)}  ${r.verdict}`);
   }
 }
-console.log(`\nwritten: ${out}`);
+console.log(`\nwritten: ${outFile}`);

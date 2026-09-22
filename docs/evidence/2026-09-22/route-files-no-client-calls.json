@@ -1,0 +1,14 @@
+[
+ "server/routes/accolades.js",
+ "server/routes/aggregates.js",
+ "server/routes/decision-inbox.js",
+ "server/routes/execution-slate.js",
+ "server/routes/mlb.js",
+ "server/routes/nfl-betting.js",
+ "server/routes/nfl-market.js",
+ "server/routes/props-tickets.js",
+ "server/routes/props.js",
+ "server/routes/stats.js",
+ "server/routes/tradelab.js",
+ "server/routes/wong.js"
+]

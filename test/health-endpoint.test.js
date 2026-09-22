@@ -50,6 +50,32 @@ async function get(app) {
 
 const workingDb = async () => ({ db: { prepare: () => ({ get: () => ({ 1: 1 }) }) } });
 
+/*
+ * ONE WORD PER ASSERTION, AND BEFORE THE SHAPE CHECK.
+ *
+ * These two tests used to end with `assert.doesNotMatch(res.text, /data|sqlite|unable/i)`
+ * placed AFTER `assert.deepEqual(res.payload, { ok: false })`. Both lines were dead. A
+ * body that deep-equals `{ ok: false }` is the string `{"ok":false}` and contains none
+ * of those words, so the alternation could never fail — and when the handler really did
+ * leak (measured: put `error: error.message` back in the 503), the deepEqual reported
+ * first and the run read as a shape mismatch. The most serious failure this file can
+ * detect — a database path answered to the whole internet — was reported as "expected
+ * values to be deeply equal".
+ *
+ * So the disclosure check goes first, one word at a time with its own sentence. Three
+ * branches in one regex is one message for three different leaks, and the message that
+ * matters names the word that got out. The list is shared by both tests because the
+ * prohibition is the same one: the second test used `/locked|sqlite|data/i` and so
+ * never checked for "unable" at all.
+ */
+const NEVER_DISCLOSED = ['unable', 'locked', 'sqlite', 'database', '/data', '.wal'];
+const saysNothing = (text) => {
+  for (const word of NEVER_DISCLOSED) {
+    assert.doesNotMatch(text, new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
+      `the word "${word}" reached an unauthenticated public response: ${JSON.stringify(text)}`);
+  }
+};
+
 test('a healthy app answers 200 with ok true', async () => {
   const res = await get(appWith(workingDb));
   assert.equal(res.status, 200);
@@ -75,10 +101,9 @@ test('the failure body carries no error detail at all', async () => {
   const secret = 'unable to open database file: /data/app.sqlite';
   const res = await get(appWith(async () => { throw new Error(secret); }));
 
+  saysNothing(res.text);
   assert.deepEqual(res.payload, { ok: false },
     'the 503 body must be exactly { ok: false } — this endpoint is unauthenticated and public');
-  assert.doesNotMatch(res.text, /data|sqlite|unable/i,
-    'a database path or error string reached an unauthenticated public response');
 });
 
 test('a failure thrown by the query itself is also silent', async () => {
@@ -87,6 +112,6 @@ test('a failure thrown by the query itself is also silent', async () => {
     db: { prepare: () => ({ get: () => { throw new Error('database is locked: /data/app.sqlite-wal'); } }) }
   })));
   assert.equal(res.status, 503);
+  saysNothing(res.text);
   assert.deepEqual(res.payload, { ok: false });
-  assert.doesNotMatch(res.text, /locked|sqlite|data/i);
 });

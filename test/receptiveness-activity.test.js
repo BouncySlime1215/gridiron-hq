@@ -1,0 +1,152 @@
+/**
+ * RL-11-1: what a manager has DONE this season enters trade receptiveness.
+ *
+ * Sleeper 2021-24 corpus (rnd/loop r11 package, validator re-derived): the top
+ * quintile of adds per week completes a trade ~3x as often as the bottom one,
+ * and "has already traded" adds on top (activity-only AUC 0.652 on 2024). A
+ * starter left in who did not play marks a checked-out team (-11% relative,
+ * league-week demeaned). Before this unit `tx_waiver_moves` was computed by
+ * manager-signals.js and read by nothing, so two managers who differed only in
+ * activity got the same receptiveness.
+ *
+ *  A1 two managers identical except activity get different receptiveness, and
+ *     the factor says "chance he completes a trade", never acceptance
+ *  A2 below five weeks the term is withheld: reported with its reason, no effect
+ *  A3 a manager with zero adds reads 0 per week, not "missing"
+ *  A4 a dead starter left in last week is a checked-out factor that lowers
+ *     receptiveness; with no snap data for that week it is withheld, not "no"
+ *  A5 both factors reach the Brain managers board as a list, not a run-on string
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-recept-activity-'));
+process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
+process.env.GRIDIRON_CHAT_DB_PATH = path.join(temp, 'no-chat.sqlite');
+process.env.SCHEDULER_DISABLED = '1';
+
+const { db, run } = await import('../server/db/index.js');
+const { runMigrations } = await import('../server/db/migrate.js');
+await runMigrations();
+db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
+  league_id INTEGER NOT NULL, season INTEGER NOT NULL, tx_id TEXT NOT NULL,
+  type TEXT, status TEXT, execution_type TEXT, proposed_at TEXT, processed_at TEXT,
+  team_id INTEGER, member_id TEXT, related_tx_id TEXT, scoring_period INTEGER,
+  bid_amount REAL, is_pending INTEGER, items_json TEXT, raw_json TEXT,
+  first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+  PRIMARY KEY (league_id, season, tx_id))`);
+db.exec(`CREATE TABLE IF NOT EXISTS nfl_snaps (
+  season INTEGER, week INTEGER, player TEXT, team TEXT, position TEXT,
+  offense_snaps INTEGER, offense_pct REAL, st_pct REAL, defense_snaps INTEGER, defense_pct REAL,
+  PRIMARY KEY (season, week, player, team))`);
+const signals = await import('../server/services/manager-signals.js');
+const pricing = await import('../server/services/counterparty-pricing.js');
+
+test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
+
+const SEASON = 2026;
+const team = id => ({ id, name: `Team ${id}`, owners: [`{M${id}}`],
+  record: { overall: { wins: 1, losses: 1, ties: 0, pointsFor: 200, pointsAgainst: 200, streakType: 'WIN', streakLength: 1 } },
+  roster: { entries: [] } });
+function league(id, scoringPeriodId) {
+  run(`INSERT INTO leagues(id, platform, league_id, season, name, payload, team_count, my_team_id, connection_status)
+       VALUES (?, 'espn', ?, ?, ?, ?, 4, '1', 'connected')`,
+  id, `espn-ra-${id}`, SEASON, `RA${id}`,
+  JSON.stringify({ seasonId: SEASON, scoringPeriodId, teams: [1, 2, 3, 4].map(team), schedule: [] }));
+}
+let txn = 0;
+function add(leagueId, teamId, period) {
+  txn += 1;
+  run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status, execution_type, team_id,
+       scoring_period, items_json, first_seen_at, last_seen_at)
+       VALUES (?, ?, ?, 'WAIVER', 'EXECUTED', 'PROCESS', ?, ?, ?, 'x', 'x')`,
+  leagueId, SEASON, `ra-${txn}`, teamId, period,
+  JSON.stringify([{ type: 'ADD', fromTeamId: 0, toTeamId: teamId, playerId: 9000 + txn },
+    { type: 'DROP', fromTeamId: teamId, toTeamId: 0, playerId: 8000 + txn }]));
+}
+function starter(leagueId, period, teamId, espnId, name, points, position = 'WR') {
+  run(`INSERT INTO league_roster_snapshots (league_id, season, scoring_period_id, team_id, espn_player_id,
+       player_name, position, lineup_slot_id, is_starter, actual_points, source, first_seen_at, changed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 4, 1, ?, 'final', 'x', 'x')`,
+  leagueId, SEASON, period, teamId, espnId, name, position, points);
+}
+const snap = (week, player, offense) => run(`INSERT INTO nfl_snaps (season, week, player, team, position, offense_snaps)
+  VALUES (?, ?, ?, 'XX', 'WR', ?)`, SEASON, week, player, offense);
+
+// League 61: week 7 in progress, so six completed weeks, past the five-week gate.
+// Rosters 2 and 3 are identical except that 2 added twelve players and 3 none.
+league(61, 7);
+for (let i = 0; i < 12; i += 1) add(61, 2, 1 + (i % 6));
+for (let i = 0; i < 3; i += 1) add(61, 4, 2 + i);
+add(61, 1, 3);
+// Last week's final lineups (period 6). Roster 4 left in a starter who did not play.
+for (const t of [1, 2, 3, 4]) starter(61, 6, t, 100 + t, `Active Guy ${t}`, 11.5);
+starter(61, 6, 4, 200, 'Dead Starter', 0);
+starter(61, 6, 3, 201, 'Zero But Played', 0);
+for (const t of [1, 2, 3, 4]) snap(6, `Active Guy ${t}`, 50);
+snap(6, 'Zero But Played', 40);
+
+// League 62: week 4 in progress, three completed weeks: under the gate.
+league(62, 4);
+for (let i = 0; i < 9; i += 1) add(62, 2, 1 + (i % 3));
+add(62, 4, 2);
+// Last week's final lineup has a dead starter, but no nfl_snaps row exists for week 3 at all.
+starter(62, 3, 4, 300, 'Dead Or Unknown', 0);
+
+signals.buildManagerSignals(61, { chat: null });
+signals.buildManagerSignals(62, { chat: null });
+
+const layerFor = (id, opts = {}) => pricing.counterpartyLayer(id, { season: SEASON, week: 7, rosterContext: new Map(), ...opts });
+const factor = (mp, source) => (mp.receptiveness_factors ?? []).find(f => f.source === source);
+
+test('A1: two managers identical except activity get different receptiveness', () => {
+  const layer = layerFor(61);
+  const busy = layer.get('2'), idle = layer.get('3');
+  assert.ok(busy.receptiveness > idle.receptiveness,
+    `busy ${busy.receptiveness} must read above idle ${idle.receptiveness}`);
+  const f = factor(busy, 'trade_activity');
+  assert.ok(f, 'the activity factor is reported');
+  assert.ok(f.effect > 0 && factor(idle, 'trade_activity').effect < 0, 'above the league mean helps, below hurts');
+  assert.match(f.label, /chance he completes a trade/i);
+  assert.doesNotMatch(f.label, /accept/i);
+  assert.equal(f.n, 6, 'n is the weeks the rate averages over');
+});
+
+test('A2: below the five-week gate the term is withheld, with its reason', () => {
+  const layer = layerFor(62);
+  const busy = layer.get('2'), idle = layer.get('3');
+  assert.equal(busy.receptiveness, idle.receptiveness);
+  const f = factor(busy, 'trade_activity');
+  assert.ok(f, 'withheld is reported, not dropped');
+  assert.equal(f.effect, null);
+  assert.match(f.why, /3 of 5 weeks/);
+});
+
+test('A3: a manager with no adds reads zero per week, not missing', () => {
+  const idle = signals.managerSignalsFor(61).get('3');
+  assert.equal(idle.metrics.tx_adds_per_week, 0);
+  assert.equal(idle.samples.tx_adds_per_week, 6);
+  assert.equal(signals.managerSignalsFor(61).get('2').metrics.tx_adds_per_week, 2);
+});
+
+test('A4: a dead starter left in last week is a checked-out factor; unknown snaps withhold it', () => {
+  const layer = layerFor(61);
+  const out = factor(layer.get('4'), 'checked_out');
+  assert.ok(out && out.effect < 0, 'checked out lowers receptiveness');
+  assert.match(out.why, /did not play/);
+  assert.equal(factor(layer.get('3'), 'checked_out'), undefined, 'zero points but played is not checked out');
+  const unknown = factor(layerFor(62).get('4'), 'checked_out');
+  assert.ok(unknown, 'reported');
+  assert.equal(unknown.effect, null, 'no snap data for the week is unknown, not "no"');
+});
+
+test('A5: the Brain managers board lists receptiveness factors', () => {
+  const src = fs.readFileSync(path.join(REPO, 'client/src/components/brain/ManagerBoard.tsx'), 'utf8');
+  assert.match(src, /function ReceptivenessFactors/);
+  assert.match(src, /<ReceptivenessFactors /);
+});

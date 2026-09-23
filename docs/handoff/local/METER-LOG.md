@@ -53,3 +53,8 @@
 09-23 05:50 AM ET get_usage (true): 5-hour 15% (resets 9:59 AM ET), weekly 69% (resets Mon 9/28 8:59 PM ET), Fable weekly 17%
 09-23 05:49 AM ET Desktop account: 5-hour 34%, weekly 61% (measured 168 min ago)
 09-23 05:54 AM ET Desktop account: 5-hour 34%, weekly 61% (measured 173 min ago)
+09-23 05:59 AM ET Desktop account: 5-hour 34%, weekly 61% (measured 178 min ago)
+09-23 06:04 AM ET Desktop account: 5-hour 34%, weekly 61% (measured 183 min ago)
+09-23 06:09 AM ET Desktop account: 5-hour 34%, weekly 61% (measured 188 min ago)
+09-23 06:14 AM ET Desktop account: 5-hour 34%, weekly 61% (measured 193 min ago)
+09-23 06:17 AM ET get_usage: 5-hour 22%, weekly 71%, Fable 17%

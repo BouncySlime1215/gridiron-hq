@@ -796,3 +796,4 @@ Order: AI-13 first (it compounds), AI-15 labels next (one batch, capped), AI-14 
 | S-20 | Snap-count loader joins by id, not name (one player has no snaps; another player's snaps saved on a retired namesake); re-check WV-02 snap-share ranking after | from R&D r7 | high, next loop |
 | UX-14 | Glossary PR #75: 6 of 15 definitions wrong while tests pass; fix definitions and make tests check meaning | from R&D r7 | low |
 | SS-01-F1 | One dead-starter producer: League Hub lineupDiff().flagged_starters (trade-engine.js:2970, MyTeam.tsx:327) says 0 where Start/Sit dead_starters says 1 (Doubtful QBs); unify on dead-starters.js; also manager-signals.js:314 DEAD_ESPN_STATUS lacks SUSPENSION (F4); round week_points in the card text | from SS-01 review | high |
+| S-19b | Rename the usage-gap 'hype_window'/'hype_vs_usage' labels (e.g. 'outscoring his usage') so 'hype' means only price minus value; sellHigh has no caller (deleting it is Nick's call) | from S-19 | lean |

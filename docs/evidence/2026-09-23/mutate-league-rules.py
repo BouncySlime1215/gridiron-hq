@@ -71,6 +71,10 @@ def run_tests():
     c1, f1 = run_file('test/league-rules.test.js')
     c2, f2 = run_file('test/league-rules-bracket-sim.test.js')
     return max(c1, c2), f1 + ['B' + n for n in f2]
+# Each mutant is reverted with `git checkout`, which also discards any
+# uncommitted edit to the same file, so refuse to run on a dirty tree.
+if subprocess.run(['git', 'status', '--porcelain', '--untracked-files=no'], capture_output=True, text=True).stdout.strip():
+    sys.exit('mutate-league-rules.py: commit or stash tracked changes first (mutants are reverted with git checkout)')
 only = sys.argv[1:]
 for name, f, old, new in MUTANTS:
     if only and name.split()[0] not in only: continue

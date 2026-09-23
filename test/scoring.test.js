@@ -126,3 +126,15 @@ test('A-03: falling back to the ppr bucket says so, and still serialises as the 
   assert.equal(JSON.stringify(s), JSON.stringify(PPR), 'metadata must not leak into memo keys');
   assert.equal(scoringFor({ platform: 'espn', ppr: 1, payload: null }).espn.reason, 'no-payload');
 });
+
+test('A-03: a known id that pays NEGATIVE points is reported as unscored too', () => {
+  // A skeptic's surviving mutant turned `pts !== 0` into `pts > 0` and every
+  // test still passed. Real leagues pay negative known ids (85 missedFieldGoals = -1 at base;
+  // the points-allowed tiers 122-125 and 132-136 under slot 16), so a
+  // positive-only filter would drop them from the report without a sound.
+  const base = scoringFor(espnLeague([...OFFENSE_ITEMS, item(85, -1)]));
+  assert.deepEqual(base.espn.unscored.map(u => [u.statId, u.points]), [[85, -1]]);
+  const dst = scoringFor(espnLeague([...OFFENSE_ITEMS, ...DST_ITEMS]), { slot: 16 });
+  const neg = dst.espn.unscored.filter(u => u.points < 0).map(u => u.statId);
+  assert.deepEqual(neg, [122, 123, 124, 125, 132, 133, 134, 135, 136]);
+});

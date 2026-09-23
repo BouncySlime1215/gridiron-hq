@@ -218,14 +218,30 @@ test('odds-api.js no longer exports MLB-only symbols', () => {
     assert.ok(!new RegExp(`\\b${symbol}\\b`).test(src),
       `odds-api.js still defines ${symbol}, a dead MLB-only export nothing calls`);
   }
-  // The same dead export under a new name is still MLB code, and so is a caller in
-  // another file handing odds-api.js's shared sportEvents()/eventOdds() the MLB sport.
-  // Whatever either is called, it has to carry the Odds API's MLB sport key, so no live
-  // file may name it. Known-live case first: the NFL key, which odds-api.js uses today.
+  // The same dead export under a new name is still MLB code, and so is a caller
+  // handing odds-api.js's shared sportEvents() the MLB sport. (eventOdds() used to
+  // share this risk too; it was removed as dead code with zero production callers
+  // in INT-159-1, 2026-09-23 -- see the test below.) Whatever sportEvents() is
+  // called, it has to carry the Odds API's MLB sport key, so no live file may name
+  // it. Known-live case first: the NFL key, which odds-api.js uses today.
   assert.ok(codeNaming('americanfootball_nfl').includes('server/services/odds-api.js'),
     "the scan cannot see odds-api.js name 'americanfootball_nfl', so it proves nothing");
   assert.deepEqual(codeNaming('baseball_mlb'), [],
     "these files still name the Odds API's MLB sport key 'baseball_mlb'; MLB is gone from the product (#128)");
+});
+
+test('eventOdds is removed from odds-api.js: an any-sport door into the paid Odds API with zero production callers', () => {
+  // Unlike sportEvents/gameOdds/playerProps, eventOdds took a caller-supplied `sport`
+  // string straight through to the paid Odds API with no allowlist -- an any-sport
+  // door -- and `git grep -w eventOdds server scripts client/src` found zero callers
+  // (INT-159-1, 2026-09-23). Removed rather than fixed: nothing used it.
+  const src = code('server/services/odds-api.js');
+  // Known-nonzero control, same regex shape: catches a broken regex before it can
+  // turn a real export into a false "removed".
+  assert.ok(new RegExp('\\bgameOdds\\b').test(src),
+    'control failed: gameOdds should still be defined in odds-api.js');
+  assert.ok(!new RegExp('\\beventOdds\\b').test(src),
+    'odds-api.js still defines eventOdds, an any-sport door into the paid Odds API with zero production callers');
 });
 
 test('the MLB props board and its saved-slip router are deleted, and nothing live imports or mounts them', () => {

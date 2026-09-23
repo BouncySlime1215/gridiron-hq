@@ -83,3 +83,5 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 08:30Z: FC-SNAP, RL-4-2, RL-3-4 built and skeptic-clean but gates timed out on the guard lock -> gate-pr.js launched (wyq8tvpl4). Orphaned lock waiters killed. Rule change logged in WORK-QUEUE 12.
 
 08:45Z: PRs opened: #169 RL-3-4 (gate-pr), #170 FC-SNAP and #171 RL-4-2 (opened by the coordinator: one gate agent misread a pre-fix review, another refused to push; both units verified clean after rechecks). Merge queue: #169, #171. #170 HELD for Nick (migration 073).
+
+09:00Z: Lean batch done: UX-08 -> PR #167 (draft; gate-merge marks ready), INT-159-1 -> #172, RL-3-3 built + pushed (gate incomplete, PR to open). CI FAILED on #169 (its new test leaves async work after end: ENOENT) and #171 -> CI-fix agent launched; merge-queue refused both correctly. CE-05 -> PR #168 (from loop 1; GR-01/GR-05 still in progress).

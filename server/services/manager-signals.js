@@ -38,7 +38,7 @@ import path from 'node:path';
 import { db, rows, run } from '../db/index.js';
 import { identityMap, matchIdentities } from './manager-identity.js';
 import { PROJECT_ROOT } from '../platform/paths.js';
-import { DEAD_ESPN_STATUS } from './dead-starters.js';
+import { espnDeadReason } from './dead-starters.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS manager_signals (
   league_id INTEGER NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
@@ -305,13 +305,15 @@ function archetypeIndex(leagueId, season) {
   return { present: true, byMember, asOf: archetypesBuilt(leagueId, season).as_of };
 }
 
-function rosterSignals(payload, rosterId) {
+/** Exported for the one-producer contract (test/dead-starter-one-producer.test.js). */
+export function rosterSignals(payload, rosterId) {
   const team = (payload.teams ?? []).find(t => String(t.id) === String(rosterId));
   if (!team?.roster?.entries) return [];
   const entries = team.roster.entries;
   const starters = entries.filter(e => e.lineupSlotId !== 20 && e.lineupSlotId !== 21);
-  // The ESPN half of the one dead-starter definition (dead-starters.js, SS-01).
-  const dead = starters.filter(e => Object.hasOwn(DEAD_ESPN_STATUS, e.playerPoolEntry?.player?.injuryStatus ?? ''));
+  // The one dead-starter rule (dead-starters.js#deadReason) on ESPN's status alone: this job
+  // has only the payload. SUSPENSION counts since SS-01-F1 (it did not before).
+  const dead = starters.filter(e => espnDeadReason(e.playerPoolEntry?.player?.injuryStatus) != null);
   // How much of the roster arrived by trade vs waiver vs draft — the cleanest
   // available read on whether someone actually engages with the market.
   const byType = entries.reduce((acc, e) => {

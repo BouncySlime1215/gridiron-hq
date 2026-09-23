@@ -45,7 +45,7 @@ import { careerLine } from './player-career.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
 import { availabilityDegradation } from './contingency.js';
-import { deadStarters, NO_LIVE_INACTIVES } from './dead-starters.js';
+import { deadStarters, NO_LIVE_INACTIVES, slotAccepts } from './dead-starters.js';
 
 const r1 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(1));
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
@@ -786,15 +786,5 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   };
 }
 
-/** Which positions a slot will accept, matching the solver's own rules. */
-function slotAccepts(slot, position) {
-  const s = String(slot).toUpperCase();
-  if (s === position) return true;
-  if (s === 'FLEX' || s === 'W/R/T') return ['RB', 'WR', 'TE'].includes(position);
-  if (s === 'W/R') return ['RB', 'WR'].includes(position);
-  if (s === 'W/T') return ['WR', 'TE'].includes(position);
-  if (s === 'SUPERFLEX' || s === 'OP') return ['QB', 'RB', 'WR', 'TE'].includes(position);
-  return false;
-}
-
+// slotAccepts (the solver's slot rule) lives in dead-starters.js, shared with lineupDiff.
 const norm = s => String(s ?? '').toLowerCase().replace(/[^a-z]/g, '');

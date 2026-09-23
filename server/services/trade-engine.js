@@ -115,6 +115,7 @@ import { horizonWeights, horizonGain, horizonNote, leagueSchedule } from './trad
 // ros_ppg / playoff_ppg (and so adj_ppg): the gated rest-of-season model. This
 // week's number stays the weekly blend.
 import { buildRosProjections } from './ros-projection.js';
+import { deadStarters, slotAccepts, DEAD_REASON_LABEL } from './dead-starters.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const GAMES = 17;
@@ -2811,7 +2812,7 @@ function pairLineupSwaps(ins, outs, optimalPlayers, slots, points) {
  * silent bench. An IR-slot player ESPN lists as playing, who would start if
  * activated, is listed in `activate_from_ir` rather than recommended.
  */
-export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
+export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null, now = Date.now() } = {}) {
   if (lg.platform !== 'espn') return { error: 'Submitted-lineup comparison is ESPN-only for now — Sleeper stores starters in a different shape this doesn\'t read yet.' };
   const { formatKey } = deriveFormat(lg);
   // `assets` lets a test price every player exactly (test/lineup-diff-urgency.test.js).
@@ -2901,11 +2902,25 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
     .sort((a, b) => URGENCY_RANK[b.urgency] - URGENCY_RANK[a.urgency] || b.p_right - a.p_right);
   const headline = swaps[0] ?? null;
 
-  const flaggedStarters = submitted.filter(dead).map(p => ({
-    ...brief(p), reason: outReason(p),
-    // The news scan says out, ESPN still says playing — worth a look before benching.
-    espn_disagrees: p.available === false && !p.on_ir && ESPN_PLAYING.has(p.espn_status)
-  }));
+  // Who is set on ESPN and will score zero: dead-starters.js, the one producer the
+  // Start/Sit tab's `dead_starters` also reads (SS-01-F1), on this card's week_points
+  // (built to equal Start/Sit's). It used to be `submitted.filter(dead)` (season-ending or
+  // IR only), which said 0 where Start/Sit said 2 on the W3 local copy (Doubtful QBs).
+  // Out / Doubtful / bye starters are listed here but still priced at their week_points in
+  // the totals above; only the list of who is dead is shared, not the solver's scoring.
+  const deadCheck = deadStarters(lg, me.roster_id, me.players, {
+    season, week, weekPoints: new Map(mine.map(p => [p.id, p.week_points])), accepts: slotAccepts, now
+  });
+  const mineById = new Map(mine.map(p => [p.id, p]));
+  const flaggedStarters = deadCheck.items.map(i => {
+    const p = mineById.get(i.player.id);
+    return {
+      ...brief(p), slot: i.slot, reason: DEAD_REASON_LABEL[i.reason], dead_reason: i.reason, source: i.source,
+      kickoff: i.kickoff, replacement: i.replacement, why: i.why,
+      // The news scan says out, ESPN still says playing — worth a look before benching.
+      espn_disagrees: p.available === false && !p.on_ir && ESPN_PLAYING.has(p.espn_status)
+    };
+  });
   const activatable = mine.filter(p => !p.on_ir || (p.in_ir_slot && ESPN_PLAYING.has(p.espn_status)));
   const ifActivated = bestLineup(activatable, slots, 'week_points');
   const activateFromIr = ifActivated.slots.map(s => s.player).filter(p => p?.on_ir && !p.no_game && p.week_points > 0)

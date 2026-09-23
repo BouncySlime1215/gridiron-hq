@@ -13,9 +13,16 @@
  * `deadReason()` covers both, plus bye and gameday inactive. Its Out / Doubtful branch is
  * contingency.js#weekDesignation, the canonical designation (more severe of the NFL report
  * and ESPN, incl. SUSPENSION and Reserve/PUP) that Start/Sit's week_points already use, so
- * the red card and the solver can't disagree on who is out. manager-signals.js reads its
- * ESPN status set from `DEAD_ESPN_STATUS` here (unchanged; follow-up SS-01-F4 moves it onto
- * weekDesignation too, which would change its stored value).
+ * the red card and the solver can't disagree on who is out.
+ *
+ * ONE PRODUCER (SS-01-F1). Every surface that says "this starter will score zero" reads
+ * this module: Start/Sit (lineup-brain.js#lineupCall `dead_starters`), the League Hub card
+ * (trade-engine.js#lineupDiff `flagged_starters`, same items plus its ESPN-disagrees flag)
+ * and the stored manager signal (manager-signals.js#rosterSignals `lineup_dead_starters`,
+ * via espnDeadReason(): the same rule on ESPN's status alone, since that job has no player
+ * rows). Before this, the League Hub card flagged only season-ending/IR starters and said 0
+ * on the 2026-W3 local copy where Start/Sit said 2 (Doubtful QBs), and the signal missed
+ * SUSPENSION.
  *
  * Suggestion only. Nothing is written to the platform (applying a swap waits on Nick's
  * N12); `applied: false` says so on the payload.
@@ -34,14 +41,6 @@ import { gameCutoff } from './game-cutoff.js';
 import { SLOT_NAME } from './espn-draft.js';
 import { weekDesignation } from './contingency.js';
 
-/**
- * ESPN injuryStatus values manager-signals.js#rosterSignals stores as `lineup_dead_starters`
- * (kept unchanged so that stored value does not move). The guard itself does NOT read this:
- * Out / Doubtful comes from contingency.js#weekDesignation, the one producer of the week's
- * designation that Start/Sit's week_points and active_probability are already priced on.
- */
-export const DEAD_ESPN_STATUS = Object.freeze({ INJURY_RESERVE: 'ir', OUT: 'out', DOUBTFUL: 'doubtful' });
-
 /** The inactive hook's default until RL-3-2 lands. */
 export const NO_LIVE_INACTIVES = Object.freeze({
   covered: false, source: null, ids: new Set(),
@@ -51,6 +50,28 @@ export const NO_LIVE_INACTIVES = Object.freeze({
 
 const BENCH_SLOT = 20, IR_SLOT = 21;
 const norm = s => String(s ?? '').toLowerCase().replace(/[^a-z]/g, '');
+const r1 = v => (v == null || !Number.isFinite(v) ? v : +v.toFixed(1));
+
+/** Which positions a slot will accept, matching the solver's own rules (bestLineup). */
+export function slotAccepts(slot, position) {
+  const s = String(slot).toUpperCase();
+  if (s === position) return true;
+  if (s === 'FLEX' || s === 'W/R/T') return ['RB', 'WR', 'TE'].includes(position);
+  if (s === 'W/R') return ['RB', 'WR'].includes(position);
+  if (s === 'W/T') return ['WR', 'TE'].includes(position);
+  if (s === 'SUPERFLEX' || s === 'OP') return ['QB', 'RB', 'WR', 'TE'].includes(position);
+  return false;
+}
+
+/** Short label for each reason, for a card that writes "<name> is <label>." */
+export const DEAD_REASON_LABEL = Object.freeze({
+  ir: 'on IR',
+  out_for_season: 'flagged out for the season or released',
+  out: 'listed Out',
+  doubtful: 'listed Doubtful',
+  bye: 'on bye this week',
+  inactive: 'on the gameday inactive list'
+});
 
 const SENTENCE = {
   ir: 'is on injured reserve',
@@ -81,6 +102,15 @@ export function deadReason(p, { week, espnStatus = null, inactive = NO_LIVE_INAC
   if (week != null && p.bye === week) return { reason: 'bye', source: 'schedule' };
   if (inactive?.covered && inactive.ids?.has(p.id)) return { reason: 'inactive', source: inactive.source };
   return null;
+}
+
+/**
+ * deadReason() on the platform status alone, for a reader with only the ESPN payload
+ * (manager-signals.js#rosterSignals). IR, Out, SUSPENSION, Doubtful: whatever
+ * weekDesignation maps to Out or Doubtful.
+ */
+export function espnDeadReason(espnStatus) {
+  return deadReason({}, { week: null, espnStatus: espnStatus ?? null });
 }
 
 /**
@@ -147,7 +177,7 @@ export function deadStarters(lg, rosterId, players, {
       replacement: pick ? { id: pick.p.id, name: pick.p.name, position: pick.p.position,
         team_abbr: pick.p.team_abbr, week_points: weekPoints.get(pick.p.id) } : null,
       why: `${s.p.name} (${s.slot}) ${SENTENCE[s.dead.reason]}.` + (pick
-        ? ` Start ${pick.p.name} instead (${weekPoints.get(pick.p.id)} projected).`
+        ? ` Start ${pick.p.name} instead (${r1(weekPoints.get(pick.p.id))} projected).`
         : ' No healthy bench player who can fill this slot has a projection; look at the waiver wire.')
     };
   });

@@ -394,7 +394,11 @@ function LineupDiffCard({ d, platform }: { d: any; platform: string }) {
         <ul className="mt-2 space-y-1 text-xs text-slate-600">
           {flagged.map((f: any) => (
             <li key={`f-${f.id}`}>
-              <span className="font-semibold text-crit">{f.name}</span> is counted as 0 this week ({f.reason}).
+              {/* dead-starters.js items, the same list the Start/Sit red card shows (SS-01-F1). */}
+              <span className="font-semibold text-crit">{f.name}</span> is {f.reason}.
+              {f.replacement
+                ? <> Start {f.replacement.name} instead ({pts(f.replacement.week_points)} projected).</>
+                : f.dead_reason && <> No healthy bench player can fill his slot; look at waivers.</>}
               {f.espn_disagrees && (
                 <span className="text-amber-800"> {platform} still lists him {String(f.espn_status).toLowerCase().replace(/_/g, ' ')} — our news scan may be wrong, so check before you bench him.</span>
               )}

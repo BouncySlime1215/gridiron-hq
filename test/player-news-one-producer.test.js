@@ -77,6 +77,9 @@ const suffixStory = addStory({ headline: 'Steelers CB Dorian Vantreese Jr. limit
   date: '2026-09-21', published: '2026-09-21T10:00:00.000Z' });
 const namesake = addStory({ headline: 'Jets DT Quinnen Wexley signs extension', team: NYJ,
   date: '2026-09-21', published: '2026-09-21T11:00:00.000Z' });
+// (e) positive side of the suffix fix: his team, his bare family name, no "Jr." in the headline
+const pittsSurname = addStory({ headline: "Steelers' Pittsworth limited at practice", team: PIT,
+  date: '2026-09-22', published: '2026-09-22T10:00:00.000Z' });
 const firstNameUse = addStory({ headline: 'Jets waive TE Wexley Barnes', team: NYJ,
   date: '2026-09-19', published: '2026-09-19T11:00:00.000Z' });
 
@@ -100,6 +103,10 @@ test('surname fallback: his team named with his bare surname counts, suffix toke
   assert.ok(!(await cardIds(pitts)).includes(suffixStory), 'a "Jr." token matched a different player');
   assert.ok(!(await cardIds(wex)).includes(namesake), 'a same-team namesake (different first name) matched');
   assert.ok(!(await cardIds(wex)).includes(firstNameUse), 'his surname used as someone else\'s first name matched');
+});
+
+test('a Jr. player\'s bare family name on his team\'s story reaches his card (suffix dropped, not kept as "Pittsworth Jr.")', async () => {
+  assert.deepEqual(await cardIds(pitts), [pittsSurname]);
 });
 
 test('the card is newest-published first, and the full-name control still appears', async () => {
@@ -131,5 +138,17 @@ test('the AI Buy/Sell evidence packet reads the same stories as the card', async
   } finally {
     claude.setAnthropicClientForTesting(null);
     if (previousKey === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = previousKey;
+  }
+});
+
+test('contract: the Trade Lab player outlook lists the card\'s stories (top 5)', async () => {
+  const { playerOutlook } = await import('../server/services/trade-engine.js');
+  const leagueId = Number(run(`INSERT INTO leagues (platform, league_id, season, team_count, payload)
+    VALUES ('sleeper', 'player-news-fixture', 2026, 2, ?)`, JSON.stringify({ users: [], rosters: [] })).lastInsertRowid);
+  const lg = row('SELECT id, platform, league_id, season, team_count, ppr, superflex, roster_positions, payload FROM leagues WHERE id = ?', leagueId);
+  for (const id of [brook, pitts, wex]) {
+    const outlook = playerOutlook(lg, id);
+    assert.ok(!outlook.error, `player ${id}: ${outlook.error}`);
+    assert.deepEqual(outlook.news.map(n => n.id), (await cardIds(id)).slice(0, 5), `player ${id}`);
   }
 });

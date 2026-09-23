@@ -35,3 +35,100 @@ Decision: **extend**, no new producer.
   UPDATE (no deletes) that reuses `repairSchedule` (now exported), run at the end of every schedule sync and
   returned as counts.
 - No migration, no new table or column.
+
+## 2. RED / GREEN
+
+- **RED** `b8e85134` "test: RED for the made-up strength-of-schedule rank and the WSH schedule writer".
+  `test/schedule-strength-not-made-up.test.js`, 6 of 6 fail on origin/main code:
+  1. `assert.equal(sos.status, 'not available')` -> actual `undefined` (computeSOS returned a ranked array on 0 `fc_value` rows).
+  2. `assert.equal(sos.signal, false)` -> actual `undefined` (known-nonzero control: filled store).
+  3. `assert.deepEqual(hits, [])` -> actual `['server/routes/analysis.js', 'server/routes/players.js', 'client/src/components/OffseasonPanel.tsx']`.
+  4. `assert.equal(typeof players.playerEvidenceFacts, 'function')` -> actual `'undefined'`.
+  5. `assert.equal(body.sos, undefined)` -> actual `{ abbr: 'WAS', games: 2, home_games: 0, ... rank }`.
+  6. `assert.deepEqual(got, {...})` -> actual `{ WAS1: 'WSH/0', DAL1: 'WSH/0', PHI2: 'WSH/1', ... }`.
+- **GREEN** `46d5fc7f` "fix: stop printing a made-up schedule rank; canonicalise WSH at the schedule writer". 6/6 pass.
+  Neighbours on the same tree: `test/matchups-no-signal.test.js` 5/5, `test/model-integrity.test.js` 89/89
+  (its grounding fixture's `schedule.rank` fact was swapped for a real fact id, `market.sleeper_rank`).
+  `node scripts/wiring-map.mjs --check` exit 0, "no missing-feed findings".
+  Command: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/<file>.test.js`.
+
+## 3. What it does
+
+- `computeSOS` (`server/routes/nfldata.js`): with no `fc_value` strength for any team it logs a warning and returns
+  `{ status: 'not available', signal: false, reason, teams: [] }`, naming the table and writer. With data it returns
+  descriptive values only (`status: 'descriptive'`, `signal: false`, `reason: MATCHUP_SIGNAL_REASON`, no `rank`),
+  canonicalises opponent codes and counts unknown opponents instead of silently substituting the average.
+  Only reader: `GET /nfl/sos`.
+- Buy/Sell evidence (`players.js playerEvidenceFacts`, now exported for the test): the `schedule.rank` fact is gone.
+- Team-analysis prompt (`analysis.js refreshTeam`): the "Strength of schedule ranks N/32" sentence is gone.
+- `/nfl/offseason/:abbr`: `sos` removed; new field `schedule_signal: { signal: false, reason }`, read by
+  `OffseasonPanel.tsx`, which shows "No validated signal", the reason, and home games counted from the served schedule.
+- `syncSchedules`: compares and stores `canonicalTeamCode(...)`, then calls the new `repairStoredSchedule(season)`,
+  which runs `matchups.js repairSchedule` (now exported, unchanged) over the stored rows and UPDATEs only rows that
+  change. The sync result carries `repaired` counts. No delete, no migration, no new table or column.
+
+## 4. The numbers (local copy, not production)
+
+Copy: `sqlite3 ~/gridiron-local/data.sqlite ".backup '.local-db/data.sqlite'"` on 2026-09-23, tree `46d5fc7f`.
+
+| Check | Before | After backfill | Command |
+|---|---|---|---|
+| `player_metrics` `fc_value` rows | 0 | 0 | `select count(*) from player_metrics where source='fc_value'` |
+| control: `sleeper_rank` rows | 1627 | 1627 | same, `source='sleeper_rank'` |
+| `computeSOS(2026)` | ranked 32 teams (origin/main code) | `{"status":"not available","teams":0}` | scratch `live.mjs` |
+| 2026 rows with an opponent not in `nfl_teams` | 26 | 0 | `select count(*) from schedule_games where season=2026 and opponent_abbr not in (select abbr from nfl_teams)` |
+| WAS rows naming itself (WAS/WSH) | 9 | 0 | join `nfl_teams`, `t.abbr='WAS' and opponent_abbr in ('WAS','WSH')` |
+| WAS home games | 0 | 9 of 17 | `sum(home)` for WAS |
+| `schedule_games` total rows | 544 | 544 (no deletes) | `select count(*) from schedule_games` |
+| backfill result | | `opponents_canonicalised 26, self_opponent_repaired 9, home_flag_repaired 9, rows_updated 26` | `repairStoredSchedule(2026)` |
+| read-side `matchupModel().schedule_repairs` | 26 / 9 / 9 | 0 / 0 / 0 | same script |
+| backfill rerun | | `rows_updated 0` (idempotent) | same script |
+
+Liveness (same copy, express app on the real router): `GET /nfl/offseason/WAS` -> 17 schedule rows, 9 home,
+0 self-opponent, no `sos` field, no `"rank"` anywhere, `schedule_signal.signal=false`; `GET /nfl/sos` -> `status: "not available"`.
+
+Production gets the backfill the next time `syncSchedules` runs (`POST /nfl/sync/schedules`, the NFL sync-all,
+or `/dev/refresh-all` at `server/routes/dev.js:91`).
+
+## 5. Mutation sweep (tree `46d5fc7f`, scratch `mut.py`, file restored after each)
+
+| Mutant | Result |
+|---|---|
+| M1 remove the empty-data guard | killed by test 1 |
+| M2 writer compares raw ESPN code | killed by test 6 |
+| M3 writer stores the raw opponent code (the backfill still canonicalises) | killed by test 6 (count `opponents_canonicalised` 4 != 2) |
+| M4 call site: `syncSchedules` does not call the backfill | killed by test 6 |
+| M5 call site: re-add the `schedule.rank` fact in players.js | killed by tests 3, 4 |
+| M6 call site: offseason route serves `sos: computeSOS(season)` again | killed by test 5 |
+| M7 `computeSOS` drops `canonicalTeamCode` | killed by test 2 |
+| M9 designed survivor: delete the guard's `console.warn` | survived, as designed: the returned `status` is the contract, the log line is not asserted |
+| M8 not-applied control (pattern absent, `git diff` empty) | survived, as expected |
+
+## 6. Statistical discipline
+
+Not a model unit: nothing is fit or graded, and no 2025 data was opened, so no HOLDOUT-LEDGER row, no forward
+holdout, no MDE and no decision win rate apply. The change removes an input that was not measured (the rank);
+it does not claim the Buy/Sell verdict got better.
+
+## 7. Known defects and follow-ups
+
+- `fc_value` still has no scheduled writer (S-10 / PR #170). If S-10 fills it, `GET /nfl/sos` returns descriptive
+  values with `signal: false`; no page prints them. A rank may only return through a schedule arm that passes the
+  `MATCHUP_EVIDENCE` walk-forward protocol.
+- `edge.js`, `gamescript.js:174` and `nfl-opening-lines.js:52` keep their own WSH aliases; after the backfill they
+  are no-ops. Removing them is a follow-up, not done here (other files, other owners).
+- `unitGrades` (`nfldata.js`) still reads `fc_value` for its "top-50 fantasy asset" badge and silently loses it on
+  the empty store (S-18 item, not touched).
+- "Remaining" was also false (the old rank averaged all 17 games). Moot now that no rank is printed.
+
+## 8. Nick's five questions
+
+1. **Well built?** One producer kept (`computeSOS`), one repair reused (`repairSchedule`), one canonical code map
+   (`canonicalTeamCode`). 6 tests, 7 of 7 real mutants killed, UPDATE-only backfill that is idempotent.
+2. **Stats or made up?** Before: made up (the rank was "games vs Washington, then row order" on 0 `fc_value` rows).
+   After: no number is printed; the page says why.
+3. **How we know?** The table above: local-copy counts before/after with the commands, plus the route liveness check.
+4. **Pointed elsewhere?** The player card's Scout report and Trade Lab outlook already showed no schedule signal;
+   now the Buy/Sell evidence and the X's & O's panel agree with them and use the same reason text.
+5. **How it unifies?** Every schedule surface now uses `MATCHUP_SIGNAL_REASON`; the schedule rows themselves are
+   canonical at the writer, so the read-side repair in `matchupModel` reports 0 repairs.

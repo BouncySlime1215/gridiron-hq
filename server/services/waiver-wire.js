@@ -150,7 +150,8 @@ function rosteredNames(payload) {
  * though `ros_upgrade` keeps the rest-of-season view for stashes.
  */
 export function waiverBoard(lg, {
-  myTeamId, limit = 20, minProjected = 4, minRosProjected = minProjected, now = new Date()
+  myTeamId, limit = 20, minProjected = 4, minRosProjected = minProjected, now = new Date(),
+  sameTeamOrder = 'projection'
 } = {}) {
   if (!lg?.payload) return { error: 'league not synced' };
   const payload = JSON.parse(lg.payload);
@@ -328,7 +329,7 @@ export function waiverBoard(lg, {
   // WV-02: my injured starters and who replaces them, before the next waiver run.
   const waiverRun = nextWaiverRun(payload, now);
   const injuryAlerts = injuryReplacementAlerts({
-    mine, assets, unowned, owned, rosterId, waiverRun, roles: roleStates(week.season, week.week)
+    mine, assets, unowned, owned, rosterId, waiverRun, roles: roleStates(week.season, week.week), sameTeamOrder
   });
 
   return {
@@ -391,6 +392,19 @@ const WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDA
 export const WAIVER_ZONE = 'America/New_York';
 export const SNAP_SHARE_BASIS = 'Snap share: his mean offensive snap % over his last three appearances before this '
   + 'week (contingency.js#roleStates, the number the availability role tier uses).';
+/**
+ * How same-team replacements are ordered. Pre-registered check (docs/tdd/
+ * 2026-09-23-injury-replacement-alert.tdd.md, section 5): the snap-share pick beat the
+ * recent-points pick in 0.531 of 98 disagreements on 2022-2024, but the mean PPR
+ * difference's 90% interval [-0.772, +0.385] crossed the -0.5 non-inferiority margin,
+ * so snap-share order ships default-off. Default: this week's projection, the number
+ * the claim list ranks on (not itself graded historically).
+ */
+export const SAME_TEAM_ORDERS = Object.freeze({
+  projection: 'Ordered by this week\'s projection. ' + SNAP_SHARE_BASIS,
+  snap_share: 'Ordered by snap share (unconfirmed: failed its pre-registered non-inferiority check on 2022-2024). '
+    + SNAP_SHARE_BASIS
+});
 
 const zoneParts = new Intl.DateTimeFormat('en-US', {
   timeZone: WAIVER_ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23'
@@ -475,6 +489,8 @@ function replacementRow(p, roles, onYourRoster) {
 
 /** Higher snap share first; no snap share last; then this week's projection. */
 const bySnapShare = (a, b) => (b.snap_share ?? -1) - (a.snap_share ?? -1) || b.projected_ppg - a.projected_ppg;
+/** Higher projection this week first; then snap share. */
+const byProjection = (a, b) => b.projected_ppg - a.projected_ppg || (b.snap_share ?? -1) - (a.snap_share ?? -1);
 
 /**
  * One alert per starter of mine who is Out / IR / Doubtful this week, or who carries
@@ -483,7 +499,11 @@ const bySnapShare = (a, b) => (b.snap_share ?? -1) - (a.snap_share ?? -1) || b.p
  * ranked by snap share; then the best free agent at the position from another team,
  * on this week's projection (the number the claim list ranks on).
  */
-export function injuryReplacementAlerts({ mine, assets, unowned, owned, rosterId, waiverRun, roles }) {
+export function injuryReplacementAlerts({
+  mine, assets, unowned, owned, rosterId, waiverRun, roles, sameTeamOrder = 'projection'
+}) {
+  if (!SAME_TEAM_ORDERS[sameTeamOrder]) throw new Error(`unknown sameTeamOrder: ${sameTeamOrder}`);
+  const order = sameTeamOrder === 'snap_share' ? bySnapShare : byProjection;
   const starters = mine.filter(p => p.lineup_slot != null
     && p.lineup_slot !== ESPN_SLOT_BENCH && p.lineup_slot !== ESPN_SLOT_IR);
   const flagged = currentFeedFlags(starters.map(p => p.id));
@@ -504,7 +524,7 @@ export function injuryReplacementAlerts({ mine, assets, unowned, owned, rosterId
         return (holder == null || holder === rosterId) && healthy(a);
       })
       .map(a => replacementRow(a, roles, mineById.has(a.id)))
-      .sort(bySnapShare);
+      .sort(order);
     const bestFree = unowned
       .filter(a => a.position === s.position && teamOf(a) !== team && healthy(a))
       .sort((a, b) => weekPpg(b) - weekPpg(a))[0] ?? null;
@@ -515,7 +535,8 @@ export function injuryReplacementAlerts({ mine, assets, unowned, owned, rosterId
       replacements: {
         same_team: sameTeam.slice(0, SAME_TEAM_SHOWN),
         same_team_count: sameTeam.length,
-        ranked_by: SNAP_SHARE_BASIS,
+        order: sameTeamOrder,
+        ranked_by: SAME_TEAM_ORDERS[sameTeamOrder],
         best_free_agent: bestFree ? replacementRow(bestFree, roles, false) : null
       },
       claim_by: waiverRun

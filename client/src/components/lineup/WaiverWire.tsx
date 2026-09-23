@@ -65,7 +65,7 @@ export interface InjuryAlert {
   designation_source: 'nfl' | 'espn' | 'feed_flag';
   status: string | null;
   replacements: {
-    same_team: Replacement[]; same_team_count: number; ranked_by: string;
+    same_team: Replacement[]; same_team_count: number; order: 'projection' | 'snap_share'; ranked_by: string;
     best_free_agent: Replacement | null;
   };
   claim_by: WaiverRun;
@@ -377,8 +377,9 @@ function runLabel(run: WaiverRun): string {
 }
 
 /**
- * Injured starters and who replaces them (WV-02). Same-team backups first, ranked by
- * snap share over their last three appearances; then the best free agent elsewhere.
+ * Injured starters and who replaces them (WV-02). Same-team backups first, each with
+ * his snap share over his last three appearances, in the server's order (this week's
+ * projection by default; `ranked_by` says which); then the best free agent elsewhere.
  * Shown above the claims because a dead starter costs the most points of anything
  * on this card.
  */

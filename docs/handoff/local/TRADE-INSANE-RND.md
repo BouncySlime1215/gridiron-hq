@@ -1,3 +1,30 @@
+# ONE ENGINE (Nick, 3:45 PM ET 9/23: "they should be one integrated system, not separate"). Read this first; it overrides any layer-by-layer framing below.
+Everything below is **one system with one loop**, not modules: projections, sims, tells, clones, radar, chess, Coach, offer loop and autopsy.
+
+**OBSERVE -> UNDERSTAND -> SIMULATE -> DECIDE -> ACT -> LEARN -> (back to OBSERVE)**
+1. **OBSERVE: one event log.** Every ESPN transaction, lineup set, offer/decline/accept, news item, Vegas move, injury, chat message and Sleeper history row goes into one append-only, timestamped `engine_events` stream (as-of safe by construction).
+2. **UNDERSTAND: one world state, per week, as of any moment.**
+   - Players: the projection engine (Mistake Map + chain) gives each player's distribution.
+   - Managers: the Tells Factory tells + clone (engagement, their price per player, P(accept), buyer/seller state, veto risk, reputation).
+   - Teams and leagues: rosters, rules, deadline, standings.
+   - One store (`engine_state`), one producer per field. Every page and Coach read it; nothing recomputes.
+3. **SIMULATE: one simulator.** The correlated game simulator gives player ranges, start/sit, then season sim gives title odds for every team. The same draws are used everywhere.
+4. **DECIDE: one search.** Chess searches trade -> claim -> flip paths against the clones' replies, scored on title odds. Start/sit and waivers are the same search with smaller moves. The radar is the search's "where to look first" list.
+5. **ACT: one voice.** Coach presents every decision (trade, pitch, start/sit, claim) with its evidence: tells with n, title-odds change, "why ESPN is off". The AI writes the words; the engine makes the calls.
+6. **LEARN: one grader.** The offer loop and the Monday Autopsy grade every call against what happened, split decision vs luck, update projections, tells and clones, and log new blind spots to R&D.
+
+**Build rule:** every unit (PROJ-*, CE-*, TELLS-*, CLONE-*, RADAR-*, CHESS-*, COACH-*, OFFER-*) is a STAGE of this loop. It reads from `engine_events` / `engine_state` and writes only its own fields. A unit that creates its own side store, or a second number for something the state already has, is blocking (structure lens). The first engine unit defines the two contracts (ENGINE-00, below); every later unit extends them.
+
+**ENGINE-00 (first, before PROJ-01): the spine.**
+- `engine_events` (additive migration): event type, as-of timestamp, league, team, player, payload.
+- `engine_state`: an entity x field x as_of x producer table, or typed tables with one writer each.
+- A reader API `/api/engine/state` for pages and Coach.
+- Adapters that backfill the existing streams (league_transactions_raw, lineups, news, lines, injuries, Coach chat variables) into events.
+- It builds no model, only the spine every stage plugs into.
+- Tests: each field has exactly one writer (grep plus runtime assert), and as-of reads never see future events.
+
+---
+
 # R&D sole focus: make the Trade Analyzer insane (Nick, 2026-09-23 2:25 PM ET)
 Every R&D round, both lanes, works ONLY on this until Nick says otherwise. Each find must move one of the 5 layers below, with a kill-or-confirm test.
 

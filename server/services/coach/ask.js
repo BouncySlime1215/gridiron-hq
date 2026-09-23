@@ -28,16 +28,25 @@ import { recordCoachAnswer } from './audit.js';
 
 /**
  * Rounds of model call. One round is one Claude turn; a round that asks for
- * tools spends itself on lookups. The last round is offered no tools, so the
- * model cannot queue a lookup it will never get to run — the same discipline
- * as nfl-page-explain.js:23, with more room because Coach reads more.
+ * tools spends itself on lookups. The last round keeps the same tools declared
+ * but sends tool_choice "none", so the model cannot queue a lookup it will
+ * never get to run — the same discipline as nfl-page-explain.js, with more
+ * room because Coach reads more. The tools stay declared because the history
+ * already holds tool_use/tool_result blocks, and because tools sit at the
+ * front of the cached prefix: dropping them would miss the system cache.
  */
 export const MAX_TOOL_ROUNDS = 6;
 
 /** Sonnet rather than Haiku: this one writes SQL over 34 tables and has to get joins right. */
 export const COACH_MODEL = 'claude-sonnet-5';
 
-const MAX_OUTPUT_TOKENS = 1500;
+/**
+ * Output cap per round, thinking included. Sonnet 5 runs adaptive thinking by
+ * default and its thinking counts toward max_tokens, so a cap sized for the
+ * answer alone can be spent before the answer starts — trade-proposals.js hit
+ * exactly that at 4,000. Only tokens actually produced are billed.
+ */
+const MAX_OUTPUT_TOKENS = 8000;
 
 /** One line per table: enough to choose one, not enough to write a query blind. */
 function catalogBrief() {
@@ -53,8 +62,6 @@ function systemPrompt() {
 WHAT YOU MAY READ. These tables, and nothing else. A question about anything absent from this list is answered by saying Coach does not read it.
 
 ${catalogBrief()}
-
-Call catalog_lookup with a table name before writing SQL against a table you have not used in this conversation — it returns the real column names, and a guessed column name is a wasted round.
 
 HOW EVIDENCE WORKS. Every tool result is recorded and addressable. A row cell is cited as r1#0.target_share (query 1, row 0, column target_share); a computed number is cited as d1. You must attach, to every claim you make, the cites that support it — a claim's own cites, not another claim's.
 
@@ -155,8 +162,12 @@ export async function askCoach({ question, context = null, leagueId = null,
     const isFinalRound = round === MAX_TOOL_ROUNDS;
     const msg = await callClaude({
       feature: 'coach:answer', model, maxTokens: MAX_OUTPUT_TOKENS,
-      system: systemPrompt(), cacheSystem: true, messages,
-      tools: isFinalRound ? undefined : toolDefinitions()
+      // System (with the tools in front of it) is the stable breakpoint; the
+      // conversation cache lets each round re-read the rounds before it, whose
+      // tool results are most of what a later round sends.
+      system: systemPrompt(), cacheSystem: true, cacheConversation: true, messages,
+      tools: toolDefinitions(),
+      toolChoice: isFinalRound ? { type: 'none' } : undefined
     });
     costUsd += msg.cost_usd ?? 0;
 

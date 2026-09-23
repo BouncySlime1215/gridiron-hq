@@ -412,8 +412,6 @@ export function proposalsPrompt(ideas) {
     '  risk              the one thing that could make this a mistake',
     '  data_used         which numbers you leaned on',
     '',
-    'No preamble, no markdown, no commentary. The array only.',
-    '',
     'THE SLATE:',
     JSON.stringify(slate, null, 2),
   ].join('\n');

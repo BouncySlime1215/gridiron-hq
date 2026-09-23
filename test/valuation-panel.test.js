@@ -255,3 +255,48 @@ test('V2b: two different absences give two different sentences, and neither is a
   assert.ok(!/failed to build/.test(unpriced.reason),
     'an unpriced player is answered by the panel, not by its error handler');
 });
+
+/* ---------------------------------------------------------------- PREVIEW-01 */
+// The panel's layer is built by the route's own counterpartyLayer call (trades.js
+// valuationPanel), so preview reaches this page only through that call. A call site that
+// passed `activity: false` switched preview off here while every direct-layer test passed
+// (skeptic mutant MD). League 204: week 7 in progress, the rival added twelve players in
+// the six completed weeks and Nick none, so the activity term moves the rival's receptiveness.
+test('PREVIEW-01: the valuation panel prices receptiveness with the preview terms on, and without them unset', async () => {
+  db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
+    league_id INTEGER NOT NULL, season INTEGER NOT NULL, tx_id TEXT NOT NULL,
+    type TEXT, status TEXT, execution_type TEXT, proposed_at TEXT, processed_at TEXT,
+    team_id INTEGER, member_id TEXT, related_tx_id TEXT, scoring_period INTEGER,
+    bid_amount REAL, is_pending INTEGER, items_json TEXT, raw_json TEXT,
+    first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+    PRIMARY KEY (league_id, season, tx_id))`);
+  const { payload, theirs } = rosterPair();
+  insertLeague(204, { ...payload, seasonId: 2026, scoringPeriodId: 7, schedule: [] });
+  seedSentiment(204, theirs[0].name);
+  for (let i = 0; i < 12; i += 1) {
+    run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status, execution_type, team_id,
+         scoring_period, items_json, first_seen_at, last_seen_at)
+         VALUES (204, 2026, ?, 'WAIVER', 'EXECUTED', 'PROCESS', 2, ?, ?, 'x', 'x')`,
+      `vp-${i}`, 1 + (i % 6), JSON.stringify([{ type: 'ADD', fromTeamId: 0, toTeamId: 2, playerId: 9100 + i }]));
+  }
+  const { buildManagerSignals } = await import('../server/services/manager-signals.js');
+  const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
+  const { ACTIVITY_FLAG } = await import('../server/services/counterparty-pricing.js');
+  buildManagerSignals(204, { chat: null });
+  const rivalReceptiveness = async value => {
+    const saved = process.env[PREVIEW_ENV];
+    delete process.env[ACTIVITY_FLAG];
+    if (value === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = value;
+    try {
+      const vm = (await request(`/api/trades/204/player/${theirs[0].id}`)).body.valuation_map;
+      assert.equal(vm.available, true, vm.reason ?? '');
+      return vm.managers.find(m => String(m.roster_id) === '2').receptiveness;
+    } finally {
+      if (saved === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = saved;
+    }
+  };
+  const off = await rivalReceptiveness(undefined);
+  const on = await rivalReceptiveness('1');
+  assert.ok(Number.isFinite(off) && Number.isFinite(on));
+  assert.ok(on > off, `preview raises the busy rival's receptiveness on the panel (off ${off}, on ${on})`);
+});

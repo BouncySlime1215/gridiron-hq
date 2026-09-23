@@ -805,7 +805,7 @@ Judge roster construction: positional balance, whether I got value relative to w
 
 Respond with ONLY JSON:
 {"grade":"A+|A|A-|B+|B|B-|C+|C|C-|D|F",
- "summary":"3-4 sentences, specific, naming actual players",
+ "summary":"a short paragraph, specific, naming actual players",
  "strengths":["short point naming players", "..."],
  "weaknesses":["short point naming players", "..."],
  "best_pick":"Player Name — one sentence why",
@@ -1122,12 +1122,12 @@ Work only from the players and the data above; do not bring in anyone already of
 
 Respond with ONLY JSON:
 {"pick":"the one player I should take right now",
- "why":"two sentences max, and the FIRST clause is a concrete multi-season number from his record (e.g. '1,000+ rec yds in 5 straight seasons, top-12 every year'); then the roster hole or scarcity",
+ "why":"brief, and the FIRST clause is a concrete multi-season number from his record (e.g. '1,000+ rec yds in 5 straight seasons, top-12 every year'); then the roster hole or scarcity",
  "evidence":"one line: the 2-3 numbers from the dossier that decide this pick, comma-separated, no adjectives",
  "players":[
    {"name":"...",
-    "pros":"2 sentences: what makes him worth the pick — last season's production, the projected role, pedigree, situation",
-    "cons":"2 sentences: the real risk — injury, camp reporting, age or inexperience, competition for touches, a bad projection relative to cost",
+    "pros":"briefly, what makes him worth the pick — last season's production, the projected role, pedigree, situation",
+    "cons":"briefly, the real risk — injury, camp reporting, age or inexperience, competition for touches, a bad projection relative to cost",
     "camp":"one line on how camp has gone for him, or 'nothing reported' if the dossier is silent",
     "status":"healthy | injury risk | rookie | bounce-back | ageing — whichever single label fits best",
     "verdict":"take | fine here | let him go"}

@@ -281,6 +281,7 @@ class:
 | L152 | 2026-09-22 | #92 | fantasy | FL | Four red-zone tiers beat three for expected touchdowns | TD MAE, 5,229 player-weeks | improvement real, -0.68% MAE; TD bias slightly worse | -0.001859 | -0.002678 | -0.000125 | 95 |  | - | yes | `docs/tdd/redzone-tiers.tdd.md:95` |  |
 | L153 | 2026-09-22 | #106 | fantasy | FL | Unit-1 volume-shrinkage fit beats hardcoded k (CRPS gate) | CRPS, 4,532 player-weeks | result not reported in docs/; local DB row note says activated, active column 0 |  |  |  |  |  |  | unclear (row note vs active=0) | `docs/tdd/shrinkage-fit-efficiency-weighting-2026-09-22.tdd.md:143` | origin out of scope (local shrinkage_fits row; Auditor verdict in handoff memory gridiron-audit-unit-1-verdict) |
 | L154 | 2026-09-23 | CE-05 (branch claude/local-ce-05-league-rules) | fantasy | other | league-rules seedStandings reproduces every stored ESPN playoff seed (rule check, not a model) | seeds equal / teams, league_season_teams | PASSED: 2025 26/26 (3 leagues); 2023-2024 36/36; plain wins-then-points control 8/10 in league 2 2023 and 2024 |  |  |  |  |  |  | yes | `docs/evidence/2026-09-23/league-rules-replay.md` | not a model fit; settings for past seasons are the 2026 payload's (guess) |
+| L155 | 2026-09-23 | WV-02 (branch claude/local-wv-02-injury-replacement-alert) | fantasy | other | When a starter is Out, the same-team backup with the highest snap share (roleStates) outscores the backup with the highest last-3 PPR ppg | decision win rate on disagreements (29 of 120 events); mean PPR diff over all events | holds on 2025 (primary 2022-2024 failed its non-inferiority bound, so snap order ships default-off) | +1.013 | +0.039 | +1.987 | 90 |  | + | no (default-off) | `docs/tdd/2026-09-23-injury-replacement-alert.tdd.md` section 5 | win rate 0.672, MDE 0.231; local copy, not production |
 
 ## 2026 forward looks
 
@@ -307,6 +308,7 @@ Two sources of `F` rows besides a unit's own rule-5 check:
 | id | date | unit/PR | domain | family | hypothesis | metric | result | est | lo | hi | level | p (source) | better | shipped | file:line | note |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | F001 | 2026-09-23 | CE-05 (branch claude/local-ce-05-league-rules) | fantasy | other | league-rules seedStandings reproduces the current ESPN seeds (teams[].playoffSeed) after 2 weeks | seeds equal / teams, leagues.payload | PASSED: 46/46 across 5 leagues |  |  |  |  |  |  | yes | `docs/evidence/2026-09-23/league-rules-replay.md` | rule check, not a model; no job fit or registry opening |
+| F002 | 2026-09-23 | WV-02 | fantasy | other | Same as L155, 2026 weeks already played | decision win rate on disagreements | not measurable: 3 events, 1 disagreement (rule needs 10) | +2.107 | 0 | +4.213 | 90 |  | + | no (default-off) | `docs/tdd/2026-09-23-injury-replacement-alert.tdd.md` section 5 | local copy, not production |
 
 Before F001 there were none. On a local copy (not production, 2026-09-22), `weekly_ensemble_fits`
 has 2 rows, both through 2025 week 18 (the known-nonzero control), and

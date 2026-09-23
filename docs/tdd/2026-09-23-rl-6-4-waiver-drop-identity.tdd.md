@@ -141,6 +141,7 @@ Each mutant was run against `waiver-namesake-cut` and `decision-leftovers-waiver
 1. **WV-02 #178 must adapt when it merges.**
    - Its `injuryReplacementAlerts` reads `owned.get(normalizePlayerName(a.name))` for the holder team. This unit removes `owned` and `rosteredNames`, and the replacement is `ownedById.get(a.id)` (asset id → team id).
    - The break is loud, not silent: `owned` would be undefined. Either #178 merges main and switches, or this branch merges after it and does the switch.
+   - Done (2026-09-23 merge train): this branch merged #178's branch and switched `injuryReplacementAlerts` to `ownedById.get(a.id)`. `test/waiver-injury-alerts.test.js`'s fixture now carries the ESPN id and `defaultPositionId`, as `decision-leftovers-waivers.test.js`'s does. #178 must merge before this PR.
 2. **`lineup-posture.js#rosterAssets` (`:185-197`)** is still a name-only join. It misjoins Travis Hunter to the CB row for 3 opponents (package §2). It is not in this unit's file list, so it is a follow-up that uses the same `espnPlayerResolver`.
 3. **`routes/players.js` `newsFor`** takes the suffix as the surname. This is the package's side lead, and a follow-up.
 4. **The tie rule has no test** (designed survivor M3).

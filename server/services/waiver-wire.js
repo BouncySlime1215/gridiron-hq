@@ -32,7 +32,7 @@
 import { rows } from '../db/index.js';
 import { assetUniverse, tradeWeekContext, bestLineup, lineupSlots, espnPlayerResolver } from './trade-engine.js';
 import { deriveFormat } from './format.js';
-import { availabilityDegradation } from './contingency.js';
+import { availabilityDegradation, roleStates, weekDesignation } from './contingency.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
@@ -155,7 +155,10 @@ function rosteredAssetIds(payload, resolve) {
  * sit on the bench is worth zero this week however good he looks in isolation —
  * though `ros_upgrade` keeps the rest-of-season view for stashes.
  */
-export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRosProjected = minProjected } = {}) {
+export function waiverBoard(lg, {
+  myTeamId, limit = 20, minProjected = 4, minRosProjected = minProjected, now = new Date(),
+  sameTeamOrder = 'projection'
+} = {}) {
   if (!lg?.payload) return { error: 'league not synced' };
   const payload = JSON.parse(lg.payload);
   const { formatKey } = deriveFormat(lg);
@@ -188,7 +191,8 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
     // ESPN lineup slot 21 is the IR slot. A player parked there does not occupy
     // a bench spot, so he is not a drop candidate — suggesting him is how you
     // lose an injured starter for free.
-    mine.push({ ...asset, identity_match: match, espn_status: espnStatus, on_ir: e.lineupSlotId === 21 || espnStatus === 'INJURY_RESERVE' });
+    mine.push({ ...asset, identity_match: match, espn_status: espnStatus, lineup_slot: e.lineupSlotId ?? null,
+      on_ir: e.lineupSlotId === ESPN_SLOT_IR || espnStatus === 'INJURY_RESERVE' });
   }
   if (!mine.length) return { error: 'could not price your roster' };
   // Pricing SOME of the roster used to be indistinguishable from pricing all of
@@ -335,6 +339,12 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
   // same hand-set constant.
   const availabilityBasis = assets.context?.availability_basis ?? null;
 
+  // WV-02: my injured starters and who replaces them, before the next waiver run.
+  const waiverRun = nextWaiverRun(payload, now);
+  const injuryAlerts = injuryReplacementAlerts({
+    mine, assets, unowned, ownedById, rosterId, waiverRun, roles: roleStates(week.season, week.week), sameTeamOrder
+  });
+
   return {
     season: week.season, week: week.week, roster_id: rosterId,
     baseline_points: +baselinePoints.toFixed(2),
@@ -350,6 +360,10 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
     live_players: active.filter(p => (p.active_probability ?? 1) >= 0.5).length,
     roster_size: active.length,
     on_ir: mine.filter(p => p.on_ir).map(p => p.name),
+    // My starters who are Out / IR / Doubtful (or carry a current feed injury flag
+    // with no designation), each with the replacements and the claim deadline.
+    injury_alerts: injuryAlerts,
+    waiver_run: waiverRun,
     immediate: starts.slice(0, limit),
     stashes: stashes.slice(0, Math.max(5, Math.floor(limit / 2))),
     // How an immediate claim's cut is chosen, and the claims no safe cut exists for.
@@ -373,3 +387,173 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
 }
 
 const fmt = v => (Number.isFinite(+v) ? (+v).toFixed(1) : '—');
+
+/* ---------------------------------------------- injury replacement alert (WV-02) */
+
+// ESPN lineup slot ids: 20 is the bench, 21 injured reserve. Any other slot starts.
+const ESPN_SLOT_BENCH = 20;
+const ESPN_SLOT_IR = 21;
+/** Designations (contingency.js#weekDesignation) that raise the alert. IR maps to 'out'. */
+export const ALERT_DESIGNATIONS = new Set(['out', 'doubtful']);
+const SAME_TEAM_SHOWN = 3;
+const WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+/**
+ * The clock the processing day is read on. ESPN's acquisitionSettings give
+ * waiverProcessDays and waiverProcessHour with no zone; US Eastern is a guess, said
+ * on the payload (`zone_basis`), not a measured fact.
+ */
+export const WAIVER_ZONE = 'America/New_York';
+export const SNAP_SHARE_BASIS = 'Snap share: his mean offensive snap % over his last three appearances before this '
+  + 'week (contingency.js#roleStates, the number the availability role tier uses).';
+/**
+ * How same-team replacements are ordered. Pre-registered check (docs/tdd/
+ * 2026-09-23-injury-replacement-alert.tdd.md, section 5): the snap-share pick beat the
+ * recent-points pick in 0.531 of 98 disagreements on 2022-2024, but the mean PPR
+ * difference's 90% interval [-0.772, +0.385] crossed the -0.5 non-inferiority margin,
+ * so snap-share order ships default-off. Default: this week's projection, the number
+ * the claim list ranks on (not itself graded historically).
+ */
+export const SAME_TEAM_ORDERS = Object.freeze({
+  projection: 'Ordered by this week\'s projection. ' + SNAP_SHARE_BASIS,
+  snap_share: 'Ordered by snap share (unconfirmed: failed its pre-registered non-inferiority check on 2022-2024). '
+    + SNAP_SHARE_BASIS
+});
+
+const zoneParts = new Intl.DateTimeFormat('en-US', {
+  timeZone: WAIVER_ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23'
+});
+
+/**
+ * The league's next waiver processing run, from the synced ESPN settings
+ * (payload.settings.acquisitionSettings, present because the sync asks for
+ * view=mSettings, server/routes/leagues.js). The first processing day at or after
+ * `now` whose hour has not passed yet. `{ known: false, reason }` when the payload
+ * has no such settings: an absence, not "no deadline".
+ */
+export function nextWaiverRun(payload, now = new Date()) {
+  const acq = payload?.settings?.acquisitionSettings ?? null;
+  const days = Array.isArray(acq?.waiverProcessDays) ? acq.waiverProcessDays.map(d => String(d).toUpperCase()) : [];
+  const hour = Number.isInteger(acq?.waiverProcessHour) ? acq.waiverProcessHour : null;
+  if (!days.length || hour == null) {
+    return { known: false, reason: 'The synced league carries no acquisition settings (waiver days and hour), '
+      + 'so no processing time is shown.' };
+  }
+  const q = Object.fromEntries(zoneParts.formatToParts(now).map(x => [x.type, x.value]));
+  // Calendar days counted from today's date in the zone, so a DST change cannot skip one.
+  const today = Date.UTC(Number(q.year), Number(q.month) - 1, Number(q.day));
+  for (let i = 0; i <= 7; i++) {
+    const d = new Date(today + i * 86400000);
+    const day = WEEKDAYS[d.getUTCDay()];
+    if (!days.includes(day)) continue;
+    if (i === 0 && Number(q.hour) >= hour) continue;
+    return {
+      known: true, day, date: d.toISOString().slice(0, 10), hour, zone: WAIVER_ZONE,
+      zone_basis: 'guess: ESPN does not state the zone of waiverProcessHour',
+      process_days: days, waiver_hours: acq.waiverHours ?? null,
+      source: 'ESPN league settings (acquisitionSettings)'
+    };
+  }
+  return { known: false, reason: `None of the listed processing days (${days.join(', ')}) is a weekday name.` };
+}
+
+/**
+ * Players whose feed injury flag is CURRENT. Table player_metrics, source
+ * 'injury_flag', written by syncSleeper (server/routes/aggregates.js) together with
+ * the same player's 'sleeper_rank' row in one pass. The writer sets the flag and never
+ * clears it, so a flag older than that player's latest rank row is left over from an
+ * earlier sync and does not count.
+ */
+function currentFeedFlags(ids) {
+  if (!ids.length) return new Set();
+  const marks = ids.map(() => '?').join(',');
+  return new Set(rows(`SELECT f.player_id FROM player_metrics f
+                       JOIN player_metrics r ON r.player_id = f.player_id AND r.source = 'sleeper_rank'
+                       WHERE f.source = 'injury_flag' AND f.value > 0 AND f.fetched_at >= r.fetched_at
+                         AND f.player_id IN (${marks})`, ...ids).map(x => x.player_id));
+}
+
+/** This week's designation for a player: the canonical weekDesignation, fed the asset and ESPN inputs. */
+function designationOf(p) {
+  const d = weekDesignation({
+    report: p.injury_status ? { report_status: p.injury_status } : null,
+    espnStatus: p.espn_status ?? null
+  });
+  // weeklyAvailability has already merged ESPN into injury_status when ESPN was more
+  // severe ("Out (ESPN)"), which weekDesignation then reads as an NFL row.
+  const source = d.source === 'nfl' && /\(ESPN/.test(String(p.injury_status)) ? 'espn' : d.source;
+  return { designation: d.designation, source, label: d.report?.report_status ?? p.espn_status ?? null };
+}
+
+const teamOf = p => p.team_abbr ?? p.team ?? null;
+const round3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
+
+function replacementRow(p, roles, onYourRoster) {
+  const role = roles.get(p.id) ?? null;
+  return {
+    player: p.name, position: p.position, team: teamOf(p),
+    snap_share: round3(role?.share ?? null),
+    snap_last_seen: role?.last_seen ?? null,
+    projected_ppg: +weekPpg(p).toFixed(2),
+    ros_ppg: p.ros_ppg ?? null,
+    injury_status: p.injury_status ?? null,
+    on_your_roster: onYourRoster
+  };
+}
+
+/** Higher snap share first; no snap share last; then this week's projection. */
+const bySnapShare = (a, b) => (b.snap_share ?? -1) - (a.snap_share ?? -1) || b.projected_ppg - a.projected_ppg;
+/** Higher projection this week first; then snap share. */
+const byProjection = (a, b) => b.projected_ppg - a.projected_ppg || (b.snap_share ?? -1) - (a.snap_share ?? -1);
+
+/**
+ * One alert per starter of mine who is Out / IR / Doubtful this week, or who carries
+ * a current feed injury flag while no designation exists yet (mid-week, before the
+ * report). Replacements: same NFL team and position, free agents or already mine,
+ * ranked by snap share; then the best free agent at the position from another team,
+ * on this week's projection (the number the claim list ranks on).
+ */
+export function injuryReplacementAlerts({
+  mine, assets, unowned, ownedById, rosterId, waiverRun, roles, sameTeamOrder = 'projection'
+}) {
+  if (!SAME_TEAM_ORDERS[sameTeamOrder]) throw new Error(`unknown sameTeamOrder: ${sameTeamOrder}`);
+  const order = sameTeamOrder === 'snap_share' ? bySnapShare : byProjection;
+  const starters = mine.filter(p => p.lineup_slot != null
+    && p.lineup_slot !== ESPN_SLOT_BENCH && p.lineup_slot !== ESPN_SLOT_IR);
+  const flagged = currentFeedFlags(starters.map(p => p.id));
+  const healthy = p => p.available !== false && !ALERT_DESIGNATIONS.has(designationOf(p).designation);
+  const mineById = new Map(mine.map(p => [p.id, p]));
+  const alerts = [];
+  for (const s of starters) {
+    const d = designationOf(s);
+    const trigger = ALERT_DESIGNATIONS.has(d.designation) ? d.source
+      : d.designation == null && flagged.has(s.id) ? 'feed_flag' : null;
+    if (!trigger) continue;
+    const team = teamOf(s);
+    const sameTeam = team == null ? [] : [...assets.values()]
+      .filter(a => a.id !== s.id && a.position === s.position && teamOf(a) === team)
+      .map(a => mineById.get(a.id) ?? a)
+      .filter(a => {
+        const holder = ownedById.get(a.id);
+        return (holder == null || holder === rosterId) && healthy(a);
+      })
+      .map(a => replacementRow(a, roles, mineById.has(a.id)))
+      .sort(order);
+    const bestFree = unowned
+      .filter(a => a.position === s.position && teamOf(a) !== team && healthy(a))
+      .sort((a, b) => weekPpg(b) - weekPpg(a))[0] ?? null;
+    alerts.push({
+      player: s.name, position: s.position, team, lineup_slot: s.lineup_slot,
+      designation: d.designation, designation_source: trigger, status: d.label,
+      snap_share: round3(roles.get(s.id)?.share ?? null),
+      replacements: {
+        same_team: sameTeam.slice(0, SAME_TEAM_SHOWN),
+        same_team_count: sameTeam.length,
+        order: sameTeamOrder,
+        ranked_by: SAME_TEAM_ORDERS[sameTeamOrder],
+        best_free_agent: bestFree ? replacementRow(bestFree, roles, false) : null
+      },
+      claim_by: waiverRun
+    });
+  }
+  return alerts;
+}

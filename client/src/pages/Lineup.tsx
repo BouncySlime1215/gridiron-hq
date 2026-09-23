@@ -392,23 +392,11 @@ function Slot({ c, index }: { c: any; index: number }) {
         </div>
       )}
 
-      {(c.vegas || c.caution || c.upside) && (
+      {c.vegas && (
         <div className="mt-2 space-y-1.5 border-t border-slate-100 pt-2">
-          {c.vegas && (
-            <p className="text-xs leading-5 text-sky-800">
-              <b>Betting market:</b> {c.vegas}
-            </p>
-          )}
-          {c.caution && (
-            <p className="text-xs leading-5 text-amber-900">
-              <b>Running hot:</b> {c.caution}
-            </p>
-          )}
-          {c.upside && (
-            <p className="text-xs leading-5 text-emerald-800">
-              <b>Due to score:</b> {c.upside}
-            </p>
-          )}
+          <p className="text-xs leading-5 text-sky-800">
+            <b>Betting market:</b> {c.vegas}
+          </p>
         </div>
       )}
     </article>

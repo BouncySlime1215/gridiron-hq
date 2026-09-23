@@ -327,6 +327,29 @@ test('A6: the texts name the plan\'s rule and the weaker check', () => {
   assert.match(S.BASELINE_TEXT, /^The weaker check, set before the numbers: /);
 });
 
+test('the top-level basis is the plan rule\'s: ours is the saved projection, its limit names week_points; the replay\'s texts ride on average_check', () => {
+  // The top-level verdict grades weekly_prediction_snapshots.prediction, the blended projection
+  // captured before kickoff, against ESPN (prereg addendum 2 §2). The texts beside it must describe
+  // that number: not the replay (the weaker check's projection) and not the Start/Sit list's
+  // week_points (addendum 2 §8.6; storing it is WORK-QUEUE S-12). Structure review of bc0062d8.
+  seedFixture();
+  const result = S.runStartSitGate({ iterations: 200, resolveK: KNOWN_K });
+  assert.doesNotMatch(result.policy, /replay/i, `the plan-rule verdict does not grade the replay: ${result.policy}`);
+  assert.match(result.policy, /saved before/);
+  assert.equal(result.replay_caveat, undefined, 'no replay caveat beside the plan-rule verdict');
+  assert.match(result.limit ?? '', /week_points/, 'the limit names the Start/Sit number the verdict does not grade');
+  assert.doesNotMatch(result.limit, /replay/i);
+  assert.equal(result.policy, S.PLAN_POLICY_TEXT);
+  assert.equal(result.limit, S.PLAN_LIMIT_TEXT);
+  // The replay's own texts are the weaker check's, where its verdict is.
+  assert.equal(result.average_check.policy, S.POLICY_TEXT);
+  assert.equal(result.average_check.replay_caveat, S.REPLAY_CAVEAT);
+  assert.doesNotMatch(result.average_check.policy, /would have served/i);
+  // The served arms' label names the projection that was saved, not "what the app actually served".
+  assert.match(result.forward.served.label, /blended weekly projection/);
+  assert.doesNotMatch(result.forward.served.label, /actually served/);
+});
+
 /* ------------------------------------------------------- the grade's values */
 
 const KNOWN_K = () => ({ target_share: { ALL: 0.2 } });

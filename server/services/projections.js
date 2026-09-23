@@ -30,6 +30,7 @@ import {
 } from './stats-util.js';
 import { activeKVectorFor } from './shrinkage-fit.js';
 import { qbrTrailingForPlayer } from './nfl-qbr.js';
+import { gameScriptFor } from './gamescript.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const GAMES = 17;
@@ -372,34 +373,74 @@ function teamVolume(log, through, kOverride, throughWeek = null, recency = RECEN
   const byTeamWeek = new Map();
   for (const u of log) {
     const k = `${u.team}|${u.season}|${u.week}`;
-    const t = byTeamWeek.get(k) ?? { season: u.season, team: u.team, week: u.week, att: 0, car: 0 };
+    const t = byTeamWeek.get(k) ?? { season: u.season, team: u.team, week: u.week, att: 0, car: 0, tgt: 0 };
     t.att += u.attempts ?? 0;
     t.car += u.carries ?? 0;
+    t.tgt += u.targets ?? 0;
     byTeamWeek.set(k, t);
   }
   const agg = new Map();
   for (const t of byTeamWeek.values()) {
     if (!t.team) continue;
     const w = rowWeight(t, through, throughWeek, recency);
-    const a = agg.get(t.team) ?? { w: 0, att: 0, car: 0 };
-    a.w += w; a.att += w * t.att; a.car += w * t.car;
+    const a = agg.get(t.team) ?? { w: 0, att: 0, car: 0, tgt: 0, sAtt: 0, sCar: 0, sN: 0, weeks: [] };
+    a.w += w; a.att += w * t.att; a.car += w * t.car; a.tgt += w * t.tgt;
+    // PROJ-02-a incumbents: the team's plain season-to-date average in the season of
+    // the cutoff (every row here is already at or before it), and the team's played
+    // weeks, newest first, which define the as-of roster below.
+    if (t.season === through) { a.sAtt += t.att; a.sCar += t.car; a.sN += 1; }
+    a.weeks.push(t.season * 100 + t.week);
     agg.set(t.team, a);
   }
   const passLg = mean([...agg.values()].filter(a => a.w).map(a => a.att / a.w)) || 33;
   const rushLg = mean([...agg.values()].filter(a => a.w).map(a => a.car / a.w)) || 26;
+  // Team targets per pass attempt, pooled. nflverse target_share is a share of TEAM
+  // TARGETS, not of pass attempts (throwaways, spikes and sack-free incompletions with
+  // no intended receiver are attempts without a target), so share x attempts needs it.
+  const attAll = [...agg.values()].reduce((s, a) => s + a.att, 0);
+  const tgtAll = [...agg.values()].reduce((s, a) => s + a.tgt, 0);
+  const tgtRateLg = attAll > 0 ? tgtAll / attAll : 1;
 
   const out = new Map();
   for (const [team, a] of agg) {
     if (!a.w) continue;
     const passK = pickK(kOverride, 'team_pass_att', 'ALL', a.w, a.w, K.team_volume);
     const rushK = pickK(kOverride, 'team_rush_att', 'ALL', a.w, a.w, K.team_volume);
+    // No fitted k exists for the team target rate; it borrows the hand-set team-volume
+    // constant (10 weighted games). Hand-set, not measured.
+    const rateK = pickK(kOverride, 'team_target_rate', 'ALL', a.w, a.w, K.team_volume);
+    const recent = new Set([...new Set(a.weeks)].sort((x, y) => y - x).slice(0, ROSTER_WEEKS));
     out.set(team, {
       pass_att: +shrinkSafe(a.att / a.w, passLg, passK.n, passK.k).toFixed(2),
-      rush_att: +shrinkSafe(a.car / a.w, rushLg, rushK.n, rushK.k).toFixed(2)
+      rush_att: +shrinkSafe(a.car / a.w, rushLg, rushK.n, rushK.k).toFixed(2),
+      target_rate: +shrinkSafe(a.att > 0 ? a.tgt / a.att : tgtRateLg, tgtRateLg, rateK.n, rateK.k).toFixed(4),
+      season_plays: a.sN ? +((a.sAtt + a.sCar) / a.sN).toFixed(2) : null,
+      season_pass_rate: a.sN && a.sAtt + a.sCar > 0 ? +(a.sAtt / (a.sAtt + a.sCar)).toFixed(4) : null,
+      recent
     });
   }
-  return { teams: out, league: { pass_att: +passLg.toFixed(2), rush_att: +rushLg.toFixed(2) } };
+  return {
+    teams: out,
+    league: { pass_att: +passLg.toFixed(2), rush_att: +rushLg.toFixed(2), target_rate: +tgtRateLg.toFixed(4) }
+  };
 }
+
+/**
+ * PROJ-02-a: how many of a team's most recent played weeks define its as-of roster.
+ * Pre-registered (docs/evidence/2026-09-23/proj-02-a-sharp-chain-preregistration.md
+ * section 2), not tuned.
+ */
+const ROSTER_WEEKS = 3;
+
+/**
+ * PROJ-02-a: which chain links are served in place of their incumbent. Each flag is
+ * set by that link's pre-registered ship rule, and the result is recorded in
+ * docs/tdd/2026-09-23-proj-02-a-sharp-chain.tdd.md. `plays` and `pass_rate` are
+ * exposed only: every weekly consumer already applies the same game script through
+ * gameScriptFor (fantasy-coordinator, season-sim, nfl-props), so serving them here
+ * would count the script twice.
+ */
+export const CHAIN_SERVED = Object.freeze({ plays: false, pass_rate: false, targets: false, carries: false });
 
 /**
  * Positional priors — what an unknown player at this position looks like.
@@ -538,13 +579,15 @@ export function buildProjections({
       targets: 0, receptions: 0, recYds: 0, recTd: 0,
       carries: 0, rushYds: 0, rushTd: 0,
       attempts: 0, passYds: 0, passTd: 0, ints: 0,
-      weekly: []
+      weekly: [], recentTeams: new Set()
     };
     // Most recent team wins — players move.
     if (u.season > a.lastSeason || (u.season === a.lastSeason && u.team)) {
       if (u.team) { a.team = u.team; a.lastSeason = u.season; }
     }
     a.w += w; a.games += 1; a.seasons.add(u.season);
+    // PROJ-02-a as-of roster: a row for this team in one of its last ROSTER_WEEKS played weeks.
+    if (u.team && teamVol.get(u.team)?.recent.has(u.season * 100 + u.week)) a.recentTeams.add(u.team);
     a.gamesBySeason.set(u.season, (a.gamesBySeason.get(u.season) ?? 0) + 1);
     a.attemptsBySeason.set(u.season, (a.attemptsBySeason.get(u.season) ?? 0) + (u.attempts ?? 0));
     a.roleW += roleW;
@@ -568,6 +611,7 @@ export function buildProjections({
   }
 
   const out = new Map();
+  const chainIn = new Map();
   for (const a of acc.values()) {
     const prior = priors[a.pos] ?? priors.WR ?? {};
     const tv = teamVol.get(a.team) ?? leagueVol;
@@ -792,12 +836,15 @@ export function buildProjections({
     // Kept on the unadjusted `ypa` (see structural_ppg_pre_qbr below) — the
     // QBR nudge is layered on afterward into `meanPpg`, same as always; only
     // `params.ypa` above (the sampler's input) now carries it too.
-    const structuralPpg = scoreSim({
-      passYd: attempts * ypa, passTd: attempts * passTdRate, int: attempts * intRate,
-      rushYd: carries * ypc, rushTd: carries * rushTdRate,
-      rec: targets * catchRate, recYd: targets * ypt, recTd: targets * recTdRate
-    }, scoring);
+    const rates = { ypa, passTdRate, intRate, ypc, rushTdRate, catchRate, ypt, recTdRate };
+    const structuralPpg = expectedPoints({ targets, carries, attempts }, rates, scoring);
     const meanPpg = structuralPpg + qbrAdjustment;
+    chainIn.set(a.id, {
+      rawTargetShare: a.pos === 'QB' ? 0 : tgtShare,
+      rawCarryShare: carShare,
+      roster: teamVol.has(a.team) && a.recentTeams.has(a.team),
+      rates, qbrAdjustment, expectedGames
+    });
 
     out.set(a.id, {
       player_id: a.id, name: a.name, position: a.pos, team: a.team,
@@ -842,7 +889,120 @@ export function buildProjections({
       points_horizon: 'full_season_17g'
     });
   }
+  attachChain(out, chainIn, { teamVol, leagueVol, through, throughWeek, scoring });
   return out;
+}
+
+/** Expected fantasy points per game from expected volume and per-opportunity rates. */
+function expectedPoints({ targets, carries, attempts }, r, scoring) {
+  return scoreSim({
+    passYd: attempts * r.ypa, passTd: attempts * r.passTdRate, int: attempts * r.intRate,
+    rushYd: carries * r.ypc, rushTd: carries * r.rushTdRate,
+    rec: targets * r.catchRate, recYd: targets * r.ypt, recTd: targets * r.recTdRate
+  }, scoring);
+}
+
+/**
+ * PROJ-02-a sharp chain: plays -> pass rate -> share -> volume -> efficiency -> TDs,
+ * each link on `projection.links` with its chain value, its incumbent and which one is
+ * served (CHAIN_SERVED, set by the pre-registered ship rule per link).
+ *
+ *   plays      pace (teamVolume's shrunk pass + rush attempts per game) with the
+ *              predicted week's script from gameScriptFor (one producer, read, never
+ *              refit); neutral when the cutoff is not in-season or no line exists.
+ *   pass_rate  pass_att x pass_mult / plays. The spread term of gameScriptFor is the
+ *              script (win-probability) effect; no second win-probability number is made.
+ *   share      target and carry shares normalized to 1 over the team's as-of roster.
+ *   volume     targets = share x team pass att x team target rate; carries = share x
+ *              team rushes. PRE-SCRIPT, like the incumbent, because every weekly
+ *              consumer multiplies params by the same script downstream.
+ *   eff, td    the existing shrunk rates, unchanged (red-zone share x implied team TDs
+ *              is not built here).
+ *
+ * League scoring stays last: a served volume link re-scores through expectedPoints.
+ */
+function attachChain(out, chainIn, { teamVol, leagueVol, through, throughWeek, scoring }) {
+  const predictWeek = throughWeek != null ? throughWeek + 1 : null;
+  const script = new Map();
+  const scriptFor = team => {
+    if (predictWeek == null) return null;
+    if (!script.has(team)) {
+      const gs = gameScriptFor(team, through, predictWeek);
+      script.set(team, gs.line ? { pass_mult: gs.pass_mult, rush_mult: gs.rush_mult,
+        spread: gs.line.spread, total: gs.line.total, week: predictWeek } : null);
+    }
+    return script.get(team);
+  };
+  // Raw share totals over each team's roster, for the normalization.
+  const sums = new Map();
+  for (const [id, c] of chainIn) {
+    if (!c.roster) continue;
+    const team = out.get(id).team;
+    const t = sums.get(team) ?? { tgt: 0, car: 0 };
+    t.tgt += c.rawTargetShare; t.car += c.rawCarryShare;
+    sums.set(team, t);
+  }
+  const pick = (served, chain, incumbent) => (served || incumbent == null
+    ? { chain, incumbent, served: 'chain', value: chain }
+    : { chain, incumbent, served: 'incumbent', value: incumbent });
+
+  for (const [id, p] of out) {
+    const c = chainIn.get(id);
+    const tv = teamVol.get(p.team) ?? leagueVol;
+    const gs = teamVol.has(p.team) ? scriptFor(p.team) : null;
+    const passMult = gs?.pass_mult ?? 1, rushMult = gs?.rush_mult ?? 1;
+    const playsChain = tv.pass_att * passMult + tv.rush_att * rushMult;
+    const passRateChain = playsChain > 0 ? tv.pass_att * passMult / playsChain : null;
+    const sum = c.roster ? sums.get(p.team) : null;
+    const targetShare = sum?.tgt > 0 ? c.rawTargetShare / sum.tgt : null;
+    const carryShare = sum?.car > 0 ? c.rawCarryShare / sum.car : null;
+    const incTargets = p.params.targets, incCarries = p.params.carries;
+    const chainTargets = targetShare != null ? targetShare * tv.pass_att * tv.target_rate : incTargets;
+    const chainCarries = carryShare != null ? carryShare * tv.rush_att : incCarries;
+    const targets = pick(CHAIN_SERVED.targets && c.roster, +chainTargets.toFixed(4), incTargets);
+    const carries = pick(CHAIN_SERVED.carries && c.roster, +chainCarries.toFixed(4), incCarries);
+    if (targets.value !== incTargets || carries.value !== incCarries) {
+      const v = { targets: targets.value, carries: carries.value, attempts: p.params.attempts };
+      const structural = expectedPoints(v, c.rates, scoring);
+      const ppg = structural + c.qbrAdjustment;
+      p.params.targets = v.targets; p.params.carries = v.carries;
+      p.volume.targets_per_game = +v.targets.toFixed(2);
+      p.volume.carries_per_game = +v.carries.toFixed(2);
+      p.structural_ppg_pre_qbr = +structural.toFixed(2);
+      p.ppg = +ppg.toFixed(2);
+      p.points = +(ppg * c.expectedGames).toFixed(1);
+    }
+    const r = c.rates;
+    p.links = {
+      plays: {
+        ...pick(CHAIN_SERVED.plays, +playsChain.toFixed(2), tv.season_plays ?? null),
+        team: { pass_att: tv.pass_att, rush_att: tv.rush_att, target_rate: tv.target_rate }
+      },
+      pass_rate: {
+        ...pick(CHAIN_SERVED.pass_rate, passRateChain == null ? null : +passRateChain.toFixed(4),
+          tv.season_pass_rate ?? null),
+        script: gs
+      },
+      share: {
+        roster: c.roster,
+        target_share: targetShare == null ? null : +targetShare.toFixed(6),
+        carry_share: carryShare == null ? null : +carryShare.toFixed(6),
+        raw_target_share: +c.rawTargetShare.toFixed(4),
+        raw_carry_share: +c.rawCarryShare.toFixed(4)
+      },
+      volume: { targets, carries, attempts: p.params.attempts, script_applied: false },
+      eff: {
+        yards_per_target: r.ypt, catch_rate: r.catchRate, yards_per_carry: r.ypc,
+        yards_per_attempt: p.params.ypa, int_rate: r.intRate
+      },
+      td: {
+        rec_td_rate: r.recTdRate, rush_td_rate: r.rushTdRate, pass_td_rate: r.passTdRate,
+        expected_tds: +(targets.value * r.recTdRate + carries.value * r.rushTdRate
+          + p.params.attempts * r.passTdRate).toFixed(3),
+        basis: 'shrunk per-opportunity rate (red-zone share x implied team TDs not built)'
+      }
+    };
+  }
 }
 
 /* --------------------------------------------------------------- sampling */

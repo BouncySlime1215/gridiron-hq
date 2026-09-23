@@ -93,7 +93,10 @@ test('a player whose last row is outside the team\'s last 3 played weeks is off 
   const stale = proj.get(99);
   assert.equal(stale.team, 'AAA');
   assert.equal(stale.links.share.roster, false);
-  assert.equal(stale.links.volume.targets.value, stale.volume.targets_per_game);
+  const t = stale.links.volume.targets;
+  assert.equal(t.served, 'incumbent');
+  assert.equal(t.value, t.incumbent);
+  assert.ok(Math.abs(t.incumbent - stale.volume.targets_per_game) < 0.005);
 });
 
 test('plays and pass rate read the week\'s line from gameScriptFor; no line means neutral', () => {

@@ -42,3 +42,85 @@ file's first commit.
 **Statistical unit?** No. GR-05 produces no model number (no projection,
 availability, odds, trade value, share or threshold), so no pre-registration is
 written and no 2025 look is taken; the holdout ledger is untouched.
+
+## 2. RED
+
+`b074d1dd` test: RED, a results file committed before its prereg must fail the check (GR-05).
+`test/check-prereg-order.test.js`, 11 cases at that sha, all failing on the first assertion:
+
+```
+not ok 2 - FAILS when the results file is committed before its pre-registration (acceptance)
+  error: scripts/check-prereg-order.mjs must load: Cannot find module '.../scripts/check-prereg-order.mjs'
+# (same assertion in all 11 cases; the script did not exist on 89f69b3b)
+```
+
+## 3. GREEN
+
+- `32cfd269` feat: GREEN, scripts/check-prereg-order.mjs fails when results predate their prereg (GR-05). 11/11 pass.
+- `3e0dc29d` feat: check a branch by --rev, and date a file by its oldest add so merged-back PR branches are judged on their own commits (GR-05). This came from the real-data run in section 5, where the first version dated files by main's squash commit on branches that had merged main back. 14/14 pass after `3ab3a20c`.
+
+Command (for every test count in this file): `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -u /tmp/gr05-XXXX).sqlite node --import ./test/offline-guard.mjs --experimental-test-module-mocks --test --test-reporter=tap test/check-prereg-order.test.js`. Tree: branch head `3ab3a20c`. Result: `# pass 14 # fail 0 # skipped 0`.
+
+## 4. What it does
+
+- `scripts/check-prereg-order.mjs` pairs each results file with its prereg. By name, the two files share a directory: `<stem>-prereg(istration).md` (plus `-addendum-N` / `-amendment-N`) goes with `<stem>.*` or `<stem>-result(s)|output|outcome|findings.*`. By marker, a Markdown file names its prereg in a `<!-- prereg: path -->` line. The check fails when the results file's first commit does not descend from the prereg group's first commit (`git merge-base --is-ancestor`). The first commit is the **oldest** add on `git log --follow`. A rename is followed back to the older name. A copy counts as a new file, so an identical-content twin elsewhere cannot date a file earlier.
+- Exit 0 means ok and 1 a violation. A shared (squash) commit is reported and passes, and fails under `--strict`. Exit 2 is a shallow clone, which gives no verdict rather than a pass. Exit 3 is any other error, including an option-shaped `--rev`.
+- `--rev <ref>` checks any branch without checking it out: it reads `ls-tree` and `git show` from that ref.
+- Wiring: `test/check-prereg-order.test.js` is a `test/*.test.js` file, so `npm test` runs it, and so does the CI step "Test" (`.github/workflows/ci.yml`). `npm run check:prereg-order` runs the script by hand. The real-repo case skips itself on a shallow checkout, which is what CI gets. Proven in a depth-1 clone of this branch: `ok 14 ... # SKIP shallow checkout`, `# pass 13 # skipped 1`. The CLI there printed the shallow message and returned `exit=2`.
+- `docs/STATS-CONTRACT.md` is the entry point. It links STATS-METHOD rules 1-8 instead of copying them and adds rule 9 (clustered CIs), rule 10 (forward-only grading for LLM-touched output) and rule 11 (win rate vs ESPN, historical). It also holds the 14-field prereg template and says what CI proves and what it does not. Both look-ahead citations were checked by web search on 2026-09-23: arXiv:2309.17322 and SSRN 4754678 (ICML 2025).
+
+## 5. Numbers (each with command and tree)
+
+| Claim | Value | Command | Tree |
+|---|---|---|---|
+| Pairs found in this repo (docs/evidence + docs/tdd) | 6 pairs, 0 violations, 6 same-commit | `node scripts/check-prereg-order.mjs` | `3ab3a20c` (history of `89f69b3b` main) |
+| Why all 6 are same-commit | main is squash-merged, so each PR's prereg and results share one commit | same output, shas `b3e79709`, `26a5002a`, `51b64512`, `bd56319b` | `3ab3a20c` |
+| Pre-squash branches, where the order is provable | 4 distinct pairs, 0 violations. R25: prereg `9a08fc31` -> results `44944a94` (origin/shrinkage-efficiency-weighting). target-share-prior: `d2f04ff4` -> `5b529a95` (pr/68). weekly-construction-grade: `dd4d2055` -> `0f397736` (origin/claude/local-s-02-weekly-construction-grade). remove-mlb: `8c0afdf7` -> `fc2db402` (origin/claude/project-thread-o3wt2p-remove-mlb) | `node scripts/check-prereg-order.mjs --rev <ref> --json` | branch head `3e0dc29d` script |
+| Known-nonzero control for the "0 violations" | the fixture with results committed first fails (test 2); the merged-back-branch fixture fails at `--rev feature` (test 12) | test file | `3ab3a20c` |
+| Whole-repo scan (`--prefix .`) | first run: 1 violation, my own `docs/STATS-CONTRACT.md` quoting a marker with a `...` path (true positive); after rewording: ok, 7 pairs | `node scripts/check-prereg-order.mjs --prefix .` | pre-`3ab3a20c` working tree, then `3ab3a20c` |
+| Default scan runtime | 7.7 s wall for 826 commits | `time node scripts/check-prereg-order.mjs` | `3e0dc29d` |
+| Lint-equivalent syntax and wiring | `node --check` ok on both files; `node scripts/wiring-map.mjs --check` exit 0, "no missing-feed findings" | as named | `32cfd269` |
+
+## 6. Mutation sweep
+
+Script: `scratchpad/gr05-sweep.mjs`, not committed. It applies one string replacement, runs the test file, restores the file, and at the end checks `git status` (clean after every mutant, apart from the uncommitted test edit it was run against). Tree: `3e0dc29d` plus the rev-message assertion that `3ab3a20c` committed.
+
+| Mutant | Result |
+|---|---|
+| M1 ancestry check inverted | KILLED (8 fail) |
+| M2 same commit silently ok (not reported) | KILLED (3) |
+| M3 copies followed past (twin dates the file) | KILLED (2) |
+| M12 newest add wins instead of oldest | KILLED (1) |
+| M13 call site: `--rev` not passed to `git log` | KILLED (2) |
+| M14 option-shaped `--rev` guard removed | KILLED (1), after the test was tightened to match the refusal message; it survived the first sweep because git also errors with exit 3 |
+| M4 anchor = latest prereg | KILLED (1) |
+| M5 shallow guard removed | KILLED (1) |
+| M6 call site: CLI always exits 0 | KILLED (3) |
+| M7 call site: `--strict` ignored | KILLED (1) |
+| M8 marker regex broken | KILLED (2) |
+| M9 `.tdd.md` paired by name | KILLED (1) |
+| M10 uncommitted prereg treated as pending | KILLED (1) |
+| M11 prefix ignored | KILLED (2) |
+| Designed survivor: tie order (amendment named before base in the same squash) | SURVIVED, as designed: it changes which file the report names, not the verdict |
+| Designed survivor: `npm run check:prereg-order` path typo | SURVIVED, as designed: no test runs the npm alias; CI reaches the script through the test file's import |
+| Not-applied control | NOT APPLIED (the sweep reports it and does not count it as a pass) |
+
+## 7. Known defects and limits
+
+1. **CI checks out at depth 1**, so in CI the real-repo case skips, and only the fixture cases (which carry the acceptance) run. Follow-up: set `fetch-depth: 0` on the checkout step in `.github/workflows/ci.yml` so every PR branch is scanned. That needs a file grant, which this unit does not have.
+2. **Squash merges** mean main alone can never prove order: 6/6 pairs are same-commit there. The verdict lives on the PR branch (`--rev`, or a local run before pushing).
+3. **Pairing is by naming convention or marker.** A results file named differently from its prereg is not checked. The start-sit gate's evidence is one example: `docs/tdd/2026-09-22-start-sit-baseline-gate.tdd.md` has no marker. The contract tells units how to name files, and existing files are not edited here (one editor per file).
+4. `git log --follow` follows a single name and uses git's similarity heuristic. A rename with less than 50% similarity counts as a new file. That can only make a file look newer, so the check misses a case rather than raising a false violation.
+5. `docs/evidence/STATS-METHOD.md` does not link back to `docs/STATS-CONTRACT.md` yet. It is S-00's file, so the back-link is a follow-up.
+
+## 8. Holdout looks
+
+None. GR-05 produces no model number and took no look at 2025.
+
+## 9. Nick's five questions
+
+1. **Well built?** One script with pure, exported helpers (`preregStem`, `resultStem`, `firstAddCommit`, `checkPreregOrder`). The tests use fixture repos with hermetic git (no global config, hooks or signing). 14 tests, 14 mutants killed, 2 designed survivors, 1 not-applied control.
+2. **Stats or made up?** No model numbers. Every count above comes from a named command on a named tree. The two look-ahead papers were verified by search. The Brill et al. and Cameron-Gelbach-Miller citations are the ones already in `server/services/backtest-significance.js` and standard references. The Cameron-Gelbach-Miller volume and issue come from memory, not re-fetched: a guess-level detail.
+3. **How do we know?** The acceptance fixture fails when results come first and passes otherwise (tests 2 and 3). Real branches: 4 pre-squash pairs were checked and are correctly ordered. The whole-repo scan caught a true positive in this unit's own draft.
+4. **Pointed elsewhere?** The CI test runs from `npm test`. `npm run check:prereg-order` and `--rev` let the coordinator check any branch. The contract is linked from its own evidence and points at STATS-METHOD, HOLDOUT-LEDGER and the gate producers by file:line.
+5. **How does it unify?** One rulebook producer (STATS-METHOD), one entry page (STATS-CONTRACT) and one enforcement script. The contract names the canonical producers for clustered CIs (`pairedBootstrapDiff`, `pigeonholeBootstrap`), MDE and win rate (`gradeDecisions`) and the ESPN baseline (`league_roster_snapshots.projected_points`) so units reuse them instead of writing new ones.

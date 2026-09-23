@@ -213,8 +213,13 @@ test('GET /api/command-center: the RED league yields three items, only the user\
   cc.__setStreamingProducer(lg => (Number(lg.id) === redLeague ? redStreams : { suggestion: { action: 'hold', why: 'x' } }));
   cc.__setNow(() => NOW);
   tx(quietLeague, 'quiet-rival', { team: 3 }); // collected, fresh, none of them mine
+  // SS-01 (#185) is on main, so real detection now picks lineupCall; this test pins the
+  // pre-SS-01 lineupDiff path, the one producer here that receives a league row (cookie check).
+  // The SS-01 route path is covered by 'SS-01 on the build' below.
+  cc.__setDeadStarterGuard(false);
   cc.__clearCache();
   const res = await fetch(base, { headers: { 'x-test-user': String(nick) } });
+  cc.__setDeadStarterGuard(undefined);
   assert.equal(res.status, 200);
   const text = await res.text();
   assert.ok(!text.includes(COOKIE), 'league cookies never leave the server');
@@ -235,6 +240,7 @@ test('feature detection: no injury_alerts field and no streaming module read "no
   producerOut.set(redLeague, { diff: { flagged_starters: [] }, waivers: { immediate: [] } });
   // undefined = real detection: import('./streaming-board.js') on this build.
   cc.__setStreamingProducer(undefined);
+  cc.__setDeadStarterGuard(undefined); // real detection too: dead-starters.js is on main since SS-01 (#185)
   cc.__clearCache();
   const body = await (await fetch(base, { headers: { 'x-test-user': String(nick) } })).json();
   const red = body.leagues.find(l => l.id === redLeague);
@@ -242,14 +248,16 @@ test('feature detection: no injury_alerts field and no streaming module read "no
   assert.equal(red.sources.streams.state, 'not_merged');
   assert.equal(red.sources.streams.waiting_on, 'WV-01 (PR #176)');
   assert.equal(red.sources.dead_starters.state, 'present');
-  assert.equal(red.sources.dead_starters.producer, 'lineupDiff.flagged_starters');
+  assert.equal(red.sources.dead_starters.producer, 'lineupCall.dead_starters (SS-01)');
 });
 
 test('a producer that throws marks that source "error" for that league and the rest still load', async () => {
   producerOut.set(redLeague, { diff: redDiff, waivers: redWaivers });
   cc.__setStreamingProducer(() => { throw new Error('lines table exploded'); });
+  cc.__setDeadStarterGuard(false); // redDiff's dead starter via the lineupDiff path, as in the RED route test
   cc.__clearCache();
   const body = await (await fetch(base, { headers: { 'x-test-user': String(nick) } })).json();
+  cc.__setDeadStarterGuard(undefined);
   const red = body.leagues.find(l => l.id === redLeague);
   assert.equal(red.sources.streams.state, 'error');
   assert.ok(!red.sources.streams.message.includes('exploded'), 'the raw exception stays in the server log');

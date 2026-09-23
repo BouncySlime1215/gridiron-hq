@@ -60,7 +60,7 @@ export default function NewsHub({ stories, stats, loading = false, refreshing = 
     </div>
     {refreshedAt && <p className="mb-3 text-xs text-slate-500">Showing the top {stats?.returned ?? stories.length} of {stats?.stories?.toLocaleString() ?? stories.length} ranked stories · data refreshed {new Date(refreshedAt).toLocaleString()}</p>}
     {loading && <div className="card p-6 text-sm text-slate-500" role="status">Loading attributed reporting…</div>}
-    {error && <div className="card border-rose-200 p-6 text-sm text-rose-700" role="alert">News is degraded: {error}</div>}
+    {error && <NewsHubError error={error} />}
     {!loading && !error && visible.length === 0 && <div className="card p-6 text-sm text-slate-500">No attributed stories match this view.</div>}
     <div className="space-y-3">
       {visible.map(story => <article key={story.id} className={`card p-4 ${story.my_player ? 'border-emerald-200 ring-1 ring-emerald-100' : ''}`}>
@@ -104,6 +104,13 @@ export function ConnectedNewsHub() {
 const ageLabel = (minutes: number | null | undefined) => minutes == null ? 'unknown'
   : minutes < 2 ? 'just now' : minutes < 60 ? `${Math.round(minutes)}m ago`
     : minutes < 1440 ? `${Math.round(minutes / 60)}h ago` : `${Math.round(minutes / 1440)}d ago`;
+
+// UX-08: `error` is the raw server/fetch message — never rendered, only logged.
+function NewsHubError({ error }: { error: string }) {
+  // eslint-disable-next-line no-console
+  console.error('[NewsHub]', error);
+  return <div className="card border-rose-200 p-6 text-sm text-rose-700" role="alert">News is degraded. Try again shortly.</div>;
+}
 
 function DeskMetric({ label, value, tone }: { label: string; value: string; tone?: 'good' | 'warn' }) {
   return <div className="rounded-xl border border-slate-200 bg-white px-3 py-2"><div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</div><div className={`mt-0.5 text-sm font-black ${tone === 'good' ? 'text-emerald-700' : tone === 'warn' ? 'text-amber-700' : 'text-slate-900'}`}>{value}</div></div>;

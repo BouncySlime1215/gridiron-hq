@@ -8,7 +8,8 @@
  * changes too and the new state is appended: history, never an overwrite.
  *
  * as_of is when the fact was true or known, never later information:
- *   transactions  processed_at, else proposed_at, else first_seen_at
+ *   transactions  processed_at, else proposed_at, else first_seen_at; PENDING rows use
+ *                 proposed_at (their processed_at is the scheduled run, in the future)
  *   lineups       changed_at (actual/projected points are NOT copied: a lineup event
  *                 must not carry the game result)
  *   news          published_at, else ingested_at, else created_at, else date
@@ -57,7 +58,11 @@ export const ADAPTERS = Object.freeze([
       }));
       const players = [...new Set(items.map(i => i.player_id).filter(p => p != null))];
       return [{
-        event_type: 'espn.transaction', as_of: firstTime(r.processed_at, r.proposed_at, r.first_seen_at),
+        // PENDING: processed_at is ESPN's SCHEDULED run, in the row's own future; what is
+        // known now is the proposal. Every other status was processed at processed_at.
+        event_type: 'espn.transaction',
+        as_of: r.status === 'PENDING' ? firstTime(r.proposed_at, r.first_seen_at)
+          : firstTime(r.processed_at, r.proposed_at, r.first_seen_at),
         league_id: r.league_id, team_id: r.team_id, player_id: players.length === 1 ? players[0] : null,
         source_key: `${r.league_id}:${r.season}:${r.tx_id}:${r.status ?? ''}`,
         payload: { season: r.season, tx_id: r.tx_id, type: r.type, status: r.status, execution_type: r.execution_type,

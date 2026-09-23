@@ -154,11 +154,11 @@ test('Doubtful on the injury report, IR status and the season-ending list are de
 });
 
 test('two dead starters never get the same replacement, and FLEX takes what the RB slot left', () => {
-  const id = league(roster({
-    rb1: player('Out Back', 'RB', 'RB', 15, { espn: 'OUT' }),
-    extra: []
-  }).map(p => (p.asset.name === 'Flex Back'
-    ? player('Out Flex Back', 'RB', 'FLEX', 9, { espn: 'OUT' }) : p)));
+  // ESPN lists the FLEX entry first here, so a solver that fills slots in entry order
+  // would hand the FLEX the only healthy back.
+  const base = roster({ rb1: player('Out Back', 'RB', 'RB', 15, { espn: 'OUT' }), extra: [] })
+    .filter(p => p.asset.name !== 'Flex Back');
+  const id = league([player('Out Flex Back', 'RB', 'FLEX', 9, { espn: 'OUT' }), ...base]);
   const items = byName(lineupCall(id, { providers: {}, now: NOW }).dead_starters);
   assert.equal(items['Out Back']?.replacement?.name, 'Bench Back');
   assert.equal(items['Out Flex Back']?.replacement?.name, 'Bench Wideout', 'the next healthy flex-eligible player');

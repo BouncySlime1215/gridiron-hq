@@ -617,7 +617,7 @@ test('adaptive weekly weights cannot leak into the week they were trained throug
 test('AI verdict renderer drops invented evidence and never accepts invented prose', () => {
   const facts = [
     { id: 'market.trend', text: 'Market value fell 8.0%.', source: 'test' },
-    { id: 'schedule.rank', text: 'Schedule ranks 4/32.', source: 'test' }
+    { id: 'market.sleeper_rank', text: 'Sleeper rank is 40.', source: 'test' }
   ];
   const out = groundPlayerVerdict({
     verdict: 'BUY', evidence_ids: ['market.trend', 'invented.injury'],

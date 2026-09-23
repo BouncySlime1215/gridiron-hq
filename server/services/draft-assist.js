@@ -22,6 +22,7 @@ import { buildProjections } from './projections.js';
 import { offseasonContextFor } from './nfl-offseason-change.js';
 import { canonicalTeamCode } from './team-codes.js';
 import { RECOMMENDED_MODEL_BLEND_WEIGHT } from './preseason-model.js';
+import { activeInjuryFlagIds } from './injury-flags.js';
 
 /**
  * Who changed teams and how much opportunity opened up where they landed
@@ -976,7 +977,7 @@ export function playerDossier(playerId) {
     week1_projection: (() => { try { return weeklyProjectionFor(playerId, tradeWeekContext()); } catch { return null; } })(),
     last_season: lastYear ? { points: Math.round(lastYear.fantasy_points), games: lastYear.games, line: line(lastYear.raw) } : null,
     prior_season: priorYear ? { points: Math.round(priorYear.fantasy_points), games: priorYear.games } : null,
-    injury_flag: injury?.value ?? null,
+    injury_flag: injury?.value > 0 && !activeInjuryFlagIds().has(playerId) ? 0 : injury?.value ?? null,
     injury_report: report?.injury
       ? `${report.injury}${report.report_status ? ` — ${report.report_status}` : ''}${report.practice_status ? ` (${report.practice_status})` : ''} [${report.season} wk ${report.week}]`
       : null,

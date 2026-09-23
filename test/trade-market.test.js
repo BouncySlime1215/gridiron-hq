@@ -63,10 +63,13 @@ const get = async url => {
 const fixture = (over = {}) => ({
   meta: { unit: 'TM-09', forward_status: 'unconfirmed forward', holdout_season_read: false,
     units: 'points above replacement per game, league scoring', sign: 'hype = price - value' },
-  results: { h1: { passed: true, mae_gain: 0.08 }, h2: { next4: { c: 0.26, c_ci: { lo: 0.22, hi: 0.30 }, decay_confirmed: true } } },
+  results: { h1: { passed: true, mae_gain: 0.08 }, h2: { next4: { c: 0.26, c_ci: { lo: 0.22, hi: 0.30 },
+    prereg_rule_c_below_1: true, placebo: { c_mean: 0.15, lo: 0.14, hi: 0.17, n_perm: 200 }, c_minus_placebo: 0.11,
+    price_coef_given_value: { coef: 0.14, lo: 0.10, hi: 0.18 }, market_informative_beyond_value: true } } },
   position_price_to_value: { RB: 0.9, WR: 0.88 },
   cells: [
     { pos: 'RB', week_bin: '5-8', size_bin: '12', n: 100, price_to_value: 0.92, median_hype: -0.1 },
+    { pos: 'RB', week_bin: '5-8', size_bin: 'le10', n: 60, price_to_value: 0.80, median_hype: -0.3 },
     { pos: 'WR', week_bin: '5-8', size_bin: '12', n: 12, price_to_value: null, median_hype: -0.2 },
   ],
   player_weeks: [
@@ -96,6 +99,14 @@ test('premium reads the position x week x size cell', () => {
   assert.equal(p.price_to_value, 0.92);
   assert.equal(p.source, 'cell');
   assert.equal(p.n, 100);
+});
+
+test('premium keys on league size: a 12-team query skips the same position-week cell of another size', () => {
+  assert.equal(market.marketPremium(fixture(), { pos: 'RB', week: 6, teams: 12 }).price_to_value, 0.92);
+  const small = market.marketPremium(fixture(), { pos: 'RB', week: 6, teams: 10 });
+  assert.equal(small.price_to_value, 0.80);
+  assert.equal(small.size_bin, 'le10');
+  assert.equal(small.source, 'cell');
 });
 
 test('a thin cell (price_to_value null) falls back to the position ratio and says so', () => {
@@ -148,6 +159,28 @@ test('the committed table is aggregates only and never reads 2025', () => {
   for (const c of table.cells) for (const k of forbidden) assert.equal(k in c, false, `key ${k} in a cell`);
 });
 
+test('every committed player-week row keeps the stated identity hype = price - value', () => {
+  assert.match(table.meta.sign, /hype = price - value/);
+  let bad = 0;
+  for (const r of table.player_weeks) if (Math.abs(r.hype - (r.price - r.value)) > 0.0006) bad += 1;
+  assert.equal(bad, 0, `${bad} of ${table.player_weeks.length} rows break hype = price - value`);
+});
+
+test('the committed table says its value curves were fit without 2025', () => {
+  const fit = table.meta.value_curves_fit_seasons;
+  assert.ok(Array.isArray(fit) && fit.length > 0, 'meta.value_curves_fit_seasons present');
+  for (const s of fit) assert.ok(s <= 2024, `value curve fit season ${s}`);
+});
+
+test('the committed H2 result carries the shuffled-price placebo and the price coefficient given value', () => {
+  const h = table.results.h2.next4;
+  assert.equal('decay_confirmed' in h, false, 'decay_confirmed is not diagnostic and is not published');
+  assert.ok(h.placebo && Number.isFinite(h.placebo.c_mean) && h.placebo.n_perm >= 200, 'placebo present');
+  assert.ok(Math.abs(h.c_minus_placebo - (h.c - h.placebo.c_mean)) < 1e-6, 'c_minus_placebo = c - placebo mean');
+  const b = h.price_coef_given_value;
+  assert.ok(b && Number.isFinite(b.coef) && b.lo <= b.coef && b.coef <= b.hi, 'price coefficient with CI');
+});
+
 test('marketForPlayer labels the output unconfirmed forward and default-off', () => {
   const out = market.marketForPlayer({ player: { id: 1, name: 'Test Back', position: 'RB', sleeper_id: '9001' },
     week: 6, teams: 12 }, fixture());
@@ -156,6 +189,18 @@ test('marketForPlayer labels the output unconfirmed forward and default-off', ()
   assert.equal(out.premium.price_to_value, 0.92);
   assert.equal(out.history.rows.length, 2);
   assert.equal(out.hype_decay.c, 0.26);
+  assert.equal(out.hype_decay.c_placebo, 0.15);
+  assert.equal(out.hype_decay.price_coef_given_value.coef, 0.14);
+  assert.equal('decay_confirmed' in out.hype_decay, false);
+  assert.doesNotMatch(out.hype_decay.reading, /shows up in the next 4/);
+});
+
+test('marketForPlayer names every hype producer so the numbers are not mixed up', () => {
+  const out = market.marketForPlayer({ player: { id: 1, name: 'Test Back', position: 'RB', sleeper_id: '9001' },
+    week: 6, teams: 12 }, fixture());
+  const where = out.other_hype_producers.map(p => p.where).join(' ');
+  assert.match(where, /players\.js/);
+  assert.match(where, /waiver-brain\.js/);
 });
 
 // ------------------------------------------------------------------ the route
@@ -170,6 +215,12 @@ test('GET /:leagueId/market/:playerId serves the committed table for a known pla
   assert.equal(body.history.rows.length, knownRows);
   assert.equal(body.premium.week_bin, '5-8');
   assert.equal(body.premium.size_bin, '12');
+  assert.equal(body.premium.pos, known.pos);
+  assert.equal(body.premium.available, true);
+  const cell = table.cells.find(c => c.pos === known.pos && c.week_bin === '5-8' && c.size_bin === '12');
+  const want = cell?.price_to_value ?? table.position_price_to_value[known.pos];
+  assert.ok(Number.isFinite(want), 'committed table has a ratio for the known position');
+  assert.equal(body.premium.price_to_value, want);
 });
 
 test('the route says no_sleeper_id rather than an empty history', async () => {

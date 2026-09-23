@@ -225,3 +225,4 @@
 09-23 07:34 PM ET Desktop account: 5-hour 51%, weekly 20% (measured 3 min ago)
 09-23 07:39 PM ET Desktop account: 5-hour 51%, weekly 20% (measured 8 min ago)
 09-23 07:44 PM ET Desktop account: 5-hour 51%, weekly 20% (measured 13 min ago)
+09-23 07:46 PM ET tick: 5-hour 53% (resets 8:30 PM), weekly 20%, Fable 25%. Target (94-20)/97.2h = 0.76%/h; measured 7:05->7:46 = 4.4%/h (5.8x) -> NO launches this hour.

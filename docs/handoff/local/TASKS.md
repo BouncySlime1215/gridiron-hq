@@ -1,5 +1,5 @@
 # TASKS (live checklist; update at every launch, merge, decision)
-Updated 2026-09-23 5:30 PM ET by B coordinator (session c4cebb1f).
+Updated 2026-09-23 7:50 PM ET by B coordinator (session c4cebb1f). Pace: 4.4%/h vs 0.76%/h target -> launches held.
 
 ## Running
 - [ ] META-01 the Referee design + historical probe (Nick: insane unified learner): wf_8ae32cdf-0a8 -> META-01-DESIGN.md, rnd/meta/probe.md. Supersedes BLEND-02 + JEV-01b blend when it lands.
@@ -13,6 +13,7 @@ Updated 2026-09-23 5:30 PM ET by B coordinator (session c4cebb1f).
 - [ ] Merge queues: B (53395) -> B3 (49912: 214 216 217 186 174 207 190 166 218 215 164) -> B4: 221 219
 
 ## Next (in order)
+- MERGE FIXES (need an agent when pace allows): #224 CI fail, #218 CI fail, #174 conflict, #219 conflict. Queue B9 (pid 11520) re-running 207 190 166 164 (stale vs main).
 - META-01a (script-only lab, ~1 day, no deps) when pace allows; then META-01b after EA-00/EA-04.
 - FIRST when pace allows (run together, disjoint files): BROKEN-01a+b (in-app Number health card; Nick asked 7:20 PM) and EA-00 (#216 rewrite per ENGINE-ARCHITECTURE §11.2, 9 items) then EA-01 (#220 per §11.5), then EA-02.. in the ENGINE-SPECS 'ARCHITECTURE UNITS' order.
 - PROJ-01-a-2025 one-time confirm, relaunch (v3 rule 2 fixed): base on #222 branch, add a --confirm-2025 path that requires a HOLDOUT-LEDGER.md row in the same commit; keep refuseHoldout as default; frozen spots only.

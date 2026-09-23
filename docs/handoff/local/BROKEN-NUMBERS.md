@@ -13,10 +13,10 @@ Source for rows A-H: ENGINE-ARCHITECTURE.md §10.2 (cites on origin/main 29ac6bc
 | F | finder vs League Hub vs Trade Brain | three different player values, unlabeled | FantasyCalc value, preseason VOR (routes/edge.js:50), clone price | three named fields; pages label which | OPEN |
 | G | Start/Sit, lineup, trade card | three different "this week" numbers | current_week_ppg (:507), week_points x full Vegas lift (lineup-brain.js:357-365), adj_ppg 0.25/0.75 (:432) | blend.week = the one number (then META-01 Referee) | OPEN |
 | H | Trade Brain under preview | two "checked out" signals at once | activity.manager (#220) beside checkedOutFactor (counterparty-pricing.js:374/:548) | activity.manager replaces it (EA-01 + ratchet) | OPEN |
-| I | trade prices | "his need pays N" premium up to 8%; data says <=2.8% | positional_need cap 0.08 unfitted (counterparty-pricing.js:84-86) | RL-19-1 (#224) behind flag, on in preview | FIX BUILDING (#224); follow-up: served label still says 0.08 under the flag |
+| I | trade prices | "his need pays N" premium up to 8%; data says <=2.8% | positional_need cap 0.08 unfitted (counterparty-pricing.js:84-86) | RL-19-1 (#224) behind flag, on in preview | FIX BUILDING (#224 CI failing, needs a fix); follow-up: served label still says 0.08 under the flag |
 | J | trade finder | hides deals that raise BOTH teams' title odds | points gate drops them (trade-engine.js:1885) | RL-19-3 -> CHESS-01-a | OPEN |
-| K | Coach | max 1,500 output tokens on a thinking model: long answers can cut off | same failure as #213 | #223 (8,000) | FIX BUILDING (#223) |
-| L | page explainer | points at a deleted glossary file | stale reference | #223 | FIX BUILDING (#223) |
+| K | Coach | max 1,500 output tokens on a thinking model: long answers can cut off | same failure as #213 | #223 (8,000) | MERGED 9/23 (#223), in local app a6a77824; live check pending |
+| L | page explainer | points at a deleted glossary file | stale reference | #223 | MERGED 9/23 (#223); live check pending |
 | M | Trade Brain proposals (league 4) | a failed answer stays cached 6 h after a fix | failed-slate key ignores the model config (trade-proposals.js:69) | FIX-HOLD-01 | OPEN |
 | N | waiver card | next waiver run time wrong in 9/9 checked cases (7-8 h late) | guessed "11 AM ET" (waiver-wire.js:415-439) | RL-16-2 (needs real run times) | OPEN |
 | O | trade cards (playoff weight) | playoff importance hand-set at 4; measured ~5.2 for contenders | constant at trade-horizon.js:36 | RL-16-1 interim, then CE-09 | OPEN |

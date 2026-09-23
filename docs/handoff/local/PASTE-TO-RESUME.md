@@ -115,7 +115,7 @@ Public-data "value edges" were tested and **failed** (RL-8-2, RL-8-2b), so every
   2. `Project: ~N% done (Trade Machine core M/20)`
   3. What landed since the last status, and what's running (loops named).
   4. Every other check: budget analysis, i.e. how much work the remaining % buys, and whether to add or cut a loop.
-- Project % (9/23 ~6:25 PM, B): whole platform ~33% (foundation ~85%; ONE ENGINE ~12% of 57 units: 1 merged, 1 decided, ~8 built awaiting merge, 3 building, rest specced). The engine is the remaining bulk.
+- Project % (9/23 7:50 PM, B): whole ~34%; foundation ~85%; ONE ENGINE ~15% (5 merged/decided, ~8 built awaiting merge, blueprints ENGINE-ARCHITECTURE.md + META-01-DESIGN.md done). Meter 7:46 PM: weekly 20%, 5h 53%; target 0.76%/h to Mon 9 PM; measured 4.4%/h -> launches held. Read TASKS.md (live), BROKEN-NUMBERS.md, ENGINE-ARCHITECTURE.md, META-01-DESIGN.md.
 
 ## 8. Where things are
 - Plan: `$H/PLAN-V9-CORRECTIONS.md`, `TRADE-MACHINE-MASTER.md`, `PHASE-DELIVERABLES.md`, `UI-STANDARD.md`, `UI-REVAMP.md`. Process rules: `RULES.md` only.

@@ -35,3 +35,6 @@ Brake on/off before any deploy; delete Model.tsx and Edge.tsx; keep or close #66
 ## Rules in one breath
 
 Merge gate v2 via gate-merge.sh; verify once; no secrets; no destructive migrations or data deletion; nothing paid; licence first; every model result must hold on 2026 weeks as well; declines state their MDE; one number, one producer.
+
+## Safe stop 2026-09-23 02:21Z
+Everything stopped on Nick's order at the account limit; per-task done/next and resume args in local/STOP-2026-09-23.md; launch order in ~/gridiron-local/launch/MIDNIGHT-2026-09-23.md.

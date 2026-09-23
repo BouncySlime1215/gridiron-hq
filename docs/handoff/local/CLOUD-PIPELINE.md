@@ -28,3 +28,6 @@ No local `npm run check`: CI on Node 22 is the full check, which spares this 8 G
 - Integration intake (INTEGRATION-PROCEDURE.md step 2) on the card.
 - Synergy review about every 5 merges.
 - Board updated (the keeper, every 10 min).
+
+## 2026-09-23 01:48Z: new cloud builds paused (coordinator call, Nick may say "keep cloud")
+Why: cloud sessions share the account's 5-hour limit (no token saving), wake on PR webhooks and hourly self-armed check-ins (hidden token burn), and one merged its own PR (#159). Measured alternative: the same lean builder run locally (INT-128-1: 29 min, 182K Sonnet tokens) with targeted tests only and CI on Node 22 as the full check. Open cloud PRs (#161 #162 #163, F-07 #100/#103/#120, F-04 #77, C-12 #73, F-03 #97) got a stand-down comment asking their sessions to unsubscribe; all 20 routines are disabled (0 enabled at 01:46Z). They are verified and landed by the local queue as before.

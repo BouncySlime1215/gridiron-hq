@@ -2,7 +2,19 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 11:11Z.
+Last rebuilt: 2026-09-23 12:05Z.
+
+## #179: Bench a bye-week starter instead of counting his full range
+
+- Merged: 8:05 AM ET, Sep 23 as `ad3bb9f6`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #177: Fix phone-width overflow on Leagues, Trade Lab, and Teams pages
+
+- Merged: 7:53 AM ET, Sep 23 as `ab7ccc52`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #163: ESPN scoring map: read pointsOverrides, fix rushing/receiving swap, report unmapped stat ids
 

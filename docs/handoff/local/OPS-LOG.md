@@ -146,3 +146,9 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 
 16:00Z: RL-8-2b correctly STOPPED before any number: 2021-22 was already used for this question (and fits the curve); no unused season except the 2025 holdout. Decision owed by Nick (NICK-2025).
 16:05Z: Loop 1 relaunched: RL-9-3 roster-spot lineup value (w6b353mxs). Weekly 77%, 5-hour 45%.
+
+16:25Z: RL-10-1 ESPN-zero inactive feed -> #198 (default-off until the timing test or Nick; 87% precision on Q/none; solver and card share one hook; stacked on #185). RL-10-2 poller PR pending/see journal.
+16:30Z: #177 MERGED. Queue skipped #171 (stale head), #178 (conflict): merge-train repair agent resolving #178, #191 (ownedById fix), #171, #175, #73. RL-10-2 poller -> #199.
+16:40Z: Repair done (all 5 MERGEABLE; #191 contains #178). Train 2 queued by PID wait on the big queue (46686): 178 191 171 175 73 192 194 195 196 197 198 199 (log mq-train2.log).
+
+16:50Z: R&D r11 landed: activity is the yes-signal (3x; AUC 0.65), tilt weak, checked-out managers trade less. RL-11-1 queued; TM-17 demoted. Plan adjusted; r12 relaunched.

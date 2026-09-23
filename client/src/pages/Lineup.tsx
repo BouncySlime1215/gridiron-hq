@@ -7,6 +7,8 @@ import { usePageExplain } from '../components/PageExplainContext';
 import { PageLoading, PageError, EmptyState, logServerDetail } from '../components/PageState';
 import WaiverWire, { WaiverTeaser, onATeam } from '../components/lineup/WaiverWire';
 import type { WaiverBoard, OutList } from '../components/lineup/WaiverWire';
+import StreamingBoard from '../components/lineup/StreamingBoard';
+import type { StreamBoard } from '../components/lineup/StreamingBoard';
 import MatchupPosture from '../components/lineup/MatchupPosture';
 import type { Posture } from '../components/lineup/MatchupPosture';
 import StartSitGate from '../components/lineup/StartSitGate';
@@ -32,7 +34,9 @@ const CONF: Record<string, { label: string; bar: string; chip: string }> = {
   'only option': { label: 'Only option', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-600 ring-slate-200' },
   // Other eligible players existed, none of them had a projection. That is not
   // the same call as having only one option, and it should not look like one.
-  'no projection': { label: 'Not compared', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-400 ring-slate-200' }
+  'no projection': { label: 'Not compared', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-400 ring-slate-200' },
+  // RL-4-2: his game has kicked off, so the slot cannot change. No bar: nothing was compared.
+  locked: { label: 'Locked', bar: 'bg-slate-300', chip: 'bg-slate-200 text-slate-700 ring-slate-300' }
 };
 
 export default function Lineup() {
@@ -45,6 +49,8 @@ export default function Lineup() {
   // default to my own roster, exactly as the lineup request does.
   const waivers = useApi<WaiverBoard>(leagueId ? `/trades/${leagueId}/waivers` : null);
   const posture = useApi<Posture>(leagueId ? `/trades/${leagueId}/posture` : null);
+  // Defense streaming (WV-01): same league, same week as the waiver board.
+  const streams = useApi<StreamBoard>(leagueId ? `/trades/${leagueId}/streams` : null);
   // Only for the opponent's name; the same cached request the Trade Lab makes.
   const opponentId = posture.data?.opponent_roster_id ?? null;
   const { data: rosters } = useApi<any>(leagueId && opponentId ? `/trades/${leagueId}/rosters` : null);
@@ -300,6 +306,9 @@ export default function Lineup() {
 
       <WaiverWire key={leagueId} data={waivers.data} loading={waivers.loading} error={waivers.error}
         onRetry={waivers.refetch} out={out} />
+
+      <StreamingBoard key={`streams-${leagueId}`} data={streams.data} loading={streams.loading} error={streams.error}
+        onRetry={streams.refetch} />
     </Shell>
   );
 }

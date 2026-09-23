@@ -88,7 +88,20 @@ No table, column, migration or route added or removed.
 2. Stats or made up? The reason is r8's measured result (2021-24, consensus ECR, 1,363 real trades); this unit adds no number.
 3. How we know: r8 backtest 2021-24 (ECR-adjusted FPOE slope about 0 ROS points per game; humans price about 73%). Here: fixture test that the verdict and the Start/Sit call are identical flagged vs unflagged.
 4. Pointed anywhere else? Only the Start/Sit page read it (football verdict + two flag lines). No trade value, waiver or finder rank read it.
-5. How it unifies: one producer (td-regression.js) stays as a readable board; zero decision paths weight it; the registry says so at the point of use.
+5. How it unifies: td-regression.js stays as the one producer of the touchdown-luck concept, but no route, job or page reads it now. It is baselined as a declared orphan (docs/wiring/annotations.json, with a reason, RETIRE WHEN and owner), zero decision paths weight it, and the registry says it is research-only and not surfaced. (Corrected in round 2: the round-1 text said it "stays as a readable board", which no code backed.)
+
+## 8. Skeptic round 1: wiring gate (fixed in `1826d909`)
+
+Finding (all three skeptics): removing the only two production importers (lineup-brain.js:41, player-case.js:36 on 3ac59fea) stranded td-regression.js. `node scripts/wiring-map.mjs --check` (package.json `check:wiring`, part of `npm run check`) went red. Round 1 reported `wiring-map 90/90`, which is test/wiring-map.test.js, not the gate. The gate was never run. The skeptics were right.
+
+- Reproduced on 9becd3e4 in this worktree: `node scripts/wiring-map.mjs --check` exited 1 with `1 blocking finding(s)` / `module-only-tested server/services/td-regression.js — imported only by its test (...)`. The skeptics' control on base 3ac59fea exited 0. I did not re-run that control; I am quoting their result.
+- Fix, option (c): add `server/services/td-regression.js` to `accepted_orphan_modules` with a `_PERMANENT_ORPHAN_REASONS` entry that gives the reason, a RETIRE THIS ENTRY WHEN line (a zero-weight explanation-only surface pinned by a flagged == unflagged test, or Nick drops it and the file, registry entry and tests are deleted) and an owner. This follows the vegas-fantasy.js entry, a module orphaned the same way (its consumers were removed and the fitted model was kept). Why not (a): re-adding a "5 TDs on 1.4 expected" line to the Lineup page puts back the text this unit removed as already priced. That is a product call for Nick, not a wiring fix. Why not (b): deleting a fitted model to close a report is also Nick's call, and redzone-tiers.test.js uses its `__test` export.
+- Wording that promised a surface no code reaches was corrected in three places: gridiron-model.js (comment + `refuses`), the td-regression.js header, and the player-case.js comment. The player-case comment avoids the file name so test 4's 0-hit grep, the queue's acceptance check, still holds. That test caught my first wording.
+- After the fix on 1826d909: `node scripts/wiring-map.mjs --check` exits 0, printing `no missing-feed findings`.
+- New test 8 in test/td-luck-retired.test.js checks three things: the annotation exists, it carries RETIRE/Owner, and none of the three files says "board stays readable" or "may explain a line". Result: 8/8 pass.
+- M7 (annotations.json restored to 9becd3e4) is killed: test 8 fails (7/8) and the gate exits 1. The annotation was then restored, and the gate exits 0 again.
+- Targeted tests on the fix tree all exit 0: td-luck-retired 8/8, wiring-map 90/90, gridiron-model 12/12, td-regression 1/1, redzone-tiers 8/8. Command: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<mktemp> node --experimental-test-module-mocks --test --test-reporter=tap test/<file>.test.js`.
+- Still open: `regressionForLeague` (td-regression.js:344) has no caller. The gate does not flag it on base or head. It is covered by the same retire-when condition.
 
 ## Holdout looks
 

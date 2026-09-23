@@ -75,7 +75,8 @@ import { normalCdf, withRandomSeed } from './stats-util.js';
 // lineupSpread() only: each starter's played-week draws and the fitted archetype
 // correlations, for the lineup-total floor/ceiling.
 import { sampleWeeks } from './projections.js';
-import { correlationMatrix } from './correlation.js';
+import { correlationMatrix, correlationBasis } from './correlation.js';
+import { servedTableState } from './data-freshness.js';
 import { run as dbRun } from '../db/index.js';
 // Evidence layers (see the "evidence" section below). Read-only sources: the
 // engine never re-prices on them, it explains with them.
@@ -224,8 +225,30 @@ export const ASSET_INPUT_TABLES = [
   { table: 'nfl_availability_rates', stamp: 'fitted_at' },
   { table: 'nfl_availability_role_rates', stamp: 'fitted_at' },
   'player_week_snaps',
-  'trending_players', 'player_metrics', 'schedule_games'
+  // A trending re-sync upserts in place (ON CONFLICT DO UPDATE), so the row count
+  // alone never saw it; fetched_at is rewritten on every sync.
+  { table: 'trending_players', stamp: 'fetched_at' },
+  'player_metrics', 'schedule_games',
+  // Not read by buildAssetUniverse, but by lineupSpread inside findTrades, whose cache
+  // keys on this list. A refit rewrites fitted_at on the same 20-odd rows.
+  { table: 'correlation_estimates', stamp: 'fitted_at' }
 ];
+
+/**
+ * The inputs above that only change when a person runs something (S-18), as named
+ * states from data-freshness.js#servedTableState ('table_absent' | 'empty' | 'stale' |
+ * 'fresh' | 'unknown'), each from that table's one entry (servedTableEntry). Served on
+ * `context.hand_fed`, which routes carry as `model_context`:
+ *   trending_players       every asset's trend_kind / trend_count; written only by
+ *                          POST /api/tradelab/trending/sync. Empty, `trend_kind: null`
+ *                          is "nothing fetched", not "not trending".
+ *   correlation_estimates  lineupSpread's copula; written only by POST /api/model/sync.
+ *                          Empty, every archetype is correlation.js's DEFAULTS.
+ */
+const handFedInputs = () => ({ trending_players: servedTableState('trending_players'),
+  correlation_estimates: correlationBasis() });
+// The states key the cache too: a table going stale with time moves no row and no stamp.
+const handFedKey = inputs => Object.values(inputs).map(s => `${s.table}=${s.state}`).join(',');
 
 /**
  * What the served week reads that is rewritten in place with no update time, so no
@@ -255,7 +278,7 @@ function servedInputsDigest(season, week) {
 const assetInputsKey = (lg, formatKey, target) =>
   `${lg.id}:${formatKey}:${target.season}:${target.week}:` +
   `w${activeWeeklyWeightSet({ season: target.season, week: target.week }).id}:` +
-  `d${servedInputsDigest(target.season, target.week)}`;
+  `d${servedInputsDigest(target.season, target.week)}:h${handFedKey(handFedInputs())}`;
 
 export function assetUniverse(lg, formatKey, requested = null) {
   const target = requested ?? tradeWeekContext();
@@ -316,6 +339,8 @@ function buildAssetUniverse(lg, formatKey, target) {
   // this, a player out for the year keeps getting picked as the optimal starter
   // here even after the roster page correctly benches him.
   const seasonEnding = seasonEndingEspnIds();
+  // Which absence trend_kind: null means on this build, served on context.hand_fed.
+  const handFed = handFedInputs();
   const trending = new Map(rows('SELECT player_id, kind, count FROM trending_players')
     .map(t => [t.player_id, t]));
 
@@ -480,6 +505,7 @@ function buildAssetUniverse(lg, formatKey, target) {
     });
   }
   out.context = {
+    hand_fed: handFed,
     season: target.season, week: target.week,
     cutoff: `${target.season}-W${Math.max(0, target.week - 1)}`,
     engine: 'player-week-v2.1 + weekly availability + current/remaining schedule',

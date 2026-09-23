@@ -8,6 +8,7 @@ import { weeklyProjectionFor } from '../services/fantasy-coordinator.js';
 import { tradeWeekContext } from '../services/trade-engine.js';
 import { playerAdvancedStats } from '../services/player-advanced-stats.js';
 import { playerNews } from '../news/player-news.js';
+import { playerHype } from '../services/hype.js';
 
 const r = Router();
 
@@ -122,15 +123,10 @@ r.get('/:id/gamelog', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// Heuristic buy/sell used when no API key is configured (and as the AI's starting point).
-function heuristicVerdict(m) {
-  const pct = trendPct(m.fc_value, m.fc_trend30);
-  if (pct == null) return null;
-  const s = Math.abs(pct).toFixed(1);
-  if (pct > 5) return { verdict: 'SELL', why: `market value up ${s}% in 30 days — sell into the hype` };
-  if (pct < -5) return { verdict: 'BUY', why: `market value down ${s}% in 30 days — buy the dip` };
-  return { verdict: 'HOLD', why: `market value is stable (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% in 30 days)` };
-}
+// S-19: the FantasyCalc-momentum heuristic ("sell into the hype") that lived here
+// is retired. It had no test, and on the same rostered players it gave the
+// opposite call to sellHigh on 57 of 89 flags. Hype now has one producer,
+// services/hype.js#playerHype, and this route passes it through unchanged.
 
 function playerEvidenceFacts({ player, metrics, news, depth, sos }) {
   const facts = [];
@@ -172,14 +168,20 @@ r.post('/:id/analyze', async (req, res, next) => {
     const m = metricsFor(player.id);
     const news = playerNews(player.id);
 
+    const hype = playerHype({ sleeperId: player.sleeper_id });
+
     if (!getApiKey()) {
-      const h = heuristicVerdict(m);
-      if (!h) return res.status(400).json({ error: 'No API key configured (Dev Hub, top right) and no market trend available.' });
+      if (!hype.verdict) {
+        return res.status(400).json({ hype,
+          error: 'No API key configured (Dev Hub, top right), and there is no validated market signal to fall back on: '
+            + (hype.available ? hype.verdict_reason : hype.reason) });
+      }
+      const reasoning = `Market signal only (no API key): hype ${hype.hype} PAR/g (${hype.sign}).`;
       run(`INSERT INTO player_analysis (player_id, verdict, reasoning, generated_at)
            VALUES (?,?,?,datetime('now'))
            ON CONFLICT(player_id) DO UPDATE SET verdict=excluded.verdict, reasoning=excluded.reasoning, generated_at=excluded.generated_at`,
-        player.id, h.verdict, `Market signal only (no API key): ${h.why}.`);
-      return res.json({ verdict: h.verdict, reasoning: `Market signal only (no API key): ${h.why}.`, source: 'heuristic' });
+        player.id, hype.verdict, reasoning);
+      return res.json({ verdict: hype.verdict, reasoning, source: 'hype', hype });
     }
 
     const depth = rows(`SELECT name, position, slot_code FROM players
@@ -187,7 +189,7 @@ r.post('/:id/analyze', async (req, res, next) => {
                         ORDER BY slot_code`, player.team_id ?? -1);
     const sos = player.team_abbr ? computeSOS().find(s => s.abbr === player.team_abbr) : null;
     const facts = playerEvidenceFacts({ player, metrics: m, news, depth, sos });
-    const fallback = heuristicVerdict(m)?.verdict ?? 'HOLD';
+    const fallback = hype.verdict ?? 'HOLD';
 
     const msg = await callClaude({
       feature: 'player-verdict',
@@ -203,7 +205,7 @@ Choose 1-4 IDs that genuinely support the verdict. If evidence conflicts or is t
          VALUES (?,?,?,datetime('now'))
          ON CONFLICT(player_id) DO UPDATE SET verdict=excluded.verdict, reasoning=excluded.reasoning, generated_at=excluded.generated_at`,
       player.id, out.verdict, out.reasoning);
-    res.json({ ...out, source: 'ai_evidence_selection' });
+    res.json({ ...out, source: 'ai_evidence_selection', hype });
   } catch (e) { next(e); }
 });
 

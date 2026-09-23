@@ -10,7 +10,7 @@ import { row, rows } from '../db/index.js';
 import { assertLeagueMember } from '../platform/auth.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import {
-  findTrades, findTradeSequences, offerFor, offerForMany, selfScout, playerOutlook, evaluate,
+  findTrades, findTradeSequences, offerFor, offerForMany, selfScout, playerOutlook, evaluate, lineupValueContext,
   assetUniverse, loadRosters, lineupSlots, bestLineup, resolvePlayer, lineupDiff, playerEvidence,
   tradeWeekContext
 } from '../services/trade-engine.js';
@@ -46,6 +46,7 @@ import { titleOddsTrades } from '../services/title-odds-trades.js';
 import { tradeImpact } from '../services/season-sim.js';
 // TM-09: historical revealed trade prices (aggregate table), read-only, default-off.
 import { marketForPlayer } from '../services/trade-market.js';
+import { playerHype } from '../services/hype.js';
 import {
   proposeVerifyRetryTrade, judgeTradeVerdict, tradeChallengeText, SENSE_CHECK_SIM_RUNS
 } from '../services/trade-verify.js';
@@ -187,16 +188,17 @@ r.get('/:leagueId/brain/plan', retired('/api/trades/:leagueId/find',
 /**
  * RETIRED 2026-09-18 (trade-engine-correctness, GATE G7).
  *
- * `sellHigh` itself is NOT retired — it is the price-curve half of the Trade
- * Brain's "hype window" tactic, and it stays as an input to that (it is still
- * exported from waiver-brain.js). What is retired is serving it as its own page:
+ * `sellHigh` is still exported from waiver-brain.js, but (S-19) it is not an
+ * input to the "hype window" tactic, which reads usage gaps
+ * (talk-vs-model.js#expectationGaps); it now reads the one hype producer,
+ * services/hype.js#playerHype. What is retired is serving it as its own page:
  * a list of players priced above their production curve, with no buyer attached
  * and no read on who overvalues them, is half an idea. The whole idea — who to
  * sell him to, what to ask, and whether that manager has talked him up — is a
  * trade idea, and trade ideas have one source.
  */
 r.get('/:leagueId/brain/sell-high', retired('/api/trades/:leagueId/find',
-  'Selling high on a player is a trade idea, not a list: the finder names the buyer, the package and how he reads it. sellHigh() remains an input to the hype-window tactic.'));
+  'Selling high on a player is a trade idea, not a list: the finder names the buyer, the package and how he reads it. Hype has one producer, services/hype.js#playerHype.'));
 
 
 
@@ -874,7 +876,8 @@ r.post('/:leagueId/evaluate', (req, res, next) => {
       : teams.find(t => t.roster_id !== meId && gets.some(g => t.players.some(p => p.id === g.id)));
     if (!them) return res.status(400).json({ error: 'could not work out who you are trading with — pass their_team_id' });
 
-    res.json({ ...evaluate({ team: me, gives }, { team: them, gives: gets }, slots), slots });
+    res.json({ ...evaluate({ team: me, gives }, { team: them, gives: gets }, slots,
+      { lineupValue: lineupValueContext(lg, assets, teams) }), slots });
   } catch (e) { next(e); }
 });
 
@@ -1026,7 +1029,9 @@ r.get('/:leagueId/market/:playerId', (req, res, next) => {
     const player = row('SELECT id, name, position, sleeper_id FROM players WHERE id = ?', req.params.playerId);
     if (!player) { res.status(404).json({ error: 'player not found' }); return; }
     res.json({ league_id: lg.id,
-      ...marketForPlayer({ player, week: leagueCurrentWeek(lg), teams: lg.team_count ?? null }) });
+      ...marketForPlayer({ player, week: leagueCurrentWeek(lg), teams: lg.team_count ?? null }),
+      // S-19: the one hype producer, passed through unchanged.
+      hype: playerHype({ sleeperId: player.sleeper_id }) });
   } catch (e) { next(e); }
 });
 

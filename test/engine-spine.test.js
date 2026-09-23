@@ -129,9 +129,9 @@ test('engine_events and engine_state are append-only at the database', () => {
     /append-only/);
   assert.throws(() => run('DELETE FROM engine_events WHERE id = ?', ev.id), /append-only/);
   // A row-level trigger only fires on a row, so write one first (an empty-table UPDATE proves nothing).
-  registry.registerField('test.append_only', { producer: 'producer-ao', version: '1', entityTypes: ['player'] });
+  const writerAo = registry.registerField('test.append_only', { producer: 'producer-ao', version: '1', entityTypes: ['player'] });
   const { id } = state.writeState({ entityType: 'player', entityId: '9001', field: 'test.append_only', value: 1,
-    asOf: '2026-09-01T00:00:00Z', producer: 'producer-ao', producerVersion: '1', eventIds: [ev.id],
+    asOf: '2026-09-01T00:00:00Z', writer: writerAo, producerVersion: '1', eventIds: [ev.id],
     reasonChain: { contributions: [] } });
   assert.throws(() => run('UPDATE engine_state SET producer = ? WHERE id = ?', 'x', id), /append-only/);
   assert.throws(() => run('DELETE FROM engine_state WHERE id = ?', id), /append-only/);

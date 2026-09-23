@@ -262,6 +262,8 @@ test('backfill copies every stream, is idempotent, and fires onEvent only for ne
   const chat = rows(`SELECT * FROM engine_events WHERE event_type = 'manager.chat_signal'`);
   assert.equal(chat.length, 1, 'only source=chat rows are chat signals');
   assert.deepEqual(Object.keys(JSON.parse(chat[0].payload)).sort(), ['metric', 'n', 'value']);
+  assert.equal(chat[0].as_of, '2026-09-20T09:00:00.000Z', 'a chat rate is stamped when it was computed, not when copied');
+  assert.equal(chat[0].team_id, '4');
   // The backfill's own state row: counts per stream, reason chain populated.
   const ingest = state.getState('engine', 'events', 'engine.ingest', { asOf: new Date().toISOString() });
   assert.ok(ingest, 'backfill wrote no engine.ingest row');

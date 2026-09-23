@@ -2,7 +2,67 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 16:08Z.
+Last rebuilt: 2026-09-23 18:22Z.
+
+## #199: ESPN flip-timing poller: fetch-time flips, shared projection/status helpers
+
+- Merged: 2:21 PM ET, Sep 23 as `19a4eea1`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #198: Default-off ESPN-zero inactive flag: card and lineup solver share one signal
+
+- Merged: 2:07 PM ET, Sep 23 as `c83cb128`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #197: Retire in-season td_luck weights from verdict and Start/Sit, label td-regression as an orphan
+
+- Merged: 1:53 PM ET, Sep 23 as `24fdf434`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #196: RL-8-2: pin bootstrap CI to pre-registered 90% level (TM-01 consensus gate still FAILS)
+
+- Merged: 1:39 PM ET, Sep 23 as `35b4a436`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #195: Remove the duplicate, fabricated schedule-strength rank (computeSOS)
+
+- Merged: 1:26 PM ET, Sep 23 as `d6b89293`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #194: Rename usage-gap tactic keys away from 'hype' vocabulary
+
+- Merged: 1:14 PM ET, Sep 23 as `3e27d9f2`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #192: Fix trade-impact title odds to show one consistent number everywhere
+
+- Merged: 1:03 PM ET, Sep 23 as `0558bbcc`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #73: One design system for the redesign, and the test that keeps it true
+
+- Merged: 12:46 PM ET, Sep 23 as `1168efff`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #175: fix: sanitize leaked backend errors across 13 alert/error sites (UX-08b)
+
+- Merged: 12:35 PM ET, Sep 23 as `c384fe66`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #200: Fix lineup value double-counting a bye week across the season
+
+- Merged: 12:21 PM ET, Sep 23 as `61962dee`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #191: Waiver board: match roster by ESPN id, not a name that can collide
 

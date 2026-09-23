@@ -187,3 +187,10 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 - 18:03Z prompt audit applied (10 hunks): gate prompts leave PRs draft, finish-unit uses targeted tests (CI is guard), merge-gate skill + token-efficiency skill updated to current rules. Report: scratchpad/audit/PROMPT-AUDIT.md
 - 18:07Z A spend-down: launched 2 build runs (RL-15-3+RL-15-1, RL-13-2+RL-15-2) + R&D r16 at weekly 85%; hard stop 97%
 - 18:12Z PASTE-TO-RESUME.md rewritten as a self-contained takeover brief for account B (first 15 min, A coordination, launch mechanics, work order, rules, budget, status format)
+- 18:18Z wf_a44a4565-364 done: #209 RL-15-3 (Buy Low → Role Rising/Role Shrinking; 6/6 mutants killed; no lens refuted) and #210 RL-15-1 (playbook), both draft; ~0.72M subagent tokens
+- 18:20Z Nick: R&D sole focus = trade analyzer insane. Wrote TRADE-INSANE-RND.md (Manager Clones + Title-Odds Chess), repointed rnd-loop-v2 lanes, launched R&D r17 (wf_bbe7b1b7-cf7). Weekly 86%.
+- 18:21Z wf_17ee5731-4e7 done: #211 RL-13-2 waiver claim line (8/8 mutants), #212 RL-15-2 no chase-variance; drafts. ~1.1M subagent tokens
+- 18:22Z RULING Nick: all 5 layers approved; engine first, fringes only fill idle slots. PASTE §5 reordered (BLEND-02, CE-01/03/09, CLONE-01, RADAR-01, CHESS-01→TM-01). Spec agent writing ENGINE-SPECS.md. R&D lanes steered to core engine.
+- 18:23Z Added Layer 2 projection deep dive (residual-on-ESPN, chain, simulate, disagreement, speed, decision grading, online) to TRADE-INSANE-RND.md
+- 18:28Z Layer 2 v2 per Nick (1 Mistake Map, 2 sharp chain w/ share-sum, 3 correlated sim + conformal, 6 Monday Autopsy) + historical data inventory
+- 18:30Z PLAN v10 written at top of PLAN-V9-CORRECTIONS.md (engine first: projection, CE, trade engine; diligence lean; grading+autopsy); PASTE §5 + ETA updated; spec agent told to add PROJ-00..04

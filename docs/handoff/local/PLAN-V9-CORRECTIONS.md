@@ -1,3 +1,44 @@
+# PLAN v10 (2026-09-23 3:00 PM ET, Nick): ENGINE FIRST. This section overrides the older v9 text below where they conflict.
+Source: TRADE-INSANE-RND.md (5 layers approved by Nick, plus the Layer 2 v2 projection design). Specs: ENGINE-SPECS.md.
+
+## Pillars, re-ranked
+1. **PROJECTION ENGINE (new #1).**
+   - PROJ-00 data backfill: ESPN weekly 2021 and 2025, weather before 2025, licence first.
+   - PROJ-01 ESPN Mistake Map: residual engine, blind-spot library, line drift since ESPN posted, ESPN-vs-FantasyPros referee.
+   - PROJ-02 sharp chain: plays -> pass rate -> shares summing to 100% -> red-zone TDs -> shrunk efficiency -> league scoring; each link graded.
+   - PROJ-03 correlated game simulator with conformal-calibrated ranges. It IS CE-01: one simulator for start/sit, ranges and title odds.
+   - BLEND-02 stacker on top: situation weights, disagreement as a feature.
+   - PROJ-04 Monday Autopsy: plain-English miss breakdown, decision vs luck, weekly online reweighting, blind spots to R&D.
+   - Trained walk-forward 2021-22 -> 2023 -> 2024 -> 2025 (ledgered) -> forward 2026. Ships ON only if it beats "start ESPN's higher number" on start/sit decisions with honest 80% coverage; otherwise ESPN stays the number and ours supplies the ranges.
+2. **CHAMPIONSHIP ENGINE.** CE-03 season sim on the PROJ-03 simulator (multi-week injury spells RL-9-2, final-week rest RL-9-1), then CE-09 title odds (RL-6-3 currency first). Title odds is the currency of every trade grade.
+3. **TRADE ENGINE ("Manager Clones + Title-Odds Chess").**
+   - CLONE-01: extends counterparty-pricing.js. It absorbs RL-13-3 and graded Coach people variables. The clone test runs against the FantasyCalc-fair baseline (the v9 FantasyCalc gate lives here).
+   - RADAR-01, then CHESS-01, then TM-01 finder = chess output shown as deals.
+   - Coach is the closer: pitch framed on their needs, plus "how you come across".
+   - Evidenced edges (fill-in RL-7-1, rest, activity, injury timing RL-12-1) are engine INPUTS.
+4. **DILIGENCE ENGINE (lean track).** Mostly shipped (dead starters, waivers, command center). Remaining items run only in idle slots, on Sonnet.
+5. **GRADING.** GR-01 ledger plus PROJ-04 Autopsy become one grading loop. The report card shows decision quality vs luck.
+
+## What this reverses from v9
+- v9 item 4 ("start/sit narrowed to availability; floor/ceiling to phase 5") is REVERSED. Ranges and the projection engine are now core, because they feed start/sit AND title odds.
+- The fringe units (tags, copy, small card fixes, X's & O's hub, UI polish beyond what the engine needs) move to idle slots.
+
+## UI the engine needs (UI-REVAMP.md, engine-first subset)
+- A range bar on every player: 80% range, boom/bust odds, and "why ESPN is off" (the Mistake Map reason).
+- The Monday Autopsy card.
+- Title-odds impact on every trade.
+- A clone view per league-mate: how they price players, P(accept).
+- The chess path shown as steps (trade -> claim -> flip).
+
+## R&D
+Sole focus: the engine, projection first (rnd-loop-v2 lanes point at TRADE-INSANE-RND.md). After each round, adjust this section.
+
+## Budget and ETA effect
+- Adds about 8-12 engine units, split -a/-b where more than 1 day, at roughly 1.5-2.5% weekly each for critical units. Dropping and deferring fringe units offsets part of it.
+- Guess: total ETA slips about 1 day, to about Thu 10/1 to Fri 10/2. The engine lands in the first half of that window because it is first in line.
+
+---
+
 # PLAN v9: what the verified skill study changes (2026-09-23 ~1:50 AM ET; Nick: "change entire module plans if you need; rules still apply")
 Verified facts (8 skeptic passes, SKILL-REPORT.md): (a) the repeatable skill is mostly ENGAGEMENT/DILIGENCE (adds per week takes ~56% of the predictable part once included; start/sit ~20%); (b) dead-starter blunders cost 2.8 pts/week and repeat; clever calls among healthy players +0.68/week and barely repeat; (c) in trades, LINEUP GAIN beats paper value (0.62 vs 0.115 lineup points per point; they disagree in 80% of trades) and hot starts regress toward pedigree; "best player in the deal" is NOT an edge (-2.5 to -5.3 with value held equal); IR cost ~4-6 pts; (d) the measured levers explain only 12-15% of the year-to-year carry-over: most of what makes a manager good is unmeasured, so population priors are weak and Nick's OWN graded record matters most; (e) "more moves -> more wins" is an association, not a proven effect.
 ## What changes
@@ -84,3 +125,6 @@ Phase 0 (running) -> Phase 1a Foundations (CE-05, TR-01, TR-03, AI-01, TM-09, TM
 - BOTH ARMS FAILED on 2025 (pre-registered, one look, Fable-checked): (a) 1-for-1 consensus-favoured side won 0.505 [0.422, 0.594] in lineup points: no edge; (b) the roster-spot lineup-value model picked the 2-for-1 winner 0.551 vs summed consensus 0.517: below the bar. 2025 is now used for this question.
 - CONSEQUENCE (honest): there is no measurable edge in "value" alone on public data, whether consensus, FantasyCalc, expected points or lineup math. lineup_value stays labelled "not yet validated"; the finder does not claim a value edge.
 - The Trade Machine's remaining, evidenced edges: (1) fill-ins are overvalued on screen (borrowed role, ~1.2-1.5 pts/g of vacancy overstatement); (2) top-team starters in league 1's final week (rest); (3) WHO says yes (activity, checked-out managers); (4) timing and availability (injury news before ESPN moves; dead starters). TM-01 re-scoped: suggest deals that sell fill-ins and final-week-rest players at their screen price, to ACTIVE managers, framed on their needs; every idea shows 'no proven value edge' unless one of the four evidenced edges applies. Forward grading on 2026 (rec ledger) decides whether any of it works in your leagues.
+
+## RULING 2026-09-23 2:40 PM ET (Nick): all 5 layers approved; the CORE ENGINE is the priority, not fringe fixes
+Nick: "all 5 u just gave me have my approval / its our engine that i think has the most opportunity not the fringes". The 5 layers in TRADE-INSANE-RND.md are approved: clones, projection stack plus title-odds sims, mispricing radar, title-odds chess, and the AI closer (Coach). Build order now puts the engine first. Fringe fixes (tags, copy, small card fixes) only fill idle slots. The evidenced edges (fill-in, rest, activity, injury timing) become INPUTS to the engine, not standalone features.

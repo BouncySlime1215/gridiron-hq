@@ -32,7 +32,10 @@ Repo: BouncySlime1215/gridiron-hq (public). Local clone `/Users/nick_matta/Docum
 - Everything gets logged in the handoff docs (OPS-LOG.md, MERGE-TRAIN-STATUS.md, METER-LOG.md). Keep **this file** current, so the next handoff is one paste.
 
 ## 3. Account A is still running (same Mac, same repo). Coordinate, don't collide
-- **A's in-flight work (claimed; do NOT rebuild):**
+- **A's in-flight work (claimed; do NOT rebuild), as of 3:35 PM ET:**
+  - build-unit-v2 `wf_2da6d60d-93b`: PREVIEW-01 (one env switch GRIDIRON_PREVIEW_UNCONFIRMED=1 turns every default-off feature on locally with preview labels). A PR opens when it's done. After it merges, add `export GRIDIRON_PREVIEW_UNCONFIRMED=1` to ~/gridiron-local/run.sh and restart (Nick wants to test everything now).
+  - rnd-loop-v2 `wf_4bc6bb08-40a`: R&D round 18 (Tells Factory focus). Next round is 19.
+  - Merged since the last refresh: #203 (RL-11-1) and #213 (proposals effort fix, verified live on league 5). The train is on #204.
   - build-unit-v2 `wf_a44a4565-364`: DONE → draft PRs #209 (RL-15-3) and #210 (RL-15-1).
   - build-unit-v2 `wf_17ee5731-4e7`: DONE → draft PRs #211 (RL-13-2 waiver claim line) and #212 (RL-15-2 no chase-variance). A's builds are finished, so B may run 3 loops + R&D now. Clean up with ~/gridiron-local/bin/safe-clean.sh once #211 merges; the builder DB copy is at wt/RL-13-2/.local-db, about 0.9 GB.
   - R&D round 17 DONE (wf_bbe7b1b7-cf7): RL-17-2..4 queued, plan adjusted. Next round is 18.

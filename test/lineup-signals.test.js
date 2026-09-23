@@ -39,7 +39,7 @@ const BENCH = 20, IR = 21, FLEX = 23, WR = 4, RB = 2, TE = 6;
 // id, position, pro team. Pro teams 901-906 have a game every week; 907 is on bye in week 3.
 const PLAYERS = {
   101: ['WR', 901], 102: ['WR', 901], 103: ['RB', 902], 104: ['RB', 902],
-  201: ['RB', 903], 202: ['RB', 903], 203: ['WR', 904], 204: ['TE', 907], 205: ['WR', 904],
+  201: ['RB', 903], 202: ['RB', 903], 203: ['WR', 904], 204: ['TE', 907], 205: ['WR', 904], 206: ['WR', 904],
   301: ['RB', 905], 302: ['RB', 905], 303: ['WR', 906], 304: ['WR', 906], 305: ['WR', 906], 306: ['RB', 905],
 };
 for (let i = 1; i <= 6; i++) PLAYERS[400 + i] = ['WR', 901];   // free-agent WRs who outscore 304 in week 2
@@ -97,6 +97,9 @@ snap(3, 2, 202, BENCH, { proj: 9 });
 snap(1, 2, 205, WR, { proj: 12 }); snap(2, 2, 205, WR, { proj: 12 }); snap(3, 2, 205, WR, { proj: 5 });
 // 203 started week 3, his team played, he did not (no snap row): dead starter left in.
 snap(3, 2, 203, WR, { actual: 0 });
+// 206 started week 3 and scored, but the snap feed has no row for him (a join gap seen
+// on real rows): he played, so he is not a dead starter.
+snap(3, 2, 206, WR, { actual: 12 });
 // 204 started week 3 while his team was on bye: bye unfilled (not also a dead starter).
 snap(3, 2, 204, TE, { actual: 0 });
 for (const w of [1, 2, 3]) { snaps(201, w, 0.7); snaps(202, w, 0.3); snaps(205, w, 0.8); }
@@ -114,6 +117,7 @@ const usage = (id, week, rec, yds, td) => run(`INSERT INTO player_week_usage (pl
   receptions, receiving_yards, receiving_tds) VALUES (?, ?, ?, 'FIX', 'WR', ?, ?, ?)`, id, SEASON, week, rec, yds, td);
 usage(303, 2, 10, 180, 2);               // 40 PPR
 usage(304, 2, 2, 20, 0);                 // 4 PPR
+usage(206, 3, 4, 80, 0);                 // 206's week-3 stat line: he played
 for (let i = 1; i <= 6; i++) usage(400 + i, 2, 5, 60, 0);   // 11 PPR each
 // Flex: 305 (WR, projected 8) in the FLEX slot over 306 (RB, projected 11) on the bench.
 snap(3, 3, 305, FLEX, { proj: 8 }); snap(3, 3, 306, BENCH, { proj: 11 });
@@ -195,6 +199,7 @@ test('checked out: dead starter left in, bye unfilled, injured not on IR, each o
   assert.equal(dead[0].week, 3);
   assert.equal(find('dead_starter_left_in', 204).length, 0, 'a bye is its own signal');
   assert.equal(find('dead_starter_left_in', 201).length, 0, '201 played');
+  assert.equal(find('dead_starter_left_in', 206).length, 0, '206 has a stat line and points, only no snap row');
   const bye = find('bye_unfilled', 204);
   assert.equal(bye.length, 1);
   assert.equal(bye[0].week, 3);

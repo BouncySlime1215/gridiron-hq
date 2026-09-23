@@ -12,7 +12,8 @@
  *     server/services/nflverse.js:287). Route share is not stored anywhere in the
  *     app, so "usage" here is snap share only.
  *   - byes from `schedule_games` (writer `syncSchedules`, server/routes/nfldata.js:117),
- *     whose team_id is ESPN's pro team id.
+ *     keyed by nfl_teams id, reached through players.team_id (the snapshot's
+ *     pro_team_id is ESPN's numbering and does not match nfl_teams).
  *   - last week's points for a free agent from `player_week_usage` through the
  *     existing `pprPoints` (server/services/offseason-data.js:544), not a new formula.
  *   - the trade block, `teams[].tradeBlock.players` in the stored ESPN payload.
@@ -132,10 +133,14 @@ export function lineupSignals(leagueId, { season = null } = {}) {
     league_id: lg.id, season: yr, inference: 'guess', inference_reason: INFERENCE_REASON,
     types: LINEUP_SIGNAL_TYPES, rules: { bwiu: BWIU_RULE, bad_matchup_ratio: BAD_MATCHUP_RATIO, top_scorer_rank: TOP_SCORER_RANK },
   };
-  const snap = rows(`SELECT scoring_period_id AS week, team_id, espn_player_id, player_id, player_name, position,
-      pro_team_id, lineup_slot_id, is_starter, injury_status, pregame_injury_status, projected_points, source
-    FROM league_roster_snapshots WHERE league_id = ? AND season = ? AND on_roster = 1
-    ORDER BY scoring_period_id, team_id, espn_player_id`, lg.id, yr);
+  // The NFL team comes from players.team_id (an nfl_teams id, the key schedule_games
+  // uses), not the snapshot's pro_team_id: ESPN numbers teams its own way (33 = BAL).
+  const snap = rows(`SELECT s.scoring_period_id AS week, s.team_id, s.espn_player_id, s.player_id, s.player_name,
+      s.position, p.team_id AS nfl_team_id, s.lineup_slot_id, s.is_starter, s.injury_status,
+      s.pregame_injury_status, s.projected_points, s.source
+    FROM league_roster_snapshots s LEFT JOIN players p ON p.id = s.player_id
+    WHERE s.league_id = ? AND s.season = ? AND s.on_roster = 1
+    ORDER BY s.scoring_period_id, s.team_id, s.espn_player_id`, lg.id, yr);
   if (!snap.length) return { ...base, available: false, reason: NO_SNAPSHOTS_REASON, periods: [], signals: [], by_manager: {}, unavailable: {} };
 
   const weeks = new Map();                 // week -> { source, rows }
@@ -190,9 +195,9 @@ export function lineupSignals(leagueId, { season = null } = {}) {
       }
 
       if (isStarter(r)) {
-        const hasGame = r.pro_team_id != null && sched.has(`${r.pro_team_id}|${w}`);
+        const hasGame = r.nfl_team_id != null && sched.has(`${r.nfl_team_id}|${w}`);
         // bye unfilled: needs a schedule for the season to tell a bye from missing data
-        if (sched.size && r.pro_team_id != null && !hasGame) emit('bye_unfilled', r, { pro_team_id: r.pro_team_id });
+        if (sched.size && r.nfl_team_id != null && !hasGame) emit('bye_unfilled', r, { nfl_team_id: r.nfl_team_id });
         // dead starter left in: his team played, he has no snaps, in a week whose snaps are loaded
         if (skill && hasGame && snapsKnown) {
           const s = snaps.share(r.player_id, w);

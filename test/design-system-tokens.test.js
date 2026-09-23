@@ -100,8 +100,16 @@ test('the body face is the chosen one, and degrades to what shipped before', () 
 test('the faces the document rejects have not come back as a default', () => {
   // Named in the document's own section 1: these are the faces that arrive when
   // nobody chose. The point of that section is that somebody chose.
+  // The default face lives in the --font-* custom properties (body reads
+  // var(--font-body)), so a font stack is either a font-family declaration or
+  // a --font-* token. Scanning only font-family: let 'Inter' be put first in
+  // --font-body with every test still green.
+  const first = css.match(/^\s*--font-body:\s*([^,;]+)/m);
+  assert.ok(first, '--font-body is not defined');
+  assert.equal(first[1].trim(), "'Archivo'",
+    '--font-body no longer leads with the chosen face');
   for (const face of ['Inter', 'Roboto', 'Poppins', 'Space Grotesk', 'Montserrat']) {
-    assert.doesNotMatch(css, new RegExp(`font-family:[^;]*${face}`, 'i'),
+    assert.doesNotMatch(css, new RegExp(`(font-family|--font-[a-z-]+)\\s*:[^;]*${face}`, 'i'),
       `${face} is back in a font stack`);
     assert.doesNotMatch(html, new RegExp(`family=${face.replace(' ', '\\+')}`, 'i'),
       `${face} is being loaded`);

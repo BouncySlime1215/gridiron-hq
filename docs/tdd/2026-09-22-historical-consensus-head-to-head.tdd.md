@@ -105,6 +105,19 @@ and R2); the test fix and the refactor close sweep 1's survivors.
 - It reads no leagues column beyond `league_roster_snapshots` (through C-01's
   `espnProjections`), writes nothing to the app database, and adds no table, column, route or
   job.
+- **Tables it reads, with their writers** (all read on the local copy, never written):
+  `player_week_usage` (`syncWeeklyUsage`, `server/services/nflverse.js:245`, insert `:260`);
+  `game_lines` (`syncHistoricalLinesImpl`, `server/services/gamescript.js:42`, insert `:55`, and
+  `syncCurrentLines`, `:119`, insert `:134`), read for game dates and by the served lift;
+  `nfl_injuries` (`syncInjuries`, `server/services/nfl-advanced.js:358`, insert `:359`), read by
+  the served `weeklyAvailability`; `nfl_availability_rates` (`scripts/fit-availability.mjs:414`);
+  `league_roster_snapshots` (`writePeriod`, `scripts/collect-roster-snapshots.mjs:109`, insert
+  `:113`), 2026 only; `fantasy_coordinator_fits` (`saveFantasyCoordinatorFit`,
+  `server/services/fantasy-coordinator.js:368`, insert `:370`); `weekly_ensemble_fits`
+  (`saveWeeklyFit`, `server/services/weekly-weight-store.js:140`, insert `:147`);
+  `shrinkage_fits` (`saveFit`, `server/services/shrinkage-fit.js:400`); and `players` for the
+  gsis id join. The FantasyPros export and the id map are local files under `.local-db/`, not
+  tables.
 
 ## 4. Mutation sweep
 
@@ -423,6 +436,12 @@ Logged as `F001`-`F007` in `docs/evidence/HOLDOUT-LEDGER.md`.
    (today's team); the one deliberate difference from the page (pre-registration §2).
 9. **Standing rule 3:** these magnitudes are rig magnitudes. They stay here for the Auditor;
    anything that reaches Nick's page carries the direction only.
+10. **The chance to play is priced as this copy serves it:** on the pooled path, because
+    `nfl_availability_role_rates` is empty on the copy (`contingency.js:592` warned so on every
+    run); production may hold the role rates. ESPN's live designations reach
+    `weeklyAvailability` only for the live period (`contingency.js:273-306`), so the replayed
+    2026 week 2 used the NFL injury report alone, while the number served that week could also
+    have read ESPN's statuses.
 
 ## 7. Nick's five questions
 

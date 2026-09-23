@@ -75,7 +75,14 @@ const FA = 999;
 addPlayer(FA, 'RB', NFL_TEAMS[(1 + 1 * 2) % 6], 0.01);
 
 mock.module('../server/services/trade-engine.js', {
-  namedExports: { ...realTradeEngine, assetUniverse: () => assets }
+  namedExports: {
+    ...realTradeEngine,
+    assetUniverse: () => assets,
+    // The Title-impact tab's shortlist: one fixed deal, team 1's RB for team 2's WR.
+    findTrades: () => ({ deals: [{ partner: 'T2', partner_id: '2', fairness: 'fair', me: { ppg_delta: 1 },
+      i_give: [{ id: teamPlayers.get(1)[1], name: 'G', position: 'RB', value: 1 }],
+      i_get: [{ id: teamPlayers.get(2)[2], name: 'R', position: 'WR', value: 1 }] }] })
+  }
 });
 mock.module('../server/services/projections.js', {
   namedExports: {
@@ -93,8 +100,8 @@ mock.module('../server/services/contingency.js', {
 });
 const { simulateSeason, tradeImpact } = await import('../server/services/season-sim.js?rl63');
 const { withRandomSeed } = await import('../server/services/stats-util.js');
-const { contradictionBar } = await import('../server/services/trade-verify.js');
-const { summariseTitleTrades } = await import('../server/services/title-odds-trades.js');
+const { contradictionBar, judgeTradeVerdict } = await import('../server/services/trade-verify.js');
+const { summariseTitleTrades, titleOddsTrades } = await import('../server/services/title-odds-trades.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -206,4 +213,23 @@ test('RL-6-3: Title-impact banners fire only on deltas that clear the noise', ()
   // "Points is the one to ignore" needs a title pick that is itself real.
   const pick = summariseTitleTrades([deal(0.004, 0.005, 1, 'A'), deal(-0.001, 0.005, 3, 'B')]);
   assert.equal(pick.objectives_disagree, false, 'a title "pick" inside the noise is not a disagreement');
+});
+
+test('RL-6-3: the sense-check judge reads the impact\'s own paired SE (call site)', () => {
+  const side = (d, se) => ({ roster_id: '1', owner: 'x', title_before: 0.2, title_after: 0.2 + d, title_delta: d,
+    title_delta_se: se, playoff_before: 0.5, playoff_after: 0.5, playoff_delta: 0, wins_delta: 0 });
+  const impact = { runs: 1200, seed: 1, paired_simulation: true, me: side(-0.015, 0.003), them: side(0.01, 0.003) };
+  const j = judgeTradeVerdict(impact, 'sound');
+  assert.equal(j.threshold.noise_bar, 0.006, 'noise bar is 2 x this deal\'s SE, not the 2.2pp constant');
+  assert.equal(j.contradicted, true, 'a -1.5pp loss past a 1.0pp bar contradicts "sound"');
+});
+
+test('RL-6-3: the Title-impact tab carries each deal\'s paired SE (call site)', () => {
+  const out = titleOddsTrades(631, { teamId: '1', shortlist: 2, runs: 200 });
+  assert.ifError(out.error);
+  const d = out.deals[0];
+  assert.ok(d, 'control: the fixture deal was simulated');
+  assert.equal(typeof d.title_delta_se, 'number');
+  assert.equal(d.title_delta_clears_noise, Math.abs(d.title_delta) > 2 * d.title_delta_se);
+  assert.equal(typeof out.no_deal_clears_noise, 'boolean');
 });

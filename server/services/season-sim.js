@@ -173,20 +173,26 @@ function initialRecords(lg, teams, fromWeek, medianGame = false) {
 /**
  * The week a page-facing simulation starts from — the one producer for it.
  *
- * An explicit week (a caller's `?from_week=`) wins. Otherwise the league's own
+ * A payload that is last season's (the pre-draft fallback in syncEspnLeague
+ * stamps `payload_season`) starts at week 1, whatever week was asked for: its
+ * scored weeks are last year's games and must not become this season's
+ * standings. Otherwise an explicit week (a caller's `?from_week=`, passed through
+ * raw as simulateSeason/tradeImpact's `fromWeek` option) wins; else the league's own
  * current week (leagueCurrentWeek), so the completed weeks before it are
  * carried in as the real record by initialRecords(). Defaulting to 1 simulated
  * a 5-0 team in week 6 as 0-0 (B-01, 2026-09-22).
  *
- * A payload that is last season's (the pre-draft fallback in syncEspnLeague
- * stamps `payload_season`) starts at week 1: its scored weeks are last year's
- * games and must not become this season's standings.
+ * Callers outside this file pass only the raw client week (or nothing) as
+ * `fromWeek`; simulateSeason/tradeImpact resolve it here, so this function is
+ * the one producer (source guard: test/b-01-real-record-odds.test.js).
  */
 export function simStartWeek(lg, requested = null) {
-  const explicit = Number(requested);
-  if (Number.isInteger(explicit) && explicit >= 1) return explicit;
+  // Checked first, so a client's explicit week cannot turn last season's scored
+  // weeks back into this season's record (INT-162-1).
   const payloadSeason = Number(lg?.payload_season), season = Number(lg?.season);
   if (payloadSeason && season && payloadSeason !== season) return 1;
+  const explicit = Number(requested);
+  if (Number.isInteger(explicit) && explicit >= 1) return explicit;
   return leagueCurrentWeek(lg);
 }
 

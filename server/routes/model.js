@@ -452,11 +452,12 @@ r.get('/:leagueId/simulate', requireAuthenticated, (req, res, next) => {
     const lg = league(req, res); if (!lg) return;
     if (!lg.payload) return res.status(400).json({ error: 'league not synced yet' });
     const runs = Math.min(6000, Number(req.query.runs) || 2000);
-    const fromWeek = simStartWeek(lg, req.query.from_week);
-    const key = `sim:${lg.id}:${runs}:${fromWeek}`;
+    // The memo key uses the same producer on the same raw input that
+    // simulateSeason resolves internally, so the key and the body's from_week agree.
+    const key = `sim:${lg.id}:${runs}:${simStartWeek(lg, req.query.from_week)}`;
     const seed = req.query.seed ?? null;
     res.json(withRandomSeed(seed, () => memo(`${key}:seed:${seed ?? 'random'}`, () => simulateSeason(lg, {
-      runs, fromWeek, scoring: scoringFor(lg)
+      runs, fromWeek: req.query.from_week, scoring: scoringFor(lg)
     }))));
   } catch (e) { next(e); }
 });
@@ -473,7 +474,7 @@ r.post('/:leagueId/trade-impact', requireAuthenticated, (req, res, next) => {
       theirTeamId: their_team_id,
       iGive: i_give, iGet: i_get,
       runs: Math.min(3000, Number(req.body?.runs) || 1200),
-      fromWeek: simStartWeek(lg, req.body?.from_week),
+      fromWeek: req.body?.from_week, // raw; tradeImpact resolves it with simStartWeek
       seed: req.body?.seed ?? null,
       scoring: scoringFor(lg)
     }));

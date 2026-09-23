@@ -40,3 +40,88 @@ test('the real committed tree has zero violations under docs/evidence and docs/t
   const violations = scanTree(ROOT, GUARDED_DIRECTORIES);
   assert.deepEqual(violations, []);
 });
+
+// ---------------------------------------------------------------------------------------------
+// Skeptic round 1 (HX-01-FP): the checks above only used a synthetic `fantasypros_id` column,
+// which the real export does not have. The cases below use the REAL export header HX-01 reads
+// (`.local-db/fp-ecr-weekly-wp.csv`: page_type,scrape_date,id,player,pos,team,ecr) and the other
+// realistic shapes a skeptic built, each of which the first guard returned 0 violations for.
+// Rows are synthetic (made-up players), only the column layout is real.
+// ---------------------------------------------------------------------------------------------
+import fs from 'node:fs';
+import os from 'node:os';
+
+const REAL_HEADER = ['page_type', 'scrape_date', 'id', 'player', 'pos', 'team', 'ecr'];
+const REAL_ROWS = [
+  ['weekly-wr', '2023-10-01', '9001', 'Alpha Player', 'WR', 'AAA', '1.4'],
+  ['weekly-wr', '2023-10-01', '9002', 'Bravo Player', 'WR', 'BBB', '2.9'],
+  ['weekly-wr', '2023-10-01', '9003', 'Charlie Player', 'WR', 'CCC', '3.3'],
+  ['weekly-wr', '2023-10-01', '9004', 'Delta Player', 'WR', 'DDD', '4.8']
+];
+const asPipeTable = (header, rows) => [
+  `| ${header.join(' | ')} |`,
+  `|${header.map(() => '---').join('|')}|`,
+  ...rows.map(r => `| ${r.join(' | ')} |`)
+].join('\n') + '\n';
+const asCsv = (header, rows) => [header, ...rows].map(r => r.join(',')).join('\n') + '\n';
+const asJsonRows = (header, rows) => JSON.stringify(rows.map(r => Object.fromEntries(header.map((h, k) => [h, r[k]]))), null, 2);
+
+test('real export header, pasted as a markdown pipe table into an evidence .md, is caught', () => {
+  const v = scanForPerPlayerFantasyPros(asPipeTable(REAL_HEADER, REAL_ROWS), 'docs/evidence/x/rows.md');
+  assert.equal(v.length, 1);
+});
+
+test('real export header, as plain CSV text in a .txt or .md file, is caught', () => {
+  assert.equal(scanForPerPlayerFantasyPros(asCsv(REAL_HEADER, REAL_ROWS), 'docs/evidence/x/rows.txt').length, 1);
+  assert.equal(scanForPerPlayerFantasyPros(asCsv(REAL_HEADER, REAL_ROWS), 'docs/evidence/x/rows.md').length, 1);
+});
+
+test('real export rows as a pretty-printed JSON array of objects in a .json file are caught', () => {
+  const v = scanForPerPlayerFantasyPros(asJsonRows(REAL_HEADER, REAL_ROWS), 'docs/evidence/x/rows.json');
+  assert.equal(v.length, 1);
+});
+
+test('real export rows as a JSON array nested inside a larger .json document are caught', () => {
+  const doc = JSON.stringify({ meta: { n: 4 }, table: JSON.parse(asJsonRows(REAL_HEADER, REAL_ROWS)) }, null, 2);
+  assert.equal(scanForPerPlayerFantasyPros(doc, 'docs/evidence/x/out.json').length, 1);
+});
+
+test('a table pasted from the FantasyPros site (RK | PLAYER NAME | TEAM | POS | BEST | WORST | AVG | ECR) is caught', () => {
+  const header = ['RK', 'PLAYER NAME', 'TEAM', 'POS', 'BEST', 'WORST', 'AVG', 'ECR'];
+  const rows = [['1', 'Alpha Player', 'AAA', 'WR', '1', '3', '1.4', '1'], ['2', 'Bravo Player', 'BBB', 'WR', '1', '5', '2.9', '2'], ['3', 'Charlie Player', 'CCC', 'WR', '2', '6', '3.3', '3']];
+  assert.equal(scanForPerPlayerFantasyPros(asPipeTable(header, rows), 'docs/evidence/x.md').length, 1);
+});
+
+test('an ECR table keyed by gsis_id (how HX-01 joins) is caught', () => {
+  const header = ['gsis_id', 'season', 'week', 'ecr'];
+  const rows = [['00-0030001', '2023', '4', '1.5'], ['00-0030002', '2023', '4', '2.5'], ['00-0030003', '2023', '4', '3.5']];
+  assert.equal(scanForPerPlayerFantasyPros(asCsv(header, rows), 'docs/evidence/x.md').length, 1);
+});
+
+test('a FantasyPros projections table (fantasypros_id | player | fpts) is caught', () => {
+  const header = ['fantasypros_id', 'player', 'fpts'];
+  const rows = [['101', 'Alpha Player', '18.2'], ['102', 'Bravo Player', '16.0'], ['103', 'Charlie Player', '14.9']];
+  assert.equal(scanForPerPlayerFantasyPros(asPipeTable(header, rows), 'docs/evidence/x.md').length, 1);
+});
+
+test('not-applied control: an aggregate table with an ecr LABEL column and no player identity column is not caught', () => {
+  const header = ['source', 'season', 'mae', 'win_rate'];
+  const rows = [['ecr', '2021', '5.1', '0.52'], ['ecr', '2022', '5.3', '0.51'], ['model', '2023', '5.0', '0.53']];
+  assert.deepEqual(scanForPerPlayerFantasyPros(asPipeTable(header, rows), 'docs/evidence/x.md'), []);
+});
+
+test('known-nonzero tree control: scanTree finds a planted .md table and a planted fp-ecr .csv under guarded dirs, and nothing outside them', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fp-guard-'));
+  try {
+    fs.mkdirSync(path.join(tmp, 'docs/evidence/2026-09-23'), { recursive: true });
+    fs.mkdirSync(path.join(tmp, 'docs/tdd'), { recursive: true });
+    fs.mkdirSync(path.join(tmp, 'docs/other'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'docs/evidence/2026-09-23/planted.md'), '# note\n\n' + asPipeTable(REAL_HEADER, REAL_ROWS));
+    fs.writeFileSync(path.join(tmp, 'docs/tdd/fp-ecr-weekly-wp.csv'), asCsv(REAL_HEADER, REAL_ROWS));
+    fs.writeFileSync(path.join(tmp, 'docs/other/outside.md'), asPipeTable(REAL_HEADER, REAL_ROWS));
+    const files = scanTree(tmp, GUARDED_DIRECTORIES).map(v => v.file).sort();
+    assert.deepEqual(files, ['docs/evidence/2026-09-23/planted.md', 'docs/tdd/fp-ecr-weekly-wp.csv']);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

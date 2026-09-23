@@ -138,7 +138,7 @@ In plain English: we build a clone of every manager in your leagues, meaning a m
 ## Rules unchanged
 - One producer per number; additive migrations only.
 - No league or manager names in the repo; Sleeper as aggregates only.
-- Jev at most $0.25 per round, balance checked first; nothing else paid.
+- Jev: no fixed cap (Nick 9/23 4:10 PM); check the balance, log cost per call, alert on runaways. Nothing else paid.
 - Say "guess" plainly when it is one.
 
 ## Added 2026-09-23 2:45 PM ET (Nick approved): the offer loop and 4 more trade opportunities
@@ -187,3 +187,8 @@ Thousands of small behavioral "tells" per manager, generated automatically from 
   4. The AI writes the words only (r17: an LLM persona does not predict people).
 ### Honesty
 With only 37 real ESPN decisions, per-manager tells are trained on the Sleeper population and only tuned per person. More offers sent (OFFER-01) makes each person's read sharper. Thousands of tests without FDR control would produce thousands of fake tells, so the screen is the product.
+
+## LIVING LEAGUE + NICK CLONE (Nick, 5:15 PM ET 9/23: picked #3 and #4; "explore INSANE ideas: physics, ML, game theory, econ, econometrics")
+- **LIVING-01 (SIMULATE):** league-mates act inside the season sim through their clones (claims, trades, lineup errors, checking out), so title odds and chess play against a moving league, including their best responses to Nick's move.
+- **SELF-01 (UNDERSTAND + LEARN):** a clone of Nick from his own moves (what he overpays for, panic drops, biases), causal grading of follow-vs-ignore on the engine's advice, and bias flags shown before he acts. His own graded record outranks population priors.
+- 4 lens explorers (game theory/econ, physics/complex systems, ML, econometrics/behavioural) write ~/gridiron-local/rnd/insane/*.md with kill tests; survivors become LIVING-01/SELF-01 spec rows.

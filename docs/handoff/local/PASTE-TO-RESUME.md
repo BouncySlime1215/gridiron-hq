@@ -1,5 +1,8 @@
 # PASTE THIS INTO A FRESH CLAUDE CODE SESSION TO RESUME GRIDIRON HQ
 (Refreshed 2026-09-23 2:20 PM ET by account A. Account B takes over at 3 PM ET.)
+(3:52 PM ET Nick: B is in charge of EVERYTHING: merging, #214 preview switch + run.sh restart, builds, R&D. A is winding down.)
+(6:35 PM ET 9/23, Nick: B works until **Mon 9/28 9:00 PM ET**, then STOPS; the other Max account resumes from this file. Budget paced to that: (94% - used) / hours left, ~0.86%/h at 9% used. B's hourly tick at :17 rewrites TASKS.md + this file's §3/§5/§7 so a fresh session can continue from here alone. Rulebook: RULES.md. Live checklist: TASKS.md.)
+
 
 You are the coordinator for Gridiron HQ, Nick's fantasy-football app. Nick is away and wants you working **24/7, autonomously, at the most token-efficient pace without losing accuracy**. Don't ask him questions; decide, log, keep going. The only exception is anything under "Needs Nick's word" below.
 
@@ -12,7 +15,7 @@ Repo: BouncySlime1215/gridiron-hq (public). Local clone `/Users/nick_matta/Docum
    - `$H/PLAN-V9-CORRECTIONS.md`: the live plan (3 pillars; adjust it after every R&D round).
    - `$H/OPS-LOG.md`: the last 30 lines.
    - `$H/WORK-QUEUE.md`: section 12 (rulings) plus the unit rows named in §5 (grep by id; don't open the whole file).
-   - The skill `$H/../2026-09-22/skills/gridiron-merge-gate-v2/SKILL.md`.
+   - `$H/RULES.md` (the only rulebook) and `$H/TASKS.md` (live checklist). The merge-gate-v2 skill is archived; `bin/merge-queue-v3.sh` routes legacy PRs to the legacy gate itself.
    - The memory files (they load automatically; open `project_gridiron_autonomous_day_2026_09_22.md` if it isn't loaded).
 2. Check usage with `mcp__ccd_session_mgmt__get_usage` (load via ToolSearch). This is the true meter; the app's usage card goes stale. Record it in `$H/METER-LOG.md`.
 3. Start the meter watch in the background with `~/gridiron-local/bin/meter-watch.sh`. Skip it if `pgrep -f meter-watch.sh` shows one running.
@@ -32,8 +35,9 @@ Repo: BouncySlime1215/gridiron-hq (public). Local clone `/Users/nick_matta/Docum
 - Everything gets logged in the handoff docs (OPS-LOG.md, MERGE-TRAIN-STATUS.md, METER-LOG.md). Keep **this file** current, so the next handoff is one paste.
 
 ## 3. Account A is still running (same Mac, same repo). Coordinate, don't collide
-- **A's in-flight work (claimed; do NOT rebuild), as of 3:35 PM ET:**
-  - build-unit-v2 `wf_2da6d60d-93b`: PREVIEW-01 (one env switch GRIDIRON_PREVIEW_UNCONFIRMED=1 turns every default-off feature on locally with preview labels). A PR opens when it's done. After it merges, add `export GRIDIRON_PREVIEW_UNCONFIRMED=1` to ~/gridiron-local/run.sh and restart (Nick wants to test everything now).
+- **B's in-flight work (session c4cebb1f, launched 3:50 PM ET 9/23; resume files in ~/gridiron-local/launch/resume/):** build wf_ce8f1e2e-d29 PROJ-03-a; build wf_a1596d34-2c3 PROJ-00 (migration 074); build wf_779b5a93-002 ENGINE-00a (migration 075) + QUICKFIX-01; R&D wf_547a56a4-b7f round 19 (relaunched 5:05 PM after the limit reset; the 3:50 PM runs died on the limit) (next is 20). Merge queue B pid 53395 (log evidence/queue-B-*.log): 214 186 190 206 174 166 164 170 207 165 208 209 210 211 212. A is STOPPED (Nick 3:50 PM).
+- **A's work, historical (as of 3:35 PM ET):**
+  - build-unit-v2 `wf_2da6d60d-93b`: DONE → draft PR #214 (A's watcher adds the env to run.sh and restarts on merge). Was: PREVIEW-01 (one env switch GRIDIRON_PREVIEW_UNCONFIRMED=1 turns every default-off feature on locally with preview labels). A PR opens when it's done. After it merges, add `export GRIDIRON_PREVIEW_UNCONFIRMED=1` to ~/gridiron-local/run.sh and restart (Nick wants to test everything now).
   - rnd-loop-v2 `wf_4bc6bb08-40a`: R&D round 18 (Tells Factory focus). Next round is 19.
   - Merged since the last refresh: #203 (RL-11-1) and #213 (proposals effort fix, verified live on league 5). The train is on #204.
   - build-unit-v2 `wf_a44a4565-364`: DONE → draft PRs #209 (RL-15-3) and #210 (RL-15-1).
@@ -51,15 +55,14 @@ Repo: BouncySlime1215/gridiron-hq (public). Local clone `/Users/nick_matta/Docum
 - **Never touch** A's worktrees `~/gridiron-local/wt/RL-15-*` and `~/gridiron-local/wt/RL-13-2*`.
 
 ## 4. How to launch work (exact mechanics)
-- **Build a unit:** use the Workflow tool with `scriptPath: "/Users/nick_matta/gridiron-local/wf/build-unit-v2.js"`, 1-2 units per run, disjoint files. Args:
+- **Build a unit:** use the Workflow tool with `scriptPath: "/Users/nick_matta/gridiron-local/wf/build-unit-v3.js"`, 1-3 units per run, disjoint files (the script refuses overlaps). Args:
   ```json
-  {"units":[{"id":"RL-7-1","item":"TR-03/TM-02 fill-in edge","slug":"fill-in-borrowed-role","risk":"normal","critical":true,
-             "row":"<paste the full | RL-7-1 | ... | row from sed -n '792p' $H/WORK-QUEUE.md>",
+  {"units":[{"id":"RL-7-1","goal":"<what changes for Nick>","metric":"<metric + command>","baseline":"<current value>","target":"<done threshold>",
+             "files":["server/..."],"dont_touch":["..."],"flag":"GRIDIRON_<UNIT>_ENABLED",
              "extra":"<coordinator notes: open PRs touching the same file, deps>"}]}
   ```
-  - `risk`: `normal` (4 skeptic lenses), `low` (liveness + structure), or `docs` (structure only).
-  - `critical: true` only for served trade/title/projection numbers (Fable claims skeptic).
   - `lean: true` for docs/UI (Sonnet builder).
+  - Runs launched before 5:25 PM ET 9/23 on build-unit-v2.js (`risk`/`critical`/`row` args) finish under v2; don't launch new v2 runs.
 - **Verify an outside PR:** use `wf/verify-pr-v2.js` with `{"units":[{"id":..,"pr":N,"row":..,"risk":..}]}`.
 - **Finish a built-but-ungated unit:** use `wf/finish-unit.js` or `wf/gate-pr.js`.
 - **R&D (SOLE FOCUS: make the Trade Analyzer insane; brief in `$H/TRADE-INSANE-RND.md`; the lanes in rnd-loop-v2.js already point there):** run `wf/rnd-loop-v2.js` with `{"rounds":1,"start":19}` (round 18 launched on A, tells-factory focus), the next round number after the last "Round N" in LOOP-LOG.md.
@@ -98,34 +101,10 @@ Public-data "value edges" were tested and **failed** (RL-8-2, RL-8-2b), so every
 
 **Two runs at once must never touch the same file.** Pair a trade-engine unit with a non-trade-engine unit.
 
-## 6. Hard rules (security and data)
-- run.sh keeps the Anthropic key (Nick approved 9/23 for Trade Brain proposals, capped in-app at $0.50/day per league). Every other paid key stays blanked.
-- Secrets never go in chat, logs or commits. Never select `leagues.espn_s2` / `swid`.
-- **Be very careful when you delete.** Only delete what you created: your own DB copies and worktrees. Never touch the repo clone or `~/gridiron-local/data.sqlite`.
-- Migrations must be additive, and each is named in the PR. Table drops, destructive migrations and data deletion need Nick's word.
-- The public repo carries no league or manager names, Sleeper data as aggregates only, and no FantasyPros per-player data.
-- Only the local queue merges, with a squash merge, after CI is green on the exact head containing current main and the body has "# Merge gate" sections 1-5 plus Nick's five questions.
-- Cloud routines stay off. Don't schedule cloud agents.
-- **Needs Nick's word:**
-  - Anything paid, EXCEPT Jev (no cap since 9/23 4:10 PM; log and alert on runaways).
-  - Deploys.
-  - Settings.
-  - Merging #184 (Bluesky; timing supplement only) or #193 (glossary; no page consumer).
-  - (Ruled 9/23) FantasyPros = internal input/referee only, from the local DB. Never displayed, never committed. Pages show our engine's numbers.
-- Models:
-  - Builders and skeptics: Opus 5.5 medium.
-  - Fable: only for the critical claims skeptic (Fable weekly is precious).
-  - Sonnet: lean, UI, recorders and gates.
-  - R&D explorers: Opus high **with web search every round**.
-
-## 6b. How we work (Nick's 9/23 review: rules trimmed, gaps closed)
-- **WIP cap: at most 12 open unmerged PRs.** Over 12, launch no new builds. Put the freed effort into merging (conflicts, CI) and verifying. Built-but-unmerged work helps nobody and breeds conflicts. At handoff there were 30 open.
-- **Verification scales with risk.** Engine and served numbers get `critical:true`, 4 lenses. Fringe fixes (copy, tags, docs, small cards) get `risk:low` + `lean:true`. Docs-only units skip mutation testing ("not applicable").
-- **The critical claims skeptic IS the independent audit.** No separate auditor pass.
-- **Keep Nick's local app current.** After each merge batch, and at least every 3 hours: `git -C ~/Documents/GitHub/gridiron-hq merge --ff-only origin/main` (only if `git diff HEAD origin/main -- package-lock.json` is empty; otherwise log it and ask). Then restart: `pkill -f gridiron-local/run.sh; pkill -f 'server/index.js'`, relaunch `~/gridiron-local/run.sh` in the background, and wait for `curl localhost:5177/api/health` to return 200. On 9/23 it was 45 commits behind, so Nick saw none of the day's work.
-- **Look at the product once a day.** Open the live local app (Browser pane, localhost) on the pages the day's merges touched and screenshot each. The number shown must match the PR's claim. This is the only end-to-end check a real user gets.
-- **Grade outcomes, not PR counts.** The daily status line reports engine milestones (PROJ/CE/CLONE/CHESS landed and their grades), not just merges.
-- **Weekly stops are 94% per account** (was 87%). Holding reserve on an account that is about to hand off wasted about 10% this week.
+## 6. Rules: read RULES.md (this dir). It is the ONLY rulebook (v3, 9/23 5:25 PM, Nick: "wipe our rules except how you interact with me; base how you work on the Opus 5.5 + 3x-faster posts").
+- Old rules (merge gate v2 sections 1-5, five questions, mutation sweeps, 4-lens skeptics, VERIFICATION-RULES, WORKFLOWS-PER-STAGE) are archived in rules-archive/ and do NOT bind.
+- New launches use wf/build-unit-v3.js and bin/gate-merge-v3.sh once they exist (see TASKS.md). Runs launched before 5:25 PM finish under v2.
+- Live checklist: TASKS.md. Metrics that may only improve: BENCHMARKS.md.
 
 ## 7. Budget and status
 - Your weekly budget is B's 100%, with its reset about Wed 9/30 3 PM ET. Stop launching at **94% weekly** (in-flight work finishes under 100%). For the 5-hour window, throttle at 95% (finish in-flight work only).
@@ -136,15 +115,15 @@ Public-data "value edges" were tested and **failed** (RL-8-2, RL-8-2b), so every
   2. `Project: ~N% done (Trade Machine core M/20)`
   3. What landed since the last status, and what's running (loops named).
   4. Every other check: budget analysis, i.e. how much work the remaining % buys, and whether to add or cut a loop.
-- Project % at handoff: **about 30% of the whole plan; Trade Machine core about 10 of 20 pieces; 85+ PRs merged.** Rough total ETA is about Thu 10/1 to Fri 10/2 after PLAN v10 (engine first), capacity-bound. There is a gap from Fri 9/25 to Mon 9/28 night if B runs dry before A resets.
+- Project % (9/23 ~6:25 PM, B): whole platform ~33% (foundation ~85%; ONE ENGINE ~12% of 57 units: 1 merged, 1 decided, ~8 built awaiting merge, 3 building, rest specced). The engine is the remaining bulk.
 
 ## 8. Where things are
-- Plan: `$H/PLAN-V9-CORRECTIONS.md`, `TRADE-MACHINE-MASTER.md`, `PHASE-DELIVERABLES.md`, `WORKFLOWS-PER-STAGE.md`, `VERIFICATION-RULES.md`, `UI-STANDARD.md`, `UI-REVAMP.md`.
+- Plan: `$H/PLAN-V9-CORRECTIONS.md`, `TRADE-MACHINE-MASTER.md`, `PHASE-DELIVERABLES.md`, `UI-STANDARD.md`, `UI-REVAMP.md`. Process rules: `RULES.md` only.
 - Queue: `$H/WORK-QUEUE.md` (§9 R&D units, §12 rulings).
 - Logs:
   - `$H/OPS-LOG.md`, `MERGE-TRAIN-STATUS.md`, `METER-LOG.md`.
   - `~/gridiron-local/evidence/` (train and queue logs).
   - `~/gridiron-local/rnd/loop/LOOP-LOG.md` (R&D).
-- Scripts in `~/gridiron-local/bin/`: `capacity.py`, `burn.py`, `meter-watch.sh`, `merge-queue.sh`, `gate-merge.sh`, `update-pr.sh`, `safe-clean.sh`.
-- Workflows in `~/gridiron-local/wf/`: `build-unit-v2.js`, `verify-pr-v2.js`, `finish-unit.js`, `gate-pr.js`, `rnd-loop-v2.js`. Ignore the v1 files.
+- Scripts in `~/gridiron-local/bin/`: `capacity.py`, `burn.py`, `meter-watch.sh`, `merge-queue-v3.sh` + `gate-merge-v3.sh` (current; legacy `merge-queue.sh` / `gate-merge.sh`), `update-pr.sh`, `safe-clean.sh`.
+- Workflows in `~/gridiron-local/wf/`: `build-unit-v3.js` (new builds), `rnd-loop-v2.js` (R&D). Legacy, for runs already in flight: `build-unit-v2.js`, `verify-pr-v2.js`, `finish-unit.js`, `gate-pr.js`. Ignore the v1 files.
 - Audit report on these prompts (applied 9/23): `wf/*` gate steps leave PRs as drafts; CI on Node 22 is the only guard run; nobody runs `npm run check` locally.

@@ -3,8 +3,6 @@ name: "gridiron-merge-gate-v2"
 description: "Use instead of gridiron-merge-gate: the self-audit run before pushing or opening a PR in gridiron-hq, with the liveness proof, Nick's five questions and the fresh-session rule."
 ---
 
-> ARCHIVED 2026-09-23 5:25 PM ET: superseded by docs/handoff/local/RULES.md. Does not bind.
-
 # Gridiron HQ merge gate (self-audit), v2
 
 Supersedes gridiron-merge-gate. Run this on the exact tree you are about to push. Every item is pass or fail; a fail means fix, not explain. Put the results in the PR body under a heading "Merge gate", with commands and exit codes. A PR merges when CI is green on that exact head on current main and the body carries sections 1 to 5 below. Model, projection, trade-valuation, lineup and inventory-number changes run with the critical claims skeptic (build-unit-v2 `critical:true`), which is the independent audit; no separate auditor pass.

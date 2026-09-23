@@ -2,7 +2,73 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 19:21Z.
+Last rebuilt: 2026-09-23 22:03Z.
+
+## #214: Add route-level preview-switch tests for waivers, signals and valuation panel
+
+- Merged: 6:03 PM ET, Sep 23 as `75f78a12`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #212: Scout: stop telling bubble/longshot teams to chase variance
+
+- Merged: 5:51 PM ET, Sep 23 as `238d31bc`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #211: Show waiver claim priority and weekly reset on the lineup page
+
+- Merged: 5:39 PM ET, Sep 23 as `16dcf6b8`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #210: docs: remove stale/duplicate avoid-recent-trade rule from Coach playbook
+
+- Merged: 5:31 PM ET, Sep 23 as `d6a650c9`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #209: Trade cards: stop labeling a shrinking role Buy Low
+
+- Merged: 5:19 PM ET, Sep 23 as `62f9530a`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #208: Turn on the defense-streaming suggestion on the Lineup page by default
+
+- Merged: 5:08 PM ET, Sep 23 as `309877ef`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #165: Study: FantasyPros consensus beat our start/sit picks in 2022, 2023 and 2024 (HX-01)
+
+- Merged: 4:56 PM ET, Sep 23 as `b0862ffc`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #170: FantasyCalc values refresh daily, keep a day-by-day history, and credit FantasyCalc on screen (FC-SNAP)
+
+- Merged: 4:45 PM ET, Sep 23 as `82d094a5`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #206: Snap loader falls back to name join when players.csv fails
+
+- Merged: 4:23 PM ET, Sep 23 as `48160f7c`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #205: Unify player news attribution across card, News page, Trade Lab, and AI Buy/Sell
+
+- Merged: 3:45 PM ET, Sep 23 as `3c13f508`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #204: Clear Sleeper injury flags on sync so stale flags stop penalizing players
+
+- Merged: 3:33 PM ET, Sep 23 as `e47e63de`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #213: Trade Brain proposals: give Sonnet room to answer after thinking
 

@@ -3,8 +3,6 @@ name: "gridiron-token-efficiency"
 description: "Load at the start of every Gridiron HQ thread or coordinator turn: spend rules that keep the weekly usage cap intact without losing accuracy."
 ---
 
-> ARCHIVED 2026-09-23 5:25 PM ET: superseded by docs/handoff/local/RULES.md. Does not bind.
-
 # Gridiron HQ token efficiency
 
 Usage monitoring is Nick's #1 priority (2026-09-22 18:16Z). Spend is almost entirely context re-reads (99% cache hit, 92.8B tokens over 25 threads in one week), so every rule below cuts re-reads, not rigour.

@@ -83,6 +83,7 @@ const snap = (week, player, offense) => run(`INSERT INTO nfl_snaps (season, week
 // Rosters 2 and 3 are identical except that 2 added twelve players and 3 none.
 league(61, 7);
 for (let i = 0; i < 12; i += 1) add(61, 2, 1 + (i % 6));
+add(61, 2, 7); // in the week still being played: not in the rate
 for (let i = 0; i < 3; i += 1) add(61, 4, 2 + i);
 add(61, 1, 3);
 // Last week's final lineups (period 6). Roster 4 left in a starter who did not play.

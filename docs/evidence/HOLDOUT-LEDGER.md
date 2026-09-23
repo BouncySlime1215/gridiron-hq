@@ -307,6 +307,7 @@ Two sources of `F` rows besides a unit's own rule-5 check:
 | id | date | unit/PR | domain | family | hypothesis | metric | result | est | lo | hi | level | p (source) | better | shipped | file:line | note |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | F001 | 2026-09-23 | CE-05 (branch claude/local-ce-05-league-rules) | fantasy | other | league-rules seedStandings reproduces the current ESPN seeds (teams[].playoffSeed) after 2 weeks | seeds equal / teams, leagues.payload | PASSED: 46/46 across 5 leagues |  |  |  |  |  |  | yes | `docs/evidence/2026-09-23/league-rules-replay.md` | rule check, not a model; no job fit or registry opening |
+| F002 | 2026-09-23 | RL-11-1 (branch claude/local-rl-11-1-activity-receptiveness) | fantasy | other | the activity receptiveness term (adds per week + has traded) ranks 2026 teams that complete a trade in week w+1, w = 1-2 | within-league-week AUC, league_transactions_raw (local copy) | HOLDS by rule 5 (point > 0.5), anecdote-sized: 20 team-weeks, 6 trade sides, 1 league | 0.6875 |  |  |  |  | higher | no (default-off: 2024 held-out AUC 0.6439 missed its 0.645 bar) | `docs/tdd/2026-09-23-activity-receptiveness.tdd.md` | no interval (one league); MDE80 0.359; an earlier run on ce7d6137 with a trade-count bug gave 0.7568, superseded |
 
 Before F001 there were none. On a local copy (not production, 2026-09-22), `weekly_ensemble_fits`
 has 2 rows, both through 2025 week 18 (the known-nonzero control), and

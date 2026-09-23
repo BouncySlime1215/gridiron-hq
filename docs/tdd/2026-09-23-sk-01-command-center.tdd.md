@@ -170,8 +170,10 @@ Dark mode: the app has no dark theme on `131a7ba0` to screenshot.
 - An ESPN `OUT` (not IR, not season-ending) starter is not a dead starter on
   `131a7ba0`: lineupDiff counts only IR and `available === false`
   (`server/services/trade-engine.js:2861`). Until SS-01 lands, only WV-02's
-  injury alert (out/doubtful) catches him. SS-01's field name `dead_starters`
-  is a guess.
+  injury alert (out/doubtful) catches him. Fixed in review round 1 (below):
+  once SS-01's `dead-starters.js` is on the build, the command center reads
+  SS-01's list through `lineupCall(...).dead_starters.items` and stops calling
+  lineupDiff, so Start/Sit and the command center show one list.
 - Side effect inherited, not added: `lineupDiff` publishes to the Decision Inbox
   (`decision_recommendations`) for the user's own team; the command center calls
   it for every league, as the My team view already does for the active one.
@@ -184,10 +186,60 @@ Dark mode: the app has no dark theme on `131a7ba0` to screenshot.
 - `no_move` has no deadline until WV-02's `waiver_run` is on the build.
 - Gameday inactives and trade ideas (queue row items) are not in this unit.
 
+## Review round 1 (skeptic findings, fixed at `1fc77167`)
+
+Commands: `GRIDIRON_DB_PATH=$(mktemp -d)/x.sqlite SCHEDULER_DISABLED=1 node --experimental-test-module-mocks --test --test-reporter=tap test/command-center.test.js`.
+Tree: `73a0622d` (tests) + `1fc77167` (fix).
+
+1. **Empty state stated zeros for checks that never ran.** Now the server
+   returns `clear_checks` (`server/services/command-center.js#clearChecks`):
+   the checks whose state is `present` in every league. The page
+   (`CommandCenter.tsx#clearSentence`) states "0 ..." only for those; if none
+   ran everywhere it says so, and the headline reads "Nothing found in the
+   checks that ran" instead of "Nothing needs you this week". Tests 13
+   (pure: not_merged, default_off, stale, not_synced, no leagues) and 14
+   (route: injury alerts and streams not_merged in every league, with a
+   known-present control on dead_starters). There is no client test runner in
+   this repo, so `clearSentence` itself has no test; it only maps
+   `clear_checks` to fixed phrases. `sk-01-375-nothing.png` still shows the old
+   sentence (all-present fixture); not re-shot.
+2. **Per-user cache and caller-chosen user.** The code was already right; the
+   tests did not pin it. Test 15 fetches as nick with `?user=<stranger>`, then
+   as nobody and as stranger without clearing the cache.
+3. **SS-01 shape and producer.** SS-01 (origin/claude/local-ss-01-dead-starter-guard
+   @edffd153) adds `dead_starters: { covered, starters_checked, items }` to
+   `lineup-brain.js#lineupCall`, not to lineupDiff (`git diff
+   origin/main...origin/claude/local-ss-01-dead-starter-guard --stat`: no
+   trade-engine.js). The command center now detects `dead-starters.js`
+   (dynamic import, same pattern as WV-01), then calls `lineupCall(lg.id,
+   { myTeamId })` and reads `dead_starters.items`; lineupDiff is not called on
+   that build. `covered: false` reads `unavailable`, never clear. Tests 11
+   (SS-01's payload shape, copied from dead-starters.js#deadStarters at
+   @edffd153) and 12 (route: lineupDiff not called, flagged_starters not read,
+   SS-01's why and kickoff used).
+
+RED: the 15-test file against `6de067ef`'s service: tests 11, 12, 13, 14 fail
+(pass 11, fail 4). Test 15 passes on the old code (it pins behaviour that was
+already correct) and is shown live by mutants U1 and C1 below.
+GREEN at `1fc77167`: 15 pass, 0 fail.
+
+| Mutant (tree `1fc77167`) | Result |
+|---|---|
+| U1 cache key `'everyone'` | killed (#15) |
+| C1 route `commandCenter(req.query.user ?? req.auth.userId)` | killed (#15) |
+| M12 clearChecks `every` -> `some` | killed (#13) |
+| M13 SS-01 detection forced off | killed (#12) |
+| M14 `covered: false` ignored | killed (#11, #12) |
+| M15 `clear_checks` dropped from the response | killed (#14) |
+
+Not run: a merged-tree probe of SK-01 + SS-01 on the local copy (SS-01 is not
+on main). The SS-01 payload in the tests is a hand copy of its shape, not a
+live call.
+
 ## Nick's five questions
 
 1. **Well built?** One route, one service that only reads existing producers,
-   10 targeted tests with a mutation sweep (11 killed, 1 designed survivor,
+   15 targeted tests (10 at first review, 5 added in review round 1) with a mutation sweep (11 killed, 1 designed survivor,
    1 not-applied control); every absent input is a named state, not an empty
    list.
 2. **Stats or made up?** No new statistic. Every number on a card is a

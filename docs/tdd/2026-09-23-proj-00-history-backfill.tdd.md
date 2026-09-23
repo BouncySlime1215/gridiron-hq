@@ -198,9 +198,10 @@ The script is in the scratchpad; each mutant is applied with perl, the test file
    2021-2024 and 2026 files predate this unit and are outside it.
 2. The `qb_spike` -> `incompletion` mapping is a guess at ESPN parity, and the
    designed survivor M11 leaves it unpinned. There are 0-2 spikes per game.
-3. Two producers count "offense snaps": PFR `player_week_snaps` (canonical,
-   `syncSnapCounts`) and participation plays. On matched player-weeks,
-   participation counts 7.8-11.3% more, because it includes no-play and penalty snaps. This unit
+3. **Superseded by section 10.** Two producers count "offense snaps": PFR `player_week_snaps` (canonical,
+   `syncSnapCounts`) and participation plays. Before the fix, on matched player-weeks,
+   participation counted 7.8-11.3% more, because it stored punt, field-goal and kickoff units.
+   Scrimmage-only, the gap is 0.08-0.21%. This unit
    shows the ratio only on the status route and does not publish a
    participation snap count, so `player_week_snaps` stays the one snap producer.
    Follow-up: name which one feeds any future per-player number.
@@ -221,7 +222,8 @@ The script is in the scratchpad; each mutant is applied with perl, the test file
 
 ## 8. Holdout looks
 
-One data-integrity look at 2025: ledger row L160 in `docs/evidence/HOLDOUT-LEDGER.md`.
+Two data-integrity looks at 2025: ledger rows L160 and L161 (the re-check after the
+skeptic fixes, section 10) in `docs/evidence/HOLDOUT-LEDGER.md`.
 No outcome, projection or model was graded.
 
 ## 9. Nick's five questions
@@ -239,3 +241,92 @@ No outcome, projection or model was graded.
 5. **How does it unify?** One game has one producer: ESPN skips seasons nflverse
    filled. The play, participation and formation tables share one game key
    (the nflverse game_id).
+
+## 10. Skeptic round 1: fixes and re-measure
+
+Commits: RED `ca02e055` (tests only), GREEN `7a359b24` (fix). Test file: 12/12 pass on
+`7a359b24`; on `ca02e055` tests 5, 9 and 11 fail (3 of 12). Tests 1 and 3 are liveness
+tests that pass on both trees and kill mutants A and C below. Command:
+`SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<mktemp> node --experimental-test-module-mocks --test --test-reporter=tap test/proj-00-history-backfill.test.js`.
+
+**What changed.**
+
+1. The gate test now shows that any verdict word other than `usable` refuses. It checks the committed
+   `ftn_charting not pulled` line and a temp file that says `pending`. A new script test writes a licence
+   file where only the called loader's own source is blocked and the others are usable, for pbp, weather
+   and participation. Each run must exit 2, name its own source in stderr, and create no DB.
+2. `classifyNflverse` (`server/services/nflverse-pbp.js`) returns null when `two_point_attempt == 1`. This
+   matches `classifyPlay`'s `'two-point'` -> null. Before, a failed two-point pass was stored as a
+   completed `pass`.
+3. The one-producer check now works both ways. `espnPlays(season)` (`nfl-espn-pbp.js`) counts
+   non-nflverse rows. `ingestNflversePbpFile` throws, and `backfill-history.mjs pbp` refuses with
+   exit 2, when the season already holds ESPN plays.
+4. `ingestParticipationFile` (`server/services/nfl-participation.js`) keeps only offensive snaps. It
+   judges each play against its nflverse row in `nfl_play_by_play`:
+   - punt, fg_make and fg_miss are skipped;
+   - other typed plays are kept;
+   - untyped plays are kept only when the feed recorded an `offense_formation`. That covers post-snap
+     penalties and two-point tries. Kickoffs, extra points and pre-snap penalties have no formation.
+
+   The loader refuses a season with no nflverse pbp, and it refuses a play that has players but
+   no pbp row. The migration 074 comment now says "per offensive snap". There is no schema change.
+
+**Where the rule came from** (a scratch Python cross-tab of the release files; the numbers are
+per-play counts from the participation file):
+
+- In 2024, kickoff, XP, punt and FG units, and 1,150 pre-snap `no_play` rows, have an empty
+  formation.
+- Kneels (437) and spikes (75) also have an empty formation but count as snaps. So formation
+  alone is not the rule; formation is used only for untyped rows.
+- Other rules tried, as the 2024 matched play ratio:
+  - pass/run/kneel/spike only: 0.950 (it misses post-snap penalty snaps);
+  - adding every non-special-teams no_play: 1.023 (it counts pre-snap fouls);
+  - `offense_formation` non-empty alone: 0.986 (it drops kneels and spikes).
+
+**Re-measure** (fresh scratch DB: migrations, then `players` and 2021-2025
+`player_week_snaps` copied from the local copy, then
+`backfill-history.mjs pbp <y>` and `backfill-participation.mjs <y>` for 2021-2025
+on tree `7a359b24`; local copy, not production):
+
+| season | pbp rows (floor) | plays kept | player rows | kicking skipped | untyped, no formation, skipped | PFR snaps | snap match share | matched play ratio (was) |
+|---|---|---|---|---|---|---|---|---|
+| 2021 | 49,922 (49,922) | 37,752 | 415,270 | 3,262 | 5,312 | 208,235 | 0.9931 | **0.9984** (1.0775) |
+| 2022 | 49,434 (49,434) | 37,328 | 410,606 | 3,399 | 5,131 | 204,620 | 0.9919 | **0.9979** (1.0783) |
+| 2023 | 49,665 (49,665) | 37,558 | 413,132 | 3,459 | 5,151 | 206,159 | 0.9880 | **0.9989** (1.1069) |
+| 2024 | 49,492 (49,492) | 37,219 | 409,407 | 3,285 | 5,415 | 206,262 | 0.9884 | **0.9986** (1.1131) |
+| 2025 | 48,771 (48,771) | 36,666 | 403,318 | 3,182 | 5,336 | 200,333 | 0.9885 | **0.9992** (1.1130) |
+
+- The snap match share is unchanged to four places. RED check 3 still passes, and it no longer
+  counts special-teams rows.
+- **The remaining gap**: participation counts 0.08-0.21% fewer plays than PFR on matched
+  player-weeks. That is about 1 play in 600. Why is a guess: a few plays where the feed's player list
+  and PFR's charting differ. It was not traced play by play.
+- Orphans (participation with no pbp row): 0.
+- Participation plays by pbp type, 2024: rush 14,898; pass 12,074; incompletion 6,039;
+  NULL 1,805; sack 1,392; kneel 437; interception 405; fumble 169; punt/FG 0.
+  Command: a `sqlite3` join on (game_id, play_id).
+- Two-point tries: every row whose text has `TWO-POINT CONVERSION ATTEMPT` is now NULL.
+  The counts by season are 164, 141, 145, 155 and 136. Before the fix, 2024 had
+  pass 110, rush 38 and NULL 7 (builder `.local-db`).
+- ESPN guard on the builder `.local-db`: `backfill-history.mjs pbp 2026 play_by_play_2025.csv.gz` gave
+  `refused: season 2026 already has 160 ESPN plays`, exit 2. The 2026 row count was 160 before and after.
+
+**Stale copy.** The builder `.local-db` still holds the pre-fix rows: 2pt as pass/rush,
+and participation with kicking units. `storePlays` upserts do not rewrite `play_type`. Nothing
+reads that copy outside this unit, and it is deleted when the unit closes.
+Production was never loaded.
+
+**Mutation sweep, round 2** (`scratchpad/mut.py`: apply the mutant, run the test file, restore):
+
+| id | mutant | result |
+|---|---|---|
+| A | gate: `verdict !== 'blocked'` (skeptic) | killed by test 1 |
+| C | **call site**: pbp command gates on `open_meteo_archive` (skeptic) | killed by test 3 |
+| D | no two-point branch | killed by test 5 |
+| E | service ESPN guard off | killed by test 9 |
+| F | **call site**: script ESPN guard off | killed by test 9 (exit 1, not 2) |
+| G | kicking plays kept | killed by test 11 |
+| H | untyped, no-formation plays kept | killed by test 11 |
+| I | every untyped play dropped | killed by test 11 |
+| J | no-pbp guard off | killed by test 11 |
+

@@ -56,3 +56,5 @@ All 5 running workflows and the board keeper stopped with TaskStop (BLEND-01, sk
 07:30Z: verify run A relaunched on verify-pr-v2.js (models pinned; task w6bwduyep, run wf_018f8616-665). 20-min status cron :07/:27/:47. Resume pointers in launch/resume/.
 
 07:40Z: C-01 #160 verify READY (all lenses); merge-queue.sh 160 running (log evidence/mq-160.log). INT-160-1..6 queued (160-1 urgent before 9/25).
+
+08:15Z: R&D loop v2 launched (task wv7kkewdx, run wf_e34d8634-23b, rounds 3-4, web research mandatory). Resume: launch/resume/wv7kkewdx.json

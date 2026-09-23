@@ -722,3 +722,4 @@ UI REVAMP: UI-REVAMP.md (UX-01..07) runs alongside the Trade Machine; UX-01/02 s
 | UX-11 | "My team" as its own tab route (today inside League Hub); decide the X's&O's concept (nav stays 8: Nick decides what it replaces) | IA | needs Nick |
 | UX-12 | Skeleton / thin / stale shared states; OddsLadder, ScenarioCard, ReceiptCard, GuessLabel built from scratch (UX-03) | UI-STANDARD 6, 10 | after #73 |
 | UX-13 | Split Trade Lab (evaluate a deal) from Trade Brain (find deals, war room) per the IA | IA | with TM-01/TM-04 |
+| 2026-09-23 08:15Z | Nick | MODELS: Opus 5.5 at MEDIUM effort for builders, fixers and skeptics (v2 scripts pin effort medium). R&D explorers: Opus 5.5 at HIGH effort, must search the internet and pull data every round (rnd-loop-v2.js); quick triage after: validity check Opus medium, implementation spot-check Sonnet low; valid + feasible finds go straight into the queue and the board as proposed. |

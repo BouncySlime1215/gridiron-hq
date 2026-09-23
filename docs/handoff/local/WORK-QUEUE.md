@@ -695,3 +695,5 @@ Folded in: TR-02 -> TM-06, TR-04 -> TM-01/TM-03, TR-05 -> TM-02/TM-04 (its quali
 See TRADE-MACHINE-PLAN.md (v2, 02:40Z) for the corrected design, new data pulls TM-09..15, the negotiation playbook and research units RS-01..06.
 
 MASTER: TRADE-MACHINE-MASTER.md (compiled 1:20 AM ET: have vs need, routing to existing files/routes/pages, runtime, UI, build order). Detail history: TRADE-MACHINE-PLAN.md v2-v8. New units from chat: LS-01, DD-01, GT-01, LL-01.
+
+REORG: PLAN-REORG-2026-09-23.md maps every unit from tonight to one of the 32 plan items, merges duplicates, and gives the build order by item. Programs: Trade Machine, Championship Engine (B9), Grading (C12/C13/C14/C17/C18).

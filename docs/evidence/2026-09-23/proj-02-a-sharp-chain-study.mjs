@@ -55,7 +55,7 @@ function actuals(season) {
 
 function collect(season, weeks) {
   const { team: teamAct, player: playerAct } = actuals(season);
-  const out = { plays: [], pass_rate: [], targets: [], carries: [], targets_dnp: [], carries_dnp: [], pairs: [],
+  const out = { plays: [], pass_rate: [], plays_neutral: [], pass_rate_neutral: [], targets: [], carries: [], targets_dnp: [], carries_dnp: [], pairs: [],
     red: { team_weeks: 0, max_target_dev: 0, max_carry_dev: 0 } };
   for (const week of weeks) {
     const proj = buildProjections({ through: season, throughWeek: week - 1, roleRecency: WEEKLY_ROLE_RECENCY });
@@ -76,11 +76,22 @@ function collect(season, weeks) {
 
       const act = teamAct.get(`${team}|${week}`);
       if (!act) continue;                                   // bye or no rows
-      if (L.plays.incumbent != null) {
-        out.plays.push({ c: team, chain: L.plays.chain, inc: L.plays.incumbent, act: act.att + act.car });
+      // `plays` / `pass_rate`: the pre-registered comparison, vs the raw season-to-date average.
+      if (L.plays.season_average != null) {
+        out.plays.push({ c: team, chain: L.plays.chain, inc: L.plays.season_average, act: act.att + act.car });
       }
-      if (L.pass_rate.incumbent != null && L.pass_rate.chain != null && act.att + act.car > 0) {
-        out.pass_rate.push({ c: team, chain: L.pass_rate.chain, inc: L.pass_rate.incumbent,
+      // Skeptic re-grade (2026-09-23): the true incumbent is main's neutral shrunk pace
+      // (teamVolume pass_att + rush_att, served as links.*.incumbent), which the chain
+      // starts from. Rows only where a line exists, so this isolates the script term.
+      if (L.pass_rate.chain_scripted) {
+        out.plays_neutral.push({ c: team, chain: L.plays.chain, inc: L.plays.incumbent, act: act.att + act.car });
+        if (act.att + act.car > 0) {
+          out.pass_rate_neutral.push({ c: team, chain: L.pass_rate.chain, inc: L.pass_rate.incumbent,
+            act: act.att / (act.att + act.car) });
+        }
+      }
+      if (L.pass_rate.season_average != null && L.pass_rate.chain != null && act.att + act.car > 0) {
+        out.pass_rate.push({ c: team, chain: L.pass_rate.chain, inc: L.pass_rate.season_average,
           act: act.att / (act.att + act.car) });
       }
       const played = [];
@@ -156,7 +167,7 @@ function pairAccuracy(pairs) {
   return { pairs: n, incumbent: n ? +(inc / n).toFixed(4) : null, chain: n ? +(chain / n).toFixed(4) : null };
 }
 
-const LINKS = ['plays', 'pass_rate', 'targets', 'carries'];
+const LINKS = ['plays', 'pass_rate', 'plays_neutral', 'pass_rate_neutral', 'targets', 'carries'];
 const result = { rig: { roleRecency: WEEKLY_ROLE_RECENCY, kOverride: 'omitted (activeKVectorFor)', weeks: '2-18',
   sign: 'chain - incumbent MAE; negative favours the chain', bootstrap: { B, seed: SEED, level: 90 } },
 k_control: {}, seasons: {}, pooled: {}, forward: {}, red: {}, decision: {}, verdict: {} };
@@ -189,4 +200,12 @@ for (const l of LINKS) {
     pass, forward_same_sign: forwardSame,
     ship: !pass ? 'incumbent kept' : forwardSame ? 'ON' : 'default-off (unconfirmed forward)' };
 }
+// The ship decision reads each link against its REAL incumbent: plays and pass rate
+// against main's neutral shrunk pace (the *_neutral rows), not the season average the
+// pre-registration named (a straw man the chain's own pace already beats).
+result.ship_decision = {
+  note: 'plays/pass_rate graded vs neutral shrunk pace (teamVolume), the producer main already serves',
+  plays: result.verdict.plays_neutral.ship, pass_rate: result.verdict.pass_rate_neutral.ship,
+  targets: result.verdict.targets.ship, carries: result.verdict.carries.ship
+};
 process.stdout.write(JSON.stringify(result, null, 2) + '\n');

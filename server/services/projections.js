@@ -438,18 +438,25 @@ const ROSTER_WEEKS = 3;
  * docs/tdd/2026-09-23-proj-02-a-sharp-chain.tdd.md (configuration B, 2023 and 2024
  * weeks 2-18 walk-forward, 2026 week 2 forward; sign: chain - incumbent MAE).
  *
- *   plays      ON. Beats season-average plays in both seasons, pooled 90% CI below 0,
- *              same sign forward.
- *   pass_rate  ON. Beats season-to-date pass rate the same way.
+ *   plays      OFF, neutral pace served. The chain beat the raw season-average plays
+ *              (pooled -0.541), but against the real incumbent -- main's neutral shrunk
+ *              pace (teamVolume pass_att + rush_att), which the chain starts from --
+ *              the added script term is +0.107 (2023), -0.021 (2024), pooled +0.043
+ *              [90% CI -0.031, +0.112], MDE80 0.109. Fails the rule; not shown to help.
+ *   pass_rate  OFF, neutral ratio served. Vs neutral pace ratio: 2023 +0.0001, 2024
+ *              -0.0017, pooled -0.0008 [-0.0019, +0.0004], MDE80 0.0017, forward
+ *              2026 W2 +0.0018 (opposite sign). Fails the rule.
  *   targets    OFF, incumbent kept: lower in both seasons but the pooled 90% CI
  *              straddles 0 (a tie at this power).
  *   carries    OFF, incumbent kept: worse in both seasons, CI above 0.
  *
- * `plays` and `pass_rate` set only `links.*.value`: every weekly consumer already
- * applies the same game script through gameScriptFor (fantasy-coordinator,
- * season-sim, nfl-props), so feeding them into volume here would count it twice.
+ * With every flag off, each served value is the number main already produces
+ * (teamVolume pace and ratio, params.targets/carries): one producer per number.
+ * The chain values stay on `links.*.chain` for PROJ-04, with `chain_scripted` saying
+ * whether the predicted week's game script was applied (it is only when the caller
+ * passes throughWeek and a line exists).
  */
-export const CHAIN_SERVED = Object.freeze({ plays: true, pass_rate: true, targets: false, carries: false });
+export const CHAIN_SERVED = Object.freeze({ plays: false, pass_rate: false, targets: false, carries: false });
 
 /**
  * Positional priors — what an unknown player at this position looks like.
@@ -962,6 +969,9 @@ function attachChain(out, chainIn, { teamVol, leagueVol, through, throughWeek, s
     const passMult = gs?.pass_mult ?? 1, rushMult = gs?.rush_mult ?? 1;
     const playsChain = tv.pass_att * passMult + tv.rush_att * rushMult;
     const passRateChain = playsChain > 0 ? tv.pass_att * passMult / playsChain : null;
+    // Incumbent: main's neutral shrunk pace from teamVolume, the producer the chain starts from.
+    const playsNeutral = tv.pass_att + tv.rush_att;
+    const passRateNeutral = playsNeutral > 0 ? tv.pass_att / playsNeutral : null;
     const sum = c.roster ? sums.get(p.team) : null;
     const targetShare = sum?.tgt > 0 ? c.rawTargetShare / sum.tgt : null;
     const carryShare = sum?.car > 0 ? c.rawCarryShare / sum.car : null;
@@ -984,20 +994,24 @@ function attachChain(out, chainIn, { teamVol, leagueVol, through, throughWeek, s
     const r = c.rates;
     p.links = {
       plays: {
-        ...pick(CHAIN_SERVED.plays, +playsChain.toFixed(2), tv.season_plays ?? null),
+        ...pick(CHAIN_SERVED.plays, +playsChain.toFixed(2), +playsNeutral.toFixed(2)),
+        chain_scripted: gs != null,
+        season_average: tv.season_plays ?? null,
         team: { pass_att: tv.pass_att, rush_att: tv.rush_att, target_rate: tv.target_rate }
       },
       pass_rate: {
         ...pick(CHAIN_SERVED.pass_rate, passRateChain == null ? null : +passRateChain.toFixed(4),
-          tv.season_pass_rate ?? null),
+          passRateNeutral == null ? null : +passRateNeutral.toFixed(4)),
+        chain_scripted: gs != null,
+        season_average: tv.season_pass_rate ?? null,
         script: gs
       },
       share: {
         roster: c.roster,
         target_share: targetShare == null ? null : +targetShare.toFixed(6),
         carry_share: carryShare == null ? null : +carryShare.toFixed(6),
-        raw_target_share: +c.rawTargetShare.toFixed(4),
-        raw_carry_share: +c.rawCarryShare.toFixed(4)
+        raw_target_share: +c.rawTargetShare.toFixed(6),
+        raw_carry_share: +c.rawCarryShare.toFixed(6)
       },
       volume: { targets, carries, attempts: p.params.attempts, script_applied: false },
       eff: {

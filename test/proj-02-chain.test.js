@@ -111,13 +111,48 @@ test('plays and pass rate read the week\'s line from gameScriptFor; no line mean
   assert.ok(aaa.pass_rate.chain > t.pass_att / (t.pass_att + t.rush_att));
   assert.equal(bbb.pass_rate.script, null);
   assert.ok(Math.abs(bbb.plays.chain - (bbb.plays.team.pass_att + bbb.plays.team.rush_att)) < 0.01);
+  // chain_scripted says which configuration the chain value is.
+  assert.equal(aaa.plays.chain_scripted, true);
+  assert.equal(aaa.pass_rate.chain_scripted, true);
+  assert.equal(bbb.plays.chain_scripted, false);
+  assert.equal(bbb.pass_rate.chain_scripted, false);
 });
 
-test('incumbents: season-average plays and season-to-date pass rate, as of the cutoff', () => {
+test('shares: each roster player\'s share is his raw share over the team\'s raw-share sum; QB gets no targets', () => {
+  const byTeam = new Map();
+  for (const p of proj.values()) {
+    if (!p.links.share.roster) continue;
+    (byTeam.get(p.team) ?? byTeam.set(p.team, []).get(p.team)).push(p);
+  }
+  for (const [team, roster] of byTeam) {
+    const sT = roster.reduce((s, p) => s + p.links.share.raw_target_share, 0);
+    const sC = roster.reduce((s, p) => s + p.links.share.raw_carry_share, 0);
+    for (const p of roster) {
+      const sh = p.links.share;
+      assert.ok(Math.abs(sh.target_share - sh.raw_target_share / sT) < 1e-4, `${p.name} target share ${sh.target_share}`);
+      assert.ok(Math.abs(sh.carry_share - sh.raw_carry_share / sC) < 1e-4, `${p.name} carry share ${sh.carry_share}`);
+      const t = p.links.plays.team;
+      assert.ok(Math.abs(p.links.volume.targets.chain - sh.target_share * t.pass_att * t.target_rate) < 1e-3, `${team} ${p.name} targets`);
+      assert.ok(Math.abs(p.links.volume.carries.chain - sh.carry_share * t.rush_att) < 1e-3, `${team} ${p.name} carries`);
+    }
+  }
+  // Pinned on this fixture (shrunk raw shares, temp DB): a uniform share or a QB whose
+  // carries are dropped both move these.
+  const qb = proj.get(1).links.share, wr1 = proj.get(3).links.share;
+  assert.equal(qb.target_share, 0);
+  assert.ok(qb.raw_carry_share > 0.05, `QB raw carry share ${qb.raw_carry_share}`);
+  assert.ok(Math.abs(qb.carry_share - 0.1099) < 5e-4, `QB carry share ${qb.carry_share}`);
+  assert.ok(Math.abs(wr1.target_share - 0.3490) < 5e-4, `WR1 target share ${wr1.target_share}`);
+});
+
+test('incumbents: main\'s neutral shrunk pace (teamVolume); season averages kept for reference', () => {
   const l = proj.get(1).links;
+  const t = l.plays.team;
+  assert.ok(Math.abs(l.plays.incumbent - (t.pass_att + t.rush_att)) < 0.01);
+  assert.ok(Math.abs(l.pass_rate.incumbent - t.pass_att / (t.pass_att + t.rush_att)) < 1e-4);
   // AAA every week: 34 attempts, 3 + 20 carries.
-  assert.equal(l.plays.incumbent, 57);
-  assert.ok(Math.abs(l.pass_rate.incumbent - 34 / 57) < 1e-4);
+  assert.equal(l.plays.season_average, 57);
+  assert.ok(Math.abs(l.pass_rate.season_average - 34 / 57) < 1e-4);
 });
 
 test('served values follow the recorded ship decision; eff and td are the incumbent shrunk rates', () => {
@@ -136,16 +171,60 @@ test('served values follow the recorded ship decision; eff and td are the incumb
   }
 });
 
-test('ship decisions from the pre-registered grade: plays and pass rate served, targets and carries keep the incumbent', () => {
-  assert.deepEqual({ ...CHAIN_SERVED }, { plays: true, pass_rate: true, targets: false, carries: false });
+test('ship decisions: no link beats its real incumbent, so every served value is main\'s number', () => {
+  assert.deepEqual({ ...CHAIN_SERVED }, { plays: false, pass_rate: false, targets: false, carries: false });
   const aaa = proj.get(1).links;
-  assert.equal(aaa.plays.served, 'chain');
-  assert.equal(aaa.plays.value, aaa.plays.chain);
-  assert.equal(aaa.pass_rate.value, aaa.pass_rate.chain);
+  assert.equal(aaa.plays.served, 'incumbent');
+  assert.equal(aaa.plays.value, aaa.plays.incumbent);
+  assert.notEqual(aaa.plays.value, aaa.plays.chain, 'AAA has a line, so chain and neutral pace differ');
+  assert.equal(aaa.pass_rate.served, 'incumbent');
+  assert.equal(aaa.pass_rate.value, aaa.pass_rate.incumbent);
   // Volume is not served from the chain, so the served number is untouched: the WR1's
   // params and ppg equal the incumbent volume scored through the same rates.
   const wr = proj.get(3);
   assert.equal(wr.links.volume.targets.served, 'incumbent');
   assert.notEqual(wr.links.volume.targets.chain, wr.links.volume.targets.incumbent);
   assert.equal(wr.params.targets, wr.links.volume.targets.incumbent);
+});
+
+// The route that serializes links (GET /api/model/projections, routes/model.js) takes
+// the as-of cutoff week, so a reader can get the scripted chain the grade was run on.
+test('GET /api/model/projections?through=2023&week=4 serves links with the week-5 script; without week they are neutral', async () => {
+  const { row } = await import('../server/db/index.js');
+  const { default: modelRouter } = await import('../server/routes/model.js');
+  const { hashSessionToken } = await import('../server/platform/auth.js');
+  const express = (await import('express')).default;
+  const app = express();
+  app.use('/api/model', modelRouter);
+  app.use((err, req, res, next) => res.status(err.status ?? 500).json({ error: err.message }));
+  const server = app.listen(0);
+  try {
+    run(`INSERT INTO leagues (platform, league_id, season, name, ppr, payload, roster_positions)
+         VALUES ('espn','proj02-league',2026,'Test League',1,?,?)`,
+      JSON.stringify({ settings: {}, teams: [] }), JSON.stringify(['QB', 'RB', 'WR', 'TE']));
+    const lg = row(`SELECT id FROM leagues WHERE league_id = 'proj02-league'`);
+    run('INSERT INTO users (subject, display_name) VALUES (?,?)', 'proj02-tester', 'Tester');
+    const userId = row('SELECT last_insert_rowid() AS id').id;
+    run('INSERT INTO league_memberships (league_id, user_id, role) VALUES (?,?,?)', lg.id, userId, 'member');
+    run(`INSERT INTO auth_sessions (user_id, token_hash, expires_at) VALUES (?,?,datetime('now','+1 day'))`,
+      userId, hashSessionToken('proj02-token'));
+    const base = `http://127.0.0.1:${server.address().port}/api/model/projections?league_id=${lg.id}&through=2023`;
+    const get = async q => {
+      const res = await fetch(base + q, { headers: { authorization: 'Bearer proj02-token' } });
+      assert.equal(res.status, 200, await res.clone().text());
+      return (await res.json());
+    };
+    const withWeek = await get('&week=4');
+    assert.equal(withWeek.week, 4);
+    const aaa = withWeek.players.find(p => p.name === 'AAA-qb').links;
+    assert.equal(aaa.pass_rate.chain_scripted, true);
+    assert.ok(aaa.pass_rate.script && aaa.pass_rate.script.week === 5, 'the week-5 line is applied');
+    assert.equal(aaa.plays.served, 'incumbent');
+    const noWeek = await get('');
+    const aaa0 = noWeek.players.find(p => p.name === 'AAA-qb').links;
+    assert.equal(aaa0.pass_rate.chain_scripted, false);
+    assert.equal(aaa0.pass_rate.script, null);
+    const bad = await fetch(base + '&week=x', { headers: { authorization: 'Bearer proj02-token' } });
+    assert.equal(bad.status, 400);
+  } finally { server.close(); }
 });

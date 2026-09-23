@@ -41,6 +41,18 @@
         "mae_incumbent": 0.0853,
         "diff": -0.005
       },
+      "plays_neutral": {
+        "n": 512,
+        "mae_chain": 6.9289,
+        "mae_incumbent": 6.8224,
+        "diff": 0.1065
+      },
+      "pass_rate_neutral": {
+        "n": 512,
+        "mae_chain": 0.0803,
+        "mae_incumbent": 0.0802,
+        "diff": 0.0001
+      },
       "targets": {
         "n": 5138,
         "mae_chain": 1.4549,
@@ -78,6 +90,18 @@
         "mae_chain": 0.0803,
         "mae_incumbent": 0.0862,
         "diff": -0.0059
+      },
+      "plays_neutral": {
+        "n": 512,
+        "mae_chain": 6.714,
+        "mae_incumbent": 6.7354,
+        "diff": -0.0214
+      },
+      "pass_rate_neutral": {
+        "n": 512,
+        "mae_chain": 0.0803,
+        "mae_incumbent": 0.0819,
+        "diff": -0.0017
       },
       "targets": {
         "n": 5171,
@@ -127,6 +151,28 @@
       "hi90": -0.0032,
       "se": 0.0014,
       "mde80": 0.0035
+    },
+    "plays_neutral": {
+      "n": 1024,
+      "mae_chain": 6.8214,
+      "mae_incumbent": 6.7789,
+      "diff": 0.0426,
+      "clusters": 32,
+      "lo90": -0.0306,
+      "hi90": 0.1116,
+      "se": 0.0438,
+      "mde80": 0.109
+    },
+    "pass_rate_neutral": {
+      "n": 1024,
+      "mae_chain": 0.0803,
+      "mae_incumbent": 0.0811,
+      "diff": -0.0008,
+      "clusters": 32,
+      "lo90": -0.0019,
+      "hi90": 0.0004,
+      "se": 0.0007,
+      "mde80": 0.0017
     },
     "targets": {
       "n": 10309,
@@ -185,6 +231,18 @@
       "mae_chain": 0.0688,
       "mae_incumbent": 0.0992,
       "diff": -0.0303
+    },
+    "plays_neutral": {
+      "n": 32,
+      "mae_chain": 6.6875,
+      "mae_incumbent": 6.9159,
+      "diff": -0.2284
+    },
+    "pass_rate_neutral": {
+      "n": 32,
+      "mae_chain": 0.0688,
+      "mae_incumbent": 0.0671,
+      "diff": 0.0018
     },
     "targets": {
       "n": 329,
@@ -257,6 +315,22 @@
       "forward_same_sign": true,
       "ship": "ON"
     },
+    "plays_neutral": {
+      "lower_in_both_seasons": false,
+      "pooled_ci_below_zero": false,
+      "dnp_no_worse": true,
+      "pass": false,
+      "forward_same_sign": true,
+      "ship": "incumbent kept"
+    },
+    "pass_rate_neutral": {
+      "lower_in_both_seasons": false,
+      "pooled_ci_below_zero": false,
+      "dnp_no_worse": true,
+      "pass": false,
+      "forward_same_sign": false,
+      "ship": "incumbent kept"
+    },
     "targets": {
       "lower_in_both_seasons": true,
       "pooled_ci_below_zero": false,
@@ -273,5 +347,12 @@
       "forward_same_sign": true,
       "ship": "incumbent kept"
     }
+  },
+  "ship_decision": {
+    "note": "plays/pass_rate graded vs neutral shrunk pace (teamVolume), the producer main already serves",
+    "plays": "incumbent kept",
+    "pass_rate": "incumbent kept",
+    "targets": "incumbent kept",
+    "carries": "incumbent kept"
   }
 }

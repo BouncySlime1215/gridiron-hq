@@ -149,6 +149,38 @@ file, restore. Final run on tree `6b87a64f`:
 | M13 bad-matchup ratio 0.8 -> 1.0 | killed (3); SURVIVED the first sweep -> 0.85 near miss (208) added in `6b87a64f` |
 | C0 not-applied control (search string absent) | reported NOT APPLIED, not "survived" |
 
+### 6b. Second sweep after the skeptic review, tree `e3fe5582`
+
+The skeptic found survivors the first sweep did not try. The implementation was right in each
+case; the tests did not pin it. Tests 8-11 were added and test 12 (route) was tightened in
+`e3fe5582`, with no change to the producer or the route. Script `scratchpad/mut.py` (one mutant at a
+time, run `test/lineup-signals.test.js`, restore; command
+`SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/x.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/lineup-signals.test.js`).
+The file now has 12 tests, and 12/12 pass on `e3fe5582`.
+
+| mutant | result |
+|---|---|
+| C2 call site: route sends `{ managers: [] }` instead of `managerProfiles(...)` | killed (12: the body minus lineup_signals must deepEqual `managerProfiles(31)`) |
+| LIVE `for (const w of finals)` -> `weekList` | killed (11: a week-4 live FLEX choice must not fire) |
+| U2 `priorMean >= minMeanShare` dropped | killed (8: 501, mean share 0.30) |
+| K1 `minMeanShare` 0.4 -> 0.35 | killed (8: BWIU_RULE must equal the prereg numbers) |
+| U3 `!(actual_points > 0)` dropped | killed (9: 502, ESPN 7 points, no feed row) |
+| U4 flex `snaps > 0` filter dropped | killed (10: 505, 0 snaps, left out of over_player_ids). This also kills the first sweep's designed survivor M9 |
+| U5 `pregame_injury_status` fallback dropped | killed (9: 506) |
+| U8 `before.length >= minWeeksOnRoster` dropped | survived: equivalent mutant (below) |
+| U10 `now > 0` dropped | survived: equivalent mutant (below) |
+| C0 not-applied control | NOT APPLIED |
+
+**Why U8 and U10 cannot be killed.** `started` is a subset of `before`, and `minStarts` (2) >= `minWeeksOnRoster` (2).
+So `started.length >= 2` already implies `before.length >= 2`. Also, `now >= 0.9 x priorMean` and
+`priorMean >= 0.4` together give `now >= 0.36 > 0`. Both clauses stay in the code because the prereg names
+them, and each would matter if the constants changed. Test 8 pins the constants, so they
+cannot drift away from the prereg without a test failing. Exhaustive check over every
+(weeks on roster 0-3, starts 0-weeks, prior mean 0-1 by 0.01, snap share now 0-1 by 0.01), 102,010 cases, tree `e3fe5582`:
+`node --input-type=module -e "import { BWIU_RULE as R } from './server/services/lineup-signals.js'; ..."`
+returned `{ cases: 102010, U8_differs: 0, U10_differs: 0 }`. 510 (benched at 0 snaps) stays in
+test 8 as the documented near miss for the "played" clause.
+
 ## 7. Known defects and limits
 
 1. Usage is snap share only; route share is not stored anywhere in the app.

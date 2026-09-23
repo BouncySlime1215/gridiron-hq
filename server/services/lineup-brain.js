@@ -44,7 +44,8 @@ import { careerLine } from './player-career.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
 import { availabilityDegradation } from './contingency.js';
-import { deadStarters, NO_LIVE_INACTIVES } from './dead-starters.js';
+import { deadStarters } from './dead-starters.js';
+import { espnZeroInactive } from './espn-zero-inactive.js';
 
 const r1 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(1));
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
@@ -416,7 +417,7 @@ export function irOnRoster(lg, rosterId, players) {
  *   variance can hurt you.
  */
 export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', providers = DEFAULT_PROVIDERS,
-  now = Date.now(), inactive = NO_LIVE_INACTIVES } = {}) {
+  now = Date.now(), inactive = null } = {}) {
   const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg?.payload) return { error: 'league not synced yet' };
 
@@ -452,16 +453,26 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // a decision about one Sunday, which is the only thing a single week's line
   // describes. startSitWeekPoints() is the one construction, shared with the
   // matchup card.
+  // RL-10-1: the one inactive producer (ESPN projects 0; default-off) unless the caller
+  // supplies a hook. Read once: the dead-starter card AND the solver use the same flag, so
+  // the card can never say "likely inactive" about a player the lineup below still starts.
+  const inactiveHook = inactive ?? espnZeroInactive(lg.id, { season, week });
+  const flaggedInactive = p => !!(inactiveHook?.covered && inactiveHook.ids?.has(p.id));
   const annotated = me.players.filter(p => !irReason.has(p.id)).map(p => {
     const { week_points: weekPoints, vegas } = startSitWeekPoints(p, season, week);
-    return { ...p, vegas, week_points: weekPoints };
+    // A flagged player is held out of the solve the way season-ending players are
+    // (available: false): not started, not the alternative, not on the bench list.
+    return flaggedInactive(p)
+      ? { ...p, vegas, week_points: weekPoints, available: false, inactive_flag: true }
+      : { ...p, vegas, week_points: weekPoints };
   });
 
   // SS-01: what is SET on ESPN that will score zero, with the best healthy bench
   // replacement priced on this same week_points basis (dead-starters.js).
   const deadStarterCheck = deadStarters(lg, me.roster_id, me.players, {
     season, week, weekPoints: new Map(annotated.map(p => [p.id, p.week_points])),
-    accepts: slotAccepts, now, inactive
+    accepts: slotAccepts, now,
+    inactive: inactiveHook
   });
 
   /*
@@ -546,10 +557,13 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // Kept separately and reported, because "why is my best back on the bench" is
   // the first question this page has to answer.
   const unavailable = annotated
-    .filter(p => p.available === false && (p.adj_ppg ?? 0) > 4)
+    .filter(p => p.available === false && (p.inactive_flag || (p.adj_ppg ?? 0) > 4))
     .map(p => ({ name: p.name, position: p.position, team_abbr: p.team_abbr,
       adj_ppg: p.adj_ppg, injury: p.injury_status ?? null,
-      why: 'Flagged out for the season or released, so the solver will not start him.' }));
+      why: p.inactive_flag
+        ? `${inactiveHook.sentence ?? 'Likely gameday inactive'}, so the solver will not start him.` +
+          (inactiveHook.label ? ` ${inactiveHook.label}` : '')
+        : 'Flagged out for the season or released, so the solver will not start him.' }));
 
   // No touchdown-luck flag (RL-8-1). "Running hot" / "Due to score" read a board the
   // consensus rest-of-season rank already prices (R&D r8, 2021-24), joined by display

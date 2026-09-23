@@ -64,7 +64,7 @@ Auditor, 2026-09-22 19:25 EDT; filed at WORK-QUEUE.md :611). Its verdicts:
 | A5 | sync_log detail: `verdict` = plan rule, `average_verdict` = H1 | **done** | same | job test on the old code: `the job detail must carry the plan rule, not the average check` (actual `'beats_dumb'`). Real detail: `{"verdict":"not_shown","average_verdict":"beats_dumb",…}` (§4b) |
 | A6 | panel per ruling (b); texts, job label, Lineup comment | **done** | `e10798c5` → `e597292c` | render test on the ruling's own result as b97d5ea2 served it: on the old panel `1 emerald chip(s) on the panel: Does our projection beat the dumb rule? Beats "start the higher average" …`; on the fix no emerald, no "Beats", ESPN in heading and chip. The same result as the fix serves it renders the amber chip and the ruling's lines. The rule-3 grep finds nothing (§10) |
 | A7 | week-clustered CI `null`, with a reason, below 2 week clusters | **done** | `f04a908b` → `5e493dbe` | on the old code `one week cluster gave a week interval [-0.8,-0.8]`; a two-week control still gets an interval. Real run: the replay's forward window and both served arms now read `week.points: null` with the note (§4b) |
-| A8 | prereg addendum 2 | **done** | `9ea52eae` | committed 2026-09-22T23:42:07Z, before any code change (first: `f04a908b`, 23:44:06Z) and about 24.5 hours before week 3's first kickoff. Filed as one line in `WORKLOG.jsonl` (unit C-01, sha, commit time) |
+| A8 | prereg addendum 2 | **done** | `9ea52eae` | committed 2026-09-22T23:42:07Z, before any code change (first: `f04a908b`, 23:44:06Z) and about 48.5 hours before week 3's first kickoff (corrected after the Auditor's fresh-session check; this row first said 24.5). Filed as one line in `WORKLOG.jsonl` (unit C-01, sha, commit time) |
 | A9 | this revision | **done** | — | §0c, the corrected sentence (§0b row 2), §2 revision 4, §4b, §6 sweeps 9-10 (the ruling's mutant V1 killed; not-applied controls C2, C3), §10 |
 
 **A7, the ruling's wording.** Its proof reads "`ci90.week === null` (it is [x, x] today)". What was
@@ -75,6 +75,19 @@ n = 0 case already had.
 **Outside the acceptance items, disclosed:** `scripts/run-start-sit-gate.mjs` prints both verdicts
 (`cf1fffa6`), and `server/routes/gates.js`'s doc comment names ESPN's projection first. Both are
 C-01's own files.
+
+**Auditor fresh-session check (2026-09-22 20:45 EDT, head `bc0062d8`): A1-A5 and A7-A9 met; A6 met
+except one panel line.** Under every `not_shown` the panel added '"Not shown" is not the same as
+"worse": these weeks may be too few to show a small edge.' It raised one possibility only, an
+unseen edge for our projection, under "treat our start/sit calls as no better than ESPN's
+projection", and it is false in `espn_ahead_at_lock_only` (4+ weeks, at-lock interval below 0).
+**RED** `78393369` "test: RED for dropping the panel's "not the same as worse ... small edge" line
+under not_shown": panel **16 pass / 1 fail**, `REAL_FIX: the panel still says "Not shown" is not the
+same as "worse"`. **GREEN** `1bdfdef9` "fix: drop the gate panel's "not the same as worse ... small
+edge" line under not_shown": panel **17/0**, surface **13/0**; `grep -c 'small edge'
+client/src/components/lineup/StartSitGate.tsx` → `0`; panel `tsc --noEmit` exit 0. The small-sample
+caveat stays ("Few weeks so far: this season shows direction, not proof."). This check touched only
+`StartSitGate.tsx`, `test/start-sit-gate-panel.test.js` and this file.
 
 ## 1. Audit: what already exists, and extend-or-build
 
@@ -860,10 +873,11 @@ Revisions 1-3:
 
 ## 10. What Nick sees (direction only)
 
-**Revision 4.** The real panel (`StartSitGate.tsx` at `e597292c`, unchanged since), compiled with the
-repo's TypeScript and rendered with React, fed what `GET /api/gates/start-sit` serves from the local
-copy after the revision-4 run was stored (`latestStartSitGate()`; scratchpad `c01-fix4/render-fix.mjs`
-→ `c01-fix4/render-fix.out`). Its visible text, above "What was compared":
+**Revision 4.** The real panel (`StartSitGate.tsx` at `1bdfdef9`, after the Auditor's fresh-session
+item), compiled with the repo's TypeScript and rendered with React, fed what `GET /api/gates/start-sit`
+serves from the local copy after the revision-4 run was stored (`latestStartSitGate()`, read from a
+throwaway copy of that copy so it stays at `73e67399…`; scratchpad `c01-fix4/render-fix.mjs` →
+`c01-fix4/render-fix-2.out`). Its visible text, above "What was compared":
 
 > Does our projection beat ESPN's projection?
 > The plan's dumb rule: start whoever ESPN projects higher.
@@ -873,7 +887,6 @@ copy after the revision-4 run was stored (`latestStartSitGate()`; scratchpad `c0
 > What the app served this season, against the season average (the weaker check): our pick scored more.
 > The week 2 projection was served on older settings (before the fitted volume numbers existed; different blend weights), so what the app served and today's replay are not the same projection.
 > Few weeks so far: this season shows direction, not proof.
-> "Not shown" is not the same as "worse": these weeks may be too few to show a small edge.
 > **Weeks our projection lost**
 > This season as the app served it, against ESPN's projection (the plan's rule): 2026 W2
 > Past seasons, against "start the higher average" (the weaker check): 2024 W10 · 2024 W11 · 2024 W14 · 2025 W13 · 2025 W14
@@ -882,6 +895,9 @@ copy after the revision-4 run was stored (`latestStartSitGate()`; scratchpad `c0
 
 - **No green:** 0 `bg-emerald` classes (b97d5ea2 rendered 1 emerald chip on the ruling's result);
   1 amber chip. Emerald appears only for a plan-rule `beats_dumb`.
+- **No softening line:** the render at `bc0062d8` also carried '"Not shown" is not the same as
+  "worse": these weeks may be too few to show a small edge.' under the chip; `1bdfdef9` removed it
+  (§0c), and the render above has neither "not the same as" nor "small edge".
 - **No magnitude:** `grep -o -E '[0-9]+(\.[0-9]+)?%|[+-][0-9]+\.[0-9]+'` on the render finds nothing;
   the same grep on the run's JSON finds `-1.3357`, `-0.8139`, … (known-nonzero control). The panel
   test goes further and allows no digit at all except seasons, weeks, the timestamp and the two

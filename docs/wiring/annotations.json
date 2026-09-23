@@ -62,8 +62,6 @@
     "server/betting/nfl/strategy/teaser-staking.js",
     "server/platform/providers.js",
     "server/platform/provision-auth.js",
-    "server/routes/props-tickets.js",
-    "server/routes/props.js",
     "server/services/alt-spread-import.js",
     "server/services/bottom-up-team-total.js",
     "server/services/cascade-grade.js",

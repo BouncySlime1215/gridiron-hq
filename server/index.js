@@ -136,10 +136,11 @@ app.use('/api/model', ...legacyAuthenticated, modelRouter);
 // contents, not a liveness check. The unauthenticated probe stays
 // platform/health.js's alone.
 app.use('/api/data-freshness', ...legacyAuthenticated, dataFreshnessRouter);
-// server/routes/props.js and props-tickets.js (the MLB props board and its saved
-// slips) were unmounted here (SY-06, 2026-09-22): MLB was removed from the product
-// in #128, and no client page ever called either path. See
-// docs/wiring/annotations.json's accepted_orphan_modules for why the two files stay.
+// /api/props and /api/props-tickets, the MLB props board and its saved slips, used
+// to mount here. MLB was removed from the product in #128 and no client page ever
+// called either path, so SY-06 (2026-09-22) deleted both routers, as #128 deleted
+// the MLB router itself. Their tables, props_auto_picks and saved_prop_tickets, stay
+// on disk with no reader or writer (test/mlb-removed.test.js pins both halves).
 app.use('/api/nfl-market', ...legacyAuthenticated, nflMarketRouter);
 app.use('/api/nfl-betting', ...legacyAuthenticated, nflBettingRouter);
 app.use('/api/betting/wong', ...legacyAuthenticated, wongRouter);

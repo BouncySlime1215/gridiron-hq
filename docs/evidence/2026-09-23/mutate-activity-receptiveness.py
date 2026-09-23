@@ -16,7 +16,7 @@ MUTANTS = [
    "  const adds = (tx.adds.get(me) ?? []).filter(p => p <= through).length;",
    "  const adds = (tx.adds.get(me) ?? []).filter(p => p <= through).length;\n  if (!adds) return [];"),
   ('M4 unit: zero points counted as did-not-play', MS,
-   "  const dead = zero.filter(s => !played(s.player_name));", "  const dead = zero;"),
+   "  const dead = zero.filter(s => !playedNames.has(normalizePlayerName(s.player_name)));", "  const dead = zero;"),
   ('M5 unit: vetoed trades counted', MS,
    "    if (t.type !== 'TRADE_ACCEPT' || t.execution_type !== 'PROCESS' || t.status !== 'EXECUTED') continue;",
    "    if (t.type !== 'TRADE_ACCEPT') continue;"),
@@ -31,6 +31,19 @@ MUTANTS = [
    "        ...activitySignals(tx, rosterId, lastCompleted),\n", ""),
   ('M10 call site: board stops rendering factors', 'client/src/components/brain/ManagerBoard.tsx',
    "              <ReceptivenessFactors factors={factors} />", ""),
+  ('M11 call site: checked-out effect never added to the score', CP,
+   "    if (Number.isFinite(checkedOut?.effect)) score += checkedOut.effect;", ""),
+  ('M12 unit: already-traded half of the activity term removed', CP,
+   "+ ACTIVITY_FIT.traded * (traded - mean.traded))", "+ 0)"),
+  ('M13 unit: trade in the last completed week not counted', MS,
+   "  const trades = tx.trades.filter(t => t.period <= through && t.parties.has(me)).length;",
+   "  const trades = tx.trades.filter(t => t.period < through && t.parties.has(me)).length;"),
+  ('M14 unit: snap names matched exactly, not normalised', MS,
+   "    .map(r => normalizePlayerName(r.player)));\n  const dead = zero.filter(s => !playedNames.has(normalizePlayerName(s.player_name)));",
+   "    .map(r => r.player));\n  const dead = zero.filter(s => !playedNames.has(s.player_name));"),
+  ('M15 unit: tx_waiver_moves counted season to date again', MS,
+   "    { metric: 'tx_waiver_moves', value: adds, n: adds, source: 'tx' },",
+   "    { metric: 'tx_waiver_moves', value: (tx.adds.get(me) ?? []).length, n: adds, source: 'tx' },"),
   ('S1 DESIGNED SURVIVOR: activity cap 0.5 -> 0.45 (magnitude is graded by the script, not unit tests)', CP,
    "const ACTIVITY_CAP = 0.5;", "const ACTIVITY_CAP = 0.45;"),
   ('C1 NOT-APPLIED CONTROL: pattern that does not exist', CP,
@@ -40,7 +53,7 @@ def run_tests():
   env = dict(os.environ, SCHEDULER_DISABLED='1', GRIDIRON_DB_PATH=tempfile.mktemp(suffix='.sqlite'))
   out = subprocess.run(['node', '--experimental-test-module-mocks', '--test', '--test-reporter=tap',
                         'test/receptiveness-activity.test.js'], capture_output=True, text=True, env=env).stdout
-  return re.findall(r'^not ok \d+ - (A\d+b?)', out, re.M), len(re.findall(r'^ok \d+', out, re.M))
+  return re.findall(r'^not ok \d+ - (A\d+[a-z]?)', out, re.M), len(re.findall(r'^ok \d+', out, re.M))
 base_fail, base_ok = run_tests()
 print(f'baseline: {base_ok} ok, failing {base_fail}')
 for label, f, old, new in MUTANTS:

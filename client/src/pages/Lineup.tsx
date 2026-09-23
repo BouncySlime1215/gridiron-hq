@@ -7,6 +7,8 @@ import { usePageExplain } from '../components/PageExplainContext';
 import { PageLoading, PageError, EmptyState } from '../components/PageState';
 import WaiverWire, { WaiverTeaser, onATeam } from '../components/lineup/WaiverWire';
 import type { WaiverBoard, OutList } from '../components/lineup/WaiverWire';
+import StreamingBoard from '../components/lineup/StreamingBoard';
+import type { StreamBoard } from '../components/lineup/StreamingBoard';
 import MatchupPosture from '../components/lineup/MatchupPosture';
 import type { Posture } from '../components/lineup/MatchupPosture';
 import StartSitGate from '../components/lineup/StartSitGate';
@@ -42,6 +44,8 @@ export default function Lineup() {
   // default to my own roster, exactly as the lineup request does.
   const waivers = useApi<WaiverBoard>(leagueId ? `/trades/${leagueId}/waivers` : null);
   const posture = useApi<Posture>(leagueId ? `/trades/${leagueId}/posture` : null);
+  // Defense streaming (WV-01): same league, same week as the waiver board.
+  const streams = useApi<StreamBoard>(leagueId ? `/trades/${leagueId}/streams` : null);
   // Only for the opponent's name; the same cached request the Trade Lab makes.
   const opponentId = posture.data?.opponent_roster_id ?? null;
   const { data: rosters } = useApi<any>(leagueId && opponentId ? `/trades/${leagueId}/rosters` : null);
@@ -263,6 +267,9 @@ export default function Lineup() {
 
       <WaiverWire key={leagueId} data={waivers.data} loading={waivers.loading} error={waivers.error}
         onRetry={waivers.refetch} out={out} />
+
+      <StreamingBoard key={`streams-${leagueId}`} data={streams.data} loading={streams.loading} error={streams.error}
+        onRetry={streams.refetch} />
     </Shell>
   );
 }

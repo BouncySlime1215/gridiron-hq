@@ -69,3 +69,7 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 06:40Z: R&D round 5 launched (wglts1bzi, run wf_4a8de9ff-da2). Loops: 3 build + 1 R&D.
 
 07:10Z: finish-unit DONE: BLEND-01 -> PR #164, HX-01 -> PR #165, S-03 -> PR #166 (all gate exit 1 = only the known Node-25 local failure route-deletion-impact.test.js:155; CI is the judge). BLEND-01's winner (ESPN) is held OFF behind 4 serving holds; ours stays served. Independent Auditor launched on #166, #164, #165 (Opus); merge order after CLEARED: #166 -> #164 (stacked on S-03) -> #165. #161 SY-02 MERGED (89f69b3b); #73 in the queue. BLEND-01 follow-ups: 4 hold-lifting units (waiver replay 2023-24, lineup-brain ESPN 0 as projection, one provenance label, S-03 identity check), HOLDOUT-LEDGER F-row for the W2 re-spend, rerun tournament once nfl_availability_role_rates is written.
+
+07:15Z: build loop 3 relaunched: lean batch UX-08 (Lineup error leak), RL-3-3 (trade card ceiling colour), INT-159-1/2 (remove eventOdds, fix comments) (wqn66e54y). Loops: CE-05/GR-01/GR-05, FC-SNAP/RL-4-2/RL-3-4, lean batch, + R&D r5; auditor agent on #164-#166.
+
+07:25Z: Nick asleep. Suggested task "sanitize alert() leaks in 5 pages" queued as UX-08b for the next lean batch.

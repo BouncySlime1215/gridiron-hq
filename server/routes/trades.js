@@ -10,7 +10,7 @@ import { row, rows } from '../db/index.js';
 import { assertLeagueMember } from '../platform/auth.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import {
-  findTrades, findTradeSequences, offerFor, offerForMany, selfScout, playerOutlook, evaluate,
+  findTrades, findTradeSequences, offerFor, offerForMany, selfScout, playerOutlook, evaluate, lineupValueContext,
   assetUniverse, loadRosters, lineupSlots, bestLineup, resolvePlayer, lineupDiff, playerEvidence,
   tradeWeekContext
 } from '../services/trade-engine.js';
@@ -876,7 +876,8 @@ r.post('/:leagueId/evaluate', (req, res, next) => {
       : teams.find(t => t.roster_id !== meId && gets.some(g => t.players.some(p => p.id === g.id)));
     if (!them) return res.status(400).json({ error: 'could not work out who you are trading with — pass their_team_id' });
 
-    res.json({ ...evaluate({ team: me, gives }, { team: them, gives: gets }, slots), slots });
+    res.json({ ...evaluate({ team: me, gives }, { team: them, gives: gets }, slots,
+      { lineupValue: lineupValueContext(lg, assets, teams) }), slots });
   } catch (e) { next(e); }
 });
 

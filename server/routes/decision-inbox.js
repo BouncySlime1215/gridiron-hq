@@ -23,7 +23,10 @@ import { rows, row, run } from '../db/index.js';
 const r = Router();
 
 const VALID_URGENCY = new Set(['high', 'medium', 'low']);
-const VALID_SPORT = new Set(['NFL', 'MLB']);
+// Fantasy-NFL only. MLB was removed from the product (#128); 'MLB' is an invalid
+// sport like any other and publishRecommendation() below rejects it rather than
+// storing it.
+const VALID_SPORT = new Set(['NFL']);
 
 /**
  * Exported for `test/decision-inbox.test.js`, which asserts the published shape and no

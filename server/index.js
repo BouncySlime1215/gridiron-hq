@@ -42,8 +42,6 @@ const { default: espnConnectRouter } = await import('./routes/espn-connect.js');
 const { default: leagueChatRouter } = await import('./routes/league-chat.js');
 const { default: modelRouter } = await import('./routes/model.js');
 const { default: dataFreshnessRouter } = await import('./routes/data-freshness.js');
-const { default: propsRouter } = await import('./routes/props.js');
-const { default: propsTicketsRouter } = await import('./routes/props-tickets.js');
 const { default: nflMarketRouter } = await import('./routes/nfl-market.js');
 const { default: nflBettingRouter } = await import('./routes/nfl-betting.js');
 const { default: bettingHubRouter } = await import('./routes/betting-hub.js');
@@ -52,6 +50,7 @@ const { default: localAuthRouter } = await import('./routes/local-auth.js');
 const { default: googleAuthRouter } = await import('./routes/google-auth.js');
 const { default: draftCaptureRouter, serveCaptureScript } = await import('./routes/draft-capture.js');
 const { default: executionSlateRouter } = await import('./routes/execution-slate.js');
+const { default: gatesRouter } = await import('./routes/gates.js');
 const { startScheduler } = await import('./services/scheduler.js');
 const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-access.js');
 const { default: coachRouter } = await import('./routes/coach.js');
@@ -138,8 +137,14 @@ app.use('/api/model', ...legacyAuthenticated, modelRouter);
 // contents, not a liveness check. The unauthenticated probe stays
 // platform/health.js's alone.
 app.use('/api/data-freshness', ...legacyAuthenticated, dataFreshnessRouter);
-app.use('/api/props', ...legacyAuthenticated, propsRouter);
-app.use('/api/props-tickets', ...legacyAuthenticated, propsTicketsRouter);
+// Beat-the-dumb-baseline gates (plan item C12). Read-only: each gate is computed by
+// its weekly scheduler job off the request thread and stored; a request reads it.
+app.use('/api/gates', ...legacyAuthenticated, gatesRouter);
+// /api/props and /api/props-tickets, the MLB props board and its saved slips, used
+// to mount here. MLB was removed from the product in #128 and no client page ever
+// called either path, so SY-06 (2026-09-22) deleted both routers, as #128 deleted
+// the MLB router itself. Their tables, props_auto_picks and saved_prop_tickets, stay
+// on disk with no reader or writer (test/mlb-removed.test.js pins both halves).
 app.use('/api/nfl-market', ...legacyAuthenticated, nflMarketRouter);
 app.use('/api/nfl-betting', ...legacyAuthenticated, nflBettingRouter);
 app.use('/api/betting/wong', ...legacyAuthenticated, wongRouter);

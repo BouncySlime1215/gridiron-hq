@@ -1,3 +1,4 @@
+# PLAN v10.2 (3:50 PM ET): ONE ALWAYS-LEARNING ENGINE. A daemon ingests every move, offer, news item and text continuously; learners update per event, nightly and weekly; it is never 'done'. Loop and spine as below.
 # PLAN v10.1 (3:45 PM ET): ONE INTEGRATED ENGINE, with the loop observe -> understand -> simulate -> decide -> act (Coach) -> learn. ENGINE-00 spine first (engine_events + engine_state + reader API); every pillar below is a stage of that one loop, not a separate module. See the top of TRADE-INSANE-RND.md.
 # PLAN v10 (2026-09-23 3:00 PM ET, Nick): ENGINE FIRST. This section overrides the older v9 text below where they conflict.
 Source: TRADE-INSANE-RND.md (5 layers approved by Nick, plus the Layer 2 v2 projection design). Specs: ENGINE-SPECS.md.

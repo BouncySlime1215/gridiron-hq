@@ -13,6 +13,20 @@ Everything below is **one system with one loop**, not modules: projections, sims
 5. **ACT: one voice.** Coach presents every decision (trade, pitch, start/sit, claim) with its evidence: tells with n, title-odds change, "why ESPN is off". The AI writes the words; the engine makes the calls.
 6. **LEARN: one grader.** The offer loop and the Monday Autopsy grade every call against what happened, split decision vs luck, update projections, tells and clones, and log new blind spots to R&D.
 
+
+## ALWAYS LEARNING (Nick, 3:50 PM ET 9/23: "one system that is always learning from all the pieces that come in, manager moves, texts etc. The engine is never done, it just learns always")
+The loop never stops. There is no "trained model" that ships and freezes.
+- **Engine daemon (part of ENGINE-00):** a separate always-on process, like refresh.sh and never inside the web server (the in-process scheduler stalled the server on 9/22).
+  - Every 5-15 min it pulls new events: ESPN transactions, lineups, offers, news, lines, injuries, and new text messages through the chat ingest that feeds manager_chat_profile.
+  - It appends them to engine_events and triggers the learners.
+- **Three learning speeds:**
+  1. **Per event, seconds:** Bayesian updates. A decline moves that manager's price and P(accept); a waiver move updates engagement; a text updates tone and latency tells; news updates the player's distribution.
+  2. **Nightly:** refit the tells screen, the clone population model, the Mistake Map residuals and the conformal calibration on everything to date (walk-forward safe).
+  3. **Weekly (Monday):** Autopsy plus reweighting of every source, and new blind spots and dead tells go to R&D.
+- **Every update is versioned:** engine_state rows carry producer version and as_of, so any number can be traced to the data that made it and rolled back.
+- **Drift and health monitors:** if a learner's live accuracy drops below its baseline (e.g. "start ESPN's higher number"), it falls back automatically and the status line says so. It never silently degrades.
+- **Guardrails stay:** as-of safety (a learner never sees the future), one writer per field, forward grading decides ON/OFF, and no league or manager names committed. Texts stay local; only counts and rates leave the chat store.
+
 **Build rule:** every unit (PROJ-*, CE-*, TELLS-*, CLONE-*, RADAR-*, CHESS-*, COACH-*, OFFER-*) is a STAGE of this loop. It reads from `engine_events` / `engine_state` and writes only its own fields. A unit that creates its own side store, or a second number for something the state already has, is blocking (structure lens). The first engine unit defines the two contracts (ENGINE-00, below); every later unit extends them.
 
 **ENGINE-00 (first, before PROJ-01): the spine.**

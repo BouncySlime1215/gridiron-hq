@@ -189,7 +189,7 @@ r.get('/:leagueId/brain/plan', retired('/api/trades/:leagueId/find',
  * RETIRED 2026-09-18 (trade-engine-correctness, GATE G7).
  *
  * `sellHigh` is still exported from waiver-brain.js, but (S-19) it is not an
- * input to the "hype window" tactic, which reads usage gaps
+ * input to the "outscoring his usage" tactic, which reads usage gaps
  * (talk-vs-model.js#expectationGaps); it now reads the one hype producer,
  * services/hype.js#playerHype. What is retired is serving it as its own page:
  * a list of players priced above their production curve, with no buyer attached

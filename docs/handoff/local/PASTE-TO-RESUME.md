@@ -74,7 +74,8 @@ The plan's evidenced Trade Machine edges are:
 
 Public-data "value edges" were tested and **failed** (RL-8-2, RL-8-2b), so every trade idea shows "no proven value edge" unless one of these four applies.
 
-**ENGINE FIRST (Nick's ruling, 2:40 PM 9/23): all 5 layers approved; the core engine beats fringe fixes.** Build-ready specs for the engine units are being written to `$H/ENGINE-SPECS.md` by account A. Use them; if the file is missing, write the rows yourself from TRADE-INSANE-RND.md.
+**ENGINE FIRST (Nick's ruling, 2:40 PM 9/23).** `$H/ENGINE-SPECS.md` is DONE. It has build-ready rows for PROJ-00, PROJ-01a/b/c, PROJ-02a/b, PROJ-03a/b/c (= CE-01/02), PROJ-04a/b, BLEND-02, CE-03, CE-09a/b, CLONE-01a/b (+OFFER/MOTIVE/VETO), RADAR-01a/b (+DEADLINE) and CHESS-01a/b, plus a **3-loop launch order**. Follow its launch order; it supersedes the list below where they differ. Its facts: RL-6-3 already merged (#192); the offer log table trade_outcomes exists with 0 rows (OFFER-01 wires its writers); the trade deadline is at leagues.payload $.settings.tradeSettings.deadlineDate; migrations are 074-077 (recheck at PR time).
+**Quick fix first (lean, risk low):** trade-tactics.js:411-419 has a comment naming a leaguemate, which breaks the public-repo no-names rule; remove the name. trade-engine.js:2160 has an empty catch around selfRead; handle or throw.
 1. **PROJECTION ENGINE first** (PLAN v10 pillar 1; specs in ENGINE-SPECS.md). Order: PROJ-00 data backfill, then PROJ-01 Mistake Map and PROJ-02 sharp chain in parallel (disjoint files), then PROJ-03 correlated simulator (= CE-01), then BLEND-02 stacker, then PROJ-04 Monday Autopsy. All `critical:true`. Build on BLEND-01's producer (#164; merge it first or build on its branch).
 2. **RL-16-1 playoff weight about 5.2** (quick interim, use the corrected row at the bottom of WORK-QUEUE, critical:true; disjoint from the PROJ files, so it can run alongside), **then CE-03 season sim on the PROJ-03 simulator** (fold in RL-9-2 multi-week injury spells), **then CE-09 title odds** (RL-6-3 currency fix first). Layer 2. `critical:true`.
 3. **CLONE-01 manager clones + OFFER-01 offer loop** (Layer 1; plus MOTIVE-01 buyer/seller state and VETO-01 league veto risk; see TRADE-INSANE-RND.md bottom): an accept model from ESPN offers, declines and accepts plus Sleeper trades and adds as the population prior, empirical-Bayes shrink per manager, and Coach people variables as features once graded. Extend counterparty-pricing.js; do NOT build a second producer. Pre-registered clone test vs the FantasyCalc-fair baseline. RL-13-3 (receptiveness shrink) folds in here.
@@ -102,6 +103,7 @@ Public-data "value edges" were tested and **failed** (RL-8-2, RL-8-2b), so every
   - Deploys.
   - Settings.
   - Merging #184 (Bluesky; timing supplement only) or #193 (glossary; no page consumer).
+  - Serving FantasyPros-derived numbers (PROJ-01-c referee stays research-only until Nick rules on the licence).
 - Models:
   - Builders and skeptics: Opus 5.5 medium.
   - Fable: only for the critical claims skeptic (Fable weekly is precious).

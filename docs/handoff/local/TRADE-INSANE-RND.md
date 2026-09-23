@@ -84,7 +84,7 @@ In plain English: we build a clone of every manager in your leagues, meaning a m
 
 ## Added 2026-09-23 2:45 PM ET (Nick approved): the offer loop and 4 more trade opportunities
 ### OFFER-01: the offer loop (part of CLONE-01; the biggest gap)
-Only about 26 accepts and 58 declines exist in all five leagues' history, too few to learn each person. So every offer Nick sends becomes data and an experiment:
+ESPN holds only 37 real trade decisions once duplicates are removed (7 accepts, 30 declines; 20 of them by leaguemates), and just 1 trade drew real veto votes. That is anecdote-sized, so the clone test leans on Sleeper waiver claims (21,484 manager-seasons), and every offer Nick sends becomes data: So every offer Nick sends becomes data and an experiment:
 1. One-tap "I sent this" on any suggested deal. ESPN's proposal, decline and accept sync (league_transactions_raw) auto-matches the reply.
 2. Each reply updates that manager's clone right away (Bayesian update).
 3. Test the pitch: vary one factor at a time (screen-fairness level, 2-for-1 vs 1-for-1, which need is led with), logged per offer.
@@ -96,3 +96,11 @@ Only about 26 accepts and 58 declines exist in all five leagues' history, too fe
 - **MOTIVE-01 (Clones):** a buyer/seller state per manager from their own title odds, injuries, bye crunch and losing streak. Out-of-contention and desperate teams price differently; target them at the right moment.
 - **VETO-01 (Clones):** league approval risk. The data has TRADE_VETO 7 and TRADE_UPHOLD 11; model P(veto) per league for lopsided-looking deals and fold it into P(accept).
 - **REP-01 (Coach):** a reputation budget. Repeated lopsided offers lower future acceptance (how Nick comes across), so the engine spends "lopsidedness" where it pays most.
+
+
+## Corrections from ENGINE-SPECS.md (2026-09-23)
+- The earlier 58/26 decision counts double-counted proposer-side rows. The true count is 37.
+- VETO-01 can't be fitted per league (1 trade with real veto votes); use a population prior only.
+- No past FantasyCalc values are stored. The clone baseline is season-to-date PPG until the snapshots accumulate, and the pre-registration must say so.
+- The real data gaps are play-by-play and per-player route participation. ESPN 2021 is already archived, and weather before 2025 is partly there.
+- FantasyPros referee (PROJ-01-c) is research-only until Nick rules on the licence.

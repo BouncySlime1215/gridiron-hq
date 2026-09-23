@@ -327,8 +327,9 @@ const CAPABILITIES = [
       note: 'The game-script multipliers are fitted on the betting side and clamped to [0.75, 1.30], but ' +
         'their use as a FANTASY multiplier had never been graded until S-02 (pre-registered, 2025 held ' +
         'out): it made weekly projections less accurate (weeks 2-4 MAE +0.030 [+0.014, +0.047]; weeks ' +
-        '5-17 +0.009 [-0.001, +0.019], worse once missed games count) and failed its rule. ' +
-        'docs/evidence/2026-09-22/weekly-construction-grade.md.' },
+        '5-17 +0.009 [-0.001, +0.019], worse once missed games count) and failed its rule; S-03 graded it ' +
+        'walk-forward on 2023 and 2024 and it failed in all four season-windows. ' +
+        'docs/evidence/2026-09-22/weekly-construction-grade.md, docs/evidence/2026-09-22/weekly-construction-walk-forward.md.' },
     baseAuthority: 'retired',
     note: 'Switched off in every served number by S-03 (2026-09-22): Start/Sit, the League Hub card and ' +
       'the waiver horizon all apply 1, through the one switch in vegasLift. When it did change a ' +

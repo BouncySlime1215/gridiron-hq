@@ -163,7 +163,10 @@ export function horizonValue(player, week) {
  * the first time, pre-registered, on the 2025 season held out: it made weekly numbers
  * less accurate (weeks 2-4 ΔMAE +0.030 [+0.014, +0.047]; weeks 5-17 +0.009
  * [−0.001, +0.019], worse once DNPs count), so it failed its rule
- * (docs/evidence/2026-09-22/weekly-construction-grade.md). BETTING_LINE_LIFT below is the
+ * (docs/evidence/2026-09-22/weekly-construction-grade.md). S-03's walk-forward grade
+ * failed it again in 2023 and 2024, both windows. It does win slightly more start/sit
+ * calls than it loses (52-57% of the calls it changes): a ranking-only version is a
+ * separate idea with its own pre-registration. BETTING_LINE_LIFT below is the
  * one switch. Start/Sit (lineup-brain.js#startSitWeekPoints), the League Hub card
  * (trade-engine.js#lineupDiffWeekPoints) and the waiver horizon (horizonValueWithVegas)
  * all read vegasLift, so all three now apply 1 without an edit of their own. The
@@ -172,10 +175,11 @@ export function horizonValue(player, week) {
  */
 export const BETTING_LINE_LIFT = Object.freeze({
   on: false,
-  decided_by: 'S-02 pre-registered grade, 2025 held out (the lift arm failed in weeks 2-4 and 5-17); applied by S-03',
-  evidence: 'docs/evidence/2026-09-22/weekly-construction-grade.md',
-  reason: 'Graded as a fantasy multiplier, it made weekly projections less accurate: worse in weeks 2-4, ' +
-    'no gain in weeks 5-17 and worse there once missed games count.'
+  decided_by: 'S-02 pre-registered grade, 2025 held out (the lift arm failed in weeks 2-4 and 5-17); ' +
+    'S-03 walk-forward, 2023 and 2024 (failed in all four season-windows); applied by S-03',
+  evidence: 'docs/evidence/2026-09-22/weekly-construction-grade.md; docs/evidence/2026-09-22/weekly-construction-walk-forward.md',
+  reason: 'Graded as a fantasy multiplier, it never made weekly projections more accurate in 2023-2025, and in ' +
+    '2025 it made weeks 2-4 worse and weeks 5-17 worse once missed games count.'
 });
 
 /**

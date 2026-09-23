@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   SPOTS, PREREG, refuseHoldout, parseEspnArchive, benjaminiHochberg, ksUniform, clusteredMean,
-  empiricalPit, ladFit, spotTest, spotVerdicts, normCdf, normInv, rng
+  empiricalPit, ladFit, spotTest, spotVerdicts, normCdf, normInv, rng, teamTotalMoves, moveDirection
 } from '../scripts/rnd/espn-mistake-map.mjs';
 
 test('the spot table in the script matches the committed pre-registration (ids and predicted signs)', () => {
@@ -105,4 +105,39 @@ test('spotTest scores the excess over the same season/position complement, and t
   const [v2] = spotVerdicts([spotTest(flipped, { id: 'x', sign: -1, positions: ['RB'] })]);
   assert.equal(v2.same_sign_all_seasons, false);
   assert.equal(v2.proven, false);
+});
+
+test('teamTotalMoves: implied team total = total/2 - spread/2, averaged over books with all four lines', () => {
+  const line = (book, market, side, phase, v) => ({ eid: 1, week: 5, home: 'ARI', away: 'PHI', book, market, side, phase, line: v });
+  const rows = [
+    line('a', 'totals', 'over', 'open', 48), line('a', 'totals', 'over', 'close', 52), line('a', 'totals', 'under', 'close', 52),
+    line('a', 'spreads', 'home', 'open', 4), line('a', 'spreads', 'home', 'close', 6), line('a', 'spreads', 'away', 'close', -6),
+    line('b', 'totals', 'over', 'open', 50), line('b', 'totals', 'over', 'close', 50), line('b', 'spreads', 'home', 'open', 4), // b has no spread close: skipped
+    { ...line('a', 'totals', 'over', 'open', 40), eid: 2, week: null } // preseason
+  ];
+  const m = teamTotalMoves(rows);
+  assert.equal(m.size, 2);
+  const home = m.get('ARI|5'), away = m.get('PHI|5');
+  assert.equal(home.books, 1);
+  assert.equal(home.open, 22); assert.equal(home.close, 23); assert.equal(home.move, 1);
+  assert.equal(away.open, 26); assert.equal(away.close, 29); assert.equal(away.move, 3);
+  assert.equal(moveDirection(away), 1);
+  assert.equal(moveDirection(home), 0);
+  assert.equal(moveDirection({ move: -2.5 }), -1);
+  assert.equal(moveDirection(undefined), 0);
+});
+
+test('a signed spot tests direction x excess error', () => {
+  const rows = [];
+  let id = 0;
+  for (const season of [2021, 2022, 2023, 2024]) {
+    for (let i = 0; i < 90; i++) {
+      const d = i < 20 ? 1 : i < 40 ? -1 : 0; // ESPN lags: error follows the move's direction
+      rows.push({ season, position: 'WR', player: id++, error: d * 1.5 - 0.4 + ((i % 5) - 2) * 0.1, spots: { m: d } });
+    }
+  }
+  const t = spotTest(rows, { id: 'm', sign: +1, positions: ['WR'], signed: true });
+  assert.ok(Math.abs(t.pooled_excess.mean - 1.5) < 0.05);
+  assert.equal(t.per_season[2022].n, 40);
+  assert.equal(spotVerdicts([t])[0].proven, true);
 });

@@ -54,11 +54,54 @@ export const SPOTS = Object.freeze([
   { id: 'qb_change', sign: -1, positions: ['RB', 'WR', 'TE'] },
   { id: 'wind_15_plus', sign: -1, positions: ['QB', 'WR', 'TE'] },
   { id: 'blowout_favorite_rb', sign: +1, positions: ['RB'] },
-  { id: 'blowout_underdog_rb', sign: -1, positions: ['RB'] }
+  { id: 'blowout_underdog_rb', sign: -1, positions: ['RB'] },
+  // Amendment 1 (pre-registration section 7): signed spot. Its value is the direction of the
+  // move (+1 team total rose 2.5+ from open to close, -1 fell 2.5+); the tested statistic is
+  // direction x excess error, predicted + (ESPN lags the market's move).
+  { id: 'team_total_moved_2_5', sign: +1, positions: ['QB', 'RB', 'WR', 'TE'], signed: true }
 ]);
-export const DROPPED_SPOTS = Object.freeze([
-  { id: 'team_total_moved_2_5', reason: 'no opening total for 2022 or 2023: game_lines.open_total holds 2021 and 2026 only; nfl_nfelo_games.total_line_open holds 2024 (272 games) and 2 games of 2023' }
-]);
+export const DROPPED_SPOTS = Object.freeze([]);
+export const TEAM_TOTAL_MOVE = 2.5;
+
+/**
+ * Open and close implied team totals from nfl_odds_archive (source covers, 4 books), per
+ * `${team}|${week}`: implied = total/2 - team spread/2 per book, averaged over the books
+ * that carry both the total and the spread at both open and close. Returns
+ * Map(team|week -> { open, close, move, books }).
+ */
+export function teamTotalMoves(oddsRows) {
+  const byGame = new Map(); // eid -> { week, home, away, books: Map(book -> {to, tc, so, sc}) }
+  const slot = { 'totals|open': 'to', 'totals|close': 'tc', 'spreads|open': 'so', 'spreads|close': 'sc' };
+  for (const o of oddsRows) {
+    if (o.week == null || o.line == null) continue;
+    if (o.market === 'totals' && o.side !== 'over') continue;
+    if (o.market === 'spreads' && o.side !== 'home') continue;
+    const k = slot[`${o.market}|${o.phase}`];
+    if (!k) continue;
+    if (!byGame.has(o.eid)) byGame.set(o.eid, { week: o.week, home: o.home, away: o.away, books: new Map() });
+    const g = byGame.get(o.eid);
+    if (!g.books.has(o.book)) g.books.set(o.book, {});
+    g.books.get(o.book)[k] = o.line;
+  }
+  const out = new Map();
+  const seen = new Map(); // team|week -> count of games (a duplicate listing is dropped)
+  for (const g of byGame.values()) {
+    const full = [...g.books.values()].filter(b => ['to', 'tc', 'so', 'sc'].every(k => Number.isFinite(b[k])));
+    if (!full.length) continue;
+    const home = { open: mean(full.map(b => b.to / 2 - b.so / 2)), close: mean(full.map(b => b.tc / 2 - b.sc / 2)) };
+    const away = { open: mean(full.map(b => b.to / 2 + b.so / 2)), close: mean(full.map(b => b.tc / 2 + b.sc / 2)) };
+    for (const [team, v] of [[g.home, home], [g.away, away]]) {
+      const k = `${team}|${g.week}`;
+      seen.set(k, (seen.get(k) ?? 0) + 1);
+      out.set(k, { ...v, move: v.close - v.open, books: full.length });
+    }
+  }
+  for (const [k, n] of seen) if (n > 1) out.delete(k);
+  return out;
+}
+
+/** +1 / -1 when the implied team total moved at least TEAM_TOTAL_MOVE up / down, else 0. */
+export const moveDirection = m => (m == null ? 0 : m.move >= TEAM_TOTAL_MOVE ? 1 : m.move <= -TEAM_TOTAL_MOVE ? -1 : 0);
 
 export function refuseHoldout(season) {
   if (season >= HELD_OUT) throw new Error(`${season} is not a study season: PROJ-01-a never opens ${HELD_OUT} or later`);
@@ -232,6 +275,7 @@ function solve(A, b) {
  * position rows NOT in the spot (the complement). Returns per-season and pooled results.
  */
 export function spotTest(rows, spot) {
+  const dir = r => (spot.signed ? Math.sign(Number(r.spots[spot.id])) : 1); // signed spots test direction x excess
   const eligible = rows.filter(r => spot.positions.includes(r.position));
   const comp = new Map();
   for (const r of eligible) {
@@ -242,17 +286,17 @@ export function spotTest(rows, spot) {
     comp.set(k, c);
   }
   const inSpot = eligible.filter(r => r.spots[spot.id]);
-  const excess = r => { const c = comp.get(`${r.season}|${r.position}`); return c?.n ? r.error - c.s / c.n : null; };
+  const excess = r => { const c = comp.get(`${r.season}|${r.position}`); return c?.n ? dir(r) * (r.error - c.s / c.n) : null; };
   const per = {};
   for (const s of SEASONS) {
     const rs = inSpot.filter(r => r.season === s);
     const ex = rs.map(excess).filter(v => v != null);
-    per[s] = { n: rs.length, raw_mean: mean(rs.map(r => r.error)), excess_mean: mean(ex),
+    per[s] = { n: rs.length, raw_mean: mean(rs.map(r => dir(r) * r.error)), excess_mean: mean(ex),
       sign: ex.length ? Math.sign(mean(ex)) : null };
   }
   const used = inSpot.filter(r => excess(r) != null);
   const pooled = clusteredMean(used.map(excess), used.map(r => r.player));
-  const raw = clusteredMean(inSpot.map(r => r.error), inSpot.map(r => r.player));
+  const raw = clusteredMean(inSpot.map(r => dir(r) * r.error), inSpot.map(r => r.player));
   return { id: spot.id, predicted_sign: spot.sign, positions: spot.positions, per_season: per, pooled_excess: pooled, pooled_raw: raw };
 }
 
@@ -283,7 +327,7 @@ export const FEATURES = Object.freeze(['intercept', 'rb', 'wr', 'te', 'espn', 'e
 export function featureVector(r) {
   const is = p => (r.position === p ? 1 : 0);
   return [1, is('RB'), is('WR'), is('TE'), r.espn, r.espn * is('RB'), r.espn * is('WR'), r.espn * is('TE'),
-    r.spread ?? 0, r.implied ?? 0, r.week <= 4 ? 1 : 0, ...SPOTS.map(s => (r.spots[s.id] ? 1 : 0))];
+    r.spread ?? 0, r.implied ?? 0, r.week <= 4 ? 1 : 0, ...SPOTS.map(s => Number(r.spots[s.id]) || 0)]; // boolean spots 0/1, signed spots -1/0/+1
 }
 
 function bucketOf(r, edges) {
@@ -368,6 +412,7 @@ export async function assemble({ dbPath, archiveDir, log = () => {} }) {
     for (const k of games.keys()) { const [t, w] = k.split('|'); if (!teamWeeks.has(t)) teamWeeks.set(t, []); teamWeeks.get(t).push(Number(w)); }
     for (const v of teamWeeks.values()) v.sort((a, b) => a - b);
     const prevGame = (team, week) => { const ws = teamWeeks.get(team) ?? []; let p = null; for (const w of ws) if (w < week) p = w; return p; };
+    const moves = teamTotalMoves(all("SELECT eid, week, home, away, book, market, side, phase, line FROM nfl_odds_archive WHERE season = ? AND market IN ('totals','spreads')", season));
     const out = new Set(all("SELECT week, gsis_id FROM nfl_injuries WHERE season = ? AND report_status = 'Out'", season).map(r => `${r.gsis_id}|${r.week}`));
     const depth = new Map(); // team|week|pos -> Map(gsis -> rank)
     const qb1 = new Map(); // team|week -> gsis of a rank-1 QB on that week's depth chart (sensitivity only)
@@ -382,7 +427,7 @@ export async function assemble({ dbPath, archiveDir, log = () => {} }) {
     const espnPlayed = new Map();
     for (const [k, v] of arc.byEspnWeek) if (v.played) { const [id, w] = k.split('|').map(Number); if (!espnPlayed.has(id)) espnPlayed.set(id, new Set()); espnPlayed.get(id).add(w); }
 
-    const c = { archive: arc.file, skill_players: arc.players, candidate: 0, kept: 0, no_gsis: 0, no_team: 0, bye: 0, no_actual_as_zero: 0 };
+    const c = { archive: arc.file, skill_players: arc.players, candidate: 0, kept: 0, no_gsis: 0, no_team: 0, bye: 0, no_actual_as_zero: 0, tt_matched: 0 };
     for (const [k, v] of arc.byEspnWeek) {
       const [espnId, week] = k.split('|').map(Number);
       if (week < FIRST_WEEK || week > LAST_WEEK || v.proj == null || v.proj < MIN_ESPN) continue;
@@ -439,14 +484,19 @@ export async function assemble({ dbPath, archiveDir, log = () => {} }) {
         qb_change: qbChange,
         wind_15_plus: Boolean(outdoor && g.wind != null && g.wind >= 15),
         blowout_favorite_rb: Boolean(g && position === 'RB' && g.spread != null && g.spread <= -7),
-        blowout_underdog_rb: Boolean(g && position === 'RB' && g.spread != null && g.spread >= 7)
+        blowout_underdog_rb: Boolean(g && position === 'RB' && g.spread != null && g.spread >= 7),
+        team_total_moved_2_5: g ? moveDirection(moves.get(`${team}|${week}`)) : 0
       };
+      if (g && moves.has(`${team}|${week}`)) c.tt_matched++;
       rows.push({ season, week, player: espnId, position, espn: v.proj, actual, error: actual - v.proj,
         spread: g?.spread ?? null, implied: g?.implied_points ?? null, spots, has_actual: v.actual != null,
         sensitivity: { qb_change_depth_chart: qbChangeDepth, qb_change_prior_starter_out: qbChangeClean } });
       c.kept++;
     }
     c.spot_counts = Object.fromEntries(SPOTS.map(s => [s.id, rows.filter(r => r.season === season && r.spots[s.id]).length]));
+    const rs = rows.filter(r => r.season === season);
+    c.team_total_move = { games_with_open_close: moves.size / 2, rows_matched: c.tt_matched,
+      up: rs.filter(r => r.spots.team_total_moved_2_5 === 1).length, down: rs.filter(r => r.spots.team_total_moved_2_5 === -1).length };
     census[season] = c;
     log(season, JSON.stringify(c));
   }

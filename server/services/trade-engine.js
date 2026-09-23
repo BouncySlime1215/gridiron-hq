@@ -115,7 +115,7 @@ import { acceptanceBand } from './trade-acceptance.js';
 // playoff odds"), which does not exist yet. When it ships, myPlayoffOdds() should
 // read it and this import goes away. Until then the alternative was leaving the
 // live /find route on the 0.5 prior, which is the bug this item exists to fix.
-import { simulateSeason } from './season-sim.js';
+import { simulateSeason, simStartWeek } from './season-sim.js';
 import { horizonWeights, horizonGain, horizonNote, leagueSchedule } from './trade-horizon.js';
 // ros_ppg / playoff_ppg (and so adj_ppg): the gated rest-of-season model. This
 // week's number stays the weekly blend.
@@ -1386,9 +1386,14 @@ export function myPlayoffOdds(lg, myTeamId = null, print = null) {
   const prior = reason => ({ value: null, roster_id: rosterId, source: `0.5 prior — ${reason}` });
   if (!lg?.payload) return prior('this league is not synced yet');
   const target = tradeWeekContext();
+  // The sim's start week comes from the one producer (simStartWeek: the league's
+  // own week, week 1 for last season's payload) — the same week /simulate uses —
+  // not the NFL game_lines week, which runs ahead of the league between Monday
+  // night and the next sync (B-01 review). target stays for the asset print only.
+  const start = simStartWeek(lg);
   const { formatKey } = deriveFormat(lg);
   return cached(
-    `playoffOdds:${lg.id}:${rosterId}:${target.season}:${target.week}`,
+    `playoffOdds:${lg.id}:${rosterId}:${target.season}:${start}`,
     print ?? assetPrint(lg, formatKey, target),
     () => {
       // A returned `error` is a NAMED state (no fixtures left, an unsynced
@@ -1396,7 +1401,7 @@ export function myPlayoffOdds(lg, myTeamId = null, print = null) {
       // throw — a silent 0.5 would hide it, which is how this number got lost in
       // the first place.
       const sim = withRandomSeed(HORIZON_SIM_SEED, () => simulateSeason(lg, {
-        runs: HORIZON_SIM_RUNS, fromWeek: target.week, scoring: scoringFor(lg)
+        runs: HORIZON_SIM_RUNS, fromWeek: start, scoring: scoringFor(lg)
       }));
       if (sim?.error) return prior(`the season simulation could not run (${sim.error})`);
       const mine = sim.teams?.find(t => String(t.roster_id) === rosterId);
@@ -1405,7 +1410,7 @@ export function myPlayoffOdds(lg, myTeamId = null, print = null) {
         value: +mine.playoff_odds.toFixed(2),
         roster_id: rosterId,
         interval: mine.playoff_odds_95 ?? null,
-        source: `season simulation, ${sim.runs} runs from week ${target.week}`,
+        source: `season simulation, ${sim.runs} runs from week ${sim.from_week}`,
       };
     });
 }

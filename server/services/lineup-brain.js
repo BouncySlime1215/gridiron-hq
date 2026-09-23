@@ -43,6 +43,7 @@ import { careerLine } from './player-career.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
 import { availabilityDegradation } from './contingency.js';
+import { deadStarters, NO_LIVE_INACTIVES } from './dead-starters.js';
 
 const r1 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(1));
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
@@ -413,7 +414,8 @@ export function irOnRoster(lg, rosterId, players) {
  *   tail because you are an underdog, 'floor' when you are favoured and only
  *   variance can hurt you.
  */
-export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', providers = DEFAULT_PROVIDERS } = {}) {
+export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', providers = DEFAULT_PROVIDERS,
+  now = Date.now(), inactive = NO_LIVE_INACTIVES } = {}) {
   const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg?.payload) return { error: 'league not synced yet' };
 
@@ -444,6 +446,13 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   const annotated = me.players.filter(p => !irReason.has(p.id)).map(p => {
     const { week_points: weekPoints, vegas } = startSitWeekPoints(p, season, week);
     return { ...p, vegas, week_points: weekPoints };
+  });
+
+  // SS-01: what is SET on ESPN that will score zero, with the best healthy bench
+  // replacement priced on this same week_points basis (dead-starters.js).
+  const deadStarterCheck = deadStarters(lg, me.roster_id, me.players, {
+    season, week, weekPoints: new Map(annotated.map(p => [p.id, p.week_points])),
+    accepts: slotAccepts, now, inactive
   });
 
   /*
@@ -657,6 +666,9 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
 
   return {
     league: lg.name, owner: me.owner, season, week, objective,
+    // Starters set on ESPN who are Out, Doubtful, IR, on bye or inactive, each with a
+    // one-tap bench replacement (suggested, never applied). The page shows it first.
+    dead_starters: deadStarterCheck,
     // What was actually optimised, which is not always what was asked for.
     objective_used: objectiveUsed,
     objective_fallback: objectiveFallback,

@@ -48,12 +48,12 @@ const POS_ID = { QB: 1, RB: 2, WR: 3, TE: 4 };
 const SLOT_ID = { QB: 0, RB: 2, WR: 4, TE: 6, FLEX: 23, BENCH: 20, IR: 21 };
 let nextId = 1;
 /** One rostered player: `slot` is where he is set on ESPN. */
-function player(name, position, slot, week, { espn = 'ACTIVE', report = null, bye = 9, team = 'MID', available = true } = {}) {
+function player(name, position, slot, week, { espn = 'ACTIVE', report = null, bye = 9, team = 'MID', available = true, ros = week } = {}) {
   const id = nextId++;
   return {
     asset: {
       id, name, position, team_abbr: team, espn_id: 9000 + id, available,
-      current_week_ppg: bye === 2 ? 0 : week, adj_ppg: week, ppg: week, ros_ppg: week,
+      current_week_ppg: bye === 2 ? 0 : week, adj_ppg: week, ppg: week, ros_ppg: ros,
       ceiling: week * 1.5, floor: week * 0.4, active_probability: 0.9, bye, injury_status: report
     },
     entry: {
@@ -120,12 +120,38 @@ test('RED acceptance: an Out starter and a bye starter are both flagged, each wi
   assert.equal(ds.applied, false, 'a suggestion, never applied');
 });
 
-test('a clean lineup raises nothing, and says it checked', () => {
-  const id = league(roster());
+test('a clean lineup raises nothing, and says it checked; a player parked in the IR slot is not a starter', () => {
+  const id = league(roster({ extra: [player('Parked IR Back', 'RB', 'IR', 18, { espn: 'INJURY_RESERVE' })] }));
   const ds = lineupCall(id, { providers: {}, now: NOW }).dead_starters;
   assert.equal(ds.covered, true);
-  assert.equal(ds.items.length, 0);
+  assert.equal(ds.items.length, 0, 'the IR-slot player is where he belongs: no red card');
   assert.equal(ds.starters_checked, 7);
+});
+
+test('the canonical designation: an ESPN SUSPENSION starter and a Reserve/PUP starter are dead (contingency.js#weekDesignation)', () => {
+  const id = league(roster({
+    rb1: player('Suspended Back', 'RB', 'RB', 15, { espn: 'SUSPENSION' }),
+    wr2: player('PUP Wideout', 'WR', 'WR', 11, { report: 'Reserve/PUP' })
+  }));
+  const items = byName(lineupCall(id, { providers: {}, now: NOW }).dead_starters);
+  assert.equal(items['Suspended Back']?.reason, 'out');
+  assert.equal(items['Suspended Back']?.source, 'espn');
+  assert.equal(items['PUP Wideout']?.reason, 'out');
+  assert.equal(items['PUP Wideout']?.source, 'injury_report');
+});
+
+test('the replacement is ranked on Start/Sit week_points, not rest-of-season value', () => {
+  // Week Back projects more this week; Season Back is worth more rest of season.
+  const id = league(roster({
+    rb1: player('Out Back', 'RB', 'RB', 15, { espn: 'OUT' }),
+    extra: [player('Week Back', 'RB', 'BENCH', 11, { ros: 2 }), player('Season Back', 'RB', 'BENCH', 6, { ros: 25 })]
+  }));
+  const call = lineupCall(id, { providers: {}, now: NOW });
+  const rep = byName(call.dead_starters)['Out Back']?.replacement;
+  assert.equal(rep?.name, 'Week Back');
+  const served = [...call.bench, ...call.lineup.map(c => c.player)].find(x => x.id === rep.id);
+  assert.ok(served, 'the replacement appears in the lineup payload');
+  assert.equal(rep.week_points, served.week_points, 'same number the rest of Start/Sit shows for him');
 });
 
 test('Doubtful on the injury report, IR status and the season-ending list are dead; Questionable is not', () => {

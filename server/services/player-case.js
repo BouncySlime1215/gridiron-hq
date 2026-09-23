@@ -10,7 +10,7 @@
  * Meanwhile a whole football layer was built for the betting side and never
  * pointed at fantasy: quarterback replacement value, injuries weighted by actual
  * usage share, defensive weakness by position, coaching tendencies measured from
- * play-calling, roster continuity, weather, usage trends, touchdown luck. All of
+ * play-calling, roster continuity, weather, usage trends. All of
  * it bears directly on whether to start a receiver.
  *
  * This assembles the case. Each factor is a real measurement with a direction
@@ -33,7 +33,6 @@ import {
   defensiveWeakness, weatherPicture
 } from './football-context.js';
 import { playerTrends } from './weekly-trends.js';
-import { regressionCandidates } from './td-regression.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const norm = s => String(s ?? '').toLowerCase().replace(/[^a-z]/g, '');
@@ -47,8 +46,7 @@ const TOUCHES = {
   run_lean: ['RB'],
   wind: ['QB', 'WR', 'TE'],
   teammate_out: ['WR', 'TE', 'RB'],
-  usage_trend: ['WR', 'TE', 'RB'],
-  td_luck: ['QB', 'RB', 'WR', 'TE']
+  usage_trend: ['WR', 'TE', 'RB']
 };
 
 /**
@@ -57,7 +55,7 @@ const TOUCHES = {
  * @param player  { name, position, team_abbr, id }
  * @param season/week  the week being decided
  */
-export function playerCase(player, season, week, { regression = null } = {}) {
+export function playerCase(player, season, week) {
   if (!player?.team_abbr || !player?.position) {
     return { factors: [], headline: null, insufficient: true };
   }
@@ -211,27 +209,11 @@ export function playerCase(player, season, week, { regression = null } = {}) {
     }
   }
 
-  /* ------------------------------------------------------- touchdown luck */
-  const reg = regression ?? safeRegression(season);
-  if (reg && TOUCHES.td_luck.includes(pos)) {
-    const hot = reg.negative?.find(p => sameName(p.name, player.name));
-    const cold = reg.positive?.find(p => sameName(p.name, player.name));
-    if (hot) {
-      factors.push({
-        kind: 'td_luck', weight: Math.min(1.2, Math.abs(hot.ppg_swing) / 2), direction: 'negative',
-        headline: 'Scoring above what his chances support',
-        detail: `${hot.actual} touchdowns on ${hot.expected} expected. Touchdown rate is the least ` +
-          'stable number in football and it does not carry.'
-      });
-    } else if (cold) {
-      factors.push({
-        kind: 'td_luck', weight: Math.min(1.2, Math.abs(cold.ppg_swing) / 2), direction: 'positive',
-        headline: 'Due to score',
-        detail: `${cold.actual} touchdowns on ${cold.expected} expected from real opportunity. The ` +
-          'chances have been there; the finishes have not, and that closes.'
-      });
-    }
-  }
+  // No touchdown-luck factor (RL-8-1). It weighted up to 1.2, enough on its own to flip
+  // the verdict, and R&D r8 found the consensus rest-of-season rank already prices points
+  // over expected: after the rank, a point per game of it is worth about 0 rest-of-season
+  // points per game (2021-24). The touchdown board is kept as research only and no
+  // surface reads it (docs/wiring/annotations.json _PERMANENT_ORPHAN_REASONS says what retires that).
 
   factors.sort((a, b) => b.weight - a.weight);
   const positive = factors.filter(f => f.direction === 'positive');
@@ -257,20 +239,6 @@ export function playerCase(player, season, week, { regression = null } = {}) {
       'given week, and a page that lists six per player teaches the reader to skim all six.'
   };
 }
-
-/** Regression board, fetched once and reused across a lineup. */
-let _regCache = null;
-function safeRegression(season) {
-  if (_regCache?.season === season) return _regCache.value;
-  let value = null;
-  try {
-    const r = regressionCandidates({ season });
-    if (!r.error) value = { positive: r.positive_regression, negative: r.negative_regression };
-  } catch { value = null; }
-  _regCache = { season, value };
-  return value;
-}
-export function clearPlayerCaseCache() { _regCache = null; }
 
 /**
  * "J.Winston" and "Jameis Winston" are one player. Full-name equality is

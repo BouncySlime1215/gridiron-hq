@@ -397,6 +397,12 @@ function buildAssetUniverse(lg, formatKey, target) {
     // Players with no NFL schedule on file (no team, K/DEF) keep the full rate —
     // unknown is not a bye.
     const hasSchedule = Boolean(p.team_abbr && SCORED.has(p.position));
+    // Same bye detector as currentWeekPpg (:359): no game this week, known from the
+    // schedule, not a forecast. Gates weekDist, WEEK_MARGINAL and the served
+    // floor/ceiling/avg below so a bye-week starter's weekly range is 0, not a full
+    // distribution he cannot play. Players with no schedule on file keep the
+    // model's number — unknown is not a bye (see the comment above hasSchedule).
+    const onBye = hasSchedule && !thisGame;
     const playoffGameShare = hasSchedule && playoffWeeksLeft > 0
       ? (sched.playoff_games?.length ?? 0) / playoffWeeksLeft : 1;
     const playoffPpg = (scheduleTilt ? rosBasePpg * sched.playoff_sos : rosBasePpg) * playoffGameShare;
@@ -420,7 +426,9 @@ function buildAssetUniverse(lg, formatKey, target) {
     // availability change re-rolls the whole draw. These per-player numbers are for
     // display; a trade's floor_delta/ceiling_delta no longer adds them up — it comes
     // from lineupSpread()'s lineup-total percentiles.
-    const weekDist = weekProjection
+    // No draw for a player who cannot play this week — a bye is a known 0, not a
+    // distribution to sample (see onBye above).
+    const weekDist = weekProjection && !onBye
       ? playerWeekDistribution(weekProjection, { runs: 2000, activeProbability, mult: thisGame?.mult ?? 1 })
       : null;
 
@@ -428,9 +436,12 @@ function buildAssetUniverse(lg, formatKey, target) {
       // What lineupSpread() needs to put this player's week into a lineup total: the
       // same week inputs as weekDist above. Symbol-keyed so it survives the
       // `{ ...p }` copies the trade search makes and never reaches a JSON response.
+      // activeProbability 0 on a bye zeroes both the mean and the variance
+      // spreadInput() derives from this (trade-engine.js#spreadInput), so a bye-week
+      // starter contributes nothing to a lineup's weekly floor/ceiling/avg.
       [WEEK_MARGINAL]: weekProjection ? {
         params: weekProjection.params, shift: weekProjection.ensemble_shift ?? 0,
-        activeProbability, mult: thisGame?.mult ?? 1, scoring,
+        activeProbability: onBye ? 0 : activeProbability, mult: thisGame?.mult ?? 1, scoring,
         seed: `${target.season}:${target.week}:${p.id}:${activeProbability}:${thisGame?.mult ?? 1}:${weekProjection.ensemble_shift ?? 0}`,
         meta: { id: p.id, position: p.position, team: p.team_abbr, opponent: thisGame?.opponent ?? null,
           target_share: weekProjection.volume?.target_share ?? null }
@@ -459,7 +470,13 @@ function buildAssetUniverse(lg, formatKey, target) {
       } : null,
       // Weekly shape from real boxscores — this is what separates two players who
       // project for the same total.
-      floor: weekDist?.p10 ?? w?.floor ?? null, ceiling: weekDist?.p90 ?? w?.ceiling ?? null, avg: weekDist?.mean ?? w?.avg ?? null,
+      // On a bye, `weekDist` above is already null — but without this branch these
+      // three would still fall through to `w?.floor/ceiling/avg`, the multi-season
+      // VOLATILITY table (routes/edge.js#volatility), which is not this week either
+      // and is exactly how a bye-week starter kept a positive ceiling (RL-5-3).
+      floor: onBye ? 0 : weekDist?.p10 ?? w?.floor ?? null,
+      ceiling: onBye ? 0 : weekDist?.p90 ?? w?.ceiling ?? null,
+      avg: onBye ? 0 : weekDist?.mean ?? w?.avg ?? null,
       boom: weekDist?.boom_rate ?? w?.boom_rate ?? null, bust: weekDist?.bust_rate ?? w?.bust_rate ?? null,
       consistency: w?.consistency ?? null, logged_games: w?.games ?? null,
       injury: injured.has(p.id) || !!(availability?.report_status && !/probable/i.test(availability.report_status)) ? 1 : 0,

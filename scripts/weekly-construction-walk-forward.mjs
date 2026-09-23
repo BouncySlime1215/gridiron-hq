@@ -274,7 +274,8 @@ async function servedIdentity({ coordinator, s02, wf, PPR, buildPlayerWeekEngine
   const assets = assetUniverse(SYNTHETIC_PPR_LEAGUE, deriveFormat(SYNTHETIC_PPR_LEAGUE).formatKey, target);
   const engine = buildPlayerWeekEngine({ season: FORWARD, week, scoring: PPR });
   const r2 = v => +v.toFixed(2);
-  const tally = { checked: 0, coordinated: 0, ensemble_no_inputs: 0, no_game: 0, differs_from_B: 0, abs_S1_minus_B: [] };
+  const tally = { checked: 0, coordinated: 0, ensemble_no_inputs: 0, no_game: 0, differs_from_B: 0, abs_S1_minus_B: [],
+    corrections: [] };
   for (const [id, asset] of assets) {
     if (!s02.SKILL_POSITIONS.has(asset?.position)) continue;
     const proj = engine.get(id);
@@ -289,6 +290,8 @@ async function servedIdentity({ coordinator, s02, wf, PPR, buildPlayerWeekEngine
       if (served.ppg !== arms.S1) miss(`served ${served.ppg} vs arm S1 ${arms.S1}`);
       if (served.basis !== 'structural+coordinator') miss(`basis ${served.basis}`);
       tally.coordinated++;
+      // What the coordinator adds to its base, S1 − structural_ppg (addendum 1 of the result).
+      tally.corrections.push(served.coordinated.correction);
       if (arms.B !== arms.S1) { tally.differs_from_B++; tally.abs_S1_minus_B.push(Math.abs(arms.S1 - arms.B)); }
     } else {
       if (served.ppg !== arms.A) miss(`no coordinator inputs, served ${served.ppg} vs arm A ${arms.A}`);
@@ -304,12 +307,23 @@ async function servedIdentity({ coordinator, s02, wf, PPR, buildPlayerWeekEngine
   if (!tally.checked) throw new Error(`served identity: no skill asset with an engine projection in week ${week}`);
   const diffs = tally.abs_S1_minus_B.sort((a, b) => a - b);
   log(`served identity week ${week}: ${tally.checked} assets checked`);
+  const c = tally.corrections;
+  const cMean = c.reduce((s, x) => s + x, 0) / c.length;
+  const counts = new Map();
+  for (const x of c) counts.set(x, (counts.get(x) ?? 0) + 1);
+  const [modal, modalCount] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] ?? [null, 0];
   return {
     target, league: 'synthetic 12-team PPR (no leagues row read)',
     fit: { id: fit.fit_row.id, through_season: fit.fit_row.through_season, promotion: fit.promotion },
     week_basis_label: assets.context.week_basis.label,
     checked: tally.checked, coordinated: tally.coordinated, ensemble_no_inputs: tally.ensemble_no_inputs, no_game: tally.no_game,
     s1_differs_from_old_B: tally.differs_from_B,
+    // The coordinator's correction on its base (S1 − structural_ppg), every coordinated asset.
+    correction_s1_minus_structural: c.length ? {
+      n: c.length, mean: +cMean.toFixed(4),
+      sd: +Math.sqrt(c.reduce((s, x) => s + (x - cMean) ** 2, 0) / c.length).toFixed(4),
+      min: Math.min(...c), max: Math.max(...c), most_common: { value: modal, count: modalCount }
+    } : null,
     abs_s1_minus_b: diffs.length ? {
       mean: +(diffs.reduce((s, x) => s + x, 0) / diffs.length).toFixed(3),
       median: +diffs[Math.floor(diffs.length / 2)].toFixed(3), max: +diffs[diffs.length - 1].toFixed(3)

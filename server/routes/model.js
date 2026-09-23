@@ -430,14 +430,25 @@ r.get('/projections', requireAuthenticated, (req, res, next) => {
     assertLeagueMember(req.auth.userId, leagueId);
     const scoring = scoringFor(lg);
     const through = Number(req.query.through) || SEASON - 1;
-    const proj = memo(`proj:${through}:${JSON.stringify(scoring)}`, () => buildProjections({ through, scoring }));
+    // PROJ-02-a: optional as-of cutoff week inside `through`. With it, projection.links
+    // carry the predicted week's (week + 1) game script, the configuration the chain was
+    // graded on; without it they are the neutral, unscripted chain (chain_scripted false).
+    let throughWeek = null;
+    if (req.query.week != null) {
+      throughWeek = Number(req.query.week);
+      if (!Number.isInteger(throughWeek) || throughWeek < 0 || throughWeek > 22) {
+        return res.status(400).json({ error: 'week must be an integer 0-22 (the last played week)' });
+      }
+    }
+    const proj = memo(`proj:${through}:${throughWeek}:${JSON.stringify(scoring)}`,
+      () => buildProjections(throughWeek == null ? { through, scoring } : { through, throughWeek, scoring }));
 
     const pos = req.query.position;
     let list = [...proj.values()];
     if (pos) list = list.filter(p => p.position === String(pos).toUpperCase());
     list.sort((a, b) => b.points - a.points);
     res.json({
-      through, season: SEASON, count: list.length,
+      through, week: throughWeek, season: SEASON, count: list.length,
       players: list.slice(0, Number(req.query.limit) || 300)
     });
   } catch (e) { respondError(res, next, e); }

@@ -30,6 +30,7 @@
  * answer, because his December roster is not going to matter.
  */
 import { PLAYOFF_WEEKS } from './matchups.js';
+import { leagueRules } from './league-rules.js';
 
 /** Published finals-to-advance exchange rate. */
 export const PLAYOFF_IMPORTANCE = 4;
@@ -52,19 +53,16 @@ export const REGULAR_SEASON_END = 14;
  * not a week count).
  */
 export function leagueSchedule(lg) {
-  let ss = null;
-  try { ss = JSON.parse(lg?.payload ?? 'null')?.settings?.scheduleSettings ?? null; } catch { ss = null; }
-  const regular = Number(ss?.matchupPeriodCount);
-  const perRound = Number(ss?.playoffMatchupPeriodLength);
-  const teams = Number(ss?.playoffTeamCount);
-  const regularLength = Number(ss?.matchupPeriodLength ?? 1);
-  if (!(regular > 0) || !(perRound > 0) || !(teams >= 2) || regularLength !== 1) {
+  // One producer: league-rules.js reads the same four fields with the same
+  // derivation. This keeps its labelled default for its callers (the trade
+  // horizon needs some calendar); the simulator refuses instead.
+  const sch = lg?.payload ? leagueRules(lg).schedule : null;
+  if (!sch?.playoff_weeks) {
     return { regularSeasonEnd: REGULAR_SEASON_END, playoffWeeks: [...PLAYOFF_WEEKS], source: 'default' };
   }
-  const rounds = Math.ceil(Math.log2(teams));
   return {
-    regularSeasonEnd: regular,
-    playoffWeeks: Array.from({ length: rounds * perRound }, (_, i) => regular + 1 + i),
+    regularSeasonEnd: sch.regular_season_weeks,
+    playoffWeeks: sch.playoff_weeks.flat(),
     source: 'league_settings',
   };
 }

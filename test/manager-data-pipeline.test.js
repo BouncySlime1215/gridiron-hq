@@ -184,6 +184,7 @@ const CHAT_NAMES = ['ME', 'Hayden Brook', 'Jake Stone', 'Carl Delta', 'Danny Ech
 
 // League 12: no chat corpus. Nick and Aiden are the same ESPN members as in 11.
 insertLeague(12, {
+  scoringPeriodId: 2, // period 1 decided, period 2 in progress (see schedule)
   members: [member(NICK, 'Nick', 'Matta'), member(AIDEN, 'Aiden', 'Stone'),
     member('{EVE}', 'Eve', 'Fox'), member('{GUS}', 'Gus', 'Hill')],
   teams: [
@@ -205,12 +206,14 @@ insertLeague(12, {
 // an accepted trade leaves an EXECUTE accept under the RESPONDER and a PROCESS
 // accept under the PROPOSER; a proposal's close-out is a TRADE_PROPOSAL/CANCEL
 // record under the proposer; waiver claims leave CANCEL and FAILED rows too.
-function tx(id, type, execution, status, teamId, related = null, items = []) {
+function tx(id, type, execution, status, teamId, related = null, items = [], period = 1) {
   run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status, execution_type, proposed_at,
-         team_id, related_tx_id, items_json, first_seen_at, last_seen_at)
-       VALUES (12, 2026, ?, ?, ?, ?, '2026-09-10T00:00:00Z', ?, ?, ?, datetime('now'), datetime('now'))`,
-  id, type, status, execution, teamId, related, JSON.stringify(items));
+         team_id, related_tx_id, scoring_period, items_json, first_seen_at, last_seen_at)
+       VALUES (12, 2026, ?, ?, ?, ?, '2026-09-10T00:00:00Z', ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+  id, type, status, execution, teamId, related, period, JSON.stringify(items));
 }
+// An executed claim carries the ADD (and usually a DROP) item, as ESPN writes it.
+const pickup = teamId => [{ type: 'ADD', fromTeamId: 0, toTeamId: teamId }, { type: 'DROP', fromTeamId: teamId, toTeamId: 0 }];
 const swap = (a, b) => [{ fromTeamId: a, toTeamId: b }, { fromTeamId: b, toTeamId: a }];
 tx('p1', 'TRADE_PROPOSAL', 'EXECUTE', 'PENDING', 1, null, swap(1, 2));
 tx('p1-acc', 'TRADE_ACCEPT', 'EXECUTE', null, 2, 'p1');
@@ -226,10 +229,10 @@ tx('p6-acc', 'TRADE_ACCEPT', 'EXECUTE', null, 2, 'p6');
 tx('p6-proc', 'TRADE_ACCEPT', 'PROCESS', 'EXECUTED', 3, 'p6');
 tx('p7', 'TRADE_PROPOSAL', 'EXECUTE', 'PENDING', 3, null, swap(3, 4));
 tx('p7-withdrawn', 'TRADE_PROPOSAL', 'CANCEL', 'CANCELED', 3, 'p7');
-tx('w1', 'WAIVER', 'PROCESS', 'EXECUTED', 4);
-tx('w2', 'WAIVER', 'CANCEL', 'CANCELED', 4);
-tx('w3', 'WAIVER', 'PROCESS', 'FAILED_INVALIDPLAYERSOURCE', 4);
-tx('f1', 'FREEAGENT', 'EXECUTE', 'EXECUTED', 4);
+tx('w1', 'WAIVER', 'PROCESS', 'EXECUTED', 4, null, pickup(4));
+tx('w2', 'WAIVER', 'CANCEL', 'CANCELED', 4, null, pickup(4));
+tx('w3', 'WAIVER', 'PROCESS', 'FAILED_INVALIDPLAYERSOURCE', 4, null, pickup(4));
+tx('f1', 'FREEAGENT', 'EXECUTE', 'EXECUTED', 4, null, pickup(4));
 
 // Archetype rows: this league-season, plus a career row and another league's
 // row for the same person, neither of which may leak into league 12.

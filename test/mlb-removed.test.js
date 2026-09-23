@@ -242,6 +242,13 @@ test('eventOdds is removed from odds-api.js: an any-sport door into the paid Odd
     'control failed: gameOdds should still be defined in odds-api.js');
   assert.ok(!new RegExp('\\beventOdds\\b').test(src),
     'odds-api.js still defines eventOdds, an any-sport door into the paid Odds API with zero production callers');
+  // Repo-wide too: the acceptance criterion is `git grep -w eventOdds` over every live
+  // source, so a caller or a re-added copy in a sibling file (e.g. nfl-market.js) must
+  // fail here as well. Known-nonzero control first, same scanner.
+  assert.ok(codeNaming('gameOdds').length > 0,
+    'control failed: the live-source scan cannot see gameOdds, so it proves nothing');
+  assert.deepEqual(codeNaming('eventOdds'), [],
+    'these live files still name eventOdds, the removed any-sport door into the paid Odds API');
 });
 
 test('the MLB props board and its saved-slip router are deleted, and nothing live imports or mounts them', () => {

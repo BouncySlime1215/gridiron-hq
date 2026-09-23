@@ -20,3 +20,5 @@ Accounts: A = this desktop account (weekly: Nick says 57% left as of 1:40 AM ET 
 - Pace on A until the switch: spend ≤ ~30% more of A's weekly (stop at 87%), keeping ~13% for Nick's own chat and the handoff itself. At the current ~30%/5-hour-window burn, that is roughly 1 to 1.5 more full windows, then THROTTLE-2 (finishing work only) until Nick pastes into B.
 - After the switch: B runs everything (same caps and rules; 5-hour stop at 95%, weekly stop at 90% then hand back to A after A's weekly reset). Record each account's weekly reset time here once known (Settings > Usage).
 - Every other 20-min check reports the weekly pace against this plan and the projected hour A reaches 87%.
+
+## 2:20 AM ET update from SPEND-ESTIMATE.md: sustained pace target ~0.8% weekly per hour (tonight ran ~4.8%/h). THROTTLE-1 now (<=3 workflows). Board keeper stopped; the 20-min status cron updates the board. Critical path ~93% of one account-week fits this week across A+B; the full plan needs 2-3 more weeks.

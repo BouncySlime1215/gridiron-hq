@@ -108,8 +108,9 @@ The walk-forward result, with every table, is
 | Lift, start/sit | right on 52-57% of the calls it changes, six of six season-windows 2023-2025 | section 4 of the result |
 | Forward, 2026 W2 | S1 ΔMAE −0.136 [−0.192, −0.079], ΔDNP −0.208 | `forward['2-4']` |
 | Promotion of fit 7 on the copy | checks passed; reproduction difference 0; control: fits 1, 2, 5, 6 differ by 0.10-1.13 | promote script; scratch control script (section 7 of the result) |
-| Served week 5 = S1 | 1,196 of 1,196 assets; 420 differ from old B (mean 2.11 points) | `weekly-construction-served-identity-w5.json` |
-| Served week 3 = S1 = B | 1,196 of 1,196; 0 differ (structural head in weeks 2-4) | `weekly-construction-served-identity-w3.json` |
+| Served week 5 = S1 | 1,196 of 1,196 assets (492 with a game, 704 no-game at 0 = 0); 420 differ from old B before availability (mean 2.11 points) | `weekly-construction-served-identity-w5.json` |
+| Served week 3 = S1 = B | 1,196 of 1,196 (522 with a game, 674 no-game); 0 differ (structural head in weeks 2-4) | `weekly-construction-served-identity-w3.json` |
+| Coordinator correction, S1 − structural | week 5: mean −0.6362, SD 0.003, range [−0.645, −0.626]; week 3: −0.636 on 1,195 of 1,196 | same files, `correction_s1_minus_structural` (`--served-identity` at `4bbb4628`) |
 | Fit intercepts on the copy | −0.574, −0.423, +0.578, +0.578, −0.555 (ids 1, 2, 5, 6, 7) | `sqlite3 .local-db/data.sqlite "SELECT id, json_extract(fit_json,'$.coefficients[0]') FROM fantasy_coordinator_fits"` |
 
 Configuration (rule 3): `buildPlayerWeekEngine`, `WEEKLY_ROLE_RECENCY`, no `kOverride`; k control
@@ -172,7 +173,10 @@ known-nonzero control is section 4.
   followed the coordinator's instruction (the R&D validator: switch the lift off once at
   vegasLift) and its own pre-registered walk-forward, and argues in the pre-registration §8 that
   the construction is graded given he plays because the chance to play is a separate factor
-  (two-part model). **The Independent Auditor rules on this before merge.**
+  (two-part model). **That §8 argument is withdrawn** (result addendum 1: the identity needs a
+  mean target and the grade is MAE); the lift removal now rests on Nick's rule (b), and the
+  recommendation is to promote weeks 2-4 only. **The Independent Auditor rules on this before
+  merge and before any promotion.**
 - **The weeks 5-17 choice of S1 over S2 is not a measured difference** (result §1 item 4): B, D and
   S2 beat S1 on MAE in 2023-2024 (in-sample ensemble weights help them), S1 and B tie in 2025, and S1
   wins against fit-2's ensemble. Follow-up below.
@@ -192,6 +196,24 @@ known-nonzero control is section 4.
 - **Weeks 1 and 18** were not graded; they follow the adjacent window, and the label says so.
 - **S-02's runner** now refuses to run (a re-run would grade the lift as a multiplier of 1); its
   forward role is `scripts/weekly-construction-walk-forward.mjs --forward-only`.
+- **The betting line still reaches two fantasy numbers outside the switch** (fix round, section
+  11): the Ceiling tab (ceiling-lineup.js:108-110) and the season simulation behind title/playoff
+  odds and trade impact (season-sim.js:224-225) multiply sampled volume by `gameScriptFor` directly.
+  Measured on league 1, week 3 (local copy): the line moves 14 of 14 Ceiling-pool players, mean
+  0.38, max 1.28 points (KC QB 21.05 with the line, 19.76 without), and 448 of 448 season-sim
+  team-weeks in weeks 3-17 carry multipliers other than 1; vegasLift applies 1 on all 8,640
+  assets checked (`docs/evidence/2026-09-22/lift-outside-switch-L1.json`). Both values on the same
+  page and player: Ceiling "avg" 20.3 (unseeded; 20.41 and 20.91 on other runs) vs Start/Sit
+  16.07; most of that gap is the Ceiling tab ignoring the chance to play (S-06's row), the line's
+  share is at most 1.28. S-06 and S-05 own those files; the registry (gridiron-model.js) and
+  waiver-brain.js now say so, and the guard test lists every `gameScriptFor` caller with its owner.
+- **Routes that do not carry the label yet:** GET /lineup and GET /waivers serve this week's
+  points without `week_basis`. The Start/Sit page shows it through the matchup card (/posture) and
+  the League Hub card through /lineup-diff; the waiver board's label goes with S-01 (waiver-wire.js),
+  the per-player chips and the trade page's `model_context.week_basis` rendering with S-14.
+- **Stale user-visible text in another thread's file:** trade-horizon.js:191 and :194 tell users
+  this week's number includes a "betting-line adjustment"; the trade path never had the lift
+  (adj_ppg = 0.25 × current_week_ppg + 0.75 × ros_ppg). Reported, not edited.
 - **Stale text left in other threads' files** (reported, not edited): lineup-brain.js:348
   (`startSitWeekPoints`'s doc says it multiplies by the betting-line multiplier; the code is right, the
   multiplier is 1); test/lineup-surfaces-agree.test.js:93 ("The lift is really in play" — the swap it
@@ -221,7 +243,8 @@ fit, or `UPDATE fantasy_coordinator_fits SET promoted = 0` (the coordinator is t
    producers (the old two copies both built arm B); the base follows the fit's own recorded target, so
    the ungraded combination cannot be built; one switch controls the lift for all three callers; only a
    promoted fit is served, and promotion checks the grade and re-derives the fit. 24 of 24 real mutants
-   killed, including 7 call-site mutants.
+   killed, including 7 call-site mutants, plus the 5 the liveness skeptic found surviving (U1, U2,
+   U3, K1, K2), all killed in the fix round (section 11).
 2. **Stats or made up?** Stats, with named hand-set parts. The decision comes from S-02's pre-registered
    grade (2025) plus this unit's pre-registered walk-forward (2023, 2024) and a one-week forward check.
    Hand-set and said so: the 2-of-3 rule and the veto (pre-registered, not fitted), the window edges
@@ -282,3 +305,34 @@ the merge `c45cef64`.
 7. Replay configuration: the live engine, `WEEKLY_ROLE_RECENCY`, no `kOverride`; k control 0.4605 /
    0.2747 / 0.1733, not 6.
 8. Command and tree beside every number: section 4 and the result file's header and §9.
+
+## 11. Fix round: the four skeptic lenses on `8ddebcd8`
+
+Each blocking finding, what changed, and the proof. Test command as section 2. Every test file
+below was run at the fix-round head, one file at a time.
+
+| Lens / finding | Change | Commit(s) | Proof |
+|---|---|---|---|
+| Claims: §8 does not justify departing from amendment 1 | Result addendum 1: §8's "unconditional expectation" withdrawn; weeks 5-17 pass stated as median-only (ΔMSE −0.1793 [−0.5517, +0.1986], +0.2416 [−0.1565, +0.6331]); correction stated as a constant ≈ −0.64; lift removal rests on rule (b); recommend promoting weeks 2-4 only. Prereg unchanged byte for byte | this docs commit; `7620e0aa` (correction figures) | `git diff 8ddebcd8 -- docs/evidence/2026-09-22/weekly-construction-walk-forward-preregistration.md` is empty |
+| Liveness U1: week 4/5 edge | test "the window edge sits between weeks 4 and 5…" (split promotions both ways, weeks 4 and 5) | `a0109a3a` | U1 (`<= 4` → `<= 5`) KILLED, 1 fail (not ok 11) |
+| Liveness K1: week passed by the trade page | week-dependent `gameScriptFor` mock (`WEEK_LINES`), a second player with a week-6 line, `FIT_GS` with real game-script weight | `a0109a3a` | K1 (`target.week - 1`) KILLED, 2 fail (not ok 11, 13) |
+| Liveness K2: player page with no promoted fit | test "with only an unpromoted candidate, the player page serves the ensemble…" | `a0109a3a` | K2 KILLED, 2 fail (not ok 5, 11) |
+| Liveness U3: windows in the cache key | test "re-promoting the same fit with other windows changes the served number" | `a0109a3a` | U3 (`${served.id}` only) KILLED, 1 fail (not ok 12) |
+| Liveness U2 (non-blocking): week-18 label | label test checks weeks 17 and 18 | `30ff0763` | U2 (`<= 17` → `<= 18`) KILLED, 1 fail (not ok 16) |
+| Wiring B1 / Structure 2: pages claim the lift | lineup-posture.js `projection_basis` and trade-engine.js#lineupDiff `note` are built from the one label (`weekConstructionBasis`, which reads `BETTING_LINE_LIFT`); both responses carry `week_basis`; MatchupPosture.tsx and MyTeam.tsx render `week_basis.label` and drop the literal lift sentences | RED `ed42af26`, GREEN `60b6443e` (S-03's files), test `392dd10f`, GREEN `a6b31ee5` (lineup-posture.js, MatchupPosture.tsx, MyTeam.tsx: outside S-03's row, see open questions) | RED at `ed42af26`: 23 pass, 5 fail — not ok 25 "the League Hub card serves the week's basis…" ("the one produced label, not a second sentence"), not ok 26, not ok 27 ("components/lineup/MatchupPosture.tsx renders the served label"); at `392dd10f`: 26 pass, 2 fail (26, 27); GREEN at head 28 / 28. Known-nonzero control: test "the lift-claim check recognises every sentence the pages carried before S-03" |
+| Wiring B2: the label reaches no page | as above: rendered on the Start/Sit page (matchup card, Lineup.tsx:153) and the League Hub card | same | test 27 greps both components for `week_basis.label`; /lineup and /waivers named in section 6 |
+| Wiring B3 / Structure 1: lift still on in Ceiling and season sim | Not re-routed (S-06 and S-05 own the files; rule 9). Corrected the overclaims: gridiron-model.js registry note/refuses, waiver-brain.js doc; guard test now lists every `gameScriptFor` caller and its owner, so an unlisted caller fails and a fixed one must leave the list. Both values measured and committed | RED `ed42af26` (not ok 22), GREEN `60b6443e`; `7620e0aa` | `lift-outside-switch-L1.json`: 14 / 14 Ceiling players move (max 1.28), 448 / 448 season-sim team-weeks; vegasLift 1 on 8,640 assets |
+| Structure 3: `error` / `switched_off` with no reader | `vegasLift` no longer returns either; `gameScriptLift`'s catch logs with `console.error` | RED `ed42af26` (not ok 23 "the failure reaches the log", 0 !== 1), GREEN `60b6443e` | test 23 |
+| Claims NB: "nobody graded" comment, guesses, ledger, rounding, rate-interval label, identity counts | fixed in trade-engine.js and the result file | `30ff0763`, this docs commit | — |
+
+Mutant commands: a scratch script applies each anchor exactly once to the worktree, runs
+test/served-weekly-construction.test.js, and restores the file (scratchpad `s03b/mut.py`, not
+committed). Baseline at the fix-round head: 28 / 28.
+
+Targeted files green at the fix-round head: served-weekly-construction 28/28,
+fantasy-coordinator 8/8, weekly-construction-walk-forward 11/11, weekly-construction-grade 48/48,
+lineup-surfaces-agree 2/2, availability-honest-degradation 8/8, availability-fit-loader 7/7,
+decision-inbox 8/8, decision-leftovers-lineup 10/10, gridiron-model 12/12 (3 skipped),
+lineup-floor-objective 3/3, lineup-diff-urgency 10/10, model-integrity 89/89, nfl-model-fixes 4/4,
+posture-calibration 6/6, start-sit-decision-curve 12/12, decision-leftovers-home-away 5/5,
+decay-watch 7/7, wiring-map 90/90.

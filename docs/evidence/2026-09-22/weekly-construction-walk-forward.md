@@ -19,7 +19,12 @@ identical to the committed one in every field except `tree` and the timestamps.
      (ΔSpearman −0.0054 against −0.002); its MAE gain was real, −0.052 [−0.078, −0.027];
    - no season had S1 significantly worse than the ensemble (no veto);
    - forward, 2026 week 2 through the served code: ΔMAE −0.136, ΔDNP-MAE −0.208 (weeks 5-17 use
-     these weeks 2-4 rows as a proxy, as S-02 did).
+     these weeks 2-4 rows as a proxy, as S-02 did). On those rows S1 = B and S1 − A is a constant
+     shift (−0.636 at week 3, ΔSpearman exactly 0), so the proxy measures only a median-ward level
+     move and cannot tell S1 from B.
+   - **Read addendum 1 (end of file) before this section:** the weeks 5-17 pass is a median result,
+     the correction is a near-constant −0.64 points, and the basis for departing from S-02
+     amendment 1 is restated there.
 2. **The lift failed again, in all four new season-windows.** Its accuracy change against the
    ensemble never had an interval below zero (table in section 3). Each decline would have
    detected a gain of 0.015 to 0.040 points (0.34% to 0.81% of the ensemble's MAE) at 80% power,
@@ -33,12 +38,14 @@ identical to the committed one in every field except `tree` and the timestamps.
 4. **In weeks 5-17, S1 is not the best arm in 2023-2024, and the rule's choice of S1 over the
    other coordinator arms is not a measured difference.** B, D and S2 have lower MAE than S1
    there (by 0.007 to 0.042), and S1 ranks slightly worse than the ensemble (start/sit win rate
-   against A 0.490 and 0.491, intervals crossing 0.5). The ensemble's weights are in-sample in
-   both seasons (fit on 2023, selected on 2024), which helps every ensemble-based arm and not
-   S1. In 2025, with those weights out of sample, S1 and B tie (S-02: 0.0007 apart). For 2026
+   against A 0.490 and 0.491, intervals crossing 0.5). Choosing S1 in weeks 5-17 does not make
+   start/sit calls better in 2023-2024: its pair accuracy is below A's and D's in both seasons
+   (section 4). The ensemble's weights are in-sample in both seasons (fit on 2023, selected on
+   2024). Guess, not measured: that bias helps the ensemble-based arms more than S1 (S1's
+   coordinator also reads ensemble_shift built from those weights, a small channel). In 2025, with those weights out of sample, S1 and B tie (S-02: 0.0007 apart). For 2026
    weeks 5-17 the served ensemble is fit-2's vector, and against that base S1 beat B by 0.06 in
-   S-02's sensitivity run even though fit-2 was fitted on 2025 (which favours B). So S1 is the
-   steadier base for 2026, but S1 against S2 in weeks 5-17 needs its own forward grade (2026
+   S-02's sensitivity run even though fit-2 was fitted on 2025 (which favours B). Guess: S1 is the
+   steadier base for 2026. In any case S1 against S2 in weeks 5-17 needs its own forward grade (2026
    weeks 5-8), named below.
 5. **The coordinator's weeks 5-17 pass is a median result.** S1 reads low on the mean in every
    season (played rows, weeks 5-17: −0.33, −0.70, −0.41 for 2023, 2024, 2025) and for the
@@ -114,8 +121,8 @@ more, DNP = 0. Win rate counts only the pairs where the arm and A disagree.
 |---|---|---|---|---|
 | Pairs | 19,436 | 68,346 | 16,706 | 67,586 |
 | Pair accuracy A / C / D / S1 | 0.6264 / 0.6307 / 0.6302 / 0.6434 | 0.6382 / 0.6397 / 0.6395 / 0.6367 | 0.6142 / 0.6183 / 0.6180 / 0.6159 | 0.6365 / 0.6376 / 0.6377 / 0.6351 |
-| C (lift) win rate, disagreements | 0.560 on 730 [+0.023, +0.085] | 0.522 on 2,223 [−0.008, +0.052] | 0.565 on 533 [+0.034, +0.090] | 0.520 on 1,876 [−0.010, +0.049] |
-| S1 win rate, disagreements | 0.563 on 2,609 [+0.022, +0.099] | 0.490 on 4,928 [−0.030, +0.009] | 0.506 on 2,388 [−0.035, +0.047] | 0.491 on 5,503 [−0.024, +0.008] |
+| C (lift) win rate, disagreements (interval on rate − 0.5) | 0.560 on 730 [+0.023, +0.085] | 0.522 on 2,223 [−0.008, +0.052] | 0.565 on 533 [+0.034, +0.090] | 0.520 on 1,876 [−0.010, +0.049] |
+| S1 win rate, disagreements (interval on rate − 0.5) | 0.563 on 2,609 [+0.022, +0.099] | 0.490 on 4,928 [−0.030, +0.009] | 0.506 on 2,388 [−0.035, +0.047] | 0.491 on 5,503 [−0.024, +0.008] |
 | B: disagreements with A | 1 | 1 | 0 | 0 |
 
 Against the dumb rule "start the higher season average to date" (each on its own pair set, both
@@ -139,7 +146,7 @@ Signed error (mean, player-clustered 90% CI), weeks 5-17:
 
 (2024 starter figures reproduce S-02's `weekly-construction-level-bands-2024.json`: A +0.225,
 S1 −0.826.) Squared error, S1 against A: weeks 5-17 −0.18 [−0.55, +0.20] (2023) and +0.24
-[−0.16, +0.63] (2024); weeks 2-4 −2.86 [−4.44, −1.24] and −2.17 [−3.54, −0.85]. The lift on
+[−0.16, +0.63] (2024); weeks 2-4 −2.86 [−4.44, −1.24] and −2.17 [−3.54, −0.84]. The lift on
 squared error: no interval excludes 0 in any window.
 
 ## 6. Forward: 2026 week 2 through the served code
@@ -148,7 +155,7 @@ Fit 7 (through 2025, intercept −0.555, ensemble_shift k 0.066, game_script k 0
 and 360 decision rows, every row's served construction equal to arm S1. S1 = B on these rows
 (the copy serves the structural head in weeks 2-4, fit-2's early rule): ΔMAE −0.136
 [−0.192, −0.079], ΔDNP −0.208 [−0.259, −0.157]. S-02 read the same week as −0.1353 / −0.2074 on a
-copy three hours older; the difference is the newer copy. The lift arm C: −0.030 [−0.069, +0.007].
+copy three hours older; guess: the difference is the newer copy. The lift arm C: −0.030 [−0.069, +0.007].
 The old served construction D (B × lift) read −0.166 [−0.225, −0.102] on the same rows: 0.030 better
 than S1 on this one week, which is the lift's −0.030. One week is an anecdote under Nick's rule (e);
 the lift failed in every graded season-window (2023, 2024, 2025, both windows).
@@ -163,8 +170,14 @@ stored fits 1, 2, 5 and 6 by 0.10 to 1.13, so the check can fail). Then `--serve
 
 | Week | Assets checked | Coordinator applied | current_week_ppg = S1 × factor × p | Start/Sit = current_week_ppg | weeklyProjectionFor = served | S1 ≠ old B |
 |---|---|---|---|---|---|---|
-| 5 | 1,196 | 1,196 | 1,196 | 1,196 | every non-null | 420 players, mean 2.11, median 1.47, max 10.92 points |
-| 3 | 1,196 | 1,196 | 1,196 | 1,196 | every non-null | 0 (weeks 2-4 serve the structural head, so S1 = B) |
+| 5 | 1,196 | 1,196 | 1,196 (492 with a game; 704 no-game assets are 0 = 0) | 1,196 (same split) | all 1,196 | 420 players, mean 2.11, median 1.47, max 10.92 points |
+| 3 | 1,196 | 1,196 | 1,196 (522 with a game; 674 no-game) | 1,196 (same split) | all 1,196 | 0 (weeks 2-4 serve the structural head, so S1 = B) |
+
+"S1 ≠ old B" compares the construction before availability. On the page (old B × factor × p × lift
+against the new number) the week-5 change is smaller per player: the claims skeptic measured 483 of
+the 492 players with a game changing, mean |Δ| 1.18, median 0.60, max 11.86 points; at week 3, 433 of
+522 by a mean of 0.12 (max 1.38), all of it the lift removal (their `identity-extended.mjs`, their
+copy, tree `8ddebcd8`; not re-run by the builder).
 
 The label on `model_context.week_basis`: "This week's points: our structural projection plus the
 coordinator's correction (fit #7), times his chance to play. No betting-line boost." With the lift
@@ -174,8 +187,9 @@ carried the lift and the last two did not.
 
 ## 8. Holdout looks
 
-No `docs/evidence/HOLDOUT-LEDGER.md` on origin/main, so the looks are recorded here. No 2025 row
-was read.
+Correction (fix round): `docs/evidence/HOLDOUT-LEDGER.md` was already on origin/main
+(`dd7cec20`, #154) when this was written; S-03's forward rows F001-F004 are in it (`8ddebcd8`).
+No 2025 outcome was graded; the promotion refit and the 2026 engine do read 2025 rows.
 
 | Unit | Date (UTC) | Hypothesis | Metric | Result |
 |---|---|---|---|---|
@@ -211,3 +225,44 @@ GRIDIRON_DB_PATH=<wt>/.local-db/data.sqlite SCHEDULER_DISABLED=1 NFL_SEASON=2026
   names fit 7 on this data, so production needs its own forward check before a promotion there.
 - One forward week, in the weeks 2-4 regime, stands in for weeks 5-17.
 - PPR for every arm; the lift arms read the engine's team at the cutoff.
+
+## Addendum 1 (fix round, 2026-09-23): the basis for the departure, restated
+
+Written after the claims skeptic's review of `8ddebcd8`. The pre-registration
+(`weekly-construction-walk-forward-preregistration.md`) is unchanged, byte for byte; this addendum
+replaces its §8 as the reason S-03 departs from S-02 amendment 1 §2. Every number below is in the
+committed output or the served-identity JSONs; the command is named on each.
+
+1. **Withdrawn: "the product is the unconditional expectation" as the basis.** That identity
+   holds when the construction targets the conditional *mean*. The grade is MAE, which rewards the
+   *median*, and S1 is not a conditional-mean construction: on played rows, weeks 5-17, its signed
+   error is −0.330 (2023) and −0.699 (2024) against the ensemble's +0.045 and −0.205 (section 5;
+   `weekly-construction-walk-forward-output.json`, `level_bands`). So §8 does not answer amendment
+   1 §4's objection, and it is no longer offered as the answer.
+2. **The weeks 5-17 coordinator pass is an MAE (median) result with no measured gain on the
+   mean.** S1 against the ensemble on squared error, weeks 5-17: −0.1793 [−0.5517, +0.1986] in
+   2023 and +0.2416 [−0.1565, +0.6331] in 2024 (output JSON, `squared_error`). Neither interval
+   excludes 0. Weeks 2-4 are different: S1 wins on both MAE and squared error (−2.86 [−4.44,
+   −1.24], −2.17 [−3.54, −0.84]), so the objection does not reach that window.
+3. **The coordinator's correction is a near-constant of about −0.64 points.** On fit 7, S1 minus
+   the structural projection, every coordinated skill asset on the synthetic 12-team PPR universe
+   (local copy, not production; `scripts/weekly-construction-walk-forward.mjs --served-identity`
+   at `4bbb4628`, field `correction_s1_minus_structural`):
+   - week 5: n 1,196, mean −0.6362, SD 0.003, range [−0.645, −0.626], 755 exactly −0.636;
+   - week 3: n 1,196, mean −0.636, range [−0.636, −0.635], 1,195 exactly −0.636.
+   The claims skeptic measured the same figures independently on their copy. So its MAE verdict is
+   a verdict on level, and that level is multiplied on the page by the pooled chance to play, which
+   reads 0.708 for healthy starters who played 94.5% of the time (S-02 amendment 1:103-104). That is
+   amendment 1 §4's objection, and it stands for weeks 5-17.
+4. **The lift removal rests on Nick's rule (b), not on §8.** A model result ships ON only if it
+   passes its pre-registered rule and holds forward. The lift (arm C) never passed a
+   pre-registered rule: it failed S-02's rule in both 2025 windows and failed again in all four
+   2023-2024 season-windows here (section 3). Off is its default.
+5. **What ships at merge, and what waits.** Production has no promoted fit, so after merge the
+   coordinator is OFF everywhere and every served weekly number is the ensemble, lift off,
+   labelled (TDD §7). Promotion is a separate, manual step. The builder's recommendation, for the
+   Independent Auditor to rule on before any promotion: weeks 2-4 may be promoted on this grade
+   (MAE and squared error agree); weeks 5-17 stay off, labelled "unconfirmed: median-only pass",
+   until the joint served-chain grade (S-02 amendment 1 §4; S-04, A-11) or a mean-target decision
+   (A-11) says otherwise. The copy's promotion of both windows (section 7) is a demonstration of
+   the served path, not a recommendation for production.

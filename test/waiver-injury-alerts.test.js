@@ -4,8 +4,9 @@
  * When one of my STARTERS is Out, on IR or Doubtful (the more severe of the NFL
  * report and ESPN's status, contingency.js#weekDesignation), or carries a current
  * feed injury flag with no designation, the board names the replacements: same NFL
- * team and position first, ranked by current snap share (contingency.js#roleStates,
- * the number the availability role tier uses), then the best free agent at the
+ * team and position first, each with current snap share (contingency.js#roleStates,
+ * the number the availability role tier uses; ordered by this week's projection by
+ * default, snap-share order default-off per the evidence), then the best free agent at the
  * position, plus the league's next waiver processing run from the synced ESPN
  * settings. Evidence: docs/tdd/2026-09-23-injury-replacement-alert.tdd.md.
  *
@@ -66,7 +67,7 @@ const ACQ = { waiverProcessDays: ['WEDNESDAY', 'SATURDAY'], waiverProcessHour: 1
 // Tuesday 2026-09-22, 10:00 US Eastern.
 const TUESDAY = new Date('2026-09-22T14:00:00Z');
 
-function board(mine, others, free, { acq = ACQ, now = TUESDAY } = {}) {
+function board(mine, others, free, { acq = ACQ, now = TUESDAY, sameTeamOrder } = {}) {
   assets = new Map([...mine, ...others, ...free].map(a => [a.id, a]));
   const entries = list => list.map(a => ({
     lineupSlotId: a.slot ?? SLOT_ID.BENCH,
@@ -78,7 +79,7 @@ function board(mine, others, free, { acq = ACQ, now = TUESDAY } = {}) {
   };
   const lg = { id: 1, platform: 'espn', team_count: 10, ppr: 1, my_team_id: '1',
     roster_positions: JSON.stringify(SLOTS), payload: JSON.stringify(payload) };
-  return waiverBoard(lg, { now });
+  return waiverBoard(lg, { now, sameTeamOrder });
 }
 
 function roster({ backOne = {}, extra = [] } = {}) {
@@ -105,7 +106,7 @@ function wire() {
   ];
 }
 
-test('an Out starter raises the alert, same-team replacements ranked by snap share, then the best free agent, with the waiver run', () => {
+test('an Out starter raises the alert with same-team replacements (snap share on each row), the best free agent and the waiver run', () => {
   const others = [p('Rostered Teammate', 'RB', 9, 8, { snap: 0.6 })];
   const out = board(roster({ backOne: { espn_status: 'OUT' } }), others, wire());
   assert.ok(Array.isArray(out.injury_alerts), 'the board carries injury_alerts');
@@ -114,9 +115,12 @@ test('an Out starter raises the alert, same-team replacements ranked by snap sha
   assert.equal(alert.player, 'Back One');
   assert.equal(alert.designation, 'out');
   assert.equal(alert.designation_source, 'espn');
-  // Snap share decides the order, not the projection: High (0.55, 5 ppg) before Low (0.20, 7 ppg).
-  assert.deepEqual(alert.replacements.same_team.map(r => r.player), ['Handcuff High', 'Handcuff Low']);
-  assert.equal(alert.replacements.same_team[0].snap_share, 0.55);
+  // Default order is this week's projection: snap-share order failed its pre-registered
+  // non-inferiority bound on 2022-2024 (evidence section 5), so it ships default-off.
+  // Low (0.20 snaps, 7 ppg) before High (0.55, 5 ppg); snap share is still on every row.
+  assert.deepEqual(alert.replacements.same_team.map(r => r.player), ['Handcuff Low', 'Handcuff High']);
+  assert.deepEqual(alert.replacements.same_team.map(r => r.snap_share), [0.2, 0.55]);
+  assert.equal(alert.replacements.order, 'projection');
   // A teammate on someone else's roster cannot be claimed.
   assert.ok(!alert.replacements.same_team.some(r => r.player === 'Rostered Teammate'));
   assert.equal(alert.replacements.best_free_agent.player, 'Other Back');
@@ -125,6 +129,14 @@ test('an Out starter raises the alert, same-team replacements ranked by snap sha
     { day: alert.claim_by.day, date: alert.claim_by.date, hour: alert.claim_by.hour },
     { day: 'WEDNESDAY', date: '2026-09-23', hour: 11 });
   assert.deepEqual(out.waiver_run, alert.claim_by);
+});
+
+test('the snap-share order is one option away, default-off', () => {
+  const out = board(roster({ backOne: { espn_status: 'OUT' } }), [], wire(), { sameTeamOrder: 'snap_share' });
+  const r = out.injury_alerts[0].replacements;
+  assert.equal(r.order, 'snap_share');
+  assert.deepEqual(r.same_team.map(x => x.player), ['Handcuff High', 'Handcuff Low']);
+  assert.match(r.ranked_by, /unconfirmed/);
 });
 
 test('IR and Doubtful starters alert; a healthy, Questionable or benched Out player does not', () => {

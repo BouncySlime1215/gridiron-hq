@@ -39,13 +39,23 @@ run(`INSERT OR IGNORE INTO schedule_games (season, team_id, week, opponent_abbr,
 
 // The game-script model under the real vegasLift: ARI a high-volume script (pass 1.2,
 // rush 0.8, so the RB 0.65/0.35 split is visible), ATL a low one, every other team no line.
+// WEEK_LINES adds a line for one team in one week only (key `${team}|${week}`), so a test
+// can tell this week's line from last week's; a team in THROWS makes the model throw.
 const LINES = {
   ARI: { pass_mult: 1.2, rush_mult: 0.8, line: { spread: -7, total: 51, opponent: 'OPP', home: true } },
   ATL: { pass_mult: 0.9, rush_mult: 1.1, line: { spread: 6.5, total: 38, opponent: 'OPP', home: false } }
 };
+const WEEK_LINES = {};
+const THROWS = new Set(['ZZT']);
 const realGameScript = await import('../server/services/gamescript.js');
 mock.module('../server/services/gamescript.js', {
-  namedExports: { ...realGameScript, gameScriptFor: team => LINES[team] ?? { pass_mult: 1, rush_mult: 1, line: null } }
+  namedExports: {
+    ...realGameScript,
+    gameScriptFor: (team, _season, week) => {
+      if (THROWS.has(team)) throw new Error(`no model for ${team}`);
+      return WEEK_LINES[`${team}|${week}`] ?? LINES[team] ?? { pass_mult: 1, rush_mult: 1, line: null };
+    }
+  }
 });
 
 // The weekly engine: one crafted projection per test player, the ensemble 2.4 points above
@@ -57,9 +67,11 @@ mock.module('../server/services/player-week-engine.js', {
     ...realEngine,
     buildPlayerWeekEngine: () => ENGINE,
     playerWeekDistribution: () => null,
-    // weeklyExpertValues' game-script expert: the same structural points with or without
-    // a line, so game_script_delta is 0 with a line and null without one.
-    playerWeekEventExpectation: () => ({ structural_fantasy_points: 12 })
+    // weeklyExpertValues' game-script expert: 12 structural points, scaled by the pass
+    // multiplier when a line supplies one, so game_script_delta is 12 x (pass_mult - 1)
+    // with a line and null without one (the fixture player P has no line).
+    playerWeekEventExpectation: (_projection, { mult } = {}) =>
+      ({ structural_fantasy_points: 12 * (mult && typeof mult === 'object' ? mult.pass : 1) })
   }
 });
 mock.module('../server/services/ros-projection.js', { namedExports: { buildRosProjections: () => new Map() } });
@@ -84,12 +96,12 @@ function lcg(seed) {
   let s = seed >>> 0;
   return () => { s = (1664525 * s + 1013904223) >>> 0; return s / 2 ** 32; };
 }
-function syntheticExamples(n = 320) {
+function syntheticExamples(n = 320, { scriptRange = 2 } = {}) {
   const r = lcg(11);
   const out = [];
   for (let i = 0; i < n; i++) {
     const shift = (r() - 0.5) * 6;
-    const script = (r() - 0.5) * 2;
+    const script = (r() - 0.5) * scriptRange;
     out.push({
       season: 2022 + (i % 3), week: 1 + (i % 17), player_id: i, team: 'AAA', opponent: 'BBB',
       market_spread: null, market_total: null,
@@ -103,6 +115,10 @@ const EXAMPLES = syntheticExamples();
 const FIT = coordinator.fitFantasyCoordinator(EXAMPLES);
 const FIT_E = coordinator.fitFantasyCoordinator(
   EXAMPLES.map(e => ({ ...e, target: e.target - e.experts.ensemble_shift })), { target: 'ensemble' });
+// A structural fit whose game-script input carries real weight: with the script spread over
+// +/-6 instead of +/-1, its shrinkage k is no longer ~0.04, so this week's line visibly
+// moves the correction (FIT's does not, which is why it cannot pin the week passed in).
+const FIT_GS = coordinator.fitFantasyCoordinator(syntheticExamples(320, { scriptRange: 12 }));
 const BOTH = { '2-4': 'on', '5-17': 'on' };
 const EVIDENCE = 'docs/evidence/2026-09-22/weekly-construction-walk-forward-output.json';
 
@@ -165,6 +181,21 @@ test('an unpromoted candidate is never served, however new', () => {
   assert.match(active.reason, /promoted/);
 });
 
+test('with only an unpromoted candidate, the player page serves the ensemble, the trade page\'s base', () => {
+  // The state every database is in after migration 072 until someone promotes a fit
+  // (production included): candidates exist, none is served.
+  assert.equal(coordinator.activeFantasyCoordinatorFit().ready, false, 'only an unpromoted candidate exists here');
+  assert.ok(row('SELECT COUNT(*) AS n FROM fantasy_coordinator_fits').n > 0, 'a candidate row exists (known-nonzero control)');
+  const out = coordinator.weeklyProjectionFor(P.id, { season: 2026, week: 2 });
+  assert.equal(out.corrected_ppg, PROJ.ppg, 'the ensemble: not the structural head, not the candidate\'s correction');
+  assert.equal(out.week_basis, 'ensemble');
+  assert.equal(out.coordinator, null);
+  assert.match(out.coordinator_off, /promoted/);
+  const a = assetUniverse(L, FORMAT, { season: 2026, week: 2 }).get(P.id);
+  assert.equal(a.week_basis, out.week_basis, 'the trade page names the same construction');
+  assert.equal(a.current_week_ppg, served(out.corrected_ppg, a), 'and multiplies the same number');
+});
+
 test('decay watch grades the served (promoted) fit, not the newest candidate', async () => {
   const out = await runDecayWatch({ minN: 30 });
   const finding = out.findings.find(f => f.finding_key === 'fantasy_coordinator_weights');
@@ -214,6 +245,68 @@ test('a week outside the promoted window serves the ensemble, labelled', () => {
   assert.match(week6.context.week_basis.coordinator.reason, /5-17/);
   const a3 = assetUniverse(L, FORMAT, { season: 2026, week: 3 }).get(P.id);
   assert.equal(a3.current_week_ppg, served(corrected(FIT, PROJ.structural_ppg, 3), a3));
+});
+
+test('the window edge sits between weeks 4 and 5, on the trade page, the label and the player page', () => {
+  // Each promotion is a new fit id, so the asset cache rebuilds on the id alone and this
+  // test pins the edge, not the cache key (that is the re-promotion test below).
+  const check = (week, on) => {
+    const assets = assetUniverse(L, FORMAT, { season: 2026, week });
+    const a = assets.get(P.id);
+    const want = on ? corrected(FIT, PROJ.structural_ppg, week) : PROJ.ppg;
+    const page = coordinator.weeklyProjectionFor(P.id, { season: 2026, week });
+    assert.equal(assets.context.week_basis.window, week <= 4 ? '2-4' : '5-17', `week ${week}: window`);
+    assert.equal(assets.context.week_basis.coordinator.on, on, `week ${week}: label`);
+    assert.equal(a.week_basis, on ? 'structural+coordinator' : 'ensemble', `week ${week}: asset basis`);
+    assert.equal(a.current_week_ppg, served(want, a), `week ${week}: current_week_ppg`);
+    assert.equal(page.corrected_ppg, want, `week ${week}: player page`);
+    assert.equal(page.week_basis, a.week_basis, `week ${week}: player page basis`);
+  };
+  coordinator.promoteFantasyCoordinatorFit(saveFit(FIT), { windows: { '2-4': 'on', '5-17': 'off' }, evidence: EVIDENCE });
+  check(4, true);
+  check(5, false);
+  coordinator.promoteFantasyCoordinatorFit(saveFit(FIT), { windows: { '2-4': 'off', '5-17': 'on' }, evidence: EVIDENCE });
+  check(4, false);
+  check(5, true);
+});
+
+test('re-promoting the same fit with other windows changes the served number (the cache key carries the windows)', () => {
+  const id = saveFit(FIT);
+  coordinator.promoteFantasyCoordinatorFit(id, { windows: BOTH, evidence: EVIDENCE });
+  const on = assetUniverse(L, FORMAT, { season: 2026, week: 6 }).get(P.id);
+  assert.equal(on.week_basis, 'structural+coordinator');
+  assert.equal(on.current_week_ppg, served(corrected(FIT, PROJ.structural_ppg, 6), on));
+  coordinator.promoteFantasyCoordinatorFit(id, { windows: { '2-4': 'on', '5-17': 'off' }, evidence: EVIDENCE });
+  assert.equal(coordinator.activeFantasyCoordinatorFit().fit_row.id, id, 'the same row is served');
+  const off = assetUniverse(L, FORMAT, { season: 2026, week: 6 }).get(P.id);
+  assert.equal(off.week_basis, 'ensemble', 'week 6 is now outside the promoted windows');
+  assert.equal(off.current_week_ppg, served(PROJ.ppg, off));
+});
+
+test('the trade page builds the coordinator\'s game-script input from THIS week\'s line', () => {
+  // A second seeded receiver whose team has a line in week 6 only.
+  const Q = rows(`SELECT p.id, p.name, t.abbr AS team FROM players p JOIN nfl_teams t ON t.id = p.team_id
+                  WHERE p.position = 'WR' AND p.fantasy_relevant = 1 AND t.abbr NOT IN ('ARI', 'ATL', ?)
+                  ORDER BY p.id LIMIT 1`, P.team)[0];
+  const QPROJ = { player_id: Q.id, position: 'WR', team: Q.team, ppg: 13.0, structural_ppg: 11.0, ensemble_shift: 2.0,
+    params: { crafted: true }, player_week_engine: { cutoff: '2026-W5', mode: 'weekly' } };
+  ENGINE.set(Q.id, QPROJ);
+  WEEK_LINES[`${Q.team}|6`] = { pass_mult: 1.3, rush_mult: 0.8, line: { spread: -4, total: 49, opponent: 'OPP', home: true } };
+  const id = saveFit(FIT_GS);
+  coordinator.promoteFantasyCoordinatorFit(id, { windows: BOTH, evidence: EVIDENCE });
+  const thisWeek = coordinator.weeklyExpertValues(QPROJ, 2026, 6, PPR);
+  const lastWeek = coordinator.weeklyExpertValues(QPROJ, 2026, 5, PPR);
+  assert.ok(Math.abs(thisWeek.game_script_delta - 3.6) < 1e-9, `week 6 has a line: 12 x (1.3 - 1), got ${thisWeek.game_script_delta}`);
+  assert.equal(lastWeek.game_script_delta, null, 'week 5 has none');
+  assert.ok(FIT_GS.shrinkage.game_script_delta.k > 0.1, `the game-script input carries weight (k ${FIT_GS.shrinkage.game_script_delta.k})`);
+  const want = coordinator.coordinateFantasy(FIT_GS, thisWeek, QPROJ.structural_ppg).corrected_ppg;
+  const stale = coordinator.coordinateFantasy(FIT_GS, lastWeek, QPROJ.structural_ppg).corrected_ppg;
+  // corrected_ppg is rounded to 0.001; a gap of 0.05 is fifty rounding steps.
+  assert.ok(Math.abs(want - stale) > 0.05, `this week's line must move the correction (${want} vs ${stale}), or this test proves nothing`);
+  const a = assetUniverse(L, FORMAT, { season: 2026, week: 6 }).get(Q.id);
+  assert.equal(a.fantasy_coordinator.corrected_ppg, want, 'built from week 6\'s line, not week 5\'s');
+  assert.equal(a.current_week_ppg, served(want, a));
+  assert.equal(coordinator.weeklyProjectionFor(Q.id, { season: 2026, week: 6 }).corrected_ppg, want, 'the player page too');
 });
 
 test('an ensemble-residual fit is applied to the ensemble base', () => {

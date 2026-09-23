@@ -24,8 +24,12 @@ const lineupBrain = read('server/services/lineup-brain.js');
 const seasonSim = read('server/services/season-sim.js');
 const matchups = read('server/services/matchups.js');
 
+// Matches from the entry's opening brace to the closing brace at the SAME
+// indentation, not the first `}` — an inline comment can itself contain a
+// brace (e.g. quoting a template literal), which a naive `[^}]*}` would stop
+// at early and silently truncate the entry.
 const block = id => {
-  const m = glossary.match(new RegExp(`  ${id}:\\s*\\{[^}]*\\}`, 's'));
+  const m = glossary.match(new RegExp(`^  ${id}:\\s*\\{.*?^  \\}`, 'ms'));
   assert.ok(m, `${id} entry not found in glossary.ts`);
   return m[0];
 };
@@ -33,17 +37,26 @@ const field = (b, name) => {
   const m = b.match(new RegExp(`${name}:\\s*'([^']*)'`));
   return m ? m[1] : null;
 };
+// Sentence-wording checks must run on the `plain` field alone, never the whole
+// block — the block also carries this test file's own explanatory comments
+// (e.g. quoting the wrong phrase being replaced), which would make a check
+// against the block pass or fail for the wrong reason.
+const plainOf = id => {
+  const p = field(block(id), 'plain');
+  assert.ok(p, `${id} has no plain sentence`);
+  return p;
+};
 
 test('week_floor: raw is the trade engine\'s served p10, and the sentence admits it can be a did-not-play zero', () => {
   // Producer: trade-engine.js:462 — `floor: weekDist?.p10 ?? ...`. The p10 comes
   // from a draw that INCLUDES the chance the player doesn't suit up at all, so a
   // sentence promising "not catastrophically" is a claim the draw does not keep.
   assert.match(tradeEngine, /floor:\s*weekDist\?\.p10/, 'trade-engine.js no longer serves floor as weekDist.p10 — re-point the raw path');
-  const b = block('week_floor');
-  assert.equal(field(b, 'raw'), 'projection.p10');
-  assert.doesNotMatch(b, /not catastrophically/i,
+  assert.equal(field(block('week_floor'), 'raw'), 'projection.p10');
+  const plain = plainOf('week_floor');
+  assert.doesNotMatch(plain, /not catastrophically/i,
     'the sentence promises the floor is never a total bust, but the p10 draw includes the games he does not play at all');
-  assert.match(b, /doesn.t (suit up|play)|does not (suit up|play)|not (suit|play)ing at all/i,
+  assert.match(plain, /doesn.t (suit up|play)|does not (suit up|play)|not (suit|play)ing at all/i,
     'the sentence must say the floor can include a week he does not play, since that is what the served p10 contains');
 });
 
@@ -56,8 +69,9 @@ test('season_floor: raw is the preseason draft-day band, not a season-long caree
   assert.doesNotMatch(lineupBrain, /career\s*[.:]\s*p20/, 'control: this file must not define a career.p20 either, or the old raw path would be right after all');
   const b = block('season_floor');
   assert.equal(field(b, 'raw'), 'evidence.preseason.p20', 'raw must point at the preseason band the server actually serves, not a career percentile');
-  assert.doesNotMatch(b, /rest of the season/i, 'a draft-day preseason number is not a rest-of-season read');
-  assert.match(b, /preseason|draft.day/i, 'the sentence must say this is the preseason model, frozen before the season started');
+  const plain = plainOf('season_floor');
+  assert.doesNotMatch(plain, /rest of the season/i, 'a draft-day preseason number is not a rest-of-season read');
+  assert.match(plain, /preseason|draft.day/i, 'the sentence must say this is the preseason model, frozen before the season started');
   assert.notEqual(field(b, 'unit'), 'points_per_game', 'the preseason p20 is a full-season total (lineup-brain.js:187 reads preseason.points, a total), not points per game');
 });
 
@@ -67,10 +81,10 @@ test('expected_wins: the sentence must say the total counts games already played
   // #162 this is real-record-plus-remaining, not remaining alone.
   assert.match(seasonSim, /function initialRecords/, 'season-sim.js no longer has initialRecords — the "real record carried in" defect this checks may be gone; re-audit');
   assert.match(seasonSim, /startingRecords\s*=\s*initialRecords\(/, 'expected_wins is no longer seeded from the real record — re-audit whether "rest of the season" is now correct');
-  const b = block('expected_wins');
-  assert.doesNotMatch(b, /rest of the season/i,
+  const plain = plainOf('expected_wins');
+  assert.doesNotMatch(plain, /rest of the season/i,
     'expected_wins is a season total including games already played (season-sim.js:126,364), not a rest-of-season count');
-  assert.match(b, /already played|counting the games|whole season/i,
+  assert.match(plain, /already played|counting the games|whole season/i,
     'the sentence must say the total includes games already played');
 });
 
@@ -96,10 +110,10 @@ test('title_delta: the sentence does not promise clean pairing while the paired-
   const rosterToSampler = seasonSim.slice(seasonSim.indexOf('const roster = [...new Map(teams.flatMap'), seasonSim.indexOf('draw: correlatedSampler'));
   assert.doesNotMatch(rosterToSampler, /\.sort\(\(a,\s*b\)\s*=>\s*a\.id\s*-\s*b\.id\)/,
     'season-sim.js now sorts the roster into a canonical order before drawing — the pairing bug this test guards against may be fixed; update the title_delta sentence back to the unconditional claim and this assertion');
-  const b = block('title_delta');
-  assert.doesNotMatch(b, /so the difference is the move and not luck/i,
+  const plain = plainOf('title_delta');
+  assert.doesNotMatch(plain, /so the difference is the move and not luck/i,
     'the paired seed does not guarantee this while the draw order can shift with the trade (season-sim.js:313-356) — the sentence must not promise it');
-  assert.match(b, /noise|approx|roughly|about/i,
+  assert.match(plain, /noise|approx|roughly|about/i,
     'the sentence must flag that some of the change can be simulation noise, not only the trade');
 });
 
@@ -114,7 +128,8 @@ test('points_allowed_to_position: raw is the field matchups.js actually serves (
   const b = block('points_allowed_to_position');
   assert.notEqual(field(b, 'raw'), 'matchups.dvp.ppg_allowed', 'matchups.dvp.ppg_allowed is not a field matchups.js emits');
   assert.equal(field(b, 'raw'), 'matchups.dvp.allowed');
-  assert.doesNotMatch(b, /\bso far\b/i, 'a multi-season, recency-weighted, shrunk blend (matchups.js:94-102) is not "so far" (this season, unweighted)');
-  assert.match(b, /recent seasons|multiple seasons|blend/i, 'the sentence must say this blends recent seasons, not just the current one');
-  assert.match(b, /tested|did not (predict|help|improve)/i, 'the sentence should say this was tested and did not predict (matchups.js:9-14)');
+  const plain = plainOf('points_allowed_to_position');
+  assert.doesNotMatch(plain, /\bso far\b/i, 'a multi-season, recency-weighted, shrunk blend (matchups.js:94-102) is not "so far" (this season, unweighted)');
+  assert.match(plain, /recent seasons|multiple seasons|blend/i, 'the sentence must say this blends recent seasons, not just the current one');
+  assert.match(plain, /tested|did not (predict|help|improve)/i, 'the sentence should say this was tested and did not predict (matchups.js:9-14)');
 });

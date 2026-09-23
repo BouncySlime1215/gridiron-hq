@@ -53,11 +53,18 @@ test('no plain-words sentence uses a word the glossary bans', () => {
 });
 
 test('every availability basis the server can emit maps to a chip tier', () => {
-  // The server's vocabulary, read out of the file that decides it rather than
-  // copied. contingency.js:574 is the one line that produces these.
-  const line = contingency.match(/const basis = lookup\?\.hasRole \? '(\w+)' : lookup \? '(\w+)' : '(\w+)'/);
-  assert.ok(line, 'contingency.js no longer decides the basis where this test looks — re-point it');
-  const served = [line[1], line[2], line[3]];
+  // The server's vocabulary. Since main's availability-basis.js landed, this is
+  // no longer inline in contingency.js — contingency.js:610-611 now destructures
+  // AVAILABILITY_FIT_BASIS from availability-basis.js and reads the canonical
+  // list from there, so this test re-points to the same source rather than the
+  // consumer, which is what the file's own header (availability-basis.js:1-15)
+  // says every reader should do.
+  assert.match(contingency, /const \[ROLE_FIT, POOLED_FIT, NO_FIT\] = AVAILABILITY_FIT_BASIS/,
+    'contingency.js no longer derives its basis from AVAILABILITY_FIT_BASIS — re-point this test');
+  const basisSrc = read('server/services/availability-basis.js');
+  const line = basisSrc.match(/export const AVAILABILITY_FIT_BASIS = Object\.freeze\(\[([^\]]*)\]\)/);
+  assert.ok(line, 'availability-basis.js no longer defines AVAILABILITY_FIT_BASIS where this test looks — re-point it');
+  const served = [...line[1].matchAll(/'(\w+)'/g)].map(m => m[1]);
   assert.deepEqual(served, ['role', 'pooled', 'constants'], 'the server vocabulary changed');
 
   const map = chip.slice(chip.indexOf('AVAILABILITY_BASIS'), chip.indexOf('interface Tier'));

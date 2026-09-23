@@ -75,7 +75,12 @@ export const GLOSSARY = {
   },
   week_floor: {
     name: 'Quiet week',
-    plain: 'A week that goes badly for this player but not catastrophically — about one week in ten looks like this or worse.',
+    // Producer: server/services/trade-engine.js:462 `floor: weekDist?.p10 ?? ...`.
+    // The p10 is drawn from a distribution that includes the weeks he does not
+    // suit up at all, so this is routinely 0.0 for a healthy starter, not a mild
+    // bad week — see rnd/loop/r7-internal-glossary-defines-numbers-code-no-
+    // longer-makes.md #1.
+    plain: 'A bad week for this player — the bottom one week in ten, which can mean he does not suit up at all.',
     raw: 'projection.p10',
     unit: 'points', precision: 1
   },
@@ -86,10 +91,17 @@ export const GLOSSARY = {
     unit: 'points', precision: 1
   },
   season_floor: {
-    name: 'Quiet season',
-    plain: 'How the rest of the season looks if this player disappoints — about one season in five ends up here or lower.',
-    raw: 'career.p20',
-    unit: 'points_per_game', precision: 1
+    name: 'Preseason band (low)',
+    // Producer: server/services/lineup-brain.js:187 `p20: r1(preseason.p20)`, a
+    // FULL-SEASON TOTAL from the preseason model, frozen before Week 1 and never
+    // updated in-season (rendered as "preseason X-Y pts" at
+    // client/src/components/lineup/EvidenceStrip.tsx:111). There is no
+    // `career.p20` anywhere in the server, and no rest-of-season or per-game
+    // p20 is served — see r7-internal-glossary-defines-numbers-code-no-longer-
+    // makes.md #2.
+    plain: 'The low end of what our draft-day model expected for his whole season, before any games were played. It does not update in-season.',
+    raw: 'evidence.preseason.p20',
+    unit: 'points', precision: 1
   },
   chance_to_play: {
     name: 'Chance to play',
@@ -111,20 +123,37 @@ export const GLOSSARY = {
   },
   title_delta: {
     name: 'Change in title chance',
-    plain: 'How much this move moves your championship number, with the same simulated seasons run before and after so the difference is the move and not luck.',
+    // Producer: server/services/season-sim.js:476 reuses one `pairedSeed` for
+    // the before/after run, but the per-player draw order comes from `roster`
+    // (:313), built from each team's OWN player-list order, which the trade
+    // changes; that reorders `active` for correlatedSampler (:356). The same
+    // seed does not guarantee the same player gets the same draw once the
+    // roster order shifts, so this cannot yet promise the difference is purely
+    // the move — see r7-internal-glossary-defines-numbers-code-no-longer-
+    // makes.md #4 (assessed from R6's title-odds-pairing-broken finding).
+    plain: 'How much this move changes your championship number, from replaying the same simulated seasons before and after — figure some of the change, roughly a couple of points, is simulation noise rather than the move itself.',
     raw: 'trade_impact.title_delta',
     unit: 'percent', precision: 1
   },
   expected_wins: {
     name: 'Expected wins',
-    plain: 'How many games your team wins in a typical run of the rest of the season.',
+    // Producer: server/services/season-sim.js:126 `initialRecords` seeds the sim
+    // from each team's REAL record (used at :364 `startingRecords`), and the
+    // season total at :431 is summed on top of it. This is the season total
+    // including games already played, not a rest-of-season count — see
+    // r7-internal-glossary-defines-numbers-code-no-longer-makes.md #3.
+    plain: 'How many games your team is on pace to win this season, counting the games you have already played.',
     raw: 'sim.expected_wins',
     unit: 'count', precision: 1
   },
   start_score: {
     name: 'Start score',
-    plain: 'How strongly we want this player in your lineup this week, after his chance to play is taken into account.',
-    raw: 'lineup.score',
+    // Producer: no route serves a `score` field. The lineup is solved on
+    // `week_points` (server/services/lineup-brain.js:363, solved by default at
+    // :474 `requestedKey === 'week_points'`) — see r7-internal-glossary-
+    // defines-numbers-code-no-longer-makes.md #5.
+    plain: 'How many points we project this player for in your lineup this week, after his chance to play is taken into account.',
+    raw: 'lineup.week_points',
     unit: 'points', precision: 1
   },
   accept_chance: {
@@ -153,8 +182,16 @@ export const GLOSSARY = {
   },
   points_allowed_to_position: {
     name: 'Given up to this position',
-    plain: 'What this defence has actually given up to players at this position so far. It is what happened, not what we expect next.',
-    raw: 'matchups.dvp.ppg_allowed',
+    // Producer: server/services/matchups.js:189 `allowed: +allowed.toFixed(1)`
+    // (there is no `ppg_allowed` field — rendered as "d.allowed" plus " ppg
+    // allowed" at client/src/pages/TradeLab.tsx:1128). It blends recent seasons with a
+    // 0.5 recency decay and shrinks toward average (matchups.js:94-102,
+    // K_DVP=200), so it is not "so far" (this season only), and the module's
+    // own header (matchups.js:9-14) says it was tested and did not make
+    // projections more accurate — see r7-internal-glossary-defines-numbers-
+    // code-no-longer-makes.md #6.
+    plain: 'A blend of recent seasons of what this defence has given up to this position, pulled toward the league average. We tested it and it did not make projections more accurate.',
+    raw: 'matchups.dvp.allowed',
     unit: 'points_per_game', precision: 1
   }
 } as const satisfies Record<string, Term>;

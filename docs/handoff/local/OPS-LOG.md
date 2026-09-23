@@ -167,3 +167,8 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 18:58Z: correction: R&D r14 relaunched after all (standing rule; ~2-3% weekly per round keeps A under 87% until account B at 3 PM).
 
 19:40Z: R&D r14 landed: stud premium in accepted 2-for-1s (RL-9-3b, fairness credit). Plan adjusted.
+19:45Z: get_usage 5-hour 62% (resets 10 AM ET), weekly 81%. Time check: it is ~9:45 AM ET now (earlier chat ET conversions were off; OPS-LOG Z times are correct). Account B unlocks 3 PM ET; A at ~1.5%/h reaches 87% ~1:40 PM ET, then finishing-only until the paste.
+
+20:00Z: Repair pass DONE (24 PRs green+mergeable on c1f17cee). Train 3 started (mq-train3.log). #186 held out: after #176 lands, re-merge main and update its "not merged yet" check, then queue. Watch #197/#198 Lineup stand-ins after #176.
+
+21:05Z: R&D r15 landed: drop watch buildable (RL-15-2), playbook correction (RL-15-1). Plan adjusted. Next R&D round held for budget (weekly ~82%%).

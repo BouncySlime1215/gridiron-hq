@@ -2,7 +2,25 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 13:08Z.
+Last rebuilt: 2026-09-23 14:33Z.
+
+## #188: Show the median-game-unknown notice with the sim's real reason
+
+- Merged: 10:33 AM ET, Sep 23 as `6579c356`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #183: Add trade market-price endpoint, fix TM-09 hype identity and 2025 leakage
+
+- Merged: 10:21 AM ET, Sep 23 as `43e8284e`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #176: Add a defense-streaming card to Start/Sit
+
+- Merged: 10:10 AM ET, Sep 23 as `22318bdb`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #189: Add lineup-signal tracker to trade brain
 

@@ -141,7 +141,7 @@ violating .md and an `fp-ecr-weekly-wp.csv` in a mktemp tree laid out as `docs/e
 guard: `tests 14 / pass 6 / fail 8`. These are detection failures (the module loads), not
 ERR_MODULE_NOT_FOUND.
 
-**GREEN** `<GREEN2_SHA, see git log: "feat: guard catches the real FantasyPros export shape (GREEN)">`.
+**GREEN** `a6738562` "feat: guard catches the real FantasyPros export shape (GREEN)".
 `isPerPlayerFantasyProsHeader` needs a player-identity column (`id`, `player`, `name`,
 `gsis_id`, `player_id`, FantasyPros id) AND `ecr` (or `fp_rank`/`fp_ecr`), or a generic
 rank/projection column (`rk`, `rank`, `avg`, `fpts`, `proj`...) only when the header also has a

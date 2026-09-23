@@ -37,6 +37,30 @@
  * can never be reading two different numbers for the same player.
  */
 import { rows } from '../db/index.js';
+// One accessor for "when were these rows collected", shared with the manager
+// read and counterparty-pricing. Three hand-rolled MAX() queries is how three
+// surfaces come to print three different dates for one collection.
+import { transactionsCollected } from './manager-signals.js';
+
+/**
+ * Whether the store this file reads exists at all.
+ *
+ * `league_transactions_raw` has NO migration: it is created by hand in
+ * `scripts/collect-league-transactions.mjs`, which needs an ESPN cookie, so on
+ * any machine where that has not been run the table is simply not there. This is
+ * the same guard `manager-signals.js:167` already uses, and it replaces two bare
+ * `catch { tx = []; }` blocks that turned "the collector has never run here" into
+ * "this manager has no history" — a sentence about a person, produced by a
+ * missing table. CLAUDE.md's rule is the general form: if a layer goes inert, the
+ * surface must say so.
+ */
+const tableExists = name =>
+  rows(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`, name).length > 0;
+
+const TX_ABSENT_REASON =
+  'league_transactions_raw has never been created on this machine, so no transaction history has '
+  + 'been collected — run scripts/collect-league-transactions.mjs (it needs an ESPN cookie). This '
+  + 'is a missing collection, NOT a manager with no history.';
 
 /**
  * Every hand-set number in this file, in one place, so a reviewer can see the
@@ -227,12 +251,16 @@ export function timingRead(leagueId, { season = null, now = null } = {}) {
   const lg = rows('SELECT season, payload, my_team_id FROM leagues WHERE id = ?', leagueId)[0] ?? null;
   const me = lg?.my_team_id == null ? null : String(lg.my_team_id);
   const yr = season ?? lg?.season ?? null;
-  let tx = [];
-  try {
-    tx = rows(`SELECT tx_id, type, execution_type, team_id, related_tx_id, proposed_at
-               FROM league_transactions_raw WHERE league_id = ? AND (? IS NULL OR season = ?)`,
-    leagueId, yr, yr);
-  } catch { tx = []; }
+  // The absence is read BEFORE the query rather than caught after it, so the one
+  // state this function may continue past is the only one it absorbs. A bare
+  // catch here also swallowed every programming error in the query below and
+  // reported it as an empty history.
+  const txPresent = tableExists('league_transactions_raw');
+  const tx = txPresent
+    ? rows(`SELECT tx_id, type, execution_type, team_id, related_tx_id, proposed_at
+            FROM league_transactions_raw WHERE league_id = ? AND (? IS NULL OR season = ?)`,
+    leagueId, yr, yr)
+    : [];
 
   const timed = tx.map(t => ({ ...t, at: toTime(t.proposed_at) }))
     .filter(t => t.at != null && t.at <= cutoff);
@@ -246,15 +274,29 @@ export function timingRead(leagueId, { season = null, now = null } = {}) {
   // (waivers clear on the league's clock, not his).
   const ownAction = t => t.type !== 'DRAFT' && t.execution_type !== 'PROCESS';
 
+  const collected = Object.freeze(transactionsCollected(leagueId, yr));
   const out = new Map();
   const blank = id => ({
-    roster_id: String(id), decisions_n: 0, decisions_reason: null, median_hours: null,
+    roster_id: String(id), decisions_n: 0, median_hours: null,
     fastest_hours: null, slowest_hours: null, actions_n: 0, active_hours: null,
-    active_hours_reason: null, busiest_hour: null, last_decline_at: null,
+    // WHEN THE STORE IS ABSENT THESE SAY SO. They used to be null on a machine
+    // with no collector run, which reads identically to "we looked and he has
+    // never decided anything" — a claim about a person, made from a missing
+    // table. Both reason fields carry it, because a consumer may read either.
+    decisions_reason: txPresent ? null : TX_ABSENT_REASON,
+    read_state: txPresent ? 'present' : 'source_table_absent',
+    active_hours_reason: txPresent ? null : TX_ABSENT_REASON,
+    busiest_hour: null, last_decline_at: null,
     // When Nick last ASKED this person for something is already on
     // counterparty-pricing#selfRead (`to_each_manager[].last_offer_at`), which
     // is the one place that reads the offer items. Not duplicated here.
     source: 'league_transactions_raw', fitted: false,
+    // WHEN THESE ROWS WERE COLLECTED, not when they were read. `now` bounds what
+    // is read; this is when the rows arrived, and the deployed app never collects
+    // any (fly.toml declares no `processes`; the only writer runs off-server by
+    // hand). A manager with no decisions gets the date too: "we have not looked
+    // since Thursday" and "he has done nothing" are different answers.
+    transactions: collected,
   });
   // Every roster in the league, so "we have nothing on him" is a stated answer
   // rather than a missing key.
@@ -290,7 +332,13 @@ export function timingRead(leagueId, { season = null, now = null } = {}) {
       entry.median_hours = +median(lat).toFixed(2);
       entry.fastest_hours = Math.min(...lat);
       entry.slowest_hours = Math.max(...lat);
-    } else {
+    } else if (txPresent) {
+      // ONLY WHEN THE STORE WAS ACTUALLY READ. This sentence says "we counted his
+      // decided offers and there were not enough", which is a claim about the
+      // manager. On a machine where the table does not exist nothing was counted,
+      // and writing it here overwrote the absence that `blank()` had correctly
+      // recorded — re-manufacturing the exact false claim the guard removed, one
+      // loop later. A min_n sentence is only honest about a sample that was taken.
       entry.decisions_reason = `rests on ${lat.length} of the ${MIN_D} decided offers needed `
         + 'before a response time means anything';
     }
@@ -302,7 +350,10 @@ export function timingRead(leagueId, { season = null, now = null } = {}) {
       const busiest = hist.indexOf(Math.max(...hist));
       entry.active_hours = hist.map((n, h) => ({ hour_utc: h, n })).filter(h => h.n > 0);
       entry.busiest_hour = busiest;
-    } else {
+    } else if (txPresent) {
+      // ONLY WHEN THE STORE WAS ACTUALLY READ, for the same reason as the
+      // decisions sentence above: this claims a sample was taken and came back
+      // short, and on a machine with no collector run no sample was taken.
       entry.active_hours_reason = `rests on ${acts.length} of the ${MIN_A} moves he made on his own `
         + `clock needed before an active-hours window means anything (draft picks and league waiver `
         + `processing do not count)`;
@@ -378,15 +429,22 @@ export function vetoClimate(lg, { season = null, priceOfPlayer = null } = {}) {
     team_count: teamCount, n: 0, priceable_n: 0, reference_n: 0, observed_max_votes: 0, observed: [],
     reference: null, reference_skew_pct: null, fitted: false,
     source: 'ESPN league settings + league_transactions_raw',
+    transactions: null,
   };
   const yr = season ?? lg?.season ?? null;
-  let tx = [];
-  try {
-    tx = rows(`SELECT tx_id, type, execution_type, team_id, related_tx_id, proposed_at, items_json
-               FROM league_transactions_raw WHERE league_id = ? AND (? IS NULL OR season = ?)`,
-    lg?.id, yr, yr);
-  } catch { tx = []; }
-  if (!tx.length) return climate;
+  // Set BEFORE the `!tx.length` early return below. That return is exactly where
+  // a league with nothing collected looked identical to a league with no veto
+  // history, and those are opposite facts.
+  climate.transactions = Object.freeze(transactionsCollected(lg?.id ?? null, yr));
+  if (!tableExists('league_transactions_raw')) {
+    // Same fix as above: the veto climate's `n: 0` and empty `observed` were
+    // indistinguishable from a league where nobody has ever vetoed anything.
+    return { ...climate, read_state: 'source_table_absent', reason: TX_ABSENT_REASON };
+  }
+  const tx = rows(`SELECT tx_id, type, execution_type, team_id, related_tx_id, proposed_at, items_json
+                   FROM league_transactions_raw WHERE league_id = ? AND (? IS NULL OR season = ?)`,
+  lg?.id, yr, yr);
+  if (!tx.length) return { ...climate, read_state: 'present', reason: null };
 
   const proposals = new Map(tx.filter(t => t.type === 'TRADE_PROPOSAL').map(t => [t.tx_id, t]));
   const votes = new Map();
@@ -431,7 +489,12 @@ export function vetoClimate(lg, { season = null, priceOfPlayer = null } = {}) {
     climate.reference_n = 1;
   }
   else if (climate.observed.length) climate.reference = climate.observed[0];
-  return climate;
+  // read_state on EVERY path, not two of three. The absent and empty paths set it
+  // and this one did not, so a consumer checking `read_state === 'present'` got
+  // undefined on the one path where the data is actually there — a field that is
+  // missing only when everything is fine is worse than no field at all. Found by
+  // writing the absence test below, not by the sweep.
+  return { ...climate, read_state: 'present', reason: null };
 }
 
 /** Where one package sits against what this league has already voted against. */

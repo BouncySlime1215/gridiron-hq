@@ -1,0 +1,5292 @@
+[
+ {
+  "id": "backtest-significance",
+  "name": "backtest significance",
+  "kind": "model",
+  "path": "server/services/backtest-significance.js",
+  "lines": 287,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending); it names no table of its own, so the rows in question are its caller's",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/modeling/governed-comparison.js",
+   "server/services/audit-registry.js",
+   "server/services/boom-bust.js",
+   "server/services/consensus-weights.js",
+   "server/services/contingency.js",
+   "server/services/decay-watch.js",
+   "server/services/draft-abstention-audit.js",
+   "server/services/fantasy-coordinator.js",
+   "server/services/nfl-offseason-change.js",
+   "server/services/nfl-opponent.js",
+   "server/services/nfl-passing-diagnostic.js",
+   "server/services/nfl-passing-specialists.js",
+   "server/services/nfl-player-context.js",
+   "server/services/nfl-prop-grading.js",
+   "server/services/nfl-prop-player-heads.js",
+   "server/services/nfl-prop-player-weekly-heads.js",
+   "server/services/nfl-props.js",
+   "server/services/nfl-scheme.js",
+   "server/services/nfl-team-strength.js",
+   "server/services/nfl-teammate-competition.js",
+   "server/services/offseason-model.js",
+   "server/services/role-scenario-lab.js",
+   "server/services/ros-projection.js",
+   "server/services/weekly-learning.js"
+  ],
+  "liveImporters": [
+   "server/services/contingency.js",
+   "server/services/fantasy-coordinator.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/services/contingency.js, server/services/fantasy-coordinator.js",
+  "nonServerImporters": [
+   "scripts/analyze-qbr-fantasy-signal.mjs",
+   "scripts/availability-decision-calibration.mjs",
+   "scripts/fit-posture-calibration.mjs",
+   "scripts/fit-role-recency.mjs",
+   "scripts/fit-ros-projection.mjs",
+   "scripts/fit-shrinkage-weekly.mjs",
+   "scripts/fit-shrinkage.mjs",
+   "scripts/fit-weekly-coverage.mjs",
+   "scripts/fit-weekly-ensemble.mjs",
+   "scripts/fit-weekly.mjs",
+   "scripts/grade-feature-vector.mjs",
+   "scripts/promote-early-week-weights.mjs",
+   "scripts/promote-volume-shrinkage.mjs",
+   "scripts/promote-weekly-ensemble.mjs",
+   "scripts/test-new-heads.mjs",
+   "scripts/unified-margin-audit-significance.mjs",
+   "test/always-valid-significance.test.js",
+   "test/paired-bootstrap-clustering.test.js"
+  ],
+  "evidence": [
+   "server/services/contingency.js:20",
+   "server/services/fantasy-coordinator.js:100",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "backtest",
+  "name": "backtest",
+  "kind": "model",
+  "path": "server/services/backtest.js",
+  "lines": 251,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "player_season_stats",
+   "player_week_usage"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/services/backtest-significance.js",
+   "server/services/nfl-prop-grading.js",
+   "server/services/player-head-validation.js",
+   "server/services/weekly-backtest.js",
+   "server/services/weekly-learning.js"
+  ],
+  "liveImporters": [
+   "server/routes/model.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/routes/model.js",
+  "nonServerImporters": [
+   "scripts/analyze-qbr-fantasy-signal.mjs",
+   "scripts/fit-level-uncertainty.mjs",
+   "scripts/fit-ros-projection.mjs",
+   "scripts/fit-shrinkage.mjs",
+   "scripts/fit-weekly-ensemble.mjs",
+   "scripts/freeze-baseline.mjs",
+   "scripts/grade-feature-vector.mjs",
+   "scripts/promote-early-week-weights.mjs",
+   "scripts/promote-volume-shrinkage.mjs",
+   "scripts/promote-weekly-ensemble.mjs",
+   "scripts/test-new-heads.mjs",
+   "test/model-integrity.test.js"
+  ],
+  "evidence": [
+   "server/routes/model.js:14",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "boom-bust",
+  "name": "boom bust",
+  "kind": "model",
+  "path": "server/services/boom-bust.js",
+  "lines": 402,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "nfl_injuries",
+   "player_week_usage",
+   "players"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/fantasy-coordinator.js"
+  ],
+  "liveImporters": [
+   "server/services/fantasy-coordinator.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/services/fantasy-coordinator.js",
+  "nonServerImporters": [
+   "test/boom-bust.test.js"
+  ],
+  "evidence": [
+   "server/services/fantasy-coordinator.js:98",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "bottom-up-team-total",
+  "name": "bottom up team total",
+  "kind": "model",
+  "path": "server/services/bottom-up-team-total.js",
+  "lines": 394,
+  "status": "dead",
+  "reason": "imported by no file in server/ at 654ff93, and named by no handler",
+  "reads": [
+   "game_lines",
+   "player_week_usage"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "importers": 0,
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": [
+   "scripts/_bottom-up-team-total-worker.mjs",
+   "scripts/_recheck-variance-only.mjs",
+   "test/bottom-up-team-total.test.js"
+  ],
+  "evidence": [
+   "grep for an import of bottom-up-team-total.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "scripts/_bottom-up-team-total-worker.mjs:64",
+   "scripts/_recheck-variance-only.mjs:23",
+   "test/bottom-up-team-total.test.js:37"
+  ]
+ },
+ {
+  "id": "ceiling-lineup",
+  "name": "ceiling lineup",
+  "kind": "model",
+  "path": "server/services/ceiling-lineup.js",
+  "lines": 255,
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "leagues"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/league /api/trades/${leagueId}/ceiling-lineup?team_id=${teamId}&week=${week}&trials=3000"
+  ],
+  "handlerTransitive": 1,
+  "pages": [
+   "/league"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/trades.js"
+  ],
+  "nonServerImporters": [
+   "test/decision-leftovers-home-away.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/trades/${leagueId}/ceiling-lineup?team_id=${teamId}&week=${week}&trials=3000",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "confidence-tier",
+  "name": "confidence tier",
+  "kind": "model",
+  "path": "server/services/confidence-tier.js",
+  "lines": 94,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending); it names no table of its own, so the rows in question are its caller's",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/fantasy-coordinator.js",
+   "server/services/nfl-expert-coordinator.js"
+  ],
+  "liveImporters": [
+   "server/services/fantasy-coordinator.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/services/fantasy-coordinator.js",
+  "nonServerImporters": [
+   "test/confidence-tier.test.js"
+  ],
+  "evidence": [
+   "server/services/fantasy-coordinator.js:102",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "conformal",
+  "name": "conformal",
+  "kind": "model",
+  "path": "server/services/conformal.js",
+  "lines": 214,
+  "status": "half_done",
+  "reason": "exists and has importers, but no consumer on a live surface: transitive import is not a consumer",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/nfl-ensemble.js",
+   "server/services/nfl-market.js"
+  ],
+  "liveImporters": [],
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-ensemble.js, server/services/nfl-market.js",
+  "nonServerImporters": [
+   "test/conformal-calibration.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-ensemble.js:38",
+   "server/services/nfl-market.js:24",
+   "no importer of conformal.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "contingency",
+  "name": "contingency",
+  "kind": "model",
+  "path": "server/services/contingency.js",
+  "lines": 1094,
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "leagues",
+   "nfl_availability_rates",
+   "nfl_availability_role_rates",
+   "nfl_injuries",
+   "nfl_teams",
+   "player_metrics",
+   "player_week_snaps",
+   "player_week_usage",
+   "players"
+  ],
+  "writes": [
+   "nfl_availability_rates",
+   "nfl_availability_role_rates"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/league /api/model/${leagueId}/trade-impact",
+   "/trade-lab /api/model/${leagueId}/trade-impact"
+  ],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/services/lineup-brain.js",
+   "server/services/news-fantasy-impact.js",
+   "server/services/player-week-engine.js",
+   "server/services/role-scenario-engine.js",
+   "server/services/season-sim.js",
+   "server/services/trade-engine.js",
+   "server/services/waiver-wire.js"
+  ],
+  "nonServerImporters": [
+   "scripts/availability-decision-calibration.mjs",
+   "scripts/fit-availability.mjs",
+   "scripts/fit-posture-calibration.mjs",
+   "test/asset-cache-stamps.test.js",
+   "test/asset-universe-fingerprint.test.js",
+   "test/availability-fit-loader.test.js",
+   "test/availability-honest-degradation.test.js",
+   "test/availability-role.test.js",
+   "test/decision-leftovers-home-away.test.js",
+   "test/designation-role-gate-v2.test.js",
+   "test/model-integrity.test.js",
+   "test/pinned-baselines.test.js",
+   "test/play-chance-live.test.js",
+   "test/ros-projection-failures.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "correlation",
+  "name": "correlation",
+  "kind": "model",
+  "path": "server/services/correlation.js",
+  "lines": 220,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "correlation_estimates",
+   "player_week_usage",
+   "players"
+  ],
+  "writes": [
+   "correlation_estimates"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/services/ceiling-lineup.js",
+   "server/services/draft-lookahead.js",
+   "server/services/season-sim.js",
+   "server/services/trade-engine.js"
+  ],
+  "liveImporters": [
+   "server/routes/model.js",
+   "server/services/ceiling-lineup.js",
+   "server/services/draft-lookahead.js",
+   "server/services/season-sim.js",
+   "server/services/trade-engine.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/routes/model.js, server/services/ceiling-lineup.js, server/services/draft-lookahead.js, server/services/season-sim.js",
+  "nonServerImporters": [
+   "test/decision-leftovers-home-away.test.js",
+   "test/draft-lookahead-variance.test.js"
+  ],
+  "evidence": [
+   "server/routes/model.js:16",
+   "server/services/ceiling-lineup.js:33",
+   "server/services/draft-lookahead.js:63",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "counterparty-pricing",
+  "name": "counterparty pricing",
+  "kind": "model",
+  "path": "server/services/counterparty-pricing.js",
+  "lines": 1083,
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "league_transactions_raw",
+   "leagues",
+   "manager_player_view",
+   "manager_profiles",
+   "negotiation_profiles",
+   "players"
+  ],
+  "writes": [],
+  "undeclaredTables": [
+   "league_transactions_raw",
+   "negotiation_profiles"
+  ],
+  "handlerDirect": [
+   "/trade-brain /api/trades/${activeId}/managers/signals"
+  ],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "evidence": [
+   "reached from /trade-brain /api/trades/${activeId}/managers/signals",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ],
+  "note": "the stated reason misattributes the cause — it says no transactions were captured, where the truth at this commit is that league_transactions_raw is not created anywhere. A reader would look for a stalled collector, not a missing migration. Row-level finding, not a status change. wired vs decoration still needs the live count for `leagues`, `league_chat_messages`.",
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [
+   {
+    "table": "league_transactions_raw",
+    "where": "created only in test/manager-data-pipeline.test.js:131, test/manager-signals-api.test.js:112, test/trade-tactics.test.js:68"
+   },
+   {
+    "table": "negotiation_profiles",
+    "where": "created only in test/manager-data-pipeline.test.js:75, test/manager-signals-api.test.js:78, test/trade-tactics.test.js:228"
+   }
+  ],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/trades.js",
+   "server/services/trade-engine.js"
+  ],
+  "nonServerImporters": [
+   "test/manager-data-pipeline.test.js",
+   "test/trade-acceptance.test.js",
+   "test/trade-manager-read.test.js",
+   "test/trade-tactics.test.js",
+   "test/valuation-map.test.js"
+  ]
+ },
+ {
+  "id": "decay-watch",
+  "name": "decay watch",
+  "kind": "model",
+  "path": "server/services/decay-watch.js",
+  "lines": 280,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "decay_watch_runs",
+   "fantasy_coordinator_fits",
+   "nfl_prop_calibration_fits"
+  ],
+  "writes": [
+   "decay_watch_runs"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/betting-hub.js",
+   "server/services/page-explain-tools.js",
+   "server/services/scheduler.js"
+  ],
+  "liveImporters": [
+   "server/routes/betting-hub.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/routes/betting-hub.js",
+  "nonServerImporters": [
+   "test/decay-watch.test.js"
+  ],
+  "evidence": [
+   "server/routes/betting-hub.js:707",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "draft-abstention-audit",
+  "name": "draft abstention audit",
+  "kind": "model",
+  "path": "server/services/draft-abstention-audit.js",
+  "lines": 488,
+  "status": "dead",
+  "reason": "imported by no file in server/ at 654ff93, and named by no handler",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "importers": 0,
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": [
+   "test/draft-abstention-audit.test.js"
+  ],
+  "evidence": [
+   "grep for an import of draft-abstention-audit.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "test/draft-abstention-audit.test.js:20"
+  ]
+ },
+ {
+  "id": "draft-assist",
+  "name": "draft assist",
+  "kind": "model",
+  "path": "server/services/draft-assist.js",
+  "lines": 1130,
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "draft_picks",
+   "drafts",
+   "dynasty_values",
+   "game_lines",
+   "leagues",
+   "news_items",
+   "nfl_ffopportunity_weekly",
+   "nfl_injuries",
+   "nfl_roster_snapshots",
+   "nfl_teams",
+   "player_accolades",
+   "player_gamelog",
+   "player_metrics",
+   "player_season_stats",
+   "players",
+   "schedule_games"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/draft /api/drafts/${id}/advice",
+   "/draft /api/drafts/${id}/advice?refresh=1",
+   "/draft /api/drafts/${id}/assist",
+   "/draft /api/drafts/${id}/lookahead",
+   "/league /api/trades/${leagueId}/explain",
+   "/league /api/trades/${leagueId}/sense-check",
+   "/live-draft/:id /api/drafts/${id}/advice",
+   "/live-draft/:id /api/drafts/${id}/advice?refresh=1",
+   "/live-draft/:id /api/drafts/${id}/assist",
+   "/live-draft/:id /api/drafts/${id}/lookahead",
+   "/trade-lab /api/trades/${leagueId}/explain",
+   "/trade-lab /api/trades/${leagueId}/sense-check"
+  ],
+  "handlerTransitive": 12,
+  "pages": [
+   "/draft",
+   "/league",
+   "/live-draft/:id",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/index.js",
+   "server/routes/drafts.js",
+   "server/routes/trades.js",
+   "server/services/draft-lookahead.js"
+  ],
+  "nonServerImporters": [
+   "test/draft-assist-bestball.test.js"
+  ],
+  "evidence": [
+   "reached from /draft /api/drafts/${id}/advice",
+   "reached from /draft /api/drafts/${id}/advice?refresh=1",
+   "reached from /draft /api/drafts/${id}/assist",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "draft-lookahead",
+  "name": "draft lookahead",
+  "kind": "model",
+  "path": "server/services/draft-lookahead.js",
+  "lines": 592,
+  "status": "unclassified",
+  "reason": "names no table in SQL: either it is pure computation over a caller-supplied argument, or its data comes through another service; graded by hand",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/draft /api/drafts/${id}/advice",
+   "/draft /api/drafts/${id}/advice?refresh=1",
+   "/draft /api/drafts/${id}/lookahead",
+   "/live-draft/:id /api/drafts/${id}/advice",
+   "/live-draft/:id /api/drafts/${id}/advice?refresh=1",
+   "/live-draft/:id /api/drafts/${id}/lookahead"
+  ],
+  "handlerTransitive": 6,
+  "pages": [
+   "/draft",
+   "/live-draft/:id"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/drafts.js"
+  ],
+  "nonServerImporters": [
+   "test/draft-lookahead-variance.test.js"
+  ],
+  "evidence": [
+   "reached from /draft /api/drafts/${id}/advice",
+   "reached from /draft /api/drafts/${id}/advice?refresh=1",
+   "reached from /draft /api/drafts/${id}/lookahead",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "draft-survival",
+  "name": "draft survival",
+  "kind": "model",
+  "path": "server/services/draft-survival.js",
+  "lines": 147,
+  "status": "unclassified",
+  "reason": "names no table in SQL: either it is pure computation over a caller-supplied argument, or its data comes through another service; graded by hand",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/draft /api/edge/draft-survival?seat=${seat}&teams=${teams}&trials=3000"
+  ],
+  "handlerTransitive": 62,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/edge.js"
+  ],
+  "nonServerImporters": [],
+  "evidence": [
+   "reached from /draft /api/edge/draft-survival?seat=${seat}&teams=${teams}&trials=3000",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "dynasty-age-curve",
+  "name": "dynasty age curve",
+  "kind": "model",
+  "path": "server/services/dynasty-age-curve.js",
+  "lines": 156,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "nflverse_player_positions"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/tradelab.js",
+   "server/services/trade-engine.js"
+  ],
+  "liveImporters": [
+   "server/services/trade-engine.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/routes/tradelab.js, server/services/trade-engine.js",
+  "nonServerImporters": [
+   "test/dynasty-age-curve.test.js"
+  ],
+  "evidence": [
+   "server/services/trade-engine.js:69",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "fantasy-coordinator",
+  "name": "fantasy coordinator",
+  "kind": "model",
+  "path": "server/services/fantasy-coordinator.js",
+  "lines": 585,
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "fantasy_coordinator_fits",
+   "player_week_usage",
+   "players"
+  ],
+  "writes": [
+   "fantasy_coordinator_fits"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/drafts/:id /api/players/${id}",
+   "/league /api/players/${id}",
+   "/players/:id /api/players/${id}",
+   "/teams/:abbr /api/players/${id}",
+   "/trade-lab /api/players/${id}"
+  ],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/routes/players.js",
+   "server/services/decay-watch.js",
+   "server/services/draft-assist.js",
+   "server/services/scheduler.js",
+   "server/services/trade-engine.js"
+  ],
+  "nonServerImporters": [
+   "test/fantasy-coordinator.test.js"
+  ],
+  "evidence": [
+   "reached from /drafts/:id /api/players/${id}",
+   "reached from /league /api/players/${id}",
+   "reached from /players/:id /api/players/${id}",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "ffopportunity",
+  "name": "ffopportunity",
+  "kind": "model",
+  "path": "server/services/ffopportunity.js",
+  "lines": 130,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "nfl_ffopportunity_weekly"
+  ],
+  "writes": [
+   "nfl_ffopportunity_weekly"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/services/nfl-profitability.js",
+   "server/services/player-week-engine.js",
+   "server/services/scheduler.js"
+  ],
+  "liveImporters": [
+   "server/routes/model.js",
+   "server/services/player-week-engine.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/routes/model.js, server/services/player-week-engine.js",
+  "nonServerImporters": [
+   "scripts/sync-ffopportunity.mjs"
+  ],
+  "evidence": [
+   "server/routes/model.js:40",
+   "server/services/player-week-engine.js:28",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "football-context",
+  "name": "football context",
+  "kind": "model",
+  "path": "server/services/football-context.js",
+  "lines": 530,
+  "status": "half_done",
+  "reason": "reachable only through server/routes/nfl-betting.js, and no /api path that route file serves is requested by any client file App.tsx can reach",
+  "reads": [
+   "game_lines",
+   "nfl_injuries",
+   "nfl_player_week_features",
+   "nfl_team_week_features",
+   "nfl_teams",
+   "player_week_usage",
+   "players"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-betting.js",
+   "server/services/football-first.js",
+   "server/services/nfl-player-value.js",
+   "server/services/player-case.js"
+  ],
+  "liveImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [],
+  "evidence": [
+   "server/routes/nfl-betting.js:6",
+   "server/services/football-first.js:84",
+   "server/services/nfl-player-value.js:15",
+   "server/services/player-case.js:34",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
+ },
+ {
+  "id": "forecast-combination",
+  "name": "forecast combination",
+  "kind": "model",
+  "path": "server/services/forecast-combination.js",
+  "lines": 1165,
+  "status": "half_done",
+  "reason": "no handler a routed page requests reaches it, transitively or otherwise",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/joint-score-backtest.js",
+   "server/services/opportunity-model.js"
+  ],
+  "nonServerImporters": [
+   "test/forecast-combination.test.js"
+  ],
+  "evidence": [
+   "server/services/joint-score-backtest.js:53",
+   "server/services/opportunity-model.js:27",
+   "no importer of forecast-combination.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "forecast-comparison",
+  "name": "forecast comparison",
+  "kind": "model",
+  "path": "server/services/forecast-comparison.js",
+  "lines": 566,
+  "status": "half_done",
+  "reason": "exists and has importers, but no consumer on a live surface: transitive import is not a consumer",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/forecast-combination.js",
+   "server/services/joint-score-backtest.js",
+   "server/services/nfl-ensemble.js"
+  ],
+  "liveImporters": [],
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/forecast-combination.js, server/services/joint-score-backtest.js, server/services/nfl-ensemble.js",
+  "nonServerImporters": [
+   "test/diebold-mariano.test.js",
+   "test/giacomini-white.test.js"
+  ],
+  "evidence": [
+   "server/services/forecast-combination.js:39",
+   "server/services/joint-score-backtest.js:54",
+   "server/services/nfl-ensemble.js:32",
+   "no importer of forecast-comparison.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "gamescript",
+  "name": "gamescript",
+  "kind": "model",
+  "path": "server/services/gamescript.js",
+  "lines": 420,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "game_lines",
+   "gamescript_model",
+   "player_week_usage"
+  ],
+  "writes": [
+   "game_lines",
+   "gamescript_model"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/routes/nfl-market.js",
+   "server/services/betting-fantasy-link.js",
+   "server/services/ceiling-lineup.js",
+   "server/services/fantasy-coordinator.js",
+   "server/services/nfl-context-heads.js",
+   "server/services/nfl-prop-head-validation.js",
+   "server/services/nfl-props.js",
+   "server/services/scheduler.js",
+   "server/services/season-sim.js",
+   "server/services/waiver-brain.js"
+  ],
+  "liveImporters": [
+   "server/routes/model.js",
+   "server/services/ceiling-lineup.js",
+   "server/services/fantasy-coordinator.js",
+   "server/services/season-sim.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/routes/model.js, server/routes/nfl-market.js, server/services/ceiling-lineup.js, server/services/fantasy-coordinator.js",
+  "nonServerImporters": [
+   "test/beat-the-close-close-fallback.test.js",
+   "test/beat-the-close-weekly-read.test.js",
+   "test/beat-the-close-wind.test.js",
+   "test/beat-the-close.test.js",
+   "test/book-feeds-extra.test.js",
+   "test/book-feeds.test.js",
+   "test/decision-leftovers-home-away.test.js",
+   "test/empty-state.test.js",
+   "test/forward-ledger.test.js",
+   "test/gamescript-closing-line.test.js",
+   "test/line-move-study.test.js",
+   "test/lineup-surfaces-agree.test.js",
+   "test/model-integrity.test.js",
+   "test/nfl-external-ratings.test.js",
+   "test/nfl-gbm-weather-fallback.test.js",
+   "test/nfl-matchup-specialists.test.js",
+   "test/nfl-model-fixes.test.js",
+   "test/nfl-moneyline-domain.test.js",
+   "test/nfl-pick-watch.test.js",
+   "test/nfl-slice-diagnostic.test.js",
+   "test/nfl-total-calibration.test.js",
+   "test/nfl-weather-forecast.test.js",
+   "test/nfl-weather-history.test.js",
+   "test/nfl-weather-per-team-response.test.js",
+   "test/odds-archive.test.js",
+   "test/polymarket-lines.test.js",
+   "test/report-cache.test.js",
+   "test/sharp-lag.test.js",
+   "test/shopping-board-edge-vs-bias.test.js",
+   "test/shopping-board-staleness.test.js",
+   "test/signal-latency-book-lag.test.js",
+   "test/verified-events-cutoff.test.js",
+   "test/week1-readiness.test.js"
+  ],
+  "evidence": [
+   "server/routes/model.js:17",
+   "server/services/ceiling-lineup.js:35",
+   "server/services/fantasy-coordinator.js:96",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "gridiron-model",
+  "name": "gridiron model",
+  "kind": "model",
+  "path": "server/services/gridiron-model.js",
+  "lines": 652,
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "audit_registry",
+   "player_head_audits"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/league /api/model/${leagueId}/trade-impact",
+   "/trade-lab /api/model/${leagueId}/trade-impact"
+  ],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/services/nfl-engine-registry.js",
+   "server/services/nfl-unified-engine.js"
+  ],
+  "nonServerImporters": [
+   "test/gridiron-model.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "historical-adp",
+  "name": "historical adp",
+  "kind": "model",
+  "path": "server/services/historical-adp.js",
+  "lines": 201,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "nfl_historical_adp"
+  ],
+  "writes": [
+   "nfl_historical_adp"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/services/boom-bust.js",
+   "server/services/historical-adp-scrapes.js"
+  ],
+  "liveImporters": [
+   "server/routes/model.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/routes/model.js",
+  "nonServerImporters": [
+   "test/historical-adp-scrapes.test.js",
+   "test/historical-adp.test.js"
+  ],
+  "evidence": [
+   "server/routes/model.js:37",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "joint-score-backtest",
+  "name": "joint score backtest",
+  "kind": "model",
+  "path": "server/services/joint-score-backtest.js",
+  "lines": 525,
+  "status": "dead",
+  "reason": "imported by no file in server/ at 654ff93, and named by no handler",
+  "reads": [
+   "game_lines"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "importers": 0,
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": [
+   "test/nfl-joint-score.test.js"
+  ],
+  "evidence": [
+   "grep for an import of joint-score-backtest.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "test/nfl-joint-score.test.js:57"
+  ]
+ },
+ {
+  "id": "league-brain",
+  "name": "league brain",
+  "kind": "model",
+  "path": "server/services/league-brain.js",
+  "lines": 347,
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "leagues",
+   "manager_profiles"
+  ],
+  "writes": [
+   "manager_profiles"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/trade-brain /api/trades/${activeId}/brain/managers",
+   "/trade-brain /api/trades/${leagueId}/brain/managers/${profile.roster_id}"
+  ],
+  "handlerTransitive": 2,
+  "pages": [
+   "/trade-brain"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/trades.js"
+  ],
+  "nonServerImporters": [
+   "test/league-brain.test.js",
+   "test/lineup-evidence.test.js",
+   "test/trade-route-retirement.test.js"
+  ],
+  "evidence": [
+   "reached from /trade-brain /api/trades/${activeId}/brain/managers",
+   "reached from /trade-brain /api/trades/${leagueId}/brain/managers/${profile.roster_id}",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "lineup-brain",
+  "name": "lineup brain",
+  "kind": "model",
+  "path": "server/services/lineup-brain.js",
+  "lines": 679,
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "leagues",
+   "player_gamelog"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/lineup /api/trades/${leagueId}/lineup?objective=${objective}"
+  ],
+  "handlerTransitive": 3,
+  "pages": [
+   "/league",
+   "/lineup"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/trades.js",
+   "server/services/ceiling-lineup.js",
+   "server/services/lineup-posture.js"
+  ],
+  "nonServerImporters": [
+   "scripts/eval-lineup-objectives.mjs",
+   "test/availability-fit-loader.test.js",
+   "test/availability-honest-degradation.test.js",
+   "test/decision-leftovers-lineup.test.js",
+   "test/lineup-evidence.test.js",
+   "test/lineup-floor-objective.test.js",
+   "test/lineup-surfaces-agree.test.js"
+  ],
+  "evidence": [
+   "reached from /lineup /api/trades/${leagueId}/lineup?objective=${objective}",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "lineup-posture",
+  "name": "lineup posture",
+  "kind": "model",
+  "path": "server/services/lineup-posture.js",
+  "lines": 369,
+  "status": "unclassified",
+  "reason": "names no table in SQL: either it is pure computation over a caller-supplied argument, or its data comes through another service; graded by hand",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/lineup /api/trades/${leagueId}/posture"
+  ],
+  "handlerTransitive": 1,
+  "pages": [
+   "/lineup"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/trades.js"
+  ],
+  "nonServerImporters": [
+   "scripts/fit-posture-calibration.mjs",
+   "test/decision-leftovers-lineup.test.js",
+   "test/lineup-surfaces-agree.test.js",
+   "test/posture-calibration.test.js"
+  ],
+  "evidence": [
+   "reached from /lineup /api/trades/${leagueId}/posture",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "llm-budget",
+  "name": "llm budget",
+  "kind": "model",
+  "path": "server/services/llm-budget.js",
+  "lines": 400,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "ai_usage",
+   "app_settings",
+   "sqlite_master"
+  ],
+  "writes": [
+   "ai_usage",
+   "app_settings"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 74,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/claude.js"
+  ],
+  "liveImporters": [
+   "server/services/claude.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/services/claude.js",
+  "nonServerImporters": [
+   "test/llm-budget-per-league.test.js",
+   "test/llm-plumbing.test.js",
+   "test/trade-proposals.test.js"
+  ],
+  "evidence": [
+   "server/services/claude.js:7",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "manager-archetypes",
+  "name": "manager archetypes",
+  "kind": "model",
+  "path": "server/services/manager-archetypes.js",
+  "lines": 1044,
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "espn_player_market",
+   "league_draft_picks",
+   "league_season_teams",
+   "manager_archetype_jev",
+   "manager_archetypes",
+   "nfl_historical_adp",
+   "nfl_teams",
+   "player_week_usage",
+   "players"
+  ],
+  "writes": [
+   "manager_archetype_jev",
+   "manager_archetypes"
+  ],
+  "undeclaredTables": [
+   "league_draft_picks",
+   "league_season_teams"
+  ],
+  "handlerDirect": [
+   "/trade-brain /api/trades/${activeId}/managers/signals"
+  ],
+  "handlerTransitive": 1,
+  "pages": [
+   "/trade-brain"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [
+   {
+    "table": "league_draft_picks",
+    "where": "created nowhere in the repository, test files included"
+   },
+   {
+    "table": "league_season_teams",
+    "where": "created only in test/manager-signals-api.test.js:121 and scripts/backfill-league-history.mjs:48"
+   }
+  ],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/trades.js"
+  ],
+  "nonServerImporters": [
+   "test/manager-data-pipeline.test.js",
+   "test/manager-identity-seeding.test.js",
+   "test/manager-signals-api.test.js",
+   "test/trade-tactics.test.js",
+   "test/valuation-map.test.js"
+  ],
+  "evidence": [
+   "reached from /trade-brain /api/trades/${activeId}/managers/signals",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "matchups",
+  "name": "matchups",
+  "kind": "model",
+  "path": "server/services/matchups.js",
+  "lines": 498,
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "nfl_teams",
+   "player_gamelog",
+   "players",
+   "schedule_games"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/league /api/trades/${leagueId}/ceiling-lineup?team_id=${teamId}&week=${week}&trials=3000",
+   "/league /api/trades/${leagueId}/explain",
+   "/league /api/trades/${leagueId}/sense-check",
+   "/lineup /api/trades/${leagueId}/lineup?objective=${objective}",
+   "/lineup /api/trades/${leagueId}/posture",
+   "/lineup /api/trades/${leagueId}/rosters",
+   "/lineup /api/trades/${leagueId}/waivers",
+   "/teams/:abbr /api/nfl/${abbr}/schedule",
+   "/teams/:abbr /api/nfl/offseason/${abbr}",
+   "/trade-brain /api/trades/${leagueId}/proposals",
+   "/trade-lab /api/trades/${active}/rosters",
+   "/trade-lab /api/trades/${leagueId}/evaluate",
+   "/trade-lab /api/trades/${leagueId}/explain",
+   "/trade-lab /api/trades/${leagueId}/news-edge?team_id=${teamId}&hours=${hours}",
+   "/trade-lab /api/trades/${leagueId}/offer-many?team_id=${teamId}&player_ids=${ids}${exclude}",
+   "/trade-lab /api/trades/${leagueId}/offer?team_id=${teamId}&player_id=${picked.id}${exclude}",
+   "/trade-lab /api/trades/${leagueId}/sense-check",
+   "/trade-lab /api/trades/${leagueId}/title-trades?team_id=${teamId}&shortlist=6",
+   "/trade-lab /api/trades/dvp?position=${pos}"
+  ],
+  "handlerTransitive": 64,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/routes/nfldata.js",
+   "server/routes/trades.js",
+   "server/services/ceiling-lineup.js",
+   "server/services/football-context.js",
+   "server/services/season-sim.js",
+   "server/services/trade-engine.js",
+   "server/services/trade-horizon.js"
+  ],
+  "nonServerImporters": [
+   "test/decision-leftovers-home-away.test.js",
+   "test/matchups-no-signal.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/trades/${leagueId}/ceiling-lineup?team_id=${teamId}&week=${week}&trials=3000",
+   "reached from /league /api/trades/${leagueId}/explain",
+   "reached from /league /api/trades/${leagueId}/sense-check",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "news-fantasy-impact",
+  "name": "news fantasy impact",
+  "kind": "model",
+  "path": "server/services/news-fantasy-impact.js",
+  "lines": 153,
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "game_lines",
+   "player_week_snaps",
+   "player_week_usage"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/news /api/news/${id}",
+   "/news /api/news/signals${team ? ",
+   "/teams/:abbr /api/news/${n.id}"
+  ],
+  "handlerTransitive": 3,
+  "pages": [
+   "/news",
+   "/teams/:abbr"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/news.js"
+  ],
+  "nonServerImporters": [],
+  "evidence": [
+   "reached from /news /api/news/${id}",
+   "reached from /news /api/news/signals${team ? ",
+   "reached from /teams/:abbr /api/news/${n.id}",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "nfl-bitemporal",
+  "name": "nfl bitemporal",
+  "kind": "model",
+  "path": "server/services/nfl-bitemporal.js",
+  "lines": 255,
+  "status": "half_done",
+  "reason": "exists and has importers, but no consumer on a live surface: transitive import is not a consumer",
+  "reads": [
+   "nfl_depth",
+   "nfl_feature_revisions",
+   "nfl_injuries"
+  ],
+  "writes": [
+   "nfl_feature_revisions"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/nfl-advanced.js"
+  ],
+  "liveImporters": [],
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-advanced.js",
+  "nonServerImporters": [
+   "test/evidence-dataset.test.js",
+   "test/nfl-t60-packet.test.js",
+   "test/nfl-team-card-injury-cutoff.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-advanced.js:25",
+   "no importer of nfl-bitemporal.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "nfl-candidate-findings",
+  "name": "nfl candidate findings",
+  "kind": "model",
+  "path": "server/services/nfl-candidate-findings.js",
+  "lines": 422,
+  "status": "half_done",
+  "reason": "exists and has importers, but no consumer on a live surface: transitive import is not a consumer",
+  "reads": [
+   "nfl_blind_audit_runs",
+   "nfl_candidate_finding_seasons",
+   "nfl_candidate_findings"
+  ],
+  "writes": [
+   "nfl_candidate_finding_seasons",
+   "nfl_candidate_findings"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/nfl-auto-picks.js",
+   "server/services/nfl-model-growth.js"
+  ],
+  "liveImporters": [],
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-auto-picks.js, server/services/nfl-model-growth.js",
+  "nonServerImporters": [
+   "test/nfl-candidate-findings.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-auto-picks.js:12",
+   "server/services/nfl-model-growth.js:42",
+   "no importer of nfl-candidate-findings.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "nfl-drive-sim",
+  "name": "nfl drive sim",
+  "kind": "model",
+  "path": "server/services/nfl-drive-sim.js",
+  "lines": 1598,
+  "status": "half_done",
+  "reason": "reachable only through server/routes/nfl-betting.js, and no /api path that route file serves is requested by any client file App.tsx can reach",
+  "reads": [
+   "game_lines"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/betting/nfl/forecast/spread-family-adapters.js",
+   "server/routes/nfl-betting.js",
+   "server/services/nfl-espn-pbp.js",
+   "server/services/nfl-expert-council.js",
+   "server/services/nfl-live-ledger.js",
+   "server/services/nfl-unified-engine.js"
+  ],
+  "liveImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "scripts/calibrate-home-field-rate.mjs",
+   "scripts/opener-clv-measurement.mjs",
+   "test/model-integrity.test.js",
+   "test/nfl-drive-sim-clock-rules.test.js",
+   "test/nfl-drive-tape.test.js"
+  ],
+  "evidence": [
+   "server/betting/nfl/forecast/spread-family-adapters.js:93",
+   "server/routes/nfl-betting.js:1180",
+   "server/services/nfl-espn-pbp.js:32",
+   "server/services/nfl-expert-council.js:20",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
+ },
+ {
+  "id": "nfl-ensemble-rank",
+  "name": "nfl ensemble rank",
+  "kind": "model",
+  "path": "server/services/nfl-ensemble-rank.js",
+  "lines": 660,
+  "status": "half_done",
+  "reason": "no handler a routed page requests reaches it, transitively or otherwise",
+  "reads": [
+   "nfl_ensemble_rank_reports"
+  ],
+  "writes": [
+   "nfl_ensemble_rank_reports"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/forecast-combination.js"
+  ],
+  "nonServerImporters": [
+   "test/nfl-ensemble-rank.test.js"
+  ],
+  "evidence": [
+   "server/services/forecast-combination.js:41",
+   "no importer of nfl-ensemble-rank.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "nfl-ensemble",
+  "name": "nfl ensemble",
+  "kind": "model",
+  "path": "server/services/nfl-ensemble.js",
+  "lines": 2805,
+  "status": "half_done",
+  "reason": "reachable only through server/routes/nfl-betting.js, and no /api path that route file serves is requested by any client file App.tsx can reach",
+  "reads": [
+   "game_lines",
+   "nfl_ensemble_fit_artifacts",
+   "nfl_team_week_features"
+  ],
+  "writes": [
+   "nfl_ensemble_fit_artifacts"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/betting/nfl/forecast/spread-family-adapters.js",
+   "server/routes/nfl-betting.js",
+   "server/services/decision-basis.js",
+   "server/services/forecast-combination.js",
+   "server/services/joint-score-backtest.js",
+   "server/services/nfl-auto-picks.js",
+   "server/services/nfl-blind-audit.js",
+   "server/services/nfl-engine-backfill.js",
+   "server/services/nfl-ensemble-rank.js",
+   "server/services/nfl-expert-council.js",
+   "server/services/nfl-family-contribution.js",
+   "server/services/nfl-model-growth.js",
+   "server/services/nfl-online-neural.js",
+   "server/services/nfl-replay.js",
+   "server/services/nfl-research.js",
+   "server/services/nfl-t60-packet.js",
+   "server/services/nfl-unified-engine.js"
+  ],
+  "liveImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "scripts/_bottom-up-team-total-worker.mjs",
+   "scripts/measure-weather-split.mjs",
+   "scripts/opener-clv-measurement.mjs",
+   "test/ensemble-massey-ridge.test.js",
+   "test/ensemble-window-and-split.test.js",
+   "test/family-contribution-scoring.test.js",
+   "test/forecast-combination.test.js",
+   "test/model-integrity.test.js",
+   "test/nfl-ensemble-authority.test.js",
+   "test/nfl-ensemble-joint-residual.test.js",
+   "test/nfl-ensemble-joint-weighting.test.js",
+   "test/nfl-ensemble-market-correction-component.test.js",
+   "test/nfl-ensemble-opponent-adjustment.test.js",
+   "test/nfl-ensemble-point-conversion.test.js",
+   "test/nfl-market-identity-rich.test.js",
+   "test/nfl-market-identity.test.js",
+   "test/nfl-moneyline-domain.test.js",
+   "test/nfl-t60-packet.test.js",
+   "test/nfl-weather-per-team-response.test.js",
+   "test/spread-family-adapters.test.js",
+   "test/t60-packet-sourced-board.test.js"
+  ],
+  "evidence": [
+   "server/betting/nfl/forecast/spread-family-adapters.js:92",
+   "server/routes/nfl-betting.js:34",
+   "server/services/decision-basis.js:129",
+   "server/services/forecast-combination.js:40",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
+ },
+ {
+  "id": "nfl-espn-pbp",
+  "name": "nfl espn pbp",
+  "kind": "model",
+  "path": "server/services/nfl-espn-pbp.js",
+  "lines": 639,
+  "status": "half_done",
+  "reason": "reachable only through server/routes/nfl-betting.js, and no /api path that route file serves is requested by any client file App.tsx can reach",
+  "reads": [
+   "game_lines",
+   "nfl_play_by_play"
+  ],
+  "writes": [
+   "nfl_play_by_play"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-betting.js",
+   "server/services/live-edge.js",
+   "server/services/scheduler.js"
+  ],
+  "liveImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [],
+  "evidence": [
+   "server/routes/nfl-betting.js:1264",
+   "server/services/live-edge.js:179",
+   "server/services/scheduler.js:1351",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
+ },
+ {
+  "id": "nfl-expert-coordinator",
+  "name": "nfl expert coordinator",
+  "kind": "model",
+  "path": "server/services/nfl-expert-coordinator.js",
+  "lines": 449,
+  "status": "half_done",
+  "reason": "exists and has importers, but no consumer on a live surface: transitive import is not a consumer",
+  "reads": [
+   "game_lines",
+   "nfl_expert_forward_predictions",
+   "nfl_expert_forward_settlements",
+   "nfl_game_variance",
+   "nfl_weekly_expert_examples"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/nfl-expert-council.js",
+   "server/services/nfl-specialist-audit.js"
+  ],
+  "liveImporters": [],
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-expert-council.js, server/services/nfl-specialist-audit.js",
+  "nonServerImporters": [
+   "test/contextual-coordinator.test.js",
+   "test/coordinator-shrinkage.test.js",
+   "test/model-integrity.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-expert-council.js:19",
+   "server/services/nfl-specialist-audit.js:19",
+   "no importer of nfl-expert-coordinator.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "nfl-expert-council",
+  "name": "nfl expert council",
+  "kind": "model",
+  "path": "server/services/nfl-expert-council.js",
+  "lines": 899,
+  "status": "half_done",
+  "reason": "reachable only through server/routes/nfl-betting.js, and no /api path that route file serves is requested by any client file App.tsx can reach",
+  "reads": [
+   "game_lines",
+   "news_items",
+   "nfl_expert_forward_predictions",
+   "nfl_expert_forward_settlements",
+   "nfl_line_snapshots",
+   "nfl_live_possession_predictions",
+   "nfl_live_possession_settlements",
+   "nfl_pick_decisions",
+   "nfl_player_week_features",
+   "nfl_teams",
+   "nfl_weekly_expert_examples"
+  ],
+  "writes": [
+   "nfl_expert_forward_predictions",
+   "nfl_expert_forward_settlements",
+   "nfl_weekly_expert_examples"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-betting.js",
+   "server/services/evidence-daemon.js",
+   "server/services/nfl-blind-audit.js",
+   "server/services/nfl-diagnostic.js",
+   "server/services/nfl-expert-coordinator.js",
+   "server/services/nfl-model-growth.js",
+   "server/services/nfl-slice-diagnostic.js",
+   "server/services/nfl-specialist-audit.js",
+   "server/services/nfl-unified-engine.js",
+   "server/services/page-explain-tools.js",
+   "server/services/scheduler.js"
+  ],
+  "liveImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "test/blind-audit-lookback.test.js",
+   "test/coordinator-shrinkage.test.js",
+   "test/evidence-provenance.test.js",
+   "test/model-integrity.test.js",
+   "test/nfl-expert-council-news-feed-cutoff.test.js",
+   "test/nfl-expert-council-shopping-receipt-cutoff.test.js",
+   "test/nfl-slice-diagnostic.test.js",
+   "test/price-shopper-archive.test.js"
+  ],
+  "evidence": [
+   "server/routes/nfl-betting.js:84",
+   "server/services/evidence-daemon.js:19",
+   "server/services/nfl-blind-audit.js:25",
+   "server/services/nfl-diagnostic.js:13",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
+ },
+ {
+  "id": "nfl-external-ratings",
+  "name": "nfl external ratings",
+  "kind": "model",
+  "path": "server/services/nfl-external-ratings.js",
+  "lines": 278,
+  "status": "half_done",
+  "reason": "reachable only through server/routes/nfl-market.js, and no /api path that route file serves is requested by any client file App.tsx can reach",
+  "reads": [
+   "game_lines",
+   "nfl_external_ratings"
+  ],
+  "writes": [
+   "nfl_external_ratings"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-market.js",
+   "server/services/beat-the-close.js",
+   "server/services/line-move-study.js",
+   "server/services/nfl-matchup-specialists.js",
+   "server/services/scheduler.js"
+  ],
+  "liveImporters": [
+   "server/routes/nfl-market.js"
+  ],
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "test/nfl-external-ratings.test.js"
+  ],
+  "evidence": [
+   "server/routes/nfl-market.js:20",
+   "server/services/beat-the-close.js:35",
+   "server/services/line-move-study.js:33",
+   "server/services/nfl-matchup-specialists.js:29",
+   "server/routes/nfl-market.js is mounted at server/index.js:139, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
+ },
+ {
+  "id": "nfl-family-contribution",
+  "name": "nfl family contribution",
+  "kind": "model",
+  "path": "server/services/nfl-family-contribution.js",
+  "lines": 445,
+  "status": "half_done",
+  "reason": "reachable only from server/index.js (a job surface); no handler a routed page requests names it or pulls it in",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "nonServerImporters": [
+   "test/family-contribution-scoring.test.js",
+   "test/nfl-family-contribution.test.js"
+  ],
+  "evidence": [
+   "server/routes/nfl-betting.js:1451",
+   "no importer of nfl-family-contribution.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "nfl-forecast-identity",
+  "name": "nfl forecast identity",
+  "kind": "model",
+  "path": "server/services/nfl-forecast-identity.js",
+  "lines": 141,
+  "status": "half_done",
+  "reason": "exists and has importers, but no consumer on a live surface: transitive import is not a consumer",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/nfl-auto-picks.js",
+   "server/services/nfl-coordination-audit.js",
+   "server/services/nfl-cover-calibration.js",
+   "server/services/nfl-ensemble.js"
+  ],
+  "liveImporters": [],
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-auto-picks.js, server/services/nfl-coordination-audit.js, server/services/nfl-cover-calibration.js, server/services/nfl-ensemble.js",
+  "nonServerImporters": [
+   "test/nfl-cover-identity.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-auto-picks.js:16",
+   "server/services/nfl-coordination-audit.js:3",
+   "server/services/nfl-cover-calibration.js:4",
+   "server/services/nfl-ensemble.js:33",
+   "no importer of nfl-forecast-identity.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "nfl-gbm",
+  "name": "nfl gbm",
+  "kind": "model",
+  "path": "server/services/nfl-gbm.js",
+  "lines": 322,
+  "status": "half_done",
+  "reason": "reachable only through server/routes/nfl-betting.js, and no /api path that route file serves is requested by any client file App.tsx can reach",
+  "reads": [
+   "game_lines",
+   "nfl_game_weather",
+   "nfl_team_week_features"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-betting.js",
+   "server/services/boom-bust.js",
+   "server/services/nfl-expert-council.js",
+   "server/services/nfl-team-strength.js",
+   "server/services/offseason-model.js"
+  ],
+  "liveImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "test/nfl-gbm-weather-fallback.test.js",
+   "test/nfl-team-strength.test.js"
+  ],
+  "evidence": [
+   "server/routes/nfl-betting.js:1595",
+   "server/services/boom-bust.js:73",
+   "server/services/nfl-expert-council.js:14",
+   "server/services/nfl-team-strength.js:52",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
+ },
+ {
+  "id": "nfl-news-event-impact",
+  "name": "nfl news event impact",
+  "kind": "model",
+  "path": "server/services/nfl-news-event-impact.js",
+  "lines": 340,
+  "status": "dead",
+  "reason": "imported by no file in server/ at 654ff93, and named by no handler",
+  "reads": [
+   "nfl_news_events",
+   "nfl_quote_tape",
+   "nfl_teams"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "importers": 0,
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": [
+   "scripts/run-news-event-impact.mjs",
+   "test/nfl-news-event-impact.test.js"
+  ],
+  "evidence": [
+   "grep for an import of nfl-news-event-impact.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "scripts/run-news-event-impact.mjs:31",
+   "test/nfl-news-event-impact.test.js:17"
+  ]
+ },
+ {
+  "id": "nfl-offseason-change",
+  "name": "nfl offseason change",
+  "kind": "model",
+  "path": "server/services/nfl-offseason-change.js",
+  "lines": 356,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "nfl_teams",
+   "player_week_usage"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 12,
+  "pages": [
+   "/draft",
+   "/league",
+   "/live-draft/:id",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-betting.js",
+   "server/services/draft-assist.js"
+  ],
+  "liveImporters": [
+   "server/services/draft-assist.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/routes/nfl-betting.js, server/services/draft-assist.js",
+  "nonServerImporters": [],
+  "evidence": [
+   "server/services/draft-assist.js:22",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "nfl-online-neural",
+  "name": "nfl online neural",
+  "kind": "model",
+  "path": "server/services/nfl-online-neural.js",
+  "lines": 368,
+  "status": "half_done",
+  "reason": "reachable only through server/routes/nfl-betting.js, and no /api path that route file serves is requested by any client file App.tsx can reach",
+  "reads": [
+   "game_lines",
+   "nfl_online_neural_artifacts",
+   "nfl_online_neural_examples"
+  ],
+  "writes": [
+   "nfl_online_neural_artifacts",
+   "nfl_online_neural_examples"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-betting.js",
+   "server/services/evidence-daemon.js",
+   "server/services/nfl-auto-picks.js",
+   "server/services/nfl-coordination-audit.js",
+   "server/services/nfl-expert-council.js",
+   "server/services/nfl-model-growth.js",
+   "server/services/nfl-profitability.js",
+   "server/services/nfl-replay.js"
+  ],
+  "liveImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "test/model-integrity.test.js",
+   "test/week1-readiness.test.js"
+  ],
+  "evidence": [
+   "server/routes/nfl-betting.js:65",
+   "server/services/evidence-daemon.js:17",
+   "server/services/nfl-auto-picks.js:14",
+   "server/services/nfl-coordination-audit.js:4",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
+ },
+ {
+  "id": "nfl-orthogonal-specialists",
+  "name": "nfl orthogonal specialists",
+  "kind": "model",
+  "path": "server/services/nfl-orthogonal-specialists.js",
+  "lines": 259,
+  "status": "half_done",
+  "reason": "exists and has importers, but no consumer on a live surface: transitive import is not a consumer",
+  "reads": [
+   "game_lines",
+   "nfl_orthogonal_specialist_artifacts",
+   "nfl_team_cards"
+  ],
+  "writes": [
+   "nfl_orthogonal_specialist_artifacts"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/nfl-expert-council.js",
+   "server/services/nfl-model-growth.js"
+  ],
+  "liveImporters": [],
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-expert-council.js, server/services/nfl-model-growth.js",
+  "nonServerImporters": [
+   "scripts/nfl-2022-2025-rebuild.mjs",
+   "test/nfl-orthogonal-specialists.test.js",
+   "test/nfl-weekly-state.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-expert-council.js:26",
+   "server/services/nfl-model-growth.js:39",
+   "no importer of nfl-orthogonal-specialists.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "nfl-player-value",
+  "name": "nfl player value",
+  "kind": "model",
+  "path": "server/services/nfl-player-value.js",
+  "lines": 386,
+  "status": "half_done",
+  "reason": "reachable only through server/routes/nfl-betting.js, and no /api path that route file serves is requested by any client file App.tsx can reach",
+  "reads": [
+   "game_lines",
+   "nfl_depth",
+   "nfl_injuries",
+   "nfl_ngs",
+   "nfl_pfr_adv",
+   "nfl_player_week_features",
+   "nfl_pregame_snapshot_history",
+   "nfl_snaps"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/betting/nfl/forecast/spread-family-adapters.js",
+   "server/routes/nfl-betting.js",
+   "server/services/nfl-availability.js",
+   "server/services/nfl-ensemble.js",
+   "server/services/nfl-expert-council.js",
+   "server/services/nfl-model-growth.js",
+   "server/services/nfl-qb-quality.js"
+  ],
+  "liveImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "scripts/opener-clv-pass2.mjs",
+   "test/model-integrity.test.js"
+  ],
+  "evidence": [
+   "server/betting/nfl/forecast/spread-family-adapters.js:94",
+   "server/routes/nfl-betting.js:47",
+   "server/services/nfl-availability.js:28",
+   "server/services/nfl-ensemble.js:34",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
+ },
+ {
+  "id": "nfl-policy",
+  "name": "nfl policy",
+  "kind": "model",
+  "path": "server/services/nfl-policy.js",
+  "lines": 269,
+  "status": "half_done",
+  "reason": "reachable only through server/routes/nfl-market.js, and no /api path that route file serves is requested by any client file App.tsx can reach",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/betting/nfl/strategy/t60-runner.js",
+   "server/routes/nfl-market.js",
+   "server/services/nfl-auto-picks.js",
+   "server/services/nfl-blind-audit.js",
+   "server/services/nfl-candidate-analysis.js",
+   "server/services/nfl-diagnostic.js",
+   "server/services/nfl-evidence.js",
+   "server/services/nfl-execution-decision.js",
+   "server/services/nfl-execution-pipeline.js",
+   "server/services/nfl-experiments.js",
+   "server/services/nfl-profitability.js",
+   "server/services/nfl-replay.js",
+   "server/services/nfl-research.js",
+   "server/services/scheduler.js"
+  ],
+  "liveImporters": [
+   "server/routes/nfl-market.js"
+  ],
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "test/model-integrity.test.js",
+   "test/nfl-decision-identity-pipeline.test.js",
+   "test/nfl-execution-decision.test.js",
+   "test/nfl-moneyline-domain.test.js",
+   "test/nfl-policy-contract.test.js",
+   "test/nfl-replay-error-analysis.test.js"
+  ],
+  "evidence": [
+   "server/betting/nfl/strategy/t60-runner.js:49",
+   "server/routes/nfl-market.js:8",
+   "server/services/nfl-auto-picks.js:10",
+   "server/services/nfl-blind-audit.js:21",
+   "server/routes/nfl-market.js is mounted at server/index.js:139, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
+ },
+ {
+  "id": "nfl-preseason-blend",
+  "name": "nfl preseason blend",
+  "kind": "model",
+  "path": "server/services/nfl-preseason-blend.js",
+  "lines": 411,
+  "status": "dead",
+  "reason": "imported by no file in server/ at 654ff93, and named by no handler",
+  "reads": [
+   "game_lines",
+   "player_team_changes"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "importers": 0,
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": [
+   "test/nfl-preseason-blend.test.js",
+   "test/preseason-blend-cutoff.test.js"
+  ],
+  "evidence": [
+   "grep for an import of nfl-preseason-blend.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "test/nfl-preseason-blend.test.js:46",
+   "test/preseason-blend-cutoff.test.js:48"
+  ]
+ },
+ {
+  "id": "nfl-replay",
+  "name": "nfl replay",
+  "kind": "model",
+  "path": "server/services/nfl-replay.js",
+  "lines": 1495,
+  "status": "half_done",
+  "reason": "reachable only through server/routes/nfl-betting.js, server/routes/nfl-market.js, and no /api path that route file serves is requested by any client file App.tsx can reach",
+  "reads": [
+   "game_lines",
+   "nfl_candidate_input_audits",
+   "nfl_decision_runs",
+   "nfl_neural_replay_audits",
+   "nfl_policy_audits"
+  ],
+  "writes": [
+   "nfl_candidate_input_audits",
+   "nfl_neural_replay_audits",
+   "nfl_policy_audits",
+   "nfl_replay_bets",
+   "nfl_replay_runs"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-betting.js",
+   "server/routes/nfl-market.js",
+   "server/services/decision-basis.js",
+   "server/services/model-intelligence.js",
+   "server/services/nfl-abstention-audit.js",
+   "server/services/nfl-ai-replay.js",
+   "server/services/nfl-audit-overview.js",
+   "server/services/nfl-blind-audit.js",
+   "server/services/nfl-candidate-analysis.js",
+   "server/services/nfl-candidate-findings.js",
+   "server/services/nfl-cover-calibration.js",
+   "server/services/nfl-diagnostic.js",
+   "server/services/nfl-experiments.js",
+   "server/services/nfl-family-contribution.js",
+   "server/services/nfl-research.js",
+   "server/services/pick-confidence.js"
+  ],
+  "liveImporters": [
+   "server/routes/nfl-betting.js",
+   "server/routes/nfl-market.js"
+  ],
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "test/model-integrity.test.js",
+   "test/nfl-moneyline-domain.test.js",
+   "test/nfl-replay-error-analysis.test.js",
+   "test/nfl-replay-graph.test.js",
+   "test/nfl-replay-opener-disclosure.test.js",
+   "test/nfl-replay-qualitative-segments.test.js",
+   "test/nfl-rolling-leaders.test.js",
+   "test/paired-bootstrap-clustering.test.js"
+  ],
+  "evidence": [
+   "server/routes/nfl-betting.js:36",
+   "server/routes/nfl-market.js:10",
+   "server/services/decision-basis.js:128",
+   "server/services/model-intelligence.js:8",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches",
+   "server/routes/nfl-market.js is mounted at server/index.js:139, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
+ },
+ {
+  "id": "nfl-rookies",
+  "name": "nfl rookies",
+  "kind": "model",
+  "path": "server/services/nfl-rookies.js",
+  "lines": 369,
+  "status": "half_done",
+  "reason": "reachable only through server/routes/nfl-betting.js, and no /api path that route file serves is requested by any client file App.tsx can reach",
+  "reads": [
+   "nfl_depth",
+   "nfl_rookie_evidence",
+   "player_accolades",
+   "player_week_usage",
+   "players",
+   "roster_players"
+  ],
+  "writes": [
+   "nfl_rookie_evidence"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-betting.js",
+   "server/services/nfl-rookie-ingest.js",
+   "server/services/nfl-roster-strength.js"
+  ],
+  "liveImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [],
+  "evidence": [
+   "server/routes/nfl-betting.js:632",
+   "server/services/nfl-rookie-ingest.js:10",
+   "server/services/nfl-roster-strength.js:15",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
+ },
+ {
+  "id": "nfl-roster-strength",
+  "name": "nfl roster strength",
+  "kind": "model",
+  "path": "server/services/nfl-roster-strength.js",
+  "lines": 425,
+  "status": "half_done",
+  "reason": "reachable only through server/routes/nfl-betting.js, and no /api path that route file serves is requested by any client file App.tsx can reach",
+  "reads": [
+   "game_lines",
+   "nfl_depth",
+   "nfl_external_player_grades",
+   "nfl_player_roster_events",
+   "nfl_player_week_features",
+   "nfl_rookie_evidence",
+   "nfl_snaps",
+   "nfl_teams",
+   "player_accolades",
+   "player_team_changes",
+   "players",
+   "roster_players"
+  ],
+  "writes": [
+   "nfl_external_player_grades"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/betting/nfl/forecast/spread-family-adapters.js",
+   "server/routes/nfl-betting.js",
+   "server/services/nfl-ensemble.js",
+   "server/services/nfl-expert-council.js",
+   "server/services/nfl-team-card.js"
+  ],
+  "liveImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "scripts/opener-clv-pass2.mjs",
+   "test/model-integrity.test.js",
+   "test/nfl-roster-strength-pff-normalization.test.js"
+  ],
+  "evidence": [
+   "server/betting/nfl/forecast/spread-family-adapters.js:95",
+   "server/routes/nfl-betting.js:76",
+   "server/services/nfl-ensemble.js:36",
+   "server/services/nfl-expert-council.js:24",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
+ },
+ {
+  "id": "nfl-specialists",
+  "name": "nfl specialists",
+  "kind": "model",
+  "path": "server/services/nfl-specialists.js",
+  "lines": 620,
+  "status": "half_done",
+  "reason": "reachable only through server/routes/nfl-betting.js, and no /api path that route file serves is requested by any client file App.tsx can reach",
+  "reads": [
+   "game_lines",
+   "news_items",
+   "nfl_line_snapshots",
+   "nfl_team_week_features",
+   "nfl_teams"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-betting.js",
+   "server/services/nfl-rookies.js"
+  ],
+  "liveImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "test/nfl-model-fixes.test.js"
+  ],
+  "evidence": [
+   "server/routes/nfl-betting.js:1438",
+   "server/services/nfl-rookies.js:38",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
+ },
+ {
+  "id": "nfl-team-strength",
+  "name": "nfl team strength",
+  "kind": "model",
+  "path": "server/services/nfl-team-strength.js",
+  "lines": 481,
+  "status": "dead",
+  "reason": "imported by no file in server/ at 654ff93, and named by no handler",
+  "reads": [
+   "off_team_season"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "importers": 0,
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": [
+   "test/nfl-team-strength.test.js"
+  ],
+  "evidence": [
+   "grep for an import of nfl-team-strength.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "test/nfl-team-strength.test.js:6"
+  ]
+ },
+ {
+  "id": "nfl-team-tendencies",
+  "name": "nfl team tendencies",
+  "kind": "model",
+  "path": "server/services/nfl-team-tendencies.js",
+  "lines": 182,
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "nfl_team_week_features"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/teams/:abbr /api/teams/${abbr}/tendencies"
+  ],
+  "handlerTransitive": 1,
+  "pages": [
+   "/teams/:abbr"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/teams.js"
+  ],
+  "nonServerImporters": [],
+  "evidence": [
+   "reached from /teams/:abbr /api/teams/${abbr}/tendencies",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "nfl-teamrankings-lookup",
+  "name": "nfl teamrankings lookup",
+  "kind": "model",
+  "path": "server/services/nfl-teamrankings-lookup.js",
+  "lines": 91,
+  "status": "half_done",
+  "reason": "exists and has importers, but no consumer on a live surface: transitive import is not a consumer",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/nfl-ensemble.js"
+  ],
+  "liveImporters": [],
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-ensemble.js",
+  "nonServerImporters": [
+   "test/nfl-teamrankings-lookup.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-ensemble.js:27",
+   "no importer of nfl-teamrankings-lookup.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "nfl-unified-engine",
+  "name": "nfl unified engine",
+  "kind": "model",
+  "path": "server/services/nfl-unified-engine.js",
+  "lines": 97,
+  "status": "half_done",
+  "reason": "reachable only from server/index.js (a job surface); no handler a routed page requests names it or pulls it in",
+  "reads": [
+   "game_lines"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "nonServerImporters": [],
+  "evidence": [
+   "server/routes/nfl-betting.js:73",
+   "no importer of nfl-unified-engine.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "nfl-weather-history",
+  "name": "nfl weather history",
+  "kind": "model",
+  "path": "server/services/nfl-weather-history.js",
+  "lines": 134,
+  "status": "half_done",
+  "reason": "reachable only through server/routes/nfl-market.js, and no /api path that route file serves is requested by any client file App.tsx can reach",
+  "reads": [
+   "game_lines",
+   "nfl_game_weather_forecast_history"
+  ],
+  "writes": [
+   "nfl_game_weather_forecast_history"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-market.js",
+   "server/services/line-move-study.js",
+   "server/services/scheduler.js"
+  ],
+  "liveImporters": [
+   "server/routes/nfl-market.js"
+  ],
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "test/nfl-weather-history.test.js"
+  ],
+  "evidence": [
+   "server/routes/nfl-market.js:21",
+   "server/services/line-move-study.js:31",
+   "server/services/scheduler.js:526",
+   "server/routes/nfl-market.js is mounted at server/index.js:139, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
+ },
+ {
+  "id": "nfl-weather",
+  "name": "nfl weather",
+  "kind": "model",
+  "path": "server/services/nfl-weather.js",
+  "lines": 138,
+  "status": "half_done",
+  "reason": "exists and has importers, but no consumer on a live surface: transitive import is not a consumer",
+  "reads": [
+   "game_lines",
+   "nfl_game_weather"
+  ],
+  "writes": [
+   "nfl_game_weather"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/beat-the-close.js",
+   "server/services/line-move-study.js",
+   "server/services/nfl-weather-history.js",
+   "server/services/scheduler.js"
+  ],
+  "liveImporters": [],
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/beat-the-close.js, server/services/line-move-study.js, server/services/nfl-weather-history.js, server/services/scheduler.js",
+  "nonServerImporters": [
+   "test/nfl-gbm-weather-fallback.test.js",
+   "test/nfl-weather-forecast.test.js"
+  ],
+  "evidence": [
+   "server/services/beat-the-close.js:33",
+   "server/services/line-move-study.js:30",
+   "server/services/nfl-weather-history.js:20",
+   "server/services/scheduler.js:546",
+   "no importer of nfl-weather.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "nflverse",
+  "name": "nflverse",
+  "kind": "model",
+  "path": "server/services/nflverse.js",
+  "lines": 333,
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "nfl_player_week_features",
+   "nflverse_player_positions",
+   "player_week_usage",
+   "players"
+  ],
+  "writes": [
+   "nfl_player_week_features",
+   "nflverse_player_positions",
+   "player_week_snaps",
+   "player_week_usage",
+   "players"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/league /api/model/${leagueId}/trade-impact",
+   "/trade-lab /api/model/${leagueId}/trade-impact"
+  ],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/routes/nfl-betting.js",
+   "server/routes/props.js",
+   "server/services/boom-bust.js",
+   "server/services/ffopportunity.js",
+   "server/services/gamescript.js",
+   "server/services/nfl-engine-backfill.js",
+   "server/services/nfl-event-archive.js",
+   "server/services/nfl-model-growth.js",
+   "server/services/nfl-officials.js",
+   "server/services/nfl-qbr.js",
+   "server/services/nfl-rookie-ingest.js",
+   "server/services/offseason-data.js",
+   "server/services/scheduler.js"
+  ],
+  "nonServerImporters": [
+   "test/boom-bust.test.js",
+   "test/dynasty-age-curve.test.js",
+   "test/model-integrity.test.js",
+   "test/offseason-data.test.js",
+   "test/ros-projection.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "offseason-model",
+  "name": "offseason model",
+  "kind": "model",
+  "path": "server/services/offseason-model.js",
+  "lines": 1940,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "game_lines",
+   "nfl_depth",
+   "nfl_injuries",
+   "nfl_player_week_features",
+   "nfl_roster_snapshots",
+   "nfl_team_coaches",
+   "nflverse_player_positions",
+   "off_player_season_features",
+   "players"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/lineup-brain.js",
+   "server/services/nfl-props-player-features-weekly.js",
+   "server/services/nfl-props-player-features.js",
+   "server/services/nfl-team-strength.js",
+   "server/services/trade-engine.js"
+  ],
+  "liveImporters": [
+   "server/services/lineup-brain.js",
+   "server/services/trade-engine.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/services/lineup-brain.js, server/services/trade-engine.js",
+  "nonServerImporters": [
+   "test/offseason-model.test.js"
+  ],
+  "evidence": [
+   "server/services/lineup-brain.js:46",
+   "server/services/trade-engine.js:84",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "opportunity-model",
+  "name": "opportunity model",
+  "kind": "model",
+  "path": "server/services/opportunity-model.js",
+  "lines": 426,
+  "status": "dead",
+  "reason": "imported by no file in server/ at 654ff93, and named by no handler",
+  "reads": [
+   "game_lines",
+   "nfl_ffopportunity_weekly",
+   "nfl_injuries",
+   "player_week_snaps",
+   "player_week_usage",
+   "players"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "importers": 0,
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": [
+   "scripts/study-opportunity-volume.mjs",
+   "test/opportunity-model.test.js"
+  ],
+  "evidence": [
+   "grep for an import of opportunity-model.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "scripts/study-opportunity-volume.mjs:17",
+   "test/opportunity-model.test.js:31"
+  ]
+ },
+ {
+  "id": "opportunity-redistribution",
+  "name": "opportunity redistribution",
+  "kind": "model",
+  "path": "server/services/opportunity-redistribution.js",
+  "lines": 269,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "player_week_usage",
+   "players"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/player-week-engine.js"
+  ],
+  "liveImporters": [
+   "server/services/player-week-engine.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/services/player-week-engine.js",
+  "nonServerImporters": [],
+  "evidence": [
+   "server/services/player-week-engine.js:14",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "pick-confidence",
+  "name": "pick confidence",
+  "kind": "model",
+  "path": "server/services/pick-confidence.js",
+  "lines": 279,
+  "status": "half_done",
+  "reason": "reachable only through server/routes/nfl-betting.js, and no /api path that route file serves is requested by any client file App.tsx can reach",
+  "reads": [
+   "game_lines"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-betting.js",
+   "server/services/forward-ledger.js"
+  ],
+  "liveImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [],
+  "evidence": [
+   "server/routes/nfl-betting.js:7",
+   "server/services/forward-ledger.js:273",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
+ },
+ {
+  "id": "picks",
+  "name": "picks",
+  "kind": "model",
+  "path": "server/services/picks.js",
+  "lines": 119,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "pick_values"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/tradelab.js",
+   "server/services/trade-engine.js"
+  ],
+  "liveImporters": [
+   "server/services/trade-engine.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/routes/tradelab.js, server/services/trade-engine.js",
+  "nonServerImporters": [],
+  "evidence": [
+   "server/services/trade-engine.js:57",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "player-career",
+  "name": "player career",
+  "kind": "model",
+  "path": "server/services/player-career.js",
+  "lines": 323,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "nfl_player_week_features",
+   "player_season_stats",
+   "players",
+   "sqlite_master"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/lineup-brain.js",
+   "server/services/nfl-props-player-features.js",
+   "server/services/trade-engine.js"
+  ],
+  "liveImporters": [
+   "server/services/lineup-brain.js",
+   "server/services/trade-engine.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/services/lineup-brain.js, server/services/trade-engine.js",
+  "nonServerImporters": [
+   "test/player-career.test.js"
+  ],
+  "evidence": [
+   "server/services/lineup-brain.js:44",
+   "server/services/trade-engine.js:82",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "player-case",
+  "name": "player case",
+  "kind": "model",
+  "path": "server/services/player-case.js",
+  "lines": 321,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "game_lines"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 3,
+  "pages": [
+   "/league",
+   "/lineup"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/lineup-brain.js"
+  ],
+  "liveImporters": [
+   "server/services/lineup-brain.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/services/lineup-brain.js",
+  "nonServerImporters": [],
+  "evidence": [
+   "server/services/lineup-brain.js:43",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "player-week-engine",
+  "name": "player week engine",
+  "kind": "model",
+  "path": "server/services/player-week-engine.js",
+  "lines": 817,
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "game_lines",
+   "nfl_depth",
+   "nfl_player_week_features",
+   "player_week_usage"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/league /api/model/${leagueId}/trade-impact",
+   "/trade-lab /api/model/${leagueId}/trade-impact"
+  ],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/services/betting-fantasy-link.js",
+   "server/services/bottom-up-team-total.js",
+   "server/services/fantasy-coordinator.js",
+   "server/services/news-fantasy-impact.js",
+   "server/services/nfl-blind-audit.js",
+   "server/services/nfl-context-heads.js",
+   "server/services/nfl-expert-council.js",
+   "server/services/nfl-model-growth.js",
+   "server/services/nfl-prop-head-validation.js",
+   "server/services/nfl-props.js",
+   "server/services/role-scenario-engine.js",
+   "server/services/role-scenario-lab.js",
+   "server/services/trade-engine.js",
+   "server/services/weekly-learning.js"
+  ],
+  "nonServerImporters": [
+   "scripts/_bottom-up-team-total-worker.mjs",
+   "scripts/_recheck-variance-only.mjs",
+   "test/model-integrity.test.js",
+   "test/player-week-distribution.test.js",
+   "test/player-week-engine-weights.test.js",
+   "test/prediction-log-served-model.test.js",
+   "test/props-team-volume-dispersion.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "preseason-model",
+  "name": "preseason model",
+  "kind": "model",
+  "path": "server/services/preseason-model.js",
+  "lines": 1153,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "espn_player_market",
+   "nfl_depth",
+   "nfl_ffopportunity_weekly",
+   "nfl_historical_adp",
+   "nfl_injuries",
+   "nfl_player_week_features",
+   "nfl_roster_snapshots",
+   "nflverse_player_positions",
+   "off_player_season_features",
+   "players"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/consensus-weights.js",
+   "server/services/draft-abstention-audit.js",
+   "server/services/draft-assist.js",
+   "server/services/draft-lookahead.js",
+   "server/services/lineup-brain.js",
+   "server/services/nfl-props-player-features.js",
+   "server/services/nfl-team-strength.js",
+   "server/services/ros-projection.js",
+   "server/services/trade-engine.js"
+  ],
+  "liveImporters": [
+   "server/services/draft-assist.js",
+   "server/services/draft-lookahead.js",
+   "server/services/lineup-brain.js",
+   "server/services/trade-engine.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/services/draft-assist.js, server/services/draft-lookahead.js, server/services/lineup-brain.js, server/services/trade-engine.js",
+  "nonServerImporters": [
+   "test/consensus-weights.test.js",
+   "test/draft-abstention-audit.test.js",
+   "test/preseason-band-calibration.test.js",
+   "test/preseason-model.test.js"
+  ],
+  "evidence": [
+   "server/services/draft-assist.js:24",
+   "server/services/draft-lookahead.js:64",
+   "server/services/lineup-brain.js:45",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "projections",
+  "name": "projections",
+  "kind": "model",
+  "path": "server/services/projections.js",
+  "lines": 986,
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "nfl_player_week_features",
+   "player_week_usage",
+   "players"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/league /api/model/${leagueId}/trade-impact",
+   "/trade-lab /api/model/${leagueId}/trade-impact"
+  ],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/services/ceiling-lineup.js",
+   "server/services/draft-assist.js",
+   "server/services/player-week-engine.js",
+   "server/services/preseason-model.js",
+   "server/services/role-scenario-engine.js",
+   "server/services/ros-projection.js",
+   "server/services/season-sim.js",
+   "server/services/shrinkage-fit.js",
+   "server/services/trade-engine.js",
+   "server/services/week-postmortem.js",
+   "server/services/weekly-backtest.js"
+  ],
+  "nonServerImporters": [
+   "scripts/analyze-qbr-fantasy-signal.mjs",
+   "scripts/fit-level-uncertainty.mjs",
+   "scripts/fit-posture-calibration.mjs",
+   "scripts/fit-ros-projection.mjs",
+   "scripts/fit-shrinkage.mjs",
+   "scripts/fit-weekly-coverage.mjs",
+   "scripts/freeze-baseline.mjs",
+   "scripts/promote-volume-shrinkage.mjs",
+   "scripts/verify-qbr-integration.mjs",
+   "test/decision-leftovers-home-away.test.js",
+   "test/player-week-engine-weights.test.js",
+   "test/prediction-log-served-model.test.js",
+   "test/qbr-projection-signal.test.js",
+   "test/ros-projection-failures.test.js",
+   "test/weekly-level.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "purged-walk-forward",
+  "name": "purged walk forward",
+  "kind": "model",
+  "path": "server/services/purged-walk-forward.js",
+  "lines": 151,
+  "status": "dead",
+  "reason": "imported by no file in server/ at 654ff93, and named by no handler",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "importers": 0,
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": [
+   "test/purged-walk-forward.test.js"
+  ],
+  "evidence": [
+   "grep for an import of purged-walk-forward.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "test/purged-walk-forward.test.js:4"
+  ]
+ },
+ {
+  "id": "research-trials",
+  "name": "research trials",
+  "kind": "model",
+  "path": "server/services/research-trials.js",
+  "lines": 118,
+  "status": "half_done",
+  "reason": "reachable only from server/index.js (a job surface); no handler a routed page requests names it or pulls it in",
+  "reads": [
+   "research_trials"
+  ],
+  "writes": [
+   "research_trials"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/nfl-research.js"
+  ],
+  "nonServerImporters": [
+   "scripts/backfill-historical-trial-registry.mjs",
+   "scripts/run-historical-leaderboard.mjs",
+   "scripts/run-purged-evaluation.mjs",
+   "test/nfl-operations-overfitting-gate.test.js",
+   "test/research-trials.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-research.js:14",
+   "no importer of research-trials.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "role-scenario-engine",
+  "name": "role scenario engine",
+  "kind": "model",
+  "path": "server/services/role-scenario-engine.js",
+  "lines": 596,
+  "status": "half_done",
+  "reason": "reachable only from server/index.js (a job surface); no handler a routed page requests names it or pulls it in",
+  "reads": [
+   "player_week_snaps",
+   "player_week_usage"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/role-scenario-lab.js"
+  ],
+  "nonServerImporters": [
+   "test/role-scenario-engine.test.js"
+  ],
+  "evidence": [
+   "server/services/role-scenario-lab.js:21",
+   "no importer of role-scenario-engine.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "ros-projection",
+  "name": "ros projection",
+  "kind": "model",
+  "path": "server/services/ros-projection.js",
+  "lines": 390,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "player_week_usage",
+   "players"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/trade-engine.js"
+  ],
+  "liveImporters": [
+   "server/services/trade-engine.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/services/trade-engine.js",
+  "nonServerImporters": [
+   "scripts/fit-ros-projection.mjs",
+   "test/ros-projection-failures.test.js",
+   "test/ros-projection.test.js"
+  ],
+  "evidence": [
+   "server/services/trade-engine.js:116",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "roster-risk",
+  "name": "roster risk",
+  "kind": "model",
+  "path": "server/services/roster-risk.js",
+  "lines": 275,
+  "status": "half_done",
+  "reason": "reachable only from server/index.js (a job surface); no handler a routed page requests names it or pulls it in",
+  "reads": [
+   "leagues"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/trades.js"
+  ],
+  "nonServerImporters": [],
+  "evidence": [
+   "server/routes/trades.js:36",
+   "no importer of roster-risk.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "scoring",
+  "name": "scoring",
+  "kind": "model",
+  "path": "server/services/scoring.js",
+  "lines": 101,
+  "status": "unclassified",
+  "reason": "names no table in SQL: either it is pure computation over a caller-supplied argument, or its data comes through another service; graded by hand",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/league /api/model/${leagueId}/trade-impact",
+   "/trade-lab /api/model/${leagueId}/trade-impact"
+  ],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/services/backtest.js",
+   "server/services/betting-fantasy-link.js",
+   "server/services/boom-bust.js",
+   "server/services/ceiling-lineup.js",
+   "server/services/correlation.js",
+   "server/services/fantasy-coordinator.js",
+   "server/services/manager-archetypes.js",
+   "server/services/news-fantasy-impact.js",
+   "server/services/player-career.js",
+   "server/services/player-week-engine.js",
+   "server/services/projections.js",
+   "server/services/ros-projection.js",
+   "server/services/season-sim.js",
+   "server/services/trade-engine.js",
+   "server/services/week-postmortem.js",
+   "server/services/weekly-backtest.js",
+   "server/services/weekly-learning.js"
+  ],
+  "nonServerImporters": [
+   "scripts/analyze-qbr-fantasy-signal.mjs",
+   "scripts/fit-posture-calibration.mjs",
+   "scripts/fit-weekly-coverage.mjs",
+   "test/lineup-spread.test.js",
+   "test/model-integrity.test.js",
+   "test/ros-projection.test.js",
+   "test/scoring.test.js",
+   "test/trade-engine-correctness.test.js",
+   "test/weekly-level.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "season-sim",
+  "name": "season sim",
+  "kind": "model",
+  "path": "server/services/season-sim.js",
+  "lines": 406,
+  "status": "unclassified",
+  "reason": "names no table in SQL: either it is pure computation over a caller-supplied argument, or its data comes through another service; graded by hand",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/league /api/model/${leagueId}/trade-impact",
+   "/league /api/trades/${leagueId}/sense-check",
+   "/trade-lab /api/model/${leagueId}/trade-impact",
+   "/trade-lab /api/trades/${leagueId}/sense-check"
+  ],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/routes/trades.js",
+   "server/services/title-odds-trades.js",
+   "server/services/trade-engine.js"
+  ],
+  "nonServerImporters": [
+   "test/model-integrity.test.js",
+   "test/trade-engine-correctness.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /league /api/trades/${leagueId}/sense-check",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "shrinkage-fit",
+  "name": "shrinkage fit",
+  "kind": "model",
+  "path": "server/services/shrinkage-fit.js",
+  "lines": 556,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "player_week_usage",
+   "players",
+   "shrinkage_fits",
+   "shrinkage_k"
+  ],
+  "writes": [
+   "shrinkage_fits",
+   "shrinkage_k"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/mlb-shrinkage-fit.js",
+   "server/services/projections.js"
+  ],
+  "liveImporters": [
+   "server/services/projections.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/services/projections.js",
+  "nonServerImporters": [
+   "scripts/fit-role-recency.mjs",
+   "scripts/fit-shrinkage-weekly.mjs",
+   "scripts/fit-shrinkage.mjs",
+   "scripts/fit-weekly-ensemble.mjs",
+   "scripts/grade-feature-vector.mjs",
+   "scripts/promote-volume-shrinkage.mjs",
+   "scripts/promote-weekly-ensemble.mjs",
+   "scripts/test-new-heads.mjs",
+   "test/mlb-nrfi-shrinkage.test.js"
+  ],
+  "evidence": [
+   "server/services/projections.js:31",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "stats-util",
+  "name": "stats util",
+  "kind": "model",
+  "path": "server/services/stats-util.js",
+  "lines": 369,
+  "status": "unclassified",
+  "reason": "names no table in SQL: either it is pure computation over a caller-supplied argument, or its data comes through another service; graded by hand",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/league /api/model/${leagueId}/trade-impact",
+   "/trade-lab /api/model/${leagueId}/trade-impact"
+  ],
+  "handlerTransitive": 65,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/modeling/candidates.js",
+   "server/routes/model.js",
+   "server/services/backtest-significance.js",
+   "server/services/bottom-up-team-total.js",
+   "server/services/contingency.js",
+   "server/services/correlation.js",
+   "server/services/draft-abstention-audit.js",
+   "server/services/draft-lookahead.js",
+   "server/services/draft-survival.js",
+   "server/services/execution-slate-reasoning.js",
+   "server/services/gamescript.js",
+   "server/services/line-move-study.js",
+   "server/services/matchups.js",
+   "server/services/mlb-auto-picks.js",
+   "server/services/mlb-projections.js",
+   "server/services/mlb-shrinkage-fit.js",
+   "server/services/nfl-drive-sim.js",
+   "server/services/nfl-ensemble.js",
+   "server/services/nfl-espn-pbp.js",
+   "server/services/nfl-family-contribution.js",
+   "server/services/nfl-market.js",
+   "server/services/nfl-prop-calibration.js",
+   "server/services/nfl-prop-correlation.js",
+   "server/services/nfl-props.js",
+   "server/services/nfl-replay.js",
+   "server/services/nfl-sim-learn.js",
+   "server/services/player-head-validation.js",
+   "server/services/player-week-engine.js",
+   "server/services/projections.js",
+   "server/services/role-scenario-engine.js",
+   "server/services/season-sim.js",
+   "server/services/staking.js",
+   "server/services/trade-engine.js",
+   "server/services/trial-statistics.js",
+   "server/services/weekly-backtest.js"
+  ],
+  "nonServerImporters": [
+   "scripts/analyze-qbr-fantasy-signal.mjs",
+   "scripts/fit-level-uncertainty.mjs",
+   "scripts/fit-posture-calibration.mjs",
+   "scripts/fit-shrinkage.mjs",
+   "scripts/fit-weekly-coverage.mjs",
+   "scripts/freeze-baseline.mjs",
+   "scripts/opener-clv-summarize.mjs",
+   "test/always-valid-significance.test.js",
+   "test/audit-registry-always-valid.test.js",
+   "test/audit-registry-declared-sigma.test.js",
+   "test/decay-watch.test.js",
+   "test/giacomini-white.test.js",
+   "test/mlb-nrfi-shrinkage.test.js",
+   "test/model-integrity.test.js",
+   "test/nfl-replay-error-analysis.test.js",
+   "test/nfl-total-calibration.test.js",
+   "test/paired-bootstrap-clustering.test.js",
+   "test/props-team-volume-dispersion.test.js",
+   "test/trade-engine-correctness.test.js",
+   "test/trial-statistics.test.js",
+   "test/weekly-level.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "talk-vs-model",
+  "name": "talk vs model",
+  "kind": "model",
+  "path": "server/services/talk-vs-model.js",
+  "lines": 201,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "leagues",
+   "manager_player_view",
+   "nfl_ffopportunity_weekly"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/counterparty-pricing.js"
+  ],
+  "liveImporters": [
+   "server/services/counterparty-pricing.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/services/counterparty-pricing.js",
+  "nonServerImporters": [
+   "scripts/build-negotiation-profiles.mjs"
+  ],
+  "evidence": [
+   "server/services/counterparty-pricing.js:23",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "td-features",
+  "name": "td features",
+  "kind": "model",
+  "path": "server/services/td-features.js",
+  "lines": 426,
+  "status": "dead",
+  "reason": "imported by no file in server/ at 654ff93, and named by no handler",
+  "reads": [
+   "nfl_ffopportunity_weekly",
+   "nfl_player_week_features",
+   "nfl_team_week_features",
+   "pbp_participation",
+   "play_by_play",
+   "player_week_usage",
+   "players"
+  ],
+  "writes": [],
+  "undeclaredTables": [
+   "pbp_participation",
+   "play_by_play"
+  ],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "importers": 0,
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [
+   {
+    "table": "pbp_participation",
+    "where": "created nowhere in the repository, test files included"
+   },
+   {
+    "table": "play_by_play",
+    "where": "created nowhere in the repository, test files included"
+   }
+  ],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": [],
+  "evidence": [
+   "grep for an import of td-features.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "no import statement for td-features.js anywhere in the repository, tests included",
+   "pbp_participation: created nowhere in the repository, test files included",
+   "play_by_play: created nowhere in the repository, test files included"
+  ]
+ },
+ {
+  "id": "td-regression",
+  "name": "td regression",
+  "kind": "model",
+  "path": "server/services/td-regression.js",
+  "lines": 359,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "leagues",
+   "nfl_player_week_features",
+   "players"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 3,
+  "pages": [
+   "/league",
+   "/lineup"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/trades.js",
+   "server/services/lineup-brain.js",
+   "server/services/player-case.js"
+  ],
+  "liveImporters": [
+   "server/routes/trades.js",
+   "server/services/lineup-brain.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/routes/trades.js, server/services/lineup-brain.js",
+  "nonServerImporters": [
+   "test/td-regression.test.js"
+  ],
+  "evidence": [
+   "server/routes/trades.js:42",
+   "server/services/lineup-brain.js:41",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "trade-acceptance",
+  "name": "trade acceptance",
+  "kind": "model",
+  "path": "server/services/trade-acceptance.js",
+  "lines": 335,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending); it names no table of its own, so the rows in question are its caller's",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/trade-engine.js"
+  ],
+  "liveImporters": [
+   "server/services/trade-engine.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/services/trade-engine.js",
+  "nonServerImporters": [
+   "test/trade-acceptance.test.js"
+  ],
+  "evidence": [
+   "server/services/trade-engine.js:93",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "trade-engine",
+  "name": "trade engine",
+  "kind": "model",
+  "path": "server/services/trade-engine.js",
+  "lines": 2914,
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "dynasty_values",
+   "game_lines",
+   "manager_profiles",
+   "news_items",
+   "nfl_injuries",
+   "nfl_teams",
+   "player_metrics",
+   "player_week_snaps",
+   "player_week_usage",
+   "players",
+   "roster_players",
+   "trending_players"
+  ],
+  "writes": [
+   "decision_recommendations"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/drafts/:id /api/players/${id}",
+   "/league /api/model/${leagueId}/trade-impact",
+   "/league /api/players/${id}",
+   "/league /api/trades/${leagueId}/explain",
+   "/league /api/trades/${leagueId}/sense-check",
+   "/lineup /api/trades/${leagueId}/rosters",
+   "/players/:id /api/players/${id}",
+   "/teams/:abbr /api/players/${id}",
+   "/trade-brain /api/trades/${activeId}/managers/signals",
+   "/trade-brain /api/trades/${leagueId}/proposals",
+   "/trade-lab /api/model/${leagueId}/trade-impact",
+   "/trade-lab /api/players/${id}",
+   "/trade-lab /api/trades/${active}/rosters",
+   "/trade-lab /api/trades/${leagueId}/evaluate",
+   "/trade-lab /api/trades/${leagueId}/explain",
+   "/trade-lab /api/trades/${leagueId}/offer-many?team_id=${teamId}&player_ids=${ids}${exclude}",
+   "/trade-lab /api/trades/${leagueId}/offer?team_id=${teamId}&player_id=${picked.id}${exclude}",
+   "/trade-lab /api/trades/${leagueId}/player/${picked.id}",
+   "/trade-lab /api/trades/${leagueId}/sense-check"
+  ],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/routes/players.js",
+   "server/routes/trades.js",
+   "server/services/ceiling-lineup.js",
+   "server/services/draft-assist.js",
+   "server/services/league-brain.js",
+   "server/services/lineup-brain.js",
+   "server/services/lineup-posture.js",
+   "server/services/news-lag-trader.js",
+   "server/services/position-liquidity.js",
+   "server/services/roster-risk.js",
+   "server/services/scheduler.js",
+   "server/services/season-sim.js",
+   "server/services/td-regression.js",
+   "server/services/title-odds-trades.js",
+   "server/services/trend-exploits.js",
+   "server/services/waiver-brain.js",
+   "server/services/waiver-wire.js",
+   "server/services/week-postmortem.js"
+  ],
+  "nonServerImporters": [
+   "scripts/build-negotiation-profiles.mjs",
+   "test/asset-cache-stamps.test.js",
+   "test/asset-universe-fingerprint.test.js",
+   "test/availability-fit-loader.test.js",
+   "test/availability-honest-degradation.test.js",
+   "test/decision-inbox.test.js",
+   "test/decision-leftovers-home-away.test.js",
+   "test/decision-leftovers-lineup.test.js",
+   "test/decision-leftovers-waivers.test.js",
+   "test/fantasy-workflows.test.js",
+   "test/find-trades.test.js",
+   "test/league-brain.test.js",
+   "test/lineup-diff-urgency.test.js",
+   "test/lineup-floor-objective.test.js",
+   "test/lineup-spread.test.js",
+   "test/lineup-surfaces-agree.test.js",
+   "test/manager-data-pipeline.test.js",
+   "test/posture-calibration.test.js",
+   "test/ros-projection-failure-wiring.test.js",
+   "test/ros-projection-wiring.test.js",
+   "test/trade-engine-correctness.test.js",
+   "test/trade-evidence.test.js",
+   "test/trade-tactics.test.js"
+  ],
+  "evidence": [
+   "reached from /drafts/:id /api/players/${id}",
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /league /api/players/${id}",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "trade-horizon",
+  "name": "trade horizon",
+  "kind": "model",
+  "path": "server/services/trade-horizon.js",
+  "lines": 198,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending); it names no table of its own, so the rows in question are its caller's",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": false,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/trade-engine.js"
+  ],
+  "liveImporters": [
+   "server/services/trade-engine.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/services/trade-engine.js",
+  "nonServerImporters": [
+   "test/trade-engine-correctness.test.js"
+  ],
+  "evidence": [
+   "server/services/trade-engine.js:113",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "trade-tactics",
+  "name": "trade tactics",
+  "kind": "model",
+  "path": "server/services/trade-tactics.js",
+  "lines": 864,
+  "status": "silently_broken",
+  "reason": "reachable transitively only, never named by a handler a routed page requests. half_done vs wired turns on whether any handler actually calls it; needs a call-site read, plus current rows (local zero, live reading pending)",
+  "reads": [
+   "league_transactions_raw",
+   "leagues"
+  ],
+  "writes": [],
+  "undeclaredTables": [
+   "league_transactions_raw"
+  ],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "evidence": [
+   "server/services/trade-tactics.js:230-235 — `try { tx = rows(`SELECT ... FROM league_transactions_raw ...`) } catch { tx = []; }`",
+   "league_transactions_raw is created by no migration under server/migrations/ (63 files) and no file under server/db/schema/ (4 files, 220 CREATE TABLE statements); created only in test/manager-data-pipeline.test.js:131, test/manager-signals-api.test.js:112, test/trade-tactics.test.js:68",
+   "server/services/trade-tactics.js:251-257 — with tx empty every roster gets blank(): decisions_n 0, decisions_reason null, median_hours null, busiest_hour null, source 'league_transactions_raw', fitted false",
+   "server/services/trade-tactics.js:337-351 — median_hours not finite, decisions_reason null and busiest_hour not finite all skip their branch, so the function returns { when: 'now', n: 0, why: 'nothing in his history argues for waiting' }",
+   "the surface therefore asserts a finding about the manager's history while the table holding that history does not exist in this deployment"
+  ],
+  "note": "reachable, returns success, reads nothing real. No live row count can change this grade: the table is absent from the tree, not empty in the database.",
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [
+   {
+    "table": "league_transactions_raw",
+    "where": "created only in test/manager-data-pipeline.test.js:131, test/manager-signals-api.test.js:112, test/trade-tactics.test.js:68"
+   }
+  ],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/trade-engine.js"
+  ],
+  "nonServerImporters": [
+   "test/trade-tactics.test.js"
+  ]
+ },
+ {
+  "id": "trend-exploits",
+  "name": "trend exploits",
+  "kind": "model",
+  "path": "server/services/trend-exploits.js",
+  "lines": 325,
+  "status": "half_done",
+  "reason": "reachable only from server/index.js (a job surface); no handler a routed page requests names it or pulls it in",
+  "reads": [
+   "leagues",
+   "nfl_team_week_features"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/trades.js"
+  ],
+  "nonServerImporters": [],
+  "evidence": [
+   "server/routes/trades.js:38",
+   "no importer of trend-exploits.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "trial-statistics",
+  "name": "trial statistics",
+  "kind": "model",
+  "path": "server/services/trial-statistics.js",
+  "lines": 275,
+  "status": "half_done",
+  "reason": "reachable only from server/index.js (a job surface); no handler a routed page requests names it or pulls it in",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/nfl-research.js"
+  ],
+  "nonServerImporters": [
+   "scripts/run-historical-leaderboard.mjs",
+   "scripts/run-purged-evaluation.mjs",
+   "test/trial-statistics.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-research.js:15",
+   "no importer of trial-statistics.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "vegas-fantasy",
+  "name": "vegas fantasy",
+  "kind": "model",
+  "path": "server/services/vegas-fantasy.js",
+  "lines": 280,
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "game_lines",
+   "player_week_usage"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/league /api/model/${leagueId}/trade-impact",
+   "/trade-lab /api/model/${leagueId}/trade-impact"
+  ],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js"
+  ],
+  "nonServerImporters": [],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "waiver-brain",
+  "name": "waiver brain",
+  "kind": "model",
+  "path": "server/services/waiver-brain.js",
+  "lines": 481,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "leagues"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/trades.js",
+   "server/services/lineup-brain.js",
+   "server/services/roster-risk.js",
+   "server/services/trade-engine.js",
+   "server/services/trend-exploits.js"
+  ],
+  "liveImporters": [
+   "server/routes/trades.js",
+   "server/services/lineup-brain.js",
+   "server/services/trade-engine.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/routes/trades.js, server/services/lineup-brain.js, server/services/trade-engine.js",
+  "nonServerImporters": [
+   "test/decision-inbox.test.js",
+   "test/decision-leftovers-lineup.test.js",
+   "test/lineup-floor-objective.test.js",
+   "test/posture-calibration.test.js",
+   "test/trade-route-retirement.test.js",
+   "test/waiver-brain.test.js"
+  ],
+  "evidence": [
+   "server/routes/trades.js:35",
+   "server/services/lineup-brain.js:40",
+   "server/services/trade-engine.js:73",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "waiver-wire",
+  "name": "waiver wire",
+  "kind": "model",
+  "path": "server/services/waiver-wire.js",
+  "lines": 363,
+  "status": "unclassified",
+  "reason": "names no table in SQL: either it is pure computation over a caller-supplied argument, or its data comes through another service; graded by hand",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [
+   "/lineup /api/trades/${leagueId}/waivers"
+  ],
+  "handlerTransitive": 1,
+  "pages": [
+   "/lineup"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/trades.js"
+  ],
+  "nonServerImporters": [
+   "test/decision-leftovers-waivers.test.js"
+  ],
+  "evidence": [
+   "reached from /lineup /api/trades/${leagueId}/waivers",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "weekly-backtest",
+  "name": "weekly backtest",
+  "kind": "model",
+  "path": "server/services/weekly-backtest.js",
+  "lines": 255,
+  "status": "half_done",
+  "reason": "exists and has importers, but no consumer on a live surface: transitive import is not a consumer",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/nfl-blind-audit.js",
+   "server/services/player-head-validation.js"
+  ],
+  "liveImporters": [],
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-blind-audit.js, server/services/player-head-validation.js",
+  "nonServerImporters": [
+   "scripts/availability-decision-calibration.mjs",
+   "scripts/fit-posture-calibration.mjs",
+   "scripts/fit-role-recency.mjs",
+   "scripts/fit-shrinkage-weekly.mjs",
+   "scripts/fit-weekly-coverage.mjs",
+   "scripts/fit-weekly-ensemble.mjs",
+   "scripts/fit-weekly.mjs",
+   "scripts/grade-feature-vector.mjs",
+   "scripts/promote-early-week-weights.mjs",
+   "scripts/promote-volume-shrinkage.mjs",
+   "scripts/promote-weekly-ensemble.mjs",
+   "scripts/test-new-heads.mjs",
+   "scripts/verify-qbr-integration.mjs"
+  ],
+  "evidence": [
+   "server/services/nfl-blind-audit.js:17",
+   "server/services/player-head-validation.js:4",
+   "no importer of weekly-backtest.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "weekly-ensemble",
+  "name": "weekly ensemble",
+  "kind": "model",
+  "path": "server/services/weekly-ensemble.js",
+  "lines": 196,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending); it names no table of its own, so the rows in question are its caller's",
+  "reads": [],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/player-head-validation.js",
+   "server/services/player-week-engine.js",
+   "server/services/shrinkage-fit.js",
+   "server/services/weekly-backtest.js",
+   "server/services/weekly-learning.js",
+   "server/services/weekly-weight-store.js"
+  ],
+  "liveImporters": [
+   "server/services/player-week-engine.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/services/player-week-engine.js",
+  "nonServerImporters": [
+   "scripts/availability-decision-calibration.mjs",
+   "scripts/fit-posture-calibration.mjs",
+   "scripts/fit-ros-projection.mjs",
+   "scripts/fit-weekly-coverage.mjs",
+   "scripts/fit-weekly-ensemble.mjs",
+   "scripts/grade-feature-vector.mjs",
+   "scripts/promote-early-week-weights.mjs",
+   "scripts/promote-volume-shrinkage.mjs",
+   "scripts/promote-weekly-ensemble.mjs",
+   "scripts/test-new-heads.mjs",
+   "test/model-integrity.test.js",
+   "test/player-week-engine-weights.test.js",
+   "test/weekly-early-week-blend.test.js"
+  ],
+  "evidence": [
+   "server/services/player-week-engine.js:19",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "weekly-learning",
+  "name": "weekly learning",
+  "kind": "model",
+  "path": "server/services/weekly-learning.js",
+  "lines": 410,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "game_lines",
+   "player_week_usage",
+   "weekly_ensemble_fits",
+   "weekly_prediction_snapshots"
+  ],
+  "writes": [
+   "weekly_prediction_snapshots"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/routes/nfl-betting.js",
+   "server/routes/nfl-market.js",
+   "server/services/beat-the-close.js",
+   "server/services/book-feeds-extra.js",
+   "server/services/league-week.js",
+   "server/services/nfl-external-ratings.js",
+   "server/services/nfl-model-growth.js",
+   "server/services/nfl-profitability.js",
+   "server/services/scheduler.js"
+  ],
+  "liveImporters": [
+   "server/routes/model.js",
+   "server/services/league-week.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/routes/model.js, server/routes/nfl-betting.js, server/routes/nfl-market.js, server/services/league-week.js",
+  "nonServerImporters": [
+   "test/prediction-log-served-model.test.js",
+   "test/weekly-prediction-snapshot-mode-migration.test.js",
+   "test/weekly-retrain-coverage.test.js",
+   "test/weekly-retrain-early-carry.test.js"
+  ],
+  "evidence": [
+   "server/routes/model.js:36",
+   "server/services/league-week.js:10",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ },
+ {
+  "id": "weekly-walkforward",
+  "name": "weekly walkforward",
+  "kind": "model",
+  "path": "server/services/weekly-walkforward.js",
+  "lines": 258,
+  "status": "half_done",
+  "reason": "reachable only from server/index.js (a job surface); no handler a routed page requests names it or pulls it in",
+  "reads": [
+   "game_lines"
+  ],
+  "writes": [],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 0,
+  "pages": [],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "nonServerImporters": [],
+  "evidence": [
+   "server/routes/nfl-betting.js:8",
+   "no importer of weekly-walkforward.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
+ },
+ {
+  "id": "weekly-weight-store",
+  "name": "weekly weight store",
+  "kind": "model",
+  "path": "server/services/weekly-weight-store.js",
+  "lines": 203,
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reads": [
+   "weekly_ensemble_fits"
+  ],
+  "writes": [
+   "weekly_ensemble_fits"
+  ],
+  "undeclaredTables": [],
+  "handlerDirect": [],
+  "handlerTransitive": 61,
+  "pages": [
+   "/draft",
+   "/drafts/:id",
+   "/league",
+   "/lineup",
+   "/live-draft/:id",
+   "/news",
+   "/players/:id",
+   "/settings",
+   "/teams/:abbr",
+   "/trade-brain",
+   "/trade-lab"
+  ],
+  "carriedFromAudit": true,
+  "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "testOnlyTables": [],
+  "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/player-week-engine.js",
+   "server/services/trade-engine.js",
+   "server/services/weekly-learning.js"
+  ],
+  "liveImporters": [
+   "server/services/player-week-engine.js",
+   "server/services/trade-engine.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/services/player-week-engine.js, server/services/trade-engine.js",
+  "nonServerImporters": [
+   "scripts/availability-decision-calibration.mjs",
+   "scripts/fit-posture-calibration.mjs",
+   "scripts/fit-ros-projection.mjs",
+   "scripts/fit-weekly-coverage.mjs",
+   "scripts/promote-early-week-weights.mjs",
+   "scripts/promote-weekly-ensemble.mjs",
+   "test/asset-universe-fingerprint.test.js",
+   "test/model-integrity.test.js",
+   "test/pinned-baselines.test.js",
+   "test/player-week-engine-weights.test.js",
+   "test/prediction-log-served-model.test.js",
+   "test/weekly-early-week-blend.test.js",
+   "test/weekly-promotion-rollback.test.js",
+   "test/weekly-retrain-coverage.test.js",
+   "test/weekly-retrain-early-carry.test.js"
+  ],
+  "evidence": [
+   "server/services/player-week-engine.js:20",
+   "server/services/trade-engine.js:66",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
+ }
+]

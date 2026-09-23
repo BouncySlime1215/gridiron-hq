@@ -67,6 +67,23 @@ test('the watchdog does not hold the process open', async () => {
   assert.equal(code, 0);
 });
 
+test('an arm that arrives before the watchdog starts is not lost', async () => {
+  // THE ORDER ON THE DEPLOYED MACHINE. startScheduler calls onBootComplete
+  // synchronously when SCHEDULER_DISABLED=1, and that is before app.listen,
+  // where the watchdog starts. If an arm that lands in that window is dropped,
+  // the process is unwatched for good -- and on an app nobody visits, nothing
+  // ever arms it again, so a wedge is permanent.
+  //
+  // This is the observable proof for it. The source-level test in
+  // watchdog-arming-sources.test.js cannot see internal arming state; this
+  // child process either dies or does not.
+  const { signal, stdout } = await runSubject(1000, 4000, {}, 'armed-early');
+
+  assert.equal(signal, 'SIGKILL',
+    `an arm before startLoopWatchdog must still count; got ${signal}; stdout: ${stdout}`);
+  assert.equal(stdout.includes('survived'), false);
+});
+
 test('a process that has never served a response is never killed, however long it blocks', async () => {
   // THE MOST IMPORTANT CASE. This app's boot continues well past app.listen --
   // the scheduler fires twenty boot jobs twenty seconds in, on the main thread

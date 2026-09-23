@@ -2,16 +2,32 @@
  * Weekly ensemble: five heads, one convex blend.
  *
  * WHERE THE LIVE WEIGHTS ARE. Not in this file. Production reads promoted fits from
- * `weekly_ensemble_fits` through weekly-weight-store.js#activeWeeklyWeightSet, and
- * since fit-1 was promoted (scripts/promote-weekly-ensemble.mjs) every 2026
- * prediction uses ONE global vector, [0.20 structural, 0.40 season_to_date, 0.15
- * last3, 0.05 last1, 0.20 median], fit on pooled 2023-2025. The per-position
- * WEEKLY_ENSEMBLE_WEIGHTS below are the FROZEN COLD-START FALLBACK, reached only
- * when no promoted fit predates the week being predicted. Their provenance: fit on
- * 2023 only, architecture selected on 2024, evaluated once on 2025 (MAE 4.425).
- * This block used to describe those constants as if they were what production runs.
+ * `weekly_ensemble_fits` through weekly-weight-store.js#activeWeeklyWeightSet
+ * (:28-39), which filters WHERE promoted=1 AND epoch_id=<active epoch> (:34). The
+ * 08:04Z live read returned promoted_fits_in_epoch 0 -- that filter matches
+ * nothing, so weightSetFrom(undefined, week) (:69-72) serves what actually runs:
+ * the per-position WEEKLY_ENSEMBLE_WEIGHTS below, the FROZEN COLD-START FALLBACK,
+ * structural exposure QB 0.40 / RB 0.50 / WR 0.60 / TE 0.80. Their provenance: fit
+ * on 2023 only, architecture selected on 2024, evaluated once on 2025 (MAE 4.425).
+ * WITHDRAWN (wrong again, same direction as the error :12 already records this
+ * block having been corrected for once before): "fit-1 was promoted
+ * (scripts/promote-weekly-ensemble.mjs) and every 2026 prediction uses ONE global
+ * vector, [0.20 structural, 0.40 season_to_date, 0.15 last3, 0.05 last1, 0.20
+ * median], fit on pooled 2023-2025." Zero promoted rows in the active epoch means
+ * that vector has never been live.
  *
- * EXCEPT WEEKS 2-4 (fit-2, promoted 2026-09-18 by scripts/promote-early-week-weights.mjs).
+ * CAVEAT: promoted_fits_in_epoch 0 does not distinguish never-promoted from
+ * promoted-then-demoted. saveWeeklyFit's `ON CONFLICT(data_hash) DO NOTHING`
+ * (weekly-weight-store.js:150), on a hash carrying the `e{epochId}:` prefix,
+ * means a demoted hash never re-promotes on a later re-run of the same inputs.
+ * Run the unfiltered preflight read (memory gridiron-promotion-preflight-read)
+ * before any promotion, never this filtered one.
+ *
+ * EXCEPT WEEKS 2-4 (fit-2, promotion dated 2026-09-18 by an earlier version of
+ * this comment -- WITHDRAWN: epoch 1, the lowest epoch id, was created
+ * 2026-09-19T04:40:30Z, so no epoch row existed on 2026-09-18 to promote into.
+ * Actual promotion date not yet re-verified against a live read; treat as
+ * unknown, not as 2026-09-18, until it is.)
  * fit-2 carries fit-1's vector unchanged plus an `early` block: a player with 1-3
  * prior in-season games gets the structural head alone in weeks 2-4. fit-1's vector
  * had only ever been fit and graded on weeks 5-18; at week 2 it put 80% of the

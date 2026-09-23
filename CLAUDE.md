@@ -58,9 +58,11 @@ takes `defaultExport`. The wrong key was accepted in silence, the mocked
 module's default became an empty object, and the SDK reported its own
 `TypeError` as a connection failure. It was never the key.
 
-**The live task list is not in this branch.** `TASKS.md` exists only on
-`cursor/betting-model-audit-fixes-1c85` (PR #6), not on `main`. Read it there
-before assuming a failure is new — a fresh clone of `main` does not have it.
+**The live task list is on `main`.** `TASKS.md` was added to `main` by
+`d9b4a90d` on 2026-09-19 and is tracked there — a fresh clone of `main` has
+it. It also exists on `cursor/betting-model-audit-fixes-1c85` (PR #6); as of
+`654ff93` the two copies are byte-identical, not one behind the other. Don't
+assume the two have diverged without diffing them.
 
 **Run `npm ci` before trusting any suite number.** A fresh clone has no
 `node_modules`, and the offline-guard tests fail with `ERR_MODULE_NOT_FOUND`
@@ -94,12 +96,18 @@ talking to Nick first.
   comments. Its rule loses.
 - **80% coverage minimum, and mandatory unit + integration + Playwright E2E
   on everything.** There is no Playwright here, and the suite runs against
-  `timeout-minutes: 20` in `.github/workflows/ci.yml`. CI had never once
-  completed on `main` — every run was cut off at that mark — until PR #7
-  brought the runtime back inside the budget. A coverage floor and a new E2E
-  tier would spend the headroom #7 just bought. Revisit once there is margin
-  to spare, and raise the timeout deliberately rather than rediscovering it
-  at twenty minutes.
+  `timeout-minutes: 20` in `.github/workflows/ci.yml`. CI has run seven times
+  on `main`, ever, checked directly against the Actions API: four early runs
+  (2026-09-13 ×3, 2026-09-15 ×1) all hit the 20-minute budget and were
+  cancelled, but three have completed since PR #7's runtime fix landed — run
+  252 (2026-09-19, success, ~6.5 min) first, then two more on 2026-09-22.
+  "CI had never once completed on `main`" is false as of today; it was true
+  only through 2026-09-15. The workflow (id `357164314`) is active, not
+  disabled, and gets a real CI signal on every push and PR now. A coverage
+  floor and a new E2E tier would still spend headroom this project can't
+  spare while `main`'s own runs aren't reliably green yet — revisit once
+  `main` holds green for a stretch, not just once, and raise the timeout
+  deliberately rather than rediscovering it at twenty minutes.
 - **"NEVER mutate, always spread."** Written for a React/TypeScript codebase.
   This is Node, Express and SQLite, and the rule would flag ordinary correct
   code on nearly every file.

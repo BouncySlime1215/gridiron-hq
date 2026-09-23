@@ -1,0 +1,124 @@
+{
+  "what": "2025 weeks 5-18 weekly distribution grade (replaySeasonWeekly) as a function of simulation draws and seed, at HEAD 79dbeb1 + review-fixes, on a VACUUM INTO copy of production taken 2026-09-18 05:00",
+  "harness": "replaySeasonWeekly(2025, {startWeek:5, endWeek:18, distributions:true, runs, seed, roleRecency: WEEKLY_ROLE_RECENCY, predictionHead: ctx => weeklyEnsemblePrediction(ctx, activeWeeklyWeightSet({season:2026, week:3}).weights)})",
+  "weight_set": "fit-2 (weeks 5-18 identical to fit-1)",
+  "weekly_level": {
+    "sigma": 0.25,
+    "downMult": 1.6,
+    "meanPreserving": true,
+    "byPosition": {
+      "QB": 0.3,
+      "RB": 0.3,
+      "WR": 0.2,
+      "TE": 0.25
+    }
+  },
+  "production_draws": 2000,
+  "shipped_claim": {
+    "source": "server/services/projections.js WEEKLY_LEVEL comment, scripts/fit-weekly-coverage.mjs",
+    "coverage_80": 0.782,
+    "calibration_error": 0.111,
+    "crps": 3.078,
+    "runs": 300,
+    "seed": "default"
+  },
+  "band": {
+    "coverage_80": [
+      0.78,
+      0.82
+    ]
+  },
+  "simulation_noise_note": "coverage_80 moves 0.775-0.783 across seeds and draw counts with the model fixed; at production 2000 draws the default seed is 0.778, outside the band",
+  "runs": [
+    {
+      "runs": 300,
+      "seed": "default",
+      "ws": "fit-2",
+      "n": 4532,
+      "coverage_80": 0.782,
+      "calibration_error": 0.111,
+      "crps": 3.078
+    },
+    {
+      "runs": 300,
+      "seed": 3,
+      "ws": "fit-2",
+      "n": 4532,
+      "coverage_80": 0.777,
+      "calibration_error": 0.103,
+      "crps": 3.074
+    },
+    {
+      "runs": 2000,
+      "seed": "default",
+      "ws": "fit-2",
+      "n": 4532,
+      "coverage_80": 0.778,
+      "calibration_error": 0.1,
+      "crps": 3.067
+    },
+    {
+      "runs": 300,
+      "seed": 1,
+      "ws": "fit-2",
+      "n": 4532,
+      "coverage_80": 0.783,
+      "calibration_error": 0.099,
+      "crps": 3.073
+    },
+    {
+      "runs": 300,
+      "seed": 2,
+      "ws": "fit-2",
+      "n": 4532,
+      "coverage_80": 0.782,
+      "calibration_error": 0.111,
+      "crps": 3.071
+    },
+    {
+      "runs": 300,
+      "seed": 4,
+      "ws": "fit-2",
+      "n": 4532,
+      "coverage_80": 0.782,
+      "calibration_error": 0.104,
+      "crps": 3.067
+    },
+    {
+      "runs": 300,
+      "seed": 5,
+      "ws": "fit-2",
+      "n": 4532,
+      "coverage_80": 0.781,
+      "calibration_error": 0.105,
+      "crps": 3.081
+    },
+    {
+      "runs": 2000,
+      "seed": 1,
+      "ws": "fit-2",
+      "n": 4532,
+      "coverage_80": 0.775,
+      "calibration_error": 0.11,
+      "crps": 3.067
+    },
+    {
+      "runs": 2000,
+      "seed": 2,
+      "ws": "fit-2",
+      "n": 4532,
+      "coverage_80": 0.776,
+      "calibration_error": 0.1,
+      "crps": 3.067
+    },
+    {
+      "runs": 2000,
+      "seed": 3,
+      "ws": "fit-2",
+      "n": 4532,
+      "coverage_80": 0.78,
+      "calibration_error": 0.095,
+      "crps": 3.067
+    }
+  ]
+}

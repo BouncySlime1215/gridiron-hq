@@ -3,16 +3,21 @@
  *
  * A model cannot prove it had information unless we preserve what it saw at
  * useful moments before an event. This service plans and records those moments
- * (opening, T-24h, T-6h, T-60m, T-15m and close) for both sports. It captures
- * context even when the paid odds feed is absent, reports that gap explicitly,
- * and never creates a retrospective snapshot.
+ * (opening, T-24h, T-6h, T-60m, T-15m and close). It captures context even
+ * when the paid odds feed is absent, reports that gap explicitly, and never
+ * creates a retrospective snapshot.
+ *
+ * It planned and captured MLB slates too until MLB was removed from the
+ * product on 2026-09-22. Windows already written for MLB events are still in
+ * `evidence_capture_windows`, so the run below retires them once, by name,
+ * rather than leaving them due forever against a capture path that no longer
+ * exists.
  */
 import { rows, run } from '../db/index.js';
 import { hasKey, reserveStatus } from './odds-api.js';
 import { snapshotLines } from './line-shopping.js';
 import { capturePregameSnapshots } from './nfl-pregame.js';
-import { captureMlbPregame } from './mlb-pregame.js';
-import { appDate, nflKickoffDate } from './date-util.js';
+import { nflKickoffDate } from './date-util.js';
 import { recordNflShadowBoard } from './shadow-ledger.js';
 import { captureOnlineNeuralWeek } from './nfl-online-neural.js';
 import { captureRiskLabWeek } from './nfl-risk-lab.js';
@@ -52,10 +57,7 @@ export function planEvidenceWindows() {
     .filter(g => eventDate(g.gameday, g.gametime, 'NFL').getTime() > now - 6 * 3600e3);
   for (const g of nfl) addWindow('NFL', `${g.season}:${g.week}:${g.team}:${g.opponent}`, eventDate(g.gameday, g.gametime, 'NFL'));
 
-  const mlb = rows(`SELECT game_pk,date,game_time FROM mlb_games WHERE date >= ? ORDER BY date LIMIT 120`, appDate())
-    .filter(g => eventDate(g.date, g.game_time).getTime() > now - 6 * 3600e3);
-  for (const g of mlb) addWindow('MLB', String(g.game_pk), eventDate(g.date, g.game_time));
-  return { nfl_events: nfl.length, mlb_events: mlb.length };
+  return { nfl_events: nfl.length };
 }
 
 // A partial window (context captured, paid quotes unavailable) is retried a
@@ -84,24 +86,35 @@ function mark(windows, status, detail) {
   status === 'captured' ? at : null, JSON.stringify(detail), w.sport, w.event_key, w.horizon);
 }
 
-/** Runs all due windows. One capture per NFL week / MLB date prevents API waste. */
+/** Runs all due windows. One capture per NFL week prevents API waste. */
 export async function runEvidenceDaemon({ force = false } = {}) {
   const planned = planEvidenceWindows();
   const due = dueWindows(force);
   const started = new Date().toISOString();
   const inserted = run(`INSERT INTO evidence_daemon_runs (started_at,status,detail_json) VALUES (?, 'running', '{}')`, started);
-  const detail = { planned, due: due.length, nfl: [], mlb: [], odds_feed: hasKey() };
+  const detail = { planned, due: due.length, nfl: [], retired_mlb: 0, odds_feed: hasKey() };
   try {
     const nflGroups = new Map();
-    const mlbGroups = new Map();
+    // Anything that is not NFL is a window for a sport this app no longer
+    // covers. Dropping it from the loop would leave it 'queued' and due on
+    // every run forever, which reads from the table as work outstanding; and a
+    // window silently skipped is exactly the inert-layer shape this file was
+    // written against. So it is retired once, with the reason on the row.
+    const retired = [];
     for (const w of due) {
       if (w.sport === 'NFL') {
         const [season, week] = w.event_key.split(':').map(Number);
         const key = `${season}:${week}`; const a = nflGroups.get(key) ?? []; a.push(w); nflGroups.set(key, a);
       } else {
-        const game = rows('SELECT date FROM mlb_games WHERE game_pk=?', Number(w.event_key))[0];
-        if (game) { const a = mlbGroups.get(game.date) ?? []; a.push(w); mlbGroups.set(game.date, a); }
+        retired.push(w);
       }
+    }
+    if (retired.length) {
+      mark(retired, 'retired', { mode: 'sport_removed',
+        note: `${retired[0].sport} was removed from the product on 2026-09-22. This window was `
+          + 'planned before that and there is no capture path for it any more. It is retired '
+          + 'rather than skipped, so it stops reading as outstanding work.' });
+      detail.retired_mlb = retired.length;
     }
     for (const [key, windows] of nflGroups) {
       const [season, week] = key.split(':').map(Number);
@@ -142,19 +155,6 @@ export async function runEvidenceDaemon({ force = false } = {}) {
       } catch (error) {
         mark(windows, 'partial', { error: error.message, mode: 'source_quarantined' });
         detail.nfl.push({ season, week, windows: windows.length, error: error.message });
-      }
-    }
-    for (const [date, windows] of mlbGroups) {
-      try {
-        const result = await captureMlbPregame(date);
-        // When MLB quotes are deliberately disabled the context capture IS the
-        // complete capture; marking it partial would retry it forever.
-        const complete = !result.odds_capture_enabled || (result.odds_available && result.quotes > 0);
-        mark(windows, complete ? 'captured' : 'partial', { ...result, mode: 'forward_shadow' });
-        detail.mlb.push({ date, windows: windows.length, result });
-      } catch (error) {
-        mark(windows, 'partial', { error: error.message, mode: 'source_quarantined' });
-        detail.mlb.push({ date, windows: windows.length, error: error.message });
       }
     }
     const status = due.length ? 'ok' : 'idle';

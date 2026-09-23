@@ -179,3 +179,28 @@ test('forwardSummary reads S1 against A on point estimates and marks the weeks 5
   assert.equal(wf.forwardSummary(rows, { window: '2-4', weeks: [2] }).proxy, false);
   assert.equal(wf.forwardSummary([], { window: '2-4', weeks: [] }), null);
 });
+
+test('promotionFromEvidence: windows come from the committed decisions, and the evidence must name the fit it cleared', () => {
+  const report = {
+    unit: 'S-03', mode: '--walk-forward', prereg: { commit: 'abc' },
+    forward: { fit: { id: 7, through_season: 2025 } },
+    decisions: { '2-4': { coordinator: 'S1', status: 'on' }, '5-17': { coordinator: 'A', status: 'off: not confirmed historically' } }
+  };
+  const fitRow = { id: 7, through_season: 2025, target: 'structural' };
+  assert.deepEqual(wf.promotionFromEvidence(report, fitRow), { windows: { '2-4': 'on', '5-17': 'off' } });
+  assert.throws(() => wf.promotionFromEvidence({ ...report, unit: 'S-02' }, fitRow), /S-03/);
+  assert.throws(() => wf.promotionFromEvidence({ ...report, mode: '--smoke' }, fitRow), /walk-forward/);
+  assert.throws(() => wf.promotionFromEvidence(report, { ...fitRow, id: 6 }), /fit 7/);
+  assert.throws(() => wf.promotionFromEvidence(report, { ...fitRow, through_season: 2024 }), /through/);
+  assert.throws(() => wf.promotionFromEvidence(report, { ...fitRow, target: 'ensemble' }), /structural/);
+  const nothing = { ...report, decisions: { '2-4': { coordinator: 'A', status: 'off: unconfirmed forward' }, '5-17': { coordinator: 'A', status: 'off: unconfirmed forward' } } };
+  assert.throws(() => wf.promotionFromEvidence(nothing, fitRow), /nothing to promote/);
+  assert.throws(() => wf.promotionFromEvidence({ ...report, decisions: { '2-4': report.decisions['2-4'] } }, fitRow), /5-17/);
+});
+
+test('refitReproduces: the stored fit must be what the served fitter makes from this database now', () => {
+  const stored = { coefficients: [-0.5, 0.1, 0.02, 0, 0, 0, 0] };
+  assert.deepEqual(wf.refitReproduces(stored, { coefficients: [-0.5, 0.1, 0.02, 0, 0, 0, 0] }), { max_abs_coefficient_diff: 0 });
+  assert.throws(() => wf.refitReproduces(stored, { coefficients: [0.578, 0.1, 0.02, 0, 0, 0, 0] }), /does not reproduce/);
+  assert.throws(() => wf.refitReproduces(stored, { coefficients: [-0.5, 0.1] }), /does not reproduce/);
+});

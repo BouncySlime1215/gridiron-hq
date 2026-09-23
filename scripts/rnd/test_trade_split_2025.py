@@ -62,7 +62,7 @@ class LineupValue(unittest.TestCase):
     def test_side_freeing_a_spot_fills_from_the_wire(self):
         rate = {'x': 9, 'y': 7, 'z': 2, 'a': 10, 'w1': 6, 'w2': 5, 'w3': 3, 'z2': 99}
         pos = dict(self.POS, w1='RB', w2='WR', w3='RB', z2='RB')
-        wire = ['w1', 'w2', 'w3', 'z']                   # z is rostered: never offered
+        wire = ['w1', 'w2', 'w3', 'z', 'a']              # z and a are held after the trade: never offered
         lv = S.lineup_value(['x', 'y', 'z'], ['x', 'y'], ['a'], rate, pos, top2(rate), wire=wire)
         self.assertEqual(lv['replacement'], ['w1'])
         self.assertEqual(lv['per_week'], 0.0)           # 10 + 6 - (9 + 7)
@@ -76,6 +76,19 @@ class LineupValue(unittest.TestCase):
         pos = {'a': 'RB', 'b': 'RB', 'c': 'RB', 'w1': 'RB', 'w2': 'WR', 'n': 'RB'}
         lv = S.lineup_value(['a', 'b'], ['a', 'b'], ['c'], rate, pos, top2(rate), wire=['w2', 'w1'])
         self.assertEqual(lv['replacement'], ['w1'])
+
+    def test_fill_prefers_the_biggest_lineup_gain_over_the_highest_rate(self):
+        # One RB slot and one WR slot. The best RB on the wire (6) adds 1 over the held RB (5); the best WR (3)
+        # fills an empty slot and adds 3, so the WR is picked although its rate is lower.
+        rate = {'a': 4, 'b': 4, 'c': 5, 'w1': 6, 'w2': 3}
+        pos = {'a': 'WR', 'b': 'WR', 'c': 'RB', 'w1': 'RB', 'w2': 'WR'}
+
+        def rb_wr(players):
+            best = lambda ps: max([rate[p] for p in players if pos[p] == ps] or [0])  # noqa: E731
+            return best('RB') + best('WR')
+        lv = S.lineup_value(['a', 'b'], ['a', 'b'], ['c'], rate, pos, rb_wr, wire=['w1', 'w2'])
+        self.assertEqual(lv['replacement'], ['w2'])
+        self.assertEqual(lv['per_week'], 4.0)           # 5 + 3 - (0 + 4)
 
 
 class Verdicts(unittest.TestCase):

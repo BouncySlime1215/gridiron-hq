@@ -21,7 +21,8 @@ import fs from 'node:fs';
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-hype-one-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.SCHEDULER_DISABLED = '1';
-delete process.env.NFL_WEEK;
+// Week 6, so several current-season rows are eligible and the test can see which one is served.
+process.env.NFL_WEEK = '6';
 delete process.env.GRIDIRON_ANTHROPIC_API_KEY;
 delete process.env.ANTHROPIC_API_KEY;
 
@@ -51,8 +52,12 @@ fixtureTable = {
   meta: { unit: 'TM-09', units: 'points above replacement per game, league scoring', sign: 'hype = price - value' },
   results: { h1: { passed: true } }, position_price_to_value: { RB: 0.9, WR: 0.9 }, cells: [],
   player_weeks: [
-    { season, week: 1, sleeper_id: '9001', pos: 'RB', n: 4, price: 3.1, value: 2.3, hype: 0.8 },
-    // A week that has not happened yet (tradeWeekContext is week 1 with no game lines): never served.
+    // Three eligible weeks in scrambled order (3, 6, 2): the latest (6) must win, so neither the
+    // first row, the last row, nor the earliest row can pass by accident.
+    { season, week: 3, sleeper_id: '9001', pos: 'RB', n: 4, price: 2.9, value: 2.4, hype: 0.5 },
+    { season, week: 6, sleeper_id: '9001', pos: 'RB', n: 4, price: 3.1, value: 2.3, hype: 0.8 },
+    { season, week: 2, sleeper_id: '9001', pos: 'RB', n: 3, price: 2.6, value: 2.4, hype: 0.2 },
+    // A week that has not happened yet (tradeWeekContext is week 6 via NFL_WEEK): never served.
     { season, week: 18, sleeper_id: '9001', pos: 'RB', n: 5, price: 9.9, value: 2.0, hype: 7.9 },
     { season: season - 2, week: 1, sleeper_id: '9002', pos: 'WR', n: 3, price: 1.0, value: 1.6, hype: -0.6 },
   ],
@@ -92,6 +97,7 @@ test('control: the producer serves a number for a current-season row and abstain
   assert.equal(hyped.available, true);
   assert.equal(hyped.hype, 0.8, 'the latest row at or before the current week, never a later one');
   assert.equal(hyped.season, season);
+  assert.equal(hyped.week, 6, 'served row is week 6 (the current week), not week 2, 3 or 18');
   const old = playerHype({ sleeperId: '9002' });
   assert.equal(old.available, false, 'a row from an earlier season is not this season\'s hype');
   assert.equal(old.hype, null);
@@ -142,4 +148,23 @@ test('retired sellHigh: flags only what the one producer calls SELL', () => {
   const sh = sellHigh(71);
   assert.ok(Array.isArray(sh.readings) && sh.readings.length === 2, 'both rostered players are read');
   assert.deepEqual(sh.candidates, sh.readings.filter(r => r.hype.verdict === 'SELL'));
+});
+
+test('no other served string claims sell-high or names the removed sellHigh curve', () => {
+  // tagDeal (trade-engine.js) is not exported, so this scans the served server source.
+  const root = new URL('../server/', import.meta.url);
+  const files = [];
+  const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    const p = path.join(d, e.name);
+    if (e.isDirectory()) walk(p); else if (p.endsWith('.js')) files.push(p);
+  } };
+  walk(root.pathname);
+  const src = Object.fromEntries(files.map(f => [path.relative(root.pathname, f), fs.readFileSync(f, 'utf8')]));
+  // Control: the scan reads the files it must (a known string is found).
+  assert.ok(src['services/trade-engine.js']?.includes("tags.push('Sell the Veteran')"), 'control: scan sees trade-engine tags');
+  const hits = Object.entries(src).flatMap(([f, s]) => [
+    ...(/tags\.push\(\s*['"]Sell High['"]/.test(s) ? [`${f}: deal tag 'Sell High' (an age rule, not a hype read)`] : []),
+    ...(s.includes('waiver-brain#sellHigh') ? [`${f}: names the removed waiver-brain#sellHigh curve`] : []),
+  ]);
+  assert.deepEqual(hits, []);
 });

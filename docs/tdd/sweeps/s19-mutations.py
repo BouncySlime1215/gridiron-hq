@@ -15,6 +15,11 @@ M = [
   ('C5 call site: sellHigh reads its own key', WB, "hype: playerHype({ sleeperId: p.sleeper_id })", "hype: playerHype({ sleeperId: String(p.id) })", 'killed'),
   ('C6 call site: sellHigh flags without the producer', WB, "readings.filter(x => x.hype.verdict === 'SELL').slice(0, limit)", "readings.slice(0, limit)", 'killed'),
   ('C7 heuristic resurrected in analyze (writes a verdict with no signal)', PL, "      if (!hype.verdict) {", "      if (false) {", 'killed'),
+  ('M6 selection order flipped: earliest eligible week served', H, "if (!hit || r.week > hit.week) hit = r;", "if (!hit || r.week < hit.week) hit = r;", 'killed'),
+  ('M7 first eligible row wins', H, "if (!hit || r.week > hit.week) hit = r;", "if (!hit) hit = r;", 'killed'),
+  ('M8 last eligible row wins', H, "if (!hit || r.week > hit.week) hit = r;", "hit = r;", 'killed'),
+  ('C8 trade-engine deal tag claims sell-high again', 'server/services/trade-engine.js', "tags.push('Sell the Veteran')", "tags.push('Sell High')", 'killed'),
+  ('C9 served why string points at the removed sellHigh curve', 'server/services/trade-tactics.js', "NOT the trade-price hype in services/hype.js#playerHype", "NOT the market-price curve in waiver-brain#sellHigh", 'killed'),
   ('S1 designed survivor: tie-break >= on week (weeks are unique per player-season)', H, "if (!hit || r.week > hit.week) hit = r;", "if (!hit || r.week >= hit.week) hit = r;", 'survives'),
   ('N1 not-applied control', H, "THIS_TEXT_IS_NOT_IN_THE_FILE", "x", 'not-applied'),
 ]

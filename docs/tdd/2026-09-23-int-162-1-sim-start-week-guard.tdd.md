@@ -55,8 +55,7 @@ Two gaps left after B-01 (`docs/tdd/2026-09-22-b-01-real-record-odds.tdd.md`):
 
 ## RED
 
-`8b9c5b6` (this unit's RED commit — see `git log -1` after push) —
-`test: RED — INT-162-1 sim-start-week source guard + stale-payload from_week`
+`8931e43d` — `test: RED — INT-162-1 sim-start-week source guard + stale-payload from_week`
 
 Both added to `test/b-01-real-record-odds.test.js` (same fixture file B-01
 already owns for this surface — extend, not a new file).

@@ -280,6 +280,8 @@ class:
 | L151 | 2026-09-22 | #92 | fantasy | other | Which half (rushing or receiving tiers) earns the four-tier gain | TD MAE | script scores 2025; no result recorded in any doc |  |  |  |  |  |  | n.a. | `docs/evidence/redzone-tier-decomposition.mjs:26` | artifact with no reporting .md |
 | L152 | 2026-09-22 | #92 | fantasy | FL | Four red-zone tiers beat three for expected touchdowns | TD MAE, 5,229 player-weeks | improvement real, -0.68% MAE; TD bias slightly worse | -0.001859 | -0.002678 | -0.000125 | 95 |  | - | yes | `docs/tdd/redzone-tiers.tdd.md:95` |  |
 | L153 | 2026-09-22 | #106 | fantasy | FL | Unit-1 volume-shrinkage fit beats hardcoded k (CRPS gate) | CRPS, 4,532 player-weeks | result not reported in docs/; local DB row note says activated, active column 0 |  |  |  |  |  |  | unclear (row note vs active=0) | `docs/tdd/shrinkage-fit-efficiency-weighting-2026-09-22.tdd.md:143` | origin out of scope (local shrinkage_fits row; Auditor verdict in handoff memory gridiron-audit-unit-1-verdict) |
+| L154 | 2026-09-23 | WV-01 | fantasy | other | Streaming the free-agent DEF with the lowest opponent implied total gains over the held DEF (K = 10), 2025 alone | DEF points per swap-week, 14 swaps | positive (direction check of the pre-registered rule; pooled 2022-2025 rule PASSED, +2.86 [+0.93, +4.75]) | +3.14 | -0.50 | +7.00 | 95 |  | + | yes | `docs/tdd/2026-09-23-wv-01-streaming-board.tdd.md` section 5 | pooled estimate includes 2025 |
+| L155 | 2026-09-23 | WV-01 | fantasy | other | Secondary diagnostics including 2025: chase-last-week baseline, implied-vs-chase decision win rate, D/ST points per implied point | per-swap gain / weekly win rate / slope | chase -0.48 [-2.49, +1.61]; win rate 67.4% of 72 weeks; slope +0.45 [+0.38, +0.52] | +0.45 | +0.38 | +0.52 | 95 |  | + | n.a. | `docs/tdd/2026-09-23-wv-01-streaming-board.tdd.md` section 5 | not gating; est/lo/hi are the slope |
 
 ## 2026 forward looks
 
@@ -306,6 +308,10 @@ Two sources of `F` rows besides a unit's own rule-5 check:
 None yet. On a local copy (not production, 2026-09-22), `weekly_ensemble_fits`
 has 2 rows, both through 2025 week 18 (the known-nonzero control), and
 `model_backtests` has 0 rows.
+
+| id | date | unit/PR | domain | family | hypothesis | metric | result | est | lo | hi | level | p (source) | better | shipped | file:line | note |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| F001 | 2026-09-23 | WV-01 | fantasy | other | DEF streaming gain holds on 2026 weeks played | DEF points per swap-week | not computable: nflverse stats_team_week has 2026 week 1 only, 0 swap-weeks |  |  |  |  |  | + | n.a. | `docs/tdd/2026-09-23-wv-01-streaming-board.tdd.md` section 5 | card labelled not yet checked on 2026 |
 
 ## File classification: every file the census returns
 

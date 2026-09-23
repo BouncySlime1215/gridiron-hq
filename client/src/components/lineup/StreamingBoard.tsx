@@ -36,7 +36,7 @@ export default function StreamingBoard({ data, loading, error, onRetry }: {
       <p className="mt-1 text-xs leading-5 text-slate-500">
         Free-agent defenses ranked by how many points the betting market expects the offense they face to score.
         Replayed on 2022-2025, swapping to the top-ranked free agent each week scored about 2.9 more points than
-        the defense it replaced (range 0.9 to 4.8).
+        the defense it replaced (range 0.9 to 4.8). Not yet checked on 2026 games.
       </p>
       <Body data={data} loading={loading} error={error} onRetry={onRetry} />
     </section>

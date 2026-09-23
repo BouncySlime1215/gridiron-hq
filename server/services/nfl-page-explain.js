@@ -17,9 +17,10 @@ import { callClaude, GROUNDING_SYSTEM, parseJson } from './claude.js';
 import { TOOLS, runTool } from './page-explain-tools.js';
 
 // Hard cap on the tool-use loop: bounds cost/latency and guarantees this
-// never turns into an unbounded agent. On the last allowed round `tools` is
-// omitted so Claude MUST answer in text — if it still had more lookups queued
-// up, that gets surfaced as an honest limitation rather than silently dropped.
+// never turns into an unbounded agent. On the last allowed round tool_choice is
+// "none" so Claude answers in text — if it still had more lookups queued up,
+// that gets surfaced as an honest limitation rather than silently dropped. The
+// tools stay declared: the history already holds tool_use/tool_result blocks.
 const MAX_TOOL_ROUNDS = 4;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -87,9 +88,10 @@ export async function explainPage({ route, section, subview, visibleSummary, eve
     const isFinalRound = round === MAX_TOOL_ROUNDS;
     const msg = await callClaude({
       feature: 'nfl-page-explain-ai', maxTokens: 700, system: systemPrompt(), messages,
-      // Tools omitted on the final round so Claude cannot ask for yet another
-      // lookup it won't get to run — it must answer in text.
-      tools: isFinalRound ? undefined : TOOLS
+      // tool_choice "none" on the final round so Claude cannot ask for yet
+      // another lookup it won't get to run — it must answer in text.
+      tools: TOOLS,
+      toolChoice: isFinalRound ? { type: 'none' } : undefined
     });
 
     const toolUseBlocks = (msg.content ?? []).filter(block => block.type === 'tool_use');

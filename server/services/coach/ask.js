@@ -28,9 +28,12 @@ import { recordCoachAnswer } from './audit.js';
 
 /**
  * Rounds of model call. One round is one Claude turn; a round that asks for
- * tools spends itself on lookups. The last round is offered no tools, so the
- * model cannot queue a lookup it will never get to run — the same discipline
- * as nfl-page-explain.js:23, with more room because Coach reads more.
+ * tools spends itself on lookups. The last round keeps the same tools declared
+ * but sends tool_choice "none", so the model cannot queue a lookup it will
+ * never get to run — the same discipline as nfl-page-explain.js, with more
+ * room because Coach reads more. The tools stay declared because the history
+ * already holds tool_use/tool_result blocks, and because tools sit at the
+ * front of the cached prefix: dropping them would miss the system cache.
  */
 export const MAX_TOOL_ROUNDS = 6;
 
@@ -156,7 +159,8 @@ export async function askCoach({ question, context = null, leagueId = null,
     const msg = await callClaude({
       feature: 'coach:answer', model, maxTokens: MAX_OUTPUT_TOKENS,
       system: systemPrompt(), cacheSystem: true, messages,
-      tools: isFinalRound ? undefined : toolDefinitions()
+      tools: toolDefinitions(),
+      toolChoice: isFinalRound ? { type: 'none' } : undefined
     });
     costUsd += msg.cost_usd ?? 0;
 

@@ -159,6 +159,68 @@ was never left dirty against the commit).
   raw server string for that (none found — every reviewed call site treats `error` as
   opaque already).
 
+## 6. Review round 1 — skeptic findings and fixes (commits 024ad358 RED, 7e38fb69 GREEN)
+
+**The first pass misread the source.** The audited string is not an error-path message.
+It is the SUCCESS payload field `availability_note`: writer `availabilityDegradation()`
+at `server/services/contingency.js:648` (fields `inert` :653, `reason` :655-656 with the
+table name and `docs/tdd/play-chance.tdd.md`, `fix` :663 with `scripts/fit-availability.mjs`
+and `docs/tdd/play-chance-live.tdd.md`), served by `server/services/lineup-brain.js`
+`availability_note`, rendered raw by `client/src/pages/Lineup.tsx:169-179` (on 8210781f).
+The first-pass RED test fed a paraphrase ("missing/empty") through `error`. Skeptics were
+right on all four liveness points and both structure points; no disagreement.
+
+Fixes:
+- `Lineup.tsx`: the panel keeps its heading and the plain-words `effect` line; `inert`,
+  `reason`, `fix` go to `logServerDetail('Lineup availability_note', ...)` (console only).
+  The page-assistant context (`usePageExplain`) gets a plain reason too, since the
+  assistant repeats what it is told.
+- `lineup-brain.js` `warnings[].issue`: the caveat no longer appends
+  `availabilityNote.reason`; it now reads "but that is not the fitted number: the role
+  layer is not running, so this is a fallback estimate". This string renders on the
+  "Check before kickoff" card (`Lineup.tsx` `{w.issue}`).
+- `PageState.tsx`: new `logServerDetail()` — the one console sink; `PageError` uses it.
+- `WaiverWire.tsx` and `MatchupPosture.tsx` (both on /lineup): `data.error` rendered plain.
+- `PostDraftPlan.tsx`: `self_scout.error` and `trades.error` (left in by pass 1) rendered plain.
+- `test/availability-honest-degradation.test.js`: one assertion added (issue has no table/
+  doc/script text); one assertion message changed from "renders its reason" to "reads its
+  reason" — that test pinned the leak (source grep for `.reason`); the regex is unchanged
+  and still passes because the page reads `.reason` to log it.
+
+Tests: `page-error-no-leak` and `lineup-error-no-leak` now assert on the raw html string
+(attribute leaks fail); `lineup-error-no-leak` adds a render with the REAL
+`availabilityDegradation({basis:'pooled',missing:['nfl_availability_role_rates']})` as
+`data` (with a known-nonzero control that the producer really carries the table name and
+script path); new `test/ux08-component-error-no-leak.test.js` renders MatchupPosture,
+WaiverWire, PostDraftPlan (fetch error + section errors), ModelRegistryPanel, NewsHub with
+the real producer text. Also fixed a harness bug: the Lineup `useApi` stub counter was
+module-level and kept counting across tests; it is now reset per render.
+
+Command for every run below (tree: this worktree): `SCHEDULER_DISABLED=1
+GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node --experimental-test-module-mocks --test
+--test-reporter=tap test/page-error-no-leak.test.js test/lineup-error-no-leak.test.js
+test/ux08-component-error-no-leak.test.js test/availability-honest-degradation.test.js`
+
+| Run | Tree | Result |
+|---|---|---|
+| RED | tests at 024ad358, impl at 8210781f | pass 15, fail 5: #6 warning issue leaks table; #11 Lineup real availability_note leaks `nfl_availability_role_rates`; #15 MatchupPosture; #16 WaiverWire; #18 PostDraftPlan section errors |
+| GREEN | 7e38fb69 | pass 20, fail 0 |
+| M1 `title={message}` on PageError `<p>` | 7e38fb69 + mutant | fail 2 (#9, #13) — killed |
+| M2 `aria-label={message}` on PageError card | 7e38fb69 + mutant | fail 2 (#9, #13) — killed |
+| M4 PostDraftPlan/ModelRegistryPanel/NewsHub at fe296384~1 | 7e38fb69 + mutant | fail 4 (#17-#20) — killed |
+| M5 Lineup reason line restored | 7e38fb69 + mutant | fail 1 (#11) — killed |
+| M6 lineup-brain issue appends `.reason` again | 7e38fb69 + mutant | fail 1 (#6) — killed |
+| control, no mutation | 7e38fb69 | pass 20, fail 0 |
+
+Tests #15 and #17 on the RED tree: #17 (PostDraftPlan fetch error) passes on 8210781f
+because pass 1 already fixed that path; it is a regression guard, killed by M4.
+
+**Still not covered (named follow-up task_da173a5e, with file:line):** `TradeCard.tsx:343,372`,
+`PageExplainAssistant.tsx:177`, `brain/ManagerBoard.tsx:223,284`, `draft/SourcePill.tsx:73`
+(none on /lineup), plus the alert() sites in task_7b9b1ea6. `server/services/waiver-wire.js:333`
+also serves `availability_note`; `git grep -n availability_note -- client/src` finds no
+client reader other than Lineup.tsx, so nothing renders it.
+
 ## Holdout looks
 
 None — no 2025/2026 held-out data touched by this unit.

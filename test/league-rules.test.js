@@ -70,6 +70,9 @@ function espnPayload({
     settings: {
       scheduleSettings: ss,
       rosterSettings: { isBenchUnlimited: true, lineupSlotCounts: lineup },
+      // Shape of all five synced leagues' acquisitionSettings (local copy 2026-09-23), RL-13-2.
+      acquisitionSettings: { acquisitionType: 'WAIVERS_TRADITIONAL', isUsingAcquisitionBudget: false,
+        waiverOrderReset: true, waiverHours: 24, waiverProcessHour: 11 },
       tradeSettings: { allowOutOfUniverse: false, deadlineDate: 1796230800000, max: -1, revisionHours: 24,
         vetoVotesRequired: 4 },
       scoringSettings: { matchupTieRule: 'NONE', playoffMatchupTieRule: 'NONE', scoringType: 'H2H_POINTS',
@@ -175,7 +178,8 @@ test('CE-05: leagueRules ships only fields a route reads (no roster, trade, scor
   const { leagueRules } = mod();
   const r = leagueRules(lgOf(espnPayload()));
   assert.deepEqual(Object.keys(r).sort(),
-    ['median_game', 'missing', 'platform', 'schedule', 'seeding', 'source', 'unknown', 'unsupported']);
+    // `waivers` (RL-13-2): read by waiver-wire.js#claimPriority -> GET /api/trades/:leagueId/waivers.
+    ['median_game', 'missing', 'platform', 'schedule', 'seeding', 'source', 'unknown', 'unsupported', 'waivers']);
   for (const k of ['roster', 'trade', 'scoring', 'scoring_items', 'matchup_tie_rule', 'playoff_tie_rule']) {
     assert.equal(k in r, false, `${k} has no reader outside league-rules.js`);
   }

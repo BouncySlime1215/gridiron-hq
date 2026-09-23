@@ -140,15 +140,15 @@ pair-accuracy and cluster-bootstrap code.
 `nfl_ffopportunity_weekly` 2026: 2 weeks (max week 2, 638 rows); `player_week_usage`
 2026: 2 weeks, 1,052 rows (writer `syncWeeklyUsage`, `server/services/nflverse.js:245`).
 S1 rows for 2026: **0** (needs >= 3 games and five later weeks). Known-nonzero control:
-2025 gives 1,891 rows. No outcome was computed on 2026. Recorded as F001 in the ledger.
+2025 gives 1,891 rows. No outcome was computed on 2026. Recorded as F003 in the ledger.
 
 ## 5. Holdout looks (also appended to `docs/evidence/HOLDOUT-LEDGER.md`)
 
 | id | unit | date | hypothesis | metric | result |
 |---|---|---|---|---|---|
-| L154 | AI-01 | 2026-09-23 | xFP/game beats season-to-date PPG for next-5 PPG (2025, reported, not gated) | MAE, 1,891 player-cutoffs | -0.1763 [-0.3068, -0.0478], favours xFP on 2025 only; MDE80 0.196 |
-| L155 | AI-01 | 2026-09-23 | same, same-position pair accuracy | 45,846 pairs | +0.0078 [-0.0061, +0.0227], not significant; MDE80 0.0218; disagreement pairs xFP right 52.2% |
-| F001 | AI-01 | 2026-09-23 | rule-5 eligibility check | eligible 2026 cutoffs | 0 rows; no metric computed |
+| L157 | AI-01 | 2026-09-23 | xFP/game beats season-to-date PPG for next-5 PPG (2025, reported, not gated) | MAE, 1,891 player-cutoffs | -0.1763 [-0.3068, -0.0478], favours xFP on 2025 only; MDE80 0.196 |
+| L158 | AI-01 | 2026-09-23 | same, same-position pair accuracy | 45,846 pairs | +0.0078 [-0.0061, +0.0227], not significant; MDE80 0.0218; disagreement pairs xFP right 52.2% |
+| F003 | AI-01 | 2026-09-23 | rule-5 eligibility check | eligible 2026 cutoffs | 0 rows; no metric computed |
 
 2025 is partly spent (153 prior looks) and was not gated. Its MAE result is the one
 place xFP looks better; it does not rescue S1 (gated on 2021-2024) and says nothing

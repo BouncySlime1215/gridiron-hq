@@ -125,7 +125,9 @@ function sixTeamLeague(ownerNames = null) {
     lastName: ownerNames?.[i]?.split(' ')[1] ?? `Last${t.id}` }));
   return { teams, members, schedule: schedule(14),
     settings: { name: 'TC League', scheduleSettings: { matchupPeriodCount: 14, matchupPeriodLength: 1,
-      playoffTeamCount: 4, playoffMatchupPeriodLength: 1 } } };
+      playoffTeamCount: 4, playoffMatchupPeriodLength: 1,
+      // CE-05: the simulator refuses a league whose rules are incomplete.
+      playoffReseed: false, playoffSeedingRule: 'TOTAL_POINTS_SCORED', divisions: [{ id: 0, size: 6 }] } } };
 }
 
 function insertLeague(id, payload) {

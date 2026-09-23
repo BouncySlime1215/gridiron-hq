@@ -90,7 +90,7 @@ import { counterpartyLayer, readDeal, counterpartyDataKey, playerValuation, self
 // counterparty read rather than describing one: a deal that is not positive for
 // Nick on our own numbers never reaches the list, whatever the other manager
 // thinks of it (master plan 00 D4, "a gift, not a trade").
-import { edgeTest, tacticsForDeal, timingRead, vetoClimate } from './trade-tactics.js';
+import { edgeTest, tacticsForDeal, timingRead, vetoClimate, readFault } from './trade-tactics.js';
 import { acceptanceBand } from './trade-acceptance.js';
 // tradeIdeas() only: this roster's real P(make playoffs), which is what turns the
 // horizon from a 0.5 prior into a number. season-sim.js imports assetUniverse /
@@ -1886,6 +1886,17 @@ function findTradesUncached(lg, {
  * `playerValuation` the valuation map and the trade card use — injected, not
  * re-derived — so a tactic and the card it sits on cannot disagree.
  */
+const tacticsReadDefaults = { timingRead, vetoClimate, selfRead };
+let tacticsReads = { ...tacticsReadDefaults };
+
+/** Test hook: swap any of attachTactics' three reads (e.g. one that throws). */
+export function _setTacticsReads(overrides = {}) {
+  tacticsReads = { ...tacticsReadDefaults, ...overrides };
+}
+
+/** Test hook: the call site itself, so its catches are pinned, not only readFault. */
+export const _attachTactics = (...args) => attachTactics(...args);
+
 function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, teams, zero, ideaKey }) {
   if (!shown.length) return;
   const byEspn = new Map();
@@ -1895,10 +1906,17 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
   let timing = new Map();
   let climate = null;
   let self = null;
-  try { timing = timingRead(lg.id, { season: weekNow.season }); } catch { timing = new Map(); }
-  try { climate = vetoClimate(lg, { season: weekNow.season, priceOfPlayer: valueOfEspn }); }
-  catch { climate = null; }
-  try { self = selfRead(lg.id, { season: weekNow.season }); } catch { self = null; }
+  // These three catches exist because one unreadable input must not take down a
+  // whole trade search. They used to answer with an empty Map and two nulls,
+  // which downstream is indistinguishable from a league with no history — so a
+  // crash in any of them arrived on the card as a finding about Nick. The
+  // catches stay; what they hand on now says the read did not complete.
+  let timingFault = null;
+  try { timing = tacticsReads.timingRead(lg.id, { season: weekNow.season }); }
+  catch { timing = new Map(); timingFault = readFault('timing'); }
+  try { climate = tacticsReads.vetoClimate(lg, { season: weekNow.season, priceOfPlayer: valueOfEspn }); }
+  catch { climate = readFault('climate'); }
+  try { self = tacticsReads.selfRead(lg.id, { season: weekNow.season }); } catch { self = readFault('self'); }
   const ownerNames = teams.map(t => t.owner).filter(Boolean);
   // Median points-per-1,000-of-price BY POSITION, over every rostered player in
   // this league. The sneak-in rule needs a baseline that is not cross-position:
@@ -1941,7 +1959,7 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
     const out = tacticsForDeal({
       give: d.i_give, get: d.i_get, manager: cp, partnerId: d.partner_id, partnerName: d.partner,
       valuationOf: p => playerValuation(cp, p, { zero }),
-      self, climate, timing: timing.get(String(d.partner_id)) ?? null,
+      self, climate, timing: timingFault ?? timing.get(String(d.partner_id)) ?? null,
       theirValuePct: d.their_value_pct, variants, postLoss, positionRate,
       otherManagerNames: ownerNames.filter(n => n !== d.partner),
     });

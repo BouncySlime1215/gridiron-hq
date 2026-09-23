@@ -370,8 +370,44 @@ export function timingRead(leagueId, { season = null, now = null } = {}) {
  * ME profile: "floods DMs with rapid-fire lowball and multi-target offers"), so
  * it is checked first and it is the one that can say "wait".
  */
+/**
+ * The state the three reads cannot report about themselves: the read did not
+ * complete.
+ *
+ * `timingRead`, `vetoClimate` and `selfRead` each name their own absences —
+ * the table is not there, the corpus is not on this machine, the sample is too
+ * small. What none of them can say is that the call threw, because at that
+ * point they are not running. `attachTactics` is where that is known, and it
+ * used to answer with a bare catch: an empty Map, a null, a null. Downstream
+ * those three are indistinguishable from the league having no history, so a
+ * crash arrived as a finding.
+ *
+ * `available: false` is deliberate and load-bearing: it is what the
+ * `how_nick_looks` branch already tests, so the self case needs no change
+ * there — the fault simply arrives carrying a sentence that is true.
+ */
+export function readFault(kind) {
+  const what = {
+    timing: 'when this manager answers',
+    climate: "this league's veto history",
+    self: 'how you look to this league',
+  }[kind] ?? 'one of the trade reads';
+  return {
+    read_state: 'unreadable',
+    available: false,
+    reason: `${what} could not be read on this request, so nothing here is a `
+      + 'statement about the league — it is a fault worth reporting',
+  };
+}
+
 export function sendWindow(timing, { now = null, postLoss = null } = {}) {
   const nowMs = toTime(now) ?? Date.now();
+  // BEFORE the `!timing` branch, because that branch's sentence ends in "there
+  // is no reason to wait" — advice to send now, which is the last thing a read
+  // that crashed has earned the right to say.
+  if (timing?.read_state === 'unreadable') {
+    return { when: 'unknown', until: null, n: 0, fitted: false, why: timing.reason };
+  }
   const n = timing?.decisions_n ?? 0;
   if (!timing) {
     return { when: 'now', until: null, n: 0, fitted: false,
@@ -519,6 +555,11 @@ export function vetoRiskFor(climate, { theirValuePct = null, giveValue = null, g
   const base = { votes_required: votesRequired, other_owners: owners, skew_pct: skew,
     veto_reachable: !unreachable, n: climate?.n ?? 0, reference_n: refN, priceable_n: priceableN,
     reference_skew_pct: climate?.reference_skew_pct ?? null, fitted: false };
+  // Again before the no-data branch: "this league has never voted against a
+  // package" is a finding, and a read that threw produced no findings.
+  if (climate?.read_state === 'unreadable') {
+    return { ...base, level: 'unknown', why: `${climate.reason} — killing a package here would take ${needed}` };
+  }
   if (!climate?.n || !Number.isFinite(climate?.reference_skew_pct)) {
     return { ...base, level: 'unknown',
       why: `this league has never voted against a package, so there is nothing to price this one `
@@ -851,6 +892,11 @@ export function tacticsForDeal({
         skew_pct: risk.skew_pct, reference_skew_pct: risk.reference_skew_pct,
         observed_max_votes: climate.observed_max_votes },
       why: risk.why });
+  } else if (climate?.read_state === 'unreadable') {
+    // A climate read that threw carries no votes_required, so without this it
+    // fell through to the sentence below — a claim about the league's ESPN
+    // settings that nothing read.
+    note('veto_proof', climate.reason);
   } else note('veto_proof', "this league's ESPN settings do not carry a veto threshold, so there is "
     + 'nothing to price league-perceived fairness against');
 

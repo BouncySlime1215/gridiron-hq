@@ -747,3 +747,4 @@ UI REVAMP: UI-REVAMP.md (UX-01..07) runs alongside the Trade Machine; UX-01/02 s
 | 2026-09-23 06:35Z | Nick | RULE: exactly 3 workflow loops at all times ("econ problem"): the 3 slots rotate by value; R&D takes a slot one round per day. |
 | 2026-09-23 06:40Z | Nick | CLARIFIED: 3 build loops + 1 R&D loop at all times (R&D is its own loop, one round at a time, relaunched when it finishes). |
 | 2026-09-23 06:45Z | Nick | After every R&D round lands: the coordinator reads the finds, adjusts the plan (re-order, merge, drop, add units; update PLAN-V9/board), logs what changed and why in OPS-LOG, then relaunches the next R&D round. |
+| BL01-H1..H4 | Lift BLEND-01's four serving holds so ESPN's number can serve: (1) waiver-board replay 2023-24, (2) lineup-brain treats ESPN's 0 as a projection, (3) one provenance label, (4) S-03 identity check vs the blend's ours input | from #164 | after #164 merges | yes |

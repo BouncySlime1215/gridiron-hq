@@ -80,6 +80,20 @@ test('a publish missing a required field throws rather than writing a partial ro
   assert.equal(row(`SELECT COUNT(*) n FROM decision_recommendations WHERE dedup_key='x'`).n, 0);
 });
 
+/*
+ * MLB was removed from the product on 2026-09-22 (#128), but VALID_SPORT here still
+ * carried 'MLB' as accepted input — a leftover #128 missed because nothing wired-in
+ * ever published with sport: 'MLB' (waiver-brain.js and trade-engine.js both always
+ * pass 'NFL'). That made this module the one place in the app that would still take
+ * an MLB write and store it, rather than reject it like the rest of the removal did.
+ */
+test('a publish with sport MLB is rejected rather than stored, same as any other invalid sport', () => {
+  assert.throws(() => publishRecommendation({ dedupKey: 'mlb-leftover', sport: 'MLB', type: 'trade', title: 'x', sourceModel: 'x' }),
+    /invalid sport/);
+  assert.equal(row(`SELECT COUNT(*) n FROM decision_recommendations WHERE dedup_key='mlb-leftover'`).n, 0,
+    'a rejected MLB publish must not leave a row behind');
+});
+
 test('an invalid urgency value falls back to medium rather than rejecting the publish', () => {
   const body = publishRecommendation({ dedupKey: 'test:urgency', sport: 'NFL', type: 'trade', title: 'x', sourceModel: 'x', urgency: 'critical' });
   assert.equal(body.urgency, 'medium');

@@ -16,6 +16,14 @@
  *   - inactive       = nflverse weekly roster status 'INA' as of that week, reconstructed from
  *     nfl_verified_events (writer server/services/nfl-event-archive.js:64). This list posts
  *     90 minutes before kickoff in reality; in the product the hook stays uncovered until RL-3-2.
+ *     COVERAGE GAP: the local copy has 200 INA events in week 1 and 0 in week 2 (week 2 holds
+ *     only ACT/CUT/DEV/RES deltas), so inactiveAsOf(2) is week 1's list carried forward and
+ *     NO week-2 gameday inactive can be caught. `inactive_coverage` prints this per week.
+ * Starter-side control (added after review): skill starters who scored 0 with no snap row that
+ * week in player_week_snaps (writer server/services/nflverse.js:300) nor nfl_snaps (writer
+ * server/services/nfl-advanced.js:179), i.e. very likely did not play. It reports how many the
+ * rule caught, so a zero above is read against starters that plausibly should have been caught.
+ * "Did not play" is an inference from missing snaps, not a recorded inactive.
  * Replacement: the best bench player (not dead by the same rule) who can fill the slot, ranked
  * by ESPN's own projected_points (a stand-in: the week_points the product ranks on were not
  * stored for past weeks). Outcome: replacement actual minus dead starter actual.
@@ -55,11 +63,20 @@ function inactiveAsOf(week) {
   return new Set(latest.filter(r => r.status_after === 'INA').map(r => r.player_id));
 }
 
-const out = { season: SEASON, control, weeks: [] };
+const inactiveCoverage = rows(`SELECT week, SUM(status_after = 'INA') AS ina_events, COUNT(*) AS all_events
+  FROM nfl_verified_events WHERE season = ? AND source = 'nflverse_weekly_rosters' AND week IN (1, 2)
+  GROUP BY week`, SEASON);
+const snapCoverage = rows(`SELECT week, COUNT(*) AS nfl_snaps_rows FROM nfl_snaps
+  WHERE season = ? AND week IN (1, 2) GROUP BY week`, SEASON);
+const out = { season: SEASON, control, inactive_coverage: inactiveCoverage, snap_coverage: snapCoverage, weeks: [] };
 for (const week of WEEKS) {
   const ina = inactiveAsOf(week);
   const snap = rows(`SELECT s.league_id, s.team_id, s.player_id, s.position, s.lineup_slot, s.lineup_slot_id,
-      s.projected_points, s.actual_points, p.bye_week, p.gsis_id, i.report_status
+      s.projected_points, s.actual_points, p.bye_week, p.gsis_id, i.report_status,
+      (EXISTS (SELECT 1 FROM player_week_snaps w WHERE w.player_id = s.player_id AND w.season = s.season
+                 AND w.week = s.scoring_period_id)
+       OR EXISTS (SELECT 1 FROM nfl_snaps n WHERE n.season = s.season AND n.week = s.scoring_period_id
+                 AND n.player = p.name)) AS has_snaps
     FROM league_roster_snapshots s LEFT JOIN players p ON p.id = s.player_id
     LEFT JOIN nfl_injuries i ON i.gsis_id = p.gsis_id AND i.season = s.season AND i.week = s.scoring_period_id
     WHERE s.season = ? AND s.scoring_period_id = ? AND s.source = 'final'`, SEASON, week);
@@ -73,6 +90,7 @@ for (const week of WEEKS) {
   // Known-nonzero control on the same classifier and joins: every rostered player, any slot.
   const rosteredDead = {};
   let starters = 0, skillStarters = 0;
+  const noPlay = { starts: 0, players: new Set(), caught: 0, report_status: {} };
   for (const roster of teams.values()) {
     const classify = r => deadReason(
       { id: r.gsis_id, available: true, bye: r.bye_week, injury_status: r.report_status },
@@ -85,6 +103,11 @@ for (const week of WEEKS) {
       starters++;
       if (['QB', 'RB', 'WR', 'TE'].includes(s.position)) skillStarters++;
       const dead = classify(s);
+      if (['QB', 'RB', 'WR', 'TE'].includes(s.position) && !s.has_snaps && (s.actual_points ?? 0) === 0) {
+        noPlay.starts++; noPlay.players.add(s.player_id); if (dead) noPlay.caught++;
+        const k = s.report_status ?? 'no report';
+        noPlay.report_status[k] = (noPlay.report_status[k] ?? 0) + 1;
+      }
       if (!dead) continue;
       reasons[dead.reason] = (reasons[dead.reason] ?? 0) + 1;
       const pick = bench.find(b => !used.has(b.player_id) && accepts(s.lineup_slot, b.position)
@@ -101,6 +124,8 @@ for (const week of WEEKS) {
   out.weeks.push({
     week, team_weeks: teams.size, starters, skill_starters: skillStarters,
     rostered_dead_any_slot_control: rosteredDead,
+    starter_no_snaps_zero_points_control: { starts: noPlay.starts, players: noPlay.players.size,
+      caught_by_rule: noPlay.caught, report_status: noPlay.report_status },
     dead_starters: items.length, by_reason: reasons,
     dead_starter_actual_points: +items.reduce((a, i) => a + i.dead_actual, 0).toFixed(2),
     with_replacement: withRepl.length,

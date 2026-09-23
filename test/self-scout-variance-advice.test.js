@@ -96,7 +96,9 @@ const LONGSHOT = '1';  // rank 10 of 10 -> "longshot"
 const CONTENDER = '10'; // rank 1 of 10 -> "contender"
 
 const VARIANCE = /chase variance|You need variance|boom-rate/i;
-const actions = scout => scout.fixes.map(f => f.action);
+// Everything TeamScout renders for a fix (area, issue and action), so banned wording in
+// any rendered field fails, not only in action.
+const rendered = fixes => fixes.map(f => `${f.area} ${f.issue} ${f.action}`);
 
 test('control: the fixture puts each team where the old rule would bucket it, with a modelled range', () => {
   const b = selfScout(league(), BUBBLE);
@@ -110,12 +112,12 @@ test('control: the fixture puts each team where the old rule would bucket it, wi
 });
 
 test('RED: a bubble team is not told to chase variance', () => {
-  const hits = actions(selfScout(league(), BUBBLE)).filter(a => VARIANCE.test(a));
+  const hits = rendered(selfScout(league(), BUBBLE).fixes).filter(a => VARIANCE.test(a));
   assert.deepEqual(hits, [], `bubble team got variance advice: ${JSON.stringify(hits)}`);
 });
 
 test('RED: a longshot team is not told to chase variance', () => {
-  const hits = actions(selfScout(league(), LONGSHOT)).filter(a => VARIANCE.test(a));
+  const hits = rendered(selfScout(league(), LONGSHOT).fixes).filter(a => VARIANCE.test(a));
   assert.deepEqual(hits, [], `longshot team got variance advice: ${JSON.stringify(hits)}`);
 });
 
@@ -124,7 +126,7 @@ test('RED: no team gets the unmeasured Roster shape imperative (contender half h
     const shape = selfScout(league(), team).fixes.filter(f => f.area === 'Roster shape');
     assert.deepEqual(shape, [], `team ${team} still gets a Roster shape fix: ${JSON.stringify(shape)}`);
   }
-  const ahead = actions(selfScout(league(), CONTENDER)).filter(a => /You are ahead|ceiling for floor/i.test(a));
+  const ahead = rendered(selfScout(league(), CONTENDER).fixes).filter(a => /You are ahead|ceiling for floor/i.test(a));
   assert.deepEqual(ahead, [], `contender got "You are ahead": ${JSON.stringify(ahead)}`);
 });
 
@@ -139,7 +141,7 @@ test('RED (consumer): the scout route serves the chosen bubble team without vari
   assert.equal(body.team.roster_id, BUBBLE, `route must scout the requested team, got ${body.team.roster_id}`);
   assert.equal(body.rank, 5);
   assert.ok(body.spread.floor != null, 'control: the served range is modelled');
-  const hits = body.fixes.map(f => f.action).filter(a => VARIANCE.test(a));
+  const hits = rendered(body.fixes).filter(a => VARIANCE.test(a));
   assert.deepEqual(hits, [], `route served variance advice: ${JSON.stringify(hits)}`);
 });
 

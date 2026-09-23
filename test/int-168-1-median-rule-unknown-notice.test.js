@@ -82,7 +82,7 @@ function assertWired(fileRel, simVar) {
   // Known-reachable control: the file does read the sim response's other
   // fields from the same variable, so a miss below is this file's own gap,
   // not a bad regex.
-  assert.match(src, new RegExp(`${simVar}\\?\\.title_odds`), `control: ${fileRel} does not even read ${simVar}?.title_odds; this check needs rewriting`);
+  assert.match(src, new RegExp(`${simVar}\\?\\.playoff_weeks`), `control: ${fileRel} does not even read ${simVar}?.playoff_weeks; this check needs rewriting`);
   assert.match(src, new RegExp(`<MedianGameNotice[^>]*medianGame=\\{${simVar}\\?\\.median_game\\}`),
     `${fileRel} does not render <MedianGameNotice medianGame={${simVar}?.median_game} />`);
 }

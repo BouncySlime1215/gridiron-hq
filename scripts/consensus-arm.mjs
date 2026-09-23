@@ -384,8 +384,9 @@ export function instrumentControl(rows, baseline) {
   const margins = oracle.map(d => d.policy_points - d.baseline_points);
   const o = { n: oracle.length, win_rate: oracle.length ? r4(margins.filter(m => m > 0).length / oracle.length) : null,
     points_per_decision: r4(mean(margins)) };
+  // A win rate of exactly 1 already needs at least one disagreement (it is null on none).
   return { oracle: o, identity: { n: identity.length },
-    passed: o.n > 0 && o.win_rate === 1 && o.points_per_decision > 0 && identity.length === 0 };
+    passed: o.win_rate === 1 && o.points_per_decision > 0 && identity.length === 0 };
 }
 
 /**

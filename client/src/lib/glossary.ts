@@ -68,26 +68,38 @@ export interface Term {
  */
 export const GLOSSARY = {
   projected_points: {
-    name: 'Projected points',
-    plain: 'What we expect this player to score this week, as a typical week rather than a best or worst case.',
-    raw: 'projection.mean',
+    name: 'Projected points (this week)',
+    // Producer: server/services/lineup-brain.js:356 startSitWeekPoints() ->
+    // `week_points` (:363) = current_week_ppg (already times his chance to
+    // play, 0 on a bye) x the betting-line multiplier when there is one. The
+    // one week-total construction every page shares (lineup-posture.js imports
+    // it). Replaces the former start_score entry, which described the same
+    // number under a second id; `projection.mean` was never a served field.
+    // Not the season total at stats.projected_points (PlayerCard/StatTable).
+    plain: 'How many points we expect this player to score this week, after his chance to play is taken into account.',
+    raw: 'lineup.week_points',
     unit: 'points', precision: 1
   },
   week_floor: {
     name: 'Quiet week',
-    // Producer: server/services/trade-engine.js:462 `floor: weekDist?.p10 ?? ...`.
-    // The p10 is drawn from a distribution that includes the weeks he does not
-    // suit up at all, so this is routinely 0.0 for a healthy starter, not a mild
-    // bad week — see rnd/loop/r7-internal-glossary-defines-numbers-code-no-
-    // longer-makes.md #1.
-    plain: 'A bad week for this player — the bottom one week in ten, which can mean he does not suit up at all.',
-    raw: 'projection.p10',
+    // Producer: the assetUniverse() asset field `floor`,
+    // server/services/trade-engine.js:462 `floor: weekDist?.p10 ?? w?.floor ?? null`.
+    // Two producers serve it: (1) the week draw's p10, which includes the
+    // chance he does not suit up at all, so it can be 0.0 for a healthy
+    // starter; (2) when there is no week projection, server/routes/edge.js:145
+    // volatility() `floor: +q(0.2)` (:164), the 20th percentile of LAST
+    // season's played weeks only (did-not-play weeks are not in gamelog).
+    // See r7-internal-glossary-defines-numbers-code-no-longer-makes.md #1.
+    plain: 'A bad week for this player — the bottom one week in ten this week, which can mean he does not suit up at all. With no projection for this week yet, it is his bottom one in five of the games he played last season instead.',
+    raw: 'asset.floor',
     unit: 'points', precision: 1
   },
   week_ceiling: {
     name: 'Big week',
-    plain: 'A week that goes well for this player — about one week in ten looks like this or better.',
-    raw: 'projection.p90',
+    // Producer: same asset, trade-engine.js:462 `ceiling: weekDist?.p90 ?? w?.ceiling ?? null`;
+    // fallback is edge.js volatility() `ceiling: +q(0.8)` (:165), last season.
+    plain: 'A week that goes well for this player — about one week in ten looks like this or better. With no projection for this week yet, it is his top one in five of the games he played last season instead.',
+    raw: 'asset.ceiling',
     unit: 'points', precision: 1
   },
   season_floor: {
@@ -146,16 +158,6 @@ export const GLOSSARY = {
     raw: 'sim.expected_wins',
     unit: 'count', precision: 1
   },
-  start_score: {
-    name: 'Start score',
-    // Producer: no route serves a `score` field. The lineup is solved on
-    // `week_points` (server/services/lineup-brain.js:363, solved by default at
-    // :474 `requestedKey === 'week_points'`) — see r7-internal-glossary-
-    // defines-numbers-code-no-longer-makes.md #5.
-    plain: 'How many points we project this player for in your lineup this week, after his chance to play is taken into account.',
-    raw: 'lineup.week_points',
-    unit: 'points', precision: 1
-  },
   accept_chance: {
     name: 'Chance they say yes',
     plain: 'How likely this manager is to accept this offer, from what you have told us about how they trade and any offers they have actually answered.',
@@ -185,12 +187,13 @@ export const GLOSSARY = {
     // Producer: server/services/matchups.js:189 `allowed: +allowed.toFixed(1)`
     // (there is no `ppg_allowed` field — rendered as "d.allowed" plus " ppg
     // allowed" at client/src/pages/TradeLab.tsx:1128). It blends recent seasons with a
-    // 0.5 recency decay and shrinks toward average (matchups.js:94-102,
-    // K_DVP=200), so it is not "so far" (this season only), and the module's
+    // 0.5 recency decay (constants at matchups.js:94-102), computed unshrunk at
+    // :186 `const allowed = b.w ? b.wpts / b.w : 0` — only the `mult` column is
+    // shrunk (:193, K_DVP=200). So it is not "so far" (this season only), and the module's
     // own header (matchups.js:9-14) says it was tested and did not make
     // projections more accurate — see r7-internal-glossary-defines-numbers-
     // code-no-longer-makes.md #6.
-    plain: 'A blend of recent seasons of what this defence has given up to this position, pulled toward the league average. We tested it and it did not make projections more accurate.',
+    plain: 'A blend of recent seasons of what this defence has given up to this position, with recent seasons counting more. We tested it and it did not make projections more accurate.',
     raw: 'matchups.dvp.allowed',
     unit: 'points_per_game', precision: 1
   }

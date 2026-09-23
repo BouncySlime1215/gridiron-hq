@@ -40,7 +40,13 @@ export const MAX_TOOL_ROUNDS = 6;
 /** Sonnet rather than Haiku: this one writes SQL over 34 tables and has to get joins right. */
 export const COACH_MODEL = 'claude-sonnet-5';
 
-const MAX_OUTPUT_TOKENS = 1500;
+/**
+ * Output cap per round, thinking included. Sonnet 5 runs adaptive thinking by
+ * default and its thinking counts toward max_tokens, so a cap sized for the
+ * answer alone can be spent before the answer starts — trade-proposals.js hit
+ * exactly that at 4,000. Only tokens actually produced are billed.
+ */
+const MAX_OUTPUT_TOKENS = 8000;
 
 /** One line per table: enough to choose one, not enough to write a query blind. */
 function catalogBrief() {

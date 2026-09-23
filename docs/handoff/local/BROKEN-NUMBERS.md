@@ -1,4 +1,5 @@
 # BROKEN NUMBERS inventory (live; Nick 9/23 ~7:15 PM ET: "keep an inventory for the broken numbers")
+In the app: BROKEN-01 (ENGINE-SPECS) builds a "Number health" card in Settings + a red dot when a number breaks; this file is the list until then.
 Every number the app shows that is wrong, disagrees with another page, or is built on a known-bad input. One row each. Updated by the coordinator's hourly tick and whenever a unit lands. Status: OPEN / FIX BUILDING (PR) / FIXED (merged + checked live).
 Source for rows A-H: ENGINE-ARCHITECTURE.md §10.2 (cites on origin/main 29ac6bcf).
 

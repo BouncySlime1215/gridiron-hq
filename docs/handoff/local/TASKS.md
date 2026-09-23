@@ -13,7 +13,7 @@ Updated 2026-09-23 5:30 PM ET by B coordinator (session c4cebb1f).
 - [ ] Merge queues: B (53395) -> B3 (49912: 214 216 217 186 174 207 190 166 218 215 164) -> B4: 221 219
 
 ## Next (in order)
-- FIRST when pace allows: EA-00 (#216 rewrite per ENGINE-ARCHITECTURE §11.2, 9 items) then EA-01 (#220 per §11.5), then EA-02.. in the ENGINE-SPECS 'ARCHITECTURE UNITS' order.
+- FIRST when pace allows (run together, disjoint files): BROKEN-01a+b (in-app Number health card; Nick asked 7:20 PM) and EA-00 (#216 rewrite per ENGINE-ARCHITECTURE §11.2, 9 items) then EA-01 (#220 per §11.5), then EA-02.. in the ENGINE-SPECS 'ARCHITECTURE UNITS' order.
 - PROJ-01-a-2025 one-time confirm, relaunch (v3 rule 2 fixed): base on #222 branch, add a --confirm-2025 path that requires a HOLDOUT-LEDGER.md row in the same commit; keep refuseHoldout as default; frozen spots only.
 - [x] RL-19-2 #225 (queued). [x] LIVING-01a #220 (held). [x] RL-19-1 #224 (queued; follow-up: cap label 0.08 under flag). PACING HOLD: no new launches until in-flight done. NEXT FREE SLOT: SELF-01a (after #174), CE-03.
 - R&D round 20: Workflow({scriptPath:"/Users/nick_matta/gridiron-local/wf/rnd-loop-v3.js", args:{round:20, ideas:3}}) once IDEAS.json lands. Stuck "testing" ideas: re-run with ids. Copy rnd/loop/HOLDOUT-LEDGER-PENDING.md rows into the repo ledger via a PR each few rounds. Refresh backlog with Fable weekly.

@@ -114,7 +114,7 @@ already known (PR #222). They do not involve this spot's rows beyond the shared 
 - Row counts (population of section 1, in the spot, up / down): 2021 277 (67 / 210),
   2022 345 (91 / 254), 2023 303 (86 / 217), 2024 218 (58 / 160). Team-weeks with open and
   close: 272 / 271 / 259 / 272 games. Population rows matched to a line: 3,390 / 3,260 /
-  2,871 / 3,275 total rows (3,187 matched in 2024). Rows with no line count as not in the spot.
+  2,871 / 3,187 (of 3,496 / 3,326 / 3,116 / 3,275). Rows with no line count as not in the spot.
 - Timing caveat, decided in advance: the "open" is the book's first posted line (often
   about 10 days before the game), the close is at kickoff, and ESPN's projection time is
   unknown. A proven result means ESPN's number sits closer to the opening line than the

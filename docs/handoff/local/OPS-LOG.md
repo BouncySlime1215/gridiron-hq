@@ -133,3 +133,5 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 
 14:15Z: RL-6-4 waiver drop identity -> #191 (zero-priced drops 4 of 5 leagues -> 0; conflicts with #178 in waiver-wire.js: fix-on-merge after #178 lands: owned.get(normalizePlayerName(a.name)) -> ownedById.get(a.id)). RL-6-3 paired title odds -> #192 (critical; Fable auditor launched). Big queue: #167 MERGED.
 14:20Z: Loop 3 relaunched lean: UX-14 glossary definitions + S-19b hype label rename (w9cdrjkga). Lean on purpose: weekly 73%, A stops at 87%.
+
+14:45Z: R&D r10 landed: ESPN zero projection = inactive feed (RL-10-1, one producer; #184 re-scoped to timing supplement, stays held), timing test RL-10-2, teammate-bump killed. Plan adjusted; r11 relaunched.

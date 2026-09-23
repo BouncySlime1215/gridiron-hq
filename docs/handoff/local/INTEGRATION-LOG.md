@@ -2,7 +2,13 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 10:59Z.
+Last rebuilt: 2026-09-23 11:11Z.
+
+## #163: ESPN scoring map: read pointsOverrides, fix rushing/receiving swap, report unmapped stat ids
+
+- Merged: 7:11 AM ET, Sep 23 as `ca64b2cc`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #167: Stop leaking server file paths and table names on the Lineup page
 

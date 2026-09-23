@@ -2,7 +2,37 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 22:03Z.
+Last rebuilt: 2026-09-23 22:59Z.
+
+## #223: Prompt audit: final-round tool_choice none, Coach caching and thinking room, prompt cleanups
+
+- Merged: 6:58 PM ET, Sep 23 as `574b53b8`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #221: Projections: default off the sharp-chain plays/pass-rate links, grade vs real pace incumbent
+
+- Merged: 6:46 PM ET, Sep 23 as `d024ca61`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #215: Move declined game-script sampler out of production into study code
+
+- Merged: 6:37 PM ET, Sep 23 as `29ac6bcf`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #186: League Hub: command center for dead starters, streams, injuries and no-move nudges
+
+- Merged: 6:25 PM ET, Sep 23 as `f403f734`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #217: Fix swallowed self-scout lookup error and drop leaguemate name from comment
+
+- Merged: 6:15 PM ET, Sep 23 as `e1a85114`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #214: Add route-level preview-switch tests for waivers, signals and valuation panel
 

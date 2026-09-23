@@ -104,7 +104,7 @@ Public-data "value edges" were tested and **failed** (RL-8-2, RL-8-2b), so every
 ## 6. Rules: read RULES.md (this dir). It is the ONLY rulebook (v3, 9/23 5:25 PM, Nick: "wipe our rules except how you interact with me; base how you work on the Opus 5.5 + 3x-faster posts").
 - Old rules (merge gate v2 sections 1-5, five questions, mutation sweeps, 4-lens skeptics, VERIFICATION-RULES, WORKFLOWS-PER-STAGE) are archived in rules-archive/ and do NOT bind.
 - New launches use wf/build-unit-v3.js and bin/gate-merge-v3.sh once they exist (see TASKS.md). Runs launched before 5:25 PM finish under v2.
-- Live checklist: TASKS.md. Metrics that may only improve: BENCHMARKS.md.
+- Live checklist: TASKS.md. Metrics that may only improve: BENCHMARKS.md. Known-wrong numbers: BROKEN-NUMBERS.md (update hourly).
 
 ## 7. Budget and status
 - Your weekly budget is B's 100%, with its reset about Wed 9/30 3 PM ET. Stop launching at **94% weekly** (in-flight work finishes under 100%). For the 5-hour window, throttle at 95% (finish in-flight work only).

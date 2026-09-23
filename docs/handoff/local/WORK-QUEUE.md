@@ -917,7 +917,7 @@ Nick: "all 5 u just gave me have my approval / its our engine that i think has t
 ## 9. R&D loop units (round 18, consolidated by B coordinator 2026-09-23 3:50 PM ET; A stopped before its own consolidation, only one validator pass ran)
 | RL-id | plan item | goal | source | verdict |
 |---|---|---|---|---|
-| RL-18-1 | TELLS-01a / CLONE-01 | Prior-season trade tells (last season's trade count, partners, trades won) as clone/receptiveness features: +0.0137 AUC [+0.0022, +0.0251], both halves | LOOP-LOG.md "Round 18 external" arm B; scripts/r18x_tells_prevseason_prereg.md | CONFIRM (explorer), not yet validator-checked; feed TELLS-01a |
+| RL-18-1 | TELLS-01a / CLONE-01 | Prior-season trade tells | r18 arm B | KILLED on TELLS-01a rebuild (9/23): -0.0007 [-0.019,+0.018]; do not feed P(accept) |
 | RL-18-2 | TELLS-01a generator + screen | 1,504 auto tells, timed league-demeaned baseline: 148 FIT, 85 CONFIRMED 2023-24 for adds/checkout; placebo 0/3,219. Trade outcome KILLED beyond activity (-0.012) | LOOP-LOG "Round 18 internal"; data/r18i/fit_survivors*.json | CONFIRM for adds/checkout; TRADE KILL. This is TELLS-01a's method |
 | RL-18-3 | COACH-01 | Coach's people gate: rerun with separate windows (70/30 per team-season; 1-5 vs 6-11 sensitivity), grade vs adds/checkout too, report precision vs 0.067 base; keep separate repeatable/predictive verdicts. Do NOT claim "predicts nothing" | LOOP-LOG "Round 18 assess coach-gate-passes-noise" | NEEDS REWORK per validator (overlapping windows) |
 | RL-18-4 | CLONE-01 lead | Dead starts -> checkout (adds r -0.16/-0.19, persistence +0.27/+0.22) but no trade lift; lead on checkedOutFactor's -0.0264 (counterparty-pricing.js:126,540) | LOOP-LOG r18 internal | lead only |

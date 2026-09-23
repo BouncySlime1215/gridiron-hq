@@ -147,6 +147,29 @@ test('the best free agent comes from another team, even when a teammate projects
   assert.equal(r.best_free_agent.player, 'Other Back');
 });
 
+test('replacements are healthy: an Out or Doubtful teammate or free agent is never offered; my own healthy backup is', () => {
+  // U2: a same-team backup already on MY roster (bench) is listed, marked on_your_roster.
+  const mine = roster({ backOne: { espn_status: 'OUT' }, extra: [p('My Bench Back', 'RB', 6, 6, { snap: 0.35 })] });
+  const free = [
+    ...wire(),
+    // U1: same-team free agents who project highest but are hurt.
+    p('Hurt Handcuff', 'RB', 13, 12, { snap: 0.5, espn_status: 'OUT' }),
+    p('Doubtful Handcuff', 'RB', 12, 11, { snap: 0.45, injury_status: 'Doubtful' }),
+    // U3: an other-team free agent who projects above Other Back (11) but is Out.
+    p('Hurt Other Back', 'RB', 16, 14, { team: 'BUF', snap: 0.8, espn_status: 'OUT' })
+  ];
+  const r = board(mine, [], free).injury_alerts[0].replacements;
+  const names = r.same_team.map(x => x.player);
+  assert.ok(!names.includes('Hurt Handcuff'), 'an Out teammate is not a replacement');
+  assert.ok(!names.includes('Doubtful Handcuff'), 'a Doubtful teammate is not a replacement');
+  assert.deepEqual(names, ['Handcuff Low', 'My Bench Back', 'Handcuff High']);
+  assert.equal(r.same_team_count, 3);
+  const bench = r.same_team.find(x => x.player === 'My Bench Back');
+  assert.equal(bench.on_your_roster, true);
+  assert.equal(r.same_team.find(x => x.player === 'Handcuff Low').on_your_roster, false);
+  assert.equal(r.best_free_agent.player, 'Other Back', 'an Out free agent is not the best free agent');
+});
+
 test('IR and Doubtful starters alert; a healthy, Questionable or benched Out player does not', () => {
   const ir = board(roster({ backOne: { espn_status: 'INJURY_RESERVE' } }), [], wire());
   assert.deepEqual(ir.injury_alerts.map(a => [a.player, a.designation]), [['Back One', 'out']]);

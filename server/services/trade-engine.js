@@ -2169,7 +2169,15 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
   try { timing = timingRead(lg.id, { season: weekNow.season }); } catch { timing = new Map(); }
   try { climate = vetoClimate(lg, { season: weekNow.season, priceOfPlayer: valueOfEspn }); }
   catch { climate = null; }
-  try { self = selfRead(lg.id, { season: weekNow.season }); } catch { self = null; }
+  try { self = selfRead(lg.id, { season: weekNow.season }); }
+  catch (err) {
+    console.error(`[trade-engine] selfRead lookup failed for league ${lg.id}:`, err);
+    // Typed absence, not a silent null: trade-tactics.js's how_nick_looks
+    // note reads `self.available === false` and surfaces `self.reason`, so a
+    // lookup FAULT is told apart from the genuine "he's never made an offer"
+    // empty case instead of reading through as the same healthy sentence.
+    self = { league_id: lg.id, available: false, reason: 'self-scout lookup failed' };
+  }
   const ownerNames = teams.map(t => t.owner).filter(Boolean);
   // Median points-per-1,000-of-price BY POSITION, over every rostered player in
   // this league. The sneak-in rule needs a baseline that is not cross-position:

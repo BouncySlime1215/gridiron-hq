@@ -164,11 +164,13 @@ test('a selfRead fault is logged and surfaced as a typed absence, not swallowed 
   // And the served tactic copy must name the fault, not read like a healthy
   // "nothing captured for this league" result (the pre-fix bare-catch
   // behaviour: self=null reads through the SAME generic sentence as no data).
-  const withTactic = result.deals.find(d => (d.tactics ?? []).some(t => t.key === 'how_nick_looks'));
-  assert.ok(withTactic, 'at least one deal must carry a how_nick_looks tactic entry');
-  const tactic = withTactic.tactics.find(t => t.key === 'how_nick_looks');
-  assert.match(tactic.why, /lookup failed/i,
-    `expected the surfaced fault reason, got: ${JSON.stringify(tactic.why)}`);
-  assert.doesNotMatch(tactic.why, /you have never made this manager an offer/,
+  // No pacing/pressure evidence exists in this fixture, so how_nick_looks
+  // lands in tactics_absent — that is fine; what matters is its reason.
+  const withAbsent = result.deals.find(d => (d.tactics_absent ?? []).some(t => t.key === 'how_nick_looks'));
+  assert.ok(withAbsent, 'at least one deal must carry a how_nick_looks tactics_absent entry');
+  const entry = withAbsent.tactics_absent.find(t => t.key === 'how_nick_looks');
+  assert.match(entry.reason, /lookup failed/i,
+    `expected the surfaced fault reason, got: ${JSON.stringify(entry.reason)}`);
+  assert.doesNotMatch(entry.reason, /you have never made this manager an offer/,
     'a selfRead FAULT must not read identically to a genuine empty/no-history result');
 });

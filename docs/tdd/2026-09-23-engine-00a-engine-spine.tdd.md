@@ -50,11 +50,16 @@ amended RED (b5e0461c) was re-run against the unbuilt tree: 0 pass, 10 fail.
   UPDATE and DELETE on both, so append-only is a database property.
 - **Registry** `server/services/engine/registry.js`: event types and fields are open
   strings validated by registration. `registerField` (:49) throws when a second producer
-  claims a field. `onEvent` (:79) is the hook for ENGINE-00b's learners; the spine
-  registers no handler. The spine's own field: `engine.ingest`, producer `engine-backfill`.
+  claims a field, and its FIRST call returns the field's writer capability (an opaque
+  frozen object; a repeat by the same producer returns null). `writeState` accepts only
+  that object, compared by identity (`isWriterFor`), so a producer NAME is a label, not a
+  permission. `onEvent` is the hook for ENGINE-00b's learners; the spine registers no
+  handler. The spine's own field `engine.ingest` (producer `engine-backfill`) is
+  registered in backfill.js:33 as the module-private `INGEST_WRITER`, used only at
+  backfill.js:227.
 - **Writers** (one file each, pinned by the grep test): `engine_events` <-
   `appendEvents` server/services/engine/events.js:71; `engine_state` <- `writeState`
-  server/services/engine/state.js:49. `writeState` throws on a foreign producer, an
+  server/services/engine/state.js:49 (INSERT at :84). `writeState` throws on a missing or foreign writer, an
   unregistered field, a missing or malformed reason_chain, a contribution citing an event
   the row does not cite, an unknown event id, and an event stamped after the row's as_of.
   `appendEvents` refuses payload keys that could hold private text or credentials
@@ -136,6 +141,55 @@ false survivor, fixed). Tree 0d6b1508.
 | M14 call site: chat event stamped at copy time | KILLED (survived before 0d6b1508) | test 8 |
 | Designed survivor: CHUNK 2000 -> 1 | SURVIVED (behaviour-equivalent, as designed) | none |
 | Not-applied control: pattern absent | not applied, 10/10 pass | none |
+
+### Skeptic round 1 (2026-09-23): fixes
+
+RED 35d96bc1 + 040680ff (test 2 moved to the writer object), GREEN 1cffdbc8. Command, each tree:
+`GRIDIRON_DB_PATH=$(mktemp -u) SCHEDULER_DISABLED=1 NODE_OPTIONS='--import ./test/offline-guard.mjs' node --experimental-test-module-mocks --test --test-reporter=tap test/engine-spine.test.js`.
+RED on 35d96bc1 (implementation of abbbd9b6): pass 5, fail 5 (tests 3, 4, 5, 6, 10; the
+first failure: writeState refused a writer object it did not know, since it still wanted a
+producer label). GREEN on 1cffdbc8: pass 10, fail 0.
+
+- Skeptic mutant A (getState ignores league_id; a non-member reads a league row by
+  leaving league_id out): now KILLED by test 5 (a leagueId=null read of a league-only row
+  is null; leagueId=72 is null; leagueId=71 returns it) and test 10 (user 2, no league_id,
+  gets state null, absence no_row_as_of).
+- Skeptic mutant B (a missing timestamp gets a guessed time): now KILLED by test 8. The
+  fixture adds an nfl_injuries row with modified_at NULL. It must make no event, and the
+  injuries stream must report no_timestamp 1 and source_rows 2.
+- Skeptic mutant D (injury stamped at copy time) plus the same class on lineups (D2) and
+  news (D3): KILLED by test 8, which now pins as_of for injury (2026-09-19T20:00:00.000Z),
+  lineup (2026-09-20T10:00:00.000Z) and news (2026-09-19T15:00:00.000Z).
+- Structure (one producer was a label, not a file): fixed by the writer capability above.
+  The skeptic's spoof, re-run on 1cffdbc8 (scratchpad spoof.mjs, fresh mktemp DB):
+  `label engine-backfill refused: writeState needs the writer registerField returned for
+  engine.ingest`; a forged `{field, producer}` object: `refused: one writer per field`; a
+  writer obtained by re-registering: refused (re-register returns null); `getState null`.
+  The grep test now also requires every registerField call in server/ and scripts/ to
+  use literal names (call count equals declaration count), engine.ingest to be declared in
+  backfill.js, and no registerField result to be exported.
+
+Mutation sweep on 1cffdbc8 (scratchpad mut.py, first occurrence of each pattern):
+
+| Mutant | Result | Killed by |
+|---|---|---|
+| A getState: `COALESCE(league_id,-1) = ? OR 1` | KILLED | tests 5, 10 |
+| B backfill: stamp a missing timestamp with now | KILLED | test 8 |
+| D injury adapter: stamp at copy time | KILLED | test 8 |
+| D2 lineup adapter: stamp at copy time | KILLED | test 8 |
+| D3 news adapter: stamp at copy time | KILLED | test 8 |
+| S1 writeState: skip isWriterFor | KILLED | test 3 |
+| S3 re-register hands out the writer again | KILLED | test 3 |
+| S4 writer compared by producer name, not identity | KILLED | test 3 |
+| S5 backfill exports INGEST_WRITER | KILLED | test 4 (grep) |
+| S2 writeState: drop the `writer == null` guard | SURVIVED, equivalent: isWriterFor(field, undefined) is false, so the write still throws ('one writer per field'); the guard only gives a clearer message | none |
+| Not-applied control | not applied | none |
+
+Local copy, not production (HEAD 1cffdbc8): `GRIDIRON_DB_PATH=.local-db/data.sqlite
+node scripts/engine-backfill.mjs` inserted 0 per stream, total_events 42922 (unchanged),
+and wrote its engine.ingest row through INGEST_WRITER (`select count(*), producer from
+engine_state where field='engine.ingest'` = 3, engine-backfill: one row per run).
+`node scripts/wiring-map.mjs --check`: exit 0, 'no missing-feed findings', no engine lines.
 
 ## 6. Known defects / follow-ups
 

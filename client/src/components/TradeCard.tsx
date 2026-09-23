@@ -364,12 +364,16 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
                   <span className="text-sm tabular-nums text-[var(--muted)]">{(s.title_before * 100).toFixed(1)}%</span>
                   <span className="text-[var(--muted)]">→</span>
                   <span className="text-lg font-bold tabular-nums text-[var(--ink)]">{(s.title_after * 100).toFixed(1)}%</span>
-                  <span className={`text-xs font-semibold tabular-nums ${s.title_delta > 0 ? 'text-good' : s.title_delta < 0 ? 'text-crit' : 'text-[var(--muted)]'}`}>
+                  <span className={`text-xs font-semibold tabular-nums ${s.title_delta_clears_noise !== true ? 'text-[var(--muted)]' : s.title_delta > 0 ? 'text-good' : s.title_delta < 0 ? 'text-crit' : 'text-[var(--muted)]'}`}>
                     {s.title_delta > 0 ? '+' : ''}{(s.title_delta * 100).toFixed(1)}
+                    {s.title_delta_se != null && <span className="font-normal"> ±{(2 * s.title_delta_se * 100).toFixed(1)}</span>}
                   </span>
                 </div>
                 <div className="text-[11px] text-[var(--muted)] tabular-nums">
-                  title odds · playoffs {s.playoff_delta > 0 ? '+' : ''}{(s.playoff_delta * 100).toFixed(1)}pts · wins {s.wins_delta > 0 ? '+' : ''}{s.wins_delta}
+                  title odds · playoffs <span className={s.playoff_delta_clears_noise === true ? 'text-[var(--ink)]' : ''}>
+                    {s.playoff_delta > 0 ? '+' : ''}{(s.playoff_delta * 100).toFixed(1)}pts
+                    {s.playoff_delta_se != null && <> ±{(2 * s.playoff_delta_se * 100).toFixed(1)}</>}
+                    {s.playoff_delta_clears_noise !== true && ' (within noise)'}</span> · wins {s.wins_delta > 0 ? '+' : ''}{s.wins_delta}
                 </div>
               </div>
             ))}

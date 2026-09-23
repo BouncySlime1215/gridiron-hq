@@ -75,7 +75,7 @@ export const VALUATION_SOURCES = Object.freeze({
   profile_roster_read: { label: 'What his negotiation profile says he over- and undervalues',
     cap: 0.10, min_n: 1, needs: 'league chat', fitted: false,
     why: 'a whole-corpus read naming specific players, not a per-message average' },
-  hype_vs_usage: { label: 'His own player is outscoring the usage that earns it',
+  outscoring_usage: { label: 'His own player is outscoring the usage that earns it',
     cap: 0.08, min_n: 2, needs: 'weekly expected points', fitted: false,
     why: 'a hot player is priced by his owner at his hot number' },
   luck_self_view: { label: 'His record is flattered (or punished) by luck',
@@ -530,7 +530,7 @@ export function perceivedValue(players, managerProfile, { zero = [] } = {}) {
  *      the crossed read wins wherever it exists, because raw sentiment has the
  *      wrong SIGN for the case that costs real money (a manager talking up a
  *      player he is quietly shopping).
- *   2. `hype_vs_usage` fires ONLY where there is no talk read, because the
+ *   2. `outscoring_usage` fires ONLY where there is no talk read, because the
  *      expectation gap is already the discriminator inside that read.
  *   3. `praise_means` from the negotiation profile is not its own factor; it
  *      modifies the talk read it is evidence about (a manager the model says
@@ -626,9 +626,9 @@ export function playerValuation(managerProfile, player, { zero = [] } = {}) {
   if (owns && !read) {
     const gap = managerProfile?.gaps?.get(key) ?? null;
     if (gap) {
-      const cap = VALUATION_SOURCES.hype_vs_usage.cap;
+      const cap = VALUATION_SOURCES.outscoring_usage.cap;
       const strength = Math.max(-1, Math.min(1, gap.gap_per_game / HOT_GAP_PER_GAME));
-      add('hype_vs_usage', cap * strength, gap.games,
+      add('outscoring_usage', cap * strength, gap.games,
         `${gap.gap_per_game > 0 ? '+' : ''}${gap.gap_per_game}/game against what his usage earns `
         + `over ${gap.games} games — his own number for his own player. `
         + '(Actual vs expected points from usage; NOT the trade-price hype in services/hype.js#playerHype '

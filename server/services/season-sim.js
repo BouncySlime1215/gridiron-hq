@@ -261,7 +261,7 @@ function playBracket(field, { playoff_weeks: roundWeeks, reseed }, scoreFor) {
 
 // Narrowly exposed for deterministic regression tests. These helpers contain
 // the decision-timing rules whose accidental reversal creates hindsight bias.
-export const __test = { lineupPoints, initialRecords, playBracket };
+export const __test = { lineupPoints, initialRecords, playBracket, addMedianResults };
 
 /* -------------------------------------------------------------- the sim */
 

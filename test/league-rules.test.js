@@ -256,6 +256,23 @@ test('CE-05: a two-week playoff round is scored over both of its weeks', () => {
   assert.equal(out.champion, 'd', 'the 4 seed that outscores everyone wins');
 });
 
+test('CE-05: a league that plays the median gets a second result each week (sim and carried-in record)', () => {
+  const { addMedianResults, initialRecords } = seasonSim.__test;
+  assert.equal(typeof addMedianResults, 'function');
+  const rec = new Map(['a', 'b', 'c', 'd'].map(id => [id, { w: 0, pf: 0 }]));
+  addMedianResults(new Map([['a', 120], ['b', 100], ['c', 90], ['d', 80]]), rec);
+  // Median of 120/100/90/80 is 95: a and b win it, c and d lose it.
+  assert.deepEqual([...rec.values()].map(r => r.w), [1, 1, 0, 0]);
+  const lg = { platform: 'espn', payload: JSON.stringify({ schedule: [
+    { matchupPeriodId: 1, home: { teamId: 1, totalPoints: 120 }, away: { teamId: 2, totalPoints: 100 } },
+    { matchupPeriodId: 1, home: { teamId: 3, totalPoints: 90 }, away: { teamId: 4, totalPoints: 80 } }] }) };
+  const teams = [1, 2, 3, 4].map(i => ({ roster_id: String(i) }));
+  const withMedian = initialRecords(lg, teams, 2, true);
+  const without = initialRecords(lg, teams, 2);
+  assert.deepEqual([...withMedian.values()].map(r => r.w), [2, 1, 1, 0]);
+  assert.deepEqual([...without.values()].map(r => r.w), [1, 0, 1, 0], 'control: no median, head-to-head only');
+});
+
 /* ------------------------------------------------ simulateSeason + the route */
 
 run(`INSERT INTO users (subject, display_name) VALUES ('ce05', 'ce05')`);

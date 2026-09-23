@@ -280,6 +280,7 @@ class:
 | L151 | 2026-09-22 | #92 | fantasy | other | Which half (rushing or receiving tiers) earns the four-tier gain | TD MAE | script scores 2025; no result recorded in any doc |  |  |  |  |  |  | n.a. | `docs/evidence/redzone-tier-decomposition.mjs:26` | artifact with no reporting .md |
 | L152 | 2026-09-22 | #92 | fantasy | FL | Four red-zone tiers beat three for expected touchdowns | TD MAE, 5,229 player-weeks | improvement real, -0.68% MAE; TD bias slightly worse | -0.001859 | -0.002678 | -0.000125 | 95 |  | - | yes | `docs/tdd/redzone-tiers.tdd.md:95` |  |
 | L153 | 2026-09-22 | #106 | fantasy | FL | Unit-1 volume-shrinkage fit beats hardcoded k (CRPS gate) | CRPS, 4,532 player-weeks | result not reported in docs/; local DB row note says activated, active column 0 |  |  |  |  |  |  | unclear (row note vs active=0) | `docs/tdd/shrinkage-fit-efficiency-weighting-2026-09-22.tdd.md:143` | origin out of scope (local shrinkage_fits row; Auditor verdict in handoff memory gridiron-audit-unit-1-verdict) |
+| L154 | 2026-09-23 | CE-05 (branch claude/local-ce-05-league-rules) | fantasy | other | league-rules seedStandings reproduces every stored ESPN playoff seed (rule check, not a model) | seeds equal / teams, league_season_teams | PASSED: 2025 26/26 (3 leagues); 2023-2024 36/36; plain wins-then-points control 8/10 in league 2 2023 and 2024 |  |  |  |  |  |  | yes | `docs/evidence/2026-09-23/league-rules-replay.md` | not a model fit; settings for past seasons are the 2026 payload's (guess) |
 
 ## 2026 forward looks
 
@@ -303,7 +304,11 @@ Two sources of `F` rows besides a unit's own rule-5 check:
 - **Registry openings of 2026.** A `model_backtests` row with protocol
   `sealed_holdout` and season 2026 (`server/routes/model.js:348-349`).
 
-None yet. On a local copy (not production, 2026-09-22), `weekly_ensemble_fits`
+| id | date | unit/PR | domain | family | hypothesis | metric | result | est | lo | hi | level | p (source) | better | shipped | file:line | note |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| F001 | 2026-09-23 | CE-05 (branch claude/local-ce-05-league-rules) | fantasy | other | league-rules seedStandings reproduces the current ESPN seeds (teams[].playoffSeed) after 2 weeks | seeds equal / teams, leagues.payload | PASSED: 46/46 across 5 leagues |  |  |  |  |  |  | yes | `docs/evidence/2026-09-23/league-rules-replay.md` | rule check, not a model; no job fit or registry opening |
+
+Before F001 there were none. On a local copy (not production, 2026-09-22), `weekly_ensemble_fits`
 has 2 rows, both through 2025 week 18 (the known-nonzero control), and
 `model_backtests` has 0 rows.
 

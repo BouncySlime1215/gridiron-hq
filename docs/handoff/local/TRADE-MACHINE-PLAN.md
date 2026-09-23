@@ -168,3 +168,6 @@ Order: CE-05, CE-01, CE-02, CE-03 (data and sampler), then CE-09, CE-06, CE-04, 
 - NX-09 Tiebreak mode: from the week the standings tiebreaker (points-for) can decide a seed, the lineup objective switches from win probability to expected points where the sim says the tiebreak matters. Test: 2025 replay, seeds decided by points-for.
 - NX-10 Playoff-week rentals: pay with weeks 3-6 matchup value (which everyone prices) for weeks 15-17 matchup value (which no one prices): the same "now vs later" trade, aimed at the bracket. Test: history, do rosters built on playoff-week implied totals score more in weeks 15-17 than generic rosters?
 Each idea ships only after its test; anything untested is labelled a guess in the app.
+
+
+# CORRECTION 2026-09-23 08:30Z (skill study skeptics): best-player flag removed (not an edge once value is held equal); IR discount ~4-6 pts not 30; start/sit is not 'half of skill' (unstable; engagement dominates); 'more moves wins' is association only. TR-05 quality checks keep: lineup gain vs paper value, pedigree regression tag (re-fit), a small IR discount, trade-less-better note.

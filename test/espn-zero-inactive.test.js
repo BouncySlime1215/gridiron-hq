@@ -20,6 +20,8 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-espn-zero-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.GRIDIRON_DB_INTEGRITY_CHECK = 'off';
 process.env.NFL_WEEK = '2';
+// The hook is default-off (unconfirmed forward); these fixtures test it switched on, except where a test says otherwise.
+process.env.GRIDIRON_ESPN_ZERO_INACTIVE = '1';
 
 const { db, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
@@ -41,7 +43,7 @@ mock.module('../server/services/waiver-brain.js', {
   namedExports: { ...realWaiverBrain, vegasLift: () => ({ multiplier: 1, line: null, applied: false }) }
 });
 
-const { espnZeroInactive, ESPN_ZERO_SOURCE } = await import('../server/services/espn-zero-inactive.js');
+const { espnZeroInactive, ESPN_ZERO_SOURCE, ESPN_ZERO_LABEL } = await import('../server/services/espn-zero-inactive.js');
 const { lineupCall } = await import('../server/services/lineup-brain.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -193,4 +195,45 @@ test('a caller-supplied hook still wins over the ESPN-zero default', () => {
     inactive: { covered: true, source: 'fixture', reason: null, ids: new Set() } }).dead_starters;
   assert.equal(ds.inactive_source.source, 'fixture');
   assert.equal(byName(ds)['Zeroed Starter'], undefined);
+});
+
+test('default-off: without GRIDIRON_ESPN_ZERO_INACTIVE=1 nothing is flagged and the source says "unconfirmed forward"', () => {
+  const mine = roster([player('Zeroed Starter', 'WR', 'WR', 0, { prior: 14.2, now: 0 })]);
+  mine.splice(mine.findIndex(p => p.asset.name === 'Wideout Two'), 1);
+  const id = league(mine);
+  const saved = process.env.GRIDIRON_ESPN_ZERO_INACTIVE;
+  delete process.env.GRIDIRON_ESPN_ZERO_INACTIVE;
+  try {
+    const hook = espnZeroInactive(id, { season: 2026, week: 2 });
+    assert.equal(hook.covered, false);
+    assert.equal(hook.ids.size, 0);
+    assert.match(hook.reason, /unconfirmed forward/);
+    const out = lineupCall(id, { providers: {}, now: NOW });
+    assert.equal(byName(out.dead_starters)['Zeroed Starter'], undefined);
+    assert.equal(out.dead_starters.inactive_source.covered, false);
+    assert.match(out.dead_starters.inactive_source.reason, /unconfirmed forward/);
+  } finally {
+    process.env.GRIDIRON_ESPN_ZERO_INACTIVE = saved;
+  }
+});
+
+test('one number: a starter the card calls inactive is not in the solver lineup or warnings, and is listed as unavailable', () => {
+  const mine = roster([player('Zeroed Star', 'WR', 'WR', 30, { prior: 14.2, now: 0 })]);
+  mine.splice(mine.findIndex(p => p.asset.name === 'Wideout Two'), 1);
+  const id = league(mine);
+  const out = lineupCall(id, { providers: {}, now: NOW });
+  assert.equal(byName(out.dead_starters)['Zeroed Star']?.reason, 'inactive', 'the card flags him');
+  assert.ok(!out.lineup.some(c => c.player.name === 'Zeroed Star'), 'the solver does not start him');
+  assert.ok(!out.bench.some(b => b.name === 'Zeroed Star'), 'nor offers him from the bench');
+  assert.ok(!(out.warnings ?? []).some(w => w.player === 'Zeroed Star'), 'nor warns about him');
+  const u = (out.unavailable ?? []).find(x => x.name === 'Zeroed Star');
+  assert.ok(u, 'named in unavailable, which the page lists as not considered');
+  assert.match(u.why, /ESPN projects 0: likely inactive/);
+});
+
+test('the source label states the precision of the population the card shows (Friday Questionable/undesignated), not all zeros', () => {
+  assert.doesNotMatch(ESPN_ZERO_LABEL, /90%/);
+  assert.match(ESPN_ZERO_LABEL, /87%/);
+  assert.match(ESPN_ZERO_LABEL, /Questionable or undesignated/);
+  assert.match(ESPN_ZERO_LABEL, /unconfirmed forward/);
 });

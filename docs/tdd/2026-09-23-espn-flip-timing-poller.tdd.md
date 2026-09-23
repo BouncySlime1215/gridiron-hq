@@ -226,10 +226,12 @@ run touches any 2025 data — it does not; this is a 2026 in-season forward look
    app table and has no route or job consumer. That is by design for this unit — the
    SS-01 hook that would consume a CONFIRM verdict is a separate, not-yet-built unit
    (r10 doc section 5, "where it lands").
-5. **How it unifies:** it reuses the one existing reader of ESPN's stored projection
-   (`collect-roster-snapshots.mjs:92` `periodPoints`) for its threshold logic and the
-   one existing stored-payload column (`leagues.payload`) for its input — no second
-   producer of "ESPN's projection" is introduced.
+5. **How it unifies:** (corrected in the skeptic round, section 10) the first version
+   claimed reuse of `periodPoints` but carried its own copy that disagreed on rounding
+   (12.345 vs 12.35). Now `periodPoints`/`round2` live in
+   `scripts/lib/espn-period-points.mjs`, imported by both `collect-roster-snapshots.mjs`
+   and the poller, and the "is he out" set comes from `server/services/espn-status.js`
+   (`ESPN_AVAILABLE`, imported by `player-availability.js`).
 
 ## 9. One number, one producer
 
@@ -240,3 +242,70 @@ This unit adds a second *reader* of the same source field (`leagues.payload`'s
 to a brand-new JSONL sink that nothing else reads, so there is no contradiction to
 reconcile. No existing "timing lag" or "flip detector" concept exists elsewhere to
 unify with (confirmed by the grep in section 0).
+
+## 10. Skeptic round 1 (2026-09-23): fixes and one pushback
+
+RED `028562e1` (8/14 fail), GREEN `d5c52091` (14/14 pass), same command as section 2.
+Also re-run on `d5c52091`: `test/roster-snapshots.test.js` + this file 28/28 pass,
+`test/player-availability.test.js` 15/15 pass (both files touched by the extraction).
+
+**1. Flip timing was poll time, but the payload only changes on the hourly sync. Fixed.**
+- The poller now runs `SELECT id, payload, fetched_at FROM leagues WHERE platform = ?`
+  (no `espn_s2`/`swid`) and emits `source_fetched_at` (ISO UTC from `leagues.fetched_at`,
+  writer `server/routes/leagues.js` `syncEspnLeague` on the hourly `league_rosters` job,
+  `scheduler.js:1253`).
+- The analysis times each flip by `source_fetched_at` and brackets it as
+  `[last_unflipped_ts, flip_ts]`, with `lag_lower_minutes` and `lag_minutes` (the
+  upper bound). **Resolution is the sync cadence (up to 60 minutes), not 10 minutes.**
+  `lag_minutes` is late-biased by up to one sync interval, so it is conservative for
+  CONFIRM (a flip that passes on the upper bound really passed). The 10-minute poll
+  only makes sure no hourly payload is overwritten before it is captured.
+- Test `flipLags: flip time is the payload fetch time` covers this: six polls of a 16:00
+  payload plus a 17:00 OUT payload give `flip_ts` 17:00, lag +30, lower bound -30.
+  Mutation `observedAt = r => r.ts` (flip timed by poll): that test dies (13/14).
+- Not done: triggering a fresh ESPN fetch every 10 minutes. The fetch path
+  (`syncEspnLeague` → `fetchEspn(lg, …)`, `server/routes/leagues.js:121-137`) needs the
+  league's cookies, and this unit may not select `leagues.espn_s2`/`swid`. For a
+  finer read on 9/27 and 10/4, the operator can trigger the app's own league sync more
+  often. That is an operator choice, not code in this unit.
+- **Pushback: `league_roster_snapshots.changed_at` cannot stand in for this timeline.**
+  The table has one row per `(league_id, season, scoring_period_id, team_id,
+  espn_player_id)` (`server/migrations/058_league_roster_snapshots.js:50` PRIMARY KEY).
+  `writePeriod` updates that row in place (`collect-roster-snapshots.mjs:109`
+  `UPDATE … SET <TRACKED> = ?, changed_at = ?`, run at `:130`), and `TRACKED` includes
+  `actual_points` (`:42`). So the first in-game stat change overwrites the flip's
+  `changed_at`, and an earlier projection or status value is lost. The first flip time
+  therefore can't be recovered from the table after kickoff. The JSONL keeps every sync's
+  reading and has no other reader. It is R&D output under `~/gridiron-local/rnd/`, not
+  an app table or column.
+
+**2. The poller claimed to reuse `periodPoints` but carried its own copy. Fixed.**
+- Both writers now import `scripts/lib/espn-period-points.mjs`.
+- Test `projected_points uses the shared periodPoints (round2) contract`: an input of
+  12.345 now gives 12.35 from the poller, the same as `league_roster_snapshots`.
+- `roster-snapshots.test.js` still passes (28/28, combined run above).
+
+**3. The producers disagree on DOUBTFUL. Pre-registered and reported both ways.**
+- Values on the same input (DOUBTFUL, projection 8):
+  - `player-availability.js` `ESPN_AVAILABLE`: available.
+  - `manager-signals.js:312` dead set: out.
+  - r10 set: out.
+- **Pre-registration amendment (2026-09-23, before any real Sunday row exists):**
+  - The PRIMARY metric uses the canonical definition: a flip is a projection under 1,
+    or a status outside `ESPN_AVAILABLE` (`server/services/espn-status.js`, now shared
+    with `player-availability.js`). Under it, DOUBTFUL is not a flip.
+  - SS-01 must use this same definition.
+  - The r10 definition (with DOUBTFUL) is reported alongside as SECONDARY.
+  - The CLI prints both (`{canonical: …, r10: …}`), and the CONFIRM/KILL rule in
+    section 1 is read on `canonical`.
+- Tests: `isFlipped (canonical, default)` and `flipLags: DOUBTFUL-only flip counts
+  under r10 but not under the canonical definition`. Mutation: canonical set replaced
+  with the r10 set → 2 tests die (12/14).
+- **Follow-up (named, not done here):** `manager-signals.js:312` still counts DOUBTFUL
+  as dead, which disagrees with `player-availability.js`. The fix is to point it at
+  `espn-status.js` in a separate unit, because it changes a served manager signal.
+
+**Files added:** `scripts/lib/espn-period-points.mjs`, `server/services/espn-status.js`
+(both dependency-free). **Moved, not changed:** `periodPoints`/`round2` out of
+`collect-roster-snapshots.mjs`, `ESPN_AVAILABLE` out of `player-availability.js`.
+No migration, no table, no column.

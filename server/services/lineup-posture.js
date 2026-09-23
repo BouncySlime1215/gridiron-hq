@@ -60,9 +60,9 @@ const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
  * So: week decisions rank on `weekPpg`, season/trade decisions on `adj_ppg`.
  *
  * `week_points` first when a player carries it: lineupPosture() prices both rosters
- * with lineup-brain.js#startSitWeekPoints, the Start/Sit number (current_week_ppg x the
- * betting-line game-script multiplier), so the card and the Start/Sit page show the
- * same lineup at the same total. A caller that passes plain assets (the calibration
+ * with lineup-brain.js#startSitWeekPoints, the Start/Sit number (current_week_ppg x
+ * vegasLift's multiplier, which is 1 while waiver-brain.js#BETTING_LINE_LIFT is off), so
+ * the card and the Start/Sit page show the same lineup at the same total. A caller that passes plain assets (the calibration
  * script, tests of lineupMoments) keeps the old current_week_ppg basis.
  */
 function weekPpg(p) {
@@ -256,8 +256,8 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
   const assets = assetUniverse(lg, formatKey);
   const slots = lineupSlots(lg);
 
-  // Both rosters priced on the Start/Sit number, betting-line lift included, and both
-  // solved on it. The card used to sum raw current_week_ppg: on the 2026-W2 sync its
+  // Both rosters priced on the Start/Sit number (the betting-line lift is part of it only
+  // while BETTING_LINE_LIFT is on; it is off since S-03), and both solved on it. The card used to sum raw current_week_ppg: on the 2026-W2 sync its
   // "You" was 0.25-1.98 points off the Start/Sit projection in every league, and in
   // leagues 4 and 5 it started a different FLEX. The lift is priced for the week
   // current_week_ppg describes (tradeWeekContext), exactly as lineupCall does.
@@ -391,7 +391,11 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
     swaps_rejected_as_artifacts: artifactsRejected,
     // Where both SDs come from. There used to be a per-side "coverage" figure here
     // because two spread sources on different scales were mixed; there is one now.
-    projection_basis: 'Start/Sit week points: this week\'s projection x the betting-line game-script adjustment',
+    // The sentence is the one produced label (fantasy-coordinator.js#weekConstructionBasis,
+    // via the universe's context), so it says whether the betting-line lift is in the
+    // number instead of asserting it; the card renders week_basis.label (MatchupPosture.tsx).
+    projection_basis: ['Start/Sit week points.', assets.context?.week_basis?.label].filter(Boolean).join(' '),
+    week_basis: assets.context?.week_basis ?? null,
     sd_model: `projection x positional CV x ${SPREAD_SCALE} (fitted 2023-24, validated 2025: scripts/fit-posture-calibration.mjs)`,
     // Scope of the probability. lineupSlots() prices the skill slots only; every
     // synced league also starts a K and a DEF, which are in neither side's mean nor

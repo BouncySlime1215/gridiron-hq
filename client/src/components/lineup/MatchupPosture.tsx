@@ -33,8 +33,10 @@ export interface Posture {
   swaps?: PostureSwap[];
   note?: string;
   win_probability_scope?: string;
-  /** What "You" and "Them" are summed from: the Start/Sit week points, betting line included. */
+  /** What "You" and "Them" are summed from: the Start/Sit week points, with the server's label. */
   projection_basis?: string;
+  /** What this week's points are built from (server: fantasy-coordinator.js#weekConstructionBasis). */
+  week_basis?: { label?: string } | null;
 }
 
 const STANCE: Record<string, { label: string; chip: string; bar: string }> = {
@@ -162,8 +164,9 @@ function Body({ data, loading, error, onRetry }: {
         <p className="mt-3 border-t border-slate-100 pt-2 text-[11px] leading-4 text-slate-400">
           Win chance covers {data.win_probability_scope}.
           {data.projection_basis
-            ? ' Both totals are the Start/Sit week points (this week\'s projection with the betting-line adjustment), so "You" matches the lineup below.'
+            ? ' Both totals are the Start/Sit week points, so "You" matches the lineup below.'
             : ''}
+          {data.week_basis?.label ? ` ${data.week_basis.label}` : ''}
         </p>
       )}
     </>

@@ -11,11 +11,11 @@ What already exists for this surface, on `3ac59fea`:
 | Need | Existing producer (table + writer, file:line) | Already served where | Decision |
 |---|---|---|---|
 | Openness, untouchables, loss reaction, night share | `manager_signals` rows `chat_open_to_trade`, `chat_own_untouchable`, `chat_reacting_to_loss`, `chat_night_share` (n = messages), written by `buildManagerSignals` server/services/manager-signals.js:363 via `chatSignals` :149, from league_chat.sqlite `manager_chat_profile` opened by `openChatDb` :111 | `/managers/signals` as a flat signal list (server/routes/trades.js:531) | REUSE the stored rows; shape them per manager |
-| Players he is down on / rates | `manager_player_view` (league, roster, player, sentiment 0-4, n), written by `buildManagerSignals` manager-signals.js:429 from league_chat.sqlite `manager_player_sentiment` through the trusted identity join | read by talk-vs-model.js:187, counterparty-pricing.js:1100, bluff-detector.js:289; not on any page per manager | REUSE; join to rosters with `rosterOwnership` talk-vs-model.js:160 |
+| Players he is down on / rates | `talkReads` server/services/talk-vs-model.js:182 (`readTalk` :77, PRAISE 2.3, SOUR 1.75, 3-mention floor, usage gap from `nfl_ffopportunity_weekly`) over `manager_player_view` (writer `buildManagerSignals` manager-signals.js:429) | the trade finder, counterparty-pricing.js:258 | REUSE the verdicts (round 2; round 1 wrongly re-thresholded the table at 2.0) |
 | Recent loss | `manager_signals` `last_week_margin` (n=1), `standing_streak`, manager-signals.js:243 `standingsSignals` | flat list only | REUSE |
 | Observed accept rate | `manager_signals` `tx_accept_rate` (withheld under 5 decided), manager-signals.js:225 `txSignals` | `/managers/signals` receptiveness block | REUSE, same row |
 | Active hours from behaviour | `timingRead` server/services/trade-tactics.js:249 (league_transactions_raw, min 10 own actions) | trade tactics only | REUSE, call it |
-| Roster hole | none per manager. Canonical week number: `lineupDiff` trade-engine.js:2814 (bestLineup on Start/Sit `week_points`) | League Hub card, Nick's team only | EXTEND: call `lineupDiff` for every roster, compare slot by slot |
+| Roster hole | `analyzeLeague` server/routes/tradelab.js:98 (VOR starter value / league average, need under 0.80), the one needs source of the trade finder (trade-engine.js:155 `rosterContext`, counterparty-pricing.js:456) | the finder's "he is short at X" reason | REUSE its `needs` (round 2; round 1 built a second hole from `lineupDiff` week points and disagreed on 2 rosters) |
 | LS-01 lineup signals | not on main (`grep -rn "LS-01\|lineup_signal" server client/src` on 3ac59fea: 0 hits). Planned table `lineup_signal(s)` (league, roster, player, week, signal, evidence, n) per EXECUTION-WIRING.md | none | CONSUME BEHIND FIELD DETECTION: read only when the table and its columns exist, otherwise `table_absent` |
 
 Why the stored copy and not a second chat read: `manager_player_view` and the `chat_*` rows ARE the chat DB's
@@ -48,6 +48,16 @@ Neighbours on 74e8b373, same command: test/league-brain.test.js 5/5, test/trade-
 test/manager-signals-api.test.js 27/27. `npx tsc --noEmit` exit 0; `node scripts/lint.mjs` exit 0;
 `node scripts/wiring-map.mjs --check` exit 0 (74e8b373 working tree). The full `npm run check` is left to the Gate phase.
 
+### Round 2 (skeptic findings, head eb16c357)
+
+- RED `5cd25dcd` test: RED board reads use talkReads + analyzeLeague, THIN boundary, route isolation. Against
+  eb16c357's service (tests from 5cd25dcd, service file stashed back to eb16c357): pass 9 fail 4 (tests 4, 5, 6,
+  12). Test 13 (route isolation) passes on the old tree because the route was right; its liveness is mutant D.
+- GREEN `ceff05f7` fix: target board reads the trade finder's producers; probability wording; DST-correct
+  hour. Same command: 13/13 pass. Neighbours on ceff05f7: league-brain 5/5, trade-brain-surface 13/13,
+  manager-signals-api 27/27. `npx tsc --noEmit` 0, `node scripts/lint.mjs` 0, `node scripts/wiring-map.mjs --check` 0.
+  `server/routes/trades.js` is unchanged in round 2.
+
 ## 3. What it does
 
 `GET /api/trades/:leagueId/brain/managers` (server/routes/trades.js, the `/brain/managers` handler) now adds
@@ -57,10 +67,10 @@ through client/src/components/brain/TargetBoard.tsx inside each manager row. Per
 
 | Field | Source (reader -> table -> writer) | n | THIN |
 |---|---|---|---|
-| `roster_hole` | `lineupDiff` trade-engine.js:2814 per roster; slot with the lowest (starter week_points - league median starter at that slot) | teams priced | n<5; `below_median:false` renders "no real hole" |
-| `down_on` | `manager_player_view` (writer manager-signals.js:429) where sentiment < 2 and `rosterOwnership` (talk-vs-model.js:160) says the player is on HIS roster | mentions | n<5 |
-| `rates_yours` | same table, sentiment > 2 and the player is on Nick's roster | mentions | n<5 |
-| `openness`, `untouchable`, `tilt.reacting_to_loss`, `active_hours.night_share` | `manager_signals` chat_open_to_trade / chat_own_untouchable / chat_reacting_to_loss / chat_night_share (writer `chatSignals` manager-signals.js:149) | his messages | n<5; `no_corpus` when the roster has no trusted chat identity |
+| `roster_hole` | `analyzeLeague` tradelab.js:98: position with the lowest starter ratio; `is_need`, `gap` (VOR points) and `needs` copied from its `needs` list | teams | n<5; `is_need:false` renders "not a need" |
+| `down_on` | `talkReads` talk-vs-model.js:182 verdicts `buy_low` / `genuine_sour` on a player `rosterOwnership` (talk-vs-model.js:160) puts on HIS roster; buy_low first | mentions | n<5 |
+| `rates_yours` | `talkReads` verdict `wants_him` on a player on Nick's roster | mentions | n<5 |
+| `openness`, `untouchable`, `tilt.reacting_to_loss` (avg classifier probability 0-1 per message, extract_league_chat.py:321-324; shown as "avg probability 0-1" with the coach/people/variables.js:354 labels), `active_hours.night_share` (a real share, :313) | `manager_signals` chat_open_to_trade / chat_own_untouchable / chat_reacting_to_loss / chat_night_share (writer `chatSignals` manager-signals.js:149) | his messages | n<5; `no_corpus` when the roster has no trusted chat identity |
 | `tilt.last_week_margin`, `just_lost`, `streak` | `manager_signals` last_week_margin / standing_streak (`standingsSignals` manager-signals.js:243) | 1 game (a fact, not labelled thin) | `just_lost: null` when no game is decided |
 | `active_hours.busiest_hour_utc` | `timingRead` trade-tactics.js:249 over league_transactions_raw | his own moves | under its own 10-move bar |
 | `accept_rate` | `manager_signals` tx_accept_rate (`txSignals` manager-signals.js:225) | decided offers | `withheld_under_5` with n when under 5 decided |
@@ -86,13 +96,26 @@ while the hand-set tiers still serve.
 | M11 LS-01 detection off | killed (test 8) |
 | M12 NOT-APPLIED CONTROL: pattern absent from the file | reported NOT APPLIED (count 0), not "survived" |
 
+### Round 2 sweep (tree ceff05f7; scratchpad mut3.sh restores the file after each mutant)
+
+| Mutant | Result |
+|---|---|
+| A (skeptic) thin `>=` -> `>` (n=5 wrongly thin) | killed: pass 11 fail 2 (tests 4, 6) |
+| D (skeptic) route `target_board_meta: board ? board.meta : null` (error swallowed) | killed: pass 12 fail 1 (test 13) |
+| E rates_yours takes any verdict, not only `wants_him` | killed: pass 12 fail 1 (test 4, `not_interested` fixture) |
+| F hole picks the HIGHEST ratio | killed: pass 12 fail 1 (test 12) |
+| G buy_low no longer ranked above genuine_sour | killed: pass 12 fail 1 (test 5) |
+| H NOT-APPLIED CONTROL | reported NOT APPLIED |
+
+Round 1 mutants M2, M6, M7 targeted code that no longer exists (neutral 2.0 rule, median-gap hole).
+
 ## 5. The numbers (local copy, not production)
 
 Local copy: `sqlite3 ~/gridiron-local/data.sqlite ".backup '<wt>/.local-db/data.sqlite'"` at 06:28 ET; worktree server
 on :5197 (`SCHEDULER_DISABLED=1`, paid keys blank) at head 5148217f's parent 74e8b373 for the API numbers; counts
 from an in-page `fetch('/api/trades/4/brain/managers')` reduced to aggregates only (no names leave the page).
 
-- Chat league (league 4, the only one with trusted chat identities: `SELECT league_id, COUNT(*) FROM
+- ROUND 1 (tree 74e8b373; the hole, down_on and rates_yours counts in this bullet are SUPERSEDED by round 2 below). Chat league (league 4, the only one with trusted chat identities: `SELECT league_id, COUNT(*) FROM
   league_member_identity WHERE confidence IN (...) GROUP BY 1` -> 4|10): 10 managers, 10 boards; 9 other
   managers; roster hole priced for 9/9 (n=10 teams each), 8 of 9 below the league median; chat corpus 9/9;
   down_on 5 players total (3 thin); rates_yours 7 (6 thin); openness measured 9/9; just_lost 4, unknown 0;
@@ -105,21 +128,40 @@ from an in-page `fetch('/api/trades/4/brain/managers')` reduced to aggregates on
   are different concepts: the second is the league percentile rank (counterparty-pricing.js:315
   `percentile(openVals, ...)`), despite the `_pct` name. No disagreement in the underlying number; the name is a
   follow-up (see known defects).
+- ROUND 2, same local copy, tree ceff05f7, direct `targetBoard(lg)` call on league 4 (scratchpad agree.mjs,
+  secret columns not selected), week 3 (`leagueCurrentWeek`): 10 rosters. Hole vs `analyzeLeague`: `needs` list
+  equal on 10/10; hole = analyzeLeague's top need on 9/9 rosters that have a need. Buy low: 1 player, and
+  `talkReads` gives it `genuine_sour` (1/1 agree). Sell high: 0. Control first (scratchpad ctrl.mjs, same DB,
+  week 3): `talkReads` on league 4 returns attachment 6, wants_him 7, not_interested 5, genuine_sour 1,
+  sales_pitch 4; all 7 wants_him are on OTHER managers' rosters, 0 on Nick's, so 0 sell-high is the canonical
+  answer, not an empty read. Round 1's 5 buy-low / 7 sell-high came from the 2.0 rule the finder does not use.
+  One `targetBoard` call took 194 ms (one sample, a guess, not a benchmark).
+- Busiest hour, round 2: rendered times on the 375px page (Chrome with TZ=America/New_York) are 7 AM, 4 AM,
+  10 AM, 9 AM, 12 PM; `busiest_hour_utc` on league 4 is {1, 8, 11, 13, 14, 16}. UTC 11 and 8 now render 7 AM and
+  4 AM EDT (`TZ=America/New_York node -e` with `setUTCHours` on 2026-09-23 printed `8 4 AM`, `11 7 AM`). Round 1
+  converted on January 1 (EST) and showed 6 AM / 3 AM, one hour early all autumn.
 - Known-nonzero before any empty read: league 4 above is the nonzero case. The `no_corpus` path is shown only
   in the fixture (test 5, roster with a `likely` match); it was not checked on a real no-chat league.
 
-Screenshots at 375 px, every manager, league and player name blurred before capture (headless Chrome over CDP,
-`document.documentElement.scrollWidth - innerWidth` = 0, no horizontal scroll):
-docs/tdd/img/tm-03-board-375-1.png, -2.png, -3.png.
+Screenshots at 375 px, re-taken on ceff05f7 (round 2), every manager, league and player name blurred before
+capture (headless Chrome over CDP, `document.documentElement.scrollWidth - innerWidth` = 0, no horizontal
+scroll; 9 boards, 9 with "avg probability 0-1", 0 with "% of his messages read as open"):
+docs/tdd/img/tm-03-board-375-1.png, -2.png, -3.png. Checked by eye: no readable name.
 
 ## 6. Known defects and limits
 
-- The hole is a hand-set rule (furthest below the league median starter at that slot). It is not graded against
-  any trade outcome; it is a description, not a recommendation, and nothing prices on it.
-- "Down on"/"rates yours" use a strict neutral of 2.0 on the 0-4 chat score with no margin; a 1.96 mean counts
-  as down on (shown to two decimals so the reader sees it). M2 is the standing survivor for the boundary.
-- Busiest hour is `timingRead`'s, shown in the viewer's local time. On league 4 two managers show 3 AM and 6 AM;
-  whether those are his own taps or ESPN-timestamped queued moves was not checked (not verified).
+- The hole is analyzeLeague's season-projection VOR read, not this week's lineup. A roster whose weakest
+  position is still above 0.80 of league average shows the position with "not a need".
+- Buy low / sell high inherit readTalk's hand-set thresholds (PRAISE 2.3, SOUR 1.75, 3 mentions); they are
+  the finder's rules, not new ones. Before week 3 there are under 2 usage games, so `buy_low` cannot fire and
+  sour reads show as `genuine_sour`.
+- Busiest hour is `timingRead`'s, shown in the viewer's local time on today's date. On league 4 two managers
+  show 4 AM and 7 AM ET (UTC 8 and 11); whether those are his own taps or ESPN-timestamped queued moves was
+  not checked (not verified).
+- Same misphrase outside this unit: counterparty-pricing.js:448 says "reacts to losses in N% of his messages"
+  for the same avg-probability number, and ManagerBoard's measured panel shows raw `chat_open_to_trade` beside
+  Receptiveness `open_to_trade_pct` (a league rank). Both are counterparty-pricing / ManagerBoard follow-ups,
+  named for the PR.
 - Falling playoff odds (named in the queue row's "tilt") is not in this unit: tilt is last result + streak +
   chat loss-reaction only. Follow-up once B-01 odds are per-manager.
 - `open_to_trade_pct` in `/managers/signals` is a rank named like a share; renaming it is outside this unit
@@ -129,16 +171,17 @@ docs/tdd/img/tm-03-board-375-1.png, -2.png, -3.png.
 
 ## 7. Nick's five questions
 
-1. Well built? One new service that only reads existing producers, one route extension, one component. 11
-   payload tests from a fixture chat DB through the real signal build; 10 of 11 mutants die, M2 is the designed
-   survivor, M12 the not-applied control. Parameterised SQL; the LS-01 table name comes from a fixed list.
+1. Well built? One new service that only reads existing producers, one route extension, one component. 13
+   tests from a fixture chat DB through the real signal build and a real analyzeLeague fixture; round 2 sweep
+   kills 5/5 applied mutants (incl. the skeptics' A and D), H is the not-applied control. Parameterised SQL; the LS-01 table name comes from a fixed list.
 2. Stats or made up? Stats already stored (chat shares, sentiment means, accept rate, margins, lineup points).
-   The thresholds (THIN under 5, neutral 2.0, median-gap hole) are hand-set and labelled as such in the payload
-   (`target_board_meta.rules`).
+   The only threshold of its own is THIN under 5 (hand-set, in `target_board_meta.rules`); buy low / sell high
+   and needs use the trade finder's existing rules.
 3. How we know: nothing is backtested here, because nothing new is predicted. The board shows reads with their
    n; it makes no start/sit, waiver or trade call of its own, so there is no decision win rate to grade.
 4. Pointed anywhere else? Yes: `/brain/managers` feeds the Trade Brain page (client/src/pages/TradeBrain.tsx
    `useApi(.../brain/managers)`) -> ManagerBoard -> TargetBoard. TM-04 (pitch) is the next consumer.
 5. How it unifies: no second producer. Chat reads come from the one signal build after the trusted identity
-   join; the hole comes from `lineupDiff`, the same week number Start/Sit and League Hub use; accept rate is the
+   join; buy low / sell high are `talkReads` verdicts and the hole is `analyzeLeague` needs, the same calls the
+   trade finder makes (checked equal on league 4: needs 10/10, top need 9/9, buy-low 1/1); accept rate is the
    same row the counterparty layer prices with (checked equal on 9/9 managers).

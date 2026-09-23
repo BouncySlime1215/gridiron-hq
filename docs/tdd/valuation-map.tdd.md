@@ -377,3 +377,39 @@ the state it names — so the fix there is no longer blocked on this one.
 speaks most directly to Nick: the page told him a fact about his league that was
 really a fact about this machine. "Nobody has collected this" and "you have
 none" are different sentences, and only one of them was true.
+
+## After merging main (2026-09-23): the catch G5d5 was leaning on
+
+Merging `origin/main` `a3e2bf3` brought in #94 (`088bd65`), which removed
+`timingRead`'s bare `catch { tx = []; }` so query faults throw. G5d5 passed on
+this branch's old base (`f620a12`) only because that catch swallowed the
+drifted-table error. On the merge commit `npm run check` exited 1 with one
+failure (4126 tests, 4084 pass, 1 fail, 41 skipped):
+
+```
+not ok 3697 - G5d5: a transactions table that will not read does not take the trade reads down with it
+  error: 'no such column: tx_id'
+  at Module.timingRead (server/services/trade-tactics.js:260)
+```
+
+**RED** `6e99f48` (test: RED — after merging main, a table that will not read
+throws out of timingRead, 40 of 42). G5d7 pins the state, not just the
+no-throw: both G5d5 and G5d7 fail with `no such column: tx_id`.
+
+**GREEN** `f663917` (fix: GREEN — timingRead and vetoClimate take the
+accessor's 'unreadable', 42 of 42). Both reads now check
+`transactionsCollected(...).read_state` before querying. An unreadable table
+gives `read_state: 'unreadable'` with the accessor's reason. The two
+"rests on N of the M" sentences are held back, because no sample was taken.
+
+| mutant | killed by |
+|---|---|
+| M5 min-n guard `txPresent && !txUnreadable` → `txPresent` | G5d7 |
+| M6 vetoClimate `unreadable` branch → `if (false)` | G5d5, G5d7 |
+
+**Not covered:** a table whose shape passes the accessor's probe
+(`last_seen_at`, `first_seen_at`) but lacks a column the timing query needs still
+throws out of `timingRead`. That is main's intended behaviour since #94, and
+the caller catches it (PR #120 makes that catch report `unreadable`). This
+touches `server/services/trade-tactics.js`, which #120 also edits, in
+different functions. Whichever lands second gets a mechanical merge.

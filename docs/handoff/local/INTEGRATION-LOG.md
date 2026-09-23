@@ -2,7 +2,13 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 22:59Z.
+Last rebuilt: 2026-09-23 23:23Z.
+
+## #225: perf: rescore two lineups for title-odds trades (RL-19-2)
+
+- Merged: 7:23 PM ET, Sep 23 as `a6a77824`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #223: Prompt audit: final-round tool_choice none, Coach caching and thinking room, prompt cleanups
 

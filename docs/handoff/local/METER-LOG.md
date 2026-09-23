@@ -218,3 +218,10 @@
 09-23 07:05 PM ET get_usage: 5-hour 45% (resets 8:30 PM), weekly 17%, Fable 19%. Target to Mon 9 PM = 0.79%/h; measured 6:00->7:05 = ~7.4%/h (Fable max design runs) -> HOLD launches.
 09-23 07:04 PM ET Desktop account: 5-hour 44%, weekly 17% (measured 3 min ago)
 09-23 07:09 PM ET Desktop account: 5-hour 44%, weekly 17% (measured 8 min ago)
+09-23 07:14 PM ET Desktop account: 5-hour 44%, weekly 17% (measured 13 min ago)
+09-23 07:19 PM ET Desktop account: 5-hour 48%, weekly 18% (measured 3 min ago)
+09-23 07:24 PM ET Desktop account: 5-hour 48%, weekly 18% (measured 8 min ago)
+09-23 07:29 PM ET Desktop account: 5-hour 48%, weekly 18% (measured 13 min ago)
+09-23 07:34 PM ET Desktop account: 5-hour 51%, weekly 20% (measured 3 min ago)
+09-23 07:39 PM ET Desktop account: 5-hour 51%, weekly 20% (measured 8 min ago)
+09-23 07:44 PM ET Desktop account: 5-hour 51%, weekly 20% (measured 13 min ago)

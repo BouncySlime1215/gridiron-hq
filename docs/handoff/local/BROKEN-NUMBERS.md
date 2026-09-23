@@ -21,6 +21,9 @@ Source for rows A-H: ENGINE-ARCHITECTURE.md §10.2 (cites on origin/main 29ac6bc
 | N | waiver card | next waiver run time wrong in 9/9 checked cases (7-8 h late) | guessed "11 AM ET" (waiver-wire.js:415-439) | RL-16-2 (needs real run times) | OPEN |
 | O | trade cards (playoff weight) | playoff importance hand-set at 4; measured ~5.2 for contenders | constant at trade-horizon.js:36 | RL-16-1 interim, then CE-09 | OPEN |
 
+| P | News page, injury reads, anything using extracted news | the news extractor has failed every run since 9/22 6:26 PM ET (29 in a row): Claude key rejected (401 invalid x-api-key) | extractor's process has a bad/blanked Anthropic key (found by META-01 review 9/23) | needs Nick: approve Anthropic use for the news extractor + restart with the real key | OPEN (needs Nick) |
+| Q | news timing | 1,014 of 1,582 news items have no ingested_at; 412 ingested >3 days after publish; 159 edited after ingest | collector timestamps | EA spine events (as_of + ingested_at); fix collector stamps | OPEN |
+
 ## Rules
 - A row closes only when the fix is merged AND checked on the live local app (RULES §5).
 - New broken numbers found by any unit, review or R&D round get a row here the same day.

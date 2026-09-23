@@ -13,6 +13,7 @@ Updated 2026-09-23 5:30 PM ET by B coordinator (session c4cebb1f).
 - [ ] Merge queues: B (53395) -> B3 (49912: 214 216 217 186 174 207 190 166 218 215 164) -> B4: 221 219
 
 ## Next (in order)
+- META-01a (script-only lab, ~1 day, no deps) when pace allows; then META-01b after EA-00/EA-04.
 - FIRST when pace allows (run together, disjoint files): BROKEN-01a+b (in-app Number health card; Nick asked 7:20 PM) and EA-00 (#216 rewrite per ENGINE-ARCHITECTURE §11.2, 9 items) then EA-01 (#220 per §11.5), then EA-02.. in the ENGINE-SPECS 'ARCHITECTURE UNITS' order.
 - PROJ-01-a-2025 one-time confirm, relaunch (v3 rule 2 fixed): base on #222 branch, add a --confirm-2025 path that requires a HOLDOUT-LEDGER.md row in the same commit; keep refuseHoldout as default; frozen spots only.
 - [x] RL-19-2 #225 (queued). [x] LIVING-01a #220 (held). [x] RL-19-1 #224 (queued; follow-up: cap label 0.08 under flag). PACING HOLD: no new launches until in-flight done. NEXT FREE SLOT: SELF-01a (after #174), CE-03.
@@ -33,6 +34,8 @@ Updated 2026-09-23 5:30 PM ET by B coordinator (session c4cebb1f).
 - [x] Prompt audit: orchestration applied; app -> #223 (queued B5). After merge: Coach 6-round cache probe (~$0.05, in-app Anthropic cap) + Haiku length check
 
 ## Blocked / needs Nick
+- NEWS EXTRACTOR BROKEN since 9/22 6:26 PM (401 Anthropic key, 29 runs). Approve Anthropic spend for it (+ restart refresh loop with real key)? 
+- META-01: OK to serve ESPN's weekly point as the anchor (our range + chance-to-play + reasons on top)? Reader model: Sonnet on ~10% disagreement rows (+$1-2/wk) or Haiku only?
 - Sleeper 2026 forward panel (~950 public leagues, in-season pull): unlocks 5 ideas; needs Nick's word.
 - Stop orphan refresh loop pid 74430 (writes the clone's server/data.sqlite)? Optional.
 

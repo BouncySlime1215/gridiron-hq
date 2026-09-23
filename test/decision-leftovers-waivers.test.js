@@ -46,8 +46,11 @@ const SLOTS = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX'];
 let nextId = 1;
 const p = (name, position, week, ros, extra = {}) => ({
   id: nextId++, name, position, team_abbr: 'NYJ', current_week_ppg: week, adj_ppg: week,
-  ppg: week, ros_ppg: ros, available: true, active_probability: 0.95, ...extra
+  ppg: week, ros_ppg: ros, available: true, active_probability: 0.95, espn_id: 4000 + nextId, ...extra
 });
+// ESPN payload entries always carry the player's ESPN id and position id; the board
+// resolves by id first (RL-6-4, trade-engine.js#espnPlayerResolver).
+const POS_ID = { QB: 1, RB: 2, WR: 3, TE: 4 };
 
 /**
  * My roster. This week: QB 20, RB 15 + 12, WR 15 + 11, TE 8, FLEX Back Three 9 = 90.
@@ -70,7 +73,8 @@ function board(mine, free) {
   const payload = {
     teams: [{ id: 1, roster: { entries: mine.map(a => ({
       lineupSlotId: a.slot ?? 20,
-      playerPoolEntry: { player: { fullName: a.name, injuryStatus: a.espn_status ?? 'ACTIVE' } }
+      playerPoolEntry: { player: { id: a.espn_id, fullName: a.name, defaultPositionId: POS_ID[a.position],
+        injuryStatus: a.espn_status ?? 'ACTIVE' } }
     })) } }]
   };
   const lg = { id: 1, platform: 'espn', team_count: 10, ppr: 1, my_team_id: '1',

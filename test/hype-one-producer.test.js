@@ -21,6 +21,7 @@ import fs from 'node:fs';
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-hype-one-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.SCHEDULER_DISABLED = '1';
+delete process.env.NFL_WEEK;
 delete process.env.GRIDIRON_ANTHROPIC_API_KEY;
 delete process.env.ANTHROPIC_API_KEY;
 
@@ -51,7 +52,9 @@ fixtureTable = {
   results: { h1: { passed: true } }, position_price_to_value: { RB: 0.9, WR: 0.9 }, cells: [],
   player_weeks: [
     { season, week: 1, sleeper_id: '9001', pos: 'RB', n: 4, price: 3.1, value: 2.3, hype: 0.8 },
-    { season: season - 2, week: 5, sleeper_id: '9002', pos: 'WR', n: 3, price: 1.0, value: 1.6, hype: -0.6 },
+    // A week that has not happened yet (tradeWeekContext is week 1 with no game lines): never served.
+    { season, week: 18, sleeper_id: '9001', pos: 'RB', n: 5, price: 9.9, value: 2.0, hype: 7.9 },
+    { season: season - 2, week: 1, sleeper_id: '9002', pos: 'WR', n: 3, price: 1.0, value: 1.6, hype: -0.6 },
   ],
 };
 
@@ -87,12 +90,14 @@ const call = async (method, url) => {
 test('control: the producer serves a number for a current-season row and abstains otherwise', () => {
   const hyped = playerHype({ sleeperId: '9001' });
   assert.equal(hyped.available, true);
-  assert.equal(hyped.hype, 0.8);
+  assert.equal(hyped.hype, 0.8, 'the latest row at or before the current week, never a later one');
   assert.equal(hyped.season, season);
   const old = playerHype({ sleeperId: '9002' });
   assert.equal(old.available, false, 'a row from an earlier season is not this season\'s hype');
   assert.equal(old.hype, null);
-  assert.equal(playerHype({ sleeperId: null }).available, false);
+  const noId = playerHype({ sleeperId: null });
+  assert.equal(noId.available, false);
+  assert.equal(noId.reason, 'no_sleeper_id', 'a missing id is said as such, not as "no trade price"');
 });
 
 test('default-off: no surface turns hype into a SELL/BUY call', () => {

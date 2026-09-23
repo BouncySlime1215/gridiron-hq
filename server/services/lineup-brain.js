@@ -35,8 +35,9 @@
 import { row, rows } from '../db/index.js';
 import { deriveFormat } from './format.js';
 import {
-  assetUniverse, loadRosters, lineupSlots, bestLineup, tradeWeekContext, lineupDiff
+  assetUniverse, loadRosters, lineupSlots, pinnedBestLineup, tradeWeekContext, lineupDiff
 } from './trade-engine.js';
+import { rosterLocks, lockPins, kickoffLabel } from './lineup-lock.js';
 import { vegasLift } from './waiver-brain.js';
 import { regressionCandidates } from './td-regression.js';
 import { fantasyContext } from './nfl-spread-context.js';
@@ -45,6 +46,7 @@ import { careerLine } from './player-career.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
 import { availabilityDegradation } from './contingency.js';
+import { deadStarters, NO_LIVE_INACTIVES } from './dead-starters.js';
 
 const r1 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(1));
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
@@ -415,7 +417,8 @@ export function irOnRoster(lg, rosterId, players) {
  *   tail because you are an underdog, 'floor' when you are favoured and only
  *   variance can hurt you.
  */
-export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', providers = DEFAULT_PROVIDERS } = {}) {
+export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', providers = DEFAULT_PROVIDERS,
+  now = Date.now(), inactive = NO_LIVE_INACTIVES } = {}) {
   const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg?.payload) return { error: 'league not synced yet' };
 
@@ -437,6 +440,14 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // league 4 — while the League Hub card refused both. They are reported in `on_ir`.
   const irReason = irOnRoster(lg, me.roster_id, me.players);
 
+  // RL-4-2: a player whose game has kicked off (or ESPN already locked) cannot move.
+  // A locked starter keeps his slot and is not re-solved; a locked bench player is
+  // never started, never the alternative a starter "beat", never a bench option.
+  // The same rule and the same pinned solve as the League Hub card (lineup-lock.js,
+  // trade-engine.js#pinnedBestLineup). It used to solve every slot all Sunday.
+  const locks = rosterLocks(lg, me.roster_id, me.players, { season, week, now });
+  const pins = lockPins(locks);
+
   // Annotate every player with this week's market view before solving. The
   // betting model already prices how much volume a team's game script implies,
   // and a start/sit call is exactly the horizon where that matters most — it is
@@ -446,6 +457,13 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   const annotated = me.players.filter(p => !irReason.has(p.id)).map(p => {
     const { week_points: weekPoints, vegas } = startSitWeekPoints(p, season, week);
     return { ...p, vegas, week_points: weekPoints };
+  });
+
+  // SS-01: what is SET on ESPN that will score zero, with the best healthy bench
+  // replacement priced on this same week_points basis (dead-starters.js).
+  const deadStarterCheck = deadStarters(lg, me.roster_id, me.players, {
+    season, week, weekPoints: new Map(annotated.map(p => [p.id, p.week_points])),
+    accepts: slotAccepts, now, inactive
   });
 
   /*
@@ -471,6 +489,11 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // bestLineup's sort is stable, so an exact tie on the key keeps this order: highest
   // week_points first, never roster order. Distinct key values are unaffected.
   const byWeekPoints = pool => [...pool].sort((a, b) => (b.week_points ?? 0) - (a.week_points ?? 0));
+  // A locked starter holds his slot whatever the objective: when the pool holds him
+  // out (no ceiling/floor on file) he is added back, pinned, rather than letting the
+  // solve hand his slot to someone who can no longer move into it.
+  const solve = (pool, k) => pinnedBestLineup(
+    [...pool, ...annotated.filter(p => pins.has(p.id) && !pool.includes(p))], slots, k, pins);
   let solvePool = byWeekPoints(requestedKey === 'week_points' ? annotated : annotated.filter(p => !lacking.includes(p)));
   // A key on which every startable skill player has the same value ranks no one. At
   // 2026 week 2 every floor is 0 (a did-not-play week scores 0 and no live chance to
@@ -478,20 +501,20 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // floor lineup", projection 0, every margin a +0 coin flip.
   const rankable = new Set(solvePool.filter(p => SKILL_POSITIONS.has(p.position) && p.available !== false)
     .map(p => p[requestedKey]));
-  let optimal = requestedKey !== 'week_points' && rankable.size <= 1 ? null : bestLineup(solvePool, slots, key);
+  let optimal = requestedKey !== 'week_points' && rankable.size <= 1 ? null : solve(solvePool, key);
   let objectiveFallback = null;
   if (!optimal) {
     objectiveFallback = `every player's ${requestedKey} is ${[...rankable][0] ?? 'missing'} this week, so it cannot ` +
       'rank anyone; the lineup was solved on week_points instead';
     key = 'week_points';
     solvePool = byWeekPoints(annotated);
-    optimal = bestLineup(solvePool, slots, key);
+    optimal = solve(solvePool, key);
   } else if (requestedKey !== 'week_points' && optimal.holes?.length) {
     objectiveFallback = `holding out the ${lacking.length} player(s) with no ${requestedKey} would leave ` +
       `${optimal.holes.join('/')} unfilled, so the lineup was solved on week_points instead`;
     key = 'week_points';
     solvePool = annotated;
-    optimal = bestLineup(solvePool, slots, key);
+    optimal = solve(solvePool, key);
   }
   const objectiveUsed = key;
 
@@ -502,7 +525,7 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // out-for-the-year running back as the man being beaten and printed NEGATIVE
   // margins: "Tony Pollard over Jonathan Taylor by -2.56", which reads as the
   // optimiser contradicting itself when it was right all along.
-  const startable = annotated.filter(p => p.available !== false);
+  const startable = annotated.filter(p => p.available !== false && !pins.has(p.id));
   const bench = startable.filter(p => !startingIds.has(p.id) && (p.week_points ?? 0) > 0)
     .sort((a, b) => b.week_points - a.week_points);
   // Who each start "beat" has to be chosen on the SAME basis the lineup was solved
@@ -569,10 +592,22 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // preseason band, the offseason read. Looked up once per player.
   const record = evidenceCache(season, providers);
 
+  const lockedWhy = id => {
+    const l = locks.byId.get(id);
+    const at = kickoffLabel(l?.kickoff);
+    return l?.reason === 'espn_locked'
+      ? 'Locked on ESPN: his game has started, so he cannot be moved out of this slot.'
+      : `Locked: his game kicked off${at ? ` (${at})` : ''}, so he cannot be moved out of this slot.`;
+  };
+  // Bench players who could fill a slot but are locked out of it.
+  const lockedOut = slot => annotated.filter(b => pins.has(b.id) && !startingIds.has(b.id)
+    && b.available !== false && slotAccepts(slot, b.position)).length;
   const calls = optimal.slots.filter(s => s.player).map(s => {
     const p = s.player;
-    // The best benched player who could legally fill this slot.
-    const alt = alternatives.find(b => slotAccepts(s.slot, b.position));
+    const locked = pins.has(p.id);
+    // The best benched player who could legally fill this slot. None for a locked
+    // slot: nobody can take it.
+    const alt = locked ? null : alternatives.find(b => slotAccepts(s.slot, b.position));
     const margin = alt ? r2(p[key] - alt[key]) : null;
     const unpricedHere = alt ? [] : unpricedBench.filter(b => slotAccepts(s.slot, b.position));
     // The labels' thresholds and the win-rate curve were measured on week_points
@@ -581,7 +616,7 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
     // measured a hit rate for. It used to go through both anyway, so a 15-point
     // ceiling gap printed "Clear" and "has won about 90%" (RL-3-4).
     const calibrated = objectiveUsed === 'week_points';
-    const confidence = margin == null
+    const confidence = locked ? 'locked' : margin == null
       ? (unpricedHere.length ? 'no projection' : 'only option')
       : !calibrated ? 'not measured'
         : margin >= CLEAR_THRESHOLD ? 'clear'
@@ -627,12 +662,15 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
         .map(f => ({ kind: f.kind, severity: f.severity, note: f.note })),
       caution: ev?.kind === 'hot' ? ev.text : null,
       upside: ev?.kind === 'cold' ? ev.text : null,
-      why: margin == null
+      why: locked ? lockedWhy(p.id) : margin == null
         ? (unpricedHere.length
           ? `${unpricedHere.length} other player${unpricedHere.length === 1 ? '' : 's'} could fill ` +
             `${s.slot}, but none of them has a weekly projection, so nothing was compared. ` +
             'This is missing data, not a clear call.'
-          : `Nobody else on the roster can fill ${s.slot}.`)
+          : lockedOut(s.slot)
+            ? `Nobody else who can still move can fill ${s.slot}: ${lockedOut(s.slot)} bench ` +
+              `player${lockedOut(s.slot) === 1 ? '\'s game has' : 's\' games have'} already kicked off.`
+            : `Nobody else on the roster can fill ${s.slot}.`)
         : !calibrated
           ? `${margin} points ahead of ${alt.name} on ${objectiveUsed === 'ceiling'
             ? 'good-week ceilings' : 'bad-week floors'}, not projections. No win rate has been ` +
@@ -667,11 +705,14 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
 
   // What you actually submitted, when the platform exposes it.
   let submitted = null;
-  try { const d = lineupDiff(lg, myTeamId ?? lg.my_team_id); if (!d.error) submitted = d; }
+  try { const d = lineupDiff(lg, myTeamId ?? lg.my_team_id, { assets, now }); if (!d.error) submitted = d; }
   catch { /* ESPN only, and not always readable */ }
 
   return {
     league: lg.name, owner: me.owner, season, week, objective,
+    // Starters set on ESPN who are Out, Doubtful, IR, on bye or inactive, each with a
+    // one-tap bench replacement (suggested, never applied). The page shows it first.
+    dead_starters: deadStarterCheck,
     // What was actually optimised, which is not always what was asked for.
     objective_used: objectiveUsed,
     objective_fallback: objectiveFallback,

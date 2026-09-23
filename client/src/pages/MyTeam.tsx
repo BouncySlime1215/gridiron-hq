@@ -7,7 +7,10 @@ import FormationView from '../components/FormationView';
 import TeamScout from '../components/TeamScout';
 import PostDraftPlan from '../components/PostDraftPlan';
 import { Headshot } from '../components/PlayerRow';
-import { PageError } from '../components/PageState';
+import { PageError, PageLoading } from '../components/PageState';
+import { sanitizedAlert } from '../lib/errorSanitize';
+import MedianGameNotice from '../components/MedianGameNotice';
+import { leagueGate } from '../state/leagueGate';
 
 /**
  * My Team, for whichever league is active in the header.
@@ -24,7 +27,7 @@ import { PageError } from '../components/PageState';
  * understood ESPN's lineup-slot codes.
  */
 export default function MyTeam() {
-  const { leagues, active, refetch: refetchLeagues } = useLeague();
+  const { leagues, loading: leaguesLoading, error: leaguesError, active, refetch: refetchLeagues } = useLeague();
   const { data: lg, loading: lgLoading, error: lgError, refetch: refetchData } = useApi<any>(active ? `/leagues/${active.id}/data` : null);
   const [teamOverride, setTeamOverride] = useState<string | null>(null);
   const [tab, setTab] = useState<'scout' | 'roster' | 'ceiling'>('scout');
@@ -84,7 +87,7 @@ export default function MyTeam() {
     if (!active) return;
     setSyncing(true);
     try { await api(`/leagues/${active.id}/sync`, { method: 'POST' }); refetchData(); refetchLeagues(); }
-    catch (e: any) { alert(`Sync failed: ${e.message}`); }
+    catch (e: any) { sanitizedAlert('MyTeam.sync', 'Sync failed', e.message); }
     finally { setSyncing(false); }
   };
 
@@ -129,7 +132,12 @@ export default function MyTeam() {
       .sort((a: any, b: any) => a.period - b.period);
   }, [lg, myTeamId, active?.platform]);
 
-  if (!leagues.length) {
+  // Was unguarded once My team left League Hub (UX-11): a cold load or a
+  // failed /leagues fetch showed "Connect a league" instead of loading/error.
+  const gate = leagueGate({ loading: leaguesLoading, error: leaguesError, leagues });
+  if (gate === 'loading') return <PageLoading label="Loading your leagues…" />;
+  if (gate === 'error') return <PageError message={leaguesError ?? 'Could not load your leagues.'} onRetry={refetchLeagues} />;
+  if (gate === 'empty') {
     return (
       <div className="max-w-lg">
         <h1 className="text-2xl font-bold mb-2">My Team</h1>
@@ -198,6 +206,7 @@ export default function MyTeam() {
             {sim?.runs?.toLocaleString()} simulated seasons, correlated player outcomes, the league's own playoff bracket
             {playoffWeeksText(sim?.playoff_weeks) ? ` in ${playoffWeeksText(sim?.playoff_weeks)}` : ''}.
           </p>
+          <MedianGameNotice medianGame={sim?.median_game} rulesUnknown={sim?.rules_unknown} />
         </div>
       )}
 
@@ -354,6 +363,13 @@ function LineupDiffCard({ d, platform }: { d: any; platform: string }) {
       {!d.matches && (
         <p className="text-xs text-slate-500 mb-2">
           This week, your {platform} lineup projects {d.submitted_points}; the best lineup on your roster projects {d.optimal_points}.
+        </p>
+      )}
+      {/* RL-4-2: players whose game has kicked off are held where they are; the
+          swaps below only move players who can still move. */}
+      {!d.matches && (d.locked?.length ?? 0) > 0 && (
+        <p className="text-xs text-slate-500 mb-2">
+          {d.locked.length} player{d.locked.length === 1 ? '' : 's'} whose game has kicked off stay{d.locked.length === 1 ? 's' : ''} where {d.locked.length === 1 ? 'he is' : 'they are'}; these swaps only move players who can still move.
         </p>
       )}
 

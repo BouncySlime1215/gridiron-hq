@@ -26,9 +26,12 @@ test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
 
 const SLOTS = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX'];
 let nextId = 1;
-const P = (name, position, ppg, value, extra = {}) => ({
-  id: nextId++, name, position, team_abbr: 'AAA', adj_ppg: ppg, ppg, value, ...extra
-});
+const P = (name, position, ppg, value, extra = {}) => {
+  const id = nextId++;
+  // Every fixture player carries an ESPN id, as synced ESPN assets do: the league's
+  // wire finds rostered players by ESPN id first (league-wire.js, RL-6-4 resolver).
+  return { id, espn_id: String(9000 + id), name, position, team_abbr: 'AAA', adj_ppg: ppg, ppg, value, ...extra };
+};
 
 // Team A (the 2-player side): deep at RB/WR, so two more starters barely move it.
 const aStar = P('A Star RB', 'RB', 20, 6000);
@@ -147,23 +150,24 @@ test('no wire supplied: lineup_value is null, never a free roster spot', () => {
   assert.equal(ev.me.lineup_value, null);
 });
 
-/** A minimal ESPN league whose rosters hold the named players. */
+/** A minimal ESPN league whose rosters hold the given players (ESPN id + name, as ESPN sends them). */
 const espnLeague = (id, rosters) => ({
   id, platform: 'espn',
-  payload: JSON.stringify({ teams: rosters.map((names, i) => ({ id: i + 1,
-    roster: { entries: names.map(fullName => ({ playerPoolEntry: { player: { fullName } } })) } })) })
+  payload: JSON.stringify({ teams: rosters.map((players, i) => ({ id: i + 1,
+    roster: { entries: players.map(p => ({ playerPoolEntry: { player: { id: Number(p.espn_id), fullName: p.name } } })) } })) })
 });
 
 test('the replacement level reads THAT league\'s wire', async () => {
   const { leagueWire } = await import('../server/services/league-wire.js');
+  const { espnPlayerResolver } = await import('../server/services/trade-engine.js');
   const assets = new Map([...teamA.players, ...teamB.players, ...WIRE].map(p => [p.id, p]));
-  const names = t => t.players.map(p => p.name);
-  const l1 = espnLeague(1, [names(teamA), names(teamB)]);
+  const wireOf = lg => leagueWire(lg, assets, espnPlayerResolver(assets));
+  const l1 = espnLeague(1, [teamA.players, teamB.players]);
   // League 2: a third team rosters the wire WR, so the best free WR is gone.
-  const l2 = espnLeague(2, [names(teamA), names(teamB), ['Wire WR']]);
-  assert.ok(leagueWire(l1, assets).some(p => p.name === 'Wire WR'), 'known-nonzero control: free in league 1');
-  assert.ok(!leagueWire(l2, assets).some(p => p.name === 'Wire WR'), 'rostered in league 2');
-  assert.ok(!leagueWire(l1, assets).some(p => p.name === 'A Star RB'), 'rostered players are never on the wire');
+  const l2 = espnLeague(2, [teamA.players, teamB.players, [faWR]]);
+  assert.ok(wireOf(l1).some(p => p.name === 'Wire WR'), 'known-nonzero control: free in league 1');
+  assert.ok(!wireOf(l2).some(p => p.name === 'Wire WR'), 'rostered in league 2');
+  assert.ok(!wireOf(l1).some(p => p.name === 'A Star RB'), 'rostered players are never on the wire');
 
   const run = lg => {
     const ctx = lineupValueContext(lg, assets, [teamA, teamB]);
@@ -177,3 +181,40 @@ test('the replacement level reads THAT league\'s wire', async () => {
   // Week 4 on the default calendar: regular weeks 4-14 plus playoff weeks 15-17.
   assert.equal(b1.weeks, 14);
 });
+
+/*
+ * One free-agent pool (RL-9-3 x RL-6-4, audit audits/2026-09-23-RL93-ruling.md (e)):
+ * the Waivers page (waiver-wire.js) and lineup_value (trade-engine.js#lineupValueContext)
+ * read the same league-wire.js producer, and that producer finds rostered players by
+ * ESPN id first. A name-keyed join hid a free agent sharing a name with a rostered
+ * player ("Mike Williams" RB vs WR) from lineup_value's replacement pool.
+ */
+test('one pool: a free-agent namesake of a rostered player is on the wire for lineup_value', async () => {
+  const { leagueWire } = await import('../server/services/league-wire.js');
+  const { espnPlayerResolver } = await import('../server/services/trade-engine.js');
+  const rosteredWR = P('Mike Williams', 'WR', 7, 700);
+  const freeRB = P('Mike Williams', 'RB', 9, 800);
+  const assets = new Map([...teamA.players, ...teamB.players, rosteredWR, freeRB].map(p => [p.id, p]));
+  const lg = espnLeague(3, [teamA.players, [...teamB.players, rosteredWR]]);
+  const wire = leagueWire(lg, assets, espnPlayerResolver(assets));
+  assert.ok(wire.some(p => p.id === freeRB.id), 'the free RB namesake is on the wire (a name join hid him)');
+  assert.ok(!wire.some(p => p.id === rosteredWR.id), 'control: the rostered WR is not');
+  const ctx = lineupValueContext(lg, assets, [teamA, { ...teamB, players: [...teamB.players, rosteredWR] }]);
+  assert.ok(ctx.wire.some(p => p.id === freeRB.id), 'lineup_value reads the same id-keyed pool');
+  assert.ok(!ctx.wire.some(p => p.id === rosteredWR.id));
+});
+
+test('one pool: leagueWire refuses to run without the id-first resolver', async () => {
+  const { leagueWire } = await import('../server/services/league-wire.js');
+  const lg = espnLeague(4, [teamA.players]);
+  assert.throws(() => leagueWire(lg, new Map()), /espnPlayerResolver/);
+});
+
+test('one pool: the Waivers page builds its wire from league-wire.js, not its own roster join', () => {
+  const src = fs.readFileSync(new URL('../server/services/waiver-wire.js', import.meta.url), 'utf8');
+  assert.match(src, /import \{[^}]*\brosteredAssetIds\b[^}]*\bunrosteredSkill\b[^}]*\} from '\.\/league-wire\.js'/);
+  assert.match(src, /rosteredAssetIds\(payload, espnPlayerResolver\(assets\)\)|rosteredAssetIds\(payload, resolve\)/);
+  assert.match(src, /const unownedAll = unrosteredSkill\(assets, ownedById\)/);
+  assert.doesNotMatch(src, /function rosteredAssetIds|function rosteredNames/, 'no second roster join in waiver-wire.js');
+});
+

@@ -5,22 +5,29 @@
  * waiverBoard() (waiver-wire.js) builds its claims from exactly this pool, and the
  * trade engine's lineup value (trade-engine.js#lineupValueContext) takes its
  * replacement level from it, so a roster spot a trade frees is filled from the same
- * wire the Waivers page shows. Lifted out of waiver-wire.js unchanged (RL-9-3); it
+ * wire the Waivers page shows. Lifted out of waiver-wire.js (RL-9-3); it
  * lives in its own module because waiver-wire.js imports trade-engine.js, and the
  * trade engine importing it back would load waiver-wire.js ahead of any test that
  * mocks the engine for it.
+ *
+ * Who is rostered is decided by the ESPN-id-first resolver
+ * (trade-engine.js#espnPlayerResolver, RL-6-4 #191), passed in by the caller rather
+ * than imported for the same load-order reason. A name-only join hid a free agent
+ * who shares a name with anyone rostered (the "Mike Williams" RB vs WR case) from
+ * both the Waivers page and lineup_value's replacement pool.
  */
-import { normalizePlayerName } from './player-identity.js';
-
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
-/** Every player rostered anywhere in the league, by normalised name. */
-export function rosteredNames(payload) {
+/**
+ * Every asset rostered anywhere in the league: asset id -> ESPN team id, resolved by
+ * `resolve` (trade-engine.js#espnPlayerResolver(assets)).
+ */
+export function rosteredAssetIds(payload, resolve) {
   const owned = new Map();
   for (const team of payload.teams ?? []) {
     for (const e of team.roster?.entries ?? []) {
-      const nm = e.playerPoolEntry?.player?.fullName;
-      if (nm) owned.set(normalizePlayerName(nm), String(team.id));
+      const { asset } = resolve(e.playerPoolEntry?.player);
+      if (asset) owned.set(asset.id, String(team.id));
     }
   }
   return owned;
@@ -29,14 +36,20 @@ export function rosteredNames(payload) {
 /** Whether a player can score at all: a free agent with no NFL team cannot. */
 export const onNflTeam = a => Boolean(a.team_abbr ?? a.team);
 
-/** Priced skill players not in `owned` (rosteredNames) and not ruled out. */
-export const unrosteredSkill = (assets, owned) => [...assets.values()].filter(a =>
+/** Priced skill players whose asset id is not in `ownedById` (rosteredAssetIds) and not ruled out. */
+export const unrosteredSkill = (assets, ownedById) => [...assets.values()].filter(a =>
   SCORED.has(a.position)
-  && !owned.has(normalizePlayerName(a.name))
+  && !ownedById.has(a.id)
   && a.available !== false);
 
-/** The wire for league `lg`, priced from `assets` (assetUniverse()). */
-export function leagueWire(lg, assets) {
+/**
+ * The wire for league `lg`, priced from `assets` (assetUniverse()), with rostered
+ * players found by `resolve` (trade-engine.js#espnPlayerResolver(assets)).
+ */
+export function leagueWire(lg, assets, resolve) {
   if (!lg?.payload) return [];
-  return unrosteredSkill(assets, rosteredNames(JSON.parse(lg.payload))).filter(onNflTeam);
+  if (typeof resolve !== 'function') {
+    throw new TypeError('leagueWire needs the ESPN-id-first resolver (trade-engine.js#espnPlayerResolver)');
+  }
+  return unrosteredSkill(assets, rosteredAssetIds(JSON.parse(lg.payload), resolve)).filter(onNflTeam);
 }

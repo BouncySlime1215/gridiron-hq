@@ -7,6 +7,8 @@ import { usePageExplain } from '../components/PageExplainContext';
 import { PageLoading, PageError, EmptyState, logServerDetail } from '../components/PageState';
 import WaiverWire, { WaiverTeaser, onATeam } from '../components/lineup/WaiverWire';
 import type { WaiverBoard, OutList } from '../components/lineup/WaiverWire';
+import StreamingBoard from '../components/lineup/StreamingBoard';
+import type { StreamBoard } from '../components/lineup/StreamingBoard';
 import MatchupPosture from '../components/lineup/MatchupPosture';
 import type { Posture } from '../components/lineup/MatchupPosture';
 import StartSitGate from '../components/lineup/StartSitGate';
@@ -32,7 +34,9 @@ const CONF: Record<string, { label: string; bar: string; chip: string }> = {
   'only option': { label: 'Only option', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-600 ring-slate-200' },
   // Other eligible players existed, none of them had a projection. That is not
   // the same call as having only one option, and it should not look like one.
-  'no projection': { label: 'Not compared', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-400 ring-slate-200' }
+  'no projection': { label: 'Not compared', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-400 ring-slate-200' },
+  // RL-4-2: his game has kicked off, so the slot cannot change. No bar: nothing was compared.
+  locked: { label: 'Locked', bar: 'bg-slate-300', chip: 'bg-slate-200 text-slate-700 ring-slate-300' }
 };
 
 export default function Lineup() {
@@ -45,6 +49,8 @@ export default function Lineup() {
   // default to my own roster, exactly as the lineup request does.
   const waivers = useApi<WaiverBoard>(leagueId ? `/trades/${leagueId}/waivers` : null);
   const posture = useApi<Posture>(leagueId ? `/trades/${leagueId}/posture` : null);
+  // Defense streaming (WV-01): same league, same week as the waiver board.
+  const streams = useApi<StreamBoard>(leagueId ? `/trades/${leagueId}/streams` : null);
   // Only for the opponent's name; the same cached request the Trade Lab makes.
   const opponentId = posture.data?.opponent_roster_id ?? null;
   const { data: rosters } = useApi<any>(leagueId && opponentId ? `/trades/${leagueId}/rosters` : null);
@@ -118,6 +124,22 @@ export default function Lineup() {
           inside the projection's own error, and it is labelled as a tie here rather than dressed up.
         </p>
       </header>
+
+      {/* SS-01 dead-starter guard: shown only when a starter set on ESPN will score zero.
+          A suggestion; nothing is changed on ESPN from here. */}
+      {d?.dead_starters?.items?.length > 0 && (
+        <section role="alert" className="tr-rise rounded-2xl border border-red-300 bg-red-50 p-4">
+          <h2 className="text-sm font-black uppercase tracking-wide text-red-800">
+            {d.dead_starters.items.length === 1 ? 'A starter will score zero' : `${d.dead_starters.items.length} starters will score zero`}
+          </h2>
+          <ul className="mt-2 space-y-1">
+            {d.dead_starters.items.map((i: any) => (
+              <li key={i.player.id} className="text-sm leading-6 text-slate-800">{i.why}</li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs leading-5 text-red-900/70">Make the swap on ESPN before his game starts.</p>
+        </section>
+      )}
 
       {error && !d && <PageError message={error} onRetry={refetch} />}
 
@@ -284,6 +306,9 @@ export default function Lineup() {
 
       <WaiverWire key={leagueId} data={waivers.data} loading={waivers.loading} error={waivers.error}
         onRetry={waivers.refetch} out={out} />
+
+      <StreamingBoard key={`streams-${leagueId}`} data={streams.data} loading={streams.loading} error={streams.error}
+        onRetry={streams.refetch} />
     </Shell>
   );
 }

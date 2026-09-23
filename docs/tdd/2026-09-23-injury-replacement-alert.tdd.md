@@ -78,3 +78,49 @@ fitted on 2021-2024). Re-using a held-out season erodes it with every look
   (STATS-METHOD rule 7) is not applicable; no k, no role recency option.
 - **MDE.** Reported for every split at 80% power, two-sided alpha 0.10, for the
   win rate against 0.50: MDE = (1.645 + 0.842) x sqrt(0.25 / n).
+
+## 5. The numbers (local copy, not production)
+
+Command, on tree `fdbebc42` (script added in the result commit, no production code
+changed between):
+
+```
+sqlite3 ~/gridiron-local/data.sqlite ".backup '.local-db/data.sqlite'"
+GRIDIRON_DB_PATH=$PWD/.local-db/data.sqlite GRIDIRON_DB_INTEGRITY_CHECK=off SCHEDULER_DISABLED=1 \
+  node scripts/wv02-injury-replacement-history.mjs
+```
+
+Inputs: tables `nfl_injuries`, `player_week_usage`, `player_week_snaps`, `players`
+(read only). Known-nonzero control: 272 primary events found, so the empty 2026
+split below is small, not broken.
+
+Sign: positive favours snap share. Win rate counts point ties as half.
+
+| split | events | picks differ | snap win rate when they differ | MDE (80% power) | mean PPR diff, all events [90% CI] |
+|---|---|---|---|---|---|
+| 2022-2024 (primary) | 272 | 98 | 0.531 | 0.126 | -0.179 [-0.772, +0.385] |
+| 2025 (held out, one look, L154) | 120 | 29 | 0.672 | 0.231 | +1.013 [+0.039, +1.987] |
+| 2026 forward (F001) | 3 | 1 | 1.000 | 1.244 | not measurable |
+
+By position on the primary split, where picks differ: WR 72 (0.507), TE 19 (0.711),
+QB 4 (0.000), RB 3 (0.667). Only WR has enough cases to say anything.
+
+**Ship rule verdict: FAIL.** Win rate 0.531 >= 0.50 passes, but the primary
+interval's lower bound (-0.772) is below the -0.5 non-inferiority margin. 2025 holds
+(0.672), 2026 is not measurable (1 disagreement; rule needs 10). So snap-share
+ordering ships **default-off, "unconfirmed"**, as the pre-registration says.
+
+Decline read (STATS-METHOD rule 4): the primary split can detect a win rate 12.6
+points away from 0.50 at 80% power; the observed +3.1 is well inside that, so this
+is "not shown non-inferior", not "snap share is worse". The two picks agree on 64%
+of primary events and 76% of 2025 events, so the order question only touches about
+a third of alerts.
+
+**Deviation from the pre-registration, stated.** The fallback said "ordered by the
+ppg baseline". The baseline's last-three-appearances PPR ppg has no producer in
+the app, and adding one would put a second recent-points number next to the week
+projection (one number, one producer). The default order is instead this week's
+projection (`weekPpg`, the number the claim list ranks on and STATS-METHOD rule 6's
+"add highest projected FA" baseline). That order was **not** graded historically:
+no as-of projection history is replayed here. Snap share stays on every row, and
+the snap-share order is one option away (`sameTeamOrder: 'snap_share'`).

@@ -278,3 +278,15 @@ test('an absent table is sorted by whether anything is known to build it', () =>
   assert.deepEqual(split.missing_from_database, ['players']);
   assert.deepEqual(splitAbsent([]), { not_built_yet: [], missing_from_database: [] });
 });
+
+// FC-SNAP: dynasty_values keeps a retired row (FantasyCalc stopped listing the
+// player) with its last price. Trade Lab skips it via currentMarket; Coach reads
+// the raw table, so the catalog meaning must tell it to skip the same rows, or
+// the two surfaces give different numbers for the same player.
+test('dynasty_values tells Coach to skip retired rows, the same rows Trade Lab skips', () => {
+  const entry = catalogEntry('dynasty_values');
+  assert.ok(entry, 'dynasty_values is catalogued');
+  assert.match(entry.means, /retired_at IS NULL/, 'the meaning names the live-row filter');
+  assert.ok(entry.columns.includes('retired_at'),
+    'the column the meaning names exists on the live table (migration 073)');
+});

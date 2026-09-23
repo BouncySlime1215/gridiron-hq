@@ -30,15 +30,14 @@
  * one bad game.
  */
 import { rows } from '../db/index.js';
-import { assetUniverse, tradeWeekContext, bestLineup, lineupSlots } from './trade-engine.js';
+import { assetUniverse, tradeWeekContext, bestLineup, lineupSlots, espnPlayerResolver } from './trade-engine.js';
 import { deriveFormat } from './format.js';
-// The app's canonical name normaliser. This file used to compare raw
-// `toLowerCase()` strings, which meant a typographic apostrophe on one side and
-// a straight one on the other never matched: Ja'Marr Chase, De'Von Achane,
-// D'Andre Swift and five more were dropped from your roster AND offered back to
-// you as free agents. Every other consumer in the app already normalises.
-import { normalizePlayerName } from './player-identity.js';
 import { availabilityDegradation, roleStates, weekDesignation } from './contingency.js';
+// The league's wire, one producer shared with the trade engine's lineup value
+// (RL-9-3), keyed by the ESPN-id-first resolver (RL-6-4).
+import { rosteredAssetIds, unrosteredSkill, onNflTeam } from './league-wire.js';
+// The one producer of "this player carries the Sleeper injury flag" (RL-12-2).
+import { activeInjuryFlagIds } from './injury-flags.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
@@ -74,6 +73,12 @@ const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 export const MIN_GAIN = 0.05;
 const TIE = 0.005;
 const seasonValue = p => (p.available === false ? 0 : (p.ros_ppg ?? 0));
+/**
+ * A player priced through the name fallback (identity_match 'name_position') is never
+ * a suggested cut: his price may belong to someone else (RL-6-4). Assets with no
+ * identity_match (other callers of chooseClaimCut) are unaffected.
+ */
+const cuttable = p => p.identity_match !== 'name_position';
 export const DROP_RULE = 'An immediate claim cuts the player whose loss keeps this week\'s gain and costs the ' +
   'rest of season least: never someone worth more over the rest of season than the player claimed, and never ' +
   'someone whose loss lowers your rest-of-season lineup. A claim with no such cut is held back.';
@@ -99,6 +104,7 @@ export function chooseClaimCut(active, fa, slots, weekBase, rosBase) {
   }
   let safe = null, unsafe = null;
   for (const drop of active) {
+    if (!cuttable(drop)) continue;
     const after = [...active.filter(p => p.id !== drop.id), fa];
     const week = (bestLineup(after, slots, 'current_week_ppg').points ?? 0) - weekBase;
     if (!(week > MIN_GAIN)) continue;                                   // (c)
@@ -129,18 +135,6 @@ function weekPpg(p) {
 }
 
 
-/** Every player rostered anywhere in the league, by normalised name. */
-function rosteredNames(payload) {
-  const owned = new Map();
-  for (const team of payload.teams ?? []) {
-    for (const e of team.roster?.entries ?? []) {
-      const nm = e.playerPoolEntry?.player?.fullName;
-      if (nm) owned.set(normalizePlayerName(nm), String(team.id));
-    }
-  }
-  return owned;
-}
-
 /**
  * Claims worth making, for one team.
  *
@@ -158,29 +152,34 @@ export function waiverBoard(lg, {
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   const week = tradeWeekContext();
-  const owned = rosteredNames(payload);
+  // Who each ESPN roster entry is: the ESPN id first, name + position only when no
+  // asset carries that id (trade-engine.js#espnPlayerResolver, the resolver
+  // loadRosters uses). The name-only join this replaced priced a retired or junk
+  // namesake at 0.0 / 0.0 as the suggested cut in all 5 leagues on 2026-W3.
+  const resolve = espnPlayerResolver(assets);
+  const ownedById = rosteredAssetIds(payload, resolve);
   const rosterId = String(myTeamId ?? lg.my_team_id);
   const slots = lineupSlots(lg);
 
-  // My roster, priced. Indexed once by normalised name rather than a linear
-  // scan of the asset universe per roster entry.
-  const assetByName = new Map();
-  for (const a of assets.values()) assetByName.set(normalizePlayerName(a.name), a);
   const mine = [];
   const team = (payload.teams ?? []).find(t => String(t.id) === rosterId);
   const myEntries = team?.roster?.entries ?? [];
   const unpriced = [];
+  const nameFallback = [];
   for (const e of myEntries) {
     const nm = e.playerPoolEntry?.player?.fullName;
     if (!nm) continue;
-    const asset = assetByName.get(normalizePlayerName(nm));
+    const { asset, match } = resolve(e.playerPoolEntry.player);
     if (!asset) { unpriced.push(nm); continue; }
     if (!SCORED.has(asset.position)) continue;
+    // Priced through the name fallback: the identity is unconfirmed, so he is shown
+    // and counted in the lineup but never offered as a cut (chooseClaimCut, rosBench).
+    if (match !== 'espn_id') nameFallback.push(nm);
     const espnStatus = e.playerPoolEntry?.player?.injuryStatus ?? null;
     // ESPN lineup slot 21 is the IR slot. A player parked there does not occupy
     // a bench spot, so he is not a drop candidate — suggesting him is how you
     // lose an injured starter for free.
-    mine.push({ ...asset, espn_status: espnStatus, lineup_slot: e.lineupSlotId ?? null,
+    mine.push({ ...asset, identity_match: match, espn_status: espnStatus, lineup_slot: e.lineupSlotId ?? null,
       on_ir: e.lineupSlotId === ESPN_SLOT_IR || espnStatus === 'INJURY_RESERVE' });
   }
   if (!mine.length) return { error: 'could not price your roster' };
@@ -193,7 +192,9 @@ export function waiverBoard(lg, {
     entries_in_payload: myEntries.length,
     priced: mine.length,
     unpriced: unpriced.slice(0, 10),
-    unpriced_count: unpriced.length
+    unpriced_count: unpriced.length,
+    // Priced by name + position because no asset carries their ESPN id: never a cut.
+    name_fallback: nameFallback
   };
 
   const active = mine.filter(p => !p.on_ir);
@@ -224,11 +225,7 @@ export function waiverBoard(lg, {
   // leagues (all ten of league 2's: out-of-work or retired quarterbacks at 13-16 a
   // week). The rows this takes off the board are counted in `teamless_excluded`
   // (below, once the stash cut is known), so the page can say so.
-  const unownedAll = [...assets.values()].filter(a =>
-    SCORED.has(a.position)
-    && !owned.has(normalizePlayerName(a.name))
-    && a.available !== false);
-  const onNflTeam = a => Boolean(a.team_abbr ?? a.team);
+  const unownedAll = unrosteredSkill(assets, ownedById);
   const unowned = unownedAll.filter(onNflTeam);
   // How much of the pool is priced at all. Distinguishes "the wire is thin"
   // from "nothing on the wire has a number", which read identically before.
@@ -249,7 +246,7 @@ export function waiverBoard(lg, {
   // — so every stash figure on those rosters was biased low, most of all for the
   // hurt-now-good-later players the stash list exists to find.
   const rosStarters = new Set(rosBaselineLineup.slots.map(s => s.player?.id).filter(Boolean));
-  const rosBench = active.filter(p => !rosStarters.has(p.id)).sort(dropOrder(p => p.ros_ppg ?? 0));
+  const rosBench = active.filter(p => !rosStarters.has(p.id) && cuttable(p)).sort(dropOrder(p => p.ros_ppg ?? 0));
   const rosDropForStash = rosBench[0] ?? null;
   const rosAfterWith = fa =>
     bestLineup([...active.filter(p => p.id !== rosDropForStash?.id), fa], slots, 'ros_ppg').points ?? 0;
@@ -329,7 +326,7 @@ export function waiverBoard(lg, {
   // WV-02: my injured starters and who replaces them, before the next waiver run.
   const waiverRun = nextWaiverRun(payload, now);
   const injuryAlerts = injuryReplacementAlerts({
-    mine, assets, unowned, owned, rosterId, waiverRun, roles: roleStates(week.season, week.week), sameTeamOrder
+    mine, assets, unowned, ownedById, rosterId, waiverRun, roles: roleStates(week.season, week.week), sameTeamOrder
   });
 
   return {
@@ -449,8 +446,15 @@ export function nextWaiverRun(payload, now = new Date()) {
  * the same player's 'sleeper_rank' row in one pass. The writer sets the flag and never
  * clears it, so a flag older than that player's latest rank row is left over from an
  * earlier sync and does not count.
+ *
+ * Whether a flag counts at all is the one producer's call (services/injury-flags.js
+ * #activeInjuryFlagIds, RL-12-2: cleared flags and stale flags on players who have
+ * played since are off); the same-sync rank-row check above is kept on top of it.
  */
 function currentFeedFlags(ids) {
+  if (!ids.length) return new Set();
+  const active = activeInjuryFlagIds();
+  ids = ids.filter(id => active.has(id));
   if (!ids.length) return new Set();
   const marks = ids.map(() => '?').join(',');
   return new Set(rows(`SELECT f.player_id FROM player_metrics f
@@ -500,7 +504,7 @@ const byProjection = (a, b) => b.projected_ppg - a.projected_ppg || (b.snap_shar
  * on this week's projection (the number the claim list ranks on).
  */
 export function injuryReplacementAlerts({
-  mine, assets, unowned, owned, rosterId, waiverRun, roles, sameTeamOrder = 'projection'
+  mine, assets, unowned, ownedById, rosterId, waiverRun, roles, sameTeamOrder = 'projection'
 }) {
   if (!SAME_TEAM_ORDERS[sameTeamOrder]) throw new Error(`unknown sameTeamOrder: ${sameTeamOrder}`);
   const order = sameTeamOrder === 'snap_share' ? bySnapShare : byProjection;
@@ -520,7 +524,7 @@ export function injuryReplacementAlerts({
       .filter(a => a.id !== s.id && a.position === s.position && teamOf(a) === team)
       .map(a => mineById.get(a.id) ?? a)
       .filter(a => {
-        const holder = owned.get(normalizePlayerName(a.name));
+        const holder = ownedById.get(a.id);
         return (holder == null || holder === rosterId) && healthy(a);
       })
       .map(a => replacementRow(a, roles, mineById.has(a.id)))

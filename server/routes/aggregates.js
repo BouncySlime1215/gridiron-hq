@@ -134,8 +134,8 @@ async function syncFantasyCalc() {
  *     own per-player history endpoint);
  *   - `dynasty_values.retired_at` on rows this pull did not return, so a price
  *     FantasyCalc stopped publishing is kept on file but no longer served
- *     (dynasty-value-history.js#currentMarket). A pull that matched nobody is a
- *     broken pull and retires nobody.
+ *     (dynasty-value-history.js#currentMarket). A pull that matched nobody, or
+ *     left out more live players than it returned, is a broken pull and retires nobody.
  * The join uses the ids FantasyCalc sends before any name: ESPN id (our player
  * universe is ESPN-keyed), then Sleeper id, then the name key. A name shared with a
  * historical row is dropped from the name lookup, which is how Marvin Harrison Jr.
@@ -220,13 +220,20 @@ export async function syncDynastyValues({ now = new Date() } = {}) {
         error: 'FantasyCalc pull matched no players; nothing retired' });
       continue;
     }
-    // Retire what this pull did not return; the last price stays on the row.
+    // Retire what this pull did not return; the last price stays on the row. A pull
+    // that left out more live players than it returned is read as truncated, not as
+    // FantasyCalc dropping most of its board, and retires nobody (the next pull heals it).
+    const missing = rows(`SELECT player_id FROM dynasty_values WHERE format_key = ? AND retired_at IS NULL`, formatKey)
+      .map(r => r.player_id).filter(id => !returned.has(id));
+    if (missing.length > players) {
+      results.push({ formatKey, isDynasty, fetched: data.length, players, picks, history_rows: history,
+        error: `FantasyCalc pull looks truncated (${players} returned, ${missing.length} live players missing); nothing retired` });
+      continue;
+    }
     const retire = db.prepare(`UPDATE dynasty_values SET retired_at = ?
                                 WHERE format_key = ? AND player_id = ? AND retired_at IS NULL`);
     let retired = 0;
-    for (const r of rows(`SELECT player_id FROM dynasty_values WHERE format_key = ? AND retired_at IS NULL`, formatKey)) {
-      if (!returned.has(r.player_id)) retired += Number(retire.run(fetchedAt, formatKey, r.player_id).changes);
-    }
+    for (const id of missing) retired += Number(retire.run(fetchedAt, formatKey, id).changes);
     results.push({ formatKey, isDynasty, fetched: data.length, players, picks,
       matched_by_id: byId, matched_by_name: byName, history_rows: history, retired });
   }

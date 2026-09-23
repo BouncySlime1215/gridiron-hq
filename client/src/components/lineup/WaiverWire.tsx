@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { PageLoading, PageError } from '../PageState';
+import { PageLoading, PageError, logServerDetail } from '../PageState';
 
 /**
  * The waiver wire, on the page where the lineup is set.
@@ -43,6 +43,32 @@ export interface WaiverBoard {
   held_back?: HeldBack[]; held_back_count?: number;
   teamless_excluded?: number;
   note?: string;
+  /** WV-02: my starters who are Out / IR / Doubtful, with who replaces them and by when. */
+  injury_alerts?: InjuryAlert[];
+  waiver_run?: WaiverRun;
+}
+
+/** The league's next waiver processing run (waiver-wire.js#nextWaiverRun). */
+export type WaiverRun =
+  | { known: true; day: string; date: string; hour: number; zone: string; zone_basis: string }
+  | { known: false; reason: string };
+
+export interface Replacement {
+  player: string; position: string; team?: string | null;
+  snap_share: number | null; projected_ppg: number; ros_ppg?: number | null;
+  injury_status?: string | null; on_your_roster: boolean;
+}
+
+export interface InjuryAlert {
+  player: string; position: string; team?: string | null;
+  designation: 'out' | 'doubtful' | null;
+  designation_source: 'nfl' | 'espn' | 'feed_flag';
+  status: string | null;
+  replacements: {
+    same_team: Replacement[]; same_team_count: number; order: 'projection' | 'snap_share'; ranked_by: string;
+    best_free_agent: Replacement | null;
+  };
+  claim_by: WaiverRun;
 }
 
 /** A free agent who would help this week, but only by cutting someone worth more over the season. */
@@ -109,7 +135,9 @@ function Body({ data, loading, error, onRetry, out }: {
   if (error && !data) return <div className="mt-3"><PageError message={error} onRetry={onRetry} /></div>;
   if (!data) return null;
   if (data.error) {
-    return <p className="mt-2 text-sm leading-6 text-slate-600">No waiver board for this league right now: {data.error}.</p>;
+    // UX-08: the server's reason can carry internal detail; logged, not rendered.
+    logServerDetail('WaiverWire', data.error);
+    return <p className="mt-2 text-sm leading-6 text-slate-600">No waiver board for this league right now. Try again in a moment.</p>;
   }
 
   const immediate = (data.immediate ?? []).filter(onATeam);
@@ -124,6 +152,7 @@ function Body({ data, loading, error, onRetry, out }: {
 
   return (
     <>
+      <InjuryAlerts alerts={data.injury_alerts ?? []} />
       {/* ---------------------------------------------------------- claims now */}
       <div className="mt-3">
         <div className="text-[10px] font-black uppercase tracking-wide text-emerald-700">
@@ -337,5 +366,52 @@ export function WaiverTeaser({ data }: { data: WaiverBoard | null }) {
       </span>
       <span className="shrink-0 text-xs font-semibold text-slate-500" aria-hidden="true">↓</span>
     </a>
+  );
+}
+
+const pct = (v: number | null) => (v == null ? 'no snaps yet' : `${Math.round(v * 100)}% of snaps`);
+
+function runLabel(run: WaiverRun): string {
+  if (!run.known) return run.reason;
+  const day = run.day.charAt(0) + run.day.slice(1).toLowerCase();
+  // The zone is a guess (ESPN gives the hour with no zone); the page says so.
+  return `Claim before waivers run ${day} ${run.date}, hour ${run.hour} (${run.zone_basis}).`;
+}
+
+/**
+ * Injured starters and who replaces them (WV-02). Same-team backups first, each with
+ * his snap share over his last three appearances, in the server's order (this week's
+ * projection by default; `ranked_by` says which); then the best free agent elsewhere.
+ * Shown above the claims because a dead starter costs the most points of anything
+ * on this card.
+ */
+function InjuryAlerts({ alerts }: { alerts: InjuryAlert[] }) {
+  if (alerts.length === 0) return null;
+  return (
+    <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
+      <div className="text-[10px] font-black uppercase tracking-wide text-rose-700">
+        Injured starters · replace before waivers run
+      </div>
+      {alerts.map((a, i) => (
+        <div key={`${a.player}-${i}`} className="mt-1.5 text-xs leading-5 text-slate-700">
+          <b className="text-slate-900">{a.player}</b> ({a.position}{a.team ? `, ${a.team}` : ''}) is{' '}
+          {a.designation_source === 'feed_flag' ? 'flagged injured by the player feed, no report yet' : a.status}.{' '}
+          {a.replacements.same_team.length > 0 ? (
+            <>Same team: {a.replacements.same_team.map((r, j) => (
+              <span key={`${r.player}-${j}`}>
+                {j > 0 ? ', ' : ''}{r.player} ({pct(r.snap_share)}{r.on_your_roster ? ', already yours' : ''})
+              </span>
+            ))}.{' '}</>
+          ) : <>No healthy same-team {a.position} is available.{' '}</>}
+          {a.replacements.best_free_agent && (
+            <>Best free agent: {a.replacements.best_free_agent.player} ({a.replacements.best_free_agent.team},{' '}
+              {fmt(a.replacements.best_free_agent.projected_ppg)} projected this week,{' '}
+              {pct(a.replacements.best_free_agent.snap_share)}).{' '}</>
+          )}
+          <span className="text-slate-500">{runLabel(a.claim_by)}</span>
+        </div>
+      ))}
+      <p className="mt-1 text-[11px] leading-4 text-slate-400">{alerts[0].replacements.ranked_by}</p>
+    </div>
   );
 }

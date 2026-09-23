@@ -10,8 +10,9 @@ import { row, rows } from '../db/index.js';
 import { assertLeagueMember } from '../platform/auth.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import {
-  findTrades, findTradeSequences, offerFor, offerForMany, selfScout, playerOutlook, evaluate,
-  assetUniverse, loadRosters, lineupSlots, bestLineup, resolvePlayer, lineupDiff, playerEvidence
+  findTrades, findTradeSequences, offerFor, offerForMany, selfScout, playerOutlook, evaluate, lineupValueContext,
+  assetUniverse, loadRosters, lineupSlots, bestLineup, resolvePlayer, lineupDiff, playerEvidence,
+  tradeWeekContext
 } from '../services/trade-engine.js';
 // The same season-by-season prompt lines and "argue from the numbers" rules the
 // draft advisor runs on (server/routes/drafts.js) — one voice for both rooms.
@@ -19,8 +20,10 @@ import { evidenceLines, evidenceHeadline, STAT_ROOTED_INSTRUCTIONS } from '../se
 import { dvpTable, matchupModel, matchupSignalActive, MATCHUP_SIGNAL_REASON } from '../services/matchups.js';
 import { leagueCurrentWeek } from '../services/league-week.js';
 import { waiverBoard } from '../services/waiver-wire.js';
+import { streamingBoard } from '../services/streaming-board.js';
 import { lineupPosture } from '../services/lineup-posture.js';
 import { deriveFormat } from '../services/format.js';
+import { marketAsOf, marketHistory } from '../services/dynasty-value-history.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
 import { managerProfiles, setManagerProfile } from '../services/league-brain.js';
 // The measured manager layer: what has been observed about each counterparty, as
@@ -38,9 +41,13 @@ import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE, PROMPT_VERSION 
   from '../services/trade-proposals.js';
 import { recordProposalSlate } from '../services/trade-outcomes.js';
 import { lineupCall } from '../services/lineup-brain.js';
+import { lineupSignals } from '../services/lineup-signals.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
-import { tradeImpact } from '../services/season-sim.js';
+import { tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
+// TM-09: historical revealed trade prices (aggregate table), read-only, default-off.
+import { marketForPlayer } from '../services/trade-market.js';
+import { playerHype } from '../services/hype.js';
 import {
   proposeVerifyRetryTrade, judgeTradeVerdict, tradeChallengeText, SENSE_CHECK_SIM_RUNS
 } from '../services/trade-verify.js';
@@ -182,16 +189,17 @@ r.get('/:leagueId/brain/plan', retired('/api/trades/:leagueId/find',
 /**
  * RETIRED 2026-09-18 (trade-engine-correctness, GATE G7).
  *
- * `sellHigh` itself is NOT retired — it is the price-curve half of the Trade
- * Brain's "hype window" tactic, and it stays as an input to that (it is still
- * exported from waiver-brain.js). What is retired is serving it as its own page:
+ * `sellHigh` is still exported from waiver-brain.js, but (S-19) it is not an
+ * input to the "outscoring his usage" tactic, which reads usage gaps
+ * (talk-vs-model.js#expectationGaps); it now reads the one hype producer,
+ * services/hype.js#playerHype. What is retired is serving it as its own page:
  * a list of players priced above their production curve, with no buyer attached
  * and no read on who overvalues them, is half an idea. The whole idea — who to
  * sell him to, what to ask, and whether that manager has talked him up — is a
  * trade idea, and trade ideas have one source.
  */
 r.get('/:leagueId/brain/sell-high', retired('/api/trades/:leagueId/find',
-  'Selling high on a player is a trade idea, not a list: the finder names the buyer, the package and how he reads it. sellHigh() remains an input to the hype-window tactic.'));
+  'Selling high on a player is a trade idea, not a list: the finder names the buyer, the package and how he reads it. Hype has one producer, services/hype.js#playerHype.'));
 
 
 
@@ -221,11 +229,13 @@ r.get('/:leagueId/lineup', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Who will actually trade with you. Read, and write. */
+/** Who will actually trade with you, and what their lineups say. Read, and write. */
 r.get('/:leagueId/brain/managers', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    res.json(managerProfiles(lg.id));
+    // What each manager's weekly lineups say (LS-01): measured lineup facts, with the
+    // trade reading of them labelled a guess until its pre-registered test passes.
+    res.json({ ...managerProfiles(lg.id), lineup_signals: lineupSignals(lg.id) });
   } catch (e) { next(e); }
 });
 
@@ -653,7 +663,7 @@ r.get('/:leagueId/title-trades', (req, res, next) => {
     res.json(titleOddsTrades(lg.id, {
       teamId: req.query.team_id,
       shortlist: Math.min(12, Math.max(3, Number(req.query.shortlist) || 6)),
-      runs: Math.min(2000, Number(req.query.runs) || 800)
+      runs: Math.min(2000, Number(req.query.runs) || TRADE_IMPACT_RUNS)
     }));
   } catch (e) { next(e); }
 });
@@ -675,6 +685,19 @@ r.get('/:leagueId/waivers', (req, res, next) => {
       limit: Math.min(50, Math.max(5, Number(req.query.limit) || 20)),
       minProjected: Number(req.query.min_projected) || 4,
     }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * The defense streaming board (WV-01): free-agent defenses ranked by the implied
+ * points of the offense they face, the edge over the defense you hold, and one
+ * add suggestion that fits the roster. Same week as the waiver board.
+ */
+r.get('/:leagueId/streams', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const { season, week } = tradeWeekContext();
+    res.json(streamingBoard(lg, { myTeamId: req.query.team_id, season, week }));
   } catch (e) { next(e); }
 });
 
@@ -854,7 +877,8 @@ r.post('/:leagueId/evaluate', (req, res, next) => {
       : teams.find(t => t.roster_id !== meId && gets.some(g => t.players.some(p => p.id === g.id)));
     if (!them) return res.status(400).json({ error: 'could not work out who you are trading with — pass their_team_id' });
 
-    res.json({ ...evaluate({ team: me, gives }, { team: them, gives: gets }, slots), slots });
+    res.json({ ...evaluate({ team: me, gives }, { team: them, gives: gets }, slots,
+      { lineupValue: lineupValueContext(lg, assets, teams) }), slots });
   } catch (e) { next(e); }
 });
 
@@ -869,6 +893,8 @@ r.get('/:leagueId/rosters', (req, res, next) => {
     res.json({
       my_team_id: lg.my_team_id,
       model_context: assets.context,
+      // How old the FantasyCalc price behind every value on this page is (FC-SNAP).
+      market_as_of: marketAsOf(formatKey),
       slots,
       teams: teams.map(t => {
         const line = bestLineup(t.players, slots);
@@ -888,6 +914,24 @@ r.get('/:leagueId/rosters', (req, res, next) => {
         };
       })
     });
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------- market price history */
+/**
+ * One player's FantasyCalc price in this league's format, one row per day it was
+ * fetched (dynasty_value_history, written by syncDynastyValues), plus how old the
+ * current price is. The history starts the day FC-SNAP shipped: FantasyCalc forbids
+ * its own history endpoint, so there is nothing earlier to show.
+ */
+r.get('/:leagueId/market-history/:playerId', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const playerId = Number(req.params.playerId);
+    if (!Number.isInteger(playerId) || playerId <= 0) return res.status(400).json({ error: 'playerId must be a positive integer' });
+    const { formatKey } = deriveFormat(lg);
+    const history = marketHistory(formatKey, playerId, { limit: req.query.limit });
+    res.json({ format_key: formatKey, player_id: playerId, market_as_of: marketAsOf(formatKey), history });
   } catch (e) { next(e); }
 });
 
@@ -993,6 +1037,22 @@ r.get('/:leagueId/player/:id', (req, res, next) => {
       };
     }
     res.json({ ...playerOutlook(lg, req.params.id), valuation_map: panel });
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------ market prices from real trades (TM-09) */
+// What this player fetched in real Sleeper trades (2021-2024 aggregates), the
+// position x week x league-size price-to-value ratio, and the hype-decay reading.
+// Historical and labelled "unconfirmed forward"; no trade card reads it yet.
+r.get('/:leagueId/market/:playerId', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const player = row('SELECT id, name, position, sleeper_id FROM players WHERE id = ?', req.params.playerId);
+    if (!player) { res.status(404).json({ error: 'player not found' }); return; }
+    res.json({ league_id: lg.id,
+      ...marketForPlayer({ player, week: leagueCurrentWeek(lg), teams: lg.team_count ?? null }),
+      // S-19: the one hype producer, passed through unchanged.
+      hype: playerHype({ sleeperId: player.sleeper_id }) });
   } catch (e) { next(e); }
 });
 
@@ -1141,8 +1201,9 @@ Respond with ONLY JSON:
        * from that one paired run, which is why checking both teams costs nothing
        * extra.
        *
-       * A fixed seed keeps a given deal's answer reproducible: re-opening the
-       * same card must not quietly produce a different verdict.
+       * tradeImpact's default seed (one per league state) keeps a given deal's
+       * answer reproducible AND equal to the Title-impact tab's and TradeCard's
+       * delta for the same deal (RL-6-3: this used to hard-code seed 1).
        *
        * Returns null rather than throwing when the deal cannot be resolved
        * against the real rosters — the second opinion is an optional layer and
@@ -1152,7 +1213,7 @@ Respond with ONLY JSON:
         if (!simArgs) return null;
         try {
           const started = Date.now();
-          const impact = tradeImpact(lg, { ...simArgs, runs, seed: 1 });
+          const impact = tradeImpact(lg, { ...simArgs, runs });
           return impact?.error ? impact : { ...impact, compute_ms: Date.now() - started };
         } catch (e) {
           console.warn(`[trade-sense-check] season simulation unavailable: ${e.message}`);

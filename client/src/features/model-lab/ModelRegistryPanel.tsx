@@ -16,7 +16,12 @@ export default function ModelRegistryPanel() {
   const { data, loading, error } = useApi<CandidatesResponse>('/model/registry/candidates');
 
   if (loading) return <div className="card p-6 text-sm text-slate-500" role="status">Loading registered backtest candidates…</div>;
-  if (error) return <div className="card p-6 text-sm text-rose-700" role="alert">Model registry is unavailable: {error}</div>;
+  // UX-08: `error` is the raw server/fetch message — never rendered, only logged.
+  if (error) {
+    // eslint-disable-next-line no-console
+    console.error('[ModelRegistryPanel]', error);
+    return <div className="card p-6 text-sm text-rose-700" role="alert">Model registry is unavailable. Try again shortly.</div>;
+  }
 
   const features = Object.entries(data?.feature_contract?.features ?? {});
 

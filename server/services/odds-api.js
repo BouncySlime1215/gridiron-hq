@@ -146,13 +146,6 @@ export function playerProps(eventId, { markets = PROP_MARKETS, ttlMs = 6 * 3600e
     { cacheKey: `props:${eventId}:${m}`, ttlMs });
 }
 
-export function eventOdds(sport, eventId, { markets, ttlMs = 60 * 60e3 } = {}) {
-  const m = Array.isArray(markets) ? markets.join(',') : markets;
-  return get(`/sports/${sport}/events/${eventId}/odds/`,
-    { regions: 'us', markets: m, oddsFormat: 'american' },
-    { cacheKey: `event:${sport}:${eventId}:${m}`, ttlMs });
-}
-
 /**
  * Flattens the nested bookmaker -> market -> outcome shape into one row per
  * player/market/side, keeping the best available price across books.

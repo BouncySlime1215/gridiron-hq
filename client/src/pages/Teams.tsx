@@ -24,17 +24,17 @@ export default function Teams() {
               {Object.entries(divisions).map(([div, ts]) => (
                 <div key={div} className="card p-4">
                   <h2 className="text-sm font-bold text-slate-600 mb-3 tracking-wide">{div.toUpperCase()}</h2>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {ts.map(t => (
                       <Link key={t.abbr} to={`/teams/${t.abbr}`}
                         className="rounded-lg p-3 border border-slate-200 hover:border-slate-500 transition-colors"
                         style={{ background: `linear-gradient(135deg, ${t.primary_color}22, transparent)` }}>
                         <div className="flex items-center gap-2">
-                          <span className="w-8 h-8 rounded-full grid place-items-center text-xs font-black text-white"
+                          <span className="w-8 h-8 rounded-full grid place-items-center text-xs font-black text-white shrink-0"
                             style={{ background: t.primary_color }}>{t.abbr}</span>
                           <div className="min-w-0">
-                            <div className="text-sm font-semibold truncate">{t.name}</div>
-                            <div className="text-[10px] text-slate-500 truncate">HC {t.head_coach}</div>
+                            <div className="text-sm font-semibold break-words">{t.name}</div>
+                            <div className="text-[10px] text-slate-500 break-words">HC {t.head_coach}</div>
                           </div>
                         </div>
                       </Link>

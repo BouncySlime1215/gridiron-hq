@@ -14,7 +14,9 @@ export default function OffseasonPanel({ abbr }: { abbr: string }) {
   const { data, loading } = useApi<any>(`/nfl/offseason/${abbr}`);
 
   if (loading || !data) return <p className="text-sm text-slate-500">Loading offseason data…</p>;
-  const { cap, sos, rookies, group_counts: counts, group_avg_age: ages } = data;
+  const { cap, schedule_signal, schedule, rookies, group_counts: counts, group_avg_age: ages } = data;
+  // Home games are a fact from the stored schedule, not a strength rating.
+  const homeGames = Array.isArray(schedule) && schedule.length ? schedule.filter((g: any) => g.home).length : null;
 
   const thin = Object.entries(counts)
     .filter(([g, n]) => (HEALTHY as any)[g] && (n as number) < (HEALTHY as any)[g])
@@ -36,11 +38,9 @@ export default function OffseasonPanel({ abbr }: { abbr: string }) {
         </div>
         <div className="card p-4">
           <div className="text-[10px] uppercase tracking-wide text-slate-400">Strength of schedule</div>
-          <div className="text-xl font-bold text-slate-800">
-            {sos ? `#${sos.rank}` : '—'}<span className="text-sm font-normal text-slate-400"> / 32</span>
-          </div>
+          <div className="text-xl font-bold text-slate-800">No validated signal</div>
           <div className="text-[11px] text-slate-500 mt-1">
-            {sos ? `${sos.rank <= 10 ? 'One of the easiest' : sos.rank >= 23 ? 'One of the hardest' : 'Middle-of-the-pack'} slates · ${sos.home_games} home` : 'not synced'}
+            {schedule_signal?.reason ?? 'not available'}{homeGames != null ? ` · ${homeGames} home games` : ''}
           </div>
         </div>
         <div className="card p-4">

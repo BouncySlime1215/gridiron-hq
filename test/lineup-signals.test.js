@@ -39,7 +39,7 @@ const BENCH = 20, IR = 21, FLEX = 23, WR = 4, RB = 2, TE = 6;
 // id, position, pro team. Pro teams 901-906 have a game every week; 907 is on bye in week 3.
 const PLAYERS = {
   101: ['WR', 901], 102: ['WR', 901], 103: ['RB', 902], 104: ['RB', 902],
-  201: ['RB', 903], 202: ['RB', 903], 203: ['WR', 904], 204: ['TE', 907], 205: ['WR', 904], 206: ['WR', 904], 207: ['RB', 903], 307: ['K', 906],
+  201: ['RB', 903], 202: ['RB', 903], 203: ['WR', 904], 204: ['TE', 907], 205: ['WR', 904], 206: ['WR', 904], 207: ['RB', 903], 208: ['RB', 903], 307: ['K', 906],
   301: ['RB', 905], 302: ['RB', 905], 303: ['WR', 906], 304: ['WR', 906], 305: ['WR', 906], 306: ['RB', 905],
 };
 for (let i = 1; i <= 6; i++) PLAYERS[400 + i] = ['WR', 901];   // free-agent WRs who outscore 304 in week 2
@@ -100,9 +100,12 @@ snap(3, 2, 203, WR, { actual: 0 });
 // 207 started week 3 on an ESPN projection of 0 (ruled out, not a matchup) over 202: not attached.
 snap(1, 2, 207, RB, { proj: 15 }); snap(2, 2, 207, RB, { proj: 15 }); snap(3, 2, 207, RB, { proj: 0 });
 for (const w of [1, 2, 3]) snaps(207, w, 0.7);
-// 206 started week 3 and scored, but the snap feed has no row for him (a join gap seen
+// 208 started week 3 at 0.85 x his own earlier projection (above the 0.8 line) with 202 projected higher: not attached.
+snap(1, 2, 208, RB, { proj: 10 }); snap(2, 2, 208, RB, { proj: 10 }); snap(3, 2, 208, RB, { proj: 8.5 });
+for (const w of [1, 2, 3]) snaps(208, w, 0.7);
+// 206 started week 3 and played, but the snap feed has no row for him (a join gap seen
 // on real rows): he played, so he is not a dead starter.
-snap(3, 2, 206, WR, { actual: 12 });
+snap(3, 2, 206, WR, { actual: null });   // ESPN recorded no points; his stat line is the proof he played
 // 204 started week 3 while his team was on bye: bye unfilled (not also a dead starter).
 snap(3, 2, 204, TE, { actual: 0 });
 for (const w of [1, 2, 3]) { snaps(201, w, 0.7); snaps(202, w, 0.3); snaps(205, w, 0.8); }
@@ -198,6 +201,7 @@ test('started through a bad matchup: low projection vs his own history with a be
   assert.equal(hit[0].evidence.better_bench_player_id, 202);
   assert.equal(find('started_bad_matchup', 205).length, 0, 'no benched WR projected above 205');
   assert.equal(find('started_bad_matchup', 207).length, 0, 'a projection of 0 is ruled out, not a matchup');
+  assert.equal(find('started_bad_matchup', 208).length, 0, '0.85 of his own mean is above the 0.8 line');
 });
 
 test('checked out: dead starter left in, bye unfilled, injured not on IR, each once and apart', () => {
@@ -206,7 +210,7 @@ test('checked out: dead starter left in, bye unfilled, injured not on IR, each o
   assert.equal(dead[0].week, 3);
   assert.equal(find('dead_starter_left_in', 204).length, 0, 'a bye is its own signal');
   assert.equal(find('dead_starter_left_in', 201).length, 0, '201 played');
-  assert.equal(find('dead_starter_left_in', 206).length, 0, '206 has a stat line and points, only no snap row');
+  assert.equal(find('dead_starter_left_in', 206).length, 0, '206 has a stat line, only no snap row and no ESPN points');
   const bye = find('bye_unfilled', 204);
   assert.equal(bye.length, 1);
   assert.equal(bye[0].week, 3);

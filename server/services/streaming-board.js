@@ -29,6 +29,7 @@ import { linesFor } from './gamescript.js';
 import { PRO_TEAM } from './espn-draft.js';
 import { canonicalTeamCode } from './team-codes.js';
 import { nflKickoffDate } from './date-util.js';
+import { previewUnconfirmed, previewFields, previewText } from './preview-mode.js';
 
 /** ESPN ids: defaultPositionId and lineup slot for D/ST, the IR slot, the bench. */
 const DST_POSITION = 16;
@@ -56,6 +57,13 @@ export const MIN_EDGE = 1;
  * Rule 5 still applies unchanged to anything with fitted parameters.
  */
 export const WV01_STREAMING_BOARD_ENABLED = true;
+/**
+ * The PREVIEW-01 reason, kept for a board built with the constant off. Since NICK-WV01
+ * the constant is on, so previewUnconfirmed() never switches this board and it carries
+ * no preview field; the suggestion ships under WV-01's own "unconfirmed_forward" label.
+ */
+export const WV01_UNCONFIRMED = 'default-off, unconfirmed forward: 2026 defensive counts are computable for week 1 '
+  + 'only (F002), so the swap suggestion has no 2026 forward check yet';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : Math.round(v * 100) / 100);
 
@@ -129,7 +137,11 @@ function rosterRules(lg, payload) {
  * league holds. Defenses whose game has kicked off are not offered.
  */
 export function streamingBoard(lg, { myTeamId = null, season, week, now = new Date(), limit = 5,
-  enabled = WV01_STREAMING_BOARD_ENABLED } = {}) {
+  enabled } = {}) {
+  // PREVIEW-01: the local-testing switch turns the suggestion on when neither the caller
+  // nor the code constant has; the board then carries preview:true and the reason.
+  const preview = enabled === undefined && !WV01_STREAMING_BOARD_ENABLED && previewUnconfirmed();
+  const on = enabled === undefined ? (WV01_STREAMING_BOARD_ENABLED || preview) : enabled;
   const base = { season, week, position: 'DEF', candidates: [], my_defenses: [], suggestion: { action: null, why: null } };
   if (!lg?.payload) return { ...base, error: 'league not synced' };
   const payload = JSON.parse(lg.payload);
@@ -207,16 +219,19 @@ export function streamingBoard(lg, { myTeamId = null, season, week, now = new Da
   }
 
   // NICK-WV01 exemption (WORK-QUEUE.md section 12): zero-parameter, history-tested
-  // market rankings ship the suggestion by default (enabled defaults true above);
+  // market rankings ship the suggestion by default (WV01_STREAMING_BOARD_ENABLED true);
   // an explicit `enabled: false` still gates the suggestion off for callers that need it.
-  const gatedSuggestion = enabled ? suggestion : { action: null, add: null, drop: null, edge: null, why: null };
+  // PREVIEW-01 can only switch it on when the constant is off (then labelled preview).
+  const gatedSuggestion = !on ? { action: null, add: null, drop: null, edge: null, why: null }
+    : preview && suggestion.why ? { ...suggestion, why: previewText(suggestion.why) } : suggestion;
 
   return {
     ...base,
     candidates,
     my_defenses: mine,
     suggestion: gatedSuggestion,
-    unconfirmed_forward: enabled,
+    unconfirmed_forward: on,
+    ...(preview ? previewFields(WV01_UNCONFIRMED) : {}),
     free_agent_defenses: free.length,
     min_edge: MIN_EDGE,
     note: `Defenses ranked by the betting market's implied points for the offense they face (the last line before kickoff). Edge = implied points easier than your defense's matchup.`,

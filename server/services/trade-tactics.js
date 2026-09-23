@@ -423,9 +423,9 @@ export function sendWindow(timing, { now = null, postLoss = null } = {}) {
  * eight. That difference changes what a package is allowed to look like, and it
  * is free — it is already synced.
  *
- * The observed side is one package. League 4, 2026-09-17: Nick to Rami,
- * McConkey + Achane out for Etienne + Nico Collins back, 4 votes of the 5
- * needed. `n` is printed everywhere that package is used as a reference,
+ * The observed side is one package. League 4, 2026-09-17: Nick to a league
+ * mate, McConkey + Achane out for Etienne + Nico Collins back, 4 votes of the
+ * 5 needed. `n` is printed everywhere that package is used as a reference,
  * because one is not a model.
  */
 export function vetoClimate(lg, { season = null, priceOfPlayer = null } = {}) {

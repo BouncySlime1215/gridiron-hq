@@ -8,11 +8,16 @@ UNDERSTAND). Branch `claude/local-proj-02-a-sharp-chain`, based on `origin/main`
 **Verdict.** Every projection from `buildProjections` now carries
 `links: {plays, pass_rate, share, volume, eff, td}`. Team shares sum to 100% over each
 team's as-of roster (hard rule holds on every team-week of the 2023, 2024 and 2026-W2
-replays; max deviation 0.0011%). Per the pre-registered rule: **plays and pass rate are ON**
-(they beat the incumbent in 2023, in 2024, pooled, and forward). **Targets and carries keep
-the incumbent**: normalized targets tie today's number (interval straddles 0), and
-normalized carries are worse. So the served weekly number (`ppg`, `params`) is unchanged
-for all 3,323 players checked.
+replays; max deviation 0.0011%). **No link is served from the chain; every link serves
+the number main already produces.** Plays and pass rate beat the pre-registered
+season-average incumbent, but skeptic round 1 showed that incumbent was a straw man: the
+real incumbent is main's neutral shrunk pace (`teamVolume`), which the chain starts from.
+Against it the script term fails the rule (plays pooled +0.043 [90% CI -0.031, +0.112];
+pass rate -0.0008 [-0.0019, +0.0004], forward opposite sign). So plays and pass rate are
+**default-off**, and the served value is the neutral pace. Targets and carries keep the
+incumbent: normalized targets tie today's number (interval straddles 0), and normalized
+carries are worse. The served weekly number (`ppg`, `params`) is unchanged for all 3,323
+players checked. Section 4b has the round-1 fixes.
 
 ## 1. Audit: extend or build
 
@@ -53,7 +58,9 @@ the per-player shares (:595-605 on `62f9530a`) and read `gameScriptFor`
 | 3 | `659c79d6` | feat: PROJ-02-a sharp chain links on every projection (plays, pass rate, normalized shares, volume, eff, td) |
 | 4 | `c259749f` | test: PROJ-02-a per-link study script (pre-registered, local copy only) |
 | 5 | `a7de3e70` | feat: PROJ-02-a ship decisions per link (plays, pass rate served; targets, carries keep incumbent) |
-| 6 | this commit | docs: PROJ-02-a evidence, holdout-ledger forward rows |
+| 6 | `6234a04b` | docs: PROJ-02-a evidence, holdout-ledger forward rows |
+| 7 | `99dd4232` | fix: PROJ-02-a plays and pass rate default-off vs the real incumbent (neutral pace); route takes week; share tests pin per-player normalization |
+| 8 | this commit | docs: PROJ-02-a evidence for skeptic round 1 |
 
 **RED:** `4e242266` (test: RED for PROJ-02-a sharp chain links and per-team share
 normalization). On the unfixed code, all 6 tests fail. The first failing assertion is
@@ -122,8 +129,10 @@ not depend on it.
 
 | link (unit) | 2023 chain / inc / diff | 2024 chain / inc / diff | pooled diff [90% CI] | MDE 80% | forward 2026 W2 diff | verdict |
 |---|---|---|---|---|---|---|
-| plays (plays/team-game), n 512+512 | 6.929 / 7.358 / -0.429 | 6.714 / 7.367 / -0.653 | -0.541 [-0.645, -0.434] | 0.161 | -3.125 (n 32) | **ON** |
-| pass rate, n 512+512 | 0.0803 / 0.0853 / -0.0050 | 0.0803 / 0.0862 / -0.0059 | -0.0055 [-0.0078, -0.0032] | 0.0035 | -0.0303 (n 32) | **ON** |
+| plays vs season average (pre-registered straw man), n 512+512 | 6.929 / 7.358 / -0.429 | 6.714 / 7.367 / -0.653 | -0.541 [-0.645, -0.434] | 0.161 | -3.125 (n 32) | superseded by next row |
+| **plays vs neutral shrunk pace (real incumbent)**, n 512+512 | 6.929 / 6.822 / +0.1065 | 6.714 / 6.735 / -0.0214 | +0.0426 [-0.0306, +0.1116] | 0.109 | -0.228 (n 32) | **default-off** (fails: not lower in 2023, CI straddles 0) |
+| pass rate vs season-to-date (straw man), n 512+512 | 0.0803 / 0.0853 / -0.0050 | 0.0803 / 0.0862 / -0.0059 | -0.0055 [-0.0078, -0.0032] | 0.0035 | -0.0303 (n 32) | superseded by next row |
+| **pass rate vs neutral pace ratio (real incumbent)**, n 512+512 | 0.0803 / 0.0802 / +0.0001 | 0.0803 / 0.0819 / -0.0017 | -0.0008 [-0.0019, +0.0004] | 0.0017 | +0.0018 (n 32, opposite sign) | **default-off** (fails all three) |
 | targets (per played game), n 5,138+5,171 | 1.4549 / 1.4566 / -0.0017 | 1.4649 / 1.4660 / -0.0010 | -0.0014 [-0.0108, +0.0082] | 0.0144 | -0.0105 (n 329) | incumbent kept (tie) |
 | carries (per played game), n 5,138+5,171 | 1.2477 / 1.2332 / +0.0145 | 1.2462 / 1.2253 / +0.0209 | +0.0177 [+0.0017, +0.0339] | 0.0246 | -0.0344 (n 329) | incumbent kept (worse) |
 | targets, DNP counted as 0 (secondary) | -0.0908 | -0.0900 | -0.0904 [-0.0992, -0.0817] | 0.0134 | -0.1645 | secondary only |
@@ -166,6 +175,48 @@ did the higher structural `ppg` score more (PPR).
 - Consensus and ESPN baselines are not available to this rig. HX-01 owns that comparison;
   it is not claimed here.
 
+## 4b. Skeptic round 1 (2026-09-23): what changed and why
+
+1. **Straw-man incumbent (accepted).** The study now also grades each scripted chain
+   value against main's neutral shrunk pace (`plays_neutral`, `pass_rate_neutral` rows,
+   team-weeks with a line only, which is all 512+512 here). Same rig, same bootstrap.
+   Command (tree `99dd4232`, local copy, not production):
+   `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<wt>/.local-db/data.sqlite node docs/evidence/2026-09-23/proj-02-a-sharp-chain-study.mjs > docs/evidence/2026-09-23/proj-02-a-sharp-chain-output.json`
+   (16 s). Numbers are in the table above and match the skeptic's to four decimals. The
+   output's new `ship_decision` block reads plays and pass rate from the neutral rows:
+   all four links `incumbent kept`. `CHAIN_SERVED` is all false.
+   `links.plays.incumbent` / `links.pass_rate.incumbent` are now the neutral pace and
+   ratio (one producer, `teamVolume`); the season averages stay on `season_average`.
+   The straw-man rows were re-run unchanged (byte-identical to the pre-change run on the
+   same data).
+2. **Unscripted value labelled as the served chain (accepted).** Two fixes:
+   - `links.plays.chain_scripted` / `links.pass_rate.chain_scripted` say whether the
+     predicted week's script is in `chain`.
+   - `GET /api/model/projections` (`server/routes/model.js`) takes `week` (the as-of
+     cutoff; the script is read for `week + 1`), validated 0-22, 400 otherwise, memo key
+     includes it. Without `week` the call is byte-for-byte the old `{ through, scoring }`
+     call (`test/scoring-call-sites.test.js` 4/4 pass on `99dd4232`).
+   - Test 9 hits the real router on the fixture: `?through=2023&week=4` gives AAA
+     `pass_rate.chain_scripted: true` with the week-5 script; no `week` gives `false`
+     and `script: null`; `week=x` gives 400.
+3. **No reader of `links` (partly accepted).** With every flag off, no new number is
+   served: the served values are the ones main already produces. The chain values are a
+   record on the one route that serializes projections, now reachable in the graded
+   configuration via `week`. No page reads `links`; PROJ-04 is the named reader. This is
+   stated, not hidden.
+4. **Mutants U5 and U2 survived (accepted).** New test 5 asserts, for every roster
+   player, `target_share = raw_target_share / team sum` and `carry_share` likewise
+   (1e-4), chain volume = share x team total (1e-3), QB `target_share` 0, and pins AAA
+   QB `carry_share` 0.1099 and AAA WR1 `target_share` 0.3490 (fixture values, temp DB).
+   `raw_*_share` is now rounded to 6 decimals so the ratio check is tight. Both mutants
+   now die (section 5).
+
+**RED for round 1.** The new test file run against `6234a04b`'s `projections.js` and
+`model.js`: `# pass 5 # fail 4` (tests 4, 6, 8, 9 fail: no `chain_scripted`, incumbent
+still the season average, plays still ON, route ignores `week`). Test 5 passes there,
+as it should: the old code normalized correctly; its job is killing U5/U2.
+**GREEN:** `99dd4232`, `# pass 9 # fail 0`. Command as in section 2.
+
 ## 5. Mutation sweep
 
 Command: `python3 docs/evidence/2026-09-23/mutate-proj-02-a.py` (tree `a7de3e70` plus the
@@ -186,6 +237,20 @@ M5, the `attachChain` call).
 | M9 DESIGNED SURVIVOR: incumbent pass-rate rounding 4 -> 5 decimals (test tolerance 1e-4) | survive | survive | 0 | yes |
 | M10 NOT-APPLIED CONTROL: pattern absent from the file | not_applied | not_applied | - | yes |
 
+**Round-1 sweep** (tree `99dd4232`, same command; the script now takes multi-edit
+mutants and a file per mutant). Exit 0, every row as designed:
+
+| mutant | expected | result | failing tests |
+|---|---|---|---|
+| M1-M8, M9a (as above) | kill | kill | 1-9 each |
+| U5 unit (skeptic): uniform 1/n share | kill | kill | 1 |
+| U2 call site (skeptic): QB raw carry share dropped | kill | kill | 1 |
+| M11 unit: plays link served ON again | kill | kill | 2 |
+| M12 unit: incumbent plays back to the season average | kill | kill | 1 |
+| M13 route: `week` query ignored | kill | kill | 1 |
+| M9 DESIGNED SURVIVOR: pass-rate rounding | survive | survive | 0 |
+| M10 NOT-APPLIED CONTROL | not_applied | not_applied | - |
+
 **Recorded as it happened.** In the first sweep, M9a was the designed survivor, and it was
 **killed**. The fixture's stale 2022 AAA rows make the recency-weighted average differ from
 the plain one, so test 5 pins the plain average. M9a now stays as a kill row, and a
@@ -197,6 +262,9 @@ rounding mutant replaced it as the designed survivor.
   `L` row was added.
 - **2026 forward.** Week 2 was graded as a forward look: one week, an anecdote. Four `F`
   rows (F016-F019) were appended to `docs/evidence/HOLDOUT-LEDGER.md` "2026 forward looks".
+- **2026 forward, round 1.** The neutral-pace comparison on week 2 is F020 (plays,
+  -0.228, one week) and F021 (pass rate, +0.0018, opposite sign). Both record that F016
+  and F017's ship is reversed. 2025 still not read.
   The ids may collide with unmerged branches' `F` rows; whichever merges second renumbers.
 
 ## 7. Known defects and what this does not cover
@@ -208,11 +276,13 @@ rounding mutant replaced it as the designed survivor.
   is the incumbent rate and says so in `basis`.
 - **Targets per route.** Target share from routes x targets per route run
   (participation/FTN) is not built. A licence check would come first.
-- **Plays and pass rate were graded in-season only.** The grade covers in-season weeks 2-18
-  with a script. At a season-boundary cutoff (the `/api/model/projections` route), the
-  served `plays.value` is neutral pace, which was not graded against a full-season incumbent.
-- **The plays incumbent is weak.** It is a raw season-to-date average. Whether the script
-  adds anything over neutral shrunk pace was not tested; it was not pre-registered.
+- **The script term is not shown to help.** Against neutral shrunk pace it is a tie at
+  MDE80 0.109 plays and 0.0017 pass rate. Underpowered for smaller effects, not "no
+  effect". Plays and pass rate are default-off until a better script or more seasons.
+- **The pre-registration named the wrong incumbent** (season average). Round 1 graded the
+  real one; that comparison was not pre-registered, and it is the one the decision uses.
+- **`links` has no page reader.** The route serializes it (with `week` for the scripted
+  chain); PROJ-04 is the named reader.
 - **QB attempts** stay the incumbent (a QB is not a share of team attempts in this unit).
 - **The roster rule is crude.** "Played for the team in its last 3 weeks" misses a starter
   returning from a 3+ week absence and keeps a player whose injury started this week. That
@@ -228,11 +298,11 @@ rounding mutant replaced it as the designed survivor.
    **guess**, pre-registered and not tuned.
 3. **How we know.**
    - Backtest: 2023 and 2024 weeks 2-18, walk-forward, MAE, cluster-bootstrap 90% CI.
-   - Plays: -0.54 plays per team-game. Pass rate: -0.0055. Targets: tie. Carries: +0.018,
-     worse.
-   - Forward 2026 W2: all four links negative. That is one week, an anecdote.
-4. **Pointed anywhere else?** `GET /api/model/projections` (`model.js:425`) returns `links`.
-   No page reads them yet; PROJ-04 is the named reader. Served `ppg` is unchanged, so
+   - Vs neutral pace (the real incumbent): plays +0.043 pooled (tie), pass rate -0.0008
+     (tie). Targets: tie. Carries: +0.018, worse. Nothing ships.
+   - Forward 2026 W2 is one week, an anecdote.
+4. **Pointed anywhere else?** `GET /api/model/projections` (`model.js:425`) returns `links`;
+   pass `week` for the scripted chain. No page reads them yet; PROJ-04 is the named reader. Served `ppg` is unchanged, so
    Start/Sit, Waivers and Trades see no difference.
 5. **How it unifies.** The script still has one producer (`gameScriptFor`), and the pace
    still has one producer (`teamVolume`). No second win-probability or plays number exists.
@@ -241,7 +311,8 @@ rounding mutant replaced it as the designed survivor.
 - **Defect or gap fixed.** No projection exposed its chain, and nothing made team shares
   sum to the team total (`projections.js:595-607` on `62f9530a`). The implicit target rate
   of 1 (:607) is now measured on the link.
-- **Incumbent, by command.** Season-average plays and pass rate, plus today's
+- **Incumbent, by command.** Neutral shrunk pace and pass ratio from `teamVolume`
+  (round 1; season averages kept as the pre-registered straw man), plus today's
   `targets_per_game`/`carries_per_game`. All are in the study output, `mae_incumbent`.
 - **Not covered.** See section 7.
 - **What would make it wrong.** Any of these:

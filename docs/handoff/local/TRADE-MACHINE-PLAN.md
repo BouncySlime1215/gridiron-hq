@@ -86,3 +86,20 @@ Insane ideas we will NOT do (and why): auto-sending offers without Nick's tap (o
 ## The weekly rhythm (what the command center runs)
 Tue: receipts from last week; waivers and streams; offers out (2-3 per target, MESO). Wed-Thu: practice reports -> availability alerts; counters evaluated in one tap. Thu 8:15 PM: lock window 1 (dead-starter guard). Sun 11:30 AM: inactives -> swaps; 1:00, 4:05/4:25, 8:20 windows; Mon 8:15. Every window: floor vs ceiling from the live margin.
 ## Not doing: auto-sending trade offers; any false claim; more than one follow-up per partner per week; clever start/sit "optimizers" among healthy players (+0.68/week, does not repeat).
+
+# v5 addendum (Nick 12:40 AM ET: "what else is there"). Planning only.
+## Trades
+- TM-35 Paper-value stuffers: a catalog of assets ESPN's screen prices but his lineup can't use: a QB2 in a 1-QB league, kickers and defenses (replacement off the wire is nearly as good), deep-bench receivers with projections but no slot on HIS roster, handcuffs with no role. Adding them makes the deal read "fair" on his screen at near-zero real cost. The study's 80% paper-vs-lineup disagreement is exactly this.
+- TM-36 Auction mode: when two managers want the same player of Nick's, run a real auction: equivalent asks to both, best real value wins, both told the truth ("another offer is in").
+- TM-37 Buy-back tracker: sell at the peak, buy back after the bye or the bad game; the round trip is tracked and priced.
+- TM-38 Handcuff market: buy your own RB1's handcuff cheaply (insurance), sell his RB1's handcuff to him at a premium (he values his own insurance; endowment).
+- TM-39 Scoring-rule mispricing scanner (biggest untested edge): each league's real scoring (A-01: bonuses, PPR level, TE premium, return yards) vs ESPN's default rank that managers price from. Players whose value under THIS league's rules differs most from their default rank are the buy and sell lists, per league. Computable today from the 5 stored scoring payloads; test: value gap vs what people paid.
+- TM-40 Chat listener: live intent detection on the group chat ("anyone have a RB?", complaints about a player, "I'm done with X") -> an alert with a drafted reply within minutes.
+- TM-41 Loss-leader trades: a small deal that genuinely helps him early buys the big one later (reciprocity); the ledger tracks it and RS tests whether the second deal closes more often.
+- TM-42 Replacement-level pricing per league: a player's real value = his points minus the best free agent at his position on THAT league's wire. Sell the position the wire is rich in, buy the one it is empty in.
+## Start/sit
+- ST-07 Recency-bias guard for Nick: flags benching a stable-usage player after one bad game, and starting a one-week jumper (the study: jumps fade); shows usage next to last week's points.
+- ST-08 Weather and venue: wind over 15 mph, rain, dome, altitude, as-of Sunday morning, moving the ranges (passing, kicking).
+- ST-09 Bench built for late swaps: keep at least one flex-able late-window player so ST-03 always has an option.
+- ST-10 Live points-needed tracker: on gameday, what the remaining unlocked players need, and the floor/ceiling call per window.
+- ST-11 Weekly grade of three lineups: ours, ESPN's, and what Nick actually started, scored by matchup win probability, not just points (extends the C-01 gate).

@@ -195,12 +195,11 @@ test('marketForPlayer labels the output unconfirmed forward and default-off', ()
   assert.doesNotMatch(out.hype_decay.reading, /shows up in the next 4/);
 });
 
-test('marketForPlayer names every hype producer so the numbers are not mixed up', () => {
+test('marketForPlayer points at the one hype producer; no other producer is left (S-19)', () => {
   const out = market.marketForPlayer({ player: { id: 1, name: 'Test Back', position: 'RB', sleeper_id: '9001' },
     week: 6, teams: 12 }, fixture());
-  const where = out.other_hype_producers.map(p => p.where).join(' ');
-  assert.match(where, /players\.js/);
-  assert.match(where, /waiver-brain\.js/);
+  assert.deepEqual(out.other_hype_producers, []);
+  assert.match(out.note, /services\/hype\.js#playerHype/);
 });
 
 // ------------------------------------------------------------------ the route

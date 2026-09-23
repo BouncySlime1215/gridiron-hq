@@ -276,7 +276,7 @@ function computeSplits(log) {
  *      from its opponent's row, which was written by a team that matched itself.
  * Any disagreement it cannot attribute is left alone and counted.
  */
-function repairSchedule(raw) {
+export function repairSchedule(raw) {
   const games = raw.map(g => {
     const rawOpp = String(g.opponent_abbr ?? '').trim().toUpperCase();
     const opponent = canonicalTeamCode(rawOpp);

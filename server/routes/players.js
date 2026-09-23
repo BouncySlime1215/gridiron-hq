@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { trendPct } from './aggregates.js';
-import { computeSOS } from './nfldata.js';
 import { statsFor, fetchGameLog } from './stats.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { weeklyProjectionFor } from '../services/fantasy-coordinator.js';
@@ -145,7 +144,7 @@ function heuristicVerdict(m) {
   return { verdict: 'HOLD', why: `market value is stable (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% in 30 days)` };
 }
 
-function playerEvidenceFacts({ player, metrics, news, depth, sos }) {
+export function playerEvidenceFacts({ player, metrics, news, depth }) {
   const facts = [];
   const add = (id, text, source) => { if (text) facts.push({ id, text, source }); };
   const trend = trendPct(metrics.fc_value, metrics.fc_trend30);
@@ -153,7 +152,8 @@ function playerEvidenceFacts({ player, metrics, news, depth, sos }) {
   if (metrics.ffc_adp ?? metrics.fc_adp) add('market.adp', `Current ADP is ${Number(metrics.ffc_adp ?? metrics.fc_adp).toFixed(1)}.`, 'fantasy market feed');
   if (metrics.sleeper_rank) add('market.sleeper_rank', `Sleeper rank is ${Math.round(metrics.sleeper_rank)}.`, 'Sleeper');
   if (metrics.injury_flag) add('availability.flag', 'The structured player feed currently carries an injury flag.', 'player metrics');
-  if (sos) add('schedule.rank', `Remaining schedule ranks ${sos.rank}/32 where 1 is easiest.`, 'computed schedule model');
+  // No schedule fact: schedule strength is not a validated signal (matchups.js
+  // MATCHUP_SIGNAL_REASON) and the old rank was computed from an empty store (RL-8-3).
   if (player.off_scheme) add('team.scheme', `${player.team_name} lists its offense as ${player.off_scheme}.`, 'team profile');
   const competitors = depth.filter(x => x.name !== player.name && x.position === player.position).map(x => x.name).slice(0, 4);
   if (competitors.length) add('depth.competition', `Same-position depth-chart competition: ${competitors.join(', ')}.`, 'synced depth chart');
@@ -198,8 +198,7 @@ r.post('/:id/analyze', async (req, res, next) => {
     const depth = rows(`SELECT name, position, slot_code FROM players
                         WHERE team_id = ? AND slot_code IS NOT NULL AND phase = 'offense'
                         ORDER BY slot_code`, player.team_id ?? -1);
-    const sos = player.team_abbr ? computeSOS().find(s => s.abbr === player.team_abbr) : null;
-    const facts = playerEvidenceFacts({ player, metrics: m, news, depth, sos });
+    const facts = playerEvidenceFacts({ player, metrics: m, news, depth });
     const fallback = heuristicVerdict(m)?.verdict ?? 'HOLD';
 
     const msg = await callClaude({

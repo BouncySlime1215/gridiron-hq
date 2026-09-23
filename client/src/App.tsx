@@ -20,6 +20,7 @@ const DraftRoom = lazy(() => import('./pages/DraftRoom'));
 const LiveDraft = lazy(() => import('./pages/LiveDraft'));
 const DraftHub = lazy(() => import('./pages/DraftHub'));
 const LeagueHub = lazy(() => import('./pages/LeagueHub'));
+const MyTeam = lazy(() => import('./pages/MyTeam'));
 const PlayerDetail = lazy(() => import('./pages/PlayerDetail'));
 const TradeLab = lazy(() => import('./pages/TradeLab'));
 const TradeBrain = lazy(() => import('./pages/TradeBrain'));
@@ -129,6 +130,7 @@ export default function App() {
         <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8"><Suspense fallback={<RouteSkeleton />}><Routes>
           <Route path="/" element={<Navigate to="/league" replace />} />
           <Route path="/league" element={<LeagueHub />} />
+          <Route path="/my-team" element={<MyTeam />} />
           <Route path="/draft" element={<DraftHub />} />
           <Route path="/teams" element={<Teams />} /><Route path="/teams/:abbr" element={<TeamDetail />} />
           <Route path="/players/:id" element={<PlayerDetail />} />
@@ -140,7 +142,7 @@ export default function App() {
               and all of which were reachable with nothing saying which was current. */}
 
           {/* Compatibility: old bookmarks resolve to the new domain hubs. */}
-          <Route path="/my-team" element={<Navigate to="/league?view=team" replace />} /><Route path="/leagues" element={<Navigate to="/league?view=connections" replace />} />
+          <Route path="/leagues" element={<Navigate to="/league?view=connections" replace />} />
           <Route path="/live-draft" element={<Navigate to="/draft?view=live" replace />} /><Route path="/live-draft/:id" element={<LiveDraft />} />
           <Route path="/drafts" element={<Navigate to="/draft" replace />} /><Route path="/drafts/:id" element={<DraftRoom />} />
           <Route path="/rankings" element={<Navigate to="/league" replace />} /><Route path="/projections" element={<Navigate to="/league" replace />} />

@@ -18,7 +18,7 @@
  * statSplitTypeId 1 = one scoring period, raw `stats` by stat id and
  * `appliedTotal`). No real league data.
  */
-import test, { mock } from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
@@ -172,4 +172,14 @@ test('syncEspnLeague returns the scoring summary and warns about ids it cannot a
   assert.ok(result.scoring.unscored.some(u => u.statId === 37));
   assert.equal(warn.mock.callCount(), 1);
   assert.match(String(warn.mock.calls[0].arguments[0]), /209/);
+});
+
+test('the Leagues page prints the sync\'s scoring summary after both add-and-sync and re-sync', () => {
+  // The page is TSX and has no test runner here, so this reads the source:
+  // the summary the sync returns must reach the message a person sees.
+  const src = fs.readFileSync(path.join(process.cwd(), 'client/src/pages/Leagues.tsx'), 'utf8');
+  assert.equal((src.match(/\$\{scoringNote\(s\.scoring\)\}/g) ?? []).length, 2,
+    'both sync messages (add and re-sync) must append scoringNote(s.scoring)');
+  assert.match(src, /paid stat ids not applied to player projections/);
+  assert.match(src, /unknown stat ids/);
 });

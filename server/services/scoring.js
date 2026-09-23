@@ -119,6 +119,25 @@ export function scoringFor(lg, { slot } = {}) {
   return withReport(s, { source: 'league', reason: null, points, unscored, unmapped });
 }
 
+/** ESPN's lineup slot id for a team defense (D/ST). */
+export const ESPN_DST_SLOT = 16;
+
+/**
+ * Points for one ESPN stat line — `stats` keyed by ESPN stat id, as ESPN serves
+ * `player.stats[].stats` — under a league's resolved per-id points
+ * (`scoringFor(lg, { slot }).espn.points`). Unlike scoreLine this needs no
+ * column per stat: every id the league pays is applied, which is how a D/ST
+ * line (sacks, takeaways, points-allowed tiers) is scored.
+ */
+export function scoreEspnStats(stats, points) {
+  let total = 0;
+  for (const [id, value] of Object.entries(stats ?? {})) {
+    const p = points?.[id];
+    if (typeof p === 'number' && typeof value === 'number') total += value * p;
+  }
+  return +total.toFixed(2);
+}
+
 /**
  * Fantasy points for one weekly line from `player_week_usage`.
  * Null-safe: a receiver's row has no passing columns and vice versa.

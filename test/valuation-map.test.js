@@ -523,6 +523,40 @@ test('the positional-need read raises what a manager pays at a position he is sh
   assert.ok(qb.their_value > qb.our_value);
 });
 
+test('RL-19-1: off by default, positional_need still charges the incumbent 8% cap '
+  + 'and still discounts depth', () => {
+  delete process.env.GRIDIRON_RL19_1_ENABLED;
+  delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+  const map = mapFor(21);
+  const hayden = map.managers.get('2'); // needs QB, surplus RB
+  const need = byName(hayden, 'Nobody Talks').factors.find(f => f.source === 'positional_need');
+  assert.equal(need.effect, 0.08, 'the served default has not moved');
+  const rb = byName(hayden, 'Keeper Guy'); // a RB Hayden does not own, and is surplus at
+  const depth = rb.factors.find(f => f.source === 'positional_need');
+  assert.ok(depth, 'depth must still price off the flag');
+  assert.equal(depth.effect, -0.04, 'depth still discounts at -cap*0.5 off the flag');
+});
+
+test('RL-19-1: on the flag, positional_need caps at 0.02 and drops the depth discount', () => {
+  process.env.GRIDIRON_RL19_1_ENABLED = '1';
+  try {
+    const map = mapFor(21);
+    const hayden = map.managers.get('2');
+    const need = byName(hayden, 'Nobody Talks').factors.find(f => f.source === 'positional_need');
+    assert.ok(need, 'a hole at the position still prices, just smaller');
+    assert.ok(need.effect <= 0.02 + 1e-9, `cap must be <= 0.02 on the flag, got ${need.effect}`);
+    assert.equal(need.effect, 0.02);
+    // Whatever this manager is surplus at must carry no positional_need factor
+    // at all under the flag — the depth branch is removed, not just shrunk.
+    for (const [, v] of hayden.players) {
+      const f = v.factors.find(fx => fx.source === 'positional_need');
+      if (f) assert.ok(f.effect > 0, 'no negative (depth) positional_need factor may be served under the flag');
+    }
+  } finally {
+    delete process.env.GRIDIRON_RL19_1_ENABLED;
+  }
+});
+
 test('a declared untouchable whose word has held costs more, and a bluffer\'s does not', () => {
   const map = mapFor(21);
   const star = byName(map.managers.get('2'), 'Quiet Star');

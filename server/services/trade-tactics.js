@@ -99,6 +99,16 @@ const CHAT_SOURCES = new Set(['talk_vs_model', 'chat_sentiment', 'profile_roster
 /** The blunt one. It fires on tens of thousands of cells per league at a near-uniform
  *  +-8%, so it is excluded from every "biggest gap" ranking (valuation-map handoff, T2). */
 const NEED_SOURCE = 'positional_need';
+/**
+ * RL-19-1: same default-off switch as counterparty-pricing.js's — r19 found
+ * need predicts WHICH position a manager trades for, not what he pays for it
+ * (rnd/loop/r19-external-need-steers-who-not-price.md). Off by default, this
+ * tactic keeps its incumbent "pays about N of market value" framing; on, it
+ * reads as targeting, not price.
+ */
+const RL19_1_ENV = 'GRIDIRON_RL19_1_ENABLED';
+const rl19NeedPricingOn = () =>
+  process.env[RL19_1_ENV] === '1' || process.env.GRIDIRON_PREVIEW_UNCONFIRMED === '1';
 
 /**
  * The nine tactics Nick named, plus the probe flag the untouchable rule needs.
@@ -757,6 +767,18 @@ export function tacticsForDeal({
   const needPieces = vGive.map(x => ({ ...x, f: needFactor(x.v) })).filter(x => x.f && x.f.effect > 0);
   if (give.length >= 2 && get.length === 1 && needPieces.length) {
     const premium = needPieces.reduce((s, x) => s + (x.v.our_value ?? 0) * x.f.effect, 0);
+    const pieceList = needPieces.map(x => `${x.p.name} (${x.f.why})`).join(', ');
+    // RL-19-1: off the flag this still reads as a price premium (the incumbent
+    // claim). On it, r19 found need predicts WHICH position a manager trades
+    // for, not what he pays for it (90% CI upper bound 2.8% of value on
+    // cross-position deals, rnd/loop/r19-external-need-steers-who-not-price.md)
+    // — so the sentence becomes a framing/targeting note, not a price claim.
+    const why = rl19NeedPricingOn()
+      ? `two of our pieces into a hole: ${pieceList}, back as one starter — he is short at these `
+        + `positions, so a package shaped like this is more likely to land with him (framing, not a `
+        + `price: a hole predicts which position he trades for, not what he pays for it)`
+      : `two of our pieces into a hole: ${pieceList}, back as one starter — his need pays about `
+        + `${Math.round(premium)} of market value over ours`;
     tactics.push({ key: 'consolidate_for_need', label: TACTICS.consolidate_for_need.label, fitted: false,
       effect: +needPieces.reduce((s, x) => s + x.f.effect, 0).toFixed(4),
       // Ranked at zero on purpose: the whole hit IS positional need, which fires
@@ -765,8 +787,7 @@ export function tacticsForDeal({
       n: Math.min(...needPieces.map(x => x.f.n ?? 0)),
       players: needPieces.map(x => cell(x.p, x.v, x.f)),
       numbers: { need_premium_value: Math.round(premium), pieces: needPieces.length },
-      why: `two of our pieces into a hole: ${needPieces.map(x => `${x.p.name} (${x.f.why})`).join(', ')}`
-        + `, back as one starter — his need pays about ${Math.round(premium)} of market value over ours` });
+      why });
   } else {
     note('consolidate_for_need', give.length < 2 || get.length !== 1
       ? 'not a two-for-one, so there is nothing to consolidate'

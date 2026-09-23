@@ -474,7 +474,10 @@ r.post('/:leagueId/trade-impact', requireAuthenticated, (req, res, next) => {
       iGive: i_give, iGet: i_get,
       runs: Math.min(3000, Number(req.body?.runs) || TRADE_IMPACT_RUNS),
       fromWeek: simStartWeek(lg, req.body?.from_week),
-      seed: req.body?.seed ?? null
+      seed: req.body?.seed ?? null,
+      // The league's own weights, the same value tradeImpact defaults to (RL-6-3); passed
+      // explicitly so this call site stays checked by test/scoring-call-sites.test.js (#163).
+      scoring: scoringFor(lg)
     }));
   } catch (e) { next(e); }
 });

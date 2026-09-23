@@ -134,7 +134,11 @@ export default function Lineup() {
           </h2>
           <ul className="mt-2 space-y-1">
             {d.dead_starters.items.map((i: any) => (
-              <li key={i.player.id} className="text-sm leading-6 text-slate-800">{i.why}</li>
+              <li key={i.player.id} className="text-sm leading-6 text-slate-800">
+                {i.why}
+                {/* RL-10-1: a projection-based flag names its source and what is not yet tested. */}
+                {i.source_label && <span className="block text-xs leading-5 text-red-900/70">{i.source_label}</span>}
+              </li>
             ))}
           </ul>
           <p className="mt-2 text-xs leading-5 text-red-900/70">Make the swap on ESPN before his game starts.</p>
@@ -392,23 +396,11 @@ function Slot({ c, index }: { c: any; index: number }) {
         </div>
       )}
 
-      {(c.vegas || c.caution || c.upside) && (
+      {c.vegas && (
         <div className="mt-2 space-y-1.5 border-t border-slate-100 pt-2">
-          {c.vegas && (
-            <p className="text-xs leading-5 text-sky-800">
-              <b>Betting market:</b> {c.vegas}
-            </p>
-          )}
-          {c.caution && (
-            <p className="text-xs leading-5 text-amber-900">
-              <b>Running hot:</b> {c.caution}
-            </p>
-          )}
-          {c.upside && (
-            <p className="text-xs leading-5 text-emerald-800">
-              <b>Due to score:</b> {c.upside}
-            </p>
-          )}
+          <p className="text-xs leading-5 text-sky-800">
+            <b>Betting market:</b> {c.vegas}
+          </p>
         </div>
       )}
     </article>

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 /**
  * sendable-proposals: the AI pass that turns numeric trade ideas into messages
  * Nick can actually send — and the verifier that stops it inventing anything.
@@ -446,6 +447,21 @@ test('G2 liveCaller asks for a model we can price, on a key that has a real budg
   assert.ok(Object.hasOwn(DEFAULT_DAILY_BUDGETS_USD, budgetKeyFor(sent.feature)),
     `budgetKeyFor(${sent.feature}) must be a budgeted key, or the call is uncapped`);
   assert.ok(Object.hasOwn(PRICING, sent.model), `${sent.model} must be a priced model`);
+});
+
+test('G2b liveCaller leaves room to answer: low effort and a limit thinking cannot use up', async () => {
+  // Live 2026-09-23: Sonnet 5 thinks by default and thinking counts toward
+  // max_tokens, so 4,000 was spent entirely on thinking (ai_usage output 4000,
+  // stop_reason max_tokens) and no proposal was ever written.
+  let sent = null;
+  await liveCaller(async args => { sent = args; return '[]'; })({ leagueId: 4, ideas: [idea()] });
+  assert.equal(sent.effort, 'low');
+  assert.ok(sent.maxTokens >= 12000, `maxTokens ${sent.maxTokens} leaves no room after thinking`);
+});
+
+test('G2c callClaude forwards effort to the API as output_config.effort', async () => {
+  const src = readFileSync(new URL('../server/services/claude.js', import.meta.url), 'utf8');
+  assert.match(src, /effort\s*\?\s*\{\s*output_config:\s*\{\s*effort\s*\}\s*\}/);
 });
 
 /* ======================================================================

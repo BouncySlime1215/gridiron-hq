@@ -25,7 +25,7 @@
 import { db, rows } from '../db/index.js';
 import { servedTableState } from './data-freshness.js';
 import { PPR, scoreLine } from './scoring.js';
-import { cholesky, correlatedNormals, normalCdf, mean } from './stats-util.js';
+import { cholesky, correlatedNormals, keyedNormal, normalCdf, mean } from './stats-util.js';
 
 const POS = ['QB', 'RB', 'WR', 'TE'];
 // Below this many observed pairs an archetype estimate is not worth keeping.
@@ -209,11 +209,15 @@ export function correlationMatrix(players) {
  * The Cholesky factor is computed once and reused across every draw, which is what
  * makes a ten-thousand-run season simulation affordable.
  */
-export function correlatedSampler(players, sortedSamples) {
+export function correlatedSampler(players, sortedSamples, keys = null) {
   const L = cholesky(correlationMatrix(players));
   const n = players.length;
-  const sample = () => {
-    const z = correlatedNormals(L);
+  // `keys` (one per player) makes each draw identity-addressed: sample(counter) gives
+  // player i the independent normal keyedNormal(keys[i], counter) before the Cholesky
+  // mix, so the same player in the same counter gets the same football however the
+  // list around him changes. Without keys, draws come off the shared stream as before.
+  const sample = (counter = 0) => {
+    const z = correlatedNormals(L, keys ? keys.map(k => keyedNormal(k, counter)) : null);
     const out = new Float64Array(n);
     for (let i = 0; i < n; i++) {
       const s = sortedSamples[i];

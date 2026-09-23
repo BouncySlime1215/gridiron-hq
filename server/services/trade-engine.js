@@ -1638,7 +1638,7 @@ export function myPlayoffOdds(lg, myTeamId = null, print = null) {
       // throw — a silent 0.5 would hide it, which is how this number got lost in
       // the first place.
       const sim = withRandomSeed(HORIZON_SIM_SEED, () => simulateSeason(lg, {
-        runs: HORIZON_SIM_RUNS, fromWeek: start, scoring: scoringFor(lg)
+        runs: HORIZON_SIM_RUNS, scoring: scoringFor(lg) // start week: simStartWeek(lg) inside, same as `start`
       }));
       if (sim?.error) return prior(`the season simulation could not run (${sim.error})`);
       const mine = sim.teams?.find(t => String(t.roster_id) === rosterId);

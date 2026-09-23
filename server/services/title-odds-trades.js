@@ -13,7 +13,9 @@
  * under COMMON RANDOM NUMBERS — same seed before and after — so the delta it
  * reports is the trade's effect rather than the difference between two noisy
  * simulations. That is the right technique and it is what makes a delta this
- * small measurable at all.
+ * small measurable at all. (Until RL-6-3 the same seed was NOT the same season:
+ * draws were handed out by roster position, which a trade reorders. They are
+ * now keyed to each player, and each delta carries its paired SE.)
  *
  * WHY THIS IS TWO ENGINES AND NOT ONE: a full simulation costs ~7 seconds, and
  * the space of plausible 2-for-2 deals across nine rivals is thousands. Scoring
@@ -23,7 +25,7 @@
  */
 import { row } from '../db/index.js';
 import { findTrades } from './trade-engine.js';
-import { tradeImpact } from './season-sim.js';
+import { tradeImpact, TRADE_IMPACT_RUNS } from './season-sim.js';
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 
@@ -37,7 +39,7 @@ export function clearTitleOddsTradeCache() { _cache.clear(); }
  *   to move title odds are near the top of its list.
  */
 export function titleOddsTrades(leagueId, {
-  teamId = null, shortlist = 8, runs = 800, requireMutual = true
+  teamId = null, shortlist = 8, runs = TRADE_IMPACT_RUNS, requireMutual = true
 } = {}) {
   const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg?.payload) return { error: 'league not synced yet' };
@@ -66,7 +68,11 @@ export function titleOddsTrades(leagueId, {
     const impact = tradeImpact(lg, {
       myTeamId: teamId ?? lg.my_team_id, theirTeamId: d.partner_id,
       iGive: d.i_give.map(p => p.id), iGet: d.i_get.map(p => p.id),
-      runs, seed: 1                     // fixed seed: every deal faces the same season
+      // No seed/scoring here: tradeImpact's defaults (tradeImpactSeed(lg), the
+      // league's scoring) are what TradeCard and the sense-check use too, so the
+      // same deal shows the same delta on every surface. Every deal on this tab
+      // still faces the same simulated season (one seed per league state).
+      runs
     });
     if (impact.error) continue;
     scored.push({
@@ -78,33 +84,21 @@ export function titleOddsTrades(leagueId, {
       fairness: d.fairness ?? null,
       title_before: impact.me.title_before, title_after: impact.me.title_after,
       title_delta: r4(impact.me.title_delta),
+      // RL-6-3: the paired SE of that delta, and whether it clears 2 SE. A deal
+      // inside the noise is still ranked, but shown greyed and never drives a banner.
+      title_delta_se: impact.me.title_delta_se,
+      title_delta_clears_noise: impact.me.title_delta_clears_noise,
       playoff_delta: r4(impact.me.playoff_delta),
       // What the deal does for THEM, because a trade they will not accept is
       // worth nothing however much it helps us.
       their_title_delta: r4(impact.them.title_delta),
-      mutual_title_gain: impact.me.title_delta > 0 && impact.them.title_delta > 0
+      their_title_delta_se: impact.them.title_delta_se,
+      their_title_delta_clears_noise: impact.them.title_delta_clears_noise,
+      mutual_title_gain: mutualTitleGain(impact.me, impact.them)
     });
   }
 
   scored.sort((a, b) => (b.title_delta ?? 0) - (a.title_delta ?? 0));
-
-  // The comparison that justifies the whole feature: does ranking by points
-  // pick the same deal as ranking by championship probability? When it does
-  // not, points was giving the wrong answer.
-  const byPoints = [...scored].sort((a, b) => (b.ppg_delta ?? 0) - (a.ppg_delta ?? 0));
-
-  // The disagreement that matters is NOT "the two rankings pick different
-  // partners". It is that the deal points likes is one championship odds
-  // rejects — a trade can add three points a week and still make you less
-  // likely to win the league, and that is the case worth shouting about.
-  const topByPoints = byPoints[0] ?? null;
-  const pointsSaysYesTitleSaysNo = !!topByPoints && (topByPoints.ppg_delta ?? 0) > 0
-    && (topByPoints.title_delta ?? 0) < 0;
-  const allPositivePointsNegativeTitle = scored.length > 0
-    && scored.every(d => (d.ppg_delta ?? 0) > 0 && (d.title_delta ?? 0) < 0);
-  const differentPick = scored.length > 1 && topByPoints && scored[0]
-    && topByPoints.partner !== scored[0].partner;
-  const disagree = pointsSaysYesTitleSaysNo || differentPick;
 
   const value = {
     league: lg.name,
@@ -112,10 +106,61 @@ export function titleOddsTrades(leagueId, {
     simulated: scored.length,
     runs_each: runs,
     deals: scored,
-    best_by_title: scored[0] ?? null,
-    best_by_points: byPoints[0] ?? null,
-    objectives_disagree: disagree,
+    ...summariseTitleTrades(scored),
+    note: 'Each deal is simulated twice under common random numbers: every player gets the same ' +
+      'simulated football with and without the trade, so the delta is the trade\'s effect. It still ' +
+      'carries Monte Carlo error, shown as ±2 standard errors; a deal inside that band is greyed ' +
+      'because its sign is not established. Candidates come from the lineup-based finder because ' +
+      'simulating every possible deal would take hours.'
+  };
+  _cache.set(key, value);
+  return value;
+}
+
+/**
+ * Both sides gain title odds, and both gains are past their own noise band.
+ * Exported for tests.
+ */
+export function mutualTitleGain(me, them) {
+  return me.title_delta > 0 && them.title_delta > 0
+    && me.title_delta_clears_noise === true && them.title_delta_clears_noise === true;
+}
+
+/**
+ * The page's headline comparison, from scored deals. Exported for tests.
+ *
+ * The comparison that justifies the whole feature: does ranking by points pick
+ * the same deal as ranking by championship probability? RL-6-3: only a delta
+ * that clears the noise (`title_delta_clears_noise`) counts as a title "yes" or
+ * "no". Before, the banners fired or not on Monte Carlo noise, in both directions.
+ */
+export function summariseTitleTrades(scored) {
+  const real = d => d.title_delta_clears_noise === true;
+  const ranked = [...scored].sort((a, b) => (b.title_delta ?? 0) - (a.title_delta ?? 0));
+  const byPoints = [...scored].sort((a, b) => (b.ppg_delta ?? 0) - (a.ppg_delta ?? 0));
+  const topByPoints = byPoints[0] ?? null;
+  const topByTitle = ranked[0] ?? null;
+
+  // The disagreement that matters is NOT "the two rankings pick different
+  // partners". It is that the deal points likes is one championship odds
+  // rejects — a trade can add three points a week and still make you less
+  // likely to win the league — and only when that rejection is past the noise.
+  const pointsSaysYesTitleSaysNo = !!topByPoints && (topByPoints.ppg_delta ?? 0) > 0
+    && (topByPoints.title_delta ?? 0) < 0 && real(topByPoints);
+  const allPositivePointsNegativeTitle = scored.length > 0
+    && scored.every(d => (d.ppg_delta ?? 0) > 0 && (d.title_delta ?? 0) < 0 && real(d));
+  // A different "pick" means something only when the title pick is itself a real gain.
+  const differentPick = scored.length > 1 && !!topByPoints && !!topByTitle
+    && topByPoints.partner !== topByTitle.partner
+    && (topByTitle.title_delta ?? 0) > 0 && real(topByTitle);
+  const noneReal = scored.length > 0 && !scored.some(real);
+
+  return {
+    best_by_title: topByTitle,
+    best_by_points: topByPoints,
+    objectives_disagree: pointsSaysYesTitleSaysNo || differentPick,
     every_deal_helps_points_hurts_title: allPositivePointsNegativeTitle,
+    no_deal_clears_noise: noneReal,
     disagreement_note: allPositivePointsNegativeTitle
       ? 'EVERY shortlisted deal adds points per week and LOWERS your championship odds. The points ' +
         'ranking would have recommended all of them. Points is a proxy; this is the thing it proxies ' +
@@ -125,12 +170,9 @@ export function titleOddsTrades(leagueId, {
           'ranking — points is the proxy, not the goal.'
         : differentPick
           ? 'Points and championship odds pick different deals. The points ranking is the one to ignore.'
-          : 'Both rankings agree on the top deal.',
-    note: 'Each deal is simulated twice under common random numbers — the same season plays out ' +
-      'with and without the trade — so the delta is the trade\'s effect and not the gap between ' +
-      'two noisy runs. Candidates come from the lineup-based finder because simulating every ' +
-      'possible deal would take hours.'
+          : noneReal
+            ? 'None of these deals moves your championship odds by more than the simulation\'s noise. ' +
+              'Judge them on points and fit instead.'
+            : 'Both rankings agree on the top deal, or the title ranking has no clear pick.'
   };
-  _cache.set(key, value);
-  return value;
 }

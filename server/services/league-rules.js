@@ -1,0 +1,247 @@
+/**
+ * Each league's exact rules, read from the stored platform payload
+ * (`leagues.payload`, ESPN `mSettings` + `mTeam` + schedule). The one producer
+ * of league rules (CE-05, plan items A1/B9).
+ *
+ * Before this module the rules were read in six places, three with silent
+ * defaults: season-sim.js used `playoffTeamCount ?? 6` and
+ * `matchupPeriodCount ?? 14`, played every bracket on NFL weeks 15-17 one week
+ * per round, re-seeded every round and ignored divisions. Of the five synced
+ * leagues, two play two-week playoff rounds, one has a 13-week regular season,
+ * one has two divisions, and all five play a fixed (not re-seeded) bracket.
+ *
+ * Contract:
+ *   - A field the payload does not carry is `null` and its payload path is in
+ *     `missing`. Nothing here substitutes a default. Callers decide whether a
+ *     missing field blocks them (`simRulesProblem` is the season simulator's).
+ *   - A field the payload carries but this module cannot honour (an unknown
+ *     tiebreaker, an unmapped lineup slot, multi-week regular-season matchups)
+ *     is listed in `unsupported`.
+ *   - A rule the platform does not publish (ESPN has no median-game field) is
+ *     inferred where the data allows it and otherwise listed in `unknown`.
+ *
+ * Scoring is `scoring.js#scoringFor` (reused, not re-derived). Lineup slot ids
+ * are `espn-draft.js#SLOT_NAME` / `startingSlots`.
+ */
+import { scoringFor } from './scoring.js';
+import { SLOT_NAME, startingSlots } from './espn-draft.js';
+
+const SS = 'settings.scheduleSettings';
+const TS = 'settings.tradeSettings';
+const RS = 'settings.rosterSettings';
+const SC = 'settings.scoringSettings';
+
+/** Tiebreakers seedStandings() implements, by ESPN `playoffSeedingRule` value. */
+export const SUPPORTED_TIEBREAKERS = new Set(['TOTAL_POINTS_SCORED']);
+
+const BENCH_SLOT = 20;
+const IR_SLOT = 21;
+
+/** The fields simulateSeason cannot run without. */
+export const SIM_REQUIRED = [
+  `${SS}.matchupPeriodCount`, `${SS}.matchupPeriodLength`, `${SS}.playoffTeamCount`,
+  `${SS}.playoffMatchupPeriodLength`, `${SS}.playoffReseed`, `${SS}.playoffSeedingRule`, `${SS}.divisions`,
+  'teams[].divisionId',
+];
+
+function emptyRules(source, platform, missing) {
+  return {
+    source, platform,
+    scoring: null, scoring_items: null,
+    schedule: { regular_season_weeks: null, regular_matchup_length: null, playoff_teams: null,
+      playoff_round_length: null, playoff_rounds: null, playoff_weeks: null, reseed: null, consolation: null },
+    seeding: { tiebreaker: null, divisions: null, division_winners_first: null, team_division: null },
+    roster: { starters: null, bench_slots: null, ir_slots: null, lineup_slot_counts: null },
+    trade: { deadline: null, review_hours: null, veto_votes_required: null, max_trades: null },
+    matchup_tie_rule: null, playoff_tie_rule: null,
+    median_game: null,
+    missing, unsupported: [], unknown: [],
+  };
+}
+
+const isPosInt = v => Number.isInteger(v) && v > 0;
+const isNum = v => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * @param lg a `leagues` row (needs `platform`, `payload`; `ppr` for scoringFor).
+ *           Never pass or select `espn_s2` / `swid`; this reads the payload only.
+ */
+export function leagueRules(lg) {
+  const platform = lg?.platform ?? null;
+  if (!lg?.payload) return emptyRules('no_payload', platform, ['leagues.payload']);
+  if (platform !== 'espn') {
+    return emptyRules('unsupported_platform', platform,
+      [`settings (no rules reader for platform ${platform ?? 'unknown'})`]);
+  }
+  let payload;
+  try {
+    payload = JSON.parse(lg.payload);
+  } catch (e) {
+    if (!(e instanceof SyntaxError)) throw e;
+    return emptyRules('unparseable_payload', platform, [`leagues.payload (not JSON: ${e.message})`]);
+  }
+
+  const out = emptyRules('espn_settings', platform, []);
+  const { missing, unsupported, unknown } = out;
+  const s = payload?.settings ?? {};
+  const need = (obj, key, path, ok) => {
+    const v = obj?.[key];
+    if (v == null || (ok && !ok(v))) { missing.push(`${path}.${key}`); return null; }
+    return v;
+  };
+
+  /* --- schedule ----------------------------------------------------------- */
+  const ss = s.scheduleSettings;
+  const sch = out.schedule;
+  sch.regular_season_weeks = need(ss, 'matchupPeriodCount', SS, isPosInt);
+  sch.regular_matchup_length = need(ss, 'matchupPeriodLength', SS, isPosInt);
+  sch.playoff_teams = need(ss, 'playoffTeamCount', SS, v => Number.isInteger(v) && v >= 2);
+  sch.playoff_round_length = need(ss, 'playoffMatchupPeriodLength', SS, isPosInt);
+  sch.reseed = need(ss, 'playoffReseed', SS, v => typeof v === 'boolean');
+  sch.consolation = typeof ss?.consolationLadderDisabled === 'boolean' ? !ss.consolationLadderDisabled : null;
+  if (sch.regular_matchup_length != null && sch.regular_matchup_length !== 1) {
+    unsupported.push(`${SS}.matchupPeriodLength = ${sch.regular_matchup_length} (multi-week regular-season matchups: a matchup period is not an NFL week)`);
+  }
+  if (ss?.variablePlayoffMatchupPeriodLength === true) {
+    unsupported.push(`${SS}.variablePlayoffMatchupPeriodLength = true (rounds of different lengths)`);
+  }
+  if (sch.playoff_teams != null) sch.playoff_rounds = Math.ceil(Math.log2(sch.playoff_teams));
+  if (sch.regular_season_weeks != null && sch.playoff_rounds != null && sch.playoff_round_length != null
+      && sch.regular_matchup_length === 1 && ss?.variablePlayoffMatchupPeriodLength !== true) {
+    const len = sch.playoff_round_length;
+    sch.playoff_weeks = Array.from({ length: sch.playoff_rounds }, (_, r) =>
+      Array.from({ length: len }, (_, i) => sch.regular_season_weeks + 1 + r * len + i));
+  }
+
+  /* --- seeding ------------------------------------------------------------ */
+  const seed = out.seeding;
+  seed.tiebreaker = need(ss, 'playoffSeedingRule', SS, v => typeof v === 'string' && v.length > 0);
+  if (seed.tiebreaker && !SUPPORTED_TIEBREAKERS.has(seed.tiebreaker)) {
+    unsupported.push(`${SS}.playoffSeedingRule = ${seed.tiebreaker} (only ${[...SUPPORTED_TIEBREAKERS].join(', ')} is implemented)`);
+  }
+  const divs = need(ss, 'divisions', SS, Array.isArray);
+  if (divs) {
+    seed.divisions = divs.map(d => ({ id: d.id, size: d.size ?? null }));
+    seed.division_winners_first = divs.length > 1;
+    // Division membership only matters when there is more than one division.
+    if (seed.division_winners_first) {
+      const teams = Array.isArray(payload.teams) ? payload.teams : [];
+      if (!teams.length || teams.some(t => t.divisionId == null)) missing.push('teams[].divisionId');
+      else seed.team_division = Object.fromEntries(teams.map(t => [String(t.id), t.divisionId]));
+    }
+  }
+
+  /* --- roster ------------------------------------------------------------- */
+  const lsc = need(s.rosterSettings, 'lineupSlotCounts', RS, v => typeof v === 'object');
+  if (lsc) {
+    out.roster.lineup_slot_counts = { ...lsc };
+    out.roster.starters = startingSlots(lsc);
+    out.roster.bench_slots = Number(lsc[BENCH_SLOT] ?? 0);
+    out.roster.ir_slots = Number(lsc[IR_SLOT] ?? 0);
+    for (const [id, n] of Object.entries(lsc)) {
+      if (n > 0 && !SLOT_NAME[Number(id)]) unsupported.push(`${RS}.lineupSlotCounts slot id ${id} x${n} has no position mapping`);
+    }
+  }
+
+  /* --- trades ------------------------------------------------------------- */
+  const ts = s.tradeSettings;
+  const deadline = need(ts, 'deadlineDate', TS, isNum);
+  out.trade.deadline = deadline == null ? null : new Date(deadline).toISOString();
+  out.trade.review_hours = need(ts, 'revisionHours', TS, isNum);
+  out.trade.veto_votes_required = need(ts, 'vetoVotesRequired', TS, isNum);
+  const max = need(ts, 'max', TS, isNum);
+  out.trade.max_trades = max == null || max < 0 ? null : max;   // ESPN -1 = unlimited
+
+  /* --- scoring ------------------------------------------------------------ */
+  const items = s.scoringSettings?.scoringItems;
+  if (!Array.isArray(items) || !items.length) missing.push(`${SC}.scoringItems`);
+  out.scoring_items = Array.isArray(items) ? items.length : null;
+  out.scoring = scoringFor(lg);
+  out.matchup_tie_rule = need(s.scoringSettings, 'matchupTieRule', SC, v => typeof v === 'string');
+  out.playoff_tie_rule = need(s.scoringSettings, 'playoffMatchupTieRule', SC, v => typeof v === 'string');
+
+  /* --- median game -------------------------------------------------------- */
+  out.median_game = inferMedian(payload, sch.regular_season_weeks, unknown);
+
+  return out;
+}
+
+/**
+ * ESPN publishes no median-game setting in mSettings (none of the five local
+ * payloads carries one). A league that plays the median records two results per
+ * matchup period, so wins + losses + ties over decided regular-season periods
+ * is 1 without it and 2 with it.
+ */
+function inferMedian(payload, regularWeeks, unknown) {
+  const teams = Array.isArray(payload.teams) ? payload.teams : [];
+  const decided = new Map();
+  for (const m of payload.schedule ?? []) {
+    if (!m.matchupPeriodId || (regularWeeks != null && m.matchupPeriodId > regularWeeks)) continue;
+    if (!m.winner || m.winner === 'UNDECIDED') continue;
+    for (const side of [m.home, m.away]) {
+      if (side?.teamId == null) continue;
+      decided.set(String(side.teamId), (decided.get(String(side.teamId)) ?? 0) + 1);
+    }
+  }
+  const ratios = new Set();
+  for (const t of teams) {
+    const o = t.record?.overall;
+    const n = decided.get(String(t.id)) ?? 0;
+    if (!o || !n) continue;
+    ratios.add(((o.wins ?? 0) + (o.losses ?? 0) + (o.ties ?? 0)) / n);
+  }
+  if (!ratios.size) {
+    unknown.push('median_game: ESPN publishes no median-game field and no regular-season week is decided yet');
+    return null;
+  }
+  if (ratios.size === 1 && ratios.has(1)) return false;
+  if (ratios.size === 1 && ratios.has(2)) return true;
+  unknown.push(`median_game: records per decided week are ${[...ratios].join(', ')}, neither 1 nor 2`);
+  return null;
+}
+
+/**
+ * Seed order for every team (index 0 = seed 1), by the league's own rule.
+ * `standings`: [{ id, w, pf }] where `w` counts a tie as half a win.
+ * Division winners take the top seeds when the league has more than one
+ * division (replayed on league 2's 2023-2025 seeds; docs/evidence/2026-09-23/
+ * league-rules-replay.md). The sort is stable: complete ties keep input order.
+ * Throws on a tiebreaker it does not implement rather than seeding on points.
+ */
+export function seedStandings(standings, rules) {
+  const tb = rules?.seeding?.tiebreaker;
+  if (!tb) throw new Error('league rules: playoffSeedingRule is missing, cannot seed');
+  if (!SUPPORTED_TIEBREAKERS.has(tb)) throw new Error(`league rules: tiebreaker ${tb} is not implemented`);
+  const cmp = (a, b) => b.w - a.w || b.pf - a.pf;
+  const sorted = [...standings].sort(cmp);
+  if (!rules.seeding.division_winners_first) return sorted.map(s => s.id);
+  const divOf = rules.seeding.team_division;
+  if (!divOf) throw new Error('league rules: teams[].divisionId is missing, cannot seed divisions');
+  const winners = new Map();
+  for (const s of sorted) {
+    const d = divOf[String(s.id)];
+    if (d == null) throw new Error(`league rules: team ${s.id} has no division`);
+    if (!winners.has(d)) winners.set(d, s);
+  }
+  const top = [...winners.values()].sort(cmp);
+  const topIds = new Set(top.map(s => s.id));
+  return [...top, ...sorted.filter(s => !topIds.has(s.id))].map(s => s.id);
+}
+
+/**
+ * What stops the season simulator, or null. It never runs on a default: a
+ * missing field returns a named error with the payload paths.
+ */
+export function simRulesProblem(rules) {
+  // SIM_REQUIRED fields, plus the whole-payload absences (no payload, not JSON,
+  // no reader for the platform), which leave every field missing.
+  const blocking = rules.missing.filter(p => SIM_REQUIRED.includes(p) || p.startsWith('leagues.') || p.startsWith('settings ('));
+  const unsupported = rules.unsupported.filter(u => u.startsWith(`${SS}.`));
+  if (!blocking.length && !unsupported.length) return null;
+  return {
+    error: `league rules incomplete: ${[...blocking, ...unsupported].join('; ')}`,
+    rules_source: rules.source,
+    rules_missing: blocking,
+    rules_unsupported: unsupported,
+  };
+}

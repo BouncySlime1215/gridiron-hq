@@ -15,13 +15,15 @@
  *      matchups.js#gameMultiplier, which is 1 while matchups carry no validated signal)
  *   2. set each fantasy team's optimal lineup from what it drew
  *   3. resolve that week's head-to-head fixtures
- * then seed the bracket on record and points, and play it out.
+ * then seed the bracket by the league's own rules (league-rules.js: division winners,
+ * tiebreaker, playoff teams, weeks per round, fixed or re-seeded) and play it out.
  */
 import { rows } from '../db/index.js';
 import { PPR } from './scoring.js';
 import { buildProjections, sampleWeeks } from './projections.js';
 import { correlatedSampler } from './correlation.js';
-import { gameMultiplier, matchupModel, PLAYOFF_WEEKS } from './matchups.js';
+import { gameMultiplier, matchupModel } from './matchups.js';
+import { leagueRules, seedStandings, simRulesProblem } from './league-rules.js';
 import { deriveFormat } from './format.js';
 import { gameScriptFor } from './gamescript.js';
 import { loadRosters, assetUniverse, lineupSlots } from './trade-engine.js';
@@ -63,7 +65,7 @@ const binomial95 = (hits, n) => {
 /* ------------------------------------------------------------ league shape */
 
 /** Regular-season fixtures by week, from whichever platform the league lives on. */
-function fixtures(lg) {
+function fixtures(lg, rules) {
   const payload = JSON.parse(lg.payload);
   const out = new Map();
   if (lg.platform === 'sleeper') {
@@ -75,7 +77,7 @@ function fixtures(lg) {
     }
     return out;
   }
-  const regularWeeks = payload.settings?.scheduleSettings?.matchupPeriodCount ?? 14;
+  const regularWeeks = rules.schedule.regular_season_weeks;
   for (const m of payload.schedule ?? []) {
     const wk = m.matchupPeriodId;
     if (!wk || wk > regularWeeks) continue;
@@ -118,7 +120,7 @@ function lineupPoints(roster, slots, drawn, expected) {
 }
 
 /** Real record and points already earned before the simulated window. */
-function initialRecords(lg, teams, fromWeek) {
+function initialRecords(lg, teams, fromWeek, medianGame = false) {
   const out = new Map(teams.map(t => [t.roster_id, { w: 0, pf: 0 }]));
   if (fromWeek <= 1) return out;
   const payload = JSON.parse(lg.payload);
@@ -145,6 +147,7 @@ function initialRecords(lg, teams, fromWeek) {
     return out;
   }
 
+  const weekScores = new Map();
   for (const m of payload.schedule ?? []) {
     if (!m.matchupPeriodId || m.matchupPeriodId >= fromWeek) continue;
     const hid = m.home?.teamId == null ? null : String(m.home.teamId);
@@ -156,7 +159,10 @@ function initialRecords(lg, teams, fromWeek) {
     if (!Number.isFinite(hp) || !Number.isFinite(ap)) continue;
     h.pf += hp; a.pf += ap;
     if (hp > ap) h.w++; else if (ap > hp) a.w++; else { h.w += 0.5; a.w += 0.5; }
+    const wk = weekScores.get(m.matchupPeriodId) ?? weekScores.set(m.matchupPeriodId, new Map()).get(m.matchupPeriodId);
+    wk.set(hid, hp); wk.set(aid, ap);
   }
+  if (medianGame) for (const wk of weekScores.values()) addMedianResults(wk, out);
   return out;
 }
 
@@ -180,9 +186,82 @@ export function simStartWeek(lg, requested = null) {
   return leagueCurrentWeek(lg);
 }
 
+/**
+ * The league-median game (a win for every team above that week's median score,
+ * half a win at it). Only runs when league-rules says the league plays it.
+ */
+function addMedianResults(weekScore, record) {
+  const vals = [...weekScore.values()].sort((a, b) => a - b);
+  if (!vals.length) return;
+  const n = vals.length;
+  const mid = n % 2 ? vals[(n - 1) / 2] : (vals[n / 2 - 1] + vals[n / 2]) / 2;
+  for (const [id, s] of weekScore) {
+    const r = record.get(id);
+    if (!r) continue;
+    if (s > mid) r.w++; else if (s === mid) r.w += 0.5;
+  }
+}
+
+/** Standard bracket positions for a power-of-two field: 1,8,4,5,2,7,3,6 for 8. */
+function bracketOrder(size) {
+  let order = [1];
+  while (order.length < size) {
+    const n = order.length * 2;
+    order = order.flatMap(seed => [seed, n + 1 - seed]);
+  }
+  return order;
+}
+
+/**
+ * Single-elimination bracket in the league's format.
+ *
+ * `field` is in seed order. Bracket positions past the field size are byes, so
+ * the top seeds rest in round 1 when the field is not a power of two. With
+ * `reseed: false` (all five synced leagues) the bracket is fixed: in a 6-team
+ * field the 1 seed meets the 4/5 winner and the 2 seed the 3/6 winner. With
+ * `reseed: true` each later round pairs the best remaining seed with the worst.
+ * Each round is scored over all of its NFL weeks (`playoff_weeks[round]`), so a
+ * two-week round sums both weeks. A tie goes to the better seed.
+ *
+ * @param scoreFor (rosterId, weeks[]) -> points
+ */
+function playBracket(field, { playoff_weeks: roundWeeks, reseed }, scoreFor) {
+  const seedOf = id => field.indexOf(id);
+  let slots = bracketOrder(2 ** roundWeeks.length).map(seed => (seed <= field.length ? field[seed - 1] : null));
+  const byes = [];
+  for (let i = 0; i < slots.length; i += 2) {
+    if (slots[i] && !slots[i + 1]) byes.push(slots[i]);
+    else if (!slots[i] && slots[i + 1]) byes.push(slots[i + 1]);
+  }
+  const rounds = [];
+  let finalists = [];
+  for (let r = 0; r < roundWeeks.length; r++) {
+    const weeks = roundWeeks[r];
+    if (reseed && r > 0) {
+      const alive = slots.filter(Boolean).sort((a, b) => seedOf(a) - seedOf(b));
+      slots = [];
+      while (alive.length > 1) slots.push(alive.shift(), alive.pop());
+      if (alive.length) slots.push(alive[0], null);
+    }
+    if (r === roundWeeks.length - 1) finalists = slots.filter(Boolean);
+    const pairs = [];
+    const next = [];
+    for (let i = 0; i < slots.length; i += 2) {
+      const a = slots[i], b = slots[i + 1];
+      if (!a || !b) { next.push(a ?? b ?? null); continue; }
+      pairs.push([a, b]);
+      const sa = scoreFor(a, weeks), sb = scoreFor(b, weeks);
+      next.push(sa === sb ? (seedOf(a) < seedOf(b) ? a : b) : (sa > sb ? a : b));
+    }
+    rounds.push({ weeks, pairs });
+    slots = next;
+  }
+  return { champion: slots.filter(Boolean)[0] ?? null, finalists, byes, rounds };
+}
+
 // Narrowly exposed for deterministic regression tests. These helpers contain
 // the decision-timing rules whose accidental reversal creates hindsight bias.
-export const __test = { lineupPoints, initialRecords };
+export const __test = { lineupPoints, initialRecords, playBracket };
 
 /* -------------------------------------------------------------- the sim */
 
@@ -195,6 +274,11 @@ export function simulateSeason(lg, {
   runs = 2000, fromWeek: requestedWeek = null, scoring = PPR, overrides = null, projections = null
 } = {}) {
   const fromWeek = simStartWeek(lg, requestedWeek);
+  // The league's own rules, never a hard-coded default: a missing field is a
+  // named error with its payload path (league-rules.js#simRulesProblem).
+  const rules = leagueRules(lg);
+  const problem = simRulesProblem(rules);
+  if (problem) return problem;
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   let teams = loadRosters(lg, assets);
@@ -207,17 +291,19 @@ export function simulateSeason(lg, {
       : t);
   }
 
-  const sched = fixtures(lg);
+  const sched = fixtures(lg, rules);
   const weeks = [...sched.keys()].filter(w => w >= fromWeek).sort((a, b) => a - b);
   if (!weeks.length) return { error: 'no remaining fixtures in this league schedule' };
 
-  // The bracket is played in NFL weeks 15-17, not in the last three regular-season
-  // weeks. Simulating it on weeks 12-14 would apply the wrong opponents and — far worse —
-  // the wrong byes, handing the title to whoever happened to have a clean week 12.
-  const bracketWeeks = PLAYOFF_WEEKS;
-  const simWeeks = [...new Set([...weeks, ...bracketWeeks])].sort((a, b) => a - b);
+  // The bracket is played on the league's own playoff weeks: the NFL weeks after its
+  // regular season, `playoffMatchupPeriodLength` weeks per round. Two of the five
+  // synced leagues play two-week rounds and one has a 13-week regular season, so
+  // the old fixed 15-17 applied the wrong NFL byes and opponents to their brackets.
+  const bracketWeeks = rules.schedule.playoff_weeks;
+  const simWeeks = [...new Set([...weeks, ...bracketWeeks.flat()])].sort((a, b) => a - b);
 
-  const playoffTeams = JSON.parse(lg.payload).settings?.scheduleSettings?.playoffTeamCount ?? 6;
+  const playoffTeams = rules.schedule.playoff_teams;
+  const medianGame = rules.median_game === true;
 
   // Every player who could be started by anyone, deduplicated.
   const roster = [...new Map(teams.flatMap(t => t.players.map(p => [p.id, p]))).values()]
@@ -270,7 +356,8 @@ export function simulateSeason(lg, {
 
   /* --- run the season ---------------------------------------------------- */
   const ids = teams.map(t => t.roster_id);
-  const startingRecords = initialRecords(lg, teams, fromWeek);
+  const teamOf = new Map(teams.map(t => [t.roster_id, t]));
+  const startingRecords = initialRecords(lg, teams, fromWeek, medianGame);
   const stats = new Map(ids.map(id => [id, {
     roster_id: id, owner: teams.find(t => t.roster_id === id).owner,
     playoffs: 0, title: 0, finals: 0, byes: 0, wins: 0, points: 0, best: 0, worst: Infinity
@@ -294,12 +381,12 @@ export function simulateSeason(lg, {
         else { record.get(a).w += 0.5; record.get(b).w += 0.5; }
       }
       for (const [id, s] of weekScore) record.get(id).pf += s;
+      if (medianGame) addMedianResults(weekScore, record);
     }
 
-    // Seed on wins, then points for — the standard tiebreak in both platforms.
-    const seeded = [...record.entries()]
-      .sort((x, y) => y[1].w - x[1].w || y[1].pf - x[1].pf)
-      .map(([id]) => id);
+    // Seed by the league's rule (division winners first where there are
+    // divisions, then wins, then the league's tiebreaker).
+    const seeded = seedStandings([...record.entries()].map(([id, r]) => ({ id, w: r.w, pf: r.pf })), rules);
     const field = seeded.slice(0, playoffTeams);
     for (const id of field) stats.get(id).playoffs++;
     for (const [id, r] of record) {
@@ -308,51 +395,26 @@ export function simulateSeason(lg, {
       s.best = Math.max(s.best, r.pf); s.worst = Math.min(s.worst, r.pf);
     }
 
-    /* --- playoff bracket ---
-     * Single elimination, one simulated week per round, with byes for the top seeds
-     * when the field is not a power of two.
-     *
-     * Rounds are re-seeded highest-against-lowest, which is how both platforms actually
-     * run it. Pairing the survivors in seed order instead would put the top two seeds in
-     * the same semifinal every single time, which quietly caps the best team's title odds
-     * and inflates everyone else's. */
-    const seedOf = id => field.indexOf(id);
-    const pairHighLow = list => {
-      const s = [...list].sort((a, b) => seedOf(a) - seedOf(b));
-      const pairs = [];
-      while (s.length > 1) pairs.push([s.shift(), s.pop()]);
-      if (s.length) pairs.push([s[0], null]);   // odd count: best remaining seed sits out
-      return pairs;
-    };
-
-    const byes = Math.max(0, 2 ** Math.ceil(Math.log2(playoffTeams)) - playoffTeams);
-    let resting = field.slice(0, byes);
-    let playing = field.slice(byes);
-    let alive = [...field];
-    for (const id of resting) stats.get(id).byes++;
-
-    for (let round = 0; alive.length > 1 && round <= 5; round++) {
-      if (alive.length === 2) for (const id of alive) stats.get(id).finals++;
-
-      const week = bracketWeeks[Math.min(round, bracketWeeks.length - 1)];
+    /* --- playoff bracket: the league's own format (playBracket) --- */
+    const drawsByWeek = new Map();
+    const drawWeek = week => {
+      let got = drawsByWeek.get(week);
+      if (got) return got;
       const wd = weekData.get(week);
       const drawn = new Map();
       const vals = wd.draw();
       for (let i = 0; i < wd.ids.length; i++) drawn.set(wd.ids[i], vals[i]);
-      const score = id => lineupPoints(teams.find(t => t.roster_id === id).players, slots, drawn, wd.expected);
-
-      const winners = pairHighLow(playing).map(([a, b]) => {
-        if (b == null) return a;
-        // Ties go to the better seed, as they do in both platforms.
-        const sa = score(a), sb = score(b);
-        return sa === sb ? (seedOf(a) < seedOf(b) ? a : b) : (sa > sb ? a : b);
-      });
-
-      alive = [...resting, ...winners];
-      resting = [];
-      playing = alive;
-    }
-    if (alive.length === 1) stats.get(alive[0]).title++;
+      got = { drawn, expected: wd.expected };
+      drawsByWeek.set(week, got);
+      return got;
+    };
+    const bracket = playBracket(field, rules.schedule, (id, roundWeeks) => roundWeeks.reduce((sum, week) => {
+      const { drawn, expected } = drawWeek(week);
+      return sum + lineupPoints(teamOf.get(id).players, slots, drawn, expected);
+    }, 0));
+    for (const id of bracket.byes) stats.get(id).byes++;
+    for (const id of bracket.finalists) stats.get(id).finals++;
+    if (bracket.champion) stats.get(bracket.champion).title++;
   }
 
   const out = [...stats.values()].map(s => ({
@@ -368,6 +430,9 @@ export function simulateSeason(lg, {
 
   return {
     runs, weeks: weeks.length, from_week: fromWeek, playoff_teams: playoffTeams,
+    rules_source: rules.source, playoff_weeks: bracketWeeks, seeding_rule: rules.seeding.tiebreaker,
+    reseed: rules.schedule.reseed, division_winners_first: rules.seeding.division_winners_first,
+    median_game: rules.median_game, rules_unknown: rules.unknown,
     standings_carried_in: fromWeek > 1,
     odds_interval: 'run-to-run Monte Carlo error only; excludes the shared error of the fixed per-player outcome pools',
     teams: out

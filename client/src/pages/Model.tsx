@@ -4,6 +4,7 @@ import { useLeague } from '../state/league';
 import { playoffWeeksText } from '../copy-constants';
 import { usePlayerCard } from '../components/PlayerCard';
 import { EmptyState, PageError, PageLoading } from '../components/PageState';
+import { sanitizedAlert } from '../lib/errorSanitize';
 import MedianGameNotice from '../components/MedianGameNotice';
 
 /**
@@ -36,7 +37,7 @@ export default function Model({ tab: controlledTab, embedded }: { tab?: Tab; emb
   const sync = async () => {
     setSyncing(true);
     try { await api('/model/sync', { method: 'POST' }); location.reload(); }
-    catch (e: any) { alert(`Sync failed: ${e.message}`); }
+    catch (e: any) { sanitizedAlert('Model.sync', 'Sync failed', e.message); }
     finally { setSyncing(false); }
   };
 

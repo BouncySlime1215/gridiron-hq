@@ -149,6 +149,9 @@ and 360 decision rows, every row's served construction equal to arm S1. S1 = B o
 (the copy serves the structural head in weeks 2-4, fit-2's early rule): ΔMAE −0.136
 [−0.192, −0.079], ΔDNP −0.208 [−0.259, −0.157]. S-02 read the same week as −0.1353 / −0.2074 on a
 copy three hours older; the difference is the newer copy. The lift arm C: −0.030 [−0.069, +0.007].
+The old served construction D (B × lift) read −0.166 [−0.225, −0.102] on the same rows: 0.030 better
+than S1 on this one week, which is the lift's −0.030. One week is an anecdote under Nick's rule (e);
+the lift failed in every graded season-window (2023, 2024, 2025, both windows).
 
 ## 7. What is served on the copy after the promotion
 

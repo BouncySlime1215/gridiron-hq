@@ -1,9 +1,11 @@
 # S-03: apply S-02 to the served weekly construction
 
 Unit S-03 (WORK-QUEUE §5, plan item A2 / Structure). Applies S-02's grade
-(`docs/evidence/2026-09-22/weekly-construction-grade.md`, PR #155, not merged when this started:
-**this branch is stacked on S-02's branch at `c9d1acd8`**). Pre-registration of the one new number
-this unit runs: `docs/evidence/2026-09-22/weekly-construction-walk-forward-preregistration.md`,
+(`docs/evidence/2026-09-22/weekly-construction-grade.md`). PR #155 was open when this started, so
+the branch was cut from S-02's branch at `c9d1acd8`; #155 squash-merged (`51b64512`) while this was
+built, and `c45cef64` merges `origin/main` at `a3e2bf35` into this branch (the two S-02 files S-03
+edits took S-03's side; main's copies were byte-identical to `c9d1acd8`'s). Pre-registration of the
+one new number this unit runs: `docs/evidence/2026-09-22/weekly-construction-walk-forward-preregistration.md`,
 committed before any number.
 
 ## 1. Audit: extend or build (written before the first test, tree `8321b7c3`)
@@ -259,3 +261,24 @@ section 10.
 - **PR #57 fix 2** (coordinatorBase in trade-engine.js) is superseded by this unit's producer-level
   base; that thread should drop it rather than merge a second definition.
 - **Production promotion:** a forward check on a production copy, then the promote script there.
+
+## 10. Statistics contract checklist (`docs/evidence/STATS-METHOD.md`)
+
+The contract (S-00, #154) merged after this unit's result commit; it arrived on this branch with
+the merge `c45cef64`.
+
+1. Pre-registration `4dec70de` is an ancestor of the result commits `153669da` (numbers) and
+   `ab246d93` (output file). It states the hypothesis, metric and sign convention, split, incumbent
+   and dumb baseline, ship rule with the forward check, MDE reporting, configuration and literature.
+2. Ledger rows: no 2025 row was read, so no `L` row. The 2026 week-2 forward looks are `F001`-`F004`
+   in `docs/evidence/HOLDOUT-LEDGER.md` ("2026 forward looks"), added in the first commit that has the
+   ledger, not the result commit (the ledger did not exist on this branch then). S-02's own look at
+   that week has no row; F001's note says so.
+3. Not a feature-lift (`FL`) result: nothing here is graded on 2025, so no BH verdict applies.
+4. Every decline carries its MDE at 80% power (result §3: the lift 0.015-0.040; S1 2023 weeks 5-17
+   failed Spearman, MAE MDE 0.039).
+5. Forward check on 2026: F001, holds; weeks 5-17 on the weeks 2-4 rows as a proxy, said so.
+6. Decision win rate against the dumb baseline (season average to date): result §4.
+7. Replay configuration: the live engine, `WEEKLY_ROLE_RECENCY`, no `kOverride`; k control 0.4605 /
+   0.2747 / 0.1733, not 6.
+8. Command and tree beside every number: section 4 and the result file's header and §9.

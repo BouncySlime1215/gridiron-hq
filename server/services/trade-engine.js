@@ -398,6 +398,12 @@ function buildAssetUniverse(lg, formatKey, target) {
     // Players with no NFL schedule on file (no team, K/DEF) keep the full rate —
     // unknown is not a bye.
     const hasSchedule = Boolean(p.team_abbr && SCORED.has(p.position));
+    // Same bye detector as currentWeekPpg (:359): no game this week, known from the
+    // schedule, not a forecast. Gates weekDist, WEEK_MARGINAL and the served
+    // floor/ceiling/avg below so a bye-week starter's weekly range is 0, not a full
+    // distribution he cannot play. Players with no schedule on file keep the
+    // model's number — unknown is not a bye (see the comment above hasSchedule).
+    const onBye = hasSchedule && !thisGame;
     const playoffGameShare = hasSchedule && playoffWeeksLeft > 0
       ? (sched.playoff_games?.length ?? 0) / playoffWeeksLeft : 1;
     const playoffPpg = (scheduleTilt ? rosBasePpg * sched.playoff_sos : rosBasePpg) * playoffGameShare;
@@ -421,7 +427,9 @@ function buildAssetUniverse(lg, formatKey, target) {
     // availability change re-rolls the whole draw. These per-player numbers are for
     // display; a trade's floor_delta/ceiling_delta no longer adds them up — it comes
     // from lineupSpread()'s lineup-total percentiles.
-    const weekDist = weekProjection
+    // No draw for a player who cannot play this week — a bye is a known 0, not a
+    // distribution to sample (see onBye above).
+    const weekDist = weekProjection && !onBye
       ? playerWeekDistribution(weekProjection, { runs: 2000, activeProbability, mult: thisGame?.mult ?? 1 })
       : null;
 
@@ -429,9 +437,12 @@ function buildAssetUniverse(lg, formatKey, target) {
       // What lineupSpread() needs to put this player's week into a lineup total: the
       // same week inputs as weekDist above. Symbol-keyed so it survives the
       // `{ ...p }` copies the trade search makes and never reaches a JSON response.
+      // activeProbability 0 on a bye zeroes both the mean and the variance
+      // spreadInput() derives from this (trade-engine.js#spreadInput), so a bye-week
+      // starter contributes nothing to a lineup's weekly floor/ceiling/avg.
       [WEEK_MARGINAL]: weekProjection ? {
         params: weekProjection.params, shift: weekProjection.ensemble_shift ?? 0,
-        activeProbability, mult: thisGame?.mult ?? 1, scoring,
+        activeProbability: onBye ? 0 : activeProbability, mult: thisGame?.mult ?? 1, scoring,
         seed: `${target.season}:${target.week}:${p.id}:${activeProbability}:${thisGame?.mult ?? 1}:${weekProjection.ensemble_shift ?? 0}`,
         meta: { id: p.id, position: p.position, team: p.team_abbr, opponent: thisGame?.opponent ?? null,
           target_share: weekProjection.volume?.target_share ?? null }
@@ -460,7 +471,13 @@ function buildAssetUniverse(lg, formatKey, target) {
       } : null,
       // Weekly shape from real boxscores — this is what separates two players who
       // project for the same total.
-      floor: weekDist?.p10 ?? w?.floor ?? null, ceiling: weekDist?.p90 ?? w?.ceiling ?? null, avg: weekDist?.mean ?? w?.avg ?? null,
+      // On a bye, `weekDist` above is already null — but without this branch these
+      // three would still fall through to `w?.floor/ceiling/avg`, the multi-season
+      // VOLATILITY table (routes/edge.js#volatility), which is not this week either
+      // and is exactly how a bye-week starter kept a positive ceiling (RL-5-3).
+      floor: onBye ? 0 : weekDist?.p10 ?? w?.floor ?? null,
+      ceiling: onBye ? 0 : weekDist?.p90 ?? w?.ceiling ?? null,
+      avg: onBye ? 0 : weekDist?.mean ?? w?.avg ?? null,
       boom: weekDist?.boom_rate ?? w?.boom_rate ?? null, bust: weekDist?.bust_rate ?? w?.bust_rate ?? null,
       consistency: w?.consistency ?? null, logged_games: w?.games ?? null,
       injury: injured.has(p.id) || !!(availability?.report_status && !/probable/i.test(availability.report_status)) ? 1 : 0,
@@ -473,6 +490,10 @@ function buildAssetUniverse(lg, formatKey, target) {
       schedule_signal: scheduleTilt, schedule_reason: scheduleTilt ? null : (sched.reason ?? MATCHUP_SIGNAL_REASON),
       adj_ppg: +decisionPpg.toFixed(2),
       current_week_ppg: +currentWeekPpg.toFixed(2),
+      // His team has no game in the target week (onBye above, the same detector
+      // current_week_ppg uses). weekLineup() reads it so selfScout and a trade card's
+      // weekly floor/ceiling solve this week's lineup without him (RL-5-3).
+      bye_this_week: onBye,
       // Transparency for the correction folded into current_week_ppg above —
       // null when no fit is persisted yet (fantasy_coordinator_refit hasn't
       // run) or this player has no weekly projection to correct.
@@ -698,6 +719,20 @@ export function bestLineup(players, slots, key = 'adj_ppg') {
     bench: eligible.filter(p => !used.has(p.id)),
     holes: filled.filter(f => !f.player).map(f => f.slot)
   };
+}
+
+/**
+ * THIS week's best lineup: bestLineup() over everyone whose team plays this week.
+ * A player on bye (asset.bye_this_week, set in buildAssetUniverse from the same
+ * schedule check as current_week_ppg) cannot start, so the next-best player fills
+ * his slot — the same rule evaluate()'s solve() applies to a playoff-week bye
+ * (playoff_bye_week). He stays on the bench list so the roster view still shows him.
+ * With no one on bye this is exactly bestLineup(players, slots, key).
+ */
+export function weekLineup(players, slots, key = 'adj_ppg') {
+  if (!players.some(p => p.bye_this_week)) return bestLineup(players, slots, key);
+  const line = bestLineup(players.filter(p => !p.bye_this_week), slots, key);
+  return { ...line, bench: line.bench.concat(players.filter(p => p.bye_this_week && SCORED.has(p.position))) };
 }
 
 /**
@@ -1219,9 +1254,14 @@ export function evaluate(a, b, slots, ctx = {}) {
     // response, a prompt, a caller — and then fixed on the object. The trade search
     // builds thousands of these and returns a few dozen; only those are ever read,
     // so only those pay for the players' weekly draws.
+    // The spread is THIS week's, so it is taken over this week's lineup: a starter on
+    // bye is swapped for whoever would really play (weekLineup), not kept in the slot
+    // at 0. The verdict above stays on the season lineups. No one on bye = same
+    // lineups, no extra solve.
     let spreads = null;
+    const weekOf = (line, players) => players.some(p => p.bye_this_week) ? weekLineup(players, slots) : line;
     const spreadDelta = which => {
-      spreads ??= { before: lineupSpread(before), after: lineupSpread(post) };
+      spreads ??= { before: lineupSpread(weekOf(before, team.players)), after: lineupSpread(weekOf(post, after)) };
       const x = spreads.before[which], y = spreads.after[which];
       return x != null && y != null ? +(y - x).toFixed(1) : null;
     };
@@ -1290,7 +1330,7 @@ const slim = p => ({
   floor: p.floor, ceiling: p.ceiling, consistency: p.consistency,
   // sos / playoff_sos are left off: 1 with no validated signal behind them
   // (matchups.js), and a card or prompt that shows them invites reading a schedule.
-  current_week_ppg: p.current_week_ppg, ros_ppg: p.ros_ppg, fantasy_coordinator: p.fantasy_coordinator,
+  current_week_ppg: p.current_week_ppg, bye_this_week: p.bye_this_week === true, ros_ppg: p.ros_ppg, fantasy_coordinator: p.fantasy_coordinator,
   active_probability: p.active_probability, injury_status: p.injury_status,
   practice_status: p.practice_status, model_cutoff: p.model_cutoff,
   role_change: p.role_change, matchup: p.matchup,
@@ -2553,7 +2593,10 @@ export function selfScout(lg, myTeamId) {
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
   if (!me) return { error: 'your team not found' };
 
-  const lineup = bestLineup(me.players, slots);
+  // This week's lineup (weekLineup): a starter on bye is benched and the next-best
+  // player starts, so the weekly range, the rank beside it, the position strengths
+  // and the depth test all describe the same eleven (RL-5-3).
+  const lineup = weekLineup(me.players, slots);
   // The starting lineup's weekly total in a bad (p10) and a good (p90) week — see
   // lineupSpread().
   const spread = lineupSpread(lineup);
@@ -2561,7 +2604,7 @@ export function selfScout(lg, myTeamId) {
   // League context: every rival's optimal lineup, so "strong at RB" means strong
   // relative to the ten teams you actually play, not to a national average.
   const rivals = teams.filter(t => t.roster_id !== me.roster_id)
-    .map(t => ({ owner: t.owner, roster_id: t.roster_id, line: bestLineup(t.players, slots) }));
+    .map(t => ({ owner: t.owner, roster_id: t.roster_id, line: weekLineup(t.players, slots) }));
   const allLineups = [lineup.points, ...rivals.map(r => r.line.points)].sort((a, b) => b - a);
   const myRank = allLineups.indexOf(lineup.points) + 1;
 
@@ -2578,7 +2621,7 @@ export function selfScout(lg, myTeamId) {
 
     // Depth test: what the lineup loses if the best player here goes down.
     const best = mineStarters.slice().sort((a, b) => b.adj_ppg - a.adj_ppg)[0];
-    const ifOut = best ? bestLineup(me.players.filter(p => p.id !== best.id), slots).points : lineup.points;
+    const ifOut = best ? weekLineup(me.players.filter(p => p.id !== best.id), slots).points : lineup.points;
     const dropoff = +(lineup.points - ifOut).toFixed(2);
 
     positions[pos] = {
@@ -2595,8 +2638,11 @@ export function selfScout(lg, myTeamId) {
   }
 
   // Bye-week collisions among starters — the most common self-inflicted loss.
+  // Checked on the season lineup: this week's lineup has already benched anyone on
+  // bye now, which would hide exactly the collision this warns about.
+  const seasonLineup = bestLineup(me.players, slots);
   const byes = {};
-  for (const s of lineup.slots) {
+  for (const s of seasonLineup.slots) {
     if (s.player?.bye) (byes[s.player.bye] ??= []).push(slim(s.player));
   }
   const byeRisk = Object.entries(byes).filter(([, list]) => list.length >= 3)
@@ -2610,7 +2656,7 @@ export function selfScout(lg, myTeamId) {
   // (matchups.js). What IS known about those weeks is who is on bye in them.
   const { playoffWeeks } = leagueSchedule(lg);
   const nowWeek = tradeWeekContext().week;
-  const playoffByes = lineup.slots.map(s => s.player)
+  const playoffByes = seasonLineup.slots.map(s => s.player)
     .filter(p => p?.bye && p.bye >= nowWeek && playoffWeeks.includes(p.bye))
     .map(p => ({ ...slim(p), week: p.bye }));
 

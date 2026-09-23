@@ -121,6 +121,22 @@ export default function Lineup() {
         </p>
       </header>
 
+      {/* SS-01 dead-starter guard: shown only when a starter set on ESPN will score zero.
+          A suggestion; nothing is changed on ESPN from here. */}
+      {d?.dead_starters?.items?.length > 0 && (
+        <section role="alert" className="tr-rise rounded-2xl border border-red-300 bg-red-50 p-4">
+          <h2 className="text-sm font-black uppercase tracking-wide text-red-800">
+            {d.dead_starters.items.length === 1 ? 'A starter will score zero' : `${d.dead_starters.items.length} starters will score zero`}
+          </h2>
+          <ul className="mt-2 space-y-1">
+            {d.dead_starters.items.map((i: any) => (
+              <li key={i.player.id} className="text-sm leading-6 text-slate-800">{i.why}</li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs leading-5 text-red-900/70">Make the swap on ESPN before his game starts.</p>
+        </section>
+      )}
+
       {error && !d && <PageError message={error} onRetry={refetch} />}
 
       {d && (

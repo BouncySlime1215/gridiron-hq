@@ -181,7 +181,11 @@ export default function Leagues() {
               </p>
             )}
           </div>
-          <div className="overflow-x-auto">
+          {/* Desktop/tablet: the full comparison table. Hidden below sm because a
+              wide table can only ever horizontal-scroll on a phone (UI-STANDARD #7
+              rules that out) — the sm:hidden card list below is the phone view of
+              the same data, not a scroll target. */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-xs text-slate-500">
                 <tr>
@@ -214,6 +218,36 @@ export default function Leagues() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Phone: one card per team, stacked, no fixed-width row to overflow. */}
+          <div className="sm:hidden divide-y divide-slate-100">
+            {analysis.rosters.map((ro: any) => (
+              <div key={ro.roster_id} className="p-4">
+                <div className="font-medium text-sm mb-2">{ro.owner}</div>
+                <div className="grid grid-cols-2 gap-3">
+                  {POS_ORDER.map(pos => (
+                    <div key={pos}>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className="text-[10px] font-bold text-slate-400">{pos}</span>
+                        <StatusPill status={ro.positions[pos].status} ratio={ro.positions[pos].ratio} />
+                      </div>
+                      <div className="space-y-0.5">
+                        {ro.positions[pos].starters.slice(0, 3).map((s: any) => (
+                          <div key={s.id} className="text-xs text-slate-600 break-words">
+                            <PlayerName id={s.id}>{s.name}</PlayerName>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 text-xs">
+                  {ro.needs.length ? <span className="text-crit font-medium">Needs: {ro.needs.join(', ')}</span> : <span className="text-slate-400">balanced</span>}
+                  {ro.surplus.length > 0 && <div className="text-good">has: {ro.surplus.join(', ')}</div>}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

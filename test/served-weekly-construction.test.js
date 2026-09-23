@@ -82,7 +82,7 @@ await import('../server/routes/aggregates.js');
 await import('../server/routes/tradelab.js');
 await import('../server/routes/nfldata.js');
 const coordinator = await import('../server/services/fantasy-coordinator.js');
-const { assetUniverse, lineupDiff } = await import('../server/services/trade-engine.js');
+const { assetUniverse, lineupDiff, tradeWeekContext } = await import('../server/services/trade-engine.js');
 const waiverBrain = await import('../server/services/waiver-brain.js');
 const { startSitWeekPoints } = await import('../server/services/lineup-brain.js');
 const { runDecayWatch } = await import('../server/services/decay-watch.js');
@@ -490,12 +490,25 @@ test('the lift-claim check recognises every sentence the pages carried before S-
   assert.equal(claimsLift('This week\'s points: our weekly projection, times his chance to play. No betting-line boost.'), false);
 });
 
-// An ESPN league whose one rostered starter is the fixture player P, priced by the REAL universe.
+// An ESPN league whose one rostered starter is the fixture player P, priced by the REAL universe,
+// against an opponent with one seeded running back this week, so the matchup card takes its
+// full path (the one that prints the basis) rather than the no-opponent reply.
+const R = rows(`SELECT p.id, p.name, t.abbr AS team FROM players p JOIN nfl_teams t ON t.id = p.team_id
+                WHERE p.position = 'RB' AND p.fantasy_relevant = 1 ORDER BY p.id LIMIT 1`)[0];
+ENGINE.set(R.id, { player_id: R.id, position: 'RB', team: R.team, ppg: 11.0, structural_ppg: 10.0, ensemble_shift: 1.0,
+  params: { crafted: true }, player_week_engine: { cutoff: '2026-W1', mode: 'weekly' } });
+const { week: CARD_WEEK } = tradeWeekContext();
 run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, roster_positions, payload)
      VALUES (303, 'espn', 's03-303', 2026, 'S-03 label', '1', 10, 1, ?, ?)`,
-JSON.stringify(['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX', 'BENCH']), JSON.stringify({ teams: [{ id: 1, roster: { entries: [
-  { lineupSlotId: 4, playerPoolEntry: { player: { id: 7001, fullName: P.name, defaultPositionId: 3, injuryStatus: 'ACTIVE' } } }
-] } }] }));
+JSON.stringify(['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX', 'BENCH']), JSON.stringify({
+  teams: [
+    { id: 1, roster: { entries: [
+      { lineupSlotId: 4, playerPoolEntry: { player: { id: 7001, fullName: P.name, defaultPositionId: 3, injuryStatus: 'ACTIVE' } } }] } },
+    { id: 2, roster: { entries: [
+      { lineupSlotId: 2, playerPoolEntry: { player: { id: 7002, fullName: R.name, defaultPositionId: 2, injuryStatus: 'ACTIVE' } } }] } }
+  ],
+  schedule: [{ matchupPeriodId: CARD_WEEK, home: { teamId: 1 }, away: { teamId: 2 } }]
+}));
 const L303 = () => row('SELECT * FROM leagues WHERE id = 303');
 const labelOf = lg => assetUniverse(lg, deriveFormat(lg).formatKey).context.week_basis;
 
@@ -520,6 +533,7 @@ test('the League Hub card serves the week\'s basis, and its note does not claim 
 test('the matchup card on Start/Sit serves the week\'s basis, and its projection basis does not claim the lift', () => {
   const card = lineupPosture(L303(), {});
   assert.ifError(card.error);
+  assert.ok(card.win_probability_scope, 'the full card, the one that prints the basis (known-nonzero control)');
   const label = labelOf(L303());
   assert.deepEqual(card.week_basis, label);
   assert.equal(claimsLift(card.projection_basis), false, card.projection_basis);

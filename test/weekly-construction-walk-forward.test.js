@@ -98,7 +98,7 @@ test('servedParity: the served construction must equal arm S1, and the served li
   const ctx = { season: 2024, week: 6, scoring: undefined, fitS: fit, fitE: fit, lambda: 1 };
   const arms = s02.constructArms(proj, ctx, deps);
   const served = { ppg: arms.S1, basis: 'structural+coordinator', coordinated: { ready: true } };
-  const off = { applied: false, switched_off: true, multiplier: 1 };
+  const off = { applied: false, multiplier: 1, line: null, reading: null };
   assert.deepEqual(wf.servedParity(arms, served, off), { coordinated: true });
   assert.throws(() => wf.servedParity(arms, { ...served, ppg: arms.B }, off), /parity/);
   assert.throws(() => wf.servedParity(arms, served, { applied: true, multiplier: 1.2 }), /lift/);

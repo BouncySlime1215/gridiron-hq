@@ -3,8 +3,8 @@
   "mode": "--served-identity",
   "label": "local copy, not production",
   "tree": {
-    "head": "eb39ac85489b4592650ac0abf782fab2271ea34e",
-    "write_tree": "161e340284b4feb09da9bfef08fcfb4b6e38542c"
+    "head": "4bbb462857a0f7927dc5e995f218241cb1ecf765",
+    "write_tree": "466bb3f6a1fadfa1162dfb3c4d13af9a18e2fc52"
   },
   "database": {
     "path_basename": "data.sqlite"
@@ -18,7 +18,7 @@
     "population": "weekly-backtest.js rules (S-02 prereg §4)",
     "bootstrap": "pairedBootstrapDiff, groups = player_id, 2000 iterations, seed 1, 90% CI"
   },
-  "started_at": "2026-09-23T00:42:55.322Z",
+  "started_at": "2026-09-23T02:20:19.164Z",
   "served_identity": {
     "target": {
       "season": 2026,
@@ -43,11 +43,22 @@
     "ensemble_no_inputs": 0,
     "no_game": 704,
     "s1_differs_from_old_B": 420,
+    "correction_s1_minus_structural": {
+      "n": 1196,
+      "mean": -0.6362,
+      "sd": 0.003,
+      "min": -0.645,
+      "max": -0.626,
+      "most_common": {
+        "value": -0.636,
+        "count": 755
+      }
+    },
     "abs_s1_minus_b": {
       "mean": 2.107,
       "median": 1.47,
       "max": 10.92
     }
   },
-  "finished_at": "2026-09-23T00:44:28.485Z"
+  "finished_at": "2026-09-23T02:20:29.396Z"
 }

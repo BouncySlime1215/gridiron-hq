@@ -1,0 +1,281 @@
+{
+ "db": "<builder worktree>/.local-db/data.sqlite",
+ "label": "local copy, not production",
+ "league": 1,
+ "before_promotion": {
+  "ready": true,
+  "reason": null,
+  "key": "7:on/on"
+ },
+ "after_promotion": {
+  "key": "7:on/on"
+ },
+ "week": {
+  "season": 2026,
+  "week": 3
+ },
+ "context_week_basis": {
+  "window": "2-4",
+  "graded_week": true,
+  "coordinator": {
+   "on": true,
+   "window": "2-4",
+   "fit_id": 7,
+   "through_season": 2025,
+   "base": "structural",
+   "target": "structural-projection residual",
+   "windows": {
+    "2-4": "on",
+    "5-17": "on"
+   },
+   "promoted_at": "2026-09-23T00:16:36.529Z",
+   "evidence": "docs/evidence/2026-09-22/weekly-construction-walk-forward-output.json sha256:28e67bf27d7d05dc"
+  },
+  "betting_line_lift": {
+   "on": false,
+   "reason": "Graded as a fantasy multiplier, it never made weekly projections more accurate in 2023-2025, and in 2025 it made weeks 2-4 worse and weeks 5-17 worse once missed games count.",
+   "evidence": "docs/evidence/2026-09-22/weekly-construction-grade.md; docs/evidence/2026-09-22/weekly-construction-walk-forward.md"
+  },
+  "availability": "times active_probability; availability_basis says which chance-to-play model priced it",
+  "label": "This week's points: our structural projection plus the coordinator's correction (fit #7), times his chance to play. No betting-line boost."
+ },
+ "four_surfaces": {
+  "assets_checked": 8640,
+  "startsit_ne_card": 0,
+  "startsit_ne_waiver": 0,
+  "vegasLift_applied": 0
+ },
+ "control_gameScriptLift_ne_1": {
+  "skill_assets": 566,
+  "multiplier_ne_1": 566
+ },
+ "ceiling_vs_startsit": [
+  {
+   "slot": "QB",
+   "position": "QB",
+   "team": "KC",
+   "ceiling_tab_mean_points": 20.3,
+   "startsit_week_points": 16.07,
+   "active_probability": 0.828,
+   "week_basis": "structural+coordinator"
+  },
+  {
+   "slot": "RB",
+   "position": "RB",
+   "team": "MIA",
+   "ceiling_tab_mean_points": 17.01,
+   "startsit_week_points": 13.46,
+   "active_probability": 0.735,
+   "week_basis": "structural+coordinator"
+  },
+  {
+   "slot": "RB",
+   "position": "RB",
+   "team": "GB",
+   "ceiling_tab_mean_points": 15.92,
+   "startsit_week_points": 8.22,
+   "active_probability": 0.577,
+   "week_basis": "structural+coordinator"
+  },
+  {
+   "slot": "WR",
+   "position": "WR",
+   "team": "CIN",
+   "ceiling_tab_mean_points": 14.1,
+   "startsit_week_points": 11.33,
+   "active_probability": 0.823,
+   "week_basis": "structural+coordinator"
+  },
+  {
+   "slot": "WR",
+   "position": "WR",
+   "team": "DEN",
+   "ceiling_tab_mean_points": 13.5,
+   "startsit_week_points": 10.12,
+   "active_probability": 0.823,
+   "week_basis": "structural+coordinator"
+  },
+  {
+   "slot": "TE",
+   "position": "TE",
+   "team": "ARI",
+   "ceiling_tab_mean_points": 19.25,
+   "startsit_week_points": 14.82,
+   "active_probability": 0.793,
+   "week_basis": "structural+coordinator"
+  },
+  {
+   "slot": "FLEX",
+   "position": "RB",
+   "team": "DAL",
+   "ceiling_tab_mean_points": 14.4,
+   "startsit_week_points": 10.19,
+   "active_probability": 0.745,
+   "week_basis": "structural+coordinator"
+  }
+ ],
+ "ceiling_lineup_keys": [
+  "slot",
+  "player",
+  "position",
+  "team",
+  "mean_points"
+ ],
+ "ceiling_lift_isolation": [
+  {
+   "position": "WR",
+   "team": "CIN",
+   "pass_mult": 0.99,
+   "rush_mult": 1.035,
+   "ceiling_pool_mean_with_line": 14.31,
+   "ceiling_pool_mean_without_line": 14.37,
+   "lift_points": -0.06,
+   "startsit_vegasLift": 1
+  },
+  {
+   "position": "RB",
+   "team": "MIA",
+   "pass_mult": 1.018,
+   "rush_mult": 0.893,
+   "ceiling_pool_mean_with_line": 18.05,
+   "ceiling_pool_mean_without_line": 18.87,
+   "lift_points": -0.82,
+   "startsit_vegasLift": 1
+  },
+  {
+   "position": "TE",
+   "team": "ARI",
+   "pass_mult": 1.037,
+   "rush_mult": 0.909,
+   "ceiling_pool_mean_with_line": 20.06,
+   "ceiling_pool_mean_without_line": 19.13,
+   "lift_points": 0.93,
+   "startsit_vegasLift": 1
+  },
+  {
+   "position": "RB",
+   "team": "DAL",
+   "pass_mult": 1.085,
+   "rush_mult": 0.928,
+   "ceiling_pool_mean_with_line": 14.27,
+   "ceiling_pool_mean_without_line": 14.5,
+   "lift_points": -0.23,
+   "startsit_vegasLift": 1
+  },
+  {
+   "position": "RB",
+   "team": "LAR",
+   "pass_mult": 1.018,
+   "rush_mult": 1.012,
+   "ceiling_pool_mean_with_line": 13.28,
+   "ceiling_pool_mean_without_line": 13.04,
+   "lift_points": 0.24,
+   "startsit_vegasLift": 1
+  },
+  {
+   "position": "WR",
+   "team": "DEN",
+   "pass_mult": 1.018,
+   "rush_mult": 0.97,
+   "ceiling_pool_mean_with_line": 13.01,
+   "ceiling_pool_mean_without_line": 13.02,
+   "lift_points": -0.01,
+   "startsit_vegasLift": 1
+  },
+  {
+   "position": "WR",
+   "team": "WAS",
+   "pass_mult": 0.971,
+   "rush_mult": 0.955,
+   "ceiling_pool_mean_with_line": 10.69,
+   "ceiling_pool_mean_without_line": 11.03,
+   "lift_points": -0.34,
+   "startsit_vegasLift": 1
+  },
+  {
+   "position": "WR",
+   "team": "ARI",
+   "pass_mult": 1.037,
+   "rush_mult": 0.909,
+   "ceiling_pool_mean_with_line": 5.1,
+   "ceiling_pool_mean_without_line": 4.88,
+   "lift_points": 0.22,
+   "startsit_vegasLift": 1
+  },
+  {
+   "position": "RB",
+   "team": "TEN",
+   "pass_mult": 0.961,
+   "rush_mult": 0.998,
+   "ceiling_pool_mean_with_line": 9.52,
+   "ceiling_pool_mean_without_line": 9.62,
+   "lift_points": -0.1,
+   "startsit_vegasLift": 1
+  },
+  {
+   "position": "QB",
+   "team": "CHI",
+   "pass_mult": 0.98,
+   "rush_mult": 0.971,
+   "ceiling_pool_mean_with_line": 17.39,
+   "ceiling_pool_mean_without_line": 17.73,
+   "lift_points": -0.34,
+   "startsit_vegasLift": 1
+  },
+  {
+   "position": "RB",
+   "team": "GB",
+   "pass_mult": 0.999,
+   "rush_mult": 1.051,
+   "ceiling_pool_mean_with_line": 15.18,
+   "ceiling_pool_mean_without_line": 14.8,
+   "lift_points": 0.38,
+   "startsit_vegasLift": 1
+  },
+  {
+   "position": "RB",
+   "team": "CHI",
+   "pass_mult": 0.98,
+   "rush_mult": 0.971,
+   "ceiling_pool_mean_with_line": 9.84,
+   "ceiling_pool_mean_without_line": 10.17,
+   "lift_points": -0.33,
+   "startsit_vegasLift": 1
+  },
+  {
+   "position": "QB",
+   "team": "KC",
+   "pass_mult": 1.018,
+   "rush_mult": 1.089,
+   "ceiling_pool_mean_with_line": 21.05,
+   "ceiling_pool_mean_without_line": 19.76,
+   "lift_points": 1.28,
+   "startsit_vegasLift": 1
+  },
+  {
+   "position": "RB",
+   "team": "LAR",
+   "pass_mult": 1.018,
+   "rush_mult": 1.012,
+   "ceiling_pool_mean_with_line": 7.83,
+   "ceiling_pool_mean_without_line": 7.85,
+   "lift_points": -0.02,
+   "startsit_vegasLift": 1
+  }
+ ],
+ "ceiling_lift_summary": {
+  "players": 14,
+  "moved_by_line": 14,
+  "mean_abs_points": 0.38,
+  "max_abs_points": 1.28
+ },
+ "season_sim_team_weeks": {
+  "weeks": "3-17",
+  "team_weeks_with_line": 448,
+  "multipliers_ne_1": 448
+ },
+ "tree": {
+  "head": "4bbb462857a0f7927dc5e995f218241cb1ecf765",
+  "note": "uncommitted: test + comment edits only, no served-code change"
+ }
+}

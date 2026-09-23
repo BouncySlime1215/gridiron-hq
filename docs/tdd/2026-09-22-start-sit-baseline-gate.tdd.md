@@ -107,7 +107,8 @@ in scratchpad `v160fix/`.
 **Files.** This revision changes `server/services/gates/start-sit-gate.js` and
 `test/start-sit-gate.test.js`, which are outside the Auditor's no-re-audit set (`StartSitGate.tsx`,
 the panel test and this file). **So this head needs a fresh Auditor check before merge** (the
-ruling's condition). No other file changed; no number changed (§4c).
+ruling's condition). No other C-01 file changed except `server/index.js` through the merge of main
+(§2 revision 5); no number changed (§4c).
 
 ## 1. Audit: what already exists, and extend-or-build
 
@@ -304,8 +305,9 @@ Command per file, the coordinator's: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<mkt
 
 ### Revision 5 (after the local skeptic review of `a1447095`)
 
-Same per-file command (runner `v160fix/run-tests.sh`, TAP in `v160fix/tap/`). No merge needed:
-`git merge-base --is-ancestor origin/main HEAD` holds (main `a3e2bf35`).
+Same per-file command (runner `v160fix/run-tests.sh`, TAP in `v160fix/tap/`). Main `a3e2bf35` was
+an ancestor while the fix was written; it moved to `b6c83d51` (#159, MLB removal) before the push, so
+it is merged last (below).
 
 - **Baseline on `a1447095`** (tree `017b1b53`): start-sit-gate 36/0, panel 17/0 (re-run here); the
   six-file total 103/0 is also every surviving mutant's total in `sweep-s11-pre.txt`.
@@ -338,6 +340,14 @@ Same per-file command (runner `v160fix/run-tests.sh`, TAP in `v160fix/tap/`). No
 - **Lint's own check** (`node --check`, what `scripts/lint.mjs` runs) on the three changed JS files: ok.
 - **Wiring:** `node scripts/wiring-map.mjs --check` on `927728bf`: **exit 0**, `no missing-feed
   findings` (40 s; `v160fix/wiring-927728bf.out`).
+- **Merged, never rebased:** `git merge origin/main` (main `b6c83d51`) at `7f7f6291` (tree
+  `01d9ae34`). One conflict, `server/index.js`: main deleted the `/api/props` and `/api/props-tickets`
+  mounts next to this branch's `/api/gates` mount; kept main's deletion and comment and the gates
+  mount. `git diff origin/main -- server/index.js` after the merge is exactly the granted +4 (the
+  `gatesRouter` import and the three-line mount). On `7f7f6291`: the six files **16/39/13/1/19/20 =
+  108/0**, and #159's own touched tests `legacy-route-security` **6/0**, `mlb-removed` **9/0**,
+  `decision-inbox` **8/0**; `node scripts/wiring-map.mjs --check` **exit 0**, `no missing-feed
+  findings` (`v160fix/wiring-7f7f6291.out`). The docs commit after it changes only this file.
 - `npm run check` was not run here (coordinator's rule for this Mac): CI on Node 22 is the guard.
 
 ## 3. What it does
@@ -1039,10 +1049,11 @@ Revisions 1-3:
   verdict reads `beats_dumb`.
 - **Revision 5 and the Auditor's no-re-audit condition:** `git diff --stat a1447095 <head>` lists
   `server/services/gates/start-sit-gate.js`, `test/start-sit-gate.test.js`,
-  `client/src/components/lineup/StartSitGate.tsx`, `test/start-sit-gate-panel.test.js` and this file.
-  The first two are outside the set the fresh-session check allowed without a new session, so **a
-  fresh Auditor check of this head is needed** before merge. What it would check: §0d, sweep 12, and
-  §4c's diff (no number moved).
+  `client/src/components/lineup/StartSitGate.tsx`, `test/start-sit-gate-panel.test.js` and this file,
+  plus #159's files from the merge of main (`7f7f6291`), whose only overlap with this branch is the
+  resolved `server/index.js` (main plus the granted +4). The first two are outside the set the
+  fresh-session check allowed without a new session, so **a fresh Auditor check of this head is
+  needed** before merge. What it would check: §0d, sweep 12, and §4c's diff (no number moved).
 - **Does NOT cover (revision 5):** grading `week_points` (S-12); the sub-window report (C-01b); a
   same-cutoff source or a field naming its absence (§7.24).
 - **Rulings asked for in revision 3 (history):** (a) a prereg committed before the run but

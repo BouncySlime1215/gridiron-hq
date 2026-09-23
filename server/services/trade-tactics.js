@@ -800,8 +800,8 @@ export function tacticsForDeal({
       numbers: { gap_per_game: hypeHits[0].gap.gap_per_game },
       why: hypeHits.map(h => `${h.p.name} is +${h.gap.gap_per_game}/game above what his usage earns over `
         + `${h.gap.games} games, and ${partnerName ?? 'he'} has talked him up`).join('; ')
-        + '. (Actual vs expected points from usage — NOT the market-price curve in waiver-brain#sellHigh, '
-        + 'which answers a different question.)' });
+        + '. (Actual vs expected points from usage — NOT the trade-price hype in services/hype.js#playerHype '
+        + '(trade price minus value), which answers a different question.)' });
   } else {
     note('hype_window', hypeReason
       ?? 'no player we are sending is both outscoring his usage and one this manager has praised');

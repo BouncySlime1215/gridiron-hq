@@ -73,7 +73,12 @@ export async function api<T = any>(path: string, opts?: RequestInit, retried = f
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `${res.status} ${res.statusText}`);
+    // UX-08c: carry the HTTP status so a caller can tell a route's own plain 4xx
+    // copy (safe to show) from a 5xx, whose `error` is the global handler's raw
+    // err.message (server/index.js error middleware) — sqlite/table text.
+    const err: Error & { status?: number } = new Error(body.error || `${res.status} ${res.statusText}`);
+    err.status = res.status;
+    throw err;
   }
   return res.json();
 }

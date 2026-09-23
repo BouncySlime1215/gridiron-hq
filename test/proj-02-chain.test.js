@@ -16,7 +16,7 @@ const { db, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 await import('../server/services/nfl-pbp.js'); // creates nfl_player_week_features, joined by history()
-const { buildProjections } = await import('../server/services/projections.js');
+const { buildProjections, CHAIN_SERVED } = await import('../server/services/projections.js');
 const { clearGameScriptCache } = await import('../server/services/gamescript.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -134,4 +134,18 @@ test('served values follow the recorded ship decision; eff and td are the incumb
     assert.equal(eff.yards_per_target, p.params.ypt);
     assert.equal(td.rec_td_rate, p.params.rec_td_rate);
   }
+});
+
+test('ship decisions from the pre-registered grade: plays and pass rate served, targets and carries keep the incumbent', () => {
+  assert.deepEqual({ ...CHAIN_SERVED }, { plays: true, pass_rate: true, targets: false, carries: false });
+  const aaa = proj.get(1).links;
+  assert.equal(aaa.plays.served, 'chain');
+  assert.equal(aaa.plays.value, aaa.plays.chain);
+  assert.equal(aaa.pass_rate.value, aaa.pass_rate.chain);
+  // Volume is not served from the chain, so the served number is untouched: the WR1's
+  // params and ppg equal the incumbent volume scored through the same rates.
+  const wr = proj.get(3);
+  assert.equal(wr.links.volume.targets.served, 'incumbent');
+  assert.notEqual(wr.links.volume.targets.chain, wr.links.volume.targets.incumbent);
+  assert.equal(wr.params.targets, wr.links.volume.targets.incumbent);
 });

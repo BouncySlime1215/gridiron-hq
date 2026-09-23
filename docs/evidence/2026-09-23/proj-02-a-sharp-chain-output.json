@@ -1,0 +1,277 @@
+{
+  "rig": {
+    "roleRecency": {
+      "seasonDecay": 0.05,
+      "weekHalfLife": 5
+    },
+    "kOverride": "omitted (activeKVectorFor)",
+    "weeks": "2-18",
+    "sign": "chain - incumbent MAE; negative favours the chain",
+    "bootstrap": {
+      "B": 2000,
+      "seed": 20260923,
+      "level": 90
+    }
+  },
+  "k_control": {
+    "2023": {
+      "target_share_ALL": 0.4605,
+      "team_pass_att": 1.5454423524112082
+    },
+    "2024": {
+      "target_share_ALL": 0.2747,
+      "team_pass_att": 2.915815544905063
+    },
+    "2026": {
+      "target_share_ALL": 0.1733,
+      "team_pass_att": 1.2766136700080963
+    }
+  },
+  "seasons": {
+    "2023": {
+      "plays": {
+        "n": 512,
+        "mae_chain": 6.9289,
+        "mae_incumbent": 7.3582,
+        "diff": -0.4293
+      },
+      "pass_rate": {
+        "n": 512,
+        "mae_chain": 0.0803,
+        "mae_incumbent": 0.0853,
+        "diff": -0.005
+      },
+      "targets": {
+        "n": 5138,
+        "mae_chain": 1.4549,
+        "mae_incumbent": 1.4566,
+        "diff": -0.0017
+      },
+      "carries": {
+        "n": 5138,
+        "mae_chain": 1.2477,
+        "mae_incumbent": 1.2332,
+        "diff": 0.0145
+      },
+      "targets_dnp": {
+        "n": 7143,
+        "mae_chain": 1.4649,
+        "mae_incumbent": 1.5557,
+        "diff": -0.0908
+      },
+      "carries_dnp": {
+        "n": 7143,
+        "mae_chain": 1.2716,
+        "mae_incumbent": 1.3668,
+        "diff": -0.0951
+      }
+    },
+    "2024": {
+      "plays": {
+        "n": 512,
+        "mae_chain": 6.714,
+        "mae_incumbent": 7.3673,
+        "diff": -0.6534
+      },
+      "pass_rate": {
+        "n": 512,
+        "mae_chain": 0.0803,
+        "mae_incumbent": 0.0862,
+        "diff": -0.0059
+      },
+      "targets": {
+        "n": 5171,
+        "mae_chain": 1.4649,
+        "mae_incumbent": 1.466,
+        "diff": -0.001
+      },
+      "carries": {
+        "n": 5171,
+        "mae_chain": 1.2462,
+        "mae_incumbent": 1.2253,
+        "diff": 0.0209
+      },
+      "targets_dnp": {
+        "n": 7199,
+        "mae_chain": 1.4556,
+        "mae_incumbent": 1.5456,
+        "diff": -0.09
+      },
+      "carries_dnp": {
+        "n": 7199,
+        "mae_chain": 1.2379,
+        "mae_incumbent": 1.3053,
+        "diff": -0.0673
+      }
+    }
+  },
+  "pooled": {
+    "plays": {
+      "n": 1024,
+      "mae_chain": 6.8214,
+      "mae_incumbent": 7.3628,
+      "diff": -0.5413,
+      "clusters": 32,
+      "lo90": -0.645,
+      "hi90": -0.4336,
+      "se": 0.0647,
+      "mde80": 0.161
+    },
+    "pass_rate": {
+      "n": 1024,
+      "mae_chain": 0.0803,
+      "mae_incumbent": 0.0858,
+      "diff": -0.0055,
+      "clusters": 32,
+      "lo90": -0.0078,
+      "hi90": -0.0032,
+      "se": 0.0014,
+      "mde80": 0.0035
+    },
+    "targets": {
+      "n": 10309,
+      "mae_chain": 1.4599,
+      "mae_incumbent": 1.4613,
+      "diff": -0.0014,
+      "clusters": 659,
+      "lo90": -0.0108,
+      "hi90": 0.0082,
+      "se": 0.0058,
+      "mde80": 0.0144
+    },
+    "carries": {
+      "n": 10309,
+      "mae_chain": 1.2469,
+      "mae_incumbent": 1.2293,
+      "diff": 0.0177,
+      "clusters": 659,
+      "lo90": 0.0017,
+      "hi90": 0.0339,
+      "se": 0.0099,
+      "mde80": 0.0246
+    },
+    "targets_dnp": {
+      "n": 14342,
+      "mae_chain": 1.4602,
+      "mae_incumbent": 1.5507,
+      "diff": -0.0904,
+      "clusters": 800,
+      "lo90": -0.0992,
+      "hi90": -0.0817,
+      "se": 0.0054,
+      "mde80": 0.0134
+    },
+    "carries_dnp": {
+      "n": 14342,
+      "mae_chain": 1.2547,
+      "mae_incumbent": 1.3359,
+      "diff": -0.0812,
+      "clusters": 800,
+      "lo90": -0.0959,
+      "hi90": -0.0668,
+      "se": 0.0089,
+      "mde80": 0.0221
+    }
+  },
+  "forward": {
+    "plays": {
+      "n": 32,
+      "mae_chain": 6.6875,
+      "mae_incumbent": 9.8125,
+      "diff": -3.125
+    },
+    "pass_rate": {
+      "n": 32,
+      "mae_chain": 0.0688,
+      "mae_incumbent": 0.0992,
+      "diff": -0.0303
+    },
+    "targets": {
+      "n": 329,
+      "mae_chain": 1.491,
+      "mae_incumbent": 1.5015,
+      "diff": -0.0105
+    },
+    "carries": {
+      "n": 329,
+      "mae_chain": 1.2084,
+      "mae_incumbent": 1.2428,
+      "diff": -0.0344
+    },
+    "targets_dnp": {
+      "n": 531,
+      "mae_chain": 1.382,
+      "mae_incumbent": 1.5465,
+      "diff": -0.1645
+    },
+    "carries_dnp": {
+      "n": 531,
+      "mae_chain": 1.106,
+      "mae_incumbent": 1.3013,
+      "diff": -0.1953
+    }
+  },
+  "red": {
+    "2023": {
+      "team_weeks": 544,
+      "max_target_dev": 0.000009056996045475607,
+      "max_carry_dev": 0.000014149274849661886
+    },
+    "2024": {
+      "team_weeks": 544,
+      "max_target_dev": 0.000010996884498015724,
+      "max_carry_dev": 0.000012947777298544239
+    },
+    "2026": {
+      "team_weeks": 32,
+      "max_target_dev": 0.000006634032142516233,
+      "max_carry_dev": 0.000008944543828270923
+    }
+  },
+  "decision": {
+    "2023": {
+      "pairs": 227971,
+      "incumbent": 0.7429,
+      "chain": 0.7427
+    },
+    "2024": {
+      "pairs": 227178,
+      "incumbent": 0.7486,
+      "chain": 0.7495
+    }
+  },
+  "verdict": {
+    "plays": {
+      "lower_in_both_seasons": true,
+      "pooled_ci_below_zero": true,
+      "dnp_no_worse": true,
+      "pass": true,
+      "forward_same_sign": true,
+      "ship": "ON"
+    },
+    "pass_rate": {
+      "lower_in_both_seasons": true,
+      "pooled_ci_below_zero": true,
+      "dnp_no_worse": true,
+      "pass": true,
+      "forward_same_sign": true,
+      "ship": "ON"
+    },
+    "targets": {
+      "lower_in_both_seasons": true,
+      "pooled_ci_below_zero": false,
+      "dnp_no_worse": true,
+      "pass": false,
+      "forward_same_sign": true,
+      "ship": "incumbent kept"
+    },
+    "carries": {
+      "lower_in_both_seasons": false,
+      "pooled_ci_below_zero": false,
+      "dnp_no_worse": true,
+      "pass": false,
+      "forward_same_sign": true,
+      "ship": "incumbent kept"
+    }
+  }
+}

@@ -434,13 +434,22 @@ const ROSTER_WEEKS = 3;
 
 /**
  * PROJ-02-a: which chain links are served in place of their incumbent. Each flag is
- * set by that link's pre-registered ship rule, and the result is recorded in
- * docs/tdd/2026-09-23-proj-02-a-sharp-chain.tdd.md. `plays` and `pass_rate` are
- * exposed only: every weekly consumer already applies the same game script through
- * gameScriptFor (fantasy-coordinator, season-sim, nfl-props), so serving them here
- * would count the script twice.
+ * set by that link's pre-registered ship rule; numbers and commands are in
+ * docs/tdd/2026-09-23-proj-02-a-sharp-chain.tdd.md (configuration B, 2023 and 2024
+ * weeks 2-18 walk-forward, 2026 week 2 forward; sign: chain - incumbent MAE).
+ *
+ *   plays      ON. Beats season-average plays in both seasons, pooled 90% CI below 0,
+ *              same sign forward.
+ *   pass_rate  ON. Beats season-to-date pass rate the same way.
+ *   targets    OFF, incumbent kept: lower in both seasons but the pooled 90% CI
+ *              straddles 0 (a tie at this power).
+ *   carries    OFF, incumbent kept: worse in both seasons, CI above 0.
+ *
+ * `plays` and `pass_rate` set only `links.*.value`: every weekly consumer already
+ * applies the same game script through gameScriptFor (fantasy-coordinator,
+ * season-sim, nfl-props), so feeding them into volume here would count it twice.
  */
-export const CHAIN_SERVED = Object.freeze({ plays: false, pass_rate: false, targets: false, carries: false });
+export const CHAIN_SERVED = Object.freeze({ plays: true, pass_rate: true, targets: false, carries: false });
 
 /**
  * Positional priors — what an unknown player at this position looks like.

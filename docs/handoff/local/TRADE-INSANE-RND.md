@@ -66,7 +66,7 @@ In plain English: we build a clone of every manager in your leagues, meaning a m
 - The clones respond: they claim free agents, counter, or reject. Use Monte Carlo tree search, where the score is your title odds after the clones' likely replies.
 - Pick paths where every counterparty's clone sees a gain (so they say yes) but your real gain is bigger.
 
-### Layer 5: AI pitch and persona test
+### Layer 5: AI pitch (persona test ANSWERED r17: the LLM persona loses to a waiver-move count, AUC 0.47 vs 0.78. The LLM writes pitches only)
 - An LLM writes the pitch framed on the other manager's needs.
 - R&D question: does an LLM persona built from a manager's history predict their decisions better than the statistical clone? Test it; don't assume it.
 

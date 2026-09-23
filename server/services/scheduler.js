@@ -1362,14 +1362,18 @@ export const JOBS = {
   nfl_play_by_play: { run: () => import('./nfl-espn-pbp.js').then(m => m.pollLiveGames({})),
     maxAgeMinutes: 3, tier: 'live', label: 'Live NFL play-by-play (free, no quota)' },
   // Free, keyless, read-only (Jetstream: "No authentication is required for the live
-  // tail"). This is the only in-week gameday-inactive source; the Start/Sit warnings read
-  // it (lineup-brain.js lineupCall). Each run replays the last 30 minutes of about 19
-  // watched accounts' posts, filtered on the server by DID, and then closes the socket.
-  // Rows are keyed on the post URI, so the overlap between runs is harmless.
-  // Main thread on purpose: the run is socket I/O plus a few indexed writes.
+  // tail"). It overlaps nfl_news_signals (nfl-news-signal.js STATUS_RULES 'out'), which
+  // reads the same kind of post for the News page; the two are not yet one reader (see
+  // the tdd doc, section 9). The Start/Sit live-inactive warning reads this table
+  // (lineup-brain.js lineupCall, default off behind LIVE_INACTIVE_WARNINGS=1). Each run
+  // replays the last 30 minutes of about 19 watched accounts' posts, filtered on the
+  // server by DID, and then closes the socket. Rows are keyed on the post URI, so the
+  // overlap between runs is harmless.
+  // Off-thread: every run holds its socket open for at least idleMs (4 s), and the
+  // request-thread count may only go down (test/growth-jobs-off-thread.test.js).
   live_inactives: { run: () => Promise.all([import('./live-inactive-monitor.js'), import('./trade-engine.js')])
     .then(([m, te]) => { const { season, week } = te.tradeWeekContext(); return m.pollJetstream({ season, week }); }),
-  maxAgeMinutes: 3, tier: 'live', label: 'Live gameday inactives from public Bluesky posts (free, no key)' },
+  maxAgeMinutes: 3, tier: 'live', offThread: true, label: 'Live gameday inactives from public Bluesky posts (free, no key)' },
   // Free and unauthenticated, like the ESPN feeds. Kalshi is an order book
   // rather than a bookmaker's number, and its trade tape carries size and
   // aggressor side — information no sportsbook feed exposes.

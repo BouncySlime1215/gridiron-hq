@@ -1,5 +1,5 @@
 /**
- * Live gameday inactives, the one in-week source (RL-3-2, plan item SS-01).
+ * Live gameday inactives from public Bluesky posts (RL-3-2, plan item SS-01). Overlaps nfl_news_signals "out" (nfl-news-signal.js STATUS_RULES); see the tdd doc, section 9 item 9.
  *
  * The only inactive list the app had before this was nflverse's weekly roster
  * snapshot (nfl-event-archive.js:191, `source: 'nflverse_weekly_rosters'`). That file
@@ -77,6 +77,17 @@ const INACTIVE_RE = /\b(?:inactives?|ruled out|will not play|won'?t play|not pla
 const ACTIVE_RE = /\b(?:actives?|(?:is|are)\s+(?:officially\s+|both\s+|all\s+)*up\b|will play|(?:is|are) playing|expected to play|good to go|will suit up)\b/i;
 /** A clause about an earlier game ("was inactive last week") is not a claim about this one. */
 const PAST_RE = /\b(?:was|were)\s+(?:\w+\s+)?(?:inactive|out|active)\b|\blast (?:week|sunday|game|season|year)\b|\bprevious(?:ly)?\b/i;
+/**
+ * A hedge is not a status. "trending towards not playing", "not sure if X will play",
+ * "likely out", "expected to play": each reads as a definitive word inside a guess, and
+ * the reader keeps the LATEST claim, so a hedged 'active' after a real "ruled out" would
+ * silently remove the warning. Refused in both directions. Injury designations
+ * (questionable, doubtful) are NOT hedges: "Questionable WR X is inactive" is the very
+ * post this monitor exists for.
+ */
+const HEDGE_RE = /\b(?:trending|expect(?:s|ed|ing)?|(?:un)?likely|probabl[ey]|not sure|unsure|uncertain|unclear|game[- ]time|hop(?:e|es|ed|ing|eful)|might|may|could|possibly|if|whether|should)\b/i;
+/** "not expected to play", "isn't good to go": a negated active word is not an active claim. */
+const NEGATED_ACTIVE_WORD_RE = /(?:\bnot|\bnever|n't)\s+(?:\w+\s+){0,2}$/i;
 /** "..., as is <player>" carries the previous clause's status over. */
 const INHERIT_RE = /^as\s+(?:is|are|was|were)\b/i;
 
@@ -111,14 +122,17 @@ export function parseStatusClauses(text) {
   let prev = null;
   for (const clause of clausesOf(text)) {
     let status = null, m = null;
-    if (PAST_RE.test(clause)) status = null;
+    if (PAST_RE.test(clause) || HEDGE_RE.test(clause)) status = null;
     else if ((m = NEGATED_ACTIVE_RE.exec(clause))) status = 'inactive';
     else {
       const mi = INACTIVE_RE.exec(clause);
       // "inactive" never matches ACTIVE_RE (no word boundary inside it), so a clause
       // that matches both genuinely holds both words, as a header like
       // "Actives/inactives:" does. Refused rather than guessed.
-      const ma = ACTIVE_RE.exec(clause);
+      let ma = ACTIVE_RE.exec(clause);
+      // A negated active word is refused outright rather than flipped to inactive:
+      // "not good to go" is closer to a hedge than to "ruled out".
+      if (ma && NEGATED_ACTIVE_WORD_RE.test(clause.slice(0, ma.index))) { out.push({ clause, status: null, at: null, end: null }); prev = null; continue; }
       if (mi && !ma) { status = 'inactive'; m = mi; }
       else if (ma && !mi) { status = 'active'; m = ma; }
       else if (!mi && !ma && INHERIT_RE.test(clause)) status = prev;

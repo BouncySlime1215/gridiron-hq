@@ -178,4 +178,6 @@ test('hedges and negated actives are not definitive statuses (skeptic probe, win
   assert.deepEqual(claims('Jaylen Waddle will play Sunday.'), ['Jaylen Waddle:active']);
   assert.deepEqual(claims('Jaylen Waddle is not playing Sunday.'), ['Jaylen Waddle:inactive']);
   assert.deepEqual(claims('Jaylen Waddle has been ruled out.'), ['Jaylen Waddle:inactive']);
+  assert.deepEqual(claims('Questionable WR Jaylen Waddle is inactive.'), ['Jaylen Waddle:inactive'],
+    'an injury designation is not a hedge');
 });

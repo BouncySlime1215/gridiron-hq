@@ -656,12 +656,19 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // Slots where an eligible bench player existed but carried no projection.
   const unprojected = calls.filter(c => c.confidence === 'no projection');
   // Starters a watched public account declared inactive for this week's game before
-  // kickoff (live-inactive-monitor.js, the one in-week inactive source). The Friday
+  // kickoff (live-inactive-monitor.js; overlaps nfl_news_signals "out", tdd section 9 item 9). The Friday
   // report and active_probability cannot see this: a Questionable starter sits at
   // ~0.85 to play right up until the inactive list comes out at T-90. One warning per
   // starter. When he is flagged here, the probability/bye warning for him is dropped,
   // because this one is the stronger and more specific statement.
-  const liveInactive = liveInactiveClaims({ season, week });
+  //
+  // DEFAULT OFF (standing rule b): the only 2026 weeks played (W1-W2) are the weeks the
+  // parser was designed on, so there is no forward holdout yet. The listener and the
+  // table stay on; the warning shows only with LIVE_INACTIVE_WARNINGS=1 until the W3-W5
+  // forward test passes (docs/tdd/2026-09-23-live-inactive-monitor.tdd.md section 3).
+  // Read per call so the flag needs no restart.
+  const liveInactive = process.env.LIVE_INACTIVE_WARNINGS === '1'
+    ? liveInactiveClaims({ season, week }) : new Map();
   const deadStarters = calls.filter(c => liveInactive.has(c.player.id));
   const risky = calls.filter(c => !liveInactive.has(c.player.id) &&
     ((c.player.active_probability ?? 1) < 0.75 || c.player.bye === week));

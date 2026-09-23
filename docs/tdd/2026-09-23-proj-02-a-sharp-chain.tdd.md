@@ -60,7 +60,7 @@ the per-player shares (:595-605 on `62f9530a`) and read `gameScriptFor`
 | 5 | `a7de3e70` | feat: PROJ-02-a ship decisions per link (plays, pass rate served; targets, carries keep incumbent) |
 | 6 | `6234a04b` | docs: PROJ-02-a evidence, holdout-ledger forward rows |
 | 7 | `99dd4232` | fix: PROJ-02-a plays and pass rate default-off vs the real incumbent (neutral pace); route takes week; share tests pin per-player normalization |
-| 8 | this commit | docs: PROJ-02-a evidence for skeptic round 1 |
+| 8 | `0216ab5e` | docs: PROJ-02-a evidence for skeptic round 1 |
 
 **RED:** `4e242266` (test: RED for PROJ-02-a sharp chain links and per-team share
 normalization). On the unfixed code, all 6 tests fail. The first failing assertion is

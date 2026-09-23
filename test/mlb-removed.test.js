@@ -34,6 +34,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { JOBS, MAIN_THREAD_ONLY, ON_REQUEST_THREAD, BOOT_JOBS }
   from '../server/services/scheduler.js';
+import { scan, moduleEdges } from '../scripts/wiring-map.mjs';
 
 const read = p => fs.readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 
@@ -143,34 +144,116 @@ test('Middle Linebacker survives the sweep', () => {
  * from #128 above: dead code or a live path that should have been closed along with
  * the rest of the removal, but wasn't because nothing exercised it in a way the
  * original census would have caught.
+ *
+ * These pins read CODE, not comments. `scan()` is the wiring gate's own scanner: its
+ * `text` view blanks comments and keeps string bodies (SQL and import specifiers live
+ * in strings). A comment that documents the removal, like the one server/index.js
+ * keeps where the props mounts used to be, is never mistaken for the thing it names.
+ * An earlier version matched only the exact `import('./routes/props.js')` spelling in
+ * server/index.js, because a broader pattern would have hit that comment, and so it
+ * passed with the board mounted again from a static import or from another router.
  */
+
+const code = p => scan(read(p)).text;
+
+/** Every .js/.mjs/.cjs file under server/ and scripts/, repo-relative and sorted. */
+function liveSources() {
+  const out = [];
+  const walk = dir => {
+    for (const entry of fs.readdirSync(new URL(`../${dir}/`, import.meta.url), { withFileTypes: true })) {
+      const rel = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) { if (entry.name !== 'node_modules') walk(rel); }
+      else if (/\.(c|m)?js$/.test(entry.name)) out.push(rel);
+    }
+  };
+  walk('server');
+  walk('scripts');
+  return out.sort();
+}
+
+/**
+ * The files among liveSources() that import one of `targets` (repo-relative paths) in
+ * any form the wiring gate reads -- static, bare, re-export or dynamic `import()` --
+ * with the specifier resolved against the importing file. It uses the gate's own
+ * parser (`moduleEdges`), so this test and `check:wiring` mean the same thing by
+ * "imports". The substring test is only a cheap pre-filter; the parse decides.
+ */
+function importersOf(targets) {
+  const wanted = new Set(targets);
+  const hints = [...new Set(targets.map(t => path.posix.basename(t, '.js')))];
+  return liveSources().filter(file => {
+    const raw = read(file);
+    if (!hints.some(h => raw.includes(h))) return false;
+    return moduleEdges(scan(raw).text).imports.some(({ spec }) => {
+      if (!spec.startsWith('.')) return false;
+      const resolved = path.posix.join(path.posix.dirname(file), spec);
+      return wanted.has(resolved) || wanted.has(`${resolved}.js`);
+    });
+  });
+}
+
+/**
+ * The files among liveSources() whose code names `word` (comments blanked, strings
+ * kept, so SQL and string literals count), less any file under an `except` prefix.
+ */
+function codeNaming(word, except = []) {
+  const re = new RegExp(`\\b${word}\\b`);
+  return liveSources()
+    .filter(file => !except.some(prefix => file.startsWith(prefix)))
+    .filter(file => { const raw = read(file); return raw.includes(word) && re.test(scan(raw).text); });
+}
+
+/** A table's users, less the two places that declare it and so keep it on disk. */
+const tableUsers = table => codeNaming(table, ['server/db/schema/', 'server/migrations/']);
+
+const MLB_PROPS_ROUTERS = ['server/routes/props.js', 'server/routes/props-tickets.js'];
 
 test('odds-api.js no longer exports MLB-only symbols', () => {
   // #128 deleted routes/mlb.js and every MLB service, which were the only callers of
   // mlbEvents/mlbEventOdds/MLB_MARKETS/MLB_SPORT in server/services/odds-api.js — a
   // shared betting module the removal never touched. `git grep` confirms zero callers
   // remain anywhere in server, scripts, client/src or test.
-  const src = read('server/services/odds-api.js');
+  const src = code('server/services/odds-api.js');
   for (const symbol of ['MLB_MARKETS', 'mlbEvents', 'mlbEventOdds', 'MLB_SPORT']) {
     assert.ok(!new RegExp(`\\b${symbol}\\b`).test(src),
       `odds-api.js still defines ${symbol}, a dead MLB-only export nothing calls`);
   }
+  // The same dead export under a new name is still MLB code, and so is a caller in
+  // another file handing odds-api.js's shared sportEvents()/eventOdds() the MLB sport.
+  // Whatever either is called, it has to carry the Odds API's MLB sport key, so no live
+  // file may name it. Known-live case first: the NFL key, which odds-api.js uses today.
+  assert.ok(codeNaming('americanfootball_nfl').includes('server/services/odds-api.js'),
+    "the scan cannot see odds-api.js name 'americanfootball_nfl', so it proves nothing");
+  assert.deepEqual(codeNaming('baseball_mlb'), [],
+    "these files still name the Odds API's MLB sport key 'baseball_mlb'; MLB is gone from the product (#128)");
 });
 
-test('the MLB props board and its saved-ticket router are not mounted', () => {
-  // server/routes/props.js ("MLB prop research board") and props-tickets.js
-  // ("Saved MLB prop slips") were still mounted at /api/props and /api/props-tickets
-  // in server/index.js after #128, with zero references from client/src — no page
-  // ever fetched either path. The router files themselves stay (their own tests
-  // still import them directly); only the live mount comes out.
-  const index = read('server/index.js');
-  assert.ok(!/import\('\.\/routes\/props\.js'\)/.test(index),
-    'server/index.js still imports the MLB props router');
-  assert.ok(!/import\('\.\/routes\/props-tickets\.js'\)/.test(index),
-    'server/index.js still imports the MLB props-tickets router');
-  assert.ok(!/['"]\/api\/props['"]/.test(index),
+test('the MLB props board and its saved-slip router are deleted, and nothing live imports or mounts them', () => {
+  // server/routes/props.js ("MLB prop research board", a proxy to a private baseball
+  // repo) and props-tickets.js ("Saved MLB prop slips") were still mounted at
+  // /api/props and /api/props-tickets after #128, and no client page called either
+  // path. Unmounting them and keeping the files left two modules that only their own
+  // tests imported: what the wiring gate calls module-only-tested, "built, verified,
+  // never wired in", and it passed only through an accept-list entry. #128 deleted
+  // routes/mlb.js; these two go the same way. Their tables stay (see the next tests).
+  for (const file of MLB_PROPS_ROUTERS) {
+    assert.ok(!fs.existsSync(new URL(`../${file}`, import.meta.url)),
+      `${file} is still in the tree. It is MLB code with no mount and no client caller, `
+      + 'kept alive only by its own tests; MLB is gone from the product (#128)');
+  }
+  // Known-live case first, so an empty answer below is a finding and not a blind scan:
+  // server/index.js imports the betting hub's router today.
+  assert.ok(importersOf(['server/routes/betting-hub.js']).includes('server/index.js'),
+    'the import scan cannot see server/index.js import routes/betting-hub.js, so it proves nothing');
+  // Any file, any import form: a static import in server/index.js, or another router
+  // that mounts the board under its own prefix (betting-hub.js's r.use('/props', ...)
+  // would serve it at /api/betting/props), is the board back just the same.
+  assert.deepEqual(importersOf(MLB_PROPS_ROUTERS), [],
+    'these files import the deleted MLB props board or its saved-slip router');
+  const index = code('server/index.js');
+  assert.ok(!/['"`]\/api\/props['"`]/.test(index),
     'server/index.js still mounts /api/props, which no client page calls');
-  assert.ok(!/['"]\/api\/props-tickets['"]/.test(index),
+  assert.ok(!/['"`]\/api\/props-tickets['"`]/.test(index),
     'server/index.js still mounts /api/props-tickets, which no client page calls');
 });
 
@@ -182,9 +265,38 @@ test('betting-hub.js no longer computes an MLB standing from the now-unmounted p
   // existed the moment props.js came out: a route answering from a feed that has silently
   // stopped, the exact shape #128's own commit called out when it took the MLB jobs and
   // router out together rather than leaving one half standing.
-  const src = read('server/routes/betting-hub.js');
+  const src = code('server/routes/betting-hub.js');
   assert.ok(!/mlbStanding/.test(src),
     'betting-hub.js still defines/calls mlbStanding(), which reads props_auto_picks -- a table '
     + 'nothing writes once props.js is unmounted');
   assert.ok(!/\bmlb:\s*\{/.test(src), 'server/routes/betting-hub.js still reports an mlb key from /summary');
+  // The same stopped-feed read under another name or key is the same bug.
+  assert.ok(!/\bprops_auto_picks\b/.test(src),
+    'betting-hub.js still reads props_auto_picks, a table nothing writes since the MLB props board was deleted');
+});
+
+test('props_auto_picks and saved_prop_tickets stay on disk, and nothing live reads or writes them', () => {
+  // The two deleted routers were each table's only writer: ensureAutoPicksFor() in
+  // routes/props.js wrote props_auto_picks, and POST / and DELETE /:id in
+  // routes/props-tickets.js wrote saved_prop_tickets. The tables and every row in them
+  // stay, as the eleven mlb_ tables did in #128: dropping one needs Nick's own word.
+  assert.match(read('server/db/schema/core-and-fantasy.js'), /CREATE TABLE IF NOT EXISTS props_auto_picks\b/,
+    'props_auto_picks is no longer declared. SY-06 removes its reader and writer, not the table');
+  assert.match(read('server/migrations/018_saved_prop_tickets.js'), /CREATE TABLE IF NOT EXISTS saved_prop_tickets\b/,
+    'saved_prop_tickets is no longer created. SY-06 removes its reader and writer, not the table');
+  const migrations = fs.readdirSync(new URL('../server/migrations/', import.meta.url))
+    .filter(name => /\.js$/.test(name) && name !== '018_saved_prop_tickets.js');   // 018's own rollback may drop it
+  for (const name of migrations) {
+    assert.ok(!/DROP TABLE[^;]*\b(props_auto_picks|saved_prop_tickets)\b/i.test(code(`server/migrations/${name}`)),
+      `server/migrations/${name} drops an MLB props table. That is destructive and needs Nick's own word`);
+  }
+  // Known-live case first: the same scan finds the decision inbox's own table in its router.
+  assert.ok(tableUsers('decision_recommendations').includes('server/routes/decision-inbox.js'),
+    'the table scan cannot see decision-inbox.js use decision_recommendations, so it proves nothing');
+  // A reader with no writer answers from a feed that stopped (betting-hub.js's
+  // mlbStanding() was one); a writer means the MLB props board is back under another name.
+  assert.deepEqual(tableUsers('props_auto_picks'), [],
+    'these files read or write props_auto_picks, which has had no producer since the MLB props board was deleted');
+  assert.deepEqual(tableUsers('saved_prop_tickets'), [],
+    'these files read or write saved_prop_tickets, which has had no producer since the MLB saved-slip router was deleted');
 });

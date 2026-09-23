@@ -25,11 +25,11 @@ await (await import('../server/db/migrate.js')).runMigrations();
 const realFetch = globalThis.fetch;
 after(() => { globalThis.fetch = realFetch; db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
-const COLS = ['season_type', 'week', 'posteam', 'defteam', 'home_team', 'play_type', 'down', 'ydstogo', 'yardline_100', 'epa', 'success'];
+const COLS = ['season_type', 'week', 'posteam', 'defteam', 'home_team', 'play_type', 'down', 'ydstogo', 'yardline_100', 'epa', 'success', 'fixed_drive', 'drive_start_yard_line'];
 const play = o => COLS.map(c => (o[c] ?? '')).join(',');
 const csv = [COLS.join(','),
-  play({ season_type: 'REG', week: 1, posteam: 'LA', defteam: 'SEA', home_team: 'LA', play_type: 'run', down: 1, ydstogo: 10, yardline_100: 75, epa: '0.2', success: '1' }),
-  play({ season_type: 'REG', week: 1, posteam: 'SEA', defteam: 'LA', home_team: 'LA', play_type: 'pass', down: 1, ydstogo: 10, yardline_100: 75, epa: '-0.1', success: '0' })];
+  play({ season_type: 'REG', week: 1, posteam: 'LA', defteam: 'SEA', home_team: 'LA', play_type: 'run', down: 1, ydstogo: 10, yardline_100: 75, epa: '0.2', success: '1', fixed_drive: 1, drive_start_yard_line: 'LA 25' }),
+  play({ season_type: 'REG', week: 1, posteam: 'SEA', defteam: 'LA', home_team: 'LA', play_type: 'pass', down: 1, ydstogo: 10, yardline_100: 75, epa: '-0.1', success: '0', fixed_drive: 2, drive_start_yard_line: 'SEA 25' })];
 globalThis.fetch = async () => ({
   ok: true, status: 200,
   body: Readable.toWeb(Readable.from([zlib.gzipSync(Buffer.from(csv.join('\n') + '\n'))]))
@@ -44,6 +44,18 @@ test('an LA play-by-play row is stored as LAR, on both sides of the game', async
   assert.deepEqual(got.map(r => ({ ...r })), [
     { team: 'LAR', opponent: 'SEA', home: 1 },
     { team: 'SEA', opponent: 'LAR', home: 0 }
+  ]);
+});
+
+// nflverse labels the Rams' half of the field 'LA 25', not 'LAR 25'. Once the
+// writer canonicalises posteam, the yard-line prefix must be canonicalised too,
+// or a Rams drive from their own 25 is stored as starting at the opponent's 25.
+test('a Rams drive starting at "LA 25" is stored as their own 25, not 75', () => {
+  const start = rows("SELECT team, features FROM nfl_team_week_features WHERE season=2030 ORDER BY team")
+    .map(r => { const f = JSON.parse(r.features); return { team: r.team, off: f.off_avg_drive_start, def: f.def_avg_drive_start }; });
+  assert.deepEqual(start, [
+    { team: 'LAR', off: 25, def: 75 },
+    { team: 'SEA', off: 25, def: 75 }
   ]);
 });
 

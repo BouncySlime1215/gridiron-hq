@@ -292,7 +292,13 @@ export async function commandCenter(userId) {
       streamR = attempt(lg.id, 'streams', () => stream(lg, { myTeamId: lg.my_team_id, season, week }));
       sources.streams = streamR.error ? { state: 'error', message: streamR.error }
         : streamR.value?.error ? { state: 'unavailable', message: streamR.value.error }
-          : { state: 'present', producer: 'streamingBoard.suggestion (WV-01)', action: streamR.value?.suggestion?.action ?? null };
+          // WV-01 ships its swap suggestion default-off until it holds on 2026
+          // forward weeks; a gated suggestion is all-null. That is "switched off",
+          // not "no better defense", and it is said as such.
+          : streamR.value?.suggestion && streamR.value.suggestion.action == null && streamR.value.suggestion.why == null
+            ? { state: 'default_off', producer: 'streamingBoard.suggestion (WV-01)',
+              message: 'switched off until it is confirmed on this season\'s games' }
+            : { state: 'present', producer: 'streamingBoard.suggestion (WV-01)', action: streamR.value?.suggestion?.action ?? null };
     }
 
     const movesR = attempt(lg.id, 'moves', () => movesThisWeek(lg, now));

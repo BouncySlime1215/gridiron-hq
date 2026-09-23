@@ -247,6 +247,15 @@ test('a producer that throws marks that source "error" for that league and the r
   assert.deepEqual(body.items.filter(i => i.league.id === redLeague).map(i => i.kind).sort(), ['dead_starter', 'injury_alert']);
 });
 
+test('WV-01 default-off: an all-null suggestion reads "default_off", not "present" and not an empty list', async () => {
+  producerOut.set(redLeague, { diff: { flagged_starters: [] }, waivers: { immediate: [] } });
+  cc.__setStreamingProducer(() => ({ candidates: [{ team: 'KC' }], suggestion: { action: null, add: null, drop: null, edge: null, why: null } }));
+  cc.__clearCache();
+  const body = await (await fetch(base, { headers: { 'x-test-user': String(nick) } })).json();
+  assert.equal(body.leagues.find(l => l.id === redLeague).sources.streams.state, 'default_off');
+  assert.ok(!body.items.some(i => i.kind === 'stream'));
+});
+
 test('empty: a user with no leagues gets no items and says why', async () => {
   cc.__clearCache();
   const body = await (await fetch(base, { headers: { 'x-test-user': String(nobody) } })).json();

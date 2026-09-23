@@ -1,0 +1,13 @@
+{
+  "tests": ["test/weekly-blend-wiring.test.js"],
+  "mutants": [
+    { "id": "C12", "kind": "consumer", "file": "server/services/trade-engine.js", "expect": "KILLED",
+      "note": "the trade horizon reads our unblended week number instead of current_week_ppg",
+      "from": "const decisionPpg = 0.25 * currentWeekPpg + 0.75 * rosPpg;",
+      "to": "const decisionPpg = 0.25 * (thisGame ? currentWeekBasePpg * thisGame.mult * activeProbability : 0) + 0.75 * rosPpg;" },
+    { "id": "C13", "kind": "consumer", "file": "server/services/lineup-brain.js", "expect": "KILLED",
+      "note": "Start/Sit reads adj_ppg before current_week_ppg",
+      "from": "  const base = p.current_week_ppg ?? p.adj_ppg ?? p.ppg ?? 0;\n  // Unlike the trade horizon",
+      "to": "  const base = p.adj_ppg ?? p.current_week_ppg ?? p.ppg ?? 0;\n  // Unlike the trade horizon" }
+  ]
+}

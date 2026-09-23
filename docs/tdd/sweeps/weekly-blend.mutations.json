@@ -1,0 +1,699 @@
+{
+  "unit": "BLEND-01",
+  "runner": "isolated detached worktree per run; anchor must occur exactly once or the row is NOT-APPLIED; file restored and re-hashed after each mutant",
+  "runs": [
+    {
+      "sha": "e55864be",
+      "tree": "781aeba008c543e1a977756696e0f7c8fa749fbd",
+      "tests": [
+        "test/weekly-blend.test.js",
+        "test/weekly-blend-wiring.test.js",
+        "test/weekly-blend-tournament.test.js"
+      ],
+      "baseline": {
+        "pass": 30,
+        "fail": 0,
+        "failing": []
+      },
+      "rows": [
+        {
+          "id": "U1",
+          "file": "server/services/weekly-blend.js",
+          "kind": "unit",
+          "expect": "KILLED",
+          "note": "late-news trigger fires on ESPN 0 even when ours is 0",
+          "from": "return (espn === 0 && ours > 0) || LATE_NEWS_STATUS",
+          "to": "return (espn === 0) || LATE_NEWS_STATUS",
+          "occurrences": 1,
+          "sha_before": "c69cd5c7135a",
+          "state": "APPLIED",
+          "sha_after": "4fb2bbc80da9",
+          "pass": 29,
+          "fail": 1,
+          "failing": [
+            "test/weekly-blend.test.js: the late-news trigger: ESPN at 0 while ours is not, or Out/Doubtful; nothing else"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "c69cd5c7135a",
+          "as_expected": true
+        },
+        {
+          "id": "U2",
+          "file": "server/services/weekly-blend.js",
+          "kind": "unit",
+          "expect": "KILLED",
+          "note": "late-news status widened to Questionable",
+          "from": "export const LATE_NEWS_STATUS = /^(out|doubtful)\\b/i;",
+          "to": "export const LATE_NEWS_STATUS = /^(out|doubtful|questionable)\\b/i;",
+          "occurrences": 1,
+          "sha_before": "c69cd5c7135a",
+          "state": "APPLIED",
+          "sha_after": "e389e49b77c7",
+          "pass": 29,
+          "fail": 1,
+          "failing": [
+            "test/weekly-blend.test.js: the late-news trigger: ESPN at 0 while ours is not, or Out/Doubtful; nothing else"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "c69cd5c7135a",
+          "as_expected": true
+        },
+        {
+          "id": "U3",
+          "file": "server/services/weekly-blend.js",
+          "kind": "unit",
+          "expect": "KILLED",
+          "note": "phase boundary: week 4 leaves the 2-4 band",
+          "from": "if (!Number.isFinite(w) || w <= 4) return '2-4';",
+          "to": "if (!Number.isFinite(w) || w < 4) return '2-4';",
+          "occurrences": 1,
+          "sha_before": "c69cd5c7135a",
+          "state": "APPLIED",
+          "sha_after": "067df9033c6c",
+          "pass": 28,
+          "fail": 2,
+          "failing": [
+            "test/weekly-blend.test.js: phaseFor puts each week in its pre-registered band",
+            "test/weekly-blend-tournament.test.js: C5: a cell with too few slates is its pooled weight; a well-sampled cell moves toward its own fit"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "c69cd5c7135a",
+          "as_expected": true
+        },
+        {
+          "id": "U4",
+          "file": "server/services/weekly-blend.js",
+          "kind": "unit",
+          "expect": "KILLED",
+          "note": "50/50 becomes 60/40",
+          "from": "value: x => 0.5 * x.ours + 0.5 * x.espn,",
+          "to": "value: x => 0.6 * x.ours + 0.4 * x.espn,",
+          "occurrences": 1,
+          "sha_before": "c69cd5c7135a",
+          "state": "APPLIED",
+          "sha_after": "0341ca8319af",
+          "pass": 27,
+          "fail": 3,
+          "failing": [
+            "test/weekly-blend.test.js: each candidate computes exactly its pre-registered formula",
+            "test/weekly-blend.test.js: late news: the news candidate and the layer take ESPN only when the trigger fires",
+            "test/weekly-blend.test.js: the served switch: off serves ours, labelled; on serves the recorded candidate"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "c69cd5c7135a",
+          "as_expected": true
+        },
+        {
+          "id": "U5",
+          "file": "server/services/weekly-blend.js",
+          "kind": "unit",
+          "expect": "KILLED",
+          "note": "ESPN-alone candidate returns ours",
+          "from": "espn: Object.freeze({ id: 'C2', ladder: 1, fitted: 0, value: x => x.espn,",
+          "to": "espn: Object.freeze({ id: 'C2', ladder: 1, fitted: 0, value: x => x.ours,",
+          "occurrences": 1,
+          "sha_before": "c69cd5c7135a",
+          "state": "APPLIED",
+          "sha_after": "3fc2eeafdeb1",
+          "pass": 29,
+          "fail": 1,
+          "failing": [
+            "test/weekly-blend.test.js: each candidate computes exactly its pre-registered formula"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "c69cd5c7135a",
+          "as_expected": true
+        },
+        {
+          "id": "U6",
+          "file": "server/services/weekly-blend.js",
+          "kind": "unit",
+          "expect": "KILLED",
+          "note": "no game serves ours instead of 0",
+          "from": "  if (bye) return { ppg: 0, basis: 'no_game', weight_ours: null, espn: e };",
+          "to": "  if (bye) return { ppg: ours, basis: 'no_game', weight_ours: null, espn: e };",
+          "occurrences": 1,
+          "sha_before": "c69cd5c7135a",
+          "state": "APPLIED",
+          "sha_after": "7b79db32e922",
+          "pass": 28,
+          "fail": 2,
+          "failing": [
+            "test/weekly-blend.test.js: the fallbacks are decided once and labelled",
+            "test/weekly-blend-tournament.test.js: predict is the served blendWeekPoints, with each candidate's own parameters"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "c69cd5c7135a",
+          "as_expected": true
+        },
+        {
+          "id": "U7",
+          "file": "server/services/weekly-blend.js",
+          "kind": "unit",
+          "expect": "KILLED",
+          "note": "kickers blended too",
+          "from": "new Set(['QB', 'RB', 'WR', 'TE'])",
+          "to": "new Set(['QB', 'RB', 'WR', 'TE', 'K'])",
+          "occurrences": 1,
+          "sha_before": "c69cd5c7135a",
+          "state": "APPLIED",
+          "sha_after": "466c3888015d",
+          "pass": 28,
+          "fail": 2,
+          "failing": [
+            "test/weekly-blend.test.js: the fallbacks are decided once and labelled",
+            "test/weekly-blend-tournament.test.js: fit rows: an ESPN value, ours >= 4, a graded position"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "c69cd5c7135a",
+          "as_expected": true
+        },
+        {
+          "id": "U8",
+          "file": "server/services/weekly-blend.js",
+          "kind": "unit",
+          "expect": "KILLED",
+          "note": "ESPN reader keeps dropped players (on_roster = 0)",
+          "from": "AND on_roster = 1 AND projected_points IS NOT NULL",
+          "to": "AND projected_points IS NOT NULL",
+          "occurrences": 1,
+          "sha_before": "c69cd5c7135a",
+          "state": "APPLIED",
+          "sha_after": "eac9ca62ff50",
+          "pass": 29,
+          "fail": 1,
+          "failing": [
+            "test/weekly-blend.test.js: ESPN's number: this league and identically scored leagues, current period, rostered, one value"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "c69cd5c7135a",
+          "as_expected": true
+        },
+        {
+          "id": "U9",
+          "file": "server/services/weekly-blend.js",
+          "kind": "unit",
+          "expect": "KILLED",
+          "note": "leagues that disagree by 1 point still give a value",
+          "from": "export const ESPN_AGREEMENT = 0.01;",
+          "to": "export const ESPN_AGREEMENT = 5;",
+          "occurrences": 1,
+          "sha_before": "c69cd5c7135a",
+          "state": "APPLIED",
+          "sha_after": "051035ddf429",
+          "pass": 29,
+          "fail": 1,
+          "failing": [
+            "test/weekly-blend.test.js: ESPN's number: this league and identically scored leagues, current period, rostered, one value"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "c69cd5c7135a",
+          "as_expected": true
+        },
+        {
+          "id": "U10",
+          "file": "server/services/weekly-blend.js",
+          "kind": "unit",
+          "expect": "KILLED",
+          "note": "ESPN reader ignores scoring (reads every league)",
+          "from": "const same = leagues.filter(l => l.id === league?.id || scoringKey(l) === target).map(l => l.id);",
+          "to": "const same = leagues.map(l => l.id);",
+          "occurrences": 1,
+          "sha_before": "c69cd5c7135a",
+          "state": "APPLIED",
+          "sha_after": "0e9420cb5873",
+          "pass": 29,
+          "fail": 1,
+          "failing": [
+            "test/weekly-blend.test.js: ESPN's number: this league and identically scored leagues, current period, rostered, one value"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "c69cd5c7135a",
+          "as_expected": true
+        },
+        {
+          "id": "U11",
+          "file": "server/services/weekly-blend.js",
+          "kind": "unit",
+          "expect": "KILLED",
+          "note": "ESPN reader reads earlier periods too",
+          "from": "WHERE season = ? AND scoring_period_id = ? AND on_roster = 1",
+          "to": "WHERE season = ? AND scoring_period_id <= ? AND on_roster = 1",
+          "occurrences": 1,
+          "sha_before": "c69cd5c7135a",
+          "state": "APPLIED",
+          "sha_after": "575744f8b930",
+          "pass": 29,
+          "fail": 1,
+          "failing": [
+            "test/weekly-blend.test.js: ESPN's number: this league and identically scored leagues, current period, rostered, one value"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "c69cd5c7135a",
+          "as_expected": true
+        },
+        {
+          "id": "U12",
+          "file": "server/services/weekly-blend.js",
+          "kind": "unit",
+          "expect": "KILLED",
+          "note": "served switch ignored (off still blends)",
+          "from": "  if (!config?.on) {",
+          "to": "  if (false) {",
+          "occurrences": 1,
+          "sha_before": "c69cd5c7135a",
+          "state": "APPLIED",
+          "sha_after": "e9d05fd49e52",
+          "pass": 29,
+          "fail": 1,
+          "failing": [
+            "test/weekly-blend.test.js: the served switch: off serves ours, labelled; on serves the recorded candidate"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "c69cd5c7135a",
+          "as_expected": true
+        },
+        {
+          "id": "U13",
+          "file": "server/services/weekly-blend.js",
+          "kind": "unit",
+          "expect": "KILLED",
+          "note": "espn_proven: a cell with no proven slope takes 0.5 of ours",
+          "from": "(cell(p.b, x.position, x.week) ?? 0) * (x.ours - x.espn)",
+          "to": "(cell(p.b, x.position, x.week) ?? 0.5) * (x.ours - x.espn)",
+          "occurrences": 1,
+          "sha_before": "c69cd5c7135a",
+          "state": "APPLIED",
+          "sha_after": "0d8cbd5e4e67",
+          "pass": 29,
+          "fail": 1,
+          "failing": [
+            "test/weekly-blend.test.js: each candidate computes exactly its pre-registered formula"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "c69cd5c7135a",
+          "as_expected": true
+        },
+        {
+          "id": "U14",
+          "file": "server/services/weekly-blend.js",
+          "kind": "unit",
+          "expect": "KILLED",
+          "note": "pos_phase: a missing cell uses 0.5, not the pooled weight",
+          "from": "const w = cell(p.w, x.position, x.week) ?? p.pooled;",
+          "to": "const w = cell(p.w, x.position, x.week) ?? 0.5;",
+          "occurrences": 1,
+          "sha_before": "c69cd5c7135a",
+          "state": "APPLIED",
+          "sha_after": "cddf3a1ff366",
+          "pass": 29,
+          "fail": 1,
+          "failing": [
+            "test/weekly-blend.test.js: each candidate computes exactly its pre-registered formula"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "c69cd5c7135a",
+          "as_expected": true
+        },
+        {
+          "id": "U15",
+          "file": "server/services/weekly-blend.js",
+          "kind": "unit",
+          "expect": "KILLED",
+          "note": "the late-news layer is ignored on a blend",
+          "from": "if ((newsLayer || candidate === 'news') && lateNewsTrigger(x)) {",
+          "to": "if (candidate === 'news' && lateNewsTrigger(x)) {",
+          "occurrences": 1,
+          "sha_before": "c69cd5c7135a",
+          "state": "APPLIED",
+          "sha_after": "829c7e338e03",
+          "pass": 26,
+          "fail": 4,
+          "failing": [
+            "test/weekly-blend.test.js: late news: the news candidate and the layer take ESPN only when the trigger fires",
+            "test/weekly-blend.test.js: the served switch: off serves ours, labelled; on serves the recorded candidate",
+            "test/weekly-blend-wiring.test.js: late news: his week's Out status switches him to ESPN's number",
+            "test/weekly-blend-tournament.test.js: predict is the served blendWeekPoints, with each candidate's own parameters"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "c69cd5c7135a",
+          "as_expected": true
+        },
+        {
+          "id": "U16",
+          "file": "server/services/weekly-blend.js",
+          "kind": "unit",
+          "expect": "KILLED",
+          "note": "served decision drifts from the committed grade",
+          "from": "  candidate: 'espn',\n  params: null,",
+          "to": "  candidate: 'half',\n  params: null,",
+          "occurrences": 1,
+          "sha_before": "c69cd5c7135a",
+          "state": "APPLIED",
+          "sha_after": "5e7b5b8b4e46",
+          "pass": 29,
+          "fail": 1,
+          "failing": [
+            "test/weekly-blend.test.js: SERVED_BLEND is the committed tournament decision, not a hand-set switch"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "c69cd5c7135a",
+          "as_expected": true
+        },
+        {
+          "id": "S1",
+          "file": "server/services/weekly-blend.js",
+          "kind": "designed survivor",
+          "expect": "SURVIVED",
+          "note": "equivalent: (a + b) / 2 is 0.5 a + 0.5 b exactly in binary floating point",
+          "from": "value: x => 0.5 * x.ours + 0.5 * x.espn,",
+          "to": "value: x => (x.ours + x.espn) / 2,",
+          "occurrences": 1,
+          "sha_before": "c69cd5c7135a",
+          "state": "APPLIED",
+          "sha_after": "3e6a1a1715f1",
+          "pass": 30,
+          "fail": 0,
+          "failing": [],
+          "verdict": "SURVIVED",
+          "sha_restored": "c69cd5c7135a",
+          "as_expected": true
+        },
+        {
+          "id": "N1",
+          "file": "server/services/weekly-blend.js",
+          "kind": "not-applied control",
+          "expect": "NOT-APPLIED",
+          "note": "anchor absent from the file",
+          "from": "const BLEND_DISABLED = true;",
+          "to": "const BLEND_DISABLED = false;",
+          "occurrences": 0,
+          "sha_before": "c69cd5c7135a",
+          "state": "NOT-APPLIED",
+          "verdict": "NOT-APPLIED",
+          "as_expected": true,
+          "failing": []
+        },
+        {
+          "id": "C1",
+          "file": "server/services/trade-engine.js",
+          "kind": "call site",
+          "expect": "KILLED",
+          "note": "call site passes no ESPN number",
+          "from": "      espn: espnValueFor(espnWeek, p.espn_id), position: p.position, week: target.week,",
+          "to": "      espn: null, position: p.position, week: target.week,",
+          "occurrences": 1,
+          "sha_before": "8125a062a650",
+          "state": "APPLIED",
+          "sha_after": "f264ee6c1d30",
+          "pass": 27,
+          "fail": 3,
+          "failing": [
+            "test/weekly-blend-wiring.test.js: current_week_ppg is the served candidate of ours and ESPN's number, and says so",
+            "test/weekly-blend-wiring.test.js: late news: his week's Out status switches him to ESPN's number",
+            "test/weekly-blend-wiring.test.js: a new ESPN capture refreshes the cached universe"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "8125a062a650",
+          "as_expected": true
+        },
+        {
+          "id": "C2",
+          "file": "server/services/trade-engine.js",
+          "kind": "call site",
+          "expect": "KILLED",
+          "note": "current_week_ppg ignores the blend",
+          "from": "    const currentWeekPpg = weekBlend.ppg;",
+          "to": "    const currentWeekPpg = thisGame ? currentWeekBasePpg * thisGame.mult * activeProbability : 0;",
+          "occurrences": 1,
+          "sha_before": "8125a062a650",
+          "state": "APPLIED",
+          "sha_after": "06d84df12089",
+          "pass": 27,
+          "fail": 3,
+          "failing": [
+            "test/weekly-blend-wiring.test.js: current_week_ppg is the served candidate of ours and ESPN's number, and says so",
+            "test/weekly-blend-wiring.test.js: late news: his week's Out status switches him to ESPN's number",
+            "test/weekly-blend-wiring.test.js: a new ESPN capture refreshes the cached universe"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "8125a062a650",
+          "as_expected": true
+        },
+        {
+          "id": "C3",
+          "file": "server/services/trade-engine.js",
+          "kind": "call site",
+          "expect": "KILLED",
+          "note": "call site passes the wrong week (another phase)",
+          "from": "      espn: espnValueFor(espnWeek, p.espn_id), position: p.position, week: target.week,",
+          "to": "      espn: espnValueFor(espnWeek, p.espn_id), position: p.position, week: target.week + 4,",
+          "occurrences": 1,
+          "sha_before": "8125a062a650",
+          "state": "APPLIED",
+          "sha_after": "cdca6a00d318",
+          "pass": 28,
+          "fail": 2,
+          "failing": [
+            "test/weekly-blend-wiring.test.js: current_week_ppg is the served candidate of ours and ESPN's number, and says so",
+            "test/weekly-blend-wiring.test.js: a new ESPN capture refreshes the cached universe"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "8125a062a650",
+          "as_expected": true
+        },
+        {
+          "id": "C4",
+          "file": "server/services/trade-engine.js",
+          "kind": "call site",
+          "expect": "KILLED",
+          "note": "call site passes the wrong position",
+          "from": "      espn: espnValueFor(espnWeek, p.espn_id), position: p.position, week: target.week,",
+          "to": "      espn: espnValueFor(espnWeek, p.espn_id), position: 'QB', week: target.week,",
+          "occurrences": 1,
+          "sha_before": "8125a062a650",
+          "state": "APPLIED",
+          "sha_after": "0eb89bde1c4a",
+          "pass": 28,
+          "fail": 2,
+          "failing": [
+            "test/weekly-blend-wiring.test.js: current_week_ppg is the served candidate of ours and ESPN's number, and says so",
+            "test/weekly-blend-wiring.test.js: a new ESPN capture refreshes the cached universe"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "8125a062a650",
+          "as_expected": true
+        },
+        {
+          "id": "C5",
+          "file": "server/services/trade-engine.js",
+          "kind": "call site",
+          "expect": "KILLED",
+          "note": "call site drops his week's report status (late news lost)",
+          "from": "      reportStatus: availability?.report_status ?? null, bye: !thisGame",
+          "to": "      reportStatus: null, bye: !thisGame",
+          "occurrences": 1,
+          "sha_before": "8125a062a650",
+          "state": "APPLIED",
+          "sha_after": "656c2bded01e",
+          "pass": 29,
+          "fail": 1,
+          "failing": [
+            "test/weekly-blend-wiring.test.js: late news: his week's Out status switches him to ESPN's number"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "8125a062a650",
+          "as_expected": true
+        },
+        {
+          "id": "C6",
+          "file": "server/services/trade-engine.js",
+          "kind": "call site",
+          "expect": "KILLED",
+          "note": "call site says every player has a game",
+          "from": "      reportStatus: availability?.report_status ?? null, bye: !thisGame",
+          "to": "      reportStatus: availability?.report_status ?? null, bye: false",
+          "occurrences": 1,
+          "sha_before": "8125a062a650",
+          "state": "APPLIED",
+          "sha_after": "d618a6bc2505",
+          "pass": 29,
+          "fail": 1,
+          "failing": [
+            "test/weekly-blend-wiring.test.js: a player ESPN has no number for keeps ours, labelled; a player with no game is 0"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "8125a062a650",
+          "as_expected": true
+        },
+        {
+          "id": "C7",
+          "file": "server/services/trade-engine.js",
+          "kind": "call site",
+          "expect": "KILLED",
+          "note": "call site drops the injected served switch (module default instead)",
+          "from": "    }, SERVED_BLEND);",
+          "to": "    });",
+          "occurrences": 1,
+          "sha_before": "8125a062a650",
+          "state": "APPLIED",
+          "sha_after": "e3c38d1278e0",
+          "pass": 27,
+          "fail": 3,
+          "failing": [
+            "test/weekly-blend-wiring.test.js: current_week_ppg is the served candidate of ours and ESPN's number, and says so",
+            "test/weekly-blend-wiring.test.js: late news: his week's Out status switches him to ESPN's number",
+            "test/weekly-blend-wiring.test.js: a new ESPN capture refreshes the cached universe"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "8125a062a650",
+          "as_expected": true
+        },
+        {
+          "id": "C8",
+          "file": "server/services/trade-engine.js",
+          "kind": "call site",
+          "expect": "KILLED",
+          "note": "ESPN captures do not refresh the cached universe",
+          "from": "  { table: 'league_roster_snapshots', stamp: 'changed_at' },\n",
+          "to": "",
+          "occurrences": 1,
+          "sha_before": "8125a062a650",
+          "state": "APPLIED",
+          "sha_after": "198776cb6b1a",
+          "pass": 29,
+          "fail": 1,
+          "failing": [
+            "test/weekly-blend-wiring.test.js: a new ESPN capture refreshes the cached universe"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "8125a062a650",
+          "as_expected": true
+        },
+        {
+          "id": "C9",
+          "file": "server/services/trade-engine.js",
+          "kind": "call site",
+          "expect": "KILLED",
+          "note": "ESPN read for last week",
+          "from": "const espnWeek = espnWeekProjections({ league: lg, season: target.season, week: target.week });",
+          "to": "const espnWeek = espnWeekProjections({ league: lg, season: target.season, week: target.week - 1 });",
+          "occurrences": 1,
+          "sha_before": "8125a062a650",
+          "state": "APPLIED",
+          "sha_after": "fd3ecb9272b3",
+          "pass": 26,
+          "fail": 4,
+          "failing": [
+            "test/weekly-blend-wiring.test.js: the blend is on for this fixture and ESPN has a number for one WR (known-nonzero control)",
+            "test/weekly-blend-wiring.test.js: current_week_ppg is the served candidate of ours and ESPN's number, and says so",
+            "test/weekly-blend-wiring.test.js: late news: his week's Out status switches him to ESPN's number",
+            "test/weekly-blend-wiring.test.js: a new ESPN capture refreshes the cached universe"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "8125a062a650",
+          "as_expected": true
+        },
+        {
+          "id": "C10",
+          "file": "server/services/trade-engine.js",
+          "kind": "call site",
+          "expect": "KILLED",
+          "note": "surface loses the blend's sentence",
+          "from": "    week_blend: weekBlendContext(espnWeek, SERVED_BLEND),",
+          "to": "    week_blend: null,",
+          "occurrences": 1,
+          "sha_before": "8125a062a650",
+          "state": "APPLIED",
+          "sha_after": "2cf1ef6e5e3c",
+          "pass": 28,
+          "fail": 2,
+          "failing": [
+            "test/weekly-blend-wiring.test.js: the blend is on for this fixture and ESPN has a number for one WR (known-nonzero control)",
+            "test/weekly-blend-wiring.test.js: a new ESPN capture refreshes the cached universe"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "8125a062a650",
+          "as_expected": true
+        },
+        {
+          "id": "C11",
+          "file": "server/services/trade-engine.js",
+          "kind": "call site",
+          "expect": "KILLED",
+          "note": "asset loses ESPN's number",
+          "from": "espn_ppg: weekBlend.espn == null ? null : +weekBlend.espn.toFixed(2) },",
+          "to": "espn_ppg: null },",
+          "occurrences": 1,
+          "sha_before": "8125a062a650",
+          "state": "APPLIED",
+          "sha_after": "be33b7233739",
+          "pass": 29,
+          "fail": 1,
+          "failing": [
+            "test/weekly-blend-wiring.test.js: current_week_ppg is the served candidate of ours and ESPN's number, and says so"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "8125a062a650",
+          "as_expected": true
+        }
+      ]
+    },
+    {
+      "sha": "e55864be",
+      "tree": "781aeba008c543e1a977756696e0f7c8fa749fbd",
+      "tests": [
+        "test/weekly-blend-wiring.test.js"
+      ],
+      "baseline": {
+        "pass": 6,
+        "fail": 0,
+        "failing": []
+      },
+      "rows": [
+        {
+          "id": "C12",
+          "file": "server/services/trade-engine.js",
+          "kind": "consumer",
+          "expect": "KILLED",
+          "note": "the trade horizon reads our unblended week number instead of current_week_ppg",
+          "from": "const decisionPpg = 0.25 * currentWeekPpg + 0.75 * rosPpg;",
+          "to": "const decisionPpg = 0.25 * (thisGame ? currentWeekBasePpg * thisGame.mult * activeProbability : 0) + 0.75 * rosPpg;",
+          "occurrences": 1,
+          "sha_before": "8125a062a650",
+          "state": "APPLIED",
+          "sha_after": "ff56fd347c09",
+          "pass": 5,
+          "fail": 1,
+          "failing": [
+            "test/weekly-blend-wiring.test.js: Start/Sit's week_points and the trade horizon's adj_ppg read the blended number"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "8125a062a650",
+          "as_expected": true
+        },
+        {
+          "id": "C13",
+          "file": "server/services/lineup-brain.js",
+          "kind": "consumer",
+          "expect": "KILLED",
+          "note": "Start/Sit reads adj_ppg before current_week_ppg",
+          "from": "  const base = p.current_week_ppg ?? p.adj_ppg ?? p.ppg ?? 0;\n  // Unlike the trade horizon",
+          "to": "  const base = p.adj_ppg ?? p.current_week_ppg ?? p.ppg ?? 0;\n  // Unlike the trade horizon",
+          "occurrences": 1,
+          "sha_before": "2a12811e7a31",
+          "state": "APPLIED",
+          "sha_after": "cd6433af8c42",
+          "pass": 5,
+          "fail": 1,
+          "failing": [
+            "test/weekly-blend-wiring.test.js: Start/Sit's week_points and the trade horizon's adj_ppg read the blended number"
+          ],
+          "verdict": "KILLED",
+          "sha_restored": "2a12811e7a31",
+          "as_expected": true
+        }
+      ]
+    }
+  ]
+}

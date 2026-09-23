@@ -67,16 +67,23 @@ import { activeInjuryFlagIds } from './injury-flags.js';
 import { cached, fingerprint } from './compute-cache.js';
 import { activeWeeklyWeightSet } from './weekly-weight-store.js';
 import { scoringFor } from './scoring.js';
-import { activeFantasyCoordinatorFit, weeklyExpertValues, coordinateFantasy } from './fantasy-coordinator.js';
+import {
+  activeFantasyCoordinatorFit, servedWeekConstruction, weekConstructionBasis, servedCoordinatorFitKey
+} from './fantasy-coordinator.js';
 import { dynastyAgeAdjustment } from './dynasty-age-curve.js';
 // lineupDiff() only: the Start/Sit tab's own game-script lift (so both pages price
-// this week identically), the normal CDF behind a swap's probability, and the
-// write that retires a lineup recommendation lineupDiff() itself published.
-import { vegasLift } from './waiver-brain.js';
+// this week identically; switched off since S-03, see waiver-brain.js#vegasLift), the
+// normal CDF behind a swap's probability, and the write that retires a lineup
+// recommendation lineupDiff() itself published. BETTING_LINE_LIFT is read only to label
+// the week number (context.week_basis), never to price it.
+import { vegasLift, BETTING_LINE_LIFT } from './waiver-brain.js';
 // The league's wire, for lineupValue()'s replacement level (one producer with the
 // Waivers page's waiverBoard()).
 import { leagueWire } from './league-wire.js';
 import { normalCdf, withRandomSeed } from './stats-util.js';
+// BLEND-01: this week's number goes through the tournament's served blend with ESPN's
+// weekly projection (weekly-blend.js), which reads ESPN's number from league_roster_snapshots.
+import { servedWeekBlend, SERVED_BLEND, espnWeekProjections, espnValueFor, weekBlendContext } from './weekly-blend.js';
 // lineupSpread() only: each starter's played-week draws and the fitted archetype
 // correlations, for the lineup-total floor/ceiling.
 import { sampleWeeks } from './projections.js';
@@ -240,6 +247,9 @@ export const ASSET_INPUT_TABLES = [
   // The Sleeper sync clears an injury flag with an UPDATE (RL-12-2), so the row count
   // never moves; every player_metrics writer re-stamps fetched_at.
   { table: 'player_metrics', stamp: 'fetched_at' }, 'schedule_games',
+  // ESPN's weekly projection, which the week blend reads (weekly-blend.js): each refresh-loop
+  // capture rewrites changed_at on the rows that moved, so a new ESPN number rebuilds this.
+  { table: 'league_roster_snapshots', stamp: 'changed_at' },
   // Not read by buildAssetUniverse, but by lineupSpread inside findTrades, whose cache
   // keys on this list. A refit rewrites fitted_at on the same 20-odd rows.
   { table: 'correlation_estimates', stamp: 'fitted_at' }
@@ -288,6 +298,9 @@ function servedInputsDigest(season, week) {
  */
 const assetInputsKey = (lg, formatKey, target) =>
   `${lg.id}:${formatKey}:${target.season}:${target.week}:` +
+  // The served coordinator fit (S-03): promoting one is an UPDATE that moves no row
+  // count and no stamp, so the table fingerprint alone would keep serving the old number.
+  `c${servedCoordinatorFitKey()}:` +
   `w${activeWeeklyWeightSet({ season: target.season, week: target.week }).id}:` +
   `d${servedInputsDigest(target.season, target.week)}:h${handFedKey(handFedInputs())}:` +
   `i${injuryFlagKey()}`;
@@ -335,11 +348,10 @@ function buildAssetUniverse(lg, formatKey, target) {
     rosFailure = `rest-of-season model failed (${error.message}); ros_ppg is the weekly number`;
     console.error(`[trade-engine] league ${lg.id}, ${target.season} W${target.week}: ${rosFailure}`);
   }
-  // Read-only, no computation — the coordinator itself is refit on a schedule
-  // (scheduler.js#fantasy_coordinator_refit) and persisted; walk-forward
-  // verified (fantasy-coordinator.js's own doc-comment) to beat the plain
-  // structural+ensemble number it corrects. `ready: false` before the first
-  // background refit falls back to exactly today's prior behavior below.
+  // Read-only, no computation. The coordinator is refit on a schedule
+  // (scheduler.js#fantasy_coordinator_refit) as a candidate, and only a PROMOTED fit
+  // is returned (S-03): `ready: false` means this week's number is the ensemble alone,
+  // and context.week_basis says so.
   const fantasyFit = activeFantasyCoordinatorFit();
   const active = weeklyAvailability(target.season, target.week, { through: target.season - 1 });
   const board = new Map(vorBoard(lg.team_count || 12).map(p => [p.id, p]));
@@ -357,6 +369,8 @@ function buildAssetUniverse(lg, formatKey, target) {
   const seasonEnding = seasonEndingEspnIds();
   // Which absence trend_kind: null means on this build, served on context.hand_fed.
   const handFed = handFedInputs();
+  // ESPN's weekly projection for this week as this league scores it (BLEND-01; one read).
+  const espnWeek = espnWeekProjections({ league: lg, season: target.season, week: target.week });
   const trending = new Map(rows('SELECT player_id, kind, count FROM trending_players')
     .map(t => [t.player_id, t]));
 
@@ -387,17 +401,33 @@ function buildAssetUniverse(lg, formatKey, target) {
     const activeProbability = availability?.active_probability ?? 0.92;
     const weeklyPpg = weekProjection?.ppg ?? (proj / GAMES);
     const thisGame = sched.games?.find(game => game.week === target.week) ?? null;
-    // The coordinator only corrects THIS week's number (ensemble_shift and
-    // game-script are both week-specific signals) — weeklyPpg itself, used
-    // below for ROS/season-long figures, is untouched: the coordinator was
-    // only walk-forward validated against weekly outcomes, not season totals.
-    const expertValues = weekProjection ? weeklyExpertValues(weekProjection, target.season, target.week, scoring) : null;
-    const coordinated = expertValues ? coordinateFantasy(fantasyFit, expertValues, weeklyPpg) : null;
-    const currentWeekBasePpg = coordinated?.ready ? coordinated.corrected_ppg : weeklyPpg;
+    // This week's number before availability: the ONE served construction
+    // (fantasy-coordinator.js#servedWeekConstruction). With a promoted fit, in its
+    // promoted weeks, it is the fit's own base plus its correction: the structural
+    // head plus the structural-residual correction, S-02's winning arm S1. It used to
+    // add that correction to the ensemble (weeklyPpg), a combination nobody graded.
+    // The coordinator only corrects THIS week's number — weeklyPpg itself, used below
+    // for ROS/season-long figures, is untouched: the coordinator was only graded
+    // against weekly outcomes, not season totals.
+    const construction = weekProjection
+      ? servedWeekConstruction(weekProjection, { fit: fantasyFit, season: target.season, week: target.week, scoring })
+      : null;
+    const coordinated = construction?.coordinated ?? null;
+    const currentWeekBasePpg = construction?.ppg ?? weeklyPpg;
     // thisGame.mult is exactly 1 while the matchup signal is off (matchups.js#
     // gameMultiplier); kept as a factor so this line needs no edit if a multiplier
     // ever passes the harness. thisGame itself is the bye detector: no game, 0.
-    const currentWeekPpg = thisGame ? currentWeekBasePpg * thisGame.mult * activeProbability : 0;
+    // BLEND-01: ours (this construction x the game factor x his chance to play, 0 with no
+    // game) through the one served blend with ESPN's weekly projection. Every weekly page reads
+    // current_week_ppg, so this is the only place the blend happens (weekly-blend.js).
+    const weekBlend = servedWeekBlend({
+      ours: thisGame ? currentWeekBasePpg * thisGame.mult * activeProbability : 0,
+      espn: espnValueFor(espnWeek, p.espn_id), position: p.position, week: target.week,
+      // Only skill positions get a schedule (sched above), so only they can be on a bye here;
+      // a K/DEF is labelled by its position ('ours_position_not_graded'), not as having no game.
+      reportStatus: availability?.report_status ?? null, bye: SCORED.has(p.position) ? !thisGame : false
+    }, SERVED_BLEND);
+    const currentWeekPpg = weekBlend.ppg;
     // Rest-of-season weekly rate. No schedule tilt (see scheduleTilt above), no
     // availability term — per game played, the same basis it has always had. It used
     // to BE weeklyPpg, which at week 2 is 80% the week-1 score (Coker 29.9 after a
@@ -505,16 +535,27 @@ function buildAssetUniverse(lg, formatKey, target) {
       schedule_signal: scheduleTilt, schedule_reason: scheduleTilt ? null : (sched.reason ?? MATCHUP_SIGNAL_REASON),
       adj_ppg: +decisionPpg.toFixed(2),
       current_week_ppg: +currentWeekPpg.toFixed(2),
+      // How the week blend priced current_week_ppg (BLEND-01): 'blend' | 'espn_late_news' |
+      // 'no_espn_value' | 'ours_position_not_graded' | 'no_game' | 'blend_off' | 'ours', the share
+      // of it that is ours, and ESPN's number where there is one (a model input, not a pick).
+      week_blend: { basis: weekBlend.basis, weight_ours: weekBlend.weight_ours,
+        espn_ppg: weekBlend.espn == null ? null : +weekBlend.espn.toFixed(2) },
       // His team has no game in the target week (onBye above, the same detector
       // current_week_ppg uses). weekLineup() reads it so selfScout and a trade card's
       // weekly floor/ceiling solve this week's lineup without him (RL-5-3).
       bye_this_week: onBye,
       // Transparency for the correction folded into current_week_ppg above —
-      // null when no fit is persisted yet (fantasy_coordinator_refit hasn't
-      // run) or this player has no weekly projection to correct.
-      fantasy_coordinator: coordinated?.ready
-        ? { corrected_ppg: coordinated.corrected_ppg, correction: coordinated.correction, contributions: coordinated.contributions }
+      // null when no fit is promoted, the week is outside its promoted windows, or
+      // this player has no weekly projection to correct (construction.coordinator_off).
+      fantasy_coordinator: coordinated
+        ? { corrected_ppg: coordinated.corrected_ppg, correction: coordinated.correction, contributions: coordinated.contributions,
+          base: construction.base }
         : null,
+      // What current_week_ppg was built from, before this game's factor and the chance to
+      // play: 'structural+coordinator' | 'ensemble+coordinator' | 'ensemble', or
+      // 'season_projection' when there is no weekly projection (the season total / 17).
+      // The sentence for a reader is context.week_basis.label.
+      week_basis: construction?.basis ?? 'season_projection',
       ros_ppg: +rosPpg.toFixed(2),
       // What ros_ppg was built from; null = no ROS entry (no game yet), { failed } = the
       // ROS build failed; in both cases ros_ppg is the weekly number.
@@ -553,7 +594,13 @@ function buildAssetUniverse(lg, formatKey, target) {
     // Which availability model priced active_probability: 'role' | 'pooled' | 'constants'
     // and the fit tables that are missing (contingency.js#availabilityBasis). The cache
     // fingerprint stamps both fit tables, so this matches the cached numbers.
-    availability_basis: availabilityBasis()
+    availability_basis: availabilityBasis(),
+    // The week blend (BLEND-01): on or off, the tournament's winner and verdict, one sentence,
+    // and ESPN's capture state for this week (weekly-blend.js#weekBlendContext).
+    week_blend: weekBlendContext(espnWeek, SERVED_BLEND),
+    // What this week's number is built from (S-03): the served coordinator fit and its
+    // windows, the betting-line lift's switch, and one plain sentence for the page.
+    week_basis: weekConstructionBasis({ fit: fantasyFit, week: target.week, lift: BETTING_LINE_LIFT })
   };
   return out;
 }
@@ -2948,8 +2995,8 @@ const ESPN_PLAYING = new Set(['ACTIVE', 'QUESTIONABLE', 'DAY_TO_DAY', 'PROBABLE'
  * This week's number for one player, built exactly as lineup-brain.js#lineupCall
  * builds `week_points` for the Start/Sit tab: current_week_ppg (this Sunday's
  * projection times his chance to play, 0 on a bye; no opponent adjustment, none
- * is validated — matchups.js) times this week's
- * game-script multiplier from the betting line. Kept identical on purpose — if
+ * is validated — matchups.js) times vegasLift's multiplier, which is 1 while
+ * waiver-brain.js#BETTING_LINE_LIFT is off (S-03). Kept identical on purpose — if
  * the two drift, the League Hub card and the Start/Sit tab name different
  * lineups. The `?? adj_ppg ?? ppg` fallback only fires when the field is absent,
  * never on a real 0 (a bye), same as weekPpg() in lineup-posture.js and

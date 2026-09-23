@@ -1,0 +1,4598 @@
+{
+  "unit": "BLEND-01",
+  "label": "local copy, not production",
+  "tree": {
+    "head": "ac6ac5b8d39d79c0c4f43fad4628c34cf9946803",
+    "write_tree": "a26d43955ed0069c213695bf1da0f9a88895450f"
+  },
+  "prereg": {
+    "path": "docs/evidence/2026-09-22/weekly-blend-tournament-preregistration.md",
+    "commit": "7c443485a6d0efe1d930b254ac13ec98525c9eac",
+    "blob": "913110a70895425dbd7a44888c5717461cc9b8ea"
+  },
+  "configuration": {
+    "ours": "S-03 served base (structural + coordinator correction, walk-forward fits; else the ensemble) x 1 x active_probability, 0 on a bye",
+    "espn": "history: ESPN archive (leaguedefaults/3, last pre-lock value); 2026 primary: league_roster_snapshots final rows",
+    "universe": "pairs in the same season, week and position where ours projects both >= 4",
+    "bootstrap": "pigeonhole player bootstrap, 2000 draws, seed 1, 90% percentile intervals",
+    "sign": "candidate − reference; positive favours the candidate (MAE: negative favours the candidate)"
+  },
+  "started_at": "2026-09-23T00:59:12.556Z",
+  "assembled": {
+    "head": "45f17e38e2b07d405f1a4616405f206ccbe1673e",
+    "k_control": {
+      "2022": 1.0532108312976707,
+      "2023": 0.46054443403292145,
+      "2024": 0.2747295364732937,
+      "2026": 0.17332678990952072
+    },
+    "weight_sets": {
+      "2022-W2": "frozen-2023",
+      "2022-W6": "frozen-2023",
+      "2023-W2": "frozen-2023",
+      "2023-W6": "frozen-2023",
+      "2024-W2": "frozen-2023",
+      "2024-W6": "frozen-2023",
+      "2026-W2": "fit-2",
+      "2026-W6": "fit-2"
+    },
+    "coordinator": {
+      "2022": {
+        "through": 2021,
+        "rows": 5280,
+        "intercept": 0.25048302357070845
+      },
+      "2023": {
+        "through": 2022,
+        "rows": 11029,
+        "intercept": -0.15400152798808578
+      },
+      "2024": {
+        "through": 2023,
+        "rows": 16793,
+        "intercept": -0.33887592494587443
+      },
+      "2026": {
+        "fit_id": 7,
+        "through": 2025,
+        "intercept": -0.554617036229365
+      }
+    },
+    "seasons": {
+      "2022": {
+        "rows": 5207,
+        "with_espn": 5160
+      },
+      "2023": {
+        "rows": 5206,
+        "with_espn": 5153
+      },
+      "2024": {
+        "rows": 5236,
+        "with_espn": 5185
+      }
+    },
+    "forward": {
+      "2": {
+        "decision_rows": 360,
+        "byes": 0,
+        "no_snapshot": 0,
+        "ensemble_fallback": 0,
+        "parity": {
+          "checked": 0,
+          "reason": "servedWeekConstruction is not in this tree (S-03 not merged)"
+        },
+        "snapshot_rows": 1183,
+        "snapshot_as_of": [
+          "2026-09-17T18:56:10.819Z"
+        ],
+        "snapshot_weight_fit": [
+          "frozen-2023"
+        ],
+        "espn_settled": {
+          "player_weeks": 194,
+          "conflicting": 0
+        },
+        "espn_thursday": {
+          "player_weeks": 614,
+          "conflicting": 0,
+          "captured": {
+            "first": "2026-09-17T22:08:44.661Z",
+            "last": "2026-09-17T22:08:44.661Z"
+          }
+        },
+        "espn_archive_player_weeks": 534,
+        "with": {
+          "espn": 153,
+          "espn_archive": 344,
+          "snapshot": 360
+        }
+      }
+    }
+  },
+  "fits": {
+    "2023": {
+      "fit_seasons": [
+        2022
+      ],
+      "n": 2580,
+      "slates": 16,
+      "fit_shrunk": {
+        "w": 0.159,
+        "w_hat": 0.097,
+        "lambda": 0.8462,
+        "T": 16
+      },
+      "pos_phase": {
+        "QB": {
+          "2-4": {
+            "n": 98,
+            "T": 3,
+            "w_hat": 0.161,
+            "lambda": 0,
+            "w": 0.159
+          },
+          "5-8": {
+            "n": 110,
+            "T": 4,
+            "w_hat": 0.1947,
+            "lambda": 0,
+            "w": 0.159
+          },
+          "9-13": {
+            "n": 128,
+            "T": 5,
+            "w_hat": 0,
+            "lambda": 0,
+            "w": 0.159
+          },
+          "14-18": {
+            "n": 115,
+            "T": 4,
+            "w_hat": 0.0775,
+            "lambda": 0,
+            "w": 0.159
+          }
+        },
+        "RB": {
+          "2-4": {
+            "n": 164,
+            "T": 3,
+            "w_hat": 0.2048,
+            "lambda": 0,
+            "w": 0.159
+          },
+          "5-8": {
+            "n": 188,
+            "T": 4,
+            "w_hat": 0,
+            "lambda": 0,
+            "w": 0.159
+          },
+          "9-13": {
+            "n": 208,
+            "T": 5,
+            "w_hat": 0.209,
+            "lambda": 0,
+            "w": 0.159
+          },
+          "14-18": {
+            "n": 162,
+            "T": 4,
+            "w_hat": 0.1868,
+            "lambda": 0,
+            "w": 0.159
+          }
+        },
+        "WR": {
+          "2-4": {
+            "n": 225,
+            "T": 3,
+            "w_hat": 0.0456,
+            "lambda": 0,
+            "w": 0.159
+          },
+          "5-8": {
+            "n": 252,
+            "T": 4,
+            "w_hat": 0.1592,
+            "lambda": 0,
+            "w": 0.159
+          },
+          "9-13": {
+            "n": 300,
+            "T": 5,
+            "w_hat": 0.0219,
+            "lambda": 0,
+            "w": 0.159
+          },
+          "14-18": {
+            "n": 265,
+            "T": 4,
+            "w_hat": 0.0894,
+            "lambda": 0,
+            "w": 0.159
+          }
+        },
+        "TE": {
+          "2-4": {
+            "n": 70,
+            "T": 3,
+            "w_hat": 0.1116,
+            "lambda": 0,
+            "w": 0.159
+          },
+          "5-8": {
+            "n": 92,
+            "T": 4,
+            "w_hat": 0.237,
+            "lambda": 0,
+            "w": 0.159
+          },
+          "9-13": {
+            "n": 108,
+            "T": 5,
+            "w_hat": 0.1753,
+            "lambda": 0,
+            "w": 0.159
+          },
+          "14-18": {
+            "n": 95,
+            "T": 4,
+            "w_hat": 0,
+            "lambda": 0,
+            "w": 0.159
+          }
+        }
+      },
+      "espn_proven": {
+        "QB": {
+          "2-4": {
+            "n": 98,
+            "b_hat": 0.161,
+            "ci90": [
+              -0.002,
+              0.3307
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "5-8": {
+            "n": 110,
+            "b_hat": 0.1947,
+            "ci90": [
+              0.0253,
+              0.3659
+            ],
+            "proven": true,
+            "clears_plan_bar_0_3": false,
+            "b": 0.1947
+          },
+          "9-13": {
+            "n": 128,
+            "b_hat": -0.0335,
+            "ci90": [
+              -0.1832,
+              0.1114
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "14-18": {
+            "n": 115,
+            "b_hat": 0.0775,
+            "ci90": [
+              -0.1319,
+              0.277
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          }
+        },
+        "RB": {
+          "2-4": {
+            "n": 164,
+            "b_hat": 0.2048,
+            "ci90": [
+              0.025,
+              0.397
+            ],
+            "proven": true,
+            "clears_plan_bar_0_3": false,
+            "b": 0.2048
+          },
+          "5-8": {
+            "n": 188,
+            "b_hat": -0.1018,
+            "ci90": [
+              -0.3353,
+              0.1384
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "9-13": {
+            "n": 208,
+            "b_hat": 0.209,
+            "ci90": [
+              -0.0388,
+              0.4348
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "14-18": {
+            "n": 162,
+            "b_hat": 0.1868,
+            "ci90": [
+              -0.0425,
+              0.376
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          }
+        },
+        "WR": {
+          "2-4": {
+            "n": 225,
+            "b_hat": 0.0456,
+            "ci90": [
+              -0.1074,
+              0.2009
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "5-8": {
+            "n": 252,
+            "b_hat": 0.1592,
+            "ci90": [
+              -0.0189,
+              0.3407
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "9-13": {
+            "n": 300,
+            "b_hat": 0.0219,
+            "ci90": [
+              -0.1546,
+              0.1945
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "14-18": {
+            "n": 265,
+            "b_hat": 0.0894,
+            "ci90": [
+              -0.1101,
+              0.287
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          }
+        },
+        "TE": {
+          "2-4": {
+            "n": 70,
+            "b_hat": 0.1116,
+            "ci90": [
+              -0.2152,
+              0.4501
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "5-8": {
+            "n": 92,
+            "b_hat": 0.237,
+            "ci90": [
+              -0.2462,
+              0.6475
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "9-13": {
+            "n": 108,
+            "b_hat": 0.1753,
+            "ci90": [
+              -0.0098,
+              0.3853
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "14-18": {
+            "n": 95,
+            "b_hat": -0.2447,
+            "ci90": [
+              -0.6891,
+              0.2189
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          }
+        }
+      }
+    },
+    "2024": {
+      "fit_seasons": [
+        2022,
+        2023
+      ],
+      "n": 5061,
+      "slates": 32,
+      "fit_shrunk": {
+        "w": 0.1201,
+        "w_hat": 0.092,
+        "lambda": 0.931,
+        "T": 32
+      },
+      "pos_phase": {
+        "QB": {
+          "2-4": {
+            "n": 186,
+            "T": 6,
+            "w_hat": 0.1273,
+            "lambda": 0.3333,
+            "w": 0.1225
+          },
+          "5-8": {
+            "n": 204,
+            "T": 8,
+            "w_hat": 0.2412,
+            "lambda": 0.6,
+            "w": 0.1927
+          },
+          "9-13": {
+            "n": 257,
+            "T": 10,
+            "w_hat": 0,
+            "lambda": 0.7143,
+            "w": 0.0343
+          },
+          "14-18": {
+            "n": 220,
+            "T": 8,
+            "w_hat": 0.0884,
+            "lambda": 0.6,
+            "w": 0.101
+          }
+        },
+        "RB": {
+          "2-4": {
+            "n": 309,
+            "T": 6,
+            "w_hat": 0.155,
+            "lambda": 0.3333,
+            "w": 0.1317
+          },
+          "5-8": {
+            "n": 351,
+            "T": 8,
+            "w_hat": 0.0265,
+            "lambda": 0.6,
+            "w": 0.0639
+          },
+          "9-13": {
+            "n": 409,
+            "T": 10,
+            "w_hat": 0.1801,
+            "lambda": 0.7143,
+            "w": 0.163
+          },
+          "14-18": {
+            "n": 344,
+            "T": 8,
+            "w_hat": 0.1071,
+            "lambda": 0.6,
+            "w": 0.1123
+          }
+        },
+        "WR": {
+          "2-4": {
+            "n": 457,
+            "T": 6,
+            "w_hat": 0.0045,
+            "lambda": 0.3333,
+            "w": 0.0816
+          },
+          "5-8": {
+            "n": 499,
+            "T": 8,
+            "w_hat": 0.1277,
+            "lambda": 0.6,
+            "w": 0.1247
+          },
+          "9-13": {
+            "n": 593,
+            "T": 10,
+            "w_hat": 0.0509,
+            "lambda": 0.7143,
+            "w": 0.0707
+          },
+          "14-18": {
+            "n": 514,
+            "T": 8,
+            "w_hat": 0.0649,
+            "lambda": 0.6,
+            "w": 0.087
+          }
+        },
+        "TE": {
+          "2-4": {
+            "n": 147,
+            "T": 6,
+            "w_hat": 0.1642,
+            "lambda": 0.3333,
+            "w": 0.1348
+          },
+          "5-8": {
+            "n": 183,
+            "T": 8,
+            "w_hat": 0,
+            "lambda": 0.6,
+            "w": 0.048
+          },
+          "9-13": {
+            "n": 202,
+            "T": 10,
+            "w_hat": 0.1103,
+            "lambda": 0.7143,
+            "w": 0.1131
+          },
+          "14-18": {
+            "n": 186,
+            "T": 8,
+            "w_hat": 0,
+            "lambda": 0.6,
+            "w": 0.048
+          }
+        }
+      },
+      "espn_proven": {
+        "QB": {
+          "2-4": {
+            "n": 186,
+            "b_hat": 0.1273,
+            "ci90": [
+              0.0032,
+              0.2582
+            ],
+            "proven": true,
+            "clears_plan_bar_0_3": false,
+            "b": 0.1273
+          },
+          "5-8": {
+            "n": 204,
+            "b_hat": 0.2412,
+            "ci90": [
+              0.1362,
+              0.3433
+            ],
+            "proven": true,
+            "clears_plan_bar_0_3": false,
+            "b": 0.2412
+          },
+          "9-13": {
+            "n": 257,
+            "b_hat": -0.0057,
+            "ci90": [
+              -0.1197,
+              0.1221
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "14-18": {
+            "n": 220,
+            "b_hat": 0.0884,
+            "ci90": [
+              -0.0315,
+              0.2081
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          }
+        },
+        "RB": {
+          "2-4": {
+            "n": 309,
+            "b_hat": 0.155,
+            "ci90": [
+              0.0018,
+              0.3194
+            ],
+            "proven": true,
+            "clears_plan_bar_0_3": false,
+            "b": 0.155
+          },
+          "5-8": {
+            "n": 351,
+            "b_hat": 0.0265,
+            "ci90": [
+              -0.1302,
+              0.1877
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "9-13": {
+            "n": 409,
+            "b_hat": 0.1801,
+            "ci90": [
+              0.0168,
+              0.3307
+            ],
+            "proven": true,
+            "clears_plan_bar_0_3": false,
+            "b": 0.1801
+          },
+          "14-18": {
+            "n": 344,
+            "b_hat": 0.1071,
+            "ci90": [
+              -0.0565,
+              0.2668
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          }
+        },
+        "WR": {
+          "2-4": {
+            "n": 457,
+            "b_hat": 0.0045,
+            "ci90": [
+              -0.1239,
+              0.1348
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "5-8": {
+            "n": 499,
+            "b_hat": 0.1277,
+            "ci90": [
+              -0.0284,
+              0.2907
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "9-13": {
+            "n": 593,
+            "b_hat": 0.0509,
+            "ci90": [
+              -0.0823,
+              0.1915
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "14-18": {
+            "n": 514,
+            "b_hat": 0.0649,
+            "ci90": [
+              -0.0645,
+              0.1876
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          }
+        },
+        "TE": {
+          "2-4": {
+            "n": 147,
+            "b_hat": 0.1642,
+            "ci90": [
+              -0.0765,
+              0.4029
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "5-8": {
+            "n": 183,
+            "b_hat": -0.0494,
+            "ci90": [
+              -0.3704,
+              0.2589
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "9-13": {
+            "n": 202,
+            "b_hat": 0.1103,
+            "ci90": [
+              -0.0629,
+              0.2864
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "14-18": {
+            "n": 186,
+            "b_hat": -0.0305,
+            "ci90": [
+              -0.2822,
+              0.2042
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          }
+        }
+      }
+    },
+    "ship": {
+      "fit_seasons": [
+        2022,
+        2023,
+        2024
+      ],
+      "n": 7469,
+      "slates": 48,
+      "fit_shrunk": {
+        "w": 0.1054,
+        "w_hat": 0.087,
+        "lambda": 0.9556,
+        "T": 48
+      },
+      "pos_phase": {
+        "QB": {
+          "2-4": {
+            "n": 281,
+            "T": 9,
+            "w_hat": 0.1922,
+            "lambda": 0.6667,
+            "w": 0.1632
+          },
+          "5-8": {
+            "n": 310,
+            "T": 12,
+            "w_hat": 0.1812,
+            "lambda": 0.7778,
+            "w": 0.1643
+          },
+          "9-13": {
+            "n": 381,
+            "T": 15,
+            "w_hat": 0,
+            "lambda": 0.8333,
+            "w": 0.0176
+          },
+          "14-18": {
+            "n": 333,
+            "T": 12,
+            "w_hat": 0.0535,
+            "lambda": 0.7778,
+            "w": 0.065
+          }
+        },
+        "RB": {
+          "2-4": {
+            "n": 447,
+            "T": 9,
+            "w_hat": 0.1285,
+            "lambda": 0.6667,
+            "w": 0.1208
+          },
+          "5-8": {
+            "n": 502,
+            "T": 12,
+            "w_hat": 0.0543,
+            "lambda": 0.7778,
+            "w": 0.0656
+          },
+          "9-13": {
+            "n": 589,
+            "T": 15,
+            "w_hat": 0.1783,
+            "lambda": 0.8333,
+            "w": 0.1661
+          },
+          "14-18": {
+            "n": 495,
+            "T": 12,
+            "w_hat": 0.1063,
+            "lambda": 0.7778,
+            "w": 0.1061
+          }
+        },
+        "WR": {
+          "2-4": {
+            "n": 665,
+            "T": 9,
+            "w_hat": 0.0271,
+            "lambda": 0.6667,
+            "w": 0.0532
+          },
+          "5-8": {
+            "n": 743,
+            "T": 12,
+            "w_hat": 0.1502,
+            "lambda": 0.7778,
+            "w": 0.1403
+          },
+          "9-13": {
+            "n": 879,
+            "T": 15,
+            "w_hat": 0.0474,
+            "lambda": 0.8333,
+            "w": 0.0571
+          },
+          "14-18": {
+            "n": 769,
+            "T": 12,
+            "w_hat": 0.0268,
+            "lambda": 0.7778,
+            "w": 0.0443
+          }
+        },
+        "TE": {
+          "2-4": {
+            "n": 213,
+            "T": 9,
+            "w_hat": 0.245,
+            "lambda": 0.6667,
+            "w": 0.1985
+          },
+          "5-8": {
+            "n": 272,
+            "T": 12,
+            "w_hat": 0,
+            "lambda": 0.7778,
+            "w": 0.0234
+          },
+          "9-13": {
+            "n": 307,
+            "T": 15,
+            "w_hat": 0.0095,
+            "lambda": 0.8333,
+            "w": 0.0255
+          },
+          "14-18": {
+            "n": 283,
+            "T": 12,
+            "w_hat": 0,
+            "lambda": 0.7778,
+            "w": 0.0234
+          }
+        }
+      },
+      "espn_proven": {
+        "QB": {
+          "2-4": {
+            "n": 281,
+            "b_hat": 0.1922,
+            "ci90": [
+              0.0825,
+              0.2972
+            ],
+            "proven": true,
+            "clears_plan_bar_0_3": false,
+            "b": 0.1922
+          },
+          "5-8": {
+            "n": 310,
+            "b_hat": 0.1812,
+            "ci90": [
+              0.092,
+              0.2679
+            ],
+            "proven": true,
+            "clears_plan_bar_0_3": false,
+            "b": 0.1812
+          },
+          "9-13": {
+            "n": 381,
+            "b_hat": -0.0082,
+            "ci90": [
+              -0.0948,
+              0.0837
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "14-18": {
+            "n": 333,
+            "b_hat": 0.0535,
+            "ci90": [
+              -0.055,
+              0.1651
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          }
+        },
+        "RB": {
+          "2-4": {
+            "n": 447,
+            "b_hat": 0.1285,
+            "ci90": [
+              0.0092,
+              0.2648
+            ],
+            "proven": true,
+            "clears_plan_bar_0_3": false,
+            "b": 0.1285
+          },
+          "5-8": {
+            "n": 502,
+            "b_hat": 0.0543,
+            "ci90": [
+              -0.0539,
+              0.1671
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "9-13": {
+            "n": 589,
+            "b_hat": 0.1783,
+            "ci90": [
+              0.0613,
+              0.2951
+            ],
+            "proven": true,
+            "clears_plan_bar_0_3": false,
+            "b": 0.1783
+          },
+          "14-18": {
+            "n": 495,
+            "b_hat": 0.1063,
+            "ci90": [
+              -0.0287,
+              0.2334
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          }
+        },
+        "WR": {
+          "2-4": {
+            "n": 665,
+            "b_hat": 0.0271,
+            "ci90": [
+              -0.0775,
+              0.1344
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "5-8": {
+            "n": 743,
+            "b_hat": 0.1502,
+            "ci90": [
+              0.0253,
+              0.2777
+            ],
+            "proven": true,
+            "clears_plan_bar_0_3": false,
+            "b": 0.1502
+          },
+          "9-13": {
+            "n": 879,
+            "b_hat": 0.0474,
+            "ci90": [
+              -0.047,
+              0.1414
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "14-18": {
+            "n": 769,
+            "b_hat": 0.0268,
+            "ci90": [
+              -0.0804,
+              0.1443
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          }
+        },
+        "TE": {
+          "2-4": {
+            "n": 213,
+            "b_hat": 0.245,
+            "ci90": [
+              0.049,
+              0.4469
+            ],
+            "proven": true,
+            "clears_plan_bar_0_3": false,
+            "b": 0.245
+          },
+          "5-8": {
+            "n": 272,
+            "b_hat": -0.2907,
+            "ci90": [
+              -0.5778,
+              -0.0017
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "9-13": {
+            "n": 307,
+            "b_hat": 0.0095,
+            "ci90": [
+              -0.1525,
+              0.1637
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          },
+          "14-18": {
+            "n": 283,
+            "b_hat": -0.0255,
+            "ci90": [
+              -0.2309,
+              0.1787
+            ],
+            "proven": false,
+            "clears_plan_bar_0_3": false,
+            "b": 0
+          }
+        }
+      }
+    }
+  },
+  "population": {
+    "graded_rows": 10442,
+    "with_espn": 10338,
+    "positions": {
+      "QB": 1162,
+      "RB": 2780,
+      "WR": 4306,
+      "TE": 2090
+    }
+  },
+  "parity": {
+    "pair_accuracy": {
+      "pairs": 108905,
+      "accuracy": {
+        "ours": 0.6359,
+        "espn": 0.683,
+        "half": 0.6783,
+        "news": 0.6527,
+        "fit_shrunk": 0.6829,
+        "pos_phase": 0.6829,
+        "espn_proven": 0.683
+      }
+    },
+    "espn_vs_ours_win_rate": 0.6153
+  },
+  "selection": {
+    "winner": "espn",
+    "good": [
+      "espn",
+      "half",
+      "news",
+      "fit_shrunk",
+      "pos_phase",
+      "espn_proven"
+    ],
+    "steps": [
+      {
+        "step": "first good on the ladder",
+        "champion": "espn"
+      },
+      {
+        "step": "same rung, lower pair accuracy",
+        "candidate": "half",
+        "kept": "espn"
+      },
+      {
+        "step": "climb",
+        "candidate": "news",
+        "over": "espn",
+        "pa_diff": -0.0303,
+        "mde80": 0.01,
+        "replaces": false
+      },
+      {
+        "step": "climb",
+        "candidate": "fit_shrunk",
+        "over": "espn",
+        "pa_diff": -0.0001,
+        "mde80": 0.0022,
+        "replaces": false
+      },
+      {
+        "step": "climb",
+        "candidate": "pos_phase",
+        "over": "espn",
+        "pa_diff": -0.0001,
+        "mde80": 0.0021,
+        "replaces": false
+      },
+      {
+        "step": "climb",
+        "candidate": "espn_proven",
+        "over": "espn",
+        "pa_diff": 0,
+        "mde80": 0.001,
+        "replaces": false
+      }
+    ],
+    "layer": {
+      "tested": false,
+      "reason": "winner espn is not a blend"
+    },
+    "served": "espn"
+  },
+  "history": {
+    "primary": {
+      "rows": 10338,
+      "players": 691,
+      "pairs": 108905,
+      "vs_ours": {
+        "espn": {
+          "pairs": 108905,
+          "pa_x": 0.683,
+          "pa_y": 0.6359,
+          "pa_diff": 0.0471,
+          "pa": {
+            "ci90": [
+              0.0395,
+              0.0546
+            ],
+            "mde80": 0.0113
+          },
+          "decisions": {
+            "n": 22217,
+            "win_rate": 0.6153,
+            "points_per_decision": 2.7039,
+            "points": {
+              "ci90": [
+                2.2807,
+                3.1454
+              ],
+              "mde80": 0.6536
+            },
+            "win_rate_ci90": [
+              0.5977,
+              0.6329
+            ]
+          }
+        },
+        "half": {
+          "pairs": 108905,
+          "pa_x": 0.6783,
+          "pa_y": 0.6359,
+          "pa_diff": 0.0424,
+          "pa": {
+            "ci90": [
+              0.0368,
+              0.0486
+            ],
+            "mde80": 0.0089
+          },
+          "decisions": {
+            "n": 13709,
+            "win_rate": 0.6683,
+            "points_per_decision": 3.8973,
+            "points": {
+              "ci90": [
+                3.4634,
+                4.3229
+              ],
+              "mde80": 0.6498
+            },
+            "win_rate_ci90": [
+              0.6497,
+              0.6873
+            ]
+          }
+        },
+        "news": {
+          "pairs": 108905,
+          "pa_x": 0.6527,
+          "pa_y": 0.6359,
+          "pa_diff": 0.0167,
+          "pa": {
+            "ci90": [
+              0.0136,
+              0.0201
+            ],
+            "mde80": 0.0049
+          },
+          "decisions": {
+            "n": 2011,
+            "win_rate": 0.9523,
+            "points_per_decision": 9.1599,
+            "points": {
+              "ci90": [
+                8.2544,
+                10.0629
+              ],
+              "mde80": 1.3671
+            },
+            "win_rate_ci90": [
+              0.9252,
+              0.9739
+            ]
+          }
+        },
+        "fit_shrunk": {
+          "pairs": 108905,
+          "pa_x": 0.6829,
+          "pa_y": 0.6359,
+          "pa_diff": 0.0469,
+          "pa": {
+            "ci90": [
+              0.0399,
+              0.0541
+            ],
+            "mde80": 0.0107
+          },
+          "decisions": {
+            "n": 20088,
+            "win_rate": 0.6272,
+            "points_per_decision": 2.9534,
+            "points": {
+              "ci90": [
+                2.5358,
+                3.3844
+              ],
+              "mde80": 0.6415
+            },
+            "win_rate_ci90": [
+              0.6095,
+              0.6448
+            ]
+          }
+        },
+        "pos_phase": {
+          "pairs": 108905,
+          "pa_x": 0.6829,
+          "pa_y": 0.6359,
+          "pa_diff": 0.047,
+          "pa": {
+            "ci90": [
+              0.04,
+              0.0542
+            ],
+            "mde80": 0.0108
+          },
+          "decisions": {
+            "n": 20250,
+            "win_rate": 0.6263,
+            "points_per_decision": 2.9286,
+            "points": {
+              "ci90": [
+                2.5023,
+                3.3592
+              ],
+              "mde80": 0.6478
+            },
+            "win_rate_ci90": [
+              0.6087,
+              0.6437
+            ]
+          }
+        },
+        "espn_proven": {
+          "pairs": 108905,
+          "pa_x": 0.683,
+          "pa_y": 0.6359,
+          "pa_diff": 0.047,
+          "pa": {
+            "ci90": [
+              0.0395,
+              0.0545
+            ],
+            "mde80": 0.0113
+          },
+          "decisions": {
+            "n": 21773,
+            "win_rate": 0.6175,
+            "points_per_decision": 2.754,
+            "points": {
+              "ci90": [
+                2.3269,
+                3.1962
+              ],
+              "mde80": 0.6571
+            },
+            "win_rate_ci90": [
+              0.5998,
+              0.6351
+            ]
+          }
+        }
+      },
+      "vs_espn": {
+        "ours": {
+          "pairs": 108905,
+          "pa_x": 0.6359,
+          "pa_y": 0.683,
+          "pa_diff": -0.0471,
+          "pa": {
+            "ci90": [
+              -0.0546,
+              -0.0395
+            ],
+            "mde80": 0.0113
+          },
+          "decisions": {
+            "n": 22217,
+            "win_rate": 0.3847,
+            "points_per_decision": -2.7039,
+            "points": {
+              "ci90": [
+                -3.1454,
+                -2.2807
+              ],
+              "mde80": 0.6536
+            },
+            "win_rate_ci90": [
+              0.3671,
+              0.4023
+            ]
+          }
+        },
+        "half": {
+          "pairs": 108905,
+          "pa_x": 0.6783,
+          "pa_y": 0.683,
+          "pa_diff": -0.0047,
+          "pa": {
+            "ci90": [
+              -0.0081,
+              -0.0011
+            ],
+            "mde80": 0.0052
+          },
+          "decisions": {
+            "n": 8508,
+            "win_rate": 0.4701,
+            "points_per_decision": -0.781,
+            "points": {
+              "ci90": [
+                -1.3085,
+                -0.2315
+              ],
+              "mde80": 0.8142
+            },
+            "win_rate_ci90": [
+              0.4477,
+              0.4927
+            ]
+          }
+        },
+        "news": {
+          "pairs": 108905,
+          "pa_x": 0.6527,
+          "pa_y": 0.683,
+          "pa_diff": -0.0303,
+          "pa": {
+            "ci90": [
+              -0.0368,
+              -0.0236
+            ],
+            "mde80": 0.01
+          },
+          "decisions": {
+            "n": 20206,
+            "win_rate": 0.4182,
+            "points_per_decision": -2.0613,
+            "points": {
+              "ci90": [
+                -2.4878,
+                -1.6339
+              ],
+              "mde80": 0.6455
+            },
+            "win_rate_ci90": [
+              0.4014,
+              0.4363
+            ]
+          }
+        },
+        "fit_shrunk": {
+          "pairs": 108905,
+          "pa_x": 0.6829,
+          "pa_y": 0.683,
+          "pa_diff": -0.0001,
+          "pa": {
+            "ci90": [
+              -0.0016,
+              0.0014
+            ],
+            "mde80": 0.0022
+          },
+          "decisions": {
+            "n": 2129,
+            "win_rate": 0.4969,
+            "points_per_decision": -0.3492,
+            "points": {
+              "ci90": [
+                -1.2057,
+                0.5494
+              ],
+              "mde80": 1.3267
+            },
+            "win_rate_ci90": [
+              0.4598,
+              0.5358
+            ]
+          }
+        },
+        "pos_phase": {
+          "pairs": 108905,
+          "pa_x": 0.6829,
+          "pa_y": 0.683,
+          "pa_diff": -0.0001,
+          "pa": {
+            "ci90": [
+              -0.0014,
+              0.0013
+            ],
+            "mde80": 0.0021
+          },
+          "decisions": {
+            "n": 1967,
+            "win_rate": 0.498,
+            "points_per_decision": -0.3904,
+            "points": {
+              "ci90": [
+                -1.2565,
+                0.5172
+              ],
+              "mde80": 1.3408
+            },
+            "win_rate_ci90": [
+              0.4601,
+              0.5365
+            ]
+          }
+        },
+        "espn_proven": {
+          "pairs": 108905,
+          "pa_x": 0.683,
+          "pa_y": 0.683,
+          "pa_diff": 0,
+          "pa": {
+            "ci90": [
+              -0.0007,
+              0.0006
+            ],
+            "mde80": 0.001
+          },
+          "decisions": {
+            "n": 444,
+            "win_rate": 0.4944,
+            "points_per_decision": -0.2459,
+            "points": {
+              "ci90": [
+                -2.2366,
+                1.5847
+              ],
+              "mde80": 2.8886
+            },
+            "win_rate_ci90": [
+              0.4131,
+              0.578
+            ]
+          }
+        }
+      }
+    },
+    "house": {
+      "pairs": 97959,
+      "vs_ours": {
+        "espn": {
+          "pairs": 97959,
+          "pa_x": 0.6586,
+          "pa_y": 0.6268,
+          "pa_diff": 0.0318,
+          "pa": {
+            "ci90": [
+              0.0243,
+              0.039
+            ],
+            "mde80": 0.0111
+          },
+          "decisions": {
+            "n": 19766,
+            "win_rate": 0.5788,
+            "points_per_decision": 2.015,
+            "points": {
+              "ci90": [
+                1.5848,
+                2.4471
+              ],
+              "mde80": 0.6519
+            },
+            "win_rate_ci90": [
+              0.5606,
+              0.5961
+            ]
+          }
+        },
+        "half": {
+          "pairs": 97959,
+          "pa_x": 0.6542,
+          "pa_y": 0.6268,
+          "pa_diff": 0.0273,
+          "pa": {
+            "ci90": [
+              0.0222,
+              0.0326
+            ],
+            "mde80": 0.0078
+          },
+          "decisions": {
+            "n": 11362,
+            "win_rate": 0.6179,
+            "points_per_decision": 2.9536,
+            "points": {
+              "ci90": [
+                2.5087,
+                3.4075
+              ],
+              "mde80": 0.6794
+            },
+            "win_rate_ci90": [
+              0.5983,
+              0.637
+            ]
+          }
+        },
+        "news": {
+          "pairs": 97959,
+          "pa_x": 0.6268,
+          "pa_y": 0.6268,
+          "pa_diff": 0,
+          "pa": {
+            "ci90": [
+              0,
+              0
+            ],
+            "mde80": 0
+          },
+          "decisions": {
+            "n": 0,
+            "win_rate": null,
+            "points_per_decision": null,
+            "points": {
+              "ci90": null,
+              "mde80": null
+            },
+            "win_rate_ci90": null
+          }
+        },
+        "fit_shrunk": {
+          "pairs": 97959,
+          "pa_x": 0.6585,
+          "pa_y": 0.6268,
+          "pa_diff": 0.0317,
+          "pa": {
+            "ci90": [
+              0.0247,
+              0.0384
+            ],
+            "mde80": 0.0104
+          },
+          "decisions": {
+            "n": 17642,
+            "win_rate": 0.588,
+            "points_per_decision": 2.2154,
+            "points": {
+              "ci90": [
+                1.7749,
+                2.6285
+              ],
+              "mde80": 0.6453
+            },
+            "win_rate_ci90": [
+              0.5694,
+              0.6055
+            ]
+          }
+        },
+        "pos_phase": {
+          "pairs": 97959,
+          "pa_x": 0.6586,
+          "pa_y": 0.6268,
+          "pa_diff": 0.0317,
+          "pa": {
+            "ci90": [
+              0.0249,
+              0.0385
+            ],
+            "mde80": 0.0103
+          },
+          "decisions": {
+            "n": 17803,
+            "win_rate": 0.5873,
+            "points_per_decision": 2.194,
+            "points": {
+              "ci90": [
+                1.747,
+                2.613
+              ],
+              "mde80": 0.6546
+            },
+            "win_rate_ci90": [
+              0.569,
+              0.6052
+            ]
+          }
+        },
+        "espn_proven": {
+          "pairs": 97959,
+          "pa_x": 0.6586,
+          "pa_y": 0.6268,
+          "pa_diff": 0.0317,
+          "pa": {
+            "ci90": [
+              0.0246,
+              0.0387
+            ],
+            "mde80": 0.0107
+          },
+          "decisions": {
+            "n": 19322,
+            "win_rate": 0.5805,
+            "points_per_decision": 2.0557,
+            "points": {
+              "ci90": [
+                1.6213,
+                2.4865
+              ],
+              "mde80": 0.654
+            },
+            "win_rate_ci90": [
+              0.5623,
+              0.5978
+            ]
+          }
+        }
+      },
+      "vs_espn": {
+        "ours": {
+          "pairs": 97959,
+          "pa_x": 0.6268,
+          "pa_y": 0.6586,
+          "pa_diff": -0.0318,
+          "pa": {
+            "ci90": [
+              -0.039,
+              -0.0243
+            ],
+            "mde80": 0.0111
+          },
+          "decisions": {
+            "n": 19766,
+            "win_rate": 0.4212,
+            "points_per_decision": -2.015,
+            "points": {
+              "ci90": [
+                -2.4471,
+                -1.5848
+              ],
+              "mde80": 0.6519
+            },
+            "win_rate_ci90": [
+              0.4039,
+              0.4394
+            ]
+          }
+        },
+        "half": {
+          "pairs": 97959,
+          "pa_x": 0.6542,
+          "pa_y": 0.6586,
+          "pa_diff": -0.0045,
+          "pa": {
+            "ci90": [
+              -0.0082,
+              -0.0007
+            ],
+            "mde80": 0.0057
+          },
+          "decisions": {
+            "n": 8404,
+            "win_rate": 0.4741,
+            "points_per_decision": -0.746,
+            "points": {
+              "ci90": [
+                -1.274,
+                -0.1966
+              ],
+              "mde80": 0.8144
+            },
+            "win_rate_ci90": [
+              0.452,
+              0.4961
+            ]
+          }
+        },
+        "news": {
+          "pairs": 97959,
+          "pa_x": 0.6268,
+          "pa_y": 0.6586,
+          "pa_diff": -0.0318,
+          "pa": {
+            "ci90": [
+              -0.039,
+              -0.0243
+            ],
+            "mde80": 0.0111
+          },
+          "decisions": {
+            "n": 19766,
+            "win_rate": 0.4212,
+            "points_per_decision": -2.015,
+            "points": {
+              "ci90": [
+                -2.4471,
+                -1.5848
+              ],
+              "mde80": 0.6519
+            },
+            "win_rate_ci90": [
+              0.4039,
+              0.4394
+            ]
+          }
+        },
+        "fit_shrunk": {
+          "pairs": 97959,
+          "pa_x": 0.6585,
+          "pa_y": 0.6586,
+          "pa_diff": -0.0001,
+          "pa": {
+            "ci90": [
+              -0.0017,
+              0.0016
+            ],
+            "mde80": 0.0025
+          },
+          "decisions": {
+            "n": 2124,
+            "win_rate": 0.4974,
+            "points_per_decision": -0.3507,
+            "points": {
+              "ci90": [
+                -1.2081,
+                0.5476
+              ],
+              "mde80": 1.3272
+            },
+            "win_rate_ci90": [
+              0.4603,
+              0.5358
+            ]
+          }
+        },
+        "pos_phase": {
+          "pairs": 97959,
+          "pa_x": 0.6586,
+          "pa_y": 0.6586,
+          "pa_diff": -0.0001,
+          "pa": {
+            "ci90": [
+              -0.0015,
+              0.0015
+            ],
+            "mde80": 0.0023
+          },
+          "decisions": {
+            "n": 1963,
+            "win_rate": 0.4985,
+            "points_per_decision": -0.3919,
+            "points": {
+              "ci90": [
+                -1.2641,
+                0.5183
+              ],
+              "mde80": 1.3473
+            },
+            "win_rate_ci90": [
+              0.4611,
+              0.5375
+            ]
+          }
+        },
+        "espn_proven": {
+          "pairs": 97959,
+          "pa_x": 0.6586,
+          "pa_y": 0.6586,
+          "pa_diff": -0.0001,
+          "pa": {
+            "ci90": [
+              -0.0008,
+              0.0007
+            ],
+            "mde80": 0.0011
+          },
+          "decisions": {
+            "n": 444,
+            "win_rate": 0.4944,
+            "points_per_decision": -0.2459,
+            "points": {
+              "ci90": [
+                -2.2366,
+                1.5847
+              ],
+              "mde80": 2.8886
+            },
+            "win_rate_ci90": [
+              0.4131,
+              0.578
+            ]
+          }
+        }
+      }
+    },
+    "played_only": {
+      "rows": 8119,
+      "pairs": 100461,
+      "vs_ours": {
+        "espn": {
+          "pairs": 100461,
+          "pa_x": 0.6622,
+          "pa_y": 0.6314,
+          "pa_diff": 0.0308,
+          "pa": {
+            "ci90": [
+              0.024,
+              0.0382
+            ],
+            "mde80": 0.0107
+          },
+          "decisions": {
+            "n": 19827,
+            "win_rate": 0.578,
+            "points_per_decision": 1.9866,
+            "points": {
+              "ci90": [
+                1.5795,
+                2.4088
+              ],
+              "mde80": 0.6269
+            },
+            "win_rate_ci90": [
+              0.5608,
+              0.5967
+            ]
+          }
+        },
+        "half": {
+          "pairs": 100461,
+          "pa_x": 0.6581,
+          "pa_y": 0.6314,
+          "pa_diff": 0.0268,
+          "pa": {
+            "ci90": [
+              0.0219,
+              0.0321
+            ],
+            "mde80": 0.0077
+          },
+          "decisions": {
+            "n": 11537,
+            "win_rate": 0.6165,
+            "points_per_decision": 2.8932,
+            "points": {
+              "ci90": [
+                2.4764,
+                3.3194
+              ],
+              "mde80": 0.6373
+            },
+            "win_rate_ci90": [
+              0.5969,
+              0.6367
+            ]
+          }
+        },
+        "news": {
+          "pairs": 100461,
+          "pa_x": 0.6313,
+          "pa_y": 0.6314,
+          "pa_diff": -0.0001,
+          "pa": {
+            "ci90": [
+              -0.0005,
+              0.0002
+            ],
+            "mde80": 0.0005
+          },
+          "decisions": {
+            "n": 62,
+            "win_rate": 0.4194,
+            "points_per_decision": -2.0361,
+            "points": {
+              "ci90": [
+                -5.231,
+                8.03
+              ],
+              "mde80": 10.0244
+            },
+            "win_rate_ci90": [
+              0.2632,
+              0.8333
+            ]
+          }
+        },
+        "fit_shrunk": {
+          "pairs": 100461,
+          "pa_x": 0.6622,
+          "pa_y": 0.6314,
+          "pa_diff": 0.0308,
+          "pa": {
+            "ci90": [
+              0.0244,
+              0.0377
+            ],
+            "mde80": 0.0101
+          },
+          "decisions": {
+            "n": 17728,
+            "win_rate": 0.5873,
+            "points_per_decision": 2.1873,
+            "points": {
+              "ci90": [
+                1.7822,
+                2.6115
+              ],
+              "mde80": 0.6269
+            },
+            "win_rate_ci90": [
+              0.5699,
+              0.6063
+            ]
+          }
+        },
+        "pos_phase": {
+          "pairs": 100461,
+          "pa_x": 0.6622,
+          "pa_y": 0.6314,
+          "pa_diff": 0.0308,
+          "pa": {
+            "ci90": [
+              0.0244,
+              0.0378
+            ],
+            "mde80": 0.0101
+          },
+          "decisions": {
+            "n": 17887,
+            "win_rate": 0.5866,
+            "points_per_decision": 2.1663,
+            "points": {
+              "ci90": [
+                1.7674,
+                2.5907
+              ],
+              "mde80": 0.6224
+            },
+            "win_rate_ci90": [
+              0.5693,
+              0.6055
+            ]
+          }
+        },
+        "espn_proven": {
+          "pairs": 100461,
+          "pa_x": 0.6621,
+          "pa_y": 0.6314,
+          "pa_diff": 0.0308,
+          "pa": {
+            "ci90": [
+              0.024,
+              0.0379
+            ],
+            "mde80": 0.0105
+          },
+          "decisions": {
+            "n": 19383,
+            "win_rate": 0.5797,
+            "points_per_decision": 2.0265,
+            "points": {
+              "ci90": [
+                1.6249,
+                2.4432
+              ],
+              "mde80": 0.6186
+            },
+            "win_rate_ci90": [
+              0.5625,
+              0.5982
+            ]
+          }
+        }
+      },
+      "vs_espn": {
+        "ours": {
+          "pairs": 100461,
+          "pa_x": 0.6314,
+          "pa_y": 0.6622,
+          "pa_diff": -0.0308,
+          "pa": {
+            "ci90": [
+              -0.0382,
+              -0.024
+            ],
+            "mde80": 0.0107
+          },
+          "decisions": {
+            "n": 19827,
+            "win_rate": 0.422,
+            "points_per_decision": -1.9866,
+            "points": {
+              "ci90": [
+                -2.4088,
+                -1.5795
+              ],
+              "mde80": 0.6269
+            },
+            "win_rate_ci90": [
+              0.4033,
+              0.4392
+            ]
+          }
+        },
+        "half": {
+          "pairs": 100461,
+          "pa_x": 0.6581,
+          "pa_y": 0.6622,
+          "pa_diff": -0.004,
+          "pa": {
+            "ci90": [
+              -0.0077,
+              -0.0005
+            ],
+            "mde80": 0.0054
+          },
+          "decisions": {
+            "n": 8290,
+            "win_rate": 0.4755,
+            "points_per_decision": -0.7249,
+            "points": {
+              "ci90": [
+                -1.2554,
+                -0.1909
+              ],
+              "mde80": 0.8047
+            },
+            "win_rate_ci90": [
+              0.4535,
+              0.4971
+            ]
+          }
+        },
+        "news": {
+          "pairs": 100461,
+          "pa_x": 0.6313,
+          "pa_y": 0.6622,
+          "pa_diff": -0.0309,
+          "pa": {
+            "ci90": [
+              -0.0383,
+              -0.0241
+            ],
+            "mde80": 0.0107
+          },
+          "decisions": {
+            "n": 19765,
+            "win_rate": 0.4215,
+            "points_per_decision": -1.9992,
+            "points": {
+              "ci90": [
+                -2.4202,
+                -1.5909
+              ],
+              "mde80": 0.6269
+            },
+            "win_rate_ci90": [
+              0.4029,
+              0.4386
+            ]
+          }
+        },
+        "fit_shrunk": {
+          "pairs": 100461,
+          "pa_x": 0.6622,
+          "pa_y": 0.6622,
+          "pa_diff": 0,
+          "pa": {
+            "ci90": [
+              -0.0015,
+              0.0016
+            ],
+            "mde80": 0.0023
+          },
+          "decisions": {
+            "n": 2099,
+            "win_rate": 0.5002,
+            "points_per_decision": -0.2911,
+            "points": {
+              "ci90": [
+                -1.1299,
+                0.5501
+              ],
+              "mde80": 1.27
+            },
+            "win_rate_ci90": [
+              0.4643,
+              0.5373
+            ]
+          }
+        },
+        "pos_phase": {
+          "pairs": 100461,
+          "pa_x": 0.6622,
+          "pa_y": 0.6622,
+          "pa_diff": 0,
+          "pa": {
+            "ci90": [
+              -0.0014,
+              0.0015
+            ],
+            "mde80": 0.0022
+          },
+          "decisions": {
+            "n": 1940,
+            "win_rate": 0.5013,
+            "points_per_decision": -0.3291,
+            "points": {
+              "ci90": [
+                -1.1711,
+                0.5188
+              ],
+              "mde80": 1.2775
+            },
+            "win_rate_ci90": [
+              0.4644,
+              0.5394
+            ]
+          }
+        },
+        "espn_proven": {
+          "pairs": 100461,
+          "pa_x": 0.6621,
+          "pa_y": 0.6622,
+          "pa_diff": 0,
+          "pa": {
+            "ci90": [
+              -0.0008,
+              0.0007
+            ],
+            "mde80": 0.0011
+          },
+          "decisions": {
+            "n": 444,
+            "win_rate": 0.4944,
+            "points_per_decision": -0.2459,
+            "points": {
+              "ci90": [
+                -2.1539,
+                1.528
+              ],
+              "mde80": 2.7832
+            },
+            "win_rate_ci90": [
+              0.4143,
+              0.5746
+            ]
+          }
+        }
+      }
+    },
+    "by_season": {
+      "2023": {
+        "pairs": 56648,
+        "vs_ours": {
+          "espn": {
+            "pairs": 56648,
+            "pa_x": 0.6841,
+            "pa_y": 0.6369,
+            "pa_diff": 0.0472,
+            "pa": {
+              "ci90": [
+                0.0378,
+                0.0577
+              ],
+              "mde80": 0.015
+            },
+            "decisions": {
+              "n": 11199,
+              "win_rate": 0.6193,
+              "points_per_decision": 2.8716,
+              "points": {
+                "ci90": [
+                  2.3168,
+                  3.4916
+                ],
+                "mde80": 0.888
+              },
+              "win_rate_ci90": [
+                0.5967,
+                0.6435
+              ]
+            }
+          },
+          "half": {
+            "pairs": 56648,
+            "pa_x": 0.6781,
+            "pa_y": 0.6369,
+            "pa_diff": 0.0412,
+            "pa": {
+              "ci90": [
+                0.0338,
+                0.0496
+              ],
+              "mde80": 0.0119
+            },
+            "decisions": {
+              "n": 6979,
+              "win_rate": 0.6671,
+              "points_per_decision": 3.9069,
+              "points": {
+                "ci90": [
+                  3.3162,
+                  4.5633
+                ],
+                "mde80": 0.9428
+              },
+              "win_rate_ci90": [
+                0.6424,
+                0.6935
+              ]
+            }
+          },
+          "news": {
+            "pairs": 56648,
+            "pa_x": 0.6547,
+            "pa_y": 0.6369,
+            "pa_diff": 0.0178,
+            "pa": {
+              "ci90": [
+                0.0134,
+                0.0227
+              ],
+              "mde80": 0.007
+            },
+            "decisions": {
+              "n": 1150,
+              "win_rate": 0.9374,
+              "points_per_decision": 8.5418,
+              "points": {
+                "ci90": [
+                  7.3436,
+                  9.6589
+                ],
+                "mde80": 1.7502
+              },
+              "win_rate_ci90": [
+                0.8932,
+                0.9712
+              ]
+            }
+          },
+          "fit_shrunk": {
+            "pairs": 56648,
+            "pa_x": 0.6838,
+            "pa_y": 0.6369,
+            "pa_diff": 0.0469,
+            "pa": {
+              "ci90": [
+                0.038,
+                0.057
+              ],
+              "mde80": 0.0144
+            },
+            "decisions": {
+              "n": 9950,
+              "win_rate": 0.6334,
+              "points_per_decision": 3.1649,
+              "points": {
+                "ci90": [
+                  2.6174,
+                  3.7737
+                ],
+                "mde80": 0.8741
+              },
+              "win_rate_ci90": [
+                0.6107,
+                0.6576
+              ]
+            }
+          },
+          "pos_phase": {
+            "pairs": 56648,
+            "pa_x": 0.6838,
+            "pa_y": 0.6369,
+            "pa_diff": 0.0469,
+            "pa": {
+              "ci90": [
+                0.038,
+                0.057
+              ],
+              "mde80": 0.0144
+            },
+            "decisions": {
+              "n": 9950,
+              "win_rate": 0.6334,
+              "points_per_decision": 3.1649,
+              "points": {
+                "ci90": [
+                  2.6174,
+                  3.7737
+                ],
+                "mde80": 0.8741
+              },
+              "win_rate_ci90": [
+                0.6107,
+                0.6576
+              ]
+            }
+          },
+          "espn_proven": {
+            "pairs": 56648,
+            "pa_x": 0.6839,
+            "pa_y": 0.6369,
+            "pa_diff": 0.047,
+            "pa": {
+              "ci90": [
+                0.0379,
+                0.0574
+              ],
+              "mde80": 0.0148
+            },
+            "decisions": {
+              "n": 11028,
+              "win_rate": 0.6206,
+              "points_per_decision": 2.906,
+              "points": {
+                "ci90": [
+                  2.3598,
+                  3.5443
+                ],
+                "mde80": 0.8954
+              },
+              "win_rate_ci90": [
+                0.5978,
+                0.6449
+              ]
+            }
+          }
+        },
+        "vs_espn": {
+          "ours": {
+            "pairs": 56648,
+            "pa_x": 0.6369,
+            "pa_y": 0.6841,
+            "pa_diff": -0.0472,
+            "pa": {
+              "ci90": [
+                -0.0577,
+                -0.0378
+              ],
+              "mde80": 0.015
+            },
+            "decisions": {
+              "n": 11199,
+              "win_rate": 0.3807,
+              "points_per_decision": -2.8716,
+              "points": {
+                "ci90": [
+                  -3.4916,
+                  -2.3168
+                ],
+                "mde80": 0.888
+              },
+              "win_rate_ci90": [
+                0.3565,
+                0.4033
+              ]
+            }
+          },
+          "half": {
+            "pairs": 56648,
+            "pa_x": 0.6781,
+            "pa_y": 0.6841,
+            "pa_diff": -0.006,
+            "pa": {
+              "ci90": [
+                -0.0106,
+                -0.0016
+              ],
+              "mde80": 0.0068
+            },
+            "decisions": {
+              "n": 4220,
+              "win_rate": 0.4597,
+              "points_per_decision": -1.1594,
+              "points": {
+                "ci90": [
+                  -1.9008,
+                  -0.4362
+                ],
+                "mde80": 1.1071
+              },
+              "win_rate_ci90": [
+                0.4294,
+                0.4894
+              ]
+            }
+          },
+          "news": {
+            "pairs": 56648,
+            "pa_x": 0.6547,
+            "pa_y": 0.6841,
+            "pa_diff": -0.0294,
+            "pa": {
+              "ci90": [
+                -0.0384,
+                -0.0207
+              ],
+              "mde80": 0.0134
+            },
+            "decisions": {
+              "n": 10049,
+              "win_rate": 0.4171,
+              "points_per_decision": -2.2227,
+              "points": {
+                "ci90": [
+                  -2.8375,
+                  -1.6532
+                ],
+                "mde80": 0.8952
+              },
+              "win_rate_ci90": [
+                0.3925,
+                0.4404
+              ]
+            }
+          },
+          "fit_shrunk": {
+            "pairs": 56648,
+            "pa_x": 0.6838,
+            "pa_y": 0.6841,
+            "pa_diff": -0.0004,
+            "pa": {
+              "ci90": [
+                -0.0025,
+                0.0018
+              ],
+              "mde80": 0.0032
+            },
+            "decisions": {
+              "n": 1249,
+              "win_rate": 0.4924,
+              "points_per_decision": -0.5353,
+              "points": {
+                "ci90": [
+                  -1.6331,
+                  0.571
+                ],
+                "mde80": 1.6661
+              },
+              "win_rate_ci90": [
+                0.445,
+                0.5401
+              ]
+            }
+          },
+          "pos_phase": {
+            "pairs": 56648,
+            "pa_x": 0.6838,
+            "pa_y": 0.6841,
+            "pa_diff": -0.0004,
+            "pa": {
+              "ci90": [
+                -0.0025,
+                0.0018
+              ],
+              "mde80": 0.0032
+            },
+            "decisions": {
+              "n": 1249,
+              "win_rate": 0.4924,
+              "points_per_decision": -0.5353,
+              "points": {
+                "ci90": [
+                  -1.6331,
+                  0.571
+                ],
+                "mde80": 1.6661
+              },
+              "win_rate_ci90": [
+                0.445,
+                0.5401
+              ]
+            }
+          },
+          "espn_proven": {
+            "pairs": 56648,
+            "pa_x": 0.6839,
+            "pa_y": 0.6841,
+            "pa_diff": -0.0002,
+            "pa": {
+              "ci90": [
+                -0.0011,
+                0.0006
+              ],
+              "mde80": 0.0013
+            },
+            "decisions": {
+              "n": 171,
+              "win_rate": 0.462,
+              "points_per_decision": -0.6527,
+              "points": {
+                "ci90": [
+                  -4.2423,
+                  2.6466
+                ],
+                "mde80": 5.2075
+              },
+              "win_rate_ci90": [
+                0.3108,
+                0.5978
+              ]
+            }
+          }
+        }
+      },
+      "2024": {
+        "pairs": 52257,
+        "vs_ours": {
+          "espn": {
+            "pairs": 52257,
+            "pa_x": 0.6818,
+            "pa_y": 0.6349,
+            "pa_diff": 0.0469,
+            "pa": {
+              "ci90": [
+                0.0366,
+                0.0576
+              ],
+              "mde80": 0.0159
+            },
+            "decisions": {
+              "n": 11018,
+              "win_rate": 0.6112,
+              "points_per_decision": 2.5334,
+              "points": {
+                "ci90": [
+                  1.9486,
+                  3.1136
+                ],
+                "mde80": 0.8806
+              },
+              "win_rate_ci90": [
+                0.5873,
+                0.6342
+              ]
+            }
+          },
+          "half": {
+            "pairs": 52257,
+            "pa_x": 0.6786,
+            "pa_y": 0.6349,
+            "pa_diff": 0.0437,
+            "pa": {
+              "ci90": [
+                0.0359,
+                0.0517
+              ],
+              "mde80": 0.0119
+            },
+            "decisions": {
+              "n": 6730,
+              "win_rate": 0.6695,
+              "points_per_decision": 3.8872,
+              "points": {
+                "ci90": [
+                  3.2741,
+                  4.4886
+                ],
+                "mde80": 0.9181
+              },
+              "win_rate_ci90": [
+                0.6437,
+                0.6949
+              ]
+            }
+          },
+          "news": {
+            "pairs": 52257,
+            "pa_x": 0.6504,
+            "pa_y": 0.6349,
+            "pa_diff": 0.0156,
+            "pa": {
+              "ci90": [
+                0.0112,
+                0.0202
+              ],
+              "mde80": 0.0068
+            },
+            "decisions": {
+              "n": 861,
+              "win_rate": 0.9721,
+              "points_per_decision": 9.9855,
+              "points": {
+                "ci90": [
+                  8.9399,
+                  11.0119
+                ],
+                "mde80": 1.5663
+              },
+              "win_rate_ci90": [
+                0.9577,
+                0.9847
+              ]
+            }
+          },
+          "fit_shrunk": {
+            "pairs": 52257,
+            "pa_x": 0.6819,
+            "pa_y": 0.6349,
+            "pa_diff": 0.047,
+            "pa": {
+              "ci90": [
+                0.037,
+                0.0575
+              ],
+              "mde80": 0.0155
+            },
+            "decisions": {
+              "n": 10138,
+              "win_rate": 0.6211,
+              "points_per_decision": 2.7459,
+              "points": {
+                "ci90": [
+                  2.1673,
+                  3.3298
+                ],
+                "mde80": 0.8788
+              },
+              "win_rate_ci90": [
+                0.5976,
+                0.6447
+              ]
+            }
+          },
+          "pos_phase": {
+            "pairs": 52257,
+            "pa_x": 0.682,
+            "pa_y": 0.6349,
+            "pa_diff": 0.0471,
+            "pa": {
+              "ci90": [
+                0.0371,
+                0.0576
+              ],
+              "mde80": 0.0155
+            },
+            "decisions": {
+              "n": 10300,
+              "win_rate": 0.6195,
+              "points_per_decision": 2.7004,
+              "points": {
+                "ci90": [
+                  2.1156,
+                  3.2809
+                ],
+                "mde80": 0.8809
+              },
+              "win_rate_ci90": [
+                0.5959,
+                0.643
+              ]
+            }
+          },
+          "espn_proven": {
+            "pairs": 52257,
+            "pa_x": 0.6819,
+            "pa_y": 0.6349,
+            "pa_diff": 0.047,
+            "pa": {
+              "ci90": [
+                0.0369,
+                0.0577
+              ],
+              "mde80": 0.0158
+            },
+            "decisions": {
+              "n": 10745,
+              "win_rate": 0.6144,
+              "points_per_decision": 2.598,
+              "points": {
+                "ci90": [
+                  2.0226,
+                  3.1824
+                ],
+                "mde80": 0.8768
+              },
+              "win_rate_ci90": [
+                0.5907,
+                0.6377
+              ]
+            }
+          }
+        },
+        "vs_espn": {
+          "ours": {
+            "pairs": 52257,
+            "pa_x": 0.6349,
+            "pa_y": 0.6818,
+            "pa_diff": -0.0469,
+            "pa": {
+              "ci90": [
+                -0.0576,
+                -0.0366
+              ],
+              "mde80": 0.0159
+            },
+            "decisions": {
+              "n": 11018,
+              "win_rate": 0.3888,
+              "points_per_decision": -2.5334,
+              "points": {
+                "ci90": [
+                  -3.1136,
+                  -1.9486
+                ],
+                "mde80": 0.8806
+              },
+              "win_rate_ci90": [
+                0.3658,
+                0.4127
+              ]
+            }
+          },
+          "half": {
+            "pairs": 52257,
+            "pa_x": 0.6786,
+            "pa_y": 0.6818,
+            "pa_diff": -0.0032,
+            "pa": {
+              "ci90": [
+                -0.0082,
+                0.0018
+              ],
+              "mde80": 0.0075
+            },
+            "decisions": {
+              "n": 4288,
+              "win_rate": 0.4804,
+              "points_per_decision": -0.4086,
+              "points": {
+                "ci90": [
+                  -1.1287,
+                  0.3146
+                ],
+                "mde80": 1.091
+              },
+              "win_rate_ci90": [
+                0.4498,
+                0.5112
+              ]
+            }
+          },
+          "news": {
+            "pairs": 52257,
+            "pa_x": 0.6504,
+            "pa_y": 0.6818,
+            "pa_diff": -0.0313,
+            "pa": {
+              "ci90": [
+                -0.0414,
+                -0.0219
+              ],
+              "mde80": 0.0148
+            },
+            "decisions": {
+              "n": 10157,
+              "win_rate": 0.4194,
+              "points_per_decision": -1.9017,
+              "points": {
+                "ci90": [
+                  -2.4666,
+                  -1.3166
+                ],
+                "mde80": 0.8693
+              },
+              "win_rate_ci90": [
+                0.3952,
+                0.4435
+              ]
+            }
+          },
+          "fit_shrunk": {
+            "pairs": 52257,
+            "pa_x": 0.6819,
+            "pa_y": 0.6818,
+            "pa_diff": 0.0001,
+            "pa": {
+              "ci90": [
+                -0.0016,
+                0.002
+              ],
+              "mde80": 0.0027
+            },
+            "decisions": {
+              "n": 880,
+              "win_rate": 0.5034,
+              "points_per_decision": -0.0851,
+              "points": {
+                "ci90": [
+                  -1.3223,
+                  1.1364
+                ],
+                "mde80": 1.8586
+              },
+              "win_rate_ci90": [
+                0.4511,
+                0.5563
+              ]
+            }
+          },
+          "pos_phase": {
+            "pairs": 52257,
+            "pa_x": 0.682,
+            "pa_y": 0.6818,
+            "pa_diff": 0.0002,
+            "pa": {
+              "ci90": [
+                -0.0013,
+                0.0018
+              ],
+              "mde80": 0.0024
+            },
+            "decisions": {
+              "n": 718,
+              "win_rate": 0.5077,
+              "points_per_decision": -0.1384,
+              "points": {
+                "ci90": [
+                  -1.5662,
+                  1.2142
+                ],
+                "mde80": 2.1018
+              },
+              "win_rate_ci90": [
+                0.4528,
+                0.5649
+              ]
+            }
+          },
+          "espn_proven": {
+            "pairs": 52257,
+            "pa_x": 0.6819,
+            "pa_y": 0.6818,
+            "pa_diff": 0.0002,
+            "pa": {
+              "ci90": [
+                -0.0008,
+                0.0012
+              ],
+              "mde80": 0.0015
+            },
+            "decisions": {
+              "n": 273,
+              "win_rate": 0.5147,
+              "points_per_decision": 0.009,
+              "points": {
+                "ci90": [
+                  -2.4329,
+                  2.3853
+                ],
+                "mde80": 3.6422
+              },
+              "win_rate_ci90": [
+                0.4218,
+                0.6149
+              ]
+            }
+          }
+        }
+      }
+    },
+    "levels": {
+      "ours": {
+        "mae_decision": 4.1176,
+        "mae_played": 4.8816,
+        "mean_signed_error": -1.9994
+      },
+      "espn": {
+        "mae_decision": 3.6327,
+        "mae_played": 4.4333,
+        "mean_signed_error": 0.104
+      },
+      "half": {
+        "mae_decision": 3.6895,
+        "mae_played": 4.421,
+        "mean_signed_error": -0.9477
+      },
+      "news": {
+        "mae_decision": 3.9517,
+        "mae_played": 4.8779,
+        "mean_signed_error": -2.1875
+      },
+      "fit_shrunk": {
+        "mae_decision": 3.6152,
+        "mae_played": 4.3869,
+        "mean_signed_error": -0.188
+      },
+      "pos_phase": {
+        "mae_decision": 3.6155,
+        "mae_played": 4.3878,
+        "mean_signed_error": -0.1682
+      },
+      "espn_proven": {
+        "mae_decision": 3.6297,
+        "mae_played": 4.4221,
+        "mean_signed_error": 0.0337
+      }
+    },
+    "level_gap_espn_minus_ours": 2.1034,
+    "level_gap_ours_ge_4": 3.5206,
+    "availability_diagnostic": {
+      "note": "diagnostic, not pre-registered, no rule attached: our base without the chance-to-play multiplier, and with it only for designated players, on the primary pairs",
+      "startable_no_designation": {
+        "rows": 5963,
+        "mean_p": 0.6941,
+        "played_share": 0.9489
+      },
+      "base_only_vs_ours": {
+        "pairs": 108905,
+        "pa_x": 0.6428,
+        "pa_y": 0.6359,
+        "pa_diff": 0.0069,
+        "pa": {
+          "ci90": [
+            0.0012,
+            0.0128
+          ],
+          "mde80": 0.0088
+        },
+        "decisions": {
+          "n": 16497,
+          "win_rate": 0.5227,
+          "points_per_decision": 0.6865,
+          "points": {
+            "ci90": [
+              0.2494,
+              1.1316
+            ],
+            "mde80": 0.6669
+          },
+          "win_rate_ci90": [
+            0.5041,
+            0.5415
+          ]
+        }
+      },
+      "base_only_vs_espn": {
+        "pairs": 108905,
+        "pa_x": 0.6428,
+        "pa_y": 0.683,
+        "pa_diff": -0.0402,
+        "pa": {
+          "ci90": [
+            -0.0463,
+            -0.0339
+          ],
+          "mde80": 0.0094
+        },
+        "decisions": {
+          "n": 16677,
+          "win_rate": 0.3689,
+          "points_per_decision": -2.925,
+          "points": {
+            "ci90": [
+              -3.355,
+              -2.4836
+            ],
+            "mde80": 0.6588
+          },
+          "win_rate_ci90": [
+            0.3518,
+            0.388
+          ]
+        }
+      },
+      "designated_only_vs_ours": {
+        "pairs": 108905,
+        "pa_x": 0.6476,
+        "pa_y": 0.6359,
+        "pa_diff": 0.0116,
+        "pa": {
+          "ci90": [
+            0.0059,
+            0.0177
+          ],
+          "mde80": 0.0089
+        },
+        "decisions": {
+          "n": 16414,
+          "win_rate": 0.5386,
+          "points_per_decision": 1.0043,
+          "points": {
+            "ci90": [
+              0.5762,
+              1.4287
+            ],
+            "mde80": 0.6444
+          },
+          "win_rate_ci90": [
+            0.5206,
+            0.5569
+          ]
+        }
+      },
+      "designated_only_vs_espn": {
+        "pairs": 108905,
+        "pa_x": 0.6476,
+        "pa_y": 0.683,
+        "pa_diff": -0.0354,
+        "pa": {
+          "ci90": [
+            -0.042,
+            -0.0287
+          ],
+          "mde80": 0.01
+        },
+        "decisions": {
+          "n": 17882,
+          "win_rate": 0.3922,
+          "points_per_decision": -2.4403,
+          "points": {
+            "ci90": [
+              -2.8938,
+              -1.9867
+            ],
+            "mde80": 0.6857
+          },
+          "win_rate_ci90": [
+            0.3737,
+            0.4117
+          ]
+        }
+      }
+    }
+  },
+  "forward": {
+    "season": 2026,
+    "weeks": [
+      2
+    ],
+    "shipping_parameters": "fit on 2022-2024",
+    "label": "forward, one week: an anecdote for size, a direction check for the ship rule",
+    "primary": {
+      "label": "2026 W2: replayed served number vs ESPN settled (rostered)",
+      "rows": 153,
+      "players": 153,
+      "pairs": 2778,
+      "vs_ours": {
+        "espn": {
+          "pairs": 2778,
+          "pa_x": 0.6839,
+          "pa_y": 0.6319,
+          "pa_diff": 0.052,
+          "pa": {
+            "ci90": [
+              -0.0022,
+              0.102
+            ],
+            "mde80": 0.0787
+          },
+          "decisions": {
+            "n": 807,
+            "win_rate": 0.5898,
+            "points_per_decision": 1.3857,
+            "points": {
+              "ci90": [
+                -0.5156,
+                3.1632
+              ],
+              "mde80": 2.7809
+            },
+            "win_rate_ci90": [
+              0.4972,
+              0.6757
+            ]
+          }
+        },
+        "half": {
+          "pairs": 2778,
+          "pa_x": 0.6838,
+          "pa_y": 0.6319,
+          "pa_diff": 0.0518,
+          "pa": {
+            "ci90": [
+              0.0171,
+              0.0861
+            ],
+            "mde80": 0.0521
+          },
+          "decisions": {
+            "n": 471,
+            "win_rate": 0.6529,
+            "points_per_decision": 3.0598,
+            "points": {
+              "ci90": [
+                1.1662,
+                5.0108
+              ],
+              "mde80": 2.9062
+            },
+            "win_rate_ci90": [
+              0.5539,
+              0.75
+            ]
+          }
+        },
+        "news": {
+          "pairs": 2778,
+          "pa_x": 0.647,
+          "pa_y": 0.6319,
+          "pa_diff": 0.0151,
+          "pa": {
+            "ci90": [
+              0.0021,
+              0.0308
+            ],
+            "mde80": 0.0217
+          },
+          "decisions": {
+            "n": 46,
+            "win_rate": 0.9565,
+            "points_per_decision": 8.8,
+            "points": {
+              "ci90": [
+                6.4368,
+                12.2864
+              ],
+              "mde80": 4.4218
+            },
+            "win_rate_ci90": [
+              0.8947,
+              1
+            ]
+          }
+        },
+        "fit_shrunk": {
+          "pairs": 2778,
+          "pa_x": 0.683,
+          "pa_y": 0.6319,
+          "pa_diff": 0.0511,
+          "pa": {
+            "ci90": [
+              0.0013,
+              0.099
+            ],
+            "mde80": 0.0738
+          },
+          "decisions": {
+            "n": 734,
+            "win_rate": 0.5967,
+            "points_per_decision": 1.499,
+            "points": {
+              "ci90": [
+                -0.4933,
+                3.3796
+              ],
+              "mde80": 2.9276
+            },
+            "win_rate_ci90": [
+              0.5025,
+              0.6867
+            ]
+          }
+        },
+        "pos_phase": {
+          "pairs": 2778,
+          "pa_x": 0.683,
+          "pa_y": 0.6319,
+          "pa_diff": 0.0511,
+          "pa": {
+            "ci90": [
+              0.0008,
+              0.0988
+            ],
+            "mde80": 0.0741
+          },
+          "decisions": {
+            "n": 748,
+            "win_rate": 0.5949,
+            "points_per_decision": 1.5179,
+            "points": {
+              "ci90": [
+                -0.4013,
+                3.3317
+              ],
+              "mde80": 2.8219
+            },
+            "win_rate_ci90": [
+              0.5013,
+              0.6841
+            ]
+          }
+        },
+        "espn_proven": {
+          "pairs": 2778,
+          "pa_x": 0.6825,
+          "pa_y": 0.6319,
+          "pa_diff": 0.0506,
+          "pa": {
+            "ci90": [
+              -0.0019,
+              0.0987
+            ],
+            "mde80": 0.076
+          },
+          "decisions": {
+            "n": 763,
+            "win_rate": 0.5924,
+            "points_per_decision": 1.5567,
+            "points": {
+              "ci90": [
+                -0.2996,
+                3.3481
+              ],
+              "mde80": 2.7574
+            },
+            "win_rate_ci90": [
+              0.4971,
+              0.6814
+            ]
+          }
+        }
+      },
+      "vs_espn": {
+        "ours": {
+          "pairs": 2778,
+          "pa_x": 0.6319,
+          "pa_y": 0.6839,
+          "pa_diff": -0.052,
+          "pa": {
+            "ci90": [
+              -0.102,
+              0.0022
+            ],
+            "mde80": 0.0787
+          },
+          "decisions": {
+            "n": 807,
+            "win_rate": 0.4102,
+            "points_per_decision": -1.3857,
+            "points": {
+              "ci90": [
+                -3.1632,
+                0.5156
+              ],
+              "mde80": 2.7809
+            },
+            "win_rate_ci90": [
+              0.3243,
+              0.5028
+            ]
+          }
+        },
+        "half": {
+          "pairs": 2778,
+          "pa_x": 0.6838,
+          "pa_y": 0.6839,
+          "pa_diff": -0.0002,
+          "pa": {
+            "ci90": [
+              -0.0283,
+              0.0273
+            ],
+            "mde80": 0.042
+          },
+          "decisions": {
+            "n": 336,
+            "win_rate": 0.4985,
+            "points_per_decision": 0.9611,
+            "points": {
+              "ci90": [
+                -1.3578,
+                3.3634
+              ],
+              "mde80": 3.5689
+            },
+            "win_rate_ci90": [
+              0.3808,
+              0.61
+            ]
+          }
+        },
+        "news": {
+          "pairs": 2778,
+          "pa_x": 0.647,
+          "pa_y": 0.6839,
+          "pa_diff": -0.0369,
+          "pa": {
+            "ci90": [
+              -0.0853,
+              0.0137
+            ],
+            "mde80": 0.0748
+          },
+          "decisions": {
+            "n": 761,
+            "win_rate": 0.4323,
+            "points_per_decision": -0.9375,
+            "points": {
+              "ci90": [
+                -2.7458,
+                0.9588
+              ],
+              "mde80": 2.8005
+            },
+            "win_rate_ci90": [
+              0.3438,
+              0.5238
+            ]
+          }
+        },
+        "fit_shrunk": {
+          "pairs": 2778,
+          "pa_x": 0.683,
+          "pa_y": 0.6839,
+          "pa_diff": -0.0009,
+          "pa": {
+            "ci90": [
+              -0.0095,
+              0.0084
+            ],
+            "mde80": 0.0135
+          },
+          "decisions": {
+            "n": 73,
+            "win_rate": 0.4795,
+            "points_per_decision": -0.2466,
+            "points": {
+              "ci90": [
+                -3.2556,
+                2.7055
+              ],
+              "mde80": 4.5062
+            },
+            "win_rate_ci90": [
+              0.3067,
+              0.6481
+            ]
+          }
+        },
+        "pos_phase": {
+          "pairs": 2778,
+          "pa_x": 0.683,
+          "pa_y": 0.6839,
+          "pa_diff": -0.0009,
+          "pa": {
+            "ci90": [
+              -0.0088,
+              0.0072
+            ],
+            "mde80": 0.0121
+          },
+          "decisions": {
+            "n": 59,
+            "win_rate": 0.4746,
+            "points_per_decision": 0.2912,
+            "points": {
+              "ci90": [
+                -3.8623,
+                4.8203
+              ],
+              "mde80": 6.5635
+            },
+            "win_rate_ci90": [
+              0.2885,
+              0.66
+            ]
+          }
+        },
+        "espn_proven": {
+          "pairs": 2778,
+          "pa_x": 0.6825,
+          "pa_y": 0.6839,
+          "pa_diff": -0.0014,
+          "pa": {
+            "ci90": [
+              -0.0083,
+              0.0054
+            ],
+            "mde80": 0.0104
+          },
+          "decisions": {
+            "n": 44,
+            "win_rate": 0.4545,
+            "points_per_decision": 1.58,
+            "points": {
+              "ci90": [
+                -3.6165,
+                7.192
+              ],
+              "mde80": 8.1705
+            },
+            "win_rate_ci90": [
+              0.2368,
+              0.6563
+            ]
+          }
+        }
+      },
+      "mae_decision": {
+        "ours": 5.9214,
+        "espn": 5.7225,
+        "half": 5.4614,
+        "news": 5.7185,
+        "fit_shrunk": 5.626,
+        "pos_phase": 5.6136,
+        "espn_proven": 5.6138
+      },
+      "level_gap_espn_minus_ours": 3.851
+    },
+    "archive": {
+      "label": "2026 W2: replayed served number vs ESPN archive (all players)",
+      "rows": 344,
+      "players": 344,
+      "pairs": 4314,
+      "vs_ours": {
+        "espn": {
+          "pairs": 4314,
+          "pa_x": 0.7073,
+          "pa_y": 0.6424,
+          "pa_diff": 0.0649,
+          "pa": {
+            "ci90": [
+              0.0219,
+              0.1097
+            ],
+            "mde80": 0.0664
+          },
+          "decisions": {
+            "n": 1159,
+            "win_rate": 0.6208,
+            "points_per_decision": 1.9724,
+            "points": {
+              "ci90": [
+                0.3691,
+                3.6024
+              ],
+              "mde80": 2.4441
+            },
+            "win_rate_ci90": [
+              0.5398,
+              0.7026
+            ]
+          }
+        },
+        "half": {
+          "pairs": 4314,
+          "pa_x": 0.7036,
+          "pa_y": 0.6424,
+          "pa_diff": 0.0612,
+          "pa": {
+            "ci90": [
+              0.0298,
+              0.0934
+            ],
+            "mde80": 0.0481
+          },
+          "decisions": {
+            "n": 720,
+            "win_rate": 0.6833,
+            "points_per_decision": 3.4611,
+            "points": {
+              "ci90": [
+                1.8496,
+                5.1706
+              ],
+              "mde80": 2.5105
+            },
+            "win_rate_ci90": [
+              0.5933,
+              0.7716
+            ]
+          }
+        },
+        "news": {
+          "pairs": 4314,
+          "pa_x": 0.6584,
+          "pa_y": 0.6424,
+          "pa_diff": 0.016,
+          "pa": {
+            "ci90": [
+              0.002,
+              0.034
+            ],
+            "mde80": 0.0242
+          },
+          "decisions": {
+            "n": 73,
+            "win_rate": 0.9726,
+            "points_per_decision": 7.7164,
+            "points": {
+              "ci90": [
+                5.9864,
+                10.6158
+              ],
+              "mde80": 3.4995
+            },
+            "win_rate_ci90": [
+              0.9394,
+              1
+            ]
+          }
+        },
+        "fit_shrunk": {
+          "pairs": 4314,
+          "pa_x": 0.706,
+          "pa_y": 0.6424,
+          "pa_diff": 0.0635,
+          "pa": {
+            "ci90": [
+              0.0222,
+              0.1065
+            ],
+            "mde80": 0.0637
+          },
+          "decisions": {
+            "n": 1067,
+            "win_rate": 0.6284,
+            "points_per_decision": 2.1315,
+            "points": {
+              "ci90": [
+                0.4417,
+                3.8193
+              ],
+              "mde80": 2.5533
+            },
+            "win_rate_ci90": [
+              0.5453,
+              0.7127
+            ]
+          }
+        },
+        "pos_phase": {
+          "pairs": 4314,
+          "pa_x": 0.7076,
+          "pa_y": 0.6424,
+          "pa_diff": 0.0651,
+          "pa": {
+            "ci90": [
+              0.0239,
+              0.1081
+            ],
+            "mde80": 0.0636
+          },
+          "decisions": {
+            "n": 1090,
+            "win_rate": 0.6289,
+            "points_per_decision": 2.1615,
+            "points": {
+              "ci90": [
+                0.5269,
+                3.8129
+              ],
+              "mde80": 2.484
+            },
+            "win_rate_ci90": [
+              0.5479,
+              0.7136
+            ]
+          }
+        },
+        "espn_proven": {
+          "pairs": 4314,
+          "pa_x": 0.7069,
+          "pa_y": 0.6424,
+          "pa_diff": 0.0644,
+          "pa": {
+            "ci90": [
+              0.0228,
+              0.1085
+            ],
+            "mde80": 0.0648
+          },
+          "decisions": {
+            "n": 1107,
+            "win_rate": 0.6256,
+            "points_per_decision": 2.1668,
+            "points": {
+              "ci90": [
+                0.5361,
+                3.8256
+              ],
+              "mde80": 2.4866
+            },
+            "win_rate_ci90": [
+              0.5434,
+              0.7076
+            ]
+          }
+        }
+      },
+      "vs_espn": {
+        "ours": {
+          "pairs": 4314,
+          "pa_x": 0.6424,
+          "pa_y": 0.7073,
+          "pa_diff": -0.0649,
+          "pa": {
+            "ci90": [
+              -0.1097,
+              -0.0219
+            ],
+            "mde80": 0.0664
+          },
+          "decisions": {
+            "n": 1159,
+            "win_rate": 0.3792,
+            "points_per_decision": -1.9724,
+            "points": {
+              "ci90": [
+                -3.6024,
+                -0.3691
+              ],
+              "mde80": 2.4441
+            },
+            "win_rate_ci90": [
+              0.2974,
+              0.4602
+            ]
+          }
+        },
+        "half": {
+          "pairs": 4314,
+          "pa_x": 0.7036,
+          "pa_y": 0.7073,
+          "pa_diff": -0.0037,
+          "pa": {
+            "ci90": [
+              -0.0232,
+              0.0154
+            ],
+            "mde80": 0.0292
+          },
+          "decisions": {
+            "n": 439,
+            "win_rate": 0.4818,
+            "points_per_decision": 0.4692,
+            "points": {
+              "ci90": [
+                -1.5737,
+                2.5222
+              ],
+              "mde80": 3.0962
+            },
+            "win_rate_ci90": [
+              0.3835,
+              0.5749
+            ]
+          }
+        },
+        "news": {
+          "pairs": 4314,
+          "pa_x": 0.6584,
+          "pa_y": 0.7073,
+          "pa_diff": -0.0489,
+          "pa": {
+            "ci90": [
+              -0.0907,
+              -0.0083
+            ],
+            "mde80": 0.0623
+          },
+          "decisions": {
+            "n": 1086,
+            "win_rate": 0.4029,
+            "points_per_decision": -1.5863,
+            "points": {
+              "ci90": [
+                -3.2602,
+                0.0229
+              ],
+              "mde80": 2.4817
+            },
+            "win_rate_ci90": [
+              0.3201,
+              0.4848
+            ]
+          }
+        },
+        "fit_shrunk": {
+          "pairs": 4314,
+          "pa_x": 0.706,
+          "pa_y": 0.7073,
+          "pa_diff": -0.0014,
+          "pa": {
+            "ci90": [
+              -0.0075,
+              0.0051
+            ],
+            "mde80": 0.0095
+          },
+          "decisions": {
+            "n": 92,
+            "win_rate": 0.4674,
+            "points_per_decision": -0.127,
+            "points": {
+              "ci90": [
+                -2.8186,
+                2.6612
+              ],
+              "mde80": 4.1424
+            },
+            "win_rate_ci90": [
+              0.3153,
+              0.6161
+            ]
+          }
+        },
+        "pos_phase": {
+          "pairs": 4314,
+          "pa_x": 0.7076,
+          "pa_y": 0.7073,
+          "pa_diff": 0.0002,
+          "pa": {
+            "ci90": [
+              -0.005,
+              0.0057
+            ],
+            "mde80": 0.0081
+          },
+          "decisions": {
+            "n": 69,
+            "win_rate": 0.5072,
+            "points_per_decision": 1.0157,
+            "points": {
+              "ci90": [
+                -2.6627,
+                4.9632
+              ],
+              "mde80": 5.7646
+            },
+            "win_rate_ci90": [
+              0.3372,
+              0.6731
+            ]
+          }
+        },
+        "espn_proven": {
+          "pairs": 4314,
+          "pa_x": 0.7069,
+          "pa_y": 0.7073,
+          "pa_diff": -0.0005,
+          "pa": {
+            "ci90": [
+              -0.0051,
+              0.0041
+            ],
+            "mde80": 0.0069
+          },
+          "decisions": {
+            "n": 52,
+            "win_rate": 0.4808,
+            "points_per_decision": 2.1673,
+            "points": {
+              "ci90": [
+                -2.4156,
+                6.8547
+              ],
+              "mde80": 7.0077
+            },
+            "win_rate_ci90": [
+              0.2727,
+              0.6625
+            ]
+          }
+        }
+      },
+      "mae_decision": {
+        "ours": 4.2908,
+        "espn": 4.1163,
+        "half": 3.9463,
+        "news": 4.1682,
+        "fit_shrunk": 4.0523,
+        "pos_phase": 4.0517,
+        "espn_proven": 4.0597
+      },
+      "level_gap_espn_minus_ours": 2.6363
+    },
+    "thursday": {
+      "label": "2026 W2: replayed served number vs ESPN Thursday capture",
+      "rows": 342,
+      "players": 342,
+      "pairs": 4314,
+      "vs_ours": {
+        "espn": {
+          "pairs": 4314,
+          "pa_x": 0.6781,
+          "pa_y": 0.6424,
+          "pa_diff": 0.0357,
+          "pa": {
+            "ci90": [
+              -0.0077,
+              0.0815
+            ],
+            "mde80": 0.0674
+          },
+          "decisions": {
+            "n": 1180,
+            "win_rate": 0.5653,
+            "points_per_decision": 0.6894,
+            "points": {
+              "ci90": [
+                -1.0229,
+                2.3693
+              ],
+              "mde80": 2.5643
+            },
+            "win_rate_ci90": [
+              0.4856,
+              0.6481
+            ]
+          }
+        },
+        "half": {
+          "pairs": 4314,
+          "pa_x": 0.6828,
+          "pa_y": 0.6424,
+          "pa_diff": 0.0403,
+          "pa": {
+            "ci90": [
+              0.0103,
+              0.0727
+            ],
+            "mde80": 0.0472
+          },
+          "decisions": {
+            "n": 727,
+            "win_rate": 0.6197,
+            "points_per_decision": 2.159,
+            "points": {
+              "ci90": [
+                0.3983,
+                3.9458
+              ],
+              "mde80": 2.6816
+            },
+            "win_rate_ci90": [
+              0.5308,
+              0.7127
+            ]
+          }
+        },
+        "news": {
+          "pairs": 4314,
+          "pa_x": 0.6496,
+          "pa_y": 0.6424,
+          "pa_diff": 0.0072,
+          "pa": {
+            "ci90": [
+              0,
+              0.0198
+            ],
+            "mde80": 0.015
+          },
+          "decisions": {
+            "n": 33,
+            "win_rate": 0.9697,
+            "points_per_decision": 7.3909,
+            "points": {
+              "ci90": [
+                5.5395,
+                12.4667
+              ],
+              "mde80": 5.2365
+            },
+            "win_rate_ci90": [
+              0.9286,
+              1
+            ]
+          }
+        },
+        "fit_shrunk": {
+          "pairs": 4314,
+          "pa_x": 0.6823,
+          "pa_y": 0.6424,
+          "pa_diff": 0.0399,
+          "pa": {
+            "ci90": [
+              -0.0011,
+              0.0833
+            ],
+            "mde80": 0.0638
+          },
+          "decisions": {
+            "n": 1094,
+            "win_rate": 0.5786,
+            "points_per_decision": 1.018,
+            "points": {
+              "ci90": [
+                -0.6491,
+                2.7358
+              ],
+              "mde80": 2.5588
+            },
+            "win_rate_ci90": [
+              0.4979,
+              0.6647
+            ]
+          }
+        },
+        "pos_phase": {
+          "pairs": 4314,
+          "pa_x": 0.6798,
+          "pa_y": 0.6424,
+          "pa_diff": 0.0373,
+          "pa": {
+            "ci90": [
+              -0.0038,
+              0.0809
+            ],
+            "mde80": 0.064
+          },
+          "decisions": {
+            "n": 1109,
+            "win_rate": 0.5726,
+            "points_per_decision": 0.9129,
+            "points": {
+              "ci90": [
+                -0.7864,
+                2.5874
+              ],
+              "mde80": 2.5504
+            },
+            "win_rate_ci90": [
+              0.4927,
+              0.6594
+            ]
+          }
+        },
+        "espn_proven": {
+          "pairs": 4314,
+          "pa_x": 0.6795,
+          "pa_y": 0.6424,
+          "pa_diff": 0.0371,
+          "pa": {
+            "ci90": [
+              -0.0045,
+              0.0821
+            ],
+            "mde80": 0.0655
+          },
+          "decisions": {
+            "n": 1124,
+            "win_rate": 0.5712,
+            "points_per_decision": 0.9347,
+            "points": {
+              "ci90": [
+                -0.7848,
+                2.6416
+              ],
+              "mde80": 2.5901
+            },
+            "win_rate_ci90": [
+              0.4906,
+              0.6573
+            ]
+          }
+        }
+      },
+      "vs_espn": {
+        "ours": {
+          "pairs": 4314,
+          "pa_x": 0.6424,
+          "pa_y": 0.6781,
+          "pa_diff": -0.0357,
+          "pa": {
+            "ci90": [
+              -0.0815,
+              0.0077
+            ],
+            "mde80": 0.0674
+          },
+          "decisions": {
+            "n": 1180,
+            "win_rate": 0.4347,
+            "points_per_decision": -0.6894,
+            "points": {
+              "ci90": [
+                -2.3693,
+                1.0229
+              ],
+              "mde80": 2.5643
+            },
+            "win_rate_ci90": [
+              0.3519,
+              0.5144
+            ]
+          }
+        },
+        "half": {
+          "pairs": 4314,
+          "pa_x": 0.6828,
+          "pa_y": 0.6781,
+          "pa_diff": 0.0046,
+          "pa": {
+            "ci90": [
+              -0.0159,
+              0.0255
+            ],
+            "mde80": 0.0313
+          },
+          "decisions": {
+            "n": 453,
+            "win_rate": 0.5221,
+            "points_per_decision": 1.6689,
+            "points": {
+              "ci90": [
+                -0.4829,
+                3.9698
+              ],
+              "mde80": 3.3659
+            },
+            "win_rate_ci90": [
+              0.4238,
+              0.6173
+            ]
+          }
+        },
+        "news": {
+          "pairs": 4314,
+          "pa_x": 0.6496,
+          "pa_y": 0.6781,
+          "pa_diff": -0.0285,
+          "pa": {
+            "ci90": [
+              -0.0732,
+              0.0133
+            ],
+            "mde80": 0.0654
+          },
+          "decisions": {
+            "n": 1147,
+            "win_rate": 0.4464,
+            "points_per_decision": -0.4966,
+            "points": {
+              "ci90": [
+                -2.1737,
+                1.218
+              ],
+              "mde80": 2.5638
+            },
+            "win_rate_ci90": [
+              0.362,
+              0.5238
+            ]
+          }
+        },
+        "fit_shrunk": {
+          "pairs": 4314,
+          "pa_x": 0.6823,
+          "pa_y": 0.6781,
+          "pa_diff": 0.0042,
+          "pa": {
+            "ci90": [
+              -0.0021,
+              0.0109
+            ],
+            "mde80": 0.0098
+          },
+          "decisions": {
+            "n": 86,
+            "win_rate": 0.6047,
+            "points_per_decision": 3.4902,
+            "points": {
+              "ci90": [
+                0.0794,
+                7.3575
+              ],
+              "mde80": 5.5017
+            },
+            "win_rate_ci90": [
+              0.4466,
+              0.7639
+            ]
+          }
+        },
+        "pos_phase": {
+          "pairs": 4314,
+          "pa_x": 0.6798,
+          "pa_y": 0.6781,
+          "pa_diff": 0.0016,
+          "pa": {
+            "ci90": [
+              -0.0044,
+              0.0081
+            ],
+            "mde80": 0.0095
+          },
+          "decisions": {
+            "n": 71,
+            "win_rate": 0.5493,
+            "points_per_decision": 2.8003,
+            "points": {
+              "ci90": [
+                -1.5046,
+                7.1987
+              ],
+              "mde80": 6.5791
+            },
+            "win_rate_ci90": [
+              0.3636,
+              0.7273
+            ]
+          }
+        },
+        "espn_proven": {
+          "pairs": 4314,
+          "pa_x": 0.6795,
+          "pa_y": 0.6781,
+          "pa_diff": 0.0014,
+          "pa": {
+            "ci90": [
+              -0.0041,
+              0.0075
+            ],
+            "mde80": 0.0087
+          },
+          "decisions": {
+            "n": 56,
+            "win_rate": 0.5536,
+            "points_per_decision": 4.2336,
+            "points": {
+              "ci90": [
+                -1.0214,
+                9.2384
+              ],
+              "mde80": 7.7557
+            },
+            "win_rate_ci90": [
+              0.3333,
+              0.75
+            ]
+          }
+        }
+      },
+      "mae_decision": {
+        "ours": 4.3043,
+        "espn": 4.3514,
+        "half": 4.1023,
+        "news": 4.3774,
+        "fit_shrunk": 4.2705,
+        "pos_phase": 4.2789,
+        "espn_proven": 4.2942
+      },
+      "level_gap_espn_minus_ours": 2.684
+    },
+    "snapshot": {
+      "label": "2026 W2: the Thursday snapshot (frozen-2023 ensemble) x p vs ESPN settled",
+      "rows": 153,
+      "players": 153,
+      "pairs": 1796,
+      "vs_ours": {
+        "espn": {
+          "pairs": 1796,
+          "pa_x": 0.6759,
+          "pa_y": 0.6089,
+          "pa_diff": 0.0671,
+          "pa": {
+            "ci90": [
+              -0.0005,
+              0.1351
+            ],
+            "mde80": 0.1025
+          },
+          "decisions": {
+            "n": 673,
+            "win_rate": 0.5899,
+            "points_per_decision": 2.94,
+            "points": {
+              "ci90": [
+                0.3709,
+                5.6662
+              ],
+              "mde80": 4.0028
+            },
+            "win_rate_ci90": [
+              0.5008,
+              0.6764
+            ]
+          }
+        },
+        "half": {
+          "pairs": 1796,
+          "pa_x": 0.6707,
+          "pa_y": 0.6089,
+          "pa_diff": 0.0618,
+          "pa": {
+            "ci90": [
+              0.0142,
+              0.1117
+            ],
+            "mde80": 0.0737
+          },
+          "decisions": {
+            "n": 396,
+            "win_rate": 0.6402,
+            "points_per_decision": 4.636,
+            "points": {
+              "ci90": [
+                1.7909,
+                7.9511
+              ],
+              "mde80": 4.6566
+            },
+            "win_rate_ci90": [
+              0.5362,
+              0.7395
+            ]
+          }
+        },
+        "news": {
+          "pairs": 1796,
+          "pa_x": 0.6172,
+          "pa_y": 0.6089,
+          "pa_diff": 0.0084,
+          "pa": {
+            "ci90": [
+              0,
+              0.0201
+            ],
+            "mde80": 0.0152
+          },
+          "decisions": {
+            "n": 15,
+            "win_rate": 1,
+            "points_per_decision": 8.9,
+            "points": {
+              "ci90": [
+                6.925,
+                10.6
+              ],
+              "mde80": 2.778
+            },
+            "win_rate_ci90": [
+              1,
+              1
+            ]
+          }
+        },
+        "fit_shrunk": {
+          "pairs": 1796,
+          "pa_x": 0.6779,
+          "pa_y": 0.6089,
+          "pa_diff": 0.069,
+          "pa": {
+            "ci90": [
+              0.0059,
+              0.1338
+            ],
+            "mde80": 0.0967
+          },
+          "decisions": {
+            "n": 604,
+            "win_rate": 0.6026,
+            "points_per_decision": 3.3434,
+            "points": {
+              "ci90": [
+                0.6126,
+                6.2933
+              ],
+              "mde80": 4.2942
+            },
+            "win_rate_ci90": [
+              0.5088,
+              0.6902
+            ]
+          }
+        },
+        "pos_phase": {
+          "pairs": 1796,
+          "pa_x": 0.6757,
+          "pa_y": 0.6089,
+          "pa_diff": 0.0668,
+          "pa": {
+            "ci90": [
+              0.0038,
+              0.1305
+            ],
+            "mde80": 0.0957
+          },
+          "decisions": {
+            "n": 600,
+            "win_rate": 0.6,
+            "points_per_decision": 3.3462,
+            "points": {
+              "ci90": [
+                0.6541,
+                6.2958
+              ],
+              "mde80": 4.2647
+            },
+            "win_rate_ci90": [
+              0.506,
+              0.6891
+            ]
+          }
+        },
+        "espn_proven": {
+          "pairs": 1796,
+          "pa_x": 0.6698,
+          "pa_y": 0.6089,
+          "pa_diff": 0.061,
+          "pa": {
+            "ci90": [
+              -0.0038,
+              0.1263
+            ],
+            "mde80": 0.0984
+          },
+          "decisions": {
+            "n": 614,
+            "win_rate": 0.5896,
+            "points_per_decision": 3.1072,
+            "points": {
+              "ci90": [
+                0.4712,
+                6.0123
+              ],
+              "mde80": 4.1887
+            },
+            "win_rate_ci90": [
+              0.4949,
+              0.6801
+            ]
+          }
+        }
+      },
+      "vs_espn": {
+        "ours": {
+          "pairs": 1796,
+          "pa_x": 0.6089,
+          "pa_y": 0.6759,
+          "pa_diff": -0.0671,
+          "pa": {
+            "ci90": [
+              -0.1351,
+              0.0005
+            ],
+            "mde80": 0.1025
+          },
+          "decisions": {
+            "n": 673,
+            "win_rate": 0.4101,
+            "points_per_decision": -2.94,
+            "points": {
+              "ci90": [
+                -5.6662,
+                -0.3709
+              ],
+              "mde80": 4.0028
+            },
+            "win_rate_ci90": [
+              0.3236,
+              0.4992
+            ]
+          }
+        },
+        "half": {
+          "pairs": 1796,
+          "pa_x": 0.6707,
+          "pa_y": 0.6759,
+          "pa_diff": -0.0053,
+          "pa": {
+            "ci90": [
+              -0.0383,
+              0.028
+            ],
+            "mde80": 0.0501
+          },
+          "decisions": {
+            "n": 277,
+            "win_rate": 0.4819,
+            "points_per_decision": -0.5155,
+            "points": {
+              "ci90": [
+                -3.2674,
+                2.0747
+              ],
+              "mde80": 4.0382
+            },
+            "win_rate_ci90": [
+              0.3733,
+              0.5858
+            ]
+          }
+        },
+        "news": {
+          "pairs": 1796,
+          "pa_x": 0.6172,
+          "pa_y": 0.6759,
+          "pa_diff": -0.0587,
+          "pa": {
+            "ci90": [
+              -0.1275,
+              0.0074
+            ],
+            "mde80": 0.102
+          },
+          "decisions": {
+            "n": 658,
+            "win_rate": 0.4195,
+            "points_per_decision": -2.8042,
+            "points": {
+              "ci90": [
+                -5.6028,
+                -0.1848
+              ],
+              "mde80": 4.0956
+            },
+            "win_rate_ci90": [
+              0.3299,
+              0.5093
+            ]
+          }
+        },
+        "fit_shrunk": {
+          "pairs": 1796,
+          "pa_x": 0.6779,
+          "pa_y": 0.6759,
+          "pa_diff": 0.0019,
+          "pa": {
+            "ci90": [
+              -0.0132,
+              0.0179
+            ],
+            "mde80": 0.0235
+          },
+          "decisions": {
+            "n": 69,
+            "win_rate": 0.5217,
+            "points_per_decision": 0.5907,
+            "points": {
+              "ci90": [
+                -3.8566,
+                4.4492
+              ],
+              "mde80": 6.2786
+            },
+            "win_rate_ci90": [
+              0.3056,
+              0.7083
+            ]
+          }
+        },
+        "pos_phase": {
+          "pairs": 1796,
+          "pa_x": 0.6757,
+          "pa_y": 0.6759,
+          "pa_diff": -0.0003,
+          "pa": {
+            "ci90": [
+              -0.0157,
+              0.0149
+            ],
+            "mde80": 0.0231
+          },
+          "decisions": {
+            "n": 73,
+            "win_rate": 0.4932,
+            "points_per_decision": 0.3984,
+            "points": {
+              "ci90": [
+                -3.7778,
+                4.2099
+              ],
+              "mde80": 6.0381
+            },
+            "win_rate_ci90": [
+              0.3036,
+              0.6709
+            ]
+          }
+        },
+        "espn_proven": {
+          "pairs": 1796,
+          "pa_x": 0.6698,
+          "pa_y": 0.6759,
+          "pa_diff": -0.0061,
+          "pa": {
+            "ci90": [
+              -0.0198,
+              0.0058
+            ],
+            "mde80": 0.0194
+          },
+          "decisions": {
+            "n": 59,
+            "win_rate": 0.4068,
+            "points_per_decision": -1.2003,
+            "points": {
+              "ci90": [
+                -6.2287,
+                3.8075
+              ],
+              "mde80": 7.5866
+            },
+            "win_rate_ci90": [
+              0.2188,
+              0.6
+            ]
+          }
+        }
+      },
+      "mae_decision": {
+        "ours": 6.4716,
+        "espn": 5.7225,
+        "half": 5.4735,
+        "news": 6.3183,
+        "fit_shrunk": 5.6028,
+        "pos_phase": 5.6118,
+        "espn_proven": 5.6292
+      },
+      "level_gap_espn_minus_ours": 5.0512
+    }
+  },
+  "decision": {
+    "winner": "espn",
+    "news_layer": false,
+    "served": "espn",
+    "on": true,
+    "verdict": "shipped",
+    "reason": "espn is good on 2023-2024 and holds on 2026 week 2",
+    "served_params": null,
+    "beats_espn_alone": {
+      "history": "the winner is ESPN alone",
+      "forward": "the winner is ESPN alone"
+    }
+  },
+  "finished_at": "2026-09-23T01:07:37.742Z"
+}

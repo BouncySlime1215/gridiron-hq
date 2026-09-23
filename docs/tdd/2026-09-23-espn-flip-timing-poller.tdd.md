@@ -81,7 +81,7 @@ first does not violate "no number before pre-registration."
 
 ## 2. RED
 
-Commit `<RED-SHA>` "test: RED for RL-10-2 ESPN flip-timing poller/analysis" adds
+Commit `740c930c` "test: RED for RL-10-2 ESPN flip-timing poller/analysis" adds
 `test/espn-flip-timing-poller.test.js` alone (implementation not yet added). Run:
 
 ```
@@ -98,7 +98,7 @@ Cannot find module '.../scripts/rnd/espn-projection-poller.mjs'
 
 ## 3. GREEN
 
-Commit `<GREEN-SHA>` "feat: RL-10-2 ESPN flip-timing poller + analysis script" adds
+Commit `9ef73524` "feat: RL-10-2 ESPN flip-timing poller + analysis script" adds
 `scripts/rnd/espn-projection-poller.mjs` and `scripts/rnd/espn-flip-timing-analysis.mjs`.
 Same command, 9 of 9 pass (section 5).
 

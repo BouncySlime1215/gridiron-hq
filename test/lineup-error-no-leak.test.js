@@ -23,6 +23,7 @@ import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { availabilityDegradation } from '../server/services/contingency.js';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-lineup-page-'));
 test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
@@ -39,10 +40,12 @@ export default rt; export const useMemo = rt.useMemo; export const useState = rt
 
 // One call site per useApi() call in Lineup.tsx, in the order it calls them:
 // lineup, waivers, posture, rosters. Only the lineup call fails.
-const apiUrl = write('api.mjs', `let n = 0;
-export function useApi(p) {
-  n += 1;
-  if (n === 1) return { data: null, loading: false, error: globalThis.__lineupError ?? null, refetch: () => {} };
+// The call counter lives on globalThis and is reset before every render: the
+// stub module is imported once, so a module-level counter would keep counting
+// across tests and hand the lineup slot's data to a later call.
+const apiUrl = write('api.mjs', `export function useApi(p) {
+  const n = (globalThis.__apiN = (globalThis.__apiN ?? 0) + 1);
+  if (n === 1) return { data: globalThis.__lineupData ?? null, loading: false, error: globalThis.__lineupError ?? null, refetch: () => {} };
   return { data: null, loading: false, error: null, refetch: () => {} };
 }`);
 const leagueUrl = write('league.mjs', 'export function useLeague() { return { activeId: 1 }; }');
@@ -102,11 +105,12 @@ const LEAKY_ERROR = 'the fitted chance-to-play role layer is not running: ' +
 test('Lineup page: a server error with a path and table name shows no path/table text; page header unchanged', async () => {
   const Lineup = await loadLineup();
   globalThis.__lineupError = LEAKY_ERROR;
-  const html = renderToStaticMarkup(React.createElement(Lineup));
+  const html = (globalThis.__apiN = 0, renderToStaticMarkup(React.createElement(Lineup)));
   const text = clean(html);
 
-  assert.ok(!text.includes('nfl_availability_role_rates'), `page leaked the table name: ${text}`);
-  assert.ok(!text.includes('docs/tdd/play-chance.tdd.md'), `page leaked the file path: ${text}`);
+  // Raw markup, not tag-stripped text, so attribute leaks fail too.
+  assert.ok(!html.includes('nfl_availability_role_rates'), `page leaked the table name: ${html}`);
+  assert.ok(!html.includes('docs/tdd/'), `page leaked the file path: ${html}`);
   assert.ok(!text.includes(LEAKY_ERROR), 'page leaked the raw server message verbatim');
 
   // Plain-words shared error state, still present.
@@ -121,8 +125,36 @@ test('Lineup page: a server error with a path and table name shows no path/table
 test('control: the page header renders the same way when the lineup call succeeds (known-good case)', async () => {
   const Lineup = await loadLineup();
   globalThis.__lineupError = null;
-  const html = renderToStaticMarkup(React.createElement(Lineup));
+  const html = (globalThis.__apiN = 0, renderToStaticMarkup(React.createElement(Lineup)));
   const text = clean(html);
   assert.match(text, /Who to start/);
   assert.ok(!/couldn't load this/i.test(text), 'no error card when the call succeeds');
+});
+
+// Skeptic finding (UX-08 review 1): the audited string never came through the
+// error path. It is the SUCCESS payload's `availability_note`, written by
+// availabilityDegradation() (server/services/contingency.js) and served as
+// lineup-brain.js `availability_note`. This renders Lineup with the REAL producer
+// output as `data`, not a paraphrase as `error`.
+test('Lineup page: a real availability_note payload shows plain words, no table/doc/script text', async () => {
+  const Lineup = await loadLineup();
+  const note = availabilityDegradation({ basis: 'pooled', missing: ['nfl_availability_role_rates'] });
+  // Known-nonzero control: the producer really does carry the internal detail.
+  assert.match(note.reason, /nfl_availability_role_rates/);
+  assert.match(note.fix, /scripts\/fit-availability\.mjs/);
+  globalThis.__lineupError = null;
+  globalThis.__lineupData = { availability_note: note, lineup: [], bench: [], warnings: [] };
+  const seen = []; const orig = console.error;
+  console.error = (...a) => seen.push(a.join(' '));
+  let html;
+  try { html = (globalThis.__apiN = 0, renderToStaticMarkup(React.createElement(Lineup))); }
+  finally { console.error = orig; globalThis.__lineupData = null; }
+  for (const m of ['nfl_availability_role_rates', 'docs/tdd/', 'scripts/', 'fit-availability']) {
+    assert.ok(!html.includes(m), `Lineup leaked "${m}": ${html}`);
+  }
+  // The notice itself still renders, with its plain-words effect line.
+  assert.match(html, /Chance-to-play numbers are degraded/);
+  assert.match(html, /pooled injury-report rate/);
+  // Detail is logged, not lost.
+  assert.ok(seen.some(s => s.includes('nfl_availability_role_rates') && s.includes('fit-availability')));
 });

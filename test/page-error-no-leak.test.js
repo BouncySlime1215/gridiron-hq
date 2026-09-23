@@ -70,8 +70,10 @@ test('PageError never renders a file path or table name from the server message'
   }
   const text = html.replace(/<[^>]+>/g, ' ').replace(/&#x27;/g, "'").replace(/\s+/g, ' ').trim();
 
-  assert.ok(!text.includes('nfl_availability_role_rates'), `rendered text leaked the table name: ${text}`);
-  assert.ok(!text.includes('docs/tdd/play-chance.tdd.md'), `rendered text leaked the file path: ${text}`);
+  // Raw markup, not tag-stripped text: a title= or aria-label= leak must fail too
+  // (skeptic mutants M1/M2 survived a text-only check).
+  assert.ok(!html.includes('nfl_availability_role_rates'), `markup leaked the table name: ${html}`);
+  assert.ok(!html.includes('docs/tdd/'), `markup leaked the file path: ${html}`);
   assert.ok(!text.includes(LEAKY), 'rendered text leaked the raw server message verbatim');
 
   // Plain words, not silence: still says what failed and offers a retry.

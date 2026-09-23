@@ -38,6 +38,7 @@ import path from 'node:path';
 import { db, rows, run } from '../db/index.js';
 import { identityMap, matchIdentities } from './manager-identity.js';
 import { PROJECT_ROOT } from '../platform/paths.js';
+import { DEAD_ESPN_STATUS } from './dead-starters.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS manager_signals (
   league_id INTEGER NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
@@ -309,8 +310,8 @@ function rosterSignals(payload, rosterId) {
   if (!team?.roster?.entries) return [];
   const entries = team.roster.entries;
   const starters = entries.filter(e => e.lineupSlotId !== 20 && e.lineupSlotId !== 21);
-  const dead = starters.filter(e => ['OUT', 'INJURY_RESERVE', 'DOUBTFUL']
-    .includes(e.playerPoolEntry?.player?.injuryStatus));
+  // The ESPN half of the one dead-starter definition (dead-starters.js, SS-01).
+  const dead = starters.filter(e => Object.hasOwn(DEAD_ESPN_STATUS, e.playerPoolEntry?.player?.injuryStatus ?? ''));
   // How much of the roster arrived by trade vs waiver vs draft — the cleanest
   // available read on whether someone actually engages with the market.
   const byType = entries.reduce((acc, e) => {

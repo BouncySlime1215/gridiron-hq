@@ -6,6 +6,25 @@ import { PageError, PageLoading } from '../components/PageState';
 
 const POS_ORDER = ['QB', 'RB', 'WR', 'TE'];
 
+type ScoringId = { statId: number; points: number };
+type ScoringSummary = { source: string; reason: string | null; unscored: ScoringId[]; unmapped: ScoringId[] };
+
+/**
+ * What an ESPN sync says about scoring rules the app cannot apply
+ * (routes/leagues.js syncEspnLeague → services/espn-scoring-report.js). Printed
+ * in the sync message so a paid stat that no projection counts is named, not
+ * silently left out. The full report is GET /api/leagues/:id/scoring.
+ */
+function scoringNote(scoring?: ScoringSummary | null): string {
+  if (!scoring) return '';
+  const ids = (list: ScoringId[]) => list.map(u => `${u.statId} (${u.points} pt)`).join(', ');
+  const parts: string[] = [];
+  if (scoring.source !== 'league') parts.push(`league scoring unreadable (${scoring.reason}), using the PPR default`);
+  if (scoring.unscored.length) parts.push(`${scoring.unscored.length} paid stat ids not applied to player projections: ${ids(scoring.unscored)}`);
+  if (scoring.unmapped.length) parts.push(`${scoring.unmapped.length} unknown stat ids: ${ids(scoring.unmapped)}`);
+  return parts.length ? ` Scoring: ${parts.join('; ')}.` : '';
+}
+
 function StatusPill({ status, ratio }: { status: string; ratio: number | null }) {
   // 'unknown' means nobody in the league has a trade value at this position, so
   // there is no ratio to show. It used to arrive as a ratio of 0, which read as
@@ -39,7 +58,7 @@ export default function Leagues() {
     try {
       const lg = await api('/leagues', { method: 'POST', body: JSON.stringify(form) });
       const s = await api(`/leagues/${lg.id}/sync`, { method: 'POST' });
-      setMsg(`Added and synced — ${s.teams} teams${s.fell_back ? `, using ${s.season_used} rosters (this season hasn’t drafted yet)` : ''}.`);
+      setMsg(`Added and synced — ${s.teams} teams${s.fell_back ? `, using ${s.season_used} rosters (this season hasn’t drafted yet)` : ''}.${scoringNote(s.scoring)}`);
       setForm(f => ({ ...f, league_id: '', espn_s2: '', swid: '' }));
       refetch();
       setSel(lg.id);
@@ -51,7 +70,7 @@ export default function Leagues() {
     setBusy(true); setMsg(null);
     try {
       const s = await api(`/leagues/${id}/sync`, { method: 'POST' });
-      setMsg(`Synced ${s.teams} teams · ${s.roster_players ?? 0} rostered players${s.fell_back ? ` (from ${s.season_used} — this season hasn’t drafted yet)` : ''}.`);
+      setMsg(`Synced ${s.teams} teams · ${s.roster_players ?? 0} rostered players${s.fell_back ? ` (from ${s.season_used} — this season hasn’t drafted yet)` : ''}.${scoringNote(s.scoring)}`);
       refetch(); refetchAnalysis();
     }
     catch (e: any) { setMsg(e.message); }

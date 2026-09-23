@@ -367,7 +367,7 @@ const key = d => `${d.partner_id}|${dealNames(d)}`;
 test('G2i: the fixture exercises the tactics end to end, not only as unit calls', () => {
   // A tactic that only ever fires in a hand-built unit test is a tactic that
   // could silently stop being wired into findTrades. Seven of the ten fire on
-  // this league through the real entry point; consolidate_for_need, hype_window
+  // this league through the real entry point; consolidate_for_need, outscoring_usage
   // and probe_declared are covered by G2f, G2g and G3b, and are reported ABSENT
   // here with their reasons rather than being quietly missing.
   const firing = new Set(found.deals.flatMap(d => d.tactics.map(t => t.key)));
@@ -377,7 +377,7 @@ test('G2i: the fixture exercises the tactics end to end, not only as unit calls'
     assert.ok(firing.has(k), `${k} never fired through the real entry point`);
   }
   const absent = new Set(found.deals.flatMap(d => d.tactics_absent.map(a => a.key)));
-  for (const k of ['consolidate_for_need', 'hype_window']) {
+  for (const k of ['consolidate_for_need', 'outscoring_usage']) {
     assert.ok(absent.has(k), `${k} must be reported absent with its reason where it does not fire`);
   }
   // Ranked net of positional need: the chat reads come first, and every tactic
@@ -562,15 +562,15 @@ test('G2f: consolidate for need is 2-for-1 into a position he is short at', () =
   assert.ok(hit.numbers.need_premium_value > 0, 'the premium his need pays must be a number');
 });
 
-test('G2g: the hype window says it is off and why when the gap has fewer than two games', () => {
+test('G2g: outscoring-usage says it is off and why when the gap has fewer than two games', () => {
   const p = { name: 'Hot', position: 'WR', value: 2000, ros_ppg: 13 };
   const gaps = new Map([['hot', { games: 1, gap_per_game: 7.0, xfp_per_game: 6, actual_per_game: 13 }]]);
   const out = tactics.tacticsForDeal({ give: [p], get: [{ name: 'Theirs', position: 'WR', value: 2000, ros_ppg: 12 }],
     manager: { receptiveness: 1, gaps, players: new Map([['hot', { sentiment: 3.5, n: 6 }]]) },
     valuationOf: () => ({ our_value: 2000, their_value: 2000, multiplier: 1, owns: false, factors: [] }),
     partnerId: '2' });
-  assert.equal(out.tactics.find(t => t.key === 'hype_window'), undefined);
-  const absent = out.tactics_absent.find(a => a.key === 'hype_window');
+  assert.equal(out.tactics.find(t => t.key === 'outscoring_usage'), undefined);
+  const absent = out.tactics_absent.find(a => a.key === 'outscoring_usage');
   assert.ok(absent, 'an inert tactic is reported, never dropped');
   assert.match(absent.reason, /1 of the 2/);
 });
@@ -931,7 +931,7 @@ test('G8c: runtime per league is reported on the result', () => {
 
 test('G8d: the tactic registry is complete and every entry declares what it needs', () => {
   assert.deepEqual(Object.keys(tactics.TACTICS).sort(), [
-    'anchor_ladder', 'buy_the_sour', 'consolidate_for_need', 'how_nick_looks', 'hype_window',
+    'anchor_ladder', 'buy_the_sour', 'consolidate_for_need', 'how_nick_looks', 'outscoring_usage',
     'probe_declared', 'sell_the_crush', 'sneak_in', 'timing', 'veto_proof',
   ], 'the nine tactics Nick named, plus the probe flag G3b requires');
   for (const [k, spec] of Object.entries(tactics.TACTICS)) {

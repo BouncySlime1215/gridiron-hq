@@ -1,5 +1,5 @@
 # BUDGET PLAN (Nick 2026-09-23 ~1:40 AM ET: working 24/7; plan the 5-hour and the weekly caps; second Max account unlocks today Wed 9/23 3:00 PM ET)
-Accounts: A = this desktop account (weekly: Nick says 57% left as of 1:40 AM ET (the meter reads 55% used = 45% left; Nick said 57% left; use the meter); weekly reset time not yet recorded: read it from Settings > Usage and write it here). B = Nick's second Max account, usable from Wed 9/23 3:00 PM ET, via PASTE-TO-RESUME.md in a fresh session.
+Accounts: A = this desktop account (weekly: Nick says 57% left as of 1:40 AM ET (the meter reads 55% used = 45% left; Nick said 57% left; use the meter); weekly resets Mon 9/28 8:59 PM ET (get_usage)). B = Nick's second Max account, usable from Wed 9/23 3:00 PM ET, via PASTE-TO-RESUME.md in a fresh session.
 ## 5-hour window rule (checked every other 20-min check with bin/burn.py)
 - Projected minutes to 95% > minutes left in the window: full speed (≤5 workflows, ≤6 agents).
 - Projection hits 95% with more than 60 min left in the window: THROTTLE-1 (≤3 workflows; no new Fable; R&D paused).
@@ -22,3 +22,9 @@ Accounts: A = this desktop account (weekly: Nick says 57% left as of 1:40 AM ET 
 - Every other 20-min check reports the weekly pace against this plan and the projected hour A reaches 87%.
 
 ## 2:20 AM ET update from SPEND-ESTIMATE.md: sustained pace target ~0.8% weekly per hour (tonight ran ~4.8%/h). THROTTLE-1 now (<=3 workflows). Board keeper stopped; the 20-min status cron updates the board. Critical path ~93% of one account-week fits this week across A+B; the full plan needs 2-3 more weeks.
+
+## 5:50 AM ET: TRUE READING (get_usage; the app's sampled meter had been stale for ~2.7 h)
+- Account A: 5-hour 15% (resets 9:59 AM ET); weekly 69% (resets Mon 9/28 8:59 PM ET); Fable weekly 17%.
+- Weekly burn since 2:05 AM: 57% -> 69% in ~3.75 h = ~3.2%/h. A's usable remainder to the 87% stop = 18% -> ~5.5 h at this pace (~11:30 AM ET), before account B unlocks at 3 PM.
+- Plan: keep 3 build loops + R&D, but lean (no extra auditor agents except for critical/served numbers; R&D explorers stay high effort but one find each). If A reaches 87% before Nick pastes into B, only finishing work runs until the paste.
+- Status cron now reads get_usage directly (the meter watcher script keeps logging but is advisory only).

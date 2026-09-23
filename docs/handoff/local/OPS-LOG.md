@@ -87,3 +87,7 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 09:00Z: Lean batch done: UX-08 -> PR #167 (draft; gate-merge marks ready), INT-159-1 -> #172, RL-3-3 built + pushed (gate incomplete, PR to open). CI FAILED on #169 (its new test leaves async work after end: ENOENT) and #171 -> CI-fix agent launched; merge-queue refused both correctly. CE-05 -> PR #168 (from loop 1; GR-01/GR-05 still in progress).
 
 09:05Z: Loops relaunched: (2) Diligence batch WV-01 streaming board + WV-02 injury alert + RL-5-3 bye range (wcueyew4t); (3) UI batch UX-08b + UX-10 phone fixes (wyez7rq9p). Loop 1 CE-05 (PR #168)/GR-01/GR-05 still running. R&D r6 running. CI-fix agent on #169/#171. RL-3-3 needs a PR (pushed; open with gate-pr next).
+
+09:25Z: CI fixed: #169 (test compiled before registering tests; race on slow runner), #171 (runner timeout, rerun green). Merge queue: #169 #171 #167 #172 #168.
+
+09:40Z: #169 MERGED (131a7ba0). #171 conflicts with main after #169 -> fixer resolving. Loop 1 done: CE-05 -> PR #168 (needs the Independent Auditor: auditor agent launched; removed from the merge queue), GR-05 -> PR #173 (docs, queued), GR-01 gate found 4 branch-caused test failures -> fixer. Merge queue now: #167 #172 #173. Loop 1 relaunched: AI-01 true value (critical, Fable claims), TM-09 market prices, RL-3-2 live inactives (wxccklwr4).

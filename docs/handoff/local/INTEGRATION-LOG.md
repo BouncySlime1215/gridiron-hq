@@ -2,7 +2,13 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 06:23Z.
+Last rebuilt: 2026-09-23 08:59Z.
+
+## #169: Ceiling/floor objective: stop printing a borrowed week_points win rate
+
+- Merged: 4:59 AM ET, Sep 23 as `131a7ba0`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #161: Store the Rams as LAR only, so a season has 32 teams, not 33 (SY-02)
 

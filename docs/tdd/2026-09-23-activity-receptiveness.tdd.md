@@ -117,7 +117,7 @@ status='EXECUTED'"` -> `9|2`). Only one league had trades in periods 2-3, so 20 
 - Re-run on tree `a2306336` (after the name-match fix below): AUC 0.6875 (activity), 0.6875 (with checked out).
   Team-cluster 90% interval [0.4667, 0.8833] (10 teams, 999 of 1,000 resamples usable). MDE80 0.359. Rule 5
   holds (point above 0.5, interval not entirely below 0.5), but the interval spans 0.5 and this is anecdote-sized.
-  Ledger row F003. The earlier 0.6750 with checked out came from the DJ Moore false flags; superseded.
+  Ledger row F006. The earlier 0.6750 with checked out came from the DJ Moore false flags; superseded.
 - An earlier run on `ce7d6137`, before the trade-count fix, saw 6 trades and gave 0.7568; recorded, superseded.
 - Secondary, descriptive (no ship weight): responder accept vs decline, 27 decisions (10 accepts) in 3 leagues,
   AUC 0.285, MDE80 0.291. Its league-cluster interval is zero-width too ([0.285, 0.285]): only one league has
@@ -182,7 +182,7 @@ C1 not-applied control NOT APPLIED.
 | unit | date | hypothesis | metric | result |
 |---|---|---|---|---|
 | RL-11-1 | 2026-09-23 | H1: shipped activity term ranks 2024 Sleeper trade sides at AUC >= 0.645 | within-league-week AUC | 0.6439 [0.6299, 0.6577], FAIL |
-| RL-11-1 | 2026-09-23 | H2: same function holds on 2026 weeks 1-2 | within-league-week AUC | 0.6875, n 20 / 6 sides, 1 league; F002 in HOLDOUT-LEDGER |
+| RL-11-1 | 2026-09-23 | H2: same function holds on 2026 weeks 1-2 | within-league-week AUC | 0.6875, n 20 / 6 sides, 1 league; F005 in HOLDOUT-LEDGER |
 
 2025 was not opened (the corpus query asserts `season <= 2024`; the app copy has no 2025 transactions).
 

@@ -48,12 +48,12 @@ const POS_ID = { QB: 1, RB: 2, WR: 3, TE: 4 };
 const SLOT_ID = { QB: 0, RB: 2, WR: 4, TE: 6, FLEX: 23, BENCH: 20, IR: 21 };
 let nextId = 1;
 /** One rostered player: `slot` is where he is set on ESPN. */
-function player(name, position, slot, week, { espn = 'ACTIVE', report = null, bye = 9, team = 'MID', available = true, ros = week } = {}) {
+function player(name, position, slot, week, { espn = 'ACTIVE', report = null, bye = 9, team = 'MID', available = true, ros = week, adj = week } = {}) {
   const id = nextId++;
   return {
     asset: {
       id, name, position, team_abbr: team, espn_id: 9000 + id, available,
-      current_week_ppg: bye === 2 ? 0 : week, adj_ppg: week, ppg: week, ros_ppg: ros,
+      current_week_ppg: bye === 2 ? 0 : week, adj_ppg: adj, ppg: adj, ros_ppg: ros,
       ceiling: week * 1.5, floor: week * 0.4, active_probability: 0.9, bye, injury_status: report
     },
     entry: {
@@ -141,10 +141,11 @@ test('the canonical designation: an ESPN SUSPENSION starter and a Reserve/PUP st
 });
 
 test('the replacement is ranked on Start/Sit week_points, not rest-of-season value', () => {
-  // Week Back projects more this week; Season Back is worth more rest of season.
+  // Week Back projects more this week; Season Back is worth more rest of season and on the
+  // trade-horizon adj_ppg / season ppg, so a basis of ros_ppg, adj_ppg or ppg all pick Season Back.
   const id = league(roster({
     rb1: player('Out Back', 'RB', 'RB', 15, { espn: 'OUT' }),
-    extra: [player('Week Back', 'RB', 'BENCH', 11, { ros: 2 }), player('Season Back', 'RB', 'BENCH', 6, { ros: 25 })]
+    extra: [player('Week Back', 'RB', 'BENCH', 11, { ros: 2, adj: 4 }), player('Season Back', 'RB', 'BENCH', 6, { ros: 25, adj: 20 })]
   }));
   const call = lineupCall(id, { providers: {}, now: NOW });
   const rep = byName(call.dead_starters)['Out Back']?.replacement;

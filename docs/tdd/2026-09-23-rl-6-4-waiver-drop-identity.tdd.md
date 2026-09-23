@@ -123,7 +123,7 @@ Each mutant was run against `waiver-namesake-cut` and `decision-leftovers-waiver
 | Roster priced / unpriced | 14-15 / 0 in every league | same |
 | `name_fallback` | n/a | 0 in every league |
 
-- **Where the drops went.** In L3 and L4, the one claim that moved is now held back by rule (a), which is the package's Jack Strand case. Both leagues show 2 distinct cuts: the claims' cut plus the held-back `would_cut`. All are rostered and non-zero.
+- **Where the drops went.** In L3 and L4, the one claim that moved is now held back by rule (a). That matches the package's Jack Strand case, but the name was not checked (counts only). Both leagues show 2 distinct cuts: the claims' cut plus the held-back `would_cut`. All are rostered and non-zero.
 - **Identity metric.** Command: scratchpad `rl64_namejoin.mjs` on `3ac59fea` (old normalised-name map against the ESPN id).
   - My roster: 1, 0, 1, 1, 1 misjoins in L1-L5, so 4 of 5 on this copy.
   - All teams: 2, 3, 2, 4, 3 misjoins.

@@ -146,7 +146,7 @@ Invariants: steps strictly shrink (equal steps signal room, a larger later step 
 - Runs door-in-the-face as a discrete tactic, nibbles twice, says "final" twice, or re-anchors higher after conceding. [Cialdini, PON]
 - Says "I understand", "I feel for you", "everyone has a price", "you said that last month", "sell low", "bust", or mentions their record or the score. [Voss, BE]
 - Quotes them out of context, from > 30 d ago, from a loss window, or in the group. [Cialdini, E-neg]
-- Asks for a stated untouchable, or a player they acquired by trade in the last 3 weeks. [BE, PON]
+- Asks for a stated untouchable. [BE, PON]
 - Bids against itself: no sweetened re-offer after a rejection without a counter. [PON]
 - Double-texts inside their `reply_p90`, sends during Sunday games, or within 2 h of a loss. [E-neg, FF]
 - Uses the low, slow register for a whole thread, or emoji on first contact. [Voss, E-neg]

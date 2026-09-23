@@ -51,6 +51,31 @@ Both pre-registered greps now exit 1 (no match), as the unit row's grep test req
   opposite (re-traded 2.13x [1.77, 2.52] more) and that recency-of-trade should
   not be used as a reason to avoid or deprioritize a target.
 
+### Round 2 (skeptic fix): duplicate rule at line 149
+The first-round grep matched only the exact T4 phrase and missed a second copy
+of the same rule in section 6 ("What the Coach never does"). The test is now
+widened to any mention of the phrase `acquired by trade`, case-insensitive.
+
+RED (origin/main 24fdf434; also HEAD 555ac23c, before this fix):
+```
+$ git show origin/main:docs/COACH-PLAYBOOK.md | grep -n -i 'acquired by trade'
+73:| T4 | ... never target a player they acquired by trade < 3 weeks ago | ...
+149:- Asks for a stated untouchable, or a player they acquired by trade in the last 3 weeks. [BE, PON]
+```
+Known-nonzero control: the same grep on origin/main returns 2 lines, so an
+empty result on the fixed tree means the lines are gone, not that the grep is broken.
+
+GREEN (working tree after this fix):
+```
+$ grep -n -i 'acquired by trade' docs/COACH-PLAYBOOK.md; echo "exit $?"
+exit 1
+$ sed -n 149p docs/COACH-PLAYBOOK.md
+- Asks for a stated untouchable. [BE, PON]
+```
+Line 180 (item 17) says "recent trade acquisitions", so it does not match the
+widened grep. It is the one remaining statement of the rule, and it now says
+not to avoid these players.
+
 ## Mutation test
 - Designed survivor: reintroducing the exact removed phrase into line 73 alone
   (revert only that clause) makes the RED grep fail again (exit 0) — confirms

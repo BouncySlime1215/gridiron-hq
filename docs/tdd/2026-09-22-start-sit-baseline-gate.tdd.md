@@ -316,10 +316,16 @@ it is merged last (below).
   and the tests were blind, so the liveness proof is the named mutants: on `a1447095` CS1, CS3 and CS4
   each **SURVIVED 103/0**; on `981b90ca` each is **KILLED 103/2**, by both new tests (§6, sweep 11):
 
-  > CS1: `an at-lock window can never be a loss (addendum 2 §4)` fails (the mutant returns
-  > `loses_to_dumb`, source `espn_same_cutoff`) ·
-  > CS3, CS4: `'CS1: four at-lock weeks with ESPN ahead…'` and `'CS3, CS4: four at-lock weeks with
-  > ours ahead…'` fail on `weeks_graded` 1, `forward.weeks` `[5, 5]` (CS4) and `per_week` `[5]`
+  > CS1, both tests: `no same-cutoff capture exists, so the at-lock arm decides` `+ 'espn_same_cutoff'`
+  > `- 'espn_at_lock'` ·
+  > CS3: `every served week from week 2 on is pooled` `1 !== 4`; `the plan rule's arm pools every
+  > served week` (`per_week` weeks `[5]`, not `[2, 3, 4, 5]`) ·
+  > CS4: `forward.weeks` `[5, 5]`, not `[2, 5]`; `the forward window runs from week 2 to the latest
+  > played week` (the 2026 replay called for weeks 5-5, not 2-5)
+
+  Under CS1 the ESPN-ahead fixture's same arm decides as if it were same-cutoff, with 4 weeks and a
+  points interval below 0, so `planRuleVerdict` returns the forbidden `loses_to_dumb` (the first
+  assertion that fails is the source, just before the verdict's).
 
 - **RED** `11daf2af` "test: RED for the page saying what the plan-rule headline grades (structure
   review)": start-sit-gate **38 pass / 1 fail**, panel **17 pass / 2 fail**:

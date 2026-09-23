@@ -361,7 +361,7 @@ async function fetchFanLeagues(espn_s2, swid) {
  * Do these cookies actually work? Returns leagues on success so the caller doesn't
  * need a second round-trip. Never throws — the caller turns `reason` into UI copy.
  */
-async function validateCookies(espn_s2, swid) {
+export async function validateCookies(espn_s2, swid) {
   try {
     return { ok: true, leagues: await fetchFanLeagues(espn_s2, swid) };
   } catch (e) {

@@ -26,7 +26,10 @@ const { default: devRouter } = await import('../server/routes/dev.js');
 // The 13 route families that used to mount with no auth at all
 // (server/index.js:77-107, Giant Plan section 5.1 item 3) — teams, rankings,
 // espn, aggregates, analysis, nfldata ("/api/nfl"), stats, accolades, edge,
-// props, props-tickets, decision-inbox and wong ("/api/betting/wong").
+// props, props-tickets, decision-inbox and wong ("/api/betting/wong"). Eleven
+// remain: props and props-tickets were the MLB props board and its saved
+// slips, and SY-06 (2026-09-22) deleted both routers with the rest of MLB, so
+// the real app answers /api/props and /api/props-tickets with a 404, not a 401.
 const { default: teamsRouter } = await import('../server/routes/teams.js');
 const { default: rankingsRouter } = await import('../server/routes/rankings.js');
 const { default: espnRouter } = await import('../server/routes/espn.js');
@@ -36,18 +39,16 @@ const { default: nfldataRouter } = await import('../server/routes/nfldata.js');
 const { default: statsRouter } = await import('../server/routes/stats.js');
 const { default: accoladesRouter } = await import('../server/routes/accolades.js');
 const { default: edgeRouter } = await import('../server/routes/edge.js');
-const { default: propsRouter } = await import('../server/routes/props.js');
-const { default: propsTicketsRouter } = await import('../server/routes/props-tickets.js');
 const { default: decisionInboxRouter } = await import('../server/routes/decision-inbox.js');
 const { default: wongRouter } = await import('../server/routes/wong.js');
-// The six families that were still mounted with no authentication at all
-// (server/index.js) after the thirteen above were closed: model, mlb,
-// nfl-market, nfl-betting, betting-hub and execution-slate. Individual
+// The families that were still mounted with no authentication at all
+// (server/index.js) after the thirteen above were closed: model, nfl-market,
+// nfl-betting, betting-hub and execution-slate -- and mlb, until MLB was
+// removed from the product on 2026-09-22 and its router with it. Individual
 // mutations inside them carried requireModelPermission; every read beside
 // those answered anyone who asked, which is invisible on a Mac bound to
 // loopback and wide open at a public URL.
 const { default: modelRouter } = await import('../server/routes/model.js');
-const { default: mlbRouter } = await import('../server/routes/mlb.js');
 const { default: nflMarketRouter } = await import('../server/routes/nfl-market.js');
 const { default: nflBettingRouter } = await import('../server/routes/nfl-betting.js');
 const { default: bettingHubRouter } = await import('../server/routes/betting-hub.js');
@@ -70,12 +71,9 @@ app.use('/api/nfl', ...legacyAuthenticated, nfldataRouter);
 app.use('/api/stats', ...legacyAuthenticated, statsRouter);
 app.use('/api/accolades', ...legacyAuthenticated, accoladesRouter);
 app.use('/api/edge', ...legacyAuthenticated, edgeRouter);
-app.use('/api/props', ...legacyAuthenticated, propsRouter);
-app.use('/api/props-tickets', ...legacyAuthenticated, propsTicketsRouter);
 app.use('/api/decision-inbox', ...legacyAuthenticated, decisionInboxRouter);
 app.use('/api/betting/wong', ...legacyAuthenticated, wongRouter);
 app.use('/api/model', ...legacyAuthenticated, modelRouter);
-app.use('/api/mlb', ...legacyAuthenticated, mlbRouter);
 app.use('/api/nfl-market', ...legacyAuthenticated, nflMarketRouter);
 app.use('/api/nfl-betting', ...legacyAuthenticated, nflBettingRouter);
 app.use('/api/betting', ...legacyAuthenticated, bettingHubRouter);
@@ -110,17 +108,17 @@ test('legacy league/news/trade/player/dev route families reject anonymous caller
   }
 });
 
-test('the 13 previously-ungated route families now reject anonymous callers', async () => {
+test('the 11 remaining of the 13 previously-ungated route families now reject anonymous callers', async () => {
   for (const path of ['/api/teams', '/api/rankings', '/api/espn', '/api/aggregates', '/api/analysis',
-    '/api/nfl', '/api/stats', '/api/accolades', '/api/edge', '/api/props', '/api/props-tickets',
+    '/api/nfl', '/api/stats', '/api/accolades', '/api/edge',
     '/api/decision-inbox', '/api/betting/wong']) {
     assert.equal((await request(path)).status, 401, path);
   }
 });
 
-test('the six remaining ungated route families now reject anonymous callers', async () => {
+test('the remaining ungated route families now reject anonymous callers', async () => {
   for (const path of ['/api/model/status', '/api/model/state', '/api/model/accuracy',
-    '/api/mlb/status', '/api/nfl-market/evidence/status', '/api/nfl-betting/live',
+    '/api/nfl-market/evidence/status', '/api/nfl-betting/live',
     '/api/betting/summary', '/api/betting/execution/board', '/api/betting/audits',
     '/api/execution-slate/opportunities']) {
     assert.equal((await request(path)).status, 401, path);

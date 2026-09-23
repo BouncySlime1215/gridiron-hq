@@ -1,0 +1,117 @@
+[
+ {
+  "name": "G1 the invented 'feed' default comes back",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness-grain.test.js",
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "T3 null not a guess; data-freshness.test.js no-grain test",
+  "kind": "mutation",
+  "old": "    grain: entry.grain ?? null,",
+  "new": "    grain: entry.grain ?? 'feed',"
+ },
+ {
+  "name": "G2 the vocabulary drifts from the producer's",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness-grain.test.js",
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "T1 four values",
+  "kind": "mutation",
+  "old": "const GRAINS = ['week', 'season', 'static', 'fit'];",
+  "new": "const GRAINS = ['week', 'season', 'fit'];"
+ },
+ {
+  "name": "G3 the fallback entry stops stating its grain",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness-grain.test.js",
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "T4 fallback states its own grain",
+  "kind": "mutation",
+  "old": "    label: 'Weekly player usage',\n    grain: 'week',",
+  "new": "    label: 'Weekly player usage',"
+ },
+ {
+  "name": "G4 the season-grain sentence is dropped",
+  "file": "client/src/components/DataFreshnessBanner.tsx",
+  "tests": [
+   "test/data-freshness-grain.test.js"
+  ],
+  "aimed_at": "T5 a distinct sentence per grain",
+  "kind": "mutation",
+  "old": "  if (t.grain === 'season') {",
+  "new": "  if (false) {"
+ },
+ {
+  "name": "G5 the static-grain sentence is dropped",
+  "file": "client/src/components/DataFreshnessBanner.tsx",
+  "tests": [
+   "test/data-freshness-grain.test.js"
+  ],
+  "aimed_at": "T5 a distinct sentence per grain",
+  "kind": "mutation",
+  "old": "  if (t.grain === 'static') {",
+  "new": "  if (false) {"
+ },
+ {
+  "name": "D1 the delegation never fires (feature detection always false)",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness-evaluator-delegation.test.js"
+  ],
+  "aimed_at": "delegation T1, T2, T3, T4",
+  "kind": "mutation",
+  "old": "  if (shape === 'sql' && typeof registry.evaluateServedTable === 'function') {",
+  "new": "  if (false && typeof registry.evaluateServedTable === 'function') {"
+ },
+ {
+  "name": "D2 the borrowed verdict is ignored",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness-evaluator-delegation.test.js"
+  ],
+  "aimed_at": "delegation T3 both ways",
+  "kind": "mutation",
+  "old": "    }).current;",
+  "new": "    }) ? true : true;"
+ },
+ {
+  "name": "D3 the predicate shape is handed to the sql evaluator too",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness-evaluator-delegation.test.js"
+  ],
+  "aimed_at": "delegation T5 local path preserved",
+  "kind": "mutation",
+  "old": "  if (shape === 'sql' && typeof registry.evaluateServedTable === 'function') {",
+  "new": "  if (typeof registry.evaluateServedTable === 'function') {"
+ },
+ {
+  "name": "C1 control: a comment reworded, nothing behavioural",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness-grain.test.js",
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "nothing — must SURVIVE",
+  "kind": "control-surviving",
+  "old": "const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;",
+  "new": "const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/; // bare identifiers only"
+ },
+ {
+  "name": "C2 control: an anchor that does not exist",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness-grain.test.js",
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "nothing — must report NOT APPLIED",
+  "kind": "control-not-applied",
+  "old": "const GRAINS = ['nope'];",
+  "new": "const GRAINS = [];"
+ }
+]

@@ -75,7 +75,8 @@ import { normalCdf, withRandomSeed } from './stats-util.js';
 // lineupSpread() only: each starter's played-week draws and the fitted archetype
 // correlations, for the lineup-total floor/ceiling.
 import { sampleWeeks } from './projections.js';
-import { correlationMatrix } from './correlation.js';
+import { correlationMatrix, correlationBasis } from './correlation.js';
+import { servedTableState } from './data-freshness.js';
 import { run as dbRun } from '../db/index.js';
 // Evidence layers (see the "evidence" section below). Read-only sources: the
 // engine never re-prices on them, it explains with them.
@@ -109,7 +110,7 @@ import { acceptanceBand } from './trade-acceptance.js';
 // playoff odds"), which does not exist yet. When it ships, myPlayoffOdds() should
 // read it and this import goes away. Until then the alternative was leaving the
 // live /find route on the 0.5 prior, which is the bug this item exists to fix.
-import { simulateSeason } from './season-sim.js';
+import { simulateSeason, simStartWeek } from './season-sim.js';
 import { horizonWeights, horizonGain, horizonNote, leagueSchedule } from './trade-horizon.js';
 // ros_ppg / playoff_ppg (and so adj_ppg): the gated rest-of-season model. This
 // week's number stays the weekly blend.
@@ -224,8 +225,30 @@ export const ASSET_INPUT_TABLES = [
   { table: 'nfl_availability_rates', stamp: 'fitted_at' },
   { table: 'nfl_availability_role_rates', stamp: 'fitted_at' },
   'player_week_snaps',
-  'trending_players', 'player_metrics', 'schedule_games'
+  // A trending re-sync upserts in place (ON CONFLICT DO UPDATE), so the row count
+  // alone never saw it; fetched_at is rewritten on every sync.
+  { table: 'trending_players', stamp: 'fetched_at' },
+  'player_metrics', 'schedule_games',
+  // Not read by buildAssetUniverse, but by lineupSpread inside findTrades, whose cache
+  // keys on this list. A refit rewrites fitted_at on the same 20-odd rows.
+  { table: 'correlation_estimates', stamp: 'fitted_at' }
 ];
+
+/**
+ * The inputs above that only change when a person runs something (S-18), as named
+ * states from data-freshness.js#servedTableState ('table_absent' | 'empty' | 'stale' |
+ * 'fresh' | 'unknown'), each from that table's one entry (servedTableEntry). Served on
+ * `context.hand_fed`, which routes carry as `model_context`:
+ *   trending_players       every asset's trend_kind / trend_count; written only by
+ *                          POST /api/tradelab/trending/sync. Empty, `trend_kind: null`
+ *                          is "nothing fetched", not "not trending".
+ *   correlation_estimates  lineupSpread's copula; written only by POST /api/model/sync.
+ *                          Empty, every archetype is correlation.js's DEFAULTS.
+ */
+const handFedInputs = () => ({ trending_players: servedTableState('trending_players'),
+  correlation_estimates: correlationBasis() });
+// The states key the cache too: a table going stale with time moves no row and no stamp.
+const handFedKey = inputs => Object.values(inputs).map(s => `${s.table}=${s.state}`).join(',');
 
 /**
  * What the served week reads that is rewritten in place with no update time, so no
@@ -255,7 +278,7 @@ function servedInputsDigest(season, week) {
 const assetInputsKey = (lg, formatKey, target) =>
   `${lg.id}:${formatKey}:${target.season}:${target.week}:` +
   `w${activeWeeklyWeightSet({ season: target.season, week: target.week }).id}:` +
-  `d${servedInputsDigest(target.season, target.week)}`;
+  `d${servedInputsDigest(target.season, target.week)}:h${handFedKey(handFedInputs())}`;
 
 export function assetUniverse(lg, formatKey, requested = null) {
   const target = requested ?? tradeWeekContext();
@@ -316,6 +339,8 @@ function buildAssetUniverse(lg, formatKey, target) {
   // this, a player out for the year keeps getting picked as the optimal starter
   // here even after the roster page correctly benches him.
   const seasonEnding = seasonEndingEspnIds();
+  // Which absence trend_kind: null means on this build, served on context.hand_fed.
+  const handFed = handFedInputs();
   const trending = new Map(rows('SELECT player_id, kind, count FROM trending_players')
     .map(t => [t.player_id, t]));
 
@@ -480,6 +505,7 @@ function buildAssetUniverse(lg, formatKey, target) {
     });
   }
   out.context = {
+    hand_fed: handFed,
     season: target.season, week: target.week,
     cutoff: `${target.season}-W${Math.max(0, target.week - 1)}`,
     engine: 'player-week-v2.1 + weekly availability + current/remaining schedule',
@@ -898,12 +924,21 @@ export function playerEvidence(playerId, season = SEASON) {
   if (hit) return hit;
   const out = {};
   let career = null, preseason = null, offseason = null;
-  try { career = compactCareer(evidenceSources.careerLine?.(playerId, { season })); } catch { career = null; }
-  try { preseason = compactPreseason(evidenceSources.preseasonProjection?.(playerId, season)); } catch { preseason = null; }
-  try { offseason = compactOffseason(evidenceSources.offseasonAdjustment?.(playerId, season)); } catch { offseason = null; }
+  // A source that THREW and a source that correctly reported nothing both leave
+  // the field absent, and downstream that difference matters: "no career line
+  // for this player" is a fact about the player, "the career query failed" is a
+  // fact about us. Collapsing them let a broken layer describe a five-year
+  // starter as having no NFL record (playerRiskProfile -> describeProfile).
+  // Which layers failed is recorded; the fields stay absent either way, so
+  // pricing degrades exactly as before.
+  const unreadable = [];
+  try { career = compactCareer(evidenceSources.careerLine?.(playerId, { season })); } catch { unreadable.push('career'); }
+  try { preseason = compactPreseason(evidenceSources.preseasonProjection?.(playerId, season)); } catch { unreadable.push('preseason'); }
+  try { offseason = compactOffseason(evidenceSources.offseasonAdjustment?.(playerId, season)); } catch { unreadable.push('offseason'); }
   if (career) out.career = career;
   if (preseason) out.preseason = preseason;
   if (offseason) out.offseason = offseason;
+  if (unreadable.length) out.evidence_unreadable = unreadable;
   if (evidenceCache.size > 5000) evidenceCache.clear();
   evidenceCache.set(key, out);
   return out;
@@ -918,6 +953,8 @@ export function playerEvidence(playerId, season = SEASON) {
  *   spike        — exactly one season on record that landed top-24
  *   volatile     — swing over 35%, or a single sub-top-24 season
  *   unproven     — no NFL season on record (rookie, or unlinked)
+ *   unknown      — the career layer could not be read, so none of the above can
+ *                  be said; distinct from `unproven`, which is a finding
  * `band_pct` is this season's p20-p80 width as a share of the median.
  */
 export function playerRiskProfile(p) {
@@ -929,7 +966,10 @@ export function playerRiskProfile(p) {
   const bandPct = pre?.points && pre.p20 != null && pre.p80 != null
     ? Math.round(((pre.p80 - pre.p20) / pre.points) * 100) : null;
   let profile;
-  if (!seasons) profile = 'unproven';
+  // Unreadable outranks unproven: with no career line to read, "he has never
+  // done it" is a claim we cannot make. See playerEvidence().
+  if (p.evidence_unreadable?.includes('career')) profile = 'unknown';
+  else if (!seasons) profile = 'unproven';
   else if (seasons === 1) profile = top24 >= 1 ? 'spike' : 'volatile';
   else if (top24 >= 3 && (cv == null || cv <= 0.25)) profile = 'proven floor';
   else if (top24 >= 2 && (cv == null || cv <= 0.35)) profile = 'steady';
@@ -947,6 +987,7 @@ export function playerRiskProfile(p) {
 
 const describeProfile = r => {
   if (!r) return null;
+  if (r.profile === 'unknown') return 'a player whose record could not be read';
   if (r.profile === 'unproven') return 'a player with no NFL record';
   if (r.profile === 'spike') return 'a 1-season spike';
   if (r.top12 === r.seasons && r.seasons >= 2) return `a ${r.seasons}-year top-12 floor`;
@@ -955,7 +996,16 @@ const describeProfile = r => {
   return `a ±${r.swing_pct ?? '?'}% swing over ${r.seasons} seasons`;
 };
 
-/** The floor/ceiling/consistency read for one package of players. */
+/**
+ * The floor/ceiling/consistency read for one package of players.
+ *
+ * `unreadable` counts the players whose career layer could not be read. It
+ * matters beyond the headline: the sums below are taken over `withRecord`
+ * (`seasons > 0`), which drops an unknown player silently, so without this
+ * count a two-player package with one unreadable record reports the readable
+ * player's seasons as if they were the whole package. Every line built from
+ * these sums states the shortfall instead (see packageNumbers).
+ */
 export function packageRisk(players) {
   const profiles = (players ?? []).map(playerRiskProfile);
   const withRecord = profiles.filter(x => x.seasons > 0);
@@ -974,7 +1024,8 @@ export function packageRisk(players) {
     band_pct: avg(withBand, 'band_pct'),
     points: sum(withBand, 'points'), p20: sum(withBand, 'p20'), p80: sum(withBand, 'p80'),
     headline_profile: headline?.profile ?? null,
-    headline_read: describeProfile(headline)
+    headline_read: describeProfile(headline),
+    unreadable: profiles.filter(x => x.profile === 'unknown').length
   };
 }
 
@@ -982,7 +1033,14 @@ export function packageRisk(players) {
 function packageNumbers(r) {
   if (!r) return null;
   const bits = [];
-  if (r.seasons) bits.push(`${r.top24_seasons}/${r.seasons} top-24 seasons`);
+  // With an unreadable record in the package the season sums cover only part of
+  // it, so the line says how many players it could not read rather than
+  // presenting a partial count as the whole (packageRisk's `unreadable`).
+  if (r.seasons && r.unreadable) {
+    bits.push(`${r.top24_seasons}/${r.seasons} top-24 seasons for ${r.players.length - r.unreadable} of ${r.players.length}` +
+      `, ${r.unreadable} record${r.unreadable === 1 ? '' : 's'} could not be read`);
+  } else if (r.seasons) bits.push(`${r.top24_seasons}/${r.seasons} top-24 seasons`);
+  else if (r.unreadable) bits.push(`${r.unreadable} record${r.unreadable === 1 ? '' : 's'} could not be read`);
   else bits.push('0 seasons on record');
   if (r.swing_pct != null) bits.push(`±${r.swing_pct}% swing`);
   if (r.min_games != null) bits.push(`${r.min_games} g min`);
@@ -1305,9 +1363,14 @@ export function myPlayoffOdds(lg, myTeamId = null, print = null) {
   const prior = reason => ({ value: null, roster_id: rosterId, source: `0.5 prior — ${reason}` });
   if (!lg?.payload) return prior('this league is not synced yet');
   const target = tradeWeekContext();
+  // The sim's start week comes from the one producer (simStartWeek: the league's
+  // own week, week 1 for last season's payload) — the same week /simulate uses —
+  // not the NFL game_lines week, which runs ahead of the league between Monday
+  // night and the next sync (B-01 review). target stays for the asset print only.
+  const start = simStartWeek(lg);
   const { formatKey } = deriveFormat(lg);
   return cached(
-    `playoffOdds:${lg.id}:${rosterId}:${target.season}:${target.week}`,
+    `playoffOdds:${lg.id}:${rosterId}:${target.season}:${start}`,
     print ?? assetPrint(lg, formatKey, target),
     () => {
       // A returned `error` is a NAMED state (no fixtures left, an unsynced
@@ -1315,7 +1378,7 @@ export function myPlayoffOdds(lg, myTeamId = null, print = null) {
       // throw — a silent 0.5 would hide it, which is how this number got lost in
       // the first place.
       const sim = withRandomSeed(HORIZON_SIM_SEED, () => simulateSeason(lg, {
-        runs: HORIZON_SIM_RUNS, fromWeek: target.week, scoring: scoringFor(lg)
+        runs: HORIZON_SIM_RUNS, fromWeek: start, scoring: scoringFor(lg)
       }));
       if (sim?.error) return prior(`the season simulation could not run (${sim.error})`);
       const mine = sim.teams?.find(t => String(t.roster_id) === rosterId);
@@ -1324,7 +1387,7 @@ export function myPlayoffOdds(lg, myTeamId = null, print = null) {
         value: +mine.playoff_odds.toFixed(2),
         roster_id: rosterId,
         interval: mine.playoff_odds_95 ?? null,
-        source: `season simulation, ${sim.runs} runs from week ${target.week}`,
+        source: `season simulation, ${sim.runs} runs from week ${sim.from_week}`,
       };
     });
 }

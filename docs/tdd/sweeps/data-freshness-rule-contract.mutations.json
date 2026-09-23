@@ -1,0 +1,132 @@
+[
+ {
+  "name": "M1 the fail-open returns: no rule falls back to row_count",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness-rule-contract.test.js",
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "T3 missing rule, T5 fault distinguishable",
+  "kind": "mutation",
+  "old": "    base.status = 'unknown';\n    base.note = 'no usable current-data rule for this table — freshness was not checked';",
+  "new": "    base.status = base.row_count > 0 ? 'fresh' : 'stale';\n    base.note = null;"
+ },
+ {
+  "name": "M2 the shipped {sql,params} shape stops being recognised",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness-rule-contract.test.js",
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "T1 shipped rule evaluated, T2 fresh when current",
+  "kind": "mutation",
+  "old": "  if (nonEmpty(rule.sql)) return 'sql';",
+  "new": "  if (false) return 'sql';"
+ },
+ {
+  "name": "M3 the sql rule is asked but its answer is ignored",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness-rule-contract.test.js",
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "T1 shipped rule evaluated",
+  "kind": "mutation",
+  "old": "    return Boolean(first);",
+  "new": "    return true;"
+ },
+ {
+  "name": "M4 an unrunnable rule is reported as a pass",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness-rule-contract.test.js",
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "T4 unusable rule, T5 fault distinguishable",
+  "kind": "mutation",
+  "old": "    base.status = 'unknown';\n    base.note = `current-data rule could not be evaluated: ${e.message}`;",
+  "new": "    base.status = 'fresh';\n    base.note = `current-data rule could not be evaluated: ${e.message}`;"
+ },
+ {
+  "name": "M5 an unrunnable rule is filed as merely stale",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness-rule-contract.test.js",
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "T4 unusable rule",
+  "kind": "mutation",
+  "old": "    base.status = 'unknown';\n    base.note = `current-data rule could not be evaluated: ${e.message}`;",
+  "new": "    base.status = 'stale';\n    base.note = `current-data rule could not be evaluated: ${e.message}`;"
+ },
+ {
+  "name": "M6 the fault is reported with no reason attached",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness-rule-contract.test.js",
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "T3 missing rule note, T4 unusable rule note",
+  "kind": "mutation",
+  "old": "    base.note = 'no usable current-data rule for this table — freshness was not checked';",
+  "new": "    base.note = null;"
+ },
+ {
+  "name": "M7 an evaluation failure is rethrown, taking the panel down",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness-rule-contract.test.js",
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "T4 unusable rule degrades rather than throws",
+  "kind": "mutation",
+  "old": "    base.status = 'unknown';\n    base.note = `current-data rule could not be evaluated: ${e.message}`;",
+  "new": "    throw e;"
+ },
+ {
+  "name": "M8 the banner loses its rendering path for unknown",
+  "file": "client/src/components/DataFreshnessBanner.tsx",
+  "tests": [
+   "test/data-freshness-banner-swap.test.js"
+  ],
+  "aimed_at": "T6 renders the unknown verdict",
+  "kind": "mutation",
+  "old": "  unknown: { word: 'Not checked', chip: 'bg-slate-200 text-slate-800' }",
+  "new": "  // unknown has no style"
+ },
+ {
+  "name": "M9 unchecked is folded back into not-current",
+  "file": "client/src/components/DataFreshnessBanner.tsx",
+  "tests": [
+   "test/data-freshness-banner-swap.test.js"
+  ],
+  "aimed_at": "T7 unchecked is not reported as stale",
+  "kind": "mutation",
+  "old": "  const behind = report.tables.filter(t => t.status === 'stale' || t.status === 'empty');\n  const unchecked = report.tables.filter(t => t.status === 'unknown');",
+  "new": "  const behind = report.tables.filter(t => t.status !== 'fresh');\n  const unchecked = [];"
+ },
+ {
+  "name": "C1 control: a comment is rewritten, nothing behavioural",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness-rule-contract.test.js",
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "nothing — this row must SURVIVE",
+  "kind": "control-surviving",
+  "old": "const nonEmpty = v => typeof v === 'string' && v.trim() !== '';",
+  "new": "const nonEmpty = (v) => typeof v === 'string' && v.trim() !== ''; // reworded"
+ },
+ {
+  "name": "C2 control: an anchor that does not exist",
+  "file": "server/services/data-freshness.js",
+  "tests": [
+   "test/data-freshness-rule-contract.test.js",
+   "test/data-freshness.test.js"
+  ],
+  "aimed_at": "nothing — this row must report NOT APPLIED",
+  "kind": "control-not-applied",
+  "old": "base.status = 'definitely-not-a-real-status';",
+  "new": "base.status = 'x';"
+ }
+]

@@ -5,6 +5,7 @@ import FormationView from '../components/FormationView';
 import { Headshot } from '../components/PlayerRow';
 import { usePlayerCard } from '../components/PlayerCard';
 import { PageLoading, PageError } from '../components/PageState';
+import AdvancedStatsPanel from '../components/AdvancedStatsPanel';
 
 // Which unit analysis matters for this position
 const UNIT_FOR_POS: Record<string, { key: string; label: string }> = {
@@ -73,6 +74,8 @@ export default function PlayerDetail() {
           onPlayerClick={pid => { if (pid !== p.id) openCard(pid); }}
         />
       )}
+
+      <AdvancedStatsPanel playerId={p.id} />
 
       <div className="grid md:grid-cols-2 gap-4 mt-4">
         {schemeDetail && (

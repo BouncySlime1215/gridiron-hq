@@ -16,7 +16,6 @@ import { rows, run } from '../db/index.js';
 
 const BASE = 'https://api.the-odds-api.com/v4';
 const SPORT = 'americanfootball_nfl';
-const MLB_SPORT = 'baseball_mlb';
 
 export const hasKey = () => Boolean(process.env.ODDS_API_KEY);
 
@@ -146,18 +145,6 @@ export function playerProps(eventId, { markets = PROP_MARKETS, ttlMs = 6 * 3600e
     { regions: 'us', markets: m, oddsFormat: 'american' },
     { cacheKey: `props:${eventId}:${m}`, ttlMs });
 }
-
-export function eventOdds(sport, eventId, { markets, ttlMs = 60 * 60e3 } = {}) {
-  const m = Array.isArray(markets) ? markets.join(',') : markets;
-  return get(`/sports/${sport}/events/${eventId}/odds/`,
-    { regions: 'us', markets: m, oddsFormat: 'american' },
-    { cacheKey: `event:${sport}:${eventId}:${m}`, ttlMs });
-}
-
-export const MLB_MARKETS = ['totals_1st_1_innings', 'batter_total_bases', 'pitcher_strikeouts'];
-export const mlbEvents = options => sportEvents(MLB_SPORT, options);
-export const mlbEventOdds = (eventId, options = {}) => eventOdds(MLB_SPORT, eventId,
-  { markets: MLB_MARKETS, ...options });
 
 /**
  * Flattens the nested bookmaker -> market -> outcome shape into one row per

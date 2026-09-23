@@ -97,6 +97,42 @@ export function withRandomSeed(seed, fn) {
   try { return fn(); } finally { rng = prior; }
 }
 
+/* ------------------------------------------ keyed (identity-addressed) draws
+ * Common random numbers only cancel noise when each random number is used for
+ * the same purpose in both configurations being compared. A single sequential
+ * stream handed out in list order breaks that as soon as the list is
+ * reordered. These helpers address a draw by WHAT it is for (a player, a week,
+ * a run), in the style of counter-based generators (Salmon et al., SC'11), so
+ * the same player-week-run gets the same number whatever else is simulated. */
+
+/** murmur3's 32-bit finaliser: a full-avalanche integer mix. */
+function fmix32(h) {
+  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
+/** A non-zero 32-bit seed from any list of parts (numbers or strings). */
+export function keyedSeed(...parts) {
+  let h = 0x811c9dc5;
+  for (const part of parts) {
+    const s = String(part);
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+    h ^= 0x1f; h = Math.imul(h, 0x01000193);          // part separator: ('ab','c') != ('a','bc')
+  }
+  return fmix32(h) || 1;
+}
+
+/** Standard normal addressed by (key, counter): the same pair always gives the same draw. */
+export function keyedNormal(key, counter) {
+  const c = Math.imul((counter >>> 0) + 1, 0x9e3779b1);
+  const a = fmix32((key ^ c) >>> 0);
+  const b = fmix32((a ^ 0x68e31da4) + c >>> 0);
+  const u1 = (a + 1) / 4294967297;                    // (0, 1): log is finite
+  return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * (b / 4294967296));
+}
+
 const _r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 
 /**
@@ -299,9 +335,10 @@ export function cholesky(matrix) {
 let choleskyFallbackWarned = false;
 
 /** One vector of correlated standard normals from a Cholesky factor. */
-export function correlatedNormals(L) {
+export function correlatedNormals(L, iid = null) {
   const n = L.length;
-  const z = Array.from({ length: n }, randn);
+  // `iid`: caller-supplied independent normals (identity-keyed draws); default the shared stream.
+  const z = iid ?? Array.from({ length: n }, randn);
   const out = new Float64Array(n);
   for (let i = 0; i < n; i++) {
     let s = 0;

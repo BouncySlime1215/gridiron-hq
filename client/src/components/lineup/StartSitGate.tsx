@@ -253,12 +253,6 @@ function Body({ data, loading, error, onRetry }: {
         </div>
       )}
 
-      {key === 'not_shown' && (
-        <p className="mt-2 text-xs leading-5 text-slate-500">
-          "Not shown" is not the same as "worse": these weeks may be too few to show a small edge.
-        </p>
-      )}
-
       <div className="mt-3">
         <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">
           Weeks our projection lost

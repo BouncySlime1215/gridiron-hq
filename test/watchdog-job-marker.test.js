@@ -69,6 +69,19 @@ test('an inline job that threw is not named when the loop later blocks', async (
   assert.doesNotMatch(r.stderr, /synthetic_threw/, 'a job that threw is as finished as one that returned');
 });
 
+test('an inline job that threw before returning a promise is not named when the loop later blocks', async () => {
+  // A synchronous throw never produces the job's own promise, and the marker
+  // waits for that promise to settle. runJobNow wraps the call in a promise
+  // so that a synchronous throw settles it too.
+  const r = await runScenario('threw-sync-then-block');
+  assert.equal(r.signal, 'SIGKILL', killed(r));
+  assert.match(r.stdout, /threw sync: \{"job":"synthetic_threw_sync","ran":true,"error":"synthetic sync failure"/,
+    `the job must have run and thrown first; got: ${r.stdout}`);
+  assert.match(r.stderr, NO_JOB, `got: ${r.stderr}`);
+  assert.doesNotMatch(r.stderr, /synthetic_threw_sync/,
+    'a job that threw synchronously is as finished as one that returned');
+});
+
 /* ------------------------------------------ a job that blocks is named */
 
 test('an inline job that blocks the loop after an await is named', async () => {

@@ -64,6 +64,13 @@ const scenarios = {
     say(`threw: ${JSON.stringify(await runIfStale('synthetic_threw', { force: true }))}`);
     block();
   },
+  // A job that throws before it returns a promise at all, so there is no
+  // promise of its own to settle.
+  async 'threw-sync-then-block'() {
+    JOBS.synthetic_threw_sync = { ...INLINE, run: () => { throw new Error('synthetic sync failure'); } };
+    say(`threw sync: ${JSON.stringify(await runIfStale('synthetic_threw_sync', { force: true }))}`);
+    block();
+  },
   // The job itself blocks the thread after an await.
   async 'blocks-after-await'() {
     JOBS.synthetic_blocks = { ...INLINE, run: async () => { await sleep(20); block(); return {}; } };

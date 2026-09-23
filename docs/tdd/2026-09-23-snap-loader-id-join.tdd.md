@@ -34,6 +34,12 @@ Holdout looks: none. The 2025 rows are re-attributed, not graded against outcome
   Command: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/nflverse-snap-join.test.js`.
   `test/nflverse-attribution.test.js` (same module) also passes, 4/4. The final 11 tests run against origin/main's `nflverse.js`: 1 pass (null control), 10 fail.
   The fixture uses made-up names and ids of the same shape; the two real cases are named only in the uncommitted R&D package.
+- **Skeptic round 1 (wiring): the scheduled job path.** The job `nflverse_snap_counts` (`server/services/scheduler.js` JOBS, every 6 h, offThread) calls `refreshNflverseSnapCounts` → `syncSnapCounts(season)` alone in a job-worker, with no `syncCrosswalk` first. So the pfr map is cold there and `syncSnapCounts` fetches `players.csv` itself; a `players.csv` failure threw the whole job (0 rows written, failure backoff), where origin/main wrote name-joined rows.
+  - **RED** `3e8b2850` test: new file `test/nflverse-snap-standalone.test.js` drives `JOBS.nflverse_snap_counts.run()` in its own process (cold map, as in the worker). On the pre-fix tree: 1 pass / 2 fail, first failure `error: 'players.csv -> HTTP 503'`.
+  - **GREEN** `c8e77f35` fix: the crosswalk fetch is caught, logged with `console.warn`, returned as `crosswalk_error`, and the run falls back to the name join (still refusing shared name keys). The map is left unset, so the next run retries. The `scheduler.js` comment that said "matched on name+position, so no gsis_id needed" now describes the id join. 3/3 pass; `nflverse-snap-join` 11/11 and `nflverse-attribution` 4/4 still pass (same command as above, per file).
+  - The tests pin the fetch sequence: players.csv down → fetches `snap_counts_2026.csv, players.csv`, `by_id` 0, unique name lands, the Jr. and his namesake both get nothing (`ambiguous_name` 1). Recovered → `players.csv` fetched again, `by_id` 3. Warm map in the same process → only the snap file is fetched.
+  - **Not changed: one `players.csv` fetch per scheduled run.** Each 6-hourly job-worker starts cold, so it downloads `players.csv` once (the skeptic measured about 7 MB; I did not re-measure). The daily crosswalk job downloads the same file. Caching it across workers would need a new store (for example a `players.pfr_id` column filled by `syncCrosswalk`). That is an additive migration with its own reader, so it is left as a follow-up rather than added here.
+  - `crosswalk_error` does not change the job's status: `statusFromDetail` (`scheduler.js:203`) reads `detail.error`, not `crosswalk_error`, so a degraded run records `ok` with the error in `last_detail`. That is on purpose, because the run did write rows.
 
 ## 3. What it does
 
@@ -47,7 +53,8 @@ Holdout looks: none. The 2025 rows are re-attributed, not graded against outcome
    - the right player has no row for that week.
 
    Nothing is deleted. A stale row that cannot be moved is counted in `namesake_rows_left`.
-4. **Counts.** The sync returns `{inserted, by_id, name_fallback, unmatched, ambiguous_name, reassigned, namesake_rows_left}`. `syncAll` → `recordSync('nflverse_snap_counts', …)` writes it to `sync_log`.
+4. **Counts.** The sync returns `{inserted, by_id, name_fallback, unmatched, ambiguous_name, reassigned, namesake_rows_left, crosswalk_error}`. `syncAll` → `recordSync('nflverse_snap_counts', …)` writes it to `sync_log`.
+   - The scheduled job `nflverse_snap_counts` (`scheduler.js` `refreshNflverseSnapCounts`) records the same object through the scheduler's own `record`; `test/nflverse-snap-standalone.test.js` covers that path.
    - The path reaches production through the route `POST /api/model/sync` (`server/routes/model.js:488`, `syncNflverse` at `:512`). The syncAll test covers it: `sync_log.last_detail` carries `"by_id":8`.
 
 No migration: the pfr map lives in memory and no column is added.
@@ -135,6 +142,7 @@ Script: scratchpad `s20-mutants.py`. It applies each mutant to `nflverse.js`, ru
 2. **Case B's before tier is derived, not measured.** It is `unknown` because he had 0 snap rows. It was derived from the code (see section 4) because the first replay's case-B lookup used a wrong gsis.
 3. **Nothing re-fits S-04.** S-04's role cells (`scripts/fit-availability.mjs:260`) were fit on the name-joined rows. S-04 should re-fit on corrected rows before it serves.
 4. **One stale doc line.** `docs/tdd/play-chance.tdd.md:120` still blames "nfl_snaps has him by name". It belongs to another thread, so it is reported here, not edited.
+6. **Per-run players.csv fetch in the scheduled job.** Each worker run downloads it once (see section 2, skeptic round 1). A `players.pfr_id` column filled by `syncCrosswalk` would remove it; follow-up.
 5. **Two snap ingests remain.** D-10 (`nfl-advanced.js` vs `nflverse.js`) still owns that. This unit touches `nflverse.js` only.
 
 ## 7. Nick's five questions

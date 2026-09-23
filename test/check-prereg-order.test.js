@@ -152,7 +152,9 @@ test('a marker quoted inside prose or inline code is documentation, not a marker
   loaded();
   const tdd = 'docs/tdd/2026-09-23-widget-lift.tdd.md';
   const prose = 'By marker, a file names its prereg in a `<!-- prereg: path -->` line.\n'
-    + '  - also `<!-- prereg: other -->` indented in a list\n';
+    + '  - also `<!-- prereg: other -->` indented in a list\n'
+    + 'write it at the end of a line: <!-- prereg: tail -->\n'
+    + '<!-- prereg: head --> starts this sentence\n';
   const dir = fixture([{ files: { [tdd]: prose } }]);
   try {
     const report = P.checkPreregOrder({ repo: dir, prefixes: ['docs/'] });

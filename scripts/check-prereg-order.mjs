@@ -17,7 +17,8 @@
  *      `<stem>-result(s)|output|outcome|findings.<ext>`. The EARLIEST committed
  *      prereg of the group is the anchor, so an amendment committed after the
  *      results neither rescues nor breaks the base prereg.
- *   2. By an explicit marker in a Markdown file: `<!-- prereg: <repo path> -->`.
+ *   2. By an explicit marker in a Markdown file: `<!-- prereg: <repo path> -->`,
+ *      alone on its own line (a marker quoted mid-line, e.g. in inline code, is ignored).
  *      An evidence file (`*.tdd.md`) is never paired by name, because the house
  *      process writes its audit section before the first test; it opts in with
  *      the marker.
@@ -49,7 +50,8 @@ export const DEFAULT_PREFIXES = Object.freeze(['docs/evidence/', 'docs/tdd/']);
 
 const PREREG_RE = /^(.+?)[-_.]pre-?reg(?:istration)?(?:[-_.](?:addendum|amendment)[-_.]?\d+)?\.md$/i;
 const RESULT_SUFFIX_RE = /[-_.](?:results?|output|outcome|findings)$/i;
-const MARKER_RE = /<!--\s*prereg:\s*`?([^\s`>]+?)`?\s*-->/gi;
+/** A marker counts only alone on its own line, so prose or inline code that quotes one is ignored. */
+const MARKER_RE = /^[ \t]*<!--[ \t]*prereg:[ \t]*`?([^\s`>]+?)`?[ \t]*-->[ \t]*$/gim;
 
 const isAmendment = file => /[-_.](?:addendum|amendment)[-_.]?\d+\.md$/i.test(file);
 /** Base prereg before its addenda, so a tie (one squash commit) is reported against the base. */

@@ -106,7 +106,8 @@ commit.
   `<stem>-output.json` or `<stem>-findings.md` (any extension).
 - A file in another directory (for example the `docs/tdd/*.tdd.md` evidence
   file, which is never paired by name because its audit section comes before
-  the first test) opts in with the line `<!-- prereg: docs/evidence/<date>/<stem>-preregistration.md -->`.
+  the first test) opts in with the line `<!-- prereg: docs/evidence/<date>/<stem>-preregistration.md -->`,
+  written alone on its own line. A marker quoted mid-line, as here, is ignored.
   If that path was never committed, the check fails.
 
 **Run it** before you push, on your branch, where each commit is still separate:

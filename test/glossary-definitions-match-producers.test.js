@@ -102,6 +102,11 @@ test('expected_wins: the sentence must say the total counts games already played
     'the sentence must say the total includes games already played');
   assert.doesNotMatch(plain, /remaining|not counting|excluding|rest of/i,
     'a sentence can name "already played" while denying it — any remaining/excluding wording contradicts season-sim.js:364');
+  // Word lists cannot close this: paraphrases like "leaving out the games
+  // already played" pass any allow/deny list. Pin the exact sentence; changing
+  // it means re-reading season-sim.js:126,364 first.
+  assert.equal(plain, 'How many games your team is on pace to win this season, counting the games you have already played.',
+    'expected_wins sentence changed — re-check it against season-sim.js:126,364 (real record + remaining) and update this pin');
 });
 
 test('this week\'s projected points: one entry, on the Start/Sit producer (startSitWeekPoints), not two entries with different raws', () => {
@@ -145,6 +150,11 @@ test('title_delta: the sentence does not promise clean pairing while the paired-
     'the sentence must flag that some of the change can be simulation noise, not only the trade');
   assert.doesNotMatch(plain, /never luck|not luck|no luck|all (about )?the move|purely|entirely|only the move/i,
     'the same overclaim in new words: the paired seed alone does not isolate the move (season-sim.js:313-356)');
+  // Word lists cannot close this either ("zero noise", "noise is fully
+  // removed" both mention noise). Pin the exact sentence; the roster/sort
+  // anchors above force a re-read when the pairing bug is fixed.
+  assert.equal(plain, 'How much this move changes your championship number, from replaying the same simulated seasons before and after — figure some of the change, roughly a couple of points, is simulation noise rather than the move itself.',
+    'title_delta sentence changed — re-check it against season-sim.js:313-356,476 and update this pin');
 });
 
 test('points_allowed_to_position: raw is the field matchups.js actually serves (`allowed`), and the sentence says multi-season, tested, not "so far"', () => {

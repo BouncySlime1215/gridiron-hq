@@ -48,4 +48,24 @@ Command (read-only, local copy):
 
 ## 4. Result
 
-(filled in after the run)
+DECLINED by the kill rule. Local copy of data.sqlite, tree 16dcf6b8 + this study code.
+
+Fit 2021-22: 569 games, pooled sd 9.134, rho 0.0535.
+
+| Season | CRPS Normal | CRPS path (MC) | ES path | ES independent | mean d | d 95% CI (22 weeks) | hist rho [90% CI] | sim rho |
+|---|---|---|---|---|---|---|---|---|
+| 2023 | 5.1793 | 5.1799 | 8.1263 | 8.1251 | +0.0012 | [-0.002, 0.005] | -0.007 [-0.107, 0.091] | 0.060 |
+| 2024 | 5.0326 | 5.0386 | 7.8894 | 7.8880 | +0.0015 | [-0.001, 0.004] | -0.017 [-0.112, 0.082] | 0.050 |
+
+- (1) passes: the path's marginal is the Normal baseline (MC gap under 0.01).
+- (2) fails in both seasons: the shared path is slightly WORSE than the independent pair
+  and the CI straddles 0. The 2021-22 residual correlation (+0.05) did not recur in
+  2023 (-0.01) or 2024 (-0.02): once the closing total is known, the two teams' scores
+  are close to independent.
+- (3) passes, but only because the historical CI is wide (about +/-0.1); it does not
+  distinguish rho = 0.05 from rho = 0.
+
+Consequence: the plain independent Normal(implied, pooled sd) stays. Nothing is served,
+so GRIDIRON_GAME_PATH_V2_ENABLED is not wired. The PR 215 baseline (5.179 / 5.033) was
+reproduced on the same local copy; 2024 there was fit on 2021-23 (sd 9.18) and gives the
+same CRPS to three decimals.

@@ -3,7 +3,7 @@
  *
  * `writeState` is the ONLY writer (test/engine-spine.test.js greps for it). It
  * enforces, at runtime:
- *   - one writer per field: the producer must be the one registered for the field
+ *   - one writer per field: only the writer capability registerField returned may write
  *     (registry.js), or the write throws;
  *   - the reason chain: {contributions:[{source,event_ids,delta,text}]}, present even
  *     when empty, each contribution citing only events the row itself cites;
@@ -15,7 +15,7 @@
  * `getState` is the as-of reader: the latest row with as_of <= asOf.
  */
 import { db as appDb } from '../../db/index.js';
-import { fieldSpec } from './registry.js';
+import { fieldSpec, isWriterFor } from './registry.js';
 import { normalizeAsOf } from './events.js';
 
 function checkReasonChain(chain, eventIds) {
@@ -47,13 +47,17 @@ function checkReasonChain(chain, eventIds) {
  * key already exists).
  */
 export function writeState({
-  entityType, entityId, field, value, asOf, producer, producerVersion, reasonChain, eventIds = [], leagueId = null,
+  entityType, entityId, field, value, asOf, writer, producerVersion, reasonChain, eventIds = [], leagueId = null,
 }, database = appDb) {
   const spec = fieldSpec(field);
   if (!spec) throw new Error(`field ${field} is not registered: register it with its one producer first`);
-  if (spec.producer !== producer) {
-    throw new Error(`one writer per field: ${field} belongs to ${spec.producer}; ${producer} may not write it`);
+  if (writer == null) {
+    throw new Error(`writeState needs the writer registerField returned for ${field}; a producer name is not a permission`);
   }
+  if (!isWriterFor(field, writer)) {
+    throw new Error(`one writer per field: ${field} belongs to ${spec.producer}; this writer may not write it`);
+  }
+  const producer = spec.producer;
   if (spec.entityTypes.length && !spec.entityTypes.includes(entityType)) {
     throw new Error(`field ${field} is declared for ${spec.entityTypes.join('/')}, not ${entityType}`);
   }

@@ -7,9 +7,12 @@
  * autopsy) register their own types from their own modules.
  *
  * FIELDS. Every `engine_state.field` has exactly ONE producer. `registerField`
- * throws when a second producer claims a field, and `writeState` (state.js) throws
- * when anyone but the registered producer writes it. test/engine-spine.test.js also
- * greps server/ and scripts/ so that each field is declared in one place only.
+ * throws when a second producer claims a field. The FIRST registration returns the
+ * field's writer: an opaque capability object, and `writeState` (state.js) accepts
+ * only that object, compared by identity. A producer name string is a label, not a
+ * permission, so a second module cannot write a field by passing the right label.
+ * test/engine-spine.test.js greps server/ and scripts/ so that each field is declared
+ * in one place only, with a literal name, and that no writer is ever exported.
  *
  * onEvent. The hook later learners (ENGINE-00b daemon, per-event Bayesian updates)
  * attach to. `appendEvents` calls the handlers once per NEW event, never on a
@@ -18,6 +21,7 @@
 
 const eventTypes = new Map();
 const fields = new Map();
+const writers = new Map(); // field -> the one writer capability registerField handed out
 const handlers = new Map();
 
 const NAME = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/;
@@ -43,8 +47,10 @@ export function listEventTypes() {
 }
 
 /**
- * Claim a state field for one producer. Re-registering by the same producer is a
- * no-op (a module imported twice); by any other producer it throws.
+ * Claim a state field for one producer. Returns the field's writer capability on the
+ * first claim. Re-registering by the same producer does not throw (a module imported
+ * twice) but returns null: the writer is handed out once. Any other producer throws.
+ * Keep the returned writer in a module-private const; never export it.
  */
 export function registerField(field, { producer, version, entityTypes = [], description = '' } = {}) {
   checkName('field', field);
@@ -55,11 +61,18 @@ export function registerField(field, { producer, version, entityTypes = [], desc
     if (existing.producer !== producer) {
       throw new Error(`field ${field} already has its one producer ${existing.producer}; ${producer} may not claim it`);
     }
-    return existing;
+    return null;
   }
   const spec = Object.freeze({ field, producer, version, entityTypes: Object.freeze([...entityTypes]), description });
   fields.set(field, spec);
-  return spec;
+  const writer = Object.freeze({ field, producer });
+  writers.set(field, writer);
+  return writer;
+}
+
+/** True only for the exact object registerField returned for this field. */
+export function isWriterFor(field, writer) {
+  return writer != null && writers.get(field) === writer;
 }
 
 /** The registered spec for a field, or null. */
@@ -104,8 +117,5 @@ export const SPINE_EVENT_TYPES = Object.freeze({
   'manager.chat_signal': 'A chat count or rate per fantasy team (no names, no text), from manager_signals source=chat',
 });
 for (const [type, description] of Object.entries(SPINE_EVENT_TYPES)) registerEventType(type, { description });
-
-registerField('engine.ingest', {
-  producer: 'engine-backfill', version: '1', entityTypes: ['engine'],
-  description: 'Per stream: events in the log as of the row, and the highest event id',
-});
+// The spine's own field engine.ingest is registered in backfill.js, its one writer,
+// so the writer capability never has to leave that module.

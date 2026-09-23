@@ -27,6 +27,13 @@
 import { db as appDb } from '../../db/index.js';
 import { appendEvents, normalizeAsOf } from './events.js';
 import { writeState } from './state.js';
+import { registerField } from './registry.js';
+
+// The spine's own field. This module is its one writer; the capability stays here.
+const INGEST_WRITER = registerField('engine.ingest', {
+  producer: 'engine-backfill', version: '1', entityTypes: ['engine'],
+  description: 'Per stream: events in the log as of the row, and the highest event id',
+});
 
 const CHUNK = 2000;
 
@@ -217,6 +224,6 @@ export function backfillAll({ database = appDb, dispatch = true, now = new Date(
         : `${s.inserted} new events this run from ${s.source_rows} rows; ${agg.n} in the log` });
   }
   const written = writeState({ entityType: 'engine', entityId: 'events', field: 'engine.ingest', value: { streams: summary },
-    asOf, producer: 'engine-backfill', producerVersion: '1', eventIds: [], reasonChain: { contributions } }, database);
+    asOf, writer: INGEST_WRITER, producerVersion: '1', eventIds: [], reasonChain: { contributions } }, database);
   return { as_of: asOf, streams, state: written };
 }

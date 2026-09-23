@@ -41,6 +41,8 @@ import { lineupCall } from '../services/lineup-brain.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
 import { tradeImpact } from '../services/season-sim.js';
+// TM-09: historical revealed trade prices (aggregate table), read-only, default-off.
+import { marketForPlayer } from '../services/trade-market.js';
 import {
   proposeVerifyRetryTrade, judgeTradeVerdict, tradeChallengeText, SENSE_CHECK_SIM_RUNS
 } from '../services/trade-verify.js';
@@ -993,6 +995,20 @@ r.get('/:leagueId/player/:id', (req, res, next) => {
       };
     }
     res.json({ ...playerOutlook(lg, req.params.id), valuation_map: panel });
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------ market prices from real trades (TM-09) */
+// What this player fetched in real Sleeper trades (2021-2024 aggregates), the
+// position x week x league-size price-to-value ratio, and the hype-decay reading.
+// Historical and labelled "unconfirmed forward"; no trade card reads it yet.
+r.get('/:leagueId/market/:playerId', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const player = row('SELECT id, name, position, sleeper_id FROM players WHERE id = ?', req.params.playerId);
+    if (!player) { res.status(404).json({ error: 'player not found' }); return; }
+    res.json({ league_id: lg.id,
+      ...marketForPlayer({ player, week: leagueCurrentWeek(lg), teams: lg.team_count ?? null }) });
   } catch (e) { next(e); }
 });
 

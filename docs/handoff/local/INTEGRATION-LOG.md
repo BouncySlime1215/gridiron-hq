@@ -2,7 +2,13 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 15:39Z.
+Last rebuilt: 2026-09-23 15:53Z.
+
+## #178: Waiver board: alert when a starter goes down, skip hurt replacements
+
+- Merged: 11:53 AM ET, Sep 23 as `ff71beb9`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #171: Start/Sit stops suggesting swaps for players whose game already kicked off (RL-4-2)
 

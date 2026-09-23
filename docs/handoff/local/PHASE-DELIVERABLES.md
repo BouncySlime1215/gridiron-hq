@@ -74,3 +74,5 @@ Shared: OddsLadder, SignalChip, ScenarioCard, ReportCard, ReceiptCard, TagPill (
 - R5 Internal structure scout (Opus): duplicate numbers, unwired tables, stale evidence; proposes S units.
 - R6 Product/UI researcher (Sonnet): what the best fantasy tools show and how; proposes UI units against the design system.
 Cadence: R1-R6 each run one round per day while slots allow (rnd-loop.js pattern: explorer -> validity assessor -> implementation assessor -> recorder), aggregates only, no paid calls beyond the Jev cap.
+
+Model pinning (02:45Z): the session model can change (it is Opus 5.5 now), so the v2 scripts pin roles explicitly: auditor and claims/statistics skeptic model: "fable"; builders and other skeptics model: "opus"; lean builders, recorders and the board keeper model: "sonnet"; mechanical model: "haiku". No role inherits the session model by accident.

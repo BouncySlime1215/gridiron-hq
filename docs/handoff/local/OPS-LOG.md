@@ -91,3 +91,8 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 09:25Z: CI fixed: #169 (test compiled before registering tests; race on slow runner), #171 (runner timeout, rerun green). Merge queue: #169 #171 #167 #172 #168.
 
 09:40Z: #169 MERGED (131a7ba0). #171 conflicts with main after #169 -> fixer resolving. Loop 1 done: CE-05 -> PR #168 (needs the Independent Auditor: auditor agent launched; removed from the merge queue), GR-05 -> PR #173 (docs, queued), GR-01 gate found 4 branch-caused test failures -> fixer. Merge queue now: #167 #172 #173. Loop 1 relaunched: AI-01 true value (critical, Fable claims), TM-09 market prices, RL-3-2 live inactives (wxccklwr4).
+
+09:55Z: CE-05 #168 CLEARED by the auditor (108/108 seeds; odds changes only where the old bracket rules were wrong). Queued after the current queue. Follow-up INT-168-1: pages should show when the median-game rule is still unknown (sim reports it; pages do not).
+
+10:10Z: UI loop done: UX-08b -> PR #175, UX-10 phone fixes -> PR #177 (both skeptic-clean after one round); queued after the running queue. UX-08c filed.
+10:12Z: UI loop relaunched: UX-11 My team tab + UX-08c (wqym7iz9w).

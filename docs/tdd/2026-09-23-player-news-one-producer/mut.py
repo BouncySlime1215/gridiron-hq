@@ -1,6 +1,6 @@
 import subprocess, os, tempfile, sys
 WT=os.getcwd()  # run from the worktree root
-P='server/news/player-news.js'; R='server/routes/players.js'; N='server/routes/news.js'
+P='server/news/player-news.js'; R='server/routes/players.js'; N='server/routes/news.js'; T='server/services/trade-engine.js'
 muts=[
  ('M1 card call site drops newest', R, "news: playerNews(player.id),", "news: playerNews(player.id).slice(1),"),
  ('M2 desk call site back to raw entities', N, "attributeStory(story, attribution);", "(safeJson(story.entities_json, {}).players ?? []);"),
@@ -10,6 +10,8 @@ muts=[
  ('M6 headline team ignored', P, "  for (const team of index.teamPatterns) if (team.pattern.test(headline)) ids.add(team.id);", ""),
  ('M7 resolved ids ignored', P, "  for (const player of parseEntities(story.entities_json).players ?? []) {", "  for (const player of []) {"),
  ('M8 analyze call site empty', R, "const news = playerNews(player.id);", "const news = [];"),
+ ('M11 suffix strip disabled', P, "while (tokens.length > 1 && SUFFIX.test(", "while (false && SUFFIX.test("),
+ ('M12 Trade Lab call site back to full-name LIKE', T, "const news = playerNews(a.id, { limit: 5 }).map(", "const news = rows(`SELECT id, date, headline, fantasy_impact, importance FROM news_items WHERE headline LIKE ? ORDER BY date DESC LIMIT 5`, `%${a.name}%`).map("),
  ('M9 DESIGNED SURVIVOR team-word surname skip removed', P, " || teamWords.has(family)) continue;", ") continue;"),
  ('M10 NOT-APPLIED CONTROL', P, "THIS_STRING_DOES_NOT_EXIST", "x"),
 ]

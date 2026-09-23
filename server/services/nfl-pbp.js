@@ -134,7 +134,8 @@ const parseFieldPosition = (s, posteam) => {
   const [, side, yd] = m;
   const n = Number(yd);
   if (!Number.isFinite(n)) return null;
-  return side === posteam ? n : 100 - n;
+  // posteam is already canonical ('LAR'); nflverse still prefixes the Rams' half 'LA' (SY-02).
+  return canonicalTeamCode(side) === posteam ? n : 100 - n;
 };
 
 /* ------------------------------------------------------------------ ingest */

@@ -63,3 +63,26 @@ with `git checkout`, and the tree is clean.
 
 See the PR's "Merge gate" §1 for the `npm ci` + `npm run check` exit code and
 test counts on this tree.
+
+## Skeptic fix — drive-start side (local fixer)
+
+Defect (TEST LIVENESS skeptic, head `812f5233`): the writer canonicalised
+`posteam` to `LAR`, but `parseFieldPosition` (server/services/nfl-pbp.js)
+compared it against the raw yard-line prefix from nflverse's
+`drive_start_yard_line`, which still reads `LA 25`. `'LA' !== 'LAR'`, so a Rams
+drive from their own 25 was stored as 75 in `nfl_team_week_features`
+(`off_avg_drive_start` / `def_avg_drive_start`, written by `driveFeatures`).
+
+RED: test 2 in `test/sy-02-rams-one-code.test.js` adds `fixed_drive` and
+`drive_start_yard_line` to the fixture (Rams drive `LA 25`, Seahawks drive
+`SEA 25`) and asserts both offences start at 25. On `812f5233` + the test:
+`not ok 2`, actual `{ team: 'LAR', off: 75 }`, expected `off: 25` (2 pass, 1 fail).
+
+GREEN: `parseFieldPosition` now returns
+`canonicalTeamCode(side) === posteam ? n : 100 - n`. The file passes 3/3.
+
+Audit of other raw team strings in the writer: the only `str(rec, …)` fields read
+are `drive_start_yard_line`, `drive_time_of_possession`, `fixed_drive_result`,
+`play_type`, `season_type` and the passer/rusher/receiver id/name columns.
+`posteam`, `defteam` and `home_team` go through `team()`. `drive_start_yard_line`
+was the only remaining team-bearing raw string, and it is now canonicalised.

@@ -631,8 +631,8 @@ export function playerValuation(managerProfile, player, { zero = [] } = {}) {
       add('hype_vs_usage', cap * strength, gap.games,
         `${gap.gap_per_game > 0 ? '+' : ''}${gap.gap_per_game}/game against what his usage earns `
         + `over ${gap.games} games — his own number for his own player. `
-        + '(Actual vs expected points from usage; NOT the market-price curve in waiver-brain#sellHigh, '
-        + 'which answers a different question.)');
+        + '(Actual vs expected points from usage; NOT the trade-price hype in services/hype.js#playerHype '
+        + '(trade price minus value), which answers a different question.)');
     }
   }
 

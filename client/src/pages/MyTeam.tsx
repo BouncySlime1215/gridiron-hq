@@ -365,6 +365,13 @@ function LineupDiffCard({ d, platform }: { d: any; platform: string }) {
           This week, your {platform} lineup projects {d.submitted_points}; the best lineup on your roster projects {d.optimal_points}.
         </p>
       )}
+      {/* RL-4-2: players whose game has kicked off are held where they are; the
+          swaps below only move players who can still move. */}
+      {!d.matches && (d.locked?.length ?? 0) > 0 && (
+        <p className="text-xs text-slate-500 mb-2">
+          {d.locked.length} player{d.locked.length === 1 ? '' : 's'} whose game has kicked off stay{d.locked.length === 1 ? 's' : ''} where {d.locked.length === 1 ? 'he is' : 'they are'}; these swaps only move players who can still move.
+        </p>
+      )}
 
       {swaps.length > 0 && (
         <div className="divide-y divide-slate-100 text-sm">

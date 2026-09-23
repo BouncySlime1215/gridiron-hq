@@ -205,3 +205,20 @@ test('preseason feature td_luck_pg_1 is untouched', () => {
   assert.match(src, /td_luck_pg_1: tdLuck,/, 'the feature row still computes it');
   assert.match(src, /td_luck_pg_1: 'points over expected'/, 'the driver label is still there');
 });
+
+// Skeptic round 1: removing both production importers stranded td-regression.js and
+// turned `node scripts/wiring-map.mjs --check` red. It is kept on purpose (research
+// only), so it is baselined out loud with a reason and a retire-when, not silently.
+test('td-regression.js is a declared orphan with a retire-when, and nothing claims a surface for it', () => {
+  const ann = JSON.parse(fs.readFileSync(new URL('../docs/wiring/annotations.json', import.meta.url), 'utf8'));
+  const mod = 'server/services/td-regression.js';
+  assert.ok(ann.accepted_orphan_modules.includes(mod), 'baselined in accepted_orphan_modules');
+  const why = ann._PERMANENT_ORPHAN_REASONS?.[mod] ?? '';
+  assert.match(why, /RETIRE THIS ENTRY WHEN/, 'the reason names what retires it');
+  assert.match(why, /Owner:/, 'the reason names an owner');
+  for (const f of ['player-case.js', 'gridiron-model.js', 'td-regression.js']) {
+    const src = fs.readFileSync(new URL(`../server/services/${f}`, import.meta.url), 'utf8');
+    assert.doesNotMatch(src, /board stays readable|It may explain a line|may\s+\*?\s*EXPLAIN a line/,
+      `${f} does not promise an explanation surface that no code reaches`);
+  }
+});

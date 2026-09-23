@@ -158,10 +158,12 @@ const CAPABILITIES = [
         'point per game over expected is worth about 0 rest-of-season points per game, and real ' +
         'trade partners already price most of it.' },
     // Demoted from advisory (RL-8-1). Not retired: no sealed audit measured it negative; it
-    // measured it PRICED. It may explain a line, it may not order one.
+    // measured it PRICED. It may not order a line. Nothing surfaces it today (no route, job or
+    // page imports td-regression.js); see docs/wiring/annotations.json _PERMANENT_ORPHAN_REASONS.
     baseAuthority: 'research',
-    refuses: 'Priced by consensus; not a trade or start/sit edge. It may explain ("5 touchdowns ' +
-      'on 1.4 expected"); it must not shift a verdict weight, a trade value or a finder rank. ' +
+    refuses: 'Priced by consensus; not a trade or start/sit edge. Not surfaced anywhere. If it is ' +
+      'ever shown, it is an explanation only ("5 touchdowns on 1.4 expected"); it must not ' +
+      'shift a verdict weight, a trade value or a finder rank. ' +
       'Predicts the touchdown component only.'
   },
   {

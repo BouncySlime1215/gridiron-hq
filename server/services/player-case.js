@@ -212,7 +212,8 @@ export function playerCase(player, season, week) {
   // No touchdown-luck factor (RL-8-1). It weighted up to 1.2, enough on its own to flip
   // the verdict, and R&D r8 found the consensus rest-of-season rank already prices points
   // over expected: after the rank, a point per game of it is worth about 0 rest-of-season
-  // points per game (2021-24). The touchdown board stays readable; it is not a weight.
+  // points per game (2021-24). The touchdown board is kept as research only and no
+  // surface reads it (docs/wiring/annotations.json _PERMANENT_ORPHAN_REASONS says what retires that).
 
   factors.sort((a, b) => b.weight - a.weight);
   const positive = factors.filter(f => f.direction === 'positive');

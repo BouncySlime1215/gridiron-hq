@@ -17,11 +17,13 @@
  * (2021-24, consensus rest-of-season rank from FantasyPros, nflverse
  * ffopportunity, 1,363 real Sleeper 1-for-1 trades) found that after the
  * consensus rank a point per game over expected is worth about 0 rest-of-season
- * points per game, and real trade partners discount most of it. So it may
- * EXPLAIN a line ("5 touchdowns on 1.4 expected"); it must not weight a verdict,
- * a start/sit call, a trade value or a finder rank (RL-8-1 removed the weights
- * from player-case.js and lineup-brain.js; registry entry fantasy.td_regression
- * is research-only).
+ * points per game, and real trade partners discount most of it. It must not
+ * weight a verdict, a start/sit call, a trade value or a finder rank (RL-8-1
+ * removed the weights from player-case.js and lineup-brain.js; registry entry
+ * fantasy.td_regression is research-only). NO SURFACE READS THIS FILE TODAY: it
+ * is a baselined orphan in docs/wiring/annotations.json. If it is ever wired back,
+ * it is as an explanation-only line ("5 touchdowns on 1.4 expected") with zero
+ * weight, pinned by a test that the verdict and net_lean do not move.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * WHY THE RATES ARE FITTED AND NOT ASSUMED

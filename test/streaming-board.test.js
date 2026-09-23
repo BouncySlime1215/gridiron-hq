@@ -233,3 +233,46 @@ test('GET /api/trades/:leagueId/streams serves the board for a member', async ()
     assert.equal(body.unconfirmed_forward, false);
   } finally { server.close(); }
 });
+
+// ---------------------------------------------------------------- PREVIEW-01
+const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
+function withPreview(value, fn) {
+  const saved = process.env[PREVIEW_ENV];
+  if (value === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = value;
+  try { return fn(); } finally {
+    if (saved === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = saved;
+  }
+}
+
+test('PREVIEW-01 off (unset): the board is byte-identical to the default-off board', () => {
+  const lg = league({ mine: [dst('HOU'), ...filler(15)] });
+  withPreview(undefined, () => {
+    const b = streamingBoard(lg, { season: 2026, week: 3, now: NOW });
+    assert.deepEqual(b.suggestion, { action: null, add: null, drop: null, edge: null, why: null });
+    assert.equal(b.unconfirmed_forward, false);
+    assert.equal('preview' in b, false);
+    assert.equal('preview_reason' in b, false);
+  });
+});
+
+test('PREVIEW-01 on: the swap suggestion is restored, labelled unconfirmed forward, preview:true', () => {
+  const lg = league({ mine: [dst('HOU'), ...filler(15)] });
+  withPreview('1', () => {
+    const b = streamingBoard(lg, { season: 2026, week: 3, now: NOW });
+    assert.equal(b.suggestion.action, 'swap');
+    assert.equal(b.suggestion.add.team, 'SEA');
+    assert.equal(b.unconfirmed_forward, true, 'the page prints its "unconfirmed forward" line');
+    assert.equal(b.preview, true);
+    assert.match(b.preview_reason, /unconfirmed forward/);
+    assert.match(b.suggestion.why, /^Preview \(unconfirmed forward\): /);
+  });
+});
+
+test('PREVIEW-01: an explicit enabled:false still wins over the preview switch', () => {
+  const lg = league({ mine: [dst('HOU'), ...filler(15)] });
+  withPreview('1', () => {
+    const b = streamingBoard(lg, { season: 2026, week: 3, now: NOW, enabled: false });
+    assert.equal(b.suggestion.action, null);
+    assert.equal('preview' in b, false);
+  });
+});

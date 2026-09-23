@@ -241,3 +241,48 @@ test('A7: a zero-point starter who played under another spelling is not checked 
   assert.equal(sig.metrics.lineup_dead_starts_last_week, 0, '"DJ Moore" played as "D.J. Moore", "Aaron Jones Sr." as "Aaron Jones"');
   assert.equal(factor(layerFor(63).get('4'), 'checked_out'), undefined);
 });
+
+// ---------------------------------------------------------------- PREVIEW-01
+const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
+function withPreview(value, fn) {
+  const saved = process.env[PREVIEW_ENV];
+  delete process.env[pricing.ACTIVITY_FLAG];
+  if (value === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = value;
+  try { return fn(); } finally {
+    if (saved === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = saved;
+  }
+}
+
+test('PREVIEW-01 off (unset): the terms are withheld exactly as A0, no preview field', () => {
+  withPreview(undefined, () => {
+    const layer = layerFor(61, { activity: null });
+    assert.equal(layer.get('2').receptiveness, layer.get('3').receptiveness);
+    const f = factor(layer.get('2'), 'trade_activity');
+    assert.equal(f.effect, null);
+    assert.match(f.why, /^not applied \(default-off: 2024 held-out AUC 0\.644 missed its 0\.645 bar; unconfirmed forward\)/);
+    assert.equal('preview' in f, false);
+  });
+});
+
+test('PREVIEW-01 on: the terms move the score, each carries preview:true and its unconfirmed-forward reason', () => {
+  withPreview('1', () => {
+    const layer = layerFor(61, { activity: null });
+    assert.ok(layer.get('2').receptiveness > layer.get('3').receptiveness, 'preview turns it on');
+    const f = factor(layer.get('2'), 'trade_activity');
+    assert.ok(f.effect > 0);
+    assert.equal(f.preview, true);
+    assert.equal(f.preview_reason, 'default-off: 2024 held-out AUC 0.644 missed its 0.645 bar; unconfirmed forward');
+    assert.match(f.why, /^Preview \(unconfirmed forward\): /);
+    const c = factor(layer.get('4'), 'checked_out');
+    assert.ok(Number.isFinite(c.effect), 'the checked-out term is applied too');
+    assert.equal(c.preview, true);
+  });
+});
+
+test('PREVIEW-01: an explicit activity:false still wins over the preview switch', () => {
+  withPreview('1', () => {
+    const f = factor(layerFor(61, { activity: false }).get('2'), 'trade_activity');
+    assert.equal(f.effect, null);
+    assert.equal('preview' in f, false);
+  });
+});

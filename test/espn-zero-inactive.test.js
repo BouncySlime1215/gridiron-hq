@@ -240,3 +240,60 @@ test('the source label states the precision of the population the card shows (Fr
   assert.match(ESPN_ZERO_LABEL, /Questionable or undesignated/);
   assert.match(ESPN_ZERO_LABEL, /unconfirmed forward/);
 });
+
+// ---------------------------------------------------------------- PREVIEW-01
+const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
+const { ESPN_ZERO_OFF_REASON } = await import('../server/services/espn-zero-inactive.js');
+
+/** Run fn with the site's own flag unset and the preview switch as given. */
+function withPreview(value, fn) {
+  const savedSite = process.env.GRIDIRON_ESPN_ZERO_INACTIVE;
+  const savedPreview = process.env[PREVIEW_ENV];
+  delete process.env.GRIDIRON_ESPN_ZERO_INACTIVE;
+  if (value === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = value;
+  try { return fn(); } finally {
+    process.env.GRIDIRON_ESPN_ZERO_INACTIVE = savedSite;
+    if (savedPreview === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = savedPreview;
+  }
+}
+
+test('PREVIEW-01 off (unset): the hook is exactly the default-off hook, with no preview field', () => {
+  const mine = roster([player('Zeroed Starter', 'WR', 'WR', 0, { prior: 14.2, now: 0 })]);
+  mine.splice(mine.findIndex(p => p.asset.name === 'Wideout Two'), 1);
+  const id = league(mine);
+  withPreview(undefined, () => {
+    const hook = espnZeroInactive(id, { season: 2026, week: 2 });
+    assert.deepEqual({ ...hook, ids: [...hook.ids] }, { covered: false, source: ESPN_ZERO_SOURCE,
+      reason: ESPN_ZERO_OFF_REASON, ids: [], sentence: 'ESPN projects 0: likely inactive', label: ESPN_ZERO_LABEL, as_of: null });
+    const ds = lineupCall(id, { providers: {}, now: NOW }).dead_starters;
+    assert.equal(byName(ds)['Zeroed Starter'], undefined);
+    assert.equal('preview' in ds.inactive_source, false);
+  });
+});
+
+test('PREVIEW-01 on: the hook flags the zeroed starter, and the hook and the card carry preview:true with the unconfirmed-forward reason', () => {
+  const mine = roster([player('Zeroed Starter', 'WR', 'WR', 0, { prior: 14.2, now: 0 })]);
+  mine.splice(mine.findIndex(p => p.asset.name === 'Wideout Two'), 1);
+  const id = league(mine);
+  withPreview('1', () => {
+    const hook = espnZeroInactive(id, { season: 2026, week: 2 });
+    assert.equal(hook.covered, true);
+    assert.ok(hook.ids.has(idOf(mine, 'Zeroed Starter')));
+    assert.equal(hook.preview, true);
+    assert.equal(hook.preview_reason, ESPN_ZERO_OFF_REASON);
+    assert.match(hook.preview_reason, /unconfirmed forward/);
+    const out = lineupCall(id, { providers: {}, now: NOW });
+    assert.equal(byName(out.dead_starters)['Zeroed Starter']?.reason, 'inactive');
+    assert.equal(out.dead_starters.inactive_source.preview, true);
+    assert.match(out.dead_starters.inactive_source.preview_reason, /unconfirmed forward/);
+    assert.ok(!out.lineup.some(c => c.player.name === 'Zeroed Starter'), 'one number: the solver agrees with the card');
+  });
+});
+
+test('PREVIEW-01: the site flag on its own is not a preview (no preview field)', () => {
+  const mine = roster([player('Zeroed Starter', 'WR', 'WR', 0, { prior: 14.2, now: 0 })]);
+  const id = league(mine);
+  const hook = espnZeroInactive(id, { season: 2026, week: 2 });
+  assert.equal(hook.covered, true);
+  assert.equal('preview' in hook, false);
+});

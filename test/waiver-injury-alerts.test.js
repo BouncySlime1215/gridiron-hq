@@ -225,3 +225,42 @@ test('the waiver card reads injury_alerts (the reader that reaches the Lineup pa
   assert.match(src, /injury_alerts/);
   assert.match(src, /claim_by/);
 });
+
+// ---------------------------------------------------------------- PREVIEW-01
+const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
+function withPreview(value, fn) {
+  const saved = process.env[PREVIEW_ENV];
+  if (value === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = value;
+  try { return fn(); } finally {
+    if (saved === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = saved;
+  }
+}
+
+test('PREVIEW-01 off (unset): same-team replacements are in projection order, no preview field', () => {
+  withPreview(undefined, () => {
+    const r = board(roster({ backOne: { espn_status: 'OUT' } }), [], wire()).injury_alerts[0].replacements;
+    assert.equal(r.order, 'projection');
+    assert.deepEqual(r.same_team.map(x => x.player), ['Handcuff Low', 'Handcuff High']);
+    assert.equal('preview' in r, false);
+  });
+});
+
+test('PREVIEW-01 on: snap-share order, preview:true with its unconfirmed reason', () => {
+  withPreview('1', () => {
+    const r = board(roster({ backOne: { espn_status: 'OUT' } }), [], wire()).injury_alerts[0].replacements;
+    assert.equal(r.order, 'snap_share');
+    assert.deepEqual(r.same_team.map(x => x.player), ['Handcuff High', 'Handcuff Low']);
+    assert.equal(r.preview, true);
+    assert.match(r.preview_reason, /unconfirmed/);
+    assert.match(r.ranked_by, /unconfirmed/, 'the page prints ranked_by');
+  });
+});
+
+test('PREVIEW-01: an explicit sameTeamOrder still wins over the preview switch', () => {
+  withPreview('1', () => {
+    const r = board(roster({ backOne: { espn_status: 'OUT' } }), [], wire(), { sameTeamOrder: 'projection' })
+      .injury_alerts[0].replacements;
+    assert.equal(r.order, 'projection');
+    assert.equal('preview' in r, false);
+  });
+});

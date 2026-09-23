@@ -49,20 +49,23 @@ export interface BoardRead {
   state: string;
 }
 
+/** One talkReads verdict (server/services/talk-vs-model.js#readTalk), the trade finder's own read. */
 export interface BoardPlayerRead {
   player: string;
+  verdict: 'buy_low' | 'genuine_sour' | 'wants_him';
+  confidence: string;
+  why: string;
   sentiment: number;
   n: number;
   thin: boolean;
   source: string;
-  last_mention: string | null;
 }
 
 export interface TargetBoard {
+  /** From analyzeLeague, the trade finder's needs read: lowest starter ratio (VOR vs league average). */
   roster_hole: {
-    slot: string | null; player: string | null; week_points: number | null; league_median: number | null;
-    gap: number | null; n: number; thin: boolean; source: string; read_state: string; reason: string | null;
-    below_median?: boolean;
+    position: string | null; ratio: number | null; is_need: boolean; gap: number | null; needs: string[];
+    n: number; thin: boolean; source: string; read_state: string; reason: string | null;
   };
   down_on: BoardPlayerRead[];
   rates_yours: BoardPlayerRead[];

@@ -10,23 +10,23 @@
  *   openness, untouchables,   manager_signals chat_* rows (n = his messages), written by
  *   loss reaction, night        manager-signals.js#buildManagerSignals from league_chat.sqlite
  *   share                       manager_chat_profile through the trusted identity join
- *   down on / rates yours     manager_player_view (sentiment 0-4, 2 = neutral), same writer,
- *                               from league_chat.sqlite manager_player_sentiment
+ *   buy low / sell high       talk-vs-model.js#talkReads (readTalk verdicts over manager_player_view),
+ *                               the SAME call the trade finder prices with
+ *                               (counterparty-pricing.js#counterpartyLayer); nothing is re-thresholded here
  *   last result, streak       manager_signals last_week_margin / standing_streak (standings)
  *   observed accept rate      manager_signals tx_accept_rate (withheld at build under 5 decided)
  *   busiest hour              trade-tactics.js#timingRead (league_transactions_raw)
- *   roster hole               trade-engine.js#lineupDiff, the Start/Sit week number, per roster
+ *   roster hole               tradelab.js#analyzeLeague needs (VOR starter value / league average),
+ *                               the one needs source the trade finder uses (trade-engine.js#rosterContext)
  *   lineup signals (LS-01)    `lineup_signals` when that table exists; LS-01 is not on main yet,
  *                               so it is read only behind column detection
  *
  * Reading the chat DB again here would be a second producer of the same numbers
  * with its own name-to-roster join; the stored copy is the joined one.
  *
- * HAND-SET RULES, stated as such (no fit behind them): a read under
- * TARGET_BOARD_THIN_N observations is THIN; "down on" is a sentiment mean strictly
- * below neutral (2.0) about a player on HIS roster, "rates yours" strictly above
- * neutral about a player on Nick's; the roster hole is the starting slot furthest
- * below the league median starter at that slot.
+ * The one HAND-SET rule here, stated as such (no fit behind it): a read under
+ * TARGET_BOARD_THIN_N observations is THIN. Which players count as buy low / sell
+ * high, and which position is a need, are decided by the canonical producers above.
  *
  * No chat text and no chat-side name is ever served: the player name is the
  * roster's, and the manager is identified by roster id.
@@ -34,16 +34,16 @@
 import { rows } from '../db/index.js';
 import { signalRowsFor } from './manager-signals.js';
 import { identityMap } from './manager-identity.js';
-import { rosterOwnership } from './talk-vs-model.js';
+import { rosterOwnership, talkReads } from './talk-vs-model.js';
 import { timingRead, TACTIC_THRESHOLDS } from './trade-tactics.js';
-import { lineupDiff, assetUniverse } from './trade-engine.js';
-import { deriveFormat } from './format.js';
+import { analyzeLeague } from '../routes/tradelab.js';
+import { leagueCurrentWeek } from './league-week.js';
 
 export const TARGET_BOARD_THIN_N = 5;
-const NEUTRAL_SENTIMENT = 2.0;
 const LS_TABLES = ['lineup_signals', 'lineup_signal'];
 
-const thin = n => !(Number(n) >= TARGET_BOARD_THIN_N);
+/** Exported so the boundary (n=4 thin, n=5 not) is pinned by a test. */
+export const thin = n => !(Number(n) >= TARGET_BOARD_THIN_N);
 
 /** One stored signal as a read, or the named absence of one. */
 function read(sig, source, { chat = false, corpus = true } = {}) {
@@ -53,59 +53,49 @@ function read(sig, source, { chat = false, corpus = true } = {}) {
   return { value: sig.value, n, thin: thin(n), source: sig.source ?? source, state: thin(n) ? 'thin' : 'measured' };
 }
 
-const median = xs => {
-  const s = [...xs].sort((a, b) => a - b);
-  const m = s.length >> 1;
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-};
+const HOLE_SOURCE = "tradelab.js#analyzeLeague: VOR starter value / league average, the trade finder's needs";
 
 /**
- * The weakest starting slot of every roster, against the league, on the
- * Start/Sit week number. `lineupDiff` is the canonical per-roster optimum (the
- * League Hub card and Start/Sit agree on it, test/lineup-surfaces-agree.test.js),
- * so the hole is read off it rather than solved a second way.
+ * Each roster's weakest position, read straight off `analyzeLeague`, the one
+ * needs/surplus source the trade finder uses (trade-engine.js#rosterContext and
+ * counterparty-pricing.js#deriveRosterNeeds call exactly this). The hole is the
+ * position with the lowest starter ratio; `is_need` and `gap` come from its
+ * `needs` list, so the board and the finder's "he is short at X" cannot differ.
  */
-function rosterHoles(lg, rosterIds, assets) {
-  const optimal = new Map();
-  const failed = new Map();
-  for (const rid of rosterIds) {
-    const d = lineupDiff(lg, rid, { assets });
-    if (d.error) failed.set(rid, d.error);
-    else optimal.set(rid, d.optimal);
-  }
-  const bySlot = new Map();
-  for (const slots of optimal.values()) {
-    slots.forEach((s, i) => {
-      const key = `${i}:${s.slot}`;
-      if (!bySlot.has(key)) bySlot.set(key, []);
-      bySlot.get(key).push(s.player?.week_points ?? 0);
-    });
-  }
-  const source = 'trade-engine.js#lineupDiff (Start/Sit week_points), league median starter per slot';
+function rosterHoles(lg, rosterIds, analysis) {
   const out = new Map();
+  let teams;
+  try {
+    teams = (analysis ?? analyzeLeague(lg)).teams ?? [];
+  } catch (e) {
+    const reason = `needs could not be read: ${String(e?.message ?? e)}`;
+    console.error(`[target-board] analyzeLeague failed for league ${lg.id}:`, e);
+    for (const rid of rosterIds) out.set(rid, notPriced(reason));
+    return out;
+  }
+  const n = teams.length;
+  const byRoster = new Map(teams.map(t => [String(t.roster_id), t]));
   for (const rid of rosterIds) {
-    const slots = optimal.get(rid);
-    if (!slots) {
-      out.set(rid, { slot: null, player: null, week_points: null, league_median: null, gap: null,
-        n: 0, thin: true, source, read_state: 'not_priced', reason: failed.get(rid) ?? 'not priced' });
+    const t = byRoster.get(rid);
+    const positions = Object.entries(t?.positions ?? {}).filter(([, p]) => Number.isFinite(p?.ratio));
+    if (!t || !positions.length) {
+      out.set(rid, notPriced(t ? 'no priced starters on this roster' : 'roster not in the needs read'));
       continue;
     }
-    let hole = null;
-    slots.forEach((s, i) => {
-      const peers = bySlot.get(`${i}:${s.slot}`) ?? [];
-      const wp = s.player?.week_points ?? 0;
-      const med = median(peers);
-      const gap = +(wp - med).toFixed(2);
-      if (!hole || gap < hole.gap) {
-        hole = { slot: s.slot, player: s.player?.name ?? null, week_points: wp, league_median: +med.toFixed(2),
-          gap, n: peers.length, thin: thin(peers.length), source, read_state: 'present', reason: null,
-          below_median: gap < 0 };
-      }
+    const [position, p] = positions.reduce((lo, cur) => (cur[1].ratio < lo[1].ratio ? cur : lo));
+    const need = (t.needs ?? []).find(x => x.position === position) ?? null;
+    out.set(rid, {
+      position, ratio: p.ratio, is_need: !!need, gap: need ? need.gap : null,
+      needs: (t.needs ?? []).map(x => x.position),
+      n, thin: thin(n), source: HOLE_SOURCE, read_state: 'present', reason: null,
     });
-    out.set(rid, hole ?? { slot: null, player: null, week_points: null, league_median: null, gap: null,
-      n: 0, thin: true, source, read_state: 'not_priced', reason: 'no starting slots in this league' });
   }
   return out;
+}
+
+function notPriced(reason) {
+  return { position: null, ratio: null, is_need: false, gap: null, needs: [], n: 0, thin: true,
+    source: HOLE_SOURCE, read_state: 'not_priced', reason };
 }
 
 /**
@@ -138,12 +128,13 @@ function lineupSignalReader() {
 /**
  * The board for every roster in one league.
  *
- * @param lg the leagues row (payload, platform, my_team_id).
- * @param opts.assets a priced asset map, as lineupDiff takes it (tests); omitted,
- *   the league's asset universe.
+ * @param lg the leagues row (payload, platform, my_team_id, season).
+ * @param opts.week the week talkReads reads expectation gaps before; omitted, the
+ *   league's current week (the same week /managers/signals prices with).
+ * @param opts.analysis an analyzeLeague result (tests); omitted, analyzeLeague(lg).
  * @returns {{ managers: Map<string, object>, meta: object }}
  */
-export function targetBoard(lg, { assets = null } = {}) {
+export function targetBoard(lg, { week = undefined, analysis = null } = {}) {
   const leagueId = lg.id;
   const me = lg.my_team_id == null ? null : String(lg.my_team_id);
   const payload = JSON.parse(lg.payload);
@@ -157,16 +148,15 @@ export function targetBoard(lg, { assets = null } = {}) {
   }
   const corpus = identityMap(leagueId);
   const owned = rosterOwnership(leagueId) ?? new Map();
-  const views = new Map();
-  for (const v of rows(`SELECT roster_id, player_name, sentiment, n, last_mention FROM manager_player_view
-                        WHERE league_id = ?`, leagueId)) {
-    const rid = String(v.roster_id);
-    if (!views.has(rid)) views.set(rid, []);
-    views.get(rid).push(v);
+  const season = lg.season ?? null;
+  const asOfWeek = week === undefined ? leagueCurrentWeek(lg) : week;
+  // The trade finder's own talk read: same call, same thresholds, same ownership.
+  const talk = new Map();
+  for (const [rid, byName] of talkReads(leagueId, season, asOfWeek, { ownedBy: owned })) {
+    talk.set(String(rid), [...byName.values()]);
   }
-  const timing = timingRead(leagueId, { season: lg.season ?? null });
-  const priced = assets ?? assetUniverse(lg, deriveFormat(lg).formatKey);
-  const holes = rosterHoles(lg, rosterIds, priced);
+  const timing = timingRead(leagueId, { season });
+  const holes = rosterHoles(lg, rosterIds, analysis);
   const ls = lineupSignalReader();
 
   const managers = new Map();
@@ -175,14 +165,17 @@ export function targetBoard(lg, { assets = null } = {}) {
     const hasCorpus = corpus.has(rid);
     const chat = metric => read(s.get(metric), 'chat', { chat: true, corpus: hasCorpus });
 
-    const playerRead = v => ({ player: v.player_name, sentiment: v.sentiment, n: v.n, thin: thin(v.n),
-      source: 'chat', last_mention: v.last_mention ?? null });
-    const mine = hasCorpus ? (views.get(rid) ?? []) : [];
-    const byN = (a, b) => (b.n ?? 0) - (a.n ?? 0);
-    const downOn = mine.filter(v => v.sentiment < NEUTRAL_SENTIMENT
-      && owned.get(String(v.player_name).toLowerCase()) === rid).sort(byN).map(playerRead);
-    const ratesYours = rid === me ? [] : mine.filter(v => v.sentiment > NEUTRAL_SENTIMENT
-      && me != null && owned.get(String(v.player_name).toLowerCase()) === me).sort(byN).map(playerRead);
+    const playerRead = r => ({ player: r.player, verdict: r.verdict, confidence: r.confidence, why: r.why,
+      sentiment: r.sentiment, n: r.mentions, thin: thin(r.mentions), source: 'chat' });
+    const reads = hasCorpus ? (talk.get(rid) ?? []) : [];
+    const ownerOf = r => owned.get(String(r.player).toLowerCase());
+    // buy_low (sour + usage cold) ranks above genuine_sour, then by mentions.
+    const rank = { buy_low: 0, genuine_sour: 1, wants_him: 0 };
+    const order = (a, b) => rank[a.verdict] - rank[b.verdict] || (b.mentions ?? 0) - (a.mentions ?? 0);
+    const downOn = reads.filter(r => (r.verdict === 'buy_low' || r.verdict === 'genuine_sour') && ownerOf(r) === rid)
+      .sort(order).map(playerRead);
+    const ratesYours = rid === me || me == null ? []
+      : reads.filter(r => r.verdict === 'wants_him' && ownerOf(r) === me).sort(order).map(playerRead);
 
     const margin = read(s.get('last_week_margin'), 'standings');
     const decided = s.get('tx_decisions_made');
@@ -229,10 +222,11 @@ export function targetBoard(lg, { assets = null } = {}) {
     managers,
     meta: {
       thin_below: TARGET_BOARD_THIN_N,
-      neutral_sentiment: NEUTRAL_SENTIMENT,
+      season, week: asOfWeek,
       lineup_signals: ls.state,
-      rules: 'hand-set: thin under 5 observations; down on = below neutral about his own player; '
-        + 'rates yours = above neutral about one of yours; hole = slot furthest below the league median starter',
+      rules: 'hand-set: thin under 5 observations. Buy low / sell high = talkReads verdicts '
+        + '(buy_low, genuine_sour on his players; wants_him on yours), the trade finder\'s read. '
+        + 'Hole = lowest starter ratio in analyzeLeague, a need when it is in his needs list.',
     },
   };
 }

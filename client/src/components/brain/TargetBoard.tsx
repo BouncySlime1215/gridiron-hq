@@ -41,10 +41,28 @@ function absent(r: BoardRead) {
   return 'not measured yet';
 }
 
+/** A real share of his messages (night_share = AVG(hour 0-5)). */
 function ChatShare({ r, words }: { r: BoardRead; words: string }) {
   if (r.value == null) return <span className="text-slate-500">{absent(r)}</span>;
   return (<><b className="tabular-nums">{pct(r.value)}</b><span>{words}</span>{r.thin && <Thin />}<Meta n={r.n} source={r.source} unit="msgs" /></>);
 }
+
+/**
+ * A classifier probability averaged over his messages (p_open_to_trade etc. in
+ * scripts/chat/extract_league_chat.py), NOT a share of messages. Worded as the
+ * Coach variables name it (server/services/coach/people/variables.js), on 0-1.
+ */
+function ChatProb({ r, words }: { r: BoardRead; words?: string }) {
+  if (r.value == null) return <span className="text-slate-500">{absent(r)}</span>;
+  return (<>{words && <span>{words}</span>}<b className="tabular-nums">{r.value.toFixed(2)}</b>
+    <span className="text-slate-600">avg probability 0-1</span>{r.thin && <Thin />}<Meta n={r.n} source={r.source} unit="msgs" /></>);
+}
+
+const VERDICT: Record<BoardPlayerRead['verdict'], string> = {
+  buy_low: 'the buy: usage says the results are wrong',
+  genuine_sour: 'sour, usage agrees',
+  wants_him: 'talks him up',
+};
 
 function Players({ list, empty }: { list: BoardPlayerRead[]; empty: string }) {
   if (!list.length) return <span className="text-slate-500">{empty}</span>;
@@ -53,6 +71,7 @@ function Players({ list, empty }: { list: BoardPlayerRead[]; empty: string }) {
       {list.slice(0, 5).map(p => (
         <span key={p.player} className="inline-flex items-baseline gap-1 rounded-lg bg-white px-2 py-0.5 ring-1 ring-slate-200">
           <b className="text-slate-900">{p.player}</b>
+          <span className="text-[11px] text-slate-600">{VERDICT[p.verdict]}</span>
           <span className="text-[11px] tabular-nums text-slate-500">{p.sentiment.toFixed(2)}/4 · n={p.n} · {p.source}</span>
           {p.thin && <Thin />}
         </span>
@@ -61,8 +80,15 @@ function Players({ list, empty }: { list: BoardPlayerRead[]; empty: string }) {
   );
 }
 
-const localHour = (h: number) =>
-  new Date(Date.UTC(2026, 0, 1, h)).toLocaleTimeString([], { hour: 'numeric' });
+/**
+ * A UTC hour in the viewer's time, on TODAY's date so daylight saving is the
+ * one in force now (a fixed January date would be an hour early all autumn).
+ */
+const localHour = (h: number) => {
+  const d = new Date();
+  d.setUTCHours(h, 0, 0, 0);
+  return d.toLocaleTimeString([], { hour: 'numeric' });
+};
 
 export default function TargetBoard({ board, thinBelow = 5 }: { board: Board; thinBelow?: number }) {
   const hole = board.roster_hole;
@@ -79,30 +105,30 @@ export default function TargetBoard({ board, thinBelow = 5 }: { board: Board; th
         <Line label="Weakest spot">
           {hole.read_state === 'present' ? (
             <>
-              <b>{hole.slot}</b>
-              <span>{hole.player ?? 'empty'} · {pts(hole.week_points)} pts vs league {pts(hole.league_median)}</span>
-              <span className={`tabular-nums ${(hole.gap ?? 0) < 0 ? 'text-rose-700' : 'text-slate-600'}`}>
-                ({(hole.gap ?? 0) > 0 ? '+' : ''}{pts(hole.gap)})
-              </span>
+              <b>{hole.position}</b>
+              <span className="tabular-nums">starters at {hole.ratio?.toFixed(2)}× league average (VOR)</span>
+              {hole.is_need
+                ? <span className="tabular-nums text-rose-700">a need{hole.gap != null ? `, ${hole.gap} VOR pts short` : ''}</span>
+                : <span className="text-slate-600">not a need</span>}
               {hole.thin && <Thin />}
-              <Meta n={hole.n} source="Start/Sit week number" unit="teams" />
-              {!hole.below_median && (
-                <span className="w-full text-[11px] text-slate-500">no starter below the league median: no real hole</span>
+              <Meta n={hole.n} source="trade finder needs" unit="teams" />
+              {hole.needs.length > 1 && (
+                <span className="w-full text-[11px] text-slate-500">also short at {hole.needs.slice(1).join(', ')}</span>
               )}
             </>
           ) : <span className="text-slate-500">not priced: {hole.reason}</span>}
         </Line>
         <Line label="Buy low: he's down on">
-          <Players list={board.down_on} empty={noChat ? 'no league chat for him' : 'nobody on his roster he talks down'} />
+          <Players list={board.down_on} empty={noChat ? 'no league chat for him' : 'nobody on his roster he is clearly sour on'} />
         </Line>
         <Line label="Sell high: he rates yours">
-          <Players list={board.rates_yours} empty={noChat ? 'no league chat for him' : 'none of your players he talks up'} />
+          <Players list={board.rates_yours} empty={noChat ? 'no league chat for him' : 'none of your players he clearly talks up'} />
         </Line>
         <Line label="Open to trading">
-          <ChatShare r={board.openness} words="of his messages read as open to a deal" />
+          <ChatProb r={board.openness} words="how open he sounds to a deal" />
         </Line>
         <Line label="Calls players untouchable">
-          <ChatShare r={board.untouchable} words="of his messages" />
+          <ChatProb r={board.untouchable} words="declaring a player untouchable" />
         </Line>
         <Line label="Tilt">
           {tilt.just_lost == null
@@ -110,7 +136,7 @@ export default function TargetBoard({ board, thinBelow = 5 }: { board: Board; th
             : <span>{tilt.just_lost ? 'Lost' : 'Won'} last week by {pts(Math.abs(tilt.last_week_margin.value ?? 0))}</span>}
           {tilt.just_lost != null && <Meta n={tilt.last_week_margin.n} source={tilt.last_week_margin.source} unit="game" />}
           <span className="flex w-full flex-wrap items-baseline gap-x-2">
-            <ChatShare r={tilt.reacting_to_loss} words="of his messages react to a loss" />
+            <ChatProb r={tilt.reacting_to_loss} words="how often he is reacting to a loss" />
           </span>
         </Line>
         <Line label="When he's active">

@@ -285,7 +285,7 @@ the test built for that mutant is among the failures.
 Run at `eaf35c96` (tree `b853418fa4dce9efa7abe02442343a56928f5bbc`), exit 0,
 5 min 40 s wall time with the machine at load 11 to 18 from other jobs.
 Baseline: 17 tests, 0 failing. **28 of 28 mutants killed by the test built
-for them (16 unit, 12 call-site); both surviving controls survived; both
+for them (12 unit, 16 call-site); both surviving controls survived; both
 not-applied controls were reported not applied.**
 
 | Id | Kind | Mutant | Result |
@@ -450,3 +450,24 @@ them. At `40ffeee0`, the tests pass with the props board re-mounted
 - A way to load a router that the gate's import parser cannot see, such as a
   computed specifier. With the files deleted, it would also need a file to
   load, and test 15 or 17 fails on any copy that writes either table.
+
+## Review round 3: one swapped figure
+
+The re-check of `3662958c` (tree `2539ec0f89d8b82685d7a68ac45bfaa51ec10784`)
+found the split in the mutation sweep summary swapped: it gave the unit count
+as 16 and the call-site count as 12. The harness's mutant list and the table
+under "Mutation sweep" both give 12 unit and 16 call-site:
+
+```
+$ grep -oE "^  \['[A-Z]+-[A-Z0-9]+', '(unit|call-site)'" docs/tdd/sweeps/sy-06-mlb-leftovers-mutations.mjs | awk -F"'" '{print $4}' | sort | uniq -c
+  16 call-site
+  12 unit
+$ grep -E '^\| [A-Z]+-[A-Z0-9]+ \| (unit|call-site) \|' docs/tdd/2026-09-22-sy-06-mlb-leftovers.tdd.md | awk -F'|' '{gsub(/ /,"",$3); print $3}' | sort | uniq -c
+  16 call-site
+  12 unit
+```
+
+By family: OA 3 unit and 1 call-site, DI 3 and 2, IX 2 and 10, BH 2 and 3,
+TB 2 unit. The summary line is corrected in place, and so is the PR body's
+copy of it. Only this file changed. No code, test, harness or sweep result
+moved, so the 28 of 28 count and the run at `eaf35c96` stand.

@@ -63,11 +63,16 @@ reusable module and test, not folded into one unit's fixture file.
 Guard: `scripts/guard-no-fantasypros-per-player.mjs`, test:
 `test/no-fantasypros-per-player-data.test.js`.
 
-- **RED**: `<RED_SHA>` "test: guard against committed per-player FantasyPros data (RED)". The
+- **RED**: `9d6ad5db` "test: guard against committed per-player FantasyPros data (RED)". The
   test imports `../scripts/guard-no-fantasypros-per-player.mjs`, which does not exist yet:
   `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '.../scripts/guard-no-fantasypros-per-player.mjs'`.
-- **GREEN**: `<GREEN_SHA>` "feat: add the per-player FantasyPros guard (GREEN)". 5/5 tests pass:
-  <PASS_LINE>
+- **GREEN**: `<GREEN_SHA, filled by the commit that follows this one>` "feat: add the per-player
+  FantasyPros guard (GREEN)". First pass (before the false-positive fix below) was 4/5: the raw
+  raw-extension rule flagged 3 unrelated `.tsv` files under
+  `docs/evidence/restart-2026-09-19/` (health logs, no FantasyPros connection). Fixed by gating
+  the extension rule on a FantasyPros hint (filename or an id/rank column in the content), not
+  extension alone. Final run: `tests 5 / pass 5 / fail 0`
+  (`node --experimental-test-module-mocks --test --test-reporter=tap test/no-fantasypros-per-player-data.test.js`).
 
 ## 3. Mutation check
 
@@ -82,10 +87,14 @@ Guard: `scripts/guard-no-fantasypros-per-player.mjs`, test:
 - X3 (kill): remove the `dataRows >= DATA_ROW_THRESHOLD` gate (always push a violation once a
   header matches) — kills the "not-applied control" and "one worked example" tests (false
   positives on prose/one-example).
-- X4 (not-applied control, confirms the harness): a no-op change (rename a local variable) —
-  all 5 tests still pass, confirming the suite does not fail on unrelated edits.
-- Results recorded by direct run, not by a scripted sweep (this is a 90-line guard, not a model):
-  <MUTATION_LINE>
+- X4 (not-applied control, confirms the harness): a no-op change (rename `headerCols` to
+  `headerColumnCount`, same value used the same way) — all 5 tests still pass, confirming the
+  suite does not fail on unrelated edits.
+- Results, by direct run (not a scripted sweep; this is a ~90-line guard, not a model):
+  X1 4/5 (kill), X2 4/5 (kill), X3 3/5 (kill), X4 5/5 (control, no false failure). Each mutant
+  was applied, run, then reverted and diffed back to the committed file
+  (`diff scripts/guard-no-fantasypros-per-player.mjs /tmp/guard-orig.mjs` → identical) before the
+  GREEN commit.
 
 ## 4. What this does NOT do
 

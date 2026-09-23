@@ -163,3 +163,13 @@ test('RL-6-4 the name fallback never lands on an asset that carries a different 
   assert.equal(me.players.some(a => a.id === ghost.id), false, 'loadRosters does not price him as the other person');
   assert.equal(me.players.length, mine.length - 1);
 });
+
+test('RL-6-4 a player rostered on another team is never offered on the wire, whatever his payload name', () => {
+  // Matched by ESPN id, so a payload spelling that differs from the asset name
+  // ("D.J. Star" vs "DJ Star Sr.") still marks him owned.
+  const mine = [...starters(), p('Backup QB', 'QB', 14, 13), p('Bench Back', 'RB', 1, 1)];
+  const theirs = p('DJ Star Sr.', 'RB', 13, 12, { espn_id: 4800002, payloadName: 'D.J. Star' });
+  const { out } = board(mine, [], [theirs]);
+  assert.equal(out.immediate.find(r => r.player === 'DJ Star Sr.'), undefined, 'rostered elsewhere, not a free agent');
+  assert.equal(out.stashes.find(r => r.player === 'DJ Star Sr.'), undefined);
+});

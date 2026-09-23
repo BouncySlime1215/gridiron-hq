@@ -86,6 +86,7 @@ import { run as dbRun } from '../db/index.js';
 // Evidence layers (see the "evidence" section below). Read-only sources: the
 // engine never re-prices on them, it explains with them.
 import { careerLine } from './player-career.js';
+import { playerNews } from '../news/player-news.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
 import { counterpartyLayer, readDeal, counterpartyDataKey, playerValuation, selfRead }
@@ -2916,9 +2917,9 @@ export function playerOutlook(lg, playerId) {
   // forecast); the no-team fallback says the same.
   const splits = a.team_abbr ? relevantSplits(a.id, a.team_abbr)
     : { baseline: null, upcoming: [], notable: [], signal: false, reason: 'no NFL team on file' };
-  const news = rows(`SELECT date, headline, fantasy_impact, importance FROM news_items
-                     WHERE headline LIKE ? OR body LIKE ? ORDER BY date DESC LIMIT 5`,
-    `%${a.name}%`, `%${a.name}%`);
+  // Same stories as the player card and the News page (one attribution producer).
+  const news = playerNews(a.id, { limit: 5 }).map(n => ({
+    id: n.id, date: n.date, headline: n.headline, fantasy_impact: n.fantasy_impact, importance: n.importance }));
   return { ...a, ...playerEvidence(a.id), owner: owner?.owner ?? 'free agent', owner_id: owner?.roster_id ?? null, splits, news };
 }
 

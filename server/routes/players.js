@@ -6,6 +6,7 @@ import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { weeklyProjectionFor } from '../services/fantasy-coordinator.js';
 import { tradeWeekContext } from '../services/trade-engine.js';
 import { playerAdvancedStats } from '../services/player-advanced-stats.js';
+import { playerNews } from '../news/player-news.js';
 import { activeInjuryFlagIds } from '../services/injury-flags.js';
 import { playerHype } from '../services/hype.js';
 
@@ -23,20 +24,6 @@ function metricsFor(playerId) {
   // One definition of "flagged": a stale Sleeper flag the producer ignores reads as off here too.
   if (m.injury_flag > 0 && !activeInjuryFlagIds().has(playerId)) m.injury_flag = 0;
   return m;
-}
-
-// News matching: full name always; bare last name only for that player's own team
-// (so "Brown" doesn't pull A.J. Brown / Chase Brown / Cleveland Browns together).
-function newsFor(player) {
-  const full = `%${player.name}%`;
-  const last = `%${player.name.split(' ').slice(-1)[0]}%`;
-  return rows(`SELECT n.*, t.abbr AS team_abbr FROM news_items n
-               LEFT JOIN nfl_teams t ON t.id = n.team_id
-               WHERE (n.headline LIKE ? OR n.ai_analysis LIKE ? OR n.fantasy_impact LIKE ?)
-                  OR (n.team_id IS NOT NULL AND n.team_id = ?
-                      AND (n.headline LIKE ? OR n.ai_analysis LIKE ? OR n.fantasy_impact LIKE ?))
-               ORDER BY n.date DESC LIMIT 10`,
-    full, full, full, player.team_id ?? -1, last, last, last);
 }
 
 r.get('/', (req, res) => {
@@ -82,7 +69,7 @@ r.get('/:id', (req, res) => {
     headshot: headshot(player),
     metrics: metricsFor(player.id),
     ranks,
-    news: newsFor(player),
+    news: playerNews(player.id),
     teammates,
     depth,
     depth_multi: depthMulti,
@@ -182,7 +169,7 @@ r.post('/:id/analyze', async (req, res, next) => {
                         FROM players p LEFT JOIN nfl_teams t ON t.id = p.team_id WHERE p.id = ?`, req.params.id);
     if (!player) return res.status(404).json({ error: 'player not found' });
     const m = metricsFor(player.id);
-    const news = newsFor(player);
+    const news = playerNews(player.id);
 
     const hype = playerHype({ sleeperId: player.sleeper_id });
 

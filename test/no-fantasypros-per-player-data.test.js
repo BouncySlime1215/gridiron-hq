@@ -137,3 +137,23 @@ test('not-applied control: our OWN per-player ranked table (player | rank | fpts
   const rows = [['Alpha Player', '1', '18.2'], ['Bravo Player', '2', '16.0'], ['Charlie Player', '3', '14.9']];
   assert.deepEqual(scanForPerPlayerFantasyPros(asPipeTable(header, rows), 'docs/evidence/x.md'), []);
 });
+
+// Skeptic round 2: GFM allows separator cells with ONE or more dashes, with or without colons.
+const withSeparator = (header, rows, sepCell) => [
+  `| ${header.join(' | ')} |`,
+  `|${header.map(() => sepCell).join('|')}|`,
+  ...rows.map(r => `| ${r.join(' | ')} |`)
+].join('\n') + '\n';
+
+for (const sepCell of [' :-- ', ' :-: ', '-', '--', ' --: ']) {
+  test(`real export header as a pipe table with a short GFM separator cell "${sepCell.trim()}" is caught`, () => {
+    assert.equal(scanForPerPlayerFantasyPros(withSeparator(REAL_HEADER, REAL_ROWS, sepCell), 'docs/evidence/x/rows.md').length, 1);
+  });
+}
+
+test('site-pasted RK | PLAYER NAME | ... | ECR table with a mixed `| :-- | :-: |` separator is caught', () => {
+  const header = ['RK', 'PLAYER NAME', 'TEAM', 'POS', 'BEST', 'WORST', 'AVG', 'ECR'];
+  const rows = [['1', 'Alpha Player', 'AAA', 'WR', '1', '3', '1.4', '1'], ['2', 'Bravo Player', 'BBB', 'WR', '1', '5', '2.9', '2'], ['3', 'Charlie Player', 'CCC', 'WR', '2', '6', '3.3', '3']];
+  const md = [`| ${header.join(' | ')} |`, `| ${header.map((_, k) => (k % 2 ? ':-:' : ':--')).join(' | ')} |`, ...rows.map(r => `| ${r.join(' | ')} |`)].join('\n') + '\n';
+  assert.equal(scanForPerPlayerFantasyPros(md, 'docs/evidence/x.md').length, 1);
+});

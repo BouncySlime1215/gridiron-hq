@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
 import TradeCard, { PlayerPill, num } from '../components/TradeCard';
+import MarketAsOf from '../components/MarketAsOf';
 import { usePlayerCard } from '../components/PlayerCard';
 import EvidenceTable from '../components/draft/EvidenceTable';
 import StreakChips from '../components/draft/StreakChips';
@@ -110,6 +111,7 @@ export default function TradeLab({ initialTab }: { initialTab?: Tab } = {}) {
         Every deal is rebuilt for the live NFL week from the shared player model, injury availability,
         current matchup and remaining schedule. Market value is a separate price check, not the projection.
       </p>
+      <div className="-mt-3 mb-4"><MarketAsOf asOf={rosters?.market_as_of} /></div>
       {/* This page is about a deal; who will actually sign one is a different
           question and now has its own surface. */}
       <p className="text-sm text-slate-500 mb-4">

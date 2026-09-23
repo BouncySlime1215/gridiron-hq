@@ -82,6 +82,7 @@ import { normalCdf, withRandomSeed } from './stats-util.js';
 import { sampleWeeks } from './projections.js';
 import { correlationMatrix, correlationBasis } from './correlation.js';
 import { servedTableState } from './data-freshness.js';
+import { currentMarket } from './dynasty-value-history.js';
 import { run as dbRun } from '../db/index.js';
 // Evidence layers (see the "evidence" section below). Read-only sources: the
 // engine never re-prices on them, it explains with them.
@@ -207,7 +208,9 @@ export function tradeWeekContext() {
 export const ASSET_INPUT_TABLES = [
   { table: 'players', stamp: 'id' },
   { table: 'roster_players', stamp: 'id' },
-  { table: 'dynasty_values', stamp: 'player_id' },
+  // fetched_at, not player_id: a re-sync updates prices in place (same count, same
+  // max id), so the old stamp never saw a new price; retirement lands in the same run.
+  { table: 'dynasty_values', stamp: 'fetched_at' },
   // Row counts only: MAX(week) was always 18 and carried nothing. In-place stat
   // corrections to the served season are caught by servedInputsDigest() below.
   'player_week_usage',
@@ -341,9 +344,9 @@ function buildAssetUniverse(lg, formatKey, target) {
   const active = weeklyAvailability(target.season, target.week, { through: target.season - 1 });
   const board = new Map(vorBoard(lg.team_count || 12).map(p => [p.id, p]));
   const vol = volatility();
-  const market = new Map(rows(
-    'SELECT player_id, value, age, trend30, pos_rank FROM dynasty_values WHERE format_key = ?', formatKey)
-    .map(d => [d.player_id, d]));
+  // Live FantasyCalc prices only: a row FantasyCalc stopped returning is retired
+  // (dynasty-value-history.js) and prices as unpriced here, not at its last value.
+  const market = currentMarket(formatKey);
   const ageByPlayer = new Map(rows(`SELECT p.id, rp.age FROM players p
                                     JOIN roster_players rp ON rp.espn_id = p.espn_id
                                     WHERE rp.age IS NOT NULL`).map(x => [x.id, x.age]));

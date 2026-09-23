@@ -54,3 +54,5 @@ All 5 running workflows and the board keeper stopped with TaskStop (BLEND-01, sk
 ## 2026-09-23 ~07:10Z: GO (Nick). Phase 0 launched: finish-unit.js (BLEND-01, HX-01, S-03 from cached builds + skeptic findings; run wf_cea6ef51-608, task wzna5tao0), skill-split report resume (wf_d323d77f-c53, task w3c0ve3kr), C-01 verify resume (wf_fe6a2e48-5b6, task wqggmzuj7), UI audit agent (UX-01/02), board keeper. Meter 8% 5-hour, weekly 55%. Next when a slot frees: verify run A fresh (B-01 #162, A-03 #163, SY-02 #161, C-12 #73), then phase 1.
 
 07:30Z: verify run A relaunched on verify-pr-v2.js (models pinned; task w6bwduyep, run wf_018f8616-665). 20-min status cron :07/:27/:47. Resume pointers in launch/resume/.
+
+07:40Z: C-01 #160 verify READY (all lenses); merge-queue.sh 160 running (log evidence/mq-160.log). INT-160-1..6 queued (160-1 urgent before 9/25).

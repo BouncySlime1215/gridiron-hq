@@ -238,6 +238,21 @@ test('A6: the same real result as the fix serves it: amber "Not shown to beat ES
   assert.doesNotMatch(text, RULE3_GREP, 'the evidence file\'s rule-3 grep (percentages, signed decimals) finds nothing');
 });
 
+test('under not_shown the panel never adds "not the same as worse … a small edge" (Auditor fresh-session check)', () => {
+  // That line raised one possibility only, an unseen edge for our projection, under "treat our
+  // start/sit calls as no better than ESPN's projection"; and in espn_ahead_at_lock_only (4+ weeks,
+  // at-lock CI entirely below 0) its "these weeks may be too few" is false.
+  const states = ['too_few_weeks', 'espn_ahead_at_lock_only', 'not_distinguishable'].map(reason =>
+    [reason, { ...MEASURED, plan_rule: planRule('not_shown', { reason, weeks_graded: reason === 'too_few_weeks' ? 1 : 5 }) }]);
+  for (const [name, payload] of [['REAL_FIX', REAL_FIX], ...states]) {
+    const { text } = render(payload);
+    assert.doesNotMatch(text, /not the same as/, `${name}: the panel still says "Not shown" is not the same as "worse"`);
+    assert.doesNotMatch(text, /small edge/, `${name}: the panel still says the weeks may be too few to show a small edge`);
+  }
+  // The small-sample caveat stays, on its own line.
+  assert.match(render(REAL_FIX).text, /Few weeks so far: this season shows direction, not proof\./);
+});
+
 test('A6: emerald only for a plan-rule beats_dumb; every plan-rule state has its own chip and line', () => {
   const at = (verdict, extra) => render({ ...MEASURED, verdict, plan_rule: planRule(verdict, extra) });
   const beats = at('beats_dumb', { weeks_graded: 4, direction: 'ours_ahead' });

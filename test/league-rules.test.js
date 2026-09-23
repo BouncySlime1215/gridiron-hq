@@ -263,6 +263,10 @@ test('CE-05: a league that plays the median gets a second result each week (sim 
   addMedianResults(new Map([['a', 120], ['b', 100], ['c', 90], ['d', 80]]), rec);
   // Median of 120/100/90/80 is 95: a and b win it, c and d lose it.
   assert.deepEqual([...rec.values()].map(r => r.w), [1, 1, 0, 0]);
+  // Odd count: the team exactly at the median gets half a win.
+  const odd = new Map(['a', 'b', 'c'].map(id => [id, { w: 0, pf: 0 }]));
+  addMedianResults(new Map([['a', 100], ['b', 90], ['c', 80]]), odd);
+  assert.deepEqual([...odd.values()].map(r => r.w), [1, 0.5, 0]);
   const lg = { platform: 'espn', payload: JSON.stringify({ schedule: [
     { matchupPeriodId: 1, home: { teamId: 1, totalPoints: 120 }, away: { teamId: 2, totalPoints: 100 } },
     { matchupPeriodId: 1, home: { teamId: 3, totalPoints: 90 }, away: { teamId: 4, totalPoints: 80 } }] }) };

@@ -68,6 +68,9 @@ const binomial95 = (hits, n) => {
 function fixtures(lg, rules) {
   const payload = JSON.parse(lg.payload);
   const out = new Map();
+  // Unreachable until league-rules.js has a Sleeper reader: simulateSeason
+  // returns simRulesProblem's named error for every non-ESPN league first. Kept
+  // for that follow-up (see league-rules.js header), not deleted.
   if (lg.platform === 'sleeper') {
     // Sleeper stores matchups per week keyed by a shared matchup_id.
     for (const [week, list] of Object.entries(payload.matchups ?? {})) {
@@ -125,6 +128,7 @@ function initialRecords(lg, teams, fromWeek, medianGame = false) {
   if (fromWeek <= 1) return out;
   const payload = JSON.parse(lg.payload);
 
+  // Unreachable until league-rules.js has a Sleeper reader (see fixtures()).
   if (lg.platform === 'sleeper') {
     for (const [week, list] of Object.entries(payload.matchups ?? {})) {
       if (Number(week) >= fromWeek) continue;

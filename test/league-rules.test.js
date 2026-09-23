@@ -26,7 +26,6 @@ const { db, rows, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 const { seedIfEmpty } = await import('../server/db/seed/index.js');
 const { deriveFormat } = await import('../server/services/format.js');
-const { scoringFor } = await import('../server/services/scoring.js');
 const seasonSim = await import('../server/services/season-sim.js');
 const { leagueSchedule } = await import('../server/services/trade-horizon.js');
 const { withRandomSeed } = await import('../server/services/stats-util.js');
@@ -120,15 +119,15 @@ test('CE-05: a 6-team-bracket league with a points-for tiebreaker gets every see
 test('CE-05: missing fields are reported loudly, never defaulted silently', () => {
   const { leagueRules } = mod();
   const rules = leagueRules(lgOf(espnPayload({
-    drop: ['settings.scheduleSettings.playoffTeamCount', 'settings.tradeSettings.deadlineDate',
+    drop: ['settings.scheduleSettings.playoffTeamCount', 'settings.scheduleSettings.playoffReseed',
       'settings.scheduleSettings.playoffSeedingRule'] })));
-  for (const p of ['settings.scheduleSettings.playoffTeamCount', 'settings.tradeSettings.deadlineDate',
+  for (const p of ['settings.scheduleSettings.playoffTeamCount', 'settings.scheduleSettings.playoffReseed',
     'settings.scheduleSettings.playoffSeedingRule']) {
     assert.ok(rules.missing.includes(p), `${p} missing but not reported: ${JSON.stringify(rules.missing)}`);
   }
   assert.equal(rules.schedule.playoff_teams, null, 'a missing playoff count must stay null, not become 6');
   assert.equal(rules.schedule.playoff_weeks, null, 'no playoff weeks without a playoff count');
-  assert.equal(rules.trade.deadline, null);
+  assert.equal(rules.schedule.reseed, null, 'a missing reseed flag must stay null, not become true');
   assert.equal(rules.seeding.tiebreaker, null);
   // Control: the complete fixture reports nothing missing.
   assert.deepEqual(leagueRules(lgOf(espnPayload())).missing, []);
@@ -172,26 +171,15 @@ test('CE-05: playoff weeks per round come from the league (the three local shape
   assert.equal(r.schedule.regular_season_weeks, 14);
 });
 
-test('CE-05: roster slots, bench and IR from lineupSlotCounts; an unmapped slot is reported', () => {
+test('CE-05: leagueRules ships only fields a route reads (no roster, trade, scoring or tie-rule fields)', () => {
   const { leagueRules } = mod();
   const r = leagueRules(lgOf(espnPayload()));
-  assert.deepEqual(r.roster.starters, { QB: 1, RB: 2, WR: 2, TE: 1, DEF: 1, K: 1, FLEX: 1 });
-  assert.equal(r.roster.bench_slots, 7);
-  assert.equal(r.roster.ir_slots, 1);
-  const odd = leagueRules(lgOf(espnPayload({ lineup: { ...LINEUP, 5: 1 } })));
-  assert.ok(odd.unsupported.some(u => /slot id 5/.test(u)), JSON.stringify(odd.unsupported));
-});
-
-test('CE-05: trade deadline and review window; scoring is scoringFor (reused, not re-derived)', () => {
-  const { leagueRules } = mod();
-  const lg = lgOf(espnPayload());
-  const r = leagueRules(lg);
-  assert.equal(r.trade.deadline, new Date(1796230800000).toISOString());
-  assert.equal(r.trade.review_hours, 24);
-  assert.equal(r.trade.veto_votes_required, 4);
-  assert.equal(r.trade.max_trades, null, 'ESPN -1 means unlimited');
-  assert.deepEqual(r.scoring, scoringFor(lg));
-  assert.equal(r.scoring.pass_td, 6, 'control: the league\'s own 6-point passing TD, not the PPR bucket');
+  assert.deepEqual(Object.keys(r).sort(),
+    ['median_game', 'missing', 'platform', 'schedule', 'seeding', 'source', 'unknown', 'unsupported']);
+  for (const k of ['roster', 'trade', 'scoring', 'scoring_items', 'matchup_tie_rule', 'playoff_tie_rule']) {
+    assert.equal(k in r, false, `${k} has no reader outside league-rules.js`);
+  }
+  assert.equal('consolation' in r.schedule, false);
 });
 
 test('CE-05: median game is inferred from records, unknown before any decided week', () => {

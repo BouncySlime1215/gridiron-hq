@@ -307,23 +307,47 @@ None yet. On a local copy (not production, 2026-09-22), `weekly_ensemble_fits`
 has 2 rows, both through 2025 week 18 (the known-nonzero control), and
 `model_backtests` has 0 rows.
 
-**HX-01's forward read (added 2026-09-22).** The rows below are the first `F` rows: the 2026
-week-2 forward read of HX-01 (historical head-to-head against consensus;
+**HX-01's forward read (added 2026-09-22).** The rows below are the 2026 week-2 forward read of
+HX-01 (historical head-to-head against consensus;
 `docs/tdd/2026-09-22-historical-consensus-head-to-head.tdd.md` §5.6). HX-01 changes no served
 number, so `shipped` is `n.a.`. One week: every row is an anecdote, not a verdict. The week-2
 job-fit query on HX-01's copy (local copy, not production, taken 2026-09-22 23:13Z) still
 returns no `weekly_ensemble_fits` row with `through_season >= 2026` (2 rows in the table, the
 control). HX-01 adds no `L` row: it did not open 2025.
 
+Two arms appear below, and neither is proven to be what production served that week:
+
+- **OURS-replay**: the local copy's current chain (weight set fit-2, coordinator fit 7, volume k
+  fit 1) replayed on week 2 after the fact. All three fits were created after the week's first
+  kickoff (2026-09-18 00:15Z), and a production live read found no promoted weekly fit
+  (`server/services/weekly-ensemble.js:4-11`).
+- **The saved snapshot**: the ensemble projection the app saved before the week
+  (`weekly_prediction_snapshots`, 2026-09-17 18:56Z, weight set frozen-2023, no coordinator, no
+  chance to play, no lift). C-01's gate grades this one.
+
+Which arm counts as served is settled once S-12 stores the served `week_points` at lock.
+F001-F007 were first written in `c100bf91` calling OURS-replay "our served start/sit number";
+they were relabelled before merge (they never reached main), with every number unchanged. F008-F015
+were added in HX-01's round 3. The ids collide with the unmerged S-03 and BLEND-01 branches'
+`F` rows: whichever merges second renumbers.
+
 | id | date | unit/PR | domain | family | hypothesis | metric | result | est | lo | hi | level | p (source) | better | shipped | file:line | note |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| F001 | 2026-09-22 | HX-01 | fantasy | other | Our served start/sit number beats FantasyPros consensus on 2026 week 2 | points per disagreement, ours − consensus, 837 disagreements, player-clustered | not distinguishable | -0.4114 | -2.2923 | +1.3633 | 90 |  | + | n.a. | `docs/evidence/2026-09-22/historical-consensus-head-to-head-output.json` `forward.results.ours_vs_consensus` | one week; win rate 0.4379 [0.3416, 0.5321] |
-| F002 | 2026-09-22 | HX-01 | fantasy | other | Our served start/sit number beats ESPN's weekly projection on 2026 week 2 | points per disagreement, ours − ESPN, 605 disagreements, player-clustered | not distinguishable | -0.2871 | -2.1014 | +1.5240 | 90 |  | + | n.a. | same file, `forward.results.ours_vs_espn` | one week; rostered players only; ESPN value is at lock |
-| F003 | 2026-09-22 | HX-01 | fantasy | other | Same as F002 at C-01's 8.0 startable line | points per disagreement, 164 disagreements | not distinguishable | -0.3120 | -3.9647 | +3.2052 | 90 |  | + | n.a. | same file, `forward.results.ours_vs_espn_startable_8` | laid beside C-01's 0.378 (a different arm: C-01 graded the ensemble snapshot) |
-| F004 | 2026-09-22 | HX-01 | fantasy | other | Our served start/sit number beats the season-to-date average on 2026 week 2 | points per disagreement, 954 disagreements | ours ahead | +3.5528 | +1.1320 | +6.2563 | 90 |  | + | n.a. | same file, `forward.results.ours_vs_std` | in week 2 the season average is the week-1 score |
-| F005 | 2026-09-22 | HX-01 | fantasy | other | Our served start/sit number beats the last-3 average on 2026 week 2 | points per disagreement, 954 disagreements | ours ahead | +3.5528 | +1.1320 | +6.2563 | 90 |  | + | n.a. | same file, `forward.results.ours_vs_l3` | identical to F004: in week 2 the last-3 average is also the week-1 score |
+| F001 | 2026-09-22 | HX-01 | fantasy | other | OURS-replay beats FantasyPros consensus on 2026 week 2 | points per disagreement, ours − consensus, 837 disagreements, player-clustered | not distinguishable | -0.4114 | -2.2923 | +1.3633 | 90 |  | + | n.a. | `docs/evidence/2026-09-22/historical-consensus-head-to-head-output.json` `forward.results.ours_vs_consensus` | one week; win rate 0.4379 [0.3416, 0.5321] |
+| F002 | 2026-09-22 | HX-01 | fantasy | other | OURS-replay beats ESPN's weekly projection on 2026 week 2 (HX-01's 4.0 common set) | points per disagreement, ours − ESPN, 605 disagreements, player-clustered | not distinguishable | -0.2871 | -2.1014 | +1.5240 | 90 |  | + | n.a. | same file, `forward.results.ours_vs_espn` | one week; rostered players only; ESPN value is at lock; win rate 0.4496 [0.3544, 0.5407] |
+| F003 | 2026-09-22 | HX-01 | fantasy | other | Same as F002 on HX-01's 8.0 common set (every point arm and ESPN at least 8.0; not C-01's rule) | points per disagreement, 164 disagreements | not distinguishable | -0.3120 | -3.9647 | +3.2052 | 90 |  | + | n.a. | same file, `forward.results.ours_vs_espn_startable_8` | C-01's rule on the same player-weeks is F008; the arm C-01 grades, on one row set with this one, is F009-F015 |
+| F004 | 2026-09-22 | HX-01 | fantasy | other | OURS-replay beats the season-to-date average on 2026 week 2 | points per disagreement, 954 disagreements | ours ahead | +3.5528 | +1.1320 | +6.2563 | 90 |  | + | n.a. | same file, `forward.results.ours_vs_std` | in week 2 the season average is the week-1 score |
+| F005 | 2026-09-22 | HX-01 | fantasy | other | OURS-replay beats the last-3 average on 2026 week 2 | points per disagreement, 954 disagreements | ours ahead | +3.5528 | +1.1320 | +6.2563 | 90 |  | + | n.a. | same file, `forward.results.ours_vs_l3` | identical to F004: in week 2 the last-3 average is also the week-1 score |
 | F006 | 2026-09-22 | HX-01 | fantasy | other | FantasyPros consensus beats the season-to-date average on 2026 week 2 | points per disagreement, 1,044 disagreements | consensus ahead | +3.5880 | +1.4463 | +5.8217 | 90 |  | + | n.a. | same file, `forward.results.consensus_vs_std` | known-direction check |
 | F007 | 2026-09-22 | HX-01 | fantasy | other | ESPN's weekly projection beats the season-to-date average on 2026 week 2 | points per disagreement, 790 disagreements | ESPN ahead | +3.6835 | +1.1061 | +6.6242 | 90 |  | + | n.a. | same file, `forward.results.espn_vs_std` | known-direction check |
+| F008 | 2026-09-22 | HX-01 | fantasy | other | OURS-replay beats ESPN on 2026 week 2 under C-01's rule (OURS-replay and ESPN each at least 8.0) | points per disagreement, 219 disagreements | not distinguishable | -1.2316 | -4.5917 | +2.0997 | 90 |  | + | n.a. | same file, `forward.results.ours_vs_espn_c01_rule` | headToHead's default line (C-01's STARTABLE_PPR); win rate 0.4292 [0.2973, 0.5606] |
+| F009 | 2026-09-22 | HX-01 | fantasy | other | The projection the app saved before 2026 week 2 (the snapshot C-01 grades) beats ESPN, on the same rows as F010-F014 | points per disagreement, snapshot − ESPN, 200 disagreements | ESPN ahead | -3.9131 | -7.6851 | -0.1825 | 90 |  | + | n.a. | same file, `forward.same_rows.results.snapshot_vs_espn` | same rows: OURS-replay, snapshot and ESPN each at least 8.0; win rate 0.3750 [0.2446, 0.5128] |
+| F010 | 2026-09-22 | HX-01 | fantasy | other | OURS-replay beats ESPN on the same rows as F009 | points per disagreement, 147 disagreements | not distinguishable | +0.8584 | -2.9974 | +4.5827 | 90 |  | + | n.a. | same file, `forward.same_rows.results.ours_vs_espn` | win rate 0.4898 [0.3101, 0.6557] |
+| F011 | 2026-09-22 | HX-01 | fantasy | other | The ensemble alone (A, today's weight set) beats ESPN on the same rows as F009 | points per disagreement, 149 disagreements | not distinguishable | -0.3667 | -4.0383 | +3.0855 | 90 |  | + | n.a. | same file, `forward.same_rows.results.A_vs_espn` | report-only attribution; win rate 0.4966 [0.3396, 0.6460] |
+| F012 | 2026-09-22 | HX-01 | fantasy | other | D (coordinated ensemble × lift, no chance to play) beats ESPN on the same rows as F009 | points per disagreement, 148 disagreements | not distinguishable | +0.3846 | -3.2993 | +3.7407 | 90 |  | + | n.a. | same file, `forward.same_rows.results.D_vs_espn` | report-only attribution; win rate 0.5000 [0.3522, 0.6485] |
+| F013 | 2026-09-22 | HX-01 | fantasy | other | OURS-replay beats the saved snapshot on the same rows as F009 | points per disagreement, ours − snapshot, 181 disagreements | not distinguishable | +5.0210 | +0.9954 | +9.2004 | 90 |  | + | n.a. | same file, `forward.same_rows.results.ours_vs_snapshot` | report-only; win rate 0.6298 [0.4718, 0.7725]; 'ahead' needs both the points bound above 0 and the win-rate bound above 0.5 |
+| F014 | 2026-09-22 | HX-01 | fantasy | other | The ensemble alone (A, today's weight set) beats the saved snapshot on the same rows as F009 | points per disagreement, A − snapshot, 169 disagreements | not distinguishable | +4.3076 | +0.3773 | +8.7988 | 90 |  | + | n.a. | same file, `forward.same_rows.results.A_vs_snapshot` | report-only: the weight set's share of F013; win rate 0.6450 [0.4925, 0.7968] |
+| F015 | 2026-09-22 | HX-01 | fantasy | other | C-01's served-vs-ESPN grade on 2026 week 2 (the plan rule's input), reproduced by headToHead on C-01's rows | points per disagreement, snapshot − ESPN, 286 disagreements, C-01's rows | ESPN ahead | -3.4207 | -6.5246 | -0.3637 | 90 |  | + | n.a. | same file, `forward.c01_reconciliation` | equal to C-01's servedArms on every field: true; C-01's own look (its branch logs no F row); win rate 0.3776 [0.2537, 0.5057] |
 
 ## File classification: every file the census returns
 

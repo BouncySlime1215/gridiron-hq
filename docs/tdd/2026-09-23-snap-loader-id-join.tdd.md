@@ -141,3 +141,16 @@ Script: scratchpad `s20-mutants.py`. It applies each mutant to `nflverse.js`, ru
    - `contingency.roleStates` (availability tier, WV-02 snap share)
    - `player-advanced-stats`, `role-changepoint`, `beat-reporter-accuracy`, `opportunity-model`, `trade-engine`
 5. **How it unifies?** There is still one producer of snap share (`player_week_snaps` via `syncSnapCounts`), and it now uses the same gsis identity as `player_week_usage`, so the usage and snap rows for a player-week agree on who he is.
+
+- **Defect fixed:** `server/services/nflverse.js:294-310` on origin/main `3ac59fea`. The name|position join (last row wins) left `pfr_player_id` (`:290`) unused.
+- **Incumbent:** the name join itself. Before measurements came from `s20-local-replay.mjs` on the fresh local copy (section 4).
+- **Not covered:**
+  - the production DB (it needs a sync run);
+  - 2026 W2 on the copy;
+  - the S-04 re-fit;
+  - D-10's second ingest;
+  - any grading of start/sit decisions. No decision number changes in this unit, so there is no decision-rate or walk-forward claim.
+- **What would make it wrong:**
+  - nflverse `players.csv` binding one `pfr_id` to the wrong `gsis_id`;
+  - a wrong `players.gsis_id` binding from `syncCrosswalk`;
+  - a genuine namesake whose own row failed the id join and happens to carry byte-identical snaps and pct in the same week. That row would be moved. It is guarded but possible, and `reassigned` counts it.

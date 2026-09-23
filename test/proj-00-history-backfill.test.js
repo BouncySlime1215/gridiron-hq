@@ -249,6 +249,9 @@ test('participation writes one row per offense player, and the snaps match share
   run(`INSERT INTO players (id, name, position, gsis_id) VALUES (9002, 'Fixture Two', 'WR', '00-0000003')`);
   run('INSERT INTO player_week_snaps (player_id, season, week, offense_snaps, offense_pct) VALUES (9001, 2023, 1, 60, 0.9)');
   run('INSERT INTO player_week_snaps (player_id, season, week, offense_snaps, offense_pct) VALUES (9002, 2023, 1, 40, 0.6)');
+  // Another season in the table, so the route's ?season= filter is observable.
+  run(`INSERT INTO nfl_play_participation_players (game_id, play_id, season, week, gsis_id, team)
+       VALUES ('2022_01_BUF_LA', 40, 2022, 1, '00-0000005', 'BUF')`);
 
   const app = express();
   const { default: router } = await import('../server/routes/nfl-betting.js');
@@ -264,10 +267,24 @@ test('participation writes one row per offense player, and the snaps match share
     app.handle(req, r, reject);
   });
   assert.equal(res.status, 200);
+  assert.deepEqual(res.body.seasons.map(x => x.season), [2023], 'the route passes ?season= through');
   const s = res.body.seasons.find(x => x.season === 2023);
   assert.equal(s.plays, 2);
   assert.equal(s.player_rows, 3);
   assert.equal(s.snap_match_share, 0.6, '60 of 100 offense snaps have a participation player-week');
   assert.equal(s.matched_play_ratio, +(2 / 60).toFixed(4), 'participation plays over PFR snaps on matched weeks');
   assert.match(res.body.attribution, /FTN Data via nflverse/);
+});
+
+test('with the committed licence the participation command loads and prints the credit', () => {
+  const file = path.join(temp, 'pbp_participation_2024.csv');
+  fs.writeFileSync(file, [PART_HEADER,
+    '2024_03_KC_ATL,2024092200,77,KC,SHOTGUN,,,,,x,00-0000011;00-0000012,,2,0,,,,,,',
+  ].join('\n') + '\n');
+  const result = runScript('backfill-participation.mjs', ['2024', file], { GRIDIRON_DB_PATH: process.env.GRIDIRON_DB_PATH });
+  assert.equal(result.status, 0, `exit ${result.status}; stderr: ${result.stderr}`);
+  assert.match(result.stdout, /"player_rows": 2/);
+  assert.match(result.stdout, /decision: nflverse_participation usable/);
+  assert.equal(row(`SELECT COUNT(*) n FROM nfl_play_participation_players WHERE season=2024 AND week=3`).n, 2,
+    'the week comes from the game id');
 });

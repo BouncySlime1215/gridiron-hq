@@ -1,4 +1,4 @@
-node_modules
+**/node_modules
 client/dist
 client/node_modules
 .git
@@ -25,3 +25,18 @@ research
 HANDOFF.md
 TASKS.md
 README.md
+
+# Also never in the image, and the bulk of a local deploy's context: a local
+# `fly deploy` from a working Mac checkout uploaded 2.3 GB, 2.2 GB of it data/.
+# The final stage copies only package*.json, client/dist, server/ and scripts/,
+# and the live database is the /data volume, so none of these can reach it.
+# Patterns here are anchored at the repo root: `data` is the top-level data/,
+# not server/data/, which the server reads and must stay.
+data
+analysis
+test
+# Local databases and their backups, wherever they sit: server/ and scripts/
+# are copied into the image whole, so one left there would ship inside it.
+# No .sqlite file is tracked in git.
+**/*.sqlite*
+**/*.bak

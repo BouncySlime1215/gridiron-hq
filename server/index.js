@@ -44,7 +44,6 @@ const { default: modelRouter } = await import('./routes/model.js');
 const { default: dataFreshnessRouter } = await import('./routes/data-freshness.js');
 const { default: propsRouter } = await import('./routes/props.js');
 const { default: propsTicketsRouter } = await import('./routes/props-tickets.js');
-const { default: mlbRouter } = await import('./routes/mlb.js');
 const { default: nflMarketRouter } = await import('./routes/nfl-market.js');
 const { default: nflBettingRouter } = await import('./routes/nfl-betting.js');
 const { default: bettingHubRouter } = await import('./routes/betting-hub.js');
@@ -55,6 +54,7 @@ const { default: draftCaptureRouter, serveCaptureScript } = await import('./rout
 const { default: executionSlateRouter } = await import('./routes/execution-slate.js');
 const { startScheduler } = await import('./services/scheduler.js');
 const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-access.js');
+const { default: coachRouter } = await import('./routes/coach.js');
 
 const app = express();
 // First, so that ANY completed response arms the watchdog -- including a 404
@@ -140,12 +140,14 @@ app.use('/api/model', ...legacyAuthenticated, modelRouter);
 app.use('/api/data-freshness', ...legacyAuthenticated, dataFreshnessRouter);
 app.use('/api/props', ...legacyAuthenticated, propsRouter);
 app.use('/api/props-tickets', ...legacyAuthenticated, propsTicketsRouter);
-app.use('/api/mlb', ...legacyAuthenticated, mlbRouter);
 app.use('/api/nfl-market', ...legacyAuthenticated, nflMarketRouter);
 app.use('/api/nfl-betting', ...legacyAuthenticated, nflBettingRouter);
 app.use('/api/betting/wong', ...legacyAuthenticated, wongRouter);
 app.use('/api/betting', ...legacyAuthenticated, bettingHubRouter);
 app.use('/api/execution-slate', ...legacyAuthenticated, executionSlateRouter);
+// Coach applies its own auth and rate limit per route (server/routes/coach.js:37),
+// so it is mounted bare rather than behind legacyAuthenticated.
+app.use('/api/coach', coachRouter);
 
 app.use((err, req, res, next) => {
   // AuthenticationError/AuthorizationError (server/platform/auth.js) set a real

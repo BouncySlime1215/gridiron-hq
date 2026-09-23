@@ -317,6 +317,81 @@ function foreignHandles(file) {
  * The handle a SQL literal was handed to: 'app', or the name of a local
  * DatabaseSync. Read by looking back from the string to the call that takes it.
  */
+
+/**
+ * How many times `name` is invoked in `code`.
+ *
+ * A syntactic call, `name(`, plus a JOB REGISTRATION, `run: name`. The second
+ * is why this exists. `producer-with-no-caller` counted only the first, and a
+ * scheduler job is registered as `run: refreshLeagueRosters` and invoked by the
+ * runner as `job.run()`, so the name is never followed by a paren anywhere in
+ * the repository. That producer had a direct caller until #95 moved the work
+ * off the request thread; when the direct call went, a rule that had always
+ * been incomplete turned into a red build on main.
+ *
+ * A registration IS a call -- something runs it on a timer. Counting it is not
+ * a weakening: a name that merely appears in prose or as a longer identifier's
+ * prefix still counts zero, which is pinned.
+ */
+export function callSites(code, name) {
+  const count = (re) => (code.match(re) ?? []).length;
+  return count(new RegExp(`\\b${name}\\s*\\(`, 'g'))
+    + count(new RegExp(`\\brun\\s*:\\s*${name}\\b`, 'g'));
+}
+
+
+/**
+ * Every query running on a receiver this resolver could not identify.
+ *
+ * Naming an unrecognised receiver instead of calling it 'app' fixes a false
+ * positive and buys a FALSE NEGATIVE if nothing says so: a table whose only
+ * reads go through an unidentified receiver is filed as belonging to another
+ * database, and table-in-another-database is `context`, which the gate does not
+ * print. A real app table read that way would leave the gate's output without a
+ * word. Trading a finding you can see for one you cannot is not an improvement.
+ *
+ * So the resolver's ignorance is reported, with a count and the list, on every
+ * run. Report, never gate -- the same posture the stale accept-list entries
+ * have, and for the same reason: this is a note to a human, and a build that
+ * fails on it teaches people to rename their variable `db`.
+ *
+ * "Resolved" means the file opened that handle itself. A receiver the file was
+ * HANDED -- a parameter, a property, a return value -- is exactly what this
+ * cannot see, and is the whole list.
+ */
+export function unresolvedReceivers(tables, files) {
+  const byKey = new Map();
+  for (const t of tables.values()) {
+    for (const e of [...t.reads, ...t.writes]) {
+      if (!e.handle || e.handle === 'app') continue;
+      const f = files.get(e.file);
+      if ((f?.foreign_handles ?? []).includes(e.handle)) continue;
+      const key = `${e.file}:${e.line}:${e.handle}`;
+      if (!byKey.has(key)) {
+        byKey.set(key, { file: e.file, line: e.line, receiver: e.handle, tables: new Set() });
+      }
+      byKey.get(key).tables.add(t.table);
+    }
+  }
+  return [...byKey.values()]
+    .map(r => ({ file: r.file, line: r.line, receiver: r.receiver, tables: [...r.tables].sort() }))
+    .sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+}
+
+// Receivers that are the app's own connection by convention. Anything else
+// named in front of .prepare/.exec/.run is a handle this resolver has not
+// identified, and is reported as itself rather than as the app.
+//
+// KNOWN FALSE POSITIVE, confirmed in the field 2026-09-22: a file that opens a
+// SECOND database into a local named `db` and ALSO imports the app's database
+// module resolves here to 'app', and every table it touches is reported as an
+// app table nothing writes. The Coach thread hit exactly this — a private chat
+// corpus in a local `db` produced ten false findings — and worked around it by
+// renaming the local to `chatDb`, which is the codebase bending to the tool.
+// `foreign.has(name)` above is meant to catch this and did not, so the defect
+// is in how foreign handles are collected, not here. Next unit for this thread.
+const DB_RECEIVERS = new Set(['db', 'database', 'conn', 'connection']);
+
 function handleFor(file, offset, foreign) {
   const before = file.text.slice(Math.max(0, offset - 120), offset);
   // A file that opens a handle of its own and never imports the app's database module
@@ -338,7 +413,24 @@ function handleFor(file, offset, foreign) {
   if (viaMethod) {
     const name = viaMethod[1];
     if (foreign.has(name)) return { handle: name, where: foreign.get(name) };
-    return file.foreignOnlyFile ? foreignDefault() : { handle: 'app', where: null };
+    if (file.foreignOnlyFile) return foreignDefault();
+    // An EXPLICIT receiver this resolver does not recognise is UNKNOWN, and
+    // unknown is not the app's. td-features.js is handed both handles by its
+    // caller -- buildTdFeatures({ appDb, nflDb, seasons }) -- and queries the
+    // nflverse one as `nflDb.prepare(...)`. It opens nothing itself, so it is
+    // not a foreign-only file, and answering 'app' here reported two nflverse
+    // tables as read by a live surface and written by nothing, which took main
+    // red. The default below is written for a BARE call with no receiver; a
+    // receiver that is named and unrecognised is a different question.
+    //
+    // Measured before this was written: 24 sites repo-wide use an explicit
+    // non-db receiver and were attributed to the app, and naming them honestly
+    // moves exactly two tables -- the two that were wrong. `appDb`, `app` and
+    // `rdb` change nothing, because every table they touch is also read through
+    // the app's own handle somewhere else, which is what the every() in the
+    // foreign-only rule is for.
+    if (DB_RECEIVERS.has(name)) return { handle: 'app', where: null };
+    return { handle: name, where: null };
   }
   const viaHelper = before.match(/\b([A-Za-z_$][\w$]*)\s*\(\s*$/);
   if (viaHelper && foreign.has(viaHelper[1])) {
@@ -2159,6 +2251,28 @@ function statementTables(text) {
 // Scope. Nick has ruled out betting FEATURES, not knowing what connects to
 // what, so the betting half is mapped and then tagged, rather than skipped. A
 // map with holes in it is worse than no map, because people trust it.
+//
+// MLB, AFTER THE REMOVAL. `mlb` and `mlb_` stay in the two patterns below, and
+// the reason is no longer the one the word "BETTING" implies. The MLB product
+// is gone from this commit's parent: routes/mlb.js, eight mlb-* services and
+// parlay-api.js are deleted. What survives, deliberately, is
+// server/db/schema/mlb-model-misc.js and the mlb_* tables it declares, because
+// Nick's instruction was to remove the product without dropping tables or
+// deleting data. Those tables now have no writer and no reader in this
+// repository, so without these two patterns every one of them would surface as
+// a fantasy-side missing feed — a page of findings about a product that no
+// longer exists.
+//
+// So they are excluded as an ABANDONED PRODUCT, not as betting. The
+// distinction is not pedantry: CONTRACT.md section 2c exists because folding
+// MLB into betting "would state a false fact the Phase A plan then reads"
+// (Auditor R18.1), and recording the same conflation one layer down, in the
+// checker the plan's numbers come from, would be that same false fact with a
+// command behind it. Naming a third category here would buy nothing today —
+// both patterns route to the same exclusion — and would cost a label the
+// inventory has no consumer for, so the comment carries it instead.
+//
+// RETIRES WHEN: the mlb_* tables are dropped, which needs Nick's own word.
 // ---------------------------------------------------------------------------
 
 const BETTING_FILE = /(betting|\bwong\b|odds|parlay|staking|teaser|polymarket|book-feeds|line-shop|line-move|opening-lines|beat-the-close|execution-|prop-|props|clv|pick-|picks|market-movement|nfl-market|edge\.js|mlb)/i;
@@ -3326,7 +3440,7 @@ function shouldBeWired(model, ann, add) {
         for (const a of imp.aliases ?? []) if (a.imported === n.name) localNames.add(a.local);
       }
       for (const local of localNames) {
-        const hits = (o.code.match(new RegExp(`\\b${local}\\s*\\(`, 'g')) ?? []).length;
+        const hits = callSites(o.code, local);
         calls += Math.max(0, o.path === n.file && local === n.name ? hits - 1 : hits);
       }
     }
@@ -3591,7 +3705,9 @@ export function acceptGuard({ accepted = [], orphans = [], found = [] }) {
  * Pure and exported, because a checker nobody has deliberately broken has not
  * been tested. Pinned in test/wiring-map-stale-accept-entries.test.js.
  */
-export function staleOrphanEntries({ entries = [], exists = () => true, silences = () => false }) {
+export function staleOrphanEntries({
+  entries = [], exists = () => true, silences = () => false, preRegistered = () => false,
+}) {
   const out = [];
   const seen = new Set();
   for (const raw of entries) {
@@ -3599,10 +3715,105 @@ export function staleOrphanEntries({ entries = [], exists = () => true, silences
     // `table:` and `column:` entries share these lists and are not module paths.
     if (!entry.includes('/') || seen.has(entry)) continue;
     seen.add(entry);
-    if (!exists(entry)) { out.push({ entry, why: 'names a file that is not in this tree' }); continue; }
-    if (!silences(entry)) out.push({ entry, why: 'the module is wired now — this entry silences nothing' });
+    if (!exists(entry)) {
+      // The two look identical from here — the file is not in the tree either
+      // way — so the only thing that separates them is whether somebody wrote
+      // down that it is coming. That is what `PRE-REGISTERED` in
+      // `_PERMANENT_ORPHAN_REASONS` is for, and reading it is the difference
+      // between a note and an instruction to undo a correct decision.
+      out.push(preRegistered(entry)
+        ? { entry, kind: 'pre-registered', why: 'names a file that is not in this tree yet — pre-registered with a reason and an owner, so leave it' }
+        : { entry, kind: 'missing', why: 'names a file that is not in this tree' });
+      continue;
+    }
+    if (!silences(entry)) {
+      out.push({ entry, kind: 'silences-nothing', why: 'the module is wired now — this entry silences nothing' });
+    }
   }
   return out;
+}
+
+/**
+ * The key an unresolved receiver is baselined under: the file and the handle,
+ * never the line.
+ *
+ * A line number moves on every edit above it, so a line-keyed baseline would
+ * fail builds for changes that touch nothing it cares about. That noise is how
+ * a ratchet gets deleted, and a deleted ratchet is worse than no ratchet,
+ * because the list it leaves behind still reads as a decision.
+ */
+export function receiverKey({ file, receiver }) {
+  return `${file} ${receiver}`;
+}
+
+/**
+ * The ratchet over `unresolvedReceivers`, pre-registered in #129.
+ *
+ * Naming an unrecognised receiver rather than assuming the app files its tables
+ * as `table-in-another-database`, which is `context`, and the gate prints
+ * grandfathered, refused, stale and blocking findings but never context. So the
+ * printed census IS the safeguard, and a census with nothing behind it drifts:
+ * 19 today, 25 next week, and nobody can say which six are new.
+ *
+ * Same shape as `accepted_missing_feeds`. The ones that were there when the
+ * check went on are baselined; the build fails on the NEXT one. Failing on all
+ * 19 on day one would teach people to rename their parameter `db` so the build
+ * passes, which is precisely the silence this rule exists to catch.
+ *
+ * A count per (file, receiver) pair rather than a bare pair name, so a second
+ * unidentified site in a file that already has one is still caught.
+ *
+ * A pair that SHRINKS is reported, never failed: somebody resolved a handle,
+ * and now the baseline line is the thing that is out of date.
+ *
+ * Pure and exported, because a checker nobody has deliberately broken has not
+ * been tested. Pinned in test/wiring-map-receiver-ratchet.test.js.
+ */
+/**
+ * Where the two checkers get their inputs from `annotations.json`.
+ *
+ * These exist because the `--check` block is a CLI branch no unit test runs, so
+ * a mutation to the key it reads, or to the marker it matches, survives the
+ * whole suite. Both mutations DID survive the sweep for this change. Lifting
+ * the two decisions out of the branch and into pure functions is the fix: the
+ * branch is left with a call, and what the call decides is pinned.
+ *
+ * `accepted_unresolved_receivers` is the baseline map; a missing key means the
+ * ratchet has nothing to stand on and every pair reads as new, which is a red
+ * build on day one and the thing the baseline exists to avoid.
+ *
+ * `PRE-REGISTERED` in `_PERMANENT_ORPHAN_REASONS` is how an accept-list entry
+ * says out loud that its file is coming on a branch. Without it the stale
+ * report tells a reader to delete a correct entry.
+ */
+export function receiverBaseline(ann = {}) {
+  return ann.accepted_unresolved_receivers ?? {};
+}
+
+export function preRegisteredEntries(ann = {}) {
+  const reasons = ann._PERMANENT_ORPHAN_REASONS ?? {};
+  return entry => /PRE-REGISTERED/.test(String(reasons[entry] ?? ''));
+}
+
+export function receiverRatchet({ found = [], baseline = {} }) {
+  const now = new Map();
+  for (const site of found) {
+    const key = receiverKey(site);
+    now.set(key, (now.get(key) ?? 0) + 1);
+  }
+  const blocking = [];
+  const loosened = [];
+  for (const key of [...now.keys()].sort()) {
+    const was = baseline[key] ?? 0;
+    const count = now.get(key);
+    if (count > was) blocking.push({ key, was, now: count });
+    else if (count < was) loosened.push({ key, was, now: count });
+  }
+  for (const key of Object.keys(baseline).sort()) {
+    if (!now.has(key)) loosened.push({ key, was: baseline[key], now: 0 });
+  }
+  loosened.sort((a, b) => a.key.localeCompare(b.key));
+  return { blocking, loosened };
 }
 
 const SEVERITY = {
@@ -4072,13 +4283,53 @@ const NEW_ORPHAN = new Set(['module-reaches-no-surface', 'module-only-tested',
       entries: (ann.accepted_orphan_modules ?? []).concat(ann.expected_orphans ?? []),
       exists: e => fs.existsSync(path.join(ROOT, e)),
       silences: e => orphanNamed.has(e),
+      preRegistered: preRegisteredEntries(ann),
     });
     if (stale.length) {
-      console.log(`\n${stale.length} accept-list entr(ies) have outlived their reason. `
-        + 'Each is either waiting on a branch, left over from a rename or deletion, or naming a '
-        + 'module that is wired now; an entry that outlives its reason silences nothing and still '
-        + 'reads as a decision:');
-      for (const s of stale) console.log(`  ${s.entry} — ${s.why}`);
+      const rotted = stale.filter(s => s.kind !== 'pre-registered');
+      console.log(`\n${stale.length} accept-list entr(ies) name a file this run cannot square with the `
+        + `tree (${rotted.length} to look at, ${stale.length - rotted.length} pre-registered and correct). `
+        + 'An entry that outlives its reason silences nothing and still reads as a decision — but one '
+        + 'written ahead of a branch is doing its job, so the two are labelled apart:');
+      for (const s of stale) console.log(`  [${s.kind}] ${s.entry} — ${s.why}`);
+    }
+
+    // The resolver's own ignorance, printed so that naming an unrecognised
+    // receiver cannot quietly turn a finding into a silence. See
+    // unresolvedReceivers above for why this is reported and never gated.
+    const unresolved = unresolvedReceivers(model.tables, model.files);
+    if (unresolved.length) {
+      console.log(`\n${unresolved.length} quer(ies) run on a receiver this resolver could not identify. `
+        + 'Each is a handle the file was handed rather than one it opened, so which database it is '
+        + 'cannot be read from this file alone. They are reported as their own handle, NOT as the app, '
+        + 'which means any table read only this way is filed as belonging to another database:');
+      for (const u of unresolved) {
+        console.log(`  ${u.file}:${u.line} \`${u.receiver}\` — ${u.tables.join(', ')}`);
+      }
+    }
+
+    // And the ratchet over that census. Reporting it was the whole safeguard,
+    // and a report with nothing behind it drifts. See receiverRatchet above.
+    const ratchet = receiverRatchet({ found: unresolved, baseline: receiverBaseline(ann) });
+    if (ratchet.loosened.length) {
+      console.log(`\n${ratchet.loosened.length} baselined receiver(s) now resolve better than the `
+        + 'baseline says. Nothing is wrong; the baseline line is what is out of date, and lowering it '
+        + 'is how the ratchet tightens:');
+      for (const l of ratchet.loosened) {
+        console.log(`  ${l.key} — baselined ${l.was}, now ${l.now}`);
+      }
+    }
+    if (ratchet.blocking.length) {
+      console.error(`\n${ratchet.blocking.length} NEW quer(ies) on a receiver this resolver cannot `
+        + 'identify. A handle it cannot name files its tables as belonging to another database, which '
+        + 'is context, and context is never printed as a finding — so a new one is a silence, not a '
+        + 'gap. Name the handle in this file\'s `foreign_handles`, or add the line below to '
+        + 'accepted_unresolved_receivers with a reason. Do NOT rename the variable to `db` to make '
+        + 'this pass; that is the silence itself:');
+      for (const b of ratchet.blocking) {
+        console.error(`  "${b.key}": ${b.now}   (baselined ${b.was})`);
+      }
+      process.exit(1);
     }
 
     const blocking = found.filter(f =>

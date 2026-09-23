@@ -160,6 +160,16 @@ export function importersOfSymbol({ files, read }, definingFile, name) {
       if (target !== definingFile || imported !== name) return;
       found.push({ file, line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1, alias: local === name ? null : local });
     };
+    // A namespace binding reaches the symbol only if the property is actually
+    // read off it. `import * as ns` binds the whole module, so treating the
+    // binding alone as a reach would make every export of that file look used
+    // by every importer -- over-counting as badly as missing it under-counts.
+    // Collected first; the property accesses are checked in the same pass
+    // below, because a use can be lexically above its own binding inside a
+    // function body.
+    const namespaceBindings = [];
+    const propertyReads = new Set();
+
     const visit = node => {
       if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)
           && node.moduleSpecifier.text.startsWith('.')) {
@@ -169,6 +179,38 @@ export function importersOfSymbol({ files, read }, definingFile, name) {
             check(node.moduleSpecifier.text, node, el.name.text, (el.propertyName || el.name).text);
           }
         }
+        // import * as ns from './defining.js'
+        if (bindings && ts.isNamespaceImport(bindings)) {
+          const target = path.posix.normalize(path.posix.join(path.posix.dirname(file), node.moduleSpecifier.text));
+          if (target === definingFile) {
+            namespaceBindings.push({ local: bindings.name.text, node });
+          }
+        }
+      }
+      // const ns = await import('./defining.js')  -- the dynamic namespace form.
+      // The destructuring form is handled below; this is the one the two
+      // scheduler callers of dispatchTriggeredCapture actually use.
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+        let init = ts.isAwaitExpression(node.initializer) ? node.initializer.expression : node.initializer;
+        // `await import('./x.js').catch(...)` -- the module still lands in the
+        // variable, so the binding is real. Unwrap the settled-promise chain to
+        // the import() underneath it.
+        while (ts.isCallExpression(init) && ts.isPropertyAccessExpression(init.expression)
+               && (init.expression.name.text === 'catch' || init.expression.name.text === 'then')) {
+          init = init.expression.expression;
+        }
+        if (ts.isCallExpression(init) && init.expression.kind === ts.SyntaxKind.ImportKeyword
+            && init.arguments[0] && ts.isStringLiteral(init.arguments[0])
+            && init.arguments[0].text.startsWith('.')) {
+          const target = path.posix.normalize(path.posix.join(path.posix.dirname(file), init.arguments[0].text));
+          if (target === definingFile) {
+            namespaceBindings.push({ local: node.name.text, node: init });
+          }
+        }
+      }
+      if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)
+          && node.name.text === name) {
+        propertyReads.add(node.expression.text);
       }
       if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword
           && ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text.startsWith('.')) {
@@ -186,6 +228,15 @@ export function importersOfSymbol({ files, read }, definingFile, name) {
       ts.forEachChild(node, visit);
     };
     visit(sf);
+
+    for (const binding of namespaceBindings) {
+      if (!propertyReads.has(binding.local)) continue;
+      found.push({
+        file,
+        line: sf.getLineAndCharacterOfPosition(binding.node.getStart(sf)).line + 1,
+        alias: null,
+      });
+    }
   }
   return found;
 }

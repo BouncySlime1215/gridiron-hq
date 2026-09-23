@@ -1027,3 +1027,122 @@ test('G8d: the tactic registry is complete and every entry declares what it need
     assert.equal(spec.fitted, false, `${k} is a hand-set rule and must say so`);
   }
 });
+
+/* ------------------------------------------------------------------------
+ * G5b THE STORE'S ABSENCE IS A STATE, NOT A MANAGER WITH NO HISTORY.
+ *
+ * `league_transactions_raw` has no migration — it is created by hand in
+ * scripts/collect-league-transactions.mjs, which needs an ESPN cookie — so on a
+ * machine where that has never run, the table is not there. This file used to
+ * absorb that in two bare `catch { tx = []; }` blocks and fall through to
+ * `blank()`, which returns `decisions_n: 0` with a null reason: a claim that we
+ * looked at this person and he has never decided anything, manufactured out of a
+ * missing table.
+ *
+ * These two tests drop the table and read the surface, because the previous
+ * thirty-two all ran with it present and therefore could not have caught this.
+ * ---------------------------------------------------------------------- */
+
+test('G5b timingRead says the source table is absent rather than reporting an empty history', () => {
+  const saved = rows(`SELECT * FROM league_transactions_raw`);
+  db.exec(`DROP TABLE league_transactions_raw`);
+  try {
+    const t = tactics.timingRead(LG.id, { season: SEASON });
+    const any = [...t.values()][0];
+    assert.ok(any, 'every roster still gets a row, so a missing manager is not a missing key');
+    assert.equal(any.read_state, 'source_table_absent');
+    assert.equal(any.decisions_n, 0);
+    assert.match(any.decisions_reason, /never been created on this machine/,
+      'the count of zero must arrive WITH the reason it is zero');
+    assert.match(any.decisions_reason, /collect-league-transactions\.mjs/,
+      'and name what to run, since that is the fix');
+    assert.match(any.decisions_reason, /NOT a manager with no history/,
+      'and rule out the reading that would otherwise be the obvious one');
+    assert.match(any.active_hours_reason, /never been created on this machine/,
+      'both reason fields carry it, because a consumer may read either');
+  } finally {
+    db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
+      league_id INTEGER NOT NULL, season INTEGER NOT NULL, tx_id TEXT NOT NULL,
+      type TEXT, status TEXT, execution_type TEXT, proposed_at TEXT, processed_at TEXT,
+      team_id INTEGER, member_id TEXT, related_tx_id TEXT, scoring_period INTEGER,
+      bid_amount REAL, is_pending INTEGER, items_json TEXT, raw_json TEXT,
+      first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+      PRIMARY KEY (league_id, season, tx_id))`);
+    for (const r of saved) {
+      run(`INSERT OR REPLACE INTO league_transactions_raw
+        (league_id, season, tx_id, type, status, execution_type, proposed_at, processed_at,
+         team_id, member_id, related_tx_id, scoring_period, bid_amount, is_pending,
+         items_json, raw_json, first_seen_at, last_seen_at)
+        VALUES (@league_id,@season,@tx_id,@type,@status,@execution_type,@proposed_at,@processed_at,
+         @team_id,@member_id,@related_tx_id,@scoring_period,@bid_amount,@is_pending,
+         @items_json,@raw_json,@first_seen_at,@last_seen_at)`, r);
+    }
+  }
+});
+
+test('G5b a programming error in the timing query is NOT absorbed as an empty history', () => {
+  // The other half of removing a bare catch, and the half a tableExists guard
+  // alone does not give you. The old `catch { tx = [] }` was wide enough to take
+  // a typo'd column and report it as a manager who has never traded. Injecting
+  // that exact fault must now reach the caller.
+  const saved = rows(`SELECT * FROM league_transactions_raw`);
+  db.exec(`ALTER TABLE league_transactions_raw RENAME COLUMN proposed_at TO proposed_at_renamed`);
+  try {
+    assert.throws(() => tactics.timingRead(LG.id, { season: SEASON }), /proposed_at|no such column/i,
+      'a fault in the query is a fault, and must not arrive as data');
+  } finally {
+    db.exec(`ALTER TABLE league_transactions_raw RENAME COLUMN proposed_at_renamed TO proposed_at`);
+    assert.equal(rows(`SELECT * FROM league_transactions_raw`).length, saved.length,
+      'the fixture is restored for every test after this one');
+  }
+});
+
+/**
+ * Run `fn` with league_transactions_raw gone, then put it back exactly as it was.
+ *
+ * The DDL comes out of sqlite_master rather than being typed again here, because a
+ * hand-copied CREATE that drifts from the real one restores a DIFFERENT table and
+ * every test after it is measuring something else.
+ */
+function withoutRawTable(fn) {
+  const saved = rows(`SELECT * FROM league_transactions_raw`);
+  const ddl = rows(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`,
+    'league_transactions_raw')[0]?.sql;
+  assert.ok(ddl, 'the fixture table must exist before a test can remove it');
+  db.exec(`DROP TABLE league_transactions_raw`);
+  try {
+    return fn();
+  } finally {
+    db.exec(ddl);
+    for (const r of saved) {
+      const cols = Object.keys(r);
+      run(`INSERT OR REPLACE INTO league_transactions_raw (${cols.join(', ')})
+           VALUES (${cols.map(c => `@${c}`).join(', ')})`, r);
+    }
+    assert.equal(rows(`SELECT * FROM league_transactions_raw`).length, saved.length,
+      'the fixture is restored for every test after this one');
+  }
+}
+
+test('G5b vetoClimate says the store is absent, not that this league never vetoes', () => {
+  // The same bug as timingRead's and in the same commit, and it had no test: `n: 0`
+  // with an empty `observed` reads exactly like a league where nobody has ever
+  // voted a deal down. Replacing this branch with the plain climate broke nothing
+  // before this test existed (sweep row M29).
+  const absent = withoutRawTable(() => tactics.vetoClimate(LG, { season: SEASON }));
+  assert.equal(absent.read_state, 'source_table_absent');
+  assert.equal(absent.n, 0, 'the zero is still there; what changes is that it now says why');
+  assert.deepEqual(absent.observed, []);
+  assert.match(absent.reason, /never been created on this machine/,
+    'the empty result must arrive with the reason it is empty');
+  assert.match(absent.reason, /collect-league-transactions\.mjs/, 'and name what to run');
+  assert.match(absent.reason, /NOT a manager with no history/,
+    'and rule out the reading a consumer would otherwise reach for');
+
+  // AND THE CONTRAST IS THE POINT. With the table there, the same call says so —
+  // on every path, including the one where rows exist. Two states that need
+  // different fixes must not arrive looking identical.
+  const present = tactics.vetoClimate(LG, { season: SEASON });
+  assert.equal(present.read_state, 'present');
+  assert.equal(present.reason, null);
+});

@@ -153,6 +153,31 @@ async function attempt(name, fn, detail) {
 }
 
 /**
+ * nflverse publishes participation for a season only after its post-season is
+ * complete (nflreadr's load_participation reference). So a 404 for the season
+ * in progress, or a later one, is the documented absence, not a failed
+ * download, and is recorded as a skip with no `error` key.
+ *
+ * The season in progress is an argument, not an assumption: the scheduled
+ * cycle runs availableSeason(), but POST /profitability/model-growth/run passes
+ * whatever season its body names, and a 404 for a completed season (published,
+ * see nfl-formations.js) is a real fault that must stay loud. With no finite
+ * season in progress the rule does not skip.
+ *
+ * Anything else passes through untouched: another status (a 403 or 429 is
+ * GitHub refusing the request, not a publication schedule), a throw (which has
+ * no `http_status`), or a success. Exported so the rule the call site applies
+ * is the rule the tests pin.
+ */
+export function unpublishedSeasonSkip(step, season, inProgressSeason) {
+  if (!step?.error || step.http_status !== 404) return step;
+  if (!Number.isFinite(inProgressSeason) || !(season >= inProgressSeason)) return step;
+  return { season, skipped: true, absence: 'not_published', http_status: 404,
+    note: `nflverse has not published participation for ${season}; a season is published only after `
+      + 'its post-season is complete. Completed seasons load through scripts/backfill-formations.mjs.' };
+}
+
+/**
  * The cycle's verdict on itself, as a pure function of what it found.
  *
  * Extracted from the cycle body so it can be exercised directly. It used to be
@@ -164,21 +189,26 @@ async function attempt(name, fn, detail) {
  * everything after it; a required release that has not published explains a
  * missing fit; a download that failed explains a fit built on stale rows. The
  * last thing checked is the fit itself.
+ *
+ * A step marked `skipped` with no `error` (unpublishedSeasonSkip) is an
+ * expected absence: it is returned in `skipped` and named in the ok note, and
+ * never counted as a failed download. An `error` key always wins.
  */
 export function cycleOutcome({ finalizedWeek, requiredLag = [], detail = {} }) {
+  const steps = Object.entries(detail.ingestion ?? {});
+  const skipped = steps.filter(([, step]) => !step?.error && step?.skipped === true).map(([name]) => name);
   if (finalizedWeek === 0) {
-    return { status: 'waiting',
+    return { status: 'waiting', skipped,
       note: 'No regular-season game is final yet. The cycle settled anything due, skipped every download, and will check again automatically.' };
   }
   if (requiredLag.length) {
-    return { status: 'source_lag',
+    return { status: 'source_lag', skipped,
       note: 'A finalized week exists but at least one required nflverse release is not published yet; the scheduler will retry without fabricating rows.' };
   }
-  const failedSteps = Object.entries(detail.ingestion ?? {})
-    .filter(([, step]) => step?.error).map(([name]) => name);
+  const failedSteps = steps.filter(([, step]) => step?.error).map(([name]) => name);
   if (failedSteps.length) {
     const many = failedSteps.length > 1;
-    return { status: 'ingest_error',
+    return { status: 'ingest_error', skipped,
       note: `A finalized week was available and every required release had published, but `
         + `${many ? `${failedSteps.length} downloads` : 'a download'} failed: ${failedSteps.join(', ')}. `
         + `The rest of the cycle ran against rows ${many ? 'those feeds' : 'that feed'} did not update, `
@@ -186,11 +216,12 @@ export function cycleOutcome({ finalizedWeek, requiredLag = [], detail = {} }) {
         + `The scheduler retries ${many ? 'them' : 'it'} on the next cycle.` };
   }
   if (detail.fit?.error) {
-    return { status: 'fit_error',
+    return { status: 'fit_error', skipped,
       note: 'The current week was ingested but the cutoff fit failed; the failed run is retained and will be retried.' };
   }
-  return { status: 'ok',
-    note: 'Outcomes became immutable labels, current-season features were ingested, and the next-week fit was recorded without auto-promotion.' };
+  return { status: 'ok', skipped,
+    note: 'Outcomes became immutable labels, current-season features were ingested, and the next-week fit was recorded without auto-promotion.'
+      + (skipped.length ? ` Not published yet, so skipped rather than failed: ${skipped.join(', ')}.` : '') };
 }
 
 /**
@@ -238,7 +269,20 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
       await attempt('verified_event_archive', () => syncVerifiedEventArchive({
         seasons: [season - 1, season], includeWeeklyRosters: true
       }), detail.ingestion);
-      if (season <= 2023) await attempt('formation_participation', () => ingestFormations(season), detail.ingestion);
+      // No season gate. This read `season <= 2023` on the belief that nflverse
+      // stops publishing participation after 2023; it does not, and 2024 and
+      // 2025 were being dropped silently. On the timer the season asked for is
+      // the one being played, which nflverse publishes only after its
+      // post-season, so its 404 is recorded as a skip (unpublishedSeasonSkip),
+      // not a failed download. The rule is handed the season in progress
+      // (availableSeason) rather than trusting `season`, because the manual
+      // route passes its own: a completed season's 404, any other status, or a
+      // throw is still a failure. This call therefore never fills
+      // nfl_play_formations in season: completed seasons load through
+      // scripts/backfill-formations.mjs.
+      await attempt('formation_participation',
+        async () => unpublishedSeasonSkip(await ingestFormations(season), season, availableSeason()),
+        detail.ingestion);
       await attempt('ftn_charting', () => ingestCharting(season), detail.ingestion);
     }
 
@@ -324,10 +368,10 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
 
     const after = warehouseSnapshot(season);
     const requiredLag = after.sources.filter(source => source.required && !source.current);
-    const { status, note } = cycleOutcome({ finalizedWeek: after.finalized_week, requiredLag, detail });
+    const { status, note, skipped } = cycleOutcome({ finalizedWeek: after.finalized_week, requiredLag, detail });
     const finishedAt = new Date().toISOString();
     const result = { status, started_at: startedAt, finished_at: finishedAt,
-      before, after, ...detail, note };
+      before, after, ...detail, skipped_steps: skipped, note };
     run(`UPDATE nfl_model_growth_runs SET finished_at=?,status=?,after_hash=?,detail_json=? WHERE id=?`,
     finishedAt, status, hash(after), JSON.stringify(result), inserted.lastInsertRowid);
     return result;

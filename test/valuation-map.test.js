@@ -394,7 +394,7 @@ test('G1e: the same evidence is never charged twice — a talk read replaces the
   // Hot Hype: Hayden praises him AND he is +6/game over expectation -> one read, not two.
   const hot = factorNames(byName(hayden, 'Hot Hype'));
   assert.ok(hot.includes('talk_vs_model'), 'the crossed read must fire');
-  assert.ok(!hot.includes('hype_vs_usage'),
+  assert.ok(!hot.includes('outscoring_usage'),
     'the expectation gap is the read\'s own discriminator — charging it again double-counts it');
   assert.ok(!hot.includes('chat_sentiment'),
     'raw sentiment is the fallback for the same evidence, not an addition to it');
@@ -402,7 +402,7 @@ test('G1e: the same evidence is never charged twice — a talk read replaces the
   // Silent Riser: Carl owns him, he is just as hot, and nobody has ever discussed him.
   const carl = map.managers.get('3');
   const riser = factorNames(byName(carl, 'Silent Riser'));
-  assert.ok(riser.includes('hype_vs_usage'),
+  assert.ok(riser.includes('outscoring_usage'),
     'with no talk read the expectation gap is the only thing that prices him');
 });
 
@@ -462,12 +462,12 @@ test('G3: a week-w map never reads week-w data', () => {
   // not see it; a week-(WEEK+1) map must, which is what proves the boundary is
   // the cutoff and not simply a missing row.
   const now = byName(mapFor(21).managers.get('3'), 'Silent Riser');
-  const gapNow = now.factors.find(f => f.source === 'hype_vs_usage');
+  const gapNow = now.factors.find(f => f.source === 'outscoring_usage');
   assert.ok(gapNow, 'the gap read must be firing at all for this to mean anything');
   assert.equal(gapNow.n, WEEK - 1, 'the gap may only rest on the weeks before this one');
 
   const next = pricing.valuationMap(21, { season: SEASON, week: WEEK + 1, players: PLAYERS, rosterContext: NEEDS });
-  const gapNext = byName(next.managers.get('3'), 'Silent Riser').factors.find(f => f.source === 'hype_vs_usage');
+  const gapNext = byName(next.managers.get('3'), 'Silent Riser').factors.find(f => f.source === 'outscoring_usage');
   assert.equal(gapNext.n, WEEK, 'a week later the same read sees one more week — the cutoff moved, not the data');
 });
 

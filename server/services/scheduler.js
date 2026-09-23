@@ -344,14 +344,23 @@ export async function refreshLeagueRosters() {
     try {
       const detail = lg.platform === 'sleeper' ? await syncSleeperLeague(lg) : await syncEspnLeague(lg);
       run(`UPDATE leagues SET connection_status='connected', sync_error=NULL WHERE id=?`, lg.id);
-      results.push({ league_id: lg.id, ok: true, detail });
+      results.push({ league_id: lg.id, ok: true, scoring: detail?.scoring ?? null });
     } catch (e) {
       run(`UPDATE leagues SET connection_status='sync_failed', sync_error=? WHERE id=?`,
         String(e.message ?? e).slice(0, 500), lg.id);
       results.push({ league_id: lg.id, ok: false, error: e.message });
     }
   }
-  return { leagues: results.length, failed: results.filter(r => !r.ok).length };
+  // `results` used to be built and then thrown away here, keeping only counts.
+  // syncEspnLeague's own docstring says its scoringSummary() reaches "every
+  // manual sync and scheduled roster refresh" (espn-scoring-report.js:7-8),
+  // but the scheduled path never carried it past this return, so an ESPN
+  // league paying a stat id the app cannot apply never showed it on this
+  // path — only a manual "Sync" click did. Only `scoring` is kept (not the
+  // full sync `detail`, which can carry the whole league payload) to match
+  // the "small enough for the Data Health page" convention other jobs here
+  // already follow (see refreshManagerArchetypes above).
+  return { leagues: results.length, failed: results.filter(r => !r.ok).length, results };
 }
 
 /**

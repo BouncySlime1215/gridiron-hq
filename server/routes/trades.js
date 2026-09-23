@@ -10,7 +10,7 @@ import { row, rows } from '../db/index.js';
 import { assertLeagueMember } from '../platform/auth.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import {
-  findTrades, findTradeSequences, offerFor, offerForMany, selfScout, playerOutlook, evaluate,
+  findTrades, findTradeSequences, offerFor, offerForMany, selfScout, playerOutlook, evaluate, lineupValueContext,
   assetUniverse, loadRosters, lineupSlots, bestLineup, resolvePlayer, lineupDiff, playerEvidence,
   tradeWeekContext
 } from '../services/trade-engine.js';
@@ -43,7 +43,7 @@ import { lineupCall } from '../services/lineup-brain.js';
 import { lineupSignals } from '../services/lineup-signals.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
-import { tradeImpact } from '../services/season-sim.js';
+import { tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
 // TM-09: historical revealed trade prices (aggregate table), read-only, default-off.
 import { marketForPlayer } from '../services/trade-market.js';
 import { playerHype } from '../services/hype.js';
@@ -189,7 +189,7 @@ r.get('/:leagueId/brain/plan', retired('/api/trades/:leagueId/find',
  * RETIRED 2026-09-18 (trade-engine-correctness, GATE G7).
  *
  * `sellHigh` is still exported from waiver-brain.js, but (S-19) it is not an
- * input to the "hype window" tactic, which reads usage gaps
+ * input to the "outscoring his usage" tactic, which reads usage gaps
  * (talk-vs-model.js#expectationGaps); it now reads the one hype producer,
  * services/hype.js#playerHype. What is retired is serving it as its own page:
  * a list of players priced above their production curve, with no buyer attached
@@ -662,7 +662,7 @@ r.get('/:leagueId/title-trades', (req, res, next) => {
     res.json(titleOddsTrades(lg.id, {
       teamId: req.query.team_id,
       shortlist: Math.min(12, Math.max(3, Number(req.query.shortlist) || 6)),
-      runs: Math.min(2000, Number(req.query.runs) || 800)
+      runs: Math.min(2000, Number(req.query.runs) || TRADE_IMPACT_RUNS)
     }));
   } catch (e) { next(e); }
 });
@@ -876,7 +876,8 @@ r.post('/:leagueId/evaluate', (req, res, next) => {
       : teams.find(t => t.roster_id !== meId && gets.some(g => t.players.some(p => p.id === g.id)));
     if (!them) return res.status(400).json({ error: 'could not work out who you are trading with — pass their_team_id' });
 
-    res.json({ ...evaluate({ team: me, gives }, { team: them, gives: gets }, slots), slots });
+    res.json({ ...evaluate({ team: me, gives }, { team: them, gives: gets }, slots,
+      { lineupValue: lineupValueContext(lg, assets, teams) }), slots });
   } catch (e) { next(e); }
 });
 
@@ -1179,8 +1180,9 @@ Respond with ONLY JSON:
        * from that one paired run, which is why checking both teams costs nothing
        * extra.
        *
-       * A fixed seed keeps a given deal's answer reproducible: re-opening the
-       * same card must not quietly produce a different verdict.
+       * tradeImpact's default seed (one per league state) keeps a given deal's
+       * answer reproducible AND equal to the Title-impact tab's and TradeCard's
+       * delta for the same deal (RL-6-3: this used to hard-code seed 1).
        *
        * Returns null rather than throwing when the deal cannot be resolved
        * against the real rosters — the second opinion is an optional layer and
@@ -1190,7 +1192,7 @@ Respond with ONLY JSON:
         if (!simArgs) return null;
         try {
           const started = Date.now();
-          const impact = tradeImpact(lg, { ...simArgs, runs, seed: 1 });
+          const impact = tradeImpact(lg, { ...simArgs, runs });
           return impact?.error ? impact : { ...impact, compute_ms: Date.now() - started };
         } catch (e) {
           console.warn(`[trade-sense-check] season simulation unavailable: ${e.message}`);

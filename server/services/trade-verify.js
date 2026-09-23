@@ -75,9 +75,10 @@ export const STANCE_OF_VERDICT = Object.freeze({
  * A contradiction must clear BOTH bars, the same two-bar shape
  * `draft-advice-verify.js` uses — but every number below is this quantity's own.
  *
- * NOISE_SD_AT_REFERENCE_RUNS = 0.0155 — statistical, and MEASURED rather than
- * assumed. `tradeImpact()` publishes a `title_delta` and no standard error for
- * it, so there is no formula to read the noise off; it had to be sampled. Three
+ * NOISE_SD_AT_REFERENCE_RUNS = 0.0155 — FALLBACK ONLY since RL-6-3, which made
+ * `tradeImpact()` publish the paired SE of its own delta (`contradictionBar`
+ * uses that when present). The constant was sampled on the old position-keyed
+ * pairing, when `tradeImpact()` published no standard error; it had to be sampled. Three
  * real deals from the trade finder on a live 12-team league were each
  * re-simulated under six different seeds at 600 runs, and the seed-to-seed sd of
  * `me.title_delta` came out at 0.0069, 0.0122 and 0.0139. The noisiest of the
@@ -156,11 +157,20 @@ export function stanceOf(verdict) {
   return STANCE_OF_VERDICT[verdict.trim().toLowerCase()] ?? null;
 }
 
-/** The bar a title-odds gap must clear, in absolute title-odds probability. */
-export function contradictionBar(runs, threshold = TRADE_VERIFY_THRESHOLD) {
+/**
+ * The bar a title-odds gap must clear, in absolute title-odds probability.
+ *
+ * RL-6-3: `tradeImpact()` now publishes the paired standard error of its own
+ * delta (`title_delta_se`), so when one is given the noise bar is SE_FACTOR x
+ * that SE for THIS deal. The measured constant is the fallback for an impact
+ * with no SE; it was sampled on the old position-keyed pairing and so errs wide.
+ */
+export function contradictionBar(runs, threshold = TRADE_VERIFY_THRESHOLD, pairedSe = null) {
   const n = Math.max(1, num(runs) ?? threshold.REFERENCE_RUNS);
-  const noise = threshold.SE_FACTOR * threshold.NOISE_SD_AT_REFERENCE_RUNS
-    * Math.sqrt(threshold.REFERENCE_RUNS / n);
+  const se = num(pairedSe);
+  const noise = se != null
+    ? threshold.SE_FACTOR * se
+    : threshold.SE_FACTOR * threshold.NOISE_SD_AT_REFERENCE_RUNS * Math.sqrt(threshold.REFERENCE_RUNS / n);
   const material = threshold.MATERIAL_TITLE_DELTA;
   // Rounded to the same 4 decimals `tradeImpact` reports its deltas at, so the
   // bar and the number being compared against it have the same resolution.
@@ -209,6 +219,7 @@ export function judgeTradeVerdict(impact, verdict, { threshold = TRADE_VERIFY_TH
     roster_id: s.roster_id, owner: s.owner,
     title_before: num(s.title_before), title_after: num(s.title_after),
     title_delta: num(s.title_delta),
+    title_delta_se: num(s.title_delta_se),
     playoff_before: num(s.playoff_before), playoff_after: num(s.playoff_after),
     playoff_delta: num(s.playoff_delta),
     wins_delta: num(s.wins_delta)
@@ -226,7 +237,7 @@ export function judgeTradeVerdict(impact, verdict, { threshold = TRADE_VERIFY_TH
       reason: 'the simulation produced no title-odds delta for my team' };
   }
 
-  const bars = contradictionBar(impact.runs, threshold);
+  const bars = contradictionBar(impact.runs, threshold, mine.title_delta_se);
   const gap = mine.title_delta;
   const withBar = {
     ...detail, stance, gap: +gap.toFixed(4),

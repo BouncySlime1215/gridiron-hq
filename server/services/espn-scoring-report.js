@@ -20,10 +20,14 @@ const STAT_SPLIT_ONE_PERIOD = 1;   // statSplitTypeId: 0 season, 1 one scoring p
 const POSITION_DST = 16;           // player.defaultPositionId for a team defense
 const MATCH_TOLERANCE = 0.01;      // points; ESPN's appliedTotal is not rounded
 
-/** The part of the report every sync carries: provenance and the ids not applied. */
+/**
+ * The part of the report every sync carries: provenance, the ids not applied,
+ * and whether the payload prices any lineup slot differently (hasOverrides /
+ * overrideSlots) so the sync response and sync_log detail show it.
+ */
 export function scoringSummary(lg) {
-  const { source, reason, unscored, unmapped } = scoringFor(lg).espn;
-  return { source, reason, unscored, unmapped };
+  const { source, reason, unscored, unmapped, hasOverrides, overrideSlots } = scoringFor(lg).espn;
+  return { source, reason, unscored, unmapped, hasOverrides, overrideSlots };
 }
 
 /** One line of text naming what the summary says the app cannot apply, or null. */
@@ -70,11 +74,12 @@ export function espnScoringReport(lg) {
   const base = scoringFor(lg);
   const dst = scoringFor(lg, { slot: ESPN_DST_SLOT });
   const lines = dstLines(lg, dst.espn.points);
-  const { source, reason, unscored, unmapped } = base.espn;
+  const { source, reason, unscored, unmapped, hasOverrides, overrideSlots } = base.espn;
   return {
     source, reason,
     player_weights: { ...base },
     unscored, unmapped,
+    hasOverrides, overrideSlots,
     dst: {
       slot: ESPN_DST_SLOT,
       source: dst.espn.source,

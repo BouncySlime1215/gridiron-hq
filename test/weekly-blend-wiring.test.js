@@ -197,3 +197,27 @@ test('the tournament\'s winner through the call site: ESPN\'s number, 0 included
     Object.assign(ON, saved);
   }
 });
+
+test('the real served config (held off by its serving holds) reaches the one producer line: ours is served, labelled', () => {
+  // Liveness for the call site: under `{ ...SERVED_BLEND, on: true }` at trade-engine.js the
+  // held-off winner (ESPN) would serve P1 ESPN's 20; with the real config it must serve ours.
+  assert.ok(realBlend.SERVING_HOLDS.length > 0, 'holds stand today');
+  assert.equal(realBlend.SERVED_BLEND.on, false);
+  const saved = { ...ON };
+  for (const k of Object.keys(ON)) delete ON[k];
+  Object.assign(ON, realBlend.SERVED_BLEND);
+  try {
+    snap(9001, 20, '2026-09-23T00:00:00Z');   // a new capture: the cached universe is rebuilt
+    const u = assetUniverse(L, FORMAT, { season: 2026, week: 2 });
+    const a = u.get(P1.id);
+    assert.equal(a.week_blend.espn_ppg, 20, 'ESPN has a number for P1 (known-nonzero control)');
+    assert.ok(Math.abs(ours(a) - 20) > 0.5, `ours ${ours(a)} differs from ESPN's 20`);
+    near(a.current_week_ppg, ours(a));
+    assert.equal(a.week_blend.basis, 'blend_off');
+    assert.equal(u.context.week_blend.on, false);
+    assert.deepEqual(u.context.week_blend.holds, realBlend.SERVING_HOLDS.map(h => h.id));
+  } finally {
+    for (const k of Object.keys(ON)) delete ON[k];
+    Object.assign(ON, saved);
+  }
+});

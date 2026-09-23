@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { api, useApi } from '../api';
 import { NOT_PROVEN_MESSAGE } from '../copy-constants';
 import type { PageExplainInfo } from './PageExplainContext';
+import { logServerDetail } from '../lib/errorSanitize';
 
 /**
  * The floating "what am I looking at" assistant — mounted once at the
@@ -171,10 +172,14 @@ export function PageExplainAssistant({ info }: { info: PageExplainInfo }) {
   </>;
 }
 
-function AnswerBlock({ answer }: { answer: Answer | undefined }) {
+export function AnswerBlock({ answer }: { answer: Answer | undefined }) {
   if (!answer) return <p className="text-xs text-slate-400">Loading…</p>;
   if (answer === 'loading') return <p className="text-xs text-slate-400">Thinking…</p>;
-  if ('error' in answer) return <p className="text-xs text-rose-700">{answer.error}</p>;
+  // UX-08b: `answer.error` is the raw server/tool-loop message — never rendered, only logged.
+  if ('error' in answer) {
+    logServerDetail('PageExplainAssistant.AnswerBlock', answer.error);
+    return <p className="text-xs text-rose-700">Couldn't get an answer. Try again in a moment.</p>;
+  }
   return <div className="space-y-1.5">
     <p className="text-sm leading-5 text-slate-800">{answer.paragraph}</p>
     {answer.limitations.length > 0 && <ul className="space-y-0.5 text-[11px] leading-4 text-slate-400">

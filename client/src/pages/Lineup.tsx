@@ -4,9 +4,11 @@ import { useApi } from '../api';
 import { useLeague } from '../state/league';
 import EvidenceStrip, { RecordLine } from '../components/lineup/EvidenceStrip';
 import { usePageExplain } from '../components/PageExplainContext';
-import { PageLoading, PageError, EmptyState } from '../components/PageState';
+import { PageLoading, PageError, EmptyState, logServerDetail } from '../components/PageState';
 import WaiverWire, { WaiverTeaser, onATeam } from '../components/lineup/WaiverWire';
 import type { WaiverBoard, OutList } from '../components/lineup/WaiverWire';
+import StreamingBoard from '../components/lineup/StreamingBoard';
+import type { StreamBoard } from '../components/lineup/StreamingBoard';
 import MatchupPosture from '../components/lineup/MatchupPosture';
 import type { Posture } from '../components/lineup/MatchupPosture';
 import StartSitGate from '../components/lineup/StartSitGate';
@@ -26,10 +28,15 @@ const CONF: Record<string, { label: string; bar: string; chip: string }> = {
   clear: { label: 'Clear', bar: 'bg-emerald-500', chip: 'bg-emerald-50 text-emerald-800 ring-emerald-200' },
   lean: { label: 'Lean', bar: 'bg-sky-500', chip: 'bg-sky-50 text-sky-800 ring-sky-200' },
   'coin flip': { label: 'Coin flip', bar: 'bg-amber-400', chip: 'bg-amber-50 text-amber-900 ring-amber-200' },
+  // A gap between two ceilings or two floors. Clear / Lean / Coin flip were measured on
+  // average-projection gaps only, so this gap gets no grade rather than a borrowed one.
+  'not measured': { label: 'Not graded', bar: 'bg-slate-400', chip: 'bg-slate-100 text-slate-600 ring-slate-200' },
   'only option': { label: 'Only option', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-600 ring-slate-200' },
   // Other eligible players existed, none of them had a projection. That is not
   // the same call as having only one option, and it should not look like one.
-  'no projection': { label: 'Not compared', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-400 ring-slate-200' }
+  'no projection': { label: 'Not compared', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-400 ring-slate-200' },
+  // RL-4-2: his game has kicked off, so the slot cannot change. No bar: nothing was compared.
+  locked: { label: 'Locked', bar: 'bg-slate-300', chip: 'bg-slate-200 text-slate-700 ring-slate-300' }
 };
 
 export default function Lineup() {
@@ -42,6 +49,8 @@ export default function Lineup() {
   // default to my own roster, exactly as the lineup request does.
   const waivers = useApi<WaiverBoard>(leagueId ? `/trades/${leagueId}/waivers` : null);
   const posture = useApi<Posture>(leagueId ? `/trades/${leagueId}/posture` : null);
+  // Defense streaming (WV-01): same league, same week as the waiver board.
+  const streams = useApi<StreamBoard>(leagueId ? `/trades/${leagueId}/streams` : null);
   // Only for the opponent's name; the same cached request the Trade Lab makes.
   const opponentId = posture.data?.opponent_roster_id ?? null;
   const { data: rosters } = useApi<any>(leagueId && opponentId ? `/trades/${leagueId}/rosters` : null);
@@ -66,18 +75,30 @@ export default function Lineup() {
     week: d?.week ?? null, objective,
     projected_points: d?.projected_points ?? null,
     coin_flips: d?.coin_flips ?? null,
+    // 'uncalibrated_for_ceiling' / '_floor': the margins are not projection gaps and
+    // carry no win rate, so the assistant must not quote one either.
+    confidence_basis: d?.confidence_basis ?? null,
     slots: (d?.lineup ?? []).length,
     warnings: (d?.warnings ?? []).length,
     // The assistant answers questions about these percentages too, so it is told the
     // same thing the page prints when the model behind them is not the validated one.
     chance_to_play_degraded: d?.availability_note
-      ? { reason: d.availability_note.reason, effect: d.availability_note.effect } : null,
+      // UX-08: plain words only; the assistant repeats what it is told, so the
+      // table/doc-path `reason` stays in the console (logged below), not here.
+      ? { reason: 'the fitted chance-to-play model is not running', effect: d.availability_note.effect } : null,
     matchup: posture.data && !posture.data.error && posture.data.win_probability != null
       ? { win_probability_pct: posture.data.win_probability, stance: posture.data.stance ?? null,
           point_edge: posture.data.edge ?? null, swaps_suggested: (posture.data.swaps ?? []).length }
       : null,
     waivers: waiverSummary(waivers.data)
   });
+
+  // UX-08: the degradation note's operator detail (table names, doc and script
+  // paths from contingency.js availabilityDegradation) is logged, never rendered.
+  if (d?.availability_note) {
+    logServerDetail('Lineup availability_note',
+      `${d.availability_note.inert} is not running: ${d.availability_note.reason}. To fix: ${d.availability_note.fix}.`);
+  }
 
   if (!leagueId) {
     return (
@@ -104,6 +125,22 @@ export default function Lineup() {
         </p>
       </header>
 
+      {/* SS-01 dead-starter guard: shown only when a starter set on ESPN will score zero.
+          A suggestion; nothing is changed on ESPN from here. */}
+      {d?.dead_starters?.items?.length > 0 && (
+        <section role="alert" className="tr-rise rounded-2xl border border-red-300 bg-red-50 p-4">
+          <h2 className="text-sm font-black uppercase tracking-wide text-red-800">
+            {d.dead_starters.items.length === 1 ? 'A starter will score zero' : `${d.dead_starters.items.length} starters will score zero`}
+          </h2>
+          <ul className="mt-2 space-y-1">
+            {d.dead_starters.items.map((i: any) => (
+              <li key={i.player.id} className="text-sm leading-6 text-slate-800">{i.why}</li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs leading-5 text-red-900/70">Make the swap on ESPN before his game starts.</p>
+        </section>
+      )}
+
       {error && !d && <PageError message={error} onRetry={refetch} />}
 
       {d && (
@@ -118,11 +155,14 @@ export default function Lineup() {
               </div>
               <div className="mt-1 text-4xl font-black tabular-nums text-white">{d.projected_points}</div>
               <p className="mt-1 text-sm text-slate-400">
-                {d.coin_flips > 0
-                  ? `${d.coin_flips} of these calls are ties inside the model's own error`
-                  : d.not_compared > 0
-                    ? `${d.not_compared} of these slots had no projection to compare against`
-                    : 'Every call has a real margin behind it'}
+                {String(d.confidence_basis ?? '').startsWith('uncalibrated_for_')
+                  ? `Gaps below are between ${d.objective_used === 'floor' ? 'bad-week floors' : 'good-week ceilings'}, `
+                    + 'not projections. Our win rates were measured on projections only, so no call is graded.'
+                  : d.coin_flips > 0
+                    ? `${d.coin_flips} of these calls are ties inside the model's own error`
+                    : d.not_compared > 0
+                      ? `${d.not_compared} of these slots had no projection to compare against`
+                      : 'Every call has a real margin behind it'}
               </p>
             </div>
             <div className="flex flex-wrap gap-1 rounded-xl bg-white/10 p-1">
@@ -172,11 +212,14 @@ export default function Lineup() {
           <h2 className="text-sm font-black uppercase tracking-wide text-slate-700">
             Chance-to-play numbers are degraded
           </h2>
+          {/* UX-08: `inert`, `reason` and `fix` name tables, doc paths and a script
+              (contingency.js availabilityDegradation) — operator detail, logged, never
+              rendered. `effect` is the plain-words half a reader acts on. */}
           <p className="mt-1.5 text-sm leading-6 text-slate-700">
-            {d.availability_note.inert} is not running: {d.availability_note.reason}.
+            The fitted chance-to-play model isn&rsquo;t running right now, so these percentages come from a simpler fallback.
           </p>
           <p className="mt-1 text-sm leading-6 text-slate-600">{d.availability_note.effect}.</p>
-          <p className="mt-1 text-xs leading-5 text-slate-500">To fix: {d.availability_note.fix}.</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">This clears once the availability model is refit.</p>
         </section>
       ) : d?.availability_basis?.basis === 'role' ? (
         <p role="status" className="text-xs leading-5 text-slate-500">
@@ -263,6 +306,9 @@ export default function Lineup() {
 
       <WaiverWire key={leagueId} data={waivers.data} loading={waivers.loading} error={waivers.error}
         onRetry={waivers.refetch} out={out} />
+
+      <StreamingBoard key={`streams-${leagueId}`} data={streams.data} loading={streams.loading} error={streams.error}
+        onRetry={streams.refetch} />
     </Shell>
   );
 }

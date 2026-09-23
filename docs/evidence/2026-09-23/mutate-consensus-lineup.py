@@ -19,6 +19,8 @@ UNIT = [
     ('2-for-1 draws from r8 stream', "a = rng2.choice(rids)", "a = rng.choice(rids)"),
     ('2-for-1 give side sign', "- sum(v - repl[p] for v, p in give)", "+ sum(v - repl[p] for v, p in give)"),
     ('bootstrap resamples rows not clusters', "for r in by[keys[i]]])", "for r in by[keys[i]][:1]])"),
+    ('bootstrap CI 90% -> 95% (skeptic mutant)', "np.percentile(d, 5)), float(np.percentile(d, 95))",
+     "np.percentile(d, 2.5)), float(np.percentile(d, 97.5))"),
     ('DESIGNED SURVIVOR per_week <= -> < (weeks=0 still caught by `not weeks`)', "weeks <= 0", "weeks < 0"),
     ('NOT-APPLIED CONTROL (string absent)', "this string is not in the file", "x"),
 ]

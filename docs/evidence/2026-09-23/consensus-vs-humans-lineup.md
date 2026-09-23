@@ -121,6 +121,16 @@ what a fresh pre-registration should test (section 5).
 None. 2025 was not opened (every query has `season <= 2024`), so there is no HOLDOUT-LEDGER row. Unit RL-8-2,
 2026-09-23.
 
+## Test fix after skeptic review
+
+A skeptic showed the pre-registered 90% interval level (prereg item 7) was untested: changing `cluster_boot`'s
+percentiles from 5/95 to 2.5/97.5 passed all 15 tests. Added `test_interval_is_prereg_90_percent` (40 clusters,
+asserts lo/hi equal `np.percentile(boot, [5, 95])` for the seed). `python3 -m unittest
+scripts/rnd/test_consensus_vs_humans_lineup.py`: 16 OK on the real code, `FAILED (failures=1)` with the mutant.
+`python3 docs/evidence/2026-09-23/mutate-consensus-lineup.py` (unit mutants only): 8 killed including this one,
+1 designed survivor, 1 not-applied control. The implementation did not change, so every number above and the FAIL
+verdict stand; the study was not re-run.
+
 ## Deviations from the pre-registration
 
 1. P2's expected centre (0.50) was mis-specified. P2b (outcome permutation) was added post-hoc; see section 3.

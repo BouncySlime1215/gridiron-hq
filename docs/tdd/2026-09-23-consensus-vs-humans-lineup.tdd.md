@@ -38,6 +38,9 @@ the build record.
   run). It now casts to int.
 - `4c0012b7` `test: kill the one-row-per-cluster bootstrap mutant; add RL-8-2 mutation sweep`. The test was wrong
   (see section 5). Now 15 tests, OK.
+- Skeptic fix (after `92ffc246`): `test_interval_is_prereg_90_percent` pins `cluster_boot` to the pre-registered
+  90% interval (prereg item 7) on a 40-cluster fixture where the 5th/95th and 2.5th/97.5th percentiles differ.
+  Now 16 tests, OK. No implementation change.
 
 ## 4. What it does
 
@@ -68,6 +71,7 @@ pre-registered output lines against the committed output.
 | 2-for-1 draws from R8's RNG stream | killed |
 | 2-for-1 give-side sign | killed |
 | bootstrap takes one row per cluster | **survived on `b43802dd`** (the test's clusters had identical rows); test added in `4c0012b7`, now killed |
+| bootstrap CI 90% → 95% (`percentile(d, 5/95)` → `2.5/97.5`; skeptic mutant) | **survived on `92ffc246`** (2-cluster fixtures give equal 2.5th and 5th percentiles); test added after `92ffc246`, now killed |
 | designed survivor: `per_week` `weeks <= 0` → `weeks < 0` | survived, as designed (equivalent: `not weeks` still catches 0) |
 | not-applied control (string absent) | NOT APPLIED |
 | call site: gate graded on S1 instead of the primary | killed (output diff at the primary block) |
@@ -108,8 +112,8 @@ on `b43802dd`, local copy, not production.
 ## 8. Nick's five questions
 
 1. **Well built?**
-   - One script with 15 unit tests.
-   - Mutation sweep: 9 mutants killed, one fixed test, one designed survivor, one not-applied control.
+   - One script with 16 unit tests.
+   - Mutation sweep: 10 mutants killed, two fixed tests, one designed survivor, one not-applied control.
    - A reproduction control stops the run unless R8's number rebuilds exactly.
    - A linkage control ties every started point to the weekly lineup table (1,843 of 1,843).
 2. **Stats or made up?**

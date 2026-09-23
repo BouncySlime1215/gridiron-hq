@@ -107,6 +107,22 @@ class Bootstrap(unittest.TestCase):
         self.assertEqual(hi, 10)   # {a, a} drawn: 10 rows
         self.assertEqual(lo, 2)    # {b, b} drawn: 2 rows
 
+    def test_interval_is_prereg_90_percent(self):
+        # added after skeptic review: prereg item 7 fixes a 90% interval; 2-cluster fixtures cannot tell 5/95 from 2.5/97.5
+        import numpy as np
+        rows = [dict(k=i, v=float(i * i)) for i in range(40)]
+        stat = lambda q: sum(r['v'] for r in q) / len(q)
+        est, lo, hi, se, nc = C.cluster_boot(rows, stat, 'k', reps=500, seed=7)
+        rg = np.random.default_rng(7)
+        boot = [sum(rows[i]['v'] for i in rg.integers(0, 40, 40)) / 40 for _ in range(500)]
+        p5, p95 = np.percentile(boot, [5, 95])
+        p25, p975 = np.percentile(boot, [2.5, 97.5])
+        self.assertGreater(abs(p5 - p25), 1.0)     # fixture really separates the two levels
+        self.assertGreater(abs(p975 - p95), 1.0)
+        self.assertAlmostEqual(lo, p5, places=9)
+        self.assertAlmostEqual(hi, p95, places=9)
+        self.assertEqual(nc, 40)
+
     def test_mde_uses_house_constant(self):
         self.assertAlmostEqual(C.MDE_Z, 1.6449 + 0.8416)
         self.assertAlmostEqual(C.mde80(0.04), 0.04 * (1.6449 + 0.8416))

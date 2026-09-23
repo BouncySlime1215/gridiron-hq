@@ -77,6 +77,7 @@ function league({ mine, theirs = [dst('NYG'), ...filler(15)], slotCounts = SLOT_
 
 const { rankDefenses, streamingBoard, MIN_EDGE, WV01_STREAMING_BOARD_ENABLED } = await import('../server/services/streaming-board.js');
 const { linesFor } = await import('../server/services/gamescript.js');
+const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
 const NOW = new Date('2026-09-24T12:00:00Z');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -234,4 +235,80 @@ test('GET /api/trades/:leagueId/streams serves the board for a member', async ()
     assert.equal(body.suggestion?.add?.team, 'SEA');
     assert.equal(body.unconfirmed_forward, true);
   } finally { server.close(); }
+});
+
+// ---------------------------------------------------------------- PREVIEW-01
+// PREVIEW_ENV is imported with the other modules at the top: a top-level await placed
+// after test() calls lets Node 22 run test.after (db.close) before these tests.
+function withPreview(value, fn) {
+  const saved = process.env[PREVIEW_ENV];
+  if (value === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = value;
+  try { return fn(); } finally {
+    if (saved === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = saved;
+  }
+}
+
+// Since NICK-WV01 (#208) the suggestion is on by default, so the preview switch has
+// nothing to turn on here: the board is the same with it set or unset, and carries no
+// preview field. The preview path stays for a build with the constant off.
+test('PREVIEW-01 off (unset): the board is the default-on board, no preview field', () => {
+  const lg = league({ mine: [dst('HOU'), ...filler(15)] });
+  withPreview(undefined, () => {
+    const b = streamingBoard(lg, { season: 2026, week: 3, now: NOW });
+    assert.equal(b.suggestion.action, 'swap');
+    assert.equal(b.suggestion.add.team, 'SEA');
+    assert.equal(b.unconfirmed_forward, true);
+    assert.equal('preview' in b, false);
+    assert.equal('preview_reason' in b, false);
+  });
+});
+
+test('PREVIEW-01 on: the default-on board is unchanged (no preview label, no prefix)', () => {
+  const lg = league({ mine: [dst('HOU'), ...filler(15)] });
+  const off = withPreview(undefined, () => streamingBoard(lg, { season: 2026, week: 3, now: NOW }));
+  withPreview('1', () => {
+    const b = streamingBoard(lg, { season: 2026, week: 3, now: NOW });
+    assert.deepEqual(b, off);
+    assert.equal('preview' in b, false);
+    assert.doesNotMatch(b.suggestion.why, /^Preview/);
+  });
+});
+
+test('PREVIEW-01: an explicit enabled:false still wins over the preview switch', () => {
+  const lg = league({ mine: [dst('HOU'), ...filler(15)] });
+  withPreview('1', () => {
+    const b = streamingBoard(lg, { season: 2026, week: 3, now: NOW, enabled: false });
+    assert.equal(b.suggestion.action, null);
+    assert.equal('preview' in b, false);
+  });
+});
+
+test('PREVIEW-01 on: GET /api/trades/:leagueId/streams serves the default-on suggestion, no preview field (route call site)', async () => {
+  const { hashSessionToken } = await import('../server/platform/auth.js');
+  const { legacyAuthenticated } = await import('../server/platform/legacy-access.js');
+  const { default: tradesRouter } = await import('../server/routes/trades.js');
+  run(`INSERT OR IGNORE INTO users(id, subject, display_name) VALUES (7702, 'streams-preview', 'Reader')`);
+  run(`INSERT OR REPLACE INTO auth_sessions(user_id, token_hash, expires_at) VALUES (7702, ?, datetime('now','+1 day'))`,
+    hashSessionToken('streams-preview-token'));
+  const lg = league({ mine: [dst('HOU'), ...filler(15)], id: 78 });
+  run(`INSERT INTO leagues(id, platform, league_id, season, name, payload, team_count, my_team_id, roster_positions)
+       VALUES (?, 'espn', '424278', 2026, 'L78', ?, 2, '1', ?)`, lg.id, lg.payload, lg.roster_positions);
+  run(`INSERT OR IGNORE INTO league_memberships(league_id, user_id, role) VALUES (78, 7702, 'member')`);
+  const app = express();
+  app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
+  const server = app.listen(0);
+  const saved = process.env[PREVIEW_ENV];
+  process.env[PREVIEW_ENV] = '1';
+  try {
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/api/trades/78/streams`,
+      { headers: { authorization: 'Bearer streams-preview-token' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.suggestion?.action, 'swap');
+    assert.equal(body.unconfirmed_forward, true);
+    assert.equal('preview' in body, false, 'default-on since NICK-WV01: nothing for preview to switch');
+  } finally {
+    server.close();
+    if (saved === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = saved;
+  }
 });

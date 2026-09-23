@@ -125,7 +125,10 @@ runs the test file, restores). Results:
 | N1 not-applied control: target string absent | NOT APPLIED (count 0), reported, not run |
 | R1 (review) unit: `if (slotId === IR_SLOT) continue;` deleted | survived 7/7 on 7dd9c638; **killed** on b53a28b1 (8 pass, 1 fail: IR-slot fixture in the clean-lineup test) |
 | R2 (review) call site: week_points map built from `p.ros_ppg` | survived 7/7 on 7dd9c638 (fixtures set ros_ppg = week value); **killed** on b53a28b1 (8 pass, 1 fail: the week_points-vs-ros ranking test) |
+| R4, R5 (review 2) call site: week_points map built from `p.adj_ppg` / `p.ppg` | both survived 9/9 on 94b4f1a0 (helper set adj_ppg = ppg = week value, and with `providers: {}` there is no Vegas lift, so week_points == adj_ppg and the `rep.week_points === served.week_points` check passed trivially). Fix: `player()` takes `adj` (sets adj_ppg and ppg, default week); Week Back adj 4, Season Back adj 20. On the fix tree: GREEN 9/9; R4 8 pass 1 fail, R5 8 pass 1 fail, R2 still 8 pass 1 fail (all fail only 'ranked on Start/Sit week_points'). Old test + R4 re-run: 9 pass 0 fail, so the skeptic's survival is reproduced |
 | R3 (review) old status maps instead of weekDesignation | the SUSPENSION/PUP test fails on the old code (dc827d9b with the fix stashed: 8 pass, 1 fail, expected 'out') |
+
+Note (nonblocking, from review 2): no test here separates week_points from current_week_ppg, because no fixture supplies a Vegas-lift provider.
 
 Test file now 9 tests; `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/x.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/dead-starter-guard.test.js`
 on b53a28b1: 9/9 pass. Neighbours on the same tree: lineup-floor-objective 3/3,
@@ -202,8 +205,8 @@ fitted number, so there is no ship rule to pass or fail and no MDE to report.
 ## 7. Nick's five questions
 
 1. Well built? A leaf module with one classifier, called once from the Start/Sit route, 9 tests
-   through the real route function, 17 of 17 applied mutants killed (unit and call site, incl. the
-   3 review mutants), the designed survivor survived and the not-applied control was caught. No migration, no nav change.
+   through the real route function, 19 of 19 applied mutants killed (unit and call site, incl. the
+   5 review mutants), the designed survivor survived and the not-applied control was caught. No migration, no nav change.
 2. Stats or made up? No model number. It reads ESPN statuses, the official injury report, the
    schedule and the existing week_points; the only constants are the status lists.
 3. How we know: the study's multi-season backtest says dead starts cost 2.8 pts/team-week; our

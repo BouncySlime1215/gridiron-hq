@@ -38,6 +38,7 @@ mock.module('../server/services/trade-engine.js', {
   }
 });
 const { waiverBoard, nextWaiverRun } = await import('../server/services/waiver-wire.js');
+const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -84,8 +85,11 @@ function board(mine, others, free, { acq = ACQ, now = TUESDAY, sameTeamOrder } =
   };
   const lg = { id: 1, platform: 'espn', team_count: 10, ppr: 1, my_team_id: '1',
     roster_positions: JSON.stringify(SLOTS), payload: JSON.stringify(payload) };
+  lastLeague = lg;
   return waiverBoard(lg, { now, sameTeamOrder });
 }
+/** The league the last board() call built, so a route test can store the same one. */
+let lastLeague = null;
 
 function roster({ backOne = {}, extra = [] } = {}) {
   return [
@@ -224,4 +228,93 @@ test('the waiver card reads injury_alerts (the reader that reaches the Lineup pa
   const src = fs.readFileSync(new URL('../client/src/components/lineup/WaiverWire.tsx', import.meta.url), 'utf8');
   assert.match(src, /injury_alerts/);
   assert.match(src, /claim_by/);
+});
+
+// ---------------------------------------------------------------- PREVIEW-01
+// PREVIEW_ENV is imported with the other modules at the top: a top-level await placed
+// after test() calls lets Node 22 run test.after (db.close) before these tests.
+function withPreview(value, fn) {
+  const saved = process.env[PREVIEW_ENV];
+  if (value === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = value;
+  try { return fn(); } finally {
+    if (saved === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = saved;
+  }
+}
+
+test('PREVIEW-01 off (unset): same-team replacements are in projection order, no preview field', () => {
+  withPreview(undefined, () => {
+    const r = board(roster({ backOne: { espn_status: 'OUT' } }), [], wire()).injury_alerts[0].replacements;
+    assert.equal(r.order, 'projection');
+    assert.deepEqual(r.same_team.map(x => x.player), ['Handcuff Low', 'Handcuff High']);
+    assert.equal('preview' in r, false);
+  });
+});
+
+test('PREVIEW-01 on: snap-share order, preview:true with its unconfirmed reason', () => {
+  withPreview('1', () => {
+    const r = board(roster({ backOne: { espn_status: 'OUT' } }), [], wire()).injury_alerts[0].replacements;
+    assert.equal(r.order, 'snap_share');
+    assert.deepEqual(r.same_team.map(x => x.player), ['Handcuff High', 'Handcuff Low']);
+    assert.equal(r.preview, true);
+    assert.match(r.preview_reason, /unconfirmed/);
+    assert.match(r.ranked_by, /unconfirmed/, 'the page prints ranked_by');
+  });
+});
+
+test('PREVIEW-01: an explicit sameTeamOrder still wins over the preview switch', () => {
+  withPreview('1', () => {
+    const r = board(roster({ backOne: { espn_status: 'OUT' } }), [], wire(), { sameTeamOrder: 'projection' })
+      .injury_alerts[0].replacements;
+    assert.equal(r.order, 'projection');
+    assert.equal('preview' in r, false);
+  });
+});
+
+// WaiverWire.tsx reaches the board only through GET /:leagueId/waivers, whose own waiverBoard
+// call leaves sameTeamOrder to the default. A call site that pinned it would switch preview off
+// for the page while every direct test above passed (skeptic mutant MB, trades.js:682).
+async function waiversRoute(value) {
+  const express = (await import('express')).default;
+  const { run } = await import('../server/db/index.js');
+  const { hashSessionToken } = await import('../server/platform/auth.js');
+  const { legacyAuthenticated } = await import('../server/platform/legacy-access.js');
+  const { default: tradesRouter } = await import('../server/routes/trades.js');
+  board(roster({ backOne: { espn_status: 'OUT' } }), [], wire());
+  run(`INSERT OR IGNORE INTO users(id, subject, display_name) VALUES (7703, 'waivers-preview', 'Reader')`);
+  run(`INSERT OR REPLACE INTO auth_sessions(user_id, token_hash, expires_at) VALUES (7703, ?, datetime('now','+1 day'))`,
+    hashSessionToken('waivers-preview-token'));
+  run(`INSERT OR REPLACE INTO leagues(id, platform, league_id, season, name, payload, team_count, my_team_id, roster_positions, ppr)
+       VALUES (79, 'espn', '424279', 2026, 'L79', ?, 10, '1', ?, 1)`, lastLeague.payload, lastLeague.roster_positions);
+  run(`INSERT OR IGNORE INTO league_memberships(league_id, user_id, role) VALUES (79, 7703, 'member')`);
+  const app = express();
+  app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
+  const server = app.listen(0);
+  const saved = process.env[PREVIEW_ENV];
+  if (value === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = value;
+  try {
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/api/trades/79/waivers`,
+      { headers: { authorization: 'Bearer waivers-preview-token' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok(Array.isArray(body.injury_alerts) && body.injury_alerts.length >= 1, 'the Out starter alerts');
+    return body.injury_alerts[0].replacements;
+  } finally {
+    server.close();
+    if (saved === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = saved;
+  }
+}
+
+test('PREVIEW-01 on: GET /api/trades/:leagueId/waivers serves snap-share order with preview:true (route call site)', async () => {
+  const r = await waiversRoute('1');
+  assert.equal(r.order, 'snap_share');
+  assert.equal(r.preview, true);
+  assert.match(r.preview_reason, /unconfirmed/);
+  assert.deepEqual(r.same_team.map(x => x.player), ['Handcuff High', 'Handcuff Low']);
+});
+
+test('PREVIEW-01 off (unset): GET /api/trades/:leagueId/waivers serves projection order, no preview field', async () => {
+  const r = await waiversRoute(undefined);
+  assert.equal(r.order, 'projection');
+  assert.equal('preview' in r, false);
+  assert.deepEqual(r.same_team.map(x => x.player), ['Handcuff Low', 'Handcuff High']);
 });

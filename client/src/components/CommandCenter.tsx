@@ -33,7 +33,8 @@ export interface CommandCenterPayload {
 }
 
 const TONE: Record<Tone, string> = {
-  red: 'border-l-red-600', amber: 'border-l-amber-500', green: 'border-l-emerald-600', grey: 'border-l-slate-300',
+  // `!`: .card sets its own border outside Tailwind's layers, so the tone needs the important modifier to show.
+  red: '!border-l-red-600', amber: '!border-l-amber-500', green: '!border-l-emerald-600', grey: '!border-l-slate-300',
 };
 const CHECK_LABEL: Record<string, string> = {
   dead_starters: 'dead starters', injury_alerts: 'injury alerts', streams: 'defense streaming', moves: 'weekly moves',
@@ -63,7 +64,7 @@ export function missingChecks(p: CommandCenterPayload) {
 }
 
 export function CommandCard({ item, onAct }: { item: CommandItem; onAct: (item: CommandItem) => void }) {
-  return <Card as="article" className={`border-l-4 ${TONE[item.tone]} p-4`}>
+  return <Card as="article" className={`!border-l-4 ${TONE[item.tone]} p-4`}>
     <div className="font-bold text-slate-900">{item.what}</div>
     <p className="mt-1 text-sm text-slate-600">{item.why}</p>
     <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">

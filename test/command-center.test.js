@@ -39,11 +39,12 @@ db.exec(`INSERT INTO game_lines (season, week, team, opponent, gameday, gametime
 
 // ---------------------------------------------------------------- producer stubs
 const producerOut = new Map(); // league id -> { diff, waivers, streams }
+const cookieSeen = []; // did any producer receive a league row carrying the cookie columns?
 const te = await import('../server/services/trade-engine.js');
 mock.module('../server/services/trade-engine.js', { namedExports: {
   ...te,
   tradeWeekContext: () => ({ season: 2026, week: 3 }),
-  lineupDiff: lg => producerOut.get(Number(lg.id))?.diff ?? { flagged_starters: [], swaps: [] },
+  lineupDiff: lg => { cookieSeen.push('espn_s2' in lg || 'swid' in lg); return producerOut.get(Number(lg.id))?.diff ?? { flagged_starters: [], swaps: [] }; },
 } });
 const ww = await import('../server/services/waiver-wire.js');
 mock.module('../server/services/waiver-wire.js', { namedExports: {
@@ -210,6 +211,7 @@ test('GET /api/command-center: the RED league yields three items, only the user\
   assert.equal(res.status, 200);
   const text = await res.text();
   assert.ok(!text.includes(COOKIE), 'league cookies never leave the server');
+  assert.ok(cookieSeen.length > 0 && cookieSeen.every(x => x === false), 'producers get a league row without the cookie columns');
   const body = JSON.parse(text);
   assert.deepEqual(body.leagues.map(l => l.id).sort(), [redLeague, quietLeague].sort());
   const red = body.items.filter(i => i.league.id === redLeague).map(i => i.kind).sort();

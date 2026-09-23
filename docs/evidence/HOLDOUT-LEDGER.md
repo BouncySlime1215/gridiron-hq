@@ -307,6 +307,24 @@ None yet. On a local copy (not production, 2026-09-22), `weekly_ensemble_fits`
 has 2 rows, both through 2025 week 18 (the known-nonzero control), and
 `model_backtests` has 0 rows.
 
+**HX-01's forward read (added 2026-09-22).** The rows below are the first `F` rows: the 2026
+week-2 forward read of HX-01 (historical head-to-head against consensus;
+`docs/tdd/2026-09-22-historical-consensus-head-to-head.tdd.md` §5.6). HX-01 changes no served
+number, so `shipped` is `n.a.`. One week: every row is an anecdote, not a verdict. The week-2
+job-fit query on HX-01's copy (local copy, not production, taken 2026-09-22 23:13Z) still
+returns no `weekly_ensemble_fits` row with `through_season >= 2026` (2 rows in the table, the
+control). HX-01 adds no `L` row: it did not open 2025.
+
+| id | date | unit/PR | domain | family | hypothesis | metric | result | est | lo | hi | level | p (source) | better | shipped | file:line | note |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| F001 | 2026-09-22 | HX-01 | fantasy | other | Our served start/sit number beats FantasyPros consensus on 2026 week 2 | points per disagreement, ours − consensus, 837 disagreements, player-clustered | not distinguishable | -0.4114 | -2.2923 | +1.3633 | 90 |  | + | n.a. | `docs/evidence/2026-09-22/historical-consensus-head-to-head-output.json` `forward.results.ours_vs_consensus` | one week; win rate 0.4379 [0.3416, 0.5321] |
+| F002 | 2026-09-22 | HX-01 | fantasy | other | Our served start/sit number beats ESPN's weekly projection on 2026 week 2 | points per disagreement, ours − ESPN, 605 disagreements, player-clustered | not distinguishable | -0.2871 | -2.1014 | +1.5240 | 90 |  | + | n.a. | same file, `forward.results.ours_vs_espn` | one week; rostered players only; ESPN value is at lock |
+| F003 | 2026-09-22 | HX-01 | fantasy | other | Same as F002 at C-01's 8.0 startable line | points per disagreement, 164 disagreements | not distinguishable | -0.3120 | -3.9647 | +3.2052 | 90 |  | + | n.a. | same file, `forward.results.ours_vs_espn_startable_8` | laid beside C-01's 0.378 (a different arm: C-01 graded the ensemble snapshot) |
+| F004 | 2026-09-22 | HX-01 | fantasy | other | Our served start/sit number beats the season-to-date average on 2026 week 2 | points per disagreement, 954 disagreements | ours ahead | +3.5528 | +1.1320 | +6.2563 | 90 |  | + | n.a. | same file, `forward.results.ours_vs_std` | in week 2 the season average is the week-1 score |
+| F005 | 2026-09-22 | HX-01 | fantasy | other | Our served start/sit number beats the last-3 average on 2026 week 2 | points per disagreement, 954 disagreements | ours ahead | +3.5528 | +1.1320 | +6.2563 | 90 |  | + | n.a. | same file, `forward.results.ours_vs_l3` | identical to F004: in week 2 the last-3 average is also the week-1 score |
+| F006 | 2026-09-22 | HX-01 | fantasy | other | FantasyPros consensus beats the season-to-date average on 2026 week 2 | points per disagreement, 1,044 disagreements | consensus ahead | +3.5880 | +1.4463 | +5.8217 | 90 |  | + | n.a. | same file, `forward.results.consensus_vs_std` | known-direction check |
+| F007 | 2026-09-22 | HX-01 | fantasy | other | ESPN's weekly projection beats the season-to-date average on 2026 week 2 | points per disagreement, 790 disagreements | ESPN ahead | +3.6835 | +1.1061 | +6.6242 | 90 |  | + | n.a. | same file, `forward.results.espn_vs_std` | known-direction check |
+
 ## File classification: every file the census returns
 
 | file | class | rows | why |

@@ -8,6 +8,7 @@ import OffseasonPanel from '../components/OffseasonPanel';
 import TeamSchedule from '../components/TeamSchedule';
 import SidePanel from '../components/SidePanel';
 import { EmptyState, PageError, PageLoading } from '../components/PageState';
+import { sanitizedAlert, sanitizedMessage } from '../lib/errorSanitize';
 
 type Phase = 'offense' | 'defense' | 'special_teams' | 'schedule' | 'offseason';
 
@@ -66,7 +67,7 @@ export default function TeamDetail() {
   const pullTeamNews = async () => {
     setNewsBusy(true);
     try { await api(`/espn/sync-news?team=${abbr}`, { method: 'POST' }); refetchNews(); }
-    catch (e: any) { alert(`News pull failed: ${e.message}`); }
+    catch (e: any) { sanitizedAlert('TeamDetail.pullTeamNews', 'News pull failed', e.message); }
     finally { setNewsBusy(false); }
   };
 
@@ -75,9 +76,11 @@ export default function TeamDetail() {
     try {
       const r = await api('/analysis/refresh', { method: 'POST', body: JSON.stringify({ teams: [abbr] }) });
       const t = r.refreshed?.[0];
-      setAiMsg(t?.error ? `AI refresh failed: ${t.error}` : t?.changed ? `Outlook updated — ${t.reason}` : `No changes needed — ${t?.reason ?? 'analysis is current'}`);
+      setAiMsg(t?.error
+        ? sanitizedMessage('TeamDetail.refreshOutlook', 'AI refresh failed', t.error)
+        : t?.changed ? `Outlook updated — ${t.reason}` : `No changes needed — ${t?.reason ?? 'analysis is current'}`);
       refetchTeam();
-    } catch (e: any) { setAiMsg(e.message); }
+    } catch (e: any) { setAiMsg(sanitizedMessage('TeamDetail.refreshOutlook', 'Outlook refresh failed', e.message)); }
     finally { setAiBusy(false); }
   };
   const { data: validation } = useApi<any>(`/analysis/validate?team=${abbr}`);
@@ -392,7 +395,7 @@ function ExplainButton({ newsId, onDone }: { newsId: number; onDone: () => void 
         onClick={async () => {
           setBusy(true); setErr(null);
           try { await api(`/news/${newsId}/explain`, { method: 'POST' }); onDone(); }
-          catch (e: any) { setErr(e.message); }
+          catch (e: any) { setErr(sanitizedMessage('TeamDetail.ExplainButton', "Couldn't explain that", e.message)); }
           finally { setBusy(false); }
         }}>
         {busy ? 'Reading…' : '✨ What does this mean?'}

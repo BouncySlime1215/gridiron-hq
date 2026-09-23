@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, useApi } from '../api';
+import { sanitizedMessage } from '../lib/errorSanitize';
 
 /**
  * One-click ESPN connection.
@@ -49,7 +50,15 @@ export default function EspnConnect() {
       refetch();
       discover(true);
     } catch (e: any) {
-      setPasteErr(e.message);
+      // UX-08c: POST /espn-connect/cookies answers 400/401 with its own plain copy
+      // (missing cookie, validateCookies() reason) — show that verbatim. Anything
+      // else (a 5xx from the route's app_settings/leagues writes falling through to
+      // the global handler's raw err.message, or a network failure with no status)
+      // is not user copy, so it goes through the sanitizer.
+      const status = typeof e?.status === 'number' ? e.status : 0;
+      setPasteErr(status >= 400 && status < 500
+        ? e.message
+        : sanitizedMessage('EspnConnect.paste', "Couldn't save those cookies", e?.message));
     } finally { setBusy(false); }
   };
 
@@ -61,7 +70,7 @@ export default function EspnConnect() {
       setDiscovered(d.leagues);
       if (!silent && !d.leagues.length) setMsg('Connected, but no fantasy football leagues found on this account for this season.');
     } catch (e: any) {
-      setMsg(silent ? `ESPN could not refresh your leagues: ${e.message}` : e.message);
+      setMsg(sanitizedMessage('EspnConnect.discover', silent ? 'ESPN could not refresh your leagues' : 'ESPN league lookup failed', e.message));
     }
     finally { setBusy(false); }
   };
@@ -99,7 +108,7 @@ export default function EspnConnect() {
       await api(`/leagues/${r.id}/sync`, { method: 'POST' });
       setMsg(`Added and synced ${l.name}.`);
       refetch();
-    } catch (e: any) { setMsg(`Added, but the first sync failed: ${e.message}. Try “Sync” in League Hub → Connections.`); }
+    } catch (e: any) { setMsg(sanitizedMessage('EspnConnect.add', 'Added, but the first sync failed. Try “Sync” in League Hub → Connections', e.message)); }
     finally { setBusy(false); }
   };
 

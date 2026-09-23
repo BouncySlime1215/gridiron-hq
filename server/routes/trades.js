@@ -11,7 +11,8 @@ import { assertLeagueMember } from '../platform/auth.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import {
   findTrades, findTradeSequences, offerFor, offerForMany, selfScout, playerOutlook, evaluate,
-  assetUniverse, loadRosters, lineupSlots, bestLineup, resolvePlayer, lineupDiff, playerEvidence
+  assetUniverse, loadRosters, lineupSlots, bestLineup, resolvePlayer, lineupDiff, playerEvidence,
+  tradeWeekContext
 } from '../services/trade-engine.js';
 // The same season-by-season prompt lines and "argue from the numbers" rules the
 // draft advisor runs on (server/routes/drafts.js) — one voice for both rooms.
@@ -19,6 +20,7 @@ import { evidenceLines, evidenceHeadline, STAT_ROOTED_INSTRUCTIONS } from '../se
 import { dvpTable, matchupModel, matchupSignalActive, MATCHUP_SIGNAL_REASON } from '../services/matchups.js';
 import { leagueCurrentWeek } from '../services/league-week.js';
 import { waiverBoard } from '../services/waiver-wire.js';
+import { streamingBoard } from '../services/streaming-board.js';
 import { lineupPosture } from '../services/lineup-posture.js';
 import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
@@ -42,6 +44,8 @@ import { lineupSignals } from '../services/lineup-signals.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
 import { tradeImpact } from '../services/season-sim.js';
+// TM-09: historical revealed trade prices (aggregate table), read-only, default-off.
+import { marketForPlayer } from '../services/trade-market.js';
 import {
   proposeVerifyRetryTrade, judgeTradeVerdict, tradeChallengeText, SENSE_CHECK_SIM_RUNS
 } from '../services/trade-verify.js';
@@ -682,6 +686,19 @@ r.get('/:leagueId/waivers', (req, res, next) => {
 });
 
 /**
+ * The defense streaming board (WV-01): free-agent defenses ranked by the implied
+ * points of the offense they face, the edge over the defense you hold, and one
+ * add suggestion that fits the roster. Same week as the waiver board.
+ */
+r.get('/:leagueId/streams', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const { season, week } = tradeWeekContext();
+    res.json(streamingBoard(lg, { myTeamId: req.query.team_id, season, week }));
+  } catch (e) { next(e); }
+});
+
+/**
  * Floor or ceiling, against THIS week's opponent.
  *
  * Maximising expected points is the wrong objective in a head-to-head week. As
@@ -996,6 +1013,20 @@ r.get('/:leagueId/player/:id', (req, res, next) => {
       };
     }
     res.json({ ...playerOutlook(lg, req.params.id), valuation_map: panel });
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------ market prices from real trades (TM-09) */
+// What this player fetched in real Sleeper trades (2021-2024 aggregates), the
+// position x week x league-size price-to-value ratio, and the hype-decay reading.
+// Historical and labelled "unconfirmed forward"; no trade card reads it yet.
+r.get('/:leagueId/market/:playerId', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const player = row('SELECT id, name, position, sleeper_id FROM players WHERE id = ?', req.params.playerId);
+    if (!player) { res.status(404).json({ error: 'player not found' }); return; }
+    res.json({ league_id: lg.id,
+      ...marketForPlayer({ player, week: leagueCurrentWeek(lg), teams: lg.team_count ?? null }) });
   } catch (e) { next(e); }
 });
 

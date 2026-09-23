@@ -811,6 +811,30 @@ test('G5d5: a transactions table that will not read does not take the trade read
  * are the ones selfRead already uses — 'absent', 'unreadable', 'read' — because
  * two vocabularies for one distinction is how two surfaces come to disagree.
  */
+/**
+ * G5d7 NOT THROWING IS NOT ENOUGH: THE READS SAY 'unreadable'. #94 removed
+ * timingRead's bare `catch { tx = []; }` so a query fault throws; G5d5 then
+ * failed on the merged tree with "no such column: tx_id". The reads now take
+ * the accessor's state instead of querying a table it could not read — and
+ * must not fall through to "not enough decisions", a claim about a sample that
+ * was never taken.
+ */
+test('G5d7: a table that will not read reaches timing and veto as unreadable, not as a short sample', () => {
+  const bent = 'CREATE TABLE league_transactions_raw (league_id INTEGER NOT NULL)';
+  withTableReplaced({ rows, run }, 'league_transactions_raw', bent, () => {
+    const timing = [...tactics.timingRead(LEAGUE, { season: SEASON, now: NOW }).values()];
+    assert.ok(timing.length > 0, 'every roster still gets an entry');
+    for (const e of timing) {
+      assert.equal(e.read_state, 'unreadable');
+      assert.match(e.decisions_reason, /would not read/);
+      assert.doesNotMatch(e.decisions_reason, /rests on/, 'no sample was taken, so none came back short');
+    }
+    const climate = tactics.vetoClimate(LG, { season: SEASON });
+    assert.equal(climate.read_state, 'unreadable');
+    assert.match(climate.reason, /would not read/);
+  });
+});
+
 test('G5d6: the collection block names which of the three states the read was in', () => {
   const live = signals.transactionsCollected(LEAGUE, SEASON);
   assert.equal(live.read_state, 'read');

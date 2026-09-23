@@ -51,7 +51,7 @@ const splitRow = line => {
   const delimiter = line.includes('|') ? '|' : line.includes('\t') ? '\t' : ',';
   return line.split(delimiter).map(c => c.trim()).filter(Boolean);
 };
-const isMarkdownSeparator = line => /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(line);
+const isMarkdownSeparator = line => /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(line);
 
 /** Every array (at any depth) of 3+ objects whose shared keys form a per-player FantasyPros header. */
 function jsonViolations(value, relPath, trail = '$') {

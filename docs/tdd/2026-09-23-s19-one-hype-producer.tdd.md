@@ -71,6 +71,8 @@ Test edits after RED, before GREEN passed: the AI-branch mock returned a bare st
 - `POST /api/players/:id/analyze` (`server/routes/players.js:175`, call `:184`): `heuristicVerdict` is gone. Both branches return `hype` unchanged. No key: 400 with the reason and `hype` (it used to write a momentum SELL/BUY/HOLD). AI branch: fallback verdict is `hype.verdict ?? 'HOLD'`, which is `'HOLD'` today, as it already was on the local copy (no `fc_*` rows). Page: PlayerCard "Get verdict" (`client/src/components/PlayerCard.tsx:96`) shows the 400 message in its existing error slot.
 - `sellHigh` (`server/services/waiver-brain.js:461`, call `:466`): the curve is gone. It reads `playerHype` for each rostered player (rosters from `trade-engine#loadRosters`) and flags only `verdict === 'SELL'`. Still no caller.
 - `GET /api/trades/:leagueId/market/:playerId` (`server/routes/trades.js:1007`, call `:1015`): adds `hype` from `playerHype`. `trade-market.js` `OTHER_HYPE_PRODUCERS` is now `[]`, and its note points at the one producer.
+- **Scope of "one producer".** It covers the price-minus-value concept (market hype / sell-high): PlayerCard verdict, `sellHigh`, the TM-09 route. It does NOT cover the usage-gap surfaces `hype_window` (`trade-tactics.js:795`) and `hype_vs_usage` (`counterparty-pricing.js:634`), which measure actual minus usage-expected points from `expectationGaps` (`talk-vs-model.js:51`). They are one producer of a different concept. Their served text now names `services/hype.js#playerHype` as the price-hype number they are not (`bb8e06c4`).
+- `trade-engine.js` `tagDeal` served a `'Sell High'` tag on trade cards (`client/src/components/TradeCard.tsx:212`, `deal.tags`) from an age rule: `oldest(give) >= 29 && youngest(get) < oldest(give)`. It read no price. Renamed `'Sell the Veteran'` in `bb8e06c4`, so no surface outside `hype.js` claims sell-high. `grep -rn "Sell High" server client/src` then finds only the explanatory comment.
 - Stale claims fixed: `trades.js:185-198` said `sellHigh` "remains an input to the hype-window tactic" (served in the retired route's body). It was never read there.
 
 ## Liveness (local copy, not production)
@@ -81,7 +83,7 @@ Test edits after RED, before GREEN passed: the AI-branch mock returned a bare st
 
 ## Mutation sweep
 
-`python3 docs/tdd/sweeps/s19-mutations.py` on `1f385059`: 14 of 14 as designed. The first pass on `2c12b915` + sweep had 2 unplanned survivors:
+`python3 docs/tdd/sweeps/s19-mutations.py` on `bb8e06c4`: 19 of 19 as designed (69 s). On `1f385059` it was 14 of 14; a skeptic then found mutant MU1 (`r.week > hit.week` flipped to `<`, serving the EARLIEST eligible week) survived all 7 tests, because the fixture had only one eligible current-season row. Fixed in `c884f43d`: `NFL_WEEK=6` and three eligible rows in scrambled order (weeks 3, 6, 2) plus a future week 18, and the control asserts `week === 6`. Now M6 (earliest), M7 (first row) and M8 (last row) are all killed. The first pass on `2c12b915` + sweep had 2 unplanned survivors:
 - M1 (season gate removed) survived because the old-season fixture row sat at week 5, so the week gate hid it;
 - M4 (no_sleeper_id guard removed) survived because `String(null)` matched nothing and still read unavailable.
 Both were closed in `1f385059` (old row at week 1; assert `reason === 'no_sleeper_id'`).
@@ -100,8 +102,19 @@ Both were closed in `1f385059` (old row at week 1; assert `reason === 'no_sleepe
 | C5 sellHigh keys on player id | killed | killed (contract) |
 | C6 sellHigh flags without the producer | killed | killed (retired sellHigh) |
 | C7 analyze writes a verdict with no signal | killed | killed (retired heuristic) |
+| M6 selection order flipped (earliest eligible week) | killed | killed (control) |
+| M7 first eligible row wins | killed | killed (control) |
+| M8 last eligible row wins | killed | killed (control) |
+| C8 trade-engine tag says 'Sell High' again | killed | killed (scan) |
+| C9 hype_window why names the removed sellHigh curve | killed | killed (scan) |
 | S1 designed survivor: `>=` week tie-break (weeks unique per player-season) | survives | survives |
 | N1 not-applied control | not-applied | not-applied |
+
+## Skeptic round 2 (RED/GREEN)
+
+- RED `c884f43d` (test: S-19 RED for skeptic findings): with `server/` from `f94fb55a` (`git stash push -- server`), `test/hype-one-producer.test.js` is 7 pass / 1 fail: test 8 "no other served string claims sell-high or names the removed sellHigh curve" fails (control `expected: true, actual: false`: trade-engine still pushes `'Sell High'`). The latest-week gap is shown by M6-M8 in the sweep instead: they are killed only with the new fixture.
+- GREEN `bb8e06c4`: `hype-one-producer` 8/8; `trade-tactics` 39/39; `valuation-map` 47/47 (the two test files that name `hype_window`/`hype_vs_usage`). Command per file: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/<file>.test.js`.
+- `grep -rn "market-price curve in waiver-brain#sellHigh" server` on `bb8e06c4`: 0 hits (was 2).
 
 ## Statistical discipline
 
@@ -112,17 +125,17 @@ Both were closed in `1f385059` (old row at week 1; assert `reason === 'no_sleepe
 ## Known defects / follow-ups
 
 - **This branch contains #183.** Merge #183 first (or together). If #183 changes `trade-market.js` or its test, this branch has to merge it again.
-- `expectationGaps` (`talk-vs-model.js:51`) is a separate "hype" word: usage gap, used by `hype_window` and `hype_vs_usage`. It is one producer of a different concept, and it is not unified here. Follow-up: rename the tactic label ("outscoring his usage") or fold it into `hype.js` as a second field. The served `why` strings at `trade-tactics.js:803` and `counterparty-pricing.js:634` still say "NOT the market-price curve in waiver-brain#sellHigh", and that curve no longer exists. They are left for that follow-up, because they are other threads' files.
+- `expectationGaps` (`talk-vs-model.js:51`) is a separate "hype" word: usage gap, used by `hype_window` and `hype_vs_usage`. It is one producer of a different concept, scoped out of this unit (see "Scope" above). Follow-up (not yet a queue row; the coordinator owns WORK-QUEUE): rename the tactic label ("outscoring his usage") so the word "hype" means one thing. The two served strings that named the removed `sellHigh` curve were fixed here (`bb8e06c4`), and a scan test now fails if any server file names `waiver-brain#sellHigh` again.
 - `player_metrics` `fc_value`/`fc_trend30` (writer `syncFantasyCalc`, `aggregates.js:88`) have 0 rows on the local copy, and `sync_log` has no `fantasycalc_values` run. The `market.trend` evidence fact in the AI packet is therefore always empty there. Not this unit's surface; reported.
 - No-key users lose the momentum SELL/BUY. This is intended: it was untested, and it contradicted `sellHigh` on 57 of 89 flags.
 - `sellHigh` still has no caller. It is kept because `test/trade-route-retirement.test.js` G7c asserts it exists. Deleting it is a separate decision.
 
 ## Nick's five questions
 
-1. **Well built?** One function, three surfaces pass its value through unchanged, and a contract test proves it per player. 14/14 mutants behave as designed, including one call-site mutant per surface. No migration, no new table.
+1. **Well built?** One function, three surfaces pass its value through unchanged, and a contract test proves it per player. 19/19 mutants behave as designed, including one call-site mutant per surface and three week-selection mutants. No migration, no new table.
 2. **Stats or made up?** The one producer is TM-09's held-out-tested revealed-price table. The two made-up ones (a 5% momentum cutoff, a z >= 1 curve) are retired. Today it says "no 2026 price" for every player, and that is true.
 3. **How do we know?** Contract test `test/hype-one-producer.test.js` (RED `bd4e9bb6`, GREEN `2c12b915`). The same-player comparison above found 57/89 opposite calls between the old two. Liveness on the local copy: 83 readings, all the one producer's.
-4. **Pointed elsewhere?** Before: PlayerCard's no-key verdict came from FantasyCalc momentum, `sellHigh` from its own curve, and the TM-09 route from trade prices. After: all three read `hype.js#playerHype`.
+4. **Pointed elsewhere?** Before: PlayerCard's no-key verdict came from FantasyCalc momentum, `sellHigh` from its own curve, and the TM-09 route from trade prices. After: all three read `hype.js#playerHype`. The trade-card `'Sell High'` tag was an age rule and is now called `'Sell the Veteran'`.
 5. **How does it unify?** One concept (price minus value), one producer, one sign, one units field, one default-off flag. The usage-gap "hype window" is named as a separate concept, with the follow-up above.
 
 ## Holdout looks

@@ -9,6 +9,7 @@ import QuickJump from './components/QuickJump';
 import { NAV_GROUPS, destinationLabel } from './navigation';
 import EspnConnectGate from './components/EspnConnectGate';
 import DataFreshnessBanner from './components/DataFreshnessBanner';
+import { DataCredit } from './components/DataFreshnessBanner';
 import { Skeleton } from './components/ui/DesignSystem';
 import { PageExplainContext, type PageExplainInfo } from './components/PageExplainContext';
 import { PageExplainAssistant } from './components/PageExplainAssistant';
@@ -155,6 +156,8 @@ export default function App() {
               rather than deleted or left orphaned. */}
           <Route path="*" element={<NotFound />} />
         </Routes></Suspense></main>
+        {/* The data licences ask for a visible credit; it sits under every page. */}
+        <DataCredit />
       </div>
     </div>
     <PageExplainAssistant info={pageInfo} />

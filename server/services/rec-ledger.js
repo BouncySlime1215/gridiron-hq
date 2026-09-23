@@ -7,7 +7,8 @@
  * Writers: `record()` below, called through `recordRoute()` by the recommending
  * routes in server/routes/trades.js (/find, /offer, /offer-many, /lineup,
  * /waivers); /find also writes, through `recordConsidered()`, the ideas
- * findTrades' edge test removed (carried on the result under `LOST_IDEAS`). Grader: `gradeDue()`, run by the scheduler
+ * findTrades' edge test removed (carried on the result under `LOST_IDEAS`).
+ * Grader: `gradeDue()`, run by the scheduler
  * job `rec_ledger_grade`. Reader: `ledgerSummary()`, served at
  * GET /api/grades/:leagueId/ledger (server/routes/grades.js).
  *

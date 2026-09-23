@@ -71,18 +71,18 @@ held-out season was taken (Holdout looks: none).
 |---|---|
 | Table `rec_ledger` (additive migration `071_rec_ledger`) | `server/migrations/071_rec_ledger.js` |
 | Writer `record()` (INSERT OR IGNORE, one row per horizon) | `server/services/rec-ledger.js:104` (insert at `:123`) |
-| Route adapter `recordRoute()` / `recsFromRoute()` | `server/services/rec-ledger.js:228`, `:173` |
+| Route adapter `recordRoute()` / `recsFromRoute()` | `server/services/rec-ledger.js:231`, `:173` |
 | Call sites, one each, responses unchanged | `server/routes/trades.js:222` (/lineup), `:681` (/waivers), `:734` (/find), `:821` (/offer), `:836` (/offer-many) |
-| Considered-not-shown rows (C-08) | `recordConsidered()` `rec-ledger.js:238`, called at `server/services/trade-engine.js:1845` (inside the uncached search; `:340-362` untouched) |
+| Considered-not-shown rows (C-08) | `recordConsidered()` `rec-ledger.js:257`, called only from `recordRoute('find')` `rec-ledger.js:234`. The ideas ride on the findTrades result under the Symbol `LOST_IDEAS` (`rec-ledger.js:250`), set at `server/services/trade-engine.js:1897` only when no `teamsOverride`/`assetsOverride` is given (round-1 fix, section 8) |
 | Ids on the waiver board so a claim is gradable (additive fields) | `server/services/waiver-wire.js:287`, `:299`, `:308` |
-| Grader `gradeDue()` (UPDATE at `:313`) | `server/services/rec-ledger.js:298`; realised points from `actuals()` `server/services/backtest.js:26` over `player_week_usage` |
+| Grader `gradeDue()` (UPDATE at `:346`), week gate `weekIsOver()` `:320` over `leagueCurrentWeek` `server/services/league-week.js:12` | `server/services/rec-ledger.js:331`; realised points from `actuals()` `server/services/backtest.js:26` over `player_week_usage` |
 | Scheduler job `rec_ledger_grade` (growth tier, off-thread, 6 h) | `server/services/scheduler.js:742`, `:1567` |
-| Reader `ledgerSummary()` | `server/services/rec-ledger.js:341`, served by `GET /api/grades/:leagueId/ledger` `server/routes/grades.js:15`, mounted `server/index.js:127` |
+| Reader `ledgerSummary()` | `server/services/rec-ledger.js:381`, served by `GET /api/grades/:leagueId/ledger` `server/routes/grades.js:15`, mounted `server/index.js:127` |
 
 Grades: lineup at +1 week (each decided slot's starter vs the benched `over`); trade at +2 and +5 weeks
 (points received minus points sent; baseline no trade); waiver at +2 and +5 weeks (added minus dropped;
 immediate claims cut `drop_candidate`, stashes cut `ros_drop_candidate`). Horizon h covers weeks
-`week .. week+h-1`; a row is graded only when every one of those weeks has `player_week_usage` rows.
+`week .. week+h-1`; a row is graded only when the league clock (`leagueCurrentWeek`) is past `week+h-1` AND every one of those weeks has `player_week_usage` rows.
 
 ## 5. Numbers, with commands
 
@@ -136,7 +136,9 @@ win rate; the ledger is the instrument GR-02 will read.
 - Waiver horizons (+2/+5) are a guess copied from trades; the plan item names only lineup and trade horizons.
 - A lineup recomputed after an injury within a week is a second row (different inputs); GR-02 must pick the last
   call before kickoff (RL-4-2 owns lock timing).
-- A week counts as played when any `player_week_usage` row exists for it; a partial nflverse week would grade early.
+- ~~A week counts as played when any `player_week_usage` row exists for it~~ fixed in round 1 (section 8): the league clock must also have passed it.
+- A row whose last horizon week is 18 grades only once the league's `season` moves on (`leagueCurrentWeek` caps at 18); a horizon past week 18 never has usage rows and stays pending. Neither is measured on real data; guess that it matters little (week 14+ trades are rare).
+- `inputs_hash` (`rec-ledger.js:76`) covers league, kind, season, week and inputs (partner, give, get), not roster state; the unique index (`071_rec_ledger.js:53`) adds disposition and horizon. Two real-roster `/find` searches in one week that price the same package differently keep the first ppg_delta. What-if searches can no longer reach the table (section 8).
 - Two routes offering the same package in the same week share one row (first source wins), by design.
 - `scenario` is an allowed kind with no writer and no horizon; `record()` refuses it until GR-02 defines one.
 - `/proposals` stays on `trade_outcomes` (acceptance); it is not double-written here.
@@ -144,7 +146,7 @@ win rate; the ledger is the instrument GR-02 will read.
 ## 7. Nick's five questions
 
 1. **Well built?** One writer, one grader, one reader, each with file:line above; parameterised SQL only; no bare
-   catch (the one catch in `record()` logs and returns `state: 'error'`, tested); 15 of 15 real mutants die.
+   catch (the one catch in `record()` logs and returns `state: 'error'`, tested); 15 of 15 real mutants die (round 0), and 5 of 5 real round-1 mutants die (section 8).
 2. **Stats or made up?** No statistic is claimed. Scores are arithmetic on realised points; horizons are the unit
    row's (+1, +2, +5), waiver horizons are a guess.
 3. **How we know:** tests on fixtures with exact expected scores at each horizon, and a local-copy run showing
@@ -154,3 +156,20 @@ win rate; the ledger is the instrument GR-02 will read.
 5. **How it unifies:** realised points reuse `backtest.js actuals()` + `scoringFor` (no third scorer); week comes
    from the engines' own `tradeWeekContext()` via their responses; acceptance stays in `trade_outcomes`, points
    grading lives here, and neither stores the other's number.
+
+## 8. Skeptic round 1 (tree 0c3775c7)
+
+Three findings, all accepted and fixed; no skeptic was wrong.
+
+| Finding | Fix | Test (RED on 5e8537e6 = 3d983c85 + new tests) |
+|---|---|---|
+| Considered rows written from what-if searches (`/sequences` teamsOverride) and from 5+ callers, while shown rows come only from `/find` | findTradesUncached no longer writes. It attaches the removed ideas under a non-enumerable Symbol `LOST_IDEAS` only when no override is set; `recordRoute('find')` writes them beside the shown rows. No response JSON changes (Symbol keys are not serialised). | rec-ledger-considered #1 (what-if search and `findTradeSequences` write 0 rows; control: what-if search had edge_removed > 0) and #2 (`findTrades` alone writes 0; `/find` path writes edge_removed x 2; refresh inserts 0) |
+| Lineup same-slot guard (`!used.has(k)`) untested | none needed in code | rec-ledger #14: RB/RB starters 10 and 20, shared alternative 5: slots_graded 2, starters [9101, 9103], score 20 |
+| Week "played" on any usage row; `leagueLastCompletedWeek` disagrees | `weekIsOver()`: past season, or `leagueCurrentWeek(lg) > last horizon week`; usage rows still required. Uses `leagueCurrentWeek`, not `leagueLastCompletedWeek`, because the latter floors at 1 and would call week 1 complete during week 1 (a second disagreement, named here; not changed in league-week.js, which is outside this unit). | rec-ledger #8 (only the Thursday line of 9102 at week 3, clock 3: graded 0) and #9 (weekIsOver cases incl. week 1) |
+
+Commands (targeted, `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<mktemp> node --experimental-test-module-mocks --test --test-reporter=tap test/<file>.test.js`):
+- RED, tree 5e8537e6: rec-ledger 12 pass / 3 fail (#8, #9, #10; #10 fails because #8 already graded the lineup); rec-ledger-considered 1 pass / 2 fail (#1, #2). The RB/RB test passes on the old code by design: it guards existing behaviour and is proved live by mutant U1.
+- GREEN, tree 0c3775c7: rec-ledger 15/15, rec-ledger-route 9/9, rec-ledger-considered 3/3. Neighbours exit 0: find-trades 3/3, trade-tactics 39/39, trade-outcomes-route 5/5, scheduler-job-modules 13/13. `node scripts/wiring-map.mjs --check` exit 0, "no missing-feed findings".
+- Mutants (scratch worktree at 0c3775c7, removed afterwards): U1 drop `!used.has(k)` killed by #14; U2 drop the weekIsOver gate killed by #8/#10; U3 `>` to `>=` in weekIsOver killed by #8/#9; C1 attach LOST_IDEAS on override searches killed by considered #1; C2 recordRoute skips considered killed by considered #2. Designed survivor C3 (record LOST_IDEAS from any route, not just 'find'): survives because no other route passes a findTrades result to recordRoute, so it is behaviour-equivalent today.
+
+Local copy, not production (`.local-db/data.sqlite`, tree 0c3775c7, after the round-0 live.mjs run): league 1 considered rows 2 before, 2 after `findTradeSequences` (which returned 3 sequences, so step 2 ran; the skeptic measured 2 to 8 on the old code). Then `/find` path (`findTrades` requireMutual false + `recordRoute('find')`): edge_removed 2, inserted 4 considered rows. League 2: sequences 3, considered 0 to 0; `/find` edge_removed 0, inserted 0. `gradeDue()`: graded 0, pending 132; both leagues have `current_week` 3 and every row is for week 3, so nothing is due (grading itself is proved by the fixture tests).

@@ -6,8 +6,8 @@
  * Table: `rec_ledger` (server/migrations/071_rec_ledger.js).
  * Writers: `record()` below, called through `recordRoute()` by the recommending
  * routes in server/routes/trades.js (/find, /offer, /offer-many, /lineup,
- * /waivers) and through `recordConsidered()` by trade-engine.js findTrades for
- * the ideas its edge test removed. Grader: `gradeDue()`, run by the scheduler
+ * /waivers); /find also writes, through `recordConsidered()`, the ideas
+ * findTrades' edge test removed (carried on the result under `LOST_IDEAS`). Grader: `gradeDue()`, run by the scheduler
  * job `rec_ledger_grade`. Reader: `ledgerSummary()`, served at
  * GET /api/grades/:leagueId/ledger (server/routes/grades.js).
  *
@@ -28,9 +28,10 @@
  * REALISED POINTS COME FROM ONE PRODUCER. `actuals()` in backtest.js, which
  * scores `player_week_usage` (writer nflverse.js:260) with the league's own
  * rules (`scoringFor`, scoring.js:52). `player_gamelog` is not used: fixed PPR,
- * top-250 only, and empty on the local copy. A week counts as played when
- * `player_week_usage` holds any row for it; a player with no row in a played
- * week scored 0 (he did not play).
+ * top-250 only, and empty on the local copy. A week counts as played when the
+ * league's clock has passed it (`weekIsOver`, via league-week.js
+ * leagueCurrentWeek) AND `player_week_usage` holds rows for it; a player with
+ * no row in a played week scored 0 (he did not play).
  *
  * A LEDGER WRITE NEVER TAKES DOWN THE PAGE. `record()` returns a state instead
  * of throwing, and logs the error it caught. The recommendation is the product;
@@ -40,6 +41,7 @@ import crypto from 'node:crypto';
 import { db, row, rows } from '../db/index.js';
 import { actuals } from './backtest.js';
 import { scoringFor } from './scoring.js';
+import { leagueCurrentWeek } from './league-week.js';
 
 /** Grading horizons in weeks, per kind. `scenario` has no grader yet (GR-02). */
 export const HORIZONS = Object.freeze({
@@ -226,14 +228,30 @@ export function recsFromRoute(route, lg, result) {
 
 /** The one call each recommending route makes. */
 export function recordRoute(route, lg, result) {
+  // /find also writes the ideas its edge test removed (C-08), from the same
+  // result object, so shown and considered rows come from one search context.
+  const considered = route === 'find' && Array.isArray(result?.[LOST_IDEAS]) && !result.error
+    ? recordConsidered(lg, result[LOST_IDEAS], periodOf(result)) : null;
   const recs = recsFromRoute(route, lg, result);
-  if (!recs.length) return { state: 'no_recommendation', inserted: 0, skipped: 0, invalid: 0 };
-  return record(recs);
+  if (!recs.length) {
+    const none = { state: 'no_recommendation', inserted: 0, skipped: 0, invalid: 0 };
+    return considered ? { ...none, considered } : none;
+  }
+  const out = record(recs);
+  return considered ? { ...out, considered } : out;
 }
 
 /**
+ * Where findTrades (trade-engine.js findTradesUncached) hangs the ideas its edge
+ * test removed. A Symbol, so no response JSON changes; set only on a search of
+ * the real rosters (never with teamsOverride / assetsOverride).
+ */
+export const LOST_IDEAS = Symbol('rec_ledger.lost_ideas');
+
+/**
  * The ideas findTrades' edge test removed (C-08), as considered-not-shown rows.
- * Called once per uncached search, so a cache hit writes nothing.
+ * Called only from recordRoute('find'). `week` is { season, week }. A repeat
+ * call for the same ideas inserts nothing (INSERT OR IGNORE on inputs_hash).
  */
 export function recordConsidered(lg, lostIdeas, week) {
   const period = week?.week != null ? { season: Number(week.season), week: Number(week.week) } : null;
@@ -292,6 +310,20 @@ function gradeRow(r, pts) {
 }
 
 /**
+ * Has `week` of `season` finished for this league? A past season is over. In
+ * the league's own season the week must be strictly before leagueCurrentWeek
+ * (league-week.js:12), the canonical "what week is it" producer. Not
+ * leagueLastCompletedWeek (league-week.js:24): it floors at 1, so during week 1
+ * it would call week 1 complete.
+ */
+export function weekIsOver(lg, season, week) {
+  const lgSeason = Number(lg?.season);
+  if (Number.isInteger(lgSeason) && Number(season) < lgSeason) return true;
+  if (Number.isInteger(lgSeason) && Number(season) > lgSeason) return false;
+  return leagueCurrentWeek(lg) > Number(week);
+}
+
+/**
  * Grade every ungraded row whose horizon weeks have all been played.
  * Idempotent: a graded row is never touched again.
  */
@@ -315,14 +347,21 @@ export function gradeDue() {
   for (const r of due) {
     if (!HORIZONS[r.kind]?.length) { out.no_grader++; continue; }
     const weeks = weeksFor(r.week, r.horizon);
-    const have = playedWeeks(r.season);
-    if (!weeks.every(w => have.has(w))) { out.pending++; continue; }
     if (!leagues.has(r.league_id)) {
-      // Only the columns scoringFor reads. Never espn_s2 / swid.
-      leagues.set(r.league_id, row('SELECT id, platform, ppr, payload FROM leagues WHERE id = ?', r.league_id) ?? null);
+      // Only the columns scoringFor and leagueCurrentWeek read. Never espn_s2 / swid.
+      leagues.set(r.league_id, row(`SELECT id, platform, ppr, payload, season, current_week
+        FROM leagues WHERE id = ?`, r.league_id) ?? null);
     }
     const lg = leagues.get(r.league_id);
     if (!lg) { out.league_missing++; continue; }
+    // A week is played when the league's own clock has moved past it
+    // (league-week.js leagueCurrentWeek, ESPN currentMatchupPeriod) AND the
+    // usage feed holds rows for it. A usage row alone is not enough: the
+    // nflverse writer has no completed-week filter, so a Thursday game would
+    // make a week look played, and a graded row is never re-graded.
+    if (!weekIsOver(lg, r.season, weeks[weeks.length - 1])) { out.pending++; continue; }
+    const have = playedWeeks(r.season);
+    if (!weeks.every(w => have.has(w))) { out.pending++; continue; }
     const scoring = scoringFor(lg);
     const key = `${r.season}:${JSON.stringify(scoring)}`;
     if (!actualsCache.has(key)) actualsCache.set(key, actuals(r.season, scoring));

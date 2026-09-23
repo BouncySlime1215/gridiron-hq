@@ -1,5 +1,9 @@
 # trade-split-fresh-test: BLOCKED before any number (RL-8-2b, Trade Machine gate)
 
+> **Resolved 2026-09-23:** Nick took option 1 (ruling NICK-2025). The section 5 draft became
+> `trade-split-2025-preregistration.md` (committed first, `eea0a3bd`); the one 2025 run declined both arms.
+> Results: `docs/tdd/2026-09-23-rl-8-2b-trade-split-2025.tdd.md`. Sections below are the original blocked audit.
+
 **Status: BLOCKED. No outcome number was run.** The unit asks for a fresh test of RL-8-2's post-hoc split
 (1-for-1 consensus edge; 2-for-1 reversal) "on data not yet used for this question: Sleeper 2021-22 trades".
 The audit below shows 2021-22 **was already used for this exact question** by RL-8-2 itself, and it is also the

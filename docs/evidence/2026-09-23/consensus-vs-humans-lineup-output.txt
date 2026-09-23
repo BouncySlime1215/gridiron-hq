@@ -1,0 +1,52 @@
+local copy, not production (nfl_ffopportunity_weekly read from a .backup of data.sqlite)
+replacement PPG from the 2021-22 curve at ranks {'QB': 13, 'RB': 30, 'WR': 36, 'TE': 13} -> {'QB': 13.26, 'RB': 8.73, 'WR': 8.33, 'TE': 6.31}
+trades on the board: 1-for-1 n=1359, 2-for-1 n=808, leagues=868
+== CONTROL r8 reproduction (1-for-1, 2023-24, player ROS points, league-clustered): n=210 of 723, leagues=160: 0.576 [0.515, 0.633]  (r8 printed n=210 of 723, 0.576 [0.515, 0.633])
+== LINKAGE: linked 2112 of 2167 sides; unlinked {'sides_ext missing or no horizon week': 53, 'trade_sides ambiguous': 2}
+== LINKAGE control team_weeks.pts_trade >= recv_started_pts: 1843 of 1843 sides with starts (1.000)
+== PRIMARY 2023-24 pooled 1-for-1 + 2-for-1, real lineups (y_L = net_started_pts / n_h_weeks)
+   2023-24 pooled [y_L]: disagreement n=374 of 1064 (nonzero 369, ties 0.013), chains=213
+      consensus side wins 0.515  chain [0.468, 0.558]  week [0.471, 0.557]  league [0.471, 0.560]  MDE80 0.068 (chain SE 0.027)
+      pts/week to consensus side -0.428  chain [-1.274, +0.395]  week [-1.299, +0.298]  MDE80 1.263
+== GATE (prereg item 10): FAIL  (rate 0.515 >= 0.55; chain lo 0.468 > 0.50; week lo 0.471 > 0.50; pts chain lo -1.274 > 0)
+== SECONDARY S1 counterfactual lineup gain (L_frozen(A) - L_frozen(B)) / n_h_weeks
+   2023-24 pooled [y_F]: disagreement n=374 of 1064 (nonzero 373, ties 0.003), chains=213
+      consensus side wins 0.528  chain [0.485, 0.569]  week [0.482, 0.570]  league [0.482, 0.571]  MDE80 0.064 (chain SE 0.026)
+      pts/week to consensus side +0.670  chain [-0.344, +1.612]  week [-0.513, +1.729]  MDE80 1.500
+== SECONDARY S2 strata and seasons (y_L; descriptive)
+   2023-24 1-for-1 [y_L]: disagreement n=204 of 706 (nonzero 201, ties 0.015), chains=140
+      consensus side wins 0.582  chain [0.521, 0.640]  week [0.527, 0.635]  league [0.522, 0.641]  MDE80 0.089 (chain SE 0.036)
+      pts/week to consensus side +1.114  chain [+0.249, +1.924]  week [+0.439, +1.812]  MDE80 1.289
+   2023-24 2-for-1 [y_L]: disagreement n=170 of 358 (nonzero 168, ties 0.012), chains=127
+      consensus side wins 0.435  chain [0.371, 0.497]  week [0.372, 0.489]  league [0.371, 0.494]  MDE80 0.096 (chain SE 0.039)
+      pts/week to consensus side -2.278  chain [-3.732, -0.844]  week [-3.817, -0.909]  MDE80 2.160
+   2021-22 pooled (curve years) [y_L]: disagreement n=342 of 1048 (nonzero 334, ties 0.023), chains=207
+      consensus side wins 0.482  chain [0.437, 0.525]  week [0.431, 0.535]  league [0.438, 0.524]  MDE80 0.067 (chain SE 0.027)
+      pts/week to consensus side -0.673  chain [-1.401, +0.111]  week [-1.536, +0.229]  MDE80 1.138
+   2021-24 pooled [y_L]: disagreement n=716 of 2112 (nonzero 703, ties 0.018), chains=383
+      consensus side wins 0.499  chain [0.469, 0.529]  week [0.464, 0.535]  league [0.469, 0.529]  MDE80 0.045 (chain SE 0.018)
+      pts/week to consensus side -0.545  chain [-1.102, -0.014]  week [-1.146, +0.059]  MDE80 0.821
+== DESCRIPTIVE same linked trades in PLAYER ROS points/week (r8 outcome)
+   2023-24 pooled [y_player_pw]: disagreement n=374 of 1064 (nonzero 374, ties 0.000), chains=213
+      consensus side wins 0.428  chain [0.384, 0.467]  week [0.375, 0.483]  league [0.388, 0.469]  MDE80 0.064 (chain SE 0.026)
+      pts/week to consensus side -1.984  chain [-2.768, -1.242]  week [-2.873, -1.181]  MDE80 1.140
+== PLACEBO P1 (1-for-1, 2023-24, random same-position traded player, his real starts): pairs=701
+   placebo [y_L]: disagreement n=152 of 701 (nonzero 147, ties 0.033), chains=107
+      consensus side wins 0.653  chain [0.589, 0.715]  week [0.576, 0.736]  league [0.584, 0.715]  MDE80 0.097 (chain SE 0.039)
+      pts/week to consensus side +2.446  chain [+1.397, +3.399]  week [+1.252, +3.764]  MDE80 1.519
+== PLACEBO P2 permutation null (1000, seed 5): mean 0.460, 95th pct 0.486 -> harness BIASED: result void
+n disagreement graded = 374; 2025 not opened (season <= 2024 in every query)
+== POST-HOC (after first output; descriptive only)
+   P2b outcome-permutation null (1000): mean 0.501, 5th 0.459, 95th 0.544
+   season-to-date side wins on the real 2023-24 disagreement trades = 0.485 (= 1 - primary rate)
+   2-for-1 2023-24: consensus favours the 2-player side in 26 of 170 disagreement trades; consensus wins 0.808 there vs 0.366 when it favours the 1-player side (n=144)
+   2-for-1 2021-22: consensus favours the 2-player side in 25 of 174 disagreement trades; consensus wins 0.458 there vs 0.422 when it favours the 1-player side (n=149)
+   2021-22 1-for-1 [y_L]: disagreement n=168 of 617 (nonzero 163, ties 0.030), chains=129
+      consensus side wins 0.540  chain [0.478, 0.600]  week [0.482, 0.600]  league [0.481, 0.599]  MDE80 0.093 (chain SE 0.037)
+      pts/week to consensus side +0.707  chain [-0.118, +1.531]  week [-0.069, +1.414]  MDE80 1.240
+   2021-22 2-for-1 [y_L]: disagreement n=174 of 431 (nonzero 171, ties 0.017), chains=124
+      consensus side wins 0.427  chain [0.367, 0.488]  week [0.358, 0.495]  league [0.363, 0.485]  MDE80 0.092 (chain SE 0.037)
+      pts/week to consensus side -2.006  chain [-3.227, -0.751]  week [-3.212, -0.758]  MDE80 1.836
+   2023-24 1-for-1 player ROS pts [y_player_pw]: disagreement n=204 of 706 (nonzero 204, ties 0.000), chains=140
+      consensus side wins 0.583  chain [0.527, 0.636]  week [0.511, 0.659]  league [0.524, 0.641]  MDE80 0.084 (chain SE 0.034)
+      pts/week to consensus side +0.985  chain [+0.366, +1.613]  week [+0.351, +1.594]  MDE80 0.935

@@ -105,8 +105,8 @@ from an in-page `fetch('/api/trades/4/brain/managers')` reduced to aggregates on
   are different concepts: the second is the league percentile rank (counterparty-pricing.js:315
   `percentile(openVals, ...)`), despite the `_pct` name. No disagreement in the underlying number; the name is a
   follow-up (see known defects).
-- No-corpus control: league 1 renders the tiers and boards with chat reads `no_corpus` (screenshot pass, first
-  load) — the known-empty case; league 4 is the known-nonzero case.
+- Known-nonzero before any empty read: league 4 above is the nonzero case. The `no_corpus` path is shown only
+  in the fixture (test 5, roster with a `likely` match); it was not checked on a real no-chat league.
 
 Screenshots at 375 px, every manager, league and player name blurred before capture (headless Chrome over CDP,
 `document.documentElement.scrollWidth - innerWidth` = 0, no horizontal scroll):

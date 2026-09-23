@@ -128,3 +128,65 @@ test('CE-05: control, the same league re-seeded sends the 2 seed to the final in
   assert.equal(odds(sim, '2', 'finals_odds'), 1);
   assert.equal(odds(sim, '6', 'finals_odds'), 0);
 });
+
+/*
+ * The points-for tiebreaker at the call site (skeptic mutant MB1: the sim passes
+ * `pf: 0` to seedStandings, which drops TOTAL_POINTS_SCORED from every simulated
+ * season and seeds wins-ties by input order). 4 playoff teams, weeks 1-2
+ * carried in, week 3 simulated: [1 v 5] [6 v 4] [2 v 3], won by T1, T6, T2.
+ * Final wins: T1 3, T2 2, T6 2, T3 1, T4 1, T5 0, so T3 and T4 are level on wins
+ * for the 4th and last spot and only points-for separates them. Week 3 adds
+ * T3 70 and T4 60. Input order is T3 before T4, so under the mutant T3 always
+ * takes the spot; the case where T4 has more points is the one that kills it.
+ */
+function pfPayload(t3Leads) {
+  // [home, away, homePts, awayPts]. T3 and T4 carried points: 200 v 150 when T3
+  // leads (270 v 210 after week 3), 150 v 250 when T4 leads (220 v 310).
+  const [t3w1, t4w1, t3w2, t4w2] = t3Leads ? [110, 100, 90, 50] : [80, 70, 70, 180];
+  const played = {
+    1: [[1, 5, 150, 100], [2, 6, 140, 100], [3, 4, t3w1, t4w1]],
+    2: [[1, 2, 150, 100], [6, 3, 120, t3w2], [4, 5, t4w2, 40]],
+  };
+  const schedule = [];
+  for (const [w, games] of Object.entries(played)) {
+    for (const [h, a, hp, ap] of games) {
+      schedule.push({ matchupPeriodId: Number(w), winner: hp > ap ? 'HOME' : 'AWAY',
+        home: { teamId: h, totalPoints: hp }, away: { teamId: a, totalPoints: ap } });
+    }
+  }
+  for (const [h, a] of [[1, 5], [6, 4], [2, 3]]) {
+    schedule.push({ matchupPeriodId: 3, winner: 'UNDECIDED', home: { teamId: h }, away: { teamId: a } });
+  }
+  const base = payload(false);
+  base.schedule = schedule;
+  base.settings.scheduleSettings.playoffTeamCount = 4;
+  return base;
+}
+
+function insertPf(id, t3Leads) {
+  run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, roster_positions,
+       payload, current_week, payload_season) VALUES (?, 'espn', ?, 2026, 'Tiebreak', '1', 6, 1, ?, ?, 3, 2026)`,
+  id, `tiebreak-${id}`, JSON.stringify(['QB']), JSON.stringify(pfPayload(t3Leads)));
+  return db.prepare('SELECT * FROM leagues WHERE id = ?').get(id);
+}
+
+test('CE-05: level on wins for the last playoff spot, the team with more points-for gets it (T4 leads)', () => {
+  const sim = simulateSeason(insertPf(813, false), { runs: 3, fromWeek: 3 });
+  assert.ifError(sim.error);
+  assert.equal(sim.playoff_teams, 4);
+  assert.equal(sim.seeding_rule, 'TOTAL_POINTS_SCORED');
+  assert.equal(odds(sim, '3', 'expected_wins'), odds(sim, '4', 'expected_wins'), 'T3 and T4 finish level on wins');
+  assert.ok(odds(sim, '4', 'expected_points') > odds(sim, '3', 'expected_points'), 'T4 has more points-for');
+  assert.equal(odds(sim, '4', 'playoff_odds'), 1, 'T4 wins the tiebreaker and makes the field');
+  assert.equal(odds(sim, '3', 'playoff_odds'), 0, 'T3 loses the tiebreaker');
+  assert.equal(odds(sim, '5', 'playoff_odds'), 0, 'control: the 0-win team misses');
+});
+
+test('CE-05: control, points-for reversed, T3 gets the last playoff spot instead', () => {
+  const sim = simulateSeason(insertPf(814, true), { runs: 3, fromWeek: 3 });
+  assert.ifError(sim.error);
+  assert.equal(odds(sim, '3', 'expected_wins'), odds(sim, '4', 'expected_wins'));
+  assert.ok(odds(sim, '3', 'expected_points') > odds(sim, '4', 'expected_points'));
+  assert.equal(odds(sim, '3', 'playoff_odds'), 1);
+  assert.equal(odds(sim, '4', 'playoff_odds'), 0);
+});

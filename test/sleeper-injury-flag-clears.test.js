@@ -73,6 +73,14 @@ test('a player Sleeper stops listing as injured is unflagged (update, not delete
   assert.equal(result.cleared, 1, 'sync reports how many flags it cleared');
   const n = db.prepare(`SELECT COUNT(*) n FROM player_metrics WHERE source = 'injury_flag'`).get().n;
   assert.equal(n, 3, 'clearing updates the row; nothing is deleted');
+
+  // A flag already at 0 is not cleared again: the daily count stays honest and
+  // fetched_at is not re-stamped (skeptic mutant U1 drops `AND value <> 0`).
+  db.prepare(`UPDATE player_metrics SET fetched_at = '2026-01-01 00:00:00' WHERE player_id = 1 AND source = 'injury_flag'`).run();
+  const again = await syncSleeper();
+  assert.equal(again.cleared, 0, 'an already-cleared flag is not counted again');
+  const at = db.prepare(`SELECT fetched_at FROM player_metrics WHERE player_id = 1 AND source = 'injury_flag'`).get().fetched_at;
+  assert.equal(at, '2026-01-01 00:00:00', 'an already-cleared flag is not re-stamped');
 });
 
 test('a player Sleeper did not match this run keeps his flag (a partial pull cannot wipe flags)', async t => {
@@ -137,23 +145,125 @@ test('a stale flag whose latest game started before the flag is still honoured',
   assert.equal(st.ignored.length, 0);
 });
 
-// Structural pin for the call sites (added in the mutation sweep): every server
-// reader of the Sleeper flag goes through the one producer, and nobody outside
-// it reads the raw `value > 0` set. Control: the producer itself must match the
-// raw-read pattern, so a pattern that finds nothing cannot pass silently.
-test('every injury_flag reader goes through services/injury-flags.js', () => {
+// Structural pin (widened after the skeptic pass): every server file that reads
+// player_metrics and names injury_flag (a WHERE, a LEFT JOIN, or a generic
+// source -> value map as in players.js), other than the producer, must import
+// and call the producer. The list is discovered, not hand-written. Control: the
+// scan must find the known readers. contingency.js and trade-engine.js no longer
+// name the flag at all; their behaviour is pinned by the tests below.
+test('every server file that reads injury_flag goes through services/injury-flags.js', () => {
   const root = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'server');
-  const readers = ['services/contingency.js', 'services/trade-engine.js', 'routes/players.js',
-    'services/draft-assist.js', 'routes/rankings.js'];
-  const raw = /source\s*=\s*'injury_flag'\s+AND\s+(m\.)?value\s*>\s*0/;
-  const producer = fs.readFileSync(path.join(root, 'services/injury-flags.js'), 'utf8');
-  assert.match(producer, raw, 'control: the producer holds the raw read');
+  const files = fs.readdirSync(root, { recursive: true }).filter(f => f.endsWith('.js')).map(String);
+  const names = /(?<![a-z_])injury_flag\b/;
+  const readers = files.filter(f => {
+    if (f === path.join('services', 'injury-flags.js')) return false;
+    const src = fs.readFileSync(path.join(root, f), 'utf8');
+    return names.test(src) && /player_metrics/.test(src);
+  });
+  for (const known of ['routes/aggregates.js', 'routes/rankings.js', 'routes/players.js', 'services/draft-assist.js']) {
+    assert.ok(readers.includes(path.join(...known.split('/'))), `control: scan finds ${known}`);
+  }
   for (const f of readers) {
     const src = fs.readFileSync(path.join(root, f), 'utf8');
-    assert.doesNotMatch(src, raw, `${f} reads the raw flag set`);
     assert.match(src, /import \{ activeInjuryFlagIds \} from '(\.\/|\.\.\/services\/)injury-flags\.js'/, `${f} imports the producer`);
     assert.ok((src.match(/activeInjuryFlagIds\(/g) ?? []).length >= 1, `${f} calls the producer`);
   }
+});
+
+// Behaviour at each call site on the stale fixture: player 10 (stale, played) off, 11 (fresh) on.
+function giveMarket() {
+  const m = db.prepare(`INSERT INTO player_metrics (player_id, source, value, fetched_at) VALUES (?,?,?,datetime('now'))`);
+  for (const [id, r] of [[10, 5], [11, 6], [13, 7]]) { m.run(id, 'sleeper_rank', r); m.run(id, 'ffc_adp', r); }
+}
+
+test('computeConsensus (GET /aggregates, draft board, draft AI) shows the stale flag as off', async () => {
+  seedStale(); giveMarket();
+  const { computeConsensus } = await import('../server/routes/aggregates.js');
+  const byId = Object.fromEntries(computeConsensus().map(p => [p.id, p.injury_flag]));
+  assert.equal(byId[10], 0, 'stale flag reads as off');
+  assert.equal(byId[11], 1, 'control: live flag reads as on');
+  assert.equal(byId[13], null, 'never-flagged player has no flag');
+});
+
+test('playerDossier shows the stale flag as off', async () => {
+  seedStale();
+  const { playerDossier } = await import('../server/services/draft-assist.js');
+  assert.equal(playerDossier(10).injury_flag, 0, 'stale flag reads as off');
+  assert.equal(playerDossier(11).injury_flag, 1, 'control: live flag reads as on');
+});
+
+test('GET /players/:id metrics show the stale flag as off', async () => {
+  seedStale();
+  const express = (await import('express')).default;
+  const players = (await import('../server/routes/players.js')).default;
+  const app = express().use('/players', players);
+  const server = await new Promise(resolve => { const s = app.listen(0, () => resolve(s)); });
+  try {
+    const get = async id => {
+      const res = await fetch(`http://127.0.0.1:${server.address().port}/players/${id}`);
+      const body = await res.json();
+      assert.equal(res.status, 200, JSON.stringify(body).slice(0, 300));
+      return body.metrics.injury_flag;
+    };
+    assert.equal(await get(10), 0, 'stale flag reads as off');
+    assert.equal(await get(11), 1, 'control: live flag reads as on');
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+function tradeLeague() {
+  db.prepare('DELETE FROM leagues WHERE id = 71').run();
+  db.prepare(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, payload, fetched_at)
+              VALUES (71, 'espn', 'inj-71', 2026, 'Injury', '1', 10, 1, ?, '2026-09-18 01:00:00')`)
+    .run(JSON.stringify({ teams: [{ id: 1, name: 'Mine', roster: { entries: [] } }] }));
+  return db.prepare('SELECT * FROM leagues WHERE id = 71').get();
+}
+
+test('assetUniverse (trade cards, Sell the Injury Risk) treats the stale flag as off', async () => {
+  seedStale();
+  const lg = tradeLeague();
+  const { assetUniverse } = await import('../server/services/trade-engine.js');
+  const { deriveFormat } = await import('../server/services/format.js');
+  const u = assetUniverse(lg, deriveFormat(lg).formatKey);
+  assert.equal(u.get(10).injury, 0, 'stale flag is not an injury');
+  assert.equal(u.get(11).injury, 1, 'control: live flag is an injury');
+  assert.equal(u.get(13).injury, 0, 'never-flagged player is not an injury');
+});
+
+test('a clearing sync and a flag going stale by the clock both rebuild the trade universe', async t => {
+  reset();
+  const lg = tradeLeague();
+  const { assetUniverse } = await import('../server/services/trade-engine.js');
+  const { deriveFormat } = await import('../server/services/format.js');
+  const universe = () => assetUniverse(lg, deriveFormat(lg).formatKey);
+  db.prepare('INSERT INTO players (id, name, position, sleeper_id) VALUES (?,?,?,?)').run(1, 'Healed Back', 'RB', '9001');
+  sleeperReturns({ a: sp(9001, 'Healed Back', 'RB', 'Questionable') }, t);
+  await syncSleeper();
+  // Pin every fetched_at so only the clear itself can move the fingerprint.
+  db.prepare(`UPDATE player_metrics SET fetched_at = '2026-09-01 00:00:00'`).run();
+  const before = universe();
+  assert.equal(before.get(1).injury, 1);
+  assert.equal(universe(), before, 'control: no change serves the cached universe');
+  sleeperReturns({ a: sp(9001, 'Healed Back', 'RB', null) }, t);
+  assert.equal((await syncSleeper()).cleared, 1);
+  const after = universe();
+  assert.notEqual(after, before, 'a clearing sync must not serve the cached injured set');
+  assert.equal(after.get(1).injury, 0);
+
+  // Stale by the clock alone: no table write, only the producer's answer changes.
+  seedStale({ weekStartDaysAgo: 3 });
+  db.prepare(`UPDATE player_metrics SET fetched_at = datetime('now', '-5 days') WHERE player_id = 10`).run();
+  const fresh = universe();
+  assert.equal(fresh.get(10).injury, 1, 'a 5-day flag is live');
+  const { activeInjuryFlagIds } = await import('../server/services/injury-flags.js');
+  const real = Date;
+  // Advance the producer's clock 6 days: the same row is now 11 days old.
+  globalThis.Date = class extends real { constructor(...a) { super(...(a.length ? a : [real.now() + 6 * 864e5])); } static now() { return real.now() + 6 * 864e5; } };
+  try {
+    assert.equal(activeInjuryFlagIds().has(10), false, 'control: the producer now ignores the flag');
+    assert.equal(universe().get(10).injury, 0, 'the cached universe must follow the producer');
+  } finally { globalThis.Date = real; }
 });
 
 test('GET /rankings/:id/entries shows the stale flag as off and the live one as on', async () => {

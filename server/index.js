@@ -54,6 +54,7 @@ const { default: gatesRouter } = await import('./routes/gates.js');
 const { startScheduler } = await import('./services/scheduler.js');
 const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-access.js');
 const { default: coachRouter } = await import('./routes/coach.js');
+const { default: engineRouter } = await import('./routes/engine.js');
 
 const app = express();
 // First, so that ANY completed response arms the watchdog -- including a 404
@@ -154,6 +155,8 @@ app.use('/api/execution-slate', ...legacyAuthenticated, executionSlateRouter);
 // Coach applies its own auth and rate limit per route (server/routes/coach.js:37),
 // so it is mounted bare rather than behind legacyAuthenticated.
 app.use('/api/coach', coachRouter);
+// ONE ENGINE reader (ENGINE-00a): read-only world state for pages and Coach.
+app.use('/api/engine', ...legacyAuthenticated, engineRouter);
 
 app.use((err, req, res, next) => {
   // AuthenticationError/AuthorizationError (server/platform/auth.js) set a real

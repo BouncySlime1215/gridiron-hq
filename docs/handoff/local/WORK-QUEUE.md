@@ -698,3 +698,4 @@ MASTER: TRADE-MACHINE-MASTER.md (compiled 1:20 AM ET: have vs need, routing to e
 
 REORG: PLAN-REORG-2026-09-23.md maps every unit from tonight to one of the 32 plan items, merges duplicates, and gives the build order by item. Programs: Trade Machine, Championship Engine (B9), Grading (C12/C13/C14/C17/C18).
 | 2026-09-23 02:00Z | Nick | "ok with 4: stay here until ready and done, statistically insane" -> the coordinator stays on Trade Machine v1 (PHASE-DELIVERABLES.md phase 3/4) until its exit criteria hold; deliverables, UI, researchers and models per stage recorded there. |
+| 2026-09-23 02:35Z | Nick | Verification rules (VERIFICATION-RULES.md: reuse step before build, micro wired-elsewhere list, skeptics by lens incl. a UI lens with screenshots, synergy review every 8 merges, structure scout every 2 days, 7-day re-audit) and the UI standard (UI-STANDARD.md) bind every workflow. |

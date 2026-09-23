@@ -30,9 +30,11 @@
  *   flex_choice                who he put in FLEX/OP over which benched options (revealed ranking)
  *
  * THE LINEUP FACTS ARE MEASURED; THE READING OF THEM IS A GUESS. "Benched with intact
- * usage means he will sell low" is a hypothesis with a pre-registered test
- * (docs/evidence/2026-09-23/ls-01-bwiu-trade-prereg.md). Until it passes, every
- * response says `inference: 'guess'` in plain words.
+ * usage means he undervalues the player" was pre-registered
+ * (docs/evidence/2026-09-23/ls-01-bwiu-trade-prereg.md) and FAILED on 2021-2024: the
+ * benched players scored less than what their manager next accepted in a trade
+ * (docs/tdd/2026-09-23-ls-01-lineup-signals.tdd.md section 5). Every response says
+ * `inference: 'guess'` and why, in plain words.
  *
  * `manager-signals.js` `rosterSignals` has a different number with a similar name,
  * `lineup_dead_starters`: starters whose CURRENT status is OUT/IR/DOUBTFUL in the
@@ -66,8 +68,10 @@ export const BAD_MATCHUP_RATIO = 0.8;   // projection <= 0.8 x his own earlier m
 export const TOP_SCORER_RANK = 5;       // top 5 at his position the week before the add
 
 export const INFERENCE_REASON = 'The lineup facts are measured from stored weekly lineups. What they mean for a ' +
-  'trade (buy low, distressed seller, attached, checked out) has not passed its pre-registered test ' +
-  '(docs/evidence/2026-09-23/ls-01-bwiu-trade-prereg.md), so that reading is a guess.';
+  'trade (buy low, distressed seller, attached, checked out) is a guess. The one reading that was tested failed ' +
+  'its pre-registered test: across 2021-2024 Sleeper leagues, players benched while their snaps held scored ' +
+  'less over the next four weeks than what the same manager accepted in his next trade, not more ' +
+  '(docs/evidence/2026-09-23/ls-01-bwiu-trade-prereg.md). Do not read a benching as a buy-low.';
 
 const SKILL = new Set(['QB', 'RB', 'WR', 'TE']);
 const BENCH_SLOT = 20;   // IR is slot 21: a player there is not on the bench

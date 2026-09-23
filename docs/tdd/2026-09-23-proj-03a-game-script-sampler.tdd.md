@@ -91,3 +91,175 @@ win probability before kickoff equals Phi(mu/sigma).
 Decision grading (rule d): this unit feeds no start/sit, waiver or trade call by itself.
 That grading happens in PROJ-03-c, when the served range and start/sit read these paths.
 Here it is **not applicable**, and this is stated, not skipped.
+
+## 3. RED / GREEN
+
+- **RED** `e3d7b063` "test: PROJ-03-a RED for the keyed game-script sampler". Failing
+  assertion: `TypeError: gs.sampleGameScript is not a function` (6 of 6 fail).
+- **GREEN** `a51f959b` "feat: PROJ-03-a keyed game-script sampler in gamescript.js".
+  `test/proj-03a-game-script.test.js`: 6 of 6 pass. The GREEN commit also fixes an
+  arithmetic slip in the RED test: a -3.5 spread and a 47.5 total imply 25.5 / 22.0 points,
+  not 25.75 / 21.75 (that pair has a margin of 4). Before the fix, the test failed with
+  `mean home 25.547 vs 25.75`. The drawn means matched the correct values: home 25.547,
+  away 21.951, total 47.499.
+- **Test 7** was added after the mutation sweep. It checks that the copula rho reaches the
+  draws and that the quarter split depends on the key (see section 5). 7 of 7 pass.
+- Command: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/x.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/proj-03a-game-script.test.js`.
+- The existing `test/gamescript-closing-line.test.js` still passes 2 of 2 with the same
+  command.
+
+## 4. What it does
+
+All of these live in `server/services/gamescript.js`. There is no new table, column or
+store.
+
+- `scoreModelAt(season, week)` fits in memory, per |spread| bucket: n, team-points sd,
+  margin sd and residual rho. It also fits a pooled sd, the market's mean home edge, the
+  mean total, and pace OLS (team attempts ~ realized margin + total). It trains on scored
+  `game_lines` home rows from 2021 to just before the cutoff. It is cached per cutoff and
+  cleared by `clearGameScriptCache`.
+- `sampleGameScript(game, key, params)` draws one path from a `keyedSeed` key:
+  - both finals and the margin;
+  - 4 quarters per side (a Dirichlet split with an exact sum);
+  - pace for each side;
+  - `win_prob_home` at kickoff and after Q1, Q2, Q3, then the final result.
+
+  The same key always gives the same path, so every player in the game can share it.
+- `gameFor(season, week, team, {opponent, home})` builds the game from the line first:
+  closing, else current (which covers ESPN look-ahead rows). If there is no line, it
+  uses a power-rating spread from `nfl_external_ratings`: `espn_fpi`, else
+  `teamrankings_predictive`, latest week <= the requested week. The spread is the home
+  rating minus the away rating plus the market's mean home edge before the cutoff. It
+  returns null when neither a line nor ratings exist.
+- `teamPointsDistribution`, `spreadBucket`, `gammaQuantile` and `regularizedGammaP` serve
+  the calibration script `scripts/proj03a-calibration.mjs`.
+
+Readers today: that script and the test. No route, job or page reads the sampler yet.
+The later engine unit registers it as the `engine_state` game-path producer. Because the
+pre-registered test was declined, that registration must not happen with the model as
+it stands (section 6).
+
+## 5. Mutation sweep
+
+Target: the unit test. Harness: replace one string, run the test file, restore the file.
+
+| Mutant | Result |
+|---|---|
+| M1 home implied uses the away sign | killed (test 2) |
+| M2 bucket edge 7 made exclusive | killed (test 4) |
+| M3 cutoff `week < ?` changed to `<=` (leak) | killed (test 5) |
+| M4 pregame win-prob sign flipped | killed (test 3) |
+| M5 `gameFor` away side keeps its own spread | killed (test 6) |
+| M6 sampler always uses bucket lt3 | killed (test 3) |
+| M7 rating fallback drops the home edge | killed (test 6) |
+| M8 copula rho sign flipped | survived the first sweep; **killed by test 7** |
+| M9 quarter draws ignore the key | survived the first sweep; **killed by test 7** (after the fractions were rounded to 6 dp: without rounding, float noise made them unequal) |
+| M10 both sides read the same normal | killed (test 2) |
+| **Designed survivor:** the negative-Q4 guard threshold `< 0` changed to `< -1` | survived, as designed: Q4 = pts - (q1+q2+q3), and the Dirichlet fractions sum to 1, so the branch cannot be reached beyond float noise |
+| **Call site:** the calibration script fits on season+1 (leak) | **survived**: the script has no test. Known defect below |
+| **Not-applied control** (the target string does not exist) | reported NOT APPLIED, so the harness does not count a no-op as a kill |
+
+## 6. The numbers (local copy, not production)
+
+Command: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=.local-db/data.sqlite node scripts/proj03a-calibration.mjs`.
+Tree: this branch at the commit that adds this section. DB: a local copy made on
+2026-09-23 at 15:47. Known-nonzero control: `game_lines` has 570 scored team-games in each
+of 2021-2025 and 64 in 2026 (`sqlite3 .local-db/data.sqlite "SELECT season, COUNT(*),
+SUM(team_score IS NOT NULL) FROM game_lines WHERE season>=2021 GROUP BY season"`). The
+writer is `syncHistoricalLines` (`gamescript.js:36`) / `syncCurrentLines` (`:119`).
+Weeks 1-22 are included (postseason too), as the pre-registration did not exclude them.
+
+The CRPS closed form (Scheuerer & Möller 2015) was checked against numeric integration on
+the first team-game of each season: 2.232 = 2.232, 5.6361 = 5.6361, 4.5248 = 4.5248.
+
+**80% interval coverage by |spread| bucket** (ship band 0.77-0.83):
+
+| Test | lt3 | 3to7 | gt7 | Pooled (Wilson 95%) |
+|---|---|---|---|---|
+| 2023 (fit 2021-22, 569 games) | 0.787 (n 150) pass | **0.733** (n 300) FAIL | **0.858** (n 120) FAIL | 0.774 [0.738, 0.806] |
+| 2024 (fit 2021-23, 854 games) | 0.780 (n 132) pass | 0.804 (n 336) pass | **0.765** (n 102) FAIL | 0.791 [0.756, 0.823] |
+
+MDE for coverage at 80% power (alpha 0.05, two-sided): lt3 0.091 / 0.097; 3to7
+0.065 / 0.061; gt7 0.102 / 0.111. The two cell misses in 2023 are both within one MDE of
+0.80. The rule is the pre-registered band, not a significance test, and it fails as
+written.
+
+**PIT (randomized, 10 bins, chi-square df 9; pass at p >= 0.01):**
+- 2023: chi-square 18.77, p 0.027, pass (KS D 0.058).
+- 2024: chi-square 20.81, p 0.0135, pass (KS D 0.089).
+
+**CRPS** d = sampler - Normal(implied, pooled sd). Negative d means the sampler is
+better. Pass if the upper end of the 95% CI is <= +0.05.
+
+| Test | Sampler | Normal | Mean d | 95% CI (week-cluster, 22 clusters) | Verdict |
+|---|---|---|---|---|---|
+| 2023 | 5.214 | 5.179 | +0.034 | [-0.025, +0.095] | **FAIL** |
+| 2024 | 5.074 | 5.033 | +0.041 | [+0.008, +0.075] | **FAIL** |
+
+In 2024 the interval excludes 0 on the worse side: the pooled Normal beats the sampler.
+MDE at 80% power, from the bootstrap SE (the CI width / 3.92 x 2.8), is 0.086 for 2023
+and 0.048 for 2024. So 2024 is not an underpowered miss.
+
+**Forward 2026, weeks 1-2** (fit 2021-25, n = 64 team-games, anecdote-sized):
+- pooled coverage 0.734, Wilson [0.615, 0.827], which contains 0.80;
+- mean d +0.073, CI [+0.035, +0.110], which fails the <= +0.05 rule;
+- PIT p 0.055.
+
+The forward check does **not hold**.
+
+Fitted bucket sds are nearly flat: for 2024 they are 8.69 / 9.40 / 9.16 against a pooled
+9.18. The |spread| bucket carries little sd signal, and the Gamma shape (right skew) scores
+slightly worse than the symmetric Normal on CRPS.
+
+## 7. Verdict: DECLINED
+
+The pre-registered ship rule fails on both test seasons. Coverage fails in 3 of 6 cells
+and CRPS fails non-inferiority in both years. The forward check fails too. Under the
+decline rule, the sampler must **not** be registered as the `engine_state` game-path
+producer in its bucketed Gamma form.
+
+What still stands:
+- The non-statistical RED contract passes: keyed determinism, mean total ±0.1 over 20k
+  draws, quarters summing to finals, and pregame win probability = Phi(mu/sigma).
+- The pooled Normal baseline is the better team-points marginal on this evidence.
+
+Follow-up, not run here (a new analysis on these test seasons would be a forking path):
+pre-register a pooled-sd marginal, Normal or Gamma, as a new unit before the engine
+registers any game-path producer.
+
+Holdout looks:
+- **2025:** not scored. 2025 rows enter only as training data for the 2026 forward fit.
+  No 2025 outcome was graded, so there is no `L` row.
+- **2026:** the forward check is ledger row F007.
+
+## 8. Known defects
+
+1. `scripts/proj03a-calibration.mjs` has no test. The season+1 leak mutant survives it.
+2. `logGamma` is a private Lanczos copy. Two exist in this change (gamescript.js and the
+   script), and there are 3 more in `server/betting`. Consolidating them in
+   `stats-util.js` is a follow-up. It was not done here because `stats-util.js` is
+   read-only for this unit.
+3. The power-rating fallback uses the market's mean home edge (a data value, not a
+   constant) and the mean pre-cutoff total. Its calibration is not measured (**guess**
+   that it is usable). The only 2026 FPI weeks are 1-3.
+4. Pace is OLS on realized margin and total. It is shared across buckets and is not
+   graded here.
+5. `weeklyClusterBootstrap` is reused for the CRPS CI. It rounds the interval to 3 dp.
+
+## 9. Nick's five questions
+
+1. **Well built?** It is a pure function in the existing file with no side store. It has
+   7 tests, and 10 of 10 non-equivalent unit mutants are killed. One call-site mutant
+   survives (defect 1).
+2. **Stats or made up?** Stats. All params are fitted from `game_lines` scores at a
+   cutoff. The one guess is that the rating fallback is usable (defect 3).
+3. **How do we know?** Through a pre-registered walk-forward test on 2023 and 2024 plus a
+   2026 forward check. It failed, and that is why it is declined.
+4. **Pointed elsewhere?** No consumer reads it yet. Nothing on screen changes.
+5. **How does it unify?** It is meant to be the one game-path producer for the engine,
+   and no second fantasy-side producer exists (audit, section 1). The betting-side margin
+   models stay separate (fantasy-only scope). Registration waits on a passing
+   re-pre-registered marginal.
+
+Decision grading (rule d): not applicable. This unit feeds no start/sit, waiver or trade
+call.

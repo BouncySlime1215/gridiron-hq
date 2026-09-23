@@ -148,3 +148,21 @@ test('gameFor reads the line both ways; fallback to power rating; null when noth
   assert.ok(f.total > 30 && f.total < 60);
   assert.equal(gs.gameFor(2023, 3, 'T20', { opponent: 'T21', home: true }), null);
 });
+
+test('copula: the bucket rho reaches the draws; quarters depend on the key', () => {
+  const base = gs.scoreModelAt(2023, 1);
+  const params = { ...base, buckets: { ...base.buckets, '3to7': { ...base.buckets['3to7'], rho: 0.8 } } };
+  const hs = [], as = [];
+  for (let i = 0; i < 4000; i++) {
+    const p = gs.sampleGameScript(GAME, keyedSeed('rho-check', i), params);
+    hs.push(p.home.points); as.push(p.away.points);
+  }
+  const m = a => a.reduce((x, y) => x + y, 0) / a.length;
+  const mh = m(hs), ma = m(as);
+  let sxy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < hs.length; i++) { sxy += (hs[i] - mh) * (as[i] - ma); sxx += (hs[i] - mh) ** 2; syy += (as[i] - ma) ** 2; }
+  assert.ok(sxy / Math.sqrt(sxx * syy) > 0.6, `drawn correlation ${sxy / Math.sqrt(sxx * syy)} should track rho 0.8`);
+  const a = gs.sampleGameScript(GAME, keyedSeed('q', 1), params), b = gs.sampleGameScript(GAME, keyedSeed('q', 2), params);
+  const frac = p => p.home.quarters.map(q => +(q / p.home.points).toFixed(6));
+  assert.notDeepEqual(frac(a), frac(b));
+});

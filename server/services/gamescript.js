@@ -478,6 +478,9 @@ function gammaP(a, x) {
   return 1 - Math.exp(-x + a * Math.log(x) - lg) * h;
 }
 
+/** Regularized lower incomplete gamma, exported for the calibration script's chi-square and CRPS. */
+export const regularizedGammaP = gammaP;
+
 /** Gamma(shape, 1) quantile by safeguarded Newton from a Wilson-Hilferty start. */
 export function gammaQuantile(u, shape) {
   if (!(u > 0)) return 0;

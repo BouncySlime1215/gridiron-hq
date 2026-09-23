@@ -92,3 +92,34 @@ from `nfl_player_week_features` and `game_lines`, which cover 2021-2024.
 
 Not opened. If a spot is proven here, the 2025 confirmation belongs to the unit that
 would serve it (PROJ-01-b), with a HOLDOUT-LEDGER row written before it looks.
+
+## 7. Amendment 1 (2026-09-23, before this spot was graded): team total moved 2.5+
+
+Review of PR #222 found that section 3's reason for dropping this spot is false. The
+opening and closing lines exist for every study season in `nfl_odds_archive` (source
+covers, 4 books: bet365, betvictor, betway, williamhill; open and close for totals and
+spreads). The drop was wrong, so the spot is added here. Sections 1-6 are otherwise
+unchanged, and the grades of the other 7 spots are not re-decided by this text.
+
+**No error of any kind for this spot was computed or seen before this amendment was
+committed.** Only row counts were seen (below), plus a check that the closing implied
+team total matches `game_lines.implied_points` (mean absolute gap 0.17-0.21 points per
+season). That check uses lines only, not ESPN errors. The other 7 spots' results were
+already known (PR #222). They do not involve this spot's rows beyond the shared population.
+
+| id | definition | positions | predicted sign |
+|---|---|---|---|
+| team_total_moved_2_5 | implied team total = total/2 - team spread/2, per book, averaged over books with open and close for both markets (`nfl_odds_archive`, weeks with a number, a game listed twice for one team-week is dropped). Move = close - open. Value +1 if move >= +2.5, -1 if <= -2.5, else not in the spot. Tested statistic = value x excess error (section 3's excess) | QB, RB, WR, TE | + (ESPN lags the market: under-projects when the team total rose, over-projects when it fell) |
+
+- Row counts (population of section 1, in the spot, up / down): 2021 277 (67 / 210),
+  2022 345 (91 / 254), 2023 303 (86 / 217), 2024 218 (58 / 160). Team-weeks with open and
+  close: 272 / 271 / 259 / 272 games. Population rows matched to a line: 3,390 / 3,260 /
+  2,871 / 3,275 total rows (3,187 matched in 2024). Rows with no line count as not in the spot.
+- Timing caveat, decided in advance: the "open" is the book's first posted line (often
+  about 10 days before the game), the close is at kickoff, and ESPN's projection time is
+  unknown. A proven result means ESPN's number sits closer to the opening line than the
+  close. It does not show when ESPN published.
+- **The family is now 8 spots.** Section 3 rule 2 reads "across all 8 tested spots" and
+  the BH-adjusted interval level is 1 - rank*0.05/8. All 8 spots are re-graded under m = 8.
+- Section 4's residual model uses "the spot flags". It now has 8, and this spot enters
+  as -1/0/+1. The residual-model numbers are re-graded with it.

@@ -157,3 +157,10 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 17:35Z: #180 MERGED (My team tab). Conflicts keep skipping PRs (#176 #182 #181 ...). Train 2 waiter stopped: when the big queue ends, run ONE repair pass over every skipped/open PR (merge main, resolve, push), then ONE queue in dependency order. INT-163-1 -> #201, INT-162-1 -> #202.
 
 17:50Z: R&D r12 landed: ESPN weekly projection names the injury inheritor (~90% vs ~70% depth chart) -> RL-12-1; Sleeper injury flag never cleared (RL-12-2 urgent); player-card news misses 1/3 (RL-12-3). Plan adjusted; r13 relaunched.
+17:55Z: Loop 1 relaunched: RL-12-2 (urgent) + RL-12-3 (wqqr2ukcf); R&D r13 (wrnq0cxhw).
+
+18:05Z: RL-11-1 activity receptiveness -> #203 (ships DEFAULT-OFF: its pre-registered 2024 bar was missed, AUC 0.644; 2026 forward interval spans 0.5; checked-out flag fixed to 2 real no-shows of 46).
+
+18:25Z: #185 dead-starter guard MERGED. RL-12-2 stale injury flag -> #204, RL-12-3 news attribution -> #205. Repair-pass agent launched over 24 open PRs (status: MERGE-TRAIN-STATUS.md). Weekly 80%, 5-hour 59% (resets 10 AM).
+
+18:55Z: R&D r13 landed: 2026 Sleeper forward panel as a holdout-free trade-gate source (needs Nick's OK on call volume), receptiveness scale bug (RL-13-2), waiver priority resets weekly (RL-13-3). Plan adjusted. R&D r14 NOT relaunched yet: weekly at ~81%, holding to protect the 87% stop until account B.

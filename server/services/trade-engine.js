@@ -1906,10 +1906,17 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
   let timing = new Map();
   let climate = null;
   let self = null;
-  try { timing = tacticsReads.timingRead(lg.id, { season: weekNow.season }); } catch { timing = new Map(); }
+  // These three catches exist because one unreadable input must not take down a
+  // whole trade search. They used to answer with an empty Map and two nulls,
+  // which downstream is indistinguishable from a league with no history — so a
+  // crash in any of them arrived on the card as a finding about Nick. The
+  // catches stay; what they hand on now says the read did not complete.
+  let timingFault = null;
+  try { timing = tacticsReads.timingRead(lg.id, { season: weekNow.season }); }
+  catch { timing = new Map(); timingFault = readFault('timing'); }
   try { climate = tacticsReads.vetoClimate(lg, { season: weekNow.season, priceOfPlayer: valueOfEspn }); }
-  catch { climate = null; }
-  try { self = tacticsReads.selfRead(lg.id, { season: weekNow.season }); } catch { self = null; }
+  catch { climate = readFault('climate'); }
+  try { self = tacticsReads.selfRead(lg.id, { season: weekNow.season }); } catch { self = readFault('self'); }
   const ownerNames = teams.map(t => t.owner).filter(Boolean);
   // Median points-per-1,000-of-price BY POSITION, over every rostered player in
   // this league. The sneak-in rule needs a baseline that is not cross-position:
@@ -1952,7 +1959,7 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
     const out = tacticsForDeal({
       give: d.i_give, get: d.i_get, manager: cp, partnerId: d.partner_id, partnerName: d.partner,
       valuationOf: p => playerValuation(cp, p, { zero }),
-      self, climate, timing: timing.get(String(d.partner_id)) ?? null,
+      self, climate, timing: timingFault ?? timing.get(String(d.partner_id)) ?? null,
       theirValuePct: d.their_value_pct, variants, postLoss, positionRate,
       otherManagerNames: ownerNames.filter(n => n !== d.partner),
     });

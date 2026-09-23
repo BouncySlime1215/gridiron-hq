@@ -892,6 +892,11 @@ export function tacticsForDeal({
         skew_pct: risk.skew_pct, reference_skew_pct: risk.reference_skew_pct,
         observed_max_votes: climate.observed_max_votes },
       why: risk.why });
+  } else if (climate?.read_state === 'unreadable') {
+    // A climate read that threw carries no votes_required, so without this it
+    // fell through to the sentence below — a claim about the league's ESPN
+    // settings that nothing read.
+    note('veto_proof', climate.reason);
   } else note('veto_proof', "this league's ESPN settings do not carry a veto threshold, so there is "
     + 'nothing to price league-perceived fairness against');
 

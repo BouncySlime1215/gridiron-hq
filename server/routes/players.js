@@ -6,6 +6,7 @@ import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { weeklyProjectionFor } from '../services/fantasy-coordinator.js';
 import { tradeWeekContext } from '../services/trade-engine.js';
 import { playerAdvancedStats } from '../services/player-advanced-stats.js';
+import { activeInjuryFlagIds } from '../services/injury-flags.js';
 import { playerHype } from '../services/hype.js';
 
 const r = Router();
@@ -19,6 +20,8 @@ function headshot(p) {
 function metricsFor(playerId) {
   const m = {};
   for (const x of rows('SELECT source, value FROM player_metrics WHERE player_id = ?', playerId)) m[x.source] = x.value;
+  // One definition of "flagged": a stale Sleeper flag the producer ignores reads as off here too.
+  if (m.injury_flag > 0 && !activeInjuryFlagIds().has(playerId)) m.injury_flag = 0;
   return m;
 }
 

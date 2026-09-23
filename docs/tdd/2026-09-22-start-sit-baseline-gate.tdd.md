@@ -9,7 +9,9 @@ before its arms were computed by this unit; §0 of it states what a skeptic had 
 registers the plan-rule verdict: committed before any code change for the Independent Auditor's
 ruling and before week 3's first kickoff (2026-09-25 00:15Z). **Revision 4** implements that
 ruling (§0c): the verdict is now the projection the app served against ESPN's weekly projection,
-and the season-average ship rule runs unchanged beside it as `average_check`.
+and the season-average ship rule runs unchanged beside it as `average_check`. **Revision 5**
+answers the local skeptic review of `a1447095` (§0d): two run-level tests over four served weeks
+pin the plan rule's call site, and the page now says what the headline grades. No number changed.
 
 **Every number in this file is for the Independent Auditor, not for Nick** (standing rule 3,
 R44.1, R45, R61). The Lineup panel shows direction only; see §10.
@@ -88,6 +90,24 @@ edge" line under not_shown": panel **17/0**, surface **13/0**; `grep -c 'small e
 client/src/components/lineup/StartSitGate.tsx` → `0`; panel `tsc --noEmit` exit 0. The small-sample
 caveat stays ("Few weeks so far: this season shows direction, not proof."). This check touched only
 `StartSitGate.tsx`, `test/start-sit-gate-panel.test.js` and this file.
+
+## 0d. Revision 5: the local skeptic review of `a1447095`, and what changed
+
+Three lenses (claims, test liveness, structure) reviewed `bc0062d8`/`a1447095`. Every item below
+was reproduced before it was fixed. Fix worktree `wt/verify-160-fix`, detached at `a1447095`; runs
+in scratchpad `v160fix/`.
+
+| # | blocker (lens) | disposition | where |
+|---|---|---|---|
+| 1 | the PR body describes `bc0062d8` (tree `221ca33e`, 102 tests), not the head that would merge; no row for the fresh-session RED/GREEN; its §3 says "the same-cutoff source is `not_available`" but no payload field carries that (claims) | **agreed; body edit.** Reproduced: `a1447095` tree `017b1b53`, six files 16/36/13/1/17/20 = 103/0. The body is restated for the head this revision pushes (§9), with the fresh-session row (`78393369` → `1bdfdef9`) and §3 corrected: `planRuleVerdict` is called with `sameCutoff: null` (`start-sit-gate.js:528`), `plan_rule.source` reads `espn_at_lock`, and no field names the same-cutoff absence (§7.24) | PR body, §7.24, §9 |
+| 2 | call-site mutant CS1 (the at-lock arm also passed as the same-cutoff source: an at-lock "loss") survives the whole suite, because every run-level fixture has one forward week (liveness) | **agreed; the tests were blind, the code was right.** Reproduced on `a1447095`: CS1 **SURVIVED 103/0** over the six files. Fixed in the test: `981b90ca` adds a run-level test over 2026 weeks 2-5 with ESPN ahead at lock every week: `espn_ahead_at_lock_only`, source `espn_at_lock`, never `loses_to_dumb`. CS1 now **KILLED 103/2**, and stays a standing row (sweeps 11-12) | `981b90ca`, §2, §6 |
+| 3 | CS3 (served arms fed only the latest week) and CS4 (forward window cut to the latest week) survive: nothing pins the pooled window (liveness) | **agreed; same fix.** Reproduced: CS3 and CS4 **SURVIVED 103/0**. The second run-level test (ours ahead every week) wants the replay called for `[2026, 2, 5]`, `forward.weeks` `[2, 5]`, the ESPN arm's `per_week` weeks `[2, 3, 4, 5]`, 4 weeks graded, P1-P3 passed and `beats_dumb`. Both now **KILLED 103/2** and stay standing rows | `981b90ca`, §2, §6 |
+| 4 | the page's description of what the headline grades was not updated when revision 4 re-pointed the verdict: "Ours:" printed today's settings replayed, "Limit:" the replay's caveat, "This season, served:" "What the app actually served", while the headline grades `weekly_prediction_snapshots.prediction`, the blended projection saved before kickoff, which is not the Start/Sit list's `week_points` either (structure) | **agreed; fixed.** Reproduced: `a1447095` `start-sit-gate.js:515-516` serve `policy: POLICY_TEXT` and `replay_caveat: REPLAY_CAVEAT` beside the plan-rule verdict; `StartSitGate.tsx:288,295` print them as "Ours:" and "Limit:". **RED** `11daf2af`, **GREEN** `927728bf`: the top-level texts describe the plan rule (`policy` = the saved projection, new `limit` naming `week_points`); the replay's texts moved to `average_check`; the panel groups "What was compared" by rule, the headline's first | `11daf2af`, `927728bf`, §2, §4c, §10 |
+
+**Files.** This revision changes `server/services/gates/start-sit-gate.js` and
+`test/start-sit-gate.test.js`, which are outside the Auditor's no-re-audit set (`StartSitGate.tsx`,
+the panel test and this file). **So this head needs a fresh Auditor check before merge** (the
+ruling's condition). No other file changed; no number changed (§4c).
 
 ## 1. Audit: what already exists, and extend-or-build
 
@@ -282,6 +302,44 @@ Command per file, the coordinator's: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<mkt
   findings`. A grep of its output for the gate's names finds only an unrelated `routes/aggregates.js`
   annotation (the pattern `gates\.js` matches `aggregates.js`).
 
+### Revision 5 (after the local skeptic review of `a1447095`)
+
+Same per-file command (runner `v160fix/run-tests.sh`, TAP in `v160fix/tap/`). No merge needed:
+`git merge-base --is-ancestor origin/main HEAD` holds (main `a3e2bf35`).
+
+- **Baseline on `a1447095`** (tree `017b1b53`): start-sit-gate 36/0, panel 17/0 (re-run here); the
+  six-file total 103/0 is also every surviving mutant's total in `sweep-s11-pre.txt`.
+- **Call-site tests** `981b90ca` "test: pin the plan rule's call site on four served weeks (sweep 11:
+  CS1, CS3, CS4)" (tree `21511dcd`): start-sit-gate **38/0** on the unchanged code. The code was right
+  and the tests were blind, so the liveness proof is the named mutants: on `a1447095` CS1, CS3 and CS4
+  each **SURVIVED 103/0**; on `981b90ca` each is **KILLED 103/2**, by both new tests (§6, sweep 11):
+
+  > CS1: `an at-lock window can never be a loss (addendum 2 §4)` fails (the mutant returns
+  > `loses_to_dumb`, source `espn_same_cutoff`) ·
+  > CS3, CS4: `'CS1: four at-lock weeks with ESPN ahead…'` and `'CS3, CS4: four at-lock weeks with
+  > ours ahead…'` fail on `weeks_graded` 1, `forward.weeks` `[5, 5]` (CS4) and `per_week` `[5]`
+
+- **RED** `11daf2af` "test: RED for the page saying what the plan-rule headline grades (structure
+  review)": start-sit-gate **38 pass / 1 fail**, panel **17 pass / 2 fail**:
+
+  > `the plan-rule verdict does not grade the replay: Start the higher weekly projection from the
+  > app's current model settings, replayed week by week …` ·
+  > `under a plan-rule headline, "What was compared" has a Limit: line: Ours:,This season,
+  > replayed:,This season, served:,Which calls:,Scoring:,Why no numbers:,Measured:` ·
+  > `REAL_FIX: the headline's Limit: says replay: Graded on the weekly replay of production's
+  > projection. …`
+
+- **GREEN** `927728bf` "fix: the gate page says what the plan-rule headline grades, and labels the
+  replay's texts as the weaker check's" (tree `3c8bbb35`): baseline-gate **16/0**, start-sit-gate
+  **39/0**, surface **13/0**, job **1/0**, panel **19/0**, refresh-loop **20/0** (108 tests).
+- **Panel typecheck, single file** (`tsc --noEmit` with the root `tsconfig.json` options on
+  `StartSitGate.tsx`): exit **0** on `927728bf`; a copy with a planted `const current: number = …`
+  exits **2** (`TS2322`), the known-nonzero control.
+- **Lint's own check** (`node --check`, what `scripts/lint.mjs` runs) on the three changed JS files: ok.
+- **Wiring:** `node scripts/wiring-map.mjs --check` on `927728bf`: **exit 0**, `no missing-feed
+  findings` (40 s; `v160fix/wiring-927728bf.out`).
+- `npm run check` was not run here (coordinator's rule for this Mac): CI on Node 22 is the guard.
+
 ## 3. What it does
 
 | piece | file | what |
@@ -296,6 +354,7 @@ Command per file, the coordinator's: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<mkt
 | manual run | `scripts/run-start-sit-gate.mjs` | prints configuration, then controls, then the result; `--store` writes like the job. Its last line prints the plan-rule verdict, then the average check (revision 4) |
 | **plan-rule verdict (revision 4)** | `start-sit-gate.js` `planRuleVerdict`, `runStartSitGate`, `refreshStartSitGate` | top-level `verdict` = `plan_rule.verdict`: the served-vs-ESPN arm pooled from 2026 week 2 (prereg addendum 2). The at-lock source can pass, never lose; the same-cutoff source does not exist yet. Gates P1-P3; reasons `too_few_weeks`, `espn_ahead_at_lock_only`, `not_distinguishable`. `average_check` carries G1-G4 unchanged. The stored audit gets gate `PLAN` beside G1-G4; the sync_log detail carries `verdict` and `average_verdict` |
 | **page (revision 4)** | `StartSitGate.tsx` | heading "Does our projection beat ESPN's projection?" and "The plan's dumb rule: start whoever ESPN projects higher."; the chip reads `plan_rule.verdict` only (emerald only for `beats_dumb`); a `not_shown` line built from the weeks, the direction and the source; the floor as one plain "Weaker check" line, rose if it fails; a result stored before the plan rule reads "Not measured against ESPN's projection yet"; lost weeks with ESPN's group first |
+| **texts (revision 5)** | `start-sit-gate.js` `PLAN_POLICY_TEXT`, `PLAN_LIMIT_TEXT`, `runStartSitGate`; `StartSitGate.tsx` `comparedBasis` | the top-level texts describe the top-level verdict: `policy` is the projection saved before kickoff (`weekly_prediction_snapshots.prediction`, written by `weekly-learning.js:49` `captureWeeklyPredictions` as `projection.ppg` at `:86`), `limit` says it is not `week_points` (`lineup-brain.js:356` `startSitWeekPoints`), and `baseline` is ESPN's. `average_check` carries its own `policy` (today's settings replayed) and `replay_caveat`. "What was compared" shows the headline's rule first ("Ours:", "Limit:"), then the weaker check's ("Ours, in the weaker check:", "This season, replayed:", "Limit of the weaker check:"), then both. A result stored before `limit` existed shows its top-level replay texts under the weaker check |
 
 ## 4. The numbers (local copy, not production)
 
@@ -477,6 +536,48 @@ Scratchpad `c01-fix/two-producers.mjs`, same copy and code.
   `render-audit.mjs` that reads `latestStartSitGate()` from the copy (what the route serves) instead
   of a hand-made payload → `c01-fix4/render-fix.out`: 0 `bg-emerald`, 1 amber chip. The text is in §10.
 
+## 4c. Revision 5 run: the same data, the new texts (local copy, not production)
+
+**For the Auditor, not for Nick.**
+
+- **Copy:** `cp` of revision 4's copy (`c01-fix4/run/data-c01fix4.sqlite`, SHA-256 `73e67399…`, i.e.
+  the §4b backup `1d474388…` plus §4b's stored row 1) to `v160fix/run/data-v160fix.sqlite` at
+  2026-09-23T01:42:32Z; same hash. **Local copy, not production.** The original still hashes
+  `73e67399…` afterwards; my copy was deleted after the run (`copy-after-store.sha256` `afe522fe…`).
+  No `leagues` column is read.
+- **The stored revision-4 row, read through the new panel** (`v160fix/render-v160fix.mjs`, a versioned
+  copy of `c01-fix4/render-fix.mjs` pointed at the fix worktree; `latestStartSitGate()` is what the
+  route serves) → `render-row1.out`: "What was compared" shows ESPN's rule under the headline with no
+  "Ours:" or "Limit:" (that row has no `limit`), and the row's own replay texts under "Ours, in the
+  weaker check:" and "Limit of the weaker check:".
+- **Command** (HEAD `927728bf`, tree `3c8bbb35`, worktree clean): `GRIDIRON_DB_PATH=<copy>
+  GRIDIRON_DB_INTEGRITY_CHECK=off SCHEDULER_DISABLED=1 /usr/bin/time -l nice -n 10 node
+  scripts/run-start-sit-gate.mjs --iterations 2000 --store` → exit 0, 20.01 s wall, 394,002,432 B max
+  RSS, load average 7.4. Last lines: `verdict (plan rule, served vs ESPN): not_shown (too_few_weeks);
+  average check: beats_dumb` and `stored: {"verdict":"not_shown","average_verdict":"beats_dumb",
+  "audit_id":2,…,"served_vs_espn_direction":"dumb_ahead"}` (`v160fix/run/gate-run-v160fix.out`).
+- **No number moved.** A path-by-path diff of the result JSON against §4b's `gate-run-fix.json` (same
+  data) finds **6 differing paths, all texts**: `.policy` (now the saved projection), `.limit` (new),
+  `.replay_caveat` (gone from the top level), `.average_check.policy` and `.average_check.replay_caveat`
+  (new, the replay's), `.forward.served.label`. `plan_rule` (`not_shown`, `too_few_weeks`,
+  `espn_at_lock`, 1 week, `dumb_ahead`, P1 −6.5246, P2 0.2537, MDE80 4.7299 / 0.1869), `average_check`
+  G1-G4 (0.7958, 0.9566, 0.5256, 2.7923), the ESPN arm (153 rows, 784 pairs, 286 disagreements, won
+  0.3776, −3.4207), the controls (oracle n 10,131) and 2025 (2,999, 0.5715, +1.9482 [+1.1575, +2.7485])
+  are identical.
+- **The new row through the new panel** → `render-row2.out`: 0 `bg-emerald`, 1 amber chip; everything
+  above "What was compared" is identical to row 1's render (diffed); "What was compared" is in §10.
+  The rule-3 grep finds 0 matches on the render and 22 on the run's JSON (known-nonzero control).
+- **Two producers, cited not re-run (C):** the structure review measured, on its own copy of 2026
+  week 3 and a synthetic 12-team league, that the saved projection and `week_points` order 167 of 968
+  startable same-position pairs differently (identity control 0/970; the saved projection against
+  today's engine `ppg`, 28/10,382), and that of 461 saved-vs-ESPN disagreements `week_points` sides
+  with ESPN on 91 (scratchpad `v160struct/two-producers*.mjs`). This revision does not grade
+  `week_points`; it makes the page say that it does not.
+- **No table stores `week_points`:** `grep -rn "week_points" server/db/ | wc -l` → 0; the same grep
+  for the snapshot's column, `grep -rn "prediction REAL" server/db/`, finds
+  `server/db/schema/mlb-model-misc.js:771` in `CREATE TABLE IF NOT EXISTS weekly_prediction_snapshots`
+  (:757), the known-nonzero case. Storing it is WORK-QUEUE S-12.
+
 ## 5. Holdout looks
 
 No `docs/evidence/HOLDOUT-LEDGER.md` on `origin/main d6d7bd5a`, so recorded here.
@@ -486,6 +587,7 @@ No `docs/evidence/HOLDOUT-LEDGER.md` on `origin/main d6d7bd5a`, so recorded here
 | C-01 | 2026-09-22 | H1: our as-of weekly projection's start/sit pick outscores the season-average pick where they disagree | points per disagreement (player-clustered 90% CI), decision win rate | 2,999 disagreements, 57.2% won, +1.95 [+1.16, +2.75] (local copy, `42310804`) |
 | C-01 | 2026-09-22 | H1, re-run in revision 2 (policy unchanged; new copy `b9086412`) | same | identical: 2,999, 0.5715, +1.9482 [+1.1575, +2.7485] (local copy, `ffd84d02`). Arms A and B read 2026 only |
 | C-01 | 2026-09-22 | H1 as `average_check`, re-run in revision 4 (policy unchanged; copy `1d474388`) | same | identical: 2,999, 0.5715, +1.9482 [+1.1575, +2.7485] (local copy, `cf1fffa6`). The plan-rule verdict reads 2026 only |
+| C-01 | 2026-09-23 | H1 as `average_check`, re-run in revision 5 (texts only; copy `73e67399`, the same data) | same | identical: 2,999, 0.5715, +1.9482 [+1.1575, +2.7485] (local copy, `927728bf`); not a new look |
 
 The standing job re-reads 2025 weekly; with the policy unchanged that is the same deterministic
 number, not a new look. A policy change is a new look owned by the unit that makes it.
@@ -703,12 +805,56 @@ the panel, the known-kill control K1, and the designed controls C1 (a comment ed
 | C2 | designed not-applied | anchor absent (0 matches) | — | **NOT-APPLIED** (sweep 10 too) | — |
 | C3 | designed not-applied | anchor ambiguous (12 matches) | — | **NOT-APPLIED** | — |
 
+### Revision 5 sweeps (after the local skeptic review)
+
+Runner `v160fix/mutate-v6.py`, a new versioned file (neither `mutate-v5.py` nor the skeptic's
+`v160live/mutate.py` was edited), same rules: its own detached worktree `wt/verify-160-fix-mut` at
+the swept sha, each anchor must match exactly once or the mutant is refused as NOT-APPLIED, every file
+restored to its before-hash (`start-sit-gate.js` `d0761f094792` at `981b90ca`, `a63902383c15` at
+`927728bf`; `StartSitGate.tsx` `e338acf0e766` at `927728bf`), worktree clean before and after, the
+same six test files per mutant. Specs `mutants-s11.json`, `mutants-s12.json`; outputs
+`sweep-s11-pre.txt`, `sweep-s11.txt`, `sweep-s12.txt`, TAP per mutant in `mut/`.
+
+- **Sweep 11a** on `a1447095` (tree `017b1b53`), the reviewed head: CS1, CS3, CS4 each **SURVIVED
+  103/0**, reproducing the liveness review.
+- **Sweep 11** on `981b90ca` (tree `21511dcd`), the new tests, code unchanged: CS1, CS3, CS4 each
+  **KILLED 103/2**; K0 (the ruling's V1) killed 100/5; C1 survived 105/0 (the baseline); C2 and C3
+  refused.
+- **Sweep 12** on `927728bf` (tree `3c8bbb35`), the final code: **all 15 applied mutants killed**,
+  including the three standing call-site rows; K0 killed; the designed survivors C1 and C4 survived at
+  the baseline, 108/0; C2 and C3 refused; `worktree clean at 927728bf`.
+
+| # | kind | mutation | sweep 12 pass/fail | result | killed by (first test) |
+|---|---|---|---|---|---|
+| CS1 | **call site (standing)** | the at-lock arm also passed as the same-cutoff source | 106/2 | **KILLED** (11: 103/2; 11a: survived 103/0) | CS1: four at-lock weeks with ESPN ahead every week are espn_ahead_at_lock_only, never loses_to_dumb |
+| CS3 | **call site (standing)** | `servedArms` fed only the latest forward week | 106/2 | **KILLED** (11: 103/2; 11a: survived) | same, and CS3, CS4: four at-lock weeks with ours ahead … beats_dumb |
+| CS4 | **call site (standing)** | `forwardWindow` returns `[maxWeek, maxWeek]` | 106/2 | **KILLED** (11: 103/2; 11a: survived) | same |
+| S1 | call site (structure) | top-level `policy` ← `POLICY_TEXT` (the reviewed defect) | 107/1 | **KILLED** | the top-level basis is the plan rule's … |
+| S2 | call site (structure) | top-level `limit` ← `REPLAY_CAVEAT` | 107/1 | **KILLED** | same |
+| S3 | call site (structure) | `average_check` drops `policy` and `replay_caveat` | 107/1 | **KILLED** | same |
+| S4 | unit (structure) | the plan limit stops naming `week_points` | 107/1 | **KILLED** | same |
+| S5 | unit (structure) | the served label says "What the app actually served" again | 107/1 | **KILLED** | same |
+| P10 | consumer | a stored revision-4 result shows the replay caveat under the headline's "Limit:" | 107/1 | **KILLED** | What was compared: a result stored before this basis existed … |
+| P11 | consumer | a stored revision-4 result shows the replay policy under the headline's "Ours:" | 107/1 | **KILLED** | same |
+| P12 | consumer | older results lose the weaker check's "ours" | 107/1 | **KILLED** | same |
+| P13 | consumer | a pre-plan-rule result's season average shown as the headline's rule | 107/1 | **KILLED** | same |
+| P14 | consumer | the weaker check's "ours" labelled "Ours:" like the headline's | 106/2 | **KILLED** | What was compared: under the plan-rule headline, "Ours:" is the saved projection … |
+| P15 | consumer | "Why no numbers" says "measured on a replay" again | 107/1 | **KILLED** | same |
+| K0 | known-kill control | the ruling's V1: top-level `verdict` ← `average_check.verdict` | 103/5 | **KILLED** | when our projection orders the actuals right … (+ A1-A2, A4-A5, CS1, job) |
+| C1 | designed survivor | comment-only edit (server) | 108/0 | **SURVIVED** (as designed) | — |
+| C4 | designed survivor | comment-only edit (panel) | 108/0 | **SURVIVED** (as designed) | — |
+| C2 | designed not-applied | anchor absent (0 matches) | — | **NOT-APPLIED** | — |
+| C3 | designed not-applied | anchor ambiguous (12 matches) | — | **NOT-APPLIED** | — |
+
 ## 7. Known defects and limits
 
-1. **It grades the replay predictor, not the full live number.** Production's `week_points`
-   also carries the chance to play, the betting-line lift and the coordinator correction;
-   `replaySeasonWeekly` reads four tables and has none of them (memory
-   `gridiron-replay-may-not-grade-the-shipped-model`). The page says so under "Limit".
+1. **The average check grades the replay predictor, and the headline grades the saved projection;
+   neither is the full live number.** Production's `week_points` also carries the chance to play,
+   the betting-line lift and the coordinator correction; `replaySeasonWeekly` reads four tables and
+   has none of them (memory `gridiron-replay-may-not-grade-the-shipped-model`), and the saved
+   snapshot is `projection.ppg` before them (`weekly-learning.js:86`). Since revision 5 the page says
+   each under its own rule: "Limit:" under the headline names `week_points`; "Limit of the weaker
+   check:" is the replay's caveat. Grading `week_points` needs it stored first (S-12).
 2. **PPR, not each league's `scoringItems`; a league-wide pool of pairs, not Nick's rosters**
    (`league_roster_history` holds only final snapshots for 2023-2025).
 3. **Players on a bye in week W−1 are not in week W's pool** (the harness's "active last week"
@@ -721,7 +867,8 @@ the panel, the known-kill control K1, and the designed controls C1 (a comment ed
 5. **The week interval runs a little hot** on 28 week clusters: 4/40 false passes under the null
    against a nominal 2/40. The rule needs G1 and G3 too, and all three together false-passed 1/40.
 6. **The forward window is one week** (2026 week 2, 570 disagreements, MDE 3.91 points). G4 is
-   direction only, as pre-registered. It grows by itself: the job re-reads every played week.
+   direction only, as pre-registered. It grows by itself: the job re-reads every played week. Since
+   revision 5 that growth is pinned by a run-level test over weeks 2-5 (sweep 11: CS3, CS4 killed).
 7. **Only the fitted k is cutoff-safe by construction.** Hand-set constants in `buildProjections`
    (e.g. `RECENCY`) were chosen with 2021-2025 visible, so 2024-2025 is not a pristine holdout
    for the whole policy. 2026 is.
@@ -774,10 +921,38 @@ the panel, the known-kill control K1, and the designed controls C1 (a comment ed
 22. **A result stored before revision 4** has no `plan_rule`. The panel then says "Not measured
     against ESPN's projection yet" and never reads the old top-level `verdict` (which was the
     average's) as the plan rule's. The local copy held no such row (§4b).
+23. **A result stored before revision 5** has no `limit`, and its top-level `policy` and
+    `replay_caveat` are the replay's. The panel shows them under the weaker check and gives the
+    headline only ESPN's rule (§4c, row 1). Its stored served label keeps the old words ("What the app
+    actually served") until the next weekly run stores a new row. No such row exists outside scratch
+    copies: the branch is unmerged and main has no gate job.
+24. **The same-cutoff absence is not a payload field.** `runStartSitGate` calls `planRuleVerdict`
+    with `sameCutoff: null` (`start-sit-gate.js:528`); the result says `source: 'espn_at_lock'` and
+    nothing names why the same-cutoff arm is absent. Addendum 2 §4's "the same-cutoff source is
+    `not_available`" is a sentence, not a field. A `plan_rule.same_cutoff {status, reason}` field is
+    a possible follow-up; it was not in any acceptance item.
 
 ## 8. Nick's five questions
 
-*Revision 4 answers first; the revision 1-3 answers follow, unchanged where still true.*
+*Revision 5 first (what changed), then revision 4; the revision 1-3 answers follow, unchanged where
+still true.*
+
+1. **Well built? (revision 5)** Two gaps closed, each with a liveness proof: three call-site mutants
+   that survived every test now die (CS1, CS3, CS4: 103/0 → 103/2), and the page's "What was
+   compared" now describes the number the headline grades, pinned server-side and panel-side (15 of
+   15 applied mutants killed in sweep 12). 108 targeted tests.
+2. **Stats or made up? (revision 5)** Nothing new is estimated. The run on the same data moved no
+   number (§4c: 6 differing paths, all texts).
+3. **How we know (revision 5):** same answer as revision 4: not shown to beat ESPN's projection,
+   one week, at lock. What changed is that the page now says what "our projection" means there: the
+   blended weekly projection the app saved before kickoff, not the number beside each player on the
+   Lineup page (`week_points`), which is not graded yet.
+4. **Pointed anywhere else? (revision 5)** S-12 (store `week_points`) is what would let this gate
+   grade the Start/Sit number itself; C-01b (sub-windows, due before a week-3 grade is stored) extends
+   the four-week test's window path.
+5. **How it unifies (revision 5):** each verdict now carries its own description: the top-level
+   texts belong to the plan rule, `average_check` carries the replay's. One producer per text; the
+   panel reads each where it lives.
 
 1. **Well built? (revision 4)** The ruling's nine items are each a test that failed on the old code
    and passes now (§0c, §2). 102 tests across six files. Sweep 9-10: all 27 applied mutants killed
@@ -862,6 +1037,14 @@ Revisions 1-3:
   at the pushed head, and an Auditor check of that head in a fresh session. After merge, C12's
   start/sit line stays "partial: instrument live; plan bar not shown met" until the plan-rule
   verdict reads `beats_dumb`.
+- **Revision 5 and the Auditor's no-re-audit condition:** `git diff --stat a1447095 <head>` lists
+  `server/services/gates/start-sit-gate.js`, `test/start-sit-gate.test.js`,
+  `client/src/components/lineup/StartSitGate.tsx`, `test/start-sit-gate-panel.test.js` and this file.
+  The first two are outside the set the fresh-session check allowed without a new session, so **a
+  fresh Auditor check of this head is needed** before merge. What it would check: §0d, sweep 12, and
+  §4c's diff (no number moved).
+- **Does NOT cover (revision 5):** grading `week_points` (S-12); the sub-window report (C-01b); a
+  same-cutoff source or a field naming its absence (§7.24).
 - **Rulings asked for in revision 3 (history):** (a) a prereg committed before the run but
   not filed with the Auditor (rule 2); (b) the two-factor player interval; (c) the season average as
   the gating dumb rule, now with the literal ESPN arm pointing against us on week 2; (d) the unit
@@ -872,6 +1055,30 @@ Revisions 1-3:
   branch is not mergeable until they are.
 
 ## 10. What Nick sees (direction only)
+
+**Revision 5.** Everything above "What was compared" is unchanged from revision 4 (quoted below):
+the real panel at `927728bf`, fed the row the fix head stored on the same data (§4c,
+`v160fix/run/render-row2.out`), renders the same text there as it does for revision 4's stored row.
+"What was compared", opened, now reads (each verdict's basis under its own rule, the headline's
+first):
+
+> The plan's dumb rule: start the player ESPN projects higher that week (ESPN's own weekly projection, one value per player and week, from the synced leagues' settled lineups).
+> **Ours:** Start the player with the higher weekly projection the app saved before that week's first kickoff (its blended weekly projection, exactly as saved).
+> **Limit:** That saved projection is not the number shown beside each player on this page (week_points), which also carries the chance to play, the betting-line adjustment and the coordinator correction. The app does not save that number each week yet, so it cannot be graded.
+> The weaker check, set before the numbers: start the player with the higher season-to-date PPR average (his average in games played this season before the week). No model.
+> **Ours, in the weaker check:** Start the higher weekly projection from the app's current model settings, replayed week by week with only what was known before each week (weekly role recency, the fitted volume numbers and the blend weights, each chosen by data cutoff).
+> **This season, replayed:** This season, today's model settings replayed on this season's weeks: not the projection the app served at the time.
+> **Limit of the weaker check:** Graded on the weekly replay of production's projection. The live number also carries the chance to play, the betting-line adjustment and the coordinator correction, which the replay does not.
+> **This season, served:** What the app served: the blended weekly projection it saved before each week's first kickoff, graded on the same players and the same scores as the replay.
+> **Which calls:** Every pair of same-position players (QB, RB, WR, TE) in the same week, both active the week before, not on a bye, and both projected at least 8.0 PPR by both rules. Graded only where the two rules disagree, on what the two picks actually scored (0 if he did not play).
+> **Scoring:** PPR
+> **Why no numbers:** sizes measured on this league-wide pool of pairs do not carry over to your live lineups, so this panel shows only which way each result points.
+
+- **Before (revision 4, `a1447095`):** "Ours:" was the replayed-settings text and "Limit:" the replay's
+  caveat, printed under a headline that grades the saved projection against ESPN's; the served label
+  began "What the app actually served"; "Why no numbers" said "measured on a replay".
+- 0 `bg-emerald`, 1 amber chip; the rule-3 grep finds nothing on the render (22 matches on the run's
+  JSON, the control).
 
 **Revision 4.** The real panel (`StartSitGate.tsx` at `1bdfdef9`, after the Auditor's fresh-session
 item), compiled with the repo's TypeScript and rendered with React, fed what `GET /api/gates/start-sit`

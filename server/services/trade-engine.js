@@ -1521,7 +1521,7 @@ const slim = p => ({
  * Every input here is already computed for the card; this just names the
  * pattern instead of making the manager infer it from raw numbers.
  */
-function tagDeal(give, get, ev) {
+export function tagDeal(give, get, ev) {
   const tags = [];
   const avg = (list, key, fallback) => list.length
     ? list.reduce((s, p) => s + (p[key] ?? fallback), 0) / list.length : fallback;
@@ -1542,12 +1542,18 @@ function tagDeal(give, get, ev) {
   // 'Sell High', which claimed a market-price read; the one hype producer is
   // services/hype.js#playerHype (S-19), so the tag now says only what it measures.
   if (oldest(give) >= 29 && youngest(get) < oldest(give)) tags.push('Sell the Veteran');
-  // role_change is only ever set when the weekly engine detected a real usage
-  // shift — a change of role, not noise — so this is evidence, not a guess.
-  if (get.some(p => p.role_change)) tags.push('Buy Low');
+  // role_change is detectRoleChange()'s object (role-changepoint.js), set only on a
+  // confirmed usage shift. Its status carries the DIRECTION: reading truthiness
+  // labelled players losing usage 'Buy Low' (RL-15-3). A rising role is named for
+  // what it measures (usage up, not a market-price read); a shrinking role is a
+  // caution and goes first so the two-tag cap can never hide it.
+  const roleStatus = status => get.some(p => p.role_change?.status === status);
+  const shrinking = roleStatus('confirmed_role_decrease');
+  if (roleStatus('confirmed_role_increase')) tags.push('Role Rising');
   if (give.some(p => p.injury) && !get.some(p => p.injury)) tags.push('Sell the Injury Risk');
   if (Math.abs(ev.their_value_pct) <= 4 && ev.me.ppg_delta > 0.4) tags.push('Fair & Clean');
   else if (ev.their_value_pct < -6 && ev.me.ppg_delta > 0.6) tags.push('Value Win');
+  if (shrinking) tags.unshift('Role Shrinking');
   if (!tags.length) tags.push('Straight Upgrade');
   return tags.slice(0, 2);
 }

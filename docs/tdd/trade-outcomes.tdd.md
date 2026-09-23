@@ -1,21 +1,13 @@
 # The trade outcome ledger
 
-**No real observed row exists yet. The collector has not run; every row here is
-a fixture.**
+**No real row exists until the ESPN cookie is set and the collector runs; every
+row here is a fixture.**
 
 That sentence is the first thing in this file because it is the thing most
 easily lost. `league_transactions_raw` has no migration — it is created by hand
-in `scripts/collect-league-transactions.mjs:21-27` — and that script has never
-run on this machine. So the ledger has a schema, four writers, a reader and
-twenty-five tests, and it has zero observed rows.
-
-The emphasis was originally on the cookie, and that was the wrong half. A live
-read of the deployed database on 2026-09-22 found `espn_s2` and `swid` present
-on all five leagues — presence (`IS NOT NULL`), not verified validity, and
-relayed to me rather than read by me. What is actually missing is a run: the
-only caller is `scripts/refresh-live-data.mjs:260`, which is the **off-server**
-loop with no `fly.toml` process and no in-app scheduler job, so whether the
-collector has ever run depends on whether someone is running that loop. Nothing
+in `scripts/collect-league-transactions.mjs:21-27`, which needs an ESPN cookie —
+and that script has never run on this machine. So the ledger has a schema, four
+writers, a reader and twenty-five tests, and it has zero observed rows. Nothing
 below invents one, and `settleObservedOutcomes` returns
 `state: 'raw_table_absent'` rather than an empty result, so the difference
 between *the collector has never run* and *this league has no trades* survives

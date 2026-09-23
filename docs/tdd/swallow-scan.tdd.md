@@ -130,7 +130,26 @@ then throws). The discriminator is missing-table versus every other error.
 
 ## How we know
 
-RED `8b95516` — 9 tests, 6 pass, 3 fail: `S1a`, `S1c`, `S2`.
-GREEN — 9 of 9.
+RED `91c6c14` (test: RED — the enumeration tool, against the two ways it was
+wrong) — 9 tests, 6 pass, 3 fail: `S1a`, `S1c`, `S2`.
+GREEN `08c729e` (feat: GREEN — the sweep matches braces instead of counting
+lines, 9 of 9) — 9 of 9.
+(The shas above were `8b95516` and its GREEN before a rebase rewrote them; the
+content is unchanged.)
 The RED scanner is re-runnable from the commit, which is how the table above was
-produced: `git show 8b95516:scripts/swallow-scan.mjs` against the same tree.
+produced: `git show 91c6c14:scripts/swallow-scan.mjs` against the same tree.
+
+Liveness, re-run 2026-09-23 after merging `origin/main` (`a3e2bf3`): the RED
+scanner restored over `scripts/swallow-scan.mjs`, current tests unchanged —
+`# tests 9 # pass 6 # fail 3`, `not ok 1 - S1a`, `not ok 3 - S1c`,
+`not ok 4 - S2`; S1a's assertion: `+ []  - [ 'league_transactions_raw' …`.
+GREEN scanner restored — 9 of 9.
+
+## The set on the merged tree (2026-09-23)
+
+The table above is historical, measured on `e3bca56`. On this branch after
+merging `origin/main` `a3e2bf3`, `node scripts/swallow-scan.mjs` reports:
+276 tables created, 25 bare catches over a literal read, 4 reading a table with
+no migration — `counterparty-pricing.js:1056` `league_transactions_raw`,
+`:1173` `negotiation_profiles`, `league-chat-sync.js:142` and `:149`
+`manager_chat_profile`. Main moved; the scanner did not.

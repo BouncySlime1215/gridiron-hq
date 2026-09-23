@@ -407,7 +407,9 @@ function buildAssetUniverse(lg, formatKey, target) {
     const weekBlend = servedWeekBlend({
       ours: thisGame ? currentWeekBasePpg * thisGame.mult * activeProbability : 0,
       espn: espnValueFor(espnWeek, p.espn_id), position: p.position, week: target.week,
-      reportStatus: availability?.report_status ?? null, bye: !thisGame
+      // Only skill positions get a schedule (sched above), so only they can be on a bye here;
+      // a K/DEF is labelled by its position ('ours_position_not_graded'), not as having no game.
+      reportStatus: availability?.report_status ?? null, bye: SCORED.has(p.position) ? !thisGame : false
     }, SERVED_BLEND);
     const currentWeekPpg = weekBlend.ppg;
     // Rest-of-season weekly rate. No schedule tilt (see scheduleTilt above), no

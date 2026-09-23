@@ -16,7 +16,8 @@
  *   fit_shrunk   one weight fit on 2022-2024, shrunk toward 50/50
  *   pos_phase    a weight per position and season phase, shrunk toward fit_shrunk's
  *   espn_proven  ESPN plus our disagreement, only in the cells where it was proven
- * SERVED_BLEND below records the winner and whether it passed the ship rule.
+ * TOURNAMENT_DECISION below records the winner and its ship rule; SERVED_BLEND serves it only
+ * once SERVING_HOLDS is empty (today it is not, so ours is served, labelled 'blend_off').
  *
  * ESPN's number is a model input only: it prices this week's number and is never shown as
  * odds or as a pick of its own.
@@ -110,17 +111,60 @@ export function blendWeekPoints({ ours, espn = null, position, week, reportStatu
  * docs/evidence/2026-09-22/weekly-blend-tournament-output.json, `decision`; pinned by
  * test/weekly-blend.test.js). ESPN's weekly projection alone won: on 2023-2024, graded
  * walk-forward, it ordered the start/sit calls our number poses better than our number
- * (pair accuracy 0.683 vs 0.636), no blend of ours beat it by more than its MDE, and it held
- * on 2026 week 2. So this week's number is ESPN's projection where ESPN has one and ours
- * where it does not. `on: false` would serve ours with every player saying why (`blend_off`).
+ * (pair accuracy 0.683 vs 0.636), no blend of ours beat it by more than its MDE, and its point
+ * estimates were above 0 on 2026 week 2 (one week, not blind: it had been looked at before the
+ * pre-registration was committed).
+ */
+export const TOURNAMENT_DECISION = Object.freeze({
+  winner: 'espn',
+  on: true,
+  verdict: 'shipped',
+  news_layer: false,
+  params: null,
+  evidence: 'docs/evidence/2026-09-22/weekly-blend-tournament-output.json'
+});
+
+/**
+ * Why the winner is not served yet. The tournament graded start/sit pairs where BOTH players
+ * had an ESPN number; serving it changes numbers other pages compare across that line. Each
+ * hold names what lifts it. While any stands, current_week_ppg is ours, labelled 'blend_off',
+ * and context.week_blend says the blend is held and why.
+ */
+export const SERVING_HOLDS = Object.freeze([
+  Object.freeze({
+    id: 'waiver_ungraded',
+    reason: 'the waiver board would price free agents rostered in another identically scored league on ESPN\'s number and every other free agent on ours, and that board was never graded against adding the highest-projected free agent',
+    lifts_when: 'free agents have an ESPN capture (RL-1-1) or a waiver decision grade on 2023-2024 passes'
+  }),
+  Object.freeze({
+    id: 'espn_zero_reads_as_missing',
+    reason: 'Start/Sit (lineup-brain.js lineupCall) reads a weekly number of 0 as missing data, and ESPN projects ruled-out players at 0',
+    lifts_when: 'lineupCall treats week_blend.espn_ppg === 0 as a projection of 0, not an absence'
+  }),
+  Object.freeze({
+    id: 'labels_describe_ours',
+    reason: 'week_basis, fantasy_coordinator and context.week_basis.label (S-03) describe our construction as current_week_ppg',
+    lifts_when: 'one provenance label: week_basis says espn where weight_ours is 0, and the coordinator block moves under ours'
+  }),
+  Object.freeze({
+    id: 's03_identity',
+    reason: 'scripts/weekly-construction-walk-forward.mjs --served-identity and the grade\'s consumer parity assert current_week_ppg is our construction x game factor x chance to play',
+    lifts_when: 'those checks compare our construction with the blend\'s ours input instead of the served number'
+  })
+]);
+
+/**
+ * The served switch: the tournament's winner, on only when the tournament said ship AND no
+ * serving hold stands. `on: false` serves ours with every player saying why (`blend_off`).
  */
 export const SERVED_BLEND = Object.freeze({
-  on: true,
-  candidate: 'espn',
-  params: null,
-  news_layer: false,
-  verdict: 'shipped',
-  evidence: 'docs/evidence/2026-09-22/weekly-blend-tournament-output.json'
+  on: TOURNAMENT_DECISION.on && SERVING_HOLDS.length === 0,
+  candidate: TOURNAMENT_DECISION.winner,
+  params: TOURNAMENT_DECISION.params,
+  news_layer: TOURNAMENT_DECISION.news_layer,
+  verdict: SERVING_HOLDS.length ? `held (${SERVING_HOLDS.map(h => h.id).join(', ')})` : TOURNAMENT_DECISION.verdict,
+  holds: Object.freeze(SERVING_HOLDS.map(h => h.id)),
+  evidence: TOURNAMENT_DECISION.evidence
 });
 
 /** The served entry point: trade-engine.js passes its own number through this, once. */
@@ -128,6 +172,7 @@ export function servedWeekBlend(input, config = SERVED_BLEND) {
   if (!config?.on) {
     const e = finite(input?.espn) ? input.espn : null;
     if (input?.bye) return { ppg: 0, basis: 'no_game', weight_ours: null, espn: e };
+    if (!BLEND_POSITIONS.has(input?.position)) return { ppg: input.ours, basis: 'ours_position_not_graded', weight_ours: 1, espn: e };
     return { ppg: input.ours, basis: 'blend_off', weight_ours: 1, espn: e };
   }
   return blendWeekPoints(input, { candidate: config.candidate, params: config.params, newsLayer: config.news_layer });
@@ -183,14 +228,17 @@ export function espnValueFor(espn, espnId) {
 
 /** The sentence and facts for the surface (context.week_blend). */
 export function weekBlendContext(espn, config = SERVED_BLEND) {
+  const holds = config.holds ?? [];
   const label = !config.on
-    ? `This week's points are our projection alone. A blend with ESPN's weekly projection was tested (${config.verdict}); it is not served.`
+    ? holds.length
+      ? `This week's points are our projection alone. ESPN's weekly projection won the blend test on start/sit calls, but it is not served yet: ${holds.length} check${holds.length === 1 ? '' : 's'} on the pages that read this number (${holds.join(', ')}) must pass first.`
+      : `This week's points are our projection alone. A blend with ESPN's weekly projection was tested (${config.verdict}); it is not served.`
     : config.candidate === 'espn'
       ? "This week's points are ESPN's weekly projection where ESPN has one, and our projection where it does not."
       : `This week's points blend our projection with ESPN's weekly projection (${config.candidate}). Players ESPN has no number for keep ours.`;
   return {
     on: Boolean(config.on), candidate: config.candidate, news_layer: Boolean(config.news_layer), verdict: config.verdict,
-    evidence: config.evidence, label,
+    holds: [...holds], evidence: config.evidence, label,
     espn: { state: espn?.state ?? 'empty', rows: espn?.rows ?? 0, players: espn?.values?.size ?? 0,
       conflicting: espn?.conflicting ?? 0, leagues: espn?.leagues?.length ?? 0, captured_at: espn?.captured_at ?? null }
   };

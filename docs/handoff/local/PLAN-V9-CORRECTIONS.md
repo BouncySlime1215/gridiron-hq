@@ -9,3 +9,9 @@ Verified facts (8 skeptic passes, SKILL-REPORT.md): (a) the repeatable skill is 
 6. Wording rule: pitches, tags, coach answers and the board use only verified numbers; the three corrected claims are banned phrases (best-player edge, IR 30 pts, start/sit half of skill).
 ## New build order
 Phase 0 (running) -> Phase 1a Foundations (CE-05, TR-01, TR-03, AI-01, TM-09, TM-06 + FantasyCalc test, GR-05, GR-01) -> Phase 1b DILIGENCE ENGINE (SK-01, SS-01, WV-01, WV-02, ST-03, dormant-league drafts, attention score; lean builds, ~6 h, before Thursday's week-3 kickoff) -> Phase 2 Engine (CE-01/02/03/09/06/10) -> Phase 3 Trade Machine v1 (TM-28 their screen, TM-01 lineup-gap finder, TM-02 tags incl. pedigree regression, TM-03 target board + LS-01, AI-05, TM-04, TM-05, DD-01, GT-01, GR-02, GR-06, LL-01) -> Phase 5 AI tier -> Phase 6 insane tier (NX-02 and ST-02 moved here).
+
+## Plan adjustment after R&D rounds 3-4 (06:45Z)
+- FantasyCalc is a strong market (right 60.6% vs season-to-date on disagreements): the FantasyCalc disagreement test becomes the FIRST gate of the Trade Machine (the finder does not claim an edge until it beats FantasyCalc on forward weeks). Daily snapshots start now (FC-SNAP) so the test can run from week 4; the Wayback snapshots give a 2023-24 prior.
+- The paper-value side of TM-01 uses FantasyCalc + ESPN as the "his screen" pair (NX-08 promoted into TM-28).
+- New bug class found internally (fake win rates, swaps after kickoff, injured players valued as healthy): the UI lens and the structure lens add a check "no number on a page without a calibration source". RL-4-1 (injury-return valuation) is scheduled right after BLEND-01 lands on the producer lines; it overlaps TR-01 and merges into it.
+- Live inactives (RL-3-2: ~1 in 3 surprise inactives missed without a live Sunday source) joins the Diligence Engine phase 1b.

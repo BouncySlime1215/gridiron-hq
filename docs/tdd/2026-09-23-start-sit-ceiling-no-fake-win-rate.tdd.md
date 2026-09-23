@@ -42,6 +42,16 @@ unit; see Known defects.
 - Strengthened after the mutation sweep: `test: pin the fallback basis and the page's rendered basis line (mutants M6, M8)`
   `7e9e1acb`. 5/5 pass on HEAD; the final file re-run against origin/main's `lineup-brain.js` + `Lineup.tsx` fails 3
   (ceiling, floor, page) and passes 2 (both controls).
+- Skeptic round (test liveness): the page test was a source grep, so it passed when the hero-line condition was
+  inverted (C1) or the `'not measured'` chip was relabelled `'Lean'` (C2), both 5/5 on `afc3d673`. Replaced with a
+  real render test (`test: render the Start/Sit page on lineupCall output instead of grepping its source` `c6953571`): the TSX
+  is compiled with the repo's TypeScript, every import but React is stubbed, the data hook returns lineupCall's own
+  output JSON-round-tripped as `res.json` sends it (`server/routes/trades.js:220`), and `renderToStaticMarkup`
+  renders it. Three render tests: ceiling and floor must show the "no call is graded" hero line and one "Not graded"
+  chip per compared slot and no Clear/Lean/Coin flip chip; mean (control) must show Clear and Coin flip chips and the
+  tie line, and neither the ungraded line nor a "Not graded" chip. 7/7 pass on the new HEAD (same command).
+  The same file against origin/main's `Lineup.tsx` (server code at HEAD) fails 2 (ceiling render, floor render) and
+  passes 5.
 - Command (each run): `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -u /tmp/gt-XXXX).sqlite
   NODE_OPTIONS='--import ./test/offline-guard.mjs' node --experimental-test-module-mocks --test --test-reporter=tap
   test/start-sit-ceiling-uncalibrated.test.js`.
@@ -100,6 +110,13 @@ Before = origin/main `lineup-brain.js` swapped into the tree; after = HEAD `7e9e
 | M7 call site: predicate inverted | killed (all four behaviour tests) |
 | M8 page: basis not read in the hero line | survived on `ea4493b3` (the old regex matched the page-assistant line), killed after `7e9e1acb` |
 | M9 not-applied control: target string absent | not applied (target count 0), not run |
+| C1 page: hero-line predicate inverted (skeptic) | survived on `afc3d673` (grep test); killed by the render test: fails ceiling, floor and mean renders (3) |
+| C2 page: `'not measured'` chip label `'Not graded'` -> `'Lean'` (skeptic) | survived on `afc3d673`; killed: fails ceiling and floor renders (2) |
+| C3 page: hero-line predicate replaced by `false` (basis never read) | killed: fails ceiling and floor renders (2) |
+| C4 page: `'not measured'` row deleted (chip falls back to Lean) | killed: fails ceiling and floor renders (2) |
+
+C1-C4 were applied with `sed -i ''` to `client/src/pages/Lineup.tsx`, run with the command in section 2, and reverted
+with `git checkout -- client/src/pages/Lineup.tsx`; `git diff --stat` showed exactly one changed file for each.
 
 ## 6. Holdout looks
 

@@ -10,6 +10,11 @@
  * week-clustered 90% CIs, MDE80). Pre-registration:
  * docs/evidence/2026-09-22/historical-consensus-head-to-head-preregistration.md.
  *
+ * The pair threshold defaults to C-01's startable line (start-sit-gate.js#STARTABLE_PPR: both
+ * arms at least 8.0), so headToHead(rows, 'policy', 'baseline') on C-01's forward rows gives
+ * C-01's served-vs-ESPN grade exactly (pinned by a test). The historical grade pairs rows that
+ * are already its common set (every point arm at least 4.0) and passes threshold -Infinity.
+ *
  * It lives in scripts/, not server/: a server module that only a script imports is a blocking
  * wiring finding (scripts/wiring-map.mjs, module-reaches-no-surface). When C-01's gate grows a
  * consensus arm, its owner imports this file or moves it under server/services/gates/.
@@ -22,7 +27,7 @@
  * and a positive pair-accuracy difference favour the policy.
  */
 import { gradeDecisions, pigeonholeBootstrap } from '../server/services/gates/baseline-gate.js';
-import { startSitDecisions } from '../server/services/gates/start-sit-gate.js';
+import { startSitDecisions, STARTABLE_PPR } from '../server/services/gates/start-sit-gate.js';
 import { holm, normalCdf } from '../server/services/stats-util.js';
 
 /** C-01's instrument, pinned by identity in test/historical-consensus-head-to-head.test.js. */
@@ -71,6 +76,8 @@ export function weekBand(week) {
 export const ECR_PAGE_POSITION = Object.freeze({
   'weekly-qb': 'QB', 'weekly-rb': 'RB', 'weekly-wr': 'WR', 'weekly-te': 'TE'
 });
+/** The positions a start/sit pair is formed in (the four pages above; C-01's SKILL set). */
+const PAIR_POSITIONS = new Set(Object.values(ECR_PAGE_POSITION));
 
 const ECR_COLUMNS = ['page_type', 'scrape_date', 'id', 'pos', 'team', 'ecr'];
 
@@ -224,6 +231,27 @@ export function withConsensus(rows, values) {
 }
 
 /**
+ * The game date of each team-week, as the leak guard reads it: (season, week, team) -> the
+ * game_lines.gameday of that team's game that week, or undefined (a bye, or no row).
+ * game_lines holds one row per (season, week, team) (its primary key); two different dates
+ * for one team-week stop, rather than let the later row win.
+ *
+ * @param gameRows [{ season, week, team, gameday }]
+ */
+export function gameDateLookup(gameRows) {
+  const dates = new Map();
+  for (const g of gameRows) {
+    if (!g.gameday || g.team == null) continue;
+    const key = `${g.season}|${g.week}|${g.team}`;
+    if (dates.has(key) && dates.get(key) !== g.gameday) {
+      throw new Error(`game dates: two game dates for ${key} (${dates.get(key)}, ${g.gameday})`);
+    }
+    dates.set(key, g.gameday);
+  }
+  return (season, week, team) => dates.get(`${season}|${week}|${team}`);
+}
+
+/**
  * The leak guard (prereg §5.1.3): keep a row only when his team's game is strictly after the
  * scrape date used for his week. Applied to every arm's rows, so all arms grade the same rows.
  *
@@ -291,14 +319,21 @@ function asDecisionRows(rows, p, q) {
 }
 
 /**
- * Policy p against baseline q on rows that are already the common set.
+ * Policy p against baseline q.
+ *
+ * `threshold` is the pair line both arms must reach, handed to C-01's startSitDecisions. It
+ * defaults to C-01's startable line (STARTABLE_PPR), so C-01's rows give C-01's grade; a
+ * caller whose rows are already a common set passes -Infinity. Pair accuracy is scored on the
+ * same rows (skill position, both arms and the actual finite, both arms at the line).
  *
  * `keepWeeks` keeps gradeDecisions' weekly table and failing weeks (the pooled cell); breakout
  * cells drop them. Stops if C-01's pair count or pair accuracy disagrees with this file's.
  */
-export function headToHead(rows, p, q, { iterations = 2000, seed = 1, keepWeeks = false } = {}) {
-  const decided = DECISIONS(asDecisionRows(rows, p, q), { threshold: -Infinity });
-  const scored = pairScores(rows, p, q);
+export function headToHead(rows, p, q, { iterations = 2000, seed = 1, keepWeeks = false, threshold = STARTABLE_PPR } = {}) {
+  const graded = rows.filter(r => PAIR_POSITIONS.has(r.position) && [r[p], r[q], r.actual].every(Number.isFinite)
+    && r[p] >= threshold && r[q] >= threshold);
+  const decided = DECISIONS(asDecisionRows(graded, p, q), { threshold });
+  const scored = pairScores(graded, p, q);
   if (decided.pairs !== scored.length) {
     throw new Error(`pair count: C-01 startSitDecisions ${decided.pairs} vs consensus arm ${scored.length}`);
   }
@@ -320,7 +355,8 @@ export function headToHead(rows, p, q, { iterations = 2000, seed = 1, keepWeeks 
     delete decisions.failing_weeks;
   }
   return {
-    policy: p, baseline: q, rows: rows.length, pairs: scored.length,
+    policy: p, baseline: q, pair_threshold: Number.isFinite(threshold) ? threshold : null,
+    rows: graded.length, pairs: scored.length,
     agreement_share: decided.agreement_share,
     pair_accuracy: {
       policy: accP, baseline: accQ,

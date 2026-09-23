@@ -33,9 +33,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PREREG = 'docs/evidence/2026-09-22/historical-consensus-head-to-head-preregistration.md';
 const DEFAULT_OUT = 'docs/evidence/2026-09-22/historical-consensus-head-to-head-output.json';
 const ORIGINAL_DB = path.join(process.env.HOME ?? '', 'gridiron-local', 'data.sqlite');
-const COORDINATOR_FROM = 2021;
 const THRESHOLD = 4;
-const STARTABLE = 8;
 const COMPARISONS = Object.freeze([
   ['ours', 'consensus'], ['ours', 'std'], ['ours', 'l3'], ['consensus', 'std'], ['D', 'consensus'], ['A', 'consensus']
 ]);
@@ -67,7 +65,7 @@ async function main() {
   const { activeWeeklyWeightSet } = await import('../server/services/weekly-weight-store.js');
   const { activeFantasyCoordinatorFit } = await import('../server/services/fantasy-coordinator.js');
   const { matchupSignalActive } = await import('../server/services/matchups.js');
-  const { espnProjections } = await import('../server/services/gates/start-sit-gate.js');
+  const { espnProjections, STARTABLE_PPR } = await import('../server/services/gates/start-sit-gate.js');
   const { startSitPairAccuracy } = await import('./promote-early-week-weights.mjs');
   const { normalizePlayerName } = await import('../server/services/player-identity.js');
   const s02 = await import('./weekly-construction-grade-lib.mjs');
@@ -84,7 +82,7 @@ async function main() {
       ours: 'startSitWeekPoints({ team_abbr: proj.team, position, current_week_ppg: round2(B x thisGame.mult x p) }).week_points',
       this_game_mult: lib.THIS_GAME_MULT, default_active_probability: lib.DEFAULT_ACTIVE_PROBABILITY,
       lift_team: 'the engine team at the cutoff (proj.team), not players.team_abbr (today\'s team)',
-      scoring: 'PPR', threshold: THRESHOLD, startable_sensitivity: STARTABLE,
+      scoring: 'PPR', threshold: THRESHOLD, startable_sensitivity: STARTABLE_PPR,
       population: 'S-02 eligibleRows decision rows (played week - 1), byes removed (C-01 removeByes), leak guard, ECR-ranked; DNP scored 0',
       bootstrap: 'C-01 gradeDecisions (pigeonhole player clusters and season-week clusters) and pigeonholeBootstrap for the pair-accuracy difference; 2000 draws, seed 1, 90% CI',
       sign_convention: 'policy minus baseline; positive favours the policy (OURS in every H1/H2 comparison)'
@@ -157,16 +155,16 @@ async function main() {
     const truth = actuals(season, PPR);
     const usage = dbRows('SELECT player_id, week, team FROM player_week_usage WHERE season = ?', season);
     const teamAt = lib.teamAtWeek(usage);
-    const gameDate = new Map(dbRows('SELECT week, team, gameday FROM game_lines WHERE season = ?', season)
-      .map(g => [`${g.week}|${g.team}`, g.gameday]));
-    const slot = lib.gradingFit(registry, season);
+    const gameDateOf = arm.gameDateLookup(dbRows('SELECT season, week, team, gameday FROM game_lines WHERE season = ?', season));
     const kept = [], preLeak = [], census = [];
+    const fitThrough = new Set();
     for (const week of weeks) {
       const engine = buildPlayerWeekEngine({ season, week, scoring: PPR });
-      const rowsW = arm.withConsensus(lib.servedWeekRows({ season, week, engine, truth, fitS: slot.fitS, scoring: PPR, teamAt }),
+      const rowsW = arm.withConsensus(lib.servedWeekRows({ season, week, engine, truth, registry, scoring: PPR, teamAt }),
         ecr.values);
+      for (const r of rowsW) fitThrough.add(r.fit_through);
       const byes = lib.SERVED_CHAIN.removeByes(rowsW, usage);
-      const leak = arm.leakGuard(byes.kept, { scrapeByWeek: ecr.scrapeByWeek, gameDateOf: (s, w, t) => gameDate.get(`${w}|${t}`) });
+      const leak = arm.leakGuard(byes.kept, { scrapeByWeek: ecr.scrapeByWeek, gameDateOf });
       kept.push(...leak.kept);
       if (keepPreLeak) preLeak.push(...byes.kept);
       census.push({ week, decision_rows: rowsW.length, byes_removed: byes.removed.length, team_unknown: byes.team_unknown,
@@ -175,7 +173,8 @@ async function main() {
       clearPlayerWeekEngineCache();
       log(`${season} W${week}: ${rowsW.length} decision rows, ${leak.kept.length} after byes and the leak guard`);
     }
-    return { rows: kept, preLeak, census, fit_through: slot.through };
+    if (fitThrough.size !== 1) throw new Error(`cutoff: ${season} was graded with coordinator fits through ${[...fitThrough].join(', ') || 'none'}`);
+    return { rows: kept, preLeak, census, fit_through: [...fitThrough][0] };
   };
 
   if (mode === '--smoke') {
@@ -194,7 +193,7 @@ async function main() {
   }
 
   // ---- Walk-forward coordinator fits: examples 2021 .. (last graded season - 1).
-  const examples = await s02.SERVED.buildFantasyCoordinatorExamples({ fromSeason: COORDINATOR_FROM, throughSeason: Math.max(...graded) - 1 });
+  const examples = await s02.SERVED.buildFantasyCoordinatorExamples({ fromSeason: lib.PREREGISTERED_COORDINATOR_FROM, throughSeason: Math.max(...graded) - 1 });
   clearPlayerWeekEngineCache();
   const exampleCounts = {};
   for (const e of examples) {
@@ -231,7 +230,7 @@ async function main() {
 
   const primary = arm.commonSet(all, { pointArms: lib.POINT_ARMS, threshold: THRESHOLD });
   const played = arm.commonSet(all.filter(r => r.played), { pointArms: lib.POINT_ARMS, threshold: THRESHOLD });
-  const startable = arm.commonSet(all, { pointArms: lib.POINT_ARMS, threshold: STARTABLE });
+  const startable = arm.commonSet(all, { pointArms: lib.POINT_ARMS, threshold: STARTABLE_PPR });
 
   // ---- Stop condition 4: the instrument must find the oracle's edge; a policy against itself has none.
   const controls = { consensus: arm.instrumentControl(primary, 'consensus'), ours: arm.instrumentControl(primary, 'ours') };
@@ -260,8 +259,9 @@ async function main() {
   log('universe', JSON.stringify(report.universe));
   write();
 
-  // ---- The grades (prereg §6-7).
-  const opts = { iterations: 2000, seed: 1 };
+  // ---- The grades (prereg §6-7). Every set below is already a common set (commonSet held each
+  // point arm to its line), so pairs are formed with no further threshold.
+  const opts = { iterations: 2000, seed: 1, threshold: -Infinity };
   const results = { primary: {}, played: {}, startable_8: {} };
   for (const [p, q] of COMPARISONS) {
     const key = `${p}_vs_${q}`;
@@ -300,7 +300,7 @@ async function main() {
     const ecrSet = arm.commonSet(f.rows, { pointArms: lib.POINT_ARMS, threshold: THRESHOLD });
     const withEspn = f.preLeak.map(r => ({ ...r, espn: espn.values.get(`${r.week}|${r.player_id}`) ?? null }));
     const espnSet = arm.commonSet(withEspn, { pointArms: [...lib.POINT_ARMS, 'espn'], threshold: THRESHOLD, consensusArm: 'espn' });
-    const espnStartable = arm.commonSet(withEspn, { pointArms: [...lib.POINT_ARMS, 'espn'], threshold: STARTABLE, consensusArm: 'espn' });
+    const espnStartable = arm.commonSet(withEspn, { pointArms: [...lib.POINT_ARMS, 'espn'], threshold: STARTABLE_PPR, consensusArm: 'espn' });
     report.forward.census = f.census;
     report.forward.espn = { player_weeks: espn.values.size, conflicting_dropped: espn.conflicting };
     report.forward.universe = { ecr: ecrSet.length, espn: espnSet.length, espn_startable_8: espnStartable.length };

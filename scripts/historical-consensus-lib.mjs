@@ -14,9 +14,17 @@
  * it on players.team_abbr, today's team, which would misprice a past season.
  *
  * Walk-forward: every coordinator fit that grades season S is built from examples that end at
- * S - 1 (S-02's assertFitCutoff) and re-checked where the grade receives it (S-02's
- * assertContextCutoff). The k control (standing rule 3) removes a season whose fitted volume k
- * is missing or the hand-set 6. 2025 is the used-up holdout and is refused everywhere.
+ * S - 1 (S-02's assertFitCutoff), and servedWeekRows takes it from the registry itself through
+ * gradingFit (S-02's assertContextCutoff), so no caller can hand the grade a fit that has seen
+ * the season. The k control (standing rule 3) removes a season whose fitted volume k is
+ * missing or the hand-set 6. 2025 is the used-up holdout and is refused everywhere.
+ *
+ * The coordinator's examples start at PREREGISTERED_COORDINATOR_FROM (2021, pre-registration
+ * §4). The 2021 examples are built by engines that run the hand-set K.share = 6 (no volume fit
+ * can end before 2021), and they are in every graded season's fit: all of 2022's rows, about
+ * half of 2023's and a third of 2024's. The served recipe starts at SERVED_COORDINATOR_FROM
+ * (2022, fantasy-coordinator.js); the runner reports that recipe for 2023 and 2024 as a
+ * post-hoc sensitivity (2022 cannot be fit on it: no season from 2022 ends before 2022).
  */
 import {
   constructArms, eligibleRows, assertKControl, assertFitCutoff, assertContextCutoff
@@ -39,6 +47,10 @@ export const DEFAULT_ACTIVE_PROBABILITY = 0.92;
 export const THIS_GAME_MULT = 1;
 /** Every arm with points; the common pair set holds each to the threshold (prereg §5.3). */
 export const POINT_ARMS = Object.freeze(['ours', 'D', 'A', 'std', 'l3']);
+/** Where the pre-registered coordinator's examples start (pre-registration §4). */
+export const PREREGISTERED_COORDINATOR_FROM = 2021;
+/** Where the served coordinator recipe's examples start (fantasy-coordinator.js, all three entry points). */
+export const SERVED_COORDINATOR_FROM = 2022;
 
 /** The served functions OURS is built from, and C-01's bye rule. Identity-tested, never copied. */
 export const SERVED_CHAIN = Object.freeze({ constructArms, startSitWeekPoints, weeklyAvailability, removeByes });
@@ -105,35 +117,47 @@ export function teamAtWeek(usageRows) {
 
 /**
  * One graded week's rows: every S-02 eligible DECISION row (he played week - 1), valued by
- * every point arm. Stops when arm D is not what the served startSitWeekPoints makes of B (the
- * lift step), so OURS is known to run through the served lift.
+ * every point arm.
  *
- * The two call-site decisions live here, where a test can see them: the chance to play is
- * asked for with the season before as its cutoff (trade-engine.js:304), and each row carries
- * the team he played for in week - 1 (`teamAt`, from teamAtWeek), the only team known before
- * the week, which the bye rule and the leak guard read.
+ * The call-site decisions live here, where a test can see them:
+ *   - the coordinator fit is taken from the walk-forward registry by gradingFit, which refuses
+ *     a fit that does not end before the season, and it is handed to constructArms as both
+ *     fitS and fitE; each row carries that fit's cutoff (`fit_through`);
+ *   - the chance to play is asked for with the season before as its cutoff (trade-engine.js:304);
+ *   - both lift reads (B for the parity check, then OURS) go through one call at the graded
+ *     season and week, and two parity checks stop the run: D must be what the served
+ *     startSitWeekPoints makes of B, and OURS must be current_week_ppg times the lift
+ *     constructArms read;
+ *   - each row carries the team he played for in week - 1 (`teamAt`, from teamAtWeek), the only
+ *     team known before the week, which the bye rule and the leak guard read.
  */
-export function servedWeekRows({ season, week, engine, truth, fitS, scoring, teamAt }, deps = SERVED_CHAIN) {
+export function servedWeekRows({ season, week, engine, truth, registry, scoring, teamAt }, deps = SERVED_CHAIN) {
   assertNotHoldout(season);
+  const slot = gradingFit(registry, season);
   const availability = deps.weeklyAvailability(season, week, { through: season - 1 });
   const out = [];
   for (const row of eligibleRows(week, engine, truth)) {
     if (!row.decision) continue;
     const proj = row.proj;
-    const arms = deps.constructArms(proj, { season, week, scoring, fitS, fitE: fitS, lambda: 1 });
-    const lifted = deps.startSitWeekPoints({ team_abbr: proj.team, position: row.position, current_week_ppg: arms.B }, season, week);
-    if (round2(arms.D) !== lifted.week_points) {
-      throw new Error(`parity: ${season} W${week} player ${row.player_id} D ${arms.D} vs startSitWeekPoints ${lifted.week_points}`);
+    const arms = deps.constructArms(proj, { season, week, scoring, fitS: slot.fitS, fitE: slot.fitS, lambda: 1 });
+    const weekPoints = currentWeekPpg => deps.startSitWeekPoints(
+      { team_abbr: proj.team, position: row.position, current_week_ppg: currentWeekPpg }, season, week).week_points;
+    const lifted = weekPoints(arms.B);
+    if (round2(arms.D) !== lifted) {
+      throw new Error(`parity: ${season} W${week} player ${row.player_id} D ${arms.D} vs startSitWeekPoints ${lifted}`);
     }
     const p = availability.get(row.player_id)?.active_probability ?? DEFAULT_ACTIVE_PROBABILITY;
     const currentWeekPpg = round2(arms.B * THIS_GAME_MULT * p);
-    const ours = deps.startSitWeekPoints({ team_abbr: proj.team, position: row.position, current_week_ppg: currentWeekPpg },
-      season, week).week_points;
+    const ours = weekPoints(currentWeekPpg);
+    if (ours !== round2(currentWeekPpg * arms.lift)) {
+      throw new Error(`parity: ${season} W${week} player ${row.player_id} OURS ${ours} is not current_week_ppg `
+        + `${currentWeekPpg} x the lift constructArms read (${arms.lift})`);
+    }
     const heads = proj.player_week_engine?.heads ?? {};
     out.push({
       season, week, position: row.position, player_id: row.player_id, played: row.played, actual: row.actual,
       team_prev: teamAt?.get(`${row.player_id}|${week - 1}`) ?? null,
-      ours, D: arms.D, A: arms.A, B: arms.B, p, lift: arms.lift,
+      ours, D: arms.D, A: arms.A, B: arms.B, p, lift: arms.lift, fit_through: slot.through,
       std: Number.isFinite(heads.season_to_date) ? heads.season_to_date : null,
       l3: Number.isFinite(heads.last3) ? heads.last3 : null
     });

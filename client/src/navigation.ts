@@ -104,3 +104,12 @@ export function destinationLabel(pathname: string) {
     .sort((a, b) => b[1].length - a[1].length)[0];
   return prefixed?.[0] ?? 'Workspace';
 }
+
+/**
+ * Old League Hub deep links that now live at their own route (UX-11):
+ * `/league?view=team` was the inner "My team" tab, now `/my-team`.
+ * Returns where to redirect, or null to render League Hub as-is.
+ */
+export function legacyLeagueRedirect(params: URLSearchParams): string | null {
+  return params.get('view') === 'team' ? '/my-team' : null;
+}

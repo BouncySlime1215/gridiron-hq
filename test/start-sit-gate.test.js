@@ -664,3 +664,83 @@ function seedFixtureWithout2026() {
   run('DELETE FROM player_week_usage WHERE season = 2026');
   delete fixtureRows[2026];
 }
+
+/* ------------------ the plan rule's call site over four served weeks (sweep 11: CS1, CS3, CS4) */
+
+const FOUR_WEEKS = [2, 3, 4, 5];
+
+/**
+ * Four served weeks, 2026 weeks 2-5: the state the weekly job reaches once week 5's rows land in
+ * player_week_usage. Every other run-level fixture in this file stops at one forward week (2026
+ * week 2), where "every served week pooled" (addendum 2 §3) and "one week" cannot be told apart
+ * and the 4-week floor never meets the call site. Players 1-8 (WR; 1-4 on AAA, 5-8 on BBB) play
+ * every week and the higher id always scores more (actual 2 x id + 1). `served(id)` is the
+ * projection the app saved each week; `espn(id)` is ESPN's settled one (source 'final').
+ */
+function seedFourServedWeeks({ served, espn }) {
+  seedFixture({ actual: id => 2 * id + 1 });
+  const team = id => (id <= 4 ? 'AAA' : 'BBB');
+  for (let week = 1; week <= 5; week++) for (let id = 1; id <= 8; id++) usageRow(id, 2026, week, team(id));
+  fixtureRows[2026] = FOUR_WEEKS.flatMap(week => Array.from({ length: 8 }, (_, i) => ({ player_id: i + 1, week,
+    position: 'WR', prediction: 10 + i, season_to_date: 17 - i, actual: 2 * (i + 1) + 1, played: true })));
+  run('DELETE FROM weekly_prediction_snapshots WHERE season = 2026');
+  run('DELETE FROM league_roster_snapshots WHERE season = 2026');
+  for (const week of FOUR_WEEKS) {
+    for (let id = 1; id <= 8; id++) {
+      run(`INSERT INTO weekly_prediction_snapshots (season, week, player_id, position, as_of, cutoff, engine_version,
+           structural, prediction, weight_fit, mode)
+           VALUES (2026, ?, ?, 'WR', ?, ?, 'fixture', ?, ?, 'frozen-2023', 'position_ensemble')`,
+      week, id, `2026-09-${10 + week}T18:00:00.000Z`, `2026-W${week - 1}`, served(id), served(id));
+      run(`INSERT INTO league_roster_snapshots (league_id, season, scoring_period_id, team_id, espn_player_id, player_id,
+           position, lineup_slot_id, is_starter, projected_points, source, first_seen_at, changed_at)
+           VALUES (1, 2026, ?, 1, ?, ?, 'WR', 20, 0, ?, 'final', '2026-09-22T00:00:00Z', '2026-09-22T00:00:00Z')`,
+      week, 1000 + id, id, espn(id));
+    }
+  }
+}
+/** Undo seedFourServedWeeks, so no later test inherits weeks 3-5. */
+function clearFourServedWeeks() {
+  run('DELETE FROM player_week_usage WHERE season = 2026 AND week >= 3');
+  seedServed({});
+  seedEspn([]);
+}
+
+test('CS1: four at-lock weeks with ESPN ahead every week are espn_ahead_at_lock_only, never loses_to_dumb', () => {
+  // The saved projection prefers the lower id, ESPN the higher: ESPN's pick wins every disagreement,
+  // in every week, so the pooled points interval sits entirely below 0 over 4 graded weeks.
+  seedFourServedWeeks({ served: id => 30 - id, espn: id => 8 + id });
+  try {
+    const result = S.runStartSitGate({ iterations: 200, resolveK: KNOWN_K });
+    assert.deepEqual(result.forward.weeks, [2, 5]);
+    assert.equal(result.plan_rule.weeks_graded, 4, 'every served week from week 2 on is pooled');
+    assert.equal(result.plan_rule.source, 'espn_at_lock', 'no same-cutoff capture exists, so the at-lock arm decides');
+    assert.notEqual(result.plan_rule.verdict, 'loses_to_dumb', 'an at-lock window can never be a loss (addendum 2 §4)');
+    assert.equal(result.plan_rule.reason, 'espn_ahead_at_lock_only');
+    assert.equal(result.plan_rule.direction, 'dumb_ahead');
+    assert.equal(result.verdict, 'not_shown');
+  } finally {
+    clearFourServedWeeks();
+  }
+});
+
+test('CS3, CS4: four at-lock weeks with ours ahead are pooled from week 2 and pass: beats_dumb', () => {
+  // The saved projection prefers the higher id, ESPN the lower: our pick wins every disagreement.
+  seedFourServedWeeks({ served: id => 10 + id, espn: id => 20 - id });
+  replayCalls.length = 0;
+  try {
+    const result = S.runStartSitGate({ iterations: 200, resolveK: KNOWN_K });
+    assert.deepEqual(replayCalls.map(c => [c.season, c.opts.startWeek, c.opts.endWeek]),
+      [[2024, 5, 18], [2025, 5, 18], [2026, 2, 5]], 'the forward window runs from week 2 to the latest played week');
+    assert.deepEqual(result.forward.weeks, [2, 5]);
+    const espn = result.forward.served.vs_espn;
+    assert.deepEqual(espn.per_week.map(w => w.week), FOUR_WEEKS, 'the plan rule\'s arm pools every served week');
+    assert.deepEqual(result.forward.served.weeks.map(w => w.week), FOUR_WEEKS);
+    assert.equal(result.plan_rule.weeks_graded, 4);
+    assert.equal(result.plan_rule.source, 'espn_at_lock');
+    assert.deepEqual(result.plan_rule.gates.map(g => [g.id, g.passed]), [['P1', true], ['P2', true], ['P3', true]]);
+    assert.equal(result.plan_rule.verdict, 'beats_dumb');
+    assert.equal(result.verdict, 'beats_dumb');
+  } finally {
+    clearFourServedWeeks();
+  }
+});

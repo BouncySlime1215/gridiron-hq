@@ -29,13 +29,13 @@ test('control: no role change -> Straight Upgrade, no role tag', () => {
 test('confirmed_role_decrease is never "Buy Low" and carries a caution tag', () => {
   const tags = tagDeal([player(1)], [player(2, { role_change: role('confirmed_role_decrease') })], ev);
   assert.ok(!tags.includes('Buy Low'), `got ${JSON.stringify(tags)}`);
-  assert.ok(tags.includes('Role Shrinking'), `got ${JSON.stringify(tags)}`);
+  assert.deepEqual(tags, ['Role Shrinking']);
 });
 
 test('confirmed_role_increase is "Role Rising", not "Buy Low"', () => {
   const tags = tagDeal([player(1)], [player(2, { role_change: role('confirmed_role_increase') })], ev);
   assert.ok(!tags.includes('Buy Low'), `got ${JSON.stringify(tags)}`);
-  assert.ok(tags.includes('Role Rising'), `got ${JSON.stringify(tags)}`);
+  assert.deepEqual(tags, ['Role Rising']);
 });
 
 test('the caution survives the two-tag cap when other tags also fire', () => {
@@ -50,4 +50,11 @@ test('the caution survives the two-tag cap when other tags also fire', () => {
 test('a role change on the GIVE side does not tag the deal', () => {
   const tags = tagDeal([player(1, { role_change: role('confirmed_role_decrease') })], [player(2)], ev);
   assert.deepEqual(tags, ['Straight Upgrade']);
+});
+
+test('call site: the served deal card carries tagDeal output (structural scan)', () => {
+  // The route-level search needs a full league fixture; this pins the one call site.
+  const src = fs.readFileSync(new URL('../server/services/trade-engine.js', import.meta.url), 'utf8');
+  assert.ok(src.includes('tags: tagDeal(give, get, ev),'), 'deal card tags come from tagDeal');
+  assert.ok(!/tags\.push\(\s*['"]Buy Low['"]/.test(src), 'no served tag claims Buy Low from a role change');
 });

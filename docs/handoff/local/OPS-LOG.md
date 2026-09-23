@@ -194,3 +194,5 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 - 18:23Z Added Layer 2 projection deep dive (residual-on-ESPN, chain, simulate, disagreement, speed, decision grading, online) to TRADE-INSANE-RND.md
 - 18:28Z Layer 2 v2 per Nick (1 Mistake Map, 2 sharp chain w/ share-sum, 3 correlated sim + conformal, 6 Monday Autopsy) + historical data inventory
 - 18:30Z PLAN v10 written at top of PLAN-V9-CORRECTIONS.md (engine first: projection, CE, trade engine; diligence lean; grading+autopsy); PASTE §5 + ETA updated; spec agent told to add PROJ-00..04
+- 18:33Z R&D r16 done: RL-16-1 playoff weight (corrected to validator's ~5.2, row appended), RL-16-2 waiver run time (filler). Plan adjusted.
+- 18:37Z Nick approved OFFER-01 + DEADLINE/MOTIVE/VETO/REP (brief, plan, handoff updated; spec agent told). Process trims: WIP cap 12, risk-scaled verification, no separate auditor, daily app look, weekly stop 94% (capacity.py, build-unit-v2/finish-unit mutation scope, merge-gate skill). Memory updated.

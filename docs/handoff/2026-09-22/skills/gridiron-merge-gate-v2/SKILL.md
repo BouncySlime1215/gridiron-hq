@@ -5,7 +5,7 @@ description: "Use instead of gridiron-merge-gate: the self-audit run before push
 
 # Gridiron HQ merge gate (self-audit), v2
 
-Supersedes gridiron-merge-gate. Run this on the exact tree you are about to push. Every item is pass or fail; a fail means fix, not explain. Put the results in the PR body under a heading "Merge gate", with commands and exit codes. A PR merges when CI is green on that exact head on current main and the body carries sections 1 to 5 below. Model, projection, trade-valuation, lineup and inventory-number changes additionally go to the Independent Auditor before merge.
+Supersedes gridiron-merge-gate. Run this on the exact tree you are about to push. Every item is pass or fail; a fail means fix, not explain. Put the results in the PR body under a heading "Merge gate", with commands and exit codes. A PR merges when CI is green on that exact head on current main and the body carries sections 1 to 5 below. Model, projection, trade-valuation, lineup and inventory-number changes run with the critical claims skeptic (build-unit-v2 `critical:true`), which is the independent audit; no separate auditor pass.
 
 ## 1. One guard run on one tree
 1. `git fetch origin main && git merge origin/main` (merge, never rebase, on a branch someone else may have checked out or that already carries merge commits; on your own linear branch follow the repo convention).

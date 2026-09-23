@@ -35,7 +35,7 @@ Repo: BouncySlime1215/gridiron-hq (public). Local clone `/Users/nick_matta/Docum
 - **A's in-flight work (claimed; do NOT rebuild):**
   - build-unit-v2 `wf_a44a4565-364`: DONE → draft PRs #209 (RL-15-3) and #210 (RL-15-1).
   - build-unit-v2 `wf_17ee5731-4e7`: DONE → draft PRs #211 (RL-13-2 waiver claim line) and #212 (RL-15-2 no chase-variance). A's builds are finished, so B may run 3 loops + R&D now. Clean up with ~/gridiron-local/bin/safe-clean.sh once #211 merges; the builder DB copy is at wt/RL-13-2/.local-db, about 0.9 GB.
-  - rnd-loop-v2 `wf_d08250b4-5e1`: R&D round 16 (old focus). rnd-loop-v2 `wf_bbe7b1b7-cf7`: R&D round 17, the first round with the trade-analyzer-only focus.
+  - rnd-loop-v2 `wf_d08250b4-5e1`: R&D round 16 DONE (RL-16-1 playoff weight, RL-16-2 waiver time). rnd-loop-v2 `wf_bbe7b1b7-cf7`: R&D round 17, the first round with the trade-analyzer-only focus.
   - (Round 16) Its finds land as RL-16-* rows in WORK-QUEUE.md §9 and in `~/gridiron-local/rnd/loop/LOOP-LOG.md`.
   - These open draft PRs when done, in about 2-3 hours.
   - Workflow resume is **same-session only**, so you cannot resume A's runs. If one dies (no PR by 7 PM ET and its worktree is untouched for 1 hour: `ls -lt ~/gridiron-local/wt/`), relaunch that unit fresh on B and note it in OPS-LOG.
@@ -76,10 +76,10 @@ Public-data "value edges" were tested and **failed** (RL-8-2, RL-8-2b), so every
 
 **ENGINE FIRST (Nick's ruling, 2:40 PM 9/23): all 5 layers approved; the core engine beats fringe fixes.** Build-ready specs for the engine units are being written to `$H/ENGINE-SPECS.md` by account A. Use them; if the file is missing, write the rows yourself from TRADE-INSANE-RND.md.
 1. **PROJECTION ENGINE first** (PLAN v10 pillar 1; specs in ENGINE-SPECS.md). Order: PROJ-00 data backfill, then PROJ-01 Mistake Map and PROJ-02 sharp chain in parallel (disjoint files), then PROJ-03 correlated simulator (= CE-01), then BLEND-02 stacker, then PROJ-04 Monday Autopsy. All `critical:true`. Build on BLEND-01's producer (#164; merge it first or build on its branch).
-2. **CE-03 season sim on the PROJ-03 simulator** (fold in RL-9-2 multi-week injury spells), **then CE-09 title odds** (RL-6-3 currency fix first). Layer 2. `critical:true`.
-3. **CLONE-01 manager clones** (Layer 1): an accept model from ESPN offers, declines and accepts plus Sleeper trades and adds as the population prior, empirical-Bayes shrink per manager, and Coach people variables as features once graded. Extend counterparty-pricing.js; do NOT build a second producer. Pre-registered clone test vs the FantasyCalc-fair baseline. RL-13-3 (receptiveness shrink) folds in here.
-4. **RADAR-01 mispricing radar** (Layer 3): clone price minus real value, scanned daily, with news-triggered alerts.
-5. **CHESS-01 path search** (Layer 4): trade, then claim, then flip, MCTS against clone replies, scored on title odds. Then **TM-01 finder** = chess output shown as deals, with Coach pitches (Layer 5).
+2. **RL-16-1 playoff weight about 5.2** (quick interim, use the corrected row at the bottom of WORK-QUEUE, critical:true; disjoint from the PROJ files, so it can run alongside), **then CE-03 season sim on the PROJ-03 simulator** (fold in RL-9-2 multi-week injury spells), **then CE-09 title odds** (RL-6-3 currency fix first). Layer 2. `critical:true`.
+3. **CLONE-01 manager clones + OFFER-01 offer loop** (Layer 1; plus MOTIVE-01 buyer/seller state and VETO-01 league veto risk; see TRADE-INSANE-RND.md bottom): an accept model from ESPN offers, declines and accepts plus Sleeper trades and adds as the population prior, empirical-Bayes shrink per manager, and Coach people variables as features once graded. Extend counterparty-pricing.js; do NOT build a second producer. Pre-registered clone test vs the FantasyCalc-fair baseline. RL-13-3 (receptiveness shrink) folds in here.
+4. **RADAR-01 mispricing radar + DEADLINE-01** (Layer 3; each league's trade deadline ranks moves by weeks left): clone price minus real value, scanned daily, with news-triggered alerts.
+5. **CHESS-01 path search** (Layer 4): trade, then claim, then flip, MCTS against clone replies, scored on title odds. Then **TM-01 finder** = chess output shown as deals, with Coach pitches and the REP-01 reputation budget (Layer 5).
 6. **Engine inputs, when their slot comes up:** RL-7-1 fill-in edge (`critical:true`), RL-12-1 injury inheritor (additive migration 074+), RL-9-1 final-week rest.
 7. **Fillers (only when no engine unit can start):**
    - RL-9-3b (after #200 merges).
@@ -108,8 +108,16 @@ Public-data "value edges" were tested and **failed** (RL-8-2, RL-8-2b), so every
   - Sonnet: lean, UI, recorders and gates.
   - R&D explorers: Opus high **with web search every round**.
 
+## 6b. How we work (Nick's 9/23 review: rules trimmed, gaps closed)
+- **WIP cap: at most 12 open unmerged PRs.** Over 12, launch no new builds. Put the freed effort into merging (conflicts, CI) and verifying. Built-but-unmerged work helps nobody and breeds conflicts. At handoff there were 30 open.
+- **Verification scales with risk.** Engine and served numbers get `critical:true`, 4 lenses. Fringe fixes (copy, tags, docs, small cards) get `risk:low` + `lean:true`. Docs-only units skip mutation testing ("not applicable").
+- **The critical claims skeptic IS the independent audit.** No separate auditor pass.
+- **Look at the product once a day.** Open the live local app (Browser pane, localhost) on the pages the day's merges touched and screenshot each. The number shown must match the PR's claim. This is the only end-to-end check a real user gets.
+- **Grade outcomes, not PR counts.** The daily status line reports engine milestones (PROJ/CE/CLONE/CHESS landed and their grades), not just merges.
+- **Weekly stops are 94% per account** (was 87%). Holding reserve on an account that is about to hand off wasted about 10% this week.
+
 ## 7. Budget and status
-- Your weekly budget is B's 100%, with its reset about Wed 9/30 3 PM ET. Stop launching at **90% weekly**. For the 5-hour window, throttle at 95% (finish in-flight work only).
+- Your weekly budget is B's 100%, with its reset about Wed 9/30 3 PM ET. Stop launching at **94% weekly** (in-flight work finishes under 100%). For the 5-hour window, throttle at 95% (finish in-flight work only).
 - Measured costs: about 1.0% weekly per finished unit, about 2% per R&D round. 3 loops + R&D burn about 2.5%/h, so B's week lasts about 40 hours at full pace. `capacity.py` gives the loop plan; follow it.
 - Account A resets Mon 9/28 9 PM ET. Nick will paste this file there when B runs low, so **keep §3-§5 of this file current** (what's claimed, what's merged, what's next).
 - **20-minute status to Nick** (short, ADHD format):

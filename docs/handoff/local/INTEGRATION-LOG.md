@@ -2,7 +2,13 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 18:22Z.
+Last rebuilt: 2026-09-23 18:37Z.
+
+## #201: Fix scoring override propagation: kill two surviving mutants, wire hasOverrides/overrideSlots to consumers
+
+- Merged: 2:36 PM ET, Sep 23 as `f36eb822`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #199: ESPN flip-timing poller: fetch-time flips, shared projection/status helpers
 

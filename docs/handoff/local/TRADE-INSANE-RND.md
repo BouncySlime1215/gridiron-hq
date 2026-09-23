@@ -81,3 +81,18 @@ In plain English: we build a clone of every manager in your leagues, meaning a m
 - No league or manager names in the repo; Sleeper as aggregates only.
 - Jev at most $0.25 per round, balance checked first; nothing else paid.
 - Say "guess" plainly when it is one.
+
+## Added 2026-09-23 2:45 PM ET (Nick approved): the offer loop and 4 more trade opportunities
+### OFFER-01: the offer loop (part of CLONE-01; the biggest gap)
+Only about 26 accepts and 58 declines exist in all five leagues' history, too few to learn each person. So every offer Nick sends becomes data and an experiment:
+1. One-tap "I sent this" on any suggested deal. ESPN's proposal, decline and accept sync (league_transactions_raw) auto-matches the reply.
+2. Each reply updates that manager's clone right away (Bayesian update).
+3. Test the pitch: vary one factor at a time (screen-fairness level, 2-for-1 vs 1-for-1, which need is led with), logged per offer.
+4. After a no: the decline bounds their price, so suggest the follow-up they're likely to take.
+5. Grade it: did accepted trades raise Nick's title odds? This is the Trade Machine's real scorecard (rec ledger).
+- The app never sends offers itself (sending on Nick's behalf needs his word each time); it only logs and suggests.
+### Other opportunities (fold into the named layers)
+- **DEADLINE-01 (Radar/Chess):** read each league's trade deadline from ESPN settings. The learning and trading window is short: rank moves by weeks left, and warn before the deadline.
+- **MOTIVE-01 (Clones):** a buyer/seller state per manager from their own title odds, injuries, bye crunch and losing streak. Out-of-contention and desperate teams price differently; target them at the right moment.
+- **VETO-01 (Clones):** league approval risk. The data has TRADE_VETO 7 and TRADE_UPHOLD 11; model P(veto) per league for lopsided-looking deals and fold it into P(accept).
+- **REP-01 (Coach):** a reputation budget. Repeated lopsided offers lower future acceptance (how Nick comes across), so the engine spends "lopsidedness" where it pays most.

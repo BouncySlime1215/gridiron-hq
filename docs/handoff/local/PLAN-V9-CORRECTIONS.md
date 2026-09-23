@@ -128,3 +128,11 @@ Phase 0 (running) -> Phase 1a Foundations (CE-05, TR-01, TR-03, AI-01, TM-09, TM
 
 ## RULING 2026-09-23 2:40 PM ET (Nick): all 5 layers approved; the CORE ENGINE is the priority, not fringe fixes
 Nick: "all 5 u just gave me have my approval / its our engine that i think has the most opportunity not the fringes". The 5 layers in TRADE-INSANE-RND.md are approved: clones, projection stack plus title-odds sims, mispricing radar, title-odds chess, and the AI closer (Coach). Build order now puts the engine first. Fringe fixes (tags, copy, small card fixes) only fill idle slots. The evidenced edges (fill-in, rest, activity, injury timing) become INPUTS to the engine, not standalone features.
+
+## Plan adjustment after R&D round 16 (2:35 PM ET 9/23)
+- ENGINE: the playoff-week weight in every trade grade is an unsourced 4 (borrowed from best-ball, comment backwards). Measured on 579 Sleeper leagues, the value for contenders is about 5.2. RL-16-1 (corrected row) joins the Championship Engine track as a quick interim fix before CE-09 title odds replace the proxy; critical:true. Lesson for CE-09: weights differ by standing, so title odds must be per-team, not pooled.
+- FILLER: RL-16-2, the waiver card run time is wrong (hour 11 vs the real ~3 AM ET Wednesday). A small fix in idle slots, after #186.
+
+## Plan adjustment 2:45 PM ET 9/23 (Nick approved): offer loop + 4 trade opportunities
+- OFFER-01 offer loop joins CLONE-01 as its data engine (details in TRADE-INSANE-RND.md). Trade finder success = graded real offers, not backtests alone.
+- DEADLINE-01 (radar/chess), MOTIVE-01 and VETO-01 (clones), REP-01 (Coach closer) are added to the trade engine pillar.

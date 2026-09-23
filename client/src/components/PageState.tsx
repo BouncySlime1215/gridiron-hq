@@ -16,11 +16,21 @@ export function PageLoading({ label = 'Loading…' }: { label?: string }) {
   );
 }
 
+// UX-08: `message` here is whatever the server (or a thrown fetch error) said,
+// which has included a file path and a table name (Lineup.tsx, the
+// chance-to-play degradation notice). That is an internal detail, not
+// something a user can act on, so it never reaches the DOM — it goes to the
+// console for whoever is debugging, and the card shows the same plain-words
+// state ("what failed" + a retry) no matter what the server actually said.
 export function PageError({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  if (message) {
+    // eslint-disable-next-line no-console
+    console.error('[PageError]', message);
+  }
   return (
     <div className="card p-6 border-crit">
       <p className="text-sm text-crit font-medium mb-1">Couldn't load this.</p>
-      <p className="text-sm text-slate-600">{message}</p>
+      <p className="text-sm text-slate-600">Something went wrong loading this. Try again in a moment.</p>
       {onRetry && (
         <button className="btn-ghost text-xs mt-3" onClick={onRetry}>↻ Retry</button>
       )}

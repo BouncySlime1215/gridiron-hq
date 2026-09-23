@@ -32,7 +32,7 @@ let apiKey = null;
 const realClaude = await import('../server/services/claude.js?real');
 mock.module('../server/services/claude.js', {
   namedExports: { ...realClaude, getApiKey: () => apiKey,
-    callClaude: async () => '{"verdict":"HOLD","evidence_ids":[]}' } });
+    callClaude: async () => ({ content: [{ type: 'text', text: '{"verdict":"HOLD","evidence_ids":[]}' }] }) } });
 
 const { db, run, row } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
@@ -73,6 +73,7 @@ const app = express();
 app.use(express.json());
 app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
 app.use('/api/players', ...legacyAuthenticated, playersRouter);
+app.use((e, req, res, next) => { res.status(500).json({ error: e.message }); });
 const server = app.listen(0);
 const port = server.address().port;
 test.after(() => { server.close(); db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -108,7 +109,7 @@ for (const [id, sleeperId] of [[90001, '9001'], [90002, '9002'], [90003, null]])
 
     apiKey = 'test-key';
     const ai = await call('POST', `/api/players/${id}/analyze`);
-    assert.deepEqual(ai.body?.hype, expected, 'analyze (AI branch) hype');
+    assert.deepEqual(ai.body?.hype, expected, `analyze (AI branch) hype: ${ai.status} ${JSON.stringify(ai.body)?.slice(0, 300)}`);
     apiKey = null;
 
     const market = await call('GET', `/api/trades/71/market/${id}`);

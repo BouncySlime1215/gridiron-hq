@@ -130,12 +130,7 @@ edited, checked out, or `npm`'d):
   in-session (Browser pane); all league/manager names redacted client-side
   (`javascript_exec` text-node substitution: real league and team names →
   `[league]`/`[user]`) before capture per the no-names-committed rule.
-  **Known limitation:** this environment's browser tool renders screenshots
-  inline to the session transcript and has no file-export action, so no PNG
-  file exists under `docs/evidence/` for this unit — the visual check is
-  recorded here as a description of what was seen, not as a checked-in
-  image. If a screenshot file is required, it needs a capture path (e.g. a
-  Playwright script) that this tool does not currently expose.
+  (Superseded in section 8: PNG files are now committed.)
 
 ## 6. Holdout looks
 
@@ -183,3 +178,67 @@ XO-01, embedding Teams content inline in News.
 What would make it wrong: a second, undiscovered nav-list definition this
 grep missed, or a route consumer (e.g. a hardcoded `/league?view=team` link
 elsewhere in the app) not covered by the LeagueHub-level redirect.
+
+## 8. Skeptic round 1 (liveness + structure) — fixes on top of e1d70c74
+
+Commits: RED `9985ff2e` (tests only), GREEN `a1a95294` (fix). No history rewritten.
+
+**What the skeptics found, all accepted:**
+
+1. Redirect test was text-only (mutants M1 `&& false`, M2 `xview` passed 3/3).
+   Fix: predicate moved to `legacyLeagueRedirect(params)` in
+   `client/src/navigation.ts` and tested as a function (view=team, view=connections,
+   none, xview=team); LeagueHub's call site must be
+   `const x = legacyLeagueRedirect(params); if (x) return <Navigate to={x} replace />;`.
+2. `/my-team` test did not check what `MyTeam` is bound to (M3). Fix: assert the only
+   binding is `lazy(() => import('./pages/MyTeam'))` and MyTeam.tsx exports `MyTeam`.
+3. Rendered-nav call site unguarded (M4 `.slice`). Fix: the `<nav aria-label="Primary
+   navigation">` block must map `NAV_GROUPS` and `group.items` straight into a single
+   `<NavLink>` with no filter/slice/splice/reverse/sort.
+4. Structure: `/my-team` lost League Hub's loading/error wrapper, so a cold load or a
+   failed `/leagues` fetch showed "Connect a league". Fix: new pure
+   `leagueGate()` in `client/src/state/leagueGate.ts` (one producer), used by both
+   `MyTeam.tsx` (returns `PageLoading` / `PageError` before the empty state) and
+   `LeagueHub.tsx` (replaces its inline ternary, same behaviour).
+5. Screenshots missing. Fix: committed below.
+
+**Test runs** (`SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp) node --experimental-test-module-mocks --test --test-reporter=tap test/ux-11-my-team-tab.test.js`):
+
+| tree | pass | fail | failing |
+|---|---|---|---|
+| `9985ff2e` (RED, scratch worktree) | 3 | 4 | 4 legacyLeagueRedirect, 5 LeagueHub call site, 6 leagueGate (file absent), 7 MyTeam gate |
+| `a1a95294` (GREEN) | 7 | 0 | none |
+
+Tests 2 and 3 pass at RED because the code they cover was already correct; the
+mutants below show they are live.
+
+**Mutation sweep** on `a1a95294` working tree (perl edit, run, restore; each
+mutation checked as applied with `cmp`):
+
+| mutant | result |
+|---|---|
+| M1 LeagueHub `if (legacyTo && false)` | pass 6 fail 1 (killed) |
+| M2 navigation `params.get('xview')` | pass 6 fail 1 (killed) |
+| M3 App `MyTeam = lazy(() => import('./pages/LeagueHub'))` | pass 6 fail 1 (killed) |
+| M4 App `group.items.slice(group.label === 'My team' ? 1 : 0)` | pass 6 fail 1 (killed) |
+| M5 MyTeam drops the `gate === 'loading'` return | pass 6 fail 1 (killed) |
+| M6 leagueGate drops the `loading` branch | pass 6 fail 1 (killed) |
+| M7 leagueGate `if (leagues.length \|\| !loading) return 'ready'` | pass 6 fail 1 (killed) |
+| none (baseline) | pass 7 fail 0 |
+
+**Typecheck:** `npx tsc --noEmit -p .` (tsconfig includes `client/src`) on `a1a95294`: exit 0, 0 output lines.
+
+**Screenshots** (committed, redacted):
+`docs/evidence/ux-11/ux-11-my-team-desktop.png` (1400x900) and
+`docs/evidence/ux-11/ux-11-my-team-375.png` (375x812, menu drawer open). Captured
+by `docs/evidence/ux-11/capture-redacted.mjs`: headless system Chrome over CDP (no new
+dependency), loading `http://localhost:5178/league?view=team` from this worktree's
+`npm run dev:client` (proxying to the shared backend on 5177; repo clone untouched).
+Before each capture the script blurs `main`, the header league `<select>` and any
+dialog (CSS `filter: blur(9px)`), so no league, team or manager name is readable; the
+sidebar labels are static strings from `navigation.ts`. The script's own DOM read at
+capture time, for both sizes:
+`href = http://localhost:5178/my-team` (the old deep link redirected) and nav links
+`My team=/my-team, League Hub=/league, Start/Sit=/lineup, Trade Lab=/trade-lab,
+Trade Brain=/trade-brain, Draft=/draft, News=/news, Settings=/settings` (8, My team
+first). I checked both PNGs by eye: no readable names.

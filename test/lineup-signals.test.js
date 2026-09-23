@@ -29,6 +29,7 @@ await import('../server/routes/nfldata.js');
 const { hashSessionToken } = await import('../server/platform/auth.js');
 const { legacyAuthenticated } = await import('../server/platform/legacy-access.js');
 const LS = await import('../server/services/lineup-signals.js');
+const { managerProfiles } = await import('../server/services/league-brain.js');
 const { default: tradesRouter } = await import('../server/routes/trades.js');
 await runMigrations();
 
@@ -43,6 +44,9 @@ const PLAYERS = {
   301: ['RB', 905], 302: ['RB', 905], 303: ['WR', 906], 304: ['WR', 906], 305: ['WR', 906], 306: ['RB', 905],
 };
 for (let i = 1; i <= 6; i++) PLAYERS[400 + i] = ['WR', 901];   // free-agent WRs who outscore 304 in week 2
+// Teams 4 and 5: near misses for the clauses added after real rows were read.
+Object.assign(PLAYERS, { 501: ['WR', 901], 502: ['WR', 901], 506: ['WR', 901], 510: ['WR', 901],
+  503: ['WR', 902], 504: ['RB', 902], 505: ['WR', 902], 507: ['WR', 902], 508: ['RB', 902] });
 for (const team of [901, 902, 903, 904, 905, 906, 907]) {
   run(`INSERT INTO nfl_teams (id, abbr, name, conference, division) VALUES (?, ?, ?, 'AFC', 'East')`,
     team, `F${team}`, `Fixture ${team}`);
@@ -131,6 +135,30 @@ for (let i = 1; i <= 6; i++) usage(400 + i, 2, 5, 60, 0);   // 11 PPR each
 // Flex: 305 (WR, projected 8) in the FLEX slot over 306 (RB, projected 11) on the bench.
 snap(3, 3, 305, FLEX, { proj: 8 }); snap(3, 3, 306, BENCH, { proj: 11 });
 for (const w of [1, 2, 3]) { snaps(305, w, 0.8); snaps(306, w, 0.5); }
+
+// Team 4. 501 started weeks 1-2 and was benched in week 3 with his snaps held, but his
+// share was 0.30 all along: not a real role (the pre-registered 0.40 floor).
+for (const w of [1, 2]) snap(w, 4, 501, WR);
+snap(3, 4, 501, BENCH);
+for (const w of [1, 2, 3]) snaps(501, w, 0.30);
+// 510 was a regular (0.80) and sat at 0 snaps in week 3 when benched: he did not play.
+for (const w of [1, 2]) snap(w, 4, 510, WR);
+snap(3, 4, 510, BENCH);
+for (const [w, p] of [[1, 0.80], [2, 0.80], [3, 0]]) snaps(510, w, p);
+// 502 started week 3, his team played, ESPN gave him 7 points, but neither the snap feed
+// nor the stat-line feed has a row for him: he played, so he is not a dead starter.
+snap(3, 4, 502, WR, { actual: 7 });
+// 506 is benched in the live week; his IR status is only in pregame_injury_status.
+snap(4, 4, 506, BENCH, { source: 'live', pregame: 'INJURY_RESERVE' });
+
+// Team 5, week 3: 503 in FLEX over 504 (RB, played) and 505 (WR, a 0-snap week). 505
+// did not play, so he was not an option the manager passed over.
+snap(3, 5, 503, FLEX, { proj: 8 }); snap(3, 5, 504, BENCH, { proj: 9 }); snap(3, 5, 505, BENCH, { proj: 12 });
+for (const w of [1, 2, 3]) { snaps(503, w, 0.8); snaps(504, w, 0.5); }
+snaps(505, 3, 0);
+// Team 5, week 4 (live, half-played): 507 in FLEX over 508 projected higher. A live
+// lineup is not a completed choice, so no weekly signal may fire on it.
+snap(4, 5, 507, FLEX, { source: 'live', proj: 5 }); snap(4, 5, 508, BENCH, { source: 'live', proj: 12 });
 
 // ------------------------------------------------------------------ league
 const rosterEntry = id => ({ playerId: 90000 + id, lineupSlotId: BENCH,
@@ -255,13 +283,44 @@ test('per-manager counts, the guess label, and the honest empty case', () => {
   assert.deepEqual(empty.signals, []);
 });
 
+test('benched with intact usage: the pre-registered floor and the played clause', () => {
+  assert.equal(find('benched_intact_usage', 501).length, 0, 'mean share 0.30 is below the 0.40 floor');
+  assert.equal(find('benched_intact_usage', 510).length, 0, 'benched at 0 snaps: he did not play');
+  // The served rule is the pre-registered one (prereg Definitions, BWIU event).
+  assert.deepEqual({ ...LS.BWIU_RULE },
+    { lookback: 3, minWeeksOnRoster: 2, minStarts: 2, usageRatio: 0.9, minMeanShare: 0.4 });
+});
+
+test('checked out near misses: ESPN points without a feed row, IR only in the pregame status', () => {
+  assert.equal(find('dead_starter_left_in', 502).length, 0, 'ESPN scored him 7: he played');
+  const ir = find('injured_not_on_ir', 506);
+  assert.equal(ir.length, 1, 'IR status read from pregame_injury_status when injury_status is empty');
+  assert.equal(ir[0].evidence.status, 'INJURY_RESERVE');
+});
+
+test('flex choices leave out a benched 0-snap player', () => {
+  const hit = find('flex_choice', 503);
+  assert.equal(hit.length, 1);
+  assert.deepEqual(hit[0].evidence.over_player_ids, [504], '505 had 0 snaps: not a passed-over option');
+});
+
+test('only completed weeks are scored: nothing weekly fires on the live period', () => {
+  assert.equal(find('flex_choice', 507).length, 0, 'week 4 is live');
+  const weekly = new Set(['benched_intact_usage', 'started_bad_matchup', 'dead_starter_left_in', 'bye_unfilled', 'flex_choice']);
+  assert.deepEqual(out().signals.filter(s => weekly.has(s.signal) && s.week === 4), []);
+});
+
 test('route: GET /brain/managers carries lineup_signals beside the typed tiers, no cookies', async () => {
   const res = await fetch(`http://127.0.0.1:${port}/api/trades/${LEAGUE}/brain/managers`, {
     headers: { authorization: 'Bearer ls-token' },
   });
   assert.equal(res.status, 200);
   const body = await res.json();
-  assert.ok(Array.isArray(body.managers), 'the typed-tier payload is still there');
+  // The extension must not replace or trim the typed-tier payload TradeBrain.tsx reads.
+  const { lineup_signals: _ls, ...rest } = body;
+  assert.deepEqual(rest, JSON.parse(JSON.stringify(managerProfiles(LEAGUE))), 'typed-tier payload unchanged');
+  assert.deepEqual(body.managers.map(m => m.roster_id).sort(), ['1', '2', '3']);
+  for (const k of ['league', 'my_roster_id', 'tiers', 'managers', 'note']) assert.ok(k in body, `key ${k} kept`);
   assert.equal(body.lineup_signals?.available, true);
   assert.ok(body.lineup_signals.signals.some(s => s.signal === 'benched_intact_usage' && s.player_id === 101));
   const text = JSON.stringify(body);

@@ -27,8 +27,9 @@
  * flag) instead of comparing kickoff times here.
  *
  * Gameday inactives: `inactive` is a hook. Main has no in-week inactive source (the
- * nflverse weekly roster lands after the week), so the default reports
- * `covered: false`; RL-3-2's live-inactive-monitor.js is meant to fill it.
+ * nflverse weekly roster lands after the week). lineupCall() fills it from
+ * espn-zero-inactive.js (RL-10-1: ESPN's projection went from >= 5 to 0), whose hook
+ * carries its own sentence and source label; NO_LIVE_INACTIVES stays the empty hook.
  */
 import { gameCutoff } from './game-cutoff.js';
 import { SLOT_NAME } from './espn-draft.js';
@@ -42,7 +43,7 @@ import { weekDesignation } from './contingency.js';
  */
 export const DEAD_ESPN_STATUS = Object.freeze({ INJURY_RESERVE: 'ir', OUT: 'out', DOUBTFUL: 'doubtful' });
 
-/** The inactive hook's default until RL-3-2 lands. */
+/** The empty hook (tests, and any caller without a source). lineupCall() defaults to espn-zero-inactive.js (RL-10-1). */
 export const NO_LIVE_INACTIVES = Object.freeze({
   covered: false, source: null, ids: new Set(),
   reason: 'no in-week gameday inactive source yet: RL-3-2 (live-inactive-monitor.js) has not landed, ' +
@@ -96,7 +97,10 @@ export function deadReason(p, { week, espnStatus = null, inactive = NO_LIVE_INAC
 export function deadStarters(lg, rosterId, players, {
   season, week, weekPoints, accepts, now = Date.now(), inactive = NO_LIVE_INACTIVES, kickoffOf = null
 }) {
-  const inactiveSource = { covered: !!inactive?.covered, source: inactive?.source ?? null, reason: inactive?.reason ?? null };
+  const inactiveSource = { covered: !!inactive?.covered, source: inactive?.source ?? null, reason: inactive?.reason ?? null,
+    label: inactive?.label ?? null };
+  // A hook may print its own sentence and source label (RL-10-1: "ESPN projects 0: likely inactive").
+  const sentence = s => (s.dead.reason === 'inactive' && inactive?.sentence) ? inactive.sentence : SENTENCE[s.dead.reason];
   const base = { applied: false, season, week, kickoff_basis: 'game_cutoff', inactive_source: inactiveSource };
   if (lg?.platform !== 'espn') {
     return { ...base, covered: false, starters_checked: 0, unmatched_starters: 0, items: [],
@@ -143,10 +147,11 @@ export function deadStarters(lg, rosterId, players, {
       slot: s.slot,
       player: { id: s.p.id, name: s.p.name, position: s.p.position, team_abbr: s.p.team_abbr },
       reason: s.dead.reason, source: s.dead.source,
+      source_label: s.dead.reason === 'inactive' ? (inactive?.label ?? null) : null,
       kickoff: kickoff(s.p.team_abbr),
       replacement: pick ? { id: pick.p.id, name: pick.p.name, position: pick.p.position,
         team_abbr: pick.p.team_abbr, week_points: weekPoints.get(pick.p.id) } : null,
-      why: `${s.p.name} (${s.slot}) ${SENTENCE[s.dead.reason]}.` + (pick
+      why: `${s.p.name} (${s.slot}) ${sentence(s)}.` + (pick
         ? ` Start ${pick.p.name} instead (${weekPoints.get(pick.p.id)} projected).`
         : ' No healthy bench player who can fill this slot has a projection; look at the waiver wire.')
     };

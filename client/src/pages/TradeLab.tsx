@@ -125,7 +125,7 @@ export default function TradeLab({ initialTab }: { initialTab?: Tab } = {}) {
         <Untouchables players={myPlayers} ids={untouchable} onToggle={toggleUntouchable} />
       )}
 
-      <div className="flex gap-1 border-b border-slate-200 mb-4 overflow-x-auto">
+      <div className="flex flex-wrap gap-1 border-b border-slate-200 mb-4">
         {TABS.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} title={t.hint}
             className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${

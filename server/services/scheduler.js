@@ -22,6 +22,7 @@
 import { Worker } from 'node:worker_threads';
 import { markJobRunning, markJobAbandoned, clearJobRunning } from '../platform/loop-watchdog.js';
 import { db, rows, run, row } from '../db/index.js';
+import { MARKET_MAX_AGE_MINUTES } from './dynasty-value-history.js';
 
 /**
  * True while any linked league's draft is likely happening on ESPN itself,
@@ -1191,6 +1192,24 @@ async function refreshSleeperPlayers() {
 }
 
 /**
+ * FantasyCalc's market price for every connected league format (FC-SNAP). Until this
+ * job it had no timer: the price every trade card is gated, ranked and labelled on was
+ * whatever the last league-sync button press fetched (4.2 days old on 2026-09-23 per
+ * R4). Daily, because FantasyCalc's terms ask callers to cache and ideally fetch once a
+ * day, and only the documented /values/current endpoint. The same run appends the
+ * day's row to dynasty_value_history, which C12's forward FantasyCalc test grades.
+ * The league-sync button writes the same sync_log row, so a press counts as the day's run.
+ */
+async function refreshFantasyCalcValues() {
+  const { syncDynastyValues } = await import('../routes/aggregates.js');
+  const leagues = row('SELECT COUNT(*) AS n FROM leagues')?.n ?? 0;
+  if (!leagues) return { skipped: 'no connected leagues, so no format to price' };
+  const result = await syncDynastyValues();
+  const formats = result?.formats ?? [];
+  return { ...result, attempted: formats.length, failed: formats.filter(f => f.error).length };
+}
+
+/**
  * The standing start/sit gate (plan item C12): the projection the app served against ESPN's
  * weekly projection (the plan's rule, the verdict), with "start the higher season-to-date
  * average" replayed over 2024-2025 and this season as a floor check; stored in
@@ -1262,6 +1281,9 @@ export const JOBS = {
   sleeper_players: {
     run: refreshSleeperPlayers, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
     label: 'Sleeper player universe (sleeper_id, overall rank, injury flag)' },
+  fantasycalc_dynasty: {
+    run: refreshFantasyCalcValues, maxAgeMinutes: MARKET_MAX_AGE_MINUTES, tier: 'growth', offThread: true,
+    label: 'FantasyCalc market values per connected league format (daily; appends the value history)' },
   espn_rosters: { run: refreshEspnRosters, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
     label: 'ESPN per-team roster feed (cuts, signings, practice-squad moves)' },
   league_rosters: { run: refreshLeagueRosters, maxAgeMinutes: 60, tier: 'live', offThread: true,

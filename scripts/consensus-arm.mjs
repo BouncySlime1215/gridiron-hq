@@ -330,9 +330,11 @@ function asDecisionRows(rows, p, q) {
  * cells drop them. Stops if C-01's pair count or pair accuracy disagrees with this file's.
  */
 export function headToHead(rows, p, q, { iterations = 2000, seed = 1, keepWeeks = false, threshold = STARTABLE_PPR } = {}) {
+  // C-01's instrument applies its own filter and the line to every row; this file's pair scores
+  // use the same filter, and the pair-count check below stops if the two ever part.
+  const decided = DECISIONS(asDecisionRows(rows, p, q), { threshold });
   const graded = rows.filter(r => PAIR_POSITIONS.has(r.position) && [r[p], r[q], r.actual].every(Number.isFinite)
     && r[p] >= threshold && r[q] >= threshold);
-  const decided = DECISIONS(asDecisionRows(graded, p, q), { threshold });
   const scored = pairScores(graded, p, q);
   if (decided.pairs !== scored.length) {
     throw new Error(`pair count: C-01 startSitDecisions ${decided.pairs} vs consensus arm ${scored.length}`);

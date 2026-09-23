@@ -196,6 +196,15 @@ async function main() {
       log(`${season} W${week}: ${rowsW.length} decision rows, ${leak.kept.length} after byes and the leak guard`);
     }
     if (fitThrough.size !== 1) throw new Error(`cutoff: ${season} was graded with coordinator fits through ${[...fitThrough].join(', ') || 'none'}`);
+    // Known-nonzero controls for the call sites above (standing rows R5, R6): every graded week
+    // has a Thursday game before the Friday scrape, every row with a known team has a game date
+    // once byes are gone, and a season graded through weeks 5-14 has byes.
+    if (!census.some(c => c.leak_dropped > 0)) throw new Error(`leak guard: no ${season} row was dropped, so the game dates did not reach it`);
+    const undated = census.filter(c => c.no_game_date !== c.team_unknown);
+    if (undated.length) throw new Error(`game dates: ${season} weeks ${undated.map(c => c.week).join(', ')} have rows with a known team and no game date`);
+    if (weeks.some(w => w >= 5 && w <= 14) && !census.some(c => c.byes_removed > 0)) {
+      throw new Error(`byes: no ${season} row was removed as a bye, so the season's usage rows did not reach removeByes`);
+    }
     // Known-nonzero control for the fit handoff: a ready coordinator fit moves some players' B off A.
     if (!census.some(c => c.coordinator_moved > 0)) throw new Error(`coordinator: no ${season} row's B differs from A, so no fit reached constructArms`);
     return { rows: kept, preLeak, census, fit_through: [...fitThrough][0] };
@@ -289,6 +298,7 @@ async function main() {
   const parity = {};
   for (const season of graded) {
     const rowsS = primary.filter(r => r.season === season);
+    if (!rowsS.length) throw new Error(`common set: no ${season} row reached it`);
     const canonical = startSitPairAccuracy(rowsS.map(r => ({ week: r.week, position: r.position, actual: r.actual,
       preds: Object.fromEntries(lib.POINT_ARMS.map(a => [a, r[a]])) })), [...lib.POINT_ARMS], { threshold: THRESHOLD });
     const mine = Object.fromEntries(lib.POINT_ARMS.map(a => {
@@ -313,9 +323,12 @@ async function main() {
   // point arm to its line), so pairs are formed with no further threshold.
   const opts = { iterations: 2000, seed: 1, threshold: -Infinity };
   const results = { primary: {}, played: {}, startable_8: {} };
+  const canonicalPairs = Object.values(parity).reduce((sum, x) => sum + x.pairs, 0);
   for (const [p, q] of COMPARISONS) {
     const key = `${p}_vs_${q}`;
     const pooled = arm.headToHead(primary, p, q, { ...opts, keepWeeks: p === 'ours' && q === 'consensus' });
+    // The runner's pair line (none: the common set already applied it) against the canonical producer's pair count.
+    if (pooled.pairs !== canonicalPairs) throw new Error(`pairs: ${key} graded ${pooled.pairs} pairs, startSitPairAccuracy counts ${canonicalPairs}`);
     const b = arm.breakouts(primary, p, q, opts);
     const full = p === 'ours' && q === 'consensus';
     results.primary[key] = { pooled, by_season: b.by_season, by_band: b.by_band, by_position: b.by_position,

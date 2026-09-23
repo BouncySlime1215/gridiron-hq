@@ -23,6 +23,7 @@ import { lineupPosture } from '../services/lineup-posture.js';
 import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
 import { managerProfiles, setManagerProfile } from '../services/league-brain.js';
+import { targetBoard } from '../services/target-board.js';
 // The measured manager layer: what has been observed about each counterparty, as
 // opposed to `manager_profiles`, which is the tier Nick set by hand.
 import { SIGNAL_SOURCES, refreshManagerData, signalRowsFor, transactionsCollected, chatCorpusState,
@@ -221,11 +222,31 @@ r.get('/:leagueId/lineup', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Who will actually trade with you. Read, and write. */
+/**
+ * Who will actually trade with you. Read, and write.
+ *
+ * Each manager also carries `target_board` (TM-03, services/target-board.js): his
+ * roster hole, who he is down on, which of Nick's players he rates, openness,
+ * tilt, active hours and accept rate, each with its n and source. The hand-set
+ * tier is the half of this page that always works, so a board that cannot be
+ * built is reported in `target_board_meta.error` and never takes the tiers down.
+ */
 r.get('/:leagueId/brain/managers', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    res.json(managerProfiles(lg.id));
+    const out = managerProfiles(lg.id);
+    if (out.error) return res.json(out);
+    let board = null;
+    let boardError = null;
+    try { board = targetBoard(lg); } catch (e) {
+      boardError = String(e?.message ?? e);
+      console.error(`[brain/managers] target board failed for league ${lg.id}:`, e);
+    }
+    res.json({
+      ...out,
+      managers: out.managers.map(m => ({ ...m, target_board: board?.managers.get(String(m.roster_id)) ?? null })),
+      target_board_meta: board ? board.meta : { error: `the target board could not be built: ${boardError}` },
+    });
   } catch (e) { next(e); }
 });
 

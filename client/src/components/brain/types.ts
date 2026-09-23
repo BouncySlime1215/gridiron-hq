@@ -35,6 +35,50 @@ export interface ProfileManager {
   notes: string | null;
   is_set: boolean;
   updated_at: string | null;
+  /** TM-03 target board (server/services/target-board.js); null when it could not be built. */
+  target_board?: TargetBoard | null;
+}
+
+/** One read on the target board: a value with its sample, its source, and whether it is thin. */
+export interface BoardRead {
+  value: number | null;
+  n: number;
+  thin: boolean;
+  source: string | null;
+  /** measured | thin | fact | not_measured | no_corpus | withheld_under_5 */
+  state: string;
+}
+
+export interface BoardPlayerRead {
+  player: string;
+  sentiment: number;
+  n: number;
+  thin: boolean;
+  source: string;
+  last_mention: string | null;
+}
+
+export interface TargetBoard {
+  roster_hole: {
+    slot: string | null; player: string | null; week_points: number | null; league_median: number | null;
+    gap: number | null; n: number; thin: boolean; source: string; read_state: string; reason: string | null;
+    below_median?: boolean;
+  };
+  down_on: BoardPlayerRead[];
+  rates_yours: BoardPlayerRead[];
+  player_reads_state: 'present' | 'no_corpus';
+  openness: BoardRead;
+  untouchable: BoardRead;
+  tilt: { last_week_margin: BoardRead; just_lost: boolean | null; streak: BoardRead; reacting_to_loss: BoardRead };
+  active_hours: {
+    night_share: BoardRead; busiest_hour_utc: number | null; actions_n: number; min_actions: number;
+    thin: boolean; source: string; read_state: string; reason: string | null;
+  };
+  accept_rate: BoardRead;
+  lineup_signals: {
+    read_state: string; source: string | null; reason?: string | null;
+    signals: { player: string; signal: string; week: number | null; n: number; thin: boolean; source: string }[];
+  };
 }
 
 export interface ProfilesResponse {
@@ -42,6 +86,8 @@ export interface ProfilesResponse {
   my_roster_id?: string;
   tiers?: { id: Tier; label: string; responsiveness: number; plan: string }[];
   managers?: ProfileManager[];
+  target_board_meta?: { thin_below?: number; neutral_sentiment?: number; lineup_signals?: string;
+    rules?: string; error?: string };
   note?: string;
   /** 200-with-error: the league row has no synced payload yet. */
   error?: string;

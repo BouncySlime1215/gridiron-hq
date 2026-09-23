@@ -4,6 +4,7 @@ import { syncPlayersFromESPN, syncGeneralNews, syncTeamNewsFeed } from './espn.j
 import { deriveFormat } from '../services/format.js';
 import { recordSync } from '../services/scheduler.js';
 import { normalizePlayerName } from '../services/player-identity.js';
+import { activeInjuryFlagIds } from '../services/injury-flags.js';
 
 const r = Router();
 
@@ -287,7 +288,12 @@ export function computeConsensus() {
   const slRank = new Map(bySource.sleeper.map((p, i) => [p.id, i + 1]));
   const espnRank = new Map(bySource.espn.map((p, i) => [p.id, i + 1]));
 
+  // One definition of "flagged" (RL-12-2): a stale Sleeper flag the producer ignores
+  // reads as off here too, so the Projections badge, the draft board's -4 and the
+  // draft AI prompt agree with availability, trades, players and rankings.
+  const flagged = activeInjuryFlagIds();
   return players.map(p => {
+    if (p.injury_flag > 0 && !flagged.has(p.id)) p = { ...p, injury_flag: 0 };
     const weighted = [[ffcRank.get(p.id), 1], [slRank.get(p.id), 1], [espnRank.get(p.id), 2]].filter(([x]) => x != null);
     const ranks = weighted.map(([x]) => x);
     const wsum = weighted.reduce((s, [, w]) => s + w, 0);

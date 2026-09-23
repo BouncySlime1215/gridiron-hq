@@ -14,7 +14,8 @@
  *     "has won", no call carries a clear/lean/coin flip label, confidence_basis stays
  *     uncalibrated_for_<objective>;
  *   - objective mean (control): the numeric rate, the wording and the labels are kept;
- *   - the Start/Sit page reads confidence_basis.
+ *   - the Start/Sit page, rendered from lineupCall's own output, prints the "no call is
+ *     graded" line and a "Not graded" chip under ceiling/floor, and neither under mean.
  *
  * Fixtures follow test/lineup-floor-objective.test.js: the asset universe is mocked, the
  * solver, roster loading and slot rules are real.
@@ -24,6 +25,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+import ts from 'typescript';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-ceiling-uncal-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
@@ -165,9 +171,84 @@ test('a ceiling request that fell back to week_points keeps the measured rate (t
   assert.match(qb.why, /has won about [\d.]+% of the time/);
 });
 
-test('the Start/Sit page reads confidence_basis instead of leaving it on the wire', () => {
-  const src = fs.readFileSync(new URL('../client/src/pages/Lineup.tsx', import.meta.url), 'utf8');
-  assert.match(src, /d\.confidence_basis \?\? ''\)\.startsWith\('uncalibrated_for_'\)/,
-    'the lineup page reads the basis tag and renders a line for it (not only forwarding it to the assistant)');
-  assert.match(src, /'not measured':/, 'and has a chip for a gap nobody measured, instead of falling back to Lean');
+// The page half, rendered for real (the pattern of test/start-sit-gate-panel.test.js): the
+// TSX is compiled with the repo's TypeScript, every import but React is stubbed, the data
+// hook returns lineupCall's own output as the route sends it (res.json at
+// server/routes/trades.js:220), and React renders the markup. A source grep cannot tell a
+// condition from its inverse, or a 'Not graded' chip from a 'Lean' one; the markup can.
+const repoRequire = createRequire(new URL('../package.json', import.meta.url));
+async function compileLineupPage() {
+  const dir = fs.mkdtempSync(path.join(temp, 'page-'));
+  const write = (name, text) => { fs.writeFileSync(path.join(dir, name), text); return pathToFileURL(path.join(dir, name)).href; };
+  const cjs = spec => `import { createRequire } from 'node:module';
+const m = createRequire(${JSON.stringify(repoRequire.resolve(spec))})(${JSON.stringify(repoRequire.resolve(spec))});`;
+  const stubs = {
+    "'react'": write('react.mjs', `${cjs('react')}\nexport default m; export const useMemo = m.useMemo; export const useState = m.useState;`),
+    '"react/jsx-runtime"': write('jsx-runtime.mjs', `${cjs('react/jsx-runtime')}
+export const jsx = m.jsx; export const jsxs = m.jsxs; export const Fragment = m.Fragment;`),
+    "'../api'": write('api.mjs', `export function useApi(p) {
+  return { data: p && p.includes('/lineup?') ? globalThis.__lineupPayload : null, loading: false, error: null, refetch() {} };
+}`),
+    "'../state/league'": write('league.mjs', 'export function useLeague() { return { activeId: 901 }; }'),
+    "'../components/lineup/EvidenceStrip'": write('evidence.mjs', 'export default function EvidenceStrip() { return null; }\nexport function RecordLine() { return null; }'),
+    "'../components/PageExplainContext'": write('explain.mjs', 'export function usePageExplain() {}'),
+    "'../components/PageState'": write('state.mjs', 'export function PageLoading() { return null; }\nexport function PageError() { return null; }\nexport function EmptyState() { return null; }'),
+    "'../components/lineup/WaiverWire'": write('waiver.mjs', 'export default function WaiverWire() { return null; }\nexport function WaiverTeaser() { return null; }\nexport function onATeam() { return true; }'),
+    "'../components/lineup/MatchupPosture'": write('posture.mjs', 'export default function MatchupPosture() { return null; }'),
+    "'../components/lineup/StartSitGate'": write('gate.mjs', 'export default function StartSitGate() { return null; }')
+  };
+  const source = fs.readFileSync(new URL('../client/src/pages/Lineup.tsx', import.meta.url), 'utf8');
+  let { outputText: compiled } = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX }
+  });
+  for (const [from, to] of Object.entries(stubs)) {
+    assert.ok(compiled.includes(from), `the compiled page imports ${from}`);
+    compiled = compiled.split(from).join(`'${to}'`);
+  }
+  return (await import(write('Lineup.mjs', compiled))).default;
+}
+const Lineup = await compileLineupPage();
+
+const clean = h => h.replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, '&')
+  .replace(/\s+/g, ' ').trim();
+/** Render the page on one lineupCall result, serialised the way the route sends it. */
+function renderPage(call) {
+  globalThis.__lineupPayload = JSON.parse(JSON.stringify(call));
+  const html = renderToStaticMarkup(React.createElement(Lineup));
+  // Slot chips: the only `rounded-full px-2 py-0.5 ... ring-1` spans on the page (Lineup.tsx Slot).
+  const chips = [...html.matchAll(/<span class="rounded-full px-2 py-0\.5[^"]*ring-1[^"]*">([\s\S]*?)<\/span>/g)]
+    .map(m => clean(m[1]));
+  return { text: clean(html), chips };
+}
+const GRADES = ['Clear', 'Lean', 'Coin flip'];
+const NO_GRADE_LINE = /not projections\. Our win rates were measured on projections only, so no call is graded\./;
+
+for (const objective of ['ceiling', 'floor']) {
+  test(`the Start/Sit page, rendered on a ${objective} lineup: the "no call is graded" line and a "Not graded" chip, no Clear/Lean/Coin flip`, () => {
+    const call = lineupCall(league(roster()), { objective, providers: {} });
+    assert.ifError(call.error);
+    assert.equal(call.confidence_basis, `uncalibrated_for_${objective}`);
+    const { text, chips } = renderPage(call);
+    assert.equal(chips.length, call.lineup.length, `known-nonzero control: one chip per slot (${chips.join(', ')})`);
+    assert.match(text, NO_GRADE_LINE, 'the hero line says nothing on this page is graded');
+    assert.match(text, objective === 'ceiling' ? /Gaps below are between good-week ceilings/ : /Gaps below are between bad-week floors/);
+    assert.doesNotMatch(text, /ties inside the model's own error|Every call has a real margin behind it/);
+    const compared = call.lineup.filter(c => c.margin != null).length;
+    assert.equal(chips.filter(c => c === 'Not graded').length, compared, `every compared slot is chipped "Not graded": ${chips.join(', ')}`);
+    for (const g of GRADES) assert.ok(!chips.includes(g), `a "${g}" chip on a ${objective} gap: ${chips.join(', ')}`);
+    assert.doesNotMatch(text, /has won/);
+  });
+}
+
+test('the Start/Sit page, rendered on the average lineup (control): graded chips and the tie line, no "no call is graded"', () => {
+  const call = lineupCall(league(roster()), { objective: 'mean', providers: {} });
+  assert.ifError(call.error);
+  assert.equal(call.confidence_basis, 'calibrated_on_week_points');
+  const { text, chips } = renderPage(call);
+  assert.equal(chips.length, call.lineup.length, `one chip per slot (${chips.join(', ')})`);
+  assert.doesNotMatch(text, NO_GRADE_LINE, 'a measured basis is not called ungraded');
+  assert.ok(!chips.includes('Not graded'), `a "Not graded" chip on a week_points gap: ${chips.join(', ')}`);
+  assert.ok(chips.includes('Clear') && chips.includes('Coin flip'), `the measured labels stay: ${chips.join(', ')}`);
+  assert.match(text, /\d+ of these calls are ties inside the model's own error/);
+  assert.match(text, /has won about [\d.]+% of the time/);
 });

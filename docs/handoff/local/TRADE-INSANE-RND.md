@@ -104,3 +104,5 @@ ESPN holds only 37 real trade decisions once duplicates are removed (7 accepts, 
 - No past FantasyCalc values are stored. The clone baseline is season-to-date PPG until the snapshots accumulate, and the pre-registration must say so.
 - The real data gaps are play-by-play and per-player route participation. ESPN 2021 is already archived, and weather before 2025 is partly there.
 - FantasyPros referee (PROJ-01-c) is research-only until Nick rules on the licence.
+
+- RULING 2026-09-23 ~3 PM ET (Nick): "we shouldnt just use that we should put better numbers out there". FantasyPros consensus may be used as an INTERNAL input and referee (PROJ-01-c, BLEND-02) from the local DB only. It is NEVER displayed or committed (the #165 repo guard stays). Every page shows OUR engine numbers. The goal is to beat consensus, not echo it.

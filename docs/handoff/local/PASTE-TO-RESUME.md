@@ -103,7 +103,7 @@ Public-data "value edges" were tested and **failed** (RL-8-2, RL-8-2b), so every
   - Deploys.
   - Settings.
   - Merging #184 (Bluesky; timing supplement only) or #193 (glossary; no page consumer).
-  - Serving FantasyPros-derived numbers (PROJ-01-c referee stays research-only until Nick rules on the licence).
+  - (Ruled 9/23) FantasyPros = internal input/referee only, from the local DB. Never displayed, never committed. Pages show our engine's numbers.
 - Models:
   - Builders and skeptics: Opus 5.5 medium.
   - Fable: only for the critical claims skeptic (Fable weekly is precious).

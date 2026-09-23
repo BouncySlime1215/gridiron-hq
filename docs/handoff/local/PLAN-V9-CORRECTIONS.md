@@ -136,3 +136,5 @@ Nick: "all 5 u just gave me have my approval / its our engine that i think has t
 ## Plan adjustment 2:45 PM ET 9/23 (Nick approved): offer loop + 4 trade opportunities
 - OFFER-01 offer loop joins CLONE-01 as its data engine (details in TRADE-INSANE-RND.md). Trade finder success = graded real offers, not backtests alone.
 - DEADLINE-01 (radar/chess), MOTIVE-01 and VETO-01 (clones), REP-01 (Coach closer) are added to the trade engine pillar.
+
+## RULING 2026-09-23 ~3 PM ET (Nick): "we shouldnt just use that we should put better numbers out there". FantasyPros consensus may be used as an INTERNAL input and referee (PROJ-01-c, BLEND-02) from the local DB only. It is NEVER displayed or committed (the #165 repo guard stays). Every page shows OUR engine numbers. The goal is to beat consensus, not echo it.

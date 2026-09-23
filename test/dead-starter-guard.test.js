@@ -71,7 +71,7 @@ function league(mine, platform = 'espn') {
   const payload = platform === 'espn'
     ? { teams: [{ id: 1, name: 'Mine', roster: { entries: mine.map(p => p.entry) } }], schedule: [] }
     : { users: [{ user_id: 'u1', display_name: 'Mine' }],
-      rosters: [{ roster_id: 1, owner_id: 'u1', players: [], starters: [] }] };
+      rosters: [{ roster_id: 1, owner_id: 'u1', players: mine.map(p => p.asset.sleeper_id).filter(Boolean), starters: [] }] };
   run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, roster_positions, payload)
        VALUES (?, ?, ?, 2026, 'Dead starters', '1', 10, 1, ?, ?)`,
   id, platform, `ds-${id}`, JSON.stringify(SLOTS), JSON.stringify(payload));
@@ -202,8 +202,12 @@ test('gameday inactives: the hook reports not covered until RL-3-2 lands', () =>
 });
 
 test('a Sleeper league says the guard does not cover it rather than implying a clean lineup', () => {
-  const id = league([], 'sleeper');
+  const qb = player('Sleeper Quarterback', 'QB', 'QB', 20);
+  qb.asset.sleeper_id = 'S1';
+  const id = league([qb], 'sleeper');
   const call = lineupCall(id, { providers: {}, now: NOW });
-  if (call.error) return; // no rosters resolve from an empty Sleeper fixture: nothing is served at all
+  assert.ifError(call.error);
   assert.equal(call.dead_starters.covered, false);
+  assert.equal(call.dead_starters.items.length, 0);
+  assert.match(call.dead_starters.reason, /ESPN only/);
 });

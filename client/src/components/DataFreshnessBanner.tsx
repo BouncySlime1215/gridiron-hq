@@ -232,7 +232,10 @@ export const DATA_CREDITS: readonly DataCreditEntry[] = [
 const creditLink = 'underline decoration-slate-300 underline-offset-2 hover:text-slate-700';
 
 /**
- * One quiet line under every page. It takes no props and reads no state, so
+ * One quiet line under every page. It also carries the link to FantasyCalc.com that
+ * FantasyCalc's terms ask for wherever its trade values appear (FC-SNAP); FantasyCalc is
+ * not an open licence, so it is not in DATA_CREDITS or the route's `sources`.
+ * It takes no props and reads no state, so
  * nothing the freshness banner does (all current, dismissed, request failed)
  * can hide it. test/data-credit-line.test.js holds it to that: no hooks, no
  * browser globals, and nothing from outside its body except DATA_CREDITS and
@@ -252,7 +255,8 @@ export function DataCredit() {
           {')'}
         </span>
       ))}
-      , adapted for this app.
+      , adapted for this app. Trade values from{' '}
+      <a href="https://fantasycalc.com" target="_blank" rel="noreferrer" className={creditLink}>FantasyCalc.com</a>.
     </footer>
   );
 }

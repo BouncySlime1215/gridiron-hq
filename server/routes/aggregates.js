@@ -126,11 +126,33 @@ async function syncFantasyCalc() {
  * set per distinct format across the connected leagues rather than one global set.
  * Draft picks only exist in the dynasty value set (isDynasty=false returns zero picks),
  * which is why dynasty leagues need this to have any pick capital at all.
+ *
+ * One fetch per format, three writes from that one response (FC-SNAP):
+ *   - `dynasty_values`: the latest price (upsert), un-retiring a returned player;
+ *   - `dynasty_value_history`: the day's first capture per player (append-only), so
+ *     C12's forward FantasyCalc test has a history to grade (FantasyCalc forbids its
+ *     own per-player history endpoint);
+ *   - `dynasty_values.retired_at` on rows this pull did not return, so a price
+ *     FantasyCalc stopped publishing is kept on file but no longer served
+ *     (dynasty-value-history.js#currentMarket). A pull that matched nobody is a
+ *     broken pull and retires nobody.
+ * The join uses the ids FantasyCalc sends before any name: ESPN id (our player
+ * universe is ESPN-keyed), then Sleeper id, then the name key. A name shared with a
+ * historical row is dropped from the name lookup, which is how Marvin Harrison Jr.
+ * (no sleeper_id locally) kept his Week-0 price.
+ *
+ * Only the documented /values/current endpoint is called; the daily
+ * `fantasycalc_dynasty` job (scheduler.js) is its timer. `now` is injectable so a
+ * test can place two syncs a day apart.
  */
-export async function syncDynastyValues() {
-  const leagues = rows('SELECT * FROM leagues');
+export async function syncDynastyValues({ now = new Date() } = {}) {
+  // Only the columns deriveFormat reads; never the ESPN cookie columns.
+  const leagues = rows(`SELECT id, platform, team_count, ppr, superflex, roster_positions, league_type
+                          FROM leagues`);
   const seen = new Set();
   const results = [];
+  const fetchedAt = now.toISOString().replace('T', ' ').slice(0, 19);
+  const capturedOn = fetchedAt.slice(0, 10);
 
   for (const lg of leagues) {
     const { formatKey, params, isDynasty } = deriveFormat(lg);
@@ -141,25 +163,33 @@ export async function syncDynastyValues() {
       { headers: { Accept: 'application/json' } });
     if (!resp.ok) { results.push({ formatKey, error: `FantasyCalc ${resp.status}` }); continue; }
     const data = await resp.json();
+    if (!Array.isArray(data)) { results.push({ formatKey, error: 'FantasyCalc returned a non-array body' }); continue; }
 
+    const byEspn = new Map(rows(`SELECT id, espn_id FROM players WHERE espn_id IS NOT NULL AND espn_id <> '' AND espn_id <> '0'`)
+      .map(p => [String(p.espn_id), p.id]));
     const bySleeper = new Map(rows('SELECT id, sleeper_id FROM players WHERE sleeper_id IS NOT NULL')
       .map(p => [String(p.sleeper_id), p.id]));
     const lookup = playerLookup();
 
     const upPlayer = db.prepare(`INSERT INTO dynasty_values
-        (format_key, player_id, value, redraft_value, trend30, age, pos_rank, fetched_at)
-      VALUES (?,?,?,?,?,?,?,datetime('now'))
+        (format_key, player_id, value, redraft_value, trend30, age, pos_rank, fetched_at, retired_at)
+      VALUES (?,?,?,?,?,?,?,?,NULL)
       ON CONFLICT(format_key, player_id) DO UPDATE SET
         value=excluded.value, redraft_value=excluded.redraft_value, trend30=excluded.trend30,
-        age=excluded.age, pos_rank=excluded.pos_rank, fetched_at=excluded.fetched_at`);
+        age=excluded.age, pos_rank=excluded.pos_rank, fetched_at=excluded.fetched_at, retired_at=NULL`);
+    const addHistory = db.prepare(`INSERT INTO dynasty_value_history
+        (format_key, player_id, captured_on, captured_at, value, redraft_value, trend30, age, pos_rank)
+      VALUES (?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(format_key, player_id, captured_on) DO NOTHING`);
     const upPick = db.prepare(`INSERT INTO pick_values
         (format_key, pick_key, label, season, round, value, fetched_at)
-      VALUES (?,?,?,?,?,?,datetime('now'))
+      VALUES (?,?,?,?,?,?,?)
       ON CONFLICT(format_key, pick_key) DO UPDATE SET
         label=excluded.label, season=excluded.season, round=excluded.round,
         value=excluded.value, fetched_at=excluded.fetched_at`);
 
-    let players = 0, picks = 0;
+    let players = 0, picks = 0, history = 0, byId = 0, byName = 0;
+    const returned = new Set();
     for (const entry of data) {
       const p = entry.player ?? {};
       if (p.position === 'PICK') {
@@ -167,18 +197,38 @@ export async function syncDynastyValues() {
         // draft order is unknown ahead of time so slot-specific DP_ keys are skipped.
         const m = /^FP_(\d{4})_(\d+)$/.exec(p.sleeperId ?? '');
         if (!m) continue;
-        upPick.run(formatKey, p.sleeperId, p.name ?? null, Number(m[1]), Number(m[2]), entry.value ?? 0);
+        upPick.run(formatKey, p.sleeperId, p.name ?? null, Number(m[1]), Number(m[2]), entry.value ?? 0, fetchedAt);
         picks++;
         continue;
       }
-      const id = (p.sleeperId && bySleeper.get(String(p.sleeperId)))
-        ?? lookup.map.get(`${normName(p.name ?? '')}|${p.position}`);
-      if (!id) continue;
-      upPlayer.run(formatKey, id, entry.value ?? null, entry.redraftValue ?? null,
-        entry.trend30Day ?? null, p.maybeAge ?? null, entry.positionRank ?? null);
+      const idMatch = (p.espnId && byEspn.get(String(p.espnId)))
+        ?? (p.sleeperId && bySleeper.get(String(p.sleeperId)))
+        ?? null;
+      const id = idMatch ?? lookup.map.get(`${normName(p.name ?? '')}|${p.position}`);
+      if (!id || returned.has(id)) continue;
+      returned.add(id);
+      if (idMatch) byId++; else byName++;
+      const vals = [entry.value ?? null, entry.redraftValue ?? null, entry.trend30Day ?? null,
+        p.maybeAge ?? null, entry.positionRank ?? null];
+      upPlayer.run(formatKey, id, ...vals, fetchedAt);
+      history += Number(addHistory.run(formatKey, id, capturedOn, fetchedAt, ...vals).changes);
       players++;
     }
-    results.push({ formatKey, isDynasty, fetched: data.length, players, picks });
+
+    if (players === 0) {
+      results.push({ formatKey, isDynasty, fetched: data.length, players, picks,
+        error: 'FantasyCalc pull matched no players; nothing retired' });
+      continue;
+    }
+    // Retire what this pull did not return; the last price stays on the row.
+    const retire = db.prepare(`UPDATE dynasty_values SET retired_at = ?
+                                WHERE format_key = ? AND player_id = ? AND retired_at IS NULL`);
+    let retired = 0;
+    for (const r of rows(`SELECT player_id FROM dynasty_values WHERE format_key = ? AND retired_at IS NULL`, formatKey)) {
+      if (!returned.has(r.player_id)) retired += Number(retire.run(fetchedAt, formatKey, r.player_id).changes);
+    }
+    results.push({ formatKey, isDynasty, fetched: data.length, players, picks,
+      matched_by_id: byId, matched_by_name: byName, history_rows: history, retired });
   }
   recordSync('fantasycalc_dynasty', results.some(r => r.error) ? 'error' : 'ok', { formats: results });
   return { formats: results };

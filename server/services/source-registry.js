@@ -44,6 +44,9 @@ import { lastRun, minutesSince, JOBS as SCHEDULED_JOBS } from './scheduler.js';
 //   nflverse_crosswalk, nflverse_weekly_usage, nflverse_snap_counts,
 //   espn_depth_chart, espn_season_stats, sleeper_players
 //
+// fantasycalc_dynasty moved to JOBS on 2026-09-23 (FC-SNAP): its declared daily
+// cadence had no timer, so the trade price aged until someone pressed league sync.
+//
 // Every one of them is a core fantasy feed, and every one of them had never
 // run on the deployed app. "No timer, by design" below is a defensible rule
 // for a multi-season play-by-play backfill; it was never defensible for the
@@ -173,13 +176,6 @@ export const MANUAL_SOURCES = {
     cadence: 'daily; values move with real trades',
     cutoff: 'as of the pull; trend30 is a point delta, not already a percent',
     failureMode: 'throws',
-    maxAgeMinutes: 24 * 60
-  },
-  fantasycalc_dynasty: {
-    label: 'FantasyCalc dynasty values (per connected league format)',
-    cadence: 'daily',
-    cutoff: 'as of the pull',
-    failureMode: 'per-format fetch failures are recorded inline in the result and do not stop other formats',
     maxAgeMinutes: 24 * 60
   },
   historical_adp: {

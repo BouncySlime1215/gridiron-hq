@@ -239,11 +239,13 @@ test('fantasycalc_dynasty is a daily scheduled job, not a manual source', () => 
 });
 
 test('the scheduled run refreshes a price older than 24 hours (RL-4-3 RED 1)', async () => {
+  payload = PULL_2;
   run(`UPDATE dynasty_values SET fetched_at = '2026-09-01 00:00:00' WHERE format_key = ?`, FMT);
   run(`DELETE FROM sync_log WHERE job = 'fantasycalc_dynasty'`);
   const res = await scheduler.runIfStale('fantasycalc_dynasty', { offThread: false });
   assert.equal(res.error, undefined, `the job failed: ${res.error}`);
   assert.notEqual(res.skipped, true, 'a never-run job must be due');
+  assert.equal(scheduler.lastRun('fantasycalc_dynasty')?.last_status, 'ok', 'the run is logged as ok');
   const ageMin = row(`SELECT (julianday('now') - julianday(fetched_at)) * 1440 AS m FROM dynasty_values
                       WHERE format_key = ? AND player_id = ?`, FMT, P.STEADY).m;
   assert.ok(ageMin < 5, `fetched_at was not refreshed (age ${ageMin} min)`);

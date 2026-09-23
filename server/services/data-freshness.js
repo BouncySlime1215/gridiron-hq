@@ -1,5 +1,6 @@
 import { db as defaultDb } from '../db/index.js';
 import * as registry from './source-registry.js';
+import { MARKET_MAX_AGE_MINUTES } from './dynasty-value-history.js';
 
 /**
  * Whether the data the app serves is actually current — read from the tables
@@ -374,6 +375,24 @@ export const FALLBACK_REGISTRY = [
       description: 'Has weekly usage rows for the season being played, up to the current week.',
       predicate: 'season = ? AND week <= ?',
       bind: ['season', 'week']
+    }
+  },
+  // FC-SNAP: the market price every trade card is gated, ranked and labelled on. Its
+  // job (scheduler.js fantasycalc_dynasty) runs daily; the window is that job's budget,
+  // MARKET_MAX_AGE_MINUTES, never a second constant. No retired_at filter is needed: a
+  // retired row is one the latest pull did not return, so its fetched_at is older than
+  // that pull's by construction.
+  {
+    table: 'dynasty_values',
+    label: 'FantasyCalc market values',
+    grain: 'static',
+    season_col: null,
+    week_col: null,
+    updated_col: 'fetched_at',
+    current_rule: {
+      description: `Fetched from FantasyCalc in the last ${MARKET_MAX_AGE_MINUTES / 60} hours.`,
+      predicate: `julianday(fetched_at) >= julianday('now', '-${MARKET_MAX_AGE_MINUTES} minutes')`,
+      bind: []
     }
   }
 ];

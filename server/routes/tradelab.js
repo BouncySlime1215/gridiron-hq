@@ -5,6 +5,7 @@ import { vorBoard, volatility } from './edge.js';
 import { deriveFormat } from '../services/format.js';
 import { pickInventory } from '../services/picks.js';
 import { dynastyAgeAdjustment } from '../services/dynasty-age-curve.js';
+import { currentMarket } from '../services/dynasty-value-history.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -23,8 +24,8 @@ function leagueRosters(lg, formatKey, { isDynasty = formatKey.startsWith('dyn_')
   const board = new Map(vorBoard(lg.team_count || 12).map(p => [p.id, p]));
   const vol = volatility();
   // Format-matched market prices, so a superflex QB is valued as a superflex QB.
-  const market = new Map(rows('SELECT player_id, value, age, trend30, pos_rank FROM dynasty_values WHERE format_key = ?', formatKey)
-    .map(d => [d.player_id, d]));
+  // Live prices only; retired rows are skipped (dynasty-value-history.js).
+  const market = currentMarket(formatKey);
   // One query instead of per-player lookups inside enrich().
   const ageByPlayer = new Map(rows(`SELECT p.id, rp.age FROM players p
                                     JOIN roster_players rp ON rp.espn_id = p.espn_id

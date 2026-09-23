@@ -253,6 +253,67 @@ test('under not_shown the panel never adds "not the same as worse … a small ed
   assert.match(render(REAL_FIX).text, /Few weeks so far: this season shows direction, not proof\./);
 });
 
+/* "What was compared" (structure review of bc0062d8): the plan-rule headline grades the projection the
+   app saved before kickoff (weekly_prediction_snapshots.prediction, the blended projection) against
+   ESPN's. The replay and its caveat belong to the weaker check; the Start/Sit list's week_points is
+   graded by neither. */
+
+/** The top-level basis the fixed gate serves beside the plan-rule verdict (start-sit-gate.js). */
+const PLAN_POLICY = 'Start the player with the higher weekly projection the app saved before that week\'s first kickoff (its blended weekly projection, exactly as saved).';
+const PLAN_LIMIT = 'That saved projection is not the number shown beside each player on this page (week_points), which also carries the chance to play, the betting-line adjustment and the coordinator correction. The app does not save that number each week yet, so it cannot be graded.';
+/** The same real result with the fixed gate's texts: the plan rule's basis on top, the replay's texts on average_check. */
+const REAL_TEXTS = { ...REAL_FIX, policy: PLAN_POLICY, limit: PLAN_LIMIT, replay_caveat: undefined,
+  average_check: { ...REAL_FIX.average_check, policy: RULING_RUN.policy, replay_caveat: RULING_RUN.replay_caveat } };
+
+/** Every "What was compared" row, in order, as [label, text]. */
+const comparedRows = html => [...((html.match(/<details[\s\S]*<\/details>/) ?? [''])[0])
+  .matchAll(/<dt[^>]*>([\s\S]*?)<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/g)].map(m => [clean(m[1]), clean(m[2])]);
+/** "What was compared" by group (data-compared: plan_rule, average_check, both), each with its visible text. */
+function comparedGroups(html) {
+  const block = (html.match(/<details[\s\S]*<\/details>/) ?? [''])[0];
+  const out = {};
+  for (const part of block.split('data-compared="').slice(1)) {
+    out[part.slice(0, part.indexOf('"'))] = clean(part.slice(part.indexOf('>') + 1));
+  }
+  return out;
+}
+
+test('What was compared: under the plan-rule headline, "Ours:" is the saved projection and "Limit:" names week_points, not the replay', () => {
+  const { html } = render(REAL_TEXTS);
+  const rows = new Map(comparedRows(html));
+  assert.ok(rows.has('Limit:'), `under a plan-rule headline, "What was compared" has a Limit: line: ${[...rows.keys()]}`);
+  assert.doesNotMatch(rows.get('Limit:'), /replay/i, `the plan rule is not graded on the replay: Limit: ${rows.get('Limit:')}`);
+  assert.match(rows.get('Limit:'), /week_points/, 'the limit names the Start/Sit number the headline does not grade');
+  assert.equal(rows.get('Limit:'), PLAN_LIMIT);
+  assert.equal(rows.get('Ours:'), PLAN_POLICY);
+  // The replay's texts are the weaker check's, under its own labels.
+  assert.equal(rows.get('Ours, in the weaker check:'), RULING_RUN.policy);
+  assert.equal(rows.get('Limit of the weaker check:'), RULING_RUN.replay_caveat);
+  assert.doesNotMatch(rows.get('Why no numbers:'), /replay/i, 'the headline\'s sizes are not a replay\'s');
+  const groups = comparedGroups(html);
+  assert.deepEqual(Object.keys(groups), ['plan_rule', 'average_check', 'both'], 'the headline\'s rule first, then the weaker check');
+  assert.match(groups.plan_rule, /^The plan's dumb rule: /);
+  assert.doesNotMatch(groups.plan_rule, /replay/i, `nothing in the headline's group describes the replay: ${groups.plan_rule}`);
+  assert.match(groups.average_check, /^The weaker check, set before the numbers: /);
+  assert.match(groups.average_check, /replayed/);
+});
+
+test('What was compared: a result stored before this basis existed shows its replay texts as the weaker check\'s, never under "Ours:" or "Limit:"', () => {
+  // Revision 4's stored result (plan_rule, no `limit`) and b97d5ea2's (no plan_rule): in both, the
+  // top-level policy and replay_caveat described the replay.
+  for (const [name, payload] of [['REAL_FIX', REAL_FIX], ['REAL_B97D', REAL_B97D]]) {
+    const rows = new Map(comparedRows(render(payload).html));
+    assert.doesNotMatch(rows.get('Limit:') ?? '', /replay/i, `${name}: the headline's Limit: says replay: ${rows.get('Limit:')}`);
+    assert.doesNotMatch(rows.get('Ours:') ?? '', /replay/i, `${name}: the headline's Ours: says replay: ${rows.get('Ours:')}`);
+    assert.equal(rows.get('Ours, in the weaker check:'), RULING_RUN.policy, name);
+    assert.equal(rows.get('Limit of the weaker check:'), RULING_RUN.replay_caveat, name);
+  }
+  // b97d5ea2's top-level baseline was the season average: it is the weaker check's rule, not the headline's.
+  const old = comparedGroups(render(REAL_B97D).html);
+  assert.equal(old.plan_rule, undefined, 'no plan-rule basis for a result graded before the plan rule');
+  assert.match(old.average_check, /season-to-date PPR average/);
+});
+
 test('A6: emerald only for a plan-rule beats_dumb; every plan-rule state has its own chip and line', () => {
   const at = (verdict, extra) => render({ ...MEASURED, verdict, plan_rule: planRule(verdict, extra) });
   const beats = at('beats_dumb', { weeks_graded: 4, direction: 'ours_ahead' });

@@ -84,13 +84,30 @@ export const PAST_SEASONS = Object.freeze([2024, 2025]);
 export const PAST_WEEKS = Object.freeze([5, 18]);
 const SKILL = new Set(['QB', 'RB', 'WR', 'TE']);
 
+/** The average check's "ours" (prereg §8): today's settings replayed. Carried on `average_check`, never top-level. */
 export const POLICY_TEXT = 'Start the higher weekly projection from the app\'s current model settings, replayed week by '
   + 'week with only what was known before each week (weekly role recency, the fitted volume numbers and the blend '
   + 'weights, each chosen by data cutoff).';
 export const FORWARD_REPLAY_TEXT = 'This season, today\'s model settings replayed on this season\'s weeks: not the '
   + 'projection the app served at the time.';
-export const SERVED_TEXT = 'What the app actually served: the projection it saved before each week\'s first kickoff, '
-  + 'graded on the same players and the same scores as the replay.';
+export const SERVED_TEXT = 'What the app served: the blended weekly projection it saved before each week\'s first '
+  + 'kickoff, graded on the same players and the same scores as the replay.';
+/**
+ * The plan-rule verdict's "ours" (prereg addendum 2 §2): weekly_prediction_snapshots.prediction, the
+ * blended projection (projection.ppg) that weekly-learning.js#captureWeeklyPredictions saves before
+ * the slate starts. Top-level, beside the verdict it describes.
+ */
+export const PLAN_POLICY_TEXT = 'Start the player with the higher weekly projection the app saved before that week\'s '
+  + 'first kickoff (its blended weekly projection, exactly as saved).';
+/**
+ * The plan-rule verdict's limit (addendum 2 §8.6): the saved projection is not week_points, the number
+ * the Start/Sit list ranks by and prints (lineup-brain.js#startSitWeekPoints: trade-engine.js's
+ * coordinator-corrected weekly number times the chance to play, times the betting-line lift). Storing
+ * week_points each week is WORK-QUEUE S-12.
+ */
+export const PLAN_LIMIT_TEXT = 'That saved projection is not the number shown beside each player on this page '
+  + '(week_points), which also carries the chance to play, the betting-line adjustment and the coordinator '
+  + 'correction. The app does not save that number each week yet, so it cannot be graded.';
 /** The plan's rule (Auditor ruling A6): what the top-level verdict is graded against. */
 export const ESPN_BASELINE_TEXT = 'The plan\'s dumb rule: start the player ESPN projects higher that week (ESPN\'s own '
   + 'weekly projection, one value per player and week, from the synced leagues\' settled lineups).';
@@ -100,6 +117,7 @@ export const BASELINE_TEXT = 'The weaker check, set before the numbers: start th
 export const UNIVERSE_TEXT = 'Every pair of same-position players (QB, RB, WR, TE) in the same week, both active '
   + 'the week before, not on a bye, and both projected at least 8.0 PPR by both rules. Graded only where the two '
   + 'rules disagree, on what the two picks actually scored (0 if he did not play).';
+/** The average check's limit: its projection is the replay's. Carried on `average_check`, never top-level. */
 export const REPLAY_CAVEAT = 'Graded on the weekly replay of production\'s projection. The live number also carries '
   + 'the chance to play, the betting-line adjustment and the coordinator correction, which the replay does not.';
 
@@ -381,7 +399,8 @@ export function espnProjections(season, [startWeek, endWeek]) {
 /**
  * The forward weeks as the app served them (prereg addendum 1, arms A and B). Both arms
  * keep the replay rows (who, which week, the season average, what he scored) and swap
- * only the projections. Descriptive: neither is read by the verdict.
+ * only the projections. Arm A (vs the average) is descriptive; arm B (vs ESPN), pooled over
+ * every served week, is the plan-rule verdict's at-lock input (addendum 2 §4).
  */
 export function servedArms(season, weeks, replayRows, { champions = {}, iterations = 2000, seed = 1 } = {}) {
   const label = `${season} ${weeks[0] === weeks[1] ? `week ${weeks[0]}` : `weeks ${weeks[0]}-${weeks[1]}`}`;
@@ -500,8 +519,9 @@ export function runStartSitGate({
   // H1 exactly as pre-registered (prereg §8): G4 reads the replay's forward grade only.
   // It is a floor check now (Auditor ruling (a)): reported beside the verdict, never as it.
   const ruled = baselineGateVerdict({ past, forward: forward.status ? null : forward });
+  // Its texts ride with it: the season average, and today's settings replayed with the replay's limit.
   const averageCheck = { verdict: controls.passed ? ruled.verdict : 'instrument_fault', gates: ruled.gates,
-    rule: BASELINE_TEXT, prereg: PREREG };
+    rule: BASELINE_TEXT, policy: POLICY_TEXT, replay_caveat: REPLAY_CAVEAT, prereg: PREREG };
   // The verdict: the plan's rule, what the app served against ESPN's weekly projection
   // (prereg addendum 2). Its only source today is at lock; no same-cutoff capture exists
   // yet (RL-1-1, S-12), so it can pass or stay not_shown but never lose.
@@ -512,8 +532,10 @@ export function runStartSitGate({
   return {
     gate: GATE_ID, version: GATE_VERSION, prereg: PREREG, prereg_addendum: PREREG_ADDENDUM,
     prereg_addendum_2: PREREG_ADDENDUM_2,
-    policy: POLICY_TEXT, baseline: ESPN_BASELINE_TEXT, universe: UNIVERSE_TEXT, scoring: 'PPR',
-    sign_convention: SIGN_CONVENTION, replay_caveat: REPLAY_CAVEAT,
+    // The top-level texts describe the top-level verdict, the plan rule: ours (the projection saved
+    // before kickoff), ESPN's, and what ours is not (week_points). The replay's are on average_check.
+    policy: PLAN_POLICY_TEXT, baseline: ESPN_BASELINE_TEXT, limit: PLAN_LIMIT_TEXT,
+    universe: UNIVERSE_TEXT, scoring: 'PPR', sign_convention: SIGN_CONVENTION,
     configuration: {
       role_recency: { seasonDecay: WEEKLY_ROLE_RECENCY.seasonDecay, weekHalfLife: WEEKLY_ROLE_RECENCY.weekHalfLife },
       k_override: 'omitted', k_control: kc, champions,

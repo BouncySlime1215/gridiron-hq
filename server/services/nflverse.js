@@ -100,6 +100,8 @@ export async function syncCrosswalk() {
   const iBirth = at('birth_date'), iRookieSeason = at('rookie_season'),
     iDraftYear = at('draft_year'), iDraftRound = at('draft_round'), iDraftPick = at('draft_pick');
   if (iGsis < 0 || iEspn < 0) throw new Error('players.csv is missing gsis_id/espn_id');
+  // snap_counts keys on pfr_player_id; keep the bridge for syncSnapCounts.
+  _pfrToGsis = pfrMapFrom(header, records);
 
   const byEspn = new Map(rows('SELECT id, espn_id FROM players WHERE espn_id IS NOT NULL')
     .map(p => [String(p.espn_id), p.id]));
@@ -283,7 +285,51 @@ export async function syncWeeklyUsage(season) {
   return { season, rows: records.length, inserted, unmatched };
 }
 
-/** Snap share — the earliest signal that a committee is breaking one way. */
+/* ------------------------------------------------------------- snap counts */
+
+/**
+ * pfr_id -> gsis_id from nflverse players.csv. snap_counts carries only
+ * pfr_player_id, so this is the bridge to players.gsis_id. syncCrosswalk
+ * fills it from the players.csv it already downloads; a standalone snap sync
+ * fetches it once.
+ */
+let _pfrToGsis = null;
+function pfrMapFrom(header, records) {
+  const at = indexer(header);
+  const iGsis = at('gsis_id'), iPfr = at('pfr_id');
+  const map = new Map();
+  if (iGsis < 0 || iPfr < 0) return map;
+  for (const rec of records) if (rec[iPfr] && rec[iGsis]) map.set(rec[iPfr], rec[iGsis]);
+  return map;
+}
+async function pfrCrosswalk() {
+  if (_pfrToGsis?.size) return _pfrToGsis;
+  const { header, records } = await fetchCsv(`${RELEASE}/players/players.csv`);
+  _pfrToGsis = pfrMapFrom(header, records);
+  return _pfrToGsis;
+}
+
+/** The snap loader's name key. Kept as-is so the backfill recognises rows the old name join wrote. */
+const snapNameKey = s => (s ?? '').toLowerCase().replace(/[.'’-]/g, '')
+  .replace(/\s+(jr|sr|ii|iii|iv|v)$/i, '').replace(/\s+/g, ' ').trim();
+/** nflverse snap_counts labels some backs HB (CIN 2020, 2025-26) and fullbacks FB; locally both are RB. */
+const SNAP_POSITION_ALIAS = { HB: 'RB', FB: 'RB' };
+
+/**
+ * Snap share — the earliest signal that a committee is breaking one way.
+ *
+ * Joins pfr_player_id -> gsis_id (players.csv) -> players.gsis_id first. The
+ * name|position key is a fallback only when the pfr id does not resolve, and it
+ * refuses a key two players share instead of letting the last row win (that is
+ * how an active Jr.'s snaps landed on a retired namesake).
+ *
+ * Backfill, updates only: when an id-resolved row's exact numbers sit on a
+ * same-name player in the same week (the old name join wrote them there), and
+ * that player is not himself an id-resolved target that week, the row is moved
+ * to the right player with an UPDATE. Nothing is deleted; a stale row that
+ * cannot be moved (the right player already has that week) is counted in
+ * namesake_rows_left.
+ */
 export async function syncSnapCounts(season) {
   const { header, records } = await fetchCsv(`${RELEASE}/snap_counts/snap_counts_${season}.csv`);
   const at = indexer(header);
@@ -291,29 +337,79 @@ export async function syncSnapCounts(season) {
   const iWeek = at('week'), iSeason = at('season'), iType = at('game_type');
   const iSnaps = at('offense_snaps'), iPct = at('offense_pct');
 
-  // snap_counts keys on pfr_player_id, which we do not carry; fall back to name+position.
-  const norm = s => (s ?? '').toLowerCase().replace(/[.'’-]/g, '')
-    .replace(/\s+(jr|sr|ii|iii|iv|v)$/i, '').replace(/\s+/g, ' ').trim();
-  const byName = new Map(rows('SELECT id, name, position FROM players')
-    .map(p => [`${norm(p.name)}|${p.position}`, p.id]));
+  // The scheduled job (scheduler.js nflverse_snap_counts) runs this alone in a
+  // fresh worker, so the map is cold and players.csv is fetched here. If that
+  // fetch fails, keep the job alive on the name join (what origin/main did),
+  // count it, and leave the map unset so the next run retries.
+  let pfrToGsis = new Map(), crosswalkError = null;
+  if (iPfr >= 0) {
+    try { pfrToGsis = await pfrCrosswalk(); }
+    catch (e) {
+      crosswalkError = String(e?.message ?? e);
+      console.warn(`[nflverse] snap counts ${season}: pfr crosswalk unavailable (${crosswalkError}); name join only this run`);
+    }
+  }
+  const byGsis = new Map(rows('SELECT id, gsis_id FROM players WHERE gsis_id IS NOT NULL')
+    .map(p => [p.gsis_id, p.id]));
+  const byName = new Map();     // name|position -> id, or null when two players share the key
+  const namesakes = new Map();  // name -> [ids], any position
+  for (const p of rows('SELECT id, name, position FROM players')) {
+    const n = snapNameKey(p.name);
+    const k = `${n}|${p.position}`;
+    byName.set(k, byName.has(k) ? null : p.id);
+    (namesakes.get(n) ?? namesakes.set(n, []).get(n)).push(p.id);
+  }
 
-  const stmt = db.prepare(`INSERT INTO player_week_snaps (player_id, season, week, offense_snaps, offense_pct)
+  // Pass 1: resolve every regular-season row.
+  const resolved = [];
+  let byId = 0, nameFallback = 0, unmatched = 0, ambiguousName = 0;
+  for (const rec of records) {
+    if (iType >= 0 && rec[iType] !== 'REG') continue;
+    const gsis = iPfr >= 0 ? pfrToGsis.get(rec[iPfr]) : null;
+    let pid = gsis ? byGsis.get(gsis) : undefined;
+    const viaId = pid != null;
+    if (viaId) byId++;
+    else {
+      const pos = SNAP_POSITION_ALIAS[rec[iPos]] ?? rec[iPos];
+      const k = `${snapNameKey(rec[iName])}|${pos}`;
+      pid = byName.get(k);
+      if (pid == null) { if (byName.has(k)) ambiguousName++; else unmatched++; continue; }
+      nameFallback++;
+    }
+    resolved.push({ pid, viaId, name: snapNameKey(rec[iName]),
+      season: numAt(rec, iSeason), week: numAt(rec, iWeek), snaps: numAt(rec, iSnaps), pct: numAt(rec, iPct) });
+  }
+  const targets = new Set(resolved.map(r => `${r.pid}|${r.season}|${r.week}`));
+
+  const upsert = db.prepare(`INSERT INTO player_week_snaps (player_id, season, week, offense_snaps, offense_pct)
     VALUES (?,?,?,?,?) ON CONFLICT(player_id, season, week) DO UPDATE SET
       offense_snaps=excluded.offense_snaps, offense_pct=excluded.offense_pct`);
+  const getRow = db.prepare('SELECT offense_snaps, offense_pct FROM player_week_snaps WHERE player_id = ? AND season = ? AND week = ?');
+  const move = db.prepare('UPDATE player_week_snaps SET player_id = ? WHERE player_id = ? AND season = ? AND week = ?');
 
-  let inserted = 0;
+  let inserted = 0, reassigned = 0, namesakeRowsLeft = 0;
   db.exec('BEGIN');
   try {
-    for (const rec of records) {
-      if (iType >= 0 && rec[iType] !== 'REG') continue;
-      const pid = byName.get(`${norm(rec[iName])}|${rec[iPos]}`);
-      if (!pid) continue;
-      stmt.run(pid, numAt(rec, iSeason), numAt(rec, iWeek), numAt(rec, iSnaps), numAt(rec, iPct));
+    // Pass 2: move rows the old name join put on a namesake, then upsert.
+    for (const r of resolved) {
+      if (r.viaId) {
+        for (const other of namesakes.get(r.name) ?? []) {
+          if (other === r.pid || targets.has(`${other}|${r.season}|${r.week}`)) continue;
+          const stale = getRow.get(other, r.season, r.week);
+          if (!stale || stale.offense_snaps !== r.snaps || stale.offense_pct !== r.pct) continue;
+          if (getRow.get(r.pid, r.season, r.week)) { namesakeRowsLeft++; continue; }
+          move.run(r.pid, other, r.season, r.week);
+          reassigned++;
+        }
+      }
+      upsert.run(r.pid, r.season, r.week, r.snaps, r.pct);
       inserted++;
     }
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
-  return { season, inserted };
+  return { season, inserted, by_id: byId, name_fallback: nameFallback, unmatched,
+    ambiguous_name: ambiguousName, reassigned, namesake_rows_left: namesakeRowsLeft,
+    crosswalk_error: crosswalkError };
 }
 
 /** Everything, in dependency order. */

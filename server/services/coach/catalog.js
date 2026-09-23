@@ -232,7 +232,9 @@ export const COACH_TABLES = Object.freeze({
 
   // --- value and drafts ---
   dynasty_values: t('one player in one scoring format',
-    'external market value: dynasty value, redraft value, 30-day trend, age and positional rank',
+    'external market value (FantasyCalc): dynasty value, redraft value, 30-day trend, age and positional rank. '
+      + 'A row with retired_at set is a player FantasyCalc no longer lists; it keeps his last price on file but that '
+      + 'price is not current, and Trade Lab leaves it out. Always filter WHERE retired_at IS NULL for a current value',
     'value sync', 'auto'),
   pick_values: t('one draft pick in one scoring format',
     'what a future pick is worth on the same scale as a player',

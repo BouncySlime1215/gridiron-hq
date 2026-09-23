@@ -98,13 +98,18 @@ Before-counts for the named ids came from a second fresh `.backup`, deleted righ
 
 | Measure | Before | After |
 |---|---|---|
-| Players | 716 | 714 (two namesake rows lost all their appearances) |
+| Players | 716 | 714 (4 left, 2 joined) |
 | `unknown` tier | 52 | 16 |
-| Tier changed | | 41 |
-| `unknown` → known | | 36 |
+| Tier changed, players in both maps | | 39 |
+| Players whose entry changed (39 + 4 left + 2 joined) | | 45 |
+| `unknown` → known (players in both maps) | | 36 |
 | Case A | `unknown` | `rotation` |
 | Case B | `unknown` (derived, see below) | `starter` |
 
+- The 4 who left are WRs (local ids 4666, 5682, 7774, 8446) with 0 `player_week_usage` rows in 2025+ and 10-14 snap rows each that the old name join had put on them. Their before tiers were fringe, rotation, starter and starter. So the bug listed four same-name WRs who never played as fringe-to-starter, two of them as starters. That is what WV-02's `snap_share` order would have shown. After the fix they have no snap rows and no usage, so they drop out of the map.
+- The 2 who joined are RBs (local ids 708, 740). Each has 0 usage rows and 1 snap row in 2025+ after the replay (after tiers rotation and fringe). They are rows moved to their id owner, and they come in only through the snap side of `roleStates`.
+- A correction: an earlier version of this table said "714 (two namesake rows lost all their appearances)" and "41 tier changed". The 41 was the 39 changed plus the 2 joiners, and it left out the 4 who left. The counts above come from the command below.
+- Command (local copy, not production; tree 1e2c02c3): `sqlite3 ~/gridiron-local/data.sqlite ".backup '<scratch>/fresh/data.sqlite'"`, then scratchpad `s20-role-dump.mjs` run with `GRIDIRON_DB_PATH` set to the fresh backup (before) and to the replayed `.local-db/data.sqlite` (after), then a union diff of the two JSON dumps. Output: `before 716 after 714 removed 4 added 2 changed_both 39 total 45`, `unknown before 52 after 16`, `unknown->known (both) 36`. The fresh backup was deleted after the dump.
 - Case B before: `roleStates` takes share only from `player_week_snaps` (`contingency.js:379-383`). The fresh backup held 0 snap rows for case B in 2025-26, so his share was `null` and his tier `unknown`. That is derived from the code, not measured: the replay's own case-B line had looked up the wrong gsis and was discarded. After: measured on the copy with a separate `roleStates(2026, 3)` call (case A share 0.56, case B share 0.64).
 - WV-02 ships snap-share order default-off (projection order is the default), so this changes the `snap_share` field shown and the opt-in order, not the default list.
 

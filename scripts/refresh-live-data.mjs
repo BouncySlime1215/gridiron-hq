@@ -63,6 +63,12 @@ export const FANTASY_LIVE_JOBS = [
   // reads; heavier work only fires when a newly finalized week is actually ahead).
   'nfl_model_growth',   // finalized-week ingest, shadow settlement, next-week fit — 6h maxAge
   'ffopportunity',      // weekly expected-fantasy-points benchmark — 3-day maxAge
+  // 2026-09-22 (C-01): the standing start/sit gate (plan item C12). Nothing else runs it
+  // while the server has SCHEDULER_DISABLED=1, and without it GET /api/gates/start-sit and
+  // the Lineup page's gate panel answer "not measured yet" forever. After the two jobs
+  // whose rows it grades (nfl_model_growth's finalized weeks, nfl_weekly_learning's
+  // pregame snapshots). 7-day maxAge; offThread, so its replays run in a worker.
+  'start_sit_gate',
   // 2026-09-19: scripts/build-manager-archetypes.mjs was in no allowlist at all —
   // not here, not in package.json — so `manager_archetypes` stayed empty and the
   // `draft` and `outcome` signal sources silently never appeared for any league.

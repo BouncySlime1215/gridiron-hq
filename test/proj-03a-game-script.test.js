@@ -61,8 +61,8 @@ function seedHistory() {
     }
   }
   // One future game with a line and no score (a look-ahead line).
-  line.run(2023, 1, 'T00', 'T01', 1, -3.5, 47.5, 25.75, 'espn', null, null);
-  line.run(2023, 1, 'T01', 'T00', 0, 3.5, 47.5, 21.75, 'espn', null, null);
+  line.run(2023, 1, 'T00', 'T01', 1, -3.5, 47.5, 25.5, 'espn', null, null);
+  line.run(2023, 1, 'T01', 'T00', 0, 3.5, 47.5, 22, 'espn', null, null);
 }
 seedHistory();
 
@@ -85,8 +85,9 @@ test('RED: mean drawn total over 20k keys equals the line total within 0.1; each
     tot += p.total; h += p.home.points; aw += p.away.points;
   }
   assert.ok(Math.abs(tot / N - 47.5) <= 0.1, `mean total ${tot / N} vs 47.5`);
-  assert.ok(Math.abs(h / N - 25.75) <= 0.1, `mean home ${h / N} vs 25.75`);
-  assert.ok(Math.abs(aw / N - 21.75) <= 0.1, `mean away ${aw / N} vs 21.75`);
+  // implied = total/2 -/+ spread/2 = 25.5 home, 22.0 away (the first RED draft had 25.75/21.75, a margin of 4, not 3.5).
+  assert.ok(Math.abs(h / N - 25.5) <= 0.1, `mean home ${h / N} vs 25.5`);
+  assert.ok(Math.abs(aw / N - 22) <= 0.1, `mean away ${aw / N} vs 22`);
 });
 
 test('path shape: quarters sum to finals, margin/total consistent, pregame win prob = Phi(mu/sigma)', () => {

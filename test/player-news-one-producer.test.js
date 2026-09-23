@@ -22,6 +22,7 @@ seedIfEmpty();
 const { default: newsRouter } = await import('../server/routes/news.js');
 const { default: playersRouter } = await import('../server/routes/players.js');
 const { hashSessionToken } = await import('../server/platform/auth.js');
+const claude = await import('../server/services/claude.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -36,10 +37,10 @@ app.use('/api/news', newsRouter);
 app.use('/api/players', playersRouter);
 app.use((err, req, res, next) => res.status(err.status ?? 500).json({ error: err.message }));
 
-async function request(url, { token } = {}) {
+async function request(url, { token, method = 'GET' } = {}) {
   const headers = token ? { authorization: `Bearer ${token}` } : {};
   const req = new Readable({ read() { this.push(null); } });
-  req.url = url; req.method = 'GET'; req.headers = headers;
+  req.url = url; req.method = method; req.headers = headers;
   req.socket = new PassThrough(); req.connection = req.socket;
   return new Promise((resolve, reject) => {
     const res = new ServerResponse(req); const chunks = [];
@@ -108,5 +109,27 @@ test('the card is newest-published first, and the full-name control still appear
 test('contract: the card and the News page list the same stories for the player', async () => {
   for (const id of [brook, pitts, wex]) {
     assert.deepEqual([...await cardIds(id)].sort((a, b) => a - b), [...await deskIdsFor(id)].sort((a, b) => a - b), `player ${id}`);
+  }
+});
+
+test('the AI Buy/Sell evidence packet reads the same stories as the card', async () => {
+  const prompts = [];
+  const previousKey = process.env.ANTHROPIC_API_KEY;
+  process.env.ANTHROPIC_API_KEY = 'test-key-not-real';
+  claude.setAnthropicClientForTesting({ messages: { create: async body => {
+    prompts.push(body.messages[0].content);
+    return { id: 'msg_test', type: 'message', role: 'assistant', model: body.model, stop_reason: 'end_turn',
+      content: [{ type: 'text', text: '{"verdict":"HOLD","evidence_ids":[]}' }], usage: { input_tokens: 10, output_tokens: 5 } };
+  } } });
+  try {
+    const { status } = await request(`/api/players/${brook}/analyze`, { method: 'POST' });
+    assert.equal(status, 200);
+    const packet = JSON.parse(prompts[0].match(/EVIDENCE: (.*)/)[1]);
+    const newsFacts = packet.filter(fact => fact.id.startsWith('news.')).map(fact => fact.text);
+    assert.deepEqual(newsFacts, ['[2026-09-21] Sources: Panthers RB Brookhaven set for surgery',
+      '[2026-09-20] Quarrel Brookhaven runs for 120 yards', "[2026-09-20] Panthers' Brookhaven out weeks"]);
+  } finally {
+    claude.setAnthropicClientForTesting(null);
+    if (previousKey === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = previousKey;
   }
 });

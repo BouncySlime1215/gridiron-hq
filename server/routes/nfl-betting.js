@@ -1565,6 +1565,14 @@ r.get('/formations/charting', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/** Who was on the field: participation players per season and how well they match PFR snap counts. */
+r.get('/formations/participation', async (req, res, next) => {
+  try {
+    const { participationStatus } = await import('../services/nfl-participation.js');
+    res.json(participationStatus({ season: req.query.season ? Number(req.query.season) : null }));
+  } catch (e) { next(e); }
+});
+
 /* ------------------------------------------------- officials and GBM */
 
 /** Ingest every referee assignment nflverse has. */

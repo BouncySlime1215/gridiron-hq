@@ -383,6 +383,14 @@ export async function backfillSeasons({
   const started = Date.now();
   const summary = [];
   for (const season of seasons) {
+    // One producer per game: a season the nflverse history load already filled
+    // (event_id is the nflverse game_id, `<season>_<week>_<away>_<home>`, from
+    // nflverse-pbp.js) is not asked of ESPN again, which would store every
+    // play a second time under ESPN's event id.
+    if (nflversePlays(season) > 0) {
+      summary.push({ season, games: 0, plays: 0, already_had: 0, skipped_reason: 'nflverse pbp already loaded' });
+      continue;
+    }
     let seasonPlays = 0, seasonGames = 0, skipped = 0;
     // seasontype 2 = regular season (18 weeks), 3 = postseason (5 rounds).
     const schedule = [...Array(18).keys()].map(i => ({ seasontype: 2, week: i + 1 }))
@@ -471,6 +479,12 @@ export function formationReport({ season = null } = {}) {
   };
 }
 
+/** Plays for a season that came from the nflverse history load (event_id is an nflverse game_id). */
+function nflversePlays(season) {
+  return row(`SELECT COUNT(*) AS n FROM nfl_play_by_play WHERE season = ? AND event_id LIKE ? ESCAPE '!'`,
+    season, `${season}!_%`)?.n ?? 0;
+}
+
 /** What is in the play corpus so far. */
 export function pbpStatus() {
   const total = row(`SELECT COUNT(*) AS n FROM nfl_play_by_play`)?.n ?? 0;
@@ -480,8 +494,14 @@ export function pbpStatus() {
   const byType = rows(`SELECT play_type, COUNT(*) AS n FROM nfl_play_by_play
                        WHERE play_type IS NOT NULL GROUP BY play_type ORDER BY n DESC`);
   const last = row(`SELECT MAX(fetched_at) AS t FROM nfl_play_by_play`)?.t ?? null;
-  return { plays: total, games, last_fetched: last, by_season: bySeason, by_type: byType,
-    source: 'ESPN public summary endpoint — free, keyless, unmetered.',
+  // nflverse rows carry the nflverse game_id (`2023_05_LA_PHI`); ESPN rows carry ESPN's numeric event id.
+  const bySource = rows(`SELECT CASE WHEN event_id GLOB '[0-9][0-9][0-9][0-9]_*' THEN 'nflverse' ELSE 'espn' END AS source,
+                                COUNT(DISTINCT event_id) AS games, COUNT(*) AS plays, MIN(season) AS first_season,
+                                MAX(season) AS last_season
+                         FROM nfl_play_by_play GROUP BY 1 ORDER BY 1`);
+  return { plays: total, games, last_fetched: last, by_season: bySeason, by_type: byType, by_source: bySource,
+    source: 'Completed seasons from nflverse play-by-play (CC BY 4.0); live and current games from the '
+      + 'ESPN public summary endpoint (free, keyless, unmetered).',
     ready_for_audit: total >= 200 };
 }
 

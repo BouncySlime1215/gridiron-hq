@@ -40,6 +40,7 @@ import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE, PROMPT_VERSION 
   from '../services/trade-proposals.js';
 import { recordProposalSlate } from '../services/trade-outcomes.js';
 import { lineupCall } from '../services/lineup-brain.js';
+import { lineupSignals } from '../services/lineup-signals.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
 import { tradeImpact } from '../services/season-sim.js';
@@ -223,11 +224,13 @@ r.get('/:leagueId/lineup', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Who will actually trade with you. Read, and write. */
+/** Who will actually trade with you, and what their lineups say. Read, and write. */
 r.get('/:leagueId/brain/managers', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    res.json(managerProfiles(lg.id));
+    // What each manager's weekly lineups say (LS-01): measured lineup facts, with the
+    // trade reading of them labelled a guess until its pre-registered test passes.
+    res.json({ ...managerProfiles(lg.id), lineup_signals: lineupSignals(lg.id) });
   } catch (e) { next(e); }
 });
 

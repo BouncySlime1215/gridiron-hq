@@ -26,6 +26,9 @@ const CONF: Record<string, { label: string; bar: string; chip: string }> = {
   clear: { label: 'Clear', bar: 'bg-emerald-500', chip: 'bg-emerald-50 text-emerald-800 ring-emerald-200' },
   lean: { label: 'Lean', bar: 'bg-sky-500', chip: 'bg-sky-50 text-sky-800 ring-sky-200' },
   'coin flip': { label: 'Coin flip', bar: 'bg-amber-400', chip: 'bg-amber-50 text-amber-900 ring-amber-200' },
+  // A gap between two ceilings or two floors. Clear / Lean / Coin flip were measured on
+  // average-projection gaps only, so this gap gets no grade rather than a borrowed one.
+  'not measured': { label: 'Not graded', bar: 'bg-slate-400', chip: 'bg-slate-100 text-slate-600 ring-slate-200' },
   'only option': { label: 'Only option', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-600 ring-slate-200' },
   // Other eligible players existed, none of them had a projection. That is not
   // the same call as having only one option, and it should not look like one.
@@ -66,6 +69,9 @@ export default function Lineup() {
     week: d?.week ?? null, objective,
     projected_points: d?.projected_points ?? null,
     coin_flips: d?.coin_flips ?? null,
+    // 'uncalibrated_for_ceiling' / '_floor': the margins are not projection gaps and
+    // carry no win rate, so the assistant must not quote one either.
+    confidence_basis: d?.confidence_basis ?? null,
     slots: (d?.lineup ?? []).length,
     warnings: (d?.warnings ?? []).length,
     // The assistant answers questions about these percentages too, so it is told the
@@ -118,11 +124,14 @@ export default function Lineup() {
               </div>
               <div className="mt-1 text-4xl font-black tabular-nums text-white">{d.projected_points}</div>
               <p className="mt-1 text-sm text-slate-400">
-                {d.coin_flips > 0
-                  ? `${d.coin_flips} of these calls are ties inside the model's own error`
-                  : d.not_compared > 0
-                    ? `${d.not_compared} of these slots had no projection to compare against`
-                    : 'Every call has a real margin behind it'}
+                {String(d.confidence_basis ?? '').startsWith('uncalibrated_for_')
+                  ? `Gaps below are between ${d.objective_used === 'floor' ? 'bad-week floors' : 'good-week ceilings'}, `
+                    + 'not projections. Our win rates were measured on projections only, so no call is graded.'
+                  : d.coin_flips > 0
+                    ? `${d.coin_flips} of these calls are ties inside the model's own error`
+                    : d.not_compared > 0
+                      ? `${d.not_compared} of these slots had no projection to compare against`
+                      : 'Every call has a real margin behind it'}
               </p>
             </div>
             <div className="flex flex-wrap gap-1 rounded-xl bg-white/10 p-1">

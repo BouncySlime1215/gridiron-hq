@@ -2,12 +2,18 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 01:41Z.
+Last rebuilt: 2026-09-23 02:26Z.
+
+## #97: The loop watchdog names the job that was running when it killed the process
+
+- Merged: 10:26 PM ET, Sep 22 as `1a9eff9e`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #159: Finish removing MLB: dead odds-api exports, decision inbox, unused prop routes
 
 - Merged: 9:31 PM ET, Sep 22 as `b6c83d51` (unit SY-06)
-- Intake: done: (filled by the integration intake agent) pending
+- Intake: done: (filled by the integration intake agent) pending Intake (coordinator, 2026-09-23 01:45Z, from the verify-pr skeptics' nonblocking list re-checked by git grep on origin/main b6c83d51): - Merged by the SY-06 cloud session itself (webhook wake on readyforreview 01:30:32Z, squash-merge 01:31:36Z), not by merge-queue.sh. Gate held in substance: CI run 35805320739 green on head 38c03fb3 (started 01:12Z, after main's last m…
 - Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #158: Fix ESPN RSS news stamped an hour into the future (EST/EDT parsing) (R-07)

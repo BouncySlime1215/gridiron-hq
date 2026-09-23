@@ -153,6 +153,22 @@ test('a job that finishes does not erase the name of one still running', async (
   assert.doesNotMatch(stderr, /player_rosters/, 'a finished job must not be named');
 });
 
+/*
+ * The mirror image of the test above, and the order the slots exist for: the
+ * job marked FIRST finishes first. A clear that ignored which job it was given
+ * and freed the most recently marked slot passed every other test in this file
+ * (skeptic mutant U7, 2026-09-22). It erased the running job and left the
+ * finished one's name in the kill line.
+ */
+test('a job that finishes first leaves the name of the job marked after it', async () => {
+  const { signal, stderr } = await runSubject(1000, 4000, {}, 'served',
+    '+nfl_decision_ledger,+player_rosters,-nfl_decision_ledger');
+  assert.equal(signal, 'SIGKILL', `expected a kill, got stderr: ${stderr}`);
+  assert.match(stderr, /The job running when it stopped was 'player_rosters'\. /,
+    `the still-running job must be named; got: ${stderr}`);
+  assert.doesNotMatch(stderr, /nfl_decision_ledger/, 'a finished job must not be named');
+});
+
 test('the kill line names every job running at once, not only the last one marked', async () => {
   const { signal, stderr } = await runSubject(1000, 4000, {}, 'served',
     '+nfl_decision_ledger,+player_rosters');

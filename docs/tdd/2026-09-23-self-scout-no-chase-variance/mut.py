@@ -26,6 +26,9 @@ MUTANTS = [
   ('M6 designed survivor: reworded upside advice, new area', TE, ANCHOR,
    block(COND, "'Target high-upside players over safe ones.'", area='Upside') + ANCHOR),
   ('M7 call site: route drops team_id', RT, "selfScout(lg, req.query.team_id)", "selfScout(lg, undefined)"),
+  ('M9 skeptic mutant B: banned phrase in issue, neutral action, area Outlook', TE, ANCHOR,
+   "  if (spread.floor != null && myRank > 3) fixes.push({ priority: 'low', area: 'Outlook', "
+   "issue: 'You need variance to win from here.', action: 'Review your roster.' });\n" + ANCHOR),
   ('M8 not-applied control: pattern absent from source', TE, "THIS_STRING_IS_NOT_IN_THE_FILE", "x"),
 ]
 for name, f, old, new in MUTANTS:

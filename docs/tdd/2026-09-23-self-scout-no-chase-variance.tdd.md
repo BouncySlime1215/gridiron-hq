@@ -84,6 +84,18 @@ outcome):
 | longshot | playoffs | 5,995 | 34.0% | -0.142 [-0.213, -0.071] |
 | contender ("ceiling for floor") | title | 5,997 | 13.7% | -0.040 [-0.125, +0.036] |
 
+MDE for the contender null (standard rule c): the R&D output gives percentile CIs, not
+an analytic SE, so the SE is backed out of the CI width, a guess-level approximation:
+SE_b = (0.036 - (-0.125)) / 3.92 = 0.041; MDE80 = 2.8 x SE = 0.115 log-odds per SD of
+weekly spread. On the AME scale (CI [-0.0134, +0.0038] from `variance_advice.out` line 6):
+SE = 0.0044, MDE80 = 1.2 pp on the 13.7% title base. Command:
+`python3 -c "se=(0.036+0.125)/3.92; a=(0.0038+0.0134)/3.92; print(se, 2.8*se, a, 2.8*a)"`
+-> `SE_b=0.0411 MDE80_b=0.115 SE_ame=0.00439 MDE80_ame=0.0123`. So a contender effect
+smaller than about 1.2 pp either way would not have been detected: the null means
+"no support for the advice", not "proven harmless". The contender half is outside the
+queue row's scope (the row names bubble and longshot only); it was removed because it
+had no measured support and misfired on a 0-2 team. Coordinator/Nick to confirm scope.
+
 A validator re-derivation (`rnd/loop/data/r15i/variance_advice_rederive_validator.out`)
 agrees and shows the bubble/title sign negative in each season 2021-2024 (CI below 0 in
 2024 only). Limits (from R&D): realized SD is partly luck, and the week 1-3 points-for
@@ -108,11 +120,18 @@ targeted test, restores the file; `git status --porcelain` clean of source chang
 | M5 unit: `fixes` emptied in the return | yes | killed | 6 (the still-fires control) |
 | M6 designed survivor: "Target high-upside players over safe ones." under area "Upside" | yes | SURVIVED (by design) | none |
 | M7 call site: route calls `selfScout(lg, undefined)` | yes | killed | 5 |
+| M9 skeptic mutant B: "You need variance to win from here." in `issue`, neutral action, area "Outlook" | yes | killed (after test fix) | 2, 3, 5 |
 | M8 not-applied control: pattern absent from source | no | not applied | none |
 
 M6 survives by design: the test pins the exact old wording and the "Roster shape" area,
 not every possible phrasing of variance advice. A reworded imperative under a new area
 would pass; guarding against that is a review job, not a regex.
+
+Re-review fix: the first version of tests 2, 3, 4 and 5 read only `fix.action`, so mutant
+M9 (banned phrase in `issue`, which TeamScout.tsx:126 renders) passed 6/6. The tests now
+match `${area} ${issue} ${action}`. After the fix, head: `# pass 6 # fail 0`; with
+trade-engine.js from RED 153ec64b swapped in: `# pass 2 # fail 4` (tests 2-5). Sweep
+re-run on the fixed tree: M1-M5, M7, M9 killed; M6 survives by design; M8 not applied.
 
 ## 6. Known defects / not covered
 

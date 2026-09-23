@@ -84,18 +84,62 @@ no ranking moves. What changes is what the card says when a read threw. The
 defect was the reverse of a made-up statistic: three real states were being
 replaced by a fourth that nobody measured.
 
-**How do we know?** RED `119a88e`, 39 tests with 4 failing; GREEN below, 39 of
-39. The corrected test file was re-run against RED's source in a detached
+**How do we know?** RED `d6c19ac` (test: RED — three bare catches turn a crashed
+read into a claim about Nick; was `119a88e` before a rebase), 39 tests with 4
+failing; GREEN `a1164dd` (feat: GREEN — the three reads say the call did not
+complete), 39 of 39. The corrected test file was re-run against RED's source in a detached
 worktree and still fails 4 of 4, so the RED is a property of the source and not
 of the test draft. `G9d` pins that the three sentences stay distinct, which is
 what stops the fix decaying into one generic error string.
 
 **Is it pointed anywhere else?** `attachTactics` is the only caller of all three
 reads that catches them, so this closes the caller side. What it does not close:
-nothing yet asserts that a fault reaches the HTTP response — the tests stop at
-`tacticsForDeal`. Naming that rather than implying otherwise.
+nothing yet asserts that a fault reaches the HTTP response — G9 stops at
+`tacticsForDeal`, G10 (below) at `attachTactics`. Naming that rather than implying otherwise.
 
 **How does it unify?** `#94` and `#100` taught these reads to name their own
 absences. This is the one place that vocabulary was thrown away again, by the
 caller, one line before the card. The rule is unchanged: an absence must say
 which absence it is, and "the read crashed" is one of them.
+
+## G10 — the call site (2026-09-23)
+
+**The gap.** Reverting only `server/services/trade-engine.js` (`attachTactics`'
+three catch sites) to main's bare `timing = new Map()` / `climate = null` /
+`self = null` left all 43 tests in `test/trade-tactics.test.js` green. G9 pins
+`readFault` and its readers, not the caller that must use it.
+
+**A second defect it found.** Even with the fix, the climate fault never reached
+the card: `readFault('climate')` has no `votes_required`, so `tacticsForDeal`
+fell through to "this league's ESPN settings do not carry a veto threshold"
+(`server/services/trade-tactics.js`, the veto-proof `else`), which is a claim
+about the league that nothing read. G9b passed only because it calls
+`vetoRiskFor` directly.
+
+**RED** `d0b44fa` (test: RED — attachTactics' three catches, pinned at the call
+site, 1 of 4). It adds a seam, `_setTacticsReads` (the `_setEvidenceSources`
+pattern), and `_attachTactics`, and returns the catch sites to main's form.
+`test/attach-tactics-call-site.test.js`: 4 tests, 1 pass (the control), 3 fail:
+
+```
+not ok 1 - G10a  actual: 'no captured transactions for this league, so there is nothing that says when this manager answers'
+not ok 2 - G10b  actual: "this league's ESPN settings do not carry a veto threshold, so there is nothing to price league-perceived fairness against"
+not ok 3 - G10c  actual: 'you have never made this manager an offer, and the league has nothing on you here'
+```
+
+**GREEN** `0020712` (feat: GREEN — the call site hands on the fault, and
+veto_proof says so, 4 of 4). `test/trade-tactics.test.js` 43 of 43.
+
+**Mutation sweep** (each applied alone to GREEN, then restored):
+
+| mutant | site | killed by |
+|---|---|---|
+| M1 `timing: timingFault ?? …` → `timing: timing.get(…)` | call site | G10a |
+| M2 `catch { climate = readFault('climate') }` → `null` | call site | G10b |
+| M3 `catch { self = readFault('self') }` → `null` | call site | G10c |
+| M4 veto-proof `unreadable` branch → `if (false)` | unit | G10b |
+| C1 surviving control: comment-only edit in `attachTactics` | — | survives (as designed) |
+| C2 not-applied control: pattern absent, file byte-identical | — | not applied (as designed) |
+
+The G10 control (reads that complete and return empty) keeps the no-history
+sentences, so the fix does not turn real absences into faults.

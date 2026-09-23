@@ -107,7 +107,7 @@ None. 2025 not opened; 2026 W3 served calls only (predictions, no outcomes grade
 
 ## 7. Known defects / not covered
 
-- The hero number under "Chase the ceiling" is still a sum of starters' p90s (`lineup-brain.js:698`,
+- The hero number under "Chase the ceiling" is still a sum of starters' p90s (`lineup-brain.js:699`,
   `Lineup.tsx:121-122`), 1.53-1.61x the lineup p90 per the R3 package. Labelled as a sum of ceilings, but inflated.
   Follow-up (S-08 / package fix item 2c).
 - The ceiling solve still ranks players on their own p90, which `lineup-posture.js:116-120` found carries no
@@ -122,8 +122,8 @@ None. 2025 not opened; 2026 W3 served calls only (predictions, no outcomes grade
 ## 8. Nick's five questions
 
 1. Well built? Yes: one predicate (`:583`) on the objective actually solved, gating the label, the rate and the
-   sentence; the page reads the tag the server already served. 5 tests, 9 mutants (6 killed, 1 designed survivor,
-   2 survivors fixed, 1 not-applied control).
+   sentence; the page reads the tag the server already served. 5 tests, 9 mutants (7 killed on HEAD, 2 of them only after the test fix; 1 designed survivor;
+   1 not-applied control).
 2. Stats or made up? Removes a made-up number. Nothing new is estimated.
 3. How we know: fixture tests + local-copy counts above (tree `7e9e1acb` vs origin/main `89f69b3b`). No backtest:
    nothing to backtest, the lineup is unchanged.

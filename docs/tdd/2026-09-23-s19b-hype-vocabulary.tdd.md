@@ -137,3 +137,20 @@ for each row.
 
 None. This unit touches no model number, no projection, and no held-out
 season; nothing was added to `docs/evidence/HOLDOUT-LEDGER.md`.
+
+## Skeptic fix (test liveness): the key scan could not see snake_case keys
+
+**Finding (correct):** `/\bhype\b/i` never matches `hype_vs_usage` or `hype_window`, because `_` is a word character, so there is no `\b` between `hype` and `_`. `node -e "console.log(/\bhype\b/i.test('hype_vs_usage'), /\bhype\b/i.test('hype_window'))"` prints `false false`. At HEAD 68f1ceb4 the scan test stayed 3/3 green with the key reverted. Only valuation-map.test.js caught it, and only because it hard-codes the new name.
+
+**Fix (test only, implementation unchanged):** `namesHype(s)` = `s.toLowerCase().split(/[^a-z]+/).includes('hype')`, used for keys, labels and served tactic keys. A new matcher-control test proves it catches `hype_vs_usage`, `hype_window`, `hype_gap`, `Sell inside the hype window` and `HYPE`, and does not flag `outscoring_usage`, `hyperbole`, `Outscoring usage` or `''`.
+
+Command for every row: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/hype-vocabulary.test.js`. Trees come from `git add -A; git write-tree`.
+
+| Tree | State | Result |
+|---|---|---|
+| 1b11ef1d | clean (fixed test) | 4 pass, 0 fail |
+| c23944f5 | K1: `sed 's/outscoring_usage/hype_vs_usage/g' server/services/counterparty-pricing.js` (key reverted, label still clean: "His own player is outscoring the usage that earns it") | RED: test 3 fails (key scan), 3 pass 1 fail |
+| f22b197e | K2: `sed 's/outscoring_usage/hype_window/g' server/services/trade-tactics.js` (key reverted, label clean) | RED: tests 3 and 4 fail, 2 pass 2 fail |
+| 7b672645 | K3: future key `hype_gap` in counterparty-pricing.js | RED: test 3 fails, 3 pass 1 fail |
+
+All mutants were reverted with `git checkout --`. The committed tree is the clean row.

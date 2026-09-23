@@ -38,6 +38,22 @@ function readAllServerSource() {
 // producer. A line naming this is never a violation.
 const ALLOWED_HYPE_MENTION = /services\/hype\.js#playerHype|trade-price hype|hype\.js|hype-decay|hype_decay|hype\b.*=\s*price\s*-\s*value|market hype|the one hype producer|OTHER_HYPE_PRODUCERS|TM-09/i;
 
+// "hype" as a token: splits on anything that is not a letter, so snake_case
+// keys ('hype_window', 'hype_vs_usage', 'hype_gap') are caught. /\bhype\b/
+// misses them because '_' is a word character (skeptic finding, S-19b).
+function namesHype(s) {
+  return String(s ?? '').toLowerCase().split(/[^a-z]+/).includes('hype');
+}
+
+test('matcher control: namesHype catches snake_case keys and plain words, not substrings', () => {
+  for (const s of ['hype_vs_usage', 'hype_window', 'hype_gap', 'Sell inside the hype window', 'HYPE']) {
+    assert.equal(namesHype(s), true, s);
+  }
+  for (const s of ['outscoring_usage', 'hyperbole', 'Outscoring usage', '']) {
+    assert.equal(namesHype(s), false, s);
+  }
+});
+
 test('control: the scan reads real source and finds a known price-minus-value "hype" mention', () => {
   const src = readAllServerSource();
   assert.ok(src['services/counterparty-pricing.js']?.includes('services/hype.js#playerHype'),
@@ -49,14 +65,14 @@ test('TACTICS and VALUATION_SOURCES: no key or label names hype except the allow
   const { VALUATION_SOURCES } = await import('../server/services/counterparty-pricing.js');
   const hits = [];
   for (const [key, spec] of Object.entries(TACTICS)) {
-    if (/\bhype\b/i.test(key) && !ALLOWED_HYPE_MENTION.test(key)) hits.push(`TACTICS key '${key}'`);
-    if (/\bhype\b/i.test(spec.label) && !ALLOWED_HYPE_MENTION.test(spec.label)) {
+    if (namesHype(key) && !ALLOWED_HYPE_MENTION.test(key)) hits.push(`TACTICS key '${key}'`);
+    if (namesHype(spec.label) && !ALLOWED_HYPE_MENTION.test(spec.label)) {
       hits.push(`TACTICS.${key}.label '${spec.label}'`);
     }
   }
   for (const [key, spec] of Object.entries(VALUATION_SOURCES)) {
-    if (/\bhype\b/i.test(key) && !ALLOWED_HYPE_MENTION.test(key)) hits.push(`VALUATION_SOURCES key '${key}'`);
-    if (/\bhype\b/i.test(spec.label) && !ALLOWED_HYPE_MENTION.test(spec.label)) {
+    if (namesHype(key) && !ALLOWED_HYPE_MENTION.test(key)) hits.push(`VALUATION_SOURCES key '${key}'`);
+    if (namesHype(spec.label) && !ALLOWED_HYPE_MENTION.test(spec.label)) {
       hits.push(`VALUATION_SOURCES.${key}.label '${spec.label}'`);
     }
   }
@@ -75,6 +91,7 @@ test('served tactic: the outscoring-usage tactic fires under key outscoring_usag
   });
   const fired = out.tactics.find(t => t.key === 'outscoring_usage');
   assert.ok(fired, 'the tactic must fire under its renamed key when the gap and praise both clear');
-  assert.doesNotMatch(fired.label, /\bhype\b/i, 'the served label must not say hype');
+  assert.equal(namesHype(fired.label), false, 'the served label must not say hype');
+  assert.ok(!out.tactics.some(t => namesHype(t.key)), 'no served tactic key may name hype');
   assert.ok(!out.tactics.some(t => t.key === 'hype_window'), 'the retired key must never be served again');
 });

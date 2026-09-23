@@ -377,7 +377,12 @@ async function validateCookies(espn_s2, swid) {
     if (e.name === 'TimeoutError' || /timeout/i.test(e.message)) {
       return { ok: false, reason: "Couldn't reach ESPN just now (timed out). Your existing connection was left alone — try again in a moment.", leagues: [] };
     }
-    return { ok: false, reason: `Couldn't verify those cookies with ESPN: ${e.message}`, leagues: [] };
+    // UX-08c: this used to interpolate e.message here, which put raw fetch/
+    // exception internals (host names, stack fragments) in front of the user
+    // — the two branches above stay as specific, plain copy; this is the
+    // catch-all, so it stays generic instead of leaking the detail.
+    console.error('[espn-connect.validateCookies]', e);
+    return { ok: false, reason: "Couldn't verify those cookies with ESPN. Try again in a moment.", leagues: [] };
   }
 }
 

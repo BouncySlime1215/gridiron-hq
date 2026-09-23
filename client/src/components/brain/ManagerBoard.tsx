@@ -89,7 +89,9 @@ function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive }: {
       });
       onSaved();
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : 'Could not save that tier — try again.');
+      setSaveError(e instanceof Error
+        ? sanitizedMessage('ManagerBoard.set', 'Could not save that tier', e.message)
+        : 'Could not save that tier. Try again in a moment.');
     } finally { setSaving(false); }
   };
 

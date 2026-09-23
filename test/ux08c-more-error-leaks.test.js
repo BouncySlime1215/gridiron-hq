@@ -223,7 +223,7 @@ test('TeamDetail.tsx:79 — t.error (a raw per-item exception message from the s
   try { result = fn({ error: LEAKY, changed: false }); } finally { console.error = origErr; }
   for (const m of MARKERS) assert.ok(!String(result).includes(m), `TeamDetail.tsx:79 leaked "${m}" into aiMsg: ${result}`);
   assert.match(String(result), /AI refresh failed\. Try again in a moment\./);
-  assert.ok(logged.includes('nfl_availability_role_rates'), 'TeamDetail.tsx:79: the detail reaches console.error');
+  assert.ok(logged.join('\n').includes('nfl_availability_role_rates'), 'TeamDetail.tsx:79: the detail reaches console.error');
 });
 
 test('control: the pre-fix TeamDetail.tsx:79 shape (direct template interpolation) is seen leaking', async () => {

@@ -6,7 +6,7 @@ import ManagerRead from './trade/ManagerRead';
 import PlayerEvidence from './trade/PlayerEvidence';
 import RiskStrip from './trade/RiskStrip';
 import { hasEvidence } from './trade/types';
-import { logServerDetail } from '../lib/errorSanitize';
+import { logServerDetail, sanitizedMessage } from '../lib/errorSanitize';
 
 /** UX-08b: `sense.error`/`impact.error` are the raw server/fetch message — never rendered, only logged. */
 export function TradeSectionError({ where, error }: { where: string; error: string }) {
@@ -172,7 +172,7 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
   const senseCheck = async () => {
     setSenseBusy(true); setErr(null);
     try { setSense(await api(`/trades/${leagueId}/sense-check`, { method: 'POST', body: JSON.stringify({ deal }) })); }
-    catch (e: any) { setErr(e.message); }
+    catch (e: any) { setErr(sanitizedMessage('TradeCard.senseCheck', "Couldn't run the sense check", e.message)); }
     finally { setSenseBusy(false); }
   };
 
@@ -192,14 +192,14 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
           i_get: (deal.i_get ?? deal.me?.gets ?? []).map((p: any) => p.id)
         })
       }));
-    } catch (e: any) { setErr(e.message); }
+    } catch (e: any) { setErr(sanitizedMessage('TradeCard.odds', "Couldn't simulate title odds", e.message)); }
     finally { setOddsBusy(false); }
   };
 
   const explain = async () => {
     setBusy(true); setErr(null);
     try { setCopy(await api(`/trades/${leagueId}/explain`, { method: 'POST', body: JSON.stringify({ deal, untouchables: untouchableNames }) })); }
-    catch (e: any) { setErr(e.message); }
+    catch (e: any) { setErr(sanitizedMessage('TradeCard.explain', "Couldn't explain that trade", e.message)); }
     finally { setBusy(false); }
   };
 

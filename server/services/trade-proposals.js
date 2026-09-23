@@ -514,7 +514,11 @@ export function liveCaller(callClaude) {
   return async ({ leagueId, ideas }) => readModelResponse(await callClaude({
     feature: `trade_proposals:league-${leagueId}`,
     model: 'claude-sonnet-5',
-    maxTokens: 4000,
+    // Sonnet 5 thinks by default and thinking counts toward max_tokens: at
+    // 4,000 it spent all of it thinking and wrote nothing (2026-09-23).
+    // Low effort keeps thinking short; 12,000 leaves room for the answer.
+    maxTokens: 12000,
+    effort: 'low',
     prompt: proposalsPrompt(ideas),
   }));
 }

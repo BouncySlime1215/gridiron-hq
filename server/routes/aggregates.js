@@ -4,6 +4,7 @@ import { syncPlayersFromESPN, syncGeneralNews, syncTeamNewsFeed } from './espn.j
 import { deriveFormat } from '../services/format.js';
 import { recordSync } from '../services/scheduler.js';
 import { normalizePlayerName } from '../services/player-identity.js';
+import { activeInjuryFlagIds } from '../services/injury-flags.js';
 
 const r = Router();
 
@@ -62,6 +63,11 @@ export async function syncSleeper() {
     const bySleeper = new Map(rows(`SELECT id,sleeper_id FROM players WHERE sleeper_id IS NOT NULL`)
       .map(player => [String(player.sleeper_id), player.id]));
     let matched = 0, ambiguous = 0;
+    // Sleeper leaves injury_status null for a healthy player, so the flag has to
+    // be switched off for every player this pull matched without one (RL-12-2).
+    // Only matched players are cleared: a player missing from a partial pull keeps
+    // his flag, and the stale-flag guard in services/injury-flags.js covers him.
+    const matchedIds = new Set(), injuredIds = new Set();
     for (const p of Object.values(data)) {
       if (!p.full_name || !p.position || !p.search_rank || p.search_rank > 9000000) continue;
       if (!['QB', 'RB', 'WR', 'TE', 'K'].includes(p.position)) continue;
@@ -73,13 +79,21 @@ export async function syncSleeper() {
            ON CONFLICT(player_id, source) DO UPDATE SET value = excluded.value, fetched_at = excluded.fetched_at`,
         id, p.search_rank);
       matched++;
+      matchedIds.add(id);
       if (p.injury_status) {
+        injuredIds.add(id);
         run(`INSERT INTO player_metrics (player_id, source, value, fetched_at) VALUES (?,'injury_flag',1,datetime('now'))
              ON CONFLICT(player_id, source) DO UPDATE SET value = 1, fetched_at = excluded.fetched_at`, id);
       }
     }
-    recordSync('sleeper_players', 'ok', { matched, ambiguous });
-    return { matched, ambiguous };
+    let cleared = 0;
+    for (const id of matchedIds) {
+      if (injuredIds.has(id)) continue;
+      cleared += Number(run(`UPDATE player_metrics SET value = 0, fetched_at = datetime('now')
+                             WHERE player_id = ? AND source = 'injury_flag' AND value <> 0`, id).changes);
+    }
+    recordSync('sleeper_players', 'ok', { matched, ambiguous, flagged: injuredIds.size, cleared });
+    return { matched, ambiguous, flagged: injuredIds.size, cleared };
   } catch (e) { recordSync('sleeper_players', 'error', e.message); throw e; }
 }
 
@@ -331,7 +345,12 @@ export function computeConsensus() {
   const slRank = new Map(bySource.sleeper.map((p, i) => [p.id, i + 1]));
   const espnRank = new Map(bySource.espn.map((p, i) => [p.id, i + 1]));
 
+  // One definition of "flagged" (RL-12-2): a stale Sleeper flag the producer ignores
+  // reads as off here too, so the Projections badge, the draft board's -4 and the
+  // draft AI prompt agree with availability, trades, players and rankings.
+  const flagged = activeInjuryFlagIds();
   return players.map(p => {
+    if (p.injury_flag > 0 && !flagged.has(p.id)) p = { ...p, injury_flag: 0 };
     const weighted = [[ffcRank.get(p.id), 1], [slRank.get(p.id), 1], [espnRank.get(p.id), 2]].filter(([x]) => x != null);
     const ranks = weighted.map(([x]) => x);
     const wsum = weighted.reduce((s, [, w]) => s + w, 0);

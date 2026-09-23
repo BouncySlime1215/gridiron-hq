@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db, rows, row, run } from '../db/index.js';
-import { scheduleOutlook, clearMatchupCache } from '../services/matchups.js';
+import { scheduleOutlook, clearMatchupCache, repairSchedule, MATCHUP_SIGNAL_REASON } from '../services/matchups.js';
+import { canonicalTeamCode } from '../services/team-codes.js';
 import { recordSync } from '../services/scheduler.js';
 import { captureCurrentRosterSnapshot } from '../services/nfl-player-state.js';
 
@@ -142,17 +143,24 @@ export async function syncSchedules(season = SEASON) {
       for (const e of data.events ?? []) {
         const comp = e.competitions?.[0];
         if (!comp) continue;
-        const me = comp.competitors?.find(c => c.team?.abbreviation === abbr);
-        const opp = comp.competitors?.find(c => c.team?.abbreviation !== abbr);
+        // ESPN spells Washington WSH while nfl_teams says WAS: compare and store the
+        // canonical code, or Washington never finds itself (home=0 on every row, and
+        // it is saved as its own opponent on its home dates).
+        const code = c => canonicalTeamCode(c.team?.abbreviation);
+        const me = comp.competitors?.find(c => code(c) === abbr);
+        const opp = comp.competitors?.find(c => code(c) !== abbr);
         if (!opp) continue;
         ins.run(season, teamId, e.week?.number ?? null, (e.date ?? '').slice(0, 10),
-          opp.team?.abbreviation ?? null, me?.homeAway === 'home' ? 1 : 0);
+          opp.team?.abbreviation ? code(opp) : null, me?.homeAway === 'home' ? 1 : 0);
         games++;
       }
       teams++;
     }
   }
-  const result = { teams, games };
+  // Rows this sync did not rewrite (a team whose fetch failed, a week ESPN dropped)
+  // keep whatever the old writer stored; repair them in place.
+  const repaired = repairStoredSchedule(season);
+  const result = { teams, games, repaired };
   recordSync('espn_schedules', teams < abbrs.length ? 'error' : 'ok', result);
   // matchupModel() caches every team's slate for the life of the process with no
   // fingerprint of its own — without this, a corrected schedule sits in the
@@ -160,6 +168,25 @@ export async function syncSchedules(season = SEASON) {
   // it first memoised after boot.
   clearMatchupCache();
   return result;
+}
+
+/** Backfill: rewrite stored schedule rows into canonical form with the same repair
+ *  matchupModel() applies on read (matchups.js#repairSchedule). UPDATE only, never a
+ *  delete; returns the repair counts plus how many rows actually changed. */
+export function repairStoredSchedule(season = SEASON) {
+  const stored = rows(`SELECT g.id, t.abbr, g.week, g.opponent_abbr, g.home
+                       FROM schedule_games g JOIN nfl_teams t ON t.id = g.team_id
+                       WHERE g.season = ?`, season);
+  const { games, stats } = repairSchedule(stored);
+  const upd = db.prepare('UPDATE schedule_games SET opponent_abbr = ?, home = ? WHERE id = ?');
+  let rowsUpdated = 0;
+  games.forEach((g, i) => {
+    const before = stored[i];
+    if (g.opponent_abbr === before.opponent_abbr && g.home === (before.home ? 1 : 0)) return;
+    upd.run(g.opponent_abbr, g.home, before.id);
+    rowsUpdated++;
+  });
+  return { ...stats, rows_updated: rowsUpdated };
 }
 
 // ---- Salary cap (OverTheCap, public HTML) ----
@@ -287,41 +314,13 @@ r.post('/sync-all', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Strength of schedule: average opponent market strength, ranked easiest → hardest.
- *  Opponent strength = that team's total FantasyCalc value of its rostered fantasy
- *  players (a proxy for real roster quality that updates as the market moves). */
-export function computeSOS(season = SEASON) {
-  const strengthByTeam = {};
-  for (const t of rows(`SELECT t.id, t.abbr, COALESCE(SUM(m.value),0) AS strength
-                        FROM nfl_teams t
-                        LEFT JOIN players p ON p.team_id = t.id AND p.fantasy_relevant = 1
-                        LEFT JOIN player_metrics m ON m.player_id = p.id AND m.source = 'fc_value'
-                        GROUP BY t.id`)) {
-    strengthByTeam[t.abbr] = t.strength;
-  }
-  const vals = Object.values(strengthByTeam).filter(v => v > 0);
-  const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 1;
-
-  const teams = rows('SELECT id, abbr, name FROM nfl_teams');
-  const out = [];
-  for (const t of teams) {
-    const games = rows('SELECT opponent_abbr, home, week FROM schedule_games WHERE season = ? AND team_id = ?', season, t.id);
-    if (!games.length) continue;
-    const oppStrengths = games.map(g => strengthByTeam[g.opponent_abbr] ?? avg);
-    const mean = oppStrengths.reduce((a, b) => a + b, 0) / oppStrengths.length;
-    out.push({
-      team_id: t.id, abbr: t.abbr, name: t.name,
-      games: games.length,
-      home_games: games.filter(g => g.home).length,
-      sos: mean / (avg || 1)   // 1.0 = league-average schedule
-    });
-  }
-  out.sort((a, b) => a.sos - b.sos);      // easiest first
-  out.forEach((x, i) => { x.rank = i + 1; });
-  return out;
-}
-
-r.get('/sos', (req, res) => res.json(computeSOS(Number(req.query.season) || SEASON)));
+/* Strength of schedule: computeSOS and GET /nfl/sos were removed (RL-8-3).
+ * GET /sos had no reader (no page, extension or prompt called it), schedule
+ * strength is not a validated signal (matchups.js MATCHUP_EVIDENCE), and it was a
+ * second producer of the number edge.js#scheduleEdge already serves to the Edge
+ * page, disagreeing with it on the same input (it scored an opponent with no
+ * fc_value rows as strength 0, the easiest possible, where scheduleEdge uses the
+ * league average). One number, one producer: scheduleEdge is the only one left. */
 
 /** Offseason overview for one team: cap, roster churn, needs, schedule. */
 r.get('/offseason/:abbr', (req, res) => {
@@ -335,7 +334,6 @@ r.get('/offseason/:abbr', (req, res) => {
   const cap = row('SELECT * FROM team_cap WHERE team_id = ?', team.id);
   const schedule = rows(`SELECT week, date, opponent_abbr, home FROM schedule_games
                          WHERE season = ? AND team_id = ? ORDER BY week`, season, team.id);
-  const sos = computeSOS(season).find(s => s.abbr === team.abbr) ?? null;
 
   // Positional group counts drive the "needs" read off the real 90-man roster.
   // ESPN uses a generic "LB" for off-ball backers and "DE" for most edge rushers.
@@ -364,7 +362,8 @@ r.get('/offseason/:abbr', (req, res) => {
     group_counts: counts,
     group_avg_age: avgAgeBy,
     schedule,
-    sos,
+    // Schedule strength is not a validated signal; say so instead of printing a rank.
+    schedule_signal: { signal: false, reason: MATCHUP_SIGNAL_REASON },
     roster,
     // honest gaps — no free live source for these
     unavailable: {

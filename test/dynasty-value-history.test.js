@@ -294,6 +294,8 @@ test('GET /api/trades/:leagueId/market-history/:playerId serves the history and 
   assert.ok(body.history.length >= 2, 'the route returns every stored day');
   assert.deepEqual(body.history.slice(0, 2).map(h => [h.captured_on, h.value]),
     [['2026-09-20', 5000], ['2026-09-21', 5100]]);
+  // Every stored column reaches the route: age is written each day, so it is served.
+  assert.deepEqual(body.history.slice(0, 2).map(h => h.age), [25, 25], 'history rows carry the age FantasyCalc sent');
   assert.equal(body.market_as_of?.source_url, 'https://fantasycalc.com');
   assert.ok(body.market_as_of?.fetched_at, 'the route says when the market was fetched');
 });

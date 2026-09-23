@@ -106,3 +106,25 @@ ESPN holds only 37 real trade decisions once duplicates are removed (7 accepts, 
 - FantasyPros referee (PROJ-01-c) is research-only until Nick rules on the licence.
 
 - RULING 2026-09-23 ~3 PM ET (Nick): "we shouldnt just use that we should put better numbers out there". FantasyPros consensus may be used as an INTERNAL input and referee (PROJ-01-c, BLEND-02) from the local DB only. It is NEVER displayed or committed (the #165 repo guard stays). Every page shows OUR engine numbers. The goal is to beat consensus, not echo it.
+
+## TELLS-01: the Tells Factory, and fixing Coach (Nick, 3:30 PM ET 9/23: "all these small things that we notice - THOUSANDS OF THINGS - that then help make predictions and reads on people. fix coach")
+**R&D priority for rounds 18-20: make this runnable.**
+### What it is
+Thousands of small behavioral "tells" per manager, generated automatically from every event stream, then screened hard so only real ones survive. The survivors feed the clones (predictions) and Coach (plain-English reads).
+- **Streams:** ESPN transactions (add/drop/waiver/trade timing, day of week, hour, reaction delay after injury news), lineup sets (when, how late, benching patterns, position hoarding, bye handling), roster construction (bench stashing, handcuffs, K/DEF streaming), trade behavior (who they target, offer size, counter style, 2-for-1 appetite, decline speed), results (after losses/wins, streaks, standings pressure), Coach chat variables (the 40 people variables: reply latency, night share, tone, and so on), and Sleeper population streams for the same features (about 22k team-seasons).
+- **Generator:** crossed templates (event x window x conditioning, e.g. "median hours from injury news to add, when their starter is hurt, last 4 weeks"), giving thousands of candidates.
+- **Screen, pre-registered, with no cherry-picking:**
+  1. Repeatable: early vs late split, skill > 0 (coach/people/grading.js already does this; extend it to every tell).
+  2. Predictive: lift on a held-out outcome in the Sleeper population (proposes a trade, accepts, drops a player, overpays, claims a player), walk-forward by season.
+  3. False-discovery control across thousands of tests (Benjamini-Hochberg q ≤ 0.10); a tell must survive in every season it can be tested.
+  - Survivors become features with shrinkage (population prior, per-manager empirical Bayes). Non-survivors are logged as dead so nobody re-tests them.
+- **Output per manager:** a "tells card": the top tells with sample size, direction and what each predicts. Feeds CLONE-01 (P(accept), engagement, price) and RADAR-01 (a desperation or checked-out alert).
+### Fix Coach (COACH-01)
+- Today Coach's 40 people variables ship `priceable:false` and are graded only for repeatability, with no outcome labels.
+- Fix:
+  1. Grade them as tells in the factory (repeatability AND outcome lift, against ESPN decisions, activity and Sleeper outcomes). Flip the survivors on.
+  2. Coach answers "how do I approach X?" from the tells card: the top 5 tells, each with n, plus the clone's P(accept) and the best-framed pitch, with no generic advice.
+  3. Every Coach read cites its tells and sample sizes. Anything unproven says "unproven" instead of a neutral.
+  4. The AI writes the words only (r17: an LLM persona does not predict people).
+### Honesty
+With only 37 real ESPN decisions, per-manager tells are trained on the Sleeper population and only tuned per person. More offers sent (OFFER-01) makes each person's read sharper. Thousands of tests without FDR control would produce thousands of fake tells, so the screen is the product.

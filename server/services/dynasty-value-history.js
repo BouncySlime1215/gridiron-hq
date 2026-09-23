@@ -84,7 +84,7 @@ export function marketAsOf(formatKey, { now = new Date() } = {}) {
 /** Every stored day of one player's price in one format, oldest first. */
 export function marketHistory(formatKey, playerId, { limit = 400 } = {}) {
   if (!tableExists('dynasty_value_history')) return [];
-  return rows(`SELECT captured_on, captured_at, value, redraft_value, trend30, pos_rank
+  return rows(`SELECT captured_on, captured_at, value, redraft_value, trend30, age, pos_rank
                  FROM dynasty_value_history
                 WHERE format_key = ? AND player_id = ?
                 ORDER BY captured_on

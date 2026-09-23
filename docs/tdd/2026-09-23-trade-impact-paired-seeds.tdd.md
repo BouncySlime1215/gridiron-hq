@@ -99,6 +99,7 @@ Test file: `test/rl-6-3-trade-impact-paired.test.js`. Command, every run:
   - `TradeLab.tsx` Title-impact tab: one decimal, "±2SE", in-noise deltas greyed and labelled "within noise".
   - `TradeCard.tsx` title-odds panel: "±2SE", in-noise deltas muted.
   - `trade-verify.js#contradictionBar(runs, threshold, pairedSe)`: noise bar = 2 × the deal's own paired SE when present; the 0.0155 constant is fallback only.
+- Round 2 (§9): `tradeImpact` also defaults runs to `TRADE_IMPACT_RUNS` and scoring to `scoringFor(lg)`; no caller (tab, card route, sense-check route) passes seed, scoring or a different default run count, so one deal is one number on every surface. `simulateSeason({ universe })` gives both arms one player set.
 - No table, column, migration or route added.
 
 ## 5. Mutation sweep (on `4c17e8c1`)
@@ -163,8 +164,8 @@ seed-1 deals clearing 2 SE (fixed): 11 of 23
 
 ## 7. Known defects and what this does NOT cover
 
-- **Adding a player is exact only for same-game players listed before him.** A free agent entering the simulated pool changes the Cholesky rows of players in his own NFL game who come after him in id order. The test pins the exact case (highest id). CE-09's claim ladder should simulate both arms over one shared player set (follow-up, not in this unit).
-- **Cholesky jitter is global.** If adding a player makes a week's correlation matrix non-PD, the jitter retry changes every row.
+- ~~Adding a player is exact only for same-game players listed before him.~~ Fixed in `e39e6b8f` (see §9): `simulateSeason` takes a `universe` and `tradeImpact` passes give+get to both arms, so both arms simulate one player set. A caller that calls `simulateSeason` directly for a claim (CE-09's ladder) must pass the same `universe` to both arms; the test shows what happens if it does not.
+- **Cholesky jitter** now sees the same matrix in both arms (same player set), so it is paired too. It is still global across a week if a matrix is non-PD.
 - **`NOISE_SD_AT_REFERENCE_RUNS` was not re-measured.** It is now only the fallback for an impact with no SE, and no current producer emits one without it.
 - **The SE is run-to-run only.** It excludes the per-seed outcome-pool error, which is shared across runs within one seed. The calibration ratio of 1.18 says the SE still covers the seed spread on these 23 deals.
 - **Client files were not type-checked here.** Per the unit rules, the Gate phase runs `npm run check`.
@@ -180,3 +181,40 @@ seed-1 deals clearing 2 SE (fixed): 11 of 23
 - **Defect fixed:** `season-sim.js:313,325,356` on `3ac59fea` (positional draws).
 - **Incumbent:** `tradeImpact` (`git grep -n title_delta -- server` shows no other producer).
 - **What would make this wrong:** the SE under-covering on other leagues (IQR upper 1.73 means some deals' SE is conservative, not the reverse), or a consumer that reads `title_delta` without the flag. Current readers: `TradeLab.tsx`, `TradeCard.tsx`, `trade-verify.js`, `title-odds-trades.js`.
+
+## 9. Re-review fixes (skeptic round 1)
+
+Commits: `e39e6b8f` (fix), `ee885017` (tests). All numbers below: tree `ee885017`, unless named.
+
+| Skeptic finding | Fix | Proof |
+|---|---|---|
+| A low-id free agent moved an uninvolved team (0.305 -> 0.3075) | `simulateSeason({ universe })`; `tradeImpact` passes `[...give, ...get]` to both arms | tests #2 (ids 999 and 50, plus an unshared-universe control that must differ) and #11 (`tradeImpact` claim of either id gives exactly 0 for both sides) |
+| Three seeds / run counts / scorings for one deal (tab seed 1 at 800 runs in PPR, card `tradeImpactSeed`, sense-check seed 1) | `tradeImpact` defaults: `tradeImpactSeed(lg)`, `TRADE_IMPACT_RUNS` (= `SENSE_CHECK_SIM_RUNS`, 1200), `scoringFor(lg)`. `title-odds-trades.js`, `routes/trades.js` and `routes/model.js` pass none of them | test #9 (tab == `tradeImpact` defaults, field by field), #12 (tab default runs, 0-PPR league scored STANDARD, source pin: no caller passes `seed:`/`scoring:`). Local copy, not production: 14 of 14 deals in 5 leagues identical on tab, card-shaped and sense-check-shaped calls (below) |
+| Unread fields | TradeCard greys and bands `playoff_delta` via `playoff_delta_se`/`playoff_delta_clears_noise`; TradeLab greys and bands `their_title_delta` via `their_title_delta_se` / new `their_title_delta_clears_noise`, and shows `no_deal_clears_noise` in the header. Dropped `noise_rule` and `threshold.paired_se` (no reader; `noise_bar` already carries the SE) | `grep -rnE 'playoff_delta_se\|playoff_delta_clears_noise\|their_title_delta_se\|their_title_delta_clears_noise\|no_deal_clears_noise' client/src` now hits TradeCard.tsx and TradeLab.tsx |
+| Test #9 degenerate (every value 0/1) | Cause: `trade-engine.js` imports `season-sim.js`, so the plain instance loaded UNMOCKED (empty projections, every team scores 0, team 1 wins every run). The test now mocks `season-sim.js` with the mocked instance and imports `title-odds-trades.js?rl63`. At 300 runs my flag clears and theirs does not, and the SEs differ. `mutual_title_gain` is now `mutualTitleGain()`, unit-tested (#10) | mutants N3, N6, N5 below |
+
+**Mutation sweep on `ee885017`** (script: scratchpad, applied one at a time, file restored with `git checkout --` after each; command per mutant: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/x.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/rl-6-3-trade-impact-paired.test.js`):
+
+| Mutant | Result |
+|---|---|
+| N1 `simulateSeason` ignores `universe` | killed (#2, #11) |
+| N2 `tradeImpact` passes an empty universe | killed (#11) |
+| N3 tab shows their SE as mine | killed (#9) |
+| N4 tab back to `seed: 1` | killed (#9, #12) |
+| N5 `mutualTitleGain` drops their noise check | killed (#10) |
+| N6 `their_title_delta_clears_noise` read from my side | killed (#9) |
+| N7 tab default runs back to 800 | killed (#12) |
+| N8 `tradeImpact` default scoring back to PPR | killed (#12) |
+| N9 sense-check back to `seed: 1` (routes/trades.js) | killed (#12, source pin) |
+| S2 designed survivor `Number(id)` -> `+id` | survived (equivalent) |
+| C1 control (text not in file) | not applied |
+
+A first "designed survivor" (renaming the copula key label) was killed by #9, because it changes the draws and so the fixture's "flags differ" check; it is not an equivalent mutant.
+
+**One number on real data** (local copy, not production; `.local-db` backup of 2026-09-23 05:52): `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<wt>/.local-db/data.sqlite node ~/gridiron-local/rnd/loop/scripts/rl63_one_number.mjs <wt> ~/gridiron-local/rnd/loop/data/rl63/one_number.json`. For each league, the tab's shortlist of 3 at default runs, then `tradeImpact` called the way `model.js:471` and `trades.js:1155` call it. 14 of 14 deals in 5 of 5 leagues: tab, card and sense-check give the same `[title_delta, title_delta_se, clears_noise, their_title_delta]` and the same seed. Example, league 1 first deal: -2.42 pp, SE 1.33 pp, inside the noise, on all three.
+
+**Cost.** The tab now runs at 1,200 runs, up from 800. Measured first-load times for a shortlist of 3 at 1,200 runs, on the same local copy: 44.0 / 27.5 / 22.4 / 26.5 / 18.3 s. The page asks for a shortlist of 6, so about twice that is a guess; the results are cached per league sync. The 800-run time on this tree was not measured, so the slowdown factor (about 1.5x by run count) is a guess.
+
+**Behaviour change to name:** the tab used to score every league as PPR (it never passed `scoring`). It now uses `scoringFor(lg)` like the card, so tab numbers in non-PPR leagues change.
+
+**Neighbour tests on `ee885017`** (same command shape): b-01 8/8, decision-leftovers-home-away 5/5, league-rules 15/15, league-rules-bracket-sim 4/4, trade-engine-correctness 15/15, trade-verify 24/24, wiring-map 90/90. RL-6-3 file 12/12.

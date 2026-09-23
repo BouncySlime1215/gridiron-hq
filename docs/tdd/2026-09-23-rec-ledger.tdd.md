@@ -124,7 +124,8 @@ weekly gain, because a priced, lopsided fixture alone gave `considered 137, deal
 `gradeDue()` on the same copy: `graded 0, pending 62`. Known-nonzero control first: played weeks for 2026 on the
 copy are `[1, 2]`, and every recorded row is for week 3 (`tradeWeekContext()`), so nothing is due yet; the first
 lineup grades land when week 3's `player_week_usage` rows do. The cached second `findTrades` call returned the
-same object (cache hit) and wrote no considered row.
+same object (cache hit, 205.5 ms and 237.9 ms vs 42.8 s and 27.2 s cold); whether it wrote rows was not
+measured separately (inserts are `OR IGNORE`, so a re-write could not add a row anyway).
 
 Holdout looks: none. Statistical discipline (b)-(e) is not triggered: this unit reports no model number and no
 win rate; the ledger is the instrument GR-02 will read.

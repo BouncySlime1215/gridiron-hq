@@ -251,6 +251,14 @@ test('a clearing sync and a flag going stale by the clock both rebuild the trade
   assert.notEqual(after, before, 'a clearing sync must not serve the cached injured set');
   assert.equal(after.get(1).injury, 0);
 
+  // Same row count, no flag change: an in-place ffc_adp re-sync (read by vorBoard)
+  // must still rebuild, which only the fetched_at stamp sees.
+  db.prepare(`INSERT INTO player_metrics (player_id, source, value, fetched_at) VALUES (1,'ffc_adp',40,'2026-09-01 00:00:00')`).run();
+  db.prepare(`UPDATE player_metrics SET fetched_at = '2026-09-01 00:00:00'`).run();
+  const adpBefore = universe();
+  db.prepare(`UPDATE player_metrics SET value = 12, fetched_at = '2026-09-02 00:00:00' WHERE player_id = 1 AND source = 'ffc_adp'`).run();
+  assert.notEqual(universe(), adpBefore, 'an in-place player_metrics update must rebuild the universe');
+
   // Stale by the clock alone: no table write, only the producer's answer changes.
   seedStale({ weekStartDaysAgo: 3 });
   db.prepare(`UPDATE player_metrics SET fetched_at = datetime('now', '-5 days') WHERE player_id = 10`).run();

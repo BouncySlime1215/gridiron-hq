@@ -17,6 +17,7 @@ import { createGunzip } from 'node:zlib';
 import { Readable } from 'node:stream';
 import { db, rows, run } from '../db/index.js';
 import { recordSync } from './scheduler.js';
+import { canonicalTeamCode } from './team-codes.js';
 
 const PBP_URL = s => `https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_${s}.csv.gz`;
 
@@ -201,9 +202,11 @@ async function syncPbpSeasonImpl(season, { onProgress } = {}) {
     if (str(rec, 'season_type') !== 'REG') return;
 
     const week = num(rec, 'week');
-    const posteam = str(rec, 'posteam'), defteam = str(rec, 'defteam');
+    // nflverse spells the Rams 'LA'; every other table keys them 'LAR' (SY-02).
+    const team = name => { const v = str(rec, name); return v == null ? null : canonicalTeamCode(v); };
+    const posteam = team('posteam'), defteam = team('defteam');
     if (!week || !posteam || !defteam) return;
-    const homeTeam = str(rec, 'home_team');
+    const homeTeam = team('home_team');
     const playType = str(rec, 'play_type');
     if (!playType || playType === 'no_play') {
       // Penalties still matter, but they carry no play_type — count and move on.

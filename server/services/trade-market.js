@@ -21,14 +21,10 @@
  * a position x week x league-size price-to-value ratio. No served trade number
  * reads it yet (default-off, "unconfirmed forward": no 2026 trade prices exist).
  *
- * Hype producers (one concept, three numbers that cannot be put on one input):
- *   - this table: trade price minus our consensus value, 2021-2024 trades;
- *   - server/routes/players.js:139 heuristicVerdict: FantasyCalc 30-day value
- *     momentum, live 2026;
- *   - server/services/waiver-brain.js:452 sellHigh: live 2026 FantasyCalc value
- *     above the league's per-position value-vs-projection curve.
- * The two live ones price 2026 players; this table has no 2026 row, so no
- * player-week exists where all three can be compared. Unification is AI-04.
+ * Hype has one producer (S-19): services/hype.js#playerHype reads this table's
+ * current-season player_weeks row. The route adds it as `hype`; the retired
+ * heuristics (players.js heuristicVerdict, waiver-brain.js sellHigh's curve)
+ * now call it.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -106,10 +102,8 @@ export function playerMarketHistory(table, sleeperId) {
   return { available: true, reason: null, rows };
 }
 
-export const OTHER_HYPE_PRODUCERS = [
-  { where: 'server/routes/players.js:139 heuristicVerdict', what: 'FantasyCalc 30-day value momentum', seasons: 'live 2026' },
-  { where: 'server/services/waiver-brain.js:452 sellHigh', what: 'FantasyCalc value above the league per-position value-vs-projection curve', seasons: 'live 2026' },
-];
+/** S-19: the other hype producers were retired to call services/hype.js#playerHype. */
+export const OTHER_HYPE_PRODUCERS = [];
 
 /** The route payload for one player in one league. */
 export function marketForPlayer({ player, week, teams }, table = loadMarketTable()) {
@@ -136,6 +130,6 @@ export function marketForPlayer({ player, week, teams }, table = loadMarketTable
         + '(0 = the price tells you nothing beyond our value).' } : null,
     other_hype_producers: OTHER_HYPE_PRODUCERS,
     note: 'Historical revealed prices from real trades (2021-2024), not the live FantasyCalc market value the Trade Lab '
-      + 'uses. The live hype signals (players.js heuristicVerdict, waiver-brain sellHigh) price 2026 players and are not comparable row for row.',
+      + 'uses. This player\'s hype this season is the route\'s `hype` field, from services/hype.js#playerHype, the one producer.',
   };
 }

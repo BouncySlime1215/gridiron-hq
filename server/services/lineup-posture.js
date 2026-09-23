@@ -41,7 +41,8 @@
  * comes out near zero.
  */
 import { rows } from '../db/index.js';
-import { assetUniverse, tradeWeekContext, bestLineup, lineupSlots, FLEX_ELIGIBLE } from './trade-engine.js';
+import { assetUniverse, tradeWeekContext, pinnedBestLineup, lineupSlots, FLEX_ELIGIBLE } from './trade-engine.js';
+import { rosterLocks, lockPins } from './lineup-lock.js';
 import { deriveFormat } from './format.js';
 import { startSitWeekPoints } from './lineup-brain.js';
 
@@ -246,7 +247,7 @@ export function winProbabilityScope(lg, slots) {
     + (excluded.length ? `${named} excluded` : 'nothing excluded');
 }
 
-export function lineupPosture(lg, { myTeamId, week } = {}) {
+export function lineupPosture(lg, { myTeamId, week, now = Date.now() } = {}) {
   if (!lg?.payload) return { error: 'league not synced' };
   const payload = JSON.parse(lg.payload);
   const ctx = tradeWeekContext();
@@ -272,17 +273,31 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
 
   const oppId = opponentFor(payload, rosterId, wk);
   const theirs = oppId ? price(rosterAssets(payload, assets, oppId)) : [];
-  const oppLineup = theirs.length ? bestLineup(theirs, slots, 'week_points') : null;
+  // RL-4-2: a player whose game has kicked off (or ESPN already locked) cannot move,
+  // on either side. Both lineups are solved with the locked starters held in their
+  // slots and the locked bench players out (the same lock rule and pinned solve as
+  // the Start/Sit list and the League Hub card: lineup-lock.js,
+  // trade-engine.js#pinnedBestLineup). This card used to solve every slot all
+  // Sunday, so after 1:00 pm ET its "You" total and its swaps could start a bench
+  // player whose game was already under way, on the same page as a Start/Sit list
+  // that would not.
+  const lockOpts = { season: ctx.season, week: wk, now };
+  const myPins = lockPins(rosterLocks(lg, rosterId, mine, lockOpts));
+  const oppPins = theirs.length ? lockPins(rosterLocks(lg, oppId, theirs, lockOpts)) : new Map();
+  const oppLineup = theirs.length ? pinnedBestLineup(theirs, slots, 'week_points', oppPins) : null;
+  // A locked starter flagged out still holds his slot but scores 0, as the pinned
+  // solve counts him (unpinned, bestLineup never starts him at all).
+  const counted = p => (p.available === false ? { ...p, week_points: 0 } : p);
   // `sd: 30` here was a hardcoded spread for an unpriceable opponent. It is
   // unreachable — the `mean == null` early return below fires first — so it
   // never shipped a number, but it is a live landmine if that return ever
   // moves. Nothing is known about this opponent, so nothing is asserted.
   const oppMoments = oppLineup
-    ? lineupMoments(oppLineup.slots.map(s => s.player).filter(Boolean))
+    ? lineupMoments(oppLineup.slots.map(s => s.player).filter(Boolean).map(counted))
     : { mean: null, sd: null };
 
-  const best = bestLineup(mine, slots, 'week_points');
-  const starters = best.slots.map(s => s.player).filter(Boolean);
+  const best = pinnedBestLineup(mine, slots, 'week_points', myPins);
+  const starters = best.slots.map(s => s.player).filter(Boolean).map(counted);
   const startIds = new Set(starters.map(p => p.id));
   const mineMoments = lineupMoments(starters);
 
@@ -340,13 +355,16 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
   // start Kenneth Walker III or Patrick Mahomes, both out, with a fabricated 1.5-10pp
   // win-probability gain. ESPN's IR slot is a different flag and is handled in
   // rosterAssets(); this is the engine's own season-ending flag.
-  const benchPool = mine.filter(p => !startIds.has(p.id) && p.available !== false);
+  // A locked bench player cannot come in (RL-4-2), and a locked starter cannot go
+  // out: his slot is skipped below.
+  const benchPool = mine.filter(p => !startIds.has(p.id) && p.available !== false && !myPins.has(p.id));
   let artifactsRejected = 0;
   const swaps = [];
   if (stance !== 'neutral') {
     const startingSlots = best.slots.filter(s2 => s2.player);
     for (const slot of startingSlots) {
       const outP = slot.player;
+      if (myPins.has(outP.id)) continue;
       // The same eligibility table the solver uses. This used to special-case only
       // the literal 'FLEX', so REC_FLEX, WRRB_FLEX, SUPER_FLEX and OP fell through
       // to `position === slot` and silently yielded no candidates at all.
@@ -354,7 +372,7 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
         ? FLEX_ELIGIBLE[slot.slot].includes(p.position)
         : p.position === slot.slot));
       for (const inP of eligible) {
-        const next = startingSlots.map(s2 => (s2.player.id === outP.id ? inP : s2.player));
+        const next = startingSlots.map(s2 => (s2.player.id === outP.id ? inP : counted(s2.player)));
         const m = lineupMoments(next);
         const p2 = winProb(m.mean - oppMoments.mean, m.sd, oppMoments.sd);
         const delta = (p2 - basePwin) * 100;

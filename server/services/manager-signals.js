@@ -195,7 +195,7 @@ function txIndex(leagueId, season) {
     try { items = JSON.parse(t.items_json || '[]'); } catch { items = []; }
     t.parties = new Set(items.flatMap(i => [i.fromTeamId, i.toTeamId]).filter(x => x != null && x > 0).map(Number));
   }
-  return { present: true, rows: all, related, adds: addsByTeam(all), trades: completedTrades(all, related) };
+  return { present: true, rows: all, related, adds: addsByTeam(all), trades: completedTrades(all) };
 }
 
 /**
@@ -222,19 +222,24 @@ function addsByTeam(all) {
 }
 
 /**
- * Completed trades as { period, parties }: a proposal the other side accepted
- * (TRADE_ACCEPT / EXECUTE) and the league did not cancel afterwards (a vetoed
- * trade leaves a TRADE_ACCEPT / CANCEL). The accept row's period is when it
- * happened.
+ * Completed trades as { period, parties }: the league PROCESSED them. ESPN
+ * writes TRADE_ACCEPT / PROCESS with status EXECUTED, under the proposer, when
+ * a trade goes through (CANCEL if it is vetoed), and that row carries the
+ * items, so both sides are on it. Reading the responder's EXECUTE row instead
+ * misses trades: on the 2026 rows (local copy, 2026-09-23) 8 of 17 accept
+ * EXECUTE rows have no proposal row to take the parties from, while all 9
+ * PROCESS / EXECUTED rows carry their items.
  */
-function completedTrades(all, related) {
+function completedTrades(all) {
   const out = [];
-  for (const p of all) {
-    if (!p.parties) continue;
-    const after = related.get(p.tx_id) ?? [];
-    const accept = after.find(a => a.type === 'TRADE_ACCEPT' && a.execution_type === 'EXECUTE');
-    if (!accept || after.some(a => a.type === 'TRADE_ACCEPT' && a.execution_type === 'CANCEL')) continue;
-    out.push({ period: Number(accept.scoring_period), parties: p.parties });
+  for (const t of all) {
+    if (t.type !== 'TRADE_ACCEPT' || t.execution_type !== 'PROCESS' || t.status !== 'EXECUTED') continue;
+    let items;
+    try { items = JSON.parse(t.items_json || '[]'); } catch (err) {
+      throw new Error(`league_transactions_raw ${t.tx_id}: items_json is not JSON (${err.message})`);
+    }
+    const parties = new Set(items.flatMap(i => [i.fromTeamId, i.toTeamId]).filter(x => Number(x) > 0).map(Number));
+    if (parties.size) out.push({ period: Number(t.scoring_period), parties });
   }
   return out;
 }

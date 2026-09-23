@@ -15,6 +15,7 @@
  *  A3 a manager with zero adds reads 0 per week, not "missing"
  *  A4 a dead starter left in last week is a checked-out factor that lowers
  *     receptiveness; with no snap data for that week it is withheld, not "no"
+ *  A0 default-off (it missed its pre-registered held-out bar): reported, not applied
  *  A5 both factors reach the Brain managers board as a list, not a run-on string
  */
 import test from 'node:test';
@@ -98,11 +99,43 @@ add(62, 4, 2);
 // Last week's final lineup has a dead starter, but no nfl_snaps row exists for week 3 at all.
 starter(62, 3, 4, 300, 'Dead Or Unknown', 0);
 
+// A trade the league processed (both sides on the PROCESS row) and one it vetoed (CANCEL).
+function trade(leagueId, id, status, execution, a, b, period) {
+  run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status, execution_type, team_id,
+       scoring_period, items_json, first_seen_at, last_seen_at)
+       VALUES (?, ?, ?, 'TRADE_ACCEPT', ?, ?, ?, ?, ?, 'x', 'x')`,
+  leagueId, SEASON, id, status, execution, a, period,
+  JSON.stringify([{ type: 'TRADE', fromTeamId: a, toTeamId: b, playerId: 1 }, { type: 'TRADE', fromTeamId: b, toTeamId: a, playerId: 2 }]));
+}
+trade(61, 'ra-trade-ok', 'EXECUTED', 'PROCESS', 1, 4, 5);
+trade(61, 'ra-trade-veto', 'CANCELED', 'CANCEL', 1, 2, 4);
+trade(61, 'ra-trade-late', 'EXECUTED', 'PROCESS', 1, 3, 7);
+
 signals.buildManagerSignals(61, { chat: null });
 signals.buildManagerSignals(62, { chat: null });
 
-const layerFor = (id, opts = {}) => pricing.counterpartyLayer(id, { season: SEASON, week: 7, rosterContext: new Map(), ...opts });
+// The terms ship default-off (2024 held-out AUC 0.644 missed the pre-registered 0.645), so the
+// behaviour tests turn them on explicitly and A0 pins the default.
+const layerFor = (id, opts = {}) => pricing.counterpartyLayer(id,
+  { season: SEASON, week: 7, rosterContext: new Map(), activity: true, ...opts });
 const factor = (mp, source) => (mp.receptiveness_factors ?? []).find(f => f.source === source);
+
+test('A0: by default the terms are reported with what they would do, and move nothing', () => {
+  delete process.env[pricing.ACTIVITY_FLAG];
+  const layer = layerFor(61, { activity: null });
+  const busy = layer.get('2'), idle = layer.get('3');
+  assert.equal(busy.receptiveness, idle.receptiveness);
+  const f = factor(busy, 'trade_activity');
+  assert.equal(f.effect, null);
+  assert.ok(f.would_effect > 0);
+  assert.match(f.why, /default-off.*unconfirmed forward/);
+  assert.equal(factor(layer.get('4'), 'checked_out').effect, null);
+  process.env[pricing.ACTIVITY_FLAG] = '1';
+  try {
+    const on = layerFor(61, { activity: null });
+    assert.ok(on.get('2').receptiveness > on.get('3').receptiveness, 'the flag turns it on');
+  } finally { delete process.env[pricing.ACTIVITY_FLAG]; }
+});
 
 test('A1: two managers identical except activity get different receptiveness', () => {
   const layer = layerFor(61);
@@ -132,6 +165,14 @@ test('A3: a manager with no adds reads zero per week, not missing', () => {
   assert.equal(idle.metrics.tx_adds_per_week, 0);
   assert.equal(idle.samples.tx_adds_per_week, 6);
   assert.equal(signals.managerSignalsFor(61).get('2').metrics.tx_adds_per_week, 2);
+});
+
+test('A3b: a processed trade counts for both sides; a vetoed one and one after the last completed week do not', () => {
+  const sig = signals.managerSignalsFor(61);
+  assert.equal(sig.get('4').metrics.tx_completed_trades, 1);
+  assert.equal(sig.get('1').metrics.tx_completed_trades, 1);
+  assert.equal(sig.get('2').metrics.tx_completed_trades, 0, 'vetoed');
+  assert.equal(sig.get('3').metrics.tx_completed_trades, 0, 'period 7 is still in progress');
 });
 
 test('A4: a dead starter left in last week is a checked-out factor; unknown snaps withhold it', () => {

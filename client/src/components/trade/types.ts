@@ -88,6 +88,8 @@ export interface ReceptivenessFactor {
   cap?: number | null;
   /** true only for terms whose size comes from a fit (the activity terms, RL-11-1). */
   fitted?: boolean;
+  /** A default-off term's size had it been applied (RL-11-1); `effect` is null then. */
+  would_effect?: number | null;
   why?: string | null;
 }
 

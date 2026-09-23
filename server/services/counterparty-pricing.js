@@ -128,6 +128,17 @@ export const ACTIVITY_FIT = Object.freeze({
 });
 /** Weeks the adds-per-week rate must average over before it prices anything (as tx_accept_rate's five). */
 export const ACTIVITY_MIN_WEEKS = 5;
+/**
+ * DEFAULT-OFF. The pre-registered ship rule (docs/evidence/2026-09-23/
+ * activity-receptiveness-preregistration.md) needed AUC >= 0.645 on the 2024
+ * held-out corpus season for this exact function; it scored 0.644 (44% of rows
+ * sit at ACTIVITY_CAP, and the ties cost the ranking). So the activity and
+ * checked-out terms are computed and REPORTED on every manager, with what they
+ * would do, but move nothing unless GRIDIRON_RECEPTIVENESS_ACTIVITY=1 (or the
+ * caller passes `activity: true`). Read per call so a test or a run can flip it.
+ */
+export const ACTIVITY_FLAG = 'GRIDIRON_RECEPTIVENESS_ACTIVITY';
+const ACTIVITY_OFF_WHY = 'not applied (default-off: 2024 held-out AUC 0.644 missed its 0.645 bar; unconfirmed forward)';
 /** Furthest the activity term may move the 0-1 receptiveness score (the chat term's reach). */
 const ACTIVITY_CAP = 0.5;
 /** Receptiveness is lo + (hi - lo) * score, so a relative change r in propensity is r / (hi - lo) in score. */
@@ -265,7 +276,8 @@ function jevBlockFor(read, rosterId) {
  * anyway: it is choosing between these ten people, not against an abstract
  * baseline.
  */
-export function counterpartyLayer(leagueId, { season, week, rosterContext = null, zero = [] } = {}) {
+export function counterpartyLayer(leagueId, { season, week, rosterContext = null, zero = [], activity = null } = {}) {
+  const activityOn = activity ?? process.env[ACTIVITY_FLAG] === '1';
   const signals = managerSignalsFor(leagueId);
   // One block per league, shared by every manager entry and frozen for that
   // reason. `luck_self_view` is priced off this store, so its age travels with
@@ -351,9 +363,10 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
     // "chance he completes a trade", so an observed rate of saying yes to
     // offers still outranks it. Both are reported; below their gates they are
     // withheld with the reason rather than dropped.
-    const activity = zero.includes('trade_activity') ? null : activityFactor(m, s.samples, activityMean);
-    if (Number.isFinite(activity?.effect)) score += activity.effect;
-    const checkedOut = zero.includes('checked_out') ? null : checkedOutFactor(m, s.samples);
+    const activityTerm = offUnless(activityOn,
+      zero.includes('trade_activity') ? null : activityFactor(m, s.samples, activityMean));
+    if (Number.isFinite(activityTerm?.effect)) score += activityTerm.effect;
+    const checkedOut = offUnless(activityOn, zero.includes('checked_out') ? null : checkedOutFactor(m, s.samples));
     if (Number.isFinite(checkedOut?.effect)) score += checkedOut.effect;
 
     // Observed behaviour outranks talk. Only applied once there are enough
@@ -457,12 +470,23 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
           .map(([k, v]) => ({ source: 'nick_prior', label: `Nick's read: ${k.slice(6)}`,
             effect: null, n: null, cap: null, fitted: false, why: `${k.slice(6)} ${v}` })),
         ...(postLoss ? [postLoss] : []),
-        ...(activity ? [activity] : []),
+        ...(activityTerm ? [activityTerm] : []),
         ...(checkedOut ? [checkedOut] : []),
       ],
     });
   }
   return profile;
+}
+
+/**
+ * A default-off term keeps its entry and says what it would have done, but
+ * its effect is null so nothing adds it and every page renders it as not
+ * scored.
+ */
+function offUnless(on, f) {
+  if (!f || on || f.effect == null) return f;
+  return { ...f, effect: null, would_effect: f.effect,
+    why: `${ACTIVITY_OFF_WHY}; would move the score ${f.effect > 0 ? '+' : ''}${f.effect.toFixed(2)}. ${f.why}` };
 }
 
 /** League means of the two activity inputs, over the managers who have them. */

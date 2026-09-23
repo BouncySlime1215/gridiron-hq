@@ -11,13 +11,27 @@
  * because the dataset was resynced, or because of Monte Carlo noise, and
  * there'd be no way to tell which.
  *
- * Usage: node scripts/freeze-baseline.mjs [season]   (defaults to SEASON - 1)
+ * Usage: node scripts/freeze-baseline.mjs [season] [--out DIR]
+ *        (season defaults to SEASON - 1, --out to docs/evidence/baselines)
+ *
+ * WHAT THIS REFUSES TO FREEZE. Two preconditions were here already -- no graded
+ * season and no prior season each throw. A third was missing, and it is the one
+ * that produces a finished-looking artifact: `ids` is the intersection of "has a
+ * projection", "played at least 4 games in the graded season" and "appears in the
+ * prior season". All three inputs can be non-empty while that intersection is,
+ * and then every `gradePoint` call errors out, `.filter(x => !x.error)` removes
+ * every row, and the file is written with `players_graded: 0`, an empty `table`,
+ * a real git commit and a real dataset hash. A baseline nothing was measured
+ * against, pinned as the thing later work must beat.
+ *
+ * `datasetHash` is not a guard against that. It hashes whatever the two queries
+ * return, and an empty result set hashes perfectly well.
  */
 import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { resolveOutDir, writeEvidenceReport } from './lib/evidence-report.mjs';
 import { rows } from '../server/db/index.js';
 import { buildProjections, seasonDistribution } from '../server/services/projections.js';
 import { actuals, gradePoint, gradeDistribution, weeklyDecisionBacktest } from '../server/services/backtest.js';
@@ -39,13 +53,23 @@ function gitInfo() {
   }
 }
 
-/** Fingerprints exactly the rows this backtest reads, so a resync is detectable. */
+/**
+ * Fingerprints exactly the rows this backtest reads, so a resync is detectable.
+ *
+ * Also COUNTS them. The hash alone cannot distinguish "the dataset changed" from
+ * "there was no dataset": an empty result set has a perfectly stable digest.
+ */
+const datasetCounts = {};
 function datasetHash(season) {
   const hash = createHash('sha256');
-  hash.update(JSON.stringify(rows('SELECT * FROM players ORDER BY id')));
-  hash.update(JSON.stringify(rows(
+  const players = rows('SELECT * FROM players ORDER BY id');
+  const usage = rows(
     'SELECT * FROM player_week_usage WHERE season IN (?, ?) ORDER BY player_id, season, week',
-    season, season - 1)));
+    season, season - 1);
+  datasetCounts.players_rows_read = players.length;
+  datasetCounts.player_week_usage_rows_read = usage.length;
+  hash.update(JSON.stringify(players));
+  hash.update(JSON.stringify(usage));
   return hash.digest('hex');
 }
 
@@ -94,12 +118,37 @@ const report = {
 // Relocated 2026-09-10 with the documentation consolidation (see
 // docs/reference/architecture/FOLDER-REORGANIZATION.md): baselines are frozen
 // evidence and live under docs/evidence/ with the rest of it.
-const dir = join(ROOT, 'docs', 'evidence', 'baselines');
-mkdirSync(dir, { recursive: true });
-const path = join(dir, `${season}-baseline.json`);
-writeFileSync(path, JSON.stringify(report, null, 2) + '\n');
+//
+// `--out` so the generator can be exercised without overwriting the committed
+// baseline it would be compared against.
+const dir = resolveOutDir(process.argv, join(ROOT, 'docs', 'evidence', 'baselines'), ROOT);
 
-console.log(`Wrote ${path}`);
+// Everything real this run read or graded. The three counts that can be zero
+// while the run still completes are required; `table_rows` is required too,
+// because a scored table with no rows in it is the artifact this guard exists
+// to stop.
+const SOURCES = {
+  players_rows_read: datasetCounts.players_rows_read,
+  player_week_usage_rows_read: datasetCounts.player_week_usage_rows_read,
+  graded_season_players: truth.size,
+  projected_players: proj.size,
+  prior_season_players: prior.size,
+  common_player_set: ids.length,
+  table_rows: table.length,
+  distribution_samples: samples.size,
+};
+
+const { file, report: written } = writeEvidenceReport({
+  outDir: dir, filename: `${season}-baseline.json`, report,
+  sources: SOURCES,
+  required: ['players_rows_read', 'player_week_usage_rows_read', 'graded_season_players',
+    'projected_players', 'prior_season_players', 'common_player_set', 'table_rows',
+    'distribution_samples'],
+  stampAt: 'inputs',
+  serialize: (r) => JSON.stringify(r, null, 2) + '\n',
+});
+
+console.log(`Wrote ${file}`);
 console.table(table.map(({ source, n, mae, spearman, r2 }) => ({ source, n, mae, spearman, r2 })));
-console.log('dataset_hash:', report.dataset_hash);
-console.log('code:', report.code);
+console.log('dataset_hash:', written.dataset_hash);
+console.log('inputs:', written.inputs.sources);

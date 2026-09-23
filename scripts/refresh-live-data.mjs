@@ -72,6 +72,14 @@ export const FANTASY_LIVE_JOBS = [
   // outcome rows into manager_signals. Its `--jev` stage is NOT run here: that
   // calls a paid gateway and needs AI_GATEWAY_API_KEY, so it stays opt-in
   // (`npm run build:manager-archetypes -- --jev`).
+  // 2026-09-19: league_season_teams and league_week_scores had one writer
+  // between them, scripts/backfill-league-history.mjs, run by hand — so on the
+  // deployed box the roster -> ESPN member map the archetype store is keyed by
+  // only ever held whatever a person had last filled in. It is a scheduler job
+  // now (server/services/league-history.js), and it must run BEFORE
+  // manager_archetypes, which replays league-seasons out of its rows. It holds
+  // off by itself while an ESPN draft is live.
+  'league_history',
   'manager_archetypes',
 ];
 

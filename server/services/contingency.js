@@ -19,11 +19,44 @@ import { rows } from '../db/index.js';
 import { shrink, mean } from './stats-util.js';
 import { pairedBootstrapDiff } from './backtest-significance.js';
 import { espnStatusById } from './player-availability.js';
+import { AVAILABILITY_FIT_BASIS, DEFAULT_DURABILITY_PRIOR } from './availability-basis.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SKILL = ['QB', 'RB', 'WR', 'TE'];
 // A starter has to have missed this many games for the split to mean anything.
 const MIN_MISSED = 3;
+/**
+ * How much observed opportunity the WITH-starter side has to carry before a
+ * beneficiary's multiplier is worth publishing.
+ *
+ * The multiplier is a ratio, and `shrink` below is given the sample size of the
+ * WITHOUT-starter games — never the sample size of the divisor, which is the
+ * quantity that actually makes a ratio unstable. So a beneficiary who was barely
+ * used alongside the starter keeps a tiny divisor and the shrink toward 1 cannot
+ * tame it: Jordan Whittington behind Puka Nacua published ×26.38 off a 0.11 base,
+ * a whole with-starter sample holding about one observed target.
+ *
+ * The number is not a round one picked to make that case go away. A mean rate
+ * estimated from a count of k observed events carries a relative standard error
+ * of about 1/√k, and the ratio inherits the divisor's error directly. Nine is
+ * where that relative error reaches one third — below it a ×2 and a ×3 are not
+ * distinguishable from the sample the divisor was built on, so the ratio is not a
+ * measurement of anything.
+ *
+ * A cap would have been the wrong instrument. Joe Flacco behind Joe Burrow
+ * publishes ×7.49 off a 3.67 base built from eleven observed attempts, and a
+ * backup quarterback really does go from mop-up duty to a starter's workload.
+ * Clipping that would replace a correct number with a wrong one. What separates
+ * the two cases is how much the divisor was estimated from, not how large the
+ * result is.
+ *
+ * The rule is not a clean line and should not be described as one. Mac Jones
+ * behind Brock Purdy sits at eight observed attempts against the threshold of
+ * nine, so his ×10.24 is withheld by one opportunity. On the 2024 and 2025 fits
+ * the rule withholds 15 of 203 beneficiary multipliers in each — 7.4% — and the
+ * largest surviving ratio falls from ×26.38 to ×4.37 and from ×10.57 to ×7.49.
+ */
+const MIN_DENOMINATOR_OPPORTUNITIES = 9;
 // Who can inherit whose workload. Receivers and tight ends share a target pool; backs
 // share carries; quarterbacks are a closed shop.
 const INHERITS = { QB: ['QB'], RB: ['RB'], WR: ['WR', 'TE'], TE: ['TE', 'WR'] };
@@ -183,7 +216,7 @@ export function normPracticeStatus(s) {
  * designation ESPN itself shows; DAY_TO_DAY, an ESPN doubt label with no NFL
  * equivalent, is treated as Questionable. Gate and numbers: docs/tdd/play-chance-live.tdd.md.
  */
-export const ESPN_DESIGNATION_LABEL = Object.freeze({
+const ESPN_DESIGNATION_LABEL = Object.freeze({
   OUT: 'Out (ESPN)',
   INJURY_RESERVE: 'Out (ESPN injured reserve)',
   SUSPENSION: 'Out (ESPN suspension)',
@@ -571,7 +604,11 @@ function fittedAvailability() {
   const lookup = rates.length || roleRates.length ? buildAvailabilityLookup({ rates, roleRates }) : null;
   const missing = [['nfl_availability_rates', rates], ['nfl_availability_role_rates', roleRates]]
     .filter(([, list]) => !list.length).map(([table]) => table);
-  const basis = lookup?.hasRole ? 'role' : lookup ? 'pooled' : 'constants';
+  // Emitted from AVAILABILITY_FIT_BASIS rather than written out here, so the
+  // strings have one definition. This is the PROCESS basis (which fit tables
+  // are loaded), not a row's `availability_basis` — see availability-basis.js.
+  const [ROLE_FIT, POOLED_FIT, NO_FIT] = AVAILABILITY_FIT_BASIS;
+  const basis = lookup?.hasRole ? ROLE_FIT : lookup ? POOLED_FIT : NO_FIT;
   if (missing.length) {
     // Once per fit stamp: this function only re-reads when the stamp changes.
     console.warn(`[contingency] chance to play is priced on the '${basis}' path: ${missing.join(' and ')} ` +
@@ -632,11 +669,18 @@ export function availabilityDegradation(basis) {
  * One player's chance to be active, from whatever is on file. Shared by
  * weeklyAvailability and the fit script's gate, so what was validated is what runs.
  */
-export function playerActiveProbability({ fitted, report, prior, role = null, useRole = true }) {
+export function playerActiveProbability({
+  fitted, report, prior, role = null, useRole = true, priorMeasured = true
+}) {
   const status = String(report?.report_status ?? '').toLowerCase();
   const practice = String(report?.practice_status ?? '').toLowerCase();
   let active = prior;
   let source = report ? 'weekly injury report + durability prior' : 'durability prior only';
+  // The machine-readable twin of `source`. `source` is display prose and free
+  // to be reworded; this is the contract, from availability-basis.js. The two
+  // must be set together at every branch below or a consumer is back to
+  // guessing from the sentence.
+  let basis = priorMeasured ? 'durability_prior' : 'default_durability';
 
   const roleCell = useRole && fitted?.hasRole && role?.gap_bucket
     ? fitted.roleLookup({
@@ -656,11 +700,14 @@ export function playerActiveProbability({ fitted, report, prior, role = null, us
     // log loss 0.554 -> 0.721) — see docs/tdd/play-chance.tdd.md.
     // Same team ratio as the league path, for a listed player only.
     let p = roleCell.p;
-    let basis = roleCell.basis;
+    // The fit cell's own label, which goes in the display sentence. Not the
+    // row's `availability_basis`, which is the contract value set below.
+    let cellBasis = roleCell.basis;
     const tr = report ? fitted.teamRatio(report.team, status) : null;
-    if (tr) { p *= tr.ratio; basis += ` x ${tr.team}`; }
+    if (tr) { p *= tr.ratio; cellBasis += ` x ${tr.team}`; }
     active = p;
-    source = `fitted availability by role (${basis}, n=${roleCell.n})`;
+    source = `fitted availability by role (${cellBasis}, n=${roleCell.n})`;
+    basis = 'role';
     // Only if the fit's own selection (on 2024, never 2025) chose it.
     if (!report && fitted.roleConfig?.durabilityCap) active = Math.min(active, prior);
   } else {
@@ -675,6 +722,7 @@ export function playerActiveProbability({ fitted, report, prior, role = null, us
       // survives a held-out season.
       active = measured.p;
       source = `fitted availability (${measured.basis}, n=${measured.n})`;
+      basis = 'pooled';
     } else {
       if (/out|reserve|ir|pup|suspend/.test(status)) active = 0.01;
       else if (/doubtful/.test(status)) active = Math.min(active, 0.15);
@@ -693,7 +741,7 @@ export function playerActiveProbability({ fitted, report, prior, role = null, us
     if (!report) active = Math.min(active, prior);
   }
 
-  return { active: Math.max(0.001, Math.min(0.995, active)), source };
+  return { active: Math.max(0.001, Math.min(0.995, active)), source, basis };
 }
 
 /* ------------------------------------------------------------- scoring */
@@ -898,17 +946,27 @@ export function weeklyAvailability(season, week, { through = season - 1, useRole
   const roles = useRole && fitted?.hasRole ? roleStates(season, week) : null;
 
   for (const p of players) {
-    const prior = base.get(p.id)?.available ?? 0.92;
+    // No availability() row means no games on file through the cutoff, so there
+    // is no measured durability prior to serve. The constant that stands in is
+    // inside the range measured priors occupy, so the substitution has to be
+    // stated on the row: a caller reading `durability_prior` alone cannot tell
+    // a career measurement from this default.
+    const measuredPrior = base.get(p.id)?.available ?? null;
+    const prior = measuredPrior ?? DEFAULT_DURABILITY_PRIOR;
     const nflReport = p.gsis_id ? reports.get(String(p.gsis_id)) ?? null : null;
     const role = roles?.get(p.id) ?? null;
     const espnNow = espnStatus && p.espn_id != null ? espnStatus.get(String(p.espn_id))?.status ?? null : null;
     const week_ = weekDesignation({ report: nflReport, espnStatus: espnNow, team: p.team ?? role?.team ?? null });
     const report = week_.report;
-    const { active, source } = playerActiveProbability({ fitted, report, prior, role, useRole });
+    const { active, source, basis } = playerActiveProbability({
+      fitted, report, prior, role, useRole, priorMeasured: measuredPrior != null
+    });
     out.set(p.id, {
       player_id: p.id, name: p.name, position: p.position,
       active_probability: +active.toFixed(3),
       durability_prior: +prior.toFixed(3),
+      durability_prior_measured: measuredPrior != null,
+      availability_basis: basis,
       report_status: report?.report_status ?? null,
       practice_status: report?.practice_status ?? null,
       designation: week_.designation,
@@ -1018,12 +1076,17 @@ export function cascades({ through = SEASON - 1, minGames = 6 } = {}) {
       // Shrink the multiplier toward "no change" — a three-game split is thin evidence.
       const ratio = base > 0 ? shrink(boosted / base, 1, without.n, 4) : 1;
       if (ratio <= 1.03) continue;
+      // The gain is bounded by the observed without-starter mean and stands on its own.
+      // The ratio does not: it is only reported when its divisor was estimated from
+      // enough opportunity to mean something. See MIN_DENOMINATOR_OPPORTUNITIES.
+      const supported = base > 0 && with_.opp >= MIN_DENOMINATOR_OPPORTUNITIES;
       beneficiaries.push({
         player_id: mateId, name: without.name, position: without.position,
         base_opportunity: +base.toFixed(2),
         opportunity_without: +boosted.toFixed(2),
         gain: +gain.toFixed(2),
-        multiplier: +ratio.toFixed(3),
+        multiplier: supported ? +ratio.toFixed(3) : null,
+        denominator_opportunities: with_.opp,
         games_observed: without.n
       });
     }

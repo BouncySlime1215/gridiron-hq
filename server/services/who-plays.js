@@ -65,11 +65,28 @@ export function whoPlays(season, week, team) {
      WHERE UPPER(team) = ? AND verification_state='verified' ORDER BY published_at DESC`, t);
 
   // 3. Snap share, which decides whether an absence actually matters.
+  //
+  // Not AVG(offense_pct): nfl_snaps carries defense_pct too, and the feed writes
+  // a literal 0 rather than a blank in the column that does not apply. On the
+  // 2024 file 11,027 rows have offense_pct = 0 with a positive defense_pct, so
+  // reading offence alone scored every defender 0.0000 — a corner playing every
+  // defensive snap and a fourth safety came out the same number, and since
+  // expected_snaps_lost multiplies by this, a ruled-out starter cost nothing.
+  // nfl-availability.js:188-194 hit this first and fixed it there only.
+  //
+  // The CASE is what keeps three different facts apart. A defender's offensive
+  // zero is an absent measurement; a deep reserve's zero is a real one, so it
+  // must survive; and a player with no usable row is neither, so he stays NULL
+  // rather than becoming a hard 0. The consumer below must not coerce that NULL
+  // away, or the third case collapses into the second.
   const snaps = rows(
-    `SELECT player, position, AVG(offense_pct) AS pct FROM nfl_snaps
+    `SELECT player, position,
+            AVG(CASE WHEN offense_pct IS NULL AND defense_pct IS NULL THEN NULL
+                     ELSE MAX(COALESCE(offense_pct, 0), COALESCE(defense_pct, 0)) END) AS pct
+     FROM nfl_snaps
      WHERE season = ? AND week < ? AND UPPER(team) = ?
      GROUP BY player, position`, season, week, t);
-  const snapOf = new Map(snaps.map(s => [String(s.player).toLowerCase(), s.pct ?? 0]));
+  const snapOf = new Map(snaps.map(s => [String(s.player).toLowerCase(), s.pct]));
 
   const byPlayer = new Map();
   const add = (name, entry) => {

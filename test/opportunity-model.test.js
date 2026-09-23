@@ -26,7 +26,7 @@ const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 
 const {
-  buildSeasonRows, fitVacatedCorrection, applyVacatedCorrection,
+  buildOpportunityRows, fitVacatedCorrection, applyVacatedCorrection,
   fitOpportunityModel, predictOpportunity, FEATURE_NAMES
 } = await import('../server/services/opportunity-model.js');
 
@@ -70,7 +70,7 @@ test.after(() => {
 });
 
 test('every feature the model names is present on every row', () => {
-  const built = buildSeasonRows(SEASON, { positions: ['WR'], stat: 'targets', startWeek: 5, endWeek: 8 });
+  const built = buildOpportunityRows(SEASON, { positions: ['WR'], stat: 'targets', startWeek: 5, endWeek: 8 });
   assert.ok(built.length > 0, 'fixture produced no rows');
   for (const row of built) {
     for (const name of FEATURE_NAMES) {
@@ -81,7 +81,7 @@ test('every feature the model names is present on every row', () => {
 });
 
 test('a teammate ruled out is found although he has no box-score row that week', () => {
-  const built = buildSeasonRows(SEASON, { positions: ['WR'], stat: 'targets', startWeek: 5, endWeek: 8 });
+  const built = buildOpportunityRows(SEASON, { positions: ['WR'], stat: 'targets', startWeek: 5, endWeek: 8 });
   const week6 = built.filter(r => r.week === 6);
   assert.ok(week6.length >= 2, 'expected the two active receivers in week 6');
   for (const row of week6) {
@@ -97,7 +97,7 @@ test('a teammate ruled out is found although he has no box-score row that week',
 });
 
 test('features never read the graded week', () => {
-  const built = buildSeasonRows(SEASON, { positions: ['WR'], stat: 'targets', startWeek: 5, endWeek: 8 });
+  const built = buildOpportunityRows(SEASON, { positions: ['WR'], stat: 'targets', startWeek: 5, endWeek: 8 });
   const alpha = built.filter(r => r.player_id === 1).sort((a, b) => a.week - b.week);
   // Alpha's usage is constant, so his prior share is the same every graded week.
   // A feature that leaked the graded week would still be constant here, so the
@@ -108,7 +108,7 @@ test('features never read the graded week', () => {
 });
 
 test('the vacated correction is the identity when no teammate is out', () => {
-  const rowsIn = buildSeasonRows(SEASON, { positions: ['WR'], stat: 'targets', startWeek: 5, endWeek: 8 });
+  const rowsIn = buildOpportunityRows(SEASON, { positions: ['WR'], stat: 'targets', startWeek: 5, endWeek: 8 });
   const correction = { samePosition: 0.5, otherPosition: 0.2, questionable: -0.1, interceptNotApplied: 9 };
   const quiet = rowsIn.find(r => r.vacated_same_pos === 0 && r.self_questionable === 0);
   assert.ok(quiet, 'fixture should contain a week with nobody out');

@@ -50,6 +50,19 @@ export function loadIdentity() {
   };
 }
 
+/**
+ * A story cannot be published after we fetched it. A parsed stamp still ahead
+ * of this fetch's clock (stored beside it as ingested_at) by more than this is
+ * counted on the ingest result as future_stamped, so a feed that stamps the
+ * future is visible on POST /api/news/ingest and the desk's last_result
+ * instead of being clamped away downstream (routes/news.js:71 floors negative
+ * ages at 0). The row keeps the feed's own value; published_at > ingested_at
+ * on the row is the label. Hand-set: allows for clock skew between the
+ * publisher and this host (ESPN's HTTP Date was within 1 s of ours on
+ * 2026-09-22), well under the one-hour error this was built to catch.
+ */
+const FUTURE_STAMP_TOLERANCE_MS = 5 * 60 * 1000;
+
 export async function ingestRssSource(source, { fetchImpl = fetch } = {}) {
   const res = await fetchImpl(source.url);
   if (!res.ok) throw new Error(`${source.name} feed returned HTTP ${res.status}`);
@@ -58,6 +71,7 @@ export async function ingestRssSource(source, { fetchImpl = fetch } = {}) {
   const identity = loadIdentity();
   const ingestedAt = new Date().toISOString();
   const results = [];
+  let futureStamped = 0;
   for (const item of items) {
     let normalized;
     try {
@@ -70,6 +84,7 @@ export async function ingestRssSource(source, { fetchImpl = fetch } = {}) {
       results.push({ ok: false, headline: item.title, error: error.message });
       continue;
     }
+    if (Date.parse(normalized.published_at) - Date.parse(ingestedAt) > FUTURE_STAMP_TOLERANCE_MS) futureStamped++;
     const teamId = normalized.entities.teams[0]?.id ?? null;
     const outcome = upsertNormalizedNewsItem(normalized, { teamId });
     results.push({ ok: true, ...outcome, headline: normalized.headline });
@@ -78,6 +93,7 @@ export async function ingestRssSource(source, { fetchImpl = fetch } = {}) {
     source: source.name, fetched: items.length,
     inserted: results.filter(r => r.ok && r.inserted).length,
     updated: results.filter(r => r.ok && !r.inserted).length,
+    future_stamped: futureStamped,
     failed: results.filter(r => !r.ok).map(r => ({ headline: r.headline, error: r.error }))
   };
 }
@@ -87,7 +103,8 @@ export async function ingestAllSources(opts) {
   // entire intelligence refresh or prevent healthy feeds from being stored.
   const settled = await Promise.allSettled(RSS_SOURCES.map(source => ingestRssSource(source, opts)));
   return settled.map((result, index) => result.status === 'fulfilled' ? result.value : {
-    source: RSS_SOURCES[index].name, fetched: 0, inserted: 0, updated: 0,
+    // future_stamped is null, not 0: a feed we could not read was not checked.
+    source: RSS_SOURCES[index].name, fetched: 0, inserted: 0, updated: 0, future_stamped: null,
     failed: [{ headline: null, error: result.reason?.message ?? String(result.reason) }]
   });
 }

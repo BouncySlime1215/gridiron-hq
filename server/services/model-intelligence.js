@@ -9,7 +9,7 @@ import { latestTrainingAudit } from './nfl-replay.js';
 import { allPickResults } from './nfl-auto-picks.js';
 import { evidenceDaemonStatus } from './evidence-daemon.js';
 import { shadowLedgerSummary } from './shadow-ledger.js';
-import { nflMarketMovement, mlbMarketMovement } from './market-movement.js';
+import { nflMarketMovement } from './market-movement.js';
 
 const r3 = n => n == null || !Number.isFinite(n) ? null : +n.toFixed(3);
 const mean = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
@@ -46,8 +46,10 @@ export const conformalHalfWidth = (values, p) => {
 const HYPOTHESES = [
   ['nfl-late-season', 'NFL', 'Late-season availability / incentive project', 'Late-week degradation may reflect unmeasured roster availability, incentive and rest information rather than a stable side bias.', 'Weakest exact-policy segment: late weeks 14+', 'locked_design'],
   ['nfl-home-side', 'NFL', 'Home-side market-residual project', 'The negative home-side result may be a market-pricing or schedule-context interaction; test it only with a predeclared residual target.', 'Weakest exact-policy segment: backed home', 'locked_design'],
-  ['nfl-line-move', 'NFL', 'Information-arrival project', 'Line movement and book dispersion may identify when public information is still arriving; they must be measured before kickoff, not inferred afterward.', 'Evidence daemon multi-horizon line snapshots', 'collecting'],
-  ['mlb-lineup', 'MLB', 'Lineup-confirmation project', 'Confirmed lineup state can be tested as a pregame availability feature only after real-priced forward samples exist.', 'MLB pregame snapshots', 'collecting']
+  ['nfl-line-move', 'NFL', 'Information-arrival project', 'Line movement and book dispersion may identify when public information is still arriving; they must be measured before kickoff, not inferred afterward.', 'Evidence daemon multi-horizon line snapshots', 'collecting']
+  // 'mlb-lineup' was seeded here until MLB was removed from the product on
+  // 2026-09-22. Its row stays in research_hypotheses -- no data is deleted --
+  // and the query below no longer selects it.
 ];
 for (const [id, sport, title, hypothesis, source, status] of HYPOTHESES) run(`INSERT INTO research_hypotheses
   (id,sport,title,hypothesis,source,status,holdout_rule,created_at) VALUES (?,?,?,?,?,?,?,datetime('now'))
@@ -150,15 +152,6 @@ export function nflIntelligence() {
     generated_at: new Date().toISOString(), status: 'research_only',
     evidence_daemon: evidenceDaemonStatus(), uncertainty: uncertainty(), regimes: regimes(),
     bayesian_pooling: bayesianPooling(), market_movement: nflMarketMovement(), red_team: redTeam(), shadow: shadowAndPortfolio(),
-    hypotheses: rows('SELECT * FROM research_hypotheses WHERE sport IN (\'NFL\',\'MLB\') ORDER BY sport,id')
-  };
-}
-
-export function mlbIntelligence() {
-  const daemon = evidenceDaemonStatus();
-  return {
-    generated_at: new Date().toISOString(), status: 'research_only', evidence_daemon: daemon, market_movement: mlbMarketMovement(),
-    shadow: { execution_enabled: false, max_real_stake: 0, policy: 'MLB remains paper-only until each market independently clears its price, calibration, forward-sample and CLV gates.' },
-    hypotheses: rows("SELECT * FROM research_hypotheses WHERE sport='MLB' ORDER BY id")
+    hypotheses: rows("SELECT * FROM research_hypotheses WHERE sport='NFL' ORDER BY id")
   };
 }

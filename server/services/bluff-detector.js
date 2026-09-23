@@ -28,15 +28,43 @@
  * with its sample size because these counts are small by nature.
  */
 import { rows } from '../db/index.js';
+import { fingerprint } from './compute-cache.js';
+import { servedTableState } from './data-freshness.js';
 import { openChatDb, chatDbPath, chatDataKey } from './manager-signals.js';
 import { TRUSTED_CONFIDENCE } from './manager-identity.js';
 import { normalizePlayerName } from './player-identity.js';
+import { currentNflWeek } from './weekly-learning.js';
 
 /** A reversal inside this many days is about negotiating, not about football. */
 export const BLUFF_WINDOW_DAYS = 10;
 /** League-average bluff rate to shrink toward, and the strength of that pull. */
 export const PRIOR_BLUFF_RATE = 0.35;
 export const PRIOR_WEIGHT = 4;
+
+/**
+ * Which absence the ownership check is working from, as data-freshness.js reads
+ * `league_roster_snapshots` (one entry per table: servedTableEntry). Its one writer is
+ * `writePeriod` in scripts/collect-roster-snapshots.mjs, run only by the local refresh
+ * loop (scripts/refresh-live-data.mjs); no server job writes it. The rule binds the
+ * season being played, taken from the producer the Data Health route uses.
+ *
+ * Anything but `fresh` means ownedPlayersByChatName below leans on the CURRENT roster
+ * fallback for someone, and with the table empty it leans on it for everyone: a player
+ * he declared untouchable and has since traded away is no longer "his", so that
+ * declaration, the bluff this file exists to catch, drops out without a trace.
+ */
+function rosterHistoryState() {
+  return servedTableState('league_roster_snapshots', { currentSeason: currentNflWeek().season });
+}
+
+/**
+ * What the ownership check read, for the credibility cache key: every snapshot write
+ * moves it, including the collector's in-place UPDATEs (changed_at is bumped on every
+ * change, collect-roster-snapshots.mjs writePeriod). The state rides along because a
+ * season rollover makes the same rows stale with no write at all.
+ */
+const rosterHistoryKey = state =>
+  `${state.state}|${fingerprint([{ table: 'league_roster_snapshots', stamp: 'changed_at' }])}`;
 
 /**
  * Every "this guy is not available" moment we can find, per (manager, player).
@@ -137,24 +165,42 @@ const daysBetween = (a, b) => (Date.parse(b) - Date.parse(a)) / 86400000;
  * rewriting the same aggregates does not. The cached object is shared —
  * callers read it, never mutate it.
  *
- * Always the same shape: `{ byManager, events, available }`. With no chat DB
- * `available` is false and both collections are empty.
+ * Read with a corpus: `{ byManager, events, available: true, roster_history }`, where
+ * `roster_history` is rosterHistoryState(), which absence (if any) the ownership filter
+ * worked from; untouchableStance reads it into the note. With no chat DB:
+ * `{ byManager, events, available: false, reason }`, both collections empty and no
+ * roster_history, because no ownership check ran and nothing would read it. The roster
+ * history is part of the cache key (rosterHistoryKey), because a snapshot write changes
+ * who owns whom and so which declarations count — the chat key alone never saw that.
  */
+/** Why there is no corpus here, naming the path so the state is checkable. */
+const NO_CORPUS_REASON = () =>
+  `No chat corpus at ${chatDbPath()}. It is extracted from Apple Messages on Nick's Mac and cannot be `
+  + 'produced on this machine, so this is "not on this machine", not "nobody has said anything".';
+
 const credibilityCache = new Map();
 export function declarationCredibility({ windowDays = BLUFF_WINDOW_DAYS } = {}) {
   const chat = openChatDb();
-  if (!chat) return { byManager: new Map(), events: [], available: false };
+  // Not "no data". On any box but Nick's Mac the corpus CANNOT exist: it is
+  // extracted from ~/Library/Messages/chat.db by a Python script needing Full
+  // Disk Access, so Fly will never have one. An empty result with no reason
+  // reads downstream as "he has never called a player untouchable", which is
+  // the opposite conclusion and moves a trade price.
+  if (!chat) {
+    return { byManager: new Map(), events: [], available: false, reason: NO_CORPUS_REASON() };
+  }
   try {
-    const key = `${chatDbPath()}|${chatDataKey(chat)}`;
+    const rosterHistory = rosterHistoryState();
+    const key = `${chatDbPath()}|${chatDataKey(chat)}|${rosterHistoryKey(rosterHistory)}`;
     const hit = credibilityCache.get(windowDays);
     if (hit?.key === key) return hit.value;
-    const value = credibilityFrom(declarations(chat), openings(chat), windowDays);
+    const value = credibilityFrom(declarations(chat), openings(chat), windowDays, rosterHistory);
     credibilityCache.set(windowDays, { key, value });
     return value;
   } finally { chat.close(); }
 }
 
-function credibilityFrom(decls, opens, windowDays) {
+function credibilityFrom(decls, opens, windowDays, rosterHistory) {
   const openIndex = new Map();
   for (const o of opens) {
     const k = `${o.name}|${String(o.player).toLowerCase()}`;
@@ -214,7 +260,7 @@ function credibilityFrom(decls, opens, windowDays) {
       players: Object.fromEntries([...r.players].map(([p, v]) => [p, v])),
     });
   }
-  return { byManager: out, events, available: true };
+  return { byManager: out, events, available: true, roster_history: rosterHistory };
 }
 
 /**
@@ -234,10 +280,18 @@ export function untouchableStance(leagueId, rosterId, credibility) {
                         AND confidence IN (${TRUSTED_CONFIDENCE.map(() => '?').join(',')})`,
   leagueId, String(rosterId), ...TRUSTED_CONFIDENCE)[0];
   const cred = ident?.chat_name ? credibility?.byManager?.get(ident.chat_name) : null;
+  // Which roster history his declarations were filtered against, for the note. Only a
+  // record that was read carries one (declarationCredibility's no-corpus return has no
+  // roster_history: no ownership check ran). Not returned as a field: every consumer of
+  // the stance reads stance / note / respect / probe / credibility, and
+  // routes/trades.js:485 serves the note as word_note.
+  const history = credibility?.roster_history ?? null;
   const declared = rows(`SELECT player_name, sentiment, n, last_mention FROM manager_player_view
                          WHERE league_id = ? AND roster_id = ? AND sentiment >= 2.9 AND n >= 3
                            AND last_mention >= date('now', '-30 days')`, leagueId, String(rosterId));
-  if (!declared.length) return { stance: 'none', respect: new Set(), probe: new Set(), note: null, credibility: cred ?? null };
+  if (!declared.length) {
+    return { stance: 'none', respect: new Set(), probe: new Set(), note: null, credibility: cred ?? null };
+  }
 
   const respect = new Set(), probe = new Set();
   const c = cred?.credibility ?? (1 - PRIOR_BLUFF_RATE);
@@ -249,12 +303,36 @@ export function untouchableStance(leagueId, rosterId, credibility) {
     else if (c >= 0.45) probe.add(d.player_name.toLowerCase());
     // below 0.45: neither set — treated as an ordinary target
   }
+  const note = cred
+    ? `${cred.name}: ${cred.declarations} declarations — ${cred.hard_reversals} reversed outright, `
+      + `${cred.hedged} hedged in the same message, ${cred.held} held (${cred.confidence})`
+    : 'no declaration history — treating his word as good by default';
   return {
     stance: c >= 0.7 ? 'respect' : c >= 0.45 ? 'probe' : 'ignore',
     respect, probe, credibility: cred ?? null,
-    note: cred
-      ? `${cred.name}: ${cred.declarations} declarations — ${cred.hard_reversals} reversed outright, `
-        + `${cred.hedged} hedged in the same message, ${cred.held} held (${cred.confidence})`
-      : 'no declaration history — treating his word as good by default',
+    note: note + rosterHistoryCaveat(history),
   };
+}
+
+/**
+ * The credibility's `roster_history` state, as a clause on the one surface that shows
+ * the stance (routes/trades.js serves `note` as `word_note`). Nothing when fresh. With
+ * it empty or absent, a player he declared and then traded away is not "his" any more,
+ * so that declaration never counted — the count above leans toward "held". Stale means
+ * the history exists but is behind its rule, so a player he picked up since the last
+ * snapshot is missing instead.
+ */
+function rosterHistoryCaveat(history) {
+  if (!history || history.state === 'fresh') return '';
+  if (history.state === 'empty' || history.state === 'table_absent') {
+    return `; ownership checked against current rosters only (league_roster_snapshots is `
+      + `${history.state === 'empty' ? 'empty' : 'not in this database'}), so a declared player he has `
+      + 'since traded away is not counted';
+  }
+  if (history.state === 'stale') {
+    return '; roster history is behind (league_roster_snapshots is stale'
+      + `${history.last_write ? `, last written ${history.last_write}` : ''}), `
+      + 'so a player he picked up since the last snapshot is not in the ownership check';
+  }
+  return `; the roster history could not be checked (league_roster_snapshots is ${history.state})`;
 }

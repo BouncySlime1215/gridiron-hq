@@ -10,7 +10,8 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 const { db, row, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations(); // adds leagues.connection_status/sync_error (migration 011)
-const { runIfStale } = await import('../server/services/scheduler.js');
+const { refreshLeagueRosters, JOBS, resolveOffThread }
+  = await import('../server/services/scheduler.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -22,7 +23,30 @@ test.after(() => { globalThis.fetch = realFetch; });
 // directly with no cache of its own, but nothing ever re-fetched that payload
 // automatically — only a manual click on "Sync" ever refreshed it. This is
 // the regression test for the fix: league_rosters is now a real scheduled job.
-test('league_rosters is a real scheduled job that re-syncs every connected league\'s own roster payload', async () => {
+//
+// Split in two on 2026-09-20. The wiring — that this job exists on a tier with
+// a cadence — is asserted below, on the registry. The BEHAVIOUR is asserted by
+// calling refreshLeagueRosters directly, because driving it through runIfStale
+// made these tests silently conditional on the job running inline: they stub
+// globalThis.fetch on this thread, and a worker has its own. As written before,
+// they turned red the moment the job moved off the request thread, which made
+// two good tests into an argument against a fix. They now assert the behaviour
+// rather than the thread it happens on.
+test('league_rosters is wired to the scheduler, on a tier, with a cadence', () => {
+  const job = JOBS.league_rosters;
+  assert.ok(job, 'the job must exist in the registry; the regression this file '
+    + 'was written for is a payload nothing ever re-fetched');
+  assert.equal(job.run, refreshLeagueRosters);
+  assert.equal(job.tier ?? 'live', 'live');
+  assert.ok(Number.isFinite(job.maxAgeMinutes) && job.maxAgeMinutes > 0,
+    'a job with no cadence is never stale, so runIfStale never runs it');
+  // Off-thread or not is deliberately NOT asserted here. It is a scheduling
+  // decision with its own guard in growth-jobs-off-thread.test.js, and pinning
+  // it here is what coupled these tests to it in the first place.
+  assert.equal(typeof resolveOffThread(job), 'boolean');
+});
+
+test('a connected league\'s own roster payload is re-synced, not left stale', async () => {
   run(`INSERT INTO leagues (platform, league_id, season, name, payload, connection_status)
        VALUES ('espn', '999', 2026, 'Old Name', '{}', 'connected')`);
   const leagueId = row(`SELECT id FROM leagues WHERE league_id='999'`).id;
@@ -35,9 +59,8 @@ test('league_rosters is a real scheduled job that re-syncs every connected leagu
     })
   });
 
-  const result = await runIfStale('league_rosters', { force: true });
-  assert.equal(result.ran, true, 'the job must actually run, not skip');
-  assert.equal(result.error, undefined, `must not error: ${result.error}`);
+  const detail = await refreshLeagueRosters();
+  assert.equal(detail.failed, 0, `must not fail: ${JSON.stringify(detail)}`);
 
   const updated = row('SELECT name, payload, connection_status FROM leagues WHERE id = ?', leagueId);
   assert.equal(updated.name, 'Traded Since Last Sync', 'the league\'s own name/payload must be refreshed from the real API, not left stale');
@@ -57,9 +80,9 @@ test('a per-league sync failure does not block other leagues from refreshing', a
     };
   };
 
-  const result = await runIfStale('league_rosters', { force: true });
-  assert.equal(result.detail.leagues, 2);
-  assert.equal(result.detail.failed, 1);
+  const detail = await refreshLeagueRosters();
+  assert.equal(detail.leagues, 2);
+  assert.equal(detail.failed, 1);
 
   const broken = row(`SELECT connection_status FROM leagues WHERE league_id='111'`);
   const healthy = row(`SELECT name, connection_status FROM leagues WHERE league_id='222'`);

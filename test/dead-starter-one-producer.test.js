@@ -49,12 +49,12 @@ test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true })
 const POS_ID = { QB: 1, RB: 2, WR: 3, TE: 4 };
 const SLOT_ID = { QB: 0, RB: 2, WR: 4, TE: 6, FLEX: 23, BENCH: 20, IR: 21 };
 let nextId = 1;
-function player(name, position, slot, week, { espn = 'ACTIVE', report = null, bye = 9, team = 'MID', available = true } = {}) {
+function player(name, position, slot, week, { espn = 'ACTIVE', report = null, bye = 9, team = 'MID', available = true, adj = week } = {}) {
   const id = nextId++;
   return {
     asset: {
       id, name, position, team_abbr: team, espn_id: 9000 + id, available,
-      current_week_ppg: bye === 2 ? 0 : week, adj_ppg: week, ppg: week, ros_ppg: week,
+      current_week_ppg: bye === 2 ? 0 : week, adj_ppg: adj, ppg: adj, ros_ppg: adj,
       ceiling: week * 1.5, floor: week * 0.4, active_probability: 0.9, bye, injury_status: report
     },
     entry: {
@@ -91,7 +91,8 @@ function everyKindOfDead() {
     // bench
     player('Bench Passer', 'QB', 'BENCH', 16),
     player('Bench Back', 'RB', 'BENCH', 10),
-    player('Bench Back Two', 'RB', 'BENCH', 9.5),
+    // Higher season value, lower this week: a surface ranking on adj_ppg would pick him.
+    player('Bench Back Two', 'RB', 'BENCH', 9.5, { adj: 30 }),
     player('Bench Wideout', 'WR', 'BENCH', 7),
     player('Bench Wideout Two', 'WR', 'BENCH', 6),
     player('Bench End', 'TE', 'BENCH', 5)
@@ -140,6 +141,11 @@ test('a starter whose game has kicked off is on neither surface', () => {
     const hub = realTradeEngine.lineupDiff(leagueRow(id), '1', { assets, now: later }).flagged_starters;
     assert.equal(sit.length, 0);
     assert.equal(hub.length, 0);
+    // Control, same rows: before the 1 pm kickoff both surfaces flag all six. The instant
+    // comes from the caller (`now`), not the wall clock, on both.
+    const before = Date.parse('2026-09-20T16:00:00Z');
+    assert.equal(lineupCall(id, { providers: {}, now: before }).dead_starters.items.length, 6);
+    assert.equal(realTradeEngine.lineupDiff(leagueRow(id), '1', { assets, now: before }).flagged_starters.length, 6);
   } finally {
     run(`DELETE FROM game_lines WHERE season = 2026 AND week = 2 AND team = 'MID'`);
   }

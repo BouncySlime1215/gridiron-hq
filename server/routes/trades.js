@@ -23,6 +23,7 @@ import { waiverBoard } from '../services/waiver-wire.js';
 import { streamingBoard } from '../services/streaming-board.js';
 import { lineupPosture } from '../services/lineup-posture.js';
 import { deriveFormat } from '../services/format.js';
+import { marketAsOf, marketHistory } from '../services/dynasty-value-history.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
 import { managerProfiles, setManagerProfile } from '../services/league-brain.js';
 // The measured manager layer: what has been observed about each counterparty, as
@@ -903,6 +904,8 @@ r.get('/:leagueId/rosters', (req, res, next) => {
     res.json({
       my_team_id: lg.my_team_id,
       model_context: assets.context,
+      // How old the FantasyCalc price behind every value on this page is (FC-SNAP).
+      market_as_of: marketAsOf(formatKey),
       slots,
       teams: teams.map(t => {
         const line = bestLineup(t.players, slots);
@@ -922,6 +925,24 @@ r.get('/:leagueId/rosters', (req, res, next) => {
         };
       })
     });
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------- market price history */
+/**
+ * One player's FantasyCalc price in this league's format, one row per day it was
+ * fetched (dynasty_value_history, written by syncDynastyValues), plus how old the
+ * current price is. The history starts the day FC-SNAP shipped: FantasyCalc forbids
+ * its own history endpoint, so there is nothing earlier to show.
+ */
+r.get('/:leagueId/market-history/:playerId', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const playerId = Number(req.params.playerId);
+    if (!Number.isInteger(playerId) || playerId <= 0) return res.status(400).json({ error: 'playerId must be a positive integer' });
+    const { formatKey } = deriveFormat(lg);
+    const history = marketHistory(formatKey, playerId, { limit: req.query.limit });
+    res.json({ format_key: formatKey, player_id: playerId, market_as_of: marketAsOf(formatKey), history });
   } catch (e) { next(e); }
 });
 

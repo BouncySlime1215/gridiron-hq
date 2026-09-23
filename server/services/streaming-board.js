@@ -44,15 +44,18 @@ const IR_SLOT = 21;
 export const MIN_EDGE = 1;
 
 /**
- * Auditor ruling 2026-09-23 (e) / STATS-METHOD.md rule 5: a result ships ON only once
- * it also holds on 2026 forward weeks. F002 (docs/evidence/HOLDOUT-LEDGER.md) found
- * 2026 defensive counts computable for week 1 only, 0 swap-weeks — forward-uncomputable.
- * So this ships default-off: the board still returns the ranked candidates (the
- * betting market's own number, not a fitted result), but makes no swap suggestion and
- * the card makes no history-replay claim, until this flips true (F002, once nflverse
- * posts 2026 weeks 2+ and the forward direction holds).
+ * Auditor ruling 2026-09-23 (e) / STATS-METHOD.md rule 5 required default-off until this
+ * held on 2026 forward weeks (F002: 2026 defensive counts computable for week 1 only, 0
+ * swap-weeks — forward-uncomputable). Coordinator ruling NICK-WV01 (WORK-QUEUE.md section
+ * 12, "Rulings (cont.) 2026-09-23T15:43Z", under Nick's "for all of them do what you think
+ * is best" delegation) grants an exemption for zero-parameter market rankings that pass
+ * their history test: this board fits no parameters (it reads the betting market's own
+ * implied total and ranks by it), and its history replay (docs/evidence/streaming-def-
+ * history.mjs, 2022-2025) passed. So the suggestion ships on by default now, labelled
+ * "history-tested (2022-25), not yet confirmed on 2026 games" rather than gated off.
+ * Rule 5 still applies unchanged to anything with fitted parameters.
  */
-export const WV01_STREAMING_BOARD_ENABLED = false;
+export const WV01_STREAMING_BOARD_ENABLED = true;
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : Math.round(v * 100) / 100);
 
@@ -203,9 +206,9 @@ export function streamingBoard(lg, { myTeamId = null, season, week, now = new Da
       why: `You have no defense and an open roster spot; ${best.team} faces ${best.opponent}, implied ${best.opp_implied} points.` };
   }
 
-  // Rule 5 (Auditor ruling (e)): with no 2026 forward weeks confirmed, the board's
-  // rankings (the market's own number) still ship, but the swap suggestion — the
-  // tested result — does not, until WV01_STREAMING_BOARD_ENABLED is turned on.
+  // NICK-WV01 exemption (WORK-QUEUE.md section 12): zero-parameter, history-tested
+  // market rankings ship the suggestion by default (enabled defaults true above);
+  // an explicit `enabled: false` still gates the suggestion off for callers that need it.
   const gatedSuggestion = enabled ? suggestion : { action: null, add: null, drop: null, edge: null, why: null };
 
   return {

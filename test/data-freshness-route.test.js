@@ -77,8 +77,12 @@ test('the route uses the schedule\'s current week, not a fixed one: a row at tha
   // route passed week 3 to the service; a route hardwired to week 1 would call
   // this future data and report stale.
   db.prepare(`INSERT INTO player_week_usage (player_id, season, week) VALUES (1, 2026, 3)`).run();
+  // FC-SNAP added dynasty_values to the registry; all_fresh needs a price fetched today too.
+  db.prepare(`INSERT OR REPLACE INTO dynasty_values (format_key, player_id, value, fetched_at)
+              VALUES ('rd_sf1_t10_ppr1', 1, 100, datetime('now'))`).run();
   const body = await (await get('/api/data-freshness')).json();
   const pwu = body.tables.find(t => t.table === 'player_week_usage');
   assert.equal(pwu.status, 'fresh', 'a current-week row was not recognised as current — the route sent the wrong week');
+  assert.equal(body.tables.find(t => t.table === 'dynasty_values')?.status, 'fresh');
   assert.equal(body.all_fresh, true);
 });

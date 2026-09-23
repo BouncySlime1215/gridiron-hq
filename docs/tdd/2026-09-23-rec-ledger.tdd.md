@@ -69,7 +69,7 @@ held-out season was taken (Holdout looks: none).
 
 | Piece | Where |
 |---|---|
-| Table `rec_ledger` (additive migration `071_rec_ledger`) | `server/migrations/071_rec_ledger.js` |
+| Table `rec_ledger` (additive migration `071_rec_ledger`; `down()` drops it only while empty, gate round) | `server/migrations/071_rec_ledger.js` |
 | Writer `record()` (INSERT OR IGNORE, one row per horizon) | `server/services/rec-ledger.js:104` (insert at `:123`) |
 | Route adapter `recordRoute()` / `recsFromRoute()` | `server/services/rec-ledger.js:231`, `:173` |
 | Call sites, one each, responses unchanged | `server/routes/trades.js:222` (/lineup), `:681` (/waivers), `:734` (/find), `:821` (/offer), `:836` (/offer-many) |
@@ -173,3 +173,25 @@ Commands (targeted, `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<mktemp> node --exper
 - Mutants (scratch worktree at 0c3775c7, removed afterwards): U1 drop `!used.has(k)` killed by #14; U2 drop the weekIsOver gate killed by #8/#10; U3 `>` to `>=` in weekIsOver killed by #8/#9; C1 attach LOST_IDEAS on override searches killed by considered #1; C2 recordRoute skips considered killed by considered #2. Designed survivor C3 (record LOST_IDEAS from any route, not just 'find'): survives because no other route passes a findTrades result to recordRoute, so it is behaviour-equivalent today.
 
 Local copy, not production (`.local-db/data.sqlite`, tree 0c3775c7, after the round-0 live.mjs run): league 1 considered rows 2 before, 2 after `findTradeSequences` (which returned 3 sequences, so step 2 ran; the skeptic measured 2 to 8 on the old code). Then `/find` path (`findTrades` requireMutual false + `recordRoute('find')`): edge_removed 2, inserted 4 considered rows. League 2: sequences 3, considered 0 to 0; `/find` edge_removed 0, inserted 0. `gradeDue()`: graded 0, pending 132; both leagues have `current_week` 3 and every row is for week 3, so nothing is due (grading itself is proved by the fixture tests).
+
+## 9. Gate round (full run `/tmp/gate-GR-01.log`, tree e2f9d08c)
+
+Full suite: 4259 tests, 4214 pass, 4 fail, 41 skipped. Three of the four are this branch; one is not.
+
+| Failing test | Cause | Owner |
+|---|---|---|
+| model-registry-persistence "latest migration down and re-up are transactional and reproducible" | `migration 071_rec_ledger has no down(db) export` (`server/db/migrate.js:70`) | this branch |
+| migration-027-populated-upgrade "C03: 028 refuses to downgrade..." | same: `unwindTo()` walks back through 071 | this branch |
+| migration-027-populated-upgrade "C03: 027 refuses to downgrade..." | same | this branch |
+| route-deletion-impact "a call site inside an already-unreached function is a survivor" | not this branch. The branch touches neither `scripts/route-deletion-impact.mjs` nor its test (`git diff origin/main HEAD -- scripts test/route-deletion-impact.test.js` is empty). origin/main `131a7ba0`'s own copies of `scripts/`, `server/`, `docs/wiring/` and the test, extracted with `git archive` to a scratch dir and run under local Node 25.9: the same test fails, 7 pass / 1 fail. Main's CI (Node 22) is green on the same file. Local-environment failure, pre-existing. | not GR-01 |
+
+**Fix.** `071_rec_ledger.js` gains `down(db)`: it refuses while `rec_ledger` holds any row (each row is a frozen
+recommendation and its grade; dropping it deletes evidence, the same refusal 027 makes) and otherwise drops the
+two indexes and the table. `up()` is unchanged and still additive.
+
+- RED `0b826f96` (`test/rec-ledger.test.js` #16, #17): 15 pass / 2 fail, both `'migration 071_rec_ledger has no down(db) export'`.
+- GREEN (the commit carrying this section): rec-ledger 17/17, model-registry-persistence 22/22,
+  migration-027-populated-upgrade 16/16, rec-ledger-considered 3/3, rec-ledger-route 9/9. Each run
+  `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<mktemp> node --experimental-test-module-mocks --test --test-reporter=tap test/<file>.test.js`.
+- Liveness: mutant D1 (`if (n)` to `if (false && n)`, so a populated ledger is dropped) turns rec-ledger to 15 pass / 2 fail
+  (#16 fails on the missing refusal; #17 then fails because D1 already dropped the table). Restored afterwards.

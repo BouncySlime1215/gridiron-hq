@@ -56,3 +56,22 @@ export function up(db) {
       ON rec_ledger (graded_at, league_id, season);
   `);
 }
+
+/**
+ * Rolls 071 back only while the ledger is empty. Each row is a recommendation
+ * frozen when it was made and graded later; dropping a populated table would
+ * delete that evidence rather than downgrade it (the same refusal 027 makes).
+ */
+export function down(db) {
+  const exists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='rec_ledger'`).get();
+  const n = exists ? db.prepare('SELECT COUNT(*) AS n FROM rec_ledger').get().n : 0;
+  if (n) {
+    throw new Error(`rollback refused: ${n} rec_ledger row(s) are frozen recommendations and their grades. `
+      + 'Rolling back would delete that evidence. Restore the pre-migration snapshot instead.');
+  }
+  db.exec(`
+    DROP INDEX IF EXISTS idx_rec_ledger_ungraded;
+    DROP INDEX IF EXISTS idx_rec_ledger_identity;
+    DROP TABLE IF EXISTS rec_ledger;
+  `);
+}

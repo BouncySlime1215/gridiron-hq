@@ -158,7 +158,10 @@ export async function askCoach({ question, context = null, leagueId = null,
     const isFinalRound = round === MAX_TOOL_ROUNDS;
     const msg = await callClaude({
       feature: 'coach:answer', model, maxTokens: MAX_OUTPUT_TOKENS,
-      system: systemPrompt(), cacheSystem: true, messages,
+      // System (with the tools in front of it) is the stable breakpoint; the
+      // conversation cache lets each round re-read the rounds before it, whose
+      // tool results are most of what a later round sends.
+      system: systemPrompt(), cacheSystem: true, cacheConversation: true, messages,
       tools: toolDefinitions(),
       toolChoice: isFinalRound ? { type: 'none' } : undefined
     });

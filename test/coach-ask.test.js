@@ -240,6 +240,8 @@ test('the system prompt tells the model what it may read and how to cite', async
   assert.match(system, /r1#0\./, 'the cite grammar is not in the prompt');
   assert.match(system, /refus/i, 'the model is not told it may refuse');
   assert.ok(client.sent[0].tools.length >= 4, 'no tools were offered');
+  assert.equal(client.sent[0].system.at(-1).cache_control?.type, 'ephemeral', 'the system prompt is not cached');
+  assert.equal(client.sent[0].cache_control?.type, 'ephemeral', 'the tool-loop conversation is not cached');
 });
 
 test('what is on screen is context, never evidence', async () => {

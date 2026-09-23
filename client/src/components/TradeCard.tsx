@@ -363,7 +363,10 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
                   </span>
                 </div>
                 <div className="text-[11px] text-[var(--muted)] tabular-nums">
-                  title odds · playoffs {s.playoff_delta > 0 ? '+' : ''}{(s.playoff_delta * 100).toFixed(1)}pts · wins {s.wins_delta > 0 ? '+' : ''}{s.wins_delta}
+                  title odds · playoffs <span className={s.playoff_delta_clears_noise === true ? 'text-[var(--ink)]' : ''}>
+                    {s.playoff_delta > 0 ? '+' : ''}{(s.playoff_delta * 100).toFixed(1)}pts
+                    {s.playoff_delta_se != null && <> ±{(2 * s.playoff_delta_se * 100).toFixed(1)}</>}
+                    {s.playoff_delta_clears_noise !== true && ' (within noise)'}</span> · wins {s.wins_delta > 0 ? '+' : ''}{s.wins_delta}
                 </div>
               </div>
             ))}

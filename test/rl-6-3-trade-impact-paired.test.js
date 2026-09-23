@@ -69,10 +69,13 @@ for (let t = 1; t <= 4; t++) {
   });
   teamPlayers.set(t, ids);
 }
-// A free agent who never starts (projects ~0), in the busiest game, with the
-// highest id: the claim case CE-09's odds ladder needs to be paired.
-const FA = 999;
+// Free agents who never start (project ~0), in the busiest game: the claim case
+// CE-09's odds ladder needs to be paired. FA has the highest id; FA_LOW sorts
+// BEFORE every rostered player, so without a shared player universe he would
+// shift the copula rows of everyone in his game (skeptic's case, 2026-09-23).
+const FA = 999, FA_LOW = 50;
 addPlayer(FA, 'RB', NFL_TEAMS[(1 + 1 * 2) % 6], 0.01);
+addPlayer(FA_LOW, 'RB', NFL_TEAMS[(1 + 1 * 2) % 6], 0.01);
 
 mock.module('../server/services/trade-engine.js', {
   namedExports: {
@@ -98,10 +101,16 @@ mock.module('../server/services/gamescript.js', {
 mock.module('../server/services/contingency.js', {
   namedExports: { ...realContingency, weeklyAvailability: () => new Map() }
 });
-const { simulateSeason, tradeImpact } = await import('../server/services/season-sim.js?rl63');
+const simModule = await import('../server/services/season-sim.js?rl63');
+const { simulateSeason, tradeImpact } = simModule;
+// trade-engine.js imports season-sim.js, so the plain season-sim instance was
+// loaded (unmocked) by the `realTradeEngine` import above. Point the Title-impact
+// tab at the mocked instance, or its deals are simulated on empty projections
+// (every team scores 0, team 1 wins every run, every delta and SE is 0).
+mock.module('../server/services/season-sim.js', { namedExports: { ...simModule } });
 const { withRandomSeed } = await import('../server/services/stats-util.js');
 const { contradictionBar, judgeTradeVerdict } = await import('../server/services/trade-verify.js');
-const { summariseTitleTrades, titleOddsTrades } = await import('../server/services/title-odds-trades.js');
+const { mutualTitleGain, summariseTitleTrades, titleOddsTrades } = await import('../server/services/title-odds-trades.js?rl63');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -128,8 +137,15 @@ const league = () => db.prepare('SELECT * FROM leagues WHERE id = 631').get();
 const RUNS = 400;
 const shape = sim => sim.teams.map(t => [t.roster_id, t.title_odds, t.playoff_odds, t.expected_wins, t.expected_points])
   .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
-const sim = (seed, overrides = null) => withRandomSeed(seed,
-  () => simulateSeason(league(), { runs: RUNS, fromWeek: 2, overrides }));
+const sim = (seed, overrides = null, universe = null) => withRandomSeed(seed,
+  () => simulateSeason(league(), { runs: RUNS, fromWeek: 2, overrides, universe }));
+const assertSameOdds = (after, base, what) => {
+  for (const [a, b] of shape(after).map((row, i) => [row, shape(base)[i]])) {
+    for (let k = 1; k < a.length; k++) {
+      assert.ok(Math.abs(a[k] - b[k]) <= 1e-9, `team ${a[0]} field ${k}: ${b[k]} -> ${a[k]} ${what}`);
+    }
+  }
+};
 
 test('RL-6-3: a roster-order-only permutation leaves every team\'s odds exactly unchanged', () => {
   const base = sim(11);
@@ -145,15 +161,19 @@ test('RL-6-3: a roster-order-only permutation leaves every team\'s odds exactly 
   assert.notDeepEqual(shape(sim(11, swapped)), shape(base), 'control: a real change must move something');
 });
 
-test('RL-6-3: a bench free agent who never starts changes nothing, for any team, to 1e-9', () => {
-  const base = sim(12);
-  const claim = new Map([['4', [...teamPlayers.get(4), FA]]]);
-  const after = sim(12, claim);
-  for (const [a, b] of shape(after).map((row, i) => [row, shape(base)[i]])) {
-    for (let k = 1; k < a.length; k++) {
-      assert.ok(Math.abs(a[k] - b[k]) <= 1e-9, `team ${a[0]} field ${k}: ${b[k]} -> ${a[k]} after a benched claim`);
-    }
+test('RL-6-3: a bench free agent who never starts changes nothing, for any team and any id, to 1e-9', () => {
+  // Both arms simulate one shared player universe (the claimed player is in it),
+  // which is the contract tradeImpact and CE-09's claim ladder use.
+  for (const fa of [FA, FA_LOW]) {
+    const base = sim(12, null, [fa]);
+    const after = sim(12, new Map([['4', [...teamPlayers.get(4), fa]]]), [fa]);
+    assertSameOdds(after, base, `after a benched claim of id ${fa}`);
   }
+  // Known-nonzero control: WITHOUT the shared universe, the low-id claim moves an
+  // uninvolved team (0.305 -> 0.3075 for team 1 on head 79a1b1ca), because he
+  // enters the same-game copula block ahead of everyone else in it.
+  const unshared = sim(12, new Map([['4', [...teamPlayers.get(4), FA_LOW]]]));
+  assert.notDeepEqual(shape(unshared), shape(sim(12)), 'control: an unshared universe is not paired');
 });
 
 test('RL-6-3: tradeImpact publishes a paired standard error below the unpaired one', () => {
@@ -224,12 +244,51 @@ test('RL-6-3: the sense-check judge reads the impact\'s own paired SE (call site
   assert.equal(j.contradicted, true, 'a -1.5pp loss past a 1.0pp bar contradicts "sound"');
 });
 
-test('RL-6-3: the Title-impact tab carries each deal\'s paired SE (call site)', () => {
+test('RL-6-3: the Title-impact tab shows the same numbers tradeImpact gives the card and the sense-check (call site)', () => {
   const out = titleOddsTrades(631, { teamId: '1', shortlist: 2, runs: 200 });
   assert.ifError(out.error);
   const d = out.deals[0];
   assert.ok(d, 'control: the fixture deal was simulated');
-  assert.equal(typeof d.title_delta_se, 'number');
-  assert.equal(d.title_delta_clears_noise, Math.abs(d.title_delta) > 2 * d.title_delta_se);
-  assert.equal(typeof out.no_deal_clears_noise, 'boolean');
+  // TradeCard (POST /model/:id/trade-impact) and the sense-check call tradeImpact
+  // with no seed and no scoring: the defaults must be what this tab shows.
+  const ref = tradeImpact(league(), { myTeamId: 1, theirTeamId: 2,
+    iGive: d.i_give.map(p => p.id), iGet: d.i_get.map(p => p.id), runs: 200 });
+  // Non-degenerate: team 1 is not a lock and the two sides' SEs differ, so a
+  // me/them swap or a wrong seed cannot pass.
+  assert.ok(ref.me.title_before > 0 && ref.me.title_before < 1, `team 1 title odds ${ref.me.title_before}`);
+  assert.ok(ref.me.title_delta_se > 0 && ref.me.title_delta_se !== ref.them.title_delta_se,
+    `me SE ${ref.me.title_delta_se} vs them SE ${ref.them.title_delta_se}`);
+  assert.equal(d.title_delta, ref.me.title_delta, 'one deal, one delta on every surface');
+  assert.equal(d.title_delta_se, ref.me.title_delta_se);
+  assert.equal(d.title_delta_clears_noise, ref.me.title_delta_clears_noise);
+  assert.equal(d.playoff_delta, ref.me.playoff_delta);
+  assert.equal(d.their_title_delta, ref.them.title_delta);
+  assert.equal(d.their_title_delta_se, ref.them.title_delta_se);
+  assert.equal(d.their_title_delta_clears_noise, ref.them.title_delta_clears_noise);
+  assert.equal(d.mutual_title_gain, mutualTitleGain(ref.me, ref.them));
+  assert.equal(out.no_deal_clears_noise, !out.deals.some(x => x.title_delta_clears_noise === true));
+});
+
+test('RL-6-3: mutual_title_gain needs BOTH sides up AND past the noise', () => {
+  const up = { title_delta: 0.05, title_delta_clears_noise: true };
+  const upNoisy = { title_delta: 0.05, title_delta_clears_noise: false };
+  const down = { title_delta: -0.05, title_delta_clears_noise: true };
+  assert.equal(mutualTitleGain(up, up), true);
+  assert.equal(mutualTitleGain(up, upNoisy), false, 'their gain inside the noise');
+  assert.equal(mutualTitleGain(upNoisy, up), false, 'my gain inside the noise');
+  assert.equal(mutualTitleGain(up, down), false);
+  assert.equal(mutualTitleGain(down, up), false);
+});
+
+test('RL-6-3: tradeImpact pairs a received free agent (claim) for any id', () => {
+  // Team 4 picks up a never-starting free agent from nobody: team 2 is untouched,
+  // so its delta must be exactly 0 and team 4's too (he never starts).
+  for (const fa of [FA, FA_LOW]) {
+    const impact = tradeImpact(league(), { myTeamId: 4, theirTeamId: 2, iGive: [], iGet: [fa], runs: RUNS, seed: 12 });
+    assert.ifError(impact.error);
+    for (const side of [impact.me, impact.them]) {
+      assert.equal(side.title_delta, 0, `team ${side.roster_id} title delta after claiming id ${fa}`);
+      assert.equal(side.playoff_delta, 0, `team ${side.roster_id} playoff delta after claiming id ${fa}`);
+    }
+  }
 });

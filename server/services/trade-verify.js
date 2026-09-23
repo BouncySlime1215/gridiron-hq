@@ -248,7 +248,6 @@ export function judgeTradeVerdict(impact, verdict, { threshold = TRADE_VERIFY_TH
       material_bar: bars.material_bar,
       se_factor: threshold.SE_FACTOR,
       noise_sd: threshold.NOISE_SD_AT_REFERENCE_RUNS,
-      paired_se: mine.title_delta_se,
       reference_runs: threshold.REFERENCE_RUNS
     }
   };

@@ -40,7 +40,7 @@ import { recordProposalSlate } from '../services/trade-outcomes.js';
 import { lineupCall } from '../services/lineup-brain.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
-import { tradeImpact } from '../services/season-sim.js';
+import { tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
 import {
   proposeVerifyRetryTrade, judgeTradeVerdict, tradeChallengeText, SENSE_CHECK_SIM_RUNS
 } from '../services/trade-verify.js';
@@ -653,7 +653,7 @@ r.get('/:leagueId/title-trades', (req, res, next) => {
     res.json(titleOddsTrades(lg.id, {
       teamId: req.query.team_id,
       shortlist: Math.min(12, Math.max(3, Number(req.query.shortlist) || 6)),
-      runs: Math.min(2000, Number(req.query.runs) || 800)
+      runs: Math.min(2000, Number(req.query.runs) || TRADE_IMPACT_RUNS)
     }));
   } catch (e) { next(e); }
 });
@@ -1141,8 +1141,9 @@ Respond with ONLY JSON:
        * from that one paired run, which is why checking both teams costs nothing
        * extra.
        *
-       * A fixed seed keeps a given deal's answer reproducible: re-opening the
-       * same card must not quietly produce a different verdict.
+       * tradeImpact's default seed (one per league state) keeps a given deal's
+       * answer reproducible AND equal to the Title-impact tab's and TradeCard's
+       * delta for the same deal (RL-6-3: this used to hard-code seed 1).
        *
        * Returns null rather than throwing when the deal cannot be resolved
        * against the real rosters — the second opinion is an optional layer and
@@ -1152,7 +1153,7 @@ Respond with ONLY JSON:
         if (!simArgs) return null;
         try {
           const started = Date.now();
-          const impact = tradeImpact(lg, { ...simArgs, runs, seed: 1 });
+          const impact = tradeImpact(lg, { ...simArgs, runs });
           return impact?.error ? impact : { ...impact, compute_ms: Date.now() - started };
         } catch (e) {
           console.warn(`[trade-sense-check] season simulation unavailable: ${e.message}`);

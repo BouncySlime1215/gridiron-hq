@@ -19,7 +19,8 @@
  * tiebreaker, playoff teams, weeks per round, fixed or re-seeded) and play it out.
  */
 import { rows } from '../db/index.js';
-import { PPR } from './scoring.js';
+import { PPR, scoringFor } from './scoring.js';
+import { SENSE_CHECK_SIM_RUNS } from './trade-verify.js';
 import { buildProjections, sampleWeeks } from './projections.js';
 import { correlatedSampler } from './correlation.js';
 import { gameMultiplier, matchupModel } from './matchups.js';
@@ -273,10 +274,16 @@ export const __test = { lineupPoints, initialRecords, playBracket, addMedianResu
  * @param opts.overrides  Map<roster_id, player_id[]> replacing a team's roster, which
  *                        is how a proposed trade is evaluated: simulate the league as
  *                        it would be after the deal and diff the title odds.
+ * @param opts.universe   extra asset ids to simulate even when no roster holds them.
+ *                        A paired comparison passes the SAME universe to both arms
+ *                        (every id either arm rosters), so the copula's same-game
+ *                        blocks, and therefore every player's draws, are identical
+ *                        in both. Without it, a new player in a same-game block
+ *                        changes the Cholesky rows of everyone sorted after him.
  */
 export function simulateSeason(lg, {
   runs = 2000, fromWeek: requestedWeek = null, scoring = PPR, overrides = null, projections = null,
-  keepRuns = false
+  keepRuns = false, universe = null
 } = {}) {
   const fromWeek = simStartWeek(lg, requestedWeek);
   // The league's own rules, never a hard-coded default: a missing field is a
@@ -315,7 +322,8 @@ export function simulateSeason(lg, {
   // both rosters as `kept + received`, and the copula's Cholesky factor is
   // order-dependent, so a positional order made the "after" season different
   // random football for the whole league (up to 6.5pp on a pure reorder).
-  const roster = [...new Map(teams.flatMap(t => t.players.map(p => [p.id, p]))).values()]
+  const extra = [...(universe ?? [])].map(id => assets.get(Number(id))).filter(Boolean);
+  const roster = [...new Map([...teams.flatMap(t => t.players), ...extra].map(p => [p.id, p])).values()]
     .filter(p => SCORED.has(p.position))
     .sort((a, b) => (a.id > b.id) - (a.id < b.id));
   // One draw from the caller's stream names this simulated world. Every random
@@ -492,6 +500,14 @@ export function tradeImpactSeed(lg) {
 }
 
 /**
+ * The one run count every title-odds delta is simulated at (Title-impact tab,
+ * TradeCard, sense-check). With the one seed (tradeImpactSeed) and the league's
+ * own scoring, the same deal on the same sync is the same number on every
+ * surface. It is the sense-check's measured budget (trade-verify.js).
+ */
+export const TRADE_IMPACT_RUNS = SENSE_CHECK_SIM_RUNS;
+
+/**
  * Title-odds impact of a proposed trade.
  *
  * Runs the league twice — as it is, and as it would be — with the same projection set
@@ -501,9 +517,12 @@ export function tradeImpactSeed(lg) {
  * TRADE_DELTA_NOISE_SE of them.
  */
 export function tradeImpact(lg, {
-  myTeamId, theirTeamId, iGive = [], iGet = [], runs = 1200,
-  scoring = PPR, fromWeek: requestedWeek = null, seed = null
+  myTeamId, theirTeamId, iGive = [], iGet = [], runs = TRADE_IMPACT_RUNS,
+  scoring = null, fromWeek: requestedWeek = null, seed = null
 }) {
+  // Callers no longer pick these: one seed, one run count and the league's own
+  // scoring, so every surface shows the same delta for the same deal.
+  scoring = scoring ?? scoringFor(lg);
   const fromWeek = simStartWeek(lg, requestedWeek);
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
@@ -522,10 +541,13 @@ export function tradeImpact(lg, {
   // has nothing to do with the trade.
   const projections = buildProjections({ through: SEASON - 1, scoring });
   const pairedSeed = seed == null ? tradeImpactSeed(lg) : Number(seed);
+  // One shared player universe for both arms: a received player nobody rosters
+  // today (a free agent in a claim ladder) is simulated in the "before" arm too.
+  const universe = [...give, ...get];
   const before = withRandomSeed(pairedSeed,
-    () => simulateSeason(lg, { runs, fromWeek, scoring, projections, keepRuns: true }));
+    () => simulateSeason(lg, { runs, fromWeek, scoring, projections, keepRuns: true, universe }));
   const after = withRandomSeed(pairedSeed,
-    () => simulateSeason(lg, { runs, fromWeek, scoring, projections, overrides, keepRuns: true }));
+    () => simulateSeason(lg, { runs, fromWeek, scoring, projections, overrides, keepRuns: true, universe }));
   if (before.error || after.error) return before.error ? before : after;
 
   const pick = (sim, id) => sim.teams.find(t => t.roster_id === id);
@@ -548,6 +570,5 @@ export function tradeImpact(lg, {
     };
   };
   return { runs, from_week: fromWeek, seed: pairedSeed, paired_simulation: true,
-    noise_rule: `a delta is shown as real only when it is more than ${TRADE_DELTA_NOISE_SE} paired standard errors from zero`,
     me: delta(me.roster_id), them: delta(them.roster_id) };
 }

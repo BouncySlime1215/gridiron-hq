@@ -29,7 +29,7 @@ import { db, row, rows, run } from '../db/index.js';
 import { scoringFor } from '../services/scoring.js';
 import { buildProjections } from '../services/projections.js';
 import { clearPlayerWeekEngineCache } from '../services/player-week-engine.js';
-import { simulateSeason, simStartWeek, tradeImpact } from '../services/season-sim.js';
+import { simulateSeason, simStartWeek, tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
 import { fitCorrelations, clearCorrelationCache } from '../services/correlation.js';
 import { fitGameScript, syncHistoricalLines, syncCurrentLines, clearGameScriptCache } from '../services/gamescript.js';
 import { syncAll as syncNflverse } from '../services/nflverse.js';
@@ -472,10 +472,9 @@ r.post('/:leagueId/trade-impact', requireAuthenticated, (req, res, next) => {
       myTeamId: my_team_id ?? lg.my_team_id,
       theirTeamId: their_team_id,
       iGive: i_give, iGet: i_get,
-      runs: Math.min(3000, Number(req.body?.runs) || 1200),
+      runs: Math.min(3000, Number(req.body?.runs) || TRADE_IMPACT_RUNS),
       fromWeek: simStartWeek(lg, req.body?.from_week),
-      seed: req.body?.seed ?? null,
-      scoring: scoringFor(lg)
+      seed: req.body?.seed ?? null
     }));
   } catch (e) { next(e); }
 });

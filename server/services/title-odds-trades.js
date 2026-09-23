@@ -25,7 +25,7 @@
  */
 import { row } from '../db/index.js';
 import { findTrades } from './trade-engine.js';
-import { tradeImpact } from './season-sim.js';
+import { tradeImpact, TRADE_IMPACT_RUNS } from './season-sim.js';
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 
@@ -39,7 +39,7 @@ export function clearTitleOddsTradeCache() { _cache.clear(); }
  *   to move title odds are near the top of its list.
  */
 export function titleOddsTrades(leagueId, {
-  teamId = null, shortlist = 8, runs = 800, requireMutual = true
+  teamId = null, shortlist = 8, runs = TRADE_IMPACT_RUNS, requireMutual = true
 } = {}) {
   const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg?.payload) return { error: 'league not synced yet' };
@@ -68,7 +68,11 @@ export function titleOddsTrades(leagueId, {
     const impact = tradeImpact(lg, {
       myTeamId: teamId ?? lg.my_team_id, theirTeamId: d.partner_id,
       iGive: d.i_give.map(p => p.id), iGet: d.i_get.map(p => p.id),
-      runs, seed: 1                     // fixed seed: every deal faces the same season
+      // No seed/scoring here: tradeImpact's defaults (tradeImpactSeed(lg), the
+      // league's scoring) are what TradeCard and the sense-check use too, so the
+      // same deal shows the same delta on every surface. Every deal on this tab
+      // still faces the same simulated season (one seed per league state).
+      runs
     });
     if (impact.error) continue;
     scored.push({
@@ -89,8 +93,8 @@ export function titleOddsTrades(leagueId, {
       // worth nothing however much it helps us.
       their_title_delta: r4(impact.them.title_delta),
       their_title_delta_se: impact.them.title_delta_se,
-      mutual_title_gain: impact.me.title_delta > 0 && impact.them.title_delta > 0
-        && impact.me.title_delta_clears_noise && impact.them.title_delta_clears_noise
+      their_title_delta_clears_noise: impact.them.title_delta_clears_noise,
+      mutual_title_gain: mutualTitleGain(impact.me, impact.them)
     });
   }
 
@@ -111,6 +115,15 @@ export function titleOddsTrades(leagueId, {
   };
   _cache.set(key, value);
   return value;
+}
+
+/**
+ * Both sides gain title odds, and both gains are past their own noise band.
+ * Exported for tests.
+ */
+export function mutualTitleGain(me, them) {
+  return me.title_delta > 0 && them.title_delta > 0
+    && me.title_delta_clears_noise === true && them.title_delta_clears_noise === true;
 }
 
 /**

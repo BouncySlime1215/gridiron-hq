@@ -273,6 +273,7 @@ function TitleTrades({ leagueId, teamId }: { leagueId: number; teamId: string | 
       <div className={`card p-4 mb-3 ${data?.objectives_disagree ? 'border-amber-300 bg-amber-50/50' : ''}`}>
         <h2 className="text-sm font-bold text-slate-800 mb-1">
           {data?.simulated ?? 0} deals simulated · ranked by championship odds
+          {data?.no_deal_clears_noise && <span className="font-normal text-slate-500"> · none moves your odds past its noise band</span>}
         </h2>
         <p className="text-xs text-slate-700 leading-relaxed">{data?.disagreement_note}</p>
       </div>
@@ -310,7 +311,10 @@ function TitleTrades({ leagueId, teamId }: { leagueId: number; teamId: string | 
                 <div className="text-[11px] text-slate-500 mt-1.5">
                   with <b className="text-slate-700">{d.partner}</b> · {d.fairness}
                   {d.their_title_delta != null && (
-                    <> · their title {(d.their_title_delta * 100).toFixed(1)}%
+                    <> · their title <span className={d.their_title_delta_clears_noise === true ? '' : 'text-slate-400'}>
+                        {(d.their_title_delta * 100).toFixed(1)}%
+                        {d.their_title_delta_se != null && <> ±{(2 * d.their_title_delta_se * 100).toFixed(1)}</>}
+                        {d.their_title_delta_clears_noise !== true && ' (within noise)'}</span>
                       {d.mutual_title_gain && <b className="text-emerald-700"> · both gain</b>}</>
                   )}
                 </div>

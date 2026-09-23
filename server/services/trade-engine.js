@@ -62,6 +62,7 @@ import { SLOT_NAME } from './espn-draft.js';
 import { seasonEndingEspnIds } from './player-availability.js';
 import { buildPlayerWeekEngine, playerWeekDistribution } from './player-week-engine.js';
 import { weeklyAvailability, availabilityBasis } from './contingency.js';
+import { activeInjuryFlagIds } from './injury-flags.js';
 import { cached, fingerprint } from './compute-cache.js';
 import { activeWeeklyWeightSet } from './weekly-weight-store.js';
 import { scoringFor } from './scoring.js';
@@ -333,8 +334,7 @@ function buildAssetUniverse(lg, formatKey, target) {
   const ageByPlayer = new Map(rows(`SELECT p.id, rp.age FROM players p
                                     JOIN roster_players rp ON rp.espn_id = p.espn_id
                                     WHERE rp.age IS NOT NULL`).map(x => [x.id, x.age]));
-  const injured = new Set(rows(`SELECT player_id FROM player_metrics WHERE source='injury_flag' AND value > 0`)
-    .map(x => x.player_id));
+  const injured = activeInjuryFlagIds();
   // Same season-ending/released detection the X's&O's depth chart uses — without
   // this, a player out for the year keeps getting picked as the optimal starter
   // here even after the roster page correctly benches him.

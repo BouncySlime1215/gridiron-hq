@@ -113,7 +113,7 @@ const EXPERT_IDS = ['ensemble_shift', 'game_script_delta', 'boom_bust_signal'];
  * this base, and a fit whose target is none of these to nothing, so the structural fit on
  * the ensemble (S-02's arm B, served until S-03) cannot be built again.
  */
-export const FIT_TARGETS = Object.freeze({
+const FIT_TARGETS = Object.freeze({
   structural: Object.freeze({ label: 'structural-projection residual', base: 'structural_ppg',
     basis: 'structural+coordinator', arm: 'S1' }),
   ensemble: Object.freeze({ label: 'ensemble-projection residual', base: 'ppg',
@@ -132,7 +132,7 @@ export function fitTargetOf(fit) {
  * stops at 17), and the surface label says so.
  */
 export const CONSTRUCTION_WINDOWS = Object.freeze(['2-4', '5-17']);
-export function constructionWindow(week) {
+function constructionWindow(week) {
   return Number(week) <= 4 ? '2-4' : '5-17';
 }
 const gradedWeek = week => Number(week) >= 2 && Number(week) <= 17;

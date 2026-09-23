@@ -247,8 +247,11 @@ test('the surface says what this week\'s number is built from', () => {
   assert.match(basis.label, /chance to play/i);
   assert.match(basis.label, /no betting-line/i);
   assert.equal(assets.get(P.id).week_basis, 'structural+coordinator');
+  assert.equal(basis.graded_week, true);
   // Weeks 1 and 18 were never graded; the label says so.
-  assert.match(assetUniverse(L, FORMAT, { season: 2026, week: 1 }).context.week_basis.label, /not graded/i);
+  const week1 = assetUniverse(L, FORMAT, { season: 2026, week: 1 }).context.week_basis;
+  assert.equal(week1.graded_week, false);
+  assert.match(week1.label, /not graded/i);
 });
 
 // ------------------------------------------------------------------ the betting-line lift

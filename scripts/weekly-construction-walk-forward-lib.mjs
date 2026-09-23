@@ -13,6 +13,7 @@
  * signed error = prediction − actual, negative = reads low.
  */
 import { gameScriptLift } from '../server/services/waiver-brain.js';
+import { CONSTRUCTION_WINDOWS } from '../server/services/fantasy-coordinator.js';
 import { pairedBootstrapDiff } from '../server/services/backtest-significance.js';
 import { SERVED, retargetToEnsembleResidual, assertFitCutoff, assertContextCutoff, compareArms } from './weekly-construction-grade-lib.mjs';
 
@@ -23,8 +24,8 @@ import { SERVED, retargetToEnsembleResidual, assertFitCutoff, assertContextCutof
  */
 export const LIFT_DEPS = Object.freeze({ ...SERVED, vegasLift: gameScriptLift });
 
-/** Both windows on: a study grading the construction's arithmetic, not a promotion. */
-export const BOTH_ON = Object.freeze({ '2-4': 'on', '5-17': 'on' });
+/** Every window on (fantasy-coordinator.js's CONSTRUCTION_WINDOWS): a study grading the construction's arithmetic, not a promotion. */
+export const BOTH_ON = Object.freeze(Object.fromEntries(CONSTRUCTION_WINDOWS.map(w => [w, 'on'])));
 
 const mean = xs => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
 
@@ -167,7 +168,7 @@ export function promotionFromEvidence(report, fitRow) {
   }
   if (fitRow.target !== 'structural') throw new Error(`arm S1 is the structural-residual fit; this row's target is ${fitRow.target}`);
   const windows = {};
-  for (const w of Object.keys(BOTH_ON)) {
+  for (const w of CONSTRUCTION_WINDOWS) {
     const d = report.decisions?.[w];
     if (!d) throw new Error(`the evidence has no decision for weeks ${w}`);
     windows[w] = d.coordinator === 'S1' && d.status === 'on' ? 'on' : 'off';

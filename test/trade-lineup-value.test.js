@@ -20,7 +20,7 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.SCHEDULER_DISABLED = '1';
 process.env.NFL_WEEK = '4';
 
-const { evaluate, lineupValueContext } = await import('../server/services/trade-engine.js');
+const { evaluate, lineupValue, lineupValueContext } = await import('../server/services/trade-engine.js');
 
 test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
 
@@ -94,6 +94,52 @@ test('1-for-1: summed value and lineup value agree, nobody drops or adds', () =>
   // No spot changes hands, so it is exactly the existing lineup delta times the weeks.
   assert.equal(a.per_week, ev.me.ppg_delta);
   assert.equal(a.total, +(ev.me.ppg_delta * WEEKS).toFixed(1));
+  // One producer for the season-scale lineup number: with no spot changing hands the
+  // existing season_delta and lineup_value.total are the same number.
+  assert.equal(ev.me.season_delta, a.total);
+  assert.equal(ev.them.season_delta, ev.them.lineup_value.total);
+  assert.equal(ev.me.season_delta_weeks, WEEKS);
+  assert.equal(ev.me.season_delta_basis, 'weeks_remaining');
+});
+
+test('a bye THIS week is counted once, not in every week left', () => {
+  // A's TE: 9 this week and after. B's TE: on bye this week (0), 8 a week after, so
+  // adj_ppg (25% this week + 75% rest of season) is 6.
+  const aTE = P('A TE bye-test', 'TE', 9, 1200, { current_week_ppg: 9, ros_ppg: 9 });
+  const bTE = P('B TE bye-test', 'TE', 6, 900, { current_week_ppg: 0, ros_ppg: 8 });
+  const tA = { ...teamA, players: [...teamA.players.filter(p => p.position !== 'TE'), aTE] };
+  const tB = { ...teamB, players: [...teamB.players.filter(p => p.position !== 'TE'), bTE] };
+  const ev = evaluate({ team: tA, gives: [aTE] }, { team: tB, gives: [bTE] }, SLOTS,
+    { lineupValue: { wire: WIRE, weeksLeft: WEEKS } });
+  const a = ev.me.lineup_value;
+  assert.equal(a.per_week, ev.me.ppg_delta, 'per_week is still the ppg_delta number');
+  assert.equal(a.per_week, -3);
+  // By hand, week by week: this week 0 - 9, then 13 weeks of 8 - 9 = -9 - 13 = -22.
+  // per_week x 14 would say -42.
+  assert.equal(a.total, -22);
+  assert.equal(ev.me.season_delta, -22);
+});
+
+test('without the weeks left, season_delta keeps the 17-week default and says so', () => {
+  const ev = evaluate({ team: teamA, gives: [aStar] }, { team: teamB, gives: [bMid1, bMid2] }, SLOTS);
+  assert.equal(ev.me.season_delta, +(ev.me.ppg_delta * 17).toFixed(1));
+  assert.equal(ev.me.season_delta_weeks, 17);
+  assert.equal(ev.me.season_delta_basis, 'full_season_default');
+});
+
+test('the needed spot costs the least-MISSED player, even when a starter is rated lower', () => {
+  // The only TE (6) starts and is the lowest-rated player; the bench RB (8) sits.
+  const out = P('C WR3', 'WR', 12, 1500);
+  const team = { roster_id: '3', owner: 'C', players: [
+    P('C QB', 'QB', 20, 3000), P('C RB1', 'RB', 15, 2500), P('C RB2', 'RB', 14, 2400),
+    P('C WR1', 'WR', 15, 2600), P('C WR2', 'WR', 14, 2400), P('C TE', 'TE', 6, 800),
+    out, P('C bench RB', 'RB', 8, 700)] };
+  const gets = [P('In WR', 'WR', 13, 1600), P('In RB', 'RB', 9, 900)];
+  const lv = lineupValue(team, [out], gets, SLOTS, { wire: WIRE, weeksLeft: WEEKS });
+  assert.equal(lv.roster_spots, 1);
+  assert.deepEqual(lv.dropped.map(p => p.name), ['C bench RB']);
+  // FLEX 12 -> 13; the TE still starts.
+  assert.equal(lv.per_week, 1);
 });
 
 test('no wire supplied: lineup_value is null, never a free roster spot', () => {

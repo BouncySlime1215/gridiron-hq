@@ -101,7 +101,9 @@ test('findTrades (GET /find): every returned deal carries lineup_value next to v
     adj_ppg: ppg, ppg, ros_ppg: ppg * 0.5 + (id % 3), value, proj: ppg * 17 });
   const me = { roster_id: '1', owner: 'Team 1', players: [
     P('M QB', 'QB', 20, 3000), P('M RB1', 'RB', 18, 5000), P('M RB2', 'RB', 16, 4500), P('M RB3', 'RB', 15, 4000),
-    P('M WR1', 'WR', 9, 2000), P('M WR2', 'WR', 8, 1800), P('M TE', 'TE', 9, 1500), P('M WR3', 'WR', 5, 500)] };
+    P('M WR1', 'WR', 9, 2000), P('M WR2', 'WR', 8, 1800), P('M TE', 'TE', 9, 1500), P('M WR3', 'WR', 5, 500),
+    // A fourth RB lets me sell two for one without a hole, so the finder returns uneven deals.
+    P('M RB4', 'RB', 14, 3000)] };
   const them = { roster_id: '2', owner: 'Team 2', players: [
     P('T QB', 'QB', 19, 3000), P('T RB1', 'RB', 9, 2000), P('T RB2', 'RB', 8, 1800),
     P('T WR1', 'WR', 18, 5000), P('T WR2', 'WR', 16, 4500), P('T WR3', 'WR', 15, 4000),
@@ -119,5 +121,19 @@ test('findTrades (GET /find): every returned deal carries lineup_value next to v
     assert.equal(d.them.lineup_value?.status, 'not yet validated');
     assert.equal(d.me.lineup_value.roster_spots, d.i_get.length - d.i_give.length);
     if (d.i_get.length === d.i_give.length) assert.equal(d.me.lineup_value.per_week, d.me.ppg_delta, 'one lineup number');
+    // The finder's own weeks-left reaches the number (week 4, default calendar).
+    assert.equal(d.me.lineup_value.weeks, 14);
+    assert.equal(d.them.lineup_value.weeks, 14);
+  }
+  // The roster-spot charge on the finder path: an uneven deal fills the freed spot
+  // from the finder's wire and charges the other side a drop.
+  const uneven = out.deals.filter(d => d.i_give.length > d.i_get.length);
+  assert.ok(uneven.length > 0, `known-nonzero: the finder returns a 2-for-1 (${out.deals.length} deals)`);
+  const wireNames = new Set(wire.map(p => p.name));
+  for (const d of uneven) {
+    const lv = d.me.lineup_value;
+    assert.equal(lv.replacement.length, d.i_give.length - d.i_get.length, 'every freed spot is filled');
+    assert.ok(lv.replacement.every(r => wireNames.has(r.name)), `fill comes from the wire: ${lv.replacement.map(r => r.name)}`);
+    assert.equal(d.them.lineup_value.dropped.length, d.i_give.length - d.i_get.length);
   }
 });

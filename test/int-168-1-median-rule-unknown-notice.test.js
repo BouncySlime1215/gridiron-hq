@@ -127,12 +127,15 @@ const stubUrl = (name, names, dflt = true) =>
   write(name, names.map(nullComp).join('\n') + (dflt ? '\nexport default function Stub() { return null; }' : ''));
 const copyUrl = compile('client/src/copy-constants.ts', 'copy-constants.mjs', {});
 const routerUrl = write('router.mjs', nullComp('Link'));
+// UX-08b/08c route alert() through the real errorSanitize (pure; compiled, not stubbed).
+const errorSanitizeUrl = compile('client/src/lib/errorSanitize.ts', 'errorSanitize.mjs', {});
 
 const modelUrl = compile('client/src/pages/Model.tsx', 'Model.mjs', {
   "'../api'": apiUrl, "'../state/league'": leagueUrl, "'../copy-constants'": copyUrl,
   "'../components/PlayerCard'": write('PlayerCard.mjs', 'export function usePlayerCard() { return { open() {}, card: null }; }'),
   "'../components/PageState'": stubUrl('PageState.mjs', ['EmptyState', 'PageError', 'PageLoading'], false),
   "'../components/MedianGameNotice'": noticeUrl,
+  "'../lib/errorSanitize'": errorSanitizeUrl,
 });
 const myTeamUrl = compile('client/src/pages/MyTeam.tsx', 'MyTeam.mjs', {
   "'react-router-dom'": routerUrl, "'../api'": apiUrl, "'../state/league'": leagueUrl, "'../copy-constants'": copyUrl,
@@ -144,6 +147,7 @@ const myTeamUrl = compile('client/src/pages/MyTeam.tsx', 'MyTeam.mjs', {
   // main's #180 gates the page on the real leagueGate (pure; compiled, not stubbed).
   "'../state/leagueGate'": compile('client/src/state/leagueGate.ts', 'leagueGate.mjs', {}),
   "'../components/MedianGameNotice'": noticeUrl,
+  "'../lib/errorSanitize'": errorSanitizeUrl,
 });
 const { default: Model } = await import(modelUrl);
 const { default: MyTeam } = await import(myTeamUrl);

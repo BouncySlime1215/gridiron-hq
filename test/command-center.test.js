@@ -224,12 +224,14 @@ test('GET /api/command-center: the RED league yields three items, only the user\
 
 test('feature detection: no injury_alerts field and no streaming module read "not_merged", not "none"', async () => {
   producerOut.set(redLeague, { diff: { flagged_starters: [] }, waivers: { immediate: [] } });
-  cc.__setStreamingProducer(null);
+  // undefined = real detection: import('./streaming-board.js') on this build.
+  cc.__setStreamingProducer(undefined);
   cc.__clearCache();
   const body = await (await fetch(base, { headers: { 'x-test-user': String(nick) } })).json();
   const red = body.leagues.find(l => l.id === redLeague);
   assert.equal(red.sources.injury_alerts.state, 'not_merged');
   assert.equal(red.sources.streams.state, 'not_merged');
+  assert.equal(red.sources.streams.waiting_on, 'WV-01 (PR #176)');
   assert.equal(red.sources.dead_starters.state, 'present');
   assert.equal(red.sources.dead_starters.producer, 'lineupDiff.flagged_starters');
 });
@@ -241,7 +243,7 @@ test('a producer that throws marks that source "error" for that league and the r
   const body = await (await fetch(base, { headers: { 'x-test-user': String(nick) } })).json();
   const red = body.leagues.find(l => l.id === redLeague);
   assert.equal(red.sources.streams.state, 'error');
-  assert.match(red.sources.streams.message, /exploded/);
+  assert.ok(!red.sources.streams.message.includes('exploded'), 'the raw exception stays in the server log');
   assert.deepEqual(body.items.filter(i => i.league.id === redLeague).map(i => i.kind).sort(), ['dead_starter', 'injury_alert']);
 });
 

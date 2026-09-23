@@ -99,3 +99,31 @@ Deleted at the end of this unit: `.local-db/data.sqlite` (925 MB backup copy), s
 3. **How we know:** DOM measurement on the live dev server (§5) plus 4 regression tests (§3-4), not a backtest (not applicable to a UI unit).
 4. **Pointed anywhere else on the platform?** No — Leagues.tsx, TradeLab.tsx, and Teams.tsx are each edited once, at the exact lines the audit named. No other page reuses these tab-strip/grid patterns verbatim (not grepped exhaustively; out of this unit's scope, which is these three named defects).
 5. **How it unifies:** Closes out the three `UX-01-audit.md` "horizontal scroll survives on phone" findings (audit finding 6) under UI-STANDARD #7 ("375px, no horizontal scroll"). No nav change, no page rebuilt or deleted (nav still 8 tabs).
+
+## 9. Skeptic round 1: blocking fixes (2026-09-23)
+
+Skeptic (TEST LIVENESS lens) found two holes. Both were real, so the fix went into the tests. No page code changed.
+
+1. **The phone-view check was met by a comment.** Deleting the Leagues `sm:hidden` card list still gave pass 4 fail 0, because `assert.match(src, /sm:hidden/)` matched the comment at Leagues.tsx:186. Fix: comments are now stripped before matching. The regex requires `<div className="...sm:hidden...">` with `{analysis.rosters.map` directly inside it. It also asserts that `analysis.rosters.map` appears exactly twice: once in the desktop table, once in the phone cards.
+2. **No width guard.** New tests:
+   - `<main>` in App.tsx must keep `min-w-0` and have no fixed width.
+   - Leagues.tsx, TradeLab.tsx and Teams.tsx must have no unprefixed `w-*`/`min-w-*` class wider than 343px (375 minus main's `p-4` on each side). Arbitrary px and rem values count. Responsive-prefixed classes (`sm:w-...`) are ignored.
+   - The Trade Lab tab bar must not carry `whitespace-nowrap` or `flex-nowrap`, and the Teams name must not carry `whitespace-nowrap`.
+
+Command for every run below (tree = the worktree at the new test commit; each mutant was reverted with `git checkout --` afterwards, and `git status` showed only the uncommitted test file / clean):
+`SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp) node --experimental-test-module-mocks --test --test-reporter=tap test/ui-phone-width-ux10.test.js`
+
+| Mutant | Result |
+|---|---|
+| unmutated control | # pass 9 # fail 0 |
+| M1 (skeptic) delete Leagues.tsx lines 223-251 (phone card list) | # pass 8 # fail 1 (killed) |
+| M3 (skeptic) App.tsx `<main className="min-w-[640px] flex-1` | # pass 8 # fail 1 (killed) |
+| M4 (skeptic) TradeLab tab bar `flex flex-wrap w-[640px]` | # pass 8 # fail 1 (killed) |
+| M5 Leagues card grid (line 228) + `w-96` (384px) | # pass 8 # fail 1 (killed) |
+| M6 Teams name + `whitespace-nowrap` | # pass 8 # fail 1 (killed) |
+| M7 TradeLab tab bar `w-[40rem]` (640px) | # pass 8 # fail 1 (killed) |
+| S1 designed survivor: tab bar `sm:w-[640px]` (applies only at >=640px viewport, so 375px is unaffected) | # pass 9 # fail 0 |
+
+(My first M5 run sed-edited line 227, which does not hold the grid class. The mutation was never applied and the run gave pass 9 fail 0. On the correct line 228 the mutant is killed.)
+
+Remaining limit: these are still source-level guards, not a rendered layout. Overflow from content (a long unbreakable string, for example) is caught only by the manual 375px `scrollWidth === clientWidth` check in section 5. Re-run command for the gate, in Chrome at 375×812 on /teams, /trade-lab and /league: `document.documentElement.scrollWidth === document.documentElement.clientWidth` should return `true` on each route.

@@ -9,6 +9,7 @@
 import crypto from 'node:crypto';
 import { rows } from '../db/index.js';
 import { normalizePlayerName } from './player-identity.js';
+import { ESPN_AVAILABLE } from './espn-status.js';
 
 /**
  * Severe-news vocabulary. Injured reserve is deliberately NOT here: NFL IR is a
@@ -109,8 +110,6 @@ export function textMentionsFullName(text, name) {
  * items first, then only checks roster names against that subset — not every player
  * against every news item.
  */
-/** Statuses under which ESPN is saying "he plays, or is about to". */
-const ESPN_AVAILABLE = new Set(['ACTIVE', 'NORMAL', 'QUESTIONABLE', 'DOUBTFUL', 'PROBABLE', 'DAY_TO_DAY']);
 const toMs = t => (t ? Date.parse(String(t).replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(String(t)) ? '' : 'Z')) : NaN);
 
 /** Latest ESPN injury status and NFL team per ESPN player id, from the synced league payloads. */

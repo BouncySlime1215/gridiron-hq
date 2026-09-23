@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../api';
 import { PageError, PageLoading } from '../PageState';
 import TargetBoard from './TargetBoard';
+import { logServerDetail, sanitizedMessage } from '../../lib/errorSanitize';
 import {
   TIERS, TIER_SHORT, TIER_STYLE, MIN_OBSERVATIONS, isThin, asText, metricLabel
 } from './types';
@@ -72,6 +73,32 @@ function Read({ label, value }: { label: string; value: Record<string, unknown> 
   );
 }
 
+type BoardFactor = { source?: string; label?: string; effect?: number | null; n?: number | null; why?: string | null };
+
+/**
+ * What moved his receptiveness, one line per source, with the sample. A
+ * withheld source (effect null: under its gate, or unknown) says so rather
+ * than printing as a zero.
+ */
+function ReceptivenessFactors({ factors }: { factors: BoardFactor[] }) {
+  if (!factors.length) return null;
+  return (
+    <ul className="mt-1 space-y-0.5">
+      {factors.map((f, i) => (
+        <li key={`${f.source ?? 'factor'}-${i}`} className="text-[11px] leading-5 text-slate-600">
+          <span className={`font-bold tabular-nums ${f.effect == null ? 'text-slate-400'
+            : f.effect > 0 ? 'text-emerald-700' : f.effect < 0 ? 'text-rose-700' : 'text-slate-500'}`}>
+            {f.effect == null ? 'withheld' : `${f.effect > 0 ? '+' : ''}${f.effect.toFixed(2)}`}
+          </span>{' '}
+          {f.label}
+          <span className="text-slate-400"> · n={f.n == null ? '—' : f.n}</span>
+          {f.why && <span className="block text-slate-500">{f.why}</span>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive, thinBelow }: {
   profile: ProfileManager; signal: SignalManager | null; leagueId: number;
   onSaved: () => void; signalsLive: boolean; thinBelow?: number;
@@ -89,11 +116,16 @@ function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive, thinBelow
       });
       onSaved();
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : 'Could not save that tier — try again.');
+      setSaveError(e instanceof Error
+        ? sanitizedMessage('ManagerBoard.set', 'Could not save that tier', e.message)
+        : 'Could not save that tier. Try again in a moment.');
     } finally { setSaving(false); }
   };
 
   const shown = (signal?.signals ?? []);
+  // The factor list is shown as a list; the rest of the receptiveness block stays one line.
+  const { factors: rawFactors, ...receptiveness } = signal?.receptiveness ?? {};
+  const factors = (Array.isArray(rawFactors) ? rawFactors : []) as BoardFactor[];
   const priceable = shown.filter(s => !isThin(s));
 
   return (
@@ -134,7 +166,10 @@ function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive, thinBelow
         <div className="mt-2.5 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
           <div className="grid gap-3 sm:grid-cols-3">
             <Read label="Archetype" value={signal.archetype} />
-            <Read label="Receptiveness" value={signal.receptiveness} />
+            <div>
+              <Read label="Receptiveness" value={signal.receptiveness ? receptiveness : null} />
+              <ReceptivenessFactors factors={factors} />
+            </div>
             <Read label="Negotiation" value={signal.negotiation} />
           </div>
           {!signal.corpus && (
@@ -171,6 +206,31 @@ function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive, thinBelow
 }
 
 /** Why the measured half of this page is not on screen, in the user's terms. */
+/** UX-08b: `error` is the raw server/fetch message — never rendered, only logged. */
+export function signalsRequestFailedReason(error: string): string {
+  if (/\b404\b/.test(error)) {
+    return 'This server does not serve measured manager signals yet: the endpoint answered 404. '
+      + 'Nothing is being hidden — there is nothing there to read.';
+  }
+  logServerDetail('ManagerBoard.signals', error);
+  return 'The signals request failed. Try again in a moment.';
+}
+
+/** UX-08b: `error` is the raw server/fetch message — never rendered, only logged. */
+export function ManagerProfilesGap({ error }: { error: string }) {
+  logServerDetail('ManagerBoard.profiles', error);
+  return (
+    <section role="status" className="rounded-2xl border border-slate-300 bg-slate-50 p-4">
+      <h2 className="text-sm font-black uppercase tracking-wide text-slate-700">No managers to set yet</h2>
+      <p className="mt-1.5 text-sm leading-6 text-slate-700">Couldn't read the roster list. Try again in a moment.</p>
+      <p className="mt-1 text-sm leading-6 text-slate-600">
+        Sync this league from <Link className="font-semibold text-emerald-700" to="/league">League Hub</Link>,
+        then come back — the roster list is what the tiers hang off.
+      </p>
+    </section>
+  );
+}
+
 function SignalsGap({ title, reason, onRetry }: { title: string; reason: string; onRetry?: () => void }) {
   return (
     <section role="status" className="rounded-2xl border border-slate-300 bg-slate-50 p-4">
@@ -220,16 +280,14 @@ export default function ManagerBoard({ leagueId, profiles, signals }: {
       {!signals.loading && signals.error && (
         <SignalsGap
           title="Measured manager signals are not on screen"
-          reason={/\b404\b/.test(signals.error)
-            ? 'This server does not serve measured manager signals yet: the endpoint answered 404. '
-              + 'Nothing is being hidden — there is nothing there to read.'
-            : `The signals request failed: ${signals.error}.`}
+          reason={signalsRequestFailedReason(signals.error)}
           onRetry={signals.refetch}
         />
       )}
 
       {!signals.error && signals.data?.error && (
-        <SignalsGap title="Measured manager signals are not on screen" reason={signals.data.error} />
+        <SignalsGap title="Measured manager signals are not on screen"
+          reason={sanitizedMessage('ManagerBoard.signalsPayload', 'The server could not produce measured signals', signals.data.error)} />
       )}
 
       {!signals.error && signals.data && !signals.data.error && signals.data.available === false && (
@@ -279,18 +337,9 @@ export default function ManagerBoard({ leagueId, profiles, signals }: {
       {/* The hand-set tiers. */}
       {profiles.loading && !p && <PageLoading label="Loading managers…" />}
       {!profiles.loading && profiles.error && !p && (
-        <PageError message={profiles.error} onRetry={profiles.refetch} />
+        <PageError message={sanitizedMessage('ManagerBoard.profilesFetch', "Couldn't read the roster list", profiles.error)} onRetry={profiles.refetch} />
       )}
-      {p?.error && (
-        <section role="status" className="rounded-2xl border border-slate-300 bg-slate-50 p-4">
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-700">No managers to set yet</h2>
-          <p className="mt-1.5 text-sm leading-6 text-slate-700">{p.error}</p>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
-            Sync this league from <Link className="font-semibold text-emerald-700" to="/league">League Hub</Link>,
-            then come back — the roster list is what the tiers hang off.
-          </p>
-        </section>
-      )}
+      {p?.error && <ManagerProfilesGap error={p.error} />}
 
       {p && !p.error && !others.length && (
         <section role="status" className="rounded-2xl border border-slate-300 bg-slate-50 p-4">

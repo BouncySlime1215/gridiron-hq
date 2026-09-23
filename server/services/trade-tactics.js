@@ -75,7 +75,7 @@ export const TACTIC_THRESHOLDS = Object.freeze({
   sneak_share: 0.35,
   /** …and has to return at least this much more production per unit of price. */
   sneak_rate_edge: 1.25,
-  /** Games of expected-points history before the hype window may fire. */
+  /** Games of expected-points history before the outscoring-usage tactic may fire. */
   hype_min_games: 2,
   /** Points per game above what his usage earns, before "hot" means anything. */
   hype_min_gap: 3.0,
@@ -120,7 +120,7 @@ export const TACTICS = Object.freeze({
   consolidate_for_need: { label: 'Consolidate into his hole', fitted: false,
     needs: 'a roster read for the league',
     why: 'two of our depth pieces into a position he is short at, back as one starter' },
-  hype_window: { label: 'Sell inside the hype window', fitted: false,
+  outscoring_usage: { label: "Sell while he's outscoring his usage", fitted: false,
     needs: 'at least two games of expected points, and praise from him',
     why: 'our player is outscoring the usage that earns it, and the man who praised him will pay for it' },
   timing: { label: 'Send it when he answers', fitted: false,
@@ -773,7 +773,7 @@ export function tacticsForDeal({
       : 'he is not short at any position we are sending into');
   }
 
-  // ------------------------------------------------- 5. the hype window
+  // ------------------------------------------------- 5. outscoring his usage
   const hypeGames = TACTIC_THRESHOLDS.hype_min_games;
   const hypeHits = [];
   let hypeReason = null;
@@ -792,7 +792,7 @@ export function tacticsForDeal({
     hypeHits.push({ p, v, gap, view });
   }
   if (hypeHits.length) {
-    tactics.push({ key: 'hype_window', label: TACTICS.hype_window.label, fitted: false,
+    tactics.push({ key: 'outscoring_usage', label: TACTICS.outscoring_usage.label, fitted: false,
       effect: +hypeHits.reduce((s, h) => s + h.gap.gap_per_game / 100, 0).toFixed(4),
       effect_net: null, n: Math.min(...hypeHits.map(h => h.gap.games)),
       players: hypeHits.map(h => ({ ...cell(h.p, h.v, chatFactor(h.v)),
@@ -800,10 +800,10 @@ export function tacticsForDeal({
       numbers: { gap_per_game: hypeHits[0].gap.gap_per_game },
       why: hypeHits.map(h => `${h.p.name} is +${h.gap.gap_per_game}/game above what his usage earns over `
         + `${h.gap.games} games, and ${partnerName ?? 'he'} has talked him up`).join('; ')
-        + '. (Actual vs expected points from usage — NOT the market-price curve in waiver-brain#sellHigh, '
-        + 'which answers a different question.)' });
+        + '. (Actual vs expected points from usage — NOT the trade-price hype in services/hype.js#playerHype '
+        + '(trade price minus value), which answers a different question.)' });
   } else {
-    note('hype_window', hypeReason
+    note('outscoring_usage', hypeReason
       ?? 'no player we are sending is both outscoring his usage and one this manager has praised');
   }
 

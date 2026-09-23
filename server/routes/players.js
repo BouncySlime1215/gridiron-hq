@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { trendPct } from './aggregates.js';
-import { computeSOS } from './nfldata.js';
 import { statsFor, fetchGameLog } from './stats.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { weeklyProjectionFor } from '../services/fantasy-coordinator.js';
 import { tradeWeekContext } from '../services/trade-engine.js';
 import { playerAdvancedStats } from '../services/player-advanced-stats.js';
+import { playerNews } from '../news/player-news.js';
+import { activeInjuryFlagIds } from '../services/injury-flags.js';
+import { playerHype } from '../services/hype.js';
 
 const r = Router();
 
@@ -19,21 +21,9 @@ function headshot(p) {
 function metricsFor(playerId) {
   const m = {};
   for (const x of rows('SELECT source, value FROM player_metrics WHERE player_id = ?', playerId)) m[x.source] = x.value;
+  // One definition of "flagged": a stale Sleeper flag the producer ignores reads as off here too.
+  if (m.injury_flag > 0 && !activeInjuryFlagIds().has(playerId)) m.injury_flag = 0;
   return m;
-}
-
-// News matching: full name always; bare last name only for that player's own team
-// (so "Brown" doesn't pull A.J. Brown / Chase Brown / Cleveland Browns together).
-function newsFor(player) {
-  const full = `%${player.name}%`;
-  const last = `%${player.name.split(' ').slice(-1)[0]}%`;
-  return rows(`SELECT n.*, t.abbr AS team_abbr FROM news_items n
-               LEFT JOIN nfl_teams t ON t.id = n.team_id
-               WHERE (n.headline LIKE ? OR n.ai_analysis LIKE ? OR n.fantasy_impact LIKE ?)
-                  OR (n.team_id IS NOT NULL AND n.team_id = ?
-                      AND (n.headline LIKE ? OR n.ai_analysis LIKE ? OR n.fantasy_impact LIKE ?))
-               ORDER BY n.date DESC LIMIT 10`,
-    full, full, full, player.team_id ?? -1, last, last, last);
 }
 
 r.get('/', (req, res) => {
@@ -79,7 +69,7 @@ r.get('/:id', (req, res) => {
     headshot: headshot(player),
     metrics: metricsFor(player.id),
     ranks,
-    news: newsFor(player),
+    news: playerNews(player.id),
     teammates,
     depth,
     depth_multi: depthMulti,
@@ -135,17 +125,12 @@ r.get('/:id/gamelog', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// Heuristic buy/sell used when no API key is configured (and as the AI's starting point).
-function heuristicVerdict(m) {
-  const pct = trendPct(m.fc_value, m.fc_trend30);
-  if (pct == null) return null;
-  const s = Math.abs(pct).toFixed(1);
-  if (pct > 5) return { verdict: 'SELL', why: `market value up ${s}% in 30 days — sell into the hype` };
-  if (pct < -5) return { verdict: 'BUY', why: `market value down ${s}% in 30 days — buy the dip` };
-  return { verdict: 'HOLD', why: `market value is stable (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% in 30 days)` };
-}
+// S-19: the FantasyCalc-momentum heuristic ("sell into the hype") that lived here
+// is retired. It had no test, and on the same rostered players it gave the
+// opposite call to sellHigh on 57 of 89 flags. Hype now has one producer,
+// services/hype.js#playerHype, and this route passes it through unchanged.
 
-function playerEvidenceFacts({ player, metrics, news, depth, sos }) {
+export function playerEvidenceFacts({ player, metrics, news, depth }) {
   const facts = [];
   const add = (id, text, source) => { if (text) facts.push({ id, text, source }); };
   const trend = trendPct(metrics.fc_value, metrics.fc_trend30);
@@ -153,7 +138,8 @@ function playerEvidenceFacts({ player, metrics, news, depth, sos }) {
   if (metrics.ffc_adp ?? metrics.fc_adp) add('market.adp', `Current ADP is ${Number(metrics.ffc_adp ?? metrics.fc_adp).toFixed(1)}.`, 'fantasy market feed');
   if (metrics.sleeper_rank) add('market.sleeper_rank', `Sleeper rank is ${Math.round(metrics.sleeper_rank)}.`, 'Sleeper');
   if (metrics.injury_flag) add('availability.flag', 'The structured player feed currently carries an injury flag.', 'player metrics');
-  if (sos) add('schedule.rank', `Remaining schedule ranks ${sos.rank}/32 where 1 is easiest.`, 'computed schedule model');
+  // No schedule fact: schedule strength is not a validated signal (matchups.js
+  // MATCHUP_SIGNAL_REASON) and the old rank was computed from an empty store (RL-8-3).
   if (player.off_scheme) add('team.scheme', `${player.team_name} lists its offense as ${player.off_scheme}.`, 'team profile');
   const competitors = depth.filter(x => x.name !== player.name && x.position === player.position).map(x => x.name).slice(0, 4);
   if (competitors.length) add('depth.competition', `Same-position depth-chart competition: ${competitors.join(', ')}.`, 'synced depth chart');
@@ -183,24 +169,29 @@ r.post('/:id/analyze', async (req, res, next) => {
                         FROM players p LEFT JOIN nfl_teams t ON t.id = p.team_id WHERE p.id = ?`, req.params.id);
     if (!player) return res.status(404).json({ error: 'player not found' });
     const m = metricsFor(player.id);
-    const news = newsFor(player);
+    const news = playerNews(player.id);
+
+    const hype = playerHype({ sleeperId: player.sleeper_id });
 
     if (!getApiKey()) {
-      const h = heuristicVerdict(m);
-      if (!h) return res.status(400).json({ error: 'No API key configured (Dev Hub, top right) and no market trend available.' });
+      if (!hype.verdict) {
+        return res.status(400).json({ hype,
+          error: 'No API key configured (Dev Hub, top right), and there is no validated market signal to fall back on: '
+            + (hype.available ? hype.verdict_reason : hype.reason) });
+      }
+      const reasoning = `Market signal only (no API key): hype ${hype.hype} PAR/g (${hype.sign}).`;
       run(`INSERT INTO player_analysis (player_id, verdict, reasoning, generated_at)
            VALUES (?,?,?,datetime('now'))
            ON CONFLICT(player_id) DO UPDATE SET verdict=excluded.verdict, reasoning=excluded.reasoning, generated_at=excluded.generated_at`,
-        player.id, h.verdict, `Market signal only (no API key): ${h.why}.`);
-      return res.json({ verdict: h.verdict, reasoning: `Market signal only (no API key): ${h.why}.`, source: 'heuristic' });
+        player.id, hype.verdict, reasoning);
+      return res.json({ verdict: hype.verdict, reasoning, source: 'hype', hype });
     }
 
     const depth = rows(`SELECT name, position, slot_code FROM players
                         WHERE team_id = ? AND slot_code IS NOT NULL AND phase = 'offense'
                         ORDER BY slot_code`, player.team_id ?? -1);
-    const sos = player.team_abbr ? computeSOS().find(s => s.abbr === player.team_abbr) : null;
-    const facts = playerEvidenceFacts({ player, metrics: m, news, depth, sos });
-    const fallback = heuristicVerdict(m)?.verdict ?? 'HOLD';
+    const facts = playerEvidenceFacts({ player, metrics: m, news, depth });
+    const fallback = hype.verdict ?? 'HOLD';
 
     const msg = await callClaude({
       feature: 'player-verdict',
@@ -216,7 +207,7 @@ Choose 1-4 IDs that genuinely support the verdict. If evidence conflicts or is t
          VALUES (?,?,?,datetime('now'))
          ON CONFLICT(player_id) DO UPDATE SET verdict=excluded.verdict, reasoning=excluded.reasoning, generated_at=excluded.generated_at`,
       player.id, out.verdict, out.reasoning);
-    res.json({ ...out, source: 'ai_evidence_selection' });
+    res.json({ ...out, source: 'ai_evidence_selection', hype });
   } catch (e) { next(e); }
 });
 

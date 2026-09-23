@@ -1,4 +1,4 @@
-# INT-162-1 — B-01 hardening: source guard + stale-payload from_week guard (RED only)
+# INT-162-1 — B-01 hardening: source guard + stale-payload from_week guard (RED + GREEN)
 
 Branch `claude/local-int-162-1-sim-start-week-guard`, base `origin/main` at
 `ad3bb9f6` (#179 merged).
@@ -105,33 +105,68 @@ rule.
 The other 8 tests in the file (pre-existing B-01 coverage) still pass
 unmodified — no regression from the added tests.
 
-## GREEN
+## GREEN (commit `0e31d824`, added after skeptic round 1)
 
-Not in this unit. Acceptance for INT-162-1 is "RED tests for both"; the fix
-(reorder `simStartWeek`'s checks so the stale-payload branch runs before the
-explicit-week branch, and stop the three call sites above from computing
-`fromWeek` themselves) is left to the paired GREEN unit. Recorded here so
-that unit does not re-audit: the fix is a two-line reorder in
-`simStartWeek` (season-sim.js:184-189) plus dropping the `fromWeek`
-key/shorthand at the three call sites named above (they can rely on
-`simulateSeason`/`tradeImpact`'s own internal `simStartWeek` call once the
-reorder lands).
+Skeptic round 1 blocked the RED-only branch (2 failing tests would reach
+main; merge gate needs RED + GREEN shas) and showed two defects in the RED
+design, both accepted:
 
-## Mutation notes (for the GREEN unit, recorded now while the call sites are fresh)
+1. **Guard was call-shape level.** The regex only saw an inline object literal
+   as the 2nd argument, so `const simOpts = { fromWeek: start }; simulateSeason(lg, simOpts)`
+   (mutant B) and `Object.assign({ fromWeek: start }, ...)` (mutant D) passed.
+2. **The planned GREEN would have split the week.** The three "offenders"
+   already took their week from `simStartWeek`; dropping `fromWeek` at
+   `/simulate` would leave the memo key on the requested week while the body
+   ran from the league week, and would orphan `?from_week` / `body.from_week`.
 
-- Unit mutant: swap the two `if` branches in `simStartWeek` back (current
-  order) — RED test 1 above is exactly that kill.
-- Call-site mutant: reintroduce `fromWeek: simStartWeek(lg, req.query.from_week)`
-  at `model.js:455` after it's removed — RED test 2 (source guard) is the kill.
-- Designed survivor (documented, not fixed in this unit): a fourth call site
-  added later that passes `fromWeek` but always derives it from
-  `simStartWeek(lg)` with no client input would still fail the source guard
-  (it is a blunt "no `fromWeek` key at all" rule, not "no *client* `fromWeek`").
-  That is intentional per the row's own wording ("no caller ... passes
-  fromWeek") — flagging it so the GREEN unit doesn't try to special-case it.
-- Not-applied control: `simStartWeek(lg, 5)` on the *current*-season league
-  (`lg` id 601) — asserted to still return `5` in RED test 1 itself, i.e. the
-  guard does not fire when nothing is wrong.
+What shipped instead:
+
+- `server/services/season-sim.js` `simStartWeek`: payload/season mismatch is
+  checked before the explicit week (docstring updated to say so and to name
+  the raw-week contract).
+- `server/routes/model.js` GET `/:leagueId/simulate`: passes
+  `fromWeek: req.query.from_week` (raw) to `simulateSeason`; the memo key uses
+  `simStartWeek(lg, req.query.from_week)` — the same producer on the same
+  input simulateSeason resolves internally, so key and body agree.
+- `server/routes/model.js` POST `/:leagueId/trade-impact`: passes
+  `fromWeek: req.body?.from_week` (raw) to `tradeImpact`.
+- `server/services/trade-engine.js` `myPlayoffOdds`: passes no week;
+  `simulateSeason` resolves `simStartWeek(lg)`, identical to the `start` still
+  used for the cache key. The override stays honoured (route test, below).
+
+Tests (in `test/b-01-real-record-odds.test.js`):
+
+- Kept: `simStartWeek ignores a client from_week on a stale payload` (+ control).
+- New runtime test through the real routes: `GET /simulate?from_week=5` and
+  `POST /trade-impact {from_week:5}` on a last-season payload return
+  `from_week: 1`; control on a current-season payload returns `3` for
+  `from_week=3` on both routes, including a memo hit.
+- Source guard rewritten token-level: in every `server/**/*.js` module that
+  imports `season-sim.js` (except season-sim.js), every `fromWeek` token must
+  be exactly `fromWeek: req.(query|body)?.from_week`. Controls: >50 files
+  walked, >=2 importers, >=2 allowed raw pass-throughs found. (First draft
+  scanned all of `server/` and flagged `server/services/matchups.js:403,407`,
+  an unrelated NFL-schedule `scheduleOutlook(…, fromWeek)` parameter; scoped
+  to season-sim importers.)
+
+Run on tree `0e31d824`:
+`SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/db.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/b-01-real-record-odds.test.js`
+→ `# tests 11 # pass 11 # fail 0`.
+Same command on the other simulateSeason callers' tests, tree `0e31d824`:
+trade-engine-correctness 15/15, league-rules-bracket-sim 4/4,
+decision-leftovers-home-away 5/5, model-integrity 89/89.
+
+## Mutation results (tree `0e31d824`, each mutant applied then `git checkout`)
+
+| mutant | change | b-01 file result |
+|---|---|---|
+| B | trade-engine: `const simOpts = { runs, fromWeek: start, scoring }; simulateSeason(lg, simOpts)` | pass 10 fail 1 (killed) |
+| D | trade-engine: `...Object.assign({ fromWeek: start }, {...})` in the options | pass 10 fail 1 (killed) |
+| E | model.js trade-impact back to `fromWeek: simStartWeek(lg, req.body?.from_week)` | pass 10 fail 1 (killed) |
+| F | simStartWeek: explicit-week check back before the payload check | pass 9 fail 2 (killed: unit + route test) |
+
+Survivor by design: a computed property name (`['from'+'Week']`) would evade
+the static guard; the route test still pins the route behaviour.
 
 ## Numbers, with commands
 
@@ -146,49 +181,21 @@ reorder lands).
 
 ## Known defects / not covered
 
-- No GREEN in this unit (see above) — ships nothing runtime-visible yet;
-  this is test-only.
-- The source guard is regex-based over call-argument text, not an AST parse.
-  It narrows to the `(lg, { ... })` argument object of each match before
-  testing for `fromWeek`, so it will not flag an unrelated `fromWeek`
-  elsewhere in a file, but it also would not catch a call site that passes
-  the week through a second, differently-named parameter that later gets
-  renamed to `fromWeek` inside the callee — the guard is only as good as the
-  literal argument key name.
+- The source guard is token-level regex, not an AST parse; it covers
+  modules that import season-sim.js directly (no barrel re-exports exist
+  today). Computed keys evade it (see mutation table).
 - Not a statistical unit: no model number, no pre-registration, no holdout
   ledger entry needed.
 
-## Nick's five questions
+## Nick's five questions (updated for GREEN)
 
-1. **Well built?** The two RED tests are built to the row's own wording; the
-   source guard has a known-nonzero control (offenders found today) and a
-   known-good control (current-season league still honors an explicit
-   week); the stale-payload test has both a positive and a not-applied
-   control in the same test.
-2. **Stats or made up?** Neither test is a statistical claim — both are
-   direct code-behavior assertions (grep-based static check, unit-tested
-   function). No stats, no holdout look needed.
-3. **How we know:** direct run, `test/b-01-real-record-odds.test.js`,
-   `# pass 8 # fail 2`, quoted above with commands.
-4. **Pointed anywhere else on the platform?** No — this is
-   `simStartWeek`/`simulateSeason`/`tradeImpact` only, the same surface B-01
-   already covers in this file.
-5. **How it unifies:** extends B-01's own test file rather than adding a new
-   one; documents the GREEN fix inline so the next unit does not re-audit
-   the three call sites.
+1. **Well built?** Fix is the reorder plus raw pass-through; four mutants, all killed.
+2. **Stats or made up?** No statistical claim; code-behaviour tests only.
+3. **How we know:** `# tests 11 # pass 11 # fail 0` on `0e31d824` (command above).
+4. **Pointed anywhere else?** Reaches GET /simulate, POST /trade-impact, and
+   myPlayoffOdds (Trades page) — all resolve the week in simStartWeek only.
+5. **How it unifies:** one producer (simStartWeek); callers hand only the raw
+   client week; the memo key uses the same producer on the same input.
 
-Defect fixed / gap covered: none yet (RED only) — `server/services/season-sim.js:184-189`
-(`simStartWeek` check order) and `server/routes/model.js:455-459,471-476`,
-`server/services/trade-engine.js:1420-1421` (redundant `fromWeek` producers),
-on `ad3bb9f6`.
-Incumbent: `simStartWeek` as committed by B-01 (`20a5c49`, per
-`docs/tdd/2026-09-22-b-01-real-record-odds.tdd.md`) — correct for the
-`|| 1`-default case B-01 fixed, not for an explicit stale-payload override.
-Does NOT cover: the implementation fix (GREEN, separate unit); any
-call site outside `server/` (none exist — `tradeImpact`/`simulateSeason` are
-only imported under `server/`, confirmed by `grep -rl` in the audit above).
-What would make it wrong: if a legitimate caller needs to pass an
-already-resolved `fromWeek` for a reason the source guard doesn't know about
-(e.g. a batch/backfill script needing a fixed historical week) — none found
-under `server/` today, but the GREEN unit should re-grep before assuming the
-list above is exhaustive.
+Defect fixed: `simStartWeek` check order (season-sim.js); redundant resolved
+`fromWeek` at model.js /simulate, /trade-impact and trade-engine.js myPlayoffOdds.

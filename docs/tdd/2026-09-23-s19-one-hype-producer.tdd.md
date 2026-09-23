@@ -40,6 +40,91 @@ Disagreements:
 - heuristic SELL and sellHigh flag agree on 22 players; heuristic SELL without a sellHigh flag 166; sellHigh flag without heuristic SELL 67, of which **57 are heuristic BUY**. The two live heuristics give the opposite call on 57 of sellHigh's 89 flags (64%).
 - TM-09's latest (2021-2024) hype sign vs sellHigh's 2026 flag: flagged and TM-09 hype > 0: 11; flagged and TM-09 hype <= 0: 37; not flagged, hype > 0: 140; not flagged, hype <= 0: 243. These are different seasons, so this is description, not a test of either.
 
+## Commits
+
+| Step | Subject | sha |
+|---|---|---|
+| audit | docs: S-19 audit and three-producer comparison on the same players | `2a8c0086` |
+| RED | test: RED for S-19 one hype producer contract (analyze, sellHigh, TM-09 route) | `bd4e9bb6` |
+| GREEN | feat: S-19 one hype producer (hype.js#playerHype); retire heuristicVerdict and sellHigh's curve to call it | `2c12b915` |
+| sweep | test: S-19 pin the season gate and no_sleeper_id reason (sweep survivors M1, M4); add mutation sweep | `1f385059` |
+
+No pre-registration: this unit runs no new model number. It picks the producer that already has one (TM-09, `9e405725` on #183) and adds no fit, threshold or grade.
+
+**RED** (`bd4e9bb6`, stub `playerHype` returning `{available:false, reason:'not built'}`, no surface wired): 7 of 7 fail.
+Command: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/hype-one-producer.test.js`, exit 1.
+- contract, player 90001: `analyze (no API key) hype` — `+ undefined - { available: false, reason: 'not built' }`;
+- retired heuristic: `assert.notEqual(res.body?.verdict, 'SELL')` — actual `'SELL'`: the old heuristic turned a +25% FantasyCalc month into SELL "sell into the hype" and wrote it to `player_analysis`;
+- retired sellHigh: `both rostered players are read` — `false`;
+- control: `hyped.available` — `false !== true`.
+
+Test edits after RED, before GREEN passed: the AI-branch mock returned a bare string where `parseJson` (`server/services/claude.js:267`) needs `{content:[{type:'text'}]}`, so the AI branch 500'd; fixed the mock and added a JSON error handler and the status/body to that assertion's message. The RED failures above are on assertions before that one.
+
+**GREEN** (`2c12b915`): 7 of 7 pass, exit 0 (same command). Also on this tree, targeted:
+- `test/trade-market.test.js` 17/17 (its "names every hype producer" test now asserts `other_hype_producers` is `[]` and the note names `hype.js#playerHype`);
+- `test/trade-route-retirement.test.js` 5/5; `test/waiver-brain.test.js` 8/8; `test/legacy-route-security.test.js` 6/6; `test/model-integrity.test.js` 89/89; `test/table-read-but-never-created.test.js` 11/11; `test/wiring-map.test.js` 90/90;
+- `test/route-deletion-impact.test.js` 7/8: test 6 ("a call site inside an already-unreached function is a survivor") fails identically on `bd4e9bb6` (before any code change; `git stash` run). It is a fixture-only test of `scripts/route-deletion-impact.mjs`, which this unit does not touch. Pre-existing, reported, not fixed.
+
+## What it does
+
+- `server/services/hype.js` `playerHype({ sleeperId })` is the one producer. It reads TM-09's table (via `trade-market.js#loadMarketTable`) and serves the player's latest row from the current season at or before the current week (`tradeWeekContext()`), else `available:false` with the reason. `verdict` is always null: TM-09 is default-off ("unconfirmed forward", no 2026 trade prices).
+- `POST /api/players/:id/analyze` (`server/routes/players.js:175`, call `:184`): `heuristicVerdict` is gone. Both branches return `hype` unchanged. No key: 400 with the reason and `hype` (it used to write a momentum SELL/BUY/HOLD). AI branch: fallback verdict is `hype.verdict ?? 'HOLD'`, which is `'HOLD'` today, as it already was on the local copy (no `fc_*` rows). Page: PlayerCard "Get verdict" (`client/src/components/PlayerCard.tsx:96`) shows the 400 message in its existing error slot.
+- `sellHigh` (`server/services/waiver-brain.js:461`, call `:466`): the curve is gone. It reads `playerHype` for each rostered player (rosters from `trade-engine#loadRosters`) and flags only `verdict === 'SELL'`. Still no caller.
+- `GET /api/trades/:leagueId/market/:playerId` (`server/routes/trades.js:1007`, call `:1015`): adds `hype` from `playerHype`. `trade-market.js` `OTHER_HYPE_PRODUCERS` is now `[]`, and its note points at the one producer.
+- Stale claims fixed: `trades.js:185-198` said `sellHigh` "remains an input to the hype-window tactic" (served in the retired route's body). It was never read there.
+
+## Liveness (local copy, not production)
+
+`SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$PWD/.local-db/data.sqlite node <scratch>/live.mjs` on `1f385059`. The script calls `sellHigh(id)` for each league and `playerHype` for every player with a sleeper id. No route was called, because the local copy may hold an API key and the AI branch costs money.
+- 5 leagues, 83 of Nick's rostered-player readings; 0 available; 0 candidates. Reasons: 76 "no revealed trade price for this player in 2026 (table covers 2021-2024)", 7 `no_sleeper_id`.
+- Every player with a sleeper id: 0 available. Control: the table holds 2,054 player-week rows, 0 of them from 2026. The zero is the table's coverage, not a dead reader: the contract test's fixture row is served (test 1).
+
+## Mutation sweep
+
+`python3 docs/tdd/sweeps/s19-mutations.py` on `1f385059`: 14 of 14 as designed. The first pass on `2c12b915` + sweep had 2 unplanned survivors:
+- M1 (season gate removed) survived because the old-season fixture row sat at week 5, so the week gate hid it;
+- M4 (no_sleeper_id guard removed) survived because `String(null)` matched nothing and still read unavailable.
+Both were closed in `1f385059` (old row at week 1; assert `reason === 'no_sleeper_id'`).
+
+| Mutant | Expected | Got |
+|---|---|---|
+| M1 season gate removed | killed | killed (control) |
+| M2 as-of week gate removed | killed | killed (control: week-18 row) |
+| M3 hype made a SELL call | killed | killed (default-off; retired heuristic) |
+| M4 no_sleeper_id guard removed | killed | killed (control) |
+| M5 served hype = price | killed | killed (control) |
+| C1 analyze no-key drops `hype` | killed | killed (contract x3) |
+| C2 analyze AI branch drops `hype` | killed | killed (contract x3) |
+| C3 analyze keys on player id | killed | killed (contract) |
+| C4 market route keys on null | killed | killed (contract) |
+| C5 sellHigh keys on player id | killed | killed (contract) |
+| C6 sellHigh flags without the producer | killed | killed (retired sellHigh) |
+| C7 analyze writes a verdict with no signal | killed | killed (retired heuristic) |
+| S1 designed survivor: `>=` week tie-break (weeks unique per player-season) | survives | survives |
+| N1 not-applied control | not-applied | not-applied |
+
+## Statistical discipline
+
+- No model result ships ON. Hype is served default-off with `verdict: null`, labelled "unconfirmed forward" (no 2026 trade prices, so no forward holdout exists).
+- No decline, so no MDE is owed. Decision win rate: not applicable, because no start/sit, waiver or trade call reads hype. The one call it touched (the no-key SELL/BUY) is withdrawn, not replaced.
+- Historical replay: not applicable (no start/sit-facing claim).
+
+## Known defects / follow-ups
+
+- **This branch contains #183.** Merge #183 first (or together). If #183 changes `trade-market.js` or its test, this branch has to merge it again.
+- `expectationGaps` (`talk-vs-model.js:51`) is a separate "hype" word: usage gap, used by `hype_window` and `hype_vs_usage`. It is one producer of a different concept, and it is not unified here. Follow-up: rename the tactic label ("outscoring his usage") or fold it into `hype.js` as a second field. The served `why` strings at `trade-tactics.js:803` and `counterparty-pricing.js:634` still say "NOT the market-price curve in waiver-brain#sellHigh", and that curve no longer exists. They are left for that follow-up, because they are other threads' files.
+- `player_metrics` `fc_value`/`fc_trend30` (writer `syncFantasyCalc`, `aggregates.js:88`) have 0 rows on the local copy, and `sync_log` has no `fantasycalc_values` run. The `market.trend` evidence fact in the AI packet is therefore always empty there. Not this unit's surface; reported.
+- No-key users lose the momentum SELL/BUY. This is intended: it was untested, and it contradicted `sellHigh` on 57 of 89 flags.
+- `sellHigh` still has no caller. It is kept because `test/trade-route-retirement.test.js` G7c asserts it exists. Deleting it is a separate decision.
+
+## Nick's five questions
+
+1. **Well built?** One function, three surfaces pass its value through unchanged, and a contract test proves it per player. 14/14 mutants behave as designed, including one call-site mutant per surface. No migration, no new table.
+2. **Stats or made up?** The one producer is TM-09's held-out-tested revealed-price table. The two made-up ones (a 5% momentum cutoff, a z >= 1 curve) are retired. Today it says "no 2026 price" for every player, and that is true.
+3. **How do we know?** Contract test `test/hype-one-producer.test.js` (RED `bd4e9bb6`, GREEN `2c12b915`). The same-player comparison above found 57/89 opposite calls between the old two. Liveness on the local copy: 83 readings, all the one producer's.
+4. **Pointed elsewhere?** Before: PlayerCard's no-key verdict came from FantasyCalc momentum, `sellHigh` from its own curve, and the TM-09 route from trade prices. After: all three read `hype.js#playerHype`.
+5. **How does it unify?** One concept (price minus value), one producer, one sign, one units field, one default-off flag. The usage-gap "hype window" is named as a separate concept, with the follow-up above.
+
 ## Holdout looks
 
 No 2025 row was read by this unit (TM-09's table has none; the comparison reads live 2026 inputs). Nothing appended to `docs/evidence/HOLDOUT-LEDGER.md`.

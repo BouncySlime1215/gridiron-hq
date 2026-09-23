@@ -23,6 +23,7 @@ const tradeEngine = read('server/services/trade-engine.js');
 const lineupBrain = read('server/services/lineup-brain.js');
 const seasonSim = read('server/services/season-sim.js');
 const matchups = read('server/services/matchups.js');
+const edge = read('server/routes/edge.js');
 
 // Matches from the entry's opening brace to the closing brace at the SAME
 // indentation, not the first `}` — an inline comment can itself contain a
@@ -47,17 +48,30 @@ const plainOf = id => {
   return p;
 };
 
-test('week_floor: raw is the trade engine\'s served p10, and the sentence admits it can be a did-not-play zero', () => {
-  // Producer: trade-engine.js:462 — `floor: weekDist?.p10 ?? ...`. The p10 comes
-  // from a draw that INCLUDES the chance the player doesn't suit up at all, so a
-  // sentence promising "not catastrophically" is a claim the draw does not keep.
+test('week_floor / week_ceiling: raw is the served trade asset field, and the sentence states both of its producers', () => {
+  // Producer: trade-engine.js:462 — `floor: weekDist?.p10 ?? w?.floor ?? null`
+  // on the assetUniverse() asset. `projection.p10` names nothing any route
+  // serves (git grep finds it only in glossary.ts). The served field has TWO
+  // producers: the week draw's p10 (includes the chance he does not suit up),
+  // and, when there is no week projection, edge.js:145 volatility()'s
+  // `floor: +q(0.2)` — the 20th percentile of LAST season's played weeks only.
   assert.match(tradeEngine, /floor:\s*weekDist\?\.p10/, 'trade-engine.js no longer serves floor as weekDist.p10 — re-point the raw path');
-  assert.equal(field(block('week_floor'), 'raw'), 'projection.p10');
+  assert.equal(field(block('week_floor'), 'raw'), 'asset.floor', 'raw must name the served asset field, not a projection.p10 nothing serves');
+  assert.equal(field(block('week_ceiling'), 'raw'), 'asset.ceiling', 'raw must name the served asset field, not a projection.p90 nothing serves');
+  assert.doesNotMatch(glossary, /raw:\s*'projection\./, 'no glossary raw may point into a projection.* object no route serves');
   const plain = plainOf('week_floor');
   assert.doesNotMatch(plain, /not catastrophically/i,
     'the sentence promises the floor is never a total bust, but the p10 draw includes the games he does not play at all');
   assert.match(plain, /doesn.t (suit up|play)|does not (suit up|play)|not (suit|play)ing at all/i,
     'the sentence must say the floor can include a week he does not play, since that is what the served p10 contains');
+  const fallsBack = /floor:\s*weekDist\?\.p10\s*\?\?\s*w\?\.floor/.test(tradeEngine);
+  if (fallsBack) {
+    assert.match(edge, /floor:\s*\+q\(0\.2\)/, 'control: the fallback floor must still be edge.js volatility() q(0.2) — re-audit the one-in-five wording');
+    assert.match(edge, /export function volatility\(season = SEASON - 1\)/, 'control: volatility() must still default to last season');
+    assert.match(plain, /last season/i, 'the served floor falls back to last season\'s played-week 20th percentile (edge.js volatility) — the sentence must say so');
+    assert.match(plain, /one (week )?in five|20th/i, 'the fallback is the bottom one week in five, not one in ten');
+    assert.match(plainOf('week_ceiling'), /last season/i, 'the served ceiling has the same last-season fallback (trade-engine.js:462 `w?.ceiling`)');
+  }
 });
 
 test('season_floor: raw is the preseason draft-day band, not a season-long career percentile that does not exist', () => {
@@ -86,16 +100,30 @@ test('expected_wins: the sentence must say the total counts games already played
     'expected_wins is a season total including games already played (season-sim.js:126,364), not a rest-of-season count');
   assert.match(plain, /already played|counting the games|whole season/i,
     'the sentence must say the total includes games already played');
+  assert.doesNotMatch(plain, /remaining|not counting|excluding|rest of/i,
+    'a sentence can name "already played" while denying it — any remaining/excluding wording contradicts season-sim.js:364');
 });
 
-test('start_score: raw points at week_points, the field the lineup is actually solved on — lineup.score does not exist', () => {
-  // Producer: lineup-brain.js:363 emits `week_points`, and :474 solves the pool
-  // on `week_points` by default. No route emits a `score:` field on a pool row.
+test('this week\'s projected points: one entry, on the Start/Sit producer (startSitWeekPoints), not two entries with different raws', () => {
+  // Producer: lineup-brain.js:356 `startSitWeekPoints` returns `week_points`
+  // (:363), the one construction every week-total page shares (lineup-posture.js
+  // imports it). start_score and projected_points both described "this week's
+  // projected points" with different raws (lineup.week_points vs a
+  // projection.mean nothing serves) — one number, two entries.
+  assert.match(lineupBrain, /export function startSitWeekPoints/, 'the Start/Sit week producer moved — re-point the raw path');
   assert.match(lineupBrain, /week_points:\s*r2\(base/, 'lineup-brain.js no longer names the field week_points — re-point the raw path');
-  assert.doesNotMatch(lineupBrain, /^\s*score:\s/m, 'control: lineup-brain.js must not emit a literal `score:` field either, or lineup.score might be real after all');
-  const b = block('start_score');
-  assert.notEqual(field(b, 'raw'), 'lineup.score', 'lineup.score is not a field any route serves');
+  assert.doesNotMatch(lineupBrain, /^\s*score:\s/m, 'control: lineup-brain.js must not emit a literal `score:` field, or lineup.score might be real after all');
+  assert.doesNotMatch(glossary, /^  start_score:/m, 'start_score duplicated projected_points; the glossary keeps one entry per number');
+  const b = block('projected_points');
   assert.equal(field(b, 'raw'), 'lineup.week_points');
+  assert.match(plainOf('projected_points'), /chance to play/i, 'week_points is current_week_ppg, which already multiplies in his chance to play');
+});
+
+test('no two glossary entries share a raw path (one number, one entry)', () => {
+  const raws = [...glossary.matchAll(/^    raw:\s*(['"])(.*?)\1/gm)].map(m => m[2]);
+  assert.ok(raws.length >= 14, `control: expected the full glossary's raws, found ${raws.length}`);
+  const dupes = raws.filter((r, i) => raws.indexOf(r) !== i);
+  assert.deepEqual(dupes, [], `raw paths used by more than one entry: ${dupes.join(', ')}`);
 });
 
 test('title_delta: the sentence does not promise clean pairing while the paired-seed draw order can still shift between runs', () => {
@@ -113,8 +141,10 @@ test('title_delta: the sentence does not promise clean pairing while the paired-
   const plain = plainOf('title_delta');
   assert.doesNotMatch(plain, /so the difference is the move and not luck/i,
     'the paired seed does not guarantee this while the draw order can shift with the trade (season-sim.js:313-356) — the sentence must not promise it');
-  assert.match(plain, /noise|approx|roughly|about/i,
+  assert.match(plain, /noise/i,
     'the sentence must flag that some of the change can be simulation noise, not only the trade');
+  assert.doesNotMatch(plain, /never luck|not luck|no luck|all (about )?the move|purely|entirely|only the move/i,
+    'the same overclaim in new words: the paired seed alone does not isolate the move (season-sim.js:313-356)');
 });
 
 test('points_allowed_to_position: raw is the field matchups.js actually serves (`allowed`), and the sentence says multi-season, tested, not "so far"', () => {
@@ -132,4 +162,14 @@ test('points_allowed_to_position: raw is the field matchups.js actually serves (
   assert.doesNotMatch(plain, /\bso far\b/i, 'a multi-season, recency-weighted, shrunk blend (matchups.js:94-102) is not "so far" (this season, unweighted)');
   assert.match(plain, /recent seasons|multiple seasons|blend/i, 'the sentence must say this blends recent seasons, not just the current one');
   assert.match(plain, /tested|did not (predict|help|improve)/i, 'the sentence should say this was tested and did not predict (matchups.js:9-14)');
+  // Only `mult` is shrunk (matchups.js:193); `allowed` is the plain
+  // recency-weighted mean (:186 `b.wpts / b.w`). The sentence may claim
+  // shrinkage only if the line producing `allowed` calls shrink().
+  const allowedLine = matchups.match(/const allowed = [^\n]*/);
+  assert.ok(allowedLine, 'control: matchups.js no longer computes `const allowed =` — re-audit');
+  assert.match(matchups, /mult:\s*\+shrink\(/, 'control: the shrink this check contrasts with is on `mult`');
+  if (!/shrink\(/.test(allowedLine[0])) {
+    assert.doesNotMatch(plain, /pulled toward|shrunk|shrink|toward (the )?(league )?average|regress/i,
+      'the served `allowed` is unshrunk (matchups.js:186); only `mult` is shrunk');
+  }
 });

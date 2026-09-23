@@ -84,8 +84,84 @@ $ GRIDIRON_DB_PATH=$(mktemp -u ...).sqlite SCHEDULER_DISABLED=1 \
   (per-side box, both "me" and "them").
 - `TradeCard.tsx:280` — `<RiskStrip risk={deal.me.risk} ceilingDelta={deal.me.ceiling_delta} compact />`
   (compact card).
-- The Ceiling cell's title text now says explicitly that colour comes from the
-  lineup's Weekly ceiling change, not the two p80 numbers shown in the cell.
+- ~~The Ceiling cell's title text now says explicitly that colour comes from the
+  lineup's Weekly ceiling change, not the two p80 numbers shown in the cell.~~
+  Superseded in the skeptic round (commit `04e024ff`), see below.
+
+## Skeptic round (commits `bcd52a5e` test, `04e024ff` fix)
+
+Two blocking findings, both correct:
+
+1. **Test liveness.** Use-site mutants survived the source-read tests (M1
+   `sign(risk.in.p80 - risk.out.p80)`, M2 `ceilingBetter(null)`, M3
+   `ceilingBetter(-(ceilingDelta ?? 0))` all 3/3 pass on `f8ea8bd3`). Fix: the
+   test file now compiles `RiskStrip.tsx` with the repo's TypeScript and renders it
+   with React (idiom of `test/start-sit-gate-panel.test.js`), on fixtures where
+   summed p80 and `ceiling_delta` disagree (the package's L4 435→418 / +21.1 and
+   L1 329→470 / −0.4 shapes), and test 2 now pins the cell's argument to exactly
+   `ceilingBetter(ceilingDelta)` with no `p80`.
+2. **Two producers in one cell.** After `4d88b85a` the cell still printed the
+   summed package p80 pair while colouring by `ceiling_delta`: 37/122 served sides
+   disagreed with their own text. Fix: the Ceiling cell now prints
+   `ceiling_delta` itself (`ceilingText`, signed, 1 dp, "pts"; `—` when absent)
+   through a single-value cell (`single(...)`), and colours by the same number.
+   `ceilingOf` (the p80 formatter) is deleted; nothing else read it. Title: "Change
+   in your starting lineup's total in a good week (1 week in 10) — the same number
+   as Weekly ceiling on this card".
+
+RED for the skeptic round: new tests against `f8ea8bd3`'s `RiskStrip.tsx`
+(`git show f8ea8bd3:client/src/components/trade/RiskStrip.tsx > <file>`, run, restore):
+**2 pass / 4 fail** (tests 2, 4, 5, 6). Against origin/main's `RiskStrip.tsx`: 1 pass / 5 fail.
+GREEN on `04e024ff`: `test/trade-card-ceiling-colour.test.js` 6/6; with
+`test/trade-risk-strip-unreadable.test.js` and `test/trade-manager-read.test.js`:
+**31/31 pass** (command: `GRIDIRON_DB_PATH=$(mktemp -u /tmp/rl33.XXXX).sqlite
+SCHEDULER_DISABLED=1 node --experimental-test-module-mocks --test --test-reporter=tap
+<the three files>`). `node_modules/.bin/tsc --noEmit -p .` on the same working tree:
+0 lines of output (no errors anywhere).
+
+### Served-card rerun (the row's acceptance check) — local copy, not production
+
+The script exists in the R&D package, outside the repo; the earlier "no script
+found" claim in this file was wrong (only repo `scripts/` was searched).
+
+```
+sqlite3 ~/gridiron-local/data.sqlite ".backup '<wt>/.local-db/data.sqlite'"
+cd <wt> && GRIDIRON_DB_PATH=<wt>/.local-db/data.sqlite NFL_SEASON=2026 SCHEDULER_DISABLED=1 \
+  nice -n 10 node ~/gridiron-local/rnd/loop/scripts/r3i2_trade_ceiling.mjs > rl33_ceiling.json
+cd <wt> && node docs/tdd/2026-09-23-rl-3-3-ceiling-served-count.mjs rl33_ceiling.json
+```
+
+Server code on this branch is origin/main's (this unit touches only the client),
+so the script's served rows are the tree's own (its `tree` field is a hardcoded
+label `1a9eff9e`, ignore it). 61 deals, leagues 1-5: 6/13/20/20/2 = 122 sides.
+The count script renders the shipped `RiskStrip.tsx` (tree `04e024ff`) per side and
+reads the Ceiling cell's colour and text back, so it measures the component, not a
+re-implementation.
+
+| metric (122 sides, all with both numbers) | old rule (summed p80) | shipped cell `04e024ff` |
+|---|---|---|
+| cell colour opposite to Weekly ceiling | **37** | **0** (target 0) |
+| cell text is the Weekly ceiling value | 0 | 122 |
+| cell text prints the summed p80 pair | 122 | 0 |
+| uneven sides where colour = side receiving more players | **50 / 50** | **28 / 50** |
+
+28/50 is the rate at which `ceiling_delta` itself favours the side receiving more
+players (the package asked for it reported, not assumed). Known-nonzero control:
+the same script on the package's own rows (`rnd/loop/data/r3i2_trade_ceiling.json`,
+tree `1a9eff9e`) reproduces the package's baseline exactly — old rule 37 and 50/50 —
+and gives 0 and 28/50 for the shipped cell.
+
+### Mutation sweep, skeptic round (tree `04e024ff`, applied with sed, tested, restored)
+
+| mutant | result |
+|---|---|
+| M1 cell colour `sign(risk.in.p80 - risk.out.p80)` (the original bug) | killed, 2 pass / 4 fail |
+| M2 `ceilingBetter(null)` | killed, 3 / 3 fail |
+| M3 `ceilingBetter(-(ceilingDelta ?? 0))` | killed, 3 / 3 fail |
+| M4 cell text back to the p80 pair | killed, 2 pass / 4 fail |
+| M5 sign flip inside `ceilingText` (`delta > 0` → `delta < 0`) | killed, 5 pass / 1 fail |
+
+Restored file: 6/6 pass.
 
 ## The numbers, with commands
 
@@ -117,18 +193,25 @@ $ GRIDIRON_DB_PATH=$(mktemp -u ...).sqlite SCHEDULER_DISABLED=1 \
 
 ## Known defects / not covered
 
-- The 37-62/122-180 contradiction count is the queue row's own measurement
-  (R1 lead, WORK-QUEUE.md `RL-3-3`), not re-run in this unit — no script to
-  reproduce it was named in the row or found under `scripts/`. If Nick wants
-  that count re-verified post-fix, it needs a script that renders (or
-  simulates) both numbers across live trade offers and counts sign
-  disagreement; none exists yet.
+- ~~No script found for the contradiction count~~ — wrong; rerun done, see
+  "Served-card rerun" above (37 → 0 of 122, local copy).
+- **Remaining producer of a summed package band (named follow-up, not this
+  unit):** `server/services/trade-engine.js:1025` `packageRisk` still emits
+  summed `points/p20/p80`, and `:1047` `packageNumbers` prints it on the verdict
+  "Evidence" line as "2026 band a-b" (`TradeCard.tsx` `deal.verdict_evidence`).
+  That line is no longer next to a colour, but it is still a sum of quantiles
+  presented as a package range. Follow-up: package step 1
+  (`rnd/loop/r3-internal-trade-card-ceiling-counts-players.md` §4) — stop emitting
+  the summed band and print `ceiling_delta` or nothing on the Evidence line.
+  `RiskStrip`'s `anyRecord` still reads `p80 != null` as a presence gate only.
+- Not done: the package's optional |Δ| ≥ 1.0 colour threshold. The row asks for
+  the sign of `ceiling_delta`; the cell colours any non-zero delta.
 - This does not touch the Floor or Consistency cells, which already colour off
   package-level sums (`floorBetter`, `swingBetter`) — those are not lineup-level
   numbers on this card and are out of this unit's scope per the row.
-- No render harness exists for this client (documented at
-  `test/trade-manager-read.test.js:42`), so GREEN is proven by source-read /
-  extraction + eval, the existing idiom, not a rendered DOM assertion.
+- Render: the skeptic-round tests render `RiskStrip` for real
+  (TypeScript-compiled, React `renderToStaticMarkup`); `TradeCard.tsx` call sites
+  are still pinned by source-read (test 3).
 
 ## Nick's five questions
 
@@ -143,12 +226,12 @@ $ GRIDIRON_DB_PATH=$(mktemp -u ...).sqlite SCHEDULER_DISABLED=1 \
 4. **Pointed anywhere else on the platform?** `ceiling_delta` is also used in
    the trade-explain prompt string (`server/routes/trades.js:1080`); this unit
    does not touch that surface. No other client reads `RiskStrip`.
-5. **How it unifies:** one number (`ceiling_delta`) now drives both the printed
-   "Weekly ceiling" value and the Ceiling cell's colour — the "one number, one
-   producer" rule applied within this card. `PackageRisk.p80` remains displayed
-   as text (it answers a different question — the packages' own preseason
-   band) but no longer drives a colour that can disagree with the lineup number
-   next to it.
+5. **How it unifies:** one number (`ceiling_delta`, `trade-engine.js:1183`) is
+   now the Weekly ceiling value, the Ceiling cell's value, and the Ceiling cell's
+   colour. The summed package p80 is no longer printed in the cell (the earlier
+   claim here that it could stay as text was wrong: it disagreed with the new
+   colour on 37/122 sides). It survives only on the Evidence line — named
+   follow-up above.
 
 ## Defect/gap fixed, incumbent, coverage
 
@@ -157,9 +240,13 @@ $ GRIDIRON_DB_PATH=$(mktemp -u ...).sqlite SCHEDULER_DISABLED=1 \
   coloured the Ceiling cell from summed package p80.
 - Incumbent: `git show 89f69b3b:client/src/components/trade/RiskStrip.tsx` (the
   pre-fix source, same as origin/main at the time this unit started).
-- Does NOT cover: re-measuring the 37-62/122-180 contradiction count after the
-  fix (no script found); does not change what the two numbers ARE, only which
-  one colours the cell.
+- Covers: served-card rerun, 37 → 0 of 122 contradictions (local copy).
+- Does NOT cover: the server's summed band on the Evidence line (follow-up above).
+
+## Holdout looks
+
+- RL-3-3, 2026-09-23: none. No model is fitted or graded; the rerun counts sign
+  agreement between two displayed numbers on 2026 W3 served cards (local copy).
 - Would make it wrong: if `ceiling_delta`'s sign convention on `trade-engine.js`
   ever flips (positive stops meaning "that side's lineup ceiling improved") the
   `ceilingBetter` mapping in `RiskStrip.tsx` would need to flip with it — same

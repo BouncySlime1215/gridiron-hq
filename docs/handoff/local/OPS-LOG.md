@@ -152,3 +152,8 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 16:40Z: Repair done (all 5 MERGEABLE; #191 contains #178). Train 2 queued by PID wait on the big queue (46686): 178 191 171 175 73 192 194 195 196 197 198 199 (log mq-train2.log).
 
 16:50Z: R&D r11 landed: activity is the yes-signal (3x; AUC 0.65), tilt weak, checked-out managers trade less. RL-11-1 queued; TM-17 demoted. Plan adjusted; r12 relaunched.
+16:58Z: Loop 3 relaunched: RL-11-1 (w2rvufcj4); R&D r12 (wgywykdaq). PASTE-TO-RESUME state refreshed.
+17:15Z: RL-9-3 roster-spot lineup value -> #200 (one lineupSpan producer; season_delta now weeks-left based; auditor launched). Loop 1 relaunched lean: INT-163-1 + INT-162-1 (w1rstmidq).
+17:35Z: #180 MERGED (My team tab). Conflicts keep skipping PRs (#176 #182 #181 ...). Train 2 waiter stopped: when the big queue ends, run ONE repair pass over every skipped/open PR (merge main, resolve, push), then ONE queue in dependency order. INT-163-1 -> #201, INT-162-1 -> #202.
+
+17:50Z: R&D r12 landed: ESPN weekly projection names the injury inheritor (~90% vs ~70% depth chart) -> RL-12-1; Sleeper injury flag never cleared (RL-12-2 urgent); player-card news misses 1/3 (RL-12-3). Plan adjusted; r13 relaunched.

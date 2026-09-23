@@ -2,7 +2,13 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 12:05Z.
+Last rebuilt: 2026-09-23 12:15Z.
+
+## #180: Fix My Team page flashing 'Connect a league' during load/error
+
+- Merged: 8:15 AM ET, Sep 23 as `57a9ca1c`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #179: Bench a bye-week starter instead of counting his full range
 

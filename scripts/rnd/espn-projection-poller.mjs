@@ -12,7 +12,19 @@
  *
  * Every run appends one JSONL row per rostered player to
  * <out-dir>/<YYYY-MM-DD>.jsonl:
- *   {ts, league, player_id, projected_points, injury_status}
+ *   {ts, source_fetched_at, league, player_id, projected_points, injury_status}
+ * `ts` is the poll time; `source_fetched_at` is leagues.fetched_at, when the payload was
+ * actually pulled from ESPN (writer: server/routes/leagues.js syncEspnLeague, on the
+ * hourly `league_rosters` job, scheduler.js:1253). The payload does not change between
+ * syncs, so timing resolution is the sync cadence (<= 60 min), NOT the 10-minute poll;
+ * the 10-minute poll only guarantees every hourly payload is captured before the next
+ * sync overwrites it. The analysis times flips by `source_fetched_at`.
+ *
+ * Why not league_roster_snapshots.changed_at: that row is updated in place and
+ * changed_at moves on ANY tracked change (incl. actual_points during the game), so the
+ * time of the first flip is overwritten; this JSONL keeps every sync's reading.
+ * `projected_points` uses the shared periodPoints (scripts/lib/espn-period-points.mjs),
+ * the same reader and round2 contract as league_roster_snapshots.projected_points.
  * `player_id` is ESPN's id (`playerId`/`playerPoolEntry.player.id`), because the
  * timing question is about ESPN's own feed, before any join to our `players` table.
  *
@@ -30,16 +42,18 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
+import { periodPoints } from '../lib/espn-period-points.mjs';
 
 export const DEFAULT_OUT_DIR = path.join(
   process.env.HOME ?? '', 'gridiron-local/rnd/loop/data/espn-flip-timing');
 
-/** This period's applied projection from ESPN's stat list (statSourceId 1 = projection). */
-function projectedPoints(stats, season, period) {
-  const hit = (stats ?? []).find(s => s.seasonId === season && s.scoringPeriodId === period
-    && s.statSourceId === 1 && s.statSplitTypeId === 1);
-  return hit && Number.isFinite(Number(hit.appliedTotal)) ? Number(hit.appliedTotal) : null;
+/** leagues.fetched_at is SQLite datetime('now') text, UTC with no zone: 'YYYY-MM-DD HH:MM:SS'. */
+export function fetchedAtIso(t) {
+  if (!t) return null;
+  const s = String(t);
+  const ms = Date.parse(s.replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? '' : 'Z'));
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
 
 /**
@@ -47,7 +61,7 @@ function projectedPoints(stats, season, period) {
  * care which) in one league's stored ESPN payload, for the payload's own current
  * scoring period.
  */
-export function rowsFromPayload(payload, { league, ts }) {
+export function rowsFromPayload(payload, { league, ts, sourceFetchedAt = null }) {
   const season = Number(payload?.seasonId);
   const period = Number(payload?.scoringPeriodId);
   const out = [];
@@ -60,9 +74,10 @@ export function rowsFromPayload(payload, { league, ts }) {
       if (!Number.isFinite(playerId)) continue;
       out.push({
         ts,
+        source_fetched_at: sourceFetchedAt,
         league,
         player_id: playerId,
-        projected_points: projectedPoints(pl.stats, season, period),
+        projected_points: periodPoints(pl.stats, season, period, 1),
         injury_status: pl.injuryStatus ?? null,
       });
     }
@@ -76,8 +91,13 @@ export function collectRows(leagues, ts) {
   for (const lg of leagues ?? []) {
     if (!lg.payload) continue;
     let payload;
-    try { payload = JSON.parse(lg.payload); } catch { continue; }
-    out.push(...rowsFromPayload(payload, { league: lg.id, ts }));
+    try {
+      payload = JSON.parse(lg.payload);
+    } catch (err) {
+      console.error(`espn-projection-poller: league ${lg.id} payload is not JSON, skipped (${err.message})`);
+      continue;
+    }
+    out.push(...rowsFromPayload(payload, { league: lg.id, ts, sourceFetchedAt: fetchedAtIso(lg.fetched_at) }));
   }
   return out;
 }
@@ -100,7 +120,7 @@ export async function poll({ outDir = DEFAULT_OUT_DIR, now = new Date().toISOStr
   process.env.SCHEDULER_DISABLED = process.env.SCHEDULER_DISABLED ?? '1';
   const { rows } = await import('../../server/db/index.js');
   // Never select espn_s2 / swid (standing rule 12) — this script makes no network call.
-  const leagues = rows(`SELECT id, payload FROM leagues WHERE platform = 'espn'`);
+  const leagues = rows(`SELECT id, payload, fetched_at FROM leagues WHERE platform = ?`, 'espn');
   const out = collectRows(leagues, now);
   fs.mkdirSync(outDir, { recursive: true });
   const file = path.join(outDir, `${now.slice(0, 10)}.jsonl`);

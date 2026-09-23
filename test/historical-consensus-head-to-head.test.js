@@ -513,7 +513,7 @@ test('servedWeekRows stops when OURS was not lifted by the lift constructArms re
   assert.throws(() => lib.servedWeekRows(week6(f), drifts), /parity/);
 });
 
-test('current_week_ppg is rounded before the lift, as trade-engine.js:449 then lineup-brain.js:363 do (sweep 1 survivor L3)', () => {
+test('current_week_ppg is rounded before the lift, as trade-engine.js:474 then lineup-brain.js:363 do (sweep 1 survivor L3)', () => {
   const engine = new Map([[7, { player_id: 7, position: 'WR', team: 'MID', ppg: 16.5098, structural_ppg: 9, params: {},
     player_week_engine: { heads: { season_to_date: 9, last3: 9 } } }]]);
   const truth = new Map([[7, { weeks: new Map([[4, 10], [5, 10]]) }]]);

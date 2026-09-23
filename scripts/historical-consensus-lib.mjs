@@ -6,8 +6,8 @@
  * This file produces no served number. OURS is built by calling the served chain:
  *   B     = S-02 constructArms (buildPlayerWeekEngine -> weeklyExpertValues -> coordinateFantasy)
  *   p     = weeklyAvailability(season, week, { through: season - 1 }) (contingency.js:933),
- *           DEFAULT_ACTIVE_PROBABILITY when he has no row                (trade-engine.js:304,346)
- *   week  = round2(B x thisGame.mult x p)                                (trade-engine.js:359,449)
+ *           DEFAULT_ACTIVE_PROBABILITY when he has no row                (trade-engine.js:327,371)
+ *   week  = round2(B x thisGame.mult x p)                                (trade-engine.js:384,474)
  *   OURS  = startSitWeekPoints({ team_abbr, position, current_week_ppg }).week_points
  *                                                                        (lineup-brain.js:356)
  * The lift is keyed on the engine's team at the cutoff (proj.team), as S-02 does: the page keys
@@ -41,9 +41,9 @@ export const HELD_OUT = 2025;
 export const FORWARD = 2026;
 export const FIRST_WEEK = 2;
 export const LAST_WEEK = 18;
-/** trade-engine.js:346, `availability?.active_probability ?? 0.92`; pinned to the source by the test. */
+/** trade-engine.js:371, `availability?.active_probability ?? 0.92`; pinned to the source by the test. */
 export const DEFAULT_ACTIVE_PROBABILITY = 0.92;
-/** thisGame.mult (trade-engine.js:359): exactly 1 while matchups.js#matchupSignalActive() is false. */
+/** thisGame.mult (trade-engine.js:384): exactly 1 while matchups.js#matchupSignalActive() is false. */
 export const THIS_GAME_MULT = 1;
 /** Every arm with points; the common pair set holds each to the threshold (prereg §5.3). */
 export const POINT_ARMS = Object.freeze(['ours', 'D', 'A', 'std', 'l3']);
@@ -123,7 +123,7 @@ export function teamAtWeek(usageRows) {
  *   - the coordinator fit is taken from the walk-forward registry by gradingFit, which refuses
  *     a fit that does not end before the season, and it is handed to constructArms as both
  *     fitS and fitE; each row carries that fit's cutoff (`fit_through`);
- *   - the chance to play is asked for with the season before as its cutoff (trade-engine.js:304);
+ *   - the chance to play is asked for with the season before as its cutoff (trade-engine.js:327);
  *   - both lift reads (B for the parity check, then OURS) go through one call at the graded
  *     season and week, and two parity checks stop the run: D must be what the served
  *     startSitWeekPoints makes of B, and OURS must be current_week_ppg times the lift

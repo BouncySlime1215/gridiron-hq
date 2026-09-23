@@ -178,3 +178,23 @@ test('the kill line names every job running at once, not only the last one marke
   assert.match(stderr, /'nfl_decision_ledger'/, `got: ${stderr}`);
   assert.match(stderr, /'player_rosters'/, `got: ${stderr}`);
 });
+
+/*
+ * More runs than slots. A run abandoned at its budget keeps its slot until its
+ * own code returns, so running out of slots is likelier than it was. Runs with
+ * no slot must still be counted, and a cleared one must stop being counted.
+ * Written without the slot count, so resizing the table does not break it.
+ */
+test('runs beyond the last slot are counted rather than dropped', async () => {
+  const names = Array.from({ length: 40 }, (_, i) => `job_${String(i + 1).padStart(2, '0')}`);
+  // Mark 40, then clear the last, which is certainly one of the runs with no slot.
+  const steps = [...names.map(n => `+${n}`), `-${names[39]}`].join(',');
+  const { signal, stderr } = await runSubject(1000, 4000, {}, 'served', steps);
+  assert.equal(signal, 'SIGKILL', `expected a kill, got stderr: ${stderr}`);
+  const m = stderr.match(/The jobs running when it stopped were (.*?), (\d+) more the marker had no slot for\. /);
+  assert.ok(m, `expected named runs followed by a count; got: ${stderr}`);
+  const named = m[1].split(', ');
+  assert.equal(named.length + Number(m[2]), 39, `39 runs are still marked; got: ${stderr}`);
+  assert.deepEqual(named, names.slice(0, named.length).map(n => `'${n}'`),
+    'the first runs marked hold the slots, in the order they were marked');
+});

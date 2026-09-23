@@ -22,16 +22,21 @@ startLoopWatchdog({ thresholdMs });
 if (served && !armEarly) armLoopWatchdog();
 
 // argv[5], when present, is a comma-separated list of marker steps applied in
-// order before blocking: `name` or `+name` marks a job running, `-name` clears
-// it. The live and background tiers run on separate timers, so jobs overlap
-// and finish out of order; this replays that sequence.
+// order before blocking: `name` or `+name` marks a run of that job, `-name`
+// clears the run marked under that name. The live and background tiers run on
+// separate timers, so jobs overlap and finish out of order; this replays that
+// sequence. A clear goes by the run's handle, as the scheduler's does.
 const steps = (process.argv[5] ?? '').split(',').filter(Boolean);
+const runs = new Map();
 
 // Let the heartbeat and the worker start before blocking anything.
 setTimeout(() => {
   for (const step of steps) {
-    if (step.startsWith('-')) clearJobRunning(step.slice(1));
-    else markJobRunning(step.replace(/^\+/, ''));
+    if (step.startsWith('-')) clearJobRunning(runs.get(step.slice(1)));
+    else {
+      const name = step.replace(/^\+/, '');
+      runs.set(name, markJobRunning(name));
+    }
   }
   const until = Date.now() + blockMs;
   let n = 0;

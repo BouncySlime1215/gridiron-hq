@@ -84,25 +84,44 @@ let armed = null;
 // would leave the process permanently unwatched for a reason nobody would
 // guess from either call site.
 let armedEarly = false;
-// One slot per job running at once. The live and background tiers run on
-// separate timers and the boot pass runs beside them, so jobs overlap and
-// finish out of order. A single slot let the job that finished first erase the
-// name of the one still holding the thread (2026-09-22). Eight is double the
-// most that can run inline at once today (two tiers, two boot timers).
-const JOB_SLOTS = 8;
-// Header: [heartbeat, armed, overflow, nameLen x JOB_SLOTS], then the names.
-// `overflow` counts jobs marked while every slot was taken, so the kill line
-// can say "and N more" rather than silently dropping them.
-const HEADER_CELLS = 3 + JOB_SLOTS;
+// One slot per job RUN in flight on this thread. The live and background tiers
+// run on separate timers and the boot pass runs beside them, so jobs overlap
+// and finish out of order. A single slot let the job that finished first erase
+// the name of the one still holding the thread (2026-09-22).
+//
+// A slot belongs to a run, not to a job name. scheduler.js's budget can abandon
+// a run while the run's code keeps going, and the in-flight guard then lets
+// the same job start again beside it. With slots keyed by name, whichever copy
+// finished first cleared the other copy's marker.
+//
+// Sixteen is a hand-set guess, not a measurement. scheduler.js names five
+// independent callers of runIfStale, each running one job at a time, so about
+// five runs can be inline at once. An abandoned run keeps its slot until its
+// own code returns, which can take minutes when that code is stuck on a network
+// read, so the table leaves room for several of those too. Past sixteen the
+// kill line still counts the extra runs, but it cannot name them.
+const JOB_SLOTS = 16;
+// Header: [heartbeat, armed, overflow, nameLen x JOB_SLOTS,
+// abandonedAt x JOB_SLOTS], then the names. `overflow` counts runs marked while
+// every slot was taken, so the kill line can say "and N more" rather than
+// silently dropping them. `abandonedAt` is 0 for a run whose budget has not
+// given up on it; otherwise it holds the time the budget gave up, on the
+// heartbeat's clock.
+const NAME_LEN_CELL = 3;
+const ABANDONED_AT_CELL = NAME_LEN_CELL + JOB_SLOTS;
+const HEADER_CELLS = ABANDONED_AT_CELL + JOB_SLOTS;
 const HEADER_BYTES = HEADER_CELLS * 4;
 // 64 bytes is comfortably past the longest job name in the registry
-// (`polymarket_line_watch`, 21). A longer one is truncated rather than
+// (`nfl_offseason_depth_injury`, 26). A longer one is truncated rather than
 // refused: a slightly clipped name in a kill line beats no kill line.
 const NAME_BYTES = 64;
 let nameBytes = null;
-// Main-thread bookkeeping only; the worker reads the shared cells.
-const slotOf = new Map();
-const unslotted = new Set();
+// The heartbeat's zero, so an abandonment time uses the same clock.
+let watchStartedAt = 0;
+// Main-thread bookkeeping only; the worker reads the shared cells. Which run
+// holds each slot, compared by identity.
+const slotRuns = new Array(JOB_SLOTS).fill(null);
+let unslotted = 0;
 const encoder = new TextEncoder();
 
 export function startLoopWatchdog({
@@ -113,11 +132,12 @@ export function startLoopWatchdog({
 
   // Int32 cells (Int32Array rather than BigInt64Array so Atomics work on every
   // platform Node supports): [0] is the heartbeat, milliseconds since this
-  // watchdog started, [1] is the armed flag, [2] the overflow count, and
-  // [3 + i] the byte length of the name in slot i, 0 when the slot is free.
-  // Milliseconds fit in an int32 for 24 days, which is why the heartbeat is
-  // relative to startedAt rather than an absolute epoch. After the header come
-  // JOB_SLOTS x NAME_BYTES of UTF-8 names.
+  // watchdog started, [1] is the armed flag, [2] the overflow count,
+  // [NAME_LEN_CELL + i] the byte length of the name in slot i (0 when the slot
+  // is free), and [ABANDONED_AT_CELL + i] when slot i's run was abandoned at its
+  // budget (0 when it was not). Milliseconds fit in an int32 for 24 days, which
+  // is why the heartbeat is relative to startedAt rather than an absolute
+  // epoch. After the header come JOB_SLOTS x NAME_BYTES of UTF-8 names.
   //
   // The name lives in SHARED memory, not in a variable, for the same reason
   // the watchdog lives on its own thread: at the moment it matters the main
@@ -128,10 +148,11 @@ export function startLoopWatchdog({
   const cell = new Int32Array(shared, 0, HEADER_CELLS);
   armed = cell;
   nameBytes = new Uint8Array(shared, HEADER_BYTES, JOB_SLOTS * NAME_BYTES);
-  slotOf.clear();
-  unslotted.clear();
+  slotRuns.fill(null);
+  unslotted = 0;
   if (armedEarly) { Atomics.store(cell, 1, 1); armedEarly = false; }
   const startedAt = Date.now();
+  watchStartedAt = startedAt;
   const stamp = () => Atomics.store(cell, 0, Date.now() - startedAt);
   stamp();
 
@@ -141,7 +162,8 @@ export function startLoopWatchdog({
 
   worker = new Worker(new URL('./loop-watchdog-worker.js', import.meta.url), {
     workerData: { shared, thresholdMs, startedAt, heartbeatMs: HEARTBEAT_MS,
-      headerBytes: HEADER_BYTES, headerCells: HEADER_CELLS, nameBytes: NAME_BYTES, jobSlots: JOB_SLOTS }
+      headerBytes: HEADER_BYTES, headerCells: HEADER_CELLS, nameBytes: NAME_BYTES, jobSlots: JOB_SLOTS,
+      nameLenCell: NAME_LEN_CELL, abandonedAtCell: ABANDONED_AT_CELL }
   });
   // Same: a watchdog that held the process open would keep a CLI or a test
   // runner from ever exiting.
@@ -163,8 +185,11 @@ export function armLoopWatchdog() {
 }
 
 /**
- * Records which job is about to run, so that if it blocks the thread the kill
- * line can name it.
+ * Records that one run of job `name` is about to start on this thread, so that
+ * if it blocks the thread the kill line can name it. Returns the run's handle,
+ * which clearJobRunning clears and markJobAbandoned flags. Returns null when
+ * the watchdog is not running, and both of those accept null, so a caller never
+ * has to check.
  *
  * This is the difference between "the event loop stopped for 60s" and "the
  * event loop stopped for 60s during nfl_model_growth". The first has cost this
@@ -173,24 +198,25 @@ export function armLoopWatchdog() {
  *
  * Call it BEFORE the work starts. A marker written after a synchronous job
  * begins is never written at all, because the thread never comes back to run
- * it. Cheap by construction: one encode and one store, off the request path.
+ * it. Cheap by construction: one encode and three stores, off the request path.
  */
 export function markJobRunning(name) {
-  if (!nameBytes || !armed) return;
-  const key = String(name ?? '');
-  if (slotOf.has(key) || unslotted.has(key)) return;
-  const taken = new Set(slotOf.values());
-  let slot = 0;
-  while (slot < JOB_SLOTS && taken.has(slot)) slot++;
-  if (slot === JOB_SLOTS) {
-    unslotted.add(key);
-    Atomics.store(armed, 2, unslotted.size);
-    return;
+  if (!nameBytes || !armed) return null;
+  // An empty name would hold a slot that the worker reads as free (length 0),
+  // so that run could never be named.
+  const run = { name: String(name ?? '') || '(unnamed job)', slot: -1, cells: armed, cleared: false };
+  const slot = slotRuns.indexOf(null);
+  if (slot === -1) {
+    unslotted += 1;
+    Atomics.store(armed, 2, unslotted);
+    return run;
   }
-  slotOf.set(key, slot);
-  const encoded = encoder.encode(key);
+  run.slot = slot;
+  slotRuns[slot] = run;
+  const encoded = encoder.encode(run.name);
   const len = Math.min(encoded.length, NAME_BYTES);
   nameBytes.set(encoded.subarray(0, len), slot * NAME_BYTES);
+  Atomics.store(armed, ABANDONED_AT_CELL + slot, 0);
   // Length stored LAST, deliberately: the worker reads the length first and
   // treats 0 as "no job", so this order means it can never decode a name that
   // is only half written. Stated honestly -- the suite does NOT prove this
@@ -199,21 +225,42 @@ export function markJobRunning(name) {
   // it. The order is kept because it is free and the race is real across two
   // threads, not because anything checks it. Do not cite this comment as
   // evidence that it is tested.
-  Atomics.store(armed, 3 + slot, len);
+  Atomics.store(armed, NAME_LEN_CELL + slot, len);
+  return run;
 }
 
 /**
- * Clears this job's marker once it has returned, however it returned. By name,
- * so it leaves every other running job's marker alone.
+ * Flags a run whose budget has given up on it. It does not clear the marker.
+ *
+ * scheduler.js's withJobTimeout can stop WAITING for a job, but it cannot stop
+ * the job: the job's code carries on on this thread, and it is often the code
+ * that goes on to block it. sync_log records such a run as "abandoned", which
+ * reads as finished, so the kill line says the run was abandoned and is still
+ * running, and says how long ago the budget gave up. A run abandoned hours
+ * earlier and stuck on a network read then reads as the leftover it is.
  */
-export function clearJobRunning(name) {
-  if (!armed) return;
-  const key = String(name ?? '');
-  if (unslotted.delete(key)) { Atomics.store(armed, 2, unslotted.size); return; }
-  const slot = slotOf.get(key);
-  if (slot === undefined) return;
-  slotOf.delete(key);
-  Atomics.store(armed, 3 + slot, 0);
+export function markJobAbandoned(run) {
+  if (!run || run.cleared || run.cells !== armed || run.slot === -1) return;
+  // At least 1, because 0 means "not abandoned".
+  Atomics.store(armed, ABANDONED_AT_CELL + run.slot, Math.max(1, Date.now() - watchStartedAt));
+}
+
+/**
+ * Clears one run's marker once the run's own code has returned, however it
+ * returned. It goes by handle, so it leaves every other run alone, including
+ * another run of the same job. Clearing twice does nothing, and a handle from a
+ * watchdog that has since been stopped is ignored.
+ */
+export function clearJobRunning(run) {
+  if (!run || run.cleared || run.cells !== armed) return;
+  run.cleared = true;
+  if (run.slot === -1) {
+    unslotted -= 1;
+    Atomics.store(armed, 2, unslotted);
+    return;
+  }
+  slotRuns[run.slot] = null;
+  Atomics.store(armed, NAME_LEN_CELL + run.slot, 0);
 }
 
 /**
@@ -239,8 +286,8 @@ export function watchdogArmingMiddleware(req, res, next) {
 export function stopLoopWatchdog() {
   armed = null;
   nameBytes = null;
-  slotOf.clear();
-  unslotted.clear();
+  slotRuns.fill(null);
+  unslotted = 0;
   armedEarly = false;
   if (beat) { clearInterval(beat); beat = null; }
   if (worker) { worker.terminate().catch(() => {}); worker = null; }

@@ -276,3 +276,34 @@ test('PREVIEW-01: an explicit enabled:false still wins over the preview switch',
     assert.equal('preview' in b, false);
   });
 });
+
+test('PREVIEW-01 on: GET /api/trades/:leagueId/streams serves the suggestion with preview:true (route call site)', async () => {
+  const { hashSessionToken } = await import('../server/platform/auth.js');
+  const { legacyAuthenticated } = await import('../server/platform/legacy-access.js');
+  const { default: tradesRouter } = await import('../server/routes/trades.js');
+  run(`INSERT OR IGNORE INTO users(id, subject, display_name) VALUES (7702, 'streams-preview', 'Reader')`);
+  run(`INSERT OR REPLACE INTO auth_sessions(user_id, token_hash, expires_at) VALUES (7702, ?, datetime('now','+1 day'))`,
+    hashSessionToken('streams-preview-token'));
+  const lg = league({ mine: [dst('HOU'), ...filler(15)], id: 78 });
+  run(`INSERT INTO leagues(id, platform, league_id, season, name, payload, team_count, my_team_id, roster_positions)
+       VALUES (?, 'espn', '424278', 2026, 'L78', ?, 2, '1', ?)`, lg.id, lg.payload, lg.roster_positions);
+  run(`INSERT OR IGNORE INTO league_memberships(league_id, user_id, role) VALUES (78, 7702, 'member')`);
+  const app = express();
+  app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
+  const server = app.listen(0);
+  const saved = process.env[PREVIEW_ENV];
+  process.env[PREVIEW_ENV] = '1';
+  try {
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/api/trades/78/streams`,
+      { headers: { authorization: 'Bearer streams-preview-token' } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.suggestion?.action, 'swap');
+    assert.equal(body.unconfirmed_forward, true);
+    assert.equal(body.preview, true);
+    assert.match(body.preview_reason, /unconfirmed forward/);
+  } finally {
+    server.close();
+    if (saved === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = saved;
+  }
+});

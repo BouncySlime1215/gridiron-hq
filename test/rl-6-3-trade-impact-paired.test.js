@@ -49,6 +49,7 @@ const realGamescript = await import('../server/services/gamescript.js');
 const realContingency = await import('../server/services/contingency.js');
 
 const NFL_TEAMS = NFL.flat();
+let lastScoring = null;                 // the scoring tradeImpact built projections with
 const LAYOUT = ['QB', 'RB', 'RB', 'WR', 'WR'];
 const assets = new Map();
 const projMap = new Map();
@@ -90,7 +91,7 @@ mock.module('../server/services/trade-engine.js', {
 mock.module('../server/services/projections.js', {
   namedExports: {
     ...realProjections,
-    buildProjections: () => projMap,
+    buildProjections: (opts = {}) => { lastScoring = opts.scoring ?? null; return projMap; },
     // Outcomes come off the real global stream, so WHO consumes which draw matters.
     sampleWeeks: (params, n) => Array.from({ length: n }, () => Math.max(0, params.mu * (0.2 + 1.6 * random())))
   }
@@ -245,19 +246,22 @@ test('RL-6-3: the sense-check judge reads the impact\'s own paired SE (call site
 });
 
 test('RL-6-3: the Title-impact tab shows the same numbers tradeImpact gives the card and the sense-check (call site)', () => {
-  const out = titleOddsTrades(631, { teamId: '1', shortlist: 2, runs: 200 });
+  // 300 runs: on this fixture my delta clears the noise and theirs does not, so
+  // a me/them swap of any field is visible.
+  const out = titleOddsTrades(631, { teamId: '1', shortlist: 2, runs: 300 });
   assert.ifError(out.error);
   const d = out.deals[0];
   assert.ok(d, 'control: the fixture deal was simulated');
   // TradeCard (POST /model/:id/trade-impact) and the sense-check call tradeImpact
   // with no seed and no scoring: the defaults must be what this tab shows.
   const ref = tradeImpact(league(), { myTeamId: 1, theirTeamId: 2,
-    iGive: d.i_give.map(p => p.id), iGet: d.i_get.map(p => p.id), runs: 200 });
+    iGive: d.i_give.map(p => p.id), iGet: d.i_get.map(p => p.id), runs: 300 });
   // Non-degenerate: team 1 is not a lock and the two sides' SEs differ, so a
   // me/them swap or a wrong seed cannot pass.
   assert.ok(ref.me.title_before > 0 && ref.me.title_before < 1, `team 1 title odds ${ref.me.title_before}`);
   assert.ok(ref.me.title_delta_se > 0 && ref.me.title_delta_se !== ref.them.title_delta_se,
     `me SE ${ref.me.title_delta_se} vs them SE ${ref.them.title_delta_se}`);
+  assert.notEqual(ref.me.title_delta_clears_noise, ref.them.title_delta_clears_noise, 'fixture: the two flags differ');
   assert.equal(d.title_delta, ref.me.title_delta, 'one deal, one delta on every surface');
   assert.equal(d.title_delta_se, ref.me.title_delta_se);
   assert.equal(d.title_delta_clears_noise, ref.me.title_delta_clears_noise);
@@ -289,6 +293,35 @@ test('RL-6-3: tradeImpact pairs a received free agent (claim) for any id', () =>
     for (const side of [impact.me, impact.them]) {
       assert.equal(side.title_delta, 0, `team ${side.roster_id} title delta after claiming id ${fa}`);
       assert.equal(side.playoff_delta, 0, `team ${side.roster_id} playoff delta after claiming id ${fa}`);
+    }
+  }
+});
+
+test('RL-6-3: one run count, one seed and the league\'s scoring behind every title-odds delta', async () => {
+  // The tab's default run count is the card's and the sense-check's.
+  const { TRADE_IMPACT_RUNS } = simModule;
+  const { SENSE_CHECK_SIM_RUNS } = await import('../server/services/trade-verify.js');
+  assert.equal(TRADE_IMPACT_RUNS, SENSE_CHECK_SIM_RUNS);
+  const out = titleOddsTrades(631, { teamId: '1', shortlist: 1 });
+  assert.ifError(out.error);
+  assert.equal(out.runs_each, TRADE_IMPACT_RUNS, 'Title-impact tab default runs');
+
+  // tradeImpact scores in the league's own format when the caller names none
+  // (the Title-impact tab used to fall through to PPR in every league).
+  const { scoringFor, PPR } = await import('../server/services/scoring.js');
+  const standard = { ...league(), ppr: 0 };
+  tradeImpact(standard, { myTeamId: 1, theirTeamId: 2, iGive: [teamPlayers.get(1)[1]], iGet: [teamPlayers.get(2)[2]], runs: 50 });
+  assert.deepEqual(lastScoring, scoringFor(standard));
+  assert.notDeepEqual(lastScoring, PPR, 'control: a 0-PPR league is not scored PPR');
+
+  // Source pin (the routes are not mounted here): no caller hands tradeImpact
+  // its own seed, so the tab, TradeCard and the sense-check share tradeImpactSeed(lg).
+  for (const f of ['../server/routes/trades.js', '../server/services/title-odds-trades.js']) {
+    const src = fs.readFileSync(new URL(f, import.meta.url), 'utf8');
+    for (let i = src.indexOf('tradeImpact('); i >= 0; i = src.indexOf('tradeImpact(', i + 1)) {
+      const call = src.slice(i, src.indexOf('});', i));
+      assert.doesNotMatch(call, /\bseed\s*:/, `${f}: tradeImpact called with its own seed`);
+      assert.doesNotMatch(call, /\bscoring\s*:/, `${f}: tradeImpact called with its own scoring`);
     }
   }
 });

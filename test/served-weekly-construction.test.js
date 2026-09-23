@@ -167,7 +167,7 @@ test('migration 072 adds the promotion columns to fantasy_coordinator_fits', () 
   assert.ok(cols.includes('promotion_json'), `columns: ${cols.join(', ')}`);
 });
 
-test('a structural-residual fit is never added to the ensemble base (arm B is not served)', () => {
+test('an unpromoted structural-residual fit is not added to the ensemble base (arm B is not served; tests 6, 7 and 9 pin the promoted case)', () => {
   saveFit(FIT);
   const a = assetUniverse(L, FORMAT, { season: 2026, week: 2 }).get(P.id);
   assert.ok(a?.matchup, 'the fixture player has a game this week');
@@ -348,6 +348,13 @@ test('the surface says what this week\'s number is built from', () => {
   const week1 = assetUniverse(L, FORMAT, { season: 2026, week: 1 }).context.week_basis;
   assert.equal(week1.graded_week, false);
   assert.match(week1.label, /not graded/i);
+  // Both ends of the graded span: 17 is the last graded week, 18 is not.
+  const week17 = assetUniverse(L, FORMAT, { season: 2026, week: 17 }).context.week_basis;
+  assert.equal(week17.graded_week, true);
+  assert.doesNotMatch(week17.label, /not graded/i);
+  const week18 = assetUniverse(L, FORMAT, { season: 2026, week: 18 }).context.week_basis;
+  assert.equal(week18.graded_week, false);
+  assert.match(week18.label, /not graded/i);
 });
 
 // ------------------------------------------------------------------ the betting-line lift

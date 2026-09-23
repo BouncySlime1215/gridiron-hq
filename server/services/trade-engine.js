@@ -382,7 +382,8 @@ function buildAssetUniverse(lg, formatKey, target) {
     // (fantasy-coordinator.js#servedWeekConstruction). With a promoted fit, in its
     // promoted weeks, it is the fit's own base plus its correction: the structural
     // head plus the structural-residual correction, S-02's winning arm S1. It used to
-    // add that correction to the ensemble (weeklyPpg), a combination nobody graded.
+    // add that correction to the ensemble (weeklyPpg): arm B, which S-02 and S-03 graded
+    // and which passed, but is the combination S-02 did not pick.
     // The coordinator only corrects THIS week's number — weeklyPpg itself, used below
     // for ROS/season-long figures, is untouched: the coordinator was only graded
     // against weekly outcomes, not season totals.

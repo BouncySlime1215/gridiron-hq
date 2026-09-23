@@ -36,6 +36,7 @@ import { availabilityDegradation, roleStates, weekDesignation } from './continge
 // The league's wire, one producer shared with the trade engine's lineup value
 // (RL-9-3), keyed by the ESPN-id-first resolver (RL-6-4).
 import { rosteredAssetIds, unrosteredSkill, onNflTeam } from './league-wire.js';
+import { previewUnconfirmed, previewFields } from './preview-mode.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
@@ -143,8 +144,12 @@ function weekPpg(p) {
  */
 export function waiverBoard(lg, {
   myTeamId, limit = 20, minProjected = 4, minRosProjected = minProjected, now = new Date(),
-  sameTeamOrder = 'projection'
+  sameTeamOrder: sameTeamOrderArg
 } = {}) {
+  // PREVIEW-01: the local-testing switch picks snap-share order when the caller did not
+  // choose one; each alert's replacements then carry preview:true and the reason.
+  const orderPreview = sameTeamOrderArg === undefined && previewUnconfirmed();
+  const sameTeamOrder = sameTeamOrderArg === undefined ? (orderPreview ? 'snap_share' : 'projection') : sameTeamOrderArg;
   if (!lg?.payload) return { error: 'league not synced' };
   const payload = JSON.parse(lg.payload);
   const { formatKey } = deriveFormat(lg);
@@ -324,7 +329,8 @@ export function waiverBoard(lg, {
   // WV-02: my injured starters and who replaces them, before the next waiver run.
   const waiverRun = nextWaiverRun(payload, now);
   const injuryAlerts = injuryReplacementAlerts({
-    mine, assets, unowned, ownedById, rosterId, waiverRun, roles: roleStates(week.season, week.week), sameTeamOrder
+    mine, assets, unowned, ownedById, rosterId, waiverRun, roles: roleStates(week.season, week.week), sameTeamOrder,
+    preview: orderPreview
   });
 
   return {
@@ -395,9 +401,11 @@ export const SNAP_SHARE_BASIS = 'Snap share: his mean offensive snap % over his 
  * so snap-share order ships default-off. Default: this week's projection, the number
  * the claim list ranks on (not itself graded historically).
  */
+/** Why snap-share order is default-off; also its preview reason (PREVIEW-01). */
+export const SNAP_SHARE_UNCONFIRMED = 'unconfirmed: failed its pre-registered non-inferiority check on 2022-2024';
 export const SAME_TEAM_ORDERS = Object.freeze({
   projection: 'Ordered by this week\'s projection. ' + SNAP_SHARE_BASIS,
-  snap_share: 'Ordered by snap share (unconfirmed: failed its pre-registered non-inferiority check on 2022-2024). '
+  snap_share: `Ordered by snap share (${SNAP_SHARE_UNCONFIRMED}). `
     + SNAP_SHARE_BASIS
 });
 
@@ -495,7 +503,7 @@ const byProjection = (a, b) => b.projected_ppg - a.projected_ppg || (b.snap_shar
  * on this week's projection (the number the claim list ranks on).
  */
 export function injuryReplacementAlerts({
-  mine, assets, unowned, ownedById, rosterId, waiverRun, roles, sameTeamOrder = 'projection'
+  mine, assets, unowned, ownedById, rosterId, waiverRun, roles, sameTeamOrder = 'projection', preview = false
 }) {
   if (!SAME_TEAM_ORDERS[sameTeamOrder]) throw new Error(`unknown sameTeamOrder: ${sameTeamOrder}`);
   const order = sameTeamOrder === 'snap_share' ? bySnapShare : byProjection;
@@ -532,6 +540,7 @@ export function injuryReplacementAlerts({
         same_team_count: sameTeam.length,
         order: sameTeamOrder,
         ranked_by: SAME_TEAM_ORDERS[sameTeamOrder],
+        ...(preview ? previewFields(SNAP_SHARE_UNCONFIRMED) : {}),
         best_free_agent: bestFree ? replacementRow(bestFree, roles, false) : null
       },
       claim_by: waiverRun

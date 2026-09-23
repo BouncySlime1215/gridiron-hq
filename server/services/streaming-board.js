@@ -29,6 +29,7 @@ import { linesFor } from './gamescript.js';
 import { PRO_TEAM } from './espn-draft.js';
 import { canonicalTeamCode } from './team-codes.js';
 import { nflKickoffDate } from './date-util.js';
+import { previewUnconfirmed, previewFields, previewText } from './preview-mode.js';
 
 /** ESPN ids: defaultPositionId and lineup slot for D/ST, the IR slot, the bench. */
 const DST_POSITION = 16;
@@ -53,6 +54,9 @@ export const MIN_EDGE = 1;
  * posts 2026 weeks 2+ and the forward direction holds).
  */
 export const WV01_STREAMING_BOARD_ENABLED = false;
+/** Why the swap suggestion is default-off; also the preview reason (PREVIEW-01). */
+export const WV01_UNCONFIRMED = 'default-off, unconfirmed forward: 2026 defensive counts are computable for week 1 '
+  + 'only (F002), so the swap suggestion has no 2026 forward check yet';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : Math.round(v * 100) / 100);
 
@@ -126,7 +130,11 @@ function rosterRules(lg, payload) {
  * league holds. Defenses whose game has kicked off are not offered.
  */
 export function streamingBoard(lg, { myTeamId = null, season, week, now = new Date(), limit = 5,
-  enabled = WV01_STREAMING_BOARD_ENABLED } = {}) {
+  enabled } = {}) {
+  // PREVIEW-01: the local-testing switch turns the suggestion on when neither the caller
+  // nor the code constant has; the board then carries preview:true and the reason.
+  const preview = enabled === undefined && !WV01_STREAMING_BOARD_ENABLED && previewUnconfirmed();
+  const on = enabled === undefined ? (WV01_STREAMING_BOARD_ENABLED || preview) : enabled;
   const base = { season, week, position: 'DEF', candidates: [], my_defenses: [], suggestion: { action: null, why: null } };
   if (!lg?.payload) return { ...base, error: 'league not synced' };
   const payload = JSON.parse(lg.payload);
@@ -206,14 +214,16 @@ export function streamingBoard(lg, { myTeamId = null, season, week, now = new Da
   // Rule 5 (Auditor ruling (e)): with no 2026 forward weeks confirmed, the board's
   // rankings (the market's own number) still ship, but the swap suggestion — the
   // tested result — does not, until WV01_STREAMING_BOARD_ENABLED is turned on.
-  const gatedSuggestion = enabled ? suggestion : { action: null, add: null, drop: null, edge: null, why: null };
+  const gatedSuggestion = !on ? { action: null, add: null, drop: null, edge: null, why: null }
+    : preview && suggestion.why ? { ...suggestion, why: previewText(suggestion.why) } : suggestion;
 
   return {
     ...base,
     candidates,
     my_defenses: mine,
     suggestion: gatedSuggestion,
-    unconfirmed_forward: enabled,
+    unconfirmed_forward: on,
+    ...(preview ? previewFields(WV01_UNCONFIRMED) : {}),
     free_agent_defenses: free.length,
     min_edge: MIN_EDGE,
     note: `Defenses ranked by the betting market's implied points for the offense they face (the last line before kickoff). Edge = implied points easier than your defense's matchup.`,

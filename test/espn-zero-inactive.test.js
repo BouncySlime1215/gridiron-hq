@@ -218,7 +218,8 @@ test('default-off: without GRIDIRON_ESPN_ZERO_INACTIVE=1 nothing is flagged and 
 });
 
 test('one number: a starter the card calls inactive is not in the solver lineup or warnings, and is listed as unavailable', () => {
-  const mine = roster([player('Zeroed Star', 'WR', 'WR', 30, { prior: 14.2, now: 0 })]);
+  const mine = roster([player('Zeroed Star', 'WR', 'WR', 30, { prior: 14.2, now: 0 }),
+    player('Zeroed Depth', 'RB', 'BENCH', 3, { prior: 6, now: 0 })]);
   mine.splice(mine.findIndex(p => p.asset.name === 'Wideout Two'), 1);
   const id = league(mine);
   const out = lineupCall(id, { providers: {}, now: NOW });
@@ -229,6 +230,8 @@ test('one number: a starter the card calls inactive is not in the solver lineup 
   const u = (out.unavailable ?? []).find(x => x.name === 'Zeroed Star');
   assert.ok(u, 'named in unavailable, which the page lists as not considered');
   assert.match(u.why, /ESPN projects 0: likely inactive/);
+  assert.ok((out.unavailable ?? []).some(x => x.name === 'Zeroed Depth'),
+    'a flagged player is named even when his season average is low (the page says why he is not considered)');
 });
 
 test('the source label states the precision of the population the card shows (Friday Questionable/undesignated), not all zeros', () => {

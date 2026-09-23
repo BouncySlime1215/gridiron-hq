@@ -38,6 +38,12 @@ migration, no new column (read-time attribution only).
 - **GREEN** `cf5d5563` "fix: one news-attribution producer for the player card and the News page (RL-12-3)": 4/4 pass.
 - **GREEN refinement** `7d2cd432` "fix: reject first-name, speaker and team-word surname matches in news attribution (RL-12-3)":
   adds a fixture ("Jets waive TE Wexley Barnes" must not reach Javonte Wexley's card); 4/4 pass.
+- **Test added** `7e27b27d` "test: pin the AI Buy/Sell evidence packet to the same player news (RL-12-3)":
+  test 5 stubs the Anthropic client (`setAnthropicClientForTesting`, no network, no spend) and asserts that
+  `POST /players/:id/analyze` puts the card's three stories, in the card's order, into the evidence packet.
+- **RED re-run after the assertion changes**: the full 5-test file run against origin/main's `server/routes` and
+  `client` (`git checkout origin/main -- server/routes client`, run, `git checkout HEAD -- server/routes client`)
+  gives `# pass 0 # fail 5`. Test 5 fails on the deep-equal of the packet's news facts.
 
 Command (each run): `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/x.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/player-news-one-producer.test.js`.
 Neighbouring tests on `cf5d5563`, same command shape: news-ingest 20/20, nfl-expert-council-news-feed-cutoff 3/3,
@@ -92,7 +98,7 @@ a team and at least one attributed story; 1,506 news rows.
   - Michael Pittman Jr.: the card now shows 3 Pittman stories. The old SQL returned 10 rows, 3 of its top 4
     about Joey Porter Jr.
 
-## Mutation sweep (`docs/tdd/2026-09-23-player-news-one-producer/mut.py`, tree `7d2cd432`, each mutant restored by `git checkout`, tree clean after)
+## Mutation sweep (`python3 docs/tdd/2026-09-23-player-news-one-producer/mut.py` from the worktree root, tree `7e27b27d`, each mutant restored by `git checkout`, tree clean after)
 
 | Mutant | Result |
 |---|---|
@@ -100,10 +106,10 @@ a team and at least one attributed story; 1,506 news rows.
 | M2 News desk call site back to raw entities (`news.js`) | killed (contract test 4) |
 | M3 first-name preceder check disabled | killed (2) |
 | M4 follower check disabled | killed (2) |
-| M5 order by id instead of published_at | killed (3) |
-| M6 team named in the headline ignored | killed (2, 3) |
-| M7 resolved ids ignored | killed (3) |
-| M8 `/analyze` call site returns `[]` | **survived**: `/analyze` needs the Claude key and is not exercised by this test. It shares the exact `playerNews(player.id)` call with `/:id` |
+| M5 order by id instead of published_at | killed (3, 5) |
+| M6 team named in the headline ignored | killed (2, 3, 5) |
+| M7 resolved ids ignored | killed (3, 5) |
+| M8 `/analyze` call site returns `[]` | killed (5). It survived on `7d2cd432`, before test 5 existed; test 5 was added to kill it |
 | M9 designed survivor: team-word surname skip removed | survived as designed. No fixture player has a team-word surname; this rule is covered only by the local-copy census ("from Dallas") |
 | M10 not-applied control (pattern absent) | applied=False, survived |
 
@@ -114,7 +120,6 @@ a team and at least one attributed story; 1,506 news rows.
 - The resolver's own namesake ambiguity is resolved only by name dedup preferring the story's team. When
   neither same-name player is on the story's team, the first-listed id keeps the story (the old desk kept
   the last-listed one), which can be the wrong player.
-- Mutant M8 survives (see above).
 - The card cap stays at 10 rows, so a burst of surname-rule stories can displace older resolved ones
   (8 cases on the local copy).
 
@@ -130,7 +135,7 @@ win rate or MDE applies.
    path returns an explicit empty entity set. The contract test fails if either side forks again (M2 killed).
 2. **Stats or made up?** Every count above comes from the named command on the local copy at tree `7d2cd432`.
    The wrong-row counts are a hand census of every surname-rule row (46, then 40). They are not a sample.
-3. **How we know:** RED 4/4 fail on origin/main, then GREEN 4/4. 7 of 7 behaviour mutants killed, plus the
+3. **How we know:** RED 5/5 fail on origin/main code, then GREEN 5/5. 8 of 8 behaviour mutants killed (call sites included), plus the
    named survivors and the control. The route liveness shows the Brooks surgery story on his card.
 4. **Pointed elsewhere?** Card, player page, AI Buy/Sell facts and the News desk now all use one rule.
    `nfl-news-events.js`, `nfl-player-state.js` and `nfl-news-signal.js` still read raw `entities_json` (model
@@ -138,3 +143,13 @@ win rate or MDE applies.
    surname-rule rows at confidence 0.6). Not changed here, because it would move model inputs.
 5. **How it unifies:** "which stories are about player X" used to have two producers that disagreed on 190
    resolved stories and 70 shown rows. It now has one producer, with 0 of 224 players disagreeing.
+
+- **Defect fixed:** `server/routes/players.js:27-37` `newsFor` on origin/main `57a9ca1c`, which used a substring
+  LIKE, matched the last name token (including "Jr."), and ordered by the day-only date.
+- **Incumbent, by command:** the `measure.mjs` "before" column, which runs `newsFor`'s SQL verbatim.
+- **Not covered:**
+  - the model-side readers of raw `entities_json` (question 4);
+  - ingest-time resolution quality (the resolver still misses surname-only body mentions);
+  - retired or non-fantasy namesakes.
+- **What would make it wrong:** the W4-W5 stories show the surname rule's wrong-row rate above 2 of 40
+  out of sample. If so, turn the surname rule off (resolved ids only) and keep the single producer.

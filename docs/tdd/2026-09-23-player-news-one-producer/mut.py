@@ -9,7 +9,7 @@ muts=[
  ('M5 order by id not published_at', P, "ORDER BY COALESCE(n.published_at, n.date) DESC, n.id DESC", "ORDER BY n.id DESC"),
  ('M6 headline team ignored', P, "  for (const team of index.teamPatterns) if (team.pattern.test(headline)) ids.add(team.id);", ""),
  ('M7 resolved ids ignored', P, "  for (const player of parseEntities(story.entities_json).players ?? []) {", "  for (const player of []) {"),
- ('M8 analyze call site empty (expected survivor: /analyze untested)', R, "const news = playerNews(player.id);", "const news = [];"),
+ ('M8 analyze call site empty', R, "const news = playerNews(player.id);", "const news = [];"),
  ('M9 DESIGNED SURVIVOR team-word surname skip removed', P, " || teamWords.has(family)) continue;", ") continue;"),
  ('M10 NOT-APPLIED CONTROL', P, "THIS_STRING_DOES_NOT_EXIST", "x"),
 ]

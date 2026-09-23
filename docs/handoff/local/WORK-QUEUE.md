@@ -693,3 +693,5 @@ Folded in: TR-02 -> TM-06, TR-04 -> TM-01/TM-03, TR-05 -> TM-02/TM-04 (its quali
 | TM-08 | Research feed: licence-first sources only (official injury reports, team depth charts, beat-reporter feeds already mapped in A3, weather, ESPN/NFL news, cheap web search via Jev), refreshed daily and before each kickoff window, each item stamped as-of and stored with its source | server/news ingest + a research table; scheduler job; cost meter | every item has source, timestamp, licence note; the analyst cites only items dated before its forecast; spend per day shown and capped | NICK spend cap (Jev balance first; ≤$1/run without asking) | no |
 
 See TRADE-MACHINE-PLAN.md (v2, 02:40Z) for the corrected design, new data pulls TM-09..15, the negotiation playbook and research units RS-01..06.
+
+MASTER: TRADE-MACHINE-MASTER.md (compiled 1:20 AM ET: have vs need, routing to existing files/routes/pages, runtime, UI, build order). Detail history: TRADE-MACHINE-PLAN.md v2-v8. New units from chat: LS-01, DD-01, GT-01, LL-01.

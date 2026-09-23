@@ -23,7 +23,7 @@
  *   benched_and_shopped        on his bench and ON_THE_BLOCK
  *   started_bad_matchup        started on a projection well below his own earlier ones
  *                              while a benched player at the position was projected higher
- *   dead_starter_left_in       started, his NFL team played, he did not
+ *   dead_starter_left_in       started, his NFL team played, he did not (no snaps, no stat line, no points)
  *   bye_unfilled               started while his NFL team was on bye
  *   injured_not_on_ir          INJURY_RESERVE status sitting in a bench slot
  *   added_last_week_top_scorer picked up off the wire right after a top-5 week at his position
@@ -137,7 +137,7 @@ export function lineupSignals(leagueId, { season = null } = {}) {
   // uses), not the snapshot's pro_team_id: ESPN numbers teams its own way (33 = BAL).
   const snap = rows(`SELECT s.scoring_period_id AS week, s.team_id, s.espn_player_id, s.player_id, s.player_name,
       s.position, p.team_id AS nfl_team_id, s.lineup_slot_id, s.is_starter, s.injury_status,
-      s.pregame_injury_status, s.projected_points, s.source
+      s.pregame_injury_status, s.projected_points, s.actual_points, s.source
     FROM league_roster_snapshots s LEFT JOIN players p ON p.id = s.player_id
     WHERE s.league_id = ? AND s.season = ? AND s.on_roster = 1
     ORDER BY s.scoring_period_id, s.team_id, s.espn_player_id`, lg.id, yr);
@@ -162,6 +162,11 @@ export function lineupSignals(leagueId, { season = null } = {}) {
   const snaps = snapIndex(yr, new Set(snap.map(r => r.player_id).filter(x => x != null)));
   const sched = new Set(rows('SELECT team_id, week FROM schedule_games WHERE season = ?', yr).map(r => `${r.team_id}|${r.week}`));
   const { blocks, error: blockError } = tradeBlocks(lg.payload);
+  // Who has a stat line in a week: the snap feed misses some players who played (on the
+  // local copy, 11 of 13 "no snap row" starters had points), so no snaps alone is not
+  // proof he sat.
+  const statLine = new Set(rows('SELECT player_id, week FROM player_week_usage WHERE season = ?', yr)
+    .map(r => `${r.player_id}|${r.week}`));
 
   const signals = [];
   const emit = (signal, r, evidence) => signals.push({
@@ -198,10 +203,13 @@ export function lineupSignals(leagueId, { season = null } = {}) {
         const hasGame = r.nfl_team_id != null && sched.has(`${r.nfl_team_id}|${w}`);
         // bye unfilled: needs a schedule for the season to tell a bye from missing data
         if (sched.size && r.nfl_team_id != null && !hasGame) emit('bye_unfilled', r, { nfl_team_id: r.nfl_team_id });
-        // dead starter left in: his team played, he has no snaps, in a week whose snaps are loaded
+        // dead starter left in: his team played and he did not — no snaps (in a week whose
+        // snaps are loaded), no stat line, and no points
         if (skill && hasGame && snapsKnown) {
           const s = snaps.share(r.player_id, w);
-          if (s == null || s === 0) emit('dead_starter_left_in', r, { pro_team_played: true, snap_share: s });
+          if ((s == null || s === 0) && !statLine.has(`${r.player_id}|${w}`) && !(r.actual_points > 0)) {
+            emit('dead_starter_left_in', r, { nfl_team_played: true, snap_share: s, actual_points: r.actual_points });
+          }
         }
         // started through a bad matchup
         if (skill && r.projected_points != null) {

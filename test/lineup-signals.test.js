@@ -39,7 +39,7 @@ const BENCH = 20, IR = 21, FLEX = 23, WR = 4, RB = 2, TE = 6;
 // id, position, pro team. Pro teams 901-906 have a game every week; 907 is on bye in week 3.
 const PLAYERS = {
   101: ['WR', 901], 102: ['WR', 901], 103: ['RB', 902], 104: ['RB', 902],
-  201: ['RB', 903], 202: ['RB', 903], 203: ['WR', 904], 204: ['TE', 907], 205: ['WR', 904], 206: ['WR', 904],
+  201: ['RB', 903], 202: ['RB', 903], 203: ['WR', 904], 204: ['TE', 907], 205: ['WR', 904], 206: ['WR', 904], 207: ['RB', 903], 307: ['K', 906],
   301: ['RB', 905], 302: ['RB', 905], 303: ['WR', 906], 304: ['WR', 906], 305: ['WR', 906], 306: ['RB', 905],
 };
 for (let i = 1; i <= 6; i++) PLAYERS[400 + i] = ['WR', 901];   // free-agent WRs who outscore 304 in week 2
@@ -97,6 +97,9 @@ snap(3, 2, 202, BENCH, { proj: 9 });
 snap(1, 2, 205, WR, { proj: 12 }); snap(2, 2, 205, WR, { proj: 12 }); snap(3, 2, 205, WR, { proj: 5 });
 // 203 started week 3, his team played, he did not (no snap row): dead starter left in.
 snap(3, 2, 203, WR, { actual: 0 });
+// 207 started week 3 on an ESPN projection of 0 (ruled out, not a matchup) over 202: not attached.
+snap(1, 2, 207, RB, { proj: 15 }); snap(2, 2, 207, RB, { proj: 15 }); snap(3, 2, 207, RB, { proj: 0 });
+for (const w of [1, 2, 3]) snaps(207, w, 0.7);
 // 206 started week 3 and scored, but the snap feed has no row for him (a join gap seen
 // on real rows): he played, so he is not a dead starter.
 snap(3, 2, 206, WR, { actual: 12 });
@@ -112,6 +115,9 @@ snap(4, 2, 202, BENCH, { source: 'live' }); snap(4, 2, 205, WR, { source: 'live'
 // 303 and 304 were on nobody's roster in week 2 and on team 3 in week 3. 303 was the
 // top WR of week 2; 304 ranked below six free agents.
 snap(3, 3, 303, WR); snap(3, 3, 304, BENCH);
+// 307, a kicker, was added too; the PPR formula does not score kicks, so his "rank" means nothing.
+snap(3, 3, 307, BENCH);
+run(`INSERT INTO player_week_usage (player_id, season, week, team, position) VALUES (307, ?, 2, 'FIX', 'K')`, SEASON);
 for (const w of [1, 2, 3]) { snaps(303, w, 0.9); snaps(304, w, 0.5); }
 const usage = (id, week, rec, yds, td) => run(`INSERT INTO player_week_usage (player_id, season, week, team, position,
   receptions, receiving_yards, receiving_tds) VALUES (?, ?, ?, 'FIX', 'WR', ?, ?, ?)`, id, SEASON, week, rec, yds, td);
@@ -191,6 +197,7 @@ test('started through a bad matchup: low projection vs his own history with a be
   assert.equal(hit[0].evidence.own_prior_mean, 13);
   assert.equal(hit[0].evidence.better_bench_player_id, 202);
   assert.equal(find('started_bad_matchup', 205).length, 0, 'no benched WR projected above 205');
+  assert.equal(find('started_bad_matchup', 207).length, 0, 'a projection of 0 is ruled out, not a matchup');
 });
 
 test('checked out: dead starter left in, bye unfilled, injured not on IR, each once and apart', () => {
@@ -218,6 +225,7 @@ test("adds last week's top scorer: a new add who ranked top at his position the 
   assert.equal(hit[0].evidence.prior_week_rank, 1);
   assert.equal(find('added_last_week_top_scorer', 304).length, 0, '304 ranked seventh');
   assert.equal(find('added_last_week_top_scorer', 101).length, 0, 'rostered all along');
+  assert.equal(find('added_last_week_top_scorer', 307).length, 0, 'kickers are not ranked by PPR');
 });
 
 test('flex choices: the revealed ranking, with ESPN projections beside it', () => {

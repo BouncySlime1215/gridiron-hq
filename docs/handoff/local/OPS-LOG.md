@@ -77,3 +77,5 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 07:45Z: AI-13..16 queued (Nick: go). AI-13 enters the next free build loop after the current batches; paid runs capped at $1 each until Nick sets a weekly cap.
 
 08:00Z: AUDITOR ruling (audits/2026-09-23-S03-BLEND01-HX01-ruling.md): #166 S-03, #164 BLEND-01, #165 HX-01 all HELD on sign-offs/labels, every re-run number matched. NICK DECISIONS OWED: (1) migration 072 (two additive columns in fantasy_coordinator_fits) yes/no; (2) FantasyPros-derived results in the public repo yes/no (prereg quotes terms forbidding republishing). Small fixes queued: #166 body says "no migrations" (false) -> correct; holdout-ledger row for the W2 re-grade (claims skeptic + auditor); HX-01 label: 2022 coordinator trained on k-control-failing rows; promotion script needs a weeks-2-4-only option before any promotion (do not run TDD section 7 as written). Merge order once cleared: #166 -> #164 -> #165.
+
+08:10Z: R&D r5 landed: TM-14 attention hype closed (kill test); bye-week mispricing found twice (RL-5-2 -> TR-03/S-07; RL-5-3 lean). Plan adjusted (PLAN-V9-CORRECTIONS.md). R&D round 6 relaunched.

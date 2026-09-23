@@ -53,7 +53,7 @@ function Players({ list, empty }: { list: BoardPlayerRead[]; empty: string }) {
       {list.slice(0, 5).map(p => (
         <span key={p.player} className="inline-flex items-baseline gap-1 rounded-lg bg-white px-2 py-0.5 ring-1 ring-slate-200">
           <b className="text-slate-900">{p.player}</b>
-          <span className="text-[11px] tabular-nums text-slate-500">{p.sentiment.toFixed(1)}/4 · n={p.n} · {p.source}</span>
+          <span className="text-[11px] tabular-nums text-slate-500">{p.sentiment.toFixed(2)}/4 · n={p.n} · {p.source}</span>
           {p.thin && <Thin />}
         </span>
       ))}
@@ -86,6 +86,9 @@ export default function TargetBoard({ board, thinBelow = 5 }: { board: Board; th
               </span>
               {hole.thin && <Thin />}
               <Meta n={hole.n} source="Start/Sit week number" unit="teams" />
+              {!hole.below_median && (
+                <span className="w-full text-[11px] text-slate-500">no starter below the league median: no real hole</span>
+              )}
             </>
           ) : <span className="text-slate-500">not priced: {hole.reason}</span>}
         </Line>
@@ -106,17 +109,17 @@ export default function TargetBoard({ board, thinBelow = 5 }: { board: Board; th
             ? <span className="text-slate-500">no decided game yet</span>
             : <span>{tilt.just_lost ? 'Lost' : 'Won'} last week by {pts(Math.abs(tilt.last_week_margin.value ?? 0))}</span>}
           {tilt.just_lost != null && <Meta n={tilt.last_week_margin.n} source={tilt.last_week_margin.source} unit="game" />}
-          <span className="w-full sm:w-auto">
+          <span className="flex w-full flex-wrap items-baseline gap-x-2">
             <ChatShare r={tilt.reacting_to_loss} words="of his messages react to a loss" />
           </span>
         </Line>
         <Line label="When he's active">
           {ah.busiest_hour_utc == null
             ? <span className="text-slate-500">busiest hour not known ({ah.actions_n} of {ah.min_actions} moves needed)</span>
-            : <span>busiest around <b>{localHour(ah.busiest_hour_utc)}</b></span>}
+            : <span>busiest around <b>{localHour(ah.busiest_hour_utc)}</b> your time</span>}
           {ah.thin && <Thin />}
           <Meta n={ah.actions_n} source={ah.source} unit="moves" />
-          <span className="w-full sm:w-auto"><ChatShare r={ah.night_share} words="of his messages at night" /></span>
+          <span className="flex w-full flex-wrap items-baseline gap-x-2"><ChatShare r={ah.night_share} words="of his messages at night" /></span>
         </Line>
         <Line label="Accepts offers">
           {board.accept_rate.value == null

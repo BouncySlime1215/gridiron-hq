@@ -353,7 +353,8 @@ export default function ManagerBoard({ leagueId, profiles, signals }: {
 
       {p?.target_board_meta?.error && (
         <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-[12px] leading-5 text-amber-900">
-          {p.target_board_meta.error}. The tiers below still work.
+          {sanitizedMessage('ManagerBoard.targetBoard', 'The target board could not be built', p.target_board_meta.error)}
+          {' '}The tiers below still work.
         </p>
       )}
 

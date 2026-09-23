@@ -164,3 +164,34 @@ test('pinnedBestLineup keeps a locked back in FLEX and solves the other slots ar
   const benched = pinnedBestLineup(ps, slots, 'week_points', new Map([[3, 'BENCH']]));
   assert.ok(!benched.slots.some(s => s.player?.id === 3));
 });
+
+// The IR activation line (lineupDiff's activate_from_ir, printed on the My Team card).
+{
+  // (a) the IR-slot back's own 1:00 pm game has started: he cannot be moved out of IR.
+  const irEarly = () => [
+    player('Quarterback', 'QB', 18),
+    player('Late Starter', 'RB', 6),
+    player('Early IR Back', 'RB', 16, { slot: 'IR', team: 'EAR' }),
+    player('Wideout', 'WR', 14),
+    player('Tight End', 'TE', 8)
+  ];
+  // (b) a 4:25 pm IR-slot back whose only way in is the RB slot a locked 1:00 pm back holds.
+  const irLate = () => [
+    player('Quarterback', 'QB', 18),
+    player('Early Starter', 'RB', 6, { team: 'EAR' }),
+    player('Late IR Back', 'RB', 16, { slot: 'IR', team: 'LAT' }),
+    player('Wideout', 'WR', 14),
+    player('Tight End', 'TE', 8)
+  ];
+  for (const [build, name, why] of [[irEarly, 'Early IR Back', 'his own game kicked off'],
+    [irLate, 'Late IR Back', 'the only slot he fits is held by a locked starter']]) {
+    test(`the IR activation line does not activate ${name}: ${why}`, () => {
+    const pre = league(build());
+    assert.deepEqual(lineupDiff(pre.lg, '1', { assets: pre.assets, now: PRE }).activate_from_ir.map(p => p.name), [name],
+      'control: before kickoff he is worth activating');
+    const mid = league(build());
+    const d = lineupDiff(mid.lg, '1', { assets: mid.assets, now: MID });
+    assert.deepEqual(d.activate_from_ir.map(p => p.name), [], `${name} cannot be activated at 1:30 pm ET`);
+    });
+  }
+}

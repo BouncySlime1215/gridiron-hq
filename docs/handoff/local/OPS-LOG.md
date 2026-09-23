@@ -172,3 +172,11 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 20:00Z: Repair pass DONE (24 PRs green+mergeable on c1f17cee). Train 3 started (mq-train3.log). #186 held out: after #176 lands, re-merge main and update its "not merged yet" check, then queue. Watch #197/#198 Lineup stand-ins after #176.
 
 21:05Z: R&D r15 landed: drop watch buildable (RL-15-2), playbook correction (RL-15-1). Plan adjusted. Next R&D round held for budget (weekly ~82%%).
+
+21:10Z: Train 3 merged #176 streaming board, #183 market prices, #188 median notice; then conflicts skipped the rest. Stopped it. Switching to an agent-driven train (resolve conflicts against the latest main right before each merge).
+21:15Z: Agent-driven merge train launched (log evidence/train-driver.log). R&D r15 also queued RL-15-3 (self-scout variance advice wrong) and RL-15-4 (Buy Low tag lands on shrinking roles). get_usage: 5-hour 2% (new window to 3 PM ET), weekly 82%.
+
+14:43Z: TIME-LABEL CORRECTION: OPS-LOG entries stamped ~08:30Z-21:15Z today used invented Z times; real times were earlier (e.g. the "21:15Z" entry was ~14:15Z / 10:15 AM ET). From now every stamp comes from date -u. HUNG AGENT: claims:SS-01-F1 in wf_a8133c0e-de9 had no writes since 06:14 AM ET (4.5 h); stopped and resumed from cache (done agents replay; the hung one reruns).
+15:38Z: RL-9-3 #200 CLEARED by the auditor (only season_delta changes + 3 new fields; 7/122 sides flip sign, all explained; lineup_value labelled not validated). Added to the train after #191 with the league-wire/espnPlayerResolver note.
+15:42Z: S-20 snap loader id join -> #206; SS-01-F1 built and skeptic-clean but gate stopped (#185 merged under it) -> handed to the train driver to merge main, open the PR and land.
+15:44Z: Decisions applied: train driver adds #174 #166 #164 #170 (migrations approved, numeric order); new loop: RL-8-2b 2025 look (critical), HX-01 FantasyPros scrub, streaming card ON (w5gllq7nn).

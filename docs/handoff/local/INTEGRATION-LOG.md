@@ -2,7 +2,31 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 14:33Z.
+Last rebuilt: 2026-09-23 15:39Z.
+
+## #171: Start/Sit stops suggesting swaps for players whose game already kicked off (RL-4-2)
+
+- Merged: 11:39 AM ET, Sep 23 as `47f214ff`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #187: Rename age-based trade tag; fix stale sell-high strings to point at one hype producer
+
+- Merged: 11:24 AM ET, Sep 23 as `9c6900be`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #181: Decline AI-01: xFP-based true value does not beat season-to-date PPG or the served ROS number
+
+- Merged: 11:12 AM ET, Sep 23 as `dcd75afa`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #182: Stop the ESPN cookie paste box from showing raw server errors
+
+- Merged: 11:01 AM ET, Sep 23 as `2a7d872c`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #188: Show the median-game-unknown notice with the sim's real reason
 

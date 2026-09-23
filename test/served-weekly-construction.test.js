@@ -323,3 +323,22 @@ test('no served module calls gameScriptLift: the switch in vegasLift cannot be r
   walk(root.pathname);
   assert.deepEqual(hits.filter(f => f !== path.join('services', 'waiver-brain.js')), []);
 });
+
+// ------------------------------------------------------------------ decay watch on the served fit
+
+test('decay watch grades the promoted ensemble-residual fit on the ensemble residual', async () => {
+  // Six played 2026 weeks for the fixture player: examples after the fit's 2025 cutoff.
+  const lines = [[5, 60, 0], [8, 110, 1], [3, 20, 0], [6, 75, 0], [9, 130, 1], [4, 41, 0]];
+  lines.forEach(([rec, yds, td], i) => run(`INSERT INTO player_week_usage (player_id, season, week, team, position, receptions, receiving_yards, receiving_tds)
+                                            VALUES (?, 2026, ?, ?, 'WR', ?, ?, ?)`, P.id, i + 1, P.team, rec, yds, td));
+  const id = saveFit(FIT_E);
+  coordinator.promoteFantasyCoordinatorFit(id, { windows: BOTH, evidence: EVIDENCE });
+  const out = await runDecayWatch({ minN: 5 });
+  const finding = out.findings.find(f => f.finding_key === 'fantasy_coordinator_weights');
+  assert.equal(finding.n, 6, JSON.stringify(finding));
+  // Each example: target = PPR points - structural 12; the ensemble residual subtracts the 2.4 shift.
+  const c = coordinator.coordinateFantasy(FIT_E, { ensemble_shift: 2.4, game_script_delta: null, boom_bust_signal: null }, 0).correction;
+  const seq = lines.map(([rec, yds, td]) => rec + 0.1 * yds + 6 * td - 12 - 2.4).map(r => Math.abs(r) - Math.abs(r - c));
+  const mean = seq.reduce((s, x) => s + x, 0) / seq.length;
+  assert.equal(finding.mean_post_approval_effect, +mean.toFixed(4));
+});

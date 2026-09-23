@@ -1,3 +1,22 @@
+/**
+ * Draft and roster edge: VOR, survival curves, the gamelog sync, and the AI scout.
+ *
+ * SIX ROUTES WERE DELETED FROM THIS FILE on 2026-09-20, taking it from 13 to 7.
+ * `/movers`, `/volatility`, `/schedule-edge` and `/efficiency` were read only by
+ * `client/src/pages/Edge.tsx`, a page no file imports and no <Route> declares;
+ * `/board` and `/sparklines` had no reader anywhere. `vorBoard()`, `volatility()`
+ * and `scheduleEdge()` are untouched — `/scout/:id` still uses all three, and
+ * trade-engine.js, draft-survival.js, tradelab.js and server/scripts/sync-history.js
+ * still import them. The file was proposed for deletion on the strength of its dead
+ * routes; four live importers is why that was wrong.
+ *
+ * `/vor` looked like the fifth dead one and is not: `client/src/pages/DraftRoom.tsx:33`
+ * calls it and DraftRoom IS routed, at `/drafts/:id`.
+ *
+ * `POST /gamelogs/sync` has no client caller and is NOT dead either:
+ * `scripts/bootstrap-data.mjs:104` dials it over HTTP once per season on a fresh
+ * install. It was on the delete list until that line was read by hand.
+ */
 import { Router } from 'express';
 import { db, rows, row, run } from '../db/index.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
@@ -153,14 +172,6 @@ export function volatility(season = SEASON - 1) {
   return out;
 }
 
-r.get('/volatility', (req, res) => {
-  const v = volatility();
-  const names = Object.fromEntries(rows('SELECT id, name, position FROM players').map(p => [p.id, p]));
-  res.json([...v.entries()].map(([id, m]) => ({ player_id: id, ...names[id], ...m }))
-    .filter(x => x.name)
-    .sort((a, b) => b.avg - a.avg));
-});
-
 // ------------------------------------------- 3. Playoff & weekly schedule edge
 /**
  * Opponent strength per week, and specifically weeks 15-17 (fantasy playoffs).
@@ -222,51 +233,6 @@ export function scheduleEdge(season = SEASON) {
     .map((x, i) => ({ ...x, playoff_rank: i + 1 }));
 }
 
-r.get('/schedule-edge', (req, res) => res.json(scheduleEdge()));
-
-// ------------------------------------------------ 4. Breakout / regression model
-/**
- * Flags players whose projection diverges sharply from last season, then explains
- * why using age, draft capital, and market movement. Pure signal, no AI.
- */
-r.get('/movers', (req, res) => {
-  const list = rows(`SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, t.abbr AS team_abbr,
-                            s.fantasy_points AS proj, a.fantasy_points AS last,
-                            rp.age, rp.experience, acc.draft_round, acc.draft_pick,
-                            m.value AS market, mt.value AS trend
-                     FROM players p
-                     JOIN player_season_stats s ON s.player_id = p.id AND s.season = ? AND s.kind='projected'
-                     LEFT JOIN player_season_stats a ON a.player_id = p.id AND a.season = ? AND a.kind='actual'
-                     LEFT JOIN nfl_teams t ON t.id = p.team_id
-                     LEFT JOIN roster_players rp ON rp.espn_id = p.espn_id
-                     LEFT JOIN player_accolades acc ON acc.roster_player_id = rp.id
-                     LEFT JOIN player_metrics m ON m.player_id = p.id AND m.source='fc_value'
-                     LEFT JOIN player_metrics mt ON mt.player_id = p.id AND mt.source='fc_trend30'
-                     WHERE s.fantasy_points > 80`, SEASON, SEASON - 1);
-
-  const scored = list.map(p => {
-    const delta = p.last != null ? p.proj - p.last : null;
-    const pctDelta = p.last ? (delta / p.last) * 100 : null;
-    const reasons = [];
-    let score = pctDelta ?? 0;
-    if (p.age != null && p.age <= 24) { score += 8; reasons.push(`age ${p.age}, ascending curve`); }
-    if (p.age != null && p.age >= 30) { score -= 8; reasons.push(`age ${p.age}, decline risk`); }
-    if (p.experience === 1) { score += 6; reasons.push('year-two leap window'); }
-    if (p.draft_round === 1) { score += 4; reasons.push(`first-round pedigree (P${p.draft_pick})`); }
-    if (p.trend != null && p.market) {
-      const tp = (p.trend / (p.market - p.trend)) * 100;
-      if (tp > 4) { score += 5; reasons.push(`market up ${tp.toFixed(1)}% in 30d`); }
-      if (tp < -4) { score -= 5; reasons.push(`market down ${Math.abs(tp).toFixed(1)}% in 30d`); }
-    }
-    return { ...p, delta: delta != null ? +delta.toFixed(1) : null,
-             pct_delta: pctDelta != null ? +pctDelta.toFixed(1) : null,
-             signal: +score.toFixed(1), reasons };
-  }).filter(p => p.pct_delta != null);
-
-  scored.sort((a, b) => b.signal - a.signal);
-  res.json({ breakouts: scored.slice(0, 25), regressions: scored.slice(-25).reverse() });
-});
-
 // --------------------------------------------- 5. Trade analyzer (RETIRED)
 /**
  * RETIRED 2026-09-18 (trade-engine-correctness, GATE G7).
@@ -277,6 +243,12 @@ r.get('/movers', (req, res) => {
  * entirely — and it had no client caller. The scorer that does all three is
  * POST /api/trades/:leagueId/evaluate, the same `evaluate()` the trade finder
  * ranks with.
+ *
+ * IT IS A TOMBSTONE AND IT STAYS. `route-no-caller` reports it, correctly: nothing
+ * calls it. Deleting it would turn a 410 that explains itself, and names the endpoint
+ * to use instead, into a bare 404 — which is what an old client or a bookmarked call
+ * would then get, with nothing to read. The row stays visible rather than going into
+ * annotations.json, because "nothing calls this" is the true and intended state.
  */
 r.post('/trade', (_req, res) => res.status(410).json({
   error: 'This endpoint was retired on 2026-09-18. A VOR-sum difference is not a trade verdict: it ignores your starting lineup, the rest of the season and the other manager.',
@@ -370,191 +342,5 @@ r.post('/simulate', (req, res) => {
 export default r;
 
 /* ------------------------------------------ Efficiency & opportunity metrics */
-/**
- * Rate stats, not totals. Volume tells you the role; efficiency tells you
- * whether the role is being converted — and which way a projection should bend.
- */
-r.get('/efficiency', (req, res) => {
-  const season = Number(req.query.season) || SEASON - 1;
-  const pos = req.query.position;
-  const list = rows(`SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, t.abbr AS team_abbr,
-                            a.raw AS actual, pr.raw AS proj_raw,
-                            a.fantasy_points AS pts, pr.fantasy_points AS proj
-                     FROM players p
-                     LEFT JOIN nfl_teams t ON t.id = p.team_id
-                     JOIN player_season_stats a  ON a.player_id = p.id  AND a.season = ? AND a.kind='actual'
-                     LEFT JOIN player_season_stats pr ON pr.player_id = p.id AND pr.season = ? AND pr.kind='projected'
-                     WHERE a.raw IS NOT NULL ${pos ? 'AND p.position = ?' : ''}`,
-    season, SEASON, ...(pos ? [pos] : []));
-
-  // team pass/rush volume so we can express usage as a share of the offense
-  const teamTot = {};
-  for (const p of list) {
-    const s = JSON.parse(p.actual);
-    const k = p.team_abbr ?? '—';
-    teamTot[k] ??= { targets: 0, carries: 0 };
-    teamTot[k].targets += s.targets ?? 0;
-    teamTot[k].carries += s.rushAtt ?? 0;
-  }
-
-  const out = list.map(p => {
-    const s = JSON.parse(p.actual);
-    const tt = teamTot[p.team_abbr ?? '—'] ?? { targets: 1, carries: 1 };
-    const targets = s.targets ?? 0, rec = s.rec ?? 0, carries = s.rushAtt ?? 0;
-    const recYds = s.recYds ?? 0, rushYds = s.rushYds ?? 0;
-    const tds = (s.recTD ?? 0) + (s.rushTD ?? 0) + (s.passTD ?? 0);
-    const touches = carries + rec;
-    return {
-      id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
-      espn_id: p.espn_id, sleeper_id: p.sleeper_id,
-      points: p.pts, projected: p.proj,
-      // opportunity
-      targets, carries, touches,
-      target_share: tt.targets ? +((targets / tt.targets) * 100).toFixed(1) : null,
-      rush_share: tt.carries ? +((carries / tt.carries) * 100).toFixed(1) : null,
-      // efficiency
-      catch_rate: targets ? +((rec / targets) * 100).toFixed(1) : null,
-      yds_per_target: targets ? +(recYds / targets).toFixed(2) : null,
-      yds_per_catch: rec ? +(recYds / rec).toFixed(2) : null,
-      yds_per_carry: carries ? +(rushYds / carries).toFixed(2) : null,
-      yds_per_touch: touches ? +((recYds + rushYds) / touches).toFixed(2) : null,
-      // scoring rate — the most regression-prone number in fantasy
-      td_rate: touches ? +((tds / touches) * 100).toFixed(1) : null,
-      tds
-    };
-  }).filter(p => p.touches >= 20 || p.position === 'QB');
-
-  // flag TD rates far from positional norm — those are the projections most likely to move
-  const byPos = {};
-  for (const p of out) if (p.td_rate != null) (byPos[p.position] ??= []).push(p.td_rate);
-  const mean = {};
-  for (const [k, v] of Object.entries(byPos)) mean[k] = v.reduce((a, b) => a + b, 0) / v.length;
-
-  res.json(out.map(p => ({
-    ...p,
-    td_rate_vs_pos: p.td_rate != null && mean[p.position]
-      ? +(p.td_rate - mean[p.position]).toFixed(1) : null,
-    regression_flag: p.td_rate != null && mean[p.position]
-      ? (p.td_rate > mean[p.position] * 1.6 ? 'TD rate unsustainably high'
-        : p.td_rate < mean[p.position] * 0.5 ? 'TD rate due to rebound' : null)
-      : null
-  })).sort((a, b) => (b.points ?? 0) - (a.points ?? 0)));
-});
 
 /* ------------------------------------------------------------------ */
-/** One row per player with every metric the app knows — the single source
- *  behind the unified Players board. Replaces the separate rankings /
- *  projections / VOR payloads that each re-queried the same tables. */
-r.get('/board', (req, res) => {
-  const teams = Number(req.query.teams) || 12;
-  const setId = req.query.set_id ? Number(req.query.set_id) : null;
-
-  const vor = new Map(vorBoard(teams).map(p => [p.id, p]));
-  const vol = volatility();
-  const sched = new Map(scheduleEdge().map(s => [s.abbr, s]));
-  const t100 = new Map(rows('SELECT rank, name_key FROM nfl_top100 WHERE season = ?', SEASON)
-    .map(x => [x.name_key, x.rank]));
-  const nk = n => (n ?? '').toLowerCase().replace(/[.'’-]/g, '')
-    .replace(/\s+(jr|sr|ii|iii|iv|v)$/i, '').replace(/\s+/g, ' ').trim();
-
-  const myRank = setId
-    ? new Map(rows('SELECT player_id, rank, tier, note FROM ranking_entries WHERE set_id = ?', setId)
-        .map(e => [e.player_id, e]))
-    : new Map();
-
-  const base = rows(`SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id,
-                            t.abbr AS team_abbr, t.primary_color,
-                            pr.fantasy_points AS proj, pr.raw AS proj_raw,
-                            ac.fantasy_points AS last_pts, ac.raw AS last_raw,
-                            mv.value AS market_value, mt.value AS market_trend,
-                            adp.value AS adp, inj.value AS injury,
-                            rp.age, rp.experience,
-                            acc.pro_bowls, acc.first_team_all_pro, acc.major_awards,
-                            acc.draft_round, acc.draft_pick, acc.draft_year,
-                            sr.verdict AS scout_verdict, pa.verdict AS buy_sell
-                     FROM players p
-                     LEFT JOIN nfl_teams t ON t.id = p.team_id
-                     LEFT JOIN player_season_stats pr ON pr.player_id = p.id AND pr.season = ? AND pr.kind='projected'
-                     LEFT JOIN player_season_stats ac ON ac.player_id = p.id AND ac.season = ? AND ac.kind='actual'
-                     LEFT JOIN player_metrics mv  ON mv.player_id  = p.id AND mv.source='fc_value'
-                     LEFT JOIN player_metrics mt  ON mt.player_id  = p.id AND mt.source='fc_trend30'
-                     LEFT JOIN player_metrics adp ON adp.player_id = p.id AND adp.source='ffc_adp'
-                     LEFT JOIN player_metrics inj ON inj.player_id = p.id AND inj.source='injury_flag'
-                     LEFT JOIN roster_players rp ON rp.espn_id = p.espn_id
-                     LEFT JOIN player_accolades acc ON acc.roster_player_id = rp.id
-                     LEFT JOIN scout_reports sr ON sr.player_id = p.id
-                     LEFT JOIN player_analysis pa ON pa.player_id = p.id
-                     WHERE pr.fantasy_points IS NOT NULL OR adp.value IS NOT NULL
-                        OR p.id IN (SELECT player_id FROM ranking_entries)`,
-    SEASON, SEASON - 1);
-
-  // positional projection rank
-  const byPos = {};
-  for (const p of base) if (p.proj != null) (byPos[p.position] ??= []).push(p);
-  for (const list of Object.values(byPos)) {
-    list.sort((a, b) => b.proj - a.proj);
-    list.forEach((p, i) => { p._posRank = i + 1; });
-  }
-
-  const seen = new Set();
-  const out = [];
-  for (const p of base) {
-    if (seen.has(p.id)) continue;            // roster_players join can duplicate
-    seen.add(p.id);
-    const v = vor.get(p.id);
-    const w = vol.get(p.id);
-    const s = p.team_abbr ? sched.get(p.team_abbr) : null;
-    const mine = myRank.get(p.id);
-    const projLine = p.proj_raw ? JSON.parse(p.proj_raw) : null;
-    const lastLine = p.last_raw ? JSON.parse(p.last_raw) : null;
-    const badges = [];
-    const rank100 = t100.get(nk(p.name));
-    if (rank100) badges.push(`Top 100 #${rank100}`);
-    if (p.first_team_all_pro > 0) badges.push(`${p.first_team_all_pro}× All-Pro`);
-    else if (p.pro_bowls > 0) badges.push(`${p.pro_bowls}× Pro Bowl`);
-    if (p.major_awards) badges.push(p.major_awards.split(',')[0].trim());
-    if (p.draft_round === 1 && p.draft_year === SEASON) badges.push('Rookie R1');
-
-    out.push({
-      id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
-      espn_id: p.espn_id, sleeper_id: p.sleeper_id,
-      age: p.age ?? null, experience: p.experience ?? null,
-      injury: p.injury ? 1 : 0, badges, top100: rank100 ?? null,
-      // projections
-      proj: p.proj != null ? +p.proj.toFixed(1) : null,
-      pos_rank: p._posRank ?? null,
-      last_pts: p.last_pts != null ? +p.last_pts.toFixed(1) : null,
-      delta: p.proj != null && p.last_pts != null ? +(p.proj - p.last_pts).toFixed(1) : null,
-      proj_line: projLine, last_line: lastLine,
-      // value
-      vor: v?.vor ?? null, vor_rank: v?.vor_rank ?? null,
-      adp: p.adp ?? null, adp_edge: v?.adp_edge ?? null,
-      market_value: p.market_value ?? null,
-      market_trend_pct: p.market_value && p.market_trend != null && p.market_value - p.market_trend !== 0
-        ? +((p.market_trend / (p.market_value - p.market_trend)) * 100).toFixed(1) : null,
-      // weekly profile
-      games: w?.games ?? null, avg: w?.avg ?? null, floor: w?.floor ?? null,
-      ceiling: w?.ceiling ?? null, boom: w?.boom_rate ?? null, bust: w?.bust_rate ?? null,
-      consistency: w?.consistency ?? null,
-      // schedule
-      playoff_sos: s?.playoff_sos ?? null, playoff_rank: s?.playoff_rank ?? null,
-      season_sos: s?.season_sos ?? null,
-      // my board + AI
-      my_rank: mine?.rank ?? null, tier: mine?.tier ?? null, note: mine?.note ?? null,
-      scout_verdict: p.scout_verdict ?? null, buy_sell: p.buy_sell ?? null
-    });
-  }
-  out.sort((a, b) => (a.my_rank ?? 9999) - (b.my_rank ?? 9999) || (b.vor ?? -999) - (a.vor ?? -999));
-  res.json(out);
-});
-
-/** Weekly point series per player, for inline sparklines on the board. */
-r.get('/sparklines', (req, res) => {
-  const season = Number(req.query.season) || SEASON - 1;
-  const out = {};
-  for (const g of rows(`SELECT player_id, week, fantasy_points FROM player_gamelog
-                        WHERE season = ? ORDER BY player_id, week`, season)) {
-    (out[g.player_id] ??= []).push(+(g.fantasy_points ?? 0).toFixed(1));
-  }
-  res.json(out);
-});

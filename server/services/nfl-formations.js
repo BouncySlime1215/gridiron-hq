@@ -20,12 +20,36 @@
  * down, against this box" — which is the difference between a drawing and a
  * diagram, and is also a real modelling input the ensemble has never had.
  *
- * A LIMIT WORTH KNOWING: participation ends after 2023. The NFL restricted the
- * underlying tracking feed, so nflverse could not continue it. That makes this
- * excellent history and not a live feed, which is fine for learning formation
- * distributions and useless for knowing what happened on Sunday.
+ * A LIMIT WORTH KNOWING, corrected 2026-09-22 by downloading every season:
+ * participation is published for 2016-2025, not "through 2023" as this comment
+ * previously claimed. 2024 has 45,919 rows over 285 games and 2025 has 45,184
+ * over 285 games, both weeks 1-22, with offense_players 100% populated. The
+ * real limit is the near edge, not the far one: pbp_participation_2026.csv
+ * returns HTTP 404 while snap_counts and stats_player_week are already current
+ * through 2026 week 2. So this is excellent history and still not a live feed —
+ * it cannot tell you what happened last Sunday.
+ *
+ * The cost of the old error was two full seasons: 2024 and 2025 both exist,
+ * this ingester already handled them, and nobody called it for them because the
+ * code said not to bother. If you are reading this in a later year, check the
+ * year rather than trusting the numbers above; a hardcoded end season is
+ * exactly how the first version went stale.
+ *
+ * LOADING COMPLETED SEASONS. The growth cycle asks only for the season being
+ * played, which is never published while it is played, so it cannot fill
+ * nfl_play_formations and records that 404 as a skip. Completed seasons load
+ * one at a time through a named command, kept off the timer because each is a
+ * ~50 MB CSV parsed in memory:
+ *
+ *   GRIDIRON_DB_PATH=<db> SCHEDULER_DISABLED=1 node scripts/backfill-formations.mjs 2025
+ *
+ * Licence: participation is CC BY-SA 4.0, attributed to "FTN Data via nflverse"
+ * (2023 onwards) or "NFL NextGenStats via nflverse" (2022 and earlier), per
+ * nflreadr's load_participation reference. See
+ * docs/tdd/2026-09-22-formations-404-skip.tdd.md.
  */
 import { db, rows, row, run } from '../db/index.js';
+import { canonicalTeamCode } from './team-codes.js';
 
 const BASE = 'https://github.com/nflverse/nflverse-data/releases/download';
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
@@ -56,9 +80,21 @@ export async function ingestFormations(season, { timeoutMs = 900000 } = {}) {
   const res = await fetch(`${BASE}/pbp_participation/pbp_participation_${season}.csv`,
     { signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) {
-    return { error: `participation for ${season} returned ${res.status}`,
-      note: season > 2023
-        ? 'Participation ends after 2023 — the NFL restricted the tracking feed behind it.'
+    // Still an error to every caller: a 404 for a completed season (2016-2025
+    // are published) is a real fault. `http_status` is there so a caller that
+    // knows which season is in progress can tell the documented absence from a
+    // failed download without parsing the message (nfl-model-growth.js,
+    // unpublishedSeasonSkip).
+    return { season, http_status: res.status,
+      error: `participation for ${season} returned ${res.status}`,
+      // No hardcoded end season here: that is what made the previous version of
+      // this note wrong for two years running. A 404 means nflverse has not
+      // published that season, which is normal only while it is in progress;
+      // this writer does not know which season that is, so the note says both.
+      note: res.status === 404
+        ? `nflverse has not published participation for ${season} (404). That is expected only while `
+          + 'the season is in progress, since a season is published after its post-season; for a completed '
+          + 'season it is a fault.'
         : undefined };
   }
   const text = await res.text();
@@ -67,10 +103,23 @@ export async function ingestFormations(season, { timeoutMs = 900000 } = {}) {
   const idx = Object.fromEntries(header.map((h, i) => [h, i]));
 
   let stored = 0, withFormation = 0;
+  // Upsert, not insert-or-ignore, for the same reason ingestCharting is one: rows
+  // stored before the charted columns existed (migration 070) only get them on a
+  // re-ingest, and DO NOTHING would leave them null forever.
   const stmt = db.prepare(`INSERT INTO nfl_play_formations
          (game_id, play_id, season, possession, offense_formation, offense_personnel,
-          defense_personnel, defenders_in_box, pass_rushers)
-         VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(game_id, play_id) DO NOTHING`,
+          defense_personnel, defenders_in_box, pass_rushers,
+          time_to_throw, was_pressure, defense_man_zone_type, defense_coverage_type)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(game_id, play_id) DO UPDATE SET
+           season = excluded.season, possession = excluded.possession,
+           offense_formation = excluded.offense_formation,
+           offense_personnel = excluded.offense_personnel,
+           defense_personnel = excluded.defense_personnel,
+           defenders_in_box = excluded.defenders_in_box, pass_rushers = excluded.pass_rushers,
+           time_to_throw = excluded.time_to_throw, was_pressure = excluded.was_pressure,
+           defense_man_zone_type = excluded.defense_man_zone_type,
+           defense_coverage_type = excluded.defense_coverage_type`,
   );
   db.exec('BEGIN');
   try {
@@ -82,10 +131,24 @@ export async function ingestFormations(season, { timeoutMs = 900000 } = {}) {
       if (!gameId || playId == null) continue;
       const formation = (p[idx.offense_formation] ?? '').trim() || null;
       if (formation) withFormation++;
-      stmt.run(gameId, playId, season, p[idx.possession_team] ?? null, formation,
+      const manZone = (p[idx.defense_man_zone_type] ?? '').trim() || null;
+      const shell = (p[idx.defense_coverage_type] ?? '').trim() || null;
+      // Coverage charted is what marks a dropback. `was_pressure` still reads
+      // FALSE on runs, kneels, punts and kicks — 51.2% of the 2024 rows — and
+      // averaging those in halves the pressure rate (0.1539 against 0.3145).
+      // The gate is coverage and not time_to_throw on purpose: 2,689 rows have
+      // coverage and no time_to_throw and 74% of them are pressured, because
+      // they are the sacks and scrambles.
+      const dropback = manZone != null || shell != null;
+      // The feed writes LA for the Rams; teamHistory binds possession to the
+      // game_lines code (LAR), so a raw code leaves that team with no history.
+      const possession = (p[idx.possession_team] ?? '').trim();
+      stmt.run(gameId, playId, season, possession ? canonicalTeamCode(possession) : null, formation,
         (p[idx.offense_personnel] ?? '').trim() || null,
         (p[idx.defense_personnel] ?? '').trim() || null,
-        num(p[idx.defenders_in_box]), num(p[idx.number_of_pass_rushers]));
+        num(p[idx.defenders_in_box]), num(p[idx.number_of_pass_rushers]),
+        num(p[idx.time_to_throw]), dropback ? bool(p[idx.was_pressure]) : null,
+        manZone, shell);
       stored++;
     }
     db.exec('COMMIT');
@@ -170,8 +233,13 @@ export function formationDistribution({ season = null, team = null } = {}) {
 
   const byFormation = rows(
     `SELECT offense_formation AS formation, COUNT(*) AS n,
-            AVG(CAST(defenders_in_box AS REAL)) AS mean_box,
-            AVG(CAST(pass_rushers AS REAL)) AS mean_rushers
+            -- NULLIF, because the file writes 0 rather than blank on plays that
+            -- were never a dropback: 9,219 of the 2024 rows for box count, 23,754
+            -- for rushers. The histogram below already filters them with
+            -- defenders_in_box > 0; leaving them in the mean read a league
+            -- average box of 4.87 against a real 5.84.
+            AVG(CAST(NULLIF(defenders_in_box, 0) AS REAL)) AS mean_box,
+            AVG(CAST(NULLIF(pass_rushers, 0) AS REAL)) AS mean_rushers
      FROM nfl_play_formations ${clause}
      GROUP BY offense_formation ORDER BY n DESC`, ...args);
 
@@ -199,8 +267,15 @@ export function formationDistribution({ season = null, team = null } = {}) {
 
 /** What the hand-charting says about how plays are actually run. */
 export function chartingSummary({ season = null } = {}) {
-  const clause = season ? `WHERE season = ${Number(season)}` : '';
-  const total = row(`SELECT COUNT(*) AS n FROM nfl_play_charting ${clause}`)?.n ?? 0;
+  // Bound, not interpolated. Number() alone kept this uninjectable but turned a
+  // non-numeric season into the bare token NaN, which SQLite parses as a column
+  // name and rejects at prepare time — a bad parameter became a 500 instead of
+  // the empty answer below. Bound, a NaN simply matches no row and falls through
+  // to that answer, so no separate validity check is needed here.
+  const n = season == null ? null : Number(season);
+  const clause = n == null ? '' : 'WHERE season = ?';
+  const args = n == null ? [] : [n];
+  const total = row(`SELECT COUNT(*) AS n FROM nfl_play_charting ${clause}`, ...args)?.n ?? 0;
   if (!total) return { error: 'no charting data stored', hint: 'POST /nfl-betting/formations/ingest' };
 
   const rates = row(`
@@ -211,8 +286,13 @@ export function chartingSummary({ season = null } = {}) {
            AVG(CAST(no_huddle AS REAL)) AS no_huddle,
            AVG(CAST(trick AS REAL)) AS trick,
            AVG(CAST(out_of_pocket AS REAL)) AS out_of_pocket,
-           AVG(CAST(defense_box AS REAL)) AS mean_box
-    FROM nfl_play_charting ${clause}`) ?? {};
+           -- NULLIF on the box count ONLY. The feed writes 0 where the box was
+           -- never counted, exactly as it does for formationDistribution above.
+           -- The flags above must keep their zeros: a zero there means the play
+           -- was not play action, which is a measurement, and excluding those
+           -- would make every rate 1.0 by construction.
+           AVG(CAST(NULLIF(defense_box, 0) AS REAL)) AS mean_box
+    FROM nfl_play_charting ${clause}`, ...args) ?? {};
 
   return {
     season: season ?? 'all stored', plays: total,
@@ -236,7 +316,9 @@ export function formationStatus() {
   return {
     formations: { plays: f.n ?? 0, seasons: fs.map(x => ({ season: x.season, plays: x.n })) },
     charting: { plays: c.n ?? 0, seasons: cs.map(x => ({ season: x.season, plays: x.n })) },
-    limits: 'Participation ends after 2023 — the NFL restricted the tracking feed behind it. Excellent ' +
-      'history for learning formation distributions, not a live feed.'
+    limits: 'Participation is published for 2016-2025 (verified 2026-09-22 by download: 2024 = 45,919 ' +
+      'plays over 285 games, 2025 = 45,184 over 285). The current season is not published — ' +
+      'pbp_participation_2026.csv returns 404 — so this is history for learning formation ' +
+      'distributions and not a live feed.'
   };
 }

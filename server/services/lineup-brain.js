@@ -249,14 +249,96 @@ export function evidenceCache(season, providers = DEFAULT_PROVIDERS) {
 }
 
 /**
- * How much two projections have to differ before the difference is real.
+ * How often the higher projection actually wins, measured.
  *
- * Weekly fantasy projections carry a mean absolute error in the region of five
- * to six points for a starter. A gap of a point and a half is inside that noise
- * by any reading, and calling it a decision is false precision. This is not
- * fitted — it is a judgement, stated here in one place so it can be argued with
- * rather than buried inside a comparison.
+ * This used to be a judgement: a point and a half is inside the projection's
+ * error, four points is a real gap, and the comment here said so plainly so it
+ * could be argued with. It was argued with. The curve below replaces the
+ * judgement with an enumeration.
+ *
+ * Every rate is a TAIL rate — of the calls whose margin was at least `margin`,
+ * this share saw the higher projection score strictly more actual PPR. That is
+ * the quantity a threshold is answerable for: put the strongest label above
+ * 7.15 and you are claiming 80% of those calls are right. It is NOT the rate
+ * within a band, and the two must not be read for each other.
+ *
+ * `n` is the number of pairs in the tail, or null where the source reports the
+ * rate without the count. Null is "not published", not zero.
  */
+export const DECISION_CURVE = {
+  source: 'docs/evidence/2026-09-22/start-sit-decision-curve.md',
+  universe: 'same-week pairs with both projections at least 8.0 PPR (startable), '
+    + '656,705 pairs fully enumerated over 25,323 out-of-sample predictions, 2018-2025',
+  // The caveat that governs every number above, carried with them rather than
+  // left in the document: this was measured on a research-baseline projection
+  // whose startable MAE is 6.085, not on production's own out-of-sample
+  // week_points, and production carries a betting-line lift the baseline has no
+  // term for. The curve is a property of a projection's error distribution, so
+  // a better or worse projection moves all of it. Re-derive before treating any
+  // boundary here as a constant of the game.
+  measured_on: 'a research-baseline projection (startable MAE 6.085), not production\'s own '
+    + 'out-of-sample week_points; re-derive on production before trusting a boundary',
+  points: [
+    { margin: 1.5, win_rate: 0.665, n: 453775 },
+    { margin: 2.5, win_rate: 0.691, n: 343831 },
+    { margin: 4.0, win_rate: 0.726, n: 213340 },
+    { margin: 6.0, win_rate: 0.772, n: 97013 },
+    { margin: 7.15, win_rate: 0.800, n: 58132 },
+    { margin: 9.0, win_rate: 0.839, n: 23728 },
+    { margin: 9.57, win_rate: 0.85, n: null },
+    { margin: 12.71, win_rate: 0.90, n: 2617 }
+  ]
+};
+
+/**
+ * The measured win rate for a margin, or null when nothing was measured that low.
+ *
+ * The rate returned is the one belonging to the largest anchor at or below the
+ * margin. Nothing is interpolated between anchors and nothing is extrapolated
+ * past the last one, so every number this returns is one that was counted. A
+ * margin under the smallest anchor gets null — no rate at all — rather than a
+ * number invented to fill the gap.
+ */
+export function decisionWinRate(margin) {
+  if (typeof margin !== 'number' || !Number.isFinite(margin)) return null;
+  let rate = null;
+  for (const point of DECISION_CURVE.points) {
+    if (point.margin > margin) break;
+    rate = point.win_rate;
+  }
+  return rate;
+}
+
+/**
+ * The win rate the strongest label has to earn before it may be used.
+ *
+ * Stated as a rate rather than as a number of points, deliberately: the
+ * boundary then follows the measurement, and re-deriving the curve on a better
+ * projection moves the threshold with it instead of leaving a stale constant
+ * behind a word.
+ */
+const CLEAR_WIN_RATE = 0.80;
+
+/**
+ * A gap of a point and a half is inside the projection's own error. The band
+ * below it measures 52.9% — a coin flip, which is what the label already calls
+ * it — so this one is left where it was rather than derived. Note 52.9% is the
+ * rate WITHIN that band, not a tail rate, and so is not on the curve above.
+ */
+export const TIE_THRESHOLD = 1.5;
+export const TIE_BAND_WIN_RATE = 0.529;
+
+/**
+ * A measured rate as a percentage for reading out loud. One decimal, kept only
+ * when it says something: 0.726 reads "72.6" and 0.80 reads "80", because
+ * rounding 72.6 to 73 throws away precision that was actually counted.
+ */
+const pct = rate => String(Math.round(rate * 1000) / 10);
+
+/** The smallest measured margin whose tail rate earns the strongest label. */
+export const CLEAR_THRESHOLD =
+  DECISION_CURVE.points.find(p => p.win_rate >= CLEAR_WIN_RATE).margin;
+
 const SKILL_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE']);
 
 /**
@@ -325,8 +407,6 @@ export function irOnRoster(lg, rosterId, players) {
   return out;
 }
 
-const TIE_THRESHOLD = 1.5;
-const CLEAR_THRESHOLD = 4.0;
 
 /**
  * The week's lineup, with every call explained and graded by how close it was.
@@ -500,6 +580,9 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
       : margin >= CLEAR_THRESHOLD ? 'clear'
         : margin >= TIE_THRESHOLD ? 'lean'
           : 'coin flip';
+    // What that margin actually measured. Null below the smallest anchor, which
+    // is every coin flip — the band has its own rate, and it is not a tail rate.
+    const winRate = decisionWinRate(margin);
     const ev = evidence.get(norm(p.name));
     const mine = record(p.id);
     const theirs = alt ? record(alt.id) : null;
@@ -514,6 +597,10 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
       over: alt ? { id: alt.id, name: alt.name, position: alt.position, week_points: alt.week_points,
         evidence: theirs } : null,
       margin, confidence,
+      // How often a call at this margin has actually been right, measured rather
+      // than implied by the label. The word alone overclaims at every threshold a
+      // real lineup reaches, so the number travels with it.
+      confidence_win_rate: winRate,
       // The deciding number, stated separately so the UI can set it apart from
       // the margin sentence and so a test can check it without parsing prose.
       decider,
@@ -540,9 +627,13 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
           : `Nobody else on the roster can fill ${s.slot}.`)
         : confidence === 'coin flip'
           ? `Only ${margin} points ahead of ${alt.name}. That gap is inside the projection's own ` +
-            'error, so this is a tie — start whichever you prefer and do not spend the afternoon on it.' +
+            `error — below ${TIE_THRESHOLD} points the higher projection has won ` +
+            `${pct(TIE_BAND_WIN_RATE)}% of the time, so this is a tie. Start whichever you ` +
+            'prefer and do not spend the afternoon on it.' +
             (decider ? ` If you want a tiebreaker, the record is the honest one: ${decider}` : '')
-          : `${margin} points ahead of ${alt.name}${confidence === 'clear' ? ', comfortably' : ''}.` +
+          : `${margin} points ahead of ${alt.name}.` +
+            (winRate ? ` At a gap this size the higher projection has won about ${pct(winRate)}% ` +
+              'of the time.' : '') +
             (decider ? ` ${decider}` : '')
     };
   });
@@ -575,11 +666,17 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
       ? lacking.map(p => ({ name: p.name, position: p.position, week_points: p.week_points,
         why: `no ${requestedKey} distribution on file, so he could not be ranked on it` }))
       : [],
-    // TIE_THRESHOLD and CLEAR_THRESHOLD were set as judgement calls on MEAN weekly
-    // points. A margin between two ceilings (or two floors) is a wider, differently
-    // shaped quantity, so the coin-flip/lean/clear labels are not calibrated for it.
+    // The curve behind those labels was measured on the point projection — the
+    // MEAN weekly points analogue. A margin between two ceilings (or two floors) is
+    // a wider, differently shaped quantity, so neither the labels nor the win rates
+    // are calibrated for it, and `confidence_win_rate` must not be read as measured
+    // on anything but week_points.
     confidence_basis: objectiveUsed === 'week_points' ? 'calibrated_on_week_points'
       : `uncalibrated_for_${objectiveUsed}`,
+    // Where every `confidence_win_rate` above comes from, including the caveat that
+    // it was measured on a research baseline rather than on this projection. A page
+    // printing the rate has to be able to say so.
+    confidence_curve: DECISION_CURVE,
     // Which availability model priced every chance to play in this call ('role' |
     // 'pooled' | 'constants', plus the missing fit tables), so the page can say so.
     availability_basis: availabilityBasis,

@@ -61,15 +61,44 @@ const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
  * carry, and pricing all three would treble-count the most valuable touches a
  * player gets — inflating expected touchdowns for exactly the backs whose whole
  * value is that they get them.
+ *
+ * FOUR TIERS, NOT THREE. Measured on play-by-play 2022-2025, the old middle
+ * rushing tier pooled two very different bands: non-goal-to-go carries inside
+ * the 10 score 16.4% of the time (n=1,030) and carries from the 11 to the 20
+ * score 4.5% (n=4,795), both priced at one blended 6.6%. Splitting them is an
+ * accounting correction to expected touchdowns on REALIZED touches, which is
+ * what this module is for. It is NOT a forward-looking talent signal: a
+ * player's red-zone touch mix correlates r=0.55 with his own red-zone scoring
+ * within a season but repeats at only r=0.136 year over year, so it describes
+ * what happened rather than predicting what will.
+ *
+ * Receiving needed no new counter. `end_zone_targets` is fed by `ez_tgt`, which
+ * counts `yl100 <= 10` (nfl-pbp.js:398) — inside the 10, despite the name — so
+ * that band was already separate. What was pooled is goal-to-go with the rest
+ * of the inside-10 band, and `goal_to_go_targets` has been written to the blob
+ * (nfl-pbp.js:642) all along with nothing reading it.
+ *
+ * `fallbackSubtractFrom` exists for databases ingested before the inside-10
+ * counter did. Subtracting a key that is absent subtracts zero, which would
+ * silently re-admit goal-line carries into the tier below and inflate expected
+ * touchdowns for precisely the backs this comment is about. The subtraction
+ * takes the LARGER of the named parent and the fallback, which covers that case
+ * and one more: goal-to-go is not strictly a subset of inside-the-10, since a
+ * penalty can leave first-and-goal outside the 10, so a blob can legitimately
+ * hold goal_line > inside_10 and the named parent alone would under-subtract.
  */
 const RUSH_CLASSES = [
   { key: 'goal_line_carries', label: 'goal-line carries', subtractFrom: null },
-  { key: 'red_zone_carries', label: 'other red-zone carries', subtractFrom: 'goal_line_carries' },
+  { key: 'inside_10_carries', label: 'other carries inside the 10', subtractFrom: 'goal_line_carries' },
+  { key: 'red_zone_carries', label: 'carries from the 11 to the 20',
+    subtractFrom: 'inside_10_carries', fallbackSubtractFrom: 'goal_line_carries' },
   { key: 'carries', label: 'carries outside the red zone', subtractFrom: 'red_zone_carries' }
 ];
 const REC_CLASSES = [
-  { key: 'end_zone_targets', label: 'end-zone targets', subtractFrom: null },
-  { key: 'red_zone_targets', label: 'other red-zone targets', subtractFrom: 'end_zone_targets' },
+  { key: 'goal_to_go_targets', label: 'goal-to-go targets', subtractFrom: null },
+  { key: 'end_zone_targets', label: 'other targets inside the 10', subtractFrom: 'goal_to_go_targets' },
+  { key: 'red_zone_targets', label: 'targets from the 11 to the 20',
+    subtractFrom: 'end_zone_targets' },
   { key: 'targets', label: 'targets outside the red zone', subtractFrom: 'red_zone_targets' }
 ];
 
@@ -127,8 +156,22 @@ function fitRates(seasons) {
   // fitted by pooling: total touchdowns across all players, allocated to classes
   // in proportion to exposure, solved by iteration. Two passes is enough — the
   // classes are far apart in rate, so it converges immediately.
-  const seedRush = { goal_line_carries: 0.15, red_zone_carries: 0.06, carries: 0.01 };
-  const seedRec = { end_zone_targets: 0.30, red_zone_targets: 0.12, targets: 0.03 };
+  // A seed per class, and every class needs one: a class with no seed fits to
+  // null and touchdownRates() returns a rate that is not a probability. The
+  // starting values are the league band rates measured on play-by-play
+  // 2022-2025, so the iteration begins near the answer rather than at a guess;
+  // they are starting points either way, refit below from actual exposure.
+  //
+  // red_zone_carries and red_zone_targets changed MEANING when the tiers split
+  // — each is now only the 11-to-20 band, not that band pooled with the one
+  // inside the 10 — so their seeds moved with them. 0.06 and 0.12 were the
+  // blended rates of the old wider tiers.
+  const seedRush = {
+    goal_line_carries: 0.15, inside_10_carries: 0.16, red_zone_carries: 0.045, carries: 0.01
+  };
+  const seedRec = {
+    goal_to_go_targets: 0.38, end_zone_targets: 0.29, red_zone_targets: 0.135, targets: 0.03
+  };
   let rushRate = Object.fromEntries(GROUPS.map(g => [g, { ...seedRush }]));
   let recRate = Object.fromEntries(GROUPS.map(g => [g, { ...seedRec }]));
 
@@ -196,7 +239,13 @@ function exclusive(f, classes) {
   const out = {};
   for (const c of classes) {
     const raw = f[c.key] ?? 0;
-    const above = c.subtractFrom ? (f[c.subtractFrom] ?? 0) : 0;
+    // The larger of the two parents, never whichever happens to be present.
+    // Absent covers the old-database case; larger also covers the live one,
+    // where a goal-to-go carry can sit outside the 10 after a penalty, so
+    // goal_line is not strictly a subset of inside_10 and taking the named
+    // parent alone would let those carries leak into the tier below.
+    const above = c.subtractFrom == null ? 0
+      : Math.max(f[c.subtractFrom] ?? 0, c.fallbackSubtractFrom == null ? 0 : f[c.fallbackSubtractFrom] ?? 0);
     out[c.key] = Math.max(0, raw - above);
   }
   return out;
@@ -356,3 +405,5 @@ export function regressionForLeague(leagueId, { myTeamId = null, season = null, 
     note: base.note
   };
 }
+
+export const __test = { exclusive, RUSH_CLASSES, REC_CLASSES };

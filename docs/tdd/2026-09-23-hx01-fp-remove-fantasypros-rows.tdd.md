@@ -66,7 +66,7 @@ Guard: `scripts/guard-no-fantasypros-per-player.mjs`, test:
 - **RED**: `9d6ad5db` "test: guard against committed per-player FantasyPros data (RED)". The
   test imports `../scripts/guard-no-fantasypros-per-player.mjs`, which does not exist yet:
   `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '.../scripts/guard-no-fantasypros-per-player.mjs'`.
-- **GREEN**: `<GREEN_SHA, filled by the commit that follows this one>` "feat: add the per-player
+- **GREEN**: `552a8771` "feat: add the per-player
   FantasyPros guard (GREEN)". First pass (before the false-positive fix below) was 4/5: the raw
   raw-extension rule flagged 3 unrelated `.tsv` files under
   `docs/evidence/restart-2026-09-19/` (health logs, no FantasyPros connection). Fixed by gating
@@ -118,3 +118,68 @@ Guard: `scripts/guard-no-fantasypros-per-player.mjs`, test:
    that adds a real FantasyPros export under a guarded directory fails CI.
 5. **How it unifies:** one guard, reusable if a later unit (HX-02, BLEND-01) touches
    `docs/evidence/` or `docs/tdd/` again with FantasyPros-adjacent data.
+
+## 6. Skeptic round 1 fix (2026-09-23)
+
+Two skeptics found the first guard (`552a8771`) blind to the real data. Both findings were
+right; reproduced below, then fixed.
+
+**What was wrong.** (1) The id rule matched only `fantasypros_id|fp_id|fpid`, but the real
+export HX-01 reads (`.local-db/fp-ecr-weekly-wp.csv`, local only, not committed) has the
+header `page_type,scrape_date,id,player,pos,team,ecr`. (2) `.json` was never parsed. (3) A
+markdown separator row (`|---|---|`) has no digit, so the row scan stopped before any data row:
+every pipe table was missed. (4) Projections (`fpts`) were not matched. (5) scanTree had no
+known-nonzero control, so the zero on the real tree proved nothing.
+
+**RED** `84685561` "test: real-export-shaped FantasyPros cases and a planted-tree control
+(RED)": 9 new tests using the real header layout with made-up rows (pipe table in .md, CSV text
+in .md/.txt, JSON array in .json, JSON array nested in a larger .json, site-pasted
+`RK|PLAYER NAME|...|ECR` table, gsis_id-keyed ECR table, `fantasypros_id|player|fpts`
+projections, an aggregate-table not-applied control, and a scanTree control that plants a
+violating .md and an `fp-ecr-weekly-wp.csv` in a mktemp tree laid out as `docs/evidence` /
+`docs/tdd`, plus a copy outside the guarded dirs that must NOT be reported). Result on the old
+guard: `tests 14 / pass 6 / fail 8`. These are detection failures (the module loads), not
+ERR_MODULE_NOT_FOUND.
+
+**GREEN** `<GREEN2_SHA, see git log: "feat: guard catches the real FantasyPros export shape (GREEN)">`.
+`isPerPlayerFantasyProsHeader` needs a player-identity column (`id`, `player`, `name`,
+`gsis_id`, `player_id`, FantasyPros id) AND `ecr` (or `fp_rank`/`fp_ecr`), or a generic
+rank/projection column (`rk`, `rank`, `avg`, `fpts`, `proj`...) only when the header also has a
+FantasyPros id column or the site's `best`+`worst` columns. That gate keeps our own ranked
+tables out. The row scan now splits on pipe, tab or comma and skips markdown separators.
+`.json` files are parsed and every array of 3+ objects at any depth is checked. Two tests were
+added after the mutation run below showed survivors: a bare `id,pos,team,ecr` export, and a
+not-applied control for our own `player | rank | fpts` table. Final:
+`tests 16 / pass 16 / fail 0`
+(`SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/x.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/no-fantasypros-per-player-data.test.js`).
+
+**Real-data known-positive control** (local copy, not production; script in scratchpad, not
+committed; no rows committed): the first 50 real rows of `.local-db/fp-ecr-weekly-wp.csv`
+put through `scanForPerPlayerFantasyPros` gives 1 violation each as `rows.csv`, CSV text in
+`rows.md`, `rows.txt`, a pipe table in `rows.md`, and a JSON array in `rows.json`. The skeptic
+measured 1/0/0/0/0 on `552a8771` for the same five shapes. The same run's `scanTree` over the
+real tree (336 tracked files under `docs/evidence` + `docs/tdd`, `git ls-files ... | wc -l`)
+gives 0. `grep -rniE '^\s*\|.*(ecr|fantasypros|fpts).*\|' docs/evidence docs/tdd` hits are
+all ledger rows, aggregate results or prose tables; none is a per-player table.
+
+**Mutation check** (each mutant applied with perl, test file run, file restored and `cmp`
+identical to the unmutated copy):
+
+| mutant | result | verdict |
+|---|---|---|
+| M0 no-op (harness control) | 14/14 pass | not applied, harness OK |
+| M1 walk() skips every .md (skeptic's M1) | 13/1 | killed by scanTree control |
+| M2 GUARDED_DIRECTORIES typo (skeptic's M2) | 13/1 | killed |
+| M3 scanTree reads '' (skeptic's M3) | 13/1 | killed |
+| M4 JSON branch removed | 12/2 | killed |
+| M5 markdown separator skip removed | 10/4 | killed |
+| M6 bare `id` dropped from identity | 14/0 then 15/1 | survived; killed after the `id,pos,team,ecr` test |
+| M7 DATA_ROW_THRESHOLD 3 -> 30 | 5/9 | killed |
+| M9 generic rank/fpts un-gated | 14/0 then 15/1 | survived; killed after the own-table control |
+
+Counts before M6/M9's tests were on 14 tests, after on 16.
+
+**Known limits (not claimed).** A table with no delimiter (fixed-width text), or per-player
+ranks written as prose sentences, is not detected. JSON pasted inside a markdown code block is
+seen only if it is also delimited-table shaped. The guard scans `docs/evidence` and `docs/tdd`
+only, per the unit row.

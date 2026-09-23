@@ -125,3 +125,15 @@ test('known-nonzero tree control: scanTree finds a planted .md table and a plant
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test('a trimmed export keyed only by the bare FantasyPros `id` column (id,pos,team,ecr) is caught', () => {
+  const header = ['id', 'pos', 'team', 'ecr'];
+  const rows = [['9001', 'WR', 'AAA', '1.4'], ['9002', 'WR', 'BBB', '2.9'], ['9003', 'WR', 'CCC', '3.3']];
+  assert.equal(scanForPerPlayerFantasyPros(asCsv(header, rows), 'docs/evidence/x.md').length, 1);
+});
+
+test('not-applied control: our OWN per-player ranked table (player | rank | fpts, no FantasyPros column) is not caught', () => {
+  const header = ['player', 'rank', 'fpts'];
+  const rows = [['Alpha Player', '1', '18.2'], ['Bravo Player', '2', '16.0'], ['Charlie Player', '3', '14.9']];
+  assert.deepEqual(scanForPerPlayerFantasyPros(asPipeTable(header, rows), 'docs/evidence/x.md'), []);
+});

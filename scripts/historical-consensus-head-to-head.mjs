@@ -66,7 +66,6 @@ async function main() {
   const { WEEKLY_ROLE_RECENCY } = await import('../server/services/weekly-ensemble.js');
   const { activeWeeklyWeightSet } = await import('../server/services/weekly-weight-store.js');
   const { activeFantasyCoordinatorFit } = await import('../server/services/fantasy-coordinator.js');
-  const { weeklyAvailability } = await import('../server/services/contingency.js');
   const { matchupSignalActive } = await import('../server/services/matchups.js');
   const { espnProjections } = await import('../server/services/gates/start-sit-gate.js');
   const { startSitPairAccuracy } = await import('./promote-early-week-weights.mjs');
@@ -164,10 +163,8 @@ async function main() {
     const kept = [], preLeak = [], census = [];
     for (const week of weeks) {
       const engine = buildPlayerWeekEngine({ season, week, scoring: PPR });
-      const availability = weeklyAvailability(season, week, { through: season - 1 });
-      const rowsW = lib.servedWeekRows({ season, week, engine, truth, fitS: slot.fitS, availability, scoring: PPR })
-        .map(r => ({ ...r, team_prev: teamAt.get(`${r.player_id}|${week - 1}`) ?? null,
-          consensus: ecr.values.get(`${season}|${week}|${r.player_id}`)?.value ?? null }));
+      const rowsW = arm.withConsensus(lib.servedWeekRows({ season, week, engine, truth, fitS: slot.fitS, scoring: PPR, teamAt }),
+        ecr.values);
       const byes = lib.SERVED_CHAIN.removeByes(rowsW, usage);
       const leak = arm.leakGuard(byes.kept, { scrapeByWeek: ecr.scrapeByWeek, gameDateOf: (s, w, t) => gameDate.get(`${w}|${t}`) });
       kept.push(...leak.kept);

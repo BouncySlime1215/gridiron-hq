@@ -218,6 +218,11 @@ export function ecrConsensus(ecrRows, { bounds, idMap, positionOf, excludeSeason
   return { values, scrapeByWeek, counts };
 }
 
+/** Each row with its consensus value for the same season, week and player, or null. */
+export function withConsensus(rows, values) {
+  return rows.map(r => ({ ...r, consensus: values.get(`${r.season}|${r.week}|${r.player_id}`)?.value ?? null }));
+}
+
 /**
  * The leak guard (prereg §5.1.3): keep a row only when his team's game is strictly after the
  * scrape date used for his week. Applied to every arm's rows, so all arms grade the same rows.

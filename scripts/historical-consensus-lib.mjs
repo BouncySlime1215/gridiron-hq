@@ -23,6 +23,7 @@ import {
 } from './weekly-construction-grade-lib.mjs';
 import { fitFantasyCoordinator } from '../server/services/fantasy-coordinator.js';
 import { startSitWeekPoints } from '../server/services/lineup-brain.js';
+import { weeklyAvailability } from '../server/services/contingency.js';
 import { removeByes } from '../server/services/gates/start-sit-gate.js';
 
 /** The seasons HX-01 was asked to grade (2025 is not one of them). */
@@ -40,7 +41,7 @@ export const THIS_GAME_MULT = 1;
 export const POINT_ARMS = Object.freeze(['ours', 'D', 'A', 'std', 'l3']);
 
 /** The served functions OURS is built from, and C-01's bye rule. Identity-tested, never copied. */
-export const SERVED_CHAIN = Object.freeze({ constructArms, startSitWeekPoints, removeByes });
+export const SERVED_CHAIN = Object.freeze({ constructArms, startSitWeekPoints, weeklyAvailability, removeByes });
 
 const round2 = v => +v.toFixed(2);
 
@@ -106,9 +107,15 @@ export function teamAtWeek(usageRows) {
  * One graded week's rows: every S-02 eligible DECISION row (he played week - 1), valued by
  * every point arm. Stops when arm D is not what the served startSitWeekPoints makes of B (the
  * lift step), so OURS is known to run through the served lift.
+ *
+ * The two call-site decisions live here, where a test can see them: the chance to play is
+ * asked for with the season before as its cutoff (trade-engine.js:304), and each row carries
+ * the team he played for in week - 1 (`teamAt`, from teamAtWeek), the only team known before
+ * the week, which the bye rule and the leak guard read.
  */
-export function servedWeekRows({ season, week, engine, truth, fitS, availability, scoring }, deps = SERVED_CHAIN) {
+export function servedWeekRows({ season, week, engine, truth, fitS, scoring, teamAt }, deps = SERVED_CHAIN) {
   assertNotHoldout(season);
+  const availability = deps.weeklyAvailability(season, week, { through: season - 1 });
   const out = [];
   for (const row of eligibleRows(week, engine, truth)) {
     if (!row.decision) continue;
@@ -125,6 +132,7 @@ export function servedWeekRows({ season, week, engine, truth, fitS, availability
     const heads = proj.player_week_engine?.heads ?? {};
     out.push({
       season, week, position: row.position, player_id: row.player_id, played: row.played, actual: row.actual,
+      team_prev: teamAt?.get(`${row.player_id}|${week - 1}`) ?? null,
       ours, D: arms.D, A: arms.A, B: arms.B, p, lift: arms.lift,
       std: Number.isFinite(heads.season_to_date) ? heads.season_to_date : null,
       l3: Number.isFinite(heads.last3) ? heads.last3 : null

@@ -11,7 +11,14 @@
  *   - the verdict and the Holm family are the pre-registered rule;
  *   - OURS is the served chain: round2(round2(B x p) x lift) through the served
  *     startSitWeekPoints, with trade-engine.js's default chance to play;
- *   - every fit that grades a season ends before it, and the k control stops a season.
+ *   - every fit that grades a season ends before it, and the k control stops a season;
+ *   - servedWeekRows takes its fit from the walk-forward registry itself (it refuses one that
+ *     does not end before the season), hands that fit to constructArms, and reads every lift
+ *     at the graded season and week (skeptics X1, X3, X5);
+ *   - the leak guard's game date is keyed by season, week and team in a tested function (X4);
+ *   - the pair-accuracy interval resamples both players of each pair (X2);
+ *   - headToHead's default pair threshold is C-01's startable line, so on C-01's own rows it
+ *     gives C-01's served-vs-ESPN grade exactly (one number, one producer).
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -23,7 +30,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-hx01-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.GRIDIRON_DB_INTEGRITY_CHECK = 'off';
 
-const { db } = await import('../server/db/index.js');
+const { db, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 
@@ -31,7 +38,9 @@ const arm = await import('../scripts/consensus-arm.mjs');
 const lib = await import('../scripts/historical-consensus-lib.mjs');
 const s02 = await import('../scripts/weekly-construction-grade-lib.mjs');
 const { gradeDecisions, pigeonholeBootstrap } = await import('../server/services/gates/baseline-gate.js');
-const { startSitDecisions, removeByes } = await import('../server/services/gates/start-sit-gate.js');
+const {
+  startSitDecisions, removeByes, servedArms, servedSnapshots, espnProjections, substitute, STARTABLE_PPR
+} = await import('../server/services/gates/start-sit-gate.js');
 const { startSitPairAccuracy } = await import('../scripts/promote-early-week-weights.mjs');
 const { startSitWeekPoints } = await import('../server/services/lineup-brain.js');
 const { holm, normalCdf } = await import('../server/services/stats-util.js');
@@ -41,6 +50,9 @@ const { weeklyAvailability } = await import('../server/services/contingency.js')
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
 const round2 = v => +v.toFixed(2);
+const r4 = v => +v.toFixed(4);
+/** The historical grade pairs rows that are already the common set, so it passes no threshold of its own. */
+const NO_THRESHOLD = Object.freeze({ threshold: -Infinity });
 
 /* ------------------------------------------------------------------ the consensus arm */
 
@@ -138,6 +150,29 @@ test('leakGuard drops a player whose team played on or before the scrape date, a
   assert.deepEqual({ ...got, kept: undefined }, { kept: undefined, dropped_game_on_or_before_scrape: 2, no_game_date: 1, no_scrape: 1 });
 });
 
+test('gameDateLookup keys each game date by season, week and team, and the leak guard reads it (skeptic X4, standing row R5)', () => {
+  // game_lines has one row per (season, week, team) (its primary key). Team A plays Thursday of
+  // week 5 and Sunday of week 6; C plays Sunday of week 5; B is on a bye in week 5; 2022 is another season.
+  const lookup = arm.gameDateLookup([
+    { season: 2023, week: 5, team: 'A', gameday: '2023-10-05' },
+    { season: 2023, week: 5, team: 'C', gameday: '2023-10-08' },
+    { season: 2023, week: 6, team: 'A', gameday: '2023-10-15' },
+    { season: 2022, week: 5, team: 'A', gameday: '2022-10-09' }
+  ]);
+  assert.equal(lookup(2023, 5, 'A'), '2023-10-05');
+  assert.equal(lookup(2023, 6, 'A'), '2023-10-15');
+  assert.equal(lookup(2022, 5, 'A'), '2022-10-09');
+  assert.equal(lookup(2023, 5, 'B'), undefined);
+  // Friday scrape of week 5: A's Thursday game is dropped, C's Sunday game is kept, B's bye has no date.
+  const rows = [['A', 1], ['C', 2], ['B', 3]].map(([team, id]) => ({ season: 2023, week: 5, player_id: id, team_prev: team }));
+  const got = arm.leakGuard(rows, { scrapeByWeek: new Map([['2023|5', '2023-10-06']]), gameDateOf: lookup });
+  assert.deepEqual(got.kept.map(r => r.player_id), [2]);
+  assert.deepEqual([got.dropped_game_on_or_before_scrape, got.no_game_date, got.no_scrape], [1, 1, 0]);
+  assert.throws(() => arm.gameDateLookup([
+    { season: 2023, week: 5, team: 'A', gameday: '2023-10-05' }, { season: 2023, week: 5, team: 'A', gameday: '2023-10-08' }
+  ]), /two game dates/);
+});
+
 test('commonSet keeps a row only when every point arm reaches the threshold and consensus ranks him', () => {
   const base = { ours: 5, D: 5, A: 5, std: 5, l3: 5, consensus: -3 };
   const rows = [base, { ...base, l3: 3.99 }, { ...base, consensus: null }, { ...base, ours: 9, D: 9, A: 9, std: 9, l3: 8 }];
@@ -171,7 +206,7 @@ test('pairScore is startSitPairAccuracy\'s rule, and headToHead\'s pair accuracy
   assert.equal(arm.pairScore(10, 10, 3, 8), 0.5);
   assert.equal(arm.pairScore(10, 5, 8, 8), 0.5);
   const rows = fixture();
-  const h = arm.headToHead(rows, 'ours', 'std', { iterations: 200 });
+  const h = arm.headToHead(rows, 'ours', 'std', { iterations: 200, ...NO_THRESHOLD });
   const canonical = startSitPairAccuracy(rows.map(x => ({ week: x.week, position: x.position, actual: x.actual,
     preds: { ours: x.ours, std: x.std } })), ['ours', 'std'], { threshold: 4 });
   assert.equal(h.pairs, canonical.pairs);
@@ -183,7 +218,7 @@ test('pairScore is startSitPairAccuracy\'s rule, and headToHead\'s pair accuracy
 
 test('headToHead orients each disagreement to the policy\'s pick and grades it with gradeDecisions', () => {
   const rows = fixture();
-  const h = arm.headToHead(rows, 'ours', 'consensus', { iterations: 200 });
+  const h = arm.headToHead(rows, 'ours', 'consensus', { iterations: 200, ...NO_THRESHOLD });
   // Week 5 WR: ours 1>2>3, consensus 2>3>1 -> pairs (1,2) and (1,3) disagree, (2,3) agrees.
   // Week 5 TE: ours 4>5, consensus 4>5 -> agree. Week 6 WR: ours 1>2>3, consensus 1>3>2 -> (2,3) disagrees.
   // Week 6 TE: ours ties 4 and 5 -> no call.
@@ -205,9 +240,70 @@ test('the pair-accuracy interval is on policy minus baseline (sweep 1 survivor M
   // The policy orders by the actual points and the baseline in reverse: every pair is +1.
   const rows = [10, 12, 14, 16, 18, 20].map((actual, i) => ({ season: 2024, week: 5, position: 'WR', player_id: i + 1,
     actual, ours: actual, std: 30 - actual }));
-  const h = arm.headToHead(rows, 'ours', 'std', { iterations: 200 });
+  const h = arm.headToHead(rows, 'ours', 'std', { iterations: 200, ...NO_THRESHOLD });
   assert.equal(h.pair_accuracy.diff, 1);
   assert.deepEqual(h.pair_accuracy.ci90, [1, 1]);
+});
+
+test('the pair-accuracy interval resamples both players of each pair, not one (skeptic X2)', () => {
+  // Two weeks of the fixture plus a copy two weeks later with shifted actuals: a pair set whose
+  // score differences vary, so the two clusterings give different intervals.
+  const rows = fixture().concat(fixture().map(x => ({ ...x, week: x.week + 2, actual: x.actual + (x.player_id % 3) * 3 })));
+  const h = arm.headToHead(rows, 'ours', 'std', { iterations: 400, ...NO_THRESHOLD });
+  const scored = arm.pairScores(rows, 'ours', 'std');
+  const series = { diff: scored.map(s => s.sp - s.sq) };
+  const both = pigeonholeBootstrap(scored.map(s => ({ policy_id: s.a, baseline_id: s.b })), series, { iterations: 400, seed: 1 }).diff;
+  const one = pigeonholeBootstrap(scored.map(s => ({ policy_id: s.a, baseline_id: s.a })), series, { iterations: 400, seed: 1 }).diff;
+  assert.deepEqual(h.pair_accuracy.ci90, both.ci90.map(r4));
+  assert.equal(h.pair_accuracy.se, r4(both.se));
+  assert.notDeepEqual(one.ci90.map(r4), both.ci90.map(r4), 'the fixture must tell the two clusterings apart');
+});
+
+// 2026 week 2, eight WRs, as C-01's gate reads them: the replay rows (who, the week, what he
+// scored), the projection the app saved before the week, and ESPN's settled projection.
+const C01_AS_OF = '2026-09-17T18:56:10.819Z';
+function seedC01Week2() {
+  run('DELETE FROM weekly_prediction_snapshots WHERE season = 2026');
+  run('DELETE FROM league_roster_snapshots WHERE season = 2026');
+  const snapshot = { 1: 10, 2: 11, 3: 12, 4: 13, 5: 25, 6: 24, 7: 6.5, 8: 22 };     // player 7 below 8.0 by ours
+  const espn = { 1: 10.5, 2: 14, 3: 13.5, 4: 7.5, 5: 13, 6: 12.5, 7: 12, 8: 15 };    // player 4 below 8.0 by ESPN
+  for (const [id, prediction] of Object.entries(snapshot)) {
+    run(`INSERT INTO weekly_prediction_snapshots (season, week, player_id, position, as_of, cutoff, engine_version,
+         structural, prediction, weight_fit, mode)
+         VALUES (2026, 2, ?, 'WR', ?, '2026-W1', 'fixture', ?, ?, 'frozen-2023', 'position_ensemble')`,
+    Number(id), C01_AS_OF, prediction, prediction);
+  }
+  for (const [id, projected] of Object.entries(espn)) {
+    run(`INSERT INTO league_roster_snapshots (league_id, season, scoring_period_id, team_id, espn_player_id, player_id,
+         position, lineup_slot_id, is_starter, projected_points, source, first_seen_at, changed_at)
+         VALUES (1, 2026, 2, 1, ?, ?, 'WR', 20, 0, ?, 'final', '2026-09-22T00:00:00Z', '2026-09-22T00:00:00Z')`,
+    1000 + Number(id), Number(id), projected);
+  }
+  const actual = { 1: 4, 2: 17, 3: 9, 4: 21, 5: 12, 6: 3, 7: 15, 8: 8 };
+  return Object.entries(actual).map(([id, a]) => ({ season: 2026, week: 2, position: 'WR', player_id: Number(id),
+    policy: 9, baseline: 9, actual: a, played: a > 0 }));
+}
+
+test('headToHead defaults to C-01\'s startable line, and on C-01\'s rows gives C-01\'s served-vs-ESPN grade (one producer)', () => {
+  const replayRows = seedC01Week2();
+  const c01 = servedArms(2026, [2, 2], replayRows, { iterations: 200 }).vs_espn;
+  // The rows C-01 grades, built with C-01's own readers: the saved projection as the policy, ESPN as the baseline.
+  const saved = new Map(servedSnapshots(2026, [2, 2]).map(s => [`${s.week}|${s.player_id}`, s.prediction]));
+  const rows = substitute(substitute(replayRows, saved, 'policy').rows, espnProjections(2026, [2, 2]).values, 'baseline').rows;
+  const h = arm.headToHead(rows, 'policy', 'baseline', { iterations: 200 });
+  assert.deepEqual([h.pairs, h.agreement_share, h.pair_accuracy.policy, h.pair_accuracy.baseline],
+    [c01.pairs, c01.agreement_share, c01.pair_accuracy.policy, c01.pair_accuracy.baseline]);
+  assert.deepEqual([h.decisions.n, h.decisions.win_rate, h.decisions.points_per_decision],
+    [c01.n, c01.win_rate, c01.points_per_decision]);
+  assert.deepEqual(h.decisions.ci90, c01.ci90);
+  assert.deepEqual(h.decisions.se, c01.se);
+  assert.deepEqual(h.decisions.mde80, c01.mde80);
+  assert.equal(STARTABLE_PPR, 8);
+  assert.equal(h.pair_threshold, STARTABLE_PPR);
+  // The line is doing work on this input: players 4 and 7 each fall below it on one side.
+  const unthresholded = arm.headToHead(rows, 'policy', 'baseline', { iterations: 200, ...NO_THRESHOLD });
+  assert.equal(unthresholded.pair_threshold, null);
+  assert.ok(unthresholded.pairs > h.pairs, `${unthresholded.pairs} pairs without the line vs ${h.pairs} with it`);
 });
 
 test('the oracle wins every disagreement it has, and a policy against itself has none', () => {
@@ -255,8 +351,8 @@ test('twoSidedP and holmCells: Holm from stats-util, and a verdict counts only w
 
 test('breakouts partition the pairs: season, band and position cells add up to the pooled pairs', () => {
   const rows = fixture().concat(fixture().map(x => ({ ...x, season: 2023, week: x.week + 8 })));
-  const pooled = arm.headToHead(rows, 'ours', 'consensus', { iterations: 100 });
-  const b = arm.breakouts(rows, 'ours', 'consensus', { iterations: 100 });
+  const pooled = arm.headToHead(rows, 'ours', 'consensus', { iterations: 100, ...NO_THRESHOLD });
+  const b = arm.breakouts(rows, 'ours', 'consensus', { iterations: 100, ...NO_THRESHOLD });
   const sum = cells => Object.values(cells).reduce((s, c) => s + c.pairs, 0);
   assert.equal(sum(b.by_season), pooled.pairs);
   assert.equal(sum(b.by_band), pooled.pairs);
@@ -322,6 +418,11 @@ test('teamAtWeek maps a player and week to the team he played for', () => {
   assert.equal(m.has('7|5'), false);
 });
 
+/** The fit a registry slot carries (an identity token) and the scoring the runner passes. */
+const FIT = Object.freeze({ ready: true, token: 'coordinator fit through 2023' });
+const REGISTRY = new Map([[2024, Object.freeze({ fitS: FIT, through: 2023, rows: 5 })]]);
+const SCORING = Object.freeze({ token: 'PPR' });
+
 function servedFixture() {
   const proj = (id, position, team, heads) => ({ player_id: id, position, team, ppg: 10, structural_ppg: 9, params: {},
     player_week_engine: { heads } });
@@ -334,20 +435,35 @@ function servedFixture() {
   const weeks = entries => ({ weeks: new Map(entries) });
   const truth = new Map([[1, weeks([[4, 10], [5, 12], [6, 15]])], [2, weeks([[5, 9]])], [3, weeks([[4, 3], [6, 8]])],
     [4, weeks([[5, 8], [6, 8]])]]);
-  const lift = { HI: 1.1, LO: 0.9 };
-  const calls = [];
+  // The game-script lift differs by week, as game_lines' spread and total do, so a lift read at
+  // the wrong week changes a value (skeptic X1). Every fake records what it was asked for.
+  const liftOf = (team, week) => ({ HI: 1.1, LO: 0.9 }[team] + (week === 6 ? 0 : 0.2));
+  const log = { constructArms: [], startSitWeekPoints: [], weeklyAvailability: [] };
   const deps = {
-    constructArms: p => ({ A: p.ppg, B: p.ppg - 0.5, D: (p.ppg - 0.5) * lift[p.team], lift: lift[p.team], lift_applied: true }),
-    startSitWeekPoints: (p) => ({ week_points: round2(p.current_week_ppg * lift[p.team_abbr]) }),
-    weeklyAvailability: (season, week, opts) => { calls.push([season, week, opts]); return new Map([[1, { active_probability: 0.85 }]]); }
+    constructArms: (p, ctx) => {
+      log.constructArms.push({ player_id: p.player_id, ...ctx });
+      const m = liftOf(p.team, ctx.week);
+      return { A: p.ppg, B: p.ppg - 0.5, D: (p.ppg - 0.5) * m, lift: m, lift_applied: true };
+    },
+    startSitWeekPoints: (p, season, week) => {
+      log.startSitWeekPoints.push({ team: p.team_abbr, season, week });
+      return { week_points: round2(p.current_week_ppg * liftOf(p.team_abbr, week)) };
+    },
+    weeklyAvailability: (season, week, opts) => {
+      log.weeklyAvailability.push([season, week, opts]);
+      return new Map([[1, { active_probability: 0.85 }]]);
+    }
   };
   const teamAt = new Map([['1|5', 'BUF'], ['1|6', 'MIA'], ['2|5', 'NYJ'], ['2|6', 'NE']]);
-  return { engine, truth, deps, calls, teamAt };
+  return { engine, truth, deps, calls: log.weeklyAvailability, log, teamAt };
 }
 
+const week6 = (f, over = {}) => ({ season: 2024, week: 6, engine: f.engine, truth: f.truth, registry: REGISTRY,
+  scoring: SCORING, teamAt: f.teamAt, ...over });
+
 test('servedWeekRows builds OURS as round2(round2(B x p) x lift) through the served startSitWeekPoints', () => {
-  const { engine, truth, deps, teamAt } = servedFixture();
-  const rows = lib.servedWeekRows({ season: 2024, week: 6, engine, truth, fitS: {}, scoring: {}, teamAt }, deps);
+  const f = servedFixture();
+  const rows = lib.servedWeekRows(week6(f), f.deps);
   assert.deepEqual(rows.map(r => r.player_id), [1, 2]);
   const [a, b] = rows;
   assert.equal(a.p, 0.85);
@@ -359,11 +475,36 @@ test('servedWeekRows builds OURS as round2(round2(B x p) x lift) through the ser
   assert.deepEqual([a.season, a.week, a.position], [2024, 6, 'WR']);
 });
 
+test('servedWeekRows takes its fit from the walk-forward registry and refuses one that does not end before the season (skeptic X3)', () => {
+  const f = servedFixture();
+  const withRegistry = registry => () => lib.servedWeekRows(week6(f, { registry }), f.deps);
+  assert.throws(withRegistry(new Map([[2024, { fitS: FIT, through: 2024 }]])), /cutoff/);   // a fit that has seen 2024
+  assert.throws(withRegistry(new Map([[2024, { fitS: FIT, through: 2025 }]])), /cutoff/);   // the served fit, through 2025
+  assert.throws(withRegistry(new Map([[2023, { fitS: FIT, through: 2022 }]])), /cutoff/);   // no fit registered for 2024
+  assert.deepEqual(lib.servedWeekRows(week6(f), f.deps).map(r => r.fit_through), [2023, 2023]);
+});
+
+test('servedWeekRows hands the registered fit to constructArms and reads every lift at the graded season and week (skeptics X1, X5)', () => {
+  const f = servedFixture();
+  lib.servedWeekRows(week6(f), f.deps);
+  assert.deepEqual(f.log.constructArms.map(c => [c.player_id, c.season, c.week, c.fitS === FIT, c.fitE === FIT, c.scoring === SCORING]),
+    [[1, 2024, 6, true, true, true], [2, 2024, 6, true, true, true]]);
+  // Two lift reads per decision row: B for the parity check, then OURS; each at the graded week.
+  assert.deepEqual(f.log.startSitWeekPoints.map(c => [c.team, c.season, c.week]),
+    [['HI', 2024, 6], ['HI', 2024, 6], ['LO', 2024, 6], ['LO', 2024, 6]]);
+});
+
 test('servedWeekRows stops when D is not what the served startSitWeekPoints makes of B', () => {
-  const { engine, truth, deps, teamAt } = servedFixture();
-  const broken = { ...deps, constructArms: p => ({ ...deps.constructArms(p), D: 99 }) };
-  assert.throws(() => lib.servedWeekRows({ season: 2024, week: 6, engine, truth, fitS: {}, scoring: {}, teamAt }, broken),
-    /parity/);
+  const f = servedFixture();
+  const broken = { ...f.deps, constructArms: (p, ctx) => ({ ...f.deps.constructArms(p, ctx), D: 99 }) };
+  assert.throws(() => lib.servedWeekRows(week6(f), broken), /parity/);
+});
+
+test('servedWeekRows stops when OURS was not lifted by the lift constructArms read (a second lift read at another week)', () => {
+  const f = servedFixture();
+  let reads = 0;
+  const drifts = { ...f.deps, startSitWeekPoints: (p, season, week) => f.deps.startSitWeekPoints(p, season, reads++ % 2 ? week - 1 : week) };
+  assert.throws(() => lib.servedWeekRows(week6(f), drifts), /parity/);
 });
 
 test('current_week_ppg is rounded before the lift, as trade-engine.js:449 then lineup-brain.js:363 do (sweep 1 survivor L3)', () => {
@@ -375,30 +516,39 @@ test('current_week_ppg is rounded before the lift, as trade-engine.js:449 then l
     startSitWeekPoints: p => ({ week_points: round2(p.current_week_ppg * 1.25) }),
     weeklyAvailability: () => new Map([[7, { active_probability: 0.5 }]])
   };
-  const [row] = lib.servedWeekRows({ season: 2024, week: 6, engine, truth, fitS: {}, scoring: {}, teamAt: new Map() }, deps);
+  const [row] = lib.servedWeekRows({ season: 2024, week: 6, engine, truth, registry: REGISTRY, scoring: SCORING,
+    teamAt: new Map() }, deps);
   // B x p = 8.0049: rounded first it is 8.00, and 8.00 x 1.25 = 10; unrounded it is 10.006, which rounds to 10.01.
   assert.equal(row.ours, 10);
 });
 
 test('a player whose chance to play is 0 is valued 0, not the 0.92 default (?? not ||; sweep 1 survivor L4)', () => {
-  const { engine, truth, deps, teamAt } = servedFixture();
-  const out = { ...deps, weeklyAvailability: () => new Map([[1, { active_probability: 0 }]]) };
-  const [a] = lib.servedWeekRows({ season: 2024, week: 6, engine, truth, fitS: {}, scoring: {}, teamAt }, out);
+  const f = servedFixture();
+  const out = { ...f.deps, weeklyAvailability: () => new Map([[1, { active_probability: 0 }]]) };
+  const [a] = lib.servedWeekRows(week6(f), out);
   assert.deepEqual([a.player_id, a.p, a.ours], [1, 0, 0]);
 });
 
 test('servedWeekRows asks the served weeklyAvailability for the week, with the season before as the cutoff', () => {
-  const { engine, truth, deps, calls, teamAt } = servedFixture();
-  lib.servedWeekRows({ season: 2024, week: 6, engine, truth, fitS: {}, scoring: {}, teamAt }, deps);
-  assert.deepEqual(calls, [[2024, 6, { through: 2023 }]]);
+  const f = servedFixture();
+  lib.servedWeekRows(week6(f), f.deps);
+  assert.deepEqual(f.calls, [[2024, 6, { through: 2023 }]]);
 });
 
 test('servedWeekRows carries the team he played for in week W-1, the team the bye rule and leak guard read', () => {
-  const { engine, truth, deps, teamAt } = servedFixture();
-  const rows = lib.servedWeekRows({ season: 2024, week: 6, engine, truth, fitS: {}, scoring: {}, teamAt }, deps);
+  const f = servedFixture();
+  const rows = lib.servedWeekRows(week6(f), f.deps);
   assert.deepEqual(rows.map(r => [r.player_id, r.team_prev]), [[1, 'BUF'], [2, 'NYJ']]);
-  const noTeam = lib.servedWeekRows({ season: 2024, week: 6, engine, truth, fitS: {}, scoring: {}, teamAt: new Map() }, deps);
+  const noTeam = lib.servedWeekRows(week6(f, { teamAt: new Map() }), f.deps);
   assert.deepEqual(noTeam.map(r => r.team_prev), [null, null]);
+});
+
+test('the pre-registered coordinator starts its examples at 2021; the served recipe (the post-hoc sensitivity) at 2022', () => {
+  assert.equal(lib.PREREGISTERED_COORDINATOR_FROM, 2021);
+  const source = fs.readFileSync(new URL('../server/services/fantasy-coordinator.js', import.meta.url), 'utf8');
+  for (const fn of ['buildFantasyCoordinatorExamples', 'refitFantasyCoordinator', 'fantasyCoordinatorWalkForward']) {
+    assert.match(source, new RegExp(`function ${fn}\\(\\{ fromSeason = ${lib.SERVED_COORDINATOR_FROM},`), fn);
+  }
 });
 
 test('the full run refuses an uncommitted or edited pre-registration', () => {

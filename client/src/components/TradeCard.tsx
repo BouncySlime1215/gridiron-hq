@@ -135,7 +135,7 @@ function SideBox({ s, mine }: { s: any; mine: boolean }) {
       )}
       {/* Floor / Ceiling / Consistency of what leaves vs what arrives — from the
           multi-season record and this season's band; null when there is no record. */}
-      <RiskStrip risk={s.risk} />
+      <RiskStrip risk={s.risk} ceilingDelta={s.ceiling_delta} />
     </div>
   );
 }
@@ -277,7 +277,7 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
           <span className="font-semibold uppercase tracking-wide text-[10px]">Evidence </span>{deal.verdict_evidence}
         </p>
       )}
-      {compact && deal.me?.risk && <div className="mb-3"><RiskStrip risk={deal.me.risk} compact /></div>}
+      {compact && deal.me?.risk && <div className="mb-3"><RiskStrip risk={deal.me.risk} ceilingDelta={deal.me.ceiling_delta} compact /></div>}
 
       {!compact && (
         <div className="grid sm:grid-cols-2 gap-3">

@@ -25,11 +25,28 @@ const ceilingOf = (r: PackageRisk) => r.p80 != null ? `${n0(r.p80)} pts` : '—'
 const swingOf = (r: PackageRisk) => r.swing_pct != null ? `±${r.swing_pct}%` : r.players.length ? 'n/a' : '—';
 
 /**
+ * Colour for the Ceiling cell (RL-3-3, WORK-QUEUE C-13). This used to be
+ * `risk.in.p80 - risk.out.p80` — a sum of each PACKAGE's own draft-day p80.
+ * That mostly tracks who receives more players, and the row's own count
+ * puts it in contradiction with the "Weekly ceiling" number already on this
+ * same card (TradeCard.tsx's `s.ceiling_delta` / `deal.me.ceiling_delta`,
+ * from trade-engine.js `lazyField(out, 'ceiling_delta', ...)`, a lineup-level
+ * p90 delta) on 37-62 of 122-180 card sides. The card must show one number's
+ * sign, not two: this cell now follows `ceiling_delta` alone.
+ */
+const ceilingBetter = (delta: number | null | undefined) =>
+  delta == null || Math.abs(delta) < 1e-9 ? null : delta > 0;
+
+/**
  * Floor / Ceiling / Consistency for one side of a deal: what leaves → what
  * arrives, from each package's multi-season record and this season's p80.
  * Rendered only when at least one player on the side carries a record.
+ *
+ * `ceilingDelta` is the lineup-level Weekly-ceiling change already shown
+ * elsewhere on the card (TradeCard.tsx); it drives the Ceiling cell's colour
+ * instead of the packages' own summed p80 (see `ceilingBetter` above).
  */
-export default function RiskStrip({ risk, compact = false }: { risk?: SideRisk | null; compact?: boolean }) {
+export default function RiskStrip({ risk, compact = false, ceilingDelta = null }: { risk?: SideRisk | null; compact?: boolean; ceilingDelta?: number | null }) {
   if (!risk?.out || !risk?.in) return null;
   // A side whose career AND preseason layers both failed has seasons 0 and p80
   // null, which used to make the whole strip disappear — the failure rendered as
@@ -57,7 +74,6 @@ export default function RiskStrip({ risk, compact = false }: { risk?: SideRisk |
   const floorBetter = risk.out.seasons && risk.in.seasons && floorFullyRead
     ? (risk.in.top24_seasons / risk.in.seasons) - (risk.out.top24_seasons / risk.out.seasons) : null;
   const swingBetter = risk.out.swing_pct != null && risk.in.swing_pct != null ? risk.out.swing_pct - risk.in.swing_pct : null;
-  const ceilBetter = risk.out.p80 != null && risk.in.p80 != null ? risk.in.p80 - risk.out.p80 : null;
   const sign = (d: number | null) => d == null || Math.abs(d) < 1e-9 ? null : d > 0;
 
   return (
@@ -70,7 +86,10 @@ export default function RiskStrip({ risk, compact = false }: { risk?: SideRisk |
               + 'A career record on this deal could not be read, so the count covers only part of the '
               + 'package and the comparison is left uncoloured.',
           sign(floorBetter))}
-        {cell('Ceiling', ceilingOf(risk.out), ceilingOf(risk.in), 'This season, p80 of our preseason model (sends → receives)', sign(ceilBetter))}
+        {cell('Ceiling', ceilingOf(risk.out), ceilingOf(risk.in),
+          'This season, p80 of our preseason model (sends → receives). Coloured by the starting '
+          + "lineup's Weekly ceiling change (10% good-week outcome), not by these two numbers.",
+          ceilingBetter(ceilingDelta))}
         {cell('Consistency', swingOf(risk.out), swingOf(risk.in), 'Year-to-year swing in season points (lower is steadier; sends → receives)', sign(swingBetter))}
       </dl>
       {risk.read && !compact && (

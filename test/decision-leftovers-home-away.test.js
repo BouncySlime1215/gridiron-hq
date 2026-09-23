@@ -114,7 +114,10 @@ const payload = {
   teams: [{ id: 1, name: 'Mine', roster: { entries: mine.map(entry) } },
     { id: 2, name: 'Theirs', roster: { entries: theirs.map(entry) } }],
   schedule: [2, 3].map(w => ({ matchupPeriodId: w, home: { teamId: 1 }, away: { teamId: 2 } })),
-  settings: { scheduleSettings: { matchupPeriodCount: 3, playoffTeamCount: 2 } }
+  // CE-05: the simulator refuses a league whose rules are incomplete.
+  settings: { scheduleSettings: { matchupPeriodCount: 3, matchupPeriodLength: 1, playoffTeamCount: 2,
+    playoffMatchupPeriodLength: 1, playoffReseed: false, playoffSeedingRule: 'TOTAL_POINTS_SCORED',
+    divisions: [{ id: 0, size: 2 }] } }
 };
 run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, roster_positions, payload)
      VALUES (801, 'espn', 'home-away', 2026, 'Home away', '1', 10, 1, ?, ?)`,

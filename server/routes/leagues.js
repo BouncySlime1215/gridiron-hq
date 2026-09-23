@@ -3,6 +3,7 @@ import { db, rows, row, run } from '../db/index.js';
 import { leagueTypeFromPayload } from '../services/format.js';
 import { BROWSER_HEADERS } from '../services/espn-draft.js';
 import { assertLeagueMember, assertCommissioner } from '../platform/auth.js';
+import { espnScoringReport, scoringSummary, scoringWarning } from '../services/espn-scoring-report.js';
 
 const r = Router();
 
@@ -158,12 +159,19 @@ export async function syncEspnLeague(lg) {
   // scheduled path (scheduler.js refreshLeagueRosters keeps only counts), so a
   // league running on last season's rosters looked freshly connected to every
   // reader except the one manual-sync message. Persist them.
+  const payload = JSON.stringify(data);
   run(`UPDATE leagues SET name = ?, team_count = ?, payload = ?, roster_positions = ?,
        league_type = ?, current_week = ?, payload_season = ?, fetched_at = datetime('now') WHERE id = ?`,
     data.settings?.name ?? `ESPN ${lg.league_id}`, data.teams?.length ?? null,
-    JSON.stringify(data), rosterPositions.length ? JSON.stringify(rosterPositions) : null,
+    payload, rosterPositions.length ? JSON.stringify(rosterPositions) : null,
     leagueTypeFromPayload('espn', data), currentWeek, usedSeason, lg.id);
-  return { teams: data.teams?.length ?? 0, roster_players: rosterCount(data), season_used: usedSeason, fell_back: fellBack };
+  // Every stat id the league pays that the app cannot apply, named on every
+  // sync (the manual sync response, the Leagues page and the scheduled refresh
+  // all carry it) rather than dropped. The full report is GET /:id/scoring.
+  const scoring = scoringSummary({ platform: 'espn', ppr: lg.ppr, payload });
+  const warning = scoringWarning(lg.id, scoring);
+  if (warning) console.warn(warning);
+  return { teams: data.teams?.length ?? 0, roster_players: rosterCount(data), season_used: usedSeason, fell_back: fellBack, scoring };
 }
 
 export async function syncSleeperLeague(lg) {
@@ -250,6 +258,17 @@ r.get('/:id/data', (req, res) => {
   delete lg.espn_s2;
   delete lg.swid;
   res.json({ ...lg, payload: lg.payload ? JSON.parse(lg.payload) : null });
+});
+
+// Where this league's scoring weights came from, every paid stat id the app
+// cannot apply, and each rostered D/ST's observed weeks scored from the
+// slot-16 pointsOverrides beside ESPN's own applied total
+// (services/espn-scoring-report.js).
+r.get('/:id/scoring', (req, res) => {
+  assertLeagueMember(req.auth.userId, req.params.id);
+  const lg = row('SELECT id, platform, ppr, payload FROM leagues WHERE id = ?', req.params.id);
+  if (!lg) return res.status(404).json({ error: 'league not found' });
+  res.json({ league_id: lg.id, ...espnScoringReport(lg) });
 });
 
 // ---- Roster needs/surplus analysis (ported from akodsi/fantasy-advisor) ----

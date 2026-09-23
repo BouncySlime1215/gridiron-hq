@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-// Isolated-DB pattern shared with the other suites (see test/props-saved-tickets.test.js,
-// test/evidence-dataset.test.js) — a fresh temp SQLite file with migrations run against
+// Isolated-DB pattern shared with the other suites (see test/evidence-dataset.test.js)
+// — a fresh temp SQLite file with migrations run against
 // it, never the real server/data.sqlite.
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-decision-inbox-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');

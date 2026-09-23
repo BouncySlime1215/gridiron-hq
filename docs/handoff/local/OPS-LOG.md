@@ -142,3 +142,7 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 15:20Z: RL-6-3 #192 CLEARED by the Fable auditor (no-op delta exactly 0 on 5/5 leagues; calibrated SE; removes a +3.4 pp bias in league 1). Add to the post-big-queue run.
 
 15:40Z: Loop 1 done: RL-8-3 fake SOS removed -> #195; RL-8-2 gate DECLINED (lineup points 51.5%; 1-for-1 58%, 2-for-1 43.5% post hoc) -> #196 (evidence); RL-8-1 retire td_luck -> #197. Plan adjusted: RL-8-2b fresh pre-registered split test (critical).
+15:45Z: Loop 1 relaunched: RL-8-2b fresh split test (critical) (wnq2il70n). Pending PRs for the post-big-queue run: #73 #194 #192 #195 #196 #197 (+#191 after #178 with fix-on-merge).
+
+16:00Z: RL-8-2b correctly STOPPED before any number: 2021-22 was already used for this question (and fits the curve); no unused season except the 2025 holdout. Decision owed by Nick (NICK-2025).
+16:05Z: Loop 1 relaunched: RL-9-3 roster-spot lineup value (w6b353mxs). Weekly 77%, 5-hour 45%.

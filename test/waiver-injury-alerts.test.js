@@ -60,8 +60,11 @@ function p(name, position, week, ros, { team = 'NYJ', snap = null, ...extra } = 
   insUsage.run(id, 2026, 1, team, position);
   if (snap != null) insSnap.run(id, 2026, 1, Math.round(snap * 60), snap);
   return { id, name, position, team_abbr: team, current_week_ppg: week, adj_ppg: week, ppg: week,
-    ros_ppg: ros, available: true, active_probability: 0.95, ...extra };
+    ros_ppg: ros, available: true, active_probability: 0.95, espn_id: 5000 + id, ...extra };
 }
+// ESPN payload entries always carry the player's ESPN id and position id; the board
+// resolves by id first (RL-6-4, trade-engine.js#espnPlayerResolver).
+const POS_ID = { QB: 1, RB: 2, WR: 3, TE: 4 };
 
 const ACQ = { waiverProcessDays: ['WEDNESDAY', 'SATURDAY'], waiverProcessHour: 11, waiverHours: 24 };
 // Tuesday 2026-10-06, 10:00 US Eastern: a date away from the real clock, so a board that
@@ -72,7 +75,8 @@ function board(mine, others, free, { acq = ACQ, now = TUESDAY, sameTeamOrder } =
   assets = new Map([...mine, ...others, ...free].map(a => [a.id, a]));
   const entries = list => list.map(a => ({
     lineupSlotId: a.slot ?? SLOT_ID.BENCH,
-    playerPoolEntry: { player: { fullName: a.name, injuryStatus: a.espn_status ?? 'ACTIVE' } }
+    playerPoolEntry: { player: { id: a.espn_id, fullName: a.name, defaultPositionId: POS_ID[a.position],
+      injuryStatus: a.espn_status ?? 'ACTIVE' } }
   }));
   const payload = {
     settings: acq ? { acquisitionSettings: acq } : {},

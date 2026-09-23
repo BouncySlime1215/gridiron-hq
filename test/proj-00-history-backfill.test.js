@@ -7,7 +7,8 @@
  *   1. The licence gate. The loaders refuse (exit 2, no database opened) while
  *      the licence file is absent, and they refuse a source the file marks
  *      blocked. Each loader gates on its own source, and any verdict word other
- *      than `usable` refuses. ESPN leaguedefaults is blocked in the committed file.
+ *      than `usable` refuses. ESPN leaguedefaults is usable, local-archive-only,
+ *      in the committed file (Nick accepted the Disney ToU risk 2026-09-23).
  *   2. The pbp mapping. nflverse columns become the play shape `storePlays`
  *      (nfl-espn-pbp.js) already writes, in the engine's own play_type
  *      vocabulary (classifyPlay). Nothing the engine does not simulate is
@@ -52,8 +53,8 @@ test('the licence gate reads the committed decisions', async () => {
   assert.equal(licenceDecision('nflverse_participation', { file: LICENCE }).usable, true);
   assert.equal(licenceDecision('open_meteo_archive', { file: LICENCE }).usable, true);
   const espn = licenceDecision('espn_leaguedefaults', { file: LICENCE });
-  assert.equal(espn.usable, false, 'ESPN is blocked by the Disney terms');
-  assert.match(espn.reason, /blocked/);
+  assert.equal(espn.usable, true, 'Nick accepted the Disney ToU risk 2026-09-23 for a local-only archive');
+  assert.match(espn.reason, /LOCAL archive only/);
   const missing = licenceDecision('nflverse_pbp', { file: path.join(temp, 'no-such-licence.md') });
   assert.equal(missing.usable, false);
   assert.match(missing.reason, /licence file missing/);

@@ -73,7 +73,7 @@ The loaders read the `decision:` lines below, one per source, verbatim.
   `~/gridiron-local/rnd/loop/data/espn_proj_hist/` were pulled 2026-09-22 by the
   R&D loop under the same terms (`rnd/loop/r2-external-espn-weekly-projection-history.md` §0).
   This unit did not create them and does not delete them.
-- decision: espn_leaguedefaults blocked (Disney ToU prohibited use x; needs Nick)
+- decision: espn_leaguedefaults usable for LOCAL archive only; Nick accepted the Disney ToU risk 2026-09-23 ~6:05 PM ET; data never committed
 
 ## 5. Open-Meteo historical archive (realized kickoff weather)
 

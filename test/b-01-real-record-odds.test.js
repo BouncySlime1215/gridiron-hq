@@ -35,13 +35,30 @@ await import('../server/routes/aggregates.js');
 await import('../server/routes/tradelab.js');
 await import('../server/routes/nfldata.js');
 const { deriveFormat } = await import('../server/services/format.js');
-const { simulateSeason, simStartWeek } = await import('../server/services/season-sim.js');
+const { simulateSeason, simStartWeek, tradeImpact } = await import('../server/services/season-sim.js');
 const { withRandomSeed } = await import('../server/services/stats-util.js');
+const { myPlayoffOdds } = await import('../server/services/trade-engine.js');
+const { hashSessionToken } = await import('../server/platform/auth.js');
+const { default: modelRouter } = await import('../server/routes/model.js');
+const express = (await import('express')).default;
 
 await runMigrations();
 seedIfEmpty();
 
-test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
+// The two page routes, driven over HTTP by a league member.
+run(`INSERT INTO users (subject, display_name) VALUES ('b01', 'b01')`);
+const userId = rows('SELECT last_insert_rowid() AS id')[0].id;
+run(`INSERT INTO auth_sessions (user_id, token_hash, expires_at) VALUES (?, ?, datetime('now','+1 day'))`,
+  userId, hashSessionToken('b01-token'));
+const app = express();
+app.use(express.json());
+app.use('/api/model', modelRouter);
+app.use((err, _req, res, _next) => res.status(500).json({ error: err.message }));
+const server = app.listen(0);
+const base = `http://127.0.0.1:${server.address().port}/api/model`;
+const auth = { Authorization: 'Bearer b01-token', 'Content-Type': 'application/json' };
+
+test.after(() => { server.close(); db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
 const POS_ID = { QB: 1, RB: 2, WR: 3, TE: 4 };
 const SLOTS = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX'];
@@ -106,6 +123,7 @@ function insertLeague(id, payload, { currentWeek = CURRENT_WEEK, payloadSeason =
        roster_positions, espn_s2, swid, connection_status, current_week, payload_season)
        VALUES (?, 'espn', ?, 2026, 'B01 League', ?, 6, '1', ?, 'x', 'y', 'connected', ?, ?)`,
   id, `espn-b01-${id}`, JSON.stringify(payload), JSON.stringify(SLOTS), currentWeek, payloadSeason);
+  run(`INSERT INTO league_memberships (league_id, user_id, role) VALUES (?, ?, 'commissioner')`, id, userId);
   return rows('SELECT * FROM leagues WHERE id = ?', id)[0];
 }
 
@@ -147,4 +165,49 @@ test('B-01: the page routes no longer pin from_week to 1', () => {
   const src = fs.readFileSync(path.join(process.cwd(), 'server/routes/model.js'), 'utf8');
   assert.ok(/simulateSeason\(lg,/.test(src), 'control: the route still calls simulateSeason');
   assert.doesNotMatch(src, /from_week\)\s*\|\|\s*1/, 'a route still defaults from_week to 1');
+});
+
+/* ---- review round 1: every page-facing caller, not just simulateSeason ---- */
+
+test('B-01: tradeImpact with no fromWeek starts at the league week with the real record', () => {
+  // Its callers (title-odds-trades.js, the routes/trades.js sense-check) pass no week.
+  const lg = rows('SELECT * FROM leagues WHERE id = 601')[0];
+  const impact = tradeImpact(lg, { myTeamId: 1, theirTeamId: 2, runs: 300, seed: 7 });
+  assert.ok(!impact.error, impact.error);
+  assert.equal(impact.from_week, CURRENT_WEEK);
+  assert.ok(impact.me.playoff_before >= 0.9, `5-0 team priced at ${impact.me.playoff_before} before the trade`);
+});
+
+test('B-01: GET /simulate starts at the league week and its memo follows the week', async () => {
+  insertLeague(603, payload);
+  const sim = await (await fetch(`${base}/603/simulate?runs=300&seed=3`, { headers: auth })).json();
+  assert.equal(sim.from_week, CURRENT_WEEK, JSON.stringify(sim).slice(0, 200));
+  assert.ok(team1(sim).playoff_odds >= 0.9, `route priced the 5-0 team at ${team1(sim).playoff_odds}`);
+  run('UPDATE leagues SET current_week = 7 WHERE id = 603');
+  const next = await (await fetch(`${base}/603/simulate?runs=300&seed=3`, { headers: auth })).json();
+  assert.equal(next.from_week, 7, 'the /simulate memo stayed on the old start week after the league moved on');
+});
+
+test('B-01: POST /trade-impact starts at the league week', async () => {
+  const res = await fetch(`${base}/601/trade-impact`, { method: 'POST', headers: auth,
+    body: JSON.stringify({ my_team_id: '1', their_team_id: '2', runs: 300, seed: 5 }) });
+  const body = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(body.from_week, CURRENT_WEEK);
+  assert.ok(body.me.playoff_before >= 0.9, `route priced the 5-0 team at ${body.me.playoff_before}`);
+});
+
+test('B-01: myPlayoffOdds (Trades page) uses simStartWeek, not the NFL game_lines week', () => {
+  // NFL_WEEK = 6 in this file; the league is on week 4 — the Monday-night /
+  // next-sync gap. One producer means the Trades page starts where /simulate does.
+  const lagging = insertLeague(604, payload, { currentWeek: 4 });
+  assert.equal(simStartWeek(lagging), 4, 'control: the league week differs from NFL_WEEK');
+  const odds = myPlayoffOdds(lagging, '1');
+  assert.match(odds.source, /from week 4$/, odds.source);
+  const direct = withRandomSeed(20260918, () => simulateSeason(lagging, { runs: 1000 }));
+  assert.equal(odds.value, +team1(direct).playoff_odds.toFixed(2), 'Trades page and /simulate disagree on the same league');
+
+  // Pre-draft fallback: last season's payload must not be carried in by the engine either.
+  const stale = insertLeague(605, payload, { payloadSeason: 2025 });
+  assert.match(myPlayoffOdds(stale, '1').source, /from week 1$/, 'the engine carried last season\'s results in');
 });

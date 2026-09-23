@@ -143,3 +143,22 @@ test('poll: Jetstream v2 URL with dids filter and cursor; closes when idle', asy
   assert.equal(Number(u.searchParams.get('cursor')), (now - 30 * 60_000) * 1000, 'cursor is unix microseconds');
   assert.equal(mon.liveInactiveClaims(WEEK).get(5005)?.status, 'inactive');
 });
+
+test('2024 replay false flags stay fixed: "out on the field", "report is out", verb binding', () => {
+  const idx = mon.loadPlayerIndex();
+  const claims = t => mon.claimsFromPost({ text: t }, idx).map(c => `${c.player_name}:${c.status}`);
+  assert.deepEqual(claims('Tyreek Hill is out on the field early, throwing.'), [], 'pregame warmup is not a status');
+  assert.deepEqual(claims('Injury report is out and the concern is Jaylen Waddle, limited today.'), []);
+  assert.deepEqual(claims('With Saints RB Alvin Kamara officially ruled out, it will be up to Brock Bowers and others.'),
+    ['Alvin Kamara:inactive'], 'the verb binds to the name before it, not the one after');
+  assert.deepEqual(claims('The Raiders ruled out TE Brock Bowers.'), ['Brock Bowers:inactive'], 'no name before: the one after counts');
+  assert.deepEqual(claims('Tyreek Hill is out for Sunday.'), ['Tyreek Hill:inactive']);
+});
+
+test('a clause about an earlier game is not a claim about this one (mutant M4 survived without this)', () => {
+  const idx = mon.loadPlayerIndex();
+  const claims = t => mon.claimsFromPost({ text: t }, idx).map(c => `${c.player_name}:${c.status}`);
+  assert.deepEqual(claims('Tyreek Hill, who was inactive last week, returned to practice.'), []);
+  assert.deepEqual(claims('Jaylen Waddle was ruled out last Sunday.'), []);
+  assert.deepEqual(claims('Jaylen Waddle is inactive.'), ['Jaylen Waddle:inactive'], 'control: present tense still claims');
+});

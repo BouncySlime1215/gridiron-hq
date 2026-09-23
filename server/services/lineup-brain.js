@@ -45,6 +45,7 @@ import { careerLine } from './player-career.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
 import { availabilityDegradation } from './contingency.js';
+import { liveInactiveClaims, postUrl } from './live-inactive-monitor.js';
 
 const r1 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(1));
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
@@ -654,7 +655,16 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   const coinFlips = calls.filter(c => c.confidence === 'coin flip');
   // Slots where an eligible bench player existed but carried no projection.
   const unprojected = calls.filter(c => c.confidence === 'no projection');
-  const risky = calls.filter(c => (c.player.active_probability ?? 1) < 0.75 || c.player.bye === week);
+  // Starters a watched public account declared inactive for this week's game before
+  // kickoff (live-inactive-monitor.js, the one in-week inactive source). The Friday
+  // report and active_probability cannot see this: a Questionable starter sits at
+  // ~0.85 to play right up until the inactive list comes out at T-90. One warning per
+  // starter. When he is flagged here, the probability/bye warning for him is dropped,
+  // because this one is the stronger and more specific statement.
+  const liveInactive = liveInactiveClaims({ season, week });
+  const deadStarters = calls.filter(c => liveInactive.has(c.player.id));
+  const risky = calls.filter(c => !liveInactive.has(c.player.id) &&
+    ((c.player.active_probability ?? 1) < 0.75 || c.player.bye === week));
 
   // Which availability model priced every chance to play on this page, and — when it is
   // not the validated role layer — why not. Honest degradation over a confident wrong
@@ -725,7 +735,26 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
     // projection, so no comparison happened. Counted separately from coin
     // flips: one is a close call, the other is no call at all.
     not_compared: unprojected.length,
-    warnings: risky.map(c => ({
+    warnings: [...deadStarters.map(c => {
+      const claim = liveInactive.get(c.player.id);
+      return {
+        player: c.player.name,
+        kind: 'live_inactive',
+        // No trailing full stop: Lineup.tsx appends one.
+        issue: `reported inactive for this week's game by ${claim.source_handle} at ${etClock(claim.first_seen_at)}` +
+          '. Swap him before kickoff. This is a public post, not the official inactive list',
+        source: claim.source_handle,
+        source_url: postUrl(claim.source_uri),
+        reported_at: claim.first_seen_at,
+        // Checked on stored 2026 W1-W2 and 2024 W11-17 posts
+        // (docs/tdd/2026-09-23-live-inactive-monitor.tdd.md). The forward W3-W5 test
+        // against a T-75 ESPN sync has not run yet.
+        confirmation: 'unconfirmed forward',
+        availability_basis: null,
+        slot: c.slot
+      };
+    }), ...risky.map(c => ({
+      kind: c.player.bye === week ? 'bye' : 'availability',
       player: c.player.name,
       issue: c.player.bye === week ? 'on bye this week'
         // active_probability is THIS week's chance to play (the injury report and the
@@ -749,7 +778,7 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
       // 'role' | 'pooled' | 'constants', so a reader of one warning can see it too.
       availability_basis: c.player.bye === week ? null : availabilityBasis?.basis ?? null,
       slot: c.slot
-    })),
+    }))],
     objectives: [
       { id: 'mean', label: 'Highest average',
         when: 'The default, and right when the matchup is close.' },
@@ -772,6 +801,13 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
           'projection, so no comparison was made for them. That is missing data, not a clear call.'
         : 'Every call this week has a real margin behind it.'
   };
+}
+
+const ET_CLOCK = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', minute: '2-digit' });
+/** "Sun 11:31 AM ET" for an ISO instant; the raw value when it does not parse. */
+function etClock(iso) {
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? `${ET_CLOCK.format(t)} ET` : String(iso);
 }
 
 /** Which positions a slot will accept, matching the solver's own rules. */

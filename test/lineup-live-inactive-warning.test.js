@@ -98,6 +98,7 @@ test('a starter in a pre-kickoff inactive post is flagged before kickoff', () =>
   assert.equal(w.issue.endsWith('.'), false, 'the page appends the full stop');
   assert.match(w.source_url, /^https:\/\/bsky\.app\/profile\/did:plc:lbe3b7ce6n7oa6cbl5jwoifo\/post\/li1$/, 'links out, no post text');
   assert.equal(w.reported_at, '2026-09-27T15:31:00Z');
+  assert.match(w.issue, /at Sun 11:31 AM ET/, 'a plain Eastern clock time, not an ISO stamp');
   assert.equal(w.confirmation, 'unconfirmed forward');
   assert.equal(call.warnings.filter(x => x.player === 'Questionable Back').length, 1, 'one warning per starter');
 });

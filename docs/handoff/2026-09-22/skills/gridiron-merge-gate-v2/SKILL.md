@@ -10,8 +10,8 @@ Supersedes gridiron-merge-gate. Run this on the exact tree you are about to push
 ## 1. One guard run on one tree
 1. `git fetch origin main && git merge origin/main` (merge, never rebase, on a branch someone else may have checked out or that already carries merge commits; on your own linear branch follow the repo convention).
 2. `git status --porcelain` must be empty. Record `git write-tree`.
-3. `npm ci` on a fresh clone before trusting any number. If you skip it, say why (for example: package-lock.json untouched since the last install).
-4. `npm run check` (typecheck, lint, wiring check, tests, build, smoke). Exit 0 required. Record tests / pass / fail / skip.
+3. The guard run is CI on Node 22 (typecheck, lint, wiring check, tests, build, smoke) on the exact head that contains current main; nothing merges until it is green. Locally, run the unit's targeted test files and record tests / pass / fail / skip.
+4. If package-lock.json changed, run `npm ci` in your worktree before trusting a local number.
 5. Record `git write-tree` again; it must equal step 2. Nothing outside `client/dist` may change.
 6. A wiring exit 1 on a branch that contains current main is your branch's own finding. Do not add accept-list entries in files you do not own; report them.
 7. Never edit a shared guard script in place while any run may be using it; write a new versioned file.
@@ -51,14 +51,14 @@ Under the same heading also state, in one line each: the defect or gap fixed wit
 - No secrets in the repo, commit, chat, or logs. Read presence, never value.
 - No bare `catch {}`. Errors are handled or they throw. An inert layer must say so on its surface.
 - Parameterised SQL only.
-- No migrations, table drops, or data deletion without Nick's own word.
+- Additive migrations only, each named in the PR body. Table drops, destructive migrations and data deletion need Nick's own word.
 - Nothing paid. Licence check (LICENSE and LICENSE.md across master, main, gh-pages, plus README) before measuring any external data.
 - One editor per file; a finding in another thread's file is reported, not edited.
 - Nav is 8 tabs; never rebuild a deleted page.
 - Commit messages `<type>: <description>` with attribution footers on.
 
 ## 6. Merge and after
-- Draft PR on push. Only the local coordinator merges (merge-queue.sh: brings the PR up to current main, waits for CI on that exact head, checks sections 1 to 5, squash-merges, logs and writes the integration card). Builder and cloud sessions never merge, never mark ready, never subscribe to PR activity and never schedule check-ins (a cloud session merged its own PR on 2026-09-23 01:31Z). Retry a refused GitHub API call at most every ten minutes; never poll.
+- Draft PR on push. Only the local coordinator merges (merge-queue.sh: brings the PR up to current main, waits for CI on that exact head, checks sections 1 to 5, squash-merges, logs and writes the integration card). Builder and cloud sessions never merge, never mark ready, never subscribe to PR activity and never schedule check-ins. Retry a refused GitHub API call at most every ten minutes; never poll.
 - Do not open a PR for a preservation snapshot as if it were a merge candidate; label it never-merge.
 - Deploy, settings, and secrets need Nick's word every time.
 - **Context hygiene:** once your current PRs are merged, write your handoff section (shipped, open, blocked, findings, lessons, files, next three steps) and ask the coordinator to restart you as a fresh session from it. A thread's history is the cost; the handoff is the memory.

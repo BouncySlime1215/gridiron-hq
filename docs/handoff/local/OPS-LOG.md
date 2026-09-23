@@ -183,3 +183,7 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 15:58Z: capacity.py in place; status cron now follows its loop plan.
 
 16:13Z: RL-8-2b DECLINED on the one 2025 look (1-for-1 0.505; 2-for-1 LV 0.551 < bar) -> #207 evidence. Plan: Trade Machine re-scoped to the four evidenced edges.
+16:39Z: Suggested task "stop 6 more components rendering raw server errors" is already done: UX-08b (#175, MERGED) fixed all six sites; on origin/main they now pass the error into sanitizing components (TradeSectionError, ManagerProfilesGap). No new work.
+- 18:03Z prompt audit applied (10 hunks): gate prompts leave PRs draft, finish-unit uses targeted tests (CI is guard), merge-gate skill + token-efficiency skill updated to current rules. Report: scratchpad/audit/PROMPT-AUDIT.md
+- 18:07Z A spend-down: launched 2 build runs (RL-15-3+RL-15-1, RL-13-2+RL-15-2) + R&D r16 at weekly 85%; hard stop 97%
+- 18:12Z PASTE-TO-RESUME.md rewritten as a self-contained takeover brief for account B (first 15 min, A coordination, launch mechanics, work order, rules, budget, status format)

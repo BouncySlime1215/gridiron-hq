@@ -536,3 +536,24 @@ hold ignored `on: TOURNAMENT_DECISION.on` (1).
    (S-03's owner, S-14 for the chips).
 4. `s03_identity`: S-03's identity and consumer-parity checks compare against the blend's ours
    input (S-03's owner).
+
+## 10. Round 3: the call site's served config is now tested (2026-09-23)
+
+Skeptic finding (test liveness, B2 remaining part): every wiring test mocked SERVED_BLEND to ON, so nothing
+tested that the four serving holds are respected at the one producer line. Mutant H4 (trade-engine.js,
+`}, SERVED_BLEND);` -> `}, { ...SERVED_BLEND, on: true });`) served ESPN's number in production and survived
+every test. The skeptic was right. Fix is test-only; the implementation was already correct (the runtime dump
+in 9.2 showed it) but unpinned.
+
+- New last test in test/weekly-blend-wiring.test.js swaps the mock to the real `SERVED_BLEND` (on:false, holds),
+  forces a rebuild with a new capture, and asserts for P1 (ESPN 20): `week_blend.espn_ppg === 20` (known-nonzero
+  control), ours differs from 20 by more than 0.5, `current_week_ppg` equals ours, basis `blend_off`,
+  `context.week_blend.on === false`, and `context.week_blend.holds` deep-equals `SERVING_HOLDS.map(h => h.id)`.
+  It restores the mock in a finally block (keys deleted, then reassigned).
+- Tree b987c42c (code tree unchanged from a393acbd: only the test file changed). Command, per file:
+  `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/<file>.test.js`.
+  weekly-blend-wiring: 10/10 pass.
+- H4 on tree b987c42c, in a scratch detached worktree (removed after): weekly-blend-wiring 9/10, `not ok 10`,
+  error `'20 vs 13.248000000000001'` (P1 served ESPN's 20 instead of ours 13.248). Killed. weekly-blend 8/8 and
+  weekly-blend-tournament 16/16 still pass under H4, so this new case is the one that kills it.
+- Nothing graded; no 2025 look; no DB copy made (mktemp DBs only).

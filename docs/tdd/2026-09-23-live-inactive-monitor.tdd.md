@@ -68,9 +68,18 @@ Commands run on `131a7ba0` in this worktree.
   `server/migrations/071_live_inactive_claims.js` (**named here as this unit's
   one migration**). The reader lives in `lineup-brain.js` `lineupCall` warnings,
   which reaches the route and page above.
-- **One number, one producer:** this is the only in-week source of "declared
-  inactive for this game". The concepts next to it keep their own producers and
-  are not recomputed here:
+- **One number, one producer (corrected after review, 2026-09-23):** this is NOT
+  the only in-week source of "declared out for this game". The audit above missed
+  `server/services/nfl-news-signal.js` `STATUS_RULES` (`:76`), which turns "ruled
+  out | will not play | won't play | to miss | sidelined" in ESPN news into status
+  `out` (unavailable 0.94) in table `nfl_news_signals`, scheduled through
+  `syncStructuredNewsSignals` in `scheduler.js`, cut off at kickoff by
+  `playerWeekNewsSignal` (`nfl-news-signal.js:332`, read at
+  `player-week-engine.js:355`) and shown on the News page (`GET /news/signals`,
+  `server/routes/news.js:223` -> `client/src/pages/News.tsx:54`). The two
+  producers overlap and can disagree; section 9 item 9 gives both values on the
+  same input and the named follow-up. The concepts next to it keep their own
+  producers and are not recomputed here:
   - `active_probability` (contingency and availability fit);
   - ESPN `injuryStatus` (`irOnRoster`);
   - nflverse `INA` (post-week truth).
@@ -162,7 +171,7 @@ The run used `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp) node --experimenta
 
 | Test file (same command) | Result on `b1c0654e` |
 |---|---|
-| `live-inactive-monitor` | 7/7 pass (6 at the commit, plus the M4 test in the evidence commit) |
+| `live-inactive-monitor` | 7/7 pass. (Corrected: the M4 past-tense test was already in `b1c0654e`; it was added before the feat commit, not in `5f3c2b35`, which touches only this doc.) |
 | `lineup-live-inactive-warning` | 2/2 |
 | `availability-honest-degradation` | 8/8 |
 | `decision-leftovers-lineup` | 10/10 |
@@ -175,6 +184,56 @@ The run used `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp) node --experimenta
 `node scripts/wiring-map.mjs --check` exited 0 with "no missing-feed findings". The
 full guard (`npm run check`) is left to the Gate phase.
 
+**Missed in this list, and failing at `b1c0654e`:** `growth-jobs-off-thread` was 3/6
+(`live_inactives` was a request-thread live job that was neither `offThread`, nor in
+`MAIN_THREAD_ONLY`, nor in `ON_REQUEST_THREAD`, and the count rose 26 -> 27). Fixed in
+the review round below.
+
+### 5b. Review round (skeptics, 2026-09-23)
+
+RED `a59ac6f0` (tests only): `live-inactive-monitor` 7/8 (hedge test fails),
+`lineup-live-inactive-warning` 2/3 (default-off test fails),
+`growth-jobs-off-thread` 3/6.
+
+Fix commit, same command
+(`SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/<file>.test.js`):
+
+| Test file | Result |
+|---|---|
+| `live-inactive-monitor` | 8/8 |
+| `lineup-live-inactive-warning` | 3/3 |
+| `growth-jobs-off-thread` | 6/6 |
+| `main-thread-only-holds` | 9/9 |
+| `boot-path-off-thread` | 7/7 |
+| `abandoned-run-backoff` | 10/10 |
+| `availability-honest-degradation` | 8/8 |
+| `decision-leftovers-lineup` | 10/10 |
+| `lineup-floor-objective` | 3/3 |
+| `start-sit-decision-curve` | 12/12 |
+
+What changed:
+
+1. **Default off (rule b).** `lineupCall` reads `live_inactive_claims` only when
+   `LIVE_INACTIVE_WARNINGS=1` (read per call). The listener job and the table stay
+   on so the W3-W5 forward test has data. See 7b.
+2. **Hedges and negated actives are refused.** `HEDGE_RE` (trending, expect*,
+   (un)likely, probably, not sure, unsure, uncertain, unclear, game-time, hope*,
+   might, may, could, possibly, if, whether, should) makes a clause status-less in
+   both directions; `NEGATED_ACTIVE_WORD_RE` refuses an active word with not /
+   never / n't up to two words before it. The skeptic's three probes ("is not
+   expected to play", "'not sure' if X will play", "trending towards not playing")
+   now return no claim. Injury designations (questionable, doubtful) are
+   deliberately not hedges: "Questionable WR X is inactive" still claims (pinned).
+3. **The job runs off-thread** (`offThread: true`), so the request-thread count
+   stays at 26. Measured on a temp DB against the real Jetstream endpoint,
+   2026-09-23: `runIfStale('live_inactives', {force:true})` returned
+   `{"recorded":0,"retracted":0,"events":1,"errors":0,"ended":"idle"}` in 5,830 ms
+   and logged "took 5.8s in a worker thread — requests were served normally
+   throughout" (inline it was 4.0 s and logged "every request was blocked"). So the
+   worker costs about 1.8 s of wall time per 3-minute run, off the request thread.
+   Command: `node <scratchpad>/rl32-offthread.mjs $PWD` (temp DB, migrations, then
+   `runIfStale`).
+
 ## 6. What it does
 
 - **Producer.** `server/services/live-inactive-monitor.js`:
@@ -186,7 +245,7 @@ full guard (`npm run check`) is left to the Gate phase.
     watched account, and `cursor` set to now minus 30 minutes in unix µs. It
     ingests and closes once the stream has been idle for 4 s (hard limit 25 s).
 - **Job.** `live_inactives` in `server/services/scheduler.js` JOBS: live tier,
-  every 3 minutes, main thread. It stamps each claim with `tradeWeekContext()`,
+  every 3 minutes, worker thread (`offThread: true`, review round). It stamps each claim with `tradeWeekContext()`,
   the same week context `lineupCall` reads.
 - **Parser.**
   - Works clause by clause. A clause break is a line, a semicolon, or ", while /
@@ -238,13 +297,20 @@ GRIDIRON_DB_INTEGRITY_CHECK=off SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=.local-db/
 Final run on `b1c0654e`, watched accounts only (production reads only those).
 The output was byte-identical to the pre-commit run on the same parser.
 
+**Re-run after the hedge/negation guards (review round, same command, local copy,
+not production):** every count in the table below is unchanged (A 20/38, 0/9; B
+19/64, 0/945; the same Friday splits and sources). The one change: B's
+wrong-direction "active" latest claims on non-players fell from 2 to 1.
+
 | Window | Did not play, flagged inactive before kickoff | Friday Out | Friday Doubtful | Friday Questionable | Friday none | Played, false flags |
 |---|---|---|---|---|---|---|
 | A. 2026 W1-W2 (in-sample) | **20 of 38** (95% Wilson 37-68%) | 10/20 | 3/7 | **7/11** | 0/0 | **0 of 9** (upper bound 30%) |
 | B. 2024 W11-17 | **19 of 64** (20-42%) | 10/32 | 0/6 | **9/21** | 0/5 | **0 of 945** (upper bound 0.4%) |
 
-- **Wrong-direction "active" as the latest claim on a non-player:** A 0, B 2.
-  These suppress a warning. They never raise a false one.
+- **Wrong-direction "active" as the latest claim on a non-player:** A 0, B 2 at
+  `b1c0654e`; A 0, B 1 after the hedge guard. These suppress a warning; they do not
+  add a false flag. (Corrected wording: before the hedge guard, the parser was not
+  "definitive statements only", as the review showed; see 5b.)
 - **Catches by source:**
   - A: rotoworld-fb 18, kfishbain 1, rapsheet 1.
   - B: rapsheet 13, demetrius 3, tashanreed 1, bengoessling 1, salmaiorana 1.
@@ -270,8 +336,17 @@ The output was byte-identical to the pre-commit run on the same parser.
 
 - **Result: passes.** Window A has 0 false flags of 9 and recall 20/38, which is
   above the ESPN feed's 9/38.
-- The warning therefore ships **ON**, labelled `confirmation: 'unconfirmed
-  forward'`, until the W3-W5 forward test runs.
+- **Ship decision, corrected in review: default OFF.** Standing rule (b) says a
+  result ships ON only if it passes its pre-registered rule AND holds on the 2026
+  weeks already played as a forward holdout. The only played 2026 weeks (W1-W2)
+  are window A, which is in-sample (the accounts and parser were designed on them),
+  and B is partly in-sample for two rules. There is no forward holdout, so the
+  warning ships **default-off behind `LIVE_INACTIVE_WARNINGS=1`**, labelled
+  `confirmation: 'unconfirmed forward'`. The pre-registration's "ON if the rule
+  passes" line conflicted with rule (b); rule (b) wins. The gate did not exist at
+  `b1c0654e` (`grep -rn LIVE_INACTIVE_WARNINGS server` was empty); it exists now in
+  `lineup-brain.js` `lineupCall`. Turn it on after the W3-W5 forward test passes,
+  or with Nick's written exception recorded here.
 - **Research package comparison (package numbers, not re-run here):**
   - Its raw regex: 23/38 with 10 wrong-direction claims.
   - This parser: 20/38 with 0.
@@ -312,14 +387,14 @@ The output was byte-identical to the pre-commit run on the same parser.
   Wednesday with no inactive posts.
 - So the URL, filter, cursor and subprotocol work against the live service.
 
-### 7f. Mutation sweep (on the tests at `b1c0654e`, plus the M4 test)
+### 7f. Mutation sweep (on the tests at `b1c0654e`)
 
 | Mutant | Result |
 |---|---|
 | M1 reader: first claim wins instead of latest | KILLED (both files) |
 | M2 call site: `deadStarters = []` | KILLED (lineup 2 fails) |
 | M3 call site: `risky` no longer excludes flagged starters | **SURVIVED, designed.** "One warning per starter" is pinned only for a starter who is not already risky (0.85 to play). A flagged starter below 0.75 would get two warnings. Documented, not pinned. |
-| M4 parser: past-tense guard off | SURVIVED on first sweep → test added → KILLED |
+| M4 parser: past-tense guard off | KILLED. It survived a sweep run on an uncommitted draft of the tests; the M4 test was added before the feat commit, so it is already in `b1c0654e` and has no separate commit. |
 | M5 verb binding: whole clause | KILLED |
 | M6 delete not honoured | KILLED |
 | M7 watched-account filter off | KILLED |
@@ -353,6 +428,27 @@ only), so nothing was appended to `docs/evidence/HOLDOUT-LEDGER.md`.
    parser rules. The honest out-of-sample number is B's first run (3/945 false
    flags across all accounts, 2 from watched ones). The forward W3-W5 test is
    what confirms it.
+9. **Two producers of "out for this game" (named follow-up, not unified here).**
+   `nfl_news_signals` (writer `nfl-news-signal.js` `STATUS_RULES`, `:76`) and
+   `live_inactive_claims` (writer `live-inactive-monitor.js` `recordClaim`) both turn
+   news text into an availability claim. On the same input they disagree
+   (local copy, not production; `sqlite3 'file:.local-db/data.sqlite?immutable=1'
+   "SELECT player_name,status,published_at,confidence,verification_state FROM
+   nfl_news_signals WHERE player_name IN ('Kyler Murray','Omar Cooper Jr.') AND
+   published_at BETWEEN '2026-09-13' AND '2026-09-22'"`):
+   - Kyler Murray, 2026 W2: live monitor `inactive` (Bluesky post
+     2026-09-18T18:47Z); news signals `available_positive`, verified, 0.78, latest
+     pre-kickoff row 2026-09-20T11:41Z. Truth: he did not play.
+   - Omar Cooper Jr., 2026 W2: news signals `out_for_season`, verified, 0.85; live
+     monitor no claim.
+   - The review's count across the 47 replay events: news signals has a pre-kickoff
+     status for 9 players, 7 agree with the live monitor (reviewer's scratch
+     script, not re-run here).
+   - Why this is not unified in this unit: with the warning default-off, no page
+     shows the two side by side yet. **Follow-up (before `LIVE_INACTIVE_WARNINGS`
+     goes on):** one availability-claim reader over both tables (latest definitive
+     pre-kickoff claim wins, source named) used by Start/Sit and the News page's
+     "My Players" filter.
 8. **File ownership.** `scheduler.js` and `lineup-brain.js` are shared files. The
    edits are additive (one JOBS entry; one filter plus warnings in `lineupCall`).
    A coordinator grant should be confirmed at merge (rule 9).
@@ -363,7 +459,7 @@ only), so nothing was appended to `docs/evidence/HOLDOUT-LEDGER.md`.
    - One producer, one table, one reader, one job. Parameterised SQL. No bare
      catch. No post text stored. Deletes are honoured as retractions.
    - An additive migration, named: `071_live_inactive_claims`.
-   - 9 test files green; the mutation sweep kills 8 of 9 mutants, and the
+   - 10 test files green after the review round (5b); the mutation sweep kills 8 of 9 mutants, and the
      survivor is designed.
 2. **Stats or made up?** Stats:
    - 20/38 and 19/64 caught;
@@ -379,8 +475,8 @@ only), so nothing was appended to `docs/evidence/HOLDOUT-LEDGER.md`.
    - Two seasons were replayed, as of kickoff.
    - Forward confirmation (W3-W5 against a T-75 ESPN sync) has **not** run, hence
      "unconfirmed forward".
-4. **Pointed elsewhere?** No:
-   - it is the only in-week inactive source (audit in section 2);
+4. **Pointed elsewhere?** Partly:
+   - it overlaps `nfl_news_signals` 'out' (section 9 item 9, follow-up named);
    - nflverse `INA` stays the post-week truth;
    - `active_probability` is untouched.
 5. **How does it unify?**

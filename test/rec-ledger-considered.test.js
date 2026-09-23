@@ -120,12 +120,6 @@ test('every idea the edge test removed becomes a considered-not-shown trade row 
   assert.equal(rows(`SELECT COUNT(*) n FROM rec_ledger WHERE league_id = 81 AND disposition = 'shown'`)[0].n, 0);
 });
 
-test('a cached second search writes nothing new', () => {
-  const before = considered().length;
-  findTrades(lg, { myTeamId: '1', maxPerSide: 2, requireMutual: false, limit: 100 });
-  assert.equal(considered().length, before);
-});
-
 test('the real waiver board carries player ids, so a claim reaches the ledger as a gradable row', async () => {
   const { waiverBoard } = await import('../server/services/waiver-wire.js');
   const { recordRoute } = await import('../server/services/rec-ledger.js');

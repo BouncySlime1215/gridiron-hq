@@ -155,6 +155,20 @@ test('cacheSystem sends the system prompt as a text block marked cache_control e
   assert.deepEqual(fake.calls[0].system, [{ type: 'text', text: 'SYS', cache_control: { type: 'ephemeral' } }]);
 });
 
+test('cacheConversation adds top-level automatic caching and counts it as a breakpoint', async () => {
+  const fake = fakeClient();
+  claude.setAnthropicClientForTesting(fake);
+  await claude.callClaude({ feature: 'unit-test', model: SONNET, prompt: 'q', system: 'SYS', cacheSystem: true,
+    cacheConversation: true });
+  assert.deepEqual(fake.calls[0].cache_control, { type: 'ephemeral' });
+  assert.deepEqual(fake.calls[0].system[0].cache_control, { type: 'ephemeral' });
+  await claude.callClaude({ feature: 'unit-test', model: SONNET, prompt: 'q' });
+  assert.equal(fake.calls[1].cache_control, undefined, 'off unless asked for');
+  const marked = name => ({ name, description: 'd', input_schema: { type: 'object' }, cache_control: { type: 'ephemeral' } });
+  await assert.rejects(claude.callClaude({ feature: 'unit-test', model: SONNET, prompt: 'q', cacheSystem: true,
+    cacheConversation: true, tools: [marked('a'), marked('b'), marked('c')] }), /breakpoints/i);
+});
+
 test('cachedPrefix goes first in the user turn with cache_control, the varying prompt after it', async () => {
   const fake = fakeClient();
   claude.setAnthropicClientForTesting(fake);

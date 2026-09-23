@@ -104,3 +104,8 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 10:55Z: WV-01 auditor: HELD only on the forward rule (history reproduces exactly: +2.86 [+0.93,+4.75], 0 line mismatches). Fix: default-off flag + "unconfirmed forward" label (fixer launched). NICK OPTION: a one-line exception to STATS-METHOD rule 5 for market-number rankings would let it ship on.
 
 11:10Z: R&D r6 landed: schedule-swing plans killed (TM-02 schedule tag, TM-12, TM-19, NX-10, AI-08 cliff); urgent RL-6-4 (waiver card drops wrong player at 0.0 in all 5 leagues) and critical RL-6-3 (title-odds deltas unpaired = noise) go first in the next build loop; RL-6-2 joins availability test. Plan adjusted; R&D r7 relaunched.
+11:20Z: WV-01 default-off flag added (c8bfba77, 15/15); #176 queued (ships off, labelled unconfirmed forward until 2026 weeks grade it or Nick exempts).
+
+11:35Z: UI loop done: UX-11 My team tab -> #180, UX-08c -> #182 (queued). Loop 3 relaunched with URGENT RL-6-4 (waiver drop identity) + CRITICAL RL-6-3 (paired title-odds seeds).
+
+11:50Z: Loop 1 done: AI-01 DECLINED (#181, docs; queued), TM-09 market prices (#183; auditor next), RL-3-2 live inactives (#184, migration -> held for Nick). Plan adjusted: market (FantasyCalc) is the value base; edges = lineup fit, availability/timing, human side.

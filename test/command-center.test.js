@@ -46,6 +46,13 @@ mock.module('../server/services/trade-engine.js', { namedExports: {
   tradeWeekContext: () => ({ season: 2026, week: 3 }),
   lineupDiff: lg => { cookieSeen.push('espn_s2' in lg || 'swid' in lg); return producerOut.get(Number(lg.id))?.diff ?? { flagged_starters: [], swaps: [] }; },
 } });
+// SS-01's guard reaches the command center through lineupCall (its one consumer).
+const lineupCalls = [];
+const lb = await import('../server/services/lineup-brain.js');
+mock.module('../server/services/lineup-brain.js', { namedExports: {
+  ...lb,
+  lineupCall: (leagueId, opts) => { lineupCalls.push({ leagueId, opts }); return producerOut.get(Number(leagueId))?.call ?? { dead_starters: { covered: true, starters_checked: 9, items: [] } }; },
+} });
 const ww = await import('../server/services/waiver-wire.js');
 mock.module('../server/services/waiver-wire.js', { namedExports: {
   ...ww,
@@ -263,4 +270,91 @@ test('empty: a user with no leagues gets no items and says why', async () => {
   const body = await (await fetch(base, { headers: { 'x-test-user': String(nobody) } })).json();
   assert.deepEqual(body.items, []);
   assert.equal(body.empty_reason, 'no_leagues');
+});
+
+// ------------------------------------------------ SS-01's real payload shape
+// dead-starters.js#deadStarters on origin/claude/local-ss-01-dead-starter-guard @edffd153,
+// as lineupCall returns it under `dead_starters`.
+const ss01Payload = { applied: false, season: 2026, week: 3, kickoff_basis: 'game_cutoff',
+  inactive_source: { covered: false, source: null, reason: null }, covered: true, starters_checked: 9, unmatched_starters: 0,
+  items: [{ slot: 'WR', player: { id: 21, name: 'Doubtful Wideout', position: 'WR', team_abbr: 'KC' },
+    reason: 'out', source: 'espn', kickoff: '2026-09-27T20:25:00.000Z',
+    replacement: { id: 22, name: 'Bench Flex', position: 'WR', team_abbr: 'BUF', week_points: 8.7 },
+    why: 'Doubtful Wideout (WR) is listed Out. Start Bench Flex instead (8.7 projected).' }] };
+
+test('deadStarterList reads SS-01\'s object shape (items), and covered:false is not a clear list', () => {
+  const got = cc.deadStarterList({ dead_starters: ss01Payload, flagged_starters: [] });
+  assert.equal(got.producer, 'lineupCall.dead_starters (SS-01)');
+  assert.equal(got.list.length, 1);
+  assert.equal(got.list[0].name, 'Doubtful Wideout');
+  const off = cc.deadStarterList({ dead_starters: { ...ss01Payload, covered: false, items: [], reason: 'not ESPN' } });
+  assert.equal(off.list, null);
+  assert.equal(off.reason, 'not ESPN');
+});
+
+test('SS-01 on the build: dead starters come from lineupCall.dead_starters.items and lineupDiff is not called', async () => {
+  producerOut.set(redLeague, { call: { dead_starters: ss01Payload }, diff: redDiff, waivers: { immediate: [] } });
+  producerOut.set(quietLeague, { call: { dead_starters: { ...ss01Payload, covered: false, items: [], reason: 'not ESPN' } } });
+  cc.__setDeadStarterGuard(true);
+  cc.__setStreamingProducer(null);
+  cc.__clearCache();
+  const diffCallsBefore = cookieSeen.length;
+  lineupCalls.length = 0;
+  const body = await (await fetch(base, { headers: { 'x-test-user': String(nick) } })).json();
+  cc.__setDeadStarterGuard(undefined);
+  assert.equal(cookieSeen.length, diffCallsBefore, 'one dead-starter producer per build: lineupDiff not called');
+  assert.deepEqual(lineupCalls.map(c => c.leagueId).sort(), [redLeague, quietLeague].sort());
+  const red = body.leagues.find(l => l.id === redLeague).sources.dead_starters;
+  assert.deepEqual({ state: red.state, producer: red.producer, count: red.count },
+    { state: 'present', producer: 'lineupCall.dead_starters (SS-01)', count: 1 });
+  const quiet = body.leagues.find(l => l.id === quietLeague).sources.dead_starters;
+  assert.equal(quiet.state, 'unavailable', 'an uncovered league is not shown as clear');
+  const dead = body.items.filter(i => i.kind === 'dead_starter');
+  assert.equal(dead.length, 1, 'redDiff.flagged_starters (a second producer) is not read');
+  assert.match(dead[0].what, /Doubtful Wideout \(WR\) is starting but listed Out/);
+  assert.match(dead[0].why, /8\.7/);
+  assert.equal(dead[0].deadline, '2026-09-27T20:25:00.000Z');
+  producerOut.delete(quietLeague);
+});
+
+// ------------------------------------------------ what the empty state may call clear
+test('clearChecks: only checks present in every league; none when there are no leagues', () => {
+  const present = { state: 'present' };
+  const all = { dead_starters: present, injury_alerts: present, streams: present, moves: present };
+  assert.deepEqual(cc.clearChecks([{ sources: all }, { sources: all }]), ['dead_starters', 'injury_alerts', 'streams', 'moves']);
+  assert.deepEqual(cc.clearChecks([{ sources: all }, { sources: { ...all, moves: { state: 'stale' } } }]),
+    ['dead_starters', 'injury_alerts', 'streams']);
+  assert.deepEqual(cc.clearChecks([{ sources: { ...all, injury_alerts: { state: 'not_merged' }, streams: { state: 'default_off' } } }]),
+    ['dead_starters', 'moves']);
+  assert.deepEqual(cc.clearChecks([{ sources: { dead_starters: { state: 'not_synced' }, injury_alerts: { state: 'not_synced' },
+    streams: { state: 'not_synced' }, moves: { state: 'not_synced' } } }]), []);
+  assert.deepEqual(cc.clearChecks([]), []);
+});
+
+test('route: not_merged injury alerts and streams are never in clear_checks', async () => {
+  producerOut.set(redLeague, { diff: { flagged_starters: [] }, waivers: { immediate: [] } });
+  cc.__setStreamingProducer(null);
+  cc.__clearCache();
+  const body = await (await fetch(base, { headers: { 'x-test-user': String(nick) } })).json();
+  assert.ok(body.leagues.every(l => l.sources.injury_alerts.state === 'not_merged'), 'control: the check did not run');
+  assert.ok(Array.isArray(body.clear_checks));
+  assert.ok(!body.clear_checks.includes('injury_alerts'));
+  assert.ok(!body.clear_checks.includes('streams'));
+  assert.ok(body.clear_checks.includes('dead_starters'), 'known-present control');
+});
+
+// ------------------------------------------------ one user's result never reaches another
+test('the user comes from the session only: ?user= is ignored, and a cached result is per user', async () => {
+  producerOut.set(strangersLeague, { diff: redDiff, waivers: redWaivers });
+  cc.__clearCache();
+  const asNick = await (await fetch(`${base}?user=${stranger}`, { headers: { 'x-test-user': String(nick) } })).json();
+  assert.deepEqual(asNick.leagues.map(l => l.id).sort(), [redLeague, quietLeague].sort());
+  assert.ok(!asNick.items.some(i => i.league.id === strangersLeague));
+  // No __clearCache: nick's result is now cached; nobody must not get it.
+  const asNobody = await (await fetch(base, { headers: { 'x-test-user': String(nobody) } })).json();
+  assert.deepEqual(asNobody.leagues, []);
+  assert.deepEqual(asNobody.items, []);
+  assert.equal(asNobody.empty_reason, 'no_leagues');
+  const asStranger = await (await fetch(base, { headers: { 'x-test-user': String(stranger) } })).json();
+  assert.deepEqual(asStranger.leagues.map(l => l.id), [strangersLeague]);
 });

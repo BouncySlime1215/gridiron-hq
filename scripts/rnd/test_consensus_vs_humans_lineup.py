@@ -99,6 +99,14 @@ class Bootstrap(unittest.TestCase):
         self.assertIn(round(hi, 6), (0.5, 1.0))
         self.assertGreater(se, 0.2)
 
+    def test_resample_carries_every_row_of_a_drawn_cluster(self):
+        # added after the mutation sweep: identical rows let a "one row per cluster" bootstrap pass the test above
+        rows = [dict(k='a')] * 5 + [dict(k='b')]
+        est, lo, hi, se, nc = C.cluster_boot(rows, len, 'k', reps=400, seed=2)
+        self.assertEqual(est, 6)
+        self.assertEqual(hi, 10)   # {a, a} drawn: 10 rows
+        self.assertEqual(lo, 2)    # {b, b} drawn: 2 rows
+
     def test_mde_uses_house_constant(self):
         self.assertAlmostEqual(C.MDE_Z, 1.6449 + 0.8416)
         self.assertAlmostEqual(C.mde80(0.04), 0.04 * (1.6449 + 0.8416))

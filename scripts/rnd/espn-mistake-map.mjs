@@ -348,6 +348,7 @@ export async function assemble({ dbPath, archiveDir, log = () => {} }) {
     const teamOf = new Map(); // gsis -> Map(week -> team)
     const played = new Map(); // gsis -> Set(week)
     const qbAtt = new Map(); // team|week -> [gsis, attempts]
+    const qbThrew = new Set(); // gsis|week with >= 1 pass attempt (sensitivity only)
     for (const r of pwf) {
       if (!teamOf.has(r.player_id)) teamOf.set(r.player_id, new Map());
       teamOf.get(r.player_id).set(r.week, r.team);
@@ -355,6 +356,7 @@ export async function assemble({ dbPath, archiveDir, log = () => {} }) {
       played.get(r.player_id).add(r.week);
       if (r.position === 'QB') {
         const att = JSON.parse(r.features).pass_attempts ?? 0;
+        if (att > 0) qbThrew.add(`${r.player_id}|${r.week}`);
         const k = `${r.team}|${r.week}`;
         const cur = qbAtt.get(k);
         if (!cur || att > cur[1]) qbAtt.set(k, [r.player_id, att]);
@@ -368,11 +370,13 @@ export async function assemble({ dbPath, archiveDir, log = () => {} }) {
     const prevGame = (team, week) => { const ws = teamWeeks.get(team) ?? []; let p = null; for (const w of ws) if (w < week) p = w; return p; };
     const out = new Set(all("SELECT week, gsis_id FROM nfl_injuries WHERE season = ? AND report_status = 'Out'", season).map(r => `${r.gsis_id}|${r.week}`));
     const depth = new Map(); // team|week|pos -> Map(gsis -> rank)
+    const qb1 = new Map(); // team|week -> gsis of a rank-1 QB on that week's depth chart (sensitivity only)
     for (const d of all("SELECT week, team, gsis_id, pos_abb, pos_rank FROM nfl_depth WHERE season = ? AND pos_abb IN ('QB','RB','TE') AND pos_slot = pos_abb", season)) {
       const k = `${d.team}|${d.week}|${d.pos_abb}`;
       if (!depth.has(k)) depth.set(k, new Map());
       const m = depth.get(k);
       if (!m.has(d.gsis_id) || d.pos_rank < m.get(d.gsis_id)) m.set(d.gsis_id, d.pos_rank);
+      if (d.pos_abb === 'QB' && d.pos_rank === 1) { const q = `${d.team}|${d.week}`; if (!qb1.has(q)) qb1.set(q, new Set()); qb1.get(q).add(d.gsis_id); }
     }
     // ESPN weeks with a non-empty stat line also count as "played" (a gsis-less player keeps his ESPN record)
     const espnPlayed = new Map();
@@ -415,6 +419,18 @@ export async function assemble({ dbPath, archiveDir, log = () => {} }) {
         const a = qbAtt.get(`${team}|${week}`), b = qbAtt.get(`${team}|${pg}`);
         qbChange = Boolean(a && b && a[0] !== b[0]);
       }
+      // Sensitivity (not pre-registered, decides nothing): this week's starter read from this
+      // week's depth chart (published before kickoff) instead of from the game itself, so an
+      // in-game injury cannot create the spot.
+      let qbChangeDepth = false;
+      if (team && pg != null && position !== 'QB') {
+        const d1 = qb1.get(`${team}|${week}`), b = qbAtt.get(`${team}|${pg}`);
+        qbChangeDepth = Boolean(d1 && d1.size === 1 && b && !d1.has(b[0]));
+      }
+      // Sensitivity 2: the pre-registered change where the previous starter threw no pass this
+      // week (did not play), i.e. not an in-game injury or benching seen only after kickoff.
+      let qbChangeClean = false;
+      if (qbChange) qbChangeClean = !qbThrew.has(`${qbAtt.get(`${team}|${pg}`)[0]}|${week}`);
       const outdoor = g && (g.roof === 'outdoors' || g.roof === 'open');
       const spots = {
         backup_after_injury: backup,
@@ -426,7 +442,8 @@ export async function assemble({ dbPath, archiveDir, log = () => {} }) {
         blowout_underdog_rb: Boolean(g && position === 'RB' && g.spread != null && g.spread >= 7)
       };
       rows.push({ season, week, player: espnId, position, espn: v.proj, actual, error: actual - v.proj,
-        spread: g?.spread ?? null, implied: g?.implied_points ?? null, spots, has_actual: v.actual != null });
+        spread: g?.spread ?? null, implied: g?.implied_points ?? null, spots, has_actual: v.actual != null,
+        sensitivity: { qb_change_depth_chart: qbChangeDepth, qb_change_prior_starter_out: qbChangeClean } });
       c.kept++;
     }
     c.spot_counts = Object.fromEntries(SPOTS.map(s => [s.id, rows.filter(r => r.season === season && r.spots[s.id]).length]));
@@ -464,7 +481,20 @@ export function grade(rows) {
   const models = WALK_FORWARD.map(s => residualModel(rows, s));
   const deciding = models.filter(m => DECIDING.includes(m.test_season));
   const modelPass = deciding.length === DECIDING.length && deciding.every(m => m.beats_espn && m.pit_ok);
-  return { spots, dropped_spots: DROPPED_SPOTS, models, verdict: {
+  // Sensitivity rows (reported, decide nothing): the QB-change spot with a pre-kickoff
+  // starter, and each proven spot with the rows ESPN has no actual line for removed.
+  const sens = rows.map(r => ({ ...r, spots: { ...r.spots, qb_change: r.sensitivity.qb_change_depth_chart } }));
+  const sens2 = rows.filter(r => !r.spots.qb_change || r.sensitivity.qb_change_prior_starter_out);
+  const sensitivity = {
+    qb_change_depth_chart: spotTest(sens, SPOTS.find(s => s.id === 'qb_change')),
+    qb_change_prior_starter_out: spotTest(sens2, SPOTS.find(s => s.id === 'qb_change')),
+    qb_change_in_game_only: spotTest(rows.filter(r => !r.spots.qb_change || !r.sensitivity.qb_change_prior_starter_out), SPOTS.find(s => s.id === 'qb_change')),
+    with_espn_actual_only: Object.fromEntries(SPOTS.map(s => [s.id, spotTest(rows.filter(r => r.has_actual), s).pooled_excess])),
+    qb_change_overlap: { pre_registered: rows.filter(r => r.spots.qb_change).length,
+      depth_chart: rows.filter(r => r.sensitivity.qb_change_depth_chart).length,
+      both: rows.filter(r => r.spots.qb_change && r.sensitivity.qb_change_depth_chart).length }
+  };
+  return { spots, dropped_spots: DROPPED_SPOTS, models, sensitivity, verdict: {
     proven_spots: spots.filter(s => s.proven).map(s => s.id),
     dead_spots: [...spots.filter(s => !s.proven).map(s => s.id), ...DROPPED_SPOTS.map(d => d.id)],
     residual_model_counts: modelPass,

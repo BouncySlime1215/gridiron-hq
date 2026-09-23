@@ -53,3 +53,8 @@ Phase 0 (running) -> Phase 1a Foundations (CE-05, TR-01, TR-03, AI-01, TM-09, TM
 - ONE PRODUCER DECISION: RL-10-1 (ESPN zero) becomes the inactive producer; RL-3-2 (#184, Bluesky feed, needs a migration) is re-scoped to a timing supplement ONLY if the W4-W5 timing test shows ESPN flips too late (after inactives, ~90 min before kickoff). Until then #184 stays held; the app never has two producers for the same signal.
 - W4-W5 timing test: an append-only poller (every 10 min on Sundays) writes JSONL under rnd/loop/ to measure when ESPN's projection flips vs the official inactives time. RL-10-2.
 - The pre-registered "boost the scratched player's teammates" idea was killed (ESPN already moves them).
+
+## Plan adjustment after RL-8-2 declined (15:40Z) - Trade Machine gate
+- RL-8-2 (critical, pre-registered, Fable claims): in LINEUP points, the consensus-favoured side of real 2023-24 disagreement trades won only 51.5% (bar 55%, CI above 50%; MDE 6.8 pts). DECLINED as the gate.
+- Post-hoc split (must be re-tested, not built on yet): 1-for-1 swaps keep the edge (58%, same as in player points); 2-for-1 trades reverse it (43.5%) because summed player value overprices the side consolidating into one player. This matches R&D r9's roster-spot finding (RL-9-3) and the skill study's 'lineup value beats paper value'.
+- New gate (pre-register now, test on data not yet used for this question: 2021-22 Sleeper trades, then 2026 forward): (a) 1-for-1: consensus-favoured side wins >55% in lineup points; (b) 2-for-1/2-for-2: a LINEUP-value model with roster-spot (replacement) cost predicts the winner >55% where summed consensus fails. The Trade Machine ships 1-for-1 ideas first if (a) passes; multi-player ideas only after (b). New unit RL-8-2b (critical).

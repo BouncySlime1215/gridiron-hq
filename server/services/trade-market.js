@@ -3,19 +3,32 @@
  *
  * Reads the aggregate table `server/data/trade-market/tm09-market-prices.json`,
  * written by `scripts/rnd/tm09_market_prices.py` from the local Sleeper trade
- * corpus (2-team, no-pick trade sides, 2021-2024; 2025 held out and never read).
+ * corpus (2-team, no-pick trade sides, 2021-2024; no 2025 trade is read and the
+ * value curves are fit on 2021-2024 only, so no 2025 outcome enters a value).
  * Pre-registration: docs/tdd/2026-09-23-tm-09-market-prices.prereg.md.
  *
  * Units: points above replacement per game (PAR/g) in league scoring.
  *   value = our value at trade time (the study's consensus forecast minus replacement)
  *   price = the package paid for the player, in the same units
- *   hype  = price - value; positive = the market paid more than our value
+ *   hype  = price - value; positive = the market paid more than our value.
+ *           In player_weeks rows price and value are medians over that week's
+ *           trades and hype is their difference; cells.median_hype is the
+ *           median of per-trade (price - value), a different aggregate.
  *
  * What this is NOT: a live market price. The app's live crowd value is
  * FantasyCalc `dynasty_values` (written by syncDynastyValues,
  * server/routes/aggregates.js:130). This table is historical revealed prices and
  * a position x week x league-size price-to-value ratio. No served trade number
  * reads it yet (default-off, "unconfirmed forward": no 2026 trade prices exist).
+ *
+ * Hype producers (one concept, three numbers that cannot be put on one input):
+ *   - this table: trade price minus our consensus value, 2021-2024 trades;
+ *   - server/routes/players.js:139 heuristicVerdict: FantasyCalc 30-day value
+ *     momentum, live 2026;
+ *   - server/services/waiver-brain.js:452 sellHigh: live 2026 FantasyCalc value
+ *     above the league's per-position value-vs-projection curve.
+ * The two live ones price 2026 players; this table has no 2026 row, so no
+ * player-week exists where all three can be compared. Unification is AI-04.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -93,6 +106,11 @@ export function playerMarketHistory(table, sleeperId) {
   return { available: true, reason: null, rows };
 }
 
+export const OTHER_HYPE_PRODUCERS = [
+  { where: 'server/routes/players.js:139 heuristicVerdict', what: 'FantasyCalc 30-day value momentum', seasons: 'live 2026' },
+  { where: 'server/services/waiver-brain.js:452 sellHigh', what: 'FantasyCalc value above the league per-position value-vs-projection curve', seasons: 'live 2026' },
+];
+
 /** The route payload for one player in one league. */
 export function marketForPlayer({ player, week, teams }, table = loadMarketTable()) {
   const h2 = table?.results?.h2?.next4 ?? null;
@@ -108,8 +126,16 @@ export function marketForPlayer({ player, week, teams }, table = loadMarketTable
     premium: marketPremium(table, { pos: player.position, week, teams }),
     history: playerMarketHistory(table, player.sleeper_id),
     hype_decay: h2 ? { c: h2.c, c_ci: h2.c_ci ? { lo: h2.c_ci.lo, hi: h2.c_ci.hi } : null,
-      decay_confirmed: h2.decay_confirmed ?? null,
-      reading: 'share of a price premium over our value that shows up in the next 4 team games (1 = all, 0 = none)' } : null,
-    note: 'Historical revealed prices from real trades, not the live FantasyCalc market value the Trade Lab uses.',
+      c_placebo: h2.placebo?.c_mean ?? null,
+      c_minus_placebo: h2.c_minus_placebo ?? null,
+      price_coef_given_value: h2.price_coef_given_value
+        ? { coef: h2.price_coef_given_value.coef, lo: h2.price_coef_given_value.lo, hi: h2.price_coef_given_value.hi } : null,
+      reading: 'c is the pre-registered slope of (next-4-game PAR/g minus our value) on hype. It is not a clean share: '
+        + 'a shuffled price with no market information gets c_placebo, because hype and the outcome share our value. '
+        + 'price_coef_given_value is what one PAR/g of price adds to next-4-game PAR/g once our value is held fixed '
+        + '(0 = the price tells you nothing beyond our value).' } : null,
+    other_hype_producers: OTHER_HYPE_PRODUCERS,
+    note: 'Historical revealed prices from real trades (2021-2024), not the live FantasyCalc market value the Trade Lab '
+      + 'uses. The live hype signals (players.js heuristicVerdict, waiver-brain sellHigh) price 2026 players and are not comparable row for row.',
   };
 }

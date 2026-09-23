@@ -5,7 +5,9 @@ Pre-registration: docs/tdd/2026-09-23-tm-09-market-prices.prereg.md (committed b
 Reads (all local, read-only, never committed):
   ~/gridiron-local/rnd/skill/team_seasons.sqlite   trade_sides, team_seasons
   ~/gridiron-local/rnd/skill/cache/points.pkl      weekly player points, kickoffs, positions
-  ~/gridiron-local/rnd/skill/cache/adp_ev.pkl      ADP pools, leave-one-season-out ADP->ppg curves, k
+  ~/gridiron-local/rnd/skill/cache/adp_ev.pkl      ADP pools (draft positions only). Its EV curves and K_BY_SEASON
+                                                   were fit with 2025 outcomes, so they are NOT used: rebuild_ev()
+                                                   refits both on 2021-2024 only (leave-target-season-out).
   gridiron-hq/data/derived/sleeper_history.sqlite  sh_leagues.league_id order only (lg -> league id)
 
 Writes:
@@ -13,12 +15,15 @@ Writes:
               No league id, roster id, username or league name is written.
   --obs-csv   (optional) per-observation rows for local checks; LOCAL ONLY, never commit.
 
-Seasons 2021-2024 only. 2025 is the held-out season and is never read (SQL filter season <= 2024).
+Seasons 2021-2024 only. 2025 is the held-out season: no 2025 trade is read (SQL filter season <= 2024) and no
+2025 outcome enters a value (rebuild_ev fits the ADP->ppg curves and k on 2021-2024 only).
+Needs scikit-learn (isotonic regression, as build_02_adp_ev.py): run with the rnd interpreter
+PY=/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.
 
 The value helpers below are copied from rnd/skill/build_03_leagues.py (week_pts :45-60, kickoff :40-42,
 adp :63-75, ev :78-80, exante :346-365) so our value is the same consensus forecast trade_sides.exante_* holds.
 
-Run: nice -n 10 python3 scripts/rnd/tm09_market_prices.py --out-json server/data/trade-market/tm09-market-prices.json
+Run: nice -n 10 $PY scripts/rnd/tm09_market_prices.py --out-json server/data/trade-market/tm09-market-prices.json
 """
 import argparse, collections, csv, json, math, os, pickle, sqlite3, sys
 import numpy as np
@@ -37,6 +42,100 @@ MIN_N = 3                   # per player-week rows are published only as aggrega
 HORIZON = 4
 N_BOOT = 1000
 SEED = 7331
+N_PERM = 200               # shuffled-price placebo for H2 (skeptic fix, not pre-registered)
+FIT_SEASONS = (2021, 2022, 2023, 2024)   # value curves and k: never 2025
+PAR_POS = ('QB', 'RB', 'WR', 'TE', 'K', 'DEF')
+SCORINGS = ('ppr', 'half', 'std')
+KGRID = [0.5, 1, 1.5, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20]
+
+
+def rebuild_ev(C, A, seasons=FIT_SEASONS):
+    """ADP->ppg EV curves and shrinkage k per target season, fit leave-target-season-out over `seasons` only.
+    Same method as rnd/skill/build_02_adp_ev.py:29-43 (week_pts), :45-52 (window), :185-197 (WIN),
+    :216-248 (curve_data, isotonic ppg curve), :252-278 (k by SSE on the other seasons). With
+    seasons=2021-2025 it reproduces adp_ev.pkl exactly (control in the evidence file); TM-09 calls it
+    with 2021-2024 so no 2025 outcome enters any value."""
+    from sklearn.isotonic import IsotonicRegression
+    P, DEFP, POS, MAPT = C['P'], C['DEFP'], C['pos'], C['SLEEPER_TO_NV_TEAM']
+    POOL = A['POOL']
+
+    def wp(sid, season, w, sc):
+        pos = POS.get(sid)
+        if pos == 'DEF':
+            a = DEFP.get((season, MAPT.get(sid, sid)))
+            if a is None or np.isnan(a[w]):
+                return None
+            return float(a[w])
+        d = P.get(sid, {}).get(season)
+        if d is None or not d['played'][w]:
+            return None
+        if pos == 'K':
+            return 0.0 if np.isnan(d['k'][w]) else float(d['k'][w])
+        return float(d['base'][w] + d['ints'][w] - (1 - RECW[sc]) * d['rec'][w])
+
+    def adp0(pid, season, sf):
+        pool = POOL.get((season, sf))
+        if pool is None:
+            return None
+        return (pool['T'] + pool['adj'].get(pid, 0.0)) / pool['D'] if pool['D'] > 0 else None
+
+    win = {}
+    for sid, pos in POS.items():
+        if pos not in PAR_POS:
+            continue
+        for season in seasons:
+            if pos == 'DEF' or season in P.get(sid, {}):
+                for sc in SCORINGS:
+                    t = 0.0; g = 0
+                    for w in range(1, 15):
+                        v = wp(sid, season, w, sc)
+                        if v is not None:
+                            t += v; g += 1
+                    if g:
+                        win[(sid, season, sc)] = (t, g)
+    raw = {}
+    for s in seasons:
+        for sf in (0, 1):
+            pool = POOL.get((s, sf))
+            for sc in SCORINGS:
+                xs, yg = [], []
+                for pid in (pool['adj'] if pool else {}):
+                    if POS.get(pid) not in PAR_POS:
+                        continue
+                    t, g = win.get((pid, s, sc), (0.0, 0))
+                    xs.append(adp0(pid, s, sf)); yg.append(t / g if g else np.nan)
+                raw[(s, sf, sc)] = (xs, yg)
+    grid = np.arange(1.0, 301.0, 0.5)
+    ev = {}
+    for s in seasons:
+        for sf in (0, 1):
+            for sc in SCORINGS:
+                xs, yg = [], []
+                for s2 in seasons:
+                    if s2 != s:
+                        xs += raw[(s2, sf, sc)][0]; yg += raw[(s2, sf, sc)][1]
+                xs = np.array(xs); yg = np.array(yg); m = ~np.isnan(yg)
+                ig = IsotonicRegression(increasing=False, out_of_bounds='clip').fit(xs[m], yg[m])
+                ev[(s, sf, sc)] = dict(x=grid, ppg=ig.predict(grid), n=len(xs))
+    sse = {s: np.zeros(len(KGRID)) for s in seasons}
+    for s in seasons:
+        e = ev[(s, 0, 'ppr')]
+        for pid in POOL[(s, 0)]['adj']:
+            if POS.get(pid) not in SKILL_POS:
+                continue
+            prior = float(np.interp(adp0(pid, s, 0), e['x'], e['ppg']))
+            wk = [wp(pid, s, w, 'ppr') for w in range(1, 15)]
+            for w in range(2, 14):
+                pre = [v for v in wk[:w - 1] if v is not None]
+                ros = [v for v in wk[w - 1:] if v is not None]
+                if not ros:
+                    continue
+                n = len(pre); std = sum(pre) / n if n else 0.0
+                target = sum(ros) / len(ros)
+                for i, k in enumerate(KGRID):
+                    sse[s][i] += len(ros) * ((n * std + k * prior) / (n + k) - target) ** 2
+    kby = {s: KGRID[int(np.argmin(sum(sse[s2] for s2 in seasons if s2 != s)))] for s in seasons}
+    return ev, kby
 
 
 def week_bin(w):
@@ -50,9 +149,9 @@ def size_bin(n):
 class Values:
     """Our value at trade time: the study's consensus forecast minus the league's replacement ppg."""
 
-    def __init__(self, C, A):
+    def __init__(self, C, A, ev, k_by_season):
         self.P, self.POS, self.MAPT, self.KICK = C['P'], C['pos'], C['SLEEPER_TO_NV_TEAM'], C['kick']
-        self.POOL, self.EV, self.K = A['POOL'], A['EV'], A['K_BY_SEASON']
+        self.POOL, self.EV, self.K = A['POOL'], ev, k_by_season   # never A['EV'] / A['K_BY_SEASON'] (2025-fitted)
 
     def team(self, sid, season, w):
         d = self.P.get(sid, {}).get(season)
@@ -118,7 +217,8 @@ class Values:
 def build_observations(limit=None):
     C = pickle.load(open(SKILL + 'cache/points.pkl', 'rb'))
     A = pickle.load(open(SKILL + 'cache/adp_ev.pkl', 'rb'))
-    V = Values(C, A)
+    ev, kby = rebuild_ev(C, A, FIT_SEASONS)
+    V = Values(C, A, ev, kby)
     sh = sqlite3.connect(SH, uri=True)
     lids = [r[0] for r in sh.execute('select league_id from sh_leagues order by league_id')]
     sh.close()
@@ -180,6 +280,7 @@ def build_observations(limit=None):
                 real4=None if f4 is None else f4 - repl[pos],
                 real2=None if f2 is None else f2 - repl[pos]))
     counts['observations'] = len(obs)
+    counts['k_by_season'] = {str(s): kby[s] for s in sorted(kby)}
     return obs, counts
 
 
@@ -264,6 +365,31 @@ def ols_slope(s, key):
     return c
 
 
+def price_coef(s, key):
+    """OLS realized ~ 1 + value + price; the price coefficient = what price adds about realized PAR/g once our
+    value is held fixed. 0 = the price carries no information beyond our value."""
+    s = [o for o in s if o[key] is not None]
+    if len(s) < 4:
+        return None
+    X = np.column_stack([np.ones(len(s)), [o['value'] for o in s], [o['price'] for o in s]])
+    y = np.array([o[key] for o in s])
+    b, *_ = np.linalg.lstsq(X, y, rcond=None)
+    return float(b[2])
+
+
+def placebo_c(s, key, n_perm=N_PERM, seed=SEED):
+    """The pre-registered slope c with price shuffled across observations (value kept): the c a price with no
+    market information gets, because hype = price - v and the outcome (realized - v) share the -v term."""
+    rng = np.random.default_rng(seed)
+    v = np.array([o['value'] for o in s]); p = np.array([o['price'] for o in s]); y = np.array([o[key] for o in s]) - v
+    out = []
+    for _ in range(n_perm):
+        h = rng.permutation(p) - v
+        out.append(float(np.cov(h, y, ddof=1)[0, 1] / h.var(ddof=1)))
+    a = np.array(out)
+    return dict(c_mean=float(a.mean()), lo=float(np.percentile(a, 5)), hi=float(np.percentile(a, 95)), n_perm=n_perm)
+
+
 def h2(obs):
     out = {}
     for key, label in (('real4', 'next4'), ('real2', 'next2')):
@@ -275,11 +401,20 @@ def h2(obs):
         per = {}
         for season in sorted({o['season'] for o in s}):
             ss = [o for o in s if o['season'] == season]
-            per[str(season)] = dict(n=len(ss), c=ols_slope(ss, key))
+            per[str(season)] = dict(n=len(ss), c=ols_slope(ss, key), price_coef_given_value=price_coef(ss, key))
+        pl = placebo_c(s, key)
+        pc = price_coef(s, key)
+        pci = boot_chains(s, lambda z: price_coef(z, key))
         # MDE80 for the test of c against 1 is 2.487 x SE of c.
+        # prereg_rule_c_below_1 is the pre-registered "decay confirmed" rule. It is NOT diagnostic: the shuffled-price
+        # placebo also gives c well below 1, so it is published under this name, never as "decay confirmed".
         out[label] = dict(n=len(s), n_chains=len({o['chain'] for o in s}), intercept=a, c=c, c_ci=ci, per_season=per,
-                          decay_confirmed=bool(ci['hi'] < 1 and sum(1 for v in per.values() if v['c'] is not None and v['c'] < 1) >= 3),
-                          market_informative=bool(ci['lo'] > 0))
+                          prereg_rule_c_below_1=bool(ci['hi'] < 1 and sum(1 for v in per.values() if v['c'] is not None and v['c'] < 1) >= 3),
+                          prereg_rule_diagnostic=False,
+                          market_informative=bool(ci['lo'] > 0),
+                          placebo=pl, c_minus_placebo=c - pl['c_mean'],
+                          price_coef_given_value=dict(coef=pc, **{k: pci[k] for k in ('lo', 'hi', 'se', 'mde80', 'n_boot')}),
+                          market_informative_beyond_value=bool(pci['lo'] > 0))
     # decision grade: 1-for-1 trades, both players above replacement
     by_trade = collections.defaultdict(list)
     for o in obs:
@@ -317,10 +452,12 @@ def aggregates(obs):
         if len(v) < MIN_N:
             suppressed += 1
             continue
+        price = round(float(np.median([o['price'] for o in v])), 3)
+        value = round(float(np.median([o['value'] for o in v])), 3)
+        # hype is the difference of the two stored medians, so every row keeps hype = price - value
+        # (the median of per-trade hype is a different number and is not published per row).
         rows.append(dict(season=season, week=week, sleeper_id=sid, pos=pos, n=len(v),
-                         price=round(float(np.median([o['price'] for o in v])), 3),
-                         value=round(float(np.median([o['value'] for o in v])), 3),
-                         hype=round(float(np.median([o['hype'] for o in v])), 3)))
+                         price=price, value=value, hype=round(price - value, 3)))
     return cell_rows, {k: round(v, 4) for k, v in pos_r.items()}, rows, suppressed
 
 
@@ -348,8 +485,12 @@ def main():
                       source='Sleeper public-league trades (local corpus), 2-team no-pick trade sides, QB/RB/WR/TE',
                       seasons=[2021, 2022, 2023, 2024], holdout_season_read=False,
                       units='points above replacement per game, league scoring',
-                      sign='hype = price - value; positive = the market paid more than our value',
-                      value_definition='consensus forecast (n*season ppg + k*ADP ppg)/(n+k) minus league replacement ppg',
+                      sign='hype = price - value; positive = the market paid more than our value. In player_weeks, '
+                           'price and value are medians over the trades that week and hype is their difference. '
+                           'cells.median_hype is the median of per-trade (price - value), a different aggregate.',
+                      value_definition='consensus forecast (n*season ppg + k*ADP ppg)/(n+k) minus league replacement ppg; '
+                                       'ADP->ppg curves and k fit leave-target-season-out on 2021-2024 (never 2025)',
+                      value_curves_fit_seasons=list(FIT_SEASONS),
                       min_trades_per_player_week=MIN_N, cells_fit_on='2021-2024', min_cell_n=MIN_CELL,
                       forward_status='unconfirmed forward', counts=dict(counts)),
             results=dict(h1=res1, h2=res2),

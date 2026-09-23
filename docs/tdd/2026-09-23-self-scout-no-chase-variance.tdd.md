@@ -43,11 +43,18 @@ imperative on the same card. No new number, table, column or field.
 ## 2. RED / GREEN
 
 - RED: `test: RL-15-2 RED selfScout must not tell bubble/longshot teams to chase variance`
-  sha `RED_SHA`. Failing assertion (bubble), verbatim from the run on the unfixed tree:
+  sha `153ec64b`. Failing assertion (bubble), verbatim from the run on the unfixed tree:
   `bubble team got variance advice: ["You need variance — target boom-rate players over steady ones; a median week does not win you the league from here."]`.
   Tests 5, pass 2 (both controls), fail 3.
-- GREEN: `fix: RL-15-2 drop selfScout's unmeasured Roster shape advice` sha `GREEN_SHA`.
-  Tests 5, pass 5, fail 0.
+- GREEN: `fix: RL-15-2 drop selfScout's unmeasured Roster shape advice` sha `29545ca4`.
+  Tests 5, pass 5, fail 0. Neighbour selfScout tests on the same tree:
+  `test/asset-universe-bye-week-range.test.js` 7/7 pass, `test/post-draft-plan.test.js` 5/5 pass.
+- Consumer test added after GREEN (to kill call-site mutant M7, see section 5):
+  `test: RL-15-2 drive the scout route in the variance-advice test` sha `4620f163`. Test 5
+  "RED (consumer)" GETs `/api/trades/:leagueId/scout?team_id=6` over HTTP as a league member.
+  Liveness: with `trade-engine.js` from the RED commit 153ec64b swapped in, it fails with
+  `route served variance advice: ["You need variance — target boom-rate players over steady ones; a median week does not win you the league from here."]`
+  (tests 6, pass 2, fail 4); on GREEN tests 6, pass 6, fail 0.
 
 Command (both): `T=$(mktemp -d); SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$T/x.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/self-scout-variance-advice.test.js`
 
@@ -88,7 +95,24 @@ roster advice; it feeds no start/sit, waiver or trade call and produces no proje
 
 ## 5. Mutation sweep
 
-MUTATION_TABLE
+Command: `python3 docs/tdd/2026-09-23-self-scout-no-chase-variance/mut.py` from the worktree
+root on the GREEN tree plus the consumer test (each mutant rewrites one file, runs the
+targeted test, restores the file; `git status --porcelain` clean of source changes after).
+
+| mutant | applied | result | failing tests |
+|---|---|---|---|
+| M1 unit: restore the original Roster shape block | yes | killed | 2, 3, 4, 5 |
+| M2 unit: keep the contender half only | yes | killed | 4 |
+| M3 unit: variance advice for longshot only | yes | killed | 3, 4 |
+| M4 unit: variance advice under a new area name | yes | killed | 2, 3, 5 |
+| M5 unit: `fixes` emptied in the return | yes | killed | 6 (the still-fires control) |
+| M6 designed survivor: "Target high-upside players over safe ones." under area "Upside" | yes | SURVIVED (by design) | none |
+| M7 call site: route calls `selfScout(lg, undefined)` | yes | killed | 5 |
+| M8 not-applied control: pattern absent from source | no | not applied | none |
+
+M6 survives by design: the test pins the exact old wording and the "Roster shape" area,
+not every possible phrasing of variance advice. A reworded imperative under a new area
+would pass; guarding against that is a review job, not a regex.
 
 ## 6. Known defects / not covered
 

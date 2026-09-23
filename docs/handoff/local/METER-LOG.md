@@ -61,3 +61,8 @@
 09-23 06:19 AM ET Desktop account: 5-hour 34%, weekly 61% (measured 198 min ago)
 09-23 06:24 AM ET Desktop account: 5-hour 34%, weekly 61% (measured 203 min ago)
 09-23 06:29 AM ET Desktop account: 5-hour 34%, weekly 61% (measured 208 min ago)
+09-23 06:34 AM ET Desktop account: 5-hour 34%, weekly 61% (measured 213 min ago)
+09-23 06:39 AM ET Desktop account: 5-hour 34%, weekly 61% (measured 218 min ago)
+09-23 06:44 AM ET Desktop account: 5-hour 34%, weekly 61% (measured 223 min ago)
+09-23 06:49 AM ET Desktop account: 5-hour 34%, weekly 61% (measured 228 min ago)
+09-23 06:54 AM ET Desktop account: 5-hour 34%, weekly 61% (measured 233 min ago)

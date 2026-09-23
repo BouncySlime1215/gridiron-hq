@@ -125,3 +125,5 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 
 13:15Z: R&D r8 landed: regression/TD-luck tag killed (priced by consensus); RL-8-1 queued (retire in-season td_luck weights, keep the preseason feature). Plan adjusted; r9 relaunched.
 13:20Z: r8 also: Trade Machine gate re-aimed (humans accept consensus-lopsided trades: favoured side won 57.6%, +0.89 ROS ppg; FantasyCalc ties consensus); fake schedule rank bug (RL-8-3 urgent).
+
+13:40Z: R&D r9 landed: final-week rest edge (RL-9-1, replicated), injury spells for the sim (RL-9-2 -> CE-03), 2-for-1 roster-spot pricing bug (RL-9-3 -> TM-01/TM-42). Plan adjusted; r10 relaunched.

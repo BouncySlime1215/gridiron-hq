@@ -421,6 +421,12 @@ function promotionColumnsPresent() {
 }
 const UNMIGRATED = 'fantasy_coordinator_fits has no promotion columns: migration 072 has not run on this database';
 
+/** The served row: the one promoted fantasy_coordinator_fits row, or undefined. Defined once, read by both readers below. */
+function promotedRow() {
+  return rows(`SELECT id, through_season, created_at, fit_json, promotion_json FROM fantasy_coordinator_fits
+               WHERE promoted = 1 ORDER BY id DESC LIMIT 1`)[0];
+}
+
 /**
  * The served fit: the one PROMOTED fantasy_coordinator_fits row, or `{ready: false}`
  * with the reason (no fit at all, only unpromoted candidates, or an unmigrated database).
@@ -437,8 +443,7 @@ const UNMIGRATED = 'fantasy_coordinator_fits has no promotion columns: migration
  */
 export function activeFantasyCoordinatorFit() {
   if (!promotionColumnsPresent()) return { version: FANTASY_COORDINATOR_VERSION, ready: false, reason: UNMIGRATED };
-  const served = rows(`SELECT id, through_season, created_at, fit_json, promotion_json FROM fantasy_coordinator_fits
-                       WHERE promoted = 1 ORDER BY id DESC LIMIT 1`)[0];
+  const served = promotedRow();
   if (!served) {
     const candidates = rows('SELECT COUNT(*) AS n FROM fantasy_coordinator_fits')[0]?.n ?? 0;
     return { version: FANTASY_COORDINATOR_VERSION, ready: false, candidates,
@@ -458,8 +463,7 @@ export function activeFantasyCoordinatorFit() {
  */
 export function servedCoordinatorFitKey() {
   if (!promotionColumnsPresent()) return 'unmigrated';
-  const served = rows(`SELECT id, promotion_json FROM fantasy_coordinator_fits
-                       WHERE promoted = 1 ORDER BY id DESC LIMIT 1`)[0];
+  const served = promotedRow();
   if (!served) return 'none';
   const windows = JSON.parse(served.promotion_json ?? 'null')?.windows ?? {};
   return `${served.id}:${CONSTRUCTION_WINDOWS.map(w => windows[w] ?? '-').join('/')}`;

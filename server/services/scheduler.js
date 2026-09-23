@@ -22,6 +22,7 @@
 import { Worker } from 'node:worker_threads';
 import { markJobRunning, markJobAbandoned, clearJobRunning } from '../platform/loop-watchdog.js';
 import { db, rows, run, row } from '../db/index.js';
+import { MARKET_MAX_AGE_MINUTES } from './dynasty-value-history.js';
 
 /**
  * True while any linked league's draft is likely happening on ESPN itself,
@@ -344,14 +345,23 @@ export async function refreshLeagueRosters() {
     try {
       const detail = lg.platform === 'sleeper' ? await syncSleeperLeague(lg) : await syncEspnLeague(lg);
       run(`UPDATE leagues SET connection_status='connected', sync_error=NULL WHERE id=?`, lg.id);
-      results.push({ league_id: lg.id, ok: true, detail });
+      results.push({ league_id: lg.id, ok: true, scoring: detail?.scoring ?? null });
     } catch (e) {
       run(`UPDATE leagues SET connection_status='sync_failed', sync_error=? WHERE id=?`,
         String(e.message ?? e).slice(0, 500), lg.id);
       results.push({ league_id: lg.id, ok: false, error: e.message });
     }
   }
-  return { leagues: results.length, failed: results.filter(r => !r.ok).length };
+  // `results` used to be built and then thrown away here, keeping only counts.
+  // syncEspnLeague's own docstring says its scoringSummary() reaches "every
+  // manual sync and scheduled roster refresh" (espn-scoring-report.js:7-8),
+  // but the scheduled path never carried it past this return, so an ESPN
+  // league paying a stat id the app cannot apply never showed it on this
+  // path — only a manual "Sync" click did. Only `scoring` is kept (not the
+  // full sync `detail`, which can carry the whole league payload) to match
+  // the "small enough for the Data Health page" convention other jobs here
+  // already follow (see refreshManagerArchetypes above).
+  return { leagues: results.length, failed: results.filter(r => !r.ok).length, results };
 }
 
 /**
@@ -1135,7 +1145,12 @@ async function refreshNflverseWeeklyUsage() {
   return syncWeeklyUsage(season);
 }
 
-/** Snap counts for the current season — matched on name+position, so no gsis_id needed. */
+/**
+ * Snap counts for the current season. Joined by pfr_player_id -> gsis_id
+ * (players.csv, fetched by syncSnapCounts itself in this worker), with
+ * name+position as the fallback; a players.csv failure is reported as
+ * crosswalk_error in the detail and the run falls back to the name join.
+ */
 async function refreshNflverseSnapCounts() {
   const { syncSnapCounts } = await import('./nflverse.js');
   const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();
@@ -1174,6 +1189,24 @@ async function refreshSleeperPlayers() {
   // a successful sync, however cleanly the fetch returned.
   if (!result?.matched) return { ...result, error: 'matched no players — the player universe is empty or unmatched' };
   return result;
+}
+
+/**
+ * FantasyCalc's market price for every connected league format (FC-SNAP). Until this
+ * job it had no timer: the price every trade card is gated, ranked and labelled on was
+ * whatever the last league-sync button press fetched (4.2 days old on 2026-09-23 per
+ * R4). Daily, because FantasyCalc's terms ask callers to cache and ideally fetch once a
+ * day, and only the documented /values/current endpoint. The same run appends the
+ * day's row to dynasty_value_history, which C12's forward FantasyCalc test grades.
+ * The league-sync button writes the same sync_log row, so a press counts as the day's run.
+ */
+async function refreshFantasyCalcValues() {
+  const { syncDynastyValues } = await import('../routes/aggregates.js');
+  const leagues = row('SELECT COUNT(*) AS n FROM leagues')?.n ?? 0;
+  if (!leagues) return { skipped: 'no connected leagues, so no format to price' };
+  const result = await syncDynastyValues();
+  const formats = result?.formats ?? [];
+  return { ...result, attempted: formats.length, failed: formats.filter(f => f.error).length };
 }
 
 /**
@@ -1248,6 +1281,9 @@ export const JOBS = {
   sleeper_players: {
     run: refreshSleeperPlayers, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
     label: 'Sleeper player universe (sleeper_id, overall rank, injury flag)' },
+  fantasycalc_dynasty: {
+    run: refreshFantasyCalcValues, maxAgeMinutes: MARKET_MAX_AGE_MINUTES, tier: 'growth', offThread: true,
+    label: 'FantasyCalc market values per connected league format (daily; appends the value history)' },
   espn_rosters: { run: refreshEspnRosters, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
     label: 'ESPN per-team roster feed (cuts, signings, practice-squad moves)' },
   league_rosters: { run: refreshLeagueRosters, maxAgeMinutes: 60, tier: 'live', offThread: true,

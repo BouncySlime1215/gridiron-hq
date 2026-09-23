@@ -222,7 +222,7 @@ function Card({ id, onClose }: { id: number; onClose: () => void }) {
               <div>
                 <h3 className="text-sm font-bold text-slate-700 mb-1">Recent news</h3>
                 {(p.news ?? []).length === 0 ? (
-                  <p className="text-xs text-slate-500">No stories mentioning {p.name.split(' ').slice(-1)[0]} yet.</p>
+                  <p className="text-xs text-slate-500">No stories about {p.name} yet.</p>
                 ) : (
                   <div className="space-y-2">
                     {p.news.slice(0, 6).map((n: any) => (

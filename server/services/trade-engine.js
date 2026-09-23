@@ -63,6 +63,7 @@ import { rosterLocks, lockPins } from './lineup-lock.js';
 import { seasonEndingEspnIds } from './player-availability.js';
 import { buildPlayerWeekEngine, playerWeekDistribution } from './player-week-engine.js';
 import { weeklyAvailability, availabilityBasis } from './contingency.js';
+import { activeInjuryFlagIds } from './injury-flags.js';
 import { cached, fingerprint } from './compute-cache.js';
 import { activeWeeklyWeightSet } from './weekly-weight-store.js';
 import { scoringFor } from './scoring.js';
@@ -81,10 +82,12 @@ import { normalCdf, withRandomSeed } from './stats-util.js';
 import { sampleWeeks } from './projections.js';
 import { correlationMatrix, correlationBasis } from './correlation.js';
 import { servedTableState } from './data-freshness.js';
+import { currentMarket } from './dynasty-value-history.js';
 import { run as dbRun } from '../db/index.js';
 // Evidence layers (see the "evidence" section below). Read-only sources: the
 // engine never re-prices on them, it explains with them.
 import { careerLine } from './player-career.js';
+import { playerNews } from '../news/player-news.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
 import { counterpartyLayer, readDeal, counterpartyDataKey, playerValuation, selfRead }
@@ -205,7 +208,9 @@ export function tradeWeekContext() {
 export const ASSET_INPUT_TABLES = [
   { table: 'players', stamp: 'id' },
   { table: 'roster_players', stamp: 'id' },
-  { table: 'dynasty_values', stamp: 'player_id' },
+  // fetched_at, not player_id: a re-sync updates prices in place (same count, same
+  // max id), so the old stamp never saw a new price; retirement lands in the same run.
+  { table: 'dynasty_values', stamp: 'fetched_at' },
   // Row counts only: MAX(week) was always 18 and carried nothing. In-place stat
   // corrections to the served season are caught by servedInputsDigest() below.
   'player_week_usage',
@@ -232,7 +237,9 @@ export const ASSET_INPUT_TABLES = [
   // A trending re-sync upserts in place (ON CONFLICT DO UPDATE), so the row count
   // alone never saw it; fetched_at is rewritten on every sync.
   { table: 'trending_players', stamp: 'fetched_at' },
-  'player_metrics', 'schedule_games',
+  // The Sleeper sync clears an injury flag with an UPDATE (RL-12-2), so the row count
+  // never moves; every player_metrics writer re-stamps fetched_at.
+  { table: 'player_metrics', stamp: 'fetched_at' }, 'schedule_games',
   // Not read by buildAssetUniverse, but by lineupSpread inside findTrades, whose cache
   // keys on this list. A refit rewrites fitted_at on the same 20-odd rows.
   { table: 'correlation_estimates', stamp: 'fitted_at' }
@@ -282,7 +289,13 @@ function servedInputsDigest(season, week) {
 const assetInputsKey = (lg, formatKey, target) =>
   `${lg.id}:${formatKey}:${target.season}:${target.week}:` +
   `w${activeWeeklyWeightSet({ season: target.season, week: target.week }).id}:` +
-  `d${servedInputsDigest(target.season, target.week)}:h${handFedKey(handFedInputs())}`;
+  `d${servedInputsDigest(target.season, target.week)}:h${handFedKey(handFedInputs())}:` +
+  `i${injuryFlagKey()}`;
+
+// A flag goes stale by the clock alone (injury-flags.js), with no table write, so the
+// active set itself is part of the key (RL-12-2).
+const injuryFlagKey = () => crypto.createHash('sha1')
+  .update([...activeInjuryFlagIds()].sort((a, b) => a - b).join(',')).digest('hex').slice(0, 12);
 
 export function assetUniverse(lg, formatKey, requested = null) {
   const target = requested ?? tradeWeekContext();
@@ -331,14 +344,13 @@ function buildAssetUniverse(lg, formatKey, target) {
   const active = weeklyAvailability(target.season, target.week, { through: target.season - 1 });
   const board = new Map(vorBoard(lg.team_count || 12).map(p => [p.id, p]));
   const vol = volatility();
-  const market = new Map(rows(
-    'SELECT player_id, value, age, trend30, pos_rank FROM dynasty_values WHERE format_key = ?', formatKey)
-    .map(d => [d.player_id, d]));
+  // Live FantasyCalc prices only: a row FantasyCalc stopped returning is retired
+  // (dynasty-value-history.js) and prices as unpriced here, not at its last value.
+  const market = currentMarket(formatKey);
   const ageByPlayer = new Map(rows(`SELECT p.id, rp.age FROM players p
                                     JOIN roster_players rp ON rp.espn_id = p.espn_id
                                     WHERE rp.age IS NOT NULL`).map(x => [x.id, x.age]));
-  const injured = new Set(rows(`SELECT player_id FROM player_metrics WHERE source='injury_flag' AND value > 0`)
-    .map(x => x.player_id));
+  const injured = activeInjuryFlagIds();
   // Same season-ending/released detection the X's&O's depth chart uses — without
   // this, a player out for the year keeps getting picked as the optimal starter
   // here even after the roster page correctly benches him.
@@ -1509,7 +1521,7 @@ const slim = p => ({
  * Every input here is already computed for the card; this just names the
  * pattern instead of making the manager infer it from raw numbers.
  */
-function tagDeal(give, get, ev) {
+export function tagDeal(give, get, ev) {
   const tags = [];
   const avg = (list, key, fallback) => list.length
     ? list.reduce((s, p) => s + (p[key] ?? fallback), 0) / list.length : fallback;
@@ -1530,12 +1542,18 @@ function tagDeal(give, get, ev) {
   // 'Sell High', which claimed a market-price read; the one hype producer is
   // services/hype.js#playerHype (S-19), so the tag now says only what it measures.
   if (oldest(give) >= 29 && youngest(get) < oldest(give)) tags.push('Sell the Veteran');
-  // role_change is only ever set when the weekly engine detected a real usage
-  // shift — a change of role, not noise — so this is evidence, not a guess.
-  if (get.some(p => p.role_change)) tags.push('Buy Low');
+  // role_change is detectRoleChange()'s object (role-changepoint.js), set only on a
+  // confirmed usage shift. Its status carries the DIRECTION: reading truthiness
+  // labelled players losing usage 'Buy Low' (RL-15-3). A rising role is named for
+  // what it measures (usage up, not a market-price read); a shrinking role is a
+  // caution and goes first so the two-tag cap can never hide it.
+  const roleStatus = status => get.some(p => p.role_change?.status === status);
+  const shrinking = roleStatus('confirmed_role_decrease');
+  if (roleStatus('confirmed_role_increase')) tags.push('Role Rising');
   if (give.some(p => p.injury) && !get.some(p => p.injury)) tags.push('Sell the Injury Risk');
   if (Math.abs(ev.their_value_pct) <= 4 && ev.me.ppg_delta > 0.4) tags.push('Fair & Clean');
   else if (ev.their_value_pct < -6 && ev.me.ppg_delta > 0.6) tags.push('Value Win');
+  if (shrinking) tags.unshift('Role Shrinking');
   if (!tags.length) tags.push('Straight Upgrade');
   return tags.slice(0, 2);
 }
@@ -1630,7 +1648,7 @@ export function myPlayoffOdds(lg, myTeamId = null, print = null) {
       // throw — a silent 0.5 would hide it, which is how this number got lost in
       // the first place.
       const sim = withRandomSeed(HORIZON_SIM_SEED, () => simulateSeason(lg, {
-        runs: HORIZON_SIM_RUNS, fromWeek: start, scoring: scoringFor(lg)
+        runs: HORIZON_SIM_RUNS, scoring: scoringFor(lg) // start week: simStartWeek(lg) inside, same as `start`
       }));
       if (sim?.error) return prior(`the season simulation could not run (${sim.error})`);
       const mine = sim.teams?.find(t => String(t.roster_id) === rosterId);
@@ -2908,9 +2926,9 @@ export function playerOutlook(lg, playerId) {
   // forecast); the no-team fallback says the same.
   const splits = a.team_abbr ? relevantSplits(a.id, a.team_abbr)
     : { baseline: null, upcoming: [], notable: [], signal: false, reason: 'no NFL team on file' };
-  const news = rows(`SELECT date, headline, fantasy_impact, importance FROM news_items
-                     WHERE headline LIKE ? OR body LIKE ? ORDER BY date DESC LIMIT 5`,
-    `%${a.name}%`, `%${a.name}%`);
+  // Same stories as the player card and the News page (one attribution producer).
+  const news = playerNews(a.id, { limit: 5 }).map(n => ({
+    id: n.id, date: n.date, headline: n.headline, fantasy_impact: n.fantasy_impact, importance: n.importance }));
   return { ...a, ...playerEvidence(a.id), owner: owner?.owner ?? 'free agent', owner_id: owner?.roster_id ?? null, splits, news };
 }
 

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db, rows, row, run } from '../db/index.js';
 import { statsFor } from './stats.js';
+import { activeInjuryFlagIds } from '../services/injury-flags.js';
 
 const r = Router();
 
@@ -40,7 +41,12 @@ r.get('/:id/entries', (req, res) => {
                         LEFT JOIN player_metrics adp ON adp.player_id = p.id AND adp.source = 'ffc_adp'
                         LEFT JOIN player_metrics inj ON inj.player_id = p.id AND inj.source = 'injury_flag'
                         WHERE re.set_id = ? ORDER BY re.rank`, req.params.id);
-  res.json(entries.map(e => ({ ...e, stats: statsFor(e.player_id) })));
+  const flagged = activeInjuryFlagIds();
+  res.json(entries.map(e => ({
+    ...e,
+    injury_flag: e.injury_flag > 0 && !flagged.has(e.player_id) ? 0 : e.injury_flag,
+    stats: statsFor(e.player_id),
+  })));
 });
 
 // Full reorder: body is [{player_id, rank, tier, note}]

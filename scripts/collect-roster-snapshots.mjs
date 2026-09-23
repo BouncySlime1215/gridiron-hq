@@ -31,6 +31,7 @@ import { pathToFileURL } from 'node:url';
 process.env.SCHEDULER_DISABLED = '1';
 const { db, rows, run } = await import('../server/db/index.js');
 const { BROWSER_HEADERS, SLOT_NAME } = await import('../server/services/espn-draft.js');
+const { round2, periodPoints } = await import('./lib/espn-period-points.mjs');
 
 const ESPN_BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
 const BENCH_SLOT = 20, IR_SLOT = 21;
@@ -40,14 +41,6 @@ const TRACKED = ['player_id', 'player_name', 'position', 'espn_position_id', 'pr
   'lineup_slot', 'is_starter', 'injury_status', 'pregame_injury_status', 'acquisition_type', 'lineup_locked', 'projected_points',
   'actual_points', 'on_roster', 'source'];
 
-const round2 = x => (Number.isFinite(x) ? Math.round(x * 100) / 100 : null);
-
-/** This period's applied points from ESPN's stat list: source 0 = actual, 1 = projection. */
-function periodPoints(stats, season, period, sourceId) {
-  const hit = (stats ?? []).find(s => s.seasonId === season && s.scoringPeriodId === period
-    && s.statSourceId === sourceId && s.statSplitTypeId === 1);
-  return hit ? round2(Number(hit.appliedTotal)) : null;
-}
 
 function playerIndex() {
   const byEspn = new Map();

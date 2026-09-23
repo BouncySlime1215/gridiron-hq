@@ -170,35 +170,37 @@ test('a week with no lines says so rather than returning an empty ranking as a f
   assert.match(b.note, /no betting lines/i);
 });
 
-// ---------------------------------------------- Auditor (e): default-off flag
-test('Auditor 2026-09-23 (e): WV01_STREAMING_BOARD_ENABLED defaults false, and nothing in this repo sets it true', () => {
-  assert.equal(WV01_STREAMING_BOARD_ENABLED, false,
-    'no 2026 forward weeks are computable yet (F002); STATS-METHOD.md rule 5 ships this default-off');
+// ------------------------------- NICK-WV01 exemption: default-on flag (WV-01-ON)
+test('NICK-WV01 (WORK-QUEUE.md section 12): WV01_STREAMING_BOARD_ENABLED defaults true, and nothing in this repo sets it false', () => {
+  assert.equal(WV01_STREAMING_BOARD_ENABLED, true,
+    'zero-parameter market ranking, history-tested 2022-25 (docs/evidence/streaming-def-history.mjs): ' +
+    'NICK-WV01 exempts it from rule 5\'s forward-holdout gate, which still applies to fitted-parameter results');
   const { execSync } = childProcess;
   const hits = execSync(
-    "grep -rn 'WV01_STREAMING_BOARD_ENABLED[[:space:]]*[:=][[:space:]]*true' --include='*.js' --include='*.ts' --include='*.tsx' . " +
+    "grep -rn 'WV01_STREAMING_BOARD_ENABLED[[:space:]]*[:=][[:space:]]*false' --include='*.js' --include='*.ts' --include='*.tsx' . " +
     "--exclude-dir=node_modules || true",
     { cwd: process.cwd() }).toString().trim();
-  assert.equal(hits, '', `nothing may set the flag true in this repo: ${hits}`);
+  assert.equal(hits, '', `nothing may set the flag false in this repo: ${hits}`);
 });
 
-test('with the flag off (default), the board still ranks candidates but suggests no swap and makes no history claim', () => {
+test('by default (flag on), the board suggests a swap labelled history-tested, not yet confirmed on 2026', () => {
   const b = streamingBoard(league({ mine: [dst('HOU'), ...filler(15)] }), { season: 2026, week: 3, now: NOW });
+  assert.equal(b.candidates[0].team, 'SEA');
+  assert.equal(b.suggestion.action, 'swap');
+  assert.equal(b.suggestion.add.team, 'SEA');
+  assert.equal(b.unconfirmed_forward, true, 'card reads this as "history-tested (2022-25), not yet confirmed on 2026 games"');
+});
+
+test('with the flag explicitly off, the board still ranks candidates but suggests no swap and makes no history claim', () => {
+  const b = streamingBoard(league({ mine: [dst('HOU'), ...filler(15)] }),
+    { season: 2026, week: 3, now: NOW, enabled: false });
   assert.ok(b.candidates.length > 0, 'board data (rankings) is still returned');
   assert.equal(b.candidates[0].team, 'SEA');
-  assert.equal(b.suggestion.action, null, 'no swap is suggested while unconfirmed forward');
+  assert.equal(b.suggestion.action, null, 'no swap is suggested with the flag off');
   assert.equal(b.suggestion.add, null);
   assert.equal(b.suggestion.drop, null);
   assert.equal(b.suggestion.why, null);
   assert.equal(b.unconfirmed_forward, false);
-});
-
-test('with the flag explicitly on, the suggestion is restored and labelled unconfirmed forward', () => {
-  const b = streamingBoard(league({ mine: [dst('HOU'), ...filler(15)] }),
-    { season: 2026, week: 3, now: NOW, enabled: true });
-  assert.equal(b.suggestion.action, 'swap');
-  assert.equal(b.suggestion.add.team, 'SEA');
-  assert.equal(b.unconfirmed_forward, true);
 });
 
 // ------------------------------------------------------------------ the route
@@ -224,12 +226,12 @@ test('GET /api/trades/:leagueId/streams serves the board for a member', async ()
     assert.equal(body.week, 3);
     assert.equal(body.position, 'DEF');
     // The fixture kickoffs are in 2099 except DEN's (2000), so against the real clock
-    // SEA is still the best unlocked free agent, but WV01_STREAMING_BOARD_ENABLED is
-    // default-off (no 2026 forward weeks, Auditor ruling (e)): the route still returns
-    // the ranked board, but suggests no swap.
+    // SEA is the best unlocked free agent; WV01_STREAMING_BOARD_ENABLED is default-on
+    // (NICK-WV01 exemption, WORK-QUEUE.md section 12): the route returns the ranked
+    // board and suggests the swap, labelled unconfirmed_forward (history-tested 2022-25).
     assert.equal(body.candidates?.[0]?.team, 'SEA');
-    assert.equal(body.suggestion?.action, null);
-    assert.equal(body.suggestion?.add, null);
-    assert.equal(body.unconfirmed_forward, false);
+    assert.equal(body.suggestion?.action, 'swap');
+    assert.equal(body.suggestion?.add?.team, 'SEA');
+    assert.equal(body.unconfirmed_forward, true);
   } finally { server.close(); }
 });

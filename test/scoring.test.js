@@ -4,7 +4,7 @@ import { scoringFor, scoreLine, PPR } from '../server/services/scoring.js';
 
 // A real ESPN scoringSettings.scoringItems payload, shape-for-shape as stored
 // on leagues.payload — confirmed against a real synced league this session.
-// statId 44 (rushing two-point conversion) was previously mis-mapped to the
+// statId 44 (receiving two-point conversion) was previously mis-mapped to the
 // same 'rec' bucket as statId 53 (the real reception count), and since it
 // appears after 53 in ESPN's own array, it silently overwrote 1 with 2 for
 // every real 1-point-PPR league synced through this app.
@@ -23,7 +23,7 @@ const REAL_1PPR_ITEMS = [
 
 test('a real 1-point-PPR league scores a reception as 1 point, not 2', () => {
   const s = scoringFor(espnLeague(REAL_1PPR_ITEMS));
-  assert.equal(s.rec, 1, 'statId 44 (rushing 2pt) must never overwrite statId 53 (the real reception value)');
+  assert.equal(s.rec, 1, 'statId 44 (receiving 2pt) must never overwrite statId 53 (the real reception value)');
   assert.equal(s.rec_yd, 0.1);
   assert.equal(s.rec_td, 6);
 });
@@ -125,6 +125,44 @@ test('A-03: falling back to the ppr bucket says so, and still serialises as the 
   assert.match(s.espn.reason, /unparseable/);
   assert.equal(JSON.stringify(s), JSON.stringify(PPR), 'metadata must not leak into memo keys');
   assert.equal(scoringFor({ platform: 'espn', ppr: 1, payload: null }).espn.reason, 'no-payload');
+});
+
+// INT-163-1: a caller resolving weights for one slot (or none) has no way to
+// tell whether the league's payload carries slot-specific pointsOverrides at
+// all elsewhere, short of re-parsing the payload itself. hasOverrides /
+// overrideSlots report that directly off the same parse, regardless of which
+// `slot` (if any) was requested.
+test('INT-163-1: a league with D/ST pointsOverrides reports hasOverrides and the override slot', () => {
+  const lg = espnLeague([...OFFENSE_ITEMS, ...DST_ITEMS]);
+  assert.equal(scoringFor(lg).espn.hasOverrides, true, 'the payload carries pointsOverrides even when slot is not requested');
+  assert.deepEqual(scoringFor(lg).espn.overrideSlots, [16]);
+  // Still true when a slot IS requested and resolved.
+  assert.equal(scoringFor(lg, { slot: 16 }).espn.hasOverrides, true);
+  assert.deepEqual(scoringFor(lg, { slot: 16 }).espn.overrideSlots, [16]);
+});
+
+test('INT-163-1: a league with no pointsOverrides anywhere reports hasOverrides false', () => {
+  const lg = espnLeague(OFFENSE_ITEMS);
+  assert.equal(scoringFor(lg).espn.hasOverrides, false);
+  assert.deepEqual(scoringFor(lg).espn.overrideSlots, []);
+});
+
+test('INT-163-1: overrideSlots collects every distinct slot id across items, sorted numerically', () => {
+  const items = OFFENSE_ITEMS.map(it => it.statId === 53 ? item(53, 1, { 6: 1.5, 16: 0.5 }) : it);
+  const s = scoringFor(espnLeague(items));
+  assert.deepEqual(s.espn.overrideSlots, [6, 16]);
+  // overrideSlots is independent of the requested slot: a caller that resolved
+  // one slot must still see every other slot it is not pricing. A skeptic's
+  // mutant filtered the set to `slot` and every earlier assertion survived,
+  // because their fixture only ever had one override slot.
+  assert.deepEqual(scoringFor(espnLeague(items), { slot: 16 }).espn.overrideSlots, [6, 16]);
+  assert.deepEqual(scoringFor(espnLeague(items), { slot: 6 }).espn.overrideSlots, [6, 16]);
+  assert.equal(scoringFor(espnLeague(items), { slot: 2 }).espn.hasOverrides, true, 'a slot no item overrides still sees the payload has overrides');
+});
+
+test('INT-163-1: a fallback (no payload / not-espn) reports hasOverrides false, not undefined', () => {
+  assert.equal(scoringFor({ platform: 'espn', ppr: 1, payload: null }).espn.hasOverrides, false);
+  assert.equal(scoringFor({ platform: 'sleeper', ppr: 1 }).espn.hasOverrides, false);
 });
 
 test('A-03: a known id that pays NEGATIVE points is reported as unscored too', () => {

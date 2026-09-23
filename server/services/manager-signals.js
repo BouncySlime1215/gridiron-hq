@@ -37,6 +37,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { db, rows, run } from '../db/index.js';
 import { identityMap, matchIdentities } from './manager-identity.js';
+import { normalizePlayerName } from './player-identity.js';
 import { PROJECT_ROOT } from '../platform/paths.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS manager_signals (
@@ -262,7 +263,11 @@ function activitySignals(tx, rosterId, through) {
   const me = Number(rosterId);
   const adds = (tx.adds.get(me) ?? []).filter(p => p <= through).length;
   const trades = tx.trades.filter(t => t.period <= through && t.parties.has(me)).length;
+  // tx_waiver_moves is the same count, not a second producer: it used to be
+  // counted separately in txSignals (executed rows, season to date including
+  // the week in progress) and disagreed with the rate for 14 of 46 managers.
   return [
+    { metric: 'tx_waiver_moves', value: adds, n: adds, source: 'tx' },
     { metric: 'tx_adds_per_week', value: +(adds / through).toFixed(4), n: through, source: 'tx' },
     { metric: 'tx_completed_trades', value: trades, n: through, source: 'tx' },
   ];
@@ -294,10 +299,16 @@ function deadStartSignals(leagueId, season, rosterId, week) {
       ? [{ metric: 'lineup_zero_point_starters_last_week', value: zero.length, n: starters.length, source: 'roster' }]
       : [];
   }
-  const played = name => rows(`SELECT 1 FROM nfl_snaps WHERE season = ? AND week = ? AND player = ?
-                               AND (COALESCE(offense_snaps, 0) > 0 OR COALESCE(defense_snaps, 0) > 0
-                                    OR COALESCE(st_pct, 0) > 0) LIMIT 1`, season, week, name).length > 0;
-  const dead = zero.filter(s => !played(s.player_name));
+  // ESPN and nflverse spell names differently ("DJ Moore" / "D.J. Moore",
+  // "Aaron Jones Sr." / "Aaron Jones"), so both sides go through the canonical
+  // normalizePlayerName (player-identity.js). Keyed on name only: a name shared
+  // by two NFL players can only make a zero-point starter read as "played",
+  // which errs toward NOT calling him checked out.
+  const playedNames = new Set(rows(`SELECT player FROM nfl_snaps WHERE season = ? AND week = ?
+                                      AND (COALESCE(offense_snaps, 0) > 0 OR COALESCE(defense_snaps, 0) > 0
+                                           OR COALESCE(st_pct, 0) > 0)`, season, week)
+    .map(r => normalizePlayerName(r.player)));
+  const dead = zero.filter(s => !playedNames.has(normalizePlayerName(s.player_name)));
   return [{ metric: 'lineup_dead_starts_last_week', value: dead.length, n: starters.length, source: 'roster' }];
 }
 
@@ -313,7 +324,6 @@ function txSignals(tx, rosterId) {
   const accepts = mine.filter(t => t.type === 'TRADE_ACCEPT' && t.execution_type === 'EXECUTE').length;
   const declines = mine.filter(t => t.type === 'TRADE_DECLINE' && t.execution_type === 'EXECUTE').length;
   const vetoes = mine.filter(t => t.type === 'TRADE_VETO').length;
-  const moves = mine.filter(t => (t.type === 'WAIVER' || t.type === 'FREEAGENT') && t.status === 'EXECUTED').length;
   const decided = accepts + declines;
   if (!mine.length && !received) return [];
   const out = [
@@ -321,7 +331,6 @@ function txSignals(tx, rosterId) {
     { metric: 'tx_offers_received', value: received, n: received, source: 'tx' },
     { metric: 'tx_decisions_made', value: decided, n: decided, source: 'tx' },
     { metric: 'tx_veto_votes', value: vetoes, n: vetoes, source: 'tx' },
-    { metric: 'tx_waiver_moves', value: moves, n: moves, source: 'tx' },
   ];
   // An acceptance rate from fewer than five decisions is noise dressed as a
   // number; withhold it rather than let the finder rank on it.

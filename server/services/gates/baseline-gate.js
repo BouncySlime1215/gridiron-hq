@@ -126,10 +126,14 @@ export function gradeDecisions(decisions, { iterations = 2000, seed = 1 } = {}) 
 
   const player = pigeonholeBootstrap(decisions, { points, win: wins }, { iterations, seed });
   const groups = decisions.map(d => `${d.season}-${d.week}`);
-  const weekPts = n ? pairedBootstrapDiff(decisions.map(d => d.baseline_points), decisions.map(d => d.policy_points),
-    { iterations, seed, groups }) : { error: 'no disagreements' };
-  const weekWr = n ? pairedBootstrapDiff(decisions.map(() => 0.5), wins, { iterations, seed, groups })
-    : { error: 'no disagreements' };
+  // One week is one cluster: every resample draws that same week back, so the "interval"
+  // collapses to [x, x], a point and not an interval (Independent Auditor ruling A7). Below
+  // 2 week clusters the week interval is null, and the note says why.
+  const noWeekInterval = !n ? { error: 'no disagreements' }
+    : byWeek.size < 2 ? { error: 'fewer than 2 week clusters: one week is one cluster, not an interval' } : null;
+  const weekPts = noWeekInterval ?? pairedBootstrapDiff(decisions.map(d => d.baseline_points),
+    decisions.map(d => d.policy_points), { iterations, seed, groups });
+  const weekWr = noWeekInterval ?? pairedBootstrapDiff(decisions.map(() => 0.5), wins, { iterations, seed, groups });
 
   const se = { points: r4(player.points.se), win_rate: r4(player.win.se) };
   return {

@@ -37,10 +37,22 @@ test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true })
 
 const read = rel => fs.readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
 
-/** A finished run, in the shape runStartSitGate returns (the numbers are fixture). */
-const fixtureResult = (verdict = 'not_distinguishable') => ({
-  gate: 'start_sit', verdict,
-  policy: 'our weekly projection', baseline: 'season-to-date PPR average', universe: 'both >= 8.0 PPR',
+/**
+ * A finished run, in the shape runStartSitGate returns (the numbers are fixture). The
+ * top-level verdict is the plan rule's (served vs ESPN, prereg addendum 2); the
+ * season-average ship rule rides beside it as average_check (Auditor ruling A1-A2).
+ */
+const fixtureResult = ({ plan = 'not_shown', average = 'not_distinguishable' } = {}) => ({
+  gate: 'start_sit', verdict: plan,
+  plan_rule: { verdict: plan, reason: plan === 'not_shown' ? 'too_few_weeks' : null, source: 'espn_at_lock',
+    weeks_graded: 1, direction: 'dumb_ahead', mde80: { points: 4.73, win_rate: 0.187 },
+    gates: [{ id: 'P1', passed: false }, { id: 'P2', passed: false }, { id: 'P3', passed: false }],
+    prereg: 'docs/evidence/2026-09-22/start-sit-baseline-gate-prereg-addendum-2.md' },
+  average_check: { verdict: average, rule: 'season-to-date PPR average',
+    prereg: 'docs/evidence/2026-09-22/start-sit-baseline-gate-prereg.md',
+    gates: ['G1', 'G2', 'G3', 'G4'].map((id, i) => ({ id, label: `gate ${id}`, value: i,
+      passed: average === 'beats_dumb' || (id === 'G4' && average !== 'no_disagreements') })) },
+  policy: 'our weekly projection', baseline: 'ESPN weekly projection', universe: 'both >= 8.0 PPR',
   scoring: 'PPR', sign_convention: 'points = our pick minus the dumb pick; positive favours our projection',
   configuration: { role_recency: { seasonDecay: 0.05, weekHalfLife: 5 }, k_override: 'omitted',
     k_control: [{ season: 2025, target_share_k: 0.2 }], champions: { 2025: { 5: 'frozen-2023' } } },
@@ -51,8 +63,7 @@ const fixtureResult = (verdict = 'not_distinguishable') => ({
   forward: { season: 2026, weeks: [2, 2], n: 11, points_per_decision: 0.9, direction: 'ours_ahead',
     served: { vs_average: { n: 4, points_per_decision: -0.3, direction: 'dumb_ahead' },
       vs_espn: { status: 'not_available', reason: 'no ESPN projection', direction: 'not_available' } } },
-  gates: [{ id: 'G1', passed: false }, { id: 'G2', passed: false }, { id: 'G3', passed: false }, { id: 'G4', passed: true }],
-  controls: { passed: verdict !== 'instrument_fault' },
+  controls: { passed: plan !== 'instrument_fault' },
 });
 
 async function request(app, url) {
@@ -93,8 +104,9 @@ test('a run is stored in model_gate_audits by recordGateAudit, as FANTASY / star
   assert.equal(stored[0].market, 'start_sit');
   assert.equal(stored[0].model_version, 'configB|shrinkage-fit-1|frozen-2023');
   assert.equal(stored[0].verdict, 'blocked');               // recordGateAudit's word for "not every gate passed"
-  assert.equal(JSON.parse(stored[0].evidence_json).verdict, 'not_distinguishable');
-  assert.equal(detail.verdict, 'not_distinguishable');
+  assert.equal(JSON.parse(stored[0].evidence_json).verdict, 'not_shown');
+  assert.equal(detail.verdict, 'not_shown');
+  assert.equal(detail.average_verdict, 'not_distinguishable');
   assert.ok(Number.isInteger(detail.audit_id));
   assert.equal(statusFromDetail(detail), 'ok');
 });
@@ -110,16 +122,17 @@ test('GET /api/gates/start-sit serves the latest stored result with its basis', 
   const res = await request(app, '/api/gates/start-sit');
   assert.equal(res.status, 200);
   assert.equal(res.body.status, 'measured');
-  assert.equal(res.body.verdict, 'not_distinguishable');
+  assert.equal(res.body.verdict, 'not_shown');
+  assert.equal(res.body.average_check.verdict, 'not_distinguishable');
   assert.equal(res.body.past.win_rate, 0.53);
-  assert.match(res.body.baseline, /season-to-date/);
+  assert.match(res.body.average_check.rule, /season-to-date/);
   assert.match(res.body.sign_convention, /positive favours/);
   assert.deepEqual(res.body.past.failing_weeks.map(w => w.week), [9]);
   assert.ok(res.body.stored_at);
 });
 
 test('an instrument fault is recorded as a job error, and still stored so it can be read', async () => {
-  const detail = await S.refreshStartSitGate({ run: () => fixtureResult('instrument_fault') });
+  const detail = await S.refreshStartSitGate({ run: () => fixtureResult({ plan: 'instrument_fault', average: 'instrument_fault' }) });
   assert.equal(statusFromDetail(detail), 'error');
   assert.equal(S.latestStartSitGate().verdict, 'instrument_fault');
 });
@@ -132,6 +145,9 @@ test('the job is registered weekly, in the growth tier, off the request thread',
   assert.equal(job.offThread, true);
   assert.equal(resolveOffThread(job), true);
   assert.match(job.label, /start\/sit gate/i);
+  // Auditor A6: the label names the plan's rule, ESPN's projection, first; the average is the floor.
+  assert.match(job.label, /ESPN's projection/);
+  assert.ok(job.label.indexOf('ESPN') < job.label.indexOf('average'), `ESPN is named first: ${job.label}`);
 });
 
 test("the job's run resolves to the gate module (the wiring map's own resolver)", () => {
@@ -153,6 +169,11 @@ test('the Lineup page shows the gate panel, and the panel reads the route', () =
   const page = read('client/src/pages/Lineup.tsx');
   assert.match(page, /import StartSitGate from '\.\.\/components\/lineup\/StartSitGate'/);
   assert.match(page, /<StartSitGate\s*\/>/);
+  // Auditor A6: the comment over the panel names ESPN's projection first.
+  const at = page.indexOf('<StartSitGate');
+  const comment = page.slice(page.lastIndexOf('{/*', at), at);
+  assert.match(comment, /ESPN's projection/, `the Lineup comment: ${comment}`);
+  assert.ok(comment.indexOf('ESPN') < comment.indexOf('average'), `ESPN is named first: ${comment}`);
   const panel = read('client/src/components/lineup/StartSitGate.tsx');
   assert.match(panel, /useApi<[^>]+>\('\/gates\/start-sit'\)/);
 });
@@ -160,26 +181,38 @@ test('the Lineup page shows the gate panel, and the panel reads the route', () =
 test('the panel names every verdict and every direction, and renders the basis', () => {
   // Rendered behaviour (every failing week, direction only) is test/start-sit-gate-panel.test.js.
   const panel = read('client/src/components/lineup/StartSitGate.tsx');
-  for (const v of ['beats_dumb', 'beats_dumb_unconfirmed_forward', 'not_distinguishable', 'loses_to_dumb',
+  for (const v of ['beats_dumb', 'not_shown', 'beats_dumb_unconfirmed_forward', 'not_distinguishable', 'loses_to_dumb',
     'no_disagreements', 'instrument_fault', 'not_run']) {
     assert.ok(panel.includes(`${v}:`) || panel.includes(`'${v}'`), `the panel has no wording for ${v}`);
   }
   for (const d of ['ours_ahead', 'dumb_ahead', 'even', 'no_disagreements', 'not_available']) {
     assert.ok(panel.includes(`${d}:`), `the panel has no wording for direction ${d}`);
   }
-  for (const field of ['baseline', 'policy', 'universe', 'scoring', 'failing_weeks', 'forward', 'served', 'vs_espn']) {
+  for (const field of ['baseline', 'policy', 'universe', 'scoring', 'failing_weeks', 'forward', 'served', 'vs_espn',
+    'plan_rule', 'average_check']) {
     assert.ok(panel.includes(field), `the panel does not render ${field}`);
   }
   assert.doesNotMatch(panel, /\.slice\(/, 'the panel trims nothing: every failing week is shown');
 });
 
+test('the governance audit is promotion_eligible only when the plan rule AND the floor pass (A4)', async () => {
+  const store = (plan, average) => S.refreshStartSitGate({ run: () => ({ ...fixtureResult({ plan, average }),
+    model_version: `configB|a4|${plan}|${average}` }) });
+  const verdictOf = detail => rows('SELECT verdict FROM model_gate_audits WHERE id = ?', detail.audit_id)[0].verdict;
+  assert.equal(verdictOf(await store('beats_dumb', 'beats_dumb')), 'promotion_eligible', 'known-nonzero case first');
+  assert.equal(verdictOf(await store('not_shown', 'beats_dumb')), 'blocked', 'the plan rule blocks on its own');
+  assert.equal(verdictOf(await store('beats_dumb', 'not_distinguishable')), 'blocked', 'the floor still blocks');
+});
+
 test('the job detail (sync_log, which the Coach can read) carries the verdict and directions, never a rate or a size', async () => {
-  const detail = await S.refreshStartSitGate({ run: () => ({ ...fixtureResult('beats_dumb'), model_version: 'configB|detail' }) });
+  const detail = await S.refreshStartSitGate({ run: () => ({ ...fixtureResult({ plan: 'not_shown', average: 'beats_dumb' }),
+    model_version: 'configB|detail' }) });
   for (const [key, value] of Object.entries(detail)) {
     assert.ok(typeof value === 'string' || value === null || (key === 'audit_id' && Number.isInteger(value)),
       `${key} = ${JSON.stringify(value)} would put a number in sync_log`);
   }
-  assert.equal(detail.verdict, 'beats_dumb');
+  assert.equal(detail.verdict, 'not_shown', 'the Coach reads the plan rule as the verdict (A5)');
+  assert.equal(detail.average_verdict, 'beats_dumb');
   assert.equal(detail.forward_direction, 'ours_ahead');
   assert.equal(detail.served_vs_average_direction, 'dumb_ahead');
   assert.equal(detail.served_vs_espn_direction, 'not_available');

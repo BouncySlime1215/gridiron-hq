@@ -5,6 +5,10 @@
  * two picks actually scored. Pre-registration:
  * docs/evidence/2026-09-22/start-sit-baseline-gate-prereg.md.
  *
+ * Since the Independent Auditor's ruling (2026-09-22) that season-average rule runs as
+ * `average_check`, a floor, and the top-level verdict is the PLAN's rule: the projection
+ * the app served vs ESPN's weekly projection (prereg addendum 2).
+ *
  * The replay itself (weekly-backtest.js#replaySeasonWeekly) is mocked here so
  * the CALL is pinned: configuration B (roleRecency: WEEKLY_ROLE_RECENCY passed
  * explicitly, kOverride omitted, no distributions), the pre-registered windows,
@@ -21,7 +25,7 @@ process.env.SCHEDULER_DISABLED = '1';
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-start-sit-gate-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
-const { db, run } = await import('../server/db/index.js');
+const { db, run, rows: dbRows } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 
@@ -287,6 +291,8 @@ test('an instrument whose known-nonzero control finds nothing says so instead of
   const result = S.runStartSitGate({ iterations: 200, resolveK: () => ({ target_share: { ALL: 0.2 } }) });
   assert.equal(result.controls.passed, false);
   assert.equal(result.verdict, 'instrument_fault');
+  assert.equal(result.plan_rule.verdict, 'instrument_fault', 'no plan-rule verdict is drawn from a failed instrument');
+  assert.equal(result.average_check.verdict, 'instrument_fault');
 });
 
 test('the result names its windows, both rules, the universe, the scoring and the sign convention', () => {
@@ -297,12 +303,16 @@ test('the result names its windows, both rules, the universe, the scoring and th
   assert.equal(result.forward.season, 2026);
   assert.deepEqual(result.forward.weeks, [2, 2]);
   assert.equal(result.past.n, result.past.per_season[2024].n + result.past.per_season[2025].n);
-  assert.match(result.baseline, /season-to-date/i);
+  // The top-level verdict is graded against the plan's rule, so the top-level basis names it;
+  // the season average is named on the check that uses it.
+  assert.match(result.baseline, /ESPN/);
+  assert.match(result.average_check.rule, /season-to-date/i);
   assert.match(result.policy, /projection/i);
   assert.match(result.universe, /8\.0/);
   assert.equal(result.scoring, 'PPR');
   assert.match(result.sign_convention, /positive favours our/i);
-  assert.ok(Array.isArray(result.gates) && result.gates.length === 4);
+  assert.deepEqual(result.average_check.gates.map(g => g.id), ['G1', 'G2', 'G3', 'G4']);
+  assert.equal(result.gates, undefined, 'G1-G4 live on average_check only, never beside the plan-rule verdict');
   assert.ok(typeof result.verdict === 'string');
   assert.equal(result.configuration.champions[2025][5], 'frozen-2023', 'the champion per graded week is recorded');
   assert.equal(result.configuration.champions[2026][2], 'frozen-2023');
@@ -310,6 +320,11 @@ test('the result names its windows, both rules, the universe, the scoring and th
   assert.doesNotMatch(result.policy, /would have served/i);
   assert.match(result.forward.label, /replay/i);
   assert.match(result.forward.label, /not the projection the app served/i);
+});
+
+test('A6: the texts name the plan\'s rule and the weaker check', () => {
+  assert.match(S.ESPN_BASELINE_TEXT, /^The plan's dumb rule: /);
+  assert.match(S.BASELINE_TEXT, /^The weaker check, set before the numbers: /);
 });
 
 /* ------------------------------------------------------- the grade's values */
@@ -347,9 +362,10 @@ test('the default fixture grades to the hand-counted values: ours loses, so a sw
   assert.equal(result.forward.win_rate, 0.4821);
   assert.equal(result.forward.direction, 'dumb_ahead');
   assert.notEqual(result.verdict, 'beats_dumb');
+  assert.notEqual(result.average_check.verdict, 'beats_dumb');
 });
 
-test('when our projection orders the actuals right, every call is won and the verdict is beats_dumb', () => {
+test('when our projection orders the actuals right, every call is won and the average check is beats_dumb', () => {
   // Actual = 2 x id + 1: the higher id always scores more. Points per disagreement =
   // (3 weeks x 168 + 20) / 90 = 5.8222.
   seedFixture({ actual: id => 2 * id + 1 });
@@ -358,8 +374,12 @@ test('when our projection orders the actuals right, every call is won and the ve
   assert.equal(result.past.win_rate, 1);
   assert.equal(result.past.points_per_decision, 5.8222);
   assert.equal(result.past.direction, 'ours_ahead');
-  assert.deepEqual(result.gates.map(g => g.passed), [true, true, true, true]);
-  assert.equal(result.verdict, 'beats_dumb');
+  assert.deepEqual(result.average_check.gates.map(g => g.passed), [true, true, true, true]);
+  assert.equal(result.average_check.verdict, 'beats_dumb');
+  // No served snapshot or ESPN value is seeded yet, so the plan's rule has nothing to grade.
+  assert.equal(result.forward.served.vs_espn.status, 'not_available');
+  assert.equal(result.verdict, 'not_shown');
+  assert.equal(result.plan_rule.direction, 'not_available');
 });
 
 test('G4 reads the forward rows: a forward season against our projection leaves the verdict unconfirmed', () => {
@@ -373,10 +393,10 @@ test('G4 reads the forward rows: a forward season against our projection leaves 
   assert.equal(result.forward.points_per_decision, -6);
   assert.equal(result.past.direction, 'ours_ahead');
   assert.equal(result.forward.direction, 'dumb_ahead', 'the forward direction is read from the forward grade');
-  assert.equal(result.gates[3].id, 'G4');
-  assert.equal(result.gates[3].value, -6);
-  assert.equal(result.gates[3].passed, false);
-  assert.equal(result.verdict, 'beats_dumb_unconfirmed_forward');
+  assert.equal(result.average_check.gates[3].id, 'G4');
+  assert.equal(result.average_check.gates[3].value, -6);
+  assert.equal(result.average_check.gates[3].passed, false);
+  assert.equal(result.average_check.verdict, 'beats_dumb_unconfirmed_forward');
 });
 
 /* ------------------------------ what the app served, and the literal dumb rule */
@@ -460,7 +480,7 @@ test("the literal rule: what the app served against ESPN's projection, one value
   assert.match(espn.baseline, /ESPN/);
 });
 
-test('the served arms never move the verdict or the gates (addendum 1: descriptive only)', () => {
+test('the served arms never move the average check (H1 as registered); the ESPN arm moves the plan rule', () => {
   seedFixture({ actual: id => 2 * id + 1 });
   seedServed({});
   seedEspn([]);
@@ -474,8 +494,158 @@ test('the served arms never move the verdict or the gates (addendum 1: descripti
   seedEspn([1, 2, 3, 4, 5, 6, 7, 8].map(id => ({ league: 1, id, projected: 8 + id })));
   const withServed = S.runStartSitGate({ iterations: 200, resolveK: KNOWN_K });
   assert.equal(withServed.forward.served.vs_espn.direction, 'dumb_ahead');
-  assert.deepEqual(withServed.gates, without.gates);
-  assert.equal(withServed.verdict, without.verdict);
+  assert.deepEqual(withServed.average_check, without.average_check);
+  assert.equal(without.plan_rule.direction, 'not_available');
+  assert.equal(withServed.plan_rule.direction, 'dumb_ahead', 'the plan rule reads the served-vs-ESPN arm');
+  seedServed({});
+  seedEspn([]);
+});
+
+/* ------------------------------------ the plan's rule (prereg addendum 2, Auditor A1-A5) */
+
+/**
+ * A graded served-vs-ESPN arm with the fields the plan rule reads: the pooled grade over
+ * `weeks` graded weeks (2026 week 2 on). The numbers are fixture.
+ */
+const armGrade = ({ weeks = 1, points, wr, ppd, mde80 = { points: 4.7299, win_rate: 0.1869 } }) => ({
+  n: 60 * weeks, points_per_decision: ppd, win_rate: 0.5,
+  ci90: { player: { points, win_rate: wr } },
+  mde80,
+  per_week: Array.from({ length: weeks }, (_, i) => ({ season: 2026, week: 2 + i, n: 60 })),
+  direction: ppd > 0 ? 'ours_ahead' : ppd < 0 ? 'dumb_ahead' : 'even',
+});
+const PASSING = { points: [0.31, 2.14], wr: [0.521, 0.612], ppd: 1.2 };
+const LOSING = { points: [-6.5246, -0.3637], wr: [0.2537, 0.5057], ppd: -3.4207 };
+const plan = (atLock, sameCutoff = null) => S.planRuleVerdict({ atLock, sameCutoff });
+
+test('plan rule A3: one at-lock week with ESPN ahead is not_shown, never loses_to_dumb', () => {
+  const v = plan(armGrade({ weeks: 1, ...LOSING }));
+  assert.equal(v.verdict, 'not_shown');
+  assert.equal(v.reason, 'too_few_weeks');
+  assert.equal(v.source, 'espn_at_lock');
+  assert.equal(v.weeks_graded, 1);
+  assert.equal(v.direction, 'dumb_ahead');
+  assert.deepEqual(v.mde80, { points: 4.7299, win_rate: 0.1869 });
+  assert.equal(v.prereg, S.PREREG_ADDENDUM_2);
+  assert.deepEqual(v.gates.map(g => [g.id, g.passed]), [['P1', false], ['P2', false], ['P3', false]]);
+  assert.equal(v.gates[2].value, 1);
+});
+
+test('plan rule A3: four same-cutoff weeks with the points interval entirely below 0 is loses_to_dumb', () => {
+  const v = plan(armGrade({ weeks: 4, ...LOSING }), armGrade({ weeks: 4, ...LOSING }));
+  assert.equal(v.verdict, 'loses_to_dumb');
+  assert.equal(v.reason, null);
+  assert.equal(v.source, 'espn_same_cutoff');
+  assert.equal(v.weeks_graded, 4);
+  assert.equal(v.direction, 'dumb_ahead');
+  // The upper bound sitting exactly on 0 is not below it.
+  assert.equal(plan(null, armGrade({ weeks: 4, ...LOSING, points: [-3, 0] })).reason, 'not_distinguishable');
+});
+
+test('plan rule A3: four passing weeks is beats_dumb, from either source', () => {
+  const atLock = plan(armGrade({ weeks: 4, ...PASSING }));
+  assert.equal(atLock.verdict, 'beats_dumb');
+  assert.equal(atLock.reason, null);
+  assert.equal(atLock.source, 'espn_at_lock', 'a pass against the favoured at-lock number counts');
+  assert.equal(atLock.direction, 'ours_ahead');
+  assert.deepEqual(atLock.gates.map(g => [g.id, g.passed]), [['P1', true], ['P2', true], ['P3', true]]);
+  assert.deepEqual(atLock.gates.map(g => g.value), [0.31, 0.521, 4]);
+  const sameCutoff = plan(armGrade({ weeks: 1, ...LOSING }),
+    armGrade({ weeks: 4, ...PASSING, mde80: { points: 2.3, win_rate: 0.094 } }));
+  assert.equal(sameCutoff.verdict, 'beats_dumb');
+  assert.equal(sameCutoff.source, 'espn_same_cutoff', '4 same-cutoff weeks decide alone');
+  // Every reported field comes from the deciding arm, not the at-lock one (sweep 9 survivor V15).
+  assert.equal(sameCutoff.direction, 'ours_ahead');
+  assert.equal(sameCutoff.weeks_graded, 4);
+  assert.deepEqual(sameCutoff.mde80, { points: 2.3, win_rate: 0.094 });
+});
+
+test('plan rule A3: three passing weeks is not_shown, too few weeks', () => {
+  const v = plan(armGrade({ weeks: 3, ...PASSING }));
+  assert.equal(v.verdict, 'not_shown');
+  assert.equal(v.reason, 'too_few_weeks');
+  assert.equal(v.direction, 'ours_ahead');
+  assert.deepEqual(v.gates.map(g => [g.id, g.passed]), [['P1', true], ['P2', true], ['P3', false]]);
+  // Three same-cutoff weeks do not decide: the at-lock window does until there are four.
+  const early = plan(armGrade({ weeks: 5, ...PASSING }), armGrade({ weeks: 3, ...LOSING }));
+  assert.equal(early.source, 'espn_at_lock');
+  assert.equal(early.verdict, 'beats_dumb');
+});
+
+test('plan rule: at-lock weeks are never a loss, however many; that is espn_ahead_at_lock_only', () => {
+  const v = plan(armGrade({ weeks: 6, ...LOSING }), armGrade({ weeks: 3, ...LOSING }));
+  assert.equal(v.verdict, 'not_shown');
+  assert.equal(v.reason, 'espn_ahead_at_lock_only');
+  assert.equal(v.source, 'espn_at_lock');
+  assert.equal(v.direction, 'dumb_ahead');
+});
+
+test('plan rule: four weeks that neither pass nor lose are not_distinguishable; each pass bound is strict', () => {
+  const straddle = plan(armGrade({ weeks: 4, points: [-1.2, 2.3], wr: [0.46, 0.58], ppd: 0.4 }));
+  assert.equal(straddle.verdict, 'not_shown');
+  assert.equal(straddle.reason, 'not_distinguishable');
+  // P2 binds on its own: points clear, win rate does not.
+  assert.equal(plan(armGrade({ weeks: 4, ...PASSING, wr: [0.49, 0.6] })).reason, 'not_distinguishable');
+  assert.equal(plan(armGrade({ weeks: 4, ...PASSING, wr: [0.5, 0.6] })).verdict, 'not_shown');     // exactly 0.5
+  assert.equal(plan(armGrade({ weeks: 4, ...PASSING, points: [0, 2] })).verdict, 'not_shown');    // exactly 0
+  assert.equal(plan(armGrade({ weeks: 4, ...PASSING, points: [-0.1, 2] })).verdict, 'not_shown');
+});
+
+test('plan rule: nothing graded is not_shown with no direction, and says which absence', () => {
+  const notAvailable = { status: 'not_available', reason: 'no pregame snapshot', direction: 'not_available' };
+  for (const atLock of [notAvailable, null]) {
+    const v = plan(atLock);
+    assert.equal(v.verdict, 'not_shown');
+    assert.equal(v.reason, 'too_few_weeks');
+    assert.equal(v.weeks_graded, 0);
+    assert.equal(v.direction, 'not_available');
+    assert.equal(v.mde80, null);
+    assert.equal(v.source, 'espn_at_lock');
+  }
+});
+
+/** The Auditor's A1 fixture: G1-G4 all pass on the replay; on the served week ESPN's pick wins every call. */
+function seedA1Fixture() {
+  seedFixture({ actual: id => 2 * id + 1 });                                   // the higher id always scores more
+  seedServed({ 1: 22, 2: 21, 3: 20, 4: 19, 5: 18, 6: 17, 7: 16, 8: 15 });      // served: the lower id
+  seedEspn([1, 2, 3, 4, 5, 6, 7, 8].map(id => ({ league: 1, id, projected: 8 + id })));   // ESPN: the higher id
+}
+
+test('A1, A2: G1-G4 all pass and ESPN is ahead on the served week, so the top-level verdict is not beats_dumb', () => {
+  seedA1Fixture();
+  const result = S.runStartSitGate({ iterations: 200, resolveK: KNOWN_K });
+  assert.equal(result.forward.served.vs_espn.direction, 'dumb_ahead');
+  assert.notEqual(result.verdict, 'beats_dumb', 'the top-level verdict must be the plan rule, not the average check');
+  assert.deepEqual(result.average_check.gates.map(g => [g.id, g.passed]),
+    [['G1', true], ['G2', true], ['G3', true], ['G4', true]]);
+  assert.equal(result.verdict, 'not_shown');
+  assert.equal(result.verdict, result.plan_rule.verdict);
+  assert.equal(result.plan_rule.reason, 'too_few_weeks');
+  assert.equal(result.plan_rule.source, 'espn_at_lock');
+  assert.equal(result.plan_rule.weeks_graded, 1);
+  assert.equal(result.plan_rule.direction, 'dumb_ahead');
+  assert.equal(result.plan_rule.prereg, S.PREREG_ADDENDUM_2);
+  assert.ok(result.plan_rule.mde80.points > 0);
+  // A2: H1 kept under its true name, exactly as registered.
+  assert.equal(result.average_check.verdict, 'beats_dumb');
+  assert.equal(result.average_check.prereg, S.PREREG);
+  assert.match(result.average_check.rule, /season-to-date/);
+  assert.match(result.baseline, /ESPN/);
+  seedServed({});
+  seedEspn([]);
+});
+
+test('A4, A5: on the A1 fixture the stored audit is blocked and the Coach-readable detail carries the plan rule', () => {
+  seedA1Fixture();
+  const result = S.runStartSitGate({ iterations: 200, resolveK: KNOWN_K });
+  const detail = S.refreshStartSitGate({ run: () => result });
+  const stored = dbRows('SELECT verdict, gates_json FROM model_gate_audits WHERE id = ?', detail.audit_id)[0];
+  assert.equal(stored.verdict, 'blocked', 'the plan-rule gate must reach recordGateAudit');
+  assert.deepEqual(JSON.parse(stored.gates_json).map(g => [g.id, g.passed]),
+    [['G1', true], ['G2', true], ['G3', true], ['G4', true], ['PLAN', false]]);
+  assert.notEqual(detail.verdict, 'beats_dumb', 'the Coach must not read the average check as the verdict');
+  assert.equal(detail.verdict, 'not_shown');
+  assert.equal(detail.average_verdict, 'beats_dumb');
   seedServed({});
   seedEspn([]);
 });

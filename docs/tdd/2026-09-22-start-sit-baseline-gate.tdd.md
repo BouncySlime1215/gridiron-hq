@@ -1,10 +1,15 @@
-# The standing start/sit gate: our projection vs "start the higher average"
+# The standing start/sit gate: our projection vs ESPN's projection (the plan's rule), with "start the higher average" as a floor
 
 Unit C-01 (plan item C12). Branch `claude/local-c-01-startsit-baseline-gate` off
 `origin/main d6d7bd5a`. Pre-registration: `docs/evidence/2026-09-22/start-sit-baseline-gate-prereg.md`,
 committed at `a2ea8714` before any number was run. **Addendum 1**
 (`start-sit-baseline-gate-prereg-addendum-1.md`, `f55d2eb6`, 17:18:46 -0400) was committed
 before its arms were computed by this unit; §0 of it states what a skeptic had already seen.
+**Addendum 2** (`start-sit-baseline-gate-prereg-addendum-2.md`, `9ea52eae`, 2026-09-22T23:42:07Z)
+registers the plan-rule verdict: committed before any code change for the Independent Auditor's
+ruling and before week 3's first kickoff (2026-09-25 00:15Z). **Revision 4** implements that
+ruling (§0c): the verdict is now the projection the app served against ESPN's weekly projection,
+and the season-average ship rule runs unchanged beside it as `average_check`.
 
 **Every number in this file is for the Independent Auditor, not for Nick** (standing rule 3,
 R44.1, R45, R61). The Lineup panel shows direction only; see §10.
@@ -29,9 +34,60 @@ R44.1, R45, R61). The Lineup panel shows direction only; see §10.
 | # | blocker (lens) | disposition | where |
 |---|---|---|---|
 | 1 | rule 2 not met: no Independent Auditor ruling on file (claims, earlier blocker 2) | **agreed; cannot be fixed in code.** Re-checked: `grep -c 'C-01' ~/gridiron-local/WORKLOG.jsonl` → `0`; no `board/unit-C-01.json`; `grep -rl 'C-01'` over `~/gridiron-local/*.md board evidence` finds only `WORK-QUEUE.md`, `BLOCKER-LAB.md`, `STRUCTURE-MAP.md` and the C-02/C-03/C-10 board rows. Rulings (a) and (b) are still needed before merge (§9) | addendum §5, §9 |
-| 2 | what blocker 1 leaves: the literal rule (ESPN) points against the green verdict, and its lost week was not on the panel (claims) | **the ruling part is agreed and still open** (ruling c: which rule gates). The verdict is **not** changed: the prereg forbids swapping the gating rule after the fact. **The display part is fixed:** "Weeks our projection lost" now has one group per graded window and arm, each under the rule it lost to, so **2026 W2 shows under "This season as the app served it, against ESPN's projection"** (§10). Addendum §4 already said the panel shows "the failing weeks"; it showed only the past window's | `0d3caa19` RED, `8d434c66` GREEN, `06408d00` |
+| 2 | what blocker 1 leaves: the literal rule (ESPN) points against the green verdict, and its lost week was not on the panel (claims) | **the ruling part is agreed and still open** (ruling c: which rule gates). The verdict is **not** changed: ~~the prereg forbids swapping the gating rule after the fact~~ *(corrected in revision 4: that line is in neither prereg file. Prereg §1 names ESPN's weekly projection as the follow-up rule, addendum 1 §3 gives the swap to the Independent Auditor, and the Auditor's ruling of 2026-09-22 makes it; §0c)*. **The display part is fixed:** "Weeks our projection lost" now has one group per graded window and arm, each under the rule it lost to, so **2026 W2 shows under "This season as the app served it, against ESPN's projection"** (§10). Addendum §4 already said the panel shows "the failing weeks"; it showed only the past window's | `0d3caa19` RED, `8d434c66` GREEN, `06408d00` |
 | 3 | no file grant for `scripts/refresh-live-data.mjs` and the G7 test (wiring, earlier blocker 1) | **agreed; no code change.** The coordinator records a grant to C-01 for the one allowlist line (`ad66dae7`) and G7 (`05ceb070`) and tells the R-09 and BL-02 owners and PR #47 that `FANTASY_LIVE_JOBS` changed, or rules that the panel ships `not_run`, in which case `ad66dae7` is reverted and G7 dropped (a new revert commit, not a history rewrite) | §7.17 |
 | 4 | the older-settings reason line had no liveness proof: `assert.match(text, /before/i)` matched other text; mutant `const differs: ServedWeek[] = []` survived (structure) | **agreed, the test was wrong; fixed in the test.** Reproduced first: that mutant on `fff49295` gave `# pass 6 # fail 0`. The line is now pinned by its own words, each clause alone, and a negative case (a week served on today's settings, `same_weights` true and `served_before_k_fit` false or null, renders no such line). Same mutant on `0d3caa19` (tests changed, panel not): **killed** (`not ok 9 - a week served on older settings says so, naming each reason`); sweep 7 and 8 kill it too, with five more mutants on the same line | `0d3caa19`, §2, §6 |
+
+## 0c. Revision 4: the Independent Auditor's ruling, and what changed
+
+The ruling: `docs/handoff/local/audits/2026-09-22-C-01-ruling.md` (handoff branch; Independent
+Auditor, 2026-09-22 19:25 EDT; filed at WORK-QUEUE.md :611). Its verdicts:
+
+- **(a)** C12's gate gates on the plan's named rule, "start highest projection", which in Nick's
+  ESPN leagues is ESPN's weekly projection. The season average stays as a pre-registered floor
+  check, reported beside the verdict and never as it.
+- **(b)** No green "Beats" headline while the plan's own rule points against us: an amber "Not
+  shown to beat ESPN's projection" with the week-2 direction and its caveat; the average result
+  below as a weaker check, with no green.
+- **(c)** Keep the pre-registered average verdict exactly as computed, renamed `average_check`.
+  The top-level `verdict`, the stored governance audit and the sync_log detail the Coach reads
+  carry the plan-rule verdict. Addendum 2 before week 3's first kickoff.
+- **(d)** `server/index.js` (+4) needed a one-line coordinator grant: granted (WORK-QUEUE.md :610).
+  The refresh-loop files were already granted (:601).
+
+| # | ruling item | status | RED → GREEN | proof |
+|---|---|---|---|---|
+| A1 | top-level `verdict` is the plan-rule verdict | **done** | `698d6762` → `83fead0c` | "A1, A2: G1-G4 all pass and ESPN is ahead on the served week…" (`test/start-sit-gate.test.js`). On the old code: `the top-level verdict must be the plan rule, not the average check` (actual `'beats_dumb'`) |
+| A2 | H1 kept unchanged as `average_check {verdict, gates, rule, prereg}` | **done** | same | the old G1-G4 tests re-pointed to `average_check`. On the local copy it reads `beats_dumb`, G1 0.7958, G2 0.9566, G3 0.5256, G4 2.7923, identical to the ruling's copy (§4b) |
+| A3 | `plan_rule {verdict, reason, source, weeks_graded, direction, gates, mde80, prereg}` | **done** | same | one fixture per state: 1 at-lock week, ESPN ahead → `not_shown` (`too_few_weeks`, never a loss); 4 same-cutoff weeks, CI below 0 → `loses_to_dumb`; 4 passing weeks → `beats_dumb` (either source); 3 passing weeks → `not_shown`. Plus `espn_ahead_at_lock_only`, strict bounds, nothing graded. On the old code: `S.planRuleVerdict is not a function` |
+| A4 | the plan-rule gate reaches `recordGateAudit` | **done** | `698d6762` → `638608aa` | the A1 fixture stores `blocked`; on the old code `the plan-rule gate must reach recordGateAudit` `+ 'promotion_eligible' - 'blocked'`. A positive control stores `promotion_eligible` only when both rules pass. Real row on the local copy: `blocked`, G1-G4 passed, PLAN failed (§4b) |
+| A5 | sync_log detail: `verdict` = plan rule, `average_verdict` = H1 | **done** | same | job test on the old code: `the job detail must carry the plan rule, not the average check` (actual `'beats_dumb'`). Real detail: `{"verdict":"not_shown","average_verdict":"beats_dumb",…}` (§4b) |
+| A6 | panel per ruling (b); texts, job label, Lineup comment | **done** | `e10798c5` → `e597292c` | render test on the ruling's own result as b97d5ea2 served it: on the old panel `1 emerald chip(s) on the panel: Does our projection beat the dumb rule? Beats "start the higher average" …`; on the fix no emerald, no "Beats", ESPN in heading and chip. The same result as the fix serves it renders the amber chip and the ruling's lines. The rule-3 grep finds nothing (§10) |
+| A7 | week-clustered CI `null`, with a reason, below 2 week clusters | **done** | `f04a908b` → `5e493dbe` | on the old code `one week cluster gave a week interval [-0.8,-0.8]`; a two-week control still gets an interval. Real run: the replay's forward window and both served arms now read `week.points: null` with the note (§4b) |
+| A8 | prereg addendum 2 | **done** | `9ea52eae` | committed 2026-09-22T23:42:07Z, before any code change (first: `f04a908b`, 23:44:06Z) and about 48.5 hours before week 3's first kickoff (corrected after the Auditor's fresh-session check; this row first said 24.5). Filed as one line in `WORKLOG.jsonl` (unit C-01, sha, commit time) |
+| A9 | this revision | **done** | — | §0c, the corrected sentence (§0b row 2), §2 revision 4, §4b, §6 sweeps 9-10 (the ruling's mutant V1 killed; not-applied controls C2, C3), §10 |
+
+**A7, the ruling's wording.** Its proof reads "`ci90.week === null` (it is [x, x] today)". What was
+[x, x] is the week interval's values, `ci90.week.points` and `.win_rate`; those are now `null`. The
+`ci90.week` object stays so it can carry the reason (`note`) and the cluster count, the shape the
+n = 0 case already had.
+
+**Outside the acceptance items, disclosed:** `scripts/run-start-sit-gate.mjs` prints both verdicts
+(`cf1fffa6`), and `server/routes/gates.js`'s doc comment names ESPN's projection first. Both are
+C-01's own files.
+
+**Auditor fresh-session check (2026-09-22 20:45 EDT, head `bc0062d8`): A1-A5 and A7-A9 met; A6 met
+except one panel line.** Under every `not_shown` the panel added '"Not shown" is not the same as
+"worse": these weeks may be too few to show a small edge.' It raised one possibility only, an
+unseen edge for our projection, under "treat our start/sit calls as no better than ESPN's
+projection", and it is false in `espn_ahead_at_lock_only` (4+ weeks, at-lock interval below 0).
+**RED** `78393369` "test: RED for dropping the panel's "not the same as worse ... small edge" line
+under not_shown": panel **16 pass / 1 fail**, `REAL_FIX: the panel still says "Not shown" is not the
+same as "worse"`. **GREEN** `1bdfdef9` "fix: drop the gate panel's "not the same as worse ... small
+edge" line under not_shown": panel **17/0**, surface **13/0**; `grep -c 'small edge'
+client/src/components/lineup/StartSitGate.tsx` → `0`; panel `tsc --noEmit` exit 0. The small-sample
+caveat stays ("Few weeks so far: this season shows direction, not proof."). This check touched only
+`StartSitGate.tsx`, `test/start-sit-gate-panel.test.js` and this file.
 
 ## 1. Audit: what already exists, and extend-or-build
 
@@ -167,6 +223,65 @@ Same command (`c01-fix/run-tests.sh`); TAP files in scratchpad `c01-fix/` (`red4
   (`git diff --stat d5eddaa3 8d434c66 -- server scripts test client` lists only the panel and its
   test), so sweep 5's kills on them stand; the wiring check was not re-run.
 
+### Revision 4 (after the Independent Auditor's ruling)
+
+Command per file, the coordinator's: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<mktemp> node
+--experimental-test-module-mocks --test --test-reporter=tap test/<file>.test.js` (runner
+`c01-fix4/run-tests.sh`; unlike revisions 2-3, no offline-guard import). TAP files in scratchpad
+`c01-fix4/`.
+
+- **Merged first, never rebased:** `origin/main` into the branch at `4e7c25d3` (main `dd7cec20`),
+  then again after addendum 2 at `36536263` (main `7a9d75f6`, F-08, which touches no C-01 file). No
+  conflicts. Baseline on `36536263` before any change: 15/0, 26/0, 12/0, 1/0, 11/0, 20/0.
+- **A8 first:** `9ea52eae` "docs: prereg addendum 2 for the start/sit gate's plan-rule verdict,
+  before week 3 kicks off", 2026-09-22T23:42:07Z.
+- **RED** `f04a908b` "test: RED for a null week-clustered interval below 2 week clusters (Auditor
+  ruling A7)": baseline-gate **15 pass / 1 fail**:
+
+  > `one week cluster gave a week interval [-0.8,-0.8]`
+
+- **GREEN** `5e493dbe` "fix: the week-clustered interval is null below 2 week clusters, with the
+  reason (Auditor ruling A7)": baseline-gate 16/0; start-sit-gate 26/0 and surface 12/0 unchanged.
+- **RED** `698d6762` "test: RED for the plan-rule verdict: top-level verdict, average_check,
+  plan_rule states, stored audit, Coach detail (Auditor A1-A5)": start-sit-gate **20 / 15**,
+  surface **7 / 6**, job **0 / 1**. The assertions that name the gap:
+
+  > A1 `the top-level verdict must be the plan rule, not the average check` (actual `'beats_dumb'`) ·
+  > A3 `S.planRuleVerdict is not a function` ·
+  > A4 `the plan-rule gate must reach recordGateAudit` `+ 'promotion_eligible'` `- 'blocked'` ·
+  > A5 `the job detail must carry the plan rule, not the average check` (actual `'beats_dumb'`) ·
+  > A2, the re-pointed G1-G4 tests: `Cannot read properties of undefined (reading 'gates')`
+
+  Two assertion orders changed after the first RED run, and RED was re-run on the same tree: the A1
+  test and the job test now assert the verdict before they touch `average_check`, so each RED names
+  the verdict instead of a missing field.
+- **GREEN** `83fead0c` "feat: the start/sit gate's verdict is the plan's rule, served projection vs
+  ESPN's (Auditor A1-A3)": start-sit-gate 34 / 1, surface 7 / 6, job 0 / 1. What is still red is
+  the A4-A5 set, by design.
+- **GREEN** `638608aa` "fix: the stored audit and the Coach's sync_log line carry the plan-rule
+  verdict (Auditor A4, A5)": start-sit-gate 35/0, surface 13/0, job 1/0.
+- **RED** `e10798c5` "test: RED for the gate panel per the Auditor's ruling (b): ESPN's rule heads
+  it, no green unless it passes (A6)": panel **10 / 6**, surface **10 / 3**, start-sit-gate **35 / 1**:
+
+  > `1 emerald chip(s) on the panel: Does our projection beat the dumb rule? Beats "start the higher average" …` ·
+  > `+ 'Does our projection beat the dumb rule?'` `- "Does our projection beat ESPN's projection?"` ·
+  > `one group per graded window and arm, the plan's rule (ESPN) first` ·
+  > the job label `did not match /ESPN's projection/`: `'Start/sit gate: our projection vs "start the higher season average" (plan item C12)'` ·
+  > `the panel has no wording for not_shown` · `did not match /^The plan's dumb rule: /`: `"The literal dumb rule: …"`
+
+- **GREEN** `e597292c` "feat: the Lineup gate panel asks whether we beat ESPN's projection, and
+  shows no green until we do (Auditor A6)": all six files green.
+- `cf1fffa6` (the manual run prints both verdicts); `3158f184` (test only: sweep 9 survivor V15).
+- **Final code head `3158f184`** (tree `4230a581`), six files: baseline-gate **16/0**, start-sit-gate
+  **36/0**, surface **13/0**, job **1/0**, panel **16/0**, refresh-loop **20/0** (102 tests;
+  `c01-fix4/final-3158-summary.txt`). `npm run check` was not run here: CI on Node 22 is the guard.
+- **Panel typecheck, single file** (the revision 2-3 options): exit **0** on `e597292c`; a copy with a
+  planted `const __planted: number = graded(undefined)` exits **2** (`TS2322`), the known-nonzero
+  control.
+- **Wiring:** `node scripts/wiring-map.mjs --check` on `3158f184`: **exit 0**, `no missing-feed
+  findings`. A grep of its output for the gate's names finds only an unrelated `routes/aggregates.js`
+  annotation (the pattern `gates\.js` matches `aggregates.js`).
+
 ## 3. What it does
 
 | piece | file | what |
@@ -178,7 +293,9 @@ Same command (`c01-fix/run-tests.sh`); TAP files in scratchpad `c01-fix/` (`red4
 | job | `server/services/scheduler.js` `JOBS.start_sit_gate` | growth tier, `offThread: true`, `maxAgeMinutes` 7 days, `timeoutMs` 10 min. **Weekly now; B-17 (ops calendar, not built) will give it a day.** An instrument fault returns `error`, so `sync_log` records it. **Run by `scripts/refresh-live-data.mjs` (revision 2)**, the only runner of scheduler jobs while the server has `SCHEDULER_DISABLED=1`. Its `sync_log` detail carries the verdict and directions only |
 | page | `client/src/components/lineup/StartSitGate.tsx`, rendered in `Lineup.tsx` | **direction only (revision 2):** the verdict chip in plain words; the past window in words from the verdict; this season replayed, and as served against the average and against ESPN, each as which pick scored more; why the served week differs from the replay, only when it does; every failing week as a season-week chip with no size, grouped by window and arm under the rule it lost to (revision 3: past vs the average, this season replayed, served vs the average, served vs ESPN); "What was compared" (both rules, the literal rule, the universe, scoring, why no numbers, the replay limit, when it was measured). Nav unchanged (8 tabs) |
 | served arms | `start-sit-gate.js` `servedArms`, `servedSnapshots`, `espnProjections`, `substitute` | forward weeks only, descriptive (addendum 1): the replay rows with the policy swapped for the served snapshot (arm A), and then the baseline swapped for ESPN's settled projection (arm B). Each window carries `direction` |
-| manual run | `scripts/run-start-sit-gate.mjs` | prints configuration, then controls, then the result; `--store` writes like the job |
+| manual run | `scripts/run-start-sit-gate.mjs` | prints configuration, then controls, then the result; `--store` writes like the job. Its last line prints the plan-rule verdict, then the average check (revision 4) |
+| **plan-rule verdict (revision 4)** | `start-sit-gate.js` `planRuleVerdict`, `runStartSitGate`, `refreshStartSitGate` | top-level `verdict` = `plan_rule.verdict`: the served-vs-ESPN arm pooled from 2026 week 2 (prereg addendum 2). The at-lock source can pass, never lose; the same-cutoff source does not exist yet. Gates P1-P3; reasons `too_few_weeks`, `espn_ahead_at_lock_only`, `not_distinguishable`. `average_check` carries G1-G4 unchanged. The stored audit gets gate `PLAN` beside G1-G4; the sync_log detail carries `verdict` and `average_verdict` |
+| **page (revision 4)** | `StartSitGate.tsx` | heading "Does our projection beat ESPN's projection?" and "The plan's dumb rule: start whoever ESPN projects higher."; the chip reads `plan_rule.verdict` only (emerald only for `beats_dumb`); a `not_shown` line built from the weeks, the direction and the source; the floor as one plain "Weaker check" line, rose if it fails; a result stored before the plan rule reads "Not measured against ESPN's projection yet"; lost weeks with ESPN's group first |
 
 ## 4. The numbers (local copy, not production)
 
@@ -323,6 +440,43 @@ Scratchpad `c01-fix/two-producers.mjs`, same copy and code.
   should agree unless the model changes, and the gate will show it if they do not. The served
   number is the ensemble projection, not the lineup's `week_points`; storing that is WORK-QUEUE S-12.
 
+## 4b. Revision 4 run: the plan-rule verdict (local copy, not production)
+
+**For the Auditor, not for Nick.**
+
+- **Copy:** `sqlite3 ~/gridiron-local/data.sqlite ".backup '<scratchpad>/c01-fix4/run/data-c01fix4.sqlite'"`
+  at 2026-09-22T23:58:16Z: 925,073,408 bytes, SHA-256
+  `1d474388f84e1b7dfb8ad91ecdf1067fd06d7e852a45cb11583f0a6d632b78b3`. **Local copy, not
+  production.** No `leagues` column is read.
+- **Command** (HEAD `cf1fffa6`, tree `1defe230`, worktree clean; the code is identical to `3158f184`,
+  which changed only a test): `GRIDIRON_DB_PATH=<copy> GRIDIRON_DB_INTEGRITY_CHECK=off
+  SCHEDULER_DISABLED=1 /usr/bin/time -l node scripts/run-start-sit-gate.mjs --iterations 2000` →
+  exit 0, 12.65 s wall, 451,788,800 B max RSS, load average 6.7. Last line: `verdict (plan rule,
+  served vs ESPN): not_shown (too_few_weeks); average check: beats_dumb`. Output
+  `c01-fix4/run/gate-run-fix.out`, JSON `gate-run-fix.json`.
+- **Configuration first (STATS-METHOD rule 7):** role recency `{seasonDecay 0.05, weekHalfLife 5}`
+  passed explicitly, `kOverride` omitted; k control target-share k 2024 0.2747, 2025 0.2086, 2026
+  0.1733 (fit 1); champions `frozen-2023` for 2024-2025 weeks 5-18 and `fit-2` for 2026 week 2.
+  Controls: oracle n 10,131, win rate 1, +6.8984 points; identity n 0; passed.
+
+| field | this run | against the ruling's run (`c01-audit/gate-run-audit.json`, b97d5ea2, copy `b9086412`) |
+|---|---|---|
+| `average_check` | `beats_dumb`; G1 0.7958, G2 0.9566, G3 0.5256, G4 2.7923 | identical (A2) |
+| `plan_rule` | `not_shown`, reason `too_few_weeks`, source `espn_at_lock`, weeks graded 1, direction `dumb_ahead`; P1 −6.5246, P2 0.2537, P3 1, all failed; MDE80 4.7299 points, 0.1869 win rate | new; exactly what addendum 2 §5 wrote down before the run |
+| served vs ESPN, at lock | 153 rows (207 without an ESPN value, 0 conflicting), 784 pairs, 286 disagreements, 69 players, won 0.3776, −3.4207 per disagreement, player CI [−6.5246, −0.3637], win-rate CI [0.2537, 0.5057] | identical |
+| week-clustered CI of the one-week windows (the replay's forward week, both served arms) | `null`, note "fewer than 2 week clusters: one week is one cluster, not an interval" | was [x, x] (A7) |
+| past window | n 6,633, +1.3703, won 0.5497, week CI [0.9566, 1.7702] over 28 clusters | identical |
+
+- **Stored the way the job stores** (`--store` on the same copy, a second run, 26.6 s):
+  `model_gate_audits` row 1, `FANTASY / start_sit`, verdict **`blocked`**, gates G1-G4 passed and
+  PLAN failed (A4). Detail: `{"verdict":"not_shown","average_verdict":"beats_dumb","audit_id":1,
+  "past_direction":"ours_ahead","forward_direction":"ours_ahead","served_vs_average_direction":"ours_ahead",
+  "served_vs_espn_direction":"dumb_ahead"}` (A5). The copy held no earlier start/sit gate row, so no
+  result stored before this revision exists locally.
+- **Real-panel render on the fix head:** `c01-fix4/render-fix.mjs`, a versioned copy of the Auditor's
+  `render-audit.mjs` that reads `latestStartSitGate()` from the copy (what the route serves) instead
+  of a hand-made payload → `c01-fix4/render-fix.out`: 0 `bg-emerald`, 1 amber chip. The text is in §10.
+
 ## 5. Holdout looks
 
 No `docs/evidence/HOLDOUT-LEDGER.md` on `origin/main d6d7bd5a`, so recorded here.
@@ -331,9 +485,14 @@ No `docs/evidence/HOLDOUT-LEDGER.md` on `origin/main d6d7bd5a`, so recorded here
 |---|---|---|---|---|
 | C-01 | 2026-09-22 | H1: our as-of weekly projection's start/sit pick outscores the season-average pick where they disagree | points per disagreement (player-clustered 90% CI), decision win rate | 2,999 disagreements, 57.2% won, +1.95 [+1.16, +2.75] (local copy, `42310804`) |
 | C-01 | 2026-09-22 | H1, re-run in revision 2 (policy unchanged; new copy `b9086412`) | same | identical: 2,999, 0.5715, +1.9482 [+1.1575, +2.7485] (local copy, `ffd84d02`). Arms A and B read 2026 only |
+| C-01 | 2026-09-22 | H1 as `average_check`, re-run in revision 4 (policy unchanged; copy `1d474388`) | same | identical: 2,999, 0.5715, +1.9482 [+1.1575, +2.7485] (local copy, `cf1fffa6`). The plan-rule verdict reads 2026 only |
 
 The standing job re-reads 2025 weekly; with the policy unchanged that is the same deterministic
 number, not a new look. A policy change is a new look owned by the unit that makes it.
+
+`docs/evidence/HOLDOUT-LEDGER.md` now exists on main (S-00, `dd7cec20`). This unit does not own it,
+so these rows are not copied there. Each weekly plan-rule grade is also a look at 2026 (STATS-METHOD
+rule 5, "2026 forward looks"); that row is the coordinator's to record (addendum 2 §8.5).
 
 ## 6. Mutation sweep
 
@@ -490,6 +649,60 @@ first sweep's P1 and P2 above are different mutants.
 | C2 | designed not-applied | anchor absent (0 matches) | — | **NOT-APPLIED** | — |
 | C3 | designed not-applied | anchor ambiguous (35 matches) | — | **NOT-APPLIED** | — |
 
+### Revision 4 sweeps (after the Independent Auditor's ruling)
+
+Runner `c01-fix4/mutate-v5.py`, a versioned copy of `c01-fix3/mutate-v4.py` with only the worktree
+(`wt/C-01-mut5`, detached at the swept sha), the output folder, the spec path and the test command
+changed (the coordinator's command, no offline-guard import). Same rules: each mutant must match its
+anchor exactly once or it is refused as NOT-APPLIED; every file is restored to its before-hash
+(`start-sit-gate.js` `d0761f094792`, `baseline-gate.js` `2b13b250280f`, `StartSitGate.tsx`
+`711a5bcefc00`); the worktree must be clean before and after. Six test files. Spec
+`c01-fix4/mutants-v5.json`: **the ruling's call-site mutant V1** ("top-level `verdict` ←
+`average_check.verdict`"), V2-V17 on the server and the week interval (call sites marked), P1-P9 on
+the panel, the known-kill control K1, and the designed controls C1 (a comment edit, must survive), C2
+(absent anchor) and C3 (`result.`, 12 matches), both must be refused.
+
+- **Sweep 9** on `cf1fffa6` (tree `1defe230`), baseline 102/102: **26 of 27 applied mutants killed**;
+  **V15 survived**: no fixture had the two arms pointing different ways while the same-cutoff arm
+  decided. The test was blind, not the code: fixed in the test (`3158f184`). C1 survived; C2 and C3
+  were refused; `worktree clean at cf1fffa6` (`sweep-v5-s9a.txt`, `sweep-v5-s9b.txt`).
+- **Sweep 10** on `3158f184` (tree `4230a581`): V15 **killed**, V1 killed again, C1 survived, C2
+  refused; `worktree clean at 3158f184` (`sweep-v5-s10.txt`). Only a test file changed between the
+  two sweeps, so sweep 9's kills stand.
+
+| # | kind | mutation | sweep 9 pass/fail | result | killed by (first test) |
+|---|---|---|---|---|---|
+| V1 | **call-site (the ruling's)** | top-level `verdict` ← `average_check.verdict` | 98/4 | **KILLED** (sweep 10 too) | when our projection orders the actuals right … the average check is beats_dumb (+ A1-A2, A4-A5) |
+| V2 | call-site (A4) | the PLAN gate never reaches `recordGateAudit` | 99/3 | **KILLED** | A4, A5: on the A1 fixture the stored audit is blocked … (+ surface A4 control, job) |
+| V3 | unit (A4) | the PLAN gate always passes | 99/3 | **KILLED** | A4, A5: on the A1 fixture the stored audit is blocked … |
+| V4 | call-site (A5) | sync_log `verdict` ← the average check | 98/4 | **KILLED** | A4, A5: on the A1 fixture … the Coach-readable detail carries the plan rule |
+| V5 | call-site (A5) | sync_log `average_verdict` ← the plan rule | 98/4 | **KILLED** | A4, A5: … |
+| V6 | call-site (A3) | the at-lock arm fed in as the same-cutoff source | 100/2 | **KILLED** | the served arms never move the average check …; the ESPN arm moves the plan rule |
+| V7 | call-site (A3) | the plan rule fed the served-vs-average arm | 100/2 | **KILLED** | the served arms never move the average check … |
+| V8 | unit (A3) | an at-lock window may return `loses_to_dumb` | 101/1 | **KILLED** | plan rule: at-lock weeks are never a loss, however many … |
+| V9 | unit (A3) | 3 graded weeks are enough | 100/2 | **KILLED** | plan rule A3: three passing weeks is not_shown, too few weeks |
+| V10 | unit (A3) | the win-rate gate P2 ignored | 101/1 | **KILLED** | plan rule: four weeks that neither pass nor lose … each pass bound is strict |
+| V11 | unit (A3) | P1 not strict | 101/1 | **KILLED** | plan rule: four weeks that neither pass nor lose … |
+| V12 | unit (A3) | the same-cutoff source decides from its first week | 100/2 | **KILLED** | plan rule A3: three passing weeks is not_shown … |
+| V13 | unit | a failed instrument still draws a plan-rule verdict | 101/1 | **KILLED** | an instrument whose known-nonzero control finds nothing says so … |
+| V14 | unit (A2) | `average_check` drops the instrument-fault override | 101/1 | **KILLED** | an instrument whose known-nonzero control finds nothing says so … |
+| V15 | unit (A3) | direction read from the at-lock arm while the same-cutoff arm decides | 102/0 | **SURVIVED**, then **KILLED** in sweep 10 (101/1) | plan rule A3: four passing weeks is beats_dumb, from either source |
+| V16 | unit (A7) | one week cluster still gets a week interval | 101/1 | **KILLED** | below 2 week clusters the week-clustered interval is null … |
+| V17 | unit (A7) | two week clusters refused an interval too | 100/2 | **KILLED** | below 2 week clusters … (+ job) |
+| P1 | call-site (A6, consumer) | chip keyed on the top-level `verdict` (a stored pre-ruling result paints green) | 101/1 | **KILLED** | A6: the ruling's real result as b97d5ea2 served it gets no emerald … |
+| P2 | call-site (A6, consumer) | chip keyed on the average check | 98/4 | **KILLED** | A6: the same real result as the fix serves it … |
+| P3 | unit (A6) | the `not_shown` chip painted emerald | 100/2 | **KILLED** | A6: the same real result as the fix serves it … |
+| P4 | unit (A6) | a failing floor never turns rose | 101/1 | **KILLED** | A6: the floor line turns into a rose warning … |
+| P5 | unit (A6) | a passing floor painted green | 100/2 | **KILLED** | A6: the same real result as the fix serves it … |
+| P6 | unit (A6) | the at-lock caveat printed for every source | 101/1 | **KILLED** | A6: the not_shown line names the weeks … |
+| P7 | unit (A6) | the past group listed before ESPN's | 101/1 | **KILLED** | every graded arm lists its own failing weeks … |
+| P8 | unit (A6) | the heading stops naming ESPN | 100/2 | **KILLED** | A6: the ruling's real result as b97d5ea2 served it … |
+| P9 | unit (A6) | the `not_shown` line loses "no better than ESPN's projection" | 100/2 | **KILLED** | A6: the same real result as the fix serves it … |
+| K1 | known-kill control | sign convention flipped (builder M2) | 90/12 | **KILLED** | a disagreement our pick wins is 1 with positive points … |
+| C1 | designed survivor | comment-only edit | 102/0 | **SURVIVED** (sweep 10 too) | — (as designed) |
+| C2 | designed not-applied | anchor absent (0 matches) | — | **NOT-APPLIED** (sweep 10 too) | — |
+| C3 | designed not-applied | anchor ambiguous (12 matches) | — | **NOT-APPLIED** | — |
+
 ## 7. Known defects and limits
 
 1. **It grades the replay predictor, not the full live number.** Production's `week_points`
@@ -519,19 +732,20 @@ first sweep's P1 and P2 above are different mutants.
    filter applies to actuals). It proves the grading machinery can see an edge on these rows, not
    that the real pair set is well formed; the tests pin that.
 10. **`model_gate_audits.verdict` speaks `recordGateAudit`'s vocabulary** (`promotion_eligible` /
-    `blocked`). The served payload carries the gate's own verdict. A FANTASY row cannot be promoted
-    through the only promote route (`routes/nfl-market.js:217` passes `'NFL'`).
+    `blocked`). Since revision 4 it is `blocked` unless both the plan rule (gate PLAN) and the floor
+    (G1-G4) pass; an instrument fault is blocked too. The served payload carries the gate's own
+    verdict. A FANTASY row cannot be promoted through the only promote route
+    (`routes/nfl-market.js:217` passes `'NFL'`).
 11. **Cost:** every weekly run re-replays 2024-2025 (52.7 s measured) although those numbers only
     move when the model does. Accepted for now; a model-version short-circuit is a follow-up.
 12. **Shared files edited:** `server/services/scheduler.js` (one JOBS entry plus its run function),
     `server/index.js` (one import, one mount), `client/src/pages/Lineup.tsx` (one import, one
-    element). F-04 and B-17 also edit `scheduler.js`, so expect a merge there.
-13. **The dumb rule is a judgement, pre-registered:** "season-to-date average". Revision 2 adds the
-    literal rule, ESPN's weekly projection, as descriptive arm B on the forward weeks
-    (`league_roster_snapshots`, which the refresh loop keeps writing). On 2026 week 2 it points
-    against us (§4a). Whether it becomes the gating rule is the Auditor's ruling. Until then the
-    panel's green chip names the rule it beat, and revision 3 lists the literal rule's lost week
-    (2026 W2) under its own heading.
+    element). F-04 and B-17 also edit `scheduler.js`, so expect a merge there. Revision 4 changes
+    only the job's label and doc comment in `scheduler.js`, and only the comment in `Lineup.tsx`.
+13. **The dumb rule, ruled (revision 4).** The Auditor ruled that the verdict gates on ESPN's weekly
+    projection, the plan's rule, and that the pre-registered season average stays as a floor,
+    `average_check`, never the verdict (§0c). On today's data the verdict is `not_shown`: one
+    at-lock week, ESPN ahead. The panel's green chip is gone; emerald now needs a plan-rule pass.
 14. **Arm B's ESPN value is the settled one**, read from the boxscore after the period: it carries
     news after our Thursday capture (127 of 153 values moved). This favours ESPN. The pregame ESPN
     capture table (`espn_player_market_weekly`) has no writer, so a standing gate cannot use it.
@@ -541,10 +755,53 @@ first sweep's P1 and P2 above are different mutants.
     direction only. If rule 3 is read to cover the route too, the fix is a `display` projection in
     `latestStartSitGate`.
 17. **Files outside the unit row:** `scripts/refresh-live-data.mjs` (one allowlist entry, `ad66dae7`)
-    and `test/refresh-loop-steps.test.js` (G7, `05ceb070`). They need a file grant (standing rule 9);
-    both commits drop cleanly if it is refused, and then the panel ships answering "not measured yet".
+    and `test/refresh-loop-steps.test.js` (G7, `05ceb070`). **Granted** (WORK-QUEUE.md :601). The
+    `server/index.js` mount (+4, one import and one mount) is outside the row too: **granted** at :610,
+    per the ruling's (d). Revision 4 touches none of the three.
+18. **No same-cutoff source yet.** Until RL-1-1's capture (migration 071, which needs Nick's N9
+    word) or S-12 lands, the plan rule reads only the at-lock arm, so it can pass or stay
+    `not_shown`, never return a loss (ruling §5.1). Reading that capture once it lands is a follow-up
+    for this unit's owner; RL-1-1's own `consensus-gate.js` must feed this gate, not run beside it.
+19. **The sub-window report is not built.** Addendum 2 §3 registers a sub-window for each change of
+    served model. Week 3's snapshot carries `weight_fit` `fit-2` (week 2's is `frozen-2023`, §4a),
+    so the first change arrives with week 3's grade (after its games, about 2026-09-29), and S-03's
+    week 5 would be the second. The code for that report is due before week 3 is graded; it is
+    descriptive and never moves the verdict.
+20. **Repeated looks.** The gate is re-read every week, so over a season its false-pass rate is
+    above a single look's 5%; no alpha spending is applied (addendum 2 §8.4).
+21. **2026 forward looks** belong in `HOLDOUT-LEDGER.md`, which this unit does not own; the
+    coordinator records them (addendum 2 §8.5).
+22. **A result stored before revision 4** has no `plan_rule`. The panel then says "Not measured
+    against ESPN's projection yet" and never reads the old top-level `verdict` (which was the
+    average's) as the plan rule's. The local copy held no such row (§4b).
 
 ## 8. Nick's five questions
+
+*Revision 4 answers first; the revision 1-3 answers follow, unchanged where still true.*
+
+1. **Well built? (revision 4)** The ruling's nine items are each a test that failed on the old code
+   and passes now (§0c, §2). 102 tests across six files. Sweep 9-10: all 27 applied mutants killed
+   on the final code, including the ruling's own mutant (the top-level verdict taken from the
+   average check); one survivor on the way (V15) was a blind test, fixed. The plan rule is one
+   pure function (`planRuleVerdict`) with no new table, route or job.
+2. **Stats or made up? (revision 4)** Stats, with one judgement each way stated before the run:
+   the 4-week floor and the at-lock/same-cutoff split come from the ruling and addendum 2; the
+   interval is the same player-clustered bootstrap. Week 2 is not blind (addendum 2 §1).
+3. **How we know (revision 4, direction only; the sizes are in §4b for the Auditor):** against
+   ESPN's weekly projection, the plan's rule, the one week measured (2026 week 2) points ESPN's
+   way, read at lineup lock, which favours ESPN. That is **not shown to beat ESPN's projection**:
+   too few weeks to decide either way, and an at-lock week can never prove a loss. The weaker
+   check set before the numbers still passes: against the season average our pick scored more in
+   2024-2025 and in 2026 week 2 replayed. Local copy, not production.
+4. **Pointed anywhere else? (revision 4)** C-10 must read `plan_rule`, never `average_check`. C-02
+   and C-03 follow the same principle: gate on the plan's named rule, a stand-in only as a floor,
+   the prereg filed before any number. RL-1-1's consensus gate must feed this gate. S-02 may claim
+   "beats our other arms", never "beats ESPN".
+5. **How it unifies (revision 4):** one producer of "ours vs ESPN at start/sit" (the plan rule),
+   one store (`model_gate_audits`, now gated on both rules), one Coach line carrying both verdicts
+   by name.
+
+Revisions 1-3:
 
 1. **Well built?** Yes, by reuse: the replay (`weekly-backtest.js:88`), the week-clustered
    bootstrap (`backtest-significance.js:57`) and the governance store (`model-governance.js:154`)
@@ -597,7 +854,15 @@ first sweep's P1 and P2 above are different mutants.
   (`leagues` is not read). **Licence:** no new external data; the replay reads existing
   `player_week_usage` (nflverse, CC BY; attribution is F-08); ESPN's projections come from the
   leagues' own synced lineups, already stored by the app.
-- **Rulings needed before merge (Independent Auditor):** (a) a prereg committed before the run but
+- **Rulings (revision 4):** filed 2026-09-22 (`audits/2026-09-22-C-01-ruling.md`, WORK-QUEUE.md
+  :611): (a) the gate gates on ESPN's weekly projection, the average as a floor; (b) the page as
+  §10; (c) A1-A9, all done (§0c); (d) the `server/index.js` grant (:610). Rule 2: accepted for H1's
+  scope, with addendum 2 filed before week 3 (A8). The two-factor player interval: accepted as the
+  primary interval. Rule 3 governs what Nick sees. **Still needed before merge:** CI green on Node 22
+  at the pushed head, and an Auditor check of that head in a fresh session. After merge, C12's
+  start/sit line stays "partial: instrument live; plan bar not shown met" until the plan-rule
+  verdict reads `beats_dumb`.
+- **Rulings asked for in revision 3 (history):** (a) a prereg committed before the run but
   not filed with the Auditor (rule 2); (b) the two-factor player interval; (c) the season average as
   the gating dumb rule, now with the literal ESPN arm pointing against us on week 2; (d) the unit
   row's "decision win rate and points shown on the Lineup page" against rule 3 (this unit assumes
@@ -608,29 +873,38 @@ first sweep's P1 and P2 above are different mutants.
 
 ## 10. What Nick sees (direction only)
 
-The real panel (`StartSitGate.tsx` at `06408d00`, revision 3), compiled with the repo's TypeScript
-and rendered with React, fed the revision-2 run's result exactly as `latestStartSitGate` would serve
-it (scratchpad `c01-fix/render-real.mjs gate-run-2.out` → `c01-fix3/render-real-0640.out`; the
-render on `8d434c66` is byte-identical). Its visible text, above "What was compared":
+**Revision 4.** The real panel (`StartSitGate.tsx` at `1bdfdef9`, after the Auditor's fresh-session
+item), compiled with the repo's TypeScript and rendered with React, fed what `GET /api/gates/start-sit`
+serves from the local copy after the revision-4 run was stored (`latestStartSitGate()`, read from a
+throwaway copy of that copy so it stays at `73e67399…`; scratchpad `c01-fix4/render-fix.mjs` →
+`c01-fix4/render-fix-2.out`). Its visible text, above "What was compared":
 
-> Does our projection beat the dumb rule?
-> **Beats "start the higher average".** Our projection picked the better player more often than "start the higher average", in past seasons and this one.
-> Past seasons (2024 and 2025, weeks 5-18): where the two disagreed, our pick scored more, and it held up under the test set before the run.
-> This season (2026, week 2), today's model replayed: our pick scored more.
-> What the app actually served that week: against the average, our pick scored more; against ESPN's projection (the literal "start the highest projection"), ESPN's pick scored more.
+> Does our projection beat ESPN's projection?
+> The plan's dumb rule: start whoever ESPN projects higher.
+> **Not shown to beat ESPN's projection** (amber)
+> In the one week measured (2026 week 2), ESPN's pick scored more. ESPN's number was read at lineup lock, after news our projection did not have, which favours ESPN. Until this passes, treat our start/sit calls as no better than ESPN's projection.
+> Weaker check, set before the numbers: against "start the higher season average", our pick scored more in 2024-2025 and in 2026 week 2 replayed.
+> What the app served this season, against the season average (the weaker check): our pick scored more.
 > The week 2 projection was served on older settings (before the fitted volume numbers existed; different blend weights), so what the app served and today's replay are not the same projection.
 > Few weeks so far: this season shows direction, not proof.
 > **Weeks our projection lost**
-> Past seasons, against "start the higher average": 2024 W10 · 2024 W11 · 2024 W14 · 2025 W13 · 2025 W14
+> This season as the app served it, against ESPN's projection (the plan's rule): 2026 W2
+> Past seasons, against "start the higher average" (the weaker check): 2024 W10 · 2024 W11 · 2024 W14 · 2025 W13 · 2025 W14
 > This season, today's model replayed, against the average: None: our pick did not lose a graded week.
 > This season as the app served it, against the average: None: our pick did not lose a graded week.
-> This season as the app served it, against ESPN's projection: 2026 W2
 
-No rate, size, interval, minimum detectable effect or pair accuracy appears: `grep -o -E
-'[0-9]+(\.[0-9]+)?%|[+-][0-9]+\.[0-9]+'` on the render finds nothing, and the same grep finds `55.0%`
-and `+1.37` in the old panel's sentence (known-nonzero control). The headline chip still reads
-"Beats "start the higher average"": the verdict gates on the pre-registered rule until the Auditor
-rules on (c); the literal rule's lost week is shown beside it, not hidden. "What was compared"
-names both rules, the literal rule, the universe (its 8.0 line is a threshold, not a result),
-scoring, why there are no numbers, the replay limit and when it was measured.
+- **No green:** 0 `bg-emerald` classes (b97d5ea2 rendered 1 emerald chip on the ruling's result);
+  1 amber chip. Emerald appears only for a plan-rule `beats_dumb`.
+- **No softening line:** the render at `bc0062d8` also carried '"Not shown" is not the same as
+  "worse": these weeks may be too few to show a small edge.' under the chip; `1bdfdef9` removed it
+  (§0c), and the render above has neither "not the same as" nor "small edge".
+- **No magnitude:** `grep -o -E '[0-9]+(\.[0-9]+)?%|[+-][0-9]+\.[0-9]+'` on the render finds nothing;
+  the same grep on the run's JSON finds `-1.3357`, `-0.8139`, … (known-nonzero control). The panel
+  test goes further and allows no digit at all except seasons, weeks, the timestamp and the two
+  rules in the universe text (8.0 PPR, 0 if he did not play).
+- "What was compared" opens with "The plan's dumb rule: …" (ESPN's projection) and then "The weaker
+  check, set before the numbers: …" (the season average).
 
+**Revision 3, for the record** (`06408d00`, before the ruling): the heading read "Does our projection
+beat the dumb rule?" and the chip was an emerald 'Beats "start the higher average"', with ESPN's
+lost week listed last. That is what the ruling replaced.

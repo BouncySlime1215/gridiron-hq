@@ -3,7 +3,8 @@
  * its weekly scheduler job, off the request thread, and stored in model_gate_audits;
  * a request only reads the latest stored result.
  *
- *   GET /api/gates/start-sit   our projection vs "start the higher season average"
+ *   GET /api/gates/start-sit   our served projection vs ESPN's weekly projection (the plan's
+ *                              rule), with "start the higher season average" as a floor check
  *                              (services/gates/start-sit-gate.js, job start_sit_gate)
  */
 import { Router } from 'express';

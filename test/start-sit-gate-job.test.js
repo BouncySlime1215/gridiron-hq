@@ -56,13 +56,18 @@ test('JOBS.start_sit_gate.run() stores one FANTASY / start_sit row in model_gate
   seed();
   assert.equal(rows('SELECT COUNT(*) AS n FROM model_gate_audits')[0].n, 0, 'nothing stored before the run');
   const detail = await JOBS.start_sit_gate.run();
-  const stored = rows(`SELECT id, sport, market, evidence_json FROM model_gate_audits`);
+  const stored = rows(`SELECT id, sport, market, verdict, evidence_json FROM model_gate_audits`);
   assert.equal(stored.length, 1, 'the job wrote exactly one gate row');
   assert.equal(stored[0].sport, 'FANTASY');
   assert.equal(stored[0].market, 'start_sit');
   assert.equal(detail.audit_id, stored[0].id);
   assert.equal(JSON.parse(stored[0].evidence_json).verdict, detail.verdict);
-  assert.equal(detail.verdict, 'beats_dumb');
+  // Every replayed call is won (the average check passes), but this fixture has no served
+  // snapshot and no ESPN value, so the plan's rule has no week to grade (Auditor A1, A4, A5).
+  assert.notEqual(detail.verdict, 'beats_dumb', 'the job detail must carry the plan rule, not the average check');
+  assert.equal(detail.verdict, 'not_shown');
+  assert.equal(detail.average_verdict, 'beats_dumb');
+  assert.equal(stored[0].verdict, 'blocked');
   assert.equal(statusFromDetail(detail), 'ok');
   assert.deepEqual(replayCalls, [2024, 2025, 2026], 'the job ran the past windows and the forward week');
 });

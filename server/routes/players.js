@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { trendPct } from './aggregates.js';
-import { computeSOS } from './nfldata.js';
 import { statsFor, fetchGameLog } from './stats.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { weeklyProjectionFor } from '../services/fantasy-coordinator.js';
 import { tradeWeekContext } from '../services/trade-engine.js';
 import { playerAdvancedStats } from '../services/player-advanced-stats.js';
+import { playerNews } from '../news/player-news.js';
+import { activeInjuryFlagIds } from '../services/injury-flags.js';
 import { playerHype } from '../services/hype.js';
 
 const r = Router();
@@ -20,21 +21,9 @@ function headshot(p) {
 function metricsFor(playerId) {
   const m = {};
   for (const x of rows('SELECT source, value FROM player_metrics WHERE player_id = ?', playerId)) m[x.source] = x.value;
+  // One definition of "flagged": a stale Sleeper flag the producer ignores reads as off here too.
+  if (m.injury_flag > 0 && !activeInjuryFlagIds().has(playerId)) m.injury_flag = 0;
   return m;
-}
-
-// News matching: full name always; bare last name only for that player's own team
-// (so "Brown" doesn't pull A.J. Brown / Chase Brown / Cleveland Browns together).
-function newsFor(player) {
-  const full = `%${player.name}%`;
-  const last = `%${player.name.split(' ').slice(-1)[0]}%`;
-  return rows(`SELECT n.*, t.abbr AS team_abbr FROM news_items n
-               LEFT JOIN nfl_teams t ON t.id = n.team_id
-               WHERE (n.headline LIKE ? OR n.ai_analysis LIKE ? OR n.fantasy_impact LIKE ?)
-                  OR (n.team_id IS NOT NULL AND n.team_id = ?
-                      AND (n.headline LIKE ? OR n.ai_analysis LIKE ? OR n.fantasy_impact LIKE ?))
-               ORDER BY n.date DESC LIMIT 10`,
-    full, full, full, player.team_id ?? -1, last, last, last);
 }
 
 r.get('/', (req, res) => {
@@ -80,7 +69,7 @@ r.get('/:id', (req, res) => {
     headshot: headshot(player),
     metrics: metricsFor(player.id),
     ranks,
-    news: newsFor(player),
+    news: playerNews(player.id),
     teammates,
     depth,
     depth_multi: depthMulti,
@@ -141,7 +130,7 @@ r.get('/:id/gamelog', async (req, res, next) => {
 // opposite call to sellHigh on 57 of 89 flags. Hype now has one producer,
 // services/hype.js#playerHype, and this route passes it through unchanged.
 
-function playerEvidenceFacts({ player, metrics, news, depth, sos }) {
+export function playerEvidenceFacts({ player, metrics, news, depth }) {
   const facts = [];
   const add = (id, text, source) => { if (text) facts.push({ id, text, source }); };
   const trend = trendPct(metrics.fc_value, metrics.fc_trend30);
@@ -149,7 +138,8 @@ function playerEvidenceFacts({ player, metrics, news, depth, sos }) {
   if (metrics.ffc_adp ?? metrics.fc_adp) add('market.adp', `Current ADP is ${Number(metrics.ffc_adp ?? metrics.fc_adp).toFixed(1)}.`, 'fantasy market feed');
   if (metrics.sleeper_rank) add('market.sleeper_rank', `Sleeper rank is ${Math.round(metrics.sleeper_rank)}.`, 'Sleeper');
   if (metrics.injury_flag) add('availability.flag', 'The structured player feed currently carries an injury flag.', 'player metrics');
-  if (sos) add('schedule.rank', `Remaining schedule ranks ${sos.rank}/32 where 1 is easiest.`, 'computed schedule model');
+  // No schedule fact: schedule strength is not a validated signal (matchups.js
+  // MATCHUP_SIGNAL_REASON) and the old rank was computed from an empty store (RL-8-3).
   if (player.off_scheme) add('team.scheme', `${player.team_name} lists its offense as ${player.off_scheme}.`, 'team profile');
   const competitors = depth.filter(x => x.name !== player.name && x.position === player.position).map(x => x.name).slice(0, 4);
   if (competitors.length) add('depth.competition', `Same-position depth-chart competition: ${competitors.join(', ')}.`, 'synced depth chart');
@@ -179,7 +169,7 @@ r.post('/:id/analyze', async (req, res, next) => {
                         FROM players p LEFT JOIN nfl_teams t ON t.id = p.team_id WHERE p.id = ?`, req.params.id);
     if (!player) return res.status(404).json({ error: 'player not found' });
     const m = metricsFor(player.id);
-    const news = newsFor(player);
+    const news = playerNews(player.id);
 
     const hype = playerHype({ sleeperId: player.sleeper_id });
 
@@ -200,8 +190,7 @@ r.post('/:id/analyze', async (req, res, next) => {
     const depth = rows(`SELECT name, position, slot_code FROM players
                         WHERE team_id = ? AND slot_code IS NOT NULL AND phase = 'offense'
                         ORDER BY slot_code`, player.team_id ?? -1);
-    const sos = player.team_abbr ? computeSOS().find(s => s.abbr === player.team_abbr) : null;
-    const facts = playerEvidenceFacts({ player, metrics: m, news, depth, sos });
+    const facts = playerEvidenceFacts({ player, metrics: m, news, depth });
     const fallback = hype.verdict ?? 'HOLD';
 
     const msg = await callClaude({

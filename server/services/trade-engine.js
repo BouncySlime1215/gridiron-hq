@@ -63,6 +63,7 @@ import { rosterLocks, lockPins } from './lineup-lock.js';
 import { seasonEndingEspnIds } from './player-availability.js';
 import { buildPlayerWeekEngine, playerWeekDistribution } from './player-week-engine.js';
 import { weeklyAvailability, availabilityBasis } from './contingency.js';
+import { activeInjuryFlagIds } from './injury-flags.js';
 import { cached, fingerprint } from './compute-cache.js';
 import { activeWeeklyWeightSet } from './weekly-weight-store.js';
 import { scoringFor } from './scoring.js';
@@ -72,16 +73,21 @@ import { dynastyAgeAdjustment } from './dynasty-age-curve.js';
 // this week identically), the normal CDF behind a swap's probability, and the
 // write that retires a lineup recommendation lineupDiff() itself published.
 import { vegasLift } from './waiver-brain.js';
+// The league's wire, for lineupValue()'s replacement level (one producer with the
+// Waivers page's waiverBoard()).
+import { leagueWire } from './league-wire.js';
 import { normalCdf, withRandomSeed } from './stats-util.js';
 // lineupSpread() only: each starter's played-week draws and the fitted archetype
 // correlations, for the lineup-total floor/ceiling.
 import { sampleWeeks } from './projections.js';
 import { correlationMatrix, correlationBasis } from './correlation.js';
 import { servedTableState } from './data-freshness.js';
+import { currentMarket } from './dynasty-value-history.js';
 import { run as dbRun } from '../db/index.js';
 // Evidence layers (see the "evidence" section below). Read-only sources: the
 // engine never re-prices on them, it explains with them.
 import { careerLine } from './player-career.js';
+import { playerNews } from '../news/player-news.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
 import { counterpartyLayer, readDeal, counterpartyDataKey, playerValuation, selfRead }
@@ -202,7 +208,9 @@ export function tradeWeekContext() {
 export const ASSET_INPUT_TABLES = [
   { table: 'players', stamp: 'id' },
   { table: 'roster_players', stamp: 'id' },
-  { table: 'dynasty_values', stamp: 'player_id' },
+  // fetched_at, not player_id: a re-sync updates prices in place (same count, same
+  // max id), so the old stamp never saw a new price; retirement lands in the same run.
+  { table: 'dynasty_values', stamp: 'fetched_at' },
   // Row counts only: MAX(week) was always 18 and carried nothing. In-place stat
   // corrections to the served season are caught by servedInputsDigest() below.
   'player_week_usage',
@@ -229,7 +237,9 @@ export const ASSET_INPUT_TABLES = [
   // A trending re-sync upserts in place (ON CONFLICT DO UPDATE), so the row count
   // alone never saw it; fetched_at is rewritten on every sync.
   { table: 'trending_players', stamp: 'fetched_at' },
-  'player_metrics', 'schedule_games',
+  // The Sleeper sync clears an injury flag with an UPDATE (RL-12-2), so the row count
+  // never moves; every player_metrics writer re-stamps fetched_at.
+  { table: 'player_metrics', stamp: 'fetched_at' }, 'schedule_games',
   // Not read by buildAssetUniverse, but by lineupSpread inside findTrades, whose cache
   // keys on this list. A refit rewrites fitted_at on the same 20-odd rows.
   { table: 'correlation_estimates', stamp: 'fitted_at' }
@@ -279,7 +289,13 @@ function servedInputsDigest(season, week) {
 const assetInputsKey = (lg, formatKey, target) =>
   `${lg.id}:${formatKey}:${target.season}:${target.week}:` +
   `w${activeWeeklyWeightSet({ season: target.season, week: target.week }).id}:` +
-  `d${servedInputsDigest(target.season, target.week)}:h${handFedKey(handFedInputs())}`;
+  `d${servedInputsDigest(target.season, target.week)}:h${handFedKey(handFedInputs())}:` +
+  `i${injuryFlagKey()}`;
+
+// A flag goes stale by the clock alone (injury-flags.js), with no table write, so the
+// active set itself is part of the key (RL-12-2).
+const injuryFlagKey = () => crypto.createHash('sha1')
+  .update([...activeInjuryFlagIds()].sort((a, b) => a - b).join(',')).digest('hex').slice(0, 12);
 
 export function assetUniverse(lg, formatKey, requested = null) {
   const target = requested ?? tradeWeekContext();
@@ -328,14 +344,13 @@ function buildAssetUniverse(lg, formatKey, target) {
   const active = weeklyAvailability(target.season, target.week, { through: target.season - 1 });
   const board = new Map(vorBoard(lg.team_count || 12).map(p => [p.id, p]));
   const vol = volatility();
-  const market = new Map(rows(
-    'SELECT player_id, value, age, trend30, pos_rank FROM dynasty_values WHERE format_key = ?', formatKey)
-    .map(d => [d.player_id, d]));
+  // Live FantasyCalc prices only: a row FantasyCalc stopped returning is retired
+  // (dynasty-value-history.js) and prices as unpriced here, not at its last value.
+  const market = currentMarket(formatKey);
   const ageByPlayer = new Map(rows(`SELECT p.id, rp.age FROM players p
                                     JOIN roster_players rp ON rp.espn_id = p.espn_id
                                     WHERE rp.age IS NOT NULL`).map(x => [x.id, x.age]));
-  const injured = new Set(rows(`SELECT player_id FROM player_metrics WHERE source='injury_flag' AND value > 0`)
-    .map(x => x.player_id));
+  const injured = activeInjuryFlagIds();
   // Same season-ending/released detection the X's&O's depth chart uses — without
   // this, a player out for the year keeps getting picked as the optimal starter
   // here even after the roster page correctly benches him.
@@ -1259,7 +1274,6 @@ export function evaluate(a, b, slots, ctx = {}) {
       risk: sideRisk(givesOut, getsIn),
       lineup_before: before.points, lineup_after: post.points,
       ppg_delta: +(post.points - before.points).toFixed(2),
-      season_delta: +((post.points - before.points) * GAMES).toFixed(1),
       // The lineup change in THIS league's playoff weeks (playoffLeg above: the
       // weekly-rate lineup of each playoff week, byes out, averaged). No opponent
       // adjustment, so this differs from ppg_delta only by WHEN points land: adj_ppg
@@ -1294,6 +1308,24 @@ export function evaluate(a, b, slots, ctx = {}) {
     };
     lazyField(out, 'floor_delta', () => spreadDelta('floor'));
     lazyField(out, 'ceiling_delta', () => spreadDelta('ceiling'));
+    // Next to value_delta: the same deal in lineup points with the roster spot
+    // charged (lineupValue below). Lazy like floor_delta, so the search pays for it
+    // only on the deals it returns; null when the caller supplied no wire.
+    lazyField(out, 'lineup_value', () => ctx.lineupValue
+      ? lineupValue(team, gives, gets, slots, ctx.lineupValue) : null);
+    // The lineup change over the season, from ONE producer (lineupSpan) shared with
+    // lineup_value.total, so on a deal where no roster spot changes hands the two are
+    // equal. With the league's weeks left (the caller passed lineupValueContext) it is
+    // this week once plus the weekly rate for every week after; without them it stays
+    // the old weekly gain x 17 and says so (season_delta_basis), which the explain
+    // prompt's fmtSeasonSpan (routes/trades.js) reads.
+    const weeksLeft = ctx.lineupValue?.weeksLeft;
+    const known = Number.isFinite(weeksLeft);
+    lazyField(out, 'season_delta', () => known
+      ? lineupSpan(team.players, after, slots, weeksLeft)
+      : +((post.points - before.points) * GAMES).toFixed(1));
+    out.season_delta_weeks = known ? weeksLeft : GAMES;
+    out.season_delta_basis = known ? 'weeks_remaining' : 'full_season_default';
     return out;
   };
 
@@ -1347,6 +1379,122 @@ export function evaluate(a, b, slots, ctx = {}) {
     // swing, 17 g min · get: 1/1 top-24 seasons, 2026 band 150-290".
     verdict_evidence: verdictEvidence(A.risk)
   };
+}
+
+/** Why lineup_value exists and what it may not be used for yet. */
+export const LINEUP_VALUE_STATUS = 'not yet validated';
+const LINEUP_VALUE_NOTE = 'per_week: the change in the best lineup on adj_ppg (the ppg_delta number) with the '
+  + 'roster spot charged. total: lineup points over the weeks left, this week counted once on its own projection '
+  + '(byes, injuries) and the weekly rate after. A freed spot '
+  + 'is filled by the best free agent on this league\'s wire, a needed spot costs the least-missed player. '
+  + 'Not yet validated (gate RL-8-2b pending); no recommendation reads it.';
+
+/**
+ * A deal's value to ONE team in lineup points, charging the roster spot.
+ *
+ * value_delta adds players up as if roster spots were free, so a 2-for-1 always
+ * reads better for whoever gets more players. Here the roster size is held at what
+ * the team carries today:
+ *   - a side that FREES spots fills each one from this league's wire: of the best
+ *     free agent at each position, the one that raises the starting lineup most
+ *     (the highest-rated if none does);
+ *   - a side that NEEDS spots drops, for each, the player whose loss costs the
+ *     starting lineup least (ties: the lowest-rated).
+ * Then per_week is the change in the best starting lineup (bestLineup, the one
+ * solver), and total is lineupSpan() of the same rosters over the weeks left. Key: adj_ppg, the same number ppg_delta is solved
+ * on, so with no roster spot changing hands per_week IS ppg_delta and the two
+ * differ only by the spot's charge (one producer for the lineup number).
+ *
+ * @param opts.wire      unrostered priced assets for this league (lineupValueContext)
+ * @param opts.weeksLeft regular + playoff weeks remaining, or null (per_week only)
+ */
+export function lineupValue(team, gives, gets, slots, { wire, weeksLeft = null } = {}) {
+  const key = 'adj_ppg';
+  const points = list => bestLineup(list, slots, key).points;
+  const before = points(team.players);
+  let roster = team.players.filter(p => !gives.some(g => g.id === p.id)).concat(gets);
+  const spots = gets.length - gives.length;
+  const replacement = [], dropped = [];
+  const rate = p => p[key] ?? 0;
+  const brief = p => ({ id: p.id, name: p.name, position: p.position, [key]: p[key] ?? null });
+  for (let i = 0; i < -spots; i++) {
+    const held = new Set(roster.map(p => p.id));
+    const bestAt = new Map();
+    for (const fa of wire ?? []) {
+      if (held.has(fa.id) || !SCORED.has(fa.position) || fa.available === false) continue;
+      const cur = bestAt.get(fa.position);
+      if (!cur || rate(fa) > rate(cur)) bestAt.set(fa.position, fa);
+    }
+    let pick = null, pickPts = -Infinity;
+    for (const fa of bestAt.values()) {
+      const pts = points([...roster, fa]);
+      if (pts > pickPts || (pts === pickPts && rate(fa) > rate(pick))) { pick = fa; pickPts = pts; }
+    }
+    if (!pick) break;   // an empty wire: the spot stays empty, and says so below
+    roster = [...roster, pick];
+    replacement.push(brief(pick));
+  }
+  for (let i = 0; i < spots; i++) {
+    let cut = null, cutPts = -Infinity;
+    for (const p of roster) {
+      const pts = points(roster.filter(q => q.id !== p.id));
+      if (pts > cutPts || (pts === cutPts && rate(p) < rate(cut))) { cut = p; cutPts = pts; }
+    }
+    if (!cut) break;
+    roster = roster.filter(p => p.id !== cut.id);
+    dropped.push(brief(cut));
+  }
+  const perWeek = +(points(roster) - before).toFixed(2);
+  const weeks = Number.isFinite(weeksLeft) ? weeksLeft : null;
+  return {
+    per_week: perWeek,
+    weeks,
+    // Not per_week x weeks: per_week is on adj_ppg, a blend that is 25% THIS week, so
+    // multiplying it would count this week's byes and injuries in every week left.
+    total: weeks == null ? null : lineupSpan(team.players, roster, slots, weeks),
+    key,
+    roster_spots: spots,
+    replacement,
+    // Spots the wire could not fill (no priced free agent): charged at zero points.
+    unfilled_spots: Math.max(0, -spots - replacement.length),
+    dropped,
+    status: LINEUP_VALUE_STATUS,
+    note: LINEUP_VALUE_NOTE,
+  };
+}
+
+/**
+ * The change in a team's best lineup summed over the weeks left, the one producer
+ * of "lineup points over the rest of the season" (season_delta and
+ * lineup_value.total both come from here).
+ *
+ * This week is counted ONCE, on current_week_ppg (this Sunday's projection: 0 on a
+ * bye, discounted for injury), and each later week on the weekly rate, ros_ppg, the
+ * same two legs horizonGain() weighs. A player without either field falls back to
+ * adj_ppg (partial fixtures). weeksLeft counts this week (horizonWeights'
+ * regular_weeks_left + playoff_weeks_left); 0 or less is a season over: 0 points.
+ */
+export function lineupSpan(beforePlayers, afterPlayers, slots, weeksLeft) {
+  if (!Number.isFinite(weeksLeft)) return null;
+  if (weeksLeft <= 0) return 0;
+  const leg = (players, field) => bestLineup(players.map(p =>
+    ({ ...p, span_leg: p[field] ?? p.adj_ppg ?? 0 })), slots, 'span_leg').points;
+  const now = leg(afterPlayers, 'current_week_ppg') - leg(beforePlayers, 'current_week_ppg');
+  const rate = weeksLeft > 1 ? leg(afterPlayers, 'ros_ppg') - leg(beforePlayers, 'ros_ppg') : 0;
+  return +(now + (weeksLeft - 1) * rate).toFixed(1);
+}
+
+/**
+ * What lineupValue() needs from a league: its wire (league-wire.js#leagueWire, the
+ * Waivers page's producer, less anyone on a loaded roster by id so a Sleeper
+ * league or a hypothetical post-trade roster never offers a rostered player) and
+ * the weeks left on this league's calendar (trade-horizon.js#horizonWeights).
+ */
+export function lineupValueContext(lg, assets, teams) {
+  const onRoster = new Set(teams.flatMap(t => t.players.map(p => p.id)));
+  const wire = leagueWire(lg, assets, espnPlayerResolver(assets)).filter(a => !onRoster.has(a.id));
+  const h = horizonWeights(tradeWeekContext().week, leagueSchedule(lg));
+  return { wire, weeksLeft: h.regular_weeks_left + h.playoff_weeks_left };
 }
 
 const slim = p => ({
@@ -1494,7 +1642,7 @@ export function myPlayoffOdds(lg, myTeamId = null, print = null) {
       // throw — a silent 0.5 would hide it, which is how this number got lost in
       // the first place.
       const sim = withRandomSeed(HORIZON_SIM_SEED, () => simulateSeason(lg, {
-        runs: HORIZON_SIM_RUNS, fromWeek: start, scoring: scoringFor(lg)
+        runs: HORIZON_SIM_RUNS, scoring: scoringFor(lg) // start week: simStartWeek(lg) inside, same as `start`
       }));
       if (sim?.error) return prior(`the season simulation could not run (${sim.error})`);
       const mine = sim.teams?.find(t => String(t.roster_id) === rosterId);
@@ -1704,6 +1852,8 @@ function findTradesUncached(lg, {
 
   const myPool = candidates(me, slots, 11, excludeIds);
   const deals = [];
+  // lineup_value on every returned deal (display only; nothing below ranks on it).
+  const lineupCtx = lineupValueContext(lg, assets, teams);
 
   for (const them of teams) {
     if (them.roster_id === me.roster_id) continue;
@@ -1743,7 +1893,7 @@ function findTradesUncached(lg, {
         if (skew < -0.16 || skew > 0.30) continue;
 
         const ev = evaluate({ team: me, gives: give }, { team: them, gives: get }, slots,
-          { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo });
+          { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo, lineupValue: lineupCtx });
         if (ev.me.ppg_delta < 0.4) continue;
         // Never even a "closest fit" fallback candidate — no real GM accepts leaving
         // a starting slot empty, whatever the value math says.
@@ -2770,9 +2920,9 @@ export function playerOutlook(lg, playerId) {
   // forecast); the no-team fallback says the same.
   const splits = a.team_abbr ? relevantSplits(a.id, a.team_abbr)
     : { baseline: null, upcoming: [], notable: [], signal: false, reason: 'no NFL team on file' };
-  const news = rows(`SELECT date, headline, fantasy_impact, importance FROM news_items
-                     WHERE headline LIKE ? OR body LIKE ? ORDER BY date DESC LIMIT 5`,
-    `%${a.name}%`, `%${a.name}%`);
+  // Same stories as the player card and the News page (one attribution producer).
+  const news = playerNews(a.id, { limit: 5 }).map(n => ({
+    id: n.id, date: n.date, headline: n.headline, fantasy_impact: n.fantasy_impact, importance: n.importance }));
   return { ...a, ...playerEvidence(a.id), owner: owner?.owner ?? 'free agent', owner_id: owner?.roster_id ?? null, splits, news };
 }
 

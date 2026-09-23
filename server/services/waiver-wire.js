@@ -33,6 +33,11 @@ import { rows } from '../db/index.js';
 import { assetUniverse, tradeWeekContext, bestLineup, lineupSlots, espnPlayerResolver } from './trade-engine.js';
 import { deriveFormat } from './format.js';
 import { availabilityDegradation, roleStates, weekDesignation } from './contingency.js';
+// The league's wire, one producer shared with the trade engine's lineup value
+// (RL-9-3), keyed by the ESPN-id-first resolver (RL-6-4).
+import { rosteredAssetIds, unrosteredSkill, onNflTeam } from './league-wire.js';
+// The one producer of "this player carries the Sleeper injury flag" (RL-12-2).
+import { activeInjuryFlagIds } from './injury-flags.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
@@ -131,23 +136,6 @@ function weekPpg(p) {
 
 
 /**
- * Every asset rostered anywhere in the league: asset id -> ESPN team id, resolved by
- * the shared ESPN-id-first resolver. It used to be keyed by normalised name, so a free
- * agent sharing a name with anyone rostered ("Mike Williams" RB vs WR) was hidden
- * from the wire.
- */
-function rosteredAssetIds(payload, resolve) {
-  const owned = new Map();
-  for (const team of payload.teams ?? []) {
-    for (const e of team.roster?.entries ?? []) {
-      const { asset } = resolve(e.playerPoolEntry?.player);
-      if (asset) owned.set(asset.id, String(team.id));
-    }
-  }
-  return owned;
-}
-
-/**
  * Claims worth making, for one team.
  *
  * `upgrade` is the projected weekly points a claim adds to the STARTING lineup,
@@ -237,11 +225,7 @@ export function waiverBoard(lg, {
   // leagues (all ten of league 2's: out-of-work or retired quarterbacks at 13-16 a
   // week). The rows this takes off the board are counted in `teamless_excluded`
   // (below, once the stash cut is known), so the page can say so.
-  const unownedAll = [...assets.values()].filter(a =>
-    SCORED.has(a.position)
-    && !ownedById.has(a.id)
-    && a.available !== false);
-  const onNflTeam = a => Boolean(a.team_abbr ?? a.team);
+  const unownedAll = unrosteredSkill(assets, ownedById);
   const unowned = unownedAll.filter(onNflTeam);
   // How much of the pool is priced at all. Distinguishes "the wire is thin"
   // from "nothing on the wire has a number", which read identically before.
@@ -462,8 +446,15 @@ export function nextWaiverRun(payload, now = new Date()) {
  * the same player's 'sleeper_rank' row in one pass. The writer sets the flag and never
  * clears it, so a flag older than that player's latest rank row is left over from an
  * earlier sync and does not count.
+ *
+ * Whether a flag counts at all is the one producer's call (services/injury-flags.js
+ * #activeInjuryFlagIds, RL-12-2: cleared flags and stale flags on players who have
+ * played since are off); the same-sync rank-row check above is kept on top of it.
  */
 function currentFeedFlags(ids) {
+  if (!ids.length) return new Set();
+  const active = activeInjuryFlagIds();
+  ids = ids.filter(id => active.has(id));
   if (!ids.length) return new Set();
   const marks = ids.map(() => '?').join(',');
   return new Set(rows(`SELECT f.player_id FROM player_metrics f

@@ -19,7 +19,8 @@
  * tiebreaker, playoff teams, weeks per round, fixed or re-seeded) and play it out.
  */
 import { rows } from '../db/index.js';
-import { PPR } from './scoring.js';
+import { PPR, scoringFor } from './scoring.js';
+import { SENSE_CHECK_SIM_RUNS } from './trade-verify.js';
 import { buildProjections, sampleWeeks } from './projections.js';
 import { correlatedSampler } from './correlation.js';
 import { gameMultiplier, matchupModel } from './matchups.js';
@@ -27,7 +28,7 @@ import { leagueRules, seedStandings, simRulesProblem } from './league-rules.js';
 import { deriveFormat } from './format.js';
 import { gameScriptFor } from './gamescript.js';
 import { loadRosters, assetUniverse, lineupSlots } from './trade-engine.js';
-import { random, withRandomSeed } from './stats-util.js';
+import { random, withRandomSeed, keyedSeed } from './stats-util.js';
 import { weeklyAvailability } from './contingency.js';
 import { leagueCurrentWeek } from './league-week.js';
 
@@ -173,20 +174,26 @@ function initialRecords(lg, teams, fromWeek, medianGame = false) {
 /**
  * The week a page-facing simulation starts from — the one producer for it.
  *
- * An explicit week (a caller's `?from_week=`) wins. Otherwise the league's own
+ * A payload that is last season's (the pre-draft fallback in syncEspnLeague
+ * stamps `payload_season`) starts at week 1, whatever week was asked for: its
+ * scored weeks are last year's games and must not become this season's
+ * standings. Otherwise an explicit week (a caller's `?from_week=`, passed through
+ * raw as simulateSeason/tradeImpact's `fromWeek` option) wins; else the league's own
  * current week (leagueCurrentWeek), so the completed weeks before it are
  * carried in as the real record by initialRecords(). Defaulting to 1 simulated
  * a 5-0 team in week 6 as 0-0 (B-01, 2026-09-22).
  *
- * A payload that is last season's (the pre-draft fallback in syncEspnLeague
- * stamps `payload_season`) starts at week 1: its scored weeks are last year's
- * games and must not become this season's standings.
+ * Callers outside this file pass only the raw client week (or nothing) as
+ * `fromWeek`; simulateSeason/tradeImpact resolve it here, so this function is
+ * the one producer (source guard: test/b-01-real-record-odds.test.js).
  */
 export function simStartWeek(lg, requested = null) {
-  const explicit = Number(requested);
-  if (Number.isInteger(explicit) && explicit >= 1) return explicit;
+  // Checked first, so a client's explicit week cannot turn last season's scored
+  // weeks back into this season's record (INT-162-1).
   const payloadSeason = Number(lg?.payload_season), season = Number(lg?.season);
   if (payloadSeason && season && payloadSeason !== season) return 1;
+  const explicit = Number(requested);
+  if (Number.isInteger(explicit) && explicit >= 1) return explicit;
   return leagueCurrentWeek(lg);
 }
 
@@ -273,9 +280,16 @@ export const __test = { lineupPoints, initialRecords, playBracket, addMedianResu
  * @param opts.overrides  Map<roster_id, player_id[]> replacing a team's roster, which
  *                        is how a proposed trade is evaluated: simulate the league as
  *                        it would be after the deal and diff the title odds.
+ * @param opts.universe   extra asset ids to simulate even when no roster holds them.
+ *                        A paired comparison passes the SAME universe to both arms
+ *                        (every id either arm rosters), so the copula's same-game
+ *                        blocks, and therefore every player's draws, are identical
+ *                        in both. Without it, a new player in a same-game block
+ *                        changes the Cholesky rows of everyone sorted after him.
  */
 export function simulateSeason(lg, {
-  runs = 2000, fromWeek: requestedWeek = null, scoring = PPR, overrides = null, projections = null
+  runs = 2000, fromWeek: requestedWeek = null, scoring = PPR, overrides = null, projections = null,
+  keepRuns = false, universe = null
 } = {}) {
   const fromWeek = simStartWeek(lg, requestedWeek);
   // The league's own rules, never a hard-coded default: a missing field is a
@@ -309,9 +323,19 @@ export function simulateSeason(lg, {
   const playoffTeams = rules.schedule.playoff_teams;
   const medianGame = rules.median_game === true;
 
-  // Every player who could be started by anyone, deduplicated.
-  const roster = [...new Map(teams.flatMap(t => t.players.map(p => [p.id, p]))).values()]
-    .filter(p => SCORED.has(p.position));
+  // Every player who could be started by anyone, deduplicated, in id order.
+  // RL-6-3: the order is by identity, never by roster position. A trade rebuilds
+  // both rosters as `kept + received`, and the copula's Cholesky factor is
+  // order-dependent, so a positional order made the "after" season different
+  // random football for the whole league (up to 6.5pp on a pure reorder).
+  const extra = [...(universe ?? [])].map(id => assets.get(Number(id))).filter(Boolean);
+  const roster = [...new Map([...teams.flatMap(t => t.players), ...extra].map(p => [p.id, p])).values()]
+    .filter(p => SCORED.has(p.position))
+    .sort((a, b) => (a.id > b.id) - (a.id < b.id));
+  // One draw from the caller's stream names this simulated world. Every random
+  // number below is addressed by (world, player, week[, run]) off it, so under
+  // one seed the same player gets the same football in every configuration.
+  const world = Math.floor(random() * 0x100000000) >>> 0;
   const { schedule: nflSchedule, byeWeek } = matchupModel();
 
   /* --- pre-generate each player's outcome pool per week ---------------------
@@ -336,7 +360,8 @@ export function simulateSeason(lg, {
       const gs = gameScriptFor(p.team_abbr, SEASON, week);
       const mult = { pass: base * gs.pass_mult, rush: base * gs.rush_mult };
       const activeProbability = activeChance.get(p.id)?.active_probability ?? 0.92;
-      const s = sampleWeeks(pr.params, POOL, scoring, mult, activeProbability).sort((a, b) => a - b);
+      const s = withRandomSeed(keyedSeed(world, 'pool', p.id, week),
+        () => sampleWeeks(pr.params, POOL, scoring, mult, activeProbability)).sort((a, b) => a - b);
       entries.push({
         p, samples: s,
         meta: {
@@ -353,7 +378,10 @@ export function simulateSeason(lg, {
       e.samples.reduce((s, v) => s + v, 0) / e.samples.length
     ]));
     weekData.set(week, {
-      draw: correlatedSampler(active.map(e => e.meta), active.map(e => e.samples)),
+      // Keyed by (world, player, week); the run index is the counter, so a player's
+      // week-w outcome in run r is the same wherever he is rostered.
+      draw: correlatedSampler(active.map(e => e.meta), active.map(e => e.samples),
+        active.map(e => keyedSeed(world, 'copula', e.p.id, week))),
       ids: active.map(e => e.p.id), expected
     });
   }
@@ -366,6 +394,10 @@ export function simulateSeason(lg, {
     roster_id: id, owner: teams.find(t => t.roster_id === id).owner,
     playoffs: 0, title: 0, finals: 0, byes: 0, wins: 0, points: 0, best: 0, worst: Infinity
   }]));
+  // Per-run indicators, kept only for a paired comparison (tradeImpact's SE).
+  const perRun = keepRuns
+    ? new Map(ids.map(id => [id, { title: new Uint8Array(runs), playoffs: new Uint8Array(runs) }]))
+    : null;
 
   for (let run = 0; run < runs; run++) {
     const record = new Map(ids.map(id => [id, { ...(startingRecords.get(id) ?? { w: 0, pf: 0 }) }]));
@@ -373,7 +405,7 @@ export function simulateSeason(lg, {
     for (const week of weeks) {
       const wd = weekData.get(week);
       const drawn = new Map();
-      const vals = wd.draw();
+      const vals = wd.draw(run);
       for (let i = 0; i < wd.ids.length; i++) drawn.set(wd.ids[i], vals[i]);
 
       const weekScore = new Map();
@@ -392,7 +424,7 @@ export function simulateSeason(lg, {
     // divisions, then wins, then the league's tiebreaker).
     const seeded = seedStandings([...record.entries()].map(([id, r]) => ({ id, w: r.w, pf: r.pf })), rules);
     const field = seeded.slice(0, playoffTeams);
-    for (const id of field) stats.get(id).playoffs++;
+    for (const id of field) { stats.get(id).playoffs++; if (perRun) perRun.get(id).playoffs[run] = 1; }
     for (const [id, r] of record) {
       const s = stats.get(id);
       s.wins += r.w; s.points += r.pf;
@@ -406,7 +438,7 @@ export function simulateSeason(lg, {
       if (got) return got;
       const wd = weekData.get(week);
       const drawn = new Map();
-      const vals = wd.draw();
+      const vals = wd.draw(run);
       for (let i = 0; i < wd.ids.length; i++) drawn.set(wd.ids[i], vals[i]);
       got = { drawn, expected: wd.expected };
       drawsByWeek.set(week, got);
@@ -418,7 +450,10 @@ export function simulateSeason(lg, {
     }, 0));
     for (const id of bracket.byes) stats.get(id).byes++;
     for (const id of bracket.finalists) stats.get(id).finals++;
-    if (bracket.champion) stats.get(bracket.champion).title++;
+    if (bracket.champion) {
+      stats.get(bracket.champion).title++;
+      if (perRun) perRun.get(bracket.champion).title[run] = 1;
+    }
   }
 
   const out = [...stats.values()].map(s => ({
@@ -439,20 +474,61 @@ export function simulateSeason(lg, {
     median_game: rules.median_game, rules_unknown: rules.unknown,
     standings_carried_in: fromWeek > 1,
     odds_interval: 'run-to-run Monte Carlo error only; excludes the shared error of the fixed per-player outcome pools',
-    teams: out
+    teams: out,
+    ...(perRun ? { per_run: perRun } : {})
   };
 }
+
+/** A title-odds delta is shown as real only past this many paired standard errors. */
+export const TRADE_DELTA_NOISE_SE = 2;
+
+/**
+ * Standard error of mean(after_i - before_i) over paired runs: the textbook
+ * paired-difference SE. Both arms are indicator arrays of the same length.
+ */
+function pairedSe(before, after) {
+  const n = before.length;
+  if (n < 2) return null;
+  let sum = 0, sq = 0;
+  for (let i = 0; i < n; i++) { const d = after[i] - before[i]; sum += d; sq += d * d; }
+  const mean = sum / n;
+  const variance = Math.max(0, (sq - n * mean * mean) / (n - 1));
+  return +Math.sqrt(variance / n).toFixed(4);
+}
+
+/**
+ * The seed a trade is simulated under when the caller gives none: one per
+ * league state, so the same deal on the same sync gives the same answer on
+ * every click (it used to be a fresh random seed per request).
+ */
+export function tradeImpactSeed(lg) {
+  return keyedSeed('trade-impact', lg.id, lg.fetched_at ?? '');
+}
+
+/**
+ * The one run count every title-odds delta is simulated at (Title-impact tab,
+ * TradeCard, sense-check). With the one seed (tradeImpactSeed) and the league's
+ * own scoring, the same deal on the same sync is the same number on every
+ * surface. It is the sense-check's measured budget (trade-verify.js).
+ */
+export const TRADE_IMPACT_RUNS = SENSE_CHECK_SIM_RUNS;
 
 /**
  * Title-odds impact of a proposed trade.
  *
- * Runs the league twice — as it is, and as it would be — with the same projection set,
- * so the difference is the trade and nothing else.
+ * Runs the league twice — as it is, and as it would be — with the same projection set
+ * and the same simulated football (common random numbers keyed to each player, not to
+ * his roster position), so the difference is the trade and nothing else. Each delta
+ * carries its paired standard error, and `*_clears_noise` says whether it is past
+ * TRADE_DELTA_NOISE_SE of them.
  */
 export function tradeImpact(lg, {
-  myTeamId, theirTeamId, iGive = [], iGet = [], runs = 1200,
-  scoring = PPR, fromWeek: requestedWeek = null, seed = null
+  myTeamId, theirTeamId, iGive = [], iGet = [], runs = TRADE_IMPACT_RUNS,
+  scoring = null, fromWeek: requestedWeek = null, seed = null
 }) {
+  // Callers no longer pick these: one seed, one run count and the league's own
+  // scoring, so every surface shows the same delta for the same deal.
+  scoring = scoring ?? scoringFor(lg);
   const fromWeek = simStartWeek(lg, requestedWeek);
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
@@ -470,25 +546,32 @@ export function tradeImpact(lg, {
   // One projection build shared by both runs — rebuilding would introduce noise that
   // has nothing to do with the trade.
   const projections = buildProjections({ through: SEASON - 1, scoring });
-  // Common random numbers make this a paired experiment: the same simulated
-  // football worlds are used before and after, so Monte Carlo noise cannot
-  // masquerade as trade impact.
-  const pairedSeed = seed == null ? Math.floor(random() * 0xFFFFFFFF) : Number(seed);
+  const pairedSeed = seed == null ? tradeImpactSeed(lg) : Number(seed);
+  // One shared player universe for both arms: a received player nobody rosters
+  // today (a free agent in a claim ladder) is simulated in the "before" arm too.
+  const universe = [...give, ...get];
   const before = withRandomSeed(pairedSeed,
-    () => simulateSeason(lg, { runs, fromWeek, scoring, projections }));
+    () => simulateSeason(lg, { runs, fromWeek, scoring, projections, keepRuns: true, universe }));
   const after = withRandomSeed(pairedSeed,
-    () => simulateSeason(lg, { runs, fromWeek, scoring, projections, overrides }));
+    () => simulateSeason(lg, { runs, fromWeek, scoring, projections, overrides, keepRuns: true, universe }));
   if (before.error || after.error) return before.error ? before : after;
 
   const pick = (sim, id) => sim.teams.find(t => t.roster_id === id);
   const delta = id => {
     const b = pick(before, id), a = pick(after, id);
+    const rb = before.per_run.get(id), ra = after.per_run.get(id);
+    const title_delta = +(a.title_odds - b.title_odds).toFixed(4);
+    const playoff_delta = +(a.playoff_odds - b.playoff_odds).toFixed(4);
+    const title_delta_se = pairedSe(rb.title, ra.title);
+    const playoff_delta_se = pairedSe(rb.playoffs, ra.playoffs);
     return {
       roster_id: id, owner: b.owner,
       title_before: b.title_odds, title_after: a.title_odds,
-      title_delta: +(a.title_odds - b.title_odds).toFixed(4),
+      title_delta, title_delta_se,
+      title_delta_clears_noise: title_delta_se != null && Math.abs(title_delta) > TRADE_DELTA_NOISE_SE * title_delta_se,
       playoff_before: b.playoff_odds, playoff_after: a.playoff_odds,
-      playoff_delta: +(a.playoff_odds - b.playoff_odds).toFixed(4),
+      playoff_delta, playoff_delta_se,
+      playoff_delta_clears_noise: playoff_delta_se != null && Math.abs(playoff_delta) > TRADE_DELTA_NOISE_SE * playoff_delta_se,
       wins_delta: +(a.expected_wins - b.expected_wins).toFixed(2)
     };
   };

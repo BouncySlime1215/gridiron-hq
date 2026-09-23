@@ -141,7 +141,9 @@ const myTeamUrl = compile('client/src/pages/MyTeam.tsx', 'MyTeam.mjs', {
   "'../components/TeamScout'": stubUrl('TeamScout.mjs', []),
   "'../components/PostDraftPlan'": stubUrl('PostDraftPlan.mjs', []),
   "'../components/PlayerRow'": stubUrl('PlayerRow.mjs', ['Headshot'], false),
-  "'../components/PageState'": stubUrl('PageState2.mjs', ['PageError'], false),
+  "'../components/PageState'": stubUrl('PageState2.mjs', ['PageError', 'PageLoading'], false),
+  // main's #180 gates the page on the real leagueGate (pure; compiled, not stubbed).
+  "'../state/leagueGate'": compile('client/src/state/leagueGate.ts', 'leagueGate.mjs', {}),
   "'../components/MedianGameNotice'": noticeUrl,
 });
 const { default: Model } = await import(modelUrl);

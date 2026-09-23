@@ -1154,7 +1154,6 @@ export function evaluate(a, b, slots, ctx = {}) {
       risk: sideRisk(givesOut, getsIn),
       lineup_before: before.points, lineup_after: post.points,
       ppg_delta: +(post.points - before.points).toFixed(2),
-      season_delta: +((post.points - before.points) * GAMES).toFixed(1),
       // The lineup change in THIS league's playoff weeks (playoffLeg above: the
       // weekly-rate lineup of each playoff week, byes out, averaged). No opponent
       // adjustment, so this differs from ppg_delta only by WHEN points land: adj_ppg
@@ -1189,6 +1188,19 @@ export function evaluate(a, b, slots, ctx = {}) {
     // only on the deals it returns; null when the caller supplied no wire.
     lazyField(out, 'lineup_value', () => ctx.lineupValue
       ? lineupValue(team, gives, gets, slots, ctx.lineupValue) : null);
+    // The lineup change over the season, from ONE producer (lineupSpan) shared with
+    // lineup_value.total, so on a deal where no roster spot changes hands the two are
+    // equal. With the league's weeks left (the caller passed lineupValueContext) it is
+    // this week once plus the weekly rate for every week after; without them it stays
+    // the old weekly gain x 17 and says so (season_delta_basis), which the explain
+    // prompt's fmtSeasonSpan (routes/trades.js) reads.
+    const weeksLeft = ctx.lineupValue?.weeksLeft;
+    const known = Number.isFinite(weeksLeft);
+    lazyField(out, 'season_delta', () => known
+      ? lineupSpan(team.players, after, slots, weeksLeft)
+      : +((post.points - before.points) * GAMES).toFixed(1));
+    out.season_delta_weeks = known ? weeksLeft : GAMES;
+    out.season_delta_basis = known ? 'weeks_remaining' : 'full_season_default';
     return out;
   };
 
@@ -1246,7 +1258,9 @@ export function evaluate(a, b, slots, ctx = {}) {
 
 /** Why lineup_value exists and what it may not be used for yet. */
 export const LINEUP_VALUE_STATUS = 'not yet validated';
-const LINEUP_VALUE_NOTE = 'Lineup points over the remaining weeks with the roster spot charged: a freed spot '
+const LINEUP_VALUE_NOTE = 'per_week: the change in the best lineup on adj_ppg (the ppg_delta number) with the '
+  + 'roster spot charged. total: lineup points over the weeks left, this week counted once on its own projection '
+  + '(byes, injuries) and the weekly rate after. A freed spot '
   + 'is filled by the best free agent on this league\'s wire, a needed spot costs the least-missed player. '
   + 'Not yet validated (gate RL-8-2b pending); no recommendation reads it.';
 
@@ -1261,8 +1275,8 @@ const LINEUP_VALUE_NOTE = 'Lineup points over the remaining weeks with the roste
  *     (the highest-rated if none does);
  *   - a side that NEEDS spots drops, for each, the player whose loss costs the
  *     starting lineup least (ties: the lowest-rated).
- * Then it is the change in the best starting lineup (bestLineup, the one solver)
- * per week, times the weeks left. Key: adj_ppg, the same number ppg_delta is solved
+ * Then per_week is the change in the best starting lineup (bestLineup, the one
+ * solver), and total is lineupSpan() of the same rosters over the weeks left. Key: adj_ppg, the same number ppg_delta is solved
  * on, so with no roster spot changing hands per_week IS ppg_delta and the two
  * differ only by the spot's charge (one producer for the lineup number).
  *
@@ -1310,7 +1324,9 @@ export function lineupValue(team, gives, gets, slots, { wire, weeksLeft = null }
   return {
     per_week: perWeek,
     weeks,
-    total: weeks == null ? null : +(perWeek * weeks).toFixed(1),
+    // Not per_week x weeks: per_week is on adj_ppg, a blend that is 25% THIS week, so
+    // multiplying it would count this week's byes and injuries in every week left.
+    total: weeks == null ? null : lineupSpan(team.players, roster, slots, weeks),
     key,
     roster_spots: spots,
     replacement,
@@ -1320,6 +1336,27 @@ export function lineupValue(team, gives, gets, slots, { wire, weeksLeft = null }
     status: LINEUP_VALUE_STATUS,
     note: LINEUP_VALUE_NOTE,
   };
+}
+
+/**
+ * The change in a team's best lineup summed over the weeks left, the one producer
+ * of "lineup points over the rest of the season" (season_delta and
+ * lineup_value.total both come from here).
+ *
+ * This week is counted ONCE, on current_week_ppg (this Sunday's projection: 0 on a
+ * bye, discounted for injury), and each later week on the weekly rate, ros_ppg, the
+ * same two legs horizonGain() weighs. A player without either field falls back to
+ * adj_ppg (partial fixtures). weeksLeft counts this week (horizonWeights'
+ * regular_weeks_left + playoff_weeks_left); 0 or less is a season over: 0 points.
+ */
+export function lineupSpan(beforePlayers, afterPlayers, slots, weeksLeft) {
+  if (!Number.isFinite(weeksLeft)) return null;
+  if (weeksLeft <= 0) return 0;
+  const leg = (players, field) => bestLineup(players.map(p =>
+    ({ ...p, span_leg: p[field] ?? p.adj_ppg ?? 0 })), slots, 'span_leg').points;
+  const now = leg(afterPlayers, 'current_week_ppg') - leg(beforePlayers, 'current_week_ppg');
+  const rate = weeksLeft > 1 ? leg(afterPlayers, 'ros_ppg') - leg(beforePlayers, 'ros_ppg') : 0;
+  return +(now + (weeksLeft - 1) * rate).toFixed(1);
 }
 
 /**

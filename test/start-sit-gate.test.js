@@ -507,10 +507,10 @@ test('the served arms never move the average check (H1 as registered); the ESPN 
  * A graded served-vs-ESPN arm with the fields the plan rule reads: the pooled grade over
  * `weeks` graded weeks (2026 week 2 on). The numbers are fixture.
  */
-const armGrade = ({ weeks = 1, points, wr, ppd }) => ({
+const armGrade = ({ weeks = 1, points, wr, ppd, mde80 = { points: 4.7299, win_rate: 0.1869 } }) => ({
   n: 60 * weeks, points_per_decision: ppd, win_rate: 0.5,
   ci90: { player: { points, win_rate: wr } },
-  mde80: { points: 4.7299, win_rate: 0.1869 },
+  mde80,
   per_week: Array.from({ length: weeks }, (_, i) => ({ season: 2026, week: 2 + i, n: 60 })),
   direction: ppd > 0 ? 'ours_ahead' : ppd < 0 ? 'dumb_ahead' : 'even',
 });
@@ -550,9 +550,14 @@ test('plan rule A3: four passing weeks is beats_dumb, from either source', () =>
   assert.equal(atLock.direction, 'ours_ahead');
   assert.deepEqual(atLock.gates.map(g => [g.id, g.passed]), [['P1', true], ['P2', true], ['P3', true]]);
   assert.deepEqual(atLock.gates.map(g => g.value), [0.31, 0.521, 4]);
-  const sameCutoff = plan(armGrade({ weeks: 1, ...LOSING }), armGrade({ weeks: 4, ...PASSING }));
+  const sameCutoff = plan(armGrade({ weeks: 1, ...LOSING }),
+    armGrade({ weeks: 4, ...PASSING, mde80: { points: 2.3, win_rate: 0.094 } }));
   assert.equal(sameCutoff.verdict, 'beats_dumb');
   assert.equal(sameCutoff.source, 'espn_same_cutoff', '4 same-cutoff weeks decide alone');
+  // Every reported field comes from the deciding arm, not the at-lock one (sweep 9 survivor V15).
+  assert.equal(sameCutoff.direction, 'ours_ahead');
+  assert.equal(sameCutoff.weeks_graded, 4);
+  assert.deepEqual(sameCutoff.mde80, { points: 2.3, win_rate: 0.094 });
 });
 
 test('plan rule A3: three passing weeks is not_shown, too few weeks', () => {

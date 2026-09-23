@@ -1,4 +1,4 @@
-import { PageLoading, PageError } from '../PageState';
+import { PageLoading, PageError, logServerDetail } from '../PageState';
 
 /**
  * "This matchup" — win probability against this week's actual opponent, and
@@ -74,7 +74,9 @@ function Body({ data, loading, error, onRetry }: {
   if (error && !data) return <div className="mt-3"><PageError message={error} onRetry={onRetry} /></div>;
   if (!data) return null;
   if (data.error) {
-    return <p className="mt-2 text-sm leading-6 text-slate-600">No matchup read for this league right now: {data.error}.</p>;
+    // UX-08: the server's reason can carry internal detail; logged, not rendered.
+    logServerDetail('MatchupPosture', data.error);
+    return <p className="mt-2 text-sm leading-6 text-slate-600">No matchup read for this league right now. Try again in a moment.</p>;
   }
   // No opponent on the synced schedule (bye week, or schedule not synced): the
   // server still answers, with a note and no probability. Show the note alone.

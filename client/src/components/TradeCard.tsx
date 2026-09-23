@@ -6,6 +6,13 @@ import ManagerRead from './trade/ManagerRead';
 import PlayerEvidence from './trade/PlayerEvidence';
 import RiskStrip from './trade/RiskStrip';
 import { hasEvidence } from './trade/types';
+import { logServerDetail, sanitizedMessage } from '../lib/errorSanitize';
+
+/** UX-08b: `sense.error`/`impact.error` are the raw server/fetch message — never rendered, only logged. */
+export function TradeSectionError({ where, error }: { where: string; error: string }) {
+  logServerDetail(where, error);
+  return <p className="text-[11px] text-crit mt-2">Couldn't check that. Try again in a moment.</p>;
+}
 
 /**
  * One scored deal. Both sides are always shown side by side — a trade you can't
@@ -165,7 +172,7 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
   const senseCheck = async () => {
     setSenseBusy(true); setErr(null);
     try { setSense(await api(`/trades/${leagueId}/sense-check`, { method: 'POST', body: JSON.stringify({ deal }) })); }
-    catch (e: any) { setErr(e.message); }
+    catch (e: any) { setErr(sanitizedMessage('TradeCard.senseCheck', "Couldn't run the sense check", e.message)); }
     finally { setSenseBusy(false); }
   };
 
@@ -185,14 +192,14 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
           i_get: (deal.i_get ?? deal.me?.gets ?? []).map((p: any) => p.id)
         })
       }));
-    } catch (e: any) { setErr(e.message); }
+    } catch (e: any) { setErr(sanitizedMessage('TradeCard.odds', "Couldn't simulate title odds", e.message)); }
     finally { setOddsBusy(false); }
   };
 
   const explain = async () => {
     setBusy(true); setErr(null);
     try { setCopy(await api(`/trades/${leagueId}/explain`, { method: 'POST', body: JSON.stringify({ deal, untouchables: untouchableNames }) })); }
-    catch (e: any) { setErr(e.message); }
+    catch (e: any) { setErr(sanitizedMessage('TradeCard.explain', "Couldn't explain that trade", e.message)); }
     finally { setBusy(false); }
   };
 
@@ -340,7 +347,7 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
           {sense.why && <p className="text-xs text-[var(--muted)] mt-2 italic">{sense.why}</p>}
         </div>
       )}
-      {sense?.error && <p className="text-[11px] text-crit mt-2">{sense.error}</p>}
+      {sense?.error && <TradeSectionError where="TradeCard.senseCheck" error={sense.error} />}
 
       {impact && !impact.error && (
         <div className="mt-3 rounded-xl border border-[var(--accent)]/20 bg-[var(--accent-tint)]/60 p-3">
@@ -357,19 +364,23 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
                   <span className="text-sm tabular-nums text-[var(--muted)]">{(s.title_before * 100).toFixed(1)}%</span>
                   <span className="text-[var(--muted)]">→</span>
                   <span className="text-lg font-bold tabular-nums text-[var(--ink)]">{(s.title_after * 100).toFixed(1)}%</span>
-                  <span className={`text-xs font-semibold tabular-nums ${s.title_delta > 0 ? 'text-good' : s.title_delta < 0 ? 'text-crit' : 'text-[var(--muted)]'}`}>
+                  <span className={`text-xs font-semibold tabular-nums ${s.title_delta_clears_noise !== true ? 'text-[var(--muted)]' : s.title_delta > 0 ? 'text-good' : s.title_delta < 0 ? 'text-crit' : 'text-[var(--muted)]'}`}>
                     {s.title_delta > 0 ? '+' : ''}{(s.title_delta * 100).toFixed(1)}
+                    {s.title_delta_se != null && <span className="font-normal"> ±{(2 * s.title_delta_se * 100).toFixed(1)}</span>}
                   </span>
                 </div>
                 <div className="text-[11px] text-[var(--muted)] tabular-nums">
-                  title odds · playoffs {s.playoff_delta > 0 ? '+' : ''}{(s.playoff_delta * 100).toFixed(1)}pts · wins {s.wins_delta > 0 ? '+' : ''}{s.wins_delta}
+                  title odds · playoffs <span className={s.playoff_delta_clears_noise === true ? 'text-[var(--ink)]' : ''}>
+                    {s.playoff_delta > 0 ? '+' : ''}{(s.playoff_delta * 100).toFixed(1)}pts
+                    {s.playoff_delta_se != null && <> ±{(2 * s.playoff_delta_se * 100).toFixed(1)}</>}
+                    {s.playoff_delta_clears_noise !== true && ' (within noise)'}</span> · wins {s.wins_delta > 0 ? '+' : ''}{s.wins_delta}
                 </div>
               </div>
             ))}
           </div>
         </div>
       )}
-      {impact?.error && <p className="text-[11px] text-crit mt-2">{impact.error}</p>}
+      {impact?.error && <TradeSectionError where="TradeCard.oddsImpact" error={impact.error} />}
 
       {copy && (
         <div className="mt-3 rounded-xl border border-[var(--edge)] bg-black/[.015] p-3 space-y-2 text-xs">

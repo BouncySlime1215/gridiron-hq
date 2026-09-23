@@ -29,7 +29,7 @@ import { db, row, rows, run } from '../db/index.js';
 import { scoringFor } from '../services/scoring.js';
 import { buildProjections } from '../services/projections.js';
 import { clearPlayerWeekEngineCache } from '../services/player-week-engine.js';
-import { simulateSeason, tradeImpact } from '../services/season-sim.js';
+import { simulateSeason, simStartWeek, tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
 import { fitCorrelations, clearCorrelationCache } from '../services/correlation.js';
 import { fitGameScript, syncHistoricalLines, syncCurrentLines, clearGameScriptCache } from '../services/gamescript.js';
 import { syncAll as syncNflverse } from '../services/nflverse.js';
@@ -452,10 +452,12 @@ r.get('/:leagueId/simulate', requireAuthenticated, (req, res, next) => {
     const lg = league(req, res); if (!lg) return;
     if (!lg.payload) return res.status(400).json({ error: 'league not synced yet' });
     const runs = Math.min(6000, Number(req.query.runs) || 2000);
-    const key = `sim:${lg.id}:${runs}:${req.query.from_week ?? 1}`;
+    // The memo key uses the same producer on the same raw input that
+    // simulateSeason resolves internally, so the key and the body's from_week agree.
+    const key = `sim:${lg.id}:${runs}:${simStartWeek(lg, req.query.from_week)}`;
     const seed = req.query.seed ?? null;
     res.json(withRandomSeed(seed, () => memo(`${key}:seed:${seed ?? 'random'}`, () => simulateSeason(lg, {
-      runs, fromWeek: Number(req.query.from_week) || 1, scoring: scoringFor(lg)
+      runs, fromWeek: req.query.from_week, scoring: scoringFor(lg)
     }))));
   } catch (e) { next(e); }
 });
@@ -471,9 +473,11 @@ r.post('/:leagueId/trade-impact', requireAuthenticated, (req, res, next) => {
       myTeamId: my_team_id ?? lg.my_team_id,
       theirTeamId: their_team_id,
       iGive: i_give, iGet: i_get,
-      runs: Math.min(3000, Number(req.body?.runs) || 1200),
-      fromWeek: Number(req.body?.from_week) || 1,
+      runs: Math.min(3000, Number(req.body?.runs) || TRADE_IMPACT_RUNS),
+      fromWeek: req.body?.from_week, // raw; tradeImpact resolves it with simStartWeek
       seed: req.body?.seed ?? null,
+      // The league's own weights, the same value tradeImpact defaults to (RL-6-3); passed
+      // explicitly so this call site stays checked by test/scoring-call-sites.test.js (#163).
       scoring: scoringFor(lg)
     }));
   } catch (e) { next(e); }

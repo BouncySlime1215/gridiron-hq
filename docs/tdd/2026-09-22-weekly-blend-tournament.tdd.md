@@ -250,7 +250,7 @@ player rostered in any of them has ESPN's number in all of them. Per league, 14-
 ### 4.6 Holdout looks
 
 2025 was not opened: the runner refuses it, and ESPN's 2025 file was never pulled. The looks at
-2026 week 2 are rows F005-F009 of `docs/evidence/HOLDOUT-LEDGER.md`:
+2026 week 2 are rows F022-F026 (F005-F009 on the branch, renumbered at merge) of `docs/evidence/HOLDOUT-LEDGER.md`:
 - the primary rule-5 check;
 - three report-only sensitivities;
 - the reproduction run, which spends the week again.

@@ -270,14 +270,14 @@ the merge `c45cef64`.
 1. Pre-registration `4dec70de` is an ancestor of the result commits `153669da` (numbers) and
    `ab246d93` (output file). It states the hypothesis, metric and sign convention, split, incumbent
    and dumb baseline, ship rule with the forward check, MDE reporting, configuration and literature.
-2. Ledger rows: no 2025 row was read, so no `L` row. The 2026 week-2 forward looks are `F001`-`F004`
+2. Ledger rows: no 2025 row was read, so no `L` row. The 2026 week-2 forward looks are `F018`-`F021` (`F001`-`F004` on the branch, renumbered at merge)
    in `docs/evidence/HOLDOUT-LEDGER.md` ("2026 forward looks"), added in the first commit that has the
    ledger, not the result commit (the ledger did not exist on this branch then). S-02's own look at
-   that week has no row; F001's note says so.
+   that week has no row; F018's note says so.
 3. Not a feature-lift (`FL`) result: nothing here is graded on 2025, so no BH verdict applies.
 4. Every decline carries its MDE at 80% power (result §3: the lift 0.015-0.040; S1 2023 weeks 5-17
    failed Spearman, MAE MDE 0.039).
-5. Forward check on 2026: F001, holds; weeks 5-17 on the weeks 2-4 rows as a proxy, said so.
+5. Forward check on 2026: F018, holds; weeks 5-17 on the weeks 2-4 rows as a proxy, said so.
 6. Decision win rate against the dumb baseline (season average to date): result §4.
 7. Replay configuration: the live engine, `WEEKLY_ROLE_RECENCY`, no `kOverride`; k control 0.4605 /
    0.2747 / 0.1733, not 6.

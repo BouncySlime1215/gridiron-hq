@@ -348,9 +348,13 @@ function recordedLambda(report) {
  * leagues column (and no cookie column) is read; the per-player week number does not depend
  * on the league beyond its scoring.
  */
-const SYNTHETIC_PPR_LEAGUE = Object.freeze({ id: 0, platform: 'sleeper', ppr: 1, team_count: 12, league_type: 'redraft' });
+// Exported so test/scoring-call-site-followups.test.js can capture what this
+// function hands to scoringFor (:350) directly, the way
+// test/scoring-call-sites.test.js captures buildProjections/simulateSeason/
+// tradeImpact, instead of re-running the whole grading script.
+export const SYNTHETIC_PPR_LEAGUE = Object.freeze({ id: 0, platform: 'sleeper', ppr: 1, team_count: 12, league_type: 'redraft' });
 
-async function consumerParity({ lib, PPR, buildPlayerWeekEngine, activeFantasyCoordinatorFit, startSitWeekPoints, log }) {
+export async function consumerParity({ lib, PPR, buildPlayerWeekEngine, activeFantasyCoordinatorFit, startSitWeekPoints, log }) {
   const { assetUniverse, tradeWeekContext } = await import('../server/services/trade-engine.js');
   const { deriveFormat } = await import('../server/services/format.js');
   const { scoringFor } = await import('../server/services/scoring.js');

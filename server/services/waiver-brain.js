@@ -33,7 +33,8 @@
  * through the season, so an October recommendation leans on this week and the
  * rest of the regular season, and a December one on the weeks that decide it.
  */
-import { row } from '../db/index.js';
+import { row, rows } from '../db/index.js';
+import { playerHype, HYPE_PRODUCER } from './hype.js';
 import { deriveFormat } from './format.js';
 import { publishRecommendation } from '../routes/decision-inbox.js';
 import {
@@ -500,126 +501,38 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
 }
 
 /**
- * Players on your roster whose value has run ahead of their situation.
+ * Sell-high on your roster, read from the one hype producer (S-19).
  *
- * The mirror of buy-low, and the one nobody does. A manager will happily buy a
- * player whose price has dropped and will almost never sell one whose price has
- * risen, which is exactly backwards — the second is the profitable half, because
- * you are trading a name for production.
+ * This used to fit its own per-position log-log curve of FantasyCalc value on
+ * projected production and flag anyone a standard deviation above it. That curve
+ * had no test, no caller (its route is retired, trades.js), and on the same
+ * rostered players it disagreed with players.js's momentum heuristic on 57 of its
+ * 89 flags (docs/tdd/2026-09-23-s19-one-hype-producer.tdd.md). It now reads
+ * services/hype.js#playerHype for each rostered player and flags only what that
+ * producer calls SELL, which today is nobody: hype is default-off.
  *
- * The signal is a gap between market value and the horizon that matters: someone
- * priced on reputation and a hot month, whose projected production does not
- * support it.
+ * Rosters come from trade-engine#loadRosters (the canonical roster mapper) over
+ * a bare id/name/position map, because hype needs no pricing.
  */
 export function sellHigh(leagueId, { myTeamId = null, limit = 5 } = {}) {
-  const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
+  const lg = row(`SELECT id, platform, payload, my_team_id FROM leagues WHERE id = ?`, leagueId);
   if (!lg?.payload) return { error: 'league not synced yet' };
-
-  const { formatKey } = deriveFormat(lg);
-  const assets = assetUniverse(lg, formatKey);
+  const assets = new Map(rows('SELECT id, name, position, sleeper_id, espn_id FROM players')
+    .map(p => [p.id, p]));
   const teams = loadRosters(lg, assets);
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
   if (!me) return { error: 'your roster could not be resolved from the league sync' };
   const { week } = tradeWeekContext();
-
-  // Fit what this league pays for production, POSITION BY POSITION and on a log
-  // scale, then look at who sits above their own curve.
-  //
-  // The obvious version of this — value divided by points, compared to the
-  // median ratio — is wrong, and wrong in a way that produces confident
-  // nonsense. Fantasy value is steeply convex in production because it prices
-  // scarcity, not points: the best running back is worth several times the
-  // twentieth while scoring perhaps twice as much. Measured against a median
-  // ratio computed over a pool that includes waiver-wire depth, every elite
-  // player is "overpriced" by hundreds of percent. The first run of this
-  // function duly recommended selling Jonathan Taylor and Saquon Barkley — the
-  // two best players on the roster — at a 535% and 460% premium.
-  //
-  // A power law (log value on log points) is the right shape for a convex
-  // market, and the residual from it is the real question: expensive *for a
-  // player who scores what he scores*. Fitting per position matters for the
-  // same reason — a tight end and a running back at 12 points a week are not
-  // priced alike anywhere.
-  const byPosition = new Map();
-  for (const p of assets.values()) {
-    if (!((p.value ?? 0) > 0 && (p.adj_ppg ?? 0) > 0)) continue;
-    if (!byPosition.has(p.position)) byPosition.set(p.position, []);
-    byPosition.get(p.position).push(p);
-  }
-
-  /** Least squares on (log points, log value). Returns a predictor. */
-  const fitCurve = list => {
-    const pts = list.map(p => [Math.log(Math.max(0.5, horizonValue(p, week))), Math.log(p.value)]);
-    const n = pts.length;
-    const mx = pts.reduce((s, [x]) => s + x, 0) / n;
-    const my = pts.reduce((s, [, y]) => s + y, 0) / n;
-    let sxy = 0, sxx = 0;
-    for (const [x, y] of pts) { sxy += (x - mx) * (y - my); sxx += (x - mx) ** 2; }
-    const slope = sxx > 1e-9 ? sxy / sxx : 0;
-    const intercept = my - slope * mx;
-    // Residual spread, so "above the curve" can be stated in standard
-    // deviations rather than in a raw percentage that means nothing on its own.
-    const resid = pts.map(([x, y]) => y - (intercept + slope * x));
-    const sd = Math.sqrt(resid.reduce((s, r) => s + r * r, 0) / n) || 1;
-    // How much of the price this curve actually explains. It matters a great
-    // deal and is easy to omit: at tight end, production explains far less of
-    // value than it does at running back, so the same residual means something
-    // much weaker there. A finding off a curve that explains a third of the
-    // variance is a hint, not a recommendation, and it should say so.
-    const ssTot = pts.reduce((s, [, y]) => s + (y - my) ** 2, 0);
-    const ssRes = resid.reduce((s, r) => s + r * r, 0);
-    const r2Fit = ssTot > 1e-9 ? 1 - ssRes / ssTot : 0;
-    return { slope, intercept, sd, n, r2: +r2Fit.toFixed(3) };
-  };
-
-  const curves = new Map();
-  for (const [pos, list] of byPosition) {
-    // Too few players at a position to fit anything trustworthy — a two-point
-    // regression will happily declare one of them a sell.
-    if (list.length >= 12) curves.set(pos, fitCurve(list));
-  }
-
-  const candidates = me.players
-    .filter(p => (p.value ?? 0) > 0 && (p.adj_ppg ?? 0) > 0 && curves.has(p.position))
-    .map(p => {
-      const hv = horizonValue(p, week);
-      const c = curves.get(p.position);
-      const expected = Math.exp(c.intercept + c.slope * Math.log(Math.max(0.5, hv)));
-      const z = (Math.log(p.value) - Math.log(expected)) / c.sd;
-      return { p, hv, expected: r2(expected), z: r2(z), fit: c.r2,
-        premium: r2((p.value / expected - 1) * 100) };
-    })
-    // A full standard deviation above the curve for his own position. Anything
-    // less is valuation noise rather than a market to sell into.
-    .filter(x => x.z >= 1.0)
-    .sort((a, b) => b.z - a.z);
-
+  const readings = me.players.map(p => ({
+    id: p.id, name: p.name, position: p.position,
+    hype: playerHype({ sleeperId: p.sleeper_id })
+  }));
   return {
-    league: lg.name, week,
-    candidates: candidates.slice(0, limit).map(x => ({
-      ...slim(x.p),
-      market_value: x.p.value,
-      fair_value: x.expected,
-      horizon_ppg: x.hv,
-      premium_pct: x.premium,
-      standard_deviations: x.z,
-      curve_explains: x.fit,
-      confidence: x.fit >= 0.6 ? 'solid' : x.fit >= 0.35 ? 'weak' : 'barely a signal',
-      // No playoff-schedule read here: playoff_sos is 1 with no validated signal
-      // behind it (matchups.js), so "his weeks 15-17 are soft/hard" is not said.
-      why: `Other ${x.p.position}s scoring ${x.hv} a week in this league price around ${x.expected}. ` +
-        `He is at ${x.p.value} — ${x.premium}% above his own position's curve. ` +
-        (x.fit < 0.6
-          ? `Treat that loosely: production only explains ${Math.round(x.fit * 100)}% of what ` +
-            `${x.p.position}s cost in this league, so the curve is a rough guide rather than a price.`
-          : 'Sell the name while it still carries one.')
-    })),
-    method: 'Value is fitted per position as a power law on production (log value against log points), ' +
-      'and a candidate is a player at least one standard deviation above his own position\'s curve. ' +
-      'A flat value-per-point ratio does not work here: fantasy pricing is convex because it prices ' +
-      'scarcity, so against a league-wide median every elite player reads as massively overpriced.',
-    note: 'The mirror of buy-low, and the half almost nobody plays. Selling a player whose price has ' +
-      'run ahead of his situation is trading a reputation for production.'
+    week,
+    candidates: readings.filter(x => x.hype.verdict === 'SELL').slice(0, limit),
+    readings,
+    method: `Hype is read from ${HYPE_PRODUCER} (TM-09 revealed trade prices, price minus value). `
+      + 'It ships default-off, so no player is flagged until it passes a forward test.'
   };
 }
 

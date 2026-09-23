@@ -30,6 +30,8 @@ export interface CommandCenterPayload {
   items: CommandItem[];
   leagues: { id: number; name: string; week: number | null; sources: Record<'dead_starters' | 'injury_alerts' | 'streams' | 'moves', SourceState> }[];
   empty_reason: 'no_leagues' | 'nothing_due' | null;
+  /** Checks that ran in every league (server: command-center.js#clearChecks); only these may be stated as 0. */
+  clear_checks?: ('dead_starters' | 'injury_alerts' | 'streams' | 'moves')[];
 }
 
 const TONE: Record<Tone, string> = {
@@ -39,6 +41,21 @@ const TONE: Record<Tone, string> = {
 const CHECK_LABEL: Record<string, string> = {
   dead_starters: 'dead starters', injury_alerts: 'injury alerts', streams: 'defense streaming', moves: 'weekly moves',
 };
+
+const CLEAR_ZERO: Record<string, string> = {
+  dead_starters: '0 dead starters', injury_alerts: '0 injury alerts',
+  streams: '0 better defenses to stream', moves: '0 leagues without a move this week',
+};
+
+/** The "nothing needs you" sentence, built only from checks that ran in every league. */
+export function clearSentence(p: CommandCenterPayload) {
+  const n = p.leagues.length;
+  const zeros = (p.clear_checks ?? []).map(k => CLEAR_ZERO[k]).filter(Boolean);
+  const head = `Checked ${n} league${n === 1 ? '' : 's'}`;
+  return zeros.length
+    ? `${head}: ${zeros.join(', ')}.`
+    : `${head}, but none of the checks could run in every league, so none is stated as clear.`;
+}
 
 function due(iso: string | null, basis: string | null) {
   if (!iso) return 'no deadline known';
@@ -89,8 +106,8 @@ export function CommandCenterView({ data, onAct }: { data: CommandCenterPayload;
         </Card>
       : data.items.length === 0
         ? <Card className="p-5">
-            <div className="font-bold text-slate-800">Nothing needs you this week</div>
-            <p className="mt-1 text-sm text-slate-500">Checked {checked} league{checked === 1 ? '' : 's'}: 0 dead starters, 0 injury alerts, 0 better defenses to stream, 0 leagues without a move this week.{missing.length ? ' Some checks could not run; see below.' : ''}</p>
+            <div className="font-bold text-slate-800">{(data.clear_checks ?? []).length === Object.keys(CLEAR_ZERO).length ? 'Nothing needs you this week' : 'Nothing found in the checks that ran'}</div>
+            <p className="mt-1 text-sm text-slate-500">{clearSentence(data)}{missing.length ? ' The rest could not run; see below.' : ''}</p>
           </Card>
         : data.items.map((it, i) => <CommandCard key={`${it.league.id}-${it.kind}-${i}`} item={it} onAct={onAct} />)}
     {missing.length > 0 && <div role="note" className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">

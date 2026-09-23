@@ -5,9 +5,12 @@
  * IT COMPUTES NO NUMBER. Every figure on an item is read from an existing
  * producer, named here and on the response (`sources.<kind>.producer`):
  *
- *   dead_starter   trade-engine.js#lineupDiff — `dead_starters` (SS-01) when the
- *                  field is present, else `flagged_starters` (on IR, or flagged out
- *                  for the season); the bench swap is lineupDiff's own `swaps`.
+ *   dead_starter   SS-01's guard when dead-starters.js exists on this build: read
+ *                  through its one consumer, lineup-brain.js#lineupCall, as
+ *                  `dead_starters.items` (the same list the Start/Sit page shows),
+ *                  and then lineupDiff is not called. Before SS-01:
+ *                  trade-engine.js#lineupDiff `flagged_starters` (on IR, or flagged
+ *                  out for the season); the bench swap is lineupDiff's own `swaps`.
  *   stream         streaming-board.js#streamingBoard (WV-01, PR #176) when that
  *                  module exists on this build; its `suggestion` only.
  *   injury_alert   waiver-wire.js#waiverBoard().injury_alerts (WV-02, PR #178)
@@ -25,6 +28,7 @@
  */
 import { rows } from '../db/index.js';
 import * as tradeEngine from './trade-engine.js';
+import * as lineupBrain from './lineup-brain.js';
 import * as waiverWire from './waiver-wire.js';
 import { leagueCurrentWeek } from './league-week.js';
 import { transactionsCollected } from './manager-signals.js';
@@ -85,9 +89,30 @@ export function byDeadline(a, b) {
   return (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9);
 }
 
-/** Which dead-starter list a lineupDiff payload carries (SS-01 field when present). */
+/** SS-01 reason codes (dead-starters.js#deadReason) in words for the card's first line. */
+const SS01_REASON = { ir: 'on IR', out_for_season: 'out for the season', out: 'listed Out',
+  doubtful: 'listed Doubtful', bye: 'on bye', inactive: 'inactive' };
+
+/**
+ * Which dead-starter list a producer payload carries, in one shape.
+ *   SS-01: lineupCall(...).dead_starters = { covered, starters_checked, items: [...] }
+ *   before SS-01: lineupDiff(...).flagged_starters = [...]
+ * `covered: false` (e.g. a non-ESPN league) is not a clear list: list is null and
+ * `reason` says why.
+ */
 export function deadStarterList(diff) {
-  if (Array.isArray(diff?.dead_starters)) return { list: diff.dead_starters, producer: 'lineupDiff.dead_starters (SS-01)' };
+  const ss = diff?.dead_starters;
+  if (ss && typeof ss === 'object' && !Array.isArray(ss)) {
+    const producer = 'lineupCall.dead_starters (SS-01)';
+    if (!ss.covered || !Array.isArray(ss.items)) {
+      return { list: null, producer, reason: ss.reason ?? 'the dead-starter guard did not cover this league' };
+    }
+    return { producer, list: ss.items.map(i => ({
+      id: i.player?.id, name: i.player?.name, position: i.player?.position, team_abbr: i.player?.team_abbr,
+      reason: SS01_REASON[i.reason] ?? i.reason, ss01_reason: i.reason, kickoff: i.kickoff ?? null,
+      replacement: i.replacement ?? null, ss01_why: i.why ?? null,
+    })) };
+  }
   if (Array.isArray(diff?.flagged_starters)) return { list: diff.flagged_starters, producer: 'lineupDiff.flagged_starters' };
   return { list: null, producer: null };
 }
@@ -111,7 +136,7 @@ export function leagueItems({ league, diff, waivers, streams, moves, season, wee
     deadNames.add(norm(name));
     const swap = (diff?.swaps ?? []).find(s => s.out && (s.out.id === p.id || norm(s.out.name) === norm(name)));
     const pts = fmt(p.week_points);
-    let why = swap?.in
+    let why = p.ss01_why ? p.ss01_why : swap?.in
       ? `Scores 0 this week; ${swap.in.name} on your bench projects ${fmt(swap.in.week_points)} pts.`
       : `Scores 0 this week${pts ? ` (projected ${pts} pts if he played)` : ''}; no bench player fits the slot.`;
     if (p.espn_disagrees) why += ` ESPN still lists him ${String(p.espn_status ?? 'active').toLowerCase()}: check before benching.`;
@@ -120,9 +145,9 @@ export function leagueItems({ league, diff, waivers, streams, moves, season, wee
       what: `${name} (${p.position}) is starting but ${p.reason ?? 'will not play'}`,
       why,
       action: { label: 'Fix lineup', href: '/lineup' },
-      deadline: kick.get(canonicalTeamCode(p.team_abbr ?? p.team)) ?? null,
+      deadline: p.kickoff ?? kick.get(canonicalTeamCode(p.team_abbr ?? p.team)) ?? null,
       deadline_basis: 'kickoff', deadline_guess: false,
-      tone: p.espn_disagrees ? 'amber' : 'red',
+      tone: p.espn_disagrees || p.ss01_reason === 'doubtful' ? 'amber' : 'red',
     });
   }
 
@@ -223,11 +248,26 @@ async function streamingProducer() {
   return streamingLoad;
 }
 
+// SS-01 detection: its module on this build means lineupCall carries `dead_starters`.
+let deadStarterOverride; // undefined: detect; boolean: forced (tests)
+let deadStarterLoad = null;
+async function ss01Present() {
+  if (deadStarterOverride !== undefined) return deadStarterOverride;
+  deadStarterLoad ??= import('./dead-starters.js').then(
+    m => typeof m.deadStarters === 'function',
+    e => {
+      if (e?.code === 'ERR_MODULE_NOT_FOUND' && String(e.message).includes('dead-starters.js')) return false;
+      throw e;
+    });
+  return deadStarterLoad;
+}
+
 const FAILED = 'This check failed on the server this time; the failure is logged.';
 let nowFn = () => new Date();
 const cache = new Map();
 
 export function __setStreamingProducer(fn) { streamingOverride = fn; }
+export function __setDeadStarterGuard(on) { deadStarterOverride = on; }
 export function __setNow(fn) { nowFn = fn ?? (() => new Date()); }
 export function __clearCache() { cache.clear(); }
 
@@ -241,6 +281,18 @@ function attempt(leagueId, kind, fn) {
     console.error(`[command-center] ${kind} failed for league ${leagueId}:`, error);
     return { error: FAILED };
   }
+}
+
+/**
+ * The checks that ran ('present') in EVERY league: the only ones the page may
+ * report as a count ("0 dead starters"). A check that is not merged, switched
+ * off, stale, failed or unsynced in any league is left out here and named under
+ * the list instead. No leagues: nothing is clear.
+ */
+export const CHECKS = ['dead_starters', 'injury_alerts', 'streams', 'moves'];
+export function clearChecks(leagues) {
+  if (!leagues.length) return [];
+  return CHECKS.filter(k => leagues.every(l => l.sources?.[k]?.state === 'present'));
 }
 
 /* ------------------------------------------------------------------- the route */
@@ -259,6 +311,7 @@ export async function commandCenter(userId) {
                         WHERE m.user_id = ? ORDER BY l.id`, userId);
   const { season, week } = tradeEngine.tradeWeekContext();
   const stream = await streamingProducer();
+  const ss01 = await ss01Present();
   const kickoffs = kickoffMap(season, week);
   const items = [];
   const out = [];
@@ -271,12 +324,16 @@ export async function commandCenter(userId) {
       out.push({ ...league, week: null, sources });
       continue;
     }
-    const diffR = attempt(lg.id, 'dead_starters', () => tradeEngine.lineupDiff(lg, lg.my_team_id));
+    // One dead-starter producer per build: SS-01's guard (via lineupCall, the list
+    // Start/Sit shows) when it exists, else lineupDiff's flagged starters.
+    const diffR = attempt(lg.id, 'dead_starters', () => (ss01
+      ? lineupBrain.lineupCall(lg.id, { myTeamId: lg.my_team_id })
+      : tradeEngine.lineupDiff(lg, lg.my_team_id)));
     const dead = deadStarterList(diffR.value);
     sources.dead_starters = diffR.error ? { state: 'error', message: diffR.error }
       : diffR.value?.error ? { state: 'unavailable', message: diffR.value.error }
         : dead.list ? { state: 'present', producer: dead.producer, count: dead.list.length }
-          : { state: 'unavailable', message: 'lineupDiff returned no starter list' };
+          : { state: 'unavailable', producer: dead.producer, message: dead.reason ?? 'the lineup check returned no starter list' };
 
     const wwR = attempt(lg.id, 'injury_alerts', () => waiverWire.waiverBoard(lg, { myTeamId: lg.my_team_id }));
     sources.injury_alerts = wwR.error ? { state: 'error', message: wwR.error }
@@ -322,6 +379,7 @@ export async function commandCenter(userId) {
   const value = {
     generated_at: now.toISOString(), season, nfl_week: week,
     items, leagues: out,
+    clear_checks: clearChecks(out),
     empty_reason: !leagues.length ? 'no_leagues' : !items.length ? 'nothing_due' : null,
   };
   cache.set(key, { at: now.getTime(), value });

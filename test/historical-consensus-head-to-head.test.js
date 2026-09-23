@@ -201,6 +201,15 @@ test('headToHead orients each disagreement to the policy\'s pick and grades it w
   assert.equal(h.verdict, arm.cellVerdict(direct));
 });
 
+test('the pair-accuracy interval is on policy minus baseline (sweep 1 survivor M19)', () => {
+  // The policy orders by the actual points and the baseline in reverse: every pair is +1.
+  const rows = [10, 12, 14, 16, 18, 20].map((actual, i) => ({ season: 2024, week: 5, position: 'WR', player_id: i + 1,
+    actual, ours: actual, std: 30 - actual }));
+  const h = arm.headToHead(rows, 'ours', 'std', { iterations: 200 });
+  assert.equal(h.pair_accuracy.diff, 1);
+  assert.deepEqual(h.pair_accuracy.ci90, [1, 1]);
+});
+
 test('the oracle wins every disagreement it has, and a policy against itself has none', () => {
   const rows = fixture();
   const c = arm.instrumentControl(rows, 'consensus');
@@ -290,6 +299,10 @@ test('kControlSeasons grades a season with a fitted k and excludes one whose k i
   assert.match(got.excluded[1].reason, /= 6/);
 });
 
+test('kControlSeasons lets any other resolver error through, never recording it as an exclusion (sweep 1 survivor L11)', () => {
+  assert.throws(() => lib.kControlSeasons([2023], () => { throw new Error('database is locked'); }), /database is locked/);
+});
+
 test('coordinatorRegistry fits each season on examples that end the season before; gradingFit re-checks', () => {
   const examples = [2021, 2021, 2022, 2022, 2023].map((season, i) => ({ season, week: 3, i }));
   const fit = rows => ({ ready: true, n: rows.length, maxSeason: Math.max(...rows.map(r => r.season)) });
@@ -351,6 +364,27 @@ test('servedWeekRows stops when D is not what the served startSitWeekPoints make
   const broken = { ...deps, constructArms: p => ({ ...deps.constructArms(p), D: 99 }) };
   assert.throws(() => lib.servedWeekRows({ season: 2024, week: 6, engine, truth, fitS: {}, scoring: {}, teamAt }, broken),
     /parity/);
+});
+
+test('current_week_ppg is rounded before the lift, as trade-engine.js:449 then lineup-brain.js:363 do (sweep 1 survivor L3)', () => {
+  const engine = new Map([[7, { player_id: 7, position: 'WR', team: 'MID', ppg: 16.5098, structural_ppg: 9, params: {},
+    player_week_engine: { heads: { season_to_date: 9, last3: 9 } } }]]);
+  const truth = new Map([[7, { weeks: new Map([[4, 10], [5, 10]]) }]]);
+  const deps = {
+    constructArms: p => ({ A: p.ppg, B: p.ppg - 0.5, D: (p.ppg - 0.5) * 1.25, lift: 1.25, lift_applied: true }),
+    startSitWeekPoints: p => ({ week_points: round2(p.current_week_ppg * 1.25) }),
+    weeklyAvailability: () => new Map([[7, { active_probability: 0.5 }]])
+  };
+  const [row] = lib.servedWeekRows({ season: 2024, week: 6, engine, truth, fitS: {}, scoring: {}, teamAt: new Map() }, deps);
+  // B x p = 8.0049: rounded first it is 8.00, and 8.00 x 1.25 = 10; unrounded it is 10.006, which rounds to 10.01.
+  assert.equal(row.ours, 10);
+});
+
+test('a player whose chance to play is 0 is valued 0, not the 0.92 default (?? not ||; sweep 1 survivor L4)', () => {
+  const { engine, truth, deps, teamAt } = servedFixture();
+  const out = { ...deps, weeklyAvailability: () => new Map([[1, { active_probability: 0 }]]) };
+  const [a] = lib.servedWeekRows({ season: 2024, week: 6, engine, truth, fitS: {}, scoring: {}, teamAt }, out);
+  assert.deepEqual([a.player_id, a.p, a.ours], [1, 0, 0]);
 });
 
 test('servedWeekRows asks the served weeklyAvailability for the week, with the season before as the cutoff', () => {

@@ -304,6 +304,12 @@ test('headToHead defaults to C-01\'s startable line, and on C-01\'s rows gives C
   const unthresholded = arm.headToHead(rows, 'policy', 'baseline', { iterations: 200, ...NO_THRESHOLD });
   assert.equal(unthresholded.pair_threshold, null);
   assert.ok(unthresholded.pairs > h.pairs, `${unthresholded.pairs} pairs without the line vs ${h.pairs} with it`);
+  // A kicker pair is not a start/sit pair: C-01's instrument drops it, and so does the arm's
+  // pair-accuracy score (sweep 3 survivor T6). Both kickers clear the line and disagree.
+  const kickers = [[90, 9, 10, 5], [91, 10, 9, 6]].map(([id, policy, baseline, actual]) =>
+    ({ season: 2026, week: 2, position: 'K', player_id: id, policy, baseline, actual, played: true }));
+  const withKickers = arm.headToHead(rows.concat(kickers), 'policy', 'baseline', { iterations: 200 });
+  assert.deepEqual([withKickers.pairs, withKickers.rows, withKickers.decisions], [h.pairs, h.rows, h.decisions]);
 });
 
 test('the oracle wins every disagreement it has, and a policy against itself has none', () => {

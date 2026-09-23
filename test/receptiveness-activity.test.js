@@ -47,6 +47,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS nfl_snaps (
   PRIMARY KEY (season, week, player, team))`);
 const signals = await import('../server/services/manager-signals.js');
 const pricing = await import('../server/services/counterparty-pricing.js');
+const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -243,7 +244,8 @@ test('A7: a zero-point starter who played under another spelling is not checked 
 });
 
 // ---------------------------------------------------------------- PREVIEW-01
-const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
+// PREVIEW_ENV is imported with the other modules at the top: a top-level await placed
+// after test() calls lets Node 22 run test.after (db.close) before these tests.
 function withPreview(value, fn) {
   const saved = process.env[PREVIEW_ENV];
   delete process.env[pricing.ACTIVITY_FLAG];

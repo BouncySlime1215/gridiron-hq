@@ -77,6 +77,7 @@ function league({ mine, theirs = [dst('NYG'), ...filler(15)], slotCounts = SLOT_
 
 const { rankDefenses, streamingBoard, MIN_EDGE, WV01_STREAMING_BOARD_ENABLED } = await import('../server/services/streaming-board.js');
 const { linesFor } = await import('../server/services/gamescript.js');
+const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
 const NOW = new Date('2026-09-24T12:00:00Z');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -235,7 +236,8 @@ test('GET /api/trades/:leagueId/streams serves the board for a member', async ()
 });
 
 // ---------------------------------------------------------------- PREVIEW-01
-const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
+// PREVIEW_ENV is imported with the other modules at the top: a top-level await placed
+// after test() calls lets Node 22 run test.after (db.close) before these tests.
 function withPreview(value, fn) {
   const saved = process.env[PREVIEW_ENV];
   if (value === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = value;

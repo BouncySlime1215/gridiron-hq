@@ -38,6 +38,7 @@ mock.module('../server/services/trade-engine.js', {
   }
 });
 const { waiverBoard, nextWaiverRun } = await import('../server/services/waiver-wire.js');
+const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -230,7 +231,8 @@ test('the waiver card reads injury_alerts (the reader that reaches the Lineup pa
 });
 
 // ---------------------------------------------------------------- PREVIEW-01
-const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
+// PREVIEW_ENV is imported with the other modules at the top: a top-level await placed
+// after test() calls lets Node 22 run test.after (db.close) before these tests.
 function withPreview(value, fn) {
   const saved = process.env[PREVIEW_ENV];
   if (value === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = value;

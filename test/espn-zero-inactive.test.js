@@ -43,7 +43,8 @@ mock.module('../server/services/waiver-brain.js', {
   namedExports: { ...realWaiverBrain, vegasLift: () => ({ multiplier: 1, line: null, applied: false }) }
 });
 
-const { espnZeroInactive, ESPN_ZERO_SOURCE, ESPN_ZERO_LABEL } = await import('../server/services/espn-zero-inactive.js');
+const { espnZeroInactive, ESPN_ZERO_SOURCE, ESPN_ZERO_LABEL, ESPN_ZERO_OFF_REASON } = await import('../server/services/espn-zero-inactive.js');
+const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
 const { lineupCall } = await import('../server/services/lineup-brain.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -242,8 +243,8 @@ test('the source label states the precision of the population the card shows (Fr
 });
 
 // ---------------------------------------------------------------- PREVIEW-01
-const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
-const { ESPN_ZERO_OFF_REASON } = await import('../server/services/espn-zero-inactive.js');
+// PREVIEW_ENV / ESPN_ZERO_OFF_REASON are imported at the top: a top-level await placed
+// after test() calls lets Node 22 run test.after (db.close) before these tests.
 
 /** Run fn with the site's own flag unset and the preview switch as given. */
 function withPreview(value, fn) {

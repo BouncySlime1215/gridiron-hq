@@ -81,6 +81,24 @@ Command (for every test count in this file): `SCHEDULER_DISABLED=1 GRIDIRON_DB_P
 | Default scan runtime | 7.7 s wall for 826 commits | `time node scripts/check-prereg-order.mjs` | `3e0dc29d` |
 | Lint-equivalent syntax and wiring | `node --check` ok on both files; `node scripts/wiring-map.mjs --check` exit 0, "no missing-feed findings" | as named | `32cfd269` |
 
+### 5a. Skeptic round 1: head failed its own check (fixed)
+
+The skeptic was right. At `997469c5` this file's section 4 quoted a marker in inline code, and the old `MARKER_RE` matched it anywhere, so it read as a marker pointing at an uncommitted file named `path`. `node scripts/check-prereg-order.mjs` printed that VIOLATION and exited 1, and the test file gave `# pass 13 # fail 1` (not ok 14, the real-repo case). My earlier "pass 14 / 0 violations" rows ran on `3ab3a20c`, before this file existed. CI missed it because the real-repo case skips on a depth-1 checkout.
+
+Fix, in the checker rather than by rewording this file: a marker now counts only when it stands alone on its own line (leading and trailing spaces allowed). A marker quoted mid-line, in prose or inline code, is ignored. `docs/STATS-CONTRACT.md` and the script header say so.
+
+| Claim | Value | Command | Tree |
+|---|---|---|---|
+| RED | `# pass 14 # fail 2`: not ok 8 (quoted-marker fixture) and the real-repo case | test command below | `953d2ca0` |
+| GREEN | `# pass 16 # fail 0 # skipped 0` | test command below | `a50f8dbe` |
+| This repo, default prefixes | ok, 6 pairs, 0 violations, 6 same-commit, exit 0 | `node scripts/check-prereg-order.mjs` | `a50f8dbe` working tree |
+| Whole repo | ok, exit 0 | `node scripts/check-prereg-order.mjs --prefix .` | `a50f8dbe` working tree |
+| Mutant: drop the start-of-line anchor | KILLED (not ok 8) | sed on the regex, run, restore | `a50f8dbe` |
+| Mutant: drop the end-of-line anchor | KILLED (not ok 8) | same | `a50f8dbe` |
+| Mutant: drop the multiline flag | KILLED (not ok 6, 7, 9) | same | `a50f8dbe` |
+
+Test command: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -u /tmp/gr05-XXXX).sqlite node --import ./test/offline-guard.mjs --experimental-test-module-mocks --test --test-reporter=tap test/check-prereg-order.test.js`. The final numbers on the pushed head are in the report for that commit.
+
 ## 6. Mutation sweep
 
 Script: `scratchpad/gr05-sweep.mjs`, not committed. It applies one string replacement, runs the test file, restores the file, and at the end checks `git status` (clean after every mutant, apart from the uncommitted test edit it was run against). Tree: `3e0dc29d` plus the rev-message assertion that `3ab3a20c` committed.

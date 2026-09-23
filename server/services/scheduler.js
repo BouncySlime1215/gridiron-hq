@@ -1135,7 +1135,12 @@ async function refreshNflverseWeeklyUsage() {
   return syncWeeklyUsage(season);
 }
 
-/** Snap counts for the current season — matched on name+position, so no gsis_id needed. */
+/**
+ * Snap counts for the current season. Joined by pfr_player_id -> gsis_id
+ * (players.csv, fetched by syncSnapCounts itself in this worker), with
+ * name+position as the fallback; a players.csv failure is reported as
+ * crosswalk_error in the detail and the run falls back to the name join.
+ */
 async function refreshNflverseSnapCounts() {
   const { syncSnapCounts } = await import('./nflverse.js');
   const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();

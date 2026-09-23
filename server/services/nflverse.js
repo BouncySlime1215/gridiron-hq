@@ -337,7 +337,18 @@ export async function syncSnapCounts(season) {
   const iWeek = at('week'), iSeason = at('season'), iType = at('game_type');
   const iSnaps = at('offense_snaps'), iPct = at('offense_pct');
 
-  const pfrToGsis = iPfr >= 0 ? await pfrCrosswalk() : new Map();
+  // The scheduled job (scheduler.js nflverse_snap_counts) runs this alone in a
+  // fresh worker, so the map is cold and players.csv is fetched here. If that
+  // fetch fails, keep the job alive on the name join (what origin/main did),
+  // count it, and leave the map unset so the next run retries.
+  let pfrToGsis = new Map(), crosswalkError = null;
+  if (iPfr >= 0) {
+    try { pfrToGsis = await pfrCrosswalk(); }
+    catch (e) {
+      crosswalkError = String(e?.message ?? e);
+      console.warn(`[nflverse] snap counts ${season}: pfr crosswalk unavailable (${crosswalkError}); name join only this run`);
+    }
+  }
   const byGsis = new Map(rows('SELECT id, gsis_id FROM players WHERE gsis_id IS NOT NULL')
     .map(p => [p.gsis_id, p.id]));
   const byName = new Map();     // name|position -> id, or null when two players share the key
@@ -397,7 +408,8 @@ export async function syncSnapCounts(season) {
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
   return { season, inserted, by_id: byId, name_fallback: nameFallback, unmatched,
-    ambiguous_name: ambiguousName, reassigned, namesake_rows_left: namesakeRowsLeft };
+    ambiguous_name: ambiguousName, reassigned, namesake_rows_left: namesakeRowsLeft,
+    crosswalk_error: crosswalkError };
 }
 
 /** Everything, in dependency order. */

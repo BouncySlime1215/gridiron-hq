@@ -91,6 +91,7 @@ import { counterpartyLayer, readDeal, counterpartyDataKey, playerValuation, self
 // Nick on our own numbers never reaches the list, whatever the other manager
 // thinks of it (master plan 00 D4, "a gift, not a trade").
 import { edgeTest, tacticsForDeal, timingRead, vetoClimate } from './trade-tactics.js';
+import { recordConsidered } from './rec-ledger.js';
 import { acceptanceBand } from './trade-acceptance.js';
 // tradeIdeas() only: this roster's real P(make playoffs), which is what turns the
 // horizon from a 0.5 prior into a number. season-sim.js imports assetUniverse /
@@ -1838,6 +1839,10 @@ function findTradesUncached(lg, {
   }
 
   const shown = result.slice(0, limit);
+  // The ideas the edge test took away become considered-not-shown rows in the
+  // recommendation ledger (C-08), so a grade of what WAS shown has a control
+  // group. Here, inside the uncached search, so a cache hit writes nothing.
+  recordConsidered(lg, lostIdeas, weekNow);
   // The tactics run ONCE, on the list that is actually returned — not on every
   // candidate in the combinatorial search, which would multiply the cost of the
   // inner loop by the price of a valuation lookup for nothing.

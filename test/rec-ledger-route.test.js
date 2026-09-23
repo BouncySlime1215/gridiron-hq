@@ -11,7 +11,7 @@
  * lineupCall, waiverBoard) and return fixtures in their own field names
  * (trade-engine.js:1719-1722 `deals.push`, :2351 offerFor, :2491 offerForMany;
  * lineup-brain.js lineupCall `lineup[].player/over`; waiver-wire.js
- * waiverBoard `immediate[]`), because a league valuation is not under test.
+ * waiverBoard `immediate[]` / `stashes[]`), because a league valuation is not under test.
  *
  * Every name below is made up. No league, manager or player in it is real.
  */
@@ -73,7 +73,10 @@ const WAIVERS = {
     { player: 'Wire One', player_id: 315, projected_ppg: 9, upgrade: 2.5,
       drop_candidate: { player: 'Cut One', player_id: 316, ppg: 3 } },
   ],
-  stashes: [],
+  stashes: [
+    { player: 'Stash One', player_id: 317, projected_ppg: 0, ros_ppg: 8, upgrade: 0, ros_upgrade: 1.2,
+      drop_candidate: null, ros_drop_candidate: { player: 'Cut Two', player_id: 318, ros_ppg: 4 } },
+  ],
 };
 
 const realEngine = await import('../server/services/trade-engine.js');
@@ -180,15 +183,20 @@ test('GET /lineup records the lineup once at +1 week, with the benched alternati
   assert.deepEqual(JSON.parse(r[0].baseline_call_json).alternatives, [{ slot: 'RB', id: 313, week_points: 12 }]);
 });
 
-test('GET /waivers records each immediate claim with its drop', async () => {
+test('GET /waivers records each immediate claim and each stash, each with its own drop', async () => {
   const res = await get('/api/trades/71/waivers?team_id=1');
   assert.equal(res.status, 200);
   assert.deepEqual(res.body, WAIVERS);
   const r = ledgerRows(71, 'waiver');
-  assert.equal(r.length, 2);
+  assert.equal(r.length, 4);
   const p = JSON.parse(r[0].predicted_json);
+  assert.equal(p.claim_type, 'immediate');
   assert.equal(p.add.id, 315);
   assert.equal(p.drop.id, 316);
+  const st = JSON.parse(r[2].predicted_json);
+  assert.equal(st.claim_type, 'stash');
+  assert.equal(st.add.id, 317);
+  assert.equal(st.drop.id, 318);
 });
 
 test('GET /api/grades/:leagueId/ledger counts rows per kind and the graded share', async () => {
@@ -201,9 +209,9 @@ test('GET /api/grades/:leagueId/ledger counts rows per kind and the graded share
   assert.equal(res.body.league_id, 71);
   assert.deepEqual(res.body.kinds.trade, { rows: 4, shown: 4, considered_not_shown: 0, graded: 0, graded_share: 0 });
   assert.deepEqual(res.body.kinds.lineup, { rows: 1, shown: 1, considered_not_shown: 0, graded: 1, graded_share: 1 });
-  assert.deepEqual(res.body.kinds.waiver, { rows: 2, shown: 2, considered_not_shown: 0, graded: 0, graded_share: 0 });
+  assert.deepEqual(res.body.kinds.waiver, { rows: 4, shown: 4, considered_not_shown: 0, graded: 0, graded_share: 0 });
   assert.deepEqual(res.body.kinds.scenario, { rows: 0, shown: 0, considered_not_shown: 0, graded: 0, graded_share: null });
-  assert.deepEqual(res.body.total, { rows: 7, graded: 1, graded_share: +(1 / 7).toFixed(4) });
+  assert.deepEqual(res.body.total, { rows: 9, graded: 1, graded_share: +(1 / 9).toFixed(4) });
   assert.deepEqual(res.body.horizons, { trade: [2, 5], lineup: [1], waiver: [2, 5], scenario: [] });
 });
 

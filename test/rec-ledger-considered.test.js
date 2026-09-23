@@ -125,3 +125,29 @@ test('a cached second search writes nothing new', () => {
   findTrades(lg, { myTeamId: '1', maxPerSide: 2, requireMutual: false, limit: 100 });
   assert.equal(considered().length, before);
 });
+
+test('the real waiver board carries player ids, so a claim reaches the ledger as a gradable row', async () => {
+  const { waiverBoard } = await import('../server/services/waiver-wire.js');
+  const { recordRoute } = await import('../server/services/rec-ledger.js');
+  // A free agent (a seeded RB on no roster) priced well above team 1's backs.
+  const [fa] = rows(`SELECT id FROM players WHERE position = 'RB' AND fantasy_relevant = 1
+    ORDER BY id LIMIT 1 OFFSET 25`);
+  run(`INSERT INTO dynasty_values (format_key, player_id, value, redraft_value, trend30, age, pos_rank,
+       fetched_at) VALUES (?,?,?,?,0,25,1,datetime('now'))`, FORMAT_KEY, fa.id, 7000, 7000);
+  run(`INSERT INTO player_season_stats (player_id, season, kind, fantasy_points, games, raw, fetched_at)
+       VALUES (?,?,'projected',?,17,'{}',datetime('now'))`, fa.id, 2026, 420);
+  const board = waiverBoard(lg, { myTeamId: '1', limit: 20, minProjected: 0 });
+  assert.ok(!board.error, board.error);
+  // Known-nonzero control: the priced free agent is on the board. With no game
+  // lines in the fixture every this-week number is 0, so he is a stash (a
+  // rest-of-season claim), not an immediate one.
+  const claim = [...board.immediate, ...board.stashes].find(b => b.player_id === fa.id);
+  assert.ok(claim, `the priced free agent is not on the board: ${JSON.stringify(board.stashes.map(b => b.player))}`);
+  const drop = board.immediate.includes(claim) ? claim.drop_candidate : claim.ros_drop_candidate;
+  assert.ok(Number.isInteger(drop?.player_id), 'the drop carries its id');
+  const out = recordRoute('waivers', lg, board);
+  assert.ok(out.inserted >= 2, JSON.stringify(out));
+  const [w] = rows(`SELECT predicted_json FROM rec_ledger WHERE league_id = 81 AND kind = 'waiver'
+    AND predicted_json LIKE ? LIMIT 1`, `%"id":${fa.id},%`);
+  assert.equal(JSON.parse(w.predicted_json).drop.id, drop.player_id);
+});

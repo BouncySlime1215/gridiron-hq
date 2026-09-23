@@ -123,6 +123,19 @@ test('record() accepts a list, and a considered-not-shown row is kept apart from
   assert.equal(ledgerRows(`kind = 'trade' AND disposition = 'shown'`).length, 2);
 });
 
+test('a write that fails returns state error and leaves no partial row, instead of throwing into the page', () => {
+  const before = ledgerRows().length;
+  const warn = console.warn; const warned = [];
+  console.warn = m => warned.push(String(m));
+  try {
+    const out = ledger.record({ ...tradeRec(), inputs: { bad: 1 }, predicted: { n: 10n } });
+    assert.equal(out.state, 'error');
+    assert.equal(out.inserted, 0);
+  } finally { console.warn = warn; }
+  assert.equal(ledgerRows().length, before);
+  assert.match(warned.join('\n'), /rec-ledger/);
+});
+
 // ------------------------------------------------------------------ grader
 test('the grader scores nothing before the weeks it needs have been played', () => {
   ledger.record(waiverRec);

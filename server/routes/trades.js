@@ -37,6 +37,7 @@ import { requirePlatformAdmin } from '../platform/legacy-access.js';
 import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE, PROMPT_VERSION }
   from '../services/trade-proposals.js';
 import { recordProposalSlate } from '../services/trade-outcomes.js';
+import { recordRoute } from '../services/rec-ledger.js';
 import { lineupCall } from '../services/lineup-brain.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
@@ -217,7 +218,9 @@ r.get('/:leagueId/lineup', (req, res, next) => {
     const lg = league(req, res); if (!lg) return;
     const objective = ['mean', 'ceiling', 'floor'].includes(req.query.objective)
       ? req.query.objective : 'mean';
-    res.json(lineupCall(lg.id, { myTeamId: req.query.team_id ?? null, objective }));
+    const out = lineupCall(lg.id, { myTeamId: req.query.team_id ?? null, objective });
+    recordRoute('lineup', lg, out);
+    res.json(out);
   } catch (e) { next(e); }
 });
 
@@ -670,11 +673,13 @@ r.get('/:leagueId/title-trades', (req, res, next) => {
 r.get('/:leagueId/waivers', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    res.json(waiverBoard(lg, {
+    const out = waiverBoard(lg, {
       myTeamId: req.query.team_id,
       limit: Math.min(50, Math.max(5, Number(req.query.limit) || 20)),
       minProjected: Number(req.query.min_projected) || 4,
-    }));
+    });
+    recordRoute('waivers', lg, out);
+    res.json(out);
   } catch (e) { next(e); }
 });
 
@@ -710,7 +715,7 @@ r.get('/:leagueId/lineup-diff', (req, res, next) => {
 r.get('/:leagueId/find', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    res.json(findTrades(lg, {
+    const out = findTrades(lg, {
       myTeamId: req.query.team_id,
       maxPerSide: Math.min(3, Number(req.query.max_per_side) || 2),
       // Off by default in the UI's "aggressive" mode: deals that only help me are
@@ -725,7 +730,9 @@ r.get('/:leagueId/find', (req, res, next) => {
       limit: Math.min(300, Number(req.query.limit) || 20),
       targetId: req.query.target_id || null,
       excludeIds: excludeSet(req)
-    }));
+    });
+    recordRoute('find', lg, out);
+    res.json(out);
   } catch (e) { next(e); }
 });
 
@@ -808,9 +815,11 @@ r.get('/:leagueId/offer', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
     if (!req.query.player_id) return res.status(400).json({ error: 'player_id required' });
-    res.json(offerFor(lg, {
+    const out = offerFor(lg, {
       myTeamId: req.query.team_id, targetId: req.query.player_id, excludeIds: excludeSet(req)
-    }));
+    });
+    recordRoute('offer', lg, out);
+    res.json(out);
   } catch (e) { next(e); }
 });
 
@@ -820,10 +829,12 @@ r.get('/:leagueId/offer-many', (req, res, next) => {
     const lg = league(req, res); if (!lg) return;
     const raw = String(req.query.player_ids ?? '').trim();
     if (!raw) return res.status(400).json({ error: 'player_ids required (comma-separated)' });
-    res.json(offerForMany(lg, {
+    const out = offerForMany(lg, {
       myTeamId: req.query.team_id, targetIds: raw.split(',').map(Number).filter(Number.isFinite),
       excludeIds: excludeSet(req)
-    }));
+    });
+    recordRoute('offer-many', lg, out);
+    res.json(out);
   } catch (e) { next(e); }
 });
 

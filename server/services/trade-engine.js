@@ -523,18 +523,49 @@ function buildAssetUniverse(lg, formatKey, target) {
 
 /* ----------------------------------------------------------------- rosters */
 
+/** ESPN defaultPositionId -> position, for the name + position fallback. */
+const ESPN_POS = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'DEF' };
+
+/**
+ * Which asset an ESPN roster entry is. The one resolver behind loadRosters and the
+ * waiver board (waiver-wire.js#waiverBoard), so the two cannot disagree on who is
+ * rostered.
+ *
+ * Returns `pl => { asset, match }`, `pl` being `playerPoolEntry.player`:
+ *   - match 'espn_id': an asset carries the entry's ESPN id. Always tried first.
+ *   - match 'name_position': no asset carries that id (or the entry has none), and
+ *     exactly one asset with the same normalised name and position has NO ESPN id of
+ *     its own. An asset carrying a different ESPN id is a different person — the
+ *     retired "Marvin Harrison" (ESPN 939) is not Marvin Harrison Jr. (4432708) —
+ *     so it is never a fallback target; neither is a tie between two id-less rows.
+ *     The identity is unconfirmed, and callers say so.
+ *   - { asset: null, match: null }: unresolved.
+ * The waiver board used to join by normalised name only (last row wins, "Jr."
+ * stripped) and priced a retired or junk namesake at 0.0 / 0.0 as the suggested cut
+ * in all 5 synced leagues on 2026-W3 (RL-6-4, docs/tdd/2026-09-23-rl-6-4-waiver-drop-identity.tdd.md).
+ */
+export function espnPlayerResolver(assets) {
+  const byEspn = new Map(), byKey = new Map();
+  for (const a of assets.values()) {
+    if (a.espn_id) { byEspn.set(String(a.espn_id), a); continue; }
+    const k = `${norm(a.name)}|${a.position}`;
+    byKey.set(k, byKey.has(k) ? null : a);   // null marks a tie: ambiguous, not resolvable
+  }
+  return pl => {
+    const hit = pl?.id != null ? byEspn.get(String(pl.id)) : undefined;
+    if (hit) return { asset: hit, match: 'espn_id' };
+    const fb = pl?.fullName ? byKey.get(`${norm(pl.fullName)}|${ESPN_POS[pl.defaultPositionId] ?? ''}`) : null;
+    return fb ? { asset: fb, match: 'name_position' } : { asset: null, match: null };
+  };
+}
+
 /** League rosters as arrays of enriched assets, keyed the same way for both platforms. */
 export function loadRosters(lg, assets) {
   const payload = JSON.parse(lg.payload);
-  const byKey = new Map(), bySleeper = new Map(), byEspn = new Map();
-  for (const a of assets.values()) {
-    byKey.set(`${norm(a.name)}|${a.position}`, a);
-    if (a.sleeper_id) bySleeper.set(String(a.sleeper_id), a);
-    if (a.espn_id) byEspn.set(String(a.espn_id), a);
-  }
-
   const teams = [];
   if (lg.platform === 'sleeper') {
+    const bySleeper = new Map();
+    for (const a of assets.values()) if (a.sleeper_id) bySleeper.set(String(a.sleeper_id), a);
     const users = Object.fromEntries((payload.users ?? []).map(u => [u.user_id, u]));
     for (const ro of payload.rosters ?? []) {
       const u = users[ro.owner_id];
@@ -545,16 +576,12 @@ export function loadRosters(lg, assets) {
       });
     }
   } else {
-    const POS = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'DEF' };
+    const resolve = espnPlayerResolver(assets);
     for (const t of payload.teams ?? []) {
       teams.push({
         roster_id: String(t.id),
         owner: t.name || `${t.location ?? ''} ${t.nickname ?? ''}`.trim() || `Team ${t.id}`,
-        players: (t.roster?.entries ?? []).map(e => {
-          const pl = e.playerPoolEntry?.player;
-          if (!pl) return null;
-          return byEspn.get(String(pl.id)) ?? byKey.get(`${norm(pl.fullName)}|${POS[pl.defaultPositionId] ?? ''}`);
-        }).filter(Boolean)
+        players: (t.roster?.entries ?? []).map(e => resolve(e.playerPoolEntry?.player).asset).filter(Boolean)
       });
     }
   }

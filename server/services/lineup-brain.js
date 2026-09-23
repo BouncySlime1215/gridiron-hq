@@ -774,7 +774,11 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
         : `about ${Math.round((c.player.active_probability ?? 0.9) * 100)}% likely to suit up and see the ball this week` +
           // A bye is a fact; a chance to play is a model output, and it is only allowed
           // to be stated bare when the model that produced it is the validated one.
-          (availabilityNote ? ' — but that is not the fitted number: ' + availabilityNote.reason : ''),
+          // UX-08: plain words. `availabilityNote.reason` names tables and a doc path;
+          // this string is rendered on the Start/Sit card (Lineup.tsx "Check before
+          // kickoff"), so it says what is true without the operator detail, which
+          // stays on availability_note for the console.
+          (availabilityNote ? ' — but that is not the fitted number: the role layer is not running, so this is a fallback estimate' : ''),
       // 'role' | 'pooled' | 'constants', so a reader of one warning can see it too.
       availability_basis: c.player.bye === week ? null : availabilityBasis?.basis ?? null,
       slot: c.slot

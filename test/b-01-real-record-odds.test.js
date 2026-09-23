@@ -115,7 +115,9 @@ function sixTeamLeague() {
   teams.reverse();                              // team 1 last: it loses 0-0 tie-breaks
   return { teams, members, schedule: schedule(),
     settings: { name: 'B01 League', scheduleSettings: { matchupPeriodCount: 14, matchupPeriodLength: 1,
-      playoffTeamCount: 4, playoffMatchupPeriodLength: 1 } } };
+      playoffTeamCount: 4, playoffMatchupPeriodLength: 1,
+      // CE-05: the simulator refuses a league whose rules are incomplete.
+      playoffReseed: false, playoffSeedingRule: 'TOTAL_POINTS_SCORED', divisions: [{ id: 0, size: 6 }] } } };
 }
 
 function insertLeague(id, payload, { currentWeek = CURRENT_WEEK, payloadSeason = 2026 } = {}) {

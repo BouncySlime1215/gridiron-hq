@@ -4,7 +4,7 @@ import { useApi } from '../api';
 import { useLeague } from '../state/league';
 import EvidenceStrip, { RecordLine } from '../components/lineup/EvidenceStrip';
 import { usePageExplain } from '../components/PageExplainContext';
-import { PageLoading, PageError, EmptyState } from '../components/PageState';
+import { PageLoading, PageError, EmptyState, logServerDetail } from '../components/PageState';
 import WaiverWire, { WaiverTeaser, onATeam } from '../components/lineup/WaiverWire';
 import type { WaiverBoard, OutList } from '../components/lineup/WaiverWire';
 import MatchupPosture from '../components/lineup/MatchupPosture';
@@ -79,13 +79,22 @@ export default function Lineup() {
     // The assistant answers questions about these percentages too, so it is told the
     // same thing the page prints when the model behind them is not the validated one.
     chance_to_play_degraded: d?.availability_note
-      ? { reason: d.availability_note.reason, effect: d.availability_note.effect } : null,
+      // UX-08: plain words only; the assistant repeats what it is told, so the
+      // table/doc-path `reason` stays in the console (logged below), not here.
+      ? { reason: 'the fitted chance-to-play model is not running', effect: d.availability_note.effect } : null,
     matchup: posture.data && !posture.data.error && posture.data.win_probability != null
       ? { win_probability_pct: posture.data.win_probability, stance: posture.data.stance ?? null,
           point_edge: posture.data.edge ?? null, swaps_suggested: (posture.data.swaps ?? []).length }
       : null,
     waivers: waiverSummary(waivers.data)
   });
+
+  // UX-08: the degradation note's operator detail (table names, doc and script
+  // paths from contingency.js availabilityDegradation) is logged, never rendered.
+  if (d?.availability_note) {
+    logServerDetail('Lineup availability_note',
+      `${d.availability_note.inert} is not running: ${d.availability_note.reason}. To fix: ${d.availability_note.fix}.`);
+  }
 
   if (!leagueId) {
     return (
@@ -183,11 +192,14 @@ export default function Lineup() {
           <h2 className="text-sm font-black uppercase tracking-wide text-slate-700">
             Chance-to-play numbers are degraded
           </h2>
+          {/* UX-08: `inert`, `reason` and `fix` name tables, doc paths and a script
+              (contingency.js availabilityDegradation) — operator detail, logged, never
+              rendered. `effect` is the plain-words half a reader acts on. */}
           <p className="mt-1.5 text-sm leading-6 text-slate-700">
-            {d.availability_note.inert} is not running: {d.availability_note.reason}.
+            The fitted chance-to-play model isn&rsquo;t running right now, so these percentages come from a simpler fallback.
           </p>
           <p className="mt-1 text-sm leading-6 text-slate-600">{d.availability_note.effect}.</p>
-          <p className="mt-1 text-xs leading-5 text-slate-500">To fix: {d.availability_note.fix}.</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">This clears once the availability model is refit.</p>
         </section>
       ) : d?.availability_basis?.basis === 'role' ? (
         <p role="status" className="text-xs leading-5 text-slate-500">

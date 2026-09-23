@@ -79,7 +79,7 @@ export const jsx = m.jsx; export const jsxs = m.jsxs; export const Fragment = m.
     "'../state/league'": write('league.mjs', 'export function useLeague() { return { activeId: 901 }; }'),
     "'../components/lineup/EvidenceStrip'": write('evidence.mjs', 'export default function EvidenceStrip() { return null; }\nexport function RecordLine() { return null; }'),
     "'../components/PageExplainContext'": write('explain.mjs', 'export function usePageExplain() {}'),
-    "'../components/PageState'": write('state.mjs', 'export function PageLoading() { return null; }\nexport function PageError() { return null; }\nexport function EmptyState() { return null; }'),
+    "'../components/PageState'": write('state.mjs', 'export function PageLoading() { return null; }\nexport function PageError() { return null; }\nexport function EmptyState() { return null; }\nexport function logServerDetail() {}'),
     "'../components/lineup/WaiverWire'": write('waiver.mjs', 'export default function WaiverWire() { return null; }\nexport function WaiverTeaser() { return null; }\nexport function onATeam() { return true; }'),
     "'../components/lineup/MatchupPosture'": write('posture.mjs', 'export default function MatchupPosture() { return null; }'),
     "'../components/lineup/StartSitGate'": write('gate.mjs', 'export default function StartSitGate() { return null; }')

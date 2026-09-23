@@ -73,3 +73,5 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 07:15Z: build loop 3 relaunched: lean batch UX-08 (Lineup error leak), RL-3-3 (trade card ceiling colour), INT-159-1/2 (remove eventOdds, fix comments) (wqn66e54y). Loops: CE-05/GR-01/GR-05, FC-SNAP/RL-4-2/RL-3-4, lean batch, + R&D r5; auditor agent on #164-#166.
 
 07:25Z: Nick asleep. Suggested task "sanitize alert() leaks in 5 pages" queued as UX-08b for the next lean batch.
+
+07:45Z: AI-13..16 queued (Nick: go). AI-13 enters the next free build loop after the current batches; paid runs capped at $1 each until Nick sets a weekly cap.

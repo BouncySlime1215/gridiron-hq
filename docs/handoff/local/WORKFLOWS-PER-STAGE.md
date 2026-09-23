@@ -53,3 +53,5 @@ rnd-loop.js with lanes R1-R6 one round per day; each valid + feasible find becom
 
 ## Reporting cadence to Nick
 Board every 10 min (keeper); a plain-English line to Nick at every merge that changes a number he sees, at every study verdict (FantasyCalc, backtest, twins), and at every phase exit; STOP file + resume JSON kept current at every launch.
+
+RULES: see VERIFICATION-RULES.md (enforced by the v2 scripts on every new launch; resumes stay on the original scripts) and UI-STANDARD.md.

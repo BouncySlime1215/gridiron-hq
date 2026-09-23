@@ -27,6 +27,7 @@ import { gameScriptFor } from './gamescript.js';
 import { loadRosters, assetUniverse, lineupSlots } from './trade-engine.js';
 import { random, withRandomSeed } from './stats-util.js';
 import { weeklyAvailability } from './contingency.js';
+import { leagueCurrentWeek } from './league-week.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
@@ -159,6 +160,26 @@ function initialRecords(lg, teams, fromWeek) {
   return out;
 }
 
+/**
+ * The week a page-facing simulation starts from — the one producer for it.
+ *
+ * An explicit week (a caller's `?from_week=`) wins. Otherwise the league's own
+ * current week (leagueCurrentWeek), so the completed weeks before it are
+ * carried in as the real record by initialRecords(). Defaulting to 1 simulated
+ * a 5-0 team in week 6 as 0-0 (B-01, 2026-09-22).
+ *
+ * A payload that is last season's (the pre-draft fallback in syncEspnLeague
+ * stamps `payload_season`) starts at week 1: its scored weeks are last year's
+ * games and must not become this season's standings.
+ */
+export function simStartWeek(lg, requested = null) {
+  const explicit = Number(requested);
+  if (Number.isInteger(explicit) && explicit >= 1) return explicit;
+  const payloadSeason = Number(lg?.payload_season), season = Number(lg?.season);
+  if (payloadSeason && season && payloadSeason !== season) return 1;
+  return leagueCurrentWeek(lg);
+}
+
 // Narrowly exposed for deterministic regression tests. These helpers contain
 // the decision-timing rules whose accidental reversal creates hindsight bias.
 export const __test = { lineupPoints, initialRecords };
@@ -171,8 +192,9 @@ export const __test = { lineupPoints, initialRecords };
  *                        it would be after the deal and diff the title odds.
  */
 export function simulateSeason(lg, {
-  runs = 2000, fromWeek = 1, scoring = PPR, overrides = null, projections = null
+  runs = 2000, fromWeek: requestedWeek = null, scoring = PPR, overrides = null, projections = null
 } = {}) {
+  const fromWeek = simStartWeek(lg, requestedWeek);
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   let teams = loadRosters(lg, assets);
@@ -360,8 +382,9 @@ export function simulateSeason(lg, {
  */
 export function tradeImpact(lg, {
   myTeamId, theirTeamId, iGive = [], iGet = [], runs = 1200,
-  scoring = PPR, fromWeek = 1, seed = null
+  scoring = PPR, fromWeek: requestedWeek = null, seed = null
 }) {
+  const fromWeek = simStartWeek(lg, requestedWeek);
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   const teams = loadRosters(lg, assets);

@@ -64,7 +64,9 @@ export function loadAttributionIndex() {
   const teamOf = new Map(players.map(player => [Number(player.id), Number(player.team_id)]));
   for (const player of players) {
     const { first, family } = nameParts(player.name);
-    if (family.replace(/[^A-Za-z]/g, '').length < 3) continue;
+    // A family name that is also a team word ("DeeJay Dallas") cannot be told
+    // apart from the city, so only the resolver can attribute him.
+    if (family.replace(/[^A-Za-z]/g, '').length < 3 || teamWords.has(family)) continue;
     const key = normalizePlayerName(family);
     const team = byTeam.get(Number(player.team_id)) ?? new Map();
     const list = team.get(key) ?? [];
@@ -92,10 +94,27 @@ function precederAllows(headline, at, candidate, index) {
   return POSITION_WORDS.has(word) || index.teamWords.has(word) || word === candidate.first;
 }
 
+// The word after the name says it is not his surname: a following capitalised
+// word or hyphen means it is someone's first name or part of a double-barrelled
+// name ("TE Hunter Long", "RB Coleman Bennett", "Coleman-Lyles"); "<Team>'
+// <Name>:" is a speaker attribution, which on a team desk is usually the coach
+// ("Bears' Johnson: ...").
+function followerAllows(headline, at, end, index) {
+  const after = headline.slice(end);
+  if (/^-[A-Za-z]/.test(after) || /^\s+[A-Z][a-z]/.test(after)) return false;
+  if (/^:/.test(after)) {
+    const word = headline.slice(0, at).trimEnd().split(/\s+/).pop() ?? '';
+    if (/['’]s?$/.test(word) && index.teamWords.has(word.replace(/['’]s?$/, ''))) return false;
+  }
+  return true;
+}
+
 function surnameMention(headline, candidate, index) {
-  const pattern = new RegExp(`(^|[^A-Za-z])(${escapeRegex(candidate.family)})(?:['’]s?)?(?![A-Za-z])`, 'g');
+  const pattern = new RegExp(`(^|[^A-Za-z])(${escapeRegex(candidate.family)})((?:['’]s?)?)(?![A-Za-z])`, 'g');
   for (const match of headline.matchAll(pattern)) {
-    if (precederAllows(headline, match.index + match[1].length, candidate, index)) return true;
+    const at = match.index + match[1].length;
+    const end = at + match[2].length + match[3].length;
+    if (precederAllows(headline, at, candidate, index) && followerAllows(headline, at, end, index)) return true;
   }
   return false;
 }

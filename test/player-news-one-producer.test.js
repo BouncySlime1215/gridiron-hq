@@ -76,6 +76,8 @@ const suffixStory = addStory({ headline: 'Steelers CB Dorian Vantreese Jr. limit
   date: '2026-09-21', published: '2026-09-21T10:00:00.000Z' });
 const namesake = addStory({ headline: 'Jets DT Quinnen Wexley signs extension', team: NYJ,
   date: '2026-09-21', published: '2026-09-21T11:00:00.000Z' });
+const firstNameUse = addStory({ headline: 'Jets waive TE Wexley Barnes', team: NYJ,
+  date: '2026-09-19', published: '2026-09-19T11:00:00.000Z' });
 
 const cardIds = async id => {
   const { status, payload } = await request(`/api/players/${id}`);
@@ -96,6 +98,7 @@ test('surname fallback: his team named with his bare surname counts, suffix toke
   assert.ok((await cardIds(brook)).includes(outWeeks), "\"Panthers' Brookhaven out weeks\" missing from the card");
   assert.ok(!(await cardIds(pitts)).includes(suffixStory), 'a "Jr." token matched a different player');
   assert.ok(!(await cardIds(wex)).includes(namesake), 'a same-team namesake (different first name) matched');
+  assert.ok(!(await cardIds(wex)).includes(firstNameUse), 'his surname used as someone else\'s first name matched');
 });
 
 test('the card is newest-published first, and the full-name control still appears', async () => {

@@ -6,14 +6,16 @@
  * What these tests pin:
  *   1. The licence gate. The loaders refuse (exit 2, no database opened) while
  *      the licence file is absent, and they refuse a source the file marks
- *      blocked. ESPN leaguedefaults is blocked in the committed file.
+ *      blocked. Each loader gates on its own source, and any verdict word other
+ *      than `usable` refuses. ESPN leaguedefaults is blocked in the committed file.
  *   2. The pbp mapping. nflverse columns become the play shape `storePlays`
  *      (nfl-espn-pbp.js) already writes, in the engine's own play_type
  *      vocabulary (classifyPlay). Nothing the engine does not simulate is
  *      counted as a rush.
- *   3. One producer per game: the ESPN `backfillSeasons` skips a season that
- *      nflverse already loaded, without asking ESPN for it.
- *   4. Participation: one row per offense player per play, team codes
+ *   3. One producer per game, both ways: the ESPN `backfillSeasons` skips a
+ *      season that nflverse already loaded, and the nflverse loader refuses a
+ *      season that already holds ESPN plays. Two-point tries are untyped in both.
+ *   4. Participation: one row per offense player per offensive snap, team codes
  *      canonical, was_route_runner NULL (not published), plus the
  *      player_week_snaps match share served at GET /formations/participation.
  */
@@ -57,6 +59,14 @@ test('the licence gate reads the committed decisions', async () => {
   assert.match(missing.reason, /licence file missing/);
   const unnamed = licenceDecision('some_new_source', { file: LICENCE });
   assert.equal(unnamed.usable, false, 'a source the file does not name is not usable');
+  // Any verdict word other than `usable` refuses; there is no default-allow.
+  assert.equal(licenceDecision('ftn_charting', { file: LICENCE }).usable, false,
+    'the committed "ftn_charting not pulled" line is not a usable verdict');
+  const pendingFile = path.join(temp, 'pending-licence.md');
+  fs.writeFileSync(pendingFile, '- decision: nflverse_pbp pending review\n');
+  const pending = licenceDecision('nflverse_pbp', { file: pendingFile });
+  assert.equal(pending.usable, false, 'a pending verdict is a refusal');
+  assert.match(pending.reason, /is pending/);
 });
 
 function runScript(script, args, env) {
@@ -81,6 +91,30 @@ test('RED (1): the loaders refuse to run while the licence file is absent', () =
   assert.equal(fs.existsSync(dbPath), false, 'a refused run opens no database');
 });
 
+test('each loader gates on its own source, not on any usable source', () => {
+  const gz = path.join(temp, 'gate-x.csv.gz');
+  fs.writeFileSync(gz, zlib.gzipSync('play_id\n'));
+  const csvFile = path.join(temp, 'gate-x.csv');
+  fs.writeFileSync(csvFile, 'nflverse_game_id\n');
+  const cases = [
+    { lines: ['nflverse_pbp blocked', 'open_meteo_archive usable', 'nflverse_participation usable'],
+      script: 'backfill-history.mjs', args: ['pbp', '2023', gz], blocked: 'nflverse_pbp' },
+    { lines: ['nflverse_pbp usable', 'open_meteo_archive blocked', 'nflverse_participation usable'],
+      script: 'backfill-history.mjs', args: ['weather', '2023'], blocked: 'open_meteo_archive' },
+    { lines: ['nflverse_pbp usable', 'open_meteo_archive usable', 'nflverse_participation blocked'],
+      script: 'backfill-participation.mjs', args: ['2023', csvFile], blocked: 'nflverse_participation' },
+  ];
+  for (const [i, c] of cases.entries()) {
+    const licence = path.join(temp, `gate-licence-${i}.md`);
+    fs.writeFileSync(licence, c.lines.map(l => `- decision: ${l} (fixture)`).join('\n') + '\n');
+    const dbPath = path.join(temp, `gate-never-${i}.sqlite`);
+    const result = runScript(c.script, c.args, { GRIDIRON_DB_PATH: dbPath, GRIDIRON_LICENCE_FILE: licence });
+    assert.equal(result.status, 2, `${c.script} ${c.args[0]}: exit ${result.status}; stderr: ${result.stderr}`);
+    assert.match(result.stderr, new RegExp(`licence decision for ${c.blocked} is blocked`));
+    assert.equal(fs.existsSync(dbPath), false, `${c.script} ${c.args[0]}: a refused run opens no database`);
+  }
+});
+
 test('the loaders refuse without an explicit database path', () => {
   const result = runScript('backfill-history.mjs', ['pbp', '2023', 'x.csv.gz'], {});
   assert.equal(result.status, 2);
@@ -93,10 +127,10 @@ const PBP_HEADER = ['play_id', 'game_id', 'season', 'season_type', 'week', 'post
   'game_seconds_remaining', 'down', 'ydstogo', 'yardline_100', 'desc', 'play_type', 'yards_gained',
   'shotgun', 'no_huddle', 'pass_length', 'pass_location', 'field_goal_result', 'touchdown', 'safety',
   'interception', 'fumble_lost', 'sack', 'incomplete_pass', 'penalty', 'total_home_score',
-  'total_away_score', 'order_sequence', 'qb_spike'];
+  'total_away_score', 'order_sequence', 'qb_spike', 'two_point_attempt'];
 const pbpRec = over => Object.fromEntries(PBP_HEADER.map(h => [h, over[h] ?? (
   ['touchdown', 'safety', 'interception', 'fumble_lost', 'sack', 'incomplete_pass', 'penalty',
-    'shotgun', 'no_huddle', 'qb_spike'].includes(h) ? '0' : 'NA')]));
+    'shotgun', 'no_huddle', 'qb_spike', 'two_point_attempt'].includes(h) ? '0' : 'NA')]));
 const base = { game_id: '2023_05_LA_PHI', season: '2023', season_type: 'REG', week: '5', posteam: 'LA',
   defteam: 'PHI', qtr: '2', game_seconds_remaining: '2100', down: '3', ydstogo: '7', yardline_100: '42',
   total_home_score: '7', total_away_score: '3' };
@@ -145,6 +179,11 @@ test('nflverse plays map to the engine vocabulary storePlays writes', async () =
   for (const skip of ['kickoff', 'extra_point', 'no_play', 'NA']) {
     assert.equal(m({ play_id: '12', play_type: skip }).play.play_type, null, `${skip} is not simulated`);
   }
+  // A two-point try is not simulated: ESPN's classifyPlay gives 'two-point' null, so nflverse does too.
+  // A failed two-point pass has incomplete_pass 0 in nflverse; it must not become a completed pass.
+  assert.equal(m({ play_id: '16', play_type: 'pass', two_point_attempt: '1' }).play.play_type, null);
+  assert.equal(m({ play_id: '17', play_type: 'run', two_point_attempt: '1' }).play.play_type, null);
+  assert.equal(m({ play_id: '18', play_type: 'pass', two_point_attempt: '0' }).play.play_type, 'pass', 'control');
   const td = m({ play_id: '13', play_type: 'run', touchdown: '1' }).play;
   assert.equal(td.is_scoring, 1);
   assert.equal(m({ play_id: '14', play_type: 'no_play', penalty: '1' }).play.is_penalty, 1);
@@ -207,7 +246,39 @@ test('pbpStatus names both sources', async () => {
   assert.match(s.source, /nflverse/);
 });
 
+test('the nflverse loader refuses a season ESPN already holds (one producer per game)', async () => {
+  const { storePlays } = await import('../server/services/nfl-espn-pbp.js');
+  const { ingestNflversePbpFile } = await import('../server/services/nflverse-pbp.js');
+  storePlays({ event_id: '401000001', season: 2019, week: 1, plays: [{ play_id: '1', sequence: 1, period: 1,
+    clock_seconds: 3600, offense: 'BUF', defense: 'NYJ', down: 1, distance: 10, yards_to_endzone: 75,
+    play_type: 'rush', yards_gained: 3, is_turnover: 0, is_scoring: 0, is_penalty: 0, shotgun: null,
+    no_huddle: null, pass_depth: null, pass_direction: null, home_score: 0, away_score: 0, text: 'ESPN fixture' }] });
+  const file = path.join(temp, 'play_by_play_2019.csv.gz');
+  writePbpGz(file, [pbpRec({ ...base, season: '2019', game_id: '2019_01_NYJ_BUF', week: '1', play_id: '40',
+    play_type: 'run', yards_gained: '3' })]);
+  const refused = await ingestNflversePbpFile(2019, file).catch(e => e);
+  assert.ok(refused instanceof Error && /ESPN/.test(refused.message), `refused: ${refused?.message ?? refused}`);
+  assert.equal(row(`SELECT COUNT(*) n FROM nfl_play_by_play WHERE event_id='2019_01_NYJ_BUF'`).n, 0,
+    'nothing is written for a season ESPN holds');
+  const cli = runScript('backfill-history.mjs', ['pbp', '2019', file], { GRIDIRON_DB_PATH: process.env.GRIDIRON_DB_PATH });
+  assert.equal(cli.status, 2, `exit ${cli.status}; stderr: ${cli.stderr}`);
+  assert.match(cli.stderr, /2019 already has 1 ESPN play/);
+  assert.equal(row(`SELECT COUNT(*) n FROM nfl_play_by_play WHERE event_id='2019_01_NYJ_BUF'`).n, 0);
+});
+
 // ---- 4. participation -------------------------------------------------------
+
+// Participation plays are kept only when they are offensive snaps, judged against the
+// nflverse play row in nfl_play_by_play: kicking plays (punt, field goal) are skipped,
+// and an untyped row (kickoff, extra point, pre-snap penalty) is kept only when the
+// feed recorded an offensive formation (a snapped play: post-snap penalty, two-point try).
+async function seedPbp(gameId, season, week, plays) {
+  const { mapNflversePlay } = await import('../server/services/nflverse-pbp.js');
+  const { storePlays } = await import('../server/services/nfl-espn-pbp.js');
+  const mapped = plays.map(over => mapNflversePlay(pbpRec({ ...base, game_id: gameId, season: String(season),
+    week: String(week), ...over })).play);
+  storePlays({ event_id: gameId, season, week, plays: mapped });
+}
 
 const PART_HEADER = 'nflverse_game_id,old_game_id,play_id,possession_team,offense_formation,offense_personnel,'
   + 'defenders_in_box,defense_personnel,number_of_pass_rushers,players_on_play,offense_players,defense_players,'
@@ -226,23 +297,41 @@ test('participation writes one row per offense player, and the snaps match share
   assert.deepEqual(parseOffensePlayers(''), []);
 
   const file = path.join(temp, 'pbp_participation_2023.csv');
-  fs.writeFileSync(file, [PART_HEADER,
+  const lines = [PART_HEADER,
     '2023_01_LA_SEA,2023091001,40,LA,SHOTGUN,"1 RB, 1 TE, 3 WR",6,"4 DL, 2 LB, 5 DB",4,x,00-0000001;00-0000002,00-0000009,2,1,,2.1,FALSE,SLANT,ZONE,COVER_3',
     '2023_01_LA_SEA,2023091001,61,LA,SHOTGUN,"1 RB, 1 TE, 3 WR",6,"4 DL, 2 LB, 5 DB",4,x,00-0000001,00-0000009,1,1,,,,,,',
     '2023_01_LA_SEA,2023091001,70,SEA,,,,,,,,,0,0,,,,,,',
-  ].join('\n') + '\n');
+    '2023_01_LA_SEA,2023091001,80,LA,,,,,,x,00-0000001,00-0000009,1,1,,,,,,',
+    '2023_01_LA_SEA,2023091001,90,LA,,,,,,x,00-0000001,00-0000009,1,1,,,,,,',
+    '2023_01_LA_SEA,2023091001,85,LA,SHOTGUN,,,,,x,00-0000002,00-0000009,1,1,,,,,,',
+    '2023_01_LA_SEA,2023091001,86,LA,,,,,,x,00-0000002,00-0000009,1,1,,,,,,',
+  ];
+  fs.writeFileSync(file, lines.join('\n') + '\n');
+  const noPbp = await ingestParticipationFile(2023, file).catch(e => e);
+  assert.ok(noPbp instanceof Error && /load nflverse pbp for 2023 first/.test(noPbp.message),
+    `participation without pbp is refused: ${noPbp?.message ?? noPbp}`);
+  await seedPbp('2023_01_LA_SEA', 2023, 1, [
+    { play_id: '40', play_type: 'pass' }, { play_id: '61', play_type: 'run' }, { play_id: '70', play_type: 'run' },
+    { play_id: '80', play_type: 'punt' },
+    { play_id: '90', play_type: 'kickoff' },
+    { play_id: '85', play_type: 'no_play', penalty: '1' },
+    { play_id: '86', play_type: 'qb_kneel' },
+  ]);
   const out = await ingestParticipationFile(2023, file);
-  assert.equal(out.rows_read, 3);
-  assert.equal(out.plays_with_players, 2);
-  assert.equal(out.player_rows, 3);
+  assert.equal(out.rows_read, 7);
+  assert.equal(out.skipped_kicking_plays, 1, 'the punt unit is not an offensive snap');
+  assert.equal(out.skipped_untyped_no_formation, 1, 'the kickoff unit is not an offensive snap');
+  assert.equal(out.plays_with_players, 4, 'pass, run, post-snap penalty, kneel');
+  assert.equal(out.player_rows, 5);
   const stored = rows('SELECT * FROM nfl_play_participation_players ORDER BY play_id, gsis_id');
-  assert.equal(stored.length, 3);
+  assert.equal(stored.length, 5);
+  assert.deepEqual([...new Set(stored.map(r => r.play_id))].sort((a, b) => a - b), [40, 61, 85, 86]);
   assert.equal(stored[0].team, 'LAR');
   assert.equal(stored[0].week, 1);
   assert.equal(stored[0].season, 2023);
   assert.equal(stored[0].was_route_runner, null, 'route runners are not published per play');
   await ingestParticipationFile(2023, file);
-  assert.equal(row('SELECT COUNT(*) n FROM nfl_play_participation_players').n, 3, 're-run does not duplicate');
+  assert.equal(row('SELECT COUNT(*) n FROM nfl_play_participation_players').n, 5, 're-run does not duplicate');
 
   // Two players with snaps in 2023 week 1: one appears in participation (60 snaps), one does not (40 snaps).
   run(`INSERT INTO players (id, name, position, gsis_id) VALUES (9001, 'Fixture One', 'WR', '00-0000001')`);
@@ -269,14 +358,15 @@ test('participation writes one row per offense player, and the snaps match share
   assert.equal(res.status, 200);
   assert.deepEqual(res.body.seasons.map(x => x.season), [2023], 'the route passes ?season= through');
   const s = res.body.seasons.find(x => x.season === 2023);
-  assert.equal(s.plays, 2);
-  assert.equal(s.player_rows, 3);
+  assert.equal(s.plays, 4);
+  assert.equal(s.player_rows, 5);
   assert.equal(s.snap_match_share, 0.6, '60 of 100 offense snaps have a participation player-week');
   assert.equal(s.matched_play_ratio, +(2 / 60).toFixed(4), 'participation plays over PFR snaps on matched weeks');
   assert.match(res.body.attribution, /FTN Data via nflverse/);
 });
 
-test('with the committed licence the participation command loads and prints the credit', () => {
+test('with the committed licence the participation command loads and prints the credit', async () => {
+  await seedPbp('2024_03_KC_ATL', 2024, 3, [{ play_id: '77', play_type: 'pass', posteam: 'KC', defteam: 'ATL' }]);
   const file = path.join(temp, 'pbp_participation_2024.csv');
   fs.writeFileSync(file, [PART_HEADER,
     '2024_03_KC_ATL,2024092200,77,KC,SHOTGUN,,,,,x,00-0000011;00-0000012,,2,0,,,,,,',

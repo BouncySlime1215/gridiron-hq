@@ -8,6 +8,7 @@ import TeamScout from '../components/TeamScout';
 import PostDraftPlan from '../components/PostDraftPlan';
 import { Headshot } from '../components/PlayerRow';
 import { PageError, PageLoading } from '../components/PageState';
+import MedianGameNotice from '../components/MedianGameNotice';
 import { leagueGate } from '../state/leagueGate';
 
 /**
@@ -204,6 +205,7 @@ export default function MyTeam() {
             {sim?.runs?.toLocaleString()} simulated seasons, correlated player outcomes, the league's own playoff bracket
             {playoffWeeksText(sim?.playoff_weeks) ? ` in ${playoffWeeksText(sim?.playoff_weeks)}` : ''}.
           </p>
+          <MedianGameNotice medianGame={sim?.median_game} rulesUnknown={sim?.rules_unknown} />
         </div>
       )}
 

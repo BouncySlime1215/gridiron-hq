@@ -1509,7 +1509,7 @@ const slim = p => ({
  * Every input here is already computed for the card; this just names the
  * pattern instead of making the manager infer it from raw numbers.
  */
-function tagDeal(give, get, ev) {
+export function tagDeal(give, get, ev) {
   const tags = [];
   const avg = (list, key, fallback) => list.length
     ? list.reduce((s, p) => s + (p[key] ?? fallback), 0) / list.length : fallback;

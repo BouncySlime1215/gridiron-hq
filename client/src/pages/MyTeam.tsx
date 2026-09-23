@@ -199,7 +199,7 @@ export default function MyTeam() {
             {sim?.runs?.toLocaleString()} simulated seasons, correlated player outcomes, the league's own playoff bracket
             {playoffWeeksText(sim?.playoff_weeks) ? ` in ${playoffWeeksText(sim?.playoff_weeks)}` : ''}.
           </p>
-          <MedianGameNotice medianGame={sim?.median_game} />
+          <MedianGameNotice medianGame={sim?.median_game} rulesUnknown={sim?.rules_unknown} />
         </div>
       )}
 

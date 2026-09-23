@@ -68,3 +68,174 @@ column is the targeted receiver's route only. `was_route_runner` stays NULL.
 - **holdout:** this unit grades nothing on 2025. The 2025 pbp and participation
   load and the 2025 match rate are data-integrity checks. They get one ledger row anyway,
   so the 2025 look is visible.
+
+## 4. RED / GREEN
+
+- Floors: `f9b4d469` "docs: PROJ-00 audit and published-count floors recorded before any load".
+  It was committed before any row was loaded.
+- RED: `902a53a6` "test: PROJ-00 RED - licence gate, nflverse pbp mapping,
+  participation players table". 9 of 9 failed. Failing assertion for row check
+  (1), inline: `assert.equal(result.status, 2, 'backfill-history.mjs pbp: exit 1; stderr: Cannot find module .../scripts/backfill-history.mjs')`.
+  The others failed on missing modules: `licence-gate.js`, `nflverse-pbp.js` and
+  `nfl-participation.js`; `by_source` undefined on `pbpStatus()`; the
+  `nfl_play_participation_players` table was absent.
+- GREEN: `f876c686` "feat: PROJ-00 load nflverse pbp and participation players
+  behind a licence gate". 9 of 9 pass.
+- Hardening: `19d403df` "test: PROJ-00 pin the participation command end to end
+  and the route's season filter". 10 of 10 pass. It was added because mutation M8 (below)
+  showed no test ran the participation command with the real licence file, and
+  M10 survived the first sweep.
+
+Test command, run on each tree:
+`SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -u /tmp/gridiron-test-XXXXXX).sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/proj-00-history-backfill.test.js`.
+Adjacent test `test/nfl-pbp-team-code-dedupe.test.js`: 3 of 3 pass on the GREEN tree.
+
+## 5. What it does, and the numbers (local copy, not production)
+
+What changed:
+- **Licence gate** `server/services/licence-gate.js`. `licenceDecision(source)` reads the
+  `decision:` lines of `docs/evidence/2026-09-23/proj-00-licences.md`. A missing
+  file, an unnamed source, or any word but `usable` means refuse. Both loaders
+  ask it before they open a database.
+- **pbp**: `scripts/backfill-history.mjs pbp <season> <file>` calls
+  `ingestNflversePbpFile` (`server/services/nflverse-pbp.js`). It streams the
+  gzip through `server/services/csv-stream.js`, maps each row with
+  `mapNflversePlay`, and writes one game per transaction through the existing
+  writer `storePlays` (`server/services/nfl-espn-pbp.js:181`). The table is
+  `nfl_play_by_play`. `backfillSeasons` (`nfl-espn-pbp.js:380`) now skips a season
+  that nflverse filled. `pbpStatus` (served at `GET /api/nfl-betting/pbp/status`)
+  gains `by_source`.
+- **participation**: `scripts/backfill-participation.mjs <season> <file>` calls
+  `ingestParticipationFile` (`server/services/nfl-participation.js`). It writes
+  `nfl_play_participation_players` (migration
+  `server/migrations/074_nfl_play_participation_players.js`, **additive: one new
+  table plus one index**). The reader is `participationStatus`, at the new
+  `GET /api/nfl-betting/formations/participation`.
+- **weather**: `scripts/backfill-history.mjs weather 2021 2022 2023 2024` calls
+  the canonical `syncGameWeather` (`server/services/nfl-weather.js:51`). The table is
+  `nfl_game_weather` and the source is `open-meteo-archive`. The weather code itself is unchanged.
+
+Setup: `runMigrations()` on `.local-db/data.sqlite` applied 073 and 074. The
+automatic pre-migration `.bak` (909 MB) was deleted right after.
+
+**pbp (row check 2).** Command: `SELECT season, count(*), count(distinct event_id) FROM nfl_play_by_play GROUP BY season`.
+
+| season | rows | floor | games | load seconds |
+|---|---|---|---|---|
+| 2021 | 49,922 | 49,922 | 285 | 4.5 |
+| 2022 | 49,434 | 49,434 | 284 | |
+| 2023 | 49,665 | 49,665 | 285 | |
+| 2024 | 49,492 | 49,492 | 285 | |
+| 2025 | 48,771 | 48,771 | 285 | 4.4 |
+
+Every season equals its floor (>= holds). Peak RSS was 124-128 MB per season, from the
+command's own `max_rss_mb`. The 2026 ESPN rows are untouched: 160 rows, 1 game. Of
+the 2024 rows, the engine vocabulary gives: rush 14,936; pass 12,184; NULL (not
+simulated) 10,645; incompletion 6,039; punt 2,119; sack 1,392; fg_make 982;
+kneel 437; interception 405; fg_miss 184; fumble 169.
+
+**Participation (row check 3).** Command: `node scripts/backfill-participation.mjs <season> <file>`.
+It prints `participationStatus`.
+
+| season | file rows | plays with players | player rows | PFR offense snaps | matched snaps | **snap match share** | matched play ratio |
+|---|---|---|---|---|---|---|---|
+| 2021 | 50,714 | 46,326 | 509,590 | 208,235 | 206,799 | **0.9931** | 1.0775 |
+| 2022 | 50,150 | 45,858 | 504,441 | 204,620 | 202,954 | **0.9919** | 1.0783 |
+| 2023 | 46,168 | 46,168 | 507,851 | 206,159 | 203,694 | **0.9880** | 1.1069 |
+| 2024 | 45,919 | 45,919 | 505,109 | 206,262 | 203,863 | **0.9884** | 1.1131 |
+| 2025 | 45,184 | 45,184 | 497,028 | 200,333 | 198,029 | **0.9885** | 1.1130 |
+
+Every season passes the 0.95 floor. The player rows equal the recorded slot counts exactly.
+Cross-source check: every one of the 2,524,018 participation rows joins to an
+`nfl_play_by_play` row on (game_id, play_id). The count of orphans is 0:
+`SELECT count(*) FROM nfl_play_participation_players p WHERE NOT EXISTS (SELECT 1 FROM nfl_play_by_play b WHERE b.event_id=p.game_id AND b.play_id=CAST(p.play_id AS TEXT))`.
+
+**Weather (row part 4).** `syncGameWeather` result: 768 outdoor home games, 736
+written, 32 skipped (the `STADIUMS` indoor/unknown guard), 0 failures, 235.9 s.
+Rows by season: 2021 188, 2022 183, 2023 183, 2024 182. The check against
+nflverse `game_lines.temp`/`wind` on the same games:
+
+| season | games | with nflverse temp | mean abs temp gap (degF) | mean signed gap | gap > 10 degF | mean abs wind gap (mph) |
+|---|---|---|---|---|---|---|
+| 2021 | 188 | 188 | 2.28 | +0.11 | 3 | 3.24 |
+| 2022 | 183 | 107 | 2.81 | +0.04 | 4 | 3.37 |
+| 2023 | 183 | 158 | 2.12 | -0.65 | 1 | 2.40 |
+| 2024 | 182 | 179 | 2.20 | -0.52 | 4 | 2.37 |
+
+Sign: gap = archive minus nflverse. The two sources agree within a few degrees, with no bias.
+
+**ESPN leaguedefaults 2025 (row part 3): not done.** The licence is blocked (section 4
+of the licence file), so there is no pull, no archive file and no ledger row for
+the pull.
+
+**DB growth** (dbstat on the local copy): `nfl_play_participation_players` 117.8
+MB plus its index 107.3 MB; `nfl_play_by_play` 46.8 MB plus indexes 10.6 MB. The
+file went from 926,785,536 to 1,232,916,480 bytes before the weather rows.
+
+## 6. Mutation sweep
+
+The script is in the scratchpad; each mutant is applied with perl, the test file is run, and the original is restored.
+
+| id | mutant | where | result |
+|---|---|---|---|
+| M1 | gate returns usable for any verdict | licence-gate.js | killed (1 fail) |
+| M2 | gate allows a missing licence file | licence-gate.js | killed (2) |
+| M3 | sack check removed | nflverse-pbp.js | killed |
+| M4 | team codes not canonical | nflverse-pbp.js | killed |
+| M5 | **call site**: ESPN skip removed | nfl-espn-pbp.js backfillSeasons | killed |
+| M6 | no per-game flush | nflverse-pbp.js | killed |
+| M7 | season guard removed | nflverse-pbp.js | killed |
+| M8 | **call site**: participation script asks the gate for the wrong source | backfill-participation.mjs | killed (by the hardening test) |
+| M9 | match share counts every snap as matched | nfl-participation.js | killed |
+| M10 | **call site**: route drops `?season=` | nfl-betting.js | survived the first sweep, killed after `19d403df` |
+| M11 | **designed survivor**: spike maps to NULL instead of incompletion | nflverse-pbp.js | survived, as designed. No test pins the spike mapping, because it is a guess (see known defects) |
+| M12 | **not-applied control**: pattern that matches nothing | nflverse-pbp.js | reported NOT APPLIED; suite not run |
+
+## 7. Known defects and follow-ups
+
+1. **ESPN 2025 weekly projections are blocked by licence.** Only Nick can decide
+   whether scripted ESPN pulls are acceptable under the Disney ToU. The R&D loop's
+   2021-2024 and 2026 files predate this unit and are outside it.
+2. The `qb_spike` -> `incompletion` mapping is a guess at ESPN parity, and the
+   designed survivor M11 leaves it unpinned. There are 0-2 spikes per game.
+3. Two producers count "offense snaps": PFR `player_week_snaps` (canonical,
+   `syncSnapCounts`) and participation plays. On matched player-weeks,
+   participation counts 7.8-11.3% more, because it includes no-play and penalty snaps. This unit
+   shows the ratio only on the status route and does not publish a
+   participation snap count, so `player_week_snaps` stays the one snap producer.
+   Follow-up: name which one feeds any future per-player number.
+4. `nfl_play_by_play` readers (`liveModelValidation`, `playDistributionAudit`,
+   `formationReport`) now see about 247k history plays instead of 160. That is the intent:
+   history for validation. nflverse `total_home_score` is taken as the running
+   score after each play, the same meaning as ESPN's `homeScore`. That match is a guess
+   from the two data dictionaries, not a stored side-by-side comparison.
+5. Production footprint is about +290 MB for 2021-2025. The loaders are commands and are
+   not on the timer (rule 13). Running them on the 2 GB Fly machine is Nick's
+   call. Each season peaked at about 128 MB RSS here.
+6. The pre-2023 "NFL NextGenStats via nflverse" credit has no `sources`
+   descriptor on `/api/data-freshness`. That gap was noted in the licence file and predates this unit.
+   `participationStatus` returns the per-season credit.
+7. `node scripts/wiring-map.mjs --check` exits 1 with 6 unresolved receivers in
+   files this unit does not touch. The output is identical with this unit's changes
+   stashed on base `309877ef`.
+
+## 8. Holdout looks
+
+One data-integrity look at 2025: ledger row L160 in `docs/evidence/HOLDOUT-LEDGER.md`.
+No outcome, projection or model was graded.
+
+## 9. Nick's five questions
+
+1. **Well built?** It reuses the one `nfl_play_by_play` writer and the one
+   weather producer. There is one new additive table with a reader on a route, and loads stream from files.
+   10 tests cover it, and 10 of 11 applied mutants were killed; the one survivor was designed in.
+2. **Stats or made up?** It is counts only. Each number above has its command. The floors
+   were committed before the load (`f9b4d469`).
+3. **How we know?** Every pbp season equals the published count. Participation covers
+   98.8-99.3% of PFR snaps. There are 0 orphan participation rows. Archive weather is within
+   about 2.5 degF of nflverse's own game temperature.
+4. **Pointed elsewhere?** ESPN 2025 was stopped by the licence. Forecast history
+   was not used as realized weather, because a forecast is not what happened.
+5. **How does it unify?** One game has one producer: ESPN skips seasons nflverse
+   filled. The play, participation and formation tables share one game key
+   (the nflverse game_id).

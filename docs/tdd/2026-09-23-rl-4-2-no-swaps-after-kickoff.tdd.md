@@ -141,5 +141,42 @@ None. No projection, ranking or model number changed, the 2025 season was not op
 1. **Well built?** One lock producer (`lineup-lock.js`) read by both lineup surfaces, one kickoff producer reused (`gameCutoff`), the solver unchanged and wrapped (`pinnedBestLineup`). 10 new tests, RED shown on the unfixed code, 7 of 8 real mutants killed and the eighth removed as redundant after a 400-roster equivalence check.
 2. **Stats or made up?** No statistics. Lock times are ESPN's own flag and the NFL schedule in `game_lines`. The 72 h fallback is the old hand-set constant, now used only when no named player has a kickoff on file.
 3. **How we know:** fixtures with an injected clock (tests), and the local-copy run above: 11 swaps at 1:30 pm Sunday W3 on the old code, all naming a locked player; 2 on the new code, none locked. W2 baseline 2 of 5 inbox rows open 17.2 h / 32.0 h after kickoff; the forward W4-W6 count is the confirmation, not yet measurable.
-4. **Pointed anywhere else?** Start/Sit tab (`/api/trades/:id/lineup`), League Hub / My Team card (`/api/trades/:id/lineup-diff`) and the Decision Inbox rows the card publishes. The matchup card (`lineup-posture.js`) and the trade engine's season lineups are not touched: they are not a this-Sunday move.
+4. **Pointed anywhere else?** Start/Sit tab (`/api/trades/:id/lineup`), the matchup card on the same page (`/api/trades/:id/posture`, added in review round 2, below), League Hub / My Team card (`/api/trades/:id/lineup-diff`) and the Decision Inbox rows the card publishes. The trade engine's season lineups are not touched: they are not a this-Sunday move. (The first version of this answer also excluded the matchup card. That was wrong: it is a this-Sunday lineup on the Start/Sit page. A reviewer caught it.)
 5. **How it unifies:** before, the snapshot collector was the only reader of ESPN's lock flag and no lineup path read kickoffs. Now both lineup surfaces read the same lock through one module and name the same pinned lineup (`lineup-surfaces-agree` still green). Follow-up named: ST-10 (actual points for final games) can reuse `rosterLocks`.
+
+## Review round 2 (skeptic findings, fixed on `25d0bbc2`)
+
+Two blocking findings, both correct. Nothing in this section was measured on production.
+
+**1. The pinned IR-activation solve had no test.** `trade-engine.js:2979` `const ifActivated = solve(activatable, ...)`: reverting it to the unpinned `bestLineup` passed all 10 tests. That revert brings back the bug on the same card (`MyTeam.tsx:328` renders `activate_from_ir`). The code was already right, so this is a liveness test, not a fix. Added to `test/lineup-kickoff-locks.test.js` as two tests: (a) an IR-slot back whose own 1:00 pm game kicked off, (b) a 4:25 pm IR-slot back whose only slot is held by a locked 1:00 pm starter. Each asserts `activate_from_ir` names him at noon ET (PRE, the nonzero control) and is empty at 1:30 pm ET (MID).
+- Mutant M11 (`ifActivated = bestLineup(activatable, ...)`): **killed**, `lineup-kickoff-locks` 7 pass / 2 fail (both new tests). Before these tests: 7/0 (skeptic's command).
+
+**2. The matchup card was a third lineup producer with no locks.** `lineupPosture` (`server/services/lineup-posture.js`, route `GET /api/trades/:leagueId/posture`, `server/routes/trades.js:694`, rendered by `MatchupPosture` on the Start/Sit page, `client/src/pages/Lineup.tsx:156`) solved both lineups unpinned. Fix (`25d0bbc2`): it takes `now` (default `Date.now()`; the route passes none), reads `rosterLocks`/`lockPins` for my roster and the opponent's (`lineup-posture.js:285-287`), solves both with `pinnedBestLineup` (`:287`, `:299`), keeps locked bench players out of the swap pool (`:360`), skips a locked starter's slot (`:367`), and counts a locked starter flagged out as 0 (the pinned solve's rule). No new field, table or column.
+
+Tests, in `test/start-sit-kickoff-locks.test.js` (it already mocks the universe and runs `lineupCall` on the same fixture, which is the "surfaces agree" check the reviewer asked for):
+- surfaces agree after kickoff: FLEX league, 1:00 pm back benched. PRE control: card 83 = Start/Sit 83. MID: card 74 = Start/Sit 74 (base gave 83).
+- the opponent's locked bench star: PRE 115 (control), MID 100 (base gave 115).
+- no variance swap starts a locked bench receiver (PRE control: the swap is offered) and none benches a locked OP quarterback (PRE control: offered).
+- a locked starter flagged out counts 0 on both surfaces (64 = 64). This one also passes on the unfixed code (bestLineup leaves him out and nobody else fits that RB slot); it is there to kill mutant P5.
+
+RED on `6114349d` (tests committed, `lineup-posture.js` unfixed): `start-sit-kickoff-locks` 4 pass / 4 fail (tests 4-7). GREEN on `25d0bbc2`: `start-sit-kickoff-locks` 8/0, `lineup-kickoff-locks` 9/0. Regression, same tree: `posture-calibration` 6/0, `lineup-posture-scope` 7/0, `decision-leftovers-lineup` 10/0, `lineup-surfaces-agree` 2/0. `node scripts/wiring-map.mjs --check`: exit 0. Command for all: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -u) node --experimental-test-module-mocks --test --test-reporter=tap test/<file>.test.js`.
+
+Mutation sweep on the fix (one at a time, source restored after each, `start-sit-kickoff-locks`):
+
+| Mutant | Result |
+|---|---|
+| P1 my solve unpinned | killed (1 fail) |
+| P2 opponent solve unpinned | killed (1) |
+| P3 locked bench player back in the swap pool | killed (1) |
+| P4 locked starter's slot not skipped | killed (1) |
+| P5 locked flagged-out starter counts full points | killed (1) |
+| P6 lock clock at 0 (everyone with a kickoff locked) | killed (4) |
+
+Local copy, not production (`.local-db/data.sqlite`, W3, 5 leagues). Scratch script `posture-live.mjs`: for each league, the unfixed `lineupPosture` (a temporary copy of the `26cabdeb` file, deleted after), the fixed one at `now`, `lineupCall(id, { now })`, and `lineupDiff(...).locked` for who is locked.
+
+| `now` | Card "You", base | Card "You", branch | Start/Sit total | Players locked |
+|---|---|---|---|---|
+| Wed 2026-09-23 16:00Z (control) | 84.7 / 88.8 / 65.5 / 70.8 / 82.9 | same 5 | 84.67 / 88.81 / 65.48 / 70.79 / 82.94 | 0 |
+| Sun 2026-09-27 13:30 ET | 84.7 / 88.8 / 65.5 / 70.8 / 82.9 | 67.9 / 86.3 / 57.5 / 68.0 / 79.8 | 67.92 / 86.34 / 57.49 / 67.95 / 79.81 | 45 (7/11/10/8/9) |
+
+So at 1:30 pm Sunday the old card showed a "You" total 2.5-16.8 points above the Start/Sit total on the same page in all 5 leagues; the fixed card matches Start/Sit to the displayed 0.1 in 5 of 5. Opponent totals moved in 3 of 5 (L1 83.3 to 82.9, L2 77.8 to 70.6, L5 87.5 to 81.7). The card offered 0 swaps in every league on both trees (4 of 5 are "neutral"; L3 is "chase variance" with no candidate), so the live data has no nonzero control for the swap filter: that part is shown by the fixture tests only. The Sunday numbers use Wednesday's rosters and projections, so they are a what-if, not a forecast.

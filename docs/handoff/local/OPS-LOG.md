@@ -124,3 +124,4 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 13:10Z: CI green again on #163 (test stub missing simStartWeek after #162), #73 (slow-runner timeout; main merged), #167 (test fake missing logServerDetail); queued. wt/UX-08 has 4 staged changes nobody claims (incl. a test deletion): left untouched; review at unit close, never discard without looking.
 
 13:15Z: R&D r8 landed: regression/TD-luck tag killed (priced by consensus); RL-8-1 queued (retire in-season td_luck weights, keep the preseason feature). Plan adjusted; r9 relaunched.
+13:20Z: r8 also: Trade Machine gate re-aimed (humans accept consensus-lopsided trades: favoured side won 57.6%, +0.89 ROS ppg; FantasyCalc ties consensus); fake schedule rank bug (RL-8-3 urgent).

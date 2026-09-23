@@ -58,6 +58,48 @@ mock.module('../server/services/waiver-brain.js', {
 
 const { lineupCall } = await import('../server/services/lineup-brain.js');
 
+// The page half, rendered for real (the pattern of test/start-sit-gate-panel.test.js): the
+// TSX is compiled with the repo's TypeScript, every import but React is stubbed, the data
+// hook returns lineupCall's own output as the route sends it (res.json at
+// server/routes/trades.js:220), and React renders the markup. A source grep cannot tell a
+// condition from its inverse, or a 'Not graded' chip from a 'Lean' one; the markup can.
+const repoRequire = createRequire(new URL('../package.json', import.meta.url));
+async function compileLineupPage() {
+  const dir = fs.mkdtempSync(path.join(temp, 'page-'));
+  const write = (name, text) => { fs.writeFileSync(path.join(dir, name), text); return pathToFileURL(path.join(dir, name)).href; };
+  const cjs = spec => `import { createRequire } from 'node:module';
+const m = createRequire(${JSON.stringify(repoRequire.resolve(spec))})(${JSON.stringify(repoRequire.resolve(spec))});`;
+  const stubs = {
+    "'react'": write('react.mjs', `${cjs('react')}\nexport default m; export const useMemo = m.useMemo; export const useState = m.useState;`),
+    '"react/jsx-runtime"': write('jsx-runtime.mjs', `${cjs('react/jsx-runtime')}
+export const jsx = m.jsx; export const jsxs = m.jsxs; export const Fragment = m.Fragment;`),
+    "'../api'": write('api.mjs', `export function useApi(p) {
+  return { data: p && p.includes('/lineup?') ? globalThis.__lineupPayload : null, loading: false, error: null, refetch() {} };
+}`),
+    "'../state/league'": write('league.mjs', 'export function useLeague() { return { activeId: 901 }; }'),
+    "'../components/lineup/EvidenceStrip'": write('evidence.mjs', 'export default function EvidenceStrip() { return null; }\nexport function RecordLine() { return null; }'),
+    "'../components/PageExplainContext'": write('explain.mjs', 'export function usePageExplain() {}'),
+    "'../components/PageState'": write('state.mjs', 'export function PageLoading() { return null; }\nexport function PageError() { return null; }\nexport function EmptyState() { return null; }'),
+    "'../components/lineup/WaiverWire'": write('waiver.mjs', 'export default function WaiverWire() { return null; }\nexport function WaiverTeaser() { return null; }\nexport function onATeam() { return true; }'),
+    "'../components/lineup/MatchupPosture'": write('posture.mjs', 'export default function MatchupPosture() { return null; }'),
+    "'../components/lineup/StartSitGate'": write('gate.mjs', 'export default function StartSitGate() { return null; }')
+  };
+  const source = fs.readFileSync(new URL('../client/src/pages/Lineup.tsx', import.meta.url), 'utf8');
+  let { outputText: compiled } = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX }
+  });
+  for (const [from, to] of Object.entries(stubs)) {
+    assert.ok(compiled.includes(from), `the compiled page imports ${from}`);
+    compiled = compiled.split(from).join(`'${to}'`);
+  }
+  return (await import(write('Lineup.mjs', compiled))).default;
+}
+const Lineup = await compileLineupPage();
+// Compiled here, before the first test() and before test.after is registered: node:test
+// starts running already-registered tests while this module is still at a top-level
+// await, so a compile placed after them raced test.after's rmSync of `temp` (CI: ENOENT
+// on page-*/Lineup.mjs, "asynchronous activity after the test ended").
+
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
 const POS_ID = { QB: 1, RB: 2, WR: 3, TE: 4 };
@@ -170,44 +212,6 @@ test('a ceiling request that fell back to week_points keeps the measured rate (t
   assert.equal(typeof qb.confidence_win_rate, 'number');
   assert.match(qb.why, /has won about [\d.]+% of the time/);
 });
-
-// The page half, rendered for real (the pattern of test/start-sit-gate-panel.test.js): the
-// TSX is compiled with the repo's TypeScript, every import but React is stubbed, the data
-// hook returns lineupCall's own output as the route sends it (res.json at
-// server/routes/trades.js:220), and React renders the markup. A source grep cannot tell a
-// condition from its inverse, or a 'Not graded' chip from a 'Lean' one; the markup can.
-const repoRequire = createRequire(new URL('../package.json', import.meta.url));
-async function compileLineupPage() {
-  const dir = fs.mkdtempSync(path.join(temp, 'page-'));
-  const write = (name, text) => { fs.writeFileSync(path.join(dir, name), text); return pathToFileURL(path.join(dir, name)).href; };
-  const cjs = spec => `import { createRequire } from 'node:module';
-const m = createRequire(${JSON.stringify(repoRequire.resolve(spec))})(${JSON.stringify(repoRequire.resolve(spec))});`;
-  const stubs = {
-    "'react'": write('react.mjs', `${cjs('react')}\nexport default m; export const useMemo = m.useMemo; export const useState = m.useState;`),
-    '"react/jsx-runtime"': write('jsx-runtime.mjs', `${cjs('react/jsx-runtime')}
-export const jsx = m.jsx; export const jsxs = m.jsxs; export const Fragment = m.Fragment;`),
-    "'../api'": write('api.mjs', `export function useApi(p) {
-  return { data: p && p.includes('/lineup?') ? globalThis.__lineupPayload : null, loading: false, error: null, refetch() {} };
-}`),
-    "'../state/league'": write('league.mjs', 'export function useLeague() { return { activeId: 901 }; }'),
-    "'../components/lineup/EvidenceStrip'": write('evidence.mjs', 'export default function EvidenceStrip() { return null; }\nexport function RecordLine() { return null; }'),
-    "'../components/PageExplainContext'": write('explain.mjs', 'export function usePageExplain() {}'),
-    "'../components/PageState'": write('state.mjs', 'export function PageLoading() { return null; }\nexport function PageError() { return null; }\nexport function EmptyState() { return null; }'),
-    "'../components/lineup/WaiverWire'": write('waiver.mjs', 'export default function WaiverWire() { return null; }\nexport function WaiverTeaser() { return null; }\nexport function onATeam() { return true; }'),
-    "'../components/lineup/MatchupPosture'": write('posture.mjs', 'export default function MatchupPosture() { return null; }'),
-    "'../components/lineup/StartSitGate'": write('gate.mjs', 'export default function StartSitGate() { return null; }')
-  };
-  const source = fs.readFileSync(new URL('../client/src/pages/Lineup.tsx', import.meta.url), 'utf8');
-  let { outputText: compiled } = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX }
-  });
-  for (const [from, to] of Object.entries(stubs)) {
-    assert.ok(compiled.includes(from), `the compiled page imports ${from}`);
-    compiled = compiled.split(from).join(`'${to}'`);
-  }
-  return (await import(write('Lineup.mjs', compiled))).default;
-}
-const Lineup = await compileLineupPage();
 
 const clean = h => h.replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, '&')
   .replace(/\s+/g, ' ').trim();

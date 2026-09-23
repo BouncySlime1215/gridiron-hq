@@ -18,7 +18,8 @@
  *   espn_proven  ESPN plus our disagreement, only in the cells where it was proven
  * SERVED_BLEND below records the winner and whether it passed the ship rule.
  *
- * ESPN's number is a model input only. It is never shown as odds or a pick.
+ * ESPN's number is a model input only: it prices this week's number and is never shown as
+ * odds or as a pick of its own.
  *
  * Where it comes from: league_roster_snapshots.projected_points (migration 058, writer
  * scripts/collect-roster-snapshots.mjs:109 writePeriod, value built at :92), the current
@@ -80,7 +81,8 @@ export const CANDIDATES = Object.freeze({
 
 /**
  * One player's number under one candidate (and, optionally, the late-news layer on top).
- * Returns the number and why: 'bye' | 'ours_position_not_graded' | 'no_espn_value' |
+ * `bye` means he has no game this week (a bye, or no team), and the number is then 0.
+ * Returns the number and why: 'no_game' | 'ours_position_not_graded' | 'no_espn_value' |
  * 'ours' | 'espn_late_news' | 'blend'. `weight_ours` is the share of the number that is
  * ours (1 when the number is ours alone, 0 when it is ESPN's alone).
  */
@@ -91,7 +93,7 @@ export function blendWeekPoints({ ours, espn = null, position, week, reportStatu
   if (!finite(ours)) throw new Error(`blendWeekPoints needs a finite number of ours (got ${ours})`);
   const e = finite(espn) ? espn : null;
   const own = basis => ({ ppg: ours, basis, weight_ours: 1, espn: e });
-  if (bye) return { ppg: 0, basis: 'bye', weight_ours: null, espn: e };
+  if (bye) return { ppg: 0, basis: 'no_game', weight_ours: null, espn: e };
   if (!BLEND_POSITIONS.has(position)) return own('ours_position_not_graded');
   if (e == null) return own('no_espn_value');
   if (candidate === 'ours') return own('ours');
@@ -105,15 +107,19 @@ export function blendWeekPoints({ ours, espn = null, position, week, reportStatu
 
 /**
  * What the tournament decided (runner output
- * docs/evidence/2026-09-22/weekly-blend-tournament-output.json, decision). `on: false`
- * means the served number is ours and every player says why (`blend_off`).
+ * docs/evidence/2026-09-22/weekly-blend-tournament-output.json, `decision`; pinned by
+ * test/weekly-blend.test.js). ESPN's weekly projection alone won: on 2023-2024, graded
+ * walk-forward, it ordered the start/sit calls our number poses better than our number
+ * (pair accuracy 0.683 vs 0.636), no blend of ours beat it by more than its MDE, and it held
+ * on 2026 week 2. So this week's number is ESPN's projection where ESPN has one and ours
+ * where it does not. `on: false` would serve ours with every player saying why (`blend_off`).
  */
 export const SERVED_BLEND = Object.freeze({
-  on: false,
-  candidate: 'ours',
+  on: true,
+  candidate: 'espn',
   params: null,
   news_layer: false,
-  verdict: 'not_graded',
+  verdict: 'shipped',
   evidence: 'docs/evidence/2026-09-22/weekly-blend-tournament-output.json'
 });
 
@@ -121,7 +127,7 @@ export const SERVED_BLEND = Object.freeze({
 export function servedWeekBlend(input, config = SERVED_BLEND) {
   if (!config?.on) {
     const e = finite(input?.espn) ? input.espn : null;
-    if (input?.bye) return { ppg: 0, basis: 'bye', weight_ours: null, espn: e };
+    if (input?.bye) return { ppg: 0, basis: 'no_game', weight_ours: null, espn: e };
     return { ppg: input.ours, basis: 'blend_off', weight_ours: 1, espn: e };
   }
   return blendWeekPoints(input, { candidate: config.candidate, params: config.params, newsLayer: config.news_layer });

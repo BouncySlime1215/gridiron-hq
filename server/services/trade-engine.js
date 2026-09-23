@@ -76,6 +76,9 @@ import { dynastyAgeAdjustment } from './dynasty-age-curve.js';
 // the week number (context.week_basis), never to price it.
 import { vegasLift, BETTING_LINE_LIFT } from './waiver-brain.js';
 import { normalCdf, withRandomSeed } from './stats-util.js';
+// BLEND-01: this week's number goes through the tournament's served blend with ESPN's
+// weekly projection (weekly-blend.js), which reads ESPN's number from league_roster_snapshots.
+import { servedWeekBlend, SERVED_BLEND, espnWeekProjections, espnValueFor, weekBlendContext } from './weekly-blend.js';
 // lineupSpread() only: each starter's played-week draws and the fitted archetype
 // correlations, for the lineup-total floor/ceiling.
 import { sampleWeeks } from './projections.js';
@@ -233,6 +236,9 @@ export const ASSET_INPUT_TABLES = [
   // alone never saw it; fetched_at is rewritten on every sync.
   { table: 'trending_players', stamp: 'fetched_at' },
   'player_metrics', 'schedule_games',
+  // ESPN's weekly projection, which the week blend reads (weekly-blend.js): each refresh-loop
+  // capture rewrites changed_at on the rows that moved, so a new ESPN number rebuilds this.
+  { table: 'league_roster_snapshots', stamp: 'changed_at' },
   // Not read by buildAssetUniverse, but by lineupSpread inside findTrades, whose cache
   // keys on this list. A refit rewrites fitted_at on the same 20-odd rows.
   { table: 'correlation_estimates', stamp: 'fitted_at' }
@@ -347,6 +353,8 @@ function buildAssetUniverse(lg, formatKey, target) {
   const seasonEnding = seasonEndingEspnIds();
   // Which absence trend_kind: null means on this build, served on context.hand_fed.
   const handFed = handFedInputs();
+  // ESPN's weekly projection for this week as this league scores it (BLEND-01; one read).
+  const espnWeek = espnWeekProjections({ league: lg, season: target.season, week: target.week });
   const trending = new Map(rows('SELECT player_id, kind, count FROM trending_players')
     .map(t => [t.player_id, t]));
 
@@ -393,7 +401,15 @@ function buildAssetUniverse(lg, formatKey, target) {
     // thisGame.mult is exactly 1 while the matchup signal is off (matchups.js#
     // gameMultiplier); kept as a factor so this line needs no edit if a multiplier
     // ever passes the harness. thisGame itself is the bye detector: no game, 0.
-    const currentWeekPpg = thisGame ? currentWeekBasePpg * thisGame.mult * activeProbability : 0;
+    // BLEND-01: ours (this construction x the game factor x his chance to play, 0 with no
+    // game) through the one served blend with ESPN's weekly projection. Every weekly page reads
+    // current_week_ppg, so this is the only place the blend happens (weekly-blend.js).
+    const weekBlend = servedWeekBlend({
+      ours: thisGame ? currentWeekBasePpg * thisGame.mult * activeProbability : 0,
+      espn: espnValueFor(espnWeek, p.espn_id), position: p.position, week: target.week,
+      reportStatus: availability?.report_status ?? null, bye: !thisGame
+    }, SERVED_BLEND);
+    const currentWeekPpg = weekBlend.ppg;
     // Rest-of-season weekly rate. No schedule tilt (see scheduleTilt above), no
     // availability term — per game played, the same basis it has always had. It used
     // to BE weeklyPpg, which at week 2 is 80% the week-1 score (Coker 29.9 after a
@@ -484,6 +500,11 @@ function buildAssetUniverse(lg, formatKey, target) {
       schedule_signal: scheduleTilt, schedule_reason: scheduleTilt ? null : (sched.reason ?? MATCHUP_SIGNAL_REASON),
       adj_ppg: +decisionPpg.toFixed(2),
       current_week_ppg: +currentWeekPpg.toFixed(2),
+      // How the week blend priced current_week_ppg (BLEND-01): 'blend' | 'espn_late_news' |
+      // 'no_espn_value' | 'ours_position_not_graded' | 'no_game' | 'blend_off' | 'ours', the share
+      // of it that is ours, and ESPN's number where there is one (a model input, not a pick).
+      week_blend: { basis: weekBlend.basis, weight_ours: weekBlend.weight_ours,
+        espn_ppg: weekBlend.espn == null ? null : +weekBlend.espn.toFixed(2) },
       // Transparency for the correction folded into current_week_ppg above —
       // null when no fit is promoted, the week is outside its promoted windows, or
       // this player has no weekly projection to correct (construction.coordinator_off).
@@ -535,6 +556,9 @@ function buildAssetUniverse(lg, formatKey, target) {
     // and the fit tables that are missing (contingency.js#availabilityBasis). The cache
     // fingerprint stamps both fit tables, so this matches the cached numbers.
     availability_basis: availabilityBasis(),
+    // The week blend (BLEND-01): on or off, the tournament's winner and verdict, one sentence,
+    // and ESPN's capture state for this week (weekly-blend.js#weekBlendContext).
+    week_blend: weekBlendContext(espnWeek, SERVED_BLEND),
     // What this week's number is built from (S-03): the served coordinator fit and its
     // windows, the betting-line lift's switch, and one plain sentence for the page.
     week_basis: weekConstructionBasis({ fit: fantasyFit, week: target.week, lift: BETTING_LINE_LIFT })

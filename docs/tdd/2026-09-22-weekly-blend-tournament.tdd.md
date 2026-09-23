@@ -3,6 +3,12 @@
 Unit BLEND-01 (WORK-QUEUE §15; plan item C12 / Structure). Branch
 `claude/local-blend-01-weekly-blend-tournament` from `origin/main` `a3e2bf35`. Pre-registration:
 `docs/evidence/2026-09-22/weekly-blend-tournament-preregistration.md`, committed before any number.
+> **Round 2 (2026-09-23, after the skeptics): the winner is recorded but held off.** ESPN alone won
+> the tournament, but serving it changes numbers that the waiver board, Start/Sit and S-03's own
+> checks compare across the covered/uncovered line, and none of that was graded. `SERVED_BLEND` now
+> serves ours (`blend_off`) while four named holds stand (§9). On 2026 week 3 the served number and
+> the waiver board are byte-identical to S-03's head (§9.2).
+
 All data runs are on a **local copy, not production** (`.local-db/data.sqlite`, a `.backup` of
 `~/gridiron-local/data.sqlite` taken 2026-09-22 19:57 ET).
 
@@ -64,8 +70,9 @@ consumer mutants C12 and C13 in §5, not from RED.
 
 - **`server/services/weekly-blend.js`** (served): the seven pre-registered candidates as
   functions, one place that decides the fallbacks (no game → 0, K/DEF → ours, no ESPN value →
-  ours, each labelled), the late-news trigger, and `SERVED_BLEND`, the tournament's recorded
-  decision. `servedWeekBlend` is the one entry point. `espnWeekProjections` reads ESPN's weekly
+  ours, each labelled), the late-news trigger, `TOURNAMENT_DECISION` (the tournament's recorded
+  decision), `SERVING_HOLDS` (why it is not served yet, each with what lifts it) and
+  `SERVED_BLEND` (the winner, on only when the tournament said ship and no hold stands; today off). `servedWeekBlend` is the one entry point. `espnWeekProjections` reads ESPN's weekly
   projection from `league_roster_snapshots` for this league and identically scored leagues
   (current period, rostered rows, one value per player, disagreeing leagues dropped) and never
   selects a league's cookies. No migration.
@@ -126,7 +133,9 @@ against S-03's `servedWeekConstruction`, and the file is byte-identical.
 
 ### 4.1 History, pooled 2023 + 2024 (the verdict)
 
-10,338 rows, 691 players, 108,905 pairs where ours projects both ≥ 4.
+10,338 rows (691 players in the row population), 108,905 pairs where ours projects both ≥ 4;
+the pairs involve 362 distinct players (claims skeptic; their resample of those 362 alone gives
+[+0.0400, +0.0543], versus [+0.0395, +0.0546]).
 
 | candidate | pair accuracy | − ours [90% CI] | MDE80 | disagreements | win rate | points per decision [90% CI] | − ESPN [90% CI] |
 |---|---|---|---|---|---|---|---|
@@ -187,7 +196,10 @@ against S-03's `servedWeekConstruction`, and the file is byte-identical.
 - (b) Its history points per decision are +2.70 > 0.
 - (c) Forward, the pair-accuracy difference (+0.052) and the points per decision (+1.39) are both
   above 0, so it holds.
-- **Verdict: shipped, ON.**
+- **Tournament verdict: shipped.** **Served: held off (round 2, §9).** The ship rule graded
+  start/sit pairs only; rule (d) also needs a waiver decision grade, which was never run.
+- The forward week was **not blind**: r2 §4 and C-01's 7:12 PM ruling both saw ESPN ahead on
+  2026 week 2 before the pre-registration commit (20:21:29).
 
 **Does it beat ESPN alone? No.** The winner is ESPN alone. No blend of our number with ESPN's beat
 ESPN. The closest was ESPN plus our proven correction, 0.0000 [−0.0007, +0.0006] with an MDE80 of
@@ -215,6 +227,10 @@ the 119 players ESPN projects ≥ 8 with no designation get active_probability 0
 This is `contingency.js`, another unit's file: reported, not edited (§6).
 
 ### 4.5 The served number (consumer check)
+
+> Round 2: this table describes `e55864be`/`dd8be956`, where the blend was served. On the head it
+> is held off; §9.2 has the head's numbers. The "0 differ" rows had no known-nonzero control; §9.2
+> supplies one (the blend-on tree differs from S-03's head on 165 players per league).
 
 Command: `GRIDIRON_DB_PATH=.local-db/data.sqlite NFL_SEASON=2026 node docs/evidence/2026-09-22/blend-01/consumer-check.mjs`,
 2026 week 3, through the real `assetUniverse` and `startSitWeekPoints` on `e55864be`.
@@ -319,6 +335,8 @@ control was not applied.
 
 **What this change leaves wrong, most important first:**
 
+0. **Round 2: items 1, 3 and 4 below describe the blend when it is served. It is held off
+   (§9), so on the head they do not occur; they are the reasons the holds exist.**
 1. **The waiver board compares two bases.** Players ESPN covers get ESPN's number; everyone else
    keeps ours. ESPN covers 194 players, the ones rostered in any of Nick's 5 identically scored
    leagues. Ours runs low: mean signed error −2.00, and −3.52 against ESPN where ours ≥ 4 (§4.2),
@@ -350,7 +368,7 @@ control was not applied.
   favours ours, which is conservative for this result.
 - The 2021 coordinator examples used the hand-set k.
 - The availability rates were fit once.
-- ESPN's archived value is its last pre-lock number. The served number has that timing only
+- **Assumption, checked on 2026 week 2 only (r2 §2):** ESPN's 2022-2024 archived value is its last pre-lock number. The served number has that timing only
   when the loop runs near lock; the played-only view (+0.031) shows the edge is not only timing.
 - The forward check is one week.
 - HX-01 is not merged, so the runner rebuilds the served rows itself. Swap in HX-01's library
@@ -382,12 +400,13 @@ control was not applied.
    - Forward, 2026 week 2: +0.052 [−0.002, +0.102], +1.39 points per call. That is one week,
      direction only.
    - No blend beat ESPN alone.
-4. **Pointed anywhere else?** Yes. Every page that reads `current_week_ppg`: Start/Sit, the
+4. **Pointed anywhere else?** Not yet: held off, so every page serves ours, byte-identical to
+   S-03's head (§9.2). When the holds lift: every page that reads `current_week_ppg`: Start/Sit, the
    League Hub card, the waiver board, the matchup card, the trade pill, and the trade horizon's
    `adj_ppg`. Not the ceiling lineup, the news tracker, the season sim, `weeklyProjectionFor`, or
    the floor/ceiling distribution (§6).
 5. **How it unifies.** One producer (`servedWeekBlend`, at `trade-engine.js` `currentWeekPpg`).
-   One switch (`SERVED_BLEND`, pinned by test to the committed decision). One ESPN reader, over
+   One switch (`SERVED_BLEND`: the committed decision, held off by `SERVING_HOLDS`, both pinned by test). One ESPN reader, over
    the table the refresh loop already writes.
 
 **Also:**
@@ -420,3 +439,100 @@ control was not applied.
   - a `DECISION_CURVE` and posture refit on the served basis (C-10, S-16);
   - per-player chips for `week_blend.basis` (S-14);
   - swapping in HX-01's served-row library once it merges.
+
+## 9. Round 2: skeptic findings and what changed (2026-09-23)
+
+Commits: `f56a2b1a` (RED), `a393acbd` (GREEN), this docs commit. All runs on a local copy, not
+production: APFS clones (`cp -c`) of `.local-db/data.sqlite` (the 2026-09-22 19:57 ET `.backup`),
+one clone per run, deleted after. Target 2026 week 3. Scripts: `docs/evidence/2026-09-22/blend-01/round2/`.
+Trees: `8ddebcd8` (S-03 head, the incumbent), `dd8be956` (round-1 head, blend on; the control),
+`a393acbd` (round-2 code), each a scratch `git worktree` (removed after).
+
+### 9.1 Decision: the winner is held off
+
+All four lenses found that serving ESPN's number changes comparisons nobody graded:
+- **Waiver board** (claims B1, wiring B1, structure 2): free agents rostered in another identically
+  scored league get ESPN's number, the rest keep ours, and rule (d) requires a waiver decision grade
+  against "add the highest-projected FA". None was run.
+- **Start/Sit** (structure 1): `lineup-brain.js` reads a weekly number of 0 as missing data, and
+  ESPN projects ruled-out players at 0.
+- **Labels** (wiring B3, structure 3): S-03's `week_basis`, `fantasy_coordinator` and
+  `context.week_basis.label` still describe our construction as `current_week_ppg`.
+- **S-03's identity check** (wiring B4, structure 4): `--served-identity` asserts
+  `current_week_ppg` = construction x game factor x chance to play.
+
+These are other units' files (lineup-brain.js, waiver-wire.js, fantasy-coordinator.js, S-03's
+scripts), so this unit does not edit them. Instead `weekly-blend.js` records the tournament's
+decision as `TOURNAMENT_DECISION` and serves it only when `SERVING_HOLDS` is empty. Each hold names
+what lifts it (`waiver_ungraded`, `espn_zero_reads_as_missing`, `labels_describe_ours`,
+`s03_identity`). Per rule (b) the result ships default-off. `context.week_blend` carries
+`on: false`, the holds and the sentence "This week's points are our projection alone. ESPN's weekly
+projection won the blend test on start/sit calls, but it is not served yet: 4 checks ... must pass
+first." `week_blend.espn_ppg` stays on every asset (read by `/api/trades/:id/rosters` and the player
+outlook route) so the follow-ups can grade on it.
+
+Also fixed: **K/DEF were labelled `no_game`** (wiring B5). The call site now passes `bye` only for
+skill positions (the only ones given a schedule), and the off path checks position too. Their
+number is 0 before and after; only the label changes, to `ours_position_not_graded`.
+
+Test additions for the liveness findings: ESPN's 0 and a value below ours pinned at the unit (B1),
+reader fixture `snap(1, 4, 800, 0)` (B3), and at the call site a WR with a game and ESPN 0, plus a
+case running the real winner ('espn') through `assetUniverse` (B2).
+
+### 9.2 Numbers on the head
+
+| Check | Command | Result |
+|---|---|---|
+| Served number vs S-03's head, every player, 5 ESPN leagues + the synthetic PPR league | `GRIDIRON_DB_PATH=<clone> NFL_SEASON=2026 node round2/dump.mjs <tree> out-<tree>.json` for each tree, then `python3 round2/compare.py <dir>` | head vs `8ddebcd8`: **0 of 8,640 differ** in each of the 6 leagues. Control, `dd8be956` vs `8ddebcd8`: **165 differ** in each |
+| Waiver board, 5 ESPN leagues | `node round2/waivers.mjs <tree> w-<tree>.json` per tree, JSON compared | head **byte-identical** to `8ddebcd8` in all 5; control `dd8be956` differs in all 5 |
+| S-03 served identity | `TREE=<tree> node round2/promote7.mjs` (fit 7, both windows, on the clone only), then `node scripts/weekly-construction-walk-forward.mjs --served-identity --week 3` | head: **exit 0, 1196 assets checked**. Control `dd8be956`: exit 1, "player 2: current_week_ppg 12.75 vs construction x mult x p 8.82" (the skeptics' finding, reproduced) |
+| K/DEF labels | `compare.py`, same run | head: K 58 and DEF 32 `ours_position_not_graded`, 0 `no_game`. `dd8be956`: 90 `no_game` |
+| `context.week_blend` | same run | `on=false`, holds `[waiver_ungraded, espn_zero_reads_as_missing, labels_describe_ours, s03_identity]`; ESPN values present for 194 players |
+
+Because the served number equals S-03's head for every player, Start/Sit's `week_points` (which
+reads it), its "missing data" text and the waiver board are unchanged from S-03's head: structure 1,
+the waiver findings, the label contradiction and the identity break do not occur on this tree.
+
+### 9.3 Tests on the head
+
+Per file, `SCHEDULER_DISABLED=1`, `GRIDIRON_DB_PATH` on a fresh `mktemp -d` path,
+`node --experimental-test-module-mocks --test --test-reporter=tap test/<file>.test.js`:
+- RED `f56a2b1a`: `weekly-blend` 6/8 (not ok 6, the off path's K label; not ok 8, "Cannot read
+  properties of undefined (reading 'on')", no `TOURNAMENT_DECISION`); `weekly-blend-wiring` 8/9
+  (not ok 5, expected `ours_position_not_graded`, actual `no_game`).
+- GREEN `a393acbd`: `weekly-blend` 8/8, `weekly-blend-wiring` 9/9, `weekly-blend-tournament` 16/16.
+- The same 20 existing files as §4.7: 183 pass, 0 fail.
+
+Mutants on `a393acbd` (applied one at a time in a scratch worktree, 3 new files run), all killed:
+L1 `x.espn || x.ours` (2 fail), L5 `Math.max(x.espn, x.ours)` (2), L6 reader `!v` (3), L2 call site
+`espnValueFor(...) || null` (2), B5 revert `bye: !thisGame` (1), off-path position check removed (1),
+hold ignored `on: TOURNAMENT_DECISION.on` (1).
+
+### 9.4 Corrections to round 1 (non-blocking findings)
+
+- **Assemble run 1's tree.** Its report records `7c443485` with the runner uncommitted (fields
+  `espn_ids_mapped 5596`, `duplicate_espn_ids_skipped 2883`), not `45f17e38`. The claims skeptic's
+  own assemble on `45f17e38` gives the same bytes, so reproducibility holds; the tree cited in §4
+  for run 1 was wrong.
+- **"Labelled per player"** meant the API field: `week_blend` reaches `/api/trades/:id/rosters`
+  and the player outlook route; no client page renders it (`grep -rn week_blend client/src`: 0). With
+  the blend held off, no page shows ESPN's number, attributed or not.
+- **Parity tolerance.** The runner's parity stop uses 1e-4 against 4-decimal `pa_x`; the
+  pre-registration §11 says 1e-9. The claims skeptic's full-precision check found 0 difference for
+  all 7 candidates.
+- **Chance-to-play path.** `contingency.js` already names the fix (`scripts/fit-availability.mjs`,
+  the role layer). Re-run the tournament once `nfl_availability_role_rates` is written.
+- **Holdout.** Round 2 graded nothing: no 2025 look and no new 2026 week 2 grade (the runs above
+  are serving checks on week 3). The claims skeptic's reproduction spent 2026 week 2 again; the
+  coordinator should add that F-row to `HOLDOUT-LEDGER.md`.
+
+### 9.5 What lifts the holds (follow-ups, named)
+
+1. `waiver_ungraded`: a 2023-2024 waiver replay against "add the highest-projected FA" using
+   ESPN's `leaguedefaults/3` archive (covers the top 800 by ownership), or RL-1-1's free-agent capture.
+2. `espn_zero_reads_as_missing`: `lineup-brain.js` lineupCall treats `week_blend.espn_ppg === 0` as
+   a projection (owner of lineup-brain.js).
+3. `labels_describe_ours`: one provenance label; `week_basis` says `espn` where `weight_ours` is 0
+   (S-03's owner, S-14 for the chips).
+4. `s03_identity`: S-03's identity and consumer-parity checks compare against the blend's ours
+   input (S-03's owner).

@@ -64,8 +64,9 @@ function p(name, position, week, ros, { team = 'NYJ', snap = null, ...extra } = 
 }
 
 const ACQ = { waiverProcessDays: ['WEDNESDAY', 'SATURDAY'], waiverProcessHour: 11, waiverHours: 24 };
-// Tuesday 2026-09-22, 10:00 US Eastern.
-const TUESDAY = new Date('2026-09-22T14:00:00Z');
+// Tuesday 2026-10-06, 10:00 US Eastern: a date away from the real clock, so a board that
+// ignores `now` cannot pass by coincidence (mutant M8 survived with 2026-09-22 on 09-23).
+const TUESDAY = new Date('2026-10-06T14:00:00Z');
 
 function board(mine, others, free, { acq = ACQ, now = TUESDAY, sameTeamOrder } = {}) {
   assets = new Map([...mine, ...others, ...free].map(a => [a.id, a]));
@@ -127,7 +128,7 @@ test('an Out starter raises the alert with same-team replacements (snap share on
   assert.equal(alert.replacements.best_free_agent.snap_share, 0.7);
   assert.deepEqual(
     { day: alert.claim_by.day, date: alert.claim_by.date, hour: alert.claim_by.hour },
-    { day: 'WEDNESDAY', date: '2026-09-23', hour: 11 });
+    { day: 'WEDNESDAY', date: '2026-10-07', hour: 11 });
   assert.deepEqual(out.waiver_run, alert.claim_by);
 });
 
@@ -137,6 +138,13 @@ test('the snap-share order is one option away, default-off', () => {
   assert.equal(r.order, 'snap_share');
   assert.deepEqual(r.same_team.map(x => x.player), ['Handcuff High', 'Handcuff Low']);
   assert.match(r.ranked_by, /unconfirmed/);
+});
+
+test('the best free agent comes from another team, even when a teammate projects higher', () => {
+  const free = [...wire(), p('Handcuff Star', 'RB', 14, 10, { snap: 0.3 })];
+  const r = board(roster({ backOne: { espn_status: 'OUT' } }), [], free).injury_alerts[0].replacements;
+  assert.equal(r.same_team[0].player, 'Handcuff Star');
+  assert.equal(r.best_free_agent.player, 'Other Back');
 });
 
 test('IR and Doubtful starters alert; a healthy, Questionable or benched Out player does not', () => {
@@ -177,6 +185,9 @@ test('next waiver run: the first processing day at or after now, in US Eastern; 
   // Wednesday 10:00 Eastern: today's run is still ahead.
   const early = nextWaiverRun({ settings: { acquisitionSettings: ACQ } }, new Date('2026-09-23T14:00:00Z'));
   assert.equal(early.date, '2026-09-23');
+  // At 11:00 Eastern exactly the run is processing: the next claim deadline is Saturday.
+  const onTheHour = nextWaiverRun({ settings: { acquisitionSettings: ACQ } }, new Date('2026-09-23T15:00:00Z'));
+  assert.equal(onTheHour.date, '2026-09-26');
   const none = nextWaiverRun({ settings: {} }, TUESDAY);
   assert.equal(none.known, false);
   assert.match(none.reason, /acquisition settings/);

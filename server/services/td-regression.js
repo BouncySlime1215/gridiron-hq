@@ -7,17 +7,21 @@
  * nothing, because a touchdown is a coin flip conditioned on being near the goal
  * line and there are only a handful of those chances per player per month.
  *
- * Fantasy markets price on fantasy points, and fantasy points are roughly
- * "usage plus six times a coin flip". So the most reliable inefficiency in the
- * sport is the gap between the two:
+ * Fantasy points are roughly "usage plus six times a coin flip", so a player's
+ * points run ahead of or behind his opportunity for reasons that do not carry.
+ * This file measures that gap: touchdowns scored against touchdowns expected
+ * from the opportunity he actually got.
  *
- *   A player with elite opportunity and no touchdowns is cheap and about to stop
- *   being cheap. His owner is frustrated, the box scores are ugly, and none of
- *   that says anything about next month.
- *
- *   A player with modest opportunity and five touchdowns is expensive and about
- *   to stop being expensive. This is the profitable half, and almost nobody
- *   plays it, because selling a player who just scored twice feels insane.
+ * WHAT IT IS NOT: an edge. The gap is real (against season-to-date points alone
+ * it predicts regression at QB, RB and WR), but it is already priced. R&D r8
+ * (2021-24, consensus rest-of-season rank from FantasyPros, nflverse
+ * ffopportunity, 1,363 real Sleeper 1-for-1 trades) found that after the
+ * consensus rank a point per game over expected is worth about 0 rest-of-season
+ * points per game, and real trade partners discount most of it. So it may
+ * EXPLAIN a line ("5 touchdowns on 1.4 expected"); it must not weight a verdict,
+ * a start/sit call, a trade value or a finder rank (RL-8-1 removed the weights
+ * from player-case.js and lineup-brain.js; registry entry fantasy.td_regression
+ * is research-only).
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * WHY THE RATES ARE FITTED AND NOT ASSUMED

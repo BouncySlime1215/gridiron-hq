@@ -5,8 +5,7 @@
  * major one with no page. The pieces existed and answered narrower questions:
  * `bestLineup` solves the optimum, `lineupDiff` compares it to what you
  * submitted, `gameScriptFor` prices the betting market's view, `weekly-trends`
- * measures role changes, `td-regression` measures scoring luck. None of them
- * met.
+ * measures role changes. None of them met.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * WHY A RANKING IS NOT AN ANSWER
@@ -38,7 +37,6 @@ import {
   assetUniverse, loadRosters, lineupSlots, bestLineup, tradeWeekContext, lineupDiff
 } from './trade-engine.js';
 import { vegasLift } from './waiver-brain.js';
-import { regressionCandidates } from './td-regression.js';
 import { fantasyContext } from './nfl-spread-context.js';
 import { playerCase } from './player-case.js';
 import { careerLine } from './player-career.js';
@@ -530,19 +528,9 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
       adj_ppg: p.adj_ppg, injury: p.injury_status ?? null,
       why: 'Flagged out for the season or released, so the solver will not start him.' }));
 
-  // Evidence from the other models, keyed by name.
-  const evidence = new Map();
-  try {
-    const reg = regressionCandidates({ season });
-    for (const p of reg.negative_regression ?? []) {
-      evidence.set(norm(p.name), { kind: 'hot', text:
-        `${p.actual} touchdowns on ${p.expected} expected — running hot, and touchdown rate does not carry` });
-    }
-    for (const p of reg.positive_regression ?? []) {
-      evidence.set(norm(p.name), { kind: 'cold', text:
-        `${p.actual} touchdowns on ${p.expected} expected — due to score` });
-    }
-  } catch { /* the call stands without it */ }
+  // No touchdown-luck flag (RL-8-1). "Running hot" / "Due to score" read a board the
+  // consensus rest-of-season rank already prices (R&D r8, 2021-24), joined by display
+  // name; it moved no lineup and told the reader something the market already knew.
 
   // Situational context per team, computed once rather than per player.
   //
@@ -591,7 +579,6 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
     // is every coin flip — the band has its own rate, and it is not a tail rate.
     // Null on any other objective: the curve does not describe that margin.
     const winRate = calibrated ? decisionWinRate(margin) : null;
-    const ev = evidence.get(norm(p.name));
     const mine = record(p.id);
     const theirs = alt ? record(alt.id) : null;
     const decider = alt ? deciderText(mine, theirs, p.name, alt.name) : null;
@@ -615,8 +602,8 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
       vegas: p.vegas?.reading ?? null,
       vegas_multiplier: p.vegas?.applied ? p.vegas.multiplier : null,
       // The football case: who is throwing, what defence he faces, what his own
-      // staff calls, who else is hurt, the weather, his usage trend and his
-      // touchdown luck — ordered by how much each actually moves the decision.
+      // staff calls, who else is hurt, the weather and his usage trend — ordered by
+      // how much each actually moves the decision.
       // The whole reason this page was shallow is that it had none of this.
       football: safeCase(p, season, week),
       // Only flags that touch this player's position, so a receiver is not told
@@ -625,8 +612,6 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
         .filter(f => f.affects === 'everyone' || f.affects === p.position
           || (f.affects === 'passing' && ['QB', 'WR', 'TE'].includes(p.position)))
         .map(f => ({ kind: f.kind, severity: f.severity, note: f.note })),
-      caution: ev?.kind === 'hot' ? ev.text : null,
-      upside: ev?.kind === 'cold' ? ev.text : null,
       why: margin == null
         ? (unpricedHere.length
           ? `${unpricedHere.length} other player${unpricedHere.length === 1 ? '' : 's'} could fill ` +

@@ -43,12 +43,15 @@ const PLAYERS = {
   301: ['RB', 905], 302: ['RB', 905], 303: ['WR', 906], 304: ['WR', 906], 305: ['WR', 906], 306: ['RB', 905],
 };
 for (let i = 1; i <= 6; i++) PLAYERS[400 + i] = ['WR', 901];   // free-agent WRs who outscore 304 in week 2
-for (const [id, [pos]] of Object.entries(PLAYERS)) {
-  run('INSERT INTO players (id, name, position) VALUES (?, ?, ?)', Number(id), `Fixture ${id}`, pos);
-}
 for (const team of [901, 902, 903, 904, 905, 906, 907]) {
   run(`INSERT INTO nfl_teams (id, abbr, name, conference, division) VALUES (?, ?, ?, 'AFC', 'East')`,
     team, `F${team}`, `Fixture ${team}`);
+}
+// players.team_id is the app's own nfl_teams id, the key schedule_games uses.
+for (const [id, [pos, team]] of Object.entries(PLAYERS)) {
+  run('INSERT INTO players (id, name, position, team_id) VALUES (?, ?, ?, ?)', Number(id), `Fixture ${id}`, pos, team);
+}
+for (const team of [901, 902, 903, 904, 905, 906, 907]) {
   for (let w = 1; w <= 4; w++) {
     if (team === 907 && w === 3) continue;
     run(`INSERT INTO schedule_games (season, team_id, week, opponent_abbr, home) VALUES (?, ?, ?, 'OPP', 1)`, SEASON, team, w);
@@ -58,7 +61,11 @@ for (const team of [901, 902, 903, 904, 905, 906, 907]) {
 // ---------------------------------------------------------------- snapshots
 function snap(period, teamId, playerId, slot, { source = 'final', proj = 10, actual = 10, injury = null,
   pregame = null } = {}) {
-  const [position, proTeam] = PLAYERS[playerId];
+  // ESPN's pro_team_id numbers teams its own way (33 = BAL, 34 = HOU); nfl_teams does not.
+  // Every fixture row carries ESPN's 33 so a producer that joins pro_team_id to
+  // schedule_games.team_id sees phantom byes and fails the near misses below.
+  const [position] = PLAYERS[playerId];
+  const proTeam = 33;
   run(`INSERT INTO league_roster_snapshots (league_id, season, scoring_period_id, team_id, espn_player_id,
        player_id, player_name, position, pro_team_id, lineup_slot_id, is_starter, injury_status,
        pregame_injury_status, projected_points, actual_points, on_roster, source, first_seen_at, changed_at)

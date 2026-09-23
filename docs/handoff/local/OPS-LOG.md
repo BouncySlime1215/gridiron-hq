@@ -85,3 +85,5 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 08:45Z: PRs opened: #169 RL-3-4 (gate-pr), #170 FC-SNAP and #171 RL-4-2 (opened by the coordinator: one gate agent misread a pre-fix review, another refused to push; both units verified clean after rechecks). Merge queue: #169, #171. #170 HELD for Nick (migration 073).
 
 09:00Z: Lean batch done: UX-08 -> PR #167 (draft; gate-merge marks ready), INT-159-1 -> #172, RL-3-3 built + pushed (gate incomplete, PR to open). CI FAILED on #169 (its new test leaves async work after end: ENOENT) and #171 -> CI-fix agent launched; merge-queue refused both correctly. CE-05 -> PR #168 (from loop 1; GR-01/GR-05 still in progress).
+
+09:05Z: Loops relaunched: (2) Diligence batch WV-01 streaming board + WV-02 injury alert + RL-5-3 bye range (wcueyew4t); (3) UI batch UX-08b + UX-10 phone fixes (wyez7rq9p). Loop 1 CE-05 (PR #168)/GR-01/GR-05 still running. R&D r6 running. CI-fix agent on #169/#171. RL-3-3 needs a PR (pushed; open with gate-pr next).

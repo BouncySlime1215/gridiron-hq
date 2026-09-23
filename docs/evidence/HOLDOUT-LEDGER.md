@@ -303,9 +303,20 @@ Two sources of `F` rows besides a unit's own rule-5 check:
 - **Registry openings of 2026.** A `model_backtests` row with protocol
   `sealed_holdout` and season 2026 (`server/routes/model.js:348-349`).
 
-None yet. On a local copy (not production, 2026-09-22), `weekly_ensemble_fits`
+None at the seed (S-00). On a local copy (not production, 2026-09-22), `weekly_ensemble_fits`
 has 2 rows, both through 2025 week 18 (the known-nonzero control), and
 `model_backtests` has 0 rows.
+
+Rows added after the seed. S-02's forward look at the same 2026 week 2 (2026-09-22 20:45 UTC,
+`docs/evidence/2026-09-22/weekly-construction-grade.md` section 8) predates this ledger and has no
+row; it is noted on F001.
+
+| id | date | unit/PR | domain | family | hypothesis | metric | result | est | lo | hi | level | p (source) | better | shipped | file:line | note |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| F001 | 2026-09-23 | S-03 `153669da` | fantasy | other | S1 (structural head + coordinator, stored fit 7) is no worse than the ensemble on 2026 week 2: S-03's rule-5 check of S-02's decision | ΔMAE, 304 played rows (ΔDNP-MAE −0.208 [−0.259, −0.157] on 360 decision rows) | holds (both point estimates ≤ 0) | -0.136 | -0.1915 | -0.0789 | 90 |  | - | yes (coordinator on in both windows; weeks 5-17 on this proxy) | `docs/evidence/2026-09-22/weekly-construction-walk-forward.md:149` | local copy, not production; S-02 read the same week first (−0.1353), no row; S1 = B on these rows |
+| F002 | 2026-09-23 | S-03 `153669da` | fantasy | other | The betting-line lift (arm C) beats the ensemble on 2026 week 2 (report-only) | ΔMAE, 304 played rows | not distinguishable | -0.0304 | -0.0694 | +0.0073 | 90 |  | - | no (lift off: failed its pre-registered rule in 2025) | `docs/evidence/2026-09-22/weekly-construction-walk-forward.md:151` | local copy, not production |
+| F003 | 2026-09-23 | S-03 `153669da` | fantasy | other | The pre-S-03 served construction D (B × lift) beats the ensemble on 2026 week 2 (report-only) | ΔMAE, 304 played rows | better than A; 0.030 better than S1 on this week | -0.166 | -0.225 | -0.1016 | 90 |  | - | no (replaced by S1) | `docs/evidence/2026-09-22/weekly-construction-walk-forward.md:152` | one week: an anecdote under rule (e) |
+| F004 | 2026-09-23 | S-03 `a0917685` | fantasy | other | Reproduction of F001-F003 on the final code tree | same | identical output | -0.136 | -0.1915 | -0.0789 | 90 |  | - | n.a. | `docs/evidence/2026-09-22/weekly-construction-walk-forward.md:8` | a re-run spends the week again, so it is a row |
 
 ## File classification: every file the census returns
 

@@ -1,0 +1,53 @@
+{
+  "unit": "S-03",
+  "mode": "--served-identity",
+  "label": "local copy, not production",
+  "tree": {
+    "head": "eb39ac85489b4592650ac0abf782fab2271ea34e",
+    "write_tree": "161e340284b4feb09da9bfef08fcfb4b6e38542c"
+  },
+  "database": {
+    "path_basename": "data.sqlite"
+  },
+  "prereg": null,
+  "configuration": {
+    "engine": "buildPlayerWeekEngine (the live path), roleRecency WEEKLY_ROLE_RECENCY hardcoded, kOverride omitted",
+    "scoring": "PPR",
+    "arms": "S-02's constructArms with the lift multiplier from gameScriptLift (the served vegasLift is switched off)",
+    "availability": "none: the arms and S1 are the construction before thisGame.mult x active_probability (prereg §8)",
+    "population": "weekly-backtest.js rules (S-02 prereg §4)",
+    "bootstrap": "pairedBootstrapDiff, groups = player_id, 2000 iterations, seed 1, 90% CI"
+  },
+  "started_at": "2026-09-23T00:42:55.322Z",
+  "served_identity": {
+    "target": {
+      "season": 2026,
+      "week": 5
+    },
+    "league": "synthetic 12-team PPR (no leagues row read)",
+    "fit": {
+      "id": 7,
+      "through_season": 2025,
+      "promotion": {
+        "promoted_at": "2026-09-23T00:16:36.529Z",
+        "windows": {
+          "2-4": "on",
+          "5-17": "on"
+        },
+        "evidence": "docs/evidence/2026-09-22/weekly-construction-walk-forward-output.json sha256:28e67bf27d7d05dc"
+      }
+    },
+    "week_basis_label": "This week's points: our structural projection plus the coordinator's correction (fit #7), times his chance to play. No betting-line boost.",
+    "checked": 1196,
+    "coordinated": 1196,
+    "ensemble_no_inputs": 0,
+    "no_game": 704,
+    "s1_differs_from_old_B": 420,
+    "abs_s1_minus_b": {
+      "mean": 2.107,
+      "median": 1.47,
+      "max": 10.92
+    }
+  },
+  "finished_at": "2026-09-23T00:44:28.485Z"
+}

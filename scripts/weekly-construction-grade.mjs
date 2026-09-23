@@ -68,6 +68,16 @@ async function main() {
     throw new Error(`refusing to run on ${ORIGINAL_DB}; make a .backup copy first`);
   }
   process.env.SCHEDULER_DISABLED = '1';
+  // S-03 (2026-09-22) switched the served lift off (waiver-brain.js#BETTING_LINE_LIFT) and
+  // put the coordinator on its own base. This runner's arms read the served vegasLift and
+  // its parity checks describe the served chain BEFORE that, so a re-run would grade the lift
+  // as a multiplier of 1 (and --full would reopen 2025). The forward and historical grade is
+  // scripts/weekly-construction-walk-forward.mjs now.
+  const { BETTING_LINE_LIFT } = await import('../server/services/waiver-brain.js');
+  if (!BETTING_LINE_LIFT.on) {
+    throw new Error('the served betting-line lift is off since S-03, so this runner no longer describes the served ' +
+      'chain; use scripts/weekly-construction-walk-forward.mjs');
+  }
   const prereg = mode === '--full' ? preregState() : null;
 
   const { dbPath, rows: dbRows } = await import('../server/db/index.js');

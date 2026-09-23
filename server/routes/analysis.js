@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
-import { unitRoster, computeSOS } from './nfldata.js';
+import { unitRoster } from './nfldata.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 
 const r = Router();
@@ -32,7 +32,6 @@ async function refreshTeam(_client, team) {
   const { players, news } = teamContext(team);
   const units = unitRoster(team.id);
   const cap = row('SELECT cap_space, dead_money FROM team_cap WHERE team_id = ?', team.id);
-  const sos = computeSOS().find(s => s.abbr === team.abbr);
 
   const skill = players.map(p => `${p.slot_code ?? p.position}: ${p.name}`).join('\n');
   const newsText = news.map(n => `[${n.date}] ${n.headline}${n.body ? ' — ' + n.body : ''}`).join('\n') || '(no recent stories)';
@@ -54,7 +53,7 @@ LINEBACKERS: ${fmtUnit(units.LB)}
 SECONDARY: ${fmtUnit(units.DB)}
 SPECIALISTS: ${fmtUnit(units.ST)}
 
-CONTEXT: ${cap ? `Cap space $${Math.round(cap.cap_space).toLocaleString()}, dead money $${Math.round(cap.dead_money ?? 0).toLocaleString()}.` : ''} ${sos ? `Strength of schedule ranks ${sos.rank}/32 (1 = easiest).` : ''}
+CONTEXT: ${cap ? `Cap space $${Math.round(cap.cap_space).toLocaleString()}, dead money $${Math.round(cap.dead_money ?? 0).toLocaleString()}.` : ''}
 
 RECENT NEWS:
 ${newsText}

@@ -331,11 +331,15 @@ const CAPABILITIES = [
         'walk-forward on 2023 and 2024 and it failed in all four season-windows. ' +
         'docs/evidence/2026-09-22/weekly-construction-grade.md, docs/evidence/2026-09-22/weekly-construction-walk-forward.md.' },
     baseAuthority: 'retired',
-    note: 'Switched off in every served number by S-03 (2026-09-22): Start/Sit, the League Hub card and ' +
-      'the waiver horizon all apply 1, through the one switch in vegasLift. When it did change a ' +
-      '2025 weeks 5-17 start/sit call it was right 53.7% of the time; a ranking-only version is an ' +
-      'untested idea that needs its own pre-registration, not a reason to keep this one.',
-    refuses: 'Cannot move a fantasy projection, a start/sit call or a waiver value.'
+    note: 'Switched off by S-03 (2026-09-22) in the three numbers that read vegasLift: Start/Sit, the ' +
+      'League Hub card and the waiver horizon all apply 1, through the one switch. Not yet in two ' +
+      'others, which multiply sampled volume by the line directly: the Ceiling tab (ceiling-lineup.js) ' +
+      'and the season simulation behind title/playoff odds and trade impact (season-sim.js); S-06 and ' +
+      'S-05 own those files. When it did change a 2025 weeks 5-17 start/sit call it was right 53.7% of ' +
+      'the time; a ranking-only version is an untested idea that needs its own pre-registration, not a ' +
+      'reason to keep this one.',
+    refuses: 'Cannot move a Start/Sit number, a League Hub card number or a waiver value. Still moves the ' +
+      'Ceiling tab and the season simulation until S-06 and S-05 route them through the switch.'
   },
   {
     id: 'crossover.fantasy_to_betting_spread_total',

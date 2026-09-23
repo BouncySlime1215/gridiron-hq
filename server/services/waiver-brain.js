@@ -172,6 +172,13 @@ export function horizonValue(player, week) {
  * all read vegasLift, so all three now apply 1 without an edit of their own. The
  * multiplier itself is gameScriptLift, kept for the studies that grade it; no served
  * module calls it (test/served-weekly-construction.test.js pins that).
+ *
+ * NOT covered by this switch, and said so: two fantasy producers multiply sampled volume
+ * by gameScriptFor's multipliers directly, the Ceiling tab (ceiling-lineup.js:108-110) and
+ * the season simulation behind title/playoff odds and trade impact (season-sim.js:224-225).
+ * Their owners are S-06 and S-05. test/served-weekly-construction.test.js lists every
+ * caller of gameScriptFor, so a third one cannot appear unlisted and a fixed one has to
+ * leave the list.
  */
 export const BETTING_LINE_LIFT = Object.freeze({
   on: false,
@@ -184,15 +191,15 @@ export const BETTING_LINE_LIFT = Object.freeze({
 
 /**
  * The served betting-line lift for one player this week: gameScriptLift when
- * BETTING_LINE_LIFT is on, otherwise multiplier 1 with `applied: false` and
- * `switched_off: true`. When the market has something notable to say, the reading still
- * says it (Start/Sit shows it as "Betting market"), and says the number leaves it out.
+ * BETTING_LINE_LIFT is on, otherwise multiplier 1 with `applied: false`. When the market
+ * has something notable to say, the reading still says it (Start/Sit shows it as
+ * "Betting market"), and says the number leaves it out. The result carries only what the
+ * served callers read (multiplier, applied, line, reading).
  */
 export function vegasLift(player, season, week) {
   const market = gameScriptLift(player, season, week);
   if (BETTING_LINE_LIFT.on) return market;
-  return { multiplier: 1, line: market.line, applied: false, switched_off: true, reading: liftOffReading(player, market),
-    ...(market.error ? { error: market.error } : {}) };
+  return { multiplier: 1, line: market.line, applied: false, reading: liftOffReading(player, market) };
 }
 
 /** The Start/Sit sentence for a notable line while the lift is off: the fact, and that the number leaves it out. */
@@ -220,9 +227,11 @@ export function gameScriptLift(player, season, week) {
   let gs;
   try { gs = gameScriptFor(player.team_abbr, season, week); }
   catch (error) {
-    // No multiplier is a safe number to serve, but the failure is carried on the result
-    // rather than swallowed: `error` reaches every payload that includes the lift.
-    return { multiplier: 1, line: null, applied: false, error: `game-script model failed: ${error.message}` };
+    // No multiplier is a safe number to serve, but the failure is logged rather than
+    // swallowed: no served payload carries a lift error, so the log is where it shows.
+    console.error(`[waiver-brain] game-script model failed for ${player.team_abbr}, ${season} W${week}; ` +
+      `the lift reads as no adjustment: ${error.message}`);
+    return { multiplier: 1, line: null, applied: false };
   }
   if (!gs?.line) return { multiplier: 1, line: null, applied: false };
 

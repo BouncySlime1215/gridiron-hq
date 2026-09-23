@@ -73,7 +73,8 @@ import { dynastyAgeAdjustment } from './dynasty-age-curve.js';
 // this week identically; switched off since S-03, see waiver-brain.js#vegasLift), the
 // normal CDF behind a swap's probability, and the write that retires a lineup
 // recommendation lineupDiff() itself published. BETTING_LINE_LIFT is read only to label
-// the week number (context.week_basis), never to price it.
+// the week number (context.week_basis, and lineupDiff's week_basis when a caller passes
+// plain assets), never to price it.
 import { vegasLift, BETTING_LINE_LIFT } from './waiver-brain.js';
 import { normalCdf, withRandomSeed } from './stats-util.js';
 // lineupSpread() only: each starter's played-week draws and the fitted archetype
@@ -2843,6 +2844,12 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
   if (!me) return { error: `team ${requested} is not in this league`, not_found: true };
   const isMine = lg.my_team_id != null && me.roster_id === String(lg.my_team_id);
   const { season, week } = tradeWeekContext();
+  // What week_points is built from: the one produced label (fantasy-coordinator.js#
+  // weekConstructionBasis, which reads the served fit and the BETTING_LINE_LIFT switch), so
+  // the card's sentence follows the switch instead of asserting the lift. A caller that
+  // prices the players itself (plain assets, no context) gets the same label, built here.
+  const weekBasis = assets.context?.week_basis
+    ?? weekConstructionBasis({ fit: activeFantasyCoordinatorFit(), week, lift: BETTING_LINE_LIFT });
 
   const payload = JSON.parse(lg.payload);
   const espnTeam = payload.teams?.find(t => String(t.id) === me.roster_id);
@@ -2985,8 +2992,10 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
     empty_slots: optimal.holes,
     flagged_starters: flaggedStarters,
     activate_from_ir: activateFromIr,
-    note: `Week ${week} projection: this Sunday's game (0 on a bye) and injury odds, with the betting line's game script — ` +
-      'the same numbers as the Start/Sit tab. p_right is how often the higher projection actually outscored the ' +
-      'other at that gap in the 2023-2025 weekly replay.'
+    // Rendered on the League Hub card (MyTeam.tsx#LineupDiffCard) as the week's basis.
+    week_basis: weekBasis,
+    note: `Week ${week} projection (0 on a bye), the same numbers as the Start/Sit tab. ${weekBasis.label} ` +
+      'p_right is how often the higher projection actually outscored the other at that gap in the 2023-2025 ' +
+      'weekly replay.'
   };
 }

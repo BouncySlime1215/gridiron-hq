@@ -32,10 +32,12 @@
 import { rows } from '../db/index.js';
 import { assetUniverse, tradeWeekContext, bestLineup, lineupSlots, espnPlayerResolver } from './trade-engine.js';
 import { deriveFormat } from './format.js';
+import { leagueRules } from './league-rules.js';
 import { availabilityDegradation, roleStates, weekDesignation } from './contingency.js';
 // The league's wire, one producer shared with the trade engine's lineup value
 // (RL-9-3), keyed by the ESPN-id-first resolver (RL-6-4).
 import { rosteredAssetIds, unrosteredSkill, onNflTeam } from './league-wire.js';
+import { previewUnconfirmed, previewFields } from './preview-mode.js';
 // The one producer of "this player carries the Sleeper injury flag" (RL-12-2).
 import { activeInjuryFlagIds } from './injury-flags.js';
 
@@ -145,8 +147,12 @@ function weekPpg(p) {
  */
 export function waiverBoard(lg, {
   myTeamId, limit = 20, minProjected = 4, minRosProjected = minProjected, now = new Date(),
-  sameTeamOrder = 'projection'
+  sameTeamOrder: sameTeamOrderArg
 } = {}) {
+  // PREVIEW-01: the local-testing switch picks snap-share order when the caller did not
+  // choose one; each alert's replacements then carry preview:true and the reason.
+  const orderPreview = sameTeamOrderArg === undefined && previewUnconfirmed();
+  const sameTeamOrder = sameTeamOrderArg === undefined ? (orderPreview ? 'snap_share' : 'projection') : sameTeamOrderArg;
   if (!lg?.payload) return { error: 'league not synced' };
   const payload = JSON.parse(lg.payload);
   const { formatKey } = deriveFormat(lg);
@@ -325,8 +331,10 @@ export function waiverBoard(lg, {
 
   // WV-02: my injured starters and who replaces them, before the next waiver run.
   const waiverRun = nextWaiverRun(payload, now);
+  const claimPriorityBlock = claimPriority(lg, payload, rosterId);
   const injuryAlerts = injuryReplacementAlerts({
-    mine, assets, unowned, ownedById, rosterId, waiverRun, roles: roleStates(week.season, week.week), sameTeamOrder
+    mine, assets, unowned, ownedById, rosterId, waiverRun, roles: roleStates(week.season, week.week), sameTeamOrder,
+    preview: orderPreview
   });
 
   return {
@@ -348,6 +356,8 @@ export function waiverBoard(lg, {
     // with no designation), each with the replacements and the claim deadline.
     injury_alerts: injuryAlerts,
     waiver_run: waiverRun,
+    // RL-13-2: the league's waiver-order rule and my current place in line.
+    claim_priority: claimPriorityBlock,
     immediate: starts.slice(0, limit),
     stashes: stashes.slice(0, Math.max(5, Math.floor(limit / 2))),
     // How an immediate claim's cut is chosen, and the claims no safe cut exists for.
@@ -367,6 +377,71 @@ export function waiverBoard(lg, {
       + (heldBack.length
         ? ` ${heldBack.length} more would help this week only by cutting someone worth more over the rest of season, so they are held back.`
         : ''),
+  };
+}
+
+/* ------------------------------------------------ claim priority (RL-13-2) */
+
+export const CLAIM_STRATEGY = Object.freeze({
+  reset: 'This league resets the waiver order every week, so waiting gains nothing: '
+    + 'a claim costs only this week\'s place in line. Put in a claim for anyone who helps.',
+  rolling: 'This league keeps a rolling order: a successful claim sends you to the back of the order '
+    + 'until other teams claim. Spend a high spot on a player who changes your lineup.',
+  budget: 'Claims here are won by bid; the waiver order only breaks tied bids.'
+});
+
+/**
+ * How claim priority works in this league, and where my team stands in it.
+ *
+ * The rule is league-rules.js#leagueRules().waivers (the one producer of league
+ * rules); the rank is ESPN mTeam `teams[].waiverRank` in `leagues.payload`
+ * (written by routes/leagues.js#syncEspnLeague). The rank is as of the last sync
+ * (`as_of` = leagues.fetched_at): claims processed since can move it. Nothing is
+ * defaulted: a field the payload lacks is null and named in `missing`.
+ *
+ * What the weekly reset resets TO is not in the payload. On the local copy
+ * (2026-09-23, week 3) the order equals reverse playoff seed for 19 of 46 teams
+ * (all 8 in one league), which fits "reverse standings, then claimants move
+ * back" but does not prove it, so the page does not say it.
+ */
+export function claimPriority(lg, payload, rosterId) {
+  const rules = leagueRules(lg);
+  const wv = rules.waivers;
+  const missing = rules.missing.filter(m => m.startsWith('settings.acquisitionSettings.'));
+  const teams = Array.isArray(payload?.teams) ? payload.teams : [];
+  const me = teams.find(t => String(t.id) === String(rosterId));
+  const rank = Number.isInteger(me?.waiverRank) && me.waiverRank > 0 ? me.waiverRank : null;
+  if (rank == null) missing.push('teams[].waiverRank');
+  const ahead = rank == null ? null : rank - 1;
+  const season = Number(lg.season);
+  const payloadSeason = lg.payload_season == null ? null : Number(lg.payload_season);
+  const staleSeason = payloadSeason != null && Number.isFinite(season) && payloadSeason !== season;
+
+  let strategy = null;
+  if (wv.uses_budget === true) strategy = CLAIM_STRATEGY.budget;
+  else if (wv.order_resets_weekly === true) strategy = CLAIM_STRATEGY.reset;
+  else if (wv.order_resets_weekly === false) strategy = CLAIM_STRATEGY.rolling;
+
+  let reason = null;
+  if (staleSeason) {
+    reason = `The synced rosters are from ${payloadSeason}, not ${season} (pre-draft fallback), so this rank is last season's.`;
+  } else if (missing.length) {
+    reason = `The synced league does not carry ${missing.join(', ')}.`;
+  }
+  return {
+    known: !staleSeason && missing.length === 0,
+    reason,
+    acquisition_type: wv.acquisition_type,
+    uses_budget: wv.uses_budget,
+    resets_weekly: wv.order_resets_weekly,
+    current_rank: rank,
+    teams: teams.length || null,
+    teams_ahead: ahead,
+    as_of: lg.fetched_at ?? null,
+    stale_season: staleSeason,
+    strategy,
+    missing,
+    source: 'ESPN league settings (acquisitionSettings) and team waiverRank, as of the last sync'
   };
 }
 
@@ -397,9 +472,11 @@ export const SNAP_SHARE_BASIS = 'Snap share: his mean offensive snap % over his 
  * so snap-share order ships default-off. Default: this week's projection, the number
  * the claim list ranks on (not itself graded historically).
  */
+/** Why snap-share order is default-off; also its preview reason (PREVIEW-01). */
+export const SNAP_SHARE_UNCONFIRMED = 'unconfirmed: failed its pre-registered non-inferiority check on 2022-2024';
 export const SAME_TEAM_ORDERS = Object.freeze({
   projection: 'Ordered by this week\'s projection. ' + SNAP_SHARE_BASIS,
-  snap_share: 'Ordered by snap share (unconfirmed: failed its pre-registered non-inferiority check on 2022-2024). '
+  snap_share: `Ordered by snap share (${SNAP_SHARE_UNCONFIRMED}). `
     + SNAP_SHARE_BASIS
 });
 
@@ -504,7 +581,7 @@ const byProjection = (a, b) => b.projected_ppg - a.projected_ppg || (b.snap_shar
  * on this week's projection (the number the claim list ranks on).
  */
 export function injuryReplacementAlerts({
-  mine, assets, unowned, ownedById, rosterId, waiverRun, roles, sameTeamOrder = 'projection'
+  mine, assets, unowned, ownedById, rosterId, waiverRun, roles, sameTeamOrder = 'projection', preview = false
 }) {
   if (!SAME_TEAM_ORDERS[sameTeamOrder]) throw new Error(`unknown sameTeamOrder: ${sameTeamOrder}`);
   const order = sameTeamOrder === 'snap_share' ? bySnapShare : byProjection;
@@ -541,6 +618,7 @@ export function injuryReplacementAlerts({
         same_team_count: sameTeam.length,
         order: sameTeamOrder,
         ranked_by: SAME_TEAM_ORDERS[sameTeamOrder],
+        ...(preview ? previewFields(SNAP_SHARE_UNCONFIRMED) : {}),
         best_free_agent: bestFree ? replacementRow(bestFree, roles, false) : null
       },
       claim_by: waiverRun

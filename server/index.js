@@ -143,9 +143,10 @@ app.use('/api/data-freshness', ...legacyAuthenticated, dataFreshnessRouter);
 // its weekly scheduler job off the request thread and stored; a request reads it.
 app.use('/api/gates', ...legacyAuthenticated, gatesRouter);
 // /api/props and /api/props-tickets, the MLB props board and its saved slips, used
-// to mount here. MLB was removed from the product in #128 and no client page ever
-// called either path, so SY-06 (2026-09-22) deleted both routers, as #128 deleted
-// the MLB router itself. Their tables, props_auto_picks and saved_prop_tickets, stay
+// to mount here. MLB was removed from the product in #128; no client page has
+// called either path since the UI teardown 1694694c, 2026-09-19, so SY-06
+// (2026-09-22) deleted both routers, as #128 deleted the MLB router itself.
+// Their tables, props_auto_picks and saved_prop_tickets, stay
 // on disk with no reader or writer (test/mlb-removed.test.js pins both halves).
 app.use('/api/nfl-market', ...legacyAuthenticated, nflMarketRouter);
 app.use('/api/nfl-betting', ...legacyAuthenticated, nflBettingRouter);

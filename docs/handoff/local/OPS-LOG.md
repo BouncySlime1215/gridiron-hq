@@ -30,3 +30,9 @@ Actions this check:
 - guard-lock.sh: PID-less locks (old-style gates in S-03/HX-01) are only taken over after 45 min, never after 2 min.
 - Merges since 7 PM: #153 (INT-128-1), #155 (S-02), #154 (S-00), #157 (F-08), #156 (S-18); #158 (R-07) in the queue.
 - Running: S-03, HX-01, BLEND-01 (local builds), C-01 fixer (A1-A5 and A7 done), skill-split study, R&D loop round 2, SY-06 verification, cloud builds F-03 and F-07, board keeper.
+
+## 2026-09-22 8:51 PM ET
+- BUG FOUND AND FIXED (self-check): build-unit.js pointed builders at the old scratchpad paths for the merge-gate skill, plan and memory (moved to ~/gridiron-local/wt/handoff at ~6:05 PM ET). Builders launched after the move (S-00, C-01, F-08, S-02, S-18, R-07 resumes; HX-01, S-03, BLEND-01) could not open those three paths. Their PR bodies still carried gate sections 1-5 (enforced by gate-merge.sh) and passed skeptics, but they worked without the plan text. Paths now point at the handoff worktree; all three exist.
+- Disk hit 99% again (5-6 GiB): safe-clean.sh (dry run, then apply) removed only derived DB copies of MERGED units and finished audits → 19 GiB free. Both workflows now require every agent to delete its own DB copies and scratch worktrees when done.
+- C-01: Auditor fresh-session check says not cleared until one panel line (an overstatement) and one evidence figure are fixed; fixer resumed on that item (touches only StartSitGate.tsx, its test and the evidence file). C-01b reworded per the ruling (descriptive sub-window grades; fully played weeks only; due before any week-3 result is stored).
+- Two tracks running. App (cloud): F-07b, F-04, SY-02, C-12, B-01, A-03. Model (local): S-03, HX-01 (skeptics), BLEND-01.

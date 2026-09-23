@@ -251,3 +251,34 @@ forward look (F001, 0 swap-weeks computable).
 - **Not covered:** QB/TE and kicker streaming; ESPN scoring's yards-allowed tiers; making the add in ESPN; 2026 forward.
 - **What would make it wrong:** real league rosters that leave only bad-matchup defenses free (K stand-in wrong), or a
   2026 forward check with a negative per-swap gain once nflverse posts weeks 2+.
+
+## 10. Auditor ruling 2026-09-23 (e): default-off flag
+
+The Independent Auditor held PR #176 on one point: STATS-METHOD.md rule 5 says a result
+with no 2026 forward weeks (F001: 0 swap-weeks computable) ships default-off, behind a
+named flag, labelled "unconfirmed forward" — with no exemption for a zero-parameter
+market ranking. Fixed as the auditor's option 1:
+
+- `WV01_STREAMING_BOARD_ENABLED` (`server/services/streaming-board.js`), a module
+  constant, default `false`, following the repo's `GRADED_AVAILABILITY_ENABLED` /
+  `DVP_MULTIPLIER_ENABLED` pattern (`server/services/nfl-player-context.js:537`,
+  `server/services/matchups.js:66`).
+- `streamingBoard()` takes an `enabled` option defaulting to the flag. Off: the route
+  still returns the ranked candidates (the market's own implied-point number), but
+  `suggestion` is forced to `{ action: null, add: null, drop: null, edge: null, why: null }`
+  — no swap is suggested — and the response carries `unconfirmed_forward: false`. On:
+  the ordinary suggestion logic runs and `unconfirmed_forward: true`.
+- `StreamingBoard.tsx` reads `data.unconfirmed_forward`: off, the card shows no "+2.9"
+  history claim (the paragraph drops to the one plain-English line); on, the claim is
+  shown labelled **unconfirmed forward**.
+- RED first (`test/streaming-board.test.js`): asserted the flag defaults `false`, that
+  nothing in the repo sets it `true` (`grep -rn` for the pattern, run from the test),
+  and that with the flag off the board still ranks candidates but suggests no swap. Then
+  GREEN: the 8 pre-existing suggestion-logic tests were changed to pass `enabled: true`
+  (they test the underlying suggestion computation, not the shipped default), a new
+  flag-off test and a flag-on test were added, and the existing route test's assertion
+  was changed from expecting a swap suggestion to expecting none by default. 15 of 15
+  tests pass: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node
+  --experimental-test-module-mocks --test --test-reporter=tap test/streaming-board.test.js`.
+- F002 (turn the flag on) is still open: it waits on nflverse posting 2026 weeks 2+ and
+  the forward direction holding (F001).

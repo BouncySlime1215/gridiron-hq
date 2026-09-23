@@ -21,6 +21,7 @@ export interface StreamBoard {
     add?: StreamRow | null; drop?: StreamRow | null; edge?: number | null };
   espn_add_url?: string | null;
   min_edge?: number;
+  unconfirmed_forward?: boolean;
 }
 
 const SHOWN = 5;
@@ -35,8 +36,11 @@ export default function StreamingBoard({ data, loading, error, onRetry }: {
       <h2 id="streams-heading" className="text-sm font-black uppercase tracking-wide text-slate-500">Stream a defense</h2>
       <p className="mt-1 text-xs leading-5 text-slate-500">
         Free-agent defenses ranked by how many points the betting market expects the offense they face to score.
-        Replayed on 2022-2025, swapping to the top-ranked free agent each week scored about 2.9 more points than
-        the defense it replaced (range 0.9 to 4.8). Not yet checked on 2026 games.
+        {data?.unconfirmed_forward ? (
+          <> Replayed on 2022-2025, swapping to the top-ranked free agent each week scored about 2.9 more points
+            than the defense it replaced (range 0.9 to 4.8) — <strong>unconfirmed forward</strong>: not yet checked
+            on 2026 games.</>
+        ) : null}
       </p>
       <Body data={data} loading={loading} error={error} onRetry={onRetry} />
     </section>

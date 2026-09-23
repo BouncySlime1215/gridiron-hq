@@ -43,6 +43,17 @@ const IR_SLOT = 21;
  */
 export const MIN_EDGE = 1;
 
+/**
+ * Auditor ruling 2026-09-23 (e) / STATS-METHOD.md rule 5: a result ships ON only once
+ * it also holds on 2026 forward weeks. F001 (docs/evidence/HOLDOUT-LEDGER.md) found
+ * 2026 defensive counts computable for week 1 only, 0 swap-weeks — forward-uncomputable.
+ * So this ships default-off: the board still returns the ranked candidates (the
+ * betting market's own number, not a fitted result), but makes no swap suggestion and
+ * the card makes no history-replay claim, until this flips true (F002, once nflverse
+ * posts 2026 weeks 2+ and the forward direction holds).
+ */
+export const WV01_STREAMING_BOARD_ENABLED = false;
+
 const r2 = v => (v == null || !Number.isFinite(v) ? null : Math.round(v * 100) / 100);
 
 /** A team's implied points from one game_lines row: the frozen close when present. */
@@ -114,7 +125,8 @@ function rosterRules(lg, payload) {
  * (waiver-wire.js#rosteredNames): every defense with a game that no roster in the
  * league holds. Defenses whose game has kicked off are not offered.
  */
-export function streamingBoard(lg, { myTeamId = null, season, week, now = new Date(), limit = 5 } = {}) {
+export function streamingBoard(lg, { myTeamId = null, season, week, now = new Date(), limit = 5,
+  enabled = WV01_STREAMING_BOARD_ENABLED } = {}) {
   const base = { season, week, position: 'DEF', candidates: [], my_defenses: [], suggestion: { action: null, why: null } };
   if (!lg?.payload) return { ...base, error: 'league not synced' };
   const payload = JSON.parse(lg.payload);
@@ -191,11 +203,17 @@ export function streamingBoard(lg, { myTeamId = null, season, week, now = new Da
       why: `You have no defense and an open roster spot; ${best.team} faces ${best.opponent}, implied ${best.opp_implied} points.` };
   }
 
+  // Rule 5 (Auditor ruling (e)): with no 2026 forward weeks confirmed, the board's
+  // rankings (the market's own number) still ship, but the swap suggestion — the
+  // tested result — does not, until WV01_STREAMING_BOARD_ENABLED is turned on.
+  const gatedSuggestion = enabled ? suggestion : { action: null, add: null, drop: null, edge: null, why: null };
+
   return {
     ...base,
     candidates,
     my_defenses: mine,
-    suggestion,
+    suggestion: gatedSuggestion,
+    unconfirmed_forward: enabled,
     free_agent_defenses: free.length,
     min_edge: MIN_EDGE,
     note: `Defenses ranked by the betting market's implied points for the offense they face (the last line before kickoff). Edge = implied points easier than your defense's matchup.`,

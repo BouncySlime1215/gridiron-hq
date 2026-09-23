@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import express from 'express';
+import * as childProcess from 'node:child_process';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-streaming-board-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
@@ -74,7 +75,7 @@ function league({ mine, theirs = [dst('NYG'), ...filler(15)], slotCounts = SLOT_
     roster_positions: JSON.stringify(rosterPositions), payload: JSON.stringify(payload) };
 }
 
-const { rankDefenses, streamingBoard, MIN_EDGE } = await import('../server/services/streaming-board.js');
+const { rankDefenses, streamingBoard, MIN_EDGE, WV01_STREAMING_BOARD_ENABLED } = await import('../server/services/streaming-board.js');
 const { linesFor } = await import('../server/services/gamescript.js');
 const NOW = new Date('2026-09-24T12:00:00Z');
 
@@ -99,7 +100,7 @@ test('a game already kicked off is ranked on the frozen close, not the in-game l
 });
 
 test('the board suggests the best unlocked free-agent defense, with the implied-point edge over mine', () => {
-  const b = streamingBoard(league({ mine: [dst('HOU'), ...filler(15)] }), { season: 2026, week: 3, now: NOW });
+  const b = streamingBoard(league({ mine: [dst('HOU'), ...filler(15)] }), { season: 2026, week: 3, now: NOW, enabled: true });
   assert.equal(b.position, 'DEF');
   const teams = b.candidates.map(c => c.team);
   assert.ok(!teams.includes('NYG'), 'a defense rostered by another team is not a free agent');
@@ -116,34 +117,34 @@ test('the board suggests the best unlocked free-agent defense, with the implied-
 });
 
 test('when my defense already has the best matchup, the suggestion is to hold', () => {
-  const b = streamingBoard(league({ mine: [dst('SEA'), ...filler(15)] }), { season: 2026, week: 3, now: NOW });
+  const b = streamingBoard(league({ mine: [dst('SEA'), ...filler(15)] }), { season: 2026, week: 3, now: NOW, enabled: true });
   assert.equal(b.suggestion.action, 'hold');
   assert.ok(b.candidates.every(c => c.edge < MIN_EDGE), 'no candidate clears the minimum edge');
 });
 
 test('no defense on the roster: add only when there is an open roster spot', () => {
-  const full = streamingBoard(league({ mine: filler(16) }), { season: 2026, week: 3, now: NOW });
+  const full = streamingBoard(league({ mine: filler(16) }), { season: 2026, week: 3, now: NOW, enabled: true });
   assert.equal(full.suggestion.action, null, 'a full 16-man roster has no room to add without a drop');
   assert.match(full.suggestion.why, /roster is full/i);
-  const open = streamingBoard(league({ mine: filler(15) }), { season: 2026, week: 3, now: NOW });
+  const open = streamingBoard(league({ mine: filler(15) }), { season: 2026, week: 3, now: NOW, enabled: true });
   assert.equal(open.suggestion.action, 'add');
   assert.equal(open.suggestion.add.team, 'SEA');
 });
 
 test('an IR-slot player does not take a roster spot', () => {
-  const b = streamingBoard(league({ mine: [...filler(15), ...filler(1, 21)] }), { season: 2026, week: 3, now: NOW });
+  const b = streamingBoard(league({ mine: [...filler(15), ...filler(1, 21)] }), { season: 2026, week: 3, now: NOW, enabled: true });
   assert.equal(b.suggestion.action, 'add');
 });
 
 test('holding two defenses at the D/ST limit: the swap drops the one with the worse matchup', () => {
   const b = streamingBoard(league({ mine: [dst('HOU'), dst('CLE', 20), ...filler(13)], positionLimits: { 16: 2 } }),
-    { season: 2026, week: 3, now: NOW });
+    { season: 2026, week: 3, now: NOW, enabled: true });
   assert.equal(b.suggestion.action, 'swap');
   assert.equal(b.suggestion.drop.team, 'CLE', 'drop the defense I hold with the worse matchup (CAR 22.5 vs IND 19.75)');
 });
 
 test('my defense on bye is the drop, and the edge is not invented', () => {
-  const b = streamingBoard(league({ mine: [dst('KC'), ...filler(15)] }), { season: 2026, week: 3, now: NOW });
+  const b = streamingBoard(league({ mine: [dst('KC'), ...filler(15)] }), { season: 2026, week: 3, now: NOW, enabled: true });
   assert.equal(b.suggestion.action, 'swap');
   assert.equal(b.suggestion.drop.team, 'KC');
   assert.equal(b.suggestion.drop.on_bye, true);
@@ -151,7 +152,7 @@ test('my defense on bye is the drop, and the edge is not invented', () => {
 });
 
 test('my defense already locked cannot be dropped', () => {
-  const b = streamingBoard(league({ mine: [dst('DEN'), ...filler(15)] }), { season: 2026, week: 3, now: NOW });
+  const b = streamingBoard(league({ mine: [dst('DEN'), ...filler(15)] }), { season: 2026, week: 3, now: NOW, enabled: true });
   assert.equal(b.suggestion.action, null);
   assert.match(b.suggestion.why, /already started/i);
 });
@@ -167,6 +168,37 @@ test('a week with no lines says so rather than returning an empty ranking as a f
   const b = streamingBoard(league({ mine: [dst('HOU'), ...filler(15)] }), { season: 2026, week: 9, now: NOW });
   assert.deepEqual(b.candidates, []);
   assert.match(b.note, /no betting lines/i);
+});
+
+// ---------------------------------------------- Auditor (e): default-off flag
+test('Auditor 2026-09-23 (e): WV01_STREAMING_BOARD_ENABLED defaults false, and nothing in this repo sets it true', () => {
+  assert.equal(WV01_STREAMING_BOARD_ENABLED, false,
+    'no 2026 forward weeks are computable yet (F001); STATS-METHOD.md rule 5 ships this default-off');
+  const { execSync } = childProcess;
+  const hits = execSync(
+    "grep -rn 'WV01_STREAMING_BOARD_ENABLED[[:space:]]*[:=][[:space:]]*true' --include='*.js' --include='*.ts' --include='*.tsx' . " +
+    "--exclude-dir=node_modules || true",
+    { cwd: process.cwd() }).toString().trim();
+  assert.equal(hits, '', `nothing may set the flag true in this repo: ${hits}`);
+});
+
+test('with the flag off (default), the board still ranks candidates but suggests no swap and makes no history claim', () => {
+  const b = streamingBoard(league({ mine: [dst('HOU'), ...filler(15)] }), { season: 2026, week: 3, now: NOW });
+  assert.ok(b.candidates.length > 0, 'board data (rankings) is still returned');
+  assert.equal(b.candidates[0].team, 'SEA');
+  assert.equal(b.suggestion.action, null, 'no swap is suggested while unconfirmed forward');
+  assert.equal(b.suggestion.add, null);
+  assert.equal(b.suggestion.drop, null);
+  assert.equal(b.suggestion.why, null);
+  assert.equal(b.unconfirmed_forward, false);
+});
+
+test('with the flag explicitly on, the suggestion is restored and labelled unconfirmed forward', () => {
+  const b = streamingBoard(league({ mine: [dst('HOU'), ...filler(15)] }),
+    { season: 2026, week: 3, now: NOW, enabled: true });
+  assert.equal(b.suggestion.action, 'swap');
+  assert.equal(b.suggestion.add.team, 'SEA');
+  assert.equal(b.unconfirmed_forward, true);
 });
 
 // ------------------------------------------------------------------ the route
@@ -192,7 +224,12 @@ test('GET /api/trades/:leagueId/streams serves the board for a member', async ()
     assert.equal(body.week, 3);
     assert.equal(body.position, 'DEF');
     // The fixture kickoffs are in 2099 except DEN's (2000), so against the real clock
-    // SEA is still the best unlocked free agent.
-    assert.equal(body.suggestion?.add?.team, 'SEA');
+    // SEA is still the best unlocked free agent, but WV01_STREAMING_BOARD_ENABLED is
+    // default-off (no 2026 forward weeks, Auditor ruling (e)): the route still returns
+    // the ranked board, but suggests no swap.
+    assert.equal(body.candidates?.[0]?.team, 'SEA');
+    assert.equal(body.suggestion?.action, null);
+    assert.equal(body.suggestion?.add, null);
+    assert.equal(body.unconfirmed_forward, false);
   } finally { server.close(); }
 });

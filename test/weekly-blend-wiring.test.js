@@ -55,8 +55,9 @@ mock.module('../server/services/ros-projection.js', { namedExports: { buildRosPr
 const realBlend = await import('../server/services/weekly-blend.js');
 // pos_phase with one fitted cell (WR, weeks 2-4) and a far-off pooled weight, plus the late-news
 // layer: a wrong position or week lands on the pooled 0.9, a dropped report status loses the switch.
-const ON = Object.freeze({ on: true, candidate: 'pos_phase', params: { pooled: 0.9, w: { WR: { '2-4': 0.5 } } },
-  news_layer: true, verdict: 'test', evidence: 'test' });
+// Not frozen: the last test swaps in the tournament's winner ('espn') to run it through the call site.
+const ON = { on: true, candidate: 'pos_phase', params: { pooled: 0.9, w: { WR: { '2-4': 0.5 } } },
+  news_layer: true, verdict: 'test', evidence: 'test' };
 mock.module('../server/services/weekly-blend.js', { namedExports: { ...realBlend, SERVED_BLEND: ON } });
 
 // Side-effect imports, as test/ros-projection-wiring.test.js: routes assetUniverse reads.
@@ -69,15 +70,16 @@ const { startSitWeekPoints } = await import('../server/services/lineup-brain.js'
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
-// Four seeded WRs on four different teams, each with a crafted weekly projection:
-//   P1 ESPN 20; P2 no ESPN row; P3 ESPN 12 and ruled Out on this week's report; P4 ESPN 15, no game.
+// Six seeded WRs on six different teams, each with a crafted weekly projection:
+//   P1 ESPN 20; P2 no ESPN row; P3 ESPN 12 and ruled Out on this week's report; P4 ESPN 15, no game;
+//   P5 ESPN 0 with a game (ESPN's 0 is a value, not an absence); P6 ESPN 5, below ours.
 // MIN(p.id): SQLite then takes the row's other columns from that same player.
-const [P1, P2, P3, P4] = rows(`SELECT MIN(p.id) AS id, p.position, t.abbr AS team, t.id AS team_id FROM players p
+const [P1, P2, P3, P4, P5, P6] = rows(`SELECT MIN(p.id) AS id, p.position, t.abbr AS team, t.id AS team_id FROM players p
                                JOIN nfl_teams t ON t.id = p.team_id
                                WHERE p.position = 'WR' AND p.fantasy_relevant = 1
-                               GROUP BY t.id ORDER BY id LIMIT 4`);
-[P1, P2, P3, P4].forEach((p, i) => run('UPDATE players SET espn_id = ? WHERE id = ?', 9001 + i, p.id));
-for (const p of [P1, P2, P3, P4]) {
+                               GROUP BY t.id ORDER BY id LIMIT 6`);
+[P1, P2, P3, P4, P5, P6].forEach((p, i) => run('UPDATE players SET espn_id = ? WHERE id = ?', 9001 + i, p.id));
+for (const p of [P1, P2, P3, P4, P5, P6]) {
   ENGINE.set(p.id, { player_id: p.id, position: 'WR', team: p.team, ppg: 14.4, structural_ppg: 12.0, ensemble_shift: 2.4,
     params: { crafted: true }, player_week_engine: { cutoff: '2026-W1', mode: 'weekly' } });
 }
@@ -98,6 +100,10 @@ const snap = (espnId, pts, at) => run(`INSERT INTO league_roster_snapshots (leag
 snap(9001, 20, '2026-09-22T20:00:00Z');
 snap(9003, 12, '2026-09-22T20:00:00Z');
 snap(9004, 15, '2026-09-22T20:00:00Z');
+snap(9005, 0, '2026-09-22T20:00:00Z');
+snap(9006, 5, '2026-09-22T20:00:00Z');
+// A kicker whose team plays: the schedule is only built for skill positions (trade-engine.js).
+const K = row(`SELECT p.id FROM players p WHERE p.position = 'K' AND p.team_id IS NOT NULL ORDER BY p.id LIMIT 1`);
 
 // Ours, from the asset's own fields: 14.4 x this game's factor x his chance to play.
 const ours = a => 14.4 * a.matchup.mult * a.active_probability;
@@ -132,6 +138,22 @@ test('a player ESPN has no number for keeps ours, labelled; a player with no gam
   assert.equal(d.week_blend.basis, 'no_game');
 });
 
+test('ESPN\'s 0 reaches the producer as a value: late news switches him to 0, not to ours', () => {
+  const e = assetUniverse(L, FORMAT, { season: 2026, week: 2 }).get(P5.id);
+  assert.ok(e.matchup, 'P5 has a game this week');
+  assert.ok(ours(e) > 0);
+  assert.equal(e.week_blend.espn_ppg, 0);
+  assert.equal(e.week_blend.basis, 'espn_late_news');
+  assert.equal(e.current_week_ppg, 0);
+});
+
+test('a kicker whose team plays is labelled by his position, not as having no game', () => {
+  assert.ok(K, 'the seed has a kicker with a team');
+  const k = assetUniverse(L, FORMAT, { season: 2026, week: 2 }).get(K.id);
+  assert.equal(k.week_blend.basis, 'ours_position_not_graded');
+  assert.equal(k.current_week_ppg, 0);
+});
+
 test('late news: his week\'s Out status switches him to ESPN\'s number', () => {
   const c = assetUniverse(L, FORMAT, { season: 2026, week: 2 }).get(P3.id);
   assert.equal(c.current_week_ppg, 12);
@@ -154,4 +176,24 @@ test('a new ESPN capture refreshes the cached universe', () => {
   const ctx = assetUniverse(L, FORMAT, { season: 2026, week: 2 }).context.week_blend;
   assert.equal(ctx.espn.captured_at, '2026-09-22T23:00:00Z');
   assert.match(ctx.label, /blend our projection with ESPN's weekly projection \(pos_phase\)/);
+});
+
+test('the tournament\'s winner through the call site: ESPN\'s number, 0 included, below ours included', () => {
+  const saved = { ...ON };
+  Object.assign(ON, { candidate: 'espn', params: null, news_layer: false });
+  try {
+    snap(9002, null, '2026-09-22T23:30:00Z');   // a new capture: the cached universe is rebuilt
+    const u = assetUniverse(L, FORMAT, { season: 2026, week: 2 });
+    const f = u.get(P6.id);
+    assert.ok(ours(f) > 5, `ours ${ours(f)} is above ESPN's 5`);
+    assert.equal(f.current_week_ppg, 5);
+    assert.equal(f.week_blend.basis, 'blend');
+    assert.equal(f.week_blend.weight_ours, 0);
+    const e = u.get(P5.id);
+    assert.equal(e.current_week_ppg, 0);
+    assert.equal(e.week_blend.basis, 'blend');
+    assert.match(u.context.week_blend.label, /ESPN's weekly projection where ESPN has one/);
+  } finally {
+    Object.assign(ON, saved);
+  }
 });

@@ -7,7 +7,8 @@
  *     ours, a player ESPN has no number for keeps ours ('no_espn_value');
  *   - the late-news trigger fires on ESPN's 0 (while ours is not) or an Out/Doubtful status,
  *     and nothing else;
- *   - the served switch: off serves ours ('blend_off'), on serves the recorded winner;
+ *   - the served switch: off serves ours ('blend_off'), on serves the recorded winner; the real
+ *     switch is the tournament's winner held off while its serving holds stand;
  *   - ESPN's number is read from league_roster_snapshots for this league and identically
  *     scored leagues only, current period, rostered rows, one value per player (leagues that
  *     disagree give none), and an ESPN id of 0 is never a player.
@@ -30,7 +31,7 @@ await runMigrations();
 const blend = await import('../server/services/weekly-blend.js');
 const {
   phaseFor, lateNewsTrigger, blendWeekPoints, servedWeekBlend, espnWeekProjections, espnValueFor,
-  weekBlendContext, CANDIDATES, SERVED_BLEND
+  weekBlendContext, CANDIDATES, SERVED_BLEND, TOURNAMENT_DECISION, SERVING_HOLDS
 } = blend;
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -74,6 +75,11 @@ test('each candidate computes exactly its pre-registered formula', () => {
   near(v('half').weight_ours, 0.5);
   near(v('fit_shrunk').weight_ours, 0.25);
   near(v('espn').weight_ours, 0);
+  // The served candidate at more than one point (skeptic, liveness B1): ESPN's own 0 is served
+  // as 0, not replaced by ours (the `x.espn || x.ours` bug), and ours above ESPN's does not win
+  // (the `Math.max` bug).
+  assert.deepEqual(blendWeekPoints({ ...X, espn: 0 }, { candidate: 'espn' }), { ppg: 0, basis: 'blend', weight_ours: 0, espn: 0 });
+  near(blendWeekPoints({ ...X, ours: 20 }, { candidate: 'espn' }).ppg, 16);
   // A cell with no fitted value: pos_phase falls back to its pooled weight, espn_proven to ESPN.
   const rb = { ...X, position: 'RB' };
   near(blendWeekPoints(rb, { candidate: 'pos_phase', params: params.pos_phase }).ppg, 0.3 * 10 + 0.7 * 16);
@@ -113,6 +119,9 @@ test('the served switch: off serves ours, labelled; on serves the recorded candi
   const off = { on: false, candidate: 'half', params: null, news_layer: false, verdict: 'unconfirmed forward' };
   assert.deepEqual(servedWeekBlend(X, off), { ppg: 10, basis: 'blend_off', weight_ours: 1, espn: 16 });
   assert.deepEqual(servedWeekBlend({ ...X, bye: true }, off), { ppg: 0, basis: 'no_game', weight_ours: null, espn: 16 });
+  // Off or on, a K/DEF says why it keeps ours: its position was never graded (skeptic, wiring B5).
+  assert.deepEqual(servedWeekBlend({ ...X, position: 'K' }, off), { ppg: 10, basis: 'ours_position_not_graded', weight_ours: 1, espn: 16 });
+  assert.equal(servedWeekBlend({ ...X, position: 'DEF', ours: 0 }, off).basis, 'ours_position_not_graded');
   const on = { on: true, candidate: 'half', params: null, news_layer: false, verdict: 'shipped' };
   assert.equal(servedWeekBlend(X, on).ppg, 13);
   assert.equal(servedWeekBlend({ ...X, espn: null }, on).basis, 'no_espn_value');
@@ -150,9 +159,10 @@ test('ESPN\'s number: this league and identically scored leagues, current period
   snap(1, 3, 500, 6.0, { onRoster: 0 });                    // dropped this week: not his current number
   snap(1, 1, 600, 5.0, { week: 2 });                        // another week
   snap(1, 1, 700, 5.0, { season: 2025 });                   // another season
+  snap(1, 4, 800, 0);                                       // ESPN projects him at 0: a value, not an absence
   const espn = espnWeekProjections({ league, season: 2026, week: 3 });
   assert.equal(espn.state, 'present');
-  assert.deepEqual([...espn.values.entries()].sort(), [['100', 12.5], ['200', 9]]);
+  assert.deepEqual([...espn.values.entries()].sort(), [['100', 12.5], ['200', 9], ['800', 0]]);
   assert.equal(espn.conflicting, 1);
   assert.deepEqual(espn.leagues, [1, 2]);
   assert.equal(espn.captured_at, '2026-09-22T22:55:00Z');
@@ -160,23 +170,41 @@ test('ESPN\'s number: this league and identically scored leagues, current period
   assert.equal(espnValueFor(espn, '200'), 9);
   assert.equal(espnValueFor(espn, 300), null);
   assert.equal(espnValueFor(espn, 400), null);
+  assert.equal(espnValueFor(espn, 800), 0);
   assert.equal(espnValueFor(espn, 0), null);
   assert.equal(espnValueFor(espn, null), null);
   // The standard-scoring league reads its own row only.
   const std = espnWeekProjections({ league: { id: 3, platform: 'espn', ppr: 0, payload: null }, season: 2026, week: 3 });
   assert.deepEqual([...std.values.entries()], [['400', 11]]);
   const ctx = weekBlendContext(espn, { on: false, candidate: 'ours', verdict: 'declined', evidence: 'x' });
-  assert.deepEqual(ctx.espn, { state: 'present', rows: 5, players: 2, conflicting: 1, leagues: 2, captured_at: '2026-09-22T22:55:00Z' });
+  assert.deepEqual(ctx.espn, { state: 'present', rows: 6, players: 3, conflicting: 1, leagues: 2, captured_at: '2026-09-22T22:55:00Z' });
 });
 
-test('SERVED_BLEND is the committed tournament decision, not a hand-set switch', () => {
+test('SERVED_BLEND is the committed tournament decision, held off while its serving holds stand', () => {
   const out = JSON.parse(fs.readFileSync(new URL('../docs/evidence/2026-09-22/weekly-blend-tournament-output.json', import.meta.url), 'utf8'));
   const d = out.decision;
-  assert.equal(SERVED_BLEND.on, d.on);
+  // The tournament's own decision is recorded as the runner wrote it.
+  assert.equal(TOURNAMENT_DECISION.on, d.on);
+  assert.equal(TOURNAMENT_DECISION.winner, d.winner);
+  assert.equal(TOURNAMENT_DECISION.verdict, d.verdict);
   assert.equal(SERVED_BLEND.candidate, d.winner);
   assert.equal(SERVED_BLEND.news_layer, d.news_layer);
-  assert.equal(SERVED_BLEND.verdict, d.verdict);
   assert.deepEqual(SERVED_BLEND.params, d.served_params);
+  // Serving also needs rule (d), a decision grade wherever the number feeds a waiver call, and the
+  // readers of current_week_ppg to agree with it. Each hold names what it waits for; while any
+  // stands, ours is served and every page says the blend is held.
+  assert.ok(SERVING_HOLDS.length > 0);
+  for (const h of SERVING_HOLDS) { assert.match(h.id, /^[a-z0-9_]+$/); assert.ok(h.reason.length > 20); assert.ok(h.lifts_when.length > 10); }
+  assert.ok(SERVING_HOLDS.some(h => h.id === 'waiver_ungraded'));
+  assert.equal(SERVED_BLEND.on, d.on && SERVING_HOLDS.length === 0);
+  assert.equal(SERVED_BLEND.on, false);
+  assert.deepEqual(SERVED_BLEND.holds, SERVING_HOLDS.map(h => h.id));
+  assert.match(SERVED_BLEND.verdict, /^held/);
+  const label = weekBlendContext(null).label;
+  assert.match(label, /our projection alone/);
+  assert.match(label, /not served/);
+  assert.deepEqual(weekBlendContext(null).holds, SERVING_HOLDS.map(h => h.id));
+  assert.deepEqual(servedWeekBlend(X), { ppg: 10, basis: 'blend_off', weight_ours: 1, espn: 16 });
   // The pre-registered rule was applied to the grade the evidence records.
   assert.equal(out.prereg.path, 'docs/evidence/2026-09-22/weekly-blend-tournament-preregistration.md');
   assert.equal(out.selection.winner, d.winner);

@@ -212,7 +212,8 @@ test('flex choices: the revealed ranking, with ESPN projections beside it', () =
   const hit = find('flex_choice', 305);
   assert.equal(hit.length, 1);
   assert.equal(hit[0].week, 3);
-  assert.deepEqual(hit[0].evidence.over_player_ids, [306]);
+  // 304 (WR, benched, played) is flex-eligible too, so he is one of the passed-over options.
+  assert.deepEqual(hit[0].evidence.over_player_ids, [304, 306]);
   assert.equal(hit[0].evidence.chose_lower_projection, true);
 });
 

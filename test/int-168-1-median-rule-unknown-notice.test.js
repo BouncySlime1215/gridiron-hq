@@ -37,7 +37,6 @@ import { leagueRules } from '../server/services/league-rules.js';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = p => fs.readFileSync(path.join(root, p), 'utf8');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-int-168-1-'));
-test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
 const write = (name, text) => { fs.writeFileSync(path.join(temp, name), text); return pathToFileURL(path.join(temp, name)).href; };
 
 const repoRequire = createRequire(path.join(root, 'package.json'));
@@ -148,6 +147,12 @@ const myTeamUrl = compile('client/src/pages/MyTeam.tsx', 'MyTeam.mjs', {
 });
 const { default: Model } = await import(modelUrl);
 const { default: MyTeam } = await import(myTeamUrl);
+// Registered here, after the last top-level await: node:test starts running the tests
+// already registered above while this module is still awaiting these imports, so a
+// test.after registered at the top raced them and removed `temp` before MyTeam.mjs
+// was imported (CI: ERR_MODULE_NOT_FOUND on MyTeam.mjs, "asynchronous activity after
+// the test ended"). Same fix as test/start-sit-ceiling-uncalibrated.test.js.
+test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
 
 const LEAGUE = { id: 7, platform: 'espn', name: 'L', my_team_id: '1' };
 const sim = extra => ({ runs: 2000, weeks: 10, playoff_weeks: [[15], [16]], teams: [

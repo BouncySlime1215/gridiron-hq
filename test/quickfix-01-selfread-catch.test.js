@@ -28,6 +28,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -40,7 +41,17 @@ test('trade-tactics.js no longer names a real leaguemate in the veto-proof docst
   // the grep itself can find a name-shaped string before trusting a 0 count.
   assert.ok(/Etienne/.test(src), 'control: "Etienne" (a player name, expected to stay) must still be found');
 
-  assert.ok(!/\bRami\b/.test(src), 'the leaguemate name "Rami" must not appear in trade-tactics.js');
+  // The forbidden name is stored only as a sha256 of its lowercased form so
+  // this public test file does not reintroduce the name it guards against.
+  const FORBIDDEN_SHA256 = new Set([
+    '2247ecaff43bb8fb963b3a09c6ddba7ad0c454e2950d21051374800a9c808017',
+  ]);
+  const sha = (w) => crypto.createHash('sha256').update(w.toLowerCase()).digest('hex');
+  const tokens = src.match(/[A-Za-z]+/g) ?? [];
+  // Control for the hash check itself: a known token must hash-match when added.
+  assert.ok(tokens.some((t) => new Set([sha('Etienne')]).has(sha(t))), 'control: hash matcher finds a known token');
+  const hits = tokens.filter((t) => FORBIDDEN_SHA256.has(sha(t)));
+  assert.equal(hits.length, 0, `a forbidden leaguemate name (hash-matched) appears ${hits.length} time(s) in trade-tactics.js`);
 });
 
 // ----------------------------------------------------------- selfRead fault

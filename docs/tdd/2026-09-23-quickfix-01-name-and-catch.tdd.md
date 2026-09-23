@@ -123,6 +123,30 @@ commit `267282d9`).
   error handling), not a model or projection change. **Holdout looks: none.**
   Not applicable to HOLDOUT-LEDGER.md.
 
+## 6b. Skeptic fix (2026-09-23): name no longer stored in the test
+
+Two skeptics found the RED/GREEN test at `test/quickfix-01-selfread-catch.test.js:43`
+contained the leaguemate's name as a regex literal and in the assertion
+message, re-adding it to the public repo. Fixed: the test now tokenises
+`trade-tactics.js` and compares `sha256(lowercase(token))` against a set of
+forbidden hashes; the name itself is not in any committed file on this branch's
+diff. A second control proves the hash matcher can find a known token
+(`Etienne`) before trusting a zero-hit result.
+
+- `git grep -n -w -i <name> -- test server/services/trade-tactics.js` -> no
+  output, exit 1 (tree = this fix commit).
+- `node --experimental-test-module-mocks --test --test-reporter=tap test/quickfix-01-selfread-catch.test.js`
+  (SCHEDULER_DISABLED=1, GRIDIRON_DB_PATH=mktemp):
+  - fix tree -> pass 2 / fail 0
+  - same test with `server/services/trade-tactics.js` and `trade-engine.js`
+    temporarily restored from `origin/main` (RED sources) -> pass 0 / fail 2;
+    files restored afterwards, `git status` showed only the test file modified.
+- Out of scope, pre-existing on origin/main (not introduced by this unit): the
+  same name appears in `docs/FANTASY-ENGINE-MASTER-PLAN.md`, `docs/STRUCTURAL-RELOOK.md`,
+  `docs/tdd/tactics-and-packages.tdd.md`, `server/services/manager-signals.js:451`
+  and `study/features/archetypes.md` (found by `git grep -n -w -i <name> HEAD`).
+  Follow-up unit needed for a repo-wide scrub.
+
 ## 7. Nick's five questions
 
 1. **Well built?** Yes for what it is — a one-line docstring edit and a

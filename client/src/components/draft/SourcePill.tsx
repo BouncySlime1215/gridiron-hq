@@ -12,7 +12,7 @@ interface IngestStatus { active?: boolean; last_seen_at?: string | number | null
 export default function SourcePill({ draftId, sync }: { draftId: string; sync?: { source?: string; paused?: boolean } | null }) {
   const [status, setStatus] = useState<IngestStatus | null>(null);
   const [now, setNow] = useState(Date.now());
-  const [bm, setBm] = useState<{ href?: string; error?: string; open: boolean }>({ open: false });
+  const [bm, setBm] = useState<{ href?: string; message?: string; open: boolean }>({ open: false });
 
   useEffect(() => {
     let cancelled = false;
@@ -43,7 +43,8 @@ export default function SourcePill({ draftId, sync }: { draftId: string; sync?: 
       const out = await api<{ href?: string }>(`/drafts/${draftId}/capture-bookmarklet`);
       setBm({ open: true, href: out?.href });
     } catch (e: any) {
-      setBm({ open: true, error: e?.message ? sanitizedMessage('SourcePill.openBookmarklet', 'Bookmarklet unavailable', e.message) : 'not available yet' });
+      // UX-08b: the shown text is always plain words; the raw detail only goes to the console.
+      setBm({ open: true, message: sanitizedMessage('SourcePill.openBookmarklet', 'Bookmarklet unavailable', e?.message) });
     }
   };
 
@@ -71,7 +72,7 @@ export default function SourcePill({ draftId, sync }: { draftId: string; sync?: 
               <span>Drag this to your bookmarks bar. Open the ESPN draft room, click it once, and don't reload that tab.</span>
             </>
           ) : (
-            <span className="text-rose-600">{bm.error}</span>
+            <span className="text-rose-600">{bm.message}</span>
           )}
         </span>
       )}

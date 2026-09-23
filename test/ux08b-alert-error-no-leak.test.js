@@ -207,60 +207,199 @@ test('ManagerBoard.tsx:284 — p.error is logged, not rendered (ManagerProfilesG
   assert.ok(seen.some(s => s.includes('nfl_availability_role_rates')), 'detail goes to console.error');
 });
 
-test('SourcePill.tsx:73 — bookmarklet e.message is logged, not rendered raw', async () => {
-  // openBookmarklet is a closure inside the default-exported component (no
-  // jsdom to drive its click handler); the reach check below proves the real
-  // call site uses this same helper, and this proves the helper itself never
-  // lets a server detail through.
-  const { sanitizedMessage } = await import(compile('lib/errorSanitize.ts'));
-  const { out: msg, seen } = captureConsole(() => sanitizedMessage('SourcePill.openBookmarklet', 'Bookmarklet unavailable', LEAKY));
-  for (const m of MARKERS) assert.ok(!msg.includes(m), `bookmarklet message leaked "${m}": ${msg}`);
-  assert.ok(seen.some(s => s.includes('nfl_availability_role_rates')));
+// ---- Catch-block evaluation: run the REAL catch body of each named site ----
+//
+// No jsdom here, so the click handler can't be driven. Instead the exact
+// catch clause of each named try block is lifted out of the real .tsx with
+// the TypeScript parser, transpiled, and executed with `e = new Error(LEAKY)`.
+// Every free identifier it touches (alert, setMsg, setBm, ...) is a recorder;
+// the real errorSanitize helpers are wired in when the file exists. Whatever
+// the catch body hands to anything the user can see is serialised and checked
+// for the markers — so concatenation, ternaries, String(e), optional chaining
+// or a helper that's imported but not called all fail, not just one regex shape.
+
+const sanitizePath = new URL('../client/src/lib/errorSanitize.ts', import.meta.url);
+async function realHelpers() {
+  // On the pre-fix tree the helper file doesn't exist; the catch bodies then
+  // run against recorders only, so RED shows the leak itself, not an ENOENT.
+  if (!fs.existsSync(sanitizePath)) return {};
+  return import(compile('lib/errorSanitize.ts'));
+}
+
+function findCatch(rel, anchor) {
+  const src = readSrc(rel);
+  const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TSX);
+  const hits = [];
+  const walk = n => {
+    if (ts.isTryStatement(n) && n.catchClause && n.tryBlock.getText(sf).includes(anchor)) hits.push(n.catchClause);
+    ts.forEachChild(n, walk);
+  };
+  walk(sf);
+  assert.equal(hits.length, 1, `${rel}: exactly one try block contains ${JSON.stringify(anchor)}`);
+  const cc = hits[0];
+  return { varName: cc.variableDeclaration?.name.getText(sf) ?? '_e', body: cc.block.getText(sf) };
+}
+
+function serialise(v) {
+  return JSON.stringify(v, (k, x) => (x instanceof Error ? `${String(x)} ${x.message}` : typeof x === 'function' ? String(x) : x));
+}
+
+async function runCatch(varName, body, helpers, overrides = {}) {
+  const { outputText } = ts.transpileModule(`(async function (${varName}) ${body})`,
+    { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } });
+  const shown = []; // every call the catch body (or a helper) makes that reaches the user
+  const recorder = name => (...args) => {
+    // functional state updates (setX(prev => ...)) — record what they'd store
+    shown.push({ name, args: args.map(a => (typeof a === 'function' ? a({}) : a)) });
+  };
+  const scope = new Proxy({}, {
+    has: (_, k) => typeof k === 'string' && (k === 'alert' || !(k in globalThis)),
+    get: (_, k) => {
+      if (k === Symbol.unscopables) return undefined;
+      if (k in overrides) return overrides[k];
+      if (k in helpers) return helpers[k];
+      return recorder(k);
+    },
+  });
+  // eslint-disable-next-line no-new-func
+  const fn = new Function('__scope', `with (__scope) { return ${outputText.trim().replace(/;$/, '')}; }`)(scope);
+  const origAlert = globalThis.alert;
+  globalThis.alert = recorder('alert');
+  const origErr = console.error; const logged = [];
+  console.error = (...a) => logged.push(a.map(x => String(x)).join(' '));
+  try { await fn(new Error(LEAKY)); } finally { globalThis.alert = origAlert; console.error = origErr; }
+  return { shown, shownText: shown.map(serialise).join('\n'), logged: logged.join('\n') };
+}
+
+test('control: the catch evaluator sees a leak in the pre-fix Model.tsx shape and in a concatenation variant', async () => {
+  for (const body of ['{ alert(`Sync failed: ${e.message}`); }', "{ alert('Sync failed: ' + e.message); }",
+    '{ setMsg(silent ? `ESPN could not refresh your leagues: ${e.message}` : e.message); }']) {
+    for (const silent of [true, false]) {
+      const { shownText } = await runCatch('e', body, {}, { silent });
+      assert.ok(shownText.includes('nfl_availability_role_rates'), `control body ${body} (silent=${silent}) must be seen leaking`);
+    }
+  }
 });
 
-// ---- alert()/setMsg call sites: reach check that the real file calls the helper ----
-
-const REACH_SITES = [
-  { file: 'pages/Model.tsx', line: 38, calls: 'sanitizedAlert' },
-  { file: 'pages/TeamDetail.tsx', calls: 'sanitizedAlert' },
-  { file: 'pages/MyTeam.tsx', calls: 'sanitizedAlert' },
-  { file: 'pages/Settings.tsx', line: 42, calls: 'sanitizedMessage' },
-  { file: 'pages/Settings.tsx', line: 43, calls: 'sanitizedMessage' },
-  { file: 'components/EspnConnect.tsx', calls: 'sanitizedMessage' },
+// Each named site: file, an anchor unique to its try block, what the user must see.
+const CATCH_SITES = [
+  { site: 'Model.tsx:38', file: 'pages/Model.tsx', anchor: "'/model/sync'", shows: 'Sync failed. Try again in a moment.' },
+  { site: 'TeamDetail.tsx:69', file: 'pages/TeamDetail.tsx', anchor: '/espn/sync-news?team=', shows: 'News pull failed. Try again in a moment.' },
+  { site: 'MyTeam.tsx:86', file: 'pages/MyTeam.tsx', anchor: 'refetchData(); refetchLeagues()', shows: 'Sync failed. Try again in a moment.' },
+  { site: 'Settings.tsx:42', file: 'pages/Settings.tsx', anchor: "'/espn/sync-players'", shows: 'Player sync failed. Try again in a moment.' },
+  { site: 'Settings.tsx:50', file: 'pages/Settings.tsx', anchor: "'/espn/sync-news'", shows: 'News sync failed. Try again in a moment.' },
+  { site: 'EspnConnect.tsx:64 (silent)', file: 'components/EspnConnect.tsx', anchor: "'/espn-connect/discover'", overrides: { silent: true },
+    shows: 'ESPN could not refresh your leagues. Try again in a moment.' },
+  { site: 'EspnConnect.tsx:64 (not silent)', file: 'components/EspnConnect.tsx', anchor: "'/espn-connect/discover'", overrides: { silent: false },
+    shows: 'ESPN league lookup failed. Try again in a moment.' },
+  { site: 'EspnConnect.tsx:102', file: 'components/EspnConnect.tsx', anchor: "'/espn-connect/add'",
+    shows: 'Added, but the first sync failed. Try “Sync” in League Hub → Connections. Try again in a moment.' },
+  { site: 'SourcePill.tsx:45', file: 'components/draft/SourcePill.tsx', anchor: 'capture-bookmarklet',
+    shows: 'Bookmarklet unavailable. Try again in a moment.' },
 ];
 
-for (const site of REACH_SITES) {
-  test(`reach: ${site.file} calls ${site.calls}(...), no bare \${e.message} left in a shown string`, () => {
-    const src = readSrc(site.file);
-    assert.ok(src.includes(`import { ${site.calls} } from`) || src.includes(`, ${site.calls} }`) || src.includes(`{ ${site.calls} }`),
-      `${site.file} imports ${site.calls}`);
-    // The two leak shapes UX-08b closes: `alert(\`...${e.message}...\`)` and
-    // `setMsg(\`...${e.message}...\`)` — neither should remain anywhere in
-    // the file once every catch block routes through the helper.
-    assert.ok(!/alert\(`[^`]*\$\{e[^}]*\.message\}/.test(src), `${site.file}: no raw e.message left inside alert()`);
-    assert.ok(!/setMsg\(`[^`]*\$\{e[^}]*\.message\}/.test(src), `${site.file}: no raw e.message left inside setMsg()`);
+for (const s of CATCH_SITES) {
+  test(`${s.site} — the real catch body shows plain words, logs the detail`, async () => {
+    const { varName, body } = findCatch(s.file, s.anchor);
+    const { shown, shownText, logged } = await runCatch(varName, body, await realHelpers(), s.overrides);
+    for (const m of MARKERS) assert.ok(!shownText.includes(m), `${s.site} leaked "${m}" to the user: ${shownText}`);
+    assert.ok(shown.length > 0, `${s.site}: the catch body still tells the user something`);
+    assert.ok(shownText.includes(JSON.stringify(s.shows).slice(1, -1)), `${s.site}: user sees exactly ${JSON.stringify(s.shows)}; got ${shownText}`);
+    assert.ok(logged.includes('nfl_availability_role_rates'), `${s.site}: the detail reaches console.error`);
   });
 }
 
-test('reach: TradeCard.tsx call sites use TradeSectionError, not a raw {sense.error}/{impact.error} paragraph', () => {
-  const src = readSrc('components/TradeCard.tsx');
-  assert.ok(/sense\?\.error && <TradeSectionError/.test(src));
-  assert.ok(/impact\?\.error && <TradeSectionError/.test(src));
-  assert.ok(!src.includes('{sense.error}</p>'));
-  assert.ok(!src.includes('{impact.error}</p>'));
+// ---- Rendered sites: token-level check over the whole file ----
+//
+// In the four files with rendered `.error` sites, every `x.error` / `x?.error`
+// read must sit in a position that can't put its text on screen: a condition
+// (`x.error && ...` left side, `!x.error`, ternary/if test), an argument to a
+// sanitizing helper, or the `error` prop of a component that logs instead of
+// rendering. Anything else — a JSX child, another prop, a template string, a
+// setter — fails. This catches a new sibling `<p>{impact?.error}</p>`, not
+// just the one line that used to leak.
+
+const SAFE_CALLS = new Set(['logServerDetail', 'sanitizedMessage', 'sanitizedAlert', 'signalsRequestFailedReason']);
+const SAFE_PROPS = new Set(['TradeSectionError.error', 'ManagerProfilesGap.error']);
+
+function unsafeErrorReads(rel) {
+  const src = readSrc(rel);
+  const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TSX);
+  const bad = [];
+  const verdict = node => {
+    let cur = node;
+    for (;;) {
+      const p = cur.parent;
+      if (!p) return 'unknown';
+      if (ts.isParenthesizedExpression(p) || ts.isAsExpression(p) || ts.isNonNullExpression(p)
+        || ts.isTemplateSpan(p) || ts.isTemplateExpression(p)) { cur = p; continue; }
+      if (ts.isPrefixUnaryExpression(p) && p.operator === ts.SyntaxKind.ExclamationToken) return null;
+      if (ts.isBinaryExpression(p)) {
+        const op = p.operatorToken.kind;
+        if ((op === ts.SyntaxKind.AmpersandAmpersandToken || op === ts.SyntaxKind.BarBarToken) && p.left === cur) return null;
+        if ([ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken,
+          ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken].includes(op)) return null;
+        cur = p; continue; // right side of &&/||/??, string +: the value flows on
+      }
+      if (ts.isConditionalExpression(p)) { if (p.condition === cur) return null; cur = p; continue; }
+      if (ts.isIfStatement(p) && p.expression === cur) return null;
+      if (ts.isCallExpression(p) && p.arguments.includes(cur)) {
+        return SAFE_CALLS.has(p.expression.getText(sf)) ? null : `argument to ${p.expression.getText(sf)}()`;
+      }
+      if (ts.isPropertyAccessExpression(p) && p.expression === cur) { cur = p; continue; }
+      if (ts.isJsxExpression(p)) {
+        const gp = p.parent;
+        if (ts.isJsxAttribute(gp)) {
+          const tag = gp.parent.parent.tagName.getText(sf);
+          const key = `${tag}.${gp.name.getText(sf)}`;
+          return SAFE_PROPS.has(key) ? null : `prop ${key}`;
+        }
+        return 'JSX child (rendered)';
+      }
+      return `unhandled position (${ts.SyntaxKind[p.kind]})`;
+    }
+  };
+  const walk = n => {
+    if (ts.isPropertyAccessExpression(n) && n.name.text === 'error') {
+      const why = verdict(n);
+      if (why) bad.push(`${rel}:${sf.getLineAndCharacterOfPosition(n.getStart()).line + 1} ${n.getText(sf)} — ${why}`);
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(sf);
+  return bad;
+}
+
+test('control: the token check flags the pre-fix and the skeptic-variant shapes', () => {
+  const tmpRel = 'ux08b-control.tsx';
+  const p = new URL(`../client/src/${tmpRel}`, import.meta.url);
+  fs.writeFileSync(p, `export const A = ({ sense, impact, p, signals }: any) => <div>
+    {sense?.error && <p className="x">{sense.error}</p>}
+    {impact?.error && <p className="x">{impact?.error}</p>}
+    <S reason={\`The signals request failed: \${signals.error}.\`} />
+    <PageError message={p.error} />
+  </div>;`);
+  try {
+    const bad = unsafeErrorReads(tmpRel);
+    assert.equal(bad.length, 4, `all four leak shapes flagged: ${bad.join('; ')}`);
+  } finally { fs.rmSync(p, { force: true }); }
 });
 
-test('reach: ManagerBoard.tsx call sites use the sanitizing helpers, not a raw {p.error} paragraph', () => {
-  const src = readSrc('components/brain/ManagerBoard.tsx');
-  assert.ok(src.includes('reason={signalsRequestFailedReason(signals.error)}'));
-  assert.ok(/p\?\.error && <ManagerProfilesGap/.test(src));
-  assert.ok(!src.includes('{p.error}</p>'));
-});
+for (const rel of ['components/TradeCard.tsx', 'components/PageExplainAssistant.tsx',
+  'components/brain/ManagerBoard.tsx', 'components/draft/SourcePill.tsx']) {
+  test(`token check: no .error read in ${rel} can reach the screen`, () => {
+    const bad = unsafeErrorReads(rel);
+    assert.deepEqual(bad, [], `unsafe .error reads:\n${bad.join('\n')}`);
+  });
+}
 
-test('reach: SourcePill.tsx call site uses sanitizedMessage, not raw e.message', () => {
-  const src = readSrc('components/draft/SourcePill.tsx');
-  assert.ok(!/error: e\?\.message \?\?/.test(src), 'no bare e?.message assigned straight into bm.error');
-  assert.ok(src.includes('sanitizedMessage('));
+test('reach: TradeCard/ManagerBoard call sites actually route through the logging components', () => {
+  const tc = readSrc('components/TradeCard.tsx');
+  assert.ok(/sense\?\.error && <TradeSectionError/.test(tc));
+  assert.ok(/impact\?\.error && <TradeSectionError/.test(tc));
+  const mb = readSrc('components/brain/ManagerBoard.tsx');
+  assert.ok(mb.includes('reason={signalsRequestFailedReason(signals.error)}'));
+  assert.ok(/p\?\.error && <ManagerProfilesGap/.test(mb));
 });
 
 // nav is untouched by any of this

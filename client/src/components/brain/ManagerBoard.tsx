@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api';
 import { PageError, PageLoading } from '../PageState';
-import { logServerDetail } from '../../lib/errorSanitize';
+import { logServerDetail, sanitizedMessage } from '../../lib/errorSanitize';
 import {
   TIERS, TIER_SHORT, TIER_STYLE, MIN_OBSERVATIONS, isThin, asText, metricLabel
 } from './types';
@@ -249,7 +249,8 @@ export default function ManagerBoard({ leagueId, profiles, signals }: {
       )}
 
       {!signals.error && signals.data?.error && (
-        <SignalsGap title="Measured manager signals are not on screen" reason={signals.data.error} />
+        <SignalsGap title="Measured manager signals are not on screen"
+          reason={sanitizedMessage('ManagerBoard.signalsPayload', 'The server could not produce measured signals', signals.data.error)} />
       )}
 
       {!signals.error && signals.data && !signals.data.error && signals.data.available === false && (
@@ -299,7 +300,7 @@ export default function ManagerBoard({ leagueId, profiles, signals }: {
       {/* The hand-set tiers. */}
       {profiles.loading && !p && <PageLoading label="Loading managers…" />}
       {!profiles.loading && profiles.error && !p && (
-        <PageError message={profiles.error} onRetry={profiles.refetch} />
+        <PageError message={sanitizedMessage('ManagerBoard.profilesFetch', "Couldn't read the roster list", profiles.error)} onRetry={profiles.refetch} />
       )}
       {p?.error && <ManagerProfilesGap error={p.error} />}
 

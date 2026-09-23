@@ -31,5 +31,3 @@ export function sanitizedMessage(where: string, prefix: string, detail: unknown)
   return `${prefix}. Try again in a moment.`;
 }
 
-/** For sites that render a `.error` field straight from a server payload. */
-export const GENERIC_LOAD_ERROR = "Couldn't load this. Try again in a moment.";

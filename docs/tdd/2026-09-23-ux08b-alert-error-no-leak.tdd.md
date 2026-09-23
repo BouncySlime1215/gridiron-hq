@@ -176,6 +176,43 @@ a call site added later that still interpolates `e.message`/`.error`
 straight into rendered JSX or an `alert()` — this unit adds no lint rule or
 grader for that, so it relies on review and grep, same as before.
 
+## 7. Revision 2 (after skeptic review) — supersedes the reach checks in §3 and mutant 3 in §5
+
+Command for every run below: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/x.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/ux08b-alert-error-no-leak.test.js`.
+
+**What the skeptics found, all confirmed:** the old reach checks were regexes for one shape (`alert(\`...${e.message}\`)`) plus an "imports the helper" check. So the pre-fix ternary at EspnConnect:64, `alert('Sync failed: ' + e.message)` at Model:38, and a new sibling `<p>{impact?.error}</p>` in TradeCard all passed 22/22. RED was mostly ENOENT on the helper file, not a leak being seen. `GENERIC_LOAD_ERROR` had no readers.
+
+**Test changes (test/ux08b-alert-error-no-leak.test.js):**
+- *Catch-body evaluation*, which replaces the regex reach loop. For each named site, the real `catch` clause is found with the TypeScript parser, using an anchor unique to its `try` block. The clause is transpiled and run with `e = new Error(LEAKY)`. Every free identifier it touches (alert, setMsg, setBm...) is a recorder, and the real helpers are wired in. The test asserts: (1) no marker in anything shown to the user; (2) the exact expected user text; (3) the detail reaches console.error. Sites: Model:38, TeamDetail:69, MyTeam:86, Settings:42, Settings:50, EspnConnect:64 (both `silent` branches), EspnConnect:102, SourcePill:45. A control test feeds the pre-fix template, concatenation and ternary bodies to the evaluator and checks that it sees the leak.
+- *Token check*, which replaces the substring checks in TradeCard, PageExplainAssistant, ManagerBoard and SourcePill. Every `x.error` / `x?.error` read in the whole file must sit in a non-rendering position: a condition, an argument to a sanitizing helper, or the `error` prop of TradeSectionError/ManagerProfilesGap. Anything else fails with file:line and the reason. A control confirms it flags all 4 leak shapes (JSX child, optional-chain JSX child, template prop, PageError prop).
+
+**Code changes this revision:**
+- `client/src/lib/errorSanitize.ts`: `GENERIC_LOAD_ERROR` deleted (0 readers: `git grep -n GENERIC_LOAD_ERROR 4458be90` returned only its definition).
+- `ManagerBoard.tsx:252`: `SignalsGap reason={signals.data.error}` now goes through `sanitizedMessage('ManagerBoard.signalsPayload', ...)`. This was listed as open in rev 1, and the token check flagged it.
+- `ManagerBoard.tsx:303`: `PageError message={profiles.error}` now goes through `sanitizedMessage('ManagerBoard.profilesFetch', ...)`. PageError on main renders `message` raw (client/src/components/PageState.tsx:23), so this no longer waits on UX-08.
+- `SourcePill.tsx`: the state field `error` is renamed to `message`, since it only ever holds sanitized text. It is always set through `sanitizedMessage` (the old `'not available yet'` fallback rendered with no prefix).
+
+**RED (tree origin/main 131a7ba0 + new test file only; main's only change since 89f69b3b is client/src/pages/Lineup.tsx, which does not overlap):** 4 pass / 24 fail. 9 fail on `leaked "nfl_availability_role_rates" to the user`: every catch-eval site, including SourcePill:45. 4 fail on `unsafe .error reads`, which names TradeCard:343/372, PageExplainAssistant:177, ManagerBoard:220/223/229/279/284 and SourcePill:73. The rest fail on ENOENT/missing exports for the helper and the new components. So every named site now has a RED that sees the leak, not just a missing file.
+
+**GREEN (branch tree, this revision): 28/28 pass.**
+
+**Mutants (each applied alone to the GREEN tree, then reverted):**
+
+| # | Mutant | Result |
+|---|---|---|
+| M1 | EspnConnect:64 pre-fix ternary restored (skeptic's) | killed: tests 18, 19 |
+| M2 | Model:38 `alert('Sync failed: ' + e.message)` (skeptic's) | killed: test 13 |
+| M3 | TeamDetail:69 concatenation | killed: test 14 |
+| M4 | MyTeam:86 `alert('Sync failed: ' + String(e))` | killed: test 15 |
+| M5 | TradeCard sibling `{impact?.error && <p>{impact?.error}</p>}` (skeptic's) | killed: test 23 |
+| M6 | SourcePill prefix wording changed (was the rev-1 designed survivor) | killed: test 21 (exact user text pinned) |
+| M7 | ManagerBoard:252 back to `reason={signals.data.error}` | killed: test 25 |
+| M8 | `sanitizedMessage` returns `${prefix}: ${detail}` | killed: tests 3, 16-21 |
+
+No survivors this round. Known limit: the catch evaluator runs only the catch body, so a leak put into state *before* the throw, inside the `try`, is not covered. None of the named sites do that.
+
+**Still open (found by this revision's grep, outside the named 13; proposed follow-up UX-08c):** TeamDetail.tsx:79 (`AI refresh failed: ${t.error}`), :81 (`setAiMsg(e.message)`), :396/401 (`setErr(e.message)` rendered); MyTeam.tsx:302, :444 (`{scout.error}` / `{data.error}` JSX children); Model.tsx:96, :245 (`description={data.error}`); TradeCard.tsx:175/195/202 (`setErr(e.message)`, rendered at :319); EspnConnect.tsx:53 (`setPasteErr(e.message)`; this may carry useful cookie-validation text, so it needs a look at the server's messages first); ManagerBoard.tsx:92 (`setSaveError(e.message)`). Command: `grep -nE 'catch|\.message|\.error\b|\berr\b'` over the 9 files.
+
 ## Holdout looks
 
 None — not a statistical unit, nothing touches the 2025/2026 held-out

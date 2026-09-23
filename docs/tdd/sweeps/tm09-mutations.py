@@ -15,6 +15,10 @@ M = [
   ('C2 call site: week hard-coded', RT, "week: leagueCurrentWeek(lg)", "week: 1", 'killed'),
   ('C3 call site: sleeper_id not selected', RT, "SELECT id, name, position, sleeper_id FROM players WHERE id = ?", "SELECT id, name, position FROM players WHERE id = ?", 'killed'),
   ('C4 call site: 404 guard removed', RT, "if (!player) { res.status(404).json({ error: 'player not found' }); return; }", "", 'killed'),
+  ('U-A premium ignores league-size bin', SVC, "c.week_bin === wb && c.size_bin === sb", "c.week_bin === wb", 'killed'),
+  ('U-B placebo dropped from payload', SVC, "c_placebo: h2.placebo?.c_mean ?? null", "c_placebo: null", 'killed'),
+  ('U-C sellHigh dropped from hype producers', SVC, "{ where: 'server/services/waiver-brain.js:452 sellHigh'", "{ where: 'omitted'", 'killed'),
+  ('C-A call site: position not selected', RT, "SELECT id, name, position, sleeper_id FROM players WHERE id = ?", "SELECT id, name, sleeper_id FROM players WHERE id = ?", 'killed'),
   ('S1 designed survivor: memo cache disabled (behaviour-equivalent)', SVC, "if (file === TABLE_PATH && cached) return cached;", "if (false) return cached;", 'survives'),
   ('N1 not-applied control', SVC, "THIS_TEXT_IS_NOT_IN_THE_FILE", "x", 'not-applied'),
 ]

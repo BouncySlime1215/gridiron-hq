@@ -16,3 +16,128 @@ Unit S-20 (plan item: Structure / data identity). Source: R&D round 7 internal p
 
 Not a statistical unit: no model number is produced or selected, so there is no pre-registration.
 No 2025 held-out season rows are graded (identity repair only), so there is no holdout look.
+
+Holdout looks: none. The 2025 rows are re-attributed, not graded against outcomes; no model is fit or selected, so nothing goes in `docs/evidence/HOLDOUT-LEDGER.md`.
+
+## 2. RED / GREEN
+
+- **RED** `04855470` test: RED snap loader stores namesake, HB and nickname rows on the wrong player. On origin/main code, 7 of 8 fail. First failing assertion (namesake pair; the active Jr. gets nothing):
+  ```
+  test/nflverse-snap-join.test.js:93  assert.deepEqual(snapsFor(4).map(r => [r.week, r.offense_snaps]), [[1, 59], [2, 37]])
+  + actual - expected
+  + []
+  - [[1, 59], [2, 37]]
+  ```
+  The one passing test was the null control (a player with no name issue).
+- **GREEN** `1ec63b6a` fix: snap loader joins nflverse snap counts by pfr id, name only as fallback. 8/8 pass.
+- **Hardening** `732ec696` test: snap loader refuses shared name keys, keeps same-name id targets, logs via syncAll. 11/11 pass.
+  Command: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/nflverse-snap-join.test.js`.
+  `test/nflverse-attribution.test.js` (same module) also passes, 4/4. The final 11 tests run against origin/main's `nflverse.js`: 1 pass (null control), 10 fail.
+  The fixture uses made-up names and ids of the same shape; the two real cases are named only in the uncommitted R&D package.
+
+## 3. What it does
+
+`syncSnapCounts` (`server/services/nflverse.js`, writer of table `player_week_snaps`) now works like this:
+
+1. **Id join first.** Each snap row goes `pfr_player_id` → `gsis_id` (nflverse `players.csv`) → `players.gsis_id`. `syncCrosswalk` keeps that pfr map from the `players.csv` it already downloads. A standalone snap sync fetches `players.csv` once.
+2. **Name fallback only when the id does not resolve.** The key is `name|position`, with nflverse `HB`/`FB` aliased to `RB`. A key that two local players share is refused and counted in `ambiguous_name`. The old code let the last row win.
+3. **Backfill by updates only.** A namesake row is moved to the id-resolved player with `UPDATE player_week_snaps SET player_id = ?` when all of these hold:
+   - it has the same name key and exactly the same numbers in the same week;
+   - that namesake is not himself an id-resolved target that week;
+   - the right player has no row for that week.
+
+   Nothing is deleted. A stale row that cannot be moved is counted in `namesake_rows_left`.
+4. **Counts.** The sync returns `{inserted, by_id, name_fallback, unmatched, ambiguous_name, reassigned, namesake_rows_left}`. `syncAll` → `recordSync('nflverse_snap_counts', …)` writes it to `sync_log`.
+   - The path reaches production through the route `POST /api/model/sync` (`server/routes/model.js:488`, `syncNflverse` at `:512`). The syncAll test covers it: `sync_log.last_detail` carries `"by_id":8`.
+
+No migration: the pfr map lives in memory and no column is added.
+
+## 4. Numbers (local copy, not production)
+
+- **Tree:** this branch at `732ec696`. The replay ran on the same code before commit shas were rewritten to drop real player names from the fixture; the rewrite changed test names and one comment only.
+- **DB:** `.local-db/data.sqlite`, a `.backup` of `~/gridiron-local/data.sqlite` taken 2026-09-23.
+- **Source rows:** nflverse CSVs served from the read-only archive `gridiron-hq/data/line-history/nflverse.sqlite` (tables `snap_counts`, `players`) through a fetch stub.
+- **Scripts:** in the session scratchpad, not committed (they name the two cases): `s20-local-replay.mjs` (2025, 2026) and `s20-local-replay-2021-2024.mjs`.
+- **Coverage gap:** the archive holds 2026 week 1 only, so 2026 week 2 was not replayed.
+
+The two named cases are case A (namesake pair) and case B (HB label). Player names are left out on purpose.
+
+| Measure | Before | After |
+|---|---|---|
+| Case A snap rows, 2024 / 2025 / 2026 | 0 / 0 / 0 | 17 / 12 / 1 (W1; W2 not in archive) |
+| Case B snap rows, 2025 / 2026 | 0 / 0 | 17 / 1 (W1; W2 not in archive) |
+| Retired namesake rows, 2024 / 2025 / 2026 | 17 / 12 / 2 | 0 / 0 / 1 (the W2 row, which moves when the live W2 CSV syncs) |
+| Usage rows with 8+ targets+carries and no snap row, 2025 | 55 | 0 |
+| Same measure, 2026 | 3 | 1 (case B W2, same archive gap) |
+| Same measure, 2021 / 2022 / 2023 / 2024 | not measured before | 0 / 0 / 0 / 0 |
+| `player_week_snaps` total rows | 40,890 | 42,188 after 2025-26, 48,459 after 2021-24 (never decreases) |
+
+Before-counts for the named ids came from a second fresh `.backup`, deleted right after. Its total, 40,890, matches the replay's before total.
+
+**Sync counts per season** (`by_id` / `name_fallback` / `reassigned` / `namesake_rows_left`):
+
+| Season | by_id | name_fallback | reassigned | namesake_rows_left |
+|---|---|---|---|---|
+| 2021 | 8,866 | 15 | 54 | 0 |
+| 2022 | 9,125 | 1 | 69 | 0 |
+| 2023 | 9,671 | 0 | 86 | 0 |
+| 2024 | 9,812 | 12 | 94 | 0 |
+| 2025 | 9,824 | 18 | 94 | 0 |
+| 2026 (W1) | 596 | 1 | 4 | 0 |
+
+- **`unmatched`** (about 15-16k a season) is defensive and special-teams players who are not in the local `players` table. It is not a skill-position loss.
+- **Skill rows** (QB/RB/HB/FB/WR/TE, REG, offense_snaps > 0) that resolve by id: 2025 6,590 of 6,604; 2026 389 of 391. This was a separate read-only node query over the copy and the archive.
+
+**Null controls:**
+- The first replay touched only 2025-26. All 31,231 rows for 2021-2024 were identical after it.
+- Of the 40,890 pre-existing keys, 40,792 were unchanged, 98 were vacated by moves (= 94 + 4 `reassigned`), 0 had their values changed, and 1,396 keys were added.
+
+**Consumers re-checked (counts only):**
+
+`contingency.roleStates(2026, 3)` is the snap share that WV-02 (#178, open, not merged) ranks by with `sameTeamOrder: 'snap_share'`. The same numbers feed the availability role tier.
+
+| Measure | Before | After |
+|---|---|---|
+| Players | 716 | 714 (two namesake rows lost all their appearances) |
+| `unknown` tier | 52 | 16 |
+| Tier changed | | 41 |
+| `unknown` → known | | 36 |
+| Case A | `unknown` | `rotation` |
+| Case B | `unknown` (derived, see below) | `starter` |
+
+- Case B before: `roleStates` takes share only from `player_week_snaps` (`contingency.js:379-383`). The fresh backup held 0 snap rows for case B in 2025-26, so his share was `null` and his tier `unknown`. That is derived from the code, not measured: the replay's own case-B line had looked up the wrong gsis and was discarded. After: measured on the copy with a separate `roleStates(2026, 3)` call (case A share 0.56, case B share 0.64).
+- WV-02 ships snap-share order default-off (projection order is the default), so this changes the `snap_share` field shown and the opt-in order, not the default list.
+
+## 5. Mutation sweep
+
+Script: scratchpad `s20-mutants.py`. It applies each mutant to `nflverse.js`, runs the test file, and restores the file. `git status` was clean afterwards.
+
+| Mutant | Result |
+|---|---|
+| M0 not-applied control (no change) | 0 failing (expected) |
+| M1 id lookup disabled (name only) | killed, 9 failing |
+| M2 **designed survivor**: HB/FB alias removed | survived. The fixture's HB back resolves by id; the alias only matters on the fallback path. |
+| M3 name map last-row-wins again | killed, 4 |
+| M4 id-target guard removed | killed, 4 |
+| M5 number-equality guard removed | killed, 4 |
+| M6 call site: the snap sync never loads the pfr crosswalk | killed, 9 |
+| M7 call site: `syncAll` skips the snap sync | killed, 1 |
+| M8 backfill move removed (upsert only) | killed, 4 |
+
+## 6. Known defects / follow-ups
+
+1. **Production is not corrected until the next sync.** It needs `syncAll` / `POST /api/model/sync` over 2021-2026 on production (N5 territory). That run fixes 2026 W2 too, which the archive could not replay here.
+2. **Case B's before tier is derived, not measured.** It is `unknown` because he had 0 snap rows. It was derived from the code (see section 4) because the first replay's case-B lookup used a wrong gsis.
+3. **Nothing re-fits S-04.** S-04's role cells (`scripts/fit-availability.mjs:260`) were fit on the name-joined rows. S-04 should re-fit on corrected rows before it serves.
+4. **One stale doc line.** `docs/tdd/play-chance.tdd.md:120` still blames "nfl_snaps has him by name". It belongs to another thread, so it is reported here, not edited.
+5. **Two snap ingests remain.** D-10 (`nfl-advanced.js` vs `nflverse.js`) still owns that. This unit touches `nflverse.js` only.
+
+## 7. Nick's five questions
+
+1. **Well built?** One writer is changed, in place. The id join reuses the existing `players.csv` download and the `byGsis` map. There is no migration and no new table or column, SQL is parameterised, and every error path rolls back and rethrows (no bare catch). 11 tests cover it, and the mutation sweep killed 7 of 7 non-designed mutants.
+2. **Stats or made up?** No model number here. Every count above comes from a named script run on the local copy, labelled local copy, not production.
+3. **How we know?** RED reproduced the wrong attribution in a fixture (an active Jr. and a retired namesake, an HB back, a nickname). On the local copy both named cases moved from 0 rows to full seasons, and the retired namesake emptied except for one W2 row that the archive cannot replay.
+4. **Pointed elsewhere?** Readers of `player_week_snaps` are unchanged, and they now read the right player's rows:
+   - `contingency.roleStates` (availability tier, WV-02 snap share)
+   - `player-advanced-stats`, `role-changepoint`, `beat-reporter-accuracy`, `opportunity-model`, `trade-engine`
+5. **How it unifies?** There is still one producer of snap share (`player_week_snaps` via `syncSnapCounts`), and it now uses the same gsis identity as `player_week_usage`, so the usage and snap rows for a player-week agree on who he is.

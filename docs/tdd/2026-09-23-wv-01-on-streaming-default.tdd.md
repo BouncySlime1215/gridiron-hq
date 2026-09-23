@@ -99,11 +99,39 @@ binding), plus one designed survivor and the not-applied control, all run with:
 |---|---|---|
 | 1 (unit) | `server/services/streaming-board.js:58` `WV01_STREAMING_BOARD_ENABLED = true` -> `= false` | **killed**: 12 pass / 3 fail |
 | 2 (call site) | `server/services/streaming-board.js:132` default param `enabled = WV01_STREAMING_BOARD_ENABLED` -> `enabled = false` (caller path ignores the const) | **killed**: 13 pass / 2 fail |
-| 3 (designed survivor) | `client/src/components/lineup/StreamingBoard.tsx:41` label text `history-tested (2022-25), not yet confirmed` -> `MUTATED-LABEL-TEXT` | **survived**: 15 pass / 0 fail — `test/streaming-board.test.js` has no test that renders `StreamingBoard.tsx` or asserts its label string; this is a real, known gap (see "Known defects" below), not fixed in this unit |
+| 3 (designed survivor) | `client/src/components/lineup/StreamingBoard.tsx:41` label text `history-tested (2022-25), not yet confirmed` -> `MUTATED-LABEL-TEXT` | **survived**: 15 pass / 0 fail — `test/streaming-board.test.js` has no test that renders `StreamingBoard.tsx` or asserts its label string; gap closed after skeptic review: see section 5b |
 | control (not applied) | none; clean tree | 15 pass / 0 fail (baseline, matches GREEN) |
 
 All mutant files were restored byte-for-byte after each run (`diff` against
 a saved copy showed no difference; `git status --porcelain` empty throughout).
+
+## 5b. Label test (added after skeptic review, commit after cc28898f)
+
+A skeptic (TEST LIVENESS lens) showed the label had no test: mutant M3 changed
+the render gate at `client/src/components/lineup/StreamingBoard.tsx:39` from
+`data?.unconfirmed_forward ?` to `data?.unconfirmedForward ?` and
+`test/streaming-board.test.js` still gave 15 pass / 0 fail. Fix:
+`test/streaming-board-label.test.js` renders the real `StreamingBoard.tsx`
+(TSX compiled with the repo's TypeScript, `PageState.tsx` compiled the same
+way, `react-router-dom` Link stubbed; same harness as
+`test/lineup-error-no-leak.test.js`) and asserts the exact text
+"history-tested (2022-25), not yet confirmed on 2026 games" appears when
+`unconfirmed_forward=true` and is absent (with the replay line) when false.
+
+Command for every row: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -u) node --experimental-test-module-mocks --test --test-reporter=tap test/streaming-board-label.test.js`
+
+| tree | result |
+|---|---|
+| RED: `cc28898f` + new test, with `StreamingBoard.tsx` replaced by its `47f214ff` (pre-flip, "unconfirmed forward" wording) version | 1 pass / 1 fail — "label missing" |
+| GREEN: `cc28898f` + new test | 2 pass / 0 fail |
+| M3 (skeptic's mutant: gate reads `unconfirmedForward`) | **killed**: 1 pass / 1 fail — label missing |
+| M4 (gate forced `true`) | **killed**: 1 pass / 1 fail — label shown when false |
+| original mutant 3 (label text -> `MUTATED-LABEL-TEXT`) | **killed**: 1 pass / 1 fail |
+
+Order note: the test is committed after the implementation (history is not
+rewritten); RED is shown by running it against the pre-flip component file.
+Component restored byte-for-byte after each run (`git status --short` showed
+only the new test file).
 
 ## 6. What this does
 
@@ -119,21 +147,14 @@ games" instead of showing rankings with no suggestion and no label.
 - RED: 12 pass / 3 fail — command above, tree `47f214ff` + `fce306ec`.
 - GREEN: 15 pass / 0 fail — command above, tree `e53a6be6` (write-tree).
 - Mutation sweep: 2/2 designed-lethal mutants killed, 1 designed survivor
-  confirmed (client label has no test coverage), 1 not-applied control at
+  (client label; now covered, section 5b: 2 pass GREEN, M3/M4 killed), 1 not-applied control at
   baseline. Commands and counts above.
 - No new statistical figure is produced; the +1.94 pts/swap-week [1.88, 2.01]
   figure is unchanged and was already computed in `docs/tdd/2026-09-23-wv-01-streaming-board.tdd.md`.
 
 ## 8. Known defects
 
-- **No client-side test for the card label.** The designed-survivor mutant
-  (row 3 above) shows `test/streaming-board.test.js` never renders
-  `StreamingBoard.tsx`, so a future edit could silently break or garble the
-  exact label text the ruling requires ("history-tested (2022-25), not yet
-  confirmed on 2026 games") without any test catching it. Not fixed in this
-  unit (out of scope: adding a client render test is a separate, larger
-  change to the test harness for this component); flagged here as a gap, not
-  silently left unmentioned.
+- ~~No client-side test for the card label.~~ Fixed: section 5b.
 - The exemption applies specifically to this zero-parameter service; if
   `streamingBoard()` ever grows a fitted parameter (e.g., a learned weight on
   the implied total), rule 5's forward-holdout gate applies again per the

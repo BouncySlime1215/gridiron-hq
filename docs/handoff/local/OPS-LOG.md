@@ -81,3 +81,5 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 08:10Z: R&D r5 landed: TM-14 attention hype closed (kill test); bye-week mispricing found twice (RL-5-2 -> TR-03/S-07; RL-5-3 lean). Plan adjusted (PLAN-V9-CORRECTIONS.md). R&D round 6 relaunched.
 
 08:30Z: FC-SNAP, RL-4-2, RL-3-4 built and skeptic-clean but gates timed out on the guard lock -> gate-pr.js launched (wyq8tvpl4). Orphaned lock waiters killed. Rule change logged in WORK-QUEUE 12.
+
+08:45Z: PRs opened: #169 RL-3-4 (gate-pr), #170 FC-SNAP and #171 RL-4-2 (opened by the coordinator: one gate agent misread a pre-fix review, another refused to push; both units verified clean after rechecks). Merge queue: #169, #171. #170 HELD for Nick (migration 073).

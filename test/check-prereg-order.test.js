@@ -180,7 +180,9 @@ test('--rev checks a branch without checking it out', () => {
     const report = P.checkPreregOrder({ repo: dir, prefixes: ['docs/'], rev: 'feature' });
     assert.equal(report.violations.length, 1);
     assert.equal(cli(dir, '--prefix', 'docs/', '--rev', 'feature').code, 1);
-    assert.equal(cli(dir, '--rev', '--output=/tmp/x').code, 3, 'an option-shaped rev is refused, not passed to git');
+    const refused = cli(dir, '--rev', '--output=/tmp/x');
+    assert.equal(refused.code, 3, 'an option-shaped rev is refused, not passed to git');
+    assert.match(refused.out, /--rev must be a commit-ish/);
   } finally { cleanup(dir); }
 });
 

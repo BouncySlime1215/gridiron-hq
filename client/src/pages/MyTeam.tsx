@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, headshotUrl, useApi } from '../api';
 import { useLeague } from '../state/league';
+import { playoffWeeksText } from '../copy-constants';
 import FormationView from '../components/FormationView';
 import TeamScout from '../components/TeamScout';
 import PostDraftPlan from '../components/PostDraftPlan';
@@ -200,7 +201,8 @@ export default function MyTeam() {
             )}
           </div>
           <p className="text-[10px] text-slate-400 mt-2">
-            {sim?.runs?.toLocaleString()} simulated seasons, correlated player outcomes, real playoff bracket weeks 15–17.
+            {sim?.runs?.toLocaleString()} simulated seasons, correlated player outcomes, the league's own playoff bracket
+            {playoffWeeksText(sim?.playoff_weeks) ? ` in ${playoffWeeksText(sim?.playoff_weeks)}` : ''}.
           </p>
         </div>
       )}

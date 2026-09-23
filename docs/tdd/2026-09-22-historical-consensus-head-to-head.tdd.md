@@ -69,6 +69,14 @@ Test file `test/historical-consensus-head-to-head.test.js`. Command for every ru
 | pre-registration | `b635345b` docs: pre-register HX-01, our served start/sit number against consensus on 2022-2024, before any number | docs only; an ancestor of every number below |
 | RED 1 | `5cfc289f` test: HX-01's consensus arm and served rows must use C-01's instrument and the served chain (RED) | Whole file fails: `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…/scripts/consensus-arm.mjs' imported from …/test/historical-consensus-head-to-head.test.js` (`# tests 1`, `# fail 1`) |
 | GREEN 1 | `719ff584` feat: HX-01 consensus arm, served-row library and runner for the historical head-to-head (GREEN) | 25 / 25 pass. **The numbers in section 5 were produced on this commit** (tree `51d5c6a3`). |
+| result | `c100bf91` docs: HX-01 result - FantasyPros consensus beat our served start/sit number in every graded season, band and position | the output file, the evidence and ledger rows `F001`-`F007`, in one commit |
+| RED 2 | `080ecf1c` test: the week W-1 team, the availability cutoff and the consensus join belong to the tested library, not the runner (RED) | 23 pass, 5 fail: `not ok 11 - withConsensus joins the consensus value …` — `error: 'arm.withConsensus is not a function'`; `not ok 18 - the served chain is the served functions, not copies` (`SERVED_CHAIN.weeklyAvailability` undefined); `not ok 24`, `26`, `27` (servedWeekRows) — `error: "Cannot read properties of undefined (reading 'get')"` |
+| GREEN 2 | `789e18ac` feat: servedWeekRows owns the week W-1 team and the availability cutoff; withConsensus owns the join (GREEN) | 28 / 28 pass |
+| test fix | `a3a37b7f` test: pin the pair-accuracy interval's sign, the rounding before the lift, a zero chance to play and resolver errors (kills M19, L3, L4, L11) | 32 / 32 pass; tests only |
+| refactor | `b2349397` refactor: drop the instrument control's redundant n > 0 guard (sweep 1 survivor M26) | 32 / 32 pass. **Section 5 reproduced on this commit** (section 5, first paragraph). |
+
+RED 2 exists because sweep 1 left the runner's two call sites as standing rows (section 4, R1
+and R2); the test fix and the refactor close sweep 1's survivors.
 
 ## 3. What it does
 
@@ -81,14 +89,16 @@ Test file `test/historical-consensus-head-to-head.test.js`. Command for every ru
   pre-registered verdict. It also maps FantasyPros' dated scrapes to NFL weeks, drops every
   player whose game was on or before the scrape (the leak guard), drops the held-out season
   before any id is looked up, builds the common pair set, and runs the Holm family and the
-  oracle/identity control. C-01's gate can call `headToHead(rows, 'policy', 'espn')` on its
-  forward rows today; S-03 can call it with its candidate projection as the policy.
+  oracle/identity control, and `withConsensus` joins a consensus value on season, week and
+  player. C-01's gate can call `headToHead(rows, 'policy', 'espn')` on its forward rows today;
+  S-03 can call it with its candidate projection as the policy.
 - **`scripts/historical-consensus-lib.mjs`, the served rows.** For each graded week it calls the
   served chain: S-02's `constructArms` (engine → experts → coordinator → lift), the served
   `weeklyAvailability(season, week, { through: season - 1 })`, trade-engine.js's rounding and
   default chance to play, and the served `startSitWeekPoints`. It stops when arm D is not what
-  `startSitWeekPoints` makes of B. It also holds the walk-forward coordinator registry, the k
-  control per season, and the 2025 refusal.
+  `startSitWeekPoints` makes of B. Each row carries the team he played for in week W−1 (the
+  only team known before the week, which the bye rule and the leak guard read). It also holds
+  the walk-forward coordinator registry, the k control per season, and the 2025 refusal.
 - **`scripts/historical-consensus-head-to-head.mjs`, the runner.** `--smoke` prints counts and no
   metric; `--full` refuses to run unless the pre-registration is committed and unchanged, and
   writes aggregates only to `docs/evidence/2026-09-22/historical-consensus-head-to-head-output.json`.
@@ -157,7 +167,38 @@ after the game. **R2** the runner calls `weeklyAvailability(season, week, { thro
 a mutant passing `through: season` lets the graded season's games into the durability prior.
 Both are moved into the tested library in section 4a.
 
-(Section 4a, the fixes and sweep 2, follows once they land.)
+### 4a. The fixes and sweep 2
+
+| Sweep 1 survivor | Fix | Sweep 2 |
+|---|---|---|
+| M19 (pair-accuracy interval sign) | test: a policy that is right on every pair and a baseline wrong on every pair must give difference 1 and interval [1, 1] (`a3a37b7f`) | killed (31 / 1) |
+| L3 (rounding before the lift) | test: B × p = 8.0049 must round to 8.00 before the 1.25 lift, giving 10, not 10.01 (`a3a37b7f`) | killed (31 / 1) |
+| L4 (`??` vs `\|\|`) | test: a chance to play of 0 is valued 0, not 0.92 (`a3a37b7f`) | killed (31 / 1) |
+| L11 (resolver errors) | test: an error that is not a k-control failure propagates (`a3a37b7f`) | killed (31 / 1) |
+| M26 (redundant guard) | code: the guard removed (`b2349397`) | the mutant no longer applies; M29 below replaces it |
+| R1, R2 (runner call sites) | RED 2 / GREEN 2 (`080ecf1c`, `789e18ac`): both now live in `servedWeekRows` | R1, R2 killed below |
+
+**Sweep 2**, on `b2349397` (tree `b3bacad5`), same harness, 49 mutants: every sweep-1 mutant
+except M26 and the old NA1, plus:
+
+| # | Mutant | Result |
+|---|---|---|
+| R1 | **call site:** `team_prev` read at week W instead of W−1 | killed (31 / 1) |
+| R2 | **call site:** `weeklyAvailability(..., { through: season })` | killed (31 / 1) |
+| R3 | **call site:** `withConsensus` joins last week's value | killed (31 / 1) |
+| R4 | the served availability is not called (empty map) | killed (28 / 4) |
+| M29 | the identity half of the control's pass rule dropped | **survived** (32 / 0): a baseline graded against itself cannot disagree while C-01's `startSitDecisions` is correct, so no input reaches it; it is a runtime guard on the instrument, named in pre-registration §8.4, and kept |
+| L9 | **designed survivor** (as sweep 1) | survived (32 / 0), as designed |
+| NA1 | **designed not-applied control** | NOT-APPLIED |
+
+Baseline 32 / 0. All 49 rows came out as expected: 46 killed (every sweep-1 kill again, plus
+M19, L3, L4, L11 and R1-R4), 2 explained survivors, 1 not applied; `git status` clean after.
+
+**Standing rows (runner glue the unit suite does not execute):** R5, the leak guard's game-date
+key (`gameDate.get(\`${w}|${t}\`)`); R6, the `removeByes` call on the season's usage rows; R7,
+the graded weeks read from the scrape map (`weeksOf`). Their run-time trace is the census in
+section 5.1 (for example 2024 week 6: 45 byes and 21 players whose Thursday game preceded the
+Friday scrape), and the reproduction run in section 5 recomputes all three on the final head.
 
 ## 5. The numbers
 
@@ -172,6 +213,10 @@ GRIDIRON_DB_PATH=$PWD/.local-db/data.sqlite SCHEDULER_DISABLED=1 NFL_SEASON=2026
 
 787 seconds (23:46:56Z to 00:00:02Z), exit 0. Every number in this section is read from
 `docs/evidence/2026-09-22/historical-consensus-head-to-head-output.json`, written by that run.
+**Reproduced on the final head** `b2349397` (tree `b3bacad5`, after GREEN 2 moved the call sites):
+the same command, with `--out` to a scratch file, ran 874 seconds (00:09:49Z to 00:24:23Z) and
+wrote an output identical to the committed one in all 5,455 values except the tree and the two
+timestamps (a JSON walk over both files: 0 differing paths).
 FantasyPros export: `.local-db/fp-ecr-weekly-wp.csv`, sha256 `005332bb…c8a0`, 29,272 rows, made
 by:
 
@@ -202,13 +247,14 @@ consensus's pick 42.2% of the time [40.7%, 43.8%], and lost 1.86 points per disa
   2022 −2.14, 2023 −1.83, 2024 −1.49.
 - **The clean check agrees.** Arm D (no availability; every fit ends at or before 2023) against
   consensus in 2024: −1.79 [−2.48, −1.09], consensus ahead. The in-sample pieces of §4 of the
-  pre-registration flatter OURS, and it lost anyway.
+  pre-registration are expected to flatter OURS, and it lost anyway.
 - **Against the dumb rules:** our number beats the last-3 average everywhere it can be told
   apart (pooled +1.34 [+0.90, +1.75]). It beats the season average pooled (+0.50
   [+0.12, +0.87]) but in no single season, band or position after Holm, and **not at all among
   players who played** (+0.12 [−0.26, +0.51]) or at the 8.0 startable line (−0.06
-  [−0.67, +0.51]). Its edge over the season average is the chance-to-play factor avoiding
-  zeros, not better ordering of players who play.
+  [−0.67, +0.51]). The edge appears only when a player who sat counts as 0, so it most likely
+  comes from the chance-to-play factor, not from ordering players who play any better (an
+  inference from the two populations, not a separate test).
 - **2026 week 2 (forward, one week, an anecdote):** consensus and ESPN both point ahead of ours,
   neither distinguishable (ours vs consensus −0.41 [−2.29, +1.36]; ours vs ESPN −0.29
   [−2.10, +1.52]). C-01's 0.378 graded a different arm (section 5.6).
@@ -276,7 +322,15 @@ not the season average. S-03 should be graded against consensus with this arm.
 | TE | 7,700 | 0.5999 / 0.6269 | −0.0271 [−0.0467, −0.0098] | 1,576 | 0.4340 [0.3897, 0.4754] | −1.2892 [−2.1571, −0.4923] | 1.245 | 0.010 | consensus ahead |
 
 Week-clustered intervals for the pooled cell: win rate [0.4106, 0.4328], points
-[−2.1200, −1.5735]. The season × band and season × position tables are in the output file
+[−2.1200, −1.5735].
+
+**MDE, declared against realised** (`STATS-METHOD.md` rule 4). Declared as guesses in the
+pre-registration (§9): pooled ±0.02 win rate and ±0.3 points; one season ±0.035 and ±0.5; one
+cell up to ±0.06 and ±1.0. Realised MDE80 (1.6449 + 0.8416 times the player-clustered SE):
+pooled 0.023 and 0.574; seasons 0.036-0.042 and 0.82-1.04; cells 0.034-0.065 and 0.85-1.31.
+The points guess was about half the realised value (the player-clustered SE is larger than the
+guess assumed); the win-rate guesses held. Every consensus-ahead cell sits well past its MDE
+(the smallest ratio of |points| to MDE80 is TE's 1.29 / 1.245 = 1.04; pooled 3.2). The season × band and season × position tables are in the output file
 (`results.primary.ours_vs_consensus.by_season_band`, `.by_season_position`), report-only.
 
 ### 5.3 The dumb rules (H2, same pairs)
@@ -386,11 +440,32 @@ Logged as `F001`-`F007` in `docs/evidence/HOLDOUT-LEDGER.md`.
    position (pooled −1.86 [−2.22, −1.47] points per disagreement, win rate 0.422); 2026 week 2
    forward points the same way and is not distinguishable.
 4. **Pointed anywhere else?** Yes: (a) C-01's gate should grade against consensus (ESPN, first-party)
-   with `headToHead`, not only against the season average, which our number beats only through the
-   chance to play; (b) S-03's pre-registration should take consensus as its baseline; (c) S-04
+   with `headToHead`, not only against the season average, which our number beats only when a
+   player who sat counts as 0; (b) S-03's pre-registration should take consensus as its baseline; (c) S-04
    (availability) should look at the 0.0048 pair-accuracy cost in section 5.4; (d) the "why"
    engine could cite ESPN's number, never FantasyPros' (licence, pre-registration §12).
 5. **How it unifies:** one decision instrument (C-01's `gradeDecisions`), one pair-accuracy rule
    (`startSitPairAccuracy`), one served chain (S-02's `constructArms` plus the served
    `startSitWeekPoints`), one holdout ledger (`F001`-`F007`), and one arm that C-01 and S-03 can
    both call.
+
+## 8. Merge-gate lines
+
+- **Gap closed:** no historical, walk-forward grade of the served start/sit number against a
+  consensus a user actually has existed; the only consensus read was one forward week in C-01
+  (`server/services/gates/start-sit-gate.js:294` `espnProjections`, tree `116ca994`).
+- **Incumbent, by command:** the served chain as the served code resolves it (`buildPlayerWeekEngine`
+  → coordinator → `weeklyAvailability` → `startSitWeekPoints`), replayed by
+  `node scripts/historical-consensus-head-to-head.mjs --full`; weight sets `frozen-2023` for
+  2022-2024 (`activeWeeklyWeightSet`, section 5.1).
+- **Does not cover:** a per-roster (per-league) start/sit; each league's own scoring (PPR only);
+  Sunday-morning inactives; 2021 (no fit ends before it), 2025 (held out) and any 2026 week after
+  week 2; FantasyPros values in any served number (licence).
+- **What would make it wrong:** a non-PPR historical ECR page set (section 6.3); an id crosswalk
+  error (the name check agrees on 98.75%); a leak in the Friday scrape dates (the leak guard drops
+  every game on or before the scrape); a C-01 instrument change (merge C-01 first and re-run).
+- **Stacked PR:** base `origin/main` `dd7cec20` plus C-01's branch at `b97d5ea2` (merge commit
+  `116ca994`); HX-01's own commits start at `b635345b`. Merge C-01 first.
+- **Wiring:** `node scripts/wiring-map.mjs --check` on `b2349397`: exit 0, "no missing-feed
+  findings" (the new files are scripts, which the map treats as surfaces). The full
+  `npm run check` is the Gate phase's single run, not run here.

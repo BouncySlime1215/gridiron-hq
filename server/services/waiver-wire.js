@@ -39,6 +39,8 @@ import { deriveFormat } from './format.js';
 // you as free agents. Every other consumer in the app already normalises.
 import { normalizePlayerName } from './player-identity.js';
 import { availabilityDegradation } from './contingency.js';
+// The league's wire, one producer shared with the trade engine's lineup value.
+import { rosteredNames, unrosteredSkill, onNflTeam } from './league-wire.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
@@ -129,18 +131,6 @@ function weekPpg(p) {
 }
 
 
-/** Every player rostered anywhere in the league, by normalised name. */
-function rosteredNames(payload) {
-  const owned = new Map();
-  for (const team of payload.teams ?? []) {
-    for (const e of team.roster?.entries ?? []) {
-      const nm = e.playerPoolEntry?.player?.fullName;
-      if (nm) owned.set(normalizePlayerName(nm), String(team.id));
-    }
-  }
-  return owned;
-}
-
 /**
  * Claims worth making, for one team.
  *
@@ -220,11 +210,7 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
   // leagues (all ten of league 2's: out-of-work or retired quarterbacks at 13-16 a
   // week). The rows this takes off the board are counted in `teamless_excluded`
   // (below, once the stash cut is known), so the page can say so.
-  const unownedAll = [...assets.values()].filter(a =>
-    SCORED.has(a.position)
-    && !owned.has(normalizePlayerName(a.name))
-    && a.available !== false);
-  const onNflTeam = a => Boolean(a.team_abbr ?? a.team);
+  const unownedAll = unrosteredSkill(assets, owned);
   const unowned = unownedAll.filter(onNflTeam);
   // How much of the pool is priced at all. Distinguishes "the wire is thin"
   // from "nothing on the wire has a number", which read identically before.

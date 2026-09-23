@@ -71,6 +71,9 @@ import { dynastyAgeAdjustment } from './dynasty-age-curve.js';
 // this week identically), the normal CDF behind a swap's probability, and the
 // write that retires a lineup recommendation lineupDiff() itself published.
 import { vegasLift } from './waiver-brain.js';
+// The league's wire, for lineupValue()'s replacement level (one producer with the
+// Waivers page's waiverBoard()).
+import { leagueWire } from './league-wire.js';
 import { normalCdf, withRandomSeed } from './stats-util.js';
 // lineupSpread() only: each starter's played-week draws and the fitted archetype
 // correlations, for the lineup-total floor/ceiling.
@@ -1181,6 +1184,11 @@ export function evaluate(a, b, slots, ctx = {}) {
     };
     lazyField(out, 'floor_delta', () => spreadDelta('floor'));
     lazyField(out, 'ceiling_delta', () => spreadDelta('ceiling'));
+    // Next to value_delta: the same deal in lineup points with the roster spot
+    // charged (lineupValue below). Lazy like floor_delta, so the search pays for it
+    // only on the deals it returns; null when the caller supplied no wire.
+    lazyField(out, 'lineup_value', () => ctx.lineupValue
+      ? lineupValue(team, gives, gets, slots, ctx.lineupValue) : null);
     return out;
   };
 
@@ -1234,6 +1242,96 @@ export function evaluate(a, b, slots, ctx = {}) {
     // swing, 17 g min · get: 1/1 top-24 seasons, 2026 band 150-290".
     verdict_evidence: verdictEvidence(A.risk)
   };
+}
+
+/** Why lineup_value exists and what it may not be used for yet. */
+export const LINEUP_VALUE_STATUS = 'not yet validated';
+const LINEUP_VALUE_NOTE = 'Lineup points over the remaining weeks with the roster spot charged: a freed spot '
+  + 'is filled by the best free agent on this league\'s wire, a needed spot costs the least-missed player. '
+  + 'Not yet validated (gate RL-8-2b pending); no recommendation reads it.';
+
+/**
+ * A deal's value to ONE team in lineup points, charging the roster spot.
+ *
+ * value_delta adds players up as if roster spots were free, so a 2-for-1 always
+ * reads better for whoever gets more players. Here the roster size is held at what
+ * the team carries today:
+ *   - a side that FREES spots fills each one from this league's wire: of the best
+ *     free agent at each position, the one that raises the starting lineup most
+ *     (the highest-rated if none does);
+ *   - a side that NEEDS spots drops, for each, the player whose loss costs the
+ *     starting lineup least (ties: the lowest-rated).
+ * Then it is the change in the best starting lineup (bestLineup, the one solver)
+ * per week, times the weeks left. Key: ros_ppg (the weekly rate the rest of the
+ * season is priced on) when the roster carries it, else adj_ppg.
+ *
+ * @param opts.wire      unrostered priced assets for this league (lineupValueContext)
+ * @param opts.weeksLeft regular + playoff weeks remaining, or null (per_week only)
+ */
+export function lineupValue(team, gives, gets, slots, { wire, weeksLeft = null } = {}) {
+  const key = team.players.some(p => p.ros_ppg != null) ? 'ros_ppg' : 'adj_ppg';
+  const points = list => bestLineup(list, slots, key).points;
+  const before = points(team.players);
+  let roster = team.players.filter(p => !gives.some(g => g.id === p.id)).concat(gets);
+  const spots = gets.length - gives.length;
+  const replacement = [], dropped = [];
+  const rate = p => p[key] ?? 0;
+  const brief = p => ({ id: p.id, name: p.name, position: p.position, [key]: p[key] ?? null });
+  for (let i = 0; i < -spots; i++) {
+    const held = new Set(roster.map(p => p.id));
+    const bestAt = new Map();
+    for (const fa of wire ?? []) {
+      if (held.has(fa.id) || !SCORED.has(fa.position) || fa.available === false) continue;
+      const cur = bestAt.get(fa.position);
+      if (!cur || rate(fa) > rate(cur)) bestAt.set(fa.position, fa);
+    }
+    let pick = null, pickPts = -Infinity;
+    for (const fa of bestAt.values()) {
+      const pts = points([...roster, fa]);
+      if (pts > pickPts || (pts === pickPts && rate(fa) > rate(pick))) { pick = fa; pickPts = pts; }
+    }
+    if (!pick) break;   // an empty wire: the spot stays empty, and says so below
+    roster = [...roster, pick];
+    replacement.push(brief(pick));
+  }
+  for (let i = 0; i < spots; i++) {
+    let cut = null, cutPts = -Infinity;
+    for (const p of roster) {
+      const pts = points(roster.filter(q => q.id !== p.id));
+      if (pts > cutPts || (pts === cutPts && rate(p) < rate(cut))) { cut = p; cutPts = pts; }
+    }
+    if (!cut) break;
+    roster = roster.filter(p => p.id !== cut.id);
+    dropped.push(brief(cut));
+  }
+  const perWeek = +(points(roster) - before).toFixed(2);
+  const weeks = Number.isFinite(weeksLeft) ? weeksLeft : null;
+  return {
+    per_week: perWeek,
+    weeks,
+    total: weeks == null ? null : +(perWeek * weeks).toFixed(1),
+    key,
+    roster_spots: spots,
+    replacement,
+    // Spots the wire could not fill (no priced free agent): charged at zero points.
+    unfilled_spots: Math.max(0, -spots - replacement.length),
+    dropped,
+    status: LINEUP_VALUE_STATUS,
+    note: LINEUP_VALUE_NOTE,
+  };
+}
+
+/**
+ * What lineupValue() needs from a league: its wire (waiver-wire.js#leagueWire, the
+ * Waivers page's producer, less anyone on a loaded roster by id so a Sleeper
+ * league or a hypothetical post-trade roster never offers a rostered player) and
+ * the weeks left on this league's calendar (trade-horizon.js#horizonWeights).
+ */
+export function lineupValueContext(lg, assets, teams) {
+  const onRoster = new Set(teams.flatMap(t => t.players.map(p => p.id)));
+  const wire = leagueWire(lg, assets).filter(a => !onRoster.has(a.id));
+  const h = horizonWeights(tradeWeekContext().week, leagueSchedule(lg));
+  return { wire, weeksLeft: h.regular_weeks_left + h.playoff_weeks_left };
 }
 
 const slim = p => ({
@@ -1588,6 +1686,8 @@ function findTradesUncached(lg, {
 
   const myPool = candidates(me, slots, 11, excludeIds);
   const deals = [];
+  // lineup_value on every returned deal (display only; nothing below ranks on it).
+  const lineupCtx = lineupValueContext(lg, assets, teams);
 
   for (const them of teams) {
     if (them.roster_id === me.roster_id) continue;
@@ -1627,7 +1727,7 @@ function findTradesUncached(lg, {
         if (skew < -0.16 || skew > 0.30) continue;
 
         const ev = evaluate({ team: me, gives: give }, { team: them, gives: get }, slots,
-          { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo });
+          { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo, lineupValue: lineupCtx });
         if (ev.me.ppg_delta < 0.4) continue;
         // Never even a "closest fit" fallback candidate — no real GM accepts leaving
         // a starting slot empty, whatever the value math says.

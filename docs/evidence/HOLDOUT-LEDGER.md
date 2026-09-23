@@ -280,6 +280,8 @@ class:
 | L151 | 2026-09-22 | #92 | fantasy | other | Which half (rushing or receiving tiers) earns the four-tier gain | TD MAE | script scores 2025; no result recorded in any doc |  |  |  |  |  |  | n.a. | `docs/evidence/redzone-tier-decomposition.mjs:26` | artifact with no reporting .md |
 | L152 | 2026-09-22 | #92 | fantasy | FL | Four red-zone tiers beat three for expected touchdowns | TD MAE, 5,229 player-weeks | improvement real, -0.68% MAE; TD bias slightly worse | -0.001859 | -0.002678 | -0.000125 | 95 |  | - | yes | `docs/tdd/redzone-tiers.tdd.md:95` |  |
 | L153 | 2026-09-22 | #106 | fantasy | FL | Unit-1 volume-shrinkage fit beats hardcoded k (CRPS gate) | CRPS, 4,532 player-weeks | result not reported in docs/; local DB row note says activated, active column 0 |  |  |  |  |  |  | unclear (row note vs active=0) | `docs/tdd/shrinkage-fit-efficiency-weighting-2026-09-22.tdd.md:143` | origin out of scope (local shrinkage_fits row; Auditor verdict in handoff memory gridiron-audit-unit-1-verdict) |
+| L154 | 2026-09-23 | AI-01 0668d250 | fantasy | FL | Season-to-date xFP per game beats season-to-date PPG for next-5-weeks PPG (2025 reported, not gated; gate 2021-2024 failed) | next-5 PPG MAE, 1,891 player-cutoffs | favours xFP on 2025; unit declined on its 2021-2024 gate | -0.1763 | -0.3068 | -0.0478 | 90 |  | - | no | `docs/tdd/2026-09-23-true-value-opportunity.tdd.md:149` | MDE80 0.196 |
+| L155 | 2026-09-23 | AI-01 0668d250 | fantasy | FL | Same, same-position pair accuracy | pair accuracy, 45,846 pairs | not significant | +0.0078 | -0.0061 | +0.0227 | 90 |  | + | no | `docs/tdd/2026-09-23-true-value-opportunity.tdd.md:150` | MDE80 0.0218 |
 
 ## 2026 forward looks
 
@@ -306,6 +308,10 @@ Two sources of `F` rows besides a unit's own rule-5 check:
 None yet. On a local copy (not production, 2026-09-22), `weekly_ensemble_fits`
 has 2 rows, both through 2025 week 18 (the known-nonzero control), and
 `model_backtests` has 0 rows.
+
+| id | date | unit/PR | domain | family | hypothesis | metric | result | est | lo | hi | level | p (source) | better | shipped | file:line | note |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| F001 | 2026-09-23 | AI-01 0668d250 | fantasy | other | Rule-5 forward check for AI-01 (xFP ROS vs season-to-date PPG) | eligible 2026 cutoffs (>= 3 games and 5 later weeks) | 0 rows (2026 weeks 1-2 only; control 2025: 1,891 rows); no metric computed |  |  |  |  |  |  | no | `docs/tdd/2026-09-23-true-value-opportunity.tdd.md:151` | local copy, not production |
 
 ## File classification: every file the census returns
 

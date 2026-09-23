@@ -212,7 +212,8 @@ export function lineupSignals(leagueId, { season = null } = {}) {
           }
         }
         // started through a bad matchup
-        if (skill && r.projected_points != null) {
+        // (a projection of 0 means ESPN has him ruled out: that is not a matchup read)
+        if (skill && r.projected_points > 0) {
           const prior = [...(projHist.get(r.espn_player_id) ?? new Map()).entries()].filter(([wk]) => wk < w).map(([, p]) => p);
           const priorMean = mean(prior);
           if (priorMean != null && priorMean > 0 && r.projected_points <= BAD_MATCHUP_RATIO * priorMean) {
@@ -251,7 +252,9 @@ export function lineupSignals(leagueId, { season = null } = {}) {
   for (const w of weekList) {
     if (!weeks.has(w - 1)) continue;
     const rosteredBefore = new Set(weeks.get(w - 1).rows.map(r => r.espn_player_id));
-    const adds = weeks.get(w).rows.filter(r => !rosteredBefore.has(r.espn_player_id) && r.player_id != null);
+    // QB/RB/WR/TE only: pprPoints does not score kicks or defenses, so their rank means nothing
+    const adds = weeks.get(w).rows.filter(r => !rosteredBefore.has(r.espn_player_id) && r.player_id != null
+      && SKILL.has(r.position));
     if (!adds.length) continue;
     const ranks = weeklyRanks(yr, w - 1);
     for (const r of adds) {

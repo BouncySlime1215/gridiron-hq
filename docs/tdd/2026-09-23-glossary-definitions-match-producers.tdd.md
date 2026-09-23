@@ -165,3 +165,26 @@ suite re-run after each:
 Incumbent: `test/glossary-and-basis.test.js` (checks presence only, passes
 on all six wrong entries — confirmed by running it unmodified against the
 unfixed glossary before this change).
+
+## Round 2 — skeptic review fixes (2026-09-23)
+
+Commits: `b43c467e` (tests, RED, tree `a3ea6ffe`), `3d2f8163` (fix, tree `18a90913`).
+Command for every result below:
+`SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<mktemp> node --experimental-test-module-mocks --test --test-reporter=tap test/glossary-definitions-match-producers.test.js [test/glossary-and-basis.test.js]`
+
+| Skeptic finding | Change | Proof |
+|---|---|---|
+| expected_wins test passed a sentence denying the fact | added `doesNotMatch(/remaining\|not counting\|excluding\|rest of/i)` | skeptic's exact mutant on `b43c467e`: test fails (was 15/0 on `ba4a5324`) |
+| title_delta test passed "all about the move and never luck" | require `/noise/`; forbid `/never luck\|not luck\|no luck\|all (about )?the move\|purely\|entirely\|only the move/i` | skeptic's exact mutant on `b43c467e`: test fails |
+| points_allowed_to_position claimed shrinkage | sentence now "with recent seasons counting more"; comment cites matchups.js:186 (`allowed = b.wpts / b.w`, unshrunk) vs :193 (`mult` shrunk); test forbids a shrink claim unless the `const allowed =` line calls `shrink(` | RED on `b43c467e`; mutant restoring "pulled toward the league average" on `3d2f8163`: 6 pass / 1 fail |
+| week_floor raw `projection.p10` is not served; field has two producers | raw → `asset.floor` / `asset.ceiling` (trade-engine.js:462); sentence states the fallback (edge.js:145 `volatility(season = SEASON - 1)`, :164 `q(0.2)`, :165 `q(0.8)`: last season's played weeks, one in five); test forbids any `raw: 'projection.` and requires "last season" + "one in five" while the `?? w?.floor` fallback exists | RED on `b43c467e`; mutants on `3d2f8163` (raw reverted; fallback sentence removed): each 6 pass / 1 fail |
+| start_score duplicated projected_points | start_score removed; projected_points → `lineup.week_points` (lineup-brain.js:356 `startSitWeekPoints`, :363); new test: no two entries share a raw | RED on `b43c467e` |
+| Branch carries PR #75's unimported files | not code. Confirmed: `git grep -ln "lib/glossary" -- client/src` → exit 1 (no importer); `git grep -ln BasisChip -- client/src` → only BasisChip.tsx, index.css. `git merge-base --is-ancestor origin/claude/project-thread-xiezr0-basis-chip HEAD` → true. This branch must NOT merge to main; it fast-forwards onto #75's branch, or is held until C-13/C-15 wires glossary.ts into a page. No PR to main opened. |
+
+Result on `3d2f8163`: both files, **16 pass / 0 fail**. On `b43c467e` (tests only):
+13 pass / 3 fail (week_floor/ceiling, projected_points dedupe, points_allowed shrink).
+
+Fallback frequency (how many trade assets serve the last-season floor) is
+unmeasured — no DB copy was made; the sentence covers both cases instead.
+Known remaining gap: `stats.projected_points` (a season total on PlayerCard /
+StatTable) shares the name but has no glossary entry; noted in the entry's comment.

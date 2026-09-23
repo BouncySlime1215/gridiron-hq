@@ -137,3 +137,63 @@ either becomes true, false, or is still loading.
 5. **How it unifies:** one producer in the server (`league-rules.js#inferMedian`), one
    pass-through (`season-sim.js`), one notice component, two call sites reading the same
    field name off the same response object.
+
+## 9. Skeptic round 1: fixes (supersedes sections 3-6 where they disagree)
+
+Test command for every line below (tree = commit named):
+`SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -u) node --experimental-test-module-mocks --test --test-reporter=tap test/int-168-1-median-rule-unknown-notice.test.js`
+
+**Finding A (test liveness), accepted.** The call-site tests only grepped source, so
+`{false && <MedianGameNotice .../>}` in MyTeam.tsx still passed 3/3 on 2bdf491a. The grep
+tests are replaced with page-level renders: Model.tsx (`<Model tab="odds" embedded />`) and
+MyTeam.tsx (whole page) are compiled with the repo's TypeScript, `useApi`/`useLeague` stubbed
+with a `/model/7/simulate` response, rendered with react-dom/server. Each asserts the odds
+section rendered (control), the notice appears for `median_game:null`, and not for `true`.
+
+**Finding B (hard-coded cause), accepted for the mixed-ratio path.** inferMedian returns null on
+two paths, each pushing its own `median_game:` reason into `rules.unknown` (league-rules.js:161
+no decided week, :166 mixed records-per-week ratios), served as `rules_unknown`
+(season-sim.js:439). The old text always claimed "no regular-season week has been decided
+yet". The component now takes `rulesUnknown`, shows the `median_game:` entry verbatim after
+"Why:", or no reason when there is none. It also says the odds are simulated without a median
+game, which is what the sim does while unknown (season-sim.js:310 `rules.median_game === true`).
+
+**Finding B, emptyRules part (non-ESPN / no payload / unparseable), rejected as unreachable.**
+Those null paths never reach either page: simulateSeason returns `simRulesProblem(rules)`
+before building a response (season-sim.js:285), Model's Odds shows `data.error` as an empty
+state (Model.tsx:246), and MyTeam's card needs `sim.teams` (MyTeam.tsx:66). Command and output:
+
+```
+node -e "import('./server/services/league-rules.js').then(m=>{for(const lg of [{platform:'sleeper',payload:'{}'},{platform:'espn',payload:null},{platform:'espn',payload:'not json'}]){const r=m.leagueRules(lg);console.log(lg.platform, r.source, 'median_game=',r.median_game, 'simRulesProblem=', JSON.stringify(m.simRulesProblem(r)?.error))}})"
+sleeper unsupported_platform median_game= null simRulesProblem= "league rules incomplete: settings (no rules reader for platform sleeper)"
+espn no_payload median_game= null simRulesProblem= "league rules incomplete: leagues.payload"
+espn unparseable_payload median_game= null simRulesProblem= "league rules incomplete: leagues.payload (not JSON: ...)"
+```
+Even so, the component no longer states any cause of its own, so it is safe on those paths too.
+
+**Finding C (second producer of the reason), accepted; fixed by B.** Producer -> component test
+runs the real `leagueRules()` on synthetic ESPN payloads (no-decided-week, mixed 1/2 ratio,
+and a known control with 2 records per week -> `median_game:true`) and feeds `unknown` straight
+into the component. The mixed-ratio render must carry "records per decided week are 1, 2" and
+must NOT say no week is decided.
+
+| tree | result |
+|---|---|
+| e48de2af new tests, old src (2bdf491a) — RED | pass 1 fail 3: mixed-ratio render carries the old hard-coded cause; Model and MyTeam notices lack the sim's reason |
+| 1d200cb8 fix — GREEN | pass 4 fail 0 |
+
+Mutation sweep on 1d200cb8 (each applied, run, reverted; `git diff --quiet` check that it applied):
+
+| mutant | result |
+|---|---|
+| control, unmodified | 4/4 pass |
+| MC1 MyTeam `{false && <MedianGameNotice …/>}` (skeptic's mutant) | killed, 3/4 |
+| MC1b Model `{false && …}` | killed, 3/4 |
+| MC2 MyTeam drops `rulesUnknown={sim?.rules_unknown}` | killed, 3/4 |
+| MC3 component hard-codes the old "no week decided" cause | killed, 0/4 |
+| MC4 invert `medianGame !== null` | killed, 0/4 |
+| MC5 reason taken from any rules_unknown entry, not `median_game:` | killed, 3/4 |
+| not-applied control after sweep | 4/4 pass |
+
+Section 8's note about the designed survivor (wording) still holds for the "still unknown"
+phrase; the reason itself is now pinned to the producer's string.

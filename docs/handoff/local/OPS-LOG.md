@@ -100,3 +100,7 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 10:30Z: GR-01 -> PR #174 (CI green; migration 071_rec_ledger additive with a guarded down()) HELD for Nick (migrations). #171 conflict resolved (1544981f), queued.
 
 10:45Z: Diligence batch 1 done: WV-01 streaming board -> #176 (history check PASSED: +2.86 pts per swap-week [0.93, 4.75], chasing last week gains nothing; auditor launched), WV-02 injury alert -> #178, RL-5-3 bye range -> #179 (queued). Gate prompt patched: unique PR body filenames (a concurrent gate overwrote a shared scratchpad file). Diligence batch 2 launched: SS-01 dead-starter guard + SK-01 command center (wsfspvzha).
+
+10:55Z: WV-01 auditor: HELD only on the forward rule (history reproduces exactly: +2.86 [+0.93,+4.75], 0 line mismatches). Fix: default-off flag + "unconfirmed forward" label (fixer launched). NICK OPTION: a one-line exception to STATS-METHOD rule 5 for market-number rankings would let it ship on.
+
+11:10Z: R&D r6 landed: schedule-swing plans killed (TM-02 schedule tag, TM-12, TM-19, NX-10, AI-08 cliff); urgent RL-6-4 (waiver card drops wrong player at 0.0 in all 5 leagues) and critical RL-6-3 (title-odds deltas unpaired = noise) go first in the next build loop; RL-6-2 joins availability test. Plan adjusted; R&D r7 relaunched.

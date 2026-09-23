@@ -2789,16 +2789,17 @@ const URGENCY_RANK = { low: 0, medium: 1, high: 2 };
  * largest smallest gap — the conservative choice for the headline, since the
  * gaps' sum is fixed. `points` is what each player counts for this week.
  */
-function pairLineupSwaps(ins, outs, optimalPlayers, slots, points, solve = bestLineup) {
+function pairLineupSwaps(ins, outs, optimalPlayers, slots, points) {
   const n = Math.max(ins.length, outs.length);
   if (!n) return [];
   const I = [...ins, ...new Array(n - ins.length).fill(null)];
   const O = [...[...outs].sort((a, b) => points(b) - points(a)), ...new Array(n - outs.length).fill(null)];
   // Legality ignores availability on purpose: a flagged starter is being replaced,
   // and the question is only whether the slots still fill.
-  // `solve` is the pinned solve when players are locked, so an exchange that would
-  // need a locked player to change slots is not counted as legal.
-  const holds = set => solve(set.map(p => ({ ...p, available: true })), slots, 'week_points')
+  // Legality is unpinned on purpose (RL-4-2): locked players are already held in
+  // optimalPlayers and never in `ins`/`outs`, and a pinned check changed no pairing on
+  // 400 random two-FLEX rosters with early-window locks (mutation M8, evidence file).
+  const holds = set => bestLineup(set.map(p => ({ ...p, available: true })), slots, 'week_points')
     .slots.filter(s => s.player).length === set.length;
   const legal = O.map(y => I.map(x => !x || !y || holds([...optimalPlayers.filter(p => p.id !== x.id), y])));
   const gap = (y, x) => (x ? points(x) : 0) - (y ? points(y) : 0);
@@ -2950,7 +2951,7 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null, now = Da
       : p.no_game ? 'no game this week' : null);
 
   const pairs = pairLineupSwaps(optimalPlayers.filter(p => !submittedIds.has(p.id)),
-    submitted.filter(p => !optimalIds.has(p.id)), optimalPlayers, slots, counts, solve);
+    submitted.filter(p => !optimalIds.has(p.id)), optimalPlayers, slots, counts);
   const swaps = pairs
     .filter(x => x.in && !sureZero(x.in) && (x.in.week_points ?? 0) > 0 && x.gap > 0.005)
     .map(x => {

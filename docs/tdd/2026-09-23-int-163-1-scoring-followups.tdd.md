@@ -92,15 +92,10 @@ follow-ups on `server/services/scoring.js` and its callers.
 
 ## What this does NOT cover
 
-- `hasOverrides`/`overrideSlots` are on `scoringFor`'s own `espn` report
-  only. Neither `espnScoringReport()` (server/services/espn-scoring-report.js,
-  served by `GET /api/leagues/:id/scoring`) nor `scoringSummary()` (what
-  `syncEspnLeague` returns and the Leagues page prints) forward these two new
-  fields yet — both destructure named fields and would need one line each.
-  Not done here: not asked for by the unit row, and extending those two
-  readers touches a route response shape a UI already renders, which is
-  outside "add hasOverrides/overrideSlots to scoringFor's summary."
-  Follow-up if a caller needs it surfaced.
+- The Leagues page (client/src/pages/Leagues.tsx:22-24 `scoringNote`) does
+  not print `hasOverrides`/`overrideSlots`; the fields reach the manual sync
+  response, the scheduled `league_rosters` sync_log detail and
+  `GET /api/leagues/:id/scoring` (see round 2), which is the reader rule.
 - `results` in `refreshLeagueRosters`'s return carries `scoring: null` for
   Sleeper leagues and for the skip-during-live-draft case, because
   `syncSleeperLeague` does not compute a scoring summary at all (only ESPN
@@ -144,3 +139,33 @@ follow-ups on `server/services/scoring.js` and its callers.
   the builder's CPU/lean-reading instructions ("Do NOT run npm run check,
   npm test, or builds; the Gate phase does that once"); it must run before
   merge.
+
+## Round 2 (skeptic fixes)
+
+Tree: branch head after these commits; targeted command as above
+(`GRIDIRON_DB_PATH=$(mktemp -u) SCHEDULER_DISABLED=1 node --experimental-test-module-mocks --test --test-reporter=tap test/<file>.test.js`).
+
+1. Surviving mutant, scoring.js overrideSlot loop filtered to `slot`.
+   Test added to `test/scoring.test.js` (overrideSlots test): payload with
+   overrides on slots 6 and 16, resolved with `{slot:16}`, `{slot:6}` and
+   `{slot:2}`, must still report `[6,16]` / `hasOverrides: true`.
+   Passes on the real code (15/0); with the skeptic's mutant sed'd in,
+   `pass 14 / fail 1` (test 13), then reverted.
+2. Surviving mutant, trade-engine.js:1421 `scoringFor(lg)` -> `scoringFor(lg, { slot: 16 })`.
+   Fixture statId 24 now carries `pointsOverrides: {16: 0.9}`; the test still
+   asserts `rush_yd === 0.3`. Passes on real code (2/0); with the mutant,
+   `pass 1 / fail 1`, then reverted. The header claim is now true.
+3. Orphan fields. `scoringSummary()` and `espnScoringReport()`
+   (server/services/espn-scoring-report.js) now forward `hasOverrides` and
+   `overrideSlots`. Readers: `GET /api/leagues/:id/scoring`
+   (server/routes/leagues.js:271), the manual sync response
+   (server/routes/leagues.js:171 via `syncEspnLeague`), and the scheduled
+   `league_rosters` job whose `results[].scoring` is written to
+   `sync_log.last_detail` by `record()` (server/services/scheduler.js:82-96).
+   - RED `212cce43` (tests only): `test/league-scoring-report.test.js`
+     `pass 4 / fail 2` (route test :113 and sync test :168, `expected: true`,
+     actual undefined).
+   - GREEN `682f8d62`: `pass 6 / fail 0`. `git write-tree` = `83bd718b101f735573aa897402fd230a949da120`.
+   - Regression, same tree: scoring 15/0, scoring-call-site-followups 2/0,
+     league-roster-schedule 4/0, scoring-call-sites 4/0,
+     scheduler-retry-and-honesty 7/0.

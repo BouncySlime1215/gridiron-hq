@@ -239,6 +239,10 @@ test('a chance-to-play warning never reads as a fitted number while the layer is
     'the caveat is attached to the number, not left to the reader to infer');
   assert.match(degraded.issue, /the role layer is not running/,
     'and names the layer that is inert, not just that something is wrong');
+  // UX-08: this string renders on the Start/Sit "Check before kickoff" card, so the
+  // caveat is in plain words; the table name and doc path stay on availability_note.
+  assert.doesNotMatch(degraded.issue, /nfl_availability_role_rates|docs\/|scripts\//,
+    'no table name or file path in a user-facing warning');
   assert.equal(degraded.availability_basis, 'pooled');
 
   const fitted = callWith(ROLE, 0.574).warnings.find(w => w.player === 'Jayden Placeholder');
@@ -252,7 +256,10 @@ test('the Start/Sit page renders the note instead of leaving it on the wire', ()
   // so" and no page ever read it. A served field nothing renders is not a disclosure.
   const src = fs.readFileSync(new URL('../client/src/pages/Lineup.tsx', import.meta.url), 'utf8');
   assert.match(src, /availability_note/, 'the lineup page reads the degradation note');
-  assert.match(src, /\.reason/, 'and renders its reason, not just its existence');
+  // UX-08: the reason names a table and doc path, so the page reads it and sends
+  // it to the console (logServerDetail) rather than rendering it; the rendered
+  // panel is covered by test/lineup-error-no-leak.test.js.
+  assert.match(src, /\.reason/, 'and reads its reason, not just its existence');
 });
 
 test('the Start/Sit page labels the fitted state too, not only the broken one', () => {

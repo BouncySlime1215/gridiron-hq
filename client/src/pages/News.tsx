@@ -293,6 +293,11 @@ export default function News() {
         <button role="tab" aria-selected={view === 'signals'}
           className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${view === 'signals' ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
           onClick={() => setView('signals')} title="Projected fantasy impact and forward outcome tracking">Model Tracker</button>
+        {/* X's & O's lives here per Nick's 2026-09-23 IA decision (nav stays at
+            8 tabs, so it dropped out of the sidebar) rather than as its own
+            top-level tab. The page itself (Teams.tsx) is unchanged and still
+            routes at /teams — this is a link into it, not a rebuild. */}
+        <Link to="/teams" className="ml-auto self-center px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-700">X's &amp; O's &rarr;</Link>
       </div>
       {view === 'feed' ? <ConnectedNewsHub /> : view === 'signals' ? <SignalFeed /> : <>
       <div className="flex items-center gap-3 mb-4 flex-wrap">

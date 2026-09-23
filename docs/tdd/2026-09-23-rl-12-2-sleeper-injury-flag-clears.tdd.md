@@ -18,6 +18,9 @@ Base tree: origin/main `57a9ca1c`.
 | `metricsFor()` -> `playerEvidenceFacts()` | `server/routes/players.js:19-22`, `:155` | AI Buy/Sell fact "currently carries an injury flag" |
 | `playerDraftContext()` area | `server/services/draft-assist.js:899`, `:979` | draft advisor prompt `injury_flag` |
 | `GET /rankings/:id/entries` | `server/routes/rankings.js:34`, `:41` | "INJ" badge on the rankings table |
+| `computeConsensus()` (missed in the first pass; found by the skeptics) | `server/routes/aggregates.js:248`, `:256` | `GET /aggregates` -> Projections.tsx:84 "INJURY" badge; draft board row (`draft-assist.js:445`) and its -4 "carrying an injury flag" (`draft-assist.js:827`); draft AI prompt "FLAGGED as an injury risk" (`drafts.js:1063`) |
+
+Correction (skeptic pass, 2026-09-23): the first version of this table said "every one" and listed five readers. It missed `computeConsensus()`, a sixth. It is now routed through the producer (section 8).
 
 **Extend or build:** extend. The writer stays where it is (`syncSleeper`) and gains a clear step. The staleness rule is new, so it goes in one new producer, `server/services/injury-flags.js`, and every reader above switches from its own `SELECT ... value > 0` to that producer, so there is one definition of "this player is flagged". No new table, column or migration: clearing is `UPDATE ... SET value = 0`, never `DELETE`.
 
@@ -96,13 +99,32 @@ None. No model was fit or selected; 2025 was not opened.
 - `STALE_FLAG_DAYS = 7` is a hand-set guess, not fitted.
 - The stale guard uses the week's earliest game date league-wide, not the player's own game date; a flag confirmed mid-week (after Thursday) on a player who played that Sunday is not treated as "played since" until the next week loads. Conservative direction (keeps the flag).
 - The flag is still a bit: "IR" and "Questionable" read the same. Storing the status text (R&D fix 2) and retiring the x0.82 live-week penalty (fix 3) are not in this unit; they change a model number and belong in their own unit with the Auditor.
-- Trade-engine results are cached by a data fingerprint (`compute-cache.js`); a flag that turns stale by the clock alone, with no table change, may not show until the next data change invalidates the cache. Guess: the daily Sleeper sync touches `player_metrics` every day, so in practice this is at most a day.
+- ~~Trade-engine cache may lag "at most a day" (a guess)~~. Withdrawn: the skeptics showed the clear is an UPDATE the row-count fingerprint never saw. Fixed in section 8; no lag remains for a clear or for a flag going stale by the clock.
 - Decision grading (start/sit win rate vs the dumb baseline, walk-forward over past seasons) was not run: the unit fixes a data defect, it does not introduce a model. The R&D finding's 2023-24 proxy (exposed players played 88% of flagged no-report weeks) is its evidence, not re-measured here.
 
 ## 7. Nick's five questions
 
-1. **Well built?** The writer now switches the flag off with an UPDATE for every player Sleeper matched without an injury, and reports the count. One new module is the only reader of the flag, and all five readers use it. 7 tests, 12 of 12 real mutants killed, no migration.
+1. **Well built?** The writer now switches the flag off with an UPDATE for every player Sleeper matched without an injury, and reports the count. One new module is the only producer of the flag, and all six readers use it (the sixth, `computeConsensus`, was added in the skeptic pass). 12 tests, 12 of 12 first-pass mutants plus 7 of 7 skeptic-pass mutants killed, no migration.
 2. **Stats or made up?** No stats. The clearing rule is Sleeper's own contract (null `injury_status` = healthy). The 7-day stale window is made up (a guess).
 3. **How we know:** fixture tests (RED -> GREEN above), plus one sync on the local copy: 49 flags cleared, 187 left, which matches the R&D finding. No backtest; none applies.
-4. **Pointed anywhere else?** Yes, every reader: chance to play (`availability()` -> Start/Sit, Lineup warning, waiver board, trade value), TradeCard ✚ and "Sell the Injury Risk", AI Buy/Sell fact, draft advisor, rankings "INJ" badge.
-5. **How it unifies:** before, five files each ran their own `SELECT ... value > 0` (or read the raw value). Now `services/injury-flags.js` is the one producer; the structural test fails if a reader goes back to a raw read.
+4. **Pointed anywhere else?** Yes, every reader: chance to play (`availability()` -> Start/Sit, Lineup warning, waiver board, trade value), TradeCard ✚ and "Sell the Injury Risk", AI Buy/Sell fact, draft advisor, rankings "INJ" badge, and (skeptic pass) the Projections "INJURY" badge, the draft board score and the draft AI prompt via `computeConsensus`.
+5. **How it unifies:** before, six files each ran their own `SELECT ... value > 0` (or read the raw value). Now `services/injury-flags.js` is the one producer; the structural test fails if a reader goes back to a raw read.
+
+## 8. Skeptic pass (2026-09-23)
+
+What the skeptics found, all confirmed and fixed:
+
+1. **Sixth raw reader.** `computeConsensus()` (`server/routes/aggregates.js`) read `inj.value AS injury_flag` raw. Fix `c28a2939`: it zeroes flags not in `activeInjuryFlagIds()` (`aggregates.js:294`), the same pattern as `rankings.js`.
+2. **Trade cache missed the clear.** `player_metrics` was in `ASSET_INPUT_TABLES` without a stamp, so an UPDATE-only clear kept the old injured set. Fix `c28a2939`: `{ table: 'player_metrics', stamp: 'fetched_at' }` (`trade-engine.js:234`; every writer, `aggregates.js:42/78/85/92/118`, re-stamps `fetched_at`), and `assetInputsKey` now carries a sha1 of the active flag set (`trade-engine.js:285-290`) for a flag that goes stale by the clock with no write.
+3. **Clear count not live.** Test 1 now runs a third healthy sync: `cleared === 0` and `fetched_at` unchanged.
+4. **Call sites pinned only by grep.** New behaviour tests on the stale fixture (player 10 stale+played -> off, 11 fresh -> on): `computeConsensus`, `playerDossier`, `GET /players/:id` metrics, `assetUniverse().get(id).injury`. Plus a cache test: a clearing sync, a flag going stale by the clock (Date shifted 6 days), and an in-place `ffc_adp` re-sync each rebuild the universe.
+5. **Structural test used a fixed list and one regex.** It now scans every `server/**/*.js` that names `injury_flag` and reads `player_metrics`, and requires the producer import and call. Control: the scan must find aggregates, rankings, players and draft-assist. `drafts.js` names the field but reads it from `computeConsensus`, not the table, so it is not a reader.
+
+**RED** (`f4427565` tests on `ce1c696c` server code, via `git stash push -- server`): 9 pass, 3 fail. Test 6: `routes/aggregates.js imports the producer`. Test 7: consensus `injury_flag` expected 0, actual 1. Test 11: `a clearing sync must not serve the cached injured set`.
+**GREEN** (`a679d548`): 12/12 pass. Command: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -u) node --experimental-test-module-mocks --test --test-reporter=tap test/sleeper-injury-flag-clears.test.js`.
+
+**Mutants** (tree `a679d548`, `scratchpad/mut2.py`, one at a time, restored after each): U1 drop `AND value <> 0` -> killed (test 1). C1 players.js guard inverted -> killed (test 9). C2 trade-engine rebuilds `injured` from `value >= 1` -> killed (tests 10, 11). C3 dossier returns raw value -> killed (test 8). A1 consensus guard removed -> killed (test 7). K1 `player_metrics` stamp removed -> killed (test 11, in-place ffc_adp). K2 flag digest removed from the cache key -> killed (test 11, stale by clock). 7 of 7 killed. On the first run K1 survived: the flag digest alone already sees a clear, so the stamp was only live for other in-place `player_metrics` updates; the ffc_adp assertion was added for that.
+
+**Neighbours on `a679d548`** (targeted runs, same command shape): asset-universe-fingerprint 5/5, trade-engine-correctness 15/15, draft-assist-bestball 8/8, availability-role 17/17, aggregates-consensus-season 5/5, consensus-weights 12/12, find-trades 3/3.
+
+Local-copy counts in section 5 are unchanged by this pass. `computeConsensus` gets the same active set, and on the local copy the guard ignores 0 flags (section 5), so the draft board sees the same flags as before this pass.

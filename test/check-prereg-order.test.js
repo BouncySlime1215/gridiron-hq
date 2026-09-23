@@ -167,6 +167,49 @@ test('the evidence prefix scopes the scan', () => {
   } finally { cleanup(dir); }
 });
 
+test('--rev checks a branch without checking it out', () => {
+  loaded();
+  const dir = fixture([{ files: { 'README.md': 'x\n' } }]);
+  try {
+    git(dir, 'checkout', '-q', '-b', 'feature');
+    fs.mkdirSync(path.join(dir, E), { recursive: true });
+    fs.writeFileSync(path.join(dir, RESULT), 'r\n'); git(dir, 'add', RESULT); git(dir, 'commit', '-q', '-m', 'numbers first');
+    fs.writeFileSync(path.join(dir, PREREG), 'h\n'); git(dir, 'add', PREREG); git(dir, 'commit', '-q', '-m', 'prereg second');
+    git(dir, 'checkout', '-q', 'main');
+    assert.equal(P.checkPreregOrder({ repo: dir, prefixes: ['docs/'] }).pairs.length, 0, 'main has no pair');
+    const report = P.checkPreregOrder({ repo: dir, prefixes: ['docs/'], rev: 'feature' });
+    assert.equal(report.violations.length, 1);
+    assert.equal(cli(dir, '--prefix', 'docs/', '--rev', 'feature').code, 1);
+    assert.equal(cli(dir, '--rev', '--output=/tmp/x').code, 3, 'an option-shaped rev is refused, not passed to git');
+  } finally { cleanup(dir); }
+});
+
+test('first commit: the oldest add wins, a copy stops the walk', () => {
+  loaded();
+  const log = entries => entries.map(([sha, status]) => `\0${sha}\n\n${status}\tpath\n`).join('');
+  assert.equal(P.firstAddCommit(log([['c4', 'M'], ['c3', 'A'], ['c1', 'A']])), 'c1', 'squash add (c3) is not the first add');
+  assert.equal(P.firstAddCommit(log([['c3', 'M'], ['c2', 'C100'], ['c1', 'A']])), 'c2', 'a copy creates the file; its twin (c1) is not followed');
+  assert.equal(P.firstAddCommit(log([['c2', 'R100'], ['c1', 'A']])), 'c1', 'a rename keeps the first add');
+  assert.equal(P.firstAddCommit(''), null);
+});
+
+test('a PR branch that merged main back (after a squash) is still judged on its own commits', () => {
+  loaded();
+  const dir = fixture([{ files: { 'README.md': 'x\n' } }]);
+  const put = (file, text) => { fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true }); fs.writeFileSync(path.join(dir, file), text); git(dir, 'add', file); };
+  try {
+    git(dir, 'checkout', '-q', '-b', 'feature');
+    put(RESULT, 'r\n'); git(dir, 'commit', '-q', '-m', 'numbers first');
+    put(PREREG, 'h\n'); git(dir, 'commit', '-q', '-m', 'prereg second');
+    git(dir, 'checkout', '-q', 'main');
+    put(RESULT, 'r\n'); put(PREREG, 'h\n'); git(dir, 'commit', '-q', '-m', 'squash of feature');
+    git(dir, 'checkout', '-q', 'feature');
+    git(dir, 'merge', '-q', '--no-edit', 'main');
+    assert.equal(P.checkPreregOrder({ repo: dir, prefixes: ['docs/'], rev: 'main' }).sameCommit.length, 1, 'main alone cannot tell');
+    assert.equal(P.checkPreregOrder({ repo: dir, prefixes: ['docs/'], rev: 'feature' }).violations.length, 1);
+  } finally { cleanup(dir); }
+});
+
 test('a shallow clone cannot see first commits, so it exits 2 instead of passing', () => {
   loaded();
   const src = fixture([{ files: { [RESULT]: 'r\n' } }, { files: { [PREREG]: 'h\n' } }]);

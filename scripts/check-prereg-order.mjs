@@ -37,6 +37,7 @@
  *   node scripts/check-prereg-order.mjs                         # docs/evidence/ and docs/tdd/
  *   node scripts/check-prereg-order.mjs --prefix docs/evidence/  # one prefix (repeatable)
  *   node scripts/check-prereg-order.mjs --repo <dir> --strict --json
+ *   node scripts/check-prereg-order.mjs --rev origin/<branch>        # a branch, no checkout
  * Exit: 0 ok, 1 violation (or same-commit under --strict), 2 shallow clone, 3 other error.
  */
 import fs from 'node:fs';
@@ -78,18 +79,28 @@ export function resultStem(file) {
 
 /**
  * The commit that first created a file, from `git log --follow --name-status
- * --format=%x00%H` output (newest first). A rename (R) is followed back to the
- * older name. A copy (C) is where this file was created: `--follow` also reports
- * copies, and following one would date an identical-content file (an empty
- * stub, a template) to its twin's commit, a false violation. Null if no history.
+ * --format=%x00%H` output (newest first).
+ *   - A rename (R) is followed back to the older name.
+ *   - An add (A) is a candidate, and the walk goes on: the OLDEST add wins. A PR's
+ *     branch adds the file in its own commit, main adds it again in the squash
+ *     commit, and a branch that merged main back sees both; the branch commit is
+ *     the first one.
+ *   - A copy (C) is where this file was created, and the walk stops: `--follow`
+ *     also reports copies, and following one would date an identical-content file
+ *     (an empty stub, a template) to its twin's commit, a false violation.
+ * Null if there is no history.
  */
 export function firstAddCommit(logOutput) {
   const records = logOutput.split('\0').map(s => s.trim()).filter(Boolean).map(chunk => {
     const [sha, ...lines] = chunk.split('\n').map(l => l.trim()).filter(Boolean);
     return { sha, status: lines[0]?.split('\t')[0] ?? '' };
   });
-  for (const r of records) if (/^[AC]/.test(r.status)) return r.sha;
-  return records.length ? records[records.length - 1].sha : null;
+  let first = null;
+  for (const r of records) {
+    if (/^A/.test(r.status)) first = r.sha;
+    else if (/^C/.test(r.status)) return r.sha;
+  }
+  return first ?? (records.length ? records[records.length - 1].sha : null);
 }
 
 function gitRunner(repo) {
@@ -107,17 +118,27 @@ function gitRunner(repo) {
  *   pending: results not yet committed.
  * @throws {ShallowRepoError} on a shallow clone.
  */
-export function checkPreregOrder({ repo = process.cwd(), prefixes = DEFAULT_PREFIXES } = {}) {
+export function checkPreregOrder({ repo = process.cwd(), prefixes = DEFAULT_PREFIXES, rev = null } = {}) {
+  if (rev != null && (typeof rev !== 'string' || !rev || rev.startsWith('-'))) throw new Error(`--rev must be a commit-ish, got ${JSON.stringify(rev)}`);
   const git = gitRunner(repo);
   if (git.run('rev-parse', '--is-shallow-repository').trim() === 'true') throw new ShallowRepoError(repo);
   const root = git.run('rev-parse', '--show-toplevel').trim();
 
-  const tracked = git.run('ls-files', '-z', '--', ...prefixes).split('\0').filter(Boolean);
-  const allTracked = new Set(git.run('ls-files', '-z').split('\0').filter(Boolean));
+  // Files: the index (default) or the tree of `rev`, so a branch is checked without a checkout.
+  const listFiles = (...paths) => (rev
+    ? git.run('ls-tree', '-r', '-z', '--name-only', rev, '--', ...paths)
+    : git.run('ls-files', '-z', '--', ...paths)).split('\0').filter(Boolean);
+  const tracked = listFiles(...prefixes);
+  const allTracked = new Set(listFiles());
+  const readText = file => {
+    if (rev) return git.run('show', `${rev}:${file}`);
+    const abs = path.join(root, file);
+    return fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : null; // tracked but deleted in the working tree
+  };
 
   const firstCache = new Map();
   const firstCommit = file => {
-    if (!firstCache.has(file)) firstCache.set(file, firstAddCommit(git.run('log', '--follow', '--name-status', '--format=%x00%H', '--', file)));
+    if (!firstCache.has(file)) firstCache.set(file, firstAddCommit(git.run('log', ...(rev ? [rev] : []), '--follow', '--name-status', '--format=%x00%H', '--', file)));
     return firstCache.get(file);
   };
   const isAncestor = (a, b) => {
@@ -158,13 +179,13 @@ export function checkPreregOrder({ repo = process.cwd(), prefixes = DEFAULT_PREF
       if (group) want(file, [...group].sort(byBaseFirst), 'name');
     }
     if (preregStem(file) == null && /\.md$/i.test(file)) {
-      const abs = path.join(root, file);
-      if (!fs.existsSync(abs)) continue; // tracked but deleted in the working tree: nothing to read
-      for (const m of fs.readFileSync(abs, 'utf8').matchAll(MARKER_RE)) want(file, [m[1].replace(/^\.\//, '')], 'marker');
+      const text = readText(file);
+      if (text == null) continue;
+      for (const m of text.matchAll(MARKER_RE)) want(file, [m[1].replace(/^\.\//, '')], 'marker');
     }
   }
 
-  const report = { repo: root, prefixes: [...prefixes], pairs: [], violations: [], sameCommit: [], pending: [] };
+  const report = { repo: root, rev: rev ?? 'HEAD', prefixes: [...prefixes], pairs: [], violations: [], sameCommit: [], pending: [] };
   for (const { result, preregs, via } of wanted.values()) {
     const resultSha = firstCommit(result);
     const known = preregs.filter(p => allTracked.has(p));
@@ -182,11 +203,12 @@ export function checkPreregOrder({ repo = process.cwd(), prefixes = DEFAULT_PREF
 }
 
 function parseArgs(argv) {
-  const opts = { prefixes: [], repo: process.cwd(), strict: false, json: false };
+  const opts = { prefixes: [], repo: process.cwd(), rev: null, strict: false, json: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--prefix') opts.prefixes.push(argv[++i]);
     else if (a === '--repo') opts.repo = argv[++i];
+    else if (a === '--rev') opts.rev = argv[++i];
     else if (a === '--strict') opts.strict = true;
     else if (a === '--json') opts.json = true;
     else throw new Error(`unknown argument: ${a}`);
@@ -209,7 +231,7 @@ function main() {
   if (opts.json) {
     console.log(JSON.stringify(report, null, 2));
   } else {
-    console.log(`check-prereg-order: ${report.pairs.length} prereg/results pair(s) under ${report.prefixes.join(', ')}`);
+    console.log(`check-prereg-order: ${report.pairs.length} prereg/results pair(s) under ${report.prefixes.join(', ')} at ${report.rev}`);
     for (const v of report.violations) console.log(`  VIOLATION ${v.result} <- ${v.prereg}: ${v.reason}`);
     for (const s of report.sameCommit) console.log(`  same commit${opts.strict ? ' (fails under --strict)' : ''}: ${s.result} <- ${s.prereg} @ ${s.result_commit.slice(0, 8)}`);
     for (const p of report.pending) console.log(`  pending: ${p.result} (${p.reason})`);

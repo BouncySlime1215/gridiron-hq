@@ -45,7 +45,7 @@ export const MIN_EDGE = 1;
 
 /**
  * Auditor ruling 2026-09-23 (e) / STATS-METHOD.md rule 5: a result ships ON only once
- * it also holds on 2026 forward weeks. F001 (docs/evidence/HOLDOUT-LEDGER.md) found
+ * it also holds on 2026 forward weeks. F002 (docs/evidence/HOLDOUT-LEDGER.md) found
  * 2026 defensive counts computable for week 1 only, 0 swap-weeks — forward-uncomputable.
  * So this ships default-off: the board still returns the ranked candidates (the
  * betting market's own number, not a fitted result), but makes no swap suggestion and

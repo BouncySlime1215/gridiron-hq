@@ -173,7 +173,7 @@ test('a week with no lines says so rather than returning an empty ranking as a f
 // ---------------------------------------------- Auditor (e): default-off flag
 test('Auditor 2026-09-23 (e): WV01_STREAMING_BOARD_ENABLED defaults false, and nothing in this repo sets it true', () => {
   assert.equal(WV01_STREAMING_BOARD_ENABLED, false,
-    'no 2026 forward weeks are computable yet (F001); STATS-METHOD.md rule 5 ships this default-off');
+    'no 2026 forward weeks are computable yet (F002); STATS-METHOD.md rule 5 ships this default-off');
   const { execSync } = childProcess;
   const hits = execSync(
     "grep -rn 'WV01_STREAMING_BOARD_ENABLED[[:space:]]*[:=][[:space:]]*true' --include='*.js' --include='*.ts' --include='*.tsx' . " +

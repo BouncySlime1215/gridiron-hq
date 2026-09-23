@@ -6,6 +6,25 @@ import { PageError, PageLoading } from '../components/PageState';
 
 const POS_ORDER = ['QB', 'RB', 'WR', 'TE'];
 
+type ScoringId = { statId: number; points: number };
+type ScoringSummary = { source: string; reason: string | null; unscored: ScoringId[]; unmapped: ScoringId[] };
+
+/**
+ * What an ESPN sync says about scoring rules the app cannot apply
+ * (routes/leagues.js syncEspnLeague → services/espn-scoring-report.js). Printed
+ * in the sync message so a paid stat that no projection counts is named, not
+ * silently left out. The full report is GET /api/leagues/:id/scoring.
+ */
+function scoringNote(scoring?: ScoringSummary | null): string {
+  if (!scoring) return '';
+  const ids = (list: ScoringId[]) => list.map(u => `${u.statId} (${u.points} pt)`).join(', ');
+  const parts: string[] = [];
+  if (scoring.source !== 'league') parts.push(`league scoring unreadable (${scoring.reason}), using the PPR default`);
+  if (scoring.unscored.length) parts.push(`${scoring.unscored.length} paid stat ids not applied to player projections: ${ids(scoring.unscored)}`);
+  if (scoring.unmapped.length) parts.push(`${scoring.unmapped.length} unknown stat ids: ${ids(scoring.unmapped)}`);
+  return parts.length ? ` Scoring: ${parts.join('; ')}.` : '';
+}
+
 function StatusPill({ status, ratio }: { status: string; ratio: number | null }) {
   // 'unknown' means nobody in the league has a trade value at this position, so
   // there is no ratio to show. It used to arrive as a ratio of 0, which read as
@@ -39,7 +58,7 @@ export default function Leagues() {
     try {
       const lg = await api('/leagues', { method: 'POST', body: JSON.stringify(form) });
       const s = await api(`/leagues/${lg.id}/sync`, { method: 'POST' });
-      setMsg(`Added and synced — ${s.teams} teams${s.fell_back ? `, using ${s.season_used} rosters (this season hasn’t drafted yet)` : ''}.`);
+      setMsg(`Added and synced — ${s.teams} teams${s.fell_back ? `, using ${s.season_used} rosters (this season hasn’t drafted yet)` : ''}.${scoringNote(s.scoring)}`);
       setForm(f => ({ ...f, league_id: '', espn_s2: '', swid: '' }));
       refetch();
       setSel(lg.id);
@@ -51,7 +70,7 @@ export default function Leagues() {
     setBusy(true); setMsg(null);
     try {
       const s = await api(`/leagues/${id}/sync`, { method: 'POST' });
-      setMsg(`Synced ${s.teams} teams · ${s.roster_players ?? 0} rostered players${s.fell_back ? ` (from ${s.season_used} — this season hasn’t drafted yet)` : ''}.`);
+      setMsg(`Synced ${s.teams} teams · ${s.roster_players ?? 0} rostered players${s.fell_back ? ` (from ${s.season_used} — this season hasn’t drafted yet)` : ''}.${scoringNote(s.scoring)}`);
       refetch(); refetchAnalysis();
     }
     catch (e: any) { setMsg(e.message); }
@@ -181,7 +200,11 @@ export default function Leagues() {
               </p>
             )}
           </div>
-          <div className="overflow-x-auto">
+          {/* Desktop/tablet: the full comparison table. Hidden below sm because a
+              wide table can only ever horizontal-scroll on a phone (UI-STANDARD #7
+              rules that out) — the sm:hidden card list below is the phone view of
+              the same data, not a scroll target. */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-xs text-slate-500">
                 <tr>
@@ -214,6 +237,36 @@ export default function Leagues() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Phone: one card per team, stacked, no fixed-width row to overflow. */}
+          <div className="sm:hidden divide-y divide-slate-100">
+            {analysis.rosters.map((ro: any) => (
+              <div key={ro.roster_id} className="p-4">
+                <div className="font-medium text-sm mb-2">{ro.owner}</div>
+                <div className="grid grid-cols-2 gap-3">
+                  {POS_ORDER.map(pos => (
+                    <div key={pos}>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className="text-[10px] font-bold text-slate-400">{pos}</span>
+                        <StatusPill status={ro.positions[pos].status} ratio={ro.positions[pos].ratio} />
+                      </div>
+                      <div className="space-y-0.5">
+                        {ro.positions[pos].starters.slice(0, 3).map((s: any) => (
+                          <div key={s.id} className="text-xs text-slate-600 break-words">
+                            <PlayerName id={s.id}>{s.name}</PlayerName>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 text-xs">
+                  {ro.needs.length ? <span className="text-crit font-medium">Needs: {ro.needs.join(', ')}</span> : <span className="text-slate-400">balanced</span>}
+                  {ro.surplus.length > 0 && <div className="text-good">has: {ro.surplus.join(', ')}</div>}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

@@ -228,8 +228,8 @@ the production ranker, not a copy.
 
 ## 8. Holdout looks
 
-Two rows appended to `docs/evidence/HOLDOUT-LEDGER.md` (L154, L155) in the commit that records these numbers, and one
-forward look (F001, 0 swap-weeks computable).
+Two rows appended to `docs/evidence/HOLDOUT-LEDGER.md` (L155, L156) in the commit that records these numbers, and one
+forward look (F002, 0 swap-weeks computable).
 
 ## 9. Nick's five questions
 
@@ -255,7 +255,7 @@ forward look (F001, 0 swap-weeks computable).
 ## 10. Auditor ruling 2026-09-23 (e): default-off flag
 
 The Independent Auditor held PR #176 on one point: STATS-METHOD.md rule 5 says a result
-with no 2026 forward weeks (F001: 0 swap-weeks computable) ships default-off, behind a
+with no 2026 forward weeks (F002: 0 swap-weeks computable) ships default-off, behind a
 named flag, labelled "unconfirmed forward" — with no exemption for a zero-parameter
 market ranking. Fixed as the auditor's option 1:
 
@@ -281,4 +281,4 @@ market ranking. Fixed as the auditor's option 1:
   tests pass: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node
   --experimental-test-module-mocks --test --test-reporter=tap test/streaming-board.test.js`.
 - F002 (turn the flag on) is still open: it waits on nflverse posting 2026 weeks 2+ and
-  the forward direction holding (F001).
+  the forward direction holding (F002).

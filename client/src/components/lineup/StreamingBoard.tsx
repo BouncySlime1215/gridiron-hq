@@ -38,8 +38,8 @@ export default function StreamingBoard({ data, loading, error, onRetry }: {
         Free-agent defenses ranked by how many points the betting market expects the offense they face to score.
         {data?.unconfirmed_forward ? (
           <> Replayed on 2022-2025, swapping to the top-ranked free agent each week scored about 2.9 more points
-            than the defense it replaced (range 0.9 to 4.8) — <strong>unconfirmed forward</strong>: not yet checked
-            on 2026 games.</>
+            than the defense it replaced (range 0.9 to 4.8) — <strong>history-tested (2022-25), not yet confirmed
+            on 2026 games</strong>.</>
         ) : null}
       </p>
       <Body data={data} loading={loading} error={error} onRetry={onRetry} />

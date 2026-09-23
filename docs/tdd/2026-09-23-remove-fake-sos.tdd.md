@@ -112,8 +112,8 @@ it does not claim the Buy/Sell verdict got better.
 
 ## 7. Known defects and follow-ups
 
-- `fc_value` still has no scheduled writer (S-10 / PR #170). If S-10 fills it, `GET /nfl/sos` returns descriptive
-  values with `signal: false`; no page prints them. A rank may only return through a schedule arm that passes the
+- `fc_value` still has no scheduled writer (S-10 / PR #170). (`GET /nfl/sos` and `computeSOS` were deleted in
+  section 9; the one producer left is `edge.js#scheduleEdge`, which is null and unranked on an empty store.) A rank may only return through a schedule arm that passes the
   `MATCHUP_EVIDENCE` walk-forward protocol.
 - `edge.js`, `gamescript.js:174` and `nfl-opening-lines.js:52` keep their own WSH aliases; after the backfill they
   are no-ops. Removing them is a follow-up, not done here (other files, other owners).
@@ -123,8 +123,9 @@ it does not claim the Buy/Sell verdict got better.
 
 ## 8. Nick's five questions
 
-1. **Well built?** One producer kept (`computeSOS`), one repair reused (`repairSchedule`), one canonical code map
-   (`canonicalTeamCode`). 6 tests, 7 of 7 real mutants killed, UPDATE-only backfill that is idempotent.
+1. **Well built?** One producer left (`edge.js#scheduleEdge`; `computeSOS` deleted, section 9), one repair reused
+   (`repairSchedule`), one canonical code map (`canonicalTeamCode`). 7 tests, 7 of 7 original real mutants plus
+   3 skeptic-round mutants killed, UPDATE-only backfill that is idempotent.
 2. **Stats or made up?** Before: made up (the rank was "games vs Washington, then row order" on 0 `fc_value` rows).
    After: no number is printed; the page says why.
 3. **How we know?** The table above: local-copy counts before/after with the commands, plus the route liveness check.
@@ -132,3 +133,40 @@ it does not claim the Buy/Sell verdict got better.
    now the Buy/Sell evidence and the X's & O's panel agree with them and use the same reason text.
 5. **How it unifies?** Every schedule surface now uses `MATCHUP_SIGNAL_REASON`; the schedule rows themselves are
    canonical at the writer, so the read-side repair in `matchupModel` reports 0 repairs.
+
+## 9. Skeptic round 1 (commit `3329c70f`)
+
+Sections 3-5 describe tree `46d5fc7f`. This section supersedes them where they mention `computeSOS` or `GET /nfl/sos`.
+
+**Finding A (test liveness): the home-flag half of the backfill was untested.** Correct. Test 7 had no stale
+Washington HOME row. Added `(2031, WAS, wk4, 'WSH', 0)` and `(2031, PHI, wk4, 'WSH', 0)`; expects `WAS4 PHI/1`,
+`PHI4 WAS/0`, `home_flag_repaired === 1`, `opponents_canonicalised 4`, `self_opponent_repaired 2`, `rows_updated 4`.
+Implementation unchanged (it was right; the test was too weak).
+
+**Findings B-D (structure): two producers, partial-data 0, orphan route.** Correct.
+`git grep -n "nfl/sos\|'/sos'" -- client server` on `fdd60d65` matched only the route definition, so
+`computeSOS` + `GET /nfl/sos` were deleted (code removal, no data change). `edge.js#scheduleEdge` is now the one
+producer of schedule strength (Edge page `client/src/pages/Edge.tsx:305-309`, `/scout` prompt `edge.js:282`). It
+already treats `v <= 0` as missing (league average) and returns null/unranked on an empty store; the new tests 2-3
+pin that.
+
+Both values on the same input (skeptic's fixture: fc_value DAL=3000, PHI=6000, WAS none; tree `fdd60d65`):
+computeSOS PHI 0.333, DAL 0.667, WAS 1; scheduleEdge DAL 1.167 (rank 1), PHI 0.833, WAS 1. Test 3 re-derives
+the scheduleEdge side: DAL `(4500+6000)/2/4500`, PHI `(4500+3000)/2/4500`, DAL > PHI.
+
+Tests, all `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node --experimental-test-module-mocks --test --test-reporter=tap <file>`:
+
+| Tree / mutant | Result |
+|---|---|
+| `3329c70f` schedule-strength-not-made-up | 7/7 pass |
+| RED: `nfldata.js` from `fdd60d65` on `3329c70f` tests | test 1 fails (`computeSOS` still exported / `/sos` 200), 6 pass |
+| M-B `upd.run(g.opponent_abbr, before.home ? 1 : 0, before.id)` | killed by test 7 |
+| M-C scheduleEdge `Number.isFinite(v) ? v : avg` (missing = 0) | killed by test 3 |
+| M-D scheduleEdge `hasStrength = true` (no empty guard) | killed by test 2 |
+| `3329c70f` model-integrity / matchups-no-signal / legacy-route-security / nfldata-roster-sync | 89/89, 5/5, 6/6, 2/2 |
+| `node scripts/wiring-map.mjs --check` | exit 0, "no missing-feed findings" |
+
+Follow-ups named, not done here: `docs/wiring/WIRING-MAP.md:2027` still lists `GET /api/nfl/sos` (generated file,
+not regenerated in this unit); `scheduleEdge` still ranks 1-32 on populated data and the `/scout` prompt prints
+`rank N/32` for a signal that is not validated (`MATCHUP_EVIDENCE`) — it is the one producer, but it carries no
+`signal:false` label.

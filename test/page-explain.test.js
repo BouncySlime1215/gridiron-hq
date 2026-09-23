@@ -306,6 +306,11 @@ test('POST /explain/page enforces the tool-call round cap and surfaces an honest
   // only the final one forbids using them.
   assert.ok(mock.calls.every(call => call.body.tools?.length > 0), 'every round must declare the tools');
   assert.deepEqual(mock.calls.map(call => call.body.tool_choice?.type ?? null), [null, null, null, 'none']);
+  // The glossary file is gone, so the prompt must not promise one, and the
+  // system prompt names no tool (the tool list is the one place tools are named).
+  const system = JSON.stringify(mock.calls[0].body.system);
+  assert.doesNotMatch(system, /GLOSSARY|glossary unavailable/);
+  for (const tool of mock.calls[0].body.tools) assert.ok(!system.includes(tool.name), `system prompt names ${tool.name}`);
   assert.ok(result.payload.limitations.some(note => /cut short/i.test(note)),
     `expected an honest "cut short" limitation, got: ${JSON.stringify(result.payload.limitations)}`);
 

@@ -83,7 +83,11 @@ const post = (text, rkey, time) => ({ $type: 'message', payload: {
   seq: 1, time, operation: 'create', collection: 'app.bsky.feed.post', rkey,
   record: { $type: 'app.bsky.feed.post', text, createdAt: time } } });
 
-test('a starter in a pre-kickoff inactive post is flagged before kickoff', () => {
+// Rule (b): the warning ships default-off until the W3-W5 forward test passes, so the
+// two tests below turn it on explicitly and the third pins the default.
+test('a starter in a pre-kickoff inactive post is flagged before kickoff', (t) => {
+  process.env.LIVE_INACTIVE_WARNINGS = '1';
+  t.after(() => { delete process.env.LIVE_INACTIVE_WARNINGS; });
   const id = league(roster(), 9301);
   monitor?.ingestJetstreamEvent(post('Saints RB Questionable Back (ankle) is officially inactive for Week 3.', 'li1', '2026-09-27T15:31:00Z'),
     { season: 2026, week: 3 });
@@ -103,7 +107,9 @@ test('a starter in a pre-kickoff inactive post is flagged before kickoff', () =>
   assert.equal(call.warnings.filter(x => x.player === 'Questionable Back').length, 1, 'one warning per starter');
 });
 
-test('no claim, or a later active claim, means no live warning (control)', () => {
+test('no claim, or a later active claim, means no live warning (control)', (t) => {
+  process.env.LIVE_INACTIVE_WARNINGS = '1';
+  t.after(() => { delete process.env.LIVE_INACTIVE_WARNINGS; });
   const id = league(roster(' Bee'), 9302);
   const quiet = lineupCall(id, { objective: 'mean', providers: {} });
   assert.equal(quiet.warnings.some(x => x.kind === 'live_inactive'), false, 'nothing posted, nothing flagged');
@@ -115,4 +121,19 @@ test('no claim, or a later active claim, means no live warning (control)', () =>
   monitor?.ingestJetstreamEvent(post('Correction: Saints WR Wideout One Bee is active.', 'li3', '2026-09-27T15:20:00Z'), { season: 2026, week: 3 });
   const after = lineupCall(id, { objective: 'mean', providers: {} });
   assert.equal(after.warnings.some(x => x.player === 'Wideout One Bee' && x.kind === 'live_inactive'), false, 'the later active claim wins');
+});
+
+test('default off: without LIVE_INACTIVE_WARNINGS=1 the claim is recorded but no live warning is shown', () => {
+  delete process.env.LIVE_INACTIVE_WARNINGS;
+  const id = league(roster(' Cee'), 9303);
+  monitor?.ingestJetstreamEvent(post('Saints RB Questionable Back Cee is inactive.', 'li4', '2026-09-27T15:05:00Z'), { season: 2026, week: 3 });
+  assert.ok(monitor?.liveInactiveClaims({ season: 2026, week: 3 }).size > 0, 'known-nonzero control: the listener still recorded him');
+  const off = lineupCall(id, { objective: 'mean', providers: {} });
+  assert.ifError(off.error);
+  assert.equal(off.warnings.some(x => x.kind === 'live_inactive'), false, 'unconfirmed forward: off by default');
+  process.env.LIVE_INACTIVE_WARNINGS = '1';
+  try {
+    const on = lineupCall(id, { objective: 'mean', providers: {} });
+    assert.ok(on.warnings.some(x => x.player === 'Questionable Back Cee' && x.kind === 'live_inactive'), 'the flag turns it on');
+  } finally { delete process.env.LIVE_INACTIVE_WARNINGS; }
 });

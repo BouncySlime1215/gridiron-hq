@@ -162,3 +162,20 @@ test('a clause about an earlier game is not a claim about this one (mutant M4 su
   assert.deepEqual(claims('Jaylen Waddle was ruled out last Sunday.'), []);
   assert.deepEqual(claims('Jaylen Waddle is inactive.'), ['Jaylen Waddle:inactive'], 'control: present tense still claims');
 });
+
+test('hedges and negated actives are not definitive statuses (skeptic probe, window-A phrasings)', () => {
+  const idx = mon.loadPlayerIndex();
+  const claims = t => mon.claimsFromPost({ text: t }, idx).map(c => `${c.player_name}:${c.status}`);
+  // Negated active: must never read as 'active' (a later one would cancel an earlier 'ruled out').
+  assert.deepEqual(claims('Jaylen Waddle is not expected to play Sunday.'), []);
+  assert.deepEqual(claims("Coach 'not sure' if Jaylen Waddle will play Week 3."), []);
+  assert.deepEqual(claims("Jaylen Waddle isn't good to go."), []);
+  // Hedges: neither direction.
+  assert.deepEqual(claims('Jaylen Waddle is trending towards not playing.'), []);
+  assert.deepEqual(claims('Jaylen Waddle is likely out for Sunday.'), []);
+  assert.deepEqual(claims('Jaylen Waddle is expected to play Sunday.'), []);
+  // Controls: definitive statements still claim, both directions.
+  assert.deepEqual(claims('Jaylen Waddle will play Sunday.'), ['Jaylen Waddle:active']);
+  assert.deepEqual(claims('Jaylen Waddle is not playing Sunday.'), ['Jaylen Waddle:inactive']);
+  assert.deepEqual(claims('Jaylen Waddle has been ruled out.'), ['Jaylen Waddle:inactive']);
+});

@@ -206,3 +206,4 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 - 19:16Z Nick 'turn it on rn': default-off features are hardcoded per module (no central switch). Launched PREVIEW-01 build (wf_2da6d60d-93b): one env switch GRIDIRON_PREVIEW_UNCONFIRMED=1 turns all default-off features on locally with preview labels. Auto-watcher will ff clone + restart after #213 merges.
 - 19:18Z RULING Nick: one integrated system. Brief top rewritten as ONE ENGINE loop (observe/understand/simulate/decide/act/learn), ENGINE-00 spine first; plan v10.1; handoff build list step 0.
 - 19:19Z RULING Nick: always learning. Added engine daemon + 3 learning speeds + versioning + drift fallbacks to brief/plan v10.2/handoff ENGINE-00.
+- 19:19Z RULING Nick 'and reasons': reason chains on every state row, AI hypothesis->test loop on surprises, decisions with arguments (brief + handoff).

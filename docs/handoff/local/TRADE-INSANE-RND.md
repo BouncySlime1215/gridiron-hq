@@ -27,6 +27,14 @@ The loop never stops. There is no "trained model" that ships and freezes.
 - **Drift and health monitors:** if a learner's live accuracy drops below its baseline (e.g. "start ESPN's higher number"), it falls back automatically and the status line says so. It never silently degrades.
 - **Guardrails stay:** as-of safety (a learner never sees the future), one writer per field, forward grading decides ON/OFF, and no league or manager names committed. Texts stay local; only counts and rates leave the chat store.
 
+
+## AND REASONS (Nick, 3:52 PM ET 9/23)
+The engine doesn't just update numbers; it reasons about WHY and tests its own reasons.
+- **Every number carries its reason chain:** which events and tells moved it, by how much (feature attribution on the model, e.g. "P(accept) fell 0.18: declined your 2-for-1 Tuesday (-0.11), his RB2 returned from injury so need dropped (-0.07)"). Stored with the state row, shown by Coach.
+- **Hypothesis loop:** when something surprises the engine (a decline it predicted as a yes, a projection miss, a sudden waiver spree), an AI reasoner reads the evidence and writes candidate explanations ("he's tanking", "he values youth", "bye-week crunch"). Each becomes a testable tell or feature; the engine tests it on history and live data and keeps only what grades out. The AI proposes and the data decides (r17: the LLM alone doesn't predict).
+- **Decisions come with the argument:** chess paths show the reasoning: what the clone believes, why it should say yes, what could go wrong, and what would change the call.
+- **Autopsy reasons too:** each miss gets a causal breakdown (game script, volume, share, efficiency, luck, news missed) plus the fix the engine is making.
+
 **Build rule:** every unit (PROJ-*, CE-*, TELLS-*, CLONE-*, RADAR-*, CHESS-*, COACH-*, OFFER-*) is a STAGE of this loop. It reads from `engine_events` / `engine_state` and writes only its own fields. A unit that creates its own side store, or a second number for something the state already has, is blocking (structure lens). The first engine unit defines the two contracts (ENGINE-00, below); every later unit extends them.
 
 **ENGINE-00 (first, before PROJ-01): the spine.**

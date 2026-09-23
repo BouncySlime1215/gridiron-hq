@@ -6,7 +6,7 @@
 // Test seasons 2023 (fit 2021-22) and 2024 (fit 2021-23); forward 2026 (fit 2021-25).
 // 2025 is never scored here.
 import { rows } from '../server/db/index.js';
-import { scoreModelAt, teamPointsDistribution, spreadBucket, regularizedGammaP } from '../server/services/gamescript.js';
+import { scoreModelAt, teamPointsDistribution, spreadBucket, regularizedGammaP } from './proj03a/game-script-sampler.mjs';
 import { normalCdf, weeklyClusterBootstrap, withRandomSeed, random } from '../server/services/stats-util.js';
 
 const BUCKETS = ['lt3', '3to7', 'gt7'];

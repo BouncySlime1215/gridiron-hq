@@ -1,4 +1,5 @@
-// PROJ-03-a (CE-01 part a): the seeded game-script sampler in gamescript.js.
+// PROJ-03-a (CE-01 part a): the seeded game-script sampler (study code, declined;
+// scripts/proj03a/game-script-sampler.mjs, not a production module).
 // Contract: one keyed score path per game, consistent with the line, shared by every
 // player in that game. Evidence: docs/tdd/2026-09-23-proj-03a-game-script-sampler.tdd.md
 import test from 'node:test';
@@ -13,7 +14,7 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 const { db } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
-const gs = await import('../server/services/gamescript.js');
+const gs = await import('../scripts/proj03a/game-script-sampler.mjs');
 const { keyedSeed, normalCdf } = await import('../server/services/stats-util.js');
 
 test.after(() => {
@@ -98,7 +99,6 @@ test('path shape: quarters sum to finals, margin/total consistent, pregame win p
     const s = p[side].quarters.reduce((x, y) => x + y, 0);
     assert.ok(Math.abs(s - p[side].points) < 1e-6, `${side} quarters ${s} vs ${p[side].points}`);
     assert.ok(p[side].quarters.every(q => q >= 0));
-    assert.ok(Number.isFinite(p[side].pace.pass_att) && Number.isFinite(p[side].pace.rush_att));
   }
   assert.ok(Math.abs(p.total - (p.home.points + p.away.points)) < 1e-9);
   assert.ok(Math.abs(p.margin - (p.home.points - p.away.points)) < 1e-9);
@@ -125,28 +125,24 @@ test('bucket sd comes from the |spread| bucket and widens with the synthetic tru
 
 test('cutoff-safe: rows at or after the cutoff never change the fitted params', () => {
   const before = JSON.stringify(gs.scoreModelAt(2023, 2).buckets);
-  gs.clearGameScriptCache();
+  gs.clearScoreModelCache();
   db.prepare(`INSERT INTO game_lines (season, week, team, opponent, home, spread, total, implied_points, source, team_score, opp_score)
     VALUES (2023, 2, 'T05', 'T06', 1, -1, 40, 20.5, 'nflverse', 99, 0)`).run();
   const after = JSON.stringify(gs.scoreModelAt(2023, 2).buckets);
   assert.equal(after, before);
 });
 
-test('gameFor reads the line both ways; fallback to power rating; null when nothing', () => {
+test('gameFor reads the line both ways; null without a line', () => {
   const g = gs.gameFor(2023, 1, 'T01');
   assert.equal(g.home, 'T00');
   assert.equal(g.away, 'T01');
   assert.equal(g.home_spread, -3.5);
   assert.equal(g.total, 47.5);
   assert.equal(g.source, 'line');
-  // No line but both teams rated: spread from the rating gap plus home field.
+  // A rated game with no line stays null: the power-rating fallback was dropped.
   db.prepare(`INSERT INTO nfl_external_ratings (source, season, week, team, rating, fetched_at) VALUES
     ('espn_fpi', 2023, 3, 'T10', 5, '2023-09-20'), ('espn_fpi', 2023, 3, 'T11', -1, '2023-09-20')`).run();
-  const f = gs.gameFor(2023, 3, 'T10', { opponent: 'T11', home: true });
-  assert.equal(f.source, 'power_rating');
-  assert.ok(f.home_spread < -6, `rating gap 6 plus home field should favour T10 by >6, got ${f.home_spread}`);
-  assert.ok(f.total > 30 && f.total < 60);
-  assert.equal(gs.gameFor(2023, 3, 'T20', { opponent: 'T21', home: true }), null);
+  assert.equal(gs.gameFor(2023, 3, 'T10'), null);
 });
 
 test('copula: the bucket rho reaches the draws; quarters depend on the key', () => {
@@ -165,4 +161,62 @@ test('copula: the bucket rho reaches the draws; quarters depend on the key', () 
   const a = gs.sampleGameScript(GAME, keyedSeed('q', 1), params), b = gs.sampleGameScript(GAME, keyedSeed('q', 2), params);
   const frac = p => p.home.quarters.map(q => +(q / p.home.points).toFixed(6));
   assert.notDeepEqual(frac(a), frac(b));
+});
+
+test('draw spread: 20k home and away draws have the bucket sd and the Gamma 10%/90% quantiles', () => {
+  const params = gs.scoreModelAt(2023, 1);
+  const b = params.buckets['3to7'];
+  const N = 20000, h = [], a = [];
+  for (let i = 0; i < N; i++) {
+    const p = gs.sampleGameScript(GAME, keyedSeed('sd-check', i), params);
+    h.push(p.home.points); a.push(p.away.points);
+  }
+  const sd = x => { const m = x.reduce((s, y) => s + y, 0) / x.length; return Math.sqrt(x.reduce((s, y) => s + (y - m) ** 2, 0) / (x.length - 1)); };
+  assert.ok(Math.abs(sd(h) - b.sd) < 0.2, `home draw sd ${sd(h)} vs bucket ${b.sd}`);
+  assert.ok(Math.abs(sd(a) - b.sd) < 0.2, `away draw sd ${sd(a)} vs bucket ${b.sd}`);
+  const q = (x, u) => [...x].sort((m, n) => m - n)[Math.floor(u * x.length)];
+  const dh = gs.teamPointsDistribution(25.5, -3.5, params);
+  for (const u of [0.1, 0.9]) assert.ok(Math.abs(q(h, u) - dh.quantile(u)) < 0.4, `home q${u} ${q(h, u)} vs ${dh.quantile(u)}`);
+});
+
+test('win probability after quarters 1-3 follows the Brownian margin model on the drawn quarters', () => {
+  const params = gs.scoreModelAt(2023, 1);
+  const sigma = params.buckets['3to7'].margin_sd, mu = 3.5;
+  for (const k of [1, 2, 3]) {
+    const p = gs.sampleGameScript(GAME, keyedSeed('wp', k), params);
+    let mh = 0;
+    for (let q = 0; q < 3; q++) {
+      mh += p.home.quarters[q] - p.away.quarters[q];
+      const rest = 1 - (q + 1) / 4;
+      const want = normalCdf((mh + mu * rest) / (sigma * Math.sqrt(rest)));
+      assert.ok(Math.abs(p.win_prob_home[q + 1] - want) < 1e-9, `key ${k} q${q + 1}: ${p.win_prob_home[q + 1]} vs ${want}`);
+    }
+  }
+});
+
+test('home and away quarter splits use separate keyed streams', () => {
+  const params = gs.scoreModelAt(2023, 1);
+  const frac = s => s.quarters.map(v => v / s.points);
+  const hf = [], af = [];
+  for (let i = 0; i < 2000; i++) {
+    const p = gs.sampleGameScript(GAME, keyedSeed('qstream', i), params);
+    if (i < 5) assert.notDeepEqual(frac(p.home).map(v => +v.toFixed(6)), frac(p.away).map(v => +v.toFixed(6)));
+    hf.push(frac(p.home)[0]); af.push(frac(p.away)[0]);
+  }
+  const m = x => x.reduce((s, y) => s + y, 0) / x.length;
+  const mh = m(hf), ma = m(af);
+  let sxy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < hf.length; i++) { sxy += (hf[i] - mh) * (af[i] - ma); sxx += (hf[i] - mh) ** 2; syy += (af[i] - ma) ** 2; }
+  assert.ok(Math.abs(sxy / Math.sqrt(sxx * syy)) < 0.15, `Q1 share correlation ${sxy / Math.sqrt(sxx * syy)} should be near 0`);
+});
+
+test('study code stays out of production: nothing in server/ or client/ imports the sampler', async () => {
+  const { execFileSync } = await import('node:child_process');
+  let out = '';
+  try {
+    out = execFileSync('git', ['grep', '-l', 'game-script-sampler', '--', 'server', 'client'], { encoding: 'utf8' });
+  } catch (e) {
+    if (e.status !== 1) throw e;            // git grep exits 1 on no match
+  }
+  assert.equal(out.trim(), '');
 });

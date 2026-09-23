@@ -110,34 +110,30 @@ Here it is **not applicable**, and this is stated, not skipped.
 
 ## 4. What it does
 
-All of these live in `server/services/gamescript.js`. There is no new table, column or
-store.
+**Re-review change (section 10):** because the unit is declined, the sampler is study code.
+It moved out of `server/services/gamescript.js` into `scripts/proj03a/game-script-sampler.mjs`.
+`server/services/gamescript.js` is identical to origin/main. There is no new table,
+column or store.
 
 - `scoreModelAt(season, week)` fits in memory, per |spread| bucket: n, team-points sd,
-  margin sd and residual rho. It also fits a pooled sd, the market's mean home edge, the
-  mean total, and pace OLS (team attempts ~ realized margin + total). It trains on scored
-  `game_lines` home rows from 2021 to just before the cutoff. It is cached per cutoff and
-  cleared by `clearGameScriptCache`.
+  margin sd and residual rho, plus a pooled sd. It trains on scored `game_lines` home rows
+  from 2021 to just before the cutoff. It is cached per cutoff and cleared by
+  `clearScoreModelCache`.
 - `sampleGameScript(game, key, params)` draws one path from a `keyedSeed` key:
   - both finals and the margin;
-  - 4 quarters per side (a Dirichlet split with an exact sum);
-  - pace for each side;
+  - 4 quarters per side (a Dirichlet split with an exact sum), each side on its own
+    keyed stream;
   - `win_prob_home` at kickoff and after Q1, Q2, Q3, then the final result.
 
   The same key always gives the same path, so every player in the game can share it.
-- `gameFor(season, week, team, {opponent, home})` builds the game from the line first:
-  closing, else current (which covers ESPN look-ahead rows). If there is no line, it
-  uses a power-rating spread from `nfl_external_ratings`: `espn_fpi`, else
-  `teamrankings_predictive`, latest week <= the requested week. The spread is the home
-  rating minus the away rating plus the market's mean home edge before the cutoff. It
-  returns null when neither a line nor ratings exist.
+- `gameFor(season, week, team)` builds the game from the line: closing, else current
+  (which covers ESPN look-ahead rows). Null without a line.
 - `teamPointsDistribution`, `spreadBucket`, `gammaQuantile` and `regularizedGammaP` serve
   the calibration script `scripts/proj03a-calibration.mjs`.
 
-Readers today: that script and the test. No route, job or page reads the sampler yet.
-The later engine unit registers it as the `engine_state` game-path producer. Because the
-pre-registered test was declined, that registration must not happen with the model as
-it stands (section 6).
+Readers: that script and the test only. No route, job or page reads the sampler, and
+test 11 fails if anything in `server/` or `client/` imports it. The engine must not
+register it as the `engine_state` game-path producer (section 7).
 
 ## 5. Mutation sweep
 
@@ -230,7 +226,8 @@ registers any game-path producer.
 Holdout looks:
 - **2025:** not scored. 2025 rows enter only as training data for the 2026 forward fit.
   No 2025 outcome was graded, so there is no `L` row.
-- **2026:** the forward check is ledger row F007.
+- **2026:** the forward check is ledger row F017 (first committed as F007, which collided
+  with HX-01's F007 on origin/main; F016 is taken on an open branch).
 
 ## 8. Known defects
 
@@ -239,20 +236,18 @@ Holdout looks:
    script), and there are 3 more in `server/betting`. Consolidating them in
    `stats-util.js` is a follow-up. It was not done here because `stats-util.js` is
    read-only for this unit.
-3. The power-rating fallback uses the market's mean home edge (a data value, not a
-   constant) and the mean pre-cutoff total. Its calibration is not measured (**guess**
-   that it is usable). The only 2026 FPI weeks are 1-3.
-4. Pace is OLS on realized margin and total. It is shared across buckets and is not
-   graded here.
+3. (Fixed in re-review) The power-rating fallback and pace were removed; see section 10.
+4. The sampler is study code under `scripts/`, so it has private copies of Lanczos
+   `logGamma` and of the one-line implied-points formula (`gamescript.js:31`).
 5. `weeklyClusterBootstrap` is reused for the CRPS CI. It rounds the interval to 3 dp.
 
 ## 9. Nick's five questions
 
-1. **Well built?** It is a pure function in the existing file with no side store. It has
-   7 tests, and 10 of 10 non-equivalent unit mutants are killed. One call-site mutant
-   survives (defect 1).
+1. **Well built?** It is study code under `scripts/` with no side store and no production
+   reader. It has 11 tests. The re-review's surviving mutants are now killed (section 10).
+   One call-site mutant survives (defect 1).
 2. **Stats or made up?** Stats. All params are fitted from `game_lines` scores at a
-   cutoff. The one guess is that the rating fallback is usable (defect 3).
+   cutoff. The rating fallback, the one guess, was removed.
 3. **How do we know?** Through a pre-registered walk-forward test on 2023 and 2024 plus a
    2026 forward check. It failed, and that is why it is declined.
 4. **Pointed elsewhere?** No consumer reads it yet. Nothing on screen changes.
@@ -263,3 +258,45 @@ Holdout looks:
 
 Decision grading (rule d): not applicable. This unit feeds no start/sit, waiver or trade
 call.
+
+## 10. Re-review fixes (2026-09-23)
+
+Skeptic findings and what changed. Tree: this commit, merged with origin/main 309877ef.
+
+1. **Ledger id collision.** origin/main already has an HX-01 `F007`. The row is now
+   `F017`. `grep -c '^| F007' docs/evidence/HOLDOUT-LEDGER.md` = 1 (HX-01 only) and
+   `grep -c '^| F017'` = 1. F016 was skipped because
+   `origin/claude/local-rl-8-2b-trade-split-fresh-test` already adds one (loop of
+   `git show <branch>:docs/evidence/HOLDOUT-LEDGER.md | grep '^| F016'` over `git branch -r`).
+2. **No consumer / study code in a production module.** The sampler moved to
+   `scripts/proj03a/game-script-sampler.mjs`. `git diff origin/main -- server/services/gamescript.js`
+   is empty. The new test 11 (`git grep -l game-script-sampler -- server client` must be
+   empty) is live: adding a commented import line to gamescript.js made it fail
+   (`not ok 11`), then the file was restored.
+3. **Second pace producer.** Pace was removed from the sampler. The canonical producer of
+   expected attempts stays `gameScriptFor` (`server/services/gamescript.js`, fit by
+   `fitGameScript`, table `gamescript_model`). The skeptic's disagreement (2024 wk 10:
+   existing pass_mult BAL 1.101 > ARI 1.017 > CAR 0.962 > CHI 0.95, sampler pass_att
+   CAR > ARI > BAL > CHI) is gone because the second producer is gone. Follow-up for a
+   future engine unit: any game path must read pace from `gameScriptFor`, not refit it.
+4. **Unmeasured power-rating spread producer.** Dropped. `gameFor` returns null without a
+   line; test 6 now asserts a rated game with no line stays null.
+5. **Test liveness.** Three tests added. The skeptic's mutants, run against the new
+   module (sed, run the test file, restore):
+
+| Mutant | Result |
+|---|---|
+| home draw uses `1.5 * b.sd` | killed (test 8: draw sd and 10%/90% quantiles vs the bucket Gamma) |
+| win-prob loop drops `Math.sqrt(rest)` | killed (test 9: Q1-Q3 win prob recomputed by hand for 3 keys) |
+| away quarters reuse the home stream (base 20 -> 10) | killed (test 10: home/away fractions differ; Q1-share correlation near 0) |
+| pace for the home side uses `-margin` | not applicable: pace removed |
+
+   Each line printed `# pass 10 # fail 1`. The unmutated file prints `# pass 11 # fail 0`.
+   The earlier "10/10 killed" figure used a scratchpad harness not in the repo, and the
+   re-review showed it did not cover the contract items named above.
+6. **Calibration numbers (section 6) still hold.** They were not re-run (the DB copy was
+   deleted). `scoreModelAt`'s bucket fit, `teamPointsDistribution`, `gammaQuantile` and
+   `regularizedGammaP` are unchanged by the move: a `git diff --no-index` of the old
+   gamescript.js block against the new module shows only comment lines touching them.
+   The removed fields (pace, home_edge, mean_total) were not read by the calibration script.
+

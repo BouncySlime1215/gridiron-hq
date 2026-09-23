@@ -63,6 +63,7 @@ import { rosterLocks, lockPins } from './lineup-lock.js';
 import { seasonEndingEspnIds } from './player-availability.js';
 import { buildPlayerWeekEngine, playerWeekDistribution } from './player-week-engine.js';
 import { weeklyAvailability, availabilityBasis } from './contingency.js';
+import { activeInjuryFlagIds } from './injury-flags.js';
 import { cached, fingerprint } from './compute-cache.js';
 import { activeWeeklyWeightSet } from './weekly-weight-store.js';
 import { scoringFor } from './scoring.js';
@@ -233,7 +234,9 @@ export const ASSET_INPUT_TABLES = [
   // A trending re-sync upserts in place (ON CONFLICT DO UPDATE), so the row count
   // alone never saw it; fetched_at is rewritten on every sync.
   { table: 'trending_players', stamp: 'fetched_at' },
-  'player_metrics', 'schedule_games',
+  // The Sleeper sync clears an injury flag with an UPDATE (RL-12-2), so the row count
+  // never moves; every player_metrics writer re-stamps fetched_at.
+  { table: 'player_metrics', stamp: 'fetched_at' }, 'schedule_games',
   // Not read by buildAssetUniverse, but by lineupSpread inside findTrades, whose cache
   // keys on this list. A refit rewrites fitted_at on the same 20-odd rows.
   { table: 'correlation_estimates', stamp: 'fitted_at' }
@@ -283,7 +286,13 @@ function servedInputsDigest(season, week) {
 const assetInputsKey = (lg, formatKey, target) =>
   `${lg.id}:${formatKey}:${target.season}:${target.week}:` +
   `w${activeWeeklyWeightSet({ season: target.season, week: target.week }).id}:` +
-  `d${servedInputsDigest(target.season, target.week)}:h${handFedKey(handFedInputs())}`;
+  `d${servedInputsDigest(target.season, target.week)}:h${handFedKey(handFedInputs())}:` +
+  `i${injuryFlagKey()}`;
+
+// A flag goes stale by the clock alone (injury-flags.js), with no table write, so the
+// active set itself is part of the key (RL-12-2).
+const injuryFlagKey = () => crypto.createHash('sha1')
+  .update([...activeInjuryFlagIds()].sort((a, b) => a - b).join(',')).digest('hex').slice(0, 12);
 
 export function assetUniverse(lg, formatKey, requested = null) {
   const target = requested ?? tradeWeekContext();
@@ -338,8 +347,7 @@ function buildAssetUniverse(lg, formatKey, target) {
   const ageByPlayer = new Map(rows(`SELECT p.id, rp.age FROM players p
                                     JOIN roster_players rp ON rp.espn_id = p.espn_id
                                     WHERE rp.age IS NOT NULL`).map(x => [x.id, x.age]));
-  const injured = new Set(rows(`SELECT player_id FROM player_metrics WHERE source='injury_flag' AND value > 0`)
-    .map(x => x.player_id));
+  const injured = activeInjuryFlagIds();
   // Same season-ending/released detection the X's&O's depth chart uses — without
   // this, a player out for the year keeps getting picked as the optimal starter
   // here even after the roster page correctly benches him.
@@ -1631,7 +1639,7 @@ export function myPlayoffOdds(lg, myTeamId = null, print = null) {
       // throw — a silent 0.5 would hide it, which is how this number got lost in
       // the first place.
       const sim = withRandomSeed(HORIZON_SIM_SEED, () => simulateSeason(lg, {
-        runs: HORIZON_SIM_RUNS, fromWeek: start, scoring: scoringFor(lg)
+        runs: HORIZON_SIM_RUNS, scoring: scoringFor(lg) // start week: simStartWeek(lg) inside, same as `start`
       }));
       if (sim?.error) return prior(`the season simulation could not run (${sim.error})`);
       const mine = sim.teams?.find(t => String(t.roster_id) === rosterId);

@@ -204,7 +204,7 @@ function cacheBreakpoints({ system, messages, tools }) {
  */
 export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001', maxTokens = 1024, prompt, messages,
   tools = undefined, toolChoice = undefined, system = GROUNDING_SYSTEM, temperature = null,
-  cacheSystem = false, cachedPrefix = undefined, cacheTtl = '5m' }) {
+  cacheSystem = false, cachedPrefix = undefined, cacheTtl = '5m', effort = undefined }) {
   const key = getApiKey();
   if (!key) {
     const err = new Error('No Anthropic API key configured — add one in the Dev Hub (top right) to enable AI features.');
@@ -231,7 +231,10 @@ export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001',
     // `prompt` string and gets the original one-turn behavior.
     messages: cachedPrefix != null ? withCachedPrefix(baseMessages, cachedPrefix, cacheTtl) : baseMessages,
     ...(tools?.length ? { tools } : {}),
-    ...(toolChoice ? { tool_choice: toolChoice } : {})
+    ...(toolChoice ? { tool_choice: toolChoice } : {}),
+    // Thinking models spend max_tokens on thinking first; `effort` (low..max)
+    // is how a caller bounds that, instead of a bigger cap alone.
+    ...(effort ? { output_config: { effort } } : {})
   };
   const breakpoints = cacheBreakpoints(request);
   if (breakpoints > MAX_CACHE_BREAKPOINTS) {

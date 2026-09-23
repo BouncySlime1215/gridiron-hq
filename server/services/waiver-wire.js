@@ -36,6 +36,8 @@ import { availabilityDegradation, roleStates, weekDesignation } from './continge
 // The league's wire, one producer shared with the trade engine's lineup value
 // (RL-9-3), keyed by the ESPN-id-first resolver (RL-6-4).
 import { rosteredAssetIds, unrosteredSkill, onNflTeam } from './league-wire.js';
+// The one producer of "this player carries the Sleeper injury flag" (RL-12-2).
+import { activeInjuryFlagIds } from './injury-flags.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
@@ -444,8 +446,15 @@ export function nextWaiverRun(payload, now = new Date()) {
  * the same player's 'sleeper_rank' row in one pass. The writer sets the flag and never
  * clears it, so a flag older than that player's latest rank row is left over from an
  * earlier sync and does not count.
+ *
+ * Whether a flag counts at all is the one producer's call (services/injury-flags.js
+ * #activeInjuryFlagIds, RL-12-2: cleared flags and stale flags on players who have
+ * played since are off); the same-sync rank-row check above is kept on top of it.
  */
 function currentFeedFlags(ids) {
+  if (!ids.length) return new Set();
+  const active = activeInjuryFlagIds();
+  ids = ids.filter(id => active.has(id));
   if (!ids.length) return new Set();
   const marks = ids.map(() => '?').join(',');
   return new Set(rows(`SELECT f.player_id FROM player_metrics f

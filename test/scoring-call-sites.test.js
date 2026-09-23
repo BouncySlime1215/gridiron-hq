@@ -49,7 +49,10 @@ mock.module('../server/services/season-sim.js', {
     // model.js also imports simStartWeek (B-01, #162); the start week is not
     // what this file checks, so an explicit week wins and the default is 1.
     simStartWeek: (_lg, requested = null) => (Number.isInteger(Number(requested)) && Number(requested) >= 1 ? Number(requested) : 1),
-    tradeImpact: (_lg, opts = {}) => { seen.push({ at: 'tradeImpact', scoring: opts.scoring }); return { ok: true }; }
+    tradeImpact: (_lg, opts = {}) => { seen.push({ at: 'tradeImpact', scoring: opts.scoring }); return { ok: true }; },
+    // model.js also imports the trade-impact default run count (RL-6-3); its value is
+    // not what this file checks. Same number as season-sim.js (SENSE_CHECK_SIM_RUNS).
+    TRADE_IMPACT_RUNS: 1200
   }
 });
 mock.module('../server/services/player-week-engine.js', {

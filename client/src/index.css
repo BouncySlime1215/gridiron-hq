@@ -236,7 +236,7 @@ a.border-slate-800, a.border-slate-900 { border-color: var(--accent) !important;
   to   { opacity: 1; transform: none; }
 }
 .tr-rise {
-  animation: tr-rise 420ms cubic-bezier(.22, 1, .36, 1) both;
+  animation: tr-rise var(--motion-settle, 420ms) var(--ease-out, cubic-bezier(.22, 1, .36, 1)) both;
 }
 @media (prefers-reduced-motion: reduce) {
   .tr-rise { animation: none; }
@@ -256,8 +256,61 @@ a.border-slate-800, a.border-slate-900 { border-color: var(--accent) !important;
   to   { background-color: transparent; }
 }
 .just-updated {
-  animation: evidence-flash 1.6s ease-out;
+  animation: evidence-flash var(--motion-decay, 1600ms) ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
   .just-updated { animation: none; }
 }
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * DESIGN SYSTEM — docs/design/design-system.md
+ *
+ * Additive. Every token above keeps its meaning; this fills the gaps that
+ * document names. The colour system, the semantic good/warn/crit separation,
+ * the position colours and the two existing animations are NOT re-decided
+ * here — `.tr-rise` and `.just-updated` simply move onto the motion tokens
+ * below so their durations stop being magic numbers.
+ * ────────────────────────────────────────────────────────────────────────── */
+:root {
+  /* Type. The fallback stack is the app's previous font-family verbatim, so a
+     blocked or slow Google Fonts request degrades to exactly what shipped
+     before rather than to a serif. */
+  --font-body: 'Archivo', -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+  --font-display: var(--font-body);
+  --font-mono: 'Spline Sans Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --type-hero: 44px;  --type-hero-lh: 1.02;
+  --type-stat: 30px;  --type-stat-lh: 1.08;
+  --type-title: 21px; --type-title-lh: 1.2;
+  --type-lead: 17px;  --type-lead-lh: 1.5;
+  --type-body: 15px;  --type-body-lh: 1.6;
+  --type-note: 13px;  --type-note-lh: 1.5;
+  --type-label: 11px; --type-label-lh: 1.4;
+
+  /* Where a number came from. NOT semantic colours: a pooled number is not a
+     problem with the manager's team, it is a differently sourced number, so
+     this ramp never borrows --good/--warn/--crit. --basis-none sits near
+     --danger on purpose; "nothing modelled this" is the tier that most needs
+     to be noticed and a neutral would bury it. */
+  --basis-measured: #0d6b4d;
+  --basis-fitted:   #2f6a8f;
+  --basis-pooled:   #6b5aa6;
+  --basis-assumed:  #9a6408;
+  --basis-none:     #8d2f27;
+  --basis-missing:  #5c6461;
+
+  /* Motion. --motion-base and --ease-out are the values .card and .tr-rise
+     already use, promoted to tokens rather than changed. */
+  --motion-quick:  120ms;
+  --motion-base:   180ms;
+  --motion-reveal: 260ms;
+  --motion-settle: 420ms;
+  --motion-decay:  1600ms;
+  --ease-out:   cubic-bezier(.22, 1, .36, 1);
+  --ease-inout: cubic-bezier(.4, 0, .2, 1);
+}
+
+body { font-family: var(--font-body); }
+
+/* Numbers line up in columns all over this app. */
+.tabular { font-variant-numeric: tabular-nums; }

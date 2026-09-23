@@ -75,7 +75,7 @@ export const VALUATION_SOURCES = Object.freeze({
   profile_roster_read: { label: 'What his negotiation profile says he over- and undervalues',
     cap: 0.10, min_n: 1, needs: 'league chat', fitted: false,
     why: 'a whole-corpus read naming specific players, not a per-message average' },
-  hype_vs_usage: { label: 'His own player is outscoring the usage that earns it',
+  outscoring_usage: { label: 'His own player is outscoring the usage that earns it',
     cap: 0.08, min_n: 2, needs: 'weekly expected points', fitted: false,
     why: 'a hot player is priced by his owner at his hot number' },
   luck_self_view: { label: 'His record is flattered (or punished) by luck',
@@ -105,6 +105,44 @@ export const VALUATION_SOURCES = Object.freeze({
 // test/valuation-map.test.js G1b can pin the per-player clamp and its ordering
 // against PERCEPTION_CAP.
 export const PLAYER_VALUATION_CAP = 0.20;
+
+/**
+ * What a manager has DONE this season, as a receptiveness term: "chance he
+ * completes a trade", NOT acceptance. The constants are the Sleeper 2021-23
+ * linear probability model of "is a side in a completed trade next week",
+ * league-week demeaned, n = 27,468 team-weeks (rnd/loop r11 package section 2a;
+ * the validator re-derived the activity-only AUC, 0.652 on 2024, on its own
+ * code). The outcome mixes proposer and responder: Sleeper keeps no proposals.
+ *
+ *   base         P(trade next week) in a league-week where someone traded
+ *   adds         per player added per week (2024 confirm: +0.0548)
+ *   traded       has already completed a trade this season (2024: +0.1231)
+ *   dead_start   a starter left in who did not play last week (2024: -0.0426)
+ *
+ * The grade of THIS function on the corpus and on 2026 is in
+ * docs/tdd/2026-09-23-activity-receptiveness.tdd.md.
+ */
+export const ACTIVITY_FIT = Object.freeze({
+  base: 0.2412, adds: 0.0686, traded: 0.1227, dead_start: -0.0264, n: 27468,
+  source: 'Sleeper 2021-23 corpus, linear probability model, league-week demeaned',
+});
+/** Weeks the adds-per-week rate must average over before it prices anything (as tx_accept_rate's five). */
+export const ACTIVITY_MIN_WEEKS = 5;
+/**
+ * DEFAULT-OFF. The pre-registered ship rule (docs/evidence/2026-09-23/
+ * activity-receptiveness-preregistration.md) needed AUC >= 0.645 on the 2024
+ * held-out corpus season for this exact function; it scored 0.644 (44% of rows
+ * sit at ACTIVITY_CAP, and the ties cost the ranking). So the activity and
+ * checked-out terms are computed and REPORTED on every manager, with what they
+ * would do, but move nothing unless GRIDIRON_RECEPTIVENESS_ACTIVITY=1 (or the
+ * caller passes `activity: true`). Read per call so a test or a run can flip it.
+ */
+export const ACTIVITY_FLAG = 'GRIDIRON_RECEPTIVENESS_ACTIVITY';
+const ACTIVITY_OFF_WHY = 'not applied (default-off: 2024 held-out AUC 0.644 missed its 0.645 bar; unconfirmed forward)';
+/** Furthest the activity term may move the 0-1 receptiveness score (the chat term's reach). */
+const ACTIVITY_CAP = 0.5;
+/** Receptiveness is lo + (hi - lo) * score, so a relative change r in propensity is r / (hi - lo) in score. */
+const SCORE_PER_RELATIVE = 1 / (RECEPTIVENESS_RANGE[1] - RECEPTIVENESS_RANGE[0]);
 
 /** Points below zero last week at which the post-loss window is fully open. */
 const POST_LOSS_FULL_MARGIN = 30;
@@ -238,7 +276,8 @@ function jevBlockFor(read, rosterId) {
  * anyway: it is choosing between these ten people, not against an abstract
  * baseline.
  */
-export function counterpartyLayer(leagueId, { season, week, rosterContext = null, zero = [] } = {}) {
+export function counterpartyLayer(leagueId, { season, week, rosterContext = null, zero = [], activity = null } = {}) {
+  const activityOn = activity ?? process.env[ACTIVITY_FLAG] === '1';
   const signals = managerSignalsFor(leagueId);
   // One block per league, shared by every manager entry and frozen for that
   // reason. `luck_self_view` is priced off this store, so its age travels with
@@ -301,6 +340,10 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
 
   const ids = [...signals.keys()];
   const jevBlocks = managerModelReads(leagueId, ids);
+  // The activity term is relative to THIS league (Nick's leagues sit inside the
+  // Sleeper range of add rates, but not at its mean), so it is centred on the
+  // league's own managers. Nick's roster is in the mean: he is in the market too.
+  const activityMean = leagueActivityMean(ids.map(id => signals.get(id)));
   const openVals = ids.map(id => signals.get(id).metrics.chat_open_to_trade);
   const talkVals = ids.map(id => signals.get(id).metrics.chat_trade_talk);
 
@@ -315,6 +358,16 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
     const openP = percentile(openVals, m.chat_open_to_trade);
     const talkP = percentile(talkVals, m.chat_trade_talk);
     let score = 0.5 + chatWeight * (0.65 * (openP - 0.5) + 0.35 * (talkP - 0.5));
+
+    // What he has done, before the observed accept-rate blend: activity is
+    // "chance he completes a trade", so an observed rate of saying yes to
+    // offers still outranks it. Both are reported; below their gates they are
+    // withheld with the reason rather than dropped.
+    const activityTerm = offUnless(activityOn,
+      zero.includes('trade_activity') ? null : activityFactor(m, s.samples, activityMean));
+    if (Number.isFinite(activityTerm?.effect)) score += activityTerm.effect;
+    const checkedOut = offUnless(activityOn, zero.includes('checked_out') ? null : checkedOutFactor(m, s.samples));
+    if (Number.isFinite(checkedOut?.effect)) score += checkedOut.effect;
 
     // Observed behaviour outranks talk. Only applied once there are enough
     // decided proposals for the rate to mean anything (the metric is withheld
@@ -417,10 +470,88 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
           .map(([k, v]) => ({ source: 'nick_prior', label: `Nick's read: ${k.slice(6)}`,
             effect: null, n: null, cap: null, fitted: false, why: `${k.slice(6)} ${v}` })),
         ...(postLoss ? [postLoss] : []),
+        ...(activityTerm ? [activityTerm] : []),
+        ...(checkedOut ? [checkedOut] : []),
       ],
     });
   }
   return profile;
+}
+
+/**
+ * A default-off term keeps its entry and says what it would have done, but
+ * its effect is null so nothing adds it and every page renders it as not
+ * scored.
+ */
+function offUnless(on, f) {
+  if (!f || on || f.effect == null) return f;
+  return { ...f, effect: null, would_effect: f.effect,
+    why: `${ACTIVITY_OFF_WHY}; would move the score ${f.effect > 0 ? '+' : ''}${f.effect.toFixed(2)}. ${f.why}` };
+}
+
+/** League means of the two activity inputs, over the managers who have them. */
+function leagueActivityMean(list) {
+  const have = list.filter(s => Number.isFinite(s?.metrics?.tx_adds_per_week));
+  if (!have.length) return null;
+  return {
+    adds: have.reduce((a, s) => a + s.metrics.tx_adds_per_week, 0) / have.length,
+    traded: have.reduce((a, s) => a + (s.metrics.tx_completed_trades > 0 ? 1 : 0), 0) / have.length,
+    managers: have.length,
+  };
+}
+
+/**
+ * The activity term: players added per week and whether he has completed a
+ * trade, against the league's own mean, as a relative change in the chance he
+ * completes a trade (ACTIVITY_FIT), moved into score units so that
+ * receptiveness moves by that relative change, capped at ACTIVITY_CAP.
+ * Returns null when there is no activity data; a withheld entry (effect null,
+ * with the reason) under ACTIVITY_MIN_WEEKS.
+ */
+// TEST SEAM: exported so scripts/rnd/grade-activity-receptiveness.mjs grades
+// exactly this function on the corpus; its production reader is counterpartyLayer.
+export function activityFactor(metrics, samples, mean) {
+  const rate = metrics?.tx_adds_per_week;
+  if (!Number.isFinite(rate) || !mean) return null;
+  const weeks = samples?.tx_adds_per_week ?? 0;
+  const traded = metrics.tx_completed_trades > 0 ? 1 : 0;
+  const label = 'How active he is (chance he completes a trade)';
+  const facts = `${rate.toFixed(2)} pickups a week over ${weeks} week${weeks === 1 ? '' : 's'} `
+    + `(league ${mean.adds.toFixed(2)}), ${traded ? 'has' : 'has not'} completed a trade this season`;
+  if (weeks < ACTIVITY_MIN_WEEKS) {
+    return { source: 'trade_activity', label, effect: null, n: weeks, cap: ACTIVITY_CAP, fitted: true,
+      why: `withheld until ${ACTIVITY_MIN_WEEKS} weeks of pickups: ${weeks} of ${ACTIVITY_MIN_WEEKS} weeks so far; ${facts}` };
+  }
+  const relative = (ACTIVITY_FIT.adds * (rate - mean.adds) + ACTIVITY_FIT.traded * (traded - mean.traded))
+    / ACTIVITY_FIT.base;
+  const effect = Math.max(-ACTIVITY_CAP, Math.min(ACTIVITY_CAP, relative * SCORE_PER_RELATIVE));
+  return { source: 'trade_activity', label, effect: +effect.toFixed(4), n: weeks, cap: ACTIVITY_CAP, fitted: true,
+    why: `${facts}; busy managers complete trades about 3x as often as idle ones (not the same as saying yes to you)` };
+}
+
+/**
+ * "Checked out": last week he started someone who did not play. A flag, not a
+ * scale — the corpus coefficient is for one or more dead starts. When the
+ * signal layer could not tell (starters scored zero, but there is no snap data
+ * for that week) the entry is withheld with that reason; when he had no dead
+ * start, or there is no final lineup, there is nothing to report.
+ */
+// TEST SEAM: exported for the corpus grade script, like activityFactor.
+export function checkedOutFactor(metrics, samples) {
+  const label = 'Checked out (left a starter in who did not play)';
+  const dead = metrics?.lineup_dead_starts_last_week;
+  if (!Number.isFinite(dead)) {
+    const zero = metrics?.lineup_zero_point_starters_last_week;
+    return zero > 0 ? { source: 'checked_out', label, effect: null,
+      n: samples?.lineup_zero_point_starters_last_week ?? 0, cap: null, fitted: true,
+      why: `${zero} starter${zero === 1 ? '' : 's'} scored 0 last week; whether they played is unknown (no snap data for that week)` }
+      : null;
+  }
+  if (dead < 1) return null;
+  const effect = (ACTIVITY_FIT.dead_start / ACTIVITY_FIT.base) * SCORE_PER_RELATIVE;
+  return { source: 'checked_out', label, effect: +effect.toFixed(4), n: samples?.lineup_dead_starts_last_week ?? 0,
+    cap: null, fitted: true,
+    why: `${dead} starter${dead === 1 ? '' : 's'} last week did not play; teams like that complete about 11% fewer trades` };
 }
 
 /**
@@ -530,7 +661,7 @@ export function perceivedValue(players, managerProfile, { zero = [] } = {}) {
  *      the crossed read wins wherever it exists, because raw sentiment has the
  *      wrong SIGN for the case that costs real money (a manager talking up a
  *      player he is quietly shopping).
- *   2. `hype_vs_usage` fires ONLY where there is no talk read, because the
+ *   2. `outscoring_usage` fires ONLY where there is no talk read, because the
  *      expectation gap is already the discriminator inside that read.
  *   3. `praise_means` from the negotiation profile is not its own factor; it
  *      modifies the talk read it is evidence about (a manager the model says
@@ -626,9 +757,9 @@ export function playerValuation(managerProfile, player, { zero = [] } = {}) {
   if (owns && !read) {
     const gap = managerProfile?.gaps?.get(key) ?? null;
     if (gap) {
-      const cap = VALUATION_SOURCES.hype_vs_usage.cap;
+      const cap = VALUATION_SOURCES.outscoring_usage.cap;
       const strength = Math.max(-1, Math.min(1, gap.gap_per_game / HOT_GAP_PER_GAME));
-      add('hype_vs_usage', cap * strength, gap.games,
+      add('outscoring_usage', cap * strength, gap.games,
         `${gap.gap_per_game > 0 ? '+' : ''}${gap.gap_per_game}/game against what his usage earns `
         + `over ${gap.games} games — his own number for his own player. `
         + '(Actual vs expected points from usage; NOT the trade-price hype in services/hype.js#playerHype '

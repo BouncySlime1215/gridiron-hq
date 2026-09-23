@@ -149,3 +149,40 @@ export function windowDecision({ window, seasons, s02Pass, forward }) {
       : 'the lift stays off: it failed its pre-registered rule in 2025 (S-02) and did not pass in every walk-forward season'
   };
 }
+
+/**
+ * The promotion a committed S-03 walk-forward output clears, for one stored fit
+ * (scripts/promote-fantasy-coordinator-fit.mjs). `fitRow` is `{ id, through_season, target }`
+ * of the row to promote. Refuses when the output is not S-03's --walk-forward, names another
+ * fit or cutoff, the fit is not the structural-residual fit arm S1 is built from, a window's
+ * decision is missing, or no window is on.
+ */
+export function promotionFromEvidence(report, fitRow) {
+  if (report?.unit !== 'S-03') throw new Error(`the evidence is ${report?.unit ?? 'unlabelled'}'s output, not S-03's`);
+  if (report.mode !== '--walk-forward') throw new Error(`the evidence is a ${report.mode} run, not the pre-registered --walk-forward grade`);
+  const cleared = report.forward?.fit;
+  if (cleared?.id !== fitRow.id) throw new Error(`the evidence's forward check cleared fit ${cleared?.id}, not fit ${fitRow.id}`);
+  if (cleared.through_season !== fitRow.through_season) {
+    throw new Error(`the evidence cleared a fit through ${cleared.through_season}, this row is through ${fitRow.through_season}`);
+  }
+  if (fitRow.target !== 'structural') throw new Error(`arm S1 is the structural-residual fit; this row's target is ${fitRow.target}`);
+  const windows = {};
+  for (const w of Object.keys(BOTH_ON)) {
+    const d = report.decisions?.[w];
+    if (!d) throw new Error(`the evidence has no decision for weeks ${w}`);
+    windows[w] = d.coordinator === 'S1' && d.status === 'on' ? 'on' : 'off';
+  }
+  if (!Object.values(windows).includes('on')) throw new Error('the evidence turns the coordinator on in no window: nothing to promote');
+  return { windows };
+}
+
+/** The stored fit against a refit of the same examples with today's engine: identical coefficients, or refuse. */
+export function refitReproduces(stored, refit, tolerance = 1e-9) {
+  const a = stored?.coefficients ?? [], b = refit?.coefficients ?? [];
+  const diff = a.length === b.length && a.length ? Math.max(...a.map((v, i) => Math.abs(v - b[i]))) : Infinity;
+  if (!(diff <= tolerance)) {
+    throw new Error(`the stored fit does not reproduce from this database with the current engine (max coefficient difference ${diff}); ` +
+      'refit it and grade the refit before promoting');
+  }
+  return { max_abs_coefficient_diff: diff };
+}

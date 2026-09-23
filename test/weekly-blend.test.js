@@ -91,8 +91,8 @@ test('the fallbacks are decided once and labelled', () => {
   assert.deepEqual(blendWeekPoints({ ...X, espn: Number.NaN }, half), { ppg: 10, basis: 'no_espn_value', weight_ours: 1, espn: null });
   assert.deepEqual(blendWeekPoints({ ...X, position: 'K' }, half), { ppg: 10, basis: 'ours_position_not_graded', weight_ours: 1, espn: 16 });
   assert.deepEqual(blendWeekPoints({ ...X, position: 'DEF' }, half).basis, 'ours_position_not_graded');
-  // A bye is 0 whatever ESPN says.
-  assert.deepEqual(blendWeekPoints({ ...X, bye: true }, half), { ppg: 0, basis: 'bye', weight_ours: null, espn: 16 });
+  // No game this week (a bye, or no team) is 0 whatever ESPN says, labelled no_game.
+  assert.deepEqual(blendWeekPoints({ ...X, bye: true }, half), { ppg: 0, basis: 'no_game', weight_ours: null, espn: 16 });
   assert.deepEqual(blendWeekPoints(X, { candidate: 'ours' }), { ppg: 10, basis: 'ours', weight_ours: 1, espn: 16 });
   assert.throws(() => blendWeekPoints(X, { candidate: 'nope' }), /unknown blend candidate/);
   assert.throws(() => blendWeekPoints({ ...X, ours: Number.NaN }, half), /finite number of ours/);
@@ -112,7 +112,7 @@ test('late news: the news candidate and the layer take ESPN only when the trigge
 test('the served switch: off serves ours, labelled; on serves the recorded candidate', () => {
   const off = { on: false, candidate: 'half', params: null, news_layer: false, verdict: 'unconfirmed forward' };
   assert.deepEqual(servedWeekBlend(X, off), { ppg: 10, basis: 'blend_off', weight_ours: 1, espn: 16 });
-  assert.deepEqual(servedWeekBlend({ ...X, bye: true }, off), { ppg: 0, basis: 'bye', weight_ours: null, espn: 16 });
+  assert.deepEqual(servedWeekBlend({ ...X, bye: true }, off), { ppg: 0, basis: 'no_game', weight_ours: null, espn: 16 });
   const on = { on: true, candidate: 'half', params: null, news_layer: false, verdict: 'shipped' };
   assert.equal(servedWeekBlend(X, on).ppg, 13);
   assert.equal(servedWeekBlend({ ...X, espn: null }, on).basis, 'no_espn_value');
@@ -167,4 +167,17 @@ test('ESPN\'s number: this league and identically scored leagues, current period
   assert.deepEqual([...std.values.entries()], [['400', 11]]);
   const ctx = weekBlendContext(espn, { on: false, candidate: 'ours', verdict: 'declined', evidence: 'x' });
   assert.deepEqual(ctx.espn, { state: 'present', rows: 5, players: 2, conflicting: 1, leagues: 2, captured_at: '2026-09-22T22:55:00Z' });
+});
+
+test('SERVED_BLEND is the committed tournament decision, not a hand-set switch', () => {
+  const out = JSON.parse(fs.readFileSync(new URL('../docs/evidence/2026-09-22/weekly-blend-tournament-output.json', import.meta.url), 'utf8'));
+  const d = out.decision;
+  assert.equal(SERVED_BLEND.on, d.on);
+  assert.equal(SERVED_BLEND.candidate, d.winner);
+  assert.equal(SERVED_BLEND.news_layer, d.news_layer);
+  assert.equal(SERVED_BLEND.verdict, d.verdict);
+  assert.deepEqual(SERVED_BLEND.params, d.served_params);
+  // The pre-registered rule was applied to the grade the evidence records.
+  assert.equal(out.prereg.path, 'docs/evidence/2026-09-22/weekly-blend-tournament-preregistration.md');
+  assert.equal(out.selection.winner, d.winner);
 });

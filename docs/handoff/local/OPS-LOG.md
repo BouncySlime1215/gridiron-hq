@@ -114,3 +114,6 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 12:05Z: TM-09 #183 CLEARED (byte-identical rebuild; no 2025; aggregates only), queued. NOTE FOR NICK: Sleeper terms forbid automated extraction without written consent and allow personal non-commercial use only; the committed aggregates rest on Nick's clearance ("ignore - do it"); if the app goes commercial this table needs a Sleeper licence or removal.
 
 12:20Z: R&D r7 landed: fill-in borrowed-role edge (RL-7-1), BLEND-02 trimmed to the Vegas layer, snap loader name-join bug (S-20), glossary #75 wrong (UX-14). Plan adjusted; r8 relaunched (wjdidty79).
+
+12:35Z: Diligence batch 2 done: SS-01 dead-starter guard -> #185, SK-01 command center -> #186 (both no migration; queued). Follow-up SS-01-F1 (two dead-starter producers disagree) queued for the next loop with S-20.
+12:37Z: Loop 2 relaunched: S-20 snap loader id join + SS-01-F1 one dead-starter producer (w9wsnoehl).

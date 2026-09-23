@@ -1323,7 +1323,7 @@ export function lineupValue(team, gives, gets, slots, { wire, weeksLeft = null }
 }
 
 /**
- * What lineupValue() needs from a league: its wire (waiver-wire.js#leagueWire, the
+ * What lineupValue() needs from a league: its wire (league-wire.js#leagueWire, the
  * Waivers page's producer, less anyone on a loaded roster by id so a Sleeper
  * league or a hypothetical post-trade roster never offers a rostered player) and
  * the weeks left on this league's calendar (trade-horizon.js#horizonWeights).

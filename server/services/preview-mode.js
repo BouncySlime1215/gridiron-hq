@@ -15,7 +15,8 @@
  * Converted sites (read per call, so a test or a run can flip it):
  *   - counterparty-pricing.js#counterpartyLayer  activity + checked-out receptiveness terms
  *   - espn-zero-inactive.js#espnZeroInactive      ESPN-projects-0 inactive hook (lineup + card)
- *   - streaming-board.js#streamingBoard          D/ST swap suggestion
+ *   - streaming-board.js#streamingBoard          D/ST swap suggestion (dormant: on by default
+ *                                                since NICK-WV01, so preview never switches it)
  *   - waiver-wire.js#waiverBoard                 snap-share order for same-team replacements
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */

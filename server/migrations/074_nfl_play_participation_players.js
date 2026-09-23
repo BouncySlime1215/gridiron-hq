@@ -2,7 +2,9 @@ export const name = '074_nfl_play_participation_players';
 /**
  * PROJ-00. Additive only: one new table and one index. Nothing existing is altered.
  *
- * `nfl_play_participation_players`: one row per offense player per play, from
+ * `nfl_play_participation_players`: one row per offense player per offensive
+ * snap (kicking units and unsnapped rows are not stored; see
+ * ingestParticipationFile), from
  * nflverse `pbp_participation_<season>.csv` (`offense_players`, gsis ids joined
  * by ';'). `nfl_play_formations` reads the same file but keeps only per-play
  * counts (personnel, box, rushers), so before this nothing knew *who* was on

@@ -480,6 +480,12 @@ export function formationReport({ season = null } = {}) {
 }
 
 /** Plays for a season that came from the nflverse history load (event_id is an nflverse game_id). */
+/** Plays in `season` that ESPN polled (event_id is ESPN's numeric id, not an nflverse game_id). */
+export function espnPlays(season) {
+  return row(`SELECT COUNT(*) AS n FROM nfl_play_by_play WHERE season = ? AND event_id NOT LIKE ? ESCAPE '!'`,
+    season, `${season}!_%`)?.n ?? 0;
+}
+
 function nflversePlays(season) {
   return row(`SELECT COUNT(*) AS n FROM nfl_play_by_play WHERE season = ? AND event_id LIKE ? ESCAPE '!'`,
     season, `${season}!_%`)?.n ?? 0;

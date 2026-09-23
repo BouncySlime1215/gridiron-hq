@@ -16,6 +16,8 @@
  * Refuses (exit 2, before opening any database) without GRIDIRON_DB_PATH, with bad
  * arguments, or when the licence file (docs/evidence/2026-09-23/proj-00-licences.md,
  * or GRIDIRON_LICENCE_FILE) is missing or does not mark the source usable.
+ * pbp also refuses (exit 2, after opening the database, before writing) a season
+ * that already holds ESPN plays: one producer per game.
  * Exit 1: the load failed.
  */
 const USAGE = 'usage: GRIDIRON_DB_PATH=<db> SCHEDULER_DISABLED=1 node scripts/backfill-history.mjs '
@@ -47,6 +49,14 @@ process.env.SCHEDULER_DISABLED = process.env.SCHEDULER_DISABLED || '1';
 const { rows } = await import('../server/db/index.js');
 const started = Date.now();
 let result;
+if (kind === 'pbp') {
+  const { espnPlays } = await import('../server/services/nfl-espn-pbp.js');
+  const espn = espnPlays(seasons[0]);
+  if (espn > 0) {
+    refuse(`season ${seasons[0]} already has ${espn} ESPN play${espn === 1 ? '' : 's'} in nfl_play_by_play; `
+      + 'one producer per game, so the nflverse load does not run for it.');
+  }
+}
 try {
   if (kind === 'pbp') {
     const { ingestNflversePbpFile } = await import('../server/services/nflverse-pbp.js');

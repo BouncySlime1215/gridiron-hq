@@ -9,8 +9,9 @@
  * `event_id` is the nflverse game_id (`2023_05_LA_PHI`). It names its source,
  * so pbpStatus can report the two sources apart. It also joins directly to
  * nfl_play_formations.game_id and nfl_play_participation_players.game_id.
- * ESPN's backfillSeasons skips a season this loader filled, so a game has one
- * producer.
+ * ESPN's backfillSeasons skips a season this loader filled, and this loader
+ * refuses a season that already holds ESPN plays, so a game has one producer.
+ * Two-point tries are untyped (null) here as in classifyPlay ('two-point').
  *
  * Every published row is stored, including the ones the engine does not
  * simulate (kickoffs, extra points, timeouts, penalties). Those rows get
@@ -21,7 +22,7 @@
  * (NFLVERSE_SOURCE). See docs/evidence/2026-09-23/proj-00-licences.md.
  */
 import { db } from '../db/index.js';
-import { storePlays } from './nfl-espn-pbp.js';
+import { storePlays, espnPlays } from './nfl-espn-pbp.js';
 import { canonicalTeamCode } from './team-codes.js';
 import { csvRecords } from './csv-stream.js';
 
@@ -54,6 +55,9 @@ const team = v => { const s = str(v); return s ? canonicalTeamCode(s) : null; };
 export function classifyNflverse(rec) {
   const type = str(rec.play_type);
   if (!type || type === 'kickoff' || type === 'extra_point' || type === 'no_play') return null;
+  // ESPN parity: classifyPlay maps 'two-point' to null. nflverse marks a failed
+  // two-point pass incomplete_pass 0, so without this it would count as a completion.
+  if (flag(rec.two_point_attempt)) return null;
   if (type === 'punt') return 'punt';
   if (type === 'field_goal') return str(rec.field_goal_result) === 'made' ? 'fg_make' : 'fg_miss';
   if (type === 'qb_kneel') return 'kneel';
@@ -108,6 +112,11 @@ export function mapNflversePlay(rec) {
  * the current game is written: the file is for the wrong season.
  */
 export async function ingestNflversePbpFile(season, file) {
+  const espn = espnPlays(season);
+  if (espn > 0) {
+    throw new Error(`season ${season} already has ${espn} ESPN plays in nfl_play_by_play; `
+      + 'loading nflverse too would store those games twice (one producer per game)');
+  }
   let rowsRead = 0, stored = 0, games = 0;
   let game = null;
   const flush = () => {

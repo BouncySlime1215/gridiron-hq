@@ -1,6 +1,19 @@
 /**
  * Who was on the field: nflverse participation, one row per offense player per
- * play (PROJ-00). The table is nfl_play_participation_players (migration 074).
+ * offensive snap (PROJ-00). The table is nfl_play_participation_players
+ * (migration 074).
+ *
+ * The file lists `offense_players` for special-teams plays too (the punt,
+ * field-goal and kickoff units). Those are not offensive snaps, and PFR's
+ * offense_snaps (player_week_snaps) does not count them. So each play is judged
+ * against its nflverse row in nfl_play_by_play (loaded first by
+ * ingestNflversePbpFile, engine vocabulary from classifyNflverse):
+ *   - punt, fg_make, fg_miss: skipped (kicking unit);
+ *   - any other typed play (pass, rush, sack, kneel, ...): kept;
+ *   - untyped (NULL: kickoff, extra point, penalty no-play, two-point try):
+ *     kept only when the feed recorded an offense_formation, i.e. the ball was
+ *     snapped from scrimmage (post-snap penalty, two-point try). Kickoffs,
+ *     extra points and pre-snap penalties carry no formation.
  *
  * `ingestFormations` (nfl-formations.js) reads the same file for per-play
  * formation and personnel counts. This keeps the part it drops: the gsis ids in
@@ -35,14 +48,23 @@ function weekOf(gameId) {
   return Number.isInteger(w) && w > 0 ? w : null;
 }
 
+const KICKING = new Set(['punt', 'fg_make', 'fg_miss']);
+
 /** Load one season file (pbp_participation_<season>.csv, already downloaded). Upserts, so a re-run is safe. */
 export async function ingestParticipationFile(season, file) {
+  const pbpRows = rows(`SELECT COUNT(*) AS n FROM nfl_play_by_play WHERE season = ? AND event_id LIKE ? ESCAPE '!'`,
+    season, `${season}!_%`)[0]?.n ?? 0;
+  if (!pbpRows) {
+    throw new Error(`no nflverse plays for ${season} in nfl_play_by_play: load nflverse pbp for ${season} first `
+      + '(scripts/backfill-history.mjs pbp); participation is kept only for offensive snaps judged from it');
+  }
+  const pbpType = db.prepare('SELECT play_type FROM nfl_play_by_play WHERE event_id = ? AND play_id = ?');
   const stmt = db.prepare(`INSERT INTO nfl_play_participation_players
       (game_id, play_id, season, week, gsis_id, team, was_route_runner)
       VALUES (?,?,?,?,?,?,NULL)
       ON CONFLICT(game_id, play_id, gsis_id) DO UPDATE SET
         season = excluded.season, week = excluded.week, team = excluded.team`);
-  let rowsRead = 0, playsWithPlayers = 0, playerRows = 0;
+  let rowsRead = 0, playsWithPlayers = 0, playerRows = 0, skippedKicking = 0, skippedUntyped = 0;
   const games = new Set();
   let batch = 0;
   db.exec('BEGIN');
@@ -59,6 +81,10 @@ export async function ingestParticipationFile(season, file) {
       games.add(gameId);
       const players = parseOffensePlayers(rec.offense_players);
       if (!players.length) continue;
+      const pbp = pbpType.get(gameId, String(playId));
+      if (!pbp) throw new Error(`row ${rowsRead} of ${file}: ${gameId} play ${playId} has players but no nflverse pbp row`);
+      if (KICKING.has(pbp.play_type)) { skippedKicking++; continue; }
+      if (pbp.play_type == null && !String(rec.offense_formation ?? '').trim()) { skippedUntyped++; continue; }
       const team = String(rec.possession_team ?? '').trim();
       const code = team ? canonicalTeamCode(team) : null;
       for (const gsis of players) { stmt.run(gameId, playId, season, week, gsis, code); playerRows++; }
@@ -68,7 +94,8 @@ export async function ingestParticipationFile(season, file) {
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
   return { season, rows_read: rowsRead, games: games.size, plays_with_players: playsWithPlayers,
-    player_rows: playerRows, attribution: participationAttribution(season), source: PARTICIPATION_URL(season) };
+    player_rows: playerRows, skipped_kicking_plays: skippedKicking, skipped_untyped_no_formation: skippedUntyped,
+    attribution: participationAttribution(season), source: PARTICIPATION_URL(season) };
 }
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));

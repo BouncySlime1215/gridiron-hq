@@ -20,8 +20,9 @@
  *   - A rule the platform does not publish (ESPN has no median-game field) is
  *     inferred where the data allows it and otherwise listed in `unknown`.
  *
- * Scope: only the rules a route reaches (the season simulator and
- * trade-horizon.js#leagueSchedule). Other rules keep their existing producers
+ * Scope: only the rules a route reaches (the season simulator,
+ * trade-horizon.js#leagueSchedule, and the waiver board's claim priority,
+ * waiver-wire.js#claimPriority). Other rules keep their existing producers
  * until a consumer is moved here, so no field ships without a reader:
  *   - scoring: scoring.js#scoringFor;
  *   - lineup slots: trade-engine.js#lineupSlots <- leagues.roster_positions,
@@ -29,12 +30,15 @@
  *     drops slot 7 (OP/superflex) that espn-draft.js#SLOT_NAME keeps (follow-up:
  *     one slot map, owned with trade-engine.js);
  *   - trade settings: trade-tactics.js reads vetoVotesRequired itself;
+ *   - waiver clock (waiverProcessDays/Hour): waiver-wire.js#nextWaiverRun reads
+ *     acquisitionSettings itself (follow-up: move it here beside `waivers`);
  *   - Sleeper: no reader yet, so a Sleeper league gets a named error, never a
  *     default (follow-up: read payload.league.settings, which
  *     sleeper-history.js already reads for playoff_teams).
  */
 
 const SS = 'settings.scheduleSettings';
+const ACQ = 'settings.acquisitionSettings';
 
 /** Tiebreakers seedStandings() implements, by ESPN `playoffSeedingRule` value. */
 export const SUPPORTED_TIEBREAKERS = new Set(['TOTAL_POINTS_SCORED']);
@@ -53,6 +57,7 @@ function emptyRules(source, platform, missing) {
       playoff_round_length: null, playoff_rounds: null, playoff_weeks: null, reseed: null },
     seeding: { tiebreaker: null, divisions: null, division_winners_first: null, team_division: null },
     median_game: null,
+    waivers: { acquisition_type: null, uses_budget: null, order_resets_weekly: null },
     missing, unsupported: [], unknown: [],
   };
 }
@@ -129,6 +134,16 @@ export function leagueRules(lg) {
 
   /* --- median game -------------------------------------------------------- */
   out.median_game = inferMedian(payload, sch.regular_season_weeks, unknown);
+
+  /* --- waivers (RL-13-2) --------------------------------------------------- */
+  // Read by waiver-wire.js#claimPriority. waiverOrderReset true: the order resets
+  // every week, so a claim costs only this week's place in line. false: rolling
+  // order, a successful claim sends the team to the back until others claim.
+  const acq = s.acquisitionSettings;
+  const wv = out.waivers;
+  wv.acquisition_type = need(acq, 'acquisitionType', ACQ, v => typeof v === 'string' && v.length > 0);
+  wv.uses_budget = need(acq, 'isUsingAcquisitionBudget', ACQ, v => typeof v === 'boolean');
+  wv.order_resets_weekly = need(acq, 'waiverOrderReset', ACQ, v => typeof v === 'boolean');
 
   return out;
 }

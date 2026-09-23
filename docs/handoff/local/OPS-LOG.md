@@ -60,3 +60,5 @@ All 5 running workflows and the board keeper stopped with TaskStop (BLEND-01, sk
 08:15Z: R&D loop v2 launched (task wv7kkewdx, run wf_e34d8634-23b, rounds 3-4, web research mandatory). Resume: launch/resume/wv7kkewdx.json
 
 08:20Z: Nick away studying. Running: finish-unit (BLEND-01/HX-01/S-03), skill report, verify run A (B-01/A-03/SY-02/C-12), R&D v2, merge-queue #160, board keeper, meter watch (95% stop), 20-min status cron.
+
+06:05Z: #160 C-01 MERGED (034a1134). Verify run A: B-01 #162, A-03 #163, SY-02 #161, C-12 #73 all READY -> merge-queue.sh 162 163 161 73 running (evidence/mq-run-a.log). Burn 30%/h, 5-hour 18%, ~154 min to 95% (window resets ~5 AM ET): holding new phase-1 launches until finish-unit completes.

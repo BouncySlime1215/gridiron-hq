@@ -36,6 +36,7 @@ const { startSitPairAccuracy } = await import('../scripts/promote-early-week-wei
 const { startSitWeekPoints } = await import('../server/services/lineup-brain.js');
 const { holm, normalCdf } = await import('../server/services/stats-util.js');
 const { matchupSignalActive } = await import('../server/services/matchups.js');
+const { weeklyAvailability } = await import('../server/services/contingency.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -144,6 +145,12 @@ test('commonSet keeps a row only when every point arm reaches the threshold and 
   assert.equal(arm.commonSet(rows, { pointArms, threshold: 4 }).length, 2);
   assert.equal(arm.commonSet(rows, { pointArms, threshold: 8 }).length, 1);
   assert.equal(arm.commonSet([{ ...base, std: NaN }], { pointArms, threshold: 4 }).length, 0);
+});
+
+test('withConsensus joins the consensus value for the same season, week and player, and null otherwise', () => {
+  const values = new Map([['2024|6|1', { value: -3, ecr: 3, scrape_date: '2024-10-11' }], ['2024|5|2', { value: -1 }]]);
+  const got = arm.withConsensus([{ season: 2024, week: 6, player_id: 1 }, { season: 2024, week: 6, player_id: 2 }], values);
+  assert.deepEqual(got.map(r => r.consensus), [-3, null]);
 });
 
 // One season, two weeks, three WRs and two TEs a week: values and actuals chosen by hand.
@@ -255,6 +262,7 @@ test('the served chain is the served functions, not copies', () => {
   assert.equal(lib.SERVED_CHAIN.constructArms, s02.constructArms);
   assert.equal(lib.SERVED_CHAIN.startSitWeekPoints, startSitWeekPoints);
   assert.equal(lib.SERVED_CHAIN.removeByes, removeByes);
+  assert.equal(lib.SERVED_CHAIN.weeklyAvailability, weeklyAvailability);
 });
 
 test('the default chance to play and the game multiplier are the ones trade-engine.js serves', () => {
@@ -314,16 +322,19 @@ function servedFixture() {
   const truth = new Map([[1, weeks([[4, 10], [5, 12], [6, 15]])], [2, weeks([[5, 9]])], [3, weeks([[4, 3], [6, 8]])],
     [4, weeks([[5, 8], [6, 8]])]]);
   const lift = { HI: 1.1, LO: 0.9 };
+  const calls = [];
   const deps = {
     constructArms: p => ({ A: p.ppg, B: p.ppg - 0.5, D: (p.ppg - 0.5) * lift[p.team], lift: lift[p.team], lift_applied: true }),
-    startSitWeekPoints: (p) => ({ week_points: round2(p.current_week_ppg * lift[p.team_abbr]) })
+    startSitWeekPoints: (p) => ({ week_points: round2(p.current_week_ppg * lift[p.team_abbr]) }),
+    weeklyAvailability: (season, week, opts) => { calls.push([season, week, opts]); return new Map([[1, { active_probability: 0.85 }]]); }
   };
-  return { engine, truth, deps, availability: new Map([[1, { active_probability: 0.85 }]]) };
+  const teamAt = new Map([['1|5', 'BUF'], ['1|6', 'MIA'], ['2|5', 'NYJ'], ['2|6', 'NE']]);
+  return { engine, truth, deps, calls, teamAt };
 }
 
 test('servedWeekRows builds OURS as round2(round2(B x p) x lift) through the served startSitWeekPoints', () => {
-  const { engine, truth, deps, availability } = servedFixture();
-  const rows = lib.servedWeekRows({ season: 2024, week: 6, engine, truth, fitS: {}, availability, scoring: {} }, deps);
+  const { engine, truth, deps, teamAt } = servedFixture();
+  const rows = lib.servedWeekRows({ season: 2024, week: 6, engine, truth, fitS: {}, scoring: {}, teamAt }, deps);
   assert.deepEqual(rows.map(r => r.player_id), [1, 2]);
   const [a, b] = rows;
   assert.equal(a.p, 0.85);
@@ -336,10 +347,24 @@ test('servedWeekRows builds OURS as round2(round2(B x p) x lift) through the ser
 });
 
 test('servedWeekRows stops when D is not what the served startSitWeekPoints makes of B', () => {
-  const { engine, truth, deps, availability } = servedFixture();
+  const { engine, truth, deps, teamAt } = servedFixture();
   const broken = { ...deps, constructArms: p => ({ ...deps.constructArms(p), D: 99 }) };
-  assert.throws(() => lib.servedWeekRows({ season: 2024, week: 6, engine, truth, fitS: {}, availability, scoring: {} }, broken),
+  assert.throws(() => lib.servedWeekRows({ season: 2024, week: 6, engine, truth, fitS: {}, scoring: {}, teamAt }, broken),
     /parity/);
+});
+
+test('servedWeekRows asks the served weeklyAvailability for the week, with the season before as the cutoff', () => {
+  const { engine, truth, deps, calls, teamAt } = servedFixture();
+  lib.servedWeekRows({ season: 2024, week: 6, engine, truth, fitS: {}, scoring: {}, teamAt }, deps);
+  assert.deepEqual(calls, [[2024, 6, { through: 2023 }]]);
+});
+
+test('servedWeekRows carries the team he played for in week W-1, the team the bye rule and leak guard read', () => {
+  const { engine, truth, deps, teamAt } = servedFixture();
+  const rows = lib.servedWeekRows({ season: 2024, week: 6, engine, truth, fitS: {}, scoring: {}, teamAt }, deps);
+  assert.deepEqual(rows.map(r => [r.player_id, r.team_prev]), [[1, 'BUF'], [2, 'NYJ']]);
+  const noTeam = lib.servedWeekRows({ season: 2024, week: 6, engine, truth, fitS: {}, scoring: {}, teamAt: new Map() }, deps);
+  assert.deepEqual(noTeam.map(r => r.team_prev), [null, null]);
 });
 
 test('the full run refuses an uncommitted or edited pre-registration', () => {

@@ -319,6 +319,30 @@ export function shipDecision(winner, history, forward) {
   return { on: true, verdict: 'shipped', reason: `${winner} is good on 2023-2024 and holds on 2026 week 2` };
 }
 
+/* ------------------------------------------------------------------ diagnostics (no rule attached) */
+
+/**
+ * Diagnostic, not pre-registered, no rule attached: how much of the gap to ESPN is our
+ * chance-to-play multiplier. On the SAME pairs as the primary grade, our base with no
+ * multiplier, and our base with the multiplier kept only for a designated player (a week
+ * report status), each against ours and against ESPN; plus the mean multiplier and the share
+ * who then played, for startable rows with no designation.
+ */
+export function availabilityDiagnostic(rows, pairs, draws, preds) {
+  const baseOnly = rows.map(r => (r.bye ? 0 : r.base));
+  const designatedOnly = rows.map(r => (r.bye ? 0 : r.base * (r.report_status ? r.p : 1)));
+  const healthy = rows.filter(r => !r.bye && r.base >= THRESHOLD && !r.report_status);
+  return {
+    note: 'diagnostic, not pre-registered, no rule attached: our base without the chance-to-play multiplier, and with it only for designated players, on the primary pairs',
+    startable_no_designation: { rows: healthy.length, mean_p: r4(mean(healthy.map(r => r.p))),
+      played_share: healthy.length ? r4(healthy.filter(r => r.played).length / healthy.length) : null },
+    base_only_vs_ours: comparePreds(rows, pairs, baseOnly, preds.ours, draws),
+    base_only_vs_espn: comparePreds(rows, pairs, baseOnly, preds.espn, draws),
+    designated_only_vs_ours: comparePreds(rows, pairs, designatedOnly, preds.ours, draws),
+    designated_only_vs_espn: comparePreds(rows, pairs, designatedOnly, preds.espn, draws)
+  };
+}
+
 /* ------------------------------------------------------------------ parity with the house metrics */
 
 /** startSitPairAccuracy on the same universe must equal comparePreds' pair accuracy. */
@@ -469,7 +493,7 @@ export async function grade({ root, rowsDir, out, prereg, git, log }) {
     const sp = Object.fromEntries(Object.entries(histPreds).map(([k, v]) => [k, idx.map(i => v[i])]));
     const sd = playerDraws(enumeratePairs(sr, oursUniverse).players);
     const g = gradeWindow(sr, sp, { draws: sd, universe: oursUniverse, label: `history ${season}` });
-    bySeasonGrades[season] = { pairs: g.pairs, vsOurs: g.vsOurs, vsEspn: g.vsEspn };
+    bySeasonGrades[season] = { pairs: g.pairs, vs_ours: g.vsOurs, vs_espn: g.vsEspn };
   }
   const levels = {};
   for (const c of Object.keys(histPreds)) {
@@ -483,7 +507,8 @@ export async function grade({ root, rowsDir, out, prereg, git, log }) {
     by_season: bySeasonGrades,
     levels,
     level_gap_espn_minus_ours: r4(mean(primaryRows.map(r => r.espn - r.ours))),
-    level_gap_ours_ge_4: r4(mean(primaryRows.filter(oursUniverse).map(r => r.espn - r.ours)))
+    level_gap_ours_ge_4: r4(mean(primaryRows.filter(oursUniverse).map(r => r.espn - r.ours))),
+    availability_diagnostic: availabilityDiagnostic(primaryRows, hist.pairsObj, draws, histPreds)
   };
 
   // ---- Forward: 2026 week 2 with the shipping parameters (fit on 2022-2024).

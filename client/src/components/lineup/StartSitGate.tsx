@@ -16,6 +16,10 @@ import { PageLoading, PageError } from '../PageState';
  * the panel says which way each result points and never by how much. The route still serves
  * the full evidence for the Auditor. Every failing week of every graded window and arm is
  * listed, never trimmed, under the rule it lost to, ESPN's first.
+ *
+ * "What was compared" says what each verdict grades, the headline's first: the projection the app
+ * saved before kickoff (not the Start/Sit list's week_points) against ESPN's; then the weaker
+ * check's, today's settings replayed against the season average, with the replay's limit.
  */
 
 interface WeekRow { season: number; week: number }
@@ -40,13 +44,17 @@ interface GateWindow {
 /** The plan-rule verdict (prereg addendum 2 §5); only its words and direction are read here. */
 interface PlanRule { verdict?: string; reason?: string | null; source?: string; weeks_graded?: number; direction?: Direction }
 
-/** The pre-registered season-average rule, kept as a floor (prereg §8). */
-interface AverageCheck { verdict?: string; rule?: string }
+/** The pre-registered season-average rule, kept as a floor (prereg §8), with its own "ours" (the replay) and limit. */
+interface AverageCheck { verdict?: string; rule?: string; policy?: string; replay_caveat?: string }
 
 interface GateResult {
   status: string; reason?: string; stored_at?: string;
   verdict?: string; plan_rule?: PlanRule; average_check?: AverageCheck;
-  policy?: string; baseline?: string; universe?: string; scoring?: string; replay_caveat?: string;
+  /** What the top-level verdict compares: ours, the dumb rule, and what ours is not. */
+  policy?: string; baseline?: string; limit?: string;
+  universe?: string; scoring?: string;
+  /** Only in a result stored before `limit` existed, where it (and `policy`) described the replay. */
+  replay_caveat?: string;
   past?: GateWindow; forward?: GateWindow;
 }
 
@@ -153,6 +161,28 @@ function floorLine(check: AverageCheck | undefined, past: GateWindow, fwd: GateW
   return { warn: f.warn, text: `${f.warn ? 'Warning. ' : ''}${FLOOR_LEAD}${f.say(seasons, replayed)}` };
 }
 
+interface Basis { rule?: string; ours?: string; limit?: string }
+
+/**
+ * "What was compared", per rule. The top-level texts describe the top-level verdict: the plan rule's
+ * dumb rule (ESPN), ours (the projection saved before kickoff) and its limit (not week_points); the
+ * average check carries its own (the season average, today's settings replayed, the replay's limit).
+ * A result stored before `limit` existed had the replay's texts at the top level, and one stored
+ * before the plan rule (no plan_rule) the season average too, so those show under the weaker check.
+ */
+function comparedBasis(data: GateResult): { plan: Basis; check: Basis } {
+  const check = data.average_check;
+  const current = data.limit != null;
+  return {
+    plan: { rule: data.plan_rule ? data.baseline : undefined, ours: current ? data.policy : undefined, limit: data.limit },
+    check: {
+      rule: check?.rule ?? (data.plan_rule ? undefined : data.baseline),
+      ours: current ? check?.policy : data.policy,
+      limit: current ? check?.replay_caveat : data.replay_caveat,
+    },
+  };
+}
+
 /** One failing-weeks group: the weeks a window or arm lost, and the rule it lost them to. */
 interface LostGroup { arm: 'past' | 'replay' | 'served_vs_average' | 'served_vs_espn'; label: string; weeks: WeekRow[] }
 
@@ -214,6 +244,7 @@ function Body({ data, loading, error, onRetry }: {
   const line = key === 'not_shown' && plan ? planLine(plan, fwd) : v.say;
   const floor = floorLine(data.average_check, past, fwd);
   const lost = lostGroups(past, fwd);
+  const basis = comparedBasis(data);
   // Forward weeks the app served on different settings from today's replay, and why.
   const differs = (served?.weeks ?? []).filter(w => w.served_before_k_fit || !w.same_weights);
 
@@ -280,19 +311,29 @@ function Body({ data, loading, error, onRetry }: {
 
       <details className="mt-3 border-t border-slate-100 pt-2 text-[11px] leading-4 text-slate-500">
         <summary className="cursor-pointer font-semibold text-slate-600">What was compared</summary>
-        <div className="mt-2 space-y-1.5">
-          {data.baseline && <p>{data.baseline}</p>}
-          {data.average_check?.rule && <p>{data.average_check.rule}</p>}
+        {(basis.plan.rule || basis.plan.ours || basis.plan.limit) && (
+          <div data-compared="plan_rule" className="mt-2 space-y-1.5">
+            {basis.plan.rule && <p>{basis.plan.rule}</p>}
+            <dl className="space-y-1.5">
+              {basis.plan.ours && <div><dt className="inline font-semibold text-slate-600">Ours: </dt><dd className="inline">{basis.plan.ours}</dd></div>}
+              {basis.plan.limit && <div><dt className="inline font-semibold text-slate-600">Limit: </dt><dd className="inline">{basis.plan.limit}</dd></div>}
+            </dl>
+          </div>
+        )}
+        <div data-compared="average_check" className="mt-2 space-y-1.5">
+          {basis.check.rule && <p>{basis.check.rule}</p>}
+          <dl className="space-y-1.5">
+            {basis.check.ours && <div><dt className="inline font-semibold text-slate-600">Ours, in the weaker check: </dt><dd className="inline">{basis.check.ours}</dd></div>}
+            {fwd.label && <div><dt className="inline font-semibold text-slate-600">This season, replayed: </dt><dd className="inline">{fwd.label}</dd></div>}
+            {basis.check.limit && <div><dt className="inline font-semibold text-slate-600">Limit of the weaker check: </dt><dd className="inline">{basis.check.limit}</dd></div>}
+          </dl>
         </div>
-        <dl className="mt-1.5 space-y-1.5">
-          <div><dt className="inline font-semibold text-slate-600">Ours: </dt><dd className="inline">{data.policy}</dd></div>
-          {fwd.label && <div><dt className="inline font-semibold text-slate-600">This season, replayed: </dt><dd className="inline">{fwd.label}</dd></div>}
+        <dl data-compared="both" className="mt-2 space-y-1.5">
           {served?.label && <div><dt className="inline font-semibold text-slate-600">This season, served: </dt><dd className="inline">{served.label}</dd></div>}
           <div><dt className="inline font-semibold text-slate-600">Which calls: </dt><dd className="inline">{data.universe}</dd></div>
           <div><dt className="inline font-semibold text-slate-600">Scoring: </dt><dd className="inline">{data.scoring}</dd></div>
           <div><dt className="inline font-semibold text-slate-600">Why no numbers: </dt>
-            <dd className="inline">sizes measured on a replay do not carry over to your live lineups, so this panel shows only which way each result points.</dd></div>
-          {data.replay_caveat && <div><dt className="inline font-semibold text-slate-600">Limit: </dt><dd className="inline">{data.replay_caveat}</dd></div>}
+            <dd className="inline">sizes measured on this league-wide pool of pairs do not carry over to your live lineups, so this panel shows only which way each result points.</dd></div>
           {data.stored_at && <div><dt className="inline font-semibold text-slate-600">Measured: </dt><dd className="inline">{data.stored_at} UTC</dd></div>}
         </dl>
       </details>

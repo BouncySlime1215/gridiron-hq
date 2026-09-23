@@ -1,9 +1,9 @@
 /**
  * TM-03: the target board per league-mate, served on GET /api/trades/:leagueId/brain/managers.
  *
- * Per manager: roster hole (weakest starting slot against the league, on the
- * Start/Sit week number), players he is down on (his own roster) and players of
- * Nick's he rates, openness and untouchables, tilt (last result + how he reacts
+ * Per manager: roster hole (the trade finder's analyzeLeague needs), players he
+ * is down on (his own roster) and players of Nick's he rates (talkReads verdicts,
+ * the trade finder's talk read), openness and untouchables, tilt (last result + how he reacts
  * to losses in chat), active hours, observed accept rate, and LS-01 lineup
  * signals when that table exists. Every read carries its n and its source, and
  * any read under n=5 says THIN.
@@ -50,8 +50,13 @@ const CHAT_NAME = 'Hayden Brook';   // made up; the chat-side name must never re
   prof.run(CHAT_NAME,     400, 300, 20, 0.62, 0.25, 0.3, 0.2, 2.2, 0.4, 0.4, 0.1, 0.34, 0.08, 0.10, 0.05,
     '2026-01-01', '2026-09-17', '2026-09-17T20:00:00Z');
   const sent = chat.prepare(`INSERT INTO manager_player_sentiment VALUES (?,?,?,?,0,0,'2026-08-01',?,datetime('now'))`);
-  sent.run(CHAT_NAME, 'Down Back', 6, 1.2, '2026-09-16');       // his own, talked down, n>=5: buy low
-  sent.run(CHAT_NAME, 'Hyped Wideout', 2, 3.5, '2026-09-17');   // Nick's, rated, n=2: THIN
+  sent.run(CHAT_NAME, 'Down Back', 6, 1.2, '2026-09-16');       // his own, sour, no usage gap: genuine_sour
+  sent.run(CHAT_NAME, 'Hyped Wideout', 4, 3.5, '2026-09-17');   // Nick's, praised, n=4: wants_him, THIN
+  sent.run(CHAT_NAME, 'Sure Hands', 5, 3.0, '2026-09-17');      // Nick's, praised, n=5: wants_him, NOT thin
+  sent.run(CHAT_NAME, 'Barely Said', 2, 3.9, '2026-09-17');     // Nick's, praised twice: under readTalk's 3-mention floor
+  sent.run(CHAT_NAME, 'Meh Receiver', 4, 1.0, '2026-09-13');    // Nick's, talked down: not_interested, not a sell-high
+  sent.run(CHAT_NAME, 'Mild Grumble', 8, 1.9, '2026-09-14');    // his own, below 2.0 but above SOUR 1.75: no read
+  sent.run(CHAT_NAME, 'Cold Runner', 3, 1.0, '2026-09-15');     // his own, sour, usage cold (week 4 read): buy_low
   sent.run(CHAT_NAME, 'Flat Guy', 9, 2.0, '2026-09-10');        // Nick's, neutral: neither list
   sent.run(CHAT_NAME, 'Stranger', 7, 1.0, '2026-09-11');        // nobody's here: not a buy-low target
   sent.run(CHAT_NAME, 'Loved Back', 5, 3.8, '2026-09-12');      // his own, rated: not Nick's to sell
@@ -66,7 +71,7 @@ const { hashSessionToken } = await import('../server/platform/auth.js');
 const { legacyAuthenticated } = await import('../server/platform/legacy-access.js');
 await import('../server/services/manager-archetypes.js'); // the real manager_archetypes DDL
 const { buildManagerSignals } = await import('../server/services/manager-signals.js');
-const { targetBoard, TARGET_BOARD_THIN_N } = await import('../server/services/target-board.js');
+const { targetBoard, TARGET_BOARD_THIN_N, thin } = await import('../server/services/target-board.js');
 const { default: tradesRouter } = await import('../server/routes/trades.js');
 
 await runMigrations();
@@ -131,8 +136,10 @@ function insertLeague(id, payload, positions) {
 insertLeague(31, {
   members: [member(NICK, 'Nick', 'Matta'), member(AIDEN, 'Aiden', 'Stone'), member(CARL, 'Carla', 'Delta')],
   teams: [
-    team(1, NICK, { wins: 1, streak: ['WIN', 1], entries: [entry(801, 'Hyped Wideout'), entry(802, 'Flat Guy')] }),
-    team(2, AIDEN, { losses: 1, streak: ['LOSS', 1], entries: [entry(811, 'Down Back', 'RB'), entry(812, 'Loved Back', 'RB')] }),
+    team(1, NICK, { wins: 1, streak: ['WIN', 1], entries: [entry(801, 'Hyped Wideout'), entry(802, 'Flat Guy'),
+      entry(803, 'Sure Hands'), entry(804, 'Barely Said'), entry(805, 'Meh Receiver')] }),
+    team(2, AIDEN, { losses: 1, streak: ['LOSS', 1], entries: [entry(811, 'Down Back', 'RB'), entry(812, 'Loved Back', 'RB'),
+      entry(813, 'Mild Grumble', 'RB'), entry(814, 'Cold Runner', 'RB')] }),
     team(3, CARL, { entries: [entry(821, 'Other Guy')] }),
   ],
   schedule: [
@@ -205,16 +212,39 @@ test('tilt reads the last decided result: roster 2 lost by 20, a fact with n=1 f
   assert.equal(tbFor(await board(), '3').tilt.just_lost, null);
 });
 
-test('down on = his own players he talks below neutral; rates yours = Nick\'s players he talks above neutral; THIN under n=5', async () => {
+test('buy low / sell high are the trade finder\'s talkReads verdicts; THIN at n=4, not at n=5', async () => {
   const tb = tbFor(await board(), '2');
-  assert.deepEqual(tb.down_on.map(p => [p.player, p.n, p.sentiment, p.thin, p.source]),
-    [['Down Back', 6, 1.2, false, 'chat']]);
-  assert.deepEqual(tb.rates_yours.map(p => [p.player, p.n, p.sentiment, p.thin, p.source]),
-    [['Hyped Wideout', 2, 3.5, true, 'chat']]);
-  // Neutral (2.0), not on his roster, and his own rated player are in neither list.
+  // Week 2 (NFL_WEEK): no usage gap yet, so both sour reads on his own players are genuine_sour.
+  assert.deepEqual(tb.down_on.map(p => [p.player, p.verdict, p.n, p.sentiment, p.thin, p.source]),
+    [['Down Back', 'genuine_sour', 6, 1.2, false, 'chat'], ['Cold Runner', 'genuine_sour', 3, 1, true, 'chat']]);
+  assert.deepEqual(tb.rates_yours.map(p => [p.player, p.verdict, p.n, p.thin]),
+    [['Sure Hands', 'wants_him', 5, false], ['Hyped Wideout', 'wants_him', 4, true]]);
+  // Neutral, nobody's, his own praised, under the mention floor, and above SOUR are in neither list.
   const named = [...tb.down_on, ...tb.rates_yours].map(p => p.player);
-  for (const absent of ['Flat Guy', 'Stranger', 'Loved Back']) assert.ok(!named.includes(absent), absent);
+  for (const absent of ['Flat Guy', 'Stranger', 'Loved Back', 'Barely Said', 'Mild Grumble', 'Meh Receiver']) assert.ok(!named.includes(absent), absent);
   assert.equal(tb.player_reads_state, 'present');
+});
+
+test('the board\'s buy-low list is exactly talkReads on the same week: usage-cold + sour = buy_low, ranked first', async () => {
+  const { talkReads } = await import('../server/services/talk-vs-model.js');
+  const ins = db.prepare(`INSERT INTO nfl_ffopportunity_weekly (season, week, player_gsis_id, player_name, position,
+    expected_fantasy_points, actual_fantasy_points, source_release, ingested_at) VALUES (2026, ?, 'gs-cold', 'Cold Runner', 'RB', 15, 8, 't', 't')`);
+  for (const w of [1, 2, 3]) ins.run(w);
+  try {
+    const lg = db.prepare('SELECT * FROM leagues WHERE id = 31').get();
+    const tb = targetBoard(lg, { week: 4 }).managers.get('2');
+    assert.deepEqual(tb.down_on.map(p => [p.player, p.verdict, p.thin]),
+      [['Cold Runner', 'buy_low', true], ['Down Back', 'genuine_sour', false]]);
+    const canon = [...(talkReads(31, 2026, 4).get('2') ?? talkReads(31, 2026, 4).get(2)).values()]
+      .filter(r => ['buy_low', 'genuine_sour'].includes(r.verdict)).map(r => r.player).sort();
+    assert.deepEqual(tb.down_on.map(p => p.player).sort(), canon);
+  } finally { db.exec(`DELETE FROM nfl_ffopportunity_weekly WHERE player_gsis_id = 'gs-cold'`); }
+});
+
+test('thin(): the THIN bar is n < 5 exactly', () => {
+  assert.equal(thin(4), true);
+  assert.equal(thin(5), false);
+  assert.equal(thin(null), true);
 });
 
 test('a manager with only a `likely` chat match has no corpus: chat reads say no_corpus, never a measured zero', async () => {
@@ -275,41 +305,67 @@ test('nothing private leaves: no chat-side name, no message text, no ESPN cookie
   assert.ok(!/"text"\s*:/.test(raw), 'no message text field');
 });
 
-// ------------------------------------------------------ roster hole (priced)
-// The hole is priced on the Start/Sit week number through lineupDiff; the
-// assets are injected exactly as test/lineup-surfaces-agree.test.js does.
-test('roster hole = the starting slot furthest below the league median at that slot, with n = teams compared', () => {
-  const pts = { 1: [20, 15, 14, 9], 2: [18, 16, 15, 3], 3: [22, 10, 16, 8] };
+// ------------------------------------------------ roster hole (analyzeLeague)
+// The hole is the trade finder's needs read, not a second one. League 32 prices
+// through the real analyzeLeague: players + projected season stats, plus one
+// low free agent per position so replacement level sits under every starter.
+const { analyzeLeague } = await import('../server/routes/tradelab.js');
+test('roster hole = lowest starter ratio in analyzeLeague; is_need and gap come from its needs list', () => {
+  const proj = { 1: [300, 200, 180, 120], 2: [290, 210, 190, 60], 3: [310, 110, 185, 115] };
   const positions = ['QB', 'RB', 'WR', 'TE'];
-  const assets = new Map();
+  const addPlayer = (name, pos, espnId, pts) => {
+    const id = Number(db.prepare(`INSERT INTO players (name, position, espn_id) VALUES (?, ?, ?)`).run(name, pos, espnId).lastInsertRowid);
+    db.prepare(`INSERT INTO player_season_stats (player_id, season, kind, fantasy_points) VALUES (?, 2026, 'projected', ?)`).run(id, pts);
+  };
   const teams = [];
-  let pid = 1;
-  for (const [rid, weekPts] of Object.entries(pts)) {
-    const entries = [];
-    weekPts.forEach((w, i) => {
-      const id = pid++;
-      const name = `P${rid}${positions[i]}`;
-      assets.set(id, { id, name, position: positions[i], team_abbr: 'MID', espn_id: 9000 + id, available: true,
-        current_week_ppg: w, adj_ppg: w, ppg: w, active_probability: 0.95, bye: 9, matchup: { opponent: 'OPP' } });
-      entries.push(entry(9000 + id, name, positions[i]));
+  let espn = 97000;
+  for (const [rid, pts] of Object.entries(proj)) {
+    const entries = pts.map((p, i) => {
+      const name = `Zz Hole ${rid}${positions[i]}`;
+      addPlayer(name, positions[i], ++espn, p);
+      return entry(espn, name, positions[i]);
     });
     teams.push(team(Number(rid), NICK, { entries }));
   }
+  positions.forEach(pos => addPlayer(`Zz Free ${pos}`, pos, ++espn, 50));
   insertLeague(32, { members: [member(NICK, 'Nick', 'Matta')], teams, schedule: [] }, positions);
+  run('UPDATE leagues SET team_count = 12 WHERE id = 32');
   const lg = db.prepare('SELECT * FROM leagues WHERE id = 32').get();
-  const out = targetBoard(lg, { assets });
+  const out = targetBoard(lg, { week: 2 });
+  const canon = new Map(analyzeLeague(lg).teams.map(t => [String(t.roster_id), t]));
   const h2 = out.managers.get('2').roster_hole;
-  assert.deepEqual([h2.slot, h2.player, h2.week_points, h2.league_median, h2.gap, h2.n, h2.read_state],
-    ['TE', 'P2TE', 3, 8, -5, 3, 'present']);
-  assert.match(h2.source, /lineupDiff/);
+  assert.deepEqual([h2.position, h2.is_need, h2.needs, h2.n, h2.read_state], ['TE', true, ['TE'], 3, 'present']);
+  assert.equal(h2.gap, canon.get('2').needs[0].gap);
+  assert.match(h2.source, /analyzeLeague/);
   const h3 = out.managers.get('3').roster_hole;
-  assert.deepEqual([h3.slot, h3.gap], ['RB', -5]);
+  assert.deepEqual([h3.position, h3.is_need], ['RB', true]);
+  // Roster 1 has no need: the weakest position is served, labelled not a need, no gap.
+  const h1 = out.managers.get('1').roster_hole;
+  assert.deepEqual([h1.is_need, h1.gap, h1.needs], [false, null, []]);
+  // Agreement on every roster: whenever analyzeLeague has needs, the hole is its top need.
+  for (const [rid, t] of canon) {
+    const h = out.managers.get(rid).roster_hole;
+    assert.deepEqual(h.needs, t.needs.map(x => x.position), `roster ${rid} needs`);
+    if (t.needs.length) assert.equal(h.position, t.needs[0].position, `roster ${rid} top need`);
+  }
 });
 
-test('roster hole on an unpriceable roster says not_priced with the reason, never a slot', async () => {
-  // League 31's fixture players are not in the asset universe, so nothing prices.
-  const h = tbFor(await board(), '2').roster_hole;
-  assert.equal(h.read_state, 'not_priced');
-  assert.equal(h.slot, null);
-  assert.ok(h.reason && h.reason.length > 0);
+test('if the board cannot be built the tiers still serve, every target_board is null and the error is named', async () => {
+  const before = await board();
+  db.exec('ALTER TABLE manager_player_view RENAME TO manager_player_view_hidden');
+  const errs = [];
+  const orig = console.error;
+  console.error = (...a) => errs.push(a.map(String).join(' '));
+  try {
+    const r = await get('/api/trades/31/brain/managers');
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.managers.map(m => [m.roster_id, m.tradeability]),
+      before.managers.map(m => [m.roster_id, m.tradeability]));
+    for (const m of r.body.managers) assert.equal(m.target_board, null, `roster ${m.roster_id}`);
+    assert.match(r.body.target_board_meta?.error ?? '', /target board could not be built: .*manager_player_view/);
+    assert.ok(errs.some(e => e.includes('[brain/managers] target board failed')), 'the failure is logged');
+  } finally {
+    console.error = orig;
+    db.exec('ALTER TABLE manager_player_view_hidden RENAME TO manager_player_view');
+  }
 });

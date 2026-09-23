@@ -10,8 +10,12 @@
  * definitions of a dead starter were narrower and disagreed:
  *   - trade-engine.js#lineupDiff `flagged_starters`: season-ending list or IR only;
  *   - manager-signals.js#rosterSignals `lineup_dead_starters`: ESPN OUT / IR / DOUBTFUL.
- * `deadReason()` is the union of both plus bye and gameday inactive, and
- * manager-signals.js reads its ESPN status set from `DEAD_ESPN_STATUS` here.
+ * `deadReason()` covers both, plus bye and gameday inactive. Its Out / Doubtful branch is
+ * contingency.js#weekDesignation, the canonical designation (more severe of the NFL report
+ * and ESPN, incl. SUSPENSION and Reserve/PUP) that Start/Sit's week_points already use, so
+ * the red card and the solver can't disagree on who is out. manager-signals.js reads its
+ * ESPN status set from `DEAD_ESPN_STATUS` here (unchanged; follow-up SS-01-F4 moves it onto
+ * weekDesignation too, which would change its stored value).
  *
  * Suggestion only. Nothing is written to the platform (applying a swap waits on Nick's
  * N12); `applied: false` says so on the payload.
@@ -28,11 +32,15 @@
  */
 import { gameCutoff } from './game-cutoff.js';
 import { SLOT_NAME } from './espn-draft.js';
+import { weekDesignation } from './contingency.js';
 
-/** ESPN injuryStatus values under which a starter is dead, and the reason each maps to. */
+/**
+ * ESPN injuryStatus values manager-signals.js#rosterSignals stores as `lineup_dead_starters`
+ * (kept unchanged so that stored value does not move). The guard itself does NOT read this:
+ * Out / Doubtful comes from contingency.js#weekDesignation, the one producer of the week's
+ * designation that Start/Sit's week_points and active_probability are already priced on.
+ */
 export const DEAD_ESPN_STATUS = Object.freeze({ INJURY_RESERVE: 'ir', OUT: 'out', DOUBTFUL: 'doubtful' });
-/** nfl_injuries.report_status values (the week's official report) that are dead. */
-const DEAD_REPORT_STATUS = Object.freeze({ out: 'out', doubtful: 'doubtful' });
 
 /** The inactive hook's default until RL-3-2 lands. */
 export const NO_LIVE_INACTIVES = Object.freeze({
@@ -61,11 +69,14 @@ const SENTENCE = {
 export function deadReason(p, { week, espnStatus = null, inactive = NO_LIVE_INACTIVES }) {
   if (espnStatus === 'INJURY_RESERVE') return { reason: 'ir', source: 'espn' };
   if (p.available === false) return { reason: 'out_for_season', source: 'season_ending_list' };
-  const espn = DEAD_ESPN_STATUS[espnStatus];
-  const report = DEAD_REPORT_STATUS[String(p.injury_status ?? '').toLowerCase()];
-  if (espn === 'out' || report === 'out') return { reason: 'out', source: espn === 'out' ? 'espn' : 'injury_report' };
-  if (espn === 'doubtful' || report === 'doubtful') {
-    return { reason: 'doubtful', source: espn === 'doubtful' ? 'espn' : 'injury_report' };
+  // The week's designation from the canonical producer: the more severe of the NFL report
+  // (normReportStatus: Out, any Reserve list, IR, PUP, Suspended) and ESPN's status
+  // (OUT, INJURY_RESERVE, SUSPENSION, DOUBTFUL...). Same answer Start/Sit prices on.
+  const { designation, source } = weekDesignation({
+    report: p.injury_status ? { report_status: p.injury_status } : null, espnStatus
+  });
+  if (designation === 'out' || designation === 'doubtful') {
+    return { reason: designation, source: source === 'espn' ? 'espn' : 'injury_report' };
   }
   if (week != null && p.bye === week) return { reason: 'bye', source: 'schedule' };
   if (inactive?.covered && inactive.ids?.has(p.id)) return { reason: 'inactive', source: inactive.source };

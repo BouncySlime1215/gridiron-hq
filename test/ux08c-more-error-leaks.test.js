@@ -69,7 +69,7 @@ const runtimeUrl = write('jsx-runtime.mjs', `${cjs('react/jsx-runtime')}
 export const jsx = rt.jsx; export const jsxs = rt.jsxs; export const Fragment = rt.Fragment;`);
 const reactUrl = write('react.mjs', `${cjs('react')}
 export default rt; export const useMemo = rt.useMemo; export const useState = rt.useState;
-export const useEffect = rt.useEffect; export const useRef = rt.useRef;`);
+export const useEffect = rt.useEffect; export const useRef = rt.useRef; export const useCallback = rt.useCallback;`);
 
 let stubCounter = 0;
 function namedStub(names) {
@@ -203,6 +203,17 @@ test('control: EspnConnect.tsx:53 still shows the route\'s own plain 400 copy ve
   const { varName, body } = findCatch('components/EspnConnect.tsx', "'/espn-connect/cookies'");
   const { shown, shownText } = await runCatch(varName, body, await realHelpers(), {}, withStatus(plain, 400));
   assert.ok(shown.some(x => x.name === 'setPasteErr' && x.args[0] === plain), `400 copy shown verbatim; got ${shownText}`);
+});
+
+test('api.ts — a non-ok response throws an Error carrying the HTTP status EspnConnect.tsx:53 branches on', async () => {
+  const { api } = await import(compile('api.ts'));
+  const realFetch = globalThis.fetch;
+  try {
+    for (const status of [400, 500]) {
+      globalThis.fetch = async () => ({ ok: false, status, statusText: 'x', json: async () => ({ error: `e${status}` }) });
+      await assert.rejects(api('/espn-connect/cookies', { method: 'POST' }), e => e.status === status && e.message === `e${status}`, `status ${status}`);
+    }
+  } finally { globalThis.fetch = realFetch; }
 });
 
 for (const s of CATCH_SITES) {

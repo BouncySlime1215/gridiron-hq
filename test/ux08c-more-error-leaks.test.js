@@ -137,7 +137,7 @@ function serialise(v) {
   return JSON.stringify(v, (k, x) => (x instanceof Error ? `${String(x)} ${x.message}` : typeof x === 'function' ? String(x) : x));
 }
 
-async function runCatch(varName, body, helpers, overrides = {}) {
+async function runCatch(varName, body, helpers, overrides = {}, error = new Error(LEAKY)) {
   const { outputText } = ts.transpileModule(`(async function (${varName}) ${body})`,
     { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } });
   const shown = [];
@@ -159,7 +159,7 @@ async function runCatch(varName, body, helpers, overrides = {}) {
   globalThis.alert = recorder('alert');
   const origErr = console.error; const logged = [];
   console.error = (...a) => logged.push(a.map(x => String(x)).join(' '));
-  try { await fn(new Error(LEAKY)); } finally { globalThis.alert = origAlert; console.error = origErr; }
+  try { await fn(error); } finally { globalThis.alert = origAlert; console.error = origErr; }
   return { shown, shownText: shown.map(serialise).join('\n'), logged: logged.join('\n') };
 }
 
@@ -178,10 +178,37 @@ const CATCH_SITES = [
     shows: 'Could not save that tier. Try again in a moment.' },
 ];
 
+// EspnConnect.tsx:53 — api() (client/src/api.ts) throws Error(body.error) with
+// .status attached. A 5xx body.error is the global handler's raw err.message
+// (server/index.js error middleware), e.g. node:sqlite's "no such table" from
+// the POST /espn-connect/cookies app_settings/leagues writes.
+const withStatus = (msg, status) => Object.assign(new Error(msg), status === undefined ? {} : { status });
+const SQLITE_LEAK = 'no such table: app_settings (server/routes/espn-connect.js)';
+CATCH_SITES.push(
+  { site: 'EspnConnect.tsx:53 (paste, 500 from global handler)', file: 'components/EspnConnect.tsx', anchor: "'/espn-connect/cookies'",
+    error: withStatus(LEAKY, 500), shows: "Couldn't save those cookies. Try again in a moment." },
+  { site: 'EspnConnect.tsx:53 (paste, network failure, no status)', file: 'components/EspnConnect.tsx', anchor: "'/espn-connect/cookies'",
+    error: withStatus(LEAKY), shows: "Couldn't save those cookies. Try again in a moment." },
+);
+
+test('EspnConnect.tsx:53 — a sqlite 500 (the real global-handler shape) never reaches setPasteErr', async () => {
+  const { varName, body } = findCatch('components/EspnConnect.tsx', "'/espn-connect/cookies'");
+  const { shownText, logged } = await runCatch(varName, body, await realHelpers(), {}, withStatus(SQLITE_LEAK, 500));
+  assert.ok(!shownText.includes('app_settings') && !shownText.includes('no such table'), `sqlite text leaked: ${shownText}`);
+  assert.ok(logged.includes('no such table: app_settings'), 'the sqlite detail reaches console.error');
+});
+
+test('control: EspnConnect.tsx:53 still shows the route\'s own plain 400 copy verbatim', async () => {
+  const plain = "Couldn't find both cookies in that. Make sure what you paste contains espn_s2 and SWID.";
+  const { varName, body } = findCatch('components/EspnConnect.tsx', "'/espn-connect/cookies'");
+  const { shown, shownText } = await runCatch(varName, body, await realHelpers(), {}, withStatus(plain, 400));
+  assert.ok(shown.some(x => x.name === 'setPasteErr' && x.args[0] === plain), `400 copy shown verbatim; got ${shownText}`);
+});
+
 for (const s of CATCH_SITES) {
   test(`${s.site} — the real catch body shows plain words, logs the detail`, async () => {
     const { varName, body } = findCatch(s.file, s.anchor);
-    const { shown, shownText, logged } = await runCatch(varName, body, await realHelpers(), s.overrides);
+    const { shown, shownText, logged } = await runCatch(varName, body, await realHelpers(), s.overrides, s.error);
     for (const m of MARKERS) assert.ok(!shownText.includes(m), `${s.site} leaked "${m}" to the user: ${shownText}`);
     assert.ok(shown.length > 0, `${s.site}: the catch body still tells the user something`);
     assert.ok(shownText.includes(JSON.stringify(s.shows).slice(1, -1)), `${s.site}: user sees exactly ${JSON.stringify(s.shows)}; got ${shownText}`);
@@ -274,36 +301,10 @@ test('control (rule 8): ceilingLineup error fields are hardcoded plain text, no 
   assert.ok(!/error:[^,}\n]*\.message/.test(body), 'ceilingLineup never builds an error field from .message');
 });
 
-// ---- EspnConnect / espn-connect.js — the real leak is server-side ----
-
-function findValidateCookiesReasons() {
-  const src = fs.readFileSync(new URL('../server/routes/espn-connect.js', import.meta.url), 'utf8');
-  const sf = ts.createSourceFile('espn-connect.js', src, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TSX);
-  let fnNode = null;
-  const walk = n => {
-    if (ts.isFunctionDeclaration(n) && n.name?.text === 'validateCookies') fnNode = n;
-    ts.forEachChild(n, walk);
-  };
-  walk(sf);
-  assert.ok(fnNode, 'validateCookies function found in espn-connect.js');
-  return fnNode.getText(sf);
-}
-
-test('espn-connect.js validateCookies() — no reason string interpolates e.message', () => {
-  const body = findValidateCookiesReasons();
-  assert.ok(!/reason:\s*[^,}\n]*\$\{e\.message\}/.test(body), `validateCookies still interpolates e.message: ${body}`);
-});
-
-test('control: the pre-fix validateCookies shape (template-literal e.message) is seen leaking', () => {
-  const shape = "reason: `Couldn't verify those cookies with ESPN: ${e.message}`";
-  assert.match(shape, /\$\{e\.message\}/, 'control shape matches the leak pattern the fix removes');
-});
-
-test('espn-connect.js validateCookies() — the two known-good plain reasons are untouched', () => {
-  const body = findValidateCookiesReasons();
-  assert.ok(body.includes("ESPN didn't recognise those cookies"), 'the 401/403/404 reason is kept, not collapsed to a generic string');
-  assert.ok(body.includes('(timed out)'), 'the timeout reason is kept, not collapsed to a generic string');
-});
+// ---- espn-connect.js — behavioural (real route, fetch stubbed) in ----
+// test/ux08c-espn-connect-no-leak.test.js. The source-regex checks that used
+// to live here let `"..." + e.message` and a `detail` field through (skeptic
+// mutants A/B, 2026-09-23), so they were replaced, not kept alongside.
 
 // ---- Model.tsx — documented non-fix: orphan page, no consumer ----
 

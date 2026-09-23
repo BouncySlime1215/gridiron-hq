@@ -39,7 +39,18 @@ const rt = createRequire(${JSON.stringify(repoRequire.resolve(mod))})(${JSON.str
 
 const runtimeUrl = write('jsx-runtime.mjs', `${cjs('react/jsx-runtime')}
 export const jsx = rt.jsx; export const jsxs = rt.jsxs; export const Fragment = rt.Fragment;`);
+const reactUrl = write('react.mjs', `${cjs('react')}
+export default rt; export const useMemo = rt.useMemo; export const useState = rt.useState;
+export const useEffect = rt.useEffect; export const useRef = rt.useRef;`);
 const linkUrl = write('react-router-dom.mjs', 'export function Link({ children }) { return children ?? null; }');
+// Generic "this module isn't under test, just needs to exist" stub: named
+// exports resolve to no-op functions and a no-op default, so a real file's
+// unrelated imports don't blow up the module graph.
+let stubCounter = 0;
+function namedStub(names) {
+  return write(`stub-${stubCounter++}.mjs`,
+    names.map(n => `export const ${n} = (...a) => {};`).join('\n') + `\nexport default (...a) => {};`);
+}
 
 function readSrc(rel) {
   return fs.readFileSync(new URL(`../client/src/${rel}`, import.meta.url), 'utf8');
@@ -51,7 +62,7 @@ function compile(rel, swaps = []) {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   });
   let compiled = outputText;
-  for (const [from, to, optional] of [...swaps, ['"react/jsx-runtime"', runtimeUrl]]) {
+  for (const [from, to, optional] of [...swaps, ['"react/jsx-runtime"', runtimeUrl, true], ["'react'", reactUrl, true]]) {
     if (optional && !compiled.includes(from)) continue;
     assert.ok(compiled.includes(from), `compiled ${rel} imports ${from}`);
     compiled = compiled.split(from).join(`'${to}'`);
@@ -111,46 +122,69 @@ test('errorSanitize: logServerDetail is a no-op for empty/null/undefined detail'
 
 // ---- Rendered `.error` sites: real component, real render ----
 
+const errorSanitizeUrl = () => compile('lib/errorSanitize.ts');
+
+const tradeCardSwaps = () => [
+  ["'../lib/errorSanitize'", errorSanitizeUrl()],
+  ["'../api'", namedStub(['api', 'headshotUrl'])],
+  ["'./PlayerCard'", namedStub(['usePlayerCard'])],
+  ["'./PlayerRow'", namedStub(['Headshot'])],
+  ["'./trade/ManagerRead'", namedStub([])],
+  ["'./trade/PlayerEvidence'", namedStub([])],
+  ["'./trade/RiskStrip'", namedStub([])],
+  ["'./trade/types'", namedStub(['hasEvidence'])],
+];
+
 test('TradeCard.tsx:343 — sense.error is logged, not rendered (TradeSectionError)', async () => {
-  const { TradeSectionError } = await import(compile('components/TradeCard.tsx'));
+  const { TradeSectionError } = await import(compile('components/TradeCard.tsx', tradeCardSwaps()));
   const { out: html, seen } = captureConsole(() => renderToStaticMarkup(
     React.createElement(TradeSectionError, { where: 'TradeCard.senseCheck', error: LEAKY })));
   assertNoLeak(html, 'TradeCard sense.error');
-  assert.match(html, /Couldn.t check that/);
+  assert.match(html, /Couldn(&#x27;|')t check that/);
   assert.ok(seen.some(s => s.includes('nfl_availability_role_rates')), 'detail goes to console.error');
 });
 
 test('TradeCard.tsx:372 — impact.error is logged, not rendered (TradeSectionError)', async () => {
-  const { TradeSectionError } = await import(compile('components/TradeCard.tsx'));
+  const { TradeSectionError } = await import(compile('components/TradeCard.tsx', tradeCardSwaps()));
   const { out: html, seen } = captureConsole(() => renderToStaticMarkup(
     React.createElement(TradeSectionError, { where: 'TradeCard.oddsImpact', error: LEAKY })));
   assertNoLeak(html, 'TradeCard impact.error');
   assert.ok(seen.some(s => s.includes('[TradeCard.oddsImpact]')), 'console.error tagged with the odds-impact site');
 });
 
+const pageExplainSwaps = () => [
+  ["'../lib/errorSanitize'", errorSanitizeUrl()],
+  ["'react-router-dom'", namedStub(['useLocation'])],
+  ["'../api'", namedStub(['api', 'useApi'])],
+  ["'../copy-constants'", namedStub(['NOT_PROVEN_MESSAGE'])],
+];
+
 test('PageExplainAssistant.tsx:177 — answer.error is logged, not rendered (AnswerBlock)', async () => {
-  const { AnswerBlock } = await import(compile('components/PageExplainAssistant.tsx',
-    [["'react-router-dom'", linkUrl]]));
+  const { AnswerBlock } = await import(compile('components/PageExplainAssistant.tsx', pageExplainSwaps()));
   const { out: html, seen } = captureConsole(() => renderToStaticMarkup(
     React.createElement(AnswerBlock, { answer: { error: LEAKY } })));
   assertNoLeak(html, 'PageExplainAssistant answer.error');
-  assert.match(html, /Couldn.t get an answer/);
+  assert.match(html, /Couldn(&#x27;|')t get an answer/);
   assert.ok(seen.some(s => s.includes('nfl_availability_role_rates')), 'detail goes to console.error');
 });
 
 test('control: AnswerBlock still renders the real paragraph for a normal answer', async () => {
-  const { AnswerBlock } = await import(compile('components/PageExplainAssistant.tsx',
-    [["'react-router-dom'", linkUrl]]));
+  const { AnswerBlock } = await import(compile('components/PageExplainAssistant.tsx', pageExplainSwaps()));
   const html = renderToStaticMarkup(React.createElement(AnswerBlock,
     { answer: { paragraph: 'It uses last week’s snap share.', limitations: [] } }));
   assert.match(html, /snap share/);
 });
 
+const managerBoardSwaps = () => [
+  ["'../../lib/errorSanitize'", errorSanitizeUrl()],
+  ["'../PageState'", namedStub(['PageError', 'PageLoading'])],
+  ["'../../api'", namedStub(['api'])],
+  ["'./types'", namedStub(['TIERS', 'TIER_SHORT', 'TIER_STYLE', 'MIN_OBSERVATIONS', 'isThin', 'asText', 'metricLabel'])],
+  ["'react-router-dom'", linkUrl],
+];
+
 test('ManagerBoard.tsx:223 — signals.error is logged, not interpolated into the shown reason', async () => {
-  const { signalsRequestFailedReason } = await import(compile('components/brain/ManagerBoard.tsx',
-    [["'../PageState'", write('page-state-stub.mjs', 'export function PageError(){return null} export function PageLoading(){return null}')],
-     ["'../../api'", write('api-stub.mjs', 'export const api = {};')],
-     ["'react-router-dom'", linkUrl]]));
+  const { signalsRequestFailedReason } = await import(compile('components/brain/ManagerBoard.tsx', managerBoardSwaps()));
   const { out: reason, seen } = captureConsole(() => signalsRequestFailedReason(LEAKY));
   for (const m of MARKERS) assert.ok(!reason.includes(m), `reason leaked "${m}": ${reason}`);
   assert.equal(reason, 'The signals request failed. Try again in a moment.');
@@ -158,20 +192,14 @@ test('ManagerBoard.tsx:223 — signals.error is logged, not interpolated into th
 });
 
 test('control: signalsRequestFailedReason keeps the honest 404 explanation, no log needed', async () => {
-  const { signalsRequestFailedReason } = await import(compile('components/brain/ManagerBoard.tsx',
-    [["'../PageState'", write('page-state-stub2.mjs', 'export function PageError(){return null} export function PageLoading(){return null}')],
-     ["'../../api'", write('api-stub2.mjs', 'export const api = {};')],
-     ["'react-router-dom'", linkUrl]]));
+  const { signalsRequestFailedReason } = await import(compile('components/brain/ManagerBoard.tsx', managerBoardSwaps()));
   const { out: reason, seen } = captureConsole(() => signalsRequestFailedReason('Not Found (404)'));
   assert.match(reason, /answered 404/);
   assert.equal(seen.length, 0, '404 case is an honest explanation, not server detail — nothing to log');
 });
 
 test('ManagerBoard.tsx:284 — p.error is logged, not rendered (ManagerProfilesGap)', async () => {
-  const { ManagerProfilesGap } = await import(compile('components/brain/ManagerBoard.tsx',
-    [["'../PageState'", write('page-state-stub3.mjs', 'export function PageError(){return null} export function PageLoading(){return null}')],
-     ["'../../api'", write('api-stub3.mjs', 'export const api = {};')],
-     ["'react-router-dom'", linkUrl]]));
+  const { ManagerProfilesGap } = await import(compile('components/brain/ManagerBoard.tsx', managerBoardSwaps()));
   const { out: html, seen } = captureConsole(() => renderToStaticMarkup(
     React.createElement(ManagerProfilesGap, { error: LEAKY })));
   assertNoLeak(html, 'ManagerBoard p.error');

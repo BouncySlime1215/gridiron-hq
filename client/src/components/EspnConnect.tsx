@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, useApi } from '../api';
+import { sanitizedMessage } from '../lib/errorSanitize';
 
 /**
  * One-click ESPN connection.
@@ -61,7 +62,7 @@ export default function EspnConnect() {
       setDiscovered(d.leagues);
       if (!silent && !d.leagues.length) setMsg('Connected, but no fantasy football leagues found on this account for this season.');
     } catch (e: any) {
-      setMsg(silent ? `ESPN could not refresh your leagues: ${e.message}` : e.message);
+      setMsg(sanitizedMessage('EspnConnect.discover', silent ? 'ESPN could not refresh your leagues' : 'ESPN league lookup failed', e.message));
     }
     finally { setBusy(false); }
   };
@@ -99,7 +100,7 @@ export default function EspnConnect() {
       await api(`/leagues/${r.id}/sync`, { method: 'POST' });
       setMsg(`Added and synced ${l.name}.`);
       refetch();
-    } catch (e: any) { setMsg(`Added, but the first sync failed: ${e.message}. Try “Sync” in League Hub → Connections.`); }
+    } catch (e: any) { setMsg(sanitizedMessage('EspnConnect.add', 'Added, but the first sync failed. Try “Sync” in League Hub → Connections', e.message)); }
     finally { setBusy(false); }
   };
 

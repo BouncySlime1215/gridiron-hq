@@ -7,6 +7,7 @@ import TeamScout from '../components/TeamScout';
 import PostDraftPlan from '../components/PostDraftPlan';
 import { Headshot } from '../components/PlayerRow';
 import { PageError } from '../components/PageState';
+import { sanitizedAlert } from '../lib/errorSanitize';
 
 /**
  * My Team, for whichever league is active in the header.
@@ -83,7 +84,7 @@ export default function MyTeam() {
     if (!active) return;
     setSyncing(true);
     try { await api(`/leagues/${active.id}/sync`, { method: 'POST' }); refetchData(); refetchLeagues(); }
-    catch (e: any) { alert(`Sync failed: ${e.message}`); }
+    catch (e: any) { sanitizedAlert('MyTeam.sync', 'Sync failed', e.message); }
     finally { setSyncing(false); }
   };
 

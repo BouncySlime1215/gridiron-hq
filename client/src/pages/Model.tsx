@@ -3,6 +3,7 @@ import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
 import { usePlayerCard } from '../components/PlayerCard';
 import { EmptyState, PageError, PageLoading } from '../components/PageState';
+import { sanitizedAlert } from '../lib/errorSanitize';
 
 /**
  * The prediction engine, made inspectable.
@@ -34,7 +35,7 @@ export default function Model({ tab: controlledTab, embedded }: { tab?: Tab; emb
   const sync = async () => {
     setSyncing(true);
     try { await api('/model/sync', { method: 'POST' }); location.reload(); }
-    catch (e: any) { alert(`Sync failed: ${e.message}`); }
+    catch (e: any) { sanitizedAlert('Model.sync', 'Sync failed', e.message); }
     finally { setSyncing(false); }
   };
 

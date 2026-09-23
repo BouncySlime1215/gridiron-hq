@@ -8,6 +8,7 @@ import OffseasonPanel from '../components/OffseasonPanel';
 import TeamSchedule from '../components/TeamSchedule';
 import SidePanel from '../components/SidePanel';
 import { EmptyState, PageError, PageLoading } from '../components/PageState';
+import { sanitizedAlert } from '../lib/errorSanitize';
 
 type Phase = 'offense' | 'defense' | 'special_teams' | 'schedule' | 'offseason';
 
@@ -66,7 +67,7 @@ export default function TeamDetail() {
   const pullTeamNews = async () => {
     setNewsBusy(true);
     try { await api(`/espn/sync-news?team=${abbr}`, { method: 'POST' }); refetchNews(); }
-    catch (e: any) { alert(`News pull failed: ${e.message}`); }
+    catch (e: any) { sanitizedAlert('TeamDetail.pullTeamNews', 'News pull failed', e.message); }
     finally { setNewsBusy(false); }
   };
 

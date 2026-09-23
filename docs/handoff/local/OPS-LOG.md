@@ -110,3 +110,7 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 
 11:50Z: Loop 1 done: AI-01 DECLINED (#181, docs; queued), TM-09 market prices (#183; auditor next), RL-3-2 live inactives (#184, migration -> held for Nick). Plan adjusted: market (FantasyCalc) is the value base; edges = lineup fit, availability/timing, human side.
 11:55Z: Loop 1 relaunched: S-19 one hype producer + INT-168-1 (wp7qb7hea). Auditor on #183.
+
+12:05Z: TM-09 #183 CLEARED (byte-identical rebuild; no 2025; aggregates only), queued. NOTE FOR NICK: Sleeper terms forbid automated extraction without written consent and allow personal non-commercial use only; the committed aggregates rest on Nick's clearance ("ignore - do it"); if the app goes commercial this table needs a Sleeper licence or removal.
+
+12:20Z: R&D r7 landed: fill-in borrowed-role edge (RL-7-1), BLEND-02 trimmed to the Vegas layer, snap loader name-join bug (S-20), glossary #75 wrong (UX-14). Plan adjusted; r8 relaunched (wjdidty79).

@@ -11,7 +11,8 @@ import { assertLeagueMember } from '../platform/auth.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import {
   findTrades, findTradeSequences, offerFor, offerForMany, selfScout, playerOutlook, evaluate,
-  assetUniverse, loadRosters, lineupSlots, bestLineup, resolvePlayer, lineupDiff, playerEvidence
+  assetUniverse, loadRosters, lineupSlots, bestLineup, resolvePlayer, lineupDiff, playerEvidence,
+  tradeWeekContext
 } from '../services/trade-engine.js';
 // The same season-by-season prompt lines and "argue from the numbers" rules the
 // draft advisor runs on (server/routes/drafts.js) — one voice for both rooms.
@@ -19,6 +20,7 @@ import { evidenceLines, evidenceHeadline, STAT_ROOTED_INSTRUCTIONS } from '../se
 import { dvpTable, matchupModel, matchupSignalActive, MATCHUP_SIGNAL_REASON } from '../services/matchups.js';
 import { leagueCurrentWeek } from '../services/league-week.js';
 import { waiverBoard } from '../services/waiver-wire.js';
+import { streamingBoard } from '../services/streaming-board.js';
 import { lineupPosture } from '../services/lineup-posture.js';
 import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
@@ -675,6 +677,19 @@ r.get('/:leagueId/waivers', (req, res, next) => {
       limit: Math.min(50, Math.max(5, Number(req.query.limit) || 20)),
       minProjected: Number(req.query.min_projected) || 4,
     }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * The defense streaming board (WV-01): free-agent defenses ranked by the implied
+ * points of the offense they face, the edge over the defense you hold, and one
+ * add suggestion that fits the roster. Same week as the waiver board.
+ */
+r.get('/:leagueId/streams', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const { season, week } = tradeWeekContext();
+    res.json(streamingBoard(lg, { myTeamId: req.query.team_id, season, week }));
   } catch (e) { next(e); }
 });
 

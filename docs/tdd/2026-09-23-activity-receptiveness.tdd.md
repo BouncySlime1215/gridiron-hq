@@ -114,7 +114,7 @@ status='EXECUTED'"` -> `9|2`). Only one league had trades in periods 2-3, so 20 
   with one league gave a zero-width interval, and the script still printed "HOLDS". The script now runs the
   pre-registered team-cluster bootstrap and prints "NOT EVALUABLE" for a zero-width interval or fewer than two
   clusters. The league line is still printed, for comparison only.
-- Re-run on tree `cea1d1a8` (after the name-match fix below): AUC 0.6875 (activity), 0.6875 (with checked out).
+- Re-run on tree `a2306336` (after the name-match fix below): AUC 0.6875 (activity), 0.6875 (with checked out).
   Team-cluster 90% interval [0.4667, 0.8833] (10 teams, 999 of 1,000 resamples usable). MDE80 0.359. Rule 5
   holds (point above 0.5, interval not entirely below 0.5), but the interval spans 0.5 and this is anecdote-sized.
   Ledger row F003. The earlier 0.6750 with checked out came from the DJ Moore false flags; superseded.
@@ -137,7 +137,7 @@ weeks". `checked_out` entries appear with `would_effect -0.1824`, e.g. "1 starte
 `nfl_snaps` writes "D.J. Moore" (23 snaps, -0.1 points), and the exact `player = ?` match missed him. In week 2,
 30 of 378 non-DEF starters had no exact-name snap row. `deadStartSignals` now normalises both sides through
 `normalizePlayerName` (`server/services/player-identity.js:27`). After the fix, 2 of 378 have no match. Re-run on
-`cea1d1a8` (local copy): `lineup_dead_starts_last_week` > 0 for 2 of 46 managers (was 6). Both flags are the same
+`a2306336` (local copy): `lineup_dead_starts_last_week` > 0 for 2 of 46 managers (was 6). Both flags are the same
 player, who has no week-2 snap row although his team has 45 week-2 rows (and he has 43 snaps in week 1), so he
 did not play. Commands: `sqlite3 .local-db/data.sqlite "SELECT count(*), sum(value>0) FROM manager_signals WHERE
 metric='lineup_dead_starts_last_week'"` -> `46|2`; the name check is a scratch node script comparing exact vs
@@ -155,7 +155,7 @@ name-match fix; the last-week side now flags fewer.)
 EXECUTED WAIVER/FREEAGENT rows by the acting team, season to date including the week in progress). On the same
 input (local copy, `3c09a682`) it disagreed with `tx_adds_per_week` for 14 of 46 managers, because of 21 executed
 rows in period 3, the week in progress. It is now emitted by `activitySignals` from the same `addsByTeam` count,
-through the same last completed week (`value = tx_adds_per_week * weeks`). Check on `cea1d1a8`: `sqlite3
+through the same last completed week (`value = tx_adds_per_week * weeks`). Check on `a2306336`: `sqlite3
 .local-db/data.sqlite "SELECT count(*), sum(a.value=b.value*b.n) FROM manager_signals a JOIN manager_signals b ON
 a.league_id=b.league_id AND a.roster_id=b.roster_id AND b.metric='tx_adds_per_week' WHERE
 a.metric='tx_waiver_moves'"` -> `46|46`. The pipeline test fixture (`test/manager-data-pipeline.test.js`) had claim

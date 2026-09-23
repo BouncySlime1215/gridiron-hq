@@ -67,6 +67,41 @@ test('a connected league\'s own roster payload is re-synced, not left stale', as
   assert.equal(updated.connection_status, 'connected');
 });
 
+// INT-163-1: syncEspnLeague (routes/leagues.js) computes a scoring summary
+// (source/reason/unscored/unmapped ids) on every sync, per its own docstring
+// ("syncEspnLeague returns scoringSummary() on every manual sync and
+// scheduled roster refresh") — espn-scoring-report.js:7-8 — but the scheduled
+// path (this function) built a per-league `results` array carrying it and
+// then returned only counts, throwing it away before it ever reached
+// sync_log.last_detail / the Data Health page.
+test('the scoring summary a scheduled refresh computes reaches the job result, not just counts', async () => {
+  run(`DELETE FROM leagues`);
+  run(`INSERT INTO leagues (platform, league_id, season, name, payload, ppr) VALUES ('espn','333',2026,'Some League','{}',1)`);
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      settings: {
+        name: 'Some League',
+        rosterSettings: { lineupSlotCounts: {} },
+        // 209 is outside the public ESPN stat id list scoring.js reads —
+        // scoringFor reports it as unmapped, and this should survive.
+        scoringSettings: { scoringItems: [{ statId: 209, points: 1 }] }
+      },
+      teams: []
+    })
+  });
+
+  const detail = await refreshLeagueRosters();
+  assert.equal(detail.failed, 0, `must not fail: ${JSON.stringify(detail)}`);
+  assert.ok(Array.isArray(detail.results), 'refreshLeagueRosters must return the per-league results, not only counts');
+  const mine = detail.results.find(r => r.league_id === row(`SELECT id FROM leagues WHERE league_id='333'`).id);
+  assert.ok(mine, 'the synced league must appear in results');
+  assert.ok(mine.scoring, 'the scoring summary syncEspnLeague computed must be carried through, not dropped');
+  assert.deepEqual(mine.scoring.unmapped, [{ statId: 209, points: 1 }],
+    'a known-nonzero control: statId 209 is a real unmapped id, so an empty unmapped here would mean the summary was never wired, not that nothing was unmapped');
+});
+
 test('a per-league sync failure does not block other leagues from refreshing', async () => {
   run(`DELETE FROM leagues`);
   run(`INSERT INTO leagues (platform, league_id, season, name, payload) VALUES ('espn','111',2026,'Broken League','{}')`);

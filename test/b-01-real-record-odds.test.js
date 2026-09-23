@@ -213,3 +213,92 @@ test('B-01: myPlayoffOdds (Trades page) uses simStartWeek, not the NFL game_line
   const stale = insertLeague(605, payload, { payloadSeason: 2025 });
   assert.match(myPlayoffOdds(stale, '1').source, /from week 1$/, 'the engine carried last season\'s results in');
 });
+
+// --- INT-162-1 (B-01 hardening, 2026-09-23) -------------------------------
+//
+// (1) simStartWeek() used to check `requested` before the payload/season
+//     mismatch, so a client ?from_week (or POST body.from_week) on a league
+//     whose payload is last season's still won and brought B-01 back.
+// (2) simStartWeek is the one producer of a sim's start week. simulateSeason and
+//     tradeImpact resolve it themselves (season-sim.js simulateSeason/tradeImpact
+//     both call simStartWeek(lg, requestedWeek)). A caller outside season-sim.js
+//     may hand them only the RAW client week as `fromWeek` — never a week it
+//     computed — so there is no second place the week can be decided. The
+//     guard below is token-level (every `fromWeek` in server/), not call-shape
+//     level, so an options object built elsewhere or merged in still trips it.
+
+test('B-01 hardening: simStartWeek ignores a client from_week on a stale (last season\'s) payload', () => {
+  // Same fixture as the pre-draft-fallback case above, but now the request
+  // carries an explicit from_week — the client can't know the payload is
+  // stale, so it must not be able to override week 1.
+  const stale = insertLeague(606, payload, { payloadSeason: 2025 });
+  assert.equal(simStartWeek(stale, 5), 1,
+    'a client from_week=5 must not resurrect last season\'s payload as week 5');
+  assert.equal(simStartWeek(stale, '5'), 1,
+    'same guard for a raw ?from_week query string, not just a parsed number');
+
+  // Control: the same explicit week on a current-season payload still wins —
+  // this proves the assertions above test the stale-payload guard, not a
+  // general "explicit week is ignored" regression.
+  const current = rows('SELECT * FROM leagues WHERE id = 601')[0];
+  assert.equal(simStartWeek(current, 5), 5, 'control: explicit week wins on a current-season payload');
+});
+
+test('B-01 hardening: routes honour an explicit from_week, but never on a stale payload', async () => {
+  // Runtime check through the real routes (not a source scan).
+  insertLeague(607, payload, { payloadSeason: 2025 });
+  const staleSim = await (await fetch(`${base}/607/simulate?runs=200&seed=4&from_week=5`, { headers: auth })).json();
+  assert.equal(staleSim.from_week, 1, `GET /simulate?from_week=5 on last season's payload: ${JSON.stringify(staleSim).slice(0, 200)}`);
+  const staleImpact = await (await fetch(`${base}/607/trade-impact`, { method: 'POST', headers: auth,
+    body: JSON.stringify({ my_team_id: '1', their_team_id: '2', runs: 200, seed: 4, from_week: 5 }) })).json();
+  assert.equal(staleImpact.from_week, 1, `POST /trade-impact from_week=5 on last season's payload: ${JSON.stringify(staleImpact).slice(0, 200)}`);
+
+  // Control: the override is still honoured on a current-season payload (it is
+  // not an orphaned input), and the memo keyed on it returns that week.
+  insertLeague(608, payload);
+  const explicit = await (await fetch(`${base}/608/simulate?runs=200&seed=4&from_week=3`, { headers: auth })).json();
+  assert.equal(explicit.from_week, 3, 'GET /simulate?from_week=3 on a current-season payload');
+  const again = await (await fetch(`${base}/608/simulate?runs=200&seed=4&from_week=3`, { headers: auth })).json();
+  assert.equal(again.from_week, 3, 'memo hit for from_week=3 returns week 3');
+  const impact = await (await fetch(`${base}/608/trade-impact`, { method: 'POST', headers: auth,
+    body: JSON.stringify({ my_team_id: '1', their_team_id: '2', runs: 200, seed: 4, from_week: 3 }) })).json();
+  assert.equal(impact.from_week, 3, 'POST /trade-impact from_week=3 on a current-season payload');
+});
+
+test('B-01 hardening: source guard — outside season-sim.js, fromWeek only ever carries the raw client week', () => {
+  const serverDir = path.join(process.cwd(), 'server');
+  const files = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(p);
+      else if (entry.name.endsWith('.js')) files.push(p);
+    }
+  })(serverDir);
+  assert.ok(files.length > 50, `control: expected many files under server/, found ${files.length}`);
+
+  // The only allowed form: `fromWeek: req.query.from_week` / `fromWeek: req.body?.from_week`.
+  const allowed = /\bfromWeek\s*:\s*req\.(?:query|body)\??\.from_week\b/y;
+  const offenders = [];
+  let allowedHits = 0, importers = 0;
+  for (const file of files) {
+    if (file.endsWith(path.join('server', 'services', 'season-sim.js'))) continue; // the producer itself
+    const src = fs.readFileSync(file, 'utf8');
+    // Only modules that import season-sim.js can hand simulateSeason/tradeImpact
+    // a week (matchups.js has an unrelated NFL-schedule `fromWeek` parameter).
+    if (!/from\s+['"][./]*(?:services\/)?season-sim\.js['"]/.test(src)) continue;
+    importers++;
+    const tokenRe = /\bfromWeek\b/g;
+    let m;
+    while ((m = tokenRe.exec(src))) {
+      allowed.lastIndex = m.index;
+      if (allowed.test(src)) { allowedHits++; continue; }
+      const line = src.slice(0, m.index).split('\n').length;
+      offenders.push(`${path.relative(process.cwd(), file)}:${line}: ${src.split('\n')[line - 1].trim()}`);
+    }
+  }
+  assert.ok(importers >= 2, `control: expected routes/model.js and trade-engine.js among season-sim importers, found ${importers}`);
+  // Known-nonzero control: /simulate and /trade-impact each pass the raw week once.
+  assert.ok(allowedHits >= 2, `control: expected the two routes' raw pass-throughs, found ${allowedHits}`);
+  assert.deepEqual(offenders, [], `fromWeek set to something other than the raw client week (a second producer):\n${offenders.join('\n')}`);
+});

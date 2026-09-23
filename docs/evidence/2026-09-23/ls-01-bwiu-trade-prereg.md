@@ -91,4 +91,8 @@ either way; only the reading of it is gated.
 
 ## Deviations
 
-(none yet)
+1. 2026-09-23, before any outcome number: a player benched in several weeks before
+   the same trade would enter as several identical pairs (same player, same trade,
+   same D). Pairs are de-duplicated on (league, roster, player, trade), keeping the
+   earliest event. Same for the SK control. `sh_team_weeks` holds weeks 1-16 only, so
+   events come from weeks 3-16; outcome windows still read NFL weeks up to 18.

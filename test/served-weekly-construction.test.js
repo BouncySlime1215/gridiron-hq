@@ -87,6 +87,9 @@ const waiverBrain = await import('../server/services/waiver-brain.js');
 const { startSitWeekPoints } = await import('../server/services/lineup-brain.js');
 const { runDecayWatch } = await import('../server/services/decay-watch.js');
 const { PPR } = await import('../server/services/scoring.js');
+const { lineupPosture } = await import('../server/services/lineup-posture.js');
+const { deriveFormat } = await import('../server/services/format.js');
+const { modelMap } = await import('../server/services/gridiron-model.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -354,7 +357,6 @@ test('vegasLift is switched off: every position on a team with a line gets multi
     const lift = waiverBrain.vegasLift({ team_abbr: 'ARI', position }, 2026, 2);
     assert.equal(lift.applied, false, position);
     assert.equal(lift.multiplier, 1, position);
-    assert.equal(lift.switched_off, true, position);
   }
   // One switch, frozen, in waiver-brain.js beside vegasLift.
   assert.equal(waiverBrain.BETTING_LINE_LIFT?.on, false);
@@ -404,20 +406,143 @@ test('the lift\'s reading says the number leaves the market out, and only when t
   assert.equal(waiverBrain.vegasLift({ team_abbr: 'NOPE', position: 'WR' }, 2026, 2).reading, null);
 });
 
-test('no served module calls gameScriptLift: the switch in vegasLift cannot be routed around', () => {
-  const root = new URL('../server/', import.meta.url);
-  const hits = [];
+/** Every server .js file, relative to server/, with its source (comments stripped for call checks). */
+function serverSources() {
+  const root = new URL('../server/', import.meta.url).pathname;
+  const out = [];
   const walk = dir => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (entry.name.endsWith('.js') && /\bgameScriptLift\b/.test(fs.readFileSync(full, 'utf8'))) {
-        hits.push(path.relative(root.pathname, full));
-      }
+      else if (entry.name.endsWith('.js')) out.push({ file: path.relative(root, full), src: fs.readFileSync(full, 'utf8') });
     }
   };
-  walk(root.pathname);
+  walk(root);
+  return out;
+}
+const stripComments = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
+
+test('no served module calls gameScriptLift, the unswitched copy of the lift that studies read', () => {
+  const hits = serverSources().filter(s => /\bgameScriptLift\b/.test(s.src)).map(s => s.file);
   assert.deepEqual(hits.filter(f => f !== path.join('services', 'waiver-brain.js')), []);
+});
+
+test('the betting line reaches a fantasy number only through the switch, or as a named, owned follow-up', () => {
+  // Every module that CALLS gameScriptFor. Two fantasy producers still multiply sampled
+  // volume by its multipliers outside vegasLift; they are listed with the unit that owns
+  // them, so no third one can appear unlisted and a fixed one has to leave the list.
+  const callers = serverSources().filter(s => /\bgameScriptFor\s*\(/.test(stripComments(s.src))).map(s => s.file).sort();
+  const svc = f => path.join('services', f);
+  const NOT_THE_LIFT = {
+    [svc('gamescript.js')]: 'defines it',
+    [svc('waiver-brain.js')]: 'gameScriptLift, which served code reads only through vegasLift (the switch)',
+    [svc('fantasy-coordinator.js')]: 'the coordinator\'s own input (game_script_delta), fitted and graded inside it (S-02, S-03)',
+    [svc('betting-fantasy-link.js')]: 'betting side: routes/nfl-betting.js',
+    [svc('nfl-context-heads.js')]: 'betting-side head research',
+    [svc('nfl-prop-head-validation.js')]: 'player-prop validation',
+    [svc('nfl-props.js')]: 'player props'
+  };
+  const STILL_APPLY_THE_LIFT = {
+    [svc('ceiling-lineup.js')]: 'S-06: the Ceiling tab draws week-N volume x the line (ceiling-lineup.js:108-110)',
+    [svc('season-sim.js')]: 'S-05: the season simulation draws every week x the line (season-sim.js:224-225)'
+  };
+  assert.ok(callers.length >= 3, `the scan finds callers at all (known-nonzero control): ${callers.join(', ')}`);
+  assert.deepEqual(callers.filter(f => !(f in NOT_THE_LIFT) && !(f in STILL_APPLY_THE_LIFT)), [],
+    'a new module applies the betting line outside the switch: route it through vegasLift, or list it with its owner');
+  for (const f of Object.keys(STILL_APPLY_THE_LIFT)) {
+    assert.ok(callers.includes(f), `${f} no longer calls gameScriptFor: take it off this list and off gridiron-model.js's note`);
+  }
+  // The model registry says the same thing the code does: off in vegasLift, still on in the two above.
+  const cap = modelMap().capabilities.find(c => c.id === 'crossover.vegas_to_fantasy');
+  for (const f of Object.keys(STILL_APPLY_THE_LIFT)) assert.match(cap.note, new RegExp(path.basename(f).replace('.', '\\.')), cap.note);
+  assert.doesNotMatch(cap.note, /every served number/i);
+});
+
+test('a failed game-script read is logged, and the switched-off lift carries no field nothing reads', t => {
+  const logged = t.mock.method(console, 'error', () => {});
+  const failed = waiverBrain.vegasLift({ team_abbr: 'ZZT', position: 'WR' }, 2026, 2);
+  assert.equal(failed.multiplier, 1);
+  assert.equal(failed.applied, false);
+  assert.equal(logged.mock.callCount(), 1, 'the failure reaches the log');
+  assert.match(logged.mock.calls[0].arguments.map(String).join(' '), /game-script/i);
+  // What the served callers read: lineup-brain.js keeps reading/multiplier/applied, trade-engine
+  // keeps applied/multiplier, horizonValueWithVegas keeps applied/multiplier. Nothing else.
+  for (const lift of [failed, waiverBrain.vegasLift({ team_abbr: 'ARI', position: 'WR' }, 2026, 2)]) {
+    assert.deepEqual(Object.keys(lift).sort(), ['applied', 'line', 'multiplier', 'reading']);
+  }
+});
+
+// ------------------------------------------- the label on the surfaces that show this week's points
+
+// The phrases that say a betting-line adjustment is IN this week's number. While the switch is
+// off, no served basis sentence and no page may say them.
+const LIFT_CLAIMS = [/\b(with|and|x|×|times|plus)\s+the\s+betting[- ]line/i, /betting[- ]line\s+(adjustment\s+)?included/i];
+const claimsLift = s => LIFT_CLAIMS.some(r => r.test(String(s ?? '')));
+
+test('the lift-claim check recognises every sentence the pages carried before S-03 (known-nonzero control)', () => {
+  for (const old of [
+    'Start/Sit week points: this week\'s projection x the betting-line game-script adjustment',
+    'Both totals are the Start/Sit week points (this week\'s projection with the betting-line adjustment)',
+    'Uses THIS WEEK\'s projection (Week 3: matchup, byes, injury odds and the betting line)',
+    'Week 3 projection: this Sunday\'s game (0 on a bye) and injury odds, with the betting line\'s game script',
+    'What "You" and "Them" are summed from: the Start/Sit week points, betting line included.'
+  ]) assert.ok(claimsLift(old), old);
+  assert.equal(claimsLift('This week\'s points: our weekly projection, times his chance to play. No betting-line boost.'), false);
+});
+
+// An ESPN league whose one rostered starter is the fixture player P, priced by the REAL universe.
+run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, roster_positions, payload)
+     VALUES (303, 'espn', 's03-303', 2026, 'S-03 label', '1', 10, 1, ?, ?)`,
+JSON.stringify(['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX', 'BENCH']), JSON.stringify({ teams: [{ id: 1, roster: { entries: [
+  { lineupSlotId: 4, playerPoolEntry: { player: { id: 7001, fullName: P.name, defaultPositionId: 3, injuryStatus: 'ACTIVE' } } }
+] } }] }));
+const L303 = () => row('SELECT * FROM leagues WHERE id = 303');
+const labelOf = lg => assetUniverse(lg, deriveFormat(lg).formatKey).context.week_basis;
+
+test('the League Hub card serves the week\'s basis, and its note does not claim the lift', () => {
+  assert.equal(waiverBrain.BETTING_LINE_LIFT.on, false);
+  const d = lineupDiff(L303(), '1');
+  assert.ifError(d.error);
+  assert.deepEqual(d.week_basis, labelOf(L303()), 'the one produced label, not a second sentence');
+  assert.match(d.week_basis.label, /no betting-line/i);
+  assert.equal(claimsLift(d.note), false, d.note);
+  // A caller that prices the players itself (plain assets, no context) still gets the label.
+  const asset = { id: 5101, name: 'Plain Receiver', position: 'WR', team_abbr: 'ARI', espn_id: 5101, available: true,
+    current_week_ppg: 10, adj_ppg: 10, ppg: 10, active_probability: 0.95, bye: 9, matchup: { opponent: 'OPP' } };
+  const plain = lineupDiff({ ...L303(), payload: JSON.stringify({ teams: [{ id: 1, roster: { entries: [
+    { lineupSlotId: 4, playerPoolEntry: { player: { id: 5101, fullName: 'Plain Receiver', defaultPositionId: 3, injuryStatus: 'ACTIVE' } } }
+  ] } }] }) }, '1', { assets: new Map([[asset.id, asset]]) });
+  assert.ifError(plain.error);
+  assert.equal(plain.week_basis?.betting_line_lift?.on, false);
+  assert.equal(claimsLift(plain.note), false, plain.note);
+});
+
+test('the matchup card on Start/Sit serves the week\'s basis, and its projection basis does not claim the lift', () => {
+  const card = lineupPosture(L303(), {});
+  assert.ifError(card.error);
+  const label = labelOf(L303());
+  assert.deepEqual(card.week_basis, label);
+  assert.equal(claimsLift(card.projection_basis), false, card.projection_basis);
+  assert.ok(card.projection_basis.includes(label.label), `the basis sentence carries the produced label: ${card.projection_basis}`);
+});
+
+test('the Start/Sit matchup card and the League Hub card render the week\'s basis, and no page claims the lift', () => {
+  const read = f => fs.readFileSync(new URL(`../client/src/${f}`, import.meta.url), 'utf8');
+  for (const f of ['components/lineup/MatchupPosture.tsx', 'pages/MyTeam.tsx']) {
+    assert.match(read(f), /week_basis\?\.label/, `${f} renders the served label`);
+  }
+  const pages = [];
+  const walk = dir => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.(tsx|ts)$/.test(entry.name)) pages.push(full);
+    }
+  };
+  walk(new URL('../client/src/', import.meta.url).pathname);
+  assert.ok(pages.length > 20, `the scan reads the client (${pages.length} files)`);
+  assert.deepEqual(pages.filter(f => claimsLift(fs.readFileSync(f, 'utf8'))).map(f => path.basename(f)), [],
+    'a page says the betting line is in this week\'s number while BETTING_LINE_LIFT is off');
 });
 
 // ------------------------------------------------------------------ decay watch on the served fit

@@ -21,7 +21,6 @@ const floorOf = (r: PackageRisk) => {
     ? `${r.top24_seasons}/${r.seasons} top-24 (${r.players.length - unread}/${r.players.length})`
     : `${r.top24_seasons}/${r.seasons} top-24`;
 };
-const ceilingOf = (r: PackageRisk) => r.p80 != null ? `${n0(r.p80)} pts` : '—';
 const swingOf = (r: PackageRisk) => r.swing_pct != null ? `±${r.swing_pct}%` : r.players.length ? 'n/a' : '—';
 
 /**
@@ -31,20 +30,28 @@ const swingOf = (r: PackageRisk) => r.swing_pct != null ? `±${r.swing_pct}%` : 
  * puts it in contradiction with the "Weekly ceiling" number already on this
  * same card (TradeCard.tsx's `s.ceiling_delta` / `deal.me.ceiling_delta`,
  * from trade-engine.js `lazyField(out, 'ceiling_delta', ...)`, a lineup-level
- * p90 delta) on 37-62 of 122-180 card sides. The card must show one number's
- * sign, not two: this cell now follows `ceiling_delta` alone.
+ * p90 delta) on 37-62 of 122-180 card sides. The card must show one number,
+ * not two: this cell's colour AND its text now follow `ceiling_delta` alone.
+ * The summed package p80 pair is no longer printed here either — printing it
+ * next to a colour taken from a different number would just move the
+ * contradiction inside the cell (RL-3-3 skeptic round, 37/122 sides).
  */
 const ceilingBetter = (delta: number | null | undefined) =>
   delta == null || Math.abs(delta) < 1e-9 ? null : delta > 0;
 
+/** The Ceiling cell's text: the same lineup-level ceiling_delta, signed, one decimal. */
+const ceilingText = (delta: number | null | undefined) =>
+  delta == null ? '—' : `${delta > 0 ? '+' : ''}${delta.toFixed(1)} pts`;
+
 /**
- * Floor / Ceiling / Consistency for one side of a deal: what leaves → what
- * arrives, from each package's multi-season record and this season's p80.
+ * Floor / Ceiling / Consistency for one side of a deal. Floor and Consistency
+ * are what leaves → what arrives, from each package's multi-season record;
+ * Ceiling is the lineup's Weekly-ceiling change (one number, not a pair).
  * Rendered only when at least one player on the side carries a record.
  *
  * `ceilingDelta` is the lineup-level Weekly-ceiling change already shown
- * elsewhere on the card (TradeCard.tsx); it drives the Ceiling cell's colour
- * instead of the packages' own summed p80 (see `ceilingBetter` above).
+ * elsewhere on the card (TradeCard.tsx); it is the Ceiling cell's value and
+ * colour, instead of the packages' own summed p80 (see `ceilingBetter` above).
  */
 export default function RiskStrip({ risk, compact = false, ceilingDelta = null }: { risk?: SideRisk | null; compact?: boolean; ceilingDelta?: number | null }) {
   if (!risk?.out || !risk?.in) return null;
@@ -62,6 +69,16 @@ export default function RiskStrip({ risk, compact = false, ceilingDelta = null }
         <span className="text-[var(--muted)]">{out}</span>
         <span className="text-[var(--muted)] mx-1">→</span>
         <span className={`font-semibold ${better === true ? 'text-good' : better === false ? 'text-crit' : ''}`}>{inn}</span>
+      </dd>
+    </div>
+  );
+  // One value, no sends → receives pair: for a lineup-level change there is no
+  // "what leaves" number to print, and the value and its colour share a producer.
+  const single = (label: string, value: string, title: string, better?: boolean | null) => (
+    <div className="min-w-0" title={title}>
+      <dt className="text-[10px] uppercase tracking-wide text-[var(--muted)]">{label}</dt>
+      <dd className="tabular-nums text-[11px] text-[var(--ink)] whitespace-nowrap">
+        <span className={`font-semibold ${better === true ? 'text-good' : better === false ? 'text-crit' : ''}`}>{value}</span>
       </dd>
     </div>
   );
@@ -86,9 +103,9 @@ export default function RiskStrip({ risk, compact = false, ceilingDelta = null }
               + 'A career record on this deal could not be read, so the count covers only part of the '
               + 'package and the comparison is left uncoloured.',
           sign(floorBetter))}
-        {cell('Ceiling', ceilingOf(risk.out), ceilingOf(risk.in),
-          'This season, p80 of our preseason model (sends → receives). Coloured by the starting '
-          + "lineup's Weekly ceiling change (10% good-week outcome), not by these two numbers.",
+        {single('Ceiling', ceilingText(ceilingDelta),
+          "Change in your starting lineup's total in a good week (1 week in 10) — the same "
+          + 'number as Weekly ceiling on this card',
           ceilingBetter(ceilingDelta))}
         {cell('Consistency', swingOf(risk.out), swingOf(risk.in), 'Year-to-year swing in season points (lower is steadier; sends → receives)', sign(swingBetter))}
       </dl>

@@ -41,13 +41,72 @@ test('App.tsx routes /my-team to MyTeam, not a redirect', () => {
     `/my-team route does not render <MyTeam /> directly: ${myTeamRoute[0]}`
   );
   assert.ok(!/Navigate/.test(myTeamRoute[0]), `/my-team still redirects instead of rendering: ${myTeamRoute[0]}`);
+  // Skeptic mutant M3: `const MyTeam = lazy(() => import('./pages/LeagueHub'))`
+  // kept the JSX text but rendered the wrong page. Pin what MyTeam is bound to.
+  const bindings = [...src.matchAll(/const MyTeam\s*=\s*(.+);/g)].map(m => m[1].trim());
+  assert.deepEqual(bindings, ["lazy(() => import('./pages/MyTeam'))"], `MyTeam is bound to ${JSON.stringify(bindings)}`);
+  assert.ok(!/import\s+MyTeam\b/.test(src), 'App.tsx also imports a MyTeam identifier statically');
+  assert.match(read('client/src/pages/MyTeam.tsx'), /export default function MyTeam\(/);
 });
 
-test('the old inner-tab deep link (/league?view=team) redirects to /my-team', () => {
+test('the sidebar renders every NAV_GROUPS item (no filter/slice at the call site)', () => {
+  // Skeptic mutant M4: `group.items.slice(...)` in App.tsx's NavLink loop hid
+  // My team from the rendered nav while NAV_GROUPS still had 8 items.
+  const src = read('client/src/App.tsx');
+  const navStart = src.indexOf('<nav aria-label="Primary navigation"');
+  const navEnd = src.indexOf('</nav>', navStart);
+  assert.ok(navStart > 0 && navEnd > navStart, 'primary <nav> block not found in App.tsx');
+  const nav = src.slice(navStart, navEnd);
+  assert.match(nav, /\{NAV_GROUPS\.map\(group => /, 'nav does not map NAV_GROUPS directly');
+  assert.match(nav, /\{group\.items\.map\(item => <NavLink /, 'nav does not map group.items directly into NavLink');
+  assert.doesNotMatch(nav, /\.(filter|slice|splice|reverse|sort)\(/, 'nav block narrows or reorders the items it renders');
+  assert.equal((nav.match(/<NavLink /g) ?? []).length, 1, 'expected exactly one NavLink render site in the nav');
+});
+
+test('legacyLeagueRedirect: ?view=team goes to /my-team, nothing else redirects', async () => {
+  const { legacyLeagueRedirect } = await import('../client/src/navigation.ts');
+  const q = s => new URLSearchParams(s);
+  assert.equal(legacyLeagueRedirect(q('view=team')), '/my-team');
+  assert.equal(legacyLeagueRedirect(q('view=connections')), null);
+  assert.equal(legacyLeagueRedirect(q('')), null);
+  assert.equal(legacyLeagueRedirect(q('xview=team')), null);
+});
+
+test('the old inner-tab deep link (/league?view=team) redirects via legacyLeagueRedirect', () => {
+  // Skeptic mutants M1 (`&& false`) and M2 (`xview`) broke the redirect while
+  // a loose text regex still passed. The predicate is now tested as a function
+  // above; here the call site must hand its result straight to <Navigate>.
   const src = read('client/src/pages/LeagueHub.tsx');
-  assert.ok(
-    /view.*===.*'team'[\s\S]{0,80}Navigate to="\/my-team"/.test(src) ||
-    /Navigate to="\/my-team"[\s\S]{0,80}view.*===.*'team'/.test(src),
-    "LeagueHub.tsx does not redirect ?view=team to /my-team"
+  assert.match(src, /const \[params\] = useSearchParams\(\);/);
+  assert.match(
+    src,
+    /const (\w+) = legacyLeagueRedirect\(params\);\s*if \(\1\) return <Navigate to=\{\1\} replace \/>;/,
+    'LeagueHub.tsx does not redirect with legacyLeagueRedirect(params) unconditionally'
   );
+});
+
+test('leagueGate: loading/error are never shown as "no league connected"', async () => {
+  const { leagueGate } = await import('../client/src/state/leagueGate.ts');
+  assert.equal(leagueGate({ loading: true, error: null, leagues: [] }), 'loading');
+  assert.equal(leagueGate({ loading: false, error: 'HTTP 500', leagues: [] }), 'error');
+  assert.equal(leagueGate({ loading: false, error: null, leagues: [] }), 'empty');
+  assert.equal(leagueGate({ loading: true, error: null, leagues: [{ id: 1 }] }), 'ready');
+  assert.equal(leagueGate({ loading: false, error: 'stale', leagues: [{ id: 1 }] }), 'ready');
+});
+
+test('MyTeam (now its own route) gates on leagues loading/error before the empty state', () => {
+  // Structure skeptic: HEAD e1d70c74 dropped the guard LeagueHub used to wrap
+  // around <MyTeam />, so /my-team flashed (or stuck on) "Connect a league".
+  const src = read('client/src/pages/MyTeam.tsx');
+  const gateAt = src.search(/const gate = leagueGate\(\{ loading: \w+, error: \w+, leagues \}\);/);
+  const loadingAt = src.search(/if \(gate === 'loading'\) return <PageLoading /);
+  const errorAt = src.search(/if \(gate === 'error'\) return <PageError /);
+  const emptyAt = src.search(/if \(gate === 'empty'\) \{/);
+  const connectAt = src.indexOf('Connect a league to see your roster');
+  assert.ok(gateAt > 0, 'MyTeam does not compute leagueGate(...)');
+  assert.ok(loadingAt > gateAt && errorAt > gateAt, 'MyTeam does not return PageLoading/PageError on the gate');
+  assert.ok(emptyAt > loadingAt && emptyAt > errorAt && connectAt > emptyAt, 'empty state is not behind the loading/error guard');
+  assert.doesNotMatch(src, /if \(!leagues\.length\)/, 'an unguarded !leagues.length branch remains');
+  assert.match(src, /loading: (\w+), error: (\w+),[^}]*\} = useLeague\(\)/, 'MyTeam does not read loading/error from useLeague()');
+  assert.match(read('client/src/pages/LeagueHub.tsx'), /leagueGate\(\{ loading, error, leagues \}\)/, 'LeagueHub no longer shares the gate');
 });

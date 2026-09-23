@@ -5,6 +5,7 @@ import { playoffWeeksText } from '../copy-constants';
 import { usePlayerCard } from '../components/PlayerCard';
 import { EmptyState, PageError, PageLoading } from '../components/PageState';
 import { sanitizedAlert } from '../lib/errorSanitize';
+import MedianGameNotice from '../components/MedianGameNotice';
 
 /**
  * The prediction engine, made inspectable.
@@ -255,6 +256,7 @@ function Odds() {
           player outcomes and the league's own playoff bracket
           {playoffWeeksText(data?.playoff_weeks) ? ` in ${playoffWeeksText(data?.playoff_weeks)}` : ''}.
         </p>
+        <MedianGameNotice medianGame={data?.median_game} rulesUnknown={data?.rules_unknown} />
       </div>
       <div className="divide-y divide-slate-100">
         {(data?.teams ?? []).map((t: any) => (

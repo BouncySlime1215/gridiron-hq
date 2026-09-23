@@ -142,6 +142,22 @@ test('managerState: the reason chain says why, and absence is typed', () => {
   assert.ok(none.reasonChain.contributions.some(c => /lineup errors unknown/.test(c.text)));
 });
 
+test('managerState: adds_per_week.value is his own rate shrunk to the population', () => {
+  const P = m.FITTED_PARAMS;
+  const zero = m.managerState(Array.from({ length: 8 }, () => wk(0)));
+  const three = m.managerState(Array.from({ length: 8 }, () => wk(3)));
+  const expect0 = m.shrunkRate(0, 8, P.popAddRate, P.alpha);
+  const expect3 = m.shrunkRate(24, 8, P.popAddRate, P.alpha);
+  assert.equal(zero.value.rates.adds_per_week.value, +expect0.toFixed(4));
+  assert.equal(three.value.rates.adds_per_week.value, +expect3.toFixed(4));
+  assert.ok(Math.abs(expect0 - 0.625) < 1e-3 && Math.abs(expect3 - 2.125) < 1e-3);
+  // Shrinkage sits between his raw rate and the population rate, never beyond either.
+  for (const r of [zero, three]) {
+    const { value, raw } = r.value.rates.adds_per_week;
+    assert.ok(value >= Math.min(raw, P.popAddRate) && value <= Math.max(raw, P.popAddRate), `${value} vs raw ${raw}`);
+  }
+});
+
 /* -------------------------------------------------------------- producer */
 run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, payload, fetched_at)
      VALUES (81, 'espn', 'liv-81', 2026, 'Fixture', '1', 4, 1, '{}', '2026-09-18 01:00:00')`);

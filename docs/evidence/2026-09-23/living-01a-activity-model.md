@@ -129,6 +129,12 @@ A 0.95 AUC was checked before it was believed.
   #203's `manager_signals.lineup_dead_starts_last_week`, not recounted. No second activity number: the raw
   adds per week in the row is the same count #203 serves as `tx_adds_per_week`; the row adds the state and
   the shrunk rates.
+- Served rates: `rates.adds_per_week.value`, `trades_per_week.value` and `lineup_error_rate.value` are each
+  the manager's raw rate shrunk to the 2021-22 population rate, `shrunkRate(events, weeks, popRate, prior)`
+  (adds: prior weight `alpha` = 8 weeks, pop 1.2501/week; e.g. 8 zero-add weeks -> 0.625, 3 adds/week for 8
+  weeks -> 2.125). The state-relative multiplier `rho` feeds only `next_week` and `p_no_more_adds`. (Review
+  fix on PR #220: the first head served `rho x popAddRate`, which is neither his rate nor a shrunk rate. The
+  graded numbers below do not read this field, so they are unchanged.)
 - Typed absence: adds are `null` (unknown) when no transaction for the league-season is in the log; lineup
   errors are unknown before last week (ESPN final lineups carry no play data in the log), and the reason chain
   says so. `next_week.p_lineup_error` is not bye-adjusted (`lineup_error_bye_adjusted: false`): there is no

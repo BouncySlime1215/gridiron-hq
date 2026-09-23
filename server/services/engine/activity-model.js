@@ -4,8 +4,9 @@
  * A slow hidden state per manager-season, ENGAGED / DRIFTING / CHECKED_OUT, that
  * emits each week's players added (Poisson) and whether he started a dead or empty
  * slot (Bernoulli). On top of the state, each manager's add volume is scaled by his
- * own rate, shrunk to the population (gamma-Poisson: `rho` below), and his trade
- * and lineup-error rates are reported shrunk the same way.
+ * own rate, shrunk to the population (gamma-Poisson: `rho` below). The served
+ * adds, trade and lineup-error rates are each his raw rate shrunk to the population
+ * rate (`shrunkRate`); `rho` is only the state-relative volume multiplier.
  *
  * Evidence and grade: docs/evidence/2026-09-23/living-01a-activity-model.md, fit on
  * Sleeper 2021-22 by scripts/living01a-fit.mjs, graded on 2023 and 2024 separately.
@@ -364,7 +365,7 @@ export function managerState(weeks, { params = FITTED_PARAMS, trades = 0, weeksL
     },
     rates: {
       adds_per_week: knownAdds.length
-        ? { value: +(rho * params.popAddRate).toFixed(4), raw: +(addsSeen / knownAdds.length).toFixed(4), weeks: knownAdds.length }
+        ? { value: +shrunkRate(addsSeen, knownAdds.length, params.popAddRate, params.alpha).toFixed(4), raw: +(addsSeen / knownAdds.length).toFixed(4), weeks: knownAdds.length }
         : { value: null, absence: 'unknown: no transactions collected' },
       trades_per_week: knownAdds.length
         ? { value: +shrunkRate(trades, knownAdds.length, params.popTradeRate, RATE_PRIOR_WEEKS).toFixed(4), raw: trades, weeks: knownAdds.length }

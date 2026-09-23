@@ -701,3 +701,5 @@ REORG: PLAN-REORG-2026-09-23.md maps every unit from tonight to one of the 32 pl
 | 2026-09-23 02:35Z | Nick | Verification rules (VERIFICATION-RULES.md: reuse step before build, micro wired-elsewhere list, skeptics by lens incl. a UI lens with screenshots, synergy review every 8 merges, structure scout every 2 days, 7-day re-audit) and the UI standard (UI-STANDARD.md) bind every workflow. |
 
 UI REVAMP: UI-REVAMP.md (UX-01..07) runs alongside the Trade Machine; UX-01/02 start now.
+| 2026-09-23 07:15Z | Nick | At 95% of the 5-hour meter stop all workflows (resume state saved); meter checked every 5 min by bin/meter-watch.sh (log: METER-LOG.md); always log in the handoff docs. |
+| 2026-09-23 07:25Z | Nick | "Switch models as the plan says": build-unit-v2.js / verify-pr-v2.js pin claims skeptics to fable, builders/skeptics/fixers to opus, gate and ready steps to sonnet; all new launches use v2. Running phase-0 jobs inherit Opus 5.5 (correct for builders; their claims rechecks run on Opus). 20-min 0pdates in chat (cron :07/:27/:47). |

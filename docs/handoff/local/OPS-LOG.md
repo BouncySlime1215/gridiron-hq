@@ -164,3 +164,6 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 18:25Z: #185 dead-starter guard MERGED. RL-12-2 stale injury flag -> #204, RL-12-3 news attribution -> #205. Repair-pass agent launched over 24 open PRs (status: MERGE-TRAIN-STATUS.md). Weekly 80%, 5-hour 59% (resets 10 AM).
 
 18:55Z: R&D r13 landed: 2026 Sleeper forward panel as a holdout-free trade-gate source (needs Nick's OK on call volume), receptiveness scale bug (RL-13-2), waiver priority resets weekly (RL-13-3). Plan adjusted. R&D r14 NOT relaunched yet: weekly at ~81%, holding to protect the 87% stop until account B.
+18:58Z: correction: R&D r14 relaunched after all (standing rule; ~2-3% weekly per round keeps A under 87% until account B at 3 PM).
+
+19:40Z: R&D r14 landed: stud premium in accepted 2-for-1s (RL-9-3b, fairness credit). Plan adjusted.

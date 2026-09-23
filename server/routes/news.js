@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { ingestAllSources } from '../news/ingest.js';
+import { attributeStory, loadAttributionIndex } from '../news/player-news.js';
 import { requireAuthenticated } from '../platform/auth.js';
 import { recordAudit } from '../platform/audit.js';
 import { newsSignalCoverage, syncStructuredNewsSignals } from '../services/nfl-news-signal.js';
@@ -61,9 +62,12 @@ r.get('/desk', requireAuthenticated, (req, res) => {
     FROM news_items n LEFT JOIN nfl_teams t ON t.id=n.team_id
     ORDER BY COALESCE(n.published_at,n.date) DESC,n.id DESC LIMIT 500`);
   const now = Date.now();
+  const attribution = loadAttributionIndex();
   const ranked = candidates.map(story => {
     const entities = safeJson(story.entities_json, {});
-    const uniquePlayers = [...new Map((entities.players ?? []).map(player => [normalizePlayerName(player.name), player])).values()];
+    // Same producer as the player card (server/news/player-news.js), so a story
+    // links to a player here exactly when it is on his card.
+    const uniquePlayers = attributeStory(story, attribution);
     const reliability = safeJson(story.reliability_json, {});
     const rosterPlayers = uniquePlayers.filter(player => mine.has(normalizePlayerName(player.name)));
     const text = `${story.headline} ${story.body ?? ''}`;

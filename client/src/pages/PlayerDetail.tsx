@@ -100,7 +100,7 @@ export default function PlayerDetail() {
 
       {p.news?.length > 0 && (
         <div className="card p-4 mt-4">
-          <h3 className="text-sm font-bold text-slate-700 mb-2">News mentioning {p.name.split(' ').slice(-1)[0]}</h3>
+          <h3 className="text-sm font-bold text-slate-700 mb-2">News about {p.name}</h3>
           {p.news.map((n: any) => (
             <div key={n.id} className="py-2 border-b border-slate-200/60 last:border-0">
               <div className="text-xs text-slate-500">{n.date} {n.team_abbr && `· ${n.team_abbr}`}</div>

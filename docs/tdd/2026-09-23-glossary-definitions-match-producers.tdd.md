@@ -188,3 +188,27 @@ Fallback frequency (how many trade assets serve the last-season floor) is
 unmeasured — no DB copy was made; the sentence covers both cases instead.
 Known remaining gap: `stats.projected_points` (a season total on PlayerCard /
 StatTable) shares the name but has no glossary entry; noted in the entry's comment.
+
+## Round 3: skeptic liveness re-check (paraphrase mutants)
+
+Finding: the expected_wins and title_delta checks were still word lists, so
+paraphrases that deny the fact passed (16/0 on a32a568d per the skeptic).
+
+Fix (commit 9b91a964, tree 589a0cfd): both tests now `assert.equal` the exact
+current `plain` sentence, keeping the season-sim.js producer-anchor asserts
+(initialRecords/startingRecords for expected_wins; roster build + no id-sort
+for title_delta) so the pin is re-examined when the producer changes.
+
+Command (every row): `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp) node
+--experimental-test-module-mocks --test --test-reporter=tap
+test/glossary-definitions-match-producers.test.js test/glossary-and-basis.test.js`
+
+| Tree state (589a0cfd + one-line sed on glossary.ts, reverted after) | Result |
+|---|---|
+| unmodified | 16 pass / 0 fail |
+| expected_wins -> "...wins from here on, leaving out the games already played." | 15 / 1 |
+| expected_wins -> "...wins in upcoming weeks only; games already played do not count." | 15 / 1 |
+| title_delta -> "..., so there is zero noise and the change is the move." | 15 / 1 |
+| title_delta -> "...— noise is fully removed by replaying the same seasons, so the change is just the move." | 15 / 1 |
+
+Before this fix the same four mutants gave 16 / 0 (skeptic's run on a32a568d).

@@ -64,6 +64,11 @@ Tests: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node --exper
   receptiveness-activity 15/15, dead-starter-guard 9/9.
 - `71c7bf04` "test: PREVIEW-01 route call site for the streams board with preview on (M12 survivor)":
   streaming-board 19/19.
+- Skeptic round (route call sites, mutants MB and MD survived on `f59cdeb6`):
+  - `c0bab209` managers/signals route (ManagerRead) with preview on and unset: receptiveness-activity 17/17.
+  - `d2557db4` valuation panel route (`/player/:id`) receptiveness on vs unset: valuation-panel 4/4.
+  - `ab72658a` waivers route (WaiverWire) snap-share order with preview on and unset: waiver-injury-alerts 13/13.
+  Command per file: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/<file>.test.js`.
 
 Neighbouring tests that import a touched module, all pass on `9b76b0df` (pass counts):
 availability-honest-degradation 8, decision-leftovers-lineup 10, decision-leftovers-waivers 7,
@@ -91,6 +96,9 @@ Tree: `9b76b0df` (+ `71c7bf04` for the M12 re-run).
 | M10 waiver preview ignores explicit order | waiver-injury-alerts | killed |
 | M11 call site waiverBoard -> injuryReplacementAlerts drops `preview` | waiver-injury-alerts | killed |
 | M12 call site routes/trades.js:699 passes `enabled:false` | streaming-board | **survived on `9b76b0df`** (no route test with preview on); fixed by `71c7bf04`, re-run: killed |
+| MB (skeptic) call site routes/trades.js:682 waivers passes `sameTeamOrder:'projection'` | waiver-injury-alerts | survived 11/11 on `f59cdeb6`; killed on `ab72658a` (12 pass, 1 fail: the route preview test) |
+| MD (skeptic) call site routes/trades.js:397 signals passes `activity:false` | receptiveness-activity | survived 15/15 on `f59cdeb6`; killed on `c0bab209` (16 pass, 1 fail) |
+| MD (skeptic) call site routes/trades.js:965 valuation panel passes `activity:false` | valuation-panel | survived on `f59cdeb6`; killed on `d2557db4` (3 pass, 1 fail: "off 1, on 1") |
 | M13 **not-applied control** (pattern absent, file unchanged) | streaming-board | not applied, survived (19/19) |
 
 ## 4. What it does

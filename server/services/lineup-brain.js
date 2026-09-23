@@ -575,14 +575,22 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
     const alt = alternatives.find(b => slotAccepts(s.slot, b.position));
     const margin = alt ? r2(p[key] - alt[key]) : null;
     const unpricedHere = alt ? [] : unpricedBench.filter(b => slotAccepts(s.slot, b.position));
+    // The labels' thresholds and the win-rate curve were measured on week_points
+    // gaps. Under "Chase the ceiling" / "Protect the floor" the margin is a gap
+    // between two p90s (or p10s): a wider, differently shaped quantity nobody has
+    // measured a hit rate for. It used to go through both anyway, so a 15-point
+    // ceiling gap printed "Clear" and "has won about 90%" (RL-3-4).
+    const calibrated = objectiveUsed === 'week_points';
     const confidence = margin == null
       ? (unpricedHere.length ? 'no projection' : 'only option')
-      : margin >= CLEAR_THRESHOLD ? 'clear'
-        : margin >= TIE_THRESHOLD ? 'lean'
-          : 'coin flip';
+      : !calibrated ? 'not measured'
+        : margin >= CLEAR_THRESHOLD ? 'clear'
+          : margin >= TIE_THRESHOLD ? 'lean'
+            : 'coin flip';
     // What that margin actually measured. Null below the smallest anchor, which
     // is every coin flip — the band has its own rate, and it is not a tail rate.
-    const winRate = decisionWinRate(margin);
+    // Null on any other objective: the curve does not describe that margin.
+    const winRate = calibrated ? decisionWinRate(margin) : null;
     const ev = evidence.get(norm(p.name));
     const mine = record(p.id);
     const theirs = alt ? record(alt.id) : null;
@@ -625,16 +633,21 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
             `${s.slot}, but none of them has a weekly projection, so nothing was compared. ` +
             'This is missing data, not a clear call.'
           : `Nobody else on the roster can fill ${s.slot}.`)
-        : confidence === 'coin flip'
-          ? `Only ${margin} points ahead of ${alt.name}. That gap is inside the projection's own ` +
-            `error — below ${TIE_THRESHOLD} points the higher projection has won ` +
-            `${pct(TIE_BAND_WIN_RATE)}% of the time, so this is a tie. Start whichever you ` +
-            'prefer and do not spend the afternoon on it.' +
-            (decider ? ` If you want a tiebreaker, the record is the honest one: ${decider}` : '')
-          : `${margin} points ahead of ${alt.name}.` +
-            (winRate ? ` At a gap this size the higher projection has won about ${pct(winRate)}% ` +
-              'of the time.' : '') +
+        : !calibrated
+          ? `${margin} points ahead of ${alt.name} on ${objectiveUsed === 'ceiling'
+            ? 'good-week ceilings' : 'bad-week floors'}, not projections. No win rate has been ` +
+            'measured for a gap like this, so none is shown.' +
             (decider ? ` ${decider}` : '')
+          : confidence === 'coin flip'
+            ? `Only ${margin} points ahead of ${alt.name}. That gap is inside the projection's own ` +
+              `error — below ${TIE_THRESHOLD} points the higher projection has won ` +
+              `${pct(TIE_BAND_WIN_RATE)}% of the time, so this is a tie. Start whichever you ` +
+              'prefer and do not spend the afternoon on it.' +
+              (decider ? ` If you want a tiebreaker, the record is the honest one: ${decider}` : '')
+            : `${margin} points ahead of ${alt.name}.` +
+              (winRate ? ` At a gap this size the higher projection has won about ${pct(winRate)}% ` +
+                'of the time.' : '') +
+              (decider ? ` ${decider}` : '')
     };
   });
 

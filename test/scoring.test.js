@@ -151,6 +151,13 @@ test('INT-163-1: overrideSlots collects every distinct slot id across items, sor
   const items = OFFENSE_ITEMS.map(it => it.statId === 53 ? item(53, 1, { 6: 1.5, 16: 0.5 }) : it);
   const s = scoringFor(espnLeague(items));
   assert.deepEqual(s.espn.overrideSlots, [6, 16]);
+  // overrideSlots is independent of the requested slot: a caller that resolved
+  // one slot must still see every other slot it is not pricing. A skeptic's
+  // mutant filtered the set to `slot` and every earlier assertion survived,
+  // because their fixture only ever had one override slot.
+  assert.deepEqual(scoringFor(espnLeague(items), { slot: 16 }).espn.overrideSlots, [6, 16]);
+  assert.deepEqual(scoringFor(espnLeague(items), { slot: 6 }).espn.overrideSlots, [6, 16]);
+  assert.equal(scoringFor(espnLeague(items), { slot: 2 }).espn.hasOverrides, true, 'a slot no item overrides still sees the payload has overrides');
 });
 
 test('INT-163-1: a fallback (no payload / not-espn) reports hasOverrides false, not undefined', () => {

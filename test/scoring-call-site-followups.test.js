@@ -52,7 +52,9 @@ test('myPlayoffOdds (trade-engine.js:1420-1421) hands simulateSeason the league\
   // is visible.
   const scoringItems = [
     { statId: 3, points: 0.04 }, { statId: 4, points: 4 }, { statId: 20, points: -2 },
-    { statId: 24, points: 0.3 }, { statId: 25, points: 6 },
+    // statId 24 also carries a D/ST-slot override, so a call site that
+    // hard-coded `{ slot: 16 }` would read 0.9 instead of the base 0.3.
+    { statId: 24, points: 0.3, pointsOverrides: { 16: 0.9 } }, { statId: 25, points: 6 },
     { statId: 42, points: 0.2 }, { statId: 43, points: 6 },
     { statId: 53, points: 1 }, { statId: 72, points: -2 }
   ];
@@ -63,7 +65,7 @@ test('myPlayoffOdds (trade-engine.js:1420-1421) hands simulateSeason the league\
 
   myPlayoffOdds(lg, '1');
   assert.equal(seen.length, 1, 'simulateSeason must have been called by myPlayoffOdds');
-  assert.equal(seen[0].rush_yd, 0.3, 'rush_yd must come from this league\'s own statId 24, not the PPR default (0.1)');
+  assert.equal(seen[0].rush_yd, 0.3, 'rush_yd must come from this league\'s own statId 24, not the PPR default (0.1) and not the slot-16 override (0.9)');
   assert.equal(seen[0].rec_yd, 0.2, 'rec_yd must come from this league\'s own statId 42, not the PPR default (0.1)');
 });
 

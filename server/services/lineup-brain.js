@@ -446,9 +446,18 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // a decision about one Sunday, which is the only thing a single week's line
   // describes. startSitWeekPoints() is the one construction, shared with the
   // matchup card.
+  // RL-10-1: the one inactive producer (ESPN projects 0; default-off) unless the caller
+  // supplies a hook. Read once: the dead-starter card AND the solver use the same flag, so
+  // the card can never say "likely inactive" about a player the lineup below still starts.
+  const inactiveHook = inactive ?? espnZeroInactive(lg.id, { season, week });
+  const flaggedInactive = p => !!(inactiveHook?.covered && inactiveHook.ids?.has(p.id));
   const annotated = me.players.filter(p => !irReason.has(p.id)).map(p => {
     const { week_points: weekPoints, vegas } = startSitWeekPoints(p, season, week);
-    return { ...p, vegas, week_points: weekPoints };
+    // A flagged player is held out of the solve the way season-ending players are
+    // (available: false): not started, not the alternative, not on the bench list.
+    return flaggedInactive(p)
+      ? { ...p, vegas, week_points: weekPoints, available: false, inactive_flag: true }
+      : { ...p, vegas, week_points: weekPoints };
   });
 
   // SS-01: what is SET on ESPN that will score zero, with the best healthy bench
@@ -456,8 +465,7 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   const deadStarterCheck = deadStarters(lg, me.roster_id, me.players, {
     season, week, weekPoints: new Map(annotated.map(p => [p.id, p.week_points])),
     accepts: slotAccepts, now,
-    // RL-10-1: the one inactive producer (ESPN projects 0) unless the caller supplies a hook.
-    inactive: inactive ?? espnZeroInactive(lg.id, { season, week })
+    inactive: inactiveHook
   });
 
   /*
@@ -537,10 +545,13 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // Kept separately and reported, because "why is my best back on the bench" is
   // the first question this page has to answer.
   const unavailable = annotated
-    .filter(p => p.available === false && (p.adj_ppg ?? 0) > 4)
+    .filter(p => p.available === false && (p.inactive_flag || (p.adj_ppg ?? 0) > 4))
     .map(p => ({ name: p.name, position: p.position, team_abbr: p.team_abbr,
       adj_ppg: p.adj_ppg, injury: p.injury_status ?? null,
-      why: 'Flagged out for the season or released, so the solver will not start him.' }));
+      why: p.inactive_flag
+        ? `${inactiveHook.sentence ?? 'Likely gameday inactive'}, so the solver will not start him.` +
+          (inactiveHook.label ? ` ${inactiveHook.label}` : '')
+        : 'Flagged out for the season or released, so the solver will not start him.' }));
 
   // Evidence from the other models, keyed by name.
   const evidence = new Map();

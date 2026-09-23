@@ -4,10 +4,16 @@
  *
  * The signal is ESPN's own weekly projection going to 0. R&D round 10
  * (rnd/loop/r10-external-espn-zero-is-the-inactive-feed.md, 2021-24 REG) found that at ESPN's
- * final pregame projection, 220 of 238 (92%) fantasy-relevant surprise scratches (Friday
- * Questionable or undesignated) were already at 0, and a relevant player at 0 did not play
- * 630 of 704 times (90%). When ESPN flips to 0 on game day is NOT yet tested (RL-10-2's
- * W4-W5 poller), so the label says so.
+ * final pregame projection, 218 of 238 (92%) fantasy-relevant surprise scratches (Friday
+ * Questionable or undesignated) were already at 0 (< 0.05, this module's ZERO_MAX). Precision
+ * is quoted on the population this hook can flag: Out/Doubtful are excluded below, so the
+ * all-zeros 630/704 (90%, which includes 338 Friday Out/Doubtful players, every one inactive)
+ * does not describe it. For Friday Questionable or undesignated players at 0, 265 of 306
+ * (87%, 95% CI 0.83-0.90) did not play. Command: study/rl-10-1/r10x_prec_split.py.
+ *
+ * DEFAULT-OFF, "unconfirmed forward". R&D r10 section 6 gates default-on on a W4-W5 Sunday
+ * timing test (when ESPN flips to 0 before lock; RL-10-2's poller), and the only 2026 check so
+ * far (W2) used post-game captures. Set GRIDIRON_ESPN_ZERO_INACTIVE=1 to switch it on.
  *
  * Source: table `league_roster_snapshots` (migration 058), written by
  * scripts/collect-roster-snapshots.mjs#rowsFromEntries (`projected_points` at :92, ESPN
@@ -18,6 +24,11 @@
  * status (pregame or current) is not already Out / Doubtful / IR / Suspended through the
  * canonical contingency.js#weekDesignation. deadReason() checks those designations first
  * anyway, so the card can never show him twice.
+ *
+ * One number: when on, lineupCall() also holds every flagged player out of the solver (lineup,
+ * bench, warnings) and names him in `unavailable`, so the card and the lineup never disagree.
+ * Other surfaces that print contingency.js#weeklyAvailability's active_probability (TradeCard,
+ * WaiverWire, Model) do not read this hook yet: named follow-up in the RL-10-1 evidence file.
  *
  * Not wired on purpose: RL-3-2's Bluesky arm (PR #184). One producer for this signal.
  */
@@ -32,9 +43,17 @@ export const ZERO_MAX = 0.05;
 
 export const ESPN_ZERO_SENTENCE = 'ESPN projects 0: likely inactive';
 export const ESPN_ZERO_LABEL =
-  "Source: ESPN's weekly projection, from this league's roster snapshot. " +
-  "92% of surprise scratches (2021-24) were at 0 at ESPN's final pregame projection, and " +
-  '90% of relevant players at 0 did not play; timing not yet tested (when ESPN flips to 0 on game day).';
+  "Source: ESPN's weekly projection, from this league's roster snapshot. 92% of surprise scratches " +
+  "(2021-24) were at 0 at ESPN's final pregame projection, and 87% of Questionable or undesignated " +
+  'players at 0 did not play. This is unconfirmed forward: timing not yet tested (when ESPN flips to 0 on game day).';
+
+/** Default-off until R&D r10 section 6's W4-W5 Sunday timing test passes (RL-10-2). */
+export const ESPN_ZERO_ENV = 'GRIDIRON_ESPN_ZERO_INACTIVE';
+export const espnZeroEnabled = () => process.env[ESPN_ZERO_ENV] === '1';
+export const ESPN_ZERO_OFF_REASON =
+  'ESPN-projects-0 inactive flag is default-off, unconfirmed forward: R&D r10 section 6 gates it on a ' +
+  `W4-W5 Sunday timing test (RL-10-2) that has not run. Set ${ESPN_ZERO_ENV}=1 to switch it on. ` +
+  'RL-3-2 (live-inactive-monitor.js) has not landed either, so no in-week inactive source is on.';
 
 const missingTable = e => /no such table/i.test(String(e?.message ?? e));
 
@@ -52,7 +71,8 @@ const alreadyOut = status => {
  * The inactive hook for one league and week.
  * @returns {{covered, source, reason, ids: Set<players.id>, sentence, label, as_of}}
  */
-export function espnZeroInactive(leagueId, { season, week }) {
+export function espnZeroInactive(leagueId, { season, week, enabled = espnZeroEnabled() }) {
+  if (!enabled) return uncovered(ESPN_ZERO_OFF_REASON);
   if (leagueId == null || season == null || week == null) return uncovered('no league, season or week');
   let now, prior;
   try {

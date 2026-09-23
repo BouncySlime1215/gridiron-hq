@@ -209,3 +209,5 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 - 19:19Z RULING Nick 'and reasons': reason chains on every state row, AI hypothesis->test loop on surprises, decisions with arguments (brief + handoff).
 - 19:21Z #213 merged; clone ff to 0257474d; local server restarted
 - 19:22Z RULING Nick: Jev helps probabilities (silicon crowd calibrated + graded, news->probabilities, reasoning pass over sims; ~$1/day cap). Brief + handoff 0b.
+- 19:28Z VERIFIED #213 live: league 5 'Write the proposals' → 1 proposal (Warren + M. Wilson for G. Wilson, P(accept) 0.272), 688 out tokens, $0.010; verifier rejected 1 invented. League 4 held by 6h failed-slate cache until ~8:40 PM ET → FIX-HOLD-01 queued. Auto-watcher's pkill also matched its own cmdline (harmless; note for scripts: use pgrep -f with an anchored pattern).
+- 19:32Z RULING Nick: Jev anchors the loop, no Jev limits. Brief/plan v10.3/handoff (JEV-01 after ENGINE-00; Jev paid-cap rule removed), memory feedback_keep_api_spend_low updated.

@@ -77,11 +77,16 @@ function withReport(weights, report) {
  * weights came from (`source`, `reason`), every stat id's resolved `points`, and
  * which ids the league pays that scoreLine cannot apply (`unscored`) or that are
  * outside the public id list (`unmapped`), so a caller can surface them.
+ * `hasOverrides` / `overrideSlots` say whether the payload carries any
+ * pointsOverrides AT ALL and which slot ids they key on — independent of
+ * `slot` and of which items matched — so a caller who resolved with no slot
+ * (or the wrong one) can tell there is slot-specific pricing it is missing,
+ * rather than only ever seeing the base values.
  */
 export function scoringFor(lg, { slot } = {}) {
   const ppr = lg?.ppr ?? 1;
   const bucket = ppr >= 1 ? PPR : ppr >= 0.5 ? HALF_PPR : STANDARD;
-  const fallback = (reason, read = { points: {}, unscored: [], unmapped: [] }) =>
+  const fallback = (reason, read = { points: {}, unscored: [], unmapped: [], hasOverrides: false, overrideSlots: [] }) =>
     withReport({ ...bucket }, { source: 'fallback', reason, ...read });
   if (lg?.platform !== 'espn') return fallback('not-espn');
   if (!lg.payload) return fallback('no-payload');
@@ -93,6 +98,17 @@ export function scoringFor(lg, { slot } = {}) {
     return fallback(`payload-unparseable: ${e.message}`);
   }
   if (!Array.isArray(items) || !items.length) return fallback('no-scoring-items');
+
+  // Every slot id ANY item carries pointsOverrides for, regardless of which
+  // items matched a bucket key and regardless of the `slot` requested here.
+  const overrideSlotSet = new Set();
+  for (const it of items) {
+    if (it.pointsOverrides && typeof it.pointsOverrides === 'object') {
+      for (const k of Object.keys(it.pointsOverrides)) overrideSlotSet.add(Number(k));
+    }
+  }
+  const overrideSlots = [...overrideSlotSet].sort((a, b) => a - b);
+  const hasOverrides = overrideSlots.length > 0;
 
   const s = { ...bucket };
   const points = {};
@@ -115,8 +131,8 @@ export function scoringFor(lg, { slot } = {}) {
   }
   // A payload that yielded almost nothing is more likely a shape we don't understand
   // than a league that scores nothing.
-  if (matched < 4) return fallback(`only-${matched}-scoring-ids-matched`, { points, unscored, unmapped });
-  return withReport(s, { source: 'league', reason: null, points, unscored, unmapped });
+  if (matched < 4) return fallback(`only-${matched}-scoring-ids-matched`, { points, unscored, unmapped, hasOverrides, overrideSlots });
+  return withReport(s, { source: 'league', reason: null, points, unscored, unmapped, hasOverrides, overrideSlots });
 }
 
 /** ESPN's lineup slot id for a team defense (D/ST). */

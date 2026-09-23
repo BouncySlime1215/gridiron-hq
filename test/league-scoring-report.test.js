@@ -121,6 +121,9 @@ test('GET /:id/scoring serves where the weights came from and every id the score
   const unscored = Object.fromEntries(body.unscored.map(u => [u.statId, u.points]));
   assert.equal(unscored[37], 3, 'the rushing 100-yard bonus is paid and not applied to player lines');
   assert.equal(unscored[96], 2);
+  // INT-163-1: the route says the payload carries slot-specific pricing, and for which slots.
+  assert.equal(body.hasOverrides, true);
+  assert.deepEqual(body.overrideSlots, [16]);
 });
 
 test('GET /:id/scoring scores each rostered D/ST week from pointsOverrides[16], beside ESPN\'s applied total', async () => {
@@ -170,6 +173,10 @@ test('syncEspnLeague returns the scoring summary and warns about ids it cannot a
   assert.equal(result.scoring.reason, null);
   assert.deepEqual(result.scoring.unmapped, [{ statId: 209, points: 1 }]);
   assert.ok(result.scoring.unscored.some(u => u.statId === 37));
+  // INT-163-1: the summary every sync carries (manual response and scheduled
+  // league_rosters sync_log detail) forwards the override report too.
+  assert.equal(result.scoring.hasOverrides, true);
+  assert.deepEqual(result.scoring.overrideSlots, [16]);
   assert.equal(warn.mock.callCount(), 1);
   assert.match(String(warn.mock.calls[0].arguments[0]), /209/);
 });

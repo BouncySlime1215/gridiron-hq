@@ -120,3 +120,7 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 
 12:50Z: S-19 one hype producer -> #187 (needs #183 first), INT-168-1 -> #188 (queued). MISSED EARLIER: CI refused #163 (A-03), #73 (C-12), #167 (UX-08); CI-fix agent launched. Weekly 71% (2.4%/h since 5:50 AM).
 12:55Z: Loop 1 relaunched: Trade Machine human side: LS-01 lineup signals + TM-03 target board (wpccizcch).
+
+13:10Z: CI green again on #163 (test stub missing simStartWeek after #162), #73 (slow-runner timeout; main merged), #167 (test fake missing logServerDetail); queued. wt/UX-08 has 4 staged changes nobody claims (incl. a test deletion): left untouched; review at unit close, never discard without looking.
+
+13:15Z: R&D r8 landed: regression/TD-luck tag killed (priced by consensus); RL-8-1 queued (retire in-season td_luck weights, keep the preseason feature). Plan adjusted; r9 relaunched.

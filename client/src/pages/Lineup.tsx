@@ -34,7 +34,9 @@ const CONF: Record<string, { label: string; bar: string; chip: string }> = {
   'only option': { label: 'Only option', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-600 ring-slate-200' },
   // Other eligible players existed, none of them had a projection. That is not
   // the same call as having only one option, and it should not look like one.
-  'no projection': { label: 'Not compared', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-400 ring-slate-200' }
+  'no projection': { label: 'Not compared', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-400 ring-slate-200' },
+  // RL-4-2: his game has kicked off, so the slot cannot change. No bar: nothing was compared.
+  locked: { label: 'Locked', bar: 'bg-slate-300', chip: 'bg-slate-200 text-slate-700 ring-slate-300' }
 };
 
 export default function Lineup() {

@@ -314,57 +314,13 @@ r.post('/sync-all', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Strength of schedule: average opponent market strength (descriptive only).
- *  Opponent strength = that team's total FantasyCalc value of its rostered fantasy
- *  players. It is NOT a validated signal (the walk-forward test found no schedule
- *  adjustment that beats none, see matchups.js MATCHUP_EVIDENCE), so no page prints
- *  it; only GET /sos serves it, flagged signal:false.
- *  NO DATA IS NOT A NUMBER: with no fc_value rows every team's strength is 0 and the
- *  old code still ranked 1-32 (by games vs Washington, then row order). It now says
- *  'not available'. */
-export const SOS_NOT_AVAILABLE = 'not available';
-export function computeSOS(season = SEASON) {
-  const strengthByTeam = {};
-  for (const t of rows(`SELECT t.id, t.abbr, COALESCE(SUM(m.value),0) AS strength
-                        FROM nfl_teams t
-                        LEFT JOIN players p ON p.team_id = t.id AND p.fantasy_relevant = 1
-                        LEFT JOIN player_metrics m ON m.player_id = p.id AND m.source = 'fc_value'
-                        GROUP BY t.id`)) {
-    strengthByTeam[t.abbr] = t.strength;
-  }
-  const vals = Object.values(strengthByTeam).filter(v => v > 0);
-  if (!vals.length) {
-    const reason = 'No opponent-strength data: player_metrics has no fc_value rows ' +
-      '(writer syncFantasyCalc, server/routes/aggregates.js). No rank is computed from an empty store.';
-    console.warn(`[computeSOS] ${SOS_NOT_AVAILABLE}: ${reason}`);
-    return { status: SOS_NOT_AVAILABLE, signal: false, reason, teams: [] };
-  }
-  const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-
-  const teams = rows('SELECT id, abbr, name FROM nfl_teams');
-  const out = [];
-  let unknownOpponents = 0;
-  for (const t of teams) {
-    const games = rows('SELECT opponent_abbr, home, week FROM schedule_games WHERE season = ? AND team_id = ?', season, t.id);
-    const oppStrengths = [];
-    for (const g of games) {
-      const s = strengthByTeam[canonicalTeamCode(g.opponent_abbr)];
-      if (s == null) unknownOpponents++; else oppStrengths.push(s);
-    }
-    if (!oppStrengths.length) continue;
-    const mean = oppStrengths.reduce((a, b) => a + b, 0) / oppStrengths.length;
-    out.push({
-      team_id: t.id, abbr: t.abbr, name: t.name,
-      games: games.length,
-      sos: mean / avg   // 1.0 = league-average schedule
-    });
-  }
-  out.sort((a, b) => a.sos - b.sos);      // easiest first
-  return { status: 'descriptive', signal: false, reason: MATCHUP_SIGNAL_REASON,
-    unknown_opponents: unknownOpponents, teams: out };
-}
-
-r.get('/sos', (req, res) => res.json(computeSOS(Number(req.query.season) || SEASON)));
+/* Strength of schedule: computeSOS and GET /nfl/sos were removed (RL-8-3).
+ * GET /sos had no reader (no page, extension or prompt called it), schedule
+ * strength is not a validated signal (matchups.js MATCHUP_EVIDENCE), and it was a
+ * second producer of the number edge.js#scheduleEdge already serves to the Edge
+ * page, disagreeing with it on the same input (it scored an opponent with no
+ * fc_value rows as strength 0, the easiest possible, where scheduleEdge uses the
+ * league average). One number, one producer: scheduleEdge is the only one left. */
 
 /** Offseason overview for one team: cap, roster churn, needs, schedule. */
 r.get('/offseason/:abbr', (req, res) => {

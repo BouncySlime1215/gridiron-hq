@@ -2,8 +2,9 @@
 // computeSOS ranked teams off an empty fc_value store (so the rank was "games vs
 // Washington, then row order"), and syncSchedules stored ESPN's WSH so Washington
 // was its own opponent. Schedule strength is not a validated signal, so the rank
-// is removed from every served surface; computeSOS says 'not available' on an
-// empty store; the writer canonicalises team codes and backfills stored rows.
+// is removed from every served surface; computeSOS and its reader-less GET /sos
+// are deleted so edge.js#scheduleEdge is the one producer of the number; the
+// writer canonicalises team codes and backfills stored rows (incl. home flags).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
@@ -18,6 +19,7 @@ process.env.SCHEDULER_DISABLED = '1';
 const { db, rows, row, run } = await import('../server/db/index.js');
 const nfldata = await import('../server/routes/nfldata.js');
 const players = await import('../server/routes/players.js');
+const edge = await import('../server/routes/edge.js');
 const { MATCHUP_SIGNAL_REASON } = await import('../server/services/matchups.js');
 const express = (await import('express')).default;
 
@@ -48,29 +50,48 @@ game(28, 2, 'PHI', 0); game(21, 2, 'WSH', 1);
 game(6, 2, 'PHI', 1); game(21, 1, 'DAL', 1);
 const wasP = player(28); player(6); player(21);
 
-test('computeSOS on an empty fc_value store returns not available, not ranks', () => {
+test('one producer: computeSOS and GET /nfl/sos are gone (no reader, duplicate of scheduleEdge)', async () => {
+  assert.equal(nfldata.computeSOS, undefined);
+  const app = express();
+  app.use('/nfl', nfldata.default);
+  const server = app.listen(0);
+  try {
+    const { port } = server.address();
+    const control = await realFetch(`http://127.0.0.1:${port}/nfl/offseason/WAS?season=${SEASON}`);
+    assert.equal(control.status, 200, 'control: the same router serves a neighbouring route');
+    const sos = await realFetch(`http://127.0.0.1:${port}/nfl/sos?season=${SEASON}`);
+    assert.equal(sos.status, 404);
+  } finally { server.close(); }
+});
+
+test('the one remaining producer (scheduleEdge): empty store is null and unranked', () => {
   // control: the same table has rows from its other writer
   assert.ok(row(`SELECT COUNT(*) AS n FROM player_metrics WHERE source = 'sleeper_rank'`).n > 0);
   assert.equal(row(`SELECT COUNT(*) AS n FROM player_metrics WHERE source = 'fc_value'`).n, 0);
-  const sos = nfldata.computeSOS(SEASON);
-  assert.equal(sos.status, 'not available');
-  assert.deepEqual(sos.teams, []);
-  assert.match(sos.reason, /fc_value/);
-  assert.ok(!JSON.stringify(sos).includes('"rank"'), 'no rank may be served on an empty store');
+  const out = edge.scheduleEdge(SEASON);
+  assert.ok(out.length === 3);
+  for (const t of out) {
+    assert.equal(t.season_sos, null);
+    assert.equal(t.playoff_rank, null);
+    assert.match(t.unavailable_reason, /fc_value/);
+  }
 });
 
-test('known-nonzero control: with fc_value filled, computeSOS computes, folds WSH onto WAS, and flags it as not a signal', () => {
-  run(`INSERT INTO player_metrics (player_id, source, value) VALUES (?, 'fc_value', 3000)`, wasP);
-  run(`INSERT INTO player_metrics (player_id, source, value) VALUES (?, 'fc_value', 1000)`, wasP + 1);
-  run(`INSERT INTO player_metrics (player_id, source, value) VALUES (?, 'fc_value', 2000)`, wasP + 2);
-  const sos = nfldata.computeSOS(SEASON);
-  assert.notEqual(sos.status, 'not available');
-  assert.equal(sos.signal, false);
-  assert.equal(sos.reason, MATCHUP_SIGNAL_REASON);
-  const dal = sos.teams.find(t => t.abbr === 'DAL');
-  // DAL plays WSH(=WAS, 3000) and PHI (2000); avg of the three teams is 2000.
-  assert.equal(dal.sos, (3000 + 2000) / 2 / 2000);
-  run(`DELETE FROM player_metrics WHERE source = 'fc_value'`); // test-db cleanup only
+test('known-nonzero control: scheduleEdge folds WSH onto WAS, and an opponent with no fc_value is the average, not 0', () => {
+  // DAL=3000, PHI=6000, WAS has no fc_value row (the partial-data case).
+  run(`INSERT INTO player_metrics (player_id, source, value) VALUES (?, 'fc_value', 3000)`, wasP + 1);
+  run(`INSERT INTO player_metrics (player_id, source, value) VALUES (?, 'fc_value', 6000)`, wasP + 2);
+  try {
+    const by = Object.fromEntries(edge.scheduleEdge(SEASON).map(t => [t.abbr, t.season_sos]));
+    // avg over teams with data = 4500; WAS (no data) counts as 4500.
+    // DAL plays WSH(=WAS, 4500) and PHI (6000): (4500+6000)/2/4500.
+    assert.equal(by.DAL, +((4500 + 6000) / 2 / 4500).toFixed(3));
+    // PHI plays WSH(=WAS, 4500) and DAL (3000).
+    assert.equal(by.PHI, +((4500 + 3000) / 2 / 4500).toFixed(3));
+    assert.ok(by.DAL > by.PHI, 'the order the stale computeSOS flipped');
+  } finally {
+    run(`DELETE FROM player_metrics WHERE source = 'fc_value'`); // test-db cleanup only
+  }
 });
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -116,7 +137,10 @@ test('syncSchedules maps an ESPN WSH row to WAS and backfills stored rows by upd
   const S2 = 2031;
   // stale rows from the broken writer for a week this sync will not return
   run(`INSERT INTO schedule_games (season, team_id, week, date, opponent_abbr, home) VALUES
-       (?, 28, 3, '2031-09-20', 'WSH', 0), (?, 6, 3, '2031-09-20', 'WSH', 1)`, S2, S2);
+       (?, 28, 3, '2031-09-20', 'WSH', 0), (?, 6, 3, '2031-09-20', 'WSH', 1),
+       (?, 28, 4, '2031-09-27', 'WSH', 0), (?, 21, 4, '2031-09-27', 'WSH', 0)`, S2, S2, S2, S2);
+  // week 4 is a Washington HOME game stored with home=0 on both rows: the WAS row
+  // must take the flag from PHI's row (PHI matched itself, so its home=0 is right).
   const ev = (week, home, away) => ({ week: { number: week }, date: `2031-09-0${week}T17:00Z`, competitions: [{ competitors: [
     { homeAway: 'home', team: { abbreviation: home } }, { homeAway: 'away', team: { abbreviation: away } }] }] });
   const feeds = {
@@ -136,10 +160,12 @@ test('syncSchedules maps an ESPN WSH row to WAS and backfills stored rows by upd
   assert.deepEqual(got, {
     WAS1: 'DAL/1', DAL1: 'WAS/0',
     WAS2: 'PHI/0', PHI2: 'WAS/1',
-    WAS3: 'DAL/0', DAL3: 'WAS/1'   // backfilled stale rows
+    WAS3: 'DAL/0', DAL3: 'WAS/1',  // backfilled stale rows
+    WAS4: 'PHI/1', PHI4: 'WAS/0'   // backfilled stale rows incl. the WAS home flag
   });
   assert.equal(row(`SELECT COUNT(*) AS n FROM schedule_games WHERE season = ? AND opponent_abbr = 'WSH'`, S2).n, 0);
-  assert.equal(result.repaired.opponents_canonicalised, 2);
-  assert.equal(result.repaired.self_opponent_repaired, 1);
-  assert.equal(result.repaired.rows_updated, 2);
+  assert.equal(result.repaired.opponents_canonicalised, 4);
+  assert.equal(result.repaired.self_opponent_repaired, 2);
+  assert.equal(result.repaired.home_flag_repaired, 1);
+  assert.equal(result.repaired.rows_updated, 4);
 });

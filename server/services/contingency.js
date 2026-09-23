@@ -20,6 +20,7 @@ import { shrink, mean } from './stats-util.js';
 import { pairedBootstrapDiff } from './backtest-significance.js';
 import { espnStatusById } from './player-availability.js';
 import { AVAILABILITY_FIT_BASIS, DEFAULT_DURABILITY_PRIOR } from './availability-basis.js';
+import { activeInjuryFlagIds } from './injury-flags.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SKILL = ['QB', 'RB', 'WR', 'TE'];
@@ -66,17 +67,17 @@ const INHERITS = { QB: ['QB'], RB: ['RB'], WR: ['WR', 'TE'], TE: ['TE', 'WR'] };
 /**
  * Probability a player is available in a given week.
  *
- * Built from observed games-played rate rather than from injury reports, because the
- * app has no live injury feed and a player's own history is the better base rate
- * anyway. The current injury flag, when set, applies a penalty on top.
+ * Built from observed games-played rate rather than from injury reports: a player's
+ * own history is the better base rate, and the live week's report and ESPN
+ * designation are applied later (weekDesignation). The current Sleeper injury flag,
+ * when set and not stale (services/injury-flags.js), applies a penalty on top.
  */
 export function availability({ through = SEASON - 1 } = {}) {
   const log = rows(`SELECT u.player_id, u.season, COUNT(*) AS games, p.position
                     FROM player_week_usage u JOIN players p ON p.id = u.player_id
                     WHERE u.season <= ? AND p.position IN ('QB','RB','WR','TE')
                     GROUP BY u.player_id, u.season`, through);
-  const flagged = new Set(rows(`SELECT player_id FROM player_metrics WHERE source='injury_flag' AND value > 0`)
-    .map(r => r.player_id));
+  const flagged = activeInjuryFlagIds();
 
   const byPlayer = new Map();
   for (const r of log) {

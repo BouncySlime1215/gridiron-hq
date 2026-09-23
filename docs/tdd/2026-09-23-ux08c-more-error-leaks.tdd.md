@@ -20,7 +20,7 @@ traced to its server counterpart before writing any test:
 | `TeamDetail.tsx:396` (`ExplainButton` catch, rendered `:401`) | **Leak** | Same `api()` → global-handler channel, on `POST /news/:id/explain`. |
 | `TradeCard.tsx:175/195/202` (rendered `:319`) | **Leak** | Same channel, on `/trades/:id/sense-check`, `/model/:id/trade-impact`, `/trades/:id/explain`. |
 | `ManagerBoard.tsx:92` | **Leak** | Same channel, on `POST /trades/:id/brain/managers/:id`; `e instanceof Error ? e.message : ...` — the `.message` branch is the leak. |
-| `EspnConnect.tsx:53` (`setPasteErr(e.message)`) | **Leak — but server-side.** | Client just renders whatever `error` field `POST /espn-connect/cookies` sends. Traced to `server/routes/espn-connect.js` `validateCookies()`: two branches (401/403/404, and timeout) already return plain, specific copy; the fallback branch returned `` `Couldn't verify those cookies with ESPN: ${e.message}` `` — a raw exception message (task note "check the server's cookie-validation messages first" flagged exactly this). Fixing the client side would have collapsed the two good branches too, discarding real user guidance for no reason — the actual defect is the third branch, server-side. |
+| `EspnConnect.tsx:53` (`setPasteErr(e.message)`) | **Leak — two channels** (round 1 fixed only the first; see §8). | Client just renders whatever `error` field `POST /espn-connect/cookies` sends. Traced to `server/routes/espn-connect.js` `validateCookies()`: two branches (401/403/404, and timeout) already return plain, specific copy; the fallback branch returned `` `Couldn't verify those cookies with ESPN: ${e.message}` `` — a raw exception message (task note "check the server's cookie-validation messages first" flagged exactly this). Fixing the client side would have collapsed the two good branches too, discarding real user guidance for no reason — the actual defect is the third branch, server-side. |
 | `MyTeam.tsx:302` (`scout.error`) | **Not a leak.** | `scout` = `useApi('/trades/:id/scout')` → `selfScout()` (`server/services/trade-engine.js:2502`). Function body has exactly one `error` field (`'your team not found'`, line 2508) and zero `try`/`catch`/`.message` anywhere in it — no path stuffs a raw exception into this field. |
 | `MyTeam.tsx:444` (`data.error`) | **Not a leak.** | `data` = `useApi('/trades/:id/ceiling-lineup')` → `ceilingLineup()` (`server/services/ceiling-lineup.js:185`). Three `error` fields, all hardcoded plain text (`'league not synced yet'`, `'team not found in this league'`, a template with only `pools.length`/`slots.length`/`week` — never `.message`). |
 | `Model.tsx:96,245` | **Out of scope — orphan page.** | `Model.tsx`'s own header comment (lines 1–24) records that on 2026-09-20, "sixteen [routes] were the read endpoints of `client/src/pages/Model.tsx` — a page that no file imports and no `<Route>` declares" and says **"DO NOT re-add a route here to give Model.tsx something to call."** Confirmed: `grep -rln "pages/Model'" client/src/` returns nothing; `App.tsx` never imports it. `/model/accuracy` and the accuracy-view `/model/:id/simulate` caller it used were deleted. No consumer reaches this code (rule: every field needs a reader reaching a route/job/page; the inverse holds too — a leak with no reachable renderer leaks to nobody). Rule 14 ("never rebuild a deleted page") argues against restoring it just to have somewhere to point a fix. Left untouched, documented as a control (`test/ux08c-more-error-leaks.test.js` asserts the orphan status so a future re-wiring of Model.tsx has to revisit this file). |
@@ -115,14 +115,15 @@ recorded as a test.
   covered by that half of the suite. None of the seven fixed sites do that
   (`TeamDetail.tsx:79` is the one non-catch site and has its own dedicated,
   non-catch test).
-- `EspnConnect.tsx:53` itself was not edited — it was already just a plain
-  render of whatever `error` field the server sends. The fix is one level
-  up, server-side; a future new client call site that renders a fresh
-  server `error` field without going through the sanitizer would not be
-  caught by this suite (only the two audited files + TradeCard/ManagerBoard
-  have a token-level whole-file check inherited from UX-08b, and it wasn't
-  extended to `TeamDetail.tsx`/`EspnConnect.tsx` in this unit for lean-reading
-  reasons — a real limit, not a false confidence claim).
+- ~~`EspnConnect.tsx:53` itself was not edited~~ — wrong in round 1; the
+  client is now edited too (see §8). The whole-file token check from UX-08b
+  still does not cover `TeamDetail.tsx`/`EspnConnect.tsx`: a *new* raw render
+  added to either file later would not be caught by this suite.
+- The global handler (`server/index.js` error middleware, `res.status(status)
+  .json({ error: err.message })`) is still the single producer of raw 5xx
+  text app-wide. This unit sanitizes at the listed client sites; making the
+  handler return generic text for status >= 500 would close every site at
+  once. Named follow-up, not done here (it touches every route's 500 copy).
 
 ## Nick's five questions
 
@@ -144,3 +145,60 @@ recorded as a test.
    `errorSanitize.ts` unchanged (no new sanitizing mechanism); same
    console-tag convention (`'File.function'`); same generic-copy suffix
    ("Try again in a moment.").
+
+## 8. Round 2 — skeptic fixes (2026-09-23)
+
+**Blocking issue 1 (both skeptics): `EspnConnect.tsx:53` still leaked via 5xx.**
+Confirmed by reading the code: `POST /espn-connect/cookies`
+(`server/routes/espn-connect.js`) ends in `catch (e) { next(e); }`; the global
+handler in `server/index.js` returns `{ error: err.message }` for any 500;
+`client/src/api.ts` rethrew that as `new Error(body.error)`; the paste box
+rendered it. A failure in the route's own writes (`INSERT INTO app_settings`,
+`UPDATE leagues SET ...`) would reach the user as raw node:sqlite text.
+Skeptics were right.
+
+Fix (commit `ab4982fe`):
+- `client/src/api.ts`: the thrown Error now carries `status = res.status` (additive).
+- `client/src/components/EspnConnect.tsx:53`: 4xx `error` (the route's own plain
+  400/401 copy) is shown verbatim; anything else (5xx, or a network failure with
+  no status) goes through `sanitizedMessage('EspnConnect.paste', "Couldn't save those cookies", ...)`.
+- `server/routes/espn-connect.js`: `validateCookies` is now exported, for the behavioural test only.
+
+**Blocking issue 2: the espn-connect.js tests were source regexes, not live.**
+Right. They are removed and replaced by `test/ux08c-espn-connect-no-leak.test.js`,
+which mounts the real router (same pattern as `test/espn-connect.test.js`),
+stubs `globalThis.fetch` so it rejects with a leaky Error, and asserts on
+(a) what `validateCookies()` returns and (b) the JSON body `POST /cookies`
+sends. Plus client tests in `test/ux08c-more-error-leaks.test.js` that run the
+real `EspnConnect.tsx:53` catch body with a 500-shaped, a status-less, and a
+sqlite-text Error, a control that a 400's plain copy is still shown verbatim,
+and a test that the real compiled `api.ts` attaches `status`.
+
+Command used for every run below (worktree `/Users/nick_matta/gridiron-local/wt/UX-08c`):
+`SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/<file>.test.js`
+
+| Tree | File | Result |
+|---|---|---|
+| `eac7f98b` (RED tests, pre-fix impl) | ux08c-more-error-leaks | 14/17 pass, 3 fail (EspnConnect sqlite 500, 500, no-status) |
+| `eac7f98b` | ux08c-espn-connect-no-leak | 2/4 pass, 2 fail (`validateCookies` not exported yet) |
+| `1712f3c1` (api.ts status test added) | — | not run separately; the api.ts test's failure without the fix is shown by mutant M1 below |
+| `ab4982fe` (fix) | ux08c-more-error-leaks | 18/18 |
+| `ab4982fe` | ux08c-espn-connect-no-leak | 4/4 |
+| `ab4982fe` | ux08b-alert-error-no-leak | 28/28 |
+| `ab4982fe` | espn-connect | 22/22 |
+| `ab4982fe` | espn-connect-auth | 7/7 |
+
+Mutation sweep, round 2 (each applied to `ab4982fe`, then reverted with `git checkout`):
+
+| Mutant | Result |
+|---|---|
+| M1 `api.ts`: drop `err.status = res.status` | **killed** — api.ts status test fails |
+| M2 `EspnConnect.tsx:53`: always show `e.message` | **killed** — 3 EspnConnect catch tests fail |
+| A (skeptic) `espn-connect.js`: `reason: "...ESPN: " + e.message` | **killed** — validateCookies + POST /cookies tests fail (survived the old regex suite) |
+| B (skeptic) `validateCookies` returns `detail: e.message`, route sends `` `${check.reason} (${check.detail ?? ""})` `` | **killed** — POST /cookies body test fails (survived the old regex suite) |
+| C control: reorder keys in the fallback return object (no-op) | correctly **not flagged** — 0 failures in both files |
+
+Process note: a first mutation pass ran before the fix was committed, and its
+`git checkout` reverted the uncommitted fix, so M2 onwards in that pass were
+invalid. The fix was re-applied, committed as `ab4982fe`, and the whole sweep
+re-run; only the second pass is reported above.

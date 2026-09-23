@@ -13,14 +13,11 @@
  *    state string, not routed through it).
  *  - ManagerBoard.tsx:92 — real leak (`e instanceof Error ? e.message : ...`),
  *    fixed with sanitizedMessage.
- *  - EspnConnect.tsx:53 (`setPasteErr(e.message)`) — the client just renders
- *    whatever `error` field the server sent. The real leak is server-side:
- *    server/routes/espn-connect.js validateCookies()'s fallback branch
- *    (`Couldn't verify those cookies with ESPN: ${e.message}`) embeds the raw
- *    fetch/exception message in a field the client already renders verbatim
- *    (the two sibling branches, 401/403/404 and timeout, are already plain
- *    and are a control here — they must NOT be touched, since collapsing
- *    them to a generic string would remove real, useful validation copy).
+ *  - EspnConnect.tsx:53 (`setPasteErr(e.message)`) — two channels: the
+ *    validateCookies() fallback reason (server-side, tested behaviourally in
+ *    test/ux08c-espn-connect-no-leak.test.js) and any 5xx from the route
+ *    falling through to the global handler's raw err.message (client-side:
+ *    4xx copy shown verbatim, everything else sanitized; tested below).
  *  - MyTeam.tsx:302 (`scout.error`) and :444 (`data.error`) — audited, NOT a
  *    leak. `selfScout` (server/services/trade-engine.js:2502) has exactly one
  *    `error` field, hardcoded plain text ('your team not found'), no

@@ -112,7 +112,19 @@ trade(61, 'ra-trade-ok', 'EXECUTED', 'PROCESS', 1, 4, 5);
 trade(61, 'ra-trade-veto', 'CANCELED', 'CANCEL', 1, 2, 4);
 trade(61, 'ra-trade-late', 'EXECUTED', 'PROCESS', 1, 3, 7);
 
+// League 63: week 7 in progress. Rosters 2 and 3 are identical in adds (one a week); 2 completed a
+// trade with 1 in period 6, the last completed week. Roster 4's zero-point starters did play, under
+// spellings that differ between ESPN and nflverse.
+league(63, 7);
+for (const t of [2, 3]) for (let w = 1; w <= 6; w += 1) add(63, t, w);
+trade(63, 'ra-trade-last-week', 'EXECUTED', 'PROCESS', 2, 1, 6);
+starter(63, 6, 4, 400, 'DJ Moore', -0.1);
+starter(63, 6, 4, 401, 'Aaron Jones Sr.', 0, 'RB');
+snap(6, 'D.J. Moore', 23);
+snap(6, 'Aaron Jones', 31);
+
 signals.buildManagerSignals(61, { chat: null });
+signals.buildManagerSignals(63, { chat: null });
 signals.buildManagerSignals(62, { chat: null });
 
 // The terms ship default-off (2024 held-out AUC 0.644 missed the pre-registered 0.645), so the
@@ -191,4 +203,41 @@ test('A5: the Brain managers board lists receptiveness factors', () => {
   const src = fs.readFileSync(path.join(REPO, 'client/src/components/brain/ManagerBoard.tsx'), 'utf8');
   assert.match(src, /function ReceptivenessFactors/);
   assert.match(src, /<ReceptivenessFactors /);
+});
+
+test('A4b: the checked-out term moves the score, not just the factor list', () => {
+  const on = layerFor(61).get('4');
+  const without = layerFor(61, { zero: ['checked_out'] }).get('4');
+  const out = factor(on, 'checked_out');
+  assert.ok(on.receptiveness < without.receptiveness,
+    `checked out ${on.receptiveness} must read below the same roster without the term ${without.receptiveness}`);
+  assert.ok(out.effect < 0);
+});
+
+test('A6: "already traded" is half the activity term: equal adds, the one who traded reads higher', () => {
+  const layer = layerFor(63);
+  const traded = layer.get('2'), notYet = layer.get('3');
+  assert.equal(signals.managerSignalsFor(63).get('2').metrics.tx_adds_per_week,
+    signals.managerSignalsFor(63).get('3').metrics.tx_adds_per_week);
+  assert.ok(traded.receptiveness > notYet.receptiveness,
+    `traded ${traded.receptiveness} must read above not-yet ${notYet.receptiveness}`);
+  assert.ok(factor(traded, 'trade_activity').effect > factor(notYet, 'trade_activity').effect);
+});
+
+test('A3c: a trade processed in the last completed week counts', () => {
+  const sig = signals.managerSignalsFor(63);
+  assert.equal(sig.get('2').metrics.tx_completed_trades, 1);
+  assert.equal(sig.get('1').metrics.tx_completed_trades, 1);
+});
+
+test('A3d: tx_waiver_moves is the same add count as the rate, through the last completed week', () => {
+  const busy = signals.managerSignalsFor(61).get('2');
+  assert.equal(busy.metrics.tx_waiver_moves, 12, 'the add in the week still being played is not counted');
+  assert.equal(busy.metrics.tx_waiver_moves, busy.metrics.tx_adds_per_week * busy.samples.tx_adds_per_week);
+});
+
+test('A7: a zero-point starter who played under another spelling is not checked out', () => {
+  const sig = signals.managerSignalsFor(63).get('4');
+  assert.equal(sig.metrics.lineup_dead_starts_last_week, 0, '"DJ Moore" played as "D.J. Moore", "Aaron Jones Sr." as "Aaron Jones"');
+  assert.equal(factor(layerFor(63).get('4'), 'checked_out'), undefined);
 });

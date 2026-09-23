@@ -53,8 +53,23 @@ const { db, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 const { selfScout } = await import('../server/services/trade-engine.js');
+const { hashSessionToken, requireAuthenticated } = await import('../server/platform/auth.js');
+const { default: tradesRouter } = await import('../server/routes/trades.js');
+const express = (await import('express')).default;
 
-test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
+// The consumer: GET /api/trades/:leagueId/scout (routes/trades.js), which My Team
+// (MyTeam.tsx:58) and PostDraftPlan read, driven over HTTP by a league member.
+run(`INSERT INTO users (subject, display_name) VALUES ('rl152', 'rl152')`);
+const userId = db.prepare('SELECT last_insert_rowid() AS id').get().id;
+run(`INSERT INTO auth_sessions (user_id, token_hash, expires_at) VALUES (?, ?, datetime('now','+1 day'))`,
+  userId, hashSessionToken('rl152-token'));
+const app = express();
+app.use('/api/trades', requireAuthenticated, tradesRouter);
+app.use((err, _req, res, _next) => res.status(500).json({ error: err.message }));
+const server = app.listen(0);
+const base = `http://127.0.0.1:${server.address().port}/api/trades`;
+
+test.after(() => { server.close(); db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
 run(`INSERT INTO nfl_teams (id, abbr, name, conference, division) VALUES
      (1, 'AAA', 'Alpha', 'AFC', 'East'), (2, 'BBB', 'Beta', 'NFC', 'West')`);
@@ -111,6 +126,21 @@ test('RED: no team gets the unmeasured Roster shape imperative (contender half h
   }
   const ahead = actions(selfScout(league(), CONTENDER)).filter(a => /You are ahead|ceiling for floor/i.test(a));
   assert.deepEqual(ahead, [], `contender got "You are ahead": ${JSON.stringify(ahead)}`);
+});
+
+test('RED (consumer): the scout route serves the chosen bubble team without variance advice', async () => {
+  const lg = league();
+  run(`INSERT INTO leagues (id, platform, league_id, season, name, payload, team_count, my_team_id, roster_positions)
+       VALUES (?, 'espn', 'rl152', 2026, 'RL-15-2 fixture', ?, 10, '1', ?)`, lg.id, lg.payload, lg.roster_positions);
+  run(`INSERT INTO league_memberships (league_id, user_id, role) VALUES (?, ?, 'commissioner')`, lg.id, userId);
+  const res = await fetch(`${base}/${lg.id}/scout?team_id=${BUBBLE}`, { headers: { Authorization: 'Bearer rl152-token' } });
+  assert.equal(res.status, 200, `scout route status ${res.status}`);
+  const body = await res.json();
+  assert.equal(body.team.roster_id, BUBBLE, `route must scout the requested team, got ${body.team.roster_id}`);
+  assert.equal(body.rank, 5);
+  assert.ok(body.spread.floor != null, 'control: the served range is modelled');
+  const hits = body.fixes.map(f => f.action).filter(a => VARIANCE.test(a));
+  assert.deepEqual(hits, [], `route served variance advice: ${JSON.stringify(hits)}`);
 });
 
 test('control: the other fixes still fire (the longshot WR is a weakness and gets a trade fix)', () => {

@@ -6,7 +6,7 @@ Local copy of the app database, not production. Aggregates only.
 
 - Pre-registration (committed first, `96457c6b`): `docs/evidence/2026-09-23/proj-01-preregistration.md`
 - Script: `scripts/rnd/espn-mistake-map.mjs`; helper tests: `test/espn-mistake-map.test.js` (10 pass)
-- Pre-registration amendment 1 (`c1126661`, typo fix `0007dd2c`), committed before the spot was
+- Pre-registration amendment 1 (`c1126661`, typo fix `7644b3b1`), committed before the spot was
   graded: adds `team_total_moved_2_5` from `nfl_odds_archive`. The family becomes 8 spots.
 - Graded on tree `975fb796` (8 spots, m = 8), local copy. The first grading (7 spots, tree
   `7912de2c`) is superseded; section 6 lists what changed.

@@ -73,7 +73,14 @@ function sixTeamLeague() {
   let fakeId = 710000;
   const teams = SHAPE.map((sh, i) => {
     const roster = [qb[sh.qb], ...sh.rb.map(k => rb[k]), ...sh.wr.map(k => wr[k]), te[sh.te]];
-    return { id: i + 1, name: `Team ${i + 1}`, roster: { entries: roster.map(p => entry(p, fakeId++)) } };
+    // A synced ESPN roster resolves by ESPN id (trade-engine.js#espnPlayerResolver).
+    // Seeded players carry no espn_id, so without this every rostered player is a
+    // name match, and the waiver board never suggests cutting one (RL-6-4, #191).
+    return { id: i + 1, name: `Team ${i + 1}`, roster: { entries: roster.map(p => {
+      const id = fakeId++;
+      run('UPDATE players SET espn_id = ? WHERE id = ?', id, p.id);
+      return entry(p, id);
+    }) } };
   });
   return { teams, settings: { name: 'CL League' } };
 }

@@ -286,3 +286,67 @@ test('PREVIEW-01: an explicit activity:false still wins over the preview switch'
     assert.equal('preview' in f, false);
   });
 });
+
+// The pages reach the terms only through the routes' own counterpartyLayer calls, so a
+// call site that passed `activity: false` would switch preview off for the page while every
+// direct-layer test above still passed (skeptic mutant MD, trades.js:397 and :965).
+async function managersSignalsRoute(leagueId) {
+  const express = (await import('express')).default;
+  const { hashSessionToken } = await import('../server/platform/auth.js');
+  const { legacyAuthenticated } = await import('../server/platform/legacy-access.js');
+  const { default: tradesRouter } = await import('../server/routes/trades.js');
+  run(`INSERT OR IGNORE INTO users(id, subject, display_name) VALUES (7761, 'recept-preview', 'Reader')`);
+  run(`INSERT OR REPLACE INTO auth_sessions(user_id, token_hash, expires_at) VALUES (7761, ?, datetime('now','+1 day'))`,
+    hashSessionToken('recept-preview-token'));
+  run(`INSERT OR IGNORE INTO league_memberships(league_id, user_id, role) VALUES (?, 7761, 'member')`, leagueId);
+  const app = express();
+  app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
+  const server = app.listen(0);
+  try {
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/api/trades/${leagueId}/managers/signals`,
+      { headers: { authorization: 'Bearer recept-preview-token' } });
+    assert.equal(res.status, 200);
+    return await res.json();
+  } finally { server.close(); }
+}
+const routeFactor = (body, rid, source) =>
+  (body.managers.find(m => m.roster_id === rid)?.receptiveness?.factors ?? []).find(f => f.source === source);
+
+test('PREVIEW-01 on: GET /api/trades/:leagueId/managers/signals (ManagerRead) serves the applied terms with preview:true', async () => {
+  const saved = process.env[PREVIEW_ENV];
+  delete process.env[pricing.ACTIVITY_FLAG];
+  process.env[PREVIEW_ENV] = '1';
+  try {
+    const body = await managersSignalsRoute(61);
+    assert.equal(body.available, true, body.reason ?? '');
+    const busy = body.managers.find(m => m.roster_id === '2').receptiveness;
+    const idle = body.managers.find(m => m.roster_id === '3').receptiveness;
+    assert.ok(busy.value > idle.value, 'preview moves receptiveness on the page');
+    const f = routeFactor(body, '2', 'trade_activity');
+    assert.ok(f.effect > 0);
+    assert.equal(f.preview, true);
+    assert.match(f.preview_reason, /unconfirmed forward/);
+    const c = routeFactor(body, '4', 'checked_out');
+    assert.ok(Number.isFinite(c.effect));
+    assert.equal(c.preview, true);
+  } finally {
+    if (saved === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = saved;
+  }
+});
+
+test('PREVIEW-01 off (unset): the signals route withholds the terms, no preview field', async () => {
+  const saved = process.env[PREVIEW_ENV];
+  delete process.env[pricing.ACTIVITY_FLAG];
+  delete process.env[PREVIEW_ENV];
+  try {
+    const body = await managersSignalsRoute(61);
+    const busy = body.managers.find(m => m.roster_id === '2').receptiveness;
+    const idle = body.managers.find(m => m.roster_id === '3').receptiveness;
+    assert.equal(busy.value, idle.value);
+    const f = routeFactor(body, '2', 'trade_activity');
+    assert.equal(f.effect, null);
+    assert.equal('preview' in f, false);
+  } finally {
+    if (saved !== undefined) process.env[PREVIEW_ENV] = saved;
+  }
+});

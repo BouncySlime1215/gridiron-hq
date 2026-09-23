@@ -20,6 +20,7 @@
  * fresh.
  */
 import { Worker } from 'node:worker_threads';
+import { markJobRunning, markJobAbandoned, clearJobRunning } from '../platform/loop-watchdog.js';
 import { db, rows, run, row } from '../db/index.js';
 
 /**
@@ -1787,15 +1788,24 @@ export const BOOT_JOBS = ['rss_news', 'espn_news', 'nfl_news_signals',
 // before a full second, so 750ms is "found it" territory, not noise.
 const SLOW_JOB_WARN_MS = 750;
 
-/** The original inline budget: abandon the promise so the rest of the tier can run. */
-function withJobTimeout(promise, name, timeoutMs) {
+/**
+ * The original inline budget: abandon the promise so the rest of the tier can run.
+ *
+ * It abandons the PROMISE, not the job. The job's code carries on on this
+ * thread after the budget gives up, and that code is often the code that goes
+ * on to block it. `onAbandon` tells the watchdog so (see inlineRunMarker).
+ */
+function withJobTimeout(promise, name, timeoutMs, onAbandon) {
   let timer;
   return Promise.race([
     promise,
     new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(
-        `job '${name}' exceeded its ${Math.round(timeoutMs / 1000)}s budget and was abandoned so the ` +
-        'rest of the tier could run')), timeoutMs);
+      timer = setTimeout(() => {
+        onAbandon?.();
+        reject(new Error(
+          `job '${name}' exceeded its ${Math.round(timeoutMs / 1000)}s budget and was abandoned so the ` +
+          'rest of the tier could run'));
+      }, timeoutMs);
       timer.unref?.();
     })
   ]).finally(() => clearTimeout(timer));
@@ -1916,6 +1926,43 @@ export async function runIfStale(name, { force = false, offThread } = {}) {
   try { return await run; } finally { running.delete(name); }
 }
 
+/**
+ * The watchdog's marker for one inline run of `name`, so that if the run blocks
+ * the thread the kill line names it.
+ *
+ * It clears only when BOTH holders are done with it: the job's own code, and
+ * runJobNow's bookkeeping for the run. Clearing it when runJobNow finished was
+ * the bug (2026-09-22). withJobTimeout stops waiting for a job at its budget,
+ * but the job's code carries on on this thread, and the marker went with the
+ * wait. When that code then blocked the loop, the kill line said no job was
+ * running and blamed a request path, or it named only the job the tier had
+ * moved on to. The bookkeeping holds the marker too, because record() is a
+ * synchronous SQLite write, and a stall inside it still belongs to this run.
+ *
+ * One marker per run, not per job name: once the budget gives up, runIfStale's
+ * in-flight guard lets the same job start again beside the abandoned copy.
+ */
+function inlineRunMarker(name) {
+  // Named `handle`, not `run`: `run` is the SQLite write helper in this file.
+  const handle = markJobRunning(name);
+  let holders = 2;
+  const release = () => {
+    holders -= 1;
+    if (holders === 0) clearJobRunning(handle);
+  };
+  return {
+    /** Holds the marker until the job's own promise settles, however it settles. */
+    holdUntilSettled(work) {
+      work.then(release, release);
+      return work;
+    },
+    /** The budget has stopped waiting. The job has not stopped. */
+    abandoned: () => markJobAbandoned(handle),
+    /** runJobNow is done with this run. */
+    release
+  };
+}
+
 /** The run itself, once the gates above have decided it should happen. */
 async function runJobNow(name, job, offThreadOverride) {
   const startedAt = Date.now();
@@ -1923,6 +1970,20 @@ async function runJobNow(name, job, offThreadOverride) {
   // takes the process down, this is the only trace it ever existed — see
   // recordStart and reapAbandonedRuns above.
   recordStart(name);
+  // A job declared `offThread` runs in a worker; everything else keeps the
+  // original inline path exactly as it was. See runJobOffThread above.
+  // The heavy tier goes off-thread by default rather than job-by-job, so a
+  // heavy job added later cannot quietly reintroduce the outage by
+  // forgetting the flag. An individual job can still opt out with
+  // `offThread: false` if it genuinely needs main-thread state.
+  //
+  // Then tell the watchdog what is about to run, so that if this is the job
+  // that blocks the thread the kill line names it instead of leaving 24
+  // suspects. Before the work, never after: a marker set after synchronous work
+  // begins is never set at all. Inline jobs only: a worker-thread job cannot
+  // block this thread, and naming it would point a stall at the wrong suspect.
+  const offThread = resolveOffThread(job, offThreadOverride);
+  const marker = offThread ? null : inlineRunMarker(name);
   try {
     // EVERY JOB IS TIME-BOUND, AND THIS IS NOT DEFENSIVE PROGRAMMING.
     //
@@ -1943,16 +2004,13 @@ async function runJobNow(name, job, offThreadOverride) {
     // capture for the life of the process. A timeout converts that into a
     // recorded error and lets the loop reach the jobs behind it.
     const timeoutMs = job.timeoutMs ?? DEFAULT_JOB_TIMEOUT_MS;
-    // A job declared `offThread` runs in a worker; everything else keeps the
-    // original inline path exactly as it was. See runJobOffThread above.
-    // The heavy tier goes off-thread by default rather than job-by-job, so a
-    // heavy job added later cannot quietly reintroduce the outage by
-    // forgetting the flag. An individual job can still opt out with
-    // `offThread: false` if it genuinely needs main-thread state.
-    const offThread = resolveOffThread(job, offThreadOverride);
+    // `new Promise` so that a job which throws before returning a promise still
+    // settles the promise the marker is holding on to. Otherwise that marker
+    // would stay set and blame this job for the next stall.
     const detail = offThread
       ? await runJobOffThread(name, timeoutMs)
-      : await withJobTimeout(job.run(), name, timeoutMs);
+      : await withJobTimeout(marker.holdUntilSettled(new Promise(resolve => resolve(job.run()))),
+        name, timeoutMs, marker.abandoned);
     // A job that chose not to do its work (reserve hold, no key, no due window)
     // is not healthy; recording it as 'ok' told every freshness view that a
     // capture happened when nothing did. See statusFromDetail for the two
@@ -1988,6 +2046,13 @@ async function runJobNow(name, job, offThreadOverride) {
     // able to cause a larger one.
     try { record(name, 'error', e.message); } catch { /* the pass continues */ }
     return { job: name, ran: true, error: e.message, duration_ms: Date.now() - startedAt };
+  } finally {
+    // runJobNow's hold on the marker, released however the run ended: a job
+    // that threw is exactly as finished as one that returned, and a marker left
+    // set would make the NEXT stall blame this job. The marker itself clears
+    // only once the job's own code has returned as well, because a job
+    // abandoned at its budget has not returned (see inlineRunMarker).
+    marker?.release();
   }
 }
 

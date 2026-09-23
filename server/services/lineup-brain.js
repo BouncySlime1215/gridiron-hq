@@ -45,7 +45,8 @@ import { careerLine } from './player-career.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
 import { availabilityDegradation } from './contingency.js';
-import { deadStarters, NO_LIVE_INACTIVES } from './dead-starters.js';
+import { deadStarters } from './dead-starters.js';
+import { espnZeroInactive } from './espn-zero-inactive.js';
 
 const r1 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(1));
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
@@ -417,7 +418,7 @@ export function irOnRoster(lg, rosterId, players) {
  *   variance can hurt you.
  */
 export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', providers = DEFAULT_PROVIDERS,
-  now = Date.now(), inactive = NO_LIVE_INACTIVES } = {}) {
+  now = Date.now(), inactive = null } = {}) {
   const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg?.payload) return { error: 'league not synced yet' };
 
@@ -454,7 +455,9 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // replacement priced on this same week_points basis (dead-starters.js).
   const deadStarterCheck = deadStarters(lg, me.roster_id, me.players, {
     season, week, weekPoints: new Map(annotated.map(p => [p.id, p.week_points])),
-    accepts: slotAccepts, now, inactive
+    accepts: slotAccepts, now,
+    // RL-10-1: the one inactive producer (ESPN projects 0) unless the caller supplies a hook.
+    inactive: inactive ?? espnZeroInactive(lg.id, { season, week })
   });
 
   /*

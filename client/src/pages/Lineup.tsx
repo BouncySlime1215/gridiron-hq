@@ -128,7 +128,11 @@ export default function Lineup() {
           </h2>
           <ul className="mt-2 space-y-1">
             {d.dead_starters.items.map((i: any) => (
-              <li key={i.player.id} className="text-sm leading-6 text-slate-800">{i.why}</li>
+              <li key={i.player.id} className="text-sm leading-6 text-slate-800">
+                {i.why}
+                {/* RL-10-1: a projection-based flag names its source and what is not yet tested. */}
+                {i.source_label && <span className="block text-xs leading-5 text-red-900/70">{i.source_label}</span>}
+              </li>
             ))}
           </ul>
           <p className="mt-2 text-xs leading-5 text-red-900/70">Make the swap on ESPN before his game starts.</p>

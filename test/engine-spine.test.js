@@ -75,6 +75,11 @@ run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status
      VALUES (71, 2026, 'tx-1', 'WAIVER', 'EXECUTED', '2026-09-16T07:11:15.167Z', '2026-09-16T07:11:15.238Z', 4, 2, 3,
        '[{"playerId":555,"type":"ADD","fromTeamId":0,"toTeamId":4}]', '{"secret":"never copied"}',
        '2026-09-17T21:17:27.148Z', '2026-09-17T21:17:27.148Z')`);
+// A PENDING waiver: ESPN's processed_at is the SCHEDULED run (the future), not an observation.
+run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status, is_pending, proposed_at, processed_at,
+       team_id, scoring_period, items_json, first_seen_at, last_seen_at)
+     VALUES (71, 2026, 'tx-pending', 'WAIVER', 'PENDING', 1, '2026-09-22T22:56:28.850Z', '2026-09-23T07:00:00.000Z', 4, 3,
+       '[{"playerId":555,"type":"ADD"}]', '2026-09-22T23:10:45.557Z', '2026-09-22T23:10:45.557Z')`);
 run(`INSERT INTO league_roster_snapshots (league_id, season, scoring_period_id, team_id, espn_player_id, player_id,
        player_name, position, lineup_slot_id, lineup_slot, is_starter, on_roster, source, first_seen_at, changed_at,
        projected_points, actual_points)
@@ -239,7 +244,10 @@ test('backfill copies every stream, is idempotent, and fires onEvent only for ne
   assert.equal(second.streams.reduce((a, s) => a + s.inserted, 0), 0);
   assert.equal(fired.length, afterFirst - before, 'onEvent must fire once per new event, never on a duplicate');
 
-  const tx = row(`SELECT * FROM engine_events WHERE event_type = 'espn.transaction'`);
+  const pending = row(`SELECT as_of FROM engine_events WHERE source_key LIKE '71:2026:tx-pending:%'`);
+  assert.equal(pending.as_of, '2026-09-22T22:56:28.850Z',
+    'a pending transaction is stamped at its scheduled processing time, which is in its own future');
+  const tx = row(`SELECT * FROM engine_events WHERE event_type = 'espn.transaction' AND source_key LIKE '71:2026:tx-1:%'`);
   assert.equal(tx.as_of, '2026-09-16T07:11:15.238Z');
   assert.equal(tx.league_id, 71); assert.equal(tx.team_id, '4');
   assert.ok(!tx.payload.includes('never copied'), 'raw_json copied into the log');

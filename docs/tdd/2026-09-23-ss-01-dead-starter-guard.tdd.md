@@ -47,7 +47,7 @@ No 2025 held-out data is read by this unit, so HOLDOUT-LEDGER.md gets no row.
 - GREEN: `4f509e25` feat: SS-01 dead-starter guard on the Start/Sit lineup payload. 7 of 7 pass.
   The Sleeper case's fixture was given one rostered player in this commit (at RED it could
   return early on an error instead of asserting; it asserts now).
-- Test hardening: `(this branch)` test: SS-01 FLEX-first entry order pins fixed-slot-first
+- Test hardening: `1d040646` test: SS-01 FLEX-first entry order pins fixed-slot-first
   replacement (killed mutant M7, which survived the first fixture because ESPN listed RB first).
 
 Command (each run on its own tree, fresh temp DB):

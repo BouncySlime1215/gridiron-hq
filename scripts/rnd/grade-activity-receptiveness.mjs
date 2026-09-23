@@ -59,6 +59,25 @@ function bootstrap(groupsByCluster, key, seed) {
   return [pct(out, 0.05), pct(out, 0.95)];
 }
 
+/**
+ * Team-cluster bootstrap, as H2 pre-registered: resample teams (all of a team's rows together) with
+ * replacement, keep the within-league-week comparison. Used for H2; H1 resamples chains.
+ */
+function bootstrapTeams(rowsList, key, seed) {
+  const r = rng(seed); const byTeam = new Map();
+  for (const x of rowsList) (byTeam.get(x.cluster) ?? byTeam.set(x.cluster, []).get(x.cluster)).push(x);
+  const teams = [...byTeam.values()]; const out = [];
+  for (let b = 0; b < RESAMPLES; b += 1) {
+    const byLw = new Map();
+    for (let i = 0; i < teams.length; i += 1) {
+      for (const x of teams[Math.floor(r() * teams.length)]) (byLw.get(x.lw) ?? byLw.set(x.lw, []).get(x.lw)).push(x);
+    }
+    const a = aucWithin([...byLw.values()], key).auc;
+    if (Number.isFinite(a)) out.push(a);
+  }
+  return { lo: pct(out, 0.05), hi: pct(out, 0.95), usable: out.length, teams: teams.length };
+}
+
 // The production module opens the app DB on import; point it at a throwaway
 // unless the forward check supplies its own copy.
 process.env.SCHEDULER_DISABLED = '1';
@@ -209,8 +228,15 @@ if (appDb) {
     + `completed trades ${trades.length} (control: known-nonzero before any AUC)`);
   const h2 = report('  teams completing a trade in w+1, w = 1-2 (clusters = leagues)', out, r => r.lw.split('_')[0], 51);
   console.log(`  by week: ${[1, 2].map(w => `w${w} sides ${out.filter(r => r.w === w && r.y === 1).length}/${out.filter(r => r.w === w).length}`).join(', ')}`);
-  const holds = h2.act.auc > 0.5 && h2.aHi > 0.5;
-  console.log(`  H2 rule (point > 0.5 and interval not entirely below 0.5): ${holds ? 'HOLDS' : 'DOES NOT HOLD'}`);
+  // The pre-registered interval is a team-cluster bootstrap; the league-cluster line above is kept for
+  // comparison only. A zero-width interval, or fewer than two clusters, cannot test anything.
+  const tb = bootstrapTeams(out, 'sAct', 53);
+  console.log(`  pre-registered interval (${RESAMPLES} team-cluster resamples, ${tb.teams} teams, ${tb.usable} usable): `
+    + `[${tb.lo?.toFixed(4)}, ${tb.hi?.toFixed(4)}]`);
+  const evaluable = tb.teams >= 2 && tb.usable > 0 && tb.hi > tb.lo;
+  const holds = h2.act.auc > 0.5 && tb.hi > 0.5;
+  console.log(`  H2 rule (point > 0.5 and team-cluster interval not entirely below 0.5): `
+    + `${!evaluable ? 'NOT EVALUABLE (degenerate interval)' : holds ? 'HOLDS' : 'DOES NOT HOLD'}`);
   if (dec.length) report('  secondary, descriptive: responder accept vs decline (within league)', dec, r => r.lw, 61);
   db.close();
 }

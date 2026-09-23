@@ -88,7 +88,7 @@ All tests: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<mktemp> node --experimental-t
 | pre-registration | `f1cc794a` docs: pre-register WV-02 injury replacement ranking check | before any number |
 | RED 1 | `9ccfdc32` test: RED for WV-02 injury replacement alert on the waiver board | 0 pass / 5 fail on `origin/main` code; first failure `assert.ok(Array.isArray(out.injury_alerts), 'the board carries injury_alerts')` -> `expected: true, actual: false`; also `nextWaiverRun is not a function` |
 | GREEN 1 | `fdbebc42` feat: WV-02 injury replacement alert on the waiver board | 5 / 5 pass; with `test/decision-leftovers-waivers.test.js` 12 / 12 |
-| result | `d64561dd` docs: WV-02 walk-forward result, snap-share order fails its non-inferiority bound | section 5; ledger rows L155, F002 |
+| result | `d64561dd` docs: WV-02 walk-forward result, snap-share order fails its non-inferiority bound | section 5; ledger rows L159, F004 |
 | RED 2 | `cfc4edaa` test: RED for WV-02 default same-team order after the snap-share check failed | 4 pass / 2 fail on `fdbebc42` code: `assert.deepEqual(alert.replacements.same_team.map(r => r.player), ['Handcuff Low', 'Handcuff High'])` got `['Handcuff High', 'Handcuff Low']`; `assert.equal(r.order, 'snap_share')` got `undefined` |
 | GREEN 2 | `a5660d52` feat: WV-02 same-team order defaults to projection, snap-share order default-off | 6 / 6; with decision-leftovers 13 / 13 |
 | mutants | `57bf864d` test: WV-02 kill surviving mutants (waiver-hour boundary, teammate as best FA, clock-independent date) | 7 / 7 |
@@ -166,8 +166,8 @@ Sign: positive favours snap share. Win rate counts point ties as half.
 | split | events | picks differ | snap win rate when they differ | MDE (80% power) | mean PPR diff, all events [90% CI] |
 |---|---|---|---|---|---|
 | 2022-2024 (primary) | 272 | 98 | 0.531 | 0.126 | -0.179 [-0.772, +0.385] |
-| 2025 (held out, one look, L155) | 120 | 29 | 0.672 | 0.231 | +1.013 [+0.039, +1.987] |
-| 2026 forward (F002) | 3 | 1 | 1.000 | 1.244 | not measurable |
+| 2025 (held out, one look, L159) | 120 | 29 | 0.672 | 0.231 | +1.013 [+0.039, +1.987] |
+| 2026 forward (F004) | 3 | 1 | 1.000 | 1.244 | not measurable |
 
 By position on the primary split, where picks differ: WR 72 (0.507), TE 19 (0.711),
 QB 4 (0.000), RB 3 (0.667). Only WR has enough cases to say anything.

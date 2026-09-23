@@ -104,7 +104,7 @@ DB: `sqlite3 ~/gridiron-local/data.sqlite ".backup '.local-db/data.sqlite'"` at 
   - MDE at 80% power: with n = 6 an exact one-sided test of precision >= 0.80 (alpha 0.05) only detects a
     true precision of 0.27 or lower; n = 30 would detect 0.57. So the forward check can catch a broken
     signal, not a modest drop from 0.90. (Binomial enumeration in the session, `python3` with `math.comb`.)
-  - **Ship rule:** n = 6 >= 5 and precision 1.00 >= 0.80 -> **default-ON**. Caveat: passed under
+  - **Ship rule:** n = 6 >= 5 and precision 1.00 >= 0.80 -> **default-ON** (SUPERSEDED in section 9: shipped default-off, R&D r10 §6 gate governs). Caveat: passed under
     deviation 1, on one week, and on captures taken after the games (the at-lock projection), so it says
     nothing about Sunday timing.
   - Decision grade (anecdote, one week): 38 league-roster instances flagged in W2, 2 of them set as starters;
@@ -150,11 +150,65 @@ Holdout looks: none. 2025 was not opened (every query filters season = 2026), so
 
 1. **Well built?** One new module, three one-line call-site changes, no migration; 5 tests, 9 of 9 behaviour
    mutants killed, PR #185's own 9 tests still pass.
-2. **Stats or made up?** The 92% / 90% are R&D r10's measured 2021-24 rates; the 2026 check is 6 of 6 on W2
+2. **Stats or made up?** (Corrected in section 9: the card now quotes 87% on its own Q/none population, not 90%.) The 92% / 90% are R&D r10's measured 2021-24 rates; the 2026 check is 6 of 6 on W2
    (small; MDE says it only rules out a broken signal).
 3. **How do we know?** Section 5 commands on the local copy; the flag fired on 11 real W2 players who all sat.
 4. **Pointed elsewhere?** It reads the snapshot table the refresh loop already writes; nothing else changes.
    The Bluesky arm (#184) is deliberately not wired.
 5. **How it unifies?** One producer of "likely inactive" (`espn-zero-inactive.js`), consumed through SS-01's
    single hook; Out/Doubtful still come from `contingency.js#weekDesignation`, so the card cannot disagree
-   with Start/Sit's week_points.
+   with Start/Sit's week_points. (Held for Out/Doubtful only; section 9 closes it for the new inactive reason.)
+
+## 9. Skeptic round 1: three blocking issues, fixed 
+
+Commits: `db9d3075` RED (3 new tests fail: pass 5 fail 3), `abe486c8` fix, then a test that kills a
+surviving mutant. Command for every test line: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<mktemp>/t.sqlite
+node --experimental-test-module-mocks --test --test-reporter=tap test/<file>.test.js`.
+
+**9.1 Card precision was quoted on the wrong population.** The 630/704 (90%) counts every relevant zero,
+including 338 Friday Out/Doubtful players (all inactive) that this producer excludes. New study script
+`study/rl-10-1/r10x_prec_split.py` (same pool and labels as R&D `r10x_espn_zero_flag.py`, 2021-24 REG
+weeks 2-17, 2025 not read, nflverse.sqlite opened read-only) splits precision by Friday NFL report status:
+
+| Friday status | threshold e<1 (R&D rule) | threshold e<0.05 (producer `ZERO_MAX`) |
+|---|---|---|
+| Out | 275/275 | 275/275 |
+| Doubtful | 63/63 | 63/63 |
+| **Questionable or none (what the card shows)** | 292/366 = 0.798 (95% CI 0.757-0.839) | **265/306 = 0.866 (0.828-0.904)** |
+| recall, surprise INA | 220/238 = 0.924 | 218/238 = 0.916 |
+
+The card label now reads "87% of Questionable or undesignated players at 0 did not play" (the producer's
+own threshold). Caveat: the historical split uses the Friday NFL report; the producer excludes on ESPN
+status, which can differ.
+
+**9.2 Default-ON contradicted R&D r10 §6.** Agreed: the W2 forward check used post-game captures (all
+rows first written 2026-09-22T20:50Z) and cannot test a pre-lock read. Now **default-off, labelled
+"unconfirmed forward"**: `espnZeroInactive()` returns `covered:false` with `ESPN_ZERO_OFF_REASON` unless
+`GRIDIRON_ESPN_ZERO_INACTIVE=1`. Default-on waits for RL-10-2's W4-W5 poller to meet §6 (or Nick's
+explicit override). Liveness, local copy, not production (scratchpad `live2.mjs`, tree after `abe486c8`):
+`lineupCall(1)` returns `inactive_source.covered false`, reason starts "ESPN-projects-0 inactive flag
+is default-off, unconfirmed forward".
+
+**9.3 Two producers disagreed inside one /lineup payload.** Agreed; the section 1 grep searched the word
+"inactive", not the concept (`active_probability`). Fix (skeptic's option 2): `lineupCall` reads the hook
+once (`inactiveHook`) and passes the same object to the card and the solver; a flagged player gets
+`available: false` in `annotated`, so `bestLineup` (trade-engine.js:642), the alternatives, the bench
+list and warnings all drop him, and `unavailable` names him with the hook's sentence and label (the page
+already lists `unavailable` as "not considered", Lineup.tsx:58-62). RED test "one number" asserts a
+flagged starter is on the card and absent from `lineup`, `bench` and `warnings`.
+Liveness, local copy (same script, hook forced on with the W2 hook on a W3 call, as the skeptic did):
+league 4 W2 hook covered, 8 flagged ids league-wide; card inactive items 1; flagged in lineup 0 (the
+skeptic saw the same player started with active_p 0.561 on b60d971d); flagged on bench list 0;
+`unavailable` rows with the ESPN-0 reason 1; warnings about flagged 0.
+**Named follow-up (not in this unit):** TradeCard, WaiverWire and Model print
+`contingency.js#weeklyAvailability` `active_probability` and do not read this hook. While the hook is
+default-off nothing disagrees; before it goes default-on, either route the signal into
+`weeklyAvailability`/`weekDesignation` or have those surfaces read the hook.
+
+**Tests (tree after the last commit):** test/espn-zero-inactive.test.js pass 8 fail 0;
+test/dead-starter-guard.test.js (PR #185, unchanged) pass 9 fail 0.
+
+**Mutation (new code, 6 mutants, all killed):** drop `available:false` (fail 1); `if (!enabled)` -> never
+(fail 1); env check always true (fail 1); card and solver not sharing the hook (`inactive: undefined`,
+fail 4); `unavailable` filter back to `adj_ppg > 4` only (survived at first, killed after adding a
+low-average flagged player to the "one number" test: fail 1).

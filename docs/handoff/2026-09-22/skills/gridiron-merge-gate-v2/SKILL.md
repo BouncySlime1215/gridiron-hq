@@ -58,7 +58,7 @@ Under the same heading also state, in one line each: the defect or gap fixed wit
 - Commit messages `<type>: <description>` with attribution footers on.
 
 ## 6. Merge and after
-- Draft PR on push. Squash-merge yourself when CI is green on the exact head and the body carries sections 1 to 5; send the merge sha to the coordinator. Retry a refused GitHub API call at most every ten minutes; never poll.
+- Draft PR on push. Only the local coordinator merges (merge-queue.sh: brings the PR up to current main, waits for CI on that exact head, checks sections 1 to 5, squash-merges, logs and writes the integration card). Builder and cloud sessions never merge, never mark ready, never subscribe to PR activity and never schedule check-ins (a cloud session merged its own PR on 2026-09-23 01:31Z). Retry a refused GitHub API call at most every ten minutes; never poll.
 - Do not open a PR for a preservation snapshot as if it were a merge candidate; label it never-merge.
 - Deploy, settings, and secrets need Nick's word every time.
 - **Context hygiene:** once your current PRs are merged, write your handoff section (shipped, open, blocked, findings, lessons, files, next three steps) and ask the coordinator to restart you as a fresh session from it. A thread's history is the cost; the handoff is the memory.

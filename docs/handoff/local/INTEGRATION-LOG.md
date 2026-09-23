@@ -2,7 +2,13 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 00:12Z.
+Last rebuilt: 2026-09-23 01:41Z.
+
+## #159: Finish removing MLB: dead odds-api exports, decision inbox, unused prop routes
+
+- Merged: 9:31 PM ET, Sep 22 as `b6c83d51` (unit SY-06)
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #158: Fix ESPN RSS news stamped an hour into the future (EST/EDT parsing) (R-07)
 

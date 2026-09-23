@@ -243,3 +243,11 @@ forward look (F001, 0 swap-weeks computable).
    `PRO_TEAM` and the waiver wire's subtraction rule; no second implied-total producer.
 5. **How it unifies?** Same week and league as the waiver board, on the same page; SK-01's weekly command center can
    read the same route for its "streaming swap" line.
+
+- **Gap fixed:** no producer ranked defenses by matchup; `waiver-wire.js:43` (`SCORED` = QB/RB/WR/TE) and
+  `waiver-brain.js` (DEF scored 0 by `bestLineup`) on `89f69b3b` never surface a defense.
+- **Incumbent, by command:** `grep -rlni "streaming\|d/st" server/services server/routes client/src` on `89f69b3b`
+  finds no matchup ranking; the dumb baseline (chase last week's points) gains -0.48 per swap in the replay.
+- **Not covered:** QB/TE and kicker streaming; ESPN scoring's yards-allowed tiers; making the add in ESPN; 2026 forward.
+- **What would make it wrong:** real league rosters that leave only bad-matchup defenses free (K stand-in wrong), or a
+  2026 forward check with a negative per-swap gain once nflverse posts weeks 2+.

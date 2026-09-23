@@ -221,6 +221,19 @@ test('a player who comes back is un-retired; an empty pull retires nobody', asyn
   assert.ok(res.formats.find(f => f.formatKey === FMT)?.error, 'the empty pull is reported as an error for that format');
 });
 
+test('a truncated pull (fewer than half the live players) retires nobody and is reported', async () => {
+  payload = PULL_1;
+  await syncDynastyValues({ now: new Date('2026-09-23T13:00:00Z') });
+  const live = () => row('SELECT COUNT(*) AS n FROM dynasty_values WHERE format_key = ? AND retired_at IS NULL', FMT).n;
+  assert.equal(live(), 5, 'control: five live players before the truncated pull');
+  payload = PULL_1.slice(0, 1);
+  const res = await syncDynastyValues({ now: new Date('2026-09-23T14:00:00Z') });
+  assert.equal(live(), 5, 'one player back out of five is a broken pull, not four retirements');
+  assert.match(res.formats.find(f => f.formatKey === FMT)?.error ?? '', /truncated/);
+  payload = PULL_1;
+  await syncDynastyValues({ now: new Date('2026-09-23T15:00:00Z') });
+});
+
 test('only the documented /values/current endpoint is ever called', () => {
   assert.ok(external.length > 0, 'control: the mock saw the syncs');
   const off = external.filter(u => !u.startsWith('https://api.fantasycalc.com/values/current?'));

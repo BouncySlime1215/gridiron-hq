@@ -9,4 +9,4 @@ Rules that bind you: models Opus 5.5 medium for builders/skeptics, Fable only fo
 Start by: re-arming the meter watcher (run bin/meter-watch.sh in the background), the 20-min status cron, the board keeper; then continue from the State block.
 
 ## State right now (refreshed by the coordinator every other check)
-- 2026-09-23 ~4:40 AM ET: phase 0 running: finish-unit (BLEND-01, HX-01, S-03; run wf_cea6ef51-608), verify run A (B-01 #162, A-03 #163, SY-02 #161, C-12 #73; run wf_018f8616-665), R&D loop v2 (wf_e34d8634-23b), merge-queue #160 (C-01). Done: SY-06 #159, F-03 #97 merged; skill study verified with corrections; UI audit done. Next: phase 1 per WORKFLOWS-PER-STAGE.md.
+- 2026-09-23 ~1:40 AM ET: phase 0 running: finish-unit (BLEND-01, HX-01, S-03; run wf_cea6ef51-608), verify run A (B-01 #162, A-03 #163, SY-02 #161, C-12 #73; run wf_018f8616-665), R&D loop v2 (wf_e34d8634-23b), merge-queue #160 (C-01). Done: SY-06 #159, F-03 #97 merged; skill study verified with corrections; UI audit done. Next: phase 1 per WORKFLOWS-PER-STAGE.md.

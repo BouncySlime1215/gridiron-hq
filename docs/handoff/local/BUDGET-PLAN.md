@@ -1,5 +1,5 @@
-# BUDGET PLAN (Nick 2026-09-23 ~4:40 AM ET: working 24/7; plan the 5-hour and the weekly caps; second Max account unlocks today Wed 9/23 3:00 PM ET)
-Accounts: A = this desktop account (weekly: Nick says 57% left as of 4:40 AM ET; weekly reset time not yet recorded: read it from Settings > Usage and write it here). B = Nick's second Max account, usable from Wed 9/23 3:00 PM ET, via PASTE-TO-RESUME.md in a fresh session.
+# BUDGET PLAN (Nick 2026-09-23 ~1:40 AM ET: working 24/7; plan the 5-hour and the weekly caps; second Max account unlocks today Wed 9/23 3:00 PM ET)
+Accounts: A = this desktop account (weekly: Nick says 57% left as of 1:40 AM ET (the meter reads 55% used = 45% left; Nick said 57% left; use the meter); weekly reset time not yet recorded: read it from Settings > Usage and write it here). B = Nick's second Max account, usable from Wed 9/23 3:00 PM ET, via PASTE-TO-RESUME.md in a fresh session.
 ## 5-hour window rule (checked every other 20-min check with bin/burn.py)
 - Projected minutes to 95% > minutes left in the window: full speed (≤5 workflows, ≤6 agents).
 - Projection hits 95% with more than 60 min left in the window: THROTTLE-1 (≤3 workflows; no new Fable; R&D paused).

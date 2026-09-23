@@ -103,3 +103,34 @@ Tue: receipts from last week; waivers and streams; offers out (2-3 per target, M
 - ST-09 Bench built for late swaps: keep at least one flex-able late-window player so ST-03 always has an option.
 - ST-10 Live points-needed tracker: on gameday, what the remaining unlocked players need, and the floor/ceiling call per window.
 - ST-11 Weekly grade of three lineups: ours, ESPN's, and what Nick actually started, scored by matchup win probability, not just points (extends the C-01 gate).
+
+# v6: THE CHAMPIONSHIP ENGINE (Nick 12:50 AM ET: "thousands of sims till championship, always moving with every action, ML/AI"). This is the spine; the trade machine, start/sit and waivers all read from it. Planning only.
+## What it is
+One simulator of the rest of every season (all 5 leagues) that re-runs itself on every event and prices every possible action, trade, claim or lineup, in one currency: Nick's title odds. Embryo exists: season-sim.js:173 simulateSeason and :361 tradeImpact (paired seeds, CIs); B-01/B-03/B9 in the queue. The engine is its upgrade.
+## The sampler (one sim = one full season to the trophy)
+1. Game environment first: for every NFL game, sample the score from the spread and total (line history for the fit; future weeks from power ratings, TM-12), weather where known. Team points drive everything below, so teammates move together.
+2. Player outcomes conditional on team points: usage shares (snap, route, target, red-zone; TM-13) turn team points into each player's points with a calibrated range (BLEND-02); the QB-WR stack and the RB-vs-passing trade-off fall out of the shares, not a hand-set correlation.
+3. Availability: each starter plays or not from the availability oracle (ST-01); injuries strike with the historical rate by position and age, last a sampled number of weeks (TM-11), and dent production on return.
+4. Opponent managers behave like themselves: lineup efficiency and dead-starter rate per manager (their 2026 lineup snapshots, the Sleeper population as the prior), waiver adds per week, trade frequency; active managers get stronger late, checked-out ones decay. Nick's policy is the engine's own best lineup.
+5. League rules exactly: scoring (A-01), roster slots, byes, playoff format, seeding, tiebreakers, the bracket (weeks 15-17), median games if any.
+6. Output per sim: every team's wins, points, seed, bracket result. 10,000 sims per evaluation; paired seeds (common random numbers) so the difference between two actions is measured on the same simulated seasons and the noise cancels (standard error on a title-odds delta about 0.3 points at 10k).
+## Always moving (event-driven)
+Events: injury or practice-report news, any transaction in any league (ESPN sync), a line move, a waiver run, a trade offer received, a game result, and on Sundays every scoring update. Each event updates the state, re-runs the affected sims (state hash cache; only leagues touched), re-ranks offers and lineups, and raises an alert when title odds move more than a threshold or a new top-3 offer appears. Sunday: a live title-odds ticker per league (matchup win probability from the live score plus remaining players, chained into season odds).
+## The planner (the ML that finds the deals)
+Monte Carlo tree search over Nick's actions with the simulator as the world: actions are offers (with acceptance odds from the acceptance model and the twins), waiver claims (with win odds by priority or FAAB), lineup choices and holds. Value = title odds at the leaves. Rollouts reuse the sampler. The output is the decision tree (TM-05): the best next action, its fallback, and the odds along every branch. Runs nightly in full and incrementally after events; heavy runs on this Mac or a worker, not the small Fly box.
+## AI in the loop, capped
+The analyst (TM-07) may shift a player's range (role change, coaching change, a returning teammate) by a bounded amount with a citation; the twins (TM-16) supply acceptance odds; both are graded weekly and lose their cap if they miss.
+## One currency everywhere (B-03 done right)
+Every card in the app shows "title odds X% -> Y%" with a counterfactual ladder: do nothing / best claim / best trade / best trade + lineup. Waivers and start/sit price in the same units, so the roadmap "0-2 to the trophy" is one list sorted by odds gained per unit of risk and effort.
+## Units
+- CE-01 Game-environment sampler (scores from lines; future weeks from power ratings). Test: simulated team-point distributions match 2022-2025 actuals (coverage, calibration by spread bucket).
+- CE-02 Shares-conditional player sampler with ranges. Test: player-week coverage (80% range covers ~80%) and same-team correlation matches history.
+- CE-03 Availability and injury sampling (ST-01, TM-11). Test: simulated games-missed distribution vs 2022-2025.
+- CE-04 Opponent-manager behavior models (per manager with population priors). Test: simulated opponent lineup efficiency and adds per week match their own 2026 record.
+- CE-05 League rules, brackets, tiebreakers from A-01 for all 5 leagues. Test: replaying 2025 standings reproduces the real seeds.
+- CE-06 Event bus + incremental re-sim + state cache. Test: an injury event re-prices the affected league in under a minute.
+- CE-07 Planner (MCTS over offers, claims, lineups; decision tree out). Test: on 2025 replays, the planner's recommended path beats "do nothing" and "greedy points" in realized title odds.
+- CE-08 Live Sunday ticker (matchup win probability -> season odds). Test: calibration of live win probability vs outcomes across 2026 weeks.
+- CE-09 Title-odds currency + counterfactual ladder on every surface (B-03). Test: contract test, one producer.
+- CE-10 Grading: weekly Brier and calibration of matchup win probability, playoff odds and title odds vs ESPN's projected winner as the baseline; the engine earns its place by beating it.
+Order: CE-05, CE-01, CE-02, CE-03 (data and sampler), then CE-09, CE-06, CE-04, CE-07, CE-08, CE-10. The trade finder (TM-01) and the target board sit on top from CE-09 on.

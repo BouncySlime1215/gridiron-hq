@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api';
 import { PageError, PageLoading } from '../PageState';
+import { logServerDetail, sanitizedMessage } from '../../lib/errorSanitize';
 import {
   TIERS, TIER_SHORT, TIER_STYLE, MIN_OBSERVATIONS, isThin, asText, metricLabel
 } from './types';
@@ -88,7 +89,9 @@ function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive }: {
       });
       onSaved();
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : 'Could not save that tier — try again.');
+      setSaveError(e instanceof Error
+        ? sanitizedMessage('ManagerBoard.set', 'Could not save that tier', e.message)
+        : 'Could not save that tier. Try again in a moment.');
     } finally { setSaving(false); }
   };
 
@@ -168,6 +171,31 @@ function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive }: {
 }
 
 /** Why the measured half of this page is not on screen, in the user's terms. */
+/** UX-08b: `error` is the raw server/fetch message — never rendered, only logged. */
+export function signalsRequestFailedReason(error: string): string {
+  if (/\b404\b/.test(error)) {
+    return 'This server does not serve measured manager signals yet: the endpoint answered 404. '
+      + 'Nothing is being hidden — there is nothing there to read.';
+  }
+  logServerDetail('ManagerBoard.signals', error);
+  return 'The signals request failed. Try again in a moment.';
+}
+
+/** UX-08b: `error` is the raw server/fetch message — never rendered, only logged. */
+export function ManagerProfilesGap({ error }: { error: string }) {
+  logServerDetail('ManagerBoard.profiles', error);
+  return (
+    <section role="status" className="rounded-2xl border border-slate-300 bg-slate-50 p-4">
+      <h2 className="text-sm font-black uppercase tracking-wide text-slate-700">No managers to set yet</h2>
+      <p className="mt-1.5 text-sm leading-6 text-slate-700">Couldn't read the roster list. Try again in a moment.</p>
+      <p className="mt-1 text-sm leading-6 text-slate-600">
+        Sync this league from <Link className="font-semibold text-emerald-700" to="/league">League Hub</Link>,
+        then come back — the roster list is what the tiers hang off.
+      </p>
+    </section>
+  );
+}
+
 function SignalsGap({ title, reason, onRetry }: { title: string; reason: string; onRetry?: () => void }) {
   return (
     <section role="status" className="rounded-2xl border border-slate-300 bg-slate-50 p-4">
@@ -217,16 +245,14 @@ export default function ManagerBoard({ leagueId, profiles, signals }: {
       {!signals.loading && signals.error && (
         <SignalsGap
           title="Measured manager signals are not on screen"
-          reason={/\b404\b/.test(signals.error)
-            ? 'This server does not serve measured manager signals yet: the endpoint answered 404. '
-              + 'Nothing is being hidden — there is nothing there to read.'
-            : `The signals request failed: ${signals.error}.`}
+          reason={signalsRequestFailedReason(signals.error)}
           onRetry={signals.refetch}
         />
       )}
 
       {!signals.error && signals.data?.error && (
-        <SignalsGap title="Measured manager signals are not on screen" reason={signals.data.error} />
+        <SignalsGap title="Measured manager signals are not on screen"
+          reason={sanitizedMessage('ManagerBoard.signalsPayload', 'The server could not produce measured signals', signals.data.error)} />
       )}
 
       {!signals.error && signals.data && !signals.data.error && signals.data.available === false && (
@@ -276,18 +302,9 @@ export default function ManagerBoard({ leagueId, profiles, signals }: {
       {/* The hand-set tiers. */}
       {profiles.loading && !p && <PageLoading label="Loading managers…" />}
       {!profiles.loading && profiles.error && !p && (
-        <PageError message={profiles.error} onRetry={profiles.refetch} />
+        <PageError message={sanitizedMessage('ManagerBoard.profilesFetch', "Couldn't read the roster list", profiles.error)} onRetry={profiles.refetch} />
       )}
-      {p?.error && (
-        <section role="status" className="rounded-2xl border border-slate-300 bg-slate-50 p-4">
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-700">No managers to set yet</h2>
-          <p className="mt-1.5 text-sm leading-6 text-slate-700">{p.error}</p>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
-            Sync this league from <Link className="font-semibold text-emerald-700" to="/league">League Hub</Link>,
-            then come back — the roster list is what the tiers hang off.
-          </p>
-        </section>
-      )}
+      {p?.error && <ManagerProfilesGap error={p.error} />}
 
       {p && !p.error && !others.length && (
         <section role="status" className="rounded-2xl border border-slate-300 bg-slate-50 p-4">

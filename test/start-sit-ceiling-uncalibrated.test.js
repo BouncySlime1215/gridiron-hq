@@ -146,8 +146,28 @@ test('objective mean (control): the measured rate, its wording and the labels ar
   assert.match(te.why, /has won [\d.]+% of the time, so this is a tie/);
 });
 
+test('a ceiling request that fell back to week_points keeps the measured rate (the margins ARE week_points gaps)', () => {
+  // The predicate is the objective actually solved on, not the one asked for: when every
+  // ceiling ties, the lineup is solved on week_points and says so, and its margins are
+  // exactly what the curve measured. Keying on the request would blank a real rate.
+  const flat = roster();
+  for (const p of flat) p.asset.ceiling = 20;
+  const id = league(flat);
+  const call = lineupCall(id, { objective: 'ceiling', providers: {} });
+  assert.ifError(call.error);
+  assert.equal(call.objective, 'ceiling');
+  assert.equal(call.objective_used, 'week_points', 'a key that ranks no one falls back');
+  assert.match(call.objective_fallback ?? '', /ceiling/);
+  assert.equal(call.confidence_basis, 'calibrated_on_week_points');
+  const qb = call.lineup.find(c => c.slot === 'QB');
+  assert.equal(qb.confidence, 'clear');
+  assert.equal(typeof qb.confidence_win_rate, 'number');
+  assert.match(qb.why, /has won about [\d.]+% of the time/);
+});
+
 test('the Start/Sit page reads confidence_basis instead of leaving it on the wire', () => {
   const src = fs.readFileSync(new URL('../client/src/pages/Lineup.tsx', import.meta.url), 'utf8');
-  assert.match(src, /confidence_basis/, 'the lineup page reads the basis tag');
+  assert.match(src, /d\.confidence_basis \?\? ''\)\.startsWith\('uncalibrated_for_'\)/,
+    'the lineup page reads the basis tag and renders a line for it (not only forwarding it to the assistant)');
   assert.match(src, /'not measured':/, 'and has a chip for a gap nobody measured, instead of falling back to Lean');
 });

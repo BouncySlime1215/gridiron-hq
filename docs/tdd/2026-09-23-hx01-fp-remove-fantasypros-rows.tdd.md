@@ -183,3 +183,11 @@ Counts before M6/M9's tests were on 14 tests, after on 16.
 ranks written as prose sentences, is not detected. JSON pasted inside a markdown code block is
 seen only if it is also delimited-table shaped. The guard scans `docs/evidence` and `docs/tdd`
 only, per the unit row.
+
+## 7. Skeptic round 2 fix (2026-09-23)
+
+Finding (correct, fixed in code): `isMarkdownSeparator` required `-{3,}` per cell, but GFM accepts one or more dashes. A `| :-- | :-: |` or `|-|-|` separator has no digit, so the row loop stopped at it with 0 data rows and the table passed.
+
+- RED at 018c257e (old regex, 6 new tests: separator cells `:--`, `:-:`, `-`, `--`, `--:` with the real export header, plus the site-pasted RK..ECR table with a mixed `:--`/`:-:` separator). Command: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/x.sqlite node --experimental-test-module-mocks --test --test-reporter=tap test/no-fantasypros-per-player-data.test.js` gives tests 22 / pass 16 / fail 6 (all 6 new tests fail on detection; module loads).
+- GREEN at b9d285db: regex changed to `:?-+:?` per cell (scripts/guard-no-fantasypros-per-player.mjs:54). Same command: tests 22 / pass 22 / fail 0, including the real-tree test (0 violations under docs/evidence and docs/tdd).
+- No new false positives possible from this change: the separator check only runs after a header has already matched `isPerPlayerFantasyProsHeader`.

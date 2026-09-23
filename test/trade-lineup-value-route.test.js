@@ -97,7 +97,8 @@ test('findTrades (GET /find): every returned deal carries lineup_value next to v
   const { findTrades } = await import('../server/services/trade-engine.js');
   let id = 1;
   const P = (name, position, ppg, value) => ({ id: 800000 + id++, name, position, team_abbr: 'AAA',
-    adj_ppg: ppg, ppg, ros_ppg: ppg, value, proj: ppg * 17 });
+    // ros_ppg deliberately off adj_ppg: the lineup value must be solved on ppg_delta's key.
+    adj_ppg: ppg, ppg, ros_ppg: ppg * 0.5 + (id % 3), value, proj: ppg * 17 });
   const me = { roster_id: '1', owner: 'Team 1', players: [
     P('M QB', 'QB', 20, 3000), P('M RB1', 'RB', 18, 5000), P('M RB2', 'RB', 16, 4500), P('M RB3', 'RB', 15, 4000),
     P('M WR1', 'WR', 9, 2000), P('M WR2', 'WR', 8, 1800), P('M TE', 'TE', 9, 1500), P('M WR3', 'WR', 5, 500)] };
@@ -117,5 +118,6 @@ test('findTrades (GET /find): every returned deal carries lineup_value next to v
     assert.equal(d.me.lineup_value?.status, 'not yet validated');
     assert.equal(d.them.lineup_value?.status, 'not yet validated');
     assert.equal(d.me.lineup_value.roster_spots, d.i_get.length - d.i_give.length);
+    if (d.i_get.length === d.i_give.length) assert.equal(d.me.lineup_value.per_week, d.me.ppg_delta, 'one lineup number');
   }
 });

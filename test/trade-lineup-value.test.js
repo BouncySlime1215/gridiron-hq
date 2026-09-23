@@ -48,7 +48,8 @@ const teamB = { roster_id: '2', owner: 'B', players: [
 // This league's wire: a startable WR is free.
 const faWR = P('Wire WR', 'WR', 10, 900);
 const faTE = P('Wire TE', 'TE', 5, 300);
-const WIRE = [faWR, faTE, P('Wire RB', 'RB', 6, 400), P('Wire QB', 'QB', 14, 800)];
+// The best fill is listed LAST, so a solver that takes the first free agent it sees fails.
+const WIRE = [faTE, P('Wire RB', 'RB', 6, 400), P('Wire QB', 'QB', 14, 800), faWR];
 const WEEKS = 14;
 
 test('2-for-1: summed value favours the 2-player side, the lineup value favours the 1-player side', () => {

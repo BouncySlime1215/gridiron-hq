@@ -1262,14 +1262,15 @@ const LINEUP_VALUE_NOTE = 'Lineup points over the remaining weeks with the roste
  *   - a side that NEEDS spots drops, for each, the player whose loss costs the
  *     starting lineup least (ties: the lowest-rated).
  * Then it is the change in the best starting lineup (bestLineup, the one solver)
- * per week, times the weeks left. Key: ros_ppg (the weekly rate the rest of the
- * season is priced on) when the roster carries it, else adj_ppg.
+ * per week, times the weeks left. Key: adj_ppg, the same number ppg_delta is solved
+ * on, so with no roster spot changing hands per_week IS ppg_delta and the two
+ * differ only by the spot's charge (one producer for the lineup number).
  *
  * @param opts.wire      unrostered priced assets for this league (lineupValueContext)
  * @param opts.weeksLeft regular + playoff weeks remaining, or null (per_week only)
  */
 export function lineupValue(team, gives, gets, slots, { wire, weeksLeft = null } = {}) {
-  const key = team.players.some(p => p.ros_ppg != null) ? 'ros_ppg' : 'adj_ppg';
+  const key = 'adj_ppg';
   const points = list => bestLineup(list, slots, key).points;
   const before = points(team.players);
   let roster = team.players.filter(p => !gives.some(g => g.id === p.id)).concat(gets);

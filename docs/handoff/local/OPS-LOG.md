@@ -181,3 +181,5 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 15:42Z: S-20 snap loader id join -> #206; SS-01-F1 built and skeptic-clean but gate stopped (#185 merged under it) -> handed to the train driver to merge main, open the PR and land.
 15:44Z: Decisions applied: train driver adds #174 #166 #164 #170 (migrations approved, numeric order); new loop: RL-8-2b 2025 look (critical), HX-01 FantasyPros scrub, streaming card ON (w5gllq7nn).
 15:58Z: capacity.py in place; status cron now follows its loop plan.
+
+16:13Z: RL-8-2b DECLINED on the one 2025 look (1-for-1 0.505; 2-for-1 LV 0.551 < bar) -> #207 evidence. Plan: Trade Machine re-scoped to the four evidenced edges.

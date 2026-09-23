@@ -2,7 +2,13 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 15:53Z.
+Last rebuilt: 2026-09-23 16:08Z.
+
+## #191: Waiver board: match roster by ESPN id, not a name that can collide
+
+- Merged: 12:07 PM ET, Sep 23 as `c07a0eb9`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #178: Waiver board: alert when a starter goes down, skip hurt replacements
 

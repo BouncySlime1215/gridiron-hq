@@ -107,4 +107,5 @@ test('a bench player whose game kicked off is never the man a starter "beat", no
   assert.equal(rb.player.name, 'Late Starter');
   assert.notEqual(rb.over?.name, 'Early Bench');
   assert.ok(!c.bench.some(b => b.name === 'Early Bench'), 'a locked bench player is not a bench option');
+  assert.match(rb.why, /already kicked off/, 'the only-option sentence says why the better back cannot come in');
 });

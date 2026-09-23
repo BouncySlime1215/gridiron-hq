@@ -59,6 +59,7 @@ import { analyzeLeague } from '../routes/tradelab.js';
 import { publishRecommendation } from '../routes/decision-inbox.js';
 import { scheduleOutlook, relevantSplits, matchupSignalActive, MATCHUP_SIGNAL_REASON } from './matchups.js';
 import { SLOT_NAME } from './espn-draft.js';
+import { rosterLocks, lockPins } from './lineup-lock.js';
 import { seasonEndingEspnIds } from './player-availability.js';
 import { buildPlayerWeekEngine, playerWeekDistribution } from './player-week-engine.js';
 import { weeklyAvailability, availabilityBasis } from './contingency.js';
@@ -696,6 +697,51 @@ export function bestLineup(players, slots, key = 'adj_ppg') {
     slots: filled,
     bench: eligible.filter(p => !used.has(p.id)),
     holes: filled.filter(f => !f.player).map(f => f.slot)
+  };
+}
+
+/**
+ * bestLineup with some players pinned where they are (RL-4-2: a player whose game
+ * has kicked off cannot move — lineup-lock.js).
+ *
+ * `pins` maps player id -> the slot he is set in. A pinned starter keeps that slot
+ * and it is taken out of the solve; a pinned player in BENCH, IR or a slot this
+ * league does not have is out of the solve entirely. Everyone else is solved by
+ * bestLineup over the slots left, which is the standard late-swap rule: lock the
+ * started players, re-solve the open slots. With no pins it IS bestLineup.
+ *
+ * The result has bestLineup's shape and order (dedicated slots, then flex in roster
+ * order). A pinned starter flagged unavailable counts 0, as bestLineup would count
+ * him (it leaves him out). `pinned` lists the ids held in a slot.
+ */
+export function pinnedBestLineup(players, slots, key = 'adj_ppg', pins = new Map()) {
+  if (!pins?.size) return bestLineup(players, slots, key);
+  const remaining = [...slots];
+  const held = [];
+  for (const p of players) {
+    if (!pins.has(p.id) || !SCORED.has(p.position)) continue;
+    const i = remaining.indexOf(pins.get(p.id));
+    if (i < 0) continue;
+    remaining.splice(i, 1);
+    held.push({ slot: pins.get(p.id), player: p });
+  }
+  const sub = bestLineup(players.filter(p => !pins.has(p.id)), remaining, key);
+  const take = (list, slot) => {
+    const i = list.findIndex(f => f.slot === slot);
+    return i < 0 ? null : list.splice(i, 1)[0];
+  };
+  const heldLeft = [...held], subLeft = [...sub.slots];
+  const filled = [...slots.filter(s => SCORED.has(s)), ...slots.filter(s => FLEX_ELIGIBLE[s])]
+    .map(slot => take(heldLeft, slot) ?? take(subLeft, slot) ?? { slot, player: null });
+  const heldPoints = held.reduce((s, f) => s + (f.player.available === false ? 0 : (f.player[key] ?? 0)), 0);
+  const used = new Set(filled.map(f => f.player?.id).filter(id => id != null));
+  return {
+    points: +(sub.points + heldPoints).toFixed(2),
+    key_missing: sub.key_missing,
+    slots: filled,
+    bench: players.filter(p => SCORED.has(p.position) && !used.has(p.id)),
+    holes: filled.filter(f => !f.player).map(f => f.slot),
+    pinned: held.map(f => f.player.id)
   };
 }
 
@@ -2743,14 +2789,16 @@ const URGENCY_RANK = { low: 0, medium: 1, high: 2 };
  * largest smallest gap — the conservative choice for the headline, since the
  * gaps' sum is fixed. `points` is what each player counts for this week.
  */
-function pairLineupSwaps(ins, outs, optimalPlayers, slots, points) {
+function pairLineupSwaps(ins, outs, optimalPlayers, slots, points, solve = bestLineup) {
   const n = Math.max(ins.length, outs.length);
   if (!n) return [];
   const I = [...ins, ...new Array(n - ins.length).fill(null)];
   const O = [...[...outs].sort((a, b) => points(b) - points(a)), ...new Array(n - outs.length).fill(null)];
   // Legality ignores availability on purpose: a flagged starter is being replaced,
   // and the question is only whether the slots still fill.
-  const holds = set => bestLineup(set.map(p => ({ ...p, available: true })), slots, 'week_points')
+  // `solve` is the pinned solve when players are locked, so an exchange that would
+  // need a locked player to change slots is not counted as legal.
+  const holds = set => solve(set.map(p => ({ ...p, available: true })), slots, 'week_points')
     .slots.filter(s => s.player).length === set.length;
   const legal = O.map(y => I.map(x => !x || !y || holds([...optimalPlayers.filter(p => p.id !== x.id), y])));
   const gap = (y, x) => (x ? points(x) : 0) - (y ? points(y) : 0);
@@ -2783,6 +2831,19 @@ function pairLineupSwaps(ins, outs, optimalPlayers, slots, points) {
 }
 
 /**
+ * When a published lineup row stops being actionable: the earliest kickoff among the
+ * players its swaps name (lineup-lock.js; a named player is never locked, since the
+ * solve is pinned). Falls back to 72 hours from `now` only when none of them has a
+ * kickoff on file.
+ */
+function swapExpiry(swaps, locks, now) {
+  const kicks = swaps.flatMap(s => [s.in.id, s.out?.id])
+    .map(id => (id == null ? null : locks.byId.get(id)?.kickoff))
+    .filter(Boolean).map(k => Date.parse(k)).filter(Number.isFinite);
+  return new Date(kicks.length ? Math.min(...kicks) : now + 72 * 3600 * 1000).toISOString();
+}
+
+/**
  * What's actually set on the platform right now vs. what the engine's own
  * optimal-lineup solver would start THIS WEEK — the "what should I change
  * before kickoff" question.
@@ -2811,7 +2872,7 @@ function pairLineupSwaps(ins, outs, optimalPlayers, slots, points) {
  * silent bench. An IR-slot player ESPN lists as playing, who would start if
  * activated, is listed in `activate_from_ir` rather than recommended.
  */
-export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
+export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null, now = Date.now() } = {}) {
   if (lg.platform !== 'espn') return { error: 'Submitted-lineup comparison is ESPN-only for now — Sleeper stores starters in a different shape this doesn\'t read yet.' };
   const { formatKey } = deriveFormat(lg);
   // `assets` lets a test price every player exactly (test/lineup-diff-urgency.test.js).
@@ -2858,12 +2919,19 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
     on_ir: entryOf.get(p.id)?.lineupSlotId === IR_SLOT_ID || espnStatus(p) === 'INJURY_RESERVE',
     no_game: p.bye === week || !p.matchup
   }));
+  // RL-4-2: whose game has kicked off (or ESPN already locked). A locked starter
+  // keeps his slot and a locked bench player stays benched: every solve below is
+  // pinned (pinnedBestLineup), so neither can be either leg of a swap. Same lock
+  // rule as the Start/Sit tab (lineup-lock.js).
+  const locks = rosterLocks(lg, me.roster_id, mine, { season, week, now });
+  const pins = lockPins(locks);
+  const solve = (players, s, key) => pinnedBestLineup(players, s, key, pins);
   const dead = p => p.available === false || p.on_ir;          // counts 0 this week
   const sureZero = p => dead(p) || p.no_game;                  // scores 0 for certain
   const counts = p => (dead(p) ? 0 : (p.week_points ?? 0));
 
   // The optimum, on the Start/Sit tab's own basis, from everyone who can start.
-  const optimal = bestLineup(mine.filter(p => !p.on_ir), slots, 'week_points');
+  const optimal = solve(mine.filter(p => !p.on_ir), slots, 'week_points');
   const optimalPlayers = optimal.slots.map(s => s.player).filter(Boolean);
   const optimalIds = new Set(optimalPlayers.map(p => p.id));
   const slotOf = new Map(optimal.slots.filter(s => s.player).map(s => [s.player.id, s.slot]));
@@ -2882,7 +2950,7 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
       : p.no_game ? 'no game this week' : null);
 
   const pairs = pairLineupSwaps(optimalPlayers.filter(p => !submittedIds.has(p.id)),
-    submitted.filter(p => !optimalIds.has(p.id)), optimalPlayers, slots, counts);
+    submitted.filter(p => !optimalIds.has(p.id)), optimalPlayers, slots, counts, solve);
   const swaps = pairs
     .filter(x => x.in && !sureZero(x.in) && (x.in.week_points ?? 0) > 0 && x.gap > 0.005)
     .map(x => {
@@ -2907,7 +2975,7 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
     espn_disagrees: p.available === false && !p.on_ir && ESPN_PLAYING.has(p.espn_status)
   }));
   const activatable = mine.filter(p => !p.on_ir || (p.in_ir_slot && ESPN_PLAYING.has(p.espn_status)));
-  const ifActivated = bestLineup(activatable, slots, 'week_points');
+  const ifActivated = solve(activatable, slots, 'week_points');
   const activateFromIr = ifActivated.slots.map(s => s.player).filter(p => p?.on_ir && !p.no_game && p.week_points > 0)
     .map(p => ({ ...brief(p), lineup_points_if_activated: ifActivated.points }));
 
@@ -2935,16 +3003,21 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
             swaps.map(s => `${s.in.name} over ${s.out ? s.out.name : 'an empty slot'}: +${s.gap}, ` +
               `right about ${Math.round(s.p_right * 100)}% of the time`).join('; ') + '.',
           expectedValue: gain, confidence: headline.p_right, urgency: headline.urgency,
-          // No exact kickoff time is threaded into this module today, so this is
-          // a judgment-call heuristic (72h), not a computed slate deadline —
-          // flagged rather than silently assumed.
-          expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
+          // The earliest kickoff among the players the swaps name: at that
+          // instant ESPN locks him and the advice can no longer be taken
+          // (RL-4-2; it was a flat 72 h, which left two W2 rows open 17.2 h and
+          // 32.0 h after a named player locked). 72 h only when no named player
+          // has a kickoff on file (a schedule not loaded), and that is the
+          // heuristic it always was.
+          expiresAt: swapExpiry(swaps, locks, now),
           sourceModel: 'lineup-brain', sourceVersion: 'v2-week-points', link: '/lineup'
         });
       } else {
         dbRun(`UPDATE decision_recommendations SET status = 'expired', resolved_at = datetime('now'), outcome = ?
                WHERE dedup_key = ? AND status = 'open' AND type = 'lineup'`,
-          'superseded: no lineup swap this week clears a 60% chance of being right', dedupKey);
+          pins.size
+            ? `superseded: no lineup swap among players whose games have not kicked off clears a 60% chance of being right (${pins.size} locked)`
+            : 'superseded: no lineup swap this week clears a 60% chance of being right', dedupKey);
       }
     } catch (error) {
       // A side effect: never break the card over it, but never lose it silently either.
@@ -2969,6 +3042,12 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
     empty_slots: optimal.holes,
     flagged_starters: flaggedStarters,
     activate_from_ir: activateFromIr,
+    // Players whose game has kicked off (or ESPN already locked): held where they
+    // are, never either side of a swap. `lock_coverage` false means the platform
+    // gives no lock data here, not that nobody is locked.
+    locked: mine.filter(p => pins.has(p.id)).map(p => ({ ...brief(p),
+      slot: locks.byId.get(p.id).slot, reason: locks.byId.get(p.id).reason, kickoff: locks.byId.get(p.id).kickoff })),
+    lock_coverage: locks.covered,
     note: `Week ${week} projection: this Sunday's game (0 on a bye) and injury odds, with the betting line's game script — ` +
       'the same numbers as the Start/Sit tab. p_right is how often the higher projection actually outscored the ' +
       'other at that gap in the 2023-2025 weekly replay.'

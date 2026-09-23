@@ -214,6 +214,28 @@ text is not found reports NOT APPLIED). Run on `a5660d52`'s tests and again on
 | S1 designed survivor: `SAME_TEAM_SHOWN` 3 -> 4 (fixture has 2 teammates) | survived | survived, as designed |
 | C1 not-applied control (text absent) | NOT APPLIED | NOT APPLIED |
 
+**Correction (skeptic review, 2026-09-23).** The table above said "M1-M10 all
+killed" and offered that as the test-strength claim. That overstated the sweep: it
+never tried the `healthy()` filters or the own-roster branch. An independent
+skeptic ran three more mutants on `e022aaca`'s tests and all three survived
+(`# pass 7 # fail 0`). Commit `f6f9234c` adds one test (an Out and a Doubtful
+same-team free agent, an Out other-team free agent projecting above Other Back,
+and a healthy same-team back on my own bench). Same harness, re-run on `f6f9234c`
+(each mutant applied with perl, test file run, `git checkout` restores the file):
+
+| mutant | tests at `e022aaca` (skeptic) | tests at `f6f9234c` |
+|---|---|---|
+| U1 same-team filter drops `&& healthy(a)` | survived (7/7) | killed: 7 pass / 1 fail, "an Out teammate is not a replacement" |
+| U2 same-team filter `(holder == null \|\| holder === rosterId)` -> `(holder == null)` | survived (7/7) | killed: 7 pass / 1 fail, same_team missing 'My Bench Back' |
+| U3 best-free-agent filter drops `&& healthy(a)` | survived (7/7) | killed: 7 pass / 1 fail, best_free_agent 'Hurt Other Back' instead of 'Other Back' |
+
+Unmutated `f6f9234c`: 8/8 pass. S1 still survives by design: the new fixture has
+exactly 3 healthy same-team backs, so showing 4 changes nothing. Command for every
+row: `SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node
+--experimental-test-module-mocks --test --test-reporter=tap test/waiver-injury-alerts.test.js`.
+M1-M10 were not re-run on `f6f9234c`; the commit only adds a test, so no earlier
+kill can turn into a survivor.
+
 ## 7. Known defects and follow-ups
 
 1. **Feed flag never clears** (writer `syncSleeper`, `server/routes/aggregates.js:76-78`,

@@ -93,6 +93,9 @@ run(`INSERT INTO game_lines (season, week, team, opponent, home, spread, total, 
 run(`INSERT INTO nfl_injuries (season, week, gsis_id, team, full_name, position, report_status, practice_status,
        injury, modified_at) VALUES (2026, 3, '00-0099999', 'AAA', 'Fixture Back', 'RB', 'Questionable', 'Limited',
        'Ankle', '2026-09-19T20:00:00Z')`);
+// No usable timestamp: must be skipped and counted, never stamped with a guessed time.
+run(`INSERT INTO nfl_injuries (season, week, gsis_id, team, full_name, position, report_status, practice_status,
+       injury, modified_at) VALUES (2026, 3, '00-0099998', 'AAA', 'Fixture Other', 'WR', 'Out', 'DNP', 'Knee', NULL)`);
 run(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id, give_json, get_json,
        proposed_at, status, espn_tx_id, resolved_at, created_at)
      VALUES (71, 2026, 'observed', '4', '6', '[555]', '[777]', '2026-09-18T01:00:00.000Z', 'accepted', 'tx-9',
@@ -137,18 +140,29 @@ test('engine_events and engine_state are append-only at the database', () => {
 /* ------------------------------------------------------------- one writer */
 test('one writer per field: a second producer cannot register or write a field', () => {
   need(registry, 'registry.js'); need(state, 'state.js');
-  registry.registerField('test.owned', { producer: 'producer-a', version: '1', entityTypes: ['player'] });
-  // Same producer again is idempotent (modules may be imported twice).
-  registry.registerField('test.owned', { producer: 'producer-a', version: '1', entityTypes: ['player'] });
+  const writerA = registry.registerField('test.owned', { producer: 'producer-a', version: '1', entityTypes: ['player'] });
+  // Same producer again does not throw (modules may be imported twice), but the writer
+  // capability is handed out once, to the first registrant only.
+  assert.equal(registry.registerField('test.owned', { producer: 'producer-a', version: '1', entityTypes: ['player'] }), null);
   assert.throws(() => registry.registerField('test.owned', { producer: 'producer-b', version: '1', entityTypes: ['player'] }),
     /test\.owned.*producer-a/);
+  const writerOther = registry.registerField('test.owned_other', { producer: 'producer-a', version: '1', entityTypes: ['player'] });
   const base = { entityType: 'player', entityId: '9001', field: 'test.owned', value: 1, asOf: '2026-09-10T00:00:00Z',
     producerVersion: '1', reasonChain: { contributions: [] }, eventIds: [] };
-  assert.throws(() => state.writeState({ ...base, producer: 'producer-b' }), /one writer.*producer-a/i);
-  assert.throws(() => state.writeState({ ...base, field: 'test.never_registered', producer: 'producer-a' }),
-    /not registered/);
-  state.writeState({ ...base, producer: 'producer-a' });
+  // A producer NAME is not a capability: the right label from the wrong module is refused.
+  assert.throws(() => state.writeState({ ...base, producer: 'producer-a' }), /writer/i);
+  assert.throws(() => state.writeState({ ...base, writer: { field: 'test.owned', producer: 'producer-a' } }), /one writer/i);
+  assert.throws(() => state.writeState({ ...base, writer: writerOther }), /one writer/i);
+  assert.throws(() => state.writeState({ ...base, field: 'test.never_registered', writer: writerA }), /not registered/);
+  state.writeState({ ...base, writer: writerA });
   assert.equal(row(`SELECT COUNT(*) AS n FROM engine_state WHERE field = 'test.owned'`).n, 1);
+  assert.equal(row(`SELECT producer FROM engine_state WHERE field = 'test.owned'`).producer, 'producer-a');
+  // The spine's own field: nobody outside backfill.js can write it, label or not.
+  assert.throws(() => state.writeState({ entityType: 'engine', entityId: 'events', field: 'engine.ingest', value: { spoof: 1 },
+    asOf: '2026-09-10T00:00:00Z', producer: 'engine-backfill', producerVersion: '1', eventIds: [],
+    reasonChain: { contributions: [] } }), /writer/i);
+  assert.equal(registry.registerField('engine.ingest', { producer: 'engine-backfill', version: '1', entityTypes: ['engine'] }), null,
+    're-registering the spine field must not hand out its writer');
 });
 
 test('one writer per field, by grep: SQL writes live in one file each and every field is declared once', () => {
@@ -169,14 +183,24 @@ test('one writer per field, by grep: SQL writes live in one file each and every 
     }
   }
   assert.ok(decl.has('engine.ingest'), 'the spine declares its own field engine.ingest');
+  assert.deepEqual(decl.get('engine.ingest'), ['server/services/engine/backfill.js:engine-backfill'],
+    'engine.ingest is declared by the module that writes it');
   for (const [field, where] of decl) assert.equal(where.length, 1, `${field} declared by ${where.join(', ')}`);
+  // Every registerField call is one the regex above can see (a literal field name), so no
+  // field is claimed out of the grep's sight.
+  const calls = files.flatMap(f => [...read(f).matchAll(/registerField\(/g)].map(() => f))
+    .filter(f => f !== 'server/services/engine/registry.js');
+  assert.equal(calls.length, decl.size, `a registerField call without a literal field/producer: ${calls.join(', ')}`);
+  // The writer capability never leaves its module.
+  assert.deepEqual(hits(/export\s+(const|let|var)\s+\w+\s*=\s*registerField\(/), [], 'a writer capability is exported');
+  assert.deepEqual(hits(/export\s*\{[^}]*\b\w*WRITER\w*\b[^}]*\}/), [], 'a writer capability is re-exported');
 });
 
 /* ------------------------------------------------------------------ as-of */
 test('as-of reads never return an event or a state row stamped after asOf', () => {
   need(events, 'events.js'); need(state, 'state.js');
   registry.registerEventType('test.asof', { description: 'fixture' });
-  registry.registerField('test.asof_field', { producer: 'producer-asof', version: '1', entityTypes: ['player'] });
+  const writerAsof = registry.registerField('test.asof_field', { producer: 'producer-asof', version: '1', entityTypes: ['player'] });
   const { events: evs } = events.appendEvents([
     { event_type: 'test.asof', as_of: '2026-09-01T00:00:00Z', source: 'fixture', source_key: 'asof-past', player_id: 9001, payload: { i: 1 } },
     { event_type: 'test.asof', as_of: '2026-09-03T00:00:00Z', source: 'fixture', source_key: 'asof-future', player_id: 9001, payload: { i: 2 } },
@@ -187,13 +211,22 @@ test('as-of reads never return an event or a state row stamped after asOf', () =
   assert.throws(() => events.getEvents({ playerId: 9001 }), /asOf/, 'an as-of read with no asOf must refuse');
 
   const w = (asOf, ids, value) => state.writeState({ entityType: 'player', entityId: '9001', field: 'test.asof_field',
-    value, asOf, producer: 'producer-asof', producerVersion: '1', eventIds: ids,
+    value, asOf, writer: writerAsof, producerVersion: '1', eventIds: ids,
     reasonChain: { contributions: [{ source: 'fixture', event_ids: ids, delta: value, text: 'fixture' }] } });
   w('2026-09-01T12:00:00Z', [past.id], 1);
   w('2026-09-03T12:00:00Z', [past.id, future.id], 2);
   assert.equal(state.getState('player', '9001', 'test.asof_field', { asOf: '2026-09-02T00:00:00Z' }).value, 1);
   assert.equal(state.getState('player', '9001', 'test.asof_field', { asOf: '2026-09-04T00:00:00Z' }).value, 2);
   assert.equal(state.getState('player', '9001', 'test.asof_field', { asOf: '2026-08-01T00:00:00Z' }), null);
+  // A global read (no league) never returns a league-scoped row, and a league read never returns another league's.
+  state.writeState({ entityType: 'player', entityId: '9002', field: 'test.asof_field', leagueId: 71, value: 'league-only',
+    asOf: '2026-09-01T12:00:00Z', writer: writerAsof, producerVersion: '1', eventIds: [],
+    reasonChain: { contributions: [] } });
+  assert.equal(state.getState('player', '9002', 'test.asof_field', { asOf: '2026-09-04T00:00:00Z' }), null,
+    'a leagueId=null read returned a league row');
+  assert.equal(state.getState('player', '9002', 'test.asof_field', { asOf: '2026-09-04T00:00:00Z', leagueId: 72 }), null);
+  assert.equal(state.getState('player', '9002', 'test.asof_field', { asOf: '2026-09-04T00:00:00Z', leagueId: 71 }).value,
+    'league-only');
   // A state row may not cite an event from its own future: that is how a leak gets in.
   assert.throws(() => w('2026-09-02T00:00:00Z', [future.id], 3), /future|after/i);
   assert.throws(() => w('2026-09-02T00:00:00Z', [987654], 3), /unknown event/i);
@@ -201,9 +234,9 @@ test('as-of reads never return an event or a state row stamped after asOf', () =
 
 test('reason_chain is required and shaped {contributions:[{source,event_ids,delta,text}]}', () => {
   need(state, 'state.js');
-  registry.registerField('test.reason', { producer: 'producer-r', version: '1', entityTypes: ['player'] });
+  const writerR = registry.registerField('test.reason', { producer: 'producer-r', version: '1', entityTypes: ['player'] });
   const base = { entityType: 'player', entityId: '9001', field: 'test.reason', value: 1, asOf: '2026-09-10T00:00:00Z',
-    producer: 'producer-r', producerVersion: '1', eventIds: [] };
+    writer: writerR, producerVersion: '1', eventIds: [] };
   assert.throws(() => state.writeState(base), /reason_chain/);
   assert.throws(() => state.writeState({ ...base, reasonChain: {} }), /contributions/);
   assert.throws(() => state.writeState({ ...base, reasonChain: { contributions: [{ source: 'x' }] } }), /event_ids/);
@@ -253,8 +286,16 @@ test('backfill copies every stream, is idempotent, and fires onEvent only for ne
   assert.ok(!tx.payload.includes('never copied'), 'raw_json copied into the log');
   const lineup = JSON.parse(row(`SELECT payload FROM engine_events WHERE event_type = 'league.lineup'`).payload);
   assert.equal(lineup.actual_points, undefined, 'a lineup event must not carry the game result');
-  const inj = row(`SELECT * FROM engine_events WHERE event_type = 'nfl.injury'`);
-  assert.equal(inj.player_id, 9001);
+  const inj = rows(`SELECT * FROM engine_events WHERE event_type = 'nfl.injury'`);
+  assert.equal(inj.length, 1, 'an injury row with no timestamp became an event');
+  assert.equal(inj[0].player_id, 9001);
+  assert.equal(inj[0].as_of, '2026-09-19T20:00:00.000Z', 'an injury is stamped at modified_at, not when copied');
+  assert.equal(streams.injuries.no_timestamp, 1, 'the no-timestamp injury row was not counted as skipped');
+  assert.equal(streams.injuries.source_rows, 2);
+  assert.equal(row(`SELECT as_of FROM engine_events WHERE event_type = 'league.lineup'`).as_of, '2026-09-20T10:00:00.000Z',
+    'a lineup is stamped at changed_at, not when copied');
+  assert.equal(row(`SELECT as_of FROM engine_events WHERE event_type = 'news.item'`).as_of, '2026-09-19T15:00:00.000Z',
+    'a news item is stamped at published_at, not when copied');
   const line = row(`SELECT * FROM engine_events WHERE event_type = 'market.game_line'`);
   assert.equal(line.as_of, '2026-09-18T12:00:00.000Z', 'SQLite datetime is normalised to ISO UTC');
   const trades = rows(`SELECT event_type, as_of FROM engine_events WHERE source = 'trade_outcomes' ORDER BY as_of`);
@@ -282,11 +323,11 @@ test('an absent source table is reported as table_absent, never as 0 events', ()
 test('GET /api/engine/state serves the as-of row with its reason_chain, league rows to members only', async () => {
   need(routeMod, 'routes/engine.js');
   assert.match(read('server/index.js'), /app\.use\('\/api\/engine', \.\.\.legacyAuthenticated, engineRouter\)/);
-  registry.registerField('test.route', { producer: 'producer-route', version: '2', entityTypes: ['league_team'] });
+  const writerRoute = registry.registerField('test.route', { producer: 'producer-route', version: '2', entityTypes: ['league_team'] });
   const [ev] = events.appendEvents([{ event_type: 'test.asof', as_of: '2026-09-05T00:00:00Z', source: 'fixture',
     source_key: 'route-1', league_id: 71, team_id: '4', payload: { i: 3 } }]).events;
   state.writeState({ entityType: 'league_team', entityId: '71:4', leagueId: 71, field: 'test.route', value: { x: 1 },
-    asOf: '2026-09-06T00:00:00Z', producer: 'producer-route', producerVersion: '2', eventIds: [ev.id],
+    asOf: '2026-09-06T00:00:00Z', writer: writerRoute, producerVersion: '2', eventIds: [ev.id],
     reasonChain: { contributions: [{ source: 'fixture', event_ids: [ev.id], delta: 1, text: 'one fixture event' }] } });
 
   let user = 1;
@@ -315,6 +356,12 @@ test('GET /api/engine/state serves the as-of row with its reason_chain, league r
     assert.equal((await fetch(`${base}?entity=league_team:71:4&field=test.route&league_id=71&as_of=nonsense`)).status, 400);
     user = 2;
     assert.equal((await fetch(`${base}?${q}`)).status, 403);
+    // Leaving league_id out must not be a way round the membership check.
+    const noLeague = await fetch(`${base}?entity=league_team:71:4&field=test.route&as_of=2026-09-07T00:00:00Z`);
+    assert.equal(noLeague.status, 200);
+    const noLeagueBody = await noLeague.json();
+    assert.equal(noLeagueBody.state, null, 'a non-member read a league row by omitting league_id');
+    assert.equal(noLeagueBody.absence, 'no_row_as_of');
     const post = await fetch(base, { method: 'POST' });
     assert.equal(post.status, 404, 'the reader API is read-only');
   } finally {

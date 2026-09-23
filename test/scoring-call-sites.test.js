@@ -46,6 +46,9 @@ mock.module('../server/services/season-sim.js', {
   namedExports: {
     __test: {},
     simulateSeason: (_lg, opts = {}) => { seen.push({ at: 'simulateSeason', scoring: opts.scoring }); return { teams: [] }; },
+    // model.js also imports simStartWeek (B-01, #162); the start week is not
+    // what this file checks, so an explicit week wins and the default is 1.
+    simStartWeek: (_lg, requested = null) => (Number.isInteger(Number(requested)) && Number(requested) >= 1 ? Number(requested) : 1),
     tradeImpact: (_lg, opts = {}) => { seen.push({ at: 'tradeImpact', scoring: opts.scoring }); return { ok: true }; }
   }
 });

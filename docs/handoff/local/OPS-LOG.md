@@ -130,3 +130,6 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 
 13:55Z: BUG IN MY QUEUEING: the 'wait for other merge queues' shell loops matched each other's command lines (pgrep -f merge-queue.sh), so they deadlocked and nothing merged after #173/#168. Killed them; one ordered merge-queue run for 19 PRs (evidence/mq-big.log). Rule: one merge-queue at a time, never chained waiters. LS-01 -> #189 (benched-with-intact-usage FAILED its pre-registered test; served label says so), TM-03 target board -> #190. get_usage: 5-hour 32%, weekly 73%, Fable 18%.
 14:00Z: Loop 1 relaunched: RL-8-3 remove fake SOS (urgent), RL-8-2 trade gate in lineup points (critical), RL-8-1 retire td_luck weights (w3zkn7vts).
+
+14:15Z: RL-6-4 waiver drop identity -> #191 (zero-priced drops 4 of 5 leagues -> 0; conflicts with #178 in waiver-wire.js: fix-on-merge after #178 lands: owned.get(normalizePlayerName(a.name)) -> ownedById.get(a.id)). RL-6-3 paired title odds -> #192 (critical; Fable auditor launched). Big queue: #167 MERGED.
+14:20Z: Loop 3 relaunched lean: UX-14 glossary definitions + S-19b hype label rename (w9cdrjkga). Lean on purpose: weekly 73%, A stops at 87%.

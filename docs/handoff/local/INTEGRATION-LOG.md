@@ -2,7 +2,13 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 09:40Z.
+Last rebuilt: 2026-09-23 10:59Z.
+
+## #167: Stop leaking server file paths and table names on the Lineup page
+
+- Merged: 6:59 AM ET, Sep 23 as `4773401a`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #168: League rules: one producer for playoff seeding and playoff weeks
 

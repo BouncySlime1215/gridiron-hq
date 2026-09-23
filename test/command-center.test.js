@@ -236,17 +236,18 @@ test('GET /api/command-center: the RED league yields three items, only the user\
   assert.deepEqual(body.items.filter(i => i.league.id === quietLeague).map(i => i.kind), ['no_move']);
 });
 
-test('feature detection: no injury_alerts field and no streaming module read "not_merged", not "none"', async () => {
+test('feature detection: no injury_alerts field reads "not_merged"; the streaming module is detected on main (WV-01), not "not_merged"', async () => {
   producerOut.set(redLeague, { diff: { flagged_starters: [] }, waivers: { immediate: [] } });
-  // undefined = real detection: import('./streaming-board.js') on this build.
+  // undefined = real detection: import('./streaming-board.js') on this build. WV-01 (#176)
+  // is on main, so detection finds it; the absent-module path is the null override below.
   cc.__setStreamingProducer(undefined);
   cc.__setDeadStarterGuard(undefined); // real detection too: dead-starters.js is on main since SS-01 (#185)
   cc.__clearCache();
   const body = await (await fetch(base, { headers: { 'x-test-user': String(nick) } })).json();
   const red = body.leagues.find(l => l.id === redLeague);
   assert.equal(red.sources.injury_alerts.state, 'not_merged');
-  assert.equal(red.sources.streams.state, 'not_merged');
-  assert.equal(red.sources.streams.waiting_on, 'WV-01 (PR #176)');
+  assert.notEqual(red.sources.streams.state, 'not_merged');
+  assert.equal(red.sources.streams.producer, 'streamingBoard.suggestion (WV-01)');
   assert.equal(red.sources.dead_starters.state, 'present');
   assert.equal(red.sources.dead_starters.producer, 'lineupCall.dead_starters (SS-01)');
 });
@@ -345,6 +346,8 @@ test('route: not_merged injury alerts and streams are never in clear_checks', as
   cc.__clearCache();
   const body = await (await fetch(base, { headers: { 'x-test-user': String(nick) } })).json();
   assert.ok(body.leagues.every(l => l.sources.injury_alerts.state === 'not_merged'), 'control: the check did not run');
+  assert.ok(body.leagues.every(l => l.sources.streams.state === 'not_merged' && l.sources.streams.waiting_on === 'WV-01 (PR #176)'),
+    'an absent streaming module reads not_merged, naming what it waits on');
   assert.ok(Array.isArray(body.clear_checks));
   assert.ok(!body.clear_checks.includes('injury_alerts'));
   assert.ok(!body.clear_checks.includes('streams'));

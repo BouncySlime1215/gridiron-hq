@@ -41,7 +41,7 @@ Repo: BouncySlime1215/gridiron-hq (public). Local clone `/Users/nick_matta/Docum
   - Workflow resume is **same-session only**, so you cannot resume A's runs. If one dies (no PR by 7 PM ET and its worktree is untouched for 1 hour: `ls -lt ~/gridiron-local/wt/`), relaunch that unit fresh on B and note it in OPS-LOG.
 - **Merging:** A's merge-train agent is landing the backlog in order. Check its log with `tail ~/gridiron-local/evidence/train-driver.log`.
   - Last seen: #198 merged, #199 awaiting CI.
-  - Remaining after that: 201 202 203 204 205 186 190 206, SS-01-F1 (its PR still needs opening), 200 (after 191; league-wire must use espnPlayerResolver), then 174 166 164 170 (additive migrations, in numeric order), then 207 165 208, then A's new drafts #209 (RL-15-3 Buy Low tag, verified by 4 skeptics; tag dormant until ~week 7 when role changes need 6+ games) and #210 (RL-15-1 playbook fix), then #211 and #212. WORK-QUEUE has two rows with id RL-13-2 (lines 858 and 862); rename the line-862 receptiveness row to RL-13-2b.
+  - Remaining after that: 201 202 203 204 205 186 190 206, SS-01-F1 (its PR still needs opening), 200 (after 191; league-wire must use espnPlayerResolver), then 174 166 164 170 (additive migrations, in numeric order), then 207 165 208, (#213 Trade Brain proposals effort fix: land it ASAP, Nick is waiting; after it merges and the server restarts, click Trade Brain > Sendable proposals > Write the proposals once to confirm), then A's new drafts #209 (RL-15-3 Buy Low tag, verified by 4 skeptics; tag dormant until ~week 7 when role changes need 6+ games) and #210 (RL-15-1 playbook fix), then #211 and #212. WORK-QUEUE has two rows with id RL-13-2 (lines 858 and 862); rename the line-862 receptiveness row to RL-13-2b.
   - **Do not run a second merge queue while that log is still advancing.** When it logs "train done", or goes quiet for 2 hours with PRs left, you own merging: `~/gridiron-local/bin/merge-queue.sh <PR...>`, one queue at a time, wait by PID.
 - **CPU (8-core Mac):** until A's 2 builds finish, run at most **2 build loops + no R&D**. Then run **3 build loops + R&D**. Stacking more has hit load 34+ before.
 - **Never touch** A's worktrees `~/gridiron-local/wt/RL-15-*` and `~/gridiron-local/wt/RL-13-2*`.
@@ -92,6 +92,7 @@ Public-data "value edges" were tested and **failed** (RL-8-2, RL-8-2b), so every
 **Two runs at once must never touch the same file.** Pair a trade-engine unit with a non-trade-engine unit.
 
 ## 6. Hard rules (security and data)
+- run.sh keeps the Anthropic key (Nick approved 9/23 for Trade Brain proposals, capped in-app at $0.50/day per league). Every other paid key stays blanked.
 - Secrets never go in chat, logs or commits. Never select `leagues.espn_s2` / `swid`.
 - **Be very careful when you delete.** Only delete what you created: your own DB copies and worktrees. Never touch the repo clone or `~/gridiron-local/data.sqlite`.
 - Migrations must be additive, and each is named in the PR. Table drops, destructive migrations and data deletion need Nick's word.
@@ -114,6 +115,7 @@ Public-data "value edges" were tested and **failed** (RL-8-2, RL-8-2b), so every
 - **WIP cap: at most 12 open unmerged PRs.** Over 12, launch no new builds. Put the freed effort into merging (conflicts, CI) and verifying. Built-but-unmerged work helps nobody and breeds conflicts. At handoff there were 30 open.
 - **Verification scales with risk.** Engine and served numbers get `critical:true`, 4 lenses. Fringe fixes (copy, tags, docs, small cards) get `risk:low` + `lean:true`. Docs-only units skip mutation testing ("not applicable").
 - **The critical claims skeptic IS the independent audit.** No separate auditor pass.
+- **Keep Nick's local app current.** After each merge batch, and at least every 3 hours: `git -C ~/Documents/GitHub/gridiron-hq merge --ff-only origin/main` (only if `git diff HEAD origin/main -- package-lock.json` is empty; otherwise log it and ask). Then restart: `pkill -f gridiron-local/run.sh; pkill -f 'server/index.js'`, relaunch `~/gridiron-local/run.sh` in the background, and wait for `curl localhost:5177/api/health` to return 200. On 9/23 it was 45 commits behind, so Nick saw none of the day's work.
 - **Look at the product once a day.** Open the live local app (Browser pane, localhost) on the pages the day's merges touched and screenshot each. The number shown must match the PR's claim. This is the only end-to-end check a real user gets.
 - **Grade outcomes, not PR counts.** The daily status line reports engine milestones (PROJ/CE/CLONE/CHESS landed and their grades), not just merges.
 - **Weekly stops are 94% per account** (was 87%). Holding reserve on an account that is about to hand off wasted about 10% this week.

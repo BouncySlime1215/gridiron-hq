@@ -45,7 +45,7 @@ Literature: the roster-spot charge is the replacement-level idea behind value ov
 - `evaluate()` `side()` adds `lineup_value` as a lazy field next to `value_delta` on `me` and `them`. It is `null` when the caller passes no wire. Being lazy, it costs only when read.
 - Consumers:
   - `POST /api/trades/:leagueId/evaluate` (`server/routes/trades.js:857-858`) passes the context.
-  - `GET /api/trades/:leagueId/find`: `findTrades` -> `findTradesUncached` builds it once per search (`trade-engine.js:1691`) and passes it into every `evaluate` (`:1729`).
+  - `GET /api/trades/:leagueId/find`: `findTrades` -> `findTradesUncached` builds it once per search (`trade-engine.js:1691`) and passes it into every `evaluate` (`:1731`).
   - No ranking, gate, tag, `fairness`, `their_value_pct`, `value_cost` or `score` reads it: `grep -n "lineup_value" server/services/trade-engine.js` shows only the producer lines.
 - `server/services/league-wire.js` is the one producer of the league's wire: `rosteredNames`, `unrosteredSkill` and `onNflTeam`, moved unchanged from `waiver-wire.js`, plus `leagueWire(lg, assets)`. `waiverBoard()` now reads the same functions, so the Waivers page and the trade engine share one wire.
 - Tables: nothing new is written. Reads are `leagues.payload` (rosters; never `espn_s2`/`swid`) and the priced asset universe (`assetUniverse`, `trade-engine.js:283`). **No migration.**

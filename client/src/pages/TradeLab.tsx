@@ -283,14 +283,21 @@ function TitleTrades({ leagueId, teamId }: { leagueId: number; teamId: string | 
       ) : (
         <div className="space-y-2">
           {deals.map((d: any, i: number) => {
-            const good = (d.title_delta ?? 0) > 0;
+            // RL-6-3: a delta inside 2 paired standard errors has no established sign,
+            // so it is greyed rather than painted as a gain or a loss.
+            const real = d.title_delta_clears_noise === true;
+            const good = real && (d.title_delta ?? 0) > 0;
+            const tone = !real ? 'text-slate-400' : good ? 'text-emerald-700' : 'text-rose-700';
             return (
               <div key={i} className={`card p-4 border ${good ? 'border-emerald-300 bg-emerald-50/40' : 'border-slate-200'}`}>
                 <div className="flex items-baseline gap-3 flex-wrap mb-2">
-                  <span className={`text-xl font-black tabular-nums ${good ? 'text-emerald-700' : 'text-rose-700'}`}>
-                    {good ? '+' : ''}{((d.title_delta ?? 0) * 100).toFixed(2)}%
+                  <span className={`text-xl font-black tabular-nums ${tone}`}>
+                    {(d.title_delta ?? 0) > 0 ? '+' : ''}{((d.title_delta ?? 0) * 100).toFixed(1)}%
                   </span>
-                  <span className="text-[11px] text-slate-500">championship odds</span>
+                  {d.title_delta_se != null && (
+                    <span className="text-[11px] tabular-nums text-slate-400">±{(2 * d.title_delta_se * 100).toFixed(1)}</span>
+                  )}
+                  <span className="text-[11px] text-slate-500">{real ? 'championship odds' : 'championship odds · within noise'}</span>
                   <span className={`text-xs font-bold tabular-nums ml-auto ${(d.ppg_delta ?? 0) > 0 ? 'text-slate-700' : 'text-slate-400'}`}>
                     {(d.ppg_delta ?? 0) > 0 ? '+' : ''}{d.ppg_delta} ppg
                   </span>
@@ -303,7 +310,7 @@ function TitleTrades({ leagueId, teamId }: { leagueId: number; teamId: string | 
                 <div className="text-[11px] text-slate-500 mt-1.5">
                   with <b className="text-slate-700">{d.partner}</b> · {d.fairness}
                   {d.their_title_delta != null && (
-                    <> · their title {(d.their_title_delta * 100).toFixed(2)}%
+                    <> · their title {(d.their_title_delta * 100).toFixed(1)}%
                       {d.mutual_title_gain && <b className="text-emerald-700"> · both gain</b>}</>
                   )}
                 </div>

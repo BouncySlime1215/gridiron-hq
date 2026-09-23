@@ -207,3 +207,5 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 - 19:18Z RULING Nick: one integrated system. Brief top rewritten as ONE ENGINE loop (observe/understand/simulate/decide/act/learn), ENGINE-00 spine first; plan v10.1; handoff build list step 0.
 - 19:19Z RULING Nick: always learning. Added engine daemon + 3 learning speeds + versioning + drift fallbacks to brief/plan v10.2/handoff ENGINE-00.
 - 19:19Z RULING Nick 'and reasons': reason chains on every state row, AI hypothesis->test loop on surprises, decisions with arguments (brief + handoff).
+- 19:21Z #213 merged; clone ff to 0257474d; local server restarted
+- 19:22Z RULING Nick: Jev helps probabilities (silicon crowd calibrated + graded, news->probabilities, reasoning pass over sims; ~$1/day cap). Brief + handoff 0b.

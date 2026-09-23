@@ -35,6 +35,14 @@ The engine doesn't just update numbers; it reasons about WHY and tests its own r
 - **Decisions come with the argument:** chess paths show the reasoning: what the clone believes, why it should say yes, what could go wrong, and what would change the call.
 - **Autopsy reasons too:** each miss gets a causal breakdown (game script, volume, share, efficiency, luck, news missed) plus the fix the engine is making.
 
+
+## JEV IN THE PROBABILITY LOOP (Nick, 4:00 PM ET 9/23: "have JEV help with probabilities here; all these simulations need to be sharp and then we reason through it all")
+Jev is the Vercel AI gateway: many models plus cheap web search. Use it where it measurably sharpens probabilities, with every Jev number graded like any other source.
+1. **Silicon crowd (AI-14 folded in):** 5-10 models answer the week's crisp questions as probabilities: "does X play Sunday", "does Y lead the backfield", "does Z get 8+ targets", "does manager M accept this offer". Average, then calibrate on outcomes (Platt/isotonic, walk-forward). It enters the simulator and the clones as ONE source whose weight is earned by Brier score vs ESPN, Vegas and the stats model. r17 showed a single LLM persona fails at predicting people, so the crowd must beat the activity baseline to get weight there.
+2. **News into probabilities:** Jev web search plus extraction turns beat reports, practice reports and pressers into structured inputs (P(out), expected snap share, role change) with timestamps. These feed the projection chain before ESPN moves.
+3. **Reasoning pass over the sims:** after the simulator and chess run, a Jev reasoner reads the distributions, tells and argument and flags contradictions ("the sim assumes he starts but practice reports say limited"). Flags trigger the hypothesis -> test loop, never a direct number edit.
+4. **Grading and cost:** each Jev question is logged with its answer, probability, cost and outcome in the rec ledger. Budget: check the balance first, cap about $1/day (Nick's standing rule is at most $1 per run; raising it needs his word). Cheap models first, expensive ones only for questions where disagreement is high.
+
 **Build rule:** every unit (PROJ-*, CE-*, TELLS-*, CLONE-*, RADAR-*, CHESS-*, COACH-*, OFFER-*) is a STAGE of this loop. It reads from `engine_events` / `engine_state` and writes only its own fields. A unit that creates its own side store, or a second number for something the state already has, is blocking (structure lens). The first engine unit defines the two contracts (ENGINE-00, below); every later unit extends them.
 
 **ENGINE-00 (first, before PROJ-01): the spine.**

@@ -2,7 +2,13 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 19:06Z.
+Last rebuilt: 2026-09-23 19:21Z.
+
+## #213: Trade Brain proposals: give Sonnet room to answer after thinking
+
+- Merged: 3:20 PM ET, Sep 23 as `0257474d`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #203: Fix dead-start name matching and unify waiver-move count (RL-11-1)
 

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { PageLoading, PageError } from '../PageState';
+import { PageLoading, PageError, logServerDetail } from '../PageState';
 
 /**
  * The waiver wire, on the page where the lineup is set.
@@ -109,7 +109,9 @@ function Body({ data, loading, error, onRetry, out }: {
   if (error && !data) return <div className="mt-3"><PageError message={error} onRetry={onRetry} /></div>;
   if (!data) return null;
   if (data.error) {
-    return <p className="mt-2 text-sm leading-6 text-slate-600">No waiver board for this league right now: {data.error}.</p>;
+    // UX-08: the server's reason can carry internal detail; logged, not rendered.
+    logServerDetail('WaiverWire', data.error);
+    return <p className="mt-2 text-sm leading-6 text-slate-600">No waiver board for this league right now. Try again in a moment.</p>;
   }
 
   const immediate = (data.immediate ?? []).filter(onATeam);

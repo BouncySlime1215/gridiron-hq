@@ -142,8 +142,8 @@ Script: scratchpad `s20-mutants.py`. It applies each mutant to `nflverse.js`, ru
 2. **Case B's before tier is derived, not measured.** It is `unknown` because he had 0 snap rows. It was derived from the code (see section 4) because the first replay's case-B lookup used a wrong gsis.
 3. **Nothing re-fits S-04.** S-04's role cells (`scripts/fit-availability.mjs:260`) were fit on the name-joined rows. S-04 should re-fit on corrected rows before it serves.
 4. **One stale doc line.** `docs/tdd/play-chance.tdd.md:120` still blames "nfl_snaps has him by name". It belongs to another thread, so it is reported here, not edited.
-6. **Per-run players.csv fetch in the scheduled job.** Each worker run downloads it once (see section 2, skeptic round 1). A `players.pfr_id` column filled by `syncCrosswalk` would remove it; follow-up.
 5. **Two snap ingests remain.** D-10 (`nfl-advanced.js` vs `nflverse.js`) still owns that. This unit touches `nflverse.js` only.
+6. **Per-run players.csv fetch in the scheduled job.** Each worker run downloads it once (see section 2, skeptic round 1). A `players.pfr_id` column filled by `syncCrosswalk` would remove it; follow-up.
 
 ## 7. Nick's five questions
 

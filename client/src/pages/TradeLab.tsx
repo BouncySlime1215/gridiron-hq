@@ -125,7 +125,7 @@ export default function TradeLab({ initialTab }: { initialTab?: Tab } = {}) {
         <Untouchables players={myPlayers} ids={untouchable} onToggle={toggleUntouchable} />
       )}
 
-      <div className="flex gap-1 border-b border-slate-200 mb-4 overflow-x-auto">
+      <div className="flex flex-wrap gap-1 border-b border-slate-200 mb-4">
         {TABS.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} title={t.hint}
             className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
@@ -273,6 +273,7 @@ function TitleTrades({ leagueId, teamId }: { leagueId: number; teamId: string | 
       <div className={`card p-4 mb-3 ${data?.objectives_disagree ? 'border-amber-300 bg-amber-50/50' : ''}`}>
         <h2 className="text-sm font-bold text-slate-800 mb-1">
           {data?.simulated ?? 0} deals simulated · ranked by championship odds
+          {data?.no_deal_clears_noise && <span className="font-normal text-slate-500"> · none moves your odds past its noise band</span>}
         </h2>
         <p className="text-xs text-slate-700 leading-relaxed">{data?.disagreement_note}</p>
       </div>
@@ -283,14 +284,21 @@ function TitleTrades({ leagueId, teamId }: { leagueId: number; teamId: string | 
       ) : (
         <div className="space-y-2">
           {deals.map((d: any, i: number) => {
-            const good = (d.title_delta ?? 0) > 0;
+            // RL-6-3: a delta inside 2 paired standard errors has no established sign,
+            // so it is greyed rather than painted as a gain or a loss.
+            const real = d.title_delta_clears_noise === true;
+            const good = real && (d.title_delta ?? 0) > 0;
+            const tone = !real ? 'text-slate-400' : good ? 'text-emerald-700' : 'text-rose-700';
             return (
               <div key={i} className={`card p-4 border ${good ? 'border-emerald-300 bg-emerald-50/40' : 'border-slate-200'}`}>
                 <div className="flex items-baseline gap-3 flex-wrap mb-2">
-                  <span className={`text-xl font-black tabular-nums ${good ? 'text-emerald-700' : 'text-rose-700'}`}>
-                    {good ? '+' : ''}{((d.title_delta ?? 0) * 100).toFixed(2)}%
+                  <span className={`text-xl font-black tabular-nums ${tone}`}>
+                    {(d.title_delta ?? 0) > 0 ? '+' : ''}{((d.title_delta ?? 0) * 100).toFixed(1)}%
                   </span>
-                  <span className="text-[11px] text-slate-500">championship odds</span>
+                  {d.title_delta_se != null && (
+                    <span className="text-[11px] tabular-nums text-slate-400">±{(2 * d.title_delta_se * 100).toFixed(1)}</span>
+                  )}
+                  <span className="text-[11px] text-slate-500">{real ? 'championship odds' : 'championship odds · within noise'}</span>
                   <span className={`text-xs font-bold tabular-nums ml-auto ${(d.ppg_delta ?? 0) > 0 ? 'text-slate-700' : 'text-slate-400'}`}>
                     {(d.ppg_delta ?? 0) > 0 ? '+' : ''}{d.ppg_delta} ppg
                   </span>
@@ -303,7 +311,10 @@ function TitleTrades({ leagueId, teamId }: { leagueId: number; teamId: string | 
                 <div className="text-[11px] text-slate-500 mt-1.5">
                   with <b className="text-slate-700">{d.partner}</b> · {d.fairness}
                   {d.their_title_delta != null && (
-                    <> · their title {(d.their_title_delta * 100).toFixed(2)}%
+                    <> · their title <span className={d.their_title_delta_clears_noise === true ? '' : 'text-slate-400'}>
+                        {(d.their_title_delta * 100).toFixed(1)}%
+                        {d.their_title_delta_se != null && <> ±{(2 * d.their_title_delta_se * 100).toFixed(1)}</>}
+                        {d.their_title_delta_clears_noise !== true && ' (within noise)'}</span>
                       {d.mutual_title_gain && <b className="text-emerald-700"> · both gain</b>}</>
                   )}
                 </div>

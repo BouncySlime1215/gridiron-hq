@@ -1,5 +1,6 @@
 import { headshotUrl, useApi } from '../api';
 import { Headshot } from './PlayerRow';
+import { logServerDetail } from './PageState';
 
 /**
  * Assembles the existing selfScout, findTrades, and bestLineup engine outputs
@@ -13,6 +14,9 @@ export default function PostDraftPlan({ leagueId, teamId }: { leagueId: number; 
 
   if (!teamId) return null;
 
+  // UX-08: `error` is the raw server/fetch message — never rendered, only logged.
+  logServerDetail('PostDraftPlan', error);
+
   return (
     <div className="card p-4 mb-4">
       <h3 className="text-sm font-bold text-slate-700 mb-3">Post-Draft Action Plan</h3>
@@ -21,7 +25,7 @@ export default function PostDraftPlan({ leagueId, teamId }: { leagueId: number; 
 
       {error && (
         <div className="text-sm text-slate-500">
-          Couldn&apos;t load the post-draft plan: {error}{' '}
+          Couldn&apos;t load the post-draft plan.{' '}
           <button className="text-emerald-600 underline" onClick={refetch}>Retry</button>
         </div>
       )}
@@ -44,10 +48,11 @@ export default function PostDraftPlan({ leagueId, teamId }: { leagueId: number; 
 }
 
 function SelfScoutSection({ scout }: { scout: any }) {
+  logServerDetail('PostDraftPlan self-scout', scout?.error);
   return (
     <div>
       <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Self-Scout</h4>
-      {scout?.error && <p className="text-xs text-slate-400">{scout.error}</p>}
+      {scout?.error && <p className="text-xs text-slate-400">Self-scout isn&rsquo;t available right now.</p>}
       {!scout?.error && (!scout?.fixes || scout.fixes.length === 0) && (
         <p className="text-xs text-slate-400">No issues found — your roster looks solid.</p>
       )}
@@ -67,10 +72,11 @@ function SelfScoutSection({ scout }: { scout: any }) {
 
 function TradesSection({ trades }: { trades: any }) {
   const deals = trades?.deals ?? [];
+  logServerDetail('PostDraftPlan trades', trades?.error);
   return (
     <div>
       <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Suggested Trades</h4>
-      {trades?.error && <p className="text-xs text-slate-400">{trades.error}</p>}
+      {trades?.error && <p className="text-xs text-slate-400">Trade suggestions aren&rsquo;t available right now.</p>}
       {!trades?.error && deals.length === 0 && (
         <p className="text-xs text-slate-400">No trade suggestions right now.</p>
       )}

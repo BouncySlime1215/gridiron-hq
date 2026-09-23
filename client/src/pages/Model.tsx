@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
+import { playoffWeeksText } from '../copy-constants';
 import { usePlayerCard } from '../components/PlayerCard';
 import { EmptyState, PageError, PageLoading } from '../components/PageState';
+import { sanitizedAlert } from '../lib/errorSanitize';
+import MedianGameNotice from '../components/MedianGameNotice';
 
 /**
  * The prediction engine, made inspectable.
@@ -34,7 +37,7 @@ export default function Model({ tab: controlledTab, embedded }: { tab?: Tab; emb
   const sync = async () => {
     setSyncing(true);
     try { await api('/model/sync', { method: 'POST' }); location.reload(); }
-    catch (e: any) { alert(`Sync failed: ${e.message}`); }
+    catch (e: any) { sanitizedAlert('Model.sync', 'Sync failed', e.message); }
     finally { setSyncing(false); }
   };
 
@@ -250,8 +253,10 @@ function Odds() {
         <h3 className="text-sm font-bold text-slate-700">Championship odds</h3>
         <p className="text-[10px] text-slate-400">
           {data?.runs?.toLocaleString()} simulated seasons over {data?.weeks} weeks, with correlated
-          player outcomes and the real playoff bracket in NFL weeks 15–17.
+          player outcomes and the league's own playoff bracket
+          {playoffWeeksText(data?.playoff_weeks) ? ` in ${playoffWeeksText(data?.playoff_weeks)}` : ''}.
         </p>
+        <MedianGameNotice medianGame={data?.median_game} rulesUnknown={data?.rules_unknown} />
       </div>
       <div className="divide-y divide-slate-100">
         {(data?.teams ?? []).map((t: any) => (

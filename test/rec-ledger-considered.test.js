@@ -44,7 +44,9 @@ mock.module('../server/services/trade-tactics.js', {
     },
   },
 });
-const { findTrades } = await import('../server/services/trade-engine.js');
+const { findTrades, findTradeSequences, assetUniverse, loadRosters } =
+  await import('../server/services/trade-engine.js');
+const { recordRoute, LOST_IDEAS } = await import('../server/services/rec-ledger.js');
 
 await runMigrations();
 seedIfEmpty();
@@ -100,15 +102,45 @@ const lg = rows(`SELECT id, platform, league_id, season, name, payload, team_cou
 const considered = () => rows(`SELECT kind, disposition, season, week, horizon, predicted_json
   FROM rec_ledger WHERE league_id = 81 ORDER BY id`);
 
-test('every idea the edge test removed becomes a considered-not-shown trade row at +2 and +5', () => {
+test('a what-if search (teamsOverride, as /sequences runs) writes no ledger row and carries no removed ideas', () => {
+  const assets = assetUniverse(lg, FORMAT_KEY);
+  const teams = loadRosters(lg, assets);
+  // A roster that does not exist: team 1 hands team 2 its first WR for team 2's first RB.
+  const t1 = teams.find(t => t.roster_id === '1'), t2 = teams.find(t => t.roster_id === '2');
+  const wr = t1.players.find(p => p.position === 'WR'), rb = t2.players.find(p => p.position === 'RB');
+  assert.ok(wr && rb, 'fixture rosters carry a WR on team 1 and an RB on team 2');
+  const whatIf = teams.map(t => t === t1 ? { ...t, players: [...t.players.filter(p => p !== wr), rb] }
+    : t === t2 ? { ...t, players: [...t.players.filter(p => p !== rb), wr] } : t);
+  const found = findTrades(lg, { myTeamId: '1', maxPerSide: 2, requireMutual: false, limit: 100,
+    teamsOverride: whatIf, assetsOverride: assets });
+  assert.ok(!found.error, found.error);
+  // Known-nonzero control: the what-if search really did remove ideas.
+  assert.ok(found.edge_removed > 0, `what-if search removed nothing (${found.edge_removed})`);
+  assert.equal(found[LOST_IDEAS], undefined, 'an override search must not carry ideas a route could record');
+  assert.equal(considered().length, 0);
+  // The live path: GET /:leagueId/sequences -> findTradeSequences (both searches use overrides).
+  const seq = findTradeSequences(lg, { myTeamId: '1', maxPerSide: 2, requireMutual: false });
+  assert.ok(!seq.error, seq.error);
+  assert.equal(considered().length, 0);
+});
+
+test('every idea the edge test removed becomes a considered-not-shown trade row at +2 and +5, written by /find only', () => {
   const found = findTrades(lg, { myTeamId: '1', maxPerSide: 2, requireMutual: false, limit: 100 });
   assert.ok(!found.error, found.error);
   // Known-nonzero control: the fixture must actually produce removed ideas, or
   // a zero-row ledger below would prove nothing.
   assert.ok(found.edge_removed > 0, `fixture produced no edge-removed ideas (${found.edge_removed})`);
-  const r = considered();
+  // The search itself writes nothing: /proposals, the post-draft plan, title
+  // odds and tradeIdeas run it too, and only /find writes shown rows.
+  assert.equal(considered().length, 0);
+  // The removed ideas ride on a Symbol, so the response JSON does not change.
+  assert.equal(found[LOST_IDEAS].length, found.edge_removed);
+  assert.ok(!Object.keys(found).some(k => /lost/i.test(k)));
+  const out = recordRoute('find', lg, found);
+  assert.equal(out.considered.inserted, found.edge_removed * 2, JSON.stringify(out));
+  const r = considered().filter(x => x.disposition === 'considered_not_shown');
   assert.equal(r.length, found.edge_removed * 2);
-  assert.ok(r.every(x => x.kind === 'trade' && x.disposition === 'considered_not_shown'));
+  assert.ok(r.every(x => x.kind === 'trade'));
   assert.deepEqual([...new Set(r.map(x => x.horizon))].sort(), [2, 5]);
   assert.ok(r.every(x => x.season === found.context.season && x.week === found.context.week));
   const p = JSON.parse(r[0].predicted_json);
@@ -116,8 +148,13 @@ test('every idea the edge test removed becomes a considered-not-shown trade row 
   assert.ok(Array.isArray(p.get) && p.get.length && Number.isInteger(p.get[0].id));
   assert.ok(Array.isArray(p.failed) && p.failed.length, 'a removed idea carries the checks it failed');
   assert.equal(p.source, 'find:edge_removed');
-  // The engine does not write the SHOWN deals; the route does (recordRoute).
-  assert.equal(rows(`SELECT COUNT(*) n FROM rec_ledger WHERE league_id = 81 AND disposition = 'shown'`)[0].n, 0);
+  // The shown deals come from the same call, from the same search.
+  assert.equal(rows(`SELECT COUNT(*) n FROM rec_ledger WHERE league_id = 81 AND disposition = 'shown'`)[0].n,
+    found.deals.length * 2);
+  // A page refresh (a cache hit returns the same object) adds nothing.
+  const again = recordRoute('find', lg, findTrades(lg, { myTeamId: '1', maxPerSide: 2, requireMutual: false, limit: 100 }));
+  assert.equal(again.considered.inserted, 0);
+  assert.equal(again.inserted, 0);
 });
 
 test('the real waiver board carries player ids, so a claim reaches the ledger as a gradable row', async () => {

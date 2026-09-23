@@ -30,6 +30,9 @@ test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true })
 const SEASON = 2026;
 run(`INSERT INTO leagues(id, platform, league_id, season, name, payload, team_count, my_team_id)
      VALUES (61, 'espn', 'espn-ledger-61', ?, 'L61', ?, 6, '1')`, SEASON, JSON.stringify({ teams: [] }));
+/** The league's own clock (leagues.current_week, ESPN currentMatchupPeriod). Every call below is for week 3. */
+const clock = week => run('UPDATE leagues SET current_week = ? WHERE id = 61', week);
+clock(3);
 for (const [id, name, pos] of [[9101, 'Alpha Back', 'RB'], [9102, 'Beta Back', 'RB'],
   [9103, 'Gamma Back', 'RB'], [9104, 'Delta Back', 'RB'], [9105, 'Echo Back', 'RB'], [9106, 'Fox Back', 'RB']]) {
   run('INSERT INTO players (id, name, position) VALUES (?,?,?)', id, name, pos);
@@ -145,8 +148,25 @@ test('the grader scores nothing before the weeks it needs have been played', () 
   assert.equal(ledgerRows('graded_at IS NOT NULL').length, 0);
 });
 
+test('a Thursday line alone does not make week 3 played: the league clock still says week 3', () => {
+  // Only the benched alternative has played (a Thursday game). The nflverse
+  // usage writer has no completed-week filter, so a row can exist mid-week.
+  usage(9102, 3, 5);
+  const out = ledger.gradeDue();
+  assert.equal(out.graded, 0, JSON.stringify(out));
+  assert.equal(ledgerRows('graded_at IS NOT NULL').length, 0);
+});
+
+test('weekIsOver: a past season is over; the current week is not, including week 1', () => {
+  assert.equal(ledger.weekIsOver({ season: 2026, current_week: 1 }, 2026, 1), false);
+  assert.equal(ledger.weekIsOver({ season: 2026, current_week: 2 }, 2026, 1), true);
+  assert.equal(ledger.weekIsOver({ season: 2026, current_week: 3 }, 2025, 17), true);
+  assert.equal(ledger.weekIsOver({ season: 2025, current_week: 18 }, 2026, 1), false);
+});
+
 test('at +1 week the lineup call is graded against the benched alternative; trades wait', () => {
-  usage(9101, 3, 20); usage(9102, 3, 5);
+  clock(4);
+  usage(9101, 3, 20);
   usage(9103, 3, 10); usage(9104, 3, 7);
   usage(9105, 3, 9); // 9106 did not play week 3: zero, not missing
   const out = ledger.gradeDue();
@@ -164,6 +184,7 @@ test('at +1 week the lineup call is graded against the benched alternative; trad
 });
 
 test('at +2 weeks the trade and waiver calls are graded; the +5 rows stay open', () => {
+  clock(5);
   usage(9103, 4, 6); usage(9104, 4, 12);
   usage(9105, 4, 3); usage(9106, 4, 4);
   usage(9101, 4, 1);
@@ -187,6 +208,7 @@ test('at +2 weeks the trade and waiver calls are graded; the +5 rows stay open',
 });
 
 test('at +5 weeks the trade is graded over weeks 3-7, and a second pass grades nothing twice', () => {
+  clock(8);
   for (const w of [5, 6, 7]) { usage(9103, w, 2); usage(9104, w, 4); usage(9101, w, 1); usage(9105, w, 1); }
   const out = ledger.gradeDue();
   assert.equal(out.graded, 3);
@@ -203,9 +225,33 @@ test('at +5 weeks the trade is graded over weeks 3-7, and a second pass grades n
 
 test('a week with no usage rows at all is not a played week, so a gap holds the grade', () => {
   ledger.record({ ...lineupRec, week: 9, inputs: { starters: [['RB', 9101]], objective: 'mean', w: 9 } });
+  clock(11);
   usage(9101, 10, 5); // week 10 exists, week 9 does not
   assert.equal(ledger.gradeDue().graded, 0);
   assert.equal(ledgerRows(`kind = 'lineup' AND week = 9 AND graded_at IS NULL`).length, 1);
+});
+
+test('two slots with the same label (RB, RB) each pair with their own starter', () => {
+  // bestLineup (trade-engine.js) pushes one { slot, player } per roster slot, so
+  // a normal lineup has two 'RB' calls, and lineup-brain gives both the same
+  // best benched back as `over`.
+  ledger.record({ ...lineupRec, week: 12,
+    inputs: { starters: [['RB', 9101], ['RB', 9103]], objective: 'mean' },
+    predicted: { starters: [{ slot: 'RB', id: 9101 }, { slot: 'RB', id: 9103 }] },
+    baseline_call: { call: 'bench_alternative',
+      alternatives: [{ slot: 'RB', id: 9102 }, { slot: 'RB', id: 9102 }] } });
+  clock(13);
+  usage(9101, 12, 10); usage(9103, 12, 20); usage(9102, 12, 5);
+  const out = ledger.gradeDue();
+  assert.equal(out.graded, 1, JSON.stringify(out));
+  const [l] = ledgerRows(`kind = 'lineup' AND week = 12`);
+  const o = JSON.parse(l.outcome_json);
+  assert.equal(o.slots_graded, 2);
+  assert.deepEqual(o.slots.map(x => x.starter), [9101, 9103]);
+  // (10 - 5) + (20 - 5) = 20; pairing both with the first RB would give 10.
+  assert.equal(o.called_points, 30);
+  assert.equal(o.baseline_points, 10);
+  assert.equal(l.score, 20);
 });
 
 // ------------------------------------------------------------------ scheduler

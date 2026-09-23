@@ -266,3 +266,29 @@ test('the scheduler carries a grader job that runs gradeDue off the request thre
   const [l9] = ledgerRows(`kind = 'lineup' AND week = 9`);
   assert.equal(l9.score, 29);
 });
+
+// ------------------------------------------------------------------ migration 071 rollback
+// The gate's full run found 071 had no down(): every test that walks the schema back
+// (model-registry-persistence, migration-027-populated-upgrade) died on it. The ledger
+// is frozen evidence, so down() refuses while rows exist and only drops an empty table.
+test('071 down() refuses while the ledger holds rows, and names the row count', async () => {
+  const { rollbackMigration } = await import('../server/db/migrate.js');
+  const n = row('SELECT COUNT(*) AS n FROM rec_ledger').n;
+  assert.ok(n > 0, 'fixture ledger is populated by the tests above');
+  await assert.rejects(rollbackMigration('071_rec_ledger'), new RegExp(`rollback refused: ${n} rec_ledger row`));
+  assert.equal(row('SELECT COUNT(*) AS n FROM rec_ledger').n, n, 'a refused rollback deletes nothing');
+  assert.ok(row(`SELECT 1 AS ok FROM schema_migrations WHERE name = '071_rec_ledger'`), 'still recorded as applied');
+});
+
+test('071 down() on an empty ledger drops the table and both indexes, and up() restores them', async () => {
+  const { rollbackMigration } = await import('../server/db/migrate.js');
+  run('DELETE FROM rec_ledger');
+  assert.equal(await rollbackMigration('071_rec_ledger'), '071_rec_ledger');
+  for (const name of ['rec_ledger', 'idx_rec_ledger_identity', 'idx_rec_ledger_ungraded']) {
+    assert.equal(row('SELECT name FROM sqlite_master WHERE name = ?', name), undefined, `${name} dropped`);
+  }
+  await runMigrations();
+  for (const name of ['rec_ledger', 'idx_rec_ledger_identity', 'idx_rec_ledger_ungraded']) {
+    assert.ok(row('SELECT name FROM sqlite_master WHERE name = ?', name), `${name} restored`);
+  }
+});

@@ -86,7 +86,8 @@ export interface ReceptivenessFactor {
   /** The sample. 0 means "no observations" — not "an effect of zero". */
   n?: number | null;
   cap?: number | null;
-  fitted?: false;
+  /** true only for terms whose size comes from a fit (the activity terms, RL-11-1). */
+  fitted?: boolean;
   why?: string | null;
 }
 
@@ -151,7 +152,8 @@ export interface Acceptance {
   band: { low: number; mid: number; high: number } | null;
   basis?: string | null;
   why?: string | null;
-  fitted?: false;
+  /** true only for terms whose size comes from a fit (the activity terms, RL-11-1). */
+  fitted?: boolean;
   anchor?: { accept_rate: number | null; n: number; usable: boolean; why?: string | null } | null;
   factors?: { source: string; label: string; effect: number; why?: string | null }[];
   inert?: { source: string; reason: string }[];

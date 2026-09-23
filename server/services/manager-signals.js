@@ -182,7 +182,7 @@ function chatSignals(chat, chatName) {
  */
 function txIndex(leagueId, season) {
   if (!tableExists('league_transactions_raw')) return { present: false, rows: [], related: new Map() };
-  const all = rows(`SELECT tx_id, type, status, execution_type, team_id, related_tx_id, items_json
+  const all = rows(`SELECT tx_id, type, status, execution_type, team_id, related_tx_id, items_json, scoring_period
                     FROM league_transactions_raw WHERE league_id = ? AND season = ?`, leagueId, season);
   const related = new Map();
   for (const t of all) {
@@ -195,7 +195,105 @@ function txIndex(leagueId, season) {
     try { items = JSON.parse(t.items_json || '[]'); } catch { items = []; }
     t.parties = new Set(items.flatMap(i => [i.fromTeamId, i.toTeamId]).filter(x => x != null && x > 0).map(Number));
   }
-  return { present: true, rows: all, related };
+  return { present: true, rows: all, related, adds: addsByTeam(all), trades: completedTrades(all, related) };
+}
+
+/**
+ * Players added, per team, as [scoring period, count] pairs. An EXECUTED
+ * WAIVER or FREEAGENT row can carry an ADD and a DROP (or, in principle, more
+ * than one ADD), so the ADD items are counted, not the rows. On the 2026 rows
+ * (local copy, 2026-09-23) the two agree: 134 executed rows, 134 ADD items.
+ */
+function addsByTeam(all) {
+  const out = new Map();
+  for (const t of all) {
+    if ((t.type !== 'WAIVER' && t.type !== 'FREEAGENT') || t.status !== 'EXECUTED') continue;
+    let items;
+    try { items = JSON.parse(t.items_json || '[]'); } catch (err) {
+      throw new Error(`league_transactions_raw ${t.tx_id}: items_json is not JSON (${err.message})`);
+    }
+    for (const i of items) {
+      if (i?.type !== 'ADD' || !(Number(i.toTeamId) > 0)) continue;
+      const k = Number(i.toTeamId);
+      (out.get(k) ?? out.set(k, []).get(k)).push(Number(t.scoring_period));
+    }
+  }
+  return out;
+}
+
+/**
+ * Completed trades as { period, parties }: a proposal the other side accepted
+ * (TRADE_ACCEPT / EXECUTE) and the league did not cancel afterwards (a vetoed
+ * trade leaves a TRADE_ACCEPT / CANCEL). The accept row's period is when it
+ * happened.
+ */
+function completedTrades(all, related) {
+  const out = [];
+  for (const p of all) {
+    if (!p.parties) continue;
+    const after = related.get(p.tx_id) ?? [];
+    const accept = after.find(a => a.type === 'TRADE_ACCEPT' && a.execution_type === 'EXECUTE');
+    if (!accept || after.some(a => a.type === 'TRADE_ACCEPT' && a.execution_type === 'CANCEL')) continue;
+    out.push({ period: Number(accept.scoring_period), parties: p.parties });
+  }
+  return out;
+}
+
+/**
+ * What a manager has DONE this season, through the last completed scoring
+ * period `through`: players added per week, and whether he has completed a
+ * trade. The Sleeper definition the fitted constants come from (rnd/loop r11,
+ * `adds_rate`): adds with leg_week <= w, divided by w.
+ *
+ * `n` is the number of weeks the rate averages over, because that is its
+ * sample: counterparty-pricing withholds the term below five of them. It is
+ * emitted for a manager with NO transaction rows too, as 0 — the inactive
+ * manager is the signal, and dropping him would make "did nothing" read as
+ * "unknown". Emitted only when the league has transaction rows at all, which
+ * is the control that the collector ran.
+ */
+function activitySignals(tx, rosterId, through) {
+  if (!tx.present || !tx.rows.length || !(through >= 1)) return [];
+  const me = Number(rosterId);
+  const adds = (tx.adds.get(me) ?? []).filter(p => p <= through).length;
+  const trades = tx.trades.filter(t => t.period <= through && t.parties.has(me)).length;
+  return [
+    { metric: 'tx_adds_per_week', value: +(adds / through).toFixed(4), n: through, source: 'tx' },
+    { metric: 'tx_completed_trades', value: trades, n: through, source: 'tx' },
+  ];
+}
+
+/**
+ * Starters in last week's FINAL lineup who did not play: the corpus's
+ * "dead start" (a started player with no stat row that week), which marks a
+ * checked-out team. Read from league_roster_snapshots (source 'final'). Zero
+ * points is not enough on its own — in the 2026 final snapshots 3 of 5
+ * zero-point non-DEF starters had snaps — so "did not play" also needs no
+ * nfl_snaps row with a snap. When nfl_snaps has no rows for that week at all,
+ * the answer is unknown and nothing is emitted. DEF is excluded: a defence
+ * that scores zero still played.
+ */
+function deadStartSignals(leagueId, season, rosterId, week) {
+  if (!(week >= 1) || !tableExists('league_roster_snapshots')) return [];
+  const starters = rows(`SELECT player_name, position, actual_points FROM league_roster_snapshots
+                         WHERE league_id = ? AND season = ? AND scoring_period_id = ? AND team_id = ?
+                           AND source = 'final' AND is_starter = 1`, leagueId, season, week, Number(rosterId));
+  if (!starters.length) return [];
+  const zero = starters.filter(s => s.position !== 'DEF' && !(s.actual_points > 0));
+  const snapsKnown = tableExists('nfl_snaps')
+    && rows('SELECT 1 FROM nfl_snaps WHERE season = ? AND week = ? LIMIT 1', season, week).length > 0;
+  if (!snapsKnown) {
+    // Unknown, not "no": say how many scored zero, so the page can say why it
+    // cannot tell whether he checked out.
+    return zero.length
+      ? [{ metric: 'lineup_zero_point_starters_last_week', value: zero.length, n: starters.length, source: 'roster' }]
+      : [];
+  }
+  const played = name => rows(`SELECT 1 FROM nfl_snaps WHERE season = ? AND week = ? AND player = ?
+                               AND (COALESCE(offense_snaps, 0) > 0 OR COALESCE(defense_snaps, 0) > 0
+                                    OR COALESCE(st_pct, 0) > 0) LIMIT 1`, season, week, name).length > 0;
+  const dead = zero.filter(s => !played(s.player_name));
+  return [{ metric: 'lineup_dead_starts_last_week', value: dead.length, n: starters.length, source: 'roster' }];
 }
 
 function txSignals(tx, rosterId) {
@@ -378,6 +476,8 @@ export function buildManagerSignals(leagueId, opts = {}) {
   }
   const tx = txIndex(leagueId, season);
   const arch = archetypeIndex(leagueId, season);
+  // The last COMPLETED scoring period: the one in progress is still moving.
+  const lastCompleted = Number(payload.scoringPeriodId) - 1;
   const written = [];
   const views = new Map();
 
@@ -389,6 +489,8 @@ export function buildManagerSignals(leagueId, opts = {}) {
         ...rosterSignals(payload, rosterId),
         ...standingsSignals(payload, rosterId),
         ...txSignals(tx, rosterId),
+        ...activitySignals(tx, rosterId, lastCompleted),
+        ...deadStartSignals(leagueId, season, rosterId, lastCompleted),
         ...(arch.byMember.get((team.owners ?? [])[0]) ?? []),
       ];
       if (chat && ident?.chat_name) {

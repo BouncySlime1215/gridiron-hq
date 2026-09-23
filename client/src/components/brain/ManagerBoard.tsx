@@ -71,6 +71,32 @@ function Read({ label, value }: { label: string; value: Record<string, unknown> 
   );
 }
 
+type BoardFactor = { source?: string; label?: string; effect?: number | null; n?: number | null; why?: string | null };
+
+/**
+ * What moved his receptiveness, one line per source, with the sample. A
+ * withheld source (effect null: under its gate, or unknown) says so rather
+ * than printing as a zero.
+ */
+function ReceptivenessFactors({ factors }: { factors: BoardFactor[] }) {
+  if (!factors.length) return null;
+  return (
+    <ul className="mt-1 space-y-0.5">
+      {factors.map((f, i) => (
+        <li key={`${f.source ?? 'factor'}-${i}`} className="text-[11px] leading-5 text-slate-600">
+          <span className={`font-bold tabular-nums ${f.effect == null ? 'text-slate-400'
+            : f.effect > 0 ? 'text-emerald-700' : f.effect < 0 ? 'text-rose-700' : 'text-slate-500'}`}>
+            {f.effect == null ? 'withheld' : `${f.effect > 0 ? '+' : ''}${f.effect.toFixed(2)}`}
+          </span>{' '}
+          {f.label}
+          <span className="text-slate-400"> · n={f.n == null ? '—' : f.n}</span>
+          {f.why && <span className="block text-slate-500">{f.why}</span>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive }: {
   profile: ProfileManager; signal: SignalManager | null; leagueId: number;
   onSaved: () => void; signalsLive: boolean;
@@ -93,6 +119,9 @@ function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive }: {
   };
 
   const shown = (signal?.signals ?? []);
+  // The factor list is shown as a list; the rest of the receptiveness block stays one line.
+  const { factors: rawFactors, ...receptiveness } = signal?.receptiveness ?? {};
+  const factors = (Array.isArray(rawFactors) ? rawFactors : []) as BoardFactor[];
   const priceable = shown.filter(s => !isThin(s));
 
   return (
@@ -131,7 +160,10 @@ function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive }: {
         <div className="mt-2.5 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
           <div className="grid gap-3 sm:grid-cols-3">
             <Read label="Archetype" value={signal.archetype} />
-            <Read label="Receptiveness" value={signal.receptiveness} />
+            <div>
+              <Read label="Receptiveness" value={signal.receptiveness ? receptiveness : null} />
+              <ReceptivenessFactors factors={factors} />
+            </div>
             <Read label="Negotiation" value={signal.negotiation} />
           </div>
           {!signal.corpus && (

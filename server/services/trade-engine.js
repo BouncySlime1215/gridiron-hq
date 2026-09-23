@@ -1277,7 +1277,10 @@ function tagDeal(give, get, ev) {
   // threshold is unfitted and must be re-derived on that signal.
   if (matchupSignalActive() && avg(get, 'playoff_sos', 1) > avg(give, 'playoff_sos', 1) + 0.05) tags.push('Playoff Push');
   if (youngest(get) <= 24 && oldest(give) >= youngest(get) + 3) tags.push('Youth Play');
-  if (oldest(give) >= 29 && youngest(get) < oldest(give)) tags.push('Sell High');
+  // An age rule, not a hype reading: it says we send the older player. It was labelled
+  // 'Sell High', which claimed a market-price read; the one hype producer is
+  // services/hype.js#playerHype (S-19), so the tag now says only what it measures.
+  if (oldest(give) >= 29 && youngest(get) < oldest(give)) tags.push('Sell the Veteran');
   // role_change is only ever set when the weekly engine detected a real usage
   // shift — a change of role, not noise — so this is evidence, not a guess.
   if (get.some(p => p.role_change)) tags.push('Buy Low');

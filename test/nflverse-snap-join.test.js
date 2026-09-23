@@ -34,6 +34,8 @@ const PLAYERS = [
   [83, 'Fallback Tightend', 'TE', null],
   [84, 'Other Namesake', 'WR', '00-0030001'],
   [85, 'Other Namesake', 'WR', '00-0030002'],
+  [86, 'Twin Same', 'WR', '00-0030003'],
+  [87, 'Twin Same', 'WR', '00-0030004'],
   [3877, 'Dale Rivers', 'WR', '00-0007024']
 ];
 for (const [id, name, pos, gsis] of PLAYERS) {
@@ -47,6 +49,8 @@ const PLAYERS_CSV = [
   '00-0036973,Joshua Penn,WR,,PennJo00',
   '00-0036900,Ty\'Ron Steady,WR,,SteaTy00',
   '00-0030001,Other Namesake,WR,,NameOt01',
+  '00-0030003,Twin Same,WR,,TwinSa01',
+  '00-0030004,Twin Same,WR,,TwinSa02',
   '00-0007024,Dale Rivers,WR,,RiveDa00'
 ].join('\n');
 
@@ -63,6 +67,12 @@ const SNAPS_CSV = [
   // pfr id resolves to 84; the namesake 85 holds a row with DIFFERENT numbers,
   // which is his own row and must not be moved.
   '2026_01_AAA_BBB,2026,REG,1,Other Namesake,NameOt01,WR,AAA,20,0.30',
+  // Unknown pfr id and a name|position two local players share: refused, counted.
+  '2026_02_AAA_BBB,2026,REG,2,Other Namesake,UnknOt09,WR,AAA,18,0.28',
+  // Same-name pair who both resolve by id in the same week with identical
+  // numbers: neither is a stale copy of the other, so nothing is moved.
+  '2026_01_CCC_DDD,2026,REG,1,Twin Same,TwinSa01,WR,CCC,25,0.40',
+  '2026_01_EEE_FFF,2026,REG,1,Twin Same,TwinSa02,WR,EEE,25,0.40',
   // Postseason rows are skipped as before.
   '2026_19_ARI_NO,2026,POST,19,Dale Rivers Jr.,RiveDa03,WR,ARI,60,0.80'
 ].join('\n');
@@ -86,6 +96,7 @@ const snapsFor = id => rows('SELECT week, offense_snaps, offense_pct FROM player
 run('INSERT INTO player_week_snaps (player_id, season, week, offense_snaps, offense_pct) VALUES (3877,2026,1,59,0.79)');
 run('INSERT INTO player_week_snaps (player_id, season, week, offense_snaps, offense_pct) VALUES (3877,2026,2,37,0.74)');
 run('INSERT INTO player_week_snaps (player_id, season, week, offense_snaps, offense_pct) VALUES (85,2026,1,11,0.15)');
+run('INSERT INTO player_week_snaps (player_id, season, week, offense_snaps, offense_pct) VALUES (87,2026,1,25,0.40)');
 const rowsBefore = row('SELECT COUNT(*) AS n FROM player_week_snaps').n;
 
 const result = await nflverse.syncSnapCounts(2026);
@@ -110,7 +121,7 @@ test('null control: a player with no name issue is unchanged', () => {
 test('name fallback is used only when the pfr id does not resolve, and is counted', () => {
   assert.deepEqual(snapsFor(83).map(r => [r.week, r.offense_snaps]), [[1, 30]]);
   assert.equal(result.name_fallback, 1);
-  assert.equal(result.by_id, 6, 'six REG rows resolve by pfr id');
+  assert.equal(result.by_id, 8, 'eight REG rows resolve by pfr id');
 });
 
 test('a namesake row with different numbers is his own and is not moved', () => {
@@ -121,14 +132,36 @@ test('a namesake row with different numbers is his own and is not moved', () => 
 test('backfill is updates only: no row is deleted, and moved rows are counted', () => {
   assert.equal(result.reassigned, 2, 'both of the Jr.\'s rows moved off the retired namesake');
   const rowsAfter = row('SELECT COUNT(*) AS n FROM player_week_snaps').n;
-  // 3 pre-existing rows + 7 REG source rows; the 2 moved rows are the same rows.
-  assert.equal(rowsAfter, rowsBefore + 5);
+  // 4 pre-existing rows; 9 stored REG rows, of which 2 are the Jr.'s moved rows
+  // and 1 (Twin Same, 87) already existed: 6 new keys.
+  assert.equal(rowsAfter, rowsBefore + 6);
   assert.equal(result.unmatched, 0);
-  assert.equal(result.inserted, 7);
+  assert.equal(result.inserted, 9);
+});
+
+test('a name key two players share is refused, not guessed', () => {
+  assert.equal(result.ambiguous_name, 1);
+  assert.deepEqual(snapsFor(85).map(r => r.week), [1], 'no week-2 row guessed onto a namesake');
+  assert.deepEqual(snapsFor(84).map(r => r.week), [1]);
+});
+
+test('same-name players who both resolve by id keep their own rows', () => {
+  assert.deepEqual(snapsFor(86).map(r => [r.week, r.offense_snaps]), [[1, 25]]);
+  assert.deepEqual(snapsFor(87).map(r => [r.week, r.offense_snaps]), [[1, 25]]);
+  assert.equal(result.reassigned, 2, 'the twins are not counted as moved rows');
 });
 
 test('a second run is idempotent: nothing more to move', async () => {
   const again = await nflverse.syncSnapCounts(2026);
   assert.equal(again.reassigned, 0);
   assert.equal(snapsFor(3877).length, 0);
+});
+
+test('syncAll reaches the id join through the crosswalk it runs first, and logs the counts', async () => {
+  const out = await nflverse.syncAll([2026]);
+  assert.equal(out.snaps[0].by_id, 8);
+  assert.equal(out.snaps[0].reassigned, 0);
+  const log = row("SELECT last_status, last_detail FROM sync_log WHERE job = 'nflverse_snap_counts'");
+  assert.equal(log?.last_status, 'ok');
+  assert.match(String(log.last_detail), /"by_id":8/);
 });

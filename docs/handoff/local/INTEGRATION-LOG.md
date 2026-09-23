@@ -2,31 +2,39 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-22 23:46Z.
+Last rebuilt: 2026-09-23 00:12Z.
+
+## #158: Fix ESPN RSS news stamped an hour into the future (EST/EDT parsing) (R-07)
+
+- Merged: 7:56 PM ET, Sep 22 as `a3e2bf35` (unit R-07)
+- Intake: done: (filled by the integration intake agent) 1. Upstream. One choke point: parsePublishedAt (server/news/normalize.js) uses the existing shared zonedDateTime (services/date-util.js), and normalizeNewsItem is the single function every ingester already calls (server/news/ingest.js:2,78, twitter-ingest.js:11,23,203, nfl-transactions.js:22,62) — so RSS, Twitter and transaction ingest are fixed together, not three separate pa…
+- Follow-up **INT-158-1** (queued): One producer owns `news_items.published_at` for ESPN stories (already named F-R07-1 in `docs/tdd/2026-09-22-news-published-at-timezone.tdd.md` §8.2a): `insertArticles` (espn.js:174) and the RSS writer
+- Follow-up **INT-158-2** (queued): Fix the `fresh_24h` text-vs-time comparison bug (`routes/news.js:89`, `nfl-diagnostic.js:21`): ISO text compared against a space-separated `datetime('now','-24 hours')` string reads any same-calendar-
+- Follow-up **INT-158-3** (queued): Nick's word + backfill the ~161-196 historical daylight-time ESPN RSS rows (`published_at − 60 min`, bounded rule already derived in the R-07 TDD doc §8.1), then re-check numbers spanning the contamin
 
 ## #156: Hand-fed tables (roster snapshots, trending, correlations) name their own absence (S-18)
 
 - Merged: 7:46 PM ET, Sep 22 as `443f33b7` (unit S-18)
-- Intake: done: (filled by the integration intake agent) pending
-- Follow-ups: none needed, or folded into existing units (see the card)
+- Intake: done: (filled by the integration intake agent) 1. Upstream. For 2 of 3 tables it deliberately reuses the served-table registry's own rules rather than inventing new ones: HANDFEDENTRIES' leaguerostersnapshots / correlationestimates rows are copied verbatim from PR 104's source-registry.js:436-447,505-517 (not yet merged), and servedTableEntry() (data-freshness.js) already prefers servedTables() over this fallback the momen…
+- Follow-up **INT-156-1** (queued): Surface `model_context.hand_fed` (trending_players / correlation_estimates named state, trade-engine.js:508) in the UI — served on 4 routes (trades.js:871, league-brain.js:302, trade-engine.js:1818/22
 
 ## #157: Add an always-visible data credit line; fix ffopportunity's licence (F-08)
 
 - Merged: 7:36 PM ET, Sep 22 as `7a9d75f6` (unit F-08)
-- Intake: done: (filled by the integration intake agent) pending
-- Follow-ups: none needed, or folded into existing units (see the card)
+- Intake: done: (filled by the integration intake agent) 1. Upstream. One canonical list: DATACREDITS (DataFreshnessBanner.tsx) is held by test/data-credit-line.test.js to mirror sources on GET /api/data-freshness (server/routes/data-freshness.js:40: [NFLVERSESOURCE, FFOPPORTUNITYSOURCE, FTNCHARTINGSOURCE]) — one producer, not a second hand-typed copy. 2. Downstream. FFOPPORTUNITYSOURCE's only real consumers outside its own file are…
+- Follow-up **INT-157-1** (queued): Add a CC BY-SA 3.0 credit for Wikipedia content already wired live (`server/routes/accolades.js` → `player_accolades` → `client/src/pages/TeamDetail.tsx:195`, `/teams/:abbr`) but absent from `DATA_CRE
 
 ## #154: Docs: 2025 holdout ledger and one statistics contract for every unit (S-00)
 
 - Merged: 7:26 PM ET, Sep 22 as `dd7cec20` (unit S-00)
-- Intake: done: (filled by the integration intake agent) pending
-- Follow-ups: none needed, or folded into existing units (see the card)
+- Intake: done: (filled by the integration intake agent) 1. Upstream. Docs-only (3 files, all under docs/); no production code path. The card's one "symbol touched" (settleWeeklyPredictions) is a prose citation inside the diff, not a code change: git show dd7cec20 | grep -n settleWeeklyPredictions hits only a table row and an embedded git grep example citing weekly-learning.js:155/:406 and nfl-model-growth.js:307 as existing code. g…
+- Follow-up **INT-154-1** (queued): Backfill S-02's already-computed 2025 holdout looks into `HOLDOUT-LEDGER.md`, and point new statistical units (S-03, A-11, HX-01, RL-1-*, BLEND-01) at `STATS-METHOD.md`/`HOLDOUT-LEDGER.md` going forwa
 
 ## #155: Study: grade the weekly fantasy construction against 2025, before availability (S-02)
 
 - Merged: 7:16 PM ET, Sep 22 as `51b64512` (unit S-02)
-- Intake: done: (filled by the integration intake agent) pending
-- Follow-ups: none needed, or folded into existing units (see the card)
+- Intake: done: (filled by the integration intake agent) 1. Upstream. Uses the live production engine, not a re-derived copy: buildPlayerWeekEngine (player-week-engine.js:256) with roleRecency: WEEKLYROLERECENCY hardcoded (standing rule 3, configuration B) and a kcontrol stop-check (weekly-construction-consumer-parity.json); the arms cite real production lines (trade-engine.js:346,359; lineup-brain.js:356-363; weekly-weight-store.js…
+- Follow-up **INT-155-1** (queued): Correct S-03's acceptance test in WORK-QUEUE.md §5: it reads "Served W5 numbers equal the winning S-02 arm," but S-02's own report (`weekly-construction-grade.md` "Read this first"; amendment-1 §4) sa
 
 ## #153: Model governance stops seeding PR #128's deleted MLB models as live
 

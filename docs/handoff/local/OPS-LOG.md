@@ -96,3 +96,7 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 
 10:10Z: UI loop done: UX-08b -> PR #175, UX-10 phone fixes -> PR #177 (both skeptic-clean after one round); queued after the running queue. UX-08c filed.
 10:12Z: UI loop relaunched: UX-11 My team tab + UX-08c (wqym7iz9w).
+
+10:30Z: GR-01 -> PR #174 (CI green; migration 071_rec_ledger additive with a guarded down()) HELD for Nick (migrations). #171 conflict resolved (1544981f), queued.
+
+10:45Z: Diligence batch 1 done: WV-01 streaming board -> #176 (history check PASSED: +2.86 pts per swap-week [0.93, 4.75], chasing last week gains nothing; auditor launched), WV-02 injury alert -> #178, RL-5-3 bye range -> #179 (queued). Gate prompt patched: unique PR body filenames (a concurrent gate overwrote a shared scratchpad file). Diligence batch 2 launched: SS-01 dead-starter guard + SK-01 command center (wsfspvzha).

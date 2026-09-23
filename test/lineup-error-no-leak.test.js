@@ -39,7 +39,7 @@ const rt = createRequire(${JSON.stringify(repoRequire.resolve('react'))})(${JSON
 export default rt; export const useMemo = rt.useMemo; export const useState = rt.useState;`);
 
 // One call site per useApi() call in Lineup.tsx, in the order it calls them:
-// lineup, waivers, posture, rosters. Only the lineup call fails.
+// lineup, waivers, posture, streams (WV-01), rosters. Only the lineup call fails.
 // The call counter lives on globalThis and is reset before every render: the
 // stub module is imported once, so a module-level counter would keep counting
 // across tests and hand the lineup slot's data to a later call.
@@ -54,6 +54,7 @@ const evidenceUrl = write('evidence-strip.mjs',
 const explainUrl = write('page-explain.mjs', 'export function usePageExplain() {}');
 const waiverUrl = write('waiver-wire.mjs',
   'export default function WaiverWire() { return null; }\nexport function WaiverTeaser() { return null; }\nexport function onATeam() { return true; }');
+const streamingUrl = write('streaming-board.mjs', 'export default function StreamingBoard() { return null; }');
 const postureUrl = write('matchup-posture.mjs', 'export default function MatchupPosture() { return null; }');
 const gateUrl = write('start-sit-gate.mjs', 'export default function StartSitGate() { return null; }');
 
@@ -85,6 +86,7 @@ async function loadLineup() {
     ["'../components/PageExplainContext'", explainUrl],
     ["'../components/PageState'", pageStateUrl],
     ["'../components/lineup/WaiverWire'", waiverUrl],
+    ["'../components/lineup/StreamingBoard'", streamingUrl],
     ["'../components/lineup/MatchupPosture'", postureUrl],
     ["'../components/lineup/StartSitGate'", gateUrl],
     ['"react/jsx-runtime"', runtimeUrl],

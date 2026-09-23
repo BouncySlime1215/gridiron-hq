@@ -250,3 +250,24 @@ test('our number is rebuilt as S-03 serves it: structural plus the correction, e
   assert.deepEqual(runner.servedBaseFor({ ppg: 12, structural_ppg: null }, { ready: true, shift: -0.5 }, ctx, deps), { base: 12, arm: 'A' });
   assert.deepEqual(runner.servedBaseFor({ ppg: null }, { ready: true, shift: -0.5 }, ctx, deps), { base: null, arm: null });
 });
+
+test('the availability diagnostic grades our base without the chance to play, on the primary pairs', () => {
+  // Two healthy WRs whose chance to play differs (0.5 vs 0.9) and one ruled Out: the multiplier
+  // flips the healthy pair; the base alone gets it right; keeping p only for the designated
+  // player keeps the Out call.
+  const rows = [
+    { season: 2023, week: 5, position: 'WR', player_id: 1, base: 12, p: 0.5, report_status: null, bye: false, played: true, actual: 15 },
+    { season: 2023, week: 5, position: 'WR', player_id: 2, base: 10, p: 0.9, report_status: null, bye: false, played: true, actual: 9 },
+    { season: 2023, week: 5, position: 'WR', player_id: 3, base: 11, p: 0.1, report_status: 'Out', bye: false, played: false, actual: 0 }
+  ];
+  for (const r of rows) { r.ours = r.base * r.p; r.espn = r.actual + 1; }
+  const preds = { ours: rows.map(r => r.ours), espn: rows.map(r => r.espn) };
+  const pairs = lib.enumeratePairs(rows, () => true);
+  const draws = lib.playerDraws(pairs.players, { iterations: 50 });
+  const d = lib.availabilityDiagnostic(rows, pairs, draws, preds);
+  assert.match(d.note, /not pre-registered/);
+  near(d.base_only_vs_ours.pa_x, 2 / 3, 1e-4);        // base alone: (1,2) right, (1,3) right, (2,3) wrong
+  near(d.base_only_vs_ours.pa_y, 2 / 3, 1e-4);        // ours: (1,2) wrong, (1,3) right, (2,3) right
+  near(d.designated_only_vs_ours.pa_x, 1, 1e-4);      // p only for the Out player: all three right
+  assert.deepEqual(d.startable_no_designation, { rows: 2, mean_p: 0.7, played_share: 1 });
+});

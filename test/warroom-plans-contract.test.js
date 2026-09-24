@@ -55,7 +55,9 @@ test('the producer fixture validates against the contract', () => {
 const PENDING = [
   { unit: 'unassigned', why: 'no planner rule reads these two sliders', path: /^leagues\[\]\.destination\.value\.tolerances\.value\.(reputation_budget|ai_spend)$/ },
   { unit: 'EVAL E1 (PEOPLE-03)', why: 'no per-step counterpart feature names a player until E1 grades one positive (stepAdjust returns none)',
-    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.counterpart\.value\.reason_chain\[\]\.(player|n)$/ }
+    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.counterpart\.value\.reason_chain\[\]\.(player|n)$/ },
+  { unit: 'REP-01 (FIX-264-2)', why: 'the offer gate is default-off (GRIDIRON_REPUTATION) and the fixture was produced flag-off; test/offer-reputation.test.js R15 validates it on',
+    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.reputation_gate(\.value(\.\w+)?)?$/ }
 ];
 const pending = p => PENDING.some(x => x.path.test(p));
 

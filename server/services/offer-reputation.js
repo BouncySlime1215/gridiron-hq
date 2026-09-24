@@ -388,6 +388,34 @@ export function offerGateFor({ leagueId, season, offer, now, overrides }) {
 }
 
 /**
+ * The one planner's hook (FIX-264-2): gate(team, step?) -> offerGateFor's verdict
+ * for that partner, priced on the step's P(accept) band when there is one. The
+ * campaign producer's adapter builds it only while GRIDIRON_REPUTATION is on, and
+ * campaign/partners.js#gatePlans applies it to every step of every plan. Memoised
+ * on partner + lowball bucket (the only offer input the verdict reads), so a
+ * search of hundreds of plans reads the ledger once per partner. A league the
+ * gate cannot read gives decision null with the reason, never a silent allow.
+ */
+export function planGate({ leagueId, season, now }) {
+  const cache = new Map();
+  return (team, step = null) => {
+    const high = step?.band?.high;
+    const priced = Number.isFinite(high);
+    const key = `${team}|${priced ? (high < LOWBALL_P_ACCEPT ? 'low' : 'fair') : 'unpriced'}`;
+    if (!cache.has(key)) {
+      let v;
+      try {
+        v = offerGateFor({ leagueId, season, now, offer: { counterparty_id: String(team), p_accept_high: priced ? high : null } });
+      } catch (e) {
+        v = { decision: null, code: 'unavailable', reason: `reputation gate not run: ${e.message}`, retry_at: null };
+      }
+      cache.set(key, v);
+    }
+    return cache.get(key);
+  };
+}
+
+/**
  * The trade finder's hook: every deal `findTrades` returns gets a `reputation`
  * verdict for its partner. Returns a copy — the finder's result is cached and
  * shared, so it is never written into. A league the gate cannot read gives each

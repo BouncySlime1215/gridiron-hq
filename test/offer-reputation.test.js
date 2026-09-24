@@ -727,3 +727,17 @@ test('R15 the War Room adapter builds the planner gate only when GRIDIRON_REPUTA
   const planner = fs.readFileSync(new URL('../server/services/campaign/planner.js', import.meta.url), 'utf8');
   assert.match(planner, /gatePlans\(plans, adapter\.gateStep\)/);
 });
+
+test('R15 planGate prices each step on its band: a lowball step is charged, an unpriced partner read is not', () => {
+  seedPlannerLeague(18);
+  const g = planGate({ leagueId: 18, season: 2026, now: NOW });
+  const low = g('3', { band: { low: 0.05, high: 0.1 } });
+  assert.equal(low.offer_cost, 1);
+  assert.equal(low.offer_cost_basis, 'p_accept_proxy');
+  assert.equal(g('3', { band: { low: 0.4, high: 0.6 } }).offer_cost, 0);
+  assert.equal(g('3').offer_cost_basis, 'unpriced');
+  assert.equal(g('3', { band: { high: 0.12 } }), low, 'memoised per partner + lowball bucket');
+  const none = planGate({ leagueId: 999, season: 2026, now: NOW })('3');
+  assert.equal(none.decision, null, 'a league the gate cannot read is never an allow');
+  assert.match(none.reason, /league 999/);
+});

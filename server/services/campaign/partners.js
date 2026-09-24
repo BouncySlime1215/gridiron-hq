@@ -39,8 +39,13 @@ const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 
 /** Nick says this manager cannot be reached: he is never a step, a flip leg or a target owner. */
 export const unreachable = m => m?.nick?.unreachable === true;
-/** Excluded from every plan: marked never-trading, or unreachable per Nick. */
-export const excluded = m => !!m?.blocked || unreachable(m);
+/**
+ * REP-01 (FIX-264-2): the offer gate (offer-reputation.js#offerGateFor) said no to this manager
+ * outright. The adapter sets m.rep_gate only while GRIDIRON_REPUTATION is on.
+ */
+export const repDenied = m => m?.rep_gate?.decision === 'deny';
+/** Excluded from every plan: marked never-trading, unreachable per Nick, or denied by the offer gate. */
+export const excluded = m => !!m?.blocked || unreachable(m) || repDenied(m);
 
 /** Partner order among equal scores: Nick's active pool, then neutral, then deprioritised, then excluded. */
 export function nickTier(m) {
@@ -176,4 +181,34 @@ export function planSkipWeight(plan, weights) {
     for (const id of s.get) w *= weights.player.get(String(id)) ?? 1;
   }
   return w;
+}
+
+/**
+ * REP-01 (FIX-264-2): the one planner's offer gate. gate(team, step) is the adapter's
+ * offerGateFor call for that partner and that step's price (league-adapter.mjs gateStep);
+ * absent (flag off, or a fixture without one) every plan is returned as it came.
+ *   - a plan with any 'deny' step is dropped: a denied partner is never a step;
+ *   - a plan whose earliest non-allowed step is 'delay' carries `reputation_gate`
+ *     { decision, code, reason, retry_at, partner, step };
+ *   - a gate that could not be read (decision null) is carried the same way, never read as allow.
+ * Returns { plans, dropped: [{ plan, step, gate }] }.
+ */
+export function gatePlans(plans, gate) {
+  if (typeof gate !== 'function') return { plans, dropped: [] };
+  const kept = [], dropped = [];
+  for (const p of plans) {
+    let denied = null, held = null;
+    p.steps.forEach((st, i) => {
+      if (denied) return;
+      const v = gate(st.team, st);
+      if (v?.decision === 'deny') denied = { step: i, gate: v };
+      else if (!held && v?.decision !== 'allow') {
+        held = { decision: v?.decision ?? null, code: String(v?.code ?? 'unavailable'), reason: String(v?.reason ?? 'the offer gate returned nothing'),
+          retry_at: v?.retry_at ?? null, partner: String(st.team), step: i };
+      }
+    });
+    if (denied) { dropped.push({ plan: p, ...denied }); continue; }
+    kept.push(held ? { ...p, reputation_gate: held } : p);
+  }
+  return { plans: kept, dropped };
 }

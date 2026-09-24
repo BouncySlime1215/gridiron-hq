@@ -18,7 +18,7 @@ import { metricOf, pointsFeasibility, targetFeasibility, weeklySummary } from '.
 import { priceLadder, stepMessage, replyTable } from './playbook.js';
 import { buildItinerary, stopTradeOff, speedCurve, arrivalWeek } from './itinerary.js';
 import { orderCatchUp, freeMoves, isBehind } from './catchup.js';
-import { rankPartners, planSkipWeight } from './partners.js';
+import { rankPartners, planSkipWeight, gatePlans } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
@@ -138,6 +138,11 @@ export function planLeague(adapter, settings) {
   for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target));
   const skipW = { player: settings.skips?.player ?? new Map(), manager: settings.skips?.manager ?? new Map() };
   plans = plans.map(p => ({ ...p, skip_weight: planSkipWeight(p, skipW) }));
+  // REP-01 (FIX-264-2): the offer gate on every step's partner, before ranking, so a denied
+  // partner never takes a deck slot and a delayed one carries retry_at + reason. No gate
+  // (GRIDIRON_REPUTATION off, or a fixture) -> the plans as they were.
+  const gated = gatePlans(plans, adapter.gateStep);
+  plans = gated.plans;
   mark('search');
 
   // Sliders and context per mode.
@@ -306,6 +311,7 @@ export function planLeague(adapter, settings) {
     eta_week: best ? arrivalWeek(best, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) : null,
     finder_best, sanity,
     flip, targets: wanted, candidates_scored: plans.length, dropped: dropped.slice(0, 20).map(d => ({ first: d.plan.steps[0], why: d.why })),
+    reputation_dropped: gated.dropped.slice(0, 20).map(d => ({ first: d.plan.steps[0], step: d.step, code: d.gate.code, reason: d.gate.reason })),
     best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook })),
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
     suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, feasibility_points, outlook,

@@ -216,6 +216,10 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     return out;
   };
 
+  // REP-01 (FIX-264-2): a partner the offer gate delayed (planner.js gatePlans), typed.
+  const repGate = g => (g.decision === 'delay'
+    ? ok({ decision: 'delay', code: g.code, reason: g.reason, retry_at: g.retry_at ?? null, partner: g.partner, step: g.step }, 'plan.path')
+    : unknown(`Offer gate not read for Team ${g.partner}: ${g.reason}`, 'plan.path'));
   const moves = deck.map((c, j) => {
     const plan = c.plan;
     const thisId = moveIds[j];
@@ -238,6 +242,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       expected: num(plan.expected, 'plan.path', { se: plan.expected_se, unit }),
       reasoning: reasoning({ team: s0.team, p: s0.p, delta: s0.delta, clears: s0.clears, pb: c.playbook, verdict: c.confirm,
         whole: `If all ${plan.steps.length} step(s) land you gain ${fmt(plan.delta_final)}; across yes and no outcomes that is ${fmt(plan.expected)} expected, and the path completes ${pct(plan.p_complete)} of the time.` }),
+      ...(plan.reputation_gate ? { reputation_gate: repGate(plan.reputation_gate) } : {}),
     };
   });
   const best = moves[0] ?? null;

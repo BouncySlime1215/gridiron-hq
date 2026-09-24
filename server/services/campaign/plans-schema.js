@@ -163,6 +163,10 @@ const move = obj({
   delta_final: numF,
   expected: numF,
   reasoning: field(reasoning)
+}, {
+  // REP-01 (FIX-264-2, GRIDIRON_REPUTATION): the offer gate held one of this move's partners.
+  // ok = 'delay' with when to retry; unknown = the gate could not be read. Absent: every partner allowed, or the flag is off.
+  reputation_gate: field(obj({ decision: lit('delay'), code: str, reason: str, retry_at: nullable(iso), partner: id, step: int(0) }))
 });
 
 const destination = obj({

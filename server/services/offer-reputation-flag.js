@@ -2,13 +2,16 @@
  * The one reader of GRIDIRON_REPUTATION (REP-01 offer fatigue + reputation, #264;
  * RULINGS 4 and 8, FIX-264-2).
  *
- * Switches two things, both default-off:
+ * Switches three things, all default-off:
  *   - offer-reputation.js#gateDeals, the Trade Lab finder's hook: on, every deal
  *     from GET /api/trades/:leagueId/find carries a `reputation` verdict for its
  *     partner; off, the finder's result is served exactly as before.
  *   - the `reputation` factor in trade-acceptance.js#acceptanceBand, which the
  *     War Room producer (scripts/campaign/league-adapter.mjs) feeds from
  *     selfRead's lopsidedness ledger only while this is on.
+ *   - the one planner's gate (FIX-264-2): the War Room adapter builds
+ *     offer-reputation.js#planGate, and campaign/partners.js#gatePlans drops every
+ *     plan with a denied partner and stamps a delayed one's move with retry_at + reason.
  *
  * Preview mode (preview-mode.js previewUnconfirmed()) turns it on too; each
  * verdict then carries `preview: true` and the reason below.

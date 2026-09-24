@@ -15,7 +15,7 @@
  *   sanity            composed rescore == served tradeImpact on one one-for-one deal
  */
 import { chatLabels } from '../../server/services/campaign/partners.js';
-import { countSentThisWeek, lopsidednessLedger, sentOfferHistory } from '../../server/services/offer-reputation.js';
+import { countSentThisWeek, lopsidednessLedger, sentOfferHistory, planGate } from '../../server/services/offer-reputation.js';
 import { reputationFields } from '../../server/services/offer-reputation-flag.js';
 import { resolveUntouchables, untouchableIds } from '../../server/services/people/profile-reader.js';
 
@@ -176,6 +176,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   // every band is exactly what it was.
   const reputation = reputationFields().enabled
     ? lopsidednessLedger(sentOfferHistory(leagueId, season, me), { now }) : null;
+  // REP-01 offer gate (FIX-264-2, same flag): offerGateFor per partner and per planned step.
+  const gateStep = reputation ? planGate({ leagueId, season, now }) : null;
   const titleByTeam = new Map((w0.base?.teams ?? []).map(t => [String(t.roster_id), t.title_odds]));
   const managers = new Map();
   for (const t of rosters.keys()) {
@@ -189,6 +191,7 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       checked_out: tm?.read_state === 'present' && tm.actions_n === 0,
       title_now: titleByTeam.get(t) ?? null,
       sent_this_week: sent.get(t) ?? 0,
+      ...(gateStep ? { rep_gate: gateStep(t) } : {}),
       send_when: send,
       // Nick's block (the one reader); 'untouchable: <player>' notes resolved against this roster's players.
       nick: resolveUntouchables(chat?.get(t)?.nick ?? null, (rosters.get(t) ?? []).map(id => players.get(id)).filter(Boolean)),
@@ -258,6 +261,7 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
+    ...(gateStep ? { gateStep } : {}),
     // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
     untouchable: untouchableIds([...managers.values()].map(m => m.nick)),
     ...(finder ? { finderBest } : {}),

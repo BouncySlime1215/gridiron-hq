@@ -147,3 +147,17 @@ offer-*, wiring*) 321/321.
 "Decays to 0" is exponential: the effect halves every 14 days. It drops below the band's 0.001
 reporting floor, and so stops being a factor, after about 6.5 half-lives for 3 lowballs. The test
 checks halving at 1 half-life and no factor at 8.
+
+## FIX-264-2: the one planner asks the gate (catch-up review 9/24)
+
+- RED `f9de7831`: test/offer-reputation.test.js 35 pass / 5 fail (the five new R15 tests).
+- GREEN (next commit): 41/41 (R15 adds a sixth, planGate's step pricing, after a mutant survived).
+- Wiring: the War Room adapter builds `offer-reputation.js#planGate` only while GRIDIRON_REPUTATION is on;
+  every manager gets `rep_gate` (a 'deny' is `partners.js#excluded`, so search never makes him a step or flip leg),
+  and `planner.js` runs `partners.js#gatePlans` on every step of every plan before ranking: a denied step drops
+  the plan, the first delayed step stamps the move's `reputation_gate` { decision, code, reason, retry_at, partner, step }
+  (plans-schema.js, typed; unknown with the reason when the gate could not be read).
+- Fixture: campaign-league.mjs with team 3 at the weekly cap (3 sent offers in 3 days): every deck move through
+  team 3 carries weekly_cap and retry_at = oldest send + 7 days; team 2 at tier 'never': no step to team 2 anywhere.
+- Mutants (6): excluded ignores deny, planner skips the gate, view drops the field, deny not dropped, unread gate
+  read as allow, step price ignored. All killed.

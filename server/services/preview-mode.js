@@ -41,6 +41,7 @@
  *   - coach/brief.js#coachBriefFlag              Coach's morning brief and weekly check-in
  *                                                (COACH-BRIEF; GRIDIRON_COACH_BRIEF_ENABLED=0
  *                                                vetoes preview)
+ *   - campaign/his-screen.js#hisScreenFor        HIS-SCREEN offer preview (site flag GRIDIRON_HIS_SCREEN)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

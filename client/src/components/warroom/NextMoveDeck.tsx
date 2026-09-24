@@ -8,6 +8,7 @@ import { pct, pts, NOT_COMPUTED, isOk } from './format';
 import ReplyTable from './ReplyTable';
 import Negotiate from './Negotiate';
 import type { Negotiations, Thread, ThreadResponse } from './negotiateModel';
+import { HisScreenToggle } from './HisScreen';
 import NoMoveCard from './NoMoveCard';
 import SwipeDeck from './SwipeDeck';
 
@@ -224,6 +225,8 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
           </div>
         </div>
         <Ladder s={s} text={n.text} />
+        {/* HIS-SCREEN-FIX: the card's offer as he sees it (precomputed by the planner; the route only reads). */}
+        <HisScreenToggle leagueId={leagueId} offer={{ partner: String(s.partner), give: s.give.map(String), get: s.get.map(String) }} />
         <div className="wr-sub">
           Whole path: <Val f={m.expected} fmt={pts} showSe /> expected
           {' · '}finishes <Val f={m.p_complete} fmt={v => pct(v)} /> of the time

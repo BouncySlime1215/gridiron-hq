@@ -20,6 +20,9 @@
  *   4. manager_signals   who-is-who + per-manager signals for all leagues
  *                        (build-manager-signals.mjs), after the chat rollup has
  *                        finished, and only when one of its inputs changed
+ * Between ticks (--loop only): the focus league's trades (FOCUS_LEAGUE_ID, default 4)
+ * every FOCUS_TRADES_POLL_SECONDS (default 180; 0 turns it off), so an offer made and
+ * answered inside one tick's gap is still seen while pending.
  *
  * ALLOWLIST ONLY. Betting collectors (line snapshots, Polymarket, book feeds,
  * prop capture, t60 runner…) are deliberately absent: Nick turned them off.
@@ -118,6 +121,46 @@ export function transactionsCapture({ spawn = spawnSync, log = console.log } = {
   const leaguesFailed = Number(/failed (\d+)/.exec(last)?.[1] ?? 0);
   const ok = r.status === 0 && leaguesFailed === 0;
   log(`${stamp()} ${'league_tx'.padEnd(18)} ${ok ? 'ok' : 'ERROR'} ${last.slice(0, 160)} (${Date.now() - t0} ms)`);
+}
+
+// The focus league's trades, between ticks. A tick can take many minutes (the chat
+// step alone may run 20), and an offer proposed and answered inside that gap was
+// never seen while pending, so its terms were lost (38 of 82 decided offers had no
+// proposal row). One league, one request, the collector's own snapshot path.
+export const FOCUS_LEAGUE_ID = process.env.FOCUS_LEAGUE_ID === '' ? null : Number(process.env.FOCUS_LEAGUE_ID ?? 4);
+export const FOCUS_POLL_SECONDS = Number(process.env.FOCUS_TRADES_POLL_SECONDS ?? 180);
+
+export function focusTradesPoll({ leagueId = FOCUS_LEAGUE_ID, spawn = spawnSync, log = console.log } = {}) {
+  const t0 = Date.now();
+  const r = spawn(process.execPath,
+    ['--env-file-if-exists=.env', 'scripts/collect-league-transactions.mjs', '--league', String(leagueId)],
+    { cwd: ROOT, env: process.env, encoding: 'utf8', timeout: 60 * 1000 });
+  const last = outputLines(r).filter(l => !/espn_s2|SWID/.test(l)).at(-1) ?? spawnFailure(r) ?? `exit ${r.status}`;
+  const ok = r.status === 0 && Number(/failed (\d+)/.exec(last)?.[1] ?? 0) === 0;
+  log(`${stamp()} ${'league_tx_focus'.padEnd(18)} ${ok ? 'ok' : 'ERROR'} ${last.slice(0, 160)} (${Date.now() - t0} ms)`);
+}
+
+/**
+ * Due-time bookkeeping for the focus poll. The wait loop calls maybePoll() every
+ * second; a full tick calls tickRan(), because it has just read every league.
+ * pollSeconds <= 0 or no league turns it off.
+ */
+export function createFocusPoller({ leagueId = FOCUS_LEAGUE_ID, pollSeconds = FOCUS_POLL_SECONDS,
+  clock = Date.now, poll = focusTradesPoll, log = console.log } = {}) {
+  const enabled = Number.isInteger(leagueId) && leagueId > 0 && pollSeconds > 0;
+  let last = clock();
+  return {
+    enabled,
+    tickRan() { last = clock(); },
+    maybePoll() {
+      if (!enabled || clock() - last < pollSeconds * 1000) return false;
+      try { poll({ leagueId, log }); } catch (e) {
+        log(`${stamp()} ${'league_tx_focus'.padEnd(18)} THREW ${String(e?.message ?? e).slice(0, 160)}`);
+      }
+      last = clock();
+      return true;
+    },
+  };
 }
 
 // Every team's roster and lineup slots for the current scoring period, plus a one-time
@@ -284,6 +327,7 @@ async function main(args = process.argv.slice(2)) {
   const force = args.includes('--force');
   // One step for the life of the process, so "unchanged since the last good build" holds across ticks.
   const managerSignals = createManagerSignalsStep();
+  const focus = createFocusPoller();
 
   let stopping = false;
   process.on('SIGTERM', () => { stopping = true; });
@@ -294,11 +338,16 @@ async function main(args = process.argv.slice(2)) {
     return;
   }
   console.log(`${stamp()} refresh-live-data loop every ${loopSeconds} s — jobs: ${FANTASY_LIVE_JOBS.join(', ')}`
-    + ', then league_tx, roster_snapshots, league_chat, manager_signals');
+    + ', then league_tx, roster_snapshots, league_chat, manager_signals'
+    + (focus.enabled ? `; league ${FOCUS_LEAGUE_ID} trades every ${FOCUS_POLL_SECONDS} s between ticks` : ''));
   while (!stopping) {
     await tick({ force, managerSignals });
+    focus.tickRan();
     const until = Date.now() + loopSeconds * 1000;
-    while (!stopping && Date.now() < until) await new Promise(r => setTimeout(r, 1000));
+    while (!stopping && Date.now() < until) {
+      focus.maybePoll();
+      await new Promise(r => setTimeout(r, 1000));
+    }
   }
   console.log(`${stamp()} stopped`);
 }

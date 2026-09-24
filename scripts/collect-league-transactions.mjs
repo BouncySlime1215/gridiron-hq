@@ -16,6 +16,9 @@
  */
 process.env.SCHEDULER_DISABLED = '1';
 const { db, rows, run } = await import('../server/db/index.js');
+// Migration 079 (offer snapshots) must exist before the first capture; the loop
+// can run this before the web server has been restarted onto new code.
+await (await import('../server/db/migrate.js')).runMigrations();
 const { BROWSER_HEADERS } = await import('../server/services/espn-draft.js');
 
 db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
@@ -27,10 +30,27 @@ db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
   PRIMARY KEY (league_id, season, tx_id))`);
 db.exec(`CREATE INDEX IF NOT EXISTS ltr_proposed ON league_transactions_raw(league_id, proposed_at)`);
 
+const { captureProposalSnapshots, linkTradeOutcomes } = await import('../server/services/trade-proposal-snapshots.js');
+
+// --league <leagues.id>: one league only. The refresh loop polls the focus league
+// this way between ticks; its sync_log row is its own, so the all-leagues row keeps
+// meaning "every league was read".
+const leagueArg = process.argv.indexOf('--league');
+const onlyLeague = leagueArg > -1 ? Number(process.argv[leagueArg + 1]) : null;
+if (leagueArg > -1 && !(Number.isInteger(onlyLeague) && onlyLeague > 0)) {
+  console.log(`transactions: --league needs a leagues.id, got ${process.argv[leagueArg + 1]}; seen 0, new 0, failed 1`);
+  process.exit(1);
+}
+
 const iso = ms => (ms ? new Date(ms).toISOString() : null);
 const now = new Date().toISOString();
 const leagues = rows(`SELECT id, league_id, season, name, espn_s2, swid FROM leagues
-                      WHERE platform = 'espn' AND espn_s2 IS NOT NULL AND swid IS NOT NULL`);
+                      WHERE platform = 'espn' AND espn_s2 IS NOT NULL AND swid IS NOT NULL
+                        AND (? IS NULL OR id = ?)`, onlyLeague, onlyLeague);
+if (onlyLeague && !leagues.length) {
+  console.log(`transactions: league ${onlyLeague} is not an ESPN league with cookies here; seen 0, new 0, failed 1`);
+  process.exit(1);
+}
 const upsert = db.prepare(`INSERT INTO league_transactions_raw VALUES
   (@league_id,@season,@tx_id,@type,@status,@execution_type,@proposed_at,@processed_at,@team_id,@member_id,
    @related_tx_id,@scoring_period,@bid_amount,@is_pending,@items_json,@raw_json,@first_seen_at,@last_seen_at)
@@ -48,6 +68,7 @@ for (const lg of leagues) {
     const j = await r.json();
     const all = [...(j.transactions ?? []), ...(j.pendingTransactions ?? [])];
     const before = rows(`SELECT COUNT(*) AS n FROM league_transactions_raw WHERE league_id = ? AND season = ?`, lg.id, lg.season)[0].n;
+    let snap, links;
     // node:sqlite has no .transaction(); BEGIN/COMMIT by hand.
     db.exec('BEGIN');
     try {
@@ -61,17 +82,25 @@ for (const lg of leagues) {
           items_json: JSON.stringify(t.items ?? []), raw_json: JSON.stringify(t), first_seen_at: now, last_seen_at: now,
         });
       }
+      // The offer terms from this response, before a later sighting can overwrite
+      // items_json above; then every decision linked to its offer or typed missing.
+      snap = captureProposalSnapshots(lg.id, lg.season, all, now);
+      links = linkTradeOutcomes(lg.id, lg.season, now);
       db.exec('COMMIT');
     } catch (e) { db.exec('ROLLBACK'); throw e; }
     const after = rows(`SELECT COUNT(*) AS n FROM league_transactions_raw WHERE league_id = ? AND season = ?`, lg.id, lg.season)[0].n;
     totalNew += after - before; totalSeen += all.length;
-    console.log(`league ${lg.id} ${String(lg.name).trim()}: ${all.length} in window, ${after - before} new, ${after} stored`);
+    console.log(`league ${lg.id} ${String(lg.name).trim()}: ${all.length} in window, ${after - before} new, ${after} stored; `
+      + `offers ${snap.captured} captured / ${snap.seen} seen${snap.no_items ? ` (${snap.no_items} without items)` : ''}; `
+      + `decisions ${links.linked} linked, ${links.missing} proposal_missing `
+      + `(${Object.entries(links.byReason).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'})`);
   } catch (e) {
     failed++; console.log(`league ${lg.id}: ERROR ${String(e?.message ?? e).slice(0, 120)}`);
   }
 }
 console.log(`transactions: seen ${totalSeen}, new ${totalNew}, failed ${failed}`);
-run(`INSERT INTO sync_log (job, last_run_at, last_status, last_detail, runs) VALUES ('league_transactions', ?, ?, ?, 1)
+run(`INSERT INTO sync_log (job, last_run_at, last_status, last_detail, runs) VALUES (?, ?, ?, ?, 1)
      ON CONFLICT(job) DO UPDATE SET last_run_at=excluded.last_run_at, last_status=excluded.last_status,
-     last_detail=excluded.last_detail, runs=runs+1`, now, failed ? 'error' : 'ok', JSON.stringify({ seen: totalSeen, new: totalNew, failed }));
+     last_detail=excluded.last_detail, runs=runs+1`, onlyLeague ? 'league_transactions_focus' : 'league_transactions',
+     now, failed ? 'error' : 'ok', JSON.stringify({ seen: totalSeen, new: totalNew, failed, ...(onlyLeague ? { league: onlyLeague } : {}) }));
 process.exit(0);

@@ -29,6 +29,7 @@
     "fit:nfl-props": "node scripts/fit-prop-calibration.mjs",
     "diagnose:nfl-passing": "node scripts/diagnose-passing-components.mjs",
     "audit:nfl-passing-specialists": "node scripts/audit-passing-specialists.mjs",
+    "collect:transactions": "node --env-file-if-exists=.env scripts/collect-league-transactions.mjs",
     "sync:ffopportunity": "node --env-file-if-exists=.env scripts/sync-ffopportunity.mjs",
     "import:scottfree": "node scripts/import-scottfree.mjs",
     "news:event-impact": "node --env-file-if-exists=.env scripts/run-news-event-impact.mjs",

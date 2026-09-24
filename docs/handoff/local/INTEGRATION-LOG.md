@@ -2,7 +2,37 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-24 11:53Z.
+Last rebuilt: 2026-09-24 13:43Z.
+
+## #373: fix: Nick's own untouchable notes protect his players
+
+- Merged: 9:43 AM ET, Sep 24 as `155d9f45`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #372: feat: never plan a trade where Nick gives more market value than he gets
+
+- Merged: 9:25 AM ET, Sep 24 as `b14a137d`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #370: fix: War Room polish 2 - brief names managers, one walk-away, chip wraps, tabs clear the button
+
+- Merged: 8:52 AM ET, Sep 24 as `746465c3`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #368: feat: Coach brief reads what league-mates said and who is credible (BRIEF-PEOPLE)
+
+- Merged: 8:33 AM ET, Sep 24 as `8a10834c`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #367: fix: send-when in Eastern time; People Board over-limit wording
+
+- Merged: 8:18 AM ET, Sep 24 as `1e9a5ce3`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #364: Integration 6: people board, names, partner kernel, title-odds fix (11 PRs)
 

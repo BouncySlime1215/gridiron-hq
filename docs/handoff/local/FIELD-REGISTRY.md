@@ -3,6 +3,7 @@
 |---|---|---|---|
 | people.profile (typed, nick block) | server/services/people/profile-reader.js | #260 (ONE-READER) | counterpart, campaign partners, Coach people_read, UI-ENG-4, bandit, chat-labels |
 | people.counterpart (P(responds), P(yes), reply mix, yes-point) | server/services/people/counterpart.js | #254 (ONE-COUNTERPART) | planner opponent model (COUNTERPART-02), Coach roleplay/negotiate, People board |
+| tells.card / tells.prior_trades / tells.checkout_risk (and event league.team_counter via the tells_team_counters adapter) | server/services/tells/producer.js (scripts/engine-tells.mjs) | #268 (TELLS-01b) | tells card route (card); counterpart.js prior_trades feature, default-off, P(responds) only (prior_trades); NOT counterparty-pricing.js (FIX-268-8) |
 | people.credibility | server/services/people/credibility.js | CRED-01 | counterpart (targets only), Coach |
 | people.pulse (labelled statements) | server/services/people/pulse.js | PULSE-01 | replan trigger, ticker, Coach pulse_read |
 | plans.json (destination, next_move, alternatives, flip_map, targets, itinerary, catch_up, speed, feasibility) | scripts/campaign/produce-plans.mjs + campaign/* | #233 + #272 (ONE-PLANNER) | War Room view, Coach plan_read, PUSH-01, STEP-LOG |
@@ -16,6 +17,7 @@
 | served numbers log | #243 SERVE-LOG | #243 | E-graders, Coach recall |
 | fatigue (offers sent this week) | FIX-07 sentThisWeek | #275 | planner, REP-01 |
 | last-good fallback | engine spine state.js | #250 | all views |
+| hypo.surprise (event; detail rows in surprise_hypotheses 095) | server/services/hypo/surprise.js#detectSurprises (scripts/hypo-surprise.mjs) | #277 (HYPO-01a, FIX-277-6) | R&D / Jev hypothesis queue; HYPO-01b screen (future) |
 
 ## Hub rule (Nick 9/24 12:55 AM: "every box connected to every box, one giant system")
 Everything connects THROUGH the engine state hub (engine_events + engine_state, #216 EA-00 spine + #250 state), not box to box. Every producer publishes its fields to the hub with source + as_of; every screen and Coach reads from the hub. That makes every box one hop from every other, with one owner per number. Direct box-to-box reads are how tonight's duplicates happened. The CONVERGE GATE requires the spine merged, and the ONE-* units must publish through it.

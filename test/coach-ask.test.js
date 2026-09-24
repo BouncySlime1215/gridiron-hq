@@ -158,11 +158,13 @@ test('a refused tool call is fed back to the model rather than failing the quest
   assert.equal(result.ledger.queries.length, 1, 'the refused query left no ledger entry');
 });
 
-test('a fault that is not a refusal ends the question instead of becoming a tool result', async () => {
+test('a fault that is not a refusal ends the question with a plain "couldn\'t check" instead of a tool result', async () => {
   // A refusal is information the model can act on. A missing database object
   // is not — it means a layer has gone inert, and handing it to the model as
   // "here is an error, carry on" is how this app has twice shipped a page that
-  // kept printing numbers after its data layer died.
+  // kept printing numbers after its data layer died. So the model is not asked
+  // again; since HEALTH-01c the question ends with an answer that says what
+  // could not be checked and why, rather than with a thrown error.
   const { rows } = await import('../server/db/index.js');
   const viewSql = rows(`SELECT sql FROM sqlite_master WHERE name = 'nfl_news_signals_current'`)[0]?.sql;
   assert.ok(viewSql, 'the view who_plays reads is missing from the test database');
@@ -170,8 +172,11 @@ test('a fault that is not a refusal ends the question instead of becoming a tool
   try {
     const client = scripted(toolUse('who_plays', { season: 2025, week: 3, team: 'PHI' }));
     setAnthropicClientForTesting(client);
-    await assert.rejects(() => askCoach({ question: 'who is out for PHI' }),
-      /nfl_news_signals_current|no such/i);
+    const result = await askCoach({ question: 'who is out for PHI' });
+    assert.equal(result.answer.claims.length, 0, 'a claim shipped past a real fault');
+    assert.ok(result.answer.refusals.some(r => /^I couldn't check who_plays because .*(nfl_news_signals_current|no such)/i.test(r)),
+      JSON.stringify(result.answer.refusals));
+    assert.ok(result.plan.some(e => e.t === 'tool_error'), 'the fault is not in the trace');
     assert.equal(client.sent.length, 1, 'the model must not be asked to carry on past a real fault');
   } finally {
     run(viewSql);

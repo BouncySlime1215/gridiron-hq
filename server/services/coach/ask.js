@@ -17,6 +17,14 @@
  * Nothing here decides anything. Coach explains, retrieves and computes through
  * the ledger; it cannot write to the database (the query connection is
  * read-only), set a lineup, or send a message.
+ *
+ * WR-COACH. Asked from the War Room (context.surface === 'war_room', flag on),
+ * Coach also gets UI tools (tools.js WARROOM_TOOLS). Each returns a typed
+ * action that comes back in `actions` for the client dispatcher; the client
+ * refuses anything outside the schema and gates plan changes behind a
+ * trade-off preview and Nick's Confirm tap. Plain screen commands ("show the
+ * flip map for league 3", "undo") skip the model entirely (intent.js). The
+ * grounding check is unchanged: a claim with an invented number still fails.
  */
 import { callClaude, parseJson } from '../claude.js';
 import { catalog, readableTables } from './catalog.js';
@@ -25,6 +33,8 @@ import { CoachQueryRefused, CoachQueryFailed } from './select.js';
 import { newLedger, LedgerError } from './ledger.js';
 import { verifyAnswer } from './verify.js';
 import { recordCoachAnswer } from './audit.js';
+import { warRoomEnabled } from '../warroom-actions/store.js';
+import { routeIntent } from '../warroom-actions/intent.js';
 
 /**
  * Rounds of model call. One round is one Claude turn; a round that asks for
@@ -56,7 +66,11 @@ function catalogBrief() {
     .join('\n');
 }
 
-function systemPrompt() {
+const WAR_ROOM_PROMPT = `
+
+THE WAR ROOM. This question comes from the War Room dashboard, and you have War Room tools that change the screen (warroom_view, warroom_plug_in, warroom_plan_change, warroom_draft_message). Use them when Nick asks to see, arrange, filter, pin, chart or change something. They return actions the dashboard applies; you never state a number that only an engine field holds, and plan changes (goal, stops, risk mode, tolerances) only open a preview that waits for Nick's Confirm tap. You never send anything to a league-mate: if asked, refuse and say he sends it himself. When a tool did what was asked, "claims" may be empty; the dashboard describes the change and ends with the destination, stops left and the next move.`;
+
+function systemPrompt({ warRoom = false } = {}) {
   return `You are Coach, the answering layer of a personal fantasy-football app. You answer from rows in this app's database and from its own services. You have no other source. Your training knowledge about players, teams, schedules, injuries and results is out of date and is not evidence here; if a fact is not in a tool result, you do not have it.
 
 WHAT YOU MAY READ. These tables, and nothing else. A question about anything absent from this list is answered by saying Coach does not read it.
@@ -71,6 +85,8 @@ WHAT IS ON SCREEN. If the user's message includes what the page is showing, that
 
 REFUSING IS AN ANSWER. If the data is not there, say so plainly and specifically: which table you would have needed, or what has never been collected. Do not estimate, do not reason from general football knowledge, and do not soften a gap into a hedge. A short honest refusal is worth more than a paragraph that cannot be checked.
 
+ENGINE NUMBERS. engine_read returns one engine number with its health. When its fallback_used is true or its served_status is not "ok", the claim citing it must say so in words (name the fallback, or say the number is degraded). A served_status of "failed" has no number: say you cannot give it and why. Coach adds the as-of and checks line for engine numbers itself.
+
 DATA AGE. Some tables are only as current as the last time a person ran something — they are marked (by_hand) above. If your answer stands on one, put the age in the "as_of" field in plain words. An answer built on stale data that reads as current is the failure this app cares most about.
 
 YOUR OUTPUT. When you are ready to answer, reply with ONLY this JSON object and no other text:
@@ -79,7 +95,7 @@ YOUR OUTPUT. When you are ready to answer, reply with ONLY this JSON object and 
   "refusals": [ "what you could not answer, and why" ],
   "as_of": "how old the hand-collected data behind this is, or null"
 }
-Write the claims the way a knowledgeable friend would say them out loud: short sentences, the answer first, no hedging and no restating of the question. One idea per claim.`;
+Write the claims the way a knowledgeable friend would say them out loud: short sentences, the answer first, no hedging and no restating of the question. One idea per claim.${warRoom ? WAR_ROOM_PROMPT : ''}`;
 }
 
 function userPrompt({ question, context, leagueId }) {
@@ -108,16 +124,52 @@ ${lines.join('\n')}
 Fix it. You may call a tool to retrieve what is missing if you have rounds left. If a claim cannot be supported by something you actually retrieved, remove it and put the gap in "refusals" instead — that is the correct answer, not a failure. Reply with only the JSON object.`;
 }
 
-/** The deterministic refusal used when a second attempt still cannot be stood up. */
-function refusalFor(verification) {
+/** Engine reads this turn whose own latest row failed its checks. */
+const failedEngineReads = ledger => ledger.queries.filter(q => q.health?.problem === 'failed');
+
+/**
+ * The deterministic refusal used when a second attempt still cannot be stood up.
+ * When an engine number failed this turn the ungrounded numbers are not echoed:
+ * one of them may be the failed number, and a refusal must not be where it ships.
+ */
+function refusalFor(verification, ledger) {
   const numbers = [...new Set(verification.violations
     .filter(v => v.kind === 'ungrounded_number').map(v => v.number))];
+  if (numbers.length && failedEngineReads(ledger).length) {
+    return `Coach could not trace ${numbers.length === 1 ? 'one number' : `${numbers.length} numbers`} back to ` +
+      'anything it retrieved, so it is not showing the answer.';
+  }
   if (numbers.length) {
     return `Coach could not trace ${numbers.length === 1 ? 'one number' : `${numbers.length} numbers`} ` +
       `(${numbers.join(', ')}) back to anything it retrieved, so it is not showing the answer. ` +
       'Ask again more narrowly, or ask what Coach does read about this.';
   }
   return 'Coach could not support its own answer from the data it retrieved, so it is not showing it.';
+}
+
+/**
+ * HEALTH-01c, applied to every answer before it is checked:
+ *   - `health`: the as-of and checks line for each engine number the claims cite;
+ *   - a refusal for each engine number that failed its checks this turn, with the reason
+ *     (Coach declines the number; a fallback served in its place is named by the claim);
+ *   - a refusal "I couldn't check X because Y" for each tool that threw.
+ */
+function withHealth(answer, ledger, toolErrors) {
+  const cited = new Map();
+  for (const claim of answer.claims) {
+    for (const source of claim.cites.flatMap(cite => ledger.trace(cite, []))) {
+      const h = source.health;
+      if (h) cited.set(`${h.entity}|${h.field}`, h);
+    }
+  }
+  const lines = [...cited.values()].map(h => `${h.field} for ${h.entity} as of ${h.as_of ?? 'no row'}: ` +
+    `${h.checks_passed ? 'checks passed' : 'checks not passed'}` +
+    (h.fallback_used ? `; fallback ${h.fallback_field} served (${h.reason})`
+      : h.status === 'degraded' ? `; degraded (${h.reason})` : ''));
+  const declined = failedEngineReads(ledger).map(q => `I couldn't use ${q.health.field} for ${q.health.entity}: ${q.health.reason}.`);
+  const errors = toolErrors.map(e => `I couldn't check ${e.what} because ${e.message}.`);
+  const refusals = [...new Set([...answer.refusals, ...declined, ...errors])];
+  return { ...answer, refusals, health: lines.length ? lines.join('. ') : null };
 }
 
 function answerFrom(parsed) {
@@ -148,9 +200,29 @@ export async function askCoach({ question, context = null, leagueId = null,
   }
 
   const ledger = newLedger();
+  const toolErrors = [];
   const plan = [];
+  const actions = [];
   const emit = event => { plan.push(event); onEvent(event); };
   emit({ t: 'understood', question: asked });
+
+  const warRoom = context?.surface === 'war_room' && warRoomEnabled();
+  if (warRoom) {
+    const fast = routeIntent(asked);
+    if (fast?.refuse) {
+      emit({ t: 'answer', claims: 0, refusals: 1, fast_path: true });
+      return { question: asked, answer: { claims: [], refusals: [fast.refuse], as_of: null }, actions: [],
+        ledger: ledger.toJson(), verification: { ok: true, violations: [], warnings: [], numbers_checked: 0, fast_path: true },
+        plan, audit_id: null, cost_usd: 0 };
+    }
+    if (fast) {
+      const { action } = runCoachTool(fast.tool, fast.input, { ledger });
+      emit({ t: 'action', action, fast_path: true });
+      return { question: asked, answer: { claims: [], refusals: [], as_of: null }, actions: [action],
+        ledger: ledger.toJson(), verification: { ok: true, violations: [], warnings: [], numbers_checked: 0, fast_path: true },
+        plan, audit_id: null, cost_usd: 0 };
+    }
+  }
 
   const messages = [{ role: 'user', content: userPrompt({ question: asked, context, leagueId }) }];
   let retried = false;
@@ -165,8 +237,8 @@ export async function askCoach({ question, context = null, leagueId = null,
       // System (with the tools in front of it) is the stable breakpoint; the
       // conversation cache lets each round re-read the rounds before it, whose
       // tool results are most of what a later round sends.
-      system: systemPrompt(), cacheSystem: true, cacheConversation: true, messages,
-      tools: toolDefinitions(),
+      system: systemPrompt({ warRoom }), cacheSystem: true, cacheConversation: true, messages,
+      tools: toolDefinitions({ warRoom }),
       toolChoice: isFinalRound ? { type: 'none' } : undefined
     });
     costUsd += msg.cost_usd ?? 0;
@@ -175,7 +247,15 @@ export async function askCoach({ question, context = null, leagueId = null,
     if (toolUses.length && !isFinalRound) {
       emit({ t: 'planning', tools: toolUses.map(block => block.name) });
       messages.push({ role: 'assistant', content: msg.content });
-      messages.push({ role: 'user', content: toolUses.map(block => runOne(block, { ledger, emit })) });
+      messages.push({ role: 'user', content: toolUses.map(block => runOne(block, { ledger, emit, leagueId, toolErrors, actions })) });
+      if (toolErrors.length) {
+        // A real fault ends the question here: the model is not asked to carry on past a
+        // layer that has gone inert, and nothing it drafted ships. The user gets the plain
+        // "I couldn't check X because Y" with HTTP 200, not an error page.
+        answer = withHealth({ claims: [], refusals: [], as_of: null }, ledger, toolErrors);
+        verification = { ...verifyAnswer({ answer, ledger, question: asked }), retried, tool_errors: toolErrors };
+        break;
+      }
       continue;
     }
 
@@ -196,14 +276,20 @@ export async function askCoach({ question, context = null, leagueId = null,
       continue;
     }
 
-    answer = answerFrom(parsed);
+    answer = withHealth(answerFrom(parsed), ledger, toolErrors);
     emit({ t: 'checking', numbers: answer.claims.length });
     verification = { ...verifyAnswer({ answer, ledger, question: asked }), retried };
+    // A War Room turn whose whole answer was a screen change is not silence.
+    // Only the empty-answer rule relaxes; every number rule stands.
+    if (actions.length && verification.violations.every(v => v.kind === 'empty_answer')) {
+      verification = { ...verification, ok: true, violations: [], answered_by_actions: actions.length };
+    }
 
     if (verification.ok) break;
     if (retried) {
       emit({ t: 'rejected', violations: verification.violations, final: true });
-      answer = { claims: [], refusals: [...answer.refusals, refusalFor(verification)], as_of: answer.as_of };
+      answer = { claims: [], refusals: [...answer.refusals, refusalFor(verification, ledger)], as_of: answer.as_of,
+        health: null };
       break;
     }
     retried = true;
@@ -226,7 +312,7 @@ export async function askCoach({ question, context = null, leagueId = null,
     answer, ledger: ledgerJson, plan, verification, costUsd
   });
 
-  return { question: asked, answer, ledger: ledgerJson, verification, plan,
+  return { question: asked, answer, actions, ledger: ledgerJson, verification, plan,
     audit_id: auditId, cost_usd: costUsd };
 }
 
@@ -236,14 +322,20 @@ export async function askCoach({ question, context = null, leagueId = null,
  * A refusal, a bad query and a bad argument all come back to the model as
  * results rather than ending the question: the boundary is information it can
  * act on, and hiding it would just make the next round guess again. Anything
- * that is not one of those is a real fault and is left to throw.
+ * that is not one of those is a real fault (HEALTH-01c): it is recorded in
+ * `toolErrors` and emitted as a `tool_error` event, and askCoach ends the
+ * question on it with the plain refusal "I couldn't check X because Y": the
+ * model is not asked to carry on past it, and the answer still ships.
  */
-function runOne(block, { ledger, emit }) {
+function runOne(block, { ledger, emit, leagueId = null, toolErrors = [], actions = [] }) {
   const started = Date.now();
   emit({ t: 'query', id: null, tool: block.name, status: 'running', input: block.input ?? {} });
   try {
-    const { entry, summary } = runCoachTool(block.name, block.input ?? {}, { ledger });
-    if (entry && entry.op) {
+    const { entry, summary, action } = runCoachTool(block.name, block.input ?? {}, { ledger, leagueId });
+    if (action) {
+      actions.push(action);
+      emit({ t: 'action', action });
+    } else if (entry && entry.op) {
       emit({ t: 'computing', id: entry.id, label: entry.label, formula: entry.formula, value: entry.value });
     } else if (entry) {
       emit({ t: 'query', id: entry.id, tool: block.name, status: 'done',
@@ -257,7 +349,15 @@ function runOne(block, { ledger, emit }) {
   } catch (e) {
     const expected = e instanceof CoachQueryRefused || e instanceof CoachQueryFailed
       || e instanceof CoachToolError || e instanceof LedgerError;
-    if (!expected) throw e;
+    if (!expected) {
+      const input = block.input ?? {};
+      const what = block.name === 'engine_read' && input.field ? `${input.field} for ${input.entity}` : block.name;
+      const message = String(e?.message || e || 'an unknown error').replace(/\.$/, '');
+      toolErrors.push({ tool: block.name, what, message });
+      emit({ t: 'tool_error', tool: block.name, reason: message, ms: Date.now() - started });
+      return { type: 'tool_result', tool_use_id: block.id, is_error: true,
+        content: JSON.stringify({ error: `${block.name} failed: ${message}`, kind: 'fault' }) };
+    }
     emit({ t: 'refused', tool: block.name, reason: e.message, ms: Date.now() - started });
     return { type: 'tool_result', tool_use_id: block.id, is_error: true,
       content: JSON.stringify({ error: e.message, kind: e.kind ?? 'tool' }) };

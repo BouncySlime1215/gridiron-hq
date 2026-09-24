@@ -7,7 +7,7 @@
  *              offer: it stays `trade.considered` (backfill.js).
  * rec.*        from `rec_ledger` (#174, migration 071): shown / considered_not_shown at
  *              made_at, and `rec.graded` at graded_at once #174's settle pass fills it.
- *              #174 is not on main; until it lands this stream reports table_absent.
+ *              #174 is on main; on a DB without it (before 071) this stream reports table_absent.
  *
  * snapshot_id  what makes "replay any decision exactly" real. For a rec row it is
  *              `predicted_json.snapshot_id` when the writer put one there (§7.1: no schema

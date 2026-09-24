@@ -18,6 +18,10 @@
  * number cannot be added here quietly. Where a question has no service, Coach
  * writes SQL through the guarded layer rather than growing a model for it.
  *
+ * `engine_read` reads one engine field through engine/views.js#readServed and records
+ * its served health with the row (HEALTH-01c): verify.js holds a claim to it, and the
+ * failed value itself never reaches the ledger.
+ *
  * `catalog_lookup` is the one tool whose result does NOT enter the ledger.
  * What Coach may read is metadata about Coach, not evidence about football,
  * and a claim about the world must never be able to cite it.
@@ -28,6 +32,10 @@ import { whoPlays } from '../who-plays.js';
 import { teamTendencies } from '../nfl-team-tendencies.js';
 import { coachingProfile, footballContext } from '../football-context.js';
 import { sourceTrustScore } from '../beat-reporter-accuracy.js';
+import { isLeagueScoped, ENTITY_KEYS } from '../engine/state.js';
+import { readServed } from '../engine/views.js';
+import { normalizeAsOf } from '../engine/events.js';
+import { validateAction, ACTION_TYPES, PANELS, PLUG_IN_FIELDS, PLAN_CHANGING } from '../warroom-actions/schema.js';
 
 export class CoachToolError extends Error {
   constructor(message) { super(message); this.name = 'CoachToolError'; }
@@ -173,6 +181,22 @@ export const COACH_TOOLS = Object.freeze([
       label: { type: 'string' } } },
     run() { throw new CoachToolError('compute is handled by the ledger, not by run().'); }
   },
+  {
+    name: 'engine_read',
+    kind: 'engine',
+    source: 'server/services/engine/views.js#readServed',
+    tables: ['engine_state'],
+    description: 'Read one engine number with its health: the served value, when it is as of, whether its checks ' +
+      'passed, and, when the number failed its checks or was built on degraded inputs, the fallback served in its ' +
+      'place and why. A claim citing it must say so when fallback_used is true or served_status is not "ok"; a ' +
+      'served_status of "failed" has no value and must be declined with its reason.',
+    input_schema: { type: 'object', required: ['entity', 'field'], properties: {
+      entity: { type: 'string', description: '<entity type>:<id>, e.g. player:9001 or league_team:3:10' },
+      field: { type: 'string', description: 'the engine field, e.g. proj.player_week' },
+      league_id: { type: 'integer', description: 'required for league-scoped entities' },
+      as_of: { type: 'string', description: 'ISO time; default now' } } },
+    run: readEngine
+  },
   service({
     name: 'who_plays',
     source: 'server/services/who-plays.js#whoPlays',
@@ -237,9 +261,119 @@ export const COACH_TOOLS = Object.freeze([
   })
 ]);
 
-/** The tool blocks handed to Claude: no functions, no internals. */
-export function toolDefinitions() {
-  return COACH_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema }));
+/** engine_read: one field through the HEALTH-01b reader, as one row plus its health. */
+function readEngine(input, { leagueId: askedLeague = null } = {}) {
+  const entity = nonEmptyString(input?.entity, 'entity');
+  const field = nonEmptyString(input?.field, 'field');
+  const cut = entity.indexOf(':');
+  const entityType = cut > 0 ? entity.slice(0, cut) : '';
+  const entityId = cut > 0 ? entity.slice(cut + 1) : '';
+  if (!ENTITY_KEYS[entityType] || !entityId) {
+    throw new CoachToolError(`entity must be <type>:<id> with a registered type, got ${JSON.stringify(entity)}.`);
+  }
+  const leagueId = input?.league_id == null ? null : int(input.league_id, 'league_id');
+  if (isLeagueScoped(entityType) && leagueId == null) throw new CoachToolError(`${entityType} is league-scoped: pass league_id.`);
+  if (leagueId != null && askedLeague != null && leagueId !== askedLeague) {
+    throw new CoachToolError(`Coach reads league ${askedLeague} in this conversation, not ${leagueId}.`);
+  }
+  let asOf;
+  try { asOf = normalizeAsOf(input?.as_of ?? new Date()); } catch (e) { throw new CoachToolError(e.message); }
+  const served = readServed(entityType, entityId, field, { asOf, leagueId });
+  const row = served.row;
+  const health = {
+    field, entity, status: served.status, as_of: row?.as_of ?? null,
+    checks_passed: row ? (row.health?.checks ?? []).every(c => c.passed) : false,
+    fallback_used: served.fallback_used, fallback_field: served.fallback?.field ?? null,
+    fallback_kind: served.fallback?.kind ?? null, reason: served.reason ?? null,
+    // What the field's own latest row was when something else was served: 'failed' or 'degraded'.
+    problem: served.problem?.status ?? null,
+  };
+  // value, or value_<path> for an object value: underscores, because a cite's column is one identifier.
+  const valueCols = Object.fromEntries(Object.entries(toRows({ value: served.value }).rows[0])
+    .map(([k, v]) => [k.replace(/\./g, '_'), v]));
+  const out = { field, entity, served_status: served.status, ...valueCols, as_of: health.as_of,
+    checks_passed: health.checks_passed, fallback_used: health.fallback_used, fallback_field: health.fallback_field,
+    reason: health.reason };
+  return { rows: [out], health };
+}
+
+/**
+ * WR-COACH: Coach's War Room tools. Each returns ONE typed UI action (the
+ * schema is server/services/warroom-actions/schema.js) for the client
+ * dispatcher to apply; nothing enters the ledger, because an action is not
+ * evidence about football. The client refuses any action outside the schema,
+ * and plan-changing actions only open a trade-off preview that waits for
+ * Nick's Confirm tap. No tool here can send anything to a league-mate.
+ */
+const uiTool = ({ name, types, description, properties }) => ({
+  name, kind: 'ui_action', source: 'server/services/warroom-actions/schema.js#validateAction', tables: [],
+  types: Object.freeze(types), description,
+  input_schema: { type: 'object', required: ['type'], properties: { type: { type: 'string', enum: types }, ...properties } },
+  run(input) {
+    if (!types.includes(input?.type)) {
+      throw new CoachToolError(`${name} does ${types.join(', ')}; ${JSON.stringify(input?.type)} is not one of them.`);
+    }
+    const checked = validateAction(input);
+    if (!checked.ok) throw new CoachToolError(`Refused: ${checked.error}.`);
+    return { action: checked.action };
+  }
+});
+
+const VIEW_TYPES = ACTION_TYPES.filter(t => !PLAN_CHANGING.includes(t) && !['plug_in', 'draft_message'].includes(t));
+
+export const WARROOM_TOOLS = Object.freeze([
+  uiTool({
+    name: 'warroom_view',
+    types: VIEW_TYPES,
+    description: 'Change what the War Room dashboard shows. focus_panel switches league (league = the number on ' +
+      'the league switcher) and brings a panel into the main slot; filter / sort apply to the panel; pin_card keeps ' +
+      'a player or offer on screen; arrange_layout resizes or moves a panel; reset_layout restores the default grid; ' +
+      'undo reverts the last change; next skips the current offer in the deck; explain highlights the reason chain. ' +
+      'Every change is one-tap undoable.',
+    properties: {
+      panel: { type: 'string', enum: [...PANELS] }, league: { type: 'integer' },
+      position: { type: 'string' }, by: { type: 'string' }, player_id: { type: 'string' }, move_id: { type: 'string' },
+      size: { type: 'string', enum: ['normal', 'large'] }, order: { type: 'integer' }
+    }
+  }),
+  uiTool({
+    name: 'warroom_plug_in',
+    types: ['plug_in'],
+    description: 'Add a card to the dashboard bound to one engine field, shown as a number, list, sparkline or table. ' +
+      'You choose WHICH field and HOW to show it; the value is read from the engine, never written by you. Fields: ' +
+      Object.entries(PLUG_IN_FIELDS).map(([f, v]) => `${f} (${v.join('/')})`).join(', ') + '.',
+    properties: { field: { type: 'string', enum: Object.keys(PLUG_IN_FIELDS) }, view: { type: 'string' }, title: { type: 'string' } }
+  }),
+  uiTool({
+    name: 'warroom_plan_change',
+    types: [...PLAN_CHANGING],
+    description: 'Propose a change to the plan: set_objective (goal title / playoffs / get_player / points, optional ' +
+      'arrive_by week), add_stop, remove_stop, set_risk_mode (safe / balanced / all_in, optional until_week), ' +
+      "set_tolerance. Nothing changes when you call this: the dashboard shows the engine's trade-off preview and waits " +
+      'for Nick to tap Confirm. Never state the trade-off numbers yourself; the preview shows them.',
+    properties: {
+      goal: { type: 'string' }, player_id: { type: 'string' }, points_per_week: { type: 'integer' }, arrive_by: { type: 'integer' },
+      stop: { type: 'object' }, stop_id: { type: 'string' }, mode: { type: 'string' }, until_week: { type: 'integer' },
+      key: { type: 'string' }, value: { type: 'number' }
+    }
+  }),
+  uiTool({
+    name: 'warroom_draft_message',
+    types: ['draft_message'],
+    description: "Fill the next-move message box with a draft for Nick to copy. Words only, no digits (numbers come from " +
+      'the engine). Coach never sends it: Nick copies it and sends it himself.',
+    properties: { text: { type: 'string' }, tone: { type: 'string', enum: ['softer', 'firmer', 'neutral'] } }
+  })
+]);
+
+/**
+ * The tool blocks handed to Claude: no functions, no internals. The War Room
+ * tools are declared only when the question comes from the War Room with the
+ * flag on, so every other Coach surface keeps exactly today's tool list.
+ */
+export function toolDefinitions({ warRoom = false } = {}) {
+  const tools = warRoom ? [...COACH_TOOLS, ...WARROOM_TOOLS] : COACH_TOOLS;
+  return tools.map(({ name, description, input_schema }) => ({ name, description, input_schema }));
 }
 
 /**
@@ -247,15 +381,23 @@ export function toolDefinitions() {
  *
  * @returns {{entry: object|null, summary: object}} `entry` is the ledger entry a
  *   claim can cite, or null for metadata. `summary` is what goes back to the
- *   model: small, and enough to write the next cite.
- * @throws {CoachToolError} unknown tool or bad arguments
+ *   model: small, and enough to write the next cite. A War Room tool also
+ *   returns `action`, the validated UI action for the client dispatcher.
+ * @throws {CoachToolError} unknown tool, bad arguments, or a refused UI action
  * @throws refusals and SQL errors from the guarded query layer, unchanged
  */
-export function runCoachTool(name, input, { ledger } = {}) {
-  const tool = COACH_TOOLS.find(t => t.name === name);
+export function runCoachTool(name, input, { ledger, leagueId = null } = {}) {
+  const tool = COACH_TOOLS.find(t => t.name === name) ?? WARROOM_TOOLS.find(t => t.name === name);
   if (!tool) {
     throw new CoachToolError(
       `There is no tool called ${name}. Coach has: ${COACH_TOOLS.map(t => t.name).join(', ')}.`);
+  }
+  if (tool.kind === 'ui_action') {
+    const { action } = tool.run(input);
+    return { entry: null, action,
+      summary: { action, note: PLAN_CHANGING.includes(action.type)
+        ? 'Sent to the dashboard as a preview. Nothing changes until Nick taps Confirm.'
+        : 'Sent to the dashboard. Nick can undo it with one tap.' } };
   }
   if (!ledger) throw new CoachToolError('A tool call needs the turn\'s ledger.');
 
@@ -272,6 +414,15 @@ export function runCoachTool(name, input, { ledger } = {}) {
     const { result } = tool.run(input);
     const entry = ledger.record(result);
     return { entry, summary: summarise(entry) };
+  }
+
+  if (tool.kind === 'engine') {
+    const { rows, health } = tool.run(input, { leagueId });
+    const entry = ledger.record({
+      tool: name, sql: null, params: [], tables: tool.tables, columns: Object.keys(rows[0]), rows,
+      row_count: rows.length, truncated: false, provenance: {}, health
+    });
+    return { entry, summary: { ...summarise(entry), health } };
   }
 
   const { value, tables } = tool.run(input);

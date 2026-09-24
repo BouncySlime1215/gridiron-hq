@@ -98,6 +98,7 @@ import { counterpartyLayer, readDeal, counterpartyDataKey, playerValuation, self
 // Nick on our own numbers never reaches the list, whatever the other manager
 // thinks of it (master plan 00 D4, "a gift, not a trade").
 import { edgeTest, tacticsForDeal, timingRead, vetoClimate } from './trade-tactics.js';
+import { LOST_IDEAS } from './rec-ledger.js';
 import { acceptanceBand } from './trade-acceptance.js';
 import { servedAcceptBand } from './price-band.js';
 // tradeIdeas() only: this roster's real P(make playoffs), which is what turns the
@@ -118,8 +119,9 @@ import { servedAcceptBand } from './price-band.js';
 // playoff odds"), which does not exist yet. When it ships, myPlayoffOdds() should
 // read it and this import goes away. Until then the alternative was leaving the
 // live /find route on the 0.5 prior, which is the bug this item exists to fix.
-import { simulateSeason, simStartWeek } from './season-sim.js';
-import { horizonWeights, horizonGain, horizonNote, leagueSchedule } from './trade-horizon.js';
+import { simulateSeason, simStartWeek, tradeImpact, tradeImpactWorld } from './season-sim.js';
+import { titleMutualMode, titleCandidate, titleMutualDeals } from './title-mutual.js';
+import { horizonWeights, horizonGain, horizonNote, leagueSchedule, leagueShape } from './trade-horizon.js';
 // ros_ppg / playoff_ppg (and so adj_ppg): the gated rest-of-season model. This
 // week's number stays the weekly blend.
 import { buildRosProjections } from './ros-projection.js';
@@ -1494,7 +1496,7 @@ export function lineupSpan(beforePlayers, afterPlayers, slots, weeksLeft) {
 export function lineupValueContext(lg, assets, teams) {
   const onRoster = new Set(teams.flatMap(t => t.players.map(p => p.id)));
   const wire = leagueWire(lg, assets, espnPlayerResolver(assets)).filter(a => !onRoster.has(a.id));
-  const h = horizonWeights(tradeWeekContext().week, leagueSchedule(lg));
+  const h = horizonWeights(tradeWeekContext().week, { ...leagueSchedule(lg), ...leagueShape(lg) });
   return { wire, weeksLeft: h.regular_weeks_left + h.playoff_weeks_left };
 }
 
@@ -1752,9 +1754,12 @@ function findTradesKey(lg, opts = {}, ctx = null) {
   // ablation re-scored an already-surfaced list, which cannot see an idea
   // appear or disappear and reported a "no set change" that was not true.
   const zeroKey = [...zero].sort().join(',');
+  // RL-19-3: flipping the title-mutual flag (or preview mode) is a different answer.
+  const tm = titleMutualMode();
   return `findTrades:${lg.id}:${formatKey}:${target.season}:${target.week}:` +
     `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:` +
-    `${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}:z${zeroKey}`;
+    `${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}:z${zeroKey}:` +
+    `tm${tm.on ? (tm.preview ? 'p' : 1) : 0}`;
 }
 
 /**
@@ -1845,7 +1850,7 @@ function findTradesUncached(lg, {
   const odds = Number.isFinite(playoffOdds) && playoffOddsSource
     ? { value: playoffOdds, source: playoffOddsSource, interval: playoffOddsInterval }
     : horizonOdds(lg, myTeamId, playoffOdds);
-  const horizon = horizonWeights(weekNow.week, { playoffOdds: odds.value, ...leagueSchedule(lg) });
+  const horizon = horizonWeights(weekNow.week, { playoffOdds: odds.value, ...leagueSchedule(lg), ...leagueShape(lg) });
   // One memo for the whole search: the two rosters' before-lineups are the same for
   // every package against them (see evaluate()).
   const memo = new WeakMap();
@@ -1859,6 +1864,11 @@ function findTradesUncached(lg, {
 
   const myPool = candidates(me, slots, 11, excludeIds);
   const deals = [];
+  // RL-19-3: 1-for-1s the points gates drop, kept aside for the title-odds stage.
+  // Only beside the points-mutual class, and never on a hypothetical roster
+  // (teamsOverride): the simulator plays the league's real rosters.
+  const titleMode = titleMutualMode();
+  const titlePool = titleMode.on && requireMutual && !teamsOverride ? [] : null;
   // lineup_value on every returned deal (display only; nothing below ranks on it).
   const lineupCtx = lineupValueContext(lg, assets, teams);
 
@@ -1901,7 +1911,15 @@ function findTradesUncached(lg, {
 
         const ev = evaluate({ team: me, gives: give }, { team: them, gives: get }, slots,
           { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo, lineupValue: lineupCtx });
-        if (ev.me.ppg_delta < 0.4) continue;
+        if (ev.me.ppg_delta < 0.4) {
+          // The points gate, unchanged. A 1-for-1 it drops goes to the title-odds
+          // stage instead of nowhere (titleCandidate holds the other gates).
+          if (titlePool && titleCandidate(give, get, ev)) {
+            titlePool.push({ partner: them.owner, partner_id: them.roster_id,
+              i_give: give.map(slim), i_get: get.map(slim), tags: tagDeal(give, get, ev), ...ev });
+          }
+          continue;
+        }
         // Never even a "closest fit" fallback candidate — no real GM accepts leaving
         // a starting slot empty, whatever the value math says.
         if (ev.them.new_holes.length > 0) continue;
@@ -2042,6 +2060,15 @@ function findTradesUncached(lg, {
 
   deals.sort((a, b) => b.score_signed - a.score_signed);
 
+  // RL-19-3: the title-mutual class. Its pool is the 1-for-1s dropped at the week
+  // gate plus the ones that cleared it but not the both-sides gate (not mutual);
+  // both are simulated on the same paired-seed tradeImpact as every other
+  // title-odds surface. Off: the block says so and nothing else changes.
+  const titleMutual = titlePool
+    ? titleMutualDeals(lg, [...titlePool, ...deals.filter(d => titleCandidate(d.i_give, d.i_get, d))], {
+      myTeamId: me.roster_id, mode: titleMode, sim: { tradeImpact, tradeImpactWorld } })
+    : { status: 'off', deals: [] };
+
   // Found live, on a real league (2026-09): requireMutual=true (both sides'
   // OPTIMAL LINEUP must improve) found 1 partner out of 9 real opponents.
   // Dropping to the deduplicated list unfiltered used to be the only
@@ -2118,9 +2145,11 @@ function findTradesUncached(lg, {
   attachTactics(lg, shown, { deals, counterparties, weekNow, assets, teams, zero, ideaKey });
   const tacticsMs = Date.now() - tacticsStartedAt;
 
-  return { mode: 'league', me: { roster_id: me.roster_id, owner: me.owner }, slots,
+  const out = { mode: 'league', me: { roster_id: me.roster_id, owner: me.owner }, slots,
            model_context: assets.context, considered: deals.length,
            excluded_never_trade: [...blockedManagers], deals: shown,
+           // RL-19-3: a class of its own, never merged into `deals` (see title-mutual.js).
+           title_mutual: titleMutual,
            // Every player on a roster in this league. Exposed because anything
            // checking generated prose for an invented player needs the names
            // that EXIST but are not in the deal — a proposal offering a player
@@ -2155,6 +2184,20 @@ function findTradesUncached(lg, {
            // cold run measured, which is what it cost to produce this answer.
            runtime_ms: Date.now() - startedAt, tactics_ms: tacticsMs,
            zeroed_sources: [...zero] } };
+  // The ideas the edge test took away, for the recommendation ledger's
+  // considered-not-shown rows (C-08). Carried on a Symbol key, so the JSON the
+  // routes send is byte-for-byte what it was, and a cache hit returns the same
+  // object with them still attached. They are NOT written here: this search
+  // also runs for /proposals, the post-draft plan, title odds, tradeIdeas and,
+  // with teamsOverride, on the made-up post-trade roster of /sequences. Only
+  // the /find route writes them (recordRoute('find'), rec-ledger.js), the same
+  // route that writes the shown rows, so the control group comes from exactly
+  // the searches the shown group comes from. An override search never carries
+  // them at all.
+  if (!teamsOverride && !assetsOverride) {
+    Object.defineProperty(out, LOST_IDEAS, { value: lostIdeas, enumerable: false });
+  }
+  return out;
 }
 
 /**
@@ -2391,7 +2434,7 @@ export function resolvePlayer(id, assets, teams) {
 function ladderInputs(lg, myTeamId, playoffOdds, useCounterparty = true) {
   const weekNow = tradeWeekContext();
   const odds = horizonOdds(lg, myTeamId, playoffOdds);
-  const horizon = horizonWeights(weekNow.week, { playoffOdds: odds.value, ...leagueSchedule(lg) });
+  const horizon = horizonWeights(weekNow.week, { playoffOdds: odds.value, ...leagueSchedule(lg), ...leagueShape(lg) });
   const counterparties = useCounterparty
     ? counterpartyLayer(lg.id, { season: weekNow.season, week: weekNow.week })
     : new Map();

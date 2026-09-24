@@ -40,3 +40,43 @@ Targeted suites after GREEN: `campaign-brain-gate`, `campaign-producer`,
 `refresh-loop-steps`, `brain-report-rule`, `brain-report-store`,
 `eval-graders`, `number-audit`, `number-audit-collect`,
 `warroom-plans-contract`: 123 pass, 0 fail.
+
+## Sweep fixes FIX-274-1 / FIX-274-2 (2026-09-24)
+
+- **Base.** `origin/main` is merged in. #236 RL-16-1, #240 RL-19-3 and #241 RL-17-3 are
+  on main, and their readers did not exist on this branch before the merge. In the
+  conflicts, the plans-schema, contract fixture and contract test from #238's squash are
+  byte-identical to FIX-03's pre-squash parent `a1ec7ff8`, so FIX-05's side is kept.
+  `refresh-live-data.mjs` keeps FIX-05's side, which already carries main's brain_report step.
+- **FIX-274-1, the fallback is real.** When the gate has a blocking check (fell back to
+  balanced, or kept safe/balanced with testing-tier off), the producer builds the league's
+  adapter and plans it inside `preview-mode.js#withUnconfirmedForwardOff`. Inside it:
+  - `trade-horizon.js#playoffImportance` (RL-16-1) reads unmeasured.
+  - `title-mutual.js#titleMutualMode` (RL-19-3) reads off.
+  - `season-sim.js#rosBasisFlag` (RL-17-3) has its preview path off.
+
+  This holds whatever preview mode or the sites' own default-off flags say. An explicit
+  `GRIDIRON_RL17_3_ENABLED=1` stays on, since #241 shipped it as a fix. The gate now runs
+  before the adapter is built, because the world reads these sites too.
+  `_run.inputs.brain.unconfirmed_off` = `{ applied, sites, switched_off }` records the
+  sites that read ON without the gate. It is `null` when no site reader is passed, as in
+  the contract fixture.
+- **FIX-274-2.** `plans-schema.js` `brain_report.overall` accepts `stale`. For a report
+  older than 48 h, or one with no readable timestamp, `brain-gate.js` now emits `stale`
+  where it used to emit `not_enough_data`. A failing check still reads `failing`. A report
+  47 h old still reads `not_enough_data`.
+- **RED** (amended before push): on the pre-fix code, 4 of 15 fail. Test 13 shows the leak:
+  all_in + failing E1 with preview on planned partner 2 first (`p_responds` 0.9). Balanced
+  with preview off planned partner 3 first (0.65).
+- **GREEN**: 15/15 in `campaign-brain-gate.test.js`. The contract fixture was regenerated
+  (`node test/fixtures/warroom-contract/make-producer-plans.mjs`), which adds
+  `unconfirmed_off` under `_run.inputs.brain` and nothing else. Also run and passing:
+  warroom-plans-contract, fix-03-producer-contract, campaign-producer, refresh-loop-steps,
+  preview-mode, trade-horizon*, title-mutual* and rl-17-3.
+- **Mutants:** (M1) `unconfirmedForwardOff` always false → 2 fail. (M2) trigger on
+  `fell_back` instead of any blocking check → 1 fail. This mutant survived until the
+  balanced + failing case was added. (M3) the title-mutual guard removed → 2 fail.
+  (M4) `stale` ranked above `failing` → 1 fail. All four killed.
+- **Not done here:** BrainCheckCard's label for `stale` lives on #231 and #287
+  (`client/src/components/warroom/BrainCheckCard.tsx` and `types.ts`), not on this branch.
+  The PR comment carries the patch.

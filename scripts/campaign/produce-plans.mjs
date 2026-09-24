@@ -53,6 +53,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { validateLeague, validatePlans } from '../../server/services/campaign/plans-schema.js';
+import { withUnconfirmedForwardOff, UNCONFIRMED_FORWARD_SITES } from '../../server/services/preview-mode.js';
 import { planLeague } from '../../server/services/campaign/planner.js';
 import { normaliseObjective } from '../../server/services/campaign/objectives.js';
 import { skipWeights } from '../../server/services/campaign/partners.js';
@@ -142,11 +143,15 @@ export function fileInputs(id, { objectiveRow = null, fileSkips = [] } = {}) {
  * opts: { generated_at, objectives ({ id: raw objective }), skips (rows), previous (Map id -> last entry),
  *         inputs ({ skips } read status), clock, budget, log,
  *         flags (FIX-02b, optional): model-flags.js#modelFlags() for the head's producer_version,
- *         brain (FIX-05, optional): { read: readBrainReport result, applyBrainReport, numberHealth: id -> readNumberHealth result },
+ *         brain (FIX-05, optional): { read: readBrainReport result, applyBrainReport, numberHealth: id -> readNumberHealth result,
+ *                sites?: () => { rl16_1, rl17_3_preview, title_mutual } booleans, each site's own read with no gate },
  *         leagueInputs (FIX-07, optional): (id, { objectiveRow, fileSkips }) -> { objective, weights, consume, summary }
  *           (requests.js#leagueInputs; default: the objectives/skips files alone),
  *         consumed (optional array): each league that ships pushes its `consume` here for requests.js#consumeWith }
  * Without `brain`, brain_report and number_health are unknown "not read" and the requested mode is planned.
+ * FIX-274-1: when the gate falls back (a blocking check: testing-tier signals off), the league's adapter
+ * is built and planned with the unconfirmed-forward model sites off (preview-mode.js#withUnconfirmedForwardOff),
+ * whatever preview mode says; _run.inputs.brain.unconfirmed_off records which were switched off.
  */
 export async function buildPlansFile(leagues, {
   generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, log = () => {},
@@ -158,8 +163,6 @@ export async function buildPlansFile(leagues, {
     const prev = previous.get(String(id)) ?? null;
     let entry, res = null;
     try {
-      const { adapter, chat = null, adapterMs = 0 } = await load();
-      if (adapter.fail) throw new Error(`world failed: ${adapter.fail}`);
       // FIX-07: War Room requests fold into the objective and skip weights (files as fallback).
       const ins = leagueInputs(id, { objectiveRow: objectives[String(id)] ?? null, fileSkips: skips });
       const requested = ins.objective;
@@ -168,7 +171,17 @@ export async function buildPlansFile(leagues, {
         now: new Date(generated_at) }) : null;
       const objective = gate ? gate.objective : requested;
       if (gate?.rule.fell_back) log(`[warroom] league ${id}: ${gate.rule.reason}`);
-      res = planLeague(adapter, { objective, skips: ins.weights, budget });
+      // FIX-274-1: a fallback turns the unconfirmed-forward model sites off for the world AND the plan.
+      const sitesOff = !!gate && gate.rule.blocking.length > 0;
+      const unconfirmedOff = gate ? unconfirmedOffRecord(sitesOff, brain.sites) : null;
+      const buildAndPlan = async () => {
+        const loaded = await load();
+        if (loaded.adapter.fail) throw new Error(`world failed: ${loaded.adapter.fail}`);
+        return { ...loaded, res: planLeague(loaded.adapter, { objective, skips: ins.weights, budget }) };
+      };
+      const built = sitesOff ? await withUnconfirmedForwardOff(buildAndPlan) : await buildAndPlan();
+      const { adapter, chat = null, adapterMs = 0 } = built;
+      res = built.res;
       const rosterKey = res.error ? null : adapter.rosterKey?.() ?? null;
       const changed = diffNextMove(prev?._run ?? null, { next_step: res.best?.steps[0] ?? null,
         objective_version: objective.version, risk_mode: objective.risk_mode, roster_key: rosterKey });
@@ -187,7 +200,7 @@ export async function buildPlansFile(leagues, {
           deadline: adapter.league?.deadline_source ?? null, objective: objective.source,
           brain: gate ? { run_id: gate.run_id, requested_mode: requested.risk_mode, mode: gate.rule.mode,
             fell_back: gate.rule.fell_back, testing_tier_enabled: gate.rule.testing_tier_enabled,
-            read_error: brain.read.error } : { status: 'not_read' },
+            read_error: brain.read.error, unconfirmed_off: unconfirmedOff } : { status: 'not_read' },
         };
       }
       const v = validateLeague(entry);
@@ -218,6 +231,18 @@ export async function buildPlansFile(leagues, {
   const v = validatePlans(file);
   if (!v.ok) throw new Error(`plans file failed its contract check: ${v.errors.slice(0, 3).map(e => `${e.path} ${e.message}`).join('; ')}`);
   return file;
+}
+
+/**
+ * What the fallback did to the unconfirmed-forward sites, for _run.inputs.brain:
+ * { applied, sites, switched_off } where switched_off names the sites that read ON
+ * without the gate (so the fallback changed them), or null when no reader was passed.
+ */
+export function unconfirmedOffRecord(applied, sites = null) {
+  if (!applied) return { applied: false, sites: [], switched_off: [] };
+  const on = typeof sites === 'function' ? sites() : null;
+  return { applied: true, sites: [...UNCONFIRMED_FORWARD_SITES],
+    switched_off: on ? UNCONFIRMED_FORWARD_SITES.filter(k => on[k] === true) : null };
 }
 
 /** One push row per league whose next move changed. */
@@ -265,7 +290,12 @@ async function main() {
     const brainRead = readBrainReport(svc.db.db);
     console.log(`[warroom] brain report: ${brainRead.error ? `UNREADABLE ${brainRead.error}`
       : brainRead.report ? `run ${brainRead.report.run_id} computed ${brainRead.report.computed_at}` : 'none stored yet'}`);
-    const brain = { read: brainRead, applyBrainReport, numberHealth: id => readNumberHealth(svc.db.db, id, { read: readNumberAudit }) };
+    const { titleMutualMode } = await import('../../server/services/title-mutual.js');
+    // Each site's own read, outside any gate (10/6 is the one shape RL-16-1 is measured for).
+    const sites = () => ({ rl16_1: svc.horizon.playoffImportance({ teams: 10, playoffTeams: 6 }).measured === true,
+      rl17_3_preview: svc.sim.rosBasisFlag().preview === true, title_mutual: titleMutualMode().on === true });
+    const brain = { read: brainRead, applyBrainReport, sites,
+      numberHealth: id => readNumberHealth(svc.db.db, id, { read: readNumberAudit }) };
     const consumed = [];
     // Checked with validatePlans inside; a file that fails throws here and the previous file stays.
     const file = await buildPlansFile(leagues, { generated_at, objectives, skips: skips.rows, previous,

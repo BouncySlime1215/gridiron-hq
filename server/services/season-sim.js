@@ -31,7 +31,7 @@ import { loadRosters, assetUniverse, lineupSlots } from './trade-engine.js';
 import { random, withRandomSeed, keyedSeed } from './stats-util.js';
 import { weeklyAvailability } from './contingency.js';
 import { leagueCurrentWeek } from './league-week.js';
-import { previewUnconfirmed, previewFields } from './preview-mode.js';
+import { previewUnconfirmed, previewFields, unconfirmedForwardOff } from './preview-mode.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
@@ -306,6 +306,7 @@ export function rosBasisFlag() {
   const v = process.env[RL17_3_ENV];
   if (v === '1') return { on: true, preview: false };
   if (v === '0') return { on: false, preview: false };
+  if (unconfirmedForwardOff()) return { on: false, preview: false };   // FIX-274-1: preview path off on a brain-gate fallback
   const preview = previewUnconfirmed();
   return { on: preview, preview };
 }

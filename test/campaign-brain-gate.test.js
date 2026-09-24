@@ -121,10 +121,19 @@ test('stale (>48 h) and errored reports fail closed to balanced and say why', ()
   assert.equal(stale.objective.risk_mode, 'balanced');
   assert.equal(stale.section.fell_back_to, 'balanced');
   assert.ok(stale.section.blocks.some(b => /stale/.test(b)));
+  // FIX-274-2: a >48 h card says 'stale', not 'not_enough_data', and the contract takes it.
+  assert.equal(stale.section.overall, 'stale');
+  assert.deepEqual(contractErrors(asContractField(stale)), []);
   // A stale all-passing card is not "passing" on screen.
   const stalePass = GATE.applyBrainReport({ objective: objective('balanced'),
     report: report(allNed().map(r => row(r.check, STATUS.PASSING)), '2026-10-01T00:00:00.000Z'), now: NOW });
-  assert.equal(stalePass.section.overall, 'not_enough_data');
+  assert.equal(stalePass.section.overall, 'stale');
+  // 47 h is current; a failing check on a stale card still reads failing; no timestamp is stale.
+  assert.equal(GATE.applyBrainReport({ objective: objective('balanced'), report: report(allNed(), '2026-10-03T13:00:00.000Z'), now: NOW })
+    .section.overall, 'not_enough_data');
+  assert.equal(GATE.applyBrainReport({ objective: objective('balanced'), report: { ...failingE1(), computed_at: '2026-10-01T00:00:00.000Z' }, now: NOW })
+    .section.overall, 'failing');
+  assert.equal(GATE.applyBrainReport({ objective: objective('balanced'), report: report(allNed(), 'not a date'), now: NOW }).section.overall, 'stale');
 
   const errored = GATE.applyBrainReport({ objective: objective('all_in'), report: null, error: 'no such table: brain_report', now: NOW });
   assert.equal(errored.objective.risk_mode, 'balanced');
@@ -258,7 +267,86 @@ test('the producer reads the report once, gates every league before planLeague, 
   assert.match(src, /readBrainReport\(/);
   assert.match(src, /readNumberHealth\(/);
   const gate = src.indexOf('applyBrainReport(');
-  const plan = src.indexOf('planLeague(adapter');
+  const plan = src.indexOf('planLeague(');
   assert.ok(gate > 0 && plan > gate, 'applyBrainReport runs before planLeague');
   assert.doesNotMatch(src, /brain_check/);
+});
+
+/* ---------------------------------------------------------- FIX-274-1: the fallback is real */
+
+const { buildPlansFile } = await import('../scripts/campaign/produce-plans.mjs');
+const { withUnconfirmedForwardOff, unconfirmedForwardOff } = await import('../server/services/preview-mode.js');
+const { playoffImportance } = await import('../server/services/trade-horizon.js');
+const { rosBasisFlag } = await import('../server/services/season-sim.js');
+const { titleMutualMode } = await import('../server/services/title-mutual.js');
+
+/** Each unconfirmed-forward site's own read, as the producer's main() passes it. */
+const siteReads = () => ({ rl16_1: playoffImportance({ teams: 10, playoffTeams: 6 }).measured === true,
+  rl17_3_preview: rosBasisFlag().preview === true, title_mutual: titleMutualMode().on === true });
+/**
+ * A league whose world reads the three sites while it is built, the way the real
+ * adapter's season-sim / trade-horizon / findTrades do: any site on moves the
+ * partners' receptiveness, so a site left on shows in the plan.
+ */
+const flagLeague = id => ({ id, load: async () => {
+  const on = Object.values(siteReads()).some(Boolean);
+  const a = makeAdapter(on ? { receptiveness: { 2: 1.8, 3: 0.2, 4: 0.4 } } : {});
+  a.league = { ...a.league, id };
+  return { adapter: a };
+} });
+const withEnv = async (vars, fn) => {
+  const keep = Object.fromEntries(Object.keys(vars).map(k => [k, process.env[k]]));
+  for (const [k, v] of Object.entries(vars)) { if (v == null) delete process.env[k]; else process.env[k] = v; }
+  try { return await fn(); } finally {
+    for (const [k, v] of Object.entries(keep)) { if (v == null) delete process.env[k]; else process.env[k] = v; }
+  }
+};
+const PREVIEW_OFF = { GRIDIRON_PREVIEW_UNCONFIRMED: null, GRIDIRON_RL16_1_ENABLED: null, GRIDIRON_TITLE_MUTUAL_ENABLED: null,
+  GRIDIRON_RL17_3_ENABLED: null };
+const brainOf = rep => ({ read: { report: rep, error: null }, applyBrainReport: GATE.applyBrainReport, sites: siteReads,
+  numberHealth: () => ({ status: 'unknown', reason: 'not built in this test' }) });
+const planOf = async (risk_mode, brain) => {
+  const f = await buildPlansFile([flagLeague(7)], { generated_at: NOW.toISOString(), objectives: { 7: { risk_mode } }, brain, clock: () => 0 });
+  const e = f.leagues[0];
+  assert.equal(e.error, undefined, e.error);
+  return e;
+};
+const planKey = e => JSON.stringify({ moves: (e.alternatives.value ?? []).map(m => m.steps.map(s => [s.partner, s.give, s.get])),
+  partners: (e.partners.value ?? []).map(p => [p.team, p.p_responds]) });
+
+test('FIX-274-1: all_in + failing E1 with preview ON plans exactly what balanced plans with preview OFF', async () => {
+  const fell = await withEnv({ ...PREVIEW_OFF, GRIDIRON_PREVIEW_UNCONFIRMED: '1' }, () => planOf('all_in', brainOf(failingE1())));
+  const balOff = await withEnv(PREVIEW_OFF, () => planOf('balanced', null));
+  const balOn = await withEnv({ ...PREVIEW_OFF, GRIDIRON_PREVIEW_UNCONFIRMED: '1' }, () => planOf('balanced', null));
+  assert.notEqual(planKey(balOn), planKey(balOff), 'control: the sites change this league\'s plan when they are on');
+  assert.equal(planKey(fell), planKey(balOff));
+  assert.equal(fell.destination.value.risk_mode.value.mode, 'balanced');
+  assert.deepEqual(fell._run.inputs.brain.unconfirmed_off,
+    { applied: true, sites: ['rl16_1', 'rl17_3_preview', 'title_mutual'], switched_off: ['rl16_1', 'rl17_3_preview', 'title_mutual'] });
+  assert.equal(unconfirmedForwardOff(), false, 'the switch is released after the league');
+});
+
+test('FIX-274-1: the sites are off inside the switch whatever their own flags say; RL-17-3 explicit on is kept', async () => {
+  await withEnv({ ...PREVIEW_OFF, GRIDIRON_PREVIEW_UNCONFIRMED: '1', GRIDIRON_RL16_1_ENABLED: '1', GRIDIRON_TITLE_MUTUAL_ENABLED: '1' }, async () => {
+    assert.deepEqual(siteReads(), { rl16_1: true, rl17_3_preview: true, title_mutual: true });
+    await withUnconfirmedForwardOff(() => assert.deepEqual(siteReads(), { rl16_1: false, rl17_3_preview: false, title_mutual: false }));
+    await assert.rejects(withUnconfirmedForwardOff(async () => { throw new Error('boom'); }), /boom/);
+    assert.equal(unconfirmedForwardOff(), false, 'released on a throw too');
+  });
+  await withEnv({ ...PREVIEW_OFF, GRIDIRON_RL17_3_ENABLED: '1' }, () =>
+    withUnconfirmedForwardOff(() => assert.deepEqual(rosBasisFlag(), { on: true, preview: false })));
+});
+
+test('FIX-274-1: a gate that keeps the mode leaves the sites alone and records it; a fallback with them off records none switched', async () => {
+  const kept = await withEnv({ ...PREVIEW_OFF, GRIDIRON_PREVIEW_UNCONFIRMED: '1' }, () => planOf('all_in', brainOf(report(allNed()))));
+  const balOn = await withEnv({ ...PREVIEW_OFF, GRIDIRON_PREVIEW_UNCONFIRMED: '1' }, () => planOf('all_in', null));
+  assert.equal(planKey(kept), planKey(balOn));
+  assert.deepEqual(kept._run.inputs.brain.unconfirmed_off, { applied: false, sites: [], switched_off: [] });
+  // Balanced (or safe) with a blocking check does not change mode, but testing-tier signals are off all the same.
+  const balFailing = await withEnv({ ...PREVIEW_OFF, GRIDIRON_PREVIEW_UNCONFIRMED: '1' }, () => planOf('balanced', brainOf(failingE1())));
+  const balOff = await withEnv(PREVIEW_OFF, () => planOf('balanced', null));
+  assert.equal(planKey(balFailing), planKey(balOff));
+  assert.equal(balFailing._run.inputs.brain.unconfirmed_off.applied, true);
+  const quiet = await withEnv(PREVIEW_OFF, () => planOf('all_in', brainOf(failingE1())));
+  assert.deepEqual(quiet._run.inputs.brain.unconfirmed_off.switched_off, []);
 });

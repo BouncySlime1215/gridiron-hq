@@ -184,7 +184,8 @@ const target = obj({
 }, { reasoning: field(reasoning) });
 
 const brainReport = obj({
-  overall: oneOf(['passing', 'not_enough_data', 'failing']),
+  // FIX-274-2: 'stale' = the latest report is older than REPORT_MAX_AGE_HOURS (48 h), so its checks are not a current grade.
+  overall: oneOf(['passing', 'not_enough_data', 'failing', 'stale']),
   checks: arr(obj({
     id: oneOf(BRAIN_CHECK_IDS), name: str, bar: str,
     status: oneOf(['passing', 'not_enough_data', 'failing', 'running', 'not_run'])

@@ -36,7 +36,7 @@
  */
 import { PLAYOFF_WEEKS } from './matchups.js';
 import { leagueRules } from './league-rules.js';
-import { previewUnconfirmed, previewFields } from './preview-mode.js';
+import { previewUnconfirmed, previewFields, unconfirmedForwardOff } from './preview-mode.js';
 
 /**
  * The served playoff-week weight, and still the value for every league shape
@@ -71,6 +71,7 @@ const RL16_1_REASON = 'RL-16-1 measured playoff-week weight (10-team/6-playoff c
 export function playoffImportance({ teams = null, playoffTeams = null } = {}) {
   const unmeasured = { value: PLAYOFF_IMPORTANCE, measured: false,
     source: `unmeasured: borrowed best-ball rate, no RL-16-1 measurement for ${teams ?? '?'}-team/${playoffTeams ?? '?'}-playoff leagues` };
+  if (unconfirmedForwardOff()) return unmeasured;   // FIX-274-1: the brain gate fell back
   const byFlag = rl16On();
   const byPreview = !byFlag && previewUnconfirmed();
   if (!byFlag && !byPreview) return unmeasured;
@@ -153,7 +154,7 @@ export function horizonWeights(week, {
   const odds = Math.max(0, Math.min(1, playoffOdds));
   const imp = playoffImportance({ teams, playoffTeams });
   // Flag off: no new fields, so the served horizon is exactly what it was.
-  const impFields = rl16On() || previewUnconfirmed() ? {
+  const impFields = (rl16On() || previewUnconfirmed()) && !unconfirmedForwardOff() ? {
     playoff_importance: imp.value,
     playoff_importance_measured: imp.measured,
     playoff_importance_source: imp.source,

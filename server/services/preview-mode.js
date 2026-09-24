@@ -38,6 +38,26 @@ export const PREVIEW_PREFIX = 'Preview (unconfirmed forward)';
 /** True only when the local-testing switch is set to exactly '1'. */
 export const previewUnconfirmed = () => process.env[PREVIEW_ENV] === '1';
 
+/**
+ * FIX-274-1: the War Room brain gate's fallback. While a campaign run holds this
+ * switch, the unconfirmed-forward MODEL sites below read off, whatever
+ * GRIDIRON_PREVIEW_UNCONFIRMED or the site's own default-off flag says:
+ *   rl16_1          trade-horizon.js#playoffImportance   (flag and preview path)
+ *   rl17_3_preview  season-sim.js#rosBasisFlag           (preview path only; an explicit
+ *                                                        GRIDIRON_RL17_3_ENABLED=1 stays on)
+ *   title_mutual    title-mutual.js#titleMutualMode      (flag and preview path)
+ * Every other preview site is unchanged. The producer plans leagues one at a time,
+ * so a held switch never leaks into another league's plan.
+ */
+export const UNCONFIRMED_FORWARD_SITES = Object.freeze(['rl16_1', 'rl17_3_preview', 'title_mutual']);
+let forwardOffDepth = 0;
+export const unconfirmedForwardOff = () => forwardOffDepth > 0;
+/** Runs fn (sync or async) with the sites above off; the switch is released when fn settles. */
+export async function withUnconfirmedForwardOff(fn) {
+  forwardOffDepth += 1;
+  try { return await fn(); } finally { forwardOffDepth -= 1; }
+}
+
 /** The fields a response carries when a feature is on only because of preview mode. */
 export const previewFields = reason => ({ preview: true, preview_reason: reason });
 

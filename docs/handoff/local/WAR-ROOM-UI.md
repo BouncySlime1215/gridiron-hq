@@ -441,3 +441,18 @@ Guardrails (reasoned, not reflexive):
 - On skip, an optional one-tap reason (don't like the player / costs too much / don't trust this manager / not now) that fades if ignored. Every skip + reason is logged and TEACHES the brain: skipped players/managers are down-weighted in Nick's plans (SELF-01 preference model; a skipped option can return only if the situation changes, labelled "back because ...").
 - When the deck runs out: "Want me to look wider?" (more partners, bigger packages, or a different risk mode).
 - Build: WR-1 data read includes `acq.alternatives[]`; WR-2 renders the deck; WR-COACH adds the `next` action; the campaign producer outputs top-5 alternatives + reads the skip log.
+
+## v3 (Nick 9/23 ~11:50 PM: "same with the UI, needs to be insane"): one screen, league 4, people-first
+Layout (desktop, no page scroll; phone = one card at a time, swipe):
+- TOP STRIP: Destination (title / playoffs / get X / 140 pts) -> title odds now -> planned, ETA vs plan, risk dial (Safe / Balanced / Fuck it), brain health dot (green / amber / red; red forces Balanced), number health dot.
+- CENTER, THE DECK: the next move as a big card: give/get, P(yes) band, title-odds change (clears 2 SE?), "fair on HIS screen" check, the exact message (copy button), walk-away price, reply table, "his side of the table" (psych read + credibility), confidence explained. Buttons: Do it / I sent it / Next (one-tap reason: player, cost, manager, not now), which slides to the next-best card.
+- LEFT, THE ROUTE: itinerary (destination + stops), speed curve (arrive by week N at cost X), catch-up list when behind.
+- RIGHT, THE PEOPLE BOARD (new): one tile per active manager. Mood, in-market flag ("wants RB, 2 days ago", credibility x17), P(responds), fatigue budget (offers this week), last contact, the approach to take with him. Unreachable/non-buyer tiles are greyed with Nick's reason. Tap a tile -> his clone panel (UI-ENG-4).
+- BOTTOM: flip map (arrows: buy from A -> sell to B, gap in title odds), chat pulse ticker (new labelled statements, no quotes: "in-market for WR · 2h").
+- COACH DOCK: talks to the screen. "show me only Lars deals", "pin Bijan", "add a stop: get a TE by week 8" (shows the trade-off first), "what would Rami say to this?" (role-plays his reply from the counterpart model, labelled as a simulation).
+New modes:
+1. NEGOTIATION MODE (after "I sent it"): the card flips to a live thread. Branches for his reply, a countdown to "follow up / move on" from his reply-time distribution, a counter builder where you edit the package and his predicted yes-point and your title-odds change update live, walk-away line drawn on the slider.
+2. HIS SCREEN: preview the offer the way he sees it (his roster, his values, what he gives up), so every offer is "fair on his screen".
+3. PEOPLE RADAR: the managers placed by P(responds) x edge for you; one glance shows who to work this week.
+4. REPLAY: every past offer with what the brain would have done differently (counterfactual replay), which builds trust in the brain.
+Build units: WR-L4 (queued), NEGOTIATE-UI, PEOPLE-BOARD, HIS-SCREEN, PULSE-UI (queued below).

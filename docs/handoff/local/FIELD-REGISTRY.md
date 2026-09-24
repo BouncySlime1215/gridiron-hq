@@ -16,3 +16,6 @@
 | served numbers log | #243 SERVE-LOG | #243 | E-graders, Coach recall |
 | fatigue (offers sent this week) | FIX-07 sentThisWeek | #275 | planner, REP-01 |
 | last-good fallback | engine spine state.js | #250 | all views |
+
+## Hub rule (Nick 9/24 12:55 AM: "every box connected to every box, one giant system")
+Everything connects THROUGH the engine state hub (engine_events + engine_state, #216 EA-00 spine + #250 state), not box to box. Every producer publishes its fields to the hub with source + as_of; every screen and Coach reads from the hub. That makes every box one hop from every other, with one owner per number. Direct box-to-box reads are how tonight's duplicates happened. The CONVERGE GATE requires the spine merged, and the ONE-* units must publish through it.

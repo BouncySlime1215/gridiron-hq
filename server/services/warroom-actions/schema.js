@@ -21,6 +21,9 @@
  * prose (draft_message) is refused if its text carries a digit: numbers come
  * only from the engine (guardrail 1).
  */
+import { SKIP_REASONS, DECLINE_REASONS } from '../campaign/plans-schema.js';
+
+export { SKIP_REASONS, DECLINE_REASONS };
 
 export const PANELS = Object.freeze([
   'next_move', 'itinerary', 'flip_map', 'targets', 'destination', 'catch_up', 'brain_check', 'cards'
@@ -55,27 +58,20 @@ export const TOLERANCES = Object.freeze({
 
 /**
  * plug_in may bind only to these fields of the plans JSON, and only with the
- * views listed. Coach picks WHICH field and HOW to show it; the value is read
+ * views listed. Names follow the contract (campaign/plans-schema.js); a field
+ * no producer writes is not listed. Coach picks WHICH field and HOW to show it; the value is read
  * from the plans JSON by the client and is never written by Coach.
  */
 export const PLUG_IN_FIELDS = Object.freeze({
   'destination.title_now': ['number'],
   'destination.path': ['sparkline', 'table'],
   'itinerary.stops': ['list', 'table'],
-  'suggestions': ['list', 'table'],
+  'targets': ['list', 'table'],
   'speed_curve': ['sparkline', 'table'],
-  'flips': ['list', 'table'],
-  'brain_check.checks': ['list', 'table'],
-  'roster.bye_holes': ['list', 'sparkline', 'table'],
-  'title.odds_by_week': ['sparkline', 'table']
+  'flip_map': ['list', 'table'],
+  'brain_report.checks': ['list', 'table']
 });
 
-export const DECLINE_REASONS = Object.freeze([
-  'wants_more', 'likes_his_player', 'not_interested', 'not_now', 'other'
-]);
-export const SKIP_REASONS = Object.freeze([
-  'dont_like_player', 'costs_too_much', 'dont_trust_manager', 'not_now'
-]);
 export const REPLIES = Object.freeze(['accept', 'decline', 'counter', 'silence']);
 
 export const REQUEST_KINDS = Object.freeze([

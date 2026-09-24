@@ -9,6 +9,7 @@
  *        client/src/components/warroom/*.tsx do the deep reads
  *   #230 claude/cloud-war-room-coach 6ac4758  client/src/components/warroom/coach/warroomCoach.ts,
  *                                             CoachDock.tsx, server/services/warroom-actions/schema.js
+ *        (#230's reads moved to the contract by FIX-06; none carries a `fix` any more)
  *
  * An entry with `fix` is a read no producer writes today. `fix.to` is the
  * contract path it should read instead (the test proves `to` exists) and
@@ -104,48 +105,37 @@ export const READS = [
   { pr: 231, where: `${TOP}:56`, reads: 'leagues[].brain_report.value.overall', scalar: true },
 
   /* ------------------------------------------------------------ #230 Coach */
-  { pr: 230, where: `${CO}:244`, reads: 'leagues[].stop_tradeoffs.value' },
-  { pr: 230, where: `${CO}:245`, reads: 'leagues[].stop_tradeoffs.value{}' },
-  { pr: 230, where: `${DOCK}:25`, reads: 'leagues[].stop_tradeoffs.value{}.stop_label', scalar: true },
-  { pr: 230, where: `${DOCK}:26`, reads: 'leagues[].stop_tradeoffs.value{}.cost.value' },
-  { pr: 230, where: `${DOCK}:26`, reads: 'leagues[].stop_tradeoffs.value{}.extra_steps', scalar: true },
-  { pr: 230, where: `${DOCK}:27`, reads: 'leagues[].stop_tradeoffs.value{}.gain.value' },
-  { pr: 230, where: `${DOCK}:27`, reads: 'leagues[].stop_tradeoffs.value{}.gain_text', scalar: true },
-  { pr: 230, where: `${DOCK}:28`, reads: 'leagues[].stop_tradeoffs.value{}.net.value' },
-  { pr: 230, where: `${DOCK}:28`, reads: 'leagues[].stop_tradeoffs.value{}.verdict', scalar: true },
-  { pr: 230, where: `${DOCK}:29`, reads: 'leagues[].stop_tradeoffs.value{}.because', scalar: true },
-  { pr: 230, where: `${DOCK}:30`, reads: 'leagues[].stop_tradeoffs.value{}.new_next_move_changes', scalar: true },
-  { pr: 230, where: `${CO}:263`, reads: 'leagues[].alternatives.value' },
-  { pr: 230, where: `${CO}:459`, reads: 'leagues[].next_move.value' },
-  { pr: 230, where: `${CO}:437`, reads: 'leagues[].alternatives.value[].partner',
-    fix: { to: 'leagues[].alternatives.value[].steps[].partner', line: 'dealLine(): read the deal from `move.steps[0]` (`partner`, `give`, `get`); a deck entry is a plan, not a single offer.' } },
-  { pr: 230, where: `${CO}:435`, reads: 'leagues[].alternatives.value[].give',
-    fix: { to: 'leagues[].alternatives.value[].steps[].give', line: 'Same change: `move.steps[0].give`.' } },
-  { pr: 230, where: `${CO}:436`, reads: 'leagues[].alternatives.value[].get',
-    fix: { to: 'leagues[].alternatives.value[].steps[].get', line: 'Same change: `move.steps[0].get`.' } },
-  { pr: 230, where: `${CO}:449`, reads: 'leagues[].destination.value.goal.label',
-    fix: { to: 'leagues[].destination.value.goal.value.label', line: 'coachFooter(): `unwrap(dest?.goal)?.label`; the goal is a typed field (it can be unset while title odds are known).' } },
-  { pr: 230, where: `${CO}:450`, reads: 'leagues[].destination.value.arrive_by', scalar: true,
-    fix: { to: 'leagues[].destination.value.arrive_by.value', line: 'coachFooter(): `unwrap(dest.arrive_by)`; arrive_by is a typed field.' } },
-  { pr: 230, where: `${CO}:452`, reads: 'leagues[].itinerary.value.stops' },
-  { pr: 230, where: `${CO}:454`, reads: 'leagues[].itinerary.value.stops[].status', scalar: true },
-  { pr: 230, where: `${CO}:453`, reads: 'leagues[].itinerary.value.stops_left', scalar: true },
-  { pr: 230, where: `${CO}:456`, reads: 'leagues[].names' },
-  // PLUG_IN_FIELDS (warroomCoach.ts:51-61, mirrored in schema.js): readField() unwraps at every step.
-  { pr: 230, where: `${CO}:52`, reads: 'leagues[].destination.value.title_now.value' },
-  { pr: 230, where: `${CO}:53`, reads: 'leagues[].destination.value.path.value' },
-  { pr: 230, where: `${CO}:54`, reads: 'leagues[].itinerary.value.stops' },
-  { pr: 230, where: `${CO}:56`, reads: 'leagues[].speed_curve.value' },
-  { pr: 230, where: `${CO}:55`, reads: 'leagues[].suggestions.value',
-    fix: { to: 'leagues[].targets.value', line: "PLUG_IN_FIELDS (client + schema.js): rename 'suggestions' to 'targets'." } },
-  { pr: 230, where: `${CO}:57`, reads: 'leagues[].flips.value',
-    fix: { to: 'leagues[].flip_map.value', line: "PLUG_IN_FIELDS: rename 'flips' to 'flip_map'." } },
-  { pr: 230, where: `${CO}:58`, reads: 'leagues[].brain_check.value.checks',
-    fix: { to: 'leagues[].brain_report.value.checks', line: "PLUG_IN_FIELDS: rename 'brain_check.checks' to 'brain_report.checks'." } },
-  { pr: 230, where: `${CO}:60`, reads: 'leagues[].title.value.odds_by_week',
-    fix: { to: 'leagues[].destination.value.path.value', line: "PLUG_IN_FIELDS: replace 'title.odds_by_week' with 'destination.path' (week-by-week planned vs actual title odds)." } },
-  { pr: 230, where: `${CO}:59`, reads: 'leagues[].roster.value.bye_holes',
-    fix: { to: 'leagues[].itinerary.value.stops[].week', line: "PLUG_IN_FIELDS: drop 'roster.bye_holes' until a producer writes it; bye cover today is a `cover_bye` stop with its `week`." } }
+  { pr: 230, where: `${CO}:246`, reads: 'leagues[].stop_tradeoffs.value' },
+  { pr: 230, where: `${CO}:247`, reads: 'leagues[].stop_tradeoffs.value{}' },
+  { pr: 230, where: `${DOCK}:31`, reads: 'leagues[].stop_tradeoffs.value{}.stop_label', scalar: true },
+  { pr: 230, where: `${DOCK}:32`, reads: 'leagues[].stop_tradeoffs.value{}.cost.value' },
+  { pr: 230, where: `${DOCK}:32`, reads: 'leagues[].stop_tradeoffs.value{}.extra_steps', scalar: true },
+  { pr: 230, where: `${DOCK}:33`, reads: 'leagues[].stop_tradeoffs.value{}.gain.value' },
+  { pr: 230, where: `${DOCK}:33`, reads: 'leagues[].stop_tradeoffs.value{}.gain_text', scalar: true },
+  { pr: 230, where: `${DOCK}:34`, reads: 'leagues[].stop_tradeoffs.value{}.net.value' },
+  { pr: 230, where: `${DOCK}:34`, reads: 'leagues[].stop_tradeoffs.value{}.verdict', scalar: true },
+  { pr: 230, where: `${DOCK}:35`, reads: 'leagues[].stop_tradeoffs.value{}.because', scalar: true },
+  { pr: 230, where: `${DOCK}:36`, reads: 'leagues[].stop_tradeoffs.value{}.new_next_move_changes', scalar: true },
+  { pr: 230, where: `${CO}:265`, reads: 'leagues[].alternatives.value' },
+  { pr: 230, where: `${CO}:464`, reads: 'leagues[].next_move.value' },
+  // FIX-06: dealLine() reads the deal from the move's first step.
+  { pr: 230, where: `${CO}:441`, reads: 'leagues[].alternatives.value[].steps[].partner', scalar: true },
+  { pr: 230, where: `${CO}:439`, reads: 'leagues[].alternatives.value[].steps[].give' },
+  { pr: 230, where: `${CO}:440`, reads: 'leagues[].alternatives.value[].steps[].get' },
+  { pr: 230, where: `${CO}:453`, reads: 'leagues[].destination.value.goal.value.label', scalar: true },
+  { pr: 230, where: `${CO}:454`, reads: 'leagues[].destination.value.arrive_by.value', scalar: true },
+  { pr: 230, where: `${CO}:457`, reads: 'leagues[].itinerary.value.stops' },
+  { pr: 230, where: `${CO}:459`, reads: 'leagues[].itinerary.value.stops[].status', scalar: true },
+  { pr: 230, where: `${CO}:458`, reads: 'leagues[].itinerary.value.stops_left', scalar: true },
+  { pr: 230, where: `${CO}:461`, reads: 'leagues[].names' },
+  // PLUG_IN_FIELDS (warroomCoach.ts:52-60, mirrored in schema.js): readField() unwraps at every step.
+  { pr: 230, where: `${CO}:53`, reads: 'leagues[].destination.value.title_now.value' },
+  { pr: 230, where: `${CO}:54`, reads: 'leagues[].destination.value.path.value' },
+  { pr: 230, where: `${CO}:55`, reads: 'leagues[].itinerary.value.stops' },
+  { pr: 230, where: `${CO}:56`, reads: 'leagues[].targets.value' },
+  { pr: 230, where: `${CO}:57`, reads: 'leagues[].speed_curve.value' },
+  { pr: 230, where: `${CO}:58`, reads: 'leagues[].flip_map.value' },
+  { pr: 230, where: `${CO}:59`, reads: 'leagues[].brain_report.value.checks' }
 ];
 
 export const FILES = { UI, DECK, REPLY, TOP, WR, ITIN, TGT, FLIP, BRAIN, CO, DOCK, ACT };

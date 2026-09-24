@@ -13,14 +13,14 @@ import FlipMap from './FlipMap';
 import TargetPicker from './TargetPicker';
 import CatchUp from './CatchUp';
 import BrainCheckCard from './BrainCheckCard';
-import CoachDock from './CoachDock';
+import { CoachDock, useWarRoomCoach, type Panel as CoachPanel } from './coach';
 
 /**
  * The War Room: ONE dashboard, no page scroll (WAR-ROOM-UI.md v2).
  *
  * Desktop: a fixed CSS grid exactly one viewport tall (100vh, overflow hidden). NEXT MOVE
  * holds the big slot; any other panel's Expand swaps it into that slot in place and Esc
- * swaps back. Lists page inside their panels. The Coach dock keeps the right column.
+ * swaps back. Lists page inside their panels. The Coach dock (coach/CoachDock) keeps the right column.
  * Phone (< 700 px): the same panels as a one-screen swipe deck (scroll-snap, dots below),
  * Coach as a bottom sheet. Still no vertical page scroll.
  *
@@ -44,6 +44,15 @@ export const GRID_AREAS = [
   'targets targets catch brain_report coach',
 ].map(r => `"${r}"`).join(' ');
 
+/**
+ * Coach's panel names -> this grid's areas (FIX-04 named them after the contract sections).
+ * Destination and cards have no slot of their own.
+ */
+export const COACH_PANEL_AREA: Record<CoachPanel, PanelId | null> = {
+  next_move: 'next', itinerary: 'stops', flip_map: 'flip_map', targets: 'targets', catch_up: 'catch', brain_check: 'brain_report',
+  destination: null, cards: null,
+};
+
 /** The no-page-scroll contract, inline so it cannot be lost to a stylesheet. */
 export const ROOT_STYLE = { position: 'fixed', inset: 0, height: '100vh', overflow: 'hidden', gridTemplateAreas: GRID_AREAS } as const;
 
@@ -63,6 +72,9 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
   const [phone, setPhone] = useState(false);
   const [deckPos, setDeckPos] = useState(0);
   const deckRef = useRef<HTMLElement | null>(null);
+  // Coach reads the same view the panels draw (the plans contract); it never fetches plans.
+  const coach = useWarRoomCoach({ leagueId: activeId, leagues: leagues.map(l => l.id), plans: view, onLeagueChange: onLeague });
+  const coachMain = coach.ui.main;
 
   // Theme starts from the system; the toggle overrides. Phone = < 700 px.
   useEffect(() => {
@@ -91,6 +103,12 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
 
   // A new league starts on its own deck.
   useEffect(() => { setSwap(null); }, [activeId]);
+
+  // Coach's focus_panel (and its undo) swaps that panel into the big slot, like Expand.
+  useEffect(() => {
+    const area = coachMain ? COACH_PANEL_AREA[coachMain] : null;
+    setSwap(area && area !== 'next' ? area : null);
+  }, [coachMain]);
 
   const areaOf = (p: PanelId) => (swap ? (p === swap ? 'next' : p === 'next' ? swap : p) : p);
   const big = (p: PanelId) => phone || areaOf(p) === 'next';
@@ -148,7 +166,7 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
           ))}
         </nav>
 
-        <CoachDock open={coachOpen} onToggle={() => setCoachOpen(o => !o)} />
+        <CoachDock coach={coach} plans={view} open={coachOpen} onToggle={() => setCoachOpen(o => !o)} />
       </div>
     </SourcesContext.Provider>
   );

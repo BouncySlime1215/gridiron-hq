@@ -374,14 +374,15 @@ test('RED (5): the nightly hook fires once per local day, the weekly hook once p
     assert.deepEqual(t.hooks.map(h => `${h.schedule}:${h.period}`).sort(), ['nightly:2026-10-02', 'weekly:2026:2']);
     t = await beat('2026-10-02T09:30:00Z');
     assert.deepEqual(t.hooks, []);
-    assert.deepEqual(results, ['weekly:2026:1', 'nightly:n', 'nightly:n', 'weekly:2026:2']);
+    // Two children started in one tick finish in either order: compare as a multiset.
+    assert.deepEqual([...results].sort(), ['nightly:n', 'nightly:n', 'weekly:2026:1', 'weekly:2026:2']);
     const done = rows(`SELECT scope_key, error FROM engine_runs WHERE producer = 'engine-hooks' AND finished_at IS NOT NULL`);
     assert.equal(done.length, 4);
     assert.ok(done.every(r => r.error == null), JSON.stringify(done));
   } finally { offs.forEach(off => off()); }
 });
 
-test('RED (13): a child past its lease is killed and the tick continues', async () => {
+test('RED (13): a child past its lease is killed and the tick continues', { timeout: 20000 }, async () => {
   const off = hooksMod.registerHook('nightly', { name: 'fx-stuck', leaseMs: 300,
     command: [hookScript('stuck.mjs', 'setInterval(() => {}, 1000)')] });
   const hooks = hooksMod.createHookRunner({ database: db });

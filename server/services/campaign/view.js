@@ -205,6 +205,17 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       }, 'plan.path');
       out.reasoning = reasoning({ team: st.team, p: st.p, delta: st.delta - before, clears: st.clears, pb, verdict });
     }
+    // CAP-1C: a depth-only 2-for-1 planned above the 0 cap says so, with the lineup and title gains that allowed it.
+    const dp = st.depth_premium;
+    if (dp) {
+      const c = dp.confirmed ?? null;
+      out.depth_premium = ok({ pct: dp.pct, cap: dp.cap, lineup_points_delta: dp.points_delta, title_odds_delta: dp.title_delta,
+        ...(c ? { confirmed_lineup_points_delta: c.points_delta, confirmed_title_odds_delta: c.title_delta } : {}),
+        text: `Depth-only 2-for-1 at +${Math.max(1, Math.round(dp.pct * 100))}% market value (cap +${Math.round(dp.cap * 100)}%): `
+          + `your lineup gains ${dp.points_delta.toFixed(1)} pts a week and your title odds ${(dp.title_delta * 100).toFixed(2)} pts on the same dice`
+          + (c ? `, and ${c.points_delta.toFixed(1)} pts a week and ${(c.title_delta * 100).toFixed(2)} pts on fresh dice.` : '; not yet re-checked on fresh dice.'),
+      }, 'plan.path', { unit: 'market_value' });
+    }
     if (st.band && isProb(st.band.low) && isProb(st.band.high)) {
       out.p_yes_band = { low: st.band.low, high: st.band.high };
       // The acceptance model's own basis (trade-acceptance.js): the offer ledger refuses a band without one.

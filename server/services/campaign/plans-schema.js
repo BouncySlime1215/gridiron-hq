@@ -151,7 +151,10 @@ const step = obj({
   reasoning: field(reasoning),
   // The acceptance band p_yes is the midpoint of; "I sent it" grades against it (#239 recordSentOffer).
   p_yes_band: obj({ low: prob, high: prob }, { basis: oneOf(['no_information', 'heuristic_unanchored', 'heuristic_anchored']) }),
-  counterpart: field(stepCounterpart)
+  counterpart: field(stepCounterpart),
+  // CAP-1C: the premium over the 0 cap on a depth-only 2-for-1, and the lineup / title gains that allowed it.
+  depth_premium: field(obj({ pct: num, cap: num, lineup_points_delta: num, title_odds_delta: num, text: str },
+    { confirmed_lineup_points_delta: num, confirmed_title_odds_delta: num }))
 });
 
 /** A plan: one deck card. */

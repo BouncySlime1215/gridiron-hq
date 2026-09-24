@@ -63,7 +63,7 @@ test('premiumHolds: lineup points AND title odds both rise on the step', () => {
 
 // Team 1 = Nick. Team 2 holds the target T 21 (100).
 // 11 (60) + 12 (50) = 110: +10%, depth-only: inside the premium.
-// 11 (60) + 15 (55) = 115: +15%: past the premium.
+// 11 (60) + 15 (55) = 115: +15%: past the premium (12 + 15 = 105, +5%, rides it).
 // 16 (60, blue chip) + 12 (50) = 110: +10% but a blue chip in the give.
 // 17 (70) + 18 (40) = 110: +10%, depth-only, but Nick's lineup gets WORSE (17 is his starter, 18 a bench piece).
 const VALUES = { 11: 60, 12: 50, 15: 55, 16: 60, 17: 70, 18: 40, 21: 100 };
@@ -88,7 +88,7 @@ function world({ nick = [11, 12, 15, 16, 17, 18], blueChips = ['16'] } = {}) {
   const block = (state, t) => (t == null ? null : (() => {
     const ids = state.get(t) ?? rosters.get(t);
     const pts = d(t, ids, POINTS);
-    const title = ids.includes(21) && !ids.includes(17) ? pts * 1e-3 : ids.includes(21) ? 0.002 : pts * 1e-3;
+    const title = ids.includes(21) && !ids.includes(17) && !ids.includes(18) ? 0.002 : pts * 1e-3;
     return { title_delta: title, title_delta_se: 0.0001, title_delta_clears_noise: true, title_before: 0.1,
       points_delta: pts, points_delta_se: 0.1 };
   })());
@@ -98,9 +98,11 @@ function world({ nick = [11, 12, 15, 16, 17, 18], blueChips = ['16'] } = {}) {
   return { adapter, S, vals, blueChips: blueChipsOf({ blueChips }) };
 }
 const OBJ = { kind: 'title', goal: 'title' };
-const gives = plans => plans.filter(p => p.steps.length === 1).map(p => p.steps[0].give.map(Number).sort((a, b) => a - b).join('+'));
+// The 1-step plans where Nick gives MORE market value than he gets (even or under-give trades are the plain cap's business).
+const gives = plans => plans.filter(p => p.steps.length === 1 && p.steps[0].give.reduce((s, id) => s + VALUES[id], 0) > 100)
+  .map(p => p.steps[0].give.map(Number).sort((a, b) => a - b).join('+'));
 
-test('cap 0 alone: every 2-for-1 here overpays and none is planned', () => {
+test('cap 0 alone: no 2-for-1 that overpays is planned', () => {
   const { adapter, S, vals } = world();
   assert.deepEqual(gives(searchTarget(S, adapter, vals, OBJ, 21)), []);
 });
@@ -109,8 +111,8 @@ test('with the premium and a board: only the depth-only 2-for-1 that raises poin
   const { adapter, S, vals, blueChips } = world();
   const sink = newPremiumSink(0.12, blueChips);
   const plans = searchTarget(S, adapter, vals, OBJ, 21, { depthPremium: 0.12, blueChips, premiumSink: sink });
-  assert.deepEqual(gives(plans), ['11+12']);
-  const st = plans[0].steps[0];
+  assert.deepEqual(gives(plans).sort(), ['11+12', '12+15']);
+  const st = plans.find(p => gives([p])[0] === '11+12').steps[0];
   assert.equal(Math.round(st.depth_premium.pct * 100), 10);
   assert.equal(st.depth_premium.cap, 0.12);
   assert.ok(st.depth_premium.points_delta > 0 && st.depth_premium.title_delta > 0);

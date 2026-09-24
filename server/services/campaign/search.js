@@ -52,6 +52,54 @@ export function newOverpaySink(max = DEFAULT_MAX_OVERPAY) {
   return { max_overpay: max, rejected: 0, closest: null };
 }
 
+/**
+ * CAP-1C (Nick's decision 1c, 2026-09-24): the one exception to the cap. A depth-only 2-for-1
+ * consolidation (exactly two of Nick's players for one of theirs, no blue chip or untouchable in the
+ * give) may give up to +12% market value, and is planned only if Nick's weekly starting-lineup points
+ * AND his title odds both rise on the step (paired dice), and again on the confirm pass (fresh dice).
+ * Blue chips come from the adapter's board (adapter.blueChips); with no board, depth-only cannot be
+ * checked and the premium is off.
+ */
+export const DEPTH_PREMIUM_MAX = 0.12;
+
+/** The destination's depth_premium when it is a number >= 0 (clamped to +12%), else +12%. */
+export function depthPremiumOf(tol) {
+  const v = Number(tol?.depth_premium);
+  return tol?.depth_premium != null && Number.isFinite(v) && v >= 0 ? Math.min(v, DEPTH_PREMIUM_MAX) : DEPTH_PREMIUM_MAX;
+}
+
+/** The blue-chip board as a Set of id strings, or null when the adapter carries none. */
+export function blueChipsOf(adapter) {
+  const b = adapter?.blueChips;
+  return b == null ? null : new Set([...b].map(String));
+}
+
+/** Whether a step is a depth-only 2-for-1: two given for one, none a blue chip or untouchable (needs a board). */
+export function depthOnlyTwoForOne(st, { blueChips, untouchable = null }) {
+  if (!blueChips || st.give.length !== 2 || st.get.length !== 1) return false;
+  return st.give.every(id => !blueChips.has(String(id)) && !untouchable?.has(String(id)));
+}
+
+/**
+ * Whether a premium step holds: its own change in lineup points and in title odds are both > 0.
+ * me / prev: the rescore's `me` block after this step and after the step before (null for the first).
+ */
+export function premiumHolds(me, prev) {
+  const pts = Number(me?.points_delta) - (prev ? Number(prev.points_delta) : 0);
+  const title = Number(me?.title_delta) - (prev ? Number(prev.title_delta) : 0);
+  if (!Number.isFinite(pts)) return { ok: false, why: 'no_lineup_points' };
+  if (!(pts > 0)) return { ok: false, why: 'lineup_points', points_delta: pts, title_delta: title };
+  if (!(title > 0)) return { ok: false, why: 'title_odds', points_delta: pts, title_delta: title };
+  return { ok: true, points_delta: pts, title_delta: title };
+}
+
+/** A fresh sink for the premium: how many steps rode it, how many the gates turned away, and why. */
+export function newPremiumSink(cap = DEPTH_PREMIUM_MAX, blueChips = null) {
+  const board = cap > 0 && blueChips ? 'on' : 'none';
+  return { cap, board, screened: 0, gated_out: { lineup_points: 0, title_odds: 0, no_lineup_points: 0 }, confirm_failed: 0,
+    reason: cap <= 0 ? 'premium set to 0' : blueChips ? null : 'no blue-chip board: depth-only cannot be checked, so the cap stays 0' };
+}
+
 /** A rescore wrapper with a memo, a counter and a budget. */
 export function makeScorer(W, adapter) {
   const baseRoster = adapter.rosters;
@@ -280,8 +328,11 @@ export function twoForOneSummary(stats) {
  * path: that manager is never a step (FIX-02c nick block).
  */
 export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal = 3, shortlist = [8, 12, 8],
-  maxOverpay = DEFAULT_MAX_OVERPAY, overpaySink = null } = {}) {
+  maxOverpay = DEFAULT_MAX_OVERPAY, overpaySink = null, depthPremium = 0, blueChips = null, premiumSink = null } = {}) {
   const me = adapter.league.me;
+  // CAP-1C: the premium's ceiling on a depth-only 2-for-1 (never below the plain cap); off with no board.
+  const premiumCap = depthPremium > 0 && blueChips ? Math.max(maxOverpay, depthPremium) : maxOverpay;
+  const untouchable = new Set([...(adapter.untouchable ?? [])].map(String));
   const P = adapter.players;
   const o = { ...SEARCH_DEFAULTS, ...(adapter.searchOpts ?? {}) };
   const two = !!o.twoForOne;
@@ -302,6 +353,12 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     // the sink keeps the closest such offer for the target so the deck can say what it would have cost.
     const push = st => {
       const pct = overpayPct(st.give.reduce((s, id) => s + val(id), 0), st.get.reduce((s, id) => s + val(id), 0));
+      if (pct > maxOverpay + OVERPAY_EPS && pct <= premiumCap + OVERPAY_EPS && depthOnlyTwoForOne(st, { blueChips, untouchable })) {
+        // CAP-1C: planned at a premium; the exact rescore below keeps it only if points and title odds rise.
+        if (premiumSink) premiumSink.screened++;
+        count('screened', st); out.push({ ...st, premium_pct: pct });
+        return;
+      }
       if (pct > maxOverpay + OVERPAY_EPS) {
         if (overpaySink) {
           overpaySink.rejected++;
@@ -392,15 +449,30 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     seen.add(k); return true;
   });
   const plans = short.map(c => {
+    let prev = null, gated = null;
     const steps = c.steps.map(st => {
-      const m = metricOf(S.rescore(st.state, me).me, objective);
-      return { team: st.team, give: st.give, get: st.get, p: st.p, band: st.band, delta: m.delta, se: m.se, clears: m.clears, state: st.state };
+      const r = S.rescore(st.state, me).me;
+      const m = metricOf(r, objective);
+      const out = { team: st.team, give: st.give, get: st.get, p: st.p, band: st.band, delta: m.delta, se: m.se, clears: m.clears, state: st.state };
+      if (st.premium_pct != null) {
+        // CAP-1C: a premium step stays only if its own lineup points and title odds both rise (paired dice).
+        const h = premiumHolds(r, prev);
+        if (!h.ok) gated = gated ?? h.why;
+        else out.depth_premium = { pct: st.premium_pct, cap: premiumCap, points_delta: h.points_delta, title_delta: h.title_delta,
+          points_se: r.points_delta_se ?? null, title_se: r.title_delta_se ?? null };
+      }
+      prev = r;
+      return out;
     });
+    if (gated) {
+      if (premiumSink) premiumSink.gated_out[gated] = (premiumSink.gated_out[gated] ?? 0) + 1;
+      return null;
+    }
     const oneOnly = oneForOneOnly(steps);
     if (stats) { const k = oneOnly ? 'one_for_one_only' : 'two_side'; stats.shortlisted[k] = (stats.shortlisted[k] ?? 0) + 1; }
     return { target, owner, depth: steps.length, heuristic: c.e.expected, chained: isChained(steps), steps,
       ...pathExpectation(steps) };
-  });
+  }).filter(Boolean);
   if (stats) {
     const best = f => plans.filter(f).reduce((b, p) => (b == null || p.expected > b ? p.expected : b), null);
     const one = best(p => oneForOneOnly(p.steps)), withTwo = best(p => !oneForOneOnly(p.steps));

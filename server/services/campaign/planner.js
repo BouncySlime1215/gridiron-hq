@@ -24,7 +24,8 @@ import { rankPartners, planSkipWeight, pResponds } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
-import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink } from './search.js';
+import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink,
+  overpayPct, depthPremiumOf, blueChipsOf, depthOnlyTwoForOne, newPremiumSink, premiumHolds } from './search.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
 
 /** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
@@ -61,7 +62,7 @@ export function backupBranches(best, ranked) {
   });
 }
 
-function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta, maxOverpay) {
+function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta, maxOverpay, premiumOk = () => false) {
   const me = adapter.league.me;
   const val = id => Math.max(0, Number(adapter.players.get(id)?.value) || 0);
   const mine = S.rosterOf(stateBefore, me).filter(vals.tradable);
@@ -77,13 +78,16 @@ function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta, ma
     const his = screenPct(gv, getV);
     if (his == null || his < CURVE_WINDOW.low || his > CURVE_WINDOW.high) continue;
     // NO-OVERPAY: the ladder (opening, walk-away) never climbs past Nick's cap on market value given.
-    if (nickOverpays(gv, getV, maxOverpay)) continue;
+    // CAP-1C: on a premium step, a depth-only 2-for-1 may sit up to the planned package's premium, never past it.
+    if (nickOverpays(gv, getV, maxOverpay) && !(step.depth_premium && premiumOk(give, step.get)
+      && overpayPct(gv, getV) <= step.depth_premium.pct + 1e-9)) continue;
     const p = adapter.priceStep(step.team, step.get, give).p;
     const delta = lin(S.applyTrade(stateBefore, me, step.team, give, step.get)) * scale;
     out.push({ give, his_pct: his, p, delta, nick_gain: p * delta });
   }
   return { curve: out.sort((a, b) => a.his_pct - b.his_pct).slice(0, 60),
-    basis: `linear single-player values, rescaled to the exact rescore of the planned package; never past +${Math.round(maxOverpay * 100)}% market value given` };
+    basis: `linear single-player values, rescaled to the exact rescore of the planned package; never past +${Math.round(maxOverpay * 100)}% market value given`
+      + (step.depth_premium ? ` (a depth-only 2-for-1 up to its planned +${Math.max(1, Math.round(step.depth_premium.pct * 100))}%)` : '') };
 }
 
 /**
@@ -116,6 +120,13 @@ export function planLeague(adapter, settings) {
   // An adapter may carry its own cap (adapter.maxOverpay; the pre-cap test fixtures set Infinity); the destination's wins.
   const maxOverpay = maxOverpayOf({ max_overpay: objective.tolerances?.max_overpay ?? adapter.maxOverpay });
   const overpay = newOverpaySink(maxOverpay);
+  // CAP-1C: up to +12% on a depth-only 2-for-1 (destination tolerance depth_premium; an adapter may carry its own).
+  const depthPremium = depthPremiumOf({ depth_premium: objective.tolerances?.depth_premium ?? adapter.depthPremium });
+  const blueChips = blueChipsOf(adapter);
+  const premium = newPremiumSink(depthPremium, blueChips);
+  overpay.depth_premium = premium;
+  const untouchableIds = new Set([...(adapter.untouchable ?? [])].map(String));
+  const premiumOk = (give, get) => depthOnlyTwoForOne({ give, get }, { blueChips, untouchable: untouchableIds });
   const vals = playerValues(S, adapter, objective);
   mark('values');
   const flip = flipMap(S, adapter, vals, { topPer: budget.flipTopPer, realise: budget.flipRealise, maxOverpay,
@@ -144,7 +155,8 @@ export function planLeague(adapter, settings) {
   for (const pid of upgrades.slice(0, budget.targets)) want(pid);
 
   let plans = [];
-  for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay }));
+  for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay,
+    depthPremium, blueChips, premiumSink: premium }));
   const skipW = { player: settings.skips?.player ?? new Map(), manager: settings.skips?.manager ?? new Map() };
   plans = plans.map(p => ({ ...p, skip_weight: planSkipWeight(p, skipW) }));
   mark('search');
@@ -170,9 +182,18 @@ export function planLeague(adapter, settings) {
   if (W2 && !W2.fail) {
     const S2 = makeScorer(W2, adapter);
     deck = deck.map(p => {
-      const fresh = p.steps.map(st => metricOf(S2.rescore(st.state, me).me, objective));
+      const freshMe = p.steps.map(st => S2.rescore(st.state, me).me);
+      const fresh = freshMe.map(r => metricOf(r, objective));
       const re = repricePlan(p, fresh);
-      const v = confirmVerdict(pathExpectation(p.steps), pathExpectation(re.steps));
+      let v = confirmVerdict(pathExpectation(p.steps), pathExpectation(re.steps));
+      // CAP-1C: a premium step must still raise lineup points and title odds on fresh dice, or the card goes.
+      re.steps = re.steps.map((st, i) => {
+        if (!st.depth_premium) return st;
+        const h = premiumHolds(freshMe[i], i ? freshMe[i - 1] : null);
+        if (!h.ok) v = { ...v, verdict: 'failed', premium_failed: h.why };
+        return { ...st, depth_premium: { ...st.depth_premium, confirmed: h.ok ? { points_delta: h.points_delta, title_delta: h.title_delta } : null } };
+      });
+      if (v.premium_failed) premium.confirm_failed++;
       const scored = rankPlans([re], objective.risk_mode, { ...tol, max_downside_per_step: Infinity }, { ...ctx, core: null }).ranked[0];
       return { ...re, score: scored?.score ?? -Infinity, mode: objective.risk_mode, confirm: v, planned_on: p };
     }).filter(p => p.confirm.verdict !== 'failed')
@@ -191,7 +212,7 @@ export function planLeague(adapter, settings) {
   const playbookFor = (plan, i, backup) => {
     const st = plan.steps[i];
     const stateBefore = i === 0 ? new Map() : plan.steps[i - 1].state ?? (plan.planned_on?.steps[i - 1].state) ?? new Map();
-    const priced = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta, maxOverpay);
+    const priced = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta, maxOverpay, premiumOk);
     const m = managers.get(st.team) ?? {};
     // Nick's "hard" read is applied ONCE (RULINGS 17): FIX-02c's hard shift when the adapter carries his block
     // (m.nick, the real producer); otherwise the counterpart's cap at fair on his screen (the same reader flag).
@@ -329,7 +350,7 @@ export function planLeague(adapter, settings) {
   mark('finder_and_sanity');
 
   return {
-    league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: { ...tol, max_overpay: maxOverpay },
+    league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: { ...tol, max_overpay: maxOverpay, depth_premium: depthPremium },
     no_overpay: overpay,
     now, behind, week: L.week, deadline_week: L.deadline_week ?? null,
     eta_week: best ? arrivalWeek(best, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) : null,

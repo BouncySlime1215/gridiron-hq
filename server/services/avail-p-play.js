@@ -19,7 +19,7 @@
  * the result also carries `value`, which for `unknown` is a labelled prior
  * (fittedUnknownPrior below) and never a silent default.
  *
- * Default off. GRIDIRON_AVAIL_P_PLAY=1 is the ship switch; GRIDIRON_PREVIEW_UNCONFIRMED=1
+ * Default off. GRIDIRON_AVAIL_P_PLAY=1 is the ship switch; the preview switch
  * (preview-mode.js) also turns it on and then marks the output preview: true.
  */
 import { weeklyAvailability, fittedAvailability } from './contingency.js';

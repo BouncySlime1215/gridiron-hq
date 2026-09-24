@@ -23,6 +23,11 @@
  *     history never changes this manager's per-manager counts.
  *  R9 the adapter reads trade_outcomes + manager_profiles for one league and
  *     only counts offers this app's team sent.
+ *  R10 (RULINGS 4) the 7-day count is FIX-07's sentThisWeek, the one fatigue
+ *     counter; an app_proposed row with no sent_at (a suggestion never sent)
+ *     counts nowhere.
+ *  R11 (RULINGS 8) the finder hook is behind GRIDIRON_REP_GATE, read through
+ *     preview-mode.js: off, deals are served untouched; preview labels verdicts.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -33,10 +38,21 @@ import fs from 'node:fs';
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-offer-reputation-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.SCHEDULER_DISABLED = '1';
+// The finder hook is flagged (R11 pins off / preview); every other test runs it on.
+process.env.GRIDIRON_REP_GATE = '1';
+delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
 
 const { db, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
+// The collector's table (scripts/collect-league-transactions.mjs): sentThisWeek reads ESPN's own proposals from it.
+db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
+  league_id INTEGER NOT NULL, season INTEGER NOT NULL, tx_id TEXT NOT NULL,
+  type TEXT, status TEXT, execution_type TEXT, proposed_at TEXT, processed_at TEXT,
+  team_id INTEGER, member_id TEXT, related_tx_id TEXT, scoring_period INTEGER,
+  bid_amount REAL, is_pending INTEGER, items_json TEXT, raw_json TEXT,
+  first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+  PRIMARY KEY (league_id, season, tx_id))`);
 
 const {
   offerGate, reputationLedger, reputationLimits, offerGateFor, gateDeals,
@@ -290,11 +306,12 @@ test('R9 the adapter reads trade_outcomes and the profile tier for one league', 
   const insert = (o) => run(`INSERT INTO trade_outcomes
       (league_id, season, source, proposer_team_id, counterparty_team_id, proposed_at,
        model_p_accept, model_p_accept_low, model_p_accept_high, model_basis, model_version,
-       status, resolved_at, espn_tx_id, created_at)
+       status, resolved_at, espn_tx_id, created_at, sent_at)
       VALUES (4, 2026, @source, @proposer, @cp, @at, 0.1, 0.05, 0.15, 'heuristic_unanchored', 'v0',
-       @status, @resolved, @tx, @at)`, o);
-  insert({ source: 'app_proposed', proposer: '1', cp: '3', at: ago(3), status: 'countered', resolved: ago(2.5), tx: null });
-  insert({ source: 'app_proposed', proposer: '1', cp: '3', at: ago(2), status: 'countered', resolved: ago(1.5), tx: null });
+       @status, @resolved, @tx, @at, @sent)`, { sent: null, ...o });
+  // Two offers Nick sent ("I sent it": sent_at stamped).
+  insert({ source: 'app_proposed', proposer: '1', cp: '3', at: ago(3), status: 'countered', resolved: ago(2.5), tx: null, sent: ago(3) });
+  insert({ source: 'app_proposed', proposer: '1', cp: '3', at: ago(2), status: 'countered', resolved: ago(1.5), tx: null, sent: ago(2) });
   // Someone else's offer to the same manager: not ours, never counted.
   insert({ source: 'observed', proposer: '7', cp: '3', at: ago(1), status: 'declined', resolved: ago(0.5), tx: 'x1' });
 
@@ -302,6 +319,7 @@ test('R9 the adapter reads trade_outcomes and the profile tier for one league', 
   assert.equal(r.tier, 'hard');
   assert.equal(r.tier_source, 'profile');
   assert.equal(r.ledger.offers_7d, 2);
+  assert.equal(r.ledger.offers_7d_source, 'sentThisWeek');
   assert.equal(r.ledger.decline_streak, 0);
   assert.equal(r.decision, 'delay');
   assert.equal(r.code, 'weekly_cap');
@@ -331,4 +349,78 @@ test('R9 gateDeals stamps each finder deal with its verdict and leaves the cache
   assert.equal(blind.deals[0].reputation.decision, null);
   assert.match(blind.deals[0].reputation.reason, /league 999/);
   assert.equal(gateDeals({ id: 4 }, { error: 'x' }).error, 'x');
+});
+
+/* ----------------------------------------------------------------- R10 */
+
+test('R10 sentCount (the one fatigue counter) replaces the history\'s own 7-day count', () => {
+  const history = [sent(3, 6, 'countered')];
+  const own = offerGate({ offer: FAIR_OFFER, history, now: NOW });
+  assert.equal(own.ledger.offers_7d, 1);
+  assert.equal(own.ledger.offers_7d_source, 'history');
+  const capped = offerGate({ offer: FAIR_OFFER, history, now: NOW, sentCount: REPUTATION_DEFAULTS.fair.max_offers_7d });
+  assert.equal(capped.ledger.offers_7d_source, 'sentThisWeek');
+  assert.equal(capped.code, 'weekly_cap');
+  assert.equal(capped.retry_at, plus(ago(6), 7), 'retry from the oldest offer the app logged');
+  // An ESPN-only count with nothing in the log: still delayed, retry unknown and said so.
+  const blind = offerGate({ offer: FAIR_OFFER, history: [], now: NOW, sentCount: 3 });
+  assert.equal(blind.code, 'weekly_cap');
+  assert.equal(blind.retry_at, null);
+  assert.match(blind.reason, /retry time is unknown/);
+  assert.throws(() => offerGate({ offer: FAIR_OFFER, history: [], now: NOW, sentCount: -1 }), /sentCount/);
+});
+
+test('R10 an unsent app_proposed row (a suggestion) is not an offer: no fatigue, no open offer', () => {
+  run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, payload, fetched_at)
+       VALUES (5, 'espn', 'fx-5', 2026, 'Fixture league 5', '1', 10, 1, '{}', '2026-09-20 00:00:00')`);
+  for (let i = 0; i < 5; i++) {
+    run(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id, proposed_at,
+           model_p_accept, model_p_accept_low, model_p_accept_high, model_basis, model_version, status, created_at)
+         VALUES (5, 2026, 'app_proposed', '1', '3', ?, 0.5, 0.4, 0.6, 'heuristic_unanchored', 'v0', 'proposed', ?)`,
+    ago(1 + i * 0.1), ago(1 + i * 0.1));
+  }
+  const r = offerGateFor({ leagueId: 5, season: 2026, offer: FAIR_OFFER, now: NOW });
+  assert.equal(r.ledger.offers_7d, 0);
+  assert.equal(r.ledger.open_offer_at, null);
+  assert.equal(r.decision, 'allow');
+  // Once one of them is marked sent, it counts once.
+  run(`UPDATE trade_outcomes SET sent_at = ? WHERE id = (SELECT MIN(id) FROM trade_outcomes WHERE league_id = 5)`, ago(1));
+  const after = offerGateFor({ leagueId: 5, season: 2026, offer: FAIR_OFFER, now: NOW });
+  assert.equal(after.ledger.offers_7d, 1);
+  assert.ok(after.ledger.open_offer_at, 'the sent one is the open offer');
+  // An offer ESPN shows (not tapped in the app) counts too: the one counter, both sources.
+  run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, execution_type, proposed_at, team_id, items_json, first_seen_at, last_seen_at)
+       VALUES (5, 2026, 'espn-1', 'TRADE_PROPOSAL', NULL, ?, 1, ?, ?, ?)`,
+  ago(2), JSON.stringify([{ fromTeamId: 1, toTeamId: 3 }, { fromTeamId: 3, toTeamId: 1 }]), ago(2), ago(2));
+  assert.equal(offerGateFor({ leagueId: 5, season: 2026, offer: FAIR_OFFER, now: NOW }).ledger.offers_7d, 2);
+});
+
+test('R10 no collector table: the league reader refuses rather than counting blind', () => {
+  db.exec('ALTER TABLE league_transactions_raw RENAME TO ltr_hidden');
+  try {
+    assert.throws(() => offerGateFor({ leagueId: 5, season: 2026, offer: FAIR_OFFER, now: NOW }), /league_transactions_raw/);
+  } finally { db.exec('ALTER TABLE ltr_hidden RENAME TO league_transactions_raw'); }
+});
+
+/* ----------------------------------------------------------------- R11 */
+
+test('R11 GRIDIRON_REP_GATE off: finder deals come back untouched; preview labels each verdict', () => {
+  const result = { mode: 'league', deals: [{ partner_id: '3', acceptance: { band: { low: 0.4, mid: 0.5, high: 0.6 } } }] };
+  try {
+    delete process.env.GRIDIRON_REP_GATE;
+    const off = gateDeals({ id: 4, season: 2026 }, result, { now: NOW });
+    assert.equal(off, result, 'off: the same object, no reputation field');
+    assert.equal(off.deals[0].reputation, undefined);
+
+    process.env.GRIDIRON_PREVIEW_UNCONFIRMED = '1';
+    const p = gateDeals({ id: 4, season: 2026 }, result, { now: NOW });
+    assert.equal(p.deals[0].reputation.preview, true);
+    assert.match(p.deals[0].reputation.preview_reason, /GRIDIRON_REP_GATE=1/);
+    assert.ok(['allow', 'deny', 'delay'].includes(p.deals[0].reputation.decision));
+  } finally {
+    process.env.GRIDIRON_REP_GATE = '1';
+    delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+  }
+  const on = gateDeals({ id: 4, season: 2026 }, result, { now: NOW });
+  assert.equal(on.deals[0].reputation.preview, undefined, 'flag on: no preview label');
 });

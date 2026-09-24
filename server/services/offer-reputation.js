@@ -9,9 +9,15 @@
  * argument, so the campaign producer and the trade finder get the same answer
  * for the same inputs and a test can pin every branch. `offerGateFor` is the
  * one reader that fills those inputs from trade_outcomes + manager_profiles.
+ * An app_proposed row with no sent_at is a suggestion Nick never sent, so it is
+ * not an offer and never counts. The finder hook is behind GRIDIRON_REP_GATE
+ * (offer-reputation-flag.js).
  *
  * What it counts, per manager:
- *   - offers sent in the last 7 days (fatigue),
+ *   - offers sent in the last 7 days (fatigue). In the league reader this is
+ *     THE one fatigue counter, FIX-07's sentThisWeek (scripts/campaign/league-adapter.mjs:
+ *     ESPN's own proposals + trade_outcomes WHERE sent_at IS NOT NULL), so the
+ *     War Room producer and this gate never disagree (RULINGS 4),
  *   - declines in a row (declined / ignored / expired; accepted or countered
  *     ends the run),
  *   - an unanswered offer still open,
@@ -28,8 +34,11 @@
  * prereg in ENGINE-SPECS REP-01 (accept rate vs prior lopsidedness) is what
  * replaces them once enough offers settle.
  */
-import { row } from '../db/index.js';
+import { row, rows } from '../db/index.js';
 import { outcomesFor } from './trade-outcomes.js';
+import { toTime } from './trade-tactics.js';
+import { sentThisWeek } from '../../scripts/campaign/league-adapter.mjs';
+import { repGateFields } from './offer-reputation-flag.js';
 
 const DAY_MS = 86_400_000;
 const WEEK_DAYS = 7;
@@ -176,9 +185,11 @@ function msUntilSpentBelow(spent, target) {
  * @param {'fair'|'hard'|'never'|null} a.tier profile tier; null means unset -> 'fair'
  * @param {string|Date} a.now
  * @param {object} [a.overrides] per-limit replacements for the tier defaults
+ * @param {number} [a.sentCount] offers sent this manager in the last 7 days from the one
+ *   fatigue counter (sentThisWeek). Given, it replaces the history's own 7-day count.
  * @returns {{decision:'allow'|'deny'|'delay', code:string, reason:string, retry_at:string|null, ...}}
  */
-export function offerGate({ offer, history, tier = null, now, overrides = {} }) {
+export function offerGate({ offer, history, tier = null, now, overrides = {}, sentCount = null }) {
   if (now == null) throw new Error('offerGate needs `now`; it never reads the clock itself');
   const nowMs = toMs(now, 'now');
   const cp = offer?.counterparty_id;
@@ -188,6 +199,11 @@ export function offerGate({ offer, history, tier = null, now, overrides = {} }) 
   const t = tier ?? 'fair';
   const limits = reputationLimits(t, overrides);
   const ledger = reputationLedger(history, { counterpartyId: cp, now: nowMs });
+  if (sentCount != null) {
+    if (!Number.isInteger(sentCount) || sentCount < 0) throw new Error(`sentCount must be a count, got ${sentCount}`);
+    ledger.offers_7d = sentCount;
+    ledger.offers_7d_source = 'sentThisWeek';
+  } else ledger.offers_7d_source = 'history';
   const { cost, basis } = costOf(offer);
   const leagueBudget = LEAGUE_REPUTATION_DEFAULTS.lopsided_budget;
   const base = { tier: t, tier_source: tierSource, limits, ledger, offer_cost: cost, offer_cost_basis: basis };
@@ -232,8 +248,9 @@ export function offerGate({ offer, history, tier = null, now, overrides = {} }) 
   }
   if (ledger.offers_7d >= limits.max_offers_7d) {
     return out('delay', 'weekly_cap',
-      `${ledger.offers_7d} offers in the last 7 days to this manager (cap ${limits.max_offers_7d}).`,
-      Date.parse(ledger.oldest_7d_at) + WEEK_DAYS * DAY_MS);
+      `${ledger.offers_7d} offers in the last 7 days to this manager (cap ${limits.max_offers_7d}).`
+      + (ledger.oldest_7d_at ? '' : ' The oldest is not in the app\'s log, so the retry time is unknown.'),
+      ledger.oldest_7d_at ? Date.parse(ledger.oldest_7d_at) + WEEK_DAYS * DAY_MS : null);
   }
   if (cost > 0 && ledger.lopsided_spent + cost > limits.lopsided_budget + EPS) {
     return out('delay', 'reputation_budget',
@@ -251,7 +268,8 @@ export function offerGate({ offer, history, tier = null, now, overrides = {} }) 
 
 /**
  * The gate for one league, reading its own inputs: the offers this app's team
- * sent (trade_outcomes, any source but considered_only) and the profile tier.
+ * sent (trade_outcomes, any source but considered_only, and never an app_proposed
+ * row that was not sent), the 7-day count from sentThisWeek, and the profile tier.
  * Throws on a league it cannot read: an unknown sender would count nothing and
  * allow blind.
  */
@@ -263,8 +281,18 @@ export function offerGateFor({ leagueId, season, offer, now, overrides }) {
   const profile = row('SELECT tradeability FROM manager_profiles WHERE league_id = ? AND roster_id = ?',
     leagueId, String(offer?.counterparty_id ?? ''));
   const history = outcomesFor(leagueId, season)
-    .filter(r => r.source !== 'considered_only' && String(r.proposer_team_id ?? '') === me);
-  return offerGate({ offer, history, tier: profile?.tradeability ?? null, now, overrides });
+    .filter(r => r.source !== 'considered_only' && String(r.proposer_team_id ?? '') === me
+      && !(r.source === 'app_proposed' && r.sent_at == null));
+  const nowMs = toMs(now, 'now');
+  // sentThisWeek counts ESPN's own proposals too; without the collector's table those
+  // are unknown, and a count missing them would allow blind.
+  if (!row(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'league_transactions_raw'`)) {
+    throw new Error('league_transactions_raw does not exist here (the transactions collector has not run), '
+      + "so ESPN's own proposals cannot be counted");
+  }
+  const sent = sentThisWeek({ db: { rows }, tactics: { toTime } }, leagueId, season, me, nowMs);
+  const sentCount = sent.get(String(offer?.counterparty_id ?? '')) ?? 0;
+  return offerGate({ offer, history, tier: profile?.tradeability ?? null, now: nowMs, overrides, sentCount });
 }
 
 /**
@@ -272,15 +300,21 @@ export function offerGateFor({ leagueId, season, offer, now, overrides }) {
  * verdict for its partner. Returns a copy — the finder's result is cached and
  * shared, so it is never written into. A league the gate cannot read gives each
  * deal `decision: null` with the reason, never a silent allow.
+ *
+ * Behind GRIDIRON_REP_GATE: off, the result is returned as it came (no
+ * `reputation` field). On only through preview mode, each verdict says so.
  */
 export function gateDeals(lg, result, { now = new Date() } = {}) {
   if (!Array.isArray(result?.deals)) return result;
+  const flag = repGateFields();
+  if (!flag.enabled) return result;
+  const label = flag.preview ? { preview: true, preview_reason: flag.preview_reason } : {};
   const gate = d => {
     try {
-      return offerGateFor({ leagueId: lg.id, season: lg.season, now,
-        offer: { counterparty_id: d.partner_id, p_accept_high: d.acceptance?.band?.high ?? null } });
+      return { ...offerGateFor({ leagueId: lg.id, season: lg.season, now,
+        offer: { counterparty_id: d.partner_id, p_accept_high: d.acceptance?.band?.high ?? null } }), ...label };
     } catch (e) {
-      return { decision: null, code: 'unavailable', reason: `reputation gate not run: ${e.message}`, retry_at: null };
+      return { decision: null, code: 'unavailable', reason: `reputation gate not run: ${e.message}`, retry_at: null, ...label };
     }
   };
   return { ...result, deals: result.deals.map(d => ({ ...d, reputation: gate(d) })) };

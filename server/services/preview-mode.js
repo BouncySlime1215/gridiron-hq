@@ -30,6 +30,8 @@
  *                                                GET /api/number-audit (#237, GRIDIRON_NUMBER_HEALTH)
  *   - offer-loop-flag.js#offerLoopFields         TradeCard "I sent this" and /offers/sent
  *                                                (#239, GRIDIRON_OFFER_LOOP)
+ *   - offer-reputation-flag.js#repGateFields     REP-01 fatigue/reputation verdict on finder deals
+ *                                                (#264, GRIDIRON_REP_GATE)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

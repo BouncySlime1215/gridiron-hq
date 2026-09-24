@@ -23,6 +23,8 @@
  *     players to a different team do not match (O7b); a third team's proposal
  *     pointing at ours is not a counter (O3b).
  *  O8 no code path in the loop sends anything to ESPN.
+ *  O9 (CLONE-01b b2) every "I sent this" writes the offer's pitch arm to
+ *     pitch_json, on a new row and on a slate row marked sent alike.
  *
  * Every team, player and league id below is made up.
  */
@@ -225,6 +227,23 @@ test('O6b: a deal with no acceptance band is refused, not written without a pred
   assert.throws(() => recordSentOffer({ league_id: 508, season: SEASON, proposer_team_id: '1',
     deal: { ...deal(2, 1, 2), acceptance: null }, model_version: 'v' }), /model_p_accept/);
   assert.equal(rows(`SELECT id FROM trade_outcomes WHERE league_id = 508`).length, 0);
+});
+
+test('O9: every "I sent this" writes its pitch arm, new row and slate row alike', () => {
+  const L = 509;
+  const fresh = send(L, { ...deal(2, 181, 282), their_value_pct: 1, their_needs: ['RB'],
+    i_give: [{ id: 9181, name: 'Give 181', espn_id: 181, position: 'RB' }] }, 0);
+  const arm = id => JSON.parse(ledger(L, id).pitch_json);
+  assert.equal(fresh.state, 'recorded');
+  assert.deepEqual([arm(fresh.id).fairness, arm(fresh.id).shape, arm(fresh.id).lead_need, arm(fresh.id).varied],
+    ['fair', '1-for-1', true, 'control']);
+  const idea = { ...deal(3, 183, 284, 'Give 183>Get 284'), partner_id: '3' };
+  recordProposalSlate(L, SEASON, { ideas: [idea], result: { source: 'model', proposals: [{ idea_ids: ['Give 183>Get 284'] }] },
+    modelVersion: 'slate-v1', proposerTeamId: '1' });
+  const marked = send(L, idea, 5 * MIN);
+  assert.equal(marked.state, 'marked_sent');
+  assert.equal(arm(marked.id).varied, 'unknown', 'a card with no his-side numbers is logged, never read as the control');
+  assert.match(arm(marked.id).reason, /their_value_pct/);
 });
 
 /* ------------------------------------------------------------------ O7 */

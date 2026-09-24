@@ -25,6 +25,8 @@ import { talkReads, expectationGaps, rosterOwnership, HOT_GAP_PER_GAME } from '.
 import { declarationCredibility, untouchableStance } from './bluff-detector.js';
 import { analyzeLeague } from '../routes/tradelab.js';
 import { previewUnconfirmed, previewFields, previewText } from './preview-mode.js';
+import { cloneMode } from './trade-acceptance.js';
+import { cloneFitsFor } from './trade-outcomes.js';
 
 /**
  * RL-19-1: default-off preview of the r19-measured `positional_need` cap.
@@ -117,6 +119,11 @@ export const VALUATION_SOURCES = Object.freeze({
   untouchable_credibility: { label: 'He has called the player untouchable, and his word has held',
     cap: 0.10, min_n: 1, needs: 'league chat', fitted: false,
     why: 'a refusal that holds is a real price; a bluffer\'s refusal is an opening one' },
+  // CLONE-01b b2. Default-off (GRIDIRON_CLONE_V2, or preview mode): the layer
+  // attaches `clone_fit` only when on, so off (or zero:['clone']) is today's map.
+  clone: { label: 'He declined a package that paid him more than it cost, so he prices his own players higher',
+    cap: 0.10, min_n: 1, needs: 'settled declines of offers you sent him (manager_clone_fits)', fitted: false,
+    why: "a decline bounds his reservation price: the offered package was worth less to him than what he'd give" },
 });
 
 /**
@@ -306,6 +313,10 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
   const activityPreview = activity == null && process.env[ACTIVITY_FLAG] !== '1' && previewUnconfirmed();
   const activityOn = activity ?? (process.env[ACTIVITY_FLAG] === '1' || activityPreview);
   const signals = managerSignalsFor(leagueId);
+  // CLONE-01b b2: each manager's settled replies, read once, only when the clone
+  // flag is on. Off, no manager entry carries `clone_fit` and nothing changes.
+  const cloneOn = cloneMode();
+  const cloneFits = cloneOn.on ? cloneFitsFor(leagueId, season ?? null) : null;
   // One block per league, shared by every manager entry and frozen for that
   // reason. `luck_self_view` is priced off this store, so its age travels with
   // the reading rather than being left for a page to guess at.
@@ -472,6 +483,7 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
           // it, so its own stamp would advance while the measurement sat still.
           as_of: archetypesAsOf.as_of } : null,
       archetypes: archetypesAsOf,
+      ...(cloneFits ? { clone_fit: cloneFits.get(String(id)) ?? null, clone_preview: cloneOn.preview } : {}),
       negotiation: profiles.byRoster.get(String(id))?.profile ?? null,
       negotiation_n: profiles.byRoster.get(String(id))?.messages_read ?? 0,
       receptiveness_factors: [
@@ -871,6 +883,29 @@ export function playerValuation(managerProfile, player, { zero = [] } = {}) {
       stance.respect?.has(key)
         ? `he has called him untouchable and his word has held (credibility ${credibility.toFixed(2)})`
         : `he has called him untouchable, but his word holds only ${(credibility * 100).toFixed(0)}% of the time`);
+  }
+
+  // ------------------- 7. his clone: a decline bounds his own price (b2)
+  // Only when the layer attached `clone_fit` (the flag is on). A decline of a
+  // package that paid him g% more than it cost him, on our numbers, says his own
+  // players are worth at least that much more to him: his reservation price.
+  // A decline of a package that already cost him value says nothing about that,
+  // so it is inert with its reason. Inside PLAYER_VALUATION_CAP like the rest.
+  if (owns && managerProfile && 'clone_fit' in managerProfile) {
+    const bound = managerProfile.clone_fit?.price_bound ?? null;
+    if (!bound) {
+      add('clone', 0, 0, 'no settled decline of an offer you sent him yet');
+    } else if (!(bound.gain_pct > 0)) {
+      if (!off.has('clone')) {
+        inert.push({ source: 'clone', reason: `his highest decline (${bound.gain_pct}% for him) already cost him `
+          + 'value on our numbers, so it bounds nothing about his own players', as_of: managerProfile.clone_fit.fit_stamp ?? null });
+      }
+    } else {
+      const why = `he declined a package worth ${bound.gain_pct}% more than it cost him on our numbers `
+        + `(${bound.declines} decline${bound.declines === 1 ? '' : 's'}), so he prices his own players at least that far above ours`;
+      add('clone', bound.gain_pct / 100, bound.declines,
+        managerProfile.clone_preview ? previewText(why) : why, managerProfile.clone_fit.fit_stamp ?? null);
+    }
   }
 
   const raw = factors.reduce((mult, f) => mult * (1 + f.effect), 1);

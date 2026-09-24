@@ -39,7 +39,8 @@ import { counterpartyLayer, valuationMap, playerValuation, RECEPTIVENESS_RANGE, 
 import { requirePlatformAdmin } from '../platform/legacy-access.js';
 import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE, PROMPT_VERSION }
   from '../services/trade-proposals.js';
-import { recordProposalSlate, recordSentOffer } from '../services/trade-outcomes.js';
+import { pitchArmRates, recordProposalSlate, recordSentOffer } from '../services/trade-outcomes.js';
+import { analyzeLeague } from './tradelab.js';
 import { recordRoute } from '../services/rec-ledger.js';
 import { offerLoopFields } from '../services/offer-loop-flag.js';
 import { lineupCall } from '../services/lineup-brain.js';
@@ -871,12 +872,22 @@ r.post('/:leagueId/offers/sent', (req, res, next) => {
     if (!deal || deal.partner_id == null || !Array.isArray(deal.i_give) || !Array.isArray(deal.i_get)) {
       return res.status(400).json({ error: 'deal with partner_id, i_give and i_get required' });
     }
+    // CLONE-01b b2 pitch arm: the served deal does not carry his needs, so the
+    // lead-need factor is read here from the same roster analysis the finder uses.
+    // Unreadable is left null, and the arm then says 'unknown' with its reason.
+    let theirNeeds = null;
+    try {
+      const t = analyzeLeague(lg).teams.find(x => String(x.roster_id) === String(deal.partner_id));
+      theirNeeds = t ? t.needs.map(n => n.position) : null;
+    } catch (e) {
+      console.error(`[trades] offers/sent: roster analysis failed for league ${lg.id}:`, e?.message ?? e);
+    }
     let out;
     try {
       out = recordSentOffer({
         league_id: lg.id, season: lg.season ?? null,
         proposer_team_id: String(req.body?.team_id ?? lg.my_team_id ?? '') || null,
-        deal, model_version: 'acceptanceBand/served-deal',
+        deal: theirNeeds ? { ...deal, their_needs: theirNeeds } : deal, model_version: 'acceptanceBand/served-deal',
       });
     } catch (e) {
       // The writer refuses a deal it cannot grade (no band, no season). That is
@@ -884,6 +895,20 @@ r.post('/:leagueId/offers/sent', (req, res, next) => {
       return res.status(400).json({ error: String(e?.message ?? e) });
     }
     res.json({ ...out, ...flag });
+  } catch (e) { next(e); }
+});
+
+/**
+ * CLONE-01b b2 pitch experiment: accept rate by pitch arm over settled sent
+ * offers. Logged only, labelled 'no claim before the prereg n'. Behind the same
+ * offer-loop flag as the writer.
+ */
+r.get('/:leagueId/offers/pitch-arms', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const flag = offerLoopFields();
+    if (!flag.enabled) return res.json(flag);
+    res.json({ ...pitchArmRates(lg.id, lg.season ?? null), ...flag });
   } catch (e) { next(e); }
 });
 

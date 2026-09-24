@@ -18,6 +18,17 @@
  *  B7 migration 096: manager_clone_fits + trade_outcomes.pitch_json, additive.
  *  B8 an activity term already applied in receptiveness is not counted again.
  *  B9 the follow-up: the cheapest package above a decline's price bound.
+ *  (PR sweep fixes, FIX-288-6) B1d a counter is not subtracted from the ESPN history.
+ *  (PR sweep fixes, FIX-288-2..5)
+ *  B11 every "I sent this" writes pitch_json: screen fairness, 2-for-1 vs
+ *      1-for-1, lead need, and the ONE factor varied; accept rate by arm is
+ *      labelled 'no claim before the prereg n'.
+ *  B12 playerValuation gains a 'clone' source inside PLAYER_VALUATION_CAP;
+ *      zero:['clone'] (and the flag off) reproduce today's valuation byte-for-byte.
+ *  B13 settled-reply pricing reads the offer's terms from
+ *      trade_proposal_snapshots first, then the raw row, and counts the share.
+ *  B14 the E1 grade reads terms snapshot-first and prints the share with terms.
+ *  B15 the TradeCard follow-up chip renders only when clone.follow_up is set.
  *
  * Every team, player and league id below is made up.
  */
@@ -26,6 +37,12 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+import ts from 'typescript';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-clone-b2-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
@@ -96,6 +113,14 @@ test('B1c settled replies already inside his ESPN accept rate are not counted tw
   const fit = { replies: [decline(10)], n: 1, k: 0 };
   const c = acc.cloneFor({ counterparty: cp(), pool: POOL, fit, gainPct: 10 });
   assert.equal(c.history_n, 9);
+});
+
+test('B1d a counter is not in his ESPN accept rate, so it is not taken out of the history', () => {
+  // manager-signals counts only his TRADE_ACCEPT / TRADE_DECLINE rows; a counter is his own proposal
+  const fit = { replies: [decline(10), { y: 0, gain_pct: 5, status: 'countered' }], n: 2, k: 0 };
+  const c = acc.cloneFor({ counterparty: cp(), pool: POOL, fit, gainPct: 10 });
+  assert.equal(c.history_n, 9, 'only the decline is subtracted');
+  assert.equal(c.n, 2, 'the counter still updates the clone as a no');
 });
 
 /* ------------------------------------------------------------------- B2 */
@@ -277,4 +302,203 @@ test('B10 call site: off gives no clone context; on, each deal reads ITS partner
       if (v == null) delete process.env[k]; else process.env[k] = v;
     }
   }
+});
+
+/* ------------------------------------------------------------------ B11 */
+
+const sentDeal = (partner, over = {}) => ({
+  partner_id: String(partner), their_value_pct: 2, their_needs: ['WR'],
+  i_give: [{ id: 1, espn_id: 11, position: 'WR', value: 100 }],
+  i_get: [{ id: 2, espn_id: 22, position: 'RB', value: 100 }],
+  acceptance: { band: { low: 0.2, mid: 0.35, high: 0.5 }, basis: 'heuristic_anchored' }, ...over });
+
+test('B11 pitch arm: the control arm, one factor varied, two factors, and an unread factor', () => {
+  const control = outcomes.pitchArmOf(sentDeal(7));
+  assert.deepEqual([control.fairness, control.shape, control.lead_need, control.varied],
+    ['fair', '1-for-1', true, 'control']);
+  const twoForOne = outcomes.pitchArmOf(sentDeal(7, { i_give: [{ position: 'WR' }, { position: 'TE' }] }));
+  assert.equal(twoForOne.shape, '2-for-1');
+  assert.equal(twoForOne.varied, 'shape');
+  assert.equal(outcomes.pitchArmOf(sentDeal(7, { their_value_pct: 12 })).varied, 'fairness');
+  assert.equal(outcomes.pitchArmOf(sentDeal(7, { their_value_pct: -9 })).fairness, 'short');
+  assert.equal(outcomes.pitchArmOf(sentDeal(7, { their_needs: ['QB'] })).varied, 'lead_need');
+  assert.equal(outcomes.pitchArmOf(sentDeal(7, { their_value_pct: 12, their_needs: ['QB'] })).varied, 'multiple');
+  const unread = outcomes.pitchArmOf(sentDeal(7, { their_needs: undefined }));
+  assert.equal(unread.varied, 'unknown', 'an arm with an unread factor is never the control');
+  assert.match(unread.reason, /needs/);
+});
+
+test('B11b every "I sent this" writes pitch_json; accept rate by arm says no claim before the prereg n', () => {
+  const L = 9111;
+  const a = outcomes.recordSentOffer({ league_id: L, season: SEASON, proposer_team_id: '1',
+    deal: sentDeal(7), model_version: 't', sent_at: '2026-10-01T00:00:00.000Z' });
+  const b = outcomes.recordSentOffer({ league_id: L, season: SEASON, proposer_team_id: '1',
+    deal: sentDeal(8, { their_value_pct: 12 }), model_version: 't', sent_at: '2026-10-01T00:00:00.000Z' });
+  const arm = id => JSON.parse(rows('SELECT pitch_json FROM trade_outcomes WHERE id = ?', id)[0].pitch_json);
+  assert.equal(arm(a.id).varied, 'control');
+  assert.equal(arm(b.id).varied, 'fairness');
+  run(`UPDATE trade_outcomes SET status = 'accepted' WHERE id = ?`, a.id);
+  run(`UPDATE trade_outcomes SET status = 'declined' WHERE id = ?`, b.id);
+  const r = outcomes.pitchArmRates(L, SEASON);
+  assert.equal(r.settled, 2);
+  assert.match(r.label, /no claim before the prereg n/);
+  assert.deepEqual(r.arms.map(x => [x.arm, x.n, x.k]), [['control', 1, 1], ['fairness=rich', 1, 0]]);
+  assert.ok(r.arms.every(x => /no claim before the prereg n/.test(x.claim)));
+  assert.equal(r.prereg_n, outcomes.PITCH_PREREG_N);
+});
+
+/* ------------------------------------------------------------------ B12 */
+
+test('B12 clone valuation source: inside the per-player cap, off and zero:[clone] are byte-identical', async () => {
+  const pricing = await import('../server/services/counterparty-pricing.js');
+  assert.ok(pricing.VALUATION_SOURCES.clone, 'clone is a declared valuation source');
+  assert.ok(pricing.VALUATION_SOURCES.clone.cap <= pricing.PLAYER_VALUATION_CAP);
+  const mine = { name: 'His Guy', position: 'WR', value: 1000 };
+  const base = { owned: new Set(['his guy']), players: new Map(), reads: new Map() };
+  const fit = gain => ({ ...base, clone_fit: { price_bound: { gain_pct: gain, declines: 1 }, fit_stamp: 'T' } });
+  const today = JSON.stringify(pricing.playerValuation(base, mine));
+  assert.equal(JSON.stringify(pricing.playerValuation(fit(8), mine, { zero: ['clone'] })), today,
+    "zero:['clone'] reproduces today's valuation byte-for-byte");
+  const on = pricing.playerValuation(fit(8), mine);
+  const f = on.factors.find(x => x.source === 'clone');
+  assert.equal(f.effect, 0.08);
+  assert.equal(on.their_value, 1080);
+  assert.equal(pricing.playerValuation(fit(40), mine).factors.find(x => x.source === 'clone').effect,
+    pricing.VALUATION_SOURCES.clone.cap, 'capped at its own cap');
+  // not his player: a decline says nothing about what he pays for someone else's
+  assert.equal(pricing.playerValuation(fit(8), { ...mine, name: 'Other' }).factors.length, 0);
+  // no decline yet / a decline that already cost him: inert with its reason
+  const none = pricing.playerValuation({ ...base, clone_fit: null }, mine);
+  assert.match(none.inert.find(x => x.source === 'clone').reason, /rests on 0 of the 1/);
+  const neg = pricing.playerValuation(fit(-5), mine);
+  assert.match(neg.inert.find(x => x.source === 'clone').reason, /bounds nothing/);
+});
+
+test('B12b the layer attaches clone_fit only when the clone flag is on', async () => {
+  const pricing = await import('../server/services/counterparty-pricing.js');
+  const save = { c: process.env.GRIDIRON_CLONE_V2, p: process.env.GRIDIRON_PREVIEW_UNCONFIRMED };
+  try {
+    delete process.env.GRIDIRON_CLONE_V2; delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+    run(`INSERT OR IGNORE INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, payload,
+         fetched_at, current_week) VALUES (?, 'espn', 'clone-b2', ?, 'Fixture', '1', 10, 1, '{}', '2026-10-01', 3)`,
+    LEAGUE, SEASON);
+    for (const id of ['7', '8']) {
+      run(`INSERT INTO manager_signals (league_id, roster_id, metric, value, n, source, computed_at)
+           VALUES (?, ?, 'tx_accept_rate', 0.3, 10, 'espn_transactions', '2026-10-01')`, LEAGUE, id);
+    }
+    const off = pricing.counterpartyLayer(LEAGUE, { season: SEASON, week: 3 });
+    assert.equal(off.size, 2, 'precondition: the layer has two managers');
+    assert.ok([...off.values()].every(m => !('clone_fit' in m)), 'off: no manager carries clone_fit');
+    process.env.GRIDIRON_CLONE_V2 = '1';
+    const on = pricing.counterpartyLayer(LEAGUE, { season: SEASON, week: 3 });
+    assert.equal(on.get('7').clone_fit.n, 2, 'on: manager 7 carries his fit (written in B6)');
+    assert.equal(on.get('8').clone_fit, null, 'on: a manager with no settled reply carries null');
+  } finally {
+    for (const [k, v] of [['GRIDIRON_CLONE_V2', save.c], ['GRIDIRON_PREVIEW_UNCONFIRMED', save.p]]) {
+      if (v == null) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
+
+/* ------------------------------------------------------------------ B13 */
+
+// The OFFER-SNAPSHOT table (#247, migration 084), created by hand: it is not on this branch.
+const SNAP_DDL = `CREATE TABLE IF NOT EXISTS trade_proposal_snapshots (
+  league_id INTEGER NOT NULL, season INTEGER NOT NULL, proposal_tx_id TEXT NOT NULL,
+  proposer_team_id INTEGER, proposed_at TEXT, scoring_period INTEGER, items_json TEXT NOT NULL,
+  first_raw_json TEXT, captured_from TEXT NOT NULL, captured_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+  last_status TEXT, resolution TEXT, resolution_tx_id TEXT, resolved_at TEXT,
+  PRIMARY KEY (league_id, season, proposal_tx_id))`;
+const RAW_DDL = `CREATE TABLE IF NOT EXISTS league_transactions_raw (
+  league_id INTEGER NOT NULL, season INTEGER NOT NULL, tx_id TEXT NOT NULL,
+  type TEXT, status TEXT, execution_type TEXT, proposed_at TEXT, processed_at TEXT,
+  team_id INTEGER, member_id TEXT, related_tx_id TEXT, scoring_period INTEGER,
+  bid_amount REAL, is_pending INTEGER, items_json TEXT, raw_json TEXT,
+  first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, PRIMARY KEY (league_id, season, tx_id))`;
+
+test('B13 settled-reply terms: snapshot first, then the raw row, then the stored package; share reported', () => {
+  const L = 9113;
+  const now = '2026-10-01T00:00:00.000Z';
+  db.exec(SNAP_DDL); db.exec(RAW_DDL);
+  // Stored packages price ESPN ids 11 (110) and 22 (100) and 33 (150).
+  const give = JSON.stringify([{ espn_id: 11, value: 110 }, { espn_id: 33, value: 150 }]);
+  const get = JSON.stringify([{ espn_id: 22, value: 100 }]);
+  const ins = (tx, cpId) => run(`INSERT INTO trade_outcomes
+    (league_id, season, source, proposer_team_id, counterparty_team_id, give_json, get_json, proposed_at,
+     model_p_accept, model_p_accept_low, model_p_accept_high, model_basis, model_version, status,
+     resolved_at, created_at, sent_at, matched_tx_id)
+    VALUES (?, ?, 'app_proposed', '1', ?, ?, ?, ?, 0.3, 0.1, 0.5, 'heuristic_anchored', 't', 'declined', ?, ?, ?, ?)`,
+  L, SEASON, cpId, give, get, now, now, now, now, tx);
+  ins('p1', '7'); ins('p2', '7'); ins(null, '7');
+  // p1: the snapshot says 11 for 22 (gain 10%); the raw row was blanked on resolve.
+  run(`INSERT INTO trade_proposal_snapshots (league_id, season, proposal_tx_id, proposer_team_id, items_json,
+    captured_from, captured_at, last_seen_at) VALUES (?, ?, 'p1', 1, ?, 'pending', ?, ?)`, L, SEASON,
+  JSON.stringify([{ fromTeamId: 1, toTeamId: 7, playerId: 11 }, { fromTeamId: 7, toTeamId: 1, playerId: 22 }]), now, now);
+  run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, execution_type, team_id, items_json,
+    first_seen_at, last_seen_at) VALUES (?, ?, 'p1', 'TRADE_PROPOSAL', 'EXECUTE', 1, '[]', ?, ?)`, L, SEASON, now, now);
+  // p2: no snapshot; the raw row says 33 for 22 (gain 50%).
+  run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, execution_type, team_id, items_json,
+    first_seen_at, last_seen_at) VALUES (?, ?, 'p2', 'TRADE_PROPOSAL', 'EXECUTE', 1, ?, ?, ?)`, L, SEASON,
+  JSON.stringify([{ fromTeamId: 1, toTeamId: 7, playerId: 33 }, { fromTeamId: 7, toTeamId: 1, playerId: 22 }]), now, now);
+  const r = outcomes.refreshCloneFits(L, SEASON);
+  assert.deepEqual(r.terms, { snapshot: 1, raw: 1, stored: 1, share_with_terms: 0.667 });
+  const replies = outcomes.cloneFitsFor(L, SEASON).get('7').replies;
+  assert.deepEqual(replies.map(x => [x.terms, x.gain_pct]), [['snapshot', 10], ['raw', 50], ['stored', 160]]);
+});
+
+/* ------------------------------------------------------------------ B14 */
+
+test('B14 the E1 grade reads terms snapshot-first and prints the share of offers with terms', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const file = path.join(temp, 'grade.sqlite');
+  const g = new DatabaseSync(file);
+  g.exec(RAW_DDL); g.exec(SNAP_DDL);
+  const at = d => `2026-09-${String(d).padStart(2, '0')}T00:00:00.000Z`;
+  const rawIns = g.prepare(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, execution_type,
+    team_id, related_tx_id, proposed_at, items_json, first_seen_at, last_seen_at) VALUES (1, 2026, ?, ?, 'EXECUTE', ?, ?, ?, ?, ?, ?)`);
+  const items = JSON.stringify([{ fromTeamId: 1, toTeamId: 2, playerId: 5 }, { fromTeamId: 2, toTeamId: 1, playerId: 6 }]);
+  // a: raw terms. b: raw blanked, snapshot has them. c: no terms anywhere. d: only a decision + snapshot.
+  rawIns.run('a', 'TRADE_PROPOSAL', 1, null, at(1), items, at(1), at(1));
+  rawIns.run('a-x', 'TRADE_DECLINE', 2, 'a', at(2), '[]', at(2), at(2));
+  rawIns.run('b', 'TRADE_PROPOSAL', 1, null, at(3), '[]', at(3), at(3));
+  rawIns.run('b-x', 'TRADE_ACCEPT', 2, 'b', at(4), '[]', at(4), at(4));
+  rawIns.run('c', 'TRADE_PROPOSAL', 1, null, at(5), '[]', at(5), at(5));
+  rawIns.run('c-x', 'TRADE_DECLINE', 2, 'c', at(6), '[]', at(6), at(6));
+  rawIns.run('d-x', 'TRADE_DECLINE', 2, 'd', at(8), '[]', at(8), at(8));
+  const snapIns = g.prepare(`INSERT INTO trade_proposal_snapshots (league_id, season, proposal_tx_id,
+    proposer_team_id, proposed_at, items_json, captured_from, captured_at, last_seen_at) VALUES (1, 2026, ?, 1, ?, ?, 'pending', ?, ?)`);
+  snapIns.run('b', at(3), items, at(3), at(3));
+  snapIns.run('d', at(7), items, at(7), at(7));
+  g.close();
+  const out = execFileSync(process.execPath, ['scripts/rnd/grade-clone-e1.mjs', '--db', file],
+    { cwd: new URL('..', import.meta.url).pathname, encoding: 'utf8' });
+  assert.match(out, /offers with terms: 3\/4 decided \(75\.0%; snapshot 2, raw 1\)/);
+  assert.match(out, /offers decided: 3 \(accepted 1\)/);
+  assert.match(out, /"no_terms":1/);
+});
+
+/* ------------------------------------------------------------------ B15 */
+
+test('B15 TradeCard follow-up chip: only when clone.follow_up is set, with the bound, labelled in preview', async () => {
+  const card = fs.readFileSync(new URL('../client/src/components/TradeCard.tsx', import.meta.url), 'utf8');
+  assert.match(card, /<CloneFollowUpChip clone=\{deal\.acceptance\?\.clone\} \/>/);
+  const src = fs.readFileSync(new URL('../client/src/components/trade/CloneFollowUpChip.tsx', import.meta.url), 'utf8');
+  const req = createRequire(new URL('../package.json', import.meta.url));
+  const rt = JSON.stringify(req.resolve('react/jsx-runtime'));
+  let js = ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
+  const shim = path.join(temp, 'jsx-runtime.mjs');
+  fs.writeFileSync(shim, `import { createRequire } from 'node:module';
+const rt = createRequire(${rt})(${rt}); export const jsx = rt.jsx; export const jsxs = rt.jsxs; export const Fragment = rt.Fragment;`);
+  js = js.split('"react/jsx-runtime"').join(`'${pathToFileURL(shim).href}'`);
+  const file = path.join(temp, 'CloneFollowUpChip.mjs');
+  fs.writeFileSync(file, js);
+  const Chip = (await import(pathToFileURL(file).href)).default;
+  const html = clone => renderToStaticMarkup(React.createElement(Chip, { clone }));
+  assert.equal(html(undefined), '', 'flag off: the engine attaches no clone block, so no chip');
+  assert.equal(html({ p: 0.3, price_bound: { gain_pct: 10 } }), '', 'no follow-up on this deal: no chip');
+  const on = html({ follow_up: { above_bound_pct: 10, why: 'w' } });
+  assert.match(on, /Cheapest package above the price he declined \(\+10% for him\)/);
+  assert.doesNotMatch(on, /Preview/);
+  assert.match(html({ preview: true, follow_up: { above_bound_pct: 10, why: 'w' } }), /Preview \(unconfirmed forward\)/);
 });

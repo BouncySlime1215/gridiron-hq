@@ -512,7 +512,13 @@ function relevance(reply, gain) {
 export function cloneFor({ counterparty = null, pool = null, fit = null, gainPct = null, preview = false } = {}) {
   const replies = (fit?.replies ?? []).filter(r => r && (r.y === 0 || r.y === 1));
   const k = replies.filter(r => r.y === 1).length;
-  const prior = clonePrior({ counterparty, pool, settled: { n: replies.length, k } });
+  // Only an accept or a decline is inside his ESPN accept rate (manager-signals
+  // counts his EXECUTE TRADE_ACCEPT / TRADE_DECLINE rows; checked on the local DB
+  // 9/24, 6 of 6 managers exact). A counter is his own TRADE_PROPOSAL, not a
+  // decline, so it is not in the history and is not taken out of it.
+  const inHistory = replies.filter(r => r.status !== 'countered');
+  const prior = clonePrior({ counterparty, pool,
+    settled: { n: inHistory.length, k: inHistory.filter(r => r.y === 1).length } });
   let p = prior.p;
   if (replies.length) {
     let a = prior.p * prior.strength;

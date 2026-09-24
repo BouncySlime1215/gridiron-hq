@@ -5,6 +5,7 @@ import { Headshot } from './PlayerRow';
 import ManagerRead from './trade/ManagerRead';
 import PlayerEvidence from './trade/PlayerEvidence';
 import RiskStrip from './trade/RiskStrip';
+import CloneFollowUpChip from './trade/CloneFollowUpChip';
 import SentOfferButton from './trade/SentOfferButton';
 import { hasEvidence } from './trade/types';
 import { logServerDetail, sanitizedMessage } from '../lib/errorSanitize';
@@ -265,6 +266,11 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
           ))}
         </div>
       )}
+
+      {/* CLONE-01b b2 follow-up chip. The server sets clone.follow_up only when
+          GRIDIRON_CLONE_V2 is on (or preview mode, through preview-mode.js), so
+          off it never renders. */}
+      <CloneFollowUpChip clone={deal.acceptance?.clone} />
 
       {deal.conflicts_with_earlier && (
         <div className="mb-3 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">

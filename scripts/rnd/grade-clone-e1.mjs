@@ -57,10 +57,23 @@ const priceOf = (() => {
 })();
 
 /* ------------------------------------------------------------- offers */
+// Terms come from trade_proposal_snapshots first (OFFER-SNAPSHOT, migration 084:
+// written once, never overwritten), then from the raw proposal's items_json,
+// which the collector's upsert can blank once ESPN resolves the offer. Answers
+// come from the raw rows, else the snapshot's own resolution.
 const tx = db.prepare(`SELECT league_id, season, tx_id, type, execution_type, team_id, related_tx_id,
   proposed_at, items_json FROM league_transactions_raw`).all();
 const key = t => `${t.league_id}:${t.season}:${t.tx_id}`;
 const proposals = new Map(tx.filter(t => t.type === 'TRADE_PROPOSAL' && t.execution_type === 'EXECUTE').map(t => [key(t), t]));
+const snaps = has('trade_proposal_snapshots') ? new Map(db.prepare(`SELECT league_id, season,
+  proposal_tx_id AS tx_id, proposer_team_id, proposed_at, items_json, resolution, resolved_at
+  FROM trade_proposal_snapshots`).all().map(r => [key(r), r])) : null;
+const answersBy = new Map();
+for (const t of tx) {
+  if (t.related_tx_id == null || t.execution_type !== 'EXECUTE') continue;
+  const k = `${t.league_id}:${t.season}:${t.related_tx_id}`;
+  (answersBy.get(k) ?? answersBy.set(k, []).get(k)).push(t);
+}
 /** Items, or null when unreadable: counted in `skipped.unreadable`, never dropped silently. */
 const parse = j => {
   try { const x = JSON.parse(j ?? '[]'); return Array.isArray(x) ? x : null; } catch (e) {
@@ -68,27 +81,46 @@ const parse = j => {
     throw e;
   }
 };
-const skipped = { unreadable: 0, multi_party: 0, unanswered: 0 };
+const skipped = { unreadable: 0, multi_party: 0, unanswered: 0, no_terms: 0, no_proposer: 0 };
+const termsFrom = { snapshot: 0, raw: 0 };
+let decided = 0;
 const offers = [];
-for (const p of proposals.values()) {
-  const items = parse(p.items_json);
-  if (!items) { skipped.unreadable++; continue; }
-  const proposer = String(p.team_id);
-  const others = [...new Set(items.flatMap(i => [i.fromTeamId, i.toTeamId]).filter(x => x != null && Number(x) > 0).map(String))]
-    .filter(x => x !== proposer);
-  if (others.length !== 1) { skipped.multi_party++; continue; }
-  const decider = others[0];
-  const answers = tx.filter(t => t.league_id === p.league_id && t.season === p.season
-    && String(t.related_tx_id) === String(p.tx_id) && t.execution_type === 'EXECUTE');
+// Every proposal we know of: a raw proposal row, a snapshot, or only a decision pointing at one.
+const keys = new Set([...proposals.keys(), ...(snaps?.keys() ?? []), ...answersBy.keys()]);
+for (const k of keys) {
+  const p = proposals.get(k) ?? null;
+  const snap = snaps?.get(k) ?? null;
+  const proposer = p?.team_id ?? snap?.proposer_team_id ?? null;
+  const proposedAt = p?.proposed_at ?? snap?.proposed_at ?? null;
+  const answers = answersBy.get(k) ?? [];
+  // Decided at all? Needed before terms, so the terms share is over decided offers.
+  const snapItems = snap ? parse(snap.items_json) : null;
+  const rawItems = p ? parse(p.items_json) : null;
+  const items = snapItems?.length ? snapItems : rawItems?.length ? rawItems : null;
+  const decider0 = items && proposer != null ? [...new Set(items.flatMap(i => [i.fromTeamId, i.toTeamId])
+    .filter(x => x != null && Number(x) > 0).map(String))].filter(x => x !== String(proposer)) : null;
   const acc = answers.find(t => t.type === 'TRADE_ACCEPT');
   const dec = answers.find(t => t.type === 'TRADE_DECLINE')
-    ?? answers.find(t => t.type === 'TRADE_PROPOSAL' && String(t.team_id) === decider);
-  const a = acc ?? dec;
-  if (!a) { skipped.unanswered++; continue; }
-  const give = items.filter(i => String(i.fromTeamId) === proposer).map(i => ({ value: priceOf(i.playerId, p.proposed_at) }));
-  const get = items.filter(i => String(i.toTeamId) === proposer).map(i => ({ value: priceOf(i.playerId, p.proposed_at) }));
-  offers.push({ league: `${p.league_id}:${p.season}`, decider: `${p.league_id}:${decider}`, y: acc ? 1 : 0,
-    proposed_at: Date.parse(p.proposed_at), resolved_at: Date.parse(a.proposed_at ?? p.proposed_at),
+    ?? (decider0?.length === 1 ? answers.find(t => t.type === 'TRADE_PROPOSAL' && String(t.team_id) === decider0[0]) : null);
+  const snapY = snap?.resolution === 'accepted' ? 1 : snap?.resolution === 'declined' ? 0 : null;
+  const y = acc ? 1 : dec ? 0 : snapY;
+  if (y == null) { skipped.unanswered++; continue; }
+  decided++;
+  if (!items) {
+    if ((snap && snapItems == null) || (p && rawItems == null)) skipped.unreadable++;
+    else skipped.no_terms++;
+    continue;
+  }
+  termsFrom[snapItems?.length ? 'snapshot' : 'raw']++;
+  if (proposer == null || !proposedAt) { skipped.no_proposer++; continue; }
+  if (decider0.length !== 1) { skipped.multi_party++; continue; }
+  const decider = decider0[0];
+  const [league, season] = k.split(':');
+  const resolvedAt = (acc ?? dec)?.proposed_at ?? snap?.resolved_at ?? proposedAt;
+  const give = items.filter(i => String(i.fromTeamId) === String(proposer)).map(i => ({ value: priceOf(i.playerId, proposedAt) }));
+  const get = items.filter(i => String(i.toTeamId) === String(proposer)).map(i => ({ value: priceOf(i.playerId, proposedAt) }));
+  offers.push({ league: `${league}:${season}`, decider: `${league}:${decider}`, y,
+    proposed_at: Date.parse(proposedAt), resolved_at: Date.parse(resolvedAt),
     gain_pct: packageGainPct(give, get) });
 }
 offers.sort((a, b) => a.proposed_at - b.proposed_at);
@@ -134,6 +166,9 @@ const LL = m => scored.reduce((s, o) => s + ll(o[m], o.y), 0) / (scored.length |
 
 console.log('CLONE-01b b2 · EVAL E1 grade (prequential, as of each proposal)');
 console.log(`offers decided: ${scored.length} (accepted ${scored.filter(o => o.y).length}); deciders: ${new Set(scored.map(o => o.decider)).size}; leagues: ${new Set(scored.map(o => o.league)).size}`);
+console.log(`offers with terms: ${termsFrom.snapshot + termsFrom.raw}/${decided} decided `
+  + `(${decided ? (100 * (termsFrom.snapshot + termsFrom.raw) / decided).toFixed(1) : 'n/a'}%; snapshot ${termsFrom.snapshot}, raw ${termsFrom.raw}`
+  + `${snaps ? '' : '; trade_proposal_snapshots absent'})`);
 console.log(`skipped: ${JSON.stringify(skipped)}; priced (gain known): ${scored.filter(o => Number.isFinite(o.gain_pct)).length}/${scored.length}`);
 console.log('not reconstructable as of old dates, so NOT in this grade: motive offset, activity offset');
 console.log(`log loss  activity-only ${f(LL('base'))}  clone ${f(LL('clone'))}  clone_no_price ${f(LL('np'))}`);

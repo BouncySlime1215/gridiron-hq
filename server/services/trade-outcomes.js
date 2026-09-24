@@ -463,6 +463,113 @@ export const PRICE_BANDS = Object.freeze(['below', 'at_point', 'above']);
 
 const hasSeamColumns = () => rows(`PRAGMA table_info(trade_outcomes)`).some(c => c.name === 'price_band');
 
+/* ----------------------------------------------- the pitch arm (CLONE-01b b2) */
+
+/**
+ * The pitch experiment's control arm. Every sent offer is stored with the arm it
+ * sat in, and the arm is read as "which ONE factor differs from this": a package
+ * that looks fair on his screen, one player for one, leading with a position he
+ * is short at. An offer that differs in two factors at once is logged as
+ * 'multiple' and never read as evidence for either (the spec's one factor varied
+ * at a time).
+ */
+export const PITCH_CONTROL = Object.freeze({ fairness: 'fair', shape: '1-for-1', lead_need: true });
+/**
+ * His-side value swing, as the engine's their_value_pct, inside which a package
+ * reads as fair on his screen: trade-engine.js tags `Fair & Clean` at |pct| <= 4.
+ */
+export const PITCH_FAIR_PCT = 4;
+/**
+ * Pre-registered: no accept-rate claim for an arm until it has this many settled
+ * offers (the spec's guess of 20 offers per arm, for an MDE it states as a guess).
+ */
+export const PITCH_PREREG_N = 20;
+const hasPitchColumn = () => rows(`PRAGMA table_info(trade_outcomes)`).some(c => c.name === 'pitch_json');
+
+/** The screen-fairness level: short, fair or rich for HIM, or null when the deal has no his-side number. */
+function fairnessLevel(pct) {
+  if (!Number.isFinite(pct)) return null;
+  return pct < -PITCH_FAIR_PCT ? 'short' : pct > PITCH_FAIR_PCT ? 'rich' : 'fair';
+}
+
+/**
+ * The pitch arm of one sent deal, from the deal as served: screen-fairness
+ * level, 2-for-1 vs 1-for-1 (players Nick gives for players he gets), whether
+ * the package leads with a position the partner is short at, and which one
+ * factor differs from PITCH_CONTROL. A factor that cannot be read is null with
+ * its reason, and an arm with an unread factor is 'unknown', never the control.
+ */
+export function pitchArmOf(deal) {
+  const give = deal?.i_give ?? [];
+  const get = deal?.i_get ?? [];
+  const pct = Number.isFinite(deal?.their_value_pct) ? deal.their_value_pct
+    : Number.isFinite(deal?.acceptance?.clone?.gain_pct) ? deal.acceptance.clone.gain_pct : null;
+  const shape = `${give.length}-for-${get.length}`;
+  const needsRaw = deal?.counterparty?.needs ?? deal?.their_needs ?? null;
+  const needs = needsRaw instanceof Set ? [...needsRaw] : Array.isArray(needsRaw) ? needsRaw : null;
+  const lead = needs ? give.map(p => p?.position).find(pos => pos && needs.includes(pos)) ?? null : null;
+  const arm = {
+    fairness: fairnessLevel(pct), their_value_pct: pct,
+    shape: shape === '1-for-1' || shape === '2-for-1' ? shape : 'other', players: shape,
+    lead_need: needs ? lead != null : null, lead_position: lead,
+  };
+  const unread = [];
+  if (arm.fairness == null) unread.push('the deal carries no their_value_pct, so its screen fairness is unknown');
+  if (arm.lead_need == null) unread.push("the deal carries no partner needs, so whether it leads with one is unknown");
+  const differs = unread.length ? null
+    : Object.keys(PITCH_CONTROL).filter(k => arm[k] !== PITCH_CONTROL[k]);
+  arm.varied = differs == null ? 'unknown' : differs.length === 0 ? 'control'
+    : differs.length === 1 ? differs[0] : 'multiple';
+  if (unread.length) arm.reason = unread.join('; ');
+  return arm;
+}
+
+/** Wilson 90% interval for k of n. */
+function wilson(k, n, z = 1.645) {
+  if (!n) return null;
+  const p = k / n;
+  const d = 1 + z * z / n;
+  const c = (p + z * z / (2 * n)) / d;
+  const h = (z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / d;
+  return { low: +Math.max(0, c - h).toFixed(3), high: +Math.min(1, c + h).toFixed(3) };
+}
+
+/**
+ * Accept rate by pitch arm over the settled replies to offers Nick sent. Logged
+ * only: every arm says 'no claim before the prereg n' until it reaches
+ * PITCH_PREREG_N settled offers, and even then this is a rate, not a test.
+ * Expired and pending offers are not decisions and are left out.
+ */
+export function pitchArmRates(leagueId, season) {
+  const label = `no claim before the prereg n (${PITCH_PREREG_N} settled offers per arm)`;
+  if (!hasSentColumns() || !hasPitchColumn()) {
+    return { state: 'column_absent', label, arms: [],
+      reason: 'trade_outcomes.pitch_json does not exist — migration 096 has not run here' };
+  }
+  const settled = rows(`SELECT status, pitch_json FROM trade_outcomes
+    WHERE league_id = ? AND season = ? AND sent_at IS NOT NULL
+      AND status IN ('accepted', 'declined', 'countered')`, leagueId, season);
+  const by = new Map();
+  let noArm = 0;
+  for (const o of settled) {
+    let arm = null;
+    try { arm = o.pitch_json ? JSON.parse(o.pitch_json) : null; } catch (e) {
+      if (!(e instanceof SyntaxError)) throw e;
+    }
+    if (!arm?.varied) { noArm++; continue; }
+    const key = arm.varied === 'control' || arm.varied === 'multiple' || arm.varied === 'unknown'
+      ? arm.varied : `${arm.varied}=${arm[arm.varied]}`;
+    const b = by.get(key) ?? by.set(key, { arm: key, n: 0, k: 0 }).get(key);
+    b.n++;
+    if (o.status === 'accepted') b.k++;
+  }
+  const arms = [...by.values()].sort((a, b) => a.arm.localeCompare(b.arm)).map(b => ({
+    ...b, accept_rate: +(b.k / b.n).toFixed(3), ci90: wilson(b.k, b.n),
+    claim: b.n >= PITCH_PREREG_N && !['multiple', 'unknown'].includes(b.arm) ? 'prereg n reached (logged rate only)' : label,
+  }));
+  return { state: 'read', label, prereg_n: PITCH_PREREG_N, settled: settled.length, without_arm: noArm, arms };
+}
+
 /**
  * "I sent this." Nick proposed this deal on ESPN himself; the app records that
  * it was sent and what the model said about it. It never sends anything.
@@ -498,6 +605,8 @@ export function recordSentOffer({ league_id, season, proposer_team_id = null, de
   const stampSeam = id => {
     if (seam) run(`UPDATE trade_outcomes SET move_id = COALESCE(?, move_id), price_band = COALESCE(?, price_band)
                    WHERE id = ?`, move_id, price_band, id);
+    // CLONE-01b b2: every sent offer carries its pitch arm (migration 096).
+    if (hasPitchColumn()) run(`UPDATE trade_outcomes SET pitch_json = ? WHERE id = ?`, JSON.stringify(pitchArmOf(deal)), id);
   };
   if (existing) {
     run(`UPDATE trade_outcomes SET sent_at = ?, proposer_team_id = COALESCE(proposer_team_id, ?)
@@ -715,12 +824,57 @@ const parseSide = json => {
   }
 };
 
+const SNAPSHOT_TABLE = 'trade_proposal_snapshots';
+
+/**
+ * The ESPN terms of each matched proposal in one league-season, snapshot first
+ * (OFFER-SNAPSHOT, migration 084: written once, never overwritten), then the raw
+ * row's items_json (which the collector's upsert can blank once the offer is
+ * resolved). Map tx_id -> {items, source}. Either table may be absent.
+ */
+function proposalTerms(leagueId, season) {
+  const out = new Map();
+  const put = (id, json, source) => {
+    const read = itemsOf(json);
+    if (!read.error && read.items.length && !out.has(String(id))) out.set(String(id), { items: read.items, source });
+  };
+  if (tableExists(SNAPSHOT_TABLE)) {
+    for (const r of rows(`SELECT proposal_tx_id, items_json FROM ${SNAPSHOT_TABLE} WHERE league_id = ? AND season = ?`,
+      leagueId, season)) put(r.proposal_tx_id, r.items_json, 'snapshot');
+  }
+  if (tableExists(RAW_TABLE)) {
+    for (const r of rows(`SELECT tx_id, items_json FROM ${RAW_TABLE} WHERE league_id = ? AND season = ?
+      AND type = ?`, leagueId, season, PROPOSAL)) put(r.tx_id, r.items_json, 'raw');
+  }
+  return out;
+}
+
+/**
+ * One settled offer's two sides, priced. The players come from the ESPN terms
+ * of the proposal it matched (snapshot, else raw); each is priced at the value
+ * the app stored for that ESPN id when the offer was sent. With no ESPN terms
+ * the stored package is used as is, and `terms` says which it was.
+ */
+function pricedSides(o, terms) {
+  const give = parseSide(o.give_json);
+  const get = parseSide(o.get_json);
+  const t = o.matched_tx_id == null ? null : terms.get(String(o.matched_tx_id)) ?? null;
+  if (!t || !give || !get) return { give, get, terms: 'stored' };
+  const valueOf = new Map([...give, ...get].filter(p => p?.espn_id != null).map(p => [String(p.espn_id), p.value]));
+  const proposer = o.proposer_team_id == null ? null : String(o.proposer_team_id);
+  const side = pick => t.items.filter(pick).map(i => ({ espn_id: i.playerId, value: valueOf.get(String(i.playerId)) }));
+  return { give: side(i => String(i?.fromTeamId) === proposer), get: side(i => String(i?.toTeamId) === proposer),
+    terms: t.source };
+}
+
 /**
  * Rewrite `manager_clone_fits` for one league-season from the settled replies
  * to offers Nick SENT (sent_at set). Whole rows, so a re-run writes the same
  * thing: idempotent. Expired and pending offers are not decisions and are left
  * out. A side whose JSON cannot be read keeps its reply with `gain_pct: null`
- * and says so, rather than dropping the reply.
+ * and says so, rather than dropping the reply. `terms` counts where each
+ * reply's players came from (FIX-288-5): the proposal snapshot, the raw row, or
+ * only the package the app stored.
  */
 export function refreshCloneFits(leagueId, season) {
   if (!tableExists('manager_clone_fits')) {
@@ -729,17 +883,21 @@ export function refreshCloneFits(leagueId, season) {
   if (!hasSentColumns()) {
     return { state: 'table_absent', managers: 0, reason: 'trade_outcomes.sent_at does not exist — migration 080 has not run here' };
   }
-  const settled = rows(`SELECT id, counterparty_team_id, give_json, get_json, status, resolved_at
+  const settled = rows(`SELECT id, proposer_team_id, counterparty_team_id, give_json, get_json, status, resolved_at,
+      matched_tx_id
     FROM trade_outcomes WHERE league_id = ? AND season = ? AND source = 'app_proposed'
       AND sent_at IS NOT NULL AND status IN ('accepted', 'declined', 'countered')
       AND counterparty_team_id IS NOT NULL
     ORDER BY COALESCE(resolved_at, proposed_at), id`, leagueId, season);
+  const termsBy = settled.some(o => o.matched_tx_id != null) ? proposalTerms(leagueId, season) : new Map();
+  const termCount = { snapshot: 0, raw: 0, stored: 0 };
   const by = new Map();
   for (const o of settled) {
-    const give = parseSide(o.give_json);
-    const get = parseSide(o.get_json);
+    const { give, get, terms } = pricedSides(o, termsBy);
+    termCount[terms]++;
+    const gain = give && get ? packageGainPct(give, get) : null;
     const reply = { y: DECIDED[o.status], status: o.status, resolved_at: o.resolved_at ?? null, outcome_id: o.id,
-      gain_pct: give && get ? packageGainPct(give, get) : null,
+      gain_pct: gain, terms,
       ...(give && get ? {} : { gain_reason: 'its give_json or get_json is not valid JSON, so its price is unknown' }) };
     const id = String(o.counterparty_team_id);
     if (!by.has(id)) by.set(id, []);
@@ -754,7 +912,9 @@ export function refreshCloneFits(leagueId, season) {
          VALUES (?, ?, ?, ?, ?, ?, ?)`, leagueId, season, rosterId, JSON.stringify(coef),
     replies.length, replies.filter(r => r.y === 1).length, stamp);
   }
-  return { state: 'refreshed', managers: by.size, replies: settled.length, reason: null };
+  const withTerms = termCount.snapshot + termCount.raw;
+  return { state: 'refreshed', managers: by.size, replies: settled.length, reason: null,
+    terms: { ...termCount, share_with_terms: settled.length ? +(withTerms / settled.length).toFixed(3) : null } };
 }
 
 /** Each manager's clone evidence for one league-season: Map roster_id -> {replies, n, k, price_bound, fit_stamp}. */

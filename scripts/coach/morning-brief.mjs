@@ -3,8 +3,8 @@
  * COACH-BRIEF: print Coach's morning brief or weekly check-in for one league
  * (default: the target league, 4).
  *
- * Reads the War Room plans file (GRIDIRON_WARROOM_PLANS, default
- * ~/gridiron-local/warroom/plans.json) and the app DB (GRIDIRON_DB_PATH). It
+ * Reads the War Room plans file (warroom-flag.js#warRoomPlansPath, the one
+ * reader of its path) and the app DB (GRIDIRON_DB_PATH). It
  * never opens the chat DB: statements and credibility come from PULSE-01 and
  * CRED-01 once those are on main. Writes one cache row to coach_briefs
  * (migration 101) when that table exists. Sends nothing; the push is PUSH-01's.

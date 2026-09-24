@@ -13,12 +13,14 @@
  *   fallback(field)             the global engine_fallback row in force, or null
  *   setFallback / clearFallback the engine_fallback writers (fields.js), global rows
  *   leagues()                   the leagues the Number health card can be opened on
- *   writeCard(leagueId, rows)   upsert HEALTH-01 rows into number_audit (#237) when that
- *                               table exists; returns false when it does not
+ *   writeCard(leagueId, rows)   upsert HEALTH-01 rows into number_audit through #237's
+ *                               number-audit.js#writeAuditRows, the table's one writer,
+ *                               when that table exists; returns false when it does not
  * Every read is cut at the tick's input cut, like ctx.read.
  */
 import { readFieldSpec, freshAt, readFallback, setFallback, clearFallback } from '../fields.js';
 import { producerSpec } from '../registry.js';
+import { writeAuditRows } from '../../number-audit.js';
 
 const tableExists = (database, name) => !!database.prepare(
   "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
@@ -72,19 +74,8 @@ export function makeMonitorAccess({ database, tick, cut }) {
     },
     writeCard(leagueId, cardRows) {
       if (!tableExists(database, 'number_audit')) return false;
-      // The same upsert as number-audit.js#writeAuditRows (#237): first_seen_at holds while a check keeps its status.
-      const stmt = database.prepare(`INSERT INTO number_audit
-          (league_id, check_id, status, inventory_row, title, detail, cause, trust, pages_affected, values_json, as_of, first_seen_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(league_id, check_id) DO UPDATE SET
-          first_seen_at = CASE WHEN number_audit.status = excluded.status THEN number_audit.first_seen_at ELSE excluded.first_seen_at END,
-          status = excluded.status, inventory_row = excluded.inventory_row, title = excluded.title,
-          detail = excluded.detail, cause = excluded.cause, trust = excluded.trust,
-          pages_affected = excluded.pages_affected, values_json = excluded.values_json, as_of = excluded.as_of`);
-      for (const r of cardRows) {
-        stmt.run(Number(leagueId), r.check_id, r.status, r.inventory_row ?? null, r.title, r.detail, r.cause ?? null,
-          r.trust ?? null, JSON.stringify(r.pages_affected ?? []), JSON.stringify(r.values ?? {}), tick.as_of, tick.as_of);
-      }
+      // One writer of number_audit rows (FIX-281-3): the card's own upsert, first_seen_at held while a check keeps its status.
+      writeAuditRows(leagueId, cardRows, { asOf: tick.as_of, database });
       return true;
     },
     cardHas(checkId) {

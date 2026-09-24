@@ -85,3 +85,27 @@ History of the sweep:
 5. **How it unifies:** one monitor for every engine field. It reads the one grader's rows, writes
    the one `engine_fallback` table the reader already honours, and puts rows in the one broken-numbers
    card (BROKEN-01c).
+
+## PR sweep fixes (FIX-281-1..3, 2026-09-24)
+
+The branch now carries `origin/main` (`4615b06`) and #250's head `44f4b13`, which itself
+carries #257 (merge `3a9347b`). **This PR lands with or after #257 and #250.**
+
+| Fix | Commits | Result |
+|---|---|---|
+| FIX-281-1 check:wiring sees the daemon | none needed on this branch: main's `a9a597f` (FIX-279-1, RULINGS 9) taught `wiring-map.mjs` that the daemon is a surface | on `a4d6dfa`: exit 1, 8 blocking findings (`table-hand-fed engine_snapshots`, 7 `module-reaches-no-surface` under `engine/`). After merging main: exit 0, 0 findings. No `accepted_orphan_modules` entry added. |
+| FIX-281-2 served.js folds into the one reader | RED `e47c1ca`, GREEN `1bacf02` | RED 4 fail (3, S, W, FIX-281-2) / 13 pass; GREEN 17 / 17 |
+| FIX-281-3 one writer of number_audit | RED `46a4c97`, GREEN the `fix:` after it | RED 1 fail (second INSERT in monitor-access.js) / 17 pass; GREEN 18 / 18 |
+
+- FIX-281-2: `views.js#monitorServe` is the monitor's stand-in rule, called by the as-of
+  `readServed` (/state, Coach) and by the snapshot `resolveRow` (/view). Order: the fallback
+  field's row, else the field as of `health.monitor.healthy_snapshot_id`, else `unknown`,
+  never the drifted value. The chain's first contribution is `health_monitor`,
+  "fell back: <reason>". `served.js` is deleted. `fallback.kind` stays `field` / `snapshot`
+  / `none`, plus `by: 'monitor'`.
+- FIX-281-3: `monitor-access.js#writeCard` calls `number-audit.js#writeAuditRows` (#237);
+  its own `INSERT ... ON CONFLICT` is gone. The test pins one INSERT into `number_audit`
+  across `server/`.
+- Merge interaction, fixed in `ef94b8e`: engine-grader A2 asserted that `rec_ledger` is
+  absent, but #174 (migration 071) is now on main. The test drops the table first, so the
+  absent case is still covered, then recreates it with 071's columns.

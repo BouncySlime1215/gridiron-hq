@@ -71,3 +71,27 @@ Claude; it uses the same `insertIngestedAt()` as the two killed call sites (M10,
 ## Full suite
 
 `npm test` on the GREEN tree: `# tests 4842 # pass 4799 # fail 0 # skipped 43`, exit 0.
+
+## FIX-286-3 (sweep 2026-09-24): spine as-of reads at the same knowledge time
+
+`news.item` (server/services/engine/backfill.js news adapter) dates a story at its valid
+time, published_at, so a spine read at a cut saw a story received days later, and a
+revision appended a new `news.item` at the original published_at. With
+GRIDIRON_NEWS_STAMPS_ENABLED on, the adapter also appends `news.ingested` (as_of =
+ingested_at ?? created_at) and `news.edited` (as_of = edited_at, one per edit), with
+published_at in the payload: the clock newsKnownAtSql applies to news_items. The web
+server cannot write the spine (engine/role.js), so the daemon's adapter pass appends them;
+the as_of is the stamp, not the pass.
+
+- RED `ed8f8f4` test/news-stamps-spine.test.js: 2 pass, 4 fail (no news.ingested /
+  news.edited events; the spine and newsKnownAtSql disagree at every cut).
+- GREEN `0bcbfb8`: 6 of 6 pass.
+
+| Mutant | Result |
+|---|---|
+| M13 news.edited dated at published_at | killed (4 fail) |
+| M14 news.ingested payload carries the headline (re-appends on an edit) | killed (1 fail) |
+| M15 flag ignored (events always appended) | killed (1 fail) |
+| M16 news.ingested dated at published_at | killed (3 fail) |
+
+Command: `SCHEDULER_DISABLED=1 NODE_OPTIONS='--import ./test/offline-guard.mjs' node --experimental-test-module-mocks --test test/news-stamps-spine.test.js`

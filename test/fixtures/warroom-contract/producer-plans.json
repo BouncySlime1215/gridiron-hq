@@ -2865,10 +2865,11 @@
           "deprioritised": false,
           "hard": true,
           "in_active_pool": false,
-          "untouchable": [],
+          "untouchable": null,
           "sources": {
            "difficulty": "nick_override"
           },
+          "untouchable_names_n": 0,
           "untouchable_unmatched_n": 0,
           "notes_n": 0,
           "warnings_n": 0

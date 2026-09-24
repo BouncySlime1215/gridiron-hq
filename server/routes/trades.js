@@ -40,6 +40,7 @@ import { requirePlatformAdmin } from '../platform/legacy-access.js';
 import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE, PROMPT_VERSION }
   from '../services/trade-proposals.js';
 import { recordProposalSlate, recordSentOffer } from '../services/trade-outcomes.js';
+import { pitchFor } from '../services/pitch-bandit.js';
 import { lineupCall } from '../services/lineup-brain.js';
 import { lineupSignals } from '../services/lineup-signals.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
@@ -835,6 +836,7 @@ r.post('/:leagueId/offers/sent', (req, res, next) => {
         league_id: lg.id, season: lg.season ?? null,
         proposer_team_id: String(req.body?.team_id ?? lg.my_team_id ?? '') || null,
         deal, model_version: 'acceptanceBand/served-deal',
+        pitch_choice_id: req.body?.pitch_choice_id ?? null,
       });
     } catch (e) {
       // The writer refuses a deal it cannot grade (no band, no season). That is
@@ -842,6 +844,26 @@ r.post('/:leagueId/offers/sent', (req, res, next) => {
       return res.status(400).json({ error: String(e?.message ?? e) });
     }
     res.json(out);
+  } catch (e) { next(e); }
+});
+
+/**
+ * The pitch bandit (M5): which framing to lead this message with, for this
+ * manager. Logs the choice against the deal and returns the reshaped message
+ * with `pitch_choice_id`, which the page sends back on "I sent this" so the
+ * reply grades the framing. It sends nothing to ESPN.
+ */
+r.post('/:leagueId/pitch', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const deal = req.body?.deal;
+    const message = req.body?.message;
+    if (!deal || deal.partner_id == null || typeof message?.text !== 'string') {
+      return res.status(400).json({ error: 'deal with partner_id and message.text required' });
+    }
+    if (lg.season == null) return res.status(400).json({ error: 'league has no season' });
+    res.json(pitchFor({ league_id: lg.id, season: lg.season, counterparty_team_id: String(deal.partner_id),
+      deal, message }));
   } catch (e) { next(e); }
 });
 

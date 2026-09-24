@@ -27,6 +27,8 @@
  *  P8 frameMessage: face_safe_short keeps only the ask; no arm adds a number
  *     that was not in the engine's message.
  *  P9 migration 085 is additive: trade_outcomes' columns are unchanged.
+ *  P10 pitchFor (the producer's one call) logs a choice, frames the message
+ *     with that arm and carries the choice id that "I sent this" links.
  *
  * Every team, player and league id below is made up.
  */
@@ -45,7 +47,7 @@ const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 
 const bandit = await import('../server/services/pitch-bandit.js');
-const { PITCH_ARMS, FLOOR_ABS, priorFromProfile, posteriorFor, chooseFraming, frameMessage, seededRng } = bandit;
+const { PITCH_ARMS, FLOOR_ABS, priorFromProfile, posteriorFor, chooseFraming, frameMessage, pitchFor, seededRng } = bandit;
 const { recordSentOffer } = await import('../server/services/trade-outcomes.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -55,7 +57,7 @@ test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true })
 const SEASON = 2026;
 let nextLeague = 900;
 const freshLeague = () => nextLeague++;
-const BAND = { low: 0.2, high: 0.5 };
+const BAND = { band: { low: 0.2, mid: 0.35, high: 0.5 }, basis: 'heuristic_unanchored' };
 let dealN = 0;
 const dealFor = partner => ({
   id: `deal-${++dealN}`, partner_id: partner,
@@ -69,7 +71,7 @@ function loggedOffer(leagueId, partner, arm, status) {
   const deal = dealFor(partner);
   const c = chooseFraming({ league_id: leagueId, season: SEASON, counterparty_team_id: partner,
     deal, profile: null, rng: seededRng(dealN), force_arm: arm });
-  const sent = recordSentOffer({ league_id: leagueId, season: SEASON, proposer_team_id: '1', deal,
+  const sent = recordSentOffer({ league_id: leagueId, season: SEASON, proposer_team_id: '1', model_version: 'fixture', deal,
     sent_at: `2026-10-0${1 + (dealN % 8)}T12:00:00Z` });
   if (status !== 'proposed') {
     run(`UPDATE trade_outcomes SET status = ?, resolved_at = '2026-10-10T00:00:00Z' WHERE id = ?`, status, sent.id);
@@ -193,11 +195,11 @@ test('P6 every choice is logged; "I sent this" links the latest unlinked choice,
   for (const k of ['samples_json', 'posterior_json', 'eligible_json']) assert.ok(JSON.parse(r0[k]));
   assert.match(r0.prior_basis, /how_to_approach/);
 
-  const sent = recordSentOffer({ league_id: L, season: SEASON, proposer_team_id: '1', deal });
+  const sent = recordSentOffer({ league_id: L, season: SEASON, proposer_team_id: '1', model_version: 'fixture', deal });
   assert.equal(row('SELECT outcome_id FROM pitch_choices WHERE id = ?', second.choice_id).outcome_id, sent.id);
   assert.equal(row('SELECT outcome_id FROM pitch_choices WHERE id = ?', first.choice_id).outcome_id, null);
   // a second tap does not relink
-  recordSentOffer({ league_id: L, season: SEASON, proposer_team_id: '1', deal });
+  recordSentOffer({ league_id: L, season: SEASON, proposer_team_id: '1', model_version: 'fixture', deal });
   assert.equal(row('SELECT COUNT(*) AS n FROM pitch_choices WHERE outcome_id = ?', sent.id).n, 1);
 
   // named choice wins over the latest
@@ -206,12 +208,12 @@ test('P6 every choice is logged; "I sent this" links the latest unlinked choice,
     profile: null, rng: seededRng(5) });
   chooseFraming({ league_id: L, season: SEASON, counterparty_team_id: '8', deal: deal2,
     profile: null, rng: seededRng(6) });
-  const sent2 = recordSentOffer({ league_id: L, season: SEASON, proposer_team_id: '1', deal: deal2,
+  const sent2 = recordSentOffer({ league_id: L, season: SEASON, proposer_team_id: '1', model_version: 'fixture', deal: deal2,
     pitch_choice_id: a.choice_id });
   assert.equal(row('SELECT outcome_id FROM pitch_choices WHERE id = ?', a.choice_id).outcome_id, sent2.id);
 
   // a deal with no choice sends fine and links nothing
-  const bare = recordSentOffer({ league_id: L, season: SEASON, proposer_team_id: '1', deal: dealFor('8') });
+  const bare = recordSentOffer({ league_id: L, season: SEASON, proposer_team_id: '1', model_version: 'fixture', deal: dealFor('8') });
   assert.equal(bare.state, 'recorded');
   assert.equal(bare.pitch_choice_id ?? null, null);
 });
@@ -268,4 +270,20 @@ test('P9 migration 085 is additive and leaves trade_outcomes alone', async () =>
       samples_json, posterior_json, eligible_json, floor, reason, chosen_at, outcome_id)
     SELECT league_id, season, counterparty_team_id, arm, prior_basis, samples_json, posterior_json, eligible_json,
       floor, reason, chosen_at, outcome_id FROM pitch_choices WHERE outcome_id IS NOT NULL LIMIT 1`), /UNIQUE/);
+});
+
+/* ----------------------------------------------------------------- P10 */
+
+test('P10 pitchFor: the campaign producer\'s one call logs, frames and links', () => {
+  const L = freshLeague();
+  const deal = dealFor('11');
+  const message = { text: 'Looks like you could use a WR. Would you do Give A for Get B?', facts: [], checked: true };
+  const { message: framed, choice } = pitchFor({ league_id: L, season: SEASON, counterparty_team_id: '11',
+    deal, message, profile: { how_to_approach: 'brief and direct' }, rng: seededRng(7) });
+  assert.equal(framed.framing, choice.arm);
+  assert.equal(framed.pitch_choice_id, choice.choice_id);
+  assert.equal(row('SELECT arm FROM pitch_choices WHERE id = ?', choice.choice_id).arm, choice.arm);
+  const sent = recordSentOffer({ league_id: L, season: SEASON, proposer_team_id: '1', model_version: 'fixture',
+    deal, pitch_choice_id: framed.pitch_choice_id });
+  assert.equal(sent.pitch_choice_id, choice.choice_id);
 });

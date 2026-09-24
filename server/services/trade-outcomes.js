@@ -451,7 +451,7 @@ const sameIds = (a, b) => a.length === b.length && a.every((x, i) => x === b[i])
  * cites it, so a tap on a slate suggestion lands on that row), else partner and
  * players, so the same package tapped twice is still one offer.
  */
-function offerKeyOf(deal) {
+export function offerKeyOf(deal) {
   if (deal?.id != null && String(deal.id).trim()) return String(deal.id);
   const side = ps => (ps ?? []).map(p => p?.espn_id ?? p?.id ?? p?.name).map(String).sort().join('+');
   return `${deal?.partner_id ?? '?'}:${side(deal?.i_give)}>${side(deal?.i_get)}`;
@@ -467,7 +467,7 @@ function offerKeyOf(deal) {
  * through `recordProposedOutcome`, which refuses a deal with no band.
  */
 export function recordSentOffer({ league_id, season, proposer_team_id = null, deal,
-  model_version = null, sent_at = null } = {}) {
+  model_version = null, sent_at = null, pitch_choice_id = null } = {}) {
   requireFields({ league_id, season, deal }, ['league_id', 'season', 'deal']);
   if (!hasSentColumns()) {
     throw new Error('trade-outcomes: trade_outcomes.sent_at does not exist — migration 080 has not run here');
@@ -478,10 +478,11 @@ export function recordSentOffer({ league_id, season, proposer_team_id = null, de
     WHERE league_id = ? AND season = ? AND idea_id = ? AND source = 'app_proposed'`,
   league_id, season, ideaId);
   if (existing?.sent_at) return { state: 'already_sent', id: existing.id };
+  const link = id => linkPitchChoice({ league_id, season, idea_id: ideaId, outcome_id: id, pitch_choice_id, at: sentAt });
   if (existing) {
     run(`UPDATE trade_outcomes SET sent_at = ?, proposer_team_id = COALESCE(proposer_team_id, ?)
          WHERE id = ?`, sentAt, proposer_team_id, existing.id);
-    return { state: 'marked_sent', id: existing.id };
+    return { state: 'marked_sent', id: existing.id, pitch_choice_id: link(existing.id) };
   }
   const id = recordProposedOutcome({
     league_id, season, proposer_team_id,
@@ -490,7 +491,26 @@ export function recordSentOffer({ league_id, season, proposer_team_id = null, de
     acceptance: deal.acceptance ?? null, model_version, idea_id: ideaId,
   });
   run(`UPDATE trade_outcomes SET sent_at = ? WHERE id = ?`, sentAt, id);
-  return { state: 'recorded', id };
+  return { state: 'recorded', id, pitch_choice_id: link(id) };
+}
+
+/**
+ * Tie the pitch bandit's framing choice to the offer it went out with (M5,
+ * migration 085). The named choice if the caller has one, else the latest
+ * unlinked choice logged for this deal. Returns the linked choice id, or null
+ * when there is none to link (no choice logged, or 085 not run: a sent offer
+ * never fails for want of a framing).
+ */
+function linkPitchChoice({ league_id, season, idea_id, outcome_id, pitch_choice_id, at }) {
+  if (!tableExists('pitch_choices')) return null;
+  const choice = pitch_choice_id != null
+    ? row(`SELECT id FROM pitch_choices WHERE id = ? AND league_id = ? AND season = ? AND outcome_id IS NULL`,
+      pitch_choice_id, league_id, season)
+    : row(`SELECT id FROM pitch_choices WHERE league_id = ? AND season = ? AND idea_id = ? AND outcome_id IS NULL
+           ORDER BY chosen_at DESC, id DESC LIMIT 1`, league_id, season, idea_id);
+  if (!choice) return null;
+  run(`UPDATE pitch_choices SET outcome_id = ?, linked_at = ? WHERE id = ?`, outcome_id, at, choice.id);
+  return choice.id;
 }
 
 /** What ESPN recorded against one proposal, most decisive first. */

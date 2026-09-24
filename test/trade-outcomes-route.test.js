@@ -264,3 +264,35 @@ test('route: POST /offers/sent refuses a deal with no band or no package', async
   const noDeal = await post('/api/trades/44/offers/sent', {});
   assert.equal(noDeal.status, 400);
 });
+
+test('route: POST /offers/sent links the pitch-bandit choice the page names (M5)', async () => {
+  const deal = { ...DEALS[2], id: 'Pitch Named>Pitch Named', i_give: [{ id: 8, name: 'Pitch Give', espn_id: 80 }] };
+  const season = rows('SELECT season FROM leagues WHERE id = 44')[0].season;
+  const insert = () => Number(run(`INSERT INTO pitch_choices (league_id, season, counterparty_team_id, idea_id, arm,
+      prior_basis, samples_json, posterior_json, eligible_json, floor, reason, chosen_at)
+    VALUES (44, ?, '4', 'Pitch Named>Pitch Named', 'need_first', 'fixture', '{}', '{}', '[]', 0.1, 'fixture', ?)`,
+  season, new Date().toISOString()).lastInsertRowid);
+  const named = insert();
+  insert(); // a later choice for the same deal: the latest, but not the one named
+  const res = await post('/api/trades/44/offers/sent', { deal, pitch_choice_id: named });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.pitch_choice_id, named);
+  assert.equal(rows('SELECT outcome_id FROM pitch_choices WHERE id = ?', named)[0].outcome_id, res.body.id);
+});
+
+test('route: POST /pitch picks a framing, logs it against the deal, and "I sent this" links it (M5)', async () => {
+  const deal = { ...DEALS[2], id: 'Pitch Route>Pitch Route', i_give: [{ id: 9, name: 'Route Give', espn_id: 90 }] };
+  const message = { text: 'Looks like you could use a WR. Would you do Route Give for Route Get?', facts: [] };
+  const res = await post('/api/trades/44/pitch', { deal, message });
+  assert.equal(res.status, 200);
+  const id = res.body.message.pitch_choice_id;
+  assert.ok(Number.isInteger(id));
+  assert.equal(res.body.message.framing, res.body.choice.arm);
+  const logged = rows('SELECT * FROM pitch_choices WHERE id = ?', id)[0];
+  assert.equal(logged.idea_id, 'Pitch Route>Pitch Route');
+  assert.equal(logged.counterparty_team_id, '4');
+  const sent = await post('/api/trades/44/offers/sent', { deal, pitch_choice_id: id });
+  assert.equal(sent.body.pitch_choice_id, id);
+  const bad = await post('/api/trades/44/pitch', { deal });
+  assert.equal(bad.status, 400);
+});

@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  validatePlans, validateLeague, schemaPaths, writtenPaths, tradeoffKey, TRADEOFF_KEY, SECTIONS, SCHEMA_VERSION
+  validatePlans, validateLeague, schemaPaths, writtenPaths, tradeoffKey, TRADEOFF_KEY, SECTIONS, OPTIONAL_SECTIONS, SCHEMA_VERSION
 } from '../server/services/campaign/plans-schema.js';
 import { READS } from './fixtures/warroom-contract/consumer-reads.js';
 
@@ -55,7 +55,9 @@ test('the producer fixture validates against the contract', () => {
 const PENDING = [
   { unit: 'unassigned', why: 'no planner rule reads these two sliders', path: /^leagues\[\]\.destination\.value\.tolerances\.value\.(reputation_budget|ai_spend)$/ },
   { unit: 'EVAL E1 (PEOPLE-03)', why: 'no per-step counterpart feature names a player until E1 grades one positive (stepAdjust returns none)',
-    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.counterpart\.value\.reason_chain\[\]\.(player|n)$/ }
+    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.counterpart\.value\.reason_chain\[\]\.(player|n)$/ },
+  { unit: 'FLIP-LEGS-2 (#358 flag)', why: 'the flip packages are served only with GRIDIRON_FLIP_LEGS on; the fixture producer runs flag-off',
+    path: /^leagues\[\]\.flip_map\.value\[\]\.legs\.(give_a_ids|get_b_ids)(\[\])?$/ }
 ];
 const pending = p => PENDING.some(x => x.path.test(p));
 
@@ -148,7 +150,7 @@ test("the UI's fixture (#231) is the study's shape, and fails the contract only 
   assert.deepEqual([...offending].sort(), ['acq', 'baseline', 'flip', 'owner_mapping_present']);
   // Every campaign section is absent: the study run writes none of them. It also
   // omits `names` on a league whose run failed; the contract requires it (may be {}).
-  assert.deepEqual([...missing].sort(), [...Object.keys(SECTIONS), 'names'].sort());
+  assert.deepEqual([...missing].sort(), [...Object.keys(SECTIONS).filter(k => !OPTIONAL_SECTIONS.includes(k)), 'names'].sort());
 });
 
 test("Coach's plans (#230, after FIX-06) are a contract league and validate", () => {

@@ -18,7 +18,8 @@ const { chatLabels, skipWeights, planSkipWeight, pResponds } = await import('../
 const { diffNextMove } = await import('../server/services/campaign/replan.js');
 const { rankAttention } = await import('../server/services/campaign/attention.js');
 const { waitOrAct } = await import('../server/services/campaign/wait-or-act.js');
-const { stopTradeOff, speedCurve, arrivalWeek } = await import('../server/services/campaign/itinerary.js');
+const { stopTradeOff, arrivalWeek } = await import('../server/services/campaign/itinerary.js');
+const { speedCurve } = await import('../server/services/campaign/speed.js');
 const { toEntry, failedEntry, plansFile } = await import('../server/services/campaign/view.js');
 const { validateLeague, validatePlans, SECTIONS } = await import('../server/services/campaign/plans-schema.js');
 
@@ -263,9 +264,10 @@ test('stop trade-off and speed curve', () => {
   assert.equal(t.verdict, 'not_worth_it');
   assert.equal(t.extra_steps, 1);
   assert.equal(stopTradeOff({ label: 'x', without, with: null }).status, 'unreachable');
-  const fast = { score: 0.02, expected: 0.02, sd: 0.01, chained: false, steps: [{ team: '3' }] };
-  const slow = { score: 0.05, expected: 0.05, sd: 0.02, chained: true, steps: [{ team: '2' }, { team: '3' }, { team: '4' }] };
-  const curve = speedCurve([slow, fast], { currentWeek: 4, deadlineWeek: 6, daysLeftInWeek: 3 });
+  // Landing model (speed.js): P(lands) x final delta, one partner at a time on the clock.
+  const fast = { p_complete: 1, delta_final: 0.02, chained: false, steps: [{ team: '3', give: [1], get: [2] }] };
+  const slow = { p_complete: 1, delta_final: 0.05, chained: true, steps: [{ team: '2', give: [1], get: [2] }, { team: '3', give: [3], get: [4] }, { team: '4', give: [5], get: [6] }] };
+  const curve = speedCurve({ ranked: [slow, fast] }, { currentWeek: 4, deadlineWeek: 6, daysLeftInWeek: 3 });
   assert.equal(curve[0].arrive_by, 4); close(curve[0].cost, 0.03);    // only the one-step plan lands this week
   assert.equal(curve[1].arrive_by, 5); close(curve[1].cost, 0);
 });

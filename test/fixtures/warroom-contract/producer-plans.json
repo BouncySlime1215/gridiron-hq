@@ -2230,7 +2230,8 @@
        "source": "asset.ros",
        "reason": "A claim is priced in points a game (+1.5), not in title odds."
       },
-      "steps": 0
+      "steps": 0,
+      "kind": "free"
      },
      {
       "text": "Buy P22 from Team 3, sell to Team 2.",
@@ -2240,7 +2241,8 @@
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "steps": 2
+      "steps": 2,
+      "kind": "flip"
      },
      {
       "text": "Buy P22 from Team 3, sell to Team 4.",
@@ -2250,7 +2252,8 @@
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "steps": 2
+      "steps": 2,
+      "kind": "flip"
      },
      {
       "text": "Buy P32 from Team 4, sell to Team 3.",
@@ -2260,7 +2263,8 @@
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "steps": 2
+      "steps": 2,
+      "kind": "flip"
      },
      {
       "text": "Buy P32 from Team 4, sell to Team 2.",
@@ -2270,7 +2274,8 @@
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "steps": 2
+      "steps": 2,
+      "kind": "flip"
      },
      {
       "text": "Buy P31 from Team 4, sell to Team 2.",
@@ -2280,7 +2285,8 @@
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "steps": 2
+      "steps": 2,
+      "kind": "flip"
      },
      {
       "text": "Trade deadline: week 8 (4 weeks left).",
@@ -2289,7 +2295,8 @@
        "source": "plan.path",
        "reason": "The deadline clock carries no gain of its own."
       },
-      "steps": 0
+      "steps": 0,
+      "kind": "timing"
      }
     ],
     "source": "plan.path"
@@ -2301,19 +2308,80 @@
       "arrive_by": 4,
       "cost": {
        "status": "ok",
-       "value": 0,
+       "value": 0.012765540837435238,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "net": {
        "status": "ok",
-       "value": 0.017468718539028483,
+       "value": 0.12310172060267373,
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "variance_note": "no wider than the unhurried plan",
-      "offers_used": 1,
-      "before_deadline": true
+      "variance_note": "wider range of outcomes than the unhurried plan",
+      "offers_used": 2,
+      "before_deadline": true,
+      "lever": "parallel",
+      "p_land": {
+       "status": "ok",
+       "value": 0.6483586956521741,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 0.03451930513159608,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.5934782608695653,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 1
+       },
+       {
+        "lever": "parallel",
+        "cost": {
+         "status": "ok",
+         "value": 0.012765540837435238,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.6483586956521741,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 2
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 0.12123017764164207,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.03433695652173913,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 2
+       }
+      ]
      },
      {
       "arrive_by": 5,
@@ -2325,13 +2393,74 @@
       },
       "net": {
        "status": "ok",
-       "value": 0.017468718539028483,
+       "value": 0.13586726144010897,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "variance_note": "no wider than the unhurried plan",
-      "offers_used": 1,
-      "before_deadline": true
+      "offers_used": 4,
+      "before_deadline": true,
+      "lever": "parallel",
+      "p_land": {
+       "status": "ok",
+       "value": 0.725133306068053,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 0.008501218313874792,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.725133306068053,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       },
+       {
+        "lever": "parallel",
+        "cost": {
+         "status": "ok",
+         "value": 0,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.725133306068053,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 0.009111090700468949,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.6931461176726802,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 5
+       }
+      ]
      },
      {
       "arrive_by": 6,
@@ -2343,13 +2472,74 @@
       },
       "net": {
        "status": "ok",
-       "value": 0.017468718539028483,
+       "value": 0.13586726144010897,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "variance_note": "no wider than the unhurried plan",
-      "offers_used": 1,
-      "before_deadline": true
+      "offers_used": 4,
+      "before_deadline": true,
+      "lever": "parallel",
+      "p_land": {
+       "status": "ok",
+       "value": 0.725133306068053,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 0.008501218313874792,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.725133306068053,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       },
+       {
+        "lever": "parallel",
+        "cost": {
+         "status": "ok",
+         "value": 0,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.725133306068053,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 0.009111090700468949,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.6931461176726802,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 5
+       }
+      ]
      },
      {
       "arrive_by": 7,
@@ -2361,13 +2551,74 @@
       },
       "net": {
        "status": "ok",
-       "value": 0.017468718539028483,
+       "value": 0.13586726144010897,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "variance_note": "no wider than the unhurried plan",
-      "offers_used": 1,
-      "before_deadline": true
+      "offers_used": 4,
+      "before_deadline": true,
+      "lever": "parallel",
+      "p_land": {
+       "status": "ok",
+       "value": 0.725133306068053,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 0.008501218313874792,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.725133306068053,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       },
+       {
+        "lever": "parallel",
+        "cost": {
+         "status": "ok",
+         "value": 0,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.725133306068053,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 0.009111090700468949,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.6931461176726802,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 5
+       }
+      ]
      },
      {
       "arrive_by": 8,
@@ -2379,13 +2630,74 @@
       },
       "net": {
        "status": "ok",
-       "value": 0.017468718539028483,
+       "value": 0.13586726144010897,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "variance_note": "no wider than the unhurried plan",
-      "offers_used": 1,
-      "before_deadline": true
+      "offers_used": 4,
+      "before_deadline": true,
+      "lever": "parallel",
+      "p_land": {
+       "status": "ok",
+       "value": 0.725133306068053,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 0.008501218313874792,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.725133306068053,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       },
+       {
+        "lever": "parallel",
+        "cost": {
+         "status": "ok",
+         "value": 0,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.725133306068053,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 0.009111090700468949,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.6931461176726802,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 5
+       }
+      ]
      }
     ],
     "source": "plan.path"
@@ -2718,6 +3030,24 @@
       "blocked": false
      }
     ],
+    "source": "campaign.plan"
+   },
+   "teams": {
+    "status": "ok",
+    "value": {
+     "1": {
+      "name": "Team 1"
+     },
+     "2": {
+      "name": "Team 2"
+     },
+     "3": {
+      "name": "Team 3"
+     },
+     "4": {
+      "name": "Team 4"
+     }
+    },
     "source": "campaign.plan"
    },
    "_run": {
@@ -5588,7 +5918,8 @@
        "source": "asset.ros",
        "reason": "A claim is priced in points a game (+1.5), not in points a week."
       },
-      "steps": 0
+      "steps": 0,
+      "kind": "free"
      },
      {
       "text": "Buy P22 from Team 3, sell to Team 2.",
@@ -5598,7 +5929,8 @@
        "source": "plan.path",
        "unit": "points_per_week"
       },
-      "steps": 2
+      "steps": 2,
+      "kind": "flip"
      },
      {
       "text": "Buy P23 from Team 3, sell to Team 2.",
@@ -5608,10 +5940,11 @@
        "source": "plan.path",
        "unit": "points_per_week"
       },
-      "steps": 2
+      "steps": 2,
+      "kind": "flip"
      },
      {
-      "text": "Team 3 is out of it: P22 may come cheap.",
+      "text": "Team 3 (title odds 1.0%): P22; the plan pays him market value or more, P(yes) 59%.",
       "gain": {
        "status": "ok",
        "value": 6.4718804347826095,
@@ -5619,18 +5952,31 @@
        "unit": "points_per_week"
       },
       "steps": 2,
-      "move_id": "L3-1oaerbg"
+      "kind": "desperate",
+      "move_id": "L3-1oaerbg",
+      "partner": "3",
+      "discount_pct": {
+       "status": "ok",
+       "value": 0,
+       "source": "plan.path",
+       "unit": "market_value"
+      }
      },
      {
-      "text": "Team 3 is out of it: P22 may come cheap.",
+      "text": "Team 4 (checked out (activity)): no plan inside your sliders reaches him yet.",
       "gain": {
-       "status": "ok",
-       "value": 6.231521739130436,
+       "status": "unknown",
        "source": "plan.path",
-       "unit": "points_per_week"
+       "reason": "No plan through this manager fits the sliders yet."
       },
-      "steps": 1,
-      "move_id": "L3-1oaerbg"
+      "steps": 0,
+      "kind": "desperate",
+      "partner": "4",
+      "discount_pct": {
+       "status": "unknown",
+       "source": "plan.path",
+       "reason": "No price ladder for this step."
+      }
      },
      {
       "text": "Trade deadline: week 8 (4 weeks left).",
@@ -5639,7 +5985,8 @@
        "source": "plan.path",
        "reason": "The deadline clock carries no gain of its own."
       },
-      "steps": 0
+      "steps": 0,
+      "kind": "timing"
      }
     ],
     "source": "plan.path"
@@ -5657,13 +6004,91 @@
       },
       "net": {
        "status": "ok",
-       "value": 6.4718804347826095,
+       "value": 7.0102663043478275,
        "source": "plan.path",
        "unit": "points_per_week"
       },
       "variance_note": "no wider than the unhurried plan",
       "offers_used": 2,
-      "before_deadline": true
+      "before_deadline": true,
+      "lever": "parallel",
+      "p_land": {
+       "status": "ok",
+       "value": 0.6483586956521741,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 6.3492798913043496,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.040059782608695645,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 2
+       },
+       {
+        "lever": "parallel",
+        "cost": {
+         "status": "ok",
+         "value": 0,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.6483586956521741,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 2
+       },
+       {
+        "lever": "concede",
+        "cost": {
+         "status": "ok",
+         "value": 6.330394565217393,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.050360869565217375,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 2
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 6.083168478260871,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.03433695652173913,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 2
+       }
+      ]
      },
      {
       "arrive_by": 5,
@@ -5675,13 +6100,91 @@
       },
       "net": {
        "status": "ok",
-       "value": 6.4718804347826095,
+       "value": 7.0102663043478275,
        "source": "plan.path",
        "unit": "points_per_week"
       },
       "variance_note": "no wider than the unhurried plan",
       "offers_used": 2,
-      "before_deadline": true
+      "before_deadline": true,
+      "lever": "parallel",
+      "p_land": {
+       "status": "ok",
+       "value": 0.6483586956521741,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 5.624128530127601,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.08400834995274101,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       },
+       {
+        "lever": "parallel",
+        "cost": {
+         "status": "ok",
+         "value": 0,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.6483586956521741,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 2
+       },
+       {
+        "lever": "concede",
+        "cost": {
+         "status": "ok",
+         "value": 5.613024779489605,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.09383782627599244,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 5.4448783269435275,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.07302120811672967,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       }
+      ]
      },
      {
       "arrive_by": 6,
@@ -5693,13 +6196,91 @@
       },
       "net": {
        "status": "ok",
-       "value": 6.4718804347826095,
+       "value": 7.0102663043478275,
        "source": "plan.path",
        "unit": "points_per_week"
       },
       "variance_note": "no wider than the unhurried plan",
       "offers_used": 2,
-      "before_deadline": true
+      "before_deadline": true,
+      "lever": "parallel",
+      "p_land": {
+       "status": "ok",
+       "value": 0.6483586956521741,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 5.624128530127601,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.08400834995274101,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       },
+       {
+        "lever": "parallel",
+        "cost": {
+         "status": "ok",
+         "value": 0,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.6483586956521741,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 2
+       },
+       {
+        "lever": "concede",
+        "cost": {
+         "status": "ok",
+         "value": 5.613024779489605,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.09383782627599244,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 5.4448783269435275,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.07302120811672967,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       }
+      ]
      },
      {
       "arrive_by": 7,
@@ -5711,13 +6292,91 @@
       },
       "net": {
        "status": "ok",
-       "value": 6.4718804347826095,
+       "value": 7.0102663043478275,
        "source": "plan.path",
        "unit": "points_per_week"
       },
       "variance_note": "no wider than the unhurried plan",
       "offers_used": 2,
-      "before_deadline": true
+      "before_deadline": true,
+      "lever": "parallel",
+      "p_land": {
+       "status": "ok",
+       "value": 0.6483586956521741,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 5.624128530127601,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.08400834995274101,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       },
+       {
+        "lever": "parallel",
+        "cost": {
+         "status": "ok",
+         "value": 0,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.6483586956521741,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 2
+       },
+       {
+        "lever": "concede",
+        "cost": {
+         "status": "ok",
+         "value": 5.613024779489605,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.09383782627599244,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 5.4448783269435275,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.07302120811672967,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       }
+      ]
      },
      {
       "arrive_by": 8,
@@ -5729,13 +6388,91 @@
       },
       "net": {
        "status": "ok",
-       "value": 6.4718804347826095,
+       "value": 7.0102663043478275,
        "source": "plan.path",
        "unit": "points_per_week"
       },
       "variance_note": "no wider than the unhurried plan",
       "offers_used": 2,
-      "before_deadline": true
+      "before_deadline": true,
+      "lever": "parallel",
+      "p_land": {
+       "status": "ok",
+       "value": 0.6483586956521741,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 5.624128530127601,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.08400834995274101,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       },
+       {
+        "lever": "parallel",
+        "cost": {
+         "status": "ok",
+         "value": 0,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.6483586956521741,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 2
+       },
+       {
+        "lever": "concede",
+        "cost": {
+         "status": "ok",
+         "value": 5.613024779489605,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.09383782627599244,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 5.4448783269435275,
+         "source": "plan.path",
+         "unit": "points_per_week"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.07302120811672967,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       }
+      ]
      }
     ],
     "source": "plan.path"
@@ -5999,6 +6736,24 @@
       "blocked": false
      }
     ],
+    "source": "campaign.plan"
+   },
+   "teams": {
+    "status": "ok",
+    "value": {
+     "1": {
+      "name": "Team 1"
+     },
+     "2": {
+      "name": "Team 2"
+     },
+     "3": {
+      "name": "Team 3"
+     },
+     "4": {
+      "name": "Team 4"
+     }
+    },
     "source": "campaign.plan"
    },
    "_run": {
@@ -8369,7 +9124,8 @@
        "source": "asset.ros",
        "reason": "A claim is priced in points a game (+1.5), not in title odds."
       },
-      "steps": 0
+      "steps": 0,
+      "kind": "free"
      },
      {
       "text": "Buy P22 from Team 3, sell to Team 2.",
@@ -8379,7 +9135,8 @@
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "steps": 2
+      "steps": 2,
+      "kind": "flip"
      },
      {
       "text": "Buy P22 from Team 3, sell to Team 4.",
@@ -8389,7 +9146,8 @@
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "steps": 2
+      "steps": 2,
+      "kind": "flip"
      },
      {
       "text": "Buy P32 from Team 4, sell to Team 3.",
@@ -8399,7 +9157,8 @@
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "steps": 2
+      "steps": 2,
+      "kind": "flip"
      },
      {
       "text": "Buy P32 from Team 4, sell to Team 2.",
@@ -8409,7 +9168,8 @@
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "steps": 2
+      "steps": 2,
+      "kind": "flip"
      },
      {
       "text": "Buy P31 from Team 4, sell to Team 2.",
@@ -8419,7 +9179,8 @@
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "steps": 2
+      "steps": 2,
+      "kind": "flip"
      },
      {
       "text": "Trade deadline: week 8 (4 weeks left).",
@@ -8428,7 +9189,8 @@
        "source": "plan.path",
        "reason": "The deadline clock carries no gain of its own."
       },
-      "steps": 0
+      "steps": 0,
+      "kind": "timing"
      }
     ],
     "source": "plan.path"
@@ -8440,7 +9202,7 @@
       "arrive_by": 4,
       "cost": {
        "status": "ok",
-       "value": 0,
+       "value": 0.0424814996711841,
        "source": "plan.path",
        "unit": "title_odds"
       },
@@ -8452,7 +9214,51 @@
       },
       "variance_note": "no wider than the unhurried plan",
       "offers_used": 1,
-      "before_deadline": true
+      "before_deadline": true,
+      "lever": "sequential",
+      "p_land": {
+       "status": "ok",
+       "value": 0.525,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 0.0424814996711841,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.525,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 1
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 0.06785325320941674,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.09,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 1
+       }
+      ]
      },
      {
       "arrive_by": 5,
@@ -8464,13 +9270,57 @@
       },
       "net": {
        "status": "ok",
-       "value": 0.06214176352161559,
+       "value": 0.10462326319279969,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "variance_note": "no wider than the unhurried plan",
-      "offers_used": 1,
-      "before_deadline": true
+      "offers_used": 4,
+      "before_deadline": true,
+      "lever": "all_in",
+      "p_land": {
+       "status": "ok",
+       "value": 0.6358293750000001,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 0.03005924867695714,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.5998125,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 3
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 0,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.6358293750000001,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       }
+      ]
      },
      {
       "arrive_by": 6,
@@ -8482,13 +9332,57 @@
       },
       "net": {
        "status": "ok",
-       "value": 0.06214176352161559,
+       "value": 0.10462326319279969,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "variance_note": "no wider than the unhurried plan",
-      "offers_used": 1,
-      "before_deadline": true
+      "offers_used": 4,
+      "before_deadline": true,
+      "lever": "all_in",
+      "p_land": {
+       "status": "ok",
+       "value": 0.6358293750000001,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 0.03005924867695714,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.5998125,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 3
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 0,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.6358293750000001,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       }
+      ]
      },
      {
       "arrive_by": 7,
@@ -8500,13 +9394,57 @@
       },
       "net": {
        "status": "ok",
-       "value": 0.06214176352161559,
+       "value": 0.10462326319279969,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "variance_note": "no wider than the unhurried plan",
-      "offers_used": 1,
-      "before_deadline": true
+      "offers_used": 4,
+      "before_deadline": true,
+      "lever": "all_in",
+      "p_land": {
+       "status": "ok",
+       "value": 0.6358293750000001,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 0.03005924867695714,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.5998125,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 3
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 0,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.6358293750000001,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       }
+      ]
      },
      {
       "arrive_by": 8,
@@ -8518,13 +9456,57 @@
       },
       "net": {
        "status": "ok",
-       "value": 0.06214176352161559,
+       "value": 0.10462326319279969,
        "source": "plan.path",
        "unit": "title_odds"
       },
       "variance_note": "no wider than the unhurried plan",
-      "offers_used": 1,
-      "before_deadline": true
+      "offers_used": 4,
+      "before_deadline": true,
+      "lever": "all_in",
+      "p_land": {
+       "status": "ok",
+       "value": 0.6358293750000001,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 0.03005924867695714,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.5998125,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 3
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 0,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.6358293750000001,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 4
+       }
+      ]
      }
     ],
     "source": "plan.path"
@@ -8778,6 +9760,24 @@
       "blocked": false
      }
     ],
+    "source": "campaign.plan"
+   },
+   "teams": {
+    "status": "ok",
+    "value": {
+     "1": {
+      "name": "Team 1"
+     },
+     "2": {
+      "name": "Team 2"
+     },
+     "3": {
+      "name": "Team 3"
+     },
+     "4": {
+      "name": "Team 4"
+     }
+    },
     "source": "campaign.plan"
    },
    "_run": {
@@ -9134,7 +10134,7 @@
     "value": {
      "rank": 5,
      "of": 5,
-     "reason": "best move worth 0.0 pts"
+     "reason": "no move clears your sliders"
     },
     "source": "campaign.plan"
    },
@@ -9651,7 +10651,7 @@
       "reasoning": {
        "status": "ok",
        "value": {
-        "case_for": "Team 3 and Team 2 price P21 (WR) differently: the spread is 12.4 pts of title odds.",
+        "case_for": "Team 3 and Manager B (Team 2) price P21 (WR) differently: the spread is 12.4 pts of title odds.",
         "his_side": "No chat read on either side.",
         "devils_advocate": "The spread clears the noise; both legs still have to land.",
         "news_check": "Not checked for flips: the news read runs on the offers in a plan.",
@@ -9726,7 +10726,7 @@
       "reasoning": {
        "status": "ok",
        "value": {
-        "case_for": "Team 3 and Team 2 price P22 (QB) differently: the spread is 15.9 pts of title odds.",
+        "case_for": "Team 3 and Manager B (Team 2) price P22 (QB) differently: the spread is 15.9 pts of title odds.",
         "his_side": "No chat read on either side.",
         "devils_advocate": "The spread clears the noise; both legs still have to land.",
         "news_check": "Not checked for flips: the news read runs on the offers in a plan.",
@@ -9772,7 +10772,7 @@
       },
       "why": {
        "status": "ok",
-       "value": "P11 adds 45.0 pts if landed; 1-step path from Team 2, lands 9% of the time.",
+       "value": "P11 adds 45.0 pts if landed; 1-step path from Manager B (Team 2), lands 9% of the time.",
        "source": "plan.template"
       },
       "approved": false,
@@ -9780,8 +10780,8 @@
       "reasoning": {
        "status": "ok",
        "value": {
-        "case_for": "P11 adds 45.0 pts if landed; 1-step path from Team 2, lands 9% of the time.",
-        "his_side": "Team 2's roster read lists WR as thin.",
+        "case_for": "P11 adds 45.0 pts if landed; 1-step path from Manager B (Team 2), lands 9% of the time.",
+        "his_side": "Manager B (Team 2)'s roster read lists WR as thin.",
         "devils_advocate": "Only an all-in plan reaches him.",
         "news_check": "Not checked for targets: the news read runs on the offers in a plan.",
         "confidence": "The path lands 9% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
@@ -9819,7 +10819,7 @@
       },
       "why": {
        "status": "ok",
-       "value": "P12 adds 34.8 pts if landed; 2-step path from Team 2, lands 5% of the time.",
+       "value": "P12 adds 34.8 pts if landed; 2-step path from Manager B (Team 2), lands 5% of the time.",
        "source": "plan.template"
       },
       "approved": false,
@@ -9827,8 +10827,8 @@
       "reasoning": {
        "status": "ok",
        "value": {
-        "case_for": "P12 adds 34.8 pts if landed; 2-step path from Team 2, lands 5% of the time.",
-        "his_side": "Team 2's roster read lists WR as thin.",
+        "case_for": "P12 adds 34.8 pts if landed; 2-step path from Manager B (Team 2), lands 5% of the time.",
+        "his_side": "Manager B (Team 2)'s roster read lists WR as thin.",
         "devils_advocate": "Only an all-in plan reaches him.",
         "news_check": "Not checked for targets: the news read runs on the offers in a plan.",
         "confidence": "The path lands 5% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
@@ -9866,7 +10866,7 @@
       },
       "why": {
        "status": "ok",
-       "value": "P13 adds 19.4 pts if landed; 2-step path from Team 2, lands 1% of the time.",
+       "value": "P13 adds 19.4 pts if landed; 2-step path from Manager B (Team 2), lands 1% of the time.",
        "source": "plan.template"
       },
       "approved": false,
@@ -9874,8 +10874,8 @@
       "reasoning": {
        "status": "ok",
        "value": {
-        "case_for": "P13 adds 19.4 pts if landed; 2-step path from Team 2, lands 1% of the time.",
-        "his_side": "Team 2's roster read lists WR as thin.",
+        "case_for": "P13 adds 19.4 pts if landed; 2-step path from Manager B (Team 2), lands 1% of the time.",
+        "his_side": "Manager B (Team 2)'s roster read lists WR as thin.",
         "devils_advocate": "No plan inside the sliders reaches him.",
         "news_check": "Not checked for targets: the news read runs on the offers in a plan.",
         "confidence": "The path lands 1% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
@@ -9992,17 +10992,19 @@
        "source": "asset.ros",
        "reason": "A claim is priced in points a game (+1.5), not in title odds."
       },
-      "steps": 0
+      "steps": 0,
+      "kind": "free"
      },
      {
-      "text": "Buy P22 from Team 3, sell to Team 2.",
+      "text": "Buy P22 from Team 3, sell to Manager B (Team 2).",
       "gain": {
        "status": "ok",
        "value": 0.027464309177434375,
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "steps": 2
+      "steps": 2,
+      "kind": "flip"
      },
      {
       "text": "Buy P22 from Team 3, sell to Team 4.",
@@ -10012,7 +11014,8 @@
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "steps": 2
+      "steps": 2,
+      "kind": "flip"
      },
      {
       "text": "Buy P32 from Team 4, sell to Team 3.",
@@ -10022,27 +11025,30 @@
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "steps": 2
+      "steps": 2,
+      "kind": "flip"
      },
      {
-      "text": "Buy P32 from Team 4, sell to Team 2.",
+      "text": "Buy P32 from Team 4, sell to Manager B (Team 2).",
       "gain": {
        "status": "ok",
        "value": 0.017133596255895132,
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "steps": 2
+      "steps": 2,
+      "kind": "flip"
      },
      {
-      "text": "Buy P31 from Team 4, sell to Team 2.",
+      "text": "Buy P31 from Team 4, sell to Manager B (Team 2).",
       "gain": {
        "status": "ok",
        "value": 0.0026517489199034154,
        "source": "plan.path",
        "unit": "title_odds"
       },
-      "steps": 2
+      "steps": 2,
+      "kind": "flip"
      },
      {
       "text": "Trade deadline: week 8 (4 weeks left).",
@@ -10051,7 +11057,8 @@
        "source": "plan.path",
        "reason": "The deadline clock carries no gain of its own."
       },
-      "steps": 0
+      "steps": 0,
+      "kind": "timing"
      }
     ],
     "source": "plan.path"
@@ -10293,6 +11300,25 @@
       "blocked": false
      }
     ],
+    "source": "campaign.plan"
+   },
+   "teams": {
+    "status": "ok",
+    "value": {
+     "1": {
+      "name": "Team 1"
+     },
+     "2": {
+      "name": "Team 2",
+      "manager": "Manager B"
+     },
+     "3": {
+      "name": "Team 3"
+     },
+     "4": {
+      "name": "Team 4"
+     }
+    },
     "source": "campaign.plan"
    },
    "_run": {

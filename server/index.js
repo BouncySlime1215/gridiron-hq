@@ -67,6 +67,7 @@ const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-acc
 const { default: coachRouter } = await import('./routes/coach.js');
 const { default: engineRouter } = await import('./routes/engine.js');
 const { default: warroomRouter } = await import('./routes/warroom.js');
+const { default: warroomNegotiateRouter } = await import('./routes/warroom-negotiate.js');
 
 const app = express();
 // First, so that ANY completed response arms the watchdog -- including a 404
@@ -142,6 +143,7 @@ app.use('/api/edge', ...legacyAuthenticated, edgeRouter);
 app.use('/api/tradelab', ...legacyAuthenticated, tradelabRouter);
 app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
 app.use('/api/grades', ...legacyAuthenticated, gradesRouter);
+app.use('/api/warroom', ...legacyAuthenticated, warroomNegotiateRouter);
 app.use('/api/command-center', ...legacyAuthenticated, commandCenterRouter);
 app.use('/api/espn-connect', espnConnectRouter);
 app.use('/api/league-chat', ...legacyAuthenticated, leagueChatRouter);

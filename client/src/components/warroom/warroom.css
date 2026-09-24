@@ -122,6 +122,22 @@
 .wr-state-failed { color: var(--wr-danger); border-color: color-mix(in srgb, var(--wr-danger) 40%, transparent); background: var(--wr-danger-tint); }
 .wr-banner { font-size: 11px; color: var(--wr-muted); border-left: 3px solid var(--wr-subtle); padding: 2px 8px; margin-bottom: 6px; }
 
+/* ---------- coach brief (COACH-BRIEF-UI): top of the Coach dock ---------- */
+.wr-brief { border-bottom: 1px solid var(--wr-line); padding-bottom: 6px; margin-bottom: 6px; }
+.wr-brief-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.wr-brief-top .wr-cap { margin-top: 0; }
+.wr-brief-kinds { display: inline-flex; gap: 4px; margin-left: auto; }
+.wr-brief-kinds .wr-xp.wr-on { background: var(--wr-ink); color: var(--wr-bg); border-color: var(--wr-ink); }
+.wr-brief-list { list-style: none; margin: 4px 0 0; padding: 0; font-size: 12px; }
+.wr-brief-claim { margin: 3px 0; line-height: 1.35; }
+.wr-brief-h { display: block; font-size: 9.5px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: var(--wr-muted); margin-top: 6px; }
+.wr-brief-unknown { color: var(--wr-muted); font-style: italic; }
+.wr-cite { border: 1px solid var(--wr-line); background: var(--wr-surface); color: var(--wr-info); border-radius: 4px; font-size: 9.5px; font-weight: 800;
+  line-height: 1; padding: 1px 4px; margin-left: 3px; vertical-align: 1px; cursor: pointer; }
+.wr-cite.wr-on { background: var(--wr-info-tint); border-color: var(--wr-info); }
+.wr-brief-src { font-size: 10.5px; color: var(--wr-muted); background: var(--wr-surface); border-left: 3px solid var(--wr-info); padding: 3px 6px; margin-top: 3px; overflow-wrap: anywhere; }
+.wr-brief-err { color: var(--wr-danger); }
+
 /* ---------- next move deck ---------- */
 .wr-mv-top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .wr-count { font-size: 11px; font-weight: 900; color: var(--wr-muted); }
@@ -132,6 +148,9 @@
 .wr-gg { display: grid; grid-template-columns: auto 1fr; gap: 1px 8px; font-size: 12.5px; margin: 4px 0 6px; }
 .wr-k { font-size: 9.5px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: var(--wr-muted); padding-top: 2px; }
 .wr-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 4px 0 6px; }
+.wr-ladder { list-style: none; margin: 4px 0 6px; padding: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 12.5px; }
+.wr-ladder li { display: contents; }
+.wr-ladder li[data-rung="plan"] > span:last-child { font-weight: 700; }
 .wr-tile { border: 1px solid var(--wr-line); border-radius: 8px; padding: 5px 8px; min-width: 0; }
 .wr-tile .wr-l { font-size: 9.5px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; color: var(--wr-muted); }
 .wr-tile .wr-v { font-size: 17px; font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -142,6 +161,29 @@
 .wr-acts { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
 .wr-reasons { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 11px; margin: 2px 0 4px; animation: wr-cardin .2s ease; }
 .wr-reasons button { border: 1px solid var(--wr-line); background: var(--wr-surface); border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 700; }
+/* ---------- WR-SWIPE: one card at a time (SwipeDeck.tsx) ----------
+   No layout shift: the bar and the reason row keep their height; the leaving card is an
+   absolute layer in a clipped stage; motion is transform/opacity only. */
+.wr-swipe { display: flex; flex-direction: column; min-width: 0; }
+.wr-swipe-bar { display: flex; align-items: center; gap: 8px; min-height: 22px; margin-bottom: 4px; }
+.wr-swipe-pos { font-variant-numeric: tabular-nums; min-width: 7ch; }
+.wr-swipe-stage { position: relative; overflow: hidden; }
+.wr-swipe-card { animation: wr-swipe-in .22s ease both; touch-action: pan-y; will-change: transform; }
+.wr-swipe-layer { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.wr-swipe-ghost { position: absolute; top: 0; left: 0; right: 0; background: var(--wr-bg); animation: wr-swipe-out .22s ease-in forwards; }
+.wr-swipe-foot { min-height: 26px; }
+.wr-swipe-foot .wr-reasons { margin: 2px 0 0; animation: wr-swipe-fade .2s ease both; }
+.wr-swipe-done { text-align: left; }
+.wr-swipe-done .wr-acts { flex-wrap: wrap; }
+.wr-swipe-near { margin-top: 8px; }
+.wr-swipe-near .wr-nomove-head { display: none; }
+@keyframes wr-swipe-in { from { transform: translateX(28px) scale(.98); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes wr-swipe-out { from { transform: translateX(var(--wr-swipe-from, 0px)); opacity: 1; } to { transform: translateX(-115%) rotate(-7deg); opacity: 0; } }
+@keyframes wr-swipe-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .wr-swipe-card, .wr-swipe-foot .wr-reasons { animation: none; }
+  .wr-swipe-ghost { display: none; }
+}
 .wr-chosen { border: 1px solid var(--wr-accent); background: var(--wr-accent-tint); border-radius: 8px; padding: 6px 8px; font-size: 12px; margin: 4px 0; }
 .wr-rt tr { cursor: pointer; }
 .wr-rt tr.wr-sel td { white-space: normal; background: var(--wr-surface); }
@@ -218,6 +260,7 @@
   .wr-who { font-size: 18px; }
   .wr-tile .wr-v { font-size: 15px; }
   .wr-reasoning { grid-template-columns: 1fr; }
+  .wr-swipe-foot { min-height: 50px; }
   .wr-nomove-grid { grid-template-columns: 1fr; }
   .wr-lg { max-width: 150px; }
   .wr-top .wr-leagues { flex: 1 1 100%; }
@@ -226,3 +269,36 @@
   .wr-ch { padding-right: 80px; }
   .wr-coach.wr-open .wr-ask { padding-right: 10px; }
 }
+
+/* Negotiation mode (NEGOTIATE-UI): the live thread, countdown and counter builder. Tokens only. */
+.wr-neg { border: 1px solid var(--wr-accent); border-radius: 10px; padding: 8px 10px; margin: 6px 0; background: var(--wr-bg); }
+.wr-clock { border: 1px solid var(--wr-line); border-radius: 8px; padding: 6px 8px; margin: 6px 0; font-size: 12.5px; }
+.wr-clock-follow_up { border-color: var(--wr-warn); background: var(--wr-warn-tint); }
+.wr-clock-move_on { border-color: var(--wr-danger); background: var(--wr-danger-tint); }
+.wr-bar { height: 4px; border-radius: 2px; background: var(--wr-line); overflow: hidden; margin: 4px 0; }
+.wr-bar > i { display: block; height: 100%; background: var(--wr-accent); }
+.wr-clock-move_on .wr-bar > i { background: var(--wr-danger); }
+.wr-thread { margin: 6px 0; padding-left: 18px; font-size: 12px; }
+.wr-rules { margin: 4px 0 0; padding-left: 16px; font-size: 12px; }
+.wr-builder { border-top: 1px solid var(--wr-line); margin-top: 8px; padding-top: 6px; }
+.wr-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 3px 0; }
+.wr-chip { border: 1px solid var(--wr-line); background: var(--wr-bg); color: var(--wr-ink); border-radius: 999px; padding: 2px 8px; font-size: 11.5px; }
+.wr-chip.wr-on { background: var(--wr-accent); border-color: var(--wr-accent); color: var(--wr-on-accent); }
+.wr-slider { margin: 8px 0 4px; }
+.wr-track { position: relative; height: 10px; border-radius: 5px; background: linear-gradient(90deg, var(--wr-info-tint), var(--wr-warn-tint)); border: 1px solid var(--wr-line); }
+.wr-mk { position: absolute; top: -4px; transform: translateX(-50%); }
+.wr-mk-at { width: 14px; height: 14px; top: -3px; border-radius: 50%; background: var(--wr-accent); border: 2px solid var(--wr-bg); }
+.wr-mk-yes { width: 2px; height: 18px; background: var(--wr-info); }
+.wr-mk-walk { width: 3px; height: 18px; background: var(--wr-danger); }
+@media (max-width: 699px) { .wr-chip { padding: 4px 10px; font-size: 12.5px; } }
+
+/* PEOPLE-BOARD: the right rail, left of Coach */
+.wr-app.wr-people-on { grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(230px, 290px) minmax(280px, 340px); }
+.wr-people { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.wr-person { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; padding: 6px 8px;
+  border: 1px solid var(--wr-line); border-radius: 8px; background: var(--wr-surface); }
+.wr-person:hover { border-color: color-mix(in srgb, var(--wr-ink) 30%, var(--wr-line)); }
+.wr-person-grey { opacity: .55; background: var(--wr-bg); }
+.wr-person-why { font-weight: 700; }
+.wr-person-slot { display: block; font-size: 12px; line-height: 1.35; }
+.wr-person-slot .wr-l { font-size: 9.5px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: var(--wr-muted); }

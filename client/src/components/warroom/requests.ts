@@ -32,3 +32,31 @@ export async function flushOutbox(leagueId: number, outbox: WarRoomRequest[], fr
   }
   return i;
 }
+
+/* ---------------------------------------------- negotiation mode (NEGOTIATE-UI) */
+
+export const negotiationsPath = (leagueId: number) => `/warroom/${leagueId}/negotiations`;
+const threadPath = (leagueId: number, id: number, action: string) => `${negotiationsPath(leagueId)}/${id}/${action}`;
+const postJson = (post: Poster, path: string, body: Record<string, unknown>) =>
+  post(path, { method: 'POST', body: JSON.stringify(body) });
+
+/** "I sent it": the server reads the step from the served plan and opens the thread. */
+export const openNegotiation = (leagueId: number, moveId: string, stepIndex = 0, post: Poster = api) =>
+  postJson(post, negotiationsPath(leagueId), { move_id: moveId, step_index: stepIndex });
+
+/** Log his reply; a counter carries his ask. */
+export const logNegotiationReply = (leagueId: number, id: number, reply: string, ask: { give: string[]; get: string[] } | null = null, post: Poster = api) =>
+  postJson(post, threadPath(leagueId, id, 'reply'), ask ? { reply, ...ask } : { reply });
+
+export const counterSent = (leagueId: number, id: number, pkg: { give: string[]; get: string[] }, post: Poster = api) =>
+  postJson(post, threadPath(leagueId, id, 'counter-sent'), pkg);
+
+export const followedUp = (leagueId: number, id: number, post: Poster = api) =>
+  postJson(post, threadPath(leagueId, id, 'follow-up'), {});
+
+export const closeNegotiation = (leagueId: number, id: number, reason: 'walked_away' | 'undone', post: Poster = api) =>
+  postJson(post, threadPath(leagueId, id, 'close'), { reason });
+
+/** The counter builder's live rescore; `rosters` on the first call lists both sides. */
+export const rescoreCounter = (leagueId: number, id: number, pkg: { give: string[]; get: string[] }, rosters = false, post: Poster = api) =>
+  postJson(post, threadPath(leagueId, id, 'rescore'), { ...pkg, rosters });

@@ -176,6 +176,12 @@ export function toTime(value) {
   return Number.isFinite(ms) ? ms : null;
 }
 
+/** A UTC hour of day (0-23, from getUTCHours) shown as Nick's clock time on the given day ("7 AM"). */
+export function easternHour(utcHour, nowMs = Date.now()) {
+  const d = new Date(nowMs); d.setUTCHours(utcHour, 0, 0, 0);
+  return new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric' }).format(d);
+}
+
 const HOUR = 3600 * 1000;
 const num = v => (Number.isFinite(v) ? v : null);
 const sumValue = list => (list ?? []).reduce((s, p) => s + (Number(p?.value) || 0), 0);
@@ -404,7 +410,7 @@ export function sendWindow(timing, { now = null, postLoss = null } = {}) {
     parts.push(timing.decisions_reason);
   }
   if (Number.isFinite(timing.busiest_hour)) {
-    parts.push(`he is most often in the app around ${String(timing.busiest_hour).padStart(2, '0')}:00 UTC `
+    parts.push(`he is most often in the app around ${easternHour(timing.busiest_hour, nowMs)} ET `
       + `(${timing.actions_n} actions)`);
   }
   if (postLoss) parts.push(postLoss.why);

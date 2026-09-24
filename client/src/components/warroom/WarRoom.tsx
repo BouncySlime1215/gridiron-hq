@@ -7,6 +7,7 @@ import { Panel } from './Panel';
 import TopStrip, { type LeagueChoice } from './TopStrip';
 import NextMoveDeck from './NextMoveDeck';
 import Itinerary from './Itinerary';
+import ChessPath from './ChessPath';
 import FlipMap from './FlipMap';
 import TargetPicker from './TargetPicker';
 import CatchUp from './CatchUp';
@@ -26,6 +27,7 @@ import CoachDock from './CoachDock';
  */
 export const PANELS: { id: PanelId; name: string }[] = [
   { id: 'next', name: 'Next move' },
+  { id: 'path', name: 'Chess path' },
   { id: 'stops', name: 'Stops' },
   { id: 'flip', name: 'Flip map' },
   { id: 'targets', name: 'Targets' },
@@ -35,8 +37,8 @@ export const PANELS: { id: PanelId; name: string }[] = [
 
 export const GRID_AREAS = [
   'top top top top coach',
-  'next next stops flip coach',
-  'next next stops flip coach',
+  'next next path stops coach',
+  'next next path flip coach',
   'targets targets catch brain coach',
 ].map(r => `"${r}"`).join(' ');
 
@@ -117,6 +119,9 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
           <Panel {...common('next')} title="Next move">
             {view.banner && <div className="wr-banner">{view.banner}</div>}
             <NextMoveDeck key={activeId} field={view.next_move} big={big('next')} initialState={deckInitial} onLog={onDeckLog} />
+          </Panel>
+          <Panel {...common('path')} title="Chess path">
+            <ChessPath key={activeId} field={view.chess_path} big={big('path')} />
           </Panel>
           <Panel {...common('stops')} title="Stops">
             <Itinerary field={view.itinerary} big={big('stops')} />

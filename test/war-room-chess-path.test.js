@@ -144,7 +144,7 @@ test('stepper: every step, P(yes) per step, odds after each step, and the backup
   const text = textOf(html);
   for (const s of ['Path 1 of 4', 'Trade', 'Claim', 'Flip', 'Team 7: give M. Oduya (WR) for C. Ruiz (RB)',
     '38%', '31%', '+1.2 pts', '+1.9 pts', '+2.7 pts', 'If he says no', 'If the claim fails', 'Backup',
-    'Team 4: give I. Rourke (WR) for W. Tran (WR)', 'You keep steps 1-2.', 'All steps land', '12%']) {
+    'Team 4: give I. Rourke (WR) for W. Tran (WR)', 'You keep steps 1-2.', 'P(all land)', '12%', 'not modelled (rival claims)']) {
     assert.ok(text.includes(s), s);
   }
   assert.equal((html.match(/data-step=/g) ?? []).length, 3, 'three steps drawn');

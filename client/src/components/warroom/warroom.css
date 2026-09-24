@@ -156,6 +156,27 @@
 .wr-health { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--wr-line); font-size: 11.5px; }
 .wr-app svg text { fill: var(--wr-muted); font-size: 9px; }
 
+/* ---------- chess path stepper (UI-ENG-5) ---------- */
+.wr-steps { list-style: none; margin: 4px 0 0; padding: 0; }
+.wr-step { position: relative; padding: 0 0 8px 28px; }
+.wr-step::before { content: ""; position: absolute; left: 10px; top: 22px; bottom: 0; width: 2px; background: var(--wr-line); }
+.wr-step.wr-last::before { display: none; }
+.wr-step-h { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; padding: 0; text-align: left; margin-left: -28px; min-width: 0; }
+.wr-step-h .wr-lab { line-height: 1.25; }
+.wr-step-h .wr-n, .wr-step-h .wr-kind { flex: none; }
+.wr-chess .wr-tile .wr-v { font-size: 15px; }
+.wr-chess .wr-tile .wr-l { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wr-step.wr-sel .wr-n { background: var(--wr-ink); color: var(--wr-bg); border-color: var(--wr-ink); }
+.wr-step-v { margin: 1px 0 0; }
+.wr-kind { font-size: 9.5px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; border-radius: 4px; padding: 1px 5px;
+  border: 1px solid var(--wr-line); color: var(--wr-muted); white-space: nowrap; }
+.wr-kind-claim { border-color: var(--wr-info); color: var(--wr-info); }
+.wr-kind-flip { border-color: var(--wr-warn); color: var(--wr-warn); }
+.wr-branch { margin: 4px 0 0; padding: 4px 8px; border-left: 2px dashed var(--wr-subtle); background: var(--wr-surface); border-radius: 0 6px 6px 0;
+  font-size: 11.5px; animation: wr-cardin .2s ease; }
+.wr-branch .wr-k { padding-top: 0; }
+.wr-bk { margin-top: 2px; }
+
 /* ---------- coach dock (placeholder until WR-COACH) ---------- */
 .wr-coach { grid-area: coach; background: var(--wr-bg); border: 1px solid var(--wr-line); border-radius: 10px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .wr-ch { padding: 8px 10px; border-bottom: 1px solid var(--wr-line); display: flex; align-items: center; gap: 8px; }

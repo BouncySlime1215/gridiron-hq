@@ -86,6 +86,33 @@ export interface Flip {
   legs_why_not: string | null;
 }
 
+/** UI-ENG-5: one CHESS-01a path as stepper rows (war-room-view.js chessPath). */
+export type ChessKind = 'trade' | 'claim' | 'flip';
+export interface ChessBackup { path_rank: number; kind: ChessKind; kind_label: string; line: string; p_yes: Num; change_after: Num }
+export interface ChessStep {
+  n: number;
+  kind: ChessKind;
+  kind_label: string;
+  line: string;
+  partner_label: string | null;
+  give: PlayerRef[]; get: PlayerRef[];
+  p_yes: Num;
+  change_after: Num;
+  title_after: Num;
+  fail_label: string;
+  if_fails: { keep_text: string; keep: Num; backup: Field<ChessBackup> };
+}
+export interface ChessPathItem {
+  rank: number;
+  moves: number;
+  kinds: string;
+  p_complete: Num;
+  expected: Num;
+  full: Num;
+  vs_single: { expected: Num; full: Num } | null;
+  steps: ChessStep[];
+}
+
 export interface CatchUpItem { text: string; gain: Num; steps: number }
 export interface SpeedPoint { arrive_by: number; net: Num; picked?: boolean }
 
@@ -126,8 +153,9 @@ export interface WarRoomView {
   speed_curve?: Field<SpeedPoint[]>;
   catch_up?: Field<CatchUpItem[]>;
   flips?: Field<Flip[]>;
+  chess_path?: Field<{ note: string; paths: ChessPathItem[] }>;
   brain_check?: Field<BrainCheck>;
   number_health?: Field<NumberHealth>;
 }
 
-export type PanelId = 'next' | 'stops' | 'flip' | 'targets' | 'catch' | 'brain';
+export type PanelId = 'next' | 'path' | 'stops' | 'flip' | 'targets' | 'catch' | 'brain';

@@ -68,7 +68,13 @@ const NOT_BUILT = {
   brain_check: 'Brain check (EVAL-01) not built yet: E1-E7 have not run.',
   number_health: 'Number check (BROKEN-01a) not built yet. Treat numbers as unchecked.',
   attention: 'League ranking ("needs you this week") is not produced yet (IDEA-007).',
-  legs_not_tried: 'Legs not searched: the study only tries two fair legs for its top spreads that clear 2 SE.'
+  legs_not_tried: 'Legs not searched: the study only tries two fair legs for its top spreads that clear 2 SE.',
+  chess_off: 'Chess paths not computed yet: title-odds chess (CHESS-01a) did not run for this league (it is default-off).',
+  chess_empty: 'The chess search found no path: no move cleared its P(yes) floor and raised your odds.',
+  claim_p: 'Chance not modelled: rival claims are not modelled, so this assumes the claim goes through.',
+  chess_level: 'Title odds after this step not computed as a level: the chess search keeps the change against today, not the level.',
+  chess_keep_none: 'Nothing is done yet, so there is no change to keep.',
+  chess_no_backup: 'No backup searched for this step: no other path the search kept shares the steps before it and differs here.'
 };
 
 /* ------------------------------------------------------------------ fields */
@@ -101,7 +107,7 @@ function num(v, source, { se, clears, reason } = {}) {
  * every sentence the server wrote.
  */
 export function finalize(view, { preview = false } = {}) {
-  const TEXT_KEYS = new Set(['reason', 'do', 'legs_why_not', 'banner', 'deck_note']);
+  const TEXT_KEYS = new Set(['reason', 'do', 'legs_why_not', 'banner', 'deck_note', 'note']);
   const walk = node => {
     if (Array.isArray(node)) { node.forEach(walk); return; }
     if (!node || typeof node !== 'object') return;
@@ -319,6 +325,98 @@ function flips(n, flip) {
   }));
 }
 
+/* ------------------------------------------------------------ chess path */
+
+/** Map a CHESS-01a step to the stepper row's text and ids. Selection and wording only. */
+function chessMove(n, s) {
+  const ids = xs => (Array.isArray(xs) ? xs.map(String) : []);
+  if (s.kind === 'claim') {
+    const drop = s.drop == null ? null : n.one(String(s.drop));
+    return {
+      kind: 'claim', kind_label: 'Claim', partner_label: null, give: drop ? [drop] : [], get: [n.one(String(s.claim))],
+      line: drop ? `Claim ${n.one(String(s.claim)).name}, drop ${drop.name}` : `Claim ${n.one(String(s.claim)).name} into an open spot`
+    };
+  }
+  const flip = s.kind === 'flip';
+  return {
+    kind: flip ? 'flip' : 'trade', kind_label: flip ? 'Flip' : 'Trade', partner_label: team(s.partner_id),
+    give: n.list(ids(s.give)), get: n.list(ids(s.get)),
+    line: `${team(s.partner_id)}: ${flip ? 'pass on' : 'give'} ${n.text(ids(s.give))} for ${n.text(ids(s.get))}`
+  };
+}
+
+const moveKey = s => JSON.stringify([s?.kind === 'flip' ? 'trade' : s?.kind, s?.partner_id ?? null,
+  (s?.give ?? []).map(String), (s?.get ?? []).map(String), s?.claim ?? null, s?.drop ?? null]);
+
+function chessP(s) {
+  return s.p_basis === 'not_modelled' ? unknown(NOT_BUILT.claim_p, 'clone.accept') : num(s.p_accept, 'clone.accept');
+}
+const chessChange = s => num(s.title_delta_after, 'sim.title', { se: s.title_delta_se });
+
+/**
+ * The backup branch for step k of `path`: the first path in the producer's order that
+ * shares steps 1..k-1 and makes a different move at step k. Chosen, not computed.
+ */
+function backupFor(n, paths, path, k) {
+  const prefix = path.steps.slice(0, k).map(moveKey).join('|');
+  const own = moveKey(path.steps[k]);
+  for (let j = 0; j < paths.length; j++) {
+    const other = paths[j];
+    if (other === path || !Array.isArray(other?.steps) || other.steps.length <= k) continue;
+    if (other.steps.slice(0, k).map(moveKey).join('|') !== prefix) continue;
+    const alt = other.steps[k];
+    if (moveKey(alt) === own) continue;
+    const m = chessMove(n, alt);
+    return ok({ path_rank: j + 1, kind: m.kind, kind_label: m.kind_label, line: m.line, p_yes: chessP(alt), change_after: chessChange(alt) });
+  }
+  return unknown(NOT_BUILT.chess_no_backup);
+}
+
+/**
+ * UI-ENG-5: CHESS-01a's searched paths (title-chess.js `titleChess()` output, carried in
+ * the plans entry as `chess`) as stepper rows. Every number is one the search wrote; what
+ * happens when a step fails is the search's own rule (stop at the first refusal and keep
+ * what is done, so the odds are the previous step's change) plus the backup branch.
+ */
+function chessPath(n, chess) {
+  if (!chess || typeof chess !== 'object') return unknown(NOT_BUILT.chess_off);
+  if (chess.status === 'failed') {
+    return failed(`The chess search failed (${String(chess.error ?? 'no reason given')}), so its paths are hidden. Trust the Next move deck meanwhile.`, 'sim.title');
+  }
+  const paths = (Array.isArray(chess.paths) ? chess.paths : []).filter(p => Array.isArray(p?.steps) && p.steps.length).slice(0, MAX_DECK);
+  if (!paths.length) return unknown(NOT_BUILT.chess_empty);
+  return ok({
+    note: 'Searched paths, best expected gain first. The chance you finish multiplies the steps\' chances; a claim is assumed to clear.',
+    paths: paths.map((p, i) => ({
+      rank: i + 1,
+      moves: p.steps.length,
+      kinds: p.steps.map(s => chessMove(n, s).kind_label).join(' → '),
+      p_complete: num(p.p_complete, 'plan.path'),
+      expected: num(p.expected_title_delta, 'plan.path'),
+      full: num(p.full_title_delta, 'sim.title', { se: p.full_title_delta_se, clears: p.full_clears_noise }),
+      vs_single: p.vs_best_single ? {
+        expected: num(p.vs_best_single.expected_title_delta, 'plan.path'),
+        full: num(p.vs_best_single.full_title_delta, 'sim.title', { se: p.vs_best_single.full_title_delta_se ?? undefined })
+      } : null,
+      steps: p.steps.map((s, k) => {
+        const m = chessMove(n, s);
+        return {
+          n: k + 1, ...m,
+          p_yes: chessP(s),
+          change_after: chessChange(s),
+          title_after: num(s.title_after, 'sim.title', { reason: NOT_BUILT.chess_level }),
+          fail_label: m.kind === 'claim' ? 'If the claim fails' : 'If he says no',
+          if_fails: {
+            keep_text: k === 0 ? 'You keep today\'s roster and odds.' : k === 1 ? 'You keep step 1.' : `You keep steps 1-${k}.`,
+            keep: k === 0 ? unknown(NOT_BUILT.chess_keep_none, 'sim.title') : chessChange(p.steps[k - 1]),
+            backup: backupFor(n, paths, p, k)
+          }
+        };
+      })
+    }))
+  });
+}
+
 /** Every section hidden for one reason (no plan for this league, or the file is unreadable). */
 function allHidden(make, reason) {
   return {
@@ -328,6 +426,7 @@ function allHidden(make, reason) {
     speed_curve: unknown(NOT_BUILT.speed_curve, 'campaign.plan'),
     catch_up: unknown(NOT_BUILT.catch_up, 'campaign.plan'),
     flips: make(reason),
+    chess_path: make(reason),
     brain_check: unknown(NOT_BUILT.brain_check, 'eval.check'),
     number_health: unknown(NOT_BUILT.number_health, 'audit.numbers')
   };
@@ -374,11 +473,11 @@ export function buildWarRoomView(leagueId, plans, flag) {
 
   if (entry.error) {
     const r = `The planner run failed for this league (${String(entry.error)}), so its plans are hidden.`;
-    return finalize({ ...view, next_move: failed(r), itinerary: failed(r), suggestions: failed(r), flips: failed(r, 'sim.title') }, flag);
+    return finalize({ ...view, next_move: failed(r), itinerary: failed(r), suggestions: failed(r), flips: failed(r, 'sim.title'), chess_path: failed(r, 'sim.title') }, flag);
   }
   if (entry.sanity_composed_equals_direct === false) {
     const r = 'The study run failed its own check (its composed rescore did not match the served trade impact), so its numbers are hidden. Trust Trade Lab meanwhile.';
-    return finalize({ ...view, next_move: failed(r), itinerary: failed(r), suggestions: failed(r), flips: failed(r, 'sim.title') }, flag);
+    return finalize({ ...view, next_move: failed(r), itinerary: failed(r), suggestions: failed(r), flips: failed(r, 'sim.title'), chess_path: failed(r, 'sim.title') }, flag);
   }
 
   const acq = entry.acq;
@@ -396,6 +495,7 @@ export function buildWarRoomView(leagueId, plans, flag) {
     view.suggestions = Array.isArray(acq.targets) && acq.targets.length ? suggestions(n, acq) : unknown('The planner wrote no targets for this league.');
   }
   view.flips = entry.flip ? flips(n, entry.flip) : unknown('The flip map did not run for this league.', 'sim.title');
+  view.chess_path = chessPath(n, entry.chess);
   return finalize(view, flag);
 }
 

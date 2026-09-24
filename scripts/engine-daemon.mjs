@@ -18,6 +18,12 @@
  * copy exits 3 with "already running pid N"; a lock left by a dead pid is taken over.
  * The database must already carry migration 075: this process never migrates (exit 2).
  *
+ * Morning hook (HEALTH-01e): the Coach canary (scripts/coach-canary.mjs --hook) is registered
+ * as a nightly hook, so it runs on the first tick after 03:00 America/New_York, once a local
+ * day. Its child prints a verdict and writes nothing; this process records it: the sync_log
+ * 'coach_canary' row, the spend, one engine status row (engine_runs producer 'coach-canary',
+ * scope 'health'), and on 'error' one push through PUSH-01's sender when that exists.
+ *
  * Usage:
  *   node scripts/engine-daemon.mjs --once              one tick, then exit
  *   node scripts/engine-daemon.mjs --loop 600          tick every 600 s (300-900 accepted)
@@ -25,7 +31,10 @@
  * Importing this file runs nothing.
  */
 import fs from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export const MIN_INTERVAL_S = 300;
 export const MAX_INTERVAL_S = 900;
@@ -44,6 +53,43 @@ export function parseArgs(args) {
   }
   if (!out.once && !out.dag && out.loop == null) throw new Error('say --once, --loop <seconds> or --dag');
   return out;
+}
+
+export const CANARY_HOOK = 'coach-canary';
+/** Longer than the canary child's own 15 min timeout, so the hook runner never kills a run that is still asking. */
+export const CANARY_LEASE_MS = 20 * 60 * 1000;
+
+/**
+ * Register the Coach canary as the daemon's morning (nightly) hook. `onResult` runs in this
+ * process, the one writer: it records the verdict, the spend and one engine status row, and
+ * on 'error' hands the alert to PUSH-01's sender. Returns the unregister function.
+ * Everything but `registerHook` and `database` is injectable for tests.
+ */
+export async function registerCoachCanaryHook({ registerHook, database, env = process.env, push = undefined,
+  record = undefined, recordUsage = undefined, recordRun = undefined, log = () => {} }) {
+  const canary = await import('./coach-canary.mjs');
+  record ??= (await import('../server/services/scheduler.js')).recordSync;
+  recordUsage ??= (await import('../server/services/claude.js')).recordUsage;
+  recordRun ??= (await import('../server/services/engine/fields.js')).recordRun;
+  // Resolved once, here: onResult is called synchronously by the hook runner.
+  push = push === undefined ? await canary.pushSender(env) : push;
+  const writeStatus = ({ ok, summary }) => {
+    const at = new Date().toISOString();
+    recordRun({ producer: canary.CANARY_STATUS_PRODUCER, version: '1', scopeKey: 'health',
+      startedAt: at, finishedAt: at, error: ok ? null : summary }, database);
+  };
+  return registerHook('nightly', {
+    name: CANARY_HOOK,
+    command: [path.join(ROOT, 'scripts/coach-canary.mjs'), '--hook'],
+    leaseMs: CANARY_LEASE_MS,
+    onResult: json => {
+      const r = canary.recordCanaryResult(json, { record, recordUsage, writeStatus, push,
+        onPushError: message => record('coach_canary_push', 'error', { error: message }) });
+      if (r.push) r.push.then(note => log(`coach canary alert: ${note}`));
+      if (r.status === 'error') log(`coach canary ALERT: ${r.summary} (${r.push_note})`);
+      return r;
+    },
+  });
 }
 
 /** The newest sync_log run by any collector other than this daemon. */
@@ -94,10 +140,11 @@ export async function main(argv = process.argv.slice(2)) {
   if (lock.tookOver) console.log(`${stamp()} took over ${lock.file} from dead pid ${lock.previous?.pid}`);
 
   const { runTick } = await import('../server/services/engine/daemon/tick.js');
-  const { createHookRunner } = await import('../server/services/engine/daemon/hooks.js');
+  const { createHookRunner, registerHook } = await import('../server/services/engine/daemon/hooks.js');
   const { serveRequests } = await import('../server/services/engine/daemon/requests.js');
   const { recordSync } = await import('../server/services/scheduler.js');
   const hooks = createHookRunner({ database: db, log: m => console.log(`${stamp()} ${m}`) });
+  await registerCoachCanaryHook({ registerHook, database: db, log: m => console.log(`${stamp()} ${m}`) });
 
   let lastSweepDay = null;
   const tickOnce = async reason => {

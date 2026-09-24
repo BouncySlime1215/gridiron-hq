@@ -25,6 +25,12 @@
  * appends one push row. --no-finder skips the Trade Lab finder baseline
  * (`finder_best_expected` is then unknown with that reason).
  *
+ * Before planning, every league's requested risk mode goes through EVAL-01's
+ * fallback rule on the latest brain report (server/services/campaign/brain-gate.js,
+ * FIX-05): a failing, stale (>48 h), missing or unreadable report plans the league
+ * on BALANCED with testing-tier signals off; SAFE is never raised. The entry's
+ * brain_report and number_health sections come from the same reads.
+ *
  * Usage:
  *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3] [--no-finder]
  */
@@ -112,11 +118,13 @@ function takeLock(file) {
  * leagues: [{ id, load: async () => ({ adapter, chat?, adapterMs? }) }]
  * opts: { generated_at, objectives ({ id: raw objective }), skips (rows), previous (Map id -> last entry),
  *         inputs ({ skips, offers } read status), clock, budget, log,
- *         flags (FIX-02b, optional): model-flags.js#modelFlags() for the head's producer_version }
+ *         flags (FIX-02b, optional): model-flags.js#modelFlags() for the head's producer_version,
+ *         brain (FIX-05, optional): { read: readBrainReport result, applyBrainReport, numberHealth: id -> readNumberHealth result } }
+ * Without `brain`, brain_report and number_health are unknown "not read" and the requested mode is planned.
  */
 export async function buildPlansFile(leagues, {
   generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, log = () => {},
-  flags = null,
+  flags = null, brain = null,
 } = {}) {
   const entries = [], best = new Map();
   for (const { id, load } of leagues) {
@@ -127,12 +135,18 @@ export async function buildPlansFile(leagues, {
       const { adapter, chat = null, adapterMs = 0 } = await load();
       if (adapter.fail) throw new Error(`world failed: ${adapter.fail}`);
       const raw = objectives[String(id)] ?? {};
-      const objective = normaliseObjective(raw, { leagueGoal: raw.goal ?? 'title' });
+      const requested = normaliseObjective(raw, { leagueGoal: raw.goal ?? 'title' });
+      // FIX-05: the brain report gates the risk mode before planning; the plan is built on the effective mode.
+      const gate = brain ? brain.applyBrainReport({ objective: requested, report: brain.read.report, error: brain.read.error,
+        now: new Date(generated_at) }) : null;
+      const objective = gate ? gate.objective : requested;
+      if (gate?.rule.fell_back) log(`[warroom] league ${id}: ${gate.rule.reason}`);
       res = planLeague(adapter, { objective, skips: skipWeights(skips, id), budget });
       const rosterKey = res.error ? null : adapter.rosterKey?.() ?? null;
       const changed = diffNextMove(prev?._run ?? null, { next_step: res.best?.steps[0] ?? null,
         objective_version: objective.version, risk_mode: objective.risk_mode, roster_key: rosterKey });
-      entry = toEntry(res, { names: adapter.names(), as_of: generated_at, previous: prev, changed });
+      entry = toEntry(res, { names: adapter.names(), as_of: generated_at, previous: prev, changed,
+        brain: gate, number_health: brain ? brain.numberHealth(id) : null });
       if (entry._run) {
         entry._run.roster_key = rosterKey;
         entry._run.phases_ms = { adapter_and_world: adapterMs, ...entry._run.phases_ms };
@@ -144,6 +158,9 @@ export async function buildPlansFile(leagues, {
           skips: { ...(inputs.skips ?? { status: 'none' }), rows: skips.filter(s => String(s.league) === String(id)).length },
           offers: inputs.offers ?? { status: 'none' },
           deadline: adapter.league?.deadline_source ?? null, objective: objective.source,
+          brain: gate ? { run_id: gate.run_id, requested_mode: requested.risk_mode, mode: gate.rule.mode,
+            fell_back: gate.rule.fell_back, testing_tier_enabled: gate.rule.testing_tier_enabled,
+            read_error: brain.read.error } : { status: 'not_read' },
         };
       }
       const v = validateLeague(entry);
@@ -196,6 +213,9 @@ async function main() {
     const { modelFlags } = await import('../../server/services/campaign/model-flags.js');
     const flags = await modelFlags();
     console.log(`[warroom] model flags ${JSON.stringify(flags)}`);
+    // Dynamic: number-audit.js opens the app DB on import (the contract fixture imports this file without a DB).
+    const { readBrainReport, applyBrainReport, readNumberHealth } = await import('../../server/services/campaign/brain-gate.js');
+    const { readNumberAudit } = await import('../../server/services/number-audit.js');
 
     const objectives = readObjectives(sibling(env, 'GRIDIRON_WARROOM_OBJECTIVES', 'objectives.json'));
     const skips = readJsonl(sibling(env, 'GRIDIRON_WARROOM_SKIPS', 'skips.jsonl'));
@@ -212,10 +232,15 @@ async function main() {
       } }));
 
     const generated_at = new Date().toISOString();
+    // FIX-05: one report card for the whole run; every league is gated on the same read.
+    const brainRead = readBrainReport(svc.db.db);
+    console.log(`[warroom] brain report: ${brainRead.error ? `UNREADABLE ${brainRead.error}`
+      : brainRead.report ? `run ${brainRead.report.run_id} computed ${brainRead.report.computed_at}` : 'none stored yet'}`);
+    const brain = { read: brainRead, applyBrainReport, numberHealth: id => readNumberHealth(svc.db.db, id, { read: readNumberAudit }) };
     // Checked with validatePlans inside; a file that fails throws here and the previous file stays.
     const file = await buildPlansFile(leagues, { generated_at, objectives, skips: skips.rows, previous,
       inputs: { skips: { status: skips.status, bad_lines: skips.bad }, offers: { status: offers.status, bad_lines: offers.bad } },
-      budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags,
+      budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags, brain,
       log: line => (line.includes('FAILED') || line.includes('\n') ? console.error(line) : console.log(line)) });
     const tmp = `${out}.tmp-${process.pid}`;
     fs.writeFileSync(tmp, JSON.stringify(file));

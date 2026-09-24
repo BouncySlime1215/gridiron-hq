@@ -23,15 +23,16 @@
  *   5. number_audit      BROKEN-01a: per league, the duplicate producers behind
  *                        the broken-number inventory and invariant checks on
  *                        served numbers, into `number_audit` (number-audit.js).
- *                        After the syncs, so it reads what this tick synced; once per league
- *                        sync, at most hourly. Never run by the web server.
- *   6. brain_report      EVAL-01 graders E1-E7 (scripts/eval/run-graders.mjs), last,
+ *                        After the chat and signals, so it reads what this tick
+ *                        synced; once per league sync, at most hourly. Never run by the web server.
+ *   6. brain_report      EVAL-01 graders E1-E7 (scripts/eval/run-graders.mjs), after the audit,
  *                        so they grade this tick's rows; stores one run in brain_report
  *   7. warroom_plans     the War Room campaign producer (scripts/campaign/produce-plans.mjs),
  *                        only when the War Room flag is on (server/services/warroom-flag.js:
  *                        its own switch or preview mode); launched detached every tick
  *                        (skipped while the previous run holds its lock) so each league's
- *                        next move is replanned on the fresh data
+ *                        next move is replanned on the fresh data and gated on this
+ *                        tick's brain report and number audit (FIX-05)
  *
  * ALLOWLIST ONLY. Betting collectors (line snapshots, Polymarket, book feeds,
  * prop capture, t60 runner…) are deliberately absent: Nick turned them off.

@@ -53,8 +53,6 @@ test('the producer fixture validates against the contract', () => {
  * them starts being written, so an entry cannot linger.
  */
 const PENDING = [
-  { unit: 'FIX-05', why: 'the producer does not read the brain report yet', path: /^leagues\[\]\.brain_report\.value(\.|\[|$)/ },
-  { unit: 'FIX-05', why: 'the producer does not read the number audit yet', path: /^leagues\[\]\.number_health\.value(\.|\[|$)/ },
   { unit: 'unassigned', why: 'no planner rule reads these two sliders', path: /^leagues\[\]\.destination\.value\.tolerances\.value\.(reputation_budget|ai_spend)$/ }
 ];
 const pending = p => PENDING.some(x => x.path.test(p));

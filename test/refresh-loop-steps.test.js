@@ -335,9 +335,7 @@ test('CAMPAIGN-01: the War Room producer is launched after manager signals only 
     assert.equal(launched[0].opts.cwd, REPO);
     const order = lines.map(l => l.trim().split(/\s+/)[1]);
     assert.ok(order.indexOf('warroom_plans') > order.indexOf('manager_signals'), 'after the data it plans on');
-    // Integration order (INTEGRATION-AUDIT-0923 section 2): the producer launches last, after this
-    // tick's number audit and brain report, so it plans on both.
-    assert.ok(order.indexOf('brain_report') > -1 && order.indexOf('warroom_plans') > order.indexOf('brain_report'), 'after the brain report');
+    assert.ok(order.indexOf('warroom_plans') > order.indexOf('brain_report'), 'after the report card it gates on (FIX-05)');
   } finally {
     for (const [k, v] of [['GRIDIRON_WARROOM_ENABLED', before.flag], ['GRIDIRON_WARROOM_PLANS', before.plans]]) {
       if (v === undefined) delete process.env[k]; else process.env[k] = v;

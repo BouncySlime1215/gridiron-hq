@@ -67,9 +67,11 @@ export function failedEntry(res, { names = {} } = {}) {
 }
 
 /**
- * res: planLeague result. ctx: { names, as_of, previous (last entry), changed (diffNextMove result) }
+ * res: planLeague result. ctx: { names, as_of, previous (last entry), changed (diffNextMove result),
+ *   brain (brain-gate.js#applyBrainReport result), number_health (brain-gate.js#readNumberHealth result) }
+ * FIX-05: without `brain` / `number_health` the two sections are 'unknown' and say they were not read.
  */
-export function toEntry(res, { names = {}, as_of, previous = null, changed = null } = {}) {
+export function toEntry(res, { names = {}, as_of, previous = null, changed = null, brain = null, number_health: health = null } = {}) {
   if (res.error) return failedEntry(res, { names });
   const o = res.objective;
   const metric = metricKey(o);
@@ -374,8 +376,12 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     attention: unknown('Not ranked yet.', 'campaign.plan'),
     destination, feasibility, finder_best_expected, next_move, alternatives, itinerary, stop_tradeoffs,
     flip_map, targets, catch_up, speed_curve,
-    brain_report: unknown('The producer does not read the brain report yet (FIX-05); until it does, every chance-he-says-yes is a guess and all-in uses no testing-tier signals.', 'eval.check'),
-    number_health: unknown('The producer does not read the number audit yet (FIX-05).', 'audit.numbers'),
+    brain_report: brain
+      ? ok(brain.section, 'eval.check', brain.as_of ? { as_of: brain.as_of } : {})
+      : unknown('The brain report was not read for this run.', 'eval.check'),
+    number_health: !health ? unknown('The number audit was not read for this run.', 'audit.numbers')
+      : health.status === 'ok' ? ok(health.value, 'audit.numbers', health.as_of ? { as_of: health.as_of } : {})
+        : { status: health.status, source: 'audit.numbers', reason: health.reason },
     risk_modes, partners,
     _run: {
       seed: res.seed ?? null, confirm_seed: res.confirm?.seed ?? null, week: w, deadline_week: week(res.deadline_week),

@@ -1,0 +1,2060 @@
+{
+  "profiles": {
+    "league_id": 41,
+    "available": true,
+    "reason": null,
+    "byRoster": [
+      [
+        "2",
+        {
+          "name": "P-Alpha",
+          "profile": {
+            "headline": "Trades a lot, rarely means no.",
+            "says_no": {
+              "how": "jokes first",
+              "hard_no_looks_like": [
+                "not happening"
+              ],
+              "soft_no_looks_like": [
+                "eh"
+              ],
+              "does_his_no_hold": "rarely",
+              "evidence": [
+                "label: joke-then-deal"
+              ]
+            },
+            "praise_means": {
+              "reading": "marketing",
+              "why": "praises before selling",
+              "hypes_before_selling": true,
+              "agrees_with_numbers": "no",
+              "evidence": [
+                "label: hype"
+              ]
+            },
+            "techniques": [
+              {
+                "name": "anchor",
+                "how_he_does_it": "asks high",
+                "evidence": [
+                  "label: anchor"
+                ],
+                "how_often": "often"
+              }
+            ],
+            "calibration": {
+              "enthusiasm_scale": "loud",
+              "baseline_tone": "friendly",
+              "inflation": "heavy"
+            },
+            "roster_read": {
+              "really_untouchable": [
+                "Player A"
+              ],
+              "quietly_available": [
+                "Player B"
+              ],
+              "overvalues": [],
+              "undervalues": [],
+              "reasoning": "talk vs numbers"
+            },
+            "what_moves_him": [
+              "a win-now piece"
+            ],
+            "what_shuts_him_down": [
+              "lowballs"
+            ],
+            "how_to_approach": "Lead with a fair offer after a loss.",
+            "best_bait": "Player C",
+            "confidence": "medium",
+            "caveats": [
+              "thin corpus"
+            ]
+          },
+          "built_at": "2026-09-18 05:00:00",
+          "messages_read": 120,
+          "model": "claude-sonnet-5",
+          "corpus_hash": "h1",
+          "roster_id": "2"
+        }
+      ],
+      [
+        "3",
+        {
+          "name": "P-Bravo",
+          "profile": {
+            "headline": "Trades a lot, rarely means no.",
+            "says_no": {
+              "how": "jokes first",
+              "hard_no_looks_like": [
+                "not happening"
+              ],
+              "soft_no_looks_like": [
+                "eh"
+              ],
+              "does_his_no_hold": "rarely",
+              "evidence": [
+                "label: joke-then-deal"
+              ]
+            },
+            "praise_means": {
+              "reading": "marketing",
+              "why": "praises before selling",
+              "hypes_before_selling": true,
+              "agrees_with_numbers": "no",
+              "evidence": [
+                "label: hype"
+              ]
+            },
+            "techniques": [
+              {
+                "name": "anchor",
+                "how_he_does_it": "asks high",
+                "evidence": [
+                  "label: anchor"
+                ],
+                "how_often": "often"
+              }
+            ],
+            "calibration": {
+              "enthusiasm_scale": "loud",
+              "baseline_tone": "friendly",
+              "inflation": "heavy"
+            },
+            "roster_read": {
+              "really_untouchable": [
+                "Player A"
+              ],
+              "quietly_available": [
+                "Player B"
+              ],
+              "overvalues": [],
+              "undervalues": [],
+              "reasoning": "talk vs numbers"
+            },
+            "what_moves_him": [
+              "a win-now piece"
+            ],
+            "what_shuts_him_down": [
+              "lowballs"
+            ],
+            "how_to_approach": "Lead with a fair offer after a loss.",
+            "best_bait": "Player C",
+            "confidence": "medium",
+            "caveats": [
+              "thin corpus"
+            ]
+          },
+          "built_at": "2026-09-18 05:10:00",
+          "messages_read": 12,
+          "model": "claude-sonnet-5",
+          "corpus_hash": "h3",
+          "roster_id": "3"
+        }
+      ]
+    ],
+    "self": {
+      "name": "ME",
+      "profile": {
+        "headline": "Sends a lot of offers.",
+        "says_no": {
+          "how": "jokes first",
+          "hard_no_looks_like": [
+            "not happening"
+          ],
+          "soft_no_looks_like": [
+            "eh"
+          ],
+          "does_his_no_hold": "rarely",
+          "evidence": [
+            "label: joke-then-deal"
+          ]
+        },
+        "praise_means": {
+          "reading": "marketing",
+          "why": "praises before selling",
+          "hypes_before_selling": true,
+          "agrees_with_numbers": "no",
+          "evidence": [
+            "label: hype"
+          ]
+        },
+        "techniques": [
+          {
+            "name": "anchor",
+            "how_he_does_it": "asks high",
+            "evidence": [
+              "label: anchor"
+            ],
+            "how_often": "often"
+          }
+        ],
+        "calibration": {
+          "enthusiasm_scale": "loud",
+          "baseline_tone": "friendly",
+          "inflation": "heavy"
+        },
+        "roster_read": {
+          "really_untouchable": [
+            "Player A"
+          ],
+          "quietly_available": [
+            "Player B"
+          ],
+          "overvalues": [],
+          "undervalues": [],
+          "reasoning": "talk vs numbers"
+        },
+        "what_moves_him": [
+          "a win-now piece"
+        ],
+        "what_shuts_him_down": [
+          "lowballs"
+        ],
+        "how_to_approach": "Lead with a fair offer after a loss.",
+        "best_bait": "Player C",
+        "confidence": "medium",
+        "caveats": [
+          "thin corpus"
+        ]
+      },
+      "built_at": "2026-09-18 05:50:00",
+      "messages_read": 300,
+      "model": "claude-sonnet-5",
+      "corpus_hash": "h2",
+      "roster_id": "1",
+      "scope": "how the league chat sees Nick"
+    },
+    "invalid": [
+      {
+        "name": "P-Charlie",
+        "errors": [
+          "profile.says_no: expected object, got string"
+        ]
+      }
+    ],
+    "unmapped": [
+      "P-Delta"
+    ]
+  },
+  "dataKey": "ms:0:|id:5:2026-09-18 03:00:00|mp:0:|chat:msg:16:16|jev:0|np:5:2026-09-18 05:50:00",
+  "chatRows": [
+    {
+      "roster_id": "1",
+      "metric": "chat_confidence",
+      "value": 2.5,
+      "n": 900,
+      "source": "chat"
+    },
+    {
+      "roster_id": "1",
+      "metric": "chat_group_share",
+      "value": 0.6666666666666666,
+      "n": 900,
+      "source": "chat"
+    },
+    {
+      "roster_id": "1",
+      "metric": "chat_msgs",
+      "value": 900,
+      "n": 900,
+      "source": "chat"
+    },
+    {
+      "roster_id": "1",
+      "metric": "chat_night_share",
+      "value": 0.2,
+      "n": 900,
+      "source": "chat"
+    },
+    {
+      "roster_id": "1",
+      "metric": "chat_open_to_trade",
+      "value": 0.3,
+      "n": 900,
+      "source": "chat"
+    },
+    {
+      "roster_id": "1",
+      "metric": "chat_own_complaining",
+      "value": 0.05,
+      "n": 900,
+      "source": "chat"
+    },
+    {
+      "roster_id": "1",
+      "metric": "chat_own_untouchable",
+      "value": 0.02,
+      "n": 900,
+      "source": "chat"
+    },
+    {
+      "roster_id": "1",
+      "metric": "chat_reacting_to_loss",
+      "value": 0.05,
+      "n": 900,
+      "source": "chat"
+    },
+    {
+      "roster_id": "1",
+      "metric": "chat_tapback_ratio",
+      "value": 0.05555555555555555,
+      "n": 900,
+      "source": "chat"
+    },
+    {
+      "roster_id": "1",
+      "metric": "chat_tone_competitive",
+      "value": 0.3,
+      "n": 900,
+      "source": "chat"
+    },
+    {
+      "roster_id": "1",
+      "metric": "chat_tone_defensive",
+      "value": 0.1,
+      "n": 900,
+      "source": "chat"
+    },
+    {
+      "roster_id": "1",
+      "metric": "chat_tone_friendly",
+      "value": 0.5,
+      "n": 900,
+      "source": "chat"
+    },
+    {
+      "roster_id": "1",
+      "metric": "chat_trade_talk",
+      "value": 0.3,
+      "n": 900,
+      "source": "chat"
+    },
+    {
+      "roster_id": "1",
+      "metric": "chat_trash_talk",
+      "value": 0.2,
+      "n": 900,
+      "source": "chat"
+    },
+    {
+      "roster_id": "2",
+      "metric": "chat_confidence",
+      "value": 2.2,
+      "n": 400,
+      "source": "chat"
+    },
+    {
+      "roster_id": "2",
+      "metric": "chat_group_share",
+      "value": 0.75,
+      "n": 400,
+      "source": "chat"
+    },
+    {
+      "roster_id": "2",
+      "metric": "chat_msgs",
+      "value": 400,
+      "n": 400,
+      "source": "chat"
+    },
+    {
+      "roster_id": "2",
+      "metric": "chat_night_share",
+      "value": 0.1,
+      "n": 400,
+      "source": "chat"
+    },
+    {
+      "roster_id": "2",
+      "metric": "chat_open_to_trade",
+      "value": 0.34,
+      "n": 400,
+      "source": "chat"
+    },
+    {
+      "roster_id": "2",
+      "metric": "chat_own_complaining",
+      "value": 0.1,
+      "n": 400,
+      "source": "chat"
+    },
+    {
+      "roster_id": "2",
+      "metric": "chat_own_untouchable",
+      "value": 0.05,
+      "n": 400,
+      "source": "chat"
+    },
+    {
+      "roster_id": "2",
+      "metric": "chat_reacting_to_loss",
+      "value": 0.08,
+      "n": 400,
+      "source": "chat"
+    },
+    {
+      "roster_id": "2",
+      "metric": "chat_tapback_ratio",
+      "value": 0.05,
+      "n": 400,
+      "source": "chat"
+    },
+    {
+      "roster_id": "2",
+      "metric": "chat_tone_competitive",
+      "value": 0.4,
+      "n": 400,
+      "source": "chat"
+    },
+    {
+      "roster_id": "2",
+      "metric": "chat_tone_defensive",
+      "value": 0.1,
+      "n": 400,
+      "source": "chat"
+    },
+    {
+      "roster_id": "2",
+      "metric": "chat_tone_friendly",
+      "value": 0.4,
+      "n": 400,
+      "source": "chat"
+    },
+    {
+      "roster_id": "2",
+      "metric": "chat_trade_talk",
+      "value": 0.25,
+      "n": 400,
+      "source": "chat"
+    },
+    {
+      "roster_id": "2",
+      "metric": "chat_trash_talk",
+      "value": 0.3,
+      "n": 400,
+      "source": "chat"
+    },
+    {
+      "roster_id": "3",
+      "metric": "chat_confidence",
+      "value": 2,
+      "n": 12,
+      "source": "chat"
+    },
+    {
+      "roster_id": "3",
+      "metric": "chat_group_share",
+      "value": 0.6666666666666666,
+      "n": 12,
+      "source": "chat"
+    },
+    {
+      "roster_id": "3",
+      "metric": "chat_msgs",
+      "value": 12,
+      "n": 12,
+      "source": "chat"
+    },
+    {
+      "roster_id": "3",
+      "metric": "chat_night_share",
+      "value": 0.1,
+      "n": 12,
+      "source": "chat"
+    },
+    {
+      "roster_id": "3",
+      "metric": "chat_open_to_trade",
+      "value": 0.13,
+      "n": 12,
+      "source": "chat"
+    },
+    {
+      "roster_id": "3",
+      "metric": "chat_own_complaining",
+      "value": 0.03,
+      "n": 12,
+      "source": "chat"
+    },
+    {
+      "roster_id": "3",
+      "metric": "chat_own_untouchable",
+      "value": 0.01,
+      "n": 12,
+      "source": "chat"
+    },
+    {
+      "roster_id": "3",
+      "metric": "chat_reacting_to_loss",
+      "value": 0.02,
+      "n": 12,
+      "source": "chat"
+    },
+    {
+      "roster_id": "3",
+      "metric": "chat_tapback_ratio",
+      "value": 0.08333333333333333,
+      "n": 12,
+      "source": "chat"
+    },
+    {
+      "roster_id": "3",
+      "metric": "chat_tone_competitive",
+      "value": 0.2,
+      "n": 12,
+      "source": "chat"
+    },
+    {
+      "roster_id": "3",
+      "metric": "chat_tone_defensive",
+      "value": 0.1,
+      "n": 12,
+      "source": "chat"
+    },
+    {
+      "roster_id": "3",
+      "metric": "chat_tone_friendly",
+      "value": 0.5,
+      "n": 12,
+      "source": "chat"
+    },
+    {
+      "roster_id": "3",
+      "metric": "chat_trade_talk",
+      "value": 0.1,
+      "n": 12,
+      "source": "chat"
+    },
+    {
+      "roster_id": "3",
+      "metric": "chat_trash_talk",
+      "value": 0.2,
+      "n": 12,
+      "source": "chat"
+    },
+    {
+      "roster_id": "4",
+      "metric": "chat_confidence",
+      "value": 2.1,
+      "n": 350,
+      "source": "chat"
+    },
+    {
+      "roster_id": "4",
+      "metric": "chat_group_share",
+      "value": 0.7142857142857143,
+      "n": 350,
+      "source": "chat"
+    },
+    {
+      "roster_id": "4",
+      "metric": "chat_msgs",
+      "value": 350,
+      "n": 350,
+      "source": "chat"
+    },
+    {
+      "roster_id": "4",
+      "metric": "chat_night_share",
+      "value": 0.3,
+      "n": 350,
+      "source": "chat"
+    },
+    {
+      "roster_id": "4",
+      "metric": "chat_open_to_trade",
+      "value": 0.2,
+      "n": 350,
+      "source": "chat"
+    },
+    {
+      "roster_id": "4",
+      "metric": "chat_own_complaining",
+      "value": 0.04,
+      "n": 350,
+      "source": "chat"
+    },
+    {
+      "roster_id": "4",
+      "metric": "chat_own_untouchable",
+      "value": 0.02,
+      "n": 350,
+      "source": "chat"
+    },
+    {
+      "roster_id": "4",
+      "metric": "chat_reacting_to_loss",
+      "value": 0.04,
+      "n": 350,
+      "source": "chat"
+    },
+    {
+      "roster_id": "4",
+      "metric": "chat_tapback_ratio",
+      "value": 0.04285714285714286,
+      "n": 350,
+      "source": "chat"
+    },
+    {
+      "roster_id": "4",
+      "metric": "chat_tone_competitive",
+      "value": 0.2,
+      "n": 350,
+      "source": "chat"
+    },
+    {
+      "roster_id": "4",
+      "metric": "chat_tone_defensive",
+      "value": 0.1,
+      "n": 350,
+      "source": "chat"
+    },
+    {
+      "roster_id": "4",
+      "metric": "chat_tone_friendly",
+      "value": 0.6,
+      "n": 350,
+      "source": "chat"
+    },
+    {
+      "roster_id": "4",
+      "metric": "chat_trade_talk",
+      "value": 0.2,
+      "n": 350,
+      "source": "chat"
+    },
+    {
+      "roster_id": "4",
+      "metric": "chat_trash_talk",
+      "value": 0.1,
+      "n": 350,
+      "source": "chat"
+    }
+  ],
+  "views": [
+    {
+      "roster_id": "2",
+      "player_name": "Player A",
+      "sentiment": 3.4,
+      "n": 6,
+      "last_mention": "2026-09-15"
+    },
+    {
+      "roster_id": "2",
+      "player_name": "Player D",
+      "sentiment": 1,
+      "n": 4,
+      "last_mention": "2026-09-10"
+    }
+  ],
+  "corpus": {
+    "as_of": "2026-09-17",
+    "computed_at": "2026-09-18 04:00:00",
+    "rows": 4,
+    "path_source": "GRIDIRON_CHAT_DB_PATH",
+    "collected_by": "the league_chat step of scripts/refresh-live-data.mjs (off-server)",
+    "reason": null
+  },
+  "variables": {
+    "P-Alpha": [
+      {
+        "id": "reply_latency_p50",
+        "name": "Typical reply time",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "minutes",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the median gap between a message from someone else and his next message in the same thread, counting only gaps under 6 hours",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "reply_latency_p90",
+        "name": "Slow reply time",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "minutes",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the ninetieth percentile of the same gaps: how long a reply takes on his slow days",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "reply_latency_trend",
+        "name": "Reply time, later vs earlier",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "ratio",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "his median reply time over the later half of his messages divided by the earlier half; above 1 means he is getting slower",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "response_asymmetry",
+        "name": "Replies to Nick vs to everyone else",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "ratio",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "his median reply time to Nick divided by his median reply time to anyone else; below 1 means Nick gets answered first",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "initiation_rate",
+        "name": "How often he starts it",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": 1,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the share of his messages sent after at least 3 hours of silence in that thread"
+      },
+      {
+        "id": "thread_close_rate",
+        "name": "How often he has the last word",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": 0,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the share of his messages followed by at least 6 hours of silence"
+      },
+      {
+        "id": "burst_index",
+        "name": "Messages per active hour",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "messages",
+        "value": 1,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "his message count divided by the number of distinct hours he sent anything in: how much he arrives in bursts"
+      },
+      {
+        "id": "gameday_concentration",
+        "name": "How much he talks during games",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": 0,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the share of his messages sent on a Sunday between 1pm and 7pm Eastern, when games are on"
+      },
+      {
+        "id": "mean_message_length",
+        "name": "Message length",
+        "family": "style",
+        "source": "computed",
+        "unit": "characters",
+        "value": 23,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the mean character count of his messages"
+      },
+      {
+        "id": "median_message_length",
+        "name": "Typical message length",
+        "family": "style",
+        "source": "computed",
+        "unit": "characters",
+        "value": 23,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the median character count, which a few essays cannot drag"
+      },
+      {
+        "id": "long_message_rate",
+        "name": "How often he writes at length",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": 0,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the share of his messages longer than 200 characters"
+      },
+      {
+        "id": "question_rate",
+        "name": "How often he asks",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": 0,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the share of his messages containing a question mark"
+      },
+      {
+        "id": "emoji_rate",
+        "name": "Emoji",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": 0,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the share of his messages containing an emoji"
+      },
+      {
+        "id": "all_caps_rate",
+        "name": "Shouting",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": 0,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the share of his messages written entirely in capitals"
+      },
+      {
+        "id": "hedge_rate",
+        "name": "Hedging",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": 0,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the share of his messages containing one of 20 hedging phrases (lexicons.js)"
+      },
+      {
+        "id": "superlative_rate",
+        "name": "Superlatives",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": 0,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the share of his messages containing one of 20 intensity words (lexicons.js); a person whose baseline is superlative gives no signal by using one"
+      },
+      {
+        "id": "negation_rate",
+        "name": "Negation",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": 0,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the share of his messages containing a negation"
+      },
+      {
+        "id": "first_person_ratio",
+        "name": "Talks about himself vs about you",
+        "family": "style",
+        "source": "computed",
+        "unit": "ratio",
+        "value": null,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "his I/me/my word count divided by his you/your word count",
+        "withheld": "measured on 8 observations and undefined for him — the quantity has no value here, which is not the same as being zero"
+      },
+      {
+        "id": "hard_no_rate",
+        "name": "Flat refusals",
+        "family": "negotiation",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": 0,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the share of his messages containing a refusal that closes the subject (lexicons.js)"
+      },
+      {
+        "id": "soft_no_rate",
+        "name": "Refusals that leave the door open",
+        "family": "negotiation",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": 0,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the share of his messages containing a deferral rather than a refusal (lexicons.js); telling these two apart is the point of having both"
+      },
+      {
+        "id": "non_fantasy_share",
+        "name": "How much of it is not fantasy",
+        "family": "context",
+        "source": "signal",
+        "unit": "share of 1",
+        "value": 0,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the share of his messages the classifier labelled non-fantasy (jev_chat_signals topic.non_fantasy); high here means a person profile built from his chat is mostly not about football"
+      },
+      {
+        "id": "player_opinion_share",
+        "name": "How much of it is player opinions",
+        "family": "negotiation",
+        "source": "signal",
+        "unit": "share of 1",
+        "value": 0,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the share of his messages the classifier labelled as an opinion about a player"
+      },
+      {
+        "id": "confidence_volatility",
+        "name": "How much his confidence swings",
+        "family": "disposition",
+        "source": "computed",
+        "unit": "standard deviations",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the standard deviation of the per-message confidence the classifier assigned him; manager_chat_profile keeps only the mean, which is exactly what hides a reactive person",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "night_share",
+        "name": "How much he talks at night",
+        "family": "responsiveness",
+        "source": "extractor",
+        "unit": "share of 1",
+        "value": 0.1,
+        "n": 400,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "group_share",
+        "name": "Group vs one-to-one",
+        "family": "social",
+        "source": "extractor",
+        "unit": "share of 1",
+        "value": 0.75,
+        "n": 400,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "tapback_ratio",
+        "name": "Reacts instead of replying",
+        "family": "social",
+        "source": "extractor",
+        "unit": "share of 1",
+        "value": 0.05,
+        "n": 400,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "confidence_mean",
+        "name": "How certain he sounds",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 2.2,
+        "n": 400,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes. Read confidence_volatility beside it: the mean alone cannot tell a steady person from a swinging one"
+      },
+      {
+        "id": "tone_competitive",
+        "name": "Competitive tone",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.4,
+        "n": 400,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "tone_friendly",
+        "name": "Friendly tone",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.4,
+        "n": 400,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "tone_defensive",
+        "name": "Defensive tone",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.1,
+        "n": 400,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "trade_talk_share",
+        "name": "How much he talks trades",
+        "family": "negotiation",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.25,
+        "n": 400,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "trash_talk_share",
+        "name": "How much he talks trash",
+        "family": "social",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.3,
+        "n": 400,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "open_to_trade",
+        "name": "How open he sounds to a deal",
+        "family": "negotiation",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.34,
+        "n": 400,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "reacting_to_loss",
+        "name": "How often he is reacting to a loss",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.08,
+        "n": 400,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "own_complaining",
+        "name": "Complaining about his own team",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.1,
+        "n": 400,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "own_untouchable",
+        "name": "Declaring a player untouchable",
+        "family": "negotiation",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.05,
+        "n": 400,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "context_rules",
+        "name": "Rules recorded about him",
+        "family": "context",
+        "source": "computed",
+        "unit": "rules",
+        "value": 0,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the number of active rows in coach_person_context for this person, against the messages they would be applied to"
+      },
+      {
+        "id": "context_rule_hits",
+        "name": "Messages a rule reinterprets",
+        "family": "context",
+        "source": "computed",
+        "unit": "messages",
+        "value": 0,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "his messages matched by a triggered context rule — for Josh Smith, the ones where \"we\" means the flag football team rather than fantasy"
+      },
+      {
+        "id": "dm_share",
+        "name": "One-to-one vs in the group",
+        "family": "social",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": 0,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the share of his messages sent in a one-to-one thread"
+      },
+      {
+        "id": "mention_breadth",
+        "name": "How many people he talks to",
+        "family": "social",
+        "source": "computed",
+        "unit": "people",
+        "value": 1,
+        "n": 8,
+        "priceable": false,
+        "measured_by": "the number of distinct people in the threads he posts in"
+      }
+    ],
+    "P-Bravo": [
+      {
+        "id": "reply_latency_p50",
+        "name": "Typical reply time",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "minutes",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the median gap between a message from someone else and his next message in the same thread, counting only gaps under 6 hours",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "reply_latency_p90",
+        "name": "Slow reply time",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "minutes",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the ninetieth percentile of the same gaps: how long a reply takes on his slow days",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "reply_latency_trend",
+        "name": "Reply time, later vs earlier",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "ratio",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "his median reply time over the later half of his messages divided by the earlier half; above 1 means he is getting slower",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "response_asymmetry",
+        "name": "Replies to Nick vs to everyone else",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "ratio",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "his median reply time to Nick divided by his median reply time to anyone else; below 1 means Nick gets answered first",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "initiation_rate",
+        "name": "How often he starts it",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages sent after at least 3 hours of silence in that thread",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "thread_close_rate",
+        "name": "How often he has the last word",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages followed by at least 6 hours of silence",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "burst_index",
+        "name": "Messages per active hour",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "messages",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "his message count divided by the number of distinct hours he sent anything in: how much he arrives in bursts",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "gameday_concentration",
+        "name": "How much he talks during games",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages sent on a Sunday between 1pm and 7pm Eastern, when games are on",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "mean_message_length",
+        "name": "Message length",
+        "family": "style",
+        "source": "computed",
+        "unit": "characters",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the mean character count of his messages",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "median_message_length",
+        "name": "Typical message length",
+        "family": "style",
+        "source": "computed",
+        "unit": "characters",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the median character count, which a few essays cannot drag",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "long_message_rate",
+        "name": "How often he writes at length",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages longer than 200 characters",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "question_rate",
+        "name": "How often he asks",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages containing a question mark",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "emoji_rate",
+        "name": "Emoji",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages containing an emoji",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "all_caps_rate",
+        "name": "Shouting",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages written entirely in capitals",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "hedge_rate",
+        "name": "Hedging",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages containing one of 20 hedging phrases (lexicons.js)",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "superlative_rate",
+        "name": "Superlatives",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages containing one of 20 intensity words (lexicons.js); a person whose baseline is superlative gives no signal by using one",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "negation_rate",
+        "name": "Negation",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages containing a negation",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "first_person_ratio",
+        "name": "Talks about himself vs about you",
+        "family": "style",
+        "source": "computed",
+        "unit": "ratio",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "his I/me/my word count divided by his you/your word count",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "hard_no_rate",
+        "name": "Flat refusals",
+        "family": "negotiation",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages containing a refusal that closes the subject (lexicons.js)",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "soft_no_rate",
+        "name": "Refusals that leave the door open",
+        "family": "negotiation",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages containing a deferral rather than a refusal (lexicons.js); telling these two apart is the point of having both",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "non_fantasy_share",
+        "name": "How much of it is not fantasy",
+        "family": "context",
+        "source": "signal",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages the classifier labelled non-fantasy (jev_chat_signals topic.non_fantasy); high here means a person profile built from his chat is mostly not about football",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "player_opinion_share",
+        "name": "How much of it is player opinions",
+        "family": "negotiation",
+        "source": "signal",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages the classifier labelled as an opinion about a player",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "confidence_volatility",
+        "name": "How much his confidence swings",
+        "family": "disposition",
+        "source": "computed",
+        "unit": "standard deviations",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the standard deviation of the per-message confidence the classifier assigned him; manager_chat_profile keeps only the mean, which is exactly what hides a reactive person",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "night_share",
+        "name": "How much he talks at night",
+        "family": "responsiveness",
+        "source": "extractor",
+        "unit": "share of 1",
+        "value": 0.1,
+        "n": 12,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "group_share",
+        "name": "Group vs one-to-one",
+        "family": "social",
+        "source": "extractor",
+        "unit": "share of 1",
+        "value": 0.6666666666666666,
+        "n": 12,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "tapback_ratio",
+        "name": "Reacts instead of replying",
+        "family": "social",
+        "source": "extractor",
+        "unit": "share of 1",
+        "value": 0.08333333333333333,
+        "n": 12,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "confidence_mean",
+        "name": "How certain he sounds",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 2,
+        "n": 12,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes. Read confidence_volatility beside it: the mean alone cannot tell a steady person from a swinging one"
+      },
+      {
+        "id": "tone_competitive",
+        "name": "Competitive tone",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.2,
+        "n": 12,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "tone_friendly",
+        "name": "Friendly tone",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.5,
+        "n": 12,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "tone_defensive",
+        "name": "Defensive tone",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.1,
+        "n": 12,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "trade_talk_share",
+        "name": "How much he talks trades",
+        "family": "negotiation",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.1,
+        "n": 12,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "trash_talk_share",
+        "name": "How much he talks trash",
+        "family": "social",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.2,
+        "n": 12,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "open_to_trade",
+        "name": "How open he sounds to a deal",
+        "family": "negotiation",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.13,
+        "n": 12,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "reacting_to_loss",
+        "name": "How often he is reacting to a loss",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.02,
+        "n": 12,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "own_complaining",
+        "name": "Complaining about his own team",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.03,
+        "n": 12,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "own_untouchable",
+        "name": "Declaring a player untouchable",
+        "family": "negotiation",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": 0.01,
+        "n": 12,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes"
+      },
+      {
+        "id": "context_rules",
+        "name": "Rules recorded about him",
+        "family": "context",
+        "source": "computed",
+        "unit": "rules",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the number of active rows in coach_person_context for this person, against the messages they would be applied to",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "context_rule_hits",
+        "name": "Messages a rule reinterprets",
+        "family": "context",
+        "source": "computed",
+        "unit": "messages",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "his messages matched by a triggered context rule — for Josh Smith, the ones where \"we\" means the flag football team rather than fantasy",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "dm_share",
+        "name": "One-to-one vs in the group",
+        "family": "social",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages sent in a one-to-one thread",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "mention_breadth",
+        "name": "How many people he talks to",
+        "family": "social",
+        "source": "computed",
+        "unit": "people",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the number of distinct people in the threads he posts in",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      }
+    ],
+    "Nobody": [
+      {
+        "id": "reply_latency_p50",
+        "name": "Typical reply time",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "minutes",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the median gap between a message from someone else and his next message in the same thread, counting only gaps under 6 hours",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "reply_latency_p90",
+        "name": "Slow reply time",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "minutes",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the ninetieth percentile of the same gaps: how long a reply takes on his slow days",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "reply_latency_trend",
+        "name": "Reply time, later vs earlier",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "ratio",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "his median reply time over the later half of his messages divided by the earlier half; above 1 means he is getting slower",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "response_asymmetry",
+        "name": "Replies to Nick vs to everyone else",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "ratio",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "his median reply time to Nick divided by his median reply time to anyone else; below 1 means Nick gets answered first",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "initiation_rate",
+        "name": "How often he starts it",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages sent after at least 3 hours of silence in that thread",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "thread_close_rate",
+        "name": "How often he has the last word",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages followed by at least 6 hours of silence",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "burst_index",
+        "name": "Messages per active hour",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "messages",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "his message count divided by the number of distinct hours he sent anything in: how much he arrives in bursts",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "gameday_concentration",
+        "name": "How much he talks during games",
+        "family": "responsiveness",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages sent on a Sunday between 1pm and 7pm Eastern, when games are on",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "mean_message_length",
+        "name": "Message length",
+        "family": "style",
+        "source": "computed",
+        "unit": "characters",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the mean character count of his messages",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "median_message_length",
+        "name": "Typical message length",
+        "family": "style",
+        "source": "computed",
+        "unit": "characters",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the median character count, which a few essays cannot drag",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "long_message_rate",
+        "name": "How often he writes at length",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages longer than 200 characters",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "question_rate",
+        "name": "How often he asks",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages containing a question mark",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "emoji_rate",
+        "name": "Emoji",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages containing an emoji",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "all_caps_rate",
+        "name": "Shouting",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages written entirely in capitals",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "hedge_rate",
+        "name": "Hedging",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages containing one of 20 hedging phrases (lexicons.js)",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "superlative_rate",
+        "name": "Superlatives",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages containing one of 20 intensity words (lexicons.js); a person whose baseline is superlative gives no signal by using one",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "negation_rate",
+        "name": "Negation",
+        "family": "style",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages containing a negation",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "first_person_ratio",
+        "name": "Talks about himself vs about you",
+        "family": "style",
+        "source": "computed",
+        "unit": "ratio",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "his I/me/my word count divided by his you/your word count",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "hard_no_rate",
+        "name": "Flat refusals",
+        "family": "negotiation",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages containing a refusal that closes the subject (lexicons.js)",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "soft_no_rate",
+        "name": "Refusals that leave the door open",
+        "family": "negotiation",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages containing a deferral rather than a refusal (lexicons.js); telling these two apart is the point of having both",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "non_fantasy_share",
+        "name": "How much of it is not fantasy",
+        "family": "context",
+        "source": "signal",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages the classifier labelled non-fantasy (jev_chat_signals topic.non_fantasy); high here means a person profile built from his chat is mostly not about football",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "player_opinion_share",
+        "name": "How much of it is player opinions",
+        "family": "negotiation",
+        "source": "signal",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages the classifier labelled as an opinion about a player",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "confidence_volatility",
+        "name": "How much his confidence swings",
+        "family": "disposition",
+        "source": "computed",
+        "unit": "standard deviations",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the standard deviation of the per-message confidence the classifier assigned him; manager_chat_profile keeps only the mean, which is exactly what hides a reactive person",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "night_share",
+        "name": "How much he talks at night",
+        "family": "responsiveness",
+        "source": "extractor",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "group_share",
+        "name": "Group vs one-to-one",
+        "family": "social",
+        "source": "extractor",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "tapback_ratio",
+        "name": "Reacts instead of replying",
+        "family": "social",
+        "source": "extractor",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "confidence_mean",
+        "name": "How certain he sounds",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes. Read confidence_volatility beside it: the mean alone cannot tell a steady person from a swinging one",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "tone_competitive",
+        "name": "Competitive tone",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "tone_friendly",
+        "name": "Friendly tone",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "tone_defensive",
+        "name": "Defensive tone",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "trade_talk_share",
+        "name": "How much he talks trades",
+        "family": "negotiation",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "trash_talk_share",
+        "name": "How much he talks trash",
+        "family": "social",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "open_to_trade",
+        "name": "How open he sounds to a deal",
+        "family": "negotiation",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "reacting_to_loss",
+        "name": "How often he is reacting to a loss",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "own_complaining",
+        "name": "Complaining about his own team",
+        "family": "disposition",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "own_untouchable",
+        "name": "Declaring a player untouchable",
+        "family": "negotiation",
+        "source": "extractor",
+        "unit": "probability 0-1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "read from manager_chat_profile, which the chat extractor writes",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "context_rules",
+        "name": "Rules recorded about him",
+        "family": "context",
+        "source": "computed",
+        "unit": "rules",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the number of active rows in coach_person_context for this person, against the messages they would be applied to",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "context_rule_hits",
+        "name": "Messages a rule reinterprets",
+        "family": "context",
+        "source": "computed",
+        "unit": "messages",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "his messages matched by a triggered context rule — for Josh Smith, the ones where \"we\" means the flag football team rather than fantasy",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "dm_share",
+        "name": "One-to-one vs in the group",
+        "family": "social",
+        "source": "computed",
+        "unit": "share of 1",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the share of his messages sent in a one-to-one thread",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      },
+      {
+        "id": "mention_breadth",
+        "name": "How many people he talks to",
+        "family": "social",
+        "source": "computed",
+        "unit": "people",
+        "value": null,
+        "n": 0,
+        "priceable": false,
+        "measured_by": "the number of distinct people in the threads he posts in",
+        "withheld": "only 0 observations; a variable needs 5 to be reported"
+      }
+    ]
+  }
+}

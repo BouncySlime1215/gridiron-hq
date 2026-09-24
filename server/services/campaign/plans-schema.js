@@ -26,7 +26,7 @@ export const STATUSES = Object.freeze(['ok', 'unknown', 'failed']);
 
 export const SOURCE_IDS = Object.freeze([
   'sim.title', 'clone.accept', 'clone.price', 'market.fc', 'plan.path',
-  'coach.text', 'eval.check', 'audit.numbers', 'campaign.plan'
+  'coach.text', 'eval.check', 'audit.numbers', 'campaign.plan', 'pitch.bandit'
 ]);
 
 // Vocabularies shared with Coach's action schema (PR #230,
@@ -41,6 +41,8 @@ export const STOP_STATUSES = Object.freeze(['next', 'waiting', 'done', 'dropped'
 export const REASONING_SLOTS = Object.freeze(['case_for', 'his_side', 'devils_advocate', 'news_check', 'confidence', 'counter']);
 export const BRAIN_CHECK_IDS = Object.freeze(['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7']);
 export const MAX_ALTERNATIVES = 5;
+/** BANDIT-01 message framings (services/pitch-bandit.js reads this list). */
+export const PITCH_ARMS = Object.freeze(['need_based', 'value_based', 'face_saving', 'urgency']);
 
 /**
  * stop_tradeoffs keys, exactly as Coach builds them (warroomCoach.ts tradeoffKey):
@@ -196,9 +198,20 @@ export const SECTIONS = Object.freeze({
   brain_report: field(brainReport)
 });
 
+/**
+ * Optional, and not in SECTIONS: BANDIT-01's pitch bandit is default-off and
+ * offline, so a plans file without it is complete. `s` is a reward sum, not a
+ * count (a counter scores COUNTER_REWARD).
+ */
+const pitchBandit = field(obj({
+  state: lit('learning'), label: str, n: int(0), preview: bool,
+  arms: arr(obj({ arm: oneOf(PITCH_ARMS), n: int(0), s: num })),
+  managers: arr(obj({ team_id: id, n: int(0), suggested_arm: oneOf(PITCH_ARMS) }))
+}));
+
 const league = obj(
   { league: int(1), me: id, names: map(/^[A-Za-z0-9_.:-]{1,64}$/, str) },
-  { error: str, sanity_composed_equals_direct: bool, ...SECTIONS }
+  { error: str, sanity_composed_equals_direct: bool, pitch_bandit: pitchBandit, ...SECTIONS }
 );
 
 const HEAD = { schema: lit(SCHEMA_VERSION), generated_at: iso, producer: str, producer_version: str };

@@ -40,6 +40,7 @@ import { requirePlatformAdmin } from '../platform/legacy-access.js';
 import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE, PROMPT_VERSION }
   from '../services/trade-proposals.js';
 import { recordProposalSlate, recordSentOffer } from '../services/trade-outcomes.js';
+import { PITCH_ARMS, recordPitchArm, pitchBandit, pitchBanditSection } from '../services/pitch-bandit.js';
 import { lineupCall } from '../services/lineup-brain.js';
 import { lineupSignals } from '../services/lineup-signals.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
@@ -829,6 +830,12 @@ r.post('/:leagueId/offers/sent', (req, res, next) => {
     if (!deal || deal.partner_id == null || !Array.isArray(deal.i_give) || !Array.isArray(deal.i_get)) {
       return res.status(400).json({ error: 'deal with partner_id, i_give and i_get required' });
     }
+    // BANDIT-01: the framing he used, optional. Checked before anything is
+    // written, so a bad arm never leaves a sent row behind with no framing.
+    const arm = req.body?.pitch_arm ?? null;
+    if (arm != null && !PITCH_ARMS.includes(arm)) {
+      return res.status(400).json({ error: `pitch_arm must be one of ${PITCH_ARMS.join(', ')}` });
+    }
     let out;
     try {
       out = recordSentOffer({
@@ -841,7 +848,23 @@ r.post('/:leagueId/offers/sent', (req, res, next) => {
       // the caller's input, said as such, not a server fault.
       return res.status(400).json({ error: String(e?.message ?? e) });
     }
+    // A second tap is a no-op, arm included: the first tap's framing stands.
+    if (arm && out.state !== 'already_sent') recordPitchArm(out.id, arm, { chosen_by: 'nick' });
     res.json(out);
+  } catch (e) { next(e); }
+});
+
+/**
+ * BANDIT-01: the pitch bandit. With `team_id`, that manager's arms and (preview
+ * mode only) the framing to try next; without, the War Room section. Offline:
+ * "learning, n=<graded offers>" and nothing downstream reads the pick.
+ */
+r.get('/:leagueId/pitch-bandit', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const season = lg.season ?? null;
+    if (req.query.team_id != null) return res.json(pitchBandit(lg.id, season, { teamId: String(req.query.team_id) }));
+    res.json({ league_id: lg.id, section: pitchBanditSection(lg.id, season) });
   } catch (e) { next(e); }
 });
 

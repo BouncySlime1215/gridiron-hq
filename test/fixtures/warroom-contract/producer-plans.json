@@ -1384,6 +1384,46 @@
      "fell_back_to": "balanced"
     },
     "source": "eval.check"
+   },
+   "pitch_bandit": {
+    "status": "ok",
+    "source": "pitch.bandit",
+    "n": 3,
+    "value": {
+     "state": "learning",
+     "label": "learning, n=3",
+     "n": 3,
+     "preview": true,
+     "arms": [
+      {
+       "arm": "need_based",
+       "n": 1,
+       "s": 1
+      },
+      {
+       "arm": "value_based",
+       "n": 1,
+       "s": 0
+      },
+      {
+       "arm": "face_saving",
+       "n": 0,
+       "s": 0
+      },
+      {
+       "arm": "urgency",
+       "n": 1,
+       "s": 0.5
+      }
+     ],
+     "managers": [
+      {
+       "team_id": "4",
+       "n": 3,
+       "suggested_arm": "face_saving"
+      }
+     ]
+    }
    }
   },
   {

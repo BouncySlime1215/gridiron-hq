@@ -66,6 +66,7 @@ test('R1: GET /pitch-bandit is off without preview, "learning, n=0" with it', as
   try {
     const on = await call('GET', '/api/trades/61/pitch-bandit?team_id=3');
     assert.equal(on.body.enabled, true);
+    assert.equal(on.body.team_id, '3', 'the route passes the asked-for manager');
     assert.equal(on.body.label, 'learning, n=0');
     assert.equal(on.body.preview, true);
     assert.ok(on.body.suggested_arm);
@@ -80,6 +81,7 @@ test('R2: POST /offers/sent records the pitch arm; an unknown arm writes nothing
   assert.equal(ok.status, 200);
   const r = rows(`SELECT pitch_json FROM trade_outcomes WHERE id = ?`, ok.body.id)[0];
   assert.equal(JSON.parse(r.pitch_json).arm, 'value_based');
+  assert.equal(JSON.parse(r.pitch_json).chosen_by, 'nick', 'a tap records his own choice, not the bandit\'s');
 
   const before = rows(`SELECT COUNT(*) AS n FROM trade_outcomes`)[0].n;
   const bad = await call('POST', '/api/trades/61/offers/sent', { deal: deal('c>d'), pitch_arm: 'flattery' });

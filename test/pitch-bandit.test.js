@@ -180,10 +180,13 @@ test('B6: Thompson is seeded, exploits a dominant arm, and explores all arms at 
   for (let s = 1; s <= 400; s++) hits[thompsonPick(flat, seededRng(s)).arm] += 1;
   for (const a of PITCH_ARMS) assert.ok(hits[a] >= 60, `${a} explored ${hits[a]}/400`);
 
+  // Beta(21, 1) against two flat arms and a Beta(1, 21): it wins with
+  // P = E[x^2] = 21/23 = 0.913 (the Beta(1, 21) arm is near-zero). 2,000 seeds,
+  // SE 0.0063: the band is +-3 SE.
   const skew = { ...flat, urgency: { alpha: 21, beta: 1 }, need_based: { alpha: 1, beta: 21 } };
   let wins = 0;
-  for (let s = 1; s <= 200; s++) if (thompsonPick(skew, seededRng(s)).arm === 'urgency') wins += 1;
-  assert.ok(wins >= 190, `dominant arm won ${wins}/200`);
+  for (let s = 1; s <= 2000; s++) if (thompsonPick(skew, seededRng(s)).arm === 'urgency') wins += 1;
+  assert.ok(Math.abs(wins / 2000 - 21 / 23) < 0.019, `dominant arm won ${wins}/2000`);
 });
 
 /* ------------------------------------------------------------------ B7 */

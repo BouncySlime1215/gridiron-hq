@@ -18,6 +18,16 @@ import { chatLabels } from '../../server/services/campaign/partners.js';
 import { resolveUntouchables, untouchableIds } from '../../server/services/people/profile-reader.js';
 import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
 
+/**
+ * PRODUCER-FAST: each week's starters picked once instead of once per run
+ * (season-sim.js#teamPointsFast, the same doubles) and the rescore cache keyed by
+ * a content hash of the world. Default off; on with GRIDIRON_PRODUCER_FAST=1 or
+ * under preview mode (preview-mode.js); =0 vetoes preview. Off, the adapter is exactly as before.
+ */
+export const PRODUCER_FAST_ENV = 'GRIDIRON_PRODUCER_FAST';
+export const producerFastEnabled = (env = process.env) => env[PRODUCER_FAST_ENV] === '1'
+  || (env[PRODUCER_FAST_ENV] !== '0' && env[PREVIEW_ENV] === '1');
+
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 /** The engagement field LIVING-01a writes (engine_state; FIELD-REGISTRY `activity.manager`). */
 export const ACTIVITY_FIELD = 'activity.manager';
@@ -179,26 +189,29 @@ export function sentThisWeek(svc, leagueId, season, me, now) {
  * (name), sentiment_mean, n }], nick } from scripts/campaign/chat-labels.mjs, or null (no chat -> every
  * label 'unknown').
  */
-export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true } = {}) {
+export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
+  rescoreCache = null } = {}) {
   const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg) throw new Error(`league ${leagueId} not found`);
   const payload = JSON.parse(lg.payload ?? '{}');
   const me = String(lg.my_team_id);
   const { tradeImpactWorld, tradeImpact, __test: { lineupPoints } } = svc.sim;
-  const w0 = tradeImpactWorld(lg);
+  const w0 = tradeImpactWorld(lg, { fastLineups: fast });
   if (w0.fail) return { fail: String(w0.fail?.error ?? w0.fail) };
   const assets = w0.prep.assets;
   const worlds = new Map([[w0.key.seed, w0]]);
   const worldFor = seed => {
-    if (!worlds.has(seed)) worlds.set(seed, tradeImpactWorld(lg, { seed, projections: w0.projections }));
+    if (!worlds.has(seed)) worlds.set(seed, tradeImpactWorld(lg, { seed, projections: w0.projections, fastLineups: fast }));
     return worlds.get(seed);
   };
 
   const teamPoints = (w, players) => {
+    if (fast) return svc.sim.teamPointsFast(w, players);
     const out = new Map();
-    for (const [wk, { byRun, expected }] of w.draws) {
+    // SIM-KDST: the week's K / D/ST points go in as season-sim's own teamPoints passes them.
+    for (const [wk, { byRun, expected, kdst }] of w.draws) {
       const arr = new Float64Array(w.runs);
-      for (let run = 0; run < w.runs; run++) arr[run] = lineupPoints(players, w.prep.slots, byRun[run], expected);
+      for (let run = 0; run < w.runs; run++) arr[run] = lineupPoints(players, w.prep.slots, byRun[run], expected, kdst);
       out.set(wk, arr);
     }
     return out;
@@ -208,29 +221,37 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     for (const arr of pts.values()) for (let r = 0; r < runs; r++) avg[r] += arr[r] / pts.size;
     return avg;
   };
+  const wrapped = new WeakMap();
   const wrap = w => {
     if (w.fail) return { fail: String(w.fail?.error ?? w.fail) };
+    if (!wrapped.has(w)) wrapped.set(w, wrapWorld(w));
+    return wrapped.get(w);
+  };
+  const wrapWorld = w => {
     const baseAvg = seasonAvg(w.points.get(me), w.runs);
     const baseMean = baseAvg.reduce((s, x) => s + x, 0) / w.runs;
+    const otherOf = (state, a, b) => b ?? [...state.keys()].find(id => id !== a) ?? w.prep.teams.find(t => t.roster_id !== a).roster_id;
+    const rescore = (state, a = me, b = null) => {
+      const teams = w.prep.teams.map(t => (state.has(t.roster_id)
+        ? { ...t, players: state.get(t.roster_id).map(id => assets.get(id)).filter(Boolean) } : t));
+      const points = new Map(w.points);
+      for (const t of teams) if (state.has(t.roster_id)) points.set(t.roster_id, teamPoints(w, t.players));
+      const other = otherOf(state, a, b);
+      const r = tradeImpact(lg, { myTeamId: a, theirTeamId: other, iGive: [], iGet: [], seed: w.key.seed, world: { ...w, prep: { ...w.prep, teams }, points } });
+      if (r.error) throw new Error(r.error);
+      if (a === me) {
+        const after = state.has(me) ? seasonAvg(points.get(me), w.runs) : baseAvg;
+        let s = 0, s2 = 0;
+        for (let i = 0; i < w.runs; i++) { const d = after[i] - baseAvg[i]; s += d; s2 += d * d; }
+        const m = s / w.runs, se = Math.sqrt(Math.max(0, s2 / w.runs - m * m) / Math.max(1, w.runs - 1));
+        Object.assign(r.me, { points_before: baseMean, points_delta: m, points_delta_se: se, points_delta_clears: se > 0 && Math.abs(m) > 2 * se });
+      }
+      return r;
+    };
+    const cached = fast && rescoreCache ? rescoreCache.wrap(w, lg, rescore, otherOf) : null;
     return {
       seed: w.key.seed,
-      rescore(state, a = me, b = null) {
-        const teams = w.prep.teams.map(t => (state.has(t.roster_id)
-          ? { ...t, players: state.get(t.roster_id).map(id => assets.get(id)).filter(Boolean) } : t));
-        const points = new Map(w.points);
-        for (const t of teams) if (state.has(t.roster_id)) points.set(t.roster_id, teamPoints(w, t.players));
-        const other = b ?? [...state.keys()].find(id => id !== a) ?? teams.find(t => t.roster_id !== a).roster_id;
-        const r = tradeImpact(lg, { myTeamId: a, theirTeamId: other, iGive: [], iGet: [], seed: w.key.seed, world: { ...w, prep: { ...w.prep, teams }, points } });
-        if (r.error) throw new Error(r.error);
-        if (a === me) {
-          const after = state.has(me) ? seasonAvg(points.get(me), w.runs) : baseAvg;
-          let s = 0, s2 = 0;
-          for (let i = 0; i < w.runs; i++) { const d = after[i] - baseAvg[i]; s += d; s2 += d * d; }
-          const m = s / w.runs, se = Math.sqrt(Math.max(0, s2 / w.runs - m * m) / Math.max(1, w.runs - 1));
-          Object.assign(r.me, { points_before: baseMean, points_delta: m, points_delta_se: se, points_delta_clears: se > 0 && Math.abs(m) > 2 * se });
-        }
-        return r;
-      },
+      rescore: cached ? (state, a = me, b = null) => cached(state, a, b) : rescore,
       weekly(ids) {
         const pts = teamPoints(w, ids.map(id => assets.get(id)).filter(Boolean));
         return [...pts.entries()].sort((x, y) => x[0] - y[0]).map(([week, arr]) => ({ week, samples: Array.from(arr) }));
@@ -347,6 +368,7 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
+    cacheStats: () => (fast && rescoreCache ? { ...rescoreCache.stats } : null),
     // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
     // His notes on his OWN roster ("untouchable: Nico Collins") protect his players the same way:
     // they are never given (vals.tradable excludes this set). Nick 9/24: blue chips are not for sale.

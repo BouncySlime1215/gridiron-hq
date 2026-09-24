@@ -16,6 +16,7 @@
  */
 import { chatLabels } from '../../server/services/campaign/partners.js';
 import { resolveUntouchables, untouchableIds } from '../../server/services/people/profile-reader.js';
+import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 /** The engagement field LIVING-01a writes (engine_state; FIELD-REGISTRY `activity.manager`). */
@@ -55,7 +56,7 @@ export function activityReads(rows, timing, leagueId) {
 function activityRows(svc, leagueId, env = process.env) {
   const has = svc.db.row(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'engine_state'`);
   if (!has) return [];
-  const lanes = env[LIVING01A_FLAG] === '1' || env.GRIDIRON_PREVIEW_UNCONFIRMED === '1' ? ['live', 'shadow'] : ['live'];
+  const lanes = env[LIVING01A_FLAG] === '1' || env[PREVIEW_ENV] === '1' ? ['live', 'shadow'] : ['live'];
   return svc.db.rows(`SELECT entity_id, value, lane FROM engine_state
     WHERE field = ? AND league_id = ? AND lane IN (${lanes.map(() => '?').join(', ')})
     ORDER BY CASE lane WHEN 'live' THEN 0 ELSE 1 END, as_of DESC, id DESC`, ACTIVITY_FIELD, Number(leagueId), ...lanes);

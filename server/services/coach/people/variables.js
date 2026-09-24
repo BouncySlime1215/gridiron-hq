@@ -35,6 +35,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync } from 'node:fs';
 import { chatDbPath } from '../../manager-signals.js';
+import { chatStyleRow } from '../../people/profile-reader.js';
 import { personContext, contextMatches } from './context.js';
 import { HEDGES, SUPERLATIVES, NEGATIONS, HARD_NO, SOFT_NO, FIRST_PERSON, SECOND_PERSON, hasWord, countWords }
   from './lexicons.js';
@@ -332,8 +333,7 @@ export function personVariables(person, { corpus } = {}) {
     + 'manager_chat_profile keeps only the mean, which is exactly what hides a reactive person');
 
   /* ---- the extractor's own aggregates, read and not recomputed ---- */
-  const profile = has(chatDb, 'manager_chat_profile')
-    ? chatDb.prepare(`SELECT * FROM manager_chat_profile WHERE name = ?`).get(name) : null;
+  const profile = chatStyleRow(chatDb, name, { missing: 'null' });
   const fromProfile = (id, displayName, family, unit, value, note) =>
     add(id, displayName, family, 'extractor', unit, value,
       profile ? (profile.msgs ?? 0) : 0,

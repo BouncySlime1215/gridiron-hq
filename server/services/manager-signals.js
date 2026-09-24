@@ -40,6 +40,7 @@ import { identityMap, matchIdentities } from './manager-identity.js';
 import { normalizePlayerName } from './player-identity.js';
 import { PROJECT_ROOT } from '../platform/paths.js';
 import { DEAD_ESPN_STATUS } from './dead-starters.js';
+import { chatStyleRow, chatStyleNames, chatStyleStamp, playerSentimentRows } from './people/profile-reader.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS manager_signals (
   league_id INTEGER NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
@@ -149,7 +150,7 @@ export function sentimentMultiplier(score, n) {
 }
 
 function chatSignals(chat, chatName) {
-  const p = chat.prepare('SELECT * FROM manager_chat_profile WHERE name = ?').get(chatName);
+  const p = chatStyleRow(chat, chatName);
   if (!p) return [];
   const n = p.msgs ?? 0;
   return [
@@ -513,8 +514,7 @@ export function buildManagerSignals(leagueId, opts = {}) {
         for (const [k, v] of Object.entries(NICK_PRIORS[ident.chat_name] ?? {})) {
           signals.push({ metric: `prior_${k}`, value: v, n: 3, source: 'nick' });
         }
-        for (const pv of chat.prepare(`SELECT player, sentiment_mean, n, last_mention
-                                       FROM manager_player_sentiment WHERE name = ?`).all(ident.chat_name)) {
+        for (const pv of playerSentimentRows(chat, ident.chat_name)) {
           // Same key as the table's primary key, last one wins — what INSERT OR
           // REPLACE did — so the change check compares like with like.
           views.set(`${rosterId}|${pv.player}`,
@@ -601,8 +601,7 @@ export function refreshManagerData({ leagueIds = null, confirmations = {} } = {}
     // recreates manager_chat_profile outside a transaction, and a missing table
     // must fail that league alone, never the leagues that have no chat.
     let chatNames = null;
-    const chatNamesNow = () => (chatNames ??= chat
-      .prepare('SELECT name FROM manager_chat_profile WHERE name IS NOT NULL ORDER BY name').all().map(r => r.name));
+    const chatNamesNow = () => (chatNames ??= chatStyleNames(chat));
     const out = [];
     for (const lg of leagues) {
       const name = String(lg.name ?? '').trim();
@@ -797,8 +796,7 @@ export function chatCorpusState() {
     // `datetime('now') AS computed_at` for the whole table
     // (scripts/chat/extract_league_chat.py), so MIN and MAX of it are equal by
     // construction — a "first seen" that is really just the same stamp again.
-    const r = chat.prepare(`SELECT COUNT(*) AS n, MAX(last_msg) AS as_of, MAX(computed_at) AS computed_at
-                            FROM manager_chat_profile`).get();
+    const r = chatStyleStamp(chat);
     if (!r || !r.n) {
       return { ...empty,
         reason: `the chat corpus at ${file} is here but has no manager profiles yet — run ${roller}` };

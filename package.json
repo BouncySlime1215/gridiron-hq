@@ -35,6 +35,7 @@
     "map:wiring": "node scripts/wiring-map.mjs",
     "check:wiring": "node scripts/wiring-map.mjs --check",
     "check:prereg-order": "node scripts/check-prereg-order.mjs",
+    "check:warroom-plans": "node scripts/validate-warroom-plans.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "db:rollback": "node scripts/rollback-migration.mjs",
     "build:manager-signals": "node --env-file-if-exists=.env scripts/build-manager-signals.mjs",

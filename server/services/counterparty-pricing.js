@@ -168,6 +168,93 @@ const ACTIVITY_CAP = 0.5;
 /** Receptiveness is lo + (hi - lo) * score, so a relative change r in propensity is r / (hi - lo) in score. */
 const SCORE_PER_RELATIVE = 1 / (RECEPTIVENESS_RANGE[1] - RECEPTIVENESS_RANGE[0]);
 
+/**
+ * CLONE-01a (docs/evidence/2026-09-23/clone-01-preregistration.md). DEFAULT-OFF;
+ * GRIDIRON_CLONE01A_ENABLED=1 or preview mode turns it on. Read per call.
+ *
+ * RL-13-3: the observed accept rate used to enter the 0.5-centred score raw, so a
+ * manager exactly at his league's pooled rate (0.355) with 15 decisions was served
+ * at receptiveness 0.913, "leans closed". On, the rate is shrunk toward the pool
+ * (empirical Bayes) and rescaled so the pool rate is 0.5.
+ *
+ * MOTIVE-01: a buyer / seller / desperate state per manager, stored on the profile.
+ * Display-only: it moves no number (the waiver-choice study decides whether a later
+ * unit may price with it).
+ */
+const CLONE01A_ENV = 'GRIDIRON_CLONE01A_ENABLED';
+const CLONE01A_UNCONFIRMED = 'default-off: CLONE-01a accept-rate shrink and MOTIVE state, unconfirmed forward';
+const clone01aSite = () => process.env[CLONE01A_ENV] === '1';
+/** Prior strength bounds and fallback for the accept-rate shrink (not fitted to an outcome). */
+const ACCEPT_PRIOR_M = Object.freeze({ min: 5, max: 50, fallback: 15, min_managers: 3 });
+
+/**
+ * The league's pooled accept rate and the beta-binomial prior strength, from the
+ * managers who carry `tx_accept_rate` ({rate, n} each). Null when nobody does.
+ * `m` is a method-of-moments estimate: between-manager variance of the rates minus
+ * the binomial variance they would show anyway; no excess spread means the pool is
+ * all there is, so the prior is as strong as allowed.
+ */
+export function acceptPool(list) {
+  const have = (list ?? []).filter(x => Number.isFinite(x?.rate) && x.n > 0);
+  if (!have.length) return null;
+  const N = have.reduce((a, x) => a + x.n, 0);
+  const p0 = have.reduce((a, x) => a + x.rate * x.n, 0) / N;
+  let m = ACCEPT_PRIOR_M.fallback;
+  if (have.length >= ACCEPT_PRIOR_M.min_managers && p0 > 0 && p0 < 1) {
+    const s2 = have.reduce((a, x) => a + (x.rate - p0) ** 2, 0) / have.length;
+    const binom = p0 * (1 - p0) * have.reduce((a, x) => a + 1 / x.n, 0) / have.length;
+    const tau2 = s2 - binom;
+    m = tau2 <= 1e-12 ? ACCEPT_PRIOR_M.max : p0 * (1 - p0) / tau2 - 1;
+    m = Math.max(ACCEPT_PRIOR_M.min, Math.min(ACCEPT_PRIOR_M.max, m));
+  }
+  return { p0, m: +m.toFixed(2), managers: have.length, decisions: N };
+}
+
+const logit = p => Math.log(p / (1 - p));
+/**
+ * RL-13-3 `shrunkAcceptScore`: his accept rate on the 0.5-is-middle scale.
+ * Posterior mean (k + m p0) / (n + m), then sigmoid(logit(p) - logit(p0)), so the
+ * pool rate scores exactly 0.5 at any n and a thin sample stays near it.
+ */
+export function shrunkAcceptScore(rate, n, pool) {
+  if (!Number.isFinite(rate) || !pool) return null;
+  const { p0, m } = pool;
+  if (!(p0 > 0 && p0 < 1)) return rate;
+  const p = (rate * n + m * p0) / (n + m);
+  return 1 / (1 + Math.exp(-(logit(p) - logit(p0))));
+}
+
+/** MOTIVE-01 thresholds, frozen in the pre-registration. */
+export const MOTIVE_RULES = Object.freeze({
+  seller_odds: 0.03, seller_min_games: 3, desperate_out: 2, bye_crunch: 2, buyer_multiple: 1.5,
+});
+/**
+ * One manager's state, first match wins: seller (title odds < 3% after 3 games),
+ * desperate_buyer (>= 2 starters out and >= 2 starters on bye), buyer (odds at least
+ * 1.5x an even share), hold. No title odds gives state null WITH the reason.
+ */
+export function motiveState({ titleOdds = null, games = 0, startersOut = null, byeCrunch = null,
+  lossStreak = null, numTeams = null, noOddsReason = null } = {}) {
+  const base = { title_odds: Number.isFinite(titleOdds) ? +titleOdds.toFixed(4) : null,
+    loss_streak: lossStreak, bye_crunch: byeCrunch, starters_out: startersOut, n: games };
+  if (!Number.isFinite(titleOdds)) {
+    return { state: null, ...base,
+      reason: noOddsReason ?? 'no season simulation was available, so his title odds are unknown' };
+  }
+  const R = MOTIVE_RULES;
+  if (titleOdds < R.seller_odds && games >= R.seller_min_games) {
+    return { state: 'seller', ...base, reason: `title odds ${(titleOdds * 100).toFixed(1)}% after ${games} games` };
+  }
+  if ((startersOut ?? 0) >= R.desperate_out && (byeCrunch ?? 0) >= R.bye_crunch) {
+    return { state: 'desperate_buyer', ...base,
+      reason: `${startersOut} starters out and ${byeCrunch} on bye` };
+  }
+  if (numTeams > 0 && titleOdds >= R.buyer_multiple / numTeams) {
+    return { state: 'buyer', ...base, reason: `title odds ${(titleOdds * 100).toFixed(1)}%, a contender` };
+  }
+  return { state: 'hold', ...base, reason: `title odds ${(titleOdds * 100).toFixed(1)}%, no pressure either way` };
+}
+
 /** Points below zero last week at which the post-loss window is fully open. */
 const POST_LOSS_FULL_MARGIN = 30;
 /** Chat "reacting to loss" share that counts as a full habit. */
@@ -300,7 +387,11 @@ function jevBlockFor(read, rosterId) {
  * anyway: it is choosing between these ten people, not against an abstract
  * baseline.
  */
-export function counterpartyLayer(leagueId, { season, week, rosterContext = null, zero = [], activity = null } = {}) {
+export function counterpartyLayer(leagueId, { season, week, rosterContext = null, zero = [], activity = null,
+  sim = null, byeCrunch = null, engagement = null } = {}) {
+  // CLONE-01a: on by its own flag or by preview mode (then labelled).
+  const cloneOn = clone01aSite() || previewUnconfirmed();
+  const clonePreview = !clone01aSite() && previewUnconfirmed();
   // PREVIEW-01: the local-testing switch turns the terms on when neither the caller nor
   // the site flag has; each applied term then says it is a preview.
   const activityPreview = activity == null && process.env[ACTIVITY_FLAG] !== '1' && previewUnconfirmed();
@@ -373,6 +464,19 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
   const activityMean = leagueActivityMean(ids.map(id => signals.get(id)));
   const openVals = ids.map(id => signals.get(id).metrics.chat_open_to_trade);
   const talkVals = ids.map(id => signals.get(id).metrics.chat_trade_talk);
+  // RL-13-3: the league's own pool, over the managers whose accept rate is shown.
+  const pool = cloneOn
+    ? acceptPool(ids.map(id => ({ rate: signals.get(id).metrics.tx_accept_rate,
+      n: signals.get(id).samples.tx_accept_rate ?? 0 })))
+    : null;
+  // MOTIVE-01: title odds come from a season simulation the caller hands in (the
+  // trade path already runs one); without it every state is null with that reason.
+  const oddsBy = new Map((sim?.teams ?? []).filter(t => Number.isFinite(t?.title_odds))
+    .map(t => [String(t.roster_id), t.title_odds]));
+  const noOddsReason = sim == null
+    ? 'no season simulation was handed to this read, so his title odds are unknown'
+    : sim.error ? `the season simulation could not run (${sim.error})`
+      : 'he is not in the simulated standings, so his title odds are unknown';
 
   const profile = new Map();
   for (const id of ids) {
@@ -400,10 +504,13 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
     // decided proposals for the rate to mean anything (the metric is withheld
     // below five by manager-signals.js, so its presence is itself the gate).
     let acceptWeight = 0;
+    let acceptScore = null;
     if (Number.isFinite(m.tx_accept_rate)) {
       const w = Math.min(1, (s.samples.tx_accept_rate ?? 0) / 15);
       acceptWeight = w;
-      score = score * (1 - w) + m.tx_accept_rate * w;
+      // RL-13-3: on, the rate enters on the score's own 0.5-is-middle scale.
+      acceptScore = pool ? shrunkAcceptScore(m.tx_accept_rate, s.samples.tx_accept_rate ?? 0, pool) : null;
+      score = score * (1 - w) + (acceptScore ?? m.tx_accept_rate) * w;
     }
     // Nick's reads enter as a small nudge, never as a verdict.
     if (m.prior_disengaged) score -= 0.10 * m.prior_disengaged;
@@ -443,6 +550,27 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
       chat_msgs: msgs, chat_weight: +chatWeight.toFixed(2),
       open_to_trade_pct: +openP.toFixed(2), trade_talk_pct: +talkP.toFixed(2),
       accept_rate: m.tx_accept_rate ?? null, accept_rate_n: s.samples.tx_accept_rate ?? 0,
+      // RL-13-3 (CLONE-01a): the rate as it entered the score, and the pool it was shrunk to.
+      accept_score: acceptScore == null ? null : +acceptScore.toFixed(3),
+      accept_pool: acceptScore == null ? null : pool,
+      ...(acceptScore != null && clonePreview ? { accept_preview: true } : {}),
+      // MOTIVE-01 (CLONE-01a): display-only, null when off.
+      motive: cloneOn ? {
+        ...motiveState({
+          titleOdds: oddsBy.get(String(id)) ?? null,
+          games: (m.standing_wins ?? 0) + (m.standing_losses ?? 0),
+          startersOut: Number.isFinite(m.lineup_dead_starters) ? m.lineup_dead_starters : null,
+          byeCrunch: byeCrunch?.get(String(id)) ?? null,
+          lossStreak: Number.isFinite(m.standing_streak) ? Math.max(0, -m.standing_streak) : null,
+          numTeams: oddsBy.size || null,
+          noOddsReason,
+        }),
+        priced: false,
+        ...(clonePreview ? previewFields(CLONE01A_UNCONFIRMED) : {}),
+      } : null,
+      // LIVING-01a hook: the engagement state (PR #220, not on main) is passed through
+      // untouched when a caller has it; nothing here reads or prices it yet.
+      engagement: engagement?.get?.(String(id)) ?? null,
       players: s.players ?? new Map(),
       reads: reads.get(id) ?? new Map(),
       stance: untouchableStance(leagueId, id, credibility),
@@ -483,7 +611,9 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
           label: 'What he has actually done with offers', effect: null,
           n: s.samples.tx_accept_rate ?? 0, cap: null, fitted: false,
           why: `accepted ${(m.tx_accept_rate * 100).toFixed(0)}% of ${s.samples.tx_accept_rate} decided offers, `
-            + 'blended over talk' }] : []),
+            + (acceptScore == null ? 'blended over talk'
+              : `shrunk toward the league's ${(pool.p0 * 100).toFixed(0)}% and read as ${acceptScore.toFixed(2)} `
+                + 'on the 0.5-is-middle scale, blended over talk') }] : []),
         // `n: null`, not 3. A prior is a sentence Nick wrote down, not three of
         // anything observed: `manager-signals.js:374` stores every one of them with
         // a placeholder n of 3 and `source: 'nick'`, and mirroring that number onto

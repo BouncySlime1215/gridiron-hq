@@ -585,3 +585,117 @@ test('decay watch grades the promoted ensemble-residual fit on the ensemble resi
   const mean = seq.reduce((s, x) => s + x, 0) / seq.length;
   assert.equal(finding.mean_post_approval_effect, +mean.toFixed(4));
 });
+
+// ------------------------------- FIX-166-3 / FIX-166-4: one this-week number, one week_basis
+
+// The trade horizon's old notes put the line in "this week's number" without the words the
+// page checks above catch; FIX-166-4 adds them. Known-nonzero control in the test below.
+const HORIZON_LIFT_CLAIMS = [...LIFT_CLAIMS, /betting[- ]line\s+(adjustment|correction)/i];
+const claimsLiftAnywhere = s => HORIZON_LIFT_CLAIMS.some(r => r.test(String(s ?? '')));
+
+function withBlend(value, fn) {
+  const saved = process.env.GRIDIRON_BLEND_WEEK;
+  process.env.GRIDIRON_BLEND_WEEK = value;
+  try { return fn(); } finally {
+    if (saved === undefined) delete process.env.GRIDIRON_BLEND_WEEK; else process.env.GRIDIRON_BLEND_WEEK = saved;
+  }
+}
+
+test('FIX-166-3: with S-03 promoted and blend.week on, Start/Sit, the League Hub card and TradeCard carry one number and one label', async () => {
+  const { lineupCall } = await import('../server/services/lineup-brain.js');
+  const { offerFor } = await import('../server/services/trade-engine.js');
+  coordinator.promoteFantasyCoordinatorFit(saveFit(FIT), { windows: BOTH, evidence: EVIDENCE });
+  withBlend('1', () => {
+    const lg = L303();
+    const assets = assetUniverse(lg, deriveFormat(lg).formatKey);
+    const a = assets.get(P.id);
+    assert.equal(a.fantasy_coordinator?.base, 'structural', 'S-03 is promoted in this build (known-nonzero control)');
+    assert.ok(a.current_week_ppg > 0);
+    assert.equal(a.blend_week, a.current_week_ppg, 'lift switch off: blend.week is the served number, never lifted again');
+    // One shape: the one produced basis, carrying #291's field/producer keys beside S-03's label.
+    const basis = assets.context.week_basis;
+    assert.equal(basis.field, 'blend.week');
+    assert.equal(basis.producer, 'blend-week.js#blendWeek');
+    assert.equal(basis.preview, false);
+    assert.match(basis.label, /structural projection plus the coordinator's correction/);
+    assert.match(basis.label, /No betting-line boost/);
+    assert.equal(typeof a.week_basis, 'undefined', 'no second week_basis shape on the asset');
+
+    const call = lineupCall(303, { myTeamId: '1' });
+    assert.ifError(call.error);
+    const card = lineupDiff(lg, '1');
+    assert.ifError(card.error);
+    const hub = card.optimal.find(s => s.player?.id === P.id)?.player;
+    const offer = offerFor(lg, { myTeamId: '2', targetId: P.id });
+    assert.ifError(offer.error);
+    assert.equal(call.projected_points, a.blend_week, 'Start/Sit');
+    assert.equal(hub?.week_points, a.blend_week, 'League Hub card');
+    assert.equal(offer.target.blend_week, a.blend_week, 'TradeCard pill');
+    for (const [page, wb] of [['Start/Sit', call.week_basis], ['League Hub card', card.week_basis],
+      ['TradeCard', offer.model_context.week_basis]]) {
+      assert.deepEqual(wb, basis, `${page} carries the one week_basis`);
+    }
+  });
+});
+
+test('FIX-166-3: blend.week reads the vegasLift switch and never the game-script model itself', () => {
+  const src = fs.readFileSync(new URL('../server/services/blend-week.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(stripComments(src), /gameScriptLift|gameScriptFor/);
+  assert.match(src, /import\s*\{[^}]*\bvegasLift\b[^}]*\}\s*from\s*'\.\/waiver-brain\.js'/);
+  const ari = rows(`SELECT p.id FROM players p JOIN nfl_teams t ON t.id = p.team_id
+                    WHERE p.position = 'WR' AND t.abbr = 'ARI' ORDER BY p.id LIMIT 1`)[0];
+  ENGINE.set(ari.id, { player_id: ari.id, position: 'WR', team: 'ARI', ppg: 10.0, structural_ppg: 9.0, ensemble_shift: 1.0,
+    params: { crafted: true }, player_week_engine: { cutoff: '2026-W2', mode: 'weekly' } });
+  withBlend('1', () => {
+    const a = assetUniverse(L, FORMAT, { season: 2026, week: 3 }).get(ari?.id);
+    assert.ok(a?.current_week_ppg > 0, `an ARI receiver is priced this week (control), got ${a?.current_week_ppg}`);
+    assert.equal(waiverBrain.gameScriptLift(a, 2026, 3).multiplier, 1.2, 'ARI has a line (control)');
+    assert.equal(a.blend_week, a.current_week_ppg, 'the line is not in blend.week while the switch is off');
+    assert.equal(a.blend_week_vegas.applied, false);
+  });
+});
+
+test('FIX-166-4: the trade horizon note reads week_basis.label and claims no line while the lift is off', async () => {
+  const { horizonNote } = await import('../server/services/trade-horizon.js');
+  const w = { playoff: 0.5, playoff_weeks_label: '15-17' };
+  const offBasis = labelOf(L303());
+  assert.equal(offBasis.betting_line_lift.on, false);
+  for (const tilt of [1.2, -1.2]) {
+    const old = horizonNote(w, { playoff_tilt: tilt }, { ...offBasis, betting_line_lift: { on: true }, label: 'Lifted.' });
+    assert.ok(claimsLiftAnywhere(old), `known-nonzero control: the lift-on note names the line (${old})`);
+    for (const basis of [offBasis, null, undefined]) {
+      const note = horizonNote(w, { playoff_tilt: tilt }, basis);
+      assert.equal(claimsLiftAnywhere(note), false, note);
+    }
+    assert.ok(horizonNote(w, { playoff_tilt: tilt }, offBasis).includes(offBasis.label), 'the note carries the produced label');
+  }
+});
+
+test('FIX-166-4: GET /lineup and GET /waivers serve week_basis, and no served text claims the line while the lift is off', async () => {
+  const { lineupCall } = await import('../server/services/lineup-brain.js');
+  const { waiverBoard } = await import('../server/services/waiver-wire.js');
+  const { offerFor } = await import('../server/services/trade-engine.js');
+  const lg = L303();
+  const basis = labelOf(lg);
+  const lineup = lineupCall(303, { myTeamId: '1' });
+  const waivers = waiverBoard(lg, { myTeamId: '1' });
+  assert.ifError(lineup.error);
+  assert.ifError(waivers.error);
+  assert.deepEqual(lineup.week_basis, basis, '/lineup');
+  assert.deepEqual(waivers.week_basis, basis, '/waivers');
+  const served = { lineup, waivers, card: lineupDiff(lg, '1'), posture: lineupPosture(lg, {}),
+    offer: offerFor(lg, { myTeamId: '2', targetId: P.id }) };
+  for (const [name, out] of Object.entries(served)) {
+    const text = JSON.stringify(out);
+    assert.ok(text.length > 200, `${name} served something (control)`);
+    assert.equal(claimsLiftAnywhere(text), false, `${name}: ${(text.match(/[^"]*betting[- ]line[^"]*/i) ?? [''])[0]}`);
+  }
+  // The routes pass these outputs through unchanged.
+  const routes = fs.readFileSync(new URL('../server/routes/trades.js', import.meta.url), 'utf8');
+  for (const [route, fn] of [['lineup', 'lineupCall'], ['waivers', 'waiverBoard']]) {
+    const at = routes.indexOf(`r.get('/:leagueId/${route}'`);
+    const body = routes.slice(at, routes.indexOf('\n});', at));
+    assert.match(body, new RegExp(`const out = ${fn}\\(`));
+    assert.match(body, /res\.json\(out\)/);
+  }
+});

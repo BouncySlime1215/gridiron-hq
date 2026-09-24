@@ -79,7 +79,7 @@ import { leagueWire } from './league-wire.js';
 import { normalCdf, withRandomSeed } from './stats-util.js';
 // lineupSpread() only: each starter's played-week draws and the fitted archetype
 // correlations, for the lineup-total floor/ceiling.
-import { sampleWeeks } from './projections.js';
+import { sampleWeeks, buildProjections } from './projections.js';
 import { correlationMatrix, correlationBasis } from './correlation.js';
 import { servedTableState } from './data-freshness.js';
 import { currentMarket } from './dynasty-value-history.js';
@@ -100,6 +100,7 @@ import { counterpartyLayer, readDeal, counterpartyDataKey, playerValuation, self
 import { edgeTest, tacticsForDeal, timingRead, vetoClimate } from './trade-tactics.js';
 import { LOST_IDEAS } from './rec-ledger.js';
 import { acceptanceBand } from './trade-acceptance.js';
+import { servedAcceptBand } from './price-band.js';
 // tradeIdeas() only: this roster's real P(make playoffs), which is what turns the
 // horizon from a 0.5 prior into a number. season-sim.js imports assetUniverse /
 // loadRosters / lineupSlots from THIS file, so the two modules form a cycle.
@@ -118,7 +119,9 @@ import { acceptanceBand } from './trade-acceptance.js';
 // playoff odds"), which does not exist yet. When it ships, myPlayoffOdds() should
 // read it and this import goes away. Until then the alternative was leaving the
 // live /find route on the 0.5 prior, which is the bug this item exists to fix.
-import { simulateSeason, simStartWeek, tradeImpact, tradeImpactWorld } from './season-sim.js';
+import { simulateSeason, simStartWeek, tradeImpact, tradeImpactWorld, worldPoolFor } from './season-sim.js';
+import { oneWorldFlag, rangeFromPool } from './one-world.js';
+import { leagueWorld, worldStamp } from './league-world.js';
 import { titleMutualMode, titleCandidate, titleMutualDeals } from './title-mutual.js';
 import { horizonWeights, horizonGain, horizonNote, leagueSchedule, leagueShape } from './trade-horizon.js';
 // ros_ppg / playoff_ppg (and so adj_ppg): the gated rest-of-season model. This
@@ -302,7 +305,8 @@ const injuryFlagKey = () => crypto.createHash('sha1')
 export function assetUniverse(lg, formatKey, requested = null) {
   const target = requested ?? tradeWeekContext();
   return cached(
-    `assets:${lg.id}:${formatKey}:${target.season}:${target.week}`,
+    // EA-07: the one world changes every floor/ceiling, so a flip is a different universe.
+    `assets:${lg.id}:${formatKey}:${target.season}:${target.week}${oneWorldFlag().on ? ':one-world' : ''}`,
     fingerprint(ASSET_INPUT_TABLES, assetInputsKey(lg, formatKey, target)),
     () => buildAssetUniverse(lg, formatKey, target));
 }
@@ -313,6 +317,13 @@ function buildAssetUniverse(lg, formatKey, target) {
   // evidence cache should refresh on, so it is dropped here rather than on a TTL.
   evidenceCache.clear();
   const scoring = scoringFor(lg);
+  // EA-07: with the one world on, a player's weekly range is his pool in this NFL
+  // week's world (season-sim.js#worldPoolFor: the draw the title odds index), not a
+  // pool of its own. Built once per universe: the projection the world samples and
+  // this week's availability.
+  const oneWorld = oneWorldFlag().on;
+  const worldProj = oneWorld ? buildProjections({ through: target.season - 1, scoring }) : null;
+  const worldAvail = oneWorld ? weeklyAvailability(target.season, target.week) : null;
   // This league's own playoff weeks, so playoff_ppg is priced on the weeks that
   // actually decide ITS title (see trade-horizon.js#leagueSchedule).
   const { playoffWeeks } = leagueSchedule(lg);
@@ -446,9 +457,14 @@ function buildAssetUniverse(lg, formatKey, target) {
     // from lineupSpread()'s lineup-total percentiles.
     // No draw for a player who cannot play this week — a bye is a known 0, not a
     // distribution to sample (see onBye above).
-    const weekDist = weekProjection && !onBye
-      ? playerWeekDistribution(weekProjection, { runs: 2000, activeProbability, mult: thisGame?.mult ?? 1 })
+    // The world pool reads ros_ppg as served (rounded), as the world itself does.
+    const worldPool = worldProj && !onBye
+      ? worldPoolFor({ ...p, ros_ppg: +rosPpg.toFixed(2) }, target.week, { scoring, proj: worldProj, activeChance: worldAvail })
       : null;
+    const worldDist = worldPool ? rangeFromPool(worldPool, p.position) : null;
+    const weekDist = worldDist ?? (weekProjection && !onBye
+      ? playerWeekDistribution(weekProjection, { runs: 2000, activeProbability, mult: thisGame?.mult ?? 1 })
+      : null);
 
     out.set(p.id, {
       // What lineupSpread() needs to put this player's week into a lineup total: the
@@ -461,6 +477,8 @@ function buildAssetUniverse(lg, formatKey, target) {
         params: weekProjection.params, shift: weekProjection.ensemble_shift ?? 0,
         activeProbability: onBye ? 0 : activeProbability, mult: thisGame?.mult ?? 1, scoring,
         seed: `${target.season}:${target.week}:${p.id}:${activeProbability}:${thisGame?.mult ?? 1}:${weekProjection.ensemble_shift ?? 0}`,
+        // EA-07: the lineup total's spread from the same world pool as the card's range.
+        ...(worldDist ? { moments: { mean: worldDist.mean, variance: worldDist.variance } } : {}),
         meta: { id: p.id, position: p.position, team: p.team_abbr, opponent: thisGame?.opponent ?? null,
           target_share: weekProjection.volume?.target_share ?? null }
       } : null,
@@ -496,6 +514,9 @@ function buildAssetUniverse(lg, formatKey, target) {
       ceiling: onBye ? 0 : weekDist?.p90 ?? w?.ceiling ?? null,
       avg: onBye ? 0 : weekDist?.mean ?? w?.avg ?? null,
       boom: weekDist?.boom_rate ?? w?.boom_rate ?? null, bust: weekDist?.bust_rate ?? w?.bust_rate ?? null,
+      // EA-07 only: which sampler this floor/ceiling came from ('world' = the one world;
+      // 'week_engine' = a player the world does not simulate, e.g. no last-season shape).
+      ...(oneWorld ? { range_source: worldDist ? 'world' : onBye ? 'bye' : weekDist ? 'week_engine' : null } : {}),
       consistency: w?.consistency ?? null, logged_games: w?.games ?? null,
       injury: injured.has(p.id) || !!(availability?.report_status && !/probable/i.test(availability.report_status)) ? 1 : 0,
       available: !(p.espn_id && seasonEnding.has(p.espn_id)),
@@ -627,10 +648,20 @@ export function loadRosters(lg, assets) {
   return teams;
 }
 
-/** Starting slots for this league, defaulted sanely when the sync didn't record them. */
-export function lineupSlots(lg) {
+/** A league's kicker / team-defence slot names, as the season sim scores them. */
+export const KDST_SLOT = { K: 'K', DEF: 'DEF', 'D/ST': 'DEF', DST: 'DEF' };
+
+/**
+ * Starting slots for this league, defaulted sanely when the sync didn't record them.
+ *
+ * By default only the skill and flex slots (every lineup solver here models those).
+ * `{ kdst: true }` (SIM-KDST: the season sim only) also keeps the league's K and
+ * D/ST slots, normalised to 'K' / 'DEF', so the sim plays every real starter.
+ */
+export function lineupSlots(lg, { kdst = false } = {}) {
   const rp = lg.roster_positions ? JSON.parse(lg.roster_positions)
     : ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX'];
+  if (kdst) return rp.map(s => KDST_SLOT[s] ?? s).filter(s => SCORED.has(s) || FLEX_ELIGIBLE[s] || s === 'K' || s === 'DEF');
   return rp.filter(s => SCORED.has(s) || FLEX_ELIGIBLE[s]);
 }
 
@@ -1505,6 +1536,7 @@ const slim = p => ({
   value: p.value, proj: p.proj, ppg: p.ppg, adj_ppg: p.adj_ppg,
   age: p.age, bye: p.bye, injury: p.injury, available: p.available !== false,
   floor: p.floor, ceiling: p.ceiling, consistency: p.consistency,
+  ...(p.range_source ? { range_source: p.range_source } : {}),
   // sos / playoff_sos are left off: 1 with no validated signal behind them
   // (matchups.js), and a card or prompt that shows them invites reading a schedule.
   current_week_ppg: p.current_week_ppg, bye_this_week: p.bye_this_week === true, ros_ppg: p.ros_ppg, fantasy_coordinator: p.fantasy_coordinator,
@@ -1641,6 +1673,18 @@ export function myPlayoffOdds(lg, myTeamId = null, print = null) {
   // night and the next sync (B-01 review). target stays for the asset print only.
   const start = simStartWeek(lg);
   const { formatKey } = deriveFormat(lg);
+  // EA-07: the snapshot's one title.odds, the row the twin and the Title tab show.
+  if (oneWorldFlag().on) {
+    const world = leagueWorld(lg);
+    if (world.fail) return prior(`the season simulation could not run (${world.fail.error})`);
+    const mine = world.base.teams.find(t => String(t.roster_id) === rosterId);
+    if (!Number.isFinite(mine?.playoff_odds)) return prior('your roster is not in this league\'s simulated standings');
+    const stamp = worldStamp(lg, world);
+    return {
+      value: +mine.playoff_odds.toFixed(2), roster_id: rosterId, interval: mine.playoff_odds_95 ?? null,
+      source: `season simulation, ${world.base.runs} runs from week ${world.base.from_week} (one world ${stamp.snapshot_id})`
+    };
+  }
   return cached(
     `playoffOdds:${lg.id}:${rosterId}:${target.season}:${start}`,
     print ?? assetPrint(lg, formatKey, target),
@@ -2546,6 +2590,9 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
   if (tier === 'never') return { error: `${owner.owner} is marked "Never trades," so the engine did not generate fake offers for this player.` };
   const ownerCtx = rosterContext(lg).get(String(owner.roster_id));
   const { weekNow, odds, horizon, counterparties } = ladderInputs(lg, myTeamId, playoffOdds);
+  // The price range he would say yes to (PRICE-BAND-01). Legacy [1.00, 1.65] unless
+  // GRIDIRON_PRICE_BAND_V2 / preview mode serves the fitted 80% band.
+  const band = servedAcceptBand();
 
   // How motivated is the seller? A team with surplus at his position and a hole
   // elsewhere is a much cheaper negotiation than one starting him with no cover.
@@ -2581,6 +2628,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
     upside_playoff_leg: addCeiling.playoff_leg,
     counterparty: ownerRead(counterparties, owner, tier),
     target_stance: targetStance(counterparties, owner, [target]),
+    ...(band.version === 'legacy' ? {} : { accept_band: band }),
     leverage: replaceable
       ? `${owner.owner} can cover him — losing him only costs their lineup ${theirCost} ppg. Start low.`
       : `He is load-bearing for ${owner.owner} (${theirCost} ppg of their lineup). Expect to pay a premium or get refused.`
@@ -2610,7 +2658,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
   for (const give of packages) {
     const giveValue = give.reduce((s, p) => s + Math.max(0, p.value), 0);
     const ratio = target.value ? giveValue / target.value : 0;
-    if (ratio < 0.70 || ratio > 1.65) continue;
+    if (ratio < band.window_lo || ratio > band.window_hi) continue;
     const ev = evaluate({ team: me, gives: give }, { team: owner, gives: [target] }, slots,
       { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
     const gain = ladderGain(ev, horizon);
@@ -2632,7 +2680,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
     return {
       ...context,
       error: 'He would help, but nothing on your roster prices out.',
-      reason: `Adding him is worth ${upsideHorizon} ppg to your lineup horizon-weighted (${upside} this week), but every package in his price range (${Math.round(target.value * 0.7)}–${Math.round(target.value * 1.65)}) costs you more than he returns. You need a third team, or a cheaper player at the same position.`
+      reason: `Adding him is worth ${upsideHorizon} ppg to your lineup horizon-weighted (${upside} this week), but every package in his price range (${Math.round(target.value * band.window_lo)}–${Math.round(target.value * band.window_hi)}) costs you more than he returns. You need a third team, or a cheaper player at the same position.`
         + (excludeIds?.size ? ` This search also left out the player(s) you've marked untouchable.` : '')
     };
   }
@@ -2640,7 +2688,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
   // "He might say yes": his lineup improves, or he wins on market value, or —
   // the counterparty read findTrades has always had and this ladder did not —
   // the package reads as a win from HIS side of the table.
-  const acceptable = priced.filter(p => p.them.ppg_delta > 0 || p.ratio >= 1.0
+  const acceptable = priced.filter(p => p.them.ppg_delta > 0 || p.ratio >= band.yes_point
     || (p.counterparty.perception_delta ?? 0) > 0);
   const pool = acceptable.length ? acceptable : priced;
   // Cheapest first, but among packages that cost the same never open with the one
@@ -2698,6 +2746,7 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
   if (!me) return { error: 'your team not found in this league' };
   // Same horizon and same counterparty layer as the league-wide search (G6).
   const { weekNow, odds, horizon, counterparties } = ladderInputs(lg, myTeamId, playoffOdds);
+  const band = servedAcceptBand();   // PRICE-BAND-01, as in offerFor
 
   const targets = [...new Set((targetIds ?? []).map(Number))]
     .map(id => resolvePlayer(id, assets, teams)).filter(Boolean);
@@ -2771,7 +2820,7 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
     for (const give of packages) {
       const giveValue = give.reduce((s, p) => s + Math.max(0, p.value), 0);
       const ratio = targetsValue ? giveValue / targetsValue : 0;
-      if (ratio < 0.70 || ratio > 1.65) continue;
+      if (ratio < band.window_lo || ratio > band.window_hi) continue;
       const ev = evaluate({ team: me, gives: give }, { team: owner, gives: theirTargets }, slots,
         { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
       const gain = ladderGain(ev, horizon);
@@ -2786,12 +2835,12 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
     }
     if (!priced.length) {
       ladders.push({ ...base, error: 'Nothing on your roster prices out for this package.',
-        reason: `Every combination in range (${Math.round(targetsValue * 0.7)}–${Math.round(targetsValue * 1.65)}) costs you more lineup value than it returns. Try fewer targets, or a third team.`
+        reason: `Every combination in range (${Math.round(targetsValue * band.window_lo)}–${Math.round(targetsValue * band.window_hi)}) costs you more lineup value than it returns. Try fewer targets, or a third team.`
           + (excludeIds?.size ? ` This search also left out your untouchable player(s).` : '') });
       continue;
     }
 
-    const acceptable = priced.filter(p => p.them.ppg_delta > 0 || p.ratio >= 1.0
+    const acceptable = priced.filter(p => p.them.ppg_delta > 0 || p.ratio >= band.yes_point
       || (p.counterparty.perception_delta ?? 0) > 0);
     const pool = acceptable.length ? acceptable : priced;
     const headline = list => list.slice().sort((x, y) => y.value - x.value)[0]?.id;
@@ -2813,7 +2862,8 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
 
   return { mode: 'targets',
     context: ideaContext(lg, { me, assets, odds, horizon, counterparties, useCounterparty: true, week: weekNow }),
-    me: { roster_id: me.roster_id, owner: me.owner }, model_context: assets.context, ladders };
+    me: { roster_id: me.roster_id, owner: me.owner }, model_context: assets.context,
+    ...(band.version === 'legacy' ? {} : { accept_band: band }), ladders };
 }
 
 /* --------------------------------------------------------------- self scout */

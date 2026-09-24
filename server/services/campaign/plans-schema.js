@@ -47,14 +47,18 @@ export const TOLERANCE_KEYS = Object.freeze([
 ]);
 export const STOP_STATUSES = Object.freeze(['next', 'waiting', 'done', 'dropped', 'blocked']);
 export const REASONING_SLOTS = Object.freeze(['case_for', 'his_side', 'devils_advocate', 'news_check', 'confidence', 'counter']);
-/** Report-card check ids: E1-E7 plus the graders' sub-checks (E3-live on main; E4-live #294 and E3-ESPN #322 pending).
+/** Report-card check ids: E1-E7 plus the graders' sub-checks (E3-live on main; E4-live #294 and E3-ESPN #322 pending),
+ *  and C8 (REASON-02 #271, reasoning/grade.js in eval GRADERS).
  *  A grader that adds a new id must add it here, or every league's plan fails its contract check (9/24 incident). */
-export const BRAIN_CHECK_IDS = Object.freeze(['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E3-live', 'E4-live', 'E3-ESPN']);
+export const BRAIN_CHECK_IDS = Object.freeze(['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E3-live', 'E4-live', 'E3-ESPN', 'C8']);
 export const MAX_ALTERNATIVES = 5;
 /** Why Nick skipped a deck card: the War Room deck, Coach and the producer's skip weights share these ids. */
 export const SKIP_REASONS = Object.freeze(['player', 'cost', 'manager', 'not_now']);
 /** Why a manager said no (north-star row 21): logged by Nick, read by the producer and the E2 grader. */
 export const DECLINE_REASONS = Object.freeze(['wants_more', 'likes_his_player', 'not_interested', 'not_now', 'other']);
+/** Catch-up kinds (campaign/catchup.js#CATCHUP_ORDER) and speed levers (campaign/speed.js#CURVE_LEVERS). */
+export const CATCHUP_KINDS = Object.freeze(['free', 'flip', 'desperate', 'swing', 'timing']);
+export const SPEED_LEVERS = Object.freeze(['sequential', 'parallel', 'concede', 'package', 'all_in']);
 export const NUMBER_HEALTH_STATUSES = Object.freeze(['ok', 'warn', 'broken']);
 
 /**
@@ -119,6 +123,17 @@ const reply = obj({ do: str }, {
   counter_rules: obj({ accept_if: str, counter_with: str, walk_away_if: str })
 });
 
+/* ONE-COUNTERPART (RULINGS 17): the counterpart model's served numbers are typed fields, not squeezed into
+ * existing keys. reply_mix = the M6 reply prior (league-wide, not fitted per manager); p_accept_challenger =
+ * the model's P(accept) beside the served p_yes (chat weight 0 until E1 grades a feature: equal today);
+ * yes_point_his_pct = where the step's price curve first reaches P(yes) 0.5 on his screen. */
+const replyMix = obj({ ignore: prob, counter: prob, decline: prob, accept: prob });
+const cpFeature = obj({ feature: str, effect: str }, { value: num, basis: str, player: id, n: num });
+const stepCounterpart = obj({
+  reply_mix: replyMix, p_accept_challenger: prob, p_accept_served: prob, yes_point_his_pct: nullable(num),
+  reason_chain: arr(cpFeature)
+}, { reply_mix_label: str });
+
 /** One offer in a plan, with its playbook. */
 const step = obj({
   partner: id,
@@ -135,7 +150,8 @@ const step = obj({
 }, {
   reasoning: field(reasoning),
   // The acceptance band p_yes is the midpoint of; "I sent it" grades against it (#239 recordSentOffer).
-  p_yes_band: obj({ low: prob, high: prob })
+  p_yes_band: obj({ low: prob, high: prob }, { basis: oneOf(['no_information', 'heuristic_unanchored', 'heuristic_anchored']) }),
+  counterpart: field(stepCounterpart)
 });
 
 /** A plan: one deck card. */
@@ -176,7 +192,9 @@ const tradeoff = obj({
 
 const flip = obj({
   player: pid, buy_from: id, sell_to: id, spread: numF, price_a: numF, price_b: numF,
-  legs: nullable(obj({ give_a: pid, get_b: pid, p1: probF, p2: probF, p_both: probF, nick_after: numF }))
+  legs: nullable(obj({ give_a: pid, get_b: pid, p1: probF, p2: probF, p_both: probF, nick_after: numF },
+    // FLIP-LEGS-2: the whole packages (give_a / get_b stay the lead id); served only when the planner priced packages.
+    { give_a_ids: arr(pid, { min: 1 }), get_b_ids: arr(pid, { min: 1 }) }))
 }, { legs_why_not: str, reasoning: field(reasoning) });
 
 const target = obj({
@@ -201,6 +219,16 @@ export const SECTIONS = Object.freeze({
   feasibility: field(obj({
     points_per_week: num, projected_points: numF, p_hit: probF, by_week: field(int(1, 18))
   }, { cost_text: str })),
+  // FEAS-140: the points question on a league planned on something else (title, playoffs,
+  // get-player), as its own card next to `feasibility`; never nested in it. A points
+  // league writes this as 'unknown' and keeps its answer in `feasibility`.
+  feasibility_points: field(obj({
+    points_per_week: num, league_objective: oneOf(['title', 'playoffs', 'get_player']),
+    outlook: oneOf(['on_track', 'reachable', 'out_of_reach']),
+    projected_points: numF, p_hit: probF, by_week: field(int(1, 18)),
+    cost_players: int(0), cost_offers: int(0), objective_cost: numF,
+    bye_warnings: int(0), injury_warnings: int(0)
+  }, { cost_text: str })),
   finder_best_expected: numF,
   next_move: field(move),
   alternatives: field(arr(move, { max: MAX_ALTERNATIVES })),
@@ -210,10 +238,14 @@ export const SECTIONS = Object.freeze({
   stop_tradeoffs: field(map(TRADEOFF_KEY, tradeoff)),
   flip_map: field(arr(flip)),
   targets: field(arr(target)),
-  catch_up: field(arr(obj({ text: str, gain: numF, steps: int(0) }, { move_id: id }))),
+  // kind / partner / discount (CATCHUP-LIVE) are optional: older producers omit them.
+  catch_up: field(arr(obj({ text: str, gain: numF, steps: int(0) },
+    { move_id: id, kind: oneOf(CATCHUP_KINDS), partner: id, discount_pct: numF }))),
+  // lever / p_land / levers (CATCHUP-LIVE): the lever that wins week N and every lever priced there.
   speed_curve: field(arr(obj({
     arrive_by: int(1, 18), cost: numF, net: numF, variance_note: str, offers_used: int(0), before_deadline: bool
-  }))),
+  }, { lever: oneOf(SPEED_LEVERS), p_land: probF,
+    levers: arr(obj({ lever: oneOf(SPEED_LEVERS), cost: numF, p_land: probF, offers_used: int(0) })) }))),
   brain_report: field(brainReport),
   number_health: field(obj({
     overall: oneOf(NUMBER_HEALTH_STATUSES), broken: int(0), warn: int(0), ok: int(0),
@@ -226,9 +258,20 @@ export const SECTIONS = Object.freeze({
   }))),
   // Who to deal with: P(responds) from activity x the best edge through him. Labels and counts only.
   partners: field(arr(obj({ team: id, p_responds: prob, basis: str, edge: numF }, {
-    chat_labels: arr(str), roster_holes: arr(str), offers_logged: int(0), checked_out: bool, blocked: bool
-  })))
+    chat_labels: arr(str), roster_holes: arr(str), offers_logged: int(0), checked_out: bool, blocked: bool,
+    // Nick's untouchables on his roster (profile-reader nick block): never a target, a get or a flip leg.
+    untouchable: arr(pid),
+    // ONE-COUNTERPART (RULINGS 17): P(responds) before the model, each named adjustment, the reply prior.
+    p_responds_before_counterpart: prob, reason_chain: arr(cpFeature), reply_mix: replyMix
+  }))),
+  // TEAM-NAMES: who each roster is (ESPN team name, the manager Nick knows), read from the league
+  // payload at run time and never committed. A roster left out (or the section unknown) reads 'Team N'.
+  // Optional (OPTIONAL_SECTIONS): a file written before it still validates.
+  teams: field(map(/^[A-Za-z0-9_.:-]{1,64}$/, obj({}, { name: str, manager: str })))
 });
+
+/** Sections an entry may leave out; the view then reads them as unknown. */
+export const OPTIONAL_SECTIONS = Object.freeze(['teams']);
 
 /** Run bookkeeping: the producer's own memory between runs. No consumer reads it. */
 const run = obj({
@@ -236,7 +279,7 @@ const run = obj({
   objective_version: int(0), objective_source: str, risk_mode: oneOf(RISK_MODES),
   next_step: json, trajectory: arr(obj({ week: int(1, 18), planned: num })),
   changed: obj({ changed: bool, reason: str }, { previous_key: nullable(str), next_key: str }),
-  roster_key: nullable(str), confirm: json, outlook: json, feasibility_detail: json,
+  roster_key: nullable(str), confirm: json, outlook: json, feasibility_detail: json, feasibility_points_detail: json,
   candidates_scored: int(0), rescores: int(0), runtime_ms: num, phases_ms: json, inputs: json
 });
 
@@ -333,7 +376,7 @@ function crossCheck(entry, path, ctx) {
   const err = (p, message) => ctx.errors.push({ path: `${path}.${p}`, message });
   if (entry.error === undefined) {
     for (const k of Object.keys(SECTIONS)) {
-      if (!(k in entry)) err(k, "is required (write it as 'unknown' with a reason when it is not computed)");
+      if (!(k in entry) && !OPTIONAL_SECTIONS.includes(k)) err(k, "is required (write it as 'unknown' with a reason when it is not computed)");
     }
   }
   const deck = okValue(entry.alternatives);
@@ -422,7 +465,7 @@ export function writtenPaths(doc) {
     if (Array.isArray(v)) { v.forEach(x => walk(x, `${p}[]`)); return; }
     if (!isObj(v)) return;
     // The two maps: their keys are data, not contract keys.
-    if (/(^|\.)stop_tradeoffs\.value$|^leagues\[\]\.names$/.test(p)) { for (const x of Object.values(v)) walk(x, `${p}{}`); return; }
+    if (/(^|\.)stop_tradeoffs\.value$|^leagues\[\]\.names$|^leagues\[\]\.teams\.value$/.test(p)) { for (const x of Object.values(v)) walk(x, `${p}{}`); return; }
     for (const [k, x] of Object.entries(v)) walk(x, p ? `${p}.${k}` : k);
   };
   walk(doc, '');

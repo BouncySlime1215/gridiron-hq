@@ -353,7 +353,9 @@ test('G1b: no factor may exceed its own source cap, and the player is clamped at
 test('G1c: a player every source pushes the same way is clamped, and says he was clamped', () => {
   // A real profile in which every source pushes the same way at once: he talks
   // him up, his model read names him untouchable, his record is flattered, and
-  // his declarations have always held.
+  // his declarations have always held. The flattered record is still in the
+  // profile but no longer moves anything: luck_self_view was tested dead
+  // (r46 IDEA-103), so three sources fire, and three still overrun the clamp.
   const loaded = {
     roster_id: '2', receptiveness: 1, roster_size: 3,
     owned: new Set(['quiet star']),
@@ -369,7 +371,8 @@ test('G1c: a player every source pushes the same way is clamped, and says he was
     needs: new Set(), surplus: new Set(),
   };
   const v = pricing.playerValuation(loaded, { name: 'Quiet Star', position: 'RB', value: 1000 });
-  assert.ok(v.factors.length >= 4, `every source should have fired (${v.factors.map(f => f.source)})`);
+  assert.ok(v.factors.length >= 3, `every live source should have fired (${v.factors.map(f => f.source)})`);
+  assert.ok(!v.factors.some(f => f.source === 'luck_self_view'), 'a retired source never fires');
   assert.equal(v.capped, true);
   assert.equal(v.multiplier, 1 + pricing.PLAYER_VALUATION_CAP);
   assert.equal(v.their_value, 1000 * (1 + pricing.PLAYER_VALUATION_CAP));
@@ -432,8 +435,10 @@ test('G2b: a source under its minimum sample is reported inert with its reason, 
   // Carl's luck is as extreme as Hayden's but rests on ONE scored week.
   const carl = map.managers.get('3');
   const hayden = map.managers.get('2');
-  assert.ok(factorNames(byName(hayden, 'Quiet Star')).includes('luck_self_view'),
-    'four scored weeks is enough for the luck read');
+  // Four scored weeks clears min_n, but luck_self_view is retired (cap 0, r46
+  // IDEA-103), so the sample is enough and the price still does not move.
+  assert.ok(!factorNames(byName(hayden, 'Quiet Star')).includes('luck_self_view'),
+    'a retired source prices nothing even with enough weeks');
   const riser = byName(carl, 'Silent Riser');
   assert.ok(!factorNames(riser).includes('luck_self_view'), 'one week of luck must not price anything');
   const inert = (riser.inert ?? []).find(i => i.source === 'luck_self_view');
@@ -446,7 +451,15 @@ test('G2b: a source under its minimum sample is reported inert with its reason, 
 
 test('G2c: the source registry is the contract — caps, minimum samples and what each needs', () => {
   for (const [key, s] of Object.entries(pricing.VALUATION_SOURCES)) {
-    assert.ok(s.cap > 0 && s.cap <= 0.15, `${key}: cap out of range`);
+    // A cap of 0 is allowed only on a source that was tested and killed, and it
+    // must say so: a zero cap without the verdict is a term silently switched off.
+    if (s.tested) {
+      assert.equal(s.cap, 0, `${key}: a retired source prices nothing`);
+      assert.match(s.tested, /^dead \(.+, \d{4}-\d{2}-\d{2}\)$/, `${key}: the verdict names its test and date`);
+      assert.match(s.why, /tested and killed/, `${key}: its reason says it was tested and killed`);
+    } else {
+      assert.ok(s.cap > 0 && s.cap <= 0.15, `${key}: cap out of range`);
+    }
     assert.ok(Number.isFinite(s.min_n) && s.min_n >= 1, `${key}: needs a minimum sample`);
     assert.equal(typeof s.label, 'string');
     assert.equal(typeof s.needs, 'string');
@@ -481,7 +494,13 @@ test('G4a: a league with no chat still gets a map, and names the sources it does
     assert.ok(absent, `${s} must be listed as absent, with a reason`);
     assert.match(absent.reason, /chat/i);
   }
-  assert.ok(map.sources_used.includes('luck_self_view'), 'the sources it does have must still fire');
+  // Luck used to be the source this league "does have"; it is retired (r46
+  // IDEA-103), so the map names it absent with the verdict. outscoring_usage is
+  // the chat-free source that still fires here.
+  assert.ok(map.sources_used.includes('outscoring_usage'), 'the sources it does have must still fire');
+  assert.ok(!map.sources_used.includes('luck_self_view'), 'a retired source is never used');
+  assert.match(map.sources_absent.find(a => a.source === 'luck_self_view')?.reason ?? '',
+    /^retired: tested dead \(r46 IDEA-103/);
   const hayden = map.managers.get('2');
   assert.ok(factorNames(hayden.players.get('hot hype')).length > 0,
     'a chat-free league must still price differently from ours where it has evidence');
@@ -910,8 +929,10 @@ test('G9d: a league with no archetype rows is not told the data exists', () => {
   assert.ok(absent, 'luck must be listed as absent');
   assert.doesNotMatch(absent.reason, /the data exists/i,
     `a league with no archetype rows must not be told the data exists, got ${JSON.stringify(absent.reason)}`);
-  assert.equal(absent.reason, 'rests on 0 of the 4 needed (scored weeks in the archetype build)',
-    'it must name the missing measurement instead, in the inert branch\'s own words');
+  // The source is retired now, and that verdict outranks the missing sample:
+  // "0 of 4" would read as "wait for week 5", and week 5 will change nothing.
+  assert.equal(absent.reason, 'retired: tested dead (r46 IDEA-103, 2026-09-24); it prices nothing',
+    'a retired source names its verdict, not a sample it will never use');
 });
 
 test('G9g: the priced luck term says when the store behind it was built', () => {
@@ -932,10 +953,11 @@ test('G9g: the priced luck term says when the store behind it was built', () => 
   // Through to the priced factor. This is the assertion the item was about; the
   // per-player valuations live on the MAP, not on the layer entry (whose
   // `players` is the chat sentiment index).
+  // luck_self_view is retired (r46 IDEA-103), so there is no priced term left to
+  // carry the stamp; the layer-level assertions above still pin the reading.
   const priced = byName(mapFor(21).managers.get('2'), 'Quiet Star')
     .factors.find(f => f.source === 'luck_self_view');
-  assert.ok(priced, 'four scored weeks prices, per G2b');
-  assert.equal(priced.as_of, ARCH_BUILT_AT, 'the priced term carries the build date through');
+  assert.equal(priced, undefined, 'a retired source leaves no priced term');
 });
 
 test('G9h: a luck read that is NOT firing still says how old the store is', () => {
@@ -985,17 +1007,30 @@ test('G9e: zeroing a source still suppresses it completely — no factor and no 
   }
 });
 
-test('G9f: a reading with enough sample still prices, unchanged', () => {
-  // The other regression pin: none of this may turn a real factor into a note.
+test('G9f: a reading with enough sample of a retired source prices nothing, silently', () => {
+  // Was "still prices, unchanged". luck_self_view is retired (cap 0, r46
+  // IDEA-103): cap * strength is 0, and `add` drops a zero effect above min_n
+  // without an inert entry, because inert means "not enough evidence" and four
+  // weeks is enough. The map-level verdict lives in sources_absent (G9d).
   const on = pricing.playerValuation(ownerOf({ luck: { value: 1.6, n: 4 } }), QUIET_STAR);
-  const f = (on.factors ?? []).find(x => x.source === 'luck_self_view');
-  assert.ok(f, 'four scored weeks still prices');
-  // 1.6 wins above expectation against LUCK_FULL_WINS of 2 is 0.8 of the cap,
-  // not the cap: this pins the arithmetic, so a fix that changed the strength
-  // curve while keeping the source firing would still be caught here.
-  assert.equal(f.effect, +(pricing.VALUATION_SOURCES.luck_self_view.cap * 0.8).toFixed(4),
-    'at 0.8 of its cap, unchanged');
-  assert.ok(!(on.inert ?? []).some(i => i.source === 'luck_self_view'), 'a firing source is not also inert');
+  assert.ok(!(on.factors ?? []).some(x => x.source === 'luck_self_view'), 'four scored weeks no longer prices');
+  assert.ok(!(on.inert ?? []).some(i => i.source === 'luck_self_view'), 'and is not filed as inert either');
+});
+
+test('G9j: luck_self_view is retired — +3 wins over 6 scored weeks prices exactly as no luck reading', () => {
+  // r46 IDEA-103 killed the term: a ~2-win luck gap moves at most ~1.1 pp of how
+  // a manager values his own players. A strongly flattered record on a full
+  // sample, against the same owner with no luck row at all, must give the same
+  // total. The other sources are held on so the comparison is not 1 === 1.
+  const base = {
+    players: new Map([['quiet star', { sentiment: 4, n: 20, last: '2026-09-16', multiplier: 1.06 }]]),
+  };
+  const lucky = pricing.playerValuation(ownerOf({ ...base, luck: { value: 3, n: 6 } }), QUIET_STAR);
+  const none = pricing.playerValuation(ownerOf({ ...base, luck: null }), QUIET_STAR);
+  assert.ok(lucky.factors.length > 0, 'another source is firing, so the totals are not trivially equal');
+  assert.equal(lucky.multiplier, none.multiplier, 'the luck term moves the multiplier by nothing');
+  assert.equal(lucky.their_value, none.their_value, 'and the total by nothing');
+  assert.equal(pricing.VALUATION_SOURCES.luck_self_view.tested, 'dead (r46 IDEA-103, 2026-09-24)');
 });
 
 // ======================================================= G11 the Jev model read

@@ -16,8 +16,52 @@
  */
 import { chatLabels } from '../../server/services/campaign/partners.js';
 import { stopwatch } from '../../server/services/campaign/run-clock.js';
+import { resolveUntouchables, untouchableIds } from '../../server/services/people/profile-reader.js';
+import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
+/** The engagement field LIVING-01a writes (engine_state; FIELD-REGISTRY `activity.manager`). */
+export const ACTIVITY_FIELD = 'activity.manager';
+const LIVING01A_FLAG = 'GRIDIRON_LIVING01A_ENABLED';
+
+/**
+ * Who is checked out, per team: the latest `activity.manager` row wins (state + P(checked out));
+ * a team with no row falls back to the timing read (present, zero actions), labelled as such; a team
+ * with neither gets no entry (unknown, never "engaged").
+ * rows: [{ entity_id: '<league>:<team>', value (JSON text), lane }] newest first; timing: Map team -> timingRead entry.
+ */
+export function activityReads(rows, timing, leagueId) {
+  const out = new Map();
+  const prefix = `${leagueId}:`;
+  for (const r of rows ?? []) {
+    const id = String(r.entity_id);
+    if (!id.startsWith(prefix)) continue;
+    const team = id.slice(prefix.length);
+    if (out.has(team)) continue;
+    let v = null;
+    try { v = typeof r.value === 'string' ? JSON.parse(r.value) : r.value; } catch (e) {
+      throw new Error(`${ACTIVITY_FIELD} row for team ${team} is not JSON: ${e.message}`);
+    }
+    const p = Number.isFinite(v?.probs?.checked_out) ? v.probs.checked_out : null;
+    out.set(team, { checked_out: v?.state === 'checked_out', source: ACTIVITY_FIELD, p, lane: r.lane ?? null });
+  }
+  for (const [team, tm] of timing ?? []) {
+    const t = String(team);
+    if (out.has(t) || tm?.read_state !== 'present') continue;
+    out.set(t, { checked_out: tm.actions_n === 0, source: 'timing read', p: null, lane: null });
+  }
+  return out;
+}
+
+/** activity.manager rows for one league, newest first: live lane, plus shadow when the flag or preview is on. */
+function activityRows(svc, leagueId, env = process.env) {
+  const has = svc.db.row(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'engine_state'`);
+  if (!has) return [];
+  const lanes = env[LIVING01A_FLAG] === '1' || env[PREVIEW_ENV] === '1' ? ['live', 'shadow'] : ['live'];
+  return svc.db.rows(`SELECT entity_id, value, lane FROM engine_state
+    WHERE field = ? AND league_id = ? AND lane IN (${lanes.map(() => '?').join(', ')})
+    ORDER BY CASE lane WHEN 'live' THEN 0 ELSE 1 END, as_of DESC, id DESC`, ACTIVITY_FIELD, Number(leagueId), ...lanes);
+}
 const FLEX = { FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'], WRRB_FLEX: ['RB', 'WR'],
   SUPER_FLEX: ['QB', 'RB', 'WR', 'TE'], OP: ['QB', 'RB', 'WR', 'TE'] };
 const DAY = 864e5;
@@ -34,6 +78,7 @@ export async function loadServices() {
     week: await import('../../server/services/league-week.js'),
     horizon: await import('../../server/services/trade-horizon.js'),
     titleOdds: await import('../../server/services/title-odds-trades.js'),
+    identity: await import('../../server/services/manager-identity.js'),
   };
 }
 
@@ -69,6 +114,28 @@ function daysLeftInWeek(svc, lg, week, now) {
   const r = svc.db.row('SELECT MIN(date) AS d FROM schedule_games WHERE season = ? AND week = ?', lg.season, week + 1);
   const t = Date.parse(r?.d ?? '');
   return Number.isFinite(t) ? Math.max(0, Math.floor((t - now) / DAY)) : 7;
+}
+
+const text = v => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 80) : null);
+
+/**
+ * TEAM-NAMES: who each roster is, read at run time from the league payload (never committed):
+ * { [roster_id]: { name?: ESPN team name, manager?: who Nick knows him as } }. The manager is the
+ * trusted chat identity's name first (the name Nick's own manager_notes are keyed by), else the
+ * ESPN owner's first name, else his display name. A roster with neither is left out, so the page
+ * says 'Team N' for it.
+ */
+export function teamNames(payload, chatNames = new Map()) {
+  const members = new Map((payload?.members ?? []).map(m => [String(m?.id), m]));
+  const out = {};
+  for (const t of payload?.teams ?? []) {
+    if (t?.id == null) continue;
+    const owner = members.get(String(t.primaryOwner ?? t.owners?.[0]));
+    const name = text(t.name) ?? text(`${t.location ?? ''} ${t.nickname ?? ''}`);
+    const manager = text(chatNames.get(String(t.id))) ?? text(owner?.firstName) ?? text(owner?.displayName);
+    if (name || manager) out[String(t.id)] = { ...(name ? { name } : {}), ...(manager ? { manager } : {}) };
+  }
+  return out;
 }
 
 /**
@@ -200,7 +267,10 @@ export function buildAdapter(svc, leagueId, { chat = null, now = null, timingCut
     .map(r => String(r.roster_id)));
   const sent = sentThisWeek(svc, leagueId, season, me, now);
   const titleByTeam = new Map((w0.base?.teams ?? []).map(t => [String(t.roster_id), t.title_odds]));
+  const activity = activityReads(activityRows(svc, leagueId), timing, leagueId);
   const managers = new Map();
+  // Nick's own notes (the one reader, keyed by his roster like everyone else's): his protected players.
+  const myNick = resolveUntouchables(chat?.get(me)?.nick ?? null, (rosters.get(me) ?? []).map(id => players.get(id)).filter(Boolean));
   for (const t of rosters.keys()) {
     if (t === me) continue;
     const m = layer.get(t) ?? null;
@@ -211,11 +281,14 @@ export function buildAdapter(svc, leagueId, { chat = null, now = null, timingCut
     managers.set(t, {
       receptiveness: m?.receptiveness ?? null, tier: m?.tier ?? null, needs: m?.needs ?? null,
       blocked: blocked.has(t),
-      checked_out: tm?.read_state === 'present' && tm.actions_n === 0,
+      checked_out: activity.get(String(t))?.checked_out ?? false,
+      checked_out_source: activity.get(String(t))?.source ?? null,
+      p_checked_out: activity.get(String(t))?.p ?? null,
       title_now: titleByTeam.get(t) ?? null,
       sent_this_week: sent.get(t) ?? 0,
       send_when: send,
-      nick: chat?.get(t)?.nick ?? null,
+      // Nick's block (the one reader); 'untouchable: <player>' notes resolved against this roster's players.
+      nick: resolveUntouchables(chat?.get(t)?.nick ?? null, (rosters.get(t) ?? []).map(id => players.get(id)).filter(Boolean)),
       chat: chat?.has(t) ? chatLabels({ ...chat.get(t),
         sentiment: (chat.get(t).sentiment ?? []).map(x => ({ ...x, player: nameToId(x.player) ?? x.player })) }) : chatLabels(),
     });
@@ -281,10 +354,17 @@ export function buildAdapter(svc, leagueId, { chat = null, now = null, timingCut
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
+    // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
+    // His notes on his OWN roster ("untouchable: Nico Collins") protect his players the same way:
+    // they are never given (vals.tradable excludes this set). Nick 9/24: blue chips are not for sale.
+    untouchable: untouchableIds([...managers.values()].map(m => m.nick).concat([myNick])),
     ...(finder ? { finderBest } : {}),
     // planner.js times its phases with adapter.now (runtime_ms / phases_ms): elapsed time, not the world.
     now: stopwatch,
+    // REPRO-01: the run clock (ms) for world questions the planner asks (the partner kernel's cutoff).
+    asOfMs: now,
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
+    teams: () => teamNames(payload, new Map([...(svc.identity?.identityMap(leagueId) ?? [])].map(([r, i]) => [String(r), i.chat_name]))),
     rosterKey: () => [...rosters.entries()].map(([t, ids]) => `${t}:${[...ids].sort((a, b) => a - b).join(',')}`).join('|'),
   };
 }

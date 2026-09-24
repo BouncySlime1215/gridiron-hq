@@ -127,9 +127,18 @@ test('--db-snapshot takes a frozen copy: writes to the live DB after the start a
  *   requests.js (2)     default parameters (leagueInputs `now`, consumeWith `at`) the producer never
  *                       reaches: it passes the run clock and generated_at. requests.js is FIX-07's file,
  *                       left as it is here to keep the change additive.
+ * Added by the merge with main (code main brought in that is not the producer's world):
+ *   his-screen.js (2)   the web route's in-memory TTL cache for hisScreenFor (entry age); elapsed
+ *                       time in the server, not a question the producer asks about the world.
+ *   his-screen-probe.mjs (2)  a dev probe timing one hisScreenFor call (elapsed ms in its printout).
+ *   negotiate-bench.mjs (2)   a dev bench seeding its own 'bench' thread rows (write stamps and a
+ *                       unique idea id); not the producer.
  */
 const JUSTIFIED = new Map([
+  ['scripts/campaign/his-screen-probe.mjs', 2],
+  ['scripts/campaign/negotiate-bench.mjs', 2],
   ['scripts/campaign/produce-plans.mjs', 1],
+  ['server/services/campaign/his-screen.js', 2],
   ['server/services/campaign/requests.js', 2],
   ['server/services/campaign/run-clock.js', 1],
 ]);

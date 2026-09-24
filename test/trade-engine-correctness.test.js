@@ -455,3 +455,37 @@ test('G9c: the refusal every ladder can return is decided on the horizon number 
   }
   assert.ok(checked > 10, `fixture must exercise real ladders, only checked ${checked}`);
 });
+
+/* --------------------------- PRICE-BAND-01: the ladder serves the flagged band */
+
+test('PRICE-BAND-01: flag off serves the legacy window; GRIDIRON_PRICE_BAND_V2=1 serves the fitted band', async () => {
+  const { V2_BAND, LEGACY_BAND, PRICE_BAND_V2_ENV } = await import('../server/services/price-band.js');
+  const lg = rows('SELECT * FROM leagues WHERE id = 401')[0];
+  const payload = JSON.parse(lg.payload);
+  const ids = payload.teams.filter(t => String(t.id) !== '1')
+    .flatMap(t => t.roster.entries.map(e => e.playerPoolEntry.player.fullName))
+    .map(n => rows('SELECT id FROM players WHERE name = ? ORDER BY id LIMIT 1', n)[0]?.id).filter(Boolean);
+  const saved = process.env[PRICE_BAND_V2_ENV];
+  const ladder = v => {
+    if (v === undefined) delete process.env[PRICE_BAND_V2_ENV]; else process.env[PRICE_BAND_V2_ENV] = v;
+    return ids.map(id => engine.offerFor(lg, { myTeamId: '1', targetId: id }));
+  };
+  try {
+    const legacy = ladder('0'), v2 = ladder('1');
+    for (const [runs, band, served] of [[legacy, LEGACY_BAND, false], [v2, V2_BAND, true]]) {
+      let offers = 0;
+      for (const out of runs) {
+        if (served && out.mode === 'target') assert.deepEqual(out.accept_band, V2_BAND);
+        if (!served) assert.equal(out.accept_band, undefined, 'flag off adds no field');
+        for (const o of out.offers ?? []) {
+          offers++;
+          assert.ok(o.ratio >= +band.window_lo.toFixed(2) && o.ratio <= +band.window_hi.toFixed(2),
+            `${band.version}: ratio ${o.ratio} outside [${band.window_lo}, ${band.window_hi}]`);
+        }
+      }
+      assert.ok(offers > 0, `${band.version}: fixture must produce priced offers`);
+    }
+  } finally {
+    if (saved === undefined) delete process.env[PRICE_BAND_V2_ENV]; else process.env[PRICE_BAND_V2_ENV] = saved;
+  }
+});

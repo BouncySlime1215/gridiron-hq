@@ -246,6 +246,7 @@ export const SPINE_EVENT_TYPES = Object.freeze({
   'trade.resolved': 'A trade resolution (accepted, declined, ...) recorded in trade_outcomes',
   'manager.signal': 'A per-fantasy-team count or rate from manager_signals (every source; counts only, no names or text)',
   'source.coverage': 'A collector run as recorded in sync_log: a window without one is unknown, never zero',
+  'people.statement': 'A labelled league-mate chat statement from people_pulse (type, roster, player ids, weight; never text)',
 });
 for (const [type, description] of Object.entries(SPINE_EVENT_TYPES)) registerEventType(type, { description });
 // The spine's own field engine.ingest is registered in backfill.js, its one writer,

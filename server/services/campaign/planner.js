@@ -7,20 +7,31 @@
  * confirm pass on an independent seed, the playbook for every step, targets,
  * itinerary + stop trade-offs, speed curve, feasibility, catch-up list,
  * partner ranking. It never reads the DB, the env or the clock: the producer
- * script (scripts/campaign/produce-plans.mjs) builds the adapter; tests hand
- * in a fixture. Output is an internal result; view.js turns it into the War
+ * script (scripts/campaign/produce-plans.mjs) builds the adapter and hands in
+ * its env as settings.env (the two FEAS-140 flags; absent, both are off);
+ * tests hand in a fixture. Output is an internal result; view.js turns it into the War
  * Room JSON.
  */
 import { dealKey, pathExpectation, combos, linearNick, screenPct } from './paths.js';
 import { rankPlans, compareModes, tolerancesFor, MODES } from './modes.js';
 import { metricOf, pointsFeasibility, targetFeasibility, weeklySummary } from './objectives.js';
 import { priceLadder, stepMessage, replyTable } from './playbook.js';
-import { buildItinerary, stopTradeOff, speedCurve, arrivalWeek } from './itinerary.js';
-import { orderCatchUp, freeMoves, isBehind } from './catchup.js';
-import { rankPartners, planSkipWeight } from './partners.js';
+import { coachMessagesOn } from './messages.js';
+import { buildItinerary, stopTradeOff, arrivalWeek } from './itinerary.js';
+import { speedCurve, concededPlan, sideLevers } from './speed.js';
+import { orderCatchUp, freeMoves, isBehind, sellersRead, desperateMoves } from './catchup.js';
+import { rankPartners, planSkipWeight, pResponds } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
-import { waitOrAct } from './wait-or-act.js';
-import { makeScorer, playerValues, flipMap, searchTarget, publicPlan } from './search.js';
+import { waitOrAct, waitOrActOn } from './wait-or-act.js';
+import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
+import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink } from './search.js';
+import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
+
+/** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
+const yesPoint = curve => {
+  const hit = (curve ?? []).filter(c => Number.isFinite(c.his_pct) && c.p >= 0.5).sort((a, b) => a.his_pct - b.his_pct)[0];
+  return hit ? hit.his_pct : null;
+};
 
 export const DECK_SIZE = 5;
 /** P(accept) curve window on his screen, wider than the finder's so the curve has a shape. */
@@ -50,7 +61,7 @@ export function backupBranches(best, ranked) {
   });
 }
 
-function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta) {
+function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta, maxOverpay) {
   const me = adapter.league.me;
   const val = id => Math.max(0, Number(adapter.players.get(id)?.value) || 0);
   const mine = S.rosterOf(stateBefore, me).filter(vals.tradable);
@@ -65,24 +76,32 @@ function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta) {
     const gv = give.reduce((s, id) => s + val(id), 0);
     const his = screenPct(gv, getV);
     if (his == null || his < CURVE_WINDOW.low || his > CURVE_WINDOW.high) continue;
+    // NO-OVERPAY: the ladder (opening, walk-away) never climbs past Nick's cap on market value given.
+    if (nickOverpays(gv, getV, maxOverpay)) continue;
     const p = adapter.priceStep(step.team, step.get, give).p;
     const delta = lin(S.applyTrade(stateBefore, me, step.team, give, step.get)) * scale;
     out.push({ give, his_pct: his, p, delta, nick_gain: p * delta });
   }
-  return { curve: out.sort((a, b) => a.his_pct - b.his_pct).slice(0, 60), basis: 'linear single-player values, rescaled to the exact rescore of the planned package' };
+  return { curve: out.sort((a, b) => a.his_pct - b.his_pct).slice(0, 60),
+    basis: `linear single-player values, rescaled to the exact rescore of the planned package; never past +${Math.round(maxOverpay * 100)}% market value given` };
 }
 
 /**
  * adapter: see scripts/campaign/league-adapter.mjs (the real one) and test/fixtures (the fake one).
- * settings: { objective, skips ({player, manager} Maps), previous (last entry or null), budget }
+ * settings: { objective, skips ({player, manager} Maps), previous (last entry or null), budget, env }
  */
 export function planLeague(adapter, settings) {
+  // ONE-COUNTERPART (flag GRIDIRON_COUNTERPART or preview, set by the producer): absent -> today's plan, unchanged.
+  const CP = adapter.counterparts ?? null;
+  if (CP) adapter = withCounterparts(adapter, CP);
   const clockNow = () => adapter.now?.() ?? 0;
   const t0 = clockNow();
   const phases = {};
   let tp = t0;
   const mark = name => { const t = clockNow(); phases[name] = t - tp; tp = t; };
   const { objective } = settings;
+  const env = settings.env ?? {};
+  const waitEnabled = waitOrActOn(env);
   const budget = { flipTopPer: 3, flipRealise: 6, targets: 3, ...(settings.budget ?? {}) };
   const L = adapter.league;
   const me = L.me;
@@ -93,25 +112,39 @@ export function planLeague(adapter, settings) {
   const base = S.rescore(new Map(), me);
   const now = { title: base.me.title_before, playoff: base.me.playoff_before, metric: metricOf(base.me, objective).before };
 
+  // NO-OVERPAY: Nick's cap on market value given (destination tolerance max_overpay; default 0).
+  // An adapter may carry its own cap (adapter.maxOverpay; the pre-cap test fixtures set Infinity); the destination's wins.
+  const maxOverpay = maxOverpayOf({ max_overpay: objective.tolerances?.max_overpay ?? adapter.maxOverpay });
+  const overpay = newOverpaySink(maxOverpay);
   const vals = playerValues(S, adapter, objective);
   mark('values');
-  const flip = flipMap(S, adapter, vals, { topPer: budget.flipTopPer, realise: budget.flipRealise,
+  const flip = flipMap(S, adapter, vals, { topPer: budget.flipTopPer, realise: budget.flipRealise, maxOverpay,
     daysLeft: Number.isInteger(L.deadline_week) ? Math.max(1, (L.deadline_week - L.week) * 7) : 1 });
 
   mark('flip');
   // Targets: the objective's player, Nick's "get" stops, then the biggest single-player upgrades.
   const skipP = settings.skips?.player ?? new Map();
-  const upgrades = [...vals.addN.entries()].filter(([pid]) => !adapter.managers.get(vals.lossO.get(pid)?.team)?.blocked)
-    .sort((x, y) => y[1] * (skipP.get(String(y[0])) ?? 1) - x[1] * (skipP.get(String(x[0])) ?? 1)).map(([pid]) => pid);
+  const myIds = adapter.rosters.get(me);
+  const tiltOf = pid => (CP ? targetTilt(CP, vals.lossO.get(pid)?.team, pid, myIds) : { tilt: 1, exclude: false, features: [] });
+  const upgrades = [...vals.addN.entries()].filter(([pid]) => !adapter.managers.get(vals.lossO.get(pid)?.team)?.blocked && !tiltOf(pid).exclude)
+    .sort((x, y) => y[1] * (skipP.get(String(y[0])) ?? 1) * tiltOf(y[0]).tilt - x[1] * (skipP.get(String(x[0])) ?? 1) * tiltOf(x[0]).tilt)
+    .map(([pid]) => pid);
+  // Nick's untouchables (the reader's nick block via the adapter) are never a target, even when asked for.
+  const untouchable = adapter.untouchable ?? new Set();
+  const refused = [];
   const wanted = [];
-  const want = pid => { if (pid != null && !wanted.some(w => String(w) === String(pid))) wanted.push(pid); };
+  const want = pid => {
+    if (pid == null) return;
+    if (untouchable.has(String(pid))) { if (!refused.includes(String(pid))) refused.push(String(pid)); return; }
+    if (!wanted.some(w => String(w) === String(pid))) wanted.push(pid);
+  };
   const idOf = s => [...adapter.players.keys()].find(k => String(k) === String(s)) ?? null;
   if (objective.kind === 'player') want(idOf(objective.target));
   for (const st of objective.stops) if (st.kind === 'get') want(idOf(st.player));
   for (const pid of upgrades.slice(0, budget.targets)) want(pid);
 
   let plans = [];
-  for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target));
+  for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay }));
   const skipW = { player: settings.skips?.player ?? new Map(), manager: settings.skips?.manager ?? new Map() };
   plans = plans.map(p => ({ ...p, skip_weight: planSkipWeight(p, skipW) }));
   mark('search');
@@ -158,8 +191,13 @@ export function planLeague(adapter, settings) {
   const playbookFor = (plan, i, backup) => {
     const st = plan.steps[i];
     const stateBefore = i === 0 ? new Map() : plan.steps[i - 1].state ?? (plan.planned_on?.steps[i - 1].state) ?? new Map();
-    const { curve, basis } = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta);
+    const priced = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta, maxOverpay);
     const m = managers.get(st.team) ?? {};
+    // Nick's "hard" read is applied ONCE (RULINGS 17): FIX-02c's hard shift when the adapter carries his block
+    // (m.nick, the real producer); otherwise the counterpart's cap at fair on his screen (the same reader flag).
+    const cap = CP && !m.nick?.hard ? priceCap(CP.get(String(st.team))) : null;
+    const curve = cap ? priced.curve.filter(c => c.his_pct <= cap.max_his_pct) : priced.curve;
+    const basis = cap ? `${priced.basis}; capped at ${cap.max_his_pct}% on his screen (nick_override)` : priced.basis;
     const ladder = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode, hard: !!m.nick?.hard });
     const offer = ladder.opening ? { ...st, give: ladder.opening.give } : st;
     const message = stepMessage(offer, { players: adapter.players, needs: m.needs ?? null });
@@ -172,13 +210,30 @@ export function planLeague(adapter, settings) {
         text: `Stop at ${ladder.walk_away.give.map(names).join(' + ')}: past that, your backup plan is worth more.` } : null,
       replies: replyTable(st, { next, backup, ladder, nudge: `Still open to ${st.give.map(names).join(' + ')} for ${st.get.map(names).join(' + ')}?` }),
       send_when: m.send_when ?? null,
-      wait: waitOrAct(st, adapter.players),
+      wait: waitOrAct(st, adapter.players, { enabled: waitEnabled }),
+      ...(CP ? (() => {
+        const ps = adapter.priceStep(offer.team, offer.get, offer.give);
+        return { counterpart: { reply_mix: { ...M6_REPLY_PRIOR }, label: M6_LABEL, p_accept_challenger: ps.p,
+          p_accept_served: ps.p_before_counterpart ?? ps.p, yes_point_his_pct: yesPoint(curve),
+          reason_chain: [...(ps.features ?? []), ...(cap ? [cap.feature] : [])] } };
+      })() : {}),
     };
   };
   const playbook = best ? best.steps.map((_, i) => playbookFor(best, i, i === 0 ? (deck[1] ? { step: deck[1].steps[0], expected: deck[1].expected } : backups[0]) : backups[i])) : [];
   // A card's BATNA is the next card: swiping past a card means the ones before it were skipped.
-  const deckCards = deck.map((p, j) => ({ plan: p, playbook: j === 0 ? playbook[0]
-    : playbookFor(p, 0, deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) }));
+  // MSG-WIRE-2 (gated on coachMessagesOn): every step of every card gets its playbook, so Coach can
+  // write a message for it; step 0's BATNA stays the next card, a later step's BATNA is that card's
+  // own backup branch. Off, the deck is the incumbent's (step 0 only, no `playbooks` key).
+  const allSteps = coachMessagesOn();
+  const deckCards = deck.map((p, j) => {
+    if (!allSteps) return { plan: p, playbook: j === 0 ? playbook[0]
+      : playbookFor(p, 0, deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) };
+    if (j === 0) return { plan: p, playbook: playbook[0], playbooks: playbook };
+    const br = p.steps.length > 1 ? backupBranches(p.planned_on ?? p, ranked) : [];
+    const pbs = p.steps.map((_, i) => playbookFor(p, i, i === 0
+      ? (deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) : br[i] ?? null));
+    return { plan: p, playbook: pbs[0], playbooks: pbs };
+  });
 
   // Suggested targets: gain if landed x P(reach) x skip weight, with mode fit.
   const byMode = Object.fromEntries(MODES.map(mode => { const c = ctxFor(mode); return [mode, rankPlans(plans, mode, c.tol, c.ctx).ranked]; }));
@@ -190,9 +245,11 @@ export function planLeague(adapter, settings) {
     const gain = vals.addN.get(pid) ?? 0;
     const owner = vals.lossO.get(pid)?.team;
     const w = skipP.get(String(pid)) ?? 1;
+    const tt = tiltOf(pid);
     return { player: pid, owner, gain_if_landed: gain, gain_se: vals.addSe.get(pid) ?? null,
       p_reach: reach ? reach.p_complete : null, expected: reach ? reach.expected : null, mode_fit: fit,
-      rank_score: gain * (reach?.p_complete ?? 0) * w, skipped: w < 1,
+      rank_score: gain * (reach?.p_complete ?? 0) * w * tt.tilt, skipped: w < 1,
+      ...(CP ? { reason_chain: tt.features } : {}),
       why: `${names(pid)} adds ${(gain * 100).toFixed(1)} pts if landed; `
         + (reach ? `${reach.steps.length}-step path from Team ${owner}, lands ${(reach.p_complete * 100).toFixed(0)}% of the time.` : 'no path fits the sliders yet.'),
       approved: objective.kind === 'player' && String(objective.target) === String(pid) };
@@ -213,7 +270,10 @@ export function planLeague(adapter, settings) {
   });
 
   const clock = { currentWeek: L.week, deadlineWeek: L.deadline_week, daysLeftInWeek: L.days_left_in_week ?? 7 };
-  const speed = speedCurve(ranked, clock);
+  // Speed levers priced on the same ranked paths: the walk-away price of the best plan (its playbook
+  // ladder) and the all-in mode's best plan are the two re-priced routes (speed.js).
+  const conceded = best && playbook[0] ? concededPlan(best.planned_on ?? best, playbook[0].ladder) : null;
+  const speed = speedCurve({ ranked, conceded, allIn: byMode.all_in[0] ?? null }, clock);
 
   // Feasibility (row 9): points objective in full; player objective by path; weekly outlook always.
   let feasibility = null;
@@ -230,16 +290,25 @@ export function planLeague(adapter, settings) {
     feasibility = { kind: 'player', ...targetFeasibility({ target: objective.target, plan: best, currentWeek: L.week,
       deadlineWeek: L.deadline_week, daysLeftInWeek: clock.daysLeftInWeek, injured: !!tp.injury, bye: tp.bye ?? null }) };
   }
+  // FEAS-140: a league not planned on points still gets the points question, as its own card
+  // (feasibility_points) next to the league's card; a get-player league shows both, unnested.
+  const feasibility_points = objective.kind === 'points' ? null : sidePanelFeasibility({ objective, nowWeeks, roster, currentWeek: L.week, env,
+    plans: ranked.slice(0, SIDE_OPTIONS).map(p => ({ expected: p.expected, p_complete: p.p_complete,
+      arrive_week: arrivalWeek(p, L.week, { daysLeftInWeek: clock.daysLeftInWeek }), weeks: weeklyOf(p.steps[p.steps.length - 1].state),
+      give: [...new Set(p.steps.flatMap(s => s.give))], steps: p.steps.length })) });
   const outlook = nowWeeks ? weeklySummary(nowWeeks, 0) : null;
 
   // Catch-up list.
   const behind = isBehind(now.title, L.team_count ?? adapter.rosters.size);
+  const free = freeMoves(adapter.freeAgents ?? [], roster.filter(p => p.starter));
+  const sellers = sellersRead(managers);
+  const desperate = desperateMoves(ranked, sellers, { names,
+    playerValue: id => adapter.players.get(id)?.value, pResponds: t => pResponds(managers.get(t)).p });
   const items = [
-    ...freeMoves(adapter.freeAgents ?? [], roster.filter(p => p.starter)),
+    ...free,
     ...flip.realised.filter(f => f.legs && f.legs.expected > 0).map(f => ({ kind: 'flip', gain: f.legs.expected,
       text: `Buy ${names(f.player)} from Team ${f.a}, sell to Team ${f.b}.`, player: f.player })),
-    ...ranked.filter(p => { const m = managers.get(p.steps[0].team) ?? {}; return m.checked_out || (Number.isFinite(m.title_now) && m.title_now < 0.03); })
-      .slice(0, 2).map(p => ({ kind: 'desperate', gain: p.expected, steps: p.steps.length, plan_key: firstKey(p), text: `Team ${p.steps[0].team} is out of it: ${p.steps[0].get.map(names).join(' + ')} may come cheap.` })),
+    ...desperate.items,
     ...(behind ? byMode.all_in.slice(0, 1).map(p => ({ kind: 'swing', gain: p.expected, steps: p.steps.length, plan_key: firstKey(p),
       text: `You are behind: the all-in plan reaches +${(p.delta_final * 100).toFixed(1)} pts if it lands.` })) : []),
     ...playbook.filter(pb => pb.wait.flag === 'wait').map(pb => ({ kind: 'timing', gain: pb.wait.option_value, text: `Wait ${pb.wait.days} days: ${pb.wait.reason}.` })),
@@ -250,7 +319,11 @@ export function planLeague(adapter, settings) {
   mark('playbook_and_reports');
   const edge = new Map();
   for (const p of ranked) { const t = String(p.steps[0].team); edge.set(t, Math.max(edge.get(t) ?? 0, p.expected)); }
-  const partners = rankPartners(managers, edge);
+  // PARTNER-KERNEL: the league lets rankPartners build the who-trades-with-whom kernel when its flag is on
+  // (off: output unchanged). A fixture league without a season gets no kernel.
+  // REPRO-01: the kernel counts trades before the producer's run clock (adapter.asOfMs), not the wall clock.
+  const partners = rankPartners(managers, edge, CP ? { counterparts: CP, myIds } : null, { league: { id: L.id, me, season: L.season },
+    ...(Number.isFinite(adapter.asOfMs) ? { now: adapter.asOfMs } : {}) });
   // The Trade Lab finder's best single offer on the same league, and the composed-rescore probe:
   // both optional adapter hooks (the real adapter runs the served finder; a fixture may not).
   const finder_best = adapter.finderBest ? adapter.finderBest() : null;
@@ -258,15 +331,20 @@ export function planLeague(adapter, settings) {
   mark('finder_and_sanity');
 
   return {
-    league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: tol,
+    league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: { ...tol, max_overpay: maxOverpay },
+    no_overpay: overpay,
     now, behind, week: L.week, deadline_week: L.deadline_week ?? null,
     eta_week: best ? arrivalWeek(best, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) : null,
     finder_best, sanity,
     flip, targets: wanted, candidates_scored: plans.length, dropped: dropped.slice(0, 20).map(d => ({ first: d.plan.steps[0], why: d.why })),
-    best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook })),
+    best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook, ...(c.playbooks ? { playbooks: c.playbooks } : {}) })),
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
-    suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, outlook,
+    suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, feasibility_points, outlook,
     risk_modes: compareModes(plans, ctxFor), catch_up: catchUp, partners,
+    untouchable: { ids: [...untouchable], refused_targets: refused },
+    ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
+    sellers: { read: sellers, unreached: desperate.unreached.map(s => s.team) },
+    speed_levers: sideLevers({ free, waits: playbook.map(pb => pb.wait) }),
     rescores: S.count() + (confirm.rescores ?? 0), runtime_ms: clockNow() - t0, phases_ms: phases,
   };
 }

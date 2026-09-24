@@ -4,6 +4,7 @@ import { leagueTypeFromPayload } from '../services/format.js';
 import { BROWSER_HEADERS } from '../services/espn-draft.js';
 import { assertLeagueMember, assertCommissioner } from '../platform/auth.js';
 import { espnScoringReport, scoringSummary, scoringWarning } from '../services/espn-scoring-report.js';
+import { stampValueKind, LEAGUE_HUB_VALUE_FORMAT } from '../services/player-values.js';
 
 const r = Router();
 
@@ -428,7 +429,11 @@ r.get('/:id/analysis', (req, res) => {
       if (ratio > STRONG) ro.surplus.push(pos);
     }
   }
-  res.json({ league, averages, coverage, rosters });
+  // BROKEN-F: every value here is FantasyCalc's REDRAFT price, fetched once in
+  // the first-synced league's format (aggregates.js#syncFantasyCalc), not this
+  // league's format the trade finder prices in. Labelled so under preview.
+  res.json(stampValueKind({ league, averages, coverage, rosters }, 'market_value',
+    { format: LEAGUE_HUB_VALUE_FORMAT }));
 });
 
 export default r;

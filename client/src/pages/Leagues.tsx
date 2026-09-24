@@ -3,6 +3,7 @@ import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
 import { PlayerName } from '../components/PlayerCard';
 import { PageError, PageLoading } from '../components/PageState';
+import { valueLabel } from '../lib/playerValues';
 
 const POS_ORDER = ['QB', 'RB', 'WR', 'TE'];
 
@@ -191,7 +192,7 @@ export default function Leagues() {
         <div className="card overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-200">
             <h2 className="font-bold text-sm">{analysis.league.name} — roster strength by position</h2>
-            <p className="text-xs text-slate-500">Starter value vs league average, priced off real FantasyCalc trade values. Under 80% = need, over 115% = surplus.</p>
+            <p className="text-xs text-slate-500">Starter value vs league average, priced off {valueLabel(analysis, 'real FantasyCalc trade values')}. Under 80% = need, over 115% = surplus.</p>
             {analysis.coverage && analysis.coverage.matched_to_player_table < analysis.coverage.rostered_in_payload && (
               <p className="text-xs text-warn mt-1">
                 Only {analysis.coverage.matched_to_player_table} of {analysis.coverage.rostered_in_payload} rostered

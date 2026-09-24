@@ -53,6 +53,7 @@
 import crypto from 'node:crypto';
 import { rows } from '../db/index.js';
 import { vorBoard, volatility } from '../routes/edge.js';
+import { namedPlayerValues, carryNamedValues, namedValuesOn } from './player-values.js';
 import { deriveFormat } from './format.js';
 import { pickInventory } from './picks.js';
 import { analyzeLeague } from '../routes/tradelab.js';
@@ -300,7 +301,9 @@ const injuryFlagKey = () => crypto.createHash('sha1')
 export function assetUniverse(lg, formatKey, requested = null) {
   const target = requested ?? tradeWeekContext();
   return cached(
-    `assets:${lg.id}:${formatKey}:${target.season}:${target.week}`,
+    // The preview switch changes the asset's shape (BROKEN-F named values), so it
+    // is part of the key: flipping it must not serve the other shape from cache.
+    `assets:${lg.id}:${formatKey}:${target.season}:${target.week}${namedValuesOn() ? ':named' : ''}`,
     fingerprint(ASSET_INPUT_TABLES, assetInputsKey(lg, formatKey, target)),
     () => buildAssetUniverse(lg, formatKey, target));
 }
@@ -469,6 +472,9 @@ function buildAssetUniverse(lg, formatKey, target) {
       vor: v?.vor ?? 0,
       adp: v?.adp ?? null,
       value: m?.value ?? 0,
+      // BROKEN-F: `value` above is FantasyCalc, `vor` preseason VOR; the preview
+      // switch adds them by name (player-values.js), null where unpriced.
+      ...namedPlayerValues({ market: m, board: v }),
       trend30: m?.trend30 ?? null,
       pos_rank: m?.pos_rank ?? null,
       age: m?.age ?? ageByPlayer.get(p.id) ?? null,
@@ -1500,7 +1506,7 @@ export function lineupValueContext(lg, assets, teams) {
 const slim = p => ({
   id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
   espn_id: p.espn_id, sleeper_id: p.sleeper_id,
-  value: p.value, proj: p.proj, ppg: p.ppg, adj_ppg: p.adj_ppg,
+  value: p.value, ...carryNamedValues(p), proj: p.proj, ppg: p.ppg, adj_ppg: p.adj_ppg,
   age: p.age, bye: p.bye, injury: p.injury, available: p.available !== false,
   floor: p.floor, ceiling: p.ceiling, consistency: p.consistency,
   // sos / playoff_sos are left off: 1 with no validated signal behind them
@@ -1753,7 +1759,9 @@ function findTradesKey(lg, opts = {}, ctx = null) {
   const zeroKey = [...zero].sort().join(',');
   return `findTrades:${lg.id}:${formatKey}:${target.season}:${target.week}:` +
     `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:` +
-    `${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}:z${zeroKey}`;
+    `${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}:z${zeroKey}` +
+    // BROKEN-F: the preview switch changes each card player's shape (named values).
+    (namedValuesOn() ? ':named' : '');
 }
 
 /**

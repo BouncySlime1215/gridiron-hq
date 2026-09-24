@@ -140,7 +140,8 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
           }}>
           <Panel {...common('next')} title="Next move">
             {view.banner && <div className="wr-banner">{view.banner}</div>}
-            <NextMoveDeck key={`${activeId}:${view.snapshot?.id ?? ''}`} view={view} big={big('next')} initialState={deckInitial} onLog={onDeckLog} post={post} />
+            <NextMoveDeck key={`${activeId}:${view.snapshot?.id ?? ''}`} view={view} big={big('next')} initialState={deckInitial} onLog={onDeckLog} post={post}
+              onAsk={q => { setCoachOpen(true); void coach.ask(q); }} />
           </Panel>
           <Panel {...common('stops')} title="Stops">
             <Itinerary field={view.itinerary} big={big('stops')} />

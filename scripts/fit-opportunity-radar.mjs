@@ -46,7 +46,12 @@ const { solveLinear } = await import('../server/services/forecast-combination.js
 const { EVENT_TYPES, OUTCOMES, fitEffect, pairedGain, passesGate, pairAccuracy, magnitude, residual, ewma } = R;
 
 const t0 = Date.now();
-const pOut = R.loadPOut();
+// P(out) cells from the fit seasons only: the role-layer table includes 2024 (review of #377).
+const pOut = R.fitPOut(FIT);
+console.error('P(out) cells (fit seasons only) at or above ' + R.OUT_THRESHOLD + ' or near it:');
+for (const [key, c] of Object.entries(pOut.cells).sort()) {
+  if (c.p_out >= 0.4 && !key.startsWith('out|')) console.error(`  ${key} n=${c.n} p_out=${c.p_out}`);
+}
 const bySeason = new Map();
 for (const s of [...FIT, GRADE]) {
   bySeason.set(s, R.buildRadarRows(s, { pOut }).filter(r => r.played));

@@ -170,3 +170,17 @@ test('every served effect that passes the gate carries both CIs clear of zero', 
     assert.ok(e.graded.ci[0] > 0, `${k} graded CI`);
   }
 });
+
+test('study P(out) cells come from the fit seasons only (the graded season never defines "out")', () => {
+  const empty = R.fitPOut([2019]);
+  assert.equal(empty('Questionable', 'Did Not Participate In Practice', 'WR'), 0.25, 'no rows: report-status default');
+  for (let i = 0; i < 5; i++) {
+    run(`INSERT INTO nfl_injuries (season, week, gsis_id, team, full_name, position, report_status, practice_status)
+         VALUES (?,?,?,?,?,?,?,?)`, 2019, 1, `00-00190${i}`, 'AAA', `x${i}`, 'WR', 'Questionable', 'Did Not Participate In Practice');
+  }
+  const p = R.fitPOut([2019]);
+  assert.equal(p.cells['questionable|dnp|WR'].n, 5, 'only the 2019 rows are counted, not the 2024 fixture');
+  assert.ok(Math.abs(p('Questionable', 'Did Not Participate In Practice', 'WR') - (5 + 10 * 0.25) / 15) < 1e-9);
+  assert.equal(p('Questionable', 'Did Not Participate In Practice', 'RB'), 0.25, 'no RB cell: default');
+  assert.throws(() => R.fitPOut([]));
+});

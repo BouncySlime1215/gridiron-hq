@@ -15,6 +15,7 @@
  *   sanity            composed rescore == served tradeImpact on one one-for-one deal
  */
 import { chatLabels } from '../../server/services/campaign/partners.js';
+import { stopwatch } from '../../server/services/campaign/run-clock.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 const FLEX = { FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'], WRRB_FLEX: ['RB', 'WR'],
@@ -111,14 +112,18 @@ export function sentThisWeek(svc, leagueId, season, me, now) {
  * Build the adapter for one league. chat: Map roster -> { profile, negotiation, sentiment: [{ player
  * (name), sentiment_mean, n }], nick } from scripts/campaign/chat-labels.mjs, or null (no chat -> every
  * label 'unknown').
+ * REPRO-01: now is the producer's run clock in ms (run-clock.js; required, no wall-clock default);
+ * timingCutoff: the explicit --as-of (ISO) or null (timing rows read uncapped, as before);
+ * seed: --seed, the planning world's seed, or null for tradeImpactSeed(lg).
  */
-export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true } = {}) {
+export function buildAdapter(svc, leagueId, { chat = null, now = null, timingCutoff = null, seed = null, finder = true } = {}) {
+  if (!Number.isFinite(now)) throw new Error('buildAdapter: now (the run clock, ms) is required');
   const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg) throw new Error(`league ${leagueId} not found`);
   const payload = JSON.parse(lg.payload ?? '{}');
   const me = String(lg.my_team_id);
   const { tradeImpactWorld, tradeImpact, __test: { lineupPoints } } = svc.sim;
-  const w0 = tradeImpactWorld(lg);
+  const w0 = seed == null ? tradeImpactWorld(lg) : tradeImpactWorld(lg, { seed });
   if (w0.fail) return { fail: String(w0.fail?.error ?? w0.fail) };
   const assets = w0.prep.assets;
   const worlds = new Map([[w0.key.seed, w0]]);
@@ -190,7 +195,7 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   const week = svc.week.leagueCurrentWeek(lg);
   const season = lg.season ?? payload.seasonId;
   const layer = svc.cp.counterpartyLayer(leagueId, { season, week });
-  const timing = svc.tactics.timingRead(leagueId, { season });
+  const timing = svc.tactics.timingRead(leagueId, { season, now: timingCutoff });
   const blocked = new Set(svc.db.rows(`SELECT roster_id FROM manager_profiles WHERE league_id = ? AND tradeability = 'never'`, leagueId)
     .map(r => String(r.roster_id)));
   const sent = sentThisWeek(svc, leagueId, season, me, now);
@@ -275,7 +280,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
     ...(finder ? { finderBest } : {}),
-    now: () => Date.now(),
+    // planner.js times its phases with adapter.now (runtime_ms / phases_ms): elapsed time, not the world.
+    now: stopwatch,
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     rosterKey: () => [...rosters.entries()].map(([t, ids]) => `${t}:${[...ids].sort((a, b) => a - b).join(',')}`).join('|'),
   };

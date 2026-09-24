@@ -39,7 +39,7 @@ import { counterpartyLayer, valuationMap, playerValuation, RECEPTIVENESS_RANGE, 
 import { requirePlatformAdmin } from '../platform/legacy-access.js';
 import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE, PROMPT_VERSION }
   from '../services/trade-proposals.js';
-import { recordProposalSlate } from '../services/trade-outcomes.js';
+import { recordProposalSlate, recordSentOffer } from '../services/trade-outcomes.js';
 import { lineupCall } from '../services/lineup-brain.js';
 import { lineupSignals } from '../services/lineup-signals.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
@@ -827,6 +827,38 @@ r.get('/:leagueId/proposals', async (req, res, next) => {
       ledger = { state: 'write_failed', reason: String(e?.message ?? e) };
     }
     res.json({ ...result, outcome_ledger: ledger });
+  } catch (e) { next(e); }
+});
+
+/**
+ * "I sent this" (CLONE-01b b1). Nick proposed this deal on ESPN himself; this
+ * records that it was sent, with the P(accept) band the card showed him, so the
+ * post-sync settle job can grade it against ESPN's reply. It never sends
+ * anything to ESPN.
+ *
+ * The band is the one on the deal as served. It is not recomputed here: a
+ * re-run now would score a different model against a decision already made.
+ */
+r.post('/:leagueId/offers/sent', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const deal = req.body?.deal;
+    if (!deal || deal.partner_id == null || !Array.isArray(deal.i_give) || !Array.isArray(deal.i_get)) {
+      return res.status(400).json({ error: 'deal with partner_id, i_give and i_get required' });
+    }
+    let out;
+    try {
+      out = recordSentOffer({
+        league_id: lg.id, season: lg.season ?? null,
+        proposer_team_id: String(req.body?.team_id ?? lg.my_team_id ?? '') || null,
+        deal, model_version: 'acceptanceBand/served-deal',
+      });
+    } catch (e) {
+      // The writer refuses a deal it cannot grade (no band, no season). That is
+      // the caller's input, said as such, not a server fault.
+      return res.status(400).json({ error: String(e?.message ?? e) });
+    }
+    res.json(out);
   } catch (e) { next(e); }
 });
 

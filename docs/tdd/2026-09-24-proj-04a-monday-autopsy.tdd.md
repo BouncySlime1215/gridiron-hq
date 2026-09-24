@@ -47,4 +47,33 @@ Unit PROJ-04-a (ENGINE-SPECS.md, `## PROJ-04: Monday Autopsy`, handoff package
 - Script is the pass/run mix shift at projected plays; the Vegas miss is recorded beside it, not
   regressed onto it.
 - Rows use PPR (scoring.js) like the ledger, not each league's scoringItems.
-- No route or My team card yet; `weekPostmortem` is the only reader.
+- Readers: `weekPostmortem`, GET `/api/trades/:leagueId/autopsy` and the My team card (FIX-251-3).
+
+## 4. PR-sweep fixes (FIXPR-251)
+
+- **FIX-251-1** migration is `092_projection_autopsy` (MIGRATIONS.md registry row #251 = 092; sweep ruling 15
+  overrides the sweep's 084 suggestion, which is #247's). No other open PR uses prefix 092.
+- **FIX-251-2** news timing compares instants: `julianday(published_at) > julianday(as_of) AND
+  julianday(published_at) < julianday(kickoff)`. RED: with the old string compare, the new test (a
+  `'2026-09-18 15:00:00'` signal three hours after a `2026-09-18T12:00:00Z` snapshot) fails, 11 pass / 1 fail;
+  GREEN with julianday, 12 / 0. A same-day signal three hours before the snapshot stays out.
+- **FIX-251-3** `seasonRollup(leagueId, season, throughWeek)`: per link over starter weeks (total and |points|),
+  luck vs knowable, `luck_share` of |points|, the knowable link with the largest |points|, and `source_right`
+  counts (once per player-week, since the verdict is per player-week). `autopsyView` serves the week (latest
+  stored by default) plus the rollup at GET `/api/trades/:leagueId/autopsy` (membership-checked `league()`
+  door). My team card: team line, our starters' line, failing link. Flag `GRIDIRON_MONDAY_AUTOPSY`
+  (`mondayAutopsyFields`, preview mode turns it on labelled; `=0` vetoes preview). The job is not flagged.
+- **FIX-251-4** one team split: `teamSplit` reads AUTOPSY-01's `weekly_autopsy` (#295, E7's source) for the
+  team `decision_points` / `luck_points` and `lineup_grade`; the stored summary leads with its line. The
+  per-player links are the drill-down. Reconciliation, exact by construction:
+  `team luck = luck links + knowable links + actual_basis_gap + expected_basis_gap`, where the two labelled
+  basis rows are (team actual, league scoring, all starters − our starters' PPR actual) and (our served
+  projection − ESPN pregame expected). Fixture: residual < 1e-9. With no weekly_autopsy row the team number is
+  null with the reason, and nothing else produces one.
+- **FIX-251-5** run on a `.backup` copy of the live DB, league 4, 2026 week 2 (latest with box scores): 117 link
+  rows, 13 players (8 starters), basis `links` for all 13, 3 start/sit calls, 3.5 s. Misses >= 0.5: 12, of
+  which 6 have luck links carrying more than half their |points|; |points| luck share 0.48 over all players,
+  0.52 over starters. news_missed links: 0 (no verified role/availability signal fell in any window).
+  `nfl_news_signals_current.player_id` -> `players.id`: 0 unmatched and 0 null for both extractors
+  (`claude-typed-news-2026.1` 41 rows, `typed-rules-2026.1` 129 rows). weekly_autopsy absent on the copy, so
+  the team number was null there.

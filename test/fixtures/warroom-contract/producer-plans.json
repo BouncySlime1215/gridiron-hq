@@ -166,6 +166,10 @@
         "value": 0.38,
         "source": "clone.accept"
        },
+       "p_yes_band": {
+        "low": 0.28,
+        "high": 0.48
+       },
        "title_odds_delta": {
         "status": "ok",
         "value": 0.018,

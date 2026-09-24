@@ -115,7 +115,12 @@ const step = obj({
   walk_away: field(obj({ text: str, max_give: arr(pid) })),
   send_when: field(str),
   reply_table: field(obj({ accept: field(reply), decline: field(reply), counter: field(reply), silence: field(reply) }))
-}, { reasoning: field(reasoning) });
+}, {
+  reasoning: field(reasoning),
+  // ACQ-01 (INTEGRATION-AUDIT-0923 P25): the acceptance band the step's P(yes) is the
+  // centre of, so a War Room "I sent it" can be graded against it (#239 recordSentOffer).
+  p_yes_band: obj({ low: prob, high: prob })
+});
 
 /** A plan: one deck card. */
 const move = obj({

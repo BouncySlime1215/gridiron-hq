@@ -126,3 +126,22 @@ export function checkMessage(text, facts) {
   }
   return { ok: errors.length === 0, errors, claims };
 }
+
+/**
+ * VOICE-01: a message sent as several short texts (bursts, one per line). Each burst is checked
+ * on its own (so a burst's capitalised first word counts as a sentence start) and the whole
+ * message keeps the MAX_CHARS limit. A one-line message checks exactly as checkMessage.
+ */
+export function checkBursts(text, facts) {
+  const lines = String(text ?? '').split('\n');
+  if (lines.length === 1) return checkMessage(text, facts);
+  const out = { ok: true, errors: [], claims: { players: [], numbers: [], positions: [] } };
+  if (String(text).length > MAX_CHARS) out.errors.push(`too long: ${String(text).length} > ${MAX_CHARS} characters`);
+  for (const line of lines) {
+    const c = checkMessage(line, facts);
+    out.errors.push(...c.errors);
+    for (const k of Object.keys(out.claims)) out.claims[k].push(...c.claims[k]);
+  }
+  out.ok = out.errors.length === 0;
+  return out;
+}

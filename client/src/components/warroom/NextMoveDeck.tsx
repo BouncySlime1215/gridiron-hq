@@ -204,7 +204,7 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
         {target && (
           <div className="wr-sub">Step 1 of {m.steps.length} toward {target.name}{m.target_owner ? ` (${teamLabel(m.target_owner)})` : ''}</div>
         )}
-        <div className="wr-tiles">
+        <div className="wr-tiles wr-tiles-2">
           <div className="wr-tile">
             <div className="wr-l">Chance he says yes</div>
             <div className="wr-v wr-amber"><Val f={s.p_yes} fmt={v => pct(v)} /></div>
@@ -219,11 +219,8 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
                 : <span title={titleNow?.reason}>odds now: {NOT_COMPUTED}</span>}
             </div>
           </div>
-          <div className="wr-tile">
-            <div className="wr-l">Walk away if</div>
-            <div className="wr-v wr-v-text"><Val f={s.walk_away} fmt={v => v.text} /></div>
-          </div>
         </div>
+        {/* UI-POLISH-2: the walk-away lives on the ladder's "Walk away at" rung only (no separate tile). */}
         <Ladder s={s} text={n.text} />
         {/* HIS-SCREEN-FIX: the card's offer as he sees it (precomputed by the planner; the route only reads). */}
         <HisScreenToggle leagueId={leagueId} offer={{ partner: String(s.partner), give: s.give.map(String), get: s.get.map(String) }} />

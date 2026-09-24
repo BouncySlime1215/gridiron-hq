@@ -26,6 +26,7 @@
  */
 process.env.SCHEDULER_DISABLED = '1';
 import { execFileSync } from 'node:child_process';
+import { printJsonThenExit } from './lib/flush-then-exit.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertPaidRunOptIn } from './paid-run-optin.mjs';
@@ -265,11 +266,18 @@ if (WANT_JEV) {
 }
 
 if (AS_JSON) {
-  console.log(JSON.stringify({
+  // This report is CAPTURED — server/services/scheduler.js:637 reads it through
+  // execFile. `console.log` then `process.exit(0)` loses its tail, and the
+  // report grows with the number of leagues, so it moves towards that cliff.
+  // printJsonThenExit exits once the bytes have actually left the process.
+  printJsonThenExit({
     summary: { ...summary, detail: undefined },
     repeatability,
     reliability,
     jev: jevReport,
-  }, null, 2));
+  });
 }
+// The human path only. It prints many small lines rather than one large report,
+// and no parent captures this script without --json; left as it was so this
+// change is the machine path and nothing else.
 process.exit(0);

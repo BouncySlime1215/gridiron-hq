@@ -16,6 +16,7 @@
  */
 process.env.SCHEDULER_DISABLED = '1';
 const { db, rows, run } = await import('../server/db/index.js');
+const { exitWhenFlushed } = await import('./lib/flush-then-exit.mjs');
 const { BROWSER_HEADERS } = await import('../server/services/espn-draft.js');
 const { settleOfferLoop } = await import('../server/services/trade-outcomes.js');
 
@@ -84,4 +85,9 @@ console.log(`transactions: seen ${totalSeen}, new ${totalNew}, failed ${failed}`
 run(`INSERT INTO sync_log (job, last_run_at, last_status, last_detail, runs) VALUES ('league_transactions', ?, ?, ?, 1)
      ON CONFLICT(job) DO UPDATE SET last_run_at=excluded.last_run_at, last_status=excluded.last_status,
      last_detail=excluded.last_detail, runs=runs+1`, now, failed ? 'error' : 'ok', JSON.stringify({ seen: totalSeen, new: totalNew, failed }));
-process.exit(0);
+// Flush before coming down: this script's stdout is CAPTURED by
+// scripts/refresh-live-data.mjs:99 through spawnSync, whose stdio is a pipe,
+// and process.exit() does not flush a pipe. The summary line above is the LAST
+// thing printed and so the first thing a truncated pipe loses -- and the parent
+// reads exactly that line to decide whether this run succeeded.
+exitWhenFlushed(0);

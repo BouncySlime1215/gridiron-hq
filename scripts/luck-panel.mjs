@@ -31,6 +31,9 @@
  */
 process.env.SCHEDULER_DISABLED = '1';
 const { rows } = await import('../server/db/index.js');
+// Dynamic, like the line above, because SCHEDULER_DISABLED must be set before
+// anything else in this file loads. The helper itself imports nothing.
+const { printJsonThenExit } = await import('./lib/flush-then-exit.mjs');
 
 const argv = process.argv.slice(2);
 const argOf = n => { const i = argv.indexOf(n); return i > -1 ? argv[i + 1] : null; };
@@ -133,7 +136,11 @@ for (const { league_id, season } of seasons) {
   if (a) all.push(a);
 }
 
-if (AS_JSON) { console.log(JSON.stringify(all, null, 2)); process.exit(0); }
+// This report is CAPTURED — scripts/build-manager-archetypes.mjs:50 reads it
+// through execFileSync, whose default stdio is a pipe. `console.log` then
+// `process.exit(0)` loses the tail of it; `all` grows with league-seasons x
+// teams, so the report moves towards that cliff rather than sitting below it.
+if (AS_JSON) printJsonThenExit(all);
 
 for (const a of all) {
   console.log(`\n=== league ${a.league_id} ${names.get(a.league_id) ?? ''} — ${a.season} ===`);

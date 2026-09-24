@@ -28,6 +28,7 @@
  */
 process.env.SCHEDULER_DISABLED = '1';
 const { run } = await import('../server/db/index.js');
+const { exitWhenFlushed } = await import('./lib/flush-then-exit.mjs');
 const { refreshManagerData } = await import('../server/services/manager-signals.js');
 
 const AS_JSON = process.argv.includes('--json');
@@ -67,4 +68,9 @@ if (AS_JSON) {
   }
   console.log(`manager_signals: ${result.status}${result.error ? ` (${result.error})` : ''} in ${result.ms ?? '?'} ms`);
 }
-process.exit(result.status === 'ok' ? 0 : 1);
+// Flush before coming down: this script's stdout is CAPTURED by
+// scripts/refresh-live-data.mjs:220 through spawnSync, whose stdio is a pipe,
+// and process.exit() does not flush a pipe. The summary line above is the LAST
+// thing printed and so the first thing a truncated pipe loses -- and the parent
+// reads exactly that line to decide whether this run succeeded.
+exitWhenFlushed(result.status === 'ok' ? 0 : 1);

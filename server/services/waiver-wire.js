@@ -288,6 +288,10 @@ export function waiverBoard(lg, {
     const rosDrop = rosDropForStash;
     const rosAfter = rosAfterWith(fa);
     board.push({
+      // The ids travel with the names so the recommendation ledger
+      // (rec-ledger.js recordRoute 'waivers') can grade the claim; names alone
+      // are not a join key.
+      player_id: fa.id ?? null,
       player: fa.name, position: fa.position, team: fa.team_abbr ?? fa.team,
       projected_ppg: +weekPpg(fa).toFixed(2),
       ros_ppg: fa.ros_ppg ?? null,
@@ -299,7 +303,7 @@ export function waiverBoard(lg, {
       upgrade: +upgrade.toFixed(2),
       // Whether he would actually start, which is what makes the upgrade real.
       would_start: (after?.slots ?? []).some(s => s.player?.id === fa.id),
-      drop_candidate: drop ? { player: drop.name, position: drop.position, ppg: +weekPpg(drop).toFixed(2),
+      drop_candidate: drop ? { player_id: drop.id ?? null, player: drop.name, position: drop.position, ppg: +weekPpg(drop).toFixed(2),
         ros_ppg: drop.ros_ppg ?? null } : null,
       // What the claim-and-cut does to the rest-of-season lineup: never negative.
       ros_change: safe ? +(safe.rosAfter - rosBaseline).toFixed(2) : null,
@@ -308,7 +312,7 @@ export function waiverBoard(lg, {
       // The cut the stash figure assumes. When it differs from drop_candidate, the
       // immediate claim and the stash claim imply different cuts, and the card
       // should say so rather than pretend there is one answer.
-      ros_drop_candidate: rosDrop ? { player: rosDrop.name, position: rosDrop.position,
+      ros_drop_candidate: rosDrop ? { player_id: rosDrop.id ?? null, player: rosDrop.name, position: rosDrop.position,
         ros_ppg: rosDrop.ros_ppg ?? null } : null,
       passes_week_gate: passesWeek(fa),
       passes_ros_gate: passesRos(fa),

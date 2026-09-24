@@ -34,6 +34,14 @@ import { leagueRules } from './league-rules.js';
 
 /** Published finals-to-advance exchange rate. */
 export const PLAYOFF_IMPORTANCE = 4;
+/** RL-16-1 RED stub. */
+export function playoffImportance() {
+  return { value: PLAYOFF_IMPORTANCE, measured: false, source: 'unmeasured' };
+}
+/** RL-16-1 RED stub. */
+export function leagueShape() {
+  return { teams: null, playoffTeams: null };
+}
 /** Last week of the regular season in a standard ESPN league. */
 export const REGULAR_SEASON_END = 14;
 

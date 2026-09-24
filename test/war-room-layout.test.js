@@ -22,7 +22,7 @@ import { loadWarRoom, textOf, WARROOM_DIR } from './helpers/warroom-tsx.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
-const producer = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'warroom-contract', 'producer-plans.json'), 'utf8'));
+const producer = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'warroom-contract', 'ui-contract-plans.json'), 'utf8'));
 const { buildWarRoomView } = await import('../server/services/war-room-view.js');
 
 const wr = await loadWarRoom();

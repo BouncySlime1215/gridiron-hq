@@ -2,8 +2,9 @@
  * Loads client/src/components/warroom/* for a node:test render: every .ts/.tsx file is
  * compiled with the repo's own TypeScript into a temp dir, relative imports get their
  * .mjs suffix, the stylesheet import is dropped, React and its JSX runtime point at the
- * repo's copy (the same React the test renders with), and '../../api' is a stub whose
- * useApi returns globalThis.__warRoomApi[path].
+ * repo's copy (the same React the test renders with), and the app's api module is a stub:
+ * useApi returns globalThis.__warRoomApi[path], and api() throws unless a test set
+ * globalThis.__warRoomApiCall (path, opts) to answer it. Subfolders (coach/) compile too.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -33,22 +34,33 @@ export const jsx = rt.jsx; export const jsxs = rt.jsxs; export const Fragment = 
   const d = (globalThis.__warRoomApi ?? {})[p] ?? null;
   return { data: d, loading: false, refreshing: false, error: null, refetch() {} };
 }
-export function api() { throw new Error('the War Room must not call api() directly'); }`);
+export function api(p, opts) {
+  const call = globalThis.__warRoomApiCall;
+  if (!call) throw new Error('the War Room must not call api() directly');
+  return call(p, opts);
+}`);
 
-  for (const file of fs.readdirSync(WARROOM_DIR)) {
-    if (!/\.tsx?$/.test(file)) continue;
-    const src = fs.readFileSync(path.join(WARROOM_DIR, file), 'utf8');
-    let { outputText } = ts.transpileModule(src, {
-      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, isolatedModules: true },
-    });
-    outputText = outputText
-      .replace(/^import ['"]\.\/[^'"]+\.css['"];?\s*$/gm, '')
-      .replace(/from ['"]react\/jsx-runtime['"]/g, `from '${runtimeUrl}'`)
-      .replace(/from ['"]react['"]/g, `from '${reactUrl}'`)
-      .replace(/from ['"]\.\.\/\.\.\/api['"]/g, `from '${apiUrl}'`)
-      .replace(/from ['"]\.\/([\w-]+)['"]/g, "from './$1.mjs'");
-    write(file.replace(/\.tsx?$/, '.mjs'), outputText);
-  }
+  const compile = (dir, rel) => {
+    fs.mkdirSync(path.join(temp, rel), { recursive: true });
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (ent.isDirectory()) { compile(path.join(dir, ent.name), path.join(rel, ent.name)); continue; }
+      if (!/\.tsx?$/.test(ent.name)) continue;
+      const src = fs.readFileSync(path.join(dir, ent.name), 'utf8');
+      let { outputText } = ts.transpileModule(src, {
+        fileName: ent.name,
+        compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, isolatedModules: true },
+      });
+      outputText = outputText
+        .replace(/^import ['"]\.\/[^'"]+\.css['"];?\s*$/gm, '')
+        .replace(/from ['"]react\/jsx-runtime['"]/g, `from '${runtimeUrl}'`)
+        .replace(/from ['"]react['"]/g, `from '${reactUrl}'`)
+        .replace(/from ['"](?:\.\.\/)+api['"]/g, `from '${apiUrl}'`)
+        .replace(/from ['"](\.{1,2}\/[\w/-]+)['"]/g, (_, spec) =>
+          `from '${spec}${fs.existsSync(path.join(dir, spec)) && fs.statSync(path.join(dir, spec)).isDirectory() ? '/index' : ''}.mjs'`);
+      write(path.join(rel, ent.name.replace(/\.tsx?$/, '.mjs')), outputText);
+    }
+  };
+  compile(WARROOM_DIR, '');
   const mod = name => import(pathToFileURL(path.join(temp, `${name}.mjs`)).href);
   return { temp, mod, cleanup: () => fs.rmSync(temp, { recursive: true, force: true }) };
 }

@@ -11,8 +11,9 @@
  *  - preview -> every server sentence carries the prefix;
  *  - failed and unknown fields never carry a value, anywhere in the view;
  *  - no plans file / no entry / planner error / failed self-check each have their own state.
- * Fixtures: test/fixtures/warroom-contract/producer-plans.json (the contract's producer
- * fixture) and test/fixtures/war-room-plans.json (the study's old shape). Invented player
+ * Fixtures: test/fixtures/warroom-contract/ui-contract-plans.json (#238's hand-written
+ * contract fixture with FIX-03's three extra sections, for exact names and numbers),
+ * test/fixtures/warroom-contract/producer-plans.json (the real producer's output, FIX-03) and test/fixtures/war-room-plans.json (the study's old shape). Invented player
  * names and team ids only.
  */
 import test from 'node:test';
@@ -23,7 +24,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.join(HERE, 'fixtures', 'warroom-contract', 'producer-plans.json');
+const FIXTURE = path.join(HERE, 'fixtures', 'warroom-contract', 'ui-contract-plans.json');
+const REAL = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'warroom-contract', 'producer-plans.json'), 'utf8'));
 const STUDY_FIXTURE = path.join(HERE, 'fixtures', 'war-room-plans.json');
 const producer = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
 const study = JSON.parse(fs.readFileSync(STUDY_FIXTURE, 'utf8'));
@@ -118,6 +120,22 @@ test('the deck is alternatives.value: a head that differs from alternatives[1] i
   assert.equal(v.alternatives.value[0].rank, 1);
   assert.equal(v.alternatives.value[0].steps[0].partner, '7');
   assert.equal(v.next_move.value.move_id, v.alternatives.value[0].move_id);
+});
+
+test('the real producer fixture (FIX-03): every section passes through, _run stays out, the deck head is next_move', () => {
+  for (const entry of REAL.leagues) {
+    const v = buildWarRoomView(entry.league, plansOf(REAL), ON);
+    assert.equal('_run' in v, false, "the producer's bookkeeping is not served");
+    if (entry.error) {
+      for (const k of Object.keys(SECTIONS)) assert.equal(v[k].status, 'failed', `${entry.league} ${k}`);
+      continue;
+    }
+    for (const k of Object.keys(SECTIONS)) assert.deepEqual(v[k], entry[k], `league ${entry.league}: ${k} passes through`);
+    if (v.alternatives.status === 'ok' && v.alternatives.value.length) {
+      assert.equal(v.alternatives.value[0].rank, 1);
+      assert.equal(v.next_move.value.move_id, v.alternatives.value[0].move_id);
+    }
+  }
 });
 
 test('number_health: passes through when the contract declares it, else unknown with a reason', () => {

@@ -56,7 +56,7 @@ globalThis.__warRoomApiCall = async (p, opts = {}) => {
   return body;
 };
 
-const PLANS = JSON.parse(fs.readFileSync(new URL('./fixtures/warroom-contract/producer-plans.json', import.meta.url), 'utf8')).leagues[0];
+const PLANS = JSON.parse(fs.readFileSync(new URL('./fixtures/warroom-contract/ui-contract-plans.json', import.meta.url), 'utf8')).leagues[0];
 const { default: CoachDock } = await wr.mod('coach/CoachDock');
 const { useWarRoomCoach } = await wr.mod('coach/useWarRoomCoach');
 const client = await wr.mod('coach/warroomCoach');

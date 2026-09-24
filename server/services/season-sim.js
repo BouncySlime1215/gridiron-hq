@@ -33,6 +33,7 @@ import { weeklyAvailability } from './contingency.js';
 import { leagueCurrentWeek } from './league-week.js';
 import { previewUnconfirmed, previewFields } from './preview-mode.js';
 import { oneWorldFlag, oneWorldSeed, rosFactor } from './one-world.js';
+import { projectionAsOf } from './projection-asof.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
@@ -282,7 +283,7 @@ function playBracket(field, { playoff_weeks: roundWeeks, reseed }, scoreFor) {
 
 // Narrowly exposed for deterministic regression tests. These helpers contain
 // the decision-timing rules whose accidental reversal creates hindsight bias.
-export const __test = { lineupPoints, initialRecords, playBracket, addMedianResults };
+export const __test = { lineupPoints, initialRecords, playBracket, addMedianResults, asofScale };
 
 /* ------------------------------------------------- the projection basis */
 
@@ -345,7 +346,70 @@ function rosScale(roster, proj, flag) {
   };
 }
 
-const basisKey = flag => (flag.on ? 'ros' : 'last_season');
+const basisKey = (flag, asof = simAsofFlag()) => (asof.on ? 'ros_asof' : flag.on ? 'ros' : 'last_season');
+
+/* ------------------------------------------- SIM-CALIB: as-of projection level */
+
+/**
+ * SIM-CALIB (BROKEN-NUMBERS row R/A, last piece): the pools' level is each player's
+ * rate AS OF the simulation's first week (projection-asof.js#projectionAsOf): the
+ * preseason projection at week 1, the in-season rest-of-season rate from week 2 on,
+ * built only from games before that week. RL-17-3's scale read ros_ppg, which is
+ * empty at week 1 (so pools stayed on last season's level, ~0.93x) and is built for
+ * the current week (so a replay of an earlier week read its own results).
+ *
+ * Every simulated week uses the rate as of the start week: a run from week w knows
+ * nothing from week w on. The pool's shape and the availability (contingency.js
+ * #weeklyAvailability, the fitted role rates) are unchanged; only the volume scale
+ * moves, exactly as RL-17-3 does. A player the as-of model has no rate for keeps last
+ * season's level and is counted in `ros_unscaled`.
+ *
+ * It is the RL-17-3 ROS basis made strictly as-of, not a second basis: the result
+ * still says projection_basis 'ros' (plus `ros_asof_week` and how many players were on
+ * the preseason vs the in-season rate), and for every player who has played it equals
+ * RL-17-3's ros_ppg when the sim starts at the current week.
+ *
+ * GRIDIRON_SIM_ASOF_PROJ: '1' on, '0' off, unset = off unless preview mode.
+ * GRIDIRON_RL17_3_ENABLED=0 (the ROS basis kill switch) vetoes it too.
+ */
+export const SIM_ASOF_ENV = 'GRIDIRON_SIM_ASOF_PROJ';
+const SIM_ASOF_PREVIEW_REASON =
+  'Season sim centred on the as-of projection (preseason at week 1, rest-of-season after; SIM-CALIB); default off until confirmed on 2026 weeks';
+
+/** { on, preview }: read per call, so a test or a run can flip it. */
+export function simAsofFlag() {
+  if (process.env[RL17_3_ENV] === '0') return { on: false, preview: false };
+  const v = process.env[SIM_ASOF_ENV];
+  if (v === '1') return { on: true, preview: false };
+  if (v === '0') return { on: false, preview: false };
+  const preview = previewUnconfirmed();
+  return { on: preview, preview };
+}
+
+/** Per-player volume factor onto the as-of rate for a simulation starting at `fromWeek`. */
+function asofScale(roster, proj, { season, fromWeek, scoring, flag, basisFlag = { on: false }, asOf = projectionAsOf }) {
+  const scale = new Map();
+  if (!flag.on) return null;
+  const rates = asOf({ season, week: fromWeek, scoring });
+  let unscaled = 0, preseason = 0, inSeason = 0;
+  for (const p of roster) {
+    const r = rates.get(p.id);
+    const f = rosFactor(r?.ppg, proj.get(p.id)?.ppg);
+    if (f === undefined) { if (proj.get(p.id)) unscaled++; continue; }
+    scale.set(p.id, f);
+    if (r.source === 'preseason') preseason++; else inSeason++;
+  }
+  return {
+    scale,
+    fields: {
+      projection_basis: 'ros', ros_asof_week: fromWeek,
+      ros_scaled: scale.size, ros_unscaled: unscaled, ros_preseason: preseason, ros_in_season: inSeason,
+      // On only because of preview mode: name every reason that applies.
+      ...(flag.preview ? previewFields(basisFlag.preview
+        ? `${RL17_3_PREVIEW_REASON}; ${SIM_ASOF_PREVIEW_REASON}` : SIM_ASOF_PREVIEW_REASON) : {})
+    }
+  };
+}
 
 const scaled = (mult, f) => f === undefined ? mult : { pass: mult.pass * f, rush: mult.rush * f };
 
@@ -510,7 +574,7 @@ export function simulateSeason(lg, {
  * unless `worldId` names it (EA-07: the week's world, oneWorldSeed).
  */
 function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = null, projections = null, universe = null,
-  basisFlag = rosBasisFlag(), worldId = null, kdstFlag = simKdstFlag() }) {
+  basisFlag = rosBasisFlag(), worldId = null, kdstFlag = simKdstFlag(), asofFlag = simAsofFlag() }) {
   const fromWeek = simStartWeek(lg, requestedWeek);
   // The league's own rules, never a hard-coded default: a missing field is a
   // named error with its payload path (league-rules.js#simRulesProblem).
@@ -547,7 +611,9 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
     .filter(p => SCORED.has(p.position))
     .sort((a, b) => (a.id > b.id) - (a.id < b.id));
   // RL-17-3: the finder's ros_ppg as each pool's mean (empty when the flag is off).
-  const basis = rosScale(roster, proj, basisFlag);
+  // SIM-CALIB: with the as-of flag on, the level is the as-of rate instead.
+  const basis = asofScale(roster, proj, { season: SEASON, fromWeek, scoring, flag: asofFlag, basisFlag })
+    ?? rosScale(roster, proj, basisFlag);
   // One draw from the caller's stream names this simulated world. Every random
   // number below is addressed by (world, player, week[, run]) off it, so under
   // one seed the same player gets the same football in every configuration.
@@ -825,13 +891,14 @@ export function tradeImpactWorld(lg, {
   const universeIds = [...new Set([...universe].map(Number))].sort((a, b) => a - b);
   const basisFlag = rosBasisFlag();
   const kdstFlag = simKdstFlag();
+  const asofFlag = simAsofFlag();
   const mode = worldMode();
   const prep = withRandomSeed(pairedSeed,
-    () => prepareSeason(lg, { requestedWeek, scoring, projections, universe: universeIds, basisFlag, kdstFlag,
+    () => prepareSeason(lg, { requestedWeek, scoring, projections, universe: universeIds, basisFlag, kdstFlag, asofFlag,
       worldId: mode === 'week' ? pairedSeed : null }));
   const key = {
     league: lg.id, fetched_at: lg.fetched_at ?? null, runs, fromWeek: simStartWeek(lg, requestedWeek),
-    scoring: JSON.stringify(scoring), seed: pairedSeed, basis: basisKey(basisFlag), mode, kdst: kdstKey(kdstFlag)
+    scoring: JSON.stringify(scoring), seed: pairedSeed, basis: basisKey(basisFlag, asofFlag), mode, kdst: kdstKey(kdstFlag)
   };
   if (prep.fail) return { key, projections, universe: universeIds, fail: prep.fail };
 

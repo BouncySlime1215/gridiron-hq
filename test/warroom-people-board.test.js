@@ -138,6 +138,16 @@ test('one tile per league-mate, Nick left out, labels only', () => {
   assert.ok(!buildPeopleBoard(view(withMe), inputs()).value.some(t => t.team === ME));
 });
 
+test('a tile names the manager from the entry\'s teams map (TEAM-NAMES x PEOPLE-BOARD, INT6); no name -> Team N', () => {
+  const teams = { status: 'ok', value: { 7: { manager: 'Manager A', name: 'Team Seven' }, 2: { name: 'Team Two' } }, source: 'campaign.plan' };
+  const t = byTeam(buildPeopleBoard({ ...view(), teams }, inputs()));
+  assert.equal(t['7'].label, 'Manager A (Team Seven)');
+  assert.equal(t['2'].label, 'Team Two');
+  assert.equal(t['1'].label, 'Team 1');
+  const unknownTeams = { status: 'unknown', reason: 'The league adapter read no team or manager names.', source: 'campaign.plan' };
+  assert.equal(byTeam(buildPeopleBoard({ ...view(), teams: unknownTeams }, inputs()))['7'].label, 'Team 7');
+});
+
 test("Nick's notes override the models: never a partner last, the non-buyer before him, hard negotiators flagged", () => {
   const f = buildPeopleBoard(view(), inputs());
   assert.deepEqual(f.value.map(t => [t.team, t.standing]),

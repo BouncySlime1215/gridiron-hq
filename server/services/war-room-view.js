@@ -486,6 +486,19 @@ function wordOf(team, inputs) {
   }, 'people.credibility');
 }
 
+/**
+ * TEAM-NAMES (INT6): a tile's name from the entry's `teams` section, the same rule as
+ * campaign/playbook.js#teamLabel and the client's types.ts#teamLabel ('Manager (Team name)',
+ * else whichever is known, else 'Team N'). Inline because this route imports no producer module.
+ */
+function tileLabel(teams, team) {
+  const t = teams?.status === 'ok' && teams.value && typeof teams.value === 'object' ? teams.value[team] : null;
+  const manager = typeof t?.manager === 'string' ? t.manager.trim() : '';
+  const name = typeof t?.name === 'string' ? t.name.trim() : '';
+  if (manager && name) return `${manager} (${name})`;
+  return manager || name || `Team ${team}`;
+}
+
 /** How many of the plan's moves have a step with him (the deck focus a tap applies). */
 function movesWith(team, view) {
   const alts = view.alternatives?.status === 'ok' && Array.isArray(view.alternatives.value) ? view.alternatives.value : [];
@@ -516,7 +529,8 @@ export function buildPeopleBoard(view, inputs) {
     const nick = nickRead(team, inputs, p);
     const hole = p ? null : (pf?.status === 'failed' ? failedF : unknownF)(planWhy, 'campaign.plan');
     return {
-      team, label: `Team ${team}`,
+      // TEAM-NAMES (INT6): the tile names the manager from the entry's teams map; none -> 'Team N'.
+      team, label: tileLabel(view.teams, team),
       standing: nick.never ? 'never' : nick.last ? 'last' : 'live',
       nick: { never: nick.never, last: nick.last, hard: nick.hard, said: nick.said, source: nick.from },
       checked_out: p?.checked_out === true,

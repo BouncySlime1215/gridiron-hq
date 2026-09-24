@@ -10,6 +10,7 @@
  * Returns { tool, input } (run it through runCoachTool), { refuse: reason }, or null.
  */
 const PANEL_WORDS = [
+  ['path', /\bchess( path)?\b/],
   ['flip_map', /\bflip(s| map)?\b/],
   ['itinerary', /\b(stops?|route|itinerary)\b/],
   ['targets', /\btargets?\b/],

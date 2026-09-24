@@ -75,6 +75,16 @@ const fakeAudit = leagueId => {
 export const BRAIN = { read: { report: BRAIN_REPORT, error: null }, applyBrainReport,
   numberHealth: id => readNumberHealth(null, id, { read: fakeAudit }) };
 
+/**
+ * UI-ENG-5: league 1 carries the made-up CHESS-01a search (test/fixtures/war-room-chess.json,
+ * titleChess()'s shape); every other league reads the chess flag as off. The replay flag
+ * (CHESS-01-b) is not set, as on a real run today.
+ */
+const CHESS_BLOCK = JSON.parse(fs.readFileSync(new URL('../war-room-chess.json', import.meta.url), 'utf8'));
+export const CHESS = { replayPassed: false,
+  forLeague: async id => (id === 1 ? { state: 'on', block: structuredClone(CHESS_BLOCK) }
+    : { state: 'off', reason: 'Title-odds chess (CHESS-01a) is default-off in this fixture.' }) };
+
 export async function makeProducerPlans() {
   const leagues = [
     { id: 1, load: async () => ({ adapter: leagueOf(1, { managerExtra: { 3: { chat: CHAT_OK } } }) }) },
@@ -83,9 +93,9 @@ export async function makeProducerPlans() {
     { id: 4, load: async () => ({ adapter: leagueOf(4) }) },
     { id: 5, load: async () => ({ adapter: leagueOf(5) }) },
   ];
-  const first = await buildPlansFile(leagues, { generated_at: FIRST_AT, objectives: OBJECTIVES, clock: () => 0, brain: BRAIN });
+  const first = await buildPlansFile(leagues, { generated_at: FIRST_AT, objectives: OBJECTIVES, clock: () => 0, brain: BRAIN, chess: CHESS });
   const previous = new Map(first.leagues.map(e => [String(e.league), e]));
-  return buildPlansFile(leagues, { generated_at: GENERATED_AT, objectives: OBJECTIVES, previous, clock: () => 0, brain: BRAIN });
+  return buildPlansFile(leagues, { generated_at: GENERATED_AT, objectives: OBJECTIVES, previous, clock: () => 0, brain: BRAIN, chess: CHESS });
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

@@ -145,12 +145,14 @@ export function fileInputs(id, { objectiveRow = null, fileSkips = [] } = {}) {
  *         brain (FIX-05, optional): { read: readBrainReport result, applyBrainReport, numberHealth: id -> readNumberHealth result },
  *         leagueInputs (FIX-07, optional): (id, { objectiveRow, fileSkips }) -> { objective, weights, consume, summary }
  *           (requests.js#leagueInputs; default: the objectives/skips files alone),
- *         consumed (optional array): each league that ships pushes its `consume` here for requests.js#consumeWith }
+ *         consumed (optional array): each league that ships pushes its `consume` here for requests.js#consumeWith,
+ *         chess (UI-ENG-5, optional): { forLeague: async (id, adapter) -> campaign/chess.js input, replayPassed } }
+ * Without `chess`, every league's chess section is unknown "not run".
  * Without `brain`, brain_report and number_health are unknown "not read" and the requested mode is planned.
  */
 export async function buildPlansFile(leagues, {
   generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, log = () => {},
-  flags = null, brain = null, leagueInputs = fileInputs, consumed = null,
+  flags = null, brain = null, leagueInputs = fileInputs, consumed = null, chess = null,
 } = {}) {
   const entries = [], best = new Map();
   for (const { id, load } of leagues) {
@@ -172,8 +174,9 @@ export async function buildPlansFile(leagues, {
       const rosterKey = res.error ? null : adapter.rosterKey?.() ?? null;
       const changed = diffNextMove(prev?._run ?? null, { next_step: res.best?.steps[0] ?? null,
         objective_version: objective.version, risk_mode: objective.risk_mode, roster_key: rosterKey });
+      const chessIn = chess && !res.error ? { input: await chess.forLeague(id, adapter), replayPassed: chess.replayPassed } : null;
       entry = toEntry(res, { names: adapter.names(), as_of: generated_at, previous: prev, changed,
-        brain: gate, number_health: brain ? brain.numberHealth(id) : null });
+        brain: gate, number_health: brain ? brain.numberHealth(id) : null, chess: chessIn });
       if (entry._run) {
         entry._run.roster_key = rosterKey;
         entry._run.phases_ms = { adapter_and_world: adapterMs, ...entry._run.phases_ms };
@@ -226,6 +229,35 @@ export function pushesOf(file) {
     .map(e => ({ league: e.league, at: file.generated_at, reason: e._run.changed.reason, next: e._run.changed.next_key }));
 }
 
+/**
+ * UI-ENG-5 / FIX-290-2: each league's CHESS-01a paths, for campaign/chess.js#chessSection.
+ * The paths come from the engine's one caller of titleChess(), findTradeSequences(...).chess,
+ * so the War Room shows the search Trade Lab's sequences run. title-chess.js is loaded
+ * lazily: until #258 merges it is missing, and every league's section says so. With the
+ * chess flag off (GRIDIRON_CHESS_ENABLED, or preview) nothing is searched.
+ */
+export async function chessLoader(svc, { load = p => import(p), env = process.env } = {}) {
+  const { chessReplayPassed } = await import('../../server/services/campaign/chess.js');
+  const replayPassed = chessReplayPassed(env);
+  let mod = null;
+  try { mod = await load('../../server/services/title-chess.js'); } catch (e) {
+    // Only the module itself being absent (not merged yet) is 'absent'; anything else is a real fault.
+    if (!(e?.code === 'ERR_MODULE_NOT_FOUND' && String(e.message).includes("title-chess.js' imported from"))) throw e;
+  }
+  if (!mod?.chessMode) return { replayPassed, summary: 'absent (title-chess.js not merged)', forLeague: async () => ({ state: 'absent' }) };
+  const mode = mod.chessMode();
+  if (!mode.on) return { replayPassed, summary: 'off', forLeague: async () => ({ state: 'off', reason: mod.CHESS_OFF_REASON }) };
+  return {
+    replayPassed, summary: `on${mode.preview ? ' (preview)' : ''}, replay ${replayPassed ? 'passed' : 'not passed'}`,
+    forLeague: async (id, adapter) => {
+      const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', id);
+      const seq = svc.engine.findTradeSequences(lg, { myTeamId: adapter.league?.me ?? lg?.my_team_id });
+      if (seq?.error) return { state: 'on', block: { status: 'failed', error: seq.error, paths: [] } };
+      return { state: 'on', block: seq?.chess ?? { status: 'failed', error: 'findTradeSequences returned no chess block', paths: [] } };
+    },
+  };
+}
+
 async function main() {
   const t0 = Date.now();
   const opts = args(process.argv);
@@ -267,10 +299,12 @@ async function main() {
       : brainRead.report ? `run ${brainRead.report.run_id} computed ${brainRead.report.computed_at}` : 'none stored yet'}`);
     const brain = { read: brainRead, applyBrainReport, numberHealth: id => readNumberHealth(svc.db.db, id, { read: readNumberAudit }) };
     const consumed = [];
+    const chess = await chessLoader(svc);
+    console.log(`[warroom] chess: ${chess.summary}`);
     // Checked with validatePlans inside; a file that fails throws here and the previous file stays.
     const file = await buildPlansFile(leagues, { generated_at, objectives, skips: skips.rows, previous,
       inputs: { skips: { status: skips.status, bad_lines: skips.bad } }, leagueInputs, consumed,
-      budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags, brain,
+      budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags, brain, chess,
       log: line => (line.includes('FAILED') || line.includes('\n') ? console.error(line) : console.log(line)) });
     // FIX-08: reasoning goes into each move before the one atomic write. Both gates
     // off (or either) -> no call, and every move says why its panel is missing.

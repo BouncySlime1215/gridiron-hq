@@ -62,7 +62,7 @@ test('every panel and the Coach dock sit in the one grid, each in a named area',
   for (const p of PANELS) assert.match(html, new RegExp(`data-panel="${p.id}"[^>]*style="grid-area:${p.id}"`), p.id);
   assert.match(html, /class="wr-coach/);
   assert.match(css, /\.wr-coach \{ grid-area: coach;/);
-  for (const a of ['top', 'next', 'stops', 'flip_map', 'targets', 'catch', 'brain_report', 'coach']) assert.ok(ROOT_STYLE.gridTemplateAreas.includes(a), a);
+  for (const a of ['top', 'next', 'path', 'stops', 'clones', 'flip_map', 'targets', 'catch', 'brain_report', 'coach']) assert.ok(ROOT_STYLE.gridTemplateAreas.includes(a), a);
   // Panels clip; their bodies are the only thing allowed to scroll, inside the panel.
   assert.match(rule('.wr-panel'), /overflow:\s*hidden/);
   assert.match(rule('.wr-panel'), /min-height:\s*0/);

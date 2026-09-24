@@ -4,6 +4,7 @@ import type { PanelId, WarRoomView } from './types';
 import type { DeckLogEntry, DeckState } from './deck';
 import { postWarRoomRequest, type Poster, type WarRoomRequest } from './requests';
 import { isOk } from './format';
+import ChessPath from './ChessPath';
 import { SourcesContext } from './FieldState';
 import { Panel } from './Panel';
 import TopStrip, { type LeagueChoice } from './TopStrip';
@@ -30,6 +31,7 @@ import { CoachDock, useWarRoomCoach, type Panel as CoachPanel } from './coach';
  */
 export const PANELS: { id: PanelId; name: string }[] = [
   { id: 'next', name: 'Next move' },
+  { id: 'path', name: 'Chess path' },
   { id: 'stops', name: 'Stops' },
   { id: 'flip_map', name: 'Flip map' },
   { id: 'targets', name: 'Targets' },
@@ -37,10 +39,15 @@ export const PANELS: { id: PanelId; name: string }[] = [
   { id: 'brain_report', name: 'Brain check' },
 ];
 
+/**
+ * One grid for every middle panel (FIX-290-3): Chess path (UI-ENG-5) and Stops on the upper
+ * row, the clone view (UI-ENG-4, #270, which places its panel in `clones`) and Flip map on
+ * the lower. Still exactly one viewport tall.
+ */
 export const GRID_AREAS = [
   'top top top top coach',
-  'next next stops flip_map coach',
-  'next next stops flip_map coach',
+  'next next path stops coach',
+  'next next clones flip_map coach',
   'targets targets catch brain_report coach',
 ].map(r => `"${r}"`).join(' ');
 
@@ -50,7 +57,7 @@ export const GRID_AREAS = [
  */
 export const COACH_PANEL_AREA: Record<CoachPanel, PanelId | null> = {
   next_move: 'next', itinerary: 'stops', flip_map: 'flip_map', targets: 'targets', catch_up: 'catch', brain_check: 'brain_report',
-  destination: null, cards: null,
+  path: 'path', destination: null, cards: null,
 };
 
 /** The no-page-scroll contract, inline so it cannot be lost to a stylesheet. */
@@ -141,6 +148,9 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
           <Panel {...common('next')} title="Next move">
             {view.banner && <div className="wr-banner">{view.banner}</div>}
             <NextMoveDeck key={`${activeId}:${view.snapshot?.id ?? ''}`} view={view} big={big('next')} initialState={deckInitial} onLog={onDeckLog} post={post} />
+          </Panel>
+          <Panel {...common('path')} title="Chess path">
+            <ChessPath key={activeId} field={view.chess} names={view.names} big={big('path')} />
           </Panel>
           <Panel {...common('stops')} title="Stops">
             <Itinerary field={view.itinerary} big={big('stops')} />

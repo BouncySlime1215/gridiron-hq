@@ -26,7 +26,9 @@ import { SKIP_REASONS, DECLINE_REASONS } from '../campaign/plans-schema.js';
 export { SKIP_REASONS, DECLINE_REASONS };
 
 export const PANELS = Object.freeze([
-  'next_move', 'itinerary', 'flip_map', 'targets', 'destination', 'catch_up', 'brain_check', 'cards'
+  'next_move', 'itinerary', 'flip_map', 'targets', 'destination', 'catch_up', 'brain_check', 'cards',
+  // UI-ENG-5: the chess path stepper (FIX-290-3).
+  'path'
 ]);
 
 export const ACTION_TYPES = Object.freeze([

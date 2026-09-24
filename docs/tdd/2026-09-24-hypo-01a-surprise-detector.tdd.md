@@ -114,3 +114,23 @@ to decisions. The evidence keeps every tx id and reports `moves`, `decisions`,
 | M12 | p from the move count, not the decisions | survived first (p not pinned), then killed |
 | M13 | candidates by move count | killed |
 | M14 | baseline rate from moves, not decisions | survived first (no batched baseline in the fixture), then killed |
+
+## Round 3: a decision is a run of moves under 60 min apart (v2 re-run on PR #277)
+
+v2's run (`0e7f5e6e`) printed the same 8 bursts, including "team 10, 3 moves (3 decisions)
+in 0 h". Those claims were not at one instant: they were minutes apart. Round 2's
+exact-timestamp rule had the right cause and the wrong test for it.
+
+Fix (`hypo-01a-v3`): a move less than `DECISION_GAP_MINUTES` (60, hand-set) after the
+team's previous move belongs to the same decision. This applies in the window and in the
+baseline. Windows open only where a decision starts.
+
+- RED `6a8177fc` "test: HYPO-01a moves minutes apart are one decision (RED)": fails on
+  v2. The GREEN commit adds "a window never opens mid-decision". That test also fails on
+  v2 (v2 source: pass 13, fail 2). v3: pass 15, fail 0.
+
+| # | Mutant | Result |
+|---|---|---|
+| M15 | `DECISION_GAP_MINUTES` 60 -> 0 | killed (2 tests) |
+| M16 | windows open at every move | survived first, then killed by the mid-decision test |
+| M14 | baseline counted in moves (re-run on v3) | killed |

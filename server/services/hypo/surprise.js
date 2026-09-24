@@ -11,11 +11,10 @@
  *   roster_burst  a team's roster decisions (executed adds + completed trades) in a 72 h
  *                 window are improbable under its own base rate: P(N >= n) < 0.05 for
  *                 N ~ Poisson(rate x 72 h), rate from the prior 28 days (at least 7
- *                 covered), n >= 3. p(outcome) = that tail. A DECISION is the team's moves
- *                 at one timestamp: ESPN processes a team's waiver claims in one batch at
- *                 one instant, and counting each claim as an independent event made one
- *                 waiver run read as '3 moves in 0 h' at p = 0.000025 (local run, PR #277).
- *                 The evidence still carries every move's tx id.
+ *                 covered), n >= 3. p(outcome) = that tail. A DECISION is a run of the
+ *                 team's moves each less than 60 min after the last: counting each claim
+ *                 of one run as an independent event made it read as '3 moves in 0 h' at
+ *                 p = 0.000025 (local runs, PR #277). The evidence keeps every tx id.
  *
  * The 10% / 70% cuts are the unit's own ("accept we gave <10%, decline we gave >70%").
  * The burst constants are hand-set, not fitted; the spec's per-stream 95th-percentile
@@ -29,7 +28,7 @@
  */
 import { db, rows, row } from '../../db/index.js';
 
-export const DETECTOR_VERSION = 'hypo-01a-v2';
+export const DETECTOR_VERSION = 'hypo-01a-v3';
 export const ACCEPT_LOW = 0.10;
 export const DECLINE_HIGH = 0.70;
 export const BURST_WINDOW_HOURS = 72;
@@ -37,6 +36,7 @@ export const BURST_MIN_MOVES = 3;
 export const BURST_P_MAX = 0.05;
 export const BASELINE_DAYS = 28;
 export const BASELINE_MIN_DAYS = 7;
+export const DECISION_GAP_MINUTES = 60;
 const RATE_PSEUDO_COUNT = 0.5; // a quiet team's rate is never 0, so p is never 0
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -126,20 +126,32 @@ function movesByTeam(tx) {
   return out;
 }
 
-const distinctTimes = moves => new Set(moves.map(m => m.at)).size;
+/**
+ * Decisions in a time-ordered run of one team's moves: a move less than DECISION_GAP_MINUTES
+ * after the previous one belongs to the same decision. ESPN processes a team's claims one
+ * after another, seconds to minutes apart, and a manager clearing his bench does the same;
+ * counting each as an independent Poisson event overstates the surprise.
+ */
+function countDecisions(moves) {
+  let n = 0;
+  for (let i = 0; i < moves.length; i++) {
+    if (i === 0 || moves[i].at - moves[i - 1].at >= DECISION_GAP_MINUTES * 60_000) n++;
+  }
+  return n;
+}
 
 /** One window starting at moves[i]: its moves and its tail probability, or why it has none. */
 function scoreWindow(moves, i, coverageStart) {
   const start = moves[i].at;
   const inWindow = moves.filter(m => m.at >= start && m.at < start + BURST_WINDOW_HOURS * HOUR);
-  const decisions = distinctTimes(inWindow);
+  const decisions = countDecisions(inWindow);
   const baselineStart = Math.max(coverageStart, start - BASELINE_DAYS * DAY);
   const baselineDays = (start - baselineStart) / DAY;
   if (baselineDays < BASELINE_MIN_DAYS) {
     return { inWindow, decisions, p: null, baselineDays };
   }
   const priorMoves = moves.filter(m => m.at >= baselineStart && m.at < start);
-  const prior = distinctTimes(priorMoves);
+  const prior = countDecisions(priorMoves);
   const rate = (prior + RATE_PSEUDO_COUNT) / baselineDays;
   const lambda = rate * (BURST_WINDOW_HOURS / 24);
   return { inWindow, decisions, p: poissonTail(decisions, lambda), prior, priorMoves: priorMoves.length,
@@ -157,8 +169,12 @@ function burstSurprises(leagueId, season, skipped) {
   for (const [team, moves] of movesByTeam(tx)) {
     // Candidate windows (>= BURST_MIN_MOVES), then chains of overlapping candidates are
     // one burst, so a run of moves is one hypothesis however the windows slide over it.
-    const candidates = moves.map((_, i) => scoreWindow(moves, i, coverageStart))
-      .filter(w => w.decisions >= BURST_MIN_MOVES);
+    // Windows start only where a decision starts, so a window cannot open mid-decision and
+    // count that decision's earlier moves as its base rate.
+    const candidates = moves
+      .map((m, i) => (i === 0 || m.at - moves[i - 1].at >= DECISION_GAP_MINUTES * 60_000
+        ? scoreWindow(moves, i, coverageStart) : null))
+      .filter(w => w && w.decisions >= BURST_MIN_MOVES);
     const clusters = [];
     for (const w of candidates) {
       const last = clusters.at(-1);
@@ -183,15 +199,15 @@ function burstSurprises(leagueId, season, skipped) {
       out.push({
         surprise_key: `roster_burst:${leagueId}:${season}:${team}:${burst[0].tx_id}`,
         kind: 'roster_burst', team_id: String(team), model_p: best.p, surprisal: -Math.log(best.p),
-        outcome: `${burst.length} moves (${distinctTimes(burst)} decisions) in ${hours} h`,
+        outcome: `${burst.length} moves (${countDecisions(burst)} decisions) in ${hours} h`,
         occurred_at: new Date(burst[0].at).toISOString(),
-        statement: `Team ${team} made ${burst.length} roster moves (${distinctTimes(burst)} separate decisions) `
+        statement: `Team ${team} made ${burst.length} roster moves (${countDecisions(burst)} separate decisions) `
           + `in ${hours} h against a base rate of ${best.prior} decisions in the prior ${best.baselineDays.toFixed(0)} days (P = ${best.p.toExponential(1)}). `
           + 'Hypothesis: something changed for this manager (injury news, a lost matchup, a shift to '
           + 'buying or selling). Test: does a burst like this predict his next trade offer or '
           + 'acceptance, walk-forward, excluding this burst?',
         evidence: {
-          tx_ids: burst.map(m => m.tx_id), moves: burst.length, decisions: distinctTimes(burst),
+          tx_ids: burst.map(m => m.tx_id), moves: burst.length, decisions: countDecisions(burst),
           adds: burst.filter(m => m.kind === 'add').length, trades: burst.filter(m => m.kind === 'trade').length,
           baseline: { prior_decisions: best.prior, prior_moves: best.priorMoves, days: best.baselineDays, lambda: best.lambda },
           window_hours: BURST_WINDOW_HOURS,

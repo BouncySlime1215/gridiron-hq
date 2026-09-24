@@ -230,6 +230,22 @@ test('moves minutes apart are one decision: a claim run processed over a few min
   assert.equal(b[0].evidence.decisions, 3);
 });
 
+test('a window never opens mid-decision', () => {
+  // One decision chained over 150 min (moves 50 min apart), then two decisions just past
+  // 72 h. Every window that starts where a decision starts holds at most 2 decisions. A
+  // window opened at the chain's last move would hold 3 and count the chain's earlier
+  // moves as its own base rate.
+  reset();
+  add(8, day(1));
+  add(3, day(5));
+  const t0 = Date.UTC(2026, 8, 18, 12);
+  const iso = mins => new Date(t0 + mins * 60_000).toISOString();
+  for (const m of [0, 50, 100, 150]) add(3, iso(m));
+  add(3, iso(72 * 60 + 10)); add(3, iso(72 * 60 + 90));
+  const r = detectSurprises({ leagueId: LEAGUE, season: SEASON, enabled: true, write: false });
+  assert.deepEqual(r.surprises.filter(x => x.team_id === '3'), [], JSON.stringify(r.surprises));
+});
+
 test('too little history to know a base rate is reported, never silently skipped', () => {
   reset();
   add(3, at(20, 6)); add(3, day(20)); add(3, day(21));

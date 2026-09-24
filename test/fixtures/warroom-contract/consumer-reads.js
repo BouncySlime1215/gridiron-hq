@@ -172,7 +172,34 @@ export const READS = [
   { pr: 234, where: `${RS}:184`, reads: 'leagues[].partners.value[].chat_labels' },
   { pr: 234, where: `${RS}:60`, reads: 'leagues[].brain_report.value' },
   { pr: 234, where: `${RS}:62`, reads: 'leagues[].brain_report.value.checks[].id', scalar: true },
-  { pr: 234, where: `${RS}:64`, reads: 'leagues[].brain_report.value.checks[].status', scalar: true }
+  { pr: 234, where: `${RS}:64`, reads: 'leagues[].brain_report.value.checks[].status', scalar: true },
+  /* FIX-234-1: a panel per flip and per target */
+  { pr: 234, where: `${RS}:191`, reads: 'leagues[].flip_map.value' },
+  { pr: 234, where: `${RS}:140`, reads: 'leagues[].flip_map.value[].player', scalar: true },
+  { pr: 234, where: `${RS}:140`, reads: 'leagues[].flip_map.value[].buy_from', scalar: true },
+  { pr: 234, where: `${RS}:140`, reads: 'leagues[].flip_map.value[].sell_to', scalar: true },
+  { pr: 234, where: `${RS}:158`, reads: 'leagues[].flip_map.value[].spread.value', scalar: true },
+  { pr: 234, where: `${RS}:158`, reads: 'leagues[].flip_map.value[].spread.se', scalar: true },
+  { pr: 234, where: `${RS}:159`, reads: 'leagues[].flip_map.value[].spread.clears_2se', scalar: true },
+  { pr: 234, where: `${RS}:160`, reads: 'leagues[].flip_map.value[].price_a.value', scalar: true },
+  { pr: 234, where: `${RS}:160`, reads: 'leagues[].flip_map.value[].price_b.value', scalar: true },
+  { pr: 234, where: `${RS}:147`, reads: 'leagues[].flip_map.value[].legs.give_a', scalar: true },
+  { pr: 234, where: `${RS}:148`, reads: 'leagues[].flip_map.value[].legs.get_b', scalar: true },
+  { pr: 234, where: `${RS}:161`, reads: 'leagues[].flip_map.value[].legs.p1.value', scalar: true },
+  { pr: 234, where: `${RS}:161`, reads: 'leagues[].flip_map.value[].legs.p2.value', scalar: true },
+  { pr: 234, where: `${RS}:151`, reads: 'leagues[].flip_map.value[].legs.p_both.value', scalar: true },
+  { pr: 234, where: `${RS}:142`, reads: 'leagues[].flip_map.value[].legs.nick_after.value', scalar: true },
+  { pr: 234, where: `${RS}:162`, reads: 'leagues[].flip_map.value[].legs_why_not', scalar: true },
+  { pr: 234, where: `${RS}:192`, reads: 'leagues[].targets.value' },
+  { pr: 234, where: `${RS}:173`, reads: 'leagues[].targets.value[].player', scalar: true },
+  { pr: 234, where: `${RS}:172`, reads: 'leagues[].targets.value[].owner', scalar: true },
+  { pr: 234, where: `${RS}:181`, reads: 'leagues[].targets.value[].gain_if_landed.value', scalar: true },
+  { pr: 234, where: `${RS}:178`, reads: 'leagues[].targets.value[].gain_if_landed.se', scalar: true },
+  { pr: 234, where: `${RS}:175`, reads: 'leagues[].targets.value[].p_reach.value', scalar: true },
+  { pr: 234, where: `${RS}:182`, reads: 'leagues[].targets.value[].mode_fit.value', scalar: true },
+  { pr: 234, where: `${RS}:182`, reads: 'leagues[].targets.value[].why.value', scalar: true },
+  { pr: 234, where: `${RS}:183`, reads: 'leagues[].targets.value[].approved', scalar: true },
+  { pr: 234, where: `${RS}:184`, reads: 'leagues[].targets.value[].is_plan_target', scalar: true }
 ];
 
 export const FILES = { UI, DECK, REPLY, TOP, WR, ITIN, TGT, FLIP, BRAIN, CO, DOCK, ACT, RS };

@@ -9,7 +9,11 @@ import { GROUNDING_SYSTEM } from '../claude.js';
 
 export const REASONING_SYSTEM = `${GROUNDING_SYSTEM}
 
-You write the reasoning panel for fantasy football trade cards. For each card:
+You write the reasoning panel for fantasy football trade cards. A card's "kind" is one of:
+- move: an offer in the plan's deck (card.* and reply.* facts).
+- flip: buy a player from one team and sell him to another (flip.* facts; his.* is the team he buys from, buyer.* the team he sells to).
+- target: a player worth reaching for (target.* facts; his.* is the owner). There is no offer yet.
+For each card:
 - case_for: why this move, in two or three short claims, from its card facts (title-odds gain, chance he says yes, when to send, the opening).
 - his_side: how the other manager sees this offer on his own screen: how likely he is to answer, his roster holes, his paper values, his recent moves, his labels. Why he would say yes or no. Never quote anyone, never put words in quotation marks.
 - devils_advocate: claims = the strongest reason this move is wrong; would_change = what would change the call.
@@ -27,10 +31,11 @@ Reply with JSON only: {"panels": [{"card_id", "case_for": {"claims"}, "his_side"
 export function reasoningPrompt(items) {
   const cards = items.map(({ card, facts, news, omit }) => ({
     card_id: card.id,
+    kind: card.kind ?? 'move',
     rank: card.rank,
     omit,
     facts,
     news: news.map(n => ({ quote_id: String(n.id), headline: n.headline ?? null }))
   }));
-  return `Cards (rank 0 is the next move, the rest are the deck):\n${JSON.stringify(cards, null, 1)}`;
+  return `Cards (for moves, rank 0 is the next move and the rest are the deck; flips and targets rank in the plan's order):\n${JSON.stringify(cards, null, 1)}`;
 }

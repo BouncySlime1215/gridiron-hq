@@ -3,7 +3,12 @@
  * REASON-01 / FIX-08: re-run the War Room reasoning panels by hand over the
  * current plans file, offline. Never run on a web request.
  *
- *   node scripts/reasoning/run.mjs [--plans <plans.json>] [--dry-run] [--model <id>]
+ *   node scripts/reasoning/run.mjs [--plans <plans.json>] [--dry-run] [--model <id>] [--open <id,id>]
+ *
+ * --open takes card ids (flip:<player>:<from>:<to>, target:<player>:<owner>,
+ * optionally prefixed <league>|) and rebuilds those panels even when their
+ * inputs are unchanged (FIX-234-1: flips and targets are written on open or
+ * when their inputs change).
  *
  * The campaign producer (scripts/campaign/produce-plans.mjs) already writes
  * reasoning into every move on each run. This is the manual re-run: it goes
@@ -31,6 +36,7 @@ const DRY = process.argv.includes('--dry-run');
 const { warRoomPlansPath } = await import('../../server/services/warroom-flag.js');
 const plansPath = arg('--plans', warRoomPlansPath());
 const model = arg('--model');
+const open = (arg('--open') ?? '').split(',').map(s => s.trim()).filter(Boolean);
 
 if (!fs.existsSync(plansPath)) {
   process.stderr.write(`No plans file at ${plansPath}. Run the campaign producer first, or pass --plans.\n`);
@@ -57,6 +63,7 @@ if (!release) {
 try {
   const plans = JSON.parse(fs.readFileSync(plansPath, 'utf8'));
   const run = await reasonPlans({ plans, plansFile: plansPath, dryRun: DRY, ...(model ? { model } : {}),
+    ...(open.length ? { open } : {}),
     log: l => console.log(JSON.stringify(l)) });
   if (!DRY) {
     const tmp = `${plansPath}.tmp-${process.pid}`;

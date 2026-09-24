@@ -9,6 +9,13 @@
  * news_check, confidence, counter, cites[], check_first). The deck head is
  * also `next_move`, and it gets the same field.
  *
+ * FIX-234-1: each `flip_map.value[]` and `targets.value[]` item gets the same
+ * typed field in its own `reasoning` (plans-schema.js flip/target, optional).
+ * The planner already writes a template panel there (campaign/view.js, source
+ * `plan.template`); a written, grounded panel replaces it, and a panel that
+ * could not be written leaves the template in place rather than blank it.
+ * With a gate off or the step failed, flips and targets are not touched.
+ *
  * Two gates, both required, decided by the caller and passed in:
  *   enabled  reasoning-flag.js#reasoningFlag (its own switch, or preview)
  *   paid     scripts/paid-run-optin.mjs (GRIDIRON_ALLOW_PAID_RUN)
@@ -24,7 +31,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { produceReasoning as liveProduceReasoning } from './produce.js';
 import { MODEL_SECTIONS, REASON_FOR } from './panel.js';
-import { leagueIdOf } from './cards.js';
+import { leagueIdOf, flipCardId, targetCardId } from './cards.js';
 import { REASONING_SLOTS } from '../campaign/plans-schema.js';
 
 export const REASONING_SOURCE = 'coach.text';
@@ -35,6 +42,7 @@ export const REASON_UNPAID = 'Reasoning panels need a paid run, and this run was
 export const REASON_STEP_FAILED = 'The reasoning step failed, so no panel was written.';
 export const REASON_ALL_UNGROUNDED = 'Every section of this panel failed its fact check, so it is hidden.';
 export const REASON_NOT_COVERED = 'This move was not in the deck the reasoning covered.';
+export const REASON_ITEM_NOT_COVERED = 'This flip or target was past the ones the reasoning covers.';
 
 /** Where the reuse cache lives: next to the plans file, never under server/data. */
 export const panelsCachePath = plansFile => path.join(path.dirname(path.resolve(plansFile)), PANELS_CACHE);
@@ -60,6 +68,20 @@ function eachMove(plans, visit) {
     if (isObj(next)) visit(next, entry);
   }
 }
+
+/** Every flip and target a panel belongs to, with its card id (cards.js). */
+function eachItem(plans, visit) {
+  for (const entry of Array.isArray(plans?.leagues) ? plans.leagues : []) {
+    if (!isObj(entry) || entry.error !== undefined) continue;
+    for (const [section, idOf] of [['flip_map', flipCardId], ['targets', targetCardId]]) {
+      const items = okValue(entry[section]);
+      for (const item of Array.isArray(items) ? items : []) if (isObj(item)) visit(item, entry, idOf(item));
+    }
+  }
+}
+
+/** The planner's own template panel (campaign/view.js), which an unwritten panel must not blank. */
+const hasPlannerPanel = item => isObj(item.reasoning) && item.reasoning.status === 'ok' && item.reasoning.source !== REASONING_SOURCE;
 
 const texts = claims => (Array.isArray(claims) ? claims.map(c => c?.text).filter(t => typeof t === 'string' && t.trim()) : []);
 
@@ -135,8 +157,10 @@ function markAll(plans, status, reason, asOf) {
  * @param {object} [args.previous]      the last panels.json, for reuse
  * @param {object} [args.news]          news per league id (produce.js)
  * @param {boolean} [args.dryRun]       build every prompt, make no call (the paid gate does not apply)
+ * @param {string[]} [args.open]        flip/target (or move) card ids opened in the War Room: rebuilt even
+ *                                      when unchanged (produce.js); passed through with the rest
  * @returns {Promise<{status: 'off'|'unpaid'|'ran'|'failed', reason?: string, error?: string,
- *   moves: number, cache: object|null, calls: object[], total_cost_usd: number, reused: number}>}
+ *   moves: number, items?: number, cache: object|null, calls: object[], total_cost_usd: number, reused: number}>}
  */
 export async function applyReasoning({ plans, gates, previous = null, news, dryRun = false,
   produceReasoning = liveProduceReasoning, ...rest }) {
@@ -154,16 +178,24 @@ export async function applyReasoning({ plans, gates, previous = null, news, dryR
       moves: markAll(plans, 'failed', REASON_STEP_FAILED, asOf), ...none };
   }
 
+  const panelsOf = l => [...(l.panels ?? []), ...(l.flips ?? []), ...(l.targets ?? [])];
   const byKey = new Map();
-  for (const l of result.leagues) for (const p of l.panels) byKey.set(`${l.league_id}|${p.card_id}`, p);
+  for (const l of result.leagues) for (const p of panelsOf(l)) byKey.set(`${l.league_id}|${p.card_id}`, p);
   let moves = 0;
   eachMove(plans, (move, entry) => {
     const panel = byKey.get(`${leagueIdOf(entry)}|${move.move_id}`);
     move.reasoning = panel ? panelToField(panel, asOf) : typed('unknown', { reason: REASON_NOT_COVERED, asOf });
     moves += 1;
   });
-  const panels = result.leagues.flatMap(l => l.panels);
-  return { status: 'ran', moves, cache: result, calls: result.calls, total_cost_usd: result.total_cost_usd,
+  let items = 0;
+  eachItem(plans, (item, entry, id) => {
+    const panel = byKey.get(`${leagueIdOf(entry)}|${id}`);
+    const field = panel ? panelToField(panel, asOf) : typed('unknown', { reason: REASON_ITEM_NOT_COVERED, asOf });
+    if (field.status === 'ok' || !hasPlannerPanel(item)) item.reasoning = field;
+    items += 1;
+  });
+  const panels = result.leagues.flatMap(panelsOf);
+  return { status: 'ran', moves, items, cache: result, calls: result.calls, total_cost_usd: result.total_cost_usd,
     reused: panels.filter(p => p.cost?.reused).length };
 }
 

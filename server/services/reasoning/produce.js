@@ -4,11 +4,15 @@
  * request.
  *
  * Cost guard, in order:
- * 1. Only the top card + deck (cards.js MAX_CARDS_PER_LEAGUE) ever reaches a
- *    prompt.
+ * 1. Only the top card + deck (cards.js MAX_CARDS_PER_LEAGUE) and, since
+ *    FIX-234-1, at most MAX_ITEMS_PER_KIND flips and as many targets ever
+ *    reach a prompt.
  * 2. A card whose inputs have not changed since the last refresh reuses its
- *    panel (same fingerprint) and costs nothing.
- * 3. One call per league, held against that league's existing in-app daily
+ *    panel (same fingerprint) and costs nothing. Flips and targets are written
+ *    only "on open or when their inputs change": a new or changed fingerprint,
+ *    or an id in `open` (the War Room asked for that item), rebuilds one;
+ *    anything else reuses its cached panel for $0 and no call.
+ * 3. One call per league (deck, flips and targets batched), held against that league's existing in-app daily
  *    pot, `trade_proposals:league-<id>` (llm-budget.js budgetScopeFor): the
  *    cap Nick approved for Trade Brain-style reasoning. callClaude refuses
  *    before spending once the pot is used, and that refusal turns the
@@ -18,7 +22,7 @@
  */
 import crypto from 'node:crypto';
 import { callClaude as liveCallClaude, parseJson as liveParseJson } from '../claude.js';
-import { cardsForLeague, factsForCard, recentNews, cleanLabels, partnerFor, leagueIdOf } from './cards.js';
+import { cardsForLeague, itemCardsForLeague, factsForCard, recentNews, cleanLabels, partnerFor, leagueIdOf } from './cards.js';
 import { groundSections } from './ground.js';
 import { reasoningPrompt, REASONING_SYSTEM } from './prompt.js';
 import { assemblePanel, PRODUCER, PRODUCER_VERSION } from './panel.js';
@@ -28,8 +32,24 @@ export const DEFAULT_MODEL = 'claude-sonnet-5';
 // Sonnet 5 thinks by default and thinking counts toward max_tokens
 // (trade-proposals.js liveCaller, 2026-09-23): low effort, room for six panels.
 const MAX_TOKENS = 12000;
+// FIX-234-1: a batch past six panels (flips and targets added) gets room for
+// each extra one, up to a hard ceiling; a normal refresh stays at 12000.
+const TOKENS_PER_EXTRA_PANEL = 1500;
+const MAX_TOKENS_CEILING = 24000;
+export const maxTokensFor = panels => Math.min(MAX_TOKENS_CEILING, MAX_TOKENS + TOKENS_PER_EXTRA_PANEL * Math.max(0, panels - 6));
 
 export const budgetFeatureFor = leagueId => `trade_proposals:league-${leagueId}:reasoning`;
+
+/** The card lists a league's output carries, in prompt order. */
+const GROUPS = Object.freeze(['panels', 'flips', 'targets']);
+
+/**
+ * `open` ids: a bare card id opens it in every league, `<league>|<card id>`
+ * in that league only. Anything that is not a string is ignored.
+ */
+function openSet(open) {
+  return new Set((Array.isArray(open) ? open : []).filter(id => typeof id === 'string' && id));
+}
 
 function fingerprintOf(parts) {
   return crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 16);
@@ -64,33 +84,46 @@ const isBudgetRefusal = e => e?.code === 'LLM_BUDGET_EXHAUSTED';
  * @param {object} [args.news]             news per league id: { "<league>": [{ id, published_at, player_ids, headline }] };
  *                                         a league with no list gets news_check 'unknown', not an empty check
  * @param {object} [args.previous]         the last output of this function, for reuse
+ * @param {string[]} [args.open]           card ids the War Room opened (FIX-234-1): each is rebuilt even when
+ *                                         unchanged; `<league>|<id>` scopes one to a league
  * @param {boolean} [args.dryRun]          build everything but make no call
  * @param {Function} [args.callClaude]     injected in tests; defaults to claude.js
  * @param {Function} [args.log]            one line per call (cost included)
  */
-export async function produceReasoning({ plans, news = {}, previous = null, dryRun = false, model = DEFAULT_MODEL,
+export async function produceReasoning({ plans, news = {}, previous = null, open = [], dryRun = false, model = DEFAULT_MODEL,
   callClaude = liveCallClaude, parseJson = liveParseJson, log = () => {} }) {
   const asOf = plans?.as_of;
   if (!asOf || !Number.isFinite(Date.parse(asOf))) throw new Error('plans.as_of is missing or not a date; news cannot be windowed without it');
 
   const prior = new Map();
   for (const l of previous?.leagues ?? []) {
-    for (const p of l.panels ?? []) if (p.cost?.call_ok) prior.set(`${l.league_id}|${p.card_id}`, p);
+    for (const g of GROUPS) for (const p of l[g] ?? []) if (p.cost?.call_ok) prior.set(`${l.league_id}|${p.card_id}`, p);
   }
+  const opened = openSet(open);
 
   const leagues = [];
   const calls = [];
   for (const league of plans.leagues ?? []) {
     const leagueId = leagueIdOf(league);
     const { cards, dropped } = cardsForLeague(league);
-    const contexts = cards.map(c => contextFor(c, league, news?.[String(leagueId)], asOf, model));
+    const items = itemCardsForLeague(league);
+    const groupOf = [];
+    const contexts = [];
+    for (const [group, groupCards] of [['panels', cards], ['flips', items.flips], ['targets', items.targets]]) {
+      for (const c of groupCards) {
+        groupOf.push(group);
+        contexts.push(contextFor(c, league, news?.[String(leagueId)], asOf, model));
+      }
+    }
     const panels = new Array(contexts.length);
 
     const todo = [];
     contexts.forEach((ctx, i) => {
       const old = prior.get(`${leagueId}|${ctx.card.id}`);
-      if (old && old.fingerprint === ctx.fingerprint) panels[i] = { ...old, rank: ctx.card.rank, cost: { ...old.cost, reused: true } };
-      else todo.push(i);
+      const isOpen = opened.has(ctx.card.id) || opened.has(`${leagueId}|${ctx.card.id}`);
+      if (old && old.fingerprint === ctx.fingerprint && !isOpen) {
+        panels[i] = { ...old, rank: ctx.card.rank, cost: { ...old.cost, reused: true } };
+      } else todo.push(i);
     });
 
     let written = null;
@@ -103,7 +136,7 @@ export async function produceReasoning({ plans, news = {}, previous = null, dryR
       call = { league_id: leagueId, feature, model, cards: todo.length, cost_usd: 0, outcome: 'ok' };
       try {
         const msg = await callClaude({
-          feature, model, maxTokens: MAX_TOKENS, effort: 'low', system: REASONING_SYSTEM,
+          feature, model, maxTokens: maxTokensFor(todo.length), effort: 'low', system: REASONING_SYSTEM,
           prompt: reasoningPrompt(todo.map(i => ({ ...contexts[i], omit: contexts[i].promptOmit })))
         });
         call.cost_usd = msg.cost_usd ?? 0;
@@ -139,7 +172,12 @@ export async function produceReasoning({ plans, news = {}, previous = null, dryR
       const errors = panelErrors(p);
       if (errors.length) throw new Error(`reasoning panel ${p.card_id} (league ${leagueId}) breaks its contract: ${errors.join('; ')}`);
     }
-    leagues.push({ league_id: leagueId, dropped_cards: dropped, panels });
+    const byGroup = g => panels.filter((_, i) => groupOf[i] === g);
+    leagues.push({
+      league_id: leagueId, dropped_cards: dropped, panels: byGroup('panels'),
+      flips: byGroup('flips'), targets: byGroup('targets'),
+      dropped_flips: items.dropped_flips, dropped_targets: items.dropped_targets
+    });
   }
 
   return {

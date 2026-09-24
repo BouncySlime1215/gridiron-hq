@@ -19,10 +19,16 @@
  *                                     a bare probability, roster_holes position strings,
  *                                     chat_labels 'key:value' tags, offers_logged)
  *   brain_report.value.checks[E1]     whether the accept model has passed calibration
+ *   flip_map.value[]                  FIX-234-1: one card per flip (player, buy_from, sell_to,
+ *                                     spread, price_a/b, legs.p1/p2/p_both/nick_after, legs_why_not)
+ *   targets.value[]                   FIX-234-1: one card per target (player, owner, gain_if_landed,
+ *                                     p_reach, mode_fit, why, approved, is_plan_target)
  *
- * Cost rule (ENGINE-SPECS REASON-01): only the deck gets a panel per refresh.
- * The contract caps the deck at MAX_ALTERNATIVES (head + four), and anything
- * past it is dropped here, before any prompt is built.
+ * Cost rule (ENGINE-SPECS REASON-01): only the deck is considered on every
+ * refresh. The contract caps the deck at MAX_ALTERNATIVES (head + four), and
+ * anything past it is dropped here, before any prompt is built. Flips and
+ * targets (FIX-234-1) are capped the same way (MAX_ITEMS_PER_KIND each), and
+ * produce.js only writes one when its inputs changed or it was opened.
  *
  * Facts are a flat map of field id -> scalar. A panel's words may state a
  * number only when a fact it cites holds that number (verify.js). Chat enters
@@ -33,6 +39,8 @@ import { MAX_ALTERNATIVES } from '../campaign/plans-schema.js';
 
 export const MAX_CARDS_PER_LEAGUE = MAX_ALTERNATIVES;
 export const DECK_SIZE = MAX_CARDS_PER_LEAGUE - 1;
+/** FIX-234-1: at most this many flips and this many targets per league ever reach a prompt. */
+export const MAX_ITEMS_PER_KIND = 5;
 export const NEWS_WINDOW_HOURS = 48;
 export const REPLY_KEYS = Object.freeze(['accept', 'decline', 'counter', 'silence']);
 
@@ -101,18 +109,88 @@ function cardFromMove(move) {
   };
 }
 
-/** The deck for one league, at most MAX_CARDS_PER_LEAGUE, in rank order (0 = the head). */
-export function cardsForLeague(league) {
-  const raw = list(ok(league?.alternatives)).map(cardFromMove).filter(Boolean);
+/** De-duplicated by id, capped at `max`, ranked 0.. in order. */
+function capCards(raw, max) {
   const seen = new Set();
   const cards = [];
   for (const c of raw) {
     if (seen.has(c.id)) continue;
     seen.add(c.id);
     cards.push({ ...c, rank: cards.length });
-    if (cards.length === MAX_CARDS_PER_LEAGUE) break;
+    if (cards.length === max) break;
   }
   return { cards, dropped: Math.max(0, raw.length - cards.length) };
+}
+
+/** The deck for one league, at most MAX_CARDS_PER_LEAGUE, in rank order (0 = the head). */
+export function cardsForLeague(league) {
+  return capCards(list(ok(league?.alternatives)).map(cardFromMove).filter(Boolean), MAX_CARDS_PER_LEAGUE);
+}
+
+/* ------------------------------------------------ flips and targets (FIX-234-1) */
+
+const idOf = v => (v == null || v === '' ? null : String(v));
+
+/** A flip has no id in the contract; this one is stable across refreshes, so reuse works. */
+export const flipCardId = f => `flip:${f.player}:${f.buy_from}:${f.sell_to}`;
+/** A target has no id in the contract; player + owner is stable across refreshes. */
+export const targetCardId = t => `target:${t.player}:${t.owner}`;
+
+function cardFromFlip(f) {
+  if ([f?.player, f?.buy_from, f?.sell_to].some(v => idOf(v) == null)) return null;
+  const legs = f.legs && typeof f.legs === 'object' ? f.legs : null;
+  const after = legs?.nick_after ?? {};
+  const spread = f.spread ?? {};
+  return {
+    id: flipCardId(f), kind: 'flip', rank: 0,
+    partner_team: String(f.buy_from), other_team: String(f.sell_to),
+    give: legs && idOf(legs.give_a) ? [String(legs.give_a)] : [],
+    get: legs && idOf(legs.get_b) ? [String(legs.get_b)] : [],
+    players: [f.player, legs?.give_a, legs?.get_b].map(idOf).filter(Boolean),
+    // Confidence reads these: both legs landing is the flip's "he says yes".
+    p_yes: num(ok(legs?.p_both)), p_yes_n: null,
+    title_delta: num(ok(after)),
+    title_delta_se: after.status === 'ok' ? num(after.se) : null,
+    clears_2se: after.status === 'ok' && typeof after.clears_2se === 'boolean' ? after.clears_2se : null,
+    reply_table: [],
+    flip: {
+      player: String(f.player),
+      spread: num(ok(spread)), spread_se: spread.status === 'ok' ? num(spread.se) : null,
+      spread_clears_2se: spread.status === 'ok' && typeof spread.clears_2se === 'boolean' ? spread.clears_2se : null,
+      price_a: num(ok(f.price_a)), price_b: num(ok(f.price_b)),
+      p1: num(ok(legs?.p1)), p2: num(ok(legs?.p2)), p_both: num(ok(legs?.p_both)), nick_after: num(ok(after)),
+      legs_why_not: str(f.legs_why_not)
+    }
+  };
+}
+
+function cardFromTarget(t) {
+  if (idOf(t?.player) == null || idOf(t?.owner) == null) return null;
+  const gain = t.gain_if_landed ?? {};
+  return {
+    id: targetCardId(t), kind: 'target', rank: 0,
+    partner_team: String(t.owner),
+    give: [], get: [String(t.player)], players: [String(t.player)],
+    // Confidence reads these: the chance the path to him lands is the target's "he says yes".
+    p_yes: num(ok(t.p_reach)), p_yes_n: null,
+    title_delta: num(ok(gain)),
+    title_delta_se: gain.status === 'ok' ? num(gain.se) : null,
+    clears_2se: gain.status === 'ok' && typeof gain.clears_2se === 'boolean' ? gain.clears_2se : null,
+    reply_table: [],
+    target: {
+      player: String(t.player), gain_if_landed: num(ok(gain)), p_reach: num(ok(t.p_reach)),
+      mode_fit: str(ok(t.mode_fit)), why: str(ok(t.why)),
+      approved: typeof t.approved === 'boolean' ? t.approved : null,
+      is_plan_target: typeof t.is_plan_target === 'boolean' ? t.is_plan_target : null
+    }
+  };
+}
+
+/** The flips and targets of one league, each capped at MAX_ITEMS_PER_KIND, in the plan's order. */
+export function itemCardsForLeague(league) {
+  const flips = capCards(list(ok(league?.flip_map)).map(cardFromFlip).filter(Boolean), MAX_ITEMS_PER_KIND);
+  const targets = capCards(list(ok(league?.targets)).map(cardFromTarget).filter(Boolean), MAX_ITEMS_PER_KIND);
+  return { flips: flips.cards, targets: targets.cards, dropped_flips: flips.dropped, dropped_targets: targets.dropped };
 }
 
 /** News in the 48 h before `asOf` that touches a player on the card. */
@@ -120,7 +198,7 @@ export function recentNews(news, card, asOf) {
   const end = Date.parse(asOf);
   if (!Number.isFinite(end)) return [];
   const start = end - NEWS_WINDOW_HOURS * 3600 * 1000;
-  const players = new Set([...card.give, ...card.get].map(String));
+  const players = new Set((card.players ?? [...card.give, ...card.get]).map(String));
   return list(news).filter(n => {
     const t = Date.parse(n?.published_at);
     if (!Number.isFinite(t) || t < start || t > end) return false;
@@ -146,6 +224,15 @@ function put(facts, id, value) {
   facts[id] = value;
 }
 
+/** One partners.value[] row as facts under `prefix` (labels only, never chat text). */
+function putPartner(facts, prefix, partner) {
+  put(facts, `${prefix}.p_responds`, num(partner.p_responds));
+  put(facts, `${prefix}.basis`, str(partner.basis));
+  list(partner.roster_holes).forEach((h, i) => put(facts, `${prefix}.hole.${i}.pos`, str(h)));
+  put(facts, `${prefix}.offers_logged`, num(partner.offers_logged));
+  cleanLabels(partner.chat_labels).labels.forEach((l, i) => put(facts, `${prefix}.label.${i}`, l));
+}
+
 /**
  * Every fact one card's panel may cite. Ids are stable dotted paths so a
  * cite reads as where the number came from.
@@ -168,11 +255,20 @@ export function factsForCard({ card, league, news }) {
     }
   }
 
-  put(facts, 'his.p_responds', num(partner.p_responds));
-  put(facts, 'his.basis', str(partner.basis));
-  list(partner.roster_holes).forEach((h, i) => put(facts, `his.hole.${i}.pos`, str(h)));
-  put(facts, 'his.offers_logged', num(partner.offers_logged));
-  cleanLabels(partner.chat_labels).labels.forEach((l, i) => put(facts, `his.label.${i}`, l));
+  putPartner(facts, 'his', partner);
+
+  if (card.kind === 'flip') {
+    for (const [k, v] of Object.entries(card.flip)) put(facts, `flip.${k}`, k === 'player' ? names[v] ?? v : v);
+    put(facts, 'flip.buy_from', card.partner_team);
+    put(facts, 'flip.sell_to', card.other_team);
+    if (card.give[0] != null) put(facts, 'flip.give_a', names[card.give[0]] ?? card.give[0]);
+    if (card.get[0] != null) put(facts, 'flip.get_b', names[card.get[0]] ?? card.get[0]);
+    // The team he sells to is the second side of a flip; its read sits under buyer.*.
+    putPartner(facts, 'buyer', partnerFor(league, card.other_team) ?? {});
+  } else if (card.kind === 'target') {
+    for (const [k, v] of Object.entries(card.target)) put(facts, `target.${k}`, k === 'player' ? names[v] ?? v : v);
+    put(facts, 'target.owner', card.partner_team);
+  }
 
   const cal = calibrationOf(league);
   put(facts, 'calibration.calibrated', cal.calibrated);

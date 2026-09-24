@@ -56,6 +56,9 @@ export const MAX_ALTERNATIVES = 5;
 export const SKIP_REASONS = Object.freeze(['player', 'cost', 'manager', 'not_now']);
 /** Why a manager said no (north-star row 21): logged by Nick, read by the producer and the E2 grader. */
 export const DECLINE_REASONS = Object.freeze(['wants_more', 'likes_his_player', 'not_interested', 'not_now', 'other']);
+/** Catch-up kinds (campaign/catchup.js#CATCHUP_ORDER) and speed levers (campaign/speed.js#CURVE_LEVERS). */
+export const CATCHUP_KINDS = Object.freeze(['free', 'flip', 'desperate', 'swing', 'timing']);
+export const SPEED_LEVERS = Object.freeze(['sequential', 'parallel', 'concede', 'package', 'all_in']);
 export const NUMBER_HEALTH_STATUSES = Object.freeze(['ok', 'warn', 'broken']);
 
 /**
@@ -233,10 +236,14 @@ export const SECTIONS = Object.freeze({
   stop_tradeoffs: field(map(TRADEOFF_KEY, tradeoff)),
   flip_map: field(arr(flip)),
   targets: field(arr(target)),
-  catch_up: field(arr(obj({ text: str, gain: numF, steps: int(0) }, { move_id: id }))),
+  // kind / partner / discount (CATCHUP-LIVE) are optional: older producers omit them.
+  catch_up: field(arr(obj({ text: str, gain: numF, steps: int(0) },
+    { move_id: id, kind: oneOf(CATCHUP_KINDS), partner: id, discount_pct: numF }))),
+  // lever / p_land / levers (CATCHUP-LIVE): the lever that wins week N and every lever priced there.
   speed_curve: field(arr(obj({
     arrive_by: int(1, 18), cost: numF, net: numF, variance_note: str, offers_used: int(0), before_deadline: bool
-  }))),
+  }, { lever: oneOf(SPEED_LEVERS), p_land: probF,
+    levers: arr(obj({ lever: oneOf(SPEED_LEVERS), cost: numF, p_land: probF, offers_used: int(0) })) }))),
   brain_report: field(brainReport),
   number_health: field(obj({
     overall: oneOf(NUMBER_HEALTH_STATUSES), broken: int(0), warn: int(0), ok: int(0),

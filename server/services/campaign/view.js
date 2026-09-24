@@ -386,9 +386,12 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   const catch_up = ok(res.catch_up.map(c => {
     const gain = fin(c.gain) ? num(c.gain, 'plan.path', { unit, guess: c.kind === 'timing' })
       : c.kind === 'free' ? unknown(`A claim is priced in points a game (+${(c.ppg_gain ?? 0).toFixed(1)}), not in ${LABEL[metric]}.`, 'asset.ros')
-        : unknown('The deadline clock carries no gain of its own.', 'plan.path');
-    const out = { text: c.text, gain, steps: Number.isInteger(c.steps) ? c.steps : c.kind === 'flip' ? 2 : 0 };
+        : c.kind === 'desperate' ? unknown('No plan through this manager fits the sliders yet.', 'plan.path')
+          : unknown('The deadline clock carries no gain of its own.', 'plan.path');
+    const out = { text: c.text, gain, steps: Number.isInteger(c.steps) ? c.steps : c.kind === 'flip' ? 2 : 0, kind: c.kind };
     if (c.plan_key && idByFirstKey.has(c.plan_key)) out.move_id = idByFirstKey.get(c.plan_key);
+    if (c.team != null) out.partner = String(c.team);
+    if (c.kind === 'desperate') out.discount_pct = num(c.discount_pct, 'plan.path', { unit: 'market_value', missing: 'No price ladder for this step.' });
     return out;
   }), 'plan.path');
 
@@ -396,6 +399,10 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   const speed_curve = speed.length ? ok(speed.map(s => ({
     arrive_by: s.arrive_by, cost: num(s.cost, 'plan.path', { unit }), net: num(s.net, 'plan.path', { unit }),
     variance_note: s.variance_note, offers_used: s.offers_used, before_deadline: s.before_deadline,
+    ...(s.lever ? { lever: s.lever } : {}),
+    ...(fin(s.p_land) ? { p_land: num(s.p_land, 'plan.path', { prob: true, unit: 'probability', guess: true }) } : {}),
+    ...(Array.isArray(s.levers) ? { levers: s.levers.map(l => ({ lever: l.lever, cost: num(l.cost, 'plan.path', { unit }),
+      p_land: num(l.p_land, 'plan.path', { prob: true, unit: 'probability', guess: true }), offers_used: l.offers_used })) } : {}),
   })), 'plan.path') : unknown('No plan to put on a clock.', 'plan.path');
 
   const risk_modes = ok(res.risk_modes.map(m => ({

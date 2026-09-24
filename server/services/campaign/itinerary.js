@@ -1,6 +1,6 @@
 /**
  * CAMPAIGN-01f/g: itinerary (destination + stops), the trade-off of adding a
- * stop, and the speed curve (arrive by week N at cost) (pure).
+ * stop (pure). The speed curve is speed.js.
  */
 
 /** Days one negotiation takes (offer, answer, maybe one counter). Hand-set, not fitted. */
@@ -68,31 +68,4 @@ export function stopTradeOff({ label, without, with: withStop, gain = null, gain
   };
 }
 
-/**
- * The speed curve: for each arrive-by week N from now to the deadline, the best plan that lands by N
- * and what speed costs versus the unconstrained best. Plans are already ranked (best first) with
- * `score`, `expected`, `sd`. Speed levers: parallel offers (independent steps) always on; a chained
- * plan that is too slow is dropped for that N.
- */
-export function speedCurve(ranked, { currentWeek, deadlineWeek, daysPerStep = DAYS_PER_STEP, daysLeftInWeek = 7 }) {
-  if (!ranked.length || !Number.isInteger(currentWeek)) return [];
-  const last = Number.isInteger(deadlineWeek) ? deadlineWeek : currentWeek + 4;
-  const top = ranked[0];
-  const out = [];
-  for (let n = currentWeek; n <= Math.max(last, currentWeek); n++) {
-    const fit = ranked.find(p => arrivalWeek(p, currentWeek, { daysPerStep, daysLeftInWeek }) <= n) ?? null;
-    if (!fit) continue;
-    out.push({
-      arrive_by: n,
-      cost: top.score - fit.score,
-      net: fit.score,
-      expected: fit.expected,
-      variance_note: fit.sd > top.sd ? 'wider range of outcomes than the unhurried plan' : 'no wider than the unhurried plan',
-      offers_used: fit.steps.length,
-      parallel: !fit.chained && fit.steps.length > 1,
-      before_deadline: n <= last,
-      first_step: fit.steps[0],
-    });
-  }
-  return out;
-}
+// The speed curve and its priced levers live in speed.js (CAMPAIGN-01g, CATCHUP-LIVE).

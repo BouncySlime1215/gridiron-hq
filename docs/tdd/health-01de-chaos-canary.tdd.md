@@ -1,7 +1,7 @@
 # HEALTH-01d chaos drills and HEALTH-01e Coach canary
 
 RED `00ba016` (test: RED for HEALTH-01d chaos drills and HEALTH-01e Coach canary) · GREEN `97b0d4a` · `test/chaos-drills.test.js` (15 cases: 8 baseline, 7 pending),
-`test/coach-canary.test.js` (14 cases), `test/refresh-loop-steps.test.js` (1 changed expectation).
+`test/coach-canary.test.js` (15 cases), `test/refresh-loop-steps.test.js` (1 changed expectation).
 
 Spec: `ENGINE-SPECS.md` §HEALTH-01, rows d and e (branch `claude/handoff-package-2026-09-22`).
 
@@ -36,7 +36,7 @@ Run in a clean worktree of `main` @ `12a6de9` with only the three test files add
 ## GREEN
 
 - `chaos-drills.test.js`: 8 pass, 0 fail, 7 todo.
-- `coach-canary.test.js`: 14 pass, 0 fail.
+- `coach-canary.test.js`: 15 pass, 0 fail (M8 in the mutation sweep added the refusal-with-digits case).
 - `refresh-loop-steps.test.js`: 20 pass, 0 fail.
 - `node scripts/coach-canary.mjs --dry-run`: 12/12, exit 0.
 - `node scripts/coach-canary.mjs --dry-run --inject-wrong G03`: status `error`, failure G03 drift, exit 1.
@@ -63,3 +63,24 @@ refused and the canary asks nothing. `CANARY_MAX_USD` is $0.15: one to three
 questions a day live, all twelve across the rotation. The dry run's upper-bound
 estimate for all twelve live is $2.49 (23 calls); real spend will be far below
 that, since output is billed as produced. That figure is not measured.
+
+## Liveness: mutation sweep
+
+Each mutant applied alone in a clean worktree of the GREEN tree; "killed" = at least one test failed.
+
+| # | Mutant | File | Result |
+|---|---|---|---|
+| M1 | number grade always true | `scripts/lib/coach-canary-golden.mjs` | killed |
+| M2 | text grade always true | same | killed |
+| M3 | no stop after first budget refusal | `scripts/coach-canary.mjs` | killed |
+| M4 | budget skip counted as drift | golden lib | killed |
+| M5 | daily gate off (call site predicate) | `scripts/refresh-live-data.mjs` | killed |
+| M6 | allowance ignores Coach budget left | `scripts/coach-canary.mjs` | killed |
+| M7 | loop never calls the canary step (call site) | `scripts/refresh-live-data.mjs` | killed (refresh-loop test) |
+| M8 | refusal grade ignores digits | golden lib | **survived**, then killed after adding the refusal-with-digits test |
+| D1 | sim fault never injected | `test/chaos-drills.test.js` | killed |
+| D2 | tool fault never injected | same | killed |
+| D3 | ESPN row fresh instead of 3 days old | same | killed |
+| D4 | shares not corrupted (0.30) | same | killed |
+| C1 | control: comment-only edit | `scripts/coach-canary.mjs` | survived, as designed |
+| C2 | control: string not in file | same | not applied, as designed |

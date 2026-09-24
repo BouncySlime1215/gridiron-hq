@@ -28,9 +28,13 @@
  *
  * Live mode (descriptive only, ESPN 2026): runs the engine producer against a COPY of
  * the app database that carries migration 075 and the engine backfill, and prints the
- * state counts (aggregates only). It refuses the production paths.
- *   GRIDIRON_DB_PATH=<copy> GRIDIRON_LIVING01A_ENABLED=1 node scripts/living01a-fit.mjs --live \
- *     --season 2026 --through 2 [--as-of <ISO>]
+ * state counts (aggregates only). It refuses the production paths. The producer always
+ * writes (the model in lane shadow, the population fallback in lane live), so no flag
+ * is needed. `--season`, `--through` (last completed scoring period) and `--weeks-left`
+ * are CALLER-SUPPLIED: this is the producer's ctx until EA-02's league producer writes
+ * league.week (ENGINE-ARCHITECTURE §11.5 item 6).
+ *   GRIDIRON_DB_PATH=<copy> node scripts/living01a-fit.mjs --live \
+ *     --season 2026 --through 2 [--weeks-left 12] [--as-of <ISO>]
  */
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
@@ -49,23 +53,33 @@ async function live() {
     console.error('--live writes engine_state rows: point GRIDIRON_DB_PATH at a copy, never the live database');
     process.exit(2);
   }
+  process.env.GRIDIRON_PROCESS_ROLE ??= 'script'; // engine writes are role-guarded (role.js)
   const { db } = await import('../server/db/index.js');
   const m = await import('../server/services/engine/activity-model.js');
+  // ctx, caller-supplied until the league producer (EA-02) exists.
   const season = Number(arg('season', 2026));
   const through = Number(arg('through', 2));
+  const weeksLeft = arg('weeks-left') == null ? null : Number(arg('weeks-left'));
   const asOf = arg('as-of', new Date().toISOString());
-  const leagues = db.prepare('SELECT DISTINCT league_id FROM league_transactions_raw WHERE season = ? ORDER BY league_id').all(season)
+  const leagues = db.prepare(`SELECT DISTINCT league_id FROM engine_events
+      WHERE event_type = 'espn.transaction' AND league_id <> 0 AND as_of <= ? ORDER BY league_id`).all(new Date(asOf).toISOString())
     .map(r => r.league_id);
   const tally = { engaged: 0, drifting: 0, checked_out: 0 };
-  let written = 0; let skipped = 0; let teams = 0; const off = [];
+  let written = 0; let unchanged = 0; let skipped = 0; let teams = 0; let weeksUnknownAdds = 0; let weeks = 0;
+  const lanes = new Set();
   for (const leagueId of leagues) {
-    const r = await m.produceActivityStates({ leagueId, season, through, asOf });
-    if (r.off) off.push(r.off);
-    written += r.written; skipped += r.skipped; teams += r.teams.length;
-    for (const t of r.teams) tally[t.state]++;
+    const r = await m.produceActivityStates({ leagueId, season, through, asOf, weeksLeft });
+    written += r.written; unchanged += r.unchanged; skipped += r.skipped; teams += r.teams.length;
+    if (r.lane) lanes.add(r.lane);
+    for (const t of r.teams) {
+      tally[t.state]++;
+      weeks += t.weeks.length;
+      weeksUnknownAdds += t.weeks.filter(w => w.adds == null).length;
+    }
   }
-  console.log(JSON.stringify({ mode: 'live', label: 'local copy', season, through, as_of: asOf, leagues: leagues.length,
-    teams, written, skipped, states: tally, off: off[0] ?? null }, null, 2));
+  console.log(JSON.stringify({ mode: 'live', label: 'local copy', ctx: 'caller-supplied (EA-02 pending)', season, through,
+    weeks_left: weeksLeft, as_of: asOf, leagues: leagues.length, teams, written, unchanged, skipped, lanes: [...lanes],
+    states: tally, team_weeks: weeks, team_weeks_adds_unknown: weeksUnknownAdds }, null, 2));
 }
 const SH = arg('sleeper');
 const NV = arg('nv');

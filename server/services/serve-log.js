@@ -19,9 +19,13 @@
  * puts the batch back and throws. `serveLogState()` reports all of it, and
  * GET /api/trades/:leagueId/served-numbers serves that state next to the rows.
  *
- * Table: served_numbers (server/migrations/079_served_numbers.js).
+ * REPLAYABLE. Every row carries the rng `seed` the number was simulated under
+ * (null for a producer that draws nothing) and `input_hash`, the sha256 of the
+ * league snapshot (`leagues.payload`) it was computed from (migration 100).
+ *
+ * Table: served_numbers (server/migrations/079_served_numbers.js, 100_served_numbers_replay.js).
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { db as processDb } from '../db/index.js';
 
 /** Payload entries, not rows: one entry is one response. */
@@ -119,6 +123,20 @@ const EXTRACTORS = {
     return { model: 'trade-engine.findTrades', version: `${c.engine ?? ''}|cutoff=${c.cutoff ?? ''}`, numbers };
   },
   /**
+   * Weekly only: each team's lineup range this week, the one the Self-scout
+   * card serves (trade-engine.js selfScout: lineupSpread over weekLineup).
+   * p50 is lineupSpread's mean: it is a normal approximation, so mean = median.
+   */
+  lineup_spread: p => {
+    if (!Array.isArray(p.teams)) throw new Error('lineup_spread payload has no teams list');
+    const numbers = [];
+    for (const t of p.teams) {
+      const e = `team:${t.roster_id}`;
+      numbers.push([e, 'lineup_p10', t.floor], [e, 'lineup_p50', t.mean], [e, 'lineup_p90', t.ceiling]);
+    }
+    return { model: 'trade-engine.lineupSpread', version: `week=${p.week ?? ''};method=${p.method ?? ''}`, numbers };
+  },
+  /**
    * GET /api/trades/:id/war-room — the War Room's numbers, read from the plans
    * file (contract warroom-plans/1): the next move and each deck card's first
    * step (p_yes, title_odds_delta ± 2 SE, title_after) and my title odds now.
@@ -150,12 +168,35 @@ const EXTRACTORS = {
 };
 export const SERVED_SURFACES = Object.keys(EXTRACTORS);
 
+/** The seed a payload was simulated under: its own `seed`, else the caller's. */
+const seedOf = (payload, context) => {
+  const s = num(payload?.seed ?? context?.seed);
+  return s == null ? null : Math.trunc(s);
+};
+
 /** Pure: the rows one served payload becomes (without league/time stamps). */
 export function servedNumbers(surface, payload, context = {}) {
   const extract = EXTRACTORS[surface];
   if (!extract) throw new Error(`serve-log: unknown surface ${surface}`);
   const { model, version, numbers } = extract(payload, context);
-  return numbers.map(([entity, field, value]) => ({ entity, field, value: num(value), model, model_version: version }));
+  const seed = seedOf(payload, context);
+  return numbers.map(([entity, field, value]) => ({ entity, field, value: num(value), model, model_version: version, seed }));
+}
+
+/**
+ * sha256 of a league snapshot. Hashed at flush time, not on the request thread;
+ * the entry keeps a reference to the payload string it was served from. One
+ * cached hash per league, reused while its payload is unchanged.
+ */
+const hashCache = new Map();
+export function leagueInputHash(leagueId, payload) {
+  if (payload == null) return null;
+  const src = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  const hit = hashCache.get(leagueId);
+  if (hit && hit.src === src) return hit.hash;
+  const hash = createHash('sha256').update(src).digest('hex');
+  hashCache.set(leagueId, { src, hash });
+  return hash;
 }
 
 // ------------------------------------------------------------------ queue
@@ -185,20 +226,24 @@ export function recordServed(res, surface, lg, payload, context = {}, { trigger 
   res?.setHeader?.('X-Served-Request-Id', requestId);
   if (queue.length >= SERVE_LOG_QUEUE_CAP) { queue.shift(); state.dropped++; }
   queue.push({ surface, payload, context, request_id: requestId, trigger, served_at: new Date().toISOString(),
-    league_id: lg.id, as_of: lg.fetched_at ?? null, season: lg.season ?? null, week: leagueWeek(lg) });
+    league_id: lg.id, as_of: lg.fetched_at ?? null, season: lg.season ?? null, week: leagueWeek(lg),
+    input: lg.payload ?? null });
   state.enqueued++;
   return requestId;
 }
 
 const INSERT = `INSERT INTO served_numbers
-  (league_id, surface, entity, field, value, model, model_version, as_of, served_at, request_id, trigger, season, week)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  (league_id, surface, entity, field, value, model, model_version, as_of, served_at, request_id, trigger, season, week,
+   seed, input_hash)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 /** One entry's rows, or null (counted and reported) when its payload cannot be read. */
 function entryRows(e) {
   try {
+    const inputHash = leagueInputHash(e.league_id, e.input);
     return servedNumbers(e.surface, e.payload, e.context).map(n => [e.league_id, e.surface, n.entity,
-      n.field, n.value, n.model, n.model_version, e.as_of, e.served_at, e.request_id, e.trigger, e.season, e.week]);
+      n.field, n.value, n.model, n.model_version, e.as_of, e.served_at, e.request_id, e.trigger, e.season, e.week,
+      n.seed, inputHash]);
   } catch (err) {
     // Counted and reported, not swallowed: one unreadable payload must not
     // cost the rest of the batch, and the state says it happened.
@@ -274,22 +319,48 @@ export function readServed(leagueId, { requestId = null, entity = null, limit = 
   if (entity) { where.push('entity = ?'); args.push(String(entity)); }
   args.push(Math.max(1, Math.min(5000, Number(limit) || 500)));
   return database.prepare(`SELECT league_id, surface, entity, field, value, model, model_version, as_of,
-      served_at, request_id, trigger, season, week
+      served_at, request_id, trigger, season, week, seed, input_hash
     FROM served_numbers WHERE ${where.join(' AND ')} ORDER BY served_at DESC, id DESC LIMIT ?`).all(...args);
 }
 
 // ------------------------------------------------------------------ weekly
+/** A fresh positive 31-bit seed, for a simulation the caller did not seed. */
+export const newServeSeed = () => randomInt(1, 2 ** 31 - 1);
+
 /**
- * Once per league per NFL week: the title odds, the title-trades tab and the
- * finder's cards, as the routes would serve them to the league's own team.
+ * Each team's lineup range this week, as selfScout serves it: lineupSpread over
+ * weekLineup (starters on bye benched). A team with no modelled starter gets
+ * nulls, which are written as nulls.
+ */
+function teamLineupSpreads(lg, te, formatKey, week) {
+  const teams = te.loadRosters(lg, te.assetUniverse(lg, formatKey));
+  const slots = te.lineupSlots(lg);
+  let method = null;
+  const out = teams.map(t => {
+    const s = te.lineupSpread(te.weekLineup(t.players, slots));
+    method ??= s.method ?? null;
+    return { roster_id: t.roster_id, floor: s.floor ?? null, mean: s.mean ?? null, ceiling: s.ceiling ?? null };
+  });
+  return { week, method, teams: out };
+}
+
+/**
+ * Once per league per NFL week: the title odds, the title-trades tab, the
+ * finder's cards and every team's lineup range, as the routes would serve them
+ * to the league's own team.
  * Idempotent on (league, season, week): a week already snapshotted is skipped,
  * so the job's own cadence only decides how soon after a new week it lands.
+ * PREGAME ONLY (RL-20-1 spec c): once the week's first kickoff has passed or the
+ * week has outcomes, the capture is refused, by the same guard as
+ * captureWeeklyPredictions (weekly-learning.js pregameWeekGuard).
  * Producers are imported lazily so the scheduler, which imports this module,
  * does not pull the season simulator into every process that loads it.
  */
 export async function snapshotServedNumbers({ database = processDb } = {}) {
-  const [{ simulateSeason }, { titleOddsTrades }, { findTrades }, { scoringFor }] = await Promise.all([
-    import('./season-sim.js'), import('./title-odds-trades.js'), import('./trade-engine.js'), import('./scoring.js')]);
+  const [{ simulateSeason, tradeImpactSeed }, { titleOddsTrades }, te, { scoringFor }, { deriveFormat },
+    { pregameWeekGuard }, { withRandomSeed }] = await Promise.all([
+    import('./season-sim.js'), import('./title-odds-trades.js'), import('./trade-engine.js'), import('./scoring.js'),
+    import('./format.js'), import('./weekly-learning.js'), import('./stats-util.js')]);
   const leagues = database.prepare('SELECT * FROM leagues ORDER BY id').all();
   const out = [];
   for (const lg of leagues) {
@@ -298,18 +369,25 @@ export async function snapshotServedNumbers({ database = processDb } = {}) {
     const done = database.prepare(`SELECT 1 FROM served_numbers WHERE league_id = ? AND trigger = 'weekly'
       AND season IS ? AND week IS ? LIMIT 1`).get(lg.id, lg.season ?? null, week);
     if (done) { out.push({ league_id: lg.id, week, state: 'already_snapshotted' }); continue; }
+    if (lg.season != null && week != null) {
+      const guard = pregameWeekGuard(lg.season, week, { database });
+      if (guard.blocked) { out.push({ league_id: lg.id, week, state: 'refused_slate_started', reason: guard.reason }); continue; }
+    }
     const entries = [];
     const add = (surface, payload, context = {}) => {
       if (!servable(payload)) return;
       entries.push({ surface, payload, context, request_id: requestId, trigger: 'weekly',
         served_at: new Date().toISOString(), league_id: lg.id, as_of: lg.fetched_at ?? null,
-        season: lg.season ?? null, week });
+        season: lg.season ?? null, week, input: lg.payload });
     };
     const requestId = `weekly:${randomUUID()}`;
     const myTeamId = lg.my_team_id ?? null;
-    add('title_odds', simulateSeason(lg, { runs: 2000, scoring: scoringFor(lg) }));
-    add('title_trades', titleOddsTrades(lg.id, { teamId: myTeamId }), { myTeamId });
-    add('trade_find', findTrades(lg, { myTeamId, limit: 20 }));
+    const seed = newServeSeed();
+    const sim = withRandomSeed(seed, () => simulateSeason(lg, { runs: 2000, scoring: scoringFor(lg) }));
+    add('title_odds', servable(sim) ? { ...sim, seed } : sim);
+    add('title_trades', titleOddsTrades(lg.id, { teamId: myTeamId }), { myTeamId, seed: tradeImpactSeed(lg) });
+    add('trade_find', te.findTrades(lg, { myTeamId, limit: 20 }));
+    add('lineup_spread', teamLineupSpreads(lg, te, deriveFormat(lg).formatKey, week));
     const rows = writeEntries(entries, database);
     out.push({ league_id: lg.id, week, state: rows ? 'snapshotted' : 'nothing_served', rows, request_id: requestId });
   }

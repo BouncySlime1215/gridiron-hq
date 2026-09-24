@@ -46,17 +46,30 @@ function fitPosition(data, fallback) {
   return best.weights;
 }
 
-export function captureWeeklyPredictions(season, week, { scoring = PPR, runs = 250 } = {}) {
-  const outcomes = row('SELECT COUNT(*) AS n FROM player_week_usage WHERE season=? AND week=?', season, week)?.n ?? 0;
-  if (outcomes > 0) return { captured: 0, blocked: true, reason: 'week already has outcomes; pregame snapshot cannot be rewritten' };
-  const schedule = rows(`SELECT gameday,gametime,team_score FROM game_lines
-    WHERE season=? AND week=? AND home=1`, season, week);
+/**
+ * Is a pregame snapshot of (season, week) still possible? Blocked once the week
+ * has outcomes, a game has a score, or its first kickoff has passed. Shared by
+ * captureWeeklyPredictions and the serve-log weekly capture (RL-20-1 spec c).
+ */
+export function pregameWeekGuard(season, week, { database = db, now = Date.now() } = {}) {
+  const outcomes = database.prepare('SELECT COUNT(*) AS n FROM player_week_usage WHERE season=? AND week=?')
+    .get(season, week)?.n ?? 0;
+  if (outcomes > 0) return { blocked: true, reason: 'week already has outcomes; pregame snapshot cannot be rewritten' };
+  const schedule = database.prepare(`SELECT gameday,gametime,team_score FROM game_lines
+    WHERE season=? AND week=? AND home=1`).all(season, week);
   const firstKickoff = schedule.map(game => nflKickoffDate(game.gameday, game.gametime || '23:59'))
     .filter(date => date && Number.isFinite(date.getTime())).sort((a, b) => a - b)[0];
-  if (schedule.some(game => game.team_score != null) || (firstKickoff && firstKickoff.getTime() <= Date.now())) {
-    return { captured: 0, blocked: true,
+  if (schedule.some(game => game.team_score != null) || (firstKickoff && firstKickoff.getTime() <= now)) {
+    return { blocked: true, first_kickoff: firstKickoff ?? null,
       reason: 'the weekly slate has started; a whole-week pregame snapshot cannot be reconstructed' };
   }
+  return { blocked: false, first_kickoff: firstKickoff ?? null };
+}
+
+export function captureWeeklyPredictions(season, week, { scoring = PPR, runs = 250 } = {}) {
+  const guard = pregameWeekGuard(season, week);
+  if (guard.blocked) return { captured: 0, blocked: true, reason: guard.reason };
+  const firstKickoff = guard.first_kickoff;
   const projections = buildPlayerWeekEngine({ season, week, scoring });
   const now = new Date().toISOString();
   const gridironVersion = nflEngineVersionFor(season, week);

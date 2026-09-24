@@ -142,8 +142,8 @@ export function parseEspnArchive(json, season) {
   return { byEspnWeek: out, position, players };
 }
 
-function readArchive(dir, season) {
-  refuseHoldout(season);
+function readArchive(dir, season, allowHoldout = false) {
+  if (!allowHoldout) refuseHoldout(season);
   const file = path.join(dir, `espn_leaguedefaults3_${season}.json.gz`);
   if (!fs.existsSync(file)) throw new Error(`ESPN archive for ${season} not found at ${file}`);
   return { file: path.basename(file), ...parseEspnArchive(JSON.parse(zlib.gunzipSync(fs.readFileSync(file)).toString('utf8')), season) };
@@ -373,7 +373,7 @@ export function residualModel(rows, testSeason, { seed = 1 } = {}) {
 }
 
 // ---------------------------------------------------------------- assembly
-export async function assemble({ dbPath, archiveDir, log = () => {} }) {
+export async function assemble({ dbPath, archiveDir, log = () => {}, seasons = SEASONS, allowHoldout = false }) {
   const { DatabaseSync } = await import('node:sqlite');
   const db = new DatabaseSync(dbPath, { readOnly: true });
   const all = (sql, ...a) => db.prepare(sql).all(...a);
@@ -385,9 +385,9 @@ export async function assemble({ dbPath, archiveDir, log = () => {} }) {
   const firstSeason = new Map(all('SELECT player_id, MIN(season) AS s FROM nfl_player_week_features GROUP BY player_id').map(r => [r.player_id, r.s]));
   const census = {};
   const rows = [];
-  for (const season of SEASONS) {
-    refuseHoldout(season);
-    const arc = readArchive(archiveDir, season);
+  for (const season of seasons) {
+    if (!allowHoldout) refuseHoldout(season);
+    const arc = readArchive(archiveDir, season, allowHoldout);
     const pwf = all('SELECT week, player_id, team, position, features FROM nfl_player_week_features WHERE season = ?', season);
     const teamOf = new Map(); // gsis -> Map(week -> team)
     const played = new Map(); // gsis -> Set(week)
@@ -553,12 +553,72 @@ export function grade(rows) {
 
 function arg(name) { const i = process.argv.indexOf(name); return i >= 0 ? process.argv[i + 1] : null; }
 
+// ---------------------------------------------------------------- PROJ-01-a-2025 (one-time confirm)
+/**
+ * PROJ-01-a-2025: a NAMED, ONE-TIME 2025 confirmation of the two spots that proved out on
+ * 2021-2024 in PR #222 (qb_change, blowout_underdog_rb). Nick approved this 2025 use
+ * (docs/evidence/HOLDOUT-LEDGER.md rule per STATS-METHOD.md rule 2); this is not a general
+ * holdout-opening path. Frozen: same SPOTS definitions and signs above, no re-fit, no new
+ * spots. `refuseHoldout()` stays the default for every other path in this file.
+ */
+export const CONFIRM_2025_SPOTS = Object.freeze(['qb_change', 'blowout_underdog_rb']);
+export const CONFIRM_2025_ENV = 'GRIDIRON_PROJ_01_A_2025_ENABLED';
+
+function ledgerRowExists(rowId) {
+  const file = path.join(ROOT, 'docs/evidence/HOLDOUT-LEDGER.md');
+  if (!fs.existsSync(file)) return false;
+  return new RegExp(`^\\|\\s*${rowId}\\s*\\|`, 'm').test(fs.readFileSync(file, 'utf8'));
+}
+
+/** Pooled excess error + 95% CI on 2025-only rows, for the two frozen, proven spots only. */
+export function confirm2025Verdict(rows2025) {
+  const out = {};
+  for (const id of CONFIRM_2025_SPOTS) {
+    const spot = SPOTS.find(s => s.id === id);
+    const pooled = spotTest(rows2025, spot).pooled_excess;
+    const sign = pooled.mean == null ? null : Math.sign(pooled.mean);
+    out[id] = { predicted_sign: spot.sign, pooled_excess_mean: pooled.mean, ci95: pooled.ci95,
+      p: pooled.p, n: pooled.n, clusters: pooled.clusters, sign, same_sign: sign === spot.sign };
+  }
+  return out;
+}
+
+async function runConfirm2025({ dbPath, archiveDir, log, rowId }) {
+  if (process.env[CONFIRM_2025_ENV] !== '1') throw new Error(`--confirm-2025 requires ${CONFIRM_2025_ENV}=1 (default off)`);
+  if (!rowId) throw new Error('--confirm-2025 requires a docs/evidence/HOLDOUT-LEDGER.md row id, e.g. --confirm-2025 L163');
+  if (!ledgerRowExists(rowId)) throw new Error(`--confirm-2025 ${rowId}: no such row in docs/evidence/HOLDOUT-LEDGER.md (add it in the same commit as this result)`);
+  const report = { unit: 'PROJ-01-a-2025', label: 'ONE-TIME 2025 confirmation, pre-registered spots, frozen definitions, no re-fit',
+    ledger_row: rowId, spots: CONFIRM_2025_SPOTS,
+    tree: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim() };
+  const { rows, census } = await assemble({ dbPath, archiveDir, log, seasons: [HELD_OUT], allowHoldout: true });
+  report.census = census;
+  report.confirm_2025 = confirm2025Verdict(rows);
+  return report;
+}
+
 async function main() {
   const dbPath = arg('--db');
   if (!dbPath) throw new Error('--db <copy of the app database> is required');
   if (path.resolve(dbPath) === path.join(process.env.HOME ?? '', 'gridiron-local', 'data.sqlite')) throw new Error('refusing the live database: use a copy');
   const archiveDir = arg('--espn-archive') ?? DEFAULT_ARCHIVE;
   const log = (...a) => console.error(...a);
+  const out = arg('--out');
+  const writeOut = json => {
+    if (out) {
+      if (path.resolve(out).startsWith(ROOT + path.sep) && !path.resolve(out).includes(`${path.sep}.local-db${path.sep}`)) throw new Error('--out inside the repo must be under .local-db/');
+      fs.writeFileSync(out, json + '\n');
+    }
+    console.log(json);
+  };
+
+  let confirmRowId = arg('--confirm-2025');
+  if (confirmRowId?.startsWith('--')) confirmRowId = null; // e.g. `--confirm-2025 --db ...` (no row id given)
+  if (confirmRowId || process.argv.includes('--confirm-2025')) {
+    const report = await runConfirm2025({ dbPath, archiveDir, log, rowId: confirmRowId });
+    writeOut(JSON.stringify(report, null, 2));
+    return;
+  }
+
   const report = { unit: 'PROJ-01-a', label: 'local copy, not production', population: `ESPN projection >= ${MIN_ESPN}, QB/RB/WR/TE, weeks ${FIRST_WEEK}-${LAST_WEEK}`,
     tree: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim() };
   if (process.argv.includes('--grade')) report.prereg_commit = preregCommitted();
@@ -566,13 +626,7 @@ async function main() {
   report.census = census;
   report.baseline = baseline(rows);
   if (process.argv.includes('--grade')) Object.assign(report, grade(rows));
-  const json = JSON.stringify(report, null, 2);
-  const out = arg('--out');
-  if (out) {
-    if (path.resolve(out).startsWith(ROOT + path.sep) && !path.resolve(out).includes(`${path.sep}.local-db${path.sep}`)) throw new Error('--out inside the repo must be under .local-db/');
-    fs.writeFileSync(out, json + '\n');
-  }
-  console.log(json);
+  writeOut(JSON.stringify(report, null, 2));
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

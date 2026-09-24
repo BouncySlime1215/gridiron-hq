@@ -264,6 +264,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   const titleByTeam = new Map((w0.base?.teams ?? []).map(t => [String(t.roster_id), t.title_odds]));
   const activity = activityReads(activityRows(svc, leagueId), timing, leagueId);
   const managers = new Map();
+  // Nick's own notes (the one reader, keyed by his roster like everyone else's): his protected players.
+  const myNick = resolveUntouchables(chat?.get(me)?.nick ?? null, (rosters.get(me) ?? []).map(id => players.get(id)).filter(Boolean));
   for (const t of rosters.keys()) {
     if (t === me) continue;
     const m = layer.get(t) ?? null;
@@ -346,7 +348,9 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
     // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
-    untouchable: untouchableIds([...managers.values()].map(m => m.nick)),
+    // His notes on his OWN roster ("untouchable: Nico Collins") protect his players the same way:
+    // they are never given (vals.tradable excludes this set). Nick 9/24: blue chips are not for sale.
+    untouchable: untouchableIds([...managers.values()].map(m => m.nick).concat([myNick])),
     ...(finder ? { finderBest } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),

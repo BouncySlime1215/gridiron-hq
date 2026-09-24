@@ -82,8 +82,8 @@ test('a raw proposal already settled into trade_outcomes is counted once', () =>
 });
 
 test('the ESPN copy of an app-proposed offer is dropped; the app row keeps its recorded prediction', () => {
-  const app = { league_id: 7, season: 2026, source: 'app_proposed', proposer_team_id: '1', counterparty_team_id: '3', proposed_at: iso(3), model_p_accept: 0.4, status: 'declined' };
-  const copy = { ...app, source: 'observed', proposed_at: iso(3, 1), model_p_accept: null, espn_tx_id: '555' };
+  const app = { league_id: 7, season: 2026, source: 'app_proposed', proposer_team_id: '1', counterparty_team_id: '3', proposed_at: iso(3), model_p_accept: 0.4, status: 'declined', sent_at: iso(3) };
+  const copy = { ...app, source: 'observed', proposed_at: iso(3, 1), model_p_accept: null, espn_tx_id: '555', sent_at: undefined };
   const { offers, excluded } = L.mergeOffers({ rows: [app, copy] });
   assert.equal(offers.length, 1);
   assert.equal(offers[0].source, 'app_proposed');

@@ -52,7 +52,18 @@ export function result({ check, name, status, metricName, metric = null, ci = nu
 export function readSource(database, table, columns, sql = null) {
   const exists = database.prepare(`SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name = ?`).get(table);
   if (!exists) return { ok: false, reason: `source table ${table} is not built yet` };
-  const have = new Set(database.prepare(`SELECT name FROM pragma_table_info(?)`).all(table).map(c => c.name));
+  let info;
+  try {
+    info = database.prepare(`SELECT name FROM pragma_table_info(?)`).all(table);
+  } catch (e) {
+    // A view resolves its tables when read (title_odds_snapshots over
+    // served_numbers): a table it needs that is not built yet is a missing
+    // source, reported like one. Any other fault is a real error and throws.
+    const m = /no such table: (?:main\.)?(\S+)/.exec(e.message);
+    if (!m) throw e;
+    return { ok: false, reason: `source ${table} reads ${m[1]}, which is not built yet` };
+  }
+  const have = new Set(info.map(c => c.name));
   const missing = columns.filter(c => !have.has(c));
   if (missing.length) return { ok: false, reason: `source table ${table} lacks column(s) ${missing.join(', ')}` };
   return { ok: true, rows: database.prepare(sql ?? `SELECT ${columns.join(', ')} FROM ${table}`).all() };

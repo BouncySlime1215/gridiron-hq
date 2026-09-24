@@ -44,11 +44,13 @@ const { default: accoladesRouter } = await import('./routes/accolades.js');
 const { default: edgeRouter } = await import('./routes/edge.js');
 const { default: tradelabRouter } = await import('./routes/tradelab.js');
 const { default: tradesRouter } = await import('./routes/trades.js');
+const { default: gradesRouter } = await import('./routes/grades.js');
 const { default: commandCenterRouter } = await import('./routes/command-center.js');
 const { default: espnConnectRouter } = await import('./routes/espn-connect.js');
 const { default: leagueChatRouter } = await import('./routes/league-chat.js');
 const { default: modelRouter } = await import('./routes/model.js');
 const { default: dataFreshnessRouter } = await import('./routes/data-freshness.js');
+const { default: numberAuditRouter } = await import('./routes/number-audit.js');
 const { default: nflMarketRouter } = await import('./routes/nfl-market.js');
 const { default: nflBettingRouter } = await import('./routes/nfl-betting.js');
 const { default: bettingHubRouter } = await import('./routes/betting-hub.js');
@@ -64,6 +66,7 @@ const { startScheduler } = await import('./services/scheduler.js');
 const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-access.js');
 const { default: coachRouter } = await import('./routes/coach.js');
 const { default: engineRouter } = await import('./routes/engine.js');
+const { default: warroomRouter } = await import('./routes/warroom.js');
 
 const app = express();
 // First, so that ANY completed response arms the watchdog -- including a 404
@@ -90,6 +93,11 @@ seedIfEmpty();
 // actually over, with no request needed -- so an app nobody has visited yet is
 // still protected. See server/platform/loop-watchdog.js.
 startScheduler({ intervalMinutes: 5, onBootComplete: armLoopWatchdog });
+// IDEA-001: the serve-log flush loop. Started unconditionally, not by the
+// scheduler: routes queue every served number, and a queue that only drains
+// when SCHEDULER_DISABLED is unset would just fill and drop.
+const { startServeLogFlusher } = await import('./services/serve-log.js');
+startServeLogFlusher();
 // Server-owned draft pick clock: survives reconnects and server restarts,
 // since it's driven by drafts.turn_deadline in SQLite rather than any client's
 // setTimeout. Without this, a draft only advanced past the clock while a
@@ -133,6 +141,7 @@ app.use('/api/accolades', ...legacyAuthenticated, accoladesRouter);
 app.use('/api/edge', ...legacyAuthenticated, edgeRouter);
 app.use('/api/tradelab', ...legacyAuthenticated, tradelabRouter);
 app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
+app.use('/api/grades', ...legacyAuthenticated, gradesRouter);
 app.use('/api/command-center', ...legacyAuthenticated, commandCenterRouter);
 app.use('/api/espn-connect', espnConnectRouter);
 app.use('/api/league-chat', ...legacyAuthenticated, leagueChatRouter);
@@ -148,6 +157,8 @@ app.use('/api/model', ...legacyAuthenticated, modelRouter);
 // contents, not a liveness check. The unauthenticated probe stays
 // platform/health.js's alone.
 app.use('/api/data-freshness', ...legacyAuthenticated, dataFreshnessRouter);
+// BROKEN-01b: read-only number-health rows the refresh loop writes (Settings card, nav dot).
+app.use('/api/number-audit', ...legacyAuthenticated, numberAuditRouter);
 // Beat-the-dumb-baseline gates (plan item C12). Read-only: each gate is computed by
 // its weekly scheduler job off the request thread and stored; a request reads it.
 app.use('/api/gates', ...legacyAuthenticated, gatesRouter);
@@ -169,6 +180,9 @@ app.use('/api/execution-slate', ...legacyAuthenticated, executionSlateRouter);
 app.use('/api/coach', coachRouter);
 // ONE ENGINE reader (ENGINE-00a, EA-00): read-only world state for pages and Coach, with typed status.
 app.use('/api/engine', ...legacyAuthenticated, engineRouter);
+// War Room writes (WR-3 requests, saved layouts, Coach action log). Records only;
+// default-off behind the War Room flag, warroom-flag.js (answers { enabled: false } when off).
+app.use('/api/warroom', ...legacyAuthenticated, warroomRouter);
 
 app.use((err, req, res, next) => {
   // AuthenticationError/AuthorizationError (server/platform/auth.js) set a real

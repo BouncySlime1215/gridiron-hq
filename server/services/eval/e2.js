@@ -3,29 +3,27 @@
  * (indifference price) should be accepted at about the rate the model predicted
  * there; offers priced BELOW it should mostly be declined.
  *
- * Source: none readable yet. The OFFER-01 `offer_log` it was written against is
- * dropped (FIX-09, #266): nothing ever wrote it. Its successor is trade_outcomes
- * app_proposed rows that were SENT (sent_at, #239) with a price_band (083, #266);
- * until both merge, load() returns no rows and says so. Contract, one row per sent
- * offer: model_p_accept (at the price sent), price_band ('below' | 'at' |
- * 'above' the predicted yes point, decided by the producer that priced it),
- * status (trade_outcomes vocabulary), proposed_at. Only this app's offers can
+ * Source: `trade_outcomes`, app_proposed rows that were SENT (sent_at,
+ * CLONE-01b #239) and carry a price_band (083: 'below' | 'at_point' | 'above'
+ * the predicted yes point, decided by the producer that priced it).
+ * model_p_accept is the prediction recorded at the price sent; status is the
+ * reply; the sequence runs in send order. Only this app's offers can
  * feed E2: another manager's offer has no predicted yes point to be priced
  * against, so the league-wide widening E1 gets does not apply here. Sleeper
  * counter/accept pairs cannot feed it either: Sleeper records no declines.
  *
  * JUDGEMENT — no fixed n, the same instruments as E1:
- *   - observed minus predicted on 'at' offers, per offer (y - p, in [-1, 1]),
+ *   - observed minus predicted on 'at_point' offers, per offer (y - p, in [-1, 1]),
  *     with a 95% anytime-valid confidence sequence (sequential.js), in
  *     proposal order;
  *   - the 'below' accept rate with its own CS;
- *   - per-manager partial pooling of the 'at' offsets (hier-calibration.js,
- *     slope pinned at 1: 'at' predictions barely vary, so only the offsets are
+ *   - per-manager partial pooling of the 'at_point' offsets (hier-calibration.js,
+ *     slope pinned at 1: 'at_point' predictions barely vary, so only the offsets are
  *     asked about), reported, not gating.
  *
- *   failing          the 'at' CS excludes 0, or the 'below' CS lies wholly
+ *   failing          the 'at_point' CS excludes 0, or the 'below' CS lies wholly
  *                    above 50% (the price model is too stingy).
- *   passing          the 'at' CS contains 0 and is no wider than 0.30, and
+ *   passing          the 'at_point' CS contains 0 and is no wider than 0.30, and
  *                    the 'below' accept rate (if any) is under 50%.
  *   not_enough_data  anything else, with the evidence so far.
  */
@@ -42,7 +40,7 @@ const PASS_BAR = "accept rate at the predicted yes point within an anytime-valid
 const OUTCOME = { accepted: 1, declined: 0, countered: 0, expired: 0 };
 
 let floorAt = null;
-/** Fewest 'at' offers that could possibly decide (every one maximally off). */
+/** Fewest 'at_point' offers that could possibly decide (every one maximally off). */
 export function minOffersToDecide() {
   floorAt ??= minDecisiveN({ lo: -1, hi: 1, alpha: ALPHA, ref: 0 });
   return floorAt;
@@ -55,8 +53,8 @@ const byTime = xs => xs.map((o, i) => ({ o, i }))
 export function grade(rawOffers, { reason = null } = {}) {
   const offers = byTime(rawOffers
     .filter(o => o.model_p_accept != null && Object.hasOwn(OUTCOME, o.status))
-    .map(o => ({ band: o.price_band, p: Number(o.model_p_accept), y: OUTCOME[o.status], cp: `${o.league_id}:${o.counterparty_team_id}`, at: o.proposed_at ?? null })));
-  const at = offers.filter(o => o.band === 'at');
+    .map(o => ({ band: o.price_band, p: Number(o.model_p_accept), y: OUTCOME[o.status], cp: `${o.league_id}:${o.counterparty_team_id}`, at: o.sent_at ?? o.proposed_at ?? null })));
+  const at = offers.filter(o => o.band === 'at_point');
   const below = offers.filter(o => o.band === 'below');
   const common = { check: CHECK, name: NAME, metricName: 'accept_rate_minus_predicted_at_yes_point', passBar: PASS_BAR };
   const floor = minOffersToDecide();
@@ -91,14 +89,15 @@ export function grade(rawOffers, { reason = null } = {}) {
   return result({ ...common, status: STATUS.NOT_ENOUGH_DATA, metric: cs.mean, ci, n: at.length, needsN: needs, needsUnit: 'offers', detail });
 }
 
-const COLS = ['league_id', 'counterparty_team_id', 'model_p_accept', 'price_band', 'status'];
+const COLS = ['league_id', 'counterparty_team_id', 'model_p_accept', 'price_band', 'status', 'proposed_at', 'sent_at'];
 
-export const NO_SOURCE_REASON = 'no priced, sent offer source yet: offer_log is dropped (FIX-09, #266); '
-  + 'E2 reads trade_outcomes sent_at (#239) and price_band (083, #266) once both merge';
-
-// `database` is kept for the runAll contract; there is nothing to read from it yet.
-export function load(_database) {
-  return { rows: [], reason: NO_SOURCE_REASON };
+export function load(database) {
+  const s = readSource(database, 'trade_outcomes', COLS,
+    `SELECT ${COLS.join(', ')} FROM trade_outcomes
+     WHERE source = 'app_proposed' AND sent_at IS NOT NULL AND price_band IS NOT NULL
+     ORDER BY sent_at, id`);
+  if (!s.ok) return { rows: [], reason: /sent_at/.test(s.reason) ? `${s.reason}; CLONE-01b (#239) adds it` : s.reason };
+  return { rows: s.rows };
 }
 
 export function run(database) {

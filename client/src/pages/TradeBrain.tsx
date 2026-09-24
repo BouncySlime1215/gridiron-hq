@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useApi } from '../api';
 import { useLeague } from '../state/league';
 import { usePageExplain } from '../components/PageExplainContext';
@@ -8,6 +8,8 @@ import ManagerBoard from '../components/brain/ManagerBoard';
 import ProposalSlate from '../components/brain/ProposalSlate';
 import TellsCard from '../components/brain/TellsCard';
 import type { ProfilesResponse, SignalsResponse } from '../components/brain/types';
+import WarRoom from '../components/warroom/WarRoom';
+import { useWarRoom } from '../components/warroom/useWarRoom';
 
 /**
  * The Trade Brain's own surface: the people, not one deal.
@@ -32,15 +34,29 @@ import type { ProfilesResponse, SignalsResponse } from '../components/brain/type
  * neutral.
  */
 
+// WR-1: the War Room is the first tab, drawn only when the server says it is enabled
+// (server/services/warroom-flag.js: its own switch, or preview mode). Off = this page exactly as before.
 const TABS = [
+  { id: 'war-room', label: 'War Room', hint: 'The next move toward your goal, one decision at a time' },
   { id: 'managers', label: 'Who trades with you', hint: 'Your read of each manager, beside the measured one' },
   { id: 'proposals', label: 'Sendable proposals', hint: 'AI-written openers, on request — this one costs money' }
 ] as const;
 type Tab = typeof TABS[number]['id'];
+const isTab = (v: string | null): v is Tab => TABS.some(t => t.id === v);
 
 export default function TradeBrain() {
-  const { leagues, activeId, active, loading: leaguesLoading, error: leaguesError, refetch: refetchLeagues } = useLeague();
-  const [tab, setTab] = useState<Tab>('managers');
+  const { leagues, activeId, active, setActiveId, loading: leaguesLoading, error: leaguesError, refetch: refetchLeagues } = useLeague();
+  const [params, setParams] = useSearchParams();
+  const [picked, setPicked] = useState<Tab | null>(() => { const v = params.get('view'); return isTab(v) ? v : null; });
+  const warRoom = useWarRoom(activeId);
+  const warOn = warRoom.data?.enabled === true;
+  // War Room is the default tab only when it is on; asking for it while it is off falls back.
+  const tab: Tab = picked === 'war-room' ? (warOn || warRoom.loading || warRoom.error ? 'war-room' : 'managers')
+    : (picked ?? (warOn ? 'war-room' : 'managers'));
+  const setTab = (t: Tab) => {
+    setPicked(t);
+    setParams(p => { const n = new URLSearchParams(p); n.set('view', t); return n; }, { replace: true });
+  };
 
   // Two independent requests, on purpose: the measured signal layer is new and
   // may not exist on this server at all, and the hand-set tiers are the half
@@ -88,6 +104,13 @@ export default function TradeBrain() {
     );
   }
 
+  if (tab === 'war-room' && warOn && activeId && warRoom.data) {
+    return (
+      <WarRoom view={warRoom.data} activeId={activeId} onLeague={setActiveId} onExit={setTab}
+        leagues={leagues.map(l => ({ id: l.id, name: l.name }))} />
+    );
+  }
+
   return (
     <Shell>
       <header>
@@ -111,7 +134,7 @@ export default function TradeBrain() {
       {activeId && (
         <>
           <div className="flex gap-1 overflow-x-auto border-b border-slate-200">
-            {TABS.map(t => (
+            {TABS.filter(t => t.id !== 'war-room' || warOn).map(t => (
               <button key={t.id} type="button" onClick={() => setTab(t.id)} title={t.hint}
                 className={`-mb-px whitespace-nowrap border-b-2 px-4 py-2 text-sm font-bold transition-colors ${
                   tab === t.id ? 'border-emerald-500 text-emerald-700'
@@ -129,6 +152,10 @@ export default function TradeBrain() {
             </>
           )}
           {tab === 'proposals' && <ProposalSlate leagueId={activeId} />}
+          {tab === 'war-room' && warRoom.loading && !warRoom.data && <PageLoading label="Loading the War Room…" />}
+          {tab === 'war-room' && warRoom.error && (
+            <PageError message={`Could not load the War Room: ${warRoom.error}`} onRetry={warRoom.refetch} />
+          )}
         </>
       )}
     </Shell>

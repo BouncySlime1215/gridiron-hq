@@ -533,9 +533,9 @@ function buildAssetUniverse(lg, formatKey, target) {
       adj_ppg: +decisionPpg.toFixed(2),
       current_week_ppg: +currentWeekPpg.toFixed(2),
       // BROKEN-G: present only with the flag on. The one this-week number the three
-      // pages read; current_week_ppg above stays as its input (proj.week).
-      ...(bw ? { blend_week: bw.value, blend_week_vegas: bw.vegas,
-        week_basis: { field: 'blend.week', producer: 'blend-week.js#blendWeek', preview: blendFlag.preview } } : {}),
+      // pages read; current_week_ppg above stays as its input (proj.week). Which field
+      // the pages print is context.week_basis.field (the one week_basis, FIX-166-3).
+      ...(bw ? { blend_week: bw.value, blend_week_vegas: bw.vegas } : {}),
       // His team has no game in the target week (onBye above, the same detector
       // current_week_ppg uses). weekLineup() reads it so selfScout and a trade card's
       // weekly floor/ceiling solve this week's lineup without him (RL-5-3).
@@ -550,8 +550,9 @@ function buildAssetUniverse(lg, formatKey, target) {
       // What current_week_ppg was built from, before this game's factor and the chance to
       // play: 'structural+coordinator' | 'ensemble+coordinator' | 'ensemble', or
       // 'season_projection' when there is no weekly projection (the season total / 17).
-      // The sentence for a reader is context.week_basis.label.
-      week_basis: construction?.basis ?? 'season_projection',
+      // The sentence for a reader is context.week_basis.label; `week_basis` itself is
+      // only ever that one object (fantasy-coordinator.js#weekConstructionBasis).
+      week_construction: construction?.basis ?? 'season_projection',
       ros_ppg: +rosPpg.toFixed(2),
       // What ros_ppg was built from; null = no ROS entry (no game yet), { failed } = the
       // ROS build failed; in both cases ros_ppg is the weekly number.
@@ -593,7 +594,9 @@ function buildAssetUniverse(lg, formatKey, target) {
     availability_basis: availabilityBasis(),
     // What this week's number is built from (S-03): the served coordinator fit and its
     // windows, the betting-line lift's switch, and one plain sentence for the page.
-    week_basis: weekConstructionBasis({ fit: fantasyFit, week: target.week, lift: BETTING_LINE_LIFT })
+    // One shape (FIX-166-3): it also names the field the pages print (blend.week or
+    // current_week_ppg) and its producer, read from the same flag this build used.
+    week_basis: weekConstructionBasis({ fit: fantasyFit, week: target.week, lift: BETTING_LINE_LIFT, blend: blendFlag })
   };
   return out;
 }
@@ -1756,7 +1759,7 @@ function ideaContext(lg, { me, assets, odds, horizon, counterparties, useCounter
     playoff_odds_source: odds.source,
     playoff_odds_interval: odds.interval ?? null,
     horizon: { now: horizon.now, playoff: horizon.playoff,
-      playoff_weeks: horizon.playoff_weeks_label, note: horizonNote(horizon, { playoff_tilt: 0 }) },
+      playoff_weeks: horizon.playoff_weeks_label, note: horizonNote(horizon, { playoff_tilt: 0 }, assets.context?.week_basis) },
     counterparty_available: useCounterparty && counterparties.size > 0,
     counterparty_managers: counterparties.size,
     availability_basis: assets?.context?.availability_basis ?? null,
@@ -2049,7 +2052,7 @@ function findTradesUncached(lg, {
           scoreSigned, scoreUnperceived });
         deals.push({
           partner: them.owner, partner_id: them.roster_id,
-          horizon: { ...horizon, ...gain, note: horizonNote(horizon, gain) },
+          horizon: { ...horizon, ...gain, note: horizonNote(horizon, gain, assets.context?.week_basis) },
           i_give: give.map(slim), i_get: get.map(slim),
           tags: tagDeal(give, get, ev),
           ...ev,
@@ -2662,7 +2665,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
     priced.push({
       i_give: give.map(slim), ratio: +ratio.toFixed(2), give_value: giveValue,
       ...ev,
-      horizon: { ...horizon, ...gain, note: horizonNote(horizon, gain) },
+      horizon: { ...horizon, ...gain, note: horizonNote(horizon, gain, assets.context?.week_basis) },
       counterparty: rungCounterparty(counterparties, owner, tier, { theirGive: [target], theirGet: give }),
       // Best offer = most horizon-weighted lineup gain per unit of market value
       // surrendered. Same currency findTrades ranks on.
@@ -2820,7 +2823,7 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
       priced.push({
         i_give: give.map(slim), ratio: +ratio.toFixed(2), give_value: giveValue,
         ...ev,
-        horizon: { ...horizon, ...gain, note: horizonNote(horizon, gain) },
+        horizon: { ...horizon, ...gain, note: horizonNote(horizon, gain, assets.context?.week_basis) },
         counterparty: rungCounterparty(counterparties, owner, tier, { theirGive: theirTargets, theirGet: give }),
         efficiency: +(gain.value / Math.max(1, giveValue / 100)).toFixed(3)
       });
@@ -3220,7 +3223,7 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null, now = Da
   // the card's sentence follows the switch instead of asserting the lift. A caller that
   // prices the players itself (plain assets, no context) gets the same label, built here.
   const weekBasis = assets.context?.week_basis
-    ?? weekConstructionBasis({ fit: activeFantasyCoordinatorFit(), week, lift: BETTING_LINE_LIFT });
+    ?? weekConstructionBasis({ fit: activeFantasyCoordinatorFit(), week, lift: BETTING_LINE_LIFT, blend: blendWeekFlag() });
 
   const payload = JSON.parse(lg.payload);
   const espnTeam = payload.teams?.find(t => String(t.id) === me.roster_id);

@@ -191,11 +191,11 @@ test('with only an unpromoted candidate, the player page serves the ensemble, th
   assert.ok(row('SELECT COUNT(*) AS n FROM fantasy_coordinator_fits').n > 0, 'a candidate row exists (known-nonzero control)');
   const out = coordinator.weeklyProjectionFor(P.id, { season: 2026, week: 2 });
   assert.equal(out.corrected_ppg, PROJ.ppg, 'the ensemble: not the structural head, not the candidate\'s correction');
-  assert.equal(out.week_basis, 'ensemble');
+  assert.equal(out.week_construction, 'ensemble');
   assert.equal(out.coordinator, null);
   assert.match(out.coordinator_off, /promoted/);
   const a = assetUniverse(L, FORMAT, { season: 2026, week: 2 }).get(P.id);
-  assert.equal(a.week_basis, out.week_basis, 'the trade page names the same construction');
+  assert.equal(a.week_construction, out.week_construction, 'the trade page names the same construction');
   assert.equal(a.current_week_ppg, served(out.corrected_ppg, a), 'and multiplies the same number');
 });
 
@@ -221,13 +221,13 @@ test('once promoted for both windows, the served number is S-02\'s arm S1 (struc
   const S1 = corrected(FIT, PROJ.structural_ppg, 2);
   assert.equal(a.current_week_ppg, served(S1, a));
   assert.equal(a.fantasy_coordinator.corrected_ppg, S1);
-  assert.equal(a.week_basis, 'structural+coordinator');
+  assert.equal(a.week_construction, 'structural+coordinator');
 });
 
 test('weeklyProjectionFor serves the same construction as the trade page', () => {
   const out = coordinator.weeklyProjectionFor(P.id, { season: 2026, week: 2 });
   assert.equal(out.corrected_ppg, corrected(FIT, PROJ.structural_ppg, 2));
-  assert.equal(out.week_basis, 'structural+coordinator');
+  assert.equal(out.week_construction, 'structural+coordinator');
 });
 
 test('a newer unpromoted candidate does not displace the promoted fit', () => {
@@ -243,7 +243,7 @@ test('a week outside the promoted window serves the ensemble, labelled', () => {
   const week6 = assetUniverse(L, FORMAT, { season: 2026, week: 6 });
   const a6 = week6.get(P.id);
   assert.equal(a6.current_week_ppg, served(PROJ.ppg, a6));
-  assert.equal(a6.week_basis, 'ensemble');
+  assert.equal(a6.week_construction, 'ensemble');
   assert.equal(week6.context.week_basis.coordinator.on, false);
   assert.match(week6.context.week_basis.coordinator.reason, /5-17/);
   const a3 = assetUniverse(L, FORMAT, { season: 2026, week: 3 }).get(P.id);
@@ -260,10 +260,10 @@ test('the window edge sits between weeks 4 and 5, on the trade page, the label a
     const page = coordinator.weeklyProjectionFor(P.id, { season: 2026, week });
     assert.equal(assets.context.week_basis.window, week <= 4 ? '2-4' : '5-17', `week ${week}: window`);
     assert.equal(assets.context.week_basis.coordinator.on, on, `week ${week}: label`);
-    assert.equal(a.week_basis, on ? 'structural+coordinator' : 'ensemble', `week ${week}: asset basis`);
+    assert.equal(a.week_construction, on ? 'structural+coordinator' : 'ensemble', `week ${week}: asset basis`);
     assert.equal(a.current_week_ppg, served(want, a), `week ${week}: current_week_ppg`);
     assert.equal(page.corrected_ppg, want, `week ${week}: player page`);
-    assert.equal(page.week_basis, a.week_basis, `week ${week}: player page basis`);
+    assert.equal(page.week_construction, a.week_construction, `week ${week}: player page basis`);
   };
   coordinator.promoteFantasyCoordinatorFit(saveFit(FIT), { windows: { '2-4': 'on', '5-17': 'off' }, evidence: EVIDENCE });
   check(4, true);
@@ -277,12 +277,12 @@ test('re-promoting the same fit with other windows changes the served number (th
   const id = saveFit(FIT);
   coordinator.promoteFantasyCoordinatorFit(id, { windows: BOTH, evidence: EVIDENCE });
   const on = assetUniverse(L, FORMAT, { season: 2026, week: 6 }).get(P.id);
-  assert.equal(on.week_basis, 'structural+coordinator');
+  assert.equal(on.week_construction, 'structural+coordinator');
   assert.equal(on.current_week_ppg, served(corrected(FIT, PROJ.structural_ppg, 6), on));
   coordinator.promoteFantasyCoordinatorFit(id, { windows: { '2-4': 'on', '5-17': 'off' }, evidence: EVIDENCE });
   assert.equal(coordinator.activeFantasyCoordinatorFit().fit_row.id, id, 'the same row is served');
   const off = assetUniverse(L, FORMAT, { season: 2026, week: 6 }).get(P.id);
-  assert.equal(off.week_basis, 'ensemble', 'week 6 is now outside the promoted windows');
+  assert.equal(off.week_construction, 'ensemble', 'week 6 is now outside the promoted windows');
   assert.equal(off.current_week_ppg, served(PROJ.ppg, off));
 });
 
@@ -317,7 +317,7 @@ test('an ensemble-residual fit is applied to the ensemble base', () => {
   coordinator.promoteFantasyCoordinatorFit(id, { windows: BOTH, evidence: EVIDENCE });
   const a = assetUniverse(L, FORMAT, { season: 2026, week: 7 }).get(P.id);
   assert.equal(a.current_week_ppg, served(corrected(FIT_E, PROJ.ppg, 7), a));
-  assert.equal(a.week_basis, 'ensemble+coordinator');
+  assert.equal(a.week_construction, 'ensemble+coordinator');
 });
 
 test('promotion refuses a fit whose base is unknown, a bad window map and a missing evidence path', () => {
@@ -342,7 +342,7 @@ test('the surface says what this week\'s number is built from', () => {
   assert.match(basis.label, /structural projection/i);
   assert.match(basis.label, /chance to play/i);
   assert.match(basis.label, /no betting-line/i);
-  assert.equal(assets.get(P.id).week_basis, 'structural+coordinator');
+  assert.equal(assets.get(P.id).week_construction, 'structural+coordinator');
   assert.equal(basis.graded_week, true);
   // Weeks 1 and 18 were never graded; the label says so.
   const week1 = assetUniverse(L, FORMAT, { season: 2026, week: 1 }).context.week_basis;
@@ -626,8 +626,10 @@ test('FIX-166-3: with S-03 promoted and blend.week on, Start/Sit, the League Hub
     const card = lineupDiff(lg, '1');
     assert.ifError(card.error);
     const hub = card.optimal.find(s => s.player?.id === P.id)?.player;
+    // The two-player fixture prices no package, but the reply still carries the target pill
+    // TradeCard renders and the model_context beside it (offerFor spreads its context).
     const offer = offerFor(lg, { myTeamId: '2', targetId: P.id });
-    assert.ifError(offer.error);
+    assert.equal(offer.target?.id, P.id, `the offer reply carries the target (${offer.error ?? 'ok'})`);
     assert.equal(call.projected_points, a.blend_week, 'Start/Sit');
     assert.equal(hub?.week_points, a.blend_week, 'League Hub card');
     assert.equal(offer.target.blend_week, a.blend_week, 'TradeCard pill');

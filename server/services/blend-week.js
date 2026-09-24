@@ -20,6 +20,13 @@
  * on its 25% this-week share, which is exactly where waiver-brain.js#vegasLift says
  * the lift belongs.
  *
+ * S-03 (#166, FIX-166-3): the lift is whatever waiver-brain.js#vegasLift returns, and
+ * vegasLift returns `applied: false` while BETTING_LINE_LIFT is off (it is, since S-03).
+ * blendWeek never reads the game-script model itself, so with the switch off blend.week
+ * is the served current_week_ppg and no page adds the line a second time. The one
+ * `week_basis` (fantasy-coordinator.js#weekConstructionBasis, on the universe's context)
+ * names this field and producer beside S-03's label; no asset carries a copy.
+ *
  * Flag: GRIDIRON_BLEND_WEEK=1 on, =0 off (vetoes preview), unset follows
  * preview-mode.js#previewUnconfirmed(). Off, every number is what it was.
  * EA-07 moves this producer onto the engine spine as the `weekly-blend` producer's
@@ -35,7 +42,8 @@ export const CURRENT_WEEK_SHARE = 0.25;
 
 export const BLEND_WEEK_REASON =
   'BROKEN-G: one this-week number (blend.week) for Start/Sit, the lineup card and the trade card; '
-  + 'the trade horizon now carries the betting-line lift on its this-week share. Off by default '
+  + 'the trade horizon reads it for its this-week share (with the betting-line lift only while '
+  + 'waiver-brain.js#BETTING_LINE_LIFT is on, which it is not since S-03). Off by default '
   + 'until the coordinator\'s diff on the live DB is read.';
 
 const r2 = n => Math.round(n * 100) / 100;

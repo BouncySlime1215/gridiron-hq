@@ -742,8 +742,13 @@ export function servedWeekConstruction(projection, { fit, season, week, scoring 
  * What this week's number is built from, for the surface (trade-engine.js puts it on
  * `context.week_basis`, which routes serve as `model_context`). `lift` is waiver-brain.js's
  * BETTING_LINE_LIFT switch, passed in so the label reads the one switch rather than a copy.
+ *
+ * This is the one `week_basis` shape (FIX-166-3). `blend` is blend-week.js#blendWeekFlag()
+ * as read for the build: `field` / `producer` / `preview` name the number the pages print
+ * (BROKEN-G's `blend.week` when its flag is on, the served `current_week_ppg` otherwise),
+ * beside S-03's `label`.
  */
-export function weekConstructionBasis({ fit, week, lift }) {
+export function weekConstructionBasis({ fit, week, lift, blend = null }) {
   const window = constructionWindow(week);
   const target = fit?.ready ? fitTargetOf(fit) : null;
   const on = Boolean(target) && fit?.promotion?.windows?.[window] === 'on';
@@ -762,7 +767,11 @@ export function weekConstructionBasis({ fit, week, lift }) {
   const label = `This week's points: ${head}, times his chance to play. ` +
     (liftOn ? 'Times the betting-line game-script boost.' : 'No betting-line boost.') +
     (gradedWeek(week) ? '' : ` Week ${week} was not graded (the grade covered weeks ${GRADED_WEEKS.first}-${GRADED_WEEKS.last}), so it follows the weeks ${window} decision.`);
+  const blendOn = blend?.on === true;
   return {
+    field: blendOn ? 'blend.week' : 'current_week_ppg',
+    producer: blendOn ? 'blend-week.js#blendWeek' : 'trade-engine.js#buildAssetUniverse',
+    preview: blendOn && blend?.preview === true,
     window, graded_week: gradedWeek(week), coordinator,
     betting_line_lift: { on: liftOn, reason: lift?.reason ?? null, evidence: lift?.evidence ?? null },
     availability: 'times active_probability; availability_basis says which chance-to-play model priced it',
@@ -788,7 +797,7 @@ export function weeklyProjectionFor(playerId, { season, week, scoring = PPR } = 
     structural_ppg: projection.structural_ppg,
     ensemble_ppg: projection.ppg,
     corrected_ppg: construction.ppg,
-    week_basis: construction.basis,
+    week_construction: construction.basis,
     coordinator: coordinated
       ? { correction: coordinated.correction, contributions: coordinated.contributions, confidence: coordinated.confidence,
         base: construction.base }

@@ -283,7 +283,7 @@ async function servedIdentity({ coordinator, s02, wf, PPR, buildPlayerWeekEngine
     const served = coordinator.servedWeekConstruction(proj, { fit, season: FORWARD, week, scoring: PPR });
     const arms = s02.constructArms(proj, { season: FORWARD, week, scoring: PPR, fitS: fit, fitE: fit, lambda: 1 }, wf.LIFT_DEPS);
     const miss = what => { throw new Error(`served identity, week ${week}, player ${id}: ${what}`); };
-    if (asset.week_basis !== served.basis) miss(`asset.week_basis ${asset.week_basis} vs ${served.basis}`);
+    if (asset.week_construction !== served.basis) miss(`asset.week_construction ${asset.week_construction} vs ${served.basis}`);
     const expected = asset.matchup ? r2(served.ppg * asset.matchup.mult * asset.active_probability) : 0;
     if (asset.current_week_ppg !== expected) miss(`current_week_ppg ${asset.current_week_ppg} vs construction x mult x p ${expected}`);
     if (served.coordinated) {

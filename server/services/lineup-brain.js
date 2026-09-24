@@ -714,6 +714,9 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
 
   return {
     league: lg.name, owner: me.owner, season, week, objective,
+    // What week_points is built from: the one produced basis the matchup card and the
+    // League Hub card carry (fantasy-coordinator.js#weekConstructionBasis, FIX-166-4).
+    week_basis: assets.context?.week_basis ?? null,
     // Starters set on ESPN who are Out, Doubtful, IR, on bye or inactive, each with a
     // one-tap bench replacement (suggested, never applied). The page shows it first.
     dead_starters: deadStarterCheck,

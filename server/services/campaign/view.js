@@ -37,6 +37,26 @@ const BAND_BASES = ['no_information', 'heuristic_unanchored', 'heuristic_anchore
 export const PRODUCER = 'campaign-producer';
 export const PRODUCER_VERSION = '2';
 
+/** ground_lost's reason when the earlier plan was made under another model (PLAN-BASELINE). */
+export const PLAN_RESTARTED = 'Plan restarted: the model changed since the last plan, so this week\'s plan starts at today\'s odds.';
+
+/**
+ * PLAN-BASELINE: which earlier trajectory this run compares with. prevRun: the previous
+ * entry's `_run` (or null). model: this run's model key (produce-plans.mjs#planModelKey), or
+ * null when the caller has none (tests, the contract fixture), which keeps the incumbent
+ * compare. The key is stamped at `_run.inputs.model`. A previous run stamped with another key,
+ * or with none while this run has one
+ * (a file written before the stamp), is a different model: the plan restarts.
+ * -> { trajectory: array | null, restarted: boolean }
+ */
+export function planBaseline(prevRun, model = null) {
+  const trajectory = Array.isArray(prevRun?.trajectory) ? prevRun.trajectory : null;
+  if (!trajectory) return { trajectory: null, restarted: false };
+  const prevModel = prevRun.inputs?.model ?? null;
+  if (model == null && prevModel == null) return { trajectory, restarted: false };
+  return prevModel === model ? { trajectory, restarted: false } : { trajectory: null, restarted: true };
+}
+
 const UNIT = { title: 'title_odds', playoff: 'playoff_odds', points: 'points_per_week' };
 const LABEL = { title: 'title odds', playoff: 'playoff odds', points: 'points a week' };
 const PLAYBOOK_LATER = "This step's playbook is written when the step before it lands (the producer replans on every refresh).";
@@ -51,6 +71,22 @@ const signed = x => `${x >= 0 ? '+' : ''}${x.toFixed(0)}%`;
 
 const ok = (value, source, meta = {}) => ({ status: 'ok', value, source, ...meta });
 const unknown = (reason, source) => ({ status: 'unknown', source, reason });
+
+const ET = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'numeric',
+  day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+
+/**
+ * CARD-CLARITY: the send-when line in words Nick reads, never a raw ISO time.
+ * { when: 'wait', until, why } -> "Wait until Fri 9/25, 11:51 AM ET: <why>." (America/New_York);
+ * { when: 'now', why } -> "Now: <why>.". A wait whose time does not parse says "Wait: <why>.".
+ */
+export function sendWhenText({ when, until, why }) {
+  if (when !== 'wait') return `Now: ${why}.`;
+  const t = typeof until === 'string' || typeof until === 'number' ? new Date(until) : null;
+  if (!t || !Number.isFinite(t.getTime())) return `Wait: ${why}.`;
+  const p = Object.fromEntries(ET.formatToParts(t).map(x => [x.type, x.value]));
+  return `Wait until ${p.weekday} ${p.month}/${p.day}, ${p.hour}:${p.minute} ${p.dayPeriod} ET: ${why}.`;
+}
 
 /** A number as a typed field: ok when finite (and inside 0..1 for a probability), else unknown with the reason. */
 function num(value, source, { se, clears, unit, guess, n, prob = false, missing = 'Not computed for this league.' } = {}) {
@@ -80,7 +116,7 @@ export function failedEntry(res, { names = {} } = {}) {
  *   brain (brain-gate.js#applyBrainReport result), number_health (brain-gate.js#readNumberHealth result) }
  * FIX-05: without `brain` / `number_health` the two sections are 'unknown' and say they were not read.
  */
-export function toEntry(res, { names = {}, as_of, previous = null, changed = null, brain = null, number_health: health = null } = {}) {
+export function toEntry(res, { names = {}, as_of, previous = null, changed = null, brain = null, number_health: health = null, model = null } = {}) {
   if (res.error) return failedEntry(res, { names });
   const o = res.objective;
   const metric = metricKey(o);
@@ -146,7 +182,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       out.walk_away = pb.walk_away ? ok({ text: pb.walk_away.text, max_give: ids(pb.walk_away.give) }, 'clone.price')
         : unknown(`No walk-away: ${pb.ladder?.reason ?? 'the ladder is empty'}.`, 'clone.price');
       out.send_when = pb.send_when
-        ? ok(pb.send_when.when === 'wait' ? `After ${pb.send_when.until}: ${pb.send_when.why}.` : `Now: ${pb.send_when.why}.`, 'plan.path')
+        ? ok(sendWhenText(pb.send_when), 'plan.path')
         : unknown("No timing read for this manager.", 'plan.path');
       const row = kind => pb.replies.find(r => r.kind === kind);
       out.reply_table = ok({
@@ -211,7 +247,9 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       : 'The planner found no trade path worth sending this week.', 'plan.path');
 
   /* ------------------------------------------------------- destination */
-  const prevTraj = previous?._run?.trajectory ?? null;
+  // PLAN-BASELINE: an earlier trajectory is compared with only when it was made under this run's model.
+  const base = planBaseline(previous?._run ?? null, model);
+  const prevTraj = base.trajectory;
   const plannedNow = prevTraj?.find(p => p.week === res.week)?.planned ?? null;
   const w = week(res.week);
   const trajectory = !w ? [] : res.best
@@ -233,7 +271,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       : num(plannedNow ?? nowMetric, 'plan.path', { prob: true, unit: 'title_odds' }),
     path: path.length ? ok(path, 'plan.path') : unknown('The current week is unknown, so there is no path.', 'plan.path'),
     ground_lost: plannedNow != null ? num(plannedNow - nowMetric, 'plan.path', { unit })
-      : unknown('No earlier plan for this week to compare with.', 'plan.path'),
+      : unknown(base.restarted ? PLAN_RESTARTED : 'No earlier plan for this week to compare with.', 'plan.path'),
   }, 'campaign.plan');
 
   /* --------------------------------------------------------- itinerary */
@@ -445,7 +483,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       feasibility_detail: f ?? null,
       feasibility_points_detail: sp ?? null,
       candidates_scored: res.candidates_scored, rescores: res.rescores ?? 0, runtime_ms: res.runtime_ms ?? 0, phases_ms: res.phases_ms ?? {},
-      inputs: {},
+      // PLAN-BASELINE: the model this run's trajectory was made under (the contract keeps `_run` keys fixed; inputs is free-form).
+      inputs: model != null ? { model } : {},
     },
   };
 }

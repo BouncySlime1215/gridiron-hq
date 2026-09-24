@@ -21,12 +21,15 @@
  * is reachable through the public tunnel and every call spends on Nick's key.
  */
 import { Router } from 'express';
-import { requireAuthenticated } from '../platform/auth.js';
+import { requireAuthenticated, assertLeagueMember } from '../platform/auth.js';
 import { legacyRateLimit } from '../platform/legacy-access.js';
 import { getApiKey } from '../services/claude.js';
 import { askCoach } from '../services/coach/ask.js';
 import { catalog, readableTables, catalogCoverage } from '../services/coach/catalog.js';
 import { recentCoachAnswers, coachGroundingRate } from '../services/coach/audit.js';
+import { db } from '../db/index.js';
+import { coachBriefFlag, BRIEF_ENV, morningBrief, weeklyCheckIn, readPlansFile } from '../services/coach/brief.js';
+import { warRoomPlansPath } from '../services/warroom-flag.js';
 
 const r = Router();
 
@@ -55,13 +58,16 @@ r.post('/ask', ...askAccess, async (req, res, next) => {
     return res.status(413).json({ error: `page context is ${contextChars} characters, max ${MAX_CONTEXT_CHARS}` });
   }
   const leagueId = Number.isInteger(body.league_id) ? body.league_id : null;
-  if (!getApiKey()) {
+  // COACH-ANSWERS: with the brief flag on, Coach still answers the starter
+  // questions from the plan (and refuses the rest plainly) when there is no key.
+  const hasModel = !!getApiKey();
+  if (!hasModel && !coachBriefFlag().on) {
     return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
   }
 
   if (!wantsStream(req)) {
     try {
-      res.json(await askCoach({ question, context, leagueId }));
+      res.json(await askCoach({ question, context, leagueId, hasModel }));
     } catch (e) { next(e); }
     return;
   }
@@ -74,7 +80,7 @@ r.post('/ask', ...askAccess, async (req, res, next) => {
     connection: 'keep-alive'
   });
   try {
-    const result = await askCoach({ question, context, leagueId, onEvent: event => send(res, event) });
+    const result = await askCoach({ question, context, leagueId, hasModel, onEvent: event => send(res, event) });
     send(res, { t: 'result', ...result });
   } catch (e) {
     // The stream is already open, so an error is an event rather than a status
@@ -96,6 +102,29 @@ r.get('/catalog', requireAuthenticated, (_req, res, next) => {
 r.get('/answers', requireAuthenticated, (req, res, next) => {
   try { res.json({ answers: recentCoachAnswers({ limit: req.query.limit }) }); }
   catch (e) { next(e); }
+});
+
+/**
+ * COACH-BRIEF: the morning brief (default) or the weekly check-in for one league,
+ * built from the War Room plans file and the app DB with no model call. Every
+ * line in `claims` passed the grounding check against `ledger`; what failed is in
+ * `dropped` with the reason. Flag off -> { status: 'off' } and nothing is read.
+ */
+const BRIEF_KINDS = new Set(['morning', 'weekly']);
+r.get('/brief/:leagueId', requireAuthenticated, async (req, res, next) => {
+  try {
+    if (!coachBriefFlag().on) return res.json({ status: 'off', reason: `${BRIEF_ENV} is not 1 and preview mode is off` });
+    const leagueId = Number(req.params.leagueId);
+    if (!Number.isInteger(leagueId) || leagueId < 1) return res.status(400).json({ error: 'leagueId must be a positive whole number' });
+    const kind = req.query.kind ?? 'morning';
+    if (!BRIEF_KINDS.has(kind)) return res.status(400).json({ error: `kind must be one of ${[...BRIEF_KINDS].join(', ')}` });
+    assertLeagueMember(req.auth.userId, leagueId);
+    let file;
+    try { file = await readPlansFile(warRoomPlansPath()); } catch (e) {
+      return res.json({ status: 'failed', reason: `The plans file could not be read (${e.name ?? 'error'}), so there is no plan to brief.` });
+    }
+    res.json(kind === 'weekly' ? weeklyCheckIn({ db, file, leagueId }) : morningBrief({ db, file, leagueId }));
+  } catch (e) { next(e); }
 });
 
 /** How often the grounding check has stopped something. */

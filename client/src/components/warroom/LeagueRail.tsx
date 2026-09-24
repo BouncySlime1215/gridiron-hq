@@ -31,7 +31,8 @@ export function railOrder(leagues: LeagueChoice[], target: number | null | undef
  * League rail: the target league first; the other connected leagues fold under
  * "training leagues" (open when one of them is the league on screen). With no target
  * connected it is the flat list it always was. The open league shows its
- * "needs you this week" rank from `attention`, "not ranked yet" until the producer writes it.
+ * "needs you this week" rank from `attention`, "not ranked yet" until the producer writes it
+ * (with only one league ranked, just the reason).
  */
 export default function LeagueRail({ leagues, activeId, target, attention, onLeague }: {
   leagues: LeagueChoice[]; activeId: number; target?: number | null; attention: Attention | null; onLeague: (id: number) => void;
@@ -39,12 +40,14 @@ export default function LeagueRail({ leagues, activeId, target, attention, onLea
   const { target: t, training } = railOrder(leagues, target);
   const chip = (l: LeagueChoice, isTarget = false) => {
     const a = l.id === activeId ? attention : null;
+    // CARD-CLARITY: with one league ranked, "rank 1 of 1" says nothing; show the reason alone.
+    const ranked = !!a && a.of > 1;
     return (
       <button key={l.id} type="button" role="tab" aria-selected={l.id === activeId} data-league={l.id}
         data-target={isTarget ? 'true' : undefined}
         className={`wr-lg${l.id === activeId ? ' wr-on' : ''}`} onClick={() => onLeague(l.id)}>
-        <span className="wr-lg-n">{a && <span className={`wr-rk${a.rank > 2 ? ' wr-rk-low' : ''}`}>{a.rank}</span>}{l.name ?? `League ${l.id}`}{isTarget && <span className="wr-muted"> · target</span>}</span>
-        <span className="wr-lg-w" title={a?.reason}>{a ? `rank ${a.rank} of ${a.of}: ${a.reason}` : l.id === activeId ? 'not ranked yet' : 'open to see its rank'}</span>
+        <span className="wr-lg-n">{a && ranked && <span className={`wr-rk${a.rank > 2 ? ' wr-rk-low' : ''}`}>{a.rank}</span>}{l.name ?? `League ${l.id}`}{isTarget && <span className="wr-muted"> · target</span>}</span>
+        <span className="wr-lg-w" title={a?.reason}>{a ? (ranked ? `rank ${a.rank} of ${a.of}: ${a.reason}` : a.reason) : l.id === activeId ? 'not ranked yet' : 'open to see its rank'}</span>
       </button>
     );
   };

@@ -39,7 +39,9 @@ export default function TopStrip({ view, leagues, activeId, onLeague, onExit, th
         <div className="wr-fact" data-fact="title"><span className="wr-l">Title odds</span><span className="wr-v wr-num">
           <Val f={sub('title_now')} fmt={v => pct(v, 1)} />
           {d?.title_planned_now?.status === 'ok' && <span className="wr-muted"> → plan <Val f={d.title_planned_now} fmt={v => pct(v, 1)} /></span>}
-          {d?.ground_lost?.status === 'ok' && <span className="wr-amber"> <Val f={d.ground_lost} fmt={pts} /></span>}
+          {d?.ground_lost?.status === 'ok' && <span className="wr-amber"> <Val f={d.ground_lost} fmt={pts} /> vs this week's plan</span>}
+          {d?.ground_lost?.status === 'unknown' && /^plan restarted/i.test(d.ground_lost.reason ?? '')
+            && <span className="wr-muted" title={d.ground_lost.reason}> (plan restarted: the model changed)</span>}
         </span></div>
         <div className="wr-fact" data-fact="risk"><span className="wr-l">Risk mode</span>
           <button type="button" className={`wr-chip${isOk(risk) && risk.value.mode === 'all_in' ? ' wr-chip-allin' : ''}`} disabled

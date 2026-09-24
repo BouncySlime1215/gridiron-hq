@@ -13,7 +13,7 @@
  *   2  a league whose world failed: the contract's { league, me, names, error }
  *   3  points objective, team 3 nearly out of it (a "desperate" catch-up move
  *      that is also a deck card) and team 4 checked out
- *   4  go get player 21, points side panel at 115 a week (on track: by_week is ok)
+ *   4  go get player 21, points side panel at 105 a week (reachable under the FIX-05 balanced fallback: by_week is ok)
  *   5  sliders at zero assets: nothing clears, so next_move is unknown with its reason
  *
  * The FEAS-140 points side panel is switched on (ENV below, never the process env), so
@@ -49,7 +49,7 @@ export const OBJECTIVES = {
   1: { risk_mode: 'safe', risk_until_week: 6, arrive_by: 6, untouchables: ['2'], version: 3,
     stops: [{ kind: 'get', player: '21' }, { kind: 'sell', player: '2' }, { kind: 'cover_bye', week: 6 }, { kind: 'custom', label: 'Keep a TE' }] },
   3: { kind: 'points', points_per_week: 95 },
-  4: { kind: 'player', target: '21', risk_mode: 'all_in', side_points_per_week: 115 },
+  4: { kind: 'player', target: '21', risk_mode: 'all_in', side_points_per_week: 105 },
   5: { tolerances: { max_assets: 0 } },
 };
 

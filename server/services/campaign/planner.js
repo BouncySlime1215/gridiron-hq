@@ -300,7 +300,9 @@ export function planLeague(adapter, settings) {
   mark('playbook_and_reports');
   const edge = new Map();
   for (const p of ranked) { const t = String(p.steps[0].team); edge.set(t, Math.max(edge.get(t) ?? 0, p.expected)); }
-  const partners = rankPartners(managers, edge, CP ? { counterparts: CP, myIds } : null);
+  // PARTNER-KERNEL: the league lets rankPartners build the who-trades-with-whom kernel when its flag is on
+  // (off: output unchanged). A fixture league without a season gets no kernel.
+  const partners = rankPartners(managers, edge, CP ? { counterparts: CP, myIds } : null, { league: { id: L.id, me, season: L.season } });
   // The Trade Lab finder's best single offer on the same league, and the composed-rescore probe:
   // both optional adapter hooks (the real adapter runs the served finder; a fixture may not).
   const finder_best = adapter.finderBest ? adapter.finderBest() : null;

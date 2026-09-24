@@ -101,7 +101,7 @@ export interface Target {
 export interface Flip {
   player: string; buy_from: string; sell_to: string;
   spread: Num; price_a: Num; price_b: Num;
-  legs: { give_a: string; get_b: string; p1: Num; p2: Num; p_both: Num; nick_after: Num } | null;
+  legs: { give_a: string; get_b: string; give_a_ids?: string[]; get_b_ids?: string[]; p1: Num; p2: Num; p_both: Num; nick_after: Num } | null;
   legs_why_not?: string;
   reasoning?: Field<Reasoning>;
 }
@@ -179,9 +179,17 @@ export interface WarRoomView {
   brain_report?: Field<BrainReport>;
   number_health?: Field<NumberHealth>;
   risk_modes?: Field<RiskModeRow[]>;
+  teams?: Field<Record<string, TeamName>>;
+  partners?: Field<Partner[]>;
+  /** PEOPLE-BOARD: the rail's switch and its tiles (war-room-view.js#buildPeopleBoard). */
+  people_board?: { enabled: boolean; preview: boolean };
+  people?: Field<PersonTile[]>;
 }
 
-export type PanelId = 'next' | 'stops' | 'flip_map' | 'targets' | 'catch' | 'brain_report';
+/** TEAM-NAMES: who a roster is, from the league payload at run time (never committed). */
+export interface TeamName { name?: string; manager?: string }
+
+export type PanelId = 'next' | 'people' | 'stops' | 'flip_map' | 'targets' | 'catch' | 'brain_report';
 
 /** Player and team labels from the entry's `names` (ids only elsewhere). */
 export function namer(names: Record<string, string> | undefined) {
@@ -189,4 +197,51 @@ export function namer(names: Record<string, string> | undefined) {
   const text = (ids: string[] | undefined) => (ids ?? []).map(id => one(id).name).join(' + ');
   return { one, text };
 }
-export const teamLabel = (id: string | null | undefined) => (id == null ? '' : `Team ${id}`);
+
+/** The loaded view's roster names; WarRoom fills it (setTeamNames) so every teamLabel call site reads it. */
+let teamNames: Record<string, TeamName> = {};
+export function setTeamNames(teams: Record<string, TeamName> | null | undefined) { teamNames = teams ?? {}; }
+
+/** 'Manager (Team name)' when known, else whichever is known, else 'Team N'. */
+export function teamLabel(id: string | null | undefined): string {
+  if (id == null) return '';
+  const t = teamNames[String(id)];
+  const manager = t?.manager?.trim();
+  const name = t?.name?.trim();
+  if (manager && name) return `${manager} (${name})`;
+  return manager || name || `Team ${id}`;
+}
+
+/** The contract's `partners` entry: who to deal with. Labels and counts only. */
+export interface Partner {
+  team: string;
+  p_responds: number;
+  basis: string;
+  edge: Num;
+  chat_labels?: string[];
+  roster_holes?: string[];
+  offers_logged?: number;
+  checked_out?: boolean;
+  blocked?: boolean;
+}
+
+/** PEOPLE-BOARD: one league-mate's tile, served whole; the client formats and computes nothing. */
+export interface PersonWord { status: 'proven' | 'manager_split' | 'noise'; n: number; weight: number | null }
+export interface PersonTile {
+  team: string;
+  label: string;
+  /** Nick's notes over the models: 'never' (can't reach him) sits last, 'last' (not a buyer) before it. */
+  standing: 'live' | 'last' | 'never';
+  nick: { never: boolean; last: boolean; hard: boolean; said: string[]; source: string | null };
+  checked_out: boolean;
+  blocked: boolean;
+  p_responds: Field<{ p: number; basis: string }>;
+  fatigue: Field<{ used: number; limit: number | null }>;
+  mood: Field<string>;
+  in_market: Field<{ said: { text: string; ago: string; credible: boolean; fading: boolean }[]; said_n: number; wants_n: number }>;
+  word: Field<{ wants: PersonWord | null; shop: PersonWord | null; as_of: string }>;
+  approach: Field<string>;
+  last_contact: Field<string>;
+  /** How many of the plan's moves have a step with him (what a tap focuses the deck on). */
+  moves_n: number;
+}

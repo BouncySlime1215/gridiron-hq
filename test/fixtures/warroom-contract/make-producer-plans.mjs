@@ -105,7 +105,8 @@ export async function makeProducerPlans() {
     { id: 2, load: async () => { const a = leagueOf(2); a.world = () => ({ fail: 'no schedule for this season' }); return { adapter: a }; } },
     { id: 3, load: async () => ({ adapter: leagueOf(3, { managerExtra: { 3: { title_now: 0.01 }, 4: { checked_out: true } } }) }) },
     { id: 4, load: async () => ({ adapter: leagueOf(4) }) },
-    { id: 5, load: async () => ({ adapter: leagueOf(5) }) },
+    // TEAM-NAMES: league 5 also names one manager (synthetic), so the file writes every teams path.
+    { id: 5, load: async () => { const a = leagueOf(5); const t = a.teams(); a.teams = () => ({ ...t, 2: { ...t[2], manager: 'Manager B' } }); return { adapter: a }; } },
   ];
   const first = await buildPlansFile(leagues, { generated_at: FIRST_AT, objectives: OBJECTIVES, clock: () => 0, brain: BRAIN, env: ENV });
   const previous = new Map(first.leagues.map(e => [String(e.league), e]));

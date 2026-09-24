@@ -3,6 +3,9 @@
  * acquisition path search (ACQ-01), over an injected world. Deterministic
  * given the world; no DB, no env, no clock.
  *
+ * One env read, by exception: flipLegsFlag (GRIDIRON_FLIP_LEGS, or the preview switch via
+ * preview-mode.js) when the adapter does not set searchOpts.flipLegs itself.
+ *
  * The world (`W`) is built by the producer script from season-sim.js
  * (tradeImpactWorld, the fast rescore) and handed in; tests hand in a fixture.
  *   W.rescore(state, a, b) -> { me, them }   state: Map team -> ids (changed teams only)
@@ -14,6 +17,7 @@ import { screenFair, flipSpread, linearNick, combos, pathExpectation, isChained,
   fairBand, onesInBand, pairsInBand, shapeOf, oneForOneOnly } from './paths.js';
 import { metricOf } from './objectives.js';
 import { excluded } from './partners.js';
+import { previewUnconfirmed } from '../preview-mode.js';
 
 export const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
@@ -68,18 +72,72 @@ export function playerValues(S, adapter, objective) {
 }
 
 /**
+ * FLIP-LEGS switch: 'on' (GRIDIRON_FLIP_LEGS=1), 'preview' (on only via preview mode), 'off'
+ * (unset, or =0, which vetoes preview). On: flip candidates are the players Nick can reach and
+ * a leg may be a two-player package on either side (flipMap below).
+ */
+export const FLIP_LEGS_ENV = 'GRIDIRON_FLIP_LEGS';
+export function flipLegsFlag(env = process.env) {
+  if (env[FLIP_LEGS_ENV] === '1') return 'on';
+  if (env[FLIP_LEGS_ENV] === '0') return 'off';
+  return previewUnconfirmed() ? 'preview' : 'off';
+}
+
+/**
+ * FLIP-LEGS: the value of the best package of one or two of Nick's players he can give, and the
+ * highest player value that package still reads fair for on the other screen (the planner's
+ * fairBand: a player is in reach when his band's floor is at or under that package).
+ */
+export function flipReach(myValues) {
+  const top = [...myValues].filter(v => v > 0).sort((a, b) => b - a).slice(0, 2);
+  const pkg = top.reduce((s, v) => s + v, 0);
+  return { package_value: pkg, reaches: v => { const b = fairBand(v); return !!b && b.lo <= pkg; } };
+}
+
+/**
+ * FLIP-LEGS legs. Leg 1 (Nick -> A for the player): one or two of Nick's players whose value (a
+ * pair: its SUM) is in the player's fairBand, the one planner's onesInBand / pairsInBand; the one
+ * that costs Nick least on his single-player losses. Leg 2 (B -> Nick for the player): one or two
+ * of B's players the player reads screen-fair against (a pair on its SUM, the same screenFair);
+ * the one that adds most to Nick. Returns the ids or null per leg.
+ */
+export function flipLegs({ player, myIds, bIds, val, lossN, addN, pairLimit = SEARCH_DEFAULTS.pairLimit }) {
+  const pv = val(player);
+  const band = fairBand(pv);
+  const items = myIds.filter(id => id !== player).map(id => ({ id, value: val(id) }));
+  const sum = (ids, m) => ids.reduce((s, id) => s + (m.get(id) ?? 0), 0);
+  const gives = [...onesInBand(items, band), ...pairsInBand(items, band, { limit: pairLimit })];
+  const legX = gives.sort((x, y) => sum(y, lossN) - sum(x, lossN) || x.length - y.length)[0] ?? null;
+  const gets = combos(bIds.filter(id => id !== player), 2)
+    .filter(ids => screenFair(pv, ids.reduce((s, id) => s + val(id), 0)));
+  const legY = gets.sort((x, y) => sum(y, addN) - sum(x, addN) || x.length - y.length)[0] ?? null;
+  return { legX, legY };
+}
+
+/**
  * FLIP-01: every key player on A, moved to every B; ranked by spread x P(A) x P(B) x days left,
  * where a pair has no realised legs its P terms are 1 (spread only). Chat sentiment (B loves him,
  * A hates him) is a targeting hint: ranked first among equal-clearing pairs, labelled "from chat".
+ *
+ * FLIP-LEGS (adapter.searchOpts.flipLegs, else flipLegsFlag): the key players are each roster's top
+ * `topPer` by value among those in Nick's reach (flipReach), never an untouchable (Nick's block,
+ * adapter.untouchable and each manager's nick.untouchable); a leg may be 2-for-1 (flipLegs); a flip
+ * that still does not realise says which leg is missing (why, why_code).
  */
 export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 1 } = {}) {
   const me = adapter.league.me;
   const P = adapter.players;
   const val = id => Math.max(0, Number(P.get(id)?.value) || 0);
+  const legsOn = adapter.searchOpts?.flipLegs ?? (flipLegsFlag() !== 'off');
+  const untouchable = new Set([...(adapter.untouchable ?? [])].map(String));
+  for (const m of adapter.managers.values()) for (const id of m?.nick?.untouchable ?? []) untouchable.add(String(id));
+  const flipOk = legsOn ? id => vals.tradable(id) && !untouchable.has(String(id)) : vals.tradable;
+  const myIds = S.rosterOf(new Map(), me).filter(flipOk);
+  const reach = legsOn ? flipReach(myIds.map(val)) : null;
   const flips = [];
   for (const [aId, ids] of adapter.rosters) {
     if (aId === me || excluded(adapter.managers.get(aId))) continue;
-    const key = ids.filter(vals.tradable).sort((x, y) => val(y) - val(x)).slice(0, topPer);
+    const key = ids.filter(flipOk).filter(id => !reach || reach.reaches(val(id))).sort((x, y) => val(y) - val(x)).slice(0, topPer);
     for (const pid of key) {
       for (const bId of adapter.rosters.keys()) {
         if (bId === me || bId === aId || excluded(adapter.managers.get(bId))) continue;
@@ -93,32 +151,56 @@ export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 
       }
     }
   }
-  const myIds = S.rosterOf(new Map(), me).filter(vals.tradable);
   const blocked = t => excluded(adapter.managers.get(t)) || !!adapter.managers.get(t)?.checked_out;
+  const pairLimit = { ...SEARCH_DEFAULTS, ...(adapter.searchOpts ?? {}) }.pairLimit;
   const realised = [];
   for (const f of flips.filter(x => x.clears).sort((x, y) => y.spread - x.spread).slice(0, realise * 2)) {
     if (realised.length >= realise) break;
     if (blocked(f.a) || blocked(f.b)) continue;
     const pv = val(f.player);
-    const legX = myIds.filter(x => screenFair(val(x), pv)).sort((x, y) => (vals.lossN.get(y) ?? 0) - (vals.lossN.get(x) ?? 0))[0];
-    const legY = adapter.rosters.get(f.b).filter(vals.tradable).filter(y => screenFair(pv, val(y)))
-      .sort((x, y) => (vals.addN.get(y) ?? 0) - (vals.addN.get(x) ?? 0))[0];
-    if (legX == null || legY == null) { realised.push({ ...f, legs: null, why: 'no fair one-player leg on both screens' }); continue; }
-    const s1 = S.applyTrade(new Map(), me, f.a, [legX], [f.player]);
-    const s2 = S.applyTrade(s1, me, f.b, [f.player], [legY]);
+    let gx, gy;
+    if (legsOn) {
+      const legs = flipLegs({ player: f.player, myIds, bIds: adapter.rosters.get(f.b).filter(flipOk), val,
+        lossN: vals.lossN, addN: vals.addN, pairLimit });
+      gx = legs.legX; gy = legs.legY;
+      if (!gx || !gy) {
+        const code = !gx && !gy ? 'no_leg_either' : !gx ? 'no_leg_a' : 'no_leg_b';
+        const why = !gx && !gy ? `no fair package (1 or 2 players) on either screen: none of yours for him to Team ${f.a}, none of Team ${f.b}'s for him`
+          : !gx ? `no fair package of 1 or 2 of your players for him on Team ${f.a}'s screen`
+            : `no fair package of 1 or 2 of Team ${f.b}'s players for him on their screen`;
+        realised.push({ ...f, legs: null, why, why_code: code });
+        continue;
+      }
+    } else {
+      const legX = myIds.filter(x => screenFair(val(x), pv)).sort((x, y) => (vals.lossN.get(y) ?? 0) - (vals.lossN.get(x) ?? 0))[0];
+      const legY = adapter.rosters.get(f.b).filter(vals.tradable).filter(y => screenFair(pv, val(y)))
+        .sort((x, y) => (vals.addN.get(y) ?? 0) - (vals.addN.get(x) ?? 0))[0];
+      if (legX == null || legY == null) { realised.push({ ...f, legs: null, why: 'no fair one-player leg on both screens' }); continue; }
+      gx = [legX]; gy = [legY];
+    }
+    const s1 = S.applyTrade(new Map(), me, f.a, gx, [f.player]);
+    const s2 = S.applyTrade(s1, me, f.b, [f.player], gy);
     const r1 = S.rescore(s1, me, f.a), r2 = S.rescore(s2, me, f.b);
-    const p1 = adapter.priceStep(f.a, [f.player], [legX]).p, p2 = adapter.priceStep(f.b, [legY], [f.player]).p;
+    const p1 = adapter.priceStep(f.a, [f.player], gx).p, p2 = adapter.priceStep(f.b, gy, [f.player]).p;
     const e = pathExpectation([{ p: p1, delta: r1.me.title_delta }, { p: p2, delta: r2.me.title_delta, se: r2.me.title_delta_se }]);
-    realised.push({ ...f, legs: { give_a: legX, get_b: legY, p1, p2, d1: r1.me.title_delta, d2: r2.me.title_delta,
+    // give_a / get_b stay one id (the package's most valuable player) for the served contract; the ids are the package.
+    const lead = ids => [...ids].sort((x, y) => val(y) - val(x))[0];
+    realised.push({ ...f, legs: { give_a: lead(gx), get_b: lead(gy),
+      ...(legsOn ? { give_a_ids: gx, get_b_ids: gy, shape_1: `${gx.length}-for-1`, shape_2: `1-for-${gy.length}` } : {}),
+      p1, p2, d1: r1.me.title_delta, d2: r2.me.title_delta,
       se2: r2.me.title_delta_se, clears2: r2.me.title_delta_clears_noise, ...e } });
   }
   const rankOf = f => {
     const r = realised.find(x => x.player === f.player && x.a === f.a && x.b === f.b && x.legs);
     return f.spread * (r ? r.legs.p1 * r.legs.p2 : 1) * Math.max(1, daysLeft) * (f.chat_hint ? 1.25 : 1);
   };
+  // FLIP-LEGS: among clearing pairs, the ones with fair legs on both screens come first (still ranked
+  // by spread x P1 x P2), so an unpriced pair's P = 1 never pushes a realised flip out of the top 10.
+  const hasLegs = f => (legsOn && realised.some(x => x.player === f.player && x.a === f.a && x.b === f.b && x.legs) ? 1 : 0);
   const ranked = flips.map(f => ({ ...f, rank_score: rankOf(f) }))
-    .sort((x, y) => (Number(y.clears) - Number(x.clears)) || (y.rank_score - x.rank_score));
-  return { pairs: flips.length, clears: flips.filter(f => f.clears).length, top: ranked.slice(0, 10), realised };
+    .sort((x, y) => (Number(y.clears) - Number(x.clears)) || (hasLegs(y) - hasLegs(x)) || (y.rank_score - x.rank_score));
+  return { pairs: flips.length, clears: flips.filter(f => f.clears).length, top: ranked.slice(0, 10), realised,
+    ...(legsOn ? { legs_mode: 'flip_legs', reach_value: reach.package_value } : {}) };
 }
 
 /** ONE-PLANNER search options, read from the adapter (the producer sets them; a fixture may not). */

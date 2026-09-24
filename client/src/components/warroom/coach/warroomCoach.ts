@@ -431,15 +431,31 @@ export function undo(s: CoachSession, ctx: CoachCtx, asked: string | null = null
 
 /* ----------------------------------------------------------------- footer */
 
+/**
+ * TEAM-NAMES-2: who a roster is, from the plans entry's `teams` Field (the same map WarRoom hands
+ * types.ts#setTeamNames). The rule is types.ts#teamLabel's, copied because this file imports nothing;
+ * test/warroom-team-names-2.test.js pins the two equal: 'Manager (Team name)', else whichever is
+ * known, else 'Team N'.
+ */
+export function coachTeamLabel(teams: any, id: unknown): string {
+  if (id == null) return '';
+  const map = teams && typeof teams === 'object' && teams.status === 'ok' ? teams.value : null;
+  const t = map && typeof map === 'object' ? map[String(id)] : null;
+  const manager = typeof t?.manager === 'string' ? t.manager.trim() : '';
+  const name = typeof t?.name === 'string' ? t.name.trim() : '';
+  if (manager && name) return `${manager} (${name})`;
+  return manager || name || `Team ${id}`;
+}
+
 /** A deck entry is a plan (a move); the deal Nick sends first is its first step. */
-function dealLine(move: any, names: Record<string, string>): string | null {
+function dealLine(move: any, names: Record<string, string>, teams?: any): string | null {
   const step = Array.isArray(move?.steps) ? move.steps[0] : null;
   if (!step || typeof step !== 'object') return null;
   const n = (id: string) => names[id] ?? id;
   const give = Array.isArray(step.give) ? step.give.map(n).join(' + ') : '';
   const get = Array.isArray(step.get) ? step.get.map(n).join(' + ') : '';
   if (!step.partner || !give || !get) return null;
-  const partner = /^team\b/i.test(String(step.partner)) ? step.partner : `Team ${step.partner}`;
+  const partner = /^team\b/i.test(String(step.partner)) ? step.partner : coachTeamLabel(teams, step.partner);
   return `send ${partner} ${give} for ${get}`;
 }
 
@@ -466,7 +482,7 @@ export function coachFooter(plans: any, ui?: CoachUi): { destination: string; st
   const nm = plans?.next_move;
   const none = !deck.length && nm && typeof nm === 'object' && nm.status === 'unknown' && typeof nm.reason === 'string' && nm.reason.trim()
     ? `none clears this week (${nm.reason.trim().split(/\.\s/)[0].replace(/[.\s]+$/, '')})` : null;
-  const next_move = dealLine(move, names) ?? none ?? 'not computed yet';
+  const next_move = dealLine(move, names, plans?.teams) ?? none ?? 'not computed yet';
   return { destination, stops_left, next_move,
     text: `Destination: ${destination} / Stops left: ${stops_left} / Next move: ${next_move}` };
 }

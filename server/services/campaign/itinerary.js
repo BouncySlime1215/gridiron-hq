@@ -1,7 +1,9 @@
 /**
  * CAMPAIGN-01f/g: itinerary (destination + stops), the trade-off of adding a
- * stop, and the speed curve (arrive by week N at cost) (pure).
+ * stop (pure). The speed curve is speed.js.
  */
+
+import { teamLabel } from './playbook.js';
 
 /** Days one negotiation takes (offer, answer, maybe one counter). Hand-set, not fitted. */
 export const DAYS_PER_STEP = 2;
@@ -13,19 +15,31 @@ export function arrivalWeek(plan, currentWeek, { daysPerStep = DAYS_PER_STEP, pa
   return currentWeek + 1 + Math.floor((days - daysLeftInWeek - 1) / 7);
 }
 
+/** True when step i's get is given on by a later step (a flip, not a keep). */
+const passesOnAt = (plan, i) => plan.steps.slice(i + 1).some(t => t.give.some(id => plan.steps[i].get.includes(id)));
+
+/**
+ * TEAM-NAMES-2: a plan stop's label ('Flip X from <team>'); the team reads playbook.js#teamLabel.
+ * nm: player id -> name. view.js calls it again with the entry's teams map.
+ */
+export function planStopLabel(plan, i, nm, teams = null) {
+  const s = plan.steps[i];
+  return `${passesOnAt(plan, i) ? 'Flip' : 'Get'} ${s.get.map(nm).join(' + ')} from ${teamLabel(teams, s.team)}`;
+}
+
 /**
  * The itinerary: stops from the chosen plan plus Nick's own stops (objectives file), untouchables,
  * and conflicts (a plan step that sells an untouchable, a Nick stop the plan cannot reach).
  */
-export function buildItinerary(plan, objective, { names = {} } = {}) {
+export function buildItinerary(plan, objective, { names = {}, teams = null } = {}) {
   const nm = id => names[id] ?? `player ${id}`;
   const stops = [];
   const received = new Set();
   (plan?.steps ?? []).forEach((s, i) => {
-    const passesOn = (plan.steps.slice(i + 1)).some(t => t.give.some(id => s.get.includes(id)));
+    const passesOn = passesOnAt(plan, i);
     for (const id of s.get) received.add(id);
     stops.push({ id: `plan-${i}`, order: i, kind: passesOn ? 'flip' : 'get',
-      label: `${passesOn ? 'Flip' : 'Get'} ${s.get.map(nm).join(' + ')} from Team ${s.team}`,
+      label: planStopLabel(plan, i, nm, teams),
       status: i === 0 ? 'next' : 'waiting', added_by: 'plan', p_yes: s.p, odds_after: s.delta });
   });
   const conflicts = [];
@@ -68,31 +82,4 @@ export function stopTradeOff({ label, without, with: withStop, gain = null, gain
   };
 }
 
-/**
- * The speed curve: for each arrive-by week N from now to the deadline, the best plan that lands by N
- * and what speed costs versus the unconstrained best. Plans are already ranked (best first) with
- * `score`, `expected`, `sd`. Speed levers: parallel offers (independent steps) always on; a chained
- * plan that is too slow is dropped for that N.
- */
-export function speedCurve(ranked, { currentWeek, deadlineWeek, daysPerStep = DAYS_PER_STEP, daysLeftInWeek = 7 }) {
-  if (!ranked.length || !Number.isInteger(currentWeek)) return [];
-  const last = Number.isInteger(deadlineWeek) ? deadlineWeek : currentWeek + 4;
-  const top = ranked[0];
-  const out = [];
-  for (let n = currentWeek; n <= Math.max(last, currentWeek); n++) {
-    const fit = ranked.find(p => arrivalWeek(p, currentWeek, { daysPerStep, daysLeftInWeek }) <= n) ?? null;
-    if (!fit) continue;
-    out.push({
-      arrive_by: n,
-      cost: top.score - fit.score,
-      net: fit.score,
-      expected: fit.expected,
-      variance_note: fit.sd > top.sd ? 'wider range of outcomes than the unhurried plan' : 'no wider than the unhurried plan',
-      offers_used: fit.steps.length,
-      parallel: !fit.chained && fit.steps.length > 1,
-      before_deadline: n <= last,
-      first_step: fit.steps[0],
-    });
-  }
-  return out;
-}
+// The speed curve and its priced levers live in speed.js (CAMPAIGN-01g, CATCHUP-LIVE).

@@ -28,12 +28,13 @@ import { leagueRules, seedStandings, simRulesProblem } from './league-rules.js';
 import { deriveFormat } from './format.js';
 import { gameScriptFor } from './gamescript.js';
 import { loadRosters, assetUniverse, lineupSlots, tradeWeekContext } from './trade-engine.js';
-import { random, withRandomSeed, keyedSeed } from './stats-util.js';
+import { random, withRandomSeed, keyedSeed, keyedNormal } from './stats-util.js';
 import { weeklyAvailability } from './contingency.js';
 import { leagueCurrentWeek } from './league-week.js';
 import { previewUnconfirmed, previewFields } from './preview-mode.js';
 import { oneWorldFlag, oneWorldSeed, rosFactor } from './one-world.js';
 import { projectionAsOf } from './projection-asof.js';
+import { availHorizonFlag, availHorizonPreviewFields } from './availability-return.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
@@ -283,7 +284,50 @@ function playBracket(field, { playoff_weeks: roundWeeks, reseed }, scoreFor) {
 
 // Narrowly exposed for deterministic regression tests. These helpers contain
 // the decision-timing rules whose accidental reversal creates hindsight bias.
-export const __test = { lineupPoints, initialRecords, playBracket, addMedianResults, asofScale };
+/* ======================= AVAIL-HORIZON-2 PRE-REGISTRATION (change B) =======================
+ * Written 2026-09-24 before change B was implemented or run.
+ *
+ * Change. A team-mean uncertainty term: in each simulated season (run) every fantasy team
+ * draws ONE strength offset d ~ Normal(0, TEAM_MEAN_SD) points per week, added to each of
+ * its weekly lineup totals (regular season and bracket). Keyed by (world, roster, run), so
+ * both arms of a paired trade share it. Behind GRIDIRON_AVAIL_HORIZON (preview on).
+ * Why: the sim's pools are fixed per sync, so a team's rest-of-season mean is treated as
+ * known exactly; E3-ESPN's reliability slope 0.41 (<1) says the odds are over-confident
+ * and longshots under-called (evidence/title-zero.md "over-confidence").
+ *
+ * The SD is BOUNDED, not fitted, and fixed here at 8 points/week, with no sweep:
+ *   - Upper bound: the week-2 league-4 ESPN residual (actual - ESPN best lineup) has SD 32.0
+ *     over n = 10 teams; the sim's team-week SD is 24-29 (title-zero.md). The team-mean
+ *     share is sqrt(32.0^2 - sigma^2): 13.5 at sigma 29, 21.2 at sigma 24.
+ *   - Lower bound: 0 (with n = 10 the residual SD's 90% interval reaches below 24).
+ *   - 8 is title-zero.md row 3b's value, below the lowest point estimate (13.5):
+ *     the conservative end of the bound.
+ * Metrics (B on top of A, same probe as A2): (B1) Nick's league-4 playoff / title odds,
+ * target the ESPN-baseline range 12-21% / 0.7-1.6%; (B2) league mean points per week shift
+ * vs A alone (expected ~0: the offset is mean zero); (B3) every team's title odds sum to 1
+ * and playoff odds to the league's playoff spots (6).
+ * ==========================================================================================
+ */
+export const TEAM_MEAN_SD = 8;
+
+/**
+ * Change B: the per-week team-mean SD this season is played with. 0 (no term, the
+ * pre-AVAIL-HORIZON-2 sim exactly) unless GRIDIRON_AVAIL_HORIZON is on (or preview).
+ */
+export function teamMeanSd(flag = availHorizonFlag()) {
+  return flag.on ? TEAM_MEAN_SD : 0;
+}
+
+/**
+ * Each team's strength offset for one run: TEAM_MEAN_SD x a standard normal keyed by
+ * (world, roster, run), so every configuration of the same world (both arms of a paired
+ * trade, the fast rescore and the full run) gives a team the same offset in the same run.
+ */
+function teamOffsets(world, ids, run, sd) {
+  return new Map(ids.map(id => [id, sd * keyedNormal(keyedSeed(world, 'team-mean', id), run)]));
+}
+
+export const __test = { lineupPoints, initialRecords, playBracket, addMedianResults, asofScale, teamOffsets, playSeasons };
 // FIX-322-1: the E3-ESPN grader replays brackets with the sim's own rules (a named export, not __test).
 export { playBracket, addMedianResults };
 
@@ -576,7 +620,8 @@ export function simulateSeason(lg, {
  * unless `worldId` names it (EA-07: the week's world, oneWorldSeed).
  */
 function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = null, projections = null, universe = null,
-  basisFlag = rosBasisFlag(), worldId = null, kdstFlag = simKdstFlag(), asofFlag = simAsofFlag() }) {
+  basisFlag = rosBasisFlag(), worldId = null, kdstFlag = simKdstFlag(), asofFlag = simAsofFlag(),
+  horizonFlag = availHorizonFlag() }) {
   const fromWeek = simStartWeek(lg, requestedWeek);
   // The league's own rules, never a hard-coded default: a missing field is a
   // named error with its payload path (league-rules.js#simRulesProblem).
@@ -658,7 +703,10 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
     playoffTeams: rules.schedule.playoff_teams, medianGame: rules.median_game === true,
     rosterIds: new Set(roster.map(p => p.id)), basisFields: basis.fields,
     kdstIds: new Set(everyone.filter(p => KDST.has(p.position)).map(p => p.id)),
-    kdstFields: kdst.fields
+    kdstFields: kdst.fields,
+    // AVAIL-HORIZON-2 change B: 0 = no team-mean term.
+    teamMeanSd: teamMeanSd(horizonFlag),
+    teamMeanFields: horizonFlag.on ? { team_mean_sd: TEAM_MEAN_SD, ...availHorizonPreviewFields(horizonFlag) } : null
   };
 }
 
@@ -730,9 +778,19 @@ function applyOverrides(teams, overrides, assets) {
  * full simulation (lineups set from fresh draws) and a trade rescore (lineups
  * read from a prebuilt world), so both give the same numbers.
  */
-function playSeasons(prep, teams, runs, keepRuns, pointsFor) {
+function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
   const { lg, rules, fromWeek, sched, weeks, bracketWeeks, playoffTeams, medianGame } = prep;
   const ids = teams.map(t => t.roster_id);
+  // AVAIL-HORIZON-2 change B: each run draws each team's strength offset once and adds it
+  // to every week that team plays (regular season and bracket).
+  const sd = prep.teamMeanSd ?? 0;
+  let offRun = -1, offsets = null;
+  const pointsFor = sd > 0
+    ? (t, run, week) => {
+      if (run !== offRun) { offRun = run; offsets = teamOffsets(prep.world, ids, run, sd); }
+      return rawPointsFor(t, run, week) + offsets.get(t.roster_id);
+    }
+    : rawPointsFor;
   const teamOf = new Map(teams.map(t => [t.roster_id, t]));
   const startingRecords = initialRecords(lg, teams, fromWeek, medianGame);
   const stats = new Map(ids.map(id => [id, {
@@ -803,6 +861,7 @@ function playSeasons(prep, teams, runs, keepRuns, pointsFor) {
     teams: out,
     ...(prep.basisFields ?? {}),
     ...(prep.kdstFields ?? {}),
+    ...(prep.teamMeanFields ?? {}),
     // Both on only under preview: name both reasons, not just the last one.
     ...(prep.basisFields?.preview && prep.kdstFields?.preview
       ? { preview_reason: `${prep.basisFields.preview_reason}; ${prep.kdstFields.preview_reason}` } : {}),
@@ -894,13 +953,15 @@ export function tradeImpactWorld(lg, {
   const basisFlag = rosBasisFlag();
   const kdstFlag = simKdstFlag();
   const asofFlag = simAsofFlag();
+  const horizonFlag = availHorizonFlag();
   const mode = worldMode();
   const prep = withRandomSeed(pairedSeed,
     () => prepareSeason(lg, { requestedWeek, scoring, projections, universe: universeIds, basisFlag, kdstFlag, asofFlag,
-      worldId: mode === 'week' ? pairedSeed : null }));
+      horizonFlag, worldId: mode === 'week' ? pairedSeed : null }));
   const key = {
     league: lg.id, fetched_at: lg.fetched_at ?? null, runs, fromWeek: simStartWeek(lg, requestedWeek),
-    scoring: JSON.stringify(scoring), seed: pairedSeed, basis: basisKey(basisFlag, asofFlag), mode, kdst: kdstKey(kdstFlag)
+    scoring: JSON.stringify(scoring), seed: pairedSeed, basis: basisKey(basisFlag, asofFlag), mode, kdst: kdstKey(kdstFlag),
+    teamMeanSd: teamMeanSd(horizonFlag)
   };
   if (prep.fail) return { key, projections, universe: universeIds, fail: prep.fail };
 
@@ -941,7 +1002,7 @@ function worldFits(w, lg, { runs, scoring, fromWeek, seed, dealIds }) {
   if (k.league !== lg.id || k.fetched_at !== (lg.fetched_at ?? null) || k.runs !== runs
     || k.fromWeek !== fromWeek || k.scoring !== JSON.stringify(scoring) || k.seed !== seed
     || k.basis !== basisKey(rosBasisFlag()) || k.mode !== worldMode()
-    || k.kdst !== kdstKey(simKdstFlag())) return false;
+    || k.kdst !== kdstKey(simKdstFlag()) || (k.teamMeanSd ?? 0) !== teamMeanSd()) return false;
   // The world's copula must hold exactly the players the full runs would: every
   // rostered player plus the ones this deal names. A named player outside it, or
   // an extra free agent the deal does not name, would change his game-mates' draws.

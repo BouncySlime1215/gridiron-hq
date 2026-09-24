@@ -56,6 +56,9 @@ export const MAX_ALTERNATIVES = 5;
 export const SKIP_REASONS = Object.freeze(['player', 'cost', 'manager', 'not_now']);
 /** Why a manager said no (north-star row 21): logged by Nick, read by the producer and the E2 grader. */
 export const DECLINE_REASONS = Object.freeze(['wants_more', 'likes_his_player', 'not_interested', 'not_now', 'other']);
+/** Catch-up kinds (campaign/catchup.js#CATCHUP_ORDER) and speed levers (campaign/speed.js#CURVE_LEVERS). */
+export const CATCHUP_KINDS = Object.freeze(['free', 'flip', 'desperate', 'swing', 'timing']);
+export const SPEED_LEVERS = Object.freeze(['sequential', 'parallel', 'concede', 'package', 'all_in']);
 export const NUMBER_HEALTH_STATUSES = Object.freeze(['ok', 'warn', 'broken']);
 /** The objective's feasibility status (feasibility.status, feasibility_points.outlook). */
 export const FEASIBILITY_STATUSES = Object.freeze(['on_track', 'reachable', 'out_of_reach']);
@@ -193,7 +196,9 @@ const tradeoff = obj({
 
 const flip = obj({
   player: pid, buy_from: id, sell_to: id, spread: numF, price_a: numF, price_b: numF,
-  legs: nullable(obj({ give_a: pid, get_b: pid, p1: probF, p2: probF, p_both: probF, nick_after: numF }))
+  legs: nullable(obj({ give_a: pid, get_b: pid, p1: probF, p2: probF, p_both: probF, nick_after: numF },
+    // FLIP-LEGS-2: the whole packages (give_a / get_b stay the lead id); served only when the planner priced packages.
+    { give_a_ids: arr(pid, { min: 1 }), get_b_ids: arr(pid, { min: 1 }) }))
 }, { legs_why_not: str, reasoning: field(reasoning) });
 
 const target = obj({
@@ -240,10 +245,14 @@ export const SECTIONS = Object.freeze({
   stop_tradeoffs: field(map(TRADEOFF_KEY, tradeoff)),
   flip_map: field(arr(flip)),
   targets: field(arr(target)),
-  catch_up: field(arr(obj({ text: str, gain: numF, steps: int(0) }, { move_id: id }))),
+  // kind / partner / discount (CATCHUP-LIVE) are optional: older producers omit them.
+  catch_up: field(arr(obj({ text: str, gain: numF, steps: int(0) },
+    { move_id: id, kind: oneOf(CATCHUP_KINDS), partner: id, discount_pct: numF }))),
+  // lever / p_land / levers (CATCHUP-LIVE): the lever that wins week N and every lever priced there.
   speed_curve: field(arr(obj({
     arrive_by: int(1, 18), cost: numF, net: numF, variance_note: str, offers_used: int(0), before_deadline: bool
-  }))),
+  }, { lever: oneOf(SPEED_LEVERS), p_land: probF,
+    levers: arr(obj({ lever: oneOf(SPEED_LEVERS), cost: numF, p_land: probF, offers_used: int(0) })) }))),
   brain_report: field(brainReport),
   number_health: field(obj({
     overall: oneOf(NUMBER_HEALTH_STATUSES), broken: int(0), warn: int(0), ok: int(0),
@@ -261,8 +270,15 @@ export const SECTIONS = Object.freeze({
     untouchable: arr(pid),
     // ONE-COUNTERPART (RULINGS 17): P(responds) before the model, each named adjustment, the reply prior.
     p_responds_before_counterpart: prob, reason_chain: arr(cpFeature), reply_mix: replyMix
-  })))
+  }))),
+  // TEAM-NAMES: who each roster is (ESPN team name, the manager Nick knows), read from the league
+  // payload at run time and never committed. A roster left out (or the section unknown) reads 'Team N'.
+  // Optional (OPTIONAL_SECTIONS): a file written before it still validates.
+  teams: field(map(/^[A-Za-z0-9_.:-]{1,64}$/, obj({}, { name: str, manager: str })))
 });
+
+/** Sections an entry may leave out; the view then reads them as unknown. */
+export const OPTIONAL_SECTIONS = Object.freeze(['teams']);
 
 /** Run bookkeeping: the producer's own memory between runs. No consumer reads it. */
 const run = obj({
@@ -367,7 +383,7 @@ function crossCheck(entry, path, ctx) {
   const err = (p, message) => ctx.errors.push({ path: `${path}.${p}`, message });
   if (entry.error === undefined) {
     for (const k of Object.keys(SECTIONS)) {
-      if (!(k in entry)) err(k, "is required (write it as 'unknown' with a reason when it is not computed)");
+      if (!(k in entry) && !OPTIONAL_SECTIONS.includes(k)) err(k, "is required (write it as 'unknown' with a reason when it is not computed)");
     }
   }
   const deck = okValue(entry.alternatives);
@@ -456,7 +472,7 @@ export function writtenPaths(doc) {
     if (Array.isArray(v)) { v.forEach(x => walk(x, `${p}[]`)); return; }
     if (!isObj(v)) return;
     // The two maps: their keys are data, not contract keys.
-    if (/(^|\.)stop_tradeoffs\.value$|^leagues\[\]\.names$/.test(p)) { for (const x of Object.values(v)) walk(x, `${p}{}`); return; }
+    if (/(^|\.)stop_tradeoffs\.value$|^leagues\[\]\.names$|^leagues\[\]\.teams\.value$/.test(p)) { for (const x of Object.values(v)) walk(x, `${p}{}`); return; }
     for (const [k, x] of Object.entries(v)) walk(x, p ? `${p}.${k}` : k);
   };
   walk(doc, '');

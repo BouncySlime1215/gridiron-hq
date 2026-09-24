@@ -27,7 +27,7 @@
  *
  * ON A FLIP the monitor writes the global engine_fallback row (fallback_field = the field's
  * fallbackField) and records `healthy_snapshot_id`, the newest snapshot published before the
- * field left 'ok'. served.js#readServed then serves the fallback field's row, or, when that
+ * field left 'ok'. views.js#readServed (the one fallback reader) then serves the fallback field's row, or, when that
  * field has no row for the entity, the field's own row as of that snapshot. Recovery deletes
  * the engine_fallback row. Every flip changes the monitor row (append-only history) and the
  * card row; nothing degrades silently.

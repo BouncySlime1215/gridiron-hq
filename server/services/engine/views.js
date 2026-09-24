@@ -157,7 +157,7 @@ function served(row, extra) {
     fallback_used: extra.fallbackUsed ?? false, fallback_field: extra.fallbackField ?? null,
     age_min: extra.ageMin ?? null, problem: extra.problem ?? null,
     producer: row?.producer ?? null, producer_version: row?.producer_version ?? null, as_of: row?.as_of ?? null,
-    health: row?.health ?? null, reason_chain: row?.reason_chain ?? null, event_ids: row?.event_ids ?? [],
+    health: row?.health ?? null, reason_chain: extra.reasonChain ?? row?.reason_chain ?? null, event_ids: row?.event_ids ?? [],
     fresh_at: extra.freshAt ?? null, state_id: row?.id ?? null,
   };
 }
@@ -217,14 +217,70 @@ function fallbackReason(field, fallbackField, leagueId, snapshot, database) {
   return `${field} is on its fallback ${fallbackField}: ${r?.reason ?? `in force at snapshot ${snapshot.id}`}`;
 }
 
+/**
+ * The monitor's stand-in for a field on its fallback (EA-06, ENGINE-ARCHITECTURE §7.4), for
+ * the snapshot read and the as-of read alike. In order:
+ *   1. the fallback field's row for the same entity (kind 'field');
+ *   2. else the field's own row as of the last healthy snapshot the monitor recorded
+ *      (health.monitor.healthy_snapshot_id; kind 'snapshot');
+ *   3. else nothing (kind 'none', status unknown): never the drifted value.
+ * The served chain starts with a `health_monitor` contribution, "fell back: <reason>", so the
+ * fallback is labelled wherever the chain is shown. `fetchFallback()` -> {row, missing};
+ * `healthySnapshotId` is read at the caller's cut; `fetchAtSnapshot(maxStateId)` -> row.
+ */
+function monitorServe({ field, fallbackField, reason, fetchFallback, healthySnapshotId, fetchAtSnapshot }, database) {
+  const why = `${field} is on its fallback ${fallbackField}: ${reason}`;
+  const note = { source: 'health_monitor', kind: 'monitor', event_ids: [], state_ids: [], delta: null, weight: null,
+    text: `fell back: ${reason}` };
+  const fallback = kind => ({ kind, by: 'monitor', field: fallbackField, snapshot_id: healthySnapshotId, reason });
+  const { row: fbRow, missing } = fetchFallback();
+  if (fbRow) return { status: 'fallback', row: fbRow, fallbackUsed: true, fallback: fallback('field'), reason: why, note };
+  if (healthySnapshotId != null) {
+    const snap = database.prepare('SELECT max_state_id FROM engine_snapshots WHERE id = ?').get(healthySnapshotId);
+    if (!snap) throw new Error(`health.monitor names snapshot ${healthySnapshotId} for ${field}, which does not exist`);
+    const row = fetchAtSnapshot(Number(snap.max_state_id));
+    if (row) {
+      return { status: 'fallback', row, fallbackUsed: true, fallback: fallback('snapshot'), note,
+        reason: `${field} is on its fallback, the last healthy snapshot #${healthySnapshotId}: ${reason}` };
+    }
+  }
+  return { status: 'unknown', row: null, fallbackUsed: false, fallback: fallback('none'), note,
+    reason: `${why}; ${missing}${healthySnapshotId != null ? ', and the last healthy snapshot has no row' : ''}` };
+}
+
+/** The monitor's record of a field (health.monitor), as of a cut, or null. */
+function monitorRecord(field, { asOf = FAR_FUTURE, maxId = null } = {}, database) {
+  return getState('engine_field', field, 'health.monitor', { asOf, maxId }, database)?.value ?? null;
+}
+
+/** A reason chain with the stand-in's note first. */
+const chainWith = (row, note) => {
+  const chain = row?.reason_chain ?? { v: 2, additive: false, contributions: [] };
+  return { ...chain, contributions: [note, ...(chain.contributions ?? [])] };
+};
+
 function serveFallback(key, field, fallbackField, reason, snapshot, look, database) {
-  const spec = look.spec(fallbackField);
-  const base = { ...key, field, fallbackUsed: true, fallbackField };
-  if (!spec) return served(null, { ...base, status: 'unknown', reason: `${reason}; ${fallbackField} is not registered` });
-  const { row, missingVersion } = rowAtCut(key, fallbackField, spec, snapshot, {}, database);
-  if (missingVersion) return served(null, { ...base, status: 'unknown', reason: `${reason}; ${spec.producer} is not in snapshot ${snapshot.id}` });
-  if (!row) return served(null, { ...base, status: 'unknown', reason: `${reason}; ${fallbackField} has no row at the snapshot` });
-  return served(row, { ...base, status: 'fallback', reason, freshAt: look.fresh(row.producer, key.leagueId, row.as_of) });
+  const h = monitorServe({
+    field, fallbackField, reason,
+    fetchFallback() {
+      const spec = look.spec(fallbackField);
+      if (!spec) return { row: null, missing: `${fallbackField} is not registered` };
+      const { row, missingVersion } = rowAtCut(key, fallbackField, spec, snapshot, {}, database);
+      if (missingVersion) return { row: null, missing: `${spec.producer} is not in snapshot ${snapshot.id}` };
+      return { row, missing: `${fallbackField} has no row at the snapshot` };
+    },
+    healthySnapshotId: monitorRecord(field, { maxId: snapshot.max_state_id }, database)?.healthy_snapshot_id ?? null,
+    fetchAtSnapshot(maxStateId) {
+      const spec = look.spec(field);
+      const version = spec ? snapshot.version_set[spec.producer] : null;
+      if (version == null) return null;
+      return getState(key.entityType, key.entityId, field, { asOf: FAR_FUTURE, leagueId: key.leagueId, lane: 'live',
+        version, maxId: Math.min(maxStateId, snapshot.max_state_id) }, database);
+    },
+  }, database);
+  return served(h.row, { ...key, field, status: h.status, reason: h.reason, fallbackUsed: h.fallbackUsed,
+    fallbackField, reasonChain: h.row ? chainWith(h.row, h.note) : null,
+    freshAt: h.row ? look.fresh(h.row.producer, key.leagueId, h.row.as_of) : null });
 }
 
 /** Resolve one (entity, field) at a snapshot (§4.6 + HEALTH-01b). */
@@ -292,11 +348,12 @@ export function pinSnapshot({ leagueId = null, snapshotId = null } = {}, databas
  * The as-of read of one field (GET /api/engine/state, Coach engine_read): the same rule as
  * a view row, at a time instead of a snapshot. In order:
  *   - the monitor has the field on its fallback (engine_fallback in force at asOf, lane
- *     live): the fallback field's row, `fallback` with kind 'monitor', else `unknown`;
+ *     live): monitorServe, the fallback field's row, else the field as of the last healthy
+ *     snapshot, else `unknown`; the chain starts "fell back: <reason>" (EA-06, FIX-281-2);
  *   - no row as of then, or the field not registered: `unknown`;
  *   - the newest row failed or is degraded: healthServe (fallback / last_good / degraded / failed);
  *   - else `ok`: the row as itself (the route adds rowStatus's stale/thin/zero words).
- * Returns {field, status, value, row, health, fallback_used, fallback, reason, problem}.
+ * Returns {field, status, value, row, health, reason_chain, fallback_used, fallback, reason, problem}.
  * `health` is the served row's, so a failed health is never handed out; `problem` names the
  * field's own row (status and failed check ids) when something else stands in.
  */
@@ -306,16 +363,21 @@ export function readServed(entityType, entityId, field, {
   const at = normalizeAsOf(asOf);
   const opts = { asOf: at, leagueId, lane };
   const out = (status, row, extra = {}) => ({ field, status, value: row ? row.value : null, row: row ?? null,
-    health: row?.health ?? null, fallback_used: false, fallback: null, reason: null, problem: null, ...extra });
+    health: row?.health ?? null, reason_chain: row?.reason_chain ?? null, fallback_used: false, fallback: null,
+    reason: null, problem: null, ...extra });
   const spec = readFieldSpec(field, database);
   if (!spec) return out('unknown', null, { reason: 'field_not_registered' });
   const fb = lane === 'live' ? readFallback(field, leagueId ?? 0, database) : null;
-  if (fb && fb.since <= at) {
-    const why = `${field} is on its fallback ${fb.fallback_field}: ${fb.reason}`;
-    const row = getState(entityType, entityId, fb.fallback_field, opts, database);
-    const fallback = { kind: 'monitor', field: fb.fallback_field, row_id: row?.id ?? null, as_of: row?.as_of ?? null };
-    if (!row) return out('unknown', null, { fallback, reason: `${why}; ${fb.fallback_field} has no row as of then` });
-    return out('fallback', row, { fallback_used: true, fallback, reason: why });
+  if (fb && fb.since <= at) { // a fallback is not in force before it began
+    const h = monitorServe({
+      field, fallbackField: fb.fallback_field, reason: fb.reason,
+      fetchFallback: () => ({ row: getState(entityType, entityId, fb.fallback_field, opts, database),
+        missing: `${fb.fallback_field} has no row as of then` }),
+      healthySnapshotId: monitorRecord(field, { asOf: at }, database)?.healthy_snapshot_id ?? null,
+      fetchAtSnapshot: maxId => getState(entityType, entityId, field, { ...opts, maxId }, database),
+    }, database);
+    return out(h.status, h.row, { fallback_used: h.fallbackUsed, fallback: { ...h.fallback, since: fb.since, n: fb.n },
+      reason: h.reason, reason_chain: h.row ? chainWith(h.row, h.note) : null });
   }
   const latest = getState(entityType, entityId, field, { ...opts, includeFailed: true }, database);
   if (!latest) return out('unknown', null, { reason: 'no_row_as_of' });

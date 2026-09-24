@@ -99,7 +99,7 @@ r.get('/state', (req, res) => {
   const row = served.row;
   const fresh = freshAt({ producer: row.producer, leagueId, rowAsOf: row.as_of, ref: asOf }, db);
   const [status, reason] = served.status === 'ok' ? rowStatus(row, spec, fresh, asOf) : [served.status, served.reason];
-  res.json({ ...base, status, reason, state: stateOut(row), health: row.health, fresh_at: fresh,
+  res.json({ ...base, status, reason, state: { ...stateOut(row), reason_chain: served.reason_chain }, health: row.health, fresh_at: fresh,
     fallback_used: served.fallback_used, fallback: served.fallback, problem: served.problem });
 });
 

@@ -134,7 +134,8 @@ test('applyTradeMemory: hard reasons always drop; shadow reasons drop only with 
   const off = applyTradeMemory(plans, mem, {});
   assert.equal(off.plans.length, 1);
   assert.deepEqual(off.dropped, { sold_recently: 1, reversal: 1, below_his_floor: 0, wrong_currency: 0 });
-  assert.deepEqual(off.shadow, { below_his_floor: 2, wrong_currency: 1 });
+  // wrong_currency twice: Olave for RBs, and a TE back to roster 3, who sold his TE for X.
+  assert.deepEqual(off.shadow, { below_his_floor: 2, wrong_currency: 2 });
   assert.equal(off.floor_on, false);
   const on = applyTradeMemory(plans, mem, { env: { [FLOOR_FLAG]: '1' } });
   assert.equal(on.plans.length, 0);
@@ -218,4 +219,30 @@ test('planner: the floor is shadow by default and a filter with the flag', () =>
   const on = plan('balanced', { tradeLedger: ledger, env: { [FLOOR_FLAG]: '1' } });
   assert.ok(!on.res.deck.some(c => c.plan.steps.some(s => String(s.team) === '2' && s.get.map(Number).includes(12) && value(on.a, s.give) < 3000)));
   assert.ok(on.res.trade_memory.dropped.below_his_floor >= 1);
+});
+
+/* --------------------------------------------------- the real adapter's read */
+
+test('league-adapter tradeLedger: reads executed trades and the price on the trade day', async () => {
+  const { tradeLedger } = await import('../scripts/campaign/league-adapter.mjs');
+  const items = JSON.stringify([{ playerId: 501, fromTeamId: 1, toTeamId: 7 }, { playerId: 502, fromTeamId: 7, toTeamId: 1 }]);
+  const calls = [];
+  const svc = { db: {
+    row: (sql, ...args) => {
+      calls.push(args);
+      if (/sqlite_master/.test(sql)) return { ok: 1 };
+      if (/dynasty_value_history/.test(sql)) return args[1] === 11 && args[2] === '2026-09-17' ? { value: 6500 } : null;
+      return null;
+    },
+    rows: () => [{ tx_id: 'z', type: 'TRADE_ACCEPT', execution_type: 'PROCESS', status: 'EXECUTED', items_json: items, processed_at: '2026-09-17T10:00:00Z' }],
+  } };
+  const assets = new Map([[11, { id: 11, espn_id: 501 }], [12, { id: 12, espn_id: 502 }]]);
+  const l = tradeLedger(svc, { leagueId: 4, season: 2026, formatKey: 'fmt', assets, now: NOW });
+  assert.equal(l.trades.length, 1);
+  assert.deepEqual(l.trades[0].moves, [{ player: 11, from: '1', to: '7' }, { player: 12, from: '7', to: '1' }]);
+  assert.equal(l.valueAt(11, Date.parse('2026-09-17T10:00:00Z')), 6500);
+  assert.equal(l.valueAt(12, Date.parse('2026-09-17T10:00:00Z')), null);
+  // No transaction table: no ledger.
+  const none = { db: { row: () => null, rows: () => { throw new Error('must not read'); } } };
+  assert.equal(tradeLedger(none, { leagueId: 4, season: 2026, formatKey: 'fmt', assets, now: NOW }), null);
 });

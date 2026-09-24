@@ -166,6 +166,9 @@ const move = obj({
   delta_final: numF,
   expected: numF,
   reasoning: field(reasoning)
+}, {
+  // TRADE-MEMORY (a): the card buys back a player Nick sold inside the window, after his price fell 10%+.
+  buy_back: arr(obj({ player: pid, was: num, now: num, text: str }), { min: 1 })
 });
 
 const destination = obj({
@@ -281,7 +284,7 @@ const run = obj({
   changed: obj({ changed: bool, reason: str }, { previous_key: nullable(str), next_key: str }),
   roster_key: nullable(str), confirm: json, outlook: json, feasibility_detail: json, feasibility_points_detail: json,
   candidates_scored: int(0), rescores: int(0), runtime_ms: num, phases_ms: json, inputs: json
-});
+}, { dropped_by_reason: json, trade_memory: json });
 
 const league = obj(
   { league: int(1), me: id, names: map(/^[A-Za-z0-9_.:-]{1,64}$/, str) },

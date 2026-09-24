@@ -36,7 +36,7 @@
     "status": "ok",
     "value": {
      "rank": 2,
-     "of": 5,
+     "of": 6,
      "reason": "best move worth 10.3 pts"
     },
     "source": "campaign.plan"
@@ -3492,6 +3492,13 @@
       "status": "off",
       "reason": "GRIDIRON_COACH_MESSAGES unset and preview off"
      }
+    },
+    "dropped_by_reason": {
+     "trade_memory": 0
+    },
+    "trade_memory": {
+     "status": "no_ledger",
+     "dropped_total": 0
     }
    }
   },
@@ -3556,7 +3563,7 @@
     "status": "ok",
     "value": {
      "rank": 1,
-     "of": 5,
+     "of": 6,
      "reason": "best move worth 647.2 pts"
     },
     "source": "campaign.plan"
@@ -7012,6 +7019,13 @@
       "status": "off",
       "reason": "GRIDIRON_COACH_MESSAGES unset and preview off"
      }
+    },
+    "dropped_by_reason": {
+     "trade_memory": 0
+    },
+    "trade_memory": {
+     "status": "no_ledger",
+     "dropped_total": 0
     }
    }
   },
@@ -7046,8 +7060,8 @@
    "attention": {
     "status": "ok",
     "value": {
-     "rank": 3,
-     "of": 5,
+     "rank": 4,
+     "of": 6,
      "reason": "best move worth 6.1 pts"
     },
     "source": "campaign.plan"
@@ -10098,6 +10112,13 @@
       "status": "off",
       "reason": "GRIDIRON_COACH_MESSAGES unset and preview off"
      }
+    },
+    "dropped_by_reason": {
+     "trade_memory": 0
+    },
+    "trade_memory": {
+     "status": "no_ledger",
+     "dropped_total": 0
     }
    }
   },
@@ -10132,8 +10153,8 @@
    "attention": {
     "status": "ok",
     "value": {
-     "rank": 5,
-     "of": 5,
+     "rank": 6,
+     "of": 6,
      "reason": "no move clears your sliders"
     },
     "source": "campaign.plan"
@@ -11478,6 +11499,3513 @@
       "status": "off",
       "reason": "GRIDIRON_COACH_MESSAGES unset and preview off"
      }
+    },
+    "dropped_by_reason": {
+     "trade_memory": 0
+    },
+    "trade_memory": {
+     "status": "no_ledger",
+     "dropped_total": 0
+    }
+   }
+  },
+  {
+   "league": 8,
+   "me": "1",
+   "names": {
+    "1": "P1 (QB)",
+    "2": "P2 (RB)",
+    "3": "P3 (RB)",
+    "4": "P4 (WR)",
+    "5": "P5 (TE)",
+    "6": "P6 (RB)",
+    "7": "P7 (WR)",
+    "11": "P11 (WR)",
+    "12": "P12 (QB)",
+    "13": "P13 (RB)",
+    "14": "P14 (TE)",
+    "15": "P15 (WR)",
+    "21": "P21 (WR)",
+    "22": "P22 (QB)",
+    "23": "P23 (RB)",
+    "24": "P24 (TE)",
+    "25": "P25 (RB)",
+    "31": "P31 (WR)",
+    "32": "P32 (QB)",
+    "33": "P33 (RB)",
+    "34": "P34 (TE)",
+    "35": "P35 (WR)"
+   },
+   "sanity_composed_equals_direct": true,
+   "attention": {
+    "status": "ok",
+    "value": {
+     "rank": 3,
+     "of": 6,
+     "reason": "best move worth 6.9 pts"
+    },
+    "source": "campaign.plan"
+   },
+   "destination": {
+    "status": "ok",
+    "value": {
+     "goal": {
+      "status": "ok",
+      "value": {
+       "kind": "title",
+       "label": "Win the title"
+      },
+      "source": "campaign.plan"
+     },
+     "risk_mode": {
+      "status": "ok",
+      "value": {
+       "mode": "balanced"
+      },
+      "source": "campaign.plan"
+     },
+     "tolerances": {
+      "status": "ok",
+      "value": {
+       "max_assets": 3,
+       "max_offers_per_manager_week": 2,
+       "max_downside_per_step": 0.01
+      },
+      "source": "campaign.plan"
+     },
+     "arrive_by": {
+      "status": "unknown",
+      "source": "campaign.plan",
+      "reason": "No arrive-by week is set."
+     },
+     "eta_week": {
+      "status": "ok",
+      "value": 5,
+      "source": "plan.path"
+     },
+     "title_now": {
+      "status": "ok",
+      "value": 0.4274906698112818,
+      "source": "sim.title",
+      "unit": "title_odds"
+     },
+     "title_planned_now": {
+      "status": "ok",
+      "value": 0.4274906698112818,
+      "source": "plan.path",
+      "unit": "title_odds"
+     },
+     "path": {
+      "status": "ok",
+      "value": [
+       {
+        "week": 4,
+        "planned": 0.4274906698112818,
+        "actual": 0.4274906698112818
+       },
+       {
+        "week": 5,
+        "planned": 0.49696191904068043
+       }
+      ],
+      "source": "plan.path"
+     },
+     "ground_lost": {
+      "status": "ok",
+      "value": 0,
+      "source": "plan.path",
+      "unit": "title_odds"
+     }
+    },
+    "source": "campaign.plan"
+   },
+   "feasibility": {
+    "status": "unknown",
+    "source": "sim.title",
+    "reason": "points objective not set: this league is planned on title odds."
+   },
+   "feasibility_points": {
+    "status": "ok",
+    "value": {
+     "points_per_week": 140,
+     "league_objective": "title",
+     "outlook": "out_of_reach",
+     "projected_points": {
+      "status": "ok",
+      "value": 110.2327,
+      "source": "sim.title",
+      "unit": "points_per_week"
+     },
+     "p_hit": {
+      "status": "ok",
+      "value": 0,
+      "source": "sim.title",
+      "unit": "probability"
+     },
+     "by_week": {
+      "status": "unknown",
+      "source": "sim.title",
+      "reason": "No plan reaches 140 points a week inside the weeks simulated."
+     },
+     "cost_players": 4,
+     "cost_offers": 2,
+     "objective_cost": {
+      "status": "ok",
+      "value": 0,
+      "source": "sim.title",
+      "unit": "title_odds"
+     },
+     "bye_warnings": 0,
+     "injury_warnings": 0,
+     "cost_text": "4 player(s) over 2 offer(s)"
+    },
+    "source": "sim.title"
+   },
+   "finder_best_expected": {
+    "status": "ok",
+    "value": 0.026428343765566083,
+    "source": "sim.title",
+    "se": 0.001017391304347826,
+    "unit": "title_odds",
+    "guess": true,
+    "n": 105
+   },
+   "next_move": {
+    "status": "ok",
+    "value": {
+     "move_id": "L8-n0dg1c",
+     "rank": 1,
+     "target": "11",
+     "target_owner": "2",
+     "chained": true,
+     "steps": [
+      {
+       "partner": "3",
+       "give": [
+        "4",
+        "5"
+       ],
+       "get": [
+        "21"
+       ],
+       "p_yes": {
+        "status": "ok",
+        "value": 0.525,
+        "source": "clone.accept",
+        "unit": "probability",
+        "guess": true
+       },
+       "title_odds_delta": {
+        "status": "ok",
+        "value": 0.11650926385069632,
+        "source": "sim.title",
+        "se": 0.003,
+        "clears_2se": true,
+        "unit": "title_odds"
+       },
+       "title_after": {
+        "status": "ok",
+        "value": 0.5439999336619781,
+        "source": "sim.title",
+        "unit": "title_odds"
+       },
+       "message": {
+        "status": "ok",
+        "value": "P4 projects 8.0 pts a game the rest of the way. P5 projects 9.0 pts a game the rest of the way. Would you do P4 + P5 for P21?",
+        "source": "plan.template"
+       },
+       "opening": {
+        "status": "unknown",
+        "source": "clone.price",
+        "reason": "No opening price: no package beats your next-best plan, so there is no price worth offering."
+       },
+       "walk_away": {
+        "status": "unknown",
+        "source": "clone.price",
+        "reason": "No walk-away: no package beats your next-best plan, so there is no price worth offering."
+       },
+       "send_when": {
+        "status": "ok",
+        "value": "Now: nothing argues for waiting.",
+        "source": "plan.path"
+       },
+       "reply_table": {
+        "status": "ok",
+        "value": {
+         "accept": {
+          "status": "ok",
+          "value": {
+           "do": "Send the next step to Team 2.",
+           "move_id": "L8-n0dg1c",
+           "odds_after": {
+            "status": "ok",
+            "value": 0.5439999336619781,
+            "source": "sim.title",
+            "se": 0.003,
+            "clears_2se": true,
+            "unit": "title_odds"
+           }
+          },
+          "source": "plan.path"
+         },
+         "decline": {
+          "status": "ok",
+          "value": {
+           "do": "Log the reason, then offer Team 3 instead.",
+           "move_id": "L8-19g4hb9",
+           "odds_after": {
+            "status": "ok",
+            "value": 0.4967709390406804,
+            "source": "plan.path",
+            "unit": "title_odds"
+           }
+          },
+          "source": "plan.path"
+         },
+         "counter": {
+          "status": "ok",
+          "value": {
+           "do": "No walk-away could be priced; decline any counter that adds players on your side."
+          },
+          "source": "plan.path"
+         },
+         "silence": {
+          "status": "ok",
+          "value": {
+           "do": "Send one nudge. After 48 h with no answer, withdraw and use the backup.",
+           "when": "no reply in 24 h",
+           "message": "Still open to P4 + P5 for P21?"
+          },
+          "source": "plan.path"
+         }
+        },
+        "source": "plan.path"
+       },
+       "reasoning": {
+        "status": "ok",
+        "value": {
+         "case_for": "If Team 3 says yes you move 11.7 pts of title odds.",
+         "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
+         "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+         "news_check": "Act now: no pending news on the players you get.",
+         "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+         "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
+         "cites": [
+          "steps[0].p_yes",
+          "steps[0].title_odds_delta"
+         ],
+         "check_first": false
+        },
+        "source": "plan.template"
+       },
+       "p_yes_band": {
+        "low": 0.445,
+        "high": 0.605,
+        "basis": "heuristic_unanchored"
+       }
+      },
+      {
+       "partner": "2",
+       "give": [
+        "3",
+        "21"
+       ],
+       "get": [
+        "11"
+       ],
+       "p_yes": {
+        "status": "ok",
+        "value": 0.12857142857142853,
+        "source": "clone.accept",
+        "unit": "probability",
+        "guess": true
+       },
+       "title_odds_delta": {
+        "status": "ok",
+        "value": 0.12302052900419314,
+        "source": "sim.title",
+        "se": 0.003,
+        "clears_2se": true,
+        "unit": "title_odds"
+       },
+       "title_after": {
+        "status": "ok",
+        "value": 0.6670204626661713,
+        "source": "sim.title",
+        "unit": "title_odds"
+       },
+       "message": {
+        "status": "ok",
+        "value": "Looks like you could use a WR. P7 projects 7.0 pts a game the rest of the way. P21 projects 14.0 pts a game the rest of the way. Would you do P7 + P21 for P11?",
+        "source": "plan.template"
+       },
+       "opening": {
+        "status": "ok",
+        "value": {
+         "give": [
+          "7",
+          "21"
+         ],
+         "get": [
+          "11"
+         ],
+         "text": "Open with P7 (WR) + P21 (WR) for P11 (WR) (his screen -7%)."
+        },
+        "source": "clone.price"
+       },
+       "walk_away": {
+        "status": "ok",
+        "value": {
+         "text": "Stop at P1 + P21: past that, your backup plan is worth more.",
+         "max_give": [
+          "1",
+          "21"
+         ]
+        },
+        "source": "clone.price"
+       },
+       "send_when": {
+        "status": "ok",
+        "value": "Now: nothing argues for waiting.",
+        "source": "plan.path"
+       },
+       "reply_table": {
+        "status": "ok",
+        "value": {
+         "accept": {
+          "status": "ok",
+          "value": {
+           "do": "That completes the plan. The brain proposes the next campaign on the next refresh.",
+           "odds_after": {
+            "status": "ok",
+            "value": 0.6670204626661713,
+            "source": "sim.title",
+            "se": 0.003,
+            "clears_2se": true,
+            "unit": "title_odds"
+           }
+          },
+          "source": "plan.path"
+         },
+         "decline": {
+          "status": "ok",
+          "value": {
+           "do": "Log the reason. No backup clears the sliders this week; the brain replans on the next refresh."
+          },
+          "source": "plan.path"
+         },
+         "counter": {
+          "status": "ok",
+          "value": {
+           "do": "Check his ask against the walk-away.",
+           "counter_rules": {
+            "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +33%)",
+            "counter_with": "the next rung: 2 + 6 (his screen -2%)",
+            "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+           }
+          },
+          "source": "plan.path"
+         },
+         "silence": {
+          "status": "ok",
+          "value": {
+           "do": "Send one nudge. After 48 h with no answer, withdraw and use the backup.",
+           "when": "no reply in 24 h",
+           "message": "Still open to P3 + P21 for P11?"
+          },
+          "source": "plan.path"
+         }
+        },
+        "source": "plan.path"
+       },
+       "reasoning": {
+        "status": "ok",
+        "value": {
+         "case_for": "If Team 2 says yes you move 12.3 pts of title odds.",
+         "his_side": "Team 2's roster read lists WR as thin, and the offer is built on it.",
+         "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+         "news_check": "Act now: no pending news on the players you get.",
+         "confidence": "Chance he says yes is 13%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+         "counter": "If he counters, counter with the next rung: 2 + 6 (his screen -2%).",
+         "cites": [
+          "steps[0].p_yes",
+          "steps[0].title_odds_delta"
+         ],
+         "check_first": false
+        },
+        "source": "plan.template"
+       },
+       "p_yes_band": {
+        "low": 0.04857142857142853,
+        "high": 0.20857142857142852,
+        "basis": "heuristic_unanchored"
+       }
+      }
+     ],
+     "buy_back": [
+      {
+       "player": "11",
+       "was": 5000,
+       "now": 4200,
+       "text": "buy-back: price fell from 5,000 to 4,200"
+      }
+     ],
+     "p_complete": {
+      "status": "ok",
+      "value": 0.06749999999999998,
+      "source": "plan.path",
+      "unit": "probability",
+      "guess": true
+     },
+     "delta_final": {
+      "status": "ok",
+      "value": 0.23952979285488946,
+      "source": "sim.title",
+      "unit": "title_odds"
+     },
+     "expected": {
+      "status": "ok",
+      "value": 0.0694712492293986,
+      "source": "plan.path",
+      "se": 0.0013873581008521196,
+      "unit": "title_odds"
+     },
+     "reasoning": {
+      "status": "ok",
+      "value": {
+       "case_for": "If all 2 step(s) land you gain 24.0 pts of title odds; across yes and no outcomes that is 6.9 pts of title odds expected, and the path completes 7% of the time.",
+       "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
+       "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+       "news_check": "Act now: no pending news on the players you get.",
+       "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+       "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
+       "cites": [
+        "steps[0].p_yes",
+        "steps[0].title_odds_delta"
+       ],
+       "check_first": false
+      },
+      "source": "plan.template"
+     }
+    },
+    "source": "plan.path"
+   },
+   "alternatives": {
+    "status": "ok",
+    "value": [
+     {
+      "move_id": "L8-n0dg1c",
+      "rank": 1,
+      "target": "11",
+      "target_owner": "2",
+      "chained": true,
+      "steps": [
+       {
+        "partner": "3",
+        "give": [
+         "4",
+         "5"
+        ],
+        "get": [
+         "21"
+        ],
+        "p_yes": {
+         "status": "ok",
+         "value": 0.525,
+         "source": "clone.accept",
+         "unit": "probability",
+         "guess": true
+        },
+        "title_odds_delta": {
+         "status": "ok",
+         "value": 0.11650926385069632,
+         "source": "sim.title",
+         "se": 0.003,
+         "clears_2se": true,
+         "unit": "title_odds"
+        },
+        "title_after": {
+         "status": "ok",
+         "value": 0.5439999336619781,
+         "source": "sim.title",
+         "unit": "title_odds"
+        },
+        "message": {
+         "status": "ok",
+         "value": "P4 projects 8.0 pts a game the rest of the way. P5 projects 9.0 pts a game the rest of the way. Would you do P4 + P5 for P21?",
+         "source": "plan.template"
+        },
+        "opening": {
+         "status": "unknown",
+         "source": "clone.price",
+         "reason": "No opening price: no package beats your next-best plan, so there is no price worth offering."
+        },
+        "walk_away": {
+         "status": "unknown",
+         "source": "clone.price",
+         "reason": "No walk-away: no package beats your next-best plan, so there is no price worth offering."
+        },
+        "send_when": {
+         "status": "ok",
+         "value": "Now: nothing argues for waiting.",
+         "source": "plan.path"
+        },
+        "reply_table": {
+         "status": "ok",
+         "value": {
+          "accept": {
+           "status": "ok",
+           "value": {
+            "do": "Send the next step to Team 2.",
+            "move_id": "L8-n0dg1c",
+            "odds_after": {
+             "status": "ok",
+             "value": 0.5439999336619781,
+             "source": "sim.title",
+             "se": 0.003,
+             "clears_2se": true,
+             "unit": "title_odds"
+            }
+           },
+           "source": "plan.path"
+          },
+          "decline": {
+           "status": "ok",
+           "value": {
+            "do": "Log the reason, then offer Team 3 instead.",
+            "move_id": "L8-19g4hb9",
+            "odds_after": {
+             "status": "ok",
+             "value": 0.4967709390406804,
+             "source": "plan.path",
+             "unit": "title_odds"
+            }
+           },
+           "source": "plan.path"
+          },
+          "counter": {
+           "status": "ok",
+           "value": {
+            "do": "No walk-away could be priced; decline any counter that adds players on your side."
+           },
+           "source": "plan.path"
+          },
+          "silence": {
+           "status": "ok",
+           "value": {
+            "do": "Send one nudge. After 48 h with no answer, withdraw and use the backup.",
+            "when": "no reply in 24 h",
+            "message": "Still open to P4 + P5 for P21?"
+           },
+           "source": "plan.path"
+          }
+         },
+         "source": "plan.path"
+        },
+        "reasoning": {
+         "status": "ok",
+         "value": {
+          "case_for": "If Team 3 says yes you move 11.7 pts of title odds.",
+          "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "news_check": "Act now: no pending news on the players you get.",
+          "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
+          "cites": [
+           "steps[0].p_yes",
+           "steps[0].title_odds_delta"
+          ],
+          "check_first": false
+         },
+         "source": "plan.template"
+        },
+        "p_yes_band": {
+         "low": 0.445,
+         "high": 0.605,
+         "basis": "heuristic_unanchored"
+        }
+       },
+       {
+        "partner": "2",
+        "give": [
+         "3",
+         "21"
+        ],
+        "get": [
+         "11"
+        ],
+        "p_yes": {
+         "status": "ok",
+         "value": 0.12857142857142853,
+         "source": "clone.accept",
+         "unit": "probability",
+         "guess": true
+        },
+        "title_odds_delta": {
+         "status": "ok",
+         "value": 0.12302052900419314,
+         "source": "sim.title",
+         "se": 0.003,
+         "clears_2se": true,
+         "unit": "title_odds"
+        },
+        "title_after": {
+         "status": "ok",
+         "value": 0.6670204626661713,
+         "source": "sim.title",
+         "unit": "title_odds"
+        },
+        "message": {
+         "status": "ok",
+         "value": "Looks like you could use a WR. P7 projects 7.0 pts a game the rest of the way. P21 projects 14.0 pts a game the rest of the way. Would you do P7 + P21 for P11?",
+         "source": "plan.template"
+        },
+        "opening": {
+         "status": "ok",
+         "value": {
+          "give": [
+           "7",
+           "21"
+          ],
+          "get": [
+           "11"
+          ],
+          "text": "Open with P7 (WR) + P21 (WR) for P11 (WR) (his screen -7%)."
+         },
+         "source": "clone.price"
+        },
+        "walk_away": {
+         "status": "ok",
+         "value": {
+          "text": "Stop at P1 + P21: past that, your backup plan is worth more.",
+          "max_give": [
+           "1",
+           "21"
+          ]
+         },
+         "source": "clone.price"
+        },
+        "send_when": {
+         "status": "ok",
+         "value": "Now: nothing argues for waiting.",
+         "source": "plan.path"
+        },
+        "reply_table": {
+         "status": "ok",
+         "value": {
+          "accept": {
+           "status": "ok",
+           "value": {
+            "do": "That completes the plan. The brain proposes the next campaign on the next refresh.",
+            "odds_after": {
+             "status": "ok",
+             "value": 0.6670204626661713,
+             "source": "sim.title",
+             "se": 0.003,
+             "clears_2se": true,
+             "unit": "title_odds"
+            }
+           },
+           "source": "plan.path"
+          },
+          "decline": {
+           "status": "ok",
+           "value": {
+            "do": "Log the reason. No backup clears the sliders this week; the brain replans on the next refresh."
+           },
+           "source": "plan.path"
+          },
+          "counter": {
+           "status": "ok",
+           "value": {
+            "do": "Check his ask against the walk-away.",
+            "counter_rules": {
+             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +33%)",
+             "counter_with": "the next rung: 2 + 6 (his screen -2%)",
+             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+            }
+           },
+           "source": "plan.path"
+          },
+          "silence": {
+           "status": "ok",
+           "value": {
+            "do": "Send one nudge. After 48 h with no answer, withdraw and use the backup.",
+            "when": "no reply in 24 h",
+            "message": "Still open to P3 + P21 for P11?"
+           },
+           "source": "plan.path"
+          }
+         },
+         "source": "plan.path"
+        },
+        "reasoning": {
+         "status": "ok",
+         "value": {
+          "case_for": "If Team 2 says yes you move 12.3 pts of title odds.",
+          "his_side": "Team 2's roster read lists WR as thin, and the offer is built on it.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "news_check": "Act now: no pending news on the players you get.",
+          "confidence": "Chance he says yes is 13%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "If he counters, counter with the next rung: 2 + 6 (his screen -2%).",
+          "cites": [
+           "steps[0].p_yes",
+           "steps[0].title_odds_delta"
+          ],
+          "check_first": false
+         },
+         "source": "plan.template"
+        },
+        "p_yes_band": {
+         "low": 0.04857142857142853,
+         "high": 0.20857142857142852,
+         "basis": "heuristic_unanchored"
+        }
+       }
+      ],
+      "buy_back": [
+       {
+        "player": "11",
+        "was": 5000,
+        "now": 4200,
+        "text": "buy-back: price fell from 5,000 to 4,200"
+       }
+      ],
+      "p_complete": {
+       "status": "ok",
+       "value": 0.06749999999999998,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "delta_final": {
+       "status": "ok",
+       "value": 0.23952979285488946,
+       "source": "sim.title",
+       "unit": "title_odds"
+      },
+      "expected": {
+       "status": "ok",
+       "value": 0.0694712492293986,
+       "source": "plan.path",
+       "se": 0.0013873581008521196,
+       "unit": "title_odds"
+      },
+      "reasoning": {
+       "status": "ok",
+       "value": {
+        "case_for": "If all 2 step(s) land you gain 24.0 pts of title odds; across yes and no outcomes that is 6.9 pts of title odds expected, and the path completes 7% of the time.",
+        "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "news_check": "Act now: no pending news on the players you get.",
+        "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
+        "cites": [
+         "steps[0].p_yes",
+         "steps[0].title_odds_delta"
+        ],
+        "check_first": false
+       },
+       "source": "plan.template"
+      }
+     },
+     {
+      "move_id": "L8-19g4hb9",
+      "rank": 2,
+      "target": "11",
+      "target_owner": "2",
+      "chained": true,
+      "steps": [
+       {
+        "partner": "3",
+        "give": [
+         "4",
+         "6"
+        ],
+        "get": [
+         "21"
+        ],
+        "p_yes": {
+         "status": "ok",
+         "value": 0.525,
+         "source": "clone.accept",
+         "unit": "probability",
+         "guess": true
+        },
+        "title_odds_delta": {
+         "status": "ok",
+         "value": 0.11566926385069637,
+         "source": "sim.title",
+         "se": 0.003,
+         "clears_2se": true,
+         "unit": "title_odds"
+        },
+        "title_after": {
+         "status": "ok",
+         "value": 0.5431599336619781,
+         "source": "sim.title",
+         "unit": "title_odds"
+        },
+        "message": {
+         "status": "ok",
+         "value": "Looks like you could use a RB. P4 projects 8.0 pts a game the rest of the way. P6 projects 9.0 pts a game the rest of the way. Would you do P4 + P6 for P21?",
+         "source": "plan.template"
+        },
+        "opening": {
+         "status": "unknown",
+         "source": "clone.price",
+         "reason": "No opening price: no package beats your next-best plan, so there is no price worth offering."
+        },
+        "walk_away": {
+         "status": "unknown",
+         "source": "clone.price",
+         "reason": "No walk-away: no package beats your next-best plan, so there is no price worth offering."
+        },
+        "send_when": {
+         "status": "ok",
+         "value": "Now: nothing argues for waiting.",
+         "source": "plan.path"
+        },
+        "reply_table": {
+         "status": "ok",
+         "value": {
+          "accept": {
+           "status": "ok",
+           "value": {
+            "do": "Send the next step to Team 2.",
+            "move_id": "L8-19g4hb9",
+            "odds_after": {
+             "status": "ok",
+             "value": 0.5431599336619781,
+             "source": "sim.title",
+             "se": 0.003,
+             "clears_2se": true,
+             "unit": "title_odds"
+            }
+           },
+           "source": "plan.path"
+          },
+          "decline": {
+           "status": "ok",
+           "value": {
+            "do": "Log the reason, then offer Team 3 instead.",
+            "move_id": "L8-i8wk4c",
+            "odds_after": {
+             "status": "ok",
+             "value": 0.49480163639056185,
+             "source": "plan.path",
+             "unit": "title_odds"
+            }
+           },
+           "source": "plan.path"
+          },
+          "counter": {
+           "status": "ok",
+           "value": {
+            "do": "No walk-away could be priced; decline any counter that adds players on your side."
+           },
+           "source": "plan.path"
+          },
+          "silence": {
+           "status": "ok",
+           "value": {
+            "do": "Send one nudge. After 48 h with no answer, withdraw and use the backup.",
+            "when": "no reply in 24 h",
+            "message": "Still open to P4 + P6 for P21?"
+           },
+           "source": "plan.path"
+          }
+         },
+         "source": "plan.path"
+        },
+        "reasoning": {
+         "status": "ok",
+         "value": {
+          "case_for": "If Team 3 says yes you move 11.6 pts of title odds.",
+          "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "news_check": "Act now: no pending news on the players you get.",
+          "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
+          "cites": [
+           "steps[0].p_yes",
+           "steps[0].title_odds_delta"
+          ],
+          "check_first": false
+         },
+         "source": "plan.template"
+        },
+        "p_yes_band": {
+         "low": 0.445,
+         "high": 0.605,
+         "basis": "heuristic_unanchored"
+        }
+       },
+       {
+        "partner": "2",
+        "give": [
+         "3",
+         "21"
+        ],
+        "get": [
+         "11"
+        ],
+        "p_yes": {
+         "status": "ok",
+         "value": 0.12857142857142853,
+         "source": "clone.accept",
+         "unit": "probability",
+         "guess": true
+        },
+        "title_odds_delta": {
+         "status": "ok",
+         "value": 0.12672452900419306,
+         "source": "sim.title",
+         "se": 0.003,
+         "clears_2se": true,
+         "unit": "title_odds"
+        },
+        "title_after": {
+         "status": "ok",
+         "value": 0.6698844626661713,
+         "source": "sim.title",
+         "unit": "title_odds"
+        },
+        "message": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "opening": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "walk_away": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "send_when": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "reply_table": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "p_yes_band": {
+         "low": 0.04857142857142853,
+         "high": 0.20857142857142852,
+         "basis": "heuristic_unanchored"
+        }
+       }
+      ],
+      "buy_back": [
+       {
+        "player": "11",
+        "was": 5000,
+        "now": 4200,
+        "text": "buy-back: price fell from 5,000 to 4,200"
+       }
+      ],
+      "p_complete": {
+       "status": "ok",
+       "value": 0.06749999999999998,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "delta_final": {
+       "status": "ok",
+       "value": 0.24239379285488943,
+       "source": "sim.title",
+       "unit": "title_odds"
+      },
+      "expected": {
+       "status": "ok",
+       "value": 0.06928026922939862,
+       "source": "plan.path",
+       "se": 0.0013873581008521196,
+       "unit": "title_odds"
+      },
+      "reasoning": {
+       "status": "ok",
+       "value": {
+        "case_for": "If all 2 step(s) land you gain 24.2 pts of title odds; across yes and no outcomes that is 6.9 pts of title odds expected, and the path completes 7% of the time.",
+        "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "news_check": "Act now: no pending news on the players you get.",
+        "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
+        "cites": [
+         "steps[0].p_yes",
+         "steps[0].title_odds_delta"
+        ],
+        "check_first": false
+       },
+       "source": "plan.template"
+      }
+     },
+     {
+      "move_id": "L8-i8wk4c",
+      "rank": 3,
+      "target": "11",
+      "target_owner": "2",
+      "chained": true,
+      "steps": [
+       {
+        "partner": "3",
+        "give": [
+         "6",
+         "7"
+        ],
+        "get": [
+         "21"
+        ],
+        "p_yes": {
+         "status": "ok",
+         "value": 0.48,
+         "source": "clone.accept",
+         "unit": "probability",
+         "guess": true
+        },
+        "title_odds_delta": {
+         "status": "ok",
+         "value": 0.12244862144409491,
+         "source": "sim.title",
+         "se": 0.003,
+         "clears_2se": true,
+         "unit": "title_odds"
+        },
+        "title_after": {
+         "status": "ok",
+         "value": 0.5499392912553767,
+         "source": "sim.title",
+         "unit": "title_odds"
+        },
+        "message": {
+         "status": "ok",
+         "value": "Looks like you could use a RB. P6 projects 9.0 pts a game the rest of the way. P7 projects 7.0 pts a game the rest of the way. Would you do P6 + P7 for P21?",
+         "source": "plan.template"
+        },
+        "opening": {
+         "status": "unknown",
+         "source": "clone.price",
+         "reason": "No opening price: no package beats your next-best plan, so there is no price worth offering."
+        },
+        "walk_away": {
+         "status": "unknown",
+         "source": "clone.price",
+         "reason": "No walk-away: no package beats your next-best plan, so there is no price worth offering."
+        },
+        "send_when": {
+         "status": "ok",
+         "value": "Now: nothing argues for waiting.",
+         "source": "plan.path"
+        },
+        "reply_table": {
+         "status": "ok",
+         "value": {
+          "accept": {
+           "status": "ok",
+           "value": {
+            "do": "Send the next step to Team 2.",
+            "move_id": "L8-i8wk4c",
+            "odds_after": {
+             "status": "ok",
+             "value": 0.5499392912553767,
+             "source": "sim.title",
+             "se": 0.003,
+             "clears_2se": true,
+             "unit": "title_odds"
+            }
+           },
+           "source": "plan.path"
+          },
+          "decline": {
+           "status": "ok",
+           "value": {
+            "do": "Log the reason, then offer Team 3 instead.",
+            "move_id": "L8-2s4cwd",
+            "odds_after": {
+             "status": "ok",
+             "value": 0.4945282832477047,
+             "source": "plan.path",
+             "unit": "title_odds"
+            }
+           },
+           "source": "plan.path"
+          },
+          "counter": {
+           "status": "ok",
+           "value": {
+            "do": "No walk-away could be priced; decline any counter that adds players on your side."
+           },
+           "source": "plan.path"
+          },
+          "silence": {
+           "status": "ok",
+           "value": {
+            "do": "Send one nudge. After 48 h with no answer, withdraw and use the backup.",
+            "when": "no reply in 24 h",
+            "message": "Still open to P6 + P7 for P21?"
+           },
+           "source": "plan.path"
+          }
+         },
+         "source": "plan.path"
+        },
+        "reasoning": {
+         "status": "ok",
+         "value": {
+          "case_for": "If Team 3 says yes you move 12.2 pts of title odds.",
+          "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "news_check": "Act now: no pending news on the players you get.",
+          "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
+          "cites": [
+           "steps[0].p_yes",
+           "steps[0].title_odds_delta"
+          ],
+          "check_first": false
+         },
+         "source": "plan.template"
+        },
+        "p_yes_band": {
+         "low": 0.39999999999999997,
+         "high": 0.5599999999999999,
+         "basis": "heuristic_unanchored"
+        }
+       },
+       {
+        "partner": "2",
+        "give": [
+         "3",
+         "21"
+        ],
+        "get": [
+         "11"
+        ],
+        "p_yes": {
+         "status": "ok",
+         "value": 0.12857142857142853,
+         "source": "clone.accept",
+         "unit": "probability",
+         "guess": true
+        },
+        "title_odds_delta": {
+         "status": "ok",
+         "value": 0.13830879167315102,
+         "source": "sim.title",
+         "se": 0.003,
+         "clears_2se": true,
+         "unit": "title_odds"
+        },
+        "title_after": {
+         "status": "ok",
+         "value": 0.6882480829285278,
+         "source": "sim.title",
+         "unit": "title_odds"
+        },
+        "message": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "opening": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "walk_away": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "send_when": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "reply_table": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "p_yes_band": {
+         "low": 0.04857142857142853,
+         "high": 0.20857142857142852,
+         "basis": "heuristic_unanchored"
+        }
+       }
+      ],
+      "buy_back": [
+       {
+        "player": "11",
+        "was": 5000,
+        "now": 4200,
+        "text": "buy-back: price fell from 5,000 to 4,200"
+       }
+      ],
+      "p_complete": {
+       "status": "ok",
+       "value": 0.061714285714285694,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "delta_final": {
+       "status": "ok",
+       "value": 0.26075741311724593,
+       "source": "sim.title",
+       "unit": "title_odds"
+      },
+      "expected": {
+       "status": "ok",
+       "value": 0.06731096657928001,
+       "source": "plan.path",
+       "se": 0.0012684416922076522,
+       "unit": "title_odds"
+      },
+      "reasoning": {
+       "status": "ok",
+       "value": {
+        "case_for": "If all 2 step(s) land you gain 26.1 pts of title odds; across yes and no outcomes that is 6.7 pts of title odds expected, and the path completes 6% of the time.",
+        "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "news_check": "Act now: no pending news on the players you get.",
+        "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
+        "cites": [
+         "steps[0].p_yes",
+         "steps[0].title_odds_delta"
+        ],
+        "check_first": false
+       },
+       "source": "plan.template"
+      }
+     },
+     {
+      "move_id": "L8-2s4cwd",
+      "rank": 4,
+      "target": "11",
+      "target_owner": "2",
+      "chained": true,
+      "steps": [
+       {
+        "partner": "3",
+        "give": [
+         "5",
+         "7"
+        ],
+        "get": [
+         "21"
+        ],
+        "p_yes": {
+         "status": "ok",
+         "value": 0.48,
+         "source": "clone.accept",
+         "unit": "probability",
+         "guess": true
+        },
+        "title_odds_delta": {
+         "status": "ok",
+         "value": 0.12132062144409489,
+         "source": "sim.title",
+         "se": 0.003,
+         "clears_2se": true,
+         "unit": "title_odds"
+        },
+        "title_after": {
+         "status": "ok",
+         "value": 0.5488112912553766,
+         "source": "sim.title",
+         "unit": "title_odds"
+        },
+        "message": {
+         "status": "ok",
+         "value": "P4 projects 8.0 pts a game the rest of the way. P5 projects 9.0 pts a game the rest of the way. Would you do P4 + P5 for P21?",
+         "source": "plan.template"
+        },
+        "opening": {
+         "status": "ok",
+         "value": {
+          "give": [
+           "4",
+           "5"
+          ],
+          "get": [
+           "21"
+          ],
+          "text": "Open with P4 (WR) + P5 (TE) for P21 (WR) (his screen +12%)."
+         },
+         "source": "clone.price"
+        },
+        "walk_away": {
+         "status": "ok",
+         "value": {
+          "text": "Stop at P4 + P6: past that, your backup plan is worth more.",
+          "max_give": [
+           "4",
+           "6"
+          ]
+         },
+         "source": "clone.price"
+        },
+        "send_when": {
+         "status": "ok",
+         "value": "Now: nothing argues for waiting.",
+         "source": "plan.path"
+        },
+        "reply_table": {
+         "status": "ok",
+         "value": {
+          "accept": {
+           "status": "ok",
+           "value": {
+            "do": "Send the next step to Team 2.",
+            "move_id": "L8-2s4cwd",
+            "odds_after": {
+             "status": "ok",
+             "value": 0.5488112912553766,
+             "source": "sim.title",
+             "se": 0.003,
+             "clears_2se": true,
+             "unit": "title_odds"
+            }
+           },
+           "source": "plan.path"
+          },
+          "decline": {
+           "status": "ok",
+           "value": {
+            "do": "Log the reason, then offer Team 3 instead.",
+            "move_id": "L8-1845dyq",
+            "odds_after": {
+             "status": "ok",
+             "value": 0.4908613528304906,
+             "source": "plan.path",
+             "unit": "title_odds"
+            }
+           },
+           "source": "plan.path"
+          },
+          "counter": {
+           "status": "ok",
+           "value": {
+            "do": "Check his ask against the walk-away.",
+            "counter_rules": {
+             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +12%)",
+             "counter_with": "repeat the opening once, then hold",
+             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+            }
+           },
+           "source": "plan.path"
+          },
+          "silence": {
+           "status": "ok",
+           "value": {
+            "do": "Send one nudge. After 48 h with no answer, withdraw and use the backup.",
+            "when": "no reply in 24 h",
+            "message": "Still open to P5 + P7 for P21?"
+           },
+           "source": "plan.path"
+          }
+         },
+         "source": "plan.path"
+        },
+        "reasoning": {
+         "status": "ok",
+         "value": {
+          "case_for": "If Team 3 says yes you move 12.1 pts of title odds.",
+          "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "news_check": "Act now: no pending news on the players you get.",
+          "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "If he counters, counter with repeat the opening once, then hold.",
+          "cites": [
+           "steps[0].p_yes",
+           "steps[0].title_odds_delta"
+          ],
+          "check_first": false
+         },
+         "source": "plan.template"
+        },
+        "p_yes_band": {
+         "low": 0.39999999999999997,
+         "high": 0.5599999999999999,
+         "basis": "heuristic_unanchored"
+        }
+       },
+       {
+        "partner": "2",
+        "give": [
+         "3",
+         "21"
+        ],
+        "get": [
+         "11"
+        ],
+        "p_yes": {
+         "status": "ok",
+         "value": 0.12857142857142853,
+         "source": "clone.accept",
+         "unit": "probability",
+         "guess": true
+        },
+        "title_odds_delta": {
+         "status": "ok",
+         "value": 0.14265279167315104,
+         "source": "sim.title",
+         "se": 0.003,
+         "clears_2se": true,
+         "unit": "title_odds"
+        },
+        "title_after": {
+         "status": "ok",
+         "value": 0.6914640829285277,
+         "source": "sim.title",
+         "unit": "title_odds"
+        },
+        "message": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "opening": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "walk_away": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "send_when": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "reply_table": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "p_yes_band": {
+         "low": 0.04857142857142853,
+         "high": 0.20857142857142852,
+         "basis": "heuristic_unanchored"
+        }
+       }
+      ],
+      "buy_back": [
+       {
+        "player": "11",
+        "was": 5000,
+        "now": 4200,
+        "text": "buy-back: price fell from 5,000 to 4,200"
+       }
+      ],
+      "p_complete": {
+       "status": "ok",
+       "value": 0.061714285714285694,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "delta_final": {
+       "status": "ok",
+       "value": 0.2639734131172459,
+       "source": "sim.title",
+       "unit": "title_odds"
+      },
+      "expected": {
+       "status": "ok",
+       "value": 0.06703761343642287,
+       "source": "plan.path",
+       "se": 0.0012684416922076522,
+       "unit": "title_odds"
+      },
+      "reasoning": {
+       "status": "ok",
+       "value": {
+        "case_for": "If all 2 step(s) land you gain 26.4 pts of title odds; across yes and no outcomes that is 6.7 pts of title odds expected, and the path completes 6% of the time.",
+        "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "news_check": "Act now: no pending news on the players you get.",
+        "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "If he counters, counter with repeat the opening once, then hold.",
+        "cites": [
+         "steps[0].p_yes",
+         "steps[0].title_odds_delta"
+        ],
+        "check_first": false
+       },
+       "source": "plan.template"
+      }
+     },
+     {
+      "move_id": "L8-1845dyq",
+      "rank": 5,
+      "target": "11",
+      "target_owner": "2",
+      "chained": true,
+      "steps": [
+       {
+        "partner": "3",
+        "give": [
+         "4",
+         "7"
+        ],
+        "get": [
+         "21"
+        ],
+        "p_yes": {
+         "status": "ok",
+         "value": 0.4350000000000001,
+         "source": "clone.accept",
+         "unit": "probability",
+         "guess": true
+        },
+        "title_odds_delta": {
+         "status": "ok",
+         "value": 0.12559650574269926,
+         "source": "sim.title",
+         "se": 0.003,
+         "clears_2se": true,
+         "unit": "title_odds"
+        },
+        "title_after": {
+         "status": "ok",
+         "value": 0.553087175553981,
+         "source": "sim.title",
+         "unit": "title_odds"
+        },
+        "message": {
+         "status": "ok",
+         "value": "Looks like you could use a RB. P3 projects 13.0 pts a game the rest of the way. Would you do P3 for P21?",
+         "source": "plan.template"
+        },
+        "opening": {
+         "status": "ok",
+         "value": {
+          "give": [
+           "3"
+          ],
+          "get": [
+           "21"
+          ],
+          "text": "Open with P3 (RB) for P21 (WR) (his screen -15%)."
+         },
+         "source": "clone.price"
+        },
+        "walk_away": {
+         "status": "ok",
+         "value": {
+          "text": "Stop at P3 + P6: past that, your backup plan is worth more.",
+          "max_give": [
+           "3",
+           "6"
+          ]
+         },
+         "source": "clone.price"
+        },
+        "send_when": {
+         "status": "ok",
+         "value": "Now: nothing argues for waiting.",
+         "source": "plan.path"
+        },
+        "reply_table": {
+         "status": "ok",
+         "value": {
+          "accept": {
+           "status": "ok",
+           "value": {
+            "do": "Send the next step to Team 2.",
+            "move_id": "L8-1845dyq",
+            "odds_after": {
+             "status": "ok",
+             "value": 0.553087175553981,
+             "source": "sim.title",
+             "se": 0.003,
+             "clears_2se": true,
+             "unit": "title_odds"
+            }
+           },
+           "source": "plan.path"
+          },
+          "decline": {
+           "status": "ok",
+           "value": {
+            "do": "Log the reason. No backup clears the sliders this week; the brain replans on the next refresh."
+           },
+           "source": "plan.path"
+          },
+          "counter": {
+           "status": "ok",
+           "value": {
+            "do": "Check his ask against the walk-away.",
+            "counter_rules": {
+             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen +42%)",
+             "counter_with": "the next rung: 4 + 7 (his screen +4%)",
+             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+            }
+           },
+           "source": "plan.path"
+          },
+          "silence": {
+           "status": "ok",
+           "value": {
+            "do": "Send one nudge. After 48 h with no answer, withdraw and use the backup.",
+            "when": "no reply in 24 h",
+            "message": "Still open to P4 + P7 for P21?"
+           },
+           "source": "plan.path"
+          }
+         },
+         "source": "plan.path"
+        },
+        "reasoning": {
+         "status": "ok",
+         "value": {
+          "case_for": "If Team 3 says yes you move 12.6 pts of title odds.",
+          "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
+          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+          "news_check": "Act now: no pending news on the players you get.",
+          "confidence": "Chance he says yes is 44%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+          "counter": "If he counters, counter with the next rung: 4 + 7 (his screen +4%).",
+          "cites": [
+           "steps[0].p_yes",
+           "steps[0].title_odds_delta"
+          ],
+          "check_first": false
+         },
+         "source": "plan.template"
+        },
+        "p_yes_band": {
+         "low": 0.3550000000000001,
+         "high": 0.5150000000000001,
+         "basis": "heuristic_unanchored"
+        }
+       },
+       {
+        "partner": "2",
+        "give": [
+         "3",
+         "21"
+        ],
+        "get": [
+         "11"
+        ],
+        "p_yes": {
+         "status": "ok",
+         "value": 0.12857142857142853,
+         "source": "clone.accept",
+         "unit": "probability",
+         "guess": true
+        },
+        "title_odds_delta": {
+         "status": "ok",
+         "value": 0.15620286372398973,
+         "source": "sim.title",
+         "se": 0.003,
+         "clears_2se": true,
+         "unit": "title_odds"
+        },
+        "title_after": {
+         "status": "ok",
+         "value": 0.7092900392779709,
+         "source": "sim.title",
+         "unit": "title_odds"
+        },
+        "message": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "opening": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "walk_away": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "send_when": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "reply_table": {
+         "status": "unknown",
+         "source": "plan.path",
+         "reason": "The playbook is built for this card's first offer; later steps get theirs if this card becomes the plan."
+        },
+        "p_yes_band": {
+         "low": 0.04857142857142853,
+         "high": 0.20857142857142852,
+         "basis": "heuristic_unanchored"
+        }
+       }
+      ],
+      "buy_back": [
+       {
+        "player": "11",
+        "was": 5000,
+        "now": 4200,
+        "text": "buy-back: price fell from 5,000 to 4,200"
+       }
+      ],
+      "p_complete": {
+       "status": "ok",
+       "value": 0.055928571428571425,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "delta_final": {
+       "status": "ok",
+       "value": 0.281799369466689,
+       "source": "sim.title",
+       "unit": "title_odds"
+      },
+      "expected": {
+       "status": "ok",
+       "value": 0.06337068301920876,
+       "source": "plan.path",
+       "se": 0.0011495252835631853,
+       "unit": "title_odds"
+      },
+      "reasoning": {
+       "status": "ok",
+       "value": {
+        "case_for": "If all 2 step(s) land you gain 28.2 pts of title odds; across yes and no outcomes that is 6.3 pts of title odds expected, and the path completes 6% of the time.",
+        "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
+        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
+        "news_check": "Act now: no pending news on the players you get.",
+        "confidence": "Chance he says yes is 44%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "If he counters, counter with the next rung: 4 + 7 (his screen +4%).",
+        "cites": [
+         "steps[0].p_yes",
+         "steps[0].title_odds_delta"
+        ],
+        "check_first": false
+       },
+       "source": "plan.template"
+      }
+     }
+    ],
+    "source": "plan.path"
+   },
+   "itinerary": {
+    "status": "ok",
+    "value": {
+     "version": 1,
+     "stops": [
+      {
+       "id": "plan-0",
+       "order": 1,
+       "kind": "flip",
+       "label": "Flip P21 from Team 3",
+       "status": "next",
+       "added_by": "plan",
+       "player_id": "21",
+       "move_id": "L8-n0dg1c",
+       "p_yes": {
+        "status": "ok",
+        "value": 0.525,
+        "source": "clone.accept",
+        "unit": "probability",
+        "guess": true
+       },
+       "title_odds_delta": {
+        "status": "ok",
+        "value": 0.11650926385069632,
+        "source": "sim.title",
+        "se": 0.003,
+        "clears_2se": true,
+        "unit": "title_odds"
+       }
+      },
+      {
+       "id": "plan-1",
+       "order": 2,
+       "kind": "get",
+       "label": "Get P11 from Team 2",
+       "status": "waiting",
+       "added_by": "plan",
+       "player_id": "11",
+       "move_id": "L8-n0dg1c",
+       "p_yes": {
+        "status": "ok",
+        "value": 0.12857142857142853,
+        "source": "clone.accept",
+        "unit": "probability",
+        "guess": true
+       },
+       "title_odds_delta": {
+        "status": "ok",
+        "value": 0.12302052900419314,
+        "source": "sim.title",
+        "se": 0.003,
+        "clears_2se": true,
+        "unit": "title_odds"
+       }
+      }
+     ],
+     "stops_left": 2,
+     "untouchables": [],
+     "conflicts": []
+    },
+    "source": "plan.path"
+   },
+   "stop_tradeoffs": {
+    "status": "ok",
+    "value": {
+     "mode:safe": {
+      "stop_label": "Switch to Safe",
+      "cost": {
+       "status": "ok",
+       "value": 0.06372650866903153,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "extra_steps": 0,
+      "gain": {
+       "status": "ok",
+       "value": 0,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "net": {
+       "status": "ok",
+       "value": -0.06372650866903153,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "verdict": "not_worth_it",
+      "because": "it gives up expected gain",
+      "new_next_move_changes": true,
+      "gain_text": "If it lands: 6.5 pts of title odds against 24.1 pts of title odds; it lands 1% of the time against 7%."
+     },
+     "mode:all_in": {
+      "stop_label": "Switch to Fuck it, let's go",
+      "cost": {
+       "status": "ok",
+       "value": 0.033725319246015656,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "extra_steps": 0,
+      "gain": {
+       "status": "ok",
+       "value": 0,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "net": {
+       "status": "ok",
+       "value": -0.033725319246015656,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "verdict": "not_worth_it",
+      "because": "it gives up expected gain",
+      "new_next_move_changes": true,
+      "gain_text": "If it lands: 40.8 pts of title odds against 24.1 pts of title odds; it lands 9% of the time against 7%."
+     }
+    },
+    "source": "plan.path"
+   },
+   "flip_map": {
+    "status": "ok",
+    "value": [
+     {
+      "player": "11",
+      "buy_from": "2",
+      "sell_to": "3",
+      "spread": {
+       "status": "ok",
+       "value": 0.07143328449023456,
+       "source": "sim.title",
+       "se": 0.004242640687119285,
+       "clears_2se": true,
+       "unit": "title_odds"
+      },
+      "price_a": {
+       "status": "ok",
+       "value": 4200,
+       "source": "clone.price",
+       "unit": "market_value"
+      },
+      "price_b": {
+       "status": "ok",
+       "value": 4200,
+       "source": "clone.price",
+       "unit": "market_value"
+      },
+      "legs": null
+     },
+     {
+      "player": "11",
+      "buy_from": "2",
+      "sell_to": "4",
+      "spread": {
+       "status": "ok",
+       "value": 0.07060128449023467,
+       "source": "sim.title",
+       "se": 0.004242640687119285,
+       "clears_2se": true,
+       "unit": "title_odds"
+      },
+      "price_a": {
+       "status": "ok",
+       "value": 4200,
+       "source": "clone.price",
+       "unit": "market_value"
+      },
+      "price_b": {
+       "status": "ok",
+       "value": 4200,
+       "source": "clone.price",
+       "unit": "market_value"
+      },
+      "legs": null
+     },
+     {
+      "player": "21",
+      "buy_from": "3",
+      "sell_to": "4",
+      "spread": {
+       "status": "ok",
+       "value": 0.057561689746761485,
+       "source": "sim.title",
+       "se": 0.004242640687119285,
+       "clears_2se": true,
+       "unit": "title_odds"
+      },
+      "price_a": {
+       "status": "ok",
+       "value": 2600,
+       "source": "clone.price",
+       "unit": "market_value"
+      },
+      "price_b": {
+       "status": "ok",
+       "value": 2600,
+       "source": "clone.price",
+       "unit": "market_value"
+      },
+      "legs": null
+     },
+     {
+      "player": "33",
+      "buy_from": "4",
+      "sell_to": "2",
+      "spread": {
+       "status": "ok",
+       "value": 0.0487753973395262,
+       "source": "sim.title",
+       "se": 0.004242640687119285,
+       "clears_2se": true,
+       "unit": "title_odds"
+      },
+      "price_a": {
+       "status": "ok",
+       "value": 1600,
+       "source": "clone.price",
+       "unit": "market_value"
+      },
+      "price_b": {
+       "status": "ok",
+       "value": 1600,
+       "source": "clone.price",
+       "unit": "market_value"
+      },
+      "legs": null
+     },
+     {
+      "player": "23",
+      "buy_from": "3",
+      "sell_to": "2",
+      "spread": {
+       "status": "ok",
+       "value": 0.04759139733952625,
+       "source": "sim.title",
+       "se": 0.004242640687119285,
+       "clears_2se": true,
+       "unit": "title_odds"
+      },
+      "price_a": {
+       "status": "ok",
+       "value": 1700,
+       "source": "clone.price",
+       "unit": "market_value"
+      },
+      "price_b": {
+       "status": "ok",
+       "value": 1700,
+       "source": "clone.price",
+       "unit": "market_value"
+      },
+      "legs": null
+     },
+     {
+      "player": "31",
+      "buy_from": "4",
+      "sell_to": "3",
+      "spread": {
+       "status": "ok",
+       "value": 0.039818069579751925,
+       "source": "sim.title",
+       "se": 0.004242640687119285,
+       "clears_2se": true,
+       "unit": "title_odds"
+      },
+      "price_a": {
+       "status": "ok",
+       "value": 2500,
+       "source": "clone.price",
+       "unit": "market_value"
+      },
+      "price_b": {
+       "status": "ok",
+       "value": 2500,
+       "source": "clone.price",
+       "unit": "market_value"
+      },
+      "legs": null
+     },
+     {
+      "player": "32",
+      "buy_from": "4",
+      "sell_to": "3",
+      "spread": {
+       "status": "ok",
+       "value": 0.07217303831181858,
+       "source": "sim.title",
+       "se": 0.004242640687119285,
+       "clears_2se": true,
+       "unit": "title_odds"
+      },
+      "price_a": {
+       "status": "ok",
+       "value": 2200,
+       "source": "clone.price",
+       "unit": "market_value"
+      },
+      "price_b": {
+       "status": "ok",
+       "value": 2200,
+       "source": "clone.price",
+       "unit": "market_value"
+      },
+      "legs": {
+       "give_a": "3",
+       "get_b": "22",
+       "p1": {
+        "status": "ok",
+        "value": 0.3,
+        "source": "clone.accept",
+        "unit": "probability",
+        "guess": true
+       },
+       "p2": {
+        "status": "ok",
+        "value": 0.3391304347826087,
+        "source": "clone.accept",
+        "unit": "probability",
+        "guess": true
+       },
+       "p_both": {
+        "status": "ok",
+        "value": 0.1017391304347826,
+        "source": "clone.accept",
+        "unit": "probability",
+        "guess": true
+       },
+       "nick_after": {
+        "status": "ok",
+        "value": 0.08070759343738931,
+        "source": "sim.title",
+        "se": 0.003,
+        "clears_2se": true,
+        "unit": "title_odds"
+       }
+      },
+      "reasoning": {
+       "status": "ok",
+       "value": {
+        "case_for": "Team 4 and Team 3 price P32 (QB) differently: the spread is 7.2 pts of title odds.",
+        "his_side": "No chat read on either side.",
+        "devils_advocate": "The spread clears the noise; both legs still have to land.",
+        "news_check": "Not checked for flips: the news read runs on the offers in a plan.",
+        "confidence": "Both legs land 10% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "Each leg is a separate offer; decline a counter that breaks the other leg.",
+        "cites": [
+         "spread",
+         "legs.p_both"
+        ],
+        "check_first": false
+       },
+       "source": "plan.template"
+      }
+     },
+     {
+      "player": "21",
+      "buy_from": "3",
+      "sell_to": "2",
+      "spread": {
+       "status": "ok",
+       "value": 0.12412120075088298,
+       "source": "sim.title",
+       "se": 0.004242640687119285,
+       "clears_2se": true,
+       "unit": "title_odds"
+      },
+      "price_a": {
+       "status": "ok",
+       "value": 2600,
+       "source": "clone.price",
+       "unit": "market_value"
+      },
+      "price_b": {
+       "status": "ok",
+       "value": 2600,
+       "source": "clone.price",
+       "unit": "market_value"
+      },
+      "legs": {
+       "give_a": "2",
+       "get_b": "12",
+       "p1": {
+        "status": "ok",
+        "value": 0.39,
+        "source": "clone.accept",
+        "unit": "probability",
+        "guess": true
+       },
+       "p2": {
+        "status": "ok",
+        "value": 0.11249999999999998,
+        "source": "clone.accept",
+        "unit": "probability",
+        "guess": true
+       },
+       "p_both": {
+        "status": "ok",
+        "value": 0.04387499999999999,
+        "source": "clone.accept",
+        "unit": "probability",
+        "guess": true
+       },
+       "nick_after": {
+        "status": "ok",
+        "value": 0.08542821798957345,
+        "source": "sim.title",
+        "se": 0.003,
+        "clears_2se": true,
+        "unit": "title_odds"
+       }
+      },
+      "reasoning": {
+       "status": "ok",
+       "value": {
+        "case_for": "Team 3 and Team 2 price P21 (WR) differently: the spread is 12.4 pts of title odds.",
+        "his_side": "No chat read on either side.",
+        "devils_advocate": "The spread clears the noise; both legs still have to land.",
+        "news_check": "Not checked for flips: the news read runs on the offers in a plan.",
+        "confidence": "Both legs land 4% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "Each leg is a separate offer; decline a counter that breaks the other leg.",
+        "cites": [
+         "spread",
+         "legs.p_both"
+        ],
+        "check_first": false
+       },
+       "source": "plan.template"
+      }
+     }
+    ],
+    "source": "sim.title",
+    "n": 18
+   },
+   "targets": {
+    "status": "ok",
+    "value": [
+     {
+      "player": "11",
+      "owner": "2",
+      "gain_if_landed": {
+       "status": "ok",
+       "value": 0.4495029657155477,
+       "source": "sim.title",
+       "se": 0.003,
+       "unit": "title_odds"
+      },
+      "p_reach": {
+       "status": "ok",
+       "value": 0.06749999999999998,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "mode_fit": {
+       "status": "ok",
+       "value": "fits",
+       "source": "plan.path"
+      },
+      "why": {
+       "status": "ok",
+       "value": "P11 adds 45.0 pts if landed; 2-step path from Team 2, lands 7% of the time.",
+       "source": "plan.template"
+      },
+      "approved": false,
+      "is_plan_target": true,
+      "reasoning": {
+       "status": "ok",
+       "value": {
+        "case_for": "P11 adds 45.0 pts if landed; 2-step path from Team 2, lands 7% of the time.",
+        "his_side": "Team 2's roster read lists WR as thin.",
+        "devils_advocate": "A path fits the current risk mode; landing him still takes every step saying yes.",
+        "news_check": "Not checked for targets: the news read runs on the offers in a plan.",
+        "confidence": "The path lands 7% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "No offer yet, so no counter plan.",
+        "cites": [
+         "gain_if_landed",
+         "p_reach"
+        ],
+        "check_first": false
+       },
+       "source": "plan.template"
+      }
+     },
+     {
+      "player": "12",
+      "owner": "2",
+      "gain_if_landed": {
+       "status": "ok",
+       "value": 0.3483356944223809,
+       "source": "sim.title",
+       "se": 0.003,
+       "unit": "title_odds"
+      },
+      "p_reach": {
+       "status": "ok",
+       "value": 0.053999999999999986,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "mode_fit": {
+       "status": "ok",
+       "value": "fits",
+       "source": "plan.path"
+      },
+      "why": {
+       "status": "ok",
+       "value": "P12 adds 34.8 pts if landed; 2-step path from Team 2, lands 5% of the time.",
+       "source": "plan.template"
+      },
+      "approved": false,
+      "is_plan_target": false,
+      "reasoning": {
+       "status": "ok",
+       "value": {
+        "case_for": "P12 adds 34.8 pts if landed; 2-step path from Team 2, lands 5% of the time.",
+        "his_side": "Team 2's roster read lists WR as thin.",
+        "devils_advocate": "A path fits the current risk mode; landing him still takes every step saying yes.",
+        "news_check": "Not checked for targets: the news read runs on the offers in a plan.",
+        "confidence": "The path lands 5% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "No offer yet, so no counter plan.",
+        "cites": [
+         "gain_if_landed",
+         "p_reach"
+        ],
+        "check_first": false
+       },
+       "source": "plan.template"
+      }
+     },
+     {
+      "player": "13",
+      "owner": "2",
+      "gain_if_landed": {
+       "status": "ok",
+       "value": 0.19372509168674124,
+       "source": "sim.title",
+       "se": 0.003,
+       "unit": "title_odds"
+      },
+      "p_reach": {
+       "status": "ok",
+       "value": 0.0012775367647058814,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "mode_fit": {
+       "status": "ok",
+       "value": "fits",
+       "source": "plan.path"
+      },
+      "why": {
+       "status": "ok",
+       "value": "P13 adds 19.4 pts if landed; 3-step path from Team 2, lands 0% of the time.",
+       "source": "plan.template"
+      },
+      "approved": false,
+      "is_plan_target": false,
+      "reasoning": {
+       "status": "ok",
+       "value": {
+        "case_for": "P13 adds 19.4 pts if landed; 3-step path from Team 2, lands 0% of the time.",
+        "his_side": "Team 2's roster read lists WR as thin.",
+        "devils_advocate": "A path fits the current risk mode; landing him still takes every step saying yes.",
+        "news_check": "Not checked for targets: the news read runs on the offers in a plan.",
+        "confidence": "The path lands 0% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "counter": "No offer yet, so no counter plan.",
+        "cites": [
+         "gain_if_landed",
+         "p_reach"
+        ],
+        "check_first": false
+       },
+       "source": "plan.template"
+      }
+     },
+     {
+      "player": "32",
+      "owner": "4",
+      "gain_if_landed": {
+       "status": "ok",
+       "value": 0.16819190194269895,
+       "source": "sim.title",
+       "se": 0.003,
+       "unit": "title_odds"
+      },
+      "p_reach": {
+       "status": "unknown",
+       "source": "plan.path",
+       "reason": "No path to him fits any risk mode yet."
+      },
+      "mode_fit": {
+       "status": "ok",
+       "value": "too_risky_for_safe",
+       "source": "plan.path"
+      },
+      "why": {
+       "status": "ok",
+       "value": "P32 adds 16.8 pts if landed; no path fits the sliders yet.",
+       "source": "plan.template"
+      },
+      "approved": false,
+      "is_plan_target": false,
+      "reasoning": {
+       "status": "ok",
+       "value": {
+        "case_for": "P32 adds 16.8 pts if landed; no path fits the sliders yet.",
+        "his_side": "Team 4's roster read lists WR as thin.",
+        "devils_advocate": "No plan inside the sliders reaches him.",
+        "news_check": "Not checked for targets: the news read runs on the offers in a plan.",
+        "confidence": "No path, so no landing chance.",
+        "counter": "No offer yet, so no counter plan.",
+        "cites": [
+         "gain_if_landed",
+         "p_reach"
+        ],
+        "check_first": true
+       },
+       "source": "plan.template"
+      }
+     },
+     {
+      "player": "21",
+      "owner": "3",
+      "gain_if_landed": {
+       "status": "ok",
+       "value": 0.1452166889633566,
+       "source": "sim.title",
+       "se": 0.003,
+       "unit": "title_odds"
+      },
+      "p_reach": {
+       "status": "unknown",
+       "source": "plan.path",
+       "reason": "No path to him fits any risk mode yet."
+      },
+      "mode_fit": {
+       "status": "ok",
+       "value": "too_risky_for_safe",
+       "source": "plan.path"
+      },
+      "why": {
+       "status": "ok",
+       "value": "P21 adds 14.5 pts if landed; no path fits the sliders yet.",
+       "source": "plan.template"
+      },
+      "approved": false,
+      "is_plan_target": false,
+      "reasoning": {
+       "status": "ok",
+       "value": {
+        "case_for": "P21 adds 14.5 pts if landed; no path fits the sliders yet.",
+        "his_side": "Team 3's roster read lists RB as thin.",
+        "devils_advocate": "No plan inside the sliders reaches him.",
+        "news_check": "Not checked for targets: the news read runs on the offers in a plan.",
+        "confidence": "No path, so no landing chance.",
+        "counter": "No offer yet, so no counter plan.",
+        "cites": [
+         "gain_if_landed",
+         "p_reach"
+        ],
+        "check_first": true
+       },
+       "source": "plan.template"
+      }
+     }
+    ],
+    "source": "plan.path"
+   },
+   "catch_up": {
+    "status": "ok",
+    "value": [
+     {
+      "text": "Claim P41: 9.5 pts a game rest of season vs P4's 8.0.",
+      "gain": {
+       "status": "unknown",
+       "source": "asset.ros",
+       "reason": "A claim is priced in points a game (+1.5), not in title odds."
+      },
+      "steps": 0,
+      "kind": "free"
+     },
+     {
+      "text": "Buy P32 from Team 4, sell to Team 3.",
+      "gain": {
+       "status": "ok",
+       "value": 0.018515248325609794,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "steps": 2,
+      "kind": "flip"
+     },
+     {
+      "text": "Buy P32 from Team 4, sell to Team 2.",
+      "gain": {
+       "status": "ok",
+       "value": 0.017133596255895132,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "steps": 2,
+      "kind": "flip"
+     },
+     {
+      "text": "Buy P31 from Team 4, sell to Team 2.",
+      "gain": {
+       "status": "ok",
+       "value": 0.0026517489199034154,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "steps": 2,
+      "kind": "flip"
+     },
+     {
+      "text": "Trade deadline: week 8 (4 weeks left).",
+      "gain": {
+       "status": "unknown",
+       "source": "plan.path",
+       "reason": "The deadline clock carries no gain of its own."
+      },
+      "steps": 0,
+      "kind": "timing"
+     }
+    ],
+    "source": "plan.path"
+   },
+   "speed_curve": {
+    "status": "ok",
+    "value": [
+     {
+      "arrive_by": 4,
+      "cost": {
+       "status": "ok",
+       "value": 0.026248000196624363,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "net": {
+       "status": "ok",
+       "value": 0.036685769983382965,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "variance_note": "no wider than the unhurried plan",
+      "offers_used": 1,
+      "before_deadline": true,
+      "lever": "all_in",
+      "p_land": {
+       "status": "ok",
+       "value": 0.09,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 0.027226951784197255,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.135,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 1
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 0.026248000196624363,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.09,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 1
+       }
+      ]
+     },
+     {
+      "arrive_by": 5,
+      "cost": {
+       "status": "ok",
+       "value": 0,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "net": {
+       "status": "ok",
+       "value": 0.06293377018000733,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "variance_note": "no wider than the unhurried plan",
+      "offers_used": 5,
+      "before_deadline": true,
+      "lever": "all_in",
+      "p_land": {
+       "status": "ok",
+       "value": 0.1974444345,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 0.0025989283926672047,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.2371312481785714,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 5
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 0,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.1974444345,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 5
+       }
+      ]
+     },
+     {
+      "arrive_by": 6,
+      "cost": {
+       "status": "ok",
+       "value": 0,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "net": {
+       "status": "ok",
+       "value": 0.06293377018000733,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "variance_note": "no wider than the unhurried plan",
+      "offers_used": 5,
+      "before_deadline": true,
+      "lever": "all_in",
+      "p_land": {
+       "status": "ok",
+       "value": 0.1974444345,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 0.0025989283926672047,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.2371312481785714,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 5
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 0,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.1974444345,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 5
+       }
+      ]
+     },
+     {
+      "arrive_by": 7,
+      "cost": {
+       "status": "ok",
+       "value": 0,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "net": {
+       "status": "ok",
+       "value": 0.06293377018000733,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "variance_note": "no wider than the unhurried plan",
+      "offers_used": 5,
+      "before_deadline": true,
+      "lever": "all_in",
+      "p_land": {
+       "status": "ok",
+       "value": 0.1974444345,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 0.0025989283926672047,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.2371312481785714,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 5
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 0,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.1974444345,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 5
+       }
+      ]
+     },
+     {
+      "arrive_by": 8,
+      "cost": {
+       "status": "ok",
+       "value": 0,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "net": {
+       "status": "ok",
+       "value": 0.06293377018000733,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "variance_note": "no wider than the unhurried plan",
+      "offers_used": 5,
+      "before_deadline": true,
+      "lever": "all_in",
+      "p_land": {
+       "status": "ok",
+       "value": 0.1974444345,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "levers": [
+       {
+        "lever": "sequential",
+        "cost": {
+         "status": "ok",
+         "value": 0.0025989283926672047,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.2371312481785714,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 5
+       },
+       {
+        "lever": "all_in",
+        "cost": {
+         "status": "ok",
+         "value": 0,
+         "source": "plan.path",
+         "unit": "title_odds"
+        },
+        "p_land": {
+         "status": "ok",
+         "value": 0.1974444345,
+         "source": "plan.path",
+         "unit": "probability",
+         "guess": true
+        },
+        "offers_used": 5
+       }
+      ]
+     }
+    ],
+    "source": "plan.path"
+   },
+   "brain_report": {
+    "status": "ok",
+    "value": {
+     "overall": "failing",
+     "checks": [
+      {
+       "id": "E1",
+       "name": "Chance he says yes is calibrated",
+       "bar": "slope within 0.8-1.2",
+       "status": "failing",
+       "result": "calibration_slope 0.41 (95% CI 0.22 to 0.6)",
+       "n": 64,
+       "as_of": "2026-09-24T04:30:00.000Z"
+      },
+      {
+       "id": "E2",
+       "name": "check E2",
+       "bar": "stated in the TDD",
+       "status": "not_enough_data",
+       "result": "needs 37 more offers",
+       "n": 3,
+       "as_of": "2026-09-24T04:30:00.000Z"
+      },
+      {
+       "id": "E3",
+       "name": "check E3",
+       "bar": "stated in the TDD",
+       "status": "not_enough_data",
+       "result": "needs 37 more offers",
+       "n": 3,
+       "as_of": "2026-09-24T04:30:00.000Z"
+      },
+      {
+       "id": "E4",
+       "name": "check E4",
+       "bar": "stated in the TDD",
+       "status": "not_enough_data",
+       "result": "needs 37 more offers",
+       "n": 3,
+       "as_of": "2026-09-24T04:30:00.000Z"
+      },
+      {
+       "id": "E5",
+       "name": "check E5",
+       "bar": "stated in the TDD",
+       "status": "not_enough_data",
+       "result": "needs 37 more offers",
+       "n": 3,
+       "as_of": "2026-09-24T04:30:00.000Z"
+      },
+      {
+       "id": "E6",
+       "name": "check E6",
+       "bar": "stated in the TDD",
+       "status": "not_enough_data",
+       "result": "needs 37 more offers",
+       "n": 3,
+       "as_of": "2026-09-24T04:30:00.000Z"
+      },
+      {
+       "id": "E7",
+       "name": "check E7",
+       "bar": "stated in the TDD",
+       "status": "not_enough_data",
+       "result": "needs 37 more offers",
+       "n": 3,
+       "as_of": "2026-09-24T04:30:00.000Z"
+      }
+     ],
+     "blocks": [
+      "E1 Chance he says yes is calibrated is failing",
+      "Until E1 passes, every \"chance he says yes\" is a guess."
+     ]
+    },
+    "source": "eval.check",
+    "as_of": "2026-09-24T04:30:00.000Z"
+   },
+   "number_health": {
+    "status": "unknown",
+    "source": "audit.numbers",
+    "reason": "The number audit has not run for this league yet."
+   },
+   "risk_modes": {
+    "status": "ok",
+    "value": [
+     {
+      "mode": "safe",
+      "label": "Safe",
+      "active": false,
+      "expected": {
+       "status": "ok",
+       "value": 0.006684580560367098,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "if_complete": {
+       "status": "ok",
+       "value": 0.06450505007460522,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "p_complete": {
+       "status": "ok",
+       "value": 0.014624999999999996,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "first_step": {
+       "partner": "4",
+       "give": [
+        "5"
+       ],
+       "get": [
+        "33"
+       ]
+      }
+     },
+     {
+      "mode": "balanced",
+      "label": "Balanced",
+      "active": true,
+      "expected": {
+       "status": "ok",
+       "value": 0.07041108922939862,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "if_complete": {
+       "status": "ok",
+       "value": 0.24087379285488952,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "p_complete": {
+       "status": "ok",
+       "value": 0.06749999999999998,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "first_step": {
+       "partner": "3",
+       "give": [
+        "4",
+        "5"
+       ],
+       "get": [
+        "21"
+       ]
+      }
+     },
+     {
+      "mode": "all_in",
+      "label": "Fuck it, let's go",
+      "active": false,
+      "expected": {
+       "status": "ok",
+       "value": 0.036685769983382965,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "if_complete": {
+       "status": "ok",
+       "value": 0.40761966648203296,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "p_complete": {
+       "status": "ok",
+       "value": 0.09,
+       "source": "plan.path",
+       "unit": "probability",
+       "guess": true
+      },
+      "first_step": {
+       "partner": "2",
+       "give": [
+        "4",
+        "5",
+        "7"
+       ],
+       "get": [
+        "11"
+       ]
+      }
+     }
+    ],
+    "source": "plan.path"
+   },
+   "partners": {
+    "status": "ok",
+    "value": [
+     {
+      "team": "3",
+      "p_responds": 0.65,
+      "basis": "activity read (receptiveness 1.30)",
+      "edge": {
+       "status": "ok",
+       "value": 0.07041108922939862,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "roster_holes": [
+       "RB"
+      ],
+      "offers_logged": 0,
+      "checked_out": false,
+      "blocked": false
+     },
+     {
+      "team": "4",
+      "p_responds": 0.5,
+      "basis": "activity read (receptiveness 1.00)",
+      "edge": {
+       "status": "ok",
+       "value": 0.0500339808937874,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "roster_holes": [
+       "WR"
+      ],
+      "offers_logged": 0,
+      "checked_out": false,
+      "blocked": false
+     },
+     {
+      "team": "2",
+      "p_responds": 0.15,
+      "basis": "activity read (receptiveness 0.30)",
+      "edge": {
+       "status": "ok",
+       "value": 0.035706818395810073,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "roster_holes": [
+       "WR"
+      ],
+      "offers_logged": 0,
+      "checked_out": false,
+      "blocked": false
+     }
+    ],
+    "source": "campaign.plan"
+   },
+   "teams": {
+    "status": "ok",
+    "value": {
+     "1": {
+      "name": "Team 1"
+     },
+     "2": {
+      "name": "Team 2"
+     },
+     "3": {
+      "name": "Team 3"
+     },
+     "4": {
+      "name": "Team 4"
+     }
+    },
+    "source": "campaign.plan"
+   },
+   "_run": {
+    "seed": 12345,
+    "confirm_seed": 2141467936,
+    "week": 4,
+    "deadline_week": 8,
+    "behind": false,
+    "objective_version": 0,
+    "objective_source": "default",
+    "risk_mode": "balanced",
+    "next_step": {
+     "team": "3",
+     "give": [
+      4,
+      5
+     ],
+     "get": [
+      21
+     ],
+     "p": 0.525,
+     "band": {
+      "low": 0.445,
+      "high": 0.605,
+      "basis": "heuristic_unanchored"
+     },
+     "delta": 0.11650926385069632,
+     "se": 0.003,
+     "clears": true
+    },
+    "trajectory": [
+     {
+      "week": 4,
+      "planned": 0.4274906698112818
+     },
+     {
+      "week": 5,
+      "planned": 0.49696191904068043
+     }
+    ],
+    "changed": {
+     "changed": false,
+     "reason": "same next move",
+     "previous_key": "3|4+5|21",
+     "next_key": "3|4+5|21"
+    },
+    "roster_key": null,
+    "confirm": {
+     "status": "ok",
+     "plan_seed": 12345,
+     "cards": [
+      {
+       "verdict": "holds",
+       "original_expected": 0.07041108922939862,
+       "confirmed_expected": 0.0694712492293986,
+       "shrink": 0.0009398400000000251,
+       "se": 0.001962020642093248
+      },
+      {
+       "verdict": "holds",
+       "original_expected": 0.06950082922939864,
+       "confirmed_expected": 0.06928026922939862,
+       "shrink": 0.0002205600000000224,
+       "se": 0.001962020642093248
+      },
+      {
+       "verdict": "holds",
+       "original_expected": 0.06634965000785141,
+       "confirmed_expected": 0.06731096657928001,
+       "shrink": -0.0009613165714286026,
+       "se": 0.001793847444199541
+      },
+      {
+       "verdict": "holds",
+       "original_expected": 0.06700821000785141,
+       "confirmed_expected": 0.06703761343642287,
+       "shrink": -0.000029403428571453394,
+       "se": 0.001793847444199541
+      },
+      {
+       "verdict": "holds",
+       "original_expected": 0.06357391501920877,
+       "confirmed_expected": 0.06337068301920876,
+       "shrink": 0.00020323200000001151,
+       "se": 0.0016256742463058346
+      }
+     ]
+    },
+    "outlook": {
+     "season_mean": 97.23652,
+     "per_week": [
+      {
+       "week": 4,
+       "mean": 99.25180000000006
+      },
+      {
+       "week": 5,
+       "mean": 98.81919999999997
+      },
+      {
+       "week": 6,
+       "mean": 90.00580000000002
+      },
+      {
+       "week": 7,
+       "mean": 98.78999999999998
+      },
+      {
+       "week": 8,
+       "mean": 99.31579999999998
+      }
+     ]
+    },
+    "feasibility_detail": null,
+    "feasibility_points_detail": {
+     "kind": "points",
+     "side_panel": true,
+     "league_objective": "title",
+     "target": 140,
+     "status": "out_of_reach",
+     "now": {
+      "season_mean": 97.23652,
+      "p_average_hits": 0,
+      "per_week": [
+       {
+        "week": 4,
+        "mean": 99.25180000000006,
+        "p_hit": 0
+       },
+       {
+        "week": 5,
+        "mean": 98.81919999999997,
+        "p_hit": 0
+       },
+       {
+        "week": 6,
+        "mean": 90.00580000000002,
+        "p_hit": 0
+       },
+       {
+        "week": 7,
+        "mean": 98.78999999999998,
+        "p_hit": 0
+       },
+       {
+        "week": 8,
+        "mean": 99.31579999999998,
+        "p_hit": 0
+       }
+      ]
+     },
+     "how_likely": 0,
+     "by_when": null,
+     "at_what_cost": {
+      "players": 4,
+      "give": [
+       4,
+       5,
+       3,
+       21
+      ],
+      "steps": 2
+     },
+     "options": [
+      {
+       "label": "plan 1",
+       "p_complete": 0.06749999999999998,
+       "arrive_week": 5,
+       "steps": 2,
+       "cost_players": 4,
+       "give": [
+        4,
+        5,
+        3,
+        21
+       ],
+       "season_mean_after": 110.2327,
+       "p_average_hits_if_done": 0,
+       "p_average_hits": 0,
+       "first_week_at_target": null,
+       "title_odds_cost": 0
+      },
+      {
+       "label": "plan 2",
+       "p_complete": 0.06749999999999998,
+       "arrive_week": 5,
+       "steps": 2,
+       "cost_players": 4,
+       "give": [
+        4,
+        6,
+        3,
+        21
+       ],
+       "season_mean_after": 112.4827,
+       "p_average_hits_if_done": 0,
+       "p_average_hits": 0,
+       "first_week_at_target": null,
+       "title_odds_cost": 0.0009102599999999822
+      },
+      {
+       "label": "plan 3",
+       "p_complete": 0.061714285714285694,
+       "arrive_week": 5,
+       "steps": 2,
+       "cost_players": 4,
+       "give": [
+        5,
+        7,
+        3,
+        21
+       ],
+       "season_mean_after": 111.7327,
+       "p_average_hits_if_done": 0,
+       "p_average_hits": 0,
+       "first_week_at_target": null,
+       "title_odds_cost": 0.0034028792215472087
+      },
+      {
+       "label": "plan 4",
+       "p_complete": 0.061714285714285694,
+       "arrive_week": 5,
+       "steps": 2,
+       "cost_players": 4,
+       "give": [
+        6,
+        7,
+        3,
+        21
+       ],
+       "season_mean_after": 113.9827,
+       "p_average_hits_if_done": 0,
+       "p_average_hits": 0,
+       "first_week_at_target": null,
+       "title_odds_cost": 0.004061439221547211
+      },
+      {
+       "label": "plan 5",
+       "p_complete": 0.053999999999999986,
+       "arrive_week": 5,
+       "steps": 2,
+       "cost_players": 3,
+       "give": [
+        5,
+        7,
+        21
+       ],
+       "season_mean_after": 108.7327,
+       "p_average_hits_if_done": 0,
+       "p_average_hits": 0,
+       "first_week_at_target": null,
+       "title_odds_cost": 0.006447056822070363
+      }
+     ],
+     "warnings": [],
+     "p_reach": 0,
+     "arrive_week": null,
+     "cost": {
+      "players": 4,
+      "give": [
+       4,
+       5,
+       3,
+       21
+      ],
+      "steps": 2,
+      "title_odds": 0,
+      "basis": "best plan on the league objective minus this option, same rescores"
+     },
+     "warnings_count": {
+      "bye": 0,
+      "injury": 0
+     }
+    },
+    "candidates_scored": 54,
+    "rescores": 199,
+    "runtime_ms": 0,
+    "phases_ms": {
+     "adapter_and_world": 0,
+     "world": 0,
+     "values": 0,
+     "flip": 0,
+     "search": 0,
+     "confirm_world": 0,
+     "confirm_rescore": 0,
+     "playbook_and_reports": 0,
+     "finder_and_sanity": 0
+    },
+    "inputs": {
+     "chat": {
+      "status": "not_read"
+     },
+     "skips": {
+      "status": "none",
+      "rows": 0
+     },
+     "counterpart": {
+      "status": "not_read"
+     },
+     "untouchable": {
+      "ids": [],
+      "refused_targets": []
+     },
+     "requests": {
+      "status": "not_read",
+      "reason": "files only (no warroom_requests read)"
+     },
+     "deadline": null,
+     "objective": "default",
+     "brain": {
+      "run_id": "fixture-run",
+      "requested_mode": "balanced",
+      "mode": "balanced",
+      "fell_back": false,
+      "testing_tier_enabled": false,
+      "read_error": null
+     },
+     "coach_messages": {
+      "status": "off",
+      "reason": "GRIDIRON_COACH_MESSAGES unset and preview off"
+     }
+    },
+    "dropped_by_reason": {
+     "trade_memory": 36
+    },
+    "trade_memory": {
+     "status": "on",
+     "window_days": 28,
+     "buyback_fall": 0.1,
+     "trades": 2,
+     "unmapped": 0,
+     "floor": "shadow",
+     "sold_recently": [
+      "22"
+     ],
+     "buy_backs": [
+      {
+       "player": "11",
+       "was": 5000,
+       "now": 4200,
+       "text": "buy-back: price fell from 5,000 to 4,200"
+      }
+     ],
+     "floors": [
+      {
+       "key": "2:11",
+       "floor": 1500,
+       "basis": "value_now"
+      },
+      {
+       "key": "3:22",
+       "floor": 1400,
+       "basis": "value_now"
+      }
+     ],
+     "currency": {
+      "1": {
+       "wants": [
+        "RB"
+       ],
+       "sells": [
+        "QB"
+       ]
+      },
+      "2": {
+       "wants": [
+        "WR"
+       ],
+       "sells": [
+        "RB"
+       ]
+      },
+      "3": {
+       "wants": [
+        "QB"
+       ],
+       "sells": [
+        "WR"
+       ]
+      }
+     },
+     "dropped": {
+      "targets": 1,
+      "flips": 2,
+      "sold_recently": 27,
+      "reversal": 6,
+      "below_his_floor": 0,
+      "wrong_currency": 0
+     },
+     "shadow": {
+      "below_his_floor": 0,
+      "wrong_currency": 50
+     },
+     "dropped_total": 36
     }
    }
   }

@@ -17,6 +17,7 @@
 import { chatLabels } from '../../server/services/campaign/partners.js';
 import { resolveUntouchables, untouchableIds } from '../../server/services/people/profile-reader.js';
 import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
+import { executedTrades } from '../../server/services/campaign/trade-memory.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 /** The engagement field LIVING-01a writes (engine_state; FIELD-REGISTRY `activity.manager`). */
@@ -78,6 +79,7 @@ export async function loadServices() {
     horizon: await import('../../server/services/trade-horizon.js'),
     titleOdds: await import('../../server/services/title-odds-trades.js'),
     identity: await import('../../server/services/manager-identity.js'),
+    format: await import('../../server/services/format.js'),
   };
 }
 
@@ -172,6 +174,33 @@ export function sentThisWeek(svc, leagueId, season, me, now) {
     out.set(String(o.counterparty_team_id), (out.get(String(o.counterparty_team_id)) ?? 0) + 1);
   }
   return out;
+}
+
+const hasTable = (svc, name) => !!svc.db.row(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?`, name);
+
+/**
+ * TRADE-MEMORY (ONE-PLAN 4c): this season's executed trades for the planner, with the FantasyCalc
+ * price on a given day (dynasty_value_history: the last capture on or before that day, this league's
+ * format). assets: the sim's asset universe (Map id -> { espn_id }). No transaction table -> null
+ * (the planner then says 'no_ledger'); no history table -> every past price is unknown, so nothing
+ * Nick sold qualifies as a buy-back and floors fall back to today's value (labelled 'value_now').
+ */
+export function tradeLedger(svc, { leagueId, season, formatKey, assets, now }) {
+  if (!hasTable(svc, 'league_transactions_raw')) return null;
+  const rows = svc.db.rows(`SELECT tx_id, type, status, execution_type, items_json, proposed_at, processed_at
+    FROM league_transactions_raw WHERE league_id = ? AND season = ? AND type = 'TRADE_ACCEPT'`, leagueId, season);
+  const byEspn = new Map();
+  for (const a of assets.values()) if (a?.espn_id != null) byEspn.set(String(a.espn_id), a.id);
+  const { trades, unmapped } = executedTrades(rows, { idOfEspn: e => byEspn.get(String(e)) ?? null });
+  const history = formatKey != null && hasTable(svc, 'dynasty_value_history');
+  const valueAt = (id, at) => {
+    if (!history) return null;
+    const day = new Date(at).toISOString().slice(0, 10);
+    const r = svc.db.row(`SELECT value FROM dynasty_value_history WHERE format_key = ? AND player_id = ? AND captured_on <= ?
+      ORDER BY captured_on DESC LIMIT 1`, formatKey, Number(id), day);
+    return Number.isFinite(r?.value) ? r.value : null;
+  };
+  return { now, trades, unmapped, valueAt, history };
 }
 
 /**
@@ -347,6 +376,7 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
+    tradeLedger: tradeLedger(svc, { leagueId, season, formatKey: svc.format?.deriveFormat(lg).formatKey ?? null, assets, now }),
     // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
     // His notes on his OWN roster ("untouchable: Nico Collins") protect his players the same way:
     // they are never given (vals.tradable excludes this set). Nick 9/24: blue chips are not for sale.

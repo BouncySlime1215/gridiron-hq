@@ -241,6 +241,9 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       target: plan.target != null ? String(plan.target) : null,
       target_owner: plan.owner != null ? String(plan.owner) : null,
       chained: !!plan.chained, steps,
+      // TRADE-MEMORY (a): a player Nick sold inside the window is on a card only as a buy-back, and says so.
+      ...(Array.isArray(plan.buy_back) && plan.buy_back.length
+        ? { buy_back: plan.buy_back.map(b => ({ player: String(b.player), was: b.was, now: b.now, text: b.text })) } : {}),
       p_complete: num(plan.p_complete, 'plan.path', { prob: true, unit: 'probability', guess: true }),
       delta_final: num(plan.delta_final, 'sim.title', { unit }),
       expected: num(plan.expected, 'plan.path', { se: plan.expected_se, unit }),
@@ -512,6 +515,9 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       candidates_scored: res.candidates_scored, rescores: res.rescores ?? 0, runtime_ms: res.runtime_ms ?? 0, phases_ms: res.phases_ms ?? {},
       // PLAN-BASELINE: the model this run's trajectory was made under (the contract keeps `_run` keys fixed; inputs is free-form).
       inputs: model != null ? { model } : {},
+      // TRADE-MEMORY: paths the season's trade ledger removed, and the memory itself (ids only).
+      dropped_by_reason: { trade_memory: res.trade_memory?.dropped_total ?? 0 },
+      trade_memory: res.trade_memory ?? { status: 'no_ledger', dropped_total: 0 },
     },
   };
 }

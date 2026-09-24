@@ -8,7 +8,7 @@
  *     rows it cites; an invented number drops the claim and the brief says so
  *   - overnight = replies to Nick's offers and injuries on his roster or in the
  *     next move; statements and credibility only through their producers
- *     (PULSE-01, CRED-01), typed unknown with the reason until those are on main
+ *     (PULSE-01, CRED-01), typed unknown with the reason when they have no row
  *   - cached per plan version and window: same plan + same night is a lookup
  *   - no push text: the one push is PUSH-01's (#293)
  * In-memory SQLite for the app DB; plans from main's regenerated producer
@@ -176,33 +176,30 @@ test('overnight: replies and injuries, each from its window', () => {
   assert.doesNotMatch(r.text, /Other Guy|Healthy Guy|Old News/);
 });
 
-test('statements and credibility only through PULSE-01 and CRED-01: typed unknown until they are on main', () => {
-  for (const [read, re] of [[inputs.readStatements, /PULSE-01 \(people_pulse\)/], [inputs.readCredibility, /CRED-01 \(people_credibility\)/]]) {
-    const s = read();
+test('statements and credibility only through PULSE-01 and CRED-01: typed unknown when the producer has no table', () => {
+  // Rows from the producers are pinned in test/coach-brief-people.test.js.
+  const { db } = night();
+  for (const [s, re] of [[inputs.readStatements(db, { leagueId: 4, since: EARLIER, until: MORNING.toISOString() }), /PULSE-01 \(migration 098\)/],
+    [inputs.readCredibility(db, { leagueId: 4, until: MORNING.toISOString() }), /CRED-01 \(migration 099\)/]]) {
     assert.equal(s.status, 'unknown');
     assert.match(s.reason, re);
     assert.deepEqual(s.rows, []);
   }
-  const { db } = night();
   const r = brief.morningBrief({ db, file: plans(), env: ON, now: MORNING });
   assert.deepEqual(r.dropped, []);
-  assert.match(r.text, /Statements not read: the brief does not read chat labels yet: their producer, PULSE-01 \(people_pulse\), is not wired into it\./);
-  assert.match(r.text, /Follow-through not read: the brief does not read per-manager credibility yet: its producer, CRED-01 \(people_credibility\), is not wired into it\./);
+  assert.match(r.text, /Statements not read: no people_pulse table on this database: PULSE-01 \(migration 098\) has not been applied here\./);
+  assert.match(r.text, /Follow-through not read: no people_credibility table on this database: CRED-01 \(migration 099\) has not been applied here\./);
   // No second labeller and no credibility bar of its own, and the chat DB is never opened.
   for (const rel of ['server/services/coach/brief-inputs.js', 'server/services/coach/brief.js',
     'server/services/coach/brief-claims.js', 'scripts/coach/morning-brief.mjs']) {
     const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
     assert.doesNotMatch(src, /jev_chat_signals|openChatDb|league_member_identity|SHOP_CREDIBLE_AT|open_to_trade/, rel);
   }
-  // Rows arriving without a renderer fail loudly rather than vanish from the brief.
-  assert.throws(() => claimsFor('morning', { entry: l4(plans()), ledger: newLedger(),
-    inputs: { statements: { status: 'ok', rows: [{}] }, credibility: inputs.readCredibility(),
-      replies: { status: 'ok', rows: [] }, injuries: { status: 'ok', rows: [] } } }), /no renderer/);
 });
 
 test('a missing source says it was not read; a quiet night says nothing happened', () => {
   const r = brief.morningBrief({ db: new DatabaseSync(':memory:'), file: plans(), env: ON, now: MORNING });
-  assert.match(r.text, /Statements not read: the brief does not read chat labels yet/);
+  assert.match(r.text, /Statements not read: no people_pulse table/);
   assert.match(r.text, /Replies not read:/);
   assert.match(r.text, /Injuries not read:/);
   assert.match(r.cache, /^inert/);

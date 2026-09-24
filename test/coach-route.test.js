@@ -209,7 +209,7 @@ test('brief: the morning brief and weekly check-in come back grounded, with the 
       }
     }
     const morning = await (await get(`${base}/brief/4`)).json();
-    assert.match(morning.text, /Statements not read: the brief does not read chat labels yet: their producer, PULSE-01/);
+    assert.match(morning.text, /Statements not read: PULSE-01 has not run for league 4/);
     assert.match(morning.text, /Offer Team 3 P4 \(WR\) \+ P6 \(RB\) for P21 \(WR\)\./);
   });
 });

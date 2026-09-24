@@ -73,3 +73,17 @@ test('the War Room draws the card in its own grid area and asks for the one self
   renderToStaticMarkup(React.createElement(Probe));
   assert.deepEqual(globalThis.__warRoomPaths, ['/trades/3/war-room/self', null]);
 });
+
+test('regret, guard and clone sections: numbers when ok, the reason when unknown', () => {
+  const t = render({
+    ...view,
+    regret: { ...F, status: 'ok', value: { choices: 3, scored: 2, open: 1, realised_regret: 40, regrets: 2, as_of_better: 2, as_of_n: 3 } },
+    guard: { ...F, status: 'ok', value: { reoffers: [{ period: 202606, status: 'proposed', concession: 10, norm: 6.5 }] } },
+    clone: { ...F, status: 'unknown', reason: 'Not fitted yet: the activity model it runs on has not merged.' },
+  });
+  for (const s of ['Regret ledger', '3 choices', '2 of 2 settled choices went better the other way', 'net 40 pts', '1 still open',
+    'Re-offer guard', 'wk 6: gave 10.0 pts/wk more, your norm 6.5', 'Clone', 'Not fitted yet']) assert.ok(t.includes(s), `${s} in: ${t}`);
+  const u = render({ ...view, guard: { ...F, status: 'unknown', reason: 'No re-offer guard has passed its check on your later weeks yet.' } });
+  assert.match(u, /No re-offer guard has passed/);
+  assert.doesNotMatch(u, /NaN|undefined/);
+});

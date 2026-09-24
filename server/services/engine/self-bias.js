@@ -13,6 +13,22 @@
  *     period. A trade whose horizon is not over yet, or that names a player with no
  *     local row, is not scored and is counted by reason.
  *
+ * Also here (FIX-284-3):
+ *   - REGRET LEDGER: per settled trade or offer where the choice was his, the
+ *     alternative he passed on (keeping his side when he accepted; taking the deal
+ *     when he declined, countered or let one lapse), valued AS OF that week, and its
+ *     realised outcome once the horizon is over. His own offers that were turned
+ *     down are not his choice and are counted aside.
+ *   - CONCESSION GUARD: a re-offer (his offer to a manager who already turned down
+ *     an earlier one this season) concedes the rise in the net value he gives. Both
+ *     offers are re-measured with the values as of the re-offer's week, so a player
+ *     whose value moved in between is not mistaken for a concession. His norm is
+ *     the median of his EARLIER concessions (MIN_FIT_N at least). A re-offer above
+ *     the norm is guarded, and the guard reaches the card only when its category
+ *     (the position he was after) passes the same walk-forward check as a flag.
+ *   As-of values are weekly_prediction_snapshots.prediction for that week: what the
+ *   engine projected before the week, never a later number.
+ *
  * NOT BUILT, ON PURPOSE (ENGINE-SPECS SELF-01b): the endowment effect and post-loss
  * panic were already killed on his own data. KILLED_BIASES names them so nobody
  * adds them back here by accident.
@@ -29,7 +45,8 @@
  * counted. A per-position flag is dropped when its parent kind is shown with at least
  * the same precision, because it says nothing more.
  *
- * Read-only. Writes nothing and needs no migration.
+ * Read-only. Writes nothing and needs no migration: the regret ledger is rebuilt
+ * from stored as-of snapshots and game logs on every read, so there is nothing to log.
  */
 import { row, rows } from '../../db/index.js';
 import { leagueCurrentWeek } from '../league-week.js';
@@ -222,9 +239,152 @@ export function overpayEvents(leagueId) {
   return out;
 }
 
+/* ------------------------------------------------ regret ledger and concession guard */
+
+/** Statuses where an offer is settled. 'proposed' is still live. */
+const SETTLED = new Set(['accepted', 'declined', 'countered', 'expired']);
+
+/**
+ * As-of weekly value of a set of local players: the sum of the snapshot predictions
+ * made for `week`. null when any player has no snapshot that week (never a 0).
+ */
+function asOfValue(ids, season, week) {
+  if (!ids.length) return 0;
+  let total = 0;
+  for (const id of ids) {
+    const v = row(`SELECT prediction FROM weekly_prediction_snapshots WHERE season = ? AND week = ? AND player_id = ?`,
+      season, week, id)?.prediction;
+    if (v == null) return null;
+    total += v;
+  }
+  return total;
+}
+
+/**
+ * Nick's side of every observed offer he was party to, oldest first, with the
+ * scoring period and local players. Rows that cannot be read are counted by reason.
+ */
+function nickOffers(leagueId) {
+  const out = { state: 'ok', offers: [], unscorable: {} };
+  if (!tableExists('trade_outcomes')) return { ...out, state: 'absent' };
+  const lg = row('SELECT id, season, current_week, payload, my_team_id FROM leagues WHERE id = ?', leagueId);
+  const me = lg?.my_team_id == null ? null : String(lg.my_team_id);
+  if (!me) return { ...out, state: 'no_my_team' };
+  const all = rows(`SELECT id, season, status, proposer_team_id, counterparty_team_id, give_json, get_json, espn_tx_id
+                    FROM trade_outcomes
+                    WHERE league_id = ? AND source = 'observed' AND (proposer_team_id = ? OR counterparty_team_id = ?)
+                    ORDER BY season, COALESCE(proposed_at, created_at), id`, leagueId, me, me);
+  if (!all.length) return { ...out, state: 'empty' };
+  const rawOk = tableExists('league_transactions_raw');
+  out.lastDone = season => (Number(season) < Number(lg.season) ? LAST_WEEK : leagueCurrentWeek(lg) - 1);
+  for (const t of all) {
+    const sp = rawOk
+      ? row(`SELECT scoring_period FROM league_transactions_raw WHERE league_id = ? AND season = ? AND tx_id = ?`,
+        leagueId, t.season, t.espn_tx_id)?.scoring_period ?? null
+      : null;
+    if (!(Number(sp) >= 1)) { bump(out.unscorable, 'no_scoring_period'); continue; }
+    let gives, gets;
+    try { gives = parseItems(t.give_json); gets = parseItems(t.get_json); } catch (e) {
+      bump(out.unscorable, 'unreadable_items');
+      continue;
+    }
+    const iProposed = String(t.proposer_team_id) === me;
+    const gave = (iProposed ? gives : gets).map(localPlayer);
+    const got = (iProposed ? gets : gives).map(localPlayer);
+    if (!gave.length || !got.length) { bump(out.unscorable, 'one_sided'); continue; }
+    if (gave.includes(null) || got.includes(null)) { bump(out.unscorable, 'unmapped_player'); continue; }
+    out.offers.push({
+      id: t.id, season: Number(t.season), week: Number(sp), period: t.season * 100 + Number(sp), status: t.status,
+      proposed: iProposed, partner: String(iProposed ? t.counterparty_team_id : t.proposer_team_id),
+      gave: gave.map(p => p.id), got: got.map(p => p.id),
+      got_positions: [...new Set(got.map(p => p.position).filter(Boolean))],
+    });
+  }
+  return out;
+}
+
+/**
+ * The regret ledger: one entry per settled offer where the choice was his.
+ * `as_of_edge` and `realised_regret` are points over OVERPAY_HORIZON_WEEKS, from the
+ * alternative's side: positive means the road he did not take looked (as of) or
+ * turned out (realised) better. Realised is null until the horizon is over.
+ */
+export function regretLedger(leagueId, src = nickOffers(leagueId)) {
+  const out = { state: src.state, entries: [], aside: { ...src.unscorable } };
+  if (src.state !== 'ok') return out;
+  const H = OVERPAY_HORIZON_WEEKS;
+  for (const o of src.offers) {
+    if (!SETTLED.has(o.status)) { bump(out.aside, 'not_settled'); continue; }
+    const accepted = o.status === 'accepted';
+    if (!accepted && o.proposed) { bump(out.aside, 'not_his_call'); continue; }
+    // Accepted: he passed on keeping his side. Otherwise: he passed on taking the deal.
+    const altIn = accepted ? o.gave : o.got, altOut = accepted ? o.got : o.gave;
+    const vIn = asOfValue(altIn, o.season, o.week), vOut = asOfValue(altOut, o.season, o.week);
+    const entry = {
+      period: o.period, status: o.status, role: o.proposed ? 'proposer' : 'counterparty',
+      passed_on: accepted ? 'keep' : 'accept',
+      as_of_edge: vIn == null || vOut == null ? null : round4((vIn - vOut) * H),
+      realised_regret: null, realised_state: 'ok',
+    };
+    entry.as_of_state = entry.as_of_edge == null ? 'no_snapshot' : 'ok';
+    const from = o.week + 1, to = o.week + H;
+    if (to > src.lastDone(o.season)) entry.realised_state = 'horizon_open';
+    else {
+      entry.realised_regret = round4(realisedPoints(altIn, o.season, from, to) - realisedPoints(altOut, o.season, from, to));
+    }
+    out.entries.push(entry);
+  }
+  return out;
+}
+
+const median = xs => {
+  const s = [...xs].sort((a, b) => a - b), m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+
+/**
+ * Concession guard. Each re-offer's concession is the rise in the net as-of value he
+ * gives (give - get, per week) from his last turned-down offer to the same manager,
+ * both measured with values as of the re-offer's week. Its norm is the median of
+ * concessions from EARLIER weeks. Events feed walkForward (hit = above his norm).
+ */
+export function concessionGuard(leagueId, src = nickOffers(leagueId)) {
+  const out = { state: src.state, reoffers: [], events: [], aside: {} };
+  if (src.state !== 'ok') return out;
+  const lastDown = new Map(); // `${season}:${partner}` -> the last offer of his that was turned down
+  const net = (o, season, week) => {
+    const g = asOfValue(o.gave, season, week), r = asOfValue(o.got, season, week);
+    return g == null || r == null ? null : g - r;
+  };
+  const done = []; // { period, concession }
+  for (const o of src.offers.filter(x => x.proposed)) {
+    const key = `${o.season}:${o.partner}`;
+    const prev = lastDown.get(key);
+    if (prev) {
+      const now = net(o, o.season, o.week), then = net(prev, o.season, o.week);
+      if (now == null || then == null) bump(out.aside, 'no_snapshot');
+      else {
+        const concession = round4(now - then);
+        const earlier = done.filter(d => d.period < o.period).map(d => d.concession);
+        const norm = earlier.length >= MIN_FIT_N ? round4(median(earlier)) : null;
+        const over = norm == null ? null : concession > norm;
+        out.reoffers.push({ period: o.period, status: o.status, concession, norm, over_norm: over,
+          cats: o.got_positions.map(pos => `concede:${pos}`) });
+        if (over != null) out.events.push({ period: o.period, hit: over ? 1 : 0, cats: o.got_positions.map(pos => `concede:${pos}`) });
+        else bump(out.aside, 'no_norm_yet');
+        done.push({ period: o.period, concession });
+      }
+    }
+    if (o.status === 'accepted') lastDown.delete(key);
+    else if (o.status !== 'proposed') lastDown.set(key, o);
+  }
+  return out;
+}
+
 /* ------------------------------------------------------------------- the reader */
 
 function labelOf(bias, category) {
+  if (bias === 'concedes') return `You give up more than your norm when you re-offer for ${category.split(':')[1]}s`;
   if (bias === 'overpays') return `You pay too much when you trade for ${category.split(':')[1]}s`;
   const [kind, pos] = category.split(':');
   return `You skip ${KIND_LABEL[kind] ?? kind} calls${pos ? ` for ${pos}s` : ''}`;
@@ -254,15 +414,31 @@ export function selfBiasFlags(leagueId) {
   const trades = overpayEvents(leagueId);
   const ig = flagsFrom('ignores', walkForward(follow.events).candidates);
   const op = flagsFrom('overpays', walkForward(trades.events).candidates);
+  const offers = nickOffers(leagueId);
+  const regret = regretLedger(leagueId, offers);
+  const guard = concessionGuard(leagueId, offers);
+  const cg = flagsFrom('concedes', walkForward(guard.events).candidates);
+  // A guarded re-offer reaches the card only when its category passed the forward check.
+  const passed = new Set(cg.keep.map(f => f.category));
+  const guarded = guard.reoffers.filter(r => r.over_norm && r.cats.some(c => passed.has(c)))
+    .map(({ period, status, concession, norm }) => ({ period, status, concession, norm }));
   const heldByReason = {};
-  for (const c of [...ig.held, ...op.held]) bump(heldByReason, c.held_reason);
+  for (const c of [...ig.held, ...op.held, ...cg.held]) bump(heldByReason, c.held_reason);
   return {
     state: 'ok',
-    flags: [...ig.keep, ...op.keep].sort((a, b) => b.forward.precision - a.forward.precision),
-    held: ig.held.length + op.held.length,
+    flags: [...ig.keep, ...op.keep, ...cg.keep].sort((a, b) => b.forward.precision - a.forward.precision),
+    held: ig.held.length + op.held.length + cg.held.length,
     held_by_reason: heldByReason,
     follow: { by_kind: follow.by_kind, excluded: follow.excluded, events: follow.events.length, unreadable: follow.unreadable },
     trades: { events: trades.events.length, unscorable: trades.unscorable },
+    regret: {
+      entries: regret.entries, aside: regret.aside,
+      scored: regret.entries.filter(e => e.realised_regret != null).length,
+    },
+    concession: {
+      reoffers: guard.reoffers.length, events: guard.events.length, aside: guard.aside,
+      guarded, guarded_held: guard.reoffers.filter(r => r.over_norm).length - guarded.length,
+    },
     sources: { follow_ledger: follow.state, trade_outcomes: trades.state },
     check: { min_fit_n: MIN_FIT_N, min_eval_n: MIN_EVAL_N, overpay_horizon_weeks: OVERPAY_HORIZON_WEEKS },
     killed: KILLED_BIASES,

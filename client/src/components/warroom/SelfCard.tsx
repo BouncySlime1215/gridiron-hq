@@ -1,4 +1,4 @@
-import type { BiasFlag, SelfKind, SelfView } from './types';
+import type { BiasFlag, GuardedReoffer, SelfKind, SelfRegret, SelfView } from './types';
 import { FieldBlock } from './FieldState';
 import { pct } from './format';
 
@@ -15,6 +15,16 @@ const kindLine = (k: SelfKind) => {
 };
 const record = (f: BiasFlag) =>
   `right ${f.forward.hits} of ${f.forward.n} later calls (${pct(f.forward.precision)}), base ${pct(f.forward.base_rate)}`;
+
+const regretLine = (r: SelfRegret) => {
+  const settled = r.scored
+    ? `${r.regrets} of ${r.scored} settled choices went better the other way (net ${r.realised_regret} pts)`
+    : 'none settled yet';
+  return `${r.choices} choices · ${settled} · ${r.open} still open`;
+};
+const weekOf = (period: number) => `wk ${period % 100}`;
+const guardLine = (g: GuardedReoffer) =>
+  `${weekOf(g.period)}: gave ${g.concession.toFixed(1)} pts/wk more, your norm ${g.norm.toFixed(1)}`;
 
 export default function SelfCard({ view, big }: { view: SelfView | null | undefined; big: boolean }) {
   if (!view) return <div className="wr-state" role="status" data-state="unknown">Your record is loading.</div>;
@@ -50,6 +60,22 @@ export default function SelfCard({ view, big }: { view: SelfView | null | undefi
           </ul>
         )}
       </FieldBlock>
+      <div className="wr-cap">Regret ledger</div>
+      <FieldBlock f={view.regret} label="Regret ledger">
+        {r => <div className="wr-sub">{regretLine(r)}</div>}
+      </FieldBlock>
+
+      <div className="wr-cap">Re-offer guard</div>
+      <FieldBlock f={view.guard} label="Re-offer guard">
+        {g => (
+          <ul className="wr-self-flags">
+            {g.reoffers.map(r => <li key={`${r.period}-${r.concession}`}>{guardLine(r)}</li>)}
+          </ul>
+        )}
+      </FieldBlock>
+
+      <div className="wr-cap">Clone</div>
+      <FieldBlock f={view.clone} label="Clone">{() => null}</FieldBlock>
       {big && view.note && <div className="wr-hint">{view.note}</div>}
     </>
   );

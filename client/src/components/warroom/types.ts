@@ -195,5 +195,28 @@ export interface SelfView {
   flags?: Field<BiasFlag[]>;
   /** Candidate habits that did not pass the forward check: a count, never their names. */
   held?: number;
+  /** Regret ledger totals: points over the 4-week horizon, from the road not taken. */
+  regret?: Field<SelfRegret>;
+  /** Re-offers that conceded above his norm, only when the guard passed its forward check. */
+  guard?: Field<{ reoffers: GuardedReoffer[] }>;
+  /** LIVING-01a pointed at his own team; unknown until that model is fitted. */
+  clone?: Field<unknown>;
+  preview?: boolean;
+  preview_reason?: string;
   note?: string;
+}
+export interface SelfRegret {
+  choices: number;
+  scored: number;
+  open: number;
+  realised_regret: number | null;
+  regrets: number;
+  as_of_better: number;
+  as_of_n: number;
+}
+export interface GuardedReoffer {
+  period: number;
+  status: string;
+  concession: number;
+  norm: number;
 }

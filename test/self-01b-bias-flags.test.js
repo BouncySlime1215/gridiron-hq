@@ -298,3 +298,187 @@ test('War Room self view: off unless its own flag is set, and held flags are cou
     assert.match(empty.follow.reason, /no shown call has been resolved/);
   } finally { delete process.env[selfView.SELF_CLONE_ENV]; }
 });
+
+/* ------------------------------------------- FIX-284-3: regret ledger, concession guard */
+
+const TE = 9303, QB = 9304, WR2 = 9305;
+run('INSERT INTO players (id, name, position, espn_id) VALUES (?,?,?,?)', TE, 'Made Up End', 'TE', ESPN(TE));
+run('INSERT INTO players (id, name, position, espn_id) VALUES (?,?,?,?)', QB, 'Made Up Passer', 'QB', ESPN(QB));
+run('INSERT INTO players (id, name, position, espn_id) VALUES (?,?,?,?)', WR2, 'Made Up Slot', 'WR', ESPN(WR2));
+// As-of values: what the engine projected for the week, before it. Deliberately equal to the
+// realised points above for RB and WR, so as-of and realised can be told apart only by week.
+const PRED = { [RB]: 5, [WR]: 10, [TE]: 1, [QB]: 3, [WR2]: 10 };
+for (let w = 1; w <= 17; w++) for (const [id, p] of Object.entries(PRED)) {
+  run(`INSERT INTO weekly_prediction_snapshots (season, week, player_id, position, as_of, cutoff, engine_version,
+         structural, prediction) VALUES (?, ?, ?, 'X', 'x', 'x', 'test', ?, ?)`, SEASON, w, Number(id), p, p);
+}
+
+/** One observed offer with lists from NICK's side, to `partner`. */
+function offer(leagueId, week, { get, give, status = 'declined', nickProposed = true, partner = PARTNER }) {
+  const txId = `o-${++seq}`;
+  const nickGets = get.map(p => ({ playerId: ESPN(p), fromTeamId: partner, toTeamId: ME }));
+  const nickGives = give.map(p => ({ playerId: ESPN(p), fromTeamId: ME, toTeamId: partner }));
+  const proposer = nickProposed ? ME : partner;
+  run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status, proposed_at, team_id,
+         scoring_period, items_json, first_seen_at, last_seen_at)
+       VALUES (?, ?, ?, 'TRADE_PROPOSAL', 'X', '2026-09-10T00:00:00.000Z', ?, ?, ?, 'x', 'x')`,
+  leagueId, SEASON, txId, proposer, week, JSON.stringify([...nickGets, ...nickGives]));
+  run(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id,
+         give_json, get_json, proposed_at, status, espn_tx_id, created_at)
+       VALUES (?, ?, 'observed', ?, ?, ?, ?, '2026-09-10T00:00:00.000Z', ?, ?, 'x')`,
+  leagueId, SEASON, String(proposer), String(nickProposed ? partner : ME),
+  JSON.stringify(nickProposed ? nickGives : nickGets), JSON.stringify(nickProposed ? nickGets : nickGives),
+  status, txId);
+}
+
+test('regret ledger: the road not taken, valued as of that week, and realised once the horizon is over', () => {
+  league(806, 12);
+  txTable();
+  offer(806, 2, { get: [RB], give: [WR], status: 'accepted' }); // passed on keeping WR
+  offer(806, 3, { get: [WR], give: [RB], status: 'declined', nickProposed: false }); // passed on taking WR
+  offer(806, 3, { get: [WR], give: [RB], status: 'declined' }); // his own offer turned down: not his call
+  offer(806, 9, { get: [RB], give: [WR], status: 'accepted' }); // weeks 10-13: not over at week 12
+  offer(806, 4, { get: [WR], give: [RB], status: 'proposed', nickProposed: false }); // still live
+  const r = bias.regretLedger(806);
+  assert.equal(r.state, 'ok');
+  assert.deepEqual(r.aside, { not_his_call: 1, not_settled: 1 });
+  assert.equal(r.entries.length, 3);
+  const [kept, declined, open] = r.entries;
+  assert.equal(kept.passed_on, 'keep');
+  assert.equal(kept.as_of_edge, 20, '(10 - 5) a week, as of week 2, over 4 weeks');
+  assert.equal(kept.realised_regret, 20, 'WR scored 40 over weeks 3-6, RB 20');
+  assert.equal(declined.passed_on, 'accept');
+  assert.equal(declined.role, 'counterparty');
+  assert.equal(declined.realised_regret, 20);
+  assert.equal(open.realised_state, 'horizon_open');
+  assert.equal(open.realised_regret, null, 'an open horizon is null, never 0');
+});
+
+test('regret ledger: a week with no as-of snapshot is unknown, never valued at 0', () => {
+  league(807, 12);
+  txTable();
+  offer(807, 18, { get: [RB], give: [WR], status: 'declined', nickProposed: false });
+  const [e] = bias.regretLedger(807).entries;
+  assert.equal(e.as_of_edge, null);
+  assert.equal(e.as_of_state, 'no_snapshot');
+});
+
+/**
+ * Two managers a week for each position he chases, each turning down a first offer and
+ * getting a re-offer. For backs he adds a 10-a-week wideout; for wideouts, a 3-a-week passer.
+ */
+function conceder(L, weeks, { liveBackReoffer = false } = {}) {
+  league(L, 12);
+  txTable();
+  let partner = 100;
+  for (const w of weeks) for (let i = 0; i < 2; i++) {
+    const pb = ++partner, pw = ++partner;
+    offer(L, w, { get: [RB], give: [TE], partner: pb });
+    offer(L, w, { get: [RB], give: [TE, WR2], partner: pb });
+    offer(L, w, { get: [WR], give: [TE], partner: pw });
+    offer(L, w, { get: [WR], give: [TE, QB], partner: pw });
+  }
+  if (liveBackReoffer) {
+    const p = ++partner, w = weeks.at(-1) + 1;
+    offer(L, w, { get: [RB], give: [TE], partner: p });
+    offer(L, w, { get: [RB], give: [TE, WR2], partner: p, status: 'proposed' });
+  }
+}
+
+test('concession guard: concession is re-measured as of the re-offer week, and the norm uses earlier weeks only', () => {
+  conceder(808, [1, 2]);
+  const g = bias.concessionGuard(808);
+  assert.equal(g.reoffers.length, 8);
+  assert.deepEqual(g.reoffers.map(r => r.concession), [10, 3, 10, 3, 10, 3, 10, 3]);
+  assert.equal(g.reoffers[0].norm, null, 'week 1 has no earlier concessions');
+  assert.equal(g.reoffers[4].norm, 6.5, 'week 2 norm = median of week 1 only');
+  assert.deepEqual(g.reoffers.slice(4).map(r => r.over_norm), [true, false, true, false]);
+  assert.equal(g.aside.no_norm_yet, 4);
+});
+
+test('concession guard: shown only once its category passes the forward check; before that it is held', () => {
+  conceder(809, [1, 2, 3]);
+  const early = bias.selfBiasFlags(809);
+  assert.equal(early.flags.some(f => f.bias === 'concedes'), false);
+  assert.deepEqual(early.concession.guarded, []);
+  assert.ok(early.concession.guarded_held > 0, 'above-norm re-offers exist but are held');
+
+  conceder(810, [1, 2, 3, 4, 5], { liveBackReoffer: true });
+  const out = bias.selfBiasFlags(810);
+  const f = out.flags.find(x => x.bias === 'concedes');
+  assert.ok(f, JSON.stringify(out.concession));
+  assert.equal(f.category, 'concede:RB');
+  assert.equal(f.label, 'You give up more than your norm when you re-offer for RBs');
+  assert.ok(f.forward.precision > f.forward.base_rate);
+  const live = out.concession.guarded.find(r => r.status === 'proposed');
+  assert.ok(live, 'the live re-offer for a back is guarded');
+  assert.equal(live.concession, 10);
+  assert.ok(live.concession > live.norm);
+  assert.equal(out.concession.guarded.some(r => r.concession === 3), false, 'wideout re-offers are under the norm');
+});
+
+/* ------------------------------------------------ FIX-284-2: the flag, off / on / preview */
+
+test('self card flag: off, on by its own switch, and on under preview mode with the reason on the view', async () => {
+  const { PREVIEW_ENV, PREVIEW_PREFIX } = await import('../server/services/preview-mode.js');
+  const saved = { own: process.env[selfView.SELF_CLONE_ENV], pv: process.env[PREVIEW_ENV] };
+  try {
+    delete process.env[selfView.SELF_CLONE_ENV]; delete process.env[PREVIEW_ENV];
+    assert.deepEqual(selfView.selfCloneFlag(), { enabled: false });
+    assert.deepEqual(selfView.warRoomSelf(801), { enabled: false });
+
+    process.env[selfView.SELF_CLONE_ENV] = '1';
+    assert.deepEqual(selfView.selfCloneFlag(), { enabled: true });
+    const on = selfView.warRoomSelf(801);
+    assert.equal(on.enabled, true);
+    assert.equal('preview' in on, false, 'its own switch is not a preview');
+    assert.equal(on.note, selfView.NOTE);
+
+    delete process.env[selfView.SELF_CLONE_ENV];
+    process.env[PREVIEW_ENV] = '1';
+    assert.deepEqual(selfView.selfCloneFlag(),
+      { enabled: true, preview: true, preview_reason: selfView.SELF_CLONE_OFF_REASON });
+    const pv = selfView.warRoomSelf(801);
+    assert.equal(pv.enabled, true);
+    assert.equal(pv.preview, true);
+    assert.equal(pv.preview_reason, selfView.SELF_CLONE_OFF_REASON);
+    assert.ok(pv.note.startsWith(PREVIEW_PREFIX));
+  } finally {
+    for (const [k, v] of [[selfView.SELF_CLONE_ENV, saved.own], [PREVIEW_ENV, saved.pv]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
+
+test('self view: regret, guard and clone sections are typed; the clone is unknown until fitted', () => {
+  process.env[selfView.SELF_CLONE_ENV] = '1';
+  try {
+    const v = selfView.warRoomSelf(806);
+    assert.equal(v.regret.status, 'ok');
+    assert.deepEqual({ choices: v.regret.value.choices, scored: v.regret.value.scored, open: v.regret.value.open },
+      { choices: 3, scored: 2, open: 1 });
+    assert.equal(v.regret.value.realised_regret, 40);
+    assert.equal(v.guard.status, 'unknown');
+    assert.equal(v.clone.status, 'unknown');
+    assert.equal(v.clone.reason, selfView.CLONE_UNFITTED);
+    const g = selfView.warRoomSelf(810);
+    assert.equal(g.guard.status, 'ok');
+    assert.ok(g.guard.value.reoffers.length >= 1);
+    assert.equal(selfView.warRoomSelf(805).regret.status, 'unknown');
+  } finally { delete process.env[selfView.SELF_CLONE_ENV]; }
+});
+
+test('concession guard: the same offer re-sent after its player rose in value is no concession', () => {
+  const RISER = 9306;
+  run('INSERT INTO players (id, name, position, espn_id) VALUES (?,?,?,?)', RISER, 'Made Up Riser', 'WR', ESPN(RISER));
+  for (let w = 1; w <= 17; w++) {
+    run(`INSERT INTO weekly_prediction_snapshots (season, week, player_id, position, as_of, cutoff, engine_version,
+           structural, prediction) VALUES (?, ?, ?, 'X', 'x', 'x', 'test', ?, ?)`, SEASON, w, RISER, w === 1 ? 2 : 10, w === 1 ? 2 : 10);
+  }
+  league(811, 12);
+  txTable();
+  offer(811, 1, { get: [RB], give: [RISER] });
+  offer(811, 2, { get: [RB], give: [RISER] });
+  const [r] = bias.concessionGuard(811).reoffers;
+  assert.equal(r.concession, 0, 'both sides valued as of week 2; week 1 values would call it an 8-point concession');
+});

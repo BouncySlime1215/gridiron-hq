@@ -1178,7 +1178,7 @@ Respond with ONLY JSON:
  "evidence":"one line: the 2-3 numbers from the records above that decide this deal, comma-separated, no adjectives",
  "concerns":["0-4 short, specific, concrete concerns grounded in the data above — omit entirely if none"],
  "agrees_with_engine": true or false,
- "why": "2-3 sentences on why you agree or disagree with the engine's plausibility call"}`;
+ "why": "a short paragraph on why you agree or disagree with the engine's plausibility call"}`;
 
     /* ------------------------------------------- propose → verify → retry once
      * The trade is fully specified by the request body, so the season simulation
@@ -1329,9 +1329,9 @@ ${records.length ? `Records (real, multi-season — cite these numbers in the pi
 Write the negotiation. Frame it around what THEY get, never mention that you ran an analysis, no fake urgency, no flattery. If the deal is lopsided in my favour, the pitch still has to sound reasonable to them.
 ${records.length ? `\n${STAT_ROOTED_INSTRUCTIONS}\n` : ''}
 Respond with ONLY JSON:
-{"pitch":"3-4 sentence message I can paste to them${records.length ? ' — cite at least one real multi-season number from the records above' : ''}",
+{"pitch":"a short message I can paste to them${records.length ? ' — cite at least one real multi-season number from the records above' : ''}",
  "evidence":"one line: the numbers from the records above the pitch rests on, comma-separated, no adjectives${records.length ? '' : ' (empty string if no records were given)'}",
- "their_counter":"the counter they are most likely to send, and how I should respond, 2 sentences",
+ "their_counter":"the counter they are most likely to send, and how I should respond",
  "walk_away":"one sentence — the point at which I decline",
  "risk":"one sentence — the single way this deal goes badly for me"}`
     });

@@ -498,7 +498,7 @@ Model's own confidence label: ${reasoning.confidence}
 
 Return ONLY JSON with:
 {
-  "paragraph": "4-6 sentences explaining what drove the number, what opposed it, and how thin the evidence is",
+  "paragraph": "one paragraph explaining what drove the number, what opposed it, and how thin the evidence is",
   "factor_keys_used": ${JSON.stringify(availableFactorKeys)},
   "limitations": ["short evidence limitation stated in the paragraph"]
 }
@@ -1562,6 +1562,14 @@ r.get('/formations/charting', async (req, res, next) => {
   try {
     const { chartingSummary } = await import('../services/nfl-formations.js');
     res.json(chartingSummary({ season: req.query.season ? Number(req.query.season) : null }));
+  } catch (e) { next(e); }
+});
+
+/** Who was on the field: participation players per season and how well they match PFR snap counts. */
+r.get('/formations/participation', async (req, res, next) => {
+  try {
+    const { participationStatus } = await import('../services/nfl-participation.js');
+    res.json(participationStatus({ season: req.query.season ? Number(req.query.season) : null }));
   } catch (e) { next(e); }
 });
 

@@ -8,6 +8,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { up as upRoster } from '../server/migrations/058_league_roster_snapshots.js';
 import { up as upOutcomes } from '../server/migrations/067_outcome_ledgers.js';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { up as upClaims, down as downClaims, name as claimsMigrationName } from '../server/migrations/089_reasoning_claims.js';
 import { assemblePanel } from '../server/services/reasoning/panel.js';
 import { cardsForLeague } from '../server/services/reasoning/cards.js';
@@ -20,6 +22,12 @@ import { PREVIEW_ENV } from '../server/services/preview-mode.js';
 const AS_OF = '2026-09-24T12:00:00Z';
 const LEAGUE = 4;
 
+// Only the #239 pinning test opens the app database; it gets a temp one.
+process.env.SCHEDULER_DISABLED = '1';
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-reason-02-'));
+process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
+test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
+
 function freshDb() {
   const db = new DatabaseSync(':memory:');
   upRoster(db);
@@ -27,6 +35,32 @@ function freshDb() {
   upClaims(db);
   return db;
 }
+
+// ESPN ids -> the players table (core schema: position NOT NULL, espn_id added
+// by the fantasy schema). 101 is the receiver we give, 201 the back we get.
+const PLAYERS = [[101, 'WR'], [201, 'RB'], [301, 'TE'], [401, 'WR']];
+function seedPlayers(db, list = PLAYERS) {
+  db.exec(`CREATE TABLE IF NOT EXISTS players (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+    position TEXT NOT NULL, espn_id INTEGER)`);
+  const ins = db.prepare('INSERT INTO players (name, position, espn_id) VALUES (?, ?, ?)');
+  for (const [espn, pos] of list) ins.run(`p${espn}`, pos, espn);
+  return db;
+}
+
+// counter_json exactly as #239 writes it: trade-outcomes.js replyTo() ->
+// settleSentOffers() stores { tx_id, items } where items is the counter
+// proposal's raw ESPN items_json (one item per player moving, fromTeamId ->
+// toTeamId). We are team 1; he (team 3) proposes the counter.
+const espnItem = (from, to, playerId) => ({ type: 'TRADE', playerId, fromTeamId: from, toTeamId: to,
+  fromLineupSlotId: -1, toLineupSlotId: -1 });
+const counter239 = (txId, askFromUs, giveToUs = [201]) => ({
+  tx_id: txId,
+  items: [...askFromUs.map(p => espnItem(1, 3, p)), ...giveToUs.map(p => espnItem(3, 1, p))]
+});
+// He wants our receiver back plus the tight end 301.
+const COUNTER_TE = counter239('c-te', [101, 301]);
+// He wants our receiver plus another receiver (401): no tight end.
+const COUNTER_WR = counter239('c-wr', [101, 401]);
 
 // The War Room contract (plans-schema.js `warroom-plans/1`) as cards.js reads
 // it since FIX-03/FIX-08: typed fields, the deck in alternatives.value[], the
@@ -222,30 +256,96 @@ function recorded() {
 }
 const statusOf = (db, kind) => db.prepare('SELECT status, evidence_json FROM reasoning_claims WHERE kind = ?').get(kind);
 
-test('counter_with: a counter asking for the named position comes true', () => {
-  const db = recorded();
-  insertOutcome(db, { status: 'countered', counter: { get_positions: ['TE'] } });
+test('counter_with: a #239 counter asking for the named position comes true, position checked', () => {
+  const db = seedPlayers(recorded());
+  insertOutcome(db, { status: 'countered', counter: COUNTER_TE });
   resolveOpenClaims(db, { now: new Date('2026-09-26T00:00:00Z') });
   const r = statusOf(db, 'counter_with');
   assert.equal(r.status, 'true');
-  assert.equal(JSON.parse(r.evidence_json).outcome_status, 'countered');
+  const ev = JSON.parse(r.evidence_json);
+  assert.equal(ev.outcome_status, 'countered');
+  assert.equal(ev.pos_checked, true, 'the position is read from counter_json.items');
+  assert.deepEqual(ev.asked_player_ids, ['101', '301'], 'his receive side only, not the back he sends');
+  assert.deepEqual(ev.asked_positions, ['TE', 'WR']);
+  assert.deepEqual(ev.unresolved_player_ids, []);
+  assert.match(ev.position_source, /^players\.position/);
 });
 
-test('counter_with: a decline makes it false; a counter for another position is false', () => {
-  const db = recorded();
+test('counter_with: a decline makes it false; a #239 counter for another position is false', () => {
+  const db = seedPlayers(recorded());
   insertOutcome(db, { status: 'declined' });
   resolveOpenClaims(db, { now: new Date('2026-09-26T00:00:00Z') });
   assert.equal(statusOf(db, 'counter_with').status, 'false');
 
-  const db2 = recorded();
-  insertOutcome(db2, { status: 'countered', counter: { get_positions: ['WR'] } });
+  const db2 = seedPlayers(recorded());
+  insertOutcome(db2, { status: 'countered', counter: COUNTER_WR });
   resolveOpenClaims(db2, { now: new Date('2026-09-26T00:00:00Z') });
-  assert.equal(statusOf(db2, 'counter_with').status, 'false');
+  const r = statusOf(db2, 'counter_with');
+  assert.equal(r.status, 'false');
+  const ev = JSON.parse(r.evidence_json);
+  assert.equal(ev.pos_checked, true);
+  assert.deepEqual(ev.asked_positions, ['WR']);
+});
+
+test('counter_with: the old get_positions key is not read; only counter_json.items is', () => {
+  const db = seedPlayers(recorded());
+  insertOutcome(db, { status: 'countered', counter: { get_positions: ['WR'] } });
+  resolveOpenClaims(db, { now: new Date('2026-09-26T00:00:00Z') });
+  const r = statusOf(db, 'counter_with');
+  const ev = JSON.parse(r.evidence_json);
+  assert.equal(ev.pos_checked, false, 'no items, so no position to check');
+  assert.equal(ev.asked_positions, null);
+  assert.equal(r.status, 'true', 'judged on the reply kind alone');
+});
+
+test('counter_with: a player the players table cannot place leaves the position unchecked, and says which', () => {
+  const db = seedPlayers(recorded(), [[101, 'WR']]);
+  insertOutcome(db, { status: 'countered', counter: COUNTER_TE });
+  resolveOpenClaims(db, { now: new Date('2026-09-26T00:00:00Z') });
+  const ev = JSON.parse(statusOf(db, 'counter_with').evidence_json);
+  assert.equal(ev.pos_checked, false, 'a half-known ask is not evidence the position was missing');
+  assert.deepEqual(ev.unresolved_player_ids, ['301']);
+
+  const noTable = recorded();
+  insertOutcome(noTable, { status: 'countered', counter: COUNTER_TE });
+  resolveOpenClaims(noTable, { now: new Date('2026-09-26T00:00:00Z') });
+  const ev2 = JSON.parse(statusOf(noTable, 'counter_with').evidence_json);
+  assert.equal(ev2.pos_checked, false);
+  assert.match(ev2.position_source, /no players table/);
+});
+
+test('the counter fixture is exactly what #239 settleSentOffers writes into counter_json', async () => {
+  const { db, run, row } = await import('../server/db/index.js');
+  const { runMigrations } = await import('../server/db/migrate.js');
+  await runMigrations();
+  const { recordSentOffer, settleSentOffers } = await import('../server/services/trade-outcomes.js');
+  db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
+    league_id INTEGER NOT NULL, season INTEGER NOT NULL, tx_id TEXT NOT NULL,
+    type TEXT, status TEXT, execution_type TEXT, proposed_at TEXT, processed_at TEXT,
+    team_id INTEGER, member_id TEXT, related_tx_id TEXT, scoring_period INTEGER,
+    bid_amount REAL, is_pending INTEGER, items_json TEXT, raw_json TEXT,
+    first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+    PRIMARY KEY (league_id, season, tx_id))`);
+  const L = 7704;
+  const sent = recordSentOffer({ league_id: L, season: 2026, proposer_team_id: '1', model_version: 'test',
+    sent_at: '2026-09-25T00:00:00Z',
+    deal: { id: 'mv-1', partner_id: '3', i_give: [{ id: 9101, name: 'x', espn_id: 101 }], i_get: [{ id: 9201, name: 'y', espn_id: 201 }],
+      acceptance: { band: { low: 0.2, mid: 0.35, high: 0.5 }, basis: 'heuristic_unanchored' } } });
+  const raw = (txId, teamId, related, at, items) => run(`INSERT INTO league_transactions_raw
+    (league_id, season, tx_id, type, execution_type, proposed_at, team_id, related_tx_id, items_json, first_seen_at, last_seen_at)
+    VALUES (?, 2026, ?, 'TRADE_PROPOSAL', 'EXECUTE', ?, ?, ?, ?, ?, ?)`, L, txId, at, teamId, related, JSON.stringify(items), at, at);
+  raw('p1', 1, null, '2026-09-24T23:59:00Z', [espnItem(1, 3, 101), espnItem(3, 1, 201)]);
+  raw('c-te', 3, 'p1', '2026-09-25T05:00:00Z', COUNTER_TE.items);
+  settleSentOffers(L, 2026, { now: '2026-09-25T06:00:00Z' });
+  const o = row('SELECT status, counter_json FROM trade_outcomes WHERE id = ?', sent.id);
+  assert.equal(o.status, 'countered');
+  assert.deepEqual(JSON.parse(o.counter_json), COUNTER_TE);
+  db.close();
 });
 
 test('counter_with: never sent is void after the deadline, open before it; an offer from before the claim does not count', () => {
   const db = recorded();
-  insertOutcome(db, { status: 'countered', counter: { get_positions: ['TE'] }, proposedAt: '2026-09-20T00:00:00Z', ideaId: 'old' });
+  insertOutcome(db, { status: 'countered', counter: COUNTER_TE, proposedAt: '2026-09-20T00:00:00Z', ideaId: 'old' });
   resolveOpenClaims(db, { now: new Date('2026-09-26T00:00:00Z') });
   assert.equal(statusOf(db, 'counter_with').status, 'open');
   resolveOpenClaims(db, { now: new Date('2026-10-05T00:00:00Z') });
@@ -379,7 +479,8 @@ test('on: record, resolve and grade in one pass, league-scoped, carrying the pre
     const db = freshDb();
     const plans = plansFor();
     const panels = { leagues: [{ league_id: LEAGUE, panels: [panelFor(plans)] }] };
-    insertOutcome(db, { status: 'countered', counter: { get_positions: ['TE'] } });
+    seedPlayers(db);
+    insertOutcome(db, { status: 'countered', counter: COUNTER_TE });
     db.prepare(`INSERT INTO reasoning_claims (league_id, card_id, fingerprint, section, claim_index, claim_text,
       cites_json, made_at, kind, prediction_json, resolve_rule, resolve_by, status, resolved_at, evidence_json, created_at)
       VALUES (99, 'other', 'f', 'counter', 0, 't', '[]', ?, 'counter_with', '{}', 'offer_reply_v1', ?, 'false', ?, '{}', ?)`)

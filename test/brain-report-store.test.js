@@ -69,11 +69,11 @@ test('on an empty database every check runs: E3 historical passes, everything li
     assert.match(byCheck[c].needs_text, /^needs \d+ more /, c);
   }
   assert.match(byCheck.E1.needs_text, new RegExp(`^needs ${E1.minOffersToDecide()} more offers`));
-  assert.match(byCheck.E2.needs_text, /offer_log is not built yet/);
+  assert.match(byCheck.E2.needs_text, /offer_log is dropped \(FIX-09, #266\)/);
   assert.match(byCheck.E7.needs_text, /needs 4 more weeks/);
 });
 
-test('E1 reads the real trade_outcomes ledger: app_proposed, resolved, deduped against offer_log', () => {
+test('E1 reads the real trade_outcomes ledger: app_proposed, resolved; offer_log is never read', () => {
   const ins = db.prepare(`INSERT INTO trade_outcomes (league_id, season, source, counterparty_team_id, proposed_at,
     model_p_accept, model_basis, status, idea_id, created_at) VALUES (1, 2026, ?, ?, ?, ?, 'heuristic_anchored', ?, ?, '2026-09-23')`);
   for (let i = 0; i < 12; i += 1) ins.run('app_proposed', String(i % 3), `2026-09-${10 + i}`, 0.3, i % 2 ? 'accepted' : 'declined', `idea${i}`);
@@ -83,11 +83,11 @@ test('E1 reads the real trade_outcomes ledger: app_proposed, resolved, deduped a
   db.exec(`CREATE TABLE offer_log (league_id INTEGER, counterparty_team_id TEXT, proposed_at TEXT, model_p_accept REAL, status TEXT, idea_id TEXT)`);
   db.exec(`INSERT INTO offer_log VALUES (1, '0', '2026-09-10', 0.3, 'declined', 'idea0'), (1, '9', '2026-09-11', 0.6, 'accepted', 'fresh')`);
   const { offers, sources } = E1.load(db);
-  assert.deepEqual(sources, ['trade_outcomes', 'offer_log']);
-  assert.equal(offers.length, 13, '12 resolved app_proposed + 1 new offer_log row; idea0 deduped, the open proposal is not an outcome');
+  assert.deepEqual(sources, ['trade_outcomes']);
+  assert.equal(offers.length, 12, '12 resolved app_proposed rows; the open proposal and both offer_log rows are not read');
   const r = E1.run(db);
-  assert.equal(r.n, 13);
-  assert.equal(r.detail.offers_by_basis.recorded, 13, 'every one carried the prediction recorded when it was sent');
+  assert.equal(r.n, 12);
+  assert.equal(r.detail.offers_by_basis.recorded, 12, 'every one carried the prediction recorded when it was sent');
   assert.equal(r.status, 'not_enough_data');
   assert.match(r.needs_text, /^needs \d+ more offers/);
   db.exec('DROP TABLE offer_log');

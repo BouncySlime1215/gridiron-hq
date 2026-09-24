@@ -216,22 +216,48 @@ test('loadCloneContext: reads offers and proposal items; absent optional sources
   assert.ok(ctx.missing.some(m => /manager_player_view/.test(m)));
 });
 
-test('flag: the card is off unless previewUnconfirmed(); on, it is labelled a preview', () => {
+test('FIX-268-4: offer terms come from trade_proposal_snapshots first, raw items_json only when no snapshot exists', () => {
+  const d = fixtureDb();
+  d.exec(`CREATE TABLE trade_proposal_snapshots (league_id INTEGER, season INTEGER, proposal_tx_id TEXT, proposer_team_id INTEGER,
+            proposed_at TEXT, items_json TEXT, captured_from TEXT)`);
+  // p0: the raw upsert lost the items (ESPN handed the resolved offer back empty); the snapshot kept them.
+  d.prepare(`UPDATE league_transactions_raw SET items_json = '[]' WHERE tx_id = 'p0'`).run();
+  d.prepare('INSERT INTO trade_proposal_snapshots VALUES (?,?,?,?,?,?,?)')
+    .run(4, 2026, 'p0', 1, at(0), JSON.stringify([{ playerId: 900, fromTeamId: 1, toTeamId: 2 }]), 'pending');
+  // p1: both exist and differ; the snapshot wins.
+  d.prepare('INSERT INTO trade_proposal_snapshots VALUES (?,?,?,?,?,?,?)')
+    .run(4, 2026, 'p1', 1, at(10), JSON.stringify([{ playerId: 901, fromTeamId: 1, toTeamId: 2 }]), 'pending');
+  const ctx = T.loadCloneContext(d);
+  assert.equal(ctx.offers.length, 6, 'p0 is an offer again: its parties come from the snapshot');
+  assert.equal(ctx.itemsByTx.get('4:2026:p0')[0].playerId, 900);
+  assert.equal(ctx.itemsByTx.get('4:2026:p1')[0].playerId, 901);
+  assert.equal(ctx.itemsByTx.get('4:2026:p2')[0].playerId, 52, 'no snapshot: the raw items');
+  const src = Object.fromEntries(ctx.offers.map(o => [o.espn_tx_id, o.terms_source]));
+  assert.deepEqual(src, { p0: 'trade_proposal_snapshots', p1: 'trade_proposal_snapshots', p2: 'league_transactions_raw',
+    p3: 'league_transactions_raw', p4: 'league_transactions_raw', p5: 'league_transactions_raw' });
+  assert.deepEqual(ctx.terms_sources, { trade_proposal_snapshots: 2, league_transactions_raw: 4 });
+  assert.deepEqual(T.tellsCard(ctx, { leagueId: 4, asOf: at(900) }).terms_sources, ctx.terms_sources);
+  assert.ok(!ctx.missing.some(m => /trade_proposal_snapshots/.test(m)));
+  assert.ok(T.loadCloneContext(fixtureDb()).missing.some(m => /trade_proposal_snapshots.*fall back/.test(m)),
+    'without the table the fallback is said, not silent');
+});
+
+test('flag: the card is off unless previewUnconfirmed(); on, it is labelled a preview and read, not computed', () => {
   const d = fixtureDb();
   const prev = process.env[PREVIEW_ENV];
   try {
     delete process.env[PREVIEW_ENV];
-    const off = tellsCardResponse(d, 4, { now: new Date(T0 + 900 * H) });
+    const off = tellsCardResponse(d, 4);
     assert.equal(off.enabled, false);
     assert.match(off.reason, /E1/);
-    assert.equal(off.managers, undefined);
+    assert.equal(off.card, undefined);
     process.env[PREVIEW_ENV] = '1';
-    const on = tellsCardResponse(d, 4, { now: new Date(T0 + 900 * H) });
+    const on = tellsCardResponse(d, 4);
     assert.equal(on.enabled, true);
     assert.equal(on.preview, true);
-    assert.equal(on.card.league_id, 4);
-    assert.equal(on.grade.clone.check, 'E1');
-    assert.ok(on.card.managers.length >= 1);
+    // The stored-card path is test/tells-producer.test.js; here there is no engine_state at all.
+    assert.equal(on.card, null);
+    assert.match(on.reason, /engine_state is not built/);
   } finally {
     if (prev == null) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = prev;
   }

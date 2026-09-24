@@ -1,6 +1,7 @@
 /**
- * UI-ENG-4: the War Room clone view (server/services/warroom-clones.js) and the typed
- * profile read it stands on (server/services/people/profile-reader.js, FIX-00 shape).
+ * UI-ENG-4: the War Room clone view (server/services/warroom-clones.js) and the labels it
+ * reduces THE one profile reader's entries to (server/services/people/profile-reader.js,
+ * FIX-00 #260, RULINGS 1: this PR has no reader of its own).
  *
  *  - enum slots holding sentences reduce to labels by their leading token; no sentence
  *    from the profile reaches the output;
@@ -16,8 +17,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { leadingToken, normaliseProfile, nickBlock, QUIET_MESSAGES } = await import('../server/services/people/profile-reader.js');
-const { buildCloneRows, wantsField, credibilityField, warRoomClones, WANTS_FULL_DAYS, WANTS_GONE_DAYS } =
+const { peopleProfileEntry, nickBlock, QUIET_MESSAGES } = await import('../server/services/people/profile-reader.js');
+const { buildCloneRows, wantsField, credibilityField, warRoomClones, cloneProfile, cloneNick, WANTS_FULL_DAYS, WANTS_GONE_DAYS } =
   await import('../server/services/warroom-clones.js');
 const { PREVIEW_ENV, PREVIEW_PREFIX } = await import('../server/services/preview-mode.js');
 const { WARROOM_ENV } = await import('../server/services/warroom-flag.js');
@@ -26,15 +27,18 @@ const NOW = Date.parse('2026-09-24T12:00:00Z');
 const daysAgo = d => new Date(NOW - d * 86400000).toISOString();
 const SENTINEL = 'QUOTE-SENTINEL';
 
-/** A rebuilt-profile row SHAPE: new top-level keys, sentences in the enum slots. */
+/** A rebuilt-profile row SHAPE (schema v2): new top-level keys, sentences in the enum slots. */
 function rawProfile(over = {}) {
   return {
+    headline: `${SENTINEL} headline`,
+    what_moves_him: [], caveats: [], confidence: 'medium',
+    praise_means: { reading: 'mixed', why: SENTINEL, evidence: [] },
     as_of: daysAgo(3),
     messages_read: 120,
-    says_no: { does_his_no_hold: `rarely (${SENTINEL} is the exception)` },
-    calibration: { inflation: 'moderate' },
+    says_no: { how: SENTINEL, evidence: [], does_his_no_hold: `rarely (${SENTINEL} is the exception)` },
+    calibration: { enthusiasm_scale: SENTINEL, inflation: 'moderate' },
     deal_feelings: { urgency: `high: ${SENTINEL} keeps asking` },
-    techniques: [{ name: 'anchors high then counters', how_often: `often (8 ${SENTINEL})` }],
+    techniques: [{ name: 'anchors high then counters', how_he_does_it: SENTINEL, how_often: `often (8 ${SENTINEL})` }],
     how_to_approach: `lead with the numbers ${SENTINEL}`,
     behaviour_vs_words: { verdict: `mostly yes: ${SENTINEL}` },
     values_talk: { wants: { players: ['Alpha Runner', { player: 'Bravo Catcher', at: daysAgo(14) }, 'Not A Player Phrase', 'Old Want'], positions: ['TE'] } },
@@ -42,6 +46,10 @@ function rawProfile(over = {}) {
     ...over,
   };
 }
+
+/** One stored row through THE reader, then the panel's labels. */
+const read = (raw, { notes = [] } = {}) => cloneProfile(peopleProfileEntry({ name: 'x', rosterId: '2',
+  row: raw ? { profile_json: JSON.stringify(raw), messages_read: raw.messages_read } : null, notes }));
 
 /** Invented rostered players: normalized name -> player. */
 const PLAYERS = new Map([
@@ -51,23 +59,19 @@ const PLAYERS = new Map([
   ['his own guy', { id: '104', name: 'His Own Guy', pos: 'TE', owner: '2' }],
 ]);
 
-test('leading-token parsers reduce sentences to labels, unparseable -> unknown', () => {
-  assert.equal(leadingToken('no_holds', 'rarely (someone is the exception)'), 'rarely');
-  assert.equal(leadingToken('no_holds', 'mostly yes: firm on his stars'), 'usually');
-  assert.equal(leadingToken('no_holds', 'yes'), 'yes');
-  assert.equal(leadingToken('how_often', 'often (8 times)'), 'often');
-  assert.equal(leadingToken('how_often', 'twice'), 'sometimes');
-  assert.equal(leadingToken('inflation', 'moderate'), 'mild');
-  assert.equal(leadingToken('inflation', 'heavy on his RBs'), 'heavy');
-  assert.equal(leadingToken('word_match', 'mostly yes: follows through'), 'credible');
-  assert.equal(leadingToken('word_match', 'talks a big game'), 'cheap_talk');
-  assert.equal(leadingToken('no_holds', 'it depends on the week'), 'unknown');
-  assert.equal(leadingToken('inflation', null), 'unknown');
-  assert.throws(() => leadingToken('nope', 'x'));
+test('sentences reduce to labels through the one reader, unparseable -> unknown', () => {
+  const t = over => read(rawProfile(over)).traits;
+  assert.equal(t({ says_no: { how: 'x', evidence: [], does_his_no_hold: 'mostly yes: firm on his stars' } }).no_holds, 'usually');
+  assert.equal(t({ says_no: { how: 'x', evidence: [], does_his_no_hold: 'it depends on the week' } }).no_holds, 'unknown');
+  assert.equal(t({ calibration: { enthusiasm_scale: 'x', inflation: 'heavy on his RBs' } }).inflation, 'heavy');
+  assert.equal(t({ behaviour_vs_words: 'talks a big game' }).word_match, 'cheap_talk');
+  assert.equal(t({ behaviour_vs_words: true }).word_match, 'credible');
+  assert.equal(t({ deal_feelings: { urgency: 'low, happy to wait' } }).urgency, 'low');
+  assert.equal(t({ deal_feelings: { urgency: 'it depends' } }).urgency, 'unknown');
 });
 
 test('a rebuilt profile reads as typed traits and no sentence leaves the reader', () => {
-  const p = normaliseProfile(rawProfile());
+  const p = read(rawProfile());
   assert.equal(p.status, 'ok');
   assert.deepEqual(p.traits, {
     no_holds: 'rarely', inflation: 'mild', urgency: 'high', posture: 'haggler', style: 'numbers',
@@ -79,29 +83,30 @@ test('a rebuilt profile reads as typed traits and no sentence leaves the reader'
 });
 
 test("Nick's override beats the chat read, and his notes are counted, not copied", () => {
-  const p = normaliseProfile(rawProfile({ buyer: true, nick_override: { trades: 'probably none', difficulty: 'hard to deal with', note: `${SENTINEL} note` } }),
-    { notes: [{ name: 'x', noted_at: 'y' }] });
+  const p = read(rawProfile({ nick_override: { trades: 'probably none', difficulty: 'hard to deal with', note: `${SENTINEL} note` } }),
+    { notes: [{ name: 'x', note: `${SENTINEL} said so`, source: 'nick-chat-1', noted_at: 'y' }] });
   assert.equal(p.traits.buyer, false);
   assert.equal(p.sources.buyer, 'nick_override');
   assert.equal(p.traits.hard_to_deal_with, true);
   assert.equal(p.nick.notes_n, 2);
   assert.doesNotMatch(JSON.stringify(p), new RegExp(SENTINEL));
-  assert.deepEqual(nickBlock({ contactable: false, active: true, fan_of: 'NYG' }).contactable, false);
-  assert.equal(nickBlock({ fan_of: `${SENTINEL} and a long sentence about it` }).fan_of, null, 'a sentence is not a team label');
+  assert.deepEqual(cloneNick(nickBlock({ contactable: false, active: true, fan_of: 'NYG' })).contactable, false);
+  assert.equal(cloneNick(nickBlock({ fan_of: `${SENTINEL} and a long sentence about it` })).fan_of, null, 'a sentence is not a team label');
 });
 
 test('a quiet manager is unknown, keeps no traits or wants, but keeps Nick\'s word', () => {
-  const p = normaliseProfile(rawProfile({ messages_read: QUIET_MESSAGES - 1, nick_override: { active: true } }));
+  const p = read(rawProfile({ messages_read: QUIET_MESSAGES - 1, nick_override: { active: true } }));
   assert.equal(p.status, 'unknown');
   assert.match(p.reason, /quiet in chat/);
   assert.ok(Object.values(p.traits).every(v => v === 'unknown'));
   assert.deepEqual(p.wants, []);
   assert.equal(p.nick.active, true);
-  assert.equal(normaliseProfile(null).status, 'unknown');
+  assert.equal(read(null).status, 'unknown');
+  assert.match(read({ not: 'a v2 profile' }).reason, /schema v2/, 'an invalid stored profile says so');
 });
 
 test('wants: full strength for 7 days, fading to nothing by 21, rostered players he does not own only', () => {
-  const profile = normaliseProfile(rawProfile({ values_talk: { wants: { players: [
+  const profile = read(rawProfile({ values_talk: { wants: { players: [
     { player: 'Alpha Runner', at: daysAgo(3) }, { player: 'Bravo Catcher', at: daysAgo(14) },
     { player: 'Old Want', at: daysAgo(25) }, { player: 'His Own Guy', at: daysAgo(1) },
     { player: 'Not A Player Phrase', at: daysAgo(1) },
@@ -112,28 +117,28 @@ test('wants: full strength for 7 days, fading to nothing by 21, rostered players
     [['Alpha Runner', 'fresh', 1, true], ['Bravo Catcher', 'fading', 0.5, false]]);
   assert.equal(WANTS_FULL_DAYS, 7);
   assert.equal(WANTS_GONE_DAYS, 21);
-  assert.equal(wantsField(normaliseProfile(null), { team: '2', players: PLAYERS, now: NOW }).status, 'unknown');
+  assert.equal(wantsField(read(null), { team: '2', players: PLAYERS, now: NOW }).status, 'unknown');
   assert.equal(wantsField(profile, { team: '2', players: null, now: NOW }).status, 'unknown');
 });
 
 test('credibility: his declaration record first, the profile label second, unknown when quiet', () => {
-  const profile = normaliseProfile(rawProfile({ behaviour_vs_words: 'talks more than he trades' }));
+  const profile = read(rawProfile({ behaviour_vs_words: 'talks more than he trades' }));
   const rec = credibilityField(profile, { declarations: 6, held: 5, hard_reversals: 1, hedged: 0, credibility: 0.78, confidence: 'thin' });
   assert.deepEqual([rec.status, rec.value.label, rec.value.from, rec.value.held, rec.value.n], ['ok', 'credible', 'record', 5, 6]);
   const low = credibilityField(profile, { declarations: 5, held: 1, hard_reversals: 3, hedged: 1, credibility: 0.3, confidence: 'measured' });
   assert.equal(low.value.label, 'cheap_talk');
   const fromProfile = credibilityField(profile, { declarations: 1, credibility: 0.9 });
   assert.deepEqual([fromProfile.value.label, fromProfile.value.from], ['cheap_talk', 'profile']);
-  const quiet = credibilityField(normaliseProfile(rawProfile({ messages_read: 3 })), null);
+  const quiet = credibilityField(read(rawProfile({ messages_read: 3 })), null);
   assert.equal(quiet.status, 'unknown');
   assert.equal('value' in quiet, false);
 });
 
 function league({ profilesAvailable = true, cp = new Map(), cpState } = {}) {
   const byRoster = new Map([
-    ['2', normaliseProfile(rawProfile({ nick_override: { active: true, difficulty: 'hard to deal with' } }))],
-    ['3', normaliseProfile(rawProfile({ messages_read: 4 }))],
-    ['4', normaliseProfile(rawProfile({ nick_override: { contactable: false } }))],
+    ['2', read(rawProfile({ nick_override: { active: true, difficulty: 'hard to deal with' } }))],
+    ['3', read(rawProfile({ messages_read: 4 }))],
+    ['4', read(rawProfile({ nick_override: { contactable: false } }))],
   ]);
   return buildCloneRows({
     teams: ['1', '2', '3', '4', '5'], me: '1',
@@ -199,11 +204,11 @@ test('labels only: no profile sentence reaches the rows', () => {
   assert.doesNotMatch(JSON.stringify(league()), new RegExp(SENTINEL));
 });
 
-test('the loader on a league with no synced rosters: typed unknown, preview prefix under preview', () => {
+test('the loader on a league with no synced rosters: typed unknown, preview prefix under preview', async () => {
   const saved = { p: process.env[PREVIEW_ENV], w: process.env[WARROOM_ENV] };
   process.env[PREVIEW_ENV] = '1'; delete process.env[WARROOM_ENV];
   try {
-    const v = warRoomClones(987654);
+    const v = await warRoomClones(987654);
     assert.equal(v.enabled, true);
     assert.equal(v.preview, true);
     assert.equal(v.clones.status, 'unknown');
@@ -228,7 +233,7 @@ test('the loader on a synced league: one row per league-mate, Nick\'s roster lef
          VALUES (8801, 'espn', 'wr-clones-8801', 2026, 'Clones', '1', 3, 1, ?, '2026-09-24 01:00:00')`,
     JSON.stringify({ teams: [{ id: 1, roster: { entries: [entry(11, 'Alpha Runner', 2)] } },
       { id: 2, roster: { entries: [] } }, { id: 3, roster: { entries: [] } }] }));
-    const v = warRoomClones(8801, { now: NOW });
+    const v = await warRoomClones(8801, { now: NOW });
     assert.equal(v.preview, undefined);
     assert.equal(v.clones.status, 'ok');
     assert.deepEqual(v.clones.value.map(r => r.team), ['2', '3']);

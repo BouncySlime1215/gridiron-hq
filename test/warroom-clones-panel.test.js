@@ -21,7 +21,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'war-room-plans.json'), 'utf8'));
 const { buildWarRoomView } = await import('../server/services/war-room-view.js');
 const { buildCloneRows, CLONE_SOURCES } = await import('../server/services/warroom-clones.js');
-const { normaliseProfile } = await import('../server/services/people/profile-reader.js');
+const { cloneProfile } = await import('../server/services/warroom-clones.js');
+const { peopleProfileEntry } = await import('../server/services/people/profile-reader.js');
 
 const wr = await loadWarRoom();
 test.after(() => wr.cleanup());
@@ -35,8 +36,15 @@ const players = new Map([
   ['alpha runner', { id: '101', name: 'Alpha Runner', pos: 'RB', owner: '1' }],
   ['bravo catcher', { id: '102', name: 'Bravo Catcher', pos: 'WR', owner: '5' }],
 ]);
-const prof = over => normaliseProfile({ as_of: ago(2), messages_read: 90, says_no: { does_his_no_hold: 'rarely' },
-  values_talk: { wants: { players: [{ player: 'Alpha Runner', at: ago(2) }, { player: 'Bravo Catcher', at: ago(12) }] } }, ...over });
+/** A schema-v2 row through THE reader (profile-reader.js), then the panel's labels. */
+const prof = over => {
+  const raw = { headline: 'h', what_moves_him: [], caveats: [], confidence: 'medium', how_to_approach: 'x',
+    praise_means: { reading: 'mixed', why: 'x', evidence: [] }, techniques: [],
+    calibration: { enthusiasm_scale: 'x', inflation: 'none' },
+    as_of: ago(2), messages_read: 90, says_no: { how: 'x', evidence: [], does_his_no_hold: 'rarely' },
+    values_talk: { wants: { players: [{ player: 'Alpha Runner', at: ago(2) }, { player: 'Bravo Catcher', at: ago(12) }] } }, ...over };
+  return cloneProfile(peopleProfileEntry({ name: 'x', row: { profile_json: JSON.stringify(raw), messages_read: raw.messages_read } }));
+};
 const rows = buildCloneRows({
   teams: ['1', '2', '3', '4'], me: '1',
   profiles: { available: true, byRoster: new Map([

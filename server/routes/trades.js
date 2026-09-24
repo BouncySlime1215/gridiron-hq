@@ -687,11 +687,11 @@ r.get('/:leagueId/war-room', async (req, res, next) => {
  * band, top reasons, wants, credibility of his shop talk). Same flag and membership
  * check as the War Room; labels only, no chat text.
  */
-r.get('/:leagueId/war-room/clones', (req, res, next) => {
+r.get('/:leagueId/war-room/clones', async (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
     if (!warRoomFlag().enabled) { res.json({ enabled: false }); return; }
-    res.json(warRoomClones(lg.id));
+    res.json(await warRoomClones(lg.id));
   } catch (e) { next(e); }
 });
 

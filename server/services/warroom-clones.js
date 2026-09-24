@@ -4,8 +4,9 @@
  *
  * Per manager it serves, as typed fields (the war-room-view.js shape, `value` only when
  * 'ok'):
- *   profile      his traits as LABELS, from the typed profile read (people/profile-reader.js):
- *                typed traits, Nick's override winning, 'unknown' for quiet managers
+ *   profile      his traits as LABELS, from THE one profile reader (people/profile-reader.js,
+ *                FIX-00 #260; RULINGS 1): peopleProfile's typed entries, reduced here to
+ *                labels by cloneProfile; Nick's block winning, 'unknown' for quiet managers
  *   p_accept     a band {low, mid, high} for a deal that passes our edge test, from the same
  *                acceptanceBand the trade finder uses; "population, not him" with no record
  *   reasons      the top reasons, as labels with their signed effect when there is one
@@ -21,7 +22,7 @@
  * chat or ESPN name is copied. Players are named (they are NFL players, not people in
  * the league).
  *
- * `buildCloneRows` is pure. `warRoomClones` is the one loader. It runs on the request
+ * `buildCloneRows` and `cloneProfile` are pure. `warRoomClones` is the one loader. It runs on the request
  * (the same reads GET /brain/managers makes today). Nothing here is fitted: every band
  * says `fitted: false` and carries the amber guess tag.
  */
@@ -33,7 +34,7 @@ import { identityMap } from './manager-identity.js';
 import { declarationCredibility } from './bluff-detector.js';
 import { normalizePlayerName } from './player-identity.js';
 import { currentNflWeek } from './weekly-learning.js';
-import { readLeagueProfiles, UNKNOWN } from './people/profile-reader.js';
+import { peopleProfile, leadingToken, tradesNone, UNKNOWN } from './people/profile-reader.js';
 import { previewFields } from './preview-mode.js';
 import { warRoomFlag, WARROOM_PREVIEW_REASON } from './warroom-flag.js';
 import { finalize } from './war-room-view.js';
@@ -69,6 +70,125 @@ const TRAIT_LABEL = Object.freeze({
   buyer: { true: 'a buyer', false: 'not a buyer' },
   hard_to_deal_with: { true: 'hard to deal with', false: null },
 });
+
+/* ----------------------------------------- the one reader's entry -> clone labels */
+
+const lower = v => String(v ?? '').trim().toLowerCase();
+const arr = v => (Array.isArray(v) ? v : v == null ? [] : [v]);
+
+/** Free-text slots the reader keeps as text, mapped to labels by their leading word. */
+const URGENCY_WORDS = { high: 'high', urgent: 'high', very: 'high', medium: 'medium', moderate: 'medium',
+  some: 'medium', low: 'low', none: 'low', no: 'low' };
+const WORD_MATCH_WORDS = { yes: 'credible', matches: 'credible', consistent: 'credible', follows: 'credible',
+  reliable: 'credible', credible: 'credible', mixed: 'mixed', partly: 'mixed', sometimes: 'mixed', somewhat: 'mixed',
+  no: 'cheap_talk', cheap: 'cheap_talk', talks: 'cheap_talk', rarely: 'cheap_talk', contradicts: 'cheap_talk',
+  all: 'cheap_talk', says: 'cheap_talk', bluff: 'cheap_talk' };
+function wordLabel(words, value) {
+  if (typeof value === 'boolean' && words === WORD_MATCH_WORDS) return value ? 'credible' : 'cheap_talk';
+  const t = leadingToken(value, words);
+  return t != null && words[t] ? words[t] : UNKNOWN;
+}
+
+/** Technique names -> a posture label, by keyword. The names themselves are not kept. */
+function postureOf(techniques) {
+  const names = arr(techniques).map(t => lower(t?.name ?? t)).join(' ');
+  if (!names) return UNKNOWN;
+  if (/ghost|ignore|silent|no reply|slow/.test(names)) return 'ghoster';
+  if (/counter|haggl|anchor|lowball|nickel/.test(names)) return 'haggler';
+  if (/quick|fast|decisive/.test(names)) return 'quick';
+  return UNKNOWN;
+}
+
+/** Free-text approach advice -> one style label. */
+function styleOf(text) {
+  const t = lower(text);
+  if (!t) return UNKNOWN;
+  if (/number|value|chart|data|projection/.test(t)) return 'numbers';
+  if (/need|hole|depth|injur/.test(t)) return 'need';
+  if (/casual|banter|joke|friendly|light/.test(t)) return 'casual';
+  if (/direct|straight|just ask|blunt/.test(t)) return 'direct';
+  return UNKNOWN;
+}
+
+/** A player a manager said he wants: a name (matched later against rosters) and a date. */
+function wantsOf(profile, asOf) {
+  const w = profile?.values_talk?.wants ?? {};
+  const list = Array.isArray(w) ? w : [...arr(w.players), ...arr(w.positions)];
+  return list.map(x => {
+    const name = typeof x === 'string' ? x : x?.player ?? x?.name ?? null;
+    const at = (x && typeof x === 'object' ? x.at ?? x.since ?? x.last ?? x.as_of : null) ?? asOf ?? null;
+    return name ? { name: String(name).slice(0, 60), at } : null;
+  }).filter(Boolean);
+}
+
+const FAN_OF = /^[A-Za-z .]{2,24}$/;
+
+/**
+ * The reader's Nick block (profile-reader.js#nickBlock) as the typed fields this panel
+ * shows. Note text is counted, never copied; a sentence is not a team label.
+ */
+export function cloneNick(block) {
+  if (!block || block.empty) return null;
+  const fan = typeof block.fan_of === 'string' && FAN_OF.test(block.fan_of.trim()) ? block.fan_of.trim() : null;
+  const out = {
+    contactable: block.contactable ?? null,
+    active: block.active ?? null,
+    buyer: block.buyer ?? (tradesNone(block.trades) ? false : null),
+    hard_to_deal_with: block.difficulty ? block.hard === true : null,
+    fan_of: fan,
+    notes_n: (block.notes?.length ?? 0) + (block.note ? 1 : 0),
+  };
+  out.set = Object.entries(out).some(([k, v]) => (k === 'notes_n' ? v > 0 : v != null));
+  return out;
+}
+
+const TRAIT_KEYS = ['no_holds', 'inflation', 'urgency', 'posture', 'style', 'word_match', 'buyer', 'hard_to_deal_with'];
+
+/**
+ * One people.profile entry (profile-reader.js#peopleProfileEntry) -> the panel's typed
+ * profile. Pure. Reads only the reader's normalised profile (enum slots already parsed);
+ * no sentence leaves this function, only the label it reduced to.
+ *   { status, reason?, as_of, messages_read, traits, sources, wants: [{ name, at }], nick }
+ */
+export function cloneProfile(entry) {
+  const nick = cloneNick(entry?.nick);
+  const p = entry?.status === 'ok' ? entry.profile : null;
+  const bvw = p?.behaviour_vs_words;
+  const derived = p ? {
+    no_holds: p.says_no?.does_his_no_hold ?? UNKNOWN,
+    inflation: p.calibration?.inflation ?? UNKNOWN,
+    urgency: wordLabel(URGENCY_WORDS, p.deal_feelings?.urgency),
+    posture: postureOf(p.techniques),
+    style: styleOf(p.how_to_approach),
+    word_match: wordLabel(WORD_MATCH_WORDS, bvw?.verdict ?? bvw?.summary ?? bvw),
+  } : {};
+  const traits = {}, sources = {};
+  for (const k of TRAIT_KEYS) {
+    // buyer / hard_to_deal_with are Nick's word only: schema v2 has no chat-derived slot for them.
+    const fromNick = (k === 'buyer' || k === 'hard_to_deal_with') ? nick?.[k] ?? null : null;
+    if (fromNick != null) { traits[k] = fromNick; sources[k] = 'nick_override'; continue; }
+    const v = derived[k];
+    const known = v != null && v !== UNKNOWN;
+    traits[k] = known ? v : UNKNOWN;
+    sources[k] = known ? 'profile' : UNKNOWN;
+  }
+  const out = {
+    status: p ? 'ok' : UNKNOWN,
+    as_of: entry?.as_of ?? null,
+    messages_read: entry?.messages_read ?? null,
+    traits, sources,
+    wants: p ? wantsOf(p, entry.as_of) : [],
+    nick,
+  };
+  if (!p) out.reason = entry?.reason ?? 'no chat profile built for this manager';
+  return out;
+}
+
+/** people.profile (the reader's league read) -> { available, reason?, byRoster: Map roster -> cloneProfile }. */
+export function cloneProfiles(read) {
+  if (!read?.available) return { available: false, reason: read?.reason ?? 'profiles not loaded', byRoster: new Map() };
+  return { available: true, byRoster: new Map([...read.byRoster].map(([r, e]) => [String(r), cloneProfile(e)])) };
+}
 
 /* ------------------------------------------------------------------ fields */
 
@@ -249,8 +369,11 @@ function leaguePlayers(payload) {
 }
 const POS = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'D/ST' };
 
-/** The clones response for one league. The route checks membership and the flag first. */
-export function warRoomClones(leagueId, { now = Date.now() } = {}) {
+/**
+ * The clones response for one league. The route checks membership and the flag first.
+ * Async because the one reader's loader (profile-reader.js#peopleProfile) is.
+ */
+export async function warRoomClones(leagueId, { now = Date.now() } = {}) {
   const { preview } = warRoomFlag();
   const lg = rows('SELECT payload, my_team_id FROM leagues WHERE id = ?', leagueId)[0];
   const payload = lg?.payload ? JSON.parse(lg.payload) : null;
@@ -259,7 +382,7 @@ export function warRoomClones(leagueId, { now = Date.now() } = {}) {
   if (!teams.length) {
     return finalize({ ...base, clones: unknown('This league has not synced its rosters yet.', 'people.profile') }, { preview });
   }
-  const profiles = readLeagueProfiles(leagueId);
+  const profiles = cloneProfiles(await peopleProfile(leagueId));
 
   let counterparties = null, cpState = { status: 'ok' };
   if (signalRowsFor(leagueId).length) {

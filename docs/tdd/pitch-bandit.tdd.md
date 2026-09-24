@@ -1,6 +1,6 @@
 # BANDIT-01 — pitch bandit scaffold (IDEA-037, people-model M5)
 
-RED `f0a647b5` (test: RED for BANDIT-01) · GREEN: the next commit ·
+RED `f0a647b5` (test: RED for BANDIT-01) · GREEN `8754b077` (feat: BANDIT-01 pitch bandit scaffold) ·
 `test/pitch-bandit.test.js` 10 cases + `test/pitch-bandit-route.test.js` 2 cases.
 Branched from #239 (CLONE-01b b1 offer loop) because `trade_outcomes.sent_at`
 exists only there (migration 080); origin/main `21c9da4` merged in.

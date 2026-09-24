@@ -38,6 +38,7 @@ const { default: accoladesRouter } = await import('./routes/accolades.js');
 const { default: edgeRouter } = await import('./routes/edge.js');
 const { default: tradelabRouter } = await import('./routes/tradelab.js');
 const { default: tradesRouter } = await import('./routes/trades.js');
+const { default: commandCenterRouter } = await import('./routes/command-center.js');
 const { default: espnConnectRouter } = await import('./routes/espn-connect.js');
 const { default: leagueChatRouter } = await import('./routes/league-chat.js');
 const { default: modelRouter } = await import('./routes/model.js');
@@ -124,6 +125,7 @@ app.use('/api/accolades', ...legacyAuthenticated, accoladesRouter);
 app.use('/api/edge', ...legacyAuthenticated, edgeRouter);
 app.use('/api/tradelab', ...legacyAuthenticated, tradelabRouter);
 app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
+app.use('/api/command-center', ...legacyAuthenticated, commandCenterRouter);
 app.use('/api/espn-connect', espnConnectRouter);
 app.use('/api/league-chat', ...legacyAuthenticated, leagueChatRouter);
 // Gated as a family. Individual mutations already carried

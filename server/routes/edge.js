@@ -286,7 +286,7 @@ NEWS: ${news.map(n => `[${n.date}] ${n.headline}`).join(' | ') || 'none'}
 
 Write for someone about to draft him. Reference the actual numbers above. Cover: what his role really is, whether ADP is a bargain or a tax, his floor/ceiling profile and what kind of roster he fits, the playoff schedule, and the single biggest risk.
 
-Respond with ONLY JSON: {"verdict":"one of: LEAGUE WINNER, SOLID VALUE, FAIR PRICE, OVERPRICED, AVOID","confidence":"high|medium|low","report":"4-6 sentences"}`
+Respond with ONLY JSON: {"verdict":"one of: LEAGUE WINNER, SOLID VALUE, FAIR PRICE, OVERPRICED, AVOID","confidence":"high|medium|low","report":"one paragraph covering each point above"}`
     });
     const out = parseJson(msg);
     run(`INSERT INTO scout_reports (player_id, verdict, report, confidence, generated_at)

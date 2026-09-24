@@ -2962,7 +2962,7 @@ const ESPN_PLAYING = new Set(['ACTIVE', 'QUESTIONABLE', 'DAY_TO_DAY', 'PROBABLE'
  * never on a real 0 (a bye), same as weekPpg() in lineup-posture.js and
  * waiver-wire.js (commit fe38e93).
  */
-function lineupDiffWeekPoints(p, season, week) {
+export function lineupDiffWeekPoints(p, season, week) {
   const base = p.current_week_ppg ?? p.adj_ppg ?? p.ppg ?? 0;
   const lift = vegasLift(p, season, week);
   const v = base * (lift.applied ? lift.multiplier : 1);

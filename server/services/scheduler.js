@@ -1616,8 +1616,9 @@ export const JOBS = {
    * Hourly: lineup snapshots and raw transactions land on the refresh loop,
    * and ESPN keeps only about three days of transactions, so a resolver that
    * lags a window by a day still reads its rows from the local copy.
+   * Off-thread, as rec_ledger_grade: the backfill reads the whole rec_ledger.
    */
-  follow_ledger_sync: { run: refreshFollowLedger, maxAgeMinutes: 60, tier: 'growth',
+  follow_ledger_sync: { run: refreshFollowLedger, maxAgeMinutes: 60, tier: 'growth', offThread: true,
     label: 'Follow ledger: match shown calls to what was done on ESPN (follow / ignore / no_action)' },
   twitter_insiders: { run: refreshTwitterInsiders, maxAgeMinutes: 4 * 60, tier: 'metered',
     label: 'NFL insider tweets — typed injury/role claims (budget-capped, ~$0.003/handle)' },

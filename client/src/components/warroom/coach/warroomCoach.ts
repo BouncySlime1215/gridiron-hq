@@ -462,7 +462,11 @@ export function coachFooter(plans: any, ui?: CoachUi): { destination: string; st
   const deck = deckOf(plans);
   const at = ui ? (ui.deck[String(ui.league ?? 'current')] ?? 0) : 0;
   const move = deck.length ? deck[Math.min(at, deck.length - 1)] : unwrap(plans?.next_move);
-  const next_move = dealLine(move, names) ?? 'not computed yet';
+  // WR-POLISH (audit defect 6): a plan that ran and found nothing is not "not computed".
+  const nm = plans?.next_move;
+  const none = !deck.length && nm && typeof nm === 'object' && nm.status === 'unknown' && typeof nm.reason === 'string' && nm.reason.trim()
+    ? `none clears this week (${nm.reason.trim().split(/\.\s/)[0].replace(/[.\s]+$/, '')})` : null;
+  const next_move = dealLine(move, names) ?? none ?? 'not computed yet';
   return { destination, stops_left, next_move,
     text: `Destination: ${destination} / Stops left: ${stops_left} / Next move: ${next_move}` };
 }

@@ -60,7 +60,7 @@ rather than becoming a fourth copy.
 | `chat_sentiment` | 12% | 1 | chat | the fallback where there is talk but no model read |
 | `profile_roster_read` | 10% | 1 | chat | his negotiation profile's own over/undervalues, untouchables, quietly-available |
 | `hype_vs_usage` | 8% | 2 games | weekly expected points | his own player outscoring the usage that earns it |
-| `luck_self_view` | 5% | 4 scored weeks | archetype build | a flattered record prices its own roster high |
+| `luck_self_view` | **0% — retired** (was 5%) | 4 scored weeks | archetype build | **tested dead (r46 IDEA-103, 2026-09-24):** a ~2-win luck gap moves at most ~1.1 pp of how a manager values his own players, against the 5% this priced. Kept in the registry with `tested` so the map reports it absent with that verdict (`retired: tested dead …; it prices nothing`) instead of "rests on n of 4". Pinned by G2c and G9j (+3 wins over 6 weeks prices exactly as no luck row). |
 | `positional_need` | 8% | 1 | roster read | a hole raises what he pays there; depth lowers it |
 | `recency_post_loss` | 5% | 1 | standings | **receptiveness**, not a player's price |
 | `untouchable_credibility` | 10% | 1 | chat | a refusal that holds is a real price; a bluffer's is an opening one |
@@ -180,7 +180,7 @@ deal. Both passed.
 | `talk_vs_model` | 0 / 6 | 0 | 0 |
 | `untouchable_credibility` | 0 / 0 | 0 | 0 |
 | `hype_vs_usage` | inert (1 of 2 games) | — | — |
-| `luck_self_view` | inert (1 of 4 weeks) | — | — |
+| `luck_self_view` | inert (1 of 4 weeks); retired 2026-09-24, prices nothing at any sample | — | — |
 
 **No source changes which ideas surface.** Three change their order. The
 binding constraint is not the map: `perceptionFactorFor` in `trade-engine.js`

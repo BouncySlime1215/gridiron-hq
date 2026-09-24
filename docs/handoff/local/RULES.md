@@ -56,3 +56,4 @@ Every 15-minute tick checks BOTH lanes and refills whichever is idle:
 - LOCAL lane (this Mac, desktop account): at least 1 R&D round (rnd-loop-v3, next NORTH-STAR-RND component) OR build loop running, plus the merge train (ordered, merge-order.txt) and local-checks.sh. Only one workflow at a time; check load with uptime (< 12) and run ~/claude-handoff/usage.sh first.
 - CLOUD lane (other Max account): keep up to 6 sessions running from CLOUD-QUEUE.md.
 Each tick logs one line: "local: <what's running> | cloud: <n running> | merged: <n>".
+- Workflows (Nick 9/23 11:35 PM: "workflows opening on their own without me"): exactly one R&D/build workflow always running in the coordinator session. On every workflow-complete notification, verify + record, then IMMEDIATELY launch the next entry of ~/gridiron-local/lanes/workflow-queue.json. Backup: the 10-minute WORKFLOW KEEPER cron does the same if none is running.

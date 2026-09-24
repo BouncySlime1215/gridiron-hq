@@ -2,7 +2,19 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-24 02:50Z.
+Last rebuilt: 2026-09-24 03:15Z.
+
+## #241: fix: centre title odds on the finder's rest-of-season rate (RL-17-3)
+
+- Merged: 11:14 PM ET, Sep 23 as `21c9da41`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #238: feat: shared War Room plans schema + contract test (WARROOM-CONTRACT)
+
+- Merged: 11:02 PM ET, Sep 23 as `ea947d4b`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #232: fix: key the failed-slate hold on the model call config (FIX-HOLD-01)
 
@@ -463,3 +475,9 @@ Last rebuilt: 2026-09-24 02:50Z.
 - Intake: done: (filled by the integration intake agent) 1. Upstream: canonical producer, unchanged — still reads playerweekusage.targetshare for the one number this file owns (server/services/player-advanced-stats.js:219 area). No new copy of an existing number was computed; the change adds a second axis (unavailablekind: notapplicable | notmeasured) alongside the existing value/reason shape (git show 35a61fe3 -- server/services/pl…
 - Follow-ups: none needed, or folded into existing units (see the card)
 
+# INTEGRATION LOG (coordinator, hands-on)
+## 9/23 ~11:25 PM: preview = main + #238 #233 #231 #230 #234 (+ FIX-03 #272), DB copy, port 5189, target league
+- Merge: all 5 PRs + FIX-03 merge cleanly onto main.
+- Producer: exit 0, about 151-173 s; next move computed. validatePlans: 37 errors without FIX-03, 0 errors with FIX-03. Verified and commented on #272.
+- War Room screen: every panel shows "not computed yet / not built". The UI (#231) reads the old shape and hard-codes those states, which is the audit's defect 4b. FIX-04 is needed (cloud, running). Coach isn't docked yet (FIX-06). The league rail lists all 5 leagues as "not ranked yet"; it should open on the target league.
+- Next: when FIX-04 and FIX-06 open PRs, merge them into this preview, re-check and screenshot.

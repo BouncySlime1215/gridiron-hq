@@ -6,6 +6,7 @@ import { flushOutbox, postWarRoomRequest, type Poster } from './requests';
 import { FieldBlock, SourceTag, Val } from './FieldState';
 import { pct, pts, NOT_COMPUTED, isOk } from './format';
 import ReplyTable from './ReplyTable';
+import NoMoveCard from './NoMoveCard';
 
 /**
  * NEXT MOVE: the one decision ("send this to this manager, yes or no") as a swipe deck
@@ -15,12 +16,14 @@ import ReplyTable from './ReplyTable';
  * Skips, "I sent it" and logged replies post to the request table (deck.ts, requests.ts).
  * Nothing is ever sent from here: Copy, then Nick sends it in ESPN.
  */
-export default function NextMoveDeck({ view, big, initialState, onLog, post }: {
+export default function NextMoveDeck({ view, big, initialState, onLog, post, onAsk }: {
   view: WarRoomView;
   big: boolean;
   initialState?: DeckState;
   onLog?: (log: DeckLogEntry[]) => void;
   post?: Poster;
+  /** Ask Coach (the no-move card's prompts). */
+  onAsk?: (q: string) => void;
 }) {
   const field = view.alternatives;
   const moves: Move[] = isOk(field) ? field.value : [];
@@ -116,7 +119,8 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post }: {
     return <div className="wr-deck"><FieldBlock f={field} label="Next move">{() => null}</FieldBlock></div>;
   }
   if (!total) {
-    return <div className="wr-deck"><div className="wr-empty">{view.next_move?.reason ?? 'The planner found no move for this league.'}</div></div>;
+    // Audit defect 2: the reason, then the closest path and the all-in option, never a blank slot.
+    return <div className="wr-deck"><NoMoveCard view={view} onAsk={onAsk} /></div>;
   }
   if (!move) {
     return (

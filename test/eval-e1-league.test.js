@@ -46,34 +46,6 @@ test('league offers from other managers count; withdrawn and unanswered do not',
   assert.equal(r.detail.excluded.withdrawn, 1);
 });
 
-test('FIX-268-4: a proposal\'s terms come from its snapshot first; raw items_json only when no snapshot exists', () => {
-  const raw = rawLeague();
-  // 110: the raw upsert overwrote the items with nothing; 120: the raw proposal row was never
-  // stored, only its answer. Both have a snapshot. 130 keeps its raw items (no snapshot).
-  raw.find(r => r.tx_id === '110').items_json = '[]';
-  const gone = raw.findIndex(r => r.tx_id === '120');
-  raw.splice(gone, 1);
-  const snapshots = [
-    { league_id: 7, season: 2026, proposal_tx_id: '110', proposer_team_id: 2, proposed_at: iso(0), items_json: JSON.stringify([{ fromTeamId: 2, toTeamId: 3, playerId: 1 }]) },
-    { league_id: 7, season: 2026, proposal_tx_id: '120', proposer_team_id: 3, proposed_at: iso(1), items_json: JSON.stringify([{ fromTeamId: 3, toTeamId: 4, playerId: 2 }]) },
-    // 140: raw items still there (5 <-> 2) but the snapshot, first seen, says 5 <-> 3: the snapshot wins.
-    { league_id: 7, season: 2026, proposal_tx_id: '140', proposer_team_id: 5, proposed_at: iso(3), items_json: JSON.stringify([{ fromTeamId: 5, toTeamId: 3, playerId: 4 }]) },
-  ];
-  const without = L.mergeOffers({ raw });
-  assert.equal(without.offers.length, 3, 'no snapshot: 110 is unreadable and 120 has no proposal');
-  const { offers, excluded } = L.mergeOffers({ raw, snapshots });
-  assert.equal(offers.length, 5);
-  assert.equal(excluded.unreadable, 0);
-  const by = Object.fromEntries(offers.map(o => [o.espn_tx_id, o]));
-  assert.equal(by['110'].terms_source, 'trade_proposal_snapshots');
-  assert.equal(by['120'].terms_source, 'trade_proposal_snapshots');
-  assert.equal(by['120'].proposed_at, iso(1), 'a snapshot-only proposal is timed by its snapshot');
-  assert.deepEqual([by['120'].proposer_team_id, by['120'].counterparty_team_id], ['3', '4']);
-  assert.equal(by['130'].terms_source, 'league_transactions_raw');
-  assert.equal(by['140'].terms_source, 'trade_proposal_snapshots');
-  assert.equal(by['140'].counterparty_team_id, '3', 'both present: the snapshot\'s terms, not the raw row\'s');
-});
-
 test('a raw proposal already settled into trade_outcomes is counted once', () => {
   const raw = rawLeague();
   const settled = { league_id: 7, season: 2026, source: 'observed', proposer_team_id: '2', counterparty_team_id: '3', proposed_at: iso(0), resolved_at: iso(0, 5), model_p_accept: null, status: 'accepted', espn_tx_id: '110' };

@@ -1794,6 +1794,11 @@
     "status": "unknown",
     "source": "plan.path",
     "reason": "Risk modes were not compared in this fixture."
+   },
+   "feasibility_points": {
+    "status": "unknown",
+    "reason": "the 140-points side panel is off (GRIDIRON_POINTS_FEASIBILITY unset)",
+    "source": "sim.title"
    }
   },
   {
@@ -1937,6 +1942,11 @@
     "status": "unknown",
     "source": "plan.path",
     "reason": "Risk modes were not compared in this fixture."
+   },
+   "feasibility_points": {
+    "status": "unknown",
+    "reason": "the 140-points side panel is off (GRIDIRON_POINTS_FEASIBILITY unset)",
+    "source": "sim.title"
    }
   },
   {
@@ -2370,6 +2380,11 @@
     "status": "unknown",
     "source": "plan.path",
     "reason": "Risk modes were not compared in this fixture."
+   },
+   "feasibility_points": {
+    "status": "unknown",
+    "reason": "the 140-points side panel is off (GRIDIRON_POINTS_FEASIBILITY unset)",
+    "source": "sim.title"
    }
   }
  ]

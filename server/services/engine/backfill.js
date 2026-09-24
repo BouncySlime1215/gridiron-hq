@@ -28,6 +28,7 @@
  *                 result; the app's own model outputs go under payload.model
  *   signals       computed_at; every manager_signals source, counts and rates per fantasy
  *                 team only; the league's scoring period is in the natural key
+ *   people_pulse  the statement's message time (exact); PULSE-01's labels, never text
  *   coverage      sync_log.last_run_at: one source.coverage event per collector run seen
  *                 (compare-latest), so a window with no run reads unknown, never zero
  * Every party is an entity; a player without a players.id is an alias (espn:/gsis:).
@@ -318,8 +319,9 @@ export const ADAPTERS = Object.freeze([
     // natural key carries the event type, so the two streams never share a dedupe key.
     stream: 'tells_transactions', table: 'league_transactions_raw', eventTypes: ['league.transaction'],
     sql: t => `SELECT league_id, season, tx_id, type, status, execution_type, proposed_at, processed_at, team_id,
-                 scoring_period, bid_amount, items_json, first_seen_at FROM ${t}
-               WHERE type IN ('FREEAGENT', 'WAIVER', 'TRADE_ACCEPT')`,
+                 scoring_period, bid_amount, items_json, first_seen_at FROM ${t}`,
+    // No WHERE here: the engine daemon appends its cursor condition (daemon/cursors.js, which
+    // also narrows to these types); tellTransaction() drops every other type.
     map: r => {
       const payload = tellTransaction(r);
       if (!payload) return [];
@@ -363,6 +365,25 @@ export const ADAPTERS = Object.freeze([
           opp: r.opponent_roster_id == null ? null : Number(r.opponent_roster_id), is_playoff: r.is_playoff,
           starters: lu?.starters ?? [], players: lu?.players ?? [], starters_complete: false,
           lineup: lu ? 'final_snapshot' : lineupsRead ? 'no_final_snapshot' : 'table_absent' },
+      }];
+    },
+  },
+  {
+    // PULSE-01: labelled chat statements (labels and ids only; people_pulse holds no text).
+    stream: 'people_pulse', table: 'people_pulse',
+    sql: t => `SELECT id, league_id, roster_id, as_of, statement_type, player_ids_json, pos, own, style, weight,
+                 credible, live, labeller_version FROM ${t}`,
+    context: database => ({ byEspn: playerIndex(database, 'espn_id') }),
+    map: (r, { byEspn }) => {
+      const ids = parse(r.player_ids_json, []) ?? [];
+      return [{
+        event_type: 'people.statement', as_of: r.as_of, as_of_quality: 'exact', league_id: r.league_id,
+        team_id: r.roster_id, natural_key: `pulse:${r.id}`,
+        entities: [team(r.league_id, r.roster_id, 'subject'),
+          ...ids.map(id => playerEntity(byEspn.get(String(id)), 'espn', id, 'counterparty'))].filter(Boolean),
+        payload: { pulse_id: r.id, statement_type: r.statement_type, roster_id: r.roster_id, espn_player_ids: ids,
+          pos: r.pos ?? null, own: r.own ?? null, style: r.style ?? null, weight: r.weight ?? null,
+          credible: !!r.credible, live: !!r.live, labeller_version: r.labeller_version },
       }];
     },
   },

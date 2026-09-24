@@ -17,7 +17,8 @@
  *
  * Request-thread cost: one async stat of the plans file per request; the file is read
  * and parsed only when its mtime or size changes; validation walks one league entry.
- * No producer module is imported here.
+ * No producer module is imported at load. The one exception is WR-POLISH's fallback: a
+ * plan with no number_health reads the number audit (a SELECT) through lazy imports.
  */
 import fs from 'node:fs/promises';
 import { previewFields, previewText } from './preview-mode.js';
@@ -201,12 +202,103 @@ export function buildWarRoomView(leagueId, plans, flag) {
     const r = 'The planner failed its own check (its composed rescore did not match the served trade impact), so its numbers are hidden. Trust Trade Lab meanwhile.';
     return finalize({ ...view, ...allHidden('failed', r) }, flag);
   }
+  guardAttention(view);
+  hideUntouchableTargets(view, entry);
   return finalize(view, flag);
+}
+
+/* ------------------------------------------------------- WR-POLISH guards */
+
+/**
+ * Is a served attention row in range? The rail reads "rank R of N"; anything but whole
+ * numbers with 1 <= R <= N is a producer bug. Null when fine, else the reason.
+ */
+export function attentionProblem(value) {
+  const rank = value?.rank, of = value?.of;
+  if (!Number.isInteger(rank) || !Number.isInteger(of)) return 'its rank or league count is not a whole number';
+  if (rank < 1 || of < 1 || rank > of) return `rank ${rank} of ${of} is out of range`;
+  return null;
+}
+
+/** Audit defect 1: an out-of-range rank ("rank 6 of 5") is a producer bug, served failed, never drawn. */
+function guardAttention(view) {
+  const a = view.attention;
+  if (a?.status !== 'ok') return;
+  const problem = attentionProblem(a.value);
+  if (problem) view.attention = hidden('failed', `The attention rank is hidden: ${problem}.`, a.source ?? 'campaign.plan');
+}
+
+/** A target mark that means "on his untouchable list": true, a Field that is ok and true, or { label }. */
+function untouchableMark(t) {
+  const m = t?.untouchable ?? t?.on_untouchable_list;
+  if (m === true) return typeof t.untouchable_label === 'string' ? t.untouchable_label : '';
+  if (m && typeof m === 'object') {
+    if ('status' in m) return m.status === 'ok' && m.value ? (typeof m.value === 'object' && typeof m.value.label === 'string' ? m.value.label : '') : null;
+    return typeof m.label === 'string' ? m.label : '';
+  }
+  return null;
+}
+
+/** The entry's per-roster untouchable list, if the plan writes one: { owner: [player ids] }. */
+function rosterUntouchables(entry) {
+  // The producer writes Nick's untouchables per manager on partners[].untouchable (RULINGS 17, the reader's nick block).
+  const fromPartners = entry?.partners?.status === 'ok' && Array.isArray(entry.partners.value)
+    ? Object.fromEntries(entry.partners.value.filter(p => p?.untouchable?.length).map(p => [String(p.team), p.untouchable])) : null;
+  const raw = entry?.untouchables_by_roster ?? entry?.roster_untouchables ?? (fromPartners && Object.keys(fromPartners).length ? fromPartners : null);
+  const map = raw && typeof raw === 'object' && 'status' in raw ? (raw.status === 'ok' ? raw.value : null) : raw;
+  if (!map || typeof map !== 'object') return null;
+  return new Map(Object.entries(map).map(([owner, ids]) => [String(owner), new Set((Array.isArray(ids) ? ids : []).map(String))]));
+}
+
+/**
+ * Audit defect 8: targets never show a player the plan marks as on his owner's
+ * untouchable list. The rows are dropped here (so Coach and the panel agree) and the
+ * field says how many were hidden and why: `hidden_untouchable: [{ player, owner, label }]`.
+ */
+function hideUntouchableTargets(view, entry) {
+  const f = view.targets;
+  if (f?.status !== 'ok' || !Array.isArray(f.value)) return;
+  const lists = rosterUntouchables(entry);
+  const hiddenRows = [];
+  f.value = f.value.filter(t => {
+    let label = untouchableMark(t);
+    if (label == null && lists?.get(String(t?.owner))?.has(String(t?.player))) label = '';
+    if (label == null) return true;
+    hiddenRows.push({ player: String(t.player), owner: String(t.owner ?? ''), label: label || 'on his untouchable list' });
+    return false;
+  });
+  if (hiddenRows.length) f.hidden_untouchable = hiddenRows;
+}
+
+/**
+ * Audit defect 7 (FIX-05): when the plan did not carry number_health (an older run, or
+ * the producer could not read it), read the number audit itself. readNumberAudit is a
+ * plain SELECT on number_audit; its shaping is brain-gate.js#readNumberHealth, the same
+ * one the producer uses, so the two can never disagree. Both are imported lazily, so the
+ * pure view and its tests never open the app DB.
+ */
+export async function liveNumberHealth(leagueId) {
+  try {
+    const [{ readNumberAudit }, { readNumberHealth }] = await Promise.all([
+      import('./number-audit.js'), import('./campaign/brain-gate.js')]);
+    const h = readNumberHealth(undefined, leagueId, { read: (id) => readNumberAudit(id) });
+    return h.status === 'ok'
+      ? { status: 'ok', source: 'audit.numbers', ...(h.as_of ? { as_of: h.as_of } : {}), value: h.value }
+      : { status: h.status, source: 'audit.numbers', reason: h.reason };
+  } catch (e) {
+    return { status: 'failed', source: 'audit.numbers', reason: `The number audit could not be read (${String(e?.message ?? e).slice(0, 200)}).` };
+  }
 }
 
 /** The route's whole job: flag, then one cached file read, then the entry. */
 export async function warRoomView(leagueId) {
   const flag = warRoomFlag();
   if (!flag.enabled) return { enabled: false };
-  return buildWarRoomView(leagueId, await loadPlans(), flag);
+  const view = buildWarRoomView(leagueId, await loadPlans(), flag);
+  // Only when the plan has no usable number_health, and never over a planner that failed.
+  if (view.number_health && view.number_health.status === 'unknown') {
+    const live = await liveNumberHealth(leagueId);
+    if (live.status === 'ok') view.number_health = finalize({ x: live }, flag).x;
+  }
+  return view;
 }

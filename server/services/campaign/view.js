@@ -25,6 +25,9 @@ import { P_ACCEPT_LABEL } from './playbook.js';
 import { dealKey } from './paths.js';
 import { hash } from './confirm.js';
 
+/** The acceptance-model bases trade_outcomes accepts (migration 067 CHECK on model_basis). */
+const BAND_BASES = ['no_information', 'heuristic_unanchored', 'heuristic_anchored'];
+
 export const PRODUCER = 'campaign-producer';
 export const PRODUCER_VERSION = '2';
 
@@ -152,7 +155,11 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       }, 'plan.path');
       out.reasoning = reasoning({ team: st.team, p: st.p, delta: st.delta - before, clears: st.clears, pb, verdict });
     }
-    if (st.band && isProb(st.band.low) && isProb(st.band.high)) out.p_yes_band = { low: st.band.low, high: st.band.high };
+    if (st.band && isProb(st.band.low) && isProb(st.band.high)) {
+      out.p_yes_band = { low: st.band.low, high: st.band.high };
+      // The acceptance model's own basis (trade-acceptance.js): the offer ledger refuses a band without one.
+      if (BAND_BASES.includes(st.band.basis)) out.p_yes_band.basis = st.band.basis;
+    }
     return out;
   };
 

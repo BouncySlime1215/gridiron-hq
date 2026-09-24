@@ -40,6 +40,7 @@ import { identityMap, matchIdentities } from './manager-identity.js';
 import { normalizePlayerName } from './player-identity.js';
 import { PROJECT_ROOT } from '../platform/paths.js';
 import { DEAD_ESPN_STATUS } from './dead-starters.js';
+import { jevChatBlendFields, jevChatBlendRows } from './jev/chat-grader.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS manager_signals (
   league_id INTEGER NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
@@ -94,6 +95,13 @@ export const SIGNAL_SOURCES = Object.freeze({
     refreshed: 'only when the league_chat step of scripts/refresh-live-data.mjs is run (off-server; see chat.as_of)',
     priceable: true },
   nick: { label: "Nick's own read (prior, n=3)", refreshed: 'edited in code', priceable: true },
+  // JEV-01b: Jev's chat labels, calibrated against what the league did next and
+  // blended with the activity incumbent at a fitted weight. Written only with
+  // GRIDIRON_JEV_CHAT_BLEND=1 and only for a question over its pre-registered
+  // floor (jev/chat-grader.js). Shadow: context, never a price, until a later
+  // unit decides on the grade.
+  jev_blend: { label: 'Jev chat claims, calibrated and blended (shadow)',
+    refreshed: 'every manager-signal build, with GRIDIRON_JEV_CHAT_BLEND=1', priceable: false },
 });
 
 /**
@@ -495,6 +503,7 @@ export function buildManagerSignals(leagueId, opts = {}) {
   const lastCompleted = Number(payload.scoringPeriodId) - 1;
   const written = [];
   const views = new Map();
+  let jevBlend = null;
 
   try {
     for (const team of payload.teams ?? []) {
@@ -522,6 +531,14 @@ export function buildManagerSignals(leagueId, opts = {}) {
         }
       }
       for (const s of signals) written.push({ rosterId, ...s });
+    }
+    const blendFlag = jevChatBlendFields();
+    if (chat && blendFlag.enabled) {
+      jevBlend = jevChatBlendRows(leagueId, { chat, asOf: opts.asOf ?? Date.now() });
+      if (blendFlag.preview) jevBlend.state = { ...jevBlend.state, preview: true, preview_reason: blendFlag.preview_reason };
+      for (const r of jevBlend.rows) {
+        written.push({ rosterId: r.roster_id, metric: r.metric, value: r.value, n: r.n, source: r.source });
+      }
     }
   } finally { if (ownChat) chat?.close(); }
 
@@ -561,6 +578,7 @@ export function buildManagerSignals(leagueId, opts = {}) {
     by_source: bySource,
     tx_table: tx.present ? 'present' : 'absent', tx_rows: tx.rows.length,
     archetypes: arch.present ? 'present' : 'absent', archetypes_as_of: arch.asOf,
+    ...(jevBlend ? { jev_blend: jevBlend.state } : {}),
   };
 }
 

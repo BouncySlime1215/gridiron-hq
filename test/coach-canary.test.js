@@ -4,8 +4,9 @@
  * RED targets from ENGINE-SPECS.md: 12/12 pass on the fixture; the alert fires
  * on an injected wrong answer. Plus the parts that make it safe to run daily:
  * the cost guard stays under the in-app Coach cap, a spent cap is `partial`
- * rather than a false drift alarm, and the refresh loop runs it at most once a
- * day, off the web server.
+ * rather than a false drift alarm, and the engine daemon's morning hook runs it
+ * at most once a day, off the web server, and routes an 'error' to the user
+ * (one engine status row + one push through PUSH-01's sender, no chat text).
  *
  * The dry run replaces only the model: the fixture, Coach's guarded SQL tool,
  * the ledger and the verifier are the real ones. No network, no spend.
@@ -30,7 +31,8 @@ const { run, row } = await import('../server/db/index.js');
 await (await import('../server/db/migrate.js')).runMigrations();
 const G = await import('../scripts/lib/coach-canary-golden.mjs');
 const CANARY = await import('../scripts/coach-canary.mjs');
-const LOOP = await import('../scripts/refresh-live-data.mjs');
+const DAEMON = await import('../scripts/engine-daemon.mjs');
+const HOOKS = await import('../server/services/engine/daemon/hooks.js');
 const { setAnthropicClientForTesting } = await import('../server/services/claude.js');
 const { askCoach } = await import('../server/services/coach/ask.js');
 G.seedFixture(run);
@@ -141,40 +143,122 @@ test('CLI --dry-run exits 0 on 12/12 and 1 with the alert on an injected wrong a
   assert.equal(JSON.parse(drift.stdout.trim().split('\n').at(-1)).failures[0].id, 'G03');
 });
 
-// ---------------------------------------------------------------- the daily refresh-loop step
+// ---------------------------------------------------------------- the daemon's morning hook
 
-const fakeSpawn = result => {
-  const calls = [];
-  return { calls, spawn: (cmd, args) => { calls.push({ cmd, args }); return { status: 0, stdout: '{}', stderr: '', ...result }; } };
-};
 const hoursAgo = h => new Date(Date.now() - h * 3_600_000).toISOString();
+const asRole = async (role, fn) => {
+  const before = process.env.GRIDIRON_PROCESS_ROLE;
+  process.env.GRIDIRON_PROCESS_ROLE = role;
+  try { return await fn(); } finally {
+    if (before === undefined) delete process.env.GRIDIRON_PROCESS_ROLE; else process.env.GRIDIRON_PROCESS_ROLE = before;
+  }
+};
+const statusRows = () => HOOK_DB().prepare(`SELECT error FROM engine_runs WHERE producer = ? AND scope_key = 'health' ORDER BY id`)
+  .all(CANARY.CANARY_STATUS_PRODUCER);
+const { db: HOOK_DB_HANDLE } = await import('../server/db/index.js');
+const HOOK_DB = () => HOOK_DB_HANDLE;
 
-test('loop step: runs the canary with node from the repo when it has never run', () => {
-  const { spawn, calls } = fakeSpawn();
-  LOOP.createCoachCanaryStep({ spawn, log: () => {}, lastRunAt: () => null })();
-  assert.equal(calls[0].cmd, process.execPath);
-  assert.deepEqual(calls[0].args, ['--env-file-if-exists=.env', 'scripts/coach-canary.mjs']);
+test('hook: at most once a day — a run 3 h ago is fresh and asks nothing; 25 h ago proceeds', async () => {
+  assert.equal(CANARY.canaryAge(hoursAgo(3)).fresh, true);
+  assert.equal(CANARY.canaryAge(hoursAgo(25)).fresh, false);
+  assert.equal(CANARY.canaryAge(null).fresh, false, 'never run: due');
+  const fresh = await withKey(() => CANARY.runLive([], { guard: true, lastRunAt: async () => hoursAgo(3) }));
+  assert.equal(fresh.status, 'fresh', 'guarded before the key, the budget or the child');
+  const due = await CANARY.runLive([], { guard: true, lastRunAt: async () => hoursAgo(25) });
+  assert.equal(due.status, 'skipped', 'past the guard: here it stops at the missing key, spending nothing');
 });
 
-test('loop step: at most once a day — a run 3 h ago is skipped, 25 h ago runs', () => {
-  const recent = fakeSpawn();
-  assert.deepEqual(LOOP.createCoachCanaryStep({ spawn: recent.spawn, log: () => {}, lastRunAt: () => hoursAgo(3) })(), { skipped: true });
-  assert.equal(recent.calls.length, 0);
-  const old = fakeSpawn();
-  LOOP.createCoachCanaryStep({ spawn: old.spawn, log: () => {}, lastRunAt: () => hoursAgo(25) })();
-  assert.equal(old.calls.length, 1);
+test('hook: the child writes nothing — runLive returns the verdict and the real DB is untouched', async () => {
+  const before = row(`SELECT runs, last_run_at FROM sync_log WHERE job = 'coach_canary'`);
+  const out = await CANARY.runLive([], { guard: true, lastRunAt: async () => null });
+  assert.equal(out.status, 'skipped');
+  assert.deepEqual(row(`SELECT runs, last_run_at FROM sync_log WHERE job = 'coach_canary'`), before);
 });
 
-test('loop step: a canary that cannot start is recorded as an error row, and drift is logged as DRIFT', () => {
+test('daemon hook: the canary is registered on the morning (nightly) schedule, as coach-canary.mjs --hook', async () => {
+  const seen = [];
+  await DAEMON.registerCoachCanaryHook({ registerHook: (schedule, spec) => { seen.push({ schedule, spec }); return () => {}; },
+    database: HOOK_DB(), push: { send: null, why: 'test' } });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].schedule, 'nightly');
+  assert.equal(seen[0].spec.name, 'coach-canary');
+  assert.equal(path.relative(REPO, seen[0].spec.command[0]), path.join('scripts', 'coach-canary.mjs'));
+  assert.deepEqual(seen[0].spec.command.slice(1), ['--hook']);
+  assert.ok(seen[0].spec.leaseMs > 15 * 60_000, 'the lease outlives the canary child\'s own 15 min timeout');
+});
+
+test('daemon hook: an injected wrong answer -> one status row and one push call, with no chat text', async () => {
+  // The verdict the hook child would print, from the real dry run with G03 made wrong.
+  const drift = spawnSync(process.execPath, ['scripts/coach-canary.mjs', '--dry-run', '--inject-wrong', 'G03'],
+    { cwd: REPO, env: { ...process.env, GRIDIRON_DB_PATH: '' }, encoding: 'utf8', timeout: 120_000 });
+  const verdict = JSON.parse(drift.stdout.trim().split('\n').at(-1));
+  assert.equal(verdict.status, 'error');
+  // The failure reason is Coach's own words: its refusal, quoting the wrong number it could not trace.
+  const chatText = verdict.failures[0].reason;
+  const chatNumbers = chatText.match(/\d+\.\d+/g) ?? [];
+  assert.ok(chatNumbers.length, `control: the failure reason quotes a number from Coach's answer (${chatText})`);
+
+  const pushes = [];
+  const send = async msg => { pushes.push(msg); return { channel: 'test' }; };
+  const unregister = await DAEMON.registerCoachCanaryHook({ registerHook: HOOKS.registerHook, database: HOOK_DB(),
+    push: { send, why: null } });
+  // The real hook runner: its child prints the verdict line, as coach-canary.mjs --hook does.
+  const { spawn: nodeSpawn } = await import('node:child_process');
+  const spawned = [];
+  const fakeSpawn = (bin, command, opts) => {
+    spawned.push(command);
+    return nodeSpawn(bin, ['-e', `process.stdout.write(${JSON.stringify(JSON.stringify(verdict))} + '\\n')`], opts);
+  };
+  const others = HOOKS.listHooks('nightly').filter(h => h.name !== 'coach-canary');
+  assert.deepEqual(others, [], 'control: only the canary is registered in this process');
+  const runsBefore = statusRows().length;
+  try {
+    await asRole('test', async () => {
+      const runner = HOOKS.createHookRunner({ database: HOOK_DB(), spawn: fakeSpawn });
+      const due = runner.runDue({ now: new Date('2026-09-24T14:00:00Z') }); // 10 AM ET
+      assert.equal(due.find(d => d.schedule === 'nightly')?.hooks[0]?.started, true, 'the morning hook fires');
+      await runner.idle();
+    });
+  } finally { unregister(); }
+  assert.equal(spawned.length, 1);
+  assert.deepEqual(spawned[0].slice(1), ['--hook']);
+
+  const rows = statusRows().slice(runsBefore);
+  assert.equal(rows.length, 1, 'one status row');
+  assert.match(rows[0].error, /G03 drift/);
+  await new Promise(r => setImmediate(r));
+  assert.equal(pushes.length, 1, 'one push call');
+  assert.match(pushes[0].text, /G03 drift/);
+  for (const text of [rows[0].error, pushes[0].text]) {
+    assert.ok(!text.includes(chatText), 'Coach\'s answer text never reaches the status line or the push');
+    for (const n of chatNumbers) assert.ok(!text.includes(n), `the answer's number ${n} is not repeated`);
+    assert.doesNotMatch(text, /claims said|expected |could not trace/);
+  }
+  const log = row(`SELECT last_status, last_detail FROM sync_log WHERE job = 'coach_canary'`);
+  assert.equal(log.last_status, 'error', 'the full detail stays in sync_log');
+  assert.match(log.last_detail, /push sent to PUSH-01/);
+});
+
+test('alert routing: no sender yet is said on the row, not pretended; ok writes a clean status row and no push', () => {
   const records = [];
-  const dead = fakeSpawn({ status: null, error: new Error('spawn ENOENT') });
-  LOOP.createCoachCanaryStep({ spawn: dead.spawn, log: () => {}, lastRunAt: () => null,
-    record: (...a) => records.push(a) })();
-  assert.equal(records[0][0], 'coach_canary');
-  assert.equal(records[0][1], 'error');
+  const status = [];
+  const record = (...a) => records.push(a);
+  const bad = { status: 'error', passed: 11, total: 12, failures: [{ id: 'G07', kind: 'error', reason: 'Request timed out.' }] };
+  const r = CANARY.recordCanaryResult(bad, { record, recordUsage: () => 0, writeStatus: s => status.push(s),
+    push: { send: null, why: 'PUSH-01 sender (#293) is not merged yet' } });
+  assert.equal(r.push, null);
+  assert.match(records[0][2].alert.push, /#293/);
+  assert.deepEqual(status, [{ ok: false, summary: CANARY.canaryAlertText(bad) }]);
+  const ok = CANARY.recordCanaryResult({ status: 'ok', passed: 12, total: 12, failures: [] },
+    { record, recordUsage: () => 0, writeStatus: s => status.push(s), push: { send: () => assert.fail('no push on ok') } });
+  assert.equal(ok.push, null);
+  assert.equal(status[1].ok, true);
+  assert.deepEqual(CANARY.recordCanaryResult({ status: 'fresh' }, { record: () => assert.fail('fresh writes nothing') }).rowsWritten, 0);
+});
 
-  const lines = [];
-  const drift = fakeSpawn({ status: 1, stdout: '{"status":"error"}' });
-  LOOP.createCoachCanaryStep({ spawn: drift.spawn, log: l => lines.push(l), lastRunAt: () => null })();
-  assert.match(lines[0], /coach_canary\s+DRIFT/);
+test('PUSH-01 sender: resolved from push-alerts.js when present, and named as missing when not', async () => {
+  const p = await CANARY.pushSender({});
+  const exists = fs.existsSync(path.join(REPO, 'server/services/campaign/push-alerts.js'));
+  if (exists) assert.ok(p.send || /no push channel/.test(p.why));
+  else assert.deepEqual(p, { send: null, why: 'PUSH-01 sender (#293) is not merged yet' });
 });

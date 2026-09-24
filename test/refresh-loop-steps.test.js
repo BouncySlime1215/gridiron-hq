@@ -60,8 +60,35 @@ test('G1a/G2h: one tick runs transactions, roster snapshots, league chat, manage
   await LOOP.tick({ jobs: [], spawn, log: l => lines.push(l), record: quiet, inputsKey: () => 'k' });
   const scripts = calls.map(c => path.basename(c.args.find(a => /\.(mjs|py)$/.test(a))));
   assert.deepEqual(scripts, ['collect-league-transactions.mjs', 'collect-roster-snapshots.mjs',
-    'extract_league_chat.py', 'build-manager-signals.mjs', 'run-graders.mjs', 'coach-canary.mjs']);
+    'extract_league_chat.py', 'build-manager-signals.mjs', 'run-graders.mjs']);
   assert.ok(lines.at(-1).includes('tick done'));
+});
+
+test('audit §2 step order, and the Coach canary is not a loop step (it is the engine daemon\'s morning hook)', async () => {
+  // INTEGRATION-AUDIT-0923 §2: jobs -> league_tx -> roster_snapshots -> league_chat ->
+  // manager_signals -> number_audit -> brain_report -> warroom_plans, nothing after.
+  // HEALTH-01e puts the canary in the engine daemon's nightly hook
+  // (scripts/engine-daemon.mjs registerCoachCanaryHook), so the loop never spawns it.
+  const chat = { 'extract_league_chat.py': { stdout: 'league_chat_status {"failed_this_run":0,"failed_outstanding":0}\n' } };
+  const before = { flag: process.env.GRIDIRON_WARROOM_ENABLED, plans: process.env.GRIDIRON_WARROOM_PLANS };
+  process.env.GRIDIRON_WARROOM_PLANS = path.join(temp, 'warroom-order', 'plans.json');
+  process.env.GRIDIRON_WARROOM_ENABLED = '1';
+  const { spawn, calls } = fakeSpawn(chat);
+  const lines = [];
+  try {
+    await LOOP.tick({ jobs: [], spawn, log: l => lines.push(l), record: quiet, inputsKey: () => 'order',
+      numberAudit: async () => { lines.push('t number_audit ok'); return { audited: [] }; }, warRoomLaunch: () => 4243 });
+  } finally {
+    for (const [k, v] of [['GRIDIRON_WARROOM_ENABLED', before.flag], ['GRIDIRON_WARROOM_PLANS', before.plans]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+  const STEPS = ['league_tx', 'roster_snapshots', 'league_chat', 'manager_signals', 'number_audit', 'brain_report', 'warroom_plans'];
+  const order = lines.map(l => l.trim().split(/\s+/)[1]).filter(w => STEPS.includes(w) || w === 'coach_canary');
+  assert.deepEqual([...new Set(order)], STEPS, 'every step once, in the audit order, and no coach_canary');
+  assert.ok(!calls.some(c => c.args.some(a => /coach-canary/.test(a))), 'the loop never spawns coach-canary.mjs');
+  const src = fs.readFileSync(path.join(REPO, 'scripts/refresh-live-data.mjs'), 'utf8');
+  assert.doesNotMatch(src, /coach.canary/i, 'no canary step, flag or schedule left in the refresh loop');
 });
 
 test('G2h: the roster snapshot step runs the collector with node, from the repo root, and logs its result', () => {

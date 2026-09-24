@@ -43,10 +43,13 @@ function median(xs) {
 }
 
 /**
- * Runaway detection over this process's own send log. `medianPerHour` defaults
- * to the trailing-7-day hourly median of that log (hours with no calls count
- * as 0 once the daemon has been up that long); inject one that reads
- * engine_events once ENGINE-00a lands.
+ * Runaway detection over this process's own send log. `medianPerHour` is the
+ * trailing-7-day hourly median of calls; in the engine it reads jev.call events
+ * (engine-sink.js `jevCallMedianPerHour`, wired by `createEngineJevGateway`).
+ * Without one it falls back to this process's own send log (hours with no calls
+ * count as 0 once the process has been up that long).
+ *
+ * Each reason carries `summary`, not `text`: engine_events refuses a `text` key.
  */
 export function createRunawayMonitor({ now = () => Date.now(), medianPerHour } = {}) {
   const sends = []; // { t, hash, costUsd }
@@ -76,7 +79,7 @@ export function createRunawayMonitor({ now = () => Date.now(), medianPerHour } =
       const base = Math.max(1, trailingMedian());
       if (lastHour.length > RUNAWAY.rateMultiple * base) {
         reasons.push({ kind: 'rate', calls_last_hour: lastHour.length, trailing_median_per_hour: base,
-          text: `${lastHour.length} Jev calls in the last hour vs a trailing median of ${base}/h` });
+          summary: `${lastHour.length} Jev calls in the last hour vs a trailing median of ${base}/h` });
       }
       const recent = sends.filter(s => t - s.t <= TEN_MIN);
       const byHash = new Map();
@@ -84,7 +87,7 @@ export function createRunawayMonitor({ now = () => Date.now(), medianPerHour } =
       for (const [hash, n] of byHash) {
         if (n > RUNAWAY.repeatMax) {
           reasons.push({ kind: 'repeat_hash', prompt_hash: hash, count: n,
-            text: `the same Jev prompt was sent ${n} times in 10 minutes` });
+            summary: `the same Jev prompt was sent ${n} times in 10 minutes` });
         }
       }
       const spendPerHour = lastHour.reduce((a, s) => a + (s.costUsd ?? 0), 0);
@@ -92,7 +95,7 @@ export function createRunawayMonitor({ now = () => Date.now(), medianPerHour } =
         const hoursToZero = balanceUsd / spendPerHour;
         if (hoursToZero <= RUNAWAY.balanceHours) {
           reasons.push({ kind: 'balance', balance_usd: balanceUsd, spend_per_hour_usd: spendPerHour,
-            hours_to_zero: hoursToZero, text: `Jev balance $${balanceUsd.toFixed(2)} runs out in ~${hoursToZero.toFixed(1)}h at this pace` });
+            hours_to_zero: hoursToZero, summary: `Jev balance $${balanceUsd.toFixed(2)} runs out in ~${hoursToZero.toFixed(1)}h at this pace` });
         }
       }
       return reasons;
@@ -142,7 +145,7 @@ export function createJevGateway({
       return true;
     });
     if (!fresh.length) return;
-    lastAlert = { text: fresh.map(r => r.text).join('; '), at: new Date(t).toISOString() };
+    lastAlert = { text: fresh.map(r => r.summary).join('; '), at: new Date(t).toISOString() };
     sink.appendEvent({ type: 'jev_runaway', as_of: asOf ?? lastAlert.at, payload: { reasons: fresh } });
   }
 

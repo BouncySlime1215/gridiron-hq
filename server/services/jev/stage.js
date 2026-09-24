@@ -10,12 +10,14 @@
  * Weight is 0 everywhere: nothing here is served. JEV-01b grades these rows
  * and earns (or doesn't) Jev a weight; JEV-01c serves the blend.
  *
- * The sink is ENGINE-00a's event log + state writer ({appendEvent, writeState}).
- * #216 is not merged yet, so the daemon wires it in; `guardSink` enforces the
- * one-writer rule for jev.* fields on whatever sink it is given.
+ * The sink is {appendEvent, writeState}. In the engine it is engine-sink.js's
+ * adapter over #216's appendEvents/writeState, where the one-writer registry
+ * owns jev.*; `guardSink` applies the same rule to any other sink (tests).
+ *
+ * Operational rows (jev.status, jev.balance) are keyed engine:jev.
  */
 import { buildJevState } from './state.js';
-import { ARMS, QUESTION_TYPES, buildQuestions, interpret, recommend } from './questions.js';
+import { ARMS, QUESTION_TYPES, askable, buildQuestions, interpret, recommend } from './questions.js';
 import { KEY_ENV } from './gateway.js';
 
 export const PRODUCER = 'jev';
@@ -82,7 +84,7 @@ export async function runJevStage({ view, asOf, asks = [], gateway, sink, now = 
 
   if (!gateway.hasKey()) {
     const reason = `${KEY_ENV} is not set in the daemon's environment; Jev was not asked and no probability was written`;
-    out.writeState({ entity_type: 'league', entity_id: 'engine', field: 'jev.status', producer: PRODUCER, as_of: at,
+    out.writeState({ entity_type: 'engine', entity_id: 'jev', field: 'jev.status', producer: PRODUCER, as_of: at,
       value: { status: 'no_key', reason }, reason_chain: { source: 'jev', text: reason } });
     return { status: 'no_key', reason, results: [] };
   }
@@ -94,13 +96,19 @@ export async function runJevStage({ view, asOf, asks = [], gateway, sink, now = 
     const value = b.status === 'ok'
       ? { balance_usd: b.balance_usd, total_used_usd: b.total_used_usd }
       : { status: b.status, reason: b.reason };
-    out.writeState({ entity_type: 'league', entity_id: 'engine', field: 'jev.balance', producer: PRODUCER, as_of: at,
+    out.writeState({ entity_type: 'engine', entity_id: 'jev', field: 'jev.balance', producer: PRODUCER, as_of: at,
       value, reason_chain: { source: 'gateway.getCredits', checked_at: b.checked_at } });
   }
 
   const results = [];
   for (const { qtype, subject } of asks) {
     if (!QUESTION_TYPES[qtype]) throw new Error(`unknown Jev question type "${qtype}"`);
+    const gate = askable(qtype, subject);
+    if (!gate.ok) {
+      results.push({ qtype, subject: subject.entity_id, status: 'not_asked', reason: gate.reason, p: null, action: null,
+        weight: WEIGHT, lane: LANE });
+      continue;
+    }
     const pack = buildJevState(view, { asOf: at, subject });
     const cited = { state_ids: pack.stateIds, event_ids: pack.eventIds };
     const arms = [];

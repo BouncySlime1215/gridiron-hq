@@ -486,6 +486,15 @@ test("the runaway monitor's trailing median reads jev.call events", () => {
     }
   }
   assert.equal(jevCallMedianPerHour({ now: () => now })(), 2);
+  // The current hour is not history: 50 calls in it leave a 2-hour log of 1/h at median 1.
+  const now2 = Date.parse('2026-01-20T00:00:00.000Z');
+  for (const [ago, n] of [[2.5, 1], [1.5, 1], [0.2, 50]]) {
+    for (let i = 0; i < n; i++) {
+      sink.appendEvent({ type: 'jev_call', as_of: new Date(now2 - ago * 3_600_000 + i * 1000).toISOString(),
+        payload: { qtype: 'p_accept', ok: 1, prompt_hash: `n2-${ago}-${i}` } });
+    }
+  }
+  assert.equal(jevCallMedianPerHour({ now: () => now2 })(), 1);
   const m = createRunawayMonitor({ now: () => now, medianPerHour: jevCallMedianPerHour({ now: () => now }) });
   for (let i = 0; i < 11; i++) m.recordSend({ hash: `x${i}` });
   assert.ok(m.check().some(r => r.kind === 'rate' && r.trailing_median_per_hour === 2));

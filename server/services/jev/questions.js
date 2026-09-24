@@ -9,6 +9,10 @@
  * `interpret` turns the typed answer into { p, action, ... }. Actions are
  * recommendations for the shadow lane only (weight 0): nothing serves them
  * until the grader earns Jev a weight.
+ *
+ * A type may carry an `askable(subject)` gate; the stage skips an ask the gate
+ * refuses and reports it `not_asked` with the reason (startsit_tiebreak is only
+ * a tiebreak inside 1 paired SE of the sim margin).
  */
 
 const bool = (instructions, t, f) => ({ type: 'boolean', instructions, criteria: { true: t, false: f } });
@@ -27,6 +31,18 @@ function choiceAnswer(answers, id) {
     throw new Error(`Jev returned a missing answer for "${id}"`);
   }
   return a;
+}
+
+/** #263's PITCH arms (OFFER-01 pitch framings), in its order. */
+export const PITCH_ARMS = Object.freeze(['need_first', 'fairness_first', 'urgency_first', 'face_safe_short']);
+const START_OPTIONS = Object.freeze(['A', 'B']);
+
+/** A choice answer whose choice must be one of `keys`; returns p, the choice and its probability vector. */
+function choiceOver(answers, id, keys) {
+  const a = choiceAnswer(answers, id);
+  if (!keys.includes(a.choice)) throw new Error(`Jev's "${id}" answer "${a.choice}" is not one of ${keys.join('/')}`);
+  const probs = a.probabilities ?? { [a.choice]: 1 };
+  return { p: probs[a.choice] ?? null, choice: a.choice, probabilities: probs, vector: keys.map(k => probs[k] ?? 0) };
 }
 
 export const QUESTION_TYPES = Object.freeze({
@@ -114,6 +130,52 @@ export const QUESTION_TYPES = Object.freeze({
     },
     recommend: ({ p }) => (p >= 0.5 ? 'flag_for_review' : 'no_change'),
   },
+
+  pitch_framing: {
+    version: 1,
+    subject: 'offer',
+    build: (s, arm) => ({
+      pitch: {
+        type: 'choice',
+        instructions: arm === 'a'
+          ? `Which framing gives ${s.label} the best chance of being accepted by the receiving manager?`
+          : `Based on how this manager has reacted to offers in the state above, how should the message for ${s.label} open?`,
+        criteria: {
+          need_first: 'Lead with what the receiving manager needs: the hole in his roster this fills.',
+          fairness_first: 'Lead with why the deal is fair value for both sides.',
+          urgency_first: 'Lead with timing: why the deal is worth doing now.',
+          face_safe_short: 'A short, low-pressure note that lets him decline without losing face.',
+        },
+      },
+    }),
+    interpret: answers => choiceOver(answers, 'pitch', PITCH_ARMS),
+    recommend: ({ choice }) => `pitch_${choice}`,
+  },
+
+  startsit_tiebreak: {
+    version: 1,
+    subject: 'league_team_week',
+    /** Only a tiebreak: asked when |sim margin| is under 1 paired SE, never to overrule a clear sim call. */
+    askable(s) {
+      if (!Number.isFinite(s?.sim_margin)) return { ok: false, reason: 'no_sim_margin' };
+      if (!(Number.isFinite(s?.paired_se) && s.paired_se > 0)) return { ok: false, reason: 'no_paired_se' };
+      return Math.abs(s.sim_margin) < s.paired_se ? { ok: true } : { ok: false, reason: 'sim_margin_over_1_paired_se' };
+    },
+    build: (s, arm) => {
+      if (!s.options?.A || !s.options?.B) throw new Error(`Jev question startsit_tiebreak needs options A and B for ${s.label}`);
+      return {
+        start: {
+          type: 'choice',
+          instructions: arm === 'a'
+            ? `The simulator calls ${s.label} a coin flip. Who scores more this week?`
+            : `Using only the state above, which of the two players should start in ${s.label} this week?`,
+          criteria: { A: `Start ${s.options.A}.`, B: `Start ${s.options.B}.` },
+        },
+      };
+    },
+    interpret: answers => choiceOver(answers, 'start', START_OPTIONS),
+    recommend: ({ choice }) => `start_${choice}`,
+  },
 });
 
 export const ARMS = Object.freeze(['a', 'b']);
@@ -136,6 +198,12 @@ export function interpret(qtype, answers) {
   const t = typeOf(qtype);
   const out = t.interpret(answers);
   return { ...out, action: t.recommend(out) };
+}
+
+/** { ok: true } or { ok: false, reason }: whether this ask may go to Jev at all. */
+export function askable(qtype, subject) {
+  const t = typeOf(qtype);
+  return t.askable ? t.askable(subject) : { ok: true };
 }
 
 export function recommend(qtype, summary) {

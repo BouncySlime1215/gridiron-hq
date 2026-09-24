@@ -15,6 +15,13 @@
  *        says "fallen back to X" with the reason; Jev unknown reads "Jev not live", never
  *        "$0.00"; a live $0 day reads "$0.00";
  *   (C7) UI-RED 1: only useEngineView.ts fetches; no component calls api( or useApi(.
+ * FIX-257 (review of PR #257):
+ *   (C8) the strip is behind GRIDIRON_ENGINE_STRIP (served as /status `strip`): off or
+ *        missing renders nothing, preview mode shows the preview label, loading is silent;
+ *   (C9) a tap on the strip opens a Sheet (DesignSystem) listing one typed row per producer;
+ *   (C10) App.tsx mounts SnapshotProvider + EngineStatusStrip next to DataFreshnessBanner;
+ *   (C11) ReasonChain is built on DesignSystem's DriverBars, deltas as stored, no derived total;
+ *   (C12) EngineValue's source line is DesignSystem's Provenance.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -42,7 +49,7 @@ const rt = createRequire(${JSON.stringify(repoRequire.resolve('react/jsx-runtime
 export const jsx = rt.jsx; export const jsxs = rt.jsxs; export const Fragment = rt.Fragment;`);
 const apiUrl = write('api.mjs', `export async function api(p) { return globalThis.__engineFetch(p); }`);
 const hookStubUrl = write('hook-stub.mjs', `export function useEngineStatus() {
-  return { data: globalThis.__engineStatus, error: null, loading: false };
+  return { data: globalThis.__engineStatus, error: globalThis.__engineError ?? null, loading: globalThis.__engineLoading === true };
 }`);
 
 /** Compile one client file and rewrite its imports; returns the module, or null when the file does not exist yet. */
@@ -60,9 +67,12 @@ async function load(file, rewrites) {
 }
 
 const hook = await load('engine/useEngineView.ts', [["'../api'", apiUrl]]);
-const value = await load('components/engine/EngineValue.tsx', []);
-const reason = await load('components/engine/ReasonChain.tsx', []);
-const strip = await load('components/engine/EngineStatusStrip.tsx', [["'../../engine/useEngineView'", hookStubUrl]]);
+// The engine components import the shared design system (FIX-257-2); compile it once and map it.
+await load('components/ui/DesignSystem.tsx', []);
+const DS = ["'../ui/DesignSystem'", pathToFileURL(path.join(temp, 'components_ui_DesignSystem_tsx.mjs')).href];
+const value = await load('components/engine/EngineValue.tsx', [DS]);
+const reason = await load('components/engine/ReasonChain.tsx', [DS]);
+const strip = await load('components/engine/EngineStatusStrip.tsx', [["'../../engine/useEngineView'", hookStubUrl], DS]);
 const need = (mod, name) => assert.ok(mod, `client/src/${name} does not exist: the engine hook is not built`);
 
 const text = html => html.replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, '&')
@@ -169,7 +179,8 @@ test('C5: ReasonChain renders every contribution with its signed delta', () => {
     ], residual: 0, n: null };
   const { text: t } = render(reason.default, { chain });
   assert.match(t, /ESPN 10\.0/);
-  assert.match(t, /\+2\.5 starter out/); assert.match(t, /-1\.25 trailing script/);
+  // Each contribution's text with its signed delta as stored (DriverBars puts the label first: FIX-257-2).
+  assert.match(t, /starter out \+2\.5/); assert.match(t, /trailing script -1\.25/);
   assert.match(render(reason.default, { chain: null }).text, /no reasons recorded/);
 });
 
@@ -179,7 +190,7 @@ test('C6: UI-ENG-6 status strip: stale heartbeat red with age, fallbacks named, 
     lock: { status: 'unknown' }, sources: [], snapshots: [],
     producers: [{ producer: 'fx-proj', version: '2', status: 'active', fallbacks: [
       { field: 'fx.points', fallback_field: 'fx.points_base', league_id: 92, reason: 'fixture: ours trails' }] }],
-    jev: { status: 'unknown', reason: 'Jev not live: nothing writes engine.jev yet' } };
+    jev: { status: 'unknown', reason: 'Jev not live: nothing writes engine.jev yet' }, strip: { enabled: true } };
   globalThis.__engineStatus = base;
   const s = render(strip.default, {});
   assert.match(s.html, /data-engine-daemon="stale"/); assert.match(s.html, /rose|red/);
@@ -202,4 +213,96 @@ test('C7: UI-RED 1: only useEngineView.ts fetches; the components do no fetching
     if (f !== 'engine/useEngineView.ts') assert.doesNotMatch(code, /\bapi\(/, `${f} calls api(`);
   }
   assert.match(fs.readFileSync(src('engine/SnapshotProvider.tsx'), 'utf8'), /createEngineClient/);
+});
+
+/* ------------------------------------------------------------ FIX-257 (PR #257 review) */
+const okStatus = (extra = {}) => ({ daemon: { status: 'ok', age_sec: 30 }, lock: { status: 'unknown' }, sources: [], snapshots: [],
+  producers: [], jev: { status: 'unknown', reason: 'Jev not live: nothing writes engine.jev yet' }, strip: { enabled: true }, ...extra });
+function withStatus(data, fn, { loading = false, error = null } = {}) {
+  globalThis.__engineStatus = data; globalThis.__engineLoading = loading; globalThis.__engineError = error;
+  try { return fn(); } finally { globalThis.__engineStatus = undefined; globalThis.__engineLoading = false; globalThis.__engineError = null; }
+}
+
+test('C8: the strip is behind GRIDIRON_ENGINE_STRIP: off or missing renders nothing, preview is labelled', () => {
+  need(strip, 'components/engine/EngineStatusStrip.tsx');
+  const S = strip.default;
+  assert.equal(withStatus(okStatus({ strip: { enabled: false, reason: 'default-off. Set GRIDIRON_ENGINE_STRIP=1' } }),
+    () => render(S, {}).html), '', 'flag off: nothing on the page');
+  assert.equal(withStatus(okStatus({ strip: undefined }), () => render(S, {}).html), '', 'no flag in the payload reads as off');
+  assert.equal(withStatus(undefined, () => render(S, {}).html, { loading: true }), '', 'loading is silent (the flag is not known yet)');
+  const on = withStatus(okStatus(), () => render(S, {}));
+  assert.match(on.html, /data-engine-daemon="ok"/); assert.doesNotMatch(on.text, /Preview/);
+  const pv = withStatus(okStatus({ strip: { enabled: true, preview: true, preview_reason: 'strip is default-off' } }), () => render(S, {}));
+  assert.match(pv.text, /Preview/); assert.match(pv.html, /strip is default-off/);
+  assert.match(withStatus(undefined, () => render(S, {}).text, { error: 'HTTP 500' }), /engine status failed: HTTP 500/,
+    'a failed status read says so');
+});
+
+const PRODUCERS = [
+  { producer: 'calendar', version: '1', status: 'active', health: 'error', reason: 'last run failed: fixture: feed 500',
+    age_sec: 7200, last_run_at: '2026-09-20T12:00:00Z', last_error_at: '2026-09-20T14:00:00Z', fallbacks: [] },
+  { producer: 'fx-base', version: '1', status: 'active', health: 'ok', reason: null, age_sec: 90, fallbacks: [] },
+  { producer: 'fx-idle', version: '1', status: 'active', health: 'unknown', reason: 'has never run here', age_sec: null, fallbacks: [] },
+  { producer: 'fx-proj', version: '2', status: 'active', health: 'fallback', reason: '1 field on its fallback: fx.points',
+    age_sec: 300, fallbacks: [{ field: 'fx.points', fallback_field: 'fx.points_base', league_id: 92, reason: 'fixture: ours trails' }] },
+];
+
+test('C9: a tap on the strip opens a Sheet listing one typed row per producer', () => {
+  need(strip, 'components/engine/EngineStatusStrip.tsx');
+  assert.match(fs.readFileSync(src('components/engine/EngineStatusStrip.tsx'), 'utf8'),
+    /import\s*\{[^}]*\bSheet\b[^}]*\}\s*from '\.\.\/ui\/DesignSystem'/, 'the sheet is the DesignSystem Sheet');
+  const s = withStatus(okStatus({ producers: PRODUCERS }), () => render(strip.default, {}));
+  assert.match(s.html, /<button[^>]*aria-haspopup="dialog"/, 'the strip is one tap target that opens a dialog');
+  assert.match(s.html, /aria-label="[^"]*engine status[^"]*"/i);
+  const Sheet = strip.EngineStatusSheet;
+  assert.equal(typeof Sheet, 'function', 'EngineStatusStrip.tsx exports EngineStatusSheet');
+  assert.equal(render(Sheet, { status: okStatus({ producers: PRODUCERS }), open: false, onClose() {} }).html, '');
+  const open = render(Sheet, { status: okStatus({ producers: PRODUCERS }), open: true, onClose() {} });
+  assert.match(open.html, /role="dialog"/);
+  for (const p of PRODUCERS) {
+    assert.match(open.text, new RegExp(`${p.producer}@${p.version}`), `${p.producer} row`);
+    assert.match(open.html, new RegExp(`data-producer="${p.producer}"[^>]*data-producer-health="${p.health}"`), `${p.producer} typed`);
+  }
+  assert.match(open.text, /feed 500/); assert.match(open.text, /never run/);
+  assert.match(open.text, /fx\.points fallen back to fx\.points_base/); assert.match(open.text, /ours trails/);
+  assert.match(open.text, /5 min ago/, 'a producer\'s last run as an age');
+  const empty = render(Sheet, { status: okStatus(), open: true, onClose() {} });
+  assert.match(empty.text, /No producers registered/);
+});
+
+test('C10: App.tsx mounts SnapshotProvider and EngineStatusStrip next to DataFreshnessBanner', () => {
+  const app = fs.readFileSync(src('App.tsx'), 'utf8');
+  assert.match(app, /import SnapshotProvider from '\.\/engine\/SnapshotProvider'/);
+  assert.match(app, /import EngineStatusStrip from '\.\/components\/engine\/EngineStatusStrip'/);
+  assert.match(app, /<DataFreshnessBanner \/>\s*<SnapshotProvider[^>]*>\s*<EngineStatusStrip \/>\s*<\/SnapshotProvider>/,
+    'the strip sits under the freshness banner inside its own snapshot provider');
+});
+
+test('C11: ReasonChain is built on DesignSystem DriverBars; deltas as stored, no derived total', () => {
+  need(reason, 'components/engine/ReasonChain.tsx');
+  assert.match(fs.readFileSync(src('components/engine/ReasonChain.tsx'), 'utf8'),
+    /import\s*\{[^}]*\bDriverBars\b[^}]*\}\s*from '\.\.\/ui\/DesignSystem'/);
+  const chain = { v: 2, additive: true, space: 'pts', baseline: { value: 10, source: 'espn', text: 'ESPN 10.0' },
+    contributions: [
+      { source: 'injury', kind: 'event', event_ids: [3], state_ids: [], delta: 2.5, weight: null, text: 'starter out' },
+      { source: 'script', kind: 'state', event_ids: [], state_ids: [9], delta: -1.25, weight: null, text: 'trailing script' },
+      { source: 'news', kind: 'event', event_ids: [4], state_ids: [], delta: null, weight: 0.5, text: 'coach quote' },
+    ], residual: 0.25, n: null };
+  const r = render(reason.default, { chain });
+  assert.match(r.html, /rounded-full bg-slate-100/, 'the DriverBars track');
+  assert.match(r.html, /bg-red-600/); assert.match(r.html, /bg-emerald-600/);
+  assert.match(r.text, /-1\.25/); assert.doesNotMatch(r.text, /-1\.3\b/, 'a delta re-rounded instead of shown as stored');
+  assert.doesNotMatch(r.text, /Total/, 'the client derives no total from engine values');
+  assert.match(r.text, /coach quote/); assert.doesNotMatch(r.text, /\+0\.0|\+0\b/, 'a null delta is not drawn as 0');
+  assert.match(r.text, /\+0\.25 not explained by the rows above/);
+});
+
+test('C12: EngineValue\'s source line is DesignSystem Provenance', () => {
+  need(value, 'components/engine/EngineValue.tsx');
+  assert.match(fs.readFileSync(src('components/engine/EngineValue.tsx'), 'utf8'),
+    /import\s*\{[^}]*\bProvenance\b[^}]*\}\s*from '\.\.\/ui\/DesignSystem'/);
+  const ok = render(value.default, { row: row('ok') });
+  assert.match(ok.html, /<details/); assert.match(ok.text, /Source: fx-proj@2/);
+  const unknown = render(value.default, { row: row('unknown', { value: null, producer: null }) });
+  assert.doesNotMatch(unknown.text, /Source:/);
 });

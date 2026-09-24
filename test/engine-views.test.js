@@ -11,7 +11,9 @@
  *   (5) every row carries a typed status, health, producer@version, as_of and reason chain;
  *   (6) one snapshot per Coach answer: a pinned session keeps its id after a newer publish;
  *   (7) GET /snapshot, /view, /status, /request/:id: shapes, typed absences, league checks;
- *   (8) HEALTH-01b grep: no client file but the engine hook reads an engine route.
+ *   (8) HEALTH-01b grep: no client file but the engine hook reads an engine route;
+ *   (9) FIX-257-1: /status carries the strip flag (GRIDIRON_ENGINE_STRIP via preview-mode.js)
+ *       and one typed row per producer for the strip's sheet.
  * Fixtures only: leagues 91-92, fixture players 9201-9202, fixture teams AAA-BBB.
  */
 import test from 'node:test';
@@ -373,4 +375,50 @@ test('RED (8): HEALTH-01b grep: only the engine hook reads engine routes on the 
   need(viewsMod, 'server/services/engine/views.js');
   assert.doesNotMatch(read('server/services/engine/views.js'), /from '[^']*daemon\//);
   assert.doesNotMatch(read('server/services/engine/status.js'), /from '[^']*daemon\//);
+});
+
+test('RED (9) FIX-257-1: /status carries the strip flag and a typed row per producer', async () => {
+  need(statusMod, 'server/services/engine/status.js');
+  // calendar: its newest run failed after its last good one. fx-idle: registered, never ran.
+  fields.recordRun({ producer: 'calendar', version: '1', startedAt: T1, finishedAt: T1, error: 'fixture: feed 500' }, db);
+  run(`INSERT INTO engine_producers (producer, version, params_hash, fields, inputs, status, registered_at)
+       VALUES ('fx-idle', '1', 'h', '[]', '{}', 'active', ?)`, T0);
+  const app = express();
+  app.use((req, _res, next) => { req.auth = { userId: 1 }; next(); });
+  app.use('/api/engine', routeMod.default);
+  const server = app.listen(0);
+  const url = `http://127.0.0.1:${server.address().port}/api/engine/status`;
+  const saved = { strip: process.env.GRIDIRON_ENGINE_STRIP, preview: process.env.GRIDIRON_PREVIEW_UNCONFIRMED };
+  try {
+    delete process.env.GRIDIRON_ENGINE_STRIP; delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+    const off = await (await fetch(url)).json();
+    assert.equal(off.strip?.enabled, false, JSON.stringify(off.strip));
+    assert.match(off.strip.reason, /GRIDIRON_ENGINE_STRIP=1/);
+    assert.ok(off.daemon && Array.isArray(off.producers), 'the status itself is still served with the strip off');
+    process.env.GRIDIRON_ENGINE_STRIP = '1';
+    const on = await (await fetch(url)).json();
+    assert.deepEqual(on.strip, { enabled: true });
+    delete process.env.GRIDIRON_ENGINE_STRIP;
+    process.env.GRIDIRON_PREVIEW_UNCONFIRMED = '1';
+    const pv = await (await fetch(url)).json();
+    assert.equal(pv.strip.enabled, true); assert.equal(pv.strip.preview, true);
+
+    const by = Object.fromEntries(on.producers.map(p => [p.producer, p]));
+    const HEALTH = ['ok', 'fallback', 'error', 'unknown'];
+    for (const p of on.producers) {
+      assert.ok(HEALTH.includes(p.health), `${p.producer} health ${p.health} is typed`);
+      assert.ok('reason' in p && 'age_sec' in p, `${p.producer} carries reason and age_sec`);
+    }
+    assert.equal(by['fx-proj'].health, 'fallback'); assert.match(by['fx-proj'].reason, /fx\.points/);
+    assert.equal(by.calendar.health, 'error'); assert.match(by.calendar.reason, /feed 500/);
+    assert.equal(by['fx-idle'].health, 'unknown'); assert.equal(by['fx-idle'].age_sec, null);
+    assert.match(by['fx-idle'].reason, /never run/);
+    assert.equal(by['fx-base'].health, 'ok'); assert.equal(by['fx-base'].reason, null);
+    assert.equal(typeof by['fx-base'].age_sec, 'number');
+  } finally {
+    server.close();
+    for (const [k, v] of [['GRIDIRON_ENGINE_STRIP', saved.strip], ['GRIDIRON_PREVIEW_UNCONFIRMED', saved.preview]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
 });

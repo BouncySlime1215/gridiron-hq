@@ -206,7 +206,9 @@ test('B2: every contract section the plan computed renders its data, not "not co
 
   const sections = {
     stops: [L4.itinerary, v => v.stops[0].label],
-    flip_map: [L4.flip_map, v => L4.names[v[0].player]],
+    // WR-POLISH (#333): one row per player; players with no fair leg anywhere sit behind "Show all".
+    flip_map: [L4.flip_map, v => { const f = v.find(x => v.some(r => r.player === x.player && r.legs));
+      return f ? L4.names[f.player] : 'No flip has a fair leg on both sides yet'; }],
     targets: [L4.targets, v => L4.names[v[0].player]],
     catch: [L4.catch_up, v => v[0].text],
     brain_report: [L4.brain_report, v => v.checks[0].id],

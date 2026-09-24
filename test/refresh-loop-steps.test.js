@@ -327,6 +327,10 @@ test('DATA-FC: the FantasyCalc market job is on the loop, daily, before the serv
     log: quiet, record: quiet, inputsKey: () => 'k' });
   assert.ok(ran.indexOf('fantasycalc_dynasty') > ran.indexOf('player_rosters'), 'after the espn_id join key is filled');
   assert.ok(ran.indexOf('fantasycalc_dynasty') < ran.indexOf('served_numbers_weekly'), 'before the trade cards are snapshotted');
+  // The redraft half: 'fc_value' (League Hub roster strength, rankings, edge board) had no runner at all.
+  assert.ok(LOOP.FANTASY_LIVE_JOBS.includes('fantasycalc_values'), 'the redraft FantasyCalc job must be on the live loop');
+  assert.ok(JOBS.fantasycalc_values.maxAgeMinutes >= 24 * 60, 'redraft: no more than one fetch a day');
+  assert.ok(ran.indexOf('fantasycalc_values') > ran.indexOf('player_rosters'), 'redraft: after the join keys are filled');
 });
 
 // ---------------------------------------------------------------- warroom plans (CAMPAIGN-01)

@@ -32,7 +32,7 @@ Counterpart model (COUNTERPART-01 #254 -> COUNTERPART-02): P(responds), P(yes | 
 | Package | give him what he asked for (17x signal), never ask for his untouchables | M4 | BUILDING |
 | Message | framing from how_to_approach / best_bait, face-safe, grounded facts only; bandit learns which framing works per manager | M5 + COACH-MSG + BANDIT-01 | BUILDING |
 | Reply table | his predicted counter / no-style -> pre-written answer per branch | M6 | BUILDING |
-| Timing | send when urgency spikes (injury to his starter, losing streak, "need a move"); wait when he just [mgr] | M7 | BUILDING |
+| Timing | send when urgency spikes (injury to his starter, losing streak, "need a move"); wait when he just made a deal | M7 | BUILDING |
 | Planner simulation | the planner plays out his reply for every path, so routes go through people who deal | M8 COUNTERPART-02 | BUILDING |
 | Replanning | a new credible statement or profile change is an event -> replan -> push if the next move changes | M9 PULSE-01 + PUSH-01 | BUILDING |
 | Reasoning panel | "his side of the table" cites traits + credibility (labels, not quotes) | M10 REASON | BUILDING |

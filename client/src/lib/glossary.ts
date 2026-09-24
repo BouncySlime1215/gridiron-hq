@@ -75,10 +75,24 @@ export const GLOSSARY = {
     // one week-total construction every page shares (lineup-posture.js imports
     // it). Replaces the former start_score entry, which described the same
     // number under a second id; `projection.mean` was never a served field.
-    // Not the season total at stats.projected_points (PlayerCard/StatTable).
+    // Not the season total at stats.projected_points — that is
+    // projected_points_season below, a different number under a different key.
     plain: 'How many points we expect this player to score this week, after his chance to play is taken into account.',
     raw: 'lineup.week_points',
     unit: 'points', precision: 1
+  },
+  projected_points_season: {
+    name: 'Projected points (season)',
+    // Producer: server/routes/stats.js:98 statsFor() `projected_points: projPts`,
+    // the `player_season_stats` row with kind = 'projected', written by
+    // syncStats() from ESPN's full-season projection (statSourceId 1,
+    // statSplitTypeId 0, `appliedTotal`) fetched from the `leaguedefaults`
+    // endpoint — ESPN's default scoring, not this league's settings. Rendered
+    // as "Proj pts" at PlayerCard.tsx:138 and StatTable.tsx:46. Same leaf name
+    // as the weekly number, which is why it has its own key.
+    plain: 'The points ESPN projects for this player over the whole season, scored the ESPN default way rather than by your league rules. It is not the number for this week.',
+    raw: 'stats.projected_points',
+    unit: 'points', precision: 0
   },
   week_floor: {
     name: 'Quiet week',
@@ -143,7 +157,9 @@ export const GLOSSARY = {
     // roster order shifts, so this cannot yet promise the difference is purely
     // the move — see r7-internal-glossary-defines-numbers-code-no-longer-
     // makes.md #4 (assessed from R6's title-odds-pairing-broken finding).
-    plain: 'How much this move changes your championship number, from replaying the same simulated seasons before and after — figure some of the change, roughly a couple of points, is simulation noise rather than the move itself.',
+    // No size is given for that noise: it has not been measured. Add a figure
+    // only once season-sim's pairing noise is measured on a real run.
+    plain: 'How much this move changes your championship number, from replaying the same simulated seasons before and after — figure some of the change is simulation noise rather than the move itself.',
     raw: 'trade_impact.title_delta',
     unit: 'percent', precision: 1
   },

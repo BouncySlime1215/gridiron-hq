@@ -88,6 +88,7 @@ test('expanded rows: traits, top reasons, fading wants, and the unreachable mana
   assert.match(t, /population, not him/);
   assert.match(t, /Chance he says yes · why · what he wants · does his talk hold/);
   assert.match(t, /quiet in chat/);
+  assert.match(t, /Tells tells not live: TELLS-01b not merged/, 'the tells section is typed, not empty');
 });
 
 test('the unreachable manager shows no band and says why; nothing reads as 0', () => {

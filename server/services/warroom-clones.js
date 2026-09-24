@@ -34,7 +34,7 @@ import { identityMap } from './manager-identity.js';
 import { declarationCredibility } from './bluff-detector.js';
 import { normalizePlayerName } from './player-identity.js';
 import { currentNflWeek } from './weekly-learning.js';
-import { peopleProfile, leadingToken, tradesNone, UNKNOWN } from './people/profile-reader.js';
+import { peopleProfile, parseUrgency, parseWordMatch, tradesNone, UNKNOWN } from './people/profile-reader.js';
 import { previewFields } from './preview-mode.js';
 import { warRoomFlag, WARROOM_PREVIEW_REASON } from './warroom-flag.js';
 import { finalize } from './war-room-view.js';
@@ -58,7 +58,11 @@ export const CLONE_SOURCES = Object.freeze({
   'people.profile': { label: 'Chat profile, labels only', calibrated: false },
   'people.nick': { label: "Nick's word", calibrated: false },
   'people.word': { label: 'His word vs his moves', calibrated: false },
+  'tells.card': { label: 'Tells (TELLS-01b)', calibrated: false },
 });
+
+/** Until TELLS-01b (#268) is merged the tells section is typed unknown, never empty. */
+export const TELLS_NOT_LIVE = 'tells not live: TELLS-01b not merged';
 
 const TRAIT_LABEL = Object.freeze({
   no_holds: { yes: 'his no is final', usually: 'his no usually holds', rarely: 'his no is an opening price' },
@@ -75,19 +79,6 @@ const TRAIT_LABEL = Object.freeze({
 
 const lower = v => String(v ?? '').trim().toLowerCase();
 const arr = v => (Array.isArray(v) ? v : v == null ? [] : [v]);
-
-/** Free-text slots the reader keeps as text, mapped to labels by their leading word. */
-const URGENCY_WORDS = { high: 'high', urgent: 'high', very: 'high', medium: 'medium', moderate: 'medium',
-  some: 'medium', low: 'low', none: 'low', no: 'low' };
-const WORD_MATCH_WORDS = { yes: 'credible', matches: 'credible', consistent: 'credible', follows: 'credible',
-  reliable: 'credible', credible: 'credible', mixed: 'mixed', partly: 'mixed', sometimes: 'mixed', somewhat: 'mixed',
-  no: 'cheap_talk', cheap: 'cheap_talk', talks: 'cheap_talk', rarely: 'cheap_talk', contradicts: 'cheap_talk',
-  all: 'cheap_talk', says: 'cheap_talk', bluff: 'cheap_talk' };
-function wordLabel(words, value) {
-  if (typeof value === 'boolean' && words === WORD_MATCH_WORDS) return value ? 'credible' : 'cheap_talk';
-  const t = leadingToken(value, words);
-  return t != null && words[t] ? words[t] : UNKNOWN;
-}
 
 /** Technique names -> a posture label, by keyword. The names themselves are not kept. */
 function postureOf(techniques) {
@@ -153,14 +144,13 @@ const TRAIT_KEYS = ['no_holds', 'inflation', 'urgency', 'posture', 'style', 'wor
 export function cloneProfile(entry) {
   const nick = cloneNick(entry?.nick);
   const p = entry?.status === 'ok' ? entry.profile : null;
-  const bvw = p?.behaviour_vs_words;
   const derived = p ? {
     no_holds: p.says_no?.does_his_no_hold ?? UNKNOWN,
     inflation: p.calibration?.inflation ?? UNKNOWN,
-    urgency: wordLabel(URGENCY_WORDS, p.deal_feelings?.urgency),
+    urgency: parseUrgency(p.deal_feelings).value,
     posture: postureOf(p.techniques),
     style: styleOf(p.how_to_approach),
-    word_match: wordLabel(WORD_MATCH_WORDS, bvw?.verdict ?? bvw?.summary ?? bvw),
+    word_match: parseWordMatch(p.behaviour_vs_words).value,
   } : {};
   const traits = {}, sources = {};
   for (const k of TRAIT_KEYS) {
@@ -348,6 +338,7 @@ export function buildCloneRows({ teams, me = null, profiles, counterparties = nu
       reasons: reasonsField({ factors, nick: profile?.nick, wants, standing }),
       wants,
       credibility: credibilityField(profile, records?.get(team) ?? null),
+      tells: unknown(TELLS_NOT_LIVE, 'tells.card'),
     });
   }
   // Producer order: Nick's active pool first, unreachable last, then roster id.

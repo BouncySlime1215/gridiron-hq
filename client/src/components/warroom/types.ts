@@ -190,7 +190,10 @@ export interface CloneRow {
   reasons: Field<CloneReason[]>;
   wants: Field<CloneWant[]>;
   credibility: Field<CloneWord>;
+  /** Typed unknown ('tells not live: TELLS-01b not merged') until TELLS-01b serves tells.card. */
+  tells: Field<CloneTell[]>;
 }
+export interface CloneTell { id: string; label: string; n: number; grade: string }
 export interface ClonesView {
   enabled: boolean;
   preview?: boolean;

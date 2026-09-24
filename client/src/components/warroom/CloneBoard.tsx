@@ -7,7 +7,8 @@ import { usePager } from './Panel';
 /**
  * UI-ENG-4: the clone view, one row per league-mate. How he reads (labels), the chance he
  * says yes to a deal that passes our edge test (a band, never a point), the top reasons,
- * who he is in the market for, and whether his shop talk holds.
+ * who he is in the market for, whether his shop talk holds, and his tells (typed
+ * "tells not live" until TELLS-01b is merged).
  *
  * Labels only: nothing here quotes the chat. It formats what the server wrote and
  * computes nothing (WAR-ROOM-UI.md 2.1).
@@ -65,6 +66,12 @@ function Row({ c, big }: { c: CloneRow; big: boolean }) {
             {p => (p.traits.length
               ? <div className="wr-row wr-wrap">{p.traits.map(t => <span key={t.key} className="wr-pill">{t.label}</span>)}</div>
               : <div className="wr-sub">Read, but no trait stands out.</div>)}
+          </FieldBlock>
+          <div className="wr-cap">Tells</div>
+          <FieldBlock f={c.tells} label="Tells">
+            {ts => (ts.length
+              ? <div className="wr-row wr-wrap">{ts.map(t => <span key={t.id} className="wr-pill">{t.label} · n={t.n} · {t.grade}</span>)}</div>
+              : <div className="wr-sub">No graded tell for him yet.</div>)}
           </FieldBlock>
           <div className="wr-cap">Top reasons</div>
           <FieldBlock f={c.reasons} label="Reasons">

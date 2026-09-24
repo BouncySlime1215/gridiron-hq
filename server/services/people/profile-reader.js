@@ -8,6 +8,7 @@
  *
  * Layers, top to bottom:
  *   schema v2 + enum parsing   readProfile / normaliseProfile (pure)
+ *                              parseUrgency / parseWordMatch (v2 free-shape slots -> labels)
  *   Nick's read                nickBlock (the FIX-02 #276 block, folded in) and
  *                              nickRead (the FIX-00 shape counterparty-pricing reads)
  *   people.profile             peopleProfileFromRows (pure) <- peopleProfileFromChat
@@ -218,6 +219,64 @@ const CONFIDENCE_WORDS = { high: 'high', medium: 'medium', moderate: 'medium', m
   low: 'low' };
 // Unparsed is `low`: the pricing layer weighs an unstated confidence as low too.
 export const parseConfidence = parser(CONFIDENCE_WORDS, 'low');
+
+// v2 free-shape slots read as trait labels. Key paths are the ones found on the
+// 10 live rows (chat DB copy, 9/24): urgency is deal_feelings.urgency_desperation
+// (one row: deal_feelings.urgency), an object whose words sit in level / read /
+// reads / summary / note; behaviour_vs_words is a list of { verdict, agree, ... }.
+export const URGENCY = Object.freeze(['high', 'medium', 'low', 'unknown']);
+export const WORD_MATCH = Object.freeze(['credible', 'mixed', 'cheap_talk', 'unknown']);
+const URGENCY_WORDS = { high: 'high', urgent: 'high', desperate: 'high', rising: 'high', eager: 'high',
+  medium: 'medium', moderate: 'medium', mild: 'medium', some: 'medium', low: 'low', none: 'low', no: 'low',
+  calm: 'low', patient: 'low' };
+const URGENCY_PATHS = ['urgency_desperation', 'urgency'];
+const URGENCY_FIELDS = ['level', 'read', 'reads', 'summary', 'note'];
+
+/** deal_feelings -> { value: URGENCY, parsed, path }; path names the key that parsed (never its text). */
+export function parseUrgency(dealFeelings) {
+  for (const key of URGENCY_PATHS) {
+    const u = dealFeelings?.[key];
+    const tries = typeof u === 'string' ? [[`${key}`, u]]
+      : u && typeof u === 'object' && !Array.isArray(u) ? URGENCY_FIELDS.map(f => [`${key}.${f}`, u[f]]) : [];
+    for (const [path, v] of tries) {
+      const t = leadingToken(v, URGENCY_WORDS);
+      if (t != null && URGENCY_WORDS[t]) return { value: URGENCY_WORDS[t], parsed: true, path: `deal_feelings.${path}` };
+    }
+  }
+  return { value: 'unknown', parsed: false, path: null };
+}
+
+// One claim's verdict: agree / disagree / mixed; unclear-style words and
+// anything unmatched are not counted.
+const CLAIM_WORDS = { agree: 'agree', agrees: 'agree', consistent: 'agree', matches: 'agree', yes: 'agree',
+  follows: 'agree', true: 'agree', disagree: 'disagree', disagrees: 'disagree', contradicts: 'disagree',
+  inconsistent: 'disagree', no: 'disagree', false: 'disagree', talk: 'disagree', talks: 'disagree',
+  cheap: 'disagree', bluff: 'disagree', all: 'disagree', rarely: 'disagree', credible: 'agree', reliable: 'agree', mixed: 'mixed', partly: 'mixed',
+  partial: 'mixed', somewhat: 'mixed' };
+function claimVerdict(c) {
+  if (typeof c === 'boolean') return c ? 'agree' : 'disagree';
+  if (typeof c === 'string') return CLAIM_WORDS[leadingToken(c, CLAIM_WORDS)] ?? null;
+  if (!c || typeof c !== 'object') return null;
+  if (typeof c.agree === 'boolean') return c.agree ? 'agree' : 'disagree';
+  return claimVerdict(c.verdict ?? c.agree ?? c.summary ?? null);
+}
+// Hand-set bars (not fitted): at least 2 decided claims; share of claims his
+// moves back (mixed counts half) >= 2/3 credible, <= 1/3 cheap talk.
+export const WORD_MATCH_MIN_CLAIMS = 2;
+
+/** behaviour_vs_words -> { value: WORD_MATCH, parsed, claims: { agree, disagree, mixed, undecided } }. */
+export function parseWordMatch(bvw) {
+  const list = Array.isArray(bvw) ? bvw : bvw == null ? [] : [bvw];
+  const claims = { agree: 0, disagree: 0, mixed: 0, undecided: 0 };
+  for (const c of list) { const v = claimVerdict(c); if (v) claims[v] += 1; else claims.undecided += 1; }
+  const decided = claims.agree + claims.disagree + claims.mixed;
+  // A single scalar verdict ("talks a big game", true) is the profile's own summary: take it as is.
+  const single = !Array.isArray(bvw) && decided === 1;
+  if (!single && decided < WORD_MATCH_MIN_CLAIMS) return { value: 'unknown', parsed: false, claims };
+  const share = (claims.agree + claims.mixed / 2) / decided;
+  const value = share >= 2 / 3 ? 'credible' : share <= 1 / 3 ? 'cheap_talk' : 'mixed';
+  return { value, parsed: true, claims };
+}
 
 /**
  * Parses each enum slot of one raw profile in a copy: the slot gets the enum

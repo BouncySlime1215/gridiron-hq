@@ -163,8 +163,8 @@ test('the tells section is typed unknown on every row until TELLS-01b is merged'
 });
 
 test('one decline for one manager changes only that manager\'s row', () => {
-  const base = new Map([['2', { accept_rate: 0.5, accept_rate_n: 8, receptiveness: 1 }],
-    ['3', { accept_rate: 0.25, accept_rate_n: 4, receptiveness: 1 }]]);
+  // Team 3 and 5 have no record: a decline that leaks into a shared or default record shows on them.
+  const base = new Map([['2', { accept_rate: 0.5, accept_rate_n: 8, receptiveness: 1 }]]);
   // One more decided offer, declined: accepts stay, n grows by one.
   const decline = (cp, team) => {
     const next = new Map([...cp].map(([k, v]) => [k, { ...v }]));

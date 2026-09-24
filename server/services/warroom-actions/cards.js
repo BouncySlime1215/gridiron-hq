@@ -98,12 +98,15 @@ export function sentDeal(card, sentAs = 'card', players = new Map()) {
   if (card.p_yes < card.p_yes_band.low || card.p_yes > card.p_yes_band.high) {
     return { error: `this card's p_yes_band (${card.p_yes_band.low}-${card.p_yes_band.high}) does not contain its p_yes, so the producer wrote an inconsistent card` };
   }
+  if (!['no_information', 'heuristic_unanchored', 'heuristic_anchored'].includes(card.p_yes_band.basis)) {
+    return { error: 'this card\'s p_yes_band carries no acceptance-model basis, so the offer cannot be graded; re-run the War Room producer (it writes the basis from 9/24 on)' };
+  }
   const who = id => players.get(String(id)) ?? { id: String(id) };
   return {
     deal: {
       partner_id: card.partner, i_give: sides.give.map(who), i_get: sides.get.map(who),
       acceptance: { band: { low: card.p_yes_band.low, mid: card.p_yes, high: card.p_yes_band.high },
-        basis: card.p_yes_band.basis ?? 'campaign.p_yes_band' },
+        basis: card.p_yes_band.basis },
     },
     price_band: PRICE_BAND_OF[sentAs],
   };

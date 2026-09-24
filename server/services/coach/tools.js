@@ -18,6 +18,10 @@
  * number cannot be added here quietly. Where a question has no service, Coach
  * writes SQL through the guarded layer rather than growing a model for it.
  *
+ * `engine_read` reads one engine field through engine/views.js#readServed and records
+ * its served health with the row (HEALTH-01c): verify.js holds a claim to it, and the
+ * failed value itself never reaches the ledger.
+ *
  * `catalog_lookup` is the one tool whose result does NOT enter the ledger.
  * What Coach may read is metadata about Coach, not evidence about football,
  * and a claim about the world must never be able to cite it.
@@ -28,6 +32,9 @@ import { whoPlays } from '../who-plays.js';
 import { teamTendencies } from '../nfl-team-tendencies.js';
 import { coachingProfile, footballContext } from '../football-context.js';
 import { sourceTrustScore } from '../beat-reporter-accuracy.js';
+import { isLeagueScoped, ENTITY_KEYS } from '../engine/state.js';
+import { readServed } from '../engine/views.js';
+import { normalizeAsOf } from '../engine/events.js';
 import { validateAction, ACTION_TYPES, PANELS, PLUG_IN_FIELDS, PLAN_CHANGING } from '../warroom-actions/schema.js';
 
 export class CoachToolError extends Error {
@@ -174,6 +181,22 @@ export const COACH_TOOLS = Object.freeze([
       label: { type: 'string' } } },
     run() { throw new CoachToolError('compute is handled by the ledger, not by run().'); }
   },
+  {
+    name: 'engine_read',
+    kind: 'engine',
+    source: 'server/services/engine/views.js#readServed',
+    tables: ['engine_state'],
+    description: 'Read one engine number with its health: the served value, when it is as of, whether its checks ' +
+      'passed, and, when the number failed its checks or was built on degraded inputs, the fallback served in its ' +
+      'place and why. A claim citing it must say so when fallback_used is true or served_status is not "ok"; a ' +
+      'served_status of "failed" has no value and must be declined with its reason.',
+    input_schema: { type: 'object', required: ['entity', 'field'], properties: {
+      entity: { type: 'string', description: '<entity type>:<id>, e.g. player:9001 or league_team:3:10' },
+      field: { type: 'string', description: 'the engine field, e.g. proj.player_week' },
+      league_id: { type: 'integer', description: 'required for league-scoped entities' },
+      as_of: { type: 'string', description: 'ISO time; default now' } } },
+    run: readEngine
+  },
   service({
     name: 'who_plays',
     source: 'server/services/who-plays.js#whoPlays',
@@ -237,6 +260,42 @@ export const COACH_TOOLS = Object.freeze([
       { claimType: input.claim_type ? nonEmptyString(input.claim_type, 'claim_type') : null })
   })
 ]);
+
+/** engine_read: one field through the HEALTH-01b reader, as one row plus its health. */
+function readEngine(input, { leagueId: askedLeague = null } = {}) {
+  const entity = nonEmptyString(input?.entity, 'entity');
+  const field = nonEmptyString(input?.field, 'field');
+  const cut = entity.indexOf(':');
+  const entityType = cut > 0 ? entity.slice(0, cut) : '';
+  const entityId = cut > 0 ? entity.slice(cut + 1) : '';
+  if (!ENTITY_KEYS[entityType] || !entityId) {
+    throw new CoachToolError(`entity must be <type>:<id> with a registered type, got ${JSON.stringify(entity)}.`);
+  }
+  const leagueId = input?.league_id == null ? null : int(input.league_id, 'league_id');
+  if (isLeagueScoped(entityType) && leagueId == null) throw new CoachToolError(`${entityType} is league-scoped: pass league_id.`);
+  if (leagueId != null && askedLeague != null && leagueId !== askedLeague) {
+    throw new CoachToolError(`Coach reads league ${askedLeague} in this conversation, not ${leagueId}.`);
+  }
+  let asOf;
+  try { asOf = normalizeAsOf(input?.as_of ?? new Date()); } catch (e) { throw new CoachToolError(e.message); }
+  const served = readServed(entityType, entityId, field, { asOf, leagueId });
+  const row = served.row;
+  const health = {
+    field, entity, status: served.status, as_of: row?.as_of ?? null,
+    checks_passed: row ? (row.health?.checks ?? []).every(c => c.passed) : false,
+    fallback_used: served.fallback_used, fallback_field: served.fallback?.field ?? null,
+    fallback_kind: served.fallback?.kind ?? null, reason: served.reason ?? null,
+    // What the field's own latest row was when something else was served: 'failed' or 'degraded'.
+    problem: served.problem?.status ?? null,
+  };
+  // value, or value_<path> for an object value: underscores, because a cite's column is one identifier.
+  const valueCols = Object.fromEntries(Object.entries(toRows({ value: served.value }).rows[0])
+    .map(([k, v]) => [k.replace(/\./g, '_'), v]));
+  const out = { field, entity, served_status: served.status, ...valueCols, as_of: health.as_of,
+    checks_passed: health.checks_passed, fallback_used: health.fallback_used, fallback_field: health.fallback_field,
+    reason: health.reason };
+  return { rows: [out], health };
+}
 
 /**
  * WR-COACH: Coach's War Room tools. Each returns ONE typed UI action (the
@@ -327,7 +386,7 @@ export function toolDefinitions({ warRoom = false } = {}) {
  * @throws {CoachToolError} unknown tool, bad arguments, or a refused UI action
  * @throws refusals and SQL errors from the guarded query layer, unchanged
  */
-export function runCoachTool(name, input, { ledger } = {}) {
+export function runCoachTool(name, input, { ledger, leagueId = null } = {}) {
   const tool = COACH_TOOLS.find(t => t.name === name) ?? WARROOM_TOOLS.find(t => t.name === name);
   if (!tool) {
     throw new CoachToolError(
@@ -355,6 +414,15 @@ export function runCoachTool(name, input, { ledger } = {}) {
     const { result } = tool.run(input);
     const entry = ledger.record(result);
     return { entry, summary: summarise(entry) };
+  }
+
+  if (tool.kind === 'engine') {
+    const { rows, health } = tool.run(input, { leagueId });
+    const entry = ledger.record({
+      tool: name, sql: null, params: [], tables: tool.tables, columns: Object.keys(rows[0]), rows,
+      row_count: rows.length, truncated: false, provenance: {}, health
+    });
+    return { entry, summary: { ...summarise(entry), health } };
   }
 
   const { value, tables } = tool.run(input);

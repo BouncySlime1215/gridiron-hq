@@ -26,12 +26,18 @@
  * GRIDIRON_ALLOW_PAID_RUN set and goes through the same checker; the rules
  * phraser below is deterministic and costs nothing.
  *
+ * VOICE-01 (GRIDIRON_NICK_VOICE=1 and a voice passed in opts.voice, see coach/voice.js): every
+ * outgoing text (the message and each reply-table message) is restyled the way Nick texts that
+ * partner, as 1-3 short bursts on separate lines. The unstyled text must pass the checker first
+ * and every burst must pass it again; otherwise the unstyled text stays.
+ *
  * Hand-set (not fitted): the phrasing choices, EVEN_PCT (5: the his-screen band
  * called "even"), and the label keyword classes.
  */
 import { previewUnconfirmed } from '../preview-mode.js';
 import { NUDGE_HOURS, SWITCH_HOURS } from './playbook.js';
-import { checkMessage, factsFor, splitName, surname, numberTokens, MAX_CHARS } from './message-check.js';
+import { checkMessage, checkBursts, factsFor, splitName, surname, numberTokens, MAX_CHARS } from './message-check.js';
+import { nickVoiceOn, resolveProfile, styleText, surnamePairs, loadNickVoice } from '../coach/voice.js';
 
 export const COACH_MESSAGES_ENV = 'GRIDIRON_COACH_MESSAGES';
 export const COACH_SOURCE = 'coach.text';
@@ -191,7 +197,7 @@ export function offerText({ names, partner, prof, give, get, even, seed }) {
  * Coach texts for one step. Returns { step (new object), grounded (bool), errors: [..] }.
  * ctx: { names, partners (by team), profiles (roster -> profile), plan (move), i, moveById, phrase (optional sync override) }
  */
-export function coachStep(step, { names, partnerByTeam, profiles, plan, i, moveById, phrase = offerText }) {
+export function coachStep(step, { names, partnerByTeam, profiles, plan, i, moveById, phrase = offerText, voice = null }) {
   const out = structuredClone(step);
   // A step the producer gave no playbook (view.js PLAYBOOK_LATER / PLAYBOOK_FIRST_ONLY: its opening,
   // walk_away and reply_table are 'unknown') gets the offer message only. Its reply table and walk-away
@@ -231,16 +237,31 @@ export function coachStep(step, { names, partnerByTeam, profiles, plan, i, moveB
   const seed = seedOf(step.partner, ...give, ...get, i);
   const errors = [];
   const put = (text, f, label) => {
-    const c = checkMessage(text, f);
+    const c = checkBursts(text, f);
     if (!c.ok) errors.push(`${label}: ${c.errors.join('; ')}`);
     return c.ok ? text : null;
   };
+  // VOICE-01: an outgoing text that passed the checker, in Nick's voice for this partner. The
+  // styled bursts must pass the checker again; if not, the unstyled text stands.
+  const vProfile = voice ? resolveProfile(voice, voice.forRoster?.(step.partner) ?? {}) : null;
+  const keepNames = [...outFacts.allowed].map(id => splitName(names[id]).name);
+  const short = vProfile ? surnamePairs(Object.values(names).map(n => splitName(n).name), keepNames) : [];
+  let voiced = 0;
+  const say = (text, label) => {
+    const plain = put(text, outFacts, label);
+    if (!plain || !vProfile) return plain;
+    const styled = styleText(plain, vProfile, { keep: keepNames, short }).text;
+    const c = checkBursts(styled, outFacts);
+    if (!c.ok) { errors.push(`${label} (voice): ${c.errors.join('; ')}`); return plain; }
+    voiced++;
+    return styled;
+  };
 
   // 1. The message.
-  const msg = put(phrase({ names, partner, prof, give, get, even: pctOpen != null ? Math.abs(pctOpen) <= EVEN_PCT : null, seed }), outFacts, 'message');
+  const msg = say(phrase({ names, partner, prof, give, get, even: pctOpen != null ? Math.abs(pctOpen) <= EVEN_PCT : null, seed }), 'message');
   if (msg) out.message = { status: 'ok', value: msg, source: COACH_SOURCE };
 
-  if (!priced) return { step: out, grounded: !!msg, priced, errors };
+  if (!priced) return { step: out, grounded: !!msg, priced, errors, voiced };
 
   // 2. Walk-away, in names. Only where the engine priced one; otherwise the producer's reason stands.
   if (walk) {
@@ -253,9 +274,10 @@ export function coachStep(step, { names, partnerByTeam, profiles, plan, i, moveB
   const deal = s => `${plus(names, ids(s.give))} for ${plus(names, ids(s.get))}`;
   const row = (kind, value) => {
     const prev = okv(table?.[kind]) ?? {};
-    const texts = [['do', value.do], ...(value.message ? [['message', value.message]] : [])];
-    const good = texts.every(([k, t]) => put(t, k === 'message' ? outFacts : facts, `${kind}.${k}`));
-    rows[kind] = good ? { status: 'ok', value: { ...prev, ...value }, source: table?.[kind]?.source ?? 'plan.path' } : table?.[kind] ?? null;
+    const doOk = put(value.do, facts, `${kind}.do`);
+    const message = value.message ? say(value.message, `${kind}.message`) : undefined;
+    const good = doOk && (value.message ? message : true);
+    rows[kind] = good ? { status: 'ok', value: { ...prev, ...value, ...(message ? { message } : {}) }, source: table?.[kind]?.source ?? 'plan.path' } : table?.[kind] ?? null;
   };
   const faceSave = prof.labels.has('his_call') || prof.labels.has('no_pressure');
   row('accept', {
@@ -294,7 +316,7 @@ export function coachStep(step, { names, partnerByTeam, profiles, plan, i, moveB
   if (['accept', 'decline', 'counter', 'silence'].every(k => rows[k])) {
     out.reply_table = { status: 'ok', value: rows, source: step.reply_table.source };
   }
-  return { step: out, grounded: !!msg, priced, errors };
+  return { step: out, grounded: !!msg, priced, errors, voiced };
 }
 
 /* ------------------------------------------------------------------ the entry */
@@ -314,11 +336,13 @@ export function targetMoves(entry) {
 
 /**
  * The plans entry with coach texts in place (pure; returns a new entry). Off -> the same entry.
- * opts: { profiles: Map roster -> stored negotiation profile, force (tests/measurement), phrase }
- * Returns { entry, stats: { steps, grounded, fallback, errors: [{ move_id, i, errors }] } }.
+ * opts: { profiles: Map roster -> stored negotiation profile, force (tests/measurement), phrase,
+ *         voice: coach/voice.js#loadNickVoice(league) result; used only with GRIDIRON_NICK_VOICE=1 }
+ * Returns { entry, stats: { steps, grounded, fallback, voiced, errors: [{ move_id, i, errors }] } }.
  */
-export function applyCoachMessages(entry, { profiles = null, force = false, phrase } = {}) {
-  const stats = { steps: 0, grounded: 0, fallback: 0, unpriced: 0, errors: [] };
+export function applyCoachMessages(entry, { profiles = null, force = false, phrase, voice = null } = {}) {
+  const stats = { steps: 0, grounded: 0, fallback: 0, unpriced: 0, voiced: 0, errors: [] };
+  const v = voice && nickVoiceOn() ? voice : null;
   if ((!force && !coachMessagesOn()) || !entry || entry.error) return { entry, stats };
   const out = structuredClone(entry);
   const names = out.names ?? {};
@@ -329,8 +353,9 @@ export function applyCoachMessages(entry, { profiles = null, force = false, phra
   for (const m of allMoves) {
     if (done.has(m.move_id)) { m.steps = done.get(m.move_id); continue; }
     m.steps = m.steps.map((s, i) => {
-      const r = coachStep(s, { names, partnerByTeam, profiles, plan: m, i, moveById, ...(phrase ? { phrase } : {}) });
+      const r = coachStep(s, { names, partnerByTeam, profiles, plan: m, i, moveById, voice: v, ...(phrase ? { phrase } : {}) });
       stats.steps++;
+      stats.voiced += r.voiced;
       if (r.grounded) stats.grounded++; else stats.fallback++;
       if (!r.priced) stats.unpriced++;
       if (r.errors.length) stats.errors.push({ move_id: m.move_id, i, errors: r.errors });
@@ -339,6 +364,18 @@ export function applyCoachMessages(entry, { profiles = null, force = false, phra
     done.set(m.move_id, m.steps);
   }
   return { entry: out, stats };
+}
+
+/**
+ * The caller's one line (the producer, MSG-WIRE): applyCoachMessages with Nick's voice loaded from
+ * the private chat DB when GRIDIRON_NICK_VOICE=1. The chat DB is not opened when the flag is off or
+ * COACH-MSG is off; no chat DB or no profile table -> voice null -> the unstyled texts.
+ * opts: applyCoachMessages opts plus loadVoice (league -> voice; default coach/voice.js#loadNickVoice).
+ */
+export async function coachMessagesFor(entry, { loadVoice = loadNickVoice, ...opts } = {}) {
+  const want = nickVoiceOn() && (opts.force || coachMessagesOn()) && entry && !entry.error;
+  const voice = want ? await loadVoice(entry.league) : null;
+  return applyCoachMessages(entry, { ...opts, voice });
 }
 
 /**
@@ -366,7 +403,7 @@ export function gradeEntry(entry) {
       const rung = idsInText(okv(okv(s.reply_table)?.counter)?.counter_rules?.counter_with, names);
       const f = factsFor({ names, ids: [...ids(s.give), ...ids(s.get), ...ids(opening?.give), ...ids(walk?.max_give), ...rung],
         holes: partnerByTeam.get(String(s.partner))?.roster_holes ?? [], numbers: [] });
-      const c = checkMessage(msg.value, f);
+      const c = checkBursts(msg.value, f);
       r.max_len = Math.max(r.max_len, String(msg.value).length);
       if (msg.source === COACH_SOURCE) {
         r.coach++;
@@ -387,8 +424,8 @@ export function gradeEntry(entry) {
  * -> Map or null). Returns totals, the grounded share, and whether the (applied) file passes validatePlans
  * is left to the caller (plans-schema.js#validatePlans on `doc`).
  */
-export function gradePlansFile(file, { apply = false, profilesFor = () => null } = {}) {
-  const doc = apply ? { ...file, leagues: file.leagues.map(e => applyCoachMessages(e, { force: true, profiles: profilesFor(e.league) }).entry) } : file;
+export function gradePlansFile(file, { apply = false, profilesFor = () => null, voiceFor = () => null } = {}) {
+  const doc = apply ? { ...file, leagues: file.leagues.map(e => applyCoachMessages(e, { force: true, profiles: profilesFor(e.league), voice: voiceFor(e.league) }).entry) } : file;
   const t = { steps: 0, coach: 0, template: 0, missing: 0, ungrounded: 0, template_ungrounded: 0, max_len: 0,
     priced_steps: 0, priced_coach: 0, full_coach: 0, invented_playbook: 0 };
   for (const e of doc.leagues) {

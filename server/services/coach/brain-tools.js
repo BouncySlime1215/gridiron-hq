@@ -7,7 +7,8 @@
  *                is shown. Producer: the campaign producer (FIX-03).
  *   people_read  the counterpart profile per manager (people/profile-reader.js,
  *                COUNTERPART-01): labels and counts only, nick_override first.
- *   pulse_read   recent labelled statements (pulse_statements, PULSE-01).
+ *   pulse_read   recent labelled statements (people_pulse, PULSE-01 #316);
+ *                typed unknown until that producer is on this build.
  *   brain_read   the brain's report card E1-E7 (brain_report, EVAL-01), or the
  *                plan's copy of it when the table is not there.
  *   health_read  the number audit (number_audit, BROKEN-01).
@@ -297,35 +298,20 @@ export function peopleRead(input) {
 
 /* ---------------------------------------------------------------- pulse_read */
 
-/** Label-shaped columns a statements table may carry; message text is never read. */
-const PULSE_COLUMNS = ['roster_id', 'manager', 'player', 'player_id', 'label', 'kind', 'credible', 'credibility', 'at', 'created_at'];
+/**
+ * The pulse producer (PULSE-01, #316) writes people_pulse, and that table and
+ * its reader are not on main yet. Until they are, pulse_read queries nothing
+ * and says so, so Coach refuses instead of reading an empty pulse as "nobody
+ * said anything". Point this at #316's reader once it merges.
+ */
+export const PULSE_NOT_BUILT = 'pulse not built yet: the people_pulse producer (PULSE-01) is not on this build';
 
 /** pulse_read: labelled statements from the last `days` days (labels, never quotes). */
 export function pulseRead(input) {
-  const leagueId = leagueArg(input);
+  leagueArg(input);
   const days = input?.days == null ? 14 : Number(input.days);
   if (!Number.isFinite(days) || days <= 0 || days > 120) throw new BrainToolInputError('days must be from 1 to 120.');
-  let chat = null;
-  try {
-    let database = tableIn(db, 'pulse_statements') ? db : null;
-    if (!database) {
-      chat = openChatDb();
-      if (chat && tableIn(chat, 'pulse_statements')) database = chat;
-    }
-    if (!database) return unknownRow('no pulse_statements table yet: PULSE-01 has not written labelled statements');
-    const cols = database.prepare('PRAGMA table_info(pulse_statements)').all().map(c => c.name);
-    const keep = PULSE_COLUMNS.filter(c => cols.includes(c));
-    const stamp = ['at', 'created_at'].find(c => cols.includes(c));
-    if (!stamp || !keep.length) return unknownRow('pulse_statements has no time or label column this tool reads');
-    const since = new Date(Date.now() - days * 86_400_000).toISOString();
-    const where = [`${stamp} >= ?`];
-    const params = [since];
-    if (cols.includes('league_id')) { where.push('league_id = ?'); params.push(leagueId); }
-    const found = database.prepare(`SELECT ${keep.join(', ')} FROM pulse_statements WHERE ${where.join(' AND ')}
-                                    ORDER BY ${stamp} DESC LIMIT 40`).all(...params);
-    if (!found.length) return unknownRow(`no labelled statements in the last ${days} days`);
-    return found.map(r => ({ status: 'ok', ...r }));
-  } finally { chat?.close(); }
+  return unknownRow(PULSE_NOT_BUILT);
 }
 
 /* ---------------------------------------------------------------- brain_read */
@@ -421,7 +407,7 @@ export const BRAIN_TOOLS = Object.freeze([
       roster_id: { type: 'string', description: 'one team; omit for all' } } }
   }),
   tool({
-    name: 'pulse_read', fn: pulseRead, tables: ['pulse_statements'],
+    name: 'pulse_read', fn: pulseRead, tables: [],
     description: 'Recent labelled statements by managers (what kind of thing was said about which player, and ' +
       'whether it is credible), never the words. Unknown until the pulse producer has run.',
     input_schema: { type: 'object', required: ['league_id'], properties: { ...leagueProp,

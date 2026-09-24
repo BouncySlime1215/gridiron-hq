@@ -370,22 +370,19 @@ test('people_read: no profile reader on this build is typed unknown', noBrain, (
 
 /* ------------------------------------------------------------ pulse, brain, health */
 
-test('pulse_read: no statements table is typed unknown; a table gives labelled rows', noBrain, () => {
+test('pulse_read: typed unknown until PULSE-01 is on this build, and it queries no table', noBrain, () => {
   const [none] = brain.pulseRead({ league_id: LEAGUE });
   assert.equal(none.status, 'unknown');
-  assert.match(none.reason, /pulse_statements/);
-
-  db.exec(`CREATE TABLE pulse_statements (league_id INTEGER, roster_id TEXT, player TEXT, label TEXT,
-             credible INTEGER, quote TEXT, at TEXT)`);
+  assert.equal(none.reason, brain.PULSE_NOT_BUILT);
+  // A stray legacy table must not be read: nothing writes it.
+  db.exec(`CREATE TABLE pulse_statements (league_id INTEGER, label TEXT, at TEXT)`);
   try {
-    run(`INSERT INTO pulse_statements VALUES (?, '7', 'C. Ruiz', 'shopping', 1, 'SECRET QUOTE', ?)`,
-      LEAGUE, new Date().toISOString());
-    run(`INSERT INTO pulse_statements VALUES (?, '7', 'C. Ruiz', 'shopping', 1, 'old', '2020-01-01T00:00:00Z')`, LEAGUE);
+    run(`INSERT INTO pulse_statements VALUES (?, 'shopping', ?)`, LEAGUE, new Date().toISOString());
     const rows = brain.pulseRead({ league_id: LEAGUE, days: 14 });
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].label, 'shopping');
-    assert.ok(!JSON.stringify(rows).includes('SECRET QUOTE'), 'labels, never quotes');
+    assert.equal(rows[0].status, 'unknown');
   } finally { db.exec('DROP TABLE pulse_statements'); }
+  assert.throws(() => brain.pulseRead({ league_id: LEAGUE, days: 0 }), /days/);
 });
 
 test('brain_read: newest run from brain_report, summary row first', noBrain, () => {

@@ -42,6 +42,8 @@ export function report(database, leagueId) {
     e1_production: pick(g.production),
     excluded: ctx.excluded,
     missing_sources: ctx.missing,
+    // FIX-268-4: which table each target-league offer's terms came from (snapshot first).
+    terms_sources: g.terms_sources,
     seconds: (Date.now() - started) / 1000,
   };
 }

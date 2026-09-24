@@ -78,6 +78,31 @@ test('N: 20 weekly checks under the null flip at most the budget (simulation)', 
   }
 });
 
+test('N1: the whole rule under the null with week-to-week swings (clusters) stays within its alpha', () => {
+  need(monitorMod, 'producers/monitor.js');
+  // week effect sd 3/sqrt(30) on top of 30 players of sd 1: the within-week sd alone understates the weekly variance
+  let a = 20260924;
+  const u = () => { a = (Math.imul(a, 1664525) + 1013904223) >>> 0; return (a + 0.5) / 4294967296; };
+  const z = () => Math.sqrt(-2 * Math.log(u())) * Math.cos(2 * Math.PI * u());
+  const alpha = monitorMod.alphaFor(20);
+  let flips = 0;
+  const seasons = 1000;
+  for (let s = 0; s < seasons; s++) {
+    const weeks = []; let state = { status: 'ok' };
+    for (let w = 1; w <= 20; w++) {
+      const b = (3 / Math.sqrt(30)) * z();
+      const xs = Array.from({ length: 30 }, () => b + z());
+      const m = xs.reduce((t, x) => t + x, 0) / 30;
+      const sd = Math.sqrt(xs.reduce((t, x) => t + (x - m) ** 2, 0) / 29);
+      weeks.push({ key: `2026:${w}`, d: m, n: 30, entities: 30, sd });
+      const r = monitorMod.decideDrift({ weeks, prev: state, alpha });
+      state = r.state;
+      if (r.flip === 'fallback') { flips += 1; break; }
+    }
+  }
+  assert.ok(flips / seasons <= alpha, `null flip rate ${flips / seasons} above alpha ${alpha}`);
+});
+
 test('N2: the confidence sequence is two-sided, shrinks with n and is centred on the mean', () => {
   need(confseq, 'stats/confseq.js');
   const a = confseq.confidenceSequence([0.2, 0.4, 0.3, 0.1], { alpha: 0.1, priorVar: 0.04 });
@@ -88,6 +113,10 @@ test('N2: the confidence sequence is two-sided, shrinks with n and is centred on
   const b = confseq.confidenceSequence(Array.from({ length: 16 }, (_, i) => [0.2, 0.4, 0.3, 0.1][i % 4]),
     { alpha: 0.1, priorVar: 0.04 });
   assert.ok(b.upper - b.lower < a.upper - a.lower, 'more weeks, narrower sequence');
+  // the closed form, by hand: predictable variances .04, .08/3, .1/4, .1/5; rho = 6 x .04
+  const V = 0.04 + 0.08 / 3 + 0.1 / 4 + 0.1 / 5; const rho = 0.24;
+  const radius = Math.sqrt((V + rho) * Math.log((V + rho) / (rho * 0.1 * 0.1))) / 4;
+  assert.ok(Math.abs((a.upper - a.mean) - radius) < 1e-12, `radius ${a.upper - a.mean}, closed form ${radius}`);
   assert.throws(() => confseq.confidenceSequence([1], { alpha: 0, priorVar: 1 }), /alpha/);
   assert.throws(() => confseq.confidenceSequence([1], { alpha: 0.1, priorVar: 0 }), /priorVar/);
 });
@@ -109,6 +138,9 @@ test('2: live worse by a fixed amount flips at the first check with the floor me
   // and a big effect that is still noisy waits for the bound
   const noisy = walk([wk(1, 0.5, { sd: 5 }), wk(2, -0.2, { sd: 5 }), wk(3, 0.9, { sd: 5 }), wk(4, 0.1, { sd: 5 })]);
   assert.ok(noisy.every(s => s.state.status === 'ok'));
+  // tight weeks that disagree with each other: the cross-week spread is the variance, not the within-week sd
+  const swing = walk([2, -1.5, 2.5, -1, 1.8, -1.2].map((d, i) => wk(i + 1, d, { sd: 0.3 })));
+  assert.ok(swing.every(s => s.state.status === 'ok'), 'flipped on weeks that disagree');
 });
 
 test('4: live better than its fallback never flips', () => {
@@ -129,6 +161,10 @@ test('5: recovery takes a full fresh window; the weeks before the flip do not co
   assert.equal(steps[3].flip, 'recovered');
   assert.equal(steps[3].state.status, 'ok');
   assert.equal(steps[3].fresh.n, 4, 'only the weeks after the flip are the fresh window');
+  // a fresh window that meets the floor but is not clearly better stays on the fallback
+  const unclear = [5, 6, 7, 8, 9].map((i, j) => wk(i, [-0.3, 0.2, -0.4, 0.1, -0.2][j], { sd: 1 }));
+  const held = walk([...bad, ...unclear], { start: flipped.state }).slice(4);
+  assert.ok(held.every(s => s.state.status === 'fallback' && s.flip === null), 'recovered without the upper bound below 0');
 });
 
 test('G: the grader pairs each week against the fallback field (delta, entities, sd)', () => {
@@ -148,6 +184,12 @@ test('G: the grader pairs each week against the fallback field (delta, entities,
   assert.equal(p.entities, 2);
   assert.equal(p.delta_mean, 2);
   assert.ok(Math.abs(p.delta_sd - Math.SQRT2) < 1e-6);
+  // season to date: one player in two weeks is two pairs but one entity
+  const w4 = k => k.replace(':3:', ':4:');
+  const season = graderMod.pairedVsFallback([...mine, ...mine.map(i => ({ ...i, entity_id: w4(i.entity_id) }))],
+    [...theirs, ...theirs.map(i => ({ ...i, entity_id: w4(i.entity_id) }))], 'x.base');
+  assert.equal(season.n_pairs, 4);
+  assert.equal(season.entities, 2);
 });
 
 /* ---------------------------------------------------------- on a database */
@@ -224,7 +266,6 @@ test('M1: a healthy tick writes a monitor row per field and no fallback', () => 
   assert.equal(m.status, 'ok');
   assert.equal(monitorRow('mtest.fresh').status, 'ok');
   assert.equal(row(`SELECT COUNT(*) AS n FROM engine_fallback`).n, 0);
-  assert.equal(monitorRow('health.monitor'), null, 'the monitor does not monitor itself');
 });
 
 test('3: on drift the served value is the fallback field, labelled, and its chain names the monitor; the card gets a HEALTH-01 row', () => {
@@ -320,6 +361,11 @@ test('X: a field whose latest row failed its checks is broken on the card; the l
   assert.equal(audit('mtest.p').status, 'broken');
   const served = servedMod.readServed('player', '9403', 'mtest.p', { asOf: '2026-09-20T14:50:00.000Z' }, db);
   assert.equal(served.value, 0.4);
+  // the healthy snapshot is pinned when the field leaves ok; a later snapshot does not move it
+  const pinned = m.healthy_snapshot_id;
+  publishSnapshot({ leagueId: 0, versionSet: {}, now: '2026-09-20T14:46:00.000Z' }, db);
+  monitorTick('2026-09-20T14:47:00.000Z');
+  assert.equal(monitorRow('mtest.p').healthy_snapshot_id, pinned);
 });
 
 test('D: the daemon runs the monitor after the grader', () => {
@@ -331,4 +377,5 @@ test('D: the daemon runs the monitor after the grader', () => {
   assert.ok(spec.inputs.fields.includes('grade.week'));
   assert.equal(spec.inputs.monitor, true);
   assert.deepEqual(rows(`SELECT COUNT(*) AS n FROM engine_state WHERE field = 'health.monitor' AND lane <> 'live'`)[0].n, 0);
+  assert.equal(monitorRow('health.monitor'), null, 'the monitor does not monitor itself');
 });

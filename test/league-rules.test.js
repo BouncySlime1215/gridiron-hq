@@ -179,7 +179,9 @@ test('CE-05: leagueRules ships only fields a route reads (no roster, trade, scor
   const r = leagueRules(lgOf(espnPayload()));
   assert.deepEqual(Object.keys(r).sort(),
     // `waivers` (RL-13-2): read by waiver-wire.js#claimPriority -> GET /api/trades/:leagueId/waivers.
-    ['median_game', 'missing', 'platform', 'schedule', 'seeding', 'source', 'unknown', 'unsupported', 'waivers']);
+    // `trade_deadline` (DEADLINE-01): read by title-chess.js#titleChess <- trade-engine.js#findTradeSequences.
+    ['median_game', 'missing', 'platform', 'schedule', 'seeding', 'source', 'trade_deadline', 'unknown', 'unsupported',
+      'waivers']);
   for (const k of ['roster', 'trade', 'scoring', 'scoring_items', 'matchup_tie_rule', 'playoff_tie_rule']) {
     assert.equal(k in r, false, `${k} has no reader outside league-rules.js`);
   }

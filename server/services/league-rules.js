@@ -29,7 +29,9 @@
  *     written by routes/leagues.js#syncEspnLeague via ESPN_SLOT_NAME, which
  *     drops slot 7 (OP/superflex) that espn-draft.js#SLOT_NAME keeps (follow-up:
  *     one slot map, owned with trade-engine.js);
- *   - trade settings: trade-tactics.js reads vetoVotesRequired itself;
+ *   - trade settings: trade-tactics.js reads vetoVotesRequired itself; the trade
+ *     deadline (DEADLINE-01) is read here, `trade_deadline`, for title-chess.js
+ *     (CHESS-01a caps its trade steps at it; findTradeSequences reaches it);
  *   - waiver clock (waiverProcessDays/Hour): waiver-wire.js#nextWaiverRun reads
  *     acquisitionSettings itself (follow-up: move it here beside `waivers`);
  *   - Sleeper: no reader yet, so a Sleeper league gets a named error, never a
@@ -39,6 +41,7 @@
 
 const SS = 'settings.scheduleSettings';
 const ACQ = 'settings.acquisitionSettings';
+const TRADE = 'settings.tradeSettings';
 
 /** Tiebreakers seedStandings() implements, by ESPN `playoffSeedingRule` value. */
 export const SUPPORTED_TIEBREAKERS = new Set(['TOTAL_POINTS_SCORED']);
@@ -58,6 +61,7 @@ function emptyRules(source, platform, missing) {
     seeding: { tiebreaker: null, divisions: null, division_winners_first: null, team_division: null },
     median_game: null,
     waivers: { acquisition_type: null, uses_budget: null, order_resets_weekly: null },
+    trade_deadline: null,
     missing, unsupported: [], unknown: [],
   };
 }
@@ -145,7 +149,33 @@ export function leagueRules(lg) {
   wv.uses_budget = need(acq, 'isUsingAcquisitionBudget', ACQ, v => typeof v === 'boolean');
   wv.order_resets_weekly = need(acq, 'waiverOrderReset', ACQ, v => typeof v === 'boolean');
 
+  /* --- trade deadline (DEADLINE-01, C29) ------------------------------------ */
+  const deadlineMs = need(s.tradeSettings, 'deadlineDate', TRADE, v => Number.isFinite(v) && v > 0);
+  if (deadlineMs != null) {
+    const season = Number.isInteger(payload.seasonId) ? payload.seasonId : new Date(deadlineMs).getUTCFullYear();
+    const week = nflWeekOf(deadlineMs, season);
+    out.trade_deadline = { epoch_ms: deadlineMs, date: new Date(deadlineMs).toISOString(), week, basis: NFL_WEEK_BASIS };
+    if (week == null) unknown.push(`${TRADE}.deadlineDate: ${out.trade_deadline.date} falls outside NFL weeks 1-18 of ${season}`);
+  }
+
   return out;
+}
+
+/**
+ * The NFL week a moment falls in: week 1 starts the Tuesday after Labor Day (the first
+ * Monday of September; the opener is that Thursday, true of every season 2020-2026), and
+ * each week runs Tuesday to Tuesday, 08:00 UTC (3-4 AM Eastern, after Monday night). A
+ * trade made before a deadline in week N still counts toward week N's games, so N is the
+ * last scoring period before the deadline. Null outside weeks 1-18. ESPN's payload carries
+ * no dates per scoring period, so the calendar is the rule, declared here.
+ */
+export const NFL_WEEK_BASIS = 'NFL calendar: week 1 starts the Tuesday after Labor Day, weeks run Tuesday to Tuesday (08:00 UTC)';
+export function nflWeekOf(ms, season) {
+  const sept1 = new Date(Date.UTC(season, 8, 1)).getUTCDay(); // 0 Sunday .. 6 Saturday
+  const laborDay = 1 + ((8 - sept1) % 7);                       // first Monday of September
+  const start = Date.UTC(season, 8, laborDay + 1, 8);           // the Tuesday after, 08:00 UTC
+  const week = Math.floor((ms - start) / (7 * 86400000)) + 1;
+  return week >= 1 && week <= 18 ? week : null;
 }
 
 /**

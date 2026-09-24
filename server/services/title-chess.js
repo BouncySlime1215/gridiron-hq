@@ -30,6 +30,13 @@
  * and paths rank on EV. A step expands only when its P(accept) is at least
  * `minPAccept`.
  *
+ * The trade deadline (DEADLINE-01). Steps are dated one NFL week apart
+ * (`weeksPerStep`), the first in the sim's first week: step n lands in week
+ * from_week + (n - 1). No trade or flip is expanded in a week after the league's
+ * deadline week (league-rules.js#leagueRules().trade_deadline); claims still
+ * are, since waivers run past the deadline. With no deadline in the payload the
+ * search is uncapped and the block says why.
+ *
  * Nothing here is fitted. Depth, beam width, per-node shortlist, node budget,
  * the value band and the P(accept) floor are declared defaults (CHESS_DEFAULTS).
  *
@@ -39,6 +46,7 @@
 import { previewUnconfirmed, previewFields } from './preview-mode.js';
 import { acceptanceBand } from './trade-acceptance.js';
 import { readDeal } from './counterparty-pricing.js';
+import { leagueRules } from './league-rules.js';
 
 export const CHESS_ENV = 'GRIDIRON_CHESS_ENABLED';
 export const CHESS_OFF_REASON = 'Title-odds chess (CHESS-01a) is default-off: it is measured on a fixture '
@@ -55,6 +63,7 @@ export const CHESS_DEFAULTS = Object.freeze({
   minPAccept: 0.15,  // a trade step below this is not expanded
   valueBand: [-12, 18], // their market-value gain, %, the finder's band (title-mutual.js)
   limit: 10,         // paths returned
+  weeksPerStep: 1,   // one move per NFL week: a trade needs a reply, a claim a waiver run
 });
 
 /** Read per call, like every preview-converted site, so a test can flip it. */
@@ -172,23 +181,32 @@ const signature = rosters => [...rosters].sort(([a], [b]) => (a < b ? -1 : a > b
  *   score(changedRosters) -> { title_delta, title_delta_se, title_delta_clears_noise, title_runs } | { error },
  *   proxy(myIds) -> number (cheap; shortlist only),
  *   pAccept({ partner_id, give, get }) -> { p, basis } (p null: refused, never expanded),
- *   pairedSe(runsA, runsB) -> SE of mean(b - a), or null.
+ *   pairedSe(runsA, runsB) -> SE of mean(b - a), or null,
+ *   fromWeek (the NFL week of step 1, or null: steps undated), deadlineWeek (the last week a
+ *   trade or flip may land in, or null: no cap).
  */
 export function chessSearch(ctx, overrides = {}) {
   const opts = { ...CHESS_DEFAULTS, ...overrides };
   const me = String(ctx.myTeamId);
   const root = { rosters: ctx.today, source: new Map(), steps: [], reach: 1, ev: 0, delta: 0, runs: null };
   const seen = new Set([signature(ctx.today)]);
-  const stats = { generated: 0, priced_out: 0, nodes_scored: 0, errors: 0, budget_hit: false, first_error: null };
+  const stats = { generated: 0, priced_out: 0, past_deadline: 0, nodes_scored: 0, errors: 0, budget_hit: false,
+    first_error: null };
+  const fromWeek = ctx.fromWeek ?? null;
+  const deadlineWeek = fromWeek == null ? null : ctx.deadlineWeek ?? null;
   const all = [];
   let beam = [root];
 
   for (let depth = 1; depth <= opts.depth && beam.length; depth++) {
     const children = [];
+    const week = fromWeek == null ? null : fromWeek + (depth - 1) * opts.weeksPerStep;
+    const tradesOpen = deadlineWeek == null || week <= deadlineWeek;
     for (const node of beam) {
       const base = ctx.proxy(node.rosters.get(me));
-      const moves = generateMoves(node, ctx, opts);
-      stats.generated += moves.length;
+      const generated = generateMoves(node, ctx, opts);
+      const moves = tradesOpen ? generated : generated.filter(m => m.kind === 'claim');
+      stats.generated += generated.length;
+      stats.past_deadline += generated.length - moves.length;
       const shortlist = moves
         .map(m => ({ m, next: applyMove(node, m, ctx) }))
         .filter(({ next }) => !seen.has(signature(next.rosters)))
@@ -209,7 +227,7 @@ export function chessSearch(ctx, overrides = {}) {
         if (s.error) { stats.errors++; stats.first_error ??= s.error; continue; }
         stats.nodes_scored++;
         const reach = node.reach * price.p;
-        const step = { n: depth, kind: m.kind, shape: m.shape,
+        const step = { n: depth, week, kind: m.kind, shape: m.shape,
           ...(m.kind === 'claim' ? { claim: m.claim, drop: m.drop }
             : { partner_id: m.partner_id, give: m.give, get: m.get, their_value_pct: m.their_value_pct,
               their_drop: next.their_drop }),
@@ -283,6 +301,7 @@ export function titleChess(lg, { myTeamId, teams, assets, wire = [], counterpart
   excludeIds = null, blockedPartners = new Set(), mode, sim, options = {} }) {
   const opts = { ...CHESS_DEFAULTS, ...options };
   const base = { status: 'on', ...(mode.preview ? previewFields(CHESS_OFF_REASON) : {}) };
+  const tradeDeadline = leagueRules(lg).trade_deadline;
   const wireIds = [...wire].sort((a, b) => (b.value ?? 0) - (a.value ?? 0) || a.id - b.id)
     .slice(0, opts.wireLimit).map(p => p.id);
   const world = sim.tradeImpactWorld(lg, { universe: wireIds });
@@ -301,7 +320,15 @@ export function titleChess(lg, { myTeamId, teams, assets, wire = [], counterpart
     proxy: ids => sim.expectedLineupTotal(world, ids),
     pAccept: todaysPAccept(counterparties, player),
     pairedSe: sim.pairedTitleSe,
+    fromWeek: world.key.fromWeek ?? null,
+    deadlineWeek: tradeDeadline?.week ?? null,
   }, opts);
+  const deadline = tradeDeadline?.week != null
+    ? { week: tradeDeadline.week, date: tradeDeadline.date, epoch_ms: tradeDeadline.epoch_ms, basis: tradeDeadline.basis,
+      weeks_per_step: opts.weeksPerStep, capped: world.key.fromWeek != null }
+    : { week: null, capped: false, weeks_per_step: opts.weeksPerStep,
+      reason: tradeDeadline ? `the deadline ${tradeDeadline.date} is outside NFL weeks 1-18`
+        : 'settings.tradeSettings.deadlineDate is not in the league payload: trade steps are not capped' };
   const name = id => player(id)?.name ?? String(id);
   for (const path of [out.best_single, ...out.paths].filter(Boolean)) {
     for (const s of path.steps) {
@@ -310,5 +337,5 @@ export function titleChess(lg, { myTeamId, teams, assets, wire = [], counterpart
     }
   }
   return { ...base, runs: world.runs, seed: world.key.seed, from_week: world.key.fromWeek, wire: wireIds,
-    rival_claims: 'not_modelled', deadline: 'not_modelled', ...out };
+    rival_claims: 'not_modelled', deadline, ...out };
 }

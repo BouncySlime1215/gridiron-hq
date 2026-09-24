@@ -126,3 +126,41 @@ declared start point (0.30, basis `no_information`). One free agent on the wire.
   NFL-game correlation noise rather than roster quality (step 3 above, a
   same-projection QB swap, adds +0.039 on game correlation alone; a step's own
   paired SE is not computed, only the cumulative one).
+
+## PR sweep fixes (2026-09-24)
+
+This branch merged `origin/main` first (`4ebdb0d`; conflicts only in import lines and the
+preview-mode list).
+
+### FIX-258-1: DEADLINE-01, built
+
+| Step | Commit | Result |
+|---|---|---|
+| RED | `a469c64` | 3 fail (leagueRules has no `trade_deadline`; the search has no week or cap; `deadline` is `'not_modelled'`), 10 pass |
+| GREEN | the `fix:` after it | chess-sequences 13 / 13; with league-rules*, waiver*, trade-horizon*, season-sim*: 98 / 98 |
+
+- `league-rules.js#leagueRules(lg).trade_deadline` = `{epoch_ms, date, week, basis}` from
+  `settings.tradeSettings.deadlineDate`. `week` is the NFL week the deadline falls in, which
+  is the last scoring period a trade made before it still counts toward. The rule is
+  `nflWeekOf`: week 1 starts the Tuesday after Labor Day, and weeks run Tuesday to Tuesday
+  at 08:00 UTC. ESPN's payload has no per-period dates. The rule was checked against the
+  2023-2026 openers. With no deadline in the payload the field is `null` and
+  `settings.tradeSettings.deadlineDate` is in `missing`.
+- `title-chess.js`: step n is dated `from_week + (n - 1)` (`weeksPerStep: 1`, declared: a
+  trade needs a reply and a claim needs a waiver run). No trade or flip step is expanded in
+  a week after the deadline week. Claims still are. `past_deadline` counts what the cap
+  removed. The block's `deadline` is now `{week, date, epoch_ms, basis, weeks_per_step,
+  capped}`, or `{week: null, capped: false, reason}`.
+- Test edit: `league-rules.test.js` "ships only fields a route reads" adds `trade_deadline`,
+  with its reader named (title-chess.js <- findTradeSequences).
+
+### FIX-258-2, -3, -4: not built, blocked on unmerged PRs
+
+- FIX-258-2 needs #269 (EA-07, `league-world.js#leagueWorld`). Open, so not on main.
+- FIX-258-3 needs #288 (CLONE-01b b2, P(accept) with veto) and #264 (REP-01, the
+  lopsidedness budget). Both open.
+- FIX-258-4 needs #229's population waiver-choice model. #229 is open, and the model ships
+  there as an offline Python fit (`scripts/rnd/fit-clone-population.py`, study output only).
+  There is no JS scorer to call.
+`title-chess.js:204` (claims at p = 1, `rival_claims: 'not_modelled'`) and `todaysPAccept`
+are unchanged.

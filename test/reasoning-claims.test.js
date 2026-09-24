@@ -7,7 +7,8 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { up as upRoster } from '../server/migrations/058_league_roster_snapshots.js';
 import { up as upOutcomes } from '../server/migrations/067_outcome_ledgers.js';
-import { up as upClaims, down as downClaims } from '../server/migrations/085_reasoning_claims.js';
+import fs from 'node:fs';
+import { up as upClaims, down as downClaims, name as claimsMigrationName } from '../server/migrations/089_reasoning_claims.js';
 import { assemblePanel } from '../server/services/reasoning/panel.js';
 import { cardsForLeague } from '../server/services/reasoning/cards.js';
 import { claimsFromPanel, recordClaims, RULES } from '../server/services/reasoning/claims.js';
@@ -94,7 +95,7 @@ function insertRoster(db, { period, team, player, pos, seen, changed = seen, sou
 
 // ---- migration ------------------------------------------------------------
 
-test('085 is additive, idempotent and states its contract in SQL', () => {
+test('089 is additive, idempotent and states its contract in SQL', () => {
   const db = freshDb();
   upClaims(db);
   const cols = db.prepare("SELECT name FROM pragma_table_info('reasoning_claims')").all().map(c => c.name);
@@ -110,6 +111,13 @@ test('085 is additive, idempotent and states its contract in SQL', () => {
   downClaims(db);
   assert.equal(db.prepare("SELECT 1 FROM sqlite_master WHERE name='reasoning_claims'").get(), undefined);
   assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE name='trade_outcomes'").get(), 'down touches nothing else');
+});
+
+test('089 is the number MIGRATIONS.md reserves for #271, its name matches its file, and nothing else uses 089', () => {
+  const files = fs.readdirSync(new URL('../server/migrations/', import.meta.url)).filter(f => /^\d+_.+\.js$/.test(f));
+  assert.deepEqual(files.filter(f => f.startsWith('089_')), ['089_reasoning_claims.js']);
+  assert.equal(claimsMigrationName, '089_reasoning_claims', 'schema_migrations keys on this name');
+  assert.equal(files.filter(f => /_reasoning_claims\.js$/.test(f)).length, 1, 'no leftover 085 copy');
 });
 
 // ---- extraction -----------------------------------------------------------

@@ -92,7 +92,7 @@ export function grade(rows) {
 export function run(database, { leagueId = null } = {}) {
   if (!reasoningGradingEnabled()) return waiting(`REASON-02 is off; ${PREVIEW_ENV}=1 turns it on`);
   const built = database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'reasoning_claims'").get();
-  if (!built) return waiting('source table reasoning_claims is not built yet; migration 085 builds it');
+  if (!built) return waiting('source table reasoning_claims is not built yet; migration 089 builds it');
   const rows = database.prepare(`SELECT kind, status, subject_team FROM reasoning_claims
     WHERE (? IS NULL OR league_id = ?)`).all(leagueId, leagueId);
   return grade(rows);

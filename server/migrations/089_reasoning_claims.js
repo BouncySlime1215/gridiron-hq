@@ -1,4 +1,4 @@
-export const name = '085_reasoning_claims';
+export const name = '089_reasoning_claims';
 /**
  * REASON-02. Additive only: one new table and two indexes. Nothing existing is altered.
  *
@@ -20,7 +20,7 @@ export const name = '085_reasoning_claims';
  *
  * Writer: recordClaims (server/services/reasoning/claims.js). Settled by
  * resolveOpenClaims (resolve.js). Read by the C8 grader (grade.js).
- * Numbered 085: 082 follow ledger, 083 eval seams, 084 offer snapshots.
+ * Numbered 089 by docs/handoff/local/MIGRATIONS.md (#271 REASON-02); 084-088 are reserved for other units.
  */
 export function up(db) {
   db.exec(`

@@ -4,7 +4,7 @@ Depends on #234 (REASON-01, branch `claude/cloud-reason-01`, head `4f59d2d`); th
 
 ## What changed
 
-- **`server/migrations/085_reasoning_claims.js`**: new table `reasoning_claims`, one row per claim a panel showed. The contract is written as SQL CHECKs. A claim is `uncheckable` if and only if it has no rule. A checkable claim has a deadline. A settled claim (`true`/`false`/`void`) records when it settled and the evidence. The UNIQUE key includes the panel fingerprint, so a panel reused across refreshes is never counted twice.
+- **`server/migrations/089_reasoning_claims.js`**: new table `reasoning_claims`, one row per claim a panel showed. The contract is written as SQL CHECKs. A claim is `uncheckable` if and only if it has no rule. A checkable claim has a deadline. A settled claim (`true`/`false`/`void`) records when it settled and the evidence. The UNIQUE key includes the panel fingerprint, so a panel reused across refreshes is never counted twice.
 - **`server/services/reasoning/claims.js`**: `claimsFromPanel` and `recordClaims`. Each prediction comes from the fact ids the claim cites. Its words are never parsed.
   - `counter.likely` citing `reply.<i>.*` becomes `counter_with`.
   - A claim citing `his.hole.<i>.*` becomes `wants_position`.

@@ -3,7 +3,7 @@
  * REASON-02: store the reasoning panels' claims as predictions, settle the ones
  * whose evidence has arrived, and print the C8 grade (share that came true).
  * Offline, after scripts/reasoning/run.mjs; never on a web request. No paid
- * calls. Runs migrations first so 085 exists on the database it is pointed at
+ * calls. Runs migrations first so 089 exists on the database it is pointed at
  * (GRIDIRON_DB_PATH).
  *
  *   node scripts/reasoning/grade-claims.mjs [--plans <plans.json>] [--panels <panels.json>] [--league <id>]

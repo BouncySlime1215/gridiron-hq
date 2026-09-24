@@ -132,8 +132,8 @@ export function clearModelCache() { cache.clear(); clearPlayerWeekEngineCache();
  * agree, and it carries the avail.p_play state (FIX-285-2): the pools are priced
  * on it, so a flag-on simulation must never answer a flag-off request.
  */
-export function simulateMemoKey(lg, runs, fromWeek, seed) {
-  return `sim:${lg.id}:${runs}:${simStartWeek(lg, fromWeek)}${pPlayCacheTag()}:seed:${seed ?? 'random'}`;
+export function simulateMemoKey(lg, runs, clientWeek, seed) {
+  return `sim:${lg.id}:${runs}:${simStartWeek(lg, clientWeek)}${pPlayCacheTag()}:seed:${seed ?? 'random'}`;
 }
 
 /* ------------------------------------------------ persisted model registry */

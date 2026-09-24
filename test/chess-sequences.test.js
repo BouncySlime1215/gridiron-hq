@@ -132,6 +132,15 @@ run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, tea
      payload, current_week, payload_season, fetched_at) VALUES (1941, 'espn', 'chess01a', 2026, 'TM', '1', 4, 1, ?, ?, 2, 2026, '2026-09-24T09:00:00Z')`,
 JSON.stringify(['QB', 'RB', 'WR']), JSON.stringify(payload()));
 const league = () => db.prepare('SELECT * FROM leagues WHERE id = 1941').get();
+// DEADLINE-01: the same league with ESPN's trade deadline in NFL week 3, the week after the sim's
+// first week (2): Wed 2026-09-23 17:00 UTC, the week that starts Tue 2026-09-22 (week 1 starts the
+// Tuesday after Labor Day, 2026-09-08).
+const DEADLINE_WK3 = Date.UTC(2026, 8, 23, 17);
+run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, roster_positions,
+     payload, current_week, payload_season, fetched_at) VALUES (1942, 'espn', 'chess01a-dl', 2026, 'TM', '1', 4, 1, ?, ?, 2, 2026, '2026-09-24T09:00:00Z')`,
+JSON.stringify(['QB', 'RB', 'WR']), JSON.stringify({ ...payload(), seasonId: 2026,
+  settings: { ...payload().settings, tradeSettings: { deadlineDate: DEADLINE_WK3, vetoVotesRequired: 4 } } }));
+const deadlineLeague = () => db.prepare('SELECT * FROM leagues WHERE id = 1942').get();
 
 const withEnv = (vars, fn) => {
   const prior = Object.fromEntries(Object.keys(vars).map(k => [k, process.env[k]]));
@@ -143,8 +152,7 @@ const withEnv = (vars, fn) => {
 
 const SIM = { tradeImpactWorld: sim.tradeImpactWorld, rosterImpact: sim.rosterImpact,
   expectedLineupTotal: sim.expectedLineupTotal, pairedTitleSe: sim.pairedTitleSe };
-const runChess = (options = {}) => {
-  const lg = league();
+const runChess = (options = {}, lg = league()) => {
   const teams = loadRosters(lg, assets);
   return chess.titleChess(lg, { myTeamId: '1', teams, assets, wire: [assets.get(FREE_WR)],
     mode: { on: true, preview: false }, sim: SIM, options });
@@ -311,4 +319,63 @@ test('CHESS-01a: findTradeSequences carries the chess block only when the flag i
     () => findTradeSequences(league(), opts));
   assert.equal(preview.chess.status, 'on');
   assert.equal(preview.chess.preview, true);
+});
+
+/* ------------------------------------------------ 3. the trade deadline (DEADLINE-01) */
+
+test('DEADLINE-01: leagueRules reads the trade deadline from ESPN tradeSettings as a date and an NFL week', async () => {
+  const { leagueRules } = await import('../server/services/league-rules.js');
+  const r = leagueRules(deadlineLeague());
+  assert.ok(r.trade_deadline, `no trade_deadline: ${JSON.stringify(r.missing)}`);
+  assert.equal(r.trade_deadline.epoch_ms, DEADLINE_WK3);
+  assert.equal(r.trade_deadline.date, '2026-09-23T17:00:00.000Z');
+  assert.equal(r.trade_deadline.week, 3, 'the last NFL week a trade before the deadline can still count in');
+  assert.match(r.trade_deadline.basis, /Labor Day/);
+  // The fixture test file's own ESPN shape (league-rules.test.js): Wed 2026-12-02 17:00 UTC is week 13.
+  const dec = leagueRules({ platform: 'espn', payload: JSON.stringify({ seasonId: 2026,
+    settings: { tradeSettings: { deadlineDate: 1796230800000 } } }) });
+  assert.equal(dec.trade_deadline.week, 13);
+  // No deadline in the payload: null and named in `missing`, never a default week.
+  const none = leagueRules(league());
+  assert.equal(none.trade_deadline, null);
+  assert.ok(none.missing.includes('settings.tradeSettings.deadlineDate'), JSON.stringify(none.missing));
+});
+
+test('DEADLINE-01 search: no trade or flip step is expanded past the deadline week; claims still are', () => {
+  const { ctx } = toyCtx({ pts: { 21: 10, 31: 20 } });
+  ctx.wire = [41];
+  const open = chess.chessSearch({ ...ctx, fromWeek: 5, deadlineWeek: null }, { depth: 2, nodeBudget: 500, givePool: 3 });
+  assert.ok(open.paths.some(p => p.steps[1]?.kind !== 'claim' && p.steps[1]?.week === 6),
+    'control: with no deadline, a second-week trade exists');
+  const capped = chess.chessSearch({ ...ctx, fromWeek: 5, deadlineWeek: 5 }, { depth: 2, nodeBudget: 500, givePool: 3 });
+  const steps = capped.paths.flatMap(p => p.steps);
+  assert.ok(steps.length > 0);
+  for (const st of steps) {
+    assert.equal(st.week, 5 + st.n - 1, 'one move per NFL week from the first sim week');
+    if (st.kind !== 'claim') assert.ok(st.week <= 5, `a ${st.kind} lands in week ${st.week}, after the deadline`);
+  }
+  assert.ok(capped.past_deadline > 0, 'the moves the deadline stopped are counted');
+});
+
+test('DEADLINE-01: with the deadline next week, no chess path has a trade step after it', () => {
+  const out = runChess({}, deadlineLeague());
+  assert.equal(out.status, 'on', out.error);
+  assert.equal(out.from_week, 2);
+  assert.deepEqual(out.deadline, { week: 3, date: '2026-09-23T17:00:00.000Z', epoch_ms: DEADLINE_WK3,
+    basis: out.deadline.basis, weeks_per_step: 1, capped: true });
+  assert.ok(out.paths.length > 0, 'control: paths still exist');
+  for (const p of [out.best_single, ...out.paths].filter(Boolean)) {
+    for (const st of p.steps) {
+      assert.equal(st.week, 2 + st.n - 1);
+      if (st.kind !== 'claim') assert.ok(st.week <= 3, `${st.kind} in week ${st.week}: ${JSON.stringify(p.steps)}`);
+    }
+  }
+  // Control: the same league without a deadline does reach a week-4 trade, so the cap is what removed it.
+  const free = runChess();
+  assert.equal(free.deadline.week, null);
+  assert.equal(free.deadline.capped, false);
+  assert.match(free.deadline.reason, /tradeSettings\.deadlineDate/);
+  assert.ok(free.paths.some(p => p.steps.some(st => st.kind !== 'claim' && st.week === 4)),
+    'control: with no deadline a depth-3 trade in week 4 exists');
+  assert.notEqual(out.deadline, 'not_modelled');
 });

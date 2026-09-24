@@ -46,16 +46,18 @@ function reset() {
 }
 
 let idea = 0;
-function proposed({ p, status, counterparty = '7', low = null, high = null }) {
+// A SENT app offer (sent_at set): FIX-277-2 reads only offers somebody actually sent.
+function proposed({ p, status, counterparty = '7', low = null, high = null, sent = true }) {
   idea += 1;
   const r = run(`INSERT INTO trade_outcomes
     (league_id, season, source, proposer_team_id, counterparty_team_id, give_json, get_json,
      proposed_at, model_p_accept, model_p_accept_low, model_p_accept_high, model_basis,
-     model_version, status, idea_id, resolved_at, created_at)
+     model_version, status, idea_id, resolved_at, created_at, sent_at)
     VALUES (?, ?, 'app_proposed', '1', ?, '[101]', '[202]', '2026-09-20T12:00:00.000Z', ?, ?, ?,
-            'heuristic_anchored', 'acc-test', ?, ?, ?, '2026-09-20T12:00:00.000Z')`,
+            'heuristic_anchored', 'acc-test', ?, ?, ?, '2026-09-20T12:00:00.000Z', ?)`,
   LEAGUE, SEASON, counterparty, p, low ?? Math.max(0, p - 0.05), high ?? Math.min(1, p + 0.05),
-  status, `idea-${idea}`, status === 'proposed' ? null : '2026-09-21T12:00:00.000Z');
+  status, `idea-${idea}`, status === 'proposed' ? null : '2026-09-21T12:00:00.000Z',
+  sent ? '2026-09-20T12:05:00.000Z' : null);
   return Number(r.lastInsertRowid);
 }
 

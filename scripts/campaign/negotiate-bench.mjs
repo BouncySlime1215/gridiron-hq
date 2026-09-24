@@ -10,8 +10,9 @@
  *   - N counter edits after that (p50/p95/max latency, max lag).
  * Counts and timings only: no names.
  *
- * Usage (point the War Room plans-path variable, warroom-flag.js, at a plans copy too):
- *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db copy> GRIDIRON_PREVIEW_UNCONFIRMED=1 \
+ * Usage (point the War Room plans-path variable, warroom-flag.js, at a plans copy too,
+ * and set the preview switch, preview-mode.js#PREVIEW_ENV, to 1):
+ *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db copy> \
  *     node scripts/campaign/negotiate-bench.mjs --league 4 [--edits 10]
  * Runs this tree's migrations on the copy. With no served move for the league it
  * seeds one thread from the latest roster snapshot (see seedThread).

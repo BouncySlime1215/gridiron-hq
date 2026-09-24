@@ -62,3 +62,8 @@ Then Phase C: merge, local app, browser check of every league, screenshots, MORN
 ## Nick 9/23 ~9:55 PM: 'insane ML, insane UI, most of all insane AI reasoning at every step' -> REASON-01 (ENGINE-SPECS): every card gets case-for / his side of the table / devil's advocate / news check / confidence explained / counter + answer; grounded + graded. Tonight unit 10 (after the campaign producer).
 
 ## Nick 9/23 ~8:40 PM: chat psychology drives who we work with. FIXED tonight: the chat classifier (Jev) had failed 17 runs since 9/22 9:05 PM because refresh.sh blanked AI_GATEWAY_API_KEY; refresh.sh now loads .env.local for Jev (Nick: no Jev cap), loop restarted (pid 46996), first tick: 2 classified, 0 failed. Campaign producer (unit 4) reads manager_chat_profile, negotiation_profiles, manager_player_sentiment, jev_chat_signals rollups for partner choice + flip targeting (ruling in WORK-QUEUE). Check: classify backlog (~380 messages extracted while failing) drains on following ticks.
+
+## RULING 9/23 ~9:40 PM (Nick): "I only care about the Transfer Portal league for this work" = league id 4 (local DB leagues.id 4).
+- The north star (War Room, campaign brain, flip radar, planner, clones, Coach navigator, report card, R&D components) targets LEAGUE 4. Other leagues stay as TRAINING DATA only (pooled P(accept), Sleeper priors), not as product focus.
+- League 4 is also Nick's busiest offer league (~42 of his 65 offers), the richest data for his clone and E1.
+- Producer: run league 4 first/only on each refresh (~3 min instead of ~16). War Room opens on league 4 by default. Morning brief = league 4.

@@ -5,7 +5,7 @@ Source for rows A-H: ENGINE-ARCHITECTURE.md §10.2 (cites on origin/main 29ac6bc
 
 | id | where you see it | what's wrong | cause | fix | status |
 |---|---|---|---|---|---|
-| A | Title tab vs trade finder | disagree on who helps your title odds (rank correlation 0.796) | sim uses LAST SEASON's projections (season-sim.js:304, :548); finder uses rest-of-season (trade-engine.js:333) | EA-07 one world reads proj.ros (folds RL-17-3) | OPEN |
+| A | Title tab vs trade finder | disagree on who helps your title odds (rank correlation 0.796) | sim uses LAST SEASON's projections (season-sim.js:304, :548); finder uses rest-of-season (trade-engine.js:333) | EA-07 one world reads proj.ros (folds RL-17-3) | FIX BUILDING (RL-17-3 cloud); in-app detection #237 |
 | B | My team twin vs Title tab vs TradeCard button | three different title odds for the same team | three caches with three keys + a fresh random world per call (routes/model.js:120, title-odds-trades.js:47, season-sim.js:338) | EA-07 one title.odds per snapshot, one world per week | OPEN |
 | C | trade card, sim, ceiling lineup, lineup posture | four different weekly ranges for one player-week | four separate samplers (trade-engine.js:447, season-sim.js:363, ceiling-lineup.js:109/:215, lineup-posture.js:153) | EA-07 range.week from the one world | OPEN |
 | D | several pages | three different "current week"s | trade-engine.js:180 vs league-week.js:12 vs season-sim.js:190 | nfl.week + league.week fields (EA spine) | OPEN |

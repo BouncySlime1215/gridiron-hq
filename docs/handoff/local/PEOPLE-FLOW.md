@@ -53,3 +53,5 @@ Every offer Nick sends (War Room "I sent it", or ESPN match) -> reply + time -> 
 
 ## Guardrails
 Labels and counts only leave the chat DB; never quotes; no names in the public repo. nick_override beats every model. Quiet managers are "unknown", never "neutral". Nothing is ever sent automatically: the War Room drafts, Nick sends.
+
+## CORRECTION 2026-09-24 02:27 (TZ-AUDIT, evidence/tz-audit.md): the M4 'wants_player -> acquires in 7d, 17x' result is MOSTLY TALK ABOUT LIVE OFFERS, not a leading signal. 10 of 13 hits had an ESPN offer for that player already open; median lag 29 min; with chat shifted +3 h the lift is 3.4x (CI 0-19.9, not significant); only ~3 hits are forward. STATUS: UNPROVEN as a predictor (re-test M4-FORWARD queued). Consumers must stop labelling it 'proven': targets/partner order may use it only as 'he's in a live negotiation for X' (a timing fact), WEAK-01 (#326) relabels it from proven to measured-live, the PULSE-02 gate no longer treats WANT_PLAYER as the proven type. The credibility (CRED-01) and activity-intensity results are unaffected.

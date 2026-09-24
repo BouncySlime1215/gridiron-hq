@@ -2,7 +2,19 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-24 05:25Z.
+Last rebuilt: 2026-09-24 06:08Z.
+
+## #323: fix: War Room plans accept grader sub-check ids (E3-live)
+
+- Merged: 2:08 AM ET, Sep 24 as `36e3b94b`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #312: fix: Trade Brain manager tiers stop building the asset universe on request (WR-FREEZE)
+
+- Merged: 1:42 AM ET, Sep 24 as `8b9b3896`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #317: integration: merge batch 3 (#272 #276 #287 #282 #274 #275 #266 #279 #262)
 

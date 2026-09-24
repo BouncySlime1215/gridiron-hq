@@ -451,6 +451,16 @@ test('verify: a digit inside a cited text cell is grounded by that cell', noBrai
   assert.deepEqual(off.violations.map(x => x.number), ['3']);
 });
 
+test('verify: a text cell from a non-brain tool grounds no number (flag-off behaviour unchanged)', () => {
+  const ledger = newLedger();
+  ledger.record({ sql: 'SELECT ...', params: [], tool: 'query', tables: ['games'], columns: ['game_date', 'team'],
+    rows: [{ game_date: '2024-11-03', team: 'Team 2' }], row_count: 1, truncated: false });
+  const v = verifyAnswer({ ledger, answer: { claims: [
+    { text: 'He scored 11 touchdowns in 2024.', cites: ['r1#0.game_date'] },
+    { text: 'Send step 2 to Team 2.', cites: ['r1#0.team'] }] } });
+  assert.deepEqual(v.violations.map(x => [x.claim_index, x.number]), [[0, '11'], [0, '2024'], [1, '2'], [1, '2']]);
+});
+
 test('verify: a player the claim did not cite, or one no tool returned, is rejected', noBrain, async () => {
   const ledger = await planLedger();
   const uncited = verifyAnswer({ ledger, answer: { claims: [

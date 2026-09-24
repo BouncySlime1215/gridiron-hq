@@ -18,7 +18,11 @@
  *
  * A digit inside a cited TEXT cell grounds the same digit in the claim
  * ("Send step 2 to Team 2." cited, "step 2" stated): the number came back from
- * a tool, spelled the way the tool spelled it.
+ * a tool, spelled the way the tool spelled it. This holds ONLY for cells a
+ * brain tool (BRAIN_TOOL_NAMES) returned. Those tools exist only with
+ * GRIDIRON_COACH_BRAIN_TOOLS on, so with the flag off every existing tool is
+ * checked exactly as before: a date or name cell ('2024-11-03', 'Team 2')
+ * grounds nothing.
  *
  * PLAYERS (COACH-TOOLS). A claim that cites a brain tool (plan_read,
  * people_read, pulse_read, brain_read, health_read) must also cite every
@@ -88,11 +92,12 @@ function roundTo(value, places) {
  * as the percentage form of a fraction (and the fraction form of a
  * percentage, which is the same comparison the other way round).
  */
-function grounds(value, stated) {
+function grounds(value, stated, textCellGrounds = false) {
   const target = asNumber(stated);
   if (target === null) return false;
   if (typeof value === 'string' && value.trim() !== '' && !Number.isFinite(Number(value))) {
-    // A text cell: the number must be one of the numbers written in it.
+    // A text cell: only a brain-tool cell can ground, and only a number written in it.
+    if (!textCellGrounds) return false;
     return numericTokens(value).some(token => asNumber(token) === target);
   }
   const numeric = typeof value === 'string' ? Number(value) : value;
@@ -190,7 +195,7 @@ export function verifyAnswer({ answer, ledger, question = '' } = {}) {
 
     for (const token of numericTokens(text)) {
       numbersChecked += 1;
-      if (cells.some(cell => grounds(cell.value, token))) continue;
+      if (cells.some(cell => grounds(cell.value, token, BRAIN_TOOL_NAMES.includes(toolOf(cell))))) continue;
       violations.push({
         kind: VIOLATIONS.UNGROUNDED_NUMBER, claim_index: claimIndex, number: token, text,
         detail: `${token} is in no cell this claim cites. Retrieve it, or derive it through the ledger, ` +

@@ -50,3 +50,9 @@ Budget: stop launching at 94% weekly; finish in-flight work.
 ## 9. Memory that survives summarization
 - `TASKS.md` (this dir) is the live checklist: what's running, what's next, what's blocked. Update it at every launch, merge and decision.
 - OPS-LOG.md is the history. PASTE-TO-RESUME.md points here.
+
+## Two lanes, always busy (Nick 9/23 ~10:35 PM: "you're not launching anything locally; you need to do both constantly and monitor both")
+Every 15-minute tick checks BOTH lanes and refills whichever is idle:
+- LOCAL lane (this Mac, desktop account): at least 1 R&D round (rnd-loop-v3, next NORTH-STAR-RND component) OR build loop running, plus the merge train (ordered, merge-order.txt) and local-checks.sh. Only one workflow at a time; check load with uptime (< 12) and run ~/claude-handoff/usage.sh first.
+- CLOUD lane (other Max account): keep up to 6 sessions running from CLOUD-QUEUE.md.
+Each tick logs one line: "local: <what's running> | cloud: <n running> | merged: <n>".

@@ -28,25 +28,32 @@ function freshDb() {
   return db;
 }
 
+// The War Room contract (plans-schema.js `warroom-plans/1`) as cards.js reads
+// it since FIX-03/FIX-08: typed fields, the deck in alternatives.value[], the
+// partner row in partners.value[] by team, roster_holes as position strings.
+const okf = value => ({ status: 'ok', value });
 function plansFor() {
   return {
-    as_of: AS_OF,
+    generated_at: AS_OF,
     leagues: [{
-      league_id: LEAGUE,
+      league: LEAGUE,
       names: { 101: 'Our Receiver', 201: 'Their Back' },
-      cards: [{
-        id: 'mv-1', rank: 0, partner_team: 3, give: [101], get: [201], p_yes: 0.4, p_yes_n: 9,
-        reason_chain: ['Our bench receiver is surplus'],
-        reply_table: [
-          { reply: 'counter', counter: 'asks for a bench tight end added', pos: 'TE', action: 'Add him, stop there', p: 0.3 },
-          { reply: 'decline', action: 'Move to the next card' }
-        ]
-      }],
-      partners: { 3: { roster_holes: [{ pos: 'RB', gap: 4.5 }], paper_values: {}, recent_moves: [], chat_labels: [] } },
-      news: [{ id: 'n1', published_at: '2026-09-23T18:00:00Z', player_ids: [201], headline: 'Back limited in practice' }]
+      alternatives: okf([{
+        move_id: 'mv-1', delta_final: okf(0.02),
+        steps: [{
+          partner: 3, give: [101], get: [201], p_yes: { status: 'ok', value: 0.4, n: 9 },
+          reply_table: okf({
+            counter: okf({ do: 'Add him, stop there', counter_rules: { counter_with: 'asks for a bench tight end added' } }),
+            decline: okf({ do: 'Move to the next card' })
+          })
+        }]
+      }]),
+      partners: okf([{ team: 3, roster_holes: ['RB', 'TE'], chat_labels: [], offers_logged: 9 }])
     }]
   };
 }
+// produce.js's news map: per league id, outside the plans file.
+const NEWS = { [LEAGUE]: [{ id: 'n1', published_at: '2026-09-23T18:00:00Z', player_ids: [201], headline: 'Back limited in practice' }] };
 
 const ok = value => ({ ok: true, violations: [], numbers_checked: 0, value });
 const claim = (text, cites) => ({ text, cites });
@@ -55,18 +62,18 @@ function panelFor(plans, overrides = {}) {
   const league = plans.leagues[0];
   const card = cardsForLeague(league).cards[0];
   const grounded = {
-    case_for: ok({ claims: [claim('Our spare receiver buys a starter back', ['reason.0'])] }),
+    case_for: ok({ claims: [claim('Our spare receiver buys a starter back', ['card.give.0'])] }),
     his_side: ok({ claims: [
       claim('He is short a running back', ['his.hole.0.pos']),
       claim('He likes the deal on paper', ['card.p_yes'])
     ] }),
     devils_advocate: ok({ claims: [claim('The back may be hurt', ['news.n1.headline'])], would_change: [claim('A clean practice', ['news.n1.headline'])] }),
     news_check: ok({ contradictions: [{ quote_id: 'n1', claim: claim('Limited in practice', ['news.n1.headline']) }] }),
-    counter: ok({ likely: claim('He counters for a bench tight end', ['reply.0.counter']), answer: claim('Add him, stop there', ['reply.0.action']) }),
+    counter: ok({ likely: claim('He counters for a bench tight end', ['reply.counter.counter', 'his.hole.1.pos']), answer: claim('Add him, stop there', ['reply.counter.action']) }),
     ...overrides
   };
   return assemblePanel({
-    card, league, news: league.news, omit: [], omitReason: {}, grounded, missing: null,
+    card, league, leagueId: LEAGUE, news: NEWS[LEAGUE], omit: [], omitReason: {}, grounded, missing: null,
     asOf: AS_OF, fingerprint: 'fp-1', cost: { reused: false, call_ok: true }
   });
 }
@@ -126,7 +133,7 @@ test('every shown claim becomes a row; the prediction comes from what it cites, 
   const plans = plansFor();
   const league = plans.leagues[0];
   const card = cardsForLeague(league).cards[0];
-  const rows = claimsFromPanel({ panel: panelFor(plans), card, league });
+  const rows = claimsFromPanel({ panel: panelFor(plans), card, league, news: NEWS[LEAGUE] });
 
   const shown = 1 + 2 + 2 + 2; // case_for + his_side + devils (claims + would_change) + counter (likely + answer)
   const checkFirst = 1;       // one quote id; the news_check contradiction is its text, not a second row
@@ -160,12 +167,22 @@ test('every shown claim becomes a row; the prediction comes from what it cites, 
   }
 });
 
+test('a check_first quote whose news item was not supplied is stored uncheckable, not guessed', () => {
+  const plans = plansFor();
+  const league = plans.leagues[0];
+  const card = cardsForLeague(league).cards[0];
+  const rows = claimsFromPanel({ panel: panelFor(plans), card, league });
+  const cf = rows.find(r => r.section === 'check_first');
+  assert.equal(cf.kind, 'uncheckable');
+  assert.deepEqual(cf.prediction, { why: 'news_item_not_supplied', quote_id: 'n1' });
+});
+
 test('a failed or unknown section shows no words, so it makes no claims', () => {
   const plans = plansFor();
   const league = plans.leagues[0];
   const card = cardsForLeague(league).cards[0];
   const bad = { ok: false, violations: [{ kind: 'bad_cite' }], numbers_checked: 0, value: { likely: null, answer: null } };
-  const rows = claimsFromPanel({ panel: panelFor(plans, { counter: bad }), card, league });
+  const rows = claimsFromPanel({ panel: panelFor(plans, { counter: bad }), card, league, news: NEWS[LEAGUE] });
   assert.equal(rows.filter(r => r.section === 'counter').length, 0);
   assert.ok(rows.some(r => r.section === 'his_side'));
 });
@@ -174,15 +191,15 @@ test('recordClaims is idempotent on a reused panel and a rewritten panel is a ne
   const db = freshDb();
   const plans = plansFor();
   const panels = { as_of: AS_OF, leagues: [{ league_id: LEAGUE, panels: [panelFor(plans)] }] };
-  const first = recordClaims(db, { plans, panels, now: new Date(AS_OF) });
+  const first = recordClaims(db, { plans, panels, news: NEWS, now: new Date(AS_OF) });
   assert.equal(first.inserted, 8);
-  const again = recordClaims(db, { plans, panels, now: new Date(AS_OF) });
+  const again = recordClaims(db, { plans, panels, news: NEWS, now: new Date(AS_OF) });
   assert.equal(again.inserted, 0);
   assert.equal(again.skipped, 8);
   const rewritten = structuredClone(panels);
   rewritten.leagues[0].panels[0].fingerprint = 'fp-2';
-  assert.equal(recordClaims(db, { plans, panels: rewritten, now: new Date(AS_OF) }).inserted, 8);
-  assert.equal(recordClaims(db, { plans, panels, now: new Date(AS_OF), leagueId: 99 }).inserted, 0, 'league filter');
+  assert.equal(recordClaims(db, { plans, panels: rewritten, news: NEWS, now: new Date(AS_OF) }).inserted, 8);
+  assert.equal(recordClaims(db, { plans, panels, news: NEWS, now: new Date(AS_OF), leagueId: 99 }).inserted, 0, 'league filter');
 });
 
 test('a panel whose card is no longer in the plans is reported, not guessed at', () => {
@@ -190,7 +207,7 @@ test('a panel whose card is no longer in the plans is reported, not guessed at',
   const plans = plansFor();
   const panel = panelFor(plans);
   panel.card_id = 'gone';
-  const out = recordClaims(db, { plans, panels: { leagues: [{ league_id: LEAGUE, panels: [panel] }] }, now: new Date(AS_OF) });
+  const out = recordClaims(db, { plans, panels: { leagues: [{ league_id: LEAGUE, panels: [panel] }] }, news: NEWS, now: new Date(AS_OF) });
   assert.equal(out.inserted, 0);
   assert.deepEqual(out.unmatched, [{ league_id: LEAGUE, card_id: 'gone' }]);
 });
@@ -200,7 +217,7 @@ test('a panel whose card is no longer in the plans is reported, not guessed at',
 function recorded() {
   const db = freshDb();
   const plans = plansFor();
-  recordClaims(db, { plans, panels: { leagues: [{ league_id: LEAGUE, panels: [panelFor(plans)] }] }, now: new Date(AS_OF) });
+  recordClaims(db, { plans, panels: { leagues: [{ league_id: LEAGUE, panels: [panelFor(plans)] }] }, news: NEWS, now: new Date(AS_OF) });
   return db;
 }
 const statusOf = (db, kind) => db.prepare('SELECT status, evidence_json FROM reasoning_claims WHERE kind = ?').get(kind);
@@ -346,7 +363,7 @@ test('behind previewUnconfirmed(): off records nothing and the grader says why',
   const before = process.env[PREVIEW_ENV];
   delete process.env[PREVIEW_ENV];
   try {
-    const off = runReasoningGrading(db, { plans, panels, now: new Date(AS_OF) });
+    const off = runReasoningGrading(db, { plans, panels, news: NEWS, now: new Date(AS_OF) });
     assert.equal(off.enabled, false);
     assert.equal(db.prepare('SELECT COUNT(*) n FROM reasoning_claims').get().n, 0);
     const row = c8.run(db);
@@ -367,7 +384,7 @@ test('on: record, resolve and grade in one pass, league-scoped, carrying the pre
       cites_json, made_at, kind, prediction_json, resolve_rule, resolve_by, status, resolved_at, evidence_json, created_at)
       VALUES (99, 'other', 'f', 'counter', 0, 't', '[]', ?, 'counter_with', '{}', 'offer_reply_v1', ?, 'false', ?, '{}', ?)`)
       .run(AS_OF, AS_OF, AS_OF, AS_OF);
-    const out = runReasoningGrading(db, { plans, panels, now: new Date('2026-09-26T00:00:00Z'), leagueId: LEAGUE });
+    const out = runReasoningGrading(db, { plans, panels, news: NEWS, now: new Date('2026-09-26T00:00:00Z'), leagueId: LEAGUE });
     assert.equal(out.enabled, true);
     assert.equal(out.preview, true);
     assert.equal(out.recorded.inserted, 8);

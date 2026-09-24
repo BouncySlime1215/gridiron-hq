@@ -8,6 +8,9 @@
  *
  *   node scripts/reasoning/grade-claims.mjs [--plans <plans.json>] [--panels <panels.json>] [--league <id>]
  *
+ * Defaults: --plans is warroom-flag.js#warRoomPlansPath(), --panels the
+ * panels.json next to it (plan-reasoning.js#panelsCachePath).
+ *
  * Behind preview mode (server/services/preview-mode.js): off, it writes
  * nothing and says so. A missing plans or panels file skips recording (and
  * says so); settling and grading still run over what is already stored.
@@ -15,10 +18,9 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
 process.env.SCHEDULER_DISABLED = '1';
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 function arg(argv, name, fallback = null) {
   const i = argv.indexOf(name);
@@ -31,8 +33,13 @@ function readJson(file, label, notes) {
 }
 
 export async function main({ argv = process.argv, now = new Date(), log = console.log } = {}) {
-  const plansPath = arg(argv, '--plans', path.join(ROOT, 'server/data/campaign/plans.json'));
-  const panelsPath = arg(argv, '--panels', path.join(ROOT, 'server/data/reasoning/panels.json'));
+  // FIX-08: the plans file is the War Room contract file, and panels.json is
+  // the reuse cache the producer keeps next to it.
+  const { warRoomPlansPath } = await import('../../server/services/warroom-flag.js');
+  const plansPath = arg(argv, '--plans', warRoomPlansPath());
+  // Same path as plan-reasoning.js#panelsCachePath, without importing the paid
+  // producer (produce.js -> claude.js) into an offline grading command.
+  const panelsPath = arg(argv, '--panels', path.join(path.dirname(path.resolve(plansPath)), 'panels.json'));
   const leagueId = arg(argv, '--league') == null ? null : Number(arg(argv, '--league'));
 
   const { db } = await import('../../server/db/index.js');

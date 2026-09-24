@@ -7,9 +7,9 @@ import { resolveOpenClaims } from './resolve.js';
 import { run as gradeC8, reasoningGradingEnabled, PREVIEW_REASON } from './grade.js';
 import { previewFields } from '../preview-mode.js';
 
-export function runReasoningGrading(database, { plans, panels, now = new Date(), leagueId = null }) {
+export function runReasoningGrading(database, { plans, panels, news = {}, now = new Date(), leagueId = null }) {
   if (!reasoningGradingEnabled()) return { enabled: false, reason: PREVIEW_REASON };
-  const recorded = recordClaims(database, { plans, panels, now, leagueId });
+  const recorded = recordClaims(database, { plans, panels, news, now, leagueId });
   const resolved = resolveOpenClaims(database, { now, leagueId });
   return { enabled: true, ...previewFields(PREVIEW_REASON), recorded, resolved, report: gradeC8(database, { leagueId }) };
 }

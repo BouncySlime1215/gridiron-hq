@@ -6,35 +6,44 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { assemblePanel } from '../server/services/reasoning/panel.js';
-import { cardsForLeague } from '../server/services/reasoning/cards.js';
-import { PREVIEW_ENV } from '../server/services/preview-mode.js';
-import { main } from '../scripts/reasoning/grade-claims.mjs';
+
+// Its own temp database, so running this file directly never touches a real one.
+process.env.SCHEDULER_DISABLED = '1';
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-reason-02-script-'));
+process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
+test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
+
+const { assemblePanel } = await import('../server/services/reasoning/panel.js');
+const { cardsForLeague } = await import('../server/services/reasoning/cards.js');
+const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
+const { main } = await import('../scripts/reasoning/grade-claims.mjs');
 
 const AS_OF = '2026-09-24T12:00:00Z';
 
 function files() {
+  // The War Room contract shape (plans-schema.js), as cards.js reads it.
+  const okf = value => ({ status: 'ok', value });
   const league = (id) => ({
-    league_id: id, names: {},
-    cards: [{ id: `mv-${id}`, rank: 0, partner_team: 3, give: [101], get: [201], p_yes: 0.4,
-      reply_table: [{ reply: 'decline', action: 'Move on' }] }],
-    partners: { 3: { roster_holes: [{ pos: 'RB', gap: 2 }] } }, news: []
+    league: id, names: {},
+    alternatives: okf([{ move_id: `mv-${id}`, steps: [{ partner: 3, give: [101], get: [201], p_yes: okf(0.4),
+      reply_table: okf({ decline: okf({ do: 'Move on' }) }) }] }]),
+    partners: okf([{ team: 3, roster_holes: ['RB'] }])
   });
-  const plans = { as_of: AS_OF, leagues: [league(4), league(5)] };
+  const plans = { generated_at: AS_OF, leagues: [league(4), league(5)] };
   const ok = value => ({ ok: true, violations: [], numbers_checked: 0, value });
   const panels = {
     as_of: AS_OF,
     leagues: plans.leagues.map(l => ({
-      league_id: l.league_id,
+      league_id: l.league,
       panels: [assemblePanel({
-        card: cardsForLeague(l).cards[0], league: l, news: [], omit: [], omitReason: {}, missing: null,
+        card: cardsForLeague(l).cards[0], league: l, leagueId: l.league, news: [], omit: [], omitReason: {}, missing: null,
         asOf: AS_OF, fingerprint: 'fp', cost: {},
         grounded: {
           case_for: ok({ claims: [{ text: 'Surplus receiver', cites: ['card.give.0'] }] }),
           his_side: ok({ claims: [{ text: 'He needs a back', cites: ['his.hole.0.pos'] }] }),
           devils_advocate: ok({ claims: [{ text: 'x', cites: ['card.p_yes'] }], would_change: [{ text: 'y', cites: ['card.p_yes'] }] }),
           news_check: ok({ contradictions: [] }),
-          counter: ok({ likely: { text: 'He declines', cites: ['reply.0.reply'] }, answer: { text: 'Move on', cites: ['reply.0.action'] } })
+          counter: ok({ likely: { text: 'He declines', cites: ['reply.decline.action'] }, answer: { text: 'Move on', cites: ['reply.decline.action'] } })
         }
       })]
     }))

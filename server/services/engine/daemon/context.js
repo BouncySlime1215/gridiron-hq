@@ -14,6 +14,13 @@
  *                   never a failed row; the field must be a declared input
  *   ctx.read.latest(field, {leagueId, entityType})
  *                   the same, for every entity of the field at once
+ *   ctx.read.graded(field)
+ *                   for a producer declaring `inputs.grades: true` only (the grader, §7.2:
+ *                   "every graded field, all lanes"): every non-failed row of the field in
+ *                   BOTH lanes and every version, id <= the cut, with written_at, plus the
+ *                   owner's versions from engine_producers (status, registered_at,
+ *                   training_window). It is the one read that is not an as-of read: the
+ *                   grader applies each row's own decision-time cut itself.
  *   ctx.write(writer, {entityType, entityId, field, value | absence, reasonChain, eventIds,
  *                      stateIds, leagueId})
  *                   writeState with as_of, version, run_id and inputs_health bound here
@@ -69,6 +76,22 @@ export function makeContext({ database, producer, version, lane, tick, cut, leag
       const found = database.prepare(`SELECT * FROM engine_state WHERE id IN (SELECT MAX(id) FROM engine_state
           WHERE ${where.join(' AND ')} GROUP BY entity_type, entity_id, league_id) ORDER BY id`).all(...params);
       return found.map(r => note(parseRow(r)));
+    },
+    graded(field) {
+      if (producer.inputs?.grades !== true) {
+        throw new Error(`producer ${producer.name} read every lane of ${field}; only a producer declaring inputs.grades may`);
+      }
+      const owner = fieldSpec(field)?.producer
+        ?? database.prepare('SELECT producer FROM engine_fields WHERE field = ?').get(field)?.producer ?? null;
+      if (!owner) return { producer: null, versions: [], rows: [] };
+      const versions = database.prepare(`SELECT version, status, registered_at, training_window FROM engine_producers
+          WHERE producer = ? ORDER BY version`).all(owner)
+        .map(v => ({ ...v, training_window: v.training_window == null ? null : JSON.parse(v.training_window) }));
+      const found = database.prepare(`SELECT id, entity_type, entity_id, league_id, field, value, producer, producer_version,
+          lane, as_of, written_at FROM engine_state WHERE field = ? AND producer = ? AND id <= ?
+          AND json_extract(health, '$.status') <> 'failed' ORDER BY id`).all(field, owner, cut.state)
+        .map(r => ({ ...r, id: Number(r.id), value: r.value == null ? null : JSON.parse(r.value) }));
+      return { producer: owner, versions, rows: found };
     },
   };
 

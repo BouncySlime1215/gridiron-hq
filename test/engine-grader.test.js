@@ -83,6 +83,7 @@ const outcomeEvents = (where = '', ...p) => rows(`SELECT id, natural_key, payloa
 /* ------------------------------------------------------------------ adapters */
 test('A1: outcome.player_week is one event per (player_week, scoring_key, stat_version), finals only', () => {
   need(outcomesMod, 'adapters/outcomes.js');
+  at('2026-09-15T12:00:00.000Z'); // ingested after the games (a future as_of is clamped to the ingest clock)
   const r = cursorsMod.runAdapterStream(outcomesMod.OUTCOMES_ADAPTER, { database: db });
   assert.equal(r.table_state, 'present');
   const evs = outcomeEvents();
@@ -96,7 +97,11 @@ test('A1: outcome.player_week is one event per (player_week, scoring_key, stat_v
   const half = one.find(e => e.payload.points === 3); // half-PPR
   assert.ok(ppr && half, `${JSON.stringify(one.map(e => e.payload.points))}`);
   assert.equal(ppr.payload.kickoff, KICKOFF, 'the outcome carries its game cutoff (the decision time)');
+  const asOf = row(`SELECT as_of, as_of_quality FROM engine_events WHERE id = ?`, ppr.id);
+  assert.deepEqual({ ...asOf }, { as_of: '2026-09-14T03:59:59.999Z', as_of_quality: 'date_only' }, 'end of game day, Eastern');
   assert.match(ppr.payload.stat_version, /^[0-9a-f]{12,}$/);
+  assert.ok(ppr.natural_key.endsWith(`:${ppr.payload.scoring_key}:${ppr.payload.stat_version}`),
+    'stat_version is in the natural key: a correction (or its revert) is its own event');
   const again = cursorsMod.runAdapterStream(outcomesMod.OUTCOMES_ADAPTER, { database: db, sweep: true });
   assert.equal(again.inserted, 0, 'a re-read of unchanged lines appends nothing');
 });
@@ -107,11 +112,12 @@ test('A2: offer.sent carries the snapshot in force at send time; rec.* waits on 
        VALUES (91, 0, 0, '{}', '{}', '2026-09-11T00:00:00.000Z'), (91, 0, 0, '{}', '{}', '2026-09-12T23:00:00.000Z')`);
   const [inForce] = rows(`SELECT id FROM engine_snapshots WHERE league_id = 91 ORDER BY id`);
   run(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id, give_json, get_json,
-         proposed_at, model_p_accept, model_p_accept_low, model_p_accept_high, model_basis, status, idea_id, created_at)
+         proposed_at, model_p_accept, model_p_accept_low, model_p_accept_high, model_basis, status, not_proposed_reason, idea_id,
+         created_at)
        VALUES (91, 2026, 'app_proposed', '1', '2', '[9201]', '[9202]', '2026-09-12T15:00:00.000Z', 0.4, 0.2, 0.6,
-         'heuristic_unanchored', 'proposed', 'fx-idea-1', '2026-09-12T15:00:00.000Z'),
+         'heuristic_unanchored', 'proposed', NULL, 'fx-idea-1', '2026-09-12T15:00:00.000Z'),
               (91, 2026, 'considered_only', '1', '3', '[9203]', '[9204]', '2026-09-12T15:00:00.000Z', NULL, NULL, NULL,
-         NULL, 'not_proposed', 'fx-idea-2', '2026-09-12T15:00:00.000Z')`);
+         NULL, 'not_proposed', 'fixture', 'fx-idea-2', '2026-09-12T15:00:00.000Z')`);
   cursorsMod.runAdapterStream(recMod.OFFER_ADAPTER, { database: db });
   const offers = rows(`SELECT payload, as_of FROM engine_events WHERE event_type = 'offer.sent'`).map(r => ({ ...r, payload: JSON.parse(r.payload) }));
   assert.equal(offers.length, 1, 'only an offer the app sent is offer.sent; a considered-only row is not');

@@ -21,6 +21,9 @@
  *                    the latest week is re-read each tick
  *   trade_outcomes   id, and resolved_at (a resolution updates the row in place)
  *   manager_signals  computed_at
+ *   outcomes         season*100+week of player_week_usage (no row stamp; latest two weeks re-read)
+ *   offers           trade_outcomes id (app_proposed rows only)
+ *   rec              rec_ledger id, and graded_at (the settle pass updates the row in place)
  *   coverage         sync_log.last_run_at, excluding the daemon's own heartbeat row
  *                    (its own run would otherwise be news to itself every tick)
  * Stamps compare inclusively (>=): a row written later with the same stamp is still seen.
@@ -35,6 +38,8 @@
 import { appendEvents } from '../events.js';
 import { ADAPTERS } from '../backfill.js';
 import { SCHEDULE_ADAPTER } from '../adapters/schedule.js';
+import { OUTCOMES_ADAPTER } from '../adapters/outcomes.js';
+import { OFFER_ADAPTER, REC_ADAPTER } from '../adapters/rec.js';
 import { recordRun } from '../fields.js';
 import { assertWriteRole } from '../role.js';
 
@@ -105,11 +110,18 @@ export const CURSOR_SPECS = Object.freeze({
   injuries: inclusive('(season * 100 + week)'),
   trade_outcomes: either({ id: serial('id'), resolved_at: stamp('resolved_at') }),
   manager_signals: stamp('computed_at'),
+  // No row stamp: the latest two weeks are re-read each tick (stat corrections land in the
+  // days after a game, often once the next week's rows exist); older corrections land with
+  // the daily sweep.
+  outcomes: { ...inclusive('(season * 100 + week)'),
+    where: (wm, m) => inclusive('(season * 100 + week)').where(wm == null || wm === '' ? null : Number(wm) - 1, m) },
+  offers: serial('id'),
+  rec: either({ id: serial('id'), graded_at: stamp('graded_at') }),
   coverage: { ...stamp('last_run_at', `AND job <> '${HEARTBEAT_JOB}'`), full: `job <> '${HEARTBEAT_JOB}'` },
 });
 
-/** Every stream the daemon ingests, in order: EA-00's eight, then the schedule. */
-export const DAEMON_ADAPTERS = Object.freeze([...ADAPTERS, SCHEDULE_ADAPTER]);
+/** Every stream the daemon ingests, in order: EA-00's eight, the schedule, then outcomes and decisions. */
+export const DAEMON_ADAPTERS = Object.freeze([...ADAPTERS, SCHEDULE_ADAPTER, OUTCOMES_ADAPTER, OFFER_ADAPTER, REC_ADAPTER]);
 
 const tableExists = (database, t) =>
   !!database.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(t);

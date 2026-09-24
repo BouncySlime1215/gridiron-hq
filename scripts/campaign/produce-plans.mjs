@@ -289,6 +289,10 @@ async function main() {
     console.log(`[warroom] requests consumed ${stamped.consumed}, campaign_steps written ${stamped.campaign_steps}`
       + (typeof stamped.campaign_steps_skipped === 'string' ? ` (${stamped.campaign_steps_skipped})` : ''));
     reasoning.commit();
+    // HIS-SCREEN-FIX: every deck move's "his screen", computed here so the web server only
+    // reads it (his-screens.json next to the plans file). Own file, own gate; never throws.
+    const { writeHisScreens } = await import('../../server/services/campaign/his-screen.js');
+    await writeHisScreens(file, { log: line => console.log(line) });
     const pushes = pushesOf(file);
     if (pushes.length) {
       fs.appendFileSync(sibling(env, 'GRIDIRON_WARROOM_PUSHES', 'pushes.jsonl'), pushes.map(p => JSON.stringify(p)).join('\n') + '\n');

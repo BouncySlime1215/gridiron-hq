@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useApi } from '../../api';
 
 /**
@@ -5,6 +6,9 @@ import { useApi } from '../../api';
  * His roster before and after, each player priced his way next to ours (his
  * clone), what he gives up, his title-odds change, and the "fair on his screen"
  * badge. Reads GET /api/trades/:leagueId/his-screen; default-off on the server,
+ * HIS-SCREEN-FIX: a War Room deck move is precomputed by the planner (the route only
+ * reads it, `precomputed.as_of`); any other offer is worked out once off the web
+ * server's main thread (`computed_off_thread`), so the first open can take seconds.
  * so an off flag renders its reason, and every unknown field renders its reason
  * instead of a number.
  */
@@ -26,6 +30,8 @@ export type HisScreenData = {
   value_view?: Field<ValueView>;
   title_odds?: Field<{ before: number; after: number; delta: number }>;
   fair?: Field<Fair>;
+  precomputed?: { as_of: string; plans_generated_at: string | null };
+  computed_off_thread?: boolean; cached?: boolean;
 };
 
 export type Offer = { partner: string; give: string[]; get: string[] };
@@ -126,7 +132,8 @@ export function HisScreenView({ data }: { data: HisScreenData }) {
           <RosterList title="After the offer" rows={data.roster.after} />
         </div>
       )}
-      <p className="text-[10px] text-[var(--subtle)]">Values: ours / his (his clone&rsquo;s read). Badge window from the trade finder.</p>
+      <p className="text-[10px] text-[var(--subtle)]">Values: ours / his (his clone&rsquo;s read). Badge window from the trade finder.
+        {data.precomputed ? ` Worked out by the planner ${new Date(data.precomputed.as_of).toLocaleString()}.` : ''}</p>
     </section>
   );
 }
@@ -135,7 +142,20 @@ export function HisScreenView({ data }: { data: HisScreenData }) {
 export default function HisScreen({ leagueId, offer }: { leagueId: string | number; offer: Offer | null }) {
   const { data, loading, error } = useApi<HisScreenData>(offer ? hisScreenPath(leagueId, offer) : null);
   if (!offer) return null;
-  if (loading && !data) return <p className="text-[12px] text-[var(--muted)]">Loading his screen…</p>;
+  if (loading && !data) return <p className="text-[12px] text-[var(--muted)]">Loading his screen… (an offer the planner did not score takes a few seconds)</p>;
   if (error) return <p className="text-[12px] text-crit" role="alert">His screen failed to load: {error}</p>;
   return data ? <HisScreenView data={data} /> : null;
+}
+
+/** War Room deck card: "His screen" toggle for the card's step (the offer Nick would send). */
+export function HisScreenToggle({ leagueId, offer }: { leagueId: string | number; offer: Offer }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="wr-his" data-testid="his-screen-toggle">
+      <button type="button" className="wr-btn wr-sm" aria-expanded={open} onClick={() => setOpen(v => !v)}>
+        {open ? 'Hide his screen' : 'His screen'}
+      </button>
+      {open && <div className="mt-2"><HisScreen leagueId={leagueId} offer={offer} /></div>}
+    </div>
+  );
 }

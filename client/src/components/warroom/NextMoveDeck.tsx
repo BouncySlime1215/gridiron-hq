@@ -6,6 +6,7 @@ import { flushOutbox, postWarRoomRequest, type Poster } from './requests';
 import { FieldBlock, SourceTag, Val } from './FieldState';
 import { pct, pts, NOT_COMPUTED, isOk } from './format';
 import ReplyTable from './ReplyTable';
+import { HisScreenToggle } from './HisScreen';
 
 /**
  * NEXT MOVE: the one decision ("send this to this manager, yes or no") as a swipe deck
@@ -216,6 +217,8 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post }: {
             <div className="wr-v wr-v-text"><Val f={s.walk_away} fmt={v => v.text} /></div>
           </div>
         </div>
+        {/* HIS-SCREEN-FIX: the card's offer as he sees it (precomputed by the planner; the route only reads). */}
+        <HisScreenToggle leagueId={leagueId} offer={{ partner: String(s.partner), give: s.give.map(String), get: s.get.map(String) }} />
         <div className="wr-sub">
           Whole path: <Val f={move.expected} fmt={pts} showSe /> expected
           {' · '}finishes <Val f={move.p_complete} fmt={v => pct(v)} /> of the time

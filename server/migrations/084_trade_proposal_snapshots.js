@@ -1,4 +1,4 @@
-export const name = '079_trade_proposal_snapshots';
+export const name = '084_trade_proposal_snapshots';
 /**
  * OFFER-SNAPSHOT. Additive only: two new tables, nothing existing is altered.
  *
@@ -22,8 +22,8 @@ export const name = '079_trade_proposal_snapshots';
  * The raw table's key is (league_id, season, tx_id); both tables key on all
  * three, for the reason migration 067 gives.
  *
- * Numbered 079: 071 (#174), 074, 075 (#216) are claimed and the brief reserves
- * through 078.
+ * Numbered 084 per the MIGRATIONS.md registry (first built as 079, which main
+ * uses for SERVE-LOG served_numbers).
  */
 export function up(db) {
   db.exec(`
@@ -87,7 +87,7 @@ export function down(db) {
   for (const t of ['trade_proposal_snapshots', 'trade_outcome_links']) {
     const exists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(t);
     if (exists && db.prepare(`SELECT 1 FROM ${t} LIMIT 1`).get()) {
-      throw new Error(`079 down refused: ${t} holds rows, and ESPN cannot re-serve offers older than ~3 days`);
+      throw new Error(`084 down refused: ${t} holds rows, and ESPN cannot re-serve offers older than ~3 days`);
     }
   }
   db.exec('DROP INDEX IF EXISTS idx_trade_outcome_links_proposal');

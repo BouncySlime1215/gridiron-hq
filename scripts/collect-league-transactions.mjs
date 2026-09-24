@@ -16,7 +16,7 @@
  */
 process.env.SCHEDULER_DISABLED = '1';
 const { db, rows, run } = await import('../server/db/index.js');
-// Migration 079 (offer snapshots) must exist before the first capture; the loop
+// Migration 084 (offer snapshots) must exist before the first capture; the loop
 // can run this before the web server has been restarted onto new code.
 await (await import('../server/db/migrate.js')).runMigrations();
 const { BROWSER_HEADERS } = await import('../server/services/espn-draft.js');

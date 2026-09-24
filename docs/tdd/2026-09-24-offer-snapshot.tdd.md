@@ -26,8 +26,8 @@ with a free-text reason and returned it, and nothing stored that reason.
 
 ## What changed
 
-- **Migration 079** adds two tables. The number follows the brief's
-  reservation through 078.
+- **Migration 084** adds two tables. Numbered by the MIGRATIONS.md registry
+  (first built as 079, which main uses for served_numbers).
   - `trade_proposal_snapshots`: first write wins. `items_json` must be a
     non-empty JSON array (CHECK). `captured_from` is `pending`, `resolved` or
     `raw_backfill`. `resolution` records the outcome, ranked vetoed > accepted >
@@ -69,7 +69,7 @@ with a free-text reason and returned it, and nothing stored that reason.
 - RED `abe280e`: `ERR_MODULE_NOT_FOUND` for the service. 0 pass, 1 fail.
 - GREEN: `test/trade-proposal-snapshots.test.js` 9/9.
 - `npm run check` on the GREEN tree: see the PR body.
-- First full run found three failures with one cause: 079 had no `down()`.
+- First full run found three failures with one cause: 084 (then 079) had no `down()`.
   Fixed. After the fix, `migration-027-populated-upgrade` passed 16/16 and
   `model-registry-persistence` passed 22/22.
 - Collector dry run with no leagues: `--league 4` exits 1 with "not an ESPN

@@ -1,6 +1,6 @@
 /**
  * Offer snapshots: the terms of every ESPN trade offer, kept from the first
- * sighting, and every decision linked back to them. Migration 079 explains the
+ * sighting, and every decision linked back to them. Migration 084 explains the
  * two tables.
  *
  * Two writers:

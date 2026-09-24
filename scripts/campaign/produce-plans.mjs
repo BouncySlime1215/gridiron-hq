@@ -48,7 +48,10 @@
  *
  * --leagues 4 (the refresh loop passes GRIDIRON_WARROOM_LEAGUES here) replans only
  * those leagues; every other league's previous entry is copied into the new file
- * unchanged (mergeKept), so a subset run never drops or rewrites the others.
+ * (mergeKept), so a subset run never drops the others. Attention is then ranked
+ * again across the merged file (kept leagues use their stored best expected), so
+ * every entry says "rank r of N" on the same scale; a kept entry's attention is
+ * the only field that can change, and only when its rank moved.
  * Pushes, the failed count and the summary line count only the leagues that ran.
  *
  * Usage:
@@ -135,8 +138,33 @@ export function mergeKept(file, previous, { order, ran }) {
   const fresh = new Map(file.leagues.map(e => [String(e.league), e]));
   const kept = order.map(String).filter(id => !ranIds.has(id) && previous.has(id));
   if (!kept.length) return file;
-  const leagues = order.map(String).map(id => (ranIds.has(id) ? fresh.get(id) : previous.get(id))).filter(Boolean);
+  const merged = order.map(String).map(id => (ranIds.has(id) ? fresh.get(id) : previous.get(id))).filter(Boolean);
+  // One ranking across the whole file: a ran league must not say "rank 1 of 1" next to kept "of 5".
+  // storedExpected is planner.js's deck[0].expected, the same number buildPlansFile ranks the ran leagues on.
+  const ranks = attentionRows(merged, storedExpected);
+  const leagues = merged.map(e => {
+    const a = ranks.get(String(e.league));
+    if (!a || JSON.stringify(a) === JSON.stringify(e.attention)) return e;   // unchanged: the same object, same bytes
+    return { ...e, attention: a };                                          // key order kept (attention already there)
+  });
   return { ...file, leagues };
+}
+
+/** The best move's expected gain as stored in an entry (next_move.value.expected); 0 when there is none. */
+export function storedExpected(e) {
+  const v = e?.next_move?.status === 'ok' ? e.next_move.value?.expected : null;
+  return v?.status === 'ok' && Number.isFinite(v.value) ? v.value : 0;
+}
+
+/** North-star row 19 over a set of entries: league -> attention row for each entry that did not fail. */
+export function attentionRows(entries, expectedOf) {
+  const ranked = rankAttention(entries.map(e => ({ league: e.league, error: e.error ?? null, expected: expectedOf(e),
+    changed: !!e._run?.changed?.changed,
+    weeksToDeadline: Number.isInteger(e._run?.deadline_week) && Number.isInteger(e._run?.week) ? e._run.deadline_week - e._run.week : null })));
+  return new Map(entries.filter(e => !e.error).map(e => {
+    const r = ranked.find(x => x.league === e.league);
+    return [String(e.league), { status: 'ok', value: { rank: r.rank, of: entries.length, reason: r.why }, source: 'campaign.plan' }];
+  }));
 }
 
 /** The producer's lock on the plans file; scripts/reasoning/run.mjs takes the same one. */
@@ -236,14 +264,8 @@ export async function buildPlansFile(leagues, {
   }
 
   // Attention budget across the leagues (north-star row 19): each league carries its own row.
-  const ranked = rankAttention(entries.map(e => ({ league: e.league, error: e.error ?? null, expected: best.get(String(e.league)) ?? 0,
-    changed: !!e._run?.changed?.changed,
-    weeksToDeadline: Number.isInteger(e._run?.deadline_week) && Number.isInteger(e._run?.week) ? e._run.deadline_week - e._run.week : null })));
-  for (const e of entries) {
-    if (e.error) continue;
-    const r = ranked.find(x => x.league === e.league);
-    e.attention = { status: 'ok', value: { rank: r.rank, of: entries.length, reason: r.why }, source: 'campaign.plan' };
-  }
+  const ranks = attentionRows(entries, e => best.get(String(e.league)) ?? 0);
+  for (const e of entries) if (ranks.has(String(e.league))) e.attention = ranks.get(String(e.league));
 
   const file = plansFile(entries, { generated_at, flags });
   const v = validatePlans(file);

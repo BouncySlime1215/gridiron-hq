@@ -112,10 +112,10 @@ function takeLock(file) {
 /**
  * leagues: [{ id, load: async () => ({ adapter, chat?, adapterMs? }) }]
  * opts: { generated_at, objectives ({ id: raw objective }), skips (rows), previous (Map id -> last entry),
- *         inputs ({ skips, offers } read status), clock, budget, log }
+ *         inputs ({ skips, offers } read status), clock, budget, env (FEAS-140 flags; main() passes process.env), log }
  */
 export async function buildPlansFile(leagues, {
-  generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, log = () => {},
+  generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, env = {}, log = () => {},
 } = {}) {
   const entries = [], best = new Map();
   for (const { id, load } of leagues) {
@@ -127,7 +127,7 @@ export async function buildPlansFile(leagues, {
       if (adapter.fail) throw new Error(`world failed: ${adapter.fail}`);
       const raw = objectives[String(id)] ?? {};
       const objective = normaliseObjective(raw, { leagueGoal: raw.goal ?? 'title' });
-      res = planLeague(adapter, { objective, skips: skipWeights(skips, id), budget });
+      res = planLeague(adapter, { objective, skips: skipWeights(skips, id), budget, env });
       const rosterKey = res.error ? null : adapter.rosterKey?.() ?? null;
       const changed = diffNextMove(prev?._run ?? null, { next_step: res.best?.steps[0] ?? null,
         objective_version: objective.version, risk_mode: objective.risk_mode, roster_key: rosterKey });
@@ -208,7 +208,7 @@ async function main() {
     // Checked with validatePlans inside; a file that fails throws here and the previous file stays.
     const file = await buildPlansFile(leagues, { generated_at, objectives, skips: skips.rows, previous,
       inputs: { skips: { status: skips.status, bad_lines: skips.bad }, offers: { status: offers.status, bad_lines: offers.bad } },
-      budget: { flipTopPer: opts.flipTop, targets: opts.targets },
+      budget: { flipTopPer: opts.flipTop, targets: opts.targets }, env,
       log: line => (line.includes('FAILED') || line.includes('\n') ? console.error(line) : console.log(line)) });
     const tmp = `${out}.tmp-${process.pid}`;
     fs.writeFileSync(tmp, JSON.stringify(file));

@@ -7,8 +7,9 @@
  * confirm pass on an independent seed, the playbook for every step, targets,
  * itinerary + stop trade-offs, speed curve, feasibility, catch-up list,
  * partner ranking. It never reads the DB, the env or the clock: the producer
- * script (scripts/campaign/produce-plans.mjs) builds the adapter; tests hand
- * in a fixture. Output is an internal result; view.js turns it into the War
+ * script (scripts/campaign/produce-plans.mjs) builds the adapter and hands in
+ * its env as settings.env (the two FEAS-140 flags; absent, both are off);
+ * tests hand in a fixture. Output is an internal result; view.js turns it into the War
  * Room JSON.
  */
 import { dealKey, pathExpectation, combos, linearNick, screenPct } from './paths.js';
@@ -19,7 +20,8 @@ import { buildItinerary, stopTradeOff, speedCurve, arrivalWeek } from './itinera
 import { orderCatchUp, freeMoves, isBehind } from './catchup.js';
 import { rankPartners, planSkipWeight } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
-import { waitOrAct } from './wait-or-act.js';
+import { waitOrAct, waitOrActOn } from './wait-or-act.js';
+import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan } from './search.js';
 
 export const DECK_SIZE = 5;
@@ -74,7 +76,7 @@ function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta) {
 
 /**
  * adapter: see scripts/campaign/league-adapter.mjs (the real one) and test/fixtures (the fake one).
- * settings: { objective, skips ({player, manager} Maps), previous (last entry or null), budget }
+ * settings: { objective, skips ({player, manager} Maps), previous (last entry or null), budget, env }
  */
 export function planLeague(adapter, settings) {
   const clockNow = () => adapter.now?.() ?? 0;
@@ -83,6 +85,8 @@ export function planLeague(adapter, settings) {
   let tp = t0;
   const mark = name => { const t = clockNow(); phases[name] = t - tp; tp = t; };
   const { objective } = settings;
+  const env = settings.env ?? {};
+  const waitEnabled = waitOrActOn(env);
   const budget = { flipTopPer: 3, flipRealise: 6, targets: 3, ...(settings.budget ?? {}) };
   const L = adapter.league;
   const me = L.me;
@@ -172,7 +176,7 @@ export function planLeague(adapter, settings) {
         text: `Stop at ${ladder.walk_away.give.map(names).join(' + ')}: past that, your backup plan is worth more.` } : null,
       replies: replyTable(st, { next, backup, ladder, nudge: `Still open to ${st.give.map(names).join(' + ')} for ${st.get.map(names).join(' + ')}?` }),
       send_when: m.send_when ?? null,
-      wait: waitOrAct(st, adapter.players),
+      wait: waitOrAct(st, adapter.players, { enabled: waitEnabled }),
     };
   };
   const playbook = best ? best.steps.map((_, i) => playbookFor(best, i, i === 0 ? (deck[1] ? { step: deck[1].steps[0], expected: deck[1].expected } : backups[0]) : backups[i])) : [];
@@ -230,6 +234,12 @@ export function planLeague(adapter, settings) {
     feasibility = { kind: 'player', ...targetFeasibility({ target: objective.target, plan: best, currentWeek: L.week,
       deadlineWeek: L.deadline_week, daysLeftInWeek: clock.daysLeftInWeek, injured: !!tp.injury, bye: tp.bye ?? null }) };
   }
+  // FEAS-140: a league not planned on points still gets the points question, as its own card
+  // (feasibility_points) next to the league's card; a get-player league shows both, unnested.
+  const feasibility_points = objective.kind === 'points' ? null : sidePanelFeasibility({ objective, nowWeeks, roster, currentWeek: L.week, env,
+    plans: ranked.slice(0, SIDE_OPTIONS).map(p => ({ expected: p.expected, p_complete: p.p_complete,
+      arrive_week: arrivalWeek(p, L.week, { daysLeftInWeek: clock.daysLeftInWeek }), weeks: weeklyOf(p.steps[p.steps.length - 1].state),
+      give: [...new Set(p.steps.flatMap(s => s.give))], steps: p.steps.length })) });
   const outlook = nowWeeks ? weeklySummary(nowWeeks, 0) : null;
 
   // Catch-up list.
@@ -265,7 +275,7 @@ export function planLeague(adapter, settings) {
     flip, targets: wanted, candidates_scored: plans.length, dropped: dropped.slice(0, 20).map(d => ({ first: d.plan.steps[0], why: d.why })),
     best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook })),
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
-    suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, outlook,
+    suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, feasibility_points, outlook,
     risk_modes: compareModes(plans, ctxFor), catch_up: catchUp, partners,
     rescores: S.count() + (confirm.rescores ?? 0), runtime_ms: clockNow() - t0, phases_ms: phases,
   };

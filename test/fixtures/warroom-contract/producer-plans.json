@@ -120,6 +120,43 @@
     "source": "sim.title",
     "reason": "points objective not set: this league is planned on title odds."
    },
+   "feasibility_points": {
+    "status": "ok",
+    "value": {
+     "points_per_week": 140,
+     "league_objective": "title",
+     "outlook": "out_of_reach",
+     "projected_points": {
+      "status": "ok",
+      "value": 105.03652000000002,
+      "source": "sim.title",
+      "unit": "points_per_week"
+     },
+     "p_hit": {
+      "status": "ok",
+      "value": 0,
+      "source": "sim.title",
+      "unit": "probability"
+     },
+     "by_week": {
+      "status": "unknown",
+      "source": "sim.title",
+      "reason": "No plan reaches 140 points a week inside the weeks simulated."
+     },
+     "cost_players": 2,
+     "cost_offers": 1,
+     "objective_cost": {
+      "status": "ok",
+      "value": 0.008913521231217122,
+      "source": "sim.title",
+      "unit": "title_odds"
+     },
+     "bye_warnings": 0,
+     "injury_warnings": 0,
+     "cost_text": "2 player(s) over 1 offer(s)"
+    },
+    "source": "sim.title"
+   },
    "finder_best_expected": {
     "status": "ok",
     "value": 0.026428343765566083,
@@ -2549,6 +2586,153 @@
      ]
     },
     "feasibility_detail": null,
+    "feasibility_points_detail": {
+     "kind": "points",
+     "side_panel": true,
+     "league_objective": "title",
+     "target": 140,
+     "status": "out_of_reach",
+     "now": {
+      "season_mean": 97.23652,
+      "p_average_hits": 0,
+      "per_week": [
+       {
+        "week": 4,
+        "mean": 99.25180000000006,
+        "p_hit": 0
+       },
+       {
+        "week": 5,
+        "mean": 98.81919999999997,
+        "p_hit": 0
+       },
+       {
+        "week": 6,
+        "mean": 90.00580000000002,
+        "p_hit": 0
+       },
+       {
+        "week": 7,
+        "mean": 98.78999999999998,
+        "p_hit": 0
+       },
+       {
+        "week": 8,
+        "mean": 99.31579999999998,
+        "p_hit": 0
+       }
+      ]
+     },
+     "how_likely": 0,
+     "by_when": null,
+     "at_what_cost": {
+      "players": 2,
+      "give": [
+       5,
+       6
+      ],
+      "steps": 1
+     },
+     "options": [
+      {
+       "label": "plan 1",
+       "p_complete": 0.5699999999999998,
+       "arrive_week": 4,
+       "steps": 1,
+       "cost_players": 2,
+       "give": [
+        5,
+        6
+       ],
+       "season_mean_after": 105.03652000000002,
+       "p_average_hits_if_done": 0,
+       "p_average_hits": 0,
+       "first_week_at_target": null,
+       "title_odds_cost": 0.008913521231217122
+      },
+      {
+       "label": "plan 2",
+       "p_complete": 0.525,
+       "arrive_week": 4,
+       "steps": 1,
+       "cost_players": 2,
+       "give": [
+        4,
+        5
+       ],
+       "season_mean_after": 104.73652,
+       "p_average_hits_if_done": 0,
+       "p_average_hits": 0,
+       "first_week_at_target": null,
+       "title_odds_cost": 0
+      },
+      {
+       "label": "plan 3",
+       "p_complete": 0.525,
+       "arrive_week": 4,
+       "steps": 1,
+       "cost_players": 2,
+       "give": [
+        4,
+        6
+       ],
+       "season_mean_after": 106.53652,
+       "p_average_hits_if_done": 0,
+       "p_average_hits": 0,
+       "first_week_at_target": null,
+       "title_odds_cost": 0.0011969999999999759
+      },
+      {
+       "label": "plan 4",
+       "p_complete": 0.48,
+       "arrive_week": 4,
+       "steps": 1,
+       "cost_players": 2,
+       "give": [
+        6,
+        7
+       ],
+       "season_mean_after": 106.53652,
+       "p_average_hits_if_done": 0,
+       "p_average_hits": 0,
+       "first_week_at_target": null,
+       "title_odds_cost": 0.004487705228450059
+      },
+      {
+       "label": "plan 5",
+       "p_complete": 0.48,
+       "arrive_week": 4,
+       "steps": 1,
+       "cost_players": 2,
+       "give": [
+        5,
+        7
+       ],
+       "season_mean_after": 104.73652,
+       "p_average_hits_if_done": 0,
+       "p_average_hits": 0,
+       "first_week_at_target": null,
+       "title_odds_cost": 0.003846425228450058
+      }
+     ],
+     "warnings": [],
+     "p_reach": 0,
+     "arrive_week": null,
+     "cost": {
+      "players": 2,
+      "give": [
+       5,
+       6
+      ],
+      "steps": 1,
+      "title_odds": 0.008913521231217122,
+      "basis": "best plan on the league objective minus this option, same rescores"
+     },
+     "warnings_count": {
+      "bye": 0,
+      "injury": 0
+     }
+    },
     "candidates_scored": 121,
     "rescores": 220,
     "runtime_ms": 0,
@@ -2742,6 +2926,11 @@
      "cost_text": "2 player(s) over 1 offer(s)"
     },
     "source": "sim.title"
+   },
+   "feasibility_points": {
+    "status": "unknown",
+    "source": "sim.title",
+    "reason": "This league is already planned on points: see feasibility."
    },
    "finder_best_expected": {
     "status": "ok",
@@ -5519,6 +5708,7 @@
      ],
      "warnings": []
     },
+    "feasibility_points_detail": null,
     "candidates_scored": 88,
     "rescores": 151,
     "runtime_ms": 0,
@@ -5664,6 +5854,43 @@
     "status": "unknown",
     "source": "sim.title",
     "reason": "points objective not set: this league is planned on title odds."
+   },
+   "feasibility_points": {
+    "status": "ok",
+    "value": {
+     "points_per_week": 115,
+     "league_objective": "get_player",
+     "outlook": "reachable",
+     "projected_points": {
+      "status": "ok",
+      "value": 118.53652,
+      "source": "sim.title",
+      "unit": "points_per_week"
+     },
+     "p_hit": {
+      "status": "ok",
+      "value": 0.06272437500000001,
+      "source": "sim.title",
+      "unit": "probability"
+     },
+     "by_week": {
+      "status": "ok",
+      "value": 4,
+      "source": "sim.title"
+     },
+     "cost_players": 4,
+     "cost_offers": 2,
+     "objective_cost": {
+      "status": "ok",
+      "value": 0,
+      "source": "sim.title",
+      "unit": "title_odds"
+     },
+     "bye_warnings": 0,
+     "injury_warnings": 0,
+     "cost_text": "4 player(s) over 2 offer(s)"
+    },
+    "source": "sim.title"
    },
    "finder_best_expected": {
     "status": "ok",
@@ -8601,6 +8828,167 @@
      },
      "warnings": []
     },
+    "feasibility_points_detail": {
+     "kind": "points",
+     "side_panel": true,
+     "league_objective": "player",
+     "target": 115,
+     "status": "reachable",
+     "now": {
+      "season_mean": 97.23652,
+      "p_average_hits": 0,
+      "per_week": [
+       {
+        "week": 4,
+        "mean": 99.25180000000006,
+        "p_hit": 0
+       },
+       {
+        "week": 5,
+        "mean": 98.81919999999997,
+        "p_hit": 0
+       },
+       {
+        "week": 6,
+        "mean": 90.00580000000002,
+        "p_hit": 0
+       },
+       {
+        "week": 7,
+        "mean": 98.78999999999998,
+        "p_hit": 0
+       },
+       {
+        "week": 8,
+        "mean": 99.31579999999998,
+        "p_hit": 0
+       }
+      ]
+     },
+     "how_likely": 0.06272437500000001,
+     "by_when": 4,
+     "at_what_cost": {
+      "players": 4,
+      "give": [
+       5,
+       7,
+       4,
+       6
+      ],
+      "steps": 2
+     },
+     "options": [
+      {
+       "label": "plan 5",
+       "p_complete": 0.07087500000000001,
+       "arrive_week": 4,
+       "steps": 2,
+       "cost_players": 4,
+       "give": [
+        5,
+        7,
+        4,
+        6
+       ],
+       "season_mean_after": 118.53652,
+       "p_average_hits_if_done": 0.885,
+       "p_average_hits": 0.06272437500000001,
+       "first_week_at_target": 4,
+       "title_odds_cost": 0
+      },
+      {
+       "label": "plan 4",
+       "p_complete": 0.07053749999999998,
+       "arrive_week": 4,
+       "steps": 2,
+       "cost_players": 4,
+       "give": [
+        4,
+        7,
+        5,
+        6
+       ],
+       "season_mean_after": 118.53652,
+       "p_average_hits_if_done": 0.885,
+       "p_average_hits": 0.06242568749999998,
+       "first_week_at_target": 4,
+       "title_odds_cost": 0.0020716379424765285
+      },
+      {
+       "label": "plan 3",
+       "p_complete": 0.03702857142857141,
+       "arrive_week": 4,
+       "steps": 2,
+       "cost_players": 4,
+       "give": [
+        2,
+        4,
+        5,
+        7
+       ],
+       "season_mean_after": 118.23652,
+       "p_average_hits_if_done": 0.88,
+       "p_average_hits": 0.03258514285714284,
+       "first_week_at_target": 4,
+       "title_odds_cost": 0.016967531848641623
+      },
+      {
+       "label": "plan 1",
+       "p_complete": 0.030375,
+       "arrive_week": 4,
+       "steps": 2,
+       "cost_players": 4,
+       "give": [
+        3,
+        6,
+        4,
+        5
+       ],
+       "season_mean_after": 120.03652,
+       "p_average_hits_if_done": 0.96,
+       "p_average_hits": 0.02916,
+       "first_week_at_target": 4,
+       "title_odds_cost": 0.021958627568489125
+      },
+      {
+       "label": "plan 2",
+       "p_complete": 0.030375,
+       "arrive_week": 4,
+       "steps": 2,
+       "cost_players": 4,
+       "give": [
+        3,
+        5,
+        4,
+        6
+       ],
+       "season_mean_after": 120.03652,
+       "p_average_hits_if_done": 0.96,
+       "p_average_hits": 0.02916,
+       "first_week_at_target": 4,
+       "title_odds_cost": 0.022063129139917696
+      }
+     ],
+     "warnings": [],
+     "p_reach": 0.06272437500000001,
+     "arrive_week": 4,
+     "cost": {
+      "players": 4,
+      "give": [
+       5,
+       7,
+       4,
+       6
+      ],
+      "steps": 2,
+      "title_odds": 0,
+      "basis": "best plan on the league objective minus this option, same rescores"
+     },
+     "warnings_count": {
+      "bye": 0,
+      "injury": 0
+     }
+    },
     "candidates_scored": 121,
     "rescores": 226,
     "runtime_ms": 0,
@@ -8741,6 +9129,41 @@
     "status": "unknown",
     "source": "sim.title",
     "reason": "points objective not set: this league is planned on title odds."
+   },
+   "feasibility_points": {
+    "status": "ok",
+    "value": {
+     "points_per_week": 140,
+     "league_objective": "title",
+     "outlook": "out_of_reach",
+     "projected_points": {
+      "status": "ok",
+      "value": 97.23652,
+      "source": "sim.title",
+      "unit": "points_per_week"
+     },
+     "p_hit": {
+      "status": "ok",
+      "value": 0,
+      "source": "sim.title",
+      "unit": "probability"
+     },
+     "by_week": {
+      "status": "unknown",
+      "source": "sim.title",
+      "reason": "No plan reaches 140 points a week inside the weeks simulated."
+     },
+     "cost_players": 0,
+     "cost_offers": 0,
+     "objective_cost": {
+      "status": "unknown",
+      "source": "sim.title",
+      "reason": "No plan on the league objective to price against."
+     },
+     "bye_warnings": 0,
+     "injury_warnings": 0
+    },
+    "source": "sim.title"
    },
    "finder_best_expected": {
     "status": "ok",
@@ -9772,6 +10195,62 @@
      ]
     },
     "feasibility_detail": null,
+    "feasibility_points_detail": {
+     "kind": "points",
+     "side_panel": true,
+     "league_objective": "title",
+     "target": 140,
+     "status": "out_of_reach",
+     "now": {
+      "season_mean": 97.23652,
+      "p_average_hits": 0,
+      "per_week": [
+       {
+        "week": 4,
+        "mean": 99.25180000000006,
+        "p_hit": 0
+       },
+       {
+        "week": 5,
+        "mean": 98.81919999999997,
+        "p_hit": 0
+       },
+       {
+        "week": 6,
+        "mean": 90.00580000000002,
+        "p_hit": 0
+       },
+       {
+        "week": 7,
+        "mean": 98.78999999999998,
+        "p_hit": 0
+       },
+       {
+        "week": 8,
+        "mean": 99.31579999999998,
+        "p_hit": 0
+       }
+      ]
+     },
+     "how_likely": 0,
+     "by_when": null,
+     "at_what_cost": null,
+     "options": [],
+     "warnings": [],
+     "p_reach": 0,
+     "arrive_week": null,
+     "cost": {
+      "players": 0,
+      "give": [],
+      "steps": 0,
+      "title_odds": 0,
+      "basis": "no plan to price"
+     },
+     "warnings_count": {
+      "bye": 0,
+      "injury": 0
+     }
+    },
     "candidates_scored": 87,
     "rescores": 185,
     "runtime_ms": 0,

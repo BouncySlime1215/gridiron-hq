@@ -140,7 +140,8 @@ test('wired: a title league carries the points side panel as feasibility_points,
   assert.equal(entry.feasibility_points.status, 'ok');
   assert.equal(entry.feasibility_points.value.points_per_week, 140);
   assert.equal(entry.feasibility_points.value.league_objective, 'title');
-  assert.ok(entry.feasibility_points.value.title_odds_cost.status === 'ok' || entry.feasibility_points.value.title_odds_cost.status === 'unknown');
+  assert.equal(entry.feasibility_points.value.objective_cost.unit, 'title_odds');   // priced in the league's own metric
+  assert.equal(entry.feasibility_points.value.cost_players, f.cost.players);
   assert.equal(entry._run.feasibility_points_detail.side_panel, true);
 });
 
@@ -197,4 +198,14 @@ test('wired: the producer loop passes its env to the planner (off by default, so
   assert.equal(def.leagues[0].feasibility_points.status, 'unknown');
   const on = await buildPlansFile([{ id: 1, load }], { generated_at: '2026-09-24T00:00:00Z', clock: () => 0, env: ON });
   assert.equal(on.leagues[0].feasibility_points.status, 'ok');
+});
+
+test('wired: with no plan to price, the points card says so instead of showing a zero cost', () => {
+  const a = makeAdapter();
+  const res = planLeague(a, { objective: normaliseObjective({ tolerances: { max_assets: 0 } }), env: ON });
+  assert.equal(res.feasibility_points.cost.basis, 'no plan to price');
+  const entry = toEntry(res, { names: a.names(), as_of: '2026-09-24T00:00:00Z' });
+  assert.deepEqual(validateLeague(entry).errors, []);
+  assert.equal(entry.feasibility_points.value.objective_cost.status, 'unknown');
+  assert.equal(entry.feasibility_points.value.cost_players, 0);
 });

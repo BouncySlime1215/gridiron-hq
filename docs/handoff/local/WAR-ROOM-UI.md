@@ -404,3 +404,40 @@ Ships behind `GRIDIRON_WARROOM_ENABLED` (off), on under `GRIDIRON_PREVIEW_UNCONF
 5. **Risk modes, speed curve, Nick-added stops and the Coach trade-off preview** (CAMPAIGN-01d/f/g): none exist.
 6. **Brain check (EVAL-01) and number health (BROKEN-01a)**: neither exists on main; both render typed unknown, never green.
 7. **P(yes) is today's unvalidated acceptanceBand midpoint** (the script says so). It always carries the guess + preview tags until E1 passes.
+
+---
+## v2 (Nick 9/23 ~9:40 PM: "the mock is good, but the chat bot should have full access to change the UI on the spot / plug things in. Think and reason. Should be one dashboard, not a scroll")
+
+### 1. One dashboard, no page scroll
+- Desktop: a fixed CSS grid that fits one viewport (100vh, no page scroll). Panels: top strip (league switcher ranked by "needs you this week", destination, ETA, risk mode), NEXT MOVE (largest panel), itinerary/stops, flip map, targets, catch-up + speed curve, brain check + number health, and the Coach dock (right column, always visible).
+- Panels never grow the page: each has a compact view and an in-place "expand" that temporarily swaps with the NEXT MOVE slot (Esc restores). Long lists page inside the panel ("3 of 11 >").
+- Phone: the same panels as a one-screen deck (swipe between panels, Coach as a bottom sheet); still no vertical page scroll.
+
+### 2. Coach drives the dashboard (the UI action protocol)
+Coach gets UI tools. Each tool returns a typed ACTION the client applies instantly; the client never runs free-form code from the model.
+| action | example ask | what happens |
+|---|---|---|
+| `focus_panel` | "show me the flip map for league 3" | switches league, expands the flip map into the main slot |
+| `filter` / `sort` | "only RBs", "sort by chance he says yes" | applies to the panel in view |
+| `pin_card` | "keep his RB1 on screen" | pins a player/offer card to the dashboard |
+| `plug_in` | "add a card with my bye-week holes" / "chart my title odds by week" | builds a new card from a whitelisted ENGINE FIELD (or a field query) with a chosen view (number, list, sparkline, table); saved to the layout |
+| `set_objective` / `add_stop` / `remove_stop` / `set_risk_mode` / `set_tolerance` | "forget the WR, get me a TE", "go fuck-it mode until week 6" | edits the itinerary; ALWAYS shows the engine's trade-off preview first and waits for Nick's confirm tap |
+| `explain` | "why is this the next move?" | highlights the reason chain on the card in view |
+| `arrange_layout` / `reset_layout` | "make the flip map bigger", "put targets top-left" | rearranges the grid; per-user layout saved; one-tap undo |
+| `draft_message` | "write the offer to team 7, softer" | fills the next-move message box; Nick copies/sends |
+Guardrails (reasoned, not reflexive):
+1. **Numbers come only from the engine.** plug_in cards bind to engine fields; Coach picks WHICH field and HOW to show it, never the value (verify.js already enforces grounded numbers).
+2. **Reversible by default.** Every UI action is one-tap undo; layout changes are versioned.
+3. **Nick confirms anything that changes the plan** (objective, stops, risk, tolerances) after seeing the trade-off; **nothing is ever sent to a league-mate by Coach**: sending an offer stays a human tap in ESPN.
+4. **Typed actions only.** A fixed action schema validated on the client; unknown actions are refused and Coach says so.
+5. **Every action is logged** (what Nick asked, what changed) so the War Room can be replayed and Coach's usefulness graded.
+
+### 3. Build impact
+- WR-2 becomes "one-dashboard grid + panel expand/swap + phone deck" (replaces the scrolling layout).
+- New unit WR-COACH: Coach UI tools + action schema + client action dispatcher + saved layouts + plug_in card renderer over whitelisted engine fields; confirm-gate for plan-changing actions; action log. Depends on WR-1 and the campaign producer's JSON; COACH-NAV (itinerary edits) folds into it.
+
+### 4. The swipe deck (Nick 9/23 ~9:50 PM: "add next buttons on offers I don't like... it wipes to the next")
+- NEXT MOVE is a deck of the planner's top alternatives (pre-computed top 5 per league per refresh, each already confirmed on fresh dice). "Next" (button, swipe left, left-arrow key, or tell Coach "next / skip this") wipes the card and shows the next-best instantly; "Do it" (swipe right) makes it the active step. "2 of 5" counter; "back" undoes a skip.
+- On skip, an optional one-tap reason (don't like the player / costs too much / don't trust this manager / not now) that fades if ignored. Every skip + reason is logged and TEACHES the brain: skipped players/managers are down-weighted in Nick's plans (SELF-01 preference model; a skipped option can return only if the situation changes, labelled "back because ...").
+- When the deck runs out: "Want me to look wider?" (more partners, bigger packages, or a different risk mode).
+- Build: WR-1 data read includes `acq.alternatives[]`; WR-2 renders the deck; WR-COACH adds the `next` action; the campaign producer outputs top-5 alternatives + reads the skip log.

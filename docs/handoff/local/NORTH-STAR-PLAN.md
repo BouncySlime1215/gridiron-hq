@@ -48,9 +48,13 @@ Every pasted item is now in tonight's scope. The only things that cannot be fini
 Tonight's unit list (launch order, <=3 build loops at once):
 1. EA-00 spine v2 (running) | 2. ACQ-FLIP-proto (running) | 3. WR-1 War Room read path + decision card (running)
 4. CAMPAIGN producer: flip map, targets, best path + backup, playbook (message, walk-away, reply table), risk modes, sliders, objectives (title / playoffs / get X / X projected pts for all 5 leagues), itinerary + stop trade-off, speed curve, catch-up list, my rows 17-20 + 22; replans every refresh + on offer/trade/injury events, push on change
-5. WR-2 War Room route/stops/targets/speed/flip map/phone/dark
+5. WR-2 ONE-DASHBOARD grid (no page scroll; panels expand in place; phone = one-screen deck) + route/stops/targets/speed/flip map/dark
 6. WR-3 War Room buttons (set goal, approve target, I sent it, log reply + one-tap decline reason, risk mode, add a stop) via a small request table the producer reads (no computing in the web server)
-7. COACH-NAV: Coach tool for itinerary edits with the engine's trade-off preview; every reply shows destination + stops + next move
+7. WR-COACH (folds COACH-NAV): Coach drives the dashboard via typed UI actions (focus, filter, pin, plug_in cards from engine fields, arrange/undo, set objective/stops/risk with trade-off preview + confirm, draft message); every reply shows destination + stops + next move
 8. BROKEN-01a+b: audit job + Number health card + red dot
 9. EVAL graders E1-E7 + 'Is the brain working?' card (fallback to Balanced on a failing check)
 Then Phase C: merge, local app, browser check of every league, screenshots, MORNING-BRIEF.md.
+
+## Nick 9/23 ~9:40 PM: one dashboard (no scroll) + Coach can change the UI on the spot / plug things in -> WAR-ROOM-UI.md v2; WR-2 and WR-COACH updated.
+
+## Nick 9/23 ~9:50 PM: swipe deck on offers ('Next' wipes to the next-best, optional skip reason teaches the brain) -> WAR-ROOM-UI.md section 4; campaign producer outputs top-5 alternatives + reads the skip log; in tonight's WR-2/WR-COACH scope.

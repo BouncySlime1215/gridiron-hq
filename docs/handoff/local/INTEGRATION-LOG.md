@@ -2,7 +2,13 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-23 23:23Z.
+Last rebuilt: 2026-09-24 00:31Z.
+
+## #224: fix: stop overcharging positional need in trade pricing (RL-19-1)
+
+- Merged: 8:31 PM ET, Sep 23 as `6cf97a74`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #225: perf: rescore two lineups for title-odds trades (RL-19-2)
 

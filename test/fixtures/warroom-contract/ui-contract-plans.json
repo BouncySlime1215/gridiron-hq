@@ -1,0 +1,1558 @@
+{
+ "schema": "warroom-plans/1",
+ "generated_at": "2026-09-24T06:00:00.000Z",
+ "producer": "campaign-producer",
+ "producer_version": "contract fixture v1",
+ "leagues": [
+  {
+   "league": 1,
+   "me": "3",
+   "sanity_composed_equals_direct": true,
+   "names": {
+    "501": "K. Bell (RB)",
+    "502": "C. Ruiz (RB)",
+    "505": "E. Park (RB)",
+    "601": "M. Oduya (WR)",
+    "602": "A. Brandt (WR)",
+    "604": "T. Kline (TE)",
+    "605": "I. Rourke (WR)",
+    "701": "D. Harlow (WR)",
+    "702": "N. Whitfield (WR)",
+    "604b": "B. Lowe (WR)"
+   },
+   "attention": {
+    "status": "ok",
+    "value": {
+     "rank": 1,
+     "of": 3,
+     "reason": "Two offers expire before Thursday."
+    },
+    "source": "campaign.plan"
+   },
+   "destination": {
+    "status": "ok",
+    "value": {
+     "goal": {
+      "status": "ok",
+      "value": {
+       "kind": "points",
+       "label": "Score 140 projected points a week",
+       "points_per_week": 140
+      },
+      "source": "campaign.plan"
+     },
+     "risk_mode": {
+      "status": "ok",
+      "value": {
+       "mode": "balanced",
+       "until_week": 9
+      },
+      "source": "campaign.plan"
+     },
+     "tolerances": {
+      "status": "ok",
+      "value": {
+       "max_assets": 3,
+       "max_offers_per_manager_week": 1,
+       "max_downside_per_step": 2,
+       "reputation_budget": 40,
+       "ai_spend": 10
+      },
+      "source": "campaign.plan"
+     },
+     "arrive_by": {
+      "status": "ok",
+      "value": 7,
+      "source": "campaign.plan"
+     },
+     "eta_week": {
+      "status": "ok",
+      "value": 6,
+      "source": "campaign.plan"
+     },
+     "title_now": {
+      "status": "ok",
+      "value": 0.118,
+      "source": "sim.title",
+      "se": 0.004,
+      "clears_2se": true
+     },
+     "title_planned_now": {
+      "status": "ok",
+      "value": 0.134,
+      "source": "campaign.plan"
+     },
+     "path": {
+      "status": "ok",
+      "value": [
+       {
+        "week": 4,
+        "planned": 0.118,
+        "actual": 0.118
+       },
+       {
+        "week": 5,
+        "planned": 0.126
+       },
+       {
+        "week": 7,
+        "planned": 0.159
+       }
+      ],
+      "source": "campaign.plan"
+     },
+     "ground_lost": {
+      "status": "ok",
+      "value": -0.011,
+      "source": "campaign.plan",
+      "se": 0.004,
+      "clears_2se": true
+     }
+    },
+    "source": "campaign.plan"
+   },
+   "feasibility": {
+    "status": "ok",
+    "value": {
+     "points_per_week": 140,
+     "projected_points": {
+      "status": "ok",
+      "value": 133.5,
+      "source": "campaign.plan",
+      "se": 4.1,
+      "clears_2se": true
+     },
+     "p_hit": {
+      "status": "ok",
+      "value": 0.31,
+      "source": "campaign.plan"
+     },
+     "by_week": {
+      "status": "ok",
+      "value": 7,
+      "source": "campaign.plan"
+     },
+     "cost_text": "Needs both steps of the top plan."
+    },
+    "source": "campaign.plan"
+   },
+   "feasibility_points": {
+    "status": "unknown",
+    "source": "sim.title",
+    "reason": "This league is already planned on points: see feasibility."
+   },
+   "finder_best_expected": {
+    "status": "ok",
+    "value": 0.00341,
+    "source": "plan.path",
+    "se": 0.00124,
+    "clears_2se": true
+   },
+   "next_move": {
+    "status": "ok",
+    "value": {
+     "move_id": "L1-m1",
+     "rank": 1,
+     "target": "701",
+     "target_owner": "2",
+     "chained": true,
+     "steps": [
+      {
+       "partner": "7",
+       "give": [
+        "601",
+        "604"
+       ],
+       "get": [
+        "502"
+       ],
+       "p_yes": {
+        "status": "ok",
+        "value": 0.38,
+        "source": "clone.accept"
+       },
+       "title_odds_delta": {
+        "status": "ok",
+        "value": 0.018,
+        "source": "sim.title",
+        "se": 0.005,
+        "clears_2se": true
+       },
+       "title_after": {
+        "status": "ok",
+        "value": 0.136,
+        "source": "sim.title"
+       },
+       "message": {
+        "status": "ok",
+        "value": "Would you take these two for your back? You need the receiver more than I do.",
+        "source": "coach.text"
+       },
+       "opening": {
+        "status": "ok",
+        "value": {
+         "give": [
+          "601"
+         ],
+         "get": [
+          "502"
+         ],
+         "text": "Open with the receiver alone."
+        },
+        "source": "coach.text"
+       },
+       "walk_away": {
+        "status": "ok",
+        "value": {
+         "text": "Stop if he asks for more than these two.",
+         "max_give": [
+          "601",
+          "604"
+         ]
+        },
+        "source": "coach.text"
+       },
+       "send_when": {
+        "status": "ok",
+        "value": "Tonight, before Thursday kickoff.",
+        "source": "campaign.plan"
+       },
+       "reply_table": {
+        "status": "ok",
+        "value": {
+         "accept": {
+          "status": "ok",
+          "value": {
+           "do": "Send step 2 to Team 2.",
+           "message": "Deal. Sending the next one now.",
+           "odds_after": {
+            "status": "ok",
+            "value": 0.159,
+            "source": "sim.title",
+            "se": 0.006,
+            "clears_2se": true
+           },
+           "move_id": "L1-m1"
+          },
+          "source": "plan.path"
+         },
+         "decline": {
+          "status": "ok",
+          "value": {
+           "do": "Switch to the backup plan.",
+           "move_id": "L1-m2",
+           "odds_after": {
+            "status": "ok",
+            "value": 0.133,
+            "source": "sim.title",
+            "se": 0.006,
+            "clears_2se": true
+           }
+          },
+          "source": "plan.path"
+         },
+         "counter": {
+          "status": "ok",
+          "value": {
+           "do": "Answer by the counter rules.",
+           "counter_rules": {
+            "accept_if": "He adds nothing and drops the tight end ask.",
+            "counter_with": "Swap the bench receiver for the tight end.",
+            "walk_away_if": "He asks for your starting back."
+           }
+          },
+          "source": "coach.text"
+         },
+         "silence": {
+          "status": "ok",
+          "value": {
+           "do": "Nudge once, then move on.",
+           "when": "no reply in 24 h",
+           "message": "Still interested in this one?"
+          },
+          "source": "coach.text"
+         }
+        },
+        "source": "plan.path"
+       },
+       "reasoning": {
+        "status": "ok",
+        "value": {
+         "case_for": "He fills the flex hole for the next four weeks and costs a bench piece.",
+         "his_side": "Team 7 is thin at wide receiver after the bye and has two backs he cannot start.",
+         "devils_advocate": "The back you give could win his job back in two weeks.",
+         "news_check": "No news in the last two days contradicts the numbers.",
+         "confidence": "The chance he says yes is a guess: the trade model has not passed E1.",
+         "counter": "He will likely ask for the tight end back; the plan says decline and go to the backup.",
+         "cites": [
+          "alternatives.value[0].steps[0].p_yes",
+          "alternatives.value[0].steps[0].title_odds_delta"
+         ],
+         "check_first": false
+        },
+        "source": "coach.text",
+        "as_of": "2026-09-24T06:00:00.000Z"
+       }
+      },
+      {
+       "partner": "2",
+       "give": [
+        "502",
+        "604b"
+       ],
+       "get": [
+        "701"
+       ],
+       "p_yes": {
+        "status": "ok",
+        "value": 0.44,
+        "source": "clone.accept"
+       },
+       "title_odds_delta": {
+        "status": "ok",
+        "value": 0.041,
+        "source": "sim.title",
+        "se": 0.006,
+        "clears_2se": true
+       },
+       "title_after": {
+        "status": "ok",
+        "value": 0.159,
+        "source": "sim.title"
+       },
+       "message": {
+        "status": "ok",
+        "value": "Would you take these two for your back? You need the receiver more than I do.",
+        "source": "coach.text"
+       },
+       "opening": {
+        "status": "ok",
+        "value": {
+         "give": [
+          "502"
+         ],
+         "get": [
+          "701"
+         ],
+         "text": "Open with the receiver alone."
+        },
+        "source": "coach.text"
+       },
+       "walk_away": {
+        "status": "ok",
+        "value": {
+         "text": "Stop if he asks for more than these two.",
+         "max_give": [
+          "502",
+          "604b"
+         ]
+        },
+        "source": "coach.text"
+       },
+       "send_when": {
+        "status": "ok",
+        "value": "Tonight, before Thursday kickoff.",
+        "source": "campaign.plan"
+       },
+       "reply_table": {
+        "status": "ok",
+        "value": {
+         "accept": {
+          "status": "ok",
+          "value": {
+           "do": "Send step 2 to Team 2.",
+           "message": "Deal. Sending the next one now.",
+           "odds_after": {
+            "status": "ok",
+            "value": 0.159,
+            "source": "sim.title",
+            "se": 0.006,
+            "clears_2se": true
+           },
+           "move_id": "L1-m1"
+          },
+          "source": "plan.path"
+         },
+         "decline": {
+          "status": "ok",
+          "value": {
+           "do": "Switch to the backup plan.",
+           "move_id": "L1-m2",
+           "odds_after": {
+            "status": "ok",
+            "value": 0.133,
+            "source": "sim.title",
+            "se": 0.006,
+            "clears_2se": true
+           }
+          },
+          "source": "plan.path"
+         },
+         "counter": {
+          "status": "ok",
+          "value": {
+           "do": "Answer by the counter rules.",
+           "counter_rules": {
+            "accept_if": "He adds nothing and drops the tight end ask.",
+            "counter_with": "Swap the bench receiver for the tight end.",
+            "walk_away_if": "He asks for your starting back."
+           }
+          },
+          "source": "coach.text"
+         },
+         "silence": {
+          "status": "ok",
+          "value": {
+           "do": "Nudge once, then move on.",
+           "when": "no reply in 24 h",
+           "message": "Still interested in this one?"
+          },
+          "source": "coach.text"
+         }
+        },
+        "source": "plan.path"
+       },
+       "reasoning": {
+        "status": "ok",
+        "value": {
+         "case_for": "He fills the flex hole for the next four weeks and costs a bench piece.",
+         "his_side": "Team 7 is thin at wide receiver after the bye and has two backs he cannot start.",
+         "devils_advocate": "The back you give could win his job back in two weeks.",
+         "news_check": "No news in the last two days contradicts the numbers.",
+         "confidence": "The chance he says yes is a guess: the trade model has not passed E1.",
+         "counter": "He will likely ask for the tight end back; the plan says decline and go to the backup.",
+         "cites": [
+          "alternatives.value[0].steps[0].p_yes",
+          "alternatives.value[0].steps[0].title_odds_delta"
+         ],
+         "check_first": false
+        },
+        "source": "coach.text",
+        "as_of": "2026-09-24T06:00:00.000Z"
+       }
+      }
+     ],
+     "p_complete": {
+      "status": "ok",
+      "value": 0.1672,
+      "source": "plan.path"
+     },
+     "delta_final": {
+      "status": "ok",
+      "value": 0.041,
+      "source": "sim.title",
+      "se": 0.006,
+      "clears_2se": true
+     },
+     "expected": {
+      "status": "ok",
+      "value": 0.01229,
+      "source": "plan.path",
+      "se": 0.0021,
+      "clears_2se": true
+     },
+     "reasoning": {
+      "status": "ok",
+      "value": {
+       "case_for": "He fills the flex hole for the next four weeks and costs a bench piece.",
+       "his_side": "Team 7 is thin at wide receiver after the bye and has two backs he cannot start.",
+       "devils_advocate": "The back you give could win his job back in two weeks.",
+       "news_check": "No news in the last two days contradicts the numbers.",
+       "confidence": "The chance he says yes is a guess: the trade model has not passed E1.",
+       "counter": "He will likely ask for the tight end back; the plan says decline and go to the backup.",
+       "cites": [
+        "alternatives.value[0].steps[0].p_yes",
+        "alternatives.value[0].steps[0].title_odds_delta"
+       ],
+       "check_first": false
+      },
+      "source": "coach.text",
+      "as_of": "2026-09-24T06:00:00.000Z"
+     }
+    },
+    "source": "plan.path"
+   },
+   "alternatives": {
+    "status": "ok",
+    "value": [
+     {
+      "move_id": "L1-m1",
+      "rank": 1,
+      "target": "701",
+      "target_owner": "2",
+      "chained": true,
+      "steps": [
+       {
+        "partner": "7",
+        "give": [
+         "601",
+         "604"
+        ],
+        "get": [
+         "502"
+        ],
+        "p_yes": {
+         "status": "ok",
+         "value": 0.38,
+         "source": "clone.accept"
+        },
+        "title_odds_delta": {
+         "status": "ok",
+         "value": 0.018,
+         "source": "sim.title",
+         "se": 0.005,
+         "clears_2se": true
+        },
+        "title_after": {
+         "status": "ok",
+         "value": 0.136,
+         "source": "sim.title"
+        },
+        "message": {
+         "status": "ok",
+         "value": "Would you take these two for your back? You need the receiver more than I do.",
+         "source": "coach.text"
+        },
+        "opening": {
+         "status": "ok",
+         "value": {
+          "give": [
+           "601"
+          ],
+          "get": [
+           "502"
+          ],
+          "text": "Open with the receiver alone."
+         },
+         "source": "coach.text"
+        },
+        "walk_away": {
+         "status": "ok",
+         "value": {
+          "text": "Stop if he asks for more than these two.",
+          "max_give": [
+           "601",
+           "604"
+          ]
+         },
+         "source": "coach.text"
+        },
+        "send_when": {
+         "status": "ok",
+         "value": "Tonight, before Thursday kickoff.",
+         "source": "campaign.plan"
+        },
+        "reply_table": {
+         "status": "ok",
+         "value": {
+          "accept": {
+           "status": "ok",
+           "value": {
+            "do": "Send step 2 to Team 2.",
+            "message": "Deal. Sending the next one now.",
+            "odds_after": {
+             "status": "ok",
+             "value": 0.159,
+             "source": "sim.title",
+             "se": 0.006,
+             "clears_2se": true
+            },
+            "move_id": "L1-m1"
+           },
+           "source": "plan.path"
+          },
+          "decline": {
+           "status": "ok",
+           "value": {
+            "do": "Switch to the backup plan.",
+            "move_id": "L1-m2",
+            "odds_after": {
+             "status": "ok",
+             "value": 0.133,
+             "source": "sim.title",
+             "se": 0.006,
+             "clears_2se": true
+            }
+           },
+           "source": "plan.path"
+          },
+          "counter": {
+           "status": "ok",
+           "value": {
+            "do": "Answer by the counter rules.",
+            "counter_rules": {
+             "accept_if": "He adds nothing and drops the tight end ask.",
+             "counter_with": "Swap the bench receiver for the tight end.",
+             "walk_away_if": "He asks for your starting back."
+            }
+           },
+           "source": "coach.text"
+          },
+          "silence": {
+           "status": "ok",
+           "value": {
+            "do": "Nudge once, then move on.",
+            "when": "no reply in 24 h",
+            "message": "Still interested in this one?"
+           },
+           "source": "coach.text"
+          }
+         },
+         "source": "plan.path"
+        },
+        "reasoning": {
+         "status": "ok",
+         "value": {
+          "case_for": "He fills the flex hole for the next four weeks and costs a bench piece.",
+          "his_side": "Team 7 is thin at wide receiver after the bye and has two backs he cannot start.",
+          "devils_advocate": "The back you give could win his job back in two weeks.",
+          "news_check": "No news in the last two days contradicts the numbers.",
+          "confidence": "The chance he says yes is a guess: the trade model has not passed E1.",
+          "counter": "He will likely ask for the tight end back; the plan says decline and go to the backup.",
+          "cites": [
+           "alternatives.value[0].steps[0].p_yes",
+           "alternatives.value[0].steps[0].title_odds_delta"
+          ],
+          "check_first": false
+         },
+         "source": "coach.text",
+         "as_of": "2026-09-24T06:00:00.000Z"
+        }
+       },
+       {
+        "partner": "2",
+        "give": [
+         "502",
+         "604b"
+        ],
+        "get": [
+         "701"
+        ],
+        "p_yes": {
+         "status": "ok",
+         "value": 0.44,
+         "source": "clone.accept"
+        },
+        "title_odds_delta": {
+         "status": "ok",
+         "value": 0.041,
+         "source": "sim.title",
+         "se": 0.006,
+         "clears_2se": true
+        },
+        "title_after": {
+         "status": "ok",
+         "value": 0.159,
+         "source": "sim.title"
+        },
+        "message": {
+         "status": "ok",
+         "value": "Would you take these two for your back? You need the receiver more than I do.",
+         "source": "coach.text"
+        },
+        "opening": {
+         "status": "ok",
+         "value": {
+          "give": [
+           "502"
+          ],
+          "get": [
+           "701"
+          ],
+          "text": "Open with the receiver alone."
+         },
+         "source": "coach.text"
+        },
+        "walk_away": {
+         "status": "ok",
+         "value": {
+          "text": "Stop if he asks for more than these two.",
+          "max_give": [
+           "502",
+           "604b"
+          ]
+         },
+         "source": "coach.text"
+        },
+        "send_when": {
+         "status": "ok",
+         "value": "Tonight, before Thursday kickoff.",
+         "source": "campaign.plan"
+        },
+        "reply_table": {
+         "status": "ok",
+         "value": {
+          "accept": {
+           "status": "ok",
+           "value": {
+            "do": "Send step 2 to Team 2.",
+            "message": "Deal. Sending the next one now.",
+            "odds_after": {
+             "status": "ok",
+             "value": 0.159,
+             "source": "sim.title",
+             "se": 0.006,
+             "clears_2se": true
+            },
+            "move_id": "L1-m1"
+           },
+           "source": "plan.path"
+          },
+          "decline": {
+           "status": "ok",
+           "value": {
+            "do": "Switch to the backup plan.",
+            "move_id": "L1-m2",
+            "odds_after": {
+             "status": "ok",
+             "value": 0.133,
+             "source": "sim.title",
+             "se": 0.006,
+             "clears_2se": true
+            }
+           },
+           "source": "plan.path"
+          },
+          "counter": {
+           "status": "ok",
+           "value": {
+            "do": "Answer by the counter rules.",
+            "counter_rules": {
+             "accept_if": "He adds nothing and drops the tight end ask.",
+             "counter_with": "Swap the bench receiver for the tight end.",
+             "walk_away_if": "He asks for your starting back."
+            }
+           },
+           "source": "coach.text"
+          },
+          "silence": {
+           "status": "ok",
+           "value": {
+            "do": "Nudge once, then move on.",
+            "when": "no reply in 24 h",
+            "message": "Still interested in this one?"
+           },
+           "source": "coach.text"
+          }
+         },
+         "source": "plan.path"
+        },
+        "reasoning": {
+         "status": "ok",
+         "value": {
+          "case_for": "He fills the flex hole for the next four weeks and costs a bench piece.",
+          "his_side": "Team 7 is thin at wide receiver after the bye and has two backs he cannot start.",
+          "devils_advocate": "The back you give could win his job back in two weeks.",
+          "news_check": "No news in the last two days contradicts the numbers.",
+          "confidence": "The chance he says yes is a guess: the trade model has not passed E1.",
+          "counter": "He will likely ask for the tight end back; the plan says decline and go to the backup.",
+          "cites": [
+           "alternatives.value[0].steps[0].p_yes",
+           "alternatives.value[0].steps[0].title_odds_delta"
+          ],
+          "check_first": false
+         },
+         "source": "coach.text",
+         "as_of": "2026-09-24T06:00:00.000Z"
+        }
+       }
+      ],
+      "p_complete": {
+       "status": "ok",
+       "value": 0.1672,
+       "source": "plan.path"
+      },
+      "delta_final": {
+       "status": "ok",
+       "value": 0.041,
+       "source": "sim.title",
+       "se": 0.006,
+       "clears_2se": true
+      },
+      "expected": {
+       "status": "ok",
+       "value": 0.01229,
+       "source": "plan.path",
+       "se": 0.0021,
+       "clears_2se": true
+      },
+      "reasoning": {
+       "status": "ok",
+       "value": {
+        "case_for": "He fills the flex hole for the next four weeks and costs a bench piece.",
+        "his_side": "Team 7 is thin at wide receiver after the bye and has two backs he cannot start.",
+        "devils_advocate": "The back you give could win his job back in two weeks.",
+        "news_check": "No news in the last two days contradicts the numbers.",
+        "confidence": "The chance he says yes is a guess: the trade model has not passed E1.",
+        "counter": "He will likely ask for the tight end back; the plan says decline and go to the backup.",
+        "cites": [
+         "alternatives.value[0].steps[0].p_yes",
+         "alternatives.value[0].steps[0].title_odds_delta"
+        ],
+        "check_first": false
+       },
+       "source": "coach.text",
+       "as_of": "2026-09-24T06:00:00.000Z"
+      }
+     },
+     {
+      "move_id": "L1-m2",
+      "rank": 2,
+      "target": "701",
+      "target_owner": "2",
+      "chained": false,
+      "steps": [
+       {
+        "partner": "2",
+        "give": [
+         "601",
+         "605"
+        ],
+        "get": [
+         "701"
+        ],
+        "p_yes": {
+         "status": "ok",
+         "value": 0.19,
+         "source": "clone.accept"
+        },
+        "title_odds_delta": {
+         "status": "ok",
+         "value": 0.033,
+         "source": "sim.title",
+         "se": 0.006,
+         "clears_2se": true
+        },
+        "title_after": {
+         "status": "ok",
+         "value": 0.151,
+         "source": "sim.title"
+        },
+        "message": {
+         "status": "ok",
+         "value": "Would you take these two for your back? You need the receiver more than I do.",
+         "source": "coach.text"
+        },
+        "opening": {
+         "status": "ok",
+         "value": {
+          "give": [
+           "601"
+          ],
+          "get": [
+           "701"
+          ],
+          "text": "Open with the receiver alone."
+         },
+         "source": "coach.text"
+        },
+        "walk_away": {
+         "status": "ok",
+         "value": {
+          "text": "Stop if he asks for more than these two.",
+          "max_give": [
+           "601",
+           "605"
+          ]
+         },
+         "source": "coach.text"
+        },
+        "send_when": {
+         "status": "ok",
+         "value": "Tonight, before Thursday kickoff.",
+         "source": "campaign.plan"
+        },
+        "reply_table": {
+         "status": "ok",
+         "value": {
+          "accept": {
+           "status": "ok",
+           "value": {
+            "do": "Send step 2 to Team 2.",
+            "message": "Deal. Sending the next one now.",
+            "odds_after": {
+             "status": "ok",
+             "value": 0.159,
+             "source": "sim.title",
+             "se": 0.006,
+             "clears_2se": true
+            },
+            "move_id": "L1-m1"
+           },
+           "source": "plan.path"
+          },
+          "decline": {
+           "status": "ok",
+           "value": {
+            "do": "Switch to the backup plan.",
+            "move_id": "L1-m1",
+            "odds_after": {
+             "status": "ok",
+             "value": 0.133,
+             "source": "sim.title",
+             "se": 0.006,
+             "clears_2se": true
+            }
+           },
+           "source": "plan.path"
+          },
+          "counter": {
+           "status": "ok",
+           "value": {
+            "do": "Answer by the counter rules.",
+            "counter_rules": {
+             "accept_if": "He adds nothing and drops the tight end ask.",
+             "counter_with": "Swap the bench receiver for the tight end.",
+             "walk_away_if": "He asks for your starting back."
+            }
+           },
+           "source": "coach.text"
+          },
+          "silence": {
+           "status": "ok",
+           "value": {
+            "do": "Nudge once, then move on.",
+            "when": "no reply in 24 h",
+            "message": "Still interested in this one?"
+           },
+           "source": "coach.text"
+          }
+         },
+         "source": "plan.path"
+        },
+        "reasoning": {
+         "status": "unknown",
+         "reason": "Not written: reasoning covers the top card first (REASON-01 cost control).",
+         "source": "coach.text"
+        }
+       }
+      ],
+      "p_complete": {
+       "status": "ok",
+       "value": 0.19,
+       "source": "plan.path"
+      },
+      "delta_final": {
+       "status": "ok",
+       "value": 0.033,
+       "source": "sim.title",
+       "se": 0.006,
+       "clears_2se": true
+      },
+      "expected": {
+       "status": "ok",
+       "value": 0.00627,
+       "source": "plan.path",
+       "se": 0.00114,
+       "clears_2se": true
+      },
+      "reasoning": {
+       "status": "unknown",
+       "reason": "Written on open (REASON-01 cost control).",
+       "source": "coach.text"
+      }
+     }
+    ],
+    "source": "plan.path"
+   },
+   "itinerary": {
+    "status": "ok",
+    "value": {
+     "version": 2,
+     "stops": [
+      {
+       "id": "s1",
+       "order": 1,
+       "kind": "flip",
+       "label": "Get C. Ruiz (RB) from Team 7, then pass him on",
+       "status": "next",
+       "added_by": "plan",
+       "move_id": "L1-m1",
+       "player_id": "502",
+       "p_yes": {
+        "status": "ok",
+        "value": 0.38,
+        "source": "clone.accept"
+       },
+       "title_odds_delta": {
+        "status": "ok",
+        "value": 0.018,
+        "source": "sim.title",
+        "se": 0.005,
+        "clears_2se": true
+       }
+      },
+      {
+       "id": "s2",
+       "order": 2,
+       "kind": "get",
+       "label": "Get D. Harlow (WR) from Team 2",
+       "status": "waiting",
+       "added_by": "plan",
+       "player_id": "701"
+      },
+      {
+       "id": "s3",
+       "order": 3,
+       "kind": "cover_bye",
+       "label": "Cover the week 9 bye",
+       "status": "waiting",
+       "added_by": "nick",
+       "week": 9
+      }
+     ],
+     "stops_left": 3,
+     "untouchables": [
+      "505"
+     ],
+     "conflicts": [
+      {
+       "text": "Getting a second back means selling E. Park, who is untouchable."
+      }
+     ]
+    },
+    "source": "campaign.plan"
+   },
+   "stop_tradeoffs": {
+    "status": "ok",
+    "value": {
+     "mode:all_in": {
+      "stop_label": "Switch to all-in",
+      "cost": {
+       "status": "ok",
+       "value": 0.004,
+       "source": "sim.title"
+      },
+      "extra_steps": 0,
+      "gain": {
+       "status": "ok",
+       "value": 0.013,
+       "source": "sim.title"
+      },
+      "gain_text": "more upside",
+      "net": {
+       "status": "ok",
+       "value": 0.009,
+       "source": "sim.title"
+      },
+      "verdict": "close",
+      "because": "more upside, more ways to miss",
+      "new_next_move_changes": true
+     },
+     "add:get:702": {
+      "stop_label": "Get N. Whitfield (WR)",
+      "cost": {
+       "status": "ok",
+       "value": 0.006,
+       "source": "sim.title"
+      },
+      "extra_steps": 1,
+      "gain": {
+       "status": "ok",
+       "value": 0.004,
+       "source": "sim.title"
+      },
+      "net": {
+       "status": "ok",
+       "value": -0.002,
+       "source": "sim.title"
+      },
+      "verdict": "not_worth_it",
+      "because": "he costs the tight end",
+      "new_next_move_changes": false
+     },
+     "remove:s3": {
+      "stop_label": "Drop the bye cover",
+      "cost": {
+       "status": "ok",
+       "value": 0.002,
+       "source": "sim.title"
+      },
+      "extra_steps": 0,
+      "gain": {
+       "status": "ok",
+       "value": 0,
+       "source": "sim.title"
+      },
+      "net": {
+       "status": "ok",
+       "value": -0.002,
+       "source": "sim.title"
+      },
+      "verdict": "not_worth_it",
+      "because": "the week 9 hole stays open",
+      "new_next_move_changes": false
+     },
+     "tolerance:max_assets:2": {
+      "stop_label": "At most two players out",
+      "cost": {
+       "status": "ok",
+       "value": 0.003,
+       "source": "sim.title"
+      },
+      "extra_steps": 0,
+      "gain": {
+       "status": "ok",
+       "value": 0,
+       "source": "sim.title"
+      },
+      "net": {
+       "status": "ok",
+       "value": -0.003,
+       "source": "sim.title"
+      },
+      "verdict": "close",
+      "because": "the two-step plan needs three",
+      "new_next_move_changes": true
+     },
+     "objective:get_player:702": {
+      "stop_label": "Go get N. Whitfield",
+      "cost": {
+       "status": "ok",
+       "value": 0.01,
+       "source": "sim.title"
+      },
+      "extra_steps": 2,
+      "gain": {
+       "status": "ok",
+       "value": 0.005,
+       "source": "sim.title"
+      },
+      "net": {
+       "status": "ok",
+       "value": -0.005,
+       "source": "sim.title"
+      },
+      "verdict": "not_worth_it",
+      "because": "his owner rarely trades",
+      "new_next_move_changes": true
+     }
+    },
+    "source": "campaign.plan"
+   },
+   "flip_map": {
+    "status": "ok",
+    "value": [
+     {
+      "player": "501",
+      "buy_from": "5",
+      "sell_to": "8",
+      "spread": {
+       "status": "ok",
+       "value": 0.024,
+       "source": "sim.title",
+       "se": 0.007,
+       "clears_2se": true
+      },
+      "price_a": {
+       "status": "ok",
+       "value": 4100,
+       "source": "clone.price"
+      },
+      "price_b": {
+       "status": "ok",
+       "value": 5800,
+       "source": "clone.price"
+      },
+      "legs": {
+       "give_a": "601",
+       "get_b": "602",
+       "p1": {
+        "status": "ok",
+        "value": 0.38,
+        "source": "clone.accept"
+       },
+       "p2": {
+        "status": "ok",
+        "value": 0.36,
+        "source": "clone.accept"
+       },
+       "p_both": {
+        "status": "ok",
+        "value": 0.1368,
+        "source": "clone.accept"
+       },
+       "nick_after": {
+        "status": "ok",
+        "value": 0.013,
+        "source": "sim.title",
+        "se": 0.005,
+        "clears_2se": true
+       }
+      },
+      "reasoning": {
+       "status": "ok",
+       "value": {
+        "case_for": "He fills the flex hole for the next four weeks and costs a bench piece.",
+        "his_side": "Team 7 is thin at wide receiver after the bye and has two backs he cannot start.",
+        "devils_advocate": "The back you give could win his job back in two weeks.",
+        "news_check": "No news in the last two days contradicts the numbers.",
+        "confidence": "The chance he says yes is a guess: the trade model has not passed E1.",
+        "counter": "He will likely ask for the tight end back; the plan says decline and go to the backup.",
+        "cites": [
+         "alternatives.value[0].steps[0].p_yes",
+         "alternatives.value[0].steps[0].title_odds_delta"
+        ],
+        "check_first": false
+       },
+       "source": "coach.text",
+       "as_of": "2026-09-24T06:00:00.000Z"
+      }
+     },
+     {
+      "player": "502",
+      "buy_from": "7",
+      "sell_to": "2",
+      "spread": {
+       "status": "ok",
+       "value": 0.02,
+       "source": "sim.title",
+       "se": 0.007,
+       "clears_2se": true
+      },
+      "price_a": {
+       "status": "ok",
+       "value": 3600,
+       "source": "clone.price"
+      },
+      "price_b": {
+       "status": "ok",
+       "value": 4900,
+       "source": "clone.price"
+      },
+      "legs": null,
+      "legs_why_not": "No fair one-player leg."
+     }
+    ],
+    "source": "sim.title"
+   },
+   "targets": {
+    "status": "ok",
+    "value": [
+     {
+      "player": "701",
+      "owner": "2",
+      "gain_if_landed": {
+       "status": "ok",
+       "value": 0.041,
+       "source": "sim.title",
+       "se": 0.006,
+       "clears_2se": true
+      },
+      "p_reach": {
+       "status": "ok",
+       "value": 0.1672,
+       "source": "plan.path"
+      },
+      "mode_fit": {
+       "status": "ok",
+       "value": "fits",
+       "source": "campaign.plan"
+      },
+      "why": {
+       "status": "ok",
+       "value": "The biggest gain you can reach in two steps.",
+       "source": "coach.text"
+      },
+      "approved": true,
+      "is_plan_target": true,
+      "reasoning": {
+       "status": "ok",
+       "value": {
+        "case_for": "He fills the flex hole for the next four weeks and costs a bench piece.",
+        "his_side": "Team 7 is thin at wide receiver after the bye and has two backs he cannot start.",
+        "devils_advocate": "The back you give could win his job back in two weeks.",
+        "news_check": "No news in the last two days contradicts the numbers.",
+        "confidence": "The chance he says yes is a guess: the trade model has not passed E1.",
+        "counter": "He will likely ask for the tight end back; the plan says decline and go to the backup.",
+        "cites": [
+         "alternatives.value[0].steps[0].p_yes",
+         "alternatives.value[0].steps[0].title_odds_delta"
+        ],
+        "check_first": false
+       },
+       "source": "coach.text",
+       "as_of": "2026-09-24T06:00:00.000Z"
+      }
+     },
+     {
+      "player": "702",
+      "owner": "5",
+      "gain_if_landed": {
+       "status": "ok",
+       "value": 0.029,
+       "source": "sim.title",
+       "se": 0.006,
+       "clears_2se": true
+      },
+      "p_reach": {
+       "status": "unknown",
+       "reason": "Only the chosen target keeps its best path.",
+       "source": "plan.path"
+      },
+      "mode_fit": {
+       "status": "ok",
+       "value": "needs_all_in",
+       "source": "campaign.plan"
+      },
+      "why": {
+       "status": "unknown",
+       "reason": "Not written yet.",
+       "source": "coach.text"
+      },
+      "approved": false,
+      "is_plan_target": false
+     }
+    ],
+    "source": "campaign.plan"
+   },
+   "catch_up": {
+    "status": "ok",
+    "value": [
+     {
+      "text": "Offer Team 9 the bench receiver for E. Park.",
+      "gain": {
+       "status": "ok",
+       "value": 0.009,
+       "source": "sim.title",
+       "se": 0.004,
+       "clears_2se": true
+      },
+      "steps": 1,
+      "move_id": "L1-m2"
+     }
+    ],
+    "source": "campaign.plan"
+   },
+   "speed_curve": {
+    "status": "ok",
+    "value": [
+     {
+      "arrive_by": 5,
+      "cost": {
+       "status": "ok",
+       "value": 0.012,
+       "source": "sim.title"
+      },
+      "net": {
+       "status": "ok",
+       "value": 0.02,
+       "source": "sim.title"
+      },
+      "variance_note": "One step, high variance.",
+      "offers_used": 3,
+      "before_deadline": true
+     },
+     {
+      "arrive_by": 8,
+      "cost": {
+       "status": "ok",
+       "value": 0.004,
+       "source": "sim.title"
+      },
+      "net": {
+       "status": "ok",
+       "value": 0.028,
+       "source": "sim.title"
+      },
+      "variance_note": "Two steps, lower variance.",
+      "offers_used": 2,
+      "before_deadline": true
+     }
+    ],
+    "source": "campaign.plan"
+   },
+   "brain_report": {
+    "status": "ok",
+    "value": {
+     "overall": "not_enough_data",
+     "checks": [
+      {
+       "id": "E1",
+       "name": "Does 40% mean 40%? (chance he says yes)",
+       "status": "not_enough_data",
+       "bar": "Brier beats base rate on 50+ offers",
+       "n": 12,
+       "result": "12 offers logged",
+       "as_of": "2026-09-24T06:00:00.000Z"
+      },
+      {
+       "id": "E3",
+       "name": "Does 20% title odds mean 20%?",
+       "status": "not_run",
+       "bar": "Calibrated within 2 SE on 2025"
+      }
+     ],
+     "blocks": [
+      "All-in mode's test-tier signals are off because E1 has not passed."
+     ],
+     "fell_back_to": "balanced"
+    },
+    "source": "eval.check"
+   },
+   "number_health": {
+    "status": "unknown",
+    "source": "audit.numbers",
+    "reason": "The number audit was not read for this fixture."
+   },
+   "risk_modes": {
+    "status": "unknown",
+    "source": "plan.path",
+    "reason": "Risk modes were not compared in this fixture."
+   },
+   "partners": {
+    "status": "unknown",
+    "source": "campaign.plan",
+    "reason": "No partner read in this fixture."
+   }
+  },
+  {
+   "league": 2,
+   "me": "1",
+   "names": {},
+   "error": "world failed"
+  },
+  {
+   "league": 3,
+   "me": "4",
+   "names": {
+    "701": "D. Harlow (WR)"
+   },
+   "attention": {
+    "status": "unknown",
+    "reason": "League ranking is not produced yet (IDEA-007).",
+    "source": "campaign.plan"
+   },
+   "destination": {
+    "status": "ok",
+    "value": {
+     "goal": {
+      "status": "ok",
+      "value": {
+       "kind": "get_player",
+       "label": "Go get D. Harlow",
+       "player_id": "701"
+      },
+      "source": "campaign.plan"
+     },
+     "risk_mode": {
+      "status": "unknown",
+      "reason": "Risk mode not set yet.",
+      "source": "campaign.plan"
+     },
+     "tolerances": {
+      "status": "ok",
+      "value": {},
+      "source": "campaign.plan"
+     },
+     "arrive_by": {
+      "status": "unknown",
+      "reason": "No arrive-by week yet.",
+      "source": "campaign.plan"
+     },
+     "eta_week": {
+      "status": "unknown",
+      "reason": "No planned path yet.",
+      "source": "campaign.plan"
+     },
+     "title_now": {
+      "status": "failed",
+      "reason": "The season sim failed its check.",
+      "source": "sim.title"
+     },
+     "title_planned_now": {
+      "status": "unknown",
+      "reason": "No planned path yet.",
+      "source": "campaign.plan"
+     },
+     "path": {
+      "status": "unknown",
+      "reason": "No planned path yet.",
+      "source": "campaign.plan"
+     },
+     "ground_lost": {
+      "status": "unknown",
+      "reason": "No planned path yet.",
+      "source": "campaign.plan"
+     }
+    },
+    "source": "campaign.plan"
+   },
+   "feasibility": {
+    "status": "unknown",
+    "reason": "No points objective set.",
+    "source": "campaign.plan"
+   },
+   "feasibility_points": {
+    "status": "unknown",
+    "source": "sim.title",
+    "reason": "Points side panel is off (GRIDIRON_POINTS_FEASIBILITY), or the world has no weekly lineup points."
+   },
+   "finder_best_expected": {
+    "status": "unknown",
+    "reason": "The served finder had no priced single offer in this run.",
+    "source": "plan.path"
+   },
+   "next_move": {
+    "status": "unknown",
+    "reason": "No path found: the planner scored 28 paths and none completes.",
+    "source": "plan.path"
+   },
+   "alternatives": {
+    "status": "ok",
+    "value": [],
+    "source": "plan.path"
+   },
+   "itinerary": {
+    "status": "unknown",
+    "reason": "No best plan, so no stops yet.",
+    "source": "campaign.plan"
+   },
+   "stop_tradeoffs": {
+    "status": "ok",
+    "value": {},
+    "source": "campaign.plan"
+   },
+   "flip_map": {
+    "status": "failed",
+    "reason": "The study run failed its own check, so its numbers are hidden.",
+    "source": "sim.title"
+   },
+   "targets": {
+    "status": "unknown",
+    "reason": "The planner wrote no targets for this league.",
+    "source": "campaign.plan"
+   },
+   "catch_up": {
+    "status": "unknown",
+    "reason": "Not computed yet (CAMPAIGN-01g).",
+    "source": "campaign.plan"
+   },
+   "speed_curve": {
+    "status": "unknown",
+    "reason": "Not computed yet (CAMPAIGN-01g).",
+    "source": "campaign.plan"
+   },
+   "brain_report": {
+    "status": "unknown",
+    "reason": "Brain check (EVAL-01) not built yet.",
+    "source": "eval.check"
+   },
+   "number_health": {
+    "status": "unknown",
+    "source": "audit.numbers",
+    "reason": "The number audit was not read for this fixture."
+   },
+   "risk_modes": {
+    "status": "unknown",
+    "source": "plan.path",
+    "reason": "Risk modes were not compared in this fixture."
+   },
+   "partners": {
+    "status": "unknown",
+    "source": "campaign.plan",
+    "reason": "No partner read in this fixture."
+   }
+  }
+ ]
+}

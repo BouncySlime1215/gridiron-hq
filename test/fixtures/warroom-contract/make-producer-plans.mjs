@@ -13,11 +13,17 @@
  *   2  a league whose world failed: the contract's { league, me, names, error }
  *   3  points objective, team 3 nearly out of it (a "desperate" catch-up move
  *      that is also a deck card) and team 4 checked out
- *   4  go get player 21, points side panel at 115 a week (on track: by_week is ok)
+ *   4  go get player 21, points side panel at 105 a week (reachable under the FIX-05 balanced fallback: by_week is ok)
  *   5  sliders at zero assets: nothing clears, so next_move is unknown with its reason
  *
  * The FEAS-140 points side panel is switched on (ENV below, never the process env), so
  * every non-points league writes feasibility_points; league 3 writes it as unknown.
+ *
+ * FIX-05: every league goes through the brain gate (campaign/brain-gate.js) on a
+ * made-up report card with E1 failing, so league 4's all_in falls back to
+ * balanced (brain_report.fell_back_to) and the others keep their mode. Leagues
+ * 1 and 3 carry made-up number-audit rows (a warn and an ok); the others have
+ * none yet, so their number_health is unknown with the reason.
  *
  *   node test/fixtures/warroom-contract/make-producer-plans.mjs   # rewrites producer-plans.json
  */
@@ -26,6 +32,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { makeAdapter } from '../campaign-league.mjs';
 import { buildPlansFile } from '../../../scripts/campaign/produce-plans.mjs';
+import { applyBrainReport, readNumberHealth } from '../../../server/services/campaign/brain-gate.js';
 
 const FIRST_AT = '2026-09-24T05:00:00.000Z';
 const GENERATED_AT = '2026-09-24T06:00:00.000Z';
@@ -42,9 +49,35 @@ export const OBJECTIVES = {
   1: { risk_mode: 'safe', risk_until_week: 6, arrive_by: 6, untouchables: ['2'], version: 3,
     stops: [{ kind: 'get', player: '21' }, { kind: 'sell', player: '2' }, { kind: 'cover_bye', week: 6 }, { kind: 'custom', label: 'Keep a TE' }] },
   3: { kind: 'points', points_per_week: 95 },
-  4: { kind: 'player', target: '21', risk_mode: 'all_in', side_points_per_week: 115 },
+  4: { kind: 'player', target: '21', risk_mode: 'all_in', side_points_per_week: 105 },
   5: { tolerances: { max_assets: 0 } },
 };
+
+/** A made-up report card in the graders' row shape (eval/common.js#result), computed just before the run. */
+export const BRAIN_REPORT = {
+  run_id: 'fixture-run', computed_at: '2026-09-24T04:30:00.000Z',
+  checks: [
+    { check: 'E1', name: 'Chance he says yes is calibrated', status: 'failing', metric_name: 'calibration_slope', metric: 0.41,
+      ci_low: 0.22, ci_high: 0.6, n: 64, needs_text: null, pass_bar: 'slope within 0.8-1.2', detail: {} },
+    ...['E2', 'E3', 'E4', 'E5', 'E6', 'E7'].map(check => ({ check, name: `check ${check}`, status: 'not_enough_data',
+      metric_name: 'n', metric: null, ci_low: null, ci_high: null, n: 3, needs_text: 'needs 37 more offers',
+      pass_bar: 'stated in the TDD', detail: {} })),
+  ],
+};
+const AUDIT = {
+  1: [{ check_id: 'D.current_week', status: 'ok', title: 'Current week agrees', detail: 'all say week 5' },
+    { check_id: 'B.title_odds_paths', status: 'warn', title: 'Title odds paths differ', detail: 'two paths differ by 2 pts', cause: 'rounding' }],
+  3: [{ check_id: 'D.current_week', status: 'ok', title: 'Current week agrees', detail: 'all say week 5' }],
+};
+/** readNumberAudit's shape, from the made-up rows above (no DB). */
+const fakeAudit = leagueId => {
+  const rows = AUDIT[leagueId] ?? [];
+  const count = st => rows.filter(r => r.status === st).length;
+  return { table_missing: false, as_of: rows.length ? '2026-09-24T04:00:00.000Z' : null, rows,
+    broken: count('broken'), warn: count('warn'), ok: count('ok') };
+};
+export const BRAIN = { read: { report: BRAIN_REPORT, error: null }, applyBrainReport,
+  numberHealth: id => readNumberHealth(null, id, { read: fakeAudit }) };
 
 export async function makeProducerPlans() {
   const leagues = [
@@ -54,9 +87,9 @@ export async function makeProducerPlans() {
     { id: 4, load: async () => ({ adapter: leagueOf(4) }) },
     { id: 5, load: async () => ({ adapter: leagueOf(5) }) },
   ];
-  const first = await buildPlansFile(leagues, { generated_at: FIRST_AT, objectives: OBJECTIVES, clock: () => 0, env: ENV });
+  const first = await buildPlansFile(leagues, { generated_at: FIRST_AT, objectives: OBJECTIVES, clock: () => 0, brain: BRAIN, env: ENV });
   const previous = new Map(first.leagues.map(e => [String(e.league), e]));
-  return buildPlansFile(leagues, { generated_at: GENERATED_AT, objectives: OBJECTIVES, previous, clock: () => 0, env: ENV });
+  return buildPlansFile(leagues, { generated_at: GENERATED_AT, objectives: OBJECTIVES, previous, clock: () => 0, brain: BRAIN, env: ENV });
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

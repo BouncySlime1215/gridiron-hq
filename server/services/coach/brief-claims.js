@@ -8,8 +8,9 @@
  * cell they cite (a probability as a whole percent, a title-odds change in
  * points to one decimal), which is the precision verify.js checks them at.
  *
- * Teams are "Team <roster id>"; player names come from the plan's `names`
- * (players, never managers) or the ESPN roster row.
+ * Teams read by the plans entry's `teams` map (UI-POLISH-2: teamOf, 'Team <roster
+ * id>' only when the map has no name); player names come from the plan's `names`
+ * or the ESPN roster row.
  */
 
 const ok = f => f?.status === 'ok';
@@ -17,6 +18,22 @@ const val = f => (ok(f) ? f.value : undefined);
 const pct = p => `${Math.round(p * 100)}%`;
 const pts = d => `${d >= 0 ? '+' : ''}${(d * 100).toFixed(1)} pts`;
 const human = s => String(s).replace(/_/g, ' ');
+
+/**
+ * UI-POLISH-2: who a roster is, from the plans entry's `teams` Field, by the rule of
+ * client types.ts#teamLabel (TEAM-NAMES): 'Manager (Team name)', else whichever is
+ * known, else 'Team N'.
+ */
+export function teamOf(entry, id) {
+  const map = ok(entry?.teams) && entry.teams.value && typeof entry.teams.value === 'object' ? entry.teams.value : {};
+  const t = map[String(id)];
+  const manager = typeof t?.manager === 'string' ? t.manager.trim() : '';
+  const name = typeof t?.name === 'string' ? t.name.trim() : '';
+  if (manager && name) return `${manager} (${name})`;
+  return manager || name || `Team ${id}`;
+}
+/** Planner prose writes rosters as "Team N"; the brief says them by name when the map has one. */
+const namedTeams = (entry, text) => (text == null ? text : String(text).replace(/\bTeam (\d+)\b/g, (_, id) => teamOf(entry, id)));
 
 /** Record rows under a tool name; returns cite(i, col). */
 function record(ledger, tool, rows) {
@@ -51,12 +68,13 @@ export function nextMove(entry, ledger, section) {
   const names = entry.names ?? {};
   const changed = entry._run?.changed;
   const row = {
-    move_id: String(move.move_id), partner: String(step.partner), steps: move.steps.length,
+    move_id: String(move.move_id), partner: String(step.partner), partner_label: teamOf(entry, step.partner), steps: move.steps.length,
     p_yes: val(step.p_yes) ?? null, guess: step.p_yes?.guess === true,
     delta: val(step.title_odds_delta) ?? null, title_after: val(step.title_after) ?? null,
     delta_final: val(move.delta_final) ?? null, p_complete: val(move.p_complete) ?? null, expected: val(move.expected) ?? null,
-    send_when: val(step.send_when) ?? null, case_for: val(move.reasoning)?.case_for ?? val(step.reasoning)?.case_for ?? null,
-    changed: changed?.changed === true, changed_reason: changed?.reason ?? null
+    send_when: val(step.send_when) ?? null,
+    case_for: namedTeams(entry, val(move.reasoning)?.case_for ?? val(step.reasoning)?.case_for ?? null),
+    changed: changed?.changed === true, changed_reason: namedTeams(entry, changed?.reason ?? null)
   };
   const c = record(ledger, 'plan_read', [row]);
   const players = [...step.give.map(pid => ({ pid: String(pid), name: names[pid] ?? `player ${pid}`, side: 'give' })),
@@ -64,8 +82,8 @@ export function nextMove(entry, ledger, section) {
   const p = record(ledger, 'plan_players', players);
   const list = side => players.map((x, i) => ({ ...x, i })).filter(x => x.side === side);
   const deal = [...list('give'), ...list('get')].flatMap(x => [p(x.i, 'pid'), p(x.i, 'name')]);
-  out.push({ section, cites: [c(0, 'partner'), ...deal],
-    text: `Offer Team ${row.partner} ${list('give').map(x => x.name).join(' + ')} for ${list('get').map(x => x.name).join(' + ')}.` });
+  out.push({ section, cites: [c(0, 'partner'), c(0, 'partner_label'), ...deal],
+    text: `Offer ${row.partner_label} ${list('give').map(x => x.name).join(' + ')} for ${list('get').map(x => x.name).join(' + ')}.` });
   if (row.steps > 1) out.push({ section, text: `It is the first of ${row.steps} steps.`, cites: [c(0, 'steps')] });
   if (row.delta != null && row.title_after != null) {
     out.push({ section, text: `If he says yes, title odds move ${pts(row.delta)} to ${pct(row.title_after)}.`,
@@ -80,7 +98,8 @@ export function nextMove(entry, ledger, section) {
   // numbers, so an id or a step count cannot ground a figure that happens to equal it.
   const teams = [...new Set([String(entry.me), row.partner, move.target_owner,
     ...(val(entry.alternatives) ?? []).flatMap(m => (m.steps ?? []).map(x => x.partner))]
-    .filter(t => t != null && t !== 'undefined').map(String))].map(t => `Team ${t}`);
+    .filter(t => t != null && t !== 'undefined').map(String)), ...Object.keys(val(entry.teams) ?? {})]
+    .flatMap(t => [`Team ${t}`, teamOf(entry, t)]);
   const labels = [...teams, ...players.map(x => x.name), `${row.steps} step(s)`, `${row.steps} steps`];
   const numeric = ['delta', 'p_yes', 'title_after', 'delta_final', 'p_complete', 'expected'].map(k => c(0, k));
   if (row.case_for) out.push({ section, strict: true, labels, text: `Why: ${row.case_for}`, cites: numeric });
@@ -298,8 +317,8 @@ function itinerary(entry, ledger) {
     text: `Stops: ${counts.done} of ${counts.total} done, ${counts.waiting} waiting, ${counts.blocked} blocked.` });
   const next = stops.find(x => x.status === 'next');
   if (next) {
-    const n = record(ledger, 'plan_stops', [{ label: next.label }]);
-    out.push({ section, text: `Next stop: ${next.label}.`, cites: [n(0, 'label')] });
+    const n = record(ledger, 'plan_stops', [{ label: namedTeams(entry, next.label) }]);
+    out.push({ section, text: `Next stop: ${namedTeams(entry, next.label)}.`, cites: [n(0, 'label')] });
   }
   if (it.value.conflicts?.length) {
     const k = record(ledger, 'plan_conflicts', it.value.conflicts.map(x => ({ text: x.text })));
@@ -325,7 +344,7 @@ function footer(entry, ledger) {
   const dest = val(entry.destination);
   const next = (val(entry.itinerary)?.stops ?? []).find(x => x.status === 'next');
   const row = { goal: val(dest?.goal)?.label ?? null, title_now: val(dest?.title_now) ?? null,
-    week: Number.isInteger(entry._run?.week) ? entry._run.week : null, next: next?.label ?? null };
+    week: Number.isInteger(entry._run?.week) ? entry._run.week : null, next: namedTeams(entry, next?.label ?? null) };
   const c = record(ledger, 'plan_footer', [row]);
   const parts = [];
   const cites = [];
@@ -348,11 +367,11 @@ function deal(ledger, entry, step, tool) {
   const names = entry.names ?? {};
   const players = [...(step.give ?? []).map(pid => ({ pid: String(pid), name: names[pid] ?? `player ${pid}`, side: 'give' })),
     ...(step.get ?? []).map(pid => ({ pid: String(pid), name: names[pid] ?? `player ${pid}`, side: 'get' }))];
-  const t = record(ledger, `${tool}_partner`, [{ partner: String(step.partner) }]);
+  const t = record(ledger, `${tool}_partner`, [{ partner: String(step.partner), partner_label: teamOf(entry, step.partner) }]);
   const p = record(ledger, `${tool}_players`, players.length ? players : [{ pid: null, name: null, side: null }]);
   const side = s => players.filter(x => x.side === s).map(x => x.name).join(' + ');
-  return { text: `Team ${step.partner} ${side('give')} for ${side('get')}`,
-    cites: [t(0, 'partner'), ...players.flatMap((_, i) => [p(i, 'pid'), p(i, 'name')])] };
+  return { text: `${teamOf(entry, step.partner)} ${side('give')} for ${side('get')}`,
+    cites: [t(0, 'partner'), t(0, 'partner_label'), ...players.flatMap((_, i) => [p(i, 'pid'), p(i, 'name')])] };
 }
 
 /** "Step k of n toward <target>": where the next move sits on the way to the target. */

@@ -253,8 +253,15 @@ export const SECTIONS = Object.freeze({
     untouchable: arr(pid),
     // ONE-COUNTERPART (RULINGS 17): P(responds) before the model, each named adjustment, the reply prior.
     p_responds_before_counterpart: prob, reason_chain: arr(cpFeature), reply_mix: replyMix
-  })))
+  }))),
+  // TEAM-NAMES: who each roster is (ESPN team name, the manager Nick knows), read from the league
+  // payload at run time and never committed. A roster left out (or the section unknown) reads 'Team N'.
+  // Optional (OPTIONAL_SECTIONS): a file written before it still validates.
+  teams: field(map(/^[A-Za-z0-9_.:-]{1,64}$/, obj({}, { name: str, manager: str })))
 });
+
+/** Sections an entry may leave out; the view then reads them as unknown. */
+export const OPTIONAL_SECTIONS = Object.freeze(['teams']);
 
 /** Run bookkeeping: the producer's own memory between runs. No consumer reads it. */
 const run = obj({
@@ -359,7 +366,7 @@ function crossCheck(entry, path, ctx) {
   const err = (p, message) => ctx.errors.push({ path: `${path}.${p}`, message });
   if (entry.error === undefined) {
     for (const k of Object.keys(SECTIONS)) {
-      if (!(k in entry)) err(k, "is required (write it as 'unknown' with a reason when it is not computed)");
+      if (!(k in entry) && !OPTIONAL_SECTIONS.includes(k)) err(k, "is required (write it as 'unknown' with a reason when it is not computed)");
     }
   }
   const deck = okValue(entry.alternatives);
@@ -448,7 +455,7 @@ export function writtenPaths(doc) {
     if (Array.isArray(v)) { v.forEach(x => walk(x, `${p}[]`)); return; }
     if (!isObj(v)) return;
     // The two maps: their keys are data, not contract keys.
-    if (/(^|\.)stop_tradeoffs\.value$|^leagues\[\]\.names$/.test(p)) { for (const x of Object.values(v)) walk(x, `${p}{}`); return; }
+    if (/(^|\.)stop_tradeoffs\.value$|^leagues\[\]\.names$|^leagues\[\]\.teams\.value$/.test(p)) { for (const x of Object.values(v)) walk(x, `${p}{}`); return; }
     for (const [k, x] of Object.entries(v)) walk(x, p ? `${p}.${k}` : k);
   };
   walk(doc, '');

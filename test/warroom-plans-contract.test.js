@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  validatePlans, validateLeague, schemaPaths, writtenPaths, tradeoffKey, TRADEOFF_KEY, SECTIONS, SCHEMA_VERSION
+  validatePlans, validateLeague, schemaPaths, writtenPaths, tradeoffKey, TRADEOFF_KEY, SECTIONS, OPTIONAL_SECTIONS, SCHEMA_VERSION
 } from '../server/services/campaign/plans-schema.js';
 import { READS } from './fixtures/warroom-contract/consumer-reads.js';
 
@@ -148,7 +148,7 @@ test("the UI's fixture (#231) is the study's shape, and fails the contract only 
   assert.deepEqual([...offending].sort(), ['acq', 'baseline', 'flip', 'owner_mapping_present']);
   // Every campaign section is absent: the study run writes none of them. It also
   // omits `names` on a league whose run failed; the contract requires it (may be {}).
-  assert.deepEqual([...missing].sort(), [...Object.keys(SECTIONS), 'names'].sort());
+  assert.deepEqual([...missing].sort(), [...Object.keys(SECTIONS).filter(k => !OPTIONAL_SECTIONS.includes(k)), 'names'].sort());
 });
 
 test("Coach's plans (#230, after FIX-06) are a contract league and validate", () => {

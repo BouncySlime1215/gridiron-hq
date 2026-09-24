@@ -27,6 +27,7 @@ import { db, rows, run } from '../../db/index.js';
 import { PLAN_REQUESTS } from '../warroom-actions/schema.js';
 import { normaliseObjective } from './objectives.js';
 import { skipWeights } from './partners.js';
+import { insertStep } from './step-log.js';
 
 /** Deck-skip reasons: #230's ids and the shared ones (FIX-06 renames #230's to the shared set). */
 const SKIP_REASON = Object.freeze({
@@ -176,9 +177,8 @@ export function consumeWith(consumed, write, { at = new Date().toISOString() } =
       }
       if (!steps) continue;
       for (const s of c.sent ?? []) {
-        n.campaign_steps += Number(run(`INSERT OR IGNORE INTO campaign_steps
-          (league_id, move_id, step_index, trade_outcome_id, predicted_title_odds_gain, predicted_se, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)`, c.leagueId, s.move_id, s.step_index, s.trade_outcome_id, s.predicted, s.se, at).changes);
+        n.campaign_steps += insertStep({ leagueId: c.leagueId, moveId: s.move_id, stepIndex: s.step_index,
+          tradeOutcomeId: s.trade_outcome_id, predicted: s.predicted, se: s.se, at });
       }
     }
     write();

@@ -15,3 +15,4 @@
 14. War Room UI order: FIX-04 (#287) first, then FIX-06 (#282) rebased onto it (the rebaser does this).
 15. Migration numbers come from MIGRATIONS.md ONLY, never from a sweep suggestion: #251 = 092, #277 = 095, #288 = 096, #293 = 091, #295 = 097.
 16. #246 E1: fix the needs-N formula (e1.js:148-152: cap it, and derive it from the CS width) and read trade_outcomes, not offer_log (FIX-09 seam).
+17. (9/24 ~2:45 AM) Nick-derived flags (unreachable/contactable, hard/difficulty, buyer/trades, active) are OWNED by the one reader's nick block (profile-reader.js). counterpart.js READS them and never recomputes; main's nick-block code folds into the reader (FIX-260-CI). The counterpart fields the planner serves (p_responds, reply_mix, yes_point, challenger p_accept) are ADDED to plans-schema.js (typed fields) in #313, not squeezed into existing keys.

@@ -1,3 +1,5 @@
+> **2026-09-24 02:43 EDT SHUTDOWN (Nick asked). READ SHUTDOWN-2026-09-24.md FIRST**: what Nick wants, what got done, honest findings, the exact state, and the pick-up plan (step 1 restarts the machinery).
+
 > **9/24 12:20 AM: READ NIGHT-PLAN.md FIRST** (lanes, refillers, restart steps). Nonstop until Mon 9/28 9 PM ET.
 
 # PASTE THIS INTO A FRESH CLAUDE CODE SESSION TO RESUME GRIDIRON HQ

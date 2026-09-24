@@ -17,6 +17,7 @@
  * sourced 'plan.template'. REASON-01 (FIX-08) replaces the reasoning panels
  * with its own when its gates are on.
  */
+import { versionWithFlags } from './model-flags.js';
 import { SCHEMA_VERSION, TOLERANCE_KEYS, TRADEOFF_KEY, tradeoffKey } from './plans-schema.js';
 import { metricKey, objectiveLabel } from './objectives.js';
 import { MODE_LABELS } from './modes.js';
@@ -92,8 +93,9 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     const shrank = verdict?.verdict === 'shrank';
     return ok({
       case_for: whole ?? `If Team ${team} says yes you move ${fmt(delta)}.`,
-      his_side: needs.length ? `Team ${team}'s roster read lists ${needs.join(', ')} as thin, and the offer is built on it.`
-        : `There is no read of Team ${team}'s needs, so the offer leans on market value alone.`,
+      his_side: (needs.length ? `Team ${team}'s roster read lists ${needs.join(', ')} as thin, and the offer is built on it.`
+        : `There is no read of Team ${team}'s needs, so the offer leans on market value alone.`)
+        + (pb?.nick_shift ? ` ${pb.nick_shift.text}` : ''), // FIX-02c: Nick's read shifts the price (hand-set)
       devils_advocate: shrank ? `On fresh dice the plan shrank by ${fmt(verdict.shrink)}: the first read was lucky.`
         : clears === false ? 'The gain does not clear two standard errors of simulation noise.'
           : verdict?.verdict === 'holds' ? 'The gain clears the noise and held on fresh dice; the weak link is whether he says yes.'
@@ -350,7 +352,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     if (labels.length) out.chat_labels = labels;
     if (p.needs?.length) out.roster_holes = p.needs;
     if (Number.isInteger(p.sent_this_week)) out.offers_logged = p.sent_this_week;
-    return { ...out, checked_out: !!p.checked_out, blocked: !!p.blocked };
+    // FIX-02c: a manager Nick marked unreachable is excluded everywhere; the contract says so as `blocked`.
+    return { ...out, checked_out: !!p.checked_out, blocked: !!p.blocked || !!p.excluded };
   }), 'campaign.plan');
 
   const f = res.feasibility;
@@ -396,7 +399,10 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   };
 }
 
-/** The whole file: the contract head and the league entries. */
-export function plansFile(entries, { generated_at } = {}) {
-  return { schema: SCHEMA_VERSION, generated_at, producer: PRODUCER, producer_version: PRODUCER_VERSION, leagues: entries };
+/**
+ * The whole file: the contract head and the league entries. flags: model-flags.js#modelFlags() for this
+ * run; they go into the head's producer_version (FIX-02b), so plans priced with other flags than Trade Lab say so.
+ */
+export function plansFile(entries, { generated_at, flags = null } = {}) {
+  return { schema: SCHEMA_VERSION, generated_at, producer: PRODUCER, producer_version: versionWithFlags(PRODUCER_VERSION, flags), leagues: entries };
 }

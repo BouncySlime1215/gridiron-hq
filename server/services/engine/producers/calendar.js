@@ -62,8 +62,6 @@ function run(ctx) {
       ...(kickoff ? { value: { kickoff, basis: g.payload.gametime ? 'scheduled' : 'end_of_day' } }
         : { absence: { status: 'unknown', reason: 'the schedule has no game day for this game' } }) });
   }
-  // TODO(FIX-242-2): do not compute nfl.week here. Wrap #283's week.js (the one
-  // nfl.week / league.week producer every caller reads, BROKEN-D) once it lands.
   const open = [...weeks].filter(([, gs]) => gs.some(g => !g.payload.final)).map(([w]) => w);
   const current = open.length ? Math.min(...open) : null;
   for (const [w, gs] of [...weeks].sort((a, b) => a[0] - b[0])) {

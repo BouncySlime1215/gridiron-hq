@@ -48,8 +48,6 @@ function run(ctx) {
     const period = e => Number(e.payload.scoring_period_id);
     const top = pool.reduce((a, e) => (period(e) > period(a) || (period(e) === period(a) && e.id < a.id) ? e : a));
     const week = Math.min(18, Number(top.payload.scoring_period_id));
-    // TODO(FIX-242-2): do not compute league.week here. Wrap #283's week.js (the one
-    // nfl.week / league.week producer every caller reads, BROKEN-D) once it lands.
     ctx.write(WRITERS['league.week'], { entityType: 'league', entityId: String(league), leagueId: league, field: 'league.week',
       value: { season: l.season, week, basis: 'lineups' }, eventIds: [top.id],
       reasonChain: { contributions: [{ source: 'league.lineup', kind: 'event', event_ids: [top.id], delta: null,

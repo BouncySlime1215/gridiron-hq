@@ -4,8 +4,9 @@
  *
  *  1. The producer fixture validates, and it writes every path the contract
  *     declares, so "the producer writes it" is shown, not assumed.
- *  2. The UI's and Coach's own fixtures are validated; the ways they fail are
- *     pinned, and each is a mismatch listed in consumer-reads.js with its fix.
+ *  2. The UI's own fixture is validated; the ways it fails are pinned, and each
+ *     is a mismatch listed in consumer-reads.js with its fix. Coach's fixture
+ *     (after FIX-06) is a contract league and validates.
  *  3. Every key a consumer reads is a key the producer writes, except the
  *     recorded mismatches; a new unmatched read fails, and so does a recorded
  *     mismatch that has started to resolve.
@@ -24,7 +25,9 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fixture = name => JSON.parse(fs.readFileSync(path.join(ROOT, 'test/fixtures/warroom-contract', name), 'utf8'));
 const PRODUCER = fixture('producer-plans.json');
 const UI_FIXTURE = fixture('ui-war-room-plans.json');
-const COACH_FIXTURE = fixture('coach-plans.json');
+/** Coach's tests (warroom-coach*.test.js) read the producer's first league since FIX-06. */
+// Coach's fixture: the hand-written contract league (ui-contract-plans.json, FIX-04) carries the priced add_stop.
+const { league: _l, me: _m, ...COACH_FIXTURE } = fixture('ui-contract-plans.json').leagues[0];
 
 const META = /\.(status|reason|source|se|clears_2se|as_of|n|unit|guess)$/;
 /** next_move is one deck entry, and the four reply rows share one shape. */
@@ -123,7 +126,7 @@ test("stop_tradeoffs keys follow Coach's tradeoffKey grammar exactly", () => {
   for (const bad of ['mode:yolo', 'tolerance:max_assets:two', 'add:trade:702', 'objective:win', 'remove:', 'mode:safe:until:19']) {
     assert.equal(TRADEOFF_KEY.test(bad), false, bad);
   }
-  for (const key of Object.keys(COACH_FIXTURE.stop_tradeoffs)) assert.ok(TRADEOFF_KEY.test(key), key);
+  for (const key of Object.keys(COACH_FIXTURE.stop_tradeoffs.value)) assert.ok(TRADEOFF_KEY.test(key), key);
   for (const key of Object.keys(PRODUCER.leagues[0].stop_tradeoffs.value)) assert.ok(TRADEOFF_KEY.test(key), key);
 });
 
@@ -146,21 +149,10 @@ test("the UI's fixture (#231) is the study's shape, and fails the contract only 
   assert.deepEqual([...missing].sort(), [...Object.keys(SECTIONS), 'names'].sort());
 });
 
-test("Coach's fixture (#230) fails the contract only where the mismatch list says", () => {
+test("Coach's plans (#230, after FIX-06) are a contract league and validate", () => {
   const r = validateLeague({ league: 1, me: '3', ...COACH_FIXTURE }, '$');
-  const got = [...new Set(r.errors.map(e => `${e.path.split('.').slice(0, 2).join('.')} ${e.message}`))].sort();
-  assert.deepEqual(got.filter(s => !s.includes('is required')), [
-    '$.alternatives must be a typed field { status, source, ... }',
-    '$.destination must be a typed field { status, source, ... }',
-    '$.flips is not in the contract',
-    '$.itinerary must be a typed field { status, source, ... }',
-    '$.stop_tradeoffs must be a typed field { status, source, ... }'
-  ]);
-  // Wrapped as typed fields, its stop_tradeoffs entry still lacks the keys CoachDock renders.
-  const wrapped = validateLeague({ league: 1, me: '3', names: COACH_FIXTURE.names,
-    stop_tradeoffs: { status: 'ok', source: 'campaign.plan', value: COACH_FIXTURE.stop_tradeoffs } }, '$');
-  const entry = wrapped.errors.filter(e => e.path.startsWith('$.stop_tradeoffs')).map(e => e.path.replace('$.stop_tradeoffs.value.mode:all_in.', '')).sort();
-  assert.deepEqual(entry, ['cost', 'gain', 'net', 'new_next_move_changes']);
+  assert.deepEqual(r.errors, []);
+  assert.ok(COACH_FIXTURE.stop_tradeoffs.value['add:get:702'], 'carries a priced add_stop for the dock test');
 });
 
 /* ------------------------------------------- reads vs writes (the gate) */
@@ -168,11 +160,20 @@ test("Coach's fixture (#230) fails the contract only where the mismatch list say
 const DECLARED = schemaPaths();
 const WRITTEN = new Set([...writtenPaths(PRODUCER)].map(norm));
 /** A read resolves when the producer writes the path, and a scalar read does not land on a typed field. */
-const resolves = r => DECLARED.has(r.reads) && WRITTEN.has(norm(r.reads)) && !(r.scalar && DECLARED.has(`${r.reads}.status`));
+// A read on a PENDING path is declared and owned by the unit named there (FIX-05 for brain_report).
+const resolves = r => DECLARED.has(r.reads) && (WRITTEN.has(norm(r.reads)) || pending(r.reads)) && !(r.scalar && DECLARED.has(`${r.reads}.status`));
 
 test('every key a consumer reads is a key the producer writes', () => {
-  const unmatched = READS.filter(r => !r.fix && !resolves(r));
+  const unmatched = READS.filter(r => !r.fix && !r.awaits && !resolves(r));
   assert.deepEqual(unmatched.map(r => `#${r.pr} ${r.where} reads ${r.reads}`), []);
+});
+
+test('each read that awaits a producer is declared, says why, and is still not written', () => {
+  for (const r of READS.filter(x => x.awaits)) {
+    assert.ok(DECLARED.has(r.reads), `#${r.pr} ${r.where}: ${r.reads} is not a contract path`);
+    assert.equal(WRITTEN.has(norm(r.reads)), false, `#${r.pr} ${r.where}: ${r.reads} is written now; drop its awaits`);
+    assert.ok(r.awaits.length > 10);
+  }
 });
 
 test('each recorded mismatch is still a mismatch, and its fix names a real contract path', () => {

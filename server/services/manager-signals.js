@@ -40,6 +40,9 @@ import { identityMap, matchIdentities } from './manager-identity.js';
 import { normalizePlayerName } from './player-identity.js';
 import { PROJECT_ROOT } from '../platform/paths.js';
 import { DEAD_ESPN_STATUS } from './dead-starters.js';
+import { PRO_TEAM } from './espn-draft.js';
+import { weekDesignation } from './contingency.js';
+import { canonicalTeamCode } from './team-codes.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS manager_signals (
   league_id INTEGER NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
@@ -283,22 +286,50 @@ function activitySignals(tx, rosterId, through) {
  * nfl_snaps row with a snap. When nfl_snaps has no rows for that week at all,
  * the answer is unknown and nothing is emitted. DEF is excluded: a defence
  * that scores zero still played.
+ *
+ * LIVING-01c (FIX-273-3) also emits the spec's definition next to it:
+ * `lineup_dead_starts_at_lock_last_week`, final-lineup starters who were on bye
+ * (no schedule_games row for their NFL team that week) or carried an Out tag
+ * (weekDesignation 'out': OUT, injured reserve, suspension) at lineup lock
+ * (pregame_injury_status, the last status seen while the slot was unlocked; the
+ * final injury_status when no pregame status was captured). It is what a manager
+ * could have seen and fixed. The two differ: a surprise inactive with no tag is
+ * dead by snaps but not at lock, and a DEF on bye is dead at lock but not by snaps.
+ * The activity-adjusted mean reads the snaps one, because it is the corpus's
+ * definition (a started player with no stat row) and so the one the fit used.
+ * Emitted only when the week's schedule is on file (else a bye is unknown).
  */
+function deadAtLockSignals(season, week, starters) {
+  if (!tableExists('schedule_games') || !tableExists('nfl_teams')) return [];
+  const playing = new Set(rows(`SELECT t.abbr FROM schedule_games g JOIN nfl_teams t ON t.id = g.team_id
+                                WHERE g.season = ? AND g.week = ?`, season, week)
+    .map(r => canonicalTeamCode(r.abbr)));
+  if (!playing.size) return [];
+  const dead = starters.filter(s => {
+    const team = PRO_TEAM[s.pro_team_id];
+    if (team && !playing.has(canonicalTeamCode(team))) return true;
+    return weekDesignation({ espnStatus: s.pregame_injury_status ?? s.injury_status ?? null }).designation === 'out';
+  });
+  return [{ metric: 'lineup_dead_starts_at_lock_last_week', value: dead.length, n: starters.length, source: 'roster' }];
+}
+
 function deadStartSignals(leagueId, season, rosterId, week) {
   if (!(week >= 1) || !tableExists('league_roster_snapshots')) return [];
-  const starters = rows(`SELECT player_name, position, actual_points FROM league_roster_snapshots
+  const starters = rows(`SELECT player_name, position, actual_points, pro_team_id, injury_status,
+                                pregame_injury_status FROM league_roster_snapshots
                          WHERE league_id = ? AND season = ? AND scoring_period_id = ? AND team_id = ?
                            AND source = 'final' AND is_starter = 1`, leagueId, season, week, Number(rosterId));
   if (!starters.length) return [];
+  const atLock = deadAtLockSignals(season, week, starters);
   const zero = starters.filter(s => s.position !== 'DEF' && !(s.actual_points > 0));
   const snapsKnown = tableExists('nfl_snaps')
     && rows('SELECT 1 FROM nfl_snaps WHERE season = ? AND week = ? LIMIT 1', season, week).length > 0;
   if (!snapsKnown) {
     // Unknown, not "no": say how many scored zero, so the page can say why it
     // cannot tell whether he checked out.
-    return zero.length
+    return [...(zero.length
       ? [{ metric: 'lineup_zero_point_starters_last_week', value: zero.length, n: starters.length, source: 'roster' }]
-      : [];
+      : []), ...atLock];
   }
   // ESPN and nflverse spell names differently ("DJ Moore" / "D.J. Moore",
   // "Aaron Jones Sr." / "Aaron Jones"), so both sides go through the canonical
@@ -310,7 +341,7 @@ function deadStartSignals(leagueId, season, rosterId, week) {
                                            OR COALESCE(st_pct, 0) > 0)`, season, week)
     .map(r => normalizePlayerName(r.player)));
   const dead = zero.filter(s => !playedNames.has(normalizePlayerName(s.player_name)));
-  return [{ metric: 'lineup_dead_starts_last_week', value: dead.length, n: starters.length, source: 'roster' }];
+  return [{ metric: 'lineup_dead_starts_last_week', value: dead.length, n: starters.length, source: 'roster' }, ...atLock];
 }
 
 function txSignals(tx, rosterId) {

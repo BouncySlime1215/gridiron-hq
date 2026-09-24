@@ -9,6 +9,10 @@
  *  L4 on, a team whose manager adds more gets a higher weekly mean, and that moves
  *     the title (deterministic fixture: T2 overtakes T1)
  *  L5 GRIDIRON_ACTIVITY_MEAN=1 and preview mode both turn it on; only preview labels it
+ *  L6 FIX-273-3: manager-signals.js emits both dead-start definitions (did not play, and
+ *     bye or Out tag at lineup lock); on a fixture where they differ, the counts differ,
+ *     the shifts differ, and the shipped fit reads the one the corpus fit used
+ *  L7 FIX-273-1: the shipped fit records the held-out gate, and stays inert when it failed
  *
  * Fixture: test/league-rules-bracket-sim.test.js's deterministic 6-team league
  * (T1 100, T6 90, T2 80, T3 70, T4 60, T5 50 every week; weeks 1-2 carried in).
@@ -73,8 +77,20 @@ mock.module('../server/services/contingency.js', {
   namedExports: { ...realContingency, weeklyAvailability: () => new Map() }
 });
 const { simulateSeason } = await import('../server/services/season-sim.js?living01c');
-const { activityShifts, activityMeanOn, ACTIVITY_MEAN_FIT, ACTIVITY_MEAN_ENV } =
+const { activityShifts, activityMeanOn, ACTIVITY_MEAN_FIT, ACTIVITY_MEAN_ENV, DEAD_START_METRICS } =
   await import('../server/services/activity-team-mean.js');
+db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
+  league_id INTEGER NOT NULL, season INTEGER NOT NULL, tx_id TEXT NOT NULL,
+  type TEXT, status TEXT, execution_type TEXT, proposed_at TEXT, processed_at TEXT,
+  team_id INTEGER, member_id TEXT, related_tx_id TEXT, scoring_period INTEGER,
+  bid_amount REAL, is_pending INTEGER, items_json TEXT, raw_json TEXT,
+  first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+  PRIMARY KEY (league_id, season, tx_id))`);
+db.exec(`CREATE TABLE IF NOT EXISTS nfl_snaps (
+  season INTEGER, week INTEGER, player TEXT, team TEXT, position TEXT,
+  offense_snaps INTEGER, offense_pct REAL, st_pct REAL, defense_snaps INTEGER, defense_pct REAL,
+  PRIMARY KEY (season, week, player, team))`);
+const { buildManagerSignals, managerSignalsFor } = await import('../server/services/manager-signals.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -210,4 +226,72 @@ test('L5: the site flag and preview mode both turn it on; only preview labels th
     assert.equal(sim.activity_mean.preview, true);
     assert.match(sim.activity_mean.preview_reason, /LIVING-01c/);
   });
+});
+
+// L6 fixture: week 2 is the last completed week. ESPN pro team 1 is ATL (playing), 2 is BUF (on bye).
+function deadStartLeague(id) {
+  run(`INSERT INTO nfl_teams (id, abbr, name, conference, division) VALUES
+       (921, 'ATL', 'Atlanta', 'NFC', 'South'), (922, 'BUF', 'Buffalo', 'AFC', 'East')`);
+  run(`INSERT INTO schedule_games (season, team_id, week, opponent_abbr, home) VALUES (2026, 921, 2, 'HOM', 1)`);
+  const team = t => ({ id: t, name: `Team ${t}`, owners: [`{D${t}}`],
+    record: { overall: { wins: 1, losses: 0, ties: 0, pointsFor: 100, pointsAgainst: 90 } }, roster: { entries: [] } });
+  run(`INSERT INTO leagues (id, platform, league_id, season, name, payload, team_count, my_team_id)
+       VALUES (?, 'espn', ?, 2026, 'Dead', ?, 4, '1')`,
+  id, `dead-${id}`, JSON.stringify({ seasonId: 2026, scoringPeriodId: 3, teams: [1, 2, 3, 4].map(team), schedule: [] }));
+  let espn = 7000;
+  const starter = (t, name, { pos = 'WR', pro = 1, pts = 0, pregame = null, status = null } = {}) =>
+    run(`INSERT INTO league_roster_snapshots (league_id, season, scoring_period_id, team_id, espn_player_id,
+         player_name, position, pro_team_id, lineup_slot_id, is_starter, injury_status, pregame_injury_status,
+         actual_points, source, first_seen_at, changed_at)
+         VALUES (?, 2026, 2, ?, ?, ?, ?, ?, 4, 1, ?, ?, ?, 'final', 'x', 'x')`,
+    id, t, espn++, name, pos, pro, status, pregame, pts);
+  const snap = player => run(`INSERT INTO nfl_snaps (season, week, player, team, position, offense_snaps)
+    VALUES (2026, 2, ?, 'ATL', 'WR', 40)`, player);
+  for (const t of [1, 2, 3, 4]) { starter(t, `Healthy ${t}`, { pts: 12 }); snap(`Healthy ${t}`); }
+  starter(1, 'Surprise Inactive');                                     // no tag, did not play: snaps only
+  starter(2, 'Bye Receiver', { pro: 2 });                              // bye, did not play: both
+  starter(3, 'Bye Defense', { pos: 'DEF', pro: 2 });                   // DEF on bye: at lock only
+  starter(4, 'Tagged Out', { pregame: 'OUT', status: 'OUT' });         // Out at lock, did not play: both
+  starter(4, 'Questionable Played', { pts: 3, status: 'QUESTIONABLE' }); snap('Questionable Played');
+}
+
+test('L6: both dead-start definitions are produced, differ on the fixture, and the fit reads the corpus one', () => {
+  deadStartLeague(852);
+  const built = buildManagerSignals(852, { chat: null });
+  assert.ifError(built.error);
+  const sig = managerSignalsFor(852);
+  const count = (t, m) => sig.get(String(t)).metrics[m];
+  const { did_not_play: DNP, at_lock: LOCK } = DEAD_START_METRICS;
+  assert.deepEqual([1, 2, 3, 4].map(t => count(t, DNP)), [1, 1, 0, 1], 'did not play (no snaps; DEF excluded)');
+  assert.deepEqual([1, 2, 3, 4].map(t => count(t, LOCK)), [0, 1, 1, 1], 'bye or Out tag at lineup lock');
+
+  assert.equal(ACTIVITY_MEAN_FIT.dead_start_metric, DNP, 'the corpus dead start is "no stat row": did not play');
+  const fit = { ...FIT, per_add_per_week: 0, cap: 30 };
+  const ids = ['1', '2', '3', '4'];
+  const byDnp = activityShifts(sig, ids, { ...fit, dead_start_metric: DNP });
+  const byLock = activityShifts(sig, ids, { ...fit, dead_start_metric: LOCK });
+  const shifts = s => ids.map(id => s.shifts.get(id));
+  // -3 per dead start, league-centred: DNP mean 0.75, at-lock mean 0.75.
+  assert.deepEqual(shifts(byDnp), [-0.75, -0.75, 2.25, -0.75]);
+  assert.deepEqual(shifts(byLock), [2.25, -0.75, -0.75, -0.75]);
+  assert.deepEqual(shifts(activityShifts(sig, ids, { ...fit, dead_start_metric: undefined })), shifts(byDnp),
+    'no choice given: the did-not-play input');
+  const sim = simulateSeason(LG, { runs: 1, fromWeek: 3, activityMean: { fit } });
+  assert.equal(sim.activity_mean.coefficients.dead_start_metric, DNP, 'the payload names the input it read');
+});
+
+test('L7: the shipped fit records the held-out gate; failed means inert with that reason', () => {
+  const g = ACTIVITY_MEAN_FIT.gate;
+  assert.ok(g && typeof g.passed === 'boolean');
+  for (const season of [2023, 2024]) {
+    assert.ok(Array.isArray(g.held_out[season].ci90) && Array.isArray(g.held_out[season].title_ci90));
+  }
+  const clears = [2023, 2024].every(s => g.held_out[s].ci90[0] > 0);
+  assert.equal(g.passed, clears, 'passed iff both held-out playoff Brier intervals clear 0');
+  assert.equal(ACTIVITY_MEAN_FIT.fitted, g.passed, 'fitted only when the gate passed');
+  if (!g.passed) {
+    assert.equal(ACTIVITY_MEAN_FIT.per_add_per_week, null);
+    const s = activityShifts(new Map(), ['1'], ACTIVITY_MEAN_FIT);
+    assert.match(s.reason, /gate did not pass/);
+  }
 });

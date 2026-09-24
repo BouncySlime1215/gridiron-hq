@@ -45,8 +45,40 @@ persistent checkout state costs 12 points and shows dead starts): the script rec
 delta +10.1 (2023) and +11.9 (2024). It only shows that the script runs end to end and
 recovers the signs.
 
+## Sweep fixes (FIX-273-1..3, 2026-09-24)
+
+**FIX-273-2, title Brier.** The fit script now carries each run on into the league's
+bracket (top N seeds, byes to the top seeds, fixed bracket, one week per round) and
+grades `team_seasons.champion`, beside playoff Brier, on 2023 and 2024 separately with
+the same league bootstrap. The bracket has its own random stream, so the playoff Brier
+numbers are unchanged from the earlier run (checked: identical to 4 dp).
+
+**FIX-273-1, the corpus run** (`--runs 2000`, local Mac):
+
+| | 2023 held out (474 leagues) | 2024 held out (471 leagues) |
+|---|---|---|
+| playoff Brier delta, 90% | +0.0011 [+0.0003, +0.0018] | +0.0005 [−0.0004, +0.0013] |
+| title Brier delta, 90% | +0.0009 [+0.0005, +0.0013] | +0.0001 [−0.0003, +0.0006] |
+| points MSE w10-14 delta, 90% | +6.0 [+3.9, +8.3] | +16.9 [+7.8, +28.8] |
+
+Fit (2021-22): per_add_per_week +2.490 (SE 0.140), per_dead_start −1.012 (SE 0.153).
+Gate: both held-out playoff Brier intervals must clear 0. 2024's does not, so the null
+is recorded in `ACTIVITY_MEAN_FIT.gate` and the coefficients stay out (`fitted: false`,
+inert even with the flag on; the payload reason says the gate did not pass).
+
+**FIX-273-3, dead-start definition.** `manager-signals.js` now also emits
+`lineup_dead_starts_at_lock_last_week` (the spec's: a final-lineup starter on bye or with
+an Out tag at lineup lock), beside `lineup_dead_starts_last_week` (did not play: no snaps).
+`ACTIVITY_MEAN_FIT.dead_start_metric` picks the input; it is the did-not-play one, because
+the corpus's `dead_starts` is "a started player with no stat row" and the coefficients were
+fitted on that. The corpus has no lock-time tags, so the at-lock definition cannot be fitted.
+
+| id | pins |
+|---|---|
+| L6 | fixture where they differ (surprise inactive: snaps only; DEF on bye: at lock only): counts [1,1,0,1] vs [0,1,1,1], shifts differ, shipped fit reads did-not-play, payload names it. RED on the old manager-signals.js |
+| L7 | the shipped fit records the gate; `fitted` iff both intervals clear 0; failed means inert with that reason |
+
 ## Open
 
-The real coefficients and the 2023-24 held-out numbers come from the corpus run on the
-Mac (`LOCAL:` line in the PR). Until they are copied into `ACTIVITY_MEAN_FIT`, the shift
-is inert even with the flag on.
+A forward check on the synced leagues; a fit that clears 2024 (more seasons, or a
+different window) before the coefficients go in.

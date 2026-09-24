@@ -21,6 +21,10 @@
  *   playoff Brier: each league's remaining regular season played RUNS times with
  *   N(m [+ shift], league sd) on the real pairings, seeded wins then points-for, top N
  *   (N = the league's real playoff count). Both arms share every normal draw.
+ *   title Brier (FIX-273-2): the same runs carry on into the league's playoff bracket
+ *   (top N seeds, byes to the top seeds, fixed bracket, one week per round, each team
+ *   drawn from N(m [+ shift], league sd)); graded on team_seasons.champion. A league
+ *   whose recorded champion count is not exactly 1 is left out of the title grade only.
  *   Delta = frozen - adjusted, so positive means the adjusted mean is better.
  *   90% intervals: league bootstrap.
  */
@@ -57,6 +61,7 @@ const pick = (have, names) => names.find(n => have.includes(n)) ?? null;
 const poCol = pick(TS, ['made_playoffs', 'playoffs', 'made_po', 'in_playoffs', 'playoff']);
 const oppCol = pick(TW, ['opp_roster_id', 'opponent_roster_id', 'opp_id', 'opp']);
 const deadCol = pick(TW, ['dead_starts']);
+const champCol = pick(TS, ['champion']);
 if (!poCol || !deadCol || !TW.includes('opp_points')) {
   console.error(`missing a needed column: playoff outcome ${poCol ?? 'NONE'}, dead_starts ${deadCol ?? 'NONE'}, opp_points ${TW.includes('opp_points')}`);
   process.exit(3);
@@ -65,7 +70,8 @@ const filt = ['league_dead', 'late_start', 'team_inactive', 'idp'].filter(x => T
   .map(x => `AND COALESCE(${x},0) = 0`).join(' ');
 const src = TS.includes('source') ? `AND source = 'sleeper'` : '';
 
-const ts = c.prepare(`SELECT lg, season, roster_id, playoff_week_start AS pws, ${poCol} AS po FROM team_seasons
+const ts = c.prepare(`SELECT lg, season, roster_id, playoff_week_start AS pws, ${poCol} AS po
+  ${champCol ? `, ${champCol} AS champ` : ''} FROM team_seasons
   WHERE season BETWEEN 2021 AND 2024 ${src} ${filt}`).all();
 if (ts.some(t => t.season > 2024 || t.season < 2021)) throw new Error('season filter broken: 2025 must stay closed');
 const tw = c.prepare(`SELECT lg, season, roster_id, week, points, opp_points, ${deadCol} AS dead
@@ -77,7 +83,7 @@ c.close();
 const leagues = new Map();
 for (const t of ts) {
   const L = leagues.get(t.lg) ?? leagues.set(t.lg, { season: t.season, pws: t.pws, teams: new Map() }).get(t.lg);
-  L.teams.set(String(t.roster_id), { po: Number(t.po) ? 1 : 0, weeks: new Map(), adds: [] });
+  L.teams.set(String(t.roster_id), { po: Number(t.po) ? 1 : 0, champ: Number(t.champ) ? 1 : 0, weeks: new Map(), adds: [] });
 }
 for (const r of tw) {
   const T = leagues.get(r.lg)?.teams.get(String(r.roster_id));
@@ -161,6 +167,29 @@ function pairings(L, week) {
   return out;
 }
 
+/** Fixed single-elimination bracket order for B = 2^k slots: [1, B, ...] (seed numbers, 1-based). */
+function bracketOrder(B) {
+  let o = [1];
+  while (o.length < B) { const n = o.length * 2; o = o.flatMap(s => [s, n + 1 - s]); }
+  return o;
+}
+/** Champion index from seeded team indexes (best first), one draw per team per round. */
+function playBracket(seeds, draw) {
+  let B = 1; while (B < seeds.length) B *= 2;
+  let slots = bracketOrder(B).map(s => (s <= seeds.length ? seeds[s - 1] : null));
+  for (let round = 0; slots.length > 1; round++) {
+    const next = [];
+    for (let i = 0; i < slots.length; i += 2) {
+      const a = slots[i], b = slots[i + 1];
+      if (a == null || b == null) { next.push(a ?? b); continue; }
+      const sa = draw(a, round), sb = draw(b, round);
+      next.push(sa >= sb ? a : b);
+    }
+    slots = next;
+  }
+  return slots[0];
+}
+
 function gradeLeague(lg, L, seed) {
   const last = L.pws - 1;
   if (last < GRADE_CUT + 1) return null;
@@ -202,7 +231,13 @@ function gradeLeague(lg, L, seed) {
   }
   const idx = new Map(ids.map((id, i) => [id, i]));
   const hitsF = new Array(ids.length).fill(0), hitsA = new Array(ids.length).fill(0);
+  const titleF = new Array(ids.length).fill(0), titleA = new Array(ids.length).fill(0);
+  const champs = ids.reduce((s, rid) => s + L.teams.get(rid).champ, 0);
+  const gradeTitle = champCol && champs === 1;
   const r = rng(seed);
+  // The bracket has its own stream, so the season draws (and the playoff Brier) are the
+  // same numbers as before the title grade existed.
+  const rb = rng((seed ^ 0x9E3779B9) >>> 0);
   for (let run = 0; run < RUNS; run++) {
     const recF = ids.map(id => ({ ...w0.get(id) })), recA = ids.map(id => ({ ...w0.get(id) }));
     for (const week of sched) {
@@ -217,34 +252,57 @@ function gradeLeague(lg, L, seed) {
         }
       }
     }
+    const seeded = [];
     for (const [rec, hits] of [[recF, hitsF], [recA, hitsA]]) {
       const order = ids.map((_, i) => i).sort((x, y) => rec[y].w - rec[x].w || rec[y].pf - rec[x].pf);
       for (const i of order.slice(0, N)) hits[i]++;
+      seeded.push(order.slice(0, N));
+    }
+    if (gradeTitle) {
+      // Bracket rounds share one normal per team per round across both arms (as the season does).
+      let B = 1; while (B < N) B *= 2;
+      const rounds = Math.log2(B);
+      const zb = Array.from({ length: rounds }, () => ids.map(() => normal(rb)));
+      titleF[playBracket(seeded[0], (i, k) => ft[i].m + sd * zb[k][i])]++;
+      titleA[playBracket(seeded[1], (i, k) => ft[i].m + shift[i] + sd * zb[k][i])]++;
     }
   }
-  let bF = 0, bAd = 0;
+  let bF = 0, bAd = 0, tF = 0, tA = 0;
   ids.forEach((rid, i) => {
     const y = L.teams.get(rid).po;
     bF += (hitsF[i] / RUNS - y) ** 2; bAd += (hitsA[i] / RUNS - y) ** 2;
+    if (gradeTitle) {
+      const yc = L.teams.get(rid).champ;
+      tF += (titleF[i] / RUNS - yc) ** 2; tA += (titleA[i] / RUNS - yc) ** 2;
+    }
   });
-  return { teams: ids.length, bF, bA: bAd, seF, seA, nW, capped };
+  return { teams: ids.length, bF, bA: bAd, seF, seA, nW, capped,
+    tTeams: gradeTitle ? ids.length : 0, tF, tA, tLeague: gradeTitle ? 1 : 0 };
 }
 
 function summarise(label, rows) {
   const tot = rs => rs.reduce((s, x) => ({ t: s.t + x.teams, bF: s.bF + x.bF, bA: s.bA + x.bA,
-    seF: s.seF + x.seF, seA: s.seA + x.seA, nW: s.nW + x.nW, cap: s.cap + x.capped }),
-  { t: 0, bF: 0, bA: 0, seF: 0, seA: 0, nW: 0, cap: 0 });
+    seF: s.seF + x.seF, seA: s.seA + x.seA, nW: s.nW + x.nW, cap: s.cap + x.capped,
+    tt: s.tt + x.tTeams, tF: s.tF + x.tF, tA: s.tA + x.tA, tl: s.tl + x.tLeague }),
+  { t: 0, bF: 0, bA: 0, seF: 0, seA: 0, nW: 0, cap: 0, tt: 0, tF: 0, tA: 0, tl: 0 });
   const T = tot(rows);
   const r = rng(4601);
-  const dB = [], dM = [];
+  const dB = [], dM = [], dT = [];
   for (let b = 0; b < BOOT; b++) {
     const s = tot(Array.from({ length: rows.length }, () => rows[Math.floor(r() * rows.length)]));
     dB.push((s.bF - s.bA) / s.t); dM.push((s.seF - s.seA) / s.nW);
+    if (s.tt) dT.push((s.tF - s.tA) / s.tt);
   }
   console.log(`\n${label}: leagues=${rows.length} teams=${T.t} team-weeks(10-14)=${T.nW} shifts capped=${T.cap}`);
   console.log(`  playoff Brier  frozen ${f(T.bF / T.t)}  adjusted ${f(T.bA / T.t)}  delta ${f((T.bF - T.bA) / T.t)}  90% [${f(pct(dB, 0.05))}, ${f(pct(dB, 0.95))}]`);
+  console.log(T.tt
+    ? `  title Brier    frozen ${f(T.tF / T.tt)}  adjusted ${f(T.tA / T.tt)}  delta ${f((T.tF - T.tA) / T.tt)}  90% [${f(pct(dT, 0.05))}, ${f(pct(dT, 0.95))}]  (leagues=${T.tl} teams=${T.tt})`
+    : '  title Brier    NA (no league with exactly one recorded champion)');
   console.log(`  points MSE w10-14  frozen ${f(T.seF / T.nW, 1)}  adjusted ${f(T.seA / T.nW, 1)}  delta ${f((T.seF - T.seA) / T.nW, 1)}  90% [${f(pct(dM, 0.05), 1)}, ${f(pct(dM, 0.95), 1)}]`);
-  return { leagues: rows.length, brier_delta: +((T.bF - T.bA) / T.t).toFixed(5), mse_delta: +((T.seF - T.seA) / T.nW).toFixed(2) };
+  const ci = xs => (xs.length ? [+pct(xs, 0.05).toFixed(5), +pct(xs, 0.95).toFixed(5)] : null);
+  return { leagues: rows.length, brier_delta: +((T.bF - T.bA) / T.t).toFixed(5), brier_ci90: ci(dB),
+    title_brier_delta: T.tt ? +((T.tF - T.tA) / T.tt).toFixed(5) : null, title_brier_ci90: ci(dT), title_leagues: T.tl,
+    mse_delta: +((T.seF - T.seA) / T.nW).toFixed(2) };
 }
 
 const out = {};

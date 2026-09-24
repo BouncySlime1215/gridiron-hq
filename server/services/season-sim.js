@@ -331,6 +331,113 @@ export const __test = { lineupPoints, initialRecords, playBracket, addMedianResu
 // FIX-322-1: the E3-ESPN grader replays brackets with the sim's own rules (a named export, not __test).
 export { playBracket, addMedianResults };
 
+/* ======================= RB-TITLE (R&D r50 IDEA-088, RL-50-1) =======================
+ * The title event is Rao-Blackwellised: instead of playing ONE sampled bracket per run and
+ * counting 1 for its champion, each run scores every playoff team with
+ * P(wins the fixed bracket | this run's field, seeds and team offsets), walked through the
+ * league's bracket with pairwise round win probabilities estimated from all of this call's
+ * runs. Same expectation (the playoff weeks' draws are independent of the regular season's
+ * given the run's team offsets), far less run-to-run noise: r50 measured a median SE ratio of
+ * 0.401 [0.349, 0.430] on title odds and 0.337 [0.291, 0.363] on paired title deltas at
+ * 1,200 runs, no bias (prereg rnd/loop/prereg/IDEA-088.md, sha 63ad8e56...).
+ * Fixed brackets only (reseed:false, all five synced leagues); a re-seeded bracket keeps the
+ * sampled champion. Playoff, bye and finals odds are unchanged (still counted).
+ * GRIDIRON_RB_TITLE: '1' on, '0' off, unset = off unless preview mode.
+ * ==================================================================================== */
+export const RB_TITLE_ENV = 'GRIDIRON_RB_TITLE';
+const RB_TITLE_PREVIEW_REASON =
+  'Title odds computed from each run\'s bracket win probabilities instead of one sampled bracket (RB-TITLE, RL-50-1); default off until confirmed';
+
+/** { on, preview }: read per call, so a test or a run can flip it. */
+export function rbTitleFlag() {
+  const v = process.env[RB_TITLE_ENV];
+  if (v === '1') return { on: true, preview: false };
+  if (v === '0') return { on: false, preview: false };
+  const preview = previewUnconfirmed();
+  return { on: preview, preview };
+}
+
+/** Count of values in sorted `a` strictly below `x` (lower bound). */
+function below(a, x) {
+  let lo = 0, hi = a.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (a[mid] < x) lo = mid + 1; else hi = mid; }
+  return lo;
+}
+
+/**
+ * Pairwise round win probabilities from `runs` runs of raw round points
+ * (`raw[team][round * runs + run]`, without team offsets). beat(r, a, b, t, aBetter) is
+ * P(a beats b in round r) when a's points must exceed b's by more than `t` (the offset gap,
+ * weeks x (d_b - d_a); 0 with no team-mean term); a tie goes to the better seed, as in
+ * playBracket. Each pair's sorted difference is built once, on first use.
+ */
+function pairwiseRounds(raw, runs) {
+  const cache = new Map();
+  const diffs = (r, a, b) => {
+    const k = `${r}:${a}:${b}`;
+    let d = cache.get(k);
+    if (!d) {
+      const xa = raw[a], xb = raw[b], off = r * runs;
+      d = new Float64Array(runs);
+      for (let i = 0; i < runs; i++) d[i] = xa[off + i] - xb[off + i];
+      d.sort();
+      cache.set(k, d);
+    }
+    return d;
+  };
+  return (r, a, b, t, aBetter) => {
+    const flip = a > b;
+    const d = flip ? diffs(r, b, a) : diffs(r, a, b);
+    // Canonical D = X_lo - X_hi; a wins iff X_a - X_b > t.
+    const th = flip ? -t : t;
+    const lt = below(d, th), le = below(d, nextUp(th));
+    const eq = le - lt, gt = d.length - le;
+    const win = flip ? lt : gt;
+    return (win + (aBetter ? eq : 0)) / d.length;
+  };
+}
+
+/** Smallest double above x (x finite). */
+function nextUp(x) {
+  if (x === 0) return Number.MIN_VALUE;
+  const buf = new Float64Array([x]), bits = new BigInt64Array(buf.buffer);
+  bits[0] += x > 0 ? 1n : -1n;
+  return buf[0];
+}
+
+/**
+ * P(each team in `field` wins the fixed bracket): the bracket walked with the league's
+ * slots (bracketOrder, byes included), every match independent given the field.
+ * beat(r, a, b, aBetter) -> P(a beats b in round r). Returns Map team -> probability.
+ */
+function titleProbs(field, rounds, beat) {
+  const seedOf = new Map(field.map((id, s) => [id, s]));
+  let slots = bracketOrder(2 ** rounds).map(seed => (seed <= field.length ? new Map([[field[seed - 1], 1]]) : null));
+  for (let r = 0; r < rounds; r++) {
+    const next = [];
+    for (let i = 0; i < slots.length; i += 2) {
+      const A = slots[i], Bd = slots[i + 1];
+      if (!A || !Bd) { next.push(A ?? Bd ?? null); continue; }
+      const out = new Map();
+      for (const [a, pa] of A) {
+        let s = 0;
+        for (const [b, pb] of Bd) s += pb * beat(r, a, b, seedOf.get(a) < seedOf.get(b));
+        out.set(a, pa * s);
+      }
+      for (const [b, pb] of Bd) {
+        let s = 0;
+        for (const [a, pa] of A) s += pa * beat(r, b, a, seedOf.get(b) < seedOf.get(a));
+        out.set(b, pb * s);
+      }
+      next.push(out);
+    }
+    slots = next;
+  }
+  return slots.find(Boolean) ?? new Map();
+}
+
+export const __rbTest = { pairwiseRounds, titleProbs, below, nextUp };
+
 /* ------------------------------------------------- the projection basis */
 
 /**
@@ -621,7 +728,7 @@ export function simulateSeason(lg, {
  */
 function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = null, projections = null, universe = null,
   basisFlag = rosBasisFlag(), worldId = null, kdstFlag = simKdstFlag(), asofFlag = simAsofFlag(),
-  horizonFlag = availHorizonFlag() }) {
+  horizonFlag = availHorizonFlag(), rbFlag = rbTitleFlag() }) {
   const fromWeek = simStartWeek(lg, requestedWeek);
   // The league's own rules, never a hard-coded default: a missing field is a
   // named error with its payload path (league-rules.js#simRulesProblem).
@@ -706,7 +813,9 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
     kdstFields: kdst.fields,
     // AVAIL-HORIZON-2 change B: 0 = no team-mean term.
     teamMeanSd: teamMeanSd(horizonFlag),
-    teamMeanFields: horizonFlag.on ? { team_mean_sd: TEAM_MEAN_SD, ...availHorizonPreviewFields(horizonFlag) } : null
+    teamMeanFields: horizonFlag.on ? { team_mean_sd: TEAM_MEAN_SD, ...availHorizonPreviewFields(horizonFlag) } : null,
+    // RB-TITLE: analytic title event (fixed brackets only; see rbTitleFlag).
+    rbTitleFlag: rbFlag
   };
 }
 
@@ -771,6 +880,16 @@ function applyOverrides(teams, overrides, assets) {
     : t);
 }
 
+/** The payload fields RB-TITLE adds, merged with any other preview reason already set. */
+function rbTitleFields(rb, flag, prep) {
+  const out = rb
+    ? { title_estimator: 'rao_blackwell', title_interval: 'normal on per-run P(title | field); run-to-run error only' }
+    : { title_estimator: 'sampled', title_estimator_reason: 're-seeded bracket: the analytic bracket covers fixed brackets only' };
+  if (!flag.preview) return out;
+  const others = [prep.basisFields, prep.kdstFields, prep.teamMeanFields].filter(f => f?.preview).map(f => f.preview_reason);
+  return { ...out, preview: true, preview_reason: [...new Set([...others, RB_TITLE_PREVIEW_REASON])].join('; ') };
+}
+
 /**
  * Plays the prepared season `runs` times: regular-season fixtures, the league's
  * seeding, then its bracket. `pointsFor(team, run, week)` is that team's lineup
@@ -798,9 +917,23 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
     playoffs: 0, title: 0, finals: 0, byes: 0, wins: 0, points: 0, best: 0, worst: Infinity
   }]));
   // Per-run indicators, kept only for a paired comparison (tradeImpact's SE).
+  // RB-TITLE: with the analytic title event on (fixed bracket only), a run's title value is a
+  // probability, so the per-run title array holds doubles; the rest of the season is unchanged.
+  const rbFlag = prep.rbTitleFlag ?? { on: false, preview: false };
+  const rb = rbFlag.on && !rules.schedule.reseed;
   const perRun = keepRuns
-    ? new Map(ids.map(id => [id, { title: new Uint8Array(runs), playoffs: new Uint8Array(runs) }]))
+    ? new Map(ids.map(id => [id, { title: rb ? new Float64Array(runs) : new Uint8Array(runs), playoffs: new Uint8Array(runs) }]))
     : null;
+  const R = bracketWeeks.length;
+  // playBracket hands scoreFor the round's week list (rules.schedule.playoff_weeks[r]).
+  const roundKeys = bracketWeeks.map(w => w.join(','));
+  const roundOf = roundWeeks => roundKeys.indexOf(roundWeeks.join(','));
+  const idx = new Map(ids.map((id, i) => [id, i]));
+  // Every team's raw (offset-free) points per playoff round per run, each run's field (team
+  // indices, seed order) and team offsets: the inputs of the analytic bracket after the loop.
+  const rbRaw = rb ? ids.map(() => new Float64Array(R * runs)) : null;
+  const rbFields = rb ? new Array(runs) : null;
+  const rbOffsets = rb && sd > 0 ? ids.map(() => new Float64Array(runs)) : null;
 
   for (let run = 0; run < runs; run++) {
     const record = new Map(ids.map(id => [id, { ...(startingRecords.get(id) ?? { w: 0, pf: 0 }) }]));
@@ -830,22 +963,71 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
     }
 
     /* --- playoff bracket: the league's own format (playBracket) --- */
-    const bracket = playBracket(field, rules.schedule, (id, roundWeeks) =>
-      roundWeeks.reduce((sum, week) => sum + pointsFor(teamOf.get(id), run, week), 0));
+    let scoreFor = (id, roundWeeks) => roundWeeks.reduce((sum, week) => sum + pointsFor(teamOf.get(id), run, week), 0);
+    if (rb) {
+      for (let i = 0; i < ids.length; i++) {
+        const t = teamOf.get(ids[i]);
+        for (let r = 0; r < R; r++) rbRaw[i][r * runs + run] = bracketWeeks[r].reduce((sum, week) => sum + rawPointsFor(t, run, week), 0);
+        if (rbOffsets) rbOffsets[i][run] = offsets.get(ids[i]);
+      }
+      rbFields[run] = field.map(id => idx.get(id));
+      // The sampled bracket still decides byes and finalists, from the same points.
+      scoreFor = (id, roundWeeks) => {
+        const i = idx.get(id), r = roundOf(roundWeeks);
+        return rbRaw[i][r * runs + run] + (rbOffsets ? roundWeeks.length * rbOffsets[i][run] : 0);
+      };
+    }
+    const bracket = playBracket(field, rules.schedule, scoreFor);
     for (const id of bracket.byes) stats.get(id).byes++;
     for (const id of bracket.finalists) stats.get(id).finals++;
-    if (bracket.champion) {
+    if (bracket.champion && !rb) {
       stats.get(bracket.champion).title++;
       if (perRun) perRun.get(bracket.champion).title[run] = 1;
     }
   }
+
+  // RB-TITLE: each run's P(title | its field, seeds, offsets) from this call's own runs.
+  const titleSq = rb ? new Map(ids.map(id => [id, 0])) : null;
+  if (rb) {
+    const pair = pairwiseRounds(rbRaw, runs);
+    const memo = new Map();
+    for (let run = 0; run < runs; run++) {
+      const f = rbFields[run];
+      let probs;
+      if (!rbOffsets) {
+        // Without team offsets a run's probabilities depend only on its seeded field.
+        const key = f.join(',');
+        probs = memo.get(key);
+        if (!probs) memo.set(key, probs = titleProbs(f, R, (r, a, b, better) => pair(r, a, b, 0, better)));
+      } else {
+        probs = titleProbs(f, R, (r, a, b, better) =>
+          pair(r, a, b, bracketWeeks[r].length * (rbOffsets[b][run] - rbOffsets[a][run]), better));
+      }
+      for (const [i, p] of probs) {
+        const id = ids[i];
+        stats.get(id).title += p;
+        titleSq.set(id, titleSq.get(id) + p * p);
+        if (perRun) perRun.get(id).title[run] = p;
+      }
+    }
+  }
+  // A normal interval on the per-run title values (run-to-run error only, as the Wilson one;
+  // the pairwise probabilities re-use the runs, so it is slightly narrow: r50).
+  const title95 = (s) => {
+    if (!rb) return binomial95(s.title, runs);
+    if (!runs) return [null, null];
+    const m = s.title / runs;
+    const v = runs > 1 ? Math.max(0, (titleSq.get(s.roster_id) - runs * m * m) / (runs - 1)) : 0;
+    const half = 1.96 * Math.sqrt(v / runs);
+    return [+(Math.max(0, m - half)).toFixed(4), +(Math.min(1, m + half)).toFixed(4)];
+  };
 
   const out = [...stats.values()].map(s => ({
     roster_id: s.roster_id, owner: s.owner,
     playoff_odds: +(s.playoffs / runs).toFixed(4),
     playoff_odds_95: binomial95(s.playoffs, runs),
     title_odds: +(s.title / runs).toFixed(4),
-    title_odds_95: binomial95(s.title, runs),
+    title_odds_95: title95(s),
     finals_odds: +(s.finals / runs).toFixed(4),
     expected_wins: +(s.wins / runs).toFixed(2),
     expected_points: +(s.points / runs).toFixed(1)
@@ -865,6 +1047,8 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
     // Both on only under preview: name both reasons, not just the last one.
     ...(prep.basisFields?.preview && prep.kdstFields?.preview
       ? { preview_reason: `${prep.basisFields.preview_reason}; ${prep.kdstFields.preview_reason}` } : {}),
+    // RB-TITLE: which title estimator ran (absent when the flag is off: old payload exactly).
+    ...(rbFlag.on ? rbTitleFields(rb, rbFlag, prep) : {}),
     ...(perRun ? { per_run: perRun } : {})
   };
 }
@@ -954,14 +1138,15 @@ export function tradeImpactWorld(lg, {
   const kdstFlag = simKdstFlag();
   const asofFlag = simAsofFlag();
   const horizonFlag = availHorizonFlag();
+  const rbFlag = rbTitleFlag();
   const mode = worldMode();
   const prep = withRandomSeed(pairedSeed,
     () => prepareSeason(lg, { requestedWeek, scoring, projections, universe: universeIds, basisFlag, kdstFlag, asofFlag,
-      horizonFlag, worldId: mode === 'week' ? pairedSeed : null }));
+      horizonFlag, rbFlag, worldId: mode === 'week' ? pairedSeed : null }));
   const key = {
     league: lg.id, fetched_at: lg.fetched_at ?? null, runs, fromWeek: simStartWeek(lg, requestedWeek),
     scoring: JSON.stringify(scoring), seed: pairedSeed, basis: basisKey(basisFlag, asofFlag), mode, kdst: kdstKey(kdstFlag),
-    teamMeanSd: teamMeanSd(horizonFlag)
+    teamMeanSd: teamMeanSd(horizonFlag), rbTitle: rbFlag.on
   };
   if (prep.fail) return { key, projections, universe: universeIds, fail: prep.fail };
 
@@ -1002,7 +1187,7 @@ function worldFits(w, lg, { runs, scoring, fromWeek, seed, dealIds }) {
   if (k.league !== lg.id || k.fetched_at !== (lg.fetched_at ?? null) || k.runs !== runs
     || k.fromWeek !== fromWeek || k.scoring !== JSON.stringify(scoring) || k.seed !== seed
     || k.basis !== basisKey(rosBasisFlag()) || k.mode !== worldMode()
-    || k.kdst !== kdstKey(simKdstFlag()) || (k.teamMeanSd ?? 0) !== teamMeanSd()) return false;
+    || k.kdst !== kdstKey(simKdstFlag()) || (k.teamMeanSd ?? 0) !== teamMeanSd() || (k.rbTitle ?? false) !== rbTitleFlag().on) return false;
   // The world's copula must hold exactly the players the full runs would: every
   // rostered player plus the ones this deal names. A named player outside it, or
   // an extra free agent the deal does not name, would change his game-mates' draws.

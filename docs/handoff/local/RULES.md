@@ -57,3 +57,9 @@ Every 15-minute tick checks BOTH lanes and refills whichever is idle:
 - CLOUD lane (other Max account): keep up to 6 sessions running from CLOUD-QUEUE.md.
 Each tick logs one line: "local: <what's running> | cloud: <n running> | merged: <n>".
 - Workflows (Nick 9/23 11:35 PM: "workflows opening on their own without me"): exactly one R&D/build workflow always running in the coordinator session. On every workflow-complete notification, verify + record, then IMMEDIATELY launch the next entry of ~/gridiron-local/lanes/workflow-queue.json. Backup: the 10-minute WORKFLOW KEEPER cron does the same if none is running.
+
+## NO STOPPING (Nick 9/24 12:10 AM, standing until Mon 9/28 9 PM ET)
+- Work never stops. Every lane refills itself the moment something finishes: build workflows (4) + R&D workflow (1) in the coordinator session, local claude -p jobs (5) via lane-keeper, sweep/fix agents. On any completion notice, immediately launch the next queued item before doing anything else.
+- The other account's cloud is done (42 sessions, about $210 of $250). New cloud work goes through THIS account (Agent isolation 'remote'), with builds here as the fallback.
+- Every 20 min: PR SWEEP. Read each new or updated PR's claims, its Not-confirmed section and its gaps, and queue the fixes.
+- Scope for the night: Coach anchors everything (COACH-ANCHOR.md), the rest of the platform (BUILD-PLAN.md phases 0-4), the War Room UI v3.

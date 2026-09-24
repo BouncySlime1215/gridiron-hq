@@ -2,6 +2,7 @@
 """CLONE-01a population layer: waiver-choice conditional logit + MOTIVE-01, on Sleeper.
 
 Pre-registered in docs/evidence/2026-09-23/clone-01-preregistration.md (committed first).
+Amendment 1 (FIX-229-2): completed trades enter as PU positives (model M3).
 
 Fit seasons 2021-2023, graded season 2024. 2025 is never opened: every league query
 filters season BETWEEN 2021 AND 2024. Prints AGGREGATES ONLY (no league, manager or
@@ -271,28 +272,89 @@ def season_events(sc, season, idx, smap, odds_b, keep=1.0, rng=None):
                                                    wins=round(f[0] * f[3]), out=out, bye=bye))
 
 
+def trade_events(sc, season, idx, smap, odds_b):
+    """Amendment 1: completed trades as PU positives. Yields (cluster, chosen_index,
+    X[M2 columns, MOTIVE block zero], weight) per skill player received. Features are as
+    of week w-1 (a leg-w trade can clear before the week-w games); the unlabeled set is
+    the league's other rosters at week w-1."""
+    for lid, nt in league_rows(sc, season):
+        trades = []
+        for wk, adds in sc.execute(
+                "SELECT week, adds_json FROM sh_transactions WHERE league_id = ? "
+                "AND type = 'trade' AND status = 'complete' ORDER BY week, seq", (lid,)):
+            if not (1 <= wk <= 16):
+                continue
+            got = defaultdict(list)
+            for sid, rid in json.loads(adds or '{}').items():
+                g = smap.get(sid)
+                if g is not None and idx.pos.get(g) in SKILL:
+                    got[rid].append(g)
+            for rid, gs in got.items():
+                trades.append((wk, rid, gs))
+        if not trades:
+            continue
+        tw = team_weeks(sc, lid)
+        if not tw:
+            continue
+        for wk, rid, gs in trades:
+            w = max(1, wk - 1)
+            fw = wk - 1
+            if rid not in tw or w not in tw[rid]:
+                continue
+            of = odds_feats(tw, fw)
+            if rid not in of:
+                continue
+            others = []
+            for r2 in tw:
+                if r2 != rid and w in tw[r2]:
+                    others.extend(smap.get(s) for s in tw[r2][w][3])
+            pool = list(dict.fromkeys(g for g in others if g and idx.pos.get(g) in SKILL))
+            _, _, starters, players = tw[rid][w]
+            have = np.zeros(len(SKILL))
+            for s in players:
+                gg = smap.get(s)
+                if gg and idx.pos.get(gg) in SKILL:
+                    have[POS_CODE[idx.pos[gg]]] += 1
+            sg = [smap.get(s) for s in starters if smap.get(s) and idx.pos.get(smap.get(s)) in SKILL]
+            bye = sum(1 for x in sg if idx.on_bye(x, fw + 1))
+            streak = of[rid][4]
+            for g in gs:
+                cand = pool if g in pool else pool + [g]
+                B = np.array([idx.feats(x, fw) for x in cand], dtype=np.float32).reshape(-1, len(BASE))
+                pc = np.array([POS_CODE[idx.pos[x]] for x in cand], dtype=np.int64)
+                X = np.zeros((len(B), len(M2)), dtype=np.float32)
+                X[:, :len(BASE)] = B
+                X[:, 5] = 1.0 / (1 + have[pc])
+                X[:, len(BASE)] = min(streak, 4) / 4 * B[:, 2]
+                X[:, len(BASE) + 1] = min(bye, 3) / 3 * B[:, 6]
+                yield (f'{lid}:{rid}', cand.index(g), X, 1.0 / len(gs))
+
+
 # ----------------------------------------------------------------- conditional logit
 def cols(names):
     return [M2.index(n) for n in names]
 
 
 def _clogit_eval(events, ci, b, ridge, derivs=True):
+    """events: (chosen_index, X) or (chosen_index, X, weight)."""
     k = len(ci)
     g = np.zeros(k)
     H = np.zeros((k, k))
     ll = 0.0
-    for ch, X in events:
+    for ev in events:
+        ch, X = ev[0], ev[1]
+        wt = ev[2] if len(ev) > 2 else 1.0
         Z = X[:, ci].astype(np.float64)
         u = Z @ b
         u -= u.max()
         e = np.exp(u)
         se = e.sum()
-        ll += u[ch] - math.log(se)
+        ll += wt * (u[ch] - math.log(se))
         if derivs:
             p = e / se
             mz = p @ Z
-            g += Z[ch] - mz
-            H -= (Z * p[:, None]).T @ Z - np.outer(mz, mz)
+            g += wt * (Z[ch] - mz)
+            H -= wt * ((Z * p[:, None]).T @ Z - np.outer(mz, mz))
     ll -= 0.5 * ridge * float(b @ b)
     return ll, g - ridge * b, H - ridge * np.eye(k)
 
@@ -318,7 +380,7 @@ def fit_clogit(events, names, iters=40, ridge=1e-3):
         ll, g, H = _clogit_eval(events, ci, b, ridge)
         if conv:
             break
-    return b, ll / len(events)
+    return b, ll / sum(ev[2] if len(ev) > 2 else 1.0 for ev in events)
 
 
 def event_ll(b, names, ch, X):
@@ -383,12 +445,16 @@ def main():
     log('title-odds proxy fit on', len(yo), 'team-weeks')
 
     # ---- fit events: a seeded sample of 2021-23 claims
-    fit = []
+    fit, trades = [], []
     rng = random.Random(SEED)
     for season in FIT_SEASONS:
         for cl, ch, X, _ in season_events(sc, season, idx[season], smap, odds_b, keep=a.fit_rate, rng=rng):
             fit.append((ch, X))
+        # Amendment 1: every 2021-23 trade event, weight 1/k (built from the unsampled stream).
+        for cl, ch, X, wt in trade_events(sc, season, idx[season], smap, odds_b):
+            trades.append((ch, X, wt))
         idx[season].cache.clear()
+        log('fit season', season, 'trade events', len(trades))
         log('fit season', season, 'claims kept', len(fit))
     rng.shuffle(fit)
     fit = fit[:a.fit_events]
@@ -397,7 +463,11 @@ def main():
         b, ll = fit_clogit(fit, names)
         fits[name] = (names, b, ll)
         log('fit', name, 'train ll', round(ll, 4))
-    del fit
+    b, tll = fit_clogit(fit + trades, M1)
+    fits['M3'] = (M1, b, tll)
+    log('fit M3 (claims + trade PU positives) train ll', round(tll, 4))
+    n_trade, w_trade = len(trades), sum(t[2] for t in trades)
+    del fit, trades
 
     # ---- grade 2024, full choice sets, every claim
     cl_ids, ll = [], {k: [] for k in fits}
@@ -420,6 +490,13 @@ def main():
             top1[k].append(t)
     n = len(cl_ids)
     log('graded 2024 claims', n)
+    # Amendment 1 secondary (descriptive): M1 vs M3 on 2024 trade events.
+    tcl, tll1, tll3 = [], [], []
+    for cl, ch, X, _ in trade_events(sc, GRADE_SEASON, idx[GRADE_SEASON], smap, odds_b):
+        tcl.append(cl)
+        tll1.append(event_ll(fits['M1'][1], M1, ch, X)[0])
+        tll3.append(event_ll(fits['M3'][1], M1, ch, X)[0])
+    log('graded 2024 trade events', len(tcl))
     res = dict(
         split=dict(fit=list(FIT_SEASONS), graded=GRADE_SEASON, fit_events_sampled=a.fit_events,
                    graded_events=n, graded_clusters=len(set(cl_ids)),
@@ -433,6 +510,14 @@ def main():
         delta_M1_minus_B0=cluster_ci(cl_ids, np.array(ll['M1']) - np.array(ll['B0']), a.boot, SEED),
         delta_M2_minus_M1=cluster_ci(cl_ids, np.array(ll['M2']) - np.array(ll['M1']), a.boot, SEED + 1),
         delta_top1_M1_minus_B0=cluster_ci(cl_ids, np.array(top1['M1'], float) - np.array(top1['B0'], float), a.boot, SEED + 2),
+        delta_M3_minus_M1=cluster_ci(cl_ids, np.array(ll['M3']) - np.array(ll['M1']), a.boot, SEED + 3),
+        delta_top1_M3_minus_M1=cluster_ci(cl_ids, np.array(top1['M3'], float) - np.array(top1['M1'], float), a.boot, SEED + 4),
+        trade_pu=dict(fit_trade_events=n_trade, fit_trade_weight=round(float(w_trade), 1),
+                      graded_2024_trade_events=len(tcl),
+                      trade_ll_M1=round(float(np.mean(tll1)), 4) if tcl else None,
+                      trade_ll_M3=round(float(np.mean(tll3)), 4) if tcl else None,
+                      delta_trade_ll_M3_minus_M1=cluster_ci(tcl, np.array(tll3) - np.array(tll1), a.boot, SEED + 5)
+                      if tcl else None),
         motive_states_2024_claims=dict(states),
         motive_red_offline=red,
     )
@@ -440,6 +525,7 @@ def main():
     res['verdict'] = dict(
         waiver_model_beats_baseline=d1['ci90'][1] < 0,
         motive_ships_as_feature=d2['ci90'][1] < 0,
+        trade_pu_helps_claims=res['delta_M3_minus_M1']['ci90'][1] < 0,
         mde_80pct_M2_minus_M1=round(2.8 * d2['se'], 5),
     )
     print(json.dumps(res, indent=1))

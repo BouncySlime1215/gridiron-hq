@@ -31,6 +31,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-coach-neg-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
@@ -126,6 +127,30 @@ const SET = [
   { reply: "maybe, I'll get back to you tomorrow", kind: 'stall', rec: 'wait' }
 ];
 
+/**
+ * The hard cases (review of #327): replies whose words look like one kind and are
+ * another. A "no" that repeats the offered players ("Knox for Dell and Frye? No
+ * way.") must read as a decline, never as a counter of the same package (that
+ * priced into a "take" and drafted an acceptance to a no). A conditional yes and
+ * a no followed by a package are counters by rule, not by cue order. A reply that
+ * only repeats the offer is a yes or a no, never a counter to take.
+ * `rec` null: Coach makes no call and asks Nick to tap.
+ */
+const HARD = [
+  { reply: "No, I'm not trading Knox for that.", kind: 'decline', rec: 'walk' },
+  { reply: 'Knox for Dell and Frye? No way.', kind: 'decline', rec: 'walk' },
+  { reply: 'Nah, not giving up Knox for Dell and Frye', kind: 'decline', rec: 'walk' },
+  { reply: "I'm keeping Knox, sorry", kind: 'decline', rec: 'walk' },
+  { reply: 'Dell and Frye for Knox? Pass.', kind: 'decline', rec: 'walk' },
+  { reply: 'Not even if you throw in Eads', kind: 'decline', rec: 'walk' },
+  { reply: 'yes if you throw in Gore', kind: 'counter', rec: 'walk' },
+  { reply: 'Nope. Dell and Gore for Knox though', kind: 'counter', rec: 'walk' },
+  { reply: 'No, but Dell for Knox works', kind: 'counter', rec: 'take' },
+  { reply: 'Yes, Dell and Frye for Knox works for me', kind: 'accept', rec: 'take' },
+  { reply: 'Knox for Dell and Frye?', kind: null, rec: null }
+];
+const ACCEPT_DRAFTS = /\b(deal|accept)/i;
+
 const sameSet = (a, b) => a.length === b.length && a.every(x => b.includes(x));
 const withFlag = (fn, value = '1') => {
   const was = process.env.GRIDIRON_COACH_NEGOTIATE;
@@ -189,12 +214,19 @@ test('METRIC: 12 replies on league 4, served path -> classified, counters engine
     assert.fail('Coach has no negotiation tool on this tree (0/12)');
   }
   const graded = withFlag(() => SET.map(grade));
+  const hard = withFlag(() => HARD.map(item => {
+    const s = tools.runCoachTool('negotiate_reply', { league_id: LEAGUE, reply: item.reply }, { ledger: newLedger() }).summary;
+    const ok = s.kind === item.kind && (s.recommendation?.do ?? null) === item.rec
+      && (item.kind === 'decline' ? !s.draft || !ACCEPT_DRAFTS.test(s.draft) : true) && s.grounded && s.sends === 0;
+    return { item, s, ok };
+  }));
   const n = k => graded.filter(g => g[k]).length;
   const counters = graded.filter(g => g.item.kind === 'counter');
   const pricedN = counters.filter(g => g.priced).length;
   const ungrounded = graded.reduce((a, g) => a + g.ungrounded, 0);
   const sends = graded.reduce((a, g) => a + g.sends, 0);
-  t.diagnostic(`METRIC classified=${n('classified')}/12 counters_priced=${pricedN}/4 walk_away_rule=${n('rec')}/12 ungrounded=${ungrounded} sends=${sends} served=${n('served')}/12`);
+  t.diagnostic(`METRIC classified=${n('classified')}/12 counters_priced=${pricedN}/4 walk_away_rule=${n('rec')}/12 ungrounded=${ungrounded} sends=${sends} served=${n('served')}/12 hard_cases=${hard.filter(h => h.ok).length}/${HARD.length}`);
+  for (const h of hard) if (!h.ok) t.diagnostic(`BAD hard ${JSON.stringify(h.item.reply)} -> ${h.s.kind} / ${h.s.recommendation?.do} draft=${JSON.stringify(h.s.draft)}`);
   for (const g of graded) {
     t.diagnostic(`${g.classified && g.rec ? 'ok ' : 'BAD'} ${JSON.stringify(g.item.reply)} -> ${g.s.kind} / ${g.s.recommendation?.do}` +
       `${g.item.kind === 'counter' ? ` priced=${g.priced}` : ''}${g.ungrounded ? ` UNGROUNDED ${JSON.stringify(g.recheck.violations)}` : ''}${g.served ? '' : ' [not served]'}`);
@@ -205,6 +237,7 @@ test('METRIC: 12 replies on league 4, served path -> classified, counters engine
   assert.equal(ungrounded, 0);
   assert.equal(sends, 0);
   assert.equal(n('served'), 12);
+  assert.equal(hard.filter(h => h.ok).length, HARD.length);
 });
 
 test('the lowball: engine re-price below the backup -> counter with the plan\'s counter, P(yes) from the one model, labelled unproven', t => {
@@ -291,4 +324,54 @@ test('the classifier on its own: kinds from words, a tap overrides words', () =>
   assert.equal(c('give me a day').kind, 'stall');
   assert.equal(c('works for me').kind, 'accept');
   assert.equal(c('whatever', { tap: 'decline' }).kind, 'decline');
+});
+
+test('the default engine builds in a worker, never on the request thread, and prices through it exactly as the engine does', async t => {
+  // A stand-in adapter module whose build is BUILD_MS of synchronous work (the real one is ~35-40 s).
+  const BUILD_MS = 3000;
+  const slow = path.join(temp, 'slow-adapter.mjs');
+  fs.writeFileSync(slow, `import { makeAdapter } from ${JSON.stringify(new URL('./fixtures/campaign-league.mjs', import.meta.url).href)};
+export async function loadServices() { return {}; }
+export function buildAdapter() { const end = Date.now() + ${BUILD_MS}; while (Date.now() < end) {} return makeAdapter(); }
+`);
+  neg.setNegotiatorSources({ engine: null, engineModule: pathToFileURL(slow).href });
+  let ticks = 0;
+  const iv = setInterval(() => { ticks++; }, 20);
+  try {
+    const t0 = Date.now();
+    const first = withFlag(() => tools.runCoachTool('negotiate_reply', { league_id: LEAGUE, reply: SET[6].reply }, { ledger: newLedger() })).summary;
+    const firstMs = Date.now() - t0;
+    assert.ok(firstMs < 1000, `first counter took ${firstMs} ms on the request thread`);
+    assert.deepEqual(first.reprice, []);
+    assert.ok(first.refusals.some(r => /still being built/.test(r)), first.refusals.join('\n'));
+    assert.equal(first.grounded, true);
+
+    const ticks0 = ticks;
+    const waitStart = Date.now();
+    let ready = false;
+    while (!ready && Date.now() - waitStart < 30_000) {
+      await new Promise(r => setTimeout(r, 100));
+      ready = withFlag(() => tools.runCoachTool('negotiate_reply', { league_id: LEAGUE, reply: SET[6].reply }, { ledger: newLedger() })).summary.reprice.length > 0;
+    }
+    const waitedMs = Date.now() - waitStart;
+    assert.ok(ready, 'the worker never finished the build');
+    // The event loop kept turning while the build ran: at least half the 20 ms ticks fired.
+    assert.ok(ticks - ticks0 >= (waitedMs / 20) * 0.5, `event loop ticks ${ticks - ticks0} in ${waitedMs} ms`);
+
+    const counters = withFlag(() => SET.filter(i => i.kind === 'counter').map(grade));
+    const priced = counters.filter(g => g.priced && g.rec).length;
+    const callMs = [];
+    for (const item of SET.filter(i => i.kind === 'counter')) {
+      const c0 = Date.now();
+      withFlag(() => tools.runCoachTool('negotiate_reply', { league_id: LEAGUE, reply: item.reply }, { ledger: newLedger() }));
+      callMs.push(Date.now() - c0);
+    }
+    t.diagnostic(`METRIC engine=worker first_counter_ms=${firstMs} build_ms=${waitedMs} loop_ticks_during_build=${ticks - ticks0} worker_priced=${priced}/4 max_counter_ms=${Math.max(...callMs)}`);
+    assert.equal(priced, 4);
+    assert.equal(counters.reduce((a, g) => a + g.ungrounded + g.sends, 0), 0);
+  } finally {
+    clearInterval(iv);
+    await neg.stopNegotiatorEngine();
+    neg.setNegotiatorSources({ engine: id => (id === LEAGUE ? counted : null), engineModule: null });
+  }
 });

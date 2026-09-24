@@ -55,6 +55,8 @@
  * through preview-mode.js; GRIDIRON_COACH_NEGOTIATE=0 vetoes preview).
  */
 import fs from 'node:fs';
+import { Worker, MessageChannel, receiveMessageOnPort } from 'node:worker_threads';
+import { row } from '../../db/index.js';
 import { previewUnconfirmed } from '../preview-mode.js';
 import { validateAction } from '../warroom-actions/schema.js';
 import { planRead, plansPath } from './brain-tools.js';
@@ -82,53 +84,180 @@ export const REPLY_KINDS = Object.freeze(['accept', 'counter', 'decline', 'stall
 /**
  * The default engine: the campaign producer's own adapter for the league
  * (scripts/campaign/league-adapter.mjs#buildAdapter, finder off), built once per
- * league sync and kept. Its modules load in the background the first time the
- * tool is offered (`warmNegotiator`), so a request never waits on an import;
- * until they are loaded, and whenever the build fails, the engine is null and
- * a counter is said to be not re-priced.
+ * league sync and kept, ALL OFF THE REQUEST THREAD.
  *
- * Cost, measured on a local copy of league 4 (2026-09-24): the first counter
- * after a league sync builds the world (season-sim.js#tradeImpactWorld, ~35-40 s,
- * the same build the Title-impact tab pays); every counter after that on the
- * same sync is one rescore plus one price, ~1-2 s.
+ * Cost, measured on a local copy of league 4 (2026-09-24): the build is
+ * season-sim.js#tradeImpactWorld, ~35-40 s of synchronous work (the same build
+ * the Title-impact tab pays); every counter after that on the same sync is one
+ * rescore plus one price, ~1-2 s. A synchronous 35-40 s on the Express thread
+ * would freeze every request (the WR-FREEZE class, #312), so:
+ *   - the adapter lives in one worker thread (`engineWorker`), which imports the
+ *     modules and builds each league's world there;
+ *   - the first reply of any kind for a league starts that build and returns at
+ *     once; until it lands, a counter is said to be not re-priced yet (the
+ *     request thread never waits on a build);
+ *   - once built, a counter's rescore and price are one synchronous round trip
+ *     to the worker (Atomics.wait on a shared flag + receiveMessageOnPort),
+ *     bounded by ENGINE_CALL_MS; past that the counter is said to be unpriced.
+ *     runCoachTool is synchronous (ask.js), so this round trip is the one wait
+ *     left on the request thread: the ~1-2 s rescore, never the build.
  */
-let services = null;
-let loading = null;
-let adapterMod = null;
-const built = new Map();
+export const ENGINE_CALL_MS = 8000;
 
+/** The worker's body (eval'd, CommonJS): builds adapters and answers rescore / price calls. */
+const WORKER_SRC = `
+const { parentPort, workerData } = require('node:worker_threads');
+const { reply, signal, module: modUrl } = workerData;
+const flag = new Int32Array(signal);
+const built = new Map();
+let mod = null, svc = null;
+const ready = (async () => { mod = await import(modUrl); svc = await mod.loadServices(); })();
+ready.catch(() => {});
+const answer = (id, body) => { reply.postMessage({ id, ...body }); Atomics.add(flag, 0, 1); Atomics.notify(flag, 0); };
+const clean = v => (v == null ? null : JSON.parse(JSON.stringify(v)));
+parentPort.on('message', async msg => {
+  if (msg.op === 'build') {
+    try {
+      await ready;
+      for (const k of [...built.keys()]) if (k.startsWith(msg.leagueId + ':')) built.delete(k);
+      const a = mod.buildAdapter(svc, msg.leagueId, { finder: false });
+      if (!a || a.fail) { parentPort.postMessage({ op: 'built', key: msg.key, fail: String(a && a.fail ? a.fail : 'no adapter') }); return; }
+      built.set(msg.key, a);
+      parentPort.postMessage({ op: 'built', key: msg.key, me: String(a.league && a.league.me), seed: a.seed, rosters: a.rosters });
+    } catch (e) { parentPort.postMessage({ op: 'built', key: msg.key, fail: String(e && e.message || e) }); }
+    return;
+  }
+  try {
+    const a = built.get(msg.key);
+    if (!a) throw new Error('engine not built for ' + msg.key);
+    if (msg.op === 'rescore') {
+      const w = a.world(msg.seed);
+      if (!w || w.fail) return answer(msg.id, { value: null });
+      const r = w.rescore(msg.state, msg.a, msg.b);
+      return answer(msg.id, { value: { me: clean(r && r.me) } });
+    }
+    if (msg.op === 'price') return answer(msg.id, { value: clean(a.priceStep(msg.team, msg.theyGive, msg.theyGet)) });
+    answer(msg.id, { error: 'unknown op ' + msg.op });
+  } catch (e) { answer(msg.id, { error: String(e && e.message || e) }); }
+});
+`;
+
+const DEFAULT_ENGINE_MODULE = new URL('../../../scripts/campaign/league-adapter.mjs', import.meta.url).href;
+let engineModule = DEFAULT_ENGINE_MODULE;
+let eng = null;
+const engineWhy = new Map();
+
+/** The one engine worker (spawned on first use; unref'd, so it never holds the process open). */
+function engineWorker() {
+  if (eng) return eng;
+  const { port1, port2 } = new MessageChannel();
+  const signal = new SharedArrayBuffer(4);
+  const worker = new Worker(WORKER_SRC, { eval: true, workerData: { reply: port2, signal, module: engineModule }, transferList: [port2] });
+  worker.unref();
+  const state = { worker, port: port1, flag: new Int32Array(signal), seq: 0, ready: new Map(), building: new Set() };
+  worker.on('message', msg => {
+    if (msg?.op !== 'built') return;
+    state.building.delete(msg.key);
+    state.ready.set(msg.key, msg.fail ? { fail: msg.fail } : { me: msg.me, seed: msg.seed, rosters: msg.rosters });
+  });
+  worker.on('error', () => { if (eng === state) eng = null; });
+  worker.on('exit', () => { if (eng === state) eng = null; });
+  eng = state;
+  return state;
+}
+
+/** One synchronous call into the worker, bounded by ENGINE_CALL_MS. Throws on error or timeout. */
+function callEngine(state, msg) {
+  const id = ++state.seq;
+  state.worker.postMessage({ ...msg, id });
+  const deadline = Date.now() + ENGINE_CALL_MS;
+  for (;;) {
+    for (let got = receiveMessageOnPort(state.port); got; got = receiveMessageOnPort(state.port)) {
+      if (got.message?.id !== id) continue; // a late answer to a call that already timed out
+      if (got.message.error) throw new Error(got.message.error);
+      return got.message.value;
+    }
+    const seen = Atomics.load(state.flag, 0);
+    const again = receiveMessageOnPort(state.port);
+    if (again) {
+      if (again.message?.id === id) { if (again.message.error) throw new Error(again.message.error); return again.message.value; }
+      continue;
+    }
+    const left = deadline - Date.now();
+    if (left <= 0) throw new Error(`engine call timed out after ${ENGINE_CALL_MS} ms`);
+    Atomics.wait(state.flag, 0, seen, left);
+  }
+}
+
+/** The adapter shape `enginePrice` reads, with rescore and price answered by the worker. */
+function workerAdapter(state, key, info) {
+  return {
+    league: { me: info.me }, seed: info.seed, rosters: info.rosters,
+    world: seed => ({ rescore: (st, a, b) => callEngine(state, { op: 'rescore', key, seed, state: st, a, b }) }),
+    priceStep: (team, theyGive, theyGet) => callEngine(state, { op: 'price', key, team, theyGive, theyGet })
+  };
+}
+
+/** Start the engine worker in the background (called when the tool is offered). Never builds on this thread. */
 export function warmNegotiator() {
-  if (services || loading) return;
-  loading = import('../../../scripts/campaign/league-adapter.mjs')
-    .then(async mod => { adapterMod = mod; services = await mod.loadServices(); })
-    .catch(() => { loading = null; });
+  if (sources.engine !== defaultEngine) return;
+  try { engineWorker(); } catch { /* no worker: a counter says it is not re-priced */ }
+}
+
+/** Stop the engine worker (tests; a flag flip needs nothing). */
+export async function stopNegotiatorEngine() {
+  const state = eng;
+  eng = null;
+  engineWhy.clear();
+  if (state) await state.worker.terminate();
+}
+
+/** Where the default engine is for a league: 'ready', 'building', 'failed' or null (not started). */
+export function negotiatorEngineStatus(leagueId) {
+  if (!eng) return null;
+  const lg = row('SELECT fetched_at FROM leagues WHERE id = ?', leagueId);
+  if (!lg) return null;
+  const key = `${leagueId}:${lg.fetched_at ?? ''}`;
+  const got = eng.ready.get(key);
+  return got ? (got.fail ? 'failed' : 'ready') : eng.building.has(key) ? 'building' : null;
 }
 
 function defaultEngine(leagueId) {
-  if (!services || !adapterMod) { warmNegotiator(); return null; }
-  const lg = services.db.row('SELECT fetched_at FROM leagues WHERE id = ?', leagueId);
-  if (!lg) return null;
+  const lg = row('SELECT fetched_at FROM leagues WHERE id = ?', leagueId);
+  if (!lg) { engineWhy.set(leagueId, 'the league is not in the database'); return null; }
   const key = `${leagueId}:${lg.fetched_at ?? ''}`;
-  if (!built.has(key)) {
-    for (const k of [...built.keys()]) if (k.startsWith(`${leagueId}:`)) built.delete(k);
-    let adapter = null;
-    try {
-      const a = adapterMod.buildAdapter(services, leagueId, { finder: false });
-      adapter = a?.fail ? null : a;
-    } catch { adapter = null; }
-    built.set(key, adapter);
+  let state;
+  try { state = engineWorker(); } catch (e) {
+    engineWhy.set(leagueId, 'the engine worker could not start');
+    return null;
   }
-  return built.get(key);
+  const got = state.ready.get(key);
+  if (got) {
+    if (got.fail) { engineWhy.set(leagueId, 'the engine could not build this league'); return null; }
+    engineWhy.delete(leagueId);
+    return workerAdapter(state, key, got);
+  }
+  if (!state.building.has(key)) {
+    for (const k of [...state.ready.keys()]) if (k.startsWith(`${leagueId}:`)) state.ready.delete(k);
+    state.building.add(key);
+    state.worker.postMessage({ op: 'build', key, leagueId });
+  }
+  engineWhy.set(leagueId, 'the engine is still being built for this league in the background (about 40 s after each league sync); ask again in a minute');
+  return null;
 }
 
 const sources = { engine: defaultEngine };
 
 /**
  * Swap a source (tests). `engine(leagueId)` -> a campaign adapter
- * ({ league: { me }, seed, rosters, world(seed).rescore, priceStep }) or null.
+ * ({ league: { me }, seed, rosters, world(seed).rescore, priceStep }) or null;
+ * null restores the default (worker) engine. `engineModule` points the default
+ * engine's worker at another adapter module (a URL exporting loadServices and
+ * buildAdapter); it takes effect on the next worker start.
  */
-export function setNegotiatorSources({ engine } = {}) {
+export function setNegotiatorSources({ engine, engineModule: mod } = {}) {
   if (engine !== undefined) sources.engine = engine ?? defaultEngine;
+  if (mod !== undefined) engineModule = mod ?? DEFAULT_ENGINE_MODULE;
 }
 
 /* ------------------------------------------------------------ words */
@@ -167,15 +296,57 @@ function playersIn(text, names) {
 }
 
 const CUES = {
-  counter: /\b(how about|what about|would you do|would you take|i'?d do|i would do|i'?ll do|i can do|i could do|if you (?:add|throw|include|give|send)|throw in|add|plus|instead|make it|counter|swap|rather have|i want|give me|for)\b/,
+  // A proposal: he asks for a package. Wins whenever it names a player.
+  proposal: /\b(how about|what about|would you do|would you take|would you consider|i'?d do|i would do|i'?ll do|i can do|i could do|i'?d take|i'?d give|if you (?:add|throw|include|give|send|swap|put)|throw in|throwing in|instead|make it|counter|swap|rather have|i want|give me|only if|as long as|if you)\b/,
+  // "for / add / plus" only say "a package" when nothing in the same sentence says no:
+  // "No, I'm not trading Knox for that" repeats the offer, it does not counter it.
+  weak: /\b(for|add|plus)\b/,
   stall: /\b(let me think|think about it|think it over|get back to you|maybe|after (?:the )?(?:game|games|weekend|sunday|monday|waivers)|later|not (?:right )?now|busy|hold on|give me (?:a|some) (?:day|time|bit|minute)|sleep on it|idk|not sure yet|circle back|tomorrow)\b/,
-  decline: /\b(no|nope|nah|pass|not interested|i'?m good|not for me|not trading|not selling|decline|declined|won'?t|can'?t do|no deal|not happening)\b/,
+  decline: /\b(no|nope|nah|pass|not even|not interested|i'?m good|not for me|not trading|not selling|not giving up|not giving|not doing|not moving|not budging|i'?m keeping|keeping (?:him|them|my)|decline|declined|won'?t|can'?t do|no deal|not happening)\b/,
   accept: /\b(deal|yes|yep|yeah|yup|sure|accept|accepted|accepting|sounds good|let'?s do (?:it|this)|done|i'?m in|works for me|ok|okay|send it)\b/
 };
 
+/** "not even if you add Gore" is a no, not a proposal: drop negated proposals before looking for one. */
+const unNegated = t => t.replace(/\b(?:not even|never|no way even)\s+(?:if|for|with)\b[^.!?;]*/g, ' ');
+
+/** Sentences (and "but" clauses), each with where it sits, so the LAST thing he said decides. */
+function segments(t) {
+  const out = [];
+  let at = 0;
+  for (const m of t.matchAll(/[.!?;\n]+|\bbut\b|\bthough\b|\bhowever\b/g)) {
+    out.push({ text: t.slice(at, m.index), start: at, end: m.index });
+    at = m.index + m[0].length;
+  }
+  out.push({ text: t.slice(at), start: at, end: t.length });
+  return out.filter(s => s.text.trim());
+}
+
 /**
- * One reply -> its kind. A counter names at least one plan player and asks for
- * a package; an empty reply is silence. `tap` (a reply kind Nick tapped) wins.
+ * A reply that says no somewhere: its last sentence with a cue decides. A "no"
+ * there is a decline; players plus "for / add / plus" there (after the no,
+ * "Nope. Dell and Gore for Knox though") is a counter.
+ */
+function noOrCounter(t, players) {
+  for (const seg of segments(t).reverse()) {
+    if (CUES.decline.test(seg.text)) return 'decline';
+    const named = players.some(p => p.at >= seg.start && p.at < seg.end);
+    if (named && CUES.weak.test(seg.text)) return 'counter';
+  }
+  return 'decline';
+}
+
+/**
+ * One reply -> its kind, by rules, in this order:
+ *   1. empty -> silence; a tap (`reply_kind`) wins over words.
+ *   2. names a player and makes a proposal ("how about", "I'd do", "throw in",
+ *      a conditional yes: "yes if you throw in Gore") -> counter.
+ *   3. defers -> stall.
+ *   4. says no -> decline, unless a LATER sentence names players with a package
+ *      word ("No. Dell and Gore for Knox though") -> counter.
+ *   5. names a player with "for / add / plus" -> counter.
+ *   6. says yes -> accept.  7. names a player only -> counter.  8. else unread.
+ * A counter that turns out to be the step's own package is caught in `negotiate`
+ * (it is a yes or a no, never a counter to take).
  * @returns {{ kind: string|null, players: {id, at, end}[], basis: string }}
  */
 export function classifyReply(text, { names = {}, tap = null } = {}) {
@@ -187,9 +358,14 @@ export function classifyReply(text, { names = {}, tap = null } = {}) {
     return { kind: tap, players, basis: 'tapped' };
   }
   if (!raw) return { kind: 'silence', players, basis: 'no reply' };
-  if (players.length && CUES.counter.test(t)) return { kind: 'counter', players, basis: 'names players and asks for a package' };
+  if (players.length && CUES.proposal.test(unNegated(t))) return { kind: 'counter', players, basis: 'names players and proposes a package' };
   if (CUES.stall.test(t)) return { kind: 'stall', players, basis: 'defers' };
-  if (CUES.decline.test(t)) return { kind: 'decline', players, basis: 'says no' };
+  if (CUES.decline.test(t)) {
+    return noOrCounter(t, players) === 'counter'
+      ? { kind: 'counter', players, basis: 'says no, then names a package' }
+      : { kind: 'decline', players, basis: 'says no' };
+  }
+  if (players.length && CUES.weak.test(t)) return { kind: 'counter', players, basis: 'names players for a package' };
   if (CUES.accept.test(t)) return { kind: 'accept', players, basis: 'says yes' };
   if (players.length) return { kind: 'counter', players, basis: 'names players' };
   return { kind: null, players, basis: 'no cue Coach reads' };
@@ -333,6 +509,9 @@ export function negotiate({ leagueId, reply = '', replyKind = null, stepIndex = 
   const i = Number(stepIndex ?? 0);
   if (!Number.isInteger(i) || i < 0) throw new NegotiatorError(`step must be a whole number from 0, got ${JSON.stringify(stepIndex)}.`);
 
+  // Start the league's engine build now (in the worker), so it is ready by the time a counter comes.
+  if (sources.engine === defaultEngine) { try { defaultEngine(id); } catch { /* priced later or not at all */ } }
+
   const book = readSection(ledger, id, 'next_move_playbook');
   const next = readSection(ledger, id, 'next_move');
   const brain = readSection(ledger, id, 'brain_report');
@@ -364,6 +543,7 @@ export function negotiate({ leagueId, reply = '', replyKind = null, stepIndex = 
   const partner = String(book.row[`${P}partner`]);
   const step = { partner, give: idsAt(book.row, `${P}give`), get: idsAt(book.row, `${P}get`) };
   const names = namesFrom(id, [book, next]);
+  const maxGiveIds = idsAt(book.row, `${P}walk_away_value_max_give`);
   const cellFor = pid => {
     for (const sec of [book, next]) {
       for (const [col, v] of Object.entries(sec.row)) {
@@ -386,13 +566,28 @@ export function negotiate({ leagueId, reply = '', replyKind = null, stepIndex = 
     refusals.push('Coach could not tell whether that is a yes, a no, a counter or a stall. Tap which it was, or paste his exact words.');
     return done({ kind: null });
   }
-  const kind = read.kind;
+  let kind = read.kind;
+  if (kind === 'counter' && read.basis !== 'tapped') {
+    // A "counter" that is exactly the step's own package is not a counter: it is a yes or a no
+    // that repeats the offer. Never price it into a "take" (that drafts an acceptance to a no).
+    const stepOwner = pid => (step.give.includes(pid) || maxGiveIds.includes(pid) ? 'me' : step.get.includes(pid) ? 'him' : null);
+    const same = counterPackage(reply, read.players, step, stepOwner);
+    const eq = (x, y) => x.length === y.length && x.every(v => y.includes(v));
+    if (!same.unknown.length && eq(same.give, step.give) && eq(same.get, step.get)) {
+      const t = String(reply).toLowerCase();
+      if (CUES.accept.test(t) && !CUES.decline.test(t)) kind = 'accept';
+      else {
+        refusals.push('That names the same package you offered, so it is not a counter. Is it a yes or a no? Tap accept or decline.');
+        return done({ kind: null });
+      }
+    }
+  }
 
   // The reply table's row for this kind: the pre-planned answer, shown as the plan wrote it.
   const R = `${P}reply_table_value_${ROW_FOR[kind]}_`;
   const rowDo = citeOf(book, `${R}value_do`);
   if (rowDo) {
-    claims.push({ text: `Read as ${SAID[kind]}${read.basis === 'tapped' ? ' (tapped)' : ''}. The plan's answer: ${book.row[`${R}value_do`]}`,
+    claims.push({ text: `Read as ${SAID[kind]}${read.basis === 'tapped' ? ' (tapped)' : kind !== read.kind ? ' (it repeats your offer)' : ''}. The plan's answer: ${book.row[`${R}value_do`]}`,
       cites: [rowDo] });
   } else {
     refusals.push(`Read as ${SAID[kind]}, but the plan has no ${ROW_FOR[kind]} row for this step.`);
@@ -400,7 +595,7 @@ export function negotiate({ leagueId, reply = '', replyKind = null, stepIndex = 
 
   const walkCite = citeOf(book, `${P}walk_away_value_text`);
   const walkLine = () => { if (walkCite) claims.push({ text: `Walk-away line: ${book.row[`${P}walk_away_value_text`]}`, cites: [walkCite, ...walkNameCites()] }); };
-  const maxGive = idsAt(book.row, `${P}walk_away_value_max_give`);
+  const maxGive = maxGiveIds;
   const walkNameCites = () => maxGive.flatMap(cellFor);
   const backupCite = citeOf(book, `${P}reply_table_value_decline_value_odds_after_value`);
   const backupAfter = backupCite ? book.row[`${P}reply_table_value_decline_value_odds_after_value`] : null;
@@ -526,7 +721,7 @@ export function negotiate({ leagueId, reply = '', replyKind = null, stepIndex = 
         cites: [backupCite, wc(0, 'title_after')].filter(Boolean) });
     }
   } else {
-    refusals.push(`His counter is not re-priced: the engine is ${engine ? 'unable to price this package' : 'not loaded for this league on this server'}, so Coach judges it on the plan's walk-away alone and states no title-odds change for it.`);
+    refusals.push(`His counter is not re-priced: the engine is ${engine ? 'unable to price this package' : `not loaded for this league on this server${engineWhy.get(id) ? ` (${engineWhy.get(id)})` : ''}`}, so Coach judges it on the plan's walk-away alone and states no title-odds change for it.`);
   }
 
   const ruleCite = citeOf(book, `${R}value_counter_rules_${decision === 'walk' ? 'walk_away_if' : decision === 'take' ? 'accept_if' : 'counter_with'}`);

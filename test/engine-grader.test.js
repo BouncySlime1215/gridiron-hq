@@ -124,6 +124,9 @@ test('A2: offer.sent carries the snapshot in force at send time; rec.* waits on 
   assert.equal(offers[0].payload.snapshot_id, inForce.id, 'the snapshot in force at proposed_at, not the later one');
   assert.equal(offers[0].as_of, '2026-09-12T15:00:00.000Z');
 
+  // #174 (migration 071) is on main now, so the migrated DB has rec_ledger. Drop it to keep the
+  // absent case covered (a DB before 071), then recreate it with 071's columns below.
+  db.exec('DROP TABLE IF EXISTS rec_ledger');
   const absent = cursorsMod.runAdapterStream(recMod.REC_ADAPTER, { database: db });
   assert.equal(absent.table_state, 'table_absent', 'rec_ledger (#174) absent is table_absent, never zero');
   db.exec(`CREATE TABLE rec_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, league_id INTEGER NOT NULL, kind TEXT NOT NULL,

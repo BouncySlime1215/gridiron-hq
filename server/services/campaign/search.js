@@ -209,7 +209,7 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
   };
   const withP = (state, st) => {
     const pr = adapter.priceStep(st.team, st.get, st.give);
-    return { ...st, p: pr.p, band: pr.band ?? null, state: S.applyTrade(state, me, st.team, st.give, st.get) };
+    return { ...st, p: pr.p, band: pr.band ? { ...pr.band, basis: pr.basis ?? null } : null, state: S.applyTrade(state, me, st.team, st.give, st.get) };
   };
   const h = steps => pathExpectation(steps.map(x => ({ p: x.p, delta: lin(x.state) })));
   const direct = stepsFrom(new Map(), owner, target, maxGiveFinal).map(st => [withP(new Map(), st)]);

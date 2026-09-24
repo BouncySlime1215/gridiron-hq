@@ -146,7 +146,7 @@ const step = obj({
 }, {
   reasoning: field(reasoning),
   // The acceptance band p_yes is the midpoint of; "I sent it" grades against it (#239 recordSentOffer).
-  p_yes_band: obj({ low: prob, high: prob }),
+  p_yes_band: obj({ low: prob, high: prob }, { basis: oneOf(['no_information', 'heuristic_unanchored', 'heuristic_anchored']) }),
   counterpart: field(stepCounterpart)
 });
 

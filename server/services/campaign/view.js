@@ -31,6 +31,8 @@ const M6_MIX = Object.freeze({ ignore: M6_REPLY_PRIOR.ignore, counter: M6_REPLY_
 const featureOut = f => ({ feature: String(f.feature), effect: String(f.effect ?? ''),
   ...(Number.isFinite(f.value) ? { value: f.value } : {}), ...(f.basis ? { basis: String(f.basis) } : {}),
   ...(f.player != null ? { player: String(f.player) } : {}), ...(Number.isFinite(f.n) ? { n: f.n } : {}) });
+/** The acceptance-model bases trade_outcomes accepts (migration 067 CHECK on model_basis). */
+const BAND_BASES = ['no_information', 'heuristic_unanchored', 'heuristic_anchored'];
 
 export const PRODUCER = 'campaign-producer';
 export const PRODUCER_VERSION = '2';
@@ -159,7 +161,11 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       }, 'plan.path');
       out.reasoning = reasoning({ team: st.team, p: st.p, delta: st.delta - before, clears: st.clears, pb, verdict });
     }
-    if (st.band && isProb(st.band.low) && isProb(st.band.high)) out.p_yes_band = { low: st.band.low, high: st.band.high };
+    if (st.band && isProb(st.band.low) && isProb(st.band.high)) {
+      out.p_yes_band = { low: st.band.low, high: st.band.high };
+      // The acceptance model's own basis (trade-acceptance.js): the offer ledger refuses a band without one.
+      if (BAND_BASES.includes(st.band.basis)) out.p_yes_band.basis = st.band.basis;
+    }
     // ONE-COUNTERPART (RULINGS 17): the counterpart's served numbers, typed (plans-schema.js `counterpart`).
     const cp = pb?.counterpart;
     if (cp) {

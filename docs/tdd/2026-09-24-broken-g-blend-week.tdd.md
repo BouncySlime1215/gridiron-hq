@@ -52,6 +52,27 @@ ok 1 .. ok 5
 One test assertion was wrong, not the code: `lineupSpan` rounds to 0.1 by design
 (`trade-engine.js` `toFixed(1)`), so the test compares its leg at 0.1.
 
+## Liveness: mutation sweep (test/blend-week.test.js, 7 tests)
+
+Tests 6-7 were added after GREEN: 6 moves the mocked line after the universe is
+built, so a page that re-lifts on its own call disagrees with the served number;
+7 pins `waiver-brain.js#horizonAnnotate` (extracted from the upgrade solve).
+
+| mutant | result |
+|---|---|
+| M1 `startSitWeekPoints` blend_week branch removed | dies (6) |
+| M2 `lineupDiffWeekPoints` blend_week branch removed | dies (6) |
+| M3 `lineupSpan` this-week leg back on `current_week_ppg` | dies (4) |
+| M4 `adj_ppg` back on the unlifted week | dies (4) |
+| M5 flag dropped from `assetInputsKey` | dies (4, 5, 6, 7) |
+| M6 waiver horizon lifts blend.week again | dies (7) |
+| M7 call site: `buildAssetUniverse` ignores the flag | dies (4, 5, 6, 7) |
+| M8 bye reads a line | dies (2) |
+| C1 surviving control: `BLEND_WEEK_REASON` text | survives (by design) |
+
+Not-applied control: test 3 (flag off) passes under M1 and M2, because the branch
+they remove is not reached when the asset has no `blend_week`.
+
 ## Not covered here
 
 - `waiver-wire.js` (`:104`, `:111`, `:207`, `:273`) still solves on

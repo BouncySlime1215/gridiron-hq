@@ -45,12 +45,13 @@ mock.module('../server/services/player-week-engine.js', {
   }
 });
 const PASS_MULT = 1.2;
+let passMult = PASS_MULT; // moved by the re-derive test after the universe is built
 const realGameScript = await import('../server/services/gamescript.js');
 mock.module('../server/services/gamescript.js', {
   namedExports: {
     ...realGameScript,
     gameScriptFor: team => (team === 'BBB'
-      ? { pass_mult: PASS_MULT, rush_mult: 1.1, line: { spread: -7, total: 51 } }
+      ? { pass_mult: passMult, rush_mult: 1.1, line: { spread: -7, total: 51 } }
       : { pass_mult: 1, rush_mult: 1, line: null })
   }
 });
@@ -60,6 +61,7 @@ const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 const { assetUniverse, lineupSpan, lineupDiffWeekPoints } = await import('../server/services/trade-engine.js');
 const { startSitWeekPoints } = await import('../server/services/lineup-brain.js');
+const { horizonAnnotate, horizonValue } = await import('../server/services/waiver-brain.js');
 const { deriveFormat } = await import('../server/services/format.js');
 const { blendWeek, blendWeekFlag, BLEND_WEEK_ENV } = await import('../server/services/blend-week.js');
 
@@ -159,4 +161,31 @@ test('RED (flag on): a bye is 0 on every page and a flag flip rebuilds the cache
     assert.deepEqual([n.start_sit, n.lineup_card, n.trade_card_week], [0, 0, 0]);
   });
   withFlag('0', () => assert.equal(universe().get(902).blend_week, undefined, 'flag off after on: rebuilt, not the cached flag-on build'));
+});
+
+test('RED (flag on): the pages read the served blend_week, they do not re-lift on their own call', () => {
+  withFlag('1', () => {
+    const a = universe().get(902);
+    passMult = 1.3; // the lift a second call would now read; the served number must not move
+    try {
+      assert.equal(startSitWeekPoints(a, 2026, 6).week_points, a.blend_week, 'Start/Sit re-derived');
+      assert.equal(lineupDiffWeekPoints(a, 2026, 6), a.blend_week, 'lineup card re-derived');
+      // control: an asset without blend_week (flag off shape) does read the moved line
+      const { blend_week: _bw, ...offShape } = a;
+      assert.equal(startSitWeekPoints(offShape, 2026, 6).week_points, Math.round(a.current_week_ppg * 1.3 * 100) / 100);
+    } finally { passMult = PASS_MULT; }
+  });
+});
+
+test('RED (flag on): the waiver upgrade horizon does not lift blend.week a second time', () => {
+  withFlag('1', () => {
+    const a = universe().get(902);
+    const ann = horizonAnnotate(a, 2026, 6);
+    assert.equal(ann.horizon_ppg, horizonValue(a, 6), 'adj_ppg already carries the lift');
+    assert.equal(ann.vegas?.multiplier, PASS_MULT, 'the lift is still reported');
+  });
+  withFlag('0', () => {
+    const a = universe().get(902);
+    assert.ok(horizonAnnotate(a, 2026, 6).horizon_ppg > horizonValue(a, 6), 'control: flag off lifts the 25% share');
+  });
 });

@@ -208,6 +208,20 @@ export function horizonValueWithVegas(player, season, week, { currentWeekShare =
 }
 
 /**
+ * One player's horizon annotation for the upgrade solve. With BROKEN-G's flag on,
+ * adj_ppg is already built on blend.week (lift included), so lifting its this-week
+ * share again would count the line twice: the horizon is read as is.
+ */
+export function horizonAnnotate(p, season, week) {
+  if (Number.isFinite(p.blend_week)) {
+    const v = horizonValue(p, week);
+    return { ...p, horizon_ppg: v, horizon_base: v, vegas: p.blend_week_vegas?.applied ? p.blend_week_vegas : null };
+  }
+  const hv = horizonValueWithVegas(p, season, week);
+  return { ...p, horizon_ppg: hv.value, horizon_base: hv.base, vegas: hv.lift };
+}
+
+/**
  * Everyone unrostered, which is a bigger and better pool than people assume.
  *
  * Derived by subtraction rather than by a flag: anyone in the asset universe who
@@ -274,16 +288,7 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
   //
   // The same annotation is where the betting model enters: the Vegas game-script
   // multiplier scales this week's slice of each player's value. See vegasLift.
-  const annotate = p => {
-    // BROKEN-G flag on: adj_ppg is already built on blend.week, lift included, so
-    // lifting its this-week share again would count the line twice.
-    if (Number.isFinite(p.blend_week)) {
-      const v = horizonValue(p, week);
-      return { ...p, horizon_ppg: v, horizon_base: v, vegas: p.blend_week_vegas?.applied ? p.blend_week_vegas : null };
-    }
-    const hv = horizonValueWithVegas(p, season, week);
-    return { ...p, horizon_ppg: hv.value, horizon_base: hv.base, vegas: hv.lift };
-  };
+  const annotate = p => horizonAnnotate(p, season, week);
   const myPlayers = me.players.map(annotate);
   const available = freeAgents(lg, { limit: pool }).map(annotate);
 

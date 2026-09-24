@@ -342,6 +342,11 @@ test('FIX-274-1: a gate that keeps the mode leaves the sites alone and records i
   const balOn = await withEnv({ ...PREVIEW_OFF, GRIDIRON_PREVIEW_UNCONFIRMED: '1' }, () => planOf('all_in', null));
   assert.equal(planKey(kept), planKey(balOn));
   assert.deepEqual(kept._run.inputs.brain.unconfirmed_off, { applied: false, sites: [], switched_off: [] });
+  // Balanced (or safe) with a blocking check does not change mode, but testing-tier signals are off all the same.
+  const balFailing = await withEnv({ ...PREVIEW_OFF, GRIDIRON_PREVIEW_UNCONFIRMED: '1' }, () => planOf('balanced', brainOf(failingE1())));
+  const balOff = await withEnv(PREVIEW_OFF, () => planOf('balanced', null));
+  assert.equal(planKey(balFailing), planKey(balOff));
+  assert.equal(balFailing._run.inputs.brain.unconfirmed_off.applied, true);
   const quiet = await withEnv(PREVIEW_OFF, () => planOf('all_in', brainOf(failingE1())));
   assert.deepEqual(quiet._run.inputs.brain.unconfirmed_off.switched_off, []);
 });

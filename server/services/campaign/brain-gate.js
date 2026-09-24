@@ -26,7 +26,7 @@
  * contract fixture (test/fixtures/warroom-contract/make-producer-plans.mjs)
  * runs this gate with no DB. The producer passes readNumberAudit in.
  */
-import { brainReportRule } from '../eval/brain-rule.js';
+import { brainReportRule, REPORT_MAX_AGE_HOURS } from '../eval/brain-rule.js';
 import { latestReport } from '../eval/index.js';
 import { MODE_LABELS, tolerancesFor } from './modes.js';
 
@@ -56,10 +56,22 @@ function resultText(c) {
 }
 
 /**
+ * A stored report older than REPORT_MAX_AGE_HOURS, or with no readable timestamp:
+ * the same test brain-rule.js applies (a future-dated report is clock skew, not stale).
+ */
+export function isStale(report, now) {
+  if (!report || !(now instanceof Date)) return false;
+  const ageH = (now.getTime() - Date.parse(report.computed_at)) / 3_600_000;
+  return !Number.isFinite(ageH) || ageH > REPORT_MAX_AGE_HOURS;
+}
+
+/**
  * The contract's brain_report value. A card that is missing, stale or errored
  * is never shown as 'passing' overall: its checks are not a current grade.
+ * overall: 'failing' if any check fails; else 'stale' for a >48 h report
+ * (FIX-274-2; it used to read not_enough_data); else passing / not_enough_data.
  */
-export function brainReportSection({ report, rule, error = null, requestedMode }) {
+export function brainReportSection({ report, rule, error = null, requestedMode, now = null }) {
   const current = !!report && !error && !rule.blocking.some(b => b.check == null);
   const rows = report && !error && Array.isArray(report.checks) ? report.checks : [];
   const checks = rows.length
@@ -72,7 +84,8 @@ export function brainReportSection({ report, rule, error = null, requestedMode }
     : CHECK_IDS.map(id => ({ id, name: id, bar: 'not graded yet', status: 'not_run' }));
   const anyFailing = rows.some(c => c.status === 'failing');
   const allPassing = rows.length > 0 && rows.every(c => c.status === 'passing');
-  const overall = anyFailing ? 'failing' : allPassing && current ? 'passing' : 'not_enough_data';
+  const stale = !!report && !error && isStale(report, now);
+  const overall = anyFailing ? 'failing' : stale ? 'stale' : allPassing && current ? 'passing' : 'not_enough_data';
 
   const blocks = rule.blocking.map(b => b.reason);
   if (rule.fell_back) {
@@ -110,7 +123,7 @@ export function applyBrainReport({ objective, report, error = null, now }) {
   return {
     objective: effective,
     rule,
-    section: brainReportSection({ report, rule, error, requestedMode }),
+    section: brainReportSection({ report, rule, error, requestedMode, now }),
     as_of: !error && report?.computed_at ? report.computed_at : null,
     run_id: !error ? report?.run_id ?? null : null,
   };

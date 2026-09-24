@@ -2675,7 +2675,16 @@
       "mode": "safe",
       "fell_back": false,
       "testing_tier_enabled": false,
-      "read_error": null
+      "read_error": null,
+      "unconfirmed_off": {
+       "applied": true,
+       "sites": [
+        "rl16_1",
+        "rl17_3_preview",
+        "title_mutual"
+       ],
+       "switched_off": null
+      }
      }
     }
    }
@@ -5739,7 +5748,16 @@
       "mode": "balanced",
       "fell_back": false,
       "testing_tier_enabled": false,
-      "read_error": null
+      "read_error": null,
+      "unconfirmed_off": {
+       "applied": true,
+       "sites": [
+        "rl16_1",
+        "rl17_3_preview",
+        "title_mutual"
+       ],
+       "switched_off": null
+      }
      }
     }
    }
@@ -8377,7 +8395,16 @@
       "mode": "balanced",
       "fell_back": true,
       "testing_tier_enabled": false,
-      "read_error": null
+      "read_error": null,
+      "unconfirmed_off": {
+       "applied": true,
+       "sites": [
+        "rl16_1",
+        "rl17_3_preview",
+        "title_mutual"
+       ],
+       "switched_off": null
+      }
      }
     }
    }
@@ -9628,7 +9655,16 @@
       "mode": "balanced",
       "fell_back": false,
       "testing_tier_enabled": false,
-      "read_error": null
+      "read_error": null,
+      "unconfirmed_off": {
+       "applied": true,
+       "sites": [
+        "rl16_1",
+        "rl17_3_preview",
+        "title_mutual"
+       ],
+       "switched_off": null
+      }
      }
     }
    }

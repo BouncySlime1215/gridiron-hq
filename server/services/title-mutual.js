@@ -20,7 +20,7 @@
  * Default off. GRIDIRON_TITLE_MUTUAL_ENABLED=1 turns it on; so does preview
  * mode (preview-mode.js), in which case the block carries `preview: true`.
  */
-import { previewUnconfirmed, previewFields } from './preview-mode.js';
+import { previewUnconfirmed, previewFields, unconfirmedForwardOff } from './preview-mode.js';
 
 export const TITLE_MUTUAL_ENV = 'GRIDIRON_TITLE_MUTUAL_ENABLED';
 export const TITLE_MUTUAL_OFF_REASON = 'Title-mutual trades (RL-19-3) are default-off: the class is '
@@ -45,6 +45,7 @@ export function mutualTitleGain(me, them) {
 
 /** Read per call, like every preview-converted site, so a test can flip it. */
 export function titleMutualMode() {
+  if (unconfirmedForwardOff()) return { on: false, preview: false };   // FIX-274-1: the brain gate fell back
   if (process.env[TITLE_MUTUAL_ENV] === '1') return { on: true, preview: false };
   if (previewUnconfirmed()) return { on: true, preview: true };
   return { on: false, preview: false };

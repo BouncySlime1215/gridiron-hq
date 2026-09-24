@@ -378,7 +378,10 @@ test('the served chain is the served functions, not copies', () => {
 
 test('the default chance to play and the game multiplier are the ones trade-engine.js serves', () => {
   const source = fs.readFileSync(new URL('../server/services/trade-engine.js', import.meta.url), 'utf8');
-  assert.match(source, new RegExp(`availability\\?\\.active_probability \\?\\? ${lib.DEFAULT_ACTIVE_PROBABILITY}\\b`));
+  // FIX-285-1 moved the flag-off default into contingency.js#legacyActiveProbability.
+  const contingency = fs.readFileSync(new URL('../server/services/contingency.js', import.meta.url), 'utf8');
+  assert.match(source, /: legacyActiveProbability\(availability\);/);
+  assert.match(contingency, new RegExp(`return row\\?\\.active_probability \\?\\? ${lib.DEFAULT_ACTIVE_PROBABILITY};`));
   assert.match(source, /currentWeekBasePpg \* thisGame\.mult \* activeProbability/);
   assert.equal(lib.THIS_GAME_MULT, 1);
   assert.equal(matchupSignalActive(), false, 'a matchup multiplier is on: thisGame.mult is no longer 1');

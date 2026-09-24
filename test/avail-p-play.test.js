@@ -225,11 +225,13 @@ test('trade-engine asset, flag on: typed unknown, priced at the fitted prior, no
 
 /* ------------------------------------ 6. the row-E sites reach 0.92 only with the flag off */
 
-test('at every row-E site the `?? 0.92` sits behind the avail.p_play branch', () => {
+// FIX-285-1: the default itself now lives only in contingency.js#legacyActiveProbability
+// (test/avail-p-play-sites.test.js ratchets that); each site reaches it only flag-off.
+test('at every row-E site the old default sits behind the avail.p_play branch', () => {
   const sites = [
-    ['server/services/trade-engine.js', /availability\?\.active_probability \?\? 0\.92/, /pPlayed \?/],
-    ['server/services/trade-engine.js', /x\.in\.active_probability \?\? 0\.92/, /x\.in\.p_play \?/],
-    ['server/services/season-sim.js', /activeChance\.get\(p\.id\)\?\.active_probability \?\? 0\.92/, /pPlayed \?/]
+    ['server/services/trade-engine.js', /legacyActiveProbability\(availability\)/, /pPlayed \?/],
+    ['server/services/trade-engine.js', /legacyActiveProbability\(x\.in\)/, /x\.in\.p_play \?/],
+    ['server/services/season-sim.js', /legacyActiveProbability\(activeChance\.get\(p\.id\)\)/, /pPlayed \?/]
   ];
   for (const [file, re, guard] of sites) {
     const lines = fs.readFileSync(path.join(REPO, file), 'utf8').split('\n').filter(l => re.test(l));

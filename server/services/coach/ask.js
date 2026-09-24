@@ -17,6 +17,20 @@
  * Nothing here decides anything. Coach explains, retrieves and computes through
  * the ledger; it cannot write to the database (the query connection is
  * read-only), set a lineup, or send a message.
+ *
+ * WR-COACH. Asked from the War Room (context.surface === 'war_room', flag on),
+ * Coach also gets UI tools (tools.js WARROOM_TOOLS). Each returns a typed
+ * action that comes back in `actions` for the client dispatcher; the client
+ * refuses anything outside the schema and gates plan changes behind a
+ * trade-off preview and Nick's Confirm tap. Plain screen commands ("show the
+ * flip map for league 3", "undo") skip the model entirely (intent.js). The
+ * grounding check is unchanged: a claim with an invented number still fails.
+ *
+ * COACH-ANSWERS. With the Coach brief flag on (brief.js#coachBriefFlag), the
+ * dock's four starter questions and their paraphrases (starter-answers.js) are
+ * answered from the War Room plans file with no model call: grounded, cited
+ * claims plus the screen actions that go with them. With no model key, every
+ * other question gets a refusal naming what Coach can answer. Cost $0.
  */
 import { callClaude, parseJson } from '../claude.js';
 import { catalog, readableTables } from './catalog.js';
@@ -25,6 +39,10 @@ import { CoachQueryRefused, CoachQueryFailed } from './select.js';
 import { newLedger, LedgerError } from './ledger.js';
 import { verifyAnswer } from './verify.js';
 import { recordCoachAnswer } from './audit.js';
+import { warRoomEnabled } from '../warroom-actions/store.js';
+import { routeIntent } from '../warroom-actions/intent.js';
+import { coachBriefFlag } from './brief.js';
+import { starterIntent, starterAnswer, starterActions } from './starter-answers.js';
 
 /**
  * Rounds of model call. One round is one Claude turn; a round that asks for
@@ -56,7 +74,11 @@ function catalogBrief() {
     .join('\n');
 }
 
-function systemPrompt() {
+const WAR_ROOM_PROMPT = `
+
+THE WAR ROOM. This question comes from the War Room dashboard, and you have War Room tools that change the screen (warroom_view, warroom_plug_in, warroom_plan_change, warroom_draft_message). Use them when Nick asks to see, arrange, filter, pin, chart or change something. They return actions the dashboard applies; you never state a number that only an engine field holds, and plan changes (goal, stops, risk mode, tolerances) only open a preview that waits for Nick's Confirm tap. You never send anything to a league-mate: if asked, refuse and say he sends it himself. When a tool did what was asked, "claims" may be empty; the dashboard describes the change and ends with the destination, stops left and the next move.`;
+
+function systemPrompt({ warRoom = false } = {}) {
   return `You are Coach, the answering layer of a personal fantasy-football app. You answer from rows in this app's database and from its own services. You have no other source. Your training knowledge about players, teams, schedules, injuries and results is out of date and is not evidence here; if a fact is not in a tool result, you do not have it.
 
 WHAT YOU MAY READ. These tables, and nothing else. A question about anything absent from this list is answered by saying Coach does not read it.
@@ -79,7 +101,7 @@ YOUR OUTPUT. When you are ready to answer, reply with ONLY this JSON object and 
   "refusals": [ "what you could not answer, and why" ],
   "as_of": "how old the hand-collected data behind this is, or null"
 }
-Write the claims the way a knowledgeable friend would say them out loud: short sentences, the answer first, no hedging and no restating of the question. One idea per claim.`;
+Write the claims the way a knowledgeable friend would say them out loud: short sentences, the answer first, no hedging and no restating of the question. One idea per claim.${warRoom ? WAR_ROOM_PROMPT : ''}`;
 }
 
 function userPrompt({ question, context, leagueId }) {
@@ -139,7 +161,7 @@ function answerFrom(parsed) {
  * @returns {Promise<{question, answer, ledger, verification, plan, audit_id, cost_usd}>}
  */
 export async function askCoach({ question, context = null, leagueId = null,
-  onEvent = () => {}, model = COACH_MODEL } = {}) {
+  onEvent = () => {}, model = COACH_MODEL, hasModel = true } = {}) {
   const asked = String(question ?? '').trim();
   if (!asked) {
     const err = new Error('Coach was asked nothing.');
@@ -149,8 +171,50 @@ export async function askCoach({ question, context = null, leagueId = null,
 
   const ledger = newLedger();
   const plan = [];
+  const actions = [];
   const emit = event => { plan.push(event); onEvent(event); };
   emit({ t: 'understood', question: asked });
+
+  const warRoom = context?.surface === 'war_room' && warRoomEnabled();
+  const fast = warRoom ? routeIntent(asked) : null;
+  if (fast?.refuse) {
+    emit({ t: 'answer', claims: 0, refusals: 1, fast_path: true });
+    return { question: asked, answer: { claims: [], refusals: [fast.refuse], as_of: null }, actions: [],
+      ledger: ledger.toJson(), verification: { ok: true, violations: [], warnings: [], numbers_checked: 0, fast_path: true },
+      plan, audit_id: null, cost_usd: 0 };
+  }
+
+  // The brief flag gates the plan-read path; a screen command with no model key still runs below.
+  const planAnswers = coachBriefFlag().on;
+  const intent = planAnswers ? starterIntent(asked) : null;
+  if (intent || (planAnswers && !hasModel && !fast)) {
+    const league = leagueId ?? (Number.isInteger(context?.league) ? context.league : null);
+    const out = await starterAnswer({ question: asked, intent, leagueId: league });
+    const starterActs = [];
+    if (warRoom && intent) {
+      for (const [tool, input] of (fast?.tool ? [[fast.tool, fast.input]] : starterActions(intent))) {
+        const { action } = runCoachTool(tool, input, { ledger });
+        starterActs.push(action);
+        emit({ t: 'action', action, fast_path: true });
+      }
+    }
+    emit({ t: 'answer', claims: out.answer.claims.length, refusals: out.answer.refusals.length, deterministic: true });
+    const auditId = recordCoachAnswer({ question: asked, route: context?.route ?? null, leagueId: league, model: 'none:starter',
+      answer: out.answer, ledger: out.ledger, plan, verification: out.verification, costUsd: 0 });
+    return { question: asked, answer: out.answer, actions: starterActs, ledger: out.ledger, verification: out.verification,
+      dropped: out.dropped, plan, audit_id: auditId, cost_usd: 0,
+      ...(out.preview ? { preview: true, preview_reason: out.preview_reason } : {}) };
+  }
+
+  if (warRoom) {
+    if (fast) {
+      const { action } = runCoachTool(fast.tool, fast.input, { ledger });
+      emit({ t: 'action', action, fast_path: true });
+      return { question: asked, answer: { claims: [], refusals: [], as_of: null }, actions: [action],
+        ledger: ledger.toJson(), verification: { ok: true, violations: [], warnings: [], numbers_checked: 0, fast_path: true },
+        plan, audit_id: null, cost_usd: 0 };
+    }
+  }
 
   const messages = [{ role: 'user', content: userPrompt({ question: asked, context, leagueId }) }];
   let retried = false;
@@ -165,8 +229,8 @@ export async function askCoach({ question, context = null, leagueId = null,
       // System (with the tools in front of it) is the stable breakpoint; the
       // conversation cache lets each round re-read the rounds before it, whose
       // tool results are most of what a later round sends.
-      system: systemPrompt(), cacheSystem: true, cacheConversation: true, messages,
-      tools: toolDefinitions(),
+      system: systemPrompt({ warRoom }), cacheSystem: true, cacheConversation: true, messages,
+      tools: toolDefinitions({ warRoom }),
       toolChoice: isFinalRound ? { type: 'none' } : undefined
     });
     costUsd += msg.cost_usd ?? 0;
@@ -175,7 +239,7 @@ export async function askCoach({ question, context = null, leagueId = null,
     if (toolUses.length && !isFinalRound) {
       emit({ t: 'planning', tools: toolUses.map(block => block.name) });
       messages.push({ role: 'assistant', content: msg.content });
-      messages.push({ role: 'user', content: toolUses.map(block => runOne(block, { ledger, emit })) });
+      messages.push({ role: 'user', content: toolUses.map(block => runOne(block, { ledger, emit, actions })) });
       continue;
     }
 
@@ -199,6 +263,11 @@ export async function askCoach({ question, context = null, leagueId = null,
     answer = answerFrom(parsed);
     emit({ t: 'checking', numbers: answer.claims.length });
     verification = { ...verifyAnswer({ answer, ledger, question: asked }), retried };
+    // A War Room turn whose whole answer was a screen change is not silence.
+    // Only the empty-answer rule relaxes; every number rule stands.
+    if (actions.length && verification.violations.every(v => v.kind === 'empty_answer')) {
+      verification = { ...verification, ok: true, violations: [], answered_by_actions: actions.length };
+    }
 
     if (verification.ok) break;
     if (retried) {
@@ -226,7 +295,7 @@ export async function askCoach({ question, context = null, leagueId = null,
     answer, ledger: ledgerJson, plan, verification, costUsd
   });
 
-  return { question: asked, answer, ledger: ledgerJson, verification, plan,
+  return { question: asked, answer, actions, ledger: ledgerJson, verification, plan,
     audit_id: auditId, cost_usd: costUsd };
 }
 
@@ -238,12 +307,15 @@ export async function askCoach({ question, context = null, leagueId = null,
  * act on, and hiding it would just make the next round guess again. Anything
  * that is not one of those is a real fault and is left to throw.
  */
-function runOne(block, { ledger, emit }) {
+function runOne(block, { ledger, emit, actions = [] }) {
   const started = Date.now();
   emit({ t: 'query', id: null, tool: block.name, status: 'running', input: block.input ?? {} });
   try {
-    const { entry, summary } = runCoachTool(block.name, block.input ?? {}, { ledger });
-    if (entry && entry.op) {
+    const { entry, summary, action } = runCoachTool(block.name, block.input ?? {}, { ledger });
+    if (action) {
+      actions.push(action);
+      emit({ t: 'action', action });
+    } else if (entry && entry.op) {
       emit({ t: 'computing', id: entry.id, label: entry.label, formula: entry.formula, value: entry.value });
     } else if (entry) {
       emit({ t: 'query', id: entry.id, tool: block.name, status: 'done',

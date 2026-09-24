@@ -54,13 +54,13 @@ function recorder() {
 const quiet = () => {};
 
 // ---------------------------------------------------------------- order
-test('G1a/G2h: one tick runs transactions, roster snapshots, league chat, then manager signals — in that order', async () => {
+test('G1a/G2h: one tick runs transactions, roster snapshots, league chat, manager signals, then the brain report — in that order', async () => {
   const { spawn, calls } = fakeSpawn({ 'extract_league_chat.py': { stdout: 'league_chat_status {"failed_this_run":0,"failed_outstanding":0}\n' } });
   const lines = [];
   await LOOP.tick({ jobs: [], spawn, log: l => lines.push(l), record: quiet, inputsKey: () => 'k' });
   const scripts = calls.map(c => path.basename(c.args.find(a => /\.(mjs|py)$/.test(a))));
   assert.deepEqual(scripts, ['collect-league-transactions.mjs', 'collect-roster-snapshots.mjs',
-    'extract_league_chat.py', 'build-manager-signals.mjs']);
+    'extract_league_chat.py', 'build-manager-signals.mjs', 'run-graders.mjs']);
   assert.ok(lines.at(-1).includes('tick done'));
 });
 
@@ -313,4 +313,87 @@ test('G7: the start/sit gate job is on the loop, after the jobs that settle the 
     log: quiet, record: quiet, inputsKey: () => 'k' });
   assert.ok(ran.indexOf('start_sit_gate') > ran.indexOf('nfl_model_growth'), 'after the finalized-week ingest');
   assert.ok(ran.indexOf('start_sit_gate') > ran.indexOf('nfl_weekly_learning'), 'after the snapshot settlement');
+});
+
+test('DATA-FC: the FantasyCalc market job is on the loop, daily, before the served-number snapshot', async () => {
+  // With SCHEDULER_DISABLED=1 this loop is the only runner of scheduler jobs; off it, the
+  // trade-card price aged 5 days and dynasty_value_history held no rows.
+  assert.ok(LOOP.FANTASY_LIVE_JOBS.includes('fantasycalc_dynasty'), 'the FantasyCalc job must be on the live loop');
+  const { JOBS } = await import('../server/services/scheduler.js');
+  assert.ok(JOBS.fantasycalc_dynasty.maxAgeMinutes >= 24 * 60, 'no more than one fetch a day');
+  const ran = [];
+  await LOOP.tick({ jobs: LOOP.FANTASY_LIVE_JOBS, runJob: async name => { ran.push(name); return { skipped: true }; },
+    spawn: fakeSpawn({ 'extract_league_chat.py': { stdout: STATUS({ failed_outstanding: 0 }) } }).spawn,
+    log: quiet, record: quiet, inputsKey: () => 'k' });
+  assert.ok(ran.indexOf('fantasycalc_dynasty') > ran.indexOf('player_rosters'), 'after the espn_id join key is filled');
+  assert.ok(ran.indexOf('fantasycalc_dynasty') < ran.indexOf('served_numbers_weekly'), 'before the trade cards are snapshotted');
+  // The redraft half: 'fc_value' (League Hub roster strength, rankings, edge board) had no runner at all.
+  assert.ok(LOOP.FANTASY_LIVE_JOBS.includes('fantasycalc_values'), 'the redraft FantasyCalc job must be on the live loop');
+  assert.ok(JOBS.fantasycalc_values.maxAgeMinutes >= 24 * 60, 'redraft: no more than one fetch a day');
+  assert.ok(ran.indexOf('fantasycalc_values') > ran.indexOf('player_rosters'), 'redraft: after the join keys are filled');
+});
+
+// ---------------------------------------------------------------- warroom plans (CAMPAIGN-01)
+test('CAMPAIGN-01: the War Room producer is launched after manager signals only when the War Room flag is on (GRIDIRON_WARROOM_ENABLED=1)', async () => {
+  const chat = { 'extract_league_chat.py': { stdout: 'league_chat_status {"failed_this_run":0,"failed_outstanding":0}\n' } };
+  const before = { flag: process.env.GRIDIRON_WARROOM_ENABLED, plans: process.env.GRIDIRON_WARROOM_PLANS };
+  process.env.GRIDIRON_WARROOM_PLANS = path.join(temp, 'warroom', 'plans.json');
+  const launched = [];
+  const warRoomLaunch = (cmd, args, opts) => { launched.push({ cmd, args, opts }); return 4242; };
+  try {
+    delete process.env.GRIDIRON_WARROOM_ENABLED;
+    await LOOP.tick({ jobs: [], spawn: fakeSpawn(chat).spawn, log: quiet, record: quiet, inputsKey: () => 'k', warRoomLaunch });
+    assert.equal(launched.length, 0, 'flag off: never launched');
+    process.env.GRIDIRON_WARROOM_ENABLED = '1';
+    const lines = [];
+    await LOOP.tick({ jobs: [], spawn: fakeSpawn(chat).spawn, log: l => lines.push(l), record: quiet, inputsKey: () => 'k2', warRoomLaunch });
+    assert.equal(launched.length, 1);
+    assert.equal(launched[0].cmd, process.execPath);
+    assert.deepEqual(launched[0].args, ['--env-file-if-exists=.env', 'scripts/campaign/produce-plans.mjs']);
+    assert.equal(launched[0].opts.cwd, REPO);
+    const order = lines.map(l => l.trim().split(/\s+/)[1]);
+    assert.ok(order.indexOf('warroom_plans') > order.indexOf('manager_signals'), 'after the data it plans on');
+    assert.ok(order.indexOf('warroom_plans') > order.indexOf('brain_report'), 'after the report card it gates on (FIX-05)');
+  } finally {
+    for (const [k, v] of [['GRIDIRON_WARROOM_ENABLED', before.flag], ['GRIDIRON_WARROOM_PLANS', before.plans]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
+
+test('CAMPAIGN-01: a running producer is not launched twice, and the last finished run is recorded (ok / partial / error)', () => {
+  const dir = fs.mkdtempSync(path.join(temp, 'wr-'));
+  const files = { plans: path.join(dir, 'plans.json'), lock: path.join(dir, 'plans.json.lock'), log: path.join(dir, 'producer.log') };
+  const env = { ...process.env };
+  const on = () => ({ enabled: true, preview: false });   // the loop asks warroom-flag.js; pinned on here
+  const cases = [
+    ['warroom_plans ok leagues 5 failed 0 changed 0 (80 s) -> x', 'ok'],
+    ['warroom_plans PARTIAL leagues 5 failed 1 changed 0 (80 s) -> x', 'partial'],
+    ['Error: boom\nwarroom_plans failed', 'error'],
+  ];
+  for (const [line, want] of cases) {
+    fs.writeFileSync(files.log, `noise\n${line}\n`);
+    const { records, record } = recorder();
+    let launches = 0;
+    LOOP.warRoomPlans({ launch: () => { launches++; return 1; }, log: quiet, record, env, files, flag: on });
+    assert.equal(records[0].job, 'warroom_plans');
+    assert.equal(records[0].status, want);
+    assert.equal(launches, 1);
+  }
+  fs.writeFileSync(files.lock, String(process.pid));     // a live holder: this test process
+  let launches = 0;
+  const lines = [];
+  LOOP.warRoomPlans({ launch: () => { launches++; return 1; }, log: l => lines.push(l), record: quiet, env, files, flag: on });
+  assert.equal(launches, 0);
+  assert.match(lines[0], /still running/);
+  fs.writeFileSync(files.lock, '999999999');              // a dead holder: stale lock
+  LOOP.warRoomPlans({ launch: () => { launches++; return 1; }, log: quiet, record: quiet, env, files, flag: on });
+  assert.equal(launches, 1);
+  // A run that crashed after starting leaves no summary: an error, not the previous run's ok.
+  fs.writeFileSync(files.log, 'warroom_plans ok leagues 5 failed 0 changed 0 (80 s) -> x\nwarroom_plans started t pid 1\nTypeError: x\n');
+  fs.rmSync(files.lock);
+  const r2 = recorder();
+  LOOP.warRoomPlans({ launch: () => 1, log: quiet, record: r2.record, env, files, flag: on });
+  assert.equal(r2.records[0].status, 'error');
+  assert.match(r2.records[0].detail.line, /without a summary/);
 });

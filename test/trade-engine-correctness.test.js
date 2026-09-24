@@ -150,6 +150,26 @@ function targetOnAnotherRoster(lg, myTeamId) {
 
 /* ---------------------------------------------------- G1: real playoff odds */
 
+test('RL-16-1: the entry point passes this league\'s shape to the playoff-week weight (6/4 stays unmeasured)', () => {
+  const lg = insertLeague(409, sixTeamLeague());
+  const prev = process.env.GRIDIRON_RL16_1_ENABLED;
+  process.env.GRIDIRON_RL16_1_ENABLED = '1';
+  try {
+    const out = engine.tradeIdeas(lg, { myTeamId: '1', limit: 10, requireMutual: false });
+    assert.ok(!out.error, out.error);
+    assert.ok(out.deals.length > 0, 'fixture must produce deals');
+    for (const d of out.deals) {
+      assert.equal(d.horizon.playoff_importance, 4);
+      assert.equal(d.horizon.playoff_importance_measured, false);
+      // "6-team/4-playoff", not "?-team/?-playoff": the shape came from this league.
+      assert.match(d.horizon.playoff_importance_source, /6-team\/4-playoff/);
+    }
+  } finally {
+    if (prev == null) delete process.env.GRIDIRON_RL16_1_ENABLED;
+    else process.env.GRIDIRON_RL16_1_ENABLED = prev;
+  }
+});
+
 test('G1a: the entry point prices the horizon on this team\'s real playoff odds, not the 0.5 prior', () => {
   const lg = insertLeague(401, sixTeamLeague());
   const out = engine.tradeIdeas(lg, { myTeamId: '1', limit: 10, requireMutual: false });
@@ -434,4 +454,38 @@ test('G9c: the refusal every ladder can return is decided on the horizon number 
     }
   }
   assert.ok(checked > 10, `fixture must exercise real ladders, only checked ${checked}`);
+});
+
+/* --------------------------- PRICE-BAND-01: the ladder serves the flagged band */
+
+test('PRICE-BAND-01: flag off serves the legacy window; GRIDIRON_PRICE_BAND_V2=1 serves the fitted band', async () => {
+  const { V2_BAND, LEGACY_BAND, PRICE_BAND_V2_ENV } = await import('../server/services/price-band.js');
+  const lg = rows('SELECT * FROM leagues WHERE id = 401')[0];
+  const payload = JSON.parse(lg.payload);
+  const ids = payload.teams.filter(t => String(t.id) !== '1')
+    .flatMap(t => t.roster.entries.map(e => e.playerPoolEntry.player.fullName))
+    .map(n => rows('SELECT id FROM players WHERE name = ? ORDER BY id LIMIT 1', n)[0]?.id).filter(Boolean);
+  const saved = process.env[PRICE_BAND_V2_ENV];
+  const ladder = v => {
+    if (v === undefined) delete process.env[PRICE_BAND_V2_ENV]; else process.env[PRICE_BAND_V2_ENV] = v;
+    return ids.map(id => engine.offerFor(lg, { myTeamId: '1', targetId: id }));
+  };
+  try {
+    const legacy = ladder('0'), v2 = ladder('1');
+    for (const [runs, band, served] of [[legacy, LEGACY_BAND, false], [v2, V2_BAND, true]]) {
+      let offers = 0;
+      for (const out of runs) {
+        if (served && out.mode === 'target') assert.deepEqual(out.accept_band, V2_BAND);
+        if (!served) assert.equal(out.accept_band, undefined, 'flag off adds no field');
+        for (const o of out.offers ?? []) {
+          offers++;
+          assert.ok(o.ratio >= +band.window_lo.toFixed(2) && o.ratio <= +band.window_hi.toFixed(2),
+            `${band.version}: ratio ${o.ratio} outside [${band.window_lo}, ${band.window_hi}]`);
+        }
+      }
+      assert.ok(offers > 0, `${band.version}: fixture must produce priced offers`);
+    }
+  } finally {
+    if (saved === undefined) delete process.env[PRICE_BAND_V2_ENV]; else process.env[PRICE_BAND_V2_ENV] = saved;
+  }
 });

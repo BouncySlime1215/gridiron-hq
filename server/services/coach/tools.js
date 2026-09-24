@@ -28,6 +28,10 @@ import { whoPlays } from '../who-plays.js';
 import { teamTendencies } from '../nfl-team-tendencies.js';
 import { coachingProfile, footballContext } from '../football-context.js';
 import { sourceTrustScore } from '../beat-reporter-accuracy.js';
+import { BRAIN_TOOLS, brainToolsOn, BrainToolInputError } from './brain-tools.js';
+import { NAV_TOOL, navOn, NavigatorError } from './navigator.js';
+import { NEG_TOOL, negotiateOn, warmNegotiator, NegotiatorError } from './negotiator.js';
+import { validateAction, ACTION_TYPES, PANELS, PLUG_IN_FIELDS, PLAN_CHANGING } from '../warroom-actions/schema.js';
 
 export class CoachToolError extends Error {
   constructor(message) { super(message); this.name = 'CoachToolError'; }
@@ -237,9 +241,104 @@ export const COACH_TOOLS = Object.freeze([
   })
 ]);
 
+/**
+ * WR-COACH: Coach's War Room tools. Each returns ONE typed UI action (the
+ * schema is server/services/warroom-actions/schema.js) for the client
+ * dispatcher to apply; nothing enters the ledger, because an action is not
+ * evidence about football. The client refuses any action outside the schema,
+ * and plan-changing actions only open a trade-off preview that waits for
+ * Nick's Confirm tap. No tool here can send anything to a league-mate.
+ */
+const uiTool = ({ name, types, description, properties }) => ({
+  name, kind: 'ui_action', source: 'server/services/warroom-actions/schema.js#validateAction', tables: [],
+  types: Object.freeze(types), description,
+  input_schema: { type: 'object', required: ['type'], properties: { type: { type: 'string', enum: types }, ...properties } },
+  run(input) {
+    if (!types.includes(input?.type)) {
+      throw new CoachToolError(`${name} does ${types.join(', ')}; ${JSON.stringify(input?.type)} is not one of them.`);
+    }
+    const checked = validateAction(input);
+    if (!checked.ok) throw new CoachToolError(`Refused: ${checked.error}.`);
+    return { action: checked.action };
+  }
+});
+
+const VIEW_TYPES = ACTION_TYPES.filter(t => !PLAN_CHANGING.includes(t) && !['plug_in', 'draft_message'].includes(t));
+
+export const WARROOM_TOOLS = Object.freeze([
+  uiTool({
+    name: 'warroom_view',
+    types: VIEW_TYPES,
+    description: 'Change what the War Room dashboard shows. focus_panel switches league (league = the number on ' +
+      'the league switcher) and brings a panel into the main slot; filter / sort apply to the panel; pin_card keeps ' +
+      'a player or offer on screen; arrange_layout resizes or moves a panel; reset_layout restores the default grid; ' +
+      'undo reverts the last change; next skips the current offer in the deck; explain highlights the reason chain. ' +
+      'Every change is one-tap undoable.',
+    properties: {
+      panel: { type: 'string', enum: [...PANELS] }, league: { type: 'integer' },
+      position: { type: 'string' }, by: { type: 'string' }, player_id: { type: 'string' }, move_id: { type: 'string' },
+      size: { type: 'string', enum: ['normal', 'large'] }, order: { type: 'integer' }
+    }
+  }),
+  uiTool({
+    name: 'warroom_plug_in',
+    types: ['plug_in'],
+    description: 'Add a card to the dashboard bound to one engine field, shown as a number, list, sparkline or table. ' +
+      'You choose WHICH field and HOW to show it; the value is read from the engine, never written by you. Fields: ' +
+      Object.entries(PLUG_IN_FIELDS).map(([f, v]) => `${f} (${v.join('/')})`).join(', ') + '.',
+    properties: { field: { type: 'string', enum: Object.keys(PLUG_IN_FIELDS) }, view: { type: 'string' }, title: { type: 'string' } }
+  }),
+  uiTool({
+    name: 'warroom_plan_change',
+    types: [...PLAN_CHANGING],
+    description: 'Propose a change to the plan: set_objective (goal title / playoffs / get_player / points, optional ' +
+      'arrive_by week), add_stop, remove_stop, set_risk_mode (safe / balanced / all_in, optional until_week), ' +
+      "set_tolerance. Nothing changes when you call this: the dashboard shows the engine's trade-off preview and waits " +
+      'for Nick to tap Confirm. Never state the trade-off numbers yourself; the preview shows them.',
+    properties: {
+      goal: { type: 'string' }, player_id: { type: 'string' }, points_per_week: { type: 'integer' }, arrive_by: { type: 'integer' },
+      stop: { type: 'object' }, stop_id: { type: 'string' }, mode: { type: 'string' }, until_week: { type: 'integer' },
+      key: { type: 'string' }, value: { type: 'number' }
+    }
+  }),
+  uiTool({
+    name: 'warroom_draft_message',
+    types: ['draft_message'],
+    description: "Fill the next-move message box with a draft for Nick to copy. Words only, no digits (numbers come from " +
+      'the engine). Coach never sends it: Nick copies it and sends it himself.',
+    properties: { text: { type: 'string' }, tone: { type: 'string', enum: ['softer', 'firmer', 'neutral'] } }
+  })
+]);
+
+/**
+ * The ONE registry: every tool Coach is offered on this call, in five groups.
+ *   COACH_TOOLS     always.
+ *   BRAIN_TOOLS     the brain read tools (brain-tools.js), when
+ *                   GRIDIRON_COACH_BRAIN_TOOLS or preview mode is on.
+ *   NAV_TOOL        itinerary_edit (navigator.js, COACH-NAV), when
+ *                   GRIDIRON_COACH_NAV or preview mode is on.
+ *   NEG_TOOL        negotiate_reply (negotiator.js, COACH-NEGOTIATE), when
+ *                   GRIDIRON_COACH_NEGOTIATE or preview mode is on.
+ *   WARROOM_TOOLS   only when the question comes from the War Room, so every
+ *                   other Coach surface keeps exactly today's tool list.
+ * Flags are read per call, so a flag flips without a restart.
+ */
+export function activeTools({ warRoom = false } = {}) {
+  const neg = negotiateOn();
+  // The negotiator's engine modules load in the background the first time it is offered.
+  if (neg) warmNegotiator();
+  return [
+    ...COACH_TOOLS,
+    ...(brainToolsOn() ? BRAIN_TOOLS : []),
+    ...(navOn() ? [NAV_TOOL] : []),
+    ...(neg ? [NEG_TOOL] : []),
+    ...(warRoom ? WARROOM_TOOLS : [])
+  ];
+}
+
 /** The tool blocks handed to Claude: no functions, no internals. */
-export function toolDefinitions() {
-  return COACH_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema }));
+export function toolDefinitions({ warRoom = false } = {}) {
+  return activeTools({ warRoom }).map(({ name, description, input_schema }) => ({ name, description, input_schema }));
 }
 
 /**
@@ -247,20 +346,71 @@ export function toolDefinitions() {
  *
  * @returns {{entry: object|null, summary: object}} `entry` is the ledger entry a
  *   claim can cite, or null for metadata. `summary` is what goes back to the
- *   model: small, and enough to write the next cite.
- * @throws {CoachToolError} unknown tool or bad arguments
+ *   model: small, and enough to write the next cite. A War Room tool also
+ *   returns `action`, the validated UI action for the client dispatcher.
+ * @throws {CoachToolError} unknown tool, bad arguments, or a refused UI action
  * @throws refusals and SQL errors from the guarded query layer, unchanged
  */
 export function runCoachTool(name, input, { ledger } = {}) {
-  const tool = COACH_TOOLS.find(t => t.name === name);
+  // A War Room action is runnable whenever the model names one (as before
+  // this registry); the brain tools and the navigator stay behind their flags.
+  const tools = activeTools({ warRoom: true });
+  const tool = tools.find(t => t.name === name);
   if (!tool) {
     throw new CoachToolError(
-      `There is no tool called ${name}. Coach has: ${COACH_TOOLS.map(t => t.name).join(', ')}.`);
+      `There is no tool called ${name}. Coach has: ${tools.map(t => t.name).join(', ')}.`);
+  }
+  if (tool.kind === 'ui_action') {
+    const { action } = tool.run(input);
+    return { entry: null, action,
+      summary: { action, note: PLAN_CHANGING.includes(action.type)
+        ? 'Sent to the dashboard as a preview. Nothing changes until Nick taps Confirm.'
+        : 'Sent to the dashboard. Nick can undo it with one tap.' } };
   }
   if (!ledger) throw new CoachToolError('A tool call needs the turn\'s ledger.');
 
   if (tool.kind === 'meta') {
     return { entry: null, summary: tool.run(input).meta };
+  }
+
+  if (tool.kind === 'navigate') {
+    // COACH-NAV: reads the plan into the ledger, proposes edits, writes nothing.
+    // The dashboard dispatcher holds ONE pending plan change, so navigate()
+    // serves at most one action; the other edits come back as `queued` and are
+    // named in the answer's refusals, never dropped silently.
+    let out;
+    try {
+      out = tool.run(input, { ledger });
+    } catch (e) {
+      if (e instanceof NavigatorError || e instanceof BrainToolInputError) throw new CoachToolError(e.message);
+      throw e;
+    }
+    const entry = ledger.queries.at(-1) ?? null;
+    return { entry, ...(out.actions.length ? { action: out.actions[0] } : {}),
+      summary: { proposal: out.proposal, claims: out.answer.claims, refusals: out.answer.refusals,
+        as_of: out.answer.as_of, grounded: out.verification.ok, on_screen: out.actions[0] ?? null, queued: out.queued,
+        note: 'Put these claims and refusals in your answer as they are, footer last. Only on_screen waits for ' +
+          'Nick\'s Confirm; queued changes are not on screen and are not recorded until he asks for them again. ' +
+          'Do not call itinerary_edit again this turn: a second call replaces the preview on screen.' } };
+  }
+
+  if (tool.kind === 'negotiate') {
+    // COACH-NEGOTIATE: reads the plan and the engine's prices into the ledger,
+    // drafts, sends nothing. The one action is a draft for the dock's message box.
+    let out;
+    try {
+      out = tool.run(input, { ledger });
+    } catch (e) {
+      if (e instanceof NegotiatorError || e instanceof BrainToolInputError) throw new CoachToolError(e.message);
+      throw e;
+    }
+    const entry = ledger.queries.at(-1) ?? null;
+    return { entry, ...(out.actions.length ? { action: out.actions[0] } : {}),
+      summary: { kind: out.kind, recommendation: out.recommendation, reprice: out.reprice, draft: out.draft,
+        claims: out.answer.claims, refusals: out.answer.refusals, as_of: out.answer.as_of,
+        grounded: out.verification.ok, sends: out.sends,
+        note: 'Put these claims and refusals in your answer as they are. The draft is in the message box for Nick to ' +
+          'copy; nothing was sent and nothing was logged. Never state a price that is not in these claims.' } };
   }
 
   if (tool.kind === 'derive') {
@@ -274,7 +424,14 @@ export function runCoachTool(name, input, { ledger } = {}) {
     return { entry, summary: summarise(entry) };
   }
 
-  const { value, tables } = tool.run(input);
+  let ran;
+  try {
+    ran = tool.run(input);
+  } catch (e) {
+    if (e instanceof BrainToolInputError) throw new CoachToolError(e.message);
+    throw e;
+  }
+  const { value, tables } = ran;
   const { rows, columns, truncated } = toRows(value);
   const entry = ledger.record({
     tool: name, sql: null, params: [], tables, columns, rows,

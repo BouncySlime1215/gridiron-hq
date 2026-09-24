@@ -37,6 +37,9 @@ import { deriveFormat } from './format.js';
 import { assetUniverse, loadRosters, lineupSlots } from './trade-engine.js';
 import { irOnRoster } from './lineup-brain.js';
 import { WEEKLY_ROLE_RECENCY } from './weekly-ensemble.js';
+import { keyedSeed } from './stats-util.js';
+import { oneWorldFlag, oneWorldPreviewFields } from './one-world.js';
+import { leagueWorld, worldPool, worldStamp } from './league-world.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const POOL = 600;          // outcomes sampled per player, then indexed by the copula
@@ -112,6 +115,30 @@ function outcomePools(players, season, week, scoring) {
       player: p,
       meta: { id: p.id, position: p.position, team: p.team_abbr, opponent: game.opponent_abbr,
         target_share: pr.volume?.target_share ?? null },
+      samples,
+      mean: samples.reduce((s, v) => s + v, 0) / samples.length
+    });
+  }
+  return entries;
+}
+
+/**
+ * EA-07: each candidate's pool is his pool in the league's one world (the draws the
+ * title odds index, league scoring, availability included), and the copula is keyed
+ * the way the world's is, so a player's marginal week here is the sim's.
+ */
+function worldOutcomePools(lg, players, week) {
+  const { schedule } = matchupModel();
+  const entries = [];
+  for (const p of players) {
+    if (!SCORED.has(p.position)) continue;
+    const samples = worldPool(lg, p, week);
+    const game = schedule.get(p.team_abbr)?.find(g => g.week === week);
+    if (!samples || !game) continue;
+    entries.push({
+      player: p,
+      meta: { id: p.id, position: p.position, team: p.team_abbr, opponent: game.opponent_abbr,
+        target_share: leagueWorld(lg).projections.get(p.id)?.volume?.target_share ?? null },
       samples,
       mean: samples.reduce((s, v) => s + v, 0) / samples.length
     });
@@ -201,7 +228,11 @@ export function ceilingLineup(leagueId, {
   // and the League Hub card all use. This solved on every rostered player, so on the
   // 2026-W2 live check league 4's lineup put Zach Charbonnet (IR slot, OUT) at FLEX.
   const irReason = irOnRoster(lg, me.roster_id, me.players);
-  const pools = outcomePools(me.players.filter(p => !irReason.has(p.id)), season, week, PPR)
+  const oneWorld = oneWorldFlag();
+  const world = oneWorld.on ? leagueWorld(lg) : null;
+  if (world?.fail) return world.fail;
+  const playable = me.players.filter(p => !irReason.has(p.id));
+  const pools = (world ? worldOutcomePools(lg, playable, Number(week)) : outcomePools(playable, season, week, PPR))
     .sort((a, b) => b.mean - a.mean)
     .slice(0, candidates);
   if (pools.length < slots.length) {
@@ -212,8 +243,10 @@ export function ceilingLineup(leagueId, {
   // One correlated sampler over the whole candidate pool, drawn once. Every
   // lineup is then scored against the SAME draws, so two lineups differ only
   // by who is in them and never by sampling luck.
-  const draw = correlatedSampler(pools.map(e => e.meta), pools.map(e => e.samples));
-  const draws = Array.from({ length: trials }, () => draw());
+  const draw = correlatedSampler(pools.map(e => e.meta), pools.map(e => e.samples),
+    world ? pools.map(e => keyedSeed(world.prep.world, 'copula', e.player.id, Number(week))) : null);
+  // Keyed (one world): trial t is run t's addressed normals, not the next stream draws.
+  const draws = Array.from({ length: trials }, (_, run) => (world ? draw(run) : draw()));
 
   // A default target set from the team's own top-heavy lineup: beating your own
   // median is not a goal, beating a strong week is.
@@ -288,6 +321,7 @@ export function ceilingLineup(leagueId, {
       hit_probability_gained: r4((bestScore.hit_probability ?? 0) - (naiveFull.hit_probability ?? 0))
     },
     stacks,
+    ...(world ? { one_world: worldStamp(lg, world), ...oneWorldPreviewFields(oneWorld) } : {}),
     note: 'Scored on a Gaussian copula over fitted archetype correlations, so a quarterback and ' +
       'his own receiver have their good weeks together. Every lineup is evaluated against the ' +
       'same draws, so a difference between them is never sampling luck.'

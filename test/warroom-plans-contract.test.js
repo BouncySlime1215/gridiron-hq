@@ -4,8 +4,9 @@
  *
  *  1. The producer fixture validates, and it writes every path the contract
  *     declares, so "the producer writes it" is shown, not assumed.
- *  2. The UI's and Coach's own fixtures are validated; the ways they fail are
- *     pinned, and each is a mismatch listed in consumer-reads.js with its fix.
+ *  2. The UI's own fixture is validated; the ways it fails are pinned, and each
+ *     is a mismatch listed in consumer-reads.js with its fix. Coach's fixture
+ *     (after FIX-06) is a contract league and validates.
  *  3. Every key a consumer reads is a key the producer writes, except the
  *     recorded mismatches; a new unmatched read fails, and so does a recorded
  *     mismatch that has started to resolve.
@@ -16,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  validatePlans, validateLeague, schemaPaths, writtenPaths, tradeoffKey, TRADEOFF_KEY, SECTIONS, SCHEMA_VERSION
+  validatePlans, validateLeague, schemaPaths, writtenPaths, tradeoffKey, TRADEOFF_KEY, SECTIONS, OPTIONAL_SECTIONS, SCHEMA_VERSION
 } from '../server/services/campaign/plans-schema.js';
 import { READS } from './fixtures/warroom-contract/consumer-reads.js';
 
@@ -24,9 +25,11 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fixture = name => JSON.parse(fs.readFileSync(path.join(ROOT, 'test/fixtures/warroom-contract', name), 'utf8'));
 const PRODUCER = fixture('producer-plans.json');
 const UI_FIXTURE = fixture('ui-war-room-plans.json');
-const COACH_FIXTURE = fixture('coach-plans.json');
+/** Coach's tests (warroom-coach*.test.js) read the producer's first league since FIX-06. */
+// Coach's fixture: the hand-written contract league (ui-contract-plans.json, FIX-04) carries the priced add_stop.
+const { league: _l, me: _m, ...COACH_FIXTURE } = fixture('ui-contract-plans.json').leagues[0];
 
-const META = /\.(status|reason|source|se|clears_2se|as_of|n)$/;
+const META = /\.(status|reason|source|se|clears_2se|as_of|n|unit|guess)$/;
 /** next_move is one deck entry, and the four reply rows share one shape. */
 const norm = p => p
   .replace(/^leagues\[\]\.next_move\.value/, 'leagues[].alternatives.value[]')
@@ -43,10 +46,35 @@ test('the producer fixture validates against the contract', () => {
   assert.equal(PRODUCER.schema, SCHEMA_VERSION);
 });
 
+/**
+ * Declared paths the producer cannot write yet, each with the unit that will.
+ * The fixture is the real producer's output (FIX-03), so these stay out of the
+ * next test until their unit lands; the test after it fails the day one of
+ * them starts being written, so an entry cannot linger.
+ */
+const PENDING = [
+  { unit: 'unassigned', why: 'no planner rule reads these two sliders', path: /^leagues\[\]\.destination\.value\.tolerances\.value\.(reputation_budget|ai_spend)$/ },
+  { unit: 'EVAL E1 (PEOPLE-03)', why: 'no per-step counterpart feature names a player until E1 grades one positive (stepAdjust returns none)',
+    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.counterpart\.value\.reason_chain\[\]\.(player|n)$/ },
+  { unit: 'FLIP-LEGS-2 (#358 flag)', why: 'the flip packages are served only with GRIDIRON_FLIP_LEGS on; the fixture producer runs flag-off',
+    path: /^leagues\[\]\.flip_map\.value\[\]\.legs\.(give_a_ids|get_b_ids)(\[\])?$/ }
+];
+const pending = p => PENDING.some(x => x.path.test(p));
+
 test('the producer fixture writes every path the contract declares', () => {
   const written = new Set([...writtenPaths(PRODUCER)].map(norm));
-  const missing = [...new Set([...schemaPaths()].map(norm))].filter(p => !META.test(p) && !written.has(p));
+  const missing = [...new Set([...schemaPaths()].map(norm))].filter(p => !META.test(p) && !written.has(p) && !pending(p));
   assert.deepEqual(missing, []);
+});
+
+test('each pending path is declared and still not written', () => {
+  const declared = [...schemaPaths()].filter(p => !META.test(p));
+  const written = new Set([...writtenPaths(PRODUCER)].map(norm));
+  for (const x of PENDING) {
+    const hits = declared.filter(p => x.path.test(p));
+    assert.ok(hits.length, `${x.unit}: ${x.path} matches no declared path`);
+    assert.deepEqual(hits.filter(p => written.has(norm(p))), [], `${x.unit}: written now; drop it from PENDING`);
+  }
 });
 
 test('every league section is present unless the whole run failed', () => {
@@ -102,7 +130,7 @@ test("stop_tradeoffs keys follow Coach's tradeoffKey grammar exactly", () => {
   for (const bad of ['mode:yolo', 'tolerance:max_assets:two', 'add:trade:702', 'objective:win', 'remove:', 'mode:safe:until:19']) {
     assert.equal(TRADEOFF_KEY.test(bad), false, bad);
   }
-  for (const key of Object.keys(COACH_FIXTURE.stop_tradeoffs)) assert.ok(TRADEOFF_KEY.test(key), key);
+  for (const key of Object.keys(COACH_FIXTURE.stop_tradeoffs.value)) assert.ok(TRADEOFF_KEY.test(key), key);
   for (const key of Object.keys(PRODUCER.leagues[0].stop_tradeoffs.value)) assert.ok(TRADEOFF_KEY.test(key), key);
 });
 
@@ -122,24 +150,13 @@ test("the UI's fixture (#231) is the study's shape, and fails the contract only 
   assert.deepEqual([...offending].sort(), ['acq', 'baseline', 'flip', 'owner_mapping_present']);
   // Every campaign section is absent: the study run writes none of them. It also
   // omits `names` on a league whose run failed; the contract requires it (may be {}).
-  assert.deepEqual([...missing].sort(), [...Object.keys(SECTIONS), 'names'].sort());
+  assert.deepEqual([...missing].sort(), [...Object.keys(SECTIONS).filter(k => !OPTIONAL_SECTIONS.includes(k)), 'names'].sort());
 });
 
-test("Coach's fixture (#230) fails the contract only where the mismatch list says", () => {
+test("Coach's plans (#230, after FIX-06) are a contract league and validate", () => {
   const r = validateLeague({ league: 1, me: '3', ...COACH_FIXTURE }, '$');
-  const got = [...new Set(r.errors.map(e => `${e.path.split('.').slice(0, 2).join('.')} ${e.message}`))].sort();
-  assert.deepEqual(got.filter(s => !s.includes('is required')), [
-    '$.alternatives must be a typed field { status, source, ... }',
-    '$.destination must be a typed field { status, source, ... }',
-    '$.flips is not in the contract',
-    '$.itinerary must be a typed field { status, source, ... }',
-    '$.stop_tradeoffs must be a typed field { status, source, ... }'
-  ]);
-  // Wrapped as typed fields, its stop_tradeoffs entry still lacks the keys CoachDock renders.
-  const wrapped = validateLeague({ league: 1, me: '3', names: COACH_FIXTURE.names,
-    stop_tradeoffs: { status: 'ok', source: 'campaign.plan', value: COACH_FIXTURE.stop_tradeoffs } }, '$');
-  const entry = wrapped.errors.filter(e => e.path.startsWith('$.stop_tradeoffs')).map(e => e.path.replace('$.stop_tradeoffs.value.mode:all_in.', '')).sort();
-  assert.deepEqual(entry, ['cost', 'gain', 'net', 'new_next_move_changes']);
+  assert.deepEqual(r.errors, []);
+  assert.ok(COACH_FIXTURE.stop_tradeoffs.value['add:get:702'], 'carries a priced add_stop for the dock test');
 });
 
 /* ------------------------------------------- reads vs writes (the gate) */
@@ -147,17 +164,27 @@ test("Coach's fixture (#230) fails the contract only where the mismatch list say
 const DECLARED = schemaPaths();
 const WRITTEN = new Set([...writtenPaths(PRODUCER)].map(norm));
 /** A read resolves when the producer writes the path, and a scalar read does not land on a typed field. */
-const resolves = r => DECLARED.has(r.reads) && WRITTEN.has(norm(r.reads)) && !(r.scalar && DECLARED.has(`${r.reads}.status`));
+// A read on a PENDING path is declared and owned by the unit named there (FIX-05 for brain_report).
+const resolves = r => DECLARED.has(r.reads) && (WRITTEN.has(norm(r.reads)) || pending(r.reads)) && !(r.scalar && DECLARED.has(`${r.reads}.status`));
 
 test('every key a consumer reads is a key the producer writes', () => {
-  const unmatched = READS.filter(r => !r.fix && !resolves(r));
+  const unmatched = READS.filter(r => !r.fix && !r.awaits && !resolves(r));
   assert.deepEqual(unmatched.map(r => `#${r.pr} ${r.where} reads ${r.reads}`), []);
+});
+
+test('each read that awaits a producer is declared, says why, and is still not written', () => {
+  for (const r of READS.filter(x => x.awaits)) {
+    assert.ok(DECLARED.has(r.reads), `#${r.pr} ${r.where}: ${r.reads} is not a contract path`);
+    assert.equal(WRITTEN.has(norm(r.reads)), false, `#${r.pr} ${r.where}: ${r.reads} is written now; drop its awaits`);
+    assert.ok(r.awaits.length > 10);
+  }
 });
 
 test('each recorded mismatch is still a mismatch, and its fix names a real contract path', () => {
   for (const r of READS.filter(x => x.fix)) {
     assert.equal(resolves(r), false, `#${r.pr} ${r.where}: ${r.reads} resolves now; drop its fix`);
-    assert.ok(DECLARED.has(r.fix.to) && WRITTEN.has(norm(r.fix.to)), `#${r.pr} ${r.where}: fix target ${r.fix.to} is not written`);
+    // A target on a PENDING path is declared and owned by the unit named there (FIX-05 for brain_report).
+    assert.ok(DECLARED.has(r.fix.to) && (WRITTEN.has(norm(r.fix.to)) || pending(r.fix.to)), `#${r.pr} ${r.where}: fix target ${r.fix.to} is not written`);
     assert.ok(r.fix.line.length > 10);
   }
 });
@@ -170,4 +197,15 @@ test('when a consumer file is in this tree, each recorded read still appears in 
     const leaf = r.reads.replace(/(\.value|\[\]|\{\})+$/, '').split('.').pop().replace(/\W/g, '');
     assert.ok(src.includes(leaf), `${r.where} no longer mentions ${leaf}; update consumer-reads.js`);
   }
+});
+
+test("INT-4 / RULINGS 17: Nick's untouchable (league 1, team 4's P33) is never a target, a get or a flip leg", () => {
+  const L = PRODUCER.leagues.find(e => e.league === 1);
+  const moves = [L.next_move.value, ...(L.alternatives.value ?? [])].filter(Boolean);
+  assert.ok(moves.length > 0, 'league 1 still has a plan');
+  assert.ok(moves.every(m => String(m.target) !== '33' && m.steps.every(s => !s.get.includes('33'))), 'never a get');
+  assert.ok((L.targets.value ?? []).every(t => String(t.player) !== '33'), 'never a target');
+  assert.ok((L.flip_map.value ?? []).every(f => String(f.player) !== '33' && String(f.legs?.get_b ?? '') !== '33'), 'never a flip leg');
+  assert.deepEqual(L.partners.value.find(p => p.team === '4').untouchable, ['33']);
+  assert.deepEqual(L._run.inputs.untouchable.ids, ['33']);
 });

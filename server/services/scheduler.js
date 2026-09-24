@@ -23,6 +23,7 @@ import { Worker } from 'node:worker_threads';
 import { markJobRunning, markJobAbandoned, clearJobRunning } from '../platform/loop-watchdog.js';
 import { db, rows, run, row } from '../db/index.js';
 import { MARKET_MAX_AGE_MINUTES } from './dynasty-value-history.js';
+import { snapshotServedNumbers } from './serve-log.js';
 
 /**
  * True while any linked league's draft is likely happening on ESPN itself,
@@ -711,6 +712,33 @@ async function refreshManagerArchetypes() {
 }
 
 /**
+ * CRED-01 nightly: per-manager credibility (follow-through lift per statement
+ * type x manager, 7d/21d, shrunk to the league, as-of versioned) into
+ * people_credibility. A child process like the archetype build, so the
+ * transaction replay stays off this thread.
+ *
+ * Behind GRIDIRON_PEOPLE_CREDIBILITY=1 (default off): its statement labels
+ * (GRIDIRON_PEOPLE_LABELS_DIR) and the chat DB exist only on Nick's Mac. With
+ * the flag off the job records a skip, never an empty table that reads as
+ * "every manager is noise". The script itself skips when an input is missing.
+ */
+async function refreshPeopleCredibility() {
+  if (process.env.GRIDIRON_PEOPLE_CREDIBILITY !== '1') return { skipped: 'flag off (GRIDIRON_PEOPLE_CREDIBILITY)' };
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const path = await import('node:path');
+  const { PROJECT_ROOT } = await import('../platform/paths.js');
+  const script = path.join(PROJECT_ROOT, 'scripts/people/credibility.mjs');
+  const league = process.env.GRIDIRON_PEOPLE_CREDIBILITY_LEAGUE || '4';
+  const { stdout } = await promisify(execFile)(process.execPath, [script, '--league', league, '--json'],
+    { cwd: PROJECT_ROOT, env: process.env, encoding: 'utf8', timeout: 5 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+  const report = JSON.parse(stdout.trim().split('\n').at(-1));
+  if (report.status === 'error') throw new Error(`people credibility: ${report.error}`);
+  return { status: report.status, reason: report.reason ?? null, as_of: report.as_of ?? null,
+    rows: report.stored ?? 0, by_status: report.by_status ?? null };
+}
+
+/**
  * The historical facts the manager layer stands on: each league-season's final
  * standings (`league_season_teams`) and weekly scores (`league_week_scores`).
  *
@@ -741,6 +769,27 @@ async function refreshLeagueHistory() {
 async function refreshDecayWatch() {
   const { runDecayWatch } = await import('./decay-watch.js');
   return runDecayWatch();
+}
+
+/**
+ * The recommendation ledger's grader (GR-01): fills outcome/score on every
+ * rec_ledger row whose horizon weeks have been played (+1 lineup, +2/+5 trade
+ * and waiver), from player_week_usage scored by each league's own rules.
+ * Grades only; it never writes a recommendation and never deletes one.
+ */
+async function refreshRecLedgerGrades() {
+  const { gradeDue } = await import('./rec-ledger.js');
+  return gradeDue();
+}
+
+/**
+ * The follow ledger (SELF-01a): backfill shown calls from rec_ledger, then
+ * match what was done on ESPN (lineups, waiver adds, trade actions) into
+ * follow / ignore / no_action. Records only; it never grades a call.
+ */
+async function refreshFollowLedger() {
+  const { syncFollowLedger } = await import('./engine/follow-ledger.js');
+  return syncFollowLedger();
 }
 
 /** Refit the TD calibrator on fixed chronological eras; promotion still requires replication. */
@@ -1210,6 +1259,23 @@ async function refreshFantasyCalcValues() {
 }
 
 /**
+ * DATA-FC (redraft): FantasyCalc's redraft value + 30-day trend into player_metrics
+ * ('fc_value', 'fc_trend30', 'fc_adp'). The League Hub's roster strength, rankings,
+ * the edge board and the NFL data market column all read 'fc_value', but only the
+ * manual sync button ever ran this, so on a SCHEDULER_DISABLED=1 install every one
+ * of those said "no FantasyCalc values" (0 of 173 league-4 players priced, 9/24).
+ * Same terms as the dynasty job: daily, the documented /values/current endpoint only.
+ * syncFantasyCalc records its own 'fantasycalc_values' sync_log row, so a button press
+ * counts as the day's run.
+ */
+async function refreshFantasyCalcRedraft() {
+  const { syncFantasyCalc } = await import('../routes/aggregates.js');
+  const leagues = row('SELECT COUNT(*) AS n FROM leagues')?.n ?? 0;
+  if (!leagues) return { skipped: 'no connected leagues, so no format to price' };
+  return syncFantasyCalc();
+}
+
+/**
  * The standing start/sit gate (plan item C12): the projection the app served against ESPN's
  * weekly projection (the plan's rule, the verdict), with "start the higher season-to-date
  * average" replayed over 2024-2025 and this season as a floor check; stored in
@@ -1284,6 +1350,9 @@ export const JOBS = {
   fantasycalc_dynasty: {
     run: refreshFantasyCalcValues, maxAgeMinutes: MARKET_MAX_AGE_MINUTES, tier: 'growth', offThread: true,
     label: 'FantasyCalc market values per connected league format (daily; appends the value history)' },
+  fantasycalc_values: {
+    run: refreshFantasyCalcRedraft, maxAgeMinutes: MARKET_MAX_AGE_MINUTES, tier: 'growth', offThread: true,
+    label: 'FantasyCalc redraft value + 30-day trend (daily; League Hub, rankings, edge board)' },
   espn_rosters: { run: refreshEspnRosters, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
     label: 'ESPN per-team roster feed (cuts, signings, practice-squad moves)' },
   league_rosters: { run: refreshLeagueRosters, maxAgeMinutes: 60, tier: 'live', offThread: true,
@@ -1442,6 +1511,15 @@ export const JOBS = {
   // about what the job does is changed. See the note on its budget below.
   evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, tier: 'live', offThread: true,
     label: 'Forward evidence capture windows' },
+  /*
+   * IDEA-001: once per league per NFL week, the title odds, the title-trades tab
+   * and the finder's cards as they would be served, into served_numbers — so a
+   * week nobody opened a page still has a served number to grade. Idempotent per
+   * (league, season, week) inside the job; 12 h maxAge only decides how soon
+   * after a new week it lands. offThread: the season simulations run in a worker.
+   */
+  served_numbers_weekly: { run: snapshotServedNumbers, maxAgeMinutes: 12 * 60, tier: 'growth', offThread: true,
+    label: 'Served-number snapshot: title odds, title trades and trade cards, weekly per league' },
   nfl_weekly_learning: { run: refreshWeeklyLearning, maxAgeMinutes: 6 * 60, tier: 'heavy',
     label: 'Fantasy weekly snapshot, settlement, and challenger retraining' },
   // Enabled by default, unlike broad heavy research sweeps. Most checks are a
@@ -1542,6 +1620,8 @@ export const JOBS = {
     label: 'League history: final standings and weekly scores per league-season (ESPN, paced)' },
   manager_archetypes: { run: refreshManagerArchetypes, maxAgeMinutes: 24 * 60, tier: 'heavy', timeoutMs: 10 * 60_000,
     label: 'Manager archetypes: draft-revealed preference and all-play/luck outcomes (child process)' },
+  people_credibility: { run: refreshPeopleCredibility, maxAgeMinutes: 24 * 60, tier: 'heavy', timeoutMs: 6 * 60_000,
+    label: 'People credibility: follow-through lift per statement type x manager, nightly (CRED-01, flagged, child process)' },
   /*
    * Prop quote capture. Every hour during a slate, because a prop line that is
    * only observed once cannot yield closing-line value — CLV needs the price
@@ -1583,6 +1663,22 @@ export const JOBS = {
    */
   decay_watch: { run: refreshDecayWatch, maxAgeMinutes: 24 * 60, tier: 'growth',
     label: 'Post-approval decay watch: do shipped findings still hold on fresh data? (report only)' },
+  /*
+   * Six hours: player_week_usage lands on the nflverse_weekly_usage job's own
+   * six-hour cadence, and a grade can only move when a week has been added.
+   * 'growth' so it runs on the default timer; off-thread because a season's
+   * actuals() read is the whole player_week_usage season.
+   */
+  rec_ledger_grade: { run: refreshRecLedgerGrades, maxAgeMinutes: 6 * 60, tier: 'growth', offThread: true,
+    label: 'Recommendation ledger: grade calls whose horizon weeks have been played (+1 lineup, +2/+5 trade and waiver)' },
+  /*
+   * Hourly: lineup snapshots and raw transactions land on the refresh loop,
+   * and ESPN keeps only about three days of transactions, so a resolver that
+   * lags a window by a day still reads its rows from the local copy.
+   * Off-thread, as rec_ledger_grade: the backfill reads the whole rec_ledger.
+   */
+  follow_ledger_sync: { run: refreshFollowLedger, maxAgeMinutes: 60, tier: 'growth', offThread: true,
+    label: 'Follow ledger: match shown calls to what was done on ESPN (follow / ignore / no_action)' },
   twitter_insiders: { run: refreshTwitterInsiders, maxAgeMinutes: 4 * 60, tier: 'metered',
     label: 'NFL insider tweets — typed injury/role claims (budget-capped, ~$0.003/handle)' },
   nfl_injuries: { run: refreshNflInjuries, maxAgeMinutes: 6 * 60, tier: 'live', offThread: true,

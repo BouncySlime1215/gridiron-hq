@@ -27,7 +27,8 @@ const wr = await loadWarRoom();
 test.after(() => wr.cleanup());
 const { deckReducer, initialDeck, SKIP_REASONS } = await wr.mod('deck');
 const { default: NextMoveDeck } = await wr.mod('NextMoveDeck');
-const { flushOutbox, postWarRoomRequest, requestPath } = await wr.mod('requests');
+const { flushOutbox, postWarRoomRequest, requestPath, targetApprove } = await wr.mod('requests');
+const { default: TargetPicker } = await wr.mod('TargetPicker');
 
 const ON = { enabled: true, preview: false };
 const plansOf = leagues => ({ status: 'ok', entries: leagues, as_of: '2026-09-24T06:00:00.000Z', id: 'plans@1',
@@ -116,6 +117,21 @@ test('"I sent it" posts offer.sent once; a logged reply posts offer.reply; Do it
   assert.match(picked.text, /I sent it/);
   assert.match(picked.text, /He did this/);
   assert.equal(typeof postWarRoomRequest, 'function');
+});
+
+test('Approve on a suggested target posts one target.approve request', async () => {
+  assert.deepEqual(targetApprove('702'), { kind: 'target.approve', payload: { player_id: '702', source: 'suggested' } });
+  const calls = [];
+  await postWarRoomRequest(1, targetApprove('702'), async (p, init) => { calls.push([p, JSON.parse(init.body)]); });
+  assert.deepEqual(calls, [['/warroom/1/requests', { kind: 'target.approve', payload: { player_id: '702', source: 'suggested' }, source: 'nick' }]]);
+  const v = viewOf();
+  const html = renderToStaticMarkup(React.createElement(TargetPicker, { field: v.targets, names: v.names, big: true, onRequest: async () => ({}) }));
+  const text = textOf(html);
+  assert.match(text, /N\. Whitfield \(WR\).*Approve/, 'the suggested, unapproved target offers Approve');
+  assert.match(text, /in the plan/, 'the plan target says so instead');
+  assert.doesNotMatch(html, /<button[^>]*disabled=""[^>]*>Approve/, 'Approve is live when the request route is wired');
+  const off = renderToStaticMarkup(React.createElement(TargetPicker, { field: v.targets, names: v.names, big: true }));
+  assert.match(off, /<button[^>]*disabled=""[^>]*>Approve/, 'control: without a route Approve is disabled');
 });
 
 test('reducer: Next advances and logs, Back restores, ends are no-ops', () => {

@@ -5,10 +5,11 @@ import { NOT_COMPUTED, se as fmtSe } from './format';
 /** Source labels from the view (server SOURCES), shared by every tag on the page. */
 export const SourcesContext = createContext<Record<string, { label: string; calibrated: boolean }>>({});
 
-/** A small pill naming where a number came from; amber "guess" when uncalibrated. */
-export function SourceTag({ id, guess }: { id: string; guess?: boolean }) {
+/** A small pill naming where a number came from; amber "guess" when its source is not calibrated. */
+export function SourceTag({ id }: { id: string }) {
   const sources = useContext(SourcesContext);
   const label = sources[id]?.label ?? id;
+  const guess = !sources[id]?.calibrated;
   return (
     <>
       <span className="wr-tag wr-src" title={`Source: ${label}`}>{label}</span>
@@ -44,7 +45,7 @@ export function Val<T>({ f, fmt, showSe, showReason, tags }: {
       {fmt(f.value as T)}
       {showSe && typeof f.se === 'number' && <span className="wr-muted"> {fmtSe(f.se)}</span>}
       {noise && <span className="wr-muted"> inside the noise</span>}
-      {tags && <> <SourceTag id={f.source} guess={f.guess} /></>}
+      {tags && <> <SourceTag id={f.source} /></>}
     </span>
   );
 }

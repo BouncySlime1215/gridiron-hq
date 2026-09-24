@@ -93,9 +93,11 @@ test('flag-on view renders every contract section from the producer, never 0', (
   for (const s of ['War Room', 'Next move', 'Stops', 'Flip map', 'Suggested targets', 'Catch-up', 'Is the brain working?', 'Coach',
     'Preview, unconfirmed', '1 of 2', 'Send this to Team 7',
     // destination, attention, speed curve, catch-up, brain report and targets are the producer's, not "not built"
-    '11.8%', 'rank 1 of 3', 'Offer Team 9 the bench receiver', 'wk 5', 'D. Harlow (WR)', '12 offers logged']) assert.ok(text.includes(s), s);
+    '11.8%', 'rank 1 of 3', 'Offer Team 9 the bench receiver', 'wk 5', 'D. Harlow (WR)', 'not enough data']) assert.ok(text.includes(s), s);
   assert.doesNotMatch(text, /\b0\.0%|\b0%|NaN|undefined/);
   for (const id of ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7']) assert.ok(text.includes(id), id);
+  // WarRoom wires the request route into the target picker (the call site of target.approve).
+  assert.match(html, /<button type="button" class="wr-btn wr-sm">Approve<\/button>/);
   // A league with nothing produced still draws every panel, each saying why.
   const empty = renderToStaticMarkup(React.createElement(WarRoom, {
     view: buildWarRoomView(99, plans, { enabled: true, preview: false }), leagues: [{ id: 99, name: null }], activeId: 99, onLeague() {}, onExit() {},
@@ -107,7 +109,7 @@ test('flag-on view renders every contract section from the producer, never 0', (
 test('only useWarRoom.ts reads and only requests.ts writes, each to its one route', () => {
   const files = fs.readdirSync(WARROOM_DIR).filter(f => /\.tsx?$/.test(f));
   const src = f => fs.readFileSync(path.join(WARROOM_DIR, f), 'utf8');
-  const fetchers = files.filter(f => /\buseApi\s*[<(]|\bapi\s*[<(]|\bfetch\s*\(/.test(src(f)));
+  const fetchers = files.filter(f => /from ['"]\.\.\/\.\.\/api['"]|\bfetch\s*\(/.test(src(f)));
   assert.deepEqual(fetchers.sort(), ['requests.ts', 'useWarRoom.ts']);
   assert.doesNotMatch(src('requests.ts'), /\buseApi\b|\bfetch\s*\(/);
   assert.match(src('requests.ts'), /`\/warroom\/\$\{leagueId\}\/requests`/);

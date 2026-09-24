@@ -459,7 +459,7 @@ test('G9c: the refusal every ladder can return is decided on the horizon number 
 /* --------------------------- PRICE-BAND-01: the ladder serves the flagged band */
 
 test('PRICE-BAND-01: flag off serves the legacy window; GRIDIRON_PRICE_BAND_V2=1 serves the fitted band', async () => {
-  const { V2_BAND, LEGACY_BAND, PRICE_BAND_V2_ENV } = await import('../server/services/price-band.js');
+  const { V2_BAND, LEGACY_BAND, PRICE_BAND_V2_ENV, bandForShape } = await import('../server/services/price-band.js');
   const lg = rows('SELECT * FROM leagues WHERE id = 401')[0];
   const payload = JSON.parse(lg.payload);
   const ids = payload.teams.filter(t => String(t.id) !== '1')
@@ -479,8 +479,10 @@ test('PRICE-BAND-01: flag off serves the legacy window; GRIDIRON_PRICE_BAND_V2=1
         if (!served) assert.equal(out.accept_band, undefined, 'flag off adds no field');
         for (const o of out.offers ?? []) {
           offers++;
-          assert.ok(o.ratio >= +band.window_lo.toFixed(2) && o.ratio <= +band.window_hi.toFixed(2),
-            `${band.version}: ratio ${o.ratio} outside [${band.window_lo}, ${band.window_hi}]`);
+          // PRICE-BAND-02: with V2 on, each package is held to its own shape's band.
+          const b = bandForShape(band, o.i_give.length, 1);
+          assert.ok(o.ratio >= +b.window_lo.toFixed(2) && o.ratio <= +b.window_hi.toFixed(2),
+            `${b.version}: ${o.i_give.length}-for-1 ratio ${o.ratio} outside [${b.window_lo}, ${b.window_hi}]`);
         }
       }
       assert.ok(offers > 0, `${band.version}: fixture must produce priced offers`);

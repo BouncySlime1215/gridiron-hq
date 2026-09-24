@@ -100,7 +100,7 @@ import { counterpartyLayer, readDeal, counterpartyDataKey, playerValuation, self
 import { edgeTest, tacticsForDeal, timingRead, vetoClimate } from './trade-tactics.js';
 import { LOST_IDEAS } from './rec-ledger.js';
 import { acceptanceBand } from './trade-acceptance.js';
-import { servedAcceptBand } from './price-band.js';
+import { servedAcceptBand, bandForShape, windowSpan } from './price-band.js';
 // tradeIdeas() only: this roster's real P(make playoffs), which is what turns the
 // horizon from a 0.5 prior into a number. season-sim.js imports assetUniverse /
 // loadRosters / lineupSlots from THIS file, so the two modules form a cycle.
@@ -2658,7 +2658,10 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
   for (const give of packages) {
     const giveValue = give.reduce((s, p) => s + Math.max(0, p.value), 0);
     const ratio = target.value ? giveValue / target.value : 0;
-    if (ratio < band.window_lo || ratio > band.window_hi) continue;
+    // PRICE-BAND-02: with V2 on, each package is held to its own shape's band (2-for-1s
+    // clear higher than 1-for-1s). Legacy returns the one band for every shape.
+    const shapeBand = bandForShape(band, give.length, 1);
+    if (ratio < shapeBand.window_lo || ratio > shapeBand.window_hi) continue;
     const ev = evaluate({ team: me, gives: give }, { team: owner, gives: [target] }, slots,
       { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
     const gain = ladderGain(ev, horizon);
@@ -2677,10 +2680,11 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
     });
   }
   if (!priced.length) {
+    const span = windowSpan(band, [1, 2, 3], 1);
     return {
       ...context,
       error: 'He would help, but nothing on your roster prices out.',
-      reason: `Adding him is worth ${upsideHorizon} ppg to your lineup horizon-weighted (${upside} this week), but every package in his price range (${Math.round(target.value * band.window_lo)}–${Math.round(target.value * band.window_hi)}) costs you more than he returns. You need a third team, or a cheaper player at the same position.`
+      reason: `Adding him is worth ${upsideHorizon} ppg to your lineup horizon-weighted (${upside} this week), but every package in his price range (${Math.round(target.value * span.lo)}–${Math.round(target.value * span.hi)}) costs you more than he returns. You need a third team, or a cheaper player at the same position.`
         + (excludeIds?.size ? ` This search also left out the player(s) you've marked untouchable.` : '')
     };
   }
@@ -2820,7 +2824,8 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
     for (const give of packages) {
       const giveValue = give.reduce((s, p) => s + Math.max(0, p.value), 0);
       const ratio = targetsValue ? giveValue / targetsValue : 0;
-      if (ratio < band.window_lo || ratio > band.window_hi) continue;
+      const shapeBand = bandForShape(band, give.length, theirTargets.length);   // PRICE-BAND-02
+      if (ratio < shapeBand.window_lo || ratio > shapeBand.window_hi) continue;
       const ev = evaluate({ team: me, gives: give }, { team: owner, gives: theirTargets }, slots,
         { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
       const gain = ladderGain(ev, horizon);
@@ -2834,8 +2839,9 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
       });
     }
     if (!priced.length) {
+      const span = windowSpan(band, Array.from({ length: maxGive }, (_, i) => i + 1), theirTargets.length);
       ladders.push({ ...base, error: 'Nothing on your roster prices out for this package.',
-        reason: `Every combination in range (${Math.round(targetsValue * band.window_lo)}–${Math.round(targetsValue * band.window_hi)}) costs you more lineup value than it returns. Try fewer targets, or a third team.`
+        reason: `Every combination in range (${Math.round(targetsValue * span.lo)}–${Math.round(targetsValue * span.hi)}) costs you more lineup value than it returns. Try fewer targets, or a third team.`
           + (excludeIds?.size ? ` This search also left out your untouchable player(s).` : '') });
       continue;
     }

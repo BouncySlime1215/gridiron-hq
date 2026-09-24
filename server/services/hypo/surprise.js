@@ -8,10 +8,14 @@
  *                 (p(outcome) = model_p_accept)
  *   decline_high  an app-proposed offer resolved 'declined' when model_p_accept > 0.70
  *                 (p(outcome) = 1 - model_p_accept)
- *   roster_burst  a team's roster moves (executed adds + completed trades) in a 72 h
+ *   roster_burst  a team's roster decisions (executed adds + completed trades) in a 72 h
  *                 window are improbable under its own base rate: P(N >= n) < 0.05 for
  *                 N ~ Poisson(rate x 72 h), rate from the prior 28 days (at least 7
- *                 covered), n >= 3. p(outcome) = that tail.
+ *                 covered), n >= 3. p(outcome) = that tail. A DECISION is the team's moves
+ *                 at one timestamp: ESPN processes a team's waiver claims in one batch at
+ *                 one instant, and counting each claim as an independent event made one
+ *                 waiver run read as '3 moves in 0 h' at p = 0.000025 (local run, PR #277).
+ *                 The evidence still carries every move's tx id.
  *
  * The 10% / 70% cuts are the unit's own ("accept we gave <10%, decline we gave >70%").
  * The burst constants are hand-set, not fitted; the spec's per-stream 95th-percentile
@@ -25,7 +29,7 @@
  */
 import { db, rows, row } from '../../db/index.js';
 
-export const DETECTOR_VERSION = 'hypo-01a-v1';
+export const DETECTOR_VERSION = 'hypo-01a-v2';
 export const ACCEPT_LOW = 0.10;
 export const DECLINE_HIGH = 0.70;
 export const BURST_WINDOW_HOURS = 72;
@@ -122,19 +126,24 @@ function movesByTeam(tx) {
   return out;
 }
 
+const distinctTimes = moves => new Set(moves.map(m => m.at)).size;
+
 /** One window starting at moves[i]: its moves and its tail probability, or why it has none. */
 function scoreWindow(moves, i, coverageStart) {
   const start = moves[i].at;
   const inWindow = moves.filter(m => m.at >= start && m.at < start + BURST_WINDOW_HOURS * HOUR);
+  const decisions = distinctTimes(inWindow);
   const baselineStart = Math.max(coverageStart, start - BASELINE_DAYS * DAY);
   const baselineDays = (start - baselineStart) / DAY;
   if (baselineDays < BASELINE_MIN_DAYS) {
-    return { inWindow, p: null, baselineDays };
+    return { inWindow, decisions, p: null, baselineDays };
   }
-  const prior = moves.filter(m => m.at >= baselineStart && m.at < start).length;
+  const priorMoves = moves.filter(m => m.at >= baselineStart && m.at < start);
+  const prior = distinctTimes(priorMoves);
   const rate = (prior + RATE_PSEUDO_COUNT) / baselineDays;
   const lambda = rate * (BURST_WINDOW_HOURS / 24);
-  return { inWindow, p: poissonTail(inWindow.length, lambda), prior, baselineDays, lambda };
+  return { inWindow, decisions, p: poissonTail(decisions, lambda), prior, priorMoves: priorMoves.length,
+    baselineDays, lambda };
 }
 
 function burstSurprises(leagueId, season, skipped) {
@@ -149,7 +158,7 @@ function burstSurprises(leagueId, season, skipped) {
     // Candidate windows (>= BURST_MIN_MOVES), then chains of overlapping candidates are
     // one burst, so a run of moves is one hypothesis however the windows slide over it.
     const candidates = moves.map((_, i) => scoreWindow(moves, i, coverageStart))
-      .filter(w => w.inWindow.length >= BURST_MIN_MOVES);
+      .filter(w => w.decisions >= BURST_MIN_MOVES);
     const clusters = [];
     for (const w of candidates) {
       const last = clusters.at(-1);
@@ -174,17 +183,17 @@ function burstSurprises(leagueId, season, skipped) {
       out.push({
         surprise_key: `roster_burst:${leagueId}:${season}:${team}:${burst[0].tx_id}`,
         kind: 'roster_burst', team_id: String(team), model_p: best.p, surprisal: -Math.log(best.p),
-        outcome: `${burst.length} moves in ${hours} h`,
+        outcome: `${burst.length} moves (${distinctTimes(burst)} decisions) in ${hours} h`,
         occurred_at: new Date(burst[0].at).toISOString(),
-        statement: `Team ${team} made ${burst.length} roster moves in ${hours} h against a base rate of `
-          + `${best.prior} in the prior ${best.baselineDays.toFixed(0)} days (P = ${best.p.toExponential(1)}). `
+        statement: `Team ${team} made ${burst.length} roster moves (${distinctTimes(burst)} separate decisions) `
+          + `in ${hours} h against a base rate of ${best.prior} decisions in the prior ${best.baselineDays.toFixed(0)} days (P = ${best.p.toExponential(1)}). `
           + 'Hypothesis: something changed for this manager (injury news, a lost matchup, a shift to '
           + 'buying or selling). Test: does a burst like this predict his next trade offer or '
           + 'acceptance, walk-forward, excluding this burst?',
         evidence: {
-          tx_ids: burst.map(m => m.tx_id), moves: burst.length,
+          tx_ids: burst.map(m => m.tx_id), moves: burst.length, decisions: distinctTimes(burst),
           adds: burst.filter(m => m.kind === 'add').length, trades: burst.filter(m => m.kind === 'trade').length,
-          baseline: { prior_moves: best.prior, days: best.baselineDays, lambda: best.lambda },
+          baseline: { prior_decisions: best.prior, prior_moves: best.priorMoves, days: best.baselineDays, lambda: best.lambda },
           window_hours: BURST_WINDOW_HOURS,
         },
       });

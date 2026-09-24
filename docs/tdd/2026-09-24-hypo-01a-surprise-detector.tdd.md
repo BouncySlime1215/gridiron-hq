@@ -90,3 +90,27 @@ at import, `ERR_MODULE_NOT_FOUND`.
 4. **Pointed anywhere?** No. Nothing reads `surprise_hypotheses` except the CLI's `--list`.
 5. **How it unifies:** the row maps onto ENGINE-00a's engine_state `hypothesis` entity
    when the spine merges; HYPO-01b's screen excludes `evidence` ids (no double-dipping).
+
+## Round 2: a waiver run is one decision (from the local run on PR #277)
+
+The coordinator's run on a DB copy (league 4, `8929aac8`) flagged 8 `roster_burst` rows,
+among them "team 10, 3 moves in 0 h, p=0.000025". ESPN processes a team's waiver claims
+in one batch at one timestamp. v1 counted each claim as an independent Poisson event, so
+the p-value was far too small, and the same double-count inflated the base rate.
+
+Fix (`hypo-01a-v2`): the count is **decisions**, meaning the distinct timestamps of a
+team's moves, both inside the window and in the baseline. `BURST_MIN_MOVES` (3) applies
+to decisions. The evidence keeps every tx id and reports `moves`, `decisions`,
+`baseline.prior_moves` and `baseline.prior_decisions`.
+
+- RED `00e259a8` "test: HYPO-01a a waiver run is one decision, not a burst (RED)":
+  the new test fails on v1 (pass 12, fail 1). Two existing fixtures that had used
+  same-instant adds as three decisions were moved to distinct times.
+- The GREEN commit also pins p and the baseline (the assertions were added after the
+  mutants below survived). They were re-run against the unfixed source: pass 12, fail 1.
+
+| # | Mutant | Result |
+|---|---|---|
+| M12 | p from the move count, not the decisions | survived first (p not pinned), then killed |
+| M13 | candidates by move count | killed |
+| M14 | baseline rate from moves, not decisions | survived first (no batched baseline in the fixture), then killed |

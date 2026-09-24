@@ -188,7 +188,7 @@ test('a waiver run is one decision: three claims processed at one instant are no
   // as an independent Poisson event overstates the surprise.
   reset();
   add(8, day(1));
-  add(3, day(5));
+  add(3, day(5), 'WAIVER'); add(3, day(5), 'WAIVER'); // an earlier waiver run: one prior decision
   const run3 = [add(3, day(20), 'WAIVER'), add(3, day(20), 'WAIVER'), add(3, day(20), 'WAIVER')];
   const r = detectSurprises({ leagueId: LEAGUE, season: SEASON, enabled: true, write: false });
   assert.deepEqual(r.surprises.filter(x => x.team_id === '3'), [], JSON.stringify(r.surprises));
@@ -204,6 +204,10 @@ test('a waiver run is one decision: three claims processed at one instant are no
   assert.deepEqual(b[0].evidence.tx_ids, [...run3, `tx-${Number(last.slice(3)) - 1}`, last]);
   assert.equal(b[0].evidence.moves, 5);
   assert.equal(b[0].evidence.decisions, 3);
+  assert.equal(b[0].evidence.baseline.prior_decisions, 1);
+  assert.equal(b[0].evidence.baseline.prior_moves, 2);
+  // p is the tail of 3 decisions (not 5 moves) against 1 prior decision (not 2) in 19 days.
+  assert.ok(Math.abs(b[0].model_p - poissonTail(3, ((1 + 0.5) / 19) * 3)) < 1e-12);
 });
 
 test('too little history to know a base rate is reported, never silently skipped', () => {

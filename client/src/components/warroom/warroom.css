@@ -142,6 +142,29 @@
 .wr-acts { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
 .wr-reasons { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 11px; margin: 2px 0 4px; animation: wr-cardin .2s ease; }
 .wr-reasons button { border: 1px solid var(--wr-line); background: var(--wr-surface); border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 700; }
+/* ---------- WR-SWIPE: one card at a time (SwipeDeck.tsx) ----------
+   No layout shift: the bar and the reason row keep their height; the leaving card is an
+   absolute layer in a clipped stage; motion is transform/opacity only. */
+.wr-swipe { display: flex; flex-direction: column; min-width: 0; }
+.wr-swipe-bar { display: flex; align-items: center; gap: 8px; min-height: 22px; margin-bottom: 4px; }
+.wr-swipe-pos { font-variant-numeric: tabular-nums; min-width: 7ch; }
+.wr-swipe-stage { position: relative; overflow: hidden; }
+.wr-swipe-card { animation: wr-swipe-in .22s ease both; touch-action: pan-y; will-change: transform; }
+.wr-swipe-layer { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.wr-swipe-ghost { position: absolute; top: 0; left: 0; right: 0; background: var(--wr-bg); animation: wr-swipe-out .22s ease-in forwards; }
+.wr-swipe-foot { min-height: 26px; }
+.wr-swipe-foot .wr-reasons { margin: 2px 0 0; animation: wr-swipe-fade .2s ease both; }
+.wr-swipe-done { text-align: left; }
+.wr-swipe-done .wr-acts { flex-wrap: wrap; }
+.wr-swipe-near { margin-top: 8px; }
+.wr-swipe-near .wr-nomove-head { display: none; }
+@keyframes wr-swipe-in { from { transform: translateX(28px) scale(.98); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes wr-swipe-out { from { transform: translateX(var(--wr-swipe-from, 0px)); opacity: 1; } to { transform: translateX(-115%) rotate(-7deg); opacity: 0; } }
+@keyframes wr-swipe-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .wr-swipe-card, .wr-swipe-foot .wr-reasons { animation: none; }
+  .wr-swipe-ghost { display: none; }
+}
 .wr-chosen { border: 1px solid var(--wr-accent); background: var(--wr-accent-tint); border-radius: 8px; padding: 6px 8px; font-size: 12px; margin: 4px 0; }
 .wr-rt tr { cursor: pointer; }
 .wr-rt tr.wr-sel td { white-space: normal; background: var(--wr-surface); }
@@ -218,6 +241,7 @@
   .wr-who { font-size: 18px; }
   .wr-tile .wr-v { font-size: 15px; }
   .wr-reasoning { grid-template-columns: 1fr; }
+  .wr-swipe-foot { min-height: 50px; }
   .wr-nomove-grid { grid-template-columns: 1fr; }
   .wr-lg { max-width: 150px; }
   .wr-top .wr-leagues { flex: 1 1 100%; }

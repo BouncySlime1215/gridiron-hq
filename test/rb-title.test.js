@@ -100,6 +100,22 @@ test('reseed: later rounds pair the best remaining seed with the worst', () => {
   assert.equal(build(false).probs(field, null).get('s2'), 1);
 });
 
+test('parity: with one run the conditional title is playBracket\'s champion (fixed and reseed)', () => {
+  const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+  for (const reseed of [false, true]) {
+    for (const [size, rounds] of [[4, [[14], [15]]], [6, [[14], [15], [16, 17]]], [8, [[14], [15], [16]]]]) {
+      for (let trial = 0; trial < 25; trial++) {
+        const pts = (id, w) => Math.round(100 + 20 * keyedNormal(keyedSeed('parity', id, w), trial));
+        const field = [...ids].sort((x, y) => keyedNormal(keyedSeed('order', x), trial) - keyedNormal(keyedSeed('order', y), trial)).slice(0, size);
+        const rules = { playoff_weeks: rounds, reseed };
+        const champ = S.playBracket(field, rules, (id, weeks) => weeks.reduce((s, w) => s + pts(id, w), 0)).champion;
+        const p = RB.conditionalTitle({ ids, runs: 1, roundWeeks: rounds, reseed, rawPoints: (id, w) => pts(id, w) }).probs(field, null);
+        assert.equal(p.get(champ), 1, `reseed ${reseed} size ${size} trial ${trial}`);
+      }
+    }
+  }
+});
+
 test('off: playSeasons output is exactly the pre-RB-TITLE output', () => {
   const lg = synthLeague(3);
   const run = mode => S.__test.playSeasons({ ...lg.prep, rbTitle: mode }, lg.teams, 300, true, lg.points(null));

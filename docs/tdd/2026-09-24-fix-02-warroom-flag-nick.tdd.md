@@ -137,3 +137,28 @@ Drafted accept lines for the owner of `docs/wiring/annotations.json`:
 - **What would make it wrong:** a live `manager_notes` or `nick_override` shape that
   differs from the audit's description. That case reads `unknown` and is recorded on
   `entry.inputs.chat.nick`; it does not turn into a silent wrong read.
+
+## Sweep fixes FIX-276-1 / FIX-276-3 (2026-09-24)
+
+- **FIX-276-1, one reader.** `server/services/people/nick-block.js` is deleted.
+  `scripts/campaign/chat-labels.mjs` reads `profile-reader.js#nickByRoster`;
+  `campaign/partners.js` reads the block that comes back (`m.nick`). `profile-reader.js`
+  is #260's file at `48d848eb` (added byte-identical in the RED commit) plus this delta:
+  - `nickByRoster(chat, ids)`: per-roster blocks from an open chat handle. It reads
+    `negotiation_profiles` and `manager_notes` separately, so either may be absent.
+  - **The source rule, decided once:** a `manager_notes` row is Nick's block only when its
+    source starts `nick-chat-` (`isNickNote`). A row with no source is no longer accepted.
+    The live DB has `nick` (9 rows), `nick+data` (1) and `nick-chat-2026-09-23` (8)
+    (LOCAL run on `376ffd18`). Only the 8 count, as before. The old exact-match constant
+    `nick-chat-2026-09-23` is gone, so a later `nick-chat-<date>` batch counts too.
+- **RED** `52177207`: 2 of 11 fail on #260's reader as it stands (a no-source note makes
+  a block; `nickByRoster` is missing). **GREEN**: 11/11.
+- **Mutants:** (M1) put back #260's `n?.source != null &&` exception → 2 fail. (M2) widen
+  the prefix to `'nick'` → 2 fail. Both killed.
+- **FIX-276-3, wiring.** `accepted_orphan_modules` gets `campaign/model-flags.js` and
+  `people/profile-reader.js`, with retire conditions under `_NEWLY_BASELINED_2026_09_24_FIX02`.
+  The drafted `nick-block.js chat` receiver line is dropped because the file is gone.
+  `check:wiring` goes from 16 blocking findings to 14. Those 14 are the base's own
+  `campaign/*.js` class from #233, and it still exits 1. SWEEP RULINGS 9 fixes that class
+  once, in `scripts/wiring-map.mjs` on #272's branch (FIX-279-1). This branch does not
+  annotate those 14.

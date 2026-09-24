@@ -39,7 +39,9 @@ const { priceLadder, HARD_SHIFT_PCT } = await import('../server/services/campaig
 const { chatLabels, pResponds, rankPartners, BASE_RESPONDS, CHECKED_OUT_RESPONDS } = await import('../server/services/campaign/partners.js');
 const { toEntry, plansFile, PRODUCER_VERSION } = await import('../server/services/campaign/view.js');
 const { validateLeague } = await import('../server/services/campaign/plans-schema.js');
-const { nickBlock, nickBlocksFrom, publicNick, NICK_NOTES_SOURCE } = await import('../server/services/people/nick-block.js');
+const { nickBlock, nickByRoster, publicNick, isNickNote, NICK_NOTES_PREFIX } = await import('../server/services/people/profile-reader.js');
+const NICK_NOTES_SOURCE = `${NICK_NOTES_PREFIX}2026-09-23`;
+const nickNote = note => ({ note, source: NICK_NOTES_SOURCE });
 const { modelFlags, versionWithFlags } = await import('../server/services/campaign/model-flags.js');
 
 /* ------------------------------------------------------------ (a) one flag reader */
@@ -132,7 +134,7 @@ test('(b) model flags come from each reader, a missing reader reads absent, and 
 /* ------------------------------------------------------------ (c) the nick block */
 
 test('(c) nick block: nick_override beats a structured note; unreachable, not trading, active and hard read as flags', () => {
-  const unreachable = nickBlock({ contactable: false }, [{ note: '{"active": true}' }]);
+  const unreachable = nickBlock({ contactable: false }, [nickNote('{"active": true}')]);
   assert.equal(unreachable.unreachable, true);
   assert.equal(unreachable.in_active_pool, false, 'active but unreachable is not in the pool');
   const notTrading = nickBlock({ buyer: false, trades: 'probably none' });
@@ -140,7 +142,7 @@ test('(c) nick block: nick_override beats a structured note; unreachable, not tr
   assert.equal(nickBlock({ trades: 'probably none' }).deprioritised, true);
   const hard = nickBlock({ active: true, difficulty: 'hard to deal with' });
   assert.deepEqual([hard.in_active_pool, hard.hard], [true, true]);
-  const both = nickBlock({ active: false }, [{ note: '{"active": true}' }, { note: 'plain note text' }]);
+  const both = nickBlock({ active: false }, [nickNote('{"active": true}'), nickNote('plain note text')]);
   assert.equal(both.active, false, 'nick_override beats manager_notes on the same key');
   assert.equal(both.sources.active, 'nick_override');
   assert.equal(both.notes.length, 1);
@@ -149,7 +151,17 @@ test('(c) nick block: nick_override beats a structured note; unreachable, not tr
   assert.equal(nickBlock(null, []), null);
 });
 
-test('(c) nick blocks are read per roster from negotiation_profiles.nick_override and manager_notes (source nick-chat-2026-09-23)', () => {
+test('(c) the manager_notes source rule is decided once, in the reader: only nick-chat-* is Nick\'s', () => {
+  // The live chat DB carries 'nick', 'nick+data' and 'nick-chat-2026-09-23' rows (LOCAL run on 376ffd18).
+  assert.deepEqual(['nick-chat-2026-09-23', 'nick-chat-2026-10-01', 'nick', 'nick+data', 'chat', '', null, undefined]
+    .map(source => isNickNote({ source })), [true, true, false, false, false, false, false, false]);
+  const b = nickBlock(null, [{ note: '{"active": true}', source: 'nick' }, { note: '{"buyer": false}', source: 'nick+data' },
+    { note: '{"contactable": false}' }, { note: 'no source: not his block' }]);
+  assert.equal(b, null, 'notes from other sources, or with no source, never make a block');
+  assert.equal(nickBlock(null, [nickNote('{"active": true}')]).in_active_pool, true);
+});
+
+test('(c) nickByRoster reads nick_override and nick-chat-* notes per roster, through the one rule', () => {
   const chat = new DatabaseSync(':memory:');
   chat.exec(`CREATE TABLE negotiation_profiles (name TEXT, profile_json TEXT);
              CREATE TABLE manager_notes (name TEXT, note TEXT, source TEXT, noted_at TEXT);`);
@@ -157,17 +169,31 @@ test('(c) nick blocks are read per roster from negotiation_profiles.nick_overrid
   ins.run('chat-a', JSON.stringify({ says_no: {}, nick_override: { contactable: false } }));
   ins.run('chat-b', JSON.stringify({ nick_override: { buyer: false, trades: 'probably none' } }));
   ins.run('chat-c', JSON.stringify({ says_no: {} }));
+  ins.run('chat-e', '{not json');
   const note = chat.prepare('INSERT INTO manager_notes VALUES (?, ?, ?, ?)');
   note.run('chat-c', '{"active": true, "difficulty": "hard to deal with"}', NICK_NOTES_SOURCE, '2026-09-23');
   note.run('chat-c', '{"active": false}', 'some-other-source', '2026-09-20');
-  const ids = new Map([[2, { chat_name: 'chat-a' }], [3, { chat_name: 'chat-b' }], [4, { chat_name: 'chat-c' }], [5, { chat_name: 'chat-d' }]]);
-  const r = nickBlocksFrom(chat, ids);
+  note.run('chat-d', '{"contactable": false}', 'nick', '2026-09-20');
+  note.run('chat-d', '{"buyer": false}', null, '2026-09-20');
+  note.run('chat-e', '{"active": true}', 'nick-chat-2026-10-01', '2026-10-01');
+  const ids = new Map([[2, { chat_name: 'chat-a' }], [3, { chat_name: 'chat-b' }], [4, { chat_name: 'chat-c' }],
+    [5, { chat_name: 'chat-d' }], [6, { chat_name: 'chat-e' }]]);
+  const r = nickByRoster(chat, ids);
   assert.equal(r.status, 'ok');
+  assert.deepEqual(r.sources, { nick_override: 'ok', manager_notes: 'ok' });
   assert.equal(r.byRoster.get('2').unreachable, true);
   assert.equal(r.byRoster.get('3').deprioritised, true);
-  assert.deepEqual([r.byRoster.get('4').in_active_pool, r.byRoster.get('4').hard], [true, true], 'only the named source counts');
-  assert.equal(r.byRoster.has('5'), false);
-  const empty = nickBlocksFrom(new DatabaseSync(':memory:'), ids);
+  assert.deepEqual([r.byRoster.get('4').in_active_pool, r.byRoster.get('4').hard], [true, true], 'only nick-chat-* counts');
+  assert.equal(r.byRoster.has('5'), false, "'nick' and no-source notes are not Nick's block");
+  assert.equal(r.byRoster.get('6').in_active_pool, true, 'any nick-chat- date counts; a bad profile_json row does not stop it');
+
+  const notesOnly = new DatabaseSync(':memory:');
+  notesOnly.exec('CREATE TABLE manager_notes (name TEXT, note TEXT, source TEXT, noted_at TEXT);');
+  notesOnly.prepare('INSERT INTO manager_notes VALUES (?, ?, ?, ?)').run('chat-a', '{"contactable": false}', NICK_NOTES_SOURCE, 'x');
+  const n = nickByRoster(notesOnly, ids);
+  assert.deepEqual([n.status, n.sources.nick_override, n.byRoster.get('2').unreachable], ['ok', 'absent', true]);
+
+  const empty = nickByRoster(new DatabaseSync(':memory:'), ids);
   assert.equal(empty.status, 'unknown');
   assert.match(empty.reason, /neither/);
 });

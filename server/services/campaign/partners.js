@@ -12,7 +12,7 @@
  *                labelled "from chat", never a price.
  *   skip log     options Nick skipped sink (a multiplier on the positive score),
  *                they are not hidden; "not now" fades after a week.
- *   Nick         his own per-roster read (m.nick, server/services/people/nick-block.js)
+ *   Nick         his own per-roster read (m.nick, server/services/people/profile-reader.js#nickBlock)
  *                beats every activity and chat read above (FIX-02c):
  *                unreachable -> excluded, P(responds) 0, never a step, flip leg or
  *                target owner; not trading -> capped at CHECKED_OUT_RESPONDS;

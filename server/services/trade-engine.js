@@ -117,8 +117,10 @@ import { acceptanceBand } from './trade-acceptance.js';
 // playoff odds"), which does not exist yet. When it ships, myPlayoffOdds() should
 // read it and this import goes away. Until then the alternative was leaving the
 // live /find route on the 0.5 prior, which is the bug this item exists to fix.
-import { simulateSeason, simStartWeek, tradeImpact, tradeImpactWorld } from './season-sim.js';
+import { simulateSeason, simStartWeek, tradeImpact, tradeImpactWorld, rosterImpact, expectedLineupTotal,
+  pairedTitleSe } from './season-sim.js';
 import { titleMutualMode, titleCandidate, titleMutualDeals } from './title-mutual.js';
+import { chessMode, titleChess } from './title-chess.js';
 import { horizonWeights, horizonGain, horizonNote, leagueSchedule } from './trade-horizon.js';
 // ros_ppg / playoff_ppg (and so adj_ppg): the gated rest-of-season model. This
 // week's number stays the weekly blend.
@@ -2341,17 +2343,34 @@ export function tradeIdeas(lg, opts = {}) {
  */
 export function findTradeSequences(lg, opts = {}) {
   const { formatKey } = deriveFormat(lg);
-  const assets = assetUniverse(lg, formatKey);
+  // assetsOverride: the same seam findTrades has, so a fixture league can be searched.
+  const assets = opts.assetsOverride ?? assetUniverse(lg, formatKey);
   const teams = loadRosters(lg, assets);
   const first = findTrades(lg, { ...opts, limit: 50, teamsOverride: teams, assetsOverride: assets });
   if (first.error) return first;
 
+  // CHESS-01a: beam search over trade -> claim -> flip, scored on title odds in
+  // one season-sim world and priced with today's P(accept) (title-chess.js).
+  // Beside the greedy sequences, never mixed into them. Off: the block says so.
+  const chessOn = chessMode();
+  let chess = { status: 'off', paths: [] };
+  if (chessOn.on) {
+    const weekNow = tradeWeekContext();
+    chess = titleChess(lg, { myTeamId: first.me.roster_id, teams, assets, mode: chessOn,
+      wire: lineupValueContext(lg, assets, teams).wire,
+      counterparties: counterpartyLayer(lg.id, { season: weekNow.season, week: weekNow.week }),
+      excludeIds: opts.excludeIds ?? null,
+      blockedPartners: rows(`SELECT roster_id FROM manager_profiles WHERE league_id=? AND tradeability='never'`,
+        lg.id).map(r => String(r.roster_id)),
+      sim: { tradeImpactWorld, rosterImpact, expectedLineupTotal, pairedTitleSe } });
+  }
+
   const step1 = first.deals.find(d => d.mutual && d.plausible && !d.conflicts_with_earlier);
-  if (!step1) return { ...first, sequences: [] };
+  if (!step1) return { ...first, sequences: [], chess };
 
   const me = teams.find(t => t.roster_id === first.me.roster_id);
   const partner = teams.find(t => String(t.roster_id) === String(step1.partner_id));
-  if (!me || !partner) return { ...first, sequences: [] };
+  if (!me || !partner) return { ...first, sequences: [], chess };
 
   // Apply step1 to a cloned roster set — everyone else's roster is untouched,
   // so any *new* idea below is attributable to this one trade, not noise.
@@ -2384,7 +2403,7 @@ export function findTradeSequences(lg, opts = {}) {
     })
     .slice(0, 5);
 
-  return { ...first, step1, sequences: unlocked.map(d => ({ ...d, unlocked_by: step1Key })) };
+  return { ...first, step1, sequences: unlocked.map(d => ({ ...d, unlocked_by: step1Key })), chess };
 }
 
 /**

@@ -44,7 +44,11 @@ test('myPlayoffOdds (trade-engine.js:1420-1421) hands simulateSeason the league\
       simStartWeek: () => 1,
       tradeImpact: () => ({ ok: true }),
       // RL-19-3's title-mutual stage (default off) imports it; never called here.
-      tradeImpactWorld: () => ({ fail: { error: 'not simulated in this test' } })
+      tradeImpactWorld: () => ({ fail: { error: 'not simulated in this test' } }),
+      // CHESS-01a's path rescore (default off); never called here.
+      rosterImpact: () => ({ error: 'not simulated in this test' }),
+      expectedLineupTotal: () => 0,
+      pairedTitleSe: () => null
     }
   });
   const { myPlayoffOdds } = await import('../server/services/trade-engine.js');

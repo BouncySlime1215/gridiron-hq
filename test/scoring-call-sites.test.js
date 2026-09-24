@@ -55,7 +55,11 @@ mock.module('../server/services/season-sim.js', {
     TRADE_IMPACT_RUNS: 1200,
     // trade-engine.js imports the shared-world builder for RL-19-3's title-mutual
     // stage (default off); never called here.
-    tradeImpactWorld: () => ({ fail: { error: 'not simulated in this test' } })
+    tradeImpactWorld: () => ({ fail: { error: 'not simulated in this test' } }),
+    // CHESS-01a's path rescore (default off); never called here.
+    rosterImpact: () => ({ error: 'not simulated in this test' }),
+    expectedLineupTotal: () => 0,
+    pairedTitleSe: () => null
   }
 });
 mock.module('../server/services/player-week-engine.js', {

@@ -720,3 +720,62 @@ export function tradeImpact(lg, {
   return { runs, from_week: fromWeek, seed: pairedSeed, paired_simulation: true,
     me: delta(me.roster_id), them: delta(them.roster_id) };
 }
+
+/**
+ * CHESS-01a: title odds after ANY set of roster changes, rescored inside a
+ * prebuilt world (tradeImpactWorld). tradeImpact handles one two-team trade; a
+ * chess path (trade -> claim -> flip) can touch three or more rosters and add a
+ * free agent, so it names every changed roster itself: `rosters` maps roster_id
+ * to that team's full player-id list after the path. Only the changed lineups
+ * are re-solved, exactly as tradeImpact's fast rescore does, so a one-trade
+ * `rosters` gives tradeImpact's number when the world is the same.
+ *
+ * A player the world does not simulate (outside its universe) would score zero
+ * without a word, so it is refused instead: `{ error, missing }`.
+ *
+ * `title_runs` is my per-run title indicator after the change, kept so two paths
+ * scored in the same world can be compared with a paired SE (pairedTitleSe).
+ */
+export function rosterImpact(world, { myTeamId, rosters }) {
+  if (!world?.prep) return { error: world?.fail?.error ?? 'no season-sim world to rescore in' };
+  const me = String(myTeamId);
+  if (!world.prep.teams.some(t => t.roster_id === me)) return { error: 'your team is not in this world' };
+  const overrides = new Map([...rosters].map(([id, ids]) => [String(id), ids.map(Number)]));
+  const missing = [...overrides.values()].flat().filter(id => !world.prep.assets.has(id));
+  if (missing.length) return { error: 'player outside the simulated universe', missing };
+
+  const afterTeams = applyOverrides(world.prep.teams, overrides, world.prep.assets);
+  const points = new Map(world.points);
+  for (const t of afterTeams) if (overrides.has(t.roster_id)) points.set(t.roster_id, teamPoints(world, t.players));
+  const after = playSeasons(world.prep, afterTeams, world.runs, true, pointsReader(world, points));
+  const b = world.base.teams.find(t => t.roster_id === me), a = after.teams.find(t => t.roster_id === me);
+  const rb = world.base.per_run.get(me), ra = after.per_run.get(me);
+  const title_delta = +(a.title_odds - b.title_odds).toFixed(4);
+  const title_delta_se = pairedSe(rb.title, ra.title);
+  return {
+    runs: world.runs, seed: world.key.seed, from_week: world.key.fromWeek, paired_simulation: true,
+    me: { roster_id: me, title_before: b.title_odds, title_after: a.title_odds, title_delta, title_delta_se,
+      title_delta_clears_noise: title_delta_se != null && Math.abs(title_delta) > TRADE_DELTA_NOISE_SE * title_delta_se,
+      playoff_before: b.playoff_odds, playoff_after: a.playoff_odds,
+      playoff_delta: +(a.playoff_odds - b.playoff_odds).toFixed(4) },
+    title_runs: ra.title,
+  };
+}
+
+/** Paired SE of the difference between two title-indicator arrays from one world. */
+export function pairedTitleSe(before, after) {
+  return pairedSe(before, after);
+}
+
+/**
+ * A cheap, deterministic proxy for a roster: its lineup total over the simulated
+ * weeks on each player's expected points (no draws). The chess search uses it
+ * only to decide which candidates are worth a real rescore; it is never shown.
+ */
+export function expectedLineupTotal(world, ids) {
+  if (!world?.prep) return 0;
+  const players = ids.map(id => world.prep.assets.get(Number(id))).filter(Boolean);
+  let total = 0;
+  for (const [, { expected }] of world.draws) total += lineupPoints(players, world.prep.slots, expected, expected);
+  return total;
+}

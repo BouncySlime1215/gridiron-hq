@@ -69,6 +69,7 @@
     "server/platform/provision-auth.js",
     "server/services/alt-spread-import.js",
     "server/services/bottom-up-team-total.js",
+    "server/services/campaign/plans-schema.js",
     "server/services/cascade-grade.js",
     "server/services/coach/people/context.js",
     "server/services/coach/people/grading.js",

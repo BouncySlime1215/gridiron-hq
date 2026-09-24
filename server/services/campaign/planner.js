@@ -232,6 +232,7 @@ export function planLeague(adapter, settings) {
   }
   const outlook = nowWeeks ? weeklySummary(nowWeeks, 0) : null;
 
+  const edgeOf = t => Math.max(0, ...ranked.filter(p => String(p.steps[0].team) === String(t)).map(p => p.expected));
   // Catch-up list.
   const behind = isBehind(now.title, L.team_count ?? adapter.rosters.size);
   const items = [
@@ -242,6 +243,10 @@ export function planLeague(adapter, settings) {
       .slice(0, 2).map(p => ({ kind: 'desperate', gain: p.expected, text: `Team ${p.steps[0].team} is out of it: ${p.steps[0].get.map(names).join(' + ')} may come cheap.` })),
     ...(behind ? byMode.all_in.slice(0, 1).map(p => ({ kind: 'swing', gain: p.expected,
       text: `You are behind: the all-in plan reaches +${(p.delta_final * 100).toFixed(1)} pts if it lands.` })) : []),
+    // M7: a partner whose urgency window is open (set only when GRIDIRON_M7_TIMING / preview is on).
+    ...[...managers].filter(([, m]) => m.urgency?.spike && m.send_when?.when === 'now')
+      .map(([t, m]) => ({ kind: 'timing', gain: edgeOf(t),
+        text: `Team ${t}: urgency window open (${m.urgency.triggers.map(x => x.why).join('; ')}), send now.` })),
     ...playbook.filter(pb => pb.wait.flag === 'wait').map(pb => ({ kind: 'timing', gain: pb.wait.option_value, text: `Wait ${pb.wait.days} days: ${pb.wait.reason}.` })),
     ...(Number.isInteger(L.deadline_week) ? [{ kind: 'timing', gain: null, text: `Trade deadline: week ${L.deadline_week} (${Math.max(0, L.deadline_week - L.week)} weeks left).` }] : []),
   ];

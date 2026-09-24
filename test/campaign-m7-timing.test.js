@@ -168,3 +168,46 @@ test('view: a wait carries its day count', () => {
   const entry = toEntry(res, { names: a.names(), as_of: '2026-09-24T12:00:00Z' });
   assert.match(entry.view.next_move.value.send_when, /^wait 2 days \(until 2026-09-26T12:00:00\.000Z\): /);
 });
+
+test('adapter wiring: his starters, his streak and his chat count reach send_when only when the flag is on', async () => {
+  const { buildAdapter } = await import('../scripts/campaign/league-adapter.mjs');
+  const P = (id, position, extra = {}) => ({ id, name: `P${id}`, position, value: 10, ros_ppg: 10 + id / 100, injury: 0, bye: 9, ...extra });
+  const mine = [P(1, 'QB'), P(2, 'RB'), P(3, 'WR')];
+  const his = [P(11, 'QB', { injury: 1 }), P(12, 'RB', { bye: 5 }), P(13, 'WR', { bye: 5 }), P(14, 'WR', { injury: 1, ros_ppg: 5 })];
+  const assets = new Map([...mine, ...his].map(p => [p.id, p]));
+  const schedule = [game(2, '2', '1', 'AWAY'), game(3, '1', '2', 'HOME')];
+  const lg = { id: 99, my_team_id: 1, season: 2026, fetched_at: 'fixture', payload: JSON.stringify({ schedule }) };
+  const w0 = { key: { seed: 7 }, prep: { assets, slots: ['QB', 'RB', 'WR'],
+    teams: [{ roster_id: '1', players: mine }, { roster_id: '2', players: his }] }, base: { teams: [] } };
+  const svc = {
+    db: { row: sql => (/FROM leagues/.test(sql) ? lg : /MIN\(date\) AS d/.test(sql) ? { d: '2026-09-27T00:00:00Z' } : null), rows: () => [] },
+    sim: { tradeImpactWorld: () => w0, tradeImpact: () => ({}), __test: { lineupPoints: () => 0 } },
+    week: { leagueCurrentWeek: () => 4 },
+    cp: { counterpartyLayer: () => new Map() },
+    tactics: { timingRead: () => new Map(), toTime: x => Date.parse(x),
+      sendWindow: () => ({ when: 'now', until: null, n: 0, fitted: false, why: 'base read' }) },
+  };
+  const chat = new Map([['2', { profile: null, negotiation: null, sentiment: [], need_move: 2 }]]);
+
+  const off = withEnv({ [U.M7_ENV]: null, GRIDIRON_PREVIEW_UNCONFIRMED: null }, () => buildAdapter(svc, 99, { chat, now: NOW }));
+  assert.equal(off.managers.get('2').send_when.why, 'base read');
+  assert.equal(off.managers.get('2').urgency, null);
+
+  const on = withEnv({ [U.M7_ENV]: '1', GRIDIRON_PREVIEW_UNCONFIRMED: null }, () => buildAdapter(svc, 99, { chat, now: NOW }));
+  const m = on.managers.get('2');
+  assert.equal(m.send_when.when, 'now');
+  assert.equal(m.send_when.source, 'm7');
+  assert.equal(m.send_when.preview, undefined);
+  assert.deepEqual(m.urgency.triggers.map(t => t.kind).sort(), ['loss_streak', 'need_move', 'starter_injured']);
+  assert.equal(m.urgency.inputs.starters_out.value, 1, 'the injured bench WR is not counted');
+  assert.equal(m.urgency.inputs.bye_crunch_next.value, 2);
+  assert.match(m.send_when.why, /1 of his starters is injured; he has lost 2 straight; 2 'need a move' messages/);
+});
+
+test('grader: loss-streak events are dated at the week end and split spike / baseline as of that week', async () => {
+  const { lossStreakEvents } = await import('../scripts/rnd/grade-m7-timing.mjs');
+  const sched = [game(1, '2', '3', 'HOME'), game(2, '2', '3', 'AWAY'), game(3, '3', '2', 'HOME'), game(4, '2', '3', 'UNDECIDED')];
+  const ev = lossStreakEvents(sched, w => NOW + w * DAY);
+  assert.deepEqual(ev.spikes, [{ team: '2', at: NOW + 3 * DAY }], 'team 2 reaches 2 straight losses after week 3, not before');
+  assert.equal(ev.baseline.length, 5);
+});

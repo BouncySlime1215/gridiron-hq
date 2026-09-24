@@ -41,6 +41,7 @@ import { appendEvents, normalizeAsOf, endOfDayEastern } from './events.js';
 import { writeState } from './state.js';
 import { registerField, registerEventType } from './registry.js';
 import { recordRun } from './fields.js';
+import { teamCounterEvents } from '../league-history.js';
 
 // The spine's own field. This module is its one writer; the capability stays here.
 const INGEST_WRITER = registerField('engine.ingest', {
@@ -58,7 +59,7 @@ const CHUNK = 2000;
 export const TELLS_EVENT_TYPES = Object.freeze({
   'league.transaction': 'A completed or failed roster move in the tell library shape (adds/drops by roster), from league_transactions_raw',
   'league.team_week': "A fantasy team's week: points, opponent and final lineup, in the tell library shape, from league_week_scores",
-  'league.team_counter': "ESPN's per-team season counters (transactionCounter: trades, acquisitions, drops), from league-history saveTeams",
+  'league.team_counter': "ESPN's per-team season counters (transactionCounter: trades, acquisitions, drops), from the stored league payload (leagues.payload)",
 });
 for (const [type, description] of Object.entries(TELLS_EVENT_TYPES)) registerEventType(type, { description });
 
@@ -366,6 +367,31 @@ export const ADAPTERS = Object.freeze([
           starters: lu?.starters ?? [], players: lu?.players ?? [], starters_complete: false,
           lineup: lu ? 'final_snapshot' : lineupsRead ? 'no_final_snapshot' : 'table_absent' },
       }];
+    },
+  },
+  {
+    // TELLS-01b: ESPN's per-team transactionCounter from each stored league payload
+    // (leagues.payload), one league.team_counter per team and payload season. A stored
+    // prior-season row (same ESPN league, earlier season) is keyed to the league's newest
+    // app row, so tells.prior_trades reads it as that league's previous season. A team
+    // without a counter emits nothing (unknown, never 0 trades).
+    stream: 'tells_team_counters', table: 'leagues', eventTypes: ['league.team_counter'],
+    // No WHERE: the daemon appends its cursor condition (daemon/cursors.js); map() skips
+    // non-ESPN rows and rows with no payload.
+    sql: t => `SELECT id, platform, league_id, season, payload_season, payload, fetched_at FROM ${t}`,
+    context: database => {
+      const newest = new Map();
+      for (const l of database.prepare(`SELECT id, league_id, season FROM leagues WHERE platform = 'espn'
+          ORDER BY season, id`).all()) newest.set(String(l.league_id), Number(l.id));
+      return { newest };
+    },
+    map: (r, { newest }) => {
+      if (r.platform !== 'espn') return [];
+      const payload = parse(r.payload, null);
+      const season = Number(r.payload_season ?? payload?.seasonId ?? r.season);
+      if (!payload || !Number.isFinite(season)) return [];
+      const id = newest.get(String(r.league_id)) ?? Number(r.id);
+      return teamCounterEvents({ id }, season, payload, { capturedAt: r.fetched_at });
     },
   },
   {

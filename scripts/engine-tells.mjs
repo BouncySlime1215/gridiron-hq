@@ -2,9 +2,10 @@
 /**
  * TELLS-01b: the post-sync run of producer 'tells', off the web server's request thread.
  *
- * 1. Appends this sync's rows to engine_events through the two tells adapters
+ * 1. Appends this sync's rows to engine_events through the three tells adapters
  *    (league.transaction from league_transactions_raw, league.team_week from
- *    league_week_scores); compare-latest, so a re-run appends only what changed.
+ *    league_week_scores, league.team_counter from the stored league payload's
+ *    transactionCounter); compare-latest, so a re-run appends only what changed.
  * 2. Runs `runTellsProducer` for every ESPN league as of now: tells.card,
  *    tells.prior_trades and tells.checkout_risk in engine_state.
  *
@@ -31,7 +32,7 @@ const { runTellsProducer } = await import('../server/services/tells/producer.js'
 const argv = process.argv.slice(2);
 const only = argv.includes('--league') ? Number(argv[argv.indexOf('--league') + 1]) : null;
 const started = Date.now();
-const streams = ['tells_transactions', 'tells_team_weeks'].map(s => backfillStream(s, { database: db, provenance: 'captured' }));
+const streams = ['tells_transactions', 'tells_team_weeks', 'tells_team_counters'].map(s => backfillStream(s, { database: db, provenance: 'captured' }));
 const leagues = db.prepare(`SELECT id, season FROM leagues WHERE platform = 'espn' ${only ? 'AND id = ?' : ''} ORDER BY id`)
   .all(...(only ? [only] : [])).map(l => ({ leagueId: Number(l.id), season: Number(l.season) }));
 const out = await runTellsProducer({ database: db, leagues });

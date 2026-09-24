@@ -25,6 +25,7 @@
  *   tells_transactions  last_seen_at, like transactions, narrowed to the types the tell
  *                    library reads (FREEAGENT, WAIVER, TRADE_ACCEPT)
  *   tells_team_weeks captured_at (league_week_scores re-stamps a week when it is re-read)
+ *   tells_team_counters leagues.fetched_at (each sync re-stamps the stored payload)
  *   coverage         sync_log.last_run_at, excluding the daemon's own heartbeat row
  *                    (its own run would otherwise be news to itself every tick)
  * Stamps compare inclusively (>=): a row written later with the same stamp is still seen.
@@ -101,6 +102,7 @@ const either = parts => ({
 });
 
 const TELL_TYPES = `AND type IN ('FREEAGENT', 'WAIVER', 'TRADE_ACCEPT')`;
+const LEAGUE_PAYLOADS = `AND platform = 'espn' AND payload IS NOT NULL`;
 
 export const CURSOR_SPECS = Object.freeze({
   transactions: stamp('last_seen_at'),
@@ -114,10 +116,11 @@ export const CURSOR_SPECS = Object.freeze({
   people_pulse: serial('id'),
   tells_transactions: { ...stamp('last_seen_at', TELL_TYPES), full: `1 ${TELL_TYPES}` },
   tells_team_weeks: stamp('captured_at'),
+  tells_team_counters: { ...stamp('fetched_at', LEAGUE_PAYLOADS), full: `1 ${LEAGUE_PAYLOADS}` },
   coverage: { ...stamp('last_run_at', `AND job <> '${HEARTBEAT_JOB}'`), full: `job <> '${HEARTBEAT_JOB}'` },
 });
 
-/** Every stream the daemon ingests, in order: the backfill adapters (EA-00's eight, PULSE-01's people_pulse, TELLS-01b's two), then the schedule. */
+/** Every stream the daemon ingests, in order: the backfill adapters (EA-00's eight, PULSE-01's people_pulse, TELLS-01b's three), then the schedule. */
 export const DAEMON_ADAPTERS = Object.freeze([...ADAPTERS, SCHEDULE_ADAPTER]);
 
 const tableExists = (database, t) =>

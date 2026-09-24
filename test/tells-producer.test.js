@@ -152,7 +152,20 @@ test('saveTeams\' counter: transactionCounter.trades becomes a league.team_count
     { capturedAt: iso(1) });
   assert.equal(evs.length, 1);
   assert.equal(evs[0].payload.trades, 2);
-  events.appendEvents(evs, { database: db });
+});
+
+test('FIX-268-7: the stored 2025 league payload\'s transactionCounter becomes league.team_counter events on the league\'s newest row', () => {
+  // The same ESPN league's previous season, stored as its own leagues row (73).
+  run(`INSERT INTO leagues (id, platform, league_id, season, name, payload, payload_season, team_count, fetched_at)
+       VALUES (73, 'espn', 'espn-tp-71', 2025, 'TP', ?, 2025, 4, ?)`,
+  JSON.stringify({ seasonId: 2025, teams: [{ id: 3, transactionCounter: { trades: 2, acquisitions: 9, drops: 8 } }, { id: 4 }] }), iso(1));
+  const r = backfill.backfillStream('tells_team_counters', { database: db, provenance: 'captured' });
+  assert.equal(r.table_state, 'present');
+  assert.equal(r.inserted, 1, 'team 3 has a counter; team 4 has none and emits nothing (unknown, never 0)');
+  const evs = events.getEvents({ asOf: iso(60), leagueId: LG, types: ['league.team_counter'], limit: 100 }, db);
+  assert.deepEqual(evs.map(e => [e.team_id, e.payload.season, e.payload.trades]), [['3', 2025, 2]],
+    'keyed to the league\'s newest app row (71), so the producer reads it as the previous season');
+  assert.equal(backfill.backfillStream('tells_team_counters', { database: db }).inserted, 0, 'compare-latest');
 });
 
 // ------------------------------------------------------------------ producer
@@ -194,7 +207,9 @@ test('RED (2): every card entry has n, outcome, q and as_of; a tell missing from
   assert.ok(entries.filter(e => e.kind === 'clone').every(e => e.verdict === 'unproven'));
 });
 
-test('prior trades: the ESPN counter first, then last season\'s completed trades; checkout risk says why when absent', () => {
+test('prior trades: the ESPN counter first, then last season\'s completed trades; checkout risk says why when absent', async () => {
+  const [out] = await producer.runTellsProducer({ database: db, asOf: T1, leagues, refitEnabled: true });
+  assert.ok(out.prior_trades_source.counters > 0, 'FIX-268-7: the stored payload\'s counter reaches tells.prior_trades');
   const get = (team, field) => state.getState('league_team', `${LG}:${team}`, field, { asOf: T1, leagueId: LG }, db);
   assert.deepEqual([1, 2, 3, 4].map(t => [get(t, 'tells.prior_trades').value.trades, get(t, 'tells.prior_trades').value.source]),
     [[1, 'league_transactions'], [1, 'league_transactions'], [2, 'espn_transaction_counter'], [0, 'league_transactions']]);

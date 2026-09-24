@@ -90,10 +90,16 @@ export async function requestReplan(leagueId, { env = process.env, root = ROOT, 
 }
 
 export async function runPulse({ leagueId = DEFAULT_LEAGUE, env = process.env, now = new Date(), log = console.log,
-  replan = requestReplan } = {}) {
+  replan = requestReplan, classify = null } = {}) {
+  classify ??= (await import('./jev-pulse.mjs')).classifyPending;
   const { db } = await import('../../server/db/index.js');
   const { openChatDb } = await import('../../server/services/manager-signals.js');
-  const { pulseTick, recordReplan } = await import('../../server/services/people/pulse.js');
+  const { pulseTick, recordReplan, lastCursor, TICKER_HOURS } = await import('../../server/services/people/pulse.js');
+  // PULSE-02: the pulse's own Jev answers for the messages this tick will label (before the
+  // read-only handle opens, so it sees them). A gateway failure is recorded and retried next tick.
+  const cursor = lastCursor(leagueId, db);
+  const jevRun = await classify({ leagueId, database: db, env, afterMsgId: cursor,
+    since: cursor == null ? new Date(now.getTime() - TICKER_HOURS * 3600e3).toISOString() : null });
   const chat = openChatDb();
   if (!chat) {
     log(`people_pulse: ${JSON.stringify({ league: leagueId, status: 'no_chat_db' })}`);
@@ -113,7 +119,9 @@ export async function runPulse({ leagueId = DEFAULT_LEAGUE, env = process.env, n
     }
     recordReplan(r.run_id, asked.status, asked.detail, db);
     const summary = { league: leagueId, status: 'ok', read: r.read, statements: r.statements, credible: r.credible,
-      live_credible: r.liveCredible.length, backfill: r.backfill, weight_source: cred.source, replan: asked.status,
+      live_credible: r.liveCredible.length, gated: r.gated.length, with_jev: r.with_jev,
+      jev: { status: jevRun.status, ok: jevRun.ok ?? 0, failed: jevRun.failed ?? 0, usd: jevRun.usd ?? 0, stopped: jevRun.stopped ?? null },
+      backfill: r.backfill, weight_source: cred.source, replan: asked.status,
       speakers: r.speakers, to_msg_id: r.to };
     log(`people_pulse: ${JSON.stringify(summary)}`);
     return summary;
@@ -158,28 +166,66 @@ export function gradeLabels(universe, predicted, truth, types) {
   return { per, micro };
 }
 
-export async function grade(dir, { leagueId = DEFAULT_LEAGUE, since = '2026-07-01' } = {}) {
+/** Tag, predict and score every message once per cut set (grade / tune share this). */
+export function scoreSplit(items, truth, types, cuts, { usePulse = true } = {}) {
+  const predicted = new Map();
+  for (const it of items) {
+    const s = it.label({ cuts, pulse: usePulse ? it.pulse : null });
+    if (s.length) predicted.set(it.msg_id, s);
+  }
+  const g = gradeLabels(new Set(items.map(it => it.msg_id)), predicted, truth, types);
+  for (const r of Object.values(g.per)) {
+    r.f1 = r.precision && r.recall ? +((2 * r.precision * r.recall) / (r.precision + r.recall)).toFixed(3) : 0;
+  }
+  return { ...g, predicted };
+}
+
+/** Grid for --tune: each type's (lo, hi) chosen by train F1 alone. */
+export function tuneCuts(items, truth, P) {
+  const grid = [];
+  for (let lo = 0.1; lo <= 0.61; lo += 0.05) for (let hi = 0.5; hi <= 1.001; hi += 0.05) if (hi >= lo) grid.push({ lo: +lo.toFixed(2), hi: +hi.toFixed(2) });
+  const out = {};
+  for (const type of Object.keys(P.PULSE_CUTS)) {
+    let best = null;
+    for (const cut of grid) {
+      const r = scoreSplit(items, truth, [type], { ...P.PULSE_CUTS, [type]: cut }).per[type];
+      // ties: the higher `hi` (Jev alone must be surer), then the higher `lo`
+      if (!best || r.f1 > best.f1 || (r.f1 === best.f1 && (cut.hi > best.cut.hi || (cut.hi === best.cut.hi && cut.lo > best.cut.lo)))) {
+        best = { f1: r.f1, cut };
+      }
+    }
+    out[type] = best;
+  }
+  return out;
+}
+
+export async function grade(dir, { leagueId = DEFAULT_LEAGUE, since = '2026-07-01', splitAt = null, tune = false } = {}) {
   const { db } = await import('../../server/db/index.js');
   const { openChatDb } = await import('../../server/services/manager-signals.js');
   const P = await import('../../server/services/people/pulse.js');
+  const J = await import('../../server/services/people/pulse-jev.js');
   const chat = openChatDb();
   if (!chat) throw new Error('grade: chat DB not found (GRIDIRON_CHAT_DB_PATH)');
+  const split = splitAt ?? P.PULSE_SPLIT_AT;
   try {
     const speakers = P.speakerMap(leagueId, db);
     const names = [...speakers.keys()];
-    const msgs = chat.prepare(`SELECT msg_id, name, ts_utc, text FROM messages WHERE is_from_me = 0 AND COALESCE(is_tapback, 0) = 0
+    const msgs = chat.prepare(`SELECT msg_id, chat_name, name, ts_utc, text FROM messages WHERE is_from_me = 0 AND COALESCE(is_tapback, 0) = 0
         AND text IS NOT NULL AND length(trim(text)) > 0 AND ts_utc >= ? AND name IN (${names.map(() => '?').join(',')})`)
       .all(since, ...names);
     const lexicon = P.buildLexicon(P.leaguePlayers(leagueId, db),
       { firstNameCounts: P.firstNameCounts(db), excludeWords: P.memberWords(leagueId, db) });
     const ownership = P.ownershipTimeline(leagueId, db);
-    const universe = new Set(msgs.map(m => m.msg_id));
-    const predicted = new Map();
-    for (const m of msgs) {
-      const s = P.labelMessage(m.text, { speakerRoster: speakers.get(m.name), lexicon, owners: ownership.at(m.ts_utc),
-        jev: P.jevFeatures(chat, m.msg_id) });
-      if (s.length) predicted.set(m.msg_id, s);
-    }
+    const items = msgs.map((m) => {
+      const base = { speakerRoster: speakers.get(m.name), lexicon, owners: ownership.at(m.ts_utc),
+        jev: P.jevFeatures(chat, m.msg_id), contextPlayers: P.contextPlayers(chat, m, lexicon) };
+      return { msg_id: m.msg_id, ts: P.chatTime(m.ts_utc).toISOString(), pulse: J.pulseJevFeatures(chat, m.msg_id),
+        label: extra => P.labelMessage(m.text, { ...base, ...extra }) };
+    });
+    const splitIso = P.chatTime(split).toISOString();
+    const train = items.filter(it => it.ts < splitIso);
+    const test = items.filter(it => it.ts >= splitIso);
+    const universe = new Set(items.map(it => it.msg_id));
     const truth = new Map();
     let outside = 0;
     for (const l of readHandLabels(dir)) {
@@ -188,22 +234,31 @@ export async function grade(dir, { leagueId = DEFAULT_LEAGUE, since = '2026-07-0
       if (!truth.has(l.msg_id)) truth.set(l.msg_id, []);
       truth.get(l.msg_id).push(l);
     }
-    const g = gradeLabels(universe, predicted, truth, P.STATEMENT_TYPES);
-    // WANT_PLAYER: of the messages both call WANT_PLAYER, how often the player sets overlap.
+    const T = P.STATEMENT_TYPES;
+    const view = g => ({ per: g.per, micro: g.micro });
+    const report = {
+      messages: msgs.length, labelled_truth_msgs: truth.size, truth_outside_slice: outside,
+      with_pulse_jev: items.filter(it => it.pulse).length, jev_version: J.PULSE_JEV_VERSION,
+      split_at: splitIso, train_messages: train.length, test_messages: test.length, cuts: P.PULSE_CUTS,
+      test: view(scoreSplit(test, truth, T, P.PULSE_CUTS)),
+      test_rules_only: view(scoreSplit(test, truth, T, P.PULSE_CUTS, { usePulse: false })),
+      train: view(scoreSplit(train, truth, T, P.PULSE_CUTS)),
+      all: view(scoreSplit(items, truth, T, P.PULSE_CUTS)),
+      all_rules_only: view(scoreSplit(items, truth, T, P.PULSE_CUTS, { usePulse: false })),
+    };
+    if (tune) report.tuned_on_train = tuneCuts(train, truth, P);
+    // WANT_PLAYER on the whole slice: of the messages both call WANT_PLAYER, how often the player sets overlap.
+    const all = scoreSplit(items, truth, ['WANT_PLAYER'], P.PULSE_CUTS).predicted;
     let both = 0; let overlap = 0;
     for (const [id, ts] of truth) {
       const t = ts.filter(s => s.type === 'WANT_PLAYER').flatMap(s => s.players ?? []);
-      const p = (predicted.get(id) ?? []).filter(s => s.type === 'WANT_PLAYER').flatMap(s => s.players);
+      const p = (all.get(id) ?? []).filter(s => s.type === 'WANT_PLAYER').flatMap(s => s.players);
       if (!t.length || !p.length) continue;
       both += 1;
       if (p.some(x => t.includes(x))) overlap += 1;
     }
-    const credibleTruth = [...truth.values()].filter(ts => ts.some(s => s.type === 'WANT_PLAYER')).length;
-    const credibleHit = [...truth.keys()].filter(id => truth.get(id).some(s => s.type === 'WANT_PLAYER')
-      && (predicted.get(id) ?? []).some(s => s.type === 'WANT_PLAYER')).length;
-    return { messages: msgs.length, labelled_truth_msgs: truth.size, truth_outside_slice: outside,
-      predicted_msgs: predicted.size, ...g, want_player_players: { both, overlap },
-      credible_recall: { truth: credibleTruth, hit: credibleHit } };
+    report.want_player_players = { both, overlap };
+    return report;
   } finally {
     chat.close();
   }
@@ -213,7 +268,7 @@ async function main(args = process.argv.slice(2)) {
   const leagueId = Number(arg(args, '--league', DEFAULT_LEAGUE));
   const gradeDir = arg(args, '--grade');
   if (gradeDir) {
-    console.log(JSON.stringify(await grade(gradeDir, { leagueId }), null, 1));
+    console.log(JSON.stringify(await grade(gradeDir, { leagueId, splitAt: arg(args, '--split-at'), tune: args.includes('--tune') }), null, 1));
     return 0;
   }
   const r = await runPulse({ leagueId });

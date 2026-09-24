@@ -68,7 +68,7 @@ test('on an empty database every check runs: E3 historical passes, everything li
     assert.equal(byCheck[c].status, 'not_enough_data', c);
     assert.match(byCheck[c].needs_text, /^needs \d+ more /, c);
   }
-  assert.match(byCheck.E1.needs_text, /needs 50 more offers/);
+  assert.match(byCheck.E1.needs_text, new RegExp(`^needs ${E1.minOffersToDecide()} more offers`));
   assert.match(byCheck.E2.needs_text, /offer_log is not built yet/);
   assert.match(byCheck.E7.needs_text, /needs 4 more weeks/);
 });
@@ -82,13 +82,45 @@ test('E1 reads the real trade_outcomes ledger: app_proposed, resolved, deduped a
     VALUES (1, 2026, 'considered_only', 'not_proposed', 'edge', '2026-09-23')`);
   db.exec(`CREATE TABLE offer_log (league_id INTEGER, counterparty_team_id TEXT, proposed_at TEXT, model_p_accept REAL, status TEXT, idea_id TEXT)`);
   db.exec(`INSERT INTO offer_log VALUES (1, '0', '2026-09-10', 0.3, 'declined', 'idea0'), (1, '9', '2026-09-11', 0.6, 'accepted', 'fresh')`);
-  const { rows, sources } = E1.load(db);
+  const { offers, sources } = E1.load(db);
   assert.deepEqual(sources, ['trade_outcomes', 'offer_log']);
-  assert.equal(rows.length, 14, '13 app_proposed + 1 new offer_log row; the duplicate idea0 is dropped');
+  assert.equal(offers.length, 13, '12 resolved app_proposed + 1 new offer_log row; idea0 deduped, the open proposal is not an outcome');
   const r = E1.run(db);
-  assert.equal(r.n, 13, 'the open proposal is not an outcome');
-  assert.match(r.needs_text, /^needs 37 more offers/);
+  assert.equal(r.n, 13);
+  assert.equal(r.detail.offers_by_basis.recorded, 13, 'every one carried the prediction recorded when it was sent');
+  assert.equal(r.status, 'not_enough_data');
+  assert.match(r.needs_text, /^needs \d+ more offers/);
   db.exec('DROP TABLE offer_log');
+});
+
+test('E1 reads every manager\'s offers: observed trade_outcomes plus unsettled league_transactions_raw, withdrawn excluded', () => {
+  db.exec(`CREATE TABLE league_transactions_raw (league_id INTEGER NOT NULL, season INTEGER NOT NULL, tx_id TEXT NOT NULL,
+    type TEXT, status TEXT, execution_type TEXT, proposed_at TEXT, processed_at TEXT, team_id INTEGER, member_id TEXT,
+    related_tx_id TEXT, scoring_period INTEGER, bid_amount REAL, is_pending INTEGER, items_json TEXT, raw_json TEXT,
+    first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, PRIMARY KEY (league_id, season, tx_id))`);
+  const raw = db.prepare(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, execution_type, team_id,
+    related_tx_id, proposed_at, items_json, first_seen_at, last_seen_at) VALUES (2, 2026, ?, ?, ?, ?, ?, ?, ?, 'x', 'x')`);
+  const items = (a, b) => JSON.stringify([{ fromTeamId: a, toTeamId: b }, { fromTeamId: b, toTeamId: a }]);
+  raw.run('p1', 'TRADE_PROPOSAL', 'EXECUTE', 4, null, '2026-09-05T00:00:00Z', items(4, 6));
+  raw.run('a1', 'TRADE_DECLINE', 'EXECUTE', 6, 'p1', '2026-09-05T03:00:00Z', null);
+  raw.run('p2', 'TRADE_PROPOSAL', 'EXECUTE', 8, null, '2026-09-06T00:00:00Z', items(8, 9));
+  raw.run('a2', 'TRADE_ACCEPT', 'EXECUTE', 9, 'p2', '2026-09-06T03:00:00Z', null);
+  raw.run('p3', 'TRADE_PROPOSAL', 'EXECUTE', 9, null, '2026-09-07T00:00:00Z', items(9, 4));
+  raw.run('c3', 'TRADE_PROPOSAL', 'CANCEL', 9, 'p3', '2026-09-07T01:00:00Z', null);
+  db.exec(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id, proposed_at,
+    status, espn_tx_id, resolved_at, created_at) VALUES
+    (2, 2026, 'observed', '6', '8', '2026-09-04T00:00:00Z', 'accepted', 'p0', '2026-09-04T02:00:00Z', 'x'),
+    (2, 2026, 'observed', '4', '6', '2026-09-05T00:00:00Z', 'declined', 'p1', '2026-09-05T03:00:00Z', 'x')`);
+  const { offers, excluded, sources } = E1.load(db);
+  assert.deepEqual(sources, ['trade_outcomes', 'league_transactions_raw']);
+  const league2 = offers.filter(o => o.league_id === 2);
+  assert.equal(league2.length, 3, 'p0 and p1 from the ledger (p1 once), p2 from raw; p3 was withdrawn');
+  assert.equal(new Set(league2.map(o => o.proposer_team_id)).size, 3, 'three different proposers, none of them the app');
+  assert.equal(excluded.withdrawn, 1);
+  const r = E1.run(db);
+  assert.equal(r.n, 15, '12 app offers in league 1 plus 3 league-2 offers from other managers');
+  assert.equal(r.detail.offers_by_basis.replay_anchor_only, 3);
+  db.exec("DROP TABLE league_transactions_raw; DELETE FROM trade_outcomes WHERE league_id = 2");
 });
 
 test('a grader that throws is written, not hidden, and the rule treats it as blocking', async () => {

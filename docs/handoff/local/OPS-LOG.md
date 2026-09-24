@@ -291,3 +291,4 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 - 00:17Z Nick: can we speed up after detours -> CAMPAIGN-01g (arrive_by + speed curve + priced speed levers: parallel negotiations, faster concessions, bigger packages, waiver aggression, timing windows, fuck-it for catch-up; deadline as hard wall).
 - 00:21Z Nick: north star + CAMPAIGN-01a-g + EVAL + War Room UI overhaul 'ready by morning, statistically tested, with UI'. OVERNIGHT PLAN (phases A/B/C) written to TASKS.md; budget ceiling ~45% weekly by 9 AM. Launched E1/E3 historical validation agent + War Room UI design/mock agent.
 - 00:25Z Nick: redo the plan mapped to his asks -> NORTH-STAR-PLAN.md (16 rows: ask -> build -> morning/tested/later).
+- 00:26Z Nick: include coordinator's own ideas. NORTH-STAR-PLAN rows 17-27 added (17-22 in tonight's Phase B scope). Memory feedback saved.

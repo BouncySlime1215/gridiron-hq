@@ -22,7 +22,23 @@ Source: Nick's pasted block (9/23 ~8:55 PM): "everything from here down was 100%
 
 ## Build order tonight
 A (running): engine foundation fix (EA-00); prototype flip map + planner on real leagues; E1 + E3 historical tests; War Room design + mockup; merge fixes.
-B (as soon as A's prototype + design land): campaign producer (plans per league: 1, 2, 5, 6, 8, 9, 11, 12) + War Room UI (3, 5, 6, 8, 10, 11, 12, 13) behind the preview switch.
+B (as soon as A's prototype + design land): campaign producer (plans per league: 1, 2, 5, 6, 8, 9, 11, 12, 17, 18, 19, 20, 22) + War Room UI (3, 5, 6, 8, 10, 11, 12, 13, 19, 21) behind the preview switch.
 C (before morning): merge, update the local app, click through every league, screenshots + MORNING-BRIEF.md.
 ## After tonight (critical path)
 Engine daemon (always-on replanning, 7) -> manager clones validated (better P(yes)) -> Coach navigator chat (10) -> Number health in-app (15) -> live report card (13).
+
+## Coordinator's own additions (Nick 9/23 ~9:05 PM: "why do you always just do what I asked, your ideas were insane too")
+| # | Idea | Build | Morning? |
+|---|---|---|---|
+| 17 | Confirm on fresh dice | re-price the chosen plan/deal on an independent seed set before showing it (winner's-curse fix, ~2 pp, IDEA-002) | MORNING |
+| 18 | Wait-or-act flag | a step on a player with pending injury designation / role news gets "wait N days" with the option value (IDEA-151, simple version) | MORNING |
+| 19 | Attention budget | rank the 5 leagues by decision leverage this week (IDEA-007) at the top of the War Room | MORNING |
+| 20 | Price at his "yes" point | offer priced from the P(accept) curve at the clone's indifference point, not a round number (Myerson-lite, IDEA-150) | MORNING (basic) |
+| 21 | One-tap decline reason | value / need / likes his guy / not now, logged per offer (IDEA-006) | MORNING |
+| 22 | Don't wear them out | offer-fatigue cap per manager per week (IDEA-010 guard) | MORNING |
+| 23 | Living league in the sim | LIVING-01a/b: league-mates add, trade, check out inside the season sim | LATER (after EA-01) |
+| 24 | Early warning before checkout | activity variance rises before quitting (IDEA-146) | LATER (R&D) |
+| 25 | Pitch testing | Thompson-sampling bandit over message framings per manager (IDEA-037) | LATER (needs offer log) |
+| 26 | Clone of Nick | SELF-01 bias flags + follow/ignore | LATER |
+| 27 | League self-play | IDEA-188 moonshot | LATER |
+Rows 17-22 are in tonight's Phase B scope.

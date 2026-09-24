@@ -32,7 +32,10 @@ export const SOURCE_IDS = Object.freeze([
   // FIX-03: real sources the producer writes. plan.template = text built by a
   // template from engine facts only; chat.labels = chat-DB labels and counts,
   // no text; asset.ros = a player's rest-of-season rate.
-  'plan.template', 'chat.labels', 'asset.ros'
+  'plan.template', 'chat.labels', 'asset.ros',
+  // PYES-ONE: P(yes) from the E1 activity baseline (p-yes.js, GRIDIRON_PYES_BASELINE=1),
+  // "activity baseline (E1 pending)"; clone.accept stays the source with the flag off.
+  'activity.accept'
 ]);
 
 export const UNITS = Object.freeze(['title_odds', 'playoff_odds', 'points_per_week', 'probability', 'market_value']);

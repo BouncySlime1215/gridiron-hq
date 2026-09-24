@@ -7,7 +7,7 @@
  *                     under that seed; the planning seed is tradeImpactSeed(lg),
  *                     the same dice every other title-odds surface uses
  *   priceStep         today's model: counterparty-pricing.js#readDeal ->
- *                     trade-acceptance.js#acceptanceBand midpoint (edge assumed
+ *                     p-yes.js#pYesFor (acceptanceBand midpoint unless GRIDIRON_PYES_BASELINE=1; edge assumed
  *                     passed for every step, as in the ACQ-FLIP prototype)
  *   managers          counterparty layer (activity, needs) + timing read + chat labels
  *   finderBest        the Trade Lab finder's best single offer (title-odds-trades.js x
@@ -81,7 +81,7 @@ export async function loadServices() {
     db,
     sim: await import('../../server/services/season-sim.js'),
     cp: await import('../../server/services/counterparty-pricing.js'),
-    acc: await import('../../server/services/trade-acceptance.js'),
+    pyes: await import('../../server/services/p-yes.js'),
     engine: await import('../../server/services/trade-engine.js'),
     tactics: await import('../../server/services/trade-tactics.js'),
     week: await import('../../server/services/league-week.js'),
@@ -308,14 +308,17 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     });
   }
 
+  // PYES-ONE: P(yes) comes from p-yes.js, the module Trade Lab reads too. Flag off it is the clone
+  // band exactly as before; flag on, the E1 activity baseline per partner (table read once per build).
+  const py = svc.pyes.pYesFlag();
+  const pyTable = py.on ? svc.pyes.pYesTable(svc.db.db, leagueId, [...rosters.keys()].filter(t => t !== me), { now }) : null;
   const priceStep = (team, theyGive, theyGet) => {
     const m = layer.get(String(team)) ?? null;
     const counterparty = m
       ? { ...svc.cp.readDeal({ theirGive: theyGive.map(slim), theirGet: theyGet.map(slim), managerProfile: m }), counterparty_data: true }
       : { receptiveness: 1, perception_delta: null, counterparty_data: false };
-    const band = svc.acc.acceptanceBand({ counterparty, edge: { passes: true }, profile: m?.negotiation ?? null });
-    const b = band.band;
-    return { p: b?.mid ?? 0, band: b ? { low: b.low, high: b.high } : null, basis: band.basis };
+    return svc.pyes.stepPYes(svc.pyes.pYesFor({ counterparty, edge: { passes: true }, profile: m?.negotiation ?? null,
+      team, table: pyTable, on: py.on }));
   };
 
   // The Trade Lab finder's best single offer (the ACQ-FLIP study's baseline, same world and seed):

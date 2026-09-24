@@ -22,6 +22,7 @@ import { SCHEMA_VERSION, TOLERANCE_KEYS, TRADEOFF_KEY, tradeoffKey } from './pla
 import { metricKey, objectiveLabel } from './objectives.js';
 import { MODE_LABELS } from './modes.js';
 import { P_ACCEPT_LABEL, teamLabel, acceptDo, declineDo } from './playbook.js';
+import { PYES_BASIS, PYES_LABEL } from '../p-yes.js';
 import { dealKey } from './paths.js';
 import { M6_REPLY_PRIOR } from '../people/counterpart.js';
 import { hash } from './confirm.js';
@@ -33,6 +34,9 @@ const featureOut = f => ({ feature: String(f.feature), effect: String(f.effect ?
   ...(f.player != null ? { player: String(f.player) } : {}), ...(Number.isFinite(f.n) ? { n: f.n } : {}) });
 /** The acceptance-model bases trade_outcomes accepts (migration 067 CHECK on model_basis). */
 const BAND_BASES = ['no_information', 'heuristic_unanchored', 'heuristic_anchored'];
+/** PYES-ONE: where a served P(yes) came from. The E1 activity baseline (p-yes.js, flag on) is its own source. */
+const pSrc = basis => (basis === PYES_BASIS ? 'activity.accept' : 'clone.accept');
+const PYES_NOTE = `${PYES_LABEL}: every offer to one manager gets the same number, so ladder rungs differ by your gain, not by P(yes), until E1 grades a model that reads the offer`;
 
 export const PRODUCER = 'campaign-producer';
 export const PRODUCER_VERSION = '2';
@@ -141,7 +145,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   const moveIds = deck.map(c => moveId(res.league, c.plan));
   const idByFirstKey = new Map(deck.map((c, j) => [dealKey(c.plan.steps[0]), moveIds[j]]));
 
-  const reasoning = ({ team, p, delta, clears, pb, verdict, whole }) => {
+  const reasoning = ({ team, p, pBasis, delta, clears, pb, verdict, whole }) => {
     const needs = needsOf(team);
     const shrank = verdict?.verdict === 'shrank';
     return ok({
@@ -155,7 +159,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
             : 'The gain clears the noise but was not re-checked on fresh dice.',
       news_check: pb?.wait ? (pb.wait.flag === 'wait' ? `Wait ${pb.wait.days} days: ${pb.wait.reason}.` : `Act now: ${pb.wait.reason}.`)
         : 'Not checked: this offer has no playbook yet.',
-      confidence: `Chance he says yes is ${pct(p)}, from ${P_ACCEPT_LABEL}.`,
+      confidence: `Chance he says yes is ${pct(p)}, from ${pBasis === PYES_BASIS ? PYES_NOTE : P_ACCEPT_LABEL}.`,
       counter: (() => {
         const row = pb?.replies?.find(r => r.kind === 'counter');
         return row?.counter_rules ? `If he counters, counter with ${row.counter_rules.counter_with}.` : row?.do ?? 'No counter plan: decline any counter that adds players on your side.';
@@ -173,7 +177,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     const before = i === 0 ? 0 : plan.steps[i - 1].delta;
     const out = {
       partner: String(st.team), give: ids(st.give), get: ids(st.get),
-      p_yes: num(st.p, 'clone.accept', { prob: true, unit: 'probability', guess: true }),
+      p_yes: num(st.p, pSrc(st.p_basis), { prob: true, unit: 'probability', guess: true }),
       title_odds_delta: num(st.delta - before, 'sim.title', { se: st.se, clears: st.clears, unit }),
       title_after: metric === 'title' ? num(nowMetric + st.delta, 'sim.title', { prob: true, unit: 'title_odds' })
         : unknown(`This plan is scored on ${LABEL[metric]}; title odds after the step are not computed.`, 'sim.title'),
@@ -203,7 +207,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
         counter: replyField(row('counter'), r => ({ do: r.do, ...(r.counter_rules ? { counter_rules: r.counter_rules } : {}) })),
         silence: replyField(row('silence'), r => ({ do: r.do, when: r.when, message: r.message })),
       }, 'plan.path');
-      out.reasoning = reasoning({ team: st.team, p: st.p, delta: st.delta - before, clears: st.clears, pb, verdict });
+      out.reasoning = reasoning({ team: st.team, p: st.p, pBasis: st.p_basis, delta: st.delta - before, clears: st.clears, pb, verdict });
     }
     if (st.band && isProb(st.band.low) && isProb(st.band.high)) {
       out.p_yes_band = { low: st.band.low, high: st.band.high };
@@ -300,7 +304,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       // itinerary.js#planStopLabel wrote ' from Team N' (the planner has no teams map): name him here.
       const tail = ` from ${teamLabel(null, st.team)}`;
       if (out.label.endsWith(tail)) out.label = `${out.label.slice(0, -tail.length)} from ${tl(st.team)}`;
-      out.p_yes = num(st.p, 'clone.accept', { prob: true, unit: 'probability', guess: true });
+      out.p_yes = num(st.p, pSrc(st.p_basis), { prob: true, unit: 'probability', guess: true });
       out.title_odds_delta = num(st.delta - before, 'sim.title', { se: st.se, clears: st.clears, unit });
     }
     const ni = /^nick-(\d+)$/.exec(s.id);
@@ -380,9 +384,9 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
         give_a: String(r.legs.give_a), get_b: String(r.legs.get_b),
         ...(Array.isArray(r.legs.give_a_ids) && r.legs.give_a_ids.length ? { give_a_ids: r.legs.give_a_ids.map(String) } : {}),
         ...(Array.isArray(r.legs.get_b_ids) && r.legs.get_b_ids.length ? { get_b_ids: r.legs.get_b_ids.map(String) } : {}),
-        p1: num(r.legs.p1, 'clone.accept', { prob: true, unit: 'probability', guess: true }),
-        p2: num(r.legs.p2, 'clone.accept', { prob: true, unit: 'probability', guess: true }),
-        p_both: num(r.legs.p_complete, 'clone.accept', { prob: true, unit: 'probability', guess: true }),
+        p1: num(r.legs.p1, pSrc(r.legs.p_basis), { prob: true, unit: 'probability', guess: true }),
+        p2: num(r.legs.p2, pSrc(r.legs.p_basis), { prob: true, unit: 'probability', guess: true }),
+        p_both: num(r.legs.p_complete, pSrc(r.legs.p_basis), { prob: true, unit: 'probability', guess: true }),
         nick_after: num(r.legs.d2, 'sim.title', { se: r.legs.se2, clears: r.legs.clears2, unit: 'title_odds' }),
       } : null,
     };

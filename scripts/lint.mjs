@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { migrationNameProblems } from './migration-name-check.mjs';
 
 const roots = ['server', 'scripts', 'test'];
 const files = [];
@@ -14,3 +15,11 @@ function visit(entry) {
 for (const root of roots) visit(root);
 for (const file of files) execFileSync(process.execPath, ['--check', file], { stdio: 'inherit' });
 console.log(`Syntax checked ${files.length} JavaScript files; TypeScript/TSX is covered by npm run typecheck.`);
+
+const { problems, checked } = migrationNameProblems();
+if (problems.length) {
+  console.error(`\n${problems.length} migration naming problem(s):\n`);
+  for (const problem of problems) console.error(`  - ${problem}`);
+  process.exit(1);
+}
+console.log(`Checked ${checked} migrations for duplicate and mismatched names.`);

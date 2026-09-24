@@ -61,6 +61,14 @@
  * GRIDIRON_ALLOW_PAID_RUN is set; otherwise each move's reasoning is 'unknown'
  * with the reason. The file is checked with validatePlans again after it.
  *
+ * --leagues 4 (the refresh loop passes GRIDIRON_WARROOM_LEAGUES here) replans only
+ * those leagues; every other league's previous entry is copied into the new file
+ * (mergeKept), so a subset run never drops the others. Attention is then ranked
+ * again across the merged file (kept leagues use their stored best expected), so
+ * every entry says "rank r of N" on the same scale; a kept entry's attention is
+ * the only field that can change, and only when its rank moved.
+ * Pushes, the failed count and the summary line count only the leagues that ran.
+ *
  * Usage:
  *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3] [--no-finder] [--tick]
  */
@@ -156,13 +164,65 @@ function readPrevious(file) {
 function args(argv) {
   const out = { leagues: null, flipTop: 3, targets: 3, finder: true, tick: false };
   for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--leagues') out.leagues = argv[++i].split(',').map(Number);
+    if (argv[i] === '--leagues') {
+      const raw = argv[++i];
+      out.leagues = parseLeagueList(raw);
+      if (!out.leagues && String(raw ?? '').trim().toLowerCase() !== 'all') out.leaguesBad = String(raw ?? '').slice(0, 40);
+    }
     else if (argv[i] === '--flip-top') out.flipTop = Number(argv[++i]);
     else if (argv[i] === '--targets') out.targets = Number(argv[++i]);
     else if (argv[i] === '--no-finder') out.finder = false;
     else if (argv[i] === '--tick') out.tick = true;
   }
   return out;
+}
+
+/** '4' / '1, 4' -> [4] / [1, 4]; empty, 'all' or anything not a list of ids -> null (every league). */
+export function parseLeagueList(text) {
+  const t = String(text ?? '').trim();
+  if (!t || t.toLowerCase() === 'all' || !/^\d+(\s*,\s*\d+)*$/.test(t)) return null;
+  return [...new Set(t.split(',').map(Number))];
+}
+
+/**
+ * A subset run's file plus every kept league's previous entry, as it was (the
+ * same object read from the previous file, so it serialises to the same bytes).
+ * `order` is every league id in file order; ids in `ran` come from `file`, the
+ * rest from `previous` when it has them. No kept entry -> `file` itself.
+ */
+export function mergeKept(file, previous, { order, ran }) {
+  const ranIds = new Set(ran.map(String));
+  const fresh = new Map(file.leagues.map(e => [String(e.league), e]));
+  const kept = order.map(String).filter(id => !ranIds.has(id) && previous.has(id));
+  if (!kept.length) return file;
+  const merged = order.map(String).map(id => (ranIds.has(id) ? fresh.get(id) : previous.get(id))).filter(Boolean);
+  // One ranking across the whole file: a ran league must not say "rank 1 of 1" next to kept "of 5".
+  // storedExpected is planner.js's deck[0].expected, the same number buildPlansFile ranks the ran leagues on.
+  const ranks = attentionRows(merged, storedExpected);
+  const leagues = merged.map(e => {
+    const a = ranks.get(String(e.league));
+    if (!a || JSON.stringify(a) === JSON.stringify(e.attention)) return e;   // unchanged: the same object, same bytes
+    return { ...e, attention: a };                                          // key order kept (attention already there)
+  });
+  return { ...file, leagues };
+}
+
+/** The best move's expected gain as stored in an entry (next_move.value.expected); 0 when there is none. */
+export function storedExpected(e) {
+  const v = e?.next_move?.status === 'ok' ? e.next_move.value?.expected : null;
+  return v?.status === 'ok' && Number.isFinite(v.value) ? v.value : 0;
+}
+
+/** North-star row 19 over a set of entries: league -> attention row for each entry that did not fail. */
+export function attentionRows(entries, expectedOf) {
+  const ranked = rankAttention(entries.map(e => ({ league: e.league, error: e.error ?? null, expected: expectedOf(e),
+    hasMove: e.next_move?.status === 'ok',
+    changed: !!e._run?.changed?.changed,
+    weeksToDeadline: Number.isInteger(e._run?.deadline_week) && Number.isInteger(e._run?.week) ? e._run.deadline_week - e._run.week : null })));
+  return new Map(entries.filter(e => !e.error).map(e => {
+    const r = ranked.find(x => x.league === e.league);
+    return [String(e.league), { status: 'ok', value: { rank: r.rank, of: r.of, reason: r.why }, source: 'campaign.plan' }];
+  }));
 }
 
 /** The producer's lock on the plans file; scripts/reasoning/run.mjs takes the same one. */
@@ -281,15 +341,8 @@ export async function buildPlansFile(leagues, {
   }
 
   // Attention budget across the leagues (north-star row 19): each league carries its own row.
-  const ranked = rankAttention(entries.map(e => ({ league: e.league, error: e.error ?? null, expected: best.get(String(e.league)) ?? 0,
-    hasMove: e.next_move?.status === 'ok',
-    changed: !!e._run?.changed?.changed,
-    weeksToDeadline: Number.isInteger(e._run?.deadline_week) && Number.isInteger(e._run?.week) ? e._run.deadline_week - e._run.week : null })));
-  for (const e of entries) {
-    if (e.error) continue;
-    const r = ranked.find(x => x.league === e.league);
-    e.attention = { status: 'ok', value: { rank: r.rank, of: r.of, reason: r.why }, source: 'campaign.plan' };
-  }
+  const ranks = attentionRows(entries, e => best.get(String(e.league)) ?? 0);
+  for (const e of entries) if (ranks.has(String(e.league))) e.attention = ranks.get(String(e.league));
 
   const file = plansFile(entries, { generated_at, flags });
   const v = validatePlans(file);
@@ -314,8 +367,10 @@ async function main() {
   try {
     const { loadServices, buildAdapter } = await import('./league-adapter.mjs');
     const svc = await loadServices();
-    const leagueIds = svc.db.rows('SELECT id FROM leagues ORDER BY id').map(r => r.id)
-      .filter(id => !opts.leagues || opts.leagues.includes(id));
+    const allIds = svc.db.rows('SELECT id FROM leagues ORDER BY id').map(r => r.id);
+    if (opts.leaguesBad) console.log(`[warroom] --leagues ${JSON.stringify(opts.leaguesBad)} is not a comma list of league ids; planning every league`);
+    if (opts.leagues) console.log(`[warroom] leagues ${opts.leagues.join(',')} only; the others keep their previous entries`);
+    const leagueIds = allIds.filter(id => !opts.leagues || opts.leagues.includes(id));
     let trigger = 'manual';
     if (opts.tick) {
       let lastAt = null;
@@ -387,12 +442,14 @@ async function main() {
     const reasoning = await reasonPlans({ plans: file, plansFile: out, env, log: l => console.log(JSON.stringify(l)) });
     if (reasoning.result.status === 'failed') console.error(`[warroom] reasoning step failed: ${reasoning.result.error}`);
     console.log(`[warroom] reasoning ${JSON.stringify(reasoning.summary)}`);
-    const checked = validatePlans(file);
+    // A --leagues run keeps every other league's previous entry untouched.
+    const written = opts.leagues ? mergeKept(file, previous, { order: allIds, ran: leagues.map(l => l.id) }) : file;
+    const checked = validatePlans(written);
     if (!checked.ok) throw new Error(`plans file failed its contract check after reasoning: ${checked.errors.slice(0, 3).map(e => `${e.path} ${e.message}`).join('; ')}`);
     const tmp = `${out}.tmp-${process.pid}`;
     // FIX-07: stamp the consumed requests in the same transaction as the plans write.
     const stamped = consumeWith(consumed, () => {
-      fs.writeFileSync(tmp, JSON.stringify(file));
+      fs.writeFileSync(tmp, JSON.stringify(written));
       fs.renameSync(tmp, out);
     }, { at: generated_at });
     console.log(`[warroom] requests consumed ${stamped.consumed}, campaign_steps written ${stamped.campaign_steps}`
@@ -401,14 +458,18 @@ async function main() {
     // HIS-SCREEN-FIX: every deck move's "his screen", computed here so the web server only
     // reads it (his-screens.json next to the plans file). Own file, own gate; never throws.
     const { writeHisScreens } = await import('../../server/services/campaign/his-screen.js');
-    await writeHisScreens(file, { log: line => console.log(line) });
+    // REFRESH-L4: a --leagues run carries the kept leagues' screens from the last his-screens file.
+    const ranIds = new Set(leagues.map(l => String(l.id)));
+    await writeHisScreens(file, { log: line => console.log(line),
+      keep: written === file ? [] : written.leagues.map(e => String(e.league)).filter(id => !ranIds.has(id)) });
     const pushes = pushesOf(file);
     if (pushes.length) {
       fs.appendFileSync(sibling(env, 'GRIDIRON_WARROOM_PUSHES', 'pushes.jsonl'), pushes.map(p => JSON.stringify(p)).join('\n') + '\n');
     }
     const entries = file.leagues;
     const failed = entries.filter(e => e.error).length;
-    console.log(`warroom_plans ${failed ? 'PARTIAL' : 'ok'} leagues ${entries.length} failed ${failed} changed ${pushes.length} (${Math.round((Date.now() - t0) / 1000)} s) -> ${out}`);
+    const keptNote = written === file ? '' : ` kept ${written.leagues.length - entries.length}`;
+    console.log(`warroom_plans ${failed ? 'PARTIAL' : 'ok'} leagues ${entries.length} failed ${failed} changed ${pushes.length}${keptNote} (${Math.round((Date.now() - t0) / 1000)} s) -> ${out}`);
     if (failed === entries.length && entries.length) process.exitCode = 1;
   } finally { release(); }
 }

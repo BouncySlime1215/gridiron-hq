@@ -201,3 +201,20 @@ test('War Room: the deck card has a His screen toggle, and a precomputed screen 
 });
 
 test.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+// INT5 (#344 x #347): a produce-plans --leagues run keeps every other league's plans entry
+// (mergeKept); its his-screens file must keep those leagues' screens too, not drop them.
+test('writeHisScreens keep: a subset run carries the kept leagues\' screens from the last file', async () => {
+  const { svc } = fakeSvc();
+  const file = hisScreensPath();
+  const both = { ...plans, leagues: [plans.leagues[0], { league: 6, alternatives: plans.leagues[0].alternatives }] };
+  const full = await writeHisScreens(both, { enabled: true, svc, leagueRow: id => ({ ...lg, id }), log: () => {} });
+  assert.equal(full.status, 'ok');
+  const before = JSON.parse(fs.readFileSync(file, 'utf8')).leagues['6'];
+  assert.ok(before?.moves?.m1, 'league 6 has screens after the full run');
+  const only4 = { ...plans, leagues: [plans.leagues[0]] };
+  await writeHisScreens(only4, { enabled: true, svc, leagueRow: () => lg, log: () => {}, keep: ['6'] });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).leagues['6'], before, 'kept league 6 carried as it was');
+  await writeHisScreens(only4, { enabled: true, svc, leagueRow: () => lg, log: () => {} });
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).leagues['6'], undefined, 'without keep a subset run drops it');
+});

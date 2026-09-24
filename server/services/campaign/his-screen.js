@@ -334,12 +334,15 @@ export async function precomputeHisScreens(plans, { leagueRow, svc = null, clock
  * Never throws: a failure is logged and the previous his-screens file stays, so
  * the plans run is never failed by this step.
  */
-export async function writeHisScreens(plans, { file = hisScreensPath(), enabled, log = console.log, ...opts } = {}) {
+export async function writeHisScreens(plans, { file = hisScreensPath(), enabled, log = console.log, keep = [], ...opts } = {}) {
   const gate = hisScreenGate(enabled);
   if (!gate.on) { log(`[his-screen] skipped: ${HIS_SCREEN_ENV} is off (preview off too)`); return { status: 'off' }; }
   try {
     const leagueRow = opts.leagueRow ?? (await import('../../db/index.js')).row.bind(null, 'SELECT * FROM leagues WHERE id = ?');
     const doc = await precomputeHisScreens(plans, { ...opts, leagueRow, log });
+    // REFRESH-L4 (produce-plans --leagues): leagues the run did not replan keep their plans
+    // entry unchanged, so their screens are carried from the last file instead of dropped.
+    if (keep.length) carryKept(doc, file, keep, log);
     const tmp = `${file}.tmp-${process.pid}`;
     fs.writeFileSync(tmp, JSON.stringify(doc));
     fs.renameSync(tmp, file);
@@ -351,6 +354,23 @@ export async function writeHisScreens(plans, { file = hisScreensPath(), enabled,
     log(`[his-screen] FAILED ${e.stack ?? e}`);
     return { status: 'failed', error: String(e.message ?? e) };
   }
+}
+
+/** Copy `keep` leagues' screens from the file on disk into `doc` (a league the run computed wins). */
+function carryKept(doc, file, keep, log) {
+  let prev = null;
+  try {
+    prev = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    if (e.code !== 'ENOENT') log(`[his-screen] previous file unreadable (${e.message}); kept leagues have no screens until they run`);
+    return;
+  }
+  if (prev?.schema !== HIS_SCREENS_SCHEMA) { log('[his-screen] previous file has another schema; kept leagues have no screens until they run'); return; }
+  const carried = [];
+  for (const id of keep.map(String)) {
+    if (prev.leagues?.[id] && !doc.leagues[id]) { doc.leagues[id] = prev.leagues[id]; carried.push(id); }
+  }
+  if (carried.length) log(`[his-screen] kept leagues ${carried.join(',')} from the last file`);
 }
 
 /* ------------------------------------------------------------ the request thread: reads only */

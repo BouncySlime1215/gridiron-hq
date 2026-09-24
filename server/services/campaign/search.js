@@ -143,8 +143,10 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     }
     return out;
   };
-  const withP = (state, st) => ({ ...st, p: adapter.priceStep(st.team, st.get, st.give).p,
-    state: S.applyTrade(state, me, st.team, st.give, st.get) });
+  const withP = (state, st) => {
+    const pr = adapter.priceStep(st.team, st.get, st.give);
+    return { ...st, p: pr.p, band: pr.band ?? null, state: S.applyTrade(state, me, st.team, st.give, st.get) };
+  };
   const h = steps => pathExpectation(steps.map(x => ({ p: x.p, delta: lin(x.state) })));
   const direct = stepsFrom(new Map(), owner, target, maxGiveFinal).map(st => [withP(new Map(), st)]);
   const chipLayer = (prefixes, maxGive) => {
@@ -186,7 +188,7 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
   return short.map(c => {
     const steps = c.steps.map(st => {
       const m = metricOf(S.rescore(st.state, me).me, objective);
-      return { team: st.team, give: st.give, get: st.get, p: st.p, delta: m.delta, se: m.se, clears: m.clears, state: st.state };
+      return { team: st.team, give: st.give, get: st.get, p: st.p, band: st.band, delta: m.delta, se: m.se, clears: m.clears, state: st.state };
     });
     return { target, owner, depth: steps.length, heuristic: c.e.expected, chained: isChained(steps), steps,
       ...pathExpectation(steps) };

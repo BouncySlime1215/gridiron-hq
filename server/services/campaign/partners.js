@@ -132,7 +132,8 @@ export function rankPartners(managers, edgeByTeam) {
     out.push({ team: String(team), p_responds: pr.p, basis: pr.basis, edge, score: pr.p * Math.max(0, edge),
       chat, shadow_score: (shadowResponds(pr.p, chat) ?? pr.p) * Math.max(0, edge),
       checked_out: !!m.checked_out, blocked: !!m.blocked, excluded: excluded(m), tier: nickTier(m),
-      nick: m.nick ? nickSummary(m.nick) : null });
+      nick: m.nick ? nickSummary(m.nick) : null,
+      needs: (Array.isArray(m.needs) ? m.needs : m.needs ? Object.keys(m.needs) : []).map(String), sent_this_week: m.sent_this_week ?? null });
   }
   return out.sort((a, b) => (b.score - a.score) || (a.tier - b.tier) || (b.p_responds - a.p_responds));
 }

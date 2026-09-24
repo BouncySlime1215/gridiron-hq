@@ -37,7 +37,8 @@ const { planLeague } = await import('../server/services/campaign/planner.js');
 const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
 const { priceLadder, HARD_SHIFT_PCT } = await import('../server/services/campaign/playbook.js');
 const { chatLabels, pResponds, rankPartners, BASE_RESPONDS, CHECKED_OUT_RESPONDS } = await import('../server/services/campaign/partners.js');
-const { toEntry, plansFile } = await import('../server/services/campaign/view.js');
+const { toEntry, plansFile, PRODUCER_VERSION } = await import('../server/services/campaign/view.js');
+const { validateLeague } = await import('../server/services/campaign/plans-schema.js');
 const { nickBlock, nickBlocksFrom, publicNick, NICK_NOTES_SOURCE } = await import('../server/services/people/nick-block.js');
 const { modelFlags, versionWithFlags } = await import('../server/services/campaign/model-flags.js');
 
@@ -117,7 +118,7 @@ test('(b) model flags come from each reader, a missing reader reads absent, and 
   assert.deepEqual(flags, { rl16_1: 'preview', rl17_3: 'off', title_mutual: 'absent', preview: 'on' });
   const v = versionWithFlags('1', flags);
   assert.equal(v, '1+rl16_1=preview,rl17_3=off,title_mutual=absent,preview=on');
-  assert.equal(plansFile([], { generated_at: 't', flags }).producer_version, v);
+  assert.equal(plansFile([], { generated_at: 't', flags }).producer_version, versionWithFlags(PRODUCER_VERSION, flags));
 
   // A reader whose own imports are broken is a real fault, not 'absent'.
   const broken = async () => {
@@ -193,6 +194,16 @@ test('(c) an unreachable manager never appears in any deck, flip or target', () 
   const row = res.partners.find(p => p.team === '3');
   assert.deepEqual([row.p_responds, row.basis, row.excluded], [0, 'Nick: unreachable', true]);
   assert.equal(res.partners.at(-1).team, '3', 'listed last, with the reason');
+
+  // And in the contract entry (FIX-03 shape): valid, marked blocked, and in no move, flip leg or target.
+  const entry = toEntry(res, { names: makeAdapter().names(), as_of: '2026-09-24T00:00:00.000Z' });
+  assert.deepEqual(validateLeague(entry).errors, []);
+  const p3 = entry.partners.value.find(p => p.team === '3');
+  assert.deepEqual([p3.p_responds, p3.basis, p3.blocked], [0, 'Nick: unreachable', true]);
+  const moves = entry.alternatives.status === 'ok' ? entry.alternatives.value : [];
+  assert.equal(moves.some(m => m.steps.some(st => st.partner === '3')), false, 'no move step');
+  assert.equal((entry.flip_map.value ?? []).some(f => f.buy_from === '3' || f.sell_to === '3'), false, 'no flip leg');
+  assert.equal((entry.targets.value ?? []).some(t => t.owner === '3'), false, 'no target owner');
 });
 
 test('(c) a not-trading manager ranks below every active manager at equal edge, whatever his activity read', () => {

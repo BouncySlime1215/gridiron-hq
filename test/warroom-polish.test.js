@@ -175,7 +175,7 @@ test('3: the flip map groups by player; rows with no fair legs sit behind "Show 
 test('4: the top strip keeps title odds now -> planned, the risk dial and both dots', () => {
   const html = render(React.createElement(TopStrip, { view: viewOf(), leagues: LEAGUES, activeId: 4, onLeague() {}, onExit() {}, theme: 'light', onTheme() {} }));
   const text = textOf(html);
-  assert.match(text, /Title odds now → planned 0\.1% → 0\.0%/);
+  assert.match(text, /Title odds 0\.1% → plan 0\.0%/);
   assert.match(html, /data-fact="risk"[\s\S]*Balanced/);
   assert.match(html, /data-fact="checks"[\s\S]*wr-dot-grey[\s\S]*brain[\s\S]*data-health="red"/);
   const css = fs.readFileSync(path.join(WARROOM_DIR, 'warroom.css'), 'utf8');

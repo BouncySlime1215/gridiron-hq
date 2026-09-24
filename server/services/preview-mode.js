@@ -18,6 +18,7 @@
  *   - streaming-board.js#streamingBoard          D/ST swap suggestion (dormant: on by default
  *                                                since NICK-WV01, so preview never switches it)
  *   - waiver-wire.js#waiverBoard                 snap-share order for same-team replacements
+ *   - flip-radar/flip-radar.js#flipRadarTick      FLIP-01 flip radar job and its flip_map section
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

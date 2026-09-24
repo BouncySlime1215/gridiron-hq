@@ -87,6 +87,10 @@ export const FANTASY_LIVE_JOBS = [
   // off by itself while an ESPN draft is live.
   'league_history',
   'manager_archetypes',
+  // FLIP-01: the flip radar (league 4). Last, after rosters, news and the manager layer
+  // it prices from. The job itself decides nightly vs on-news vs nothing, and is a
+  // no-op unless preview mode is on (preview-mode.js).
+  'flip_radar',
 ];
 
 /**

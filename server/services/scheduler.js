@@ -1222,6 +1222,11 @@ async function refreshStartSitGate() {
   return run();
 }
 
+async function refreshFlipRadar() {
+  const { flipRadarTick } = await import('./flip-radar/flip-radar.js');
+  return flipRadarTick();
+}
+
 export const JOBS = {
   player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60, tier: 'live', offThread: true,
     label: 'Player team assignments — the actual fix for stale roster spots' },
@@ -1606,7 +1611,16 @@ export const JOBS = {
   // ~23 (docs/tdd/2026-09-22-start-sit-baseline-gate.tdd.md); the budget is ~11x that.
   start_sit_gate: { run: refreshStartSitGate, maxAgeMinutes: 7 * 24 * 60, tier: 'growth', offThread: true,
     timeoutMs: 10 * 60_000,
-    label: 'Start/sit gate: our projection vs ESPN\'s projection (the plan\'s rule), with "start the higher season average" as a floor check (plan item C12)' }
+    label: 'Start/sit gate: our projection vs ESPN\'s projection (the plan\'s rule), with "start the higher season average" as a floor check (plan item C12)' },
+  /*
+   * FLIP-01: the flip radar for league 4. Every 30 minutes the tick decides:
+   * a full run nightly (24 h since the last), sooner when news lands on a
+   * rostered player (at most one news run an hour), otherwise nothing. Off
+   * entirely unless preview mode is on (preview-mode.js). Worker
+   * thread: a run is a few thousand lineup rescores.
+   */
+  flip_radar: { run: refreshFlipRadar, maxAgeMinutes: 30, tier: 'growth', offThread: true, timeoutMs: 10 * 60_000,
+    label: 'Flip radar (league 4): clone prices vs title value, buy-from-A / sell-to-B gaps fair on both screens (preview only)' }
 };
 
 /** Runs one job if it is older than its threshold. `force` ignores the age. */

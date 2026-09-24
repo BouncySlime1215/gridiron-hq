@@ -43,10 +43,33 @@ test('the producer fixture validates against the contract', () => {
   assert.equal(PRODUCER.schema, SCHEMA_VERSION);
 });
 
+/**
+ * Declared paths the producer cannot write yet, each with the unit that will.
+ * The fixture is the real producer's output (FIX-03), so these stay out of the
+ * next test until their unit lands; the test after it fails the day one of
+ * them starts being written, so an entry cannot linger.
+ */
+const PENDING = [
+  { unit: 'FIX-05', why: 'the producer does not read the brain report yet', path: /^leagues\[\]\.brain_report\.value(\.|\[|$)/ },
+  { unit: 'FIX-05', why: 'the producer does not read the number audit yet', path: /^leagues\[\]\.number_health\.value(\.|\[|$)/ },
+  { unit: 'unassigned', why: 'no planner rule reads these two sliders', path: /^leagues\[\]\.destination\.value\.tolerances\.value\.(reputation_budget|ai_spend)$/ }
+];
+const pending = p => PENDING.some(x => x.path.test(p));
+
 test('the producer fixture writes every path the contract declares', () => {
   const written = new Set([...writtenPaths(PRODUCER)].map(norm));
-  const missing = [...new Set([...schemaPaths()].map(norm))].filter(p => !META.test(p) && !written.has(p));
+  const missing = [...new Set([...schemaPaths()].map(norm))].filter(p => !META.test(p) && !written.has(p) && !pending(p));
   assert.deepEqual(missing, []);
+});
+
+test('each pending path is declared and still not written', () => {
+  const declared = [...schemaPaths()].filter(p => !META.test(p));
+  const written = new Set([...writtenPaths(PRODUCER)].map(norm));
+  for (const x of PENDING) {
+    const hits = declared.filter(p => x.path.test(p));
+    assert.ok(hits.length, `${x.unit}: ${x.path} matches no declared path`);
+    assert.deepEqual(hits.filter(p => written.has(norm(p))), [], `${x.unit}: written now; drop it from PENDING`);
+  }
 });
 
 test('every league section is present unless the whole run failed', () => {

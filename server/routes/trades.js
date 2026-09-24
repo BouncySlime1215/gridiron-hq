@@ -663,8 +663,9 @@ r.get('/:leagueId/ceiling-lineup', (req, res, next) => {
  */
 r.get('/:leagueId/war-room', async (req, res, next) => {
   try {
-    if (!warRoomFlag().enabled) { res.json({ enabled: false }); return; }
+    // Membership first: even the "off" answer is only for a member of this league.
     const lg = league(req, res); if (!lg) return;
+    if (!warRoomFlag().enabled) { res.json({ enabled: false }); return; }
     res.json(await warRoomView(lg.id));
   } catch (e) { next(e); }
 });

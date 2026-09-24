@@ -25,7 +25,7 @@
  *   B8  Approve on a suggested target posts one target.approve
  *   B9  the brain-report card shows its states (failing + fallback, unknown)
  *   B10 the number-health dot shows its unknown and failed states
- *       (B10b, todo: a computed audit shows amber; the UI reads a different shape than the contract)
+ *       B10b a computed audit (overall warn) shows amber with its warning count (was todo until #333's HealthDot read the contract shape)
  *   B11 the Coach dock mounts; "show flip map" moves Flip map into the big slot; Undo puts it back
  *   B12 next_move unknown with no deck renders its reason; the other panels still draw
  *   B13 a league whose planner run failed renders every panel hidden with the reason
@@ -380,9 +380,7 @@ test('B10: the number-health dot shows its unknown and failed states, never gree
  * read { status, open }, so a league whose audit ran (league 1: overall 'warn') shows a
  * grey "number check not computed yet". Marked todo; it passes once HealthDot reads the contract.
  */
-test('B10b: a computed number audit (overall warn) shows amber with its warning count', {
-  todo: 'BrainCheckCard.tsx#HealthDot reads value.status/open; the contract writes value.overall/warn/checks',
-}, async () => {
+test('B10b: a computed number audit (overall warn) shows amber with its warning count', async () => {
   const L1 = entryOf(1);
   assert.equal(L1.number_health.value.overall, 'warn');
   const w = await open(1);

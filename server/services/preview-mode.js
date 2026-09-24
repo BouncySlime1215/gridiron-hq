@@ -18,6 +18,11 @@
  *   - streaming-board.js#streamingBoard          D/ST swap suggestion (dormant: on by default
  *                                                since NICK-WV01, so preview never switches it)
  *   - waiver-wire.js#waiverBoard                 snap-share order for same-team replacements
+ *   - routes/brain-report.js                     GET /api/brain-report (#235, GRIDIRON_BRAIN_REPORT)
+ *   - number-health-flag.js#numberHealthFields   Settings "Number health" card, nav dot and
+ *                                                GET /api/number-audit (#237, GRIDIRON_NUMBER_HEALTH)
+ *   - offer-loop-flag.js#offerLoopFields         TradeCard "I sent this" and /offers/sent
+ *                                                (#239, GRIDIRON_OFFER_LOOP)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

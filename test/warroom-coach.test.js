@@ -310,6 +310,9 @@ test('plug_in reads a whitelisted field through Field wrappers, and nothing else
   assert.deepEqual(client.readField(PLANS, 'brain_report.checks'), PLANS.brain_report.value.checks);
   assert.equal(client.readField({ destination: { status: 'unknown', source: 'sim.title', reason: 'x' } }, 'destination.title_now'), undefined);
   assert.equal(client.readField({ destination: { status: 'failed', source: 'sim.title', reason: 'x' } }, 'destination.title_now'), undefined);
+  // A field that failed its check is hidden even if a value leaked into it.
+  assert.equal(client.readField({ destination: { status: 'ok', source: 'campaign.plan',
+    value: { title_now: { status: 'failed', source: 'sim.title', reason: 'x', value: 0.5 } } } }, 'destination.title_now'), null);
   assert.equal(client.readField({ secrets: { k: 1 } }, 'secrets.k'), undefined);
 });
 

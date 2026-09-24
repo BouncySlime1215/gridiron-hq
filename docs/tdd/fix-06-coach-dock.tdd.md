@@ -45,3 +45,18 @@ Same six files: 63 tests, 63 pass. Full `npm test`: 4880 tests, 0 fail.
 `npm run typecheck`, `npm run lint`, `npm run build`,
 `node scripts/wiring-map.mjs --check` (exit 0, with the five `warroom/coach/*`
 exemptions removed) all clean.
+
+## Liveness: mutants (four War Room test files; control run fails 0)
+
+| mutant | where | result |
+|---|---|---|
+| M1 unwrap returns `.value` whatever the status | `coach/warroomCoach.ts` unwrap | **survived** on the first sweep: no test gave a failed field a value. Added the assertion in `warroom-coach.test.js` ("a field that failed its check is hidden even if a value leaked into it"); now **killed** (1 fail) |
+| M2 hook posts `confirmed: false` | `coach/useWarRoomCoach.ts` confirm (call site) | killed (1) |
+| M3 `warRoomEnabled()` always true | `warroom-actions/store.js` | killed (3) |
+| M4 WarRoom passes `plans: null` to the hook | `WarRoom.tsx` (call site) | killed (1) |
+| M5 dealLine reads the move itself, not `steps[0]` | `coach/warroomCoach.ts` dealLine | killed (2) |
+| M6 cost/gain printed signed | `coach/CoachDock.tsx` fmt | killed (1) |
+
+Not-applied control: every mutant was a `sed` on the named line followed by
+`git checkout`; `git status --porcelain` was empty after the sweep, apart from
+the one test file edited for M1.

@@ -5,6 +5,7 @@ import { Headshot } from './PlayerRow';
 import ManagerRead from './trade/ManagerRead';
 import PlayerEvidence from './trade/PlayerEvidence';
 import RiskStrip from './trade/RiskStrip';
+import SentOfferButton from './trade/SentOfferButton';
 import { hasEvidence } from './trade/types';
 import { logServerDetail, sanitizedMessage } from '../lib/errorSanitize';
 
@@ -317,6 +318,8 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
         <button className="btn-ghost text-xs" onClick={senseCheck} disabled={senseBusy}>
           {senseBusy ? 'Checking…' : '🔍 AI sense check'}
         </button>
+        {/* CLONE-01b b1 "I sent this"; absent unless GRIDIRON_OFFER_LOOP is on (FIX-10). */}
+        <SentOfferButton deal={deal} leagueId={leagueId} onError={setErr} />
         {onDismiss && (
           <button className="btn-ghost text-xs text-[var(--muted)] ml-auto" onClick={onDismiss} title="Hide this idea — it won't come back on refresh">
             ✕ Not interested

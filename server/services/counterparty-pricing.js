@@ -24,6 +24,29 @@ import { identityMap } from './manager-identity.js';
 import { talkReads, expectationGaps, rosterOwnership, HOT_GAP_PER_GAME } from './talk-vs-model.js';
 import { declarationCredibility, untouchableStance } from './bluff-detector.js';
 import { analyzeLeague } from '../routes/tradelab.js';
+import { previewUnconfirmed, previewFields, previewText } from './preview-mode.js';
+
+/**
+ * RL-19-1: default-off preview of the r19-measured `positional_need` cap.
+ * Read per call (like PREVIEW-01's own switch) so a test can flip it without
+ * a process restart. Off by default: the served price does not change until
+ * this or preview mode (preview-mode.js) is on.
+ */
+const RL19_1_ENV = 'GRIDIRON_RL19_1_ENABLED';
+const rl19NeedPricingOn = () =>
+  process.env[RL19_1_ENV] === '1' || previewUnconfirmed();
+/**
+ * RL-19-1 (validated): 1,326 real Sleeper 1-for-1 trades (2021-24) put the
+ * need premium's 90% CI upper bound at 2.8% of value on cross-position deals,
+ * against the 8% the code has always charged (rnd/loop/
+ * r19-external-need-steers-who-not-price.md, arm 2c). Re-derived independently
+ * by rnd/loop/scripts/r19v_need_price_rederive.py (data/r19v/…): CROSS-POS
+ * x_con hi/lvl +0.0280, ALL x_con bN/lvl -0.0102 — near zero, and the "depth
+ * lowers it" sign flips across the split, so that branch is unsupported and
+ * dropped when this preview is on. 0.02 sits inside both CIs; still `fitted:
+ * false` because this is a bound, not a fitted coefficient.
+ */
+const RL19_1_NEED_CAP = 0.02;
 
 /** Hard ceiling on how far chat can move a package's perceived value. */
 // TEST SEAM: no production importer. Used by `perceivedValue` below; exported so
@@ -138,7 +161,8 @@ export const ACTIVITY_MIN_WEEKS = 5;
  * caller passes `activity: true`). Read per call so a test or a run can flip it.
  */
 export const ACTIVITY_FLAG = 'GRIDIRON_RECEPTIVENESS_ACTIVITY';
-const ACTIVITY_OFF_WHY = 'not applied (default-off: 2024 held-out AUC 0.644 missed its 0.645 bar; unconfirmed forward)';
+const ACTIVITY_UNCONFIRMED = 'default-off: 2024 held-out AUC 0.644 missed its 0.645 bar; unconfirmed forward';
+const ACTIVITY_OFF_WHY = `not applied (${ACTIVITY_UNCONFIRMED})`;
 /** Furthest the activity term may move the 0-1 receptiveness score (the chat term's reach). */
 const ACTIVITY_CAP = 0.5;
 /** Receptiveness is lo + (hi - lo) * score, so a relative change r in propensity is r / (hi - lo) in score. */
@@ -277,7 +301,10 @@ function jevBlockFor(read, rosterId) {
  * baseline.
  */
 export function counterpartyLayer(leagueId, { season, week, rosterContext = null, zero = [], activity = null } = {}) {
-  const activityOn = activity ?? process.env[ACTIVITY_FLAG] === '1';
+  // PREVIEW-01: the local-testing switch turns the terms on when neither the caller nor
+  // the site flag has; each applied term then says it is a preview.
+  const activityPreview = activity == null && process.env[ACTIVITY_FLAG] !== '1' && previewUnconfirmed();
+  const activityOn = activity ?? (process.env[ACTIVITY_FLAG] === '1' || activityPreview);
   const signals = managerSignalsFor(leagueId);
   // One block per league, shared by every manager entry and frozen for that
   // reason. `luck_self_view` is priced off this store, so its age travels with
@@ -363,10 +390,10 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
     // "chance he completes a trade", so an observed rate of saying yes to
     // offers still outranks it. Both are reported; below their gates they are
     // withheld with the reason rather than dropped.
-    const activityTerm = offUnless(activityOn,
+    const activityTerm = offUnless(activityOn, activityPreview,
       zero.includes('trade_activity') ? null : activityFactor(m, s.samples, activityMean));
     if (Number.isFinite(activityTerm?.effect)) score += activityTerm.effect;
-    const checkedOut = offUnless(activityOn, zero.includes('checked_out') ? null : checkedOutFactor(m, s.samples));
+    const checkedOut = offUnless(activityOn, activityPreview, zero.includes('checked_out') ? null : checkedOutFactor(m, s.samples));
     if (Number.isFinite(checkedOut?.effect)) score += checkedOut.effect;
 
     // Observed behaviour outranks talk. Only applied once there are enough
@@ -481,9 +508,12 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
 /**
  * A default-off term keeps its entry and says what it would have done, but
  * its effect is null so nothing adds it and every page renders it as not
- * scored.
+ * scored. On only because of preview mode (PREVIEW-01), it is applied and labelled.
  */
-function offUnless(on, f) {
+function offUnless(on, preview, f) {
+  if (f && on && preview && f.effect != null) {
+    return { ...f, ...previewFields(ACTIVITY_UNCONFIRMED), why: previewText(f.why) };
+  }
   if (!f || on || f.effect == null) return f;
   return { ...f, effect: null, would_effect: f.effect,
     why: `${ACTIVITY_OFF_WHY}; would move the score ${f.effect > 0 ? '+' : ''}${f.effect.toFixed(2)}. ${f.why}` };
@@ -793,14 +823,18 @@ export function playerValuation(managerProfile, player, { zero = [] } = {}) {
 
   // ------------------------------------------- 5. a hole he could fill here
   if (!owns && player?.position && (managerProfile?.needs || managerProfile?.surplus)) {
-    const cap = VALUATION_SOURCES.positional_need.cap;
+    const rl19On = rl19NeedPricingOn();
+    const cap = rl19On ? RL19_1_NEED_CAP : VALUATION_SOURCES.positional_need.cap;
     const n = managerProfile.roster_size ?? 0;
     // Set from the layer, array from the serialised map view — the same answer
     // either way, because a caller holding the view must not get a crash.
     const listed = (v, pos) => (v instanceof Set ? v.has(pos) : Array.isArray(v) && v.includes(pos));
     if (listed(managerProfile.needs, player.position)) {
       add('positional_need', cap, n, `he is short at ${player.position}`);
-    } else if (listed(managerProfile.surplus, player.position)) {
+    } else if (!rl19On && listed(managerProfile.surplus, player.position)) {
+      // RL-19-1: the "depth lowers it" branch is dropped under the preview —
+      // r19's re-derivation found the sign unsupported (flips across the
+      // 2021-22 / 2023-24 split). Off the flag, the incumbent -cap*0.5 stays.
       add('positional_need', -cap * 0.5, n, `he is already deep at ${player.position}`);
     }
   }

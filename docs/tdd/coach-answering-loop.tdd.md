@@ -43,10 +43,12 @@ caught it.
 ## 2. What was built
 
 **`ask.js` — `askCoach({question, context, leagueId, onEvent, model})`.** Up to six tool
-rounds against `claude-sonnet-5`, 1,500 output tokens, the catalog summarised one line
-per table into a cached system prompt (`cacheSystem: true`, feature `coach:answer`). On
-the last round `tools` is omitted so the model must answer in text rather than ending on
-a lookup that will never run — M37 left the tools in place and a test caught it.
+rounds against `claude-sonnet-5`, 8,000 output tokens (thinking counts toward the cap),
+the catalog summarised one line per table into a cached system prompt (`cacheSystem: true`,
+feature `coach:answer`), and the growing tool-loop history cached too
+(`cacheConversation: true`). On the last round the tools stay declared but
+`tool_choice` is `none`, so the model must answer in text rather than ending on a lookup
+that will never run — M37 left tool use allowed there and a test caught it.
 
 The answer shape is `{claims: [{text, cites}], refusals: [...], as_of}`. It goes to
 `verifyAnswer` from slice 2. If it passes, it ships. If not, one correction turn. If the

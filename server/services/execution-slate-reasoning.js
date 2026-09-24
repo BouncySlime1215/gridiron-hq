@@ -793,7 +793,7 @@ WHAT THIS DECISION ACTUALLY TURNS ON
   - A thin edge on a correlated bet can be worth less than a smaller edge on an uncorrelated one.
 
 Respond with ONLY JSON, no other fields:
-{"reasoning":"three sentences max on how you allocated and what correlation you are managing",
+{"reasoning":"briefly, how you allocated and what correlation you are managing",
  "slate":[{"id":"exact id from above","units":number,"why":"one line"}]}
 Omit any opportunity you do not want. Units may be fractional.`;
 }

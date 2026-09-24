@@ -98,7 +98,9 @@ export function deadStarters(lg, rosterId, players, {
   season, week, weekPoints, accepts, now = Date.now(), inactive = NO_LIVE_INACTIVES, kickoffOf = null
 }) {
   const inactiveSource = { covered: !!inactive?.covered, source: inactive?.source ?? null, reason: inactive?.reason ?? null,
-    label: inactive?.label ?? null };
+    label: inactive?.label ?? null,
+    // PREVIEW-01: a hook on only because of the local preview switch says so on the card.
+    ...(inactive?.preview ? { preview: true, preview_reason: inactive.preview_reason ?? null } : {}) };
   // A hook may print its own sentence and source label (RL-10-1: "ESPN projects 0: likely inactive").
   const sentence = s => (s.dead.reason === 'inactive' && inactive?.sentence) ? inactive.sentence : SENTENCE[s.dead.reason];
   const base = { applied: false, season, week, kickoff_basis: 'game_cutoff', inactive_source: inactiveSource };

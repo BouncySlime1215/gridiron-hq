@@ -46,11 +46,24 @@ export interface WaiverBoard {
   /** WV-02: my starters who are Out / IR / Doubtful, with who replaces them and by when. */
   injury_alerts?: InjuryAlert[];
   waiver_run?: WaiverRun;
+  /** RL-13-2: the league's waiver-order rule and my place in line (waiver-wire.js#claimPriority). */
+  claim_priority?: ClaimPriority;
+}
+
+/** waiver-wire.js#claimPriority. Nulls are fields the synced league does not carry. */
+export interface ClaimPriority {
+  known: boolean; reason: string | null;
+  acquisition_type: string | null; uses_budget: boolean | null; resets_weekly: boolean | null;
+  current_rank: number | null; teams: number | null; teams_ahead: number | null;
+  as_of: string | null; stale_season: boolean; strategy: string | null; missing: string[]; source: string;
 }
 
 /** The league's next waiver processing run (waiver-wire.js#nextWaiverRun). */
 export type WaiverRun =
-  | { known: true; day: string; date: string; hour: number; zone: string; zone_basis: string }
+  | { known: true; day: string; date: string; hour: number; zone: string; zone_basis: string;
+      /** RL-16-2: where the time came from; the settings guess is labelled unconfirmed. */
+      basis?: 'espn_scheduled' | 'observed' | 'unconfirmed_guess'; confirmed?: boolean; label?: string;
+      minute?: number; at?: string | null; observed_runs?: number }
   | { known: false; reason: string };
 
 export interface Replacement {
@@ -153,6 +166,7 @@ function Body({ data, loading, error, onRetry, out }: {
   return (
     <>
       <InjuryAlerts alerts={data.injury_alerts ?? []} />
+      {data.claim_priority && <ClaimPriorityLine cp={data.claim_priority} />}
       {/* ---------------------------------------------------------- claims now */}
       <div className="mt-3">
         <div className="text-[10px] font-black uppercase tracking-wide text-emerald-700">
@@ -369,13 +383,47 @@ export function WaiverTeaser({ data }: { data: WaiverBoard | null }) {
   );
 }
 
+const ordinal = (n: number) => {
+  const t = n % 100;
+  if (t >= 11 && t <= 13) return `${n}th`;
+  return `${n}${({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th'}`;
+};
+
+/**
+ * RL-13-2: where you are in the claim line and how this league's order works. A
+ * weekly-reset order is a race for claims, not a spot to hold, so the line says that.
+ */
+function ClaimPriorityLine({ cp }: { cp: ClaimPriority }) {
+  if (cp.current_rank == null && cp.strategy == null) return null;
+  return (
+    <div className="mt-3 text-xs leading-5 text-slate-700">
+      <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">Your place in the claim line</div>
+      {cp.current_rank != null && !cp.stale_season && (
+        <p className="mt-1">
+          <b className="text-slate-900">{ordinal(cp.current_rank)}</b>
+          {cp.teams ? ` of ${cp.teams}` : ''}
+          {cp.teams_ahead != null ? ` (${cp.teams_ahead === 1 ? '1 team' : `${cp.teams_ahead} teams`} ahead of you)` : ''}
+          , as of the last sync.
+        </p>
+      )}
+      {cp.strategy && <p className="mt-0.5">{cp.strategy}</p>}
+      {!cp.known && cp.reason && <p className="mt-0.5 text-[11px] leading-4 text-slate-400">{cp.reason}</p>}
+    </div>
+  );
+}
+
 const pct = (v: number | null) => (v == null ? 'no snaps yet' : `${Math.round(v * 100)}% of snaps`);
 
 function runLabel(run: WaiverRun): string {
   if (!run.known) return run.reason;
   const day = run.day.charAt(0) + run.day.slice(1).toLowerCase();
-  // The zone is a guess (ESPN gives the hour with no zone); the page says so.
-  return `Claim before waivers run ${day} ${run.date}, hour ${run.hour} (${run.zone_basis}).`;
+  // RL-16-2: a scheduled or observed run gives its clock time and where it came from;
+  // the settings guess keeps its hour and says it is unconfirmed.
+  if (run.basis === 'espn_scheduled' || run.basis === 'observed') {
+    const clock = `${run.hour}:${String(run.minute ?? 0).padStart(2, '0')} ET`;
+    return `Claim before waivers run ${day} ${run.date}, ${clock} (${run.label ?? run.zone_basis}).`;
+  }
+  return `Claim before waivers run ${day} ${run.date}, hour ${run.hour} (${run.label ?? run.zone_basis}).`;
 }
 
 /**

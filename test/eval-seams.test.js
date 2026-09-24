@@ -192,7 +192,9 @@ test('E1 load: app arm = sent app_proposed rows; offer_log is not read even when
   assert.equal(offers.length, 7, '6 sent app offers + the observed offer the unsent suggestion used to hide');
   assert.equal(offers.filter(o => o.source === 'observed').length, 1);
   assert.equal(excluded.espn_copy_of_app_offer, 1);
-  assert.equal(excluded.unsent_app_offer, 0, 'the unsent row is filtered in SQL, never read');
+  // E1-DATA: decided-offers.js reads every row and counts each exclusion, so
+  // the unsent suggestion is now visible in the count instead of vanishing in SQL.
+  assert.equal(excluded.unsent_app_offer, 1, 'the unsent row is read and counted, never graded');
   db.exec('DROP TABLE offer_log');
 });
 

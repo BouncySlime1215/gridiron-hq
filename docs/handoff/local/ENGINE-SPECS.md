@@ -724,3 +724,10 @@ Dashboard: a "Is the brain working?" card in Trade Brain with E1-E7 status (pass
 - **Never lose sight:** every reply from Coach shows the current destination + remaining stops + the next move; conflicts are flagged ("getting Y means selling Z, which was an untouchable"). A weekly check-in: "Still heading to the same destination? Here's how far we got."
 - **Coach explains, the engine calculates:** Coach never invents a number (verify.js); every trade-off figure is an engine field with its reason chain.
 Deps: CAMPAIGN-01a-c, COACH-01, HEALTH-01c.
+
+## CAMPAIGN-01g: speed ("arrive by week N") (Nick 9/23 ~8:45 PM: "can we make up ground... can we speed?")
+- Itinerary gets `arrive_by` (week). The planner shows a SPEED CURVE on the same dice: arrive by week 5 at cost A (overpay, variance, fatigue), by week 7 at cost B, by week 9 at cost C; Nick or Coach picks a point.
+- Speed levers the planner can pull (each priced): parallel negotiations with several active managers at once (first yes wins, others withdrawn), faster concession schedule (pay closer to the walk-away sooner), bigger packages (2-for-1 depth-for-star), waiver aggression (claim priority spent now), timing windows (buy before role news, sell right after a spike), FUCK-IT mode for the catch-up leg only.
+- Costs shown honestly: overpay premium in title odds, higher variance, offer fatigue / reputation budget used, and the trade deadline as a hard wall (catching up gets more expensive every week closer to it).
+- After detours, the planner reports "ground lost" and the cheapest way to make it back.
+Deps: CAMPAIGN-01a-d, ACQ-01, REP-01 budget.

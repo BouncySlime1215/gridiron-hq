@@ -28,6 +28,9 @@ import { whoPlays } from '../who-plays.js';
 import { teamTendencies } from '../nfl-team-tendencies.js';
 import { coachingProfile, footballContext } from '../football-context.js';
 import { sourceTrustScore } from '../beat-reporter-accuracy.js';
+import { BRAIN_TOOLS, brainToolsOn, BrainToolInputError } from './brain-tools.js';
+import { NAV_TOOL, navOn, NavigatorError } from './navigator.js';
+import { NEG_TOOL, negotiateOn, warmNegotiator, NegotiatorError } from './negotiator.js';
 import { validateAction, ACTION_TYPES, PANELS, PLUG_IN_FIELDS, PLAN_CHANGING } from '../warroom-actions/schema.js';
 
 export class CoachToolError extends Error {
@@ -308,13 +311,34 @@ export const WARROOM_TOOLS = Object.freeze([
 ]);
 
 /**
- * The tool blocks handed to Claude: no functions, no internals. The War Room
- * tools are declared only when the question comes from the War Room with the
- * flag on, so every other Coach surface keeps exactly today's tool list.
+ * The ONE registry: every tool Coach is offered on this call, in five groups.
+ *   COACH_TOOLS     always.
+ *   BRAIN_TOOLS     the brain read tools (brain-tools.js), when
+ *                   GRIDIRON_COACH_BRAIN_TOOLS or preview mode is on.
+ *   NAV_TOOL        itinerary_edit (navigator.js, COACH-NAV), when
+ *                   GRIDIRON_COACH_NAV or preview mode is on.
+ *   NEG_TOOL        negotiate_reply (negotiator.js, COACH-NEGOTIATE), when
+ *                   GRIDIRON_COACH_NEGOTIATE or preview mode is on.
+ *   WARROOM_TOOLS   only when the question comes from the War Room, so every
+ *                   other Coach surface keeps exactly today's tool list.
+ * Flags are read per call, so a flag flips without a restart.
  */
+export function activeTools({ warRoom = false } = {}) {
+  const neg = negotiateOn();
+  // The negotiator's engine modules load in the background the first time it is offered.
+  if (neg) warmNegotiator();
+  return [
+    ...COACH_TOOLS,
+    ...(brainToolsOn() ? BRAIN_TOOLS : []),
+    ...(navOn() ? [NAV_TOOL] : []),
+    ...(neg ? [NEG_TOOL] : []),
+    ...(warRoom ? WARROOM_TOOLS : [])
+  ];
+}
+
+/** The tool blocks handed to Claude: no functions, no internals. */
 export function toolDefinitions({ warRoom = false } = {}) {
-  const tools = warRoom ? [...COACH_TOOLS, ...WARROOM_TOOLS] : COACH_TOOLS;
-  return tools.map(({ name, description, input_schema }) => ({ name, description, input_schema }));
+  return activeTools({ warRoom }).map(({ name, description, input_schema }) => ({ name, description, input_schema }));
 }
 
 /**
@@ -328,10 +352,13 @@ export function toolDefinitions({ warRoom = false } = {}) {
  * @throws refusals and SQL errors from the guarded query layer, unchanged
  */
 export function runCoachTool(name, input, { ledger } = {}) {
-  const tool = COACH_TOOLS.find(t => t.name === name) ?? WARROOM_TOOLS.find(t => t.name === name);
+  // A War Room action is runnable whenever the model names one (as before
+  // this registry); the brain tools and the navigator stay behind their flags.
+  const tools = activeTools({ warRoom: true });
+  const tool = tools.find(t => t.name === name);
   if (!tool) {
     throw new CoachToolError(
-      `There is no tool called ${name}. Coach has: ${COACH_TOOLS.map(t => t.name).join(', ')}.`);
+      `There is no tool called ${name}. Coach has: ${tools.map(t => t.name).join(', ')}.`);
   }
   if (tool.kind === 'ui_action') {
     const { action } = tool.run(input);
@@ -346,6 +373,46 @@ export function runCoachTool(name, input, { ledger } = {}) {
     return { entry: null, summary: tool.run(input).meta };
   }
 
+  if (tool.kind === 'navigate') {
+    // COACH-NAV: reads the plan into the ledger, proposes edits, writes nothing.
+    // The dashboard dispatcher holds ONE pending plan change, so navigate()
+    // serves at most one action; the other edits come back as `queued` and are
+    // named in the answer's refusals, never dropped silently.
+    let out;
+    try {
+      out = tool.run(input, { ledger });
+    } catch (e) {
+      if (e instanceof NavigatorError || e instanceof BrainToolInputError) throw new CoachToolError(e.message);
+      throw e;
+    }
+    const entry = ledger.queries.at(-1) ?? null;
+    return { entry, ...(out.actions.length ? { action: out.actions[0] } : {}),
+      summary: { proposal: out.proposal, claims: out.answer.claims, refusals: out.answer.refusals,
+        as_of: out.answer.as_of, grounded: out.verification.ok, on_screen: out.actions[0] ?? null, queued: out.queued,
+        note: 'Put these claims and refusals in your answer as they are, footer last. Only on_screen waits for ' +
+          'Nick\'s Confirm; queued changes are not on screen and are not recorded until he asks for them again. ' +
+          'Do not call itinerary_edit again this turn: a second call replaces the preview on screen.' } };
+  }
+
+  if (tool.kind === 'negotiate') {
+    // COACH-NEGOTIATE: reads the plan and the engine's prices into the ledger,
+    // drafts, sends nothing. The one action is a draft for the dock's message box.
+    let out;
+    try {
+      out = tool.run(input, { ledger });
+    } catch (e) {
+      if (e instanceof NegotiatorError || e instanceof BrainToolInputError) throw new CoachToolError(e.message);
+      throw e;
+    }
+    const entry = ledger.queries.at(-1) ?? null;
+    return { entry, ...(out.actions.length ? { action: out.actions[0] } : {}),
+      summary: { kind: out.kind, recommendation: out.recommendation, reprice: out.reprice, draft: out.draft,
+        claims: out.answer.claims, refusals: out.answer.refusals, as_of: out.answer.as_of,
+        grounded: out.verification.ok, sends: out.sends,
+        note: 'Put these claims and refusals in your answer as they are. The draft is in the message box for Nick to ' +
+          'copy; nothing was sent and nothing was logged. Never state a price that is not in these claims.' } };
+  }
+
   if (tool.kind === 'derive') {
     const entry = ledger.derive({ op: input?.op, inputs: input?.inputs, label: input?.label });
     return { entry, summary: { cite: entry.id, value: entry.value, formula: entry.formula } };
@@ -357,7 +424,14 @@ export function runCoachTool(name, input, { ledger } = {}) {
     return { entry, summary: summarise(entry) };
   }
 
-  const { value, tables } = tool.run(input);
+  let ran;
+  try {
+    ran = tool.run(input);
+  } catch (e) {
+    if (e instanceof BrainToolInputError) throw new CoachToolError(e.message);
+    throw e;
+  }
+  const { value, tables } = ran;
   const { rows, columns, truncated } = toRows(value);
   const entry = ledger.record({
     tool: name, sql: null, params: [], tables, columns, rows,

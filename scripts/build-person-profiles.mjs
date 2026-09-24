@@ -41,7 +41,7 @@
  */
 import { openChatDb } from '../server/services/manager-signals.js';
 import { personVariables, MIN_N, NOT_COMPUTED } from '../server/services/coach/people/variables.js';
-import { contextBrief } from '../server/services/coach/people/context.js';
+import { contextBrief, seedPersonContext } from '../server/services/coach/people/context.js';
 import { db, run, rows } from '../server/db/index.js';
 
 const WRITE = process.argv.includes('--write');
@@ -93,7 +93,10 @@ if (!people.length) {
   process.exit(1);
 }
 
-if (WRITE) ensureTable();
+// The rules Nick has already stated about people (context.js) change what their words
+// mean, so a write starts from them; idempotent. Negotiation mode's follow-up clock
+// reads these variables live (warroom-negotiate.js), which is what made this seed need a caller.
+if (WRITE) { ensureTable(); seedPersonContext(); }
 const builtAt = new Date().toISOString();
 let written = 0;
 const summary = [];

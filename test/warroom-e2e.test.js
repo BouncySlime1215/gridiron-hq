@@ -20,12 +20,12 @@
  *   B4  Next + a skip reason posts one deck.skip; card 2 shows
  *   B5  Back restores card 1
  *   B6  Do it, then "I sent it", posts one offer.sent; the button locks
- *       (B6b, todo: the route records it; a known server bug refuses real-producer cards)
+ *       (B6b: the route records a real-producer card, card 2; fixed by #332)
  *   B7  a logged reply posts one offer.reply
  *   B8  Approve on a suggested target posts one target.approve
  *   B9  the brain-report card shows its states (failing + fallback, unknown)
  *   B10 the number-health dot shows its unknown and failed states
- *       (B10b, todo: a computed audit shows amber; the UI reads a different shape than the contract)
+ *       B10b a computed audit (overall warn) shows amber with its warning count (was todo until #333's HealthDot read the contract shape)
  *   B11 the Coach dock mounts; "show flip map" moves Flip map into the big slot; Undo puts it back
  *   B12 next_move unknown with no deck renders its reason; the other panels still draw
  *   B13 a league whose planner run failed renders every panel hidden with the reason
@@ -206,7 +206,9 @@ test('B2: every contract section the plan computed renders its data, not "not co
 
   const sections = {
     stops: [L4.itinerary, v => v.stops[0].label],
-    flip_map: [L4.flip_map, v => L4.names[v[0].player]],
+    // WR-POLISH (#333): one row per player; players with no fair leg anywhere sit behind "Show all".
+    flip_map: [L4.flip_map, v => { const f = v.find(x => v.some(r => r.player === x.player && r.legs));
+      return f ? L4.names[f.player] : 'No flip has a fair leg on both sides yet'; }],
     targets: [L4.targets, v => L4.names[v[0].player]],
     catch: [L4.catch_up, v => v[0].text],
     brain_report: [L4.brain_report, v => v.checks[0].id],
@@ -299,21 +301,24 @@ test('B6: Do it, then "I sent it", posts one offer.sent for card 1; the button l
  * deck shows "Could not save that to the planner". FIX-07's tests hand-add a basis, so
  * they pass. Marked todo so it reports without failing CI; it passes once fixed.
  */
-test('B6b: the route records a real-producer "I sent it" (offer.sent row, no save error)', {
-  todo: 'server/services/warroom-actions/cards.js: producer p_yes_band has no basis; default fails the trade_outcomes CHECK',
-}, async () => {
+test('B6b: the route records a real-producer "I sent it" (offer.sent row, no save error)', async () => {
+  // Card 2, so B6's send on card 1 (which locks that card) can't mask this one. Since #332 the
+  // producer carries the acceptance model's basis on p_yes_band, so the ledger accepts real cards.
   const ui = await open(4);
+  const [, second] = L4.alternatives.value;
+  assert.ok(second, 'league 4 has a second card');
+  click(button(ui.container, 'Next →'));
+  await waitFor(() => one(ui.container, 'data-move', second.move_id), 2000, 'card 2');
   const before = requestsOf(4, 'offer.sent').length;
   click(button(ui.container, 'Do it'));
   await waitFor(() => button(ui.container, 'I sent it'), 2000, 'the I sent it button');
   click(button(ui.container, 'I sent it'));
-  await waitFor(() => calls.filter(c => c.body?.kind === 'offer.sent').at(-1)?.status, 3000, 'the route answered');
-  assert.equal(calls.filter(c => c.body?.kind === 'offer.sent').at(-1).status, 201);
+  await waitFor(() => calls.filter(c => c.body?.kind === 'offer.sent' && c.body?.payload?.move_id === second.move_id).at(-1)?.status, 3000, 'the route answered');
+  assert.equal(calls.filter(c => c.body?.kind === 'offer.sent' && c.body?.payload?.move_id === second.move_id).at(-1).status, 201);
   assert.equal(requestsOf(4, 'offer.sent').length, before + 1);
   await new Promise(r => setTimeout(r, 50));
   assert.doesNotMatch(textOf(ui.container), /Could not save that to the planner/);
 });
-
 test('B7: a logged reply posts one offer.reply', async () => {
   const ui = await open(4);
   const nm = L4.next_move.value;
@@ -375,9 +380,7 @@ test('B10: the number-health dot shows its unknown and failed states, never gree
  * read { status, open }, so a league whose audit ran (league 1: overall 'warn') shows a
  * grey "number check not computed yet". Marked todo; it passes once HealthDot reads the contract.
  */
-test('B10b: a computed number audit (overall warn) shows amber with its warning count', {
-  todo: 'BrainCheckCard.tsx#HealthDot reads value.status/open; the contract writes value.overall/warn/checks',
-}, async () => {
+test('B10b: a computed number audit (overall warn) shows amber with its warning count', async () => {
   const L1 = entryOf(1);
   assert.equal(L1.number_health.value.overall, 'warn');
   const w = await open(1);

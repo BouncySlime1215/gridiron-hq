@@ -20,6 +20,27 @@
     "702": "N. Whitfield (WR)",
     "604b": "B. Lowe (WR)"
    },
+   "teams": {
+    "status": "ok",
+    "value": {
+     "2": {
+      "name": "Team 2"
+     },
+     "3": {
+      "name": "Team 3"
+     },
+     "5": {
+      "name": "Team 5"
+     },
+     "7": {
+      "name": "Team 7"
+     },
+     "8": {
+      "name": "Team 8"
+     }
+    },
+    "source": "campaign.plan"
+   },
    "attention": {
     "status": "ok",
     "value": {
@@ -135,6 +156,11 @@
      "cost_text": "Needs both steps of the top plan."
     },
     "source": "campaign.plan"
+   },
+   "feasibility_points": {
+    "status": "unknown",
+    "source": "sim.title",
+    "reason": "This league is already planned on points: see feasibility."
    },
    "finder_best_expected": {
     "status": "ok",
@@ -1405,6 +1431,15 @@
    "league": 2,
    "me": "1",
    "names": {},
+   "teams": {
+    "status": "ok",
+    "value": {
+     "1": {
+      "name": "Team 1"
+     }
+    },
+    "source": "campaign.plan"
+   },
    "error": "world failed"
   },
   {
@@ -1412,6 +1447,15 @@
    "me": "4",
    "names": {
     "701": "D. Harlow (WR)"
+   },
+   "teams": {
+    "status": "ok",
+    "value": {
+     "4": {
+      "name": "Team 4"
+     }
+    },
+    "source": "campaign.plan"
    },
    "attention": {
     "status": "unknown",
@@ -1477,6 +1521,11 @@
     "status": "unknown",
     "reason": "No points objective set.",
     "source": "campaign.plan"
+   },
+   "feasibility_points": {
+    "status": "unknown",
+    "source": "sim.title",
+    "reason": "Points side panel is off (GRIDIRON_POINTS_FEASIBILITY), or the world has no weekly lineup points."
    },
    "finder_best_expected": {
     "status": "unknown",

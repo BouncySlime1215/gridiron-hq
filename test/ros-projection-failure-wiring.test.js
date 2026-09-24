@@ -25,8 +25,11 @@ run(`INSERT OR IGNORE INTO schedule_games (season, team_id, week, opponent_abbr,
      SELECT 2026, t.id, w.week, t.abbr, 1 FROM nfl_teams t
      JOIN (WITH RECURSIVE n(week) AS (SELECT 1 UNION ALL SELECT week + 1 FROM n WHERE week < 18) SELECT week FROM n) w`);
 
+// FIX-318-1: keep the real module's other exports (projection-asof.js imports ROS_PARAMS, rosUpdate, ...).
+const realRos = await import('../server/services/ros-projection.js');
 mock.module('../server/services/ros-projection.js', {
   namedExports: {
+    ...realRos,
     buildRosProjections: () => { throw new Error('Provided value cannot be bound to SQLite parameter 2'); }
   }
 });

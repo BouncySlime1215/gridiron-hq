@@ -53,7 +53,9 @@ test('desperate moves: the best plan through each seller, its discount on his ow
   // Nick gives player 1 (value 920); he gets 20 (value 1000, team 2) or 30 (value 800, team 3).
   const values = new Map([[1, 920], [20, 1000], [30, 800]]);
   const r = desperateMoves(ranked, sellers, { playerValue: id => values.get(id), pResponds: t => (t === '3' ? 0.05 : 0.5) });
-  assert.deepEqual(r.items.map(x => x.team), ['3', '2'], 'highest expected gain first');
+  assert.deepEqual(r.items.map(x => x.team), ['3', '2', '9'], 'highest expected gain first, unreached sellers last');
+  assert.equal(r.items[2].gain, null);
+  assert.match(r.items[2].text, /no plan inside your sliders/);
   close(r.items[0].gain, 0.4 * 0.05);                       // the first ranked plan through team 3, not the later one
   assert.equal(r.items[0].discount_pct, 0);
   close(r.items[0].screen_pct, 15);
@@ -63,6 +65,7 @@ test('desperate moves: the best plan through each seller, its discount on his ow
   assert.match(r.items[1].text, /8% under his market screen, P\(yes\) 50%/);
   assert.deepEqual(r.unreached.map(s => s.team), ['9']);
   assert.equal(desperateMoves(ranked, sellers.slice(0, 1)).items[0].discount_pct, null, 'no values, no discount claimed');
+  assert.equal(desperateMoves(ranked, sellers, { limit: 1 }).items.length, 2, 'limit applies to each group');
 });
 
 /* ------------------------------------------------------------ speed levers */

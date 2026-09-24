@@ -85,7 +85,7 @@ export function sellersRead(managers, { threshold = OUT_OF_CONTENTION } = {}) {
  * discount that step asks him to take on his own market screen (what he gets vs what he gives, by
  * player value): discount = max(0, -screen %). ranked: planner plans (best first); sellers:
  * sellersRead(); playerValue(id) -> market value; pResponds(team) -> P(he answers) or null.
- * Sellers no plan reaches are returned in `unreached` (not items: nothing to do with them yet).
+ * Sellers no plan reaches are returned in `unreached` and as gain-less items (up to `limit`).
  */
 export function desperateMoves(ranked, sellers, { playerValue = () => null, pResponds = () => null, names = id => `player ${id}`, limit = 3 } = {}) {
   const found = [], unreached = [];
@@ -107,5 +107,8 @@ export function desperateMoves(ranked, sellers, { playerValue = () => null, pRes
       text: `Team ${s.team} (${s.why.join('; ')}): ${st.get.map(names).join(' + ')}; ${priced}`
         + (s.checked_out && Number.isFinite(pr) ? `; he answers ${Math.round(pr * 100)}% of the time.` : '.') };
   });
-  return { items, unreached };
+  // Sellers no plan reaches still show (the live read), with no gain: nothing to send them yet.
+  const idle = unreached.slice(0, limit).map(s => ({ kind: 'desperate', gain: null, steps: 0, team: s.team, reason: s.why,
+    discount_pct: null, text: `Team ${s.team} (${s.why.join('; ')}): no plan inside your sliders reaches him yet.` }));
+  return { items: [...items, ...idle], unreached };
 }

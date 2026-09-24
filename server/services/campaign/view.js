@@ -320,7 +320,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   const catch_up = ok(res.catch_up.map(c => {
     const gain = fin(c.gain) ? num(c.gain, 'plan.path', { unit, guess: c.kind === 'timing' })
       : c.kind === 'free' ? unknown(`A claim is priced in points a game (+${(c.ppg_gain ?? 0).toFixed(1)}), not in ${LABEL[metric]}.`, 'asset.ros')
-        : unknown('The deadline clock carries no gain of its own.', 'plan.path');
+        : c.kind === 'desperate' ? unknown('No plan through this manager fits the sliders yet.', 'plan.path')
+          : unknown('The deadline clock carries no gain of its own.', 'plan.path');
     const out = { text: c.text, gain, steps: Number.isInteger(c.steps) ? c.steps : c.kind === 'flip' ? 2 : 0, kind: c.kind };
     if (c.plan_key && idByFirstKey.has(c.plan_key)) out.move_id = idByFirstKey.get(c.plan_key);
     if (c.team != null) out.partner = String(c.team);

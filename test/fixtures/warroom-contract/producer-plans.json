@@ -5342,6 +5342,22 @@
       }
      },
      {
+      "text": "Team 4 (checked out (activity)): no plan inside your sliders reaches him yet.",
+      "gain": {
+       "status": "unknown",
+       "source": "plan.path",
+       "reason": "No plan through this manager fits the sliders yet."
+      },
+      "steps": 0,
+      "kind": "desperate",
+      "partner": "4",
+      "discount_pct": {
+       "status": "unknown",
+       "source": "plan.path",
+       "reason": "No price ladder for this step."
+      }
+     },
+     {
       "text": "Trade deadline: week 8 (4 weeks left).",
       "gain": {
        "status": "unknown",

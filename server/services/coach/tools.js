@@ -30,6 +30,7 @@ import { coachingProfile, footballContext } from '../football-context.js';
 import { sourceTrustScore } from '../beat-reporter-accuracy.js';
 import { BRAIN_TOOLS, brainToolsOn, BrainToolInputError } from './brain-tools.js';
 import { NAV_TOOL, navOn, NavigatorError } from './navigator.js';
+import { NEG_TOOL, negotiateOn, warmNegotiator, NegotiatorError } from './negotiator.js';
 import { validateAction, ACTION_TYPES, PANELS, PLUG_IN_FIELDS, PLAN_CHANGING } from '../warroom-actions/schema.js';
 
 export class CoachToolError extends Error {
@@ -310,21 +311,27 @@ export const WARROOM_TOOLS = Object.freeze([
 ]);
 
 /**
- * The ONE registry: every tool Coach is offered on this call, in four groups.
+ * The ONE registry: every tool Coach is offered on this call, in five groups.
  *   COACH_TOOLS     always.
  *   BRAIN_TOOLS     the brain read tools (brain-tools.js), when
  *                   GRIDIRON_COACH_BRAIN_TOOLS or preview mode is on.
  *   NAV_TOOL        itinerary_edit (navigator.js, COACH-NAV), when
  *                   GRIDIRON_COACH_NAV or preview mode is on.
+ *   NEG_TOOL        negotiate_reply (negotiator.js, COACH-NEGOTIATE), when
+ *                   GRIDIRON_COACH_NEGOTIATE or preview mode is on.
  *   WARROOM_TOOLS   only when the question comes from the War Room, so every
  *                   other Coach surface keeps exactly today's tool list.
  * Flags are read per call, so a flag flips without a restart.
  */
 export function activeTools({ warRoom = false } = {}) {
+  const neg = negotiateOn();
+  // The negotiator's engine modules load in the background the first time it is offered.
+  if (neg) warmNegotiator();
   return [
     ...COACH_TOOLS,
     ...(brainToolsOn() ? BRAIN_TOOLS : []),
     ...(navOn() ? [NAV_TOOL] : []),
+    ...(neg ? [NEG_TOOL] : []),
     ...(warRoom ? WARROOM_TOOLS : [])
   ];
 }
@@ -385,6 +392,25 @@ export function runCoachTool(name, input, { ledger } = {}) {
         note: 'Put these claims and refusals in your answer as they are, footer last. Only on_screen waits for ' +
           'Nick\'s Confirm; queued changes are not on screen and are not recorded until he asks for them again. ' +
           'Do not call itinerary_edit again this turn: a second call replaces the preview on screen.' } };
+  }
+
+  if (tool.kind === 'negotiate') {
+    // COACH-NEGOTIATE: reads the plan and the engine's prices into the ledger,
+    // drafts, sends nothing. The one action is a draft for the dock's message box.
+    let out;
+    try {
+      out = tool.run(input, { ledger });
+    } catch (e) {
+      if (e instanceof NegotiatorError || e instanceof BrainToolInputError) throw new CoachToolError(e.message);
+      throw e;
+    }
+    const entry = ledger.queries.at(-1) ?? null;
+    return { entry, ...(out.actions.length ? { action: out.actions[0] } : {}),
+      summary: { kind: out.kind, recommendation: out.recommendation, reprice: out.reprice, draft: out.draft,
+        claims: out.answer.claims, refusals: out.answer.refusals, as_of: out.answer.as_of,
+        grounded: out.verification.ok, sends: out.sends,
+        note: 'Put these claims and refusals in your answer as they are. The draft is in the message box for Nick to ' +
+          'copy; nothing was sent and nothing was logged. Never state a price that is not in these claims.' } };
   }
 
   if (tool.kind === 'derive') {

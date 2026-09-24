@@ -109,6 +109,9 @@ test('gate off (flag): 0 calls, every move reasoning unknown with the reason, fi
   const all = moves(plans);
   assert.equal(all.length, 8, 'league 1: five deck moves + next_move; league 4: one + next_move');
   for (const m of all) assert.deepEqual(m.reasoning, { status: 'unknown', source: 'coach.text', reason: REASON_OFF, as_of: FIXTURE.generated_at });
+  // FIX-234-1: flips and targets keep what the planner wrote; gate off never touches them.
+  assert.deepEqual(plans.leagues[0].flip_map, FIXTURE.leagues[0].flip_map);
+  assert.deepEqual(plans.leagues[0].targets, FIXTURE.leagues[0].targets);
   assert.deepEqual(validatePlans(plans).errors, []);
   assert.equal(fs.existsSync(panelsCachePath(file)), false, 'gate off never writes the cache');
 });
@@ -148,6 +151,13 @@ test('both gates on: each panel lands in move.reasoning as a contract field; cac
   assert.match(l4.value.his_side, /nothing on his roster/, 'an omitted section carries its reason, in words');
   assert.match(l4.value.counter, /no reply table/);
 
+  // FIX-234-1: the same run writes each flip's and target's panel into the item.
+  for (const item of [...l1.flip_map.value, ...l1.targets.value]) {
+    assert.equal(item.reasoning.source, 'coach.text', `${item.player} carries a written panel`);
+    assert.equal(item.reasoning.status, 'ok', `${item.player} reasoning`);
+    assert.match(item.reasoning.value.counter, /no reply table/);
+  }
+
   run.commit();
   assert.equal(run.summary.cache, path.join(path.dirname(file), PANELS_CACHE));
   assert.ok(fs.existsSync(run.summary.cache));
@@ -163,7 +173,7 @@ test('an unchanged move_id -> 0 calls on the next run (reused from panels.json)'
   const w = writer();
   const again = await reasonPlans({ plans, plansFile: file, env: PAID, news: NEWS, callClaude: w.callClaude });
   assert.equal(w.prompts.length, 0);
-  assert.equal(again.summary.reused, 6);
+  assert.equal(again.summary.reused, 10, '6 deck panels + league 1\'s 2 flips and 2 targets (FIX-234-1)');
   assert.equal(again.summary.total_cost_usd, 0);
   assert.equal(plans.leagues[0].alternatives.value[0].reasoning.status, 'ok', 'a reused panel is written into the move again');
 });

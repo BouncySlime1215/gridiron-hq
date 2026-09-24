@@ -38,7 +38,7 @@ function Row({ c, big }: { c: CloneRow; big: boolean }) {
           <Val f={c.p_accept} fmt={band} />
           {c.p_accept.status === 'ok' && c.p_accept.note && <span className="wr-muted"> · {c.p_accept.note}</span>}
         </span>
-        {big && c.p_accept.status === 'ok' && <SourceTag id={c.p_accept.source} guess={c.p_accept.guess} />}
+        {big && c.p_accept.status === 'ok' && <SourceTag id={c.p_accept.source} />}
       </div>
 
       {c.nick.length > 0 && <div className="wr-sub">{c.nick.join(' · ')}</div>}

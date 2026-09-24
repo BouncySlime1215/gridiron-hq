@@ -68,6 +68,13 @@
   font-weight: 900; text-align: center; line-height: 15px; margin-right: 3px; }
 .wr-rk.wr-rk-low { background: var(--wr-subtle); }
 .wr-facts { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; }
+/* WR-POLISH (audit defect 4): the facts get their own full-width row, so title odds, the
+   risk dial and the check dots are never squeezed out by the league tabs. */
+.wr-top .wr-facts { order: 10; flex: 1 1 100%; overflow: visible; flex-wrap: wrap; gap: 4px 18px; padding-top: 4px; border-top: 1px solid var(--wr-line); }
+.wr-top .wr-leagues { flex: 1 1 0; }
+.wr-lg { max-width: 190px; overflow: hidden; }
+.wr-lg-n, .wr-lg-w { display: block; overflow: hidden; text-overflow: ellipsis; }
+.wr-fact[data-fact="risk"] .wr-chip, .wr-fact[data-fact="checks"] .wr-v { display: inline-flex; align-items: center; gap: 4px; }
 .wr-fact .wr-l { display: block; font-size: 9.5px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: var(--wr-muted); }
 .wr-fact .wr-v { font-weight: 800; font-size: 12.5px; }
 .wr-chip { border: 1px solid var(--wr-line); background: var(--wr-surface); border-radius: 999px; padding: 3px 10px; font-weight: 800; font-size: 12px; white-space: nowrap; }
@@ -166,6 +173,28 @@
 .wr-ask { display: flex; gap: 6px; padding: 8px 10px; }
 .wr-ask input { flex: 1; min-width: 0; border: 1px solid var(--wr-line); background: var(--wr-bg); border-radius: 8px; padding: 7px 9px; }
 
+/* ---------- WR-POLISH: no-move card, coach starter, health list ---------- */
+.wr-nomove { display: flex; flex-direction: column; gap: 8px; }
+.wr-nomove-head { border-left: 3px solid var(--wr-warn); padding: 2px 10px; }
+.wr-nomove-why { margin: 2px 0 0; font-size: 13px; line-height: 1.4; color: var(--wr-ink); }
+.wr-nomove-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.wr-nm-card { border: 1px solid var(--wr-line); background: var(--wr-surface); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.wr-nm-card .wr-cap { margin-top: 0; }
+.wr-nm-deal { font-size: 15px; font-weight: 900; letter-spacing: -.01em; margin: 4px 0; line-height: 1.25; }
+.wr-starter { display: flex; flex-direction: column; gap: 8px; }
+.wr-starter-hi { margin: 0; font-size: 13px; line-height: 1.4; }
+.wr-starter-prompts { display: flex; flex-direction: column; gap: 6px; }
+.wr-prompt { text-align: left; border: 1px solid var(--wr-line); background: var(--wr-surface); color: var(--wr-ink); border-radius: 10px; padding: 7px 10px; font-weight: 700; font-size: 12.5px; }
+.wr-prompt:hover:not([disabled]) { border-color: var(--wr-accent); background: var(--wr-accent-tint); }
+.wr-health-wrap { display: inline-block; }
+.wr-health-open { list-style: none; margin: 4px 0 0; padding: 0; font-size: 11px; }
+.wr-health-open li { padding: 1px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The app's floating assistant button sits bottom-right; keep the Coach's Ask clear of it. */
+.wr-coach .wr-ask { padding-right: 78px; }
+.wr-app .wr-link { color: var(--wr-info); }
+.wr-fact .wr-chip[disabled] { opacity: 1; cursor: default; }
+.wr-nm-card .wr-row { flex-wrap: wrap; }
+
 /* ---------- phone: one-screen swipe deck, Coach as bottom sheet ---------- */
 @media (max-width: 699px) {
   .wr-app { grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: auto minmax(0, 1fr) auto !important;
@@ -189,6 +218,13 @@
   .wr-who { font-size: 18px; }
   .wr-tile .wr-v { font-size: 15px; }
   .wr-reasoning { grid-template-columns: 1fr; }
+  .wr-nomove-grid { grid-template-columns: 1fr; }
+  .wr-lg { max-width: 150px; }
+  .wr-top .wr-leagues { flex: 1 1 100%; }
+  .wr-dots { justify-content: flex-start; padding-right: 72px; }
+  .wr-top .wr-facts { gap: 4px 12px; }
+  .wr-ch { padding-right: 80px; }
+  .wr-coach.wr-open .wr-ask { padding-right: 10px; }
 }
 
 /* Negotiation mode (NEGOTIATE-UI): the live thread, countdown and counter builder. Tokens only. */

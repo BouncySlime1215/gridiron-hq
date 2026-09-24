@@ -16,8 +16,14 @@ export function leverage({ expected = 0, weeksToDeadline = null, changed = false
   return { value, why: bits.join(', ') };
 }
 
+/**
+ * One row per league (a league listed twice keeps its last row), ranked 1..of.
+ * `of` is the number of leagues ranked, so rank <= of always holds.
+ */
 export function rankAttention(leagues) {
-  return leagues.map(l => ({ league: l.league, ...leverage(l) }))
-    .sort((a, b) => b.value - a.value)
-    .map((x, i) => ({ ...x, rank: i + 1 }));
+  const byLeague = new Map();
+  for (const l of leagues) byLeague.set(String(l.league), l);
+  const rows = [...byLeague.values()].map(l => ({ league: l.league, ...leverage(l) }))
+    .sort((a, b) => b.value - a.value);
+  return rows.map((x, i) => ({ ...x, rank: i + 1, of: rows.length }));
 }

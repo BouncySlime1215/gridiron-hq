@@ -8,6 +8,7 @@ import { pct, pts, NOT_COMPUTED, isOk } from './format';
 import ReplyTable from './ReplyTable';
 import Negotiate from './Negotiate';
 import type { Negotiations, Thread, ThreadResponse } from './negotiateModel';
+import NoMoveCard from './NoMoveCard';
 
 /**
  * NEXT MOVE: the one decision ("send this to this manager, yes or no") as a swipe deck
@@ -19,13 +20,15 @@ import type { Negotiations, Thread, ThreadResponse } from './negotiateModel';
  * With negotiation mode on (`negotiation.enabled`), "I sent it" also opens a live
  * thread on the server and the card flips to it (Negotiate.tsx).
  */
-export default function NextMoveDeck({ view, big, initialState, onLog, post, negotiation }: {
+export default function NextMoveDeck({ view, big, initialState, onLog, post, negotiation, onAsk }: {
   view: WarRoomView;
   big: boolean;
   initialState?: DeckState;
   onLog?: (log: DeckLogEntry[]) => void;
   post?: Poster;
   negotiation?: Negotiations | null;
+  /** Ask Coach (the no-move card's prompts). */
+  onAsk?: (q: string) => void;
 }) {
   const field = view.alternatives;
   const moves: Move[] = isOk(field) ? field.value : [];
@@ -134,7 +137,8 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
     return <div className="wr-deck"><FieldBlock f={field} label="Next move">{() => null}</FieldBlock></div>;
   }
   if (!total) {
-    return <div className="wr-deck"><div className="wr-empty">{view.next_move?.reason ?? 'The planner found no move for this league.'}</div></div>;
+    // Audit defect 2: the reason, then the closest path and the all-in option, never a blank slot.
+    return <div className="wr-deck"><NoMoveCard view={view} onAsk={onAsk} /></div>;
   }
   if (!move) {
     return (

@@ -134,18 +134,68 @@ const outputLines = r => `${r.stdout ?? ''}${r.stderr ?? ''}`.split('\n').filter
 const spawnFailure = r => (r.error || r.status == null
   ? String(r.error?.message ?? `killed by ${r.signal ?? 'an unknown signal'}`) : null);
 
+/**
+ * What a spawned child actually reported — or why there is no report.
+ *
+ * Every child here is read through a PIPE (`spawnSync`'s stdio), and every one
+ * ends in a `process.exit`, which does not flush a pipe. So the tail of a large
+ * report is lost, and the tail is exactly where the summary line is. Reading
+ * `lines.at(-1)` therefore hands back a mid-run diagnostic and calls it the
+ * result: `transactionsCapture` matched `/failed (\d+)/` against it, found
+ * nothing, and — since the collector exits 0 whether or not leagues failed —
+ * logged `ok`. The ABSENCE of the summary was read as the ABSENCE of problems.
+ *
+ * So the summary is found by its MARKER and its absence is a failure in its own
+ * right. That is not a new convention: `parseChatStatus` below already reads the
+ * chat extractor this way, and says so — "'error' when the run failed (non-zero
+ * exit, or no status line)". This holds the other three children to it, using the
+ * summary each one already prints, so no child script changes.
+ *
+ * `truncated` separates the two states a reader has to act on differently:
+ * the child said it failed (look at the child), versus the child never got its
+ * report out (look at the pipe, or at whatever killed it mid-run).
+ */
+export function childOutcome(r, { marker }) {
+  const died = spawnFailure(r);
+  const lines = outputLines(r).filter(l => !/espn_s2|SWID/.test(l));
+  const summary = lines.filter(l => marker.test(l)).at(-1) ?? null;
+
+  // Checked first and unconditionally. This used to be consulted only as a
+  // fallback for the summary TEXT, so a child that overflowed its buffer or was
+  // killed mid-run was ignored outright whenever any line had arrived first.
+  if (died) return { ok: false, truncated: false, summary, lines, text: died };
+
+  if (r.status !== 0) {
+    const problems = lines.filter(l => / ERROR |MISMATCH|: ERROR /.test(l));
+    return { ok: false, truncated: false, summary, lines,
+      text: [...problems, summary ?? `exit ${r.status}`].join(' | ') };
+  }
+
+  if (!summary) {
+    return { ok: false, truncated: true, summary: null, lines,
+      text: `exited 0 but printed no summary line: the report did not arrive. `
+        + `Its output ended "${lines.at(-1)?.slice(0, 80) ?? '(nothing at all)'}". `
+        + 'A captured report is truncated when the child exits before its stdout flushes, '
+        + 'so this is NOT evidence that the run succeeded.' };
+  }
+
+  return { ok: true, truncated: false, summary, lines, text: summary };
+}
+
 // ESPN transactions with proposal/accept/decline timestamps. ESPN only answers
 // with the last ~3 days, so this must run every tick or the proposals are lost.
 export function transactionsCapture({ spawn = spawnSync, log = console.log } = {}) {
   const t0 = Date.now();
   const r = spawn(process.execPath, ['--env-file-if-exists=.env', 'scripts/collect-league-transactions.mjs'],
     { cwd: ROOT, env: process.env, encoding: 'utf8', timeout: 5 * 60 * 1000 });
-  const last = outputLines(r).filter(l => !/espn_s2|SWID/.test(l)).at(-1) ?? spawnFailure(r) ?? `exit ${r.status}`;
+  const outcome = childOutcome(r, { marker: /^transactions: seen \d+/ });
   // The collector exits 0 even when leagues failed (its sync_log row says 'error');
-  // its summary line carries the count, so the log line must not say ok.
-  const leaguesFailed = Number(/failed (\d+)/.exec(last)?.[1] ?? 0);
-  const ok = r.status === 0 && leaguesFailed === 0;
-  log(`${stamp()} ${'league_tx'.padEnd(18)} ${ok ? 'ok' : 'ERROR'} ${last.slice(0, 160)} (${Date.now() - t0} ms)`);
+  // its summary line carries the count, so the log line must not say ok. The count
+  // is read ONLY from a summary that actually arrived -- parsing it out of whatever
+  // line came last turned a lost report into `failed 0`, and so into `ok`.
+  const leaguesFailed = Number(/failed (\d+)/.exec(outcome.summary ?? '')?.[1] ?? 0);
+  const ok = outcome.ok && leaguesFailed === 0;
+  log(`${stamp()} ${'league_tx'.padEnd(18)} ${ok ? 'ok' : 'ERROR'} ${outcome.text.slice(0, 200)} (${Date.now() - t0} ms)`);
 }
 
 // Every team's roster and lineup slots for the current scoring period, plus a one-time
@@ -161,11 +211,11 @@ export function rosterSnapshots({ spawn = spawnSync, log = console.log, record =
     log(`${stamp()} ${'roster_snapshots'.padEnd(18)} ERROR ${failed.slice(0, 160)} (${Date.now() - t0} ms)`);
     return;
   }
-  const lines = outputLines(r).filter(l => !/espn_s2|SWID/.test(l));
-  const summary = lines.filter(l => /^roster_snapshots:/.test(l)).at(-1) ?? lines.at(-1) ?? `exit ${r.status}`;
-  const problems = lines.filter(l => / ERROR |MISMATCH/.test(l));
-  const text = r.status === 0 ? summary : [...problems, summary].join(' | ');
-  log(`${stamp()} ${'roster_snapshots'.padEnd(18)} ${r.status === 0 ? 'ok' : 'ERROR'} ${text.slice(0, 300)} (${Date.now() - t0} ms)`);
+  // `?? lines.at(-1)` used to stand in for a missing summary, which is the whole
+  // defect: a mid-run diagnostic was printed in the summary's place beside `ok`.
+  const outcome = childOutcome(r, { marker: /^roster_snapshots:/ });
+  if (outcome.truncated) record('roster_snapshots', 'error', { error: outcome.text.slice(0, 300), truncated: true });
+  log(`${stamp()} ${'roster_snapshots'.padEnd(18)} ${outcome.ok ? 'ok' : 'ERROR'} ${outcome.text.slice(0, 300)} (${Date.now() - t0} ms)`);
 }
 
 // League-chat backfill (Nick, 2026-09-17: "have it backfill chats when the laptop
@@ -360,13 +410,15 @@ export function createManagerSignalsStep({ spawn = spawnSync, log = console.log,
       log(`${stamp()} ${'manager_signals'.padEnd(18)} ERROR ${failed.slice(0, 160)} (${clock() - t0} ms)`);
       return { ok: false };
     }
-    // The key after the build: its own identity writes must not trigger the next run.
-    lastOk = r.status === 0 ? { key: readKey(), at: clock() } : null;
-    const lines = outputLines(r);
-    const last = lines.at(-1) ?? `exit ${r.status}`;
-    const text = r.status === 0 ? last : [...lines.filter(l => /: ERROR /.test(l)), last].join(' | ');
-    log(`${stamp()} ${'manager_signals'.padEnd(18)} ${r.status === 0 ? 'ok' : 'ERROR'} ${text.slice(0, 300)} (${clock() - t0} ms)`);
-    return { ok: r.status === 0 };
+    const outcome = childOutcome(r, { marker: /^manager_signals:/ });
+    // The key after the build: its own identity writes must not trigger the next
+    // run. Keyed off the OUTCOME, not the exit status: caching a truncated run as
+    // a success would skip the next six hours of rebuilds on a run nobody can show
+    // completed, which is a good deal worse than one wrong log line.
+    lastOk = outcome.ok ? { key: readKey(), at: clock() } : null;
+    if (outcome.truncated) record('manager_signals', 'error', { error: outcome.text.slice(0, 300), truncated: true });
+    log(`${stamp()} ${'manager_signals'.padEnd(18)} ${outcome.ok ? 'ok' : 'ERROR'} ${outcome.text.slice(0, 300)} (${clock() - t0} ms)`);
+    return { ok: outcome.ok };
   };
 }
 

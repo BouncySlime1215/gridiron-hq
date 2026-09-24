@@ -518,9 +518,9 @@ export function recordSentOffer({ league_id, season, proposer_team_id = null, de
 
 /**
  * Tie the pitch bandit's framing choice to the offer it went out with (M5,
- * migration 085). The named choice if the caller has one, else the latest
+ * migration 090). The named choice if the caller has one, else the latest
  * unlinked choice logged for this deal. Returns the linked choice id, or null
- * when there is none to link (no choice logged, or 085 not run: a sent offer
+ * when there is none to link (no choice logged, or 090 not run: a sent offer
  * never fails for want of a framing).
  */
 function linkPitchChoice({ league_id, season, idea_id, outcome_id, pitch_choice_id, at }) {

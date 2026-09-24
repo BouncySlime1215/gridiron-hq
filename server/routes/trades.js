@@ -41,6 +41,7 @@ import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE, PROMPT_VERSION 
   from '../services/trade-proposals.js';
 import { recordProposalSlate, recordSentOffer } from '../services/trade-outcomes.js';
 import { pitchFor } from '../services/pitch-bandit.js';
+import { pitchBanditFields } from '../services/pitch-bandit-flag.js';
 import { recordRoute } from '../services/rec-ledger.js';
 import { offerLoopFields } from '../services/offer-loop-flag.js';
 import { lineupCall } from '../services/lineup-brain.js';
@@ -902,18 +903,23 @@ r.get('/:leagueId/offers/sent', (req, res, next) => {
  * manager. Logs the choice against the deal and returns the reshaped message
  * with `pitch_choice_id`, which the page sends back on "I sent this" so the
  * reply grades the framing. It sends nothing to ESPN.
+ *
+ * Behind GRIDIRON_PITCH_BANDIT (pitch-bandit-flag.js). Off, it answers
+ * `{enabled:false, reason}` and logs nothing.
  */
 r.post('/:leagueId/pitch', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
+    const flag = pitchBanditFields();
+    if (!flag.enabled) return res.json(flag);
     const deal = req.body?.deal;
     const message = req.body?.message;
     if (!deal || deal.partner_id == null || typeof message?.text !== 'string') {
       return res.status(400).json({ error: 'deal with partner_id and message.text required' });
     }
     if (lg.season == null) return res.status(400).json({ error: 'league has no season' });
-    res.json(pitchFor({ league_id: lg.id, season: lg.season, counterparty_team_id: String(deal.partner_id),
-      deal, message }));
+    res.json({ ...pitchFor({ league_id: lg.id, season: lg.season, counterparty_team_id: String(deal.partner_id),
+      deal, message }), ...flag });
   } catch (e) { next(e); }
 });
 

@@ -1,4 +1,4 @@
-export const name = '085_pitch_bandit';
+export const name = '090_pitch_bandit';
 /**
  * M5, the pitch bandit: one new table, additive only.
  *

@@ -26,7 +26,7 @@
  *  P7 per manager: one manager's outcomes never move another's posterior.
  *  P8 frameMessage: face_safe_short keeps only the ask; no arm adds a number
  *     that was not in the engine's message.
- *  P9 migration 085 is additive: trade_outcomes' columns are unchanged.
+ *  P9 migration 090 is additive: trade_outcomes' columns are unchanged.
  *  P10 pitchFor (the producer's one call) logs a choice, frames the message
  *     with that arm and carries the choice id that "I sent this" links.
  *
@@ -257,14 +257,14 @@ test('P8 frameMessage reshapes the engine message without adding numbers', () =>
 
 /* ------------------------------------------------------------------ P9 */
 
-test('P9 migration 085 is additive and leaves trade_outcomes alone', async () => {
+test('P9 migration 090 is additive and leaves trade_outcomes alone', async () => {
   const cols = rows('PRAGMA table_info(pitch_choices)').map(c => c.name);
   for (const c of ['league_id', 'season', 'counterparty_team_id', 'idea_id', 'arm', 'outcome_id', 'chosen_at'])
     assert.ok(cols.includes(c), c);
   const toCols = rows('PRAGMA table_info(trade_outcomes)').map(c => c.name);
   assert.ok(!toCols.includes('pitch_json'), 'pitch_json stays for the b2 migration');
-  const m = await import('../server/migrations/085_pitch_bandit.js');
-  assert.equal(m.name, '085_pitch_bandit');
+  const m = await import('../server/migrations/090_pitch_bandit.js');
+  assert.equal(m.name, '090_pitch_bandit');
   // one choice per offer
   assert.throws(() => run(`INSERT INTO pitch_choices (league_id, season, counterparty_team_id, arm, prior_basis,
       samples_json, posterior_json, eligible_json, floor, reason, chosen_at, outcome_id)

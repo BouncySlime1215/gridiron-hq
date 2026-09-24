@@ -17,7 +17,7 @@ CLONE-01b b1 offer loop (#239, which this branch is based on).
 - **Capped exploration:** only arms whose posterior mean is at least
   `max(0.10, 0.5 × best mean)` are sampled. If no arm clears that floor, the
   best mean is played and the reason text says so.
-- **Log:** `pitch_choices` (migration 085) stores the arm, samples, posterior,
+- **Log:** `pitch_choices` (migration 090) stores the arm, samples, posterior,
   eligible arms, floor, reason and prior basis. "I sent this" links the choice
   to the `trade_outcomes` row, at most one choice per offer.
 - **Callers:** `pitchFor` is the single call the campaign producer (#233)
@@ -36,7 +36,7 @@ CLONE-01b b1 offer loop (#239, which this branch is based on).
 | P6 | every choice writes one row; "I sent this" links the latest unlinked choice or the one named; a second tap does not relink |
 | P7 | one manager's outcomes never move another manager's posterior |
 | P8 | `frameMessage` keeps the ask, adds no number that was not in the engine text, and face-safe drops the need line and every fact |
-| P9 | migration 085 adds one table, leaves `trade_outcomes` without `pitch_json` (that column belongs to b2), and allows one choice per offer |
+| P9 | migration 090 adds one table, leaves `trade_outcomes` without `pitch_json` (that column belongs to b2), and allows one choice per offer |
 | P10 | `pitchFor` logs, frames and returns the choice id that "I sent this" links |
 | R1, R2 | route cases: `/offers/sent` honours a named `pitch_choice_id`; `/pitch` logs against the deal and gets linked |
 
@@ -83,7 +83,7 @@ stayed clean.
 ## Nick's five questions
 
 1. **Well built?** It is one service, `server/services/pitch-bandit.js`, plus
-   one additive table (migration 085) and a four-line link in
+   one additive table (migration 090) and a four-line link in
    `recordSentOffer`. The route sends nothing to ESPN.
 2. **Stats or made up?** The mechanism is standard Thompson sampling on Beta
    posteriors. The numbers are made up (hand-set): base 0.30, boost 0.45,

@@ -25,7 +25,7 @@
  * `what_shuts_him_down` rules out are vetoed outright; face_safe_short is the
  * safe arm and is never vetoed.
  *
- * Every choice is a `pitch_choices` row (migration 085): arm, posterior,
+ * Every choice is a `pitch_choices` row (migration 090): arm, posterior,
  * samples, eligible arms, floor, reason. "I sent this" links the choice to the
  * offer (`recordSentOffer`), which is what makes it learnable.
  *
@@ -122,7 +122,7 @@ export function posteriorFor({ league_id, season, counterparty_team_id, profile 
   const prior = priorFromProfile(profile);
   const arms = {};
   for (const a of PITCH_ARMS) arms[a] = { alpha: prior.arms[a].alpha, beta: prior.arms[a].beta, n: 0, reward: 0 };
-  if (!hasChoices()) throw new Error('pitch-bandit: pitch_choices does not exist — migration 085 has not run here');
+  if (!hasChoices()) throw new Error('pitch-bandit: pitch_choices does not exist — migration 090 has not run here');
   const settled = rows(`SELECT c.arm, t.status FROM pitch_choices c JOIN trade_outcomes t ON t.id = c.outcome_id
     WHERE c.league_id = ? AND c.season = ? AND c.counterparty_team_id = ? AND t.sent_at IS NOT NULL`,
   league_id, season, String(counterparty_team_id));

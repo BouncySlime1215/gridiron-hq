@@ -53,13 +53,13 @@ const POS_WORDS = [
 ];
 const POS_ALT = '(?:qbs?|quarterbacks?|rbs?|running ?backs?|wrs?|wide ?receivers?|receivers?|tes?|tight ?ends?|dst|d/st|defen[cs]es?|kickers?|flex)';
 
-// Surnames and first names that are also everyday words: never an alias on their own.
-const COMMON_WORDS = new Set(['will', 'love', 'hill', 'white', 'brown', 'young', 'price', 'rice', 'hall', 'moore',
-  'mason', 'chase', 'mark', 'cook', 'bell', 'best', 'long', 'green', 'gray', 'grey', 'king', 'wilson', 'allen',
-  'johnson', 'williams', 'smith', 'jones', 'davis', 'miller', 'thomas', 'jackson', 'taylor', 'harris', 'martin',
-  'walker', 'lewis', 'robinson', 'hunt', 'banks', 'fields', 'swift', 'lamb', 'james', 'hunter', 'baker', 'ford',
-  'moss', 'dart', 'tank', 'week', 'game', 'pick', 'trade', 'team', 'jets', 'bears', 'saints', 'giants', 'chiefs',
-  'london', 'austin', 'jordan', 'tyler', 'drake', 'cam', 'tee', 'sam', 'joe', 'kirk', 'waddle', 'mike', 'chris']);
+// Surnames that are also everyday English words (or team / chat words): never an alias on
+// their own. Ambiguity between players is handled by uniqueness in the lexicon, and the
+// league-mates' own names by `excludeWords` at runtime, so no person's name is listed here.
+const COMMON_WORDS = new Set(['will', 'love', 'hill', 'white', 'brown', 'young', 'price', 'rice', 'hall', 'chase',
+  'mark', 'cook', 'bell', 'best', 'long', 'green', 'gray', 'grey', 'king', 'hunt', 'banks', 'fields', 'swift', 'lamb',
+  'baker', 'ford', 'moss', 'dart', 'tank', 'waddle', 'week', 'game', 'pick', 'trade', 'team', 'jets', 'bears',
+  'saints', 'giants', 'chiefs', 'london']);
 
 const norm = s => String(s ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[\u2018\u2019]/g, "'");
 const words = name => norm(name).replace(/\b(jr|sr|ii|iii|iv|v)\.?$/i, '').split(/[\s-]+/).filter(Boolean);

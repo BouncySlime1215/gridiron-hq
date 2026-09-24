@@ -35,10 +35,10 @@ At `ea2508af` the test imports `server/services/people/pulse.js`, which does not
 ## Measured (DB copies, counts only)
 
 Labeller vs PEOPLE-LAB hand labels, 3,264 league-mate messages since 2026-07-01, 330 labelled:
-text rules alone micro F1 0.128 (P 0.22, R 0.09) -> shipped labeller 0.422 (P 0.409, R 0.435);
+text rules alone micro F1 0.128 (P 0.22, R 0.09) -> shipped labeller 0.426 (P 0.406, R 0.447);
 WANT_PLAYER P 0.556, R 0.779, player agreement 57/60.
 
 Replay: chat cut at 2026-09-21T00:00Z (pass 1, backfill) then the full chat (pass 2, live):
 pass 1 read 256 -> 22 statements, 4 credible, replan not_needed (backfill); pass 2 read 271 ->
-46 statements from 6 rosters, 8 credible WANT_PLAYER, one replan request (no_planner on main);
-68 people.statement events; ticker 20 items. Passes 211 ms and 75 ms.
+47 statements from 6 rosters, 8 credible WANT_PLAYER, one replan request (no_planner on main);
+69 people.statement events; ticker 20 items. Passes 208 ms and 73 ms.

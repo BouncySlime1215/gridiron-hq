@@ -17,13 +17,15 @@
  *   fallback  the monitor has the field on its fallback: the fallback field's row is served
  *   thin      the row is healthy but built on missing/fallback inputs
  *   degraded  the row's own health is degraded and nothing healthy can stand in for it
+ *   last_good the row failed or is degraded and has no fallback field: its last good row
  *   failed    the row failed its checks and there is no fallback or healthy row: state null
  *   league_id_required  a league-scoped entity asked for without league_id (400)
  * plus `health`, `fresh_at` (the later of the row's as_of and the producer's last
  * successful run), `fallback_used` and `fallback`. A failed or degraded row is never
  * served as itself when something healthy can stand in: the field's declared fallback
- * field, else its last good row (HEALTH-01b, engine/state.js#readServed), labelled
- * `fallback` with the reason. The failed value itself is never in the response.
+ * field (`fallback`), else its last good row (`last_good`), with the reason (HEALTH-01b,
+ * engine/views.js#readServed, the one fallback reader /view uses too). The failed value
+ * itself is never in the response.
  *
  * GET /api/engine/snapshot?league_id=   the league's newest snapshot (0 = global): its cut,
  *                                       versions, fallbacks in force, dice and age (§2.7)
@@ -40,11 +42,11 @@
 import { Router } from 'express';
 import { db, dbPath } from '../db/index.js';
 import { assertLeagueMember } from '../platform/auth.js';
-import { getState, readServed, isLeagueScoped, ENTITY_KEYS } from '../services/engine/state.js';
+import { isLeagueScoped, ENTITY_KEYS } from '../services/engine/state.js';
 import { normalizeAsOf } from '../services/engine/events.js';
-import { readFieldSpec, readFallback, freshAt } from '../services/engine/fields.js';
+import { readFieldSpec, freshAt } from '../services/engine/fields.js';
 import { rowStatus, engineStatus } from '../services/engine/status.js';
-import { VIEWS, resolveView, snapshotById, latestSnapshotFor, snapshotOut } from '../services/engine/views.js';
+import { VIEWS, resolveView, snapshotById, latestSnapshotFor, snapshotOut, readServed } from '../services/engine/views.js';
 
 const r = Router();
 
@@ -88,22 +90,16 @@ r.get('/state', (req, res) => {
   const spec = readFieldSpec(field, db);
   if (!spec) return res.json(absent('unknown', 'field_not_registered'));
 
-  const fb = lane === 'live' ? readFallback(field, leagueId, db) : null;
-  if (fb && fb.since <= asOf) {
-    const fbRow = getState(entityType, entityId, fb.fallback_field, { asOf, leagueId, lane });
-    if (!fbRow) return res.json(absent('unknown', `fallback ${fb.fallback_field} in force (${fb.reason}); it has no row as of then`));
-    return res.json({ ...base, status: 'fallback', reason: `${field} is on its fallback ${fb.fallback_field}: ${fb.reason}`,
-      state: stateOut(fbRow), health: fbRow.health, fallback_used: true,
-      fallback: { kind: 'monitor', field: fb.fallback_field, row_id: fbRow.id, as_of: fbRow.as_of },
-      fresh_at: freshAt({ producer: fbRow.producer, leagueId, rowAsOf: fbRow.as_of, ref: asOf }, db) });
-  }
+  // The one fallback reader (views.js#readServed): monitor fallback, then HEALTH-01b.
   const served = readServed(entityType, entityId, field, { asOf, leagueId, lane }, db);
-  if (!served.row) return res.json(absent(served.status, served.reason, { health: served.health }));
+  if (!served.row) {
+    return res.json(absent(served.status, served.reason, { fallback: served.fallback, problem: served.problem }));
+  }
   const row = served.row;
   const fresh = freshAt({ producer: row.producer, leagueId, rowAsOf: row.as_of, ref: asOf }, db);
-  const [status, reason] = served.fallback_used ? ['fallback', served.reason] : rowStatus(row, spec, fresh, asOf);
+  const [status, reason] = served.status === 'ok' ? rowStatus(row, spec, fresh, asOf) : [served.status, served.reason];
   res.json({ ...base, status, reason, state: stateOut(row), health: row.health, fresh_at: fresh,
-    fallback_used: served.fallback_used, fallback: served.fallback });
+    fallback_used: served.fallback_used, fallback: served.fallback, problem: served.problem });
 });
 
 /** A league id from the query (null when absent), checked for membership; throws 400 on junk. */

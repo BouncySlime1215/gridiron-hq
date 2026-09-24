@@ -18,7 +18,7 @@
  * number cannot be added here quietly. Where a question has no service, Coach
  * writes SQL through the guarded layer rather than growing a model for it.
  *
- * `engine_read` reads one engine field through engine/state.js#readServed and records
+ * `engine_read` reads one engine field through engine/views.js#readServed and records
  * its served health with the row (HEALTH-01c): verify.js holds a claim to it, and the
  * failed value itself never reaches the ledger.
  *
@@ -32,7 +32,8 @@ import { whoPlays } from '../who-plays.js';
 import { teamTendencies } from '../nfl-team-tendencies.js';
 import { coachingProfile, footballContext } from '../football-context.js';
 import { sourceTrustScore } from '../beat-reporter-accuracy.js';
-import { readServed, isLeagueScoped, ENTITY_KEYS } from '../engine/state.js';
+import { isLeagueScoped, ENTITY_KEYS } from '../engine/state.js';
+import { readServed } from '../engine/views.js';
 import { normalizeAsOf } from '../engine/events.js';
 import { validateAction, ACTION_TYPES, PANELS, PLUG_IN_FIELDS, PLAN_CHANGING } from '../warroom-actions/schema.js';
 
@@ -183,7 +184,7 @@ export const COACH_TOOLS = Object.freeze([
   {
     name: 'engine_read',
     kind: 'engine',
-    source: 'server/services/engine/state.js#readServed',
+    source: 'server/services/engine/views.js#readServed',
     tables: ['engine_state'],
     description: 'Read one engine number with its health: the served value, when it is as of, whether its checks ' +
       'passed, and, when the number failed its checks or was built on degraded inputs, the fallback served in its ' +
@@ -285,7 +286,7 @@ function readEngine(input, { leagueId: askedLeague = null } = {}) {
     fallback_used: served.fallback_used, fallback_field: served.fallback?.field ?? null,
     fallback_kind: served.fallback?.kind ?? null, reason: served.reason ?? null,
     // What the field's own latest row was when something else was served: 'failed' or 'degraded'.
-    problem: served.status === 'ok' || served.status === 'unknown' ? null : served.health?.status ?? null,
+    problem: served.problem?.status ?? null,
   };
   // value, or value_<path> for an object value: underscores, because a cite's column is one identifier.
   const valueCols = Object.fromEntries(Object.entries(toRows({ value: served.value }).rows[0])

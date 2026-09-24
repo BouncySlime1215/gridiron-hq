@@ -11,9 +11,10 @@
  *   - S.fallback_set names a fallback for the field -> the fallback field's row, `fallback`;
  *   - else the latest row with producer_version = S.version_set[producer], lane live and
  *     id <= S.max_state_id;
- *   - HEALTH-01b: if that row failed its checks, the field's declared fallback field is
- *     served (`fallback`), else the last good row (`last_good`, "last good, N min old"),
- *     else `unknown`. A failed value is never served;
+ *   - HEALTH-01b (`healthServe`, the one fallback rule): if that row failed its checks or
+ *     is degraded, the field's declared fallback field is served (`fallback`), else the last
+ *     good row (`last_good`, "last good, N min old"), else the degraded row labelled
+ *     (`degraded`) or nothing (`failed`). A failed value is never served;
  *   - otherwise the typed status of rowStatus, with freshness from engine_runs at S's time;
  *   - a template the snapshot cannot fill (no NFL week once every game is final) is a row
  *     typed unknown ("snapshot N has no week"), never a read at week "null".
@@ -21,11 +22,16 @@
  * Older snapshots resolve by the same query with their own cut, versions and fallbacks.
  *
  * `pinSnapshot` is the Coach path: one snapshot per answer, every view it reads at that id.
+ *
+ * `readServed` is the same rule at a time instead of a snapshot: /api/engine/state and
+ * Coach's engine_read read one field as of a moment through it (FIX-250-1: one fallback
+ * reader; state.js keeps only the raw as-of getState).
  * This module only reads; it imports nothing from engine/daemon/.
  */
 import { db as appDb } from '../../db/index.js';
 import { getState, isLeagueScoped } from './state.js';
-import { readFieldSpec, freshAt } from './fields.js';
+import { normalizeAsOf } from './events.js';
+import { readFieldSpec, readFallback, freshAt } from './fields.js';
 import { rowStatus, minutesBetween } from './status.js';
 
 export const VIEWS = Object.freeze({
@@ -149,7 +155,7 @@ function served(row, extra) {
     entity_type: extra.entityType, entity_id: extra.entityId, league_id: extra.leagueId, field: extra.field,
     status: extra.status, reason: extra.reason ?? null, value: row ? row.value : null,
     fallback_used: extra.fallbackUsed ?? false, fallback_field: extra.fallbackField ?? null,
-    age_min: extra.ageMin ?? null,
+    age_min: extra.ageMin ?? null, problem: extra.problem ?? null,
     producer: row?.producer ?? null, producer_version: row?.producer_version ?? null, as_of: row?.as_of ?? null,
     health: row?.health ?? null, reason_chain: row?.reason_chain ?? null, event_ids: row?.event_ids ?? [],
     fresh_at: extra.freshAt ?? null, state_id: row?.id ?? null,
@@ -157,13 +163,52 @@ function served(row, extra) {
 }
 
 /** The row of `field` at the snapshot's cut and version, or null ('failed' rows included when asked). */
-function rowAtCut(key, field, spec, snapshot, { includeFailed = false } = {}, database) {
+function rowAtCut(key, field, spec, snapshot, { includeFailed = false, healthyOnly = false } = {}, database) {
   const version = snapshot.version_set[spec.producer];
   if (version == null) return { missingVersion: true };
   const row = getState(key.entityType, key.entityId, field, { asOf: FAR_FUTURE, leagueId: key.leagueId, lane: 'live',
-    version, maxId: snapshot.max_state_id, includeFailed }, database);
+    version, maxId: snapshot.max_state_id, includeFailed, healthyOnly }, database);
   return { row };
 }
+
+/**
+ * HEALTH-01b, fallback never fake: the one rule for a field whose newest row failed its
+ * checks or is degraded, used by the snapshot read (resolveRow) and the as-of read
+ * (readServed) alike. `fetch(field)` returns that field's newest healthy row in the
+ * caller's frame (the snapshot's cut and versions, or as of a time), or null. In order:
+ *   fallback   the field's declared fallbackField, healthy;
+ *   last_good  the field's own last healthy row, "last good, N min old" at `refTime`;
+ *   degraded   degraded with nothing healthy: the degraded row itself, labelled;
+ *   failed     failed with nothing healthy: no row, no value.
+ * The failed row's value is never returned: not as the value, not in `reason` (check ids
+ * only), not in `problem`, and `row` is never the failed row.
+ */
+function healthServe({ field, spec, latest, fetch, refTime }) {
+  const failed = latest.health?.status === 'failed';
+  const failedChecks = (latest.health?.checks ?? []).filter(c => !c.passed).map(c => c.id);
+  const why = failed ? `${field} failed its checks (${failedChecks.join(', ') || 'unnamed'})`
+    : `${field} was built on degraded inputs`;
+  const problem = { status: failed ? 'failed' : 'degraded', failed_checks: failedChecks, state_id: latest.id };
+  const stand = (status, row, kind, text, ageMin = null) => ({ status, row, fallbackUsed: true, ageMin, problem,
+    fallback: { kind, field: row.field, row_id: row.id, as_of: row.as_of }, reason: `${why}; ${text}` });
+  if (spec.fallbackField) {
+    const fb = fetch(spec.fallbackField);
+    if (fb) return stand('fallback', fb, 'field', `serving its fallback ${spec.fallbackField}`);
+  }
+  const good = fetch(field);
+  if (good) {
+    const age = minutesBetween(good.as_of, refTime);
+    return stand('last_good', good, 'last_good', `serving the last good row: last good, ${age} min old`, age);
+  }
+  if (!failed) {
+    return { status: 'degraded', row: latest, fallbackUsed: false, fallback: null, ageMin: null, problem,
+      reason: `${why}; no fallback or healthy row, served labelled degraded` };
+  }
+  return { status: 'failed', row: null, fallbackUsed: false, fallback: null, ageMin: null, problem,
+    reason: `${why}; no fallback or healthy row to serve` };
+}
+
+const needsStandIn = row => row.health?.status === 'failed' || row.health?.status === 'degraded';
 
 /** The fallback reason the monitor recorded, when the same fallback is still in force; else a plain one. */
 function fallbackReason(field, fallbackField, leagueId, snapshot, database) {
@@ -198,15 +243,15 @@ export function resolveRow({ entityType, entityId, field }, snapshot, leagueId, 
     return served(null, { ...key, field, status: 'unknown', reason: `producer_not_in_snapshot: ${spec.producer}` });
   }
   if (!latest) return served(null, { ...key, field, status: 'unknown', reason: 'no_row_at_snapshot' });
-  if (latest.health?.status === 'failed') {
-    const failedChecks = (latest.health.checks ?? []).filter(c => !c.passed).map(c => c.id).join(', ') || 'its checks';
-    const why = `${field} failed ${failedChecks}`;
-    if (spec.fallbackField) return serveFallback(key, field, spec.fallbackField, `${why}; serving ${spec.fallbackField}`, snapshot, look, database);
-    const { row: good } = rowAtCut(key, field, spec, snapshot, {}, database);
-    if (!good) return served(null, { ...key, field, status: 'unknown', reason: `${why}; no fallback and no good row before it` });
-    const age = minutesBetween(good.as_of, snapshot.created_at);
-    return served(good, { ...key, field, status: 'last_good', fallbackUsed: true, ageMin: age,
-      reason: `${why}; last good, ${age} min old`, freshAt: good.as_of });
+  if (needsStandIn(latest)) {
+    const fetch = f => {
+      const s = look.spec(f);
+      return s ? rowAtCut(key, f, s, snapshot, { healthyOnly: true }, database).row ?? null : null;
+    };
+    const h = healthServe({ field, spec, latest, fetch, refTime: snapshot.created_at });
+    return served(h.row, { ...key, field, status: h.status, reason: h.reason, fallbackUsed: h.fallbackUsed,
+      fallbackField: h.fallback?.kind === 'field' ? h.fallback.field : null, ageMin: h.ageMin, problem: h.problem,
+      freshAt: h.status === 'last_good' ? h.row.as_of : h.row ? look.fresh(h.row.producer, key.leagueId, h.row.as_of) : null });
   }
   const fresh = look.fresh(latest.producer, key.leagueId, latest.as_of);
   const [status, reason] = rowStatus(latest, spec, fresh, snapshot.created_at);
@@ -241,4 +286,41 @@ export function pinSnapshot({ leagueId = null, snapshotId = null } = {}, databas
       return resolveView({ view: v, snapshot, leagueId }, database);
     },
   };
+}
+
+/**
+ * The as-of read of one field (GET /api/engine/state, Coach engine_read): the same rule as
+ * a view row, at a time instead of a snapshot. In order:
+ *   - the monitor has the field on its fallback (engine_fallback in force at asOf, lane
+ *     live): the fallback field's row, `fallback` with kind 'monitor', else `unknown`;
+ *   - no row as of then, or the field not registered: `unknown`;
+ *   - the newest row failed or is degraded: healthServe (fallback / last_good / degraded / failed);
+ *   - else `ok`: the row as itself (the route adds rowStatus's stale/thin/zero words).
+ * Returns {field, status, value, row, health, fallback_used, fallback, reason, problem}.
+ * `health` is the served row's, so a failed health is never handed out; `problem` names the
+ * field's own row (status and failed check ids) when something else stands in.
+ */
+export function readServed(entityType, entityId, field, {
+  asOf = new Date(), leagueId = null, lane = 'live',
+} = {}, database = appDb) {
+  const at = normalizeAsOf(asOf);
+  const opts = { asOf: at, leagueId, lane };
+  const out = (status, row, extra = {}) => ({ field, status, value: row ? row.value : null, row: row ?? null,
+    health: row?.health ?? null, fallback_used: false, fallback: null, reason: null, problem: null, ...extra });
+  const spec = readFieldSpec(field, database);
+  if (!spec) return out('unknown', null, { reason: 'field_not_registered' });
+  const fb = lane === 'live' ? readFallback(field, leagueId ?? 0, database) : null;
+  if (fb && fb.since <= at) {
+    const why = `${field} is on its fallback ${fb.fallback_field}: ${fb.reason}`;
+    const row = getState(entityType, entityId, fb.fallback_field, opts, database);
+    const fallback = { kind: 'monitor', field: fb.fallback_field, row_id: row?.id ?? null, as_of: row?.as_of ?? null };
+    if (!row) return out('unknown', null, { fallback, reason: `${why}; ${fb.fallback_field} has no row as of then` });
+    return out('fallback', row, { fallback_used: true, fallback, reason: why });
+  }
+  const latest = getState(entityType, entityId, field, { ...opts, includeFailed: true }, database);
+  if (!latest) return out('unknown', null, { reason: 'no_row_as_of' });
+  if (!needsStandIn(latest)) return out('ok', latest);
+  const fetch = f => getState(entityType, entityId, f, { ...opts, healthyOnly: true }, database);
+  const h = healthServe({ field, spec, latest, fetch, refTime: at });
+  return out(h.status, h.row, { fallback_used: h.fallbackUsed, fallback: h.fallback, reason: h.reason, problem: h.problem });
 }

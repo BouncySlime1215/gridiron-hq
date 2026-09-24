@@ -55,3 +55,40 @@ Changed alongside GREEN, and why:
 - `DEGRADED_UNSTATED` is a word test (`fallback|degraded|failed|last good|stale|stand-in`, or
   the fallback field's name). A claim can pass it while phrasing the caveat badly.
 - The UI health chip (UI-ENG-6 / EA-03) is not built here; no client file reads the engine yet.
+
+## 5. FIX-250-1: one fallback reader (PR sweep, 2026-09-24)
+
+ENGINE-SPECS.md:653 folds HEALTH-01b into EA-03, so the one reader is #257's
+`server/services/engine/views.js`. #257's branch (`claude/cloud-ea-04-hprk33`, `ccb1de3`) is
+merged into this branch (`494146f`); this PR now carries #257 and must land with it or after it.
+
+| Step | Commit | Result |
+|---|---|---|
+| RED | `8721234` `test: RED for FIX-250-1` | engine-health-fallback 6 of 10 fail (`engine/views.js#readServed does not exist`, and the one-reader grep), engine-views RED (3) and (5) fail (`'unknown'` vs `'failed'`, `failed` not in `ROW_STATUSES`) |
+| GREEN | the `fix:` commit after it | engine-* + coach-* 244 / 244; lint, typecheck, check:wiring exit 0 |
+
+What moved:
+- `views.js#healthServe` is the one HEALTH-01b rule. `resolveRow` (a snapshot's cut and
+  versions) and the new `views.js#readServed` (as of a time: `/api/engine/state`, Coach
+  `engine_read`) both call it with their own row fetch. `state.js#readServed` is deleted;
+  `state.js` keeps the raw `getState`, whose `okOnly` became `healthyOnly` (neither failed
+  nor degraded).
+- The monitor fallback for `/state` moved out of the route into `readServed`.
+- One set of words for both reads: `fallback` (declared field), `last_good` ("last good, N
+  min old"), `degraded` (nothing healthy, labelled), `failed` (nothing healthy, no value).
+  `failed` joins `ROW_STATUSES` and the client's `EngineStatusWord`.
+- `health` is always the served row's; the field's own failed/degraded row is reported as
+  `problem: {status, failed_checks, state_id}`. So no response hands out a failed health.
+
+Test edits, and why each is a contract change rather than a weakened test:
+- b1: `s.health.status === 'failed'` became `s.problem.status === 'failed'` plus
+  `s.health.status === 'ok'`. #257 RED (3) pins that no served row carries a failed health;
+  the two could not both hold, and the stricter one wins.
+- b2: `status 'fallback'` became `'last_good'`, the word `/view` and `EngineValue` already use.
+- engine-views RED (3): the failed-with-nothing row is `'failed'` (was `'unknown'`), #250's
+  guarantee. RED (5): `ROW_STATUSES` gains `failed`.
+- b6: client files are grepped with comments stripped. `EngineStatusStrip.tsx` names
+  `/api/engine/status` in its header comment and reads no engine value.
+- Behaviour change on `/view`: a *degraded* row now gets a stand-in like a failed one (the
+  HEALTH-01b row: "degraded/failed fields serve the fallback, labelled"). Before, `/view`
+  served it as itself with status `degraded`.

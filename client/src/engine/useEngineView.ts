@@ -11,7 +11,7 @@ import { api } from '../api';
  * They do no arithmetic on engine values beyond formatting.
  */
 
-export type EngineStatusWord = 'ok' | 'zero' | 'unknown' | 'stale' | 'fallback' | 'thin' | 'degraded' | 'last_good';
+export type EngineStatusWord = 'ok' | 'zero' | 'unknown' | 'stale' | 'fallback' | 'thin' | 'degraded' | 'last_good' | 'failed';
 
 export interface ReasonContribution {
   source: string;

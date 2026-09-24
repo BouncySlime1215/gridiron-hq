@@ -10,8 +10,9 @@
  *   fallback  the field's fallback row is served (monitor fallback, or HEALTH-01b)
  *   thin      healthy, but built on missing/fallback inputs
  *   degraded  the row's own health is degraded
- *   last_good the newest row failed its checks and there is no fallback: the last good row
- * A failed row is never served (HEALTH-01b).
+ *   last_good the newest row failed or is degraded and there is no fallback: the last good row
+ *   failed    the newest row failed and nothing healthy stands in: no value at all
+ * A failed row is never served (HEALTH-01b, views.js#healthServe).
  *
  * `engineStatus` reads only: the daemon heartbeat (sync_log `engine_daemon`), the
  * engine.lock holder, adapter watermarks, per-producer version and fallbacks, the latest
@@ -20,7 +21,7 @@
 import fs from 'node:fs';
 import { defaultLockPath, pidAlive } from '../process-lock.js';
 
-export const ROW_STATUSES = Object.freeze(['ok', 'zero', 'unknown', 'stale', 'fallback', 'thin', 'degraded', 'last_good']);
+export const ROW_STATUSES = Object.freeze(['ok', 'zero', 'unknown', 'stale', 'fallback', 'thin', 'degraded', 'last_good', 'failed']);
 
 /** Whole minutes from `from` to `to` (ISO strings), or null. */
 export function minutesBetween(from, to) {

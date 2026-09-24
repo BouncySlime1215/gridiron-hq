@@ -17,7 +17,7 @@ Events: lanes/EVENTS.log. Morning brief cron: 5:37 AM 9/24 (session-only).
 ## If the desktop app restarts (crons + in-session agents are lost)
 Paste PASTE-TO-RESUME.md into a new session, then:
 1. Recreate the crons: WORKFLOW KEEPER (3,13,...,53), PR SWEEP (7,27,47), HOURLY TICK (:17), STOP at Mon 9/28 21:00, MORNING BRIEF (if before 6 AM 9/24). Their texts are in RULES.md + this file.
-2. pgrep -f lane-keeper.sh || (cd ~/gridiron-local/lanes && CLOUD_MAX=8 LOCAL_MAX=2 CLOUD_TOTAL_MAX=30 nohup ~/gridiron-local/bin/lane-keeper.sh > keeper.out 2>&1 &). Restart it ONLY by its parent pid (pkill -f kills its child jobs).
+2. pgrep -f lane-keeper.sh || (cd ~/gridiron-local/lanes && CLOUD_MAX=8 LOCAL_MAX=2 CLOUD_TOTAL_MAX=30 nohup ~/gridiron-local/bin/lane-keeper.sh > keeper.out 2>&1 &). Restart ONLY via: kill $(cat ~/gridiron-local/lanes/keeper.pid) then start (single-instance guard via keeper.pid; pkill -f would kill its child jobs).
 3. pgrep -f auto-intake.sh || nohup ~/gridiron-local/bin/auto-intake.sh &
 4. Relaunch 4 build workflows from build-queue.json and 1 R&D round; re-arm the Monitor on lanes/EVENTS.log.
 5. Merge train: continue batch 1 (#278) -> batch 2 per evidence/merge-order.txt; the FIX rebaser puts each cloud FIX PR on FIX-03 (#272).

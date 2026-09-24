@@ -64,3 +64,8 @@ Each tick logs one line: "local: <what's running> | cloud: <n running> | merged:
 - Every 20 min: PR SWEEP. Read each new or updated PR's claims, its Not-confirmed section and its gaps, and queue the fixes.
 - Scope for the night: Coach anchors everything (COACH-ANCHOR.md), the rest of the platform (BUILD-PLAN.md phases 0-4), the War Room UI v3.
 - Mac load cap (Nick 9/24 12:05 AM: "Mac is super slow, push it but it needs to function"): local lane 2 jobs, 4 build workflows, R&D only when the 5-min load is under 14. Only ONE produce-plans run at a time on the Mac (each run is 2-3 min alone; 5 at once took 20+ min each, load 27). Heavy work goes to cloud (main account, usage guard 70%).
+
+## CONVERGE GATE (coordinator step-back 9/24 12:45 AM, Nick: "step back, reconsider the structure, is the wiring loose?")
+Finding: 75 open PRs; none of the north-star core (planner, reader, counterpart, War Room, engine spine, report card, Coach tools) is on main; 4 red spots, each a piece built twice or more. More stacking makes it worse.
+Rule: NEW FEATURE builds are HELD (lanes/build-queue-held.json) until (a) merge batches 1+2 are merged, (b) ONE-READER, ONE-PLANNER and ONE-COUNTERPART are merged, (c) the War Room loads league 4 on main without freezing, (d) open cloud/local PRs number fewer than 35. Until then, build workflows run only CONVERGE units, fix units and merge work. Cloud runs only FIXB batches.
+Step-back: every 2 h, redraw the platform model (sources -> readers -> brain -> screens, colored main / PR / loose) and re-check this gate, FIELD-REGISTRY.md, and whether the plan still fits the goal.

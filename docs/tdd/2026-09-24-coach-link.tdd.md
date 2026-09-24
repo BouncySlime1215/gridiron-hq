@@ -8,7 +8,7 @@
 `server/migrations/098_coach_answer_memory.js`; wiring in `tools.js`, `verify.js`,
 `ask.js`, `preview-mode.js` (header only); `scripts/coach-link-report.mjs`;
 test `test/coach-link.test.js`.
-**Commits:** RED `6f197b88`, GREEN (next commit), this file with it.
+**Commits:** RED `6f197b88`, GREEN `e90021de` (this file with it), hash fill-in after.
 **LLM spend:** $0. Every Claude call in the test is `setAnthropicClientForTesting`.
 **Environment:** cloud container, `npm ci` run (exit 0). Fixtures are invented; no real
 league data. The real-DB numbers come from the `LOCAL:` lines in the PR body.

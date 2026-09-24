@@ -307,6 +307,9 @@ export function gateRerun({ panel, pairs, screen, reps = 1000, seed = 1, ci = 0.
   }
 
   const claimed = ['adds', 'checkout', 'trade'].filter(o => outcomes[o].beats_base);
+  const passed = universe.filter(t => point.get(t).pass).map(t => ({ template: t,
+    pass_share: point.get(t).pass_share, clusters_graded: point.get(t).clusters_graded,
+    confirmed_for: [...labels.get(t)].sort() }));
   return {
     clusters: clusters.length,
     templates: universe.length,
@@ -317,6 +320,7 @@ export function gateRerun({ panel, pairs, screen, reps = 1000, seed = 1, ci = 0.
     validator_base_rate: VALIDATOR_BASE_RATE,
     outcomes,
     gate_claim: claimed.length ? 'precision_claimed' : 'repeatability_only',
-    claimed_for: claimed
+    claimed_for: claimed,
+    passed
   };
 }

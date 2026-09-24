@@ -148,6 +148,7 @@ test('no Date.now() / new Date() in the campaign code bypasses the run clock', (
   const src = fs.readFileSync(path.join(ROOT, 'scripts/campaign/produce-plans.mjs'), 'utf8');
   assert.match(src, /leagueInputs\(id, \{ [^}]*now: asOfMs \}\)/, 'the producer hands the run clock to leagueInputs');
   assert.match(src, /consumeWith\([^]*?\{ at: generated_at \}\)/, 'and generated_at to consumeWith');
+  assert.match(src, /file\.generated_at = clock\.iso;[^]*?reasonPlans\(/, 'reasoning stamps its as_of with the run clock');
 });
 
 test('the league adapter takes the run clock; it has no wall-clock default', async () => {

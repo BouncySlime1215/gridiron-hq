@@ -345,7 +345,13 @@ async function main() {
     // FIX-08: reasoning goes into each move before the one atomic write. Both gates
     // off (or either) -> no call, and every move says why its panel is missing.
     const { reasonPlans } = await import('../reasoning/reason-plans.mjs');
-    const reasoning = await reasonPlans({ plans: file, plansFile: out, env, log: l => console.log(JSON.stringify(l)) });
+    // REPRO-01: plan-reasoning.js stamps each move's reasoning with plans.generated_at; under --as-of
+    // it sees the run clock instead (the same as_of as every other value), and the write stamp is restored.
+    const writtenAt = file.generated_at;
+    file.generated_at = clock.iso;
+    let reasoning;
+    try { reasoning = await reasonPlans({ plans: file, plansFile: out, env, log: l => console.log(JSON.stringify(l)) }); }
+    finally { file.generated_at = writtenAt; }
     if (reasoning.result.status === 'failed') console.error(`[warroom] reasoning step failed: ${reasoning.result.error}`);
     console.log(`[warroom] reasoning ${JSON.stringify(reasoning.summary)}`);
     const checked = validatePlans(file);

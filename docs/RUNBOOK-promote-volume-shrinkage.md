@@ -15,19 +15,30 @@ variance-components fitter estimates those at roughly 0.18-0.28 and 1.3-2.9. No
 fit has ever been persisted, so `activeKVector()` returns null and production has
 always taken the hand-picked branch.
 
-**One caveat on that last sentence, stated plainly because the whole case rests
-on it.** "No fit has ever been persisted" was verified on the rebuilt database
-this work was done against, **not on the live one** — no route exposes
-`shrinkage_fits`, so it could not be checked from a cloud session. If the live
-table already holds an active fit, then the "before" numbers everywhere in this
-runbook describe a configuration the app is not running, and step 2 is an
-overwrite rather than a first write. The diagnostic below settles it in the same
-breath as everything else; do not skip it on the strength of this document.
+**That sentence was the one thing this whole case rested on, and it has now been
+checked on live.** It was originally verified only on the rebuilt database this
+work was done against, because no route exposes `shrinkage_fits`. A read-only
+one-liner run on the machine on 2026-09-19 at 20:58Z returned **0 rows in
+`shrinkage_fits`, 0 of them active, and 0 rows in `shrinkage_k`**. So the premise
+holds: production has never carried a fit, every "before" number in this runbook
+describes what the app is actually running, and the promotion is a first write
+rather than an overwrite. Rollback therefore returns to exactly today's
+behaviour.
 
 Everything needed already exists and is correct — the fitter, the pre-registered
 gate, the cutoff-safety guard that re-fits when a stored fit would see the season
 being graded, and the recency-units guard that keeps the vector off the
 season-long callers it was not fitted for. The only missing thing is a row.
+
+### Confirmed a second time, independently
+
+The benefit was graded again on a different quantity and a different slice by the
+Model evidence audit thread (`scripts/grade-opportunity-vs-baseline.mjs`, PR #68):
+the opportunity numbers rather than the points, 2024 and 2025 weeks 5-17, 4,828
+paired player-weeks against the player's own season-to-date average, clustered by
+player. The shipped constants lose all four cells; the fitted constants win all
+four. Their fit reproduces this one's vector to three decimals from a separate
+rebuild. That is two grades, two rebuilds, two slices, one answer.
 
 ## Where this runs
 
@@ -150,6 +161,22 @@ read the gate rather than the table in that case, and say so. For reference, on 
 2026-09-19 they all passed, with ensemble MAE 4.453 → 4.428 (2024) and
 4.362 → 4.341 (2025), and start/sit pair accuracy 0.6349 → 0.6395 and
 0.6272 → 0.6334.
+
+**Read the graded `n` as well as the vector.** The gate prints `n` per season in
+the structural-head table. On the rebuild it is **4,361 for 2024 and 4,468 for
+2025**, and that number says whether live is grading the same population this
+runbook was measured on.
+
+Live's `player_week_usage` is about 40% larger than the rebuild's. That is
+expected and harmless: the writer stores every position and the reader filters to
+QB/RB/WR/TE, so the extra rows are kickers, linemen and defenders that never
+reach the grader. More usefully, the nflverse source file holds only 5,801 /
+5,864 / 6,037 fantasy-position rows for 2023/2024/2025 and the rebuild holds all
+of them, so **`n` on live can only come back equal or smaller, never larger**
+(see section 3b of the findings). At or just below 4,361 / 4,468, proceed.
+Materially below, live is missing fantasy players who played those seasons and
+the fit ran on a thinner set than was validated — understand that before the
+write. Above, a premise is wrong rather than the fit; stop.
 
 If any condition is false on live data, stop. Do not promote and do not argue
 with the gate.

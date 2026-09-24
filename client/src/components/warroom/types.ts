@@ -93,6 +93,9 @@ export interface Target {
   approved: boolean;
   is_plan_target: boolean;
   reasoning?: Field<Reasoning>;
+  /** Batch 4: on his owner's untouchable list (the view drops these rows; kept for safety). */
+  untouchable?: boolean | Field<boolean> | { label?: string };
+  untouchable_label?: string;
 }
 
 export interface Flip {
@@ -113,8 +116,23 @@ export interface BrainReport {
   blocks: string[];
   fell_back_to?: 'balanced';
 }
-/** Not in warroom-plans/1 yet (FIX-03 adds it); the view writes it unknown until then. */
-export interface NumberHealth { status: 'ok' | 'warn' | 'broken'; open: { check_id: string; text: string }[] }
+/**
+ * The contract's number_health (plans-schema.js, FIX-03/FIX-05): the league's
+ * number_audit rows, worst first. `status`/`open` is the pre-contract shape, still read.
+ */
+export type HealthStatus = 'ok' | 'warn' | 'broken';
+export interface NumberHealth {
+  overall?: HealthStatus; broken?: number; warn?: number; ok?: number;
+  checks?: { check_id: string; status: HealthStatus; title: string; detail?: string; cause?: string }[];
+  status?: HealthStatus; open?: { check_id: string; text: string }[];
+}
+/** One risk mode's best plan on the same dice (the risk-mode sheet). */
+export interface RiskModeRow {
+  mode: RiskMode; label: string; active: boolean; expected: Num; if_complete: Num; p_complete: Num;
+  first_step: { partner: string; give: string[]; get: string[] } | null;
+}
+/** Targets the view hid because the plan marks them untouchable on their owner's roster. */
+export interface HiddenTarget { player: string; owner: string; label: string }
 /** This league's place in "needs you this week". */
 export interface Attention { rank: number; of: number; reason: string }
 
@@ -155,11 +173,12 @@ export interface WarRoomView {
   itinerary?: Field<Itinerary>;
   stop_tradeoffs?: Field<Record<string, unknown>>;
   flip_map?: Field<Flip[]>;
-  targets?: Field<Target[]>;
+  targets?: Field<Target[]> & { hidden_untouchable?: HiddenTarget[] };
   catch_up?: Field<CatchUpItem[]>;
   speed_curve?: Field<SpeedPoint[]>;
   brain_report?: Field<BrainReport>;
   number_health?: Field<NumberHealth>;
+  risk_modes?: Field<RiskModeRow[]>;
 }
 
 export type PanelId = 'next' | 'stops' | 'flip_map' | 'targets' | 'catch' | 'brain_report';

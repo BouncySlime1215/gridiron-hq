@@ -46,15 +46,33 @@ export default function BrainCheckCard({ brain, health, big }: {
   );
 }
 
-/** Number health (BROKEN-01): grey until the audit exists; never green by default. */
+/**
+ * Number health (BROKEN-01, FIX-05): the number audit's rows for this league, in the
+ * contract's shape ({ overall, broken, warn, ok, checks }). Grey until the audit exists;
+ * never green by default. The full view also lists the open (broken / warn) checks.
+ */
 export function HealthDot({ health, compact }: { health: Field<NumberHealth> | undefined; compact?: boolean }) {
-  const s = health?.status === 'ok' && health.value ? health.value.status : null;
+  const v = health?.status === 'ok' && health.value ? health.value : null;
+  const s = v ? v.overall ?? v.status ?? null : null;
+  const open = v ? (v.checks ? v.checks.filter(c => c.status !== 'ok').map(c => ({ id: c.check_id, text: c.title, status: c.status }))
+    : (v.open ?? []).map(o => ({ id: o.check_id, text: o.text, status: s }))) : [];
   const color = s === 'broken' ? 'red' : s === 'warn' ? 'amber' : s === 'ok' ? 'green' : 'grey';
-  const text = s === 'broken' ? 'numbers broken' : s === 'warn' ? `${health?.value?.open.length ?? 0} warning(s)` : s === 'ok' ? 'numbers checked'
+  const text = s === 'broken' ? `${v?.broken ?? open.length} broken${v?.warn ? `, ${v.warn} warning(s)` : ''}${typeof v?.ok === 'number' ? `, ${v.ok} checked ok` : ''}`
+    : s === 'warn' ? `${v?.warn ?? open.length} warning(s)${typeof v?.ok === 'number' ? `, ${v.ok} checked ok` : ''}`
+    : s === 'ok' ? `all ${v?.ok ?? ''} checks ok`.replace('  ', ' ')
     : health?.status === 'failed' ? 'number check failed' : `number check ${NOT_COMPUTED}`;
+  const title = open.length ? open.map(o => `${o.status}: ${o.text}`).join('\n') : health?.reason ?? text;
   return (
-    <span className="wr-dotwrap" title={health?.reason ?? text} data-health={color}>
-      <span className={`wr-dot wr-dot-${color}`} />{compact ? null : <><b>Numbers:</b> {text}</>}
+    <span className="wr-health-wrap">
+      <span className="wr-dotwrap" title={title} data-health={color}>
+        <span className={`wr-dot wr-dot-${color}`} />{compact ? null : <><b>Numbers:</b> {text}</>}
+      </span>
+      {!compact && open.length > 0 && (
+        <ul className="wr-health-open">
+          {open.slice(0, 3).map(o => <li key={o.id} className={o.status === 'broken' ? 'wr-red' : 'wr-amber'}>{o.text}</li>)}
+          {open.length > 3 && <li className="wr-muted">+{open.length - 3} more</li>}
+        </ul>
+      )}
     </span>
   );
 }

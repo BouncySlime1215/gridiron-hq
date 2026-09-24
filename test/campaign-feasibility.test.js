@@ -118,3 +118,83 @@ test('wait-or-act: any wait that remains is labelled untested', () => {
     close(w.option_value, 0.3 * 0.04);
   }
 });
+
+/* ------------------------------------------------ FEAS-140-WIRE: the planner and the view */
+
+const { buildPlansFile } = await import('../scripts/campaign/produce-plans.mjs');
+
+test('wired: a title league carries the points side panel as feasibility_points, built from the top 5 ranked plans', () => {
+  const a = makeAdapter();
+  const res = planLeague(a, { objective: normaliseObjective({ risk_mode: 'balanced' }), env: ON });
+  assert.equal(res.feasibility, null);                  // the league card: a title league has none
+  const f = res.feasibility_points;
+  assert.equal(f.kind, 'points');
+  assert.equal(f.side_panel, true);
+  assert.equal(f.league_objective, 'title');
+  assert.equal(f.target, 140);
+  assert.ok(f.options.length >= 1 && f.options.length <= F.SIDE_OPTIONS);
+  for (const o of f.options) assert.match(o.label, /^plan [1-5]$/);
+  const entry = toEntry(res, { names: a.names(), as_of: '2026-09-24T00:00:00Z' });
+  assert.deepEqual(validateLeague(entry).errors, []);
+  assert.equal(entry.feasibility.status, 'unknown');
+  assert.equal(entry.feasibility_points.status, 'ok');
+  assert.equal(entry.feasibility_points.value.points_per_week, 140);
+  assert.equal(entry.feasibility_points.value.league_objective, 'title');
+  assert.ok(entry.feasibility_points.value.title_odds_cost.status === 'ok' || entry.feasibility_points.value.title_odds_cost.status === 'unknown');
+  assert.equal(entry._run.feasibility_points_detail.side_panel, true);
+});
+
+test('wired: a get-player league shows two cards side by side, never one nested in the other', () => {
+  const a = makeAdapter();
+  const res = planLeague(a, { objective: normaliseObjective({ kind: 'player', target: '21' }), env: ON });
+  assert.equal(res.feasibility.kind, 'player');
+  assert.equal(res.feasibility_points.kind, 'points');
+  assert.equal(res.feasibility_points.league_objective, 'player');
+  assert.equal(res.feasibility.feasibility_points, undefined);
+  assert.equal(res.feasibility_points.player, undefined);
+  const entry = toEntry(res, { names: a.names(), as_of: '2026-09-24T00:00:00Z' });
+  assert.deepEqual(validateLeague(entry).errors, []);
+  assert.equal(entry.feasibility_points.status, 'ok');
+  assert.equal(entry._run.feasibility_detail.kind, 'player');
+  assert.equal(entry._run.feasibility_points_detail.kind, 'points');
+});
+
+test('wired: flag off, or a points league, writes feasibility_points as unknown with the reason', () => {
+  const a = makeAdapter();
+  const off = planLeague(a, { objective: normaliseObjective({ risk_mode: 'balanced' }), env: {} });
+  assert.equal(off.feasibility_points, null);
+  const e1 = toEntry(off, { names: a.names(), as_of: '2026-09-24T00:00:00Z' });
+  assert.deepEqual(validateLeague(e1).errors, []);
+  assert.equal(e1.feasibility_points.status, 'unknown');
+  assert.match(e1.feasibility_points.reason, /GRIDIRON_POINTS_FEASIBILITY/);
+  const b = makeAdapter();
+  const pts = planLeague(b, { objective: normaliseObjective({ kind: 'points', points_per_week: 95 }), env: ON });
+  assert.equal(pts.feasibility.kind, 'points');
+  assert.equal(pts.feasibility_points, null);
+  const e2 = toEntry(pts, { names: b.names(), as_of: '2026-09-24T00:00:00Z' });
+  assert.deepEqual(validateLeague(e2).errors, []);
+  assert.equal(e2.feasibility_points.status, 'unknown');
+  assert.match(e2.feasibility_points.reason, /already planned on points/);
+});
+
+test('wired: the planner passes waitOrActOn() to waitOrAct; off, no step reads wait and no timing catch-up item', () => {
+  // Every player on the other teams carries an injury flag, so any step the plan takes has pending news.
+  const players = new Map([...makeAdapter().players].map(([id, p]) => [id, id > 10 ? { ...p, injury: 1 } : p]));
+  const off = planLeague(makeAdapter({ players }), { objective: normaliseObjective({ risk_mode: 'balanced' }), env: {} });
+  assert.ok(off.playbook.length >= 1);
+  for (const pb of off.playbook) {
+    assert.equal(pb.wait.flag, 'act');
+    assert.equal(pb.wait.wait_or_act, 'off');
+  }
+  assert.ok(!off.catch_up.some(c => /^Wait /.test(c.text)));
+  const on = planLeague(makeAdapter({ players }), { objective: normaliseObjective({ risk_mode: 'balanced' }), env: { [WAIT_OR_ACT_ENV]: '1' } });
+  assert.ok(on.playbook.every(pb => pb.wait.flag === 'wait' && pb.wait.untested === true));
+});
+
+test('wired: the producer loop passes its env to the planner (off by default, so the fixture file is stable)', async () => {
+  const load = async () => ({ adapter: makeAdapter() });
+  const def = await buildPlansFile([{ id: 1, load }], { generated_at: '2026-09-24T00:00:00Z', clock: () => 0 });
+  assert.equal(def.leagues[0].feasibility_points.status, 'unknown');
+  const on = await buildPlansFile([{ id: 1, load }], { generated_at: '2026-09-24T00:00:00Z', clock: () => 0, env: ON });
+  assert.equal(on.leagues[0].feasibility_points.status, 'ok');
+});

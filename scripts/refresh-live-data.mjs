@@ -20,12 +20,18 @@
  *   4. manager_signals   who-is-who + per-manager signals for all leagues
  *                        (build-manager-signals.mjs), after the chat rollup has
  *                        finished, and only when one of its inputs changed
- *   5. brain_report      EVAL-01 graders E1-E7 (scripts/eval/run-graders.mjs), last,
+ *   5. number_audit      BROKEN-01a: per league, the duplicate producers behind
+ *                        the broken-number inventory and invariant checks on
+ *                        served numbers, into `number_audit` (number-audit.js).
+ *                        After the chat and signals, so it reads what this tick
+ *                        synced; once per league sync, at most hourly. Never run by the web server.
+ *   6. brain_report      EVAL-01 graders E1-E7 (scripts/eval/run-graders.mjs), after the audit,
  *                        so they grade this tick's rows; stores one run in brain_report
- *   6. warroom_plans     the War Room campaign producer (scripts/campaign/produce-plans.mjs),
+ *   7. warroom_plans     the War Room campaign producer (scripts/campaign/produce-plans.mjs),
  *                        only when GRIDIRON_WARROOM_ENABLED=1; launched detached every tick
  *                        (skipped while the previous run holds its lock) so each league's
- *                        next move is replanned on the fresh data
+ *                        next move is replanned on the fresh data and gated on this
+ *                        tick's brain report and number audit (FIX-05)
  *
  * ALLOWLIST ONLY. Betting collectors (line snapshots, Polymarket, book feeds,
  * prop capture, t60 runner…) are deliberately absent: Nick turned them off.
@@ -327,8 +333,29 @@ export function brainReport({ spawn = spawnSync, log = console.log, record = rec
   log(`${stamp()} ${'brain_report'.padEnd(18)} ${r.status === 0 ? 'ok' : 'ERROR'} ${text.slice(0, 300)} (${Date.now() - t0} ms)`);
 }
 
+/**
+ * BROKEN-01a: the number audit, in this process only. `memo` lives for the loop's
+ * life so a league is re-audited when its sync changes or an hour has passed; a
+ * restart audits every league once. The audit's own failures are logged, and a
+ * producer that fails inside it becomes a 'warn' row rather than a skipped check.
+ */
+export function createNumberAuditStep({ log = console.log, audit = null } = {}) {
+  const memo = new Map();
+  return async function numberAudit() {
+    const t0 = Date.now();
+    const runAudit = audit ?? (await import('../server/services/number-audit.js')).runNumberAudit;
+    const r = await runAudit({ memo, log: l => log(`${stamp()} ${'number_audit'.padEnd(18)} ${l.replace(/^number_audit: /, '')}`) });
+    if (!r?.skipped) {
+      const failed = r?.failed?.length ?? 0;
+      log(`${stamp()} ${'number_audit'.padEnd(18)} ${failed ? 'ERROR' : 'ok'} ${r?.audited?.length ?? 0} audited, `
+        + `${failed ? `${failed} failed, ` : ''}${r?.skipped_fresh ?? 0} fresh (${Date.now() - t0} ms)`);
+    }
+    return r;
+  };
+}
+
 export async function tick({ jobs = FANTASY_LIVE_JOBS, spawn = spawnSync, log = console.log, record = recordSync,
-  runJob = runIfStale, force = false, managerSignals = null, inputsKey, warRoomLaunch = null } = {}) {
+  runJob = runIfStale, force = false, managerSignals = null, inputsKey, numberAudit = null, warRoomLaunch = null } = {}) {
   const started = Date.now();
   for (const name of jobs) {
     if (!JOBS[name]) { log(`${stamp()} ${name.padEnd(18)} UNKNOWN JOB`); continue; }
@@ -352,6 +379,9 @@ export async function tick({ jobs = FANTASY_LIVE_JOBS, spawn = spawnSync, log = 
   step('roster_snapshots', () => rosterSnapshots({ spawn, log, record }));
   step('league_chat', () => chatBackfill({ spawn, log, record }));
   step('manager_signals', () => signals());
+  try { await (numberAudit ?? createNumberAuditStep({ log }))(); } catch (e) {
+    log(`${stamp()} ${'number_audit'.padEnd(18)} THREW ${String(e?.message ?? e).slice(0, 160)}`);
+  }
   step('brain_report', () => brainReport({ spawn, log, record }));
   step('warroom_plans', () => warRoomPlans({ log, record, ...(warRoomLaunch ? { launch: warRoomLaunch } : {}) }));
   log(`${stamp()} tick done in ${Math.round((Date.now() - started) / 1000)} s`);
@@ -363,20 +393,21 @@ async function main(args = process.argv.slice(2)) {
   const force = args.includes('--force');
   // One step for the life of the process, so "unchanged since the last good build" holds across ticks.
   const managerSignals = createManagerSignalsStep();
+  const numberAudit = createNumberAuditStep();
 
   let stopping = false;
   process.on('SIGTERM', () => { stopping = true; });
   process.on('SIGINT', () => { stopping = true; });
 
   if (!loopSeconds) {
-    await tick({ force, managerSignals });
+    await tick({ force, managerSignals, numberAudit });
     return;
   }
   console.log(`${stamp()} refresh-live-data loop every ${loopSeconds} s — jobs: ${FANTASY_LIVE_JOBS.join(', ')}`
-    + ', then league_tx, roster_snapshots, league_chat, manager_signals, brain_report'
+    + ', then league_tx, roster_snapshots, league_chat, manager_signals, number_audit, brain_report'
     + (process.env.GRIDIRON_WARROOM_ENABLED === '1' ? ', warroom_plans' : ''));
   while (!stopping) {
-    await tick({ force, managerSignals });
+    await tick({ force, managerSignals, numberAudit });
     const until = Date.now() + loopSeconds * 1000;
     while (!stopping && Date.now() < until) await new Promise(r => setTimeout(r, 1000));
   }

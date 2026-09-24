@@ -73,3 +73,13 @@ ok 1 … ok 9
 ## 6. Full suite
 
 `npm test` on this tree: tests 4837, pass 4794, fail 0, skipped 43.
+
+## Local run (FIX-283-1, 2026-09-24 05:0x EDT)
+The PR's LOCAL command on a `.backup` copy of the local DB, head `7f4a5c6e`, tree `d3262ab6`. Preview 0 and 1 printed the same numbers:
+
+| league id | season / payload_season | current_week | league.week | sim_start |
+|---|---|---|---|---|
+| 1-5 (all) | 2026 / 2026 | 3 | 3 | 3 |
+
+- nfl.week 3: score-derived 3, schedule-derived 3, stalled-sync flag false. tradeWeekContext 3.
+- Disagreement on the live copy: none. The fixture's row-D split (3 vs 4, and 17 for a league that fell back) does not happen on today's data. Scores are current, it is Thursday of week 3 before kickoff, and no league holds another season's payload. So the flag changes nothing live today. It is a guard for a stalled sync or a pre-draft fallback, which is what caused row D.

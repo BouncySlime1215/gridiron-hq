@@ -168,6 +168,8 @@ test('the job: one row per team per completed week in E7\'s contract, idempotent
   insertTeam(4, 2026, 2, 1, optimalTeam());
   insertTeam(4, 2026, 2, 2, optimalTeam());
   insertTeam(4, 2026, 3, 1, optimalTeam(), 'live');
+  // A stale live capture inside a finished week: only the boxscore ('final') counts.
+  insertTeam(4, 2026, 2, 2, [p('WR', 'WR', 50, 0)], 'live');
 
   const first = runWeeklyAutopsy({ leagueId: 4, enabled: true, now: () => '2026-09-22T10:00:00Z' });
   assert.equal(first.ok, true);

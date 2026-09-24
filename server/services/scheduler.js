@@ -560,6 +560,12 @@ async function refreshWeeklyLearning() {
   return runWeeklyLearningCycle();
 }
 
+/** AUTOPSY-01 Monday Autopsy, team-week luck vs decision (weekly_autopsy, read by EVAL E7). Default off. */
+async function refreshWeeklyAutopsy() {
+  const { runWeeklyAutopsy } = await import('./weekly-autopsy.js');
+  return runWeeklyAutopsy();
+}
+
 /**
  * Refit the fantasy coordinator (fantasy-coordinator.js) on real historical
  * data through the last fully-settled season. A ~30-40s walk-forward-style
@@ -1444,6 +1450,10 @@ export const JOBS = {
     label: 'Forward evidence capture windows' },
   nfl_weekly_learning: { run: refreshWeeklyLearning, maxAgeMinutes: 6 * 60, tier: 'heavy',
     label: 'Fantasy weekly snapshot, settlement, and challenger retraining' },
+  // Daily; rebuilds every completed period of the autopsy league from the boxscore
+  // snapshots (a few thousand rows). Writes nothing unless GRIDIRON_WEEKLY_AUTOPSY=1 or preview.
+  weekly_autopsy: { run: refreshWeeklyAutopsy, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
+    label: 'Monday Autopsy: each team-week split into lineup-decision points vs luck (AUTOPSY-01, EVAL E7)' },
   // Enabled by default, unlike broad heavy research sweeps. Most checks are a
   // few SQLite reads; downloads and fitting only start when a newly finalized
   // week is ahead of the feature warehouse.

@@ -1,7 +1,7 @@
-import type { BrainCheck, Field, NumberHealth } from './types';
+import type { BrainReport, Field, NumberHealth } from './types';
 import { NOT_COMPUTED } from './format';
 
-/** Plain names for E1-E7 (WAR-ROOM-UI.md 3.7). Labels only; statuses come from EVAL-01. */
+/** Plain names for E1-E7 (WAR-ROOM-UI.md 3.7), used when the report omits a check. Statuses come from `brain_report`. */
 export const CHECKS = [
   ['E1', 'Does 40% mean 40%? (chance he says yes)'],
   ['E2', 'Are our offers priced right?'],
@@ -17,9 +17,9 @@ const PILL: Record<string, [string, string]> = {
   not_enough_data: ['', 'not enough data'], not_run: ['', 'not run'],
 };
 
-/** Is the brain working? E1-E7 statuses + the number-health dot. Never green by default. */
+/** Is the brain working? `brain_report` E1-E7 statuses + the number-health dot. Never green by default. */
 export default function BrainCheckCard({ brain, health, big }: {
-  brain: Field<BrainCheck> | undefined; health: Field<NumberHealth> | undefined; big: boolean;
+  brain: Field<BrainReport> | undefined; health: Field<NumberHealth> | undefined; big: boolean;
 }) {
   const byId = new Map((brain?.status === 'ok' && brain.value ? brain.value.checks : []).map(c => [c.id, c]));
   return (
@@ -29,16 +29,18 @@ export default function BrainCheckCard({ brain, health, big }: {
           const c = byId.get(id);
           const [cls, text] = c ? PILL[c.status] ?? ['', c.status] : ['', NOT_COMPUTED];
           return (
-            <div key={id} title={name}>
+            <div key={id} title={c ? `${c.name}. Bar: ${c.bar}` : name}>
               <span className="wr-id">{id}</span>
-              {big && <span className="wr-echk-name">{name}</span>}
+              {big && <span className="wr-echk-name">{c?.name ?? name}</span>}
               <span className={`wr-pill ${cls}`}>{text}</span>
+              {big && c?.result && <span className="wr-muted"> {c.result}</span>}
             </div>
           );
         })}
       </div>
       {brain?.status !== 'ok' && <p className="wr-sub wr-reason">{brain?.status === 'failed' ? 'Brain check failed: ' : ''}{brain?.reason ?? `Brain check ${NOT_COMPUTED}.`}</p>}
       {brain?.status === 'ok' && brain.value?.blocks.map((b, i) => <p key={i} className="wr-sub wr-red">{b}</p>)}
+      {brain?.status === 'ok' && brain.value?.fell_back_to && <p className="wr-sub wr-amber">The brain check is not passing, so the plan runs in Balanced mode.</p>}
       <div className="wr-health"><HealthDot health={health} /></div>
     </>
   );

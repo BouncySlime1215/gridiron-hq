@@ -43,6 +43,7 @@ import { db, row, rows } from '../db/index.js';
 import { actuals } from './backtest.js';
 import { scoringFor } from './scoring.js';
 import { leagueCurrentWeek } from './league-week.js';
+import { logShown } from './engine/follow-ledger.js';
 
 /** Grading horizons in weeks, per kind. `scenario` has no grader yet (GR-02). */
 export const HORIZONS = Object.freeze({
@@ -239,7 +240,9 @@ export function recordRoute(route, lg, result) {
     return considered ? { ...none, considered } : none;
   }
   const out = record(recs);
-  return considered ? { ...out, considered } : out;
+  // SELF-01a: the same shown calls, as decisions whose follow-through is matched later.
+  const follow = logShown(lg, recs.map(rec => ({ ...rec, inputs_hash: inputsHash(rec) })));
+  return considered ? { ...out, considered, follow } : { ...out, follow };
 }
 
 /**

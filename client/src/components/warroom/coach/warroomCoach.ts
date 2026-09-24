@@ -48,16 +48,15 @@ export const TOLERANCES: Record<typeof TOLERANCE_KEYS[number], { min: number; ma
   ai_spend: { min: 0, max: 100, integer: false }
 };
 
+/** Contract names (server/services/campaign/plans-schema.js); same as schema.js PLUG_IN_FIELDS. */
 export const PLUG_IN_FIELDS: Record<string, readonly PlugView[]> = {
   'destination.title_now': ['number'],
   'destination.path': ['sparkline', 'table'],
   'itinerary.stops': ['list', 'table'],
-  'suggestions': ['list', 'table'],
+  'targets': ['list', 'table'],
   'speed_curve': ['sparkline', 'table'],
-  'flips': ['list', 'table'],
-  'brain_check.checks': ['list', 'table'],
-  'roster.bye_holes': ['list', 'sparkline', 'table'],
-  'title.odds_by_week': ['sparkline', 'table']
+  'flip_map': ['list', 'table'],
+  'brain_report.checks': ['list', 'table']
 };
 export type PlugView = 'number' | 'list' | 'sparkline' | 'table';
 
@@ -206,10 +205,13 @@ export function savedLayoutOf(ui: CoachUi) {
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 const stamp = (ctx: CoachCtx) => ctx.now ?? new Date().toISOString();
 
-/** A Field<T> from the view carries its value under .value; a bare producer object is itself. */
+/**
+ * A typed field (plans-schema.js: `{ status, source, value | reason }`) carries its
+ * value under .value, and only when status is 'ok'; anything else is itself.
+ */
 function unwrap(f: any): any {
-  if (f && typeof f === 'object' && typeof f.status === 'string' && 'producer' in f) {
-    return ['ok', 'zero', 'thin', 'stale', 'fallback'].includes(f.status) ? f.value ?? null : null;
+  if (f && typeof f === 'object' && typeof f.status === 'string' && typeof f.source === 'string') {
+    return f.status === 'ok' ? f.value ?? null : null;
   }
   return f ?? null;
 }
@@ -429,13 +431,15 @@ export function undo(s: CoachSession, ctx: CoachCtx, asked: string | null = null
 
 /* ----------------------------------------------------------------- footer */
 
-function dealLine(nm: any, names: Record<string, string>): string | null {
-  if (!nm || typeof nm !== 'object') return null;
+/** A deck entry is a plan (a move); the deal Nick sends first is its first step. */
+function dealLine(move: any, names: Record<string, string>): string | null {
+  const step = Array.isArray(move?.steps) ? move.steps[0] : null;
+  if (!step || typeof step !== 'object') return null;
   const n = (id: string) => names[id] ?? id;
-  const give = Array.isArray(nm.give) ? nm.give.map(n).join(' + ') : '';
-  const get = Array.isArray(nm.get) ? nm.get.map(n).join(' + ') : '';
-  if (!nm.partner || !give || !get) return null;
-  const partner = /^team\b/i.test(String(nm.partner)) ? nm.partner : `Team ${nm.partner}`;
+  const give = Array.isArray(step.give) ? step.give.map(n).join(' + ') : '';
+  const get = Array.isArray(step.get) ? step.get.map(n).join(' + ') : '';
+  if (!step.partner || !give || !get) return null;
+  const partner = /^team\b/i.test(String(step.partner)) ? step.partner : `Team ${step.partner}`;
   return `send ${partner} ${give} for ${get}`;
 }
 
@@ -446,8 +450,9 @@ function dealLine(nm: any, names: Record<string, string>): string | null {
  */
 export function coachFooter(plans: any, ui?: CoachUi): { destination: string; stops_left: string; next_move: string; text: string } {
   const dest = unwrap(plans?.destination);
-  const goal = dest?.goal?.label ?? null;
-  const destination = goal ? `${goal}${dest.arrive_by ? ` by week ${dest.arrive_by}` : ''}` : 'no goal set yet';
+  const goal = unwrap(dest?.goal)?.label ?? null;
+  const by = unwrap(dest?.arrive_by);
+  const destination = goal ? `${goal}${typeof by === 'number' ? ` by week ${by}` : ''}` : 'no goal set yet';
   const itin = unwrap(plans?.itinerary);
   const stops = Array.isArray(itin?.stops) ? itin.stops : null;
   const left = typeof itin?.stops_left === 'number' ? String(itin.stops_left)

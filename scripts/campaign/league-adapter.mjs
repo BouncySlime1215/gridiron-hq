@@ -10,6 +10,9 @@
  *                     trade-acceptance.js#acceptanceBand midpoint (edge assumed
  *                     passed for every step, as in the ACQ-FLIP prototype)
  *   managers          counterparty layer (activity, needs) + timing read + chat labels
+ *   finderBest        the Trade Lab finder's best single offer (title-odds-trades.js x
+ *                     findTrades acceptance midpoint), the study's baseline; off with --no-finder
+ *   sanity            composed rescore == served tradeImpact on one one-for-one deal
  */
 import { chatLabels } from '../../server/services/campaign/partners.js';
 
@@ -29,6 +32,7 @@ export async function loadServices() {
     tactics: await import('../../server/services/trade-tactics.js'),
     week: await import('../../server/services/league-week.js'),
     horizon: await import('../../server/services/trade-horizon.js'),
+    titleOdds: await import('../../server/services/title-odds-trades.js'),
   };
 }
 
@@ -66,8 +70,13 @@ function daysLeftInWeek(svc, lg, week, now) {
   return Number.isFinite(t) ? Math.max(0, Math.floor((t - now) / DAY)) : 7;
 }
 
-/** Offers Nick sent each manager in the last 7 days (ESPN proposals + War Room "I sent it" log). */
-function sentThisWeek(svc, leagueId, season, me, now, offerLog = []) {
+/**
+ * Offers Nick sent each manager in the last 7 days: ESPN's own proposals, plus
+ * every "I sent it" in `trade_outcomes` (sent_at IS NOT NULL; War Room and
+ * TradeCard taps alike) that the settle job has not matched to one of those
+ * proposals, so a tapped offer ESPN also shows counts once.
+ */
+export function sentThisWeek(svc, leagueId, season, me, now) {
   const out = new Map();
   const rows = svc.db.rows(`SELECT tx_id, items_json, proposed_at FROM league_transactions_raw
                             WHERE league_id = ? AND season = ? AND type = 'TRADE_PROPOSAL' AND team_id = ?
@@ -84,19 +93,26 @@ function sentThisWeek(svc, leagueId, season, me, now, offerLog = []) {
     const other = new Set(items.flatMap(i => [i.fromTeamId, i.toTeamId]).filter(t => t != null && t > 0 && String(t) !== String(me)).map(String));
     for (const t of other) out.set(t, (out.get(t) ?? 0) + 1);
   }
-  for (const o of offerLog) {
-    if (String(o.league) !== String(leagueId) || !Number.isFinite(Date.parse(o.at)) || now - Date.parse(o.at) > 7 * DAY) continue;
-    out.set(String(o.manager), (out.get(String(o.manager)) ?? 0) + 1);
+  const sentCols = svc.db.rows('PRAGMA table_info(trade_outcomes)').map(c => c.name);
+  if (!sentCols.includes('sent_at')) return out;
+  const tapped = svc.db.rows(`SELECT counterparty_team_id, sent_at, matched_tx_id FROM trade_outcomes
+                              WHERE league_id = ? AND season = ? AND sent_at IS NOT NULL AND counterparty_team_id IS NOT NULL`,
+  leagueId, season);
+  for (const o of tapped) {
+    if (o.matched_tx_id != null && seen.has(String(o.matched_tx_id))) continue;
+    const at = Date.parse(o.sent_at);
+    if (!Number.isFinite(at) || now - at > 7 * DAY) continue;
+    out.set(String(o.counterparty_team_id), (out.get(String(o.counterparty_team_id)) ?? 0) + 1);
   }
   return out;
 }
 
 /**
  * Build the adapter for one league. chat: Map roster -> { profile, negotiation, sentiment: [{ player
- * (name), sentiment_mean, n }] } from scripts/campaign/chat-labels.mjs, or null (no chat -> every
- * label 'unknown'); offerLog: parsed War Room offer log rows.
+ * (name), sentiment_mean, n }], nick } from scripts/campaign/chat-labels.mjs, or null (no chat -> every
+ * label 'unknown').
  */
-export function buildAdapter(svc, leagueId, { chat = null, offerLog = [], now = Date.now() } = {}) {
+export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true } = {}) {
   const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg) throw new Error(`league ${leagueId} not found`);
   const payload = JSON.parse(lg.payload ?? '{}');
@@ -177,7 +193,7 @@ export function buildAdapter(svc, leagueId, { chat = null, offerLog = [], now = 
   const timing = svc.tactics.timingRead(leagueId, { season });
   const blocked = new Set(svc.db.rows(`SELECT roster_id FROM manager_profiles WHERE league_id = ? AND tradeability = 'never'`, leagueId)
     .map(r => String(r.roster_id)));
-  const sent = sentThisWeek(svc, leagueId, season, me, now, offerLog);
+  const sent = sentThisWeek(svc, leagueId, season, me, now);
   const titleByTeam = new Map((w0.base?.teams ?? []).map(t => [String(t.roster_id), t.title_odds]));
   const managers = new Map();
   for (const t of rosters.keys()) {
@@ -192,6 +208,7 @@ export function buildAdapter(svc, leagueId, { chat = null, offerLog = [], now = 
       title_now: titleByTeam.get(t) ?? null,
       sent_this_week: sent.get(t) ?? 0,
       send_when: send,
+      nick: chat?.get(t)?.nick ?? null,
       chat: chat?.has(t) ? chatLabels({ ...chat.get(t),
         sentiment: (chat.get(t).sentiment ?? []).map(x => ({ ...x, player: nameToId(x.player) ?? x.player })) }) : chatLabels(),
     });
@@ -203,7 +220,43 @@ export function buildAdapter(svc, leagueId, { chat = null, offerLog = [], now = 
       ? { ...svc.cp.readDeal({ theirGive: theyGive.map(slim), theirGet: theyGet.map(slim), managerProfile: m }), counterparty_data: true }
       : { receptiveness: 1, perception_delta: null, counterparty_data: false };
     const band = svc.acc.acceptanceBand({ counterparty, edge: { passes: true }, profile: m?.negotiation ?? null });
-    return { p: band.band?.mid ?? 0, basis: band.basis };
+    const b = band.band;
+    return { p: b?.mid ?? 0, band: b ? { low: b.low, high: b.high } : null, basis: band.basis };
+  };
+
+  // The Trade Lab finder's best single offer (the ACQ-FLIP study's baseline, same world and seed):
+  // served title-odds deals x the finder's own acceptance midpoint. A failure is reported, not hidden.
+  const finderBest = () => {
+    try {
+      const served = svc.titleOdds.titleOddsTrades(leagueId, { teamId: me });
+      if (served.error) return { error: String(served.error) };
+      const found = svc.engine.findTrades(lg, { myTeamId: me, requireMutual: true, limit: 8 * 3 });
+      const same = (a, b) => a.map(p => p.id).join() === b.map(p => p.id).join();
+      let best = null, n = 0;
+      for (const d of served.deals ?? []) {
+        const f = (found.deals ?? []).find(x => x.partner_id === d.partner_id && same(x.i_give, d.i_give) && same(x.i_get, d.i_get));
+        const p = f?.acceptance?.band?.mid;
+        if (!Number.isFinite(p) || !Number.isFinite(d.title_delta)) continue;
+        n++;
+        const e = { expected: p * d.title_delta, se: Number.isFinite(d.title_delta_se) ? p * d.title_delta_se : null };
+        if (!best || e.expected > best.expected) best = e;
+      }
+      return best ? { ...best, n } : { error: `no served deal carried a finder acceptance price (${(served.deals ?? []).length} served)` };
+    } catch (e) {
+      return { error: String(e.message ?? e) };
+    }
+  };
+
+  // The study's sanity probe: the composed rescore equals the served tradeImpact on one one-for-one deal.
+  const sanity = () => {
+    const other = w0.prep.teams.find(t => t.roster_id !== me);
+    const give = rosters.get(me).find(id => assets.get(id)?.value > 0);
+    const get = rosters.get(other.roster_id).find(id => assets.get(id)?.value > 0);
+    if (give == null || get == null) return null;
+    const direct = tradeImpact(lg, { myTeamId: me, theirTeamId: other.roster_id, iGive: [give], iGet: [get], world: w0 });
+    const state = new Map([[me, [...rosters.get(me).filter(x => x !== give), get]], [other.roster_id, [...rosters.get(other.roster_id).filter(x => x !== get), give]]]);
+    const composed = wrap(w0).rescore(state, me, other.roster_id);
+    return direct.me.title_after === composed.me.title_after && direct.them.title_after === composed.them.title_after;
   };
   const priceOf = (team, id) => {
     const m = layer.get(String(team));
@@ -220,7 +273,8 @@ export function buildAdapter(svc, leagueId, { chat = null, offerLog = [], now = 
       days_left_in_week: daysLeftInWeek(svc, lg, week, now), team_count: rosters.size, season },
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
-    rosters, players, managers, starters, freeAgents, priceStep, priceOf,
+    rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
+    ...(finder ? { finderBest } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     rosterKey: () => [...rosters.entries()].map(([t, ids]) => `${t}:${[...ids].sort((a, b) => a - b).join(',')}`).join('|'),

@@ -2,10 +2,11 @@
  * E5 step value, live: each executed campaign step's predicted title-odds
  * gain vs the realized change (paired-seed rescoring after the fact).
  *
- * Source: `campaign_steps` (CAMPAIGN-01, not built yet). Contract: one row per
- * executed step with predicted_title_odds_gain and, once rescored,
- * realized_title_odds_gain (both in title-odds points); league_id for
- * clustering. Unrescored steps are not graded.
+ * Source: `campaign_steps` (083). The campaign producer writes one row per
+ * executed step with predicted_title_odds_gain when it consumes the
+ * offer.sent event, and realized_title_odds_gain once the step settles
+ * accepted and is rescored; league_id for clustering. Steps not yet realized
+ * are counted (detail.awaiting_realized), not graded.
  *
  * Pass bar: mean realized gain CI > 0 AND the realized-minus-predicted CI
  * contains 0. Failing: realized CI wholly below 0, or realized-minus-predicted
@@ -20,16 +21,17 @@ export const MIN_N = 15;
 const PASS_BAR = 'mean realized title-odds gain CI > 0 and within CI of predicted';
 
 export function grade(rawSteps, { reason = null } = {}) {
+  const awaiting = rawSteps.filter(s => s.predicted_title_odds_gain != null && s.realized_title_odds_gain == null).length;
   const steps = rawSteps.filter(s => s.predicted_title_odds_gain != null && s.realized_title_odds_gain != null)
     .map(s => ({ pred: Number(s.predicted_title_odds_gain), real: Number(s.realized_title_odds_gain), league: s.league_id }));
   const n = steps.length;
   const common = { check: CHECK, name: NAME, metricName: 'mean_realized_title_odds_gain', passBar: PASS_BAR };
-  if (n < MIN_N) return waiting({ ...common, minN: MIN_N, n, unit: 'steps', reason });
+  if (n < MIN_N) return waiting({ ...common, minN: MIN_N, n, unit: 'steps', reason, detail: { awaiting_realized: awaiting } });
   const clusters = steps.map(s => s.league);
   const realized = mean(steps.map(s => s.real));
   const ci = bootstrapCI(n, idx => mean(idx.map(i => steps[i].real)), { clusters, seed: 310 });
   const gapCI = bootstrapCI(n, idx => mean(idx.map(i => steps[i].real - steps[i].pred)), { clusters, seed: 311 });
-  const detail = { mean_predicted: mean(steps.map(s => s.pred)), realized_minus_predicted: mean(steps.map(s => s.real - s.pred)), gap_ci: gapCI };
+  const detail = { awaiting_realized: awaiting, mean_predicted: mean(steps.map(s => s.pred)), realized_minus_predicted: mean(steps.map(s => s.real - s.pred)), gap_ci: gapCI };
   if ((ci && ci[1] < 0) || ciExcludesZero(gapCI)) {
     return result({ ...common, status: STATUS.FAILING, metric: realized, ci, n, detail: { ...detail,
       why: [ci && ci[1] < 0 && 'executed steps lose title odds', ciExcludesZero(gapCI) && 'realized gain is off the predicted gain'].filter(Boolean) } });
@@ -43,7 +45,7 @@ const COLS = ['league_id', 'predicted_title_odds_gain', 'realized_title_odds_gai
 
 export function load(database) {
   const s = readSource(database, 'campaign_steps', COLS);
-  return s.ok ? { rows: s.rows } : { rows: [], reason: `${s.reason}; CAMPAIGN-01 builds it` };
+  return s.ok ? { rows: s.rows } : { rows: [], reason: `${s.reason}; migration 083 builds it` };
 }
 
 export function run(database) {

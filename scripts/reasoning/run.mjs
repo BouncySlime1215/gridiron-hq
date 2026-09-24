@@ -1,23 +1,26 @@
 #!/usr/bin/env node
 /**
- * REASON-01: write the War Room reasoning panels for every league, offline,
- * after the campaign producer has written its plans. Never run on a web
- * request.
+ * REASON-01 / FIX-08: re-run the War Room reasoning panels by hand over the
+ * current plans file, offline. Never run on a web request.
  *
- *   node scripts/reasoning/run.mjs --plans <plans.json> [--out <panels.json>] [--dry-run] [--model <id>]
+ *   node scripts/reasoning/run.mjs [--plans <plans.json>] [--dry-run] [--model <id>]
  *
- * Makes real, billed Anthropic calls (one per league whose top card or deck
- * changed) unless --dry-run is passed; those need GRIDIRON_ALLOW_PAID_RUN set.
- * Each call is held against that league's daily trade-proposals pot and
- * printed with its cost. The previous --out file is read first so unchanged
- * cards reuse their panel and cost nothing.
+ * The campaign producer (scripts/campaign/produce-plans.mjs) already writes
+ * reasoning into every move on each run. This is the manual re-run: it goes
+ * through the same function (scripts/reasoning/reason-plans.mjs), takes the
+ * producer's lock, and rewrites the plans file atomically with each move's
+ * `reasoning` filled. The reuse cache (panels.json) sits next to the plans
+ * file; an unchanged move costs nothing.
+ *
+ * Makes real, billed Anthropic calls (one per league whose deck changed) unless
+ * --dry-run is passed. A real run needs both gates: the reasoning flag
+ * (server/services/reasoning-flag.js, or preview mode) and GRIDIRON_ALLOW_PAID_RUN.
+ * With either off it refuses and touches nothing, rather than overwrite written
+ * panels with 'unknown'.
+ * --dry-run builds every prompt, prints the summary, and writes nothing.
  */
 import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { assertPaidRunOptIn } from '../paid-run-optin.mjs';
-
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 function arg(name, fallback = null) {
   const i = process.argv.indexOf(name);
@@ -25,8 +28,8 @@ function arg(name, fallback = null) {
 }
 
 const DRY = process.argv.includes('--dry-run');
-const plansPath = arg('--plans', path.join(ROOT, 'server/data/campaign/plans.json'));
-const outPath = arg('--out', path.join(ROOT, 'server/data/reasoning/panels.json'));
+const { warRoomPlansPath } = await import('../../server/services/warroom-flag.js');
+const plansPath = arg('--plans', warRoomPlansPath());
 const model = arg('--model');
 
 if (!fs.existsSync(plansPath)) {
@@ -34,37 +37,33 @@ if (!fs.existsSync(plansPath)) {
   process.exit(1);
 }
 // Before the database opens: a refusal must cost and touch nothing.
-if (!DRY) assertPaidRunOptIn();
-
-const { produceReasoning } = await import('../../server/services/reasoning/produce.js');
-
-const plans = JSON.parse(fs.readFileSync(plansPath, 'utf8'));
-let previous = null;
-if (fs.existsSync(outPath)) {
-  try {
-    previous = JSON.parse(fs.readFileSync(outPath, 'utf8'));
-  } catch (e) {
-    // A corrupt previous file costs one re-spend, never a crash; say so.
-    process.stderr.write(`Previous panels at ${outPath} could not be read (${e.message}); every card is rewritten.\n`);
+if (!DRY) {
+  assertPaidRunOptIn();
+  const { reasoningFlag, REASONING_ENV } = await import('../../server/services/reasoning-flag.js');
+  if (!reasoningFlag().enabled) {
+    process.stderr.write(`refusing to run: reasoning is off. Set ${REASONING_ENV}=1 (or use preview mode).\n`);
+    process.exit(1);
   }
 }
 
-const result = await produceReasoning({
-  plans, previous, dryRun: DRY, ...(model ? { model } : {}),
-  log: c => console.log(JSON.stringify({ reasoning_call: c }))
-});
+const { takeLock } = await import('../campaign/produce-plans.mjs');
+const { reasonPlans } = await import('./reason-plans.mjs');
 
-fs.mkdirSync(path.dirname(outPath), { recursive: true });
-const tmp = `${outPath}.tmp`;
-fs.writeFileSync(tmp, `${JSON.stringify(result, null, 2)}\n`);
-fs.renameSync(tmp, outPath);
-
-const panels = result.leagues.flatMap(l => l.panels);
-const failed = panels.flatMap(p => Object.values(p.sections)).filter(s => s.status === 'failed').length;
-console.log(JSON.stringify({
-  leagues: result.leagues.length, panels: panels.length,
-  reused: panels.filter(p => p.cost?.reused).length,
-  check_first: panels.filter(p => p.check_first).length,
-  failed_sections: failed,
-  calls: result.calls.length, total_cost_usd: +result.total_cost_usd.toFixed(4), out: outPath
-}));
+const release = DRY ? () => {} : takeLock(plansPath);
+if (!release) {
+  process.stderr.write('The campaign producer holds the plans lock; it writes reasoning itself. Try again after it finishes.\n');
+  process.exit(1);
+}
+try {
+  const plans = JSON.parse(fs.readFileSync(plansPath, 'utf8'));
+  const run = await reasonPlans({ plans, plansFile: plansPath, dryRun: DRY, ...(model ? { model } : {}),
+    log: l => console.log(JSON.stringify(l)) });
+  if (!DRY) {
+    const tmp = `${plansPath}.tmp-${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify(plans));
+    fs.renameSync(tmp, plansPath);
+    run.commit();
+  }
+  console.log(JSON.stringify({ ...run.summary, dry_run: DRY, plans: plansPath }));
+  if (run.result.status === 'failed') process.exitCode = 1;
+} finally { release(); }

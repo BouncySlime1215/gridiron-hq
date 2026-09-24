@@ -20,6 +20,7 @@ import {
   warRoomEnabled, warRoomPreview, recordRequest, listRequests, saveLayout, latestLayout,
   logAction, listActionLog
 } from '../services/warroom-actions/store.js';
+import { loadPlans } from '../services/war-room-view.js';
 
 const r = Router();
 
@@ -41,15 +42,25 @@ function leagueOf(req) {
 
 const fail = (res, e, next) => (e?.status && e.status < 500 ? res.status(e.status).json({ error: e.message }) : next(e));
 
-r.post('/:leagueId/requests', (req, res, next) => {
+const CARD_KINDS = new Set(['offer.sent', 'deck.skip']);
+
+r.post('/:leagueId/requests', async (req, res, next) => {
   try {
     const leagueId = leagueOf(req);
     const body = req.body ?? {};
+    // Only a request that names a card reads the plans file (one cached read).
+    const plans = CARD_KINDS.has(body.kind) ? await loadPlans() : null;
     const request = recordRequest({
       userId: req.auth.userId, leagueId, kind: body.kind, payload: body.payload ?? {},
-      source: body.source ?? 'nick', confirmed: body.confirmed === true
+      source: body.source ?? 'nick', confirmed: body.confirmed === true, plans
     });
+    if (request.already_sent) {
+      res.json({ enabled: true, ...warRoomPreview(), request: null, already_sent: true,
+        trade_outcome: request.trade_outcome, note: 'Already marked sent; nothing new recorded.' });
+      return;
+    }
     res.status(201).json({ enabled: true, ...warRoomPreview(), request,
+      ...(request.trade_outcome ? { trade_outcome: request.trade_outcome } : {}),
       note: 'Recorded. The planner picks this up on its next run; usually a few minutes.' });
   } catch (e) { fail(res, e, next); }
 });

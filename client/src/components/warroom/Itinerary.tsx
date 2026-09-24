@@ -3,7 +3,7 @@ import { FieldBlock, Val } from './FieldState';
 import { pct, pts } from './format';
 import { usePager } from './Panel';
 
-/** Stops in order (get X, flip Y, ...). Adding a stop is WR-3 / WR-COACH. */
+/** Stops in order (get X, flip Y, ...), as the producer wrote them. Adding a stop is Coach's (FIX-06). */
 export default function Itinerary({ field, big }: { field: Field<It> | undefined; big: boolean }) {
   const stops = field?.status === 'ok' && field.value ? field.value.stops : [];
   const pg = usePager(stops.length, big ? 7 : 4);
@@ -12,7 +12,7 @@ export default function Itinerary({ field, big }: { field: Field<It> | undefined
       {it => (
         <>
           <div className="wr-row wr-sub">
-            {it.target ? <span><b className="wr-ink">Target:</b> {it.target.name}</span> : <span>No target yet.</span>}
+            <span>{it.stops_left} stop{it.stops_left === 1 ? '' : 's'} left</span>
             <span className="wr-sp" />{pg.control}
           </div>
           <ol className="wr-list wr-stops">
@@ -21,16 +21,21 @@ export default function Itinerary({ field, big }: { field: Field<It> | undefined
                 <span className="wr-n">{s.order}</span>
                 <span className="wr-lab">
                   <b>{s.label}</b>
-                  <br />
-                  <span className="wr-sub">
-                    chance <Val f={s.p_yes} fmt={v => pct(v)} /> · you after <Val f={s.odds_after} fmt={pts} />
-                  </span>
+                  {(s.p_yes || s.title_odds_delta) && (
+                    <>
+                      <br />
+                      <span className="wr-sub">
+                        chance <Val f={s.p_yes} fmt={v => pct(v)} /> · you after <Val f={s.title_odds_delta} fmt={pts} />
+                      </span>
+                    </>
+                  )}
                 </span>
                 <span className={`wr-pill${s.status === 'next' ? ' wr-pill-next' : ''}`}>{s.status}</span>
               </li>
             ))}
           </ol>
-          <button type="button" className="wr-btn wr-sm" disabled title="Adding stops turns on with the engine request queue (WR-3)">+ Add a stop</button>
+          {it.conflicts.map((c, i) => <p key={i} className="wr-sub wr-red">{c.text}</p>)}
+          <button type="button" className="wr-btn wr-sm" disabled title="Adding stops is Coach's (FIX-06)">+ Add a stop</button>
         </>
       )}
     </FieldBlock>

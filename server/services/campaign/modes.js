@@ -134,6 +134,7 @@ export function compareModes(plans, ctxFor) {
       if_complete: best ? best.delta_final : null,
       p_complete: best ? best.p_complete : null,
       first_step: best ? best.steps[0] : null,
+      steps: best ? best.steps.length : null,
     };
   });
 }

@@ -47,9 +47,6 @@ test('the daemon reaches its producers, so engine tables are not reported as han
   const found = findings(model, annotations('docs/wiring/annotations.json'));
   const handFed = found.filter(f => f.rule === 'table-hand-fed' && /^engine_/.test(f.subject)).map(f => f.subject);
   assert.deepEqual(handFed, [], `engine tables reported as hand-fed: ${handFed.join(', ')}`);
-  // plans-schema.js (#238) is excluded: nothing the producer runs imports it until FIX-03,
-  // so it is still an accepted orphan, honestly.
-  const campaign = found.filter(f => f.rule === 'module-reaches-no-surface' && f.subject.startsWith('server/services/campaign/')
-    && f.subject !== 'server/services/campaign/plans-schema.js');
+  const campaign = found.filter(f => f.rule === 'module-reaches-no-surface' && f.subject.startsWith('server/services/campaign/'));
   assert.deepEqual(campaign.map(f => f.subject), []);
 });

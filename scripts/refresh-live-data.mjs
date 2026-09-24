@@ -20,15 +20,12 @@
  *   4. manager_signals   who-is-who + per-manager signals for all leagues
  *                        (build-manager-signals.mjs), after the chat rollup has
  *                        finished, and only when one of its inputs changed
-<<<<<<< HEAD
  *   5. warroom_plans     the War Room campaign producer (scripts/campaign/produce-plans.mjs),
  *                        only when GRIDIRON_WARROOM_ENABLED=1; launched detached every tick
  *                        (skipped while the previous run holds its lock) so each league's
  *                        next move is replanned on the fresh data
-=======
- *   5. brain_report      EVAL-01 graders E1-E7 (scripts/eval/run-graders.mjs), last,
+ *   6. brain_report      EVAL-01 graders E1-E7 (scripts/eval/run-graders.mjs), last,
  *                        so they grade this tick's rows; stores one run in brain_report
->>>>>>> origin/claude/cloud-e1-fix-pvd8q8
  *
  * ALLOWLIST ONLY. Betting collectors (line snapshots, Polymarket, book feeds,
  * prop capture, t60 runner…) are deliberately absent: Nick turned them off.
@@ -355,11 +352,8 @@ export async function tick({ jobs = FANTASY_LIVE_JOBS, spawn = spawnSync, log = 
   step('roster_snapshots', () => rosterSnapshots({ spawn, log, record }));
   step('league_chat', () => chatBackfill({ spawn, log, record }));
   step('manager_signals', () => signals());
-<<<<<<< HEAD
   step('warroom_plans', () => warRoomPlans({ log, record, ...(warRoomLaunch ? { launch: warRoomLaunch } : {}) }));
-=======
   step('brain_report', () => brainReport({ spawn, log, record }));
->>>>>>> origin/claude/cloud-e1-fix-pvd8q8
   log(`${stamp()} tick done in ${Math.round((Date.now() - started) / 1000)} s`);
 }
 
@@ -379,12 +373,8 @@ async function main(args = process.argv.slice(2)) {
     return;
   }
   console.log(`${stamp()} refresh-live-data loop every ${loopSeconds} s — jobs: ${FANTASY_LIVE_JOBS.join(', ')}`
-<<<<<<< HEAD
     + ', then league_tx, roster_snapshots, league_chat, manager_signals'
-    + (process.env.GRIDIRON_WARROOM_ENABLED === '1' ? ', warroom_plans' : ''));
-=======
-    + ', then league_tx, roster_snapshots, league_chat, manager_signals, brain_report');
->>>>>>> origin/claude/cloud-e1-fix-pvd8q8
+    + (process.env.GRIDIRON_WARROOM_ENABLED === '1' ? ', warroom_plans' : '') + ', brain_report');
   while (!stopping) {
     await tick({ force, managerSignals });
     const until = Date.now() + loopSeconds * 1000;

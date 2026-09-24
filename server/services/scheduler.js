@@ -744,6 +744,27 @@ async function refreshDecayWatch() {
   return runDecayWatch();
 }
 
+/**
+ * The recommendation ledger's grader (GR-01): fills outcome/score on every
+ * rec_ledger row whose horizon weeks have been played (+1 lineup, +2/+5 trade
+ * and waiver), from player_week_usage scored by each league's own rules.
+ * Grades only; it never writes a recommendation and never deletes one.
+ */
+async function refreshRecLedgerGrades() {
+  const { gradeDue } = await import('./rec-ledger.js');
+  return gradeDue();
+}
+
+/**
+ * The follow ledger (SELF-01a): backfill shown calls from rec_ledger, then
+ * match what was done on ESPN (lineups, waiver adds, trade actions) into
+ * follow / ignore / no_action. Records only; it never grades a call.
+ */
+async function refreshFollowLedger() {
+  const { syncFollowLedger } = await import('./engine/follow-ledger.js');
+  return syncFollowLedger();
+}
+
 /** Refit the TD calibrator on fixed chronological eras; promotion still requires replication. */
 async function refreshNflPropCalibration() {
   const { propReplayRows } = await import('./nfl-props.js');
@@ -1593,6 +1614,22 @@ export const JOBS = {
    */
   decay_watch: { run: refreshDecayWatch, maxAgeMinutes: 24 * 60, tier: 'growth',
     label: 'Post-approval decay watch: do shipped findings still hold on fresh data? (report only)' },
+  /*
+   * Six hours: player_week_usage lands on the nflverse_weekly_usage job's own
+   * six-hour cadence, and a grade can only move when a week has been added.
+   * 'growth' so it runs on the default timer; off-thread because a season's
+   * actuals() read is the whole player_week_usage season.
+   */
+  rec_ledger_grade: { run: refreshRecLedgerGrades, maxAgeMinutes: 6 * 60, tier: 'growth', offThread: true,
+    label: 'Recommendation ledger: grade calls whose horizon weeks have been played (+1 lineup, +2/+5 trade and waiver)' },
+  /*
+   * Hourly: lineup snapshots and raw transactions land on the refresh loop,
+   * and ESPN keeps only about three days of transactions, so a resolver that
+   * lags a window by a day still reads its rows from the local copy.
+   * Off-thread, as rec_ledger_grade: the backfill reads the whole rec_ledger.
+   */
+  follow_ledger_sync: { run: refreshFollowLedger, maxAgeMinutes: 60, tier: 'growth', offThread: true,
+    label: 'Follow ledger: match shown calls to what was done on ESPN (follow / ignore / no_action)' },
   twitter_insiders: { run: refreshTwitterInsiders, maxAgeMinutes: 4 * 60, tier: 'metered',
     label: 'NFL insider tweets — typed injury/role claims (budget-capped, ~$0.003/handle)' },
   nfl_injuries: { run: refreshNflInjuries, maxAgeMinutes: 6 * 60, tier: 'live', offThread: true,

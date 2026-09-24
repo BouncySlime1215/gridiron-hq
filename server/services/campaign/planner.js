@@ -16,6 +16,7 @@ import { dealKey, pathExpectation, combos, linearNick, screenPct } from './paths
 import { rankPlans, compareModes, tolerancesFor, MODES } from './modes.js';
 import { metricOf, pointsFeasibility, targetFeasibility, weeklySummary } from './objectives.js';
 import { priceLadder, stepMessage, replyTable } from './playbook.js';
+import { coachMessagesOn } from './messages.js';
 import { buildItinerary, stopTradeOff, arrivalWeek } from './itinerary.js';
 import { speedCurve, concededPlan, sideLevers } from './speed.js';
 import { orderCatchUp, freeMoves, isBehind, sellersRead, desperateMoves } from './catchup.js';
@@ -213,8 +214,19 @@ export function planLeague(adapter, settings) {
   };
   const playbook = best ? best.steps.map((_, i) => playbookFor(best, i, i === 0 ? (deck[1] ? { step: deck[1].steps[0], expected: deck[1].expected } : backups[0]) : backups[i])) : [];
   // A card's BATNA is the next card: swiping past a card means the ones before it were skipped.
-  const deckCards = deck.map((p, j) => ({ plan: p, playbook: j === 0 ? playbook[0]
-    : playbookFor(p, 0, deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) }));
+  // MSG-WIRE-2 (gated on coachMessagesOn): every step of every card gets its playbook, so Coach can
+  // write a message for it; step 0's BATNA stays the next card, a later step's BATNA is that card's
+  // own backup branch. Off, the deck is the incumbent's (step 0 only, no `playbooks` key).
+  const allSteps = coachMessagesOn();
+  const deckCards = deck.map((p, j) => {
+    if (!allSteps) return { plan: p, playbook: j === 0 ? playbook[0]
+      : playbookFor(p, 0, deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) };
+    if (j === 0) return { plan: p, playbook: playbook[0], playbooks: playbook };
+    const br = p.steps.length > 1 ? backupBranches(p.planned_on ?? p, ranked) : [];
+    const pbs = p.steps.map((_, i) => playbookFor(p, i, i === 0
+      ? (deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) : br[i] ?? null));
+    return { plan: p, playbook: pbs[0], playbooks: pbs };
+  });
 
   // Suggested targets: gain if landed x P(reach) x skip weight, with mode fit.
   const byMode = Object.fromEntries(MODES.map(mode => { const c = ctxFor(mode); return [mode, rankPlans(plans, mode, c.tol, c.ctx).ranked]; }));
@@ -315,7 +327,7 @@ export function planLeague(adapter, settings) {
     eta_week: best ? arrivalWeek(best, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) : null,
     finder_best, sanity,
     flip, targets: wanted, candidates_scored: plans.length, dropped: dropped.slice(0, 20).map(d => ({ first: d.plan.steps[0], why: d.why })),
-    best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook })),
+    best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook, ...(c.playbooks ? { playbooks: c.playbooks } : {}) })),
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
     suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, feasibility_points, outlook,
     risk_modes: compareModes(plans, ctxFor), catch_up: catchUp, partners,

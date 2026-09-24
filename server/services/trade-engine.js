@@ -2281,7 +2281,11 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
 export function cloneContext(lg, counterparties, season) {
   const mode = cloneMode();
   if (!mode.on) return null;
-  return { mode, pool: leagueAcceptPool([...counterparties.values()]), fits: cloneFitsFor(lg.id, season) };
+  // CLONE-01a's fitted pool (method of moments) when that unit is on; else the
+  // n-weighted league rate at a fixed strength.
+  const cps = [...counterparties.values()];
+  const pool = cps.find(c => c?.accept_pool)?.accept_pool ?? leagueAcceptPool(cps);
+  return { mode, pool, fits: cloneFitsFor(lg.id, season) };
 }
 
 /** The clone and veto reads for one deal. His gain is priced off the deal's own player values. */

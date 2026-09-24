@@ -465,10 +465,16 @@ export function readBursts(chat) {
   return out;
 }
 
-/** Stored profiles from an open chat DB: Map scope -> profile (empty when the table is absent). */
+/**
+ * Stored profiles from an open chat DB: Map scope -> profile (empty when the table is absent).
+ * These are Nick's texting-style profiles (nick_voice_profile in the private chat DB), not
+ * the negotiation profiles' JSON column, which only people/profile-reader.js parses (ONE-READER);
+ * the column is read as style_json so the two are never confused.
+ */
 export function readProfiles(chat) {
   try {
-    return new Map(chat.prepare(`SELECT scope, profile_json FROM ${PROFILE_TABLE}`).all().map(r => [r.scope, JSON.parse(r.profile_json)]));
+    return new Map(chat.prepare(`SELECT scope, profile_json AS style_json FROM ${PROFILE_TABLE}`).all()
+      .map(r => [r.scope, JSON.parse(r.style_json)]));
   } catch (e) {
     if (/no such table/.test(String(e?.message))) return new Map();
     throw e;

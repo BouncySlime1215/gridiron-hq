@@ -1421,9 +1421,11 @@ export const JOBS = {
     maxAgeMinutes: 3, tier: 'live', label: 'Live NFL play-by-play (free, no quota)' },
   // Free, keyless, read-only (Jetstream: "No authentication is required for the live
   // tail"). It overlaps nfl_news_signals (nfl-news-signal.js STATUS_RULES 'out'), which
-  // reads the same kind of post for the News page; the two are not yet one reader (see
-  // the tdd doc, section 9). The Start/Sit live-inactive warning reads this table
-  // (lineup-brain.js lineupCall, default off behind LIVE_INACTIVE_WARNINGS=1). Each run
+  // reads the same kind of post for the News page; availability-claims.js is the one
+  // reader over both (FIX-184-6). The Start/Sit live-inactive warning and the dead-starter
+  // card read it (lineup-brain.js lineupCall, default off behind live-inactive-flag.js).
+  // The claim's season/week is tradeWeekContext(), the reader's context
+  // (test/live-inactives-job.test.js). Each run
   // replays the last 30 minutes of about 19 watched accounts' posts, filtered on the
   // server by DID, and then closes the socket. Rows are keyed on the post URI, so the
   // overlap between runs is harmless.

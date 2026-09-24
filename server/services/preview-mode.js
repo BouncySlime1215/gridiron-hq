@@ -30,6 +30,8 @@
  *                                                GET /api/number-audit (#237, GRIDIRON_NUMBER_HEALTH)
  *   - offer-loop-flag.js#offerLoopFields         TradeCard "I sent this" and /offers/sent
  *                                                (#239, GRIDIRON_OFFER_LOOP)
+ *   - live-inactive-flag.js#liveInactiveFields   RL-3-2 live inactive warning + dead-starter
+ *                                                card source (#184, FIX-184-3)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

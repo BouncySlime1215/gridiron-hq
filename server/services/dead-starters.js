@@ -26,10 +26,15 @@
  * `rosterLocks()`) merges, read its lock (which also honours ESPN's own `lineupLocked`
  * flag) instead of comparing kickoff times here.
  *
- * Gameday inactives: `inactive` is a hook. Main has no in-week inactive source (the
- * nflverse weekly roster lands after the week). lineupCall() fills it from
- * espn-zero-inactive.js (RL-10-1: ESPN's projection went from >= 5 to 0), whose hook
- * carries its own sentence and source label; NO_LIVE_INACTIVES stays the empty hook.
+ * Gameday inactives: `inactive` is a hook (the nflverse weekly roster lands after the
+ * week, so it cannot be one). lineupCall() fills it from TWO covered sources, merged by
+ * mergeInactiveHooks() below:
+ *   - espn-zero-inactive.js (RL-10-1: ESPN's projection went from >= 5 to 0);
+ *   - availability-claims.js#claimInactiveHook (RL-3-2, FIX-184-2: the latest pre-kickoff
+ *     claim from live_inactive_claims or nfl_news_signals), the same set lineupCall's
+ *     Start/Sit "live_inactive" warnings read, so the card and the warning cannot differ.
+ * Each carries its own sentence and source label, per player in `byId` once merged;
+ * NO_LIVE_INACTIVES stays the empty hook.
  */
 import { gameCutoff } from './game-cutoff.js';
 import { SLOT_NAME } from './espn-draft.js';
@@ -46,9 +51,35 @@ export const DEAD_ESPN_STATUS = Object.freeze({ INJURY_RESERVE: 'ir', OUT: 'out'
 /** The empty hook (tests, and any caller without a source). lineupCall() defaults to espn-zero-inactive.js (RL-10-1). */
 export const NO_LIVE_INACTIVES = Object.freeze({
   covered: false, source: null, ids: new Set(),
-  reason: 'no in-week gameday inactive source yet: RL-3-2 (live-inactive-monitor.js) has not landed, ' +
-    'and the nflverse weekly roster is published after the week'
+  reason: 'no in-week gameday inactive source was passed; the nflverse weekly roster is published after the week'
 });
+
+/**
+ * One hook from several (FIX-184-2). Nothing covered: the first hook as it is, so its own
+ * "why not" reason reaches the card. One covered: that hook. Several: the union of their
+ * ids, each id keeping the first covering hook's source, sentence and label in `byId`,
+ * and `preview` when any of them is on only because of preview mode.
+ */
+export function mergeInactiveHooks(...hooks) {
+  const list = hooks.filter(Boolean);
+  const on = list.filter(h => h.covered);
+  if (!on.length) return list[0] ?? NO_LIVE_INACTIVES;
+  if (on.length === 1) return on[0];
+  const byId = new Map();
+  for (const h of on) {
+    for (const id of h.ids ?? []) {
+      if (!byId.has(id)) byId.set(id, h.byId?.get(id) ?? { source: h.source, sentence: h.sentence ?? null, label: h.label ?? null });
+    }
+  }
+  const previews = on.filter(h => h.preview);
+  return { covered: true, source: on.map(h => h.source).join('+'),
+    reason: on.map(h => h.reason).filter(Boolean).join('; ') || null,
+    ids: new Set(byId.keys()), byId, sentence: null, label: null,
+    ...(previews.length ? { preview: true, preview_reason: previews.map(h => h.preview_reason).filter(Boolean).join('; ') } : {}) };
+}
+
+/** Per-player source, sentence and label from a hook (merged hooks carry them in byId). */
+const hookEntry = (inactive, id) => inactive?.byId?.get(id) ?? null;
 
 const BENCH_SLOT = 20, IR_SLOT = 21;
 const norm = s => String(s ?? '').toLowerCase().replace(/[^a-z]/g, '');
@@ -80,7 +111,9 @@ export function deadReason(p, { week, espnStatus = null, inactive = NO_LIVE_INAC
     return { reason: designation, source: source === 'espn' ? 'espn' : 'injury_report' };
   }
   if (week != null && p.bye === week) return { reason: 'bye', source: 'schedule' };
-  if (inactive?.covered && inactive.ids?.has(p.id)) return { reason: 'inactive', source: inactive.source };
+  if (inactive?.covered && inactive.ids?.has(p.id)) {
+    return { reason: 'inactive', source: hookEntry(inactive, p.id)?.source ?? inactive.source };
+  }
   return null;
 }
 
@@ -102,7 +135,8 @@ export function deadStarters(lg, rosterId, players, {
     // PREVIEW-01: a hook on only because of the local preview switch says so on the card.
     ...(inactive?.preview ? { preview: true, preview_reason: inactive.preview_reason ?? null } : {}) };
   // A hook may print its own sentence and source label (RL-10-1: "ESPN projects 0: likely inactive").
-  const sentence = s => (s.dead.reason === 'inactive' && inactive?.sentence) ? inactive.sentence : SENTENCE[s.dead.reason];
+  const sentence = s => (s.dead.reason === 'inactive'
+    && (hookEntry(inactive, s.p.id)?.sentence ?? inactive?.sentence)) || SENTENCE[s.dead.reason];
   const base = { applied: false, season, week, kickoff_basis: 'game_cutoff', inactive_source: inactiveSource };
   if (lg?.platform !== 'espn') {
     return { ...base, covered: false, starters_checked: 0, unmatched_starters: 0, items: [],
@@ -149,7 +183,7 @@ export function deadStarters(lg, rosterId, players, {
       slot: s.slot,
       player: { id: s.p.id, name: s.p.name, position: s.p.position, team_abbr: s.p.team_abbr },
       reason: s.dead.reason, source: s.dead.source,
-      source_label: s.dead.reason === 'inactive' ? (inactive?.label ?? null) : null,
+      source_label: s.dead.reason === 'inactive' ? (hookEntry(inactive, s.p.id)?.label ?? inactive?.label ?? null) : null,
       kickoff: kickoff(s.p.team_abbr),
       replacement: pick ? { id: pick.p.id, name: pick.p.name, position: pick.p.position,
         team_abbr: pick.p.team_abbr, week_points: weekPoints.get(pick.p.id) } : null,

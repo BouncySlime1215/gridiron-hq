@@ -30,7 +30,9 @@
  * Other surfaces that print contingency.js#weeklyAvailability's active_probability (TradeCard,
  * WaiverWire, Model) do not read this hook yet: named follow-up in the RL-10-1 evidence file.
  *
- * Not wired on purpose: RL-3-2's Bluesky arm (PR #184). One producer for this signal.
+ * RL-3-2's live claims (PR #184) are a SEPARATE covered source, not folded in here:
+ * lineup-brain.js merges this hook with availability-claims.js#claimInactiveHook through
+ * dead-starters.js#mergeInactiveHooks. Only this hook holds a player out of the solve.
  */
 import { rows } from '../db/index.js';
 import { weekDesignation } from './contingency.js';
@@ -54,7 +56,7 @@ export const espnZeroEnabled = () => process.env[ESPN_ZERO_ENV] === '1';
 export const ESPN_ZERO_OFF_REASON =
   'ESPN-projects-0 inactive flag is default-off, unconfirmed forward: R&D r10 section 6 gates it on a ' +
   `W4-W5 Sunday timing test (RL-10-2) that has not run. Set ${ESPN_ZERO_ENV}=1 to switch it on. ` +
-  'RL-3-2 (live-inactive-monitor.js) has not landed either, so no in-week inactive source is on.';
+  "RL-3-2's live claims (availability-claims.js) are default-off too (live-inactive-flag.js).";
 
 const missingTable = e => /no such table/i.test(String(e?.message ?? e));
 
@@ -101,7 +103,7 @@ function hookFor(leagueId, season, week) {
   }
   if (!now.length) {
     return uncovered(`no league_roster_snapshots rows for week ${week} in this league ` +
-      '(the local refresh loop writes them); RL-3-2 (live-inactive-monitor.js) has not landed either');
+      '(the local refresh loop writes them)');
   }
   if (!prior.length) return uncovered(`no league_roster_snapshots rows for week ${week - 1}, so there is no projection to compare`);
 

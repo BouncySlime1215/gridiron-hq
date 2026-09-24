@@ -1,0 +1,65 @@
+{
+ "status": "on",
+ "runs": 1200,
+ "seed": 7,
+ "from_week": 4,
+ "rival_claims": "not_modelled",
+ "deadline": "not_modelled",
+ "depth": 3,
+ "min_p_accept": 0.15,
+ "best_single": {
+  "steps": [
+   { "n": 1, "kind": "trade", "shape": "1-for-1", "partner_id": 5, "give": [602], "get": [501], "their_value_pct": 4.1,
+     "p_accept": 0.41, "p_basis": "counterparty_read", "title_delta_after": 0.009, "title_delta_se": 0.004, "step_gain": 0.009 }
+  ],
+  "moves": 1, "p_complete": 0.41, "expected_title_delta": 0.0037, "full_title_delta": 0.009, "full_title_delta_se": 0.004,
+  "full_clears_noise": true, "vs_best_single": null
+ },
+ "paths": [
+  {
+   "steps": [
+    { "n": 1, "kind": "trade", "shape": "1-for-1", "partner_id": 7, "give": [601], "get": [502], "their_value_pct": 2.5,
+      "p_accept": 0.38, "p_basis": "counterparty_read", "title_delta_after": 0.012, "title_delta_se": 0.004, "step_gain": 0.012 },
+    { "n": 2, "kind": "claim", "shape": "add/drop", "claim": 703, "drop": 606,
+      "p_accept": 1, "p_basis": "not_modelled", "title_delta_after": 0.019, "title_delta_se": 0.005, "step_gain": 0.007 },
+    { "n": 3, "kind": "flip", "shape": "1-for-1", "partner_id": 2, "give": [502], "get": [701], "their_value_pct": 6.2,
+      "p_accept": 0.31, "p_basis": "counterparty_read", "title_delta_after": 0.027, "title_delta_se": 0.006, "step_gain": 0.008 }
+   ],
+   "moves": 3, "p_complete": 0.1178, "expected_title_delta": 0.0133, "full_title_delta": 0.027, "full_title_delta_se": 0.006,
+   "full_clears_noise": true,
+   "vs_best_single": { "expected_title_delta": 0.0096, "full_title_delta": 0.018, "full_title_delta_se": 0.005 }
+  },
+  {
+   "steps": [
+    { "n": 1, "kind": "trade", "shape": "1-for-1", "partner_id": 7, "give": [601], "get": [502], "their_value_pct": 2.5,
+      "p_accept": 0.38, "p_basis": "counterparty_read", "title_delta_after": 0.012, "title_delta_se": 0.004, "step_gain": 0.012 },
+    { "n": 2, "kind": "claim", "shape": "add/drop", "claim": 703, "drop": 606,
+      "p_accept": 1, "p_basis": "not_modelled", "title_delta_after": 0.019, "title_delta_se": 0.005, "step_gain": 0.007 },
+    { "n": 3, "kind": "trade", "shape": "1-for-1", "partner_id": 4, "give": [605], "get": [507], "their_value_pct": 1.9,
+      "p_accept": 0.44, "p_basis": "counterparty_read", "title_delta_after": 0.021, "title_delta_se": 0.005, "step_gain": 0.002 }
+   ],
+   "moves": 3, "p_complete": 0.1672, "expected_title_delta": 0.0128, "full_title_delta": 0.021, "full_title_delta_se": 0.005,
+   "full_clears_noise": true,
+   "vs_best_single": { "expected_title_delta": 0.0091, "full_title_delta": 0.012, "full_title_delta_se": 0.005 }
+  },
+  {
+   "steps": [
+    { "n": 1, "kind": "trade", "shape": "1-for-1", "partner_id": 7, "give": [601], "get": [502], "their_value_pct": 2.5,
+      "p_accept": 0.38, "p_basis": "counterparty_read", "title_delta_after": 0.012, "title_delta_se": 0.004, "step_gain": 0.012 },
+    { "n": 2, "kind": "trade", "shape": "1-for-1", "partner_id": 9, "give": [604], "get": [505], "their_value_pct": 3.3,
+      "p_accept": 0.29, "p_basis": "counterparty_read", "title_delta_after": 0.016, "title_delta_se": 0.005, "step_gain": 0.004 }
+   ],
+   "moves": 2, "p_complete": 0.1102, "expected_title_delta": 0.0057, "full_title_delta": 0.016, "full_title_delta_se": 0.005,
+   "full_clears_noise": false,
+   "vs_best_single": { "expected_title_delta": 0.002, "full_title_delta": 0.007, "full_title_delta_se": 0.005 }
+  },
+  {
+   "steps": [
+    { "n": 1, "kind": "trade", "shape": "1-for-1", "partner_id": 5, "give": [602], "get": [501], "their_value_pct": 4.1,
+      "p_accept": 0.41, "p_basis": "counterparty_read", "title_delta_after": 0.009, "title_delta_se": 0.004, "step_gain": 0.009 }
+   ],
+   "moves": 1, "p_complete": 0.41, "expected_title_delta": 0.0037, "full_title_delta": 0.009, "full_title_delta_se": 0.004,
+   "full_clears_noise": true, "vs_best_single": null
+  }
+ ]
+}

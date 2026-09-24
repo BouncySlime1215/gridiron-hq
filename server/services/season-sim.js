@@ -283,6 +283,32 @@ function playBracket(field, { playoff_weeks: roundWeeks, reseed }, scoreFor) {
 
 // Narrowly exposed for deterministic regression tests. These helpers contain
 // the decision-timing rules whose accidental reversal creates hindsight bias.
+/* ======================= AVAIL-HORIZON-2 PRE-REGISTRATION (change B) =======================
+ * Written 2026-09-24 before change B was implemented or run.
+ *
+ * Change. A team-mean uncertainty term: in each simulated season (run) every fantasy team
+ * draws ONE strength offset d ~ Normal(0, TEAM_MEAN_SD) points per week, added to each of
+ * its weekly lineup totals (regular season and bracket). Keyed by (world, roster, run), so
+ * both arms of a paired trade share it. Behind GRIDIRON_AVAIL_HORIZON (preview on).
+ * Why: the sim's pools are fixed per sync, so a team's rest-of-season mean is treated as
+ * known exactly; E3-ESPN's reliability slope 0.41 (<1) says the odds are over-confident
+ * and longshots under-called (evidence/title-zero.md "over-confidence").
+ *
+ * The SD is BOUNDED, not fitted, and fixed here at 8 points/week, with no sweep:
+ *   - Upper bound: the week-2 league-4 ESPN residual (actual - ESPN best lineup) has SD 32.0
+ *     over n = 10 teams; the sim's team-week SD is 24-29 (title-zero.md). The team-mean
+ *     share is sqrt(32.0^2 - sigma^2): 13.5 at sigma 29, 21.2 at sigma 24.
+ *   - Lower bound: 0 (with n = 10 the residual SD's 90% interval reaches below 24).
+ *   - 8 is title-zero.md row 3b's value, below the lowest point estimate (13.5):
+ *     the conservative end of the bound.
+ * Metrics (B on top of A, same probe as A2): (B1) Nick's league-4 playoff / title odds,
+ * target the ESPN-baseline range 12-21% / 0.7-1.6%; (B2) league mean points per week shift
+ * vs A alone (expected ~0: the offset is mean zero); (B3) every team's title odds sum to 1
+ * and playoff odds to the league's playoff spots (6).
+ * ==========================================================================================
+ */
+export const TEAM_MEAN_SD = 8;
+
 export const __test = { lineupPoints, initialRecords, playBracket, addMedianResults, asofScale };
 // FIX-322-1: the E3-ESPN grader replays brackets with the sim's own rules (a named export, not __test).
 export { playBracket, addMedianResults };

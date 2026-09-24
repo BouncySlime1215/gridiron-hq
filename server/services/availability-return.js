@@ -18,6 +18,29 @@
  * (preview-mode.js#previewUnconfirmed). Off, weeklyAvailability is byte-for-byte what it
  * was.
  */
+/*
+ * ======================= AVAIL-HORIZON-2 PRE-REGISTRATION (change A) =======================
+ * Written 2026-09-24 before any change-A number was computed.
+ *
+ * Change. The curve is served ONLY to a player whose anchor state is a gap (gap > 0, bucket
+ * g1/g2: he missed his team's last game). A g0 player (played the last game) keeps the
+ * one-week calibrated rate he has today, for every week. Reason: #349 served the curve to
+ * g0 players too; its g0 cells carry future injuries (starter h10+ 0.74 vs 0.95 today),
+ * which cut league mean sim points ~15-17 per week and broke the sim scale RL-17-3 /
+ * SIM-CALIB were fitted on (the scale was fitted with the healthy one-week rate).
+ * No curve row, k or bucket is refitted or changed: the served cells are the same
+ * RETURN_CURVE_FIT rows; only which players read them changes.
+ *
+ * Metric A1 (held out). The pre-registered AVAIL-HORIZON grade (fit 2021-2023, graded 2024,
+ * rows/baseline/bootstrap exactly as scripts/fit-availability-return.mjs) restricted to
+ * the 2024 rows whose anchor gap bucket is g1 or g2. Log loss curve vs frozen gap,
+ * player-clustered paired bootstrap (2000, seed 1), 90% CI. PASS iff CI upper bound < 0.
+ * (On g0 rows change A serves the frozen rate, so its difference there is 0 by construction.)
+ * Metric A2. League-4 league mean simulated lineup points per team-week (regular-season
+ * weeks, 1,200 runs, tradeImpactSeed, preview on, local DB copy) vs origin/main 3b72b78d
+ * (123.47): PASS iff |shift| < 3.
+ * ==========================================================================================
+ */
 import { previewUnconfirmed, previewFields } from './preview-mode.js';
 
 export const AVAIL_HORIZON_ENV = 'GRIDIRON_AVAIL_HORIZON';

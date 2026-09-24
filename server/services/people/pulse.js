@@ -24,6 +24,14 @@
  * the ones league chats use). It is graded against the PEOPLE-LAB hand labels by
  * `scripts/people/pulse.mjs --grade` (per-type precision / recall; counts only).
  *
+ * PULSE-02: with GRIDIRON_PULSE_JEV=1 the pulse also asks Jev its own questions per message
+ * (pulse-jev.js, scripts/people/jev-pulse.mjs), with the thread's last lines and whose team
+ * every named player is on; WANT_PLAYER / SHOP / URGENCY / REFUSAL then need the rules and
+ * Jev to agree (PULSE_CUTS). A type asks for a replan only when its label is proven on the
+ * held-out labels (replanGate: F1 >= 0.7); today that is WANT_PLAYER on the Jev path alone.
+ * Ownership at a message's time now reads the chat's zone-less UTC stamps as UTC (chatTime)
+ * and counts trades the feed logged only as a proposal when a weekly snapshot shows them.
+ *
  * The web server only calls `recentPulse` (the ticker read). Nothing here imports the
  * engine: the refresh role never does (engine/role.js); the engine adapter `people_pulse`
  * (engine/backfill.js) reads the table on its own.
@@ -31,8 +39,9 @@
 import { db as appDb } from '../../db/index.js';
 import { previewUnconfirmed } from '../preview-mode.js';
 import { TRUSTED_CONFIDENCE } from '../manager-identity.js';
+import { threadContext, pulseJevFeatures } from './pulse-jev.js';
 
-export const PULSE_VERSION = 'pulse-1';
+export const PULSE_VERSION = 'pulse-2';
 export const STATEMENT_TYPES = Object.freeze(['WANT_PLAYER', 'SHOP', 'UNTOUCHABLE', 'HYPE', 'FRUSTRATED', 'URGENCY',
   'REFUSAL', 'ACCEPT_TALK', 'TRADE_REACTION', 'WANT_POS']);
 /** A statement whose follow-through is at least this multiple of the base rate is credible. */
@@ -42,6 +51,42 @@ export const POOLED_PRIOR = Object.freeze({
   WANT_PLAYER: Object.freeze({ lift: 17.0, n: 53, basis: 'people-lab pooled: acquires that player within 7d (CI 9.7-25.5)' }),
 });
 export const TICKER_HOURS = 72;
+/**
+ * PULSE-02: how the pulse's Jev answer and the rules combine per type (labelMessage): a rule
+ * hit counts at Jev >= lo, Jev alone at >= hi. Chosen on the TRAIN half of the PEOPLE-LAB
+ * labels only (messages before PULSE_SPLIT_AT; `pulse.mjs --grade <dir> --tune`).
+ */
+export const PULSE_SPLIT_AT = '2026-09-17T00:00:00Z';
+export const PULSE_CUTS = Object.freeze({
+  WANT_PLAYER: Object.freeze({ lo: 0.35, hi: 1 }),
+  SHOP: Object.freeze({ lo: 0.5, hi: 0.6 }),
+  URGENCY: Object.freeze({ lo: 0.6, hi: 1 }),
+  REFUSAL: Object.freeze({ lo: 0.6, hi: 0.85 }),
+});
+/**
+ * PULSE-02 replan gate. A statement type may ask for a replan only when its label is proven:
+ * F1 >= REPLAN_MIN_F1 against the PEOPLE-LAB hand labels on the held-out half (messages from
+ * PULSE_SPLIT_AT on, never used to choose PULSE_CUTS), for the path that labelled it: 'jev'
+ * (the pulse's own Jev answers + rules) or 'rules' (rules alone: no Jev answer for the
+ * message). Re-measure with `pulse.mjs --grade <labels dir>` and update these numbers with
+ * the labeller; a type that is missing here is unmeasured and gated.
+ */
+export const REPLAN_MIN_F1 = 0.7;
+export const LABEL_QUALITY = Object.freeze({
+  measured: 'PULSE-02 2026-09-24: people-lab labels (league_ref L4), test = league-mates\' messages from 2026-09-17 (809 msgs), pulse-jev-3',
+  jev: Object.freeze({ WANT_PLAYER: 0.73, SHOP: 0.603, UNTOUCHABLE: 0.25, HYPE: 0.368, FRUSTRATED: 0.138, URGENCY: 0,
+    REFUSAL: 0.452, ACCEPT_TALK: 0, TRADE_REACTION: 0.244, WANT_POS: 0.25 }),
+  rules: Object.freeze({ WANT_PLAYER: 0.651, SHOP: 0.611, UNTOUCHABLE: 0.25, HYPE: 0.368, FRUSTRATED: 0.138, URGENCY: 0,
+    REFUSAL: 0.286, ACCEPT_TALK: 0, TRADE_REACTION: 0.244, WANT_POS: 0.25 }),
+});
+
+/** May a statement of `type`, labelled by `source`, ask for a replan? {ok, f1, reason}. */
+export function replanGate(type, source = 'rules', quality = LABEL_QUALITY, minF1 = REPLAN_MIN_F1) {
+  const f1 = quality?.[source]?.[type];
+  if (!Number.isFinite(f1)) return { ok: false, f1: null, reason: `label unmeasured (${type}, ${source})` };
+  if (f1 < minF1) return { ok: false, f1, reason: `label F1 ${f1} < ${minF1} (${type}, ${source})` };
+  return { ok: true, f1, reason: null };
+}
 export const PULSE_FLAG = 'GRIDIRON_PULSE_ENABLED';
 
 /** Default off (RULES §3): on with GRIDIRON_PULSE_ENABLED=1 or local preview mode. Read per call. */
@@ -61,6 +106,16 @@ const COMMON_WORDS = new Set(['will', 'love', 'hill', 'white', 'brown', 'young',
   'baker', 'ford', 'moss', 'dart', 'tank', 'waddle', 'week', 'game', 'pick', 'trade', 'team', 'jets', 'bears',
   'saints', 'giants', 'chiefs', 'london']);
 
+// Chat shorthand that is also some player's initials: never a player alias in lower case.
+const CHAT_ACRONYMS = new Set(['lol', 'lmao', 'lmk', 'idk', 'imo', 'tbh', 'btw', 'omg', 'wtf', 'smh', 'ngl', 'fyi', 'irl',
+  'jk', 'nvm', 'ofc', 'tho', 'bro', 'wyd', 'hmu', 'ily', 'dm', 'gg', 'ppr', 'dst', 'qb', 'rb', 'wr', 'te', 'ok', 'ya', 'yo',
+  'fr', 'rn', 'tf', 'af', 'ik', 'ur', 'nfl', 'espn', 'mvp', 'ot', 'td', 'tds', 'ir', 'pup', 'dnp', 'nba', 'mlb', 'lfg',
+  'bet', 'ass', 'jmo', 'hbu', 'wbu', 'atp', 'asap', 'etc', 'aka', 'yds', 'pts', 'gm', 'ceo', 'usa', 'dal', 'phi', 'nyg',
+  'kc', 'sf', 'la', 'lv', 'tb', 'ne', 'no', 'gb', 'jax', 'ind', 'hou', 'ten', 'cin', 'cle', 'pit', 'bal', 'buf', 'mia',
+  'nyj', 'det', 'chi', 'min', 'atl', 'car', 'ari', 'sea', 'lar', 'lac', 'den', 'was', 'wsh', 'pls', 'plz', 'thx', 'ppl',
+  'hmm', 'brr', 'shh', 'nth', 'bff', 'tmrw', 'tmr', 'rly', 'pcs', 'pts', 'nfc', 'wrs', 'rbs', 'tes', 'qbs', 'dsts', 'flx',
+  'and', 'all', 'add', 'art', 'ask', 'act', 'its', 'off', 'odd', 'ill', 'inn', 'egg', 'end', 'err', 'arm', 'ant', 'apt',
+  'elf', 'ohh', 'uhh', 'umm', 'ugh', 'eff', 'est', 'ext', 'amp', 'ops', 'irs', 'afc', 'ahh', 'ugh']);
 const norm = s => String(s ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[\u2018\u2019]/g, "'");
 const words = name => norm(name).replace(/\b(jr|sr|ii|iii|iv|v)\.?$/i, '').split(/[\s-]+/).filter(Boolean);
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -111,6 +166,16 @@ export function buildLexicon(players, { firstNameCounts = null, excludeWords = [
     const w = words(p.name);
     if (w.length < 2) continue;
     add(w.join(' ').toLowerCase(), id, 'word');
+    // PULSE-02: the spellings chats use for the same full name: "aj brown" (no dots), "amonra"
+    // (hyphenated first name run together), "st brown" (the last two words of a 3-word name).
+    const dotless = norm(p.name).replace(/\./g, '').replace(/\b(jr|sr|ii|iii|iv|v)$/i, '').trim().toLowerCase();
+    const dw = dotless.split(/[\s-]+/).filter(Boolean);
+    if (dw.length >= 2) add(dw.join(' '), id, 'word');
+    const firstRaw = norm(p.name).split(/\s+/)[0];
+    if (firstRaw.includes('-')) add(firstRaw.replace(/[-.]/g, '').toLowerCase(), id, 'word');
+    if (dw.length >= 3) add(dw.slice(-2).join(' '), id, 'word');
+    // "DK", "CJ": an all-capitals first name is how that player is called; it aliases alone when unique.
+    if (/^[A-Z]{2,3}$/.test(firstRaw.replace(/\./g, '')) && dw.length === 2) add(firstRaw.replace(/\./g, '').toLowerCase(), id, 'first');
     const last = w.at(-1).toLowerCase(); const first = w[0].toLowerCase().replace(/\./g, '');
     if (last.length >= 4 && surnameCount.get(last) === 1 && !COMMON_WORDS.has(last) && !excluded.has(last)) add(last, id, 'word');
     const rareFirst = firstNameCounts ? (firstNameCounts.get(first) ?? 0) <= 1 : firstCount.get(first) === 1;
@@ -118,9 +183,16 @@ export function buildLexicon(players, { firstNameCounts = null, excludeWords = [
       add(first, id, 'word');
     }
     const ini = initialism(p.name);
-    if (ini.length >= 3) add(ini, id, 'caps');
+    if (ini.length >= 3) {
+      add(ini, id, 'caps');
+      // PULSE-02: chats type "ajb", "cmc", "jsn" in lower case too. Only vowel-less ones (never an
+      // English word) that are not chat shorthand.
+      const lower = ini.toLowerCase();
+      if (/^[aeiou]?[^aeiouy]+$/.test(lower) && !CHAT_ACRONYMS.has(lower)) add(lower, id, 'word');
+    }
   }
   const aliases = [...byAlias.values()].filter(a => a.ids.size === 1)
+    .filter(a => !(a.kind === 'first' && (excluded.has(a.alias) || CHAT_ACRONYMS.has(a.alias))))
     .sort((a, b) => b.alias.length - a.alias.length)
     .map(a => ({
       ids: [...a.ids],
@@ -129,6 +201,13 @@ export function buildLexicon(players, { firstNameCounts = null, excludeWords = [
         : new RegExp(`(^|[^a-z])${esc(a.alias)}('?s)?(?![a-z])`, 'i'),
     }));
   return { aliases, owner, pos };
+}
+
+/** Player ids named in the thread's lines just before `msg` ({msg_id, chat_name}), in order. */
+export function contextPlayers(chat, msg, lexicon) {
+  const ids = [];
+  for (const c of threadContext(chat, msg, msg.name)) for (const id of resolvePlayers(c.text, lexicon)) if (!ids.includes(id)) ids.push(id);
+  return ids;
 }
 
 /** Player ids a message names, longest alias first (a full name is not also counted as its surname). */
@@ -195,42 +274,71 @@ export function jevFeatures(chat, msgId) {
 
 /**
  * Label one message. `ctx`: {speakerRoster, lexicon, owners (Map espn_id -> roster at the
- * message's time; defaults to lexicon.owner), jev (jevFeatures or null)}. Returns statement
- * objects [{type, players, pos, own, style, reaction, conf}] (most messages: []). Pure: no I/O.
- * WANT_PLAYER needs a named player the speaker does not own; SHOP / UNTOUCHABLE one he does.
+ * message's time; defaults to lexicon.owner), jev (jevFeatures or null), pulse (the pulse's
+ * own Jev answers, pulse-jev.js#pulseJevFeatures, or null), contextPlayers (ids named in the
+ * thread's lines just before this one), cuts (PULSE_CUTS override, for tuning)}. Returns
+ * statement objects [{type, players, pos, own, style, reaction, conf, source}] (most
+ * messages: []). Pure: no I/O. WANT_PLAYER needs a named player the speaker does not own;
+ * SHOP / UNTOUCHABLE one he does.
+ *
+ * With `pulse` (PULSE-02) WANT_PLAYER / SHOP / URGENCY / REFUSAL are decided by the Jev answer
+ * and the rules together (PULSE_CUTS): a rule hit needs a Jev probability of at least `lo`,
+ * and a Jev probability of at least `hi` stands on its own. A bare "me" / "yes" to a player
+ * being shopped takes its player from the thread. `source` says which path labelled it
+ * ('jev' or 'rules'), because the replan gate (LABEL_QUALITY) is measured per path.
  */
-export function labelMessage(text, { speakerRoster = null, lexicon = null, owners = null, jev = null } = {}) {
+export function labelMessage(text, { speakerRoster = null, lexicon = null, owners = null, jev = null, pulse = null,
+  contextPlayers = [], cuts = PULSE_CUTS } = {}) {
   const raw = norm(text);
   if (!raw.trim()) return [];
   const t = raw.toLowerCase();
   const ownerOf = owners ?? lexicon?.owner ?? new Map();
   const players = resolvePlayers(raw, lexicon);
-  const owned = players.filter(id => speakerRoster != null && ownerOf.get(id) === Number(speakerRoster));
+  const mine = id => speakerRoster != null && ownerOf.get(id) === Number(speakerRoster);
+  const owned = players.filter(mine);
   const others = players.filter(id => !owned.includes(id));
+  const ctxOthers = players.length ? [] : contextPlayers.filter(id => !mine(id));
+  const ctxOwned = players.length ? [] : contextPlayers.filter(mine);
   const pos = positionIn(t);
   const J = jev;
+  const Q = pulse;
+  const source = Q ? 'jev' : 'rules';
   const out = [];
-  const push = (type, extra) => out.push({ type, players: [], pos: null, own: null, style: null, reaction: null, conf: 0.6, ...extra });
+  const push = (type, extra) => out.push({ type, players: [], pos: null, own: null, style: null, reaction: null, conf: 0.6, source, ...extra });
   const refusing = RX.refusalLead.test(t);
   const openToTrade = !!J && J.open_to_trade > 0.6;
+  // rule AND jev >= lo, or jev >= hi alone
+  const joint = (ruleHit, p, cut) => (ruleHit && p >= cut.lo) || p >= cut.hi;
 
-  if (others.length && !refusing && (RX.wantPlayer.test(t) || openToTrade)) {
+  const wantRule = others.length > 0 && !refusing && (RX.wantPlayer.test(t) || openToTrade);
+  if (Q) {
+    const cand = others.length ? others : ctxOthers;
+    if (cand.length && joint(wantRule, Q.want_player ?? 0, cuts.WANT_PLAYER)) {
+      push('WANT_PLAYER', { players: cand, own: 0, conf: +(Q.want_player ?? 0).toFixed(2) });
+    }
+  } else if (wantRule) {
     push('WANT_PLAYER', { players: others, own: 0, conf: RX.wantPlayer.test(t) && openToTrade ? 0.8 : 0.6 });
   }
   const untouchable = owned.length && (RX.untouchable.test(t) || (!!J && J.untouchable > 0.3 && !RX.shop.test(t)));
+  const shopRule = owned.length > 0 && !refusing && (RX.shop.test(t) || openToTrade);
   if (untouchable) push('UNTOUCHABLE', { players: owned, own: 1 });
-  else if (owned.length && !refusing && (RX.shop.test(t) || openToTrade)) push('SHOP', { players: owned, own: 1 });
+  else if (Q) {
+    const cand = owned.length ? owned : ctxOwned;
+    if (cand.length && joint(shopRule, Q.shop ?? 0, cuts.SHOP)) push('SHOP', { players: cand, own: 1, conf: +(Q.shop ?? 0).toFixed(2) });
+  } else if (shopRule) push('SHOP', { players: owned, own: 1 });
   const ownFlag = owned.length ? 1 : 0;
   if (players.length && (RX.frustrated.test(t) || (!!J && J.complaining > 0.5 && J.negative > 0.3))) {
     push('FRUSTRATED', { players: owned.length ? owned : players, own: ownFlag, conf: 0.55 });
   } else if (players.length && (RX.hype.test(t) || (!!J && (J.praising > 0.3 || J.positive > 0.4)))) {
     push('HYPE', { players: owned.length ? owned : players, own: ownFlag, conf: 0.55 });
   }
-  if (RX.urgency.test(t)) push('URGENCY', { pos, conf: 0.55 });
+  const urgencyRule = RX.urgency.test(t);
+  if (Q ? joint(urgencyRule, Q.urgency ?? 0, cuts.URGENCY) : urgencyRule) push('URGENCY', { pos, conf: 0.55 });
   const wantPos = t.match(RX.wantPos);
   if (wantPos) push('WANT_POS', { pos: positionIn(wantPos[0]) });
   const tradeContext = RX.tradeWords.test(t) || (!!J && (J.trade_talk > 0.5 || J.open_to_trade > 0.5));
-  if ((refusing && (t.length <= 60 || RX.tradeWords.test(t)) && (!J || tradeContext)) || RX.refusalAny.test(t)) {
+  const refusalRule = (refusing && (t.length <= 60 || RX.tradeWords.test(t)) && (!J || tradeContext)) || RX.refusalAny.test(t);
+  if (Q ? joint(refusalRule, Q.refusal ?? 0, cuts.REFUSAL) : refusalRule) {
     push('REFUSAL', { style: refusalStyle(t), players: owned, conf: 0.5 });
   } else if (RX.accept.test(t) && (!J || tradeContext)) {
     push('ACCEPT_TALK', { players, conf: 0.55 });
@@ -270,6 +378,19 @@ export function leaguePlayers(leagueId, database = appDb) {
 }
 
 /**
+ * A chat timestamp as a Date. The chat DB's ts_utc is true UTC written without a zone
+ * ('2026-09-15T16:39:43'), which `new Date` would read as the machine's local time: on
+ * Nick's Mac that put every message 4 hours late, after trades that had not happened yet
+ * (PULSE-02). Strings with a zone and Date/number inputs pass through.
+ */
+export function chatTime(ts) {
+  if (typeof ts === 'string' && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(ts.trim())) {
+    return new Date(`${ts.trim().replace(' ', 'T')}Z`);
+  }
+  return new Date(ts);
+}
+
+/**
  * Who owned each player at a given time, from the league's own log: the latest roster
  * snapshot for times after it was captured (plus transactions since), otherwise a replay of
  * league_transactions_raw (draft, executed adds / drops / trades) up to that time. The
@@ -298,11 +419,35 @@ export function ownershipTimeline(leagueId, database = appDb) {
       else if (it.type === 'DROP') moves.push([r.t, Number(it.playerId), null]);
     }
   }
+  // PULSE-02: trades the feed logged only as a proposal (the accept row never arrived, or it
+  // is still marked pending/canceled) but that did happen: a weekly roster snapshot shows the
+  // player on the receiving team and no executed move ever took him there. The move is dated
+  // at the latest such proposal (its processing time when it has one).
+  const executedTo = new Set(moves.map(([, pid, to]) => `${pid}:${to}`));
+  const seenOn = new Set(season == null ? [] : database.prepare(`SELECT DISTINCT espn_player_id AS p, team_id AS t
+      FROM league_roster_snapshots WHERE league_id = ? AND season = ? AND on_roster = 1`).all(leagueId, season)
+    .map(r => `${r.p}:${r.t}`));
+  const inferred = new Map();
+  const proposals = season == null || !hasTx ? [] : database.prepare(`SELECT COALESCE(processed_at, proposed_at) AS t, items_json
+      FROM league_transactions_raw WHERE league_id = ? AND season = ? AND type IN ('TRADE_PROPOSAL', 'TRADE_ACCEPT')
+        AND status <> 'EXECUTED'`).all(leagueId, season);
+  for (const r of proposals) {
+    if (!r.t) continue;
+    let items;
+    try { items = JSON.parse(r.items_json || '[]'); } catch { continue; }
+    for (const it of items) {
+      if (it.type !== 'TRADE' || !(it.toTeamId > 0)) continue;
+      const key = `${Number(it.playerId)}:${Number(it.toTeamId)}`;
+      if (!seenOn.has(key) || executedTo.has(key)) continue;
+      if (!inferred.has(key) || inferred.get(key)[0] < r.t) inferred.set(key, [r.t, Number(it.playerId), Number(it.toTeamId)]);
+    }
+  }
+  moves.push(...inferred.values());
   moves.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
   const replayed = new Set(moves.map(mv => mv[1]));
   return {
     at(ts) {
-      const iso = new Date(ts).toISOString();
+      const iso = chatTime(ts).toISOString();
       const fromSnap = snapAt != null && iso >= snapAt;
       const m = fromSnap ? new Map(snapOwner) : new Map();
       for (const [t, pid, to] of moves) {
@@ -355,7 +500,9 @@ export function lastCursor(leagueId, database = appDb) {
  * One pulse pass for one league. Reads chat rows with msg_id past the league's cursor (or,
  * on the first pass, from `backfillSince`, marked backfill: they never trigger a replan),
  * labels them and appends people_pulse rows plus one people_pulse_runs row.
- * Returns {read, statements, credible, liveCredible: [row], run_id, from, to, backfill}.
+ * Returns {read, statements, credible, liveCredible: [row], gated: [row], with_jev, run_id, from, to, backfill}.
+ * A credible live statement whose type fails replanGate (PULSE-02) is stored and counted in
+ * `gated`, never in liveCredible: it cannot ask for a replan.
  * nickByRoster (FIX-316-3): Map roster -> Nick's block (profile-reader.js#nickBlocksFrom). A
  * statement from a manager Nick marked unreachable or not trading is stored, never credible,
  * and never asks for a replan (Nick's read beats every chat signal, PEOPLE-FLOW).
@@ -374,7 +521,7 @@ export function pulseTick({ database = appDb, chat, leagueId, now = new Date(), 
   const backfill = cursor == null;
   const since = backfillSince ?? new Date(Date.parse(new Date(now).toISOString()) - TICKER_HOURS * 3600e3).toISOString();
   const names = [...speakers.keys()];
-  const msgs = names.length ? chat.prepare(`SELECT msg_id, chat_kind, name, ts_utc, text FROM messages
+  const msgs = names.length ? chat.prepare(`SELECT msg_id, chat_kind, chat_name, name, ts_utc, text FROM messages
       WHERE is_from_me = 0 AND COALESCE(is_tapback, 0) = 0 AND text IS NOT NULL
         AND name IN (${names.map(() => '?').join(',')})
         AND ${backfill ? 'ts_utc >= ?' : 'msg_id > ?'}
@@ -386,26 +533,33 @@ export function pulseTick({ database = appDb, chat, leagueId, now = new Date(), 
       statement_type, stmt_key, player_ids_json, pos, own, style, conf, weight, weight_basis, credible, live,
       labeller_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   let statements = 0; let credible = 0;
-  const liveCredible = [];
+  const liveCredible = []; const gated = [];
+  let withJev = 0;
   database.exec('BEGIN');
   try {
     for (const m of msgs) {
       const roster = speakers.get(m.name);
+      const pulse = pulseJevFeatures(chat, m.msg_id);
+      if (pulse) withJev += 1;
       const labels = labelMessage(m.text, { speakerRoster: roster, lexicon, owners: ownership.at(m.ts_utc),
-        jev: jevFeatures(chat, m.msg_id) });
+        jev: jevFeatures(chat, m.msg_id), pulse, contextPlayers: contextPlayers(chat, m, lexicon) });
       for (const s of labels) {
         const raw = statementWeight(s.type, roster, credibility);
         const muted = nickMuted(nickByRoster?.get(String(roster)));
         const w = muted ? { weight: raw.weight, basis: muted, credible: false } : raw;
         const playersJson = JSON.stringify([...s.players].sort((a, b) => a - b));
-        const r = insert.run(leagueId, roster, m.msg_id, m.chat_kind ?? null, new Date(m.ts_utc).toISOString(), s.type,
+        const r = insert.run(leagueId, roster, m.msg_id, m.chat_kind ?? null, chatTime(m.ts_utc).toISOString(), s.type,
           `${s.type}|${playersJson}|${s.pos ?? ''}`, playersJson, s.pos, s.own, s.style ?? s.reaction, s.conf,
           w.weight, w.basis, w.credible ? 1 : 0, backfill ? 0 : 1, PULSE_VERSION);
         if (!r.changes) continue;
         statements += 1;
         if (w.credible) {
           credible += 1;
-          if (!backfill) liveCredible.push({ id: Number(r.lastInsertRowid), roster_id: roster, type: s.type, weight: w.weight });
+          if (!backfill) {
+            const row = { id: Number(r.lastInsertRowid), roster_id: roster, type: s.type, weight: w.weight, source: s.source };
+            const gate = replanGate(s.type, s.source);
+            if (gate.ok) liveCredible.push(row); else gated.push({ ...row, reason: gate.reason });
+          }
         }
       }
     }
@@ -415,7 +569,7 @@ export function pulseTick({ database = appDb, chat, leagueId, now = new Date(), 
       .run(leagueId, new Date(now).toISOString(), msgs[0]?.msg_id ?? null, to, msgs.length, statements, credible,
         backfill ? 1 : 0, PULSE_VERSION);
     database.exec('COMMIT');
-    return { read: msgs.length, statements, credible, liveCredible, run_id: Number(run.lastInsertRowid),
+    return { read: msgs.length, statements, credible, liveCredible, gated, with_jev: withJev, run_id: Number(run.lastInsertRowid),
       from: msgs[0]?.msg_id ?? null, to, backfill, speakers: speakers.size };
   } catch (e) {
     database.exec('ROLLBACK');

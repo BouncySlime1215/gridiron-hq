@@ -4,7 +4,7 @@
  *   2. a TD-only miss is classed 100% luck;
  *   3. a fixture reproduces the example line
  *      ("Missed X by 11: 6 from targets, 5 TD luck");
- *   4. the job writes one row per player-link-week (migration 082), grades each
+ *   4. the job writes one row per player-link-week (migration 092), grades each
  *      start/sit call decision vs luck, and stores a plain summary.
  * Plus: exit and news-missed routing, Vegas miss in the script detail, and a
  * links failure surfaced in the stored summary rather than swallowed.
@@ -171,7 +171,7 @@ function seed() {
 
 test('RED 4: the job writes one row per player-link-week, grades the call and stores the summary', async () => {
   seed();
-  assert.ok(row(`SELECT 1 FROM schema_migrations WHERE name='082_projection_autopsy'`), 'migration 082 applied');
+  assert.ok(row(`SELECT 1 FROM schema_migrations WHERE name='092_projection_autopsy'`), 'migration 092 applied');
   const linksFor = async () => ({ byId: new Map([[101, WR_LINKS]]), error: null });
   const out = await runMondayAutopsy({ leagueId: 4, season: SEASON, week: WEEK, linksFor, now: '2026-09-22T12:00:00Z' });
   assert.equal(out.ok, true, out.reason);

@@ -19,7 +19,7 @@ Unit PROJ-04-a (ENGINE-SPECS.md, `## PROJ-04: Monday Autopsy`, handoff package
   `refreshMondayAutopsy` (scheduler entry). Projected chain from PROJ-02-a `links`
   (`buildProjections({ through: season, throughWeek: week - 1 })`, #221) when present, else the
   player's and his team's prior weeks this season, else basis `none` (whole miss in `blend`).
-- `server/migrations/082_projection_autopsy.js`: `projection_autopsy` (one row per
+- `server/migrations/092_projection_autopsy.js`: `projection_autopsy` (one row per
   league-season-week-player-link), `projection_autopsy_player`, `projection_autopsy_week`. Additive.
 - `server/services/scheduler.js`: job `monday_autopsy` (daily, growth tier, off thread); writes the
   latest week with box scores once, never recomputes a stored week.

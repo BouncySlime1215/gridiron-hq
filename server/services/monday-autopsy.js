@@ -5,7 +5,7 @@
  * that has a served projection (weekly_prediction_snapshots, the ledger) and a box
  * score (player_week_usage) gets his miss split into links (autopsy-links.js), each
  * start/sit call is graded decision vs luck, and the week gets a plain summary.
- * Rows go to the three 082 tables, replacing that league-week's previous rows.
+ * Rows go to the three 092 tables, replacing that league-week's previous rows.
  *
  * Inputs, each read once per week:
  *   started / benched  league_roster_snapshots (source 'final' preferred, else 'live')

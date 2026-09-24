@@ -1,4 +1,4 @@
-export const name = '082_projection_autopsy';
+export const name = '092_projection_autopsy';
 /**
  * PROJ-04-a Monday Autopsy. Additive only: three new tables, nothing altered.
  *
@@ -15,8 +15,8 @@ export const name = '082_projection_autopsy';
  * `projection_autopsy_week` — the week's summary sentence and its start/sit calls,
  * each graded decision vs luck.
  *
- * Numbered 082: main tops at 073; 071, 074, 075 are held by open PRs, 076-081 are
- * claimed by the ENGINE-SPECS migration plan.
+ * Numbered 092 by the coordinator's registry (docs/handoff/local/MIGRATIONS.md);
+ * first numbered 082, which main now uses for follow_ledger.
  */
 export function up(db) {
   db.exec(`

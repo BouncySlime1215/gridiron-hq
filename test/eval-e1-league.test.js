@@ -107,7 +107,9 @@ test('a coin-flip-level difference stays not_enough_data, with its evidence', ()
   const r = E1.grade(offers(400, { truth: () => 0.5, model: (t, i, rand) => 0.5 + (rand() - 0.5) * 0.04 }));
   assert.equal(r.status, 'not_enough_data', JSON.stringify(r.detail.why));
   assert.ok(r.ci_low < 0 && r.ci_high > 0, 'the CS covers 0');
-  assert.ok(r.needs_n >= 1 && /^needs \d+ more offers/.test(r.needs_text));
+  // FIX-246-1: a coin flip at n = 400 is past the 10x cap, and says so.
+  assert.equal(r.needs_n, 4000);
+  assert.equal(r.needs_text, 'needs more than 4000 more offers (effect near zero)');
   assert.ok(Number.isFinite(r.detail.e_value_model_better) && Number.isFinite(r.detail.e_value_model_worse));
 });
 

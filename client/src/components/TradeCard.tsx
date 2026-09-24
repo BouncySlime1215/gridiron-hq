@@ -79,12 +79,21 @@ const GRADE_TONE: Record<string, string> = {
   crit: 'text-[var(--crit)] bg-[var(--crit-tint)]'
 };
 
+/** BROKEN-E: an unknown chance to play reads "unknown", with the prior it was priced at and why. */
+export function activeLabel(p: any): string {
+  if (p.p_play?.status === 'unknown') {
+    const prior = p.p_play.prior;
+    return `unknown (priced at ${Math.round((prior?.value ?? p.active_probability) * 100)}%: ${prior?.source ?? 'prior'})`;
+  }
+  return p.active_probability == null ? '?' : Math.round(p.active_probability * 100) + '%';
+}
+
 export function PlayerPill({ p, tone = 'slate' }: { p: any; tone?: 'give' | 'get' | 'slate' }) {
   const open = usePlayerCard();
   return (
     <button
       onClick={() => open(p.id)}
-      title={`Week ${p.matchup?.week ?? '?'}: ${p.current_week_ppg ?? p.adj_ppg ?? '?'} pts · ROS ${p.ros_ppg ?? p.ppg ?? '?'} ppg · active ${p.active_probability == null ? '?' : Math.round(p.active_probability * 100) + '%'} · market ${p.value?.toLocaleString() ?? '?'}${p.bye ? ` · bye ${p.bye}` : ''}`}
+      title={`Week ${p.matchup?.week ?? '?'}: ${p.current_week_ppg ?? p.adj_ppg ?? '?'} pts · ROS ${p.ros_ppg ?? p.ppg ?? '?'} ppg · active ${activeLabel(p)} · market ${p.value?.toLocaleString() ?? '?'}${p.bye ? ` · bye ${p.bye}` : ''}`}
       className="inline-flex items-center gap-2 py-1 pr-2.5 rounded-full border border-[var(--edge)] bg-white/70 text-xs hover:border-slate-400 transition-colors">
       <Headshot src={headshotUrl(p)} pos={p.position} size={26} />
       <span className="font-semibold text-[var(--ink)]">{p.name}</span>

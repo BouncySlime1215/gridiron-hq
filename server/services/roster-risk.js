@@ -38,6 +38,7 @@ import {
   assetUniverse, loadRosters, lineupSlots, bestLineup, tradeWeekContext
 } from './trade-engine.js';
 import { freeAgents, horizonValue } from './waiver-brain.js';
+import { availPPlayMode, availPPlayWeek, chanceToPlay } from './avail-p-play.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const LAST_REGULAR_WEEK = 14;
@@ -234,7 +235,20 @@ export function fragility(leagueId, { myTeamId = null } = {}) {
   const full = bestLineup(me.players, slots, RISK_KEY);
   const starters = full.slots.map(s => s.player).filter(Boolean);
 
+  // BROKEN-E (default off): the asset already carries avail.p_play when the flag
+  // is on; a player that somehow does not is read through the same week reader.
+  const pPlayMode = availPPlayMode();
+  let pPlayWeek = null;
+  const chanceOf = p => {
+    if (p.p_play) return { value: p.active_probability, p_play: p.p_play };
+    if (!pPlayMode.on) return chanceToPlay(null, p);
+    const { season, week } = tradeWeekContext();
+    pPlayWeek ??= availPPlayWeek(season, week, { preview: pPlayMode.preview });
+    return chanceToPlay(pPlayWeek, null, p.id, p.position);
+  };
+
   const risks = starters.map(p => {
+    const chance = chanceOf(p);
     const without = bestLineup(me.players.filter(x => x.id !== p.id), slots, RISK_KEY);
     return {
       name: p.name, position: p.position,
@@ -242,20 +256,20 @@ export function fragility(leagueId, { myTeamId = null } = {}) {
       // Availability is already modelled per player; a fragile slot behind a
       // player who misses time often is a much worse combination than either
       // alone, and reporting them together is the only way that shows.
-      active_probability: p.active_probability ?? null,
+      active_probability: chance.p_play ? chance.value : p.active_probability ?? null,
+      ...(chance.p_play ? { p_play: chance.p_play } : {}),
       cost_if_lost: r2(full.points - without.points),
       leaves_hole: (without.holes ?? []).length > 0,
-      unfillable: without.holes ?? []
+      unfillable: without.holes ?? [],
+      // Expected damage, not worst case: a fragile slot behind a durable player is
+      // a smaller problem than a moderate slot behind one who misses a third of the
+      // season, and only the product distinguishes them.
+      expected_loss: r2(r2(full.points - without.points) * (1 - chance.value))
     };
-  }).sort((a, b) => b.cost_if_lost - a.cost_if_lost);
-
-  // Expected damage, not worst case: a fragile slot behind a durable player is
-  // a smaller problem than a moderate slot behind one who misses a third of the
-  // season, and only the product distinguishes them.
-  const weighted = risks.map(r => ({
-    ...r,
-    expected_loss: r2(r.cost_if_lost * (1 - (r.active_probability ?? 0.92)))
-  })).sort((a, b) => b.expected_loss - a.expected_loss);
+  });
+  // Cost first, then expected loss: the stable second sort keeps cost order on ties.
+  const weighted = risks.sort((a, b) => b.cost_if_lost - a.cost_if_lost)
+    .sort((a, b) => b.expected_loss - a.expected_loss);
 
   return {
     league: lg.name,

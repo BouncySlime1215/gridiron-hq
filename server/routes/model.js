@@ -29,6 +29,7 @@ import { db, row, rows, run } from '../db/index.js';
 import { scoringFor } from '../services/scoring.js';
 // IDEA-001: every served title-odds number is queued for served_numbers (off the request thread).
 import { recordServed } from '../services/serve-log.js';
+import { pPlayCacheTag } from '../services/avail-p-play.js';
 import { buildProjections } from '../services/projections.js';
 import { clearPlayerWeekEngineCache } from '../services/player-week-engine.js';
 import { simulateSeason, simStartWeek, tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
@@ -124,6 +125,16 @@ const memo = (key, fn) => {
   return cache.get(key);
 };
 export function clearModelCache() { cache.clear(); clearPlayerWeekEngineCache(); }
+
+/**
+ * The GET /simulate memo key. It uses the same producer on the same raw input
+ * that simulateSeason resolves internally, so the key and the body's from_week
+ * agree, and it carries the avail.p_play state (FIX-285-2): the pools are priced
+ * on it, so a flag-on simulation must never answer a flag-off request.
+ */
+export function simulateMemoKey(lg, runs, clientWeek, seed) {
+  return `sim:${lg.id}:${runs}:${simStartWeek(lg, clientWeek)}${pPlayCacheTag()}:seed:${seed ?? 'random'}`;
+}
 
 /* ------------------------------------------------ persisted model registry */
 
@@ -465,11 +476,8 @@ r.get('/:leagueId/simulate', requireAuthenticated, (req, res, next) => {
     const lg = league(req, res); if (!lg) return;
     if (!lg.payload) return res.status(400).json({ error: 'league not synced yet' });
     const runs = Math.min(6000, Number(req.query.runs) || 2000);
-    // The memo key uses the same producer on the same raw input that
-    // simulateSeason resolves internally, so the key and the body's from_week agree.
-    const key = `sim:${lg.id}:${runs}:${simStartWeek(lg, req.query.from_week)}`;
     const seed = req.query.seed ?? null;
-    const sim = withRandomSeed(seed, () => memo(`${key}:seed:${seed ?? 'random'}`, () => simulateSeason(lg, {
+    const sim = withRandomSeed(seed, () => memo(simulateMemoKey(lg, runs, req.query.from_week, seed), () => simulateSeason(lg, {
       runs, fromWeek: req.query.from_week, scoring: scoringFor(lg)
     })));
     recordServed(res, 'title_odds', lg, sim);

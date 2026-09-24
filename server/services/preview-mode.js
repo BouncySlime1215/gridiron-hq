@@ -19,6 +19,8 @@
  *                                                since NICK-WV01, so preview never switches it)
  *   - waiver-wire.js#waiverBoard                 snap-share order for same-team replacements
  *   - trade-horizon.js#playoffImportance         RL-16-1 measured playoff-week weight (10/6)
+ *   - avail-p-play.js#availPPlayMode              BROKEN-E one avail.p_play, typed unknown + fitted prior
+ *                                                (trade-engine.js asset build + lineup diff, season-sim.js)
  *   - season-sim.js#rosBasisFlag                 title odds on the finder's ros_ppg (RL-17-3;
  *                                                GRIDIRON_RL17_3_ENABLED=0 vetoes preview)
  *   - title-mutual.js#titleMutualMode            RL-19-3 title-mutual trade class (findTrades)

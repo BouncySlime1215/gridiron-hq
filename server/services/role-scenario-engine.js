@@ -72,6 +72,7 @@ import {
 } from './player-week-engine.js';
 import { sampleAllocatedWeekEvents } from './projections.js';
 import { weeklyAvailability, cascades } from './contingency.js';
+import { availPPlayMode, availPPlayWeek, chanceToPlay } from './avail-p-play.js';
 import { injuryContext, measureInjuryEffect } from './nfl-player-context.js';
 import { detectRoleChange, roleChangepoints } from './role-changepoint.js';
 import { shareSeries } from './nfl-teammate-competition.js';
@@ -121,7 +122,12 @@ export function buildPlayerScenarios({ engine, season, week, playerId }) {
   const projection = playerWeekProjection(engine, playerId);
   if (!projection?.team || !projection.params) return null;
   const avail = weeklyAvailability(season, week).get(playerId);
-  const activeProbability = Math.max(0, Math.min(1, avail?.active_probability ?? 0.92));
+  // BROKEN-E (default off): the one avail.p_play read; an unknown player is
+  // priced at his labelled prior and says so in p_play.
+  const pPlayMode = availPPlayMode();
+  const chance = chanceToPlay(pPlayMode.on ? availPPlayWeek(season, week, { preview: pPlayMode.preview }) : null,
+    avail, playerId, projection.position);
+  const activeProbability = Math.max(0, Math.min(1, chance.value));
   const injury = projection.gsis_id ? injuryContext(projection.gsis_id, season, week) : null;
   const onReportButPlayable = !!injury?.on_report
     && injury.report_status !== 'Out' && !/reserve|ir|pup|suspend/i.test(String(avail?.report_status ?? ''));
@@ -189,7 +195,8 @@ export function buildPlayerScenarios({ engine, season, week, playerId }) {
   const total = scenarios.reduce((s, x) => s + x.probability, 0) || 1;
   for (const s of scenarios) s.probability = +(s.probability / total).toFixed(4);
   return { player_id: playerId, name: projection.name, team: projection.team, position: projection.position,
-    season, week, active_probability: activeProbability, injury, role_change: roleChange, scenarios };
+    season, week, active_probability: activeProbability, ...(chance.p_play ? { p_play: chance.p_play } : {}),
+    injury, role_change: roleChange, scenarios };
 }
 
 /* ================================================== conserved reallocation */

@@ -547,7 +547,7 @@ export async function collectLeagueSnapshot(lg, { now = Date.now() } = {}) {
     for (const p of rostered) {
       const pa = a.get(p.id)?.active_probability, pb = b.get(p.id)?.active_probability;
       if (pa == null || pb == null) { defaulted++; if (examples.length < 5) examples.push(p.id); }
-      gap = Math.max(gap, Math.abs((pa ?? 0.92) - (pb ?? 0.92)));
+      gap = Math.max(gap, Math.abs(contingency.legacyActiveProbability(a.get(p.id)) - contingency.legacyActiveProbability(b.get(p.id))));
     }
     return { rostered: rostered.length, defaulted, default_player_ids: examples, max_caller_gap: gap,
       trade_engine_week: tWeek, season_sim_week: sWeek };

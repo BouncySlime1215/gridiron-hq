@@ -1,3 +1,5 @@
+> **SUPERSEDED 2026-09-24.** The only plan is `docs/handoff/local/ONE-PLAN.md` on branch `claude/handoff-package-2026-09-22`. This file is kept as history; do not take tasks from it.
+
 # TASKS — live Active / Waiting-On list
 
 The fast-read summary A5 asks for. `docs/FANTASY-ENGINE-MASTER-PLAN.md` stays the

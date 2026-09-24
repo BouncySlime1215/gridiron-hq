@@ -85,11 +85,11 @@ function insertOutcome(db, { status, counter = null, proposedAt = '2026-09-25T00
     .run(LEAGUE, proposedAt, status, counter && JSON.stringify(counter), ideaId, proposedAt, proposedAt);
 }
 
-function insertRoster(db, { period, team, player, pos, seen, source = 'final', status = null, proj = null, actual = null }) {
+function insertRoster(db, { period, team, player, pos, seen, changed = seen, source = 'final', status = null, proj = null, actual = null }) {
   db.prepare(`INSERT INTO league_roster_snapshots (league_id, season, scoring_period_id, team_id, espn_player_id,
     player_name, position, lineup_slot_id, is_starter, injury_status, pregame_injury_status, projected_points,
     actual_points, source, first_seen_at, changed_at) VALUES (?, 2026, ?, ?, ?, 'x', ?, 0, 1, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(LEAGUE, period, team, player, pos, status, status, proj, actual, source, seen, seen);
+    .run(LEAGUE, period, team, player, pos, status, status, proj, actual, source, seen, changed);
 }
 
 // ---- migration ------------------------------------------------------------
@@ -261,18 +261,20 @@ test('wants_position: no roster data at all is void after the grace period, neve
 
 test('check_first: the flagged player sat out -> true; played to projection -> false', () => {
   const db = recorded();
-  insertRoster(db, { period: 3, team: 3, player: 201, pos: 'RB', seen: '2026-09-20T00:00:00Z', source: 'live' });
-  insertRoster(db, { period: 3, team: 3, player: 201, pos: 'RB', seen: '2026-09-29T00:00:00Z', status: 'OUT', proj: 12, actual: 0 });
+  // One row per (period, team, player): the live row turns final in place, so
+  // first_seen_at stays before the claim and changed_at moves after it.
+  insertRoster(db, { period: 3, team: 3, player: 201, pos: 'RB', seen: '2026-09-20T00:00:00Z', changed: '2026-09-29T00:00:00Z', status: 'OUT', proj: 12, actual: 0 });
   resolveOpenClaims(db, { now: new Date('2026-09-30T00:00:00Z') });
   assert.equal(statusOf(db, 'check_first').status, 'true');
 
   const db2 = recorded();
-  insertRoster(db2, { period: 3, team: 3, player: 201, pos: 'RB', seen: '2026-09-20T00:00:00Z', source: 'live' });
-  insertRoster(db2, { period: 3, team: 3, player: 201, pos: 'RB', seen: '2026-09-29T00:00:00Z', status: 'ACTIVE', proj: 12, actual: 14 });
+  insertRoster(db2, { period: 2, team: 3, player: 201, pos: 'RB', seen: '2026-09-13T00:00:00Z', changed: '2026-09-22T00:00:00Z', status: 'OUT', proj: 12, actual: 0 });
+  insertRoster(db2, { period: 3, team: 3, player: 201, pos: 'RB', seen: '2026-09-20T00:00:00Z', changed: '2026-09-29T00:00:00Z', status: 'ACTIVE', proj: 12, actual: 14 });
   resolveOpenClaims(db2, { now: new Date('2026-09-30T00:00:00Z') });
   const r = statusOf(db2, 'check_first');
   assert.equal(r.status, 'false');
   assert.equal(JSON.parse(r.evidence_json).players[0].material, false);
+  assert.equal(JSON.parse(r.evidence_json).players[0].period, 3, 'last week\'s final row is not this claim\'s game');
 });
 
 test('uncheckable claims are never touched by the resolver', () => {
@@ -353,14 +355,18 @@ test('on: record, resolve and grade in one pass, league-scoped, carrying the pre
     const plans = plansFor();
     const panels = { leagues: [{ league_id: LEAGUE, panels: [panelFor(plans)] }] };
     insertOutcome(db, { status: 'countered', counter: { get_positions: ['TE'] } });
+    db.prepare(`INSERT INTO reasoning_claims (league_id, card_id, fingerprint, section, claim_index, claim_text,
+      cites_json, made_at, kind, prediction_json, resolve_rule, resolve_by, status, resolved_at, evidence_json, created_at)
+      VALUES (99, 'other', 'f', 'counter', 0, 't', '[]', ?, 'counter_with', '{}', 'offer_reply_v1', ?, 'false', ?, '{}', ?)`)
+      .run(AS_OF, AS_OF, AS_OF, AS_OF);
     const out = runReasoningGrading(db, { plans, panels, now: new Date('2026-09-26T00:00:00Z'), leagueId: LEAGUE });
     assert.equal(out.enabled, true);
     assert.equal(out.preview, true);
     assert.equal(out.recorded.inserted, 8);
     assert.equal(out.resolved.true, 1);
     assert.equal(out.report.check, 'C8');
-    assert.equal(out.report.n, 1);
-    assert.equal(c8.run(db, { leagueId: 99 }).n, 0, 'another league sees none of it');
+    assert.equal(out.report.n, 1, 'the other league\'s settled claim is not graded here');
+    assert.equal(c8.run(db, { leagueId: 98 }).n, 0, 'another league sees none of it');
   });
 });
 

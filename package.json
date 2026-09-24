@@ -26,6 +26,7 @@
     "sync:data": "node scripts/bootstrap-data.mjs",
     "sync:history": "node server/scripts/sync-history.js",
     "reasoning:run": "node scripts/reasoning/run.mjs",
+    "reasoning:grade": "node scripts/reasoning/grade-claims.mjs",
     "audit:nfl": "node scripts/nfl-blind-audit.mjs",
     "fit:nfl-props": "node scripts/fit-prop-calibration.mjs",
     "diagnose:nfl-passing": "node scripts/diagnose-passing-components.mjs",

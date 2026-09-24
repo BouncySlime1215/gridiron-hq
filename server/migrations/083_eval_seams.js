@@ -2,7 +2,7 @@ export const name = '083_eval_seams';
 /**
  * FIX-09: the seams between the EVAL graders (#235/#246) and the tables their
  * writers actually write. ADDITIVE ONLY: two columns on `trade_outcomes`, one
- * new table, one view, two indexes. Nothing is rewritten or deleted.
+ * new table (plus 079's, if absent), one view, two indexes. Nothing is rewritten or deleted.
  *
  * `trade_outcomes.price_band` — where the offer was priced against the clone's
  *   predicted "yes" point, decided by the producer that priced it: 'below',
@@ -30,10 +30,13 @@ export const name = '083_eval_seams';
  *     won_title     = final_rank = 1
  *     made_playoffs = playoff_seed <= the league's playoffTeamCount, read from
  *                     leagues.payload; NULL when the payload does not say.
- *   SQLite resolves a view's tables when it is read, not when it is created,
- *   so this migration does not depend on 079 (served_numbers, #243) having run
- *   first; until it has, reading the view fails with "no such table" and
- *   eval/common.js#readSource reports that as the missing source.
+ *
+ * `served_numbers` is created here too, IF NOT EXISTS, with 079's DDL (#243)
+ *   column for column. SQLite checks every view on each ALTER TABLE ... RENAME,
+ *   so a view over a table that does not exist yet breaks every later rename in
+ *   the database ("error in view title_odds_snapshots: no such table"). If this
+ *   file lands before #243, 079 then finds the table and only adds its indexes;
+ *   if after, this CREATE is the no-op.
  *
  * Numbered 083 by the coordinator: 082 is the follow ledger, 084 offer
  * snapshots (#247).
@@ -49,6 +52,23 @@ export function up(db) {
   if (!have.length) throw new Error('083_eval_seams: trade_outcomes (067) does not exist');
   for (const [c, t] of COLUMNS) if (!have.includes(c)) db.exec(`ALTER TABLE trade_outcomes ADD COLUMN ${c} ${t}`);
   db.exec(`
+    CREATE TABLE IF NOT EXISTS served_numbers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      league_id INTEGER NOT NULL,
+      surface TEXT NOT NULL,
+      entity TEXT NOT NULL,
+      field TEXT NOT NULL,
+      value REAL,
+      model TEXT NOT NULL,
+      model_version TEXT,
+      as_of TEXT,
+      served_at TEXT NOT NULL,
+      request_id TEXT NOT NULL,
+      trigger TEXT NOT NULL,
+      season INTEGER,
+      week INTEGER
+    );
+
     CREATE INDEX IF NOT EXISTS idx_trade_outcomes_move
       ON trade_outcomes (league_id, move_id) WHERE move_id IS NOT NULL;
 
@@ -129,6 +149,8 @@ export function down(db) {
     throw new Error(`rollback refused: ${banded} trade_outcomes row(s) carry a price_band or move_id. `
       + 'Restore the pre-migration snapshot instead.');
   }
+  // served_numbers is left in place: it is 079's table (#243) whichever file
+  // created it, and rolling 083 back must not delete served numbers.
   db.exec(`
     DROP VIEW IF EXISTS title_odds_snapshots;
     DROP INDEX IF EXISTS idx_campaign_steps_identity;

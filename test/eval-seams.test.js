@@ -13,7 +13,8 @@
  *
  * Migration 083 runs FIRST here, before the sibling PRs' tables exist, to pin
  * that it does not depend on their merge order. Those tables are then created
- * with the exact DDL of their own migrations (079, 080, 081, 071).
+ * with the exact DDL of their own migrations (080, 081, 071; 083 itself
+ * carries 079's served_numbers).
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -50,10 +51,14 @@ test('083 is applied and every reader names the missing sibling source instead o
   assert.ok(cols('trade_outcomes').includes('move_id'));
   assert.ok(cols('campaign_steps').includes('predicted_se'));
   assert.ok(db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'view' AND name = 'title_odds_snapshots'`).get());
-  // served_numbers (#243) is not built yet: the view exists but cannot be read.
+  // served_numbers comes with 083 (079's DDL), so the view reads cleanly and
+  // a table rename elsewhere in the database is not blocked by it.
+  assert.deepEqual(cols('served_numbers'), ['id', 'league_id', 'surface', 'entity', 'field', 'value', 'model',
+    'model_version', 'as_of', 'served_at', 'request_id', 'trigger', 'season', 'week']);
   const e3 = E3.load(db);
   assert.deepEqual(e3.rows, []);
-  assert.match(e3.reason, /served_numbers/);
+  assert.equal(e3.reason ?? null, null);
+  db.exec('CREATE TABLE rename_probe (x); ALTER TABLE rename_probe RENAME TO rename_probe_2; DROP TABLE rename_probe_2');
   const e6 = E6.load(db);
   assert.match(e6.reason, /follow_ledger/);
   const e1 = E1.load(db);
@@ -62,16 +67,24 @@ test('083 is applied and every reader names the missing sibling source instead o
   assert.match(e2.reason, /sent_at/);
 });
 
+test('readSource reports a view whose table is missing as a missing source, and rethrows anything else', async () => {
+  const { readSource } = await import('../server/services/eval/common.js');
+  db.exec('CREATE VIEW probe_view AS SELECT x FROM probe_missing');
+  try {
+    const r = readSource(db, 'probe_view', ['x']);
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /probe_view reads probe_missing, which is not built yet/);
+    assert.throws(() => readSource({ prepare: q => (/sqlite_master/.test(q) ? { get: () => ({}) } : { all: () => { throw new Error('disk I/O error'); } }) }, 't', ['x']), /disk I\/O/);
+  } finally {
+    db.exec('DROP VIEW probe_view');
+  }
+});
+
 // The sibling PRs' tables, as their own migrations create them.
 test('the sibling PR tables arrive after 083 (any merge order works)', () => db.exec(`
   ALTER TABLE trade_outcomes ADD COLUMN sent_at TEXT;
   ALTER TABLE trade_outcomes ADD COLUMN matched_tx_id TEXT;
   ALTER TABLE trade_outcomes ADD COLUMN settle_reason TEXT;
-  CREATE TABLE IF NOT EXISTS served_numbers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, league_id INTEGER NOT NULL, surface TEXT NOT NULL,
-    entity TEXT NOT NULL, field TEXT NOT NULL, value REAL, model TEXT NOT NULL, model_version TEXT,
-    as_of TEXT, served_at TEXT NOT NULL, request_id TEXT NOT NULL, trigger TEXT NOT NULL,
-    season INTEGER, week INTEGER);
   CREATE TABLE IF NOT EXISTS rec_ledger (
     id INTEGER PRIMARY KEY AUTOINCREMENT, league_id INTEGER NOT NULL,
     kind TEXT NOT NULL CHECK (kind IN ('trade', 'lineup', 'waiver', 'scenario')),
@@ -235,8 +248,14 @@ test('E3-live reads title_odds_snapshots: weekly title-odds rows pivoted per tea
   rows = db.prepare('SELECT * FROM title_odds_snapshots WHERE league_id = 4').all();
   assert.ok(rows.every(r => r.made_playoffs === null), 'no playoff week scored yet');
 
+  // Playoffs under way: a playoff week is scored, final ranks are still 0.
+  team.run('1', 0, 1); team.run('2', 0, 2); team.run('3', 0, 3);
   db.prepare(`INSERT INTO league_week_scores (league_id, season, week, roster_id, points, is_playoff, captured_at)
     VALUES (4, 2026, 16, '2', 120, 1, 'x')`).run();
+  rows = db.prepare('SELECT * FROM title_odds_snapshots WHERE league_id = 4').all();
+  assert.ok(rows.every(r => r.made_playoffs === null && r.won_title === null), 'playoffs are not over');
+
+  team.run('1', 2, 1); team.run('2', 1, 2); team.run('3', 3, 3);
   rows = db.prepare('SELECT team_id, made_playoffs, won_title FROM title_odds_snapshots WHERE league_id = 4 ORDER BY team_id').all();
   assert.deepEqual(rows.map(r => [r.team_id, r.made_playoffs, r.won_title]), [['1', 1, 0], ['2', 1, 1], ['3', 0, 0]]);
 

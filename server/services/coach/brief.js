@@ -162,7 +162,11 @@ export function checkClaim(claim, ledger) {
   for (const l of [...(claim.labels ?? [])].sort((x, y) => y.length - x.length)) {
     if (l) text = text.split(l).join(' ');
   }
-  return verifyAnswer({ answer: { claims: [{ text, cites: claim.cites }], as_of: 'plans file' }, ledger });
+  // A strict claim is checked against its numeric cells only. verify.js lets a
+  // digit in a cited text cell of a brain tool ('plan_read' among them, COACH-TOOLS)
+  // ground itself; the brief's own prose cell would then ground its own number.
+  const cites = claim.strict ? claim.cites.filter(cite => typeof ledger.cell(cite)?.value !== 'string') : claim.cites;
+  return verifyAnswer({ answer: { claims: [{ text, cites }], as_of: 'plans file' }, ledger });
 }
 
 function ground(draft, ledger) {

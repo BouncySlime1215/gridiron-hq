@@ -11,8 +11,9 @@
  *
  * Statements and credibility are read ONLY through their producers: chat labels
  * from PULSE-01's people_pulse (#316) and per-manager follow-through from
- * CRED-01's people_credibility (#321). Neither producer is on main yet, so both
- * readers query nothing and return typed unknown with that reason. The brief
+ * CRED-01's people_credibility (#321). Both producers are on this build (int4) but
+ * not wired into the brief yet, so both readers query nothing and return typed
+ * unknown with that reason. The brief
  * never opens the chat DB and keeps no labeller or credibility bar of its own
  * (one producer per number).
  */
@@ -25,9 +26,9 @@ function tableExists(db, name) {
 }
 
 export const PULSE_NOT_BUILT =
-  'chat labels not built yet: their producer, PULSE-01 (people_pulse), is not on this build';
+  'the brief does not read chat labels yet: their producer, PULSE-01 (people_pulse), is not wired into it';
 export const CRED_NOT_BUILT =
-  'per-manager credibility not built yet: its producer, CRED-01 (people_credibility), is not on this build';
+  'the brief does not read per-manager credibility yet: its producer, CRED-01 (people_credibility), is not wired into it';
 
 /**
  * Labelled statements a league-mate made in the window. The one producer is

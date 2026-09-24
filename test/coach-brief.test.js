@@ -186,8 +186,8 @@ test('statements and credibility only through PULSE-01 and CRED-01: typed unknow
   const { db } = night();
   const r = brief.morningBrief({ db, file: plans(), env: ON, now: MORNING });
   assert.deepEqual(r.dropped, []);
-  assert.match(r.text, /Statements not read: chat labels not built yet: their producer, PULSE-01 \(people_pulse\), is not on this build\./);
-  assert.match(r.text, /Follow-through not read: per-manager credibility not built yet: its producer, CRED-01 \(people_credibility\), is not on this build\./);
+  assert.match(r.text, /Statements not read: the brief does not read chat labels yet: their producer, PULSE-01 \(people_pulse\), is not wired into it\./);
+  assert.match(r.text, /Follow-through not read: the brief does not read per-manager credibility yet: its producer, CRED-01 \(people_credibility\), is not wired into it\./);
   // No second labeller and no credibility bar of its own, and the chat DB is never opened.
   for (const rel of ['server/services/coach/brief-inputs.js', 'server/services/coach/brief.js',
     'server/services/coach/brief-claims.js', 'scripts/coach/morning-brief.mjs']) {
@@ -202,7 +202,7 @@ test('statements and credibility only through PULSE-01 and CRED-01: typed unknow
 
 test('a missing source says it was not read; a quiet night says nothing happened', () => {
   const r = brief.morningBrief({ db: new DatabaseSync(':memory:'), file: plans(), env: ON, now: MORNING });
-  assert.match(r.text, /Statements not read: chat labels not built yet/);
+  assert.match(r.text, /Statements not read: the brief does not read chat labels yet/);
   assert.match(r.text, /Replies not read:/);
   assert.match(r.text, /Injuries not read:/);
   assert.match(r.cache, /^inert/);

@@ -17,7 +17,7 @@ Updated 2026-09-23 7:50 PM ET by B coordinator (session c4cebb1f). Pace: 4.4%/h 
 - [ ] Merge queues: B (53395) -> B3 (49912: 214 216 217 186 174 207 190 166 218 215 164) -> B4: 221 219
 
 ## Next (in order)
-NORTH STAR (PLAN v11): critical path = EA-00..EA-07 -> CLONE-01a/b -> FLIP-01 (shadow) -> ACQ-01 -> PLAN-01. Prefer these over fillers every slot.
+NORTH STAR (PLAN v11.1): critical path = EA-00..EA-07 -> CLONE-01a/b -> FLIP-01 (shadow) -> ACQ-01 -> CAMPAIGN-01a-e (+PLAN-01 screen). Prefer these over fillers every slot.
 - MERGE FIXES (need an agent when pace allows): #224 CI fail, #218 CI fail, #174 conflict, #219 conflict. Queue B9 (pid 11520) re-running 207 190 166 164 (stale vs main).
 - META-01a (script-only lab, ~1 day, no deps) when pace allows; then META-01b after EA-00/EA-04.
 - FIRST when pace allows (run together, disjoint files): BROKEN-01a+b (in-app Number health card; Nick asked 7:20 PM) and EA-00 (#216 rewrite per ENGINE-ARCHITECTURE §11.2, 9 items) then EA-01 (#220 per §11.5), then EA-02.. in the ENGINE-SPECS 'ARCHITECTURE UNITS' order.

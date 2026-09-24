@@ -184,6 +184,8 @@ const SCORE_PER_RELATIVE = 1 / (RECEPTIVENESS_RANGE[1] - RECEPTIVENESS_RANGE[0])
 const CLONE01A_ENV = 'GRIDIRON_CLONE01A_ENABLED';
 const CLONE01A_UNCONFIRMED = 'default-off: CLONE-01a accept-rate shrink and MOTIVE state, unconfirmed forward';
 const clone01aSite = () => process.env[CLONE01A_ENV] === '1';
+/** On by its own flag or by preview mode. Callers use it to skip building MOTIVE inputs when off. */
+export const clone01aOn = () => clone01aSite() || previewUnconfirmed();
 /** Prior strength bounds and fallback for the accept-rate shrink (not fitted to an outcome). */
 const ACCEPT_PRIOR_M = Object.freeze({ min: 5, max: 50, fallback: 15, min_managers: 3 });
 
@@ -390,7 +392,7 @@ function jevBlockFor(read, rosterId) {
 export function counterpartyLayer(leagueId, { season, week, rosterContext = null, zero = [], activity = null,
   sim = null, byeCrunch = null, engagement = null } = {}) {
   // CLONE-01a: on by its own flag or by preview mode (then labelled).
-  const cloneOn = clone01aSite() || previewUnconfirmed();
+  const cloneOn = clone01aOn();
   const clonePreview = !clone01aSite() && previewUnconfirmed();
   // PREVIEW-01: the local-testing switch turns the terms on when neither the caller nor
   // the site flag has; each applied term then says it is a preview.

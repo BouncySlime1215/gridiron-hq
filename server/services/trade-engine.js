@@ -90,7 +90,7 @@ import { careerLine } from './player-career.js';
 import { playerNews } from '../news/player-news.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
-import { counterpartyLayer, readDeal, counterpartyDataKey, playerValuation, selfRead }
+import { counterpartyLayer, clone01aOn, readDeal, counterpartyDataKey, playerValuation, selfRead }
   from './counterparty-pricing.js';
 // The nine tactics and THE EDGE TEST (trade-tactics.js). The edge test is the
 // only thing in this file that removes an idea on the strength of the
@@ -361,7 +361,8 @@ function buildAssetUniverse(lg, formatKey, target) {
     .map(t => [t.player_id, t]));
 
   const out = new Map();
-  for (const p of rows(`SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, p.gsis_id, t.abbr AS team_abbr
+  for (const p of rows(`SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, p.gsis_id, p.bye_week,
+                               t.abbr AS team_abbr
                         FROM players p LEFT JOIN nfl_teams t ON t.id = p.team_id`)) {
     const v = board.get(p.id), w = vol.get(p.id), m = market.get(p.id);
     const dynastyAge = isDynasty && m?.value != null
@@ -464,6 +465,8 @@ function buildAssetUniverse(lg, formatKey, target) {
       } : null,
       id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
       espn_id: p.espn_id, sleeper_id: p.sleeper_id,
+      // The stored bye, else the schedule's. Read by byeCrunchByRoster (MOTIVE-01).
+      bye_week: p.bye_week ?? sched.bye ?? null,
       proj: +(weeklyPpg * Math.max(1, 18 - target.week)).toFixed(1),
       ppg: +weeklyPpg.toFixed(2),
       vor: v?.vor ?? 0,
@@ -1628,6 +1631,68 @@ const HORIZON_SIM_RUNS = 1000;
 const assetPrint = (lg, formatKey, target) =>
   fingerprint(ASSET_INPUT_TABLES, assetInputsKey(lg, formatKey, target));
 
+/**
+ * The seeded HORIZON_SIM run for a league, cached once per league/week/print so
+ * every roster's playoff odds and the counterparty layer's title odds (MOTIVE-01,
+ * CLONE-01a) come from the same simulation. Returns the simulator's own answer,
+ * a named `error` included; anything thrown is left to throw (see myPlayoffOdds).
+ */
+export function horizonSim(lg, print = null) {
+  const target = tradeWeekContext();
+  const start = simStartWeek(lg);
+  const { formatKey } = deriveFormat(lg);
+  return cached(
+    `horizonSim:${lg.id}:${target.season}:${start}`,
+    print ?? assetPrint(lg, formatKey, target),
+    () => withRandomSeed(HORIZON_SIM_SEED, () => simulateSeason(lg, {
+      runs: HORIZON_SIM_RUNS, scoring: scoringFor(lg) // start week: simStartWeek(lg) inside, same as `start`
+    })));
+}
+
+/**
+ * MOTIVE-01 bye crunch: per roster, how many of the starters in the synced
+ * lineup are on bye in `week`. Starters are read from the payload (ESPN: any slot
+ * but bench/IR; Sleeper: the `starters` array), byes from the asset (players.bye_week,
+ * else the schedule). A roster whose lineup cannot be read is left out, so its
+ * crunch is unknown rather than zero.
+ */
+export function byeCrunchByRoster(lg, assets, week) {
+  const out = new Map();
+  if (!lg?.payload || !Number.isFinite(week)) return out;
+  const payload = typeof lg.payload === 'string' ? JSON.parse(lg.payload) : lg.payload;
+  const onBye = a => a?.bye_week != null && Number(a.bye_week) === Number(week);
+  if (lg.platform === 'sleeper') {
+    const bySleeper = new Map();
+    for (const a of assets.values()) if (a.sleeper_id) bySleeper.set(String(a.sleeper_id), a);
+    for (const ro of payload.rosters ?? []) {
+      if (!Array.isArray(ro.starters)) continue;
+      out.set(String(ro.roster_id), ro.starters.filter(sid => onBye(bySleeper.get(String(sid)))).length);
+    }
+    return out;
+  }
+  const resolve = espnPlayerResolver(assets);
+  for (const t of payload.teams ?? []) {
+    const entries = t.roster?.entries;
+    if (!entries?.length || !entries.some(e => e.lineupSlotId != null)) continue;
+    out.set(String(t.id), entries
+      .filter(e => STARTER_SLOT_IDS.has(Number(e.lineupSlotId)))
+      .filter(e => onBye(resolve(e.playerPoolEntry?.player).asset)).length);
+  }
+  return out;
+}
+
+/**
+ * MOTIVE-01 (CLONE-01a, flag-gated) inputs for counterpartyLayer: title odds from
+ * the same cached HORIZON_SIM run the horizon is built on, and the bye crunch
+ * from the synced lineups. Handed in by the two call sites below so
+ * counterparty-pricing never imports the simulator (season-sim -> trade-engine ->
+ * counterparty-pricing would be a cycle). Off, neither is built.
+ */
+function motiveInputs(lg, assets, week) {
+  if (!clone01aOn()) return {};
+  return { sim: horizonSim(lg), byeCrunch: byeCrunchByRoster(lg, assets, week) };
+}
+
 export function myPlayoffOdds(lg, myTeamId = null, print = null) {
   const rosterId = String(myTeamId ?? lg?.my_team_id ?? '');
   const prior = reason => ({ value: null, roster_id: rosterId, source: `0.5 prior — ${reason}` });
@@ -1639,17 +1704,16 @@ export function myPlayoffOdds(lg, myTeamId = null, print = null) {
   // night and the next sync (B-01 review). target stays for the asset print only.
   const start = simStartWeek(lg);
   const { formatKey } = deriveFormat(lg);
+  const p = print ?? assetPrint(lg, formatKey, target);
   return cached(
     `playoffOdds:${lg.id}:${rosterId}:${target.season}:${start}`,
-    print ?? assetPrint(lg, formatKey, target),
+    p,
     () => {
       // A returned `error` is a NAMED state (no fixtures left, an unsynced
       // schedule) and falls back. Anything thrown is a real defect and is left to
       // throw — a silent 0.5 would hide it, which is how this number got lost in
       // the first place.
-      const sim = withRandomSeed(HORIZON_SIM_SEED, () => simulateSeason(lg, {
-        runs: HORIZON_SIM_RUNS, scoring: scoringFor(lg) // start week: simStartWeek(lg) inside, same as `start`
-      }));
+      const sim = horizonSim(lg, p);
       if (sim?.error) return prior(`the season simulation could not run (${sim.error})`);
       const mine = sim.teams?.find(t => String(t.roster_id) === rosterId);
       if (!Number.isFinite(mine?.playoff_odds)) return prior('your roster is not in this league\'s simulated standings');
@@ -1753,7 +1817,9 @@ function findTradesKey(lg, opts = {}, ctx = null) {
   const zeroKey = [...zero].sort().join(',');
   return `findTrades:${lg.id}:${formatKey}:${target.season}:${target.week}:` +
     `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:` +
-    `${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}:z${zeroKey}`;
+    `${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}:z${zeroKey}` +
+    // CLONE-01a changes what the counterparty block carries, so on and off never share an answer.
+    (clone01aOn() ? ':c01a' : '');
 }
 
 /**
@@ -1853,7 +1919,7 @@ function findTradesUncached(lg, {
   // cold cost per call on production (valuation-map handoff).
   const counterparties = useCounterparty
     ? counterpartyLayer(lg.id, { season: weekNow.season, week: weekNow.week,
-      rosterContext: context, zero })
+      rosterContext: context, zero, ...motiveInputs(lg, assets, weekNow.week) })
     : new Map();
 
   const myPool = candidates(me, slots, 11, excludeIds);
@@ -2006,6 +2072,8 @@ function findTradesUncached(lg, {
             asking_for_declared: get.filter(p => mustProbe.has(String(p.name ?? '').toLowerCase()))
               .map(p => p.name),
             word_stance: cp?.stance?.stance ?? null,
+            // MOTIVE-01, display-only (null unless CLONE-01a is on).
+            motive: cp?.motive ?? null,
           },
           // The trade-off, surfaced rather than buried in one number.
           value_cost: +valueCost.toFixed(2),
@@ -2387,12 +2455,13 @@ export function resolvePlayer(id, assets, teams) {
  * idea — two answers to one question (inventory section C, "ignores the chat
  * reads and timing weighting. Inconsistent with findTrades").
  */
-function ladderInputs(lg, myTeamId, playoffOdds, useCounterparty = true) {
+function ladderInputs(lg, myTeamId, playoffOdds, assets, useCounterparty = true) {
   const weekNow = tradeWeekContext();
   const odds = horizonOdds(lg, myTeamId, playoffOdds);
   const horizon = horizonWeights(weekNow.week, { playoffOdds: odds.value, ...leagueSchedule(lg) });
   const counterparties = useCounterparty
-    ? counterpartyLayer(lg.id, { season: weekNow.season, week: weekNow.week })
+    ? counterpartyLayer(lg.id, { season: weekNow.season, week: weekNow.week,
+      ...motiveInputs(lg, assets, weekNow.week) })
     : new Map();
   return { weekNow, odds, horizon, counterparties };
 }
@@ -2445,6 +2514,7 @@ function ownerRead(counterparties, owner, tier) {
     accept_rate_n: cp?.accept_rate_n ?? 0,
     word_stance: cp?.stance?.stance ?? null,
     word_note: cp?.stance?.note ?? null,
+    motive: cp?.motive ?? null,
     note: cp ? null : 'No counterparty read for this league — this ladder is priced on our numbers only.',
   };
 }
@@ -2502,7 +2572,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
     lg.id, String(owner.roster_id))[0]?.tradeability ?? 'fair';
   if (tier === 'never') return { error: `${owner.owner} is marked "Never trades," so the engine did not generate fake offers for this player.` };
   const ownerCtx = rosterContext(lg).get(String(owner.roster_id));
-  const { weekNow, odds, horizon, counterparties } = ladderInputs(lg, myTeamId, playoffOdds);
+  const { weekNow, odds, horizon, counterparties } = ladderInputs(lg, myTeamId, playoffOdds, assets);
 
   // How motivated is the seller? A team with surplus at his position and a hole
   // elsewhere is a much cheaper negotiation than one starting him with no cover.
@@ -2654,7 +2724,7 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
   if (!me) return { error: 'your team not found in this league' };
   // Same horizon and same counterparty layer as the league-wide search (G6).
-  const { weekNow, odds, horizon, counterparties } = ladderInputs(lg, myTeamId, playoffOdds);
+  const { weekNow, odds, horizon, counterparties } = ladderInputs(lg, myTeamId, playoffOdds, assets);
 
   const targets = [...new Set((targetIds ?? []).map(Number))]
     .map(id => resolvePlayer(id, assets, teams)).filter(Boolean);

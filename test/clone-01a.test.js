@@ -10,6 +10,9 @@
  *  C4 MOTIVE RED: 0-4 with title odds < 3% reads seller; >= 2 starters out and a
  *     bye crunch reads desperate_buyer; no sim gives state:null with a reason.
  *  C5 the profile carries motive, and it moves no number.
+ *  C6 FIX-229-1, the real call site: tradeIdeas hands counterpartyLayer the cached
+ *     HORIZON_SIM run and the payload bye crunch, so a 0-4 team with no title
+ *     path reads seller on the deals against it; off, nothing is built.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,13 +24,25 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-clone01a-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.GRIDIRON_CHAT_DB_PATH = path.join(temp, 'no-chat.sqlite');
 process.env.SCHEDULER_DISABLED = '1';
+// C6's fixture league sits in week 5: four games played.
+process.env.NFL_WEEK = '5';
 delete process.env.GRIDIRON_CLONE01A_ENABLED;
 delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
 
 const { run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 const pricing = await import('../server/services/counterparty-pricing.js');
+const { rows } = await import('../server/db/index.js');
+const { seedIfEmpty } = await import('../server/db/seed/index.js');
+// Side-effect imports the trade engine relies on (see test/trade-engine-correctness.test.js).
+await import('../server/routes/stats.js');
+await import('../server/routes/aggregates.js');
+await import('../server/routes/tradelab.js');
+await import('../server/routes/nfldata.js');
+const engine = await import('../server/services/trade-engine.js');
+const { deriveFormat } = await import('../server/services/format.js');
 await runMigrations();
+seedIfEmpty();
 
 const LEAGUE = 9101;
 run(`INSERT INTO leagues(id, platform, league_id, season, name, payload, team_count, my_team_id)
@@ -135,4 +150,129 @@ test('C5 the layer reads motive from a supplied sim; no sim gives state:null wit
   // Display-only: motive moves no number.
   const without = withFlag('1', () => layer());
   for (const id of ['4', '5', '6']) assert.equal(on.get(id).receptiveness, without.get(id).receptiveness);
+});
+
+/* ---------------- C6: MOTIVE through the real call site (trade-engine.js) */
+
+const SLOTS = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX'];
+const POS_ID = { QB: 1, RB: 2, WR: 3, TE: 4 };
+// ESPN lineupSlotId per roster position; the 8th player sits on the bench.
+const SLOT_IDS = [0, 2, 2, 4, 4, 6, 23, 20];
+
+/** Six ESPN teams in week 5: 1-5 balanced; 6 is 0-4 on a roster of backups. */
+function motiveLeague(id) {
+  const pick = (pos, n) => rows(`SELECT id, name, position FROM players WHERE position = ? AND fantasy_relevant = 1
+                                 ORDER BY id LIMIT ?`, pos, n);
+  const qb = pick('QB', 6), rb = pick('RB', 19), wr = pick('WR', 18), te = pick('TE', 6);
+  const star = rb.pop();
+  const ranked = [star, ...qb, ...rb, ...wr, ...te];
+  const { formatKey } = deriveFormat({ team_count: 6, ppr: null, league_type: null, best_ball: 0, payload: null,
+    roster_positions: JSON.stringify(SLOTS) });
+  const now = new Date().toISOString();
+  // Starters on teams 1-5 project ~300; team 6's roster ~60, plus one star (the ladder's target).
+  const weak = new Set([qb[5], rb[15], rb[16], rb[17], wr[15], wr[16], wr[17], te[5]].map(p => p.id));
+  ranked.forEach((p, i) => {
+    const proj = p.id === star.id ? 400 : weak.has(p.id) ? 60 : 320 - i * 2;
+    run(`INSERT INTO player_season_stats (player_id, season, kind, fantasy_points, games, raw, fetched_at)
+         VALUES (?, 2026, 'projected', ?, 17, '{}', ?)
+         ON CONFLICT(player_id, season, kind) DO UPDATE SET fantasy_points = excluded.fantasy_points`, p.id, proj, now);
+    run(`INSERT INTO dynasty_values (format_key, player_id, value, redraft_value, trend30, age, pos_rank, fetched_at)
+         VALUES (?, ?, ?, ?, 0, 26, ?, ?)
+         ON CONFLICT(format_key, player_id) DO UPDATE SET value = excluded.value, redraft_value = excluded.redraft_value`,
+    formatKey, p.id, Math.round(proj * 3), Math.round(proj * 3), i + 1, now);
+  });
+  const rosters = [0, 1, 2, 3, 4].map(i => [qb[i], rb[i], rb[9 - i], wr[i], wr[9 - i], te[i], rb[10 + i], wr[10 + i]]);
+  rosters.push([qb[5], rb[15], rb[16], wr[15], wr[16], te[5], rb[17], star]);
+  // Team 5 has two starters on bye in week 5: the bye crunch the payload must show.
+  for (const p of [rosters[4][1], rosters[4][3]]) run('UPDATE players SET bye_week = 5 WHERE id = ?', p.id);
+  let fake = 950000 + id * 100;
+  const teams = rosters.map((roster, i) => ({ id: i + 1, name: `Team ${i + 1}`, owners: [`{M${i + 1}}`],
+    roster: { entries: roster.map((p, k) => ({ lineupSlotId: SLOT_IDS[k],
+      playerPoolEntry: { player: { id: fake++, fullName: p.name, defaultPositionId: POS_ID[p.position] } } })) } }));
+  const schedule = [];
+  const ids = [1, 2, 3, 4, 5, 6];
+  for (let w = 1; w <= 14; w++) {
+    const rot = [ids[0], ...ids.slice(1).map((_, i) => ids[1 + ((i + w - 1) % 5)])];
+    for (let i = 0; i < 3; i++) {
+      const home = rot[i], away = rot[5 - i];
+      const done = w <= 4;
+      const pts = t => (t === 6 ? 60 : 120 + t);
+      schedule.push({ matchupPeriodId: w,
+        home: { teamId: home, totalPoints: done ? pts(home) : undefined },
+        away: { teamId: away, totalPoints: done ? pts(away) : undefined } });
+    }
+  }
+  const payload = { teams, schedule,
+    members: teams.map(t => ({ id: t.owners[0], firstName: `First${t.id}`, lastName: `Last${t.id}` })),
+    settings: { name: 'Motive League', scheduleSettings: { matchupPeriodCount: 14, matchupPeriodLength: 1,
+      playoffTeamCount: 4, playoffMatchupPeriodLength: 1,
+      playoffReseed: false, playoffSeedingRule: 'TOTAL_POINTS_SCORED', divisions: [{ id: 0, size: 6 }] } } };
+  run(`INSERT INTO leagues(id, platform, league_id, season, name, payload, team_count, my_team_id,
+       roster_positions, espn_s2, swid, connection_status)
+       VALUES (?, 'espn', ?, 2026, 'Motive League', ?, 6, '1', ?, 'x', 'y', 'connected')`,
+  id, `espn-motive-${id}`, JSON.stringify(payload), JSON.stringify(SLOTS));
+  // The standings and dead-starter signals the refresh writes; roster 5 has two out.
+  const sig = (roster, metric, value, n, source) =>
+    run(`INSERT OR REPLACE INTO manager_signals (league_id, roster_id, metric, value, n, source, computed_at)
+         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`, id, String(roster), metric, value, n, source);
+  for (let t = 1; t <= 6; t++) {
+    const wins = t === 6 ? 0 : [4, 3, 3, 2, 2][t - 1];
+    sig(t, 'standing_wins', wins, 4, 'standings');
+    sig(t, 'standing_losses', 4 - wins, 4, 'standings');
+    if (t === 6) sig(t, 'standing_streak', -4, 4, 'standings');
+  }
+  sig(5, 'lineup_dead_starters', 2, 7, 'roster');
+  return rows('SELECT * FROM leagues WHERE id = ?', id)[0];
+}
+
+test('C6 FIX-229-1: tradeIdeas wires the cached sim and bye crunch, and a 0-4 team reads seller', () => {
+  const lg = motiveLeague(9102);
+  // The simulator's own answer: team 6 has no title path.
+  const sim = engine.horizonSim(lg);
+  assert.ok(!sim.error, sim.error);
+  const six = sim.teams.find(t => String(t.roster_id) === '6');
+  assert.ok(six.title_odds < pricing.MOTIVE_RULES.seller_odds, `team 6 title odds ${six.title_odds}`);
+  // The same cached object is what the call site hands in.
+  assert.equal(engine.horizonSim(lg), sim);
+  // Bye crunch from the payload lineup and players.bye_week.
+  const crunch = engine.byeCrunchByRoster(lg, engine.assetUniverse(lg, deriveFormat(lg).formatKey), 5);
+  assert.equal(crunch.get('5'), 2);
+  assert.equal(crunch.get('6'), 0);
+
+  // Call site 1, findTrades: every deal's counterparty block carries a live motive.
+  const out = withFlag('1', () => engine.tradeIdeas(lg, { myTeamId: '1', requireMutual: false, limit: 500 }));
+  assert.ok(!out.error, out.error);
+  assert.ok(out.deals.length > 0);
+  for (const d of out.deals) {
+    assert.ok(d.counterparty.motive, `deal with ${d.partner_id} has no motive`);
+    assert.ok(Number.isFinite(d.counterparty.motive.title_odds), JSON.stringify(d.counterparty.motive));
+  }
+  const m5 = out.deals.find(d => d.partner_id === '5')?.counterparty.motive;
+  if (m5) {
+    assert.equal(m5.bye_crunch, 2);
+    assert.equal(m5.starters_out, 2);
+  }
+  // Call site 2, the offer ladder: team 6 (0-4, no title path) reads seller.
+  const target = rows('SELECT id FROM players WHERE name = ? ORDER BY id LIMIT 1',
+    JSON.parse(lg.payload).teams[5].roster.entries[7].playerPoolEntry.player.fullName)[0].id;
+  const offer = withFlag('1', () => engine.offerFor(lg, { myTeamId: '1', targetId: target }));
+  assert.ok(!offer.error, offer.error);
+  assert.equal(offer.owner_id, '6');
+  const m6 = offer.counterparty.motive;
+  assert.equal(m6.state, 'seller', JSON.stringify(m6));
+  assert.equal(m6.n, 4);
+  assert.equal(m6.loss_streak, 4);
+  assert.equal(m6.bye_crunch, 0);
+  assert.equal(m6.priced, false);
+});
+
+test('C6b FIX-229-1: flag off, the call site builds nothing and deals carry motive null', () => {
+  const lg = rows('SELECT * FROM leagues WHERE id = 9102')[0];
+  const out = withFlag(null, () => engine.tradeIdeas(lg, { myTeamId: '1', requireMutual: false, limit: 500 }));
+  assert.ok(!out.error, out.error);
+  assert.ok(out.deals.length > 0);
+  for (const d of out.deals) assert.equal(d.counterparty.motive ?? null, null);
+  const target = rows('SELECT id FROM players WHERE name = ? ORDER BY id LIMIT 1',
+    JSON.parse(lg.payload).teams[5].roster.entries[7].playerPoolEntry.player.fullName)[0].id;
+  assert.equal(withFlag(null, () => engine.offerFor(lg, { myTeamId: '1', targetId: target })).counterparty.motive, null);
 });

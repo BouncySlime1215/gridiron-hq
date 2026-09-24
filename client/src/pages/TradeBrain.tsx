@@ -8,7 +8,7 @@ import ManagerBoard from '../components/brain/ManagerBoard';
 import ProposalSlate from '../components/brain/ProposalSlate';
 import type { ProfilesResponse, SignalsResponse } from '../components/brain/types';
 import WarRoom from '../components/warroom/WarRoom';
-import { useWarRoom } from '../components/warroom/useWarRoom';
+import { useWarRoom, useWarRoomSelf } from '../components/warroom/useWarRoom';
 
 /**
  * The Trade Brain's own surface: the people, not one deal.
@@ -49,6 +49,7 @@ export default function TradeBrain() {
   const [picked, setPicked] = useState<Tab | null>(() => { const v = params.get('view'); return isTab(v) ? v : null; });
   const warRoom = useWarRoom(activeId);
   const warOn = warRoom.data?.enabled === true;
+  const warSelf = useWarRoomSelf(warOn ? activeId : null);
   // War Room is the default tab only when it is on; asking for it while it is off falls back.
   const tab: Tab = picked === 'war-room' ? (warOn || warRoom.loading || warRoom.error ? 'war-room' : 'managers')
     : (picked ?? (warOn ? 'war-room' : 'managers'));
@@ -105,7 +106,7 @@ export default function TradeBrain() {
 
   if (tab === 'war-room' && warOn && activeId && warRoom.data) {
     return (
-      <WarRoom view={warRoom.data} activeId={activeId} onLeague={setActiveId} onExit={setTab}
+      <WarRoom view={warRoom.data} self={warSelf.data} activeId={activeId} onLeague={setActiveId} onExit={setTab}
         leagues={leagues.map(l => ({ id: l.id, name: l.name }))} />
     );
   }

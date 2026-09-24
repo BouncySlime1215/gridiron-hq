@@ -55,6 +55,7 @@ import { playerHype } from '../services/hype.js';
 import { warRoomView, loadPlans } from '../services/war-room-view.js';
 import { logWarRoomShown } from '../services/war-room-log.js';
 import { warRoomFlag } from '../services/warroom-flag.js';
+import { warRoomSelf } from '../services/war-room-self.js';
 import {
   proposeVerifyRetryTrade, judgeTradeVerdict, tradeChallengeText, SENSE_CHECK_SIM_RUNS
 } from '../services/trade-verify.js';
@@ -678,6 +679,19 @@ r.get('/:leagueId/war-room', async (req, res, next) => {
     // (both off the plans file loadPlans already cached for the view).
     const logged = logWarRoomShown(res, lg, await loadPlans());
     res.json({ ...view, logged });
+  } catch (e) { next(e); }
+});
+
+/**
+ * SELF-01b: the War Room's follow / ignore card: Nick's own follow record per call
+ * kind and the bias flags that passed their forward check. Read-only. Needs the War
+ * Room on (same membership check first) and its own switch, GRIDIRON_SELF_CLONE_ENABLED.
+ */
+r.get('/:leagueId/war-room/self', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    if (!warRoomFlag().enabled) { res.json({ enabled: false }); return; }
+    res.json(warRoomSelf(lg.id));
   } catch (e) { next(e); }
 });
 

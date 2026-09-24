@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './warroom.css';
-import type { PanelId, WarRoomView } from './types';
+import type { PanelId, SelfView, WarRoomView } from './types';
 import type { DeckLogEntry, DeckState } from './deck';
 import { postWarRoomRequest, type Poster, type WarRoomRequest } from './requests';
 import { isOk } from './format';
@@ -14,6 +14,7 @@ import FlipMap from './FlipMap';
 import TargetPicker from './TargetPicker';
 import CatchUp from './CatchUp';
 import BrainCheckCard from './BrainCheckCard';
+import SelfCard from './SelfCard';
 import { CoachDock, useWarRoomCoach, type Panel as CoachPanel } from './coach';
 
 /**
@@ -33,17 +34,26 @@ export const PANELS: { id: PanelId; name: string }[] = [
   { id: 'next', name: 'Next move' },
   { id: 'stops', name: 'Stops' },
   { id: 'flip_map', name: 'Flip map' },
+  { id: 'self', name: 'You' },
   { id: 'targets', name: 'Targets' },
   { id: 'catch', name: 'Catch-up' },
   { id: 'brain_report', name: 'Brain check' },
 ];
 
-export const GRID_AREAS = [
+const areas = (rows: string[]) => rows.map(r => `"${r}"`).join(' ');
+export const GRID_AREAS = areas([
+  'top top top top coach',
+  'next next stops flip_map coach',
+  'next next stops self coach',
+  'targets targets catch brain_report coach',
+]);
+/** SELF-01b off: the "You" card is not drawn and the flip map takes its cell back. */
+export const GRID_AREAS_NO_SELF = areas([
   'top top top top coach',
   'next next stops flip_map coach',
   'next next stops flip_map coach',
   'targets targets catch brain_report coach',
-].map(r => `"${r}"`).join(' ');
+]);
 
 /**
  * Coach's panel names -> this grid's areas (FIX-04 named them after the contract sections).
@@ -62,8 +72,10 @@ export function __resetOpening() { openedOnTarget = false; }
 /** The no-page-scroll contract, inline so it cannot be lost to a stylesheet. */
 export const ROOT_STYLE = { position: 'fixed', inset: 0, height: '100vh', overflow: 'hidden', gridTemplateAreas: GRID_AREAS } as const;
 
-export default function WarRoom({ view, leagues, activeId, onLeague, onExit, deckInitial, onDeckLog, post }: {
+export default function WarRoom({ view, self, leagues, activeId, onLeague, onExit, deckInitial, onDeckLog, post }: {
   view: WarRoomView;
+  /** SELF-01b card; undefined/null draws its loading state. */
+  self?: SelfView | null;
   leagues: LeagueChoice[];
   activeId: number;
   onLeague: (id: number) => void;
@@ -140,10 +152,13 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
 
   const d = isOk(view.destination) ? view.destination.value : undefined;
   const send = useCallback((req: WarRoomRequest) => postWarRoomRequest(activeId, req, post), [activeId, post]);
+  // The SELF-01b card is drawn unless its route said it is off.
+  const selfOn = self?.enabled !== false;
+  const panels = selfOn ? PANELS : PANELS.filter(p => p.id !== 'self');
 
   return (
     <SourcesContext.Provider value={view.sources ?? {}}>
-      <div className="wr-root wr-app" data-theme={theme} data-testid="war-room-grid" style={ROOT_STYLE}>
+      <div className="wr-root wr-app" data-theme={theme} data-testid="war-room-grid" style={selfOn ? ROOT_STYLE : { ...ROOT_STYLE, gridTemplateAreas: GRID_AREAS_NO_SELF }}>
         <TopStrip view={view} leagues={leagues} activeId={activeId} onLeague={onLeague} onExit={onExit}
           theme={theme} onTheme={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))} />
 
@@ -163,6 +178,11 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
           <Panel {...common('flip_map')} title="Flip map">
             <FlipMap field={view.flip_map} names={view.names} big={big('flip_map')} />
           </Panel>
+          {selfOn && (
+            <Panel {...common('self')} title="You, from your own moves">
+              <SelfCard view={self} big={big('self')} />
+            </Panel>
+          )}
           <Panel {...common('targets')} title="Suggested targets">
             <TargetPicker field={view.targets} names={view.names} big={big('targets')} onRequest={send} />
           </Panel>
@@ -176,7 +196,7 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
         </main>
 
         <nav className="wr-dots" aria-label="Panels">
-          {PANELS.map((p, i) => (
+          {panels.map((p, i) => (
             <button key={p.id} type="button" className={i === deckPos ? 'wr-on' : undefined} onClick={() => gotoPanel(i)}>{p.name}</button>
           ))}
         </nav>

@@ -162,7 +162,7 @@ export interface WarRoomView {
   number_health?: Field<NumberHealth>;
 }
 
-export type PanelId = 'next' | 'stops' | 'flip_map' | 'targets' | 'catch' | 'brain_report';
+export type PanelId = 'next' | 'stops' | 'flip_map' | 'self' | 'targets' | 'catch' | 'brain_report';
 
 /** Player and team labels from the entry's `names` (ids only elsewhere). */
 export function namer(names: Record<string, string> | undefined) {
@@ -171,3 +171,52 @@ export function namer(names: Record<string, string> | undefined) {
   return { one, text };
 }
 export const teamLabel = (id: string | null | undefined) => (id == null ? '' : `Team ${id}`);
+
+/** SELF-01b: GET /trades/:id/war-room/self (server/services/war-room-self.js). */
+export interface SelfKind {
+  kind: 'start_sit' | 'waiver' | 'trade' | 'next_move';
+  label: string;
+  follow: number;
+  ignore: number;
+  no_action: number;
+  open: number;
+}
+export interface BiasFlag {
+  category: string;
+  bias: 'ignores' | 'overpays';
+  label: string;
+  /** Walk-forward record on his own later weeks: `hits` of `n` right, against `base_rate`. */
+  forward: { n: number; hits: number; precision: number; base_rate: number };
+}
+export interface SelfView {
+  enabled: boolean;
+  league_id?: number;
+  follow?: Field<{ kinds: SelfKind[] }>;
+  flags?: Field<BiasFlag[]>;
+  /** Candidate habits that did not pass the forward check: a count, never their names. */
+  held?: number;
+  /** Regret ledger totals: points over the 4-week horizon, from the road not taken. */
+  regret?: Field<SelfRegret>;
+  /** Re-offers that conceded above his norm, only when the guard passed its forward check. */
+  guard?: Field<{ reoffers: GuardedReoffer[] }>;
+  /** LIVING-01a pointed at his own team; unknown until that model is fitted. */
+  clone?: Field<unknown>;
+  preview?: boolean;
+  preview_reason?: string;
+  note?: string;
+}
+export interface SelfRegret {
+  choices: number;
+  scored: number;
+  open: number;
+  realised_regret: number | null;
+  regrets: number;
+  as_of_better: number;
+  as_of_n: number;
+}
+export interface GuardedReoffer {
+  period: number;
+  status: string;
+  concession: number;
+  norm: number;
+}

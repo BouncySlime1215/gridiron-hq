@@ -3,7 +3,7 @@
  * SELF-01b read-out: run the bias-flag check on the database at GRIDIRON_DB_PATH and
  * print one JSON line per league, by league id only (no names).
  *
- * Point it at a COPY. It migrates (081 creates follow_ledger), fills the follow ledger
+ * Point it at a COPY. It migrates (082 creates follow_ledger), fills the follow ledger
  * from rec_ledger and resolves it (syncFollowLedger), settles observed trades into
  * trade_outcomes for each league's season, and then reads selfBiasFlags().
  *

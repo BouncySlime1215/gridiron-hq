@@ -9,7 +9,7 @@ origin/main. Merge #174, then #245, then #231, then this PR. After that, this PR
 
 | Surface | Table / writer | Used here as |
 |---|---|---|
-| Follow ledger (#245) | `follow_ledger` (081); `logShown()` / `resolveDue()` in `server/services/engine/follow-ledger.js` | which calls he followed or skipped: rows with `outcome` in (`follow`, `ignore`) |
+| Follow ledger (#255) | `follow_ledger` (082); `logShown()` / `resolveDue()` in `server/services/engine/follow-ledger.js` | which calls he followed or skipped: rows with `outcome` in (`follow`, `ignore`) |
 | Trade outcome ledger | `trade_outcomes` (067); `settleObservedOutcomes()` in `server/services/trade-outcomes.js:113` | his accepted, observed trades |
 | ESPN transactions | `league_transactions_raw` (DDL at `scripts/collect-league-transactions.mjs:21`) | the scoring period of each trade (`scoring_period`, joined on `espn_tx_id`) |
 | Realised points | `player_gamelog` (`server/db/schema/core-and-fantasy.js:348`) | points each side scored over the 4 weeks after the trade |

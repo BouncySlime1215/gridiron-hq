@@ -38,7 +38,7 @@ export function selfCloneFlag() {
 }
 
 const FOLLOW_ABSENT = {
-  absent: 'The follow ledger (SELF-01a, migration 081) has not run on this database.',
+  absent: 'The follow ledger (SELF-01a, migration 082) has not run on this database.',
   empty: 'Nothing recorded yet: no shown call has been resolved for this league.',
 };
 

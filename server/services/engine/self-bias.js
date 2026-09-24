@@ -2,7 +2,7 @@
  * SELF-01b: bias flags for Nick, read from his own record only.
  *
  * Two habits are looked for, and only these two:
- *   - IGNORES: which kinds of call he skips. Source: follow_ledger (081, SELF-01a),
+ *   - IGNORES: which kinds of call he skips. Source: follow_ledger (082, SELF-01a),
  *     rows resolved to 'follow' or 'ignore'. 'no_action' and still-open rows are
  *     not events: an unchanged lineup is not a skip, and a missing capture is not
  *     anything. They are counted aside so the card can say how many there were.
@@ -122,7 +122,7 @@ function pickPlayers(kind, pick) {
 
 /**
  * Follow-ledger rows as events (hit = he skipped the call), plus the per-kind counts
- * the card shows. Returns state 'absent' when 081 has not run.
+ * the card shows. Returns state 'absent' when 082 has not run.
  */
 export function followEvents(leagueId) {
   const out = { state: 'ok', events: [], excluded: {}, by_kind: {}, unreadable: 0 };

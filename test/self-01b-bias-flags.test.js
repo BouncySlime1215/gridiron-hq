@@ -1,7 +1,7 @@
 /**
  * SELF-01b: bias flags from Nick's own record, and the War Room card that shows them.
  *
- * Two record sources: follow_ledger (081, SELF-01a) for "which calls he skips", and
+ * Two record sources: follow_ledger (082, SELF-01a) for "which calls he skips", and
  * trade_outcomes (067) for "what he overpays for". A flag is SHOWN only when it passes
  * its pre-registered check: on his own forward weeks (walk-forward, fitted on earlier
  * weeks only) its precision beats the base rate, over at least MIN_EVAL_N predictions.
@@ -46,7 +46,7 @@ function league(id, week = 12) {
 }
 
 let seq = 0;
-/** One resolved (or open) follow_ledger row, the shape 081 stores. */
+/** One resolved (or open) follow_ledger row, the shape 082 stores. */
 function fl(leagueId, week, kind, outcome, pick, { nearTie = null } = {}) {
   const action = kind === 'next_move' ? 'start_sit' : kind;
   run(`INSERT INTO follow_ledger (league_id, team_id, season, week, kind, action, decision_key, source, shown_at,

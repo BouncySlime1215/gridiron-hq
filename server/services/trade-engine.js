@@ -63,6 +63,7 @@ import { rosterLocks, lockPins } from './lineup-lock.js';
 import { seasonEndingEspnIds } from './player-availability.js';
 import { buildPlayerWeekEngine, playerWeekDistribution } from './player-week-engine.js';
 import { weeklyAvailability, availabilityBasis } from './contingency.js';
+import { availPPlayMode, availPPlayWeek, pPlayJson } from './avail-p-play.js';
 import { activeInjuryFlagIds } from './injury-flags.js';
 import { cached, fingerprint } from './compute-cache.js';
 import { activeWeeklyWeightSet } from './weekly-weight-store.js';
@@ -300,7 +301,7 @@ const injuryFlagKey = () => crypto.createHash('sha1')
 export function assetUniverse(lg, formatKey, requested = null) {
   const target = requested ?? tradeWeekContext();
   return cached(
-    `assets:${lg.id}:${formatKey}:${target.season}:${target.week}`,
+    `assets:${lg.id}:${formatKey}:${target.season}:${target.week}${availPPlayMode().on ? ':pplay' : ''}`,
     fingerprint(ASSET_INPUT_TABLES, assetInputsKey(lg, formatKey, target)),
     () => buildAssetUniverse(lg, formatKey, target));
 }
@@ -341,7 +342,11 @@ function buildAssetUniverse(lg, formatKey, target) {
   // structural+ensemble number it corrects. `ready: false` before the first
   // background refit falls back to exactly today's prior behavior below.
   const fantasyFit = activeFantasyCoordinatorFit();
-  const active = weeklyAvailability(target.season, target.week, { through: target.season - 1 });
+  // BROKEN-E (default off): one avail.p_play read, a typed unknown and a labelled prior.
+  const pPlayMode = availPPlayMode();
+  const pPlayWeek = pPlayMode.on
+    ? availPPlayWeek(target.season, target.week, { preview: pPlayMode.preview }) : null;
+  const active = pPlayWeek?.rows ?? weeklyAvailability(target.season, target.week, { through: target.season - 1 });
   const board = new Map(vorBoard(lg.team_count || 12).map(p => [p.id, p]));
   const vol = volatility();
   // Live FantasyCalc prices only: a row FantasyCalc stopped returning is retired
@@ -384,7 +389,8 @@ function buildAssetUniverse(lg, formatKey, target) {
     const scheduleTilt = sched.signal === true;
     const tr = trending.get(p.id);
     const availability = active.get(p.id);
-    const activeProbability = availability?.active_probability ?? 0.92;
+    const pPlayed = pPlayWeek?.of(p.id, p.position) ?? null;
+    const activeProbability = pPlayed ? pPlayed.value : availability?.active_probability ?? 0.92;
     const weeklyPpg = weekProjection?.ppg ?? (proj / GAMES);
     const thisGame = sched.games?.find(game => game.week === target.week) ?? null;
     // The coordinator only corrects THIS week's number (ensemble_shift and
@@ -524,6 +530,7 @@ function buildAssetUniverse(lg, formatKey, target) {
         weight_in_season: ros.weight_in_season == null ? null : +ros.weight_in_season.toFixed(3)
       } : rosFailure ? { failed: rosFailure } : null,
       active_probability: +activeProbability.toFixed(3),
+      ...(pPlayed ? { p_play: pPlayJson(pPlayed) } : {}),
       injury_status: availability?.report_status ?? null,
       practice_status: availability?.practice_status ?? null,
       model_cutoff: weekProjection?.player_week_engine?.cutoff ?? `${target.season}-W${Math.max(0, target.week - 1)}`,
@@ -3184,6 +3191,7 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null, now = Da
 
   const brief = p => ({ id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
     week_points: p.week_points, active_probability: p.active_probability ?? null,
+    ...(p.p_play ? { p_play: p.p_play } : {}),
     injury_status: p.injury_status ?? null, espn_status: p.espn_status });
   const outReason = p => (!p ? 'empty slot' : p.on_ir ? 'on IR'
     : p.available === false ? 'flagged out for the season or released'
@@ -3195,14 +3203,19 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null, now = Da
     .filter(x => x.in && !sureZero(x.in) && (x.in.week_points ?? 0) > 0 && x.gap > 0.005)
     .map(x => {
       const versusZero = !x.out || sureZero(x.out);
-      const p = versusZero ? (x.in.active_probability ?? 0.92) : swapRightProbability(x.gap);
+      // BROKEN-E: with avail.p_play on, the asset's active_probability is always set
+      // (an unknown player's is his labelled prior), so there is no default to reach.
+      const unknownIn = versusZero && x.in.p_play?.status === 'unknown';
+      const p = versusZero
+        ? (x.in.p_play ? x.in.active_probability : x.in.active_probability ?? 0.92)
+        : swapRightProbability(x.gap);
       return {
         slot: slotOf.get(x.in.id),
         in: brief(x.in),
         out: x.out ? { ...brief(x.out), counts_for: counts(x.out), reason: outReason(x.out) } : null,
         gap: +x.gap.toFixed(2),
         p_right: +p.toFixed(3),
-        p_basis: versusZero ? 'active_probability' : 'projected_gap',
+        p_basis: unknownIn ? 'unknown_prior' : versusZero ? 'active_probability' : 'projected_gap',
         urgency: swapUrgency(p)
       };
     })

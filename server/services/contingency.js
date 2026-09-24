@@ -590,7 +590,7 @@ export function availabilityFitStamp() {
   };
   return `${part('nfl_availability_rates')}|${part('nfl_availability_role_rates')}`;
 }
-function fittedAvailability() {
+export function fittedAvailability() {
   const stamp = availabilityFitStamp();
   if (_fittedCache !== undefined && stamp === _fittedStamp) return _fittedCache;
   const read = sql => {

@@ -30,6 +30,7 @@ import { gameScriptFor } from './gamescript.js';
 import { loadRosters, assetUniverse, lineupSlots } from './trade-engine.js';
 import { random, withRandomSeed, keyedSeed } from './stats-util.js';
 import { weeklyAvailability } from './contingency.js';
+import { availPPlayMode, availPPlayWeek } from './avail-p-play.js';
 import { leagueCurrentWeek } from './league-week.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -366,9 +367,12 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
    * changes across weeks through his opponent. So the pool is built once per
    * (player, week) up front and the simulation just indexes into it. */
   const weekData = new Map();
+  // BROKEN-E (default off): the same avail.p_play read the trade engine uses.
+  const pPlayMode = availPPlayMode();
   for (const week of simWeeks) {
     const entries = [];
-    const activeChance = weeklyAvailability(SEASON, week);
+    const pPlayWeek = pPlayMode.on ? availPPlayWeek(SEASON, week, { preview: pPlayMode.preview }) : null;
+    const activeChance = pPlayWeek?.rows ?? weeklyAvailability(SEASON, week);
     for (const p of roster) {
       const pr = proj.get(p.id);
       const nflWeek = nflSchedule.get(p.team_abbr)?.find(g => g.week === week);
@@ -382,7 +386,8 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
       // who you play, and how the game is expected to unfold.
       const gs = gameScriptFor(p.team_abbr, SEASON, week);
       const mult = { pass: base * gs.pass_mult, rush: base * gs.rush_mult };
-      const activeProbability = activeChance.get(p.id)?.active_probability ?? 0.92;
+      const pPlayed = pPlayWeek?.of(p.id, p.position) ?? null;
+      const activeProbability = pPlayed ? pPlayed.value : activeChance.get(p.id)?.active_probability ?? 0.92;
       const s = withRandomSeed(keyedSeed(world, 'pool', p.id, week),
         () => sampleWeeks(pr.params, POOL, scoring, mult, activeProbability)).sort((a, b) => a - b);
       entries.push({
@@ -391,7 +396,8 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
           id: p.id, position: p.position,
           team: p.team_abbr, opponent: nflWeek.opponent_abbr,
           target_share: pr.volume?.target_share ?? null,
-          active_probability: activeProbability
+          active_probability: activeProbability,
+          ...(pPlayed ? { p_play_status: pPlayed.status } : {})
         }
       });
     }

@@ -18,11 +18,15 @@ Written 2026-09-24. Study record only: nothing served changes. The built code is
 ## Measured (local copy of the DB, target league = leagues.id 4, 2026 only; 2025 not opened)
 | metric | before (tree bf990c22, flat clone P(yes)) | after (tree b46bfba3, model on) | target |
 |---|---|---|---|
-| (a) top-5 moves whose first partner is in the active pool | 1 of 2 moves (50%) | 0 of 1 move (0%) | >= 80% |
-| (a) all steps of those moves in the active pool | 1 of 3 (33%) | 0 of 1 (0%) | - |
-| (a) moves with the unreachable manager | 0 | 0 | 0 |
-| (b) best plan's expected title-odds gain | +0.73 pts (p 0.167, +2.09 if it lands) | +0.11 pts (p 0.143, +0.75 if it lands) | - |
+| (a) top-5 moves whose first partner is in the active pool | 0 of 2 moves (0%) | 0 of 2 moves (0%) | >= 80% |
+| (a) first partners of the moves (roster ids) | 9, 9 | 9, 9 | - |
+| (a) moves with the unreachable manager (roster 4) | 0 | 0 | 0 |
+| (b) best plan's expected title-odds gain | +0.42 pts (p 0.182, +2.33 if it lands) | +0.21 pts (p 0.091, +2.33 if it lands) | - |
 | validatePlans | ok | ok | ok |
+
+These (a)/(b) rows are the review re-run on PR head 5d273818 (fresh local copy of the live DB, taken after the build). They replace the first build numbers (before 1 of 2 moves in pool = 50%, +0.73 pts, p 0.167; after 0 of 1, +0.11 pts, p 0.143), which did not reproduce.
+Why they moved: the code has no random seed, and the patched tree matched b46bfba3. Two inputs are not frozen. (1) The source DB was still being written during and after the build (data.sqlite modified 23:44, its WAL until 00:14; the impl commit is 23:58), so the build copies and the review copy most likely hold different rosters and offers. (2) The producer's as-of time is the wall clock (`Date.now()` in league-adapter.mjs, counterpart-inputs.mjs, opponent-model.js and the skip-weight decay in partners.js). A re-run on another copy or another day can give different decks. (c) does not depend on either and reproduced exactly.
+On the re-run, both trees pick the same 2 moves (both through roster 9, outside the pool). The model only halves P(complete) through the outside-the-pool rule, so (b) halves too.
 
 Producer command (same for both runs; about 12 to 20 minutes each at machine load 20 to 50):
 `SCHEDULER_DISABLED=1 GRIDIRON_PREVIEW_UNCONFIRMED=1 GRIDIRON_WARROOM_ENABLED=1 GRIDIRON_DB_PATH=<copy> GRIDIRON_CHAT_DB_PATH=<chat copy> GRIDIRON_WARROOM_PLANS=<tmp>/plans.json GRIDIRON_WARROOM_PUSHES=<tmp>/p.jsonl node scripts/campaign/produce-plans.mjs --leagues 4`,
@@ -40,7 +44,7 @@ So the per-manager update adds nothing measurable over the league level yet (abo
 
 ## Why declined
 1. (a) is out of reach from the listed files. The deck's last step must go to the target's owner, and the planner picks targets by gain alone (`planner.js`, the `upgrades` sort). On the target league, two of the top three targets belong to pool managers that Nick marked hard to deal with, and the third belongs to a manager outside the pool. Changing P(yes) alone cannot move the final leg. The deck also held only 1 or 2 moves, not 5.
-2. (b) dropped from +0.73 to +0.11 pts. The lower P(yes) comes from hand-set Nick-override multipliers and from a per-manager update that (c) does not support over the league level.
+2. (b) dropped from +0.42 to +0.21 pts on the same moves (first build: +0.73 to +0.11). The lower P(yes) comes from hand-set Nick-override multipliers and from a per-manager update that (c) does not support over the league level.
 3. The incumbent (flat clone P(yes)) stays.
 
 ## What a follow-up needs (planner.js in scope)

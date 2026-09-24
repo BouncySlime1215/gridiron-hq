@@ -1,6 +1,6 @@
 # EVAL-01: the brain's report card (E1-E7)
 
-RED `<test commit>` · GREEN follows · `test/eval-graders.test.js` (29),
+RED `ec71f368` · GREEN follows · `test/eval-graders.test.js` (29),
 `test/brain-report-rule.test.js` (6), `test/brain-report-store.test.js` (6),
 `test/refresh-loop-steps.test.js` (tick order now ends with `run-graders.mjs`).
 

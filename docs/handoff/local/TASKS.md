@@ -2,6 +2,10 @@
 Updated 2026-09-23 7:50 PM ET by B coordinator (session c4cebb1f). Pace: 4.4%/h vs 0.76%/h target -> launches held.
 
 ## Running
+- PUSH TONIGHT (Nick 8:20 PM): weekly may reach ~40% by 9/24 morning; hourly tick: treat measured pace up to that ceiling as OK, then return to 0.6%/h.
+- [ ] EA-00 spine v2 on #216 branch: wf_9249c9e5-5e8
+- [ ] ACQ-FLIP-proto (flip map + go-get-X plans on Nick's real leagues, study): wf_99afee34-e2c -> rnd/meta/acq-flip-proto.md
+- [ ] Merge doctor: #224 #218 #174 #219
 - [ ] META-01 the Referee design + historical probe (Nick: insane unified learner): wf_8ae32cdf-0a8 -> META-01-DESIGN.md, rnd/meta/probe.md. Supersedes BLEND-02 + JEV-01b blend when it lands.
 - [x] ARCHITECTURE v2 -> ENGINE-ARCHITECTURE.md (HEALTH-01a folded in). #216/#220/#226 stay HELD until EA-00/EA-01 apply the must-change lists (§11.2, §11.5).
 - [x] TELLS-01a -> #226 (HELD with #216/#220; arm B killed)

@@ -284,3 +284,4 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 - 23:58Z RULINGS Nick: per-league goal (title default, playoffs option); target ACTIVE managers (P(respond) x edge), volume of small positive offers within the fatigue/reputation budget. Logged in WORK-QUEUE.
 - 00:01Z Nick: sophisticated trade rank + flip plans + psychology arbitrage + 'go get player X' planner -> ACQ-01 + FLIP-01 spec (amends CHESS-01/RADAR-01) in ENGINE-SPECS.
 - 00:04Z PLAN v11 NORTH STAR (Nick): platform = FLIP + ACQ + PLAN-01 on clones/psychology; critical path EA-00..07 -> CLONE-01 -> FLIP-01 -> ACQ-01 -> PLAN-01. Plan, brief, TASKS, memory updated.
+- 00:05Z Nick: north star is the entire focus, 'make it insane tonight'. PUSH AUTHORIZED: allow weekly to ~40% by morning (then ~0.6%/h to Mon 9 PM). Launched EA-00 spine v2 (wf_9249c9e5-5e8, on #216 branch), ACQ-FLIP-proto study on real leagues (wf_99afee34-e2c), merge doctor for #224 #218 #174 #219.

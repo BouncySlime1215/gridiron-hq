@@ -647,10 +647,20 @@ export function loadRosters(lg, assets) {
   return teams;
 }
 
-/** Starting slots for this league, defaulted sanely when the sync didn't record them. */
-export function lineupSlots(lg) {
+/** A league's kicker / team-defence slot names, as the season sim scores them. */
+export const KDST_SLOT = { K: 'K', DEF: 'DEF', 'D/ST': 'DEF', DST: 'DEF' };
+
+/**
+ * Starting slots for this league, defaulted sanely when the sync didn't record them.
+ *
+ * By default only the skill and flex slots (every lineup solver here models those).
+ * `{ kdst: true }` (SIM-KDST: the season sim only) also keeps the league's K and
+ * D/ST slots, normalised to 'K' / 'DEF', so the sim plays every real starter.
+ */
+export function lineupSlots(lg, { kdst = false } = {}) {
   const rp = lg.roster_positions ? JSON.parse(lg.roster_positions)
     : ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX'];
+  if (kdst) return rp.map(s => KDST_SLOT[s] ?? s).filter(s => SCORED.has(s) || FLEX_ELIGIBLE[s] || s === 'K' || s === 'DEF');
   return rp.filter(s => SCORED.has(s) || FLEX_ELIGIBLE[s]);
 }
 

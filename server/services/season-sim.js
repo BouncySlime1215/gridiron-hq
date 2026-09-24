@@ -36,6 +36,9 @@ import { oneWorldFlag, oneWorldSeed, rosFactor } from './one-world.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
+// SIM-KDST: kicker and team defence. Scored at their ESPN projection (kdstPoints),
+// never drawn from the skill copula, and only when simKdstFlag() is on.
+const KDST = new Set(['K', 'DEF']);
 const FLEX_ELIGIBLE = {
   FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'], WRRB_FLEX: ['RB', 'WR'],
   SUPER_FLEX: ['QB', 'RB', 'WR', 'TE'], OP: ['QB', 'RB', 'WR', 'TE']
@@ -100,19 +103,24 @@ function fixtures(lg, rules) {
  * previous implementation sorted on `drawn`, which let every manager see the
  * future and retroactively start the highest-scoring bench players each week.
  */
-function lineupPoints(roster, slots, drawn, expected) {
+function lineupPoints(roster, slots, drawn, expected, kdst = null) {
+  // SIM-KDST: a K / D/ST scores his projected points that week (`kdst`, absent on a
+  // bye); without `kdst` he is not in the pool and his slot plays empty.
   const pool = roster
-    .filter(p => SCORED.has(p.position))
-    .map(p => ({
-      id: p.id, position: p.position,
-      expected: expected.get(p.id) ?? 0,
-      pts: drawn.get(p.id) ?? 0
-    }))
+    .filter(p => SCORED.has(p.position) || (kdst && KDST.has(p.position)))
+    .map(p => {
+      const fixed = KDST.has(p.position) ? (kdst.get(p.id) ?? 0) : null;
+      return {
+        id: p.id, position: p.position,
+        expected: fixed ?? expected.get(p.id) ?? 0,
+        pts: fixed ?? drawn.get(p.id) ?? 0
+      };
+    })
     .sort((a, b) => b.expected - a.expected);
   const used = new Set();
   let total = 0;
   for (const slot of slots) {
-    if (!SCORED.has(slot)) continue;
+    if (!SCORED.has(slot) && !KDST.has(slot)) continue;
     const pick = pool.find(p => !used.has(p.id) && p.position === slot);
     if (pick) { used.add(pick.id); total += pick.pts; }
   }
@@ -358,6 +366,102 @@ export function simPlayerMeans(world) {
   return new Map([...acc].map(([id, a]) => [id, a.s / a.n]));
 }
 
+/* ------------------------------------------------------ SIM-KDST: K and D/ST */
+
+/**
+ * SIM-KDST (BROKEN-NUMBERS row R): the sim used to play only the QB/RB/WR/TE and
+ * flex slots, so a league whose lineup also starts a K and a D/ST simulated 8 of
+ * its 10 starters (about 14 points a week short per team) and a K or D/ST swap
+ * was worth exactly 0.
+ *
+ * With the flag on, the sim keeps the league's real slots (trade-engine.js
+ * #lineupSlots with `kdst`) and each K / D/ST scores his ESPN projection, in the
+ * league's own scoring, from the synced league payload: that NFL week's projection
+ * when ESPN has published one, else his season projection per game. A bye (no NFL
+ * game that week) is 0. There is no K / D/ST weekly history on file to fit a
+ * spread from, so these slots add their mean and no variance (known limit).
+ * A K / D/ST with no ESPN projection in the payload (a free agent) falls back to
+ * his asset ros_ppg and is counted in `kdst_unprojected`.
+ *
+ * GRIDIRON_SIM_KDST: '1' on, '0' off, unset = off unless preview mode.
+ */
+export const SIM_KDST_ENV = 'GRIDIRON_SIM_KDST';
+const SIM_KDST_PREVIEW_REASON =
+  'Season sim scores K and D/ST at their ESPN projection (SIM-KDST); default off until confirmed on 2026 weeks';
+
+/** { on, preview }: read per call, so a test or a run can flip it. */
+export function simKdstFlag() {
+  const v = process.env[SIM_KDST_ENV];
+  if (v === '1') return { on: true, preview: false };
+  if (v === '0') return { on: false, preview: false };
+  const preview = previewUnconfirmed();
+  return { on: preview, preview };
+}
+
+const kdstKey = flag => (flag.on ? 'kdst' : 'skill');
+
+/**
+ * ESPN's projections for every rostered player in an ESPN league payload, by ESPN
+ * player id: `weeks` (NFL week -> projected points) and `perGame` (season
+ * projection per game). statSourceId 1 = projection; statSplitTypeId 1 = one
+ * scoring period, 0 = the season. appliedTotal / appliedAverage are already in the
+ * league's scoring.
+ */
+export function espnProjections(lg) {
+  const out = new Map();
+  let payload;
+  try { payload = JSON.parse(lg.payload ?? 'null'); } catch { return out; }
+  const season = Number(payload?.seasonId ?? lg.season);
+  for (const t of payload?.teams ?? []) {
+    for (const e of t.roster?.entries ?? []) {
+      const pl = e.playerPoolEntry?.player;
+      if (pl?.id == null) continue;
+      const rec = { weeks: new Map(), perGame: null };
+      for (const st of pl.stats ?? []) {
+        if (st.statSourceId !== 1 || Number(st.seasonId) !== season) continue;
+        const total = Number(st.appliedTotal);
+        if (st.statSplitTypeId === 1 && st.scoringPeriodId > 0 && Number.isFinite(total)) {
+          rec.weeks.set(Number(st.scoringPeriodId), total);
+        } else if (st.statSplitTypeId === 0 && st.scoringPeriodId === 0) {
+          const avg = Number(st.appliedAverage);
+          rec.perGame = Number.isFinite(avg) ? avg : (Number.isFinite(total) ? total / 17 : null);
+        }
+      }
+      out.set(String(pl.id), rec);
+    }
+  }
+  return out;
+}
+
+/**
+ * Each K / D/ST's projected points per simulated week (week -> Map<id, pts>); a
+ * bye week has no entry (0). Empty weeks when the flag is off.
+ */
+function kdstPoints(lg, players, simWeeks, nflSchedule, flag) {
+  const byWeek = new Map(simWeeks.map(w => [w, new Map()]));
+  if (!flag.on) return { byWeek, fields: null };
+  const espn = espnProjections(lg);
+  let projected = 0, unprojected = 0;
+  for (const p of players) {
+    if (!KDST.has(p.position)) continue;
+    const e = p.espn_id != null ? espn.get(String(p.espn_id)) : undefined;
+    const perGame = e?.perGame ?? (Number.isFinite(p.ros_ppg) ? p.ros_ppg : null);
+    if (e?.perGame != null) projected++; else unprojected++;
+    const games = nflSchedule.get(p.team_abbr);
+    for (const week of simWeeks) {
+      // Unknown team schedule: no game on file is treated like a bye, as weekPool does.
+      if (!games?.some(g => g.week === week)) continue;
+      const pts = e?.weeks.get(week) ?? perGame;
+      if (Number.isFinite(pts)) byWeek.get(week).set(p.id, pts);
+    }
+  }
+  return {
+    byWeek,
+    fields: { kdst_scored: true, kdst_projected: projected, kdst_unprojected: unprojected,
+      ...(flag.preview ? previewFields(SIM_KDST_PREVIEW_REASON) : {}) }
+  };
+}
+
 /* -------------------------------------------------------------- the sim */
 
 /**
@@ -388,13 +492,13 @@ export function simulateSeason(lg, {
     const drawn = new Map();
     const vals = wd.draw(run);
     for (let i = 0; i < wd.ids.length; i++) drawn.set(wd.ids[i], vals[i]);
-    got = { drawn, expected: wd.expected };
+    got = { drawn, expected: wd.expected, kdst: wd.kdst };
     cache.set(week, got);
     return got;
   };
   return playSeasons(prep, prep.teams, runs, keepRuns, (t, run, week) => {
-    const { drawn, expected } = drawnFor(run, week);
-    return lineupPoints(t.players, prep.slots, drawn, expected);
+    const { drawn, expected, kdst } = drawnFor(run, week);
+    return lineupPoints(t.players, prep.slots, drawn, expected, kdst);
   });
 }
 
@@ -406,7 +510,7 @@ export function simulateSeason(lg, {
  * unless `worldId` names it (EA-07: the week's world, oneWorldSeed).
  */
 function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = null, projections = null, universe = null,
-  basisFlag = rosBasisFlag(), worldId = null }) {
+  basisFlag = rosBasisFlag(), worldId = null, kdstFlag = simKdstFlag() }) {
   const fromWeek = simStartWeek(lg, requestedWeek);
   // The league's own rules, never a hard-coded default: a missing field is a
   // named error with its payload path (league-rules.js#simRulesProblem).
@@ -416,7 +520,7 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   let teams = loadRosters(lg, assets);
-  const slots = lineupSlots(lg);
+  const slots = lineupSlots(lg, { kdst: kdstFlag.on });
   const proj = projections ?? buildProjections({ through: SEASON - 1, scoring });
 
   if (overrides) teams = applyOverrides(teams, overrides, assets);
@@ -438,7 +542,8 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
   // order-dependent, so a positional order made the "after" season different
   // random football for the whole league (up to 6.5pp on a pure reorder).
   const extra = [...(universe ?? [])].map(id => assets.get(Number(id))).filter(Boolean);
-  const roster = [...new Map([...teams.flatMap(t => t.players), ...extra].map(p => [p.id, p])).values()]
+  const everyone = [...new Map([...teams.flatMap(t => t.players), ...extra].map(p => [p.id, p])).values()];
+  const roster = everyone
     .filter(p => SCORED.has(p.position))
     .sort((a, b) => (a.id > b.id) - (a.id < b.id));
   // RL-17-3: the finder's ros_ppg as each pool's mean (empty when the flag is off).
@@ -449,6 +554,8 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
   // EA-07: a named world (the NFL week's) takes no draw from the stream.
   const world = worldId != null ? Number(worldId) >>> 0 : Math.floor(random() * 0x100000000) >>> 0;
   const { schedule: nflSchedule } = matchupModel();
+  // SIM-KDST: K / D/ST projected points per week, outside the copula (empty when off).
+  const kdst = kdstPoints(lg, everyone, simWeeks, nflSchedule, kdstFlag);
 
   /* --- pre-generate each player's outcome pool per week ---------------------
    * Sampling is by far the most expensive part, and a player's distribution only
@@ -472,7 +579,7 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
       // week-w outcome in run r is the same wherever he is rostered.
       draw: correlatedSampler(active.map(e => e.meta), active.map(e => e.samples),
         active.map(e => keyedSeed(world, 'copula', e.p.id, week))),
-      ids: active.map(e => e.p.id), expected,
+      ids: active.map(e => e.p.id), expected, kdst: kdstFlag.on ? kdst.byWeek.get(week) : null,
       // The sorted pools themselves: a page's range.week is read off these (EA-07).
       pools: new Map(active.map(e => [e.p.id, e.samples]))
     });
@@ -481,7 +588,9 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
   return {
     lg, rules, fromWeek, assets, teams, slots, sched, weeks, simWeeks, bracketWeeks, weekData, world,
     playoffTeams: rules.schedule.playoff_teams, medianGame: rules.median_game === true,
-    rosterIds: new Set(roster.map(p => p.id)), basisFields: basis.fields
+    rosterIds: new Set(roster.map(p => p.id)), basisFields: basis.fields,
+    kdstIds: new Set(everyone.filter(p => KDST.has(p.position)).map(p => p.id)),
+    kdstFields: kdst.fields
   };
 }
 
@@ -625,6 +734,10 @@ function playSeasons(prep, teams, runs, keepRuns, pointsFor) {
     odds_interval: 'run-to-run Monte Carlo error only; excludes the shared error of the fixed per-player outcome pools',
     teams: out,
     ...(prep.basisFields ?? {}),
+    ...(prep.kdstFields ?? {}),
+    // Both on only under preview: name both reasons, not just the last one.
+    ...(prep.basisFields?.preview && prep.kdstFields?.preview
+      ? { preview_reason: `${prep.basisFields.preview_reason}; ${prep.kdstFields.preview_reason}` } : {}),
     ...(perRun ? { per_run: perRun } : {})
   };
 }
@@ -711,13 +824,14 @@ export function tradeImpactWorld(lg, {
   const pairedSeed = seed == null ? tradeImpactSeed(lg) : Number(seed);
   const universeIds = [...new Set([...universe].map(Number))].sort((a, b) => a - b);
   const basisFlag = rosBasisFlag();
+  const kdstFlag = simKdstFlag();
   const mode = worldMode();
   const prep = withRandomSeed(pairedSeed,
-    () => prepareSeason(lg, { requestedWeek, scoring, projections, universe: universeIds, basisFlag,
+    () => prepareSeason(lg, { requestedWeek, scoring, projections, universe: universeIds, basisFlag, kdstFlag,
       worldId: mode === 'week' ? pairedSeed : null }));
   const key = {
     league: lg.id, fetched_at: lg.fetched_at ?? null, runs, fromWeek: simStartWeek(lg, requestedWeek),
-    scoring: JSON.stringify(scoring), seed: pairedSeed, basis: basisKey(basisFlag), mode
+    scoring: JSON.stringify(scoring), seed: pairedSeed, basis: basisKey(basisFlag), mode, kdst: kdstKey(kdstFlag)
   };
   if (prep.fail) return { key, projections, universe: universeIds, fail: prep.fail };
 
@@ -727,7 +841,7 @@ export function tradeImpactWorld(lg, {
     const index = new Map(wd.ids.map((id, i) => [id, i]));
     const byRun = new Array(runs);
     for (let run = 0; run < runs; run++) byRun[run] = new RunDraws(wd.draw(run), index);
-    draws.set(week, { byRun, expected: wd.expected });
+    draws.set(week, { byRun, expected: wd.expected, kdst: wd.kdst });
   }
   // Simulated players no roster holds (free agents from `universe`).
   const rostered = new Set(prep.teams.flatMap(t => t.players.map(p => p.id)));
@@ -741,9 +855,9 @@ export function tradeImpactWorld(lg, {
 /** One roster's lineup total in every run and week: week -> Float64Array[run]. */
 function teamPoints(w, players) {
   const out = new Map();
-  for (const [week, { byRun, expected }] of w.draws) {
+  for (const [week, { byRun, expected, kdst }] of w.draws) {
     const arr = new Float64Array(w.runs);
-    for (let run = 0; run < w.runs; run++) arr[run] = lineupPoints(players, w.prep.slots, byRun[run], expected);
+    for (let run = 0; run < w.runs; run++) arr[run] = lineupPoints(players, w.prep.slots, byRun[run], expected, kdst);
     out.set(week, arr);
   }
   return out;
@@ -757,13 +871,16 @@ function worldFits(w, lg, { runs, scoring, fromWeek, seed, dealIds }) {
   const k = w.key;
   if (k.league !== lg.id || k.fetched_at !== (lg.fetched_at ?? null) || k.runs !== runs
     || k.fromWeek !== fromWeek || k.scoring !== JSON.stringify(scoring) || k.seed !== seed
-    || k.basis !== basisKey(rosBasisFlag()) || k.mode !== worldMode()) return false;
+    || k.basis !== basisKey(rosBasisFlag()) || k.mode !== worldMode()
+    || k.kdst !== kdstKey(simKdstFlag())) return false;
   // The world's copula must hold exactly the players the full runs would: every
   // rostered player plus the ones this deal names. A named player outside it, or
   // an extra free agent the deal does not name, would change his game-mates' draws.
   const named = new Set(dealIds);
+  // SIM-KDST: a K / D/ST sits outside the copula, but his projection must be in the world.
   return w.extras.every(id => named.has(id)) && dealIds.every(id => {
     const p = w.prep.assets.get(id);
+    if (p && KDST.has(p.position) && w.key.kdst === 'kdst') return w.prep.kdstIds.has(id);
     return !p || !SCORED.has(p.position) || w.prep.rosterIds.has(id);
   });
 }
@@ -861,6 +978,8 @@ export function tradeImpact(lg, {
       ...(before.preview ? previewFields(before.preview_reason) : {}) } : {}),
     // EA-07: whether this deal was priced on the caller's world (the snapshot's one
     // title.odds) or needed its own (it names a player outside that world).
+    ...(before.kdst_scored ? { kdst_scored: true,
+      ...(before.preview ? previewFields(before.preview_reason) : {}) } : {}),
     ...(worldMode() === 'week' ? { world_id: pairedSeed, world_reused: reused } : {}),
     me: delta(me.roster_id), them: delta(them.roster_id) };
 }

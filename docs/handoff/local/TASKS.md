@@ -1,6 +1,14 @@
 # TASKS (live checklist; update at every launch, merge, decision)
 Updated 2026-09-23 7:50 PM ET by B coordinator (session c4cebb1f). Pace: 4.4%/h vs 0.76%/h target -> launches held.
 
+## OVERNIGHT PLAN 9/23 -> 9/24 morning (Nick ~8:55 PM: "everything from the north star down was 100% perfect; ready by the time I wake up, statistically tested and ready with UI; requires a UI overhaul")
+Scope = the north star + CAMPAIGN-01a-g (objectives: get player X / title / playoffs / X projected pts per week; suggest targets; playbook with exact message + reply table + walk-away; risk modes Safe/Balanced/Fuck-it; Coach navigator itinerary; speed curve; catch-up engine) + EVAL-01 + War Room UI in Trade Brain.
+Budget ceiling for the night: weekly up to ~45% by 9 AM (Nick authorized the push); then ~0.55%/h to Mon 9 PM.
+PHASE A (running now): EA-00 spine v2 (wf_9249c9e5-5e8); ACQ-FLIP-proto on real leagues (wf_99afee34-e2c); E1 accept calibration + E3 title-odds calibration on Sleeper history (agent); War Room UI design + static mock (agent -> WAR-ROOM-UI.md, war-room-mock.html); merge doctor (#224 #218 #174 #219).
+PHASE B (launch as soon as ACQ-FLIP-proto AND WAR-ROOM-UI.md land): WARROOM build units from WAR-ROOM-UI.md's build plan (build-unit-v3): (1) a campaign producer script run by the refresh loop (never the web server) writing per-league plans JSON/table: flip map, suggested targets, best path with per-step P(yes)/title-odds/walk-away/reply table, catch-up list (free moves -> flips -> desperate/checked-out -> variance when behind -> timing), speed curve, objective types incl. 'X projected pts per week' with feasibility; (2) read-only route + War Room UI in Trade Brain behind GRIDIRON_WARROOM_ENABLED (on under preview): destination/ETA, next move with copyable message, itinerary with Coach trade-off preview, flip map, targets approve/choose, risk mode + tolerance sliders, 'Is the brain working?' (E1/E3 results + 'not enough data yet' for E2/E4-E7), number-health dot.
+PHASE C (before Nick wakes): merge what passes; ff local clone + restart; open the War Room in the browser for each league, screenshot, check the numbers match the plans JSON; write MORNING-BRIEF.md (what's live, what's tested with numbers, what's NOT yet: always-on replanning daemon, live grading, clone validation beyond history) and SendUserFile it + screenshots.
+HONEST LIMITS to state in the brief: event-driven replanning needs EA-02 daemon (not overnight); P(accept) validated only as far as E1 allows; live grading (E2, E4-E7) needs 2026 weeks.
+
 ## Running
 - PUSH TONIGHT (Nick 8:20 PM): weekly may reach ~40% by 9/24 morning; hourly tick: treat measured pace up to that ceiling as OK, then return to 0.6%/h.
 - [ ] EA-00 spine v2 on #216 branch: wf_9249c9e5-5e8

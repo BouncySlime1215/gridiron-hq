@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { WarRoomCoach } from './useWarRoomCoach';
 import PlugInCard from './PlugInCard';
-import { NOT_COMPUTED, pts, size } from '../format';
+import TradeoffPreview from '../TradeoffPreview';
 
 /**
  * The Coach dock in the War Room's right column (a bottom sheet on a phone):
@@ -12,36 +12,15 @@ import { NOT_COMPUTED, pts, size } from '../format';
  * Cards Coach plugged in (plug_in) draw here, each reading its whitelisted
  * field from `plans`, the same War Room view the panels draw.
  *
- * The preview is the producer's stop_tradeoffs entry, read not computed: a
- * title-odds number (source sim.title) prints in points, anything else as written.
+ * The preview is the producer's stop_tradeoffs entry, read not computed (../TradeoffPreview).
  */
-function fmt(f: any, signed = false): string {
-  if (f == null) return NOT_COMPUTED;
-  if (typeof f === 'number' || typeof f === 'string') return String(f);
-  if (typeof f !== 'object' || f.status !== 'ok' || typeof f.value !== 'number') return NOT_COMPUTED;
-  const text = f.source === 'sim.title' ? (signed ? pts(f.value) : size(f.value)) : String(f.value);
-  return `${text}${f.guess ? ' (guess)' : ''}`;
-}
-
 function PreviewPanel({ coach }: { coach: WarRoomCoach }) {
   const p = coach.pending;
   if (!p) return null;
-  const v = p.preview.value;
   return (
     <div role="dialog" aria-label="Trade-off preview" className="wr-state">
       <div className="wr-ch-t">Trade-off before anything changes</div>
-      {p.preview.status === 'ok' && v ? (
-        <ul>
-          {v.stop_label && <li>{v.stop_label}</li>}
-          <li>Costs: {fmt(v.cost)}{v.extra_steps != null ? `, ${v.extra_steps} extra step(s)` : ''}</li>
-          <li>Gains: {fmt(v.gain)}{v.gain_text ? ` (${v.gain_text})` : ''}</li>
-          <li>Net: {fmt(v.net, true)}{v.verdict ? `: ${String(v.verdict).replace(/_/g, ' ')}` : ''}</li>
-          {v.because && <li>Because {v.because}</li>}
-          {v.new_next_move_changes != null && <li>Next move {v.new_next_move_changes ? 'changes' : 'stays the same'}</li>}
-        </ul>
-      ) : (
-        <p>{p.preview.reason}</p>
-      )}
+      <TradeoffPreview preview={p.preview} />
       <div className="wr-ask">
         <button type="button" className="wr-btn" onClick={coach.cancel}>Cancel</button>
         <button type="button" className="wr-btn wr-primary" onClick={() => { void coach.confirm(); }}>Confirm</button>

@@ -3,11 +3,11 @@ import { FieldBlock, Val } from './FieldState';
 import { pct, pts } from './format';
 import { usePager } from './Panel';
 
-/** Stops in order (get X, flip Y, ...), as the producer wrote them. Adding a stop is Coach's (FIX-06). */
-export default function Itinerary({ field, big }: { field: Field<It> | undefined; big: boolean }) {
+/** Stops in order (get X, flip Y, ...), as the producer wrote them. + Add a stop opens the WR-3 AddStopSheet. */
+export default function Itinerary({ field, big, onAddStop }: { field: Field<It> | undefined; big: boolean; onAddStop?: () => void }) {
   const stops = field?.status === 'ok' && field.value ? field.value.stops : [];
   const pg = usePager(stops.length, big ? 7 : 4);
-  return (
+  const list = (
     <FieldBlock f={field} label="Stops">
       {it => (
         <>
@@ -35,9 +35,15 @@ export default function Itinerary({ field, big }: { field: Field<It> | undefined
             ))}
           </ol>
           {it.conflicts.map((c, i) => <p key={i} className="wr-sub wr-red">{c.text}</p>)}
-          <button type="button" className="wr-btn wr-sm" disabled title="Adding stops is Coach's (FIX-06)">+ Add a stop</button>
         </>
       )}
     </FieldBlock>
+  );
+  return (
+    <>
+      {list}
+      <button type="button" className="wr-btn wr-sm" disabled={!onAddStop} onClick={onAddStop}
+        title={onAddStop ? 'Add a stop; you see its trade-off before anything is recorded' : 'Pick a league first'}>+ Add a stop</button>
+    </>
   );
 }

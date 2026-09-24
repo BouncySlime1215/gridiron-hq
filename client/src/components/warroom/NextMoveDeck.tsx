@@ -244,7 +244,7 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post }: {
         {skipRow}
         {saveNote}
         <div className="wr-cap">If he says… (tap what happened)</div>
-        <ReplyTable replies={s.reply_table} onLog={deck.chosen === idx ? reply => dispatch({ type: 'reply', card: move.move_id, reply, at: Date.now() }) : undefined} />
+        <ReplyTable replies={s.reply_table} onLog={deck.chosen === idx ? (reply, note) => dispatch({ type: 'reply', card: move.move_id, reply, note, at: Date.now() }) : undefined} />
         <div className="wr-cap">Reasoning</div>
         <ul className="wr-reasoning">
           {REASONING_SLOTS.map(([k, label]) => (

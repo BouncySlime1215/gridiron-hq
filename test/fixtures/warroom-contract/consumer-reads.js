@@ -36,6 +36,8 @@ const FLIP = `${WRC}/FlipMap.tsx`;
 const BRAIN = `${WRC}/BrainCheckCard.tsx`;
 const CO = 'client/src/components/warroom/coach/warroomCoach.ts';
 const DOCK = 'client/src/components/warroom/coach/CoachDock.tsx';
+/** FIX-230-1: the dock's trade-off preview moved here so the WR-3 sheets draw the same one. */
+const PREV = `${WRC}/TradeoffPreview.tsx`;
 const ACT = 'server/services/warroom-actions/schema.js';
 const RS = 'server/services/reasoning/cards.js';
 
@@ -109,15 +111,15 @@ export const READS = [
   /* ------------------------------------------------------------ #230 Coach */
   { pr: 230, where: `${CO}:246`, reads: 'leagues[].stop_tradeoffs.value' },
   { pr: 230, where: `${CO}:247`, reads: 'leagues[].stop_tradeoffs.value{}' },
-  { pr: 230, where: `${DOCK}:31`, reads: 'leagues[].stop_tradeoffs.value{}.stop_label', scalar: true },
-  { pr: 230, where: `${DOCK}:32`, reads: 'leagues[].stop_tradeoffs.value{}.cost.value' },
-  { pr: 230, where: `${DOCK}:32`, reads: 'leagues[].stop_tradeoffs.value{}.extra_steps', scalar: true },
-  { pr: 230, where: `${DOCK}:33`, reads: 'leagues[].stop_tradeoffs.value{}.gain.value' },
-  { pr: 230, where: `${DOCK}:33`, reads: 'leagues[].stop_tradeoffs.value{}.gain_text', scalar: true },
-  { pr: 230, where: `${DOCK}:34`, reads: 'leagues[].stop_tradeoffs.value{}.net.value' },
-  { pr: 230, where: `${DOCK}:34`, reads: 'leagues[].stop_tradeoffs.value{}.verdict', scalar: true },
-  { pr: 230, where: `${DOCK}:35`, reads: 'leagues[].stop_tradeoffs.value{}.because', scalar: true },
-  { pr: 230, where: `${DOCK}:36`, reads: 'leagues[].stop_tradeoffs.value{}.new_next_move_changes', scalar: true },
+  { pr: 230, where: `${PREV}:23`, reads: 'leagues[].stop_tradeoffs.value{}.stop_label', scalar: true },
+  { pr: 230, where: `${PREV}:24`, reads: 'leagues[].stop_tradeoffs.value{}.cost.value' },
+  { pr: 230, where: `${PREV}:24`, reads: 'leagues[].stop_tradeoffs.value{}.extra_steps', scalar: true },
+  { pr: 230, where: `${PREV}:25`, reads: 'leagues[].stop_tradeoffs.value{}.gain.value' },
+  { pr: 230, where: `${PREV}:25`, reads: 'leagues[].stop_tradeoffs.value{}.gain_text', scalar: true },
+  { pr: 230, where: `${PREV}:26`, reads: 'leagues[].stop_tradeoffs.value{}.net.value' },
+  { pr: 230, where: `${PREV}:26`, reads: 'leagues[].stop_tradeoffs.value{}.verdict', scalar: true },
+  { pr: 230, where: `${PREV}:27`, reads: 'leagues[].stop_tradeoffs.value{}.because', scalar: true },
+  { pr: 230, where: `${PREV}:28`, reads: 'leagues[].stop_tradeoffs.value{}.new_next_move_changes', scalar: true },
   { pr: 230, where: `${CO}:265`, reads: 'leagues[].alternatives.value' },
   { pr: 230, where: `${CO}:464`, reads: 'leagues[].next_move.value' },
   // FIX-06: dealLine() reads the deal from the move's first step.
@@ -175,4 +177,4 @@ export const READS = [
   { pr: 234, where: `${RS}:64`, reads: 'leagues[].brain_report.value.checks[].status', scalar: true }
 ];
 
-export const FILES = { UI, DECK, REPLY, TOP, WR, ITIN, TGT, FLIP, BRAIN, CO, DOCK, ACT, RS };
+export const FILES = { UI, DECK, REPLY, TOP, WR, ITIN, TGT, FLIP, BRAIN, CO, DOCK, PREV, ACT, RS };

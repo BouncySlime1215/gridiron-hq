@@ -166,6 +166,23 @@
 .wr-ask { display: flex; gap: 6px; padding: 8px 10px; }
 .wr-ask input { flex: 1; min-width: 0; border: 1px solid var(--wr-line); background: var(--wr-bg); border-radius: 8px; padding: 7px 9px; }
 
+/* ---------- WR-3 sheets (goal, risk mode + tolerances, add a stop) and the Undo toast ---------- */
+.wr-sheet-back { position: fixed; inset: 0; z-index: 60; background: rgb(0 0 0 / .35); display: flex; align-items: center; justify-content: center; padding: 12px; }
+.wr-sheet { background: var(--wr-bg); color: var(--wr-ink); border: 1px solid var(--wr-line); border-radius: 12px; width: min(480px, 100%);
+  max-height: calc(100dvh - 24px); overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 12px 30px rgb(0 0 0 / .25); }
+.wr-sheet-t { font-size: 15px; }
+.wr-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.wr-chip.wr-on { background: var(--wr-ink); color: var(--wr-bg); border-color: var(--wr-ink); }
+.wr-field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; font-weight: 700; color: var(--wr-muted); }
+.wr-field select, .wr-field input[type="text"], .wr-field input[type="number"], .wr-field textarea {
+  border: 1px solid var(--wr-line); background: var(--wr-bg); color: var(--wr-ink); border-radius: 8px; padding: 6px 8px; font: inherit; font-weight: 400; }
+.wr-tols { border-top: 1px solid var(--wr-line); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.wr-tol { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 4px 8px; }
+.wr-tol .wr-hint { grid-column: 1 / -1; }
+.wr-counter { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+.wr-toast { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 55; display: flex; align-items: center; gap: 8px;
+  background: var(--wr-bg); border: 1px solid var(--wr-line); border-radius: 10px; padding: 6px 10px; font-size: 12.5px; box-shadow: 0 6px 20px rgb(0 0 0 / .18); max-width: calc(100vw - 32px); }
+
 /* ---------- phone: one-screen swipe deck, Coach as bottom sheet ---------- */
 @media (max-width: 699px) {
   .wr-app { grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: auto minmax(0, 1fr) auto !important;

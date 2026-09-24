@@ -6,7 +6,8 @@
  * optional one-tap reason is offered. Every step lands in `log` (this tab only), and the
  * taps that teach the planner land in `outbox`, which the deck posts to the request
  * table (requests.ts): one `deck.skip` per skip, carrying its reason when one was
- * tapped; `offer.sent` for "I sent it"; `offer.reply` for a logged reply.
+ * tapped; `offer.sent` for "I sent it"; `offer.reply` for a logged reply (a counter
+ * carries its `counter_note` from ReplyTable's counter form).
  *
  * A skip is posted when its reason prompt closes (reason tapped, prompt dismissed, the
  * next skip, Do it, or start over), so one skip is one request. Back before then
@@ -52,7 +53,7 @@ export type DeckAction =
   | { type: 'skip_reason'; reason: SkipReason; card: string; at: number }
   | { type: 'dismiss_reason' }
   | { type: 'sent'; card: string; at: number }
-  | { type: 'reply'; card: string; reply: ReplyKind; at: number }
+  | { type: 'reply'; card: string; reply: ReplyKind; note?: string; at: number }
   | { type: 'reset'; at: number };
 
 export const initialDeck = (index = 0): DeckState =>
@@ -99,9 +100,13 @@ export function deckReducer(s: DeckState, a: DeckAction): DeckState {
       return { ...s, sent: [...s.sent, a.card], outbox: [...s.outbox, { kind: 'offer.sent', payload: { move_id: a.card } }],
         log: [...s.log, { kind: 'sent', index: s.index, card: a.card, at: a.at }] };
     }
-    case 'reply':
-      return { ...s, outbox: [...s.outbox, { kind: 'offer.reply', payload: { move_id: a.card, reply: a.reply } }],
+    case 'reply': {
+      // A counter carries what he countered with (the counter form), when Nick wrote it.
+      const note = a.reply === 'counter' ? a.note?.trim() : '';
+      const payload = note ? { move_id: a.card, reply: a.reply, counter_note: note } : { move_id: a.card, reply: a.reply };
+      return { ...s, outbox: [...s.outbox, { kind: 'offer.reply', payload }],
         log: [...s.log, { kind: 'reply', index: s.index, card: a.card, reply: a.reply, at: a.at }] };
+    }
     case 'reset': {
       const t = settle(s);
       return { ...initialDeck(0), sent: t.sent, outbox: t.outbox, log: [...s.log, { kind: 'reset', index: 0, card: '', at: a.at }] };

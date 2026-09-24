@@ -11,11 +11,13 @@ export interface LeagueChoice { id: number; name: string | null }
  * Top strip: league switcher (app order; the open league shows its "needs you this week"
  * rank from `attention`, "not ranked yet" until the producer writes it), `destination`
  * (goal, ETA vs plan, title odds now vs plan, risk mode), the `brain_report` and
- * number-health dots, and the way back to the other tabs.
+ * number-health dots, and the way back to the other tabs. Change goal and the risk chip
+ * open the WR-3 sheets (ObjectiveSheet, RiskModeSheet).
  */
-export default function TopStrip({ view, leagues, activeId, onLeague, onExit, theme, onTheme }: {
+export default function TopStrip({ view, leagues, activeId, onLeague, onExit, theme, onTheme, onGoal, onRisk }: {
   view: WarRoomView; leagues: LeagueChoice[]; activeId: number; onLeague: (id: number) => void;
   onExit: (tab: 'managers' | 'proposals') => void; theme: 'light' | 'dark'; onTheme: () => void;
+  onGoal?: () => void; onRisk?: () => void;
 }) {
   const att = isOk(view.attention) ? view.attention.value : null;
   const d = isOk(view.destination) ? view.destination.value : undefined;
@@ -37,7 +39,9 @@ export default function TopStrip({ view, leagues, activeId, onLeague, onExit, th
         })}
       </div>
       <div className="wr-facts">
-        <div className="wr-fact"><span className="wr-l">Destination</span><span className="wr-v"><Val f={d?.goal} fmt={g => g.label} /></span></div>
+        <div className="wr-fact"><span className="wr-l">Destination</span><span className="wr-v"><Val f={d?.goal} fmt={g => g.label} />
+          {onGoal && <> <button type="button" className="wr-link" onClick={onGoal}>Change goal</button></>}
+        </span></div>
         <div className="wr-fact"><span className="wr-l">ETA vs plan</span><span className="wr-v">
           <Val f={d?.eta_week} fmt={w => `wk ${w}`} />{d?.arrive_by?.status === 'ok' && <span className="wr-muted"> plan wk {d.arrive_by.value}</span>}
         </span></div>
@@ -47,8 +51,9 @@ export default function TopStrip({ view, leagues, activeId, onLeague, onExit, th
           {d?.ground_lost?.status === 'ok' && <span className="wr-amber"> <Val f={d.ground_lost} fmt={pts} /></span>}
         </span></div>
         <div className="wr-fact"><span className="wr-l">Risk mode</span>
-          <button type="button" className={`wr-chip${isOk(risk) && risk.value.mode === 'all_in' ? ' wr-chip-allin' : ''}`} disabled
-            title={isOk(risk) ? "Changing the mode is Coach's (FIX-06)" : risk?.reason ?? view.destination?.reason}>
+          <button type="button" className={`wr-chip${isOk(risk) && risk.value.mode === 'all_in' ? ' wr-chip-allin' : ''}`}
+            disabled={!onRisk} onClick={onRisk} aria-label="Change risk mode"
+            title={isOk(risk) ? 'Change risk mode and tolerances' : risk?.reason ?? view.destination?.reason}>
             {isOk(risk) ? `${MODES[risk.value.mode]}${risk.value.until_week ? ` until wk ${risk.value.until_week}` : ''}` : NOT_COMPUTED}
           </button>
         </div>

@@ -14,6 +14,10 @@ import TargetPicker from './TargetPicker';
 import CatchUp from './CatchUp';
 import BrainCheckCard from './BrainCheckCard';
 import { CoachDock, useWarRoomCoach, type Panel as CoachPanel } from './coach';
+import ObjectiveSheet from './ObjectiveSheet';
+import RiskModeSheet from './RiskModeSheet';
+import AddStopSheet from './AddStopSheet';
+import UndoBar, { useRecorder } from './UndoBar';
 
 /**
  * The War Room: ONE dashboard, no page scroll (WAR-ROOM-UI.md v2).
@@ -26,7 +30,8 @@ import { CoachDock, useWarRoomCoach, type Panel as CoachPanel } from './coach';
  *
  * It renders only what the view says (the contract's league entry: `alternatives`,
  * `targets`, `flip_map`, `brain_report`, ...); useWarRoom is the one read and
- * requests.ts the one write (skips, "I sent it", replies, target approvals).
+ * requests.ts the one write (skips, "I sent it", replies, target approvals, and the WR-3
+ * sheets: goal, risk mode + tolerances, add a stop, each with a 10-minute Undo).
  */
 export const PANELS: { id: PanelId; name: string }[] = [
   { id: 'next', name: 'Next move' },
@@ -71,6 +76,8 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [phone, setPhone] = useState(false);
   const [deckPos, setDeckPos] = useState(0);
+  const [sheet, setSheet] = useState<'goal' | 'risk' | 'stop' | null>(null);
+  const recorder = useRecorder(activeId, post);
   const deckRef = useRef<HTMLElement | null>(null);
   // Coach reads the same view the panels draw (the plans contract); it never fetches plans.
   const coach = useWarRoomCoach({ leagueId: activeId, leagues: leagues.map(l => l.id), plans: view, onLeagueChange: onLeague });
@@ -96,13 +103,13 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
 
   // Esc puts NEXT MOVE back in the big slot.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSwap(null); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setSwap(null); setSheet(null); } };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   // A new league starts on its own deck.
-  useEffect(() => { setSwap(null); }, [activeId]);
+  useEffect(() => { setSwap(null); setSheet(null); }, [activeId]);
 
   // Coach's focus_panel (and its undo) swaps that panel into the big slot, like Expand.
   useEffect(() => {
@@ -124,13 +131,16 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
   }, []);
 
   const d = isOk(view.destination) ? view.destination.value : undefined;
+  const closeSheet = useCallback(() => setSheet(null), []);
   const send = useCallback((req: WarRoomRequest) => postWarRoomRequest(activeId, req, post), [activeId, post]);
 
   return (
     <SourcesContext.Provider value={view.sources ?? {}}>
       <div className="wr-root wr-app" data-theme={theme} data-testid="war-room-grid" style={ROOT_STYLE}>
         <TopStrip view={view} leagues={leagues} activeId={activeId} onLeague={onLeague} onExit={onExit}
-          theme={theme} onTheme={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))} />
+          theme={theme} onTheme={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))}
+          onGoal={() => setSheet('goal')} onRisk={() => setSheet('risk')} />
+        <UndoBar recorder={recorder} />
 
         <main className="wr-panels" ref={deckRef} aria-label="War Room panels"
           onScroll={e => {
@@ -143,7 +153,7 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
             <NextMoveDeck key={`${activeId}:${view.snapshot?.id ?? ''}`} view={view} big={big('next')} initialState={deckInitial} onLog={onDeckLog} post={post} />
           </Panel>
           <Panel {...common('stops')} title="Stops">
-            <Itinerary field={view.itinerary} big={big('stops')} />
+            <Itinerary field={view.itinerary} big={big('stops')} onAddStop={() => setSheet('stop')} />
           </Panel>
           <Panel {...common('flip_map')} title="Flip map">
             <FlipMap field={view.flip_map} names={view.names} big={big('flip_map')} />
@@ -167,6 +177,10 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
         </nav>
 
         <CoachDock coach={coach} plans={view} open={coachOpen} onToggle={() => setCoachOpen(o => !o)} />
+
+        {sheet === 'goal' && <ObjectiveSheet plans={view} names={view.names} onRecord={recorder.record} onClose={closeSheet} />}
+        {sheet === 'risk' && <RiskModeSheet plans={view} onRecord={recorder.record} onClose={closeSheet} />}
+        {sheet === 'stop' && <AddStopSheet plans={view} names={view.names} onRecord={recorder.record} onClose={closeSheet} />}
       </div>
     </SourcesContext.Provider>
   );

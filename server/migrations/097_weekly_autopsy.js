@@ -1,4 +1,4 @@
-export const name = '087_weekly_autopsy';
+export const name = '097_weekly_autopsy';
 /**
  * AUTOPSY-01 Monday Autopsy, team-week table. Additive only: one new table.
  *
@@ -23,7 +23,7 @@ export const name = '087_weekly_autopsy';
  * optimal lineup could not be solved keeps optimal_expected_points NULL with the
  * reason in `status` (E7 skips it rather than grading a guess).
  *
- * Numbered 087: main tops at 074; 071, 074-086 are held by open PRs or the plan.
+ * Numbered 097 per the MIGRATIONS.md registry (first built as 087, which #286 holds).
  */
 export function up(db) {
   db.exec(`

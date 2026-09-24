@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * AUTOPSY-01: build `weekly_autopsy` (migration 087) for one league, every completed
+ * AUTOPSY-01: build `weekly_autopsy` (migration 097) for one league, every completed
  * scoring period, every team. The producer is server/services/weekly-autopsy.js;
  * EVAL E7 reads the table.
  *

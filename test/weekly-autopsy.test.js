@@ -1,6 +1,6 @@
 /**
  * AUTOPSY-01: the Monday Autopsy team-week producer (server/services/weekly-autopsy.js)
- * writing `weekly_autopsy` (migration 087), the table EVAL E7 reads.
+ * writing `weekly_autopsy` (migration 097), the table EVAL E7 reads.
  *
  * Fixtures are league_roster_snapshots rows as scripts/collect-roster-snapshots.mjs
  * writes them (source 'final' = ESPN's boxscore for a completed period). The

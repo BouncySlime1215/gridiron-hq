@@ -1,4 +1,4 @@
-# AUTOPSY-01: Monday Autopsy team-week producer (`weekly_autopsy`, migration 087)
+# AUTOPSY-01: Monday Autopsy team-week producer (`weekly_autopsy`, migration 097)
 
 RED `1d3ee2ce` · GREEN — the next commit · `test/weekly-autopsy.test.js` (12 cases)
 
@@ -13,7 +13,7 @@ over every `origin/*` ref: 0 hits before this change). So `common.js:54` returne
 "waiting". PROJ-04-a (#251) writes per-player link tables (`projection_autopsy*`,
 migration 082), not the team-week rows E7 grades.
 
-After: migration `087_weekly_autopsy.js` creates the table with E7's seven
+After: migration `097_weekly_autopsy.js` creates the table with E7's seven
 contract columns, and `server/services/weekly-autopsy.js#runWeeklyAutopsy` fills
 it, one row per team per completed ESPN period, for league 4 by default.
 

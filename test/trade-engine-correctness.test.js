@@ -150,6 +150,26 @@ function targetOnAnotherRoster(lg, myTeamId) {
 
 /* ---------------------------------------------------- G1: real playoff odds */
 
+test('RL-16-1: the entry point passes this league\'s shape to the playoff-week weight (6/4 stays unmeasured)', () => {
+  const lg = insertLeague(409, sixTeamLeague());
+  const prev = process.env.GRIDIRON_RL16_1_ENABLED;
+  process.env.GRIDIRON_RL16_1_ENABLED = '1';
+  try {
+    const out = engine.tradeIdeas(lg, { myTeamId: '1', limit: 10, requireMutual: false });
+    assert.ok(!out.error, out.error);
+    assert.ok(out.deals.length > 0, 'fixture must produce deals');
+    for (const d of out.deals) {
+      assert.equal(d.horizon.playoff_importance, 4);
+      assert.equal(d.horizon.playoff_importance_measured, false);
+      // "6-team/4-playoff", not "?-team/?-playoff": the shape came from this league.
+      assert.match(d.horizon.playoff_importance_source, /6-team\/4-playoff/);
+    }
+  } finally {
+    if (prev == null) delete process.env.GRIDIRON_RL16_1_ENABLED;
+    else process.env.GRIDIRON_RL16_1_ENABLED = prev;
+  }
+});
+
 test('G1a: the entry point prices the horizon on this team\'s real playoff odds, not the 0.5 prior', () => {
   const lg = insertLeague(401, sixTeamLeague());
   const out = engine.tradeIdeas(lg, { myTeamId: '1', limit: 10, requireMutual: false });

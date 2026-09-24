@@ -39,12 +39,15 @@ import { counterpartyLayer, valuationMap, playerValuation, RECEPTIVENESS_RANGE, 
 import { requirePlatformAdmin } from '../platform/legacy-access.js';
 import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE, PROMPT_VERSION }
   from '../services/trade-proposals.js';
-import { recordProposalSlate } from '../services/trade-outcomes.js';
+import { recordProposalSlate, recordSentOffer } from '../services/trade-outcomes.js';
+import { recordRoute } from '../services/rec-ledger.js';
 import { lineupCall } from '../services/lineup-brain.js';
 import { lineupSignals } from '../services/lineup-signals.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
 import { tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
+// IDEA-001: served trade-card and title-trade numbers, queued for served_numbers.
+import { recordServed, readServed, serveLogState } from '../services/serve-log.js';
 // TM-09: historical revealed trade prices (aggregate table), read-only, default-off.
 import { marketForPlayer } from '../services/trade-market.js';
 import { playerHype } from '../services/hype.js';
@@ -227,7 +230,9 @@ r.get('/:leagueId/lineup', (req, res, next) => {
     const lg = league(req, res); if (!lg) return;
     const objective = ['mean', 'ceiling', 'floor'].includes(req.query.objective)
       ? req.query.objective : 'mean';
-    res.json(lineupCall(lg.id, { myTeamId: req.query.team_id ?? null, objective }));
+    const out = lineupCall(lg.id, { myTeamId: req.query.team_id ?? null, objective });
+    recordRoute('lineup', lg, out);
+    res.json(out);
   } catch (e) { next(e); }
 });
 
@@ -677,11 +682,13 @@ r.get('/:leagueId/war-room', async (req, res, next) => {
 r.get('/:leagueId/title-trades', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    res.json(titleOddsTrades(lg.id, {
+    const out = titleOddsTrades(lg.id, {
       teamId: req.query.team_id,
       shortlist: Math.min(12, Math.max(3, Number(req.query.shortlist) || 6)),
       runs: Math.min(2000, Number(req.query.runs) || TRADE_IMPACT_RUNS)
-    }));
+    });
+    recordServed(res, 'title_trades', lg, out, { myTeamId: req.query.team_id ?? lg.my_team_id });
+    res.json(out);
   } catch (e) { next(e); }
 });
 
@@ -697,11 +704,13 @@ r.get('/:leagueId/title-trades', (req, res, next) => {
 r.get('/:leagueId/waivers', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    res.json(waiverBoard(lg, {
+    const out = waiverBoard(lg, {
       myTeamId: req.query.team_id,
       limit: Math.min(50, Math.max(5, Number(req.query.limit) || 20)),
       minProjected: Number(req.query.min_projected) || 4,
-    }));
+    });
+    recordRoute('waivers', lg, out);
+    res.json(out);
   } catch (e) { next(e); }
 });
 
@@ -750,7 +759,7 @@ r.get('/:leagueId/lineup-diff', (req, res, next) => {
 r.get('/:leagueId/find', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    res.json(findTrades(lg, {
+    const out = findTrades(lg, {
       myTeamId: req.query.team_id,
       maxPerSide: Math.min(3, Number(req.query.max_per_side) || 2),
       // Off by default in the UI's "aggressive" mode: deals that only help me are
@@ -765,7 +774,12 @@ r.get('/:leagueId/find', (req, res, next) => {
       limit: Math.min(300, Number(req.query.limit) || 20),
       targetId: req.query.target_id || null,
       excludeIds: excludeSet(req)
-    }));
+    });
+    recordRoute('find', lg, out);
+    // Queued before res.json, extracted at flush — after serialisation has already
+    // settled the lazy floor_delta/ceiling_delta, so logging them costs nothing extra.
+    recordServed(res, 'trade_find', lg, out);
+    res.json(out);
   } catch (e) { next(e); }
 });
 
@@ -830,6 +844,38 @@ r.get('/:leagueId/proposals', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * "I sent this" (CLONE-01b b1). Nick proposed this deal on ESPN himself; this
+ * records that it was sent, with the P(accept) band the card showed him, so the
+ * post-sync settle job can grade it against ESPN's reply. It never sends
+ * anything to ESPN.
+ *
+ * The band is the one on the deal as served. It is not recomputed here: a
+ * re-run now would score a different model against a decision already made.
+ */
+r.post('/:leagueId/offers/sent', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const deal = req.body?.deal;
+    if (!deal || deal.partner_id == null || !Array.isArray(deal.i_give) || !Array.isArray(deal.i_get)) {
+      return res.status(400).json({ error: 'deal with partner_id, i_give and i_get required' });
+    }
+    let out;
+    try {
+      out = recordSentOffer({
+        league_id: lg.id, season: lg.season ?? null,
+        proposer_team_id: String(req.body?.team_id ?? lg.my_team_id ?? '') || null,
+        deal, model_version: 'acceptanceBand/served-deal',
+      });
+    } catch (e) {
+      // The writer refuses a deal it cannot grade (no band, no season). That is
+      // the caller's input, said as such, not a server fault.
+      return res.status(400).json({ error: String(e?.message ?? e) });
+    }
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
 /** "Do this trade, then this one opens up" — see findTradeSequences(). */
 r.get('/:leagueId/find/sequences', (req, res, next) => {
   try {
@@ -848,9 +894,11 @@ r.get('/:leagueId/offer', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
     if (!req.query.player_id) return res.status(400).json({ error: 'player_id required' });
-    res.json(offerFor(lg, {
+    const out = offerFor(lg, {
       myTeamId: req.query.team_id, targetId: req.query.player_id, excludeIds: excludeSet(req)
-    }));
+    });
+    recordRoute('offer', lg, out);
+    res.json(out);
   } catch (e) { next(e); }
 });
 
@@ -860,10 +908,12 @@ r.get('/:leagueId/offer-many', (req, res, next) => {
     const lg = league(req, res); if (!lg) return;
     const raw = String(req.query.player_ids ?? '').trim();
     if (!raw) return res.status(400).json({ error: 'player_ids required (comma-separated)' });
-    res.json(offerForMany(lg, {
+    const out = offerForMany(lg, {
       myTeamId: req.query.team_id, targetIds: raw.split(',').map(Number).filter(Number.isFinite),
       excludeIds: excludeSet(req)
-    }));
+    });
+    recordRoute('offer-many', lg, out);
+    res.json(out);
   } catch (e) { next(e); }
 });
 
@@ -931,6 +981,21 @@ r.get('/:leagueId/rosters', (req, res, next) => {
         };
       })
     });
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------------- served numbers */
+/**
+ * IDEA-001: what this league was actually served (served_numbers), newest first,
+ * plus the serve-log queue's own state — a queue that is dropping or failing to
+ * write says so here rather than going quiet. `?request_id=` is the
+ * `X-Served-Request-Id` header of the response in question.
+ */
+r.get('/:leagueId/served-numbers', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json({ league_id: lg.id, queue: serveLogState(),
+      rows: readServed(lg.id, { requestId: req.query.request_id, entity: req.query.entity, limit: req.query.limit }) });
   } catch (e) { next(e); }
 });
 

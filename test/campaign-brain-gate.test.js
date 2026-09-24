@@ -26,13 +26,13 @@ test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
 const GATE = await import('../server/services/campaign/brain-gate.js');
 const { result, STATUS } = await import('../server/services/eval/common.js');
 const { writeReport } = await import('../server/services/eval/index.js');
-const { writeAuditRows } = await import('../server/services/number-audit.js');
+const { writeAuditRows, readNumberAudit } = await import('../server/services/number-audit.js');
 const { makeAdapter } = await import('./fixtures/campaign-league.mjs');
 const { planLeague } = await import('../server/services/campaign/planner.js');
 const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
 const { tolerancesFor, MODE_LABELS } = await import('../server/services/campaign/modes.js');
-const { toEntry, validateEntry, SECTIONS } = await import('../server/services/campaign/view.js');
-const { validateLeague } = await import('../server/services/campaign/plans-schema.js');
+const { toEntry } = await import('../server/services/campaign/view.js');
+const { validateLeague, SECTIONS } = await import('../server/services/campaign/plans-schema.js');
 const M077 = await import('../server/migrations/077_number_audit.js');
 const M078 = await import('../server/migrations/078_brain_report.js');
 
@@ -169,7 +169,7 @@ test('readBrainReport: latest run from brain_report; an unreadable store is an e
 
 test('readNumberHealth: the league\'s audit rows; missing table / no rows are unknown with a reason; a throw is failed', () => {
   const d = memDb();
-  const none = GATE.readNumberHealth(d, 4);
+  const none = GATE.readNumberHealth(d, 4, { read: readNumberAudit });
   assert.equal(none.status, 'unknown');
   assert.match(none.reason, /not run for this league/);
 
@@ -178,15 +178,17 @@ test('readNumberHealth: the league\'s audit rows; missing table / no rows are un
     { check_id: 'D.current_week', status: 'ok', title: 'Current week agrees', detail: 'all say week 5', values: {} },
   ], { asOf: FRESH, database: d });
   writeAuditRows(5, [{ check_id: 'D.current_week', status: 'warn', title: 'x', detail: 'y', values: {} }], { asOf: FRESH, database: d });
-  const nh = GATE.readNumberHealth(d, 4);
+  const nh = GATE.readNumberHealth(d, 4, { read: readNumberAudit });
   assert.equal(nh.status, 'ok');
   assert.equal(nh.as_of, FRESH);
   assert.deepEqual([nh.value.broken, nh.value.warn, nh.value.ok], [1, 0, 1]);
-  assert.equal(nh.value.rows[0].check_id, 'B.title_odds_paths');
-  assert.deepEqual(nh.value.rows[0].pages_affected, ['My team', 'Trade Lab']);
-  assert.equal('values' in nh.value.rows[0], false, 'raw producer values stay on /api/number-audit');
+  assert.equal(nh.value.overall, 'broken');
+  assert.equal(nh.value.checks[0].check_id, 'B.title_odds_paths');
+  assert.equal(nh.value.checks[0].title, 'Title odds disagree');
+  assert.equal('values' in nh.value.checks[0], false, 'raw producer values stay on /api/number-audit');
+  assert.equal('pages_affected' in nh.value.checks[0], false, 'only the contract keys (plans-schema.js number_health)');
 
-  const missing = GATE.readNumberHealth(new DatabaseSync(':memory:'), 4);
+  const missing = GATE.readNumberHealth(new DatabaseSync(':memory:'), 4, { read: readNumberAudit });
   assert.equal(missing.status, 'unknown');
   assert.match(missing.reason, /not built/);
 
@@ -205,28 +207,31 @@ function planned(requested, rep) {
   writeAuditRows(1, [{ check_id: 'D.current_week', status: 'ok', title: 'Current week agrees', detail: 'all say week 5', values: {} }],
     { asOf: FRESH, database: d });
   const entry = toEntry(res, { names: a.names(), as_of: FRESH, changed: { changed: true, reason: 'first plan' },
-    brain: g, number_health: GATE.readNumberHealth(d, 1) });
+    brain: g, number_health: GATE.readNumberHealth(d, 1, { read: readNumberAudit }) });
   return { a, g, res, entry };
 }
 
 test('the entry: destination.risk_mode is the effective mode; brain_report and number_health are filled', () => {
   const { entry, res } = planned('all_in', failingE1());
-  assert.deepEqual(validateEntry(entry), []);
-  assert.ok(SECTIONS.includes('brain_report'));
-  assert.equal(SECTIONS.includes('brain_check'), false, 'the contract name (#238) replaces the placeholder');
+  assert.deepEqual(validateLeague(entry).errors, []);
+  assert.ok(Object.hasOwn(SECTIONS, 'brain_report'));
+  assert.ok(Object.hasOwn(SECTIONS, 'number_health'));
+  assert.equal(Object.hasOwn(SECTIONS, 'brain_check'), false, 'the contract name (#238) replaces the placeholder');
+  assert.equal('view' in entry, false, 'sections sit at the entry top level (FIX-03)');
   assert.equal(res.objective.risk_mode, 'balanced');
-  assert.equal(entry.view.destination.value.risk_mode, 'balanced');
-  assert.equal(entry.view.risk_modes.value.find(m => m.active).mode, 'balanced');
-  const br = entry.view.brain_report;
+  assert.equal(entry.destination.value.risk_mode.value.mode, 'balanced');
+  assert.equal(entry.risk_modes.value.find(m => m.active).mode, 'balanced');
+  const br = entry.brain_report;
   assert.equal(br.status, 'ok');
   assert.equal(br.source, 'eval.check');
   assert.equal(br.as_of, FRESH);
   assert.equal(br.value.fell_back_to, 'balanced');
   assert.equal(br.value.overall, 'failing');
-  const nh = entry.view.number_health;
+  const nh = entry.number_health;
   assert.equal(nh.status, 'ok');
   assert.equal(nh.source, 'audit.numbers');
   assert.equal(nh.value.ok, 1);
+  assert.equal(nh.value.overall, 'ok');
 });
 
 test('the fallback changes the plan on the same dice: all_in + failing plans exactly what balanced plans', () => {
@@ -242,10 +247,10 @@ test('toEntry without a brain read says so; it never shows a placeholder as a re
   const a = makeAdapter();
   const res = planLeague(a, { objective: objective('balanced') });
   const entry = toEntry(res, { names: a.names(), as_of: FRESH });
-  assert.equal(entry.view.brain_report.status, 'unknown');
-  assert.match(entry.view.brain_report.reason, /not read/);
-  assert.equal(entry.view.number_health.status, 'unknown');
-  assert.equal('value' in entry.view.brain_report, false);
+  assert.equal(entry.brain_report.status, 'unknown');
+  assert.match(entry.brain_report.reason, /not read/);
+  assert.equal(entry.number_health.status, 'unknown');
+  assert.equal('value' in entry.brain_report, false);
 });
 
 test('the producer reads the report once, gates every league before planLeague, and fills number_health', async () => {

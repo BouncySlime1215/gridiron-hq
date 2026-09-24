@@ -18,12 +18,16 @@
  * carries the grader's needs_text ("needs 40 more offers") while it waits.
  *
  * number_health is the league's number_audit rows (number-audit.js
- * #readNumberAudit), worst first, without the raw producer values (those stay
- * on GET /api/number-audit).
+ * #readNumberAudit) in the contract's shape ({ overall, broken, warn, ok,
+ * checks[{check_id, status, title, detail?, cause?}] }), worst first, without
+ * the raw producer values (those stay on GET /api/number-audit).
+ *
+ * No DB import here: number-audit.js opens the app DB on import, and the
+ * contract fixture (test/fixtures/warroom-contract/make-producer-plans.mjs)
+ * runs this gate with no DB. The producer passes readNumberAudit in.
  */
 import { brainReportRule } from '../eval/brain-rule.js';
 import { latestReport } from '../eval/index.js';
-import { readNumberAudit } from '../number-audit.js';
 import { MODE_LABELS, tolerancesFor } from './modes.js';
 
 export const CHECK_IDS = Object.freeze(['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7']);
@@ -112,14 +116,16 @@ export function applyBrainReport({ objective, report, error = null, now }) {
   };
 }
 
-const HEALTH_ROW_KEYS = ['check_id', 'status', 'inventory_row', 'title', 'detail', 'cause', 'trust', 'pages_affected', 'first_seen_at', 'as_of'];
+const HEALTH_OPTIONAL = ['detail', 'cause'];
+const nonEmpty = v => typeof v === 'string' && v.trim() !== '';
 
 /**
  * The league's number_health field parts: { status, value?, reason?, as_of? }.
  * unknown when the table or the league's rows do not exist yet; failed when
  * the read threw.
  */
-export function readNumberHealth(database, leagueId, { read = readNumberAudit } = {}) {
+export function readNumberHealth(database, leagueId, { read } = {}) {
+  if (typeof read !== 'function') return { status: 'failed', reason: 'No number-audit reader was passed to the producer.' };
   let audit;
   try {
     audit = read(leagueId, { database });
@@ -135,9 +141,14 @@ export function readNumberHealth(database, leagueId, { read = readNumberAudit } 
   return {
     status: 'ok',
     as_of: audit.as_of,
+    // The contract's number_health value (plans-schema.js, FIX-03): worst row first.
     value: {
-      broken: audit.broken, warn: audit.warn, ok: audit.ok, as_of: audit.as_of,
-      rows: audit.rows.map(r => Object.fromEntries(HEALTH_ROW_KEYS.filter(k => r[k] != null).map(k => [k, r[k]]))),
+      overall: audit.broken > 0 ? 'broken' : audit.warn > 0 ? 'warn' : 'ok',
+      broken: audit.broken, warn: audit.warn, ok: audit.ok,
+      checks: audit.rows.map(r => ({
+        check_id: String(r.check_id), status: r.status, title: nonEmpty(r.title) ? r.title : String(r.check_id),
+        ...Object.fromEntries(HEALTH_OPTIONAL.filter(k => nonEmpty(r[k])).map(k => [k, r[k]])),
+      })),
     },
   };
 }

@@ -10,7 +10,7 @@
 import { pathExpectation } from './paths.js';
 
 /** FNV-1a over the parts; the same shape as stats-util.js#keyedSeed (kept local: pure module). */
-function hash(...parts) {
+export function hash(...parts) {
   let h = 0x811c9dc5;
   for (const part of parts) {
     const s = String(part);

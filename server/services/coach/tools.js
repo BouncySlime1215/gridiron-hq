@@ -28,6 +28,7 @@ import { whoPlays } from '../who-plays.js';
 import { teamTendencies } from '../nfl-team-tendencies.js';
 import { coachingProfile, footballContext } from '../football-context.js';
 import { sourceTrustScore } from '../beat-reporter-accuracy.js';
+import { BRAIN_TOOLS, brainToolsOn, BrainToolInputError } from './brain-tools.js';
 
 export class CoachToolError extends Error {
   constructor(message) { super(message); this.name = 'CoachToolError'; }
@@ -237,9 +238,18 @@ export const COACH_TOOLS = Object.freeze([
   })
 ]);
 
+/**
+ * The tools Coach is offered on this call: COACH_TOOLS, plus the brain read
+ * tools (brain-tools.js) when GRIDIRON_COACH_BRAIN_TOOLS or preview mode is on.
+ * Read per call, so the flag flips without a restart.
+ */
+export function activeTools() {
+  return brainToolsOn() ? [...COACH_TOOLS, ...BRAIN_TOOLS] : COACH_TOOLS;
+}
+
 /** The tool blocks handed to Claude: no functions, no internals. */
 export function toolDefinitions() {
-  return COACH_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema }));
+  return activeTools().map(({ name, description, input_schema }) => ({ name, description, input_schema }));
 }
 
 /**
@@ -252,10 +262,11 @@ export function toolDefinitions() {
  * @throws refusals and SQL errors from the guarded query layer, unchanged
  */
 export function runCoachTool(name, input, { ledger } = {}) {
-  const tool = COACH_TOOLS.find(t => t.name === name);
+  const tools = activeTools();
+  const tool = tools.find(t => t.name === name);
   if (!tool) {
     throw new CoachToolError(
-      `There is no tool called ${name}. Coach has: ${COACH_TOOLS.map(t => t.name).join(', ')}.`);
+      `There is no tool called ${name}. Coach has: ${tools.map(t => t.name).join(', ')}.`);
   }
   if (!ledger) throw new CoachToolError('A tool call needs the turn\'s ledger.');
 
@@ -274,7 +285,14 @@ export function runCoachTool(name, input, { ledger } = {}) {
     return { entry, summary: summarise(entry) };
   }
 
-  const { value, tables } = tool.run(input);
+  let ran;
+  try {
+    ran = tool.run(input);
+  } catch (e) {
+    if (e instanceof BrainToolInputError) throw new CoachToolError(e.message);
+    throw e;
+  }
+  const { value, tables } = ran;
   const { rows, columns, truncated } = toRows(value);
   const entry = ledger.record({
     tool: name, sql: null, params: [], tables, columns, rows,

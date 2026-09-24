@@ -26,6 +26,28 @@ import { declarationCredibility, untouchableStance } from './bluff-detector.js';
 import { analyzeLeague } from '../routes/tradelab.js';
 import { previewUnconfirmed, previewFields, previewText } from './preview-mode.js';
 
+/**
+ * RL-19-1: default-off preview of the r19-measured `positional_need` cap.
+ * Read per call (like PREVIEW-01's own switch) so a test can flip it without
+ * a process restart. Off by default: the served price does not change until
+ * this or preview mode (preview-mode.js) is on.
+ */
+const RL19_1_ENV = 'GRIDIRON_RL19_1_ENABLED';
+const rl19NeedPricingOn = () =>
+  process.env[RL19_1_ENV] === '1' || previewUnconfirmed();
+/**
+ * RL-19-1 (validated): 1,326 real Sleeper 1-for-1 trades (2021-24) put the
+ * need premium's 90% CI upper bound at 2.8% of value on cross-position deals,
+ * against the 8% the code has always charged (rnd/loop/
+ * r19-external-need-steers-who-not-price.md, arm 2c). Re-derived independently
+ * by rnd/loop/scripts/r19v_need_price_rederive.py (data/r19v/…): CROSS-POS
+ * x_con hi/lvl +0.0280, ALL x_con bN/lvl -0.0102 — near zero, and the "depth
+ * lowers it" sign flips across the split, so that branch is unsupported and
+ * dropped when this preview is on. 0.02 sits inside both CIs; still `fitted:
+ * false` because this is a bound, not a fitted coefficient.
+ */
+const RL19_1_NEED_CAP = 0.02;
+
 /** Hard ceiling on how far chat can move a package's perceived value. */
 // TEST SEAM: no production importer. Used by `perceivedValue` below; exported so
 // test/valuation-map.test.js can pin the package clamp without restating 0.15.
@@ -801,14 +823,18 @@ export function playerValuation(managerProfile, player, { zero = [] } = {}) {
 
   // ------------------------------------------- 5. a hole he could fill here
   if (!owns && player?.position && (managerProfile?.needs || managerProfile?.surplus)) {
-    const cap = VALUATION_SOURCES.positional_need.cap;
+    const rl19On = rl19NeedPricingOn();
+    const cap = rl19On ? RL19_1_NEED_CAP : VALUATION_SOURCES.positional_need.cap;
     const n = managerProfile.roster_size ?? 0;
     // Set from the layer, array from the serialised map view — the same answer
     // either way, because a caller holding the view must not get a crash.
     const listed = (v, pos) => (v instanceof Set ? v.has(pos) : Array.isArray(v) && v.includes(pos));
     if (listed(managerProfile.needs, player.position)) {
       add('positional_need', cap, n, `he is short at ${player.position}`);
-    } else if (listed(managerProfile.surplus, player.position)) {
+    } else if (!rl19On && listed(managerProfile.surplus, player.position)) {
+      // RL-19-1: the "depth lowers it" branch is dropped under the preview —
+      // r19's re-derivation found the sign unsupported (flips across the
+      // 2021-22 / 2023-24 split). Off the flag, the incumbent -cap*0.5 stays.
       add('positional_need', -cap * 0.5, n, `he is already deep at ${player.position}`);
     }
   }

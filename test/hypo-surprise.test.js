@@ -174,7 +174,7 @@ test('a trade counts for both teams, but a steady team is not flagged', () => {
   add(8, day(1));
   for (const d of [4, 5, 7, 10, 12, 13, 16, 18, 19, 21]) add(8, day(d));
   // Team 6 is quiet, then two adds and the trade: the trade is its third move.
-  const burst6 = [add(6, day(20)), add(6, day(20)), trade(8, 6, day(21))];
+  const burst6 = [add(6, at(20, 6)), add(6, day(20)), trade(8, 6, day(21))];
   detectSurprises({ leagueId: LEAGUE, season: SEASON, enabled: true });
   const got = listHypotheses({ leagueId: LEAGUE }).filter(h => h.kind === 'roster_burst');
   assert.deepEqual(got.map(h => h.team_id), ['6']);
@@ -182,9 +182,33 @@ test('a trade counts for both teams, but a steady team is not flagged', () => {
   assert.equal(got[0].evidence.trades, 1);
 });
 
+test('a waiver run is one decision: three claims processed at one instant are not a burst', () => {
+  // Local run on PR #277 (league 4): '3 moves in 0 h' was flagged at p=0.000025. ESPN
+  // processes a team's waiver claims in one batch at one timestamp, so counting each claim
+  // as an independent Poisson event overstates the surprise.
+  reset();
+  add(8, day(1));
+  add(3, day(5));
+  const run3 = [add(3, day(20), 'WAIVER'), add(3, day(20), 'WAIVER'), add(3, day(20), 'WAIVER')];
+  const r = detectSurprises({ leagueId: LEAGUE, season: SEASON, enabled: true, write: false });
+  assert.deepEqual(r.surprises.filter(x => x.team_id === '3'), [], JSON.stringify(r.surprises));
+  // One more move a few hours later makes two decisions, still not three.
+  add(3, at(20, 20));
+  const r2 = detectSurprises({ leagueId: LEAGUE, season: SEASON, enabled: true, write: false });
+  assert.deepEqual(r2.surprises.filter(x => x.team_id === '3'), []);
+  // A third, separate decision makes it a burst, and the evidence still carries every tx id.
+  const last = add(3, day(21));
+  const r3 = detectSurprises({ leagueId: LEAGUE, season: SEASON, enabled: true, write: false });
+  const b = r3.surprises.filter(x => x.team_id === '3');
+  assert.equal(b.length, 1);
+  assert.deepEqual(b[0].evidence.tx_ids, [...run3, `tx-${Number(last.slice(3)) - 1}`, last]);
+  assert.equal(b[0].evidence.moves, 5);
+  assert.equal(b[0].evidence.decisions, 3);
+});
+
 test('too little history to know a base rate is reported, never silently skipped', () => {
   reset();
-  add(3, day(20)); add(3, day(20)); add(3, day(21));
+  add(3, at(20, 6)); add(3, day(20)); add(3, day(21));
   const r = detectSurprises({ leagueId: LEAGUE, season: SEASON, enabled: true });
   assert.equal(r.written, 0);
   assert.equal(r.skipped.length, 1);

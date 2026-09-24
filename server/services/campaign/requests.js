@@ -94,7 +94,7 @@ export function foldRequests(list, { base = {}, leagueId } = {}) {
         break;
       case 'mode.set':
         objective.risk_mode = p.mode;
-        objective.risk_mode_until = p.until_week ?? null;
+        objective.risk_until_week = p.until_week ?? null; // objectives.js#normaliseObjective's key (FIX-03)
         break;
       case 'tolerance.set':
         // The slider says points of title odds (schema.js: 0-100); the planner works in 0-1.
@@ -200,7 +200,6 @@ export function leagueInputs(leagueId, { objectiveRow = null, fileSkips = [], no
   const reqs = leagueRequests(leagueId, { base: objectiveRow ?? {} });
   const objective = normaliseObjective(reqs.objective, { leagueGoal: reqs.objective.goal ?? 'title' });
   objective.source = reqs.from_requests ? 'warroom_requests' : objectiveRow ? 'objectives_file' : 'default';
-  if (reqs.objective.risk_mode_until != null) objective.risk_mode_until = reqs.objective.risk_mode_until;
   return {
     objective,
     weights: skipWeights([...fileSkips, ...reqs.skips], leagueId, now),

@@ -10,6 +10,9 @@
  *                     trade-acceptance.js#acceptanceBand midpoint (edge assumed
  *                     passed for every step, as in the ACQ-FLIP prototype)
  *   managers          counterparty layer (activity, needs) + timing read + chat labels
+ *   finderBest        the Trade Lab finder's best single offer (title-odds-trades.js x
+ *                     findTrades acceptance midpoint), the study's baseline; off with --no-finder
+ *   sanity            composed rescore == served tradeImpact on one one-for-one deal
  */
 import { chatLabels } from '../../server/services/campaign/partners.js';
 
@@ -29,6 +32,7 @@ export async function loadServices() {
     tactics: await import('../../server/services/trade-tactics.js'),
     week: await import('../../server/services/league-week.js'),
     horizon: await import('../../server/services/trade-horizon.js'),
+    titleOdds: await import('../../server/services/title-odds-trades.js'),
   };
 }
 
@@ -108,7 +112,7 @@ export function sentThisWeek(svc, leagueId, season, me, now) {
  * (name), sentiment_mean, n }] } from scripts/campaign/chat-labels.mjs, or null (no chat -> every
  * label 'unknown').
  */
-export function buildAdapter(svc, leagueId, { chat = null, now = Date.now() } = {}) {
+export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true } = {}) {
   const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg) throw new Error(`league ${leagueId} not found`);
   const payload = JSON.parse(lg.payload ?? '{}');
@@ -215,7 +219,43 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now() } = 
       ? { ...svc.cp.readDeal({ theirGive: theyGive.map(slim), theirGet: theyGet.map(slim), managerProfile: m }), counterparty_data: true }
       : { receptiveness: 1, perception_delta: null, counterparty_data: false };
     const band = svc.acc.acceptanceBand({ counterparty, edge: { passes: true }, profile: m?.negotiation ?? null });
-    return { p: band.band?.mid ?? 0, basis: band.basis };
+    const b = band.band;
+    return { p: b?.mid ?? 0, band: b ? { low: b.low, high: b.high } : null, basis: band.basis };
+  };
+
+  // The Trade Lab finder's best single offer (the ACQ-FLIP study's baseline, same world and seed):
+  // served title-odds deals x the finder's own acceptance midpoint. A failure is reported, not hidden.
+  const finderBest = () => {
+    try {
+      const served = svc.titleOdds.titleOddsTrades(leagueId, { teamId: me });
+      if (served.error) return { error: String(served.error) };
+      const found = svc.engine.findTrades(lg, { myTeamId: me, requireMutual: true, limit: 8 * 3 });
+      const same = (a, b) => a.map(p => p.id).join() === b.map(p => p.id).join();
+      let best = null, n = 0;
+      for (const d of served.deals ?? []) {
+        const f = (found.deals ?? []).find(x => x.partner_id === d.partner_id && same(x.i_give, d.i_give) && same(x.i_get, d.i_get));
+        const p = f?.acceptance?.band?.mid;
+        if (!Number.isFinite(p) || !Number.isFinite(d.title_delta)) continue;
+        n++;
+        const e = { expected: p * d.title_delta, se: Number.isFinite(d.title_delta_se) ? p * d.title_delta_se : null };
+        if (!best || e.expected > best.expected) best = e;
+      }
+      return best ? { ...best, n } : { error: `no served deal carried a finder acceptance price (${(served.deals ?? []).length} served)` };
+    } catch (e) {
+      return { error: String(e.message ?? e) };
+    }
+  };
+
+  // The study's sanity probe: the composed rescore equals the served tradeImpact on one one-for-one deal.
+  const sanity = () => {
+    const other = w0.prep.teams.find(t => t.roster_id !== me);
+    const give = rosters.get(me).find(id => assets.get(id)?.value > 0);
+    const get = rosters.get(other.roster_id).find(id => assets.get(id)?.value > 0);
+    if (give == null || get == null) return null;
+    const direct = tradeImpact(lg, { myTeamId: me, theirTeamId: other.roster_id, iGive: [give], iGet: [get], world: w0 });
+    const state = new Map([[me, [...rosters.get(me).filter(x => x !== give), get]], [other.roster_id, [...rosters.get(other.roster_id).filter(x => x !== get), give]]]);
+    const composed = wrap(w0).rescore(state, me, other.roster_id);
+    return direct.me.title_after === composed.me.title_after && direct.them.title_after === composed.them.title_after;
   };
   const priceOf = (team, id) => {
     const m = layer.get(String(team));
@@ -232,7 +272,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now() } = 
       days_left_in_week: daysLeftInWeek(svc, lg, week, now), team_count: rosters.size, season },
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
-    rosters, players, managers, starters, freeAgents, priceStep, priceOf,
+    rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
+    ...(finder ? { finderBest } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     rosterKey: () => [...rosters.entries()].map(([t, ids]) => `${t}:${[...ids].sort((a, b) => a - b).join(',')}`).join('|'),

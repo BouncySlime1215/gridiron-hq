@@ -992,18 +992,31 @@
         },
         "message": {
          "status": "ok",
-         "value": "P4 projects 8.0 pts a game the rest of the way. P5 projects 9.0 pts a game the rest of the way. Would you do P4 + P5 for P21?",
+         "value": "Looks like you could use a RB. P3 projects 13.0 pts a game the rest of the way. Would you do P3 for P21?",
          "source": "plan.template"
         },
         "opening": {
-         "status": "unknown",
-         "source": "clone.price",
-         "reason": "No opening price: no package beats your next-best plan, so there is no price worth offering."
+         "status": "ok",
+         "value": {
+          "give": [
+           "3"
+          ],
+          "get": [
+           "21"
+          ],
+          "text": "Open with P3 (RB) for P21 (WR) (his screen -15%)."
+         },
+         "source": "clone.price"
         },
         "walk_away": {
-         "status": "unknown",
-         "source": "clone.price",
-         "reason": "No walk-away: no package beats your next-best plan, so there is no price worth offering."
+         "status": "ok",
+         "value": {
+          "text": "Stop at P3: past that, your backup plan is worth more.",
+          "max_give": [
+           "3"
+          ]
+         },
+         "source": "clone.price"
         },
         "send_when": {
          "status": "ok",
@@ -1031,21 +1044,19 @@
           "decline": {
            "status": "ok",
            "value": {
-            "do": "Log the reason, then offer Team 3 instead.",
-            "move_id": "L1-1j3ie39",
-            "odds_after": {
-             "status": "ok",
-             "value": 0.4859396081044473,
-             "source": "plan.path",
-             "unit": "title_odds"
-            }
+            "do": "Log the reason. No backup clears the sliders this week; the brain replans on the next refresh."
            },
            "source": "plan.path"
           },
           "counter": {
            "status": "ok",
            "value": {
-            "do": "No walk-away could be priced; decline any counter that adds players on your side."
+            "do": "Check his ask against the walk-away.",
+            "counter_rules": {
+             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen -15%)",
+             "counter_with": "repeat the opening once, then hold",
+             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
+            }
            },
            "source": "plan.path"
           },
@@ -1069,7 +1080,7 @@
           "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
           "news_check": "Act now: no pending news on the players you get.",
           "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-          "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
+          "counter": "If he counters, counter with repeat the opening once, then hold.",
           "cites": [
            "steps[0].p_yes",
            "steps[0].title_odds_delta"
@@ -1093,8 +1104,8 @@
            "accept": 0.05
           },
           "reply_mix_label": "M6 reply prior (PEOPLE-LAB), league-wide, not fitted per manager",
-          "p_accept_challenger": 0.525,
-          "p_accept_served": 0.525,
+          "p_accept_challenger": 0.21,
+          "p_accept_served": 0.21,
           "yes_point_his_pct": null,
           "reason_chain": [
            {
@@ -1138,212 +1149,6 @@
         "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
         "news_check": "Act now: no pending news on the players you get.",
         "confidence": "Chance he says yes is 53%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-        "counter": "No walk-away could be priced; decline any counter that adds players on your side.",
-        "cites": [
-         "steps[0].p_yes",
-         "steps[0].title_odds_delta"
-        ],
-        "check_first": false
-       },
-       "source": "plan.template"
-      }
-     },
-     {
-      "move_id": "L1-1j3ie39",
-      "rank": 5,
-      "target": "21",
-      "target_owner": "3",
-      "chained": false,
-      "steps": [
-       {
-        "partner": "3",
-        "give": [
-         "5",
-         "7"
-        ],
-        "get": [
-         "21"
-        ],
-        "p_yes": {
-         "status": "ok",
-         "value": 0.48,
-         "source": "clone.accept",
-         "unit": "probability",
-         "guess": true
-        },
-        "title_odds_delta": {
-         "status": "ok",
-         "value": 0.12176862144409484,
-         "source": "sim.title",
-         "se": 0.003,
-         "clears_2se": true,
-         "unit": "title_odds"
-        },
-        "title_after": {
-         "status": "ok",
-         "value": 0.5492592912553766,
-         "source": "sim.title",
-         "unit": "title_odds"
-        },
-        "message": {
-         "status": "ok",
-         "value": "Looks like you could use a RB. P3 projects 13.0 pts a game the rest of the way. Would you do P3 for P21?",
-         "source": "plan.template"
-        },
-        "opening": {
-         "status": "ok",
-         "value": {
-          "give": [
-           "3"
-          ],
-          "get": [
-           "21"
-          ],
-          "text": "Open with P3 (RB) for P21 (WR) (his screen -15%)."
-         },
-         "source": "clone.price"
-        },
-        "walk_away": {
-         "status": "ok",
-         "value": {
-          "text": "Stop at P3: past that, your backup plan is worth more.",
-          "max_give": [
-           "3"
-          ]
-         },
-         "source": "clone.price"
-        },
-        "send_when": {
-         "status": "ok",
-         "value": "Now: nothing argues for waiting.",
-         "source": "plan.path"
-        },
-        "reply_table": {
-         "status": "ok",
-         "value": {
-          "accept": {
-           "status": "ok",
-           "value": {
-            "do": "That completes the plan. The brain proposes the next campaign on the next refresh.",
-            "odds_after": {
-             "status": "ok",
-             "value": 0.5492592912553766,
-             "source": "sim.title",
-             "se": 0.003,
-             "clears_2se": true,
-             "unit": "title_odds"
-            }
-           },
-           "source": "plan.path"
-          },
-          "decline": {
-           "status": "ok",
-           "value": {
-            "do": "Log the reason. No backup clears the sliders this week; the brain replans on the next refresh."
-           },
-           "source": "plan.path"
-          },
-          "counter": {
-           "status": "ok",
-           "value": {
-            "do": "Check his ask against the walk-away.",
-            "counter_rules": {
-             "accept_if": "his ask is no richer than the walk-away package (walk_away_give; his screen -15%)",
-             "counter_with": "repeat the opening once, then hold",
-             "walk_away_if": "his ask is richer than the walk-away package: your backup plan is worth more"
-            }
-           },
-           "source": "plan.path"
-          },
-          "silence": {
-           "status": "ok",
-           "value": {
-            "do": "Send one nudge. After 48 h with no answer, withdraw and use the backup.",
-            "when": "no reply in 24 h",
-            "message": "Still open to P5 + P7 for P21?"
-           },
-           "source": "plan.path"
-          }
-         },
-         "source": "plan.path"
-        },
-        "reasoning": {
-         "status": "ok",
-         "value": {
-          "case_for": "If Team 3 says yes you move 12.2 pts of title odds.",
-          "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-          "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
-          "news_check": "Act now: no pending news on the players you get.",
-          "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
-          "counter": "If he counters, counter with repeat the opening once, then hold.",
-          "cites": [
-           "steps[0].p_yes",
-           "steps[0].title_odds_delta"
-          ],
-          "check_first": false
-         },
-         "source": "plan.template"
-        },
-        "p_yes_band": {
-         "low": 0.39999999999999997,
-         "high": 0.5599999999999999,
-         "basis": "heuristic_unanchored"
-        },
-        "counterpart": {
-         "status": "ok",
-         "value": {
-          "reply_mix": {
-           "ignore": 0.45,
-           "counter": 0.33,
-           "decline": 0.17,
-           "accept": 0.05
-          },
-          "reply_mix_label": "M6 reply prior (PEOPLE-LAB), league-wide, not fitted per manager",
-          "p_accept_challenger": 0.21,
-          "p_accept_served": 0.21,
-          "yes_point_his_pct": null,
-          "reason_chain": [
-           {
-            "feature": "nick_override",
-            "effect": "price_cap",
-            "value": 0,
-            "basis": "Nick's read (nick_override): never above fair on his screen"
-           }
-          ]
-         },
-         "source": "clone.accept",
-         "guess": true
-        }
-       }
-      ],
-      "p_complete": {
-       "status": "ok",
-       "value": 0.48,
-       "source": "plan.path",
-       "unit": "probability",
-       "guess": true
-      },
-      "delta_final": {
-       "status": "ok",
-       "value": 0.12176862144409484,
-       "source": "sim.title",
-       "unit": "title_odds"
-      },
-      "expected": {
-       "status": "ok",
-       "value": 0.05844893829316552,
-       "source": "plan.path",
-       "se": 0.0014399999999999999,
-       "unit": "title_odds"
-      },
-      "reasoning": {
-       "status": "ok",
-       "value": {
-        "case_for": "If all 1 step(s) land you gain 12.2 pts of title odds; across yes and no outcomes that is 5.8 pts of title odds expected, and the path completes 48% of the time.",
-        "his_side": "Team 3's roster read lists RB as thin, and the offer is built on it.",
-        "devils_advocate": "The gain clears the noise and held on fresh dice; the weak link is whether he says yes.",
-        "news_check": "Act now: no pending news on the players you get.",
-        "confidence": "Chance he says yes is 48%, from today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
         "counter": "If he counters, counter with repeat the opening once, then hold.",
         "cites": [
          "steps[0].p_yes",
@@ -2855,7 +2660,7 @@
         "unit": "probability"
        },
        "pick": "plan",
-       "why": "The best plan scores above keeping your roster."
+       "why": "The best plan scores above keeping your roster on fresh dice."
       }
      },
      {
@@ -2905,7 +2710,7 @@
         "unit": "probability"
        },
        "pick": "plan",
-       "why": "The best plan scores above keeping your roster."
+       "why": "The best plan scores above keeping your roster on fresh dice."
       }
      },
      {
@@ -2955,7 +2760,7 @@
         "unit": "probability"
        },
        "pick": "plan",
-       "why": "The best plan scores above keeping your roster."
+       "why": "The best plan scores above keeping your roster on fresh dice (ranked on the gain if the whole plan lands)."
       }
      }
     ],
@@ -3174,13 +2979,6 @@
        "confirmed_expected": 0.06170496352161561,
        "shrink": 0.0004367999999999733,
        "se": 0.0022273863607376247
-      },
-      {
-       "verdict": "holds",
-       "original_expected": 0.05829533829316553,
-       "confirmed_expected": 0.05844893829316552,
-       "shrink": -0.00015359999999998986,
-       "se": 0.002036467529817257
       }
      ]
     },
@@ -3358,7 +3156,7 @@
      }
     },
     "candidates_scored": 138,
-    "rescores": 209,
+    "rescores": 227,
     "runtime_ms": 0,
     "phases_ms": {
      "adapter_and_world": 0,
@@ -3543,38 +3341,48 @@
     },
     "shrink": {
      "status": "shadow",
-     "tau2": 0.004881739235728325,
-     "n": 138,
-     "basis": "empirical Bayes toward the no-trade gain (0); not graded, reads nothing served",
+     "basis": "empirical Bayes toward the no-trade gain (0), fitted per mode; not graded, reads nothing served",
      "modes": [
       {
        "mode": "safe",
+       "basis": "expected gain, path se",
+       "tau2": 0.0031823730407635853,
+       "n": 21,
        "best": "3|4+7|22",
+       "best_expected": 0.10134795630851288,
        "shrunk_best": "3|4+7|22",
        "reorders": false,
-       "best_expected": 0.10134795630851288,
-       "best_shrunk_expected": 0.10128218891328554,
-       "shrunk_best_expected": 0.10128218891328554,
+       "best_shrunk_expected": 0.10124710450583164,
+       "shrunk_best_expected": 0.10124710450583164,
+       "best_shrunk_if_complete": null,
        "shrunk_pick": "plan"
       },
       {
        "mode": "balanced",
+       "basis": "expected gain, path se",
+       "tau2": 0.0033330378901988505,
+       "n": 45,
        "best": "3|4+7|22",
+       "best_expected": 0.10314611506149501,
        "shrunk_best": "3|4+7|22",
        "reorders": false,
-       "best_expected": 0.10314611506149501,
-       "best_shrunk_expected": 0.10310038828739057,
-       "shrunk_best_expected": 0.10310038828739057,
+       "best_shrunk_expected": 0.10307915506228793,
+       "shrunk_best_expected": 0.10307915506228793,
+       "best_shrunk_if_complete": null,
        "shrunk_pick": "plan"
       },
       {
        "mode": "all_in",
+       "basis": "if-it-lands gain, last step se",
+       "tau2": 0.0740576509724271,
+       "n": 88,
        "best": "2|3+6|11",
+       "best_expected": 0.02187968280678477,
        "shrunk_best": "2|3+6|11",
        "reorders": false,
-       "best_expected": 0.02187968280678477,
-       "best_shrunk_expected": 0.021879612933355747,
-       "shrunk_best_expected": 0.021879612933355747,
+       "best_shrunk_expected": null,
+       "shrunk_best_expected": null,
+       "best_shrunk_if_complete": 0.4262260461344143,
        "shrunk_pick": "plan"
       }
      ]
@@ -6709,7 +6517,7 @@
         "unit": "probability"
        },
        "pick": "plan",
-       "why": "The best plan scores above keeping your roster."
+       "why": "The best plan scores above keeping your roster on fresh dice."
       }
      },
      {
@@ -6759,7 +6567,7 @@
         "unit": "probability"
        },
        "pick": "plan",
-       "why": "The best plan scores above keeping your roster."
+       "why": "The best plan scores above keeping your roster on fresh dice."
       }
      },
      {
@@ -6809,7 +6617,7 @@
         "unit": "probability"
        },
        "pick": "plan",
-       "why": "The best plan scores above keeping your roster."
+       "why": "The best plan scores above keeping your roster on fresh dice (ranked on the gain if the whole plan lands)."
       }
      }
     ],
@@ -7100,7 +6908,7 @@
     },
     "feasibility_points_detail": null,
     "candidates_scored": 88,
-    "rescores": 151,
+    "rescores": 167,
     "runtime_ms": 0,
     "phases_ms": {
      "adapter_and_world": 0,
@@ -7149,38 +6957,48 @@
     },
     "shrink": {
      "status": "shadow",
-     "tau2": 17.67824523327396,
-     "n": 88,
-     "basis": "empirical Bayes toward the no-trade gain (0); not graded, reads nothing served",
+     "basis": "empirical Bayes toward the no-trade gain (0), fitted per mode; not graded, reads nothing served",
      "modes": [
       {
        "mode": "safe",
+       "basis": "expected gain, path se",
+       "tau2": 12.531637880928205,
+       "n": 7,
        "best": "3|4+7|22",
+       "best_expected": 6.231521739130436,
        "shrunk_best": "3|4+7|22",
        "reorders": false,
-       "best_expected": 6.231521739130436,
-       "best_shrunk_expected": 6.200636797951796,
-       "shrunk_best_expected": 6.200636797951796,
+       "best_shrunk_expected": 6.1880411921761755,
+       "shrunk_best_expected": 6.1880411921761755,
+       "best_shrunk_if_complete": null,
        "shrunk_pick": "plan"
       },
       {
        "mode": "balanced",
+       "basis": "expected gain, path se",
+       "tau2": 12.020398844555118,
+       "n": 39,
        "best": "3|4+7|22",
+       "best_expected": 6.4718804347826095,
        "shrunk_best": "3|4+7|22",
        "reorders": false,
-       "best_expected": 6.4718804347826095,
-       "best_shrunk_expected": 6.443824707343492,
-       "shrunk_best_expected": 6.443824707343492,
+       "best_shrunk_expected": 6.430703258479959,
+       "shrunk_best_expected": 6.430703258479959,
+       "best_shrunk_if_complete": null,
        "shrunk_pick": "plan"
       },
       {
        "mode": "all_in",
+       "basis": "if-it-lands gain, last step se",
+       "tau2": 302.96610169491527,
+       "n": 59,
        "best": "2|3+5|11",
+       "best_expected": 1.2799006211180124,
        "shrunk_best": "2|3+5|11",
        "reorders": false,
-       "best_expected": 1.2799006211180124,
-       "best_shrunk_expected": 1.279869268706155,
-       "shrunk_best_expected": 1.279869268706155,
+       "best_shrunk_expected": null,
+       "shrunk_best_expected": null,
+       "best_shrunk_if_complete": 26.97773864922651,
        "shrunk_pick": "plan"
       }
      ]
@@ -9818,7 +9636,7 @@
         "unit": "probability"
        },
        "pick": "plan",
-       "why": "The best plan scores above keeping your roster."
+       "why": "The best plan scores above keeping your roster on fresh dice."
       }
      },
      {
@@ -9868,7 +9686,7 @@
         "unit": "probability"
        },
        "pick": "plan",
-       "why": "The best plan scores above keeping your roster."
+       "why": "The best plan scores above keeping your roster on fresh dice."
       }
      },
      {
@@ -9919,7 +9737,7 @@
         "unit": "probability"
        },
        "pick": "plan",
-       "why": "The best plan scores above keeping your roster."
+       "why": "The best plan scores above keeping your roster on fresh dice (ranked on the gain if the whole plan lands)."
       }
      }
     ],
@@ -10272,7 +10090,7 @@
      }
     },
     "candidates_scored": 121,
-    "rescores": 219,
+    "rescores": 234,
     "runtime_ms": 0,
     "phases_ms": {
      "adapter_and_world": 0,
@@ -10321,38 +10139,48 @@
     },
     "shrink": {
      "status": "shadow",
-     "tau2": 0.004488781026757057,
-     "n": 121,
-     "basis": "empirical Bayes toward the no-trade gain (0); not graded, reads nothing served",
+     "basis": "empirical Bayes toward the no-trade gain (0), fitted per mode; not graded, reads nothing served",
      "modes": [
       {
        "mode": "safe",
+       "basis": "expected gain, path se",
+       "tau2": 0.0021969604809135884,
+       "n": 19,
        "best": "3|5+6|21",
+       "best_expected": 0.053228242290398464,
        "shrunk_best": "3|5+6|21",
        "reorders": false,
-       "best_expected": 0.053228242290398464,
-       "best_shrunk_expected": 0.05319359070511202,
-       "shrunk_best_expected": 0.05319359070511202,
+       "best_shrunk_expected": 0.053157490986156526,
+       "shrunk_best_expected": 0.053157490986156526,
+       "best_shrunk_if_complete": null,
        "shrunk_pick": "plan"
       },
       {
        "mode": "balanced",
+       "basis": "expected gain, path se",
+       "tau2": 0.0018574505866074224,
+       "n": 54,
        "best": "3|4+7|22",
+       "best_expected": 0.10607809571182968,
        "shrunk_best": "3|4+7|22",
        "reorders": false,
-       "best_expected": 0.10607809571182968,
-       "best_shrunk_expected": 0.10601817683667956,
-       "shrunk_best_expected": 0.10601817683667956,
+       "best_shrunk_expected": 0.10593340940834906,
+       "shrunk_best_expected": 0.10593340940834906,
+       "best_shrunk_if_complete": null,
        "shrunk_pick": "plan"
       },
       {
        "mode": "all_in",
+       "basis": "if-it-lands gain, last step se",
+       "tau2": 0.07537740533165392,
+       "n": 72,
        "best": "2|4+6+7|11",
+       "best_expected": 0.03677000998338296,
        "shrunk_best": "2|4+6+7|11",
        "reorders": false,
-       "best_expected": 0.03677000998338296,
-       "best_shrunk_expected": 0.03676941283012925,
-       "shrunk_best_expected": 0.03676941283012925,
+       "best_shrunk_expected": null,
+       "shrunk_best_expected": null,
+       "best_shrunk_if_complete": 0.4085068910963097,
        "shrunk_pick": "plan"
       }
      ]
@@ -10517,7 +10345,7 @@
    "next_move": {
     "status": "unknown",
     "source": "plan.path",
-    "reason": "None of the 87 paths searched clears the sliders and the fresh-dice check this week. Try another target or risk mode."
+    "reason": "None of the 87 paths searched clears the sliders and the fresh-dice check this week. Keeping your roster is the pick in Balanced mode. Try another target or risk mode."
    },
    "alternatives": {
     "status": "ok",
@@ -11457,7 +11285,7 @@
         "unit": "probability"
        },
        "pick": "no_trade",
-       "why": "The best plan scores no better than keeping your roster."
+       "why": "No plan in this mode beats keeping your roster on fresh dice."
       }
      },
      {
@@ -11494,7 +11322,7 @@
         "unit": "probability"
        },
        "pick": "no_trade",
-       "why": "No plan fits this mode, so keeping your roster is the pick."
+       "why": "No plan in this mode beats keeping your roster on fresh dice."
       }
      },
      {
@@ -11545,7 +11373,7 @@
         "unit": "probability"
        },
        "pick": "plan",
-       "why": "The best plan scores above keeping your roster."
+       "why": "The best plan scores above keeping your roster on fresh dice (ranked on the gain if the whole plan lands)."
       }
      }
     ],
@@ -11738,7 +11566,7 @@
      }
     },
     "candidates_scored": 87,
-    "rescores": 185,
+    "rescores": 210,
     "runtime_ms": 0,
     "phases_ms": {
      "adapter_and_world": 0,
@@ -11787,37 +11615,48 @@
     },
     "shrink": {
      "status": "shadow",
-     "tau2": 0.00396021872029883,
-     "n": 87,
-     "basis": "empirical Bayes toward the no-trade gain (0); not graded, reads nothing served",
+     "basis": "empirical Bayes toward the no-trade gain (0), fitted per mode; not graded, reads nothing served",
      "modes": [
       {
        "mode": "safe",
+       "basis": "expected gain, path se",
+       "tau2": 0.0016622395897447325,
+       "n": 13,
        "best": "4|5|33",
+       "best_expected": 0.006684580560367098,
        "shrunk_best": "4|5|33",
        "reorders": false,
-       "best_expected": 0.006684580560367098,
-       "best_shrunk_expected": 0.006683779885386528,
-       "shrunk_best_expected": 0.006683779885386528,
+       "best_shrunk_expected": 0.006682673300371516,
+       "shrunk_best_expected": 0.006682673300371516,
+       "best_shrunk_if_complete": null,
        "shrunk_pick": "no_trade"
       },
       {
        "mode": "balanced",
+       "basis": "expected gain, path se",
+       "tau2": null,
+       "n": 0,
        "best": null,
+       "best_expected": null,
        "shrunk_best": null,
        "reorders": false,
-       "best_expected": null,
        "best_shrunk_expected": null,
-       "shrunk_best_expected": null
+       "shrunk_best_expected": null,
+       "best_shrunk_if_complete": null,
+       "shrunk_pick": null
       },
       {
        "mode": "all_in",
+       "basis": "if-it-lands gain, last step se",
+       "tau2": 0.08512155761572995,
+       "n": 42,
        "best": "2|4+6+7|11",
+       "best_expected": 0.03677000998338296,
        "shrunk_best": "2|4+6+7|11",
        "reorders": false,
-       "best_expected": 0.03677000998338296,
-       "best_shrunk_expected": 0.036769333130770875,
-       "shrunk_best_expected": 0.036769333130770875,
+       "best_shrunk_expected": null,
+       "shrunk_best_expected": null,
+       "best_shrunk_if_complete": 0.40851247398921575,
        "shrunk_pick": "plan"
       }
      ]

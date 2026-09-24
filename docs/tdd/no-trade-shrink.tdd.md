@@ -55,3 +55,26 @@ without `runtime_ms` / `phases_ms`:
 Fixture reading: safe best plan expected +0.0067 but scores <= 0 after its
 spread penalty -> `pick: no_trade`; balanced and all-in -> `plan`. Shadow:
 tau^2 0.00396 over 87 plans, no reorder in any mode on this fixture.
+
+## Review round (PR #383 review, BLOCK)
+
+RED `f071c93`: 5 new tests fail (pick vs served move on the confirm dice, Safe
+serving a move scored at or below doing nothing, false `reorders` with an
+SE-less best, all-in shrinking the wrong gain, `shrinkFactor(0, 0)` = 0).
+
+GREEN:
+1. `planner.js`: every deck card must score > 0 under its mode on the confirm
+   dice (no trade = 0); each mode's `pick` comes from its own confirm-dice deck,
+   and the active mode's pick is the served deck itself. When the confirm world
+   fails, the planning-dice score decides and `why` says so.
+2. `shadowShrink`: `reorders` is null when the served best has no SE; SE-less
+   plans never enter the shrunk ranking.
+3. All-in fits its own prior on `delta_final` with the last step's SE; every
+   prior is fitted per mode over the plans that pass that mode's sliders.
+4. `shrinkFactor(0, tau2)` = 1; the all-in `why` names the if-it-lands gain; the
+   no-move reason says "Keeping your roster is the pick in <mode> mode."
+
+Served change on the fixture league (the one intended): Safe mode no longer
+serves give 6 for 33 (its Safe score is at or below 0, doing nothing); its `next_move` is
+the no-move reason. Balanced and all-in entries are identical to `main` apart
+from the new keys and `_run.rescores`.

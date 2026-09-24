@@ -254,9 +254,12 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   const op = res.no_overpay ?? null;
   const cl = op?.closest && fin(op.closest.pct) ? op.closest : null;
   const closestText = cl ? `the closest is ${cl.give.map(nm).join(' + ')} for ${cl.get.map(nm).join(' + ')} at +${Math.max(1, Math.round(cl.pct * 100))}% market value (your cap: +${Math.round((op.max_overpay ?? 0) * 100)}%)` : null;
+  // NO-TRADE-SHRINK: with no move, say that keeping the roster is the active mode's pick (its no-trade row).
+  const keepRow = (res.risk_modes ?? []).find(m => m.mode === o.risk_mode)?.no_trade;
+  const keepText = keepRow?.pick === 'no_trade' ? ` Keeping your roster is the pick in ${MODE_LABELS[o.risk_mode]} mode.` : '';
   const next_move = best ? ok(best, 'plan.path')
     : unknown(res.candidates_scored
-      ? `None of the ${res.candidates_scored} paths searched clears the sliders and the fresh-dice check this week.${closestText ? ` Nothing clears without overpaying; ${closestText}.` : ''} Try another target or risk mode.`
+      ? `None of the ${res.candidates_scored} paths searched clears the sliders and the fresh-dice check this week.${keepText}${closestText ? ` Nothing clears without overpaying; ${closestText}.` : ''} Try another target or risk mode.`
       : closestText ? `Nothing clears without overpaying; ${closestText}.`
         : 'The planner found no trade path worth sending this week.', 'plan.path');
 

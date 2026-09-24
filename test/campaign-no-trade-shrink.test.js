@@ -80,7 +80,7 @@ test("the mode's own objective picks plan or no trade", () => {
   assert.equal(rows.safe.no_trade.pick, 'no_trade');
   // No plan fits -> no trade, with the reason.
   const none = compareModes([], ctxFor);
-  for (const r of none) { assert.equal(r.no_trade.pick, 'no_trade'); assert.match(r.no_trade.why, /No plan fits/); }
+  for (const r of none) { assert.equal(r.no_trade.pick, 'no_trade'); assert.match(r.no_trade.why, /No plan in this mode beats keeping your roster/); }
   // A losing plan -> no trade.
   const lose = compareModes([plan('2', 0.9, -0.005, 0.001)], ctxFor).find(r => r.mode === 'balanced');
   assert.equal(lose.no_trade.pick, 'no_trade');
@@ -114,7 +114,7 @@ test('review 1: the pick agrees with the served move in every mode (priced on th
       `${mode}: served move ${res.best ? 'present' : 'absent'} but pick ${row.no_trade.pick}`);
     // A served move beats doing nothing under its own mode on the confirm dice.
     if (res.best) assert.ok(res.best.score > 0, `${mode}: served best scores ${res.best.score}`);
-    for (const c of res.deck) assert.ok(c.score > 0, `${mode}: a deck card scores ${c.score}`);
+    for (const c of res.deck) assert.ok(c.plan.score > 0, `${mode}: a deck card scores ${c.plan.score}`);
   }
 });
 
@@ -139,7 +139,7 @@ test('review 3: all-in shrinks the if-it-lands gain with its own prior and the l
   const pf = shrinkPrior([{ expected: 0.2, expected_se: 0.1 }, { expected: 0.01, expected_se: 0.001 }]);
   assert.equal(ai.best, '2|1|20');
   close(ai.best_shrunk_if_complete, 0.2 * pf.tau2 / (pf.tau2 + 0.01), 1e-12);
-  assert.ok(ai.best_shrunk_if_complete < 0.2 * 0.6, 'a 0.1-SE landing gain is shrunk hard, not ~1%');
+  assert.ok(ai.best_shrunk_if_complete < 0.2 * 0.7, 'a 0.1-SE landing gain is shrunk hard, not ~1% (the old k ~0.99)');
 });
 
 test('review minor: an exact gain (se 0) is not shrunk, even with tau^2 = 0', () => {

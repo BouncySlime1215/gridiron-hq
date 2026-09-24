@@ -60,6 +60,8 @@ export const DECLINE_REASONS = Object.freeze(['wants_more', 'likes_his_player', 
 export const CATCHUP_KINDS = Object.freeze(['free', 'flip', 'desperate', 'swing', 'timing']);
 export const SPEED_LEVERS = Object.freeze(['sequential', 'parallel', 'concede', 'package', 'all_in']);
 export const NUMBER_HEALTH_STATUSES = Object.freeze(['ok', 'warn', 'broken']);
+/** The objective's feasibility status (feasibility.status, feasibility_points.outlook). */
+export const FEASIBILITY_STATUSES = Object.freeze(['on_track', 'reachable', 'out_of_reach']);
 
 /**
  * stop_tradeoffs keys, exactly as Coach builds them (warroomCoach.ts tradeoffKey):
@@ -167,6 +169,8 @@ const move = obj({
   expected: numF,
   reasoning: field(reasoning)
 });
+/** The deck head. change_reason (PUSH-01): why it differs from the previous run's (replan.js#diffNextMove); only when it does. */
+const nextMove = obj(move.req, { ...move.opt, change_reason: str });
 
 const destination = obj({
   goal: field(obj({ kind: oneOf(GOALS), label: str }, { player_id: pid, points_per_week: num })),
@@ -216,21 +220,24 @@ const brainReport = obj({
 export const SECTIONS = Object.freeze({
   attention: field(obj({ rank: int(1), of: int(1), reason: str })),
   destination: field(destination),
+  // status: on track now / reachable with a trade / out of reach (optional so a file written before
+  // PUSH-01's fix still validates; the producer always writes it). change_reason: only when the status
+  // differs from the previous run's (PUSH-01 pushes on both).
   feasibility: field(obj({
     points_per_week: num, projected_points: numF, p_hit: probF, by_week: field(int(1, 18))
-  }, { cost_text: str })),
+  }, { cost_text: str, status: oneOf(FEASIBILITY_STATUSES), change_reason: str })),
   // FEAS-140: the points question on a league planned on something else (title, playoffs,
   // get-player), as its own card next to `feasibility`; never nested in it. A points
   // league writes this as 'unknown' and keeps its answer in `feasibility`.
   feasibility_points: field(obj({
     points_per_week: num, league_objective: oneOf(['title', 'playoffs', 'get_player']),
-    outlook: oneOf(['on_track', 'reachable', 'out_of_reach']),
+    outlook: oneOf(FEASIBILITY_STATUSES),
     projected_points: numF, p_hit: probF, by_week: field(int(1, 18)),
     cost_players: int(0), cost_offers: int(0), objective_cost: numF,
     bye_warnings: int(0), injury_warnings: int(0)
-  }, { cost_text: str })),
+  }, { cost_text: str, change_reason: str })),
   finder_best_expected: numF,
-  next_move: field(move),
+  next_move: field(nextMove),
   alternatives: field(arr(move, { max: MAX_ALTERNATIVES })),
   itinerary: field(obj({
     version: int(1), stops: arr(stop), stops_left: int(0), untouchables: arr(pid), conflicts: arr(obj({ text: str }))

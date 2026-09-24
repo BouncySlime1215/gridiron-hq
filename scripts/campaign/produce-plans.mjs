@@ -14,7 +14,6 @@
  *                                          tolerances, arrive_by, stops, untouchables, version } } (optional;
  *                                          CLI/test input only)
  *   GRIDIRON_WARROOM_SKIPS       input    JSONL { league, player?, manager?, reason, at } (optional; CLI/test input only)
- *   GRIDIRON_WARROOM_PUSHES      output   JSONL, one row per league whose next move changed
  *   GRIDIRON_CHAT_DB_PATH        input    local chat DB (optional; labels only)
  *   GRIDIRON_COUNTERPART         flag     =1 turns on the ONE-COUNTERPART model (people/counterpart.js):
  *                                         targets, partner order and the reply prior adjusted by named
@@ -25,8 +24,10 @@
  * The file is the War Room contract (server/services/campaign/plans-schema.js,
  * `warroom-plans/1`), built by buildPlansFile below and checked
  * with validatePlans before it replaces the live file. Every re-run diffs each
- * league's next move against the previous file (`_run.changed`); a changed move
- * appends one push row. --no-finder skips the Trade Lab finder baseline
+ * league's next move against the previous file (`_run.changed`, the reason text);
+ * the push itself (PUSH-01) is server/services/campaign/push-alerts.js#runPushAlerts,
+ * which diffs against its own state in the app DB and sends one push per change,
+ * outside 1-8 AM ET, when GRIDIRON_WARROOM_PUSH_ENABLED=1 or preview mode is on. --no-finder skips the Trade Lab finder baseline
  * (`finder_best_expected` is then unknown with that reason).
  *
  * ONE-PLANNER: this is the only planner and plans.json its only output.
@@ -383,12 +384,6 @@ export async function buildPlansFile(leagues, {
   return file;
 }
 
-/** One push row per league whose next move changed. */
-export function pushesOf(file) {
-  return file.leagues.filter(e => e._run?.changed?.changed)
-    .map(e => ({ league: e.league, at: file.generated_at, reason: e._run.changed.reason, next: e._run.changed.next_key }));
-}
-
 async function main() {
   const t0 = Date.now();
   const opts = args(process.argv);
@@ -497,14 +492,19 @@ async function main() {
     const ranIds = new Set(leagues.map(l => String(l.id)));
     await writeHisScreens(file, { log: line => console.log(line),
       keep: written === file ? [] : written.leagues.map(e => String(e.league)).filter(id => !ranIds.has(id)) });
-    const pushes = pushesOf(file);
-    if (pushes.length) {
-      fs.appendFileSync(sibling(env, 'GRIDIRON_WARROOM_PUSHES', 'pushes.jsonl'), pushes.map(p => JSON.stringify(p)).join('\n') + '\n');
+    // PUSH-01: the plans file is already live; a push failure is reported on the summary line, never hidden.
+    // Only the leagues this run planned are diffed; kept leagues keep their push state.
+    const { runPushAlerts } = await import('../../server/services/campaign/push-alerts.js');
+    let pushLine;
+    try { pushLine = (await runPushAlerts(svc.db.db, file, { env })).line; } catch (e) {
+      console.error(`[warroom] push alerts: ${e.stack ?? e}`);
+      pushLine = `FAILED ${String(e.message ?? e).slice(0, 200)}`;
     }
     const entries = file.leagues;
     const failed = entries.filter(e => e.error).length;
+    const changed = entries.filter(e => e._run?.changed?.changed).length;
     const keptNote = written === file ? '' : ` kept ${written.leagues.length - entries.length}`;
-    console.log(`warroom_plans ${failed ? 'PARTIAL' : 'ok'} leagues ${entries.length} failed ${failed} changed ${pushes.length}${keptNote} (${Math.round((Date.now() - t0) / 1000)} s) -> ${out}`);
+    console.log(`warroom_plans ${failed ? 'PARTIAL' : 'ok'} leagues ${entries.length} failed ${failed} changed ${changed}${keptNote} pushes ${pushLine} (${Math.round((Date.now() - t0) / 1000)} s) -> ${out}`);
     if (failed === entries.length && entries.length) process.exitCode = 1;
   } finally { release(); }
 }

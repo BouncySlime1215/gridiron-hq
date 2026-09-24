@@ -3655,7 +3655,9 @@
       "value": 4,
       "source": "sim.title"
      },
-     "cost_text": "2 player(s) over 1 offer(s)"
+     "status": "on_track",
+     "cost_text": "2 player(s) over 1 offer(s)",
+     "change_reason": "was reachable with a trade, now on track"
     },
     "source": "sim.title"
    },
@@ -7048,7 +7050,7 @@
     "value": {
      "rank": 3,
      "of": 5,
-     "reason": "best move worth 6.1 pts"
+     "reason": "best move worth 6.1 pts, next move changed"
     },
     "source": "campaign.plan"
    },
@@ -7164,7 +7166,8 @@
      },
      "bye_warnings": 0,
      "injury_warnings": 0,
-     "cost_text": "2 player(s) over 1 offer(s)"
+     "cost_text": "2 player(s) over 1 offer(s)",
+     "change_reason": "was out of reach, now reachable with a trade"
     },
     "source": "sim.title"
    },
@@ -7367,7 +7370,8 @@
        "check_first": false
       },
       "source": "plan.template"
-     }
+     },
+     "change_reason": "new numbers moved a different deal to the top"
     },
     "source": "plan.path"
    },
@@ -9819,9 +9823,9 @@
      }
     ],
     "changed": {
-     "changed": false,
-     "reason": "same next move",
-     "previous_key": "3|4+6|21",
+     "changed": true,
+     "reason": "new numbers moved a different deal to the top",
+     "previous_key": "none",
      "next_key": "3|4+6|21"
     },
     "roster_key": null,

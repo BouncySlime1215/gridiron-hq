@@ -16,3 +16,6 @@ Each row: metric, best value, split, command/source. "seed" = number from R&D, n
 | Page load / API p95 | to measure | local | RATCHET-01 |
 | E3 title-odds calibration (Sleeper week-7 replay, 906 league-seasons 2023-24) | Brier gain vs standings-only: playoffs +0.026 [0.023,0.028], title +0.0018 [0.0012,0.0024]; slopes 0.97 / 0.94 | fit 2021-22 | rnd/eval/eval-hist.md (study; uses teams' own wk1-7 points, not the served sim's projections) |
 | E1 stand-in: P(pair trades this week) | slopes 0.93 / 0.90; log loss beats activity-only (gain all from week-of-season) | 2023 / 2024 | rnd/eval/eval-hist.md; TRUE P(accept) untestable on Sleeper (no declines) -> 2026 offer log |
+| Waiver-choice top-1 (CLONE-01a population model) | 9.5% vs 0.7% highest-as-of-PPG; log loss 4.333 vs 5.406 (-1.073 [-1.086,-1.061]) | fit Sleeper 2021-23, grade 2024 (28,053 claims) | #229 fit-clone-population.py |
+| ESPN blind spot qb_change | 2021-24 -0.568 [-0.946,-0.190]; 2025 one-look -0.978 [-1.741,-0.215] CONFIRMED | L163 | #228 |
+| ESPN blind spot blowout_underdog_rb | 2021-24 -0.661; 2025 +0.103 [-0.896,1.102] NOT CONFIRMED -> not served | L163 | #228 |

@@ -26,9 +26,22 @@
  *  R10 (RULINGS 4) the 7-day count is FIX-07's sentThisWeek, the one fatigue
  *     counter; an app_proposed row with no sent_at (a suggestion never sent)
  *     counts nowhere.
- *  R11 (RULINGS 8) the finder hook is behind GRIDIRON_REP_GATE, read through
- *     preview-mode.js: off, deals are served untouched; preview labels verdicts.
+ *  R11 (RULINGS 8) the finder hook is behind GRIDIRON_REPUTATION, read through
+ *     preview-mode.js previewUnconfirmed(): off, deals are served untouched;
+ *     preview labels verdicts.
+ *  R12 (FIX-264-1) one fatigue number: the count lives here
+ *     (countSentThisWeek: trade_outcomes.sent_at IS NOT NULL plus ESPN's own
+ *     proposals, de-duplicated on matched_tx_id) and the War Room producer's
+ *     league-adapter.mjs#sentThisWeek calls it, not the other way round.
+ *  R13 (FIX-264-2) GET /find with a seeded deal carries the verdict (kills the
+ *     "remove the gateDeals wrap" mutant the fixture-less route missed).
+ *  R14 (FIX-264-3) the reputation factor: selfRead carries per-manager and
+ *     league lopsidedness from the ledger, and acceptanceBand's capped,
+ *     default-off `reputation` factor lowers only that manager's P(accept),
+ *     decays on the half-life, and is inert with a reason with no logged offers.
  */
+import { mock } from 'node:test';
+import express from 'express';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
@@ -39,7 +52,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-offer-reputation-')
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.SCHEDULER_DISABLED = '1';
 // The finder hook is flagged (R11 pins off / preview); every other test runs it on.
-process.env.GRIDIRON_REP_GATE = '1';
+process.env.GRIDIRON_REPUTATION = '1';
 delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
 
 const { db, run } = await import('../server/db/index.js');
@@ -58,6 +71,7 @@ const {
   offerGate, reputationLedger, reputationLimits, offerGateFor, gateDeals,
   REPUTATION_DEFAULTS, LEAGUE_REPUTATION_DEFAULTS, REPUTATION_HALF_LIFE_DAYS,
 } = await import('../server/services/offer-reputation.js');
+const reputationModule = await import('../server/services/offer-reputation.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -404,10 +418,10 @@ test('R10 no collector table: the league reader refuses rather than counting bli
 
 /* ----------------------------------------------------------------- R11 */
 
-test('R11 GRIDIRON_REP_GATE off: finder deals come back untouched; preview labels each verdict', () => {
+test('R11 GRIDIRON_REPUTATION off: finder deals come back untouched; preview labels each verdict', () => {
   const result = { mode: 'league', deals: [{ partner_id: '3', acceptance: { band: { low: 0.4, mid: 0.5, high: 0.6 } } }] };
   try {
-    delete process.env.GRIDIRON_REP_GATE;
+    delete process.env.GRIDIRON_REPUTATION;
     const off = gateDeals({ id: 4, season: 2026 }, result, { now: NOW });
     assert.equal(off, result, 'off: the same object, no reputation field');
     assert.equal(off.deals[0].reputation, undefined);
@@ -415,12 +429,166 @@ test('R11 GRIDIRON_REP_GATE off: finder deals come back untouched; preview label
     process.env.GRIDIRON_PREVIEW_UNCONFIRMED = '1';
     const p = gateDeals({ id: 4, season: 2026 }, result, { now: NOW });
     assert.equal(p.deals[0].reputation.preview, true);
-    assert.match(p.deals[0].reputation.preview_reason, /GRIDIRON_REP_GATE=1/);
+    assert.match(p.deals[0].reputation.preview_reason, /GRIDIRON_REPUTATION=1/);
     assert.ok(['allow', 'deny', 'delay'].includes(p.deals[0].reputation.decision));
   } finally {
-    process.env.GRIDIRON_REP_GATE = '1';
+    process.env.GRIDIRON_REPUTATION = '1';
     delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
   }
   const on = gateDeals({ id: 4, season: 2026 }, result, { now: NOW });
   assert.equal(on.deals[0].reputation.preview, undefined, 'flag on: no preview label');
+});
+
+
+/* ----------------------------------------------------------------- R12 */
+
+test('R12 one fatigue number: the War Room adapter\'s sentThisWeek is this module\'s countSentThisWeek', async () => {
+  const { countSentThisWeek } = reputationModule;
+  assert.equal(typeof countSentThisWeek, 'function', 'the one counter lives in offer-reputation.js');
+  const { sentThisWeek } = await import('../scripts/campaign/league-adapter.mjs');
+  const { rows } = await import('../server/db/index.js');
+  const nowMs = Date.parse(NOW);
+  // League 5 by now: one tapped-and-sent offer to 3 plus one ESPN-only proposal (R10).
+  const mine = countSentThisWeek({ rows, toTime: t => Date.parse(t) }, 5, 2026, '1', nowMs);
+  const adapter = sentThisWeek({ db: { rows }, tactics: { toTime: t => Date.parse(t) } }, 5, 2026, '1', nowMs);
+  assert.deepEqual([...adapter], [...mine]);
+  assert.equal(mine.get('3'), offerGateFor({ leagueId: 5, season: 2026, offer: FAIR_OFFER, now: NOW }).ledger.offers_7d,
+    'the finder gate and the War Room cap read the same number');
+  const adapterSrc = fs.readFileSync(new URL('../scripts/campaign/league-adapter.mjs', import.meta.url), 'utf8');
+  const gateSrc = fs.readFileSync(new URL('../server/services/offer-reputation.js', import.meta.url), 'utf8');
+  assert.match(adapterSrc, /countSentThisWeek\(/, 'the adapter delegates');
+  assert.doesNotMatch(gateSrc, /from '\.\.\/\.\.\/scripts\//, 'the server service does not import a script');
+});
+
+test('R12 an unsent app_proposed row and a tapped offer ESPN also shows each count correctly', () => {
+  const { countSentThisWeek } = reputationModule;
+  run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, payload, fetched_at)
+       VALUES (8, 'espn', 'fx-8', 2026, 'Fixture league 8', '1', 10, 1, '{}', '2026-09-20 00:00:00')`);
+  const ins = (cp, sentAt, tx = null) => run(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id,
+      counterparty_team_id, proposed_at, model_p_accept, model_p_accept_low, model_p_accept_high, model_basis, model_version,
+      status, created_at, sent_at, matched_tx_id)
+    VALUES (8, 2026, 'app_proposed', '1', ?, ?, 0.5, 0.4, 0.6, 'heuristic_unanchored', 'v0', 'proposed', ?, ?, ?)`,
+  cp, ago(1), ago(1), sentAt, tx);
+  ins('3', null);            // a suggestion, never sent
+  ins('3', ago(1));          // sent
+  ins('4', ago(1), 'e-8');   // sent, and ESPN shows it as e-8
+  run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, execution_type, proposed_at, team_id, items_json, first_seen_at, last_seen_at)
+       VALUES (8, 2026, 'e-8', 'TRADE_PROPOSAL', 'EXECUTE', ?, 1, ?, ?, ?)`,
+  ago(1), JSON.stringify([{ fromTeamId: 1, toTeamId: 4 }, { fromTeamId: 4, toTeamId: 1 }]), ago(1), ago(1));
+  const rows = (sql, ...a) => db.prepare(sql).all(...a);
+  const n = countSentThisWeek({ rows, toTime: t => Date.parse(t) }, 8, 2026, '1', Date.parse(NOW));
+  assert.equal(n.get('3'), 1, 'only the sent one');
+  assert.equal(n.get('4'), 1, 'the tapped offer ESPN also shows counts once');
+});
+
+/* ----------------------------------------------------------------- R13 */
+
+test('R13 GET /find serves each seeded deal with its reputation verdict (flag on), and untouched (flag off)', async () => {
+  const realEngine = await import('../server/services/trade-engine.js');
+  mock.module('../server/services/trade-engine.js', {
+    namedExports: { ...realEngine, findTrades: () => ({ mode: 'league', me: { roster_id: '1' },
+      deals: [{ partner_id: '3', i_give: [{ id: 11 }], i_get: [{ id: 12 }],
+        acceptance: { band: { low: 0.4, mid: 0.5, high: 0.6 } } }] }) },
+  });
+  const { hashSessionToken } = await import('../server/platform/auth.js');
+  const { legacyAuthenticated } = await import('../server/platform/legacy-access.js');
+  const { default: tradesRouter } = await import('../server/routes/trades.js');
+  run(`INSERT OR IGNORE INTO users(id, subject, display_name) VALUES (9911, 'rep-user', 'Reader')`);
+  run(`INSERT OR REPLACE INTO auth_sessions(user_id, token_hash, expires_at) VALUES (9911, ?, datetime('now','+1 day'))`,
+    hashSessionToken('rep-token'));
+  run(`INSERT OR IGNORE INTO league_memberships(league_id, user_id, role) VALUES (4, 9911, 'member')`);
+  const app = express();
+  app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
+  const server = app.listen(0);
+  const get = async () => (await fetch(`http://127.0.0.1:${server.address().port}/api/trades/4/find?team_id=1`,
+    { headers: { authorization: 'Bearer rep-token' } })).json();
+  try {
+    const on = await get();
+    assert.equal(on.deals.length, 1);
+    assert.ok(on.deals[0].reputation, 'the route wraps findTrades in gateDeals');
+    assert.equal(on.deals[0].reputation.decision, 'delay', 'league 4: two sent offers to a hard manager (R9)');
+    assert.equal(on.deals[0].reputation.code, 'weekly_cap');
+    delete process.env.GRIDIRON_REPUTATION;
+    const off = await get();
+    assert.equal(off.deals[0].reputation, undefined, 'flag off: no reputation on the deal');
+  } finally {
+    process.env.GRIDIRON_REPUTATION = '1';
+    server.close();
+    mock.restoreAll();
+  }
+});
+
+/* ----------------------------------------------------------------- R14 */
+
+const { selfRead } = await import('../server/services/counterparty-pricing.js');
+const { acceptanceBand, ACCEPTANCE_SOURCES } = await import('../server/services/trade-acceptance.js');
+const BAND_IN = { counterparty: { counterparty_data: true, receptiveness: 1 }, edge: { passes: true } };
+const factorOf = b => b.factors.find(f => f.source === 'reputation') ?? null;
+const inertOf = b => b.inert.find(f => f.source === 'reputation') ?? null;
+
+test('R14 three logged lopsided offers lower that manager\'s P(accept) for a fourth, and no one else\'s', () => {
+  run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, payload, fetched_at)
+       VALUES (6, 'espn', 'fx-6', 2026, 'Fixture league 6', '1', 10, 1, '{}', '2026-09-20 00:00:00')`);
+  for (const d of [3, 2, 1]) {
+    // Sent lowballs: the band top under the lowball line costs 1 each (p_accept_proxy).
+    run(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id, proposed_at,
+           model_p_accept, model_p_accept_low, model_p_accept_high, model_basis, model_version, status, resolved_at, created_at, sent_at)
+         VALUES (6, 2026, 'app_proposed', '1', '3', ?, 0.1, 0.05, 0.15, 'heuristic_unanchored', 'v0', 'countered', ?, ?, ?)`,
+    ago(d), ago(d - 0.5), ago(d), ago(d));
+  }
+  const me = selfRead(6, { season: 2026, now: NOW });
+  const lop = me.lopsidedness;
+  assert.ok(lop, 'selfRead carries lopsidedness');
+  assert.equal(lop.half_life_days, REPUTATION_HALF_LIFE_DAYS);
+  const his = lop.per_manager.get('3');
+  assert.equal(his.offers, 3);
+  assert.ok(his.spent > 2.5 && his.spent < 3, `decayed spend ${his.spent}`);
+  assert.ok(Math.abs(lop.league.spent - his.spent) < 1e-9, 'league spend is the sum over managers');
+
+  const base = acceptanceBand(BAND_IN);
+  const hit = acceptanceBand({ ...BAND_IN, reputation: his });
+  assert.ok(hit.band.mid < base.band.mid, `${hit.band.mid} < ${base.band.mid}`);
+  const f = factorOf(hit);
+  assert.ok(f && f.effect < 0 && Math.abs(f.effect) <= ACCEPTANCE_SOURCES.reputation.cap);
+  assert.equal(ACCEPTANCE_SOURCES.reputation.default_off, true);
+
+  // Manager 5: nothing logged. His band is unchanged and the factor says why.
+  const other = acceptanceBand({ ...BAND_IN, reputation: lop.per_manager.get('5') ?? lop.none });
+  assert.deepEqual(other.band, base.band);
+  assert.match(inertOf(other).reason, /no logged offers/);
+});
+
+test('R14 the factor is capped: a flood of lowballs cannot move the band past the cap', () => {
+  const hit = acceptanceBand({ ...BAND_IN, reputation: { spent: 1000, offers: 1000, half_life_days: REPUTATION_HALF_LIFE_DAYS } });
+  assert.equal(factorOf(hit).effect, -ACCEPTANCE_SOURCES.reputation.cap);
+});
+
+test('R14 the factor halves over one half-life and decays to nothing', () => {
+  const at = days => selfRead(6, { season: 2026, now: plus(NOW, days) }).lopsidedness.per_manager.get('3');
+  const now0 = factorOf(acceptanceBand({ ...BAND_IN, reputation: at(0) })).effect;
+  const half = factorOf(acceptanceBand({ ...BAND_IN, reputation: at(REPUTATION_HALF_LIFE_DAYS) })).effect;
+  assert.ok(Math.abs(half - now0 / 2) <= 0.002, `${half} is about half of ${now0}`);
+  const gone = acceptanceBand({ ...BAND_IN, reputation: at(REPUTATION_HALF_LIFE_DAYS * 8) });
+  assert.equal(factorOf(gone), null, 'decayed to 0');
+  assert.deepEqual(gone.band, acceptanceBand(BAND_IN).band);
+});
+
+test('R14 no logged offers: inert with a reason; not supplied (flag off): the band is byte-identical', () => {
+  run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, payload, fetched_at)
+       VALUES (7, 'espn', 'fx-7', 2026, 'Fixture league 7', '1', 10, 1, '{}', '2026-09-20 00:00:00')`);
+  const lop = selfRead(7, { season: 2026, now: NOW }).lopsidedness;
+  assert.equal(lop.per_manager.size, 0);
+  assert.equal(lop.league.spent, 0);
+  assert.match(lop.reason, /no logged offers/);
+  const empty = acceptanceBand({ ...BAND_IN, reputation: lop.none });
+  assert.equal(factorOf(empty), null);
+  assert.match(inertOf(empty).reason, /no logged offers/);
+  assert.equal(JSON.stringify(acceptanceBand({ ...BAND_IN, reputation: null })), JSON.stringify(acceptanceBand(BAND_IN)),
+    'default-off: without a ledger the band is exactly today\'s');
+});
+
+test('R14 the War Room producer passes the ledger only when GRIDIRON_REPUTATION is on', () => {
+  const src = fs.readFileSync(new URL('../scripts/campaign/league-adapter.mjs', import.meta.url), 'utf8');
+  assert.match(src, /reputationFields\(\)\.enabled/);
+  assert.match(src, /reputation:/);
 });

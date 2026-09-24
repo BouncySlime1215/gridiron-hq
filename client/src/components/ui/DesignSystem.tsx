@@ -72,13 +72,19 @@ export function Distribution({ values, width = 260, height = 72, label = 'Projec
   </svg>;
 }
 
-export function DriverBars({ baseline = 0, drivers }: { baseline?: number; drivers: { label: string; value: number; detail?: string }[] }) {
+/**
+ * Signed driver bars. `format` renders each value (default: signed, one decimal); a caller
+ * showing stored numbers as written passes its own. `showTotal={false}` drops the summed
+ * total, for callers that must not derive a number the server did not send.
+ */
+export function DriverBars({ baseline = 0, drivers, format, showTotal = true }: { baseline?: number; drivers: { label: string; value: number; detail?: string }[]; format?: (value: number) => string; showTotal?: boolean }) {
   const total = baseline + drivers.reduce((sum, d) => sum + d.value, 0), max = Math.max(...drivers.map(d => Math.abs(d.value)), 1);
-  return <div className="space-y-2" aria-label={`Projection drivers sum to ${total.toFixed(1)}`}>
-    {drivers.map(d => <div key={d.label} className="grid grid-cols-[100px_1fr_48px] items-center gap-2 text-xs">
-      <span className="font-semibold text-slate-600">{d.label}</span><span className="h-2 rounded-full bg-slate-100"><span className={cx('block h-full rounded-full', d.value >= 0 ? 'bg-emerald-600' : 'bg-red-600')} style={{ width: `${Math.abs(d.value) / max * 100}%` }} title={d.detail} /></span><span className="text-right tabular-nums text-slate-700">{d.value > 0 ? '+' : ''}{d.value.toFixed(1)}</span>
+  const fmt = format ?? ((v: number) => `${v > 0 ? '+' : ''}${v.toFixed(1)}`);
+  return <div className="space-y-2" aria-label={showTotal ? `Projection drivers sum to ${total.toFixed(1)}` : `${drivers.length} drivers`}>
+    {drivers.map((d, i) => <div key={`${d.label}|${i}`} className="grid grid-cols-[100px_1fr_48px] items-center gap-2 text-xs">
+      <span className="font-semibold text-slate-600">{d.label}</span><span className="h-2 rounded-full bg-slate-100"><span className={cx('block h-full rounded-full', d.value >= 0 ? 'bg-emerald-600' : 'bg-red-600')} style={{ width: `${Math.abs(d.value) / max * 100}%` }} title={d.detail} /></span><span className="text-right tabular-nums text-slate-700">{fmt(d.value)}</span>
     </div>)}
-    <div className="border-t border-slate-200 pt-2 text-right text-xs font-bold text-slate-900">Total {total.toFixed(1)}</div>
+    {showTotal && <div className="border-t border-slate-200 pt-2 text-right text-xs font-bold text-slate-900">Total {total.toFixed(1)}</div>}
   </div>;
 }
 

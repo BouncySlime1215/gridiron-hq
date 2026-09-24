@@ -30,6 +30,8 @@
  *                                                GET /api/number-audit (#237, GRIDIRON_NUMBER_HEALTH)
  *   - offer-loop-flag.js#offerLoopFields         TradeCard "I sent this" and /offers/sent
  *                                                (#239, GRIDIRON_OFFER_LOOP)
+ *   - engineStripFields (below)                  UI-ENG-6 engine status strip + sheet
+ *                                                (#257, GRIDIRON_ENGINE_STRIP)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';
@@ -43,3 +45,22 @@ export const previewFields = reason => ({ preview: true, preview_reason: reason 
 
 /** A sentence a page already prints, labelled so the page shows it is a preview. */
 export const previewText = text => `${PREVIEW_PREFIX}: ${text}`;
+
+/*
+ * FIX-257-1 (sweep ruling 8: every new flag is read through this file): the one reader of
+ * GRIDIRON_ENGINE_STRIP, the UI-ENG-6 engine status strip under the freshness banner and
+ * its per-producer sheet. GET /api/engine/status carries these fields as `strip`; the
+ * status itself is served either way (it is read-only and cheap), only the strip hides.
+ */
+export const ENGINE_STRIP_ENV = 'GRIDIRON_ENGINE_STRIP';
+export const ENGINE_STRIP_OFF_REASON =
+  'Engine status strip is default-off, unconfirmed forward: the engine daemon does not run by ' +
+  'default, so on most installs every page would read "engine has not run". ' +
+  `Set ${ENGINE_STRIP_ENV}=1 to switch it on.`;
+
+/** Read per call, so a test or a run can flip it. */
+export function engineStripFields() {
+  if (process.env[ENGINE_STRIP_ENV] === '1') return { enabled: true };
+  if (previewUnconfirmed()) return { enabled: true, ...previewFields(ENGINE_STRIP_OFF_REASON) };
+  return { enabled: false, reason: ENGINE_STRIP_OFF_REASON };
+}

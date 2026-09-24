@@ -293,7 +293,7 @@ test('C11: ReasonChain is built on DesignSystem DriverBars; deltas as stored, no
   assert.match(r.html, /bg-red-600/); assert.match(r.html, /bg-emerald-600/);
   assert.match(r.text, /-1\.25/); assert.doesNotMatch(r.text, /-1\.3\b/, 'a delta re-rounded instead of shown as stored');
   assert.doesNotMatch(r.text, /Total/, 'the client derives no total from engine values');
-  assert.match(r.text, /coach quote/); assert.doesNotMatch(r.text, /\+0\.0|\+0\b/, 'a null delta is not drawn as 0');
+  assert.match(r.text, /coach quote/); assert.doesNotMatch(r.text, /\+0(\.0)?(?![.\d])/, 'a null delta is not drawn as 0');
   assert.match(r.text, /\+0\.25 not explained by the rows above/);
 });
 

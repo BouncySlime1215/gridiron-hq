@@ -103,21 +103,51 @@ function jevStatus(database) {
   return { status: spend === 0 ? 'zero' : 'ok', spend_usd: spend, balance_usd: v.balance_usd ?? null, as_of: r.as_of };
 }
 
+export const PRODUCER_HEALTH = Object.freeze(['ok', 'fallback', 'error', 'unknown']);
+
+/**
+ * One producer's typed health for the strip's sheet (FIX-257-1), worst first:
+ *   error     its newest run failed after its last good one (the error is the reason)
+ *   fallback  at least one of its fields is on its fallback (the fields are the reason)
+ *   unknown   it is registered and has never finished a run here
+ *   ok        otherwise
+ */
+export function producerHealth({ lastOk, lastErrorAt, lastError, fallbacks }) {
+  if (lastErrorAt && (!lastOk || lastErrorAt > lastOk)) {
+    return { health: 'error', reason: `last run failed: ${lastError ?? 'no error text recorded'}` };
+  }
+  if (fallbacks.length) {
+    const names = [...new Set(fallbacks.map(f => f.field))];
+    return { health: 'fallback', reason: `${names.length} field${names.length === 1 ? '' : 's'} on its fallback: ${names.join(', ')}` };
+  }
+  if (!lastOk) return { health: 'unknown', reason: 'has never run here' };
+  return { health: 'ok', reason: null };
+}
+
 /** Everything the status strip and its per-producer sheet show. */
 export function engineStatus(database, { now = Date.now(), dbPath = null, env = process.env } = {}) {
   const t = typeof now === 'number' ? now : Date.parse(now);
   const fallbacks = database.prepare(`SELECT f.field, f.league_id, f.fallback_field, f.since, f.reason, f.n, x.producer
       FROM engine_fallback f LEFT JOIN engine_fields x ON x.field = f.field ORDER BY f.field, f.league_id`).all();
   const runs = database.prepare(`SELECT producer, MAX(CASE WHEN error IS NULL THEN finished_at END) AS last_ok,
-      MAX(CASE WHEN error IS NOT NULL THEN finished_at END) AS last_error_at FROM engine_runs GROUP BY producer`).all();
+      MAX(CASE WHEN error IS NOT NULL THEN finished_at END) AS last_error_at,
+      (SELECT e.error FROM engine_runs e WHERE e.producer = r.producer AND e.error IS NOT NULL
+        ORDER BY e.finished_at DESC, e.id DESC LIMIT 1) AS last_error
+      FROM engine_runs r GROUP BY producer`).all();
   const runOf = Object.fromEntries(runs.map(r => [r.producer, r]));
   const producers = database.prepare(`SELECT producer, version, status FROM engine_producers
-      WHERE status = 'active' ORDER BY producer`).all().map(p => ({
-    producer: p.producer, version: p.version, status: p.status,
-    last_run_at: runOf[p.producer]?.last_ok ?? null, last_error_at: runOf[p.producer]?.last_error_at ?? null,
-    fallbacks: fallbacks.filter(f => f.producer === p.producer)
-      .map(f => ({ field: f.field, fallback_field: f.fallback_field, league_id: f.league_id, since: f.since, reason: f.reason, n: f.n })),
-  }));
+      WHERE status = 'active' ORDER BY producer`).all().map(p => {
+    const run = runOf[p.producer];
+    const fbs = fallbacks.filter(f => f.producer === p.producer)
+      .map(f => ({ field: f.field, fallback_field: f.fallback_field, league_id: f.league_id, since: f.since, reason: f.reason, n: f.n }));
+    const lastOk = run?.last_ok ?? null;
+    const lastErrorAt = run?.last_error_at ?? null;
+    return {
+      producer: p.producer, version: p.version, status: p.status,
+      ...producerHealth({ lastOk, lastErrorAt, lastError: run?.last_error ?? null, fallbacks: fbs }),
+      age_sec: ageSec(lastOk, t), last_run_at: lastOk, last_error_at: lastErrorAt, fallbacks: fbs,
+    };
+  });
   const snapshots = database.prepare(`SELECT league_id, MAX(id) AS id, MAX(created_at) AS created_at FROM engine_snapshots
       GROUP BY league_id ORDER BY league_id`).all()
     .map(s => ({ league_id: s.league_id, id: Number(s.id), created_at: s.created_at, age_sec: ageSec(s.created_at, t) }));

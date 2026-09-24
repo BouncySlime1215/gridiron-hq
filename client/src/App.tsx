@@ -9,6 +9,8 @@ import QuickJump from './components/QuickJump';
 import { NAV_GROUPS, destinationLabel } from './navigation';
 import EspnConnectGate from './components/EspnConnectGate';
 import DataFreshnessBanner from './components/DataFreshnessBanner';
+import SnapshotProvider from './engine/SnapshotProvider';
+import EngineStatusStrip from './components/engine/EngineStatusStrip';
 import { NumberHealthNavDot } from './components/NumberHealth';
 import { DataCredit } from './components/DataFreshnessBanner';
 import { Skeleton } from './components/ui/DesignSystem';
@@ -120,7 +122,13 @@ export default function App() {
         {/* Renders nothing once a league is connected; a slim bar if the modal
             was dismissed for this sitting; the modal itself otherwise. */}
         <EspnConnectGate />
+        {/* Under the banner: the UI-ENG-6 engine status strip, behind the engine strip flag
+            (preview-mode.js#engineStripFields, served on /api/engine/status; off renders nothing).
+            Keyed by path: one status read per page, so the heartbeat age is fresh. */}
         <DataFreshnessBanner />
+        <SnapshotProvider key={location.pathname}>
+          <EngineStatusStrip />
+        </SnapshotProvider>
         <header className="sticky top-0 z-30 flex h-12 items-center gap-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6">
           <button onClick={() => setCollapsed(v => !v)} aria-label={collapsed ? (isMobile ? 'Open menu' : 'Expand sidebar') : (isMobile ? 'Close menu' : 'Collapse sidebar')} className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50">
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><rect x="1" y="2" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.4" /><line x1="5.5" y1="2" x2="5.5" y2="13" stroke="currentColor" strokeWidth="1.4" /></svg>

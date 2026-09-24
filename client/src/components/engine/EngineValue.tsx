@@ -1,4 +1,5 @@
 import type { EngineRow } from '../../engine/useEngineView';
+import { Provenance } from '../ui/DesignSystem';
 
 /**
  * One engine value, rendered by its typed status (UI-RED 2; HEALTH-01b). Each status
@@ -13,6 +14,7 @@ import type { EngineRow } from '../../engine/useEngineView';
  *   last_good  the last good value, "last good, N min old" (the newest row failed)
  * A status this component does not know renders as unknown, so a failed value can never
  * slip through as if it were fine. `format` only formats; it never computes.
+ * The source line (producer@version, as of) is the design system's Provenance (FIX-257-2).
  */
 function defaultFormat(v: unknown): string {
   if (typeof v === 'number') return String(v);
@@ -52,7 +54,13 @@ export default function EngineValue({ row, format = defaultFormat }: { row: Engi
     <span data-engine-status={row.status} title={row.reason ?? undefined}>
       <span className="tabular-nums">{shown}</span>
       {note ? <span className={`ml-1 text-xs ${NOTE[row.status] ?? 'text-slate-500'}`}>{note}</span> : null}
-      {source ? <span className="ml-1 text-[10px] text-slate-400">{source}</span> : null}
+      {source ? (
+        <span className="ml-1 inline-block align-baseline">
+          <Provenance source={source} updatedAt={row.as_of} version={row.producer_version}>
+            {row.fresh_at ? <div>Last computed: {new Date(row.fresh_at).toLocaleString()}</div> : null}
+          </Provenance>
+        </span>
+      ) : null}
     </span>
   );
 }

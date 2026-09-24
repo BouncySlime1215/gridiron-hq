@@ -91,9 +91,9 @@ Budget (§3.5): view resolution ≤ 50 ms server. The script is not committed (s
 
 - `POST /api/engine/request` (the page's way to queue a rescore). The EA-03 row lists only
   `GET /request/:id`; the insert belongs with the first request kind (EA-06 `rescore`).
-- Mounting. `SnapshotProvider` and `EngineStatusStrip` are not mounted in `App.tsx`: with the
-  daemon off by default, every page would read "engine has not run". UI-RED 6 screenshots
-  are not taken. Wiring accept-list entries carry the retirement condition.
+- Mounting. ~~`SnapshotProvider` and `EngineStatusStrip` are not mounted in `App.tsx`.~~
+  Done by FIX-257-1 (section 7), behind a default-off flag. `EngineValue` and `ReasonChain`
+  are still rendered by no page (EA-07); their accept-list entries say so.
 - Views beyond `week` and `league_week`. `my_team`, `start_sit`, `trade_lab`, ... arrive
   with the fields they read (EA-07).
 
@@ -102,3 +102,76 @@ Budget (§3.5): view resolution ≤ 50 ms server. The script is not committed (s
 The task named "EA-04" and described the snapshot/view/hook layer. ENGINE-SPECS.md's EA-04
 row is the outcome adapters + grader (depends on EA-02 and #174); its EA-03 row is the
 layer described. This PR builds the described layer against the EA-03 row's RED list.
+
+## 7. Review fixes (FIX-257-1, FIX-257-2), 2026-09-24
+
+Branch merged with `origin/main` first (merge commit, 182 commits; one conflict in
+`docs/wiring/annotations.json`, both sides kept). `npm ci` before every number below.
+
+**FIX-257-1: strip mounted behind a flag, tap opens a per-producer sheet.**
+- Flag `GRIDIRON_ENGINE_STRIP`, read only in `server/services/preview-mode.js#engineStripFields`
+  (sweep ruling 8): off by default, on for `=1`, on under preview mode with `preview: true`
+  and the off-reason. The client learns it the way the number-health card does: the
+  feature's own endpoint carries it. `GET /api/engine/status` adds `strip`; the status
+  itself is served either way.
+- `/status` producer rows gain a typed `health` (`ok | fallback | error | unknown`, worst
+  first: `status.js#producerHealth`), `reason` (the failed run's error text, the fields on
+  fallback, or "has never run here") and `age_sec`.
+- `App.tsx` mounts `<SnapshotProvider key={pathname}><EngineStatusStrip /></SnapshotProvider>`
+  right under `DataFreshnessBanner`, keyed by path so the heartbeat age is read once per page.
+- The strip renders nothing while loading or when the flag is off; says "engine status
+  failed: ..." on a failed read (as the number-health card does); shows a "Preview" label
+  when on only because of preview mode. It is one button (`aria-haspopup="dialog"`); a tap
+  opens the DesignSystem `Sheet` with one row per producer (`EngineStatusSheet`), and
+  DesignSystem `EmptyState` when none are registered.
+
+**FIX-257-2: engine components on the design system.**
+- `ReasonChain` draws contributions with `DriverBars`. `DriverBars` gains two optional props
+  (`format`, `showTotal`), defaults unchanged: the chain passes a formatter that prints
+  deltas as stored (-1.25 stays -1.25, never re-rounded to -1.3) and `showTotal={false}`
+  (the client derives no total from engine values). A contribution with no delta is listed
+  as text, never drawn as a 0 bar. The residual line is unchanged.
+- `EngineValue`'s source line is `Provenance` (source `producer@version`, as-of, version).
+  Every typed status (C4's eight kinds) renders as before.
+
+**Tests.** RED commit, then GREEN. Command (the `npm test` environment on three files):
+`GRIDIRON_DB_PATH=<tmp>.sqlite SCHEDULER_DISABLED=1 NODE_OPTIONS='--import ./test/offline-guard.mjs'
+node --experimental-test-module-mocks --test --test-concurrency=1 test/engine-client.test.js
+test/engine-views.test.js test/preview-mode.test.js`
+
+| | tests | pass | fail |
+|---|---|---|---|
+| before (merge commit, pre-RED) | 18 | 18 | 0 |
+| RED | 26 | 17 | 9 |
+| GREEN | 26 | 26 | 0 |
+
+RED failures, each for the missing behaviour: C5 (row order), C8-C12, RED (9), and both
+preview-mode flag tests. New: C8 flag gating, C9 sheet, C10 App mount, C11 DriverBars,
+C12 Provenance (test/engine-client.test.js); RED (9) `/status` flag + typed producer rows
+(test/engine-views.test.js); the flag and its single-reader grep (test/preview-mode.test.js).
+
+Two test edits, said out loud:
+- C5 now reads `starter out +2.5` rather than `+2.5 starter out`: DriverBars puts the label
+  before the value. The claim is the same (every contribution with its signed delta, as
+  stored); C11 adds that -1.25 is not re-rounded.
+- C11's "a null delta is not drawn as 0" regex was wrong in the RED commit (`\+0\b` also
+  matched the residual `+0.25`); GREEN narrows it to a bare `+0` / `+0.0`.
+C6's fixture gains `strip: { enabled: true }`, since the strip is now flag-gated.
+
+`npm run typecheck` 0, `npm run build` ok, `npm run check:wiring` exit 0. The wiring
+accept-list loses 18 entries that silence nothing now (15 EA-02 daemon modules that main's
+map now counts as wired, plus the hook, provider and strip, mounted here); EngineValue's
+and ReasonChain's entries are reworded (rendered by no page until EA-07).
+
+**UI-RED 6 screenshots** (`docs/evidence/ea-04/`, script `capture.mjs` beside them):
+headless Chromium over CDP against the local server from this worktree (built client,
+scratch database, `SCHEDULER_DISABLED=1`, preview mode on so the flag is on), page `/news`,
+ESPN connect modal dismissed. `/api/engine/status` is answered per state by request
+interception (fixture payloads, no real names); `-real` is the server's own answer.
+- `ea-04-strip-<state>.png` and `ea-04-sheet-<state>.png` for normal, empty, thin
+  (stale heartbeat, one producer failed, one on fallback, one never run), mobile (375 px),
+  dark, real; `ea-04-strip-error.png` only (a failed read has no sheet to open).
+- `scrollWidth` = viewport width in every shot (375 at 375 px: no horizontal scroll).
+- Dark: the app has no dark theme (no `dark:` classes anywhere in `client/src`), so the
+  `prefers-color-scheme: dark` shots are identical to normal. Not fixed here: a dark theme
+  is app-wide work, not this unit's.

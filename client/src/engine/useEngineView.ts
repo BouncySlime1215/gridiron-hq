@@ -83,15 +83,24 @@ export interface EngineStatusReport {
   daemon: { status: string; reason?: string | null; age_sec: number | null; last_beat_at?: string | null };
   lock?: { status: string; reason?: string | null };
   sources?: { source: string; watermark: string | null; updated_at: string }[];
-  producers: {
-    producer: string;
-    version: string;
-    status: string;
-    last_run_at?: string | null;
-    fallbacks: { field: string; fallback_field: string; league_id: number; reason: string }[];
-  }[];
+  producers: EngineProducerRow[];
   snapshots?: { league_id: number; id: number; age_sec: number | null }[];
   jev: { status: string; reason?: string; spend_usd?: number; balance_usd?: number | null };
+  /** The strip's flag (server/services/preview-mode.js#engineStripFields). Missing reads as off. */
+  strip?: { enabled: boolean; reason?: string; preview?: boolean; preview_reason?: string };
+}
+
+/** One producer's row in the strip's sheet; `health` is typed by the server (status.js#producerHealth). */
+export interface EngineProducerRow {
+  producer: string;
+  version: string;
+  status: string;
+  health?: 'ok' | 'fallback' | 'error' | 'unknown' | string;
+  reason?: string | null;
+  age_sec?: number | null;
+  last_run_at?: string | null;
+  last_error_at?: string | null;
+  fallbacks: { field: string; fallback_field: string; league_id: number; reason: string }[];
 }
 
 /** The page polls /snapshot this often; a new id refetches every view on the page together. */

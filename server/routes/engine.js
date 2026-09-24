@@ -26,8 +26,11 @@
  * GET /api/engine/view?view=&league_id=&snapshot_id=
  *                                       a declared view resolved at ONE snapshot (§4.6);
  *                                       snapshot_id is required: a page pins one per load
- * GET /api/engine/status                 daemon heartbeat, lock, watermarks, producers,
- *                                       fallbacks, snapshots, Jev spend (UI-ENG-6 strip)
+ * GET /api/engine/status                 daemon heartbeat, lock, watermarks, one typed row per
+ *                                       producer (health ok|fallback|error|unknown, reason,
+ *                                       age_sec), fallbacks, snapshots, Jev spend, and `strip`:
+ *                                       the UI-ENG-6 strip's flag (engineStripFields,
+ *                                       read through preview-mode.js)
  * GET /api/engine/request/:id            one engine request the caller made, and its state
  *
  * This process is the web server: it registers nothing and imports no writer. Field
@@ -41,6 +44,7 @@ import { normalizeAsOf } from '../services/engine/events.js';
 import { readFieldSpec, readFallback, freshAt } from '../services/engine/fields.js';
 import { rowStatus, engineStatus } from '../services/engine/status.js';
 import { VIEWS, resolveView, snapshotById, latestSnapshotFor, snapshotOut } from '../services/engine/views.js';
+import { engineStripFields } from '../services/preview-mode.js';
 
 const r = Router();
 
@@ -136,7 +140,8 @@ r.get('/view', (req, res) => {
 });
 
 r.get('/status', (_req, res) => {
-  res.json(engineStatus(db, { dbPath }));
+  // `strip` is the UI-ENG-6 strip's flag (FIX-257-1); the status is served either way.
+  res.json({ ...engineStatus(db, { dbPath }), strip: engineStripFields() });
 });
 
 r.get('/request/:id', (req, res) => {

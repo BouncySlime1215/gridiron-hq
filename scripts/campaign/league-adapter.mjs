@@ -17,6 +17,8 @@
 import { chatLabels } from '../../server/services/campaign/partners.js';
 import { resolveUntouchables, untouchableIds } from '../../server/services/people/profile-reader.js';
 import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
+import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
+import { fpRosFor, syncIfStale } from '../../server/services/people/fantasypros-ros.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 /** The engagement field LIVING-01a writes (engine_state; FIELD-REGISTRY `activity.manager`). */
@@ -65,10 +67,14 @@ const FLEX = { FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'], WRRB_FLEX: ['RB
   SUPER_FLEX: ['QB', 'RB', 'WR', 'TE'], OP: ['QB', 'RB', 'WR', 'TE'] };
 const DAY = 864e5;
 
-export async function loadServices() {
+export async function loadServices({ env = process.env } = {}) {
   const db = await import('../../server/db/index.js');
+  // PLAYER-SCORE: refresh the FantasyPros rest-of-season cache (a read-only GET of the public
+  // DynastyProcess file, at most once a day) only when the board is on. A failure is carried to
+  // the board as its reason, never thrown.
+  const fpSync = playerScoreFlag(env) !== 'off' ? await syncIfStale(db) : { status: 'off' };
   return {
-    db,
+    db, fpSync,
     sim: await import('../../server/services/season-sim.js'),
     cp: await import('../../server/services/counterparty-pricing.js'),
     acc: await import('../../server/services/trade-acceptance.js'),
@@ -245,7 +251,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     const p = assets.get(id);
     if (!p) return;
     players.set(id, { id, name: p.name, position: p.position, value: Math.max(0, Number(p.value) || 0),
-      ros_ppg: p.ros_ppg, injury: p.injury, bye: p.bye, trend_kind: p.trend_kind, available: p.available });
+      ros_ppg: p.ros_ppg, injury: p.injury, bye: p.bye, trend_kind: p.trend_kind, available: p.available,
+      espn_id: p.espn_id ?? null, team_abbr: p.team_abbr ?? null, ros_basis: p.ros_basis ?? null });
   };
   for (const ids of rosters.values()) ids.forEach(addPlayer);
   const rostered = new Set([...rosters.values()].flat());
@@ -335,6 +342,15 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     return { mult, price: (players.get(id)?.value ?? 0) * mult };
   };
 
+  // PLAYER-SCORE (flag GRIDIRON_PLAYER_SCORE / preview): the blue-chip board, and Nick's blue chips
+  // join his untouchables so no step ever gives one away without his approval.
+  const nickUntouchable = untouchableIds([...managers.values()].map(m => m.nick));
+  // Nick's notes on his OWN roster ('untouchable: <player>', the one reader's nick block keyed by his roster):
+  // with the board on they are protected with his blue chips (PROTECT-MINE makes this unconditional).
+  const mineNoted = untouchableIds([resolveUntouchables(chat?.get(me)?.nick ?? null, (rosters.get(me) ?? []).map(id => players.get(id)).filter(Boolean))]);
+  const board = blueChipBoard(svc, lg, { rosters, players, assets, me, untouchable: mineNoted });
+  const untouchable = new Set([...nickUntouchable, ...(board.protect ?? [])]);
+
   const slots = w0.prep.slots;
   const starters = startersOf(rosters.get(me).map(id => players.get(id)).filter(Boolean), slots);
   const dl = deadlineWeek(svc, lg, payload);
@@ -346,11 +362,62 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
     // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
-    untouchable: untouchableIds([...managers.values()].map(m => m.nick)),
+    untouchable,
+    // PLAYER-SCORE: the served board (typed; 'off' when the flag is off) and per-player reads for ROADMAP-TIERS.
+    blueChips: () => board.served,
+    scoreOf: id => board.byId?.get(String(id)) ?? null,
+    boardOf: id => { const r = board.byId?.get(String(id)); return r ? { score: r.score, label: r.label, hurt: r.hurt, gaps: r.gaps, protected: r.protected } : null; },
     ...(finder ? { finderBest } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     teams: () => teamNames(payload, new Map([...(svc.identity?.identityMap(leagueId) ?? [])].map(([r, i]) => [String(r), i.chat_name]))),
     rosterKey: () => [...rosters.entries()].map(([t, ids]) => `${t}:${[...ids].sort((a, b) => a - b).join(',')}`).join('|'),
+  };
+}
+
+const SCORE_SKILL = new Set(['QB', 'RB', 'WR', 'TE']);
+
+/** This league's own draft for its season: Map espn id -> overall pick, and the pick count. */
+export function draftPicks(svc, lg) {
+  const has = svc.db.row(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'league_draft_picks'`);
+  if (!has) return { picks: new Map(), n: 0, reason: 'no league_draft_picks table' };
+  const list = svc.db.rows(`SELECT player_id, overall_pick FROM league_draft_picks WHERE league_id = ? AND season = ? AND overall_pick IS NOT NULL`,
+    Number(lg.id), Number(lg.season));
+  const picks = new Map();
+  for (const r of list) if (Number.isInteger(r.overall_pick) && r.player_id != null) picks.set(String(r.player_id), r.overall_pick);
+  const n = list.reduce((m, r) => Math.max(m, Number(r.overall_pick) || 0), 0);
+  return { picks, n, reason: n ? null : `no ${lg.season} draft picks on file for this league` };
+}
+
+/**
+ * PLAYER-SCORE board for one league: every rostered player plus the top free agents, scored
+ * (people/player-score.js), with the engine's market value (the value the planner prices
+ * with) and FantasyPros' rest-of-season rank (people/fantasypros-ros.js, cached). Off: the
+ * served section says so and nothing is protected.
+ */
+export function blueChipBoard(svc, lg, { rosters, players, assets, me, untouchable = new Set(), env = process.env }) {
+  const flag = playerScoreFlag(env);
+  if (flag === 'off') return { served: { status: 'off', flag }, protect: new Set(), byId: new Map() };
+  const owner = new Map();
+  for (const [t, ids] of rosters) for (const id of ids) owner.set(String(id), t);
+  const rostered = [...players.values()].filter(p => SCORE_SKILL.has(p.position)).map(p => ({ ...p, owner: owner.get(String(p.id)) ?? null }));
+  const fa = [...assets.values()].filter(p => !owner.has(String(p.id)) && SCORE_SKILL.has(p.position) && p.available !== false
+    && Number.isFinite(p.ros_ppg) && p.ros_ppg > 0).sort((a, b) => b.ros_ppg - a.ros_ppg).slice(0, 40)
+    .map(p => ({ id: p.id, name: p.name, position: p.position, value: Math.max(0, Number(p.value) || 0), ros_ppg: p.ros_ppg,
+      injury: p.injury, available: p.available, espn_id: p.espn_id ?? null, team_abbr: p.team_abbr ?? null, ros_basis: p.ros_basis ?? null, owner: null }));
+  const universe = [...rostered, ...fa];
+  const { picks, n, reason: pickReason } = draftPicks(svc, lg);
+  let fp;
+  try { fp = fpRosFor(svc.db, universe); } catch (e) { fp = { status: 'failed', reason: `FantasyPros read failed (${e.message})`, byId: new Map() }; }
+  if (fp.status !== 'ok' && svc.fpSync?.status === 'failed') fp = { ...fp, reason: `${fp.reason} ${svc.fpSync.reason}` };
+  const allValues = [...assets.values()].filter(p => SCORE_SKILL.has(p.position)).map(p => ({ id: p.id, position: p.position, value: Number(p.value) || 0 }));
+  const b = buildBoard(universe, { picks, nPicks: n, allValues, fp, me, untouchable });
+  return {
+    protect: b.protect,
+    byId: new Map(b.rows.map(r => [r.player, r])),
+    served: { status: 'ok', flag, weights: SCORE_WEIGHTS, labels: LABEL_NAMES, rows: b.rows, coverage: b.coverage,
+      draft: { season: lg.season, picks: n, ...(pickReason ? { reason: pickReason } : {}) },
+      fp: { status: fp.status, ...(fp.reason ? { reason: fp.reason } : {}), scrape_date: fp.scrape_date ?? null, prev_date: fp.prev_date ?? null,
+        sync: svc.fpSync?.status ?? 'not_run' } },
   };
 }

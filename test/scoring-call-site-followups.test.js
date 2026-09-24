@@ -45,7 +45,8 @@ test('myPlayoffOdds (trade-engine.js:1420-1421) hands simulateSeason the league\
       tradeImpact: () => ({ ok: true }),
       // EA-07 (league-world.js, trade-engine.js) imports these; the one world is off here.
       worldPoolFor: () => null, rosBasisFlag: () => ({ on: false, preview: false }),
-      tradeImpactWorld: () => ({ fail: { error: 'mocked' } })
+      // RL-19-3's title-mutual stage (default off) imports it; never called here.
+      tradeImpactWorld: () => ({ fail: { error: 'not simulated in this test' } })
     }
   });
   const { myPlayoffOdds } = await import('../server/services/trade-engine.js');

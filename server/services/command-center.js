@@ -78,8 +78,9 @@ function earliest(...values) {
 /** A WV-02 claim_by / nextWaiverRun object -> { deadline, guess }. */
 function waiverDeadline(run) {
   if (!run?.known || !run.date || !Number.isInteger(run.hour)) return { deadline: null, guess: false };
-  const at = iso(zonedDateTime(run.date, `${String(run.hour).padStart(2, '0')}:00`, run.zone || 'America/New_York'));
-  return { deadline: at, guess: /guess/i.test(String(run.zone_basis ?? '')) };
+  // RL-16-2: a scheduled or observed run carries its exact instant; the settings guess is flagged.
+  const at = run.at ?? iso(zonedDateTime(run.date, `${String(run.hour).padStart(2, '0')}:00`, run.zone || 'America/New_York'));
+  return { deadline: at, guess: run.confirmed === false || /guess/i.test(String(run.zone_basis ?? '')) };
 }
 
 export function byDeadline(a, b) {
@@ -363,7 +364,8 @@ export async function commandCenter(userId) {
     sources.moves = { producer: 'league_transactions_raw', ...moves };
 
     const waiverRun = typeof waiverWire.nextWaiverRun === 'function'
-      ? attempt(lg.id, 'waiver_run', () => waiverWire.nextWaiverRun(JSON.parse(lg.payload), now)).value ?? null
+      ? attempt(lg.id, 'waiver_run', () => waiverWire.nextWaiverRun(JSON.parse(lg.payload), now,
+        typeof waiverWire.observedWaiverRuns === 'function' ? waiverWire.observedWaiverRuns(lg.id, lg.season) : [])).value ?? null
       : null;
     items.push(...leagueItems({
       league, season, week: moves.week ?? leagueCurrentWeek(lg), now, kickoffs, waiverRun,

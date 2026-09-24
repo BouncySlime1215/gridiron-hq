@@ -78,10 +78,11 @@ export const RECEPTIVENESS_RANGE = [0.7, 1.3];
  *     than dropped, so a page can say why a signal is not firing;
  *   - the same evidence is never charged twice (see `playerValuation`).
  *
- * `min_n` is what the source's `n` must reach before it prices anything. The
- * one that matters today is `luck_self_view`: in week 2 of 2026 the archetype
- * build has ONE scored week, and one game of luck is noise, so it is inert
- * league-wide until week 5.
+ * `min_n` is what the source's `n` must reach before it prices anything.
+ *
+ * `tested` marks a source that was measured and killed. Its cap is 0, so it
+ * prices nothing at any sample, and the map reports it absent with that verdict
+ * instead of a sample count that would read as "not yet".
  *
  * `needs` names the data the source cannot work without, which is what the map
  * reports as absent for the four leagues with no chat corpus.
@@ -102,9 +103,15 @@ export const VALUATION_SOURCES = Object.freeze({
   outscoring_usage: { label: 'His own player is outscoring the usage that earns it',
     cap: 0.08, min_n: 2, needs: 'weekly expected points', fitted: false,
     why: 'a hot player is priced by his owner at his hot number' },
+  // Retired, not deleted. It priced a manager's own roster off how lucky his
+  // record is, and it was tested: a ~2-win luck gap moves at most ~1.1 pp of how
+  // he values his own players, against up to 5% priced here. cap 0 makes every
+  // reading an effect of 0, which `add` drops; the entry stays so the map can
+  // still say what this was and why it prices nothing (valuationMap, absent).
   luck_self_view: { label: 'His record is flattered (or punished) by luck',
-    cap: 0.05, min_n: 4, needs: 'scored weeks in the archetype build', fitted: false,
-    why: 'a manager whose record overstates his team prices that team high' },
+    cap: 0, min_n: 4, needs: 'scored weeks in the archetype build', fitted: false,
+    tested: 'dead (r46 IDEA-103, 2026-09-24)',
+    why: 'tested and killed: a flattered or punished record does not change how he prices his own players' },
   positional_need: { label: 'A hole (or a glut) at this position',
     cap: 0.08, min_n: 1, needs: 'a roster read for the league', fitted: false,
     why: 'a need raises what he pays there; depth lowers it' },
@@ -1163,7 +1170,9 @@ export function valuationMap(leagueId, { season, week, players, layer = null,
   const absent = [];
   for (const [key, spec] of Object.entries(VALUATION_SOURCES)) {
     if (used.has(key)) continue;
-    if (!hasChat && spec.needs === 'league chat') {
+    if (spec.tested) {
+      absent.push({ source: key, reason: `retired: tested ${spec.tested}; it prices nothing` });
+    } else if (!hasChat && spec.needs === 'league chat') {
       absent.push({ source: key, reason: 'no chat corpus for this league (no confirmed chat identities)' });
     } else if (inertReason.has(key)) {
       absent.push({ source: key, reason: inertReason.get(key) });

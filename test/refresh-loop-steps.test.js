@@ -54,13 +54,13 @@ function recorder() {
 const quiet = () => {};
 
 // ---------------------------------------------------------------- order
-test('G1a/G2h: one tick runs transactions, roster snapshots, league chat, then manager signals — in that order', async () => {
+test('G1a/G2h: one tick runs transactions, roster snapshots, league chat, manager signals, then the brain report — in that order', async () => {
   const { spawn, calls } = fakeSpawn({ 'extract_league_chat.py': { stdout: 'league_chat_status {"failed_this_run":0,"failed_outstanding":0}\n' } });
   const lines = [];
   await LOOP.tick({ jobs: [], spawn, log: l => lines.push(l), record: quiet, inputsKey: () => 'k' });
   const scripts = calls.map(c => path.basename(c.args.find(a => /\.(mjs|py)$/.test(a))));
   assert.deepEqual(scripts, ['collect-league-transactions.mjs', 'collect-roster-snapshots.mjs',
-    'extract_league_chat.py', 'build-manager-signals.mjs']);
+    'extract_league_chat.py', 'build-manager-signals.mjs', 'run-graders.mjs']);
   assert.ok(lines.at(-1).includes('tick done'));
 });
 

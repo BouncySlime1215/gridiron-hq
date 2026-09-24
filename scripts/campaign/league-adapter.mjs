@@ -271,6 +271,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   const titleByTeam = new Map((w0.base?.teams ?? []).map(t => [String(t.roster_id), t.title_odds]));
   const activity = activityReads(activityRows(svc, leagueId), timing, leagueId);
   const managers = new Map();
+  // Nick's own notes (the one reader, keyed by his roster like everyone else's): his protected players.
+  const myNick = resolveUntouchables(chat?.get(me)?.nick ?? null, (rosters.get(me) ?? []).map(id => players.get(id)).filter(Boolean));
   for (const t of rosters.keys()) {
     if (t === me) continue;
     const m = layer.get(t) ?? null;
@@ -344,12 +346,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
 
   // PLAYER-SCORE (flag GRIDIRON_PLAYER_SCORE / preview): the blue-chip board, and Nick's blue chips
   // join his untouchables so no step ever gives one away without his approval.
-  const nickUntouchable = untouchableIds([...managers.values()].map(m => m.nick));
-  // Nick's notes on his OWN roster ('untouchable: <player>', the one reader's nick block keyed by his roster):
-  // with the board on they are protected with his blue chips (PROTECT-MINE makes this unconditional).
-  const mineNoted = untouchableIds([resolveUntouchables(chat?.get(me)?.nick ?? null, (rosters.get(me) ?? []).map(id => players.get(id)).filter(Boolean))]);
-  const board = blueChipBoard(svc, lg, { rosters, players, assets, me, untouchable: mineNoted });
-  const untouchable = new Set([...nickUntouchable, ...(board.protect ?? [])]);
+  const board = blueChipBoard(svc, lg, { rosters, players, assets, me, untouchable: untouchableIds([myNick]) });
+  const untouchable = adapterUntouchable({ managerNicks: [...managers.values()].map(m => m.nick), myNick, board });
 
   const slots = w0.prep.slots;
   const starters = startersOf(rosters.get(me).map(id => players.get(id)).filter(Boolean), slots);
@@ -362,6 +360,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
     // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
+    // Nick's word: other managers' notes, his OWN 'untouchable:' notes (#373, always) and, with the
+    // board on, his blue chips (80+). vals.tradable excludes this set: never a give, walk-away or flip leg.
     untouchable,
     // PLAYER-SCORE: the served board (typed; 'off' when the flag is off) and per-player reads for ROADMAP-TIERS.
     blueChips: () => board.served,
@@ -378,6 +378,15 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
 const SCORE_SKILL = new Set(['QB', 'RB', 'WR', 'TE']);
 
 /** This league's own draft for its season: Map espn id -> overall pick, and the pick count. */
+/**
+ * adapter.untouchable: the players no plan may give. Other managers' notes and Nick's own
+ * 'untouchable:' notes (#373) always count, whatever the flag; PLAYER-SCORE adds his blue chips
+ * (board.protect, empty when the flag is off) on top.
+ */
+export function adapterUntouchable({ managerNicks = [], myNick = null, board = null } = {}) {
+  return new Set([...untouchableIds([...managerNicks, myNick]), ...(board?.protect ?? [])].map(String));
+}
+
 export function draftPicks(svc, lg) {
   const has = svc.db.row(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'league_draft_picks'`);
   if (!has) return { picks: new Map(), n: 0, reason: 'no league_draft_picks table' };

@@ -12,6 +12,7 @@
  */
 import { screenFair, flipSpread, linearNick, combos, pathExpectation, isChained, dealKey } from './paths.js';
 import { metricOf } from './objectives.js';
+import { excluded } from './partners.js';
 
 export const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
@@ -48,7 +49,7 @@ export function playerValues(S, adapter, objective) {
   const tradable = id => SCORED.has(P.get(id)?.position) && (P.get(id)?.value ?? 0) > 0;
   const addN = new Map(), addSe = new Map(), lossO = new Map(), lossN = new Map();
   for (const [tid, ids] of adapter.rosters) {
-    if (tid === me || adapter.managers.get(tid)?.blocked) continue;
+    if (tid === me || excluded(adapter.managers.get(tid))) continue;
     for (const pid of ids.filter(tradable)) {
       const r = S.rescore(S.applyTrade(new Map(), me, tid, [], [pid]), me, tid);
       const m = metricOf(r.me, objective);
@@ -74,11 +75,11 @@ export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 
   const val = id => Math.max(0, Number(P.get(id)?.value) || 0);
   const flips = [];
   for (const [aId, ids] of adapter.rosters) {
-    if (aId === me) continue;
+    if (aId === me || excluded(adapter.managers.get(aId))) continue;
     const key = ids.filter(vals.tradable).sort((x, y) => val(y) - val(x)).slice(0, topPer);
     for (const pid of key) {
       for (const bId of adapter.rosters.keys()) {
-        if (bId === me || bId === aId) continue;
+        if (bId === me || bId === aId || excluded(adapter.managers.get(bId))) continue;
         const r = S.rescore(S.applyTrade(new Map(), bId, aId, [], [pid]), bId, aId);
         const s = flipSpread(r.me.title_delta, r.me.title_delta_se, r.them.title_delta, r.them.title_delta_se);
         const pa = adapter.priceOf(aId, pid), pb = adapter.priceOf(bId, pid);
@@ -90,7 +91,7 @@ export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 
     }
   }
   const myIds = S.rosterOf(new Map(), me).filter(vals.tradable);
-  const blocked = t => !!adapter.managers.get(t)?.blocked || !!adapter.managers.get(t)?.checked_out;
+  const blocked = t => excluded(adapter.managers.get(t)) || !!adapter.managers.get(t)?.checked_out;
   const realised = [];
   for (const f of flips.filter(x => x.clears).sort((x, y) => y.spread - x.spread).slice(0, realise * 2)) {
     if (realised.length >= realise) break;
@@ -128,7 +129,7 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
   const owner = vals.lossO.get(target)?.team ?? S.ownerOf(new Map(), target);
   if (owner == null || owner === me) return [];
   const origMine = adapter.rosters.get(me);
-  const partners = [...adapter.rosters.keys()].filter(id => id !== me && !adapter.managers.get(id)?.blocked
+  const partners = [...adapter.rosters.keys()].filter(id => id !== me && !excluded(adapter.managers.get(id))
     && !adapter.managers.get(id)?.checked_out);
   const lin = state => linearNick(S.rosterOf(state, me), origMine, vals.addN, vals.lossN);
   const stepsFrom = (state, team, onlyGet = null, maxGive = 2) => {
@@ -142,8 +143,10 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     }
     return out;
   };
-  const withP = (state, st) => ({ ...st, p: adapter.priceStep(st.team, st.get, st.give).p,
-    state: S.applyTrade(state, me, st.team, st.give, st.get) });
+  const withP = (state, st) => {
+    const pr = adapter.priceStep(st.team, st.get, st.give);
+    return { ...st, p: pr.p, band: pr.band ?? null, state: S.applyTrade(state, me, st.team, st.give, st.get) };
+  };
   const h = steps => pathExpectation(steps.map(x => ({ p: x.p, delta: lin(x.state) })));
   const direct = stepsFrom(new Map(), owner, target, maxGiveFinal).map(st => [withP(new Map(), st)]);
   const chipLayer = (prefixes, maxGive) => {
@@ -185,7 +188,7 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
   return short.map(c => {
     const steps = c.steps.map(st => {
       const m = metricOf(S.rescore(st.state, me).me, objective);
-      return { team: st.team, give: st.give, get: st.get, p: st.p, delta: m.delta, se: m.se, clears: m.clears, state: st.state };
+      return { team: st.team, give: st.give, get: st.get, p: st.p, band: st.band, delta: m.delta, se: m.se, clears: m.clears, state: st.state };
     });
     return { target, owner, depth: steps.length, heuristic: c.e.expected, chained: isChained(steps), steps,
       ...pathExpectation(steps) };

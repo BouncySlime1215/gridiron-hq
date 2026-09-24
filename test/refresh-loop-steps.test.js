@@ -316,7 +316,7 @@ test('G7: the start/sit gate job is on the loop, after the jobs that settle the 
 });
 
 // ---------------------------------------------------------------- warroom plans (CAMPAIGN-01)
-test('CAMPAIGN-01: the War Room producer is launched after manager signals only when GRIDIRON_WARROOM_ENABLED=1', async () => {
+test('CAMPAIGN-01: the War Room producer is launched after manager signals only when the War Room flag is on (GRIDIRON_WARROOM_ENABLED=1)', async () => {
   const chat = { 'extract_league_chat.py': { stdout: 'league_chat_status {"failed_this_run":0,"failed_outstanding":0}\n' } };
   const before = { flag: process.env.GRIDIRON_WARROOM_ENABLED, plans: process.env.GRIDIRON_WARROOM_PLANS };
   process.env.GRIDIRON_WARROOM_PLANS = path.join(temp, 'warroom', 'plans.json');
@@ -335,9 +335,7 @@ test('CAMPAIGN-01: the War Room producer is launched after manager signals only 
     assert.equal(launched[0].opts.cwd, REPO);
     const order = lines.map(l => l.trim().split(/\s+/)[1]);
     assert.ok(order.indexOf('warroom_plans') > order.indexOf('manager_signals'), 'after the data it plans on');
-    // Integration order (INTEGRATION-AUDIT-0923 section 2): the producer launches last, after this
-    // tick's number audit and brain report, so it plans on both.
-    assert.ok(order.indexOf('brain_report') > -1 && order.indexOf('warroom_plans') > order.indexOf('brain_report'), 'after the brain report');
+    assert.ok(order.indexOf('warroom_plans') > order.indexOf('brain_report'), 'after the report card it gates on (FIX-05)');
   } finally {
     for (const [k, v] of [['GRIDIRON_WARROOM_ENABLED', before.flag], ['GRIDIRON_WARROOM_PLANS', before.plans]]) {
       if (v === undefined) delete process.env[k]; else process.env[k] = v;
@@ -348,7 +346,8 @@ test('CAMPAIGN-01: the War Room producer is launched after manager signals only 
 test('CAMPAIGN-01: a running producer is not launched twice, and the last finished run is recorded (ok / partial / error)', () => {
   const dir = fs.mkdtempSync(path.join(temp, 'wr-'));
   const files = { plans: path.join(dir, 'plans.json'), lock: path.join(dir, 'plans.json.lock'), log: path.join(dir, 'producer.log') };
-  const env = { ...process.env, GRIDIRON_WARROOM_ENABLED: '1' };
+  const env = { ...process.env };
+  const on = () => ({ enabled: true, preview: false });   // the loop asks warroom-flag.js; pinned on here
   const cases = [
     ['warroom_plans ok leagues 5 failed 0 changed 0 (80 s) -> x', 'ok'],
     ['warroom_plans PARTIAL leagues 5 failed 1 changed 0 (80 s) -> x', 'partial'],
@@ -358,7 +357,7 @@ test('CAMPAIGN-01: a running producer is not launched twice, and the last finish
     fs.writeFileSync(files.log, `noise\n${line}\n`);
     const { records, record } = recorder();
     let launches = 0;
-    LOOP.warRoomPlans({ launch: () => { launches++; return 1; }, log: quiet, record, env, files });
+    LOOP.warRoomPlans({ launch: () => { launches++; return 1; }, log: quiet, record, env, files, flag: on });
     assert.equal(records[0].job, 'warroom_plans');
     assert.equal(records[0].status, want);
     assert.equal(launches, 1);
@@ -366,17 +365,17 @@ test('CAMPAIGN-01: a running producer is not launched twice, and the last finish
   fs.writeFileSync(files.lock, String(process.pid));     // a live holder: this test process
   let launches = 0;
   const lines = [];
-  LOOP.warRoomPlans({ launch: () => { launches++; return 1; }, log: l => lines.push(l), record: quiet, env, files });
+  LOOP.warRoomPlans({ launch: () => { launches++; return 1; }, log: l => lines.push(l), record: quiet, env, files, flag: on });
   assert.equal(launches, 0);
   assert.match(lines[0], /still running/);
   fs.writeFileSync(files.lock, '999999999');              // a dead holder: stale lock
-  LOOP.warRoomPlans({ launch: () => { launches++; return 1; }, log: quiet, record: quiet, env, files });
+  LOOP.warRoomPlans({ launch: () => { launches++; return 1; }, log: quiet, record: quiet, env, files, flag: on });
   assert.equal(launches, 1);
   // A run that crashed after starting leaves no summary: an error, not the previous run's ok.
   fs.writeFileSync(files.log, 'warroom_plans ok leagues 5 failed 0 changed 0 (80 s) -> x\nwarroom_plans started t pid 1\nTypeError: x\n');
   fs.rmSync(files.lock);
   const r2 = recorder();
-  LOOP.warRoomPlans({ launch: () => 1, log: quiet, record: r2.record, env, files });
+  LOOP.warRoomPlans({ launch: () => 1, log: quiet, record: r2.record, env, files, flag: on });
   assert.equal(r2.records[0].status, 'error');
   assert.match(r2.records[0].detail.line, /without a summary/);
 });

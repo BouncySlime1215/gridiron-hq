@@ -93,7 +93,7 @@ test('E1 baseline is cutoff-safe: first offer to a counterparty gets the prior r
 // ------------------------------------------------------------------ E2
 function e2Offers({ nAt = 200, atTrue = 0.5, nBelow = 30, belowTrue = 0.2, seed = 21 } = {}) {
   const rand = rng(seed);
-  const at = Array.from({ length: nAt }, (_, i) => ({ league_id: 1, counterparty_team_id: String(i % 30), model_p_accept: 0.5, price_band: 'at', status: rand() < atTrue ? 'accepted' : 'declined' }));
+  const at = Array.from({ length: nAt }, (_, i) => ({ league_id: 1, counterparty_team_id: String(i % 30), model_p_accept: 0.5, price_band: 'at_point', status: rand() < atTrue ? 'accepted' : 'declined' }));
   const below = Array.from({ length: nBelow }, (_, i) => ({ league_id: 1, counterparty_team_id: String(i % 30), model_p_accept: 0.2, price_band: 'below', status: rand() < belowTrue ? 'accepted' : 'declined' }));
   return [...at, ...below];
 }
@@ -121,10 +121,10 @@ test('E2 small n: 12 offers at the yes point -> not_enough_data with its CS; no 
   assert.equal(r.status, 'not_enough_data');
   assert.ok(r.ci_low <= 0 && r.ci_high >= 0 && r.ci_high - r.ci_low > E2.MAX_WIDTH);
   assert.match(r.needs_text, /^needs \d+ more offers/);
-  const none = E2.grade([], { reason: 'source table offer_log is not built yet' });
+  const none = E2.grade([], { reason: 'trade_outcomes lacks column(s) sent_at' });
   const floor = E2.minOffersToDecide();
   assert.ok(floor > 1 && floor < 30, `floor ${floor}`);
-  assert.match(none.needs_text, new RegExp(`needs ${floor} more offers \\(source table offer_log is not built yet\\)`));
+  assert.match(none.needs_text, new RegExp(`needs ${floor} more offers \\(trade_outcomes lacks column\\(s\\) sent_at\\)`));
 });
 
 test('E2 sequential: a price model 40 points off is failing at 20 offers, not after 30', () => {
@@ -234,9 +234,10 @@ function e6Rows({ weeks = 10, perWeek = 6, followedGain = 2, nearTie = true, see
   for (let w = 1; w <= weeks; w += 1) {
     for (let k = 0; k < perWeek; k += 1) {
       const followed = k % 2 === 0;
-      out.push({ season: 2026, week: w, disposition: 'shown', graded_at: '2026-12-01',
-        predicted_json: JSON.stringify({ near_tie: nearTie }), outcome_json: JSON.stringify({ followed }),
-        score: (followed ? followedGain : 0) + z() });
+      // follow_ledger x rec_ledger join shape (FIX-09): outcome and near_tie
+      // from the follow ledger, score from the graded call.
+      out.push({ league_id: 1, season: 2026, week: w, outcome: followed ? 'follow' : 'ignore',
+        near_tie: nearTie ? 1 : 0, score: (followed ? followedGain : 0) + z() });
     }
   }
   return out;

@@ -27,14 +27,16 @@
  *   5. number_audit      BROKEN-01a: per league, the duplicate producers behind
  *                        the broken-number inventory and invariant checks on
  *                        served numbers, into `number_audit` (number-audit.js).
- *                        After the syncs, so it reads what this tick synced; once per league
- *                        sync, at most hourly. Never run by the web server.
- *   6. brain_report      EVAL-01 graders E1-E7 (scripts/eval/run-graders.mjs), last,
+ *                        After the chat and signals, so it reads what this tick
+ *                        synced; once per league sync, at most hourly. Never run by the web server.
+ *   6. brain_report      EVAL-01 graders E1-E7 (scripts/eval/run-graders.mjs), after the audit,
  *                        so they grade this tick's rows; stores one run in brain_report
  *   7. warroom_plans     the War Room campaign producer (scripts/campaign/produce-plans.mjs),
- *                        only when GRIDIRON_WARROOM_ENABLED=1; launched detached every tick
+ *                        only when the War Room flag is on (server/services/warroom-flag.js:
+ *                        its own switch or preview mode); launched detached every tick
  *                        (skipped while the previous run holds its lock) so each league's
- *                        next move is replanned on the fresh data
+ *                        next move is replanned on the fresh data and gated on this
+ *                        tick's brain report and number audit (FIX-05)
  *
  * ALLOWLIST ONLY. Betting collectors (line snapshots, Polymarket, book feeds,
  * prop capture, t60 runner…) are deliberately absent: Nick turned them off.
@@ -47,10 +49,10 @@
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { warRoomFlag, warRoomPlansPath } from '../server/services/warroom-flag.js';
 
 // Before any server module is imported: the scheduler must never start in this process.
 process.env.SCHEDULER_DISABLED = '1';
@@ -204,8 +206,9 @@ export function chatBackfill({ spawn = spawnSync, log = console.log, record = re
 
 /**
  * CAMPAIGN-01: rebuild the War Room plans file (every league) after the data steps,
- * so each refresh replans and flags a changed next move. Off unless
- * GRIDIRON_WARROOM_ENABLED=1.
+ * so each refresh replans and flags a changed next move. Off unless the War Room
+ * flag is on (warroom-flag.js#warRoomFlag, the one reader: its own switch or preview
+ * mode). `env` is only what the launched producer inherits.
  *
  * The producer takes minutes per league (two simulated worlds each), longer than a
  * tick should block, so it is LAUNCHED detached and the loop moves on; its lock file
@@ -213,8 +216,8 @@ export function chatBackfill({ spawn = spawnSync, log = console.log, record = re
  * finished run's summary line (from its log) as sync_log 'warroom_plans'.
  */
 export function warRoomPlans({ launch = launchDetached, log = console.log, record = recordSync, env = process.env,
-  files = warRoomFiles(env) } = {}) {
-  if (env.GRIDIRON_WARROOM_ENABLED !== '1') return;
+  files = warRoomFiles(), flag = warRoomFlag } = {}) {
+  if (!flag().enabled) return;
   const holder = fs.existsSync(files.lock) ? Number(fs.readFileSync(files.lock, 'utf8')) : null;
   let running = false;
   if (holder) { try { process.kill(holder, 0); running = true; } catch { running = false; } }
@@ -239,9 +242,8 @@ export function warRoomPlans({ launch = launchDetached, log = console.log, recor
 }
 
 /** The producer's log and lock, next to the plans file it writes. */
-export function warRoomFiles(env = process.env) {
-  const plans = path.resolve(env.GRIDIRON_WARROOM_PLANS || env.GRIDIRON_WARROOM_SOURCE
-    || path.join(os.homedir(), 'gridiron-local', 'warroom', 'plans.json'));
+export function warRoomFiles() {
+  const plans = path.resolve(warRoomPlansPath());
   return { plans, lock: `${plans}.lock`, log: path.join(path.dirname(plans), 'producer.log') };
 }
 
@@ -455,7 +457,7 @@ async function refresh(args) {
   }
   console.log(`${stamp()} refresh-live-data loop every ${loopSeconds} s — jobs: ${FANTASY_LIVE_JOBS.join(', ')}`
     + ', then league_tx, roster_snapshots, league_chat, people_pulse, manager_signals, number_audit, brain_report'
-    + (process.env.GRIDIRON_WARROOM_ENABLED === '1' ? ', warroom_plans' : ''));
+    + (warRoomFlag().enabled ? `, warroom_plans${warRoomFlag().preview ? ' (preview)' : ''}` : ''));
   while (!stopping) {
     await tick({ force, managerSignals, numberAudit });
     const until = Date.now() + loopSeconds * 1000;

@@ -73,6 +73,8 @@ export const PLUG_IN_FIELDS = Object.freeze({
 });
 
 export const REPLIES = Object.freeze(['accept', 'decline', 'counter', 'silence']);
+/** How an "I sent it" deal sat against the card (cards.js#PRICE_BAND_OF maps it to 083's price_band). */
+export const SENT_AS = Object.freeze(['opening', 'card', 'walk_away']);
 
 export const REQUEST_KINDS = Object.freeze([
   'objective.set', 'target.approve', 'offer.sent', 'offer.reply', 'deck.skip',
@@ -193,7 +195,11 @@ export function validateAction(action) {
 const REQUEST_RULES = {
   'objective.set': p => objectiveFrom(p),
   'target.approve': p => ({ player_id: id(p.player_id, 'player_id'), source: oneOf(p.source ?? 'suggested', ['suggested', 'own'], 'source') }),
-  'offer.sent': p => ({ move_id: id(p.move_id, 'move_id') }),
+  'offer.sent': p => ({
+    move_id: id(p.move_id, 'move_id'),
+    step_index: optInt(p.step_index, 'step_index', 0, 9) ?? 0,
+    sent_as: oneOf(p.sent_as ?? 'card', SENT_AS, 'sent_as')
+  }),
   'offer.reply': p => {
     const reply = oneOf(p.reply, REPLIES, 'reply');
     return {

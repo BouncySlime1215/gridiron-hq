@@ -51,7 +51,8 @@ import { recordServed, readServed, serveLogState } from '../services/serve-log.j
 // TM-09: historical revealed trade prices (aggregate table), read-only, default-off.
 import { marketForPlayer } from '../services/trade-market.js';
 import { playerHype } from '../services/hype.js';
-import { warRoomView } from '../services/war-room-view.js';
+import { warRoomView, loadPlans } from '../services/war-room-view.js';
+import { logWarRoomShown } from '../services/war-room-log.js';
 import { warRoomFlag } from '../services/warroom-flag.js';
 import {
   proposeVerifyRetryTrade, judgeTradeVerdict, tradeChallengeText, SENSE_CHECK_SIM_RUNS
@@ -671,7 +672,11 @@ r.get('/:leagueId/war-room', async (req, res, next) => {
     // Membership first: even the "off" answer is only for a member of this league.
     const lg = league(req, res); if (!lg) return;
     if (!warRoomFlag().enabled) { res.json({ enabled: false }); return; }
-    res.json(await warRoomView(lg.id));
+    const view = await warRoomView(lg.id);
+    // FIX-07: the shown next move goes to follow_ledger and the numbers to the serve log
+    // (both off the plans file loadPlans already cached for the view).
+    const logged = logWarRoomShown(res, lg, await loadPlans());
+    res.json({ ...view, logged });
   } catch (e) { next(e); }
 });
 

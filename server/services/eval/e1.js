@@ -10,7 +10,7 @@
  * Baseline ("activity only"): the responder's own accept rate over offers
  * RESOLVED before this one was proposed, shrunk to the league-wide rate at the
  * same cutoff. It knows nothing about the offer's content. A row that carries
- * its own baseline_p_accept (offer_log) uses that instead.
+ * its own baseline_p_accept uses that instead.
  *
  * JUDGEMENT — no fixed n. Two instruments, each valid at whatever n the
  * report is read:
@@ -82,10 +82,10 @@ export function activityBaseline(offers, priors = priorCounts(offers)) {
 }
 
 /**
- * Grade already-read rows (trade_outcomes / offer_log shaped). `excluded` and
- * `sources` come from the loader when grading a database.
+ * Grade already-read rows (trade_outcomes shaped). `excluded`, `sources` and
+ * `appArm` come from the loader when grading a database.
  */
-export function grade(rawRows, { reason = null, excluded = null, sources = null, alreadyMerged = false } = {}) {
+export function grade(rawRows, { reason = null, excluded = null, sources = null, appArm = null, alreadyMerged = false } = {}) {
   const merged = alreadyMerged ? { offers: rawRows, excluded: excluded ?? {} } : mergeOffers({ rows: rawRows });
   const why = { ...(excluded ?? {}), ...merged.excluded };
   const offers = scoreAsOf(merged.offers)
@@ -101,7 +101,7 @@ export function grade(rawRows, { reason = null, excluded = null, sources = null,
     offers_by_basis: countBy(offers, o => o.basis),
     proposers: new Set(offers.map(o => `${o.league_id}:${o.proposer_team_id ?? 'app'}`)).size,
     leagues: new Set(offers.map(o => o.league_id)).size,
-    excluded: why, ...(sources ? { sources } : {}), ...(reason ? { reason } : {}),
+    excluded: why, ...(sources ? { sources } : {}), ...(appArm ? { app_arm: appArm } : {}), ...(reason ? { reason } : {}),
     rule: { alpha: ALPHA, p_clip: P_CLIP, min_gain: MIN_GAIN, min_offers_to_decide: floor },
   };
   if (n === 0) {
@@ -166,6 +166,6 @@ export function load(database) {
 }
 
 export function run(database) {
-  const { offers, excluded, sources, reason } = load(database);
-  return grade(offers, { reason, excluded, sources, alreadyMerged: true });
+  const { offers, excluded, sources, app_arm: appArm, reason } = load(database);
+  return grade(offers, { reason, excluded, sources, appArm, alreadyMerged: true });
 }

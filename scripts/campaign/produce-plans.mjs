@@ -11,9 +11,9 @@
  *   plans file                   output   server/services/warroom-flag.js#warRoomPlansPath()
  *                                         (default ~/gridiron-local/warroom/plans.json)
  *   GRIDIRON_WARROOM_OBJECTIVES  input    { "<league id>": { kind, goal, target, points_per_week, risk_mode,
- *                                          tolerances, arrive_by, stops, untouchables, version } } (optional)
- *   GRIDIRON_WARROOM_SKIPS       input    JSONL { league, player?, manager?, reason, at } (optional; swipe-deck skips)
- *   GRIDIRON_WARROOM_OFFERS      input    JSONL { league, manager, at } (optional; "I sent it" log, fatigue cap)
+ *                                          tolerances, arrive_by, stops, untouchables, version } } (optional;
+ *                                          CLI/test input only)
+ *   GRIDIRON_WARROOM_SKIPS       input    JSONL { league, player?, manager?, reason, at } (optional; CLI/test input only)
  *   GRIDIRON_WARROOM_PUSHES      output   JSONL, one row per league whose next move changed
  *   GRIDIRON_CHAT_DB_PATH        input    local chat DB (optional; labels only)
  * Defaults for the inputs sit next to the plans file.
@@ -30,6 +30,14 @@
  * FIX-05): a failing, stale (>48 h), missing or unreadable report plans the league
  * on BALANCED with testing-tier signals off; SAFE is never raised. The entry's
  * brain_report and number_health sections come from the same reads.
+ *
+ * War Room inputs (FIX-07) come from the DB, not files: `warroom_requests` (076)
+ * folds into each league's objective and skip weights
+ * (server/services/campaign/requests.js), and a request overrides the files for
+ * the same key. The pending rows are stamped consumed_at in the same transaction
+ * as the plans write; a league whose planner failed keeps its rows pending. The
+ * fatigue cap counts `trade_outcomes WHERE sent_at IS NOT NULL` (War Room and
+ * TradeCard "I sent it" alike) next to ESPN's own proposals (league-adapter.mjs).
  *
  * Usage:
  *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3] [--no-finder]
@@ -103,6 +111,13 @@ function takeLock(file) {
   return () => { try { fs.unlinkSync(lock); } catch (e) { if (e.code !== 'ENOENT') throw e; } };
 }
 
+/** The objectives/skips files alone (CLI, tests, the contract fixture): no DB, nothing to consume. */
+export function fileInputs(id, { objectiveRow = null, fileSkips = [] } = {}) {
+  const raw = objectiveRow ?? {};
+  return { objective: normaliseObjective(raw, { leagueGoal: raw.goal ?? 'title' }), weights: skipWeights(fileSkips, id),
+    consume: null, summary: { status: 'not_read', reason: 'files only (no warroom_requests read)' } };
+}
+
 /* ------------------------------------------------------------------ the per-league loop
  * FIX-03: shared by main() (real adapters from the DB) and the contract fixture
  * (test/fixtures/warroom-contract/make-producer-plans.mjs, the made-up league).
@@ -117,14 +132,17 @@ function takeLock(file) {
 /**
  * leagues: [{ id, load: async () => ({ adapter, chat?, adapterMs? }) }]
  * opts: { generated_at, objectives ({ id: raw objective }), skips (rows), previous (Map id -> last entry),
- *         inputs ({ skips, offers } read status), clock, budget, log,
+ *         inputs ({ skips } read status), clock, budget, log,
  *         flags (FIX-02b, optional): model-flags.js#modelFlags() for the head's producer_version,
- *         brain (FIX-05, optional): { read: readBrainReport result, applyBrainReport, numberHealth: id -> readNumberHealth result } }
+ *         brain (FIX-05, optional): { read: readBrainReport result, applyBrainReport, numberHealth: id -> readNumberHealth result },
+ *         leagueInputs (FIX-07, optional): (id, { objectiveRow, fileSkips }) -> { objective, weights, consume, summary }
+ *           (requests.js#leagueInputs; default: the objectives/skips files alone),
+ *         consumed (optional array): each league that ships pushes its `consume` here for requests.js#consumeWith }
  * Without `brain`, brain_report and number_health are unknown "not read" and the requested mode is planned.
  */
 export async function buildPlansFile(leagues, {
   generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, log = () => {},
-  flags = null, brain = null,
+  flags = null, brain = null, leagueInputs = fileInputs, consumed = null,
 } = {}) {
   const entries = [], best = new Map();
   for (const { id, load } of leagues) {
@@ -134,14 +152,15 @@ export async function buildPlansFile(leagues, {
     try {
       const { adapter, chat = null, adapterMs = 0 } = await load();
       if (adapter.fail) throw new Error(`world failed: ${adapter.fail}`);
-      const raw = objectives[String(id)] ?? {};
-      const requested = normaliseObjective(raw, { leagueGoal: raw.goal ?? 'title' });
+      // FIX-07: War Room requests fold into the objective and skip weights (files as fallback).
+      const ins = leagueInputs(id, { objectiveRow: objectives[String(id)] ?? null, fileSkips: skips });
+      const requested = ins.objective;
       // FIX-05: the brain report gates the risk mode before planning; the plan is built on the effective mode.
       const gate = brain ? brain.applyBrainReport({ objective: requested, report: brain.read.report, error: brain.read.error,
         now: new Date(generated_at) }) : null;
       const objective = gate ? gate.objective : requested;
       if (gate?.rule.fell_back) log(`[warroom] league ${id}: ${gate.rule.reason}`);
-      res = planLeague(adapter, { objective, skips: skipWeights(skips, id), budget });
+      res = planLeague(adapter, { objective, skips: ins.weights, budget });
       const rosterKey = res.error ? null : adapter.rosterKey?.() ?? null;
       const changed = diffNextMove(prev?._run ?? null, { next_step: res.best?.steps[0] ?? null,
         objective_version: objective.version, risk_mode: objective.risk_mode, roster_key: rosterKey });
@@ -156,7 +175,7 @@ export async function buildPlansFile(leagues, {
             nick: { status: chat.nick_status ?? 'unknown', reason: chat.nick_reason ?? chat.reason ?? null, rosters: chat.nick_rosters ?? 0 } }
             : { status: 'not_read' },
           skips: { ...(inputs.skips ?? { status: 'none' }), rows: skips.filter(s => String(s.league) === String(id)).length },
-          offers: inputs.offers ?? { status: 'none' },
+          requests: ins.summary,
           deadline: adapter.league?.deadline_source ?? null, objective: objective.source,
           brain: gate ? { run_id: gate.run_id, requested_mode: requested.risk_mode, mode: gate.rule.mode,
             fell_back: gate.rule.fell_back, testing_tier_enabled: gate.rule.testing_tier_enabled,
@@ -166,6 +185,7 @@ export async function buildPlansFile(leagues, {
       const v = validateLeague(entry);
       if (!v.ok) throw new Error(`plans JSON failed its contract check: ${v.errors.slice(0, 3).map(e => `${e.path} ${e.message}`).join('; ')}`);
       if (res.best) best.set(String(id), res.best.expected);
+      if (consumed && ins.consume) consumed.push(ins.consume);
     } catch (e) {
       log(`[warroom] league ${id}: ${e.stack ?? e}`);
       entry = failedEntry({ league: id, me: res?.me ?? prev?.me ?? null, error: String(e.message ?? e) });
@@ -216,10 +236,11 @@ async function main() {
     // Dynamic: number-audit.js opens the app DB on import (the contract fixture imports this file without a DB).
     const { readBrainReport, applyBrainReport, readNumberHealth } = await import('../../server/services/campaign/brain-gate.js');
     const { readNumberAudit } = await import('../../server/services/number-audit.js');
+    // Dynamic: requests.js also opens the app DB on import (the contract fixture imports this file without a DB).
+    const { leagueInputs, consumeWith } = await import('../../server/services/campaign/requests.js');
 
     const objectives = readObjectives(sibling(env, 'GRIDIRON_WARROOM_OBJECTIVES', 'objectives.json'));
     const skips = readJsonl(sibling(env, 'GRIDIRON_WARROOM_SKIPS', 'skips.jsonl'));
-    const offers = readJsonl(sibling(env, 'GRIDIRON_WARROOM_OFFERS', 'offers.jsonl'));
     const previous = readPrevious(out);
     const svc = await loadServices();
     const leagues = svc.db.rows('SELECT id FROM leagues ORDER BY id').map(r => r.id)
@@ -227,7 +248,7 @@ async function main() {
       .map(id => ({ id, load: async () => {
         const chat = await chatRowsFor(id);
         const ta = Date.now();
-        const adapter = buildAdapter(svc, id, { chat: chat.rows, offerLog: offers.rows, finder: opts.finder });
+        const adapter = buildAdapter(svc, id, { chat: chat.rows, finder: opts.finder });
         return { adapter, chat, adapterMs: Date.now() - ta };
       } }));
 
@@ -237,14 +258,20 @@ async function main() {
     console.log(`[warroom] brain report: ${brainRead.error ? `UNREADABLE ${brainRead.error}`
       : brainRead.report ? `run ${brainRead.report.run_id} computed ${brainRead.report.computed_at}` : 'none stored yet'}`);
     const brain = { read: brainRead, applyBrainReport, numberHealth: id => readNumberHealth(svc.db.db, id, { read: readNumberAudit }) };
+    const consumed = [];
     // Checked with validatePlans inside; a file that fails throws here and the previous file stays.
     const file = await buildPlansFile(leagues, { generated_at, objectives, skips: skips.rows, previous,
-      inputs: { skips: { status: skips.status, bad_lines: skips.bad }, offers: { status: offers.status, bad_lines: offers.bad } },
+      inputs: { skips: { status: skips.status, bad_lines: skips.bad } }, leagueInputs, consumed,
       budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags, brain,
       log: line => (line.includes('FAILED') || line.includes('\n') ? console.error(line) : console.log(line)) });
     const tmp = `${out}.tmp-${process.pid}`;
-    fs.writeFileSync(tmp, JSON.stringify(file));
-    fs.renameSync(tmp, out);
+    // FIX-07: stamp the consumed requests in the same transaction as the plans write.
+    const stamped = consumeWith(consumed, () => {
+      fs.writeFileSync(tmp, JSON.stringify(file));
+      fs.renameSync(tmp, out);
+    }, { at: generated_at });
+    console.log(`[warroom] requests consumed ${stamped.consumed}, campaign_steps written ${stamped.campaign_steps}`
+      + (typeof stamped.campaign_steps_skipped === 'string' ? ` (${stamped.campaign_steps_skipped})` : ''));
     const pushes = pushesOf(file);
     if (pushes.length) {
       fs.appendFileSync(sibling(env, 'GRIDIRON_WARROOM_PUSHES', 'pushes.jsonl'), pushes.map(p => JSON.stringify(p)).join('\n') + '\n');

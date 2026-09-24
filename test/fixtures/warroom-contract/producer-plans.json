@@ -2664,8 +2664,9 @@
       "status": "none",
       "rows": 0
      },
-     "offers": {
-      "status": "none"
+     "requests": {
+      "status": "not_read",
+      "reason": "files only (no warroom_requests read)"
      },
      "deadline": null,
      "objective": "objectives_file",
@@ -5728,8 +5729,9 @@
       "status": "none",
       "rows": 0
      },
-     "offers": {
-      "status": "none"
+     "requests": {
+      "status": "not_read",
+      "reason": "files only (no warroom_requests read)"
      },
      "deadline": null,
      "objective": "objectives_file",
@@ -8366,8 +8368,9 @@
       "status": "none",
       "rows": 0
      },
-     "offers": {
-      "status": "none"
+     "requests": {
+      "status": "not_read",
+      "reason": "files only (no warroom_requests read)"
      },
      "deadline": null,
      "objective": "objectives_file",
@@ -9617,8 +9620,9 @@
       "status": "none",
       "rows": 0
      },
-     "offers": {
-      "status": "none"
+     "requests": {
+      "status": "not_read",
+      "reason": "files only (no warroom_requests read)"
      },
      "deadline": null,
      "objective": "objectives_file",

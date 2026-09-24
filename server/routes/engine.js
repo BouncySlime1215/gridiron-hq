@@ -14,7 +14,8 @@
  *   zero      a measured absence of the thing (value null, absence zero): a real 0
  *   unknown   no row as of then, the field is not registered, or the row says unknown
  *   stale     the producer has not run within the field's max_age_sec before as_of
- *   fallback  the monitor has the field on its fallback: the fallback field's row is served
+ *   fallback  the monitor has the field on its fallback: the fallback field's row is served,
+ *             or, when it has none, the field's row as of the last healthy snapshot
  *   thin      the row is healthy but built on missing/fallback inputs
  *   degraded  the row's own health is degraded
  *   league_id_required  a league-scoped entity asked for without league_id (400)
@@ -30,6 +31,7 @@ import { assertLeagueMember } from '../platform/auth.js';
 import { getState, isLeagueScoped, ENTITY_KEYS } from '../services/engine/state.js';
 import { normalizeAsOf } from '../services/engine/events.js';
 import { readFieldSpec, readFallback, freshAt } from '../services/engine/fields.js';
+import { readServed } from '../services/engine/served.js';
 
 const r = Router();
 
@@ -87,11 +89,13 @@ r.get('/state', (req, res) => {
 
   const fb = lane === 'live' ? readFallback(field, leagueId, db) : null;
   if (fb && fb.since <= asOf) {
-    const fbRow = getState(entityType, entityId, fb.fallback_field, { asOf, leagueId, lane });
-    if (!fbRow) return res.json(absent('unknown', `fallback ${fb.fallback_field} in force (${fb.reason}); it has no row as of then`));
-    return res.json({ ...base, status: 'fallback', reason: `${field} is on its fallback ${fb.fallback_field}: ${fb.reason}`,
-      state: stateOut(fbRow), health: fbRow.health,
-      fresh_at: freshAt({ producer: fbRow.producer, leagueId, rowAsOf: fbRow.as_of, ref: asOf }, db) });
+    // the fallback field's row, else the field as of the last healthy snapshot (served.js, EA-06)
+    const served = readServed(entityType, entityId, field, { asOf, leagueId }, db);
+    if (!served.row) return res.json(absent('unknown', served.absence.reason, { fallback: served.fallback }));
+    const target = served.fallback.kind === 'snapshot' ? `the last healthy snapshot #${served.fallback.snapshot_id}` : fb.fallback_field;
+    return res.json({ ...base, status: 'fallback', reason: `${field} is on its fallback ${target}: ${fb.reason}`,
+      state: { ...stateOut(served.row), reason_chain: served.reason_chain }, health: served.row.health, fallback: served.fallback,
+      fresh_at: freshAt({ producer: served.row.producer, leagueId, rowAsOf: served.row.as_of, ref: asOf }, db) });
   }
   const row = getState(entityType, entityId, field, { asOf, leagueId, lane });
   if (!row) return res.json(absent('unknown', 'no_row_as_of'));

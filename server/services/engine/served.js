@@ -3,7 +3,7 @@
  * §7.4; ENGINE-00b-b RED (3); cloud unit EA-06).
  *
  * getState answers "the latest row"; readServed answers "what a page may show". When the
- * field has an engine_fallback row in force (written only by the monitor producer):
+ * field has an engine_fallback row in force at asOf (written only by the monitor producer):
  *   1. the fallback field's row for the same entity, when it has one (kind 'field');
  *   2. else the field's own row as of the last healthy snapshot the monitor recorded
  *      (`health.monitor.healthy_snapshot_id`: getState with that snapshot's max_state_id)
@@ -19,7 +19,9 @@ import { getState } from './state.js';
 import { readFallback } from './fields.js';
 
 export function readServed(entityType, entityId, field, { asOf = new Date(), leagueId = null } = {}, database = appDb) {
-  const fb = readFallback(field, leagueId ?? 0, database);
+  const at = new Date(asOf).toISOString();
+  const found = readFallback(field, leagueId ?? 0, database);
+  const fb = found && found.since <= at ? found : null; // a fallback is not in force before it began
   if (!fb) {
     const own = getState(entityType, entityId, field, { asOf, leagueId }, database);
     return { value: own?.value ?? null, row: own, health: own?.health ?? null, reason_chain: own?.reason_chain ?? null,

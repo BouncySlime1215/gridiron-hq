@@ -717,3 +717,10 @@ A title is too noisy to judge from one season (5 leagues), so the brain is judge
 | E6 follow vs ignore | Nick followed vs ignored the brain, causal (near-tie design + doubly robust) | 2026 forward (SELF-01a log) | reported honestly from ~week 8; no claim before n allows |
 | E7 luck vs decision | Monday Autopsy splits each week into decision quality vs luck | 2026 weekly | shown every Monday |
 Dashboard: a "Is the brain working?" card in Trade Brain with E1-E7 status (passing / not enough data yet / failing -> falls back to Balanced mode and says why). Any failing check blocks FUCK-IT mode's testing-tier signals automatically.
+
+## CAMPAIGN-01f: Coach as the navigator (Nick 9/23 ~8:40 PM: "the goal could change constantly while adding stops along the way... should Coach act as the middle man helping redefine the goals and not lose sight of anything: ok this adds a stop, but we are better with food at the destination")
+- **Itinerary, not a single goal:** `campaign.itinerary` = destination (title odds / playoffs / X projected pts per week) + ordered STOPS (get player Y, sell player Z, fill the bye in week 9) + constraints (risk mode, tolerances, untouchables). Versioned; nothing is ever silently dropped.
+- **Coach is the middle man:** Nick talks to Coach in plain words ("I want this guy", "forget the WR, get me a TE", "I'm scared of the bye in week 9"). Coach turns it into an itinerary edit and, BEFORE applying it, shows the trade-off computed by the engine on the same dice: "Adding this stop costs X title odds / 2 extra steps; it gains Y (depth for the week-9 bye). Net: worth it / not worth it, because ...". Nick confirms, and the route re-plans.
+- **Never lose sight:** every reply from Coach shows the current destination + remaining stops + the next move; conflicts are flagged ("getting Y means selling Z, which was an untouchable"). A weekly check-in: "Still heading to the same destination? Here's how far we got."
+- **Coach explains, the engine calculates:** Coach never invents a number (verify.js); every trade-off figure is an engine field with its reason chain.
+Deps: CAMPAIGN-01a-c, COACH-01, HEALTH-01c.

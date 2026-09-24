@@ -41,6 +41,7 @@ import { rows } from '../db/index.js';
 // read and counterparty-pricing. Three hand-rolled MAX() queries is how three
 // surfaces come to print three different dates for one collection.
 import { transactionsCollected } from './manager-signals.js';
+import { previewUnconfirmed } from './preview-mode.js';
 
 /**
  * Whether the store this file reads exists at all.
@@ -108,7 +109,7 @@ const NEED_SOURCE = 'positional_need';
  */
 const RL19_1_ENV = 'GRIDIRON_RL19_1_ENABLED';
 const rl19NeedPricingOn = () =>
-  process.env[RL19_1_ENV] === '1' || process.env.GRIDIRON_PREVIEW_UNCONFIRMED === '1';
+  process.env[RL19_1_ENV] === '1' || previewUnconfirmed();
 
 /**
  * The nine tactics Nick named, plus the probe flag the untouchable rule needs.

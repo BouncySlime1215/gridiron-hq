@@ -30,11 +30,11 @@ import { previewUnconfirmed, previewFields, previewText } from './preview-mode.j
  * RL-19-1: default-off preview of the r19-measured `positional_need` cap.
  * Read per call (like PREVIEW-01's own switch) so a test can flip it without
  * a process restart. Off by default: the served price does not change until
- * this or GRIDIRON_PREVIEW_UNCONFIRMED is set to '1'.
+ * this or preview mode (preview-mode.js) is on.
  */
 const RL19_1_ENV = 'GRIDIRON_RL19_1_ENABLED';
 const rl19NeedPricingOn = () =>
-  process.env[RL19_1_ENV] === '1' || process.env.GRIDIRON_PREVIEW_UNCONFIRMED === '1';
+  process.env[RL19_1_ENV] === '1' || previewUnconfirmed();
 /**
  * RL-19-1 (validated): 1,326 real Sleeper 1-for-1 trades (2021-24) put the
  * need premium's 90% CI upper bound at 2.8% of value on cross-position deals,

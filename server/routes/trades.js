@@ -48,6 +48,8 @@ import { tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
 // TM-09: historical revealed trade prices (aggregate table), read-only, default-off.
 import { marketForPlayer } from '../services/trade-market.js';
 import { playerHype } from '../services/hype.js';
+import { warRoomView } from '../services/war-room-view.js';
+import { warRoomFlag } from '../services/warroom-flag.js';
 import {
   proposeVerifyRetryTrade, judgeTradeVerdict, tradeChallengeText, SENSE_CHECK_SIM_RUNS
 } from '../services/trade-verify.js';
@@ -650,6 +652,21 @@ r.get('/:leagueId/ceiling-lineup', (req, res, next) => {
       target: req.query.target ? Number(req.query.target) : null,
       trials: Math.min(8000, Number(req.query.trials) || 3000)
     }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * WR-1: the War Room (a tab inside Trade Brain). Read-only and precomputed: it
+ * reshapes a plans JSON written ahead of time by the study/campaign producer and
+ * computes nothing here. Flag off (GRIDIRON_WARROOM_ENABLED unset, preview mode off)
+ * answers { enabled: false } and the client does not draw the tab.
+ */
+r.get('/:leagueId/war-room', async (req, res, next) => {
+  try {
+    // Membership first: even the "off" answer is only for a member of this league.
+    const lg = league(req, res); if (!lg) return;
+    if (!warRoomFlag().enabled) { res.json({ enabled: false }); return; }
+    res.json(await warRoomView(lg.id));
   } catch (e) { next(e); }
 });
 

@@ -29,6 +29,7 @@ import { teamTendencies } from '../nfl-team-tendencies.js';
 import { coachingProfile, footballContext } from '../football-context.js';
 import { sourceTrustScore } from '../beat-reporter-accuracy.js';
 import { BRAIN_TOOLS, brainToolsOn, BrainToolInputError } from './brain-tools.js';
+import { NAV_TOOL, navOn, NavigatorError } from './navigator.js';
 import { validateAction, ACTION_TYPES, PANELS, PLUG_IN_FIELDS, PLAN_CHANGING } from '../warroom-actions/schema.js';
 
 export class CoachToolError extends Error {
@@ -310,11 +311,15 @@ export const WARROOM_TOOLS = Object.freeze([
 
 /**
  * The tools Coach is offered on this call: COACH_TOOLS, plus the brain read
- * tools (brain-tools.js) when GRIDIRON_COACH_BRAIN_TOOLS or preview mode is on.
- * Read per call, so the flag flips without a restart.
+ * tools (brain-tools.js) when GRIDIRON_COACH_BRAIN_TOOLS or preview mode is on,
+ * plus itinerary_edit (navigator.js, COACH-NAV) when GRIDIRON_COACH_NAV or
+ * preview mode is on. Read per call, so a flag flips without a restart.
  */
 export function activeTools() {
-  return brainToolsOn() ? [...COACH_TOOLS, ...BRAIN_TOOLS] : COACH_TOOLS;
+  const brain = brainToolsOn();
+  const nav = navOn();
+  if (!brain && !nav) return COACH_TOOLS;
+  return [...COACH_TOOLS, ...(brain ? BRAIN_TOOLS : []), ...(nav ? [NAV_TOOL] : [])];
 }
 
 /**
@@ -355,6 +360,24 @@ export function runCoachTool(name, input, { ledger } = {}) {
 
   if (tool.kind === 'meta') {
     return { entry: null, summary: tool.run(input).meta };
+  }
+
+  if (tool.kind === 'navigate') {
+    // COACH-NAV: reads the plan into the ledger, proposes edits, writes nothing.
+    // The first edit goes to the dashboard as a plan-changing action, which
+    // opens the trade-off preview and waits for Nick's Confirm tap.
+    let out;
+    try {
+      out = tool.run(input, { ledger });
+    } catch (e) {
+      if (e instanceof NavigatorError || e instanceof BrainToolInputError) throw new CoachToolError(e.message);
+      throw e;
+    }
+    const entry = ledger.queries.at(-1) ?? null;
+    return { entry, ...(out.actions.length ? { action: out.actions[0] } : {}),
+      summary: { proposal: out.proposal, claims: out.answer.claims, refusals: out.answer.refusals,
+        as_of: out.answer.as_of, grounded: out.verification.ok,
+        note: 'Put these claims in your answer as they are, footer last. Nothing is written until Nick confirms.' } };
   }
 
   if (tool.kind === 'derive') {

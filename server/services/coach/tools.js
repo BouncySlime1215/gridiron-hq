@@ -29,6 +29,7 @@ import { teamTendencies } from '../nfl-team-tendencies.js';
 import { coachingProfile, footballContext } from '../football-context.js';
 import { sourceTrustScore } from '../beat-reporter-accuracy.js';
 import { BRAIN_TOOLS, brainToolsOn, BrainToolInputError } from './brain-tools.js';
+import { NAV_TOOL, navOn, NavigatorError } from './navigator.js';
 import { validateAction, ACTION_TYPES, PANELS, PLUG_IN_FIELDS, PLAN_CHANGING } from '../warroom-actions/schema.js';
 
 export class CoachToolError extends Error {
@@ -309,18 +310,21 @@ export const WARROOM_TOOLS = Object.freeze([
 ]);
 
 /**
- * The ONE registry: every tool Coach is offered on this call, in three groups.
+ * The ONE registry: every tool Coach is offered on this call, in four groups.
  *   COACH_TOOLS     always.
  *   BRAIN_TOOLS     the brain read tools (brain-tools.js), when
- *                   GRIDIRON_COACH_BRAIN_TOOLS or preview mode is on. Read per
- *                   call, so the flag flips without a restart.
+ *                   GRIDIRON_COACH_BRAIN_TOOLS or preview mode is on.
+ *   NAV_TOOL        itinerary_edit (navigator.js, COACH-NAV), when
+ *                   GRIDIRON_COACH_NAV or preview mode is on.
  *   WARROOM_TOOLS   only when the question comes from the War Room, so every
  *                   other Coach surface keeps exactly today's tool list.
+ * Flags are read per call, so a flag flips without a restart.
  */
 export function activeTools({ warRoom = false } = {}) {
   return [
     ...COACH_TOOLS,
     ...(brainToolsOn() ? BRAIN_TOOLS : []),
+    ...(navOn() ? [NAV_TOOL] : []),
     ...(warRoom ? WARROOM_TOOLS : [])
   ];
 }
@@ -342,7 +346,7 @@ export function toolDefinitions({ warRoom = false } = {}) {
  */
 export function runCoachTool(name, input, { ledger } = {}) {
   // A War Room action is runnable whenever the model names one (as before
-  // this registry); only the brain tools stay behind their flag.
+  // this registry); the brain tools and the navigator stay behind their flags.
   const tools = activeTools({ warRoom: true });
   const tool = tools.find(t => t.name === name);
   if (!tool) {
@@ -360,6 +364,27 @@ export function runCoachTool(name, input, { ledger } = {}) {
 
   if (tool.kind === 'meta') {
     return { entry: null, summary: tool.run(input).meta };
+  }
+
+  if (tool.kind === 'navigate') {
+    // COACH-NAV: reads the plan into the ledger, proposes edits, writes nothing.
+    // The dashboard dispatcher holds ONE pending plan change, so navigate()
+    // serves at most one action; the other edits come back as `queued` and are
+    // named in the answer's refusals, never dropped silently.
+    let out;
+    try {
+      out = tool.run(input, { ledger });
+    } catch (e) {
+      if (e instanceof NavigatorError || e instanceof BrainToolInputError) throw new CoachToolError(e.message);
+      throw e;
+    }
+    const entry = ledger.queries.at(-1) ?? null;
+    return { entry, ...(out.actions.length ? { action: out.actions[0] } : {}),
+      summary: { proposal: out.proposal, claims: out.answer.claims, refusals: out.answer.refusals,
+        as_of: out.answer.as_of, grounded: out.verification.ok, on_screen: out.actions[0] ?? null, queued: out.queued,
+        note: 'Put these claims and refusals in your answer as they are, footer last. Only on_screen waits for ' +
+          'Nick\'s Confirm; queued changes are not on screen and are not recorded until he asks for them again. ' +
+          'Do not call itinerary_edit again this turn: a second call replaces the preview on screen.' } };
   }
 
   if (tool.kind === 'derive') {

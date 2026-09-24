@@ -2,7 +2,19 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-24 08:17Z.
+Last rebuilt: 2026-09-24 08:43Z.
+
+## #328: feat: War Room opens on the target league, folds training leagues, fills the top strip (WR-L4)
+
+- Merged: 4:43 AM ET, Sep 24 as `43fbb538`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #330: test: War Room end-to-end suite (real producer, route, clicks)
+
+- Merged: 4:30 AM ET, Sep 24 as `0a4f6e60`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #332: fix: War Room 'I sent it' works on real cards (acceptance basis carried through)
 

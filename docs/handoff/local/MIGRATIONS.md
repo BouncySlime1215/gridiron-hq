@@ -19,7 +19,7 @@ main tops at 073 + merged since. Numbers below are RESERVED; any PR using a diff
 | 087 | #286 BROKEN-Q news stamps | |
 | 088 | #265 FLIP-01 | |
 | 089 | #271 REASON-02 | |
-| 090 | #263 | |
+| 090 | #263 M5 pitch bandit | pitch_choices |
 | 091 | #293 | |
 | 092 | #251 | |
 | 093 | #184 RL-3-2 live inactives | |

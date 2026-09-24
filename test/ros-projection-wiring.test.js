@@ -32,8 +32,11 @@ run(`INSERT OR IGNORE INTO schedule_games (season, team_id, week, opponent_abbr,
 // trade-engine.js, which would otherwise bind the real ros-projection.js first.
 const rosCalls = [];
 let rosMap = new Map();
+// FIX-318-1: keep the real module's other exports (projection-asof.js imports ROS_PARAMS, rosUpdate, ...).
+const realRos = await import('../server/services/ros-projection.js');
 mock.module('../server/services/ros-projection.js', {
   namedExports: {
+    ...realRos,
     buildRosProjections: args => { rosCalls.push(args); return rosMap; }
   }
 });

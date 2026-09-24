@@ -24,6 +24,8 @@ const E1 = await import('../server/services/eval/e1.js');
 const { default: brainReportRouter, BRAIN_REPORT_FLAG } = await import('../server/routes/brain-report.js');
 const RULE = await import('../server/services/eval/brain-rule.js');
 const RUNNER = await import('../scripts/eval/run-graders.mjs');
+const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
+const { reasoningGradingEnabled } = await import('../server/services/reasoning/grade.js');
 
 test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
 
@@ -60,11 +62,15 @@ test('migration 078 is applied and its CHECKs are the contract', () => {
 test('on an empty database every check runs: E3 historical passes, everything live says what it needs', () => {
   const { results, errors } = EVAL.runAll(db);
   assert.deepEqual(errors, []);
-  assert.deepEqual(results.map(r => r.check), ['E1', 'E2', 'E3', 'E3-live', 'E4', 'E5', 'E6', 'E7']);
+  // E3-ESPN (FIX-322-1) runs with the card; on an empty database it says its source table is not built.
+  assert.deepEqual(results.map(r => r.check), ['E1', 'E2', 'E3', 'E3-live', 'E4', 'E4-live', 'E5', 'E6', 'E7', 'E3-ESPN', 'C8']);
   const byCheck = Object.fromEntries(results.map(r => [r.check, r]));
   assert.equal(byCheck.E3.status, 'passing');
   assert.equal(byCheck.E3.source, 'historical_fixed');
-  for (const c of ['E1', 'E2', 'E3-live', 'E4', 'E5', 'E6', 'E7']) {
+  // FIX-294-1: E4 is the frozen planner-vs-baselines replay (inconclusive: not_enough_data, says why).
+  assert.equal(byCheck.E4.status, 'not_enough_data');
+  assert.equal(byCheck.E4.source, 'historical_fixed');
+  for (const c of ['E1', 'E2', 'E3-live', 'E4-live', 'E5', 'E6', 'E7', 'C8']) {
     assert.equal(byCheck[c].status, 'not_enough_data', c);
     assert.match(byCheck[c].needs_text, /^needs \d+ more /, c);
   }
@@ -135,7 +141,8 @@ test('E1 reads every manager\'s offers: observed trade_outcomes plus unsettled l
 test('a grader that throws is written, not hidden, and the rule treats it as blocking', async () => {
   const bad = path.join(temp, 'bad.json');
   fs.writeFileSync(bad, '{ not json');
-  const { results, errors } = EVAL.runAll(db, { E4: { filePath: bad } });
+  // A frozen replay result with no title block makes the E4 grader throw.
+  const { results, errors } = EVAL.runAll(db, { E4: { historical: { broken: true } } });
   assert.equal(errors.length, 1);
   const e4 = results.find(r => r.check === 'E4');
   assert.equal(e4.status, 'not_enough_data');
@@ -150,11 +157,11 @@ test('runner stores one run; the latest run is read back with its summary', asyn
   const lines = [];
   const { ok, stored } = await RUNNER.main({ now: new Date('2020-01-01T00:00:00Z'), log: l => lines.push(l) });
   assert.equal(ok, true);
-  assert.match(lines.at(-1), /^brain_report: 1 passing, 7 not_enough_data, 0 failing \(run /);
+  assert.match(lines.at(-1), /^brain_report: 1 passing, 10 not_enough_data, 0 failing \(run /);
   const rep = EVAL.latestReport(db);
   assert.equal(rep.run_id, stored.run_id);
-  assert.equal(rep.checks.length, 8);
-  assert.deepEqual(rep.summary, { passing: 1, not_enough_data: 7, failing: 0 });
+  assert.equal(rep.checks.length, 11);
+  assert.deepEqual(rep.summary, { passing: 1, not_enough_data: 10, failing: 0 });
   assert.equal(rep.checks.find(c => c.check === 'E3').detail.league_seasons, 906);
 });
 
@@ -167,9 +174,50 @@ test('GET /api/brain-report is default-off, and on it serves the stored run and 
   try {
     const on = await request(app, '/api/brain-report');
     assert.equal(on.body.enabled, true);
-    assert.equal(on.body.report.checks.length, 8);
+    assert.equal(on.body.report.checks.length, 11);
     assert.equal(on.body.fallback_if_all_in.testing_tier_enabled, false, 'the stored run is dated 2020: stale fails closed');
   } finally {
     delete process.env[BRAIN_REPORT_FLAG];
+  }
+});
+
+test('GET /api/brain-report lists C8 (REASON-02) as not_enough_data with its reason while reasoning grading is off', async () => {
+  const before = process.env[PREVIEW_ENV];
+  delete process.env[PREVIEW_ENV];
+  process.env[BRAIN_REPORT_FLAG] = '1';
+  try {
+    assert.equal(reasoningGradingEnabled(), false);
+    const { results } = EVAL.runAll(db);
+    EVAL.writeReport(db, results);
+    const on = await request(app, '/api/brain-report');
+    assert.equal(on.body.enabled, true);
+    const c8 = on.body.report.checks.find(c => c.check === 'C8');
+    assert.ok(c8, 'C8 is in the stored run');
+    assert.equal(c8.name, 'Reasoning claims come true');
+    assert.equal(c8.status, 'not_enough_data');
+    assert.match(c8.needs_text, /^needs \d+ more settled reasoning claims/);
+    assert.match(c8.needs_text, new RegExp(`${PREVIEW_ENV}=1 turns it on`));
+    assert.equal(c8.needs_unit, 'decisions');
+    assert.ok(!on.body.fallback_if_all_in.blocking.some(b => b.check === 'C8'), 'waiting on data never blocks');
+  } finally {
+    delete process.env[BRAIN_REPORT_FLAG];
+    if (before !== undefined) process.env[PREVIEW_ENV] = before;
+  }
+});
+
+test('runner: with reasoning grading on it records and settles claims first, and the summary stays the last line', async () => {
+  const before = { preview: process.env[PREVIEW_ENV], plans: process.env.GRIDIRON_WARROOM_PLANS };
+  process.env[PREVIEW_ENV] = '1';
+  process.env.GRIDIRON_WARROOM_PLANS = path.join(temp, 'no-plans-here', 'plans.json');
+  try {
+    const lines = [];
+    const { ok } = await RUNNER.main({ now: new Date(), log: l => lines.push(l) });
+    assert.equal(ok, true);
+    assert.ok(lines.some(l => /^reasoning_claims: .*no plans file/.test(l)), lines.join(' | '));
+    assert.match(lines.at(-1), /^brain_report: \d+ passing/);
+  } finally {
+    for (const [k, env] of [['preview', PREVIEW_ENV], ['plans', 'GRIDIRON_WARROOM_PLANS']]) {
+      if (before[k] === undefined) delete process.env[env]; else process.env[env] = before[k];
+    }
   }
 });

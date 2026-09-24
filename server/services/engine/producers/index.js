@@ -7,6 +7,8 @@ import { producerSpec } from '../registry.js';
 import { calendarProducer } from './calendar.js';
 import { leagueProducer } from './league.js';
 import { gamescriptProducer } from './gamescript.js';
+import { peopleProducers } from './people.js';
+import { weaknessProducers } from './weakness.js';
 
 /** A module's producer plus its registered declaration. */
 export function producerEntry(mod) {
@@ -16,5 +18,7 @@ export function producerEntry(mod) {
 }
 
 export function daemonProducers() {
-  return [calendarProducer, leagueProducer, gamescriptProducer].map(producerEntry);
+  // people.profile / people.counterpart join only behind GRIDIRON_HUB_PEOPLE (people.js#hubPeopleFlag);
+  // people.weakness only behind GRIDIRON_WEAKNESS and only with them (weakness.js#weaknessProducers).
+  return [calendarProducer, leagueProducer, gamescriptProducer, ...peopleProducers(), ...weaknessProducers()].map(producerEntry);
 }

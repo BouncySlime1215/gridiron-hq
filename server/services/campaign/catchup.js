@@ -9,6 +9,8 @@
  *   5. timing     wait-or-act flags and the deadline clock
  * Cheap and certain before expensive and risky: that is the whole ordering rule.
  */
+import { dealKey, screenPct } from './paths.js';
+
 export const CATCHUP_ORDER = Object.freeze(['free', 'flip', 'desperate', 'swing', 'timing']);
 
 /** items: [{ kind, gain (objective units, may be null), text, ... }] -> ordered copy with rank. */
@@ -45,4 +47,68 @@ export function freeMoves(fas, starters, { limit = 3 } = {}) {
     }
   }
   return out.sort((a, b) => b.ppg_gain - a.ppg_gain).slice(0, limit);
+}
+
+/** Title odds under which a manager is out of contention (Nick 9/24 CATCHUP-LIVE: 5%). */
+export const OUT_OF_CONTENTION = 0.05;
+
+/**
+ * Who might sell: every league-mate's live contention and engagement read.
+ * managers: Map team -> { title_now, checked_out, checked_out_source, p_checked_out }.
+ * Returns [{ team, title_now, out_of_contention, checked_out, source, p_checked_out, why }] for the
+ * managers that are out of it or checked out, lowest title odds first. title_now null = unknown, never
+ * counted as out.
+ */
+export function sellersRead(managers, { threshold = OUT_OF_CONTENTION } = {}) {
+  const out = [];
+  for (const [team, m] of managers ?? []) {
+    if (!m || m.blocked) continue;
+    const t = Number.isFinite(m.title_now) ? m.title_now : null;
+    const outOf = t != null && t < threshold;
+    const co = !!m.checked_out;
+    if (!outOf && !co) continue;
+    const why = [];
+    if (outOf) why.push(`title odds ${(t * 100).toFixed(1)}%`);
+    if (co) {
+      why.push(Number.isFinite(m.p_checked_out)
+        ? `checked out (${m.checked_out_source ?? 'activity'}: P ${Math.round(m.p_checked_out * 100)}%)`
+        : `checked out (${m.checked_out_source ?? 'activity'})`);
+    }
+    out.push({ team: String(team), title_now: t, out_of_contention: outOf, checked_out: co,
+      source: m.checked_out_source ?? null, p_checked_out: Number.isFinite(m.p_checked_out) ? m.p_checked_out : null, why });
+  }
+  return out.sort((a, b) => (a.title_now ?? 1) - (b.title_now ?? 1));
+}
+
+/**
+ * Desperate-seller moves: for each seller, the best ranked plan whose first step is with him, and the
+ * discount that step asks him to take on his own market screen (what he gets vs what he gives, by
+ * player value): discount = max(0, -screen %). ranked: planner plans (best first); sellers:
+ * sellersRead(); playerValue(id) -> market value; pResponds(team) -> P(he answers) or null.
+ * Sellers no plan reaches are returned in `unreached` and as gain-less items (up to `limit`).
+ */
+export function desperateMoves(ranked, sellers, { playerValue = () => null, pResponds = () => null, names = id => `player ${id}`, limit = 3 } = {}) {
+  const found = [], unreached = [];
+  for (const s of sellers) {
+    const plan = ranked.find(p => String(p.steps[0]?.team) === s.team) ?? null;
+    if (plan) found.push({ s, plan }); else unreached.push(s);
+  }
+  const sum = ids => ids.reduce((t, id) => { const v = playerValue(id); return t == null || !Number.isFinite(v) ? null : t + v; }, 0);
+  const items = found.sort((a, b) => (b.plan.expected ?? -Infinity) - (a.plan.expected ?? -Infinity)).slice(0, limit).map(({ s, plan }) => {
+    const st = plan.steps[0];
+    const his = screenPct(sum(st.give) ?? NaN, sum(st.get) ?? NaN);
+    const discount = Number.isFinite(his) ? Math.max(0, -his) : null;
+    const pr = pResponds(s.team);
+    const priced = discount == null ? 'no market value for this deal'
+      : discount > 0 ? `the plan asks him to take ${discount.toFixed(0)}% under his market screen, P(yes) ${Math.round(st.p * 100)}%`
+        : `the plan pays him market value or more, P(yes) ${Math.round(st.p * 100)}%`;
+    return { kind: 'desperate', gain: plan.expected, steps: plan.steps.length, team: s.team, reason: s.why,
+      discount_pct: discount, screen_pct: Number.isFinite(his) ? his : null, p_yes: st.p, p_responds: pr, plan_key: dealKey(st),
+      text: `Team ${s.team} (${s.why.join('; ')}): ${st.get.map(names).join(' + ')}; ${priced}`
+        + (s.checked_out && Number.isFinite(pr) ? `; he answers ${Math.round(pr * 100)}% of the time.` : '.') };
+  });
+  // Sellers no plan reaches still show (the live read), with no gain: nothing to send them yet.
+  const idle = unreached.slice(0, limit).map(s => ({ kind: 'desperate', gain: null, steps: 0, team: s.team, reason: s.why,
+    discount_pct: null, text: `Team ${s.team} (${s.why.join('; ')}): no plan inside your sliders reaches him yet.` }));
+  return { items: [...items, ...idle], unreached };
 }

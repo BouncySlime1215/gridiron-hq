@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './warroom.css';
-import type { PanelId, WarRoomView } from './types';
+import { setTeamNames, type PanelId, type WarRoomView } from './types';
 import type { DeckLogEntry, DeckState } from './deck';
 import { postWarRoomRequest, type Poster, type WarRoomRequest } from './requests';
 import { isOk } from './format';
@@ -15,6 +15,8 @@ import TargetPicker from './TargetPicker';
 import CatchUp from './CatchUp';
 import BrainCheckCard from './BrainCheckCard';
 import { CoachDock, useWarRoomCoach, type Panel as CoachPanel } from './coach';
+import { useNegotiations } from './useWarRoom';
+import PeopleBoard, { DeckFocusBar, focusView } from './PeopleBoard';
 
 /**
  * The War Room: ONE dashboard, no page scroll (WAR-ROOM-UI.md v2).
@@ -28,6 +30,11 @@ import { CoachDock, useWarRoomCoach, type Panel as CoachPanel } from './coach';
  * It renders only what the view says (the contract's league entry: `alternatives`,
  * `targets`, `flip_map`, `brain_report`, ...); useWarRoom is the one read and
  * requests.ts the one write (skips, "I sent it", replies, target approvals).
+ *
+ * PEOPLE-BOARD (WAR-ROOM-UI.md v3): when the view says `people_board.enabled`, a People
+ * rail takes the column left of Coach, top to bottom; on the phone it is the deck page
+ * right after Next move. Tapping a tile focuses the Next move deck on the plan's moves
+ * with that manager ("All moves" clears it). Off, the grid is exactly GRID_AREAS.
  */
 export const PANELS: { id: PanelId; name: string }[] = [
   { id: 'next', name: 'Next move' },
@@ -59,10 +66,24 @@ let openedOnTarget = false;
 /** Test hook: forget that this page load already opened on the target league. */
 export function __resetOpening() { openedOnTarget = false; }
 
+/** The same grid with the People rail between the panels and Coach. */
+export const GRID_AREAS_PEOPLE = [
+  'top top top top top coach',
+  'next next stops flip_map people coach',
+  'next next stops flip_map people coach',
+  'targets targets catch brain_report people coach',
+].map(r => `"${r}"`).join(' ');
+
 /** The no-page-scroll contract, inline so it cannot be lost to a stylesheet. */
 export const ROOT_STYLE = { position: 'fixed', inset: 0, height: '100vh', overflow: 'hidden', gridTemplateAreas: GRID_AREAS } as const;
+const ROOT_STYLE_PEOPLE = { ...ROOT_STYLE, gridTemplateAreas: GRID_AREAS_PEOPLE } as const;
+export const rootStyle = (people: boolean) => (people ? ROOT_STYLE_PEOPLE : ROOT_STYLE);
 
-export default function WarRoom({ view, leagues, activeId, onLeague, onExit, deckInitial, onDeckLog, post }: {
+/** Panel order = DOM order = phone deck order; the People rail goes right after Next move. */
+const PANELS_PEOPLE = [PANELS[0], { id: 'people' as const, name: 'People' }, ...PANELS.slice(1)];
+export const panelsFor = (people: boolean) => (people ? PANELS_PEOPLE : PANELS);
+
+export default function WarRoom({ view, leagues, activeId, onLeague, onExit, deckInitial, onDeckLog, post, initialFocus }: {
   view: WarRoomView;
   leagues: LeagueChoice[];
   activeId: number;
@@ -71,8 +92,13 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
   deckInitial?: DeckState;
   onDeckLog?: (log: DeckLogEntry[]) => void;
   post?: Poster;
+  /** A manager the deck starts focused on (a People Board tap). */
+  initialFocus?: string;
 }) {
+  // TEAM-NAMES: before any panel renders, so every teamLabel reads this view's names.
+  setTeamNames(isOk(view.teams) ? view.teams.value : null);
   const [swap, setSwap] = useState<PanelId | null>(null);
+  const [focus, setFocus] = useState<string | null>(initialFocus ?? null);
   const [coachOpen, setCoachOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [phone, setPhone] = useState(false);
@@ -117,7 +143,11 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
   }, [target, leagues, activeId, onLeague]);
 
   // A new league starts on its own deck.
-  useEffect(() => { setSwap(null); }, [activeId]);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    setSwap(null); setFocus(null);
+  }, [activeId]);
 
   // Coach's focus_panel (and its undo) swaps that panel into the big slot, like Expand.
   useEffect(() => {
@@ -138,12 +168,19 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
     if (el && deckRef.current) deckRef.current.scrollTo({ left: el.offsetLeft - deckRef.current.offsetLeft, behavior: 'smooth' });
   }, []);
 
+  const negotiations = useNegotiations(activeId);
+  const people = view.people_board?.enabled === true;
+  const panels = panelsFor(people);
+  // A tile tap: the deck shows only the moves with him, in the big slot, in view.
+  const focusOn = useCallback((team: string) => { setFocus(team); setSwap(null); if (phone) gotoPanel(0); }, [phone, gotoPanel]);
+  const deckView = focus ? focusView(view, focus) : view;
+
   const d = isOk(view.destination) ? view.destination.value : undefined;
   const send = useCallback((req: WarRoomRequest) => postWarRoomRequest(activeId, req, post), [activeId, post]);
 
   return (
     <SourcesContext.Provider value={view.sources ?? {}}>
-      <div className="wr-root wr-app" data-theme={theme} data-testid="war-room-grid" style={ROOT_STYLE}>
+      <div className={`wr-root wr-app${people ? ' wr-people-on' : ''}`} data-theme={theme} data-testid="war-room-grid" style={rootStyle(people)}>
         <TopStrip view={view} leagues={leagues} activeId={activeId} onLeague={onLeague} onExit={onExit}
           theme={theme} onTheme={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))} />
 
@@ -155,8 +192,16 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
           }}>
           <Panel {...common('next')} title="Next move">
             {view.banner && <div className="wr-banner">{view.banner}</div>}
-            <NextMoveDeck key={`${activeId}:${view.snapshot?.id ?? ''}`} view={view} big={big('next')} initialState={deckInitial} onLog={onDeckLog} post={post} />
+            {focus && <DeckFocusBar view={view} team={focus} onClear={() => setFocus(null)} />}
+            <NextMoveDeck key={`${activeId}:${view.snapshot?.id ?? ''}:${focus ?? ''}`} view={deckView} big={big('next')}
+              initialState={focus ? undefined : deckInitial} onLog={onDeckLog} post={post} negotiation={negotiations.data}
+              onAsk={q => { setCoachOpen(true); void coach.ask(q); }} />
           </Panel>
+          {people && (
+            <Panel {...common('people')} title="People">
+              <PeopleBoard view={view} big={big('people')} focus={focus} onFocus={focusOn} />
+            </Panel>
+          )}
           <Panel {...common('stops')} title="Stops">
             <Itinerary field={view.itinerary} big={big('stops')} />
           </Panel>
@@ -176,7 +221,7 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
         </main>
 
         <nav className="wr-dots" aria-label="Panels">
-          {PANELS.map((p, i) => (
+          {panels.map((p, i) => (
             <button key={p.id} type="button" className={i === deckPos ? 'wr-on' : undefined} onClick={() => gotoPanel(i)}>{p.name}</button>
           ))}
         </nav>

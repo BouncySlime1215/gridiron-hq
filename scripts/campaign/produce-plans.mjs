@@ -16,6 +16,10 @@
  *   GRIDIRON_WARROOM_SKIPS       input    JSONL { league, player?, manager?, reason, at } (optional; CLI/test input only)
  *   GRIDIRON_WARROOM_PUSHES      output   JSONL, one row per league whose next move changed
  *   GRIDIRON_CHAT_DB_PATH        input    local chat DB (optional; labels only)
+ *   GRIDIRON_WARROOM_RESCORE_CACHE  in/out  rescore cache (PRODUCER-FAST only; scripts/campaign/rescore-cache.mjs)
+ *   GRIDIRON_COUNTERPART         flag     =1 turns on the ONE-COUNTERPART model (people/counterpart.js):
+ *                                         targets, partner order and the reply prior adjusted by named
+ *                                         features; unset follows the preview switch; =0 keeps it off
  *   panels.json                  cache    reasoning panels reuse cache (FIX-08), next to the plans file
  * Defaults for the inputs sit next to the plans file.
  *
@@ -25,6 +29,18 @@
  * league's next move against the previous file (`_run.changed`); a changed move
  * appends one push row. --no-finder skips the Trade Lab finder baseline
  * (`finder_best_expected` is then unknown with that reason).
+ *
+ * ONE-PLANNER: this is the only planner and plans.json its only output.
+ *   - ACQ-01's 2-for-1 / 1-for-2 search (PR #267) runs inside the path search
+ *     (server/services/campaign/search.js#searchTarget) behind GRIDIRON_TWO_FOR_ONE
+ *     (default off; on under preview-mode.js#previewUnconfirmed). Its counts and the
+ *     IDEA-038 comparison go to `_run.inputs.two_for_one`. There is no acq-plans.json.
+ *   - FLIP-01's nightly / on-news schedule (PR #265) is `--tick`: it re-runs this
+ *     producer when plans.json is a day old, or when news about a rostered player
+ *     landed since the last run (at most one news run an hour). The flip map it
+ *     refreshes is plans.json's `flip_map`; there is no second flip output.
+ *   - Nick's unreachable managers (FIX-02c nick block) are never a step, flip leg or
+ *     target owner (search.js, partners.js#excluded).
  *
  * Before planning, every league's requested risk mode goes through EVAL-01's
  * fallback rule on the latest brain report (server/services/campaign/brain-gate.js,
@@ -46,26 +62,105 @@
  * GRIDIRON_ALLOW_PAID_RUN is set; otherwise each move's reasoning is 'unknown'
  * with the reason. The file is checked with validatePlans again after it.
  *
+ * --leagues 4 (the refresh loop passes GRIDIRON_WARROOM_LEAGUES here) replans only
+ * those leagues; every other league's previous entry is copied into the new file
+ * (mergeKept), so a subset run never drops the others. Attention is then ranked
+ * again across the merged file (kept leagues use their stored best expected), so
+ * every entry says "rank r of N" on the same scale; a kept entry's attention is
+ * the only field that can change, and only when its rank moved.
+ * Pushes, the failed count and the summary line count only the leagues that ran.
+ *
  * Usage:
- *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3] [--no-finder]
+ *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3] [--no-finder] [--tick]
  */
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateLeague, validatePlans } from '../../server/services/campaign/plans-schema.js';
 import { planLeague } from '../../server/services/campaign/planner.js';
 import { normaliseObjective } from '../../server/services/campaign/objectives.js';
 import { skipWeights } from '../../server/services/campaign/partners.js';
 import { diffNextMove } from '../../server/services/campaign/replan.js';
 import { rankAttention } from '../../server/services/campaign/attention.js';
-import { toEntry, failedEntry, plansFile } from '../../server/services/campaign/view.js';
+import { toEntry, failedEntry, plansFile, PRODUCER_VERSION } from '../../server/services/campaign/view.js';
+import { versionWithFlags } from '../../server/services/campaign/model-flags.js';
 import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
+import { applyCoachMessages, coachMessagesOn } from '../../server/services/campaign/messages.js';
+import { previewUnconfirmed } from '../../server/services/preview-mode.js';
+import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
 
 process.env.SCHEDULER_DISABLED = '1';
 
 /** The plans file: warroom-flag.js is the one reader of its path variable. */
 export const plansPath = () => path.resolve(warRoomPlansPath());
 const sibling = (env, key, name) => path.resolve(env[key] || path.join(path.dirname(plansPath()), name));
+
+/** The flag for the 2-for-1 search: 'on' (GRIDIRON_TWO_FOR_ONE=1), 'preview' (on only via preview mode) or 'off'. */
+export const TWO_FOR_ONE_ENV = 'GRIDIRON_TWO_FOR_ONE';
+export function twoForOneFlag(env = process.env) {
+  if (env[TWO_FOR_ONE_ENV] === '1') return 'on';
+  return previewUnconfirmed() ? 'preview' : 'off';
+}
+
+/**
+ * PLAN-BASELINE: the code a plan's title odds come from (season sim, availability,
+ * title odds of a trade, the horizon weight, the adapter that feeds them, the planner).
+ * A change to any of them is a new model, so the War Room's "this week's plan" restarts
+ * instead of comparing across models.
+ */
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+export const PLAN_MODEL_FILES = Object.freeze([
+  'server/services/season-sim.js', 'server/services/player-availability.js', 'server/services/nfl-availability.js',
+  'server/services/availability-basis.js', 'server/services/title-odds-trades.js', 'server/services/title-mutual.js',
+  'server/services/trade-horizon.js', 'scripts/campaign/league-adapter.mjs', 'server/services/campaign/planner.js',
+].map(f => path.join(REPO, f)));
+
+/**
+ * This run's model key: the producer version with its model flags (model-flags.js), then a
+ * short hash of the title-odds code. A file that cannot be read is hashed as its name plus
+ * 'absent', so a missing module is a different model, never a silent match.
+ */
+export function planModelKey({ flags = null, files = PLAN_MODEL_FILES } = {}) {
+  const h = crypto.createHash('sha256');
+  for (const f of files) {
+    h.update(path.basename(f)).update('\0');
+    try { h.update(fs.readFileSync(f)); } catch { h.update('absent'); }
+    h.update('\0');
+  }
+  return `${versionWithFlags(PRODUCER_VERSION, flags)}|code=${h.digest('hex').slice(0, 12)}`;
+}
+
+/* FLIP-01's schedule, as this producer's runner (moved in from PR #265 flip-radar.js#decideRun). */
+export const NIGHTLY_MINUTES = 24 * 60;
+/** Two news runs are at least this far apart, so a burst of news costs one run. */
+export const NEWS_GAP_MINUTES = 60;
+
+/** Whether a --tick runs now. Pure. lastAt: the previous plans file's generated_at. */
+export function decideRun({ lastAt, now = Date.now(), newsHits = 0, force = false }) {
+  if (force) return { run: true, trigger: 'manual' };
+  const ageMin = lastAt ? (now - Date.parse(lastAt)) / 60_000 : Infinity;
+  if (!(ageMin < NIGHTLY_MINUTES)) return { run: true, trigger: 'nightly' };
+  if (newsHits > 0 && ageMin >= NEWS_GAP_MINUTES) return { run: true, trigger: 'news' };
+  return { run: false, reason: newsHits > 0 ? 'news seen, inside the news gap' : 'fresh, no news since' };
+}
+
+/** News rows newer than `since` about a player rostered in any of `leagueIds` (count only). */
+export function newsHitsSince(db, leagueIds, since, normalise) {
+  const names = new Set();
+  for (const id of leagueIds) {
+    const lg = db.row('SELECT payload FROM leagues WHERE id = ?', id);
+    let p = lg?.payload;
+    if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) { if (e instanceof SyntaxError) continue; throw e; } }
+    for (const t of p?.teams ?? []) for (const e of t.roster?.entries ?? []) {
+      const n = normalise(e.playerPoolEntry?.player?.fullName);
+      if (n) names.add(n);
+    }
+  }
+  if (!names.size) return 0;
+  return db.rows(`SELECT player_name FROM nfl_news_signals WHERE created_at > datetime(?)`, since ?? '1970-01-01T00:00:00Z')
+    .filter(r => names.has(normalise(r.player_name))).length;
+}
 
 /** JSONL reader: absent file -> []; a bad line is counted and reported, never silently dropped. */
 export function readJsonl(file) {
@@ -98,14 +193,67 @@ function readPrevious(file) {
 }
 
 function args(argv) {
-  const out = { leagues: null, flipTop: 3, targets: 3, finder: true };
+  const out = { leagues: null, flipTop: 3, targets: 3, finder: true, tick: false };
   for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--leagues') out.leagues = argv[++i].split(',').map(Number);
+    if (argv[i] === '--leagues') {
+      const raw = argv[++i];
+      out.leagues = parseLeagueList(raw);
+      if (!out.leagues && String(raw ?? '').trim().toLowerCase() !== 'all') out.leaguesBad = String(raw ?? '').slice(0, 40);
+    }
     else if (argv[i] === '--flip-top') out.flipTop = Number(argv[++i]);
     else if (argv[i] === '--targets') out.targets = Number(argv[++i]);
     else if (argv[i] === '--no-finder') out.finder = false;
+    else if (argv[i] === '--tick') out.tick = true;
   }
   return out;
+}
+
+/** '4' / '1, 4' -> [4] / [1, 4]; empty, 'all' or anything not a list of ids -> null (every league). */
+export function parseLeagueList(text) {
+  const t = String(text ?? '').trim();
+  if (!t || t.toLowerCase() === 'all' || !/^\d+(\s*,\s*\d+)*$/.test(t)) return null;
+  return [...new Set(t.split(',').map(Number))];
+}
+
+/**
+ * A subset run's file plus every kept league's previous entry, as it was (the
+ * same object read from the previous file, so it serialises to the same bytes).
+ * `order` is every league id in file order; ids in `ran` come from `file`, the
+ * rest from `previous` when it has them. No kept entry -> `file` itself.
+ */
+export function mergeKept(file, previous, { order, ran }) {
+  const ranIds = new Set(ran.map(String));
+  const fresh = new Map(file.leagues.map(e => [String(e.league), e]));
+  const kept = order.map(String).filter(id => !ranIds.has(id) && previous.has(id));
+  if (!kept.length) return file;
+  const merged = order.map(String).map(id => (ranIds.has(id) ? fresh.get(id) : previous.get(id))).filter(Boolean);
+  // One ranking across the whole file: a ran league must not say "rank 1 of 1" next to kept "of 5".
+  // storedExpected is planner.js's deck[0].expected, the same number buildPlansFile ranks the ran leagues on.
+  const ranks = attentionRows(merged, storedExpected);
+  const leagues = merged.map(e => {
+    const a = ranks.get(String(e.league));
+    if (!a || JSON.stringify(a) === JSON.stringify(e.attention)) return e;   // unchanged: the same object, same bytes
+    return { ...e, attention: a };                                          // key order kept (attention already there)
+  });
+  return { ...file, leagues };
+}
+
+/** The best move's expected gain as stored in an entry (next_move.value.expected); 0 when there is none. */
+export function storedExpected(e) {
+  const v = e?.next_move?.status === 'ok' ? e.next_move.value?.expected : null;
+  return v?.status === 'ok' && Number.isFinite(v.value) ? v.value : 0;
+}
+
+/** North-star row 19 over a set of entries: league -> attention row for each entry that did not fail. */
+export function attentionRows(entries, expectedOf) {
+  const ranked = rankAttention(entries.map(e => ({ league: e.league, error: e.error ?? null, expected: expectedOf(e),
+    hasMove: e.next_move?.status === 'ok',
+    changed: !!e._run?.changed?.changed,
+    weeksToDeadline: Number.isInteger(e._run?.deadline_week) && Number.isInteger(e._run?.week) ? e._run.deadline_week - e._run.week : null })));
+  return new Map(entries.filter(e => !e.error).map(e => {
+    const r = ranked.find(x => x.league === e.league);
+    return [String(e.league), { status: 'ok', value: { rank: r.rank, of: r.of, reason: r.why }, source: 'campaign.plan' }];
+  }));
 }
 
 /** The producer's lock on the plans file; scripts/reasoning/run.mjs takes the same one. */
@@ -140,8 +288,10 @@ export function fileInputs(id, { objectiveRow = null, fileSkips = [] } = {}) {
 /**
  * leagues: [{ id, load: async () => ({ adapter, chat?, adapterMs? }) }]
  * opts: { generated_at, objectives ({ id: raw objective }), skips (rows), previous (Map id -> last entry),
- *         inputs ({ skips } read status), clock, budget, log,
+ *         inputs ({ skips } read status), clock, budget, env (FEAS-140 flags; main() passes process.env), log,
  *         flags (FIX-02b, optional): model-flags.js#modelFlags() for the head's producer_version,
+ *         model (PLAN-BASELINE, optional): planModelKey() for this run, stamped on `_run.inputs.model`; a previous
+ *           trajectory made under another key is not compared with (view.js#planBaseline),
  *         brain (FIX-05, optional): { read: readBrainReport result, applyBrainReport, numberHealth: id -> readNumberHealth result },
  *         leagueInputs (FIX-07, optional): (id, { objectiveRow, fileSkips }) -> { objective, weights, consume, summary }
  *           (requests.js#leagueInputs; default: the objectives/skips files alone),
@@ -149,8 +299,8 @@ export function fileInputs(id, { objectiveRow = null, fileSkips = [] } = {}) {
  * Without `brain`, brain_report and number_health are unknown "not read" and the requested mode is planned.
  */
 export async function buildPlansFile(leagues, {
-  generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, log = () => {},
-  flags = null, brain = null, leagueInputs = fileInputs, consumed = null,
+  generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, env = {}, log = () => {},
+  flags = null, brain = null, leagueInputs = fileInputs, consumed = null, twoForOne = 'off', trigger = null, model = null,
 } = {}) {
   const entries = [], best = new Map();
   for (const { id, load } of leagues) {
@@ -158,8 +308,13 @@ export async function buildPlansFile(leagues, {
     const prev = previous.get(String(id)) ?? null;
     let entry, res = null;
     try {
-      const { adapter, chat = null, adapterMs = 0 } = await load();
+      const { adapter, chat = null, adapterMs = 0, counterpart = null, profiles = null } = await load();
       if (adapter.fail) throw new Error(`world failed: ${adapter.fail}`);
+      // ONE-PLANNER: the 2-for-1 search runs inside searchTarget; its counts come back on this sink.
+      if (twoForOne !== 'off') {
+        adapter.searchOpts = { ...(adapter.searchOpts ?? {}), twoForOne: true };
+        adapter.searchStats = newSearchStats(true);
+      }
       // FIX-07: War Room requests fold into the objective and skip weights (files as fallback).
       const ins = leagueInputs(id, { objectiveRow: objectives[String(id)] ?? null, fileSkips: skips });
       const requested = ins.objective;
@@ -168,28 +323,45 @@ export async function buildPlansFile(leagues, {
         now: new Date(generated_at) }) : null;
       const objective = gate ? gate.objective : requested;
       if (gate?.rule.fell_back) log(`[warroom] league ${id}: ${gate.rule.reason}`);
-      res = planLeague(adapter, { objective, skips: ins.weights, budget });
+      res = planLeague(adapter, { objective, skips: ins.weights, budget, env });
       const rosterKey = res.error ? null : adapter.rosterKey?.() ?? null;
       const changed = diffNextMove(prev?._run ?? null, { next_step: res.best?.steps[0] ?? null,
         objective_version: objective.version, risk_mode: objective.risk_mode, roster_key: rosterKey });
-      entry = toEntry(res, { names: adapter.names(), as_of: generated_at, previous: prev, changed,
+      entry = toEntry(res, { names: adapter.names(), teams: adapter.teams?.() ?? null, as_of: generated_at, previous: prev, changed, model,
         brain: gate, number_health: brain ? brain.numberHealth(id) : null });
       if (entry._run) {
         entry._run.roster_key = rosterKey;
         entry._run.phases_ms = { adapter_and_world: adapterMs, ...entry._run.phases_ms };
         entry._run.inputs = {
+          ...entry._run.inputs,
           chat: chat ? { status: chat.status, reason: chat.reason ?? null, negotiation: chat.negotiation ?? null,
             // FIX-02c: Nick's own read (nick_override + manager_notes), applied over every chat label.
             nick: { status: chat.nick_status ?? 'unknown', reason: chat.nick_reason ?? chat.reason ?? null, rosters: chat.nick_rosters ?? 0 } }
             : { status: 'not_read' },
           skips: { ...(inputs.skips ?? { status: 'none' }), rows: skips.filter(s => String(s.league) === String(id)).length },
+          // ONE-COUNTERPART: people.counterpart's summary (people/counterpart.js) and the models the planner used.
+          counterpart: counterpart ? { ...counterpart, models: res.counterpart?.models ?? [] } : { status: 'not_read' },
+          // Nick's untouchables (the reader's nick block): ids excluded from targets, gets and flip legs.
+          untouchable: res.untouchable ?? { ids: [], refused_targets: [] },
           requests: ins.summary,
           deadline: adapter.league?.deadline_source ?? null, objective: objective.source,
+          // Off and untriggered, the entry is byte-for-byte the incumbent's (the committed contract fixture).
+          ...(trigger ? { trigger } : {}),
+          ...(twoForOne !== 'off' ? { two_for_one: { flag: twoForOne, ...twoForOneSummary(adapter.searchStats) } } : {}),
           brain: gate ? { run_id: gate.run_id, requested_mode: requested.risk_mode, mode: gate.rule.mode,
             fell_back: gate.rule.fell_back, testing_tier_enabled: gate.rule.testing_tier_enabled,
             read_error: brain.read.error } : { status: 'not_read' },
+          // PRODUCER-FAST: hits / misses of the rescore cache, only when the flag gave the run one.
+          ...(adapter.cacheStats?.() ? { rescore_cache: adapter.cacheStats() } : {}),
         };
       }
+      // COACH-MSG (#306): grounded messages into the contract's existing slots, before the contract check.
+      if (coachMessagesOn()) {
+        const msg = applyCoachMessages(entry, { profiles });
+        entry = msg.entry;
+        if (entry._run) entry._run.inputs.coach_messages = { status: 'on', profiles: profiles?.size ?? 0, steps: msg.stats.steps,
+          grounded: msg.stats.grounded, fallback: msg.stats.fallback, unpriced: msg.stats.unpriced, errors: msg.stats.errors.length };
+      } else if (entry._run) entry._run.inputs.coach_messages = { status: 'off', reason: 'GRIDIRON_COACH_MESSAGES unset and preview off' };
       const v = validateLeague(entry);
       if (!v.ok) throw new Error(`plans JSON failed its contract check: ${v.errors.slice(0, 3).map(e => `${e.path} ${e.message}`).join('; ')}`);
       if (res.best) best.set(String(id), res.best.expected);
@@ -205,14 +377,8 @@ export async function buildPlansFile(leagues, {
   }
 
   // Attention budget across the leagues (north-star row 19): each league carries its own row.
-  const ranked = rankAttention(entries.map(e => ({ league: e.league, error: e.error ?? null, expected: best.get(String(e.league)) ?? 0,
-    changed: !!e._run?.changed?.changed,
-    weeksToDeadline: Number.isInteger(e._run?.deadline_week) && Number.isInteger(e._run?.week) ? e._run.deadline_week - e._run.week : null })));
-  for (const e of entries) {
-    if (e.error) continue;
-    const r = ranked.find(x => x.league === e.league);
-    e.attention = { status: 'ok', value: { rank: r.rank, of: entries.length, reason: r.why }, source: 'campaign.plan' };
-  }
+  const ranks = attentionRows(entries, e => best.get(String(e.league)) ?? 0);
+  for (const e of entries) if (ranks.has(String(e.league))) e.attention = ranks.get(String(e.league));
 
   const file = plansFile(entries, { generated_at, flags });
   const v = validatePlans(file);
@@ -234,10 +400,31 @@ async function main() {
   fs.mkdirSync(path.dirname(out), { recursive: true });
   const release = takeLock(out);
   if (!release) { console.log('warroom_plans skipped: another run holds the lock'); return; }
-  console.log(`warroom_plans started ${new Date().toISOString()} pid ${process.pid}`);
   try {
-    const { loadServices, buildAdapter } = await import('./league-adapter.mjs');
+    const { loadServices, buildAdapter, producerFastEnabled } = await import('./league-adapter.mjs');
+    const { readRescoreCache, writeRescoreCache, leagueCache } = await import('./rescore-cache.mjs');
+    const svc = await loadServices();
+    const allIds = svc.db.rows('SELECT id FROM leagues ORDER BY id').map(r => r.id);
+    if (opts.leaguesBad) console.log(`[warroom] --leagues ${JSON.stringify(opts.leaguesBad)} is not a comma list of league ids; planning every league`);
+    if (opts.leagues) console.log(`[warroom] leagues ${opts.leagues.join(',')} only; the others keep their previous entries`);
+    const leagueIds = allIds.filter(id => !opts.leagues || opts.leagues.includes(id));
+    let trigger = 'manual';
+    if (opts.tick) {
+      let lastAt = null;
+      try { lastAt = fs.existsSync(out) ? JSON.parse(fs.readFileSync(out, 'utf8')).generated_at ?? null : null; } catch { lastAt = null; }
+      const { normalizePlayerName } = await import('../../server/services/player-identity.js');
+      const newsHits = lastAt ? newsHitsSince(svc.db, leagueIds, lastAt, normalizePlayerName) : 0;
+      const d = decideRun({ lastAt, newsHits });
+      if (!d.run) { console.log(`warroom_plans skipped: ${d.reason}`); return; }
+      trigger = d.trigger;
+    }
+    const twoForOne = twoForOneFlag(env);
+    console.log(`warroom_plans started ${new Date().toISOString()} pid ${process.pid} trigger ${trigger} two_for_one ${twoForOne}`);
     const { chatRowsFor } = await import('./chat-labels.mjs');
+    // ONE-COUNTERPART (RULINGS 17): GRIDIRON_COUNTERPART=1, or the local preview switch; =0 vetoes.
+    const { flagOn, counterpartsFor } = await import('./counterpart-inputs.mjs');
+    const counterpartOn = flagOn(env);
+    console.log(`[warroom] counterpart model ${counterpartOn ? 'on' : 'off'}`);
     const { modelFlags } = await import('../../server/services/campaign/model-flags.js');
     const flags = await modelFlags();
     console.log(`[warroom] model flags ${JSON.stringify(flags)}`);
@@ -250,14 +437,36 @@ async function main() {
     const objectives = readObjectives(sibling(env, 'GRIDIRON_WARROOM_OBJECTIVES', 'objectives.json'));
     const skips = readJsonl(sibling(env, 'GRIDIRON_WARROOM_SKIPS', 'skips.jsonl'));
     const previous = readPrevious(out);
-    const svc = await loadServices();
-    const leagues = svc.db.rows('SELECT id FROM leagues ORDER BY id').map(r => r.id)
-      .filter(id => !opts.leagues || opts.leagues.includes(id))
+    // PRODUCER-FAST: last run's rescores, reused only for a world with the same content hash.
+    const fast = producerFastEnabled(env);
+    const cacheFile = sibling(env, 'GRIDIRON_WARROOM_RESCORE_CACHE', 'rescore-cache.json');
+    const cacheIn = fast ? readRescoreCache(cacheFile) : null;
+    if (cacheIn && cacheIn.status !== 'ok' && cacheIn.status !== 'absent') console.warn(`[warroom] rescore cache ${cacheIn.status}`);
+    const caches = new Map();
+    const leagues = leagueIds
       .map(id => ({ id, load: async () => {
         const chat = await chatRowsFor(id);
         const ta = Date.now();
-        const adapter = buildAdapter(svc, id, { chat: chat.rows, finder: opts.finder });
-        return { adapter, chat, adapterMs: Date.now() - ta };
+        const rescoreCache = fast ? leagueCache(cacheIn.leagues[String(id)] ?? {}) : null;
+        if (rescoreCache) caches.set(String(id), rescoreCache);
+        const adapter = buildAdapter(svc, id, { chat: chat.rows, finder: opts.finder, fast, rescoreCache });
+        let counterpart = { status: 'off', reason: 'GRIDIRON_COUNTERPART unset and the preview switch off (or =0)' };
+        let people = null;
+        if (counterpartOn && !adapter.fail) {
+          const cp = await counterpartsFor(svc, id, adapter);
+          adapter.counterparts = cp.counterparts;
+          counterpart = cp.summary;
+          people = cp.people ?? null;
+        }
+        // COACH-MSG (FIX-306-1): profiles come from the one reader (people.profile), labels only.
+        let profiles = null;
+        if (coachMessagesOn() && !adapter.fail) {
+          const { peopleProfile } = await import('../../server/services/people/profile-reader.js');
+          people = people ?? await peopleProfile(id);
+          profiles = new Map([...(people.byRoster ?? new Map())].filter(([, e]) => e.status === 'ok' && e.profile)
+            .map(([r, e]) => [String(r), e.profile]));
+        }
+        return { adapter, chat, adapterMs: Date.now() - ta, counterpart, profiles };
       } }));
 
     const generated_at = new Date().toISOString();
@@ -270,7 +479,9 @@ async function main() {
     // Checked with validatePlans inside; a file that fails throws here and the previous file stays.
     const file = await buildPlansFile(leagues, { generated_at, objectives, skips: skips.rows, previous,
       inputs: { skips: { status: skips.status, bad_lines: skips.bad } }, leagueInputs, consumed,
-      budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags, brain,
+      budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags, brain, twoForOne, trigger, env,
+      // PLAN-BASELINE: "this week's plan" compares only with a plan made under this same model.
+      model: planModelKey({ flags }),
       log: line => (line.includes('FAILED') || line.includes('\n') ? console.error(line) : console.log(line)) });
     // FIX-08: reasoning goes into each move before the one atomic write. Both gates
     // off (or either) -> no call, and every move says why its panel is missing.
@@ -278,24 +489,35 @@ async function main() {
     const reasoning = await reasonPlans({ plans: file, plansFile: out, env, log: l => console.log(JSON.stringify(l)) });
     if (reasoning.result.status === 'failed') console.error(`[warroom] reasoning step failed: ${reasoning.result.error}`);
     console.log(`[warroom] reasoning ${JSON.stringify(reasoning.summary)}`);
-    const checked = validatePlans(file);
+    // A --leagues run keeps every other league's previous entry untouched.
+    const written = opts.leagues ? mergeKept(file, previous, { order: allIds, ran: leagues.map(l => l.id) }) : file;
+    const checked = validatePlans(written);
     if (!checked.ok) throw new Error(`plans file failed its contract check after reasoning: ${checked.errors.slice(0, 3).map(e => `${e.path} ${e.message}`).join('; ')}`);
     const tmp = `${out}.tmp-${process.pid}`;
     // FIX-07: stamp the consumed requests in the same transaction as the plans write.
     const stamped = consumeWith(consumed, () => {
-      fs.writeFileSync(tmp, JSON.stringify(file));
+      fs.writeFileSync(tmp, JSON.stringify(written));
       fs.renameSync(tmp, out);
     }, { at: generated_at });
     console.log(`[warroom] requests consumed ${stamped.consumed}, campaign_steps written ${stamped.campaign_steps}`
       + (typeof stamped.campaign_steps_skipped === 'string' ? ` (${stamped.campaign_steps_skipped})` : ''));
     reasoning.commit();
+    if (fast) writeRescoreCache(cacheFile, Object.fromEntries([...caches].map(([id, c]) => [id, c.next])));
+    // HIS-SCREEN-FIX: every deck move's "his screen", computed here so the web server only
+    // reads it (his-screens.json next to the plans file). Own file, own gate; never throws.
+    const { writeHisScreens } = await import('../../server/services/campaign/his-screen.js');
+    // REFRESH-L4: a --leagues run carries the kept leagues' screens from the last his-screens file.
+    const ranIds = new Set(leagues.map(l => String(l.id)));
+    await writeHisScreens(file, { log: line => console.log(line),
+      keep: written === file ? [] : written.leagues.map(e => String(e.league)).filter(id => !ranIds.has(id)) });
     const pushes = pushesOf(file);
     if (pushes.length) {
       fs.appendFileSync(sibling(env, 'GRIDIRON_WARROOM_PUSHES', 'pushes.jsonl'), pushes.map(p => JSON.stringify(p)).join('\n') + '\n');
     }
     const entries = file.leagues;
     const failed = entries.filter(e => e.error).length;
-    console.log(`warroom_plans ${failed ? 'PARTIAL' : 'ok'} leagues ${entries.length} failed ${failed} changed ${pushes.length} (${Math.round((Date.now() - t0) / 1000)} s) -> ${out}`);
+    const keptNote = written === file ? '' : ` kept ${written.leagues.length - entries.length}`;
+    console.log(`warroom_plans ${failed ? 'PARTIAL' : 'ok'} leagues ${entries.length} failed ${failed} changed ${pushes.length}${keptNote} (${Math.round((Date.now() - t0) / 1000)} s) -> ${out}`);
     if (failed === entries.length && entries.length) process.exitCode = 1;
   } finally { release(); }
 }

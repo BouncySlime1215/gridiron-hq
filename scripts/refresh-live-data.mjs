@@ -17,6 +17,10 @@
  *   2. roster_snapshots  every team's lineup per scoring period (collect-roster-snapshots.mjs)
  *   3. league_chat       chat extract + classify + rollup; its status line becomes
  *                        sync_log 'league_chat' (classifier failures included)
+ *   3b. people_pulse     PULSE-01 (scripts/people/pulse.mjs): labels the league-mates' new
+ *                        messages, and asks the planner to replan the target league when a
+ *                        credible statement arrived. Only with GRIDIRON_PULSE_ENABLED=1 or
+ *                        preview mode; its status line becomes sync_log 'people_pulse'
  *   4. manager_signals   who-is-who + per-manager signals for all leagues
  *                        (build-manager-signals.mjs), after the chat rollup has
  *                        finished, and only when one of its inputs changed
@@ -32,7 +36,11 @@
  *                        its own switch or preview mode); launched detached every tick
  *                        (skipped while the previous run holds its lock) so each league's
  *                        next move is replanned on the fresh data and gated on this
- *                        tick's brain report and number audit (FIX-05)
+ *                        tick's brain report and number audit (FIX-05).
+ *                        GRIDIRON_WARROOM_LEAGUES=4 (comma list of leagues.id) plans only
+ *                        those leagues (--leagues); the others keep their previous entries.
+ *                        Unset, empty or 'all' plans every league (the default). Set it in
+ *                        the local runner (e.g. ~/gridiron-local/refresh.sh), not in the repo.
  *
  * ALLOWLIST ONLY. Betting collectors (line snapshots, Polymarket, book feeds,
  * prop capture, t60 runner…) are deliberately absent: Nick turned them off.
@@ -128,6 +136,7 @@ const { JOBS, runIfStale, recordSync } = await import('../server/services/schedu
 const { rows, dbPath } = await import('../server/db/index.js');
 const { acquireLock, defaultLockPath, LockHeldError } = await import('../server/services/process-lock.js');
 const { openChatDb, chatDataKey } = await import('../server/services/manager-signals.js');
+const { pulseEnabled } = await import('../server/services/people/pulse.js');
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const stamp = () => new Date().toISOString().slice(11, 19);
@@ -241,9 +250,24 @@ export function warRoomPlans({ launch = launchDetached, log = console.log, recor
     log(`${stamp()} ${'warroom_plans'.padEnd(18)} still running (pid ${holder}); last: ${(last ?? 'none yet').slice(0, 160)}`);
     return;
   }
-  const pid = launch(process.execPath, ['--env-file-if-exists=.env', 'scripts/campaign/produce-plans.mjs'],
-    { cwd: ROOT, env, log: files.log });
-  log(`${stamp()} ${'warroom_plans'.padEnd(18)} launched (pid ${pid}); last: ${(last ?? 'none yet').slice(0, 160)}`);
+  const only = warRoomLeagues(env);
+  const pid = launch(process.execPath, ['--env-file-if-exists=.env', 'scripts/campaign/produce-plans.mjs',
+    ...(only ? ['--leagues', only] : [])], { cwd: ROOT, env, log: files.log });
+  log(`${stamp()} ${'warroom_plans'.padEnd(18)} launched (pid ${pid}${only ? `, leagues ${only}` : ''}); last: ${(last ?? 'none yet').slice(0, 160)}`);
+}
+
+export const WARROOM_LEAGUES_ENV = 'GRIDIRON_WARROOM_LEAGUES';
+
+/**
+ * GRIDIRON_WARROOM_LEAGUES: the leagues the producer replans each tick, or null for
+ * every league (unset, empty or 'all'). Only whitespace is stripped here: the producer
+ * (produce-plans.mjs#parseLeagueList, the one parser, not imported because importing
+ * the producer sets SCHEDULER_DISABLED) reads anything that is not a comma list of ids
+ * as every league and says so in its log, so a typo never stops the plans refreshing.
+ */
+export function warRoomLeagues(env = process.env) {
+  const raw = String(env[WARROOM_LEAGUES_ENV] ?? '').replace(/\s+/g, '');
+  return !raw || raw.toLowerCase() === 'all' ? null : raw;
 }
 
 /** The producer's log and lock, next to the plans file it writes. */
@@ -252,7 +276,7 @@ export function warRoomFiles() {
   return { plans, lock: `${plans}.lock`, log: path.join(path.dirname(plans), 'producer.log') };
 }
 
-function launchDetached(cmd, args, { cwd, env, log: logFile }) {
+export function launchDetached(cmd, args, { cwd, env, log: logFile }) {
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
   const fd = fs.openSync(logFile, 'a');
   const child = spawn(cmd, args, { cwd, env, detached: true, stdio: ['ignore', fd, fd] });
@@ -262,6 +286,31 @@ function launchDetached(cmd, args, { cwd, env, log: logFile }) {
 }
 
 const sha = value => crypto.createHash('sha1').update(JSON.stringify(value)).digest('hex').slice(0, 16);
+
+// PULSE-01: right after the chat step, so it labels the messages that step just extracted.
+// When a credible statement arrived the child launches the War Room producer at once (detached,
+// through the producer's own lock), so the replan does not wait for the warroom_plans step.
+export function peoplePulse({ spawn = spawnSync, log = console.log, record = recordSync, env = process.env } = {}) {
+  if (!pulseEnabled(env)) {
+    log(`${stamp()} ${'people_pulse'.padEnd(18)} off (GRIDIRON_PULSE_ENABLED is not 1)`);
+    return { skipped: true };
+  }
+  const t0 = Date.now();
+  const league = env.GRIDIRON_PULSE_LEAGUE || '4';
+  const r = spawn(process.execPath, ['--env-file-if-exists=.env', 'scripts/people/pulse.mjs', '--league', league],
+    { cwd: ROOT, env: process.env, encoding: 'utf8', timeout: 2 * 60 * 1000 });
+  const failed = spawnFailure(r);
+  const lines = outputLines(r);
+  const summaryLine = lines.filter(l => l.startsWith('people_pulse: ')).at(-1);
+  let summary = null;
+  try { summary = summaryLine ? JSON.parse(summaryLine.slice('people_pulse: '.length)) : null; } catch { summary = null; }
+  const ok = !failed && r.status === 0 && summary != null;
+  record('people_pulse', ok ? 'ok' : 'error', ok ? summary
+    : { error: (failed ?? lines.at(-1) ?? `exit ${r.status}`).slice(0, 300), exit: r.status });
+  log(`${stamp()} ${'people_pulse'.padEnd(18)} ${ok ? 'ok' : 'ERROR'} `
+    + `${(ok ? JSON.stringify(summary) : failed ?? lines.at(-1) ?? `exit ${r.status}`).slice(0, 300)} (${Date.now() - t0} ms)`);
+  return { ok };
+}
 
 /**
  * What build-manager-signals.mjs reads, reduced to a string that changes when any of
@@ -394,6 +443,7 @@ export async function tick({ jobs = FANTASY_LIVE_JOBS, spawn = spawnSync, log = 
   step('league_tx', () => transactionsCapture({ spawn, log }));
   step('roster_snapshots', () => rosterSnapshots({ spawn, log, record }));
   step('league_chat', () => chatBackfill({ spawn, log, record }));
+  step('people_pulse', () => peoplePulse({ spawn, log, record }));
   step('manager_signals', () => signals());
   try { await (numberAudit ?? createNumberAuditStep({ log }))(); } catch (e) {
     log(`${stamp()} ${'number_audit'.padEnd(18)} THREW ${String(e?.message ?? e).slice(0, 160)}`);
@@ -435,7 +485,7 @@ async function refresh(args) {
     return;
   }
   console.log(`${stamp()} refresh-live-data loop every ${loopSeconds} s — jobs: ${FANTASY_LIVE_JOBS.join(', ')}`
-    + ', then league_tx, roster_snapshots, league_chat, manager_signals, number_audit, brain_report'
+    + ', then league_tx, roster_snapshots, league_chat, people_pulse, manager_signals, number_audit, brain_report'
     + (warRoomFlag().enabled ? `, warroom_plans${warRoomFlag().preview ? ' (preview)' : ''}` : ''));
   while (!stopping) {
     await tick({ force, managerSignals, numberAudit });

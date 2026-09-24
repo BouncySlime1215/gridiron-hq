@@ -11,7 +11,6 @@ import { rng, calibrationSlope, moreNeeded, bootstrapCI, mean } from '../server/
 import * as E1 from '../server/services/eval/e1.js';
 import * as E2 from '../server/services/eval/e2.js';
 import * as E3 from '../server/services/eval/e3.js';
-import * as E4 from '../server/services/eval/e4.js';
 import * as E5 from '../server/services/eval/e5.js';
 import * as E6 from '../server/services/eval/e6.js';
 import * as E7 from '../server/services/eval/e7.js';
@@ -184,27 +183,8 @@ test('E3-live threshold: 3 leagues x 10 teams -> needs 10 more team-seasons', ()
 });
 
 // ------------------------------------------------------------------ E4
-function e4File({ n = 60, planner = 1, finder = 0.4, real = true, seed = 41 } = {}) {
-  const z = normal(rng(seed));
-  return { real_behavior_only: real, rows: Array.from({ length: n }, (_, i) => ({
-    league_season: `ls${i}`, planner_gain: planner + 0.5 * z(), finder_gain: finder + 0.5 * z(), nothing_gain: 0 })) };
-}
-
-test('E4 control: planner beats both baselines -> passing', () => {
-  const r = E4.grade(e4File());
-  assert.equal(r.status, 'passing', JSON.stringify(r));
-  assert.ok(r.detail.vs_finder.ci[0] > 0 && r.detail.vs_nothing.ci[0] > 0);
-});
-
-test('E4 fault: planner loses to the finder -> failing', () => {
-  assert.equal(E4.grade(e4File({ planner: 0.2, finder: 1 })).status, 'failing');
-});
-
-test('E4: a replay that invents accepts is not graded; no file / 10 rows -> needs more league-seasons', () => {
-  assert.match(E4.grade(e4File({ real: false })).needs_text, /invented accepts/);
-  assert.match(E4.grade(null, { reason: 'x' }).needs_text, /^needs 30 more league-seasons/);
-  assert.match(E4.grade(e4File({ n: 10 })).needs_text, /^needs 20 more league-seasons/);
-});
+// FIX-294-1: E4 is the planner-vs-baselines grader (server/services/eval/e4-planner.js), tested in
+// test/eval-e4-planner.test.js; the placeholder e4.js it replaced is gone.
 
 // ------------------------------------------------------------------ E5
 function e5Steps({ n = 30, pred = 1, real = 1, seed = 51 } = {}) {

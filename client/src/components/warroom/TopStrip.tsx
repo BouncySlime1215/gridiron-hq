@@ -1,5 +1,6 @@
 import type { WarRoomView } from './types';
 import { Val } from './FieldState';
+import { HealthDot } from './BrainCheckCard';
 import { pct, pts, NOT_COMPUTED, isOk } from './format';
 import LeagueRail, { TARGET_LEAGUE_ID, type LeagueChoice } from './LeagueRail';
 
@@ -17,7 +18,9 @@ export default function TopStrip({ view, leagues, activeId, onLeague, onExit, th
   view: WarRoomView; leagues: LeagueChoice[]; activeId: number; onLeague: (id: number) => void;
   onExit: (tab: 'managers' | 'proposals') => void; theme: 'light' | 'dark'; onTheme: () => void;
 }) {
-  const att = isOk(view.attention) ? view.attention.value : null;
+  // Audit defect 1: a rank outside 1..of is never drawn (the view already fails it).
+  const rawAtt = isOk(view.attention) ? view.attention.value : null;
+  const att = rawAtt && rankInRange(rawAtt.rank, rawAtt.of) ? rawAtt : null;
   const d = isOk(view.destination) ? view.destination.value : undefined;
   // A destination that is itself failed/unknown shows ITS state (and reason) in every fact, not a bare "not computed".
   const sub = <K extends keyof NonNullable<typeof d>>(k: K) => (d ? d[k] : view.destination) as NonNullable<typeof d>[K] | undefined;
@@ -33,12 +36,14 @@ export default function TopStrip({ view, leagues, activeId, onLeague, onExit, th
         <div className="wr-fact"><span className="wr-l">ETA vs plan</span><span className="wr-v">
           <Val f={sub('eta_week')} fmt={w => `wk ${w}`} />{d?.arrive_by?.status === 'ok' && <span className="wr-muted"> plan wk {d.arrive_by.value}</span>}
         </span></div>
-        <div className="wr-fact"><span className="wr-l">Title odds</span><span className="wr-v wr-num">
+        <div className="wr-fact" data-fact="title"><span className="wr-l">Title odds</span><span className="wr-v wr-num">
           <Val f={sub('title_now')} fmt={v => pct(v, 1)} />
-          {d?.title_planned_now?.status === 'ok' && <span className="wr-muted"> plan <Val f={d.title_planned_now} fmt={v => pct(v, 1)} /></span>}
-          {d?.ground_lost?.status === 'ok' && <span className="wr-amber"> <Val f={d.ground_lost} fmt={pts} /></span>}
+          {d?.title_planned_now?.status === 'ok' && <span className="wr-muted"> → plan <Val f={d.title_planned_now} fmt={v => pct(v, 1)} /></span>}
+          {d?.ground_lost?.status === 'ok' && <span className="wr-amber"> <Val f={d.ground_lost} fmt={pts} /> vs this week's plan</span>}
+          {d?.ground_lost?.status === 'unknown' && /^plan restarted/i.test(d.ground_lost.reason ?? '')
+            && <span className="wr-muted" title={d.ground_lost.reason}> (plan restarted: the model changed)</span>}
         </span></div>
-        <div className="wr-fact"><span className="wr-l">Risk mode</span>
+        <div className="wr-fact" data-fact="risk"><span className="wr-l">Risk mode</span>
           <button type="button" className={`wr-chip${isOk(risk) && risk.value.mode === 'all_in' ? ' wr-chip-allin' : ''}`} disabled
             title={isOk(risk) ? "Changing the mode is Coach's (FIX-06)" : risk?.reason ?? view.destination?.reason}>
             {isOk(risk) ? `${MODES[risk.value.mode]}${risk.value.until_week ? ` until wk ${risk.value.until_week}` : ''}`
@@ -46,11 +51,11 @@ export default function TopStrip({ view, leagues, activeId, onLeague, onExit, th
           </button>
         </div>
         <NoMoveFact next={view.next_move} planned={!!d} />
-        <div className="wr-fact"><span className="wr-l">Checks</span><span className="wr-v">
+        <div className="wr-fact" data-fact="checks"><span className="wr-l">Checks</span><span className="wr-v">
           <span className="wr-dotwrap" data-brain={isOk(brain) ? brain.value.overall : brain?.status ?? 'unknown'}
             title={isOk(brain) ? `Brain check: ${BRAIN_WORDS[brain.value.overall] ?? brain.value.overall}` : brain?.reason ?? `Brain check ${NOT_COMPUTED}`}>
             <span className={`wr-dot wr-dot-${isOk(brain) ? brainColor(brain.value.overall) : 'grey'}`} />brain{isOk(brain) && brain.value.overall === 'not_enough_data' && <span className="wr-muted"> (not enough data)</span>}</span>{' '}
-          <NumberDot health={view.number_health} /> numbers
+          <HealthDot health={view.number_health} compact /> numbers
         </span></div>
       </div>
       {view.preview && <span className="wr-tag wr-prev" title={view.preview_reason}>Preview, unconfirmed</span>}
@@ -63,22 +68,9 @@ export default function TopStrip({ view, leagues, activeId, onLeague, onExit, th
   );
 }
 
-/**
- * WR-L4: the strip's number-health dot. The contract writes `overall` (+ broken/warn/ok
- * counts); types.ts's NumberHealth says `status`, which the producer never writes, so the
- * shared HealthDot stayed grey on a computed audit. Read `overall`, fall back to `status`.
- */
-function NumberDot({ health }: { health: WarRoomView['number_health'] }) {
-  const v = isOk(health) ? (health.value as unknown as { overall?: string; status?: string; broken?: number; warn?: number }) : null;
-  const s = v ? v.overall ?? v.status ?? null : null;
-  const color = s === 'broken' ? 'red' : s === 'warn' ? 'amber' : s === 'ok' ? 'green' : 'grey';
-  const text = s === 'broken' ? `numbers broken (${v?.broken ?? '?'})` : s === 'warn' ? `${v?.warn ?? '?'} number warning(s)` : s === 'ok' ? 'numbers checked'
-    : health?.status === 'failed' ? 'number check failed' : `number check ${NOT_COMPUTED}`;
-  return (
-    <span className="wr-dotwrap" title={health?.reason ?? text} data-health={color}>
-      <span className={`wr-dot wr-dot-${color}`} />
-    </span>
-  );
+/** 1 <= rank <= of, both whole numbers. */
+export function rankInRange(rank: unknown, of: unknown): boolean {
+  return Number.isInteger(rank) && Number.isInteger(of) && (rank as number) >= 1 && (rank as number) <= (of as number);
 }
 
 export const NO_MOVE = 'No move clears this week';

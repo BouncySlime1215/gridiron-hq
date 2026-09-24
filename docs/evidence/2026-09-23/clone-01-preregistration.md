@@ -124,3 +124,52 @@ Conditional logit for choice among a set of alternatives is McFadden (1974); sam
 alternatives is not used here, every event is graded on its full pool. Shrinking a
 small-sample rate toward the group rate is the empirical Bayes posterior mean (Efron and
 Morris 1975), with the prior strength from beta-binomial moments.
+
+---
+
+## Results (added after the pre-registration commit `b2a7d020`)
+
+Run on commit `e34a2ab6` (tree `6e3fb70d`), local copies of both DBs:
+
+    python3 scripts/rnd/fit-clone-population.py --sleeper .local-db/sleeper.sqlite --app .local-db/data.sqlite
+
+Two notes on how the run differs from the text above. Neither changes a threshold, a split or a metric.
+- Fit sample: a seeded 7% of 2021-23 claims (6,385 kept), capped at 6,000 for the fit. The fit
+  uses a sample only to save time. Every 2024 claim is graded on its full pool.
+- Shrink: `k = rate x n` is not rounded. For real data it equals the integer count.
+
+**Part 1 (RL-13-3).** RED passes. The pool-rate manager (0.355, n=15) now scores 0.500 and
+reads receptiveness 1.00, not 0.913 (`test/clone-01a.test.js` C1). Off by default, the
+incumbent 0.913 is unchanged (C3).
+
+**Part 2 (waiver choice).** Graded 28,053 claims in 2024 across 4,194 manager clusters. The
+median pool holds 425 players (a uniform guess scores log loss 6.045).
+
+| model | 2024 log loss | top-1 |
+|---|---|---|
+| B0: season-to-date PPG only ("highest as-of value available") | 5.406 | 0.7% (argmax PPG) |
+| M1: full candidate features | 4.333 | 9.5% |
+| M2: M1 + MOTIVE interactions | 4.330 | 9.6% |
+
+- M1 - B0 log loss: **-1.073**, 90% CI [-1.086, -1.061]. The CI clears 0, so **the model beats
+  the baseline**.
+- M1 - B0 top-1: +8.8 points, 90% CI [+8.5, +9.1].
+- Signs of the M1 coefficients: recent usage (expected points +1.20), games-played share (+1.12),
+  PPG (+1.10) and last week's points (+0.71) all pull toward a claim. Positional "need" as
+  defined (1/(1+have)) comes out **negative** (-3.83). Managers claim at positions where they
+  are already deep (RB/WR churn), which is the opposite of the need story. Treat that feature
+  as a depth-churn term, not a need term.
+
+**Part 3 (MOTIVE-01).**
+- M2 - M1 log loss: **-0.00265**, 90% CI [-0.00417, -0.00131]. The CI clears 0, so MOTIVE
+  **passes the pre-registered bar to be a model feature**. The effect is small: 0.06% of the
+  loss, near the design's MDE of 0.0025.
+- States across 2024 claims: hold 18,403; buyer 6,117; seller 3,514; desperate_buyer 19.
+- Offline RED check: 106 of 153 claims made by 0-4 teams read `seller`. The other 47 teams
+  had proxy title odds of 3% or more on points-for. Of 25 claims by teams with >= 2 starters
+  out and >= 2 on bye, 19 read `desperate_buyer`. The other 6 were sellers, because seller is
+  checked first.
+- Served path: still display-only in this unit, as pre-registered. The live profile stores
+  `motive` and moves no number. A later unit may price with it, because the bar was cleared.
+
+2025 was not opened, so there is no HOLDOUT-LEDGER row.

@@ -592,3 +592,138 @@ test('R14 the War Room producer passes the ledger only when GRIDIRON_REPUTATION 
   assert.match(src, /reputationFields\(\)\.enabled/);
   assert.match(src, /reputation:/);
 });
+
+/* ----------------------------------------------------------------- R15 */
+// FIX-264-2: the one planner (campaign producer) asks the gate about every partner in
+// next_move and the alternatives. Fixture league only (campaign-league.mjs: teams 1-4, Nick = 1).
+
+const { makeAdapter } = await import('./fixtures/campaign-league.mjs');
+const { planLeague } = await import('../server/services/campaign/planner.js');
+const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
+const { toEntry } = await import('../server/services/campaign/view.js');
+const { validateLeague } = await import('../server/services/campaign/plans-schema.js');
+const { gatePlans, excluded } = await import('../server/services/campaign/partners.js');
+const { planGate } = reputationModule;
+
+/** A fixture league for the planner gate: `sends` offers Nick tapped as sent to each manager, fair-priced. */
+function seedPlannerLeague(id, { sends = {}, tiers = {} } = {}) {
+  run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, payload, fetched_at)
+       VALUES (?, 'espn', ?, 2026, 'Fixture league', '1', 4, 1, '{}', '2026-09-20 00:00:00')`, id, `fx-${id}`);
+  for (const [t, tier] of Object.entries(tiers)) {
+    run(`INSERT INTO manager_profiles (league_id, roster_id, tradeability) VALUES (?, ?, ?)`, id, t, tier);
+  }
+  for (const [t, days] of Object.entries(sends)) {
+    for (const d of days) {
+      run(`INSERT INTO trade_outcomes
+          (league_id, season, source, proposer_team_id, counterparty_team_id, proposed_at,
+           model_p_accept, model_p_accept_low, model_p_accept_high, model_basis, model_version,
+           status, resolved_at, created_at, sent_at)
+          VALUES (?, 2026, 'app_proposed', '1', ?, ?, 0.5, 0.4, 0.6, 'heuristic_unanchored', 'v0',
+           'countered', ?, ?, ?)`, id, t, ago(d), ago(d - 0.5), ago(d), ago(d));
+    }
+  }
+}
+
+/** The fixture adapter with the producer's two gate hooks, exactly as league-adapter.mjs wires them. */
+function gatedAdapter(leagueId) {
+  const a = makeAdapter();
+  const gateStep = planGate({ leagueId, season: 2026, now: NOW });
+  const managers = new Map([...a.managers].map(([t, m]) => [t, { ...m, rep_gate: gateStep(t) }]));
+  return { ...a, managers, gateStep };
+}
+const OBJ = () => normaliseObjective({ risk_mode: 'balanced' });
+const partnersOf = res => [res.best, ...res.deck.map(c => c.plan)].filter(Boolean).flatMap(p => p.steps.map(s => String(s.team)));
+
+test('R15 gatePlans: deny drops the plan, delay is carried with retry_at, unread is never an allow, no gate is identity', () => {
+  const plans = [
+    { id: 'a', steps: [{ team: '3' }, { team: '2' }] },
+    { id: 'b', steps: [{ team: '4' }] },
+    { id: 'c', steps: [{ team: '3' }] },
+    { id: 'd', steps: [{ team: '5' }] },
+  ];
+  const V = { 2: { decision: 'deny', code: 'tier_never', reason: 'never' },
+    3: { decision: 'delay', code: 'weekly_cap', reason: '3 offers', retry_at: '2026-09-28T12:00:00.000Z' },
+    4: { decision: 'allow', code: 'ok', reason: 'fine' },
+    5: { decision: null, code: 'unavailable', reason: 'reputation gate not run: no table', retry_at: null } };
+  const out = gatePlans(plans, t => V[t]);
+  assert.deepEqual(out.plans.map(p => p.id), ['b', 'c', 'd']);
+  assert.equal(out.dropped[0].plan.id, 'a');
+  assert.equal(out.dropped[0].step, 1);
+  assert.equal(out.plans[0].reputation_gate, undefined, 'allowed: no gate field');
+  assert.deepEqual(out.plans[1].reputation_gate, { decision: 'delay', code: 'weekly_cap', reason: '3 offers',
+    retry_at: '2026-09-28T12:00:00.000Z', partner: '3', step: 0 });
+  assert.equal(out.plans[2].reputation_gate.decision, null);
+  assert.equal(gatePlans(plans, null).plans, plans, 'flag off: the plans as they came');
+  assert.equal(excluded({ rep_gate: { decision: 'deny' } }), true);
+  assert.equal(excluded({ rep_gate: { decision: 'delay' } }), false);
+});
+
+test('R15 planner: a partner at the weekly cap is still planned but every move through him carries retry_at + reason', () => {
+  const base = planLeague(makeAdapter(), { objective: OBJ(), env: {} });
+  assert.ok(partnersOf(base).includes('3'), 'the fixture deck goes through team 3 ungated');
+  seedPlannerLeague(15, { sends: { 3: [1, 2, 3] } });
+  const a = gatedAdapter(15);
+  assert.equal(a.managers.get('3').rep_gate.code, 'weekly_cap');
+  const res = planLeague(a, { objective: OBJ(), env: {} });
+  assert.ok(res.deck.length > 0);
+  let held = 0;
+  for (const c of res.deck) {
+    const first3 = c.plan.steps.findIndex(s => String(s.team) === '3');
+    const g = c.plan.reputation_gate;
+    if (first3 < 0) { assert.equal(g, undefined); continue; }
+    held++;
+    assert.equal(g.decision, 'delay');
+    assert.equal(g.code, 'weekly_cap');
+    assert.equal(g.partner, '3');
+    assert.equal(g.step, first3);
+    assert.equal(g.retry_at, plus(ago(3), 7), 'retry when the oldest of the three leaves the 7-day window');
+    assert.match(g.reason, /3 offers in the last 7 days/);
+  }
+  assert.ok(held > 0, 'at least one move goes through the capped partner');
+  const entry = toEntry(res, { names: a.names(), as_of: NOW });
+  assert.deepEqual(validateLeague(entry).errors, []);
+  const moves = [entry.next_move.value, ...entry.alternatives.value];
+  const typed = moves.filter(m => m.reputation_gate);
+  assert.ok(typed.length > 0);
+  for (const m of typed) {
+    assert.equal(m.reputation_gate.status, 'ok');
+    assert.equal(m.reputation_gate.value.retry_at, plus(ago(3), 7));
+    assert.equal(m.reputation_gate.value.partner, '3');
+  }
+});
+
+test('R15 planner: a denied partner is never a step in next_move or the alternatives', () => {
+  const base = planLeague(makeAdapter(), { objective: OBJ(), env: {} });
+  assert.ok(partnersOf(base).includes('2'), 'the fixture deck uses team 2 ungated');
+  seedPlannerLeague(16, { tiers: { 2: 'never' } });
+  const a = gatedAdapter(16);
+  assert.equal(a.managers.get('2').rep_gate.decision, 'deny');
+  const res = planLeague(a, { objective: OBJ(), env: {} });
+  assert.ok(!partnersOf(res).includes('2'), 'no step to the denied partner');
+  const entry = toEntry(res, { names: a.names(), as_of: NOW });
+  assert.deepEqual(validateLeague(entry).errors, []);
+  const moves = entry.next_move.status === 'ok' ? [entry.next_move.value, ...entry.alternatives.value] : entry.alternatives.value;
+  assert.ok(moves.every(m => m.steps.every(s => s.partner !== '2')));
+});
+
+test('R15 planner: a denied step price (too lopsided alone) drops that plan even when the partner is allowed', () => {
+  seedPlannerLeague(17);
+  const a = gatedAdapter(17);
+  // Budget 0 for this one partner: any lowball-priced step to him is denied outright; fair ones pass.
+  const strict = planGate({ leagueId: 17, season: 2026, now: NOW });
+  const gateStep = (team, st) => (String(team) === '2' && st?.band?.high < 0.2
+    ? { decision: 'deny', code: 'offer_too_lopsided', reason: 'test' } : strict(team, st));
+  const res = planLeague({ ...a, gateStep }, { objective: OBJ(), env: {} });
+  for (const p of [res.best, ...res.deck.map(c => c.plan)].filter(Boolean)) {
+    assert.ok(p.steps.every(s => !(String(s.team) === '2' && s.band?.high < 0.2)));
+  }
+  assert.ok(res.reputation_dropped.length > 0);
+});
+
+test('R15 the War Room adapter builds the planner gate only when GRIDIRON_REPUTATION is on', () => {
+  const src = fs.readFileSync(new URL('../scripts/campaign/league-adapter.mjs', import.meta.url), 'utf8');
+  assert.match(src, /const gateStep = reputation \? planGate\(/);
+  assert.match(src, /rep_gate: gateStep\(t\)/);
+  const planner = fs.readFileSync(new URL('../server/services/campaign/planner.js', import.meta.url), 'utf8');
+  assert.match(planner, /gatePlans\(plans, adapter\.gateStep\)/);
+});

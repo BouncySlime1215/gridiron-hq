@@ -69,7 +69,9 @@ test('on an empty database every check runs: E3 historical passes, everything li
     assert.match(byCheck[c].needs_text, /^needs \d+ more /, c);
   }
   assert.match(byCheck.E1.needs_text, new RegExp(`^needs ${E1.minOffersToDecide()} more offers`));
-  assert.match(byCheck.E2.needs_text, /trade_outcomes lacks column\(s\) sent_at/);
+  // Before 080 (#239) lands E2 names the missing column; with it, it asks for offers.
+  const hasSent = !!db.prepare(`SELECT 1 FROM pragma_table_info('trade_outcomes') WHERE name = 'sent_at'`).get();
+  assert.match(byCheck.E2.needs_text, hasSent ? /^needs \d+ more offers/ : /trade_outcomes lacks column\(s\) sent_at/);
   assert.match(byCheck.E7.needs_text, /PROJ-04-a/);
   assert.match(byCheck.E7.needs_text, /needs 4 more weeks/);
 });

@@ -22,9 +22,15 @@
  *                people/counterpart.js#respondsAdjust re-anchors P(responds) on the M6
  *                reply prior and adds the wants lift; each change is a named feature in
  *                reason_chain. Nick's flags are read from the reader, applied once here.
+ *   kernel       with PARTNER-KERNEL on (GRIDIRON_PARTNER_KERNEL / preview) and a kernel passed
+ *                (people/partner-kernel.js, RL-46-1), the ORDER uses P(responds) x tilt, where tilt
+ *                is the fitted who-trades-with-whom weight over the league mean. P(responds) is not
+ *                changed. Nick's notes stay hard: excluded -> no tilt, score 0; deprioritised
+ *                (non-buyer) -> tilt capped at 1 (can sink, never rise). The reason shows on the partner.
  */
 
 import { respondsAdjust } from '../people/counterpart.js';
+import { partnerKernelFlag, KERNEL_SOURCE, PARTNER_KERNEL_REASON } from '../people/partner-kernel.js';
 
 export const UNKNOWN = 'unknown';
 /** P(responds) at receptiveness 1.0 (no information). Hand-set anchor, not fitted. */
@@ -128,8 +134,10 @@ export function shadowResponds(pr, labels) {
  * managers: Map team -> { ...layer entry, checked_out, blocked, chat, nick }
  * Order: score (P(responds) x edge), then Nick's tier (active pool first, excluded last), then P(responds).
  * An excluded manager stays in the list (so the reason shows) with excluded: true and score 0.
+ * opts.kernel: Map team -> partner-kernel.js#kernelWeights entry; used only when the flag is on.
  */
-export function rankPartners(managers, edgeByTeam, people = null) {
+export function rankPartners(managers, edgeByTeam, people = null, { kernel = null, flag = partnerKernelFlag() } = {}) {
+  const useKernel = !!(kernel && flag?.on);
   const out = [];
   for (const [team, m] of managers) {
     const base = pResponds(m);
@@ -138,14 +146,29 @@ export function rankPartners(managers, edgeByTeam, people = null) {
     const pr = adj ? { ...base, p: adj.p } : base;
     const edge = edgeByTeam.get(String(team)) ?? 0;
     const chat = m.chat ?? chatLabels();
-    out.push({ team: String(team), p_responds: pr.p, basis: pr.basis, edge, score: pr.p * Math.max(0, edge),
+    const tilt = useKernel ? kernelTilt(m, kernel.get(String(team))) : null;
+    const rankP = tilt ? pr.p * tilt.tilt : pr.p;
+    out.push({ team: String(team), p_responds: pr.p, basis: pr.basis, edge, score: rankP * Math.max(0, edge),
       chat, shadow_score: (shadowResponds(pr.p, chat) ?? pr.p) * Math.max(0, edge),
       checked_out: !!m.checked_out, blocked: !!m.blocked, excluded: excluded(m), tier: nickTier(m),
       nick: m.nick ? nickSummary(m.nick) : null, untouchable: (m.nick?.untouchable ?? []).map(String),
       ...(adj ? { p_responds_before_counterpart: base.p, reason_chain: adj.features } : {}),
-      needs: (Array.isArray(m.needs) ? m.needs : m.needs ? Object.keys(m.needs) : []).map(String), sent_this_week: m.sent_this_week ?? null });
+      needs: (Array.isArray(m.needs) ? m.needs : m.needs ? Object.keys(m.needs) : []).map(String), sent_this_week: m.sent_this_week ?? null,
+      ...(tilt ? { p_rank: rankP, partner_kernel: { ...tilt, ...(flag.preview ? { preview: true, preview_reason: PARTNER_KERNEL_REASON } : {}) } } : {}) });
   }
-  return out.sort((a, b) => (b.score - a.score) || (a.tier - b.tier) || (b.p_responds - a.p_responds));
+  const rankOf = x => x.p_rank ?? x.p_responds;
+  return out.sort((a, b) => (b.score - a.score) || (a.tier - b.tier) || (rankOf(b) - rankOf(a)));
+}
+
+/** The kernel's tilt on one partner, under Nick's hard overrides. k: kernelWeights entry or undefined. */
+function kernelTilt(m, k) {
+  if (excluded(m)) return { tilt: 1, weight: k?.weight ?? null, reasons: [], basis: 'Nick: excluded; kernel not applied', source: KERNEL_SOURCE };
+  if (!k) return { tilt: 1, weight: null, reasons: [], basis: 'no kernel read for this team', source: KERNEL_SOURCE };
+  const capped = !!m?.nick?.deprioritised && k.tilt > 1;
+  return { tilt: capped ? 1 : k.tilt, weight: k.weight, trade_ends: k.trade_ends, prev_season: k.prev_season, repeat: k.repeat,
+    reasons: capped ? k.reasons.filter(r => r !== 'trades a lot') : k.reasons,
+    basis: capped ? `Nick: not trading; kernel tilt x${k.tilt.toFixed(2)} capped at 1` : `kernel tilt x${k.tilt.toFixed(2)} (rank only; P(responds) unchanged)`,
+    source: KERNEL_SOURCE };
 }
 
 const nickSummary = n => ({ unreachable: !!n.unreachable, active: !!n.in_active_pool, deprioritised: !!n.deprioritised,

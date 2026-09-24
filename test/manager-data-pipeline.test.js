@@ -607,7 +607,7 @@ test('pricing: one validated loader for negotiation profiles; ME is Nick\'s self
 
 test('pricing: the profile validator accepts the stored shape and names each violation', () => {
   assert.deepEqual(pricing.negotiationProfileErrors(validProfile()), []);
-  const errs = pricing.negotiationProfileErrors(validProfile({ confidence: 'certain', extra: 1 }));
+  const errs = pricing.negotiationProfileErrors(validProfile({ confidence: 7, extra: 1 }));
   assert.ok(errs.some(e => /confidence/.test(e)));
   assert.ok(errs.some(e => /unexpected key/.test(e)));
   assert.ok(pricing.negotiationProfileErrors({}).some(e => /headline: missing/.test(e)));

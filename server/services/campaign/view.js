@@ -250,9 +250,15 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   });
   const best = moves[0] ?? null;
   const alternatives = ok(moves, 'plan.path');
+  // NO-OVERPAY: with no move, say when the cap on market value given is what stopped it, and name the closest overpay.
+  const op = res.no_overpay ?? null;
+  const cl = op?.closest && fin(op.closest.pct) ? op.closest : null;
+  const closestText = cl ? `the closest is ${cl.give.map(nm).join(' + ')} for ${cl.get.map(nm).join(' + ')} at +${Math.max(1, Math.round(cl.pct * 100))}% market value (your cap: +${Math.round((op.max_overpay ?? 0) * 100)}%)` : null;
   const next_move = best ? ok(best, 'plan.path')
-    : unknown(res.candidates_scored ? `None of the ${res.candidates_scored} paths searched clears the sliders and the fresh-dice check this week. Try another target or risk mode.`
-      : 'The planner found no trade path worth sending this week.', 'plan.path');
+    : unknown(res.candidates_scored
+      ? `None of the ${res.candidates_scored} paths searched clears the sliders and the fresh-dice check this week.${closestText ? ` Nothing clears without overpaying; ${closestText}.` : ''} Try another target or risk mode.`
+      : closestText ? `Nothing clears without overpaying; ${closestText}.`
+        : 'The planner found no trade path worth sending this week.', 'plan.path');
 
   /* ------------------------------------------------------- destination */
   // PLAN-BASELINE: an earlier trajectory is compared with only when it was made under this run's model.

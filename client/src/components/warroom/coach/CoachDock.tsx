@@ -3,6 +3,29 @@ import type { WarRoomCoach } from './useWarRoomCoach';
 import PlugInCard from './PlugInCard';
 import { NOT_COMPUTED, pts, size } from '../format';
 
+/** WR-POLISH (audit defect 5): what Nick can ask first; a tap sends it. */
+export const STARTER_PROMPTS = [
+  "What's my next move and why?",
+  'Why is nothing clearing?',
+  'Show me the all-in plan',
+  'Who should I message first?',
+] as const;
+
+/** The empty dock: a greeting, the four prompts, and where we stand (the footer). */
+export function CoachStarter({ coach }: { coach: WarRoomCoach }) {
+  return (
+    <div className="wr-starter" data-testid="coach-starter">
+      <p className="wr-starter-hi">I read this league's plan. Ask me anything about it, or tap one:</p>
+      <div className="wr-starter-prompts">
+        {STARTER_PROMPTS.map(q => (
+          <button key={q} type="button" className="wr-prompt" disabled={coach.busy} onClick={() => { void coach.ask(q); }}>{q}</button>
+        ))}
+      </div>
+      <div className="wr-ch-s" data-testid="coach-footer">{coach.footer.text}</div>
+    </div>
+  );
+}
+
 /**
  * The Coach dock in the War Room's right column (a bottom sheet on a phone):
  * chat, the trade-off preview with its Confirm tap, one-tap undo and the action
@@ -74,6 +97,7 @@ export default function CoachDock({ coach, plans, open = true, onToggle }: { coa
             {coach.error} <button type="button" className="wr-link" onClick={coach.clearError}>Dismiss</button>
           </div>
         )}
+        {!coach.messages.length && !coach.pending && <CoachStarter coach={coach} />}
         {coach.messages.map((m, i) => (
           <div key={i} style={{ margin: '4px 0', textAlign: m.who === 'nick' ? 'right' : 'left' }}>
             <div>{m.text}</div>

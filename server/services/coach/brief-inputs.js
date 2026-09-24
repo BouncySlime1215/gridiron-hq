@@ -9,14 +9,30 @@
  * the brief says "not read" instead of "nothing happened". Any other SQL error
  * throws: a broken read must not pass for a quiet night.
  *
- * Statements and credibility are read ONLY through their producers: chat labels
- * from PULSE-01's people_pulse (#316) and per-manager follow-through from
- * CRED-01's people_credibility (#321). Both producers are on this build (int4) but
- * not wired into the brief yet, so both readers query nothing and return typed
- * unknown with that reason. The brief
- * never opens the chat DB and keeps no labeller or credibility bar of its own
- * (one producer per number).
+ * Statements and credibility are read ONLY through their producers' own
+ * readers: chat labels from PULSE-01's people_pulse (#316) via
+ * people/pulse.js#recentPulse, and per-manager follow-through from CRED-01's
+ * people_credibility (#321) via people/credibility.js#readCredibility. Each is
+ * typed unknown only when its producer has no row for the league and window
+ * (table absent, never run, or not run since the window opened). The brief
+ * never opens the chat DB and keeps no labeller or credibility bar of its own:
+ * "credible" is PULSE-01's CREDIBLE_LIFT, the weight is CRED-01's (one producer
+ * per number).
  */
+import { createRequire } from 'node:module';
+import { readCredibility as credibilityRun, METHOD_VERSION } from '../people/credibility.js';
+
+const require = createRequire(import.meta.url);
+let pulseModule = null;
+/**
+ * PULSE-01's module, loaded on the first read. A static import would open the
+ * app DB (pulse.js imports db/index.js), and the brief must open nothing while
+ * its flag is off (scripts/coach/morning-brief.mjs checks the flag after
+ * importing brief.js). Same module instance as any static import of it.
+ */
+function pulse() {
+  return (pulseModule ??= require('../people/pulse.js'));
+}
 
 const unknown = reason => ({ status: 'unknown', reason, rows: [] });
 const inWindow = col => `julianday(${col}) > julianday(?) AND julianday(${col}) <= julianday(?)`;
@@ -26,25 +42,63 @@ function tableExists(db, name) {
 }
 
 export const PULSE_NOT_BUILT =
-  'the brief does not read chat labels yet: their producer, PULSE-01 (people_pulse), is not wired into it';
+  'no people_pulse table on this database: PULSE-01 (migration 098) has not been applied here';
 export const CRED_NOT_BUILT =
-  'the brief does not read per-manager credibility yet: its producer, CRED-01 (people_credibility), is not wired into it';
+  'no people_credibility table on this database: CRED-01 (migration 099) has not been applied here';
+/** How many statements a morning read takes from the producer, newest first. */
+export const MAX_STATEMENTS = 200;
+/** The follow-through window the brief reports, the one PULSE-01 weighs statements by. */
+export const CRED_WINDOW_DAYS = 7;
 
 /**
- * Labelled statements a league-mate made in the window. The one producer is
- * PULSE-01 (people_pulse); until it is on main this reads nothing and says so,
- * so the brief says "not read" rather than "nobody said anything".
+ * Labelled statements league-mates made in the window, from PULSE-01's reader.
+ * Rows: { id, roster_id, type, phrase, credible, weight, as_of, ago } (labels and
+ * a ticker phrase, never chat text or a manager name). Typed unknown when the
+ * table is absent, the pulse never ran for this league, or its last run is not
+ * after the window opened (a pulse that has not looked is not a quiet night).
  */
-export function readStatements() {
-  return unknown(PULSE_NOT_BUILT);
+export function readStatements(db, { leagueId, since, until, exclude = new Set() } = {}) {
+  if (!db || !tableExists(db, 'people_pulse') || !tableExists(db, 'people_pulse_runs')) return unknown(PULSE_NOT_BUILT);
+  const sinceMs = Date.parse(since);
+  const untilMs = Date.parse(until);
+  const hours = Math.max(0, (untilMs - sinceMs) / 3600e3);
+  const r = pulse().recentPulse(leagueId, { database: db, now: new Date(untilMs), hours, limit: MAX_STATEMENTS });
+  if (r.status !== 'ok') return unknown(PULSE_NOT_BUILT);
+  if (!r.last_run) return unknown(`PULSE-01 has not run for league ${leagueId}: no people_pulse run is recorded`);
+  if (!(Date.parse(r.last_run.ran_at) > sinceMs)) {
+    return unknown(`PULSE-01 has not run since this window opened: its last run was ${r.last_run.ran_at}`);
+  }
+  const rows = r.items
+    .filter(it => Date.parse(it.as_of) > sinceMs && !exclude.has(`p:${it.id}`))
+    .map(it => ({ id: it.id, roster_id: Number(it.roster_id), type: it.type, phrase: it.phrase, credible: it.credible,
+      weight: it.weight ?? null, as_of: it.as_of, ago: it.ago }));
+  return { status: 'ok', rows, keys: rows.map(x => `p:${x.id}`), as_of: until, last_run: r.last_run.ran_at,
+    credible_lift: pulse().CREDIBLE_LIFT };
 }
 
 /**
- * Whether a manager's statements of a kind turn into action. The one producer
- * is CRED-01 (people_credibility); until it is on main this reads nothing.
+ * Who is credible: CRED-01's newest run at or before `until`, its per-manager
+ * rows for the CRED_WINDOW_DAYS window whose weight clears PULSE-01's
+ * CREDIBLE_LIFT, strongest first. Rows: { roster_id, stmt_type, outcome,
+ * window_days, weight, n_statements, status }. Typed unknown when the table is
+ * absent or the producer has no run for this league by then.
  */
-export function readCredibility() {
-  return unknown(CRED_NOT_BUILT);
+export function readCredibility(db, { leagueId, until } = {}) {
+  if (!db || !tableExists(db, 'people_credibility')) return unknown(CRED_NOT_BUILT);
+  const run = credibilityRun(db, leagueId, { asOf: until ?? null });
+  if (!run) return unknown(`CRED-01 has no ${METHOD_VERSION} run for league ${leagueId} at or before this brief`);
+  const bar = pulse().CREDIBLE_LIFT;
+  const rows = [];
+  for (const [roster, types] of Object.entries(run.rosters)) {
+    for (const [type, windows] of Object.entries(types)) {
+      const x = windows[CRED_WINDOW_DAYS];
+      if (!x || x.weight == null || !(x.weight >= bar) || !['proven', 'manager_split'].includes(x.status)) continue;
+      rows.push({ roster_id: Number(roster), stmt_type: type, outcome: x.outcome, window_days: x.window_days,
+        weight: x.weight, n_statements: x.n_statements, status: x.status });
+    }
+  }
+  rows.sort((a, b) => b.weight - a.weight || a.roster_id - b.roster_id || a.stmt_type.localeCompare(b.stmt_type));
+  return { status: 'ok', rows, as_of: run.as_of, credible_lift: bar, window_days: CRED_WINDOW_DAYS };
 }
 
 const OUTCOME_REPLY = { accepted: 'accept', declined: 'decline', countered: 'counter', expired: 'silence' };

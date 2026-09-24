@@ -97,10 +97,8 @@ test('(a) the ladder shows Open with / Plan / Walk away at from the contract fie
   assert.ok(t.includes(names(c.step.opening.value.give)), 'Open with lists the opening give');
   assert.ok(t.includes(names(c.step.give)), 'Plan lists the step give');
   assert.ok(t.includes(names(c.step.walk_away.value.max_give)), 'Walk away at lists max_give');
-  // The "Walk away if" tile (war-room-deck.test.js pins it) names the same package as the rung.
-  const tile = textOf(c.html.split('Walk away if')[1]?.split('</div></div>')[0] ?? '');
-  assert.ok(tile.includes(names(c.step.walk_away.value.max_give).replace(/ \([A-Z]+\)/g, '')) || tile.includes(c.step.walk_away.value.text),
-    'the tile and the ladder name one walk-away package');
+  // UI-POLISH-2: the ladder rung is the only walk-away on the card (the old "Walk away if" tile is gone).
+  assert.ok(!c.html.includes('Walk away if'), 'no separate walk-away tile');
 });
 
 test('(a) when the opening equals the step, the message is just "Message" and no opening row shows', () => {

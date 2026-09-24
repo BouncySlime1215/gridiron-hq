@@ -162,3 +162,10 @@ test('hierarchical calibration: slope ~1 on honest p; a 3-offer manager is shrun
   assert.ok(Math.abs(tiny.offset) < 1.5, `unpooled this would be about -4 on the logit scale; got ${tiny.offset}`);
   assert.equal(hierCalibration([0.3, 0.4], [0, 0], ['a', 'b']), null, 'all one class: no curve, not a slope of 1');
 });
+
+test('only the anytime-valid rule can fail E1: an inverted model at n = 12 warns on slope but is not yet failing', () => {
+  const rows = offers(12, { truth: (i, rand) => 0.05 + 0.9 * rand(), model: t => 1 - t });
+  const r = E1.grade(rows);
+  assert.equal(r.status, 'not_enough_data');
+  assert.match(r.detail.slope_warning, /not anytime-valid/);
+});

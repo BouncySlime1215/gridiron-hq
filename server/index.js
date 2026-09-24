@@ -5,6 +5,12 @@ import { assertPortAvailable } from './platform/port-guard.js';
 import { startLoopWatchdog, watchdogArmingMiddleware, armLoopWatchdog } from './platform/loop-watchdog.js';
 import { healthHandler } from './platform/health.js';
 
+// This process is the web server: it reads engine tables and never writes them. Set in
+// code, before any module that could reach the engine is imported (every database-opening
+// import below is dynamic), so no launcher, Docker image or installer can leave it unset:
+// writeState/appendEvents refuse any role but engine/script/test (services/engine/role.js).
+process.env.GRIDIRON_PROCESS_ROLE = 'web';
+
 const PORT = Number(process.env.API_PORT) || 5177;
 try {
   await assertPortAvailable(PORT);
@@ -38,6 +44,7 @@ const { default: accoladesRouter } = await import('./routes/accolades.js');
 const { default: edgeRouter } = await import('./routes/edge.js');
 const { default: tradelabRouter } = await import('./routes/tradelab.js');
 const { default: tradesRouter } = await import('./routes/trades.js');
+const { default: commandCenterRouter } = await import('./routes/command-center.js');
 const { default: espnConnectRouter } = await import('./routes/espn-connect.js');
 const { default: leagueChatRouter } = await import('./routes/league-chat.js');
 const { default: modelRouter } = await import('./routes/model.js');
@@ -124,6 +131,7 @@ app.use('/api/accolades', ...legacyAuthenticated, accoladesRouter);
 app.use('/api/edge', ...legacyAuthenticated, edgeRouter);
 app.use('/api/tradelab', ...legacyAuthenticated, tradelabRouter);
 app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
+app.use('/api/command-center', ...legacyAuthenticated, commandCenterRouter);
 app.use('/api/espn-connect', espnConnectRouter);
 app.use('/api/league-chat', ...legacyAuthenticated, leagueChatRouter);
 // Gated as a family. Individual mutations already carried
@@ -155,7 +163,7 @@ app.use('/api/execution-slate', ...legacyAuthenticated, executionSlateRouter);
 // Coach applies its own auth and rate limit per route (server/routes/coach.js:37),
 // so it is mounted bare rather than behind legacyAuthenticated.
 app.use('/api/coach', coachRouter);
-// ONE ENGINE reader (ENGINE-00a): read-only world state for pages and Coach.
+// ONE ENGINE reader (ENGINE-00a, EA-00): read-only world state for pages and Coach, with typed status.
 app.use('/api/engine', ...legacyAuthenticated, engineRouter);
 
 app.use((err, req, res, next) => {

@@ -124,12 +124,10 @@ test('A2: offer.sent carries the snapshot in force at send time; rec.* waits on 
   assert.equal(offers[0].payload.snapshot_id, inForce.id, 'the snapshot in force at proposed_at, not the later one');
   assert.equal(offers[0].as_of, '2026-09-12T15:00:00.000Z');
 
-  const absent = cursorsMod.runAdapterStream(recMod.REC_ADAPTER, { database: db });
-  assert.equal(absent.table_state, 'table_absent', 'rec_ledger (#174) absent is table_absent, never zero');
-  db.exec(`CREATE TABLE rec_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, league_id INTEGER NOT NULL, kind TEXT NOT NULL,
-    disposition TEXT NOT NULL DEFAULT 'shown', made_at TEXT NOT NULL, season INTEGER NOT NULL, week INTEGER NOT NULL,
-    inputs_hash TEXT NOT NULL, predicted_json TEXT NOT NULL, baseline_call_json TEXT, horizon INTEGER NOT NULL,
-    graded_at TEXT, outcome_json TEXT, score REAL)`);
+  // #174 landed on main (migration 071): rec_ledger exists, empty. An empty table is 0 rows, present.
+  const empty = cursorsMod.runAdapterStream(recMod.REC_ADAPTER, { database: db });
+  assert.equal(empty.table_state, 'present', 'rec_ledger (migration 071) exists once migrations run');
+  assert.equal(empty.source_rows, 0);
   run(`INSERT INTO rec_ledger (league_id, kind, disposition, made_at, season, week, inputs_hash, predicted_json, horizon,
          graded_at, outcome_json, score)
        VALUES (91, 'lineup', 'shown', '2026-09-12T10:00:00.000Z', 2026, 3, 'abc', '{"snapshot_id": 7, "delta": 1.5}', 1,

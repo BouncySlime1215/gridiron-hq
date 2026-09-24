@@ -214,3 +214,31 @@ test('the loader on a league with no synced rosters: typed unknown, preview pref
     if (saved.w === undefined) delete process.env[WARROOM_ENV]; else process.env[WARROOM_ENV] = saved.w;
   }
 });
+
+test('the loader on a synced league: one row per league-mate, Nick\'s roster left out, profiles say why they are absent', async () => {
+  const { run } = await import('../server/db/index.js');
+  const { runMigrations } = await import('../server/db/migrate.js');
+  await runMigrations();
+  const saved = { c: process.env.GRIDIRON_CHAT_DB_PATH, w: process.env[WARROOM_ENV] };
+  process.env.GRIDIRON_CHAT_DB_PATH = '/nonexistent/chat.sqlite';
+  process.env[WARROOM_ENV] = '1';
+  try {
+    const entry = (id, name, pos) => ({ playerPoolEntry: { player: { id, fullName: name, defaultPositionId: pos } } });
+    run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, payload, fetched_at)
+         VALUES (8801, 'espn', 'wr-clones-8801', 2026, 'Clones', '1', 3, 1, ?, '2026-09-24 01:00:00')`,
+    JSON.stringify({ teams: [{ id: 1, roster: { entries: [entry(11, 'Alpha Runner', 2)] } },
+      { id: 2, roster: { entries: [] } }, { id: 3, roster: { entries: [] } }] }));
+    const v = warRoomClones(8801, { now: NOW });
+    assert.equal(v.preview, undefined);
+    assert.equal(v.clones.status, 'ok');
+    assert.deepEqual(v.clones.value.map(r => r.team), ['2', '3']);
+    for (const r of v.clones.value) {
+      assert.equal(r.profile.status, 'unknown');
+      assert.match(r.profile.reason, /no confirmed chat identities/);
+      assert.equal(r.p_accept.value.basis, 'population');
+    }
+  } finally {
+    if (saved.c === undefined) delete process.env.GRIDIRON_CHAT_DB_PATH; else process.env.GRIDIRON_CHAT_DB_PATH = saved.c;
+    if (saved.w === undefined) delete process.env[WARROOM_ENV]; else process.env[WARROOM_ENV] = saved.w;
+  }
+});

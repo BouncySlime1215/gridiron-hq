@@ -192,6 +192,40 @@ test('G: the grader pairs each week against the fallback field (delta, entities,
   assert.equal(season.entities, 2);
 });
 
+test('G2: the grader writes the weekly vs_fallback the monitor reads (grade.week)', () => {
+  graderMod.registerGraded('mtest.g2', { kind: 'dist' });
+  graderMod.registerGraded('mtest.g2base', { kind: 'dist' });
+  registry.registerProducer({ name: 'mtest-g2', active: 'g1', versions: { g1: {} }, inputs: { scope: 'global' },
+    fields: [{ field: 'mtest.g2', valueType: 'dist', entityTypes: ['player_week_scored'], fallbackField: 'mtest.g2base', description: 'fixture' }] });
+  registry.registerProducer({ name: 'mtest-g2base', active: 'h1', versions: { h1: {} }, inputs: { scope: 'global' },
+    fields: [{ field: 'mtest.g2base', valueType: 'dist', entityTypes: ['player_week_scored'], description: 'fixture' }] });
+  const key = pid => `${pid}:2026:3:cccccccccccccccc`;
+  const q = m => ({ levels: [0.1, 0.5, 0.9], values: [m - 4, m, m + 4] });
+  const pred = (field, producer, version, pid, m, id) => ({ id, entity_type: 'player_week_scored', entity_id: key(pid), league_id: 0,
+    field, value: q(m), producer, producer_version: version, lane: 'live', as_of: '2026-09-12T00:00:00.000Z', written_at: '2026-09-12T00:00:00.000Z' });
+  const versions = v => [{ version: v, status: 'active', registered_at: '2026-01-01T00:00:00.000Z', training_window: null }];
+  const reads = {
+    'mtest.g2': { producer: 'mtest-g2', versions: versions('g1'), rows: [9411, 9412, 9413].map((p, i) => pred('mtest.g2', 'mtest-g2', 'g1', p, 20, i + 1)) },
+    'mtest.g2base': { producer: 'mtest-g2base', versions: versions('h1'), rows: [9411, 9412].map((p, i) => pred('mtest.g2base', 'mtest-g2base', 'h1', p, 10, i + 11)) },
+  };
+  const outcome = (pid, i) => ({ id: 500 + i, payload: { player_id: pid, season: 2026, week: 3, scoring_key: 'cccccccccccccccc',
+    points: 10, kickoff: '2026-09-13T17:00:00.000Z' } });
+  const writes = [];
+  const ctx = { tick: { id: 't', as_of: '2026-09-15T00:00:00.000Z' },
+    read: { graded: f => reads[f] ?? { producer: null, versions: [], rows: [] },
+      events: () => [9411, 9412, 9413].map(outcome) },
+    write: (_w, row) => { writes.push(row); return { written: true }; } };
+  graderMod.graderProducer.run(ctx);
+  const week = writes.find(w => w.field === 'grade.week' && w.entityId === 'mtest-g2@g1');
+  assert.ok(week, 'no grade.week row for the live version');
+  const vs = week.value.by_field['mtest.g2'].vs_fallback;
+  assert.ok(vs, 'grade.week carries no vs_fallback');
+  assert.equal(vs.field, 'mtest.g2base');
+  assert.equal(vs.n_pairs, 2);
+  assert.equal(vs.entities, 2);
+  assert.ok(vs.delta_mean > 0, 'live (centred 20) is worse than the fallback (centred 10) on an outcome of 10');
+});
+
 /* ---------------------------------------------------------- on a database */
 // The Number health card's table (#237, migration 077), created here as that migration does,
 // so the monitor's HEALTH-01 rows are checked against the shape the card reads.
@@ -310,6 +344,34 @@ test('S: a fallback field with no row for the entity serves the last healthy sna
   const plain = servedMod.readServed('player', '9401', 'mtest.fresh', { asOf: '2026-09-20T13:00:00.000Z' }, db);
   assert.equal(plain.fallback_used, false);
   assert.equal(plain.value, 1);
+});
+
+test('W: GET /api/engine/state serves the snapshot fallback, labelled; not before the flip', async () => {
+  need(servedMod, 'served.js');
+  const { default: express } = await import('express');
+  const { default: engineRouter } = await import('../server/routes/engine.js');
+  const app = express();
+  app.use((req, _res, next) => { req.auth = { userId: 1 }; next(); });
+  app.use('/api/engine', engineRouter);
+  const server = app.listen(0);
+  const base = `http://127.0.0.1:${server.address().port}/api/engine/state`;
+  const get = async q => (await fetch(`${base}?${q}`)).json();
+  try {
+    const r = await get(`entity=player_week_scored:${SCORED(9402)}&field=mtest.solo&as_of=2026-09-20T13:00:00Z`);
+    assert.equal(r.status, 'fallback', JSON.stringify(r));
+    assert.deepEqual(r.state.value, dist(7));
+    assert.equal(r.fallback.kind, 'snapshot');
+    assert.match(r.reason, /last healthy snapshot/);
+    assert.equal(r.state.reason_chain.contributions[0].source, 'health_monitor');
+    // before the flip (12:40) the field is not on its fallback: the row then is served as it was
+    const before = await get(`entity=player_week_scored:${SCORED(9402)}&field=mtest.solo&as_of=2026-09-20T12:35:00Z`);
+    assert.notEqual(before.status, 'fallback');
+    assert.deepEqual(before.state.value, dist(40));
+    const early = servedMod.readServed('player_week_scored', SCORED(9402), 'mtest.solo', { asOf: '2026-09-20T12:35:00.000Z' }, db);
+    assert.equal(early.fallback_used, false);
+  } finally {
+    server.close();
+  }
 });
 
 test('F: a field older than its max age is stale: a warn row on the card, no fallback', () => {

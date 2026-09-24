@@ -155,3 +155,26 @@ test('the league adapter takes the run clock; it has no wall-clock default', asy
   const { buildAdapter } = await import('../scripts/campaign/league-adapter.mjs');
   assert.throws(() => buildAdapter({}, 4), /run clock/);
 });
+
+test('the adapter hands sendWindow the run clock as a Date: the send window reads the as-of, not the wall clock', async () => {
+  const { buildAdapter } = await import('../scripts/campaign/league-adapter.mjs');
+  const tactics = await import('../server/services/trade-tactics.js');
+  // Declined 14 hours before the as-of. The wall clock (days later) would say 'now'; the as-of world says 'wait'.
+  const tm = { last_decline_at: new Date(Date.parse(AS_OF) - 14 * 3600e3).toISOString(), decisions_n: 1 };
+  const seen = [];
+  const STOP = new Error('stop after the send window');
+  const svc = {
+    db: { row: sql => (/FROM leagues/.test(sql) ? { id: 4, my_team_id: 1, season: 2026, payload: '{}' } : null), rows: () => [] },
+    sim: { tradeImpactWorld: () => ({ key: { seed: 1 }, base: { teams: [] },
+      prep: { assets: new Map(), teams: [{ roster_id: '1', players: [] }, { roster_id: '2', players: [] }] } }),
+    tradeImpact: () => ({}), __test: { lineupPoints: () => 0 } },
+    week: { leagueCurrentWeek: () => 3 },
+    cp: { counterpartyLayer: () => new Map() },
+    tactics: { toTime: tactics.toTime, timingRead: () => new Map([['2', tm]]),
+      sendWindow: (t, o) => { seen.push(tactics.sendWindow(t, o)); throw STOP; } },
+  };
+  assert.throws(() => buildAdapter(svc, 4, { now: Date.parse(AS_OF) }), e => e === STOP);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].when, 'wait');
+  assert.match(seen[0].why, /declined your last offer 14 hours ago/);
+});

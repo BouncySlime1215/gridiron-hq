@@ -205,7 +205,9 @@ export function buildAdapter(svc, leagueId, { chat = null, now = null, timingCut
     if (t === me) continue;
     const m = layer.get(t) ?? null;
     const tm = timing.get(t) ?? null;
-    const send = svc.tactics.sendWindow(tm, { now });
+    // A Date, not ms: sendWindow reads now through toTime, which parses strings and Dates only; a bare
+    // number there is null and sendWindow falls back to the wall clock (REPRO-01 review).
+    const send = svc.tactics.sendWindow(tm, { now: new Date(now) });
     managers.set(t, {
       receptiveness: m?.receptiveness ?? null, tier: m?.tier ?? null, needs: m?.needs ?? null,
       blocked: blocked.has(t),

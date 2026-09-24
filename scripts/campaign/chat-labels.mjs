@@ -6,8 +6,14 @@
  * (manager_chat_profile, negotiation_profiles, manager_player_sentiment); no
  * message text is read or written. Optional: an absent DB or table gives
  * { status: 'unknown', reason } and every label reads 'unknown'.
+ *
+ * M7-TIMING: with GRIDIRON_M7_TIMING (or preview) on, each roster also gets `need_move`, the
+ * number of his own 'need a move'-type messages in the last 7 days (urgency.js#isNeedMove).
+ * The message text is matched here, in this process, and only the count is kept.
  */
-export async function chatRowsFor(leagueId) {
+export async function chatRowsFor(leagueId, { now = Date.now() } = {}) {
+  const { m7Timing, isNeedMove, THRESHOLDS } = await import('../../server/services/campaign/urgency.js');
+  const m7 = m7Timing();
   const { identityMap } = await import('../../server/services/manager-identity.js');
   const { openChatDb } = await import('../../server/services/manager-signals.js');
   const { negotiationProfilesFor } = await import('../../server/services/counterparty-pricing.js');
@@ -27,7 +33,14 @@ export async function chatRowsFor(leagueId) {
     for (const [rosterId, ident] of ids) {
       const profile = tryAll('SELECT * FROM manager_chat_profile WHERE name = ?', ident.chat_name)?.[0] ?? null;
       const sentiment = tryAll('SELECT player, sentiment_mean, n FROM manager_player_sentiment WHERE name = ?', ident.chat_name) ?? [];
-      rows.set(String(rosterId), { profile, sentiment, negotiation: null });
+      let need_move = null;
+      if (m7.on) {
+        const since = new Date(now - THRESHOLDS.need_move_days * 864e5).toISOString();
+        const msgs = tryAll('SELECT text FROM messages WHERE name = ? AND ts_utc >= ? AND ts_utc <= ?',
+          ident.chat_name, since, new Date(now).toISOString());
+        need_move = msgs ? msgs.filter(m => isNeedMove(m.text)).length : null;
+      }
+      rows.set(String(rosterId), { profile, sentiment, negotiation: null, need_move });
     }
   } finally { chat.close(); }
   const neg = negotiationProfilesFor(leagueId);

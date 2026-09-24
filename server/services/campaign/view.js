@@ -17,6 +17,7 @@
 import { metricKey, objectiveLabel } from './objectives.js';
 import { MODE_LABELS } from './modes.js';
 import { P_ACCEPT_LABEL } from './playbook.js';
+import { previewText } from '../preview-mode.js';
 
 export const PRODUCER = 'campaign-producer';
 export const PRODUCER_VERSION = '1';
@@ -80,7 +81,7 @@ function card(plan, pb, i, ctx) {
       expected: num(plan.expected, 'plan.path', { se: plan.expected_se ?? undefined }),
     },
     walk_away: pb?.walk_away ? { text: pb.walk_away.text, max_give: ids(pb.walk_away.give) } : null,
-    send_when: pb?.send_when ? (pb.send_when.when === 'wait' ? `after ${pb.send_when.until}: ${pb.send_when.why}` : `now: ${pb.send_when.why}`) : null,
+    send_when: sendWhenText(pb?.send_when),
     wait: pb?.wait ?? null,
     why, vs_finder: null, sent: null,
     confirm: plan.confirm ?? null,
@@ -91,6 +92,15 @@ function card(plan, pb, i, ctx) {
 /**
  * res: planLeague result. ctx: { names, as_of, previous (last entry), changed ({changed, reason}) }
  */
+/** A step's send_when as one sentence; an M7 wait says how many days, a preview read says so. */
+export function sendWhenText(sw) {
+  if (!sw) return null;
+  const text = sw.when !== 'wait' ? `now: ${sw.why}`
+    : Number.isFinite(sw.days) && sw.source === 'm7' ? `wait ${sw.days} day${sw.days === 1 ? '' : 's'} (until ${sw.until}): ${sw.why}`
+      : `after ${sw.until}: ${sw.why}`;
+  return sw.preview ? previewText(text) : text;
+}
+
 export function toEntry(res, { names = {}, as_of, previous = null, changed = null } = {}) {
   const meta = { producer: PRODUCER, producer_version: PRODUCER_VERSION, as_of, preview: true, preview_reason: PREVIEW_REASON };
   const src = s => ({ ...meta, source: s });

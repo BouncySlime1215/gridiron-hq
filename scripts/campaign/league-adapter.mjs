@@ -12,6 +12,7 @@
  *   managers          counterparty layer (activity, needs) + timing read + chat labels
  */
 import { chatLabels } from '../../server/services/campaign/partners.js';
+import { m7Timing, managerUrgency, sendWhen } from '../../server/services/campaign/urgency.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 const FLEX = { FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'], WRRB_FLEX: ['RB', 'WR'],
@@ -180,11 +181,21 @@ export function buildAdapter(svc, leagueId, { chat = null, offerLog = [], now = 
   const sent = sentThisWeek(svc, leagueId, season, me, now, offerLog);
   const titleByTeam = new Map((w0.base?.teams ?? []).map(t => [String(t.roster_id), t.title_odds]));
   const managers = new Map();
+  const m7 = m7Timing();
+  const leftInWeek = daysLeftInWeek(svc, lg, week, now);
   for (const t of rosters.keys()) {
     if (t === me) continue;
     const m = layer.get(t) ?? null;
     const tm = timing.get(t) ?? null;
-    const send = svc.tactics.sendWindow(tm, { now });
+    let send = svc.tactics.sendWindow(tm, { now });
+    let urgency = null;
+    if (m7.on) {
+      // M7-TIMING: urgency spike from his starters, his streak, his chat and his byes.
+      const roster = rosters.get(t);
+      urgency = managerUrgency({ roster, starters: startersOf(roster.map(id => players.get(id)).filter(Boolean), w0.prep.slots),
+        players, schedule: payload.schedule ?? null, team: t, week, needMove: chat?.get(t)?.need_move ?? null });
+      send = sendWhen(send, urgency, { now, daysLeftInWeek: leftInWeek, preview: m7.preview });
+    }
     managers.set(t, {
       receptiveness: m?.receptiveness ?? null, tier: m?.tier ?? null, needs: m?.needs ?? null,
       blocked: blocked.has(t),
@@ -192,6 +203,7 @@ export function buildAdapter(svc, leagueId, { chat = null, offerLog = [], now = 
       title_now: titleByTeam.get(t) ?? null,
       sent_this_week: sent.get(t) ?? 0,
       send_when: send,
+      urgency,
       chat: chat?.has(t) ? chatLabels({ ...chat.get(t),
         sentiment: (chat.get(t).sentiment ?? []).map(x => ({ ...x, player: nameToId(x.player) ?? x.player })) }) : chatLabels(),
     });
@@ -217,7 +229,7 @@ export function buildAdapter(svc, leagueId, { chat = null, offerLog = [], now = 
   return {
     league: { id: leagueId, me, fetched_at: lg.fetched_at ?? '', week, deadline_week: dl,
       deadline_source: dl == null ? 'unknown (no deadlineDate in league settings)' : 'league settings',
-      days_left_in_week: daysLeftInWeek(svc, lg, week, now), team_count: rosters.size, season },
+      days_left_in_week: leftInWeek, team_count: rosters.size, season },
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf,

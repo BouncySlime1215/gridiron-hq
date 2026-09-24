@@ -30,7 +30,7 @@ const { writeAuditRows } = await import('../server/services/number-audit.js');
 const { makeAdapter } = await import('./fixtures/campaign-league.mjs');
 const { planLeague } = await import('../server/services/campaign/planner.js');
 const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
-const { tolerancesFor } = await import('../server/services/campaign/modes.js');
+const { tolerancesFor, MODE_LABELS } = await import('../server/services/campaign/modes.js');
 const { toEntry, validateEntry, SECTIONS } = await import('../server/services/campaign/view.js');
 const { validateLeague } = await import('../server/services/campaign/plans-schema.js');
 const M077 = await import('../server/migrations/077_number_audit.js');
@@ -72,7 +72,7 @@ test('all_in + failing E1 -> the plan runs balanced, and brain_report says it fe
   assert.equal(g.section.fell_back_to, 'balanced');
   assert.equal(g.section.overall, 'failing');
   assert.ok(g.section.blocks.some(b => /E1/.test(b) && /failing/.test(b)), g.section.blocks.join(' | '));
-  assert.ok(g.section.blocks.some(b => /all.in/i.test(b) && /balanced/i.test(b)), 'says what was asked and what runs');
+  assert.ok(g.section.blocks.some(b => b.includes(MODE_LABELS.all_in) && b.includes(MODE_LABELS.balanced)), 'says what was asked and what runs');
   assert.deepEqual(contractErrors(asContractField(g)), []);
 });
 

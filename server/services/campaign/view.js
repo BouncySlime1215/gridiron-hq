@@ -13,6 +13,9 @@
  *   Num.unit ('title_odds' | 'playoff_odds' | 'points_per_week' | 'probability' | 'market_value')
  *   SourceId 'plan.template' (message written from engine facts by a template; Coach text pending)
  *   view.deck, view.risk_modes, view.catch_up, view.partners, view.feasibility, view.confirm
+ *   view.number_health (the league's number audit rows; FIX-05)
+ *
+ * view.brain_report is the contract's section (#238), gated by brain-gate.js (FIX-05).
  */
 import { metricKey, objectiveLabel } from './objectives.js';
 import { MODE_LABELS } from './modes.js';
@@ -25,7 +28,7 @@ export const SOURCE_IDS = Object.freeze(['sim.title', 'clone.accept', 'clone.pri
   'coach.text', 'plan.template', 'eval.check', 'audit.numbers', 'chat.labels', 'asset.ros']);
 export const PREVIEW_REASON = "Plans use today's unvalidated chance-he-says-yes model (E1 pending)";
 export const SECTIONS = Object.freeze(['destination', 'next_move', 'replies', 'deck', 'itinerary', 'suggestions',
-  'speed_curve', 'flips', 'brain_check', 'number_health', 'risk_modes', 'catch_up', 'partners', 'feasibility', 'confirm']);
+  'speed_curve', 'flips', 'brain_report', 'number_health', 'risk_modes', 'catch_up', 'partners', 'feasibility', 'confirm']);
 
 const VALUELESS = new Set(['failed', 'unknown']);
 
@@ -89,9 +92,11 @@ function card(plan, pb, i, ctx) {
 }
 
 /**
- * res: planLeague result. ctx: { names, as_of, previous (last entry), changed ({changed, reason}) }
+ * res: planLeague result. ctx: { names, as_of, previous (last entry), changed ({changed, reason}),
+ *   brain (brain-gate.js#applyBrainReport result), number_health (brain-gate.js#readNumberHealth result) }
+ * Without `brain` / `number_health` the two sections are 'unknown' and say they were not read.
  */
-export function toEntry(res, { names = {}, as_of, previous = null, changed = null } = {}) {
+export function toEntry(res, { names = {}, as_of, previous = null, changed = null, brain = null, number_health: health = null } = {}) {
   const meta = { producer: PRODUCER, producer_version: PRODUCER_VERSION, as_of, preview: true, preview_reason: PREVIEW_REASON };
   const src = s => ({ ...meta, source: s });
   if (res.error) {
@@ -177,13 +182,13 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     };
   }), { ...src('sim.title'), n: res.flip.pairs });
 
-  const brain_check = field('ok', {
-    overall: 'not_enough_data',
-    checks: ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7'].map(id => ({ id, status: 'not_run' })),
-    blocks: ['Until E1 passes, every "chance he says yes" is a guess.', "All-in mode uses no testing-tier signals (none pass yet)."],
-  }, { ...src('eval.check'), producer: 'eval-01', producer_version: 'not-built' });
-  const number_health = field('unknown', undefined, { ...src('audit.numbers'), producer: 'broken-01a', producer_version: 'not-built',
-    reason: 'Number check not built yet.' });
+  const brain_report = brain
+    ? field('ok', brain.section, { ...src('eval.check'), ...(brain.as_of ? { as_of: brain.as_of } : {}) })
+    : unknown('The brain report was not read for this run.', 'eval.check');
+  const number_health = health
+    ? field(health.status, health.value, { ...src('audit.numbers'), ...(health.as_of ? { as_of: health.as_of } : {}),
+      ...(health.reason ? { reason: health.reason } : {}) })
+    : unknown('The number audit was not read for this run.', 'audit.numbers');
 
   const risk_modes = field('ok', res.risk_modes.map(m => ({ ...m,
     expected: num(m.expected, 'plan.path'), if_complete: num(m.if_complete, 'plan.path'),
@@ -204,7 +209,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
 
   const view = { destination, next_move, replies,
     deck: deckCards.length ? field('ok', deckCards, src('plan.path')) : unknown('No alternatives cleared the sliders.'),
-    itinerary, suggestions, speed_curve, flips, brain_check, number_health, risk_modes, catch_up, partners, feasibility, confirm };
+    itinerary, suggestions, speed_curve, flips, brain_report, number_health, risk_modes, catch_up, partners, feasibility, confirm };
 
   // Prototype-compatible keys (WR-1 reads acq.best / acq.fallback / acq.title_now / flip).
   const acq = { targets: ids(res.targets), candidates_scored: res.candidates_scored, title_now: nowMetric,

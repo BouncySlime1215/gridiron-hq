@@ -17,6 +17,12 @@
  *   GRIDIRON_CHAT_DB_PATH        input    local chat DB (optional; labels only)
  * Defaults for the inputs sit next to the plans file.
  *
+ * Before planning, every league's requested risk mode goes through EVAL-01's
+ * fallback rule on the latest brain report (server/services/campaign/brain-gate.js,
+ * FIX-05): a failing, stale (>48 h), missing or unreadable report plans the league
+ * on BALANCED with testing-tier signals off; SAFE is never raised. The entry's
+ * brain_report and number_health sections come from the same reads.
+ *
  * Every re-run diffs each league's next move against the previous plans file and
  * writes `changed` + `reason`; a changed move appends one push row.
  *
@@ -104,6 +110,7 @@ async function main() {
     const { diffNextMove } = await import('../../server/services/campaign/replan.js');
     const { rankAttention } = await import('../../server/services/campaign/attention.js');
     const { toEntry, validateEntry, plansFile } = await import('../../server/services/campaign/view.js');
+    const { readBrainReport, applyBrainReport, readNumberHealth } = await import('../../server/services/campaign/brain-gate.js');
 
     const objectives = readObjectives(sibling(env, 'GRIDIRON_WARROOM_OBJECTIVES', 'objectives.json'));
     const skips = readJsonl(sibling(env, 'GRIDIRON_WARROOM_SKIPS', 'skips.jsonl'));
@@ -115,6 +122,10 @@ async function main() {
 
     const entries = [], pushes = [];
     const generated_at = new Date().toISOString();
+    // One report card for the whole run: every league is gated on the same read.
+    const brainRead = readBrainReport(svc.db.db);
+    console.log(`[warroom] brain report: ${brainRead.error ? `UNREADABLE ${brainRead.error}`
+      : brainRead.report ? `run ${brainRead.report.run_id} computed ${brainRead.report.computed_at}` : 'none stored yet'}`);
     for (const id of leagues) {
       const tl = Date.now();
       let entry;
@@ -125,19 +136,26 @@ async function main() {
         const adapter = buildAdapter(svc, id, { chat: chat.rows, offerLog: offers.rows });
         const adapterMs = Date.now() - ta;
         if (adapter.fail) throw new Error(`world failed: ${adapter.fail}`);
-        const objective = normaliseObjective(objectives[String(id)] ?? {}, { leagueGoal: objectives[String(id)]?.goal ?? 'title' });
+        const requested = normaliseObjective(objectives[String(id)] ?? {}, { leagueGoal: objectives[String(id)]?.goal ?? 'title' });
+        const brain = applyBrainReport({ objective: requested, report: brainRead.report, error: brainRead.error, now: new Date(generated_at) });
+        const objective = brain.objective;
+        if (brain.rule.fell_back) console.log(`[warroom] league ${id}: ${brain.rule.reason}`);
         const res = planLeague(adapter, { objective, skips: skipWeights(skips.rows, id), previous: prev,
           budget: { flipTopPer: opts.flipTop, targets: opts.targets } });
         const next = { next_step: res.best?.steps[0] ?? null, objective_version: objective.version, risk_mode: objective.risk_mode,
           roster_key: res.error ? null : adapter.rosterKey() };
         const changed = diffNextMove(prev, next);
-        entry = toEntry(res, { names: adapter.names(), as_of: generated_at, previous: prev, changed });
+        entry = toEntry(res, { names: adapter.names(), as_of: generated_at, previous: prev, changed,
+          brain, number_health: readNumberHealth(svc.db.db, id) });
         entry.roster_key = next.roster_key;
         entry.phases_ms = { adapter_and_world: adapterMs, ...(entry.phases_ms ?? {}) };
         entry.inputs = { chat: { status: chat.status, reason: chat.reason ?? null, negotiation: chat.negotiation ?? null },
           skips: { status: skips.status, rows: skips.rows.filter(s => String(s.league) === String(id)).length, bad_lines: skips.bad },
           offers: { status: offers.status, bad_lines: offers.bad }, deadline: adapter.league.deadline_source,
-          objective: objective.source };
+          objective: objective.source,
+          brain: { run_id: brain.run_id, requested_mode: brain.objective.requested_risk_mode, mode: brain.rule.mode,
+            fell_back: brain.rule.fell_back, testing_tier_enabled: brain.rule.testing_tier_enabled,
+            read_error: brainRead.error } };
         const errs = validateEntry(entry);
         if (errs.length) throw new Error(`plans JSON failed its contract check: ${errs.slice(0, 3).join('; ')}`);
       } catch (e) {

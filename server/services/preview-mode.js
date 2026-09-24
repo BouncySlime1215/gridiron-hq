@@ -47,6 +47,9 @@
  *   - availability-return.js#availHorizonFlag    return-to-play curve past next week + season-sim
  *                                                team-mean term (AVAIL-HORIZON-3; coordinator override,
  *                                                unconfirmed; GRIDIRON_AVAIL_HORIZON=0 vetoes preview)
+ *   - hypo/surprise.js#hypoFlag                  HYPO-01a surprise detector: hypothesis rows plus their
+ *                                                hypo.surprise hub events (scripts/hypo-surprise.mjs;
+ *                                                GRIDIRON_HYPO_ENABLED=0 vetoes preview)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

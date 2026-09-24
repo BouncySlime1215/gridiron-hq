@@ -69,21 +69,9 @@ const withFlag = async fn => {
   try { return await fn(); } finally { delete process.env.GRIDIRON_WARROOM_ENABLED; }
 };
 
-/** A trimmed plans JSON in the producer's shape: ids only, team numbers only. */
-const PLANS = {
-  names: { p1: 'Player One (RB)', p2: 'Player Two (WR)', p3: 'Player Three (TE)' },
-  destination: { goal: { kind: 'title', label: 'Win the title' }, arrive_by: 9, title_now: { value: 0.118, source: 'sim.title' } },
-  itinerary: { stops: [{ id: 's1', status: 'next' }, { id: 's2', status: 'waiting' }, { id: 's3', status: 'done' }] },
-  alternatives: [
-    { partner: '7', give: ['p1'], get: ['p2'] },
-    { partner: '4', give: ['p1', 'p3'], get: ['p2'] }
-  ],
-  stop_tradeoffs: {
-    'mode:all_in': { stop_label: 'Switch to all-in', cost: { value: 0.4, source: 'sim.title' }, extra_steps: 0,
-      gain: { value: 1.3, source: 'sim.title' }, net: { value: 0.9, source: 'sim.title' }, verdict: 'close', because: 'more upside' }
-  },
-  flips: [{ player: 'p2', buy_from: '5', sell_to: '8' }]
-};
+/** One league of the plans contract (campaign/plans-schema.js), as the producer writes it. */
+const PRODUCER = JSON.parse(fs.readFileSync(new URL('./fixtures/warroom-contract/producer-plans.json', import.meta.url), 'utf8'));
+const PLANS = PRODUCER.leagues[0];
 const CTX = { leagues: [1, 2, 3, 4], plans: PLANS, now: '2026-09-23T22:00:00.000Z' };
 
 /* ---------------------------------------------------- schema validation */
@@ -112,9 +100,14 @@ test('the client and server schemas are the same lists', () => {
 });
 
 test('schema: plug_in binds only to whitelisted engine fields; draft_message carries no digits', () => {
-  assert.equal(schema.validateAction({ type: 'plug_in', field: 'title.odds_by_week', view: 'sparkline' }).ok, true);
+  assert.equal(schema.validateAction({ type: 'plug_in', field: 'destination.path', view: 'sparkline' }).ok, true);
   assert.equal(schema.validateAction({ type: 'plug_in', field: 'users.password', view: 'number' }).ok, false);
-  assert.equal(schema.validateAction({ type: 'plug_in', field: 'title.odds_by_week', view: 'number' }).ok, false);
+  assert.equal(schema.validateAction({ type: 'plug_in', field: 'destination.path', view: 'number' }).ok, false);
+  // Contract names only: the pre-contract names and fields no producer writes are refused.
+  for (const field of ['suggestions', 'flips', 'brain_check.checks', 'roster.bye_holes', 'title.odds_by_week']) {
+    assert.equal(schema.validateAction({ type: 'plug_in', field, view: 'table' }).ok, false, field);
+    assert.equal(client.validateAction({ type: 'plug_in', field, view: 'table' }).ok, false, field);
+  }
   assert.equal(schema.validateAction({ type: 'draft_message', text: 'No pressure, just floating an idea.' }).ok, true);
   assert.equal(schema.validateAction({ type: 'draft_message', text: 'This gets you 12% better odds.' }).ok, false);
   assert.equal(client.validateAction({ type: 'draft_message', text: 'This gets you 12% better odds.' }).ok, false);
@@ -165,7 +158,7 @@ test('next advances the swipe deck and refuses past the end', () => {
   const r = client.dispatch(s, { type: 'next' }, CTX);
   assert.equal(r.outcome.status, 'applied');
   assert.equal(r.session.ui.deck.current, 1);
-  assert.match(client.coachFooter(PLANS, r.session.ui).next_move, /Team 4/);
+  assert.match(client.coachFooter(PLANS, r.session.ui).next_move, /Team 2/);
   assert.equal(client.dispatch(r.session, { type: 'next' }, CTX).outcome.status, 'refused');
 });
 
@@ -177,7 +170,7 @@ test('a plan-changing action does nothing until Nick taps Confirm', () => {
   assert.deepEqual(r.session.ui, s.ui, 'the screen and plan are unchanged');
   assert.equal(r.session.history.length, 0);
   assert.equal(r.session.pending.preview.status, 'ok');
-  assert.equal(r.session.pending.preview.value.net.value, 0.9, 'the preview is the engine row, read not computed');
+  assert.equal(r.session.pending.preview.value.net.value, 0.009, 'the preview is the engine row, read not computed');
 
   // Asking something else drops the preview: still nothing changed.
   const other = client.dispatch(r.session, { type: 'filter', panel: 'flip_map', position: 'WR' }, CTX);
@@ -293,7 +286,7 @@ test('verify.js still blocks an invented number, even on a War Room turn that re
 
 test('a War Room turn answered only by an action is not "silence"', async () => {
   setAnthropicClientForTesting(scripted(
-    toolUse('warroom_plug_in', { type: 'plug_in', field: 'title.odds_by_week', view: 'sparkline' }),
+    toolUse('warroom_plug_in', { type: 'plug_in', field: 'destination.path', view: 'sparkline' }),
     says({ claims: [], refusals: [], as_of: null })));
   const res = await withFlag(() => askCoach({ question: 'chart my title odds by week please', context: { surface: 'war_room' } }));
   assert.equal(res.verification.ok, true);
@@ -303,18 +296,20 @@ test('a War Room turn answered only by an action is not "silence"', async () => 
 /* ------------------------------------------------------------ footer */
 test('every Coach reply footer carries destination, stops left and next move', () => {
   const f = client.coachFooter(PLANS, client.newSession().ui);
-  assert.equal(f.destination, 'Win the title by week 9');
-  assert.equal(f.stops_left, '2');
-  assert.equal(f.next_move, 'send Team 7 Player One (RB) for Player Two (WR)');
+  assert.equal(f.destination, 'Score 140 projected points a week by week 7', 'goal and arrive_by are typed fields');
+  assert.equal(f.stops_left, '3');
+  assert.equal(f.next_move, 'send Team 7 M. Oduya (WR) + T. Kline (TE) for C. Ruiz (RB)', 'the deal is the move\'s first step');
   assert.match(f.text, /^Destination: .+ \/ Stops left: .+ \/ Next move: .+$/);
   const empty = client.coachFooter(null);
   assert.equal(empty.text, 'Destination: no goal set yet / Stops left: not computed yet / Next move: not computed yet');
 });
 
 test('plug_in reads a whitelisted field through Field wrappers, and nothing else', () => {
-  const wrapped = { destination: { status: 'ok', value: PLANS.destination, producer: 'x', source: 'sim.title' } };
-  assert.deepEqual(client.readField(wrapped, 'destination.title_now'), PLANS.destination.title_now);
-  assert.equal(client.readField({ destination: { status: 'failed', producer: 'x' } }, 'destination.title_now'), undefined);
+  assert.equal(client.readField(PLANS, 'destination.title_now'), 0.118, 'steps into each typed field');
+  assert.deepEqual(client.readField(PLANS, 'flip_map'), PLANS.flip_map.value);
+  assert.deepEqual(client.readField(PLANS, 'brain_report.checks'), PLANS.brain_report.value.checks);
+  assert.equal(client.readField({ destination: { status: 'unknown', source: 'sim.title', reason: 'x' } }, 'destination.title_now'), undefined);
+  assert.equal(client.readField({ destination: { status: 'failed', source: 'sim.title', reason: 'x' } }, 'destination.title_now'), undefined);
   assert.equal(client.readField({ secrets: { k: 1 } }, 'secrets.k'), undefined);
 });
 
@@ -332,7 +327,7 @@ test('the WR-3 route records each of Nick\'s inputs and only records', () => wit
     ['target.approve', { player_id: 'p2', source: 'own' }],
     ['offer.sent', { move_id: 'm1' }],
     ['offer.reply', { move_id: 'm1', reply: 'decline', decline_reason: 'wants_more' }],
-    ['deck.skip', { move_id: 'm2', reason: 'costs_too_much' }],
+    ['deck.skip', { move_id: 'm2', reason: 'cost' }],
     ['mode.set', { mode: 'safe' }],
     ['tolerance.set', { key: 'max_offers_per_manager_week', value: 2 }],
     ['stop.add', { stop: { kind: 'cover_bye', label: 'Cover the TE bye', week: 9 } }],

@@ -4,12 +4,13 @@ import { pts } from './format';
 import { usePager } from './Panel';
 
 /**
- * Catch-up list (cheapest way back first) and the speed curve (arrive by week N at net
+ * `catch_up` (cheapest way back first) and `speed_curve` (arrive by week N at net
  * gain X). The curve draws producer points and computes nothing: x is the point's slot,
  * y is its value scaled to the box.
  */
-export default function CatchUp({ catchUp, speed, groundLost, big }: {
-  catchUp: Field<CatchUpItem[]> | undefined; speed: Field<SpeedPoint[]> | undefined; groundLost: Num | undefined; big: boolean;
+export default function CatchUp({ catchUp, speed, groundLost, arriveBy, big }: {
+  catchUp: Field<CatchUpItem[]> | undefined; speed: Field<SpeedPoint[]> | undefined; groundLost: Num | undefined;
+  arriveBy?: number; big: boolean;
 }) {
   const items = catchUp?.status === 'ok' && catchUp.value ? catchUp.value : [];
   const pg = usePager(items.length, big ? 5 : 2);
@@ -30,13 +31,13 @@ export default function CatchUp({ catchUp, speed, groundLost, big }: {
       </FieldBlock>
       <div className="wr-cap">Arrive by (net gain)</div>
       <FieldBlock f={speed} label="Speed curve">
-        {pts_ => <SpeedChart points={pts_} big={big} />}
+        {pts_ => <SpeedChart points={pts_} picked={arriveBy} big={big} />}
       </FieldBlock>
     </>
   );
 }
 
-function SpeedChart({ points, big }: { points: SpeedPoint[]; big: boolean }) {
+function SpeedChart({ points, picked, big }: { points: SpeedPoint[]; picked?: number; big: boolean }) {
   const W = big ? 300 : 200, H = big ? 90 : 54;
   const vals = points.map(p => (p.net.status === 'ok' && typeof p.net.value === 'number' ? p.net.value : null));
   const known = vals.filter((v): v is number => v != null);
@@ -51,7 +52,8 @@ function SpeedChart({ points, big }: { points: SpeedPoint[]; big: boolean }) {
         const v = vals[i];
         return (
           <g key={p.arrive_by}>
-            {v != null && <circle cx={sx(i)} cy={sy(v)} r={p.picked ? 4 : 2.5} fill={p.picked ? 'var(--wr-ink)' : 'var(--wr-muted)'} />}
+            <title>{`wk ${p.arrive_by}: ${p.variance_note}${p.before_deadline ? '' : ' (after the deadline)'}`}</title>
+            {v != null && <circle cx={sx(i)} cy={sy(v)} r={p.arrive_by === picked ? 4 : 2.5} fill={p.arrive_by === picked ? 'var(--wr-ink)' : 'var(--wr-muted)'} />}
             <text x={sx(i)} y={H - 3} textAnchor="middle">wk {p.arrive_by}</text>
           </g>
         );

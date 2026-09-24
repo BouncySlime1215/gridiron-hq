@@ -4,10 +4,13 @@
  * typed field's value under `.value`).
  *
  * Pinned to the heads read for this contract:
- *   #231 claude/cloud-war-room-ui    cce5005  server/services/war-room-view.js
+ *   #231 claude/cloud-war-room-ui    cce5005  server/services/war-room-view.js, moved to the
+ *        contract by FIX-04 (claude/cloud-fix-04): the view passes the entry through and
+ *        client/src/components/warroom/*.tsx do the deep reads
  *   #230 claude/cloud-war-room-coach 6ac4758  client/src/components/warroom/coach/warroomCoach.ts,
  *                                             CoachDock.tsx, server/services/warroom-actions/schema.js
  *        (#230's reads moved to the contract by FIX-06; none carries a `fix` any more)
+ *   #234 REASON-01 after FIX-08              server/services/reasoning/cards.js (reads the contract; no fixes)
  *
  * An entry with `fix` is a read no producer writes today. `fix.to` is the
  * contract path it should read instead (the test proves `to` exists) and
@@ -22,58 +25,86 @@
  */
 
 const UI = 'server/services/war-room-view.js';
+const WRC = 'client/src/components/warroom';
+const DECK = `${WRC}/NextMoveDeck.tsx`;
+const REPLY = `${WRC}/ReplyTable.tsx`;
+const TOP = `${WRC}/TopStrip.tsx`;
+const WR = `${WRC}/WarRoom.tsx`;
+const ITIN = `${WRC}/Itinerary.tsx`;
+const TGT = `${WRC}/TargetPicker.tsx`;
+const FLIP = `${WRC}/FlipMap.tsx`;
+const BRAIN = `${WRC}/BrainCheckCard.tsx`;
 const CO = 'client/src/components/warroom/coach/warroomCoach.ts';
 const DOCK = 'client/src/components/warroom/coach/CoachDock.tsx';
 const ACT = 'server/services/warroom-actions/schema.js';
-
-const deckFix = (field, to, line) => ({ fix: { to: `leagues[].alternatives.value[].${to}`, line } });
+const RS = 'server/services/reasoning/cards.js';
 
 export const READS = [
   /* ---------------------------------------------------------------- #231 UI */
-  { pr: 231, where: `${UI}:142`, reads: 'leagues' },
-  { pr: 231, where: `${UI}:145`, reads: 'generated_at', scalar: true },
-  { pr: 231, where: `${UI}:160`, reads: 'leagues[].names' },
-  { pr: 231, where: `${UI}:372`, reads: 'leagues[].me', scalar: true },
-  { pr: 231, where: `${UI}:365`, reads: 'leagues[].league', scalar: true },
-  { pr: 231, where: `${UI}:375`, reads: 'leagues[].error', scalar: true },
-  { pr: 231, where: `${UI}:379`, reads: 'leagues[].sanity_composed_equals_direct', scalar: true },
-  { pr: 231, where: `${UI}:171`, reads: 'leagues[].acq.alternatives',
-    fix: { to: 'leagues[].alternatives.value', line: 'deckPlans(): read `entry.alternatives` (a typed field; the deck is its `.value`) instead of `entry.acq.alternatives`.' } },
-  { pr: 231, where: `${UI}:181`, reads: 'leagues[].acq.best',
-    fix: { to: 'leagues[].next_move.value', line: 'Drop the named-plan fallback (best, best_direct, best_two, best_three, best_chained): the producer writes the ranked deck in `alternatives` and its head in `next_move`.' } },
-  { pr: 231, where: `${UI}:202`, reads: 'leagues[].acq.fallback',
-    fix: { to: 'leagues[].alternatives.value[].steps[].reply_table.value.decline', line: 'replies(): take the decline row from `step.reply_table.value.decline` (it names the backup by `move_id`), not `acq.fallback`.' } },
-  { pr: 231, where: `${UI}:394`, reads: 'leagues[].acq.candidates_scored',
-    fix: { to: 'leagues[].next_move.reason', line: 'Show `next_move.reason` when the deck is unknown; the producer puts the paths-searched count in that sentence.' } },
-  { pr: 231, where: `${UI}:227`, reads: 'leagues[].acq.title_now',
-    fix: { to: 'leagues[].destination.value.title_now', line: 'Read title odds now from `destination.value.title_now` (a typed field), not `acq.title_now`.' } },
-  { pr: 231, where: `${UI}:231`, reads: 'leagues[].acq.best.target', ...deckFix('target', 'target', 'card(): `plan.target` stays `target`, read from the deck entry.') },
-  { pr: 231, where: `${UI}:232`, reads: 'leagues[].acq.best.owner', ...deckFix('owner', 'target_owner', 'card(): read `plan.target_owner`, not `plan.owner`.') },
-  { pr: 231, where: `${UI}:246`, reads: 'leagues[].acq.best.chained', ...deckFix('chained', 'chained', 'card(): `chained` is unchanged, read from the deck entry.') },
-  { pr: 231, where: `${UI}:233`, reads: 'leagues[].acq.best.steps[].team', ...deckFix('team', 'steps[].partner', 'card()/stepLine()/itinerary(): read `step.partner`, not `step.team`.') },
-  { pr: 231, where: `${UI}:234`, reads: 'leagues[].acq.best.steps[].give', ...deckFix('give', 'steps[].give', '`give` is unchanged, read from the deck entry.') },
-  { pr: 231, where: `${UI}:234`, reads: 'leagues[].acq.best.steps[].get', ...deckFix('get', 'steps[].get', '`get` is unchanged, read from the deck entry.') },
-  { pr: 231, where: `${UI}:236`, reads: 'leagues[].acq.best.steps[].p', ...deckFix('p', 'steps[].p_yes', 'Read `step.p_yes` (a typed field), not `step.p`.') },
-  { pr: 231, where: `${UI}:240`, reads: 'leagues[].acq.best.steps[].delta', ...deckFix('delta', 'steps[].title_odds_delta', 'Read `step.title_odds_delta` (typed field carrying `se` and `clears_2se`), not `delta` / `se` / `clears`.') },
-  { pr: 231, where: `${UI}:240`, reads: 'leagues[].acq.best.steps[].se', ...deckFix('se', 'steps[].title_odds_delta.se', 'Take the SE from `title_odds_delta.se`.') },
-  { pr: 231, where: `${UI}:240`, reads: 'leagues[].acq.best.steps[].clears', ...deckFix('clears', 'steps[].title_odds_delta.clears_2se', 'Take the 2-SE flag from `title_odds_delta.clears_2se`.') },
-  { pr: 231, where: `${UI}:239`, reads: 'leagues[].acq.best.steps[].title_after', ...deckFix('title_after', 'steps[].title_after', '`title_after` keeps its name but is a typed field: pass it through instead of num().') },
-  { pr: 231, where: `${UI}:243`, reads: 'leagues[].acq.best.delta_final', ...deckFix('delta_final', 'delta_final', '`delta_final` is a typed field now.') },
-  { pr: 231, where: `${UI}:244`, reads: 'leagues[].acq.best.p_complete', ...deckFix('p_complete', 'p_complete', '`p_complete` is a typed field now.') },
-  { pr: 231, where: `${UI}:245`, reads: 'leagues[].acq.best.expected', ...deckFix('expected', 'expected', '`expected` is a typed field now.') },
-  { pr: 231, where: `${UI}:245`, reads: 'leagues[].acq.best.expected_se', ...deckFix('expected_se', 'expected.se', 'Take the SE from `expected.se`, not `expected_se`.') },
-  { pr: 231, where: `${UI}:253`, reads: 'leagues[].acq.best.message', ...deckFix('message', 'steps[].message', 'The playbook is per step: read `steps[0].message` (typed field), not a plan-level string.') },
-  { pr: 231, where: `${UI}:254`, reads: 'leagues[].acq.best.walk_away', ...deckFix('walk_away', 'steps[].walk_away', 'Read `steps[0].walk_away.value.text` (+ `max_give`).') },
-  { pr: 231, where: `${UI}:255`, reads: 'leagues[].acq.best.send_when', ...deckFix('send_when', 'steps[].send_when', 'Read `steps[0].send_when` (typed field).') },
-  { pr: 231, where: `${UI}:218`, reads: 'leagues[].acq.best.reasoning', ...deckFix('reasoning', 'reasoning.value.case_for', 'reasoning(): read `plan.reasoning.value[slot]`; the panel is one typed field, not six bare strings.') },
-  { pr: 231, where: `${UI}:249`, reads: 'leagues[].baseline.best_expected.expected',
-    fix: { to: 'leagues[].finder_best_expected', line: 'vs_finder: read `finder_best_expected` (typed field with `se`), not `baseline.best_expected.expected` / `expected_se`.' } },
-  { pr: 231, where: `${UI}:281`, reads: 'leagues[].acq.targets',
-    fix: { to: 'leagues[].targets.value', line: 'suggestions(): read `targets.value[]` ({ player, owner, gain_if_landed, p_reach, mode_fit, why }), not `acq.targets` ids with `gain` / `p_complete`.' } },
-  { pr: 231, where: `${UI}:304`, reads: 'leagues[].flip.top',
-    fix: { to: 'leagues[].flip_map.value', line: 'flips(): read `flip_map.value[]` ({ player, buy_from, sell_to, spread, price_a, price_b, legs, legs_why_not }); drop the top/realised join and the a/b names.' } },
-  { pr: 231, where: `${UI}:315`, reads: 'leagues[].flip.realised[].legs.d2',
-    fix: { to: 'leagues[].flip_map.value[].legs.nick_after', line: 'Legs arrive joined: `legs.{give_a, get_b, p1, p2, p_both, nick_after}` replace `p_complete` / `d2` / `se2` / `clears2`.' } },
+  // FIX-04: the view serves the league entry as written, so the deep reads sit in the
+  // components that render them. Every #231 `fix` is resolved; none is left.
+  { pr: 231, where: `${UI}:111`, reads: 'leagues' },
+  { pr: 231, where: `${UI}:116`, reads: 'generated_at', scalar: true },
+  { pr: 231, where: `${UI}:182`, reads: 'leagues[].league', scalar: true },
+  { pr: 231, where: `${UI}:58`, reads: 'leagues[].me', scalar: true },
+  { pr: 231, where: `${UI}:58`, reads: 'leagues[].names' },
+  { pr: 231, where: `${UI}:196`, reads: 'leagues[].error', scalar: true },
+  { pr: 231, where: `${UI}:200`, reads: 'leagues[].sanity_composed_equals_direct', scalar: true },
+  { pr: 231, where: `${DECK}:25`, reads: 'leagues[].alternatives.value' },
+  { pr: 231, where: `${DECK}:119`, reads: 'leagues[].next_move.reason', scalar: true },
+  { pr: 231, where: `${DECK}:71`, reads: 'leagues[].alternatives.value[].move_id', scalar: true },
+  { pr: 231, where: `${DECK}:187`, reads: 'leagues[].alternatives.value[].rank', scalar: true },
+  { pr: 231, where: `${DECK}:180`, reads: 'leagues[].alternatives.value[].target', scalar: true },
+  { pr: 231, where: `${DECK}:197`, reads: 'leagues[].alternatives.value[].target_owner', scalar: true },
+  { pr: 231, where: `${DECK}:139`, reads: 'leagues[].alternatives.value[].steps[].partner', scalar: true },
+  { pr: 231, where: `${DECK}:140`, reads: 'leagues[].alternatives.value[].steps[].give' },
+  { pr: 231, where: `${DECK}:140`, reads: 'leagues[].alternatives.value[].steps[].get' },
+  { pr: 231, where: `${DECK}:167`, reads: 'leagues[].alternatives.value[].steps[].p_yes' },
+  { pr: 231, where: `${DECK}:207`, reads: 'leagues[].alternatives.value[].steps[].title_odds_delta' },
+  { pr: 231, where: `${DECK}:210`, reads: 'leagues[].alternatives.value[].steps[].title_after' },
+  { pr: 231, where: `${DECK}:181`, reads: 'leagues[].alternatives.value[].steps[].message' },
+  { pr: 231, where: `${DECK}:216`, reads: 'leagues[].alternatives.value[].steps[].walk_away.value.text', scalar: true },
+  { pr: 231, where: `${DECK}:189`, reads: 'leagues[].alternatives.value[].steps[].send_when' },
+  { pr: 231, where: `${DECK}:247`, reads: 'leagues[].alternatives.value[].steps[].reply_table' },
+  { pr: 231, where: `${REPLY}:6`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.decline' },
+  { pr: 231, where: `${DECK}:221`, reads: 'leagues[].alternatives.value[].p_complete' },
+  { pr: 231, where: `${DECK}:220`, reads: 'leagues[].alternatives.value[].expected' },
+  { pr: 231, where: `${DECK}:252`, reads: 'leagues[].alternatives.value[].reasoning.value' },
+  { pr: 231, where: `${DECK}:222`, reads: 'leagues[].finder_best_expected' },
+  { pr: 231, where: `${DECK}:179`, reads: 'leagues[].destination.value.title_now' },
+  { pr: 231, where: `${TOP}:20`, reads: 'leagues[].attention.value' },
+  { pr: 231, where: `${TOP}:40`, reads: 'leagues[].destination.value.goal' },
+  { pr: 231, where: `${TOP}:42`, reads: 'leagues[].destination.value.eta_week' },
+  { pr: 231, where: `${TOP}:42`, reads: 'leagues[].destination.value.arrive_by' },
+  { pr: 231, where: `${TOP}:22`, reads: 'leagues[].destination.value.risk_mode' },
+  { pr: 231, where: `${TOP}:46`, reads: 'leagues[].destination.value.title_planned_now' },
+  { pr: 231, where: `${TOP}:47`, reads: 'leagues[].destination.value.ground_lost' },
+  { pr: 231, where: `${WR}:128`, reads: 'leagues[].itinerary.value' },
+  { pr: 231, where: `${ITIN}:19`, reads: 'leagues[].itinerary.value.stops' },
+  { pr: 231, where: `${ITIN}:15`, reads: 'leagues[].itinerary.value.stops_left', scalar: true },
+  { pr: 231, where: `${WR}:134`, reads: 'leagues[].targets.value' },
+  { pr: 231, where: `${TGT}:44`, reads: 'leagues[].targets.value[].player', scalar: true },
+  { pr: 231, where: `${TGT}:47`, reads: 'leagues[].targets.value[].owner', scalar: true },
+  { pr: 231, where: `${TGT}:45`, reads: 'leagues[].targets.value[].gain_if_landed' },
+  { pr: 231, where: `${TGT}:46`, reads: 'leagues[].targets.value[].p_reach' },
+  { pr: 231, where: `${TGT}:48`, reads: 'leagues[].targets.value[].mode_fit' },
+  { pr: 231, where: `${TGT}:43`, reads: 'leagues[].targets.value[].why' },
+  { pr: 231, where: `${TGT}:50`, reads: 'leagues[].targets.value[].approved', scalar: true },
+  { pr: 231, where: `${TGT}:49`, reads: 'leagues[].targets.value[].is_plan_target', scalar: true },
+  { pr: 231, where: `${WR}:131`, reads: 'leagues[].flip_map.value' },
+  { pr: 231, where: `${FLIP}:27`, reads: 'leagues[].flip_map.value[].player', scalar: true },
+  { pr: 231, where: `${FLIP}:28`, reads: 'leagues[].flip_map.value[].buy_from', scalar: true },
+  { pr: 231, where: `${FLIP}:28`, reads: 'leagues[].flip_map.value[].sell_to', scalar: true },
+  { pr: 231, where: `${FLIP}:29`, reads: 'leagues[].flip_map.value[].spread' },
+  { pr: 231, where: `${FLIP}:30`, reads: 'leagues[].flip_map.value[].price_a' },
+  { pr: 231, where: `${FLIP}:31`, reads: 'leagues[].flip_map.value[].legs.p_both' },
+  { pr: 231, where: `${FLIP}:31`, reads: 'leagues[].flip_map.value[].legs.nick_after' },
+  { pr: 231, where: `${WR}:137`, reads: 'leagues[].catch_up.value' },
+  { pr: 231, where: `${WR}:137`, reads: 'leagues[].speed_curve.value' },
+  { pr: 231, where: `${WR}:141`, reads: 'leagues[].brain_report.value' },
+  { pr: 231, where: `${BRAIN}:24`, reads: 'leagues[].brain_report.value.checks' },
+  { pr: 231, where: `${BRAIN}:42`, reads: 'leagues[].brain_report.value.blocks' },
+  { pr: 231, where: `${TOP}:56`, reads: 'leagues[].brain_report.value.overall', scalar: true },
 
   /* ------------------------------------------------------------ #230 Coach */
   { pr: 230, where: `${CO}:246`, reads: 'leagues[].stop_tradeoffs.value' },
@@ -106,7 +137,42 @@ export const READS = [
   { pr: 230, where: `${CO}:56`, reads: 'leagues[].targets.value' },
   { pr: 230, where: `${CO}:57`, reads: 'leagues[].speed_curve.value' },
   { pr: 230, where: `${CO}:58`, reads: 'leagues[].flip_map.value' },
-  { pr: 230, where: `${CO}:59`, reads: 'leagues[].brain_report.value.checks' }
+  { pr: 230, where: `${CO}:59`, reads: 'leagues[].brain_report.value.checks' },
+  /* ------------------------------------------------- #234 reasoning (FIX-08) */
+  { pr: 234, where: `${RS}:47`, reads: 'leagues[].league', scalar: true },
+  { pr: 234, where: `${RS}:154`, reads: 'leagues[].names' },
+  { pr: 234, where: `${RS}:104`, reads: 'leagues[].alternatives.value' },
+  { pr: 234, where: `${RS}:86`, reads: 'leagues[].alternatives.value[].move_id', scalar: true },
+  { pr: 234, where: `${RS}:91`, reads: 'leagues[].alternatives.value[].delta_final.value', scalar: true },
+  { pr: 234, where: `${RS}:88`, reads: 'leagues[].alternatives.value[].steps[].partner', scalar: true },
+  { pr: 234, where: `${RS}:89`, reads: 'leagues[].alternatives.value[].steps[].give' },
+  { pr: 234, where: `${RS}:89`, reads: 'leagues[].alternatives.value[].steps[].get' },
+  { pr: 234, where: `${RS}:90`, reads: 'leagues[].alternatives.value[].steps[].p_yes.value', scalar: true },
+  { pr: 234, where: `${RS}:90`, reads: 'leagues[].alternatives.value[].steps[].p_yes.n', scalar: true,
+    awaits: 'no producer writes the offer count behind p_yes yet (FIX-03 prices it with a heuristic); cards.js reads it as null' },
+  { pr: 234, where: `${RS}:84`, reads: 'leagues[].alternatives.value[].steps[].title_odds_delta.value', scalar: true },
+  { pr: 234, where: `${RS}:84`, reads: 'leagues[].alternatives.value[].steps[].title_odds_delta.se', scalar: true },
+  { pr: 234, where: `${RS}:84`, reads: 'leagues[].alternatives.value[].steps[].title_odds_delta.clears_2se', scalar: true },
+  { pr: 234, where: `${RS}:95`, reads: 'leagues[].alternatives.value[].steps[].send_when.value', scalar: true },
+  { pr: 234, where: `${RS}:96`, reads: 'leagues[].alternatives.value[].steps[].opening.value.text', scalar: true },
+  { pr: 234, where: `${RS}:98`, reads: 'leagues[].alternatives.value[].steps[].walk_away.value.text', scalar: true },
+  { pr: 234, where: `${RS}:68`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value' },
+  { pr: 234, where: `${RS}:74`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.accept.value.do', scalar: true },
+  { pr: 234, where: `${RS}:74`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.silence.value.when', scalar: true },
+  { pr: 234, where: `${RS}:75`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.counter.value.counter_rules.counter_with', scalar: true },
+  { pr: 234, where: `${RS}:75`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.counter.value.counter_rules.accept_if', scalar: true },
+  { pr: 234, where: `${RS}:76`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.counter.value.counter_rules.walk_away_if', scalar: true },
+  { pr: 234, where: `${RS}:76`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.accept.value.odds_after.value', scalar: true },
+  { pr: 234, where: `${RS}:52`, reads: 'leagues[].partners.value' },
+  { pr: 234, where: `${RS}:52`, reads: 'leagues[].partners.value[].team', scalar: true },
+  { pr: 234, where: `${RS}:169`, reads: 'leagues[].partners.value[].p_responds', scalar: true },
+  { pr: 234, where: `${RS}:170`, reads: 'leagues[].partners.value[].basis', scalar: true },
+  { pr: 234, where: `${RS}:171`, reads: 'leagues[].partners.value[].roster_holes' },
+  { pr: 234, where: `${RS}:183`, reads: 'leagues[].partners.value[].offers_logged', scalar: true },
+  { pr: 234, where: `${RS}:184`, reads: 'leagues[].partners.value[].chat_labels' },
+  { pr: 234, where: `${RS}:60`, reads: 'leagues[].brain_report.value' },
+  { pr: 234, where: `${RS}:62`, reads: 'leagues[].brain_report.value.checks[].id', scalar: true },
+  { pr: 234, where: `${RS}:64`, reads: 'leagues[].brain_report.value.checks[].status', scalar: true }
 ];
 
-export const FILES = { UI, CO, DOCK, ACT };
+export const FILES = { UI, DECK, REPLY, TOP, WR, ITIN, TGT, FLIP, BRAIN, CO, DOCK, ACT, RS };

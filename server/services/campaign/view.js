@@ -17,6 +17,7 @@
  * sourced 'plan.template'. REASON-01 (FIX-08) replaces the reasoning panels
  * with its own when its gates are on.
  */
+import { versionWithFlags } from './model-flags.js';
 import { SCHEMA_VERSION, TOLERANCE_KEYS, TRADEOFF_KEY, tradeoffKey } from './plans-schema.js';
 import { metricKey, objectiveLabel } from './objectives.js';
 import { MODE_LABELS } from './modes.js';
@@ -66,9 +67,11 @@ export function failedEntry(res, { names = {} } = {}) {
 }
 
 /**
- * res: planLeague result. ctx: { names, as_of, previous (last entry), changed (diffNextMove result) }
+ * res: planLeague result. ctx: { names, as_of, previous (last entry), changed (diffNextMove result),
+ *   brain (brain-gate.js#applyBrainReport result), number_health (brain-gate.js#readNumberHealth result) }
+ * FIX-05: without `brain` / `number_health` the two sections are 'unknown' and say they were not read.
  */
-export function toEntry(res, { names = {}, as_of, previous = null, changed = null } = {}) {
+export function toEntry(res, { names = {}, as_of, previous = null, changed = null, brain = null, number_health: health = null } = {}) {
   if (res.error) return failedEntry(res, { names });
   const o = res.objective;
   const metric = metricKey(o);
@@ -90,8 +93,9 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     const shrank = verdict?.verdict === 'shrank';
     return ok({
       case_for: whole ?? `If Team ${team} says yes you move ${fmt(delta)}.`,
-      his_side: needs.length ? `Team ${team}'s roster read lists ${needs.join(', ')} as thin, and the offer is built on it.`
-        : `There is no read of Team ${team}'s needs, so the offer leans on market value alone.`,
+      his_side: (needs.length ? `Team ${team}'s roster read lists ${needs.join(', ')} as thin, and the offer is built on it.`
+        : `There is no read of Team ${team}'s needs, so the offer leans on market value alone.`)
+        + (pb?.nick_shift ? ` ${pb.nick_shift.text}` : ''), // FIX-02c: Nick's read shifts the price (hand-set)
       devils_advocate: shrank ? `On fresh dice the plan shrank by ${fmt(verdict.shrink)}: the first read was lucky.`
         : clears === false ? 'The gain does not clear two standard errors of simulation noise.'
           : verdict?.verdict === 'holds' ? 'The gain clears the noise and held on fresh dice; the weak link is whether he says yes.'
@@ -348,7 +352,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     if (labels.length) out.chat_labels = labels;
     if (p.needs?.length) out.roster_holes = p.needs;
     if (Number.isInteger(p.sent_this_week)) out.offers_logged = p.sent_this_week;
-    return { ...out, checked_out: !!p.checked_out, blocked: !!p.blocked };
+    // FIX-02c: a manager Nick marked unreachable is excluded everywhere; the contract says so as `blocked`.
+    return { ...out, checked_out: !!p.checked_out, blocked: !!p.blocked || !!p.excluded };
   }), 'campaign.plan');
 
   const f = res.feasibility;
@@ -371,8 +376,12 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     attention: unknown('Not ranked yet.', 'campaign.plan'),
     destination, feasibility, finder_best_expected, next_move, alternatives, itinerary, stop_tradeoffs,
     flip_map, targets, catch_up, speed_curve,
-    brain_report: unknown('The producer does not read the brain report yet (FIX-05); until it does, every chance-he-says-yes is a guess and all-in uses no testing-tier signals.', 'eval.check'),
-    number_health: unknown('The producer does not read the number audit yet (FIX-05).', 'audit.numbers'),
+    brain_report: brain
+      ? ok(brain.section, 'eval.check', brain.as_of ? { as_of: brain.as_of } : {})
+      : unknown('The brain report was not read for this run.', 'eval.check'),
+    number_health: !health ? unknown('The number audit was not read for this run.', 'audit.numbers')
+      : health.status === 'ok' ? ok(health.value, 'audit.numbers', health.as_of ? { as_of: health.as_of } : {})
+        : { status: health.status, source: 'audit.numbers', reason: health.reason },
     risk_modes, partners,
     _run: {
       seed: res.seed ?? null, confirm_seed: res.confirm?.seed ?? null, week: w, deadline_week: week(res.deadline_week),
@@ -390,7 +399,10 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   };
 }
 
-/** The whole file: the contract head and the league entries. */
-export function plansFile(entries, { generated_at } = {}) {
-  return { schema: SCHEMA_VERSION, generated_at, producer: PRODUCER, producer_version: PRODUCER_VERSION, leagues: entries };
+/**
+ * The whole file: the contract head and the league entries. flags: model-flags.js#modelFlags() for this
+ * run; they go into the head's producer_version (FIX-02b), so plans priced with other flags than Trade Lab say so.
+ */
+export function plansFile(entries, { generated_at, flags = null } = {}) {
+  return { schema: SCHEMA_VERSION, generated_at, producer: PRODUCER, producer_version: versionWithFlags(PRODUCER_VERSION, flags), leagues: entries };
 }

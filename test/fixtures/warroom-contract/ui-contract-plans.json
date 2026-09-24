@@ -1387,40 +1387,25 @@
    },
    "number_health": {
     "status": "unknown",
-    "reason": "the number audit is not read by this sample",
-    "source": "campaign.plan"
+    "source": "audit.numbers",
+    "reason": "The number audit was not read for this fixture."
    },
    "risk_modes": {
     "status": "unknown",
-    "reason": "this sample prices one mode only",
-    "source": "campaign.plan"
+    "source": "plan.path",
+    "reason": "Risk modes were not compared in this fixture."
    },
    "partners": {
     "status": "unknown",
-    "reason": "this sample carries no partner list",
-    "source": "campaign.plan"
+    "source": "campaign.plan",
+    "reason": "No partner read in this fixture."
    }
   },
   {
    "league": 2,
    "me": "1",
    "names": {},
-   "error": "world failed",
-   "number_health": {
-    "status": "unknown",
-    "reason": "the number audit is not read by this sample",
-    "source": "campaign.plan"
-   },
-   "risk_modes": {
-    "status": "unknown",
-    "reason": "this sample prices one mode only",
-    "source": "campaign.plan"
-   },
-   "partners": {
-    "status": "unknown",
-    "reason": "this sample carries no partner list",
-    "source": "campaign.plan"
-   }
+   "error": "world failed"
   },
   {
    "league": 3,
@@ -1545,18 +1530,18 @@
    },
    "number_health": {
     "status": "unknown",
-    "reason": "the number audit is not read by this sample",
-    "source": "campaign.plan"
+    "source": "audit.numbers",
+    "reason": "The number audit was not read for this fixture."
    },
    "risk_modes": {
     "status": "unknown",
-    "reason": "this sample prices one mode only",
-    "source": "campaign.plan"
+    "source": "plan.path",
+    "reason": "Risk modes were not compared in this fixture."
    },
    "partners": {
     "status": "unknown",
-    "reason": "this sample carries no partner list",
-    "source": "campaign.plan"
+    "source": "campaign.plan",
+    "reason": "No partner read in this fixture."
    }
   }
  ]

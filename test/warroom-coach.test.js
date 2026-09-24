@@ -70,7 +70,7 @@ const withFlag = async fn => {
 };
 
 /** One league of the plans contract (campaign/plans-schema.js), as the producer writes it. */
-const PRODUCER = JSON.parse(fs.readFileSync(new URL('./fixtures/warroom-contract/coach-contract-league.json', import.meta.url), 'utf8'));
+const PRODUCER = JSON.parse(fs.readFileSync(new URL('./fixtures/warroom-contract/ui-contract-plans.json', import.meta.url), 'utf8'));
 const PLANS = PRODUCER.leagues[0];
 const CTX = { leagues: [1, 2, 3, 4], plans: PLANS, now: '2026-09-23T22:00:00.000Z' };
 

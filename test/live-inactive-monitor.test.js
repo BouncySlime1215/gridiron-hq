@@ -181,3 +181,38 @@ test('hedges and negated actives are not definitive statuses (skeptic probe, win
   assert.deepEqual(claims('Questionable WR Jaylen Waddle is inactive.'), ['Jaylen Waddle:inactive'],
     'an injury designation is not a hedge');
 });
+
+// Fictional fixture players for the FIX-184 tests (new text carries no real names).
+run('INSERT INTO players (id, name, position, team_id) VALUES (5101, ?, ?, 901), (5102, ?, ?, 901), (5103, ?, ?, 902)',
+  'Fixture Runner', 'RB', 'Fixture Passer', 'QB', 'Fixture Catcher', 'TE');
+
+test('FIX-184-4: a negated INACTIVE phrase is refused, not read as inactive (mirror of the negated-active guard)', () => {
+  const idx = mon.loadPlayerIndex();
+  const claims = t => mon.claimsFromPost({ text: t }, idx).map(c => `${c.player_name}:${c.status}`);
+  for (const t of ['Fixture Runner has not been ruled out.', "Fixture Runner isn't ruled out for Sunday.",
+    'Fixture Runner is not inactive.', 'Fixture Runner will not be scratched.', 'Fixture Runner has never been ruled out.']) {
+    assert.deepEqual(claims(t), [], `refused: ${t}`);
+  }
+  // Positive controls: the same phrases without the negation, and the inactive phrases
+  // that carry their own "not", still claim inactive.
+  for (const t of ['Fixture Runner has been ruled out.', 'Fixture Runner is inactive.', 'Fixture Runner is not playing Sunday.',
+    'Fixture Runner will be scratched.', 'Fixture Runner will not play Sunday.', "Fixture Runner won't play Sunday.",
+    'Fixture Runner is not active.']) {
+    assert.deepEqual(claims(t), ['Fixture Runner:inactive'], `still inactive: ${t}`);
+  }
+});
+
+test("FIX-184-5b: a claim first seen after the player's own kickoff is dropped (game_lines kickoff)", () => {
+  const W5 = { season: 2026, week: 5 };
+  // Saints (NOX) kick off 13:00 ET = 17:00Z. Raiders (LVX) have no game_lines row: no kickoff known.
+  run(`INSERT INTO game_lines (season, week, team, gameday, gametime) VALUES (2026, 5, 'NOX', '2026-10-11', '13:00')`);
+  mon.ingestJetstreamEvent(commit('Saints RB Fixture Runner is inactive.', { rkey: 'k5a', time: '2026-10-11T15:40:00Z' }), W5);
+  mon.ingestJetstreamEvent(commit('Saints RB Fixture Runner is active.', { rkey: 'k5b', time: '2026-10-11T17:20:00Z' }), W5);
+  mon.ingestJetstreamEvent(commit('Saints QB Fixture Passer is inactive.', { rkey: 'k5c', time: '2026-10-11T17:45:00Z' }), W5);
+  mon.ingestJetstreamEvent(commit('Raiders TE Fixture Catcher is inactive.', { rkey: 'k5d', time: '2026-10-11T18:00:00Z' }), W5);
+  const got = mon.liveInactiveClaims(W5);
+  assert.equal(got.get(5101)?.status, 'inactive', 'a post-kickoff "active" cannot cancel the pre-kickoff inactive');
+  assert.equal(got.has(5102), false, 'an inactive claim first seen after his kickoff is not a pre-kickoff claim');
+  assert.equal(got.get(5103)?.status, 'inactive', 'control: no kickoff on file, the claim is kept');
+  assert.equal(rows('SELECT COUNT(*) n FROM live_inactive_claims WHERE week = 5')[0].n, 4, 'rows are stored; only the reader drops them');
+});

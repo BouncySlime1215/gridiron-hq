@@ -52,15 +52,15 @@ test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true })
 run(`INSERT OR IGNORE INTO nfl_teams (id, abbr, name, conference, division) VALUES (911, 'NOY', 'New Orleans Saints', 'NFC', 'South')`);
 const POS_ID = { QB: 1, RB: 2, WR: 3, TE: 4 };
 let nextId = 7101;
-function player(name, position, week) {
+function player(name, position, week, { prob = 0.85, slot = 20, espn = 'QUESTIONABLE' } = {}) {
   const id = nextId++;
   run('INSERT INTO players (id, name, position, team_id) VALUES (?,?,?,911)', id, name, position);
   return {
     asset: { id, name, position, team_abbr: 'NOY', espn_id: 90000 + id, available: true,
       current_week_ppg: week, adj_ppg: week, ppg: week, ros_ppg: week, ceiling: week * 1.5, floor: week * 0.4,
-      active_probability: 0.85, bye: 9 },
-    entry: { lineupSlotId: 20,
-      playerPoolEntry: { player: { id: 90000 + id, fullName: name, defaultPositionId: POS_ID[position], injuryStatus: 'QUESTIONABLE' } } }
+      active_probability: prob, bye: 9 },
+    entry: { lineupSlotId: slot,
+      playerPoolEntry: { player: { id: 90000 + id, fullName: name, defaultPositionId: POS_ID[position], injuryStatus: espn } } }
   };
 }
 const SLOTS = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX'];
@@ -72,9 +72,12 @@ function league(mine, id) {
   return id;
 }
 // Names are unique per league (a shared name would be refused as ambiguous, by design).
-const roster = (tag = '') => [
+// FIX-184-5c: `backProb` below 0.75 puts Questionable Back in the probability/bye `risky`
+// list too, so test 1's one-warning-per-starter assert fails if the de-dup breaks (at 0.85,
+// the default, it could not: there was nothing to duplicate).
+const roster = (tag = '', { backProb = 0.85 } = {}) => [
   player(`Starter Quarterback${tag}`, 'QB', 21), player(`Backup Quarterback${tag}`, 'QB', 12),
-  player(`Questionable Back${tag}`, 'RB', 16), player(`Back Two${tag}`, 'RB', 13), player(`Back Three${tag}`, 'RB', 8),
+  player(`Questionable Back${tag}`, 'RB', 16, { prob: backProb }), player(`Back Two${tag}`, 'RB', 13), player(`Back Three${tag}`, 'RB', 8),
   player(`Wideout One${tag}`, 'WR', 15), player(`Wideout Two${tag}`, 'WR', 12), player(`Wideout Three${tag}`, 'WR', 9),
   player(`Tight End${tag}`, 'TE', 9)
 ];
@@ -88,12 +91,13 @@ const post = (text, rkey, time) => ({ $type: 'message', payload: {
 test('a starter in a pre-kickoff inactive post is flagged before kickoff', (t) => {
   process.env.LIVE_INACTIVE_WARNINGS = '1';
   t.after(() => { delete process.env.LIVE_INACTIVE_WARNINGS; });
-  const id = league(roster(), 9301);
+  const id = league(roster('', { backProb: 0.6 }), 9301);
   monitor?.ingestJetstreamEvent(post('Saints RB Questionable Back (ankle) is officially inactive for Week 3.', 'li1', '2026-09-27T15:31:00Z'),
     { season: 2026, week: 3 });
   const call = lineupCall(id, { objective: 'mean', providers: {} });
   assert.ifError(call.error);
-  assert.ok(call.lineup.some(c => c.player.name === 'Questionable Back'), 'fixture: he is a starter (0.85 to play, no probability warning)');
+  assert.ok(call.lineup.some(c => c.player.name === 'Questionable Back'),
+    'fixture: he is a starter, and at 0.6 to play he would also get the probability warning without the de-dup');
   const w = call.warnings.find(x => x.player === 'Questionable Back');
   assert.ok(w, `no warning for the inactive starter; warnings = ${JSON.stringify(call.warnings)}`);
   assert.equal(w.kind, 'live_inactive');
@@ -136,4 +140,55 @@ test('default off: without LIVE_INACTIVE_WARNINGS=1 the claim is recorded but no
     const on = lineupCall(id, { objective: 'mean', providers: {} });
     assert.ok(on.warnings.some(x => x.player === 'Questionable Back Cee' && x.kind === 'live_inactive'), 'the flag turns it on');
   } finally { delete process.env.LIVE_INACTIVE_WARNINGS; }
+});
+
+// FIX-184-2: the SS-01 dead-starter guard and the Start/Sit warning read ONE inactive set.
+// Before, the guard's `inactive` hook had only espn-zero-inactive.js, so a starter SET on
+// ESPN with a pre-kickoff inactive post and no Friday designation got a Start/Sit warning
+// and no dead-starter card.
+test('FIX-184-2: a starter set on ESPN with a pre-kickoff inactive claim and no designation gets a dead-starter alert', (t) => {
+  process.env.LIVE_INACTIVE_WARNINGS = '1';
+  t.after(() => { delete process.env.LIVE_INACTIVE_WARNINGS; });
+  const SLOT = { QB: 0, RB: 2, WR: 4, TE: 6, FLEX: 23 };
+  const mine = [
+    player('Starter Quarterback Dee', 'QB', 21, { slot: SLOT.QB, espn: 'ACTIVE' }),
+    player('Back One Dee', 'RB', 16, { slot: SLOT.RB, espn: 'ACTIVE' }), player('Back Two Dee', 'RB', 13, { slot: SLOT.RB, espn: 'ACTIVE' }),
+    player('Wideout One Dee', 'WR', 15, { slot: SLOT.WR, espn: 'ACTIVE' }), player('Wideout Two Dee', 'WR', 12, { slot: SLOT.WR, espn: 'ACTIVE' }),
+    player('Tight End Dee', 'TE', 9, { slot: SLOT.TE, espn: 'ACTIVE' }), player('Back Three Dee', 'RB', 8, { slot: SLOT.FLEX, espn: 'ACTIVE' }),
+    player('Wideout Three Dee', 'WR', 9, { espn: 'ACTIVE' })
+  ];
+  const id = league(mine, 9304);
+  const quiet = lineupCall(id, { objective: 'mean', providers: {} });
+  assert.equal(quiet.dead_starters.items.length, 0, 'control: no claim, no designation, nothing flagged');
+
+  monitor?.ingestJetstreamEvent(post('Saints WR Wideout One Dee is inactive.', 'li5', '2026-09-27T15:10:00Z'), { season: 2026, week: 3 });
+  const call = lineupCall(id, { objective: 'mean', providers: {} });
+  const item = call.dead_starters.items.find(i => i.player.name === 'Wideout One Dee');
+  assert.ok(item, `no dead-starter alert; items = ${JSON.stringify(call.dead_starters.items)}`);
+  assert.equal(item.reason, 'inactive');
+  assert.equal(item.source, 'live_inactive_claims');
+  assert.match(item.why, /rotoworld-fb\.bsky\.social/, 'the card names the post source');
+  assert.equal(item.replacement?.name, 'Wideout Three Dee');
+  assert.equal(call.dead_starters.inactive_source.covered, true);
+  assert.ok(call.warnings.some(w => w.player === 'Wideout One Dee' && w.kind === 'live_inactive'),
+    'the Start/Sit warning names the same player from the same set');
+
+  delete process.env.LIVE_INACTIVE_WARNINGS;
+  const off = lineupCall(id, { objective: 'mean', providers: {} });
+  assert.equal(off.dead_starters.items.some(i => i.player.name === 'Wideout One Dee'), false, 'default-off: the card is off too');
+});
+
+// FIX-184-3: preview mode turns the warning on and labels it, like every converted site.
+test('FIX-184-3: preview mode turns the live warning on, stamped preview / preview_reason', (t) => {
+  delete process.env.LIVE_INACTIVE_WARNINGS;
+  const saved = process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+  process.env.GRIDIRON_PREVIEW_UNCONFIRMED = '1';
+  t.after(() => { if (saved === undefined) delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED; else process.env.GRIDIRON_PREVIEW_UNCONFIRMED = saved; });
+  const id = league(roster(' Eff'), 9305);
+  monitor?.ingestJetstreamEvent(post('Saints RB Questionable Back Eff is inactive.', 'li6', '2026-09-27T15:12:00Z'), { season: 2026, week: 3 });
+  const call = lineupCall(id, { objective: 'mean', providers: {} });
+  const w = call.warnings.find(x => x.player === 'Questionable Back Eff' && x.kind === 'live_inactive');
+  assert.ok(w, 'preview mode turns the warning on');
+  assert.equal(w.preview, true);
+  assert.match(w.preview_reason, /default-off, unconfirmed forward/);
 });

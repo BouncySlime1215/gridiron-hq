@@ -19,7 +19,9 @@
  *  O5 the settle job is idempotent: a second run changes nothing.
  *  O6 "I sent this" on a suggestion the slate already recorded marks THAT row
  *     sent (no duplicate, prediction untouched); a second tap is a no-op.
- *  O7 a different package between the same teams does not match.
+ *  O7 a different package between the same teams does not match; the same
+ *     players to a different team do not match (O7b); a third team's proposal
+ *     pointing at ours is not a counter (O3b).
  *  O8 no code path in the loop sends anything to ESPN.
  *
  * Every team, player and league id below is made up.
@@ -235,6 +237,30 @@ test('O7: a different package between the same two teams does not match', () => 
   const o = ledger(L, r.id);
   assert.equal(o.status, 'proposed');
   assert.equal(o.matched_tx_id, null);
+});
+
+test('O7b: the same players sent to a different team do not match', () => {
+  const L = 510;
+  const r = send(L, deal(2, 191, 292));
+  raw(L, { tx_id: 'p10', type: 'TRADE_PROPOSAL', team_id: 1, proposed_at: at(-MIN), items: swap(1, 3, 191, 292) });
+  raw(L, { tx_id: 'a10', type: 'TRADE_ACCEPT', team_id: 3, related_tx_id: 'p10', proposed_at: at(HOUR) });
+  settleSentOffers(L, SEASON, { now: at(2 * HOUR) });
+  const o = ledger(L, r.id);
+  assert.equal(o.status, 'proposed');
+  assert.equal(o.matched_tx_id, null);
+});
+
+test('O3b: a proposal from a third team pointing at ours is not a counter', () => {
+  const L = 511;
+  const r = send(L, deal(2, 195, 296));
+  raw(L, { tx_id: 'p11', type: 'TRADE_PROPOSAL', team_id: 1, proposed_at: at(-MIN), items: swap(1, 2, 195, 296) });
+  raw(L, { tx_id: 'c11', type: 'TRADE_PROPOSAL', team_id: 6, related_tx_id: 'p11', proposed_at: at(HOUR),
+    items: swap(6, 1, 300, 195) });
+  settleSentOffers(L, SEASON, { now: at(2 * HOUR) });
+  const o = ledger(L, r.id);
+  assert.equal(o.matched_tx_id, 'p11');
+  assert.equal(o.status, 'proposed');
+  assert.match(o.settle_reason, /no answer yet/);
 });
 
 /* ------------------------------------------------------------------ O8 */

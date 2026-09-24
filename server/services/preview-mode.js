@@ -42,6 +42,8 @@
  *                                                (COACH-BRIEF; GRIDIRON_COACH_BRIEF_ENABLED=0
  *                                                vetoes preview)
  *   - campaign/his-screen.js#hisScreenFor        HIS-SCREEN offer preview (site flag GRIDIRON_HIS_SCREEN)
+ *   - campaign/push-alerts.js#pushAlertsFlag     War Room push on a changed next move / feasibility
+ *                                                (PUSH-01; GRIDIRON_WARROOM_PUSH_ENABLED=0 vetoes preview)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

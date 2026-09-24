@@ -4,9 +4,10 @@
  * Called by scripts/campaign/produce-plans.mjs after each plans run (every data
  * refresh), with the plans file it just wrote. Two values per league are watched:
  *   next_move    next_move.value.move_id ('none' when no move clears the bar)
- *   feasibility  the objective's feasibility status (on_track | reachable | out_of_reach),
- *                only for leagues whose objective has one (points or a named player)
- * A failed league (no next_move, no _run) or a failed section is not read: it neither
+ *   feasibility  the objective's feasibility status (on_track | reachable | out_of_reach):
+ *                feasibility.status on a points league, feasibility_points.outlook otherwise
+ * Only served contract fields are read, never `_run`.
+ * A failed league (no next_move) or a failed section is not read: it neither
  * changes nor clears state.
  *
  * Dedupe is state, not the previous file (tables in migration 091):
@@ -47,19 +48,27 @@ const etHour = at => Number(new Intl.DateTimeFormat('en-US', { timeZone: QUIET.t
 /** True from 1:00 through 7:59 AM Eastern (EDT or EST, whichever is in force). */
 export const inQuietHours = (at = new Date()) => { const h = etHour(at); return h >= QUIET.from && h < QUIET.to; };
 
-/** The watched values a league entry carries this run: [{ kind, value, reason }]. */
+/**
+ * The watched values a league entry carries this run: [{ kind, value, reason }]. Served contract
+ * fields only (plans-schema.js), never `_run`: next_move.value.move_id + change_reason, and the
+ * feasibility status (feasibility.status on a points league, else feasibility_points.outlook) +
+ * change_reason. A section that is not 'ok' is not read.
+ */
 export function observedValues(e) {
   if (!e) return [];
   const out = [];
   const nm = e.next_move;
   if (nm?.status === 'ok' && nm.value?.move_id) {
     out.push({ kind: 'next_move', value: String(nm.value.move_id),
-      reason: e._run?.changed?.changed ? e._run.changed.reason : 'the next move changed since your last alert' });
+      reason: nm.value.change_reason ?? 'the next move changed since your last alert' });
   } else if (nm?.status === 'unknown') {
     out.push({ kind: 'next_move', value: 'none', reason: 'no move clears the bar now' });
   }
-  const fs = e._run?.feasibility_detail?.status;
-  if (FEAS_LABEL[fs]) out.push({ kind: 'feasibility', value: fs, reason: `goal is now ${FEAS_LABEL[fs]}` });
+  const fe = e.feasibility?.status === 'ok' ? e.feasibility.value : null;
+  const fp = e.feasibility_points?.status === 'ok' ? e.feasibility_points.value : null;
+  const [fs, why] = FEAS_LABEL[fe?.status] ? [fe.status, fe.change_reason]
+    : FEAS_LABEL[fp?.outlook] ? [fp.outlook, fp.change_reason] : [null, null];
+  if (fs) out.push({ kind: 'feasibility', value: fs, reason: `goal is now ${FEAS_LABEL[fs]}${why ? ` (${why})` : ''}` });
   return out;
 }
 

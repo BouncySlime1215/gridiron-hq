@@ -109,6 +109,11 @@ export async function makeProducerPlans() {
   ];
   const first = await buildPlansFile(leagues, { generated_at: FIRST_AT, objectives: OBJECTIVES, clock: () => 0, brain: BRAIN, env: ENV });
   const previous = new Map(first.leagues.map(e => [String(e.league), e]));
+  // PUSH-01 change reasons: the previous run is edited so the second run reports a moved goal status on
+  // league 3 (feasibility) and league 4 (feasibility_points), and a new next move on league 4.
+  const edit = (id, f) => previous.set(id, f(structuredClone(previous.get(id))));
+  edit('3', e => { e.feasibility.value.status = 'reachable'; return e; });
+  edit('4', e => { e.feasibility_points.value.outlook = 'out_of_reach'; e._run.next_step = null; return e; });
   return buildPlansFile(leagues, { generated_at: GENERATED_AT, objectives: OBJECTIVES, previous, clock: () => 0, brain: BRAIN, env: ENV });
 }
 

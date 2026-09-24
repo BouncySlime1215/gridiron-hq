@@ -25,11 +25,14 @@ const DAY = '2026-09-24T14:00:00.000Z';
 const NIGHT = '2026-09-24T07:00:00.000Z';
 const EIGHT = '2026-09-24T12:00:00.000Z';
 
-const move = id => ({ status: 'ok', value: { move_id: id }, source: 'plan.path' });
+const move = (id, change_reason) => ({ status: 'ok', value: { move_id: id, ...(change_reason ? { change_reason } : {}) }, source: 'plan.path' });
 const noMove = { status: 'unknown', reason: 'The planner found no trade path worth sending this week.', source: 'plan.path' };
-const entry = (league, next_move, feas = null, reason = 'new numbers moved a different deal to the top') => ({
+// Served contract fields only (FIX-293-1): no `_run` on any entry these tests build.
+const feasOk = (status, change_reason) => ({ status: 'ok', source: 'sim.title',
+  value: { points_per_week: 120, status, ...(change_reason ? { change_reason } : {}) } });
+const entry = (league, next_move, feas = null) => ({
   league, me: '1', names: {}, next_move,
-  _run: { changed: { changed: true, reason }, feasibility_detail: feas ? { kind: 'points', status: feas } : null }
+  feasibility: feas ? feasOk(feas) : { status: 'unknown', reason: 'points objective not set', source: 'sim.title' }
 });
 const file = (at, ...leagues) => ({ schema: 'warroom-plans/1', generated_at: at, leagues });
 
@@ -65,7 +68,7 @@ test('first run records a baseline and pushes nothing (turning the flag on is no
 test('a changed next_move.move_id sends exactly one push; the same move on the next run sends none', async () => {
   const d = fresh(); const s = sender(); const o = { env: ON, send: s.send };
   await push.runPushAlerts(d, file(DAY, entry(1, move('L1-a'))), { ...o, now: new Date(DAY) });
-  const r = await push.runPushAlerts(d, file(DAY, entry(1, move('L1-b'), null, 'better partner now: Team 3')), { ...o, now: new Date(DAY) });
+  const r = await push.runPushAlerts(d, file(DAY, entry(1, move('L1-b', 'better partner now: Team 3'))), { ...o, now: new Date(DAY) });
   assert.equal(r.queued, 1); assert.equal(r.sent, 1);
   assert.equal(s.sent.length, 1);
   assert.equal(s.sent[0].league, '1');
@@ -194,7 +197,7 @@ test('the table missing (091 not applied yet) is reported inert, not swallowed',
 
 test('the push carries no league or manager names, only the league id', async () => {
   const d = fresh(); const s = sender(); const o = { env: ON, send: s.send, now: new Date(DAY) };
-  const named = (id) => ({ ...entry(1, move(id), null, 'better partner now: Team 3'), names: { 3: 'Some Manager' } });
+  const named = (id) => ({ ...entry(1, move(id, 'better partner now: Team 3')), names: { 3: 'Some Manager' } });
   await push.runPushAlerts(d, file(DAY, named('L1-a')), o);
   await push.runPushAlerts(d, file(DAY, named('L1-b')), o);
   assert.doesNotMatch(s.sent[0].text, /Some Manager/);
@@ -210,4 +213,58 @@ test('senders: ntfy when its URL is set, macOS notification on darwin, otherwise
   assert.equal(push.defaultSender({}, 'linux'), null);
   assert.equal(typeof push.defaultSender({ GRIDIRON_PUSH_NTFY_URL: 'https://ntfy.example/topic' }, 'linux'), 'function');
   assert.equal(typeof push.defaultSender({}, 'darwin'), 'function');
+});
+
+test('FIX-293-1: a plans file without _run still yields both kinds, from served fields only', async () => {
+  const e = { league: 7, me: '1', names: {},
+    next_move: move('L7-b', 'better partner now: Team 3'),
+    feasibility: feasOk('out_of_reach', 'was reachable with a trade, now out of reach (chance 40% -> 12%)') };
+  assert.equal('_run' in e, false);
+  const obs = push.observedValues(e);
+  assert.deepEqual(obs.map(o => o.kind), ['next_move', 'feasibility']);
+  assert.equal(obs[0].reason, 'better partner now: Team 3');
+  assert.equal(obs[1].value, 'out_of_reach');
+  assert.match(obs[1].reason, /now out of reach \(was reachable/);
+
+  // A non-points league carries its status on feasibility_points.outlook.
+  const side = { league: 8, me: '1', names: {}, next_move: move('L8-a'),
+    feasibility: { status: 'unknown', reason: 'planned on title odds', source: 'sim.title' },
+    feasibility_points: { status: 'ok', source: 'sim.title', value: { outlook: 'reachable' } } };
+  assert.deepEqual(push.observedValues(side).map(o => [o.kind, o.value]), [['next_move', 'L8-a'], ['feasibility', 'reachable']]);
+
+  // _run alone is never read: an entry whose only feasibility is in _run watches no feasibility.
+  const runOnly = { league: 9, me: '1', names: {}, next_move: move('L9-a'),
+    _run: { changed: { changed: true, reason: 'from _run' }, feasibility_detail: { kind: 'points', status: 'reachable' } } };
+  const o9 = push.observedValues(runOnly);
+  assert.deepEqual(o9.map(o => o.kind), ['next_move']);
+  assert.notEqual(o9[0].reason, 'from _run');
+
+  // End to end without _run: baseline, then both change -> one message with both reasons.
+  const d = fresh(); const s = sender();
+  await push.runPushAlerts(d, file(DAY, entry(7, move('L7-a'), 'reachable')), { env: ON, now: new Date(DAY), send: s.send });
+  const r = await push.runPushAlerts(d, file(DAY, e), { env: ON, now: new Date(DAY), send: s.send });
+  assert.equal(r.queued, 2);
+  assert.equal(s.sent.length, 1);
+  assert.match(s.sent[0].text, /better partner now/);
+  assert.match(s.sent[0].text, /out of reach/);
+});
+
+test('FIX-293-1: preview-mode.js lists push-alerts.js among its converted sites', () => {
+  const src = fs.readFileSync(new URL('../server/services/preview-mode.js', import.meta.url), 'utf8');
+  const head = src.slice(0, src.indexOf('Not converted'));
+  assert.match(head, /campaign\/push-alerts\.js#pushAlertsFlag/);
+});
+
+test('FIX-293-1: the real producer fixture with every _run deleted still yields both kinds and their reasons', () => {
+  const plans = JSON.parse(fs.readFileSync(new URL('./fixtures/warroom-contract/producer-plans.json', import.meta.url), 'utf8'));
+  for (const e of plans.leagues) delete e._run;
+  const by = Object.fromEntries(plans.leagues.map(e => [e.league, push.observedValues(e)]));
+  const four = Object.fromEntries(by[4].map(o => [o.kind, o]));
+  assert.equal(four.next_move.reason, 'new numbers moved a different deal to the top');
+  assert.equal(four.feasibility.value, 'reachable');
+  assert.match(four.feasibility.reason, /was out of reach, now reachable/);
+  const three = Object.fromEntries(by[3].map(o => [o.kind, o]));
+  assert.equal(three.feasibility.value, 'on_track');
+  assert.match(three.feasibility.reason, /was reachable with a trade, now on track/);
+  assert.deepEqual(by[2], [], 'a failed league is not read');
 });

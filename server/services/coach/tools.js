@@ -29,6 +29,8 @@ import { teamTendencies } from '../nfl-team-tendencies.js';
 import { coachingProfile, footballContext } from '../football-context.js';
 import { sourceTrustScore } from '../beat-reporter-accuracy.js';
 import { validateAction, ACTION_TYPES, PANELS, PLUG_IN_FIELDS, PLAN_CHANGING } from '../warroom-actions/schema.js';
+import { ROLEPLAY_TOOL, RoleplayInputError, roleplayFlag } from './roleplay.js';
+import { runRoleplayTool } from './roleplay-tool.js';
 
 export class CoachToolError extends Error {
   constructor(message) { super(message); this.name = 'CoachToolError'; }
@@ -308,12 +310,30 @@ export const WARROOM_TOOLS = Object.freeze([
 ]);
 
 /**
+ * COACH-ROLEPLAY: "what would he say to this?" (roleplay.js). War Room only,
+ * and only with its own flag on (GRIDIRON_COACH_ROLEPLAY or preview mode), so
+ * the War Room tool list is unchanged while it is off. Its result enters the
+ * ledger like a service result, so a number Coach says about the simulation
+ * cites it, and the result carries its simulation label. Read-only.
+ */
+const ROLEPLAY = Object.freeze({
+  ...ROLEPLAY_TOOL,
+  run(input) {
+    try { return runRoleplayTool(input); } catch (e) {
+      if (e instanceof RoleplayInputError) throw new CoachToolError(`Refused: ${e.message}.`);
+      throw e;
+    }
+  }
+});
+const roleplayTools = () => (roleplayFlag().enabled ? [ROLEPLAY] : []);
+
+/**
  * The tool blocks handed to Claude: no functions, no internals. The War Room
  * tools are declared only when the question comes from the War Room with the
  * flag on, so every other Coach surface keeps exactly today's tool list.
  */
 export function toolDefinitions({ warRoom = false } = {}) {
-  const tools = warRoom ? [...COACH_TOOLS, ...WARROOM_TOOLS] : COACH_TOOLS;
+  const tools = warRoom ? [...COACH_TOOLS, ...WARROOM_TOOLS, ...roleplayTools()] : COACH_TOOLS;
   return tools.map(({ name, description, input_schema }) => ({ name, description, input_schema }));
 }
 
@@ -328,7 +348,8 @@ export function toolDefinitions({ warRoom = false } = {}) {
  * @throws refusals and SQL errors from the guarded query layer, unchanged
  */
 export function runCoachTool(name, input, { ledger } = {}) {
-  const tool = COACH_TOOLS.find(t => t.name === name) ?? WARROOM_TOOLS.find(t => t.name === name);
+  const tool = COACH_TOOLS.find(t => t.name === name) ?? WARROOM_TOOLS.find(t => t.name === name)
+    ?? roleplayTools().find(t => t.name === name);
   if (!tool) {
     throw new CoachToolError(
       `There is no tool called ${name}. Coach has: ${COACH_TOOLS.map(t => t.name).join(', ')}.`);

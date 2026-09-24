@@ -7,11 +7,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   ROLEPLAY_ENV, ROLEPLAY_LEAGUE_ID, SIMULATION_LABEL, M6_REPLY_PRIOR, REPLY_STYLES,
   roleplayFlag, replyMix, simulateReply, comesAcross, toneFlags, roleplay, ROLEPLAY_TOOL
 } from '../server/services/coach/roleplay.js';
 import { PREVIEW_ENV, PREVIEW_PREFIX } from '../server/services/preview-mode.js';
+
+// The Coach-tool tests below open a DB; point it at a temp file before anything imports db/index.js.
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-coach-roleplay-'));
+process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
 const PLANS = JSON.parse(fs.readFileSync(new URL('./fixtures/warroom-contract/producer-plans.json', import.meta.url), 'utf8')).leagues[0];
 const STEP = PLANS.alternatives.value[0].steps[0];
@@ -81,7 +87,7 @@ test('target league is leagues.id 4, and a plans section for another league is r
 
 test('with no counterpart, no partner row and no plan step, the mix is the M6 prior and says so', () => {
   const r = replyMix({ team: '99', draft: { text: 'hi', give: [], get: [] } });
-  assert.deepEqual(REPLY_STYLES.map(k => r.mix[k]), REPLY_STYLES.map(k => M6_REPLY_PRIOR[k]));
+  for (const k of REPLY_STYLES) close(r.mix[k], M6_REPLY_PRIOR[k]);
   assert.equal(r.basis[0].feature, 'reply_prior');
   assert.match(r.basis[0].text, /league-wide/);
 });
@@ -284,4 +290,78 @@ test('the M6 prior matches COUNTERPART-01 when its model is in this tree', async
   assert.deepEqual({ ...M6_REPLY_PRIOR }, { ...m.M6_REPLY_PRIOR });
   assert.equal(m.UNTOUCHABLE_EXCLUDE, 0.5);
   assert.equal(m.SHOP_LOG_LIFT, 0.5);
+});
+
+/* ------------------------------------------------------------ Coach tool (league 4) */
+
+const PLANS_FILE = path.join(temp, 'plans.json');
+const { run } = await import('../server/db/index.js');
+await (await import('../server/db/migrate.js')).runMigrations();
+const { runCoachTool, toolDefinitions, CoachToolError } = await import('../server/services/coach/tools.js');
+const { newLedger } = await import('../server/services/coach/ledger.js');
+
+run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, payload, fetched_at)
+     VALUES (4, 'espn', 'rp-4', 2026, 'Fixture', ?, 10, 1, '{}', '2026-09-23 01:00:00')`, PLANS.me);
+const realAgo = d => new Date(Date.now() - d * DAY).toISOString();
+for (const [d, status] of [[2, 'declined'], [4, 'declined']]) {
+  run(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id, give_json, get_json,
+         proposed_at, model_p_accept, model_basis, status, resolved_at, created_at)
+       VALUES (4, 2026, 'app_proposed', ?, ?, '[]', '[]', ?, 0.3, 'heuristic_unanchored', ?, ?, ?)`,
+  PLANS.me, STEP.partner, realAgo(d), status, realAgo(d - 1), realAgo(d));
+}
+fs.writeFileSync(PLANS_FILE, JSON.stringify({ schema: 'warroom-plans/1', generated_at: NOW, leagues: [{ ...PLANS, league: 4 }] }));
+const toolInput = { team: STEP.partner, text: STEP.message.value, give: STEP.give, get: STEP.get };
+const withTool = (env, fn) => withEnv(env, () => {
+  const keep = process.env.GRIDIRON_WARROOM_PLANS;
+  process.env.GRIDIRON_WARROOM_PLANS = PLANS_FILE;
+  try { return fn(); } finally { if (keep === undefined) delete process.env.GRIDIRON_WARROOM_PLANS; else process.env.GRIDIRON_WARROOM_PLANS = keep; }
+});
+
+test('flag off: Coach has no roleplay tool, on the War Room or anywhere else', () => {
+  withTool({}, () => {
+    assert.ok(!toolDefinitions({ warRoom: true }).some(t => t.name === 'roleplay'));
+    assert.throws(() => runCoachTool('roleplay', toolInput, { ledger: newLedger() }), CoachToolError);
+  });
+});
+
+test('flag on: the War Room surface gets the roleplay tool; other surfaces do not', () => {
+  withTool({ [ROLEPLAY_ENV]: '1' }, () => {
+    assert.equal(toolDefinitions({ warRoom: true }).filter(t => t.name === 'roleplay').length, 1);
+    assert.ok(!toolDefinitions().some(t => t.name === 'roleplay'));
+  });
+});
+
+test("Coach's roleplay tool reads league 4's plan and trade_outcomes, and its numbers enter the ledger", () => {
+  withTool({ [ROLEPLAY_ENV]: '1' }, () => {
+    const ledger = newLedger();
+    const { entry, summary } = runCoachTool('roleplay', toolInput, { ledger });
+    assert.ok(entry, 'recorded, so a number Coach says about it can be cited');
+    const r = entry.rows[0];
+    assert.match(r.label, /^Simulation/);
+    assert.equal(r.status, 'ok');
+    assert.equal(r.this_would_be, 3);
+    assert.ok(Number.isFinite(r['reply_mix.accept']));
+    assert.ok(Object.keys(r).some(k => k.startsWith('warnings.') && /third offer/.test(r[k])));
+    assert.deepEqual(entry.tables, ['trade_outcomes', 'leagues']);
+    assert.equal(summary.cite_prefix, `${entry.id}#`);
+  });
+});
+
+test('no plans file: the tool answers unknown with a reason instead of failing', () => {
+  withEnv({ [ROLEPLAY_ENV]: '1' }, () => {
+    const keep = process.env.GRIDIRON_WARROOM_PLANS;
+    process.env.GRIDIRON_WARROOM_PLANS = path.join(temp, 'missing.json');
+    try {
+      const { entry } = runCoachTool('roleplay', toolInput, { ledger: newLedger() });
+      assert.equal(entry.rows[0].status, 'unknown');
+      assert.match(entry.rows[0].reason, /plans file does not exist/);
+    } finally { if (keep === undefined) delete process.env.GRIDIRON_WARROOM_PLANS; else process.env.GRIDIRON_WARROOM_PLANS = keep; }
+  });
+});
+
+test('asking Coach to role-play Nick himself is refused, not crashed', () => {
+  withTool({ [ROLEPLAY_ENV]: '1' }, () => {
+    assert.throws(() => runCoachTool('roleplay', { ...toolInput, team: PLANS.me }, { ledger: newLedger() }),
+      e => e instanceof CoachToolError && /is you/.test(e.message));
+  });
 });

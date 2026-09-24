@@ -58,6 +58,7 @@ import { warRoomFlag } from '../services/warroom-flag.js';
 import {
   proposeVerifyRetryTrade, judgeTradeVerdict, tradeChallengeText, SENSE_CHECK_SIM_RUNS
 } from '../services/trade-verify.js';
+import { hisScreenFor } from '../services/campaign/his-screen.js';
 
 const r = Router();
 
@@ -105,6 +106,21 @@ function league(req, res) {
 }
 
 /* ------------------------------------------------------------ self scouting */
+/**
+ * HIS-SCREEN: one offer as the partner sees it (his roster before/after, his
+ * clone's value view, what he gives up, his title-odds change, the fair badge).
+ * `?partner=7&give=1,2&get=10` in Nick's terms. Default-off behind
+ * GRIDIRON_HIS_SCREEN (or preview mode); off, it answers { enabled: false, reason }.
+ */
+r.get('/:leagueId/his-screen', async (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const partner = String(req.query.partner ?? '').trim();
+    if (!partner) return res.status(400).json({ error: 'partner required' });
+    res.json(await hisScreenFor(lg, { partner, give: idList(req.query.give), get: idList(req.query.get) }));
+  } catch (e) { next(e); }
+});
+
 r.get('/:leagueId/scout', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;

@@ -1,0 +1,468 @@
+{
+ "producer": "campaign",
+ "producer_version": "fixture",
+ "as_of": "2026-09-24T12:00:00Z",
+ "snapshot_id": "snap-fixture-1",
+ "leagues": [
+  {
+   "league_id": 1,
+   "me": "Team 1",
+   "names": {
+    "p0": "Player A (RB)",
+    "p1": "Player B (RB)",
+    "p2": "Player C (RB)",
+    "p3": "Player D (RB)",
+    "p4": "Player E (RB)",
+    "p5": "Player F (RB)",
+    "p6": "Player G (RB)",
+    "p7": "Player H (RB)",
+    "p8": "Player I (RB)",
+    "p9": "Player J (RB)",
+    "p10": "Player K (RB)",
+    "p11": "Player L (RB)",
+    "p12": "Player M (RB)",
+    "p13": "Player N (RB)",
+    "p14": "Player O (RB)",
+    "p15": "Player P (RB)",
+    "p16": "Player Q (RB)",
+    "p17": "Player R (RB)",
+    "p18": "Player S (RB)",
+    "p19": "Player T (RB)",
+    "p20": "Player U (RB)",
+    "p21": "Player V (RB)",
+    "p22": "Player W (RB)",
+    "p23": "Player X (RB)",
+    "p24": "Player Y (RB)",
+    "p25": "Player Z (RB)",
+    "p26": "Player Ax (RB)",
+    "p27": "Player Bx (RB)",
+    "p28": "Player Cx (RB)",
+    "p29": "Player Dx (RB)"
+   },
+   "cards": [
+    {
+     "id": "L1-c0",
+     "rank": 0,
+     "partner_team": 4,
+     "give": [
+      "p10"
+     ],
+     "get": [
+      "p20"
+     ],
+     "p_yes": 0.38,
+     "p_yes_n": 3,
+     "p_yes_basis": "market+activity",
+     "title_delta": 0.021,
+     "title_delta_se": 0.008,
+     "clears_2se": true,
+     "reason_chain": [
+      "Fills the flex hole this month",
+      "He is thin at the position you give"
+     ],
+     "reply_table": [
+      {
+       "reply": "counter",
+       "counter": "asks for a bench wide receiver added",
+       "action": "Add the bench receiver, stop there",
+       "p": 0.3
+      },
+      {
+       "reply": "decline",
+       "action": "Move to the next card"
+      }
+     ],
+     "walk_away": "Do not add a starter"
+    },
+    {
+     "id": "L1-c1",
+     "rank": 1,
+     "partner_team": 7,
+     "give": [
+      "p11"
+     ],
+     "get": [
+      "p21"
+     ],
+     "p_yes": 0.38,
+     "p_yes_n": 12,
+     "p_yes_basis": "market+activity",
+     "title_delta": 0.021,
+     "title_delta_se": 0.008,
+     "clears_2se": true,
+     "reason_chain": [
+      "Fills the flex hole this month",
+      "He is thin at the position you give"
+     ],
+     "reply_table": [
+      {
+       "reply": "counter",
+       "counter": "asks for a bench wide receiver added",
+       "action": "Add the bench receiver, stop there",
+       "p": 0.3
+      },
+      {
+       "reply": "decline",
+       "action": "Move to the next card"
+      }
+     ],
+     "walk_away": "Do not add a starter"
+    },
+    {
+     "id": "L1-c2",
+     "rank": 2,
+     "partner_team": 4,
+     "give": [
+      "p12"
+     ],
+     "get": [
+      "p22"
+     ],
+     "p_yes": 0.38,
+     "p_yes_n": 12,
+     "p_yes_basis": "market+activity",
+     "title_delta": 0.021,
+     "title_delta_se": 0.008,
+     "clears_2se": true,
+     "reason_chain": [
+      "Fills the flex hole this month",
+      "He is thin at the position you give"
+     ],
+     "reply_table": [
+      {
+       "reply": "counter",
+       "counter": "asks for a bench wide receiver added",
+       "action": "Add the bench receiver, stop there",
+       "p": 0.3
+      },
+      {
+       "reply": "decline",
+       "action": "Move to the next card"
+      }
+     ],
+     "walk_away": "Do not add a starter"
+    },
+    {
+     "id": "L1-c3",
+     "rank": 3,
+     "partner_team": 7,
+     "give": [
+      "p13"
+     ],
+     "get": [
+      "p23"
+     ],
+     "p_yes": 0.38,
+     "p_yes_n": 12,
+     "p_yes_basis": "market+activity",
+     "title_delta": 0.021,
+     "title_delta_se": 0.008,
+     "clears_2se": true,
+     "reason_chain": [
+      "Fills the flex hole this month",
+      "He is thin at the position you give"
+     ],
+     "reply_table": [
+      {
+       "reply": "counter",
+       "counter": "asks for a bench wide receiver added",
+       "action": "Add the bench receiver, stop there",
+       "p": 0.3
+      },
+      {
+       "reply": "decline",
+       "action": "Move to the next card"
+      }
+     ],
+     "walk_away": "Do not add a starter"
+    },
+    {
+     "id": "L1-c4",
+     "rank": 4,
+     "partner_team": 4,
+     "give": [
+      "p14"
+     ],
+     "get": [
+      "p24"
+     ],
+     "p_yes": 0.38,
+     "p_yes_n": 12,
+     "p_yes_basis": "market+activity",
+     "title_delta": 0.021,
+     "title_delta_se": 0.008,
+     "clears_2se": true,
+     "reason_chain": [
+      "Fills the flex hole this month",
+      "He is thin at the position you give"
+     ],
+     "reply_table": [
+      {
+       "reply": "counter",
+       "counter": "asks for a bench wide receiver added",
+       "action": "Add the bench receiver, stop there",
+       "p": 0.3
+      },
+      {
+       "reply": "decline",
+       "action": "Move to the next card"
+      }
+     ],
+     "walk_away": "Do not add a starter"
+    },
+    {
+     "id": "L1-c5",
+     "rank": 5,
+     "partner_team": 7,
+     "give": [
+      "p15"
+     ],
+     "get": [
+      "p25"
+     ],
+     "p_yes": 0.38,
+     "p_yes_n": 12,
+     "p_yes_basis": "market+activity",
+     "title_delta": 0.021,
+     "title_delta_se": 0.008,
+     "clears_2se": true,
+     "reason_chain": [
+      "Fills the flex hole this month",
+      "He is thin at the position you give"
+     ],
+     "reply_table": [
+      {
+       "reply": "counter",
+       "counter": "asks for a bench wide receiver added",
+       "action": "Add the bench receiver, stop there",
+       "p": 0.3
+      },
+      {
+       "reply": "decline",
+       "action": "Move to the next card"
+      }
+     ],
+     "walk_away": "Do not add a starter"
+    },
+    {
+     "id": "L1-c6",
+     "rank": 6,
+     "partner_team": 4,
+     "give": [
+      "p16"
+     ],
+     "get": [
+      "p26"
+     ],
+     "p_yes": 0.38,
+     "p_yes_n": 12,
+     "p_yes_basis": "market+activity",
+     "title_delta": 0.021,
+     "title_delta_se": 0.008,
+     "clears_2se": true,
+     "reason_chain": [
+      "Fills the flex hole this month",
+      "He is thin at the position you give"
+     ],
+     "reply_table": [
+      {
+       "reply": "counter",
+       "counter": "asks for a bench wide receiver added",
+       "action": "Add the bench receiver, stop there",
+       "p": 0.3
+      },
+      {
+       "reply": "decline",
+       "action": "Move to the next card"
+      }
+     ],
+     "walk_away": "Do not add a starter"
+    },
+    {
+     "id": "L1-c7",
+     "rank": 7,
+     "partner_team": 7,
+     "give": [
+      "p17"
+     ],
+     "get": [
+      "p27"
+     ],
+     "p_yes": 0.38,
+     "p_yes_n": 12,
+     "p_yes_basis": "market+activity",
+     "title_delta": 0.021,
+     "title_delta_se": 0.008,
+     "clears_2se": true,
+     "reason_chain": [
+      "Fills the flex hole this month",
+      "He is thin at the position you give"
+     ],
+     "reply_table": [
+      {
+       "reply": "counter",
+       "counter": "asks for a bench wide receiver added",
+       "action": "Add the bench receiver, stop there",
+       "p": 0.3
+      },
+      {
+       "reply": "decline",
+       "action": "Move to the next card"
+      }
+     ],
+     "walk_away": "Do not add a starter"
+    }
+   ],
+   "calibration": {
+    "clone.accept": {
+     "calibrated": false,
+     "status": "E1 pending"
+    }
+   },
+   "partners": {
+    "4": {
+     "roster_holes": [
+      {
+       "pos": "RB",
+       "gap": 4.5
+      }
+     ],
+     "paper_values": {
+      "p20": 3100,
+      "p10": 2800
+     },
+     "recent_moves": [
+      {
+       "type": "add",
+       "summary": "Picked up a backup back"
+      }
+     ],
+     "offers_logged": 12,
+     "chat_labels": [
+      "rebuilding",
+      "hates wide receivers",
+      "said \"never trading\" to anyone ok"
+     ]
+    },
+    "7": {
+     "roster_holes": [],
+     "paper_values": {},
+     "recent_moves": [],
+     "chat_labels": []
+    }
+   },
+   "news": [
+    {
+     "id": "n-recent",
+     "published_at": "2026-09-23T18:00:00Z",
+     "player_ids": [
+      "p20"
+     ],
+     "headline": "Starter back limited in practice"
+    },
+    {
+     "id": "n-old",
+     "published_at": "2026-09-20T18:00:00Z",
+     "player_ids": [
+      "p20"
+     ],
+     "headline": "Old note"
+    },
+    {
+     "id": "n-other",
+     "published_at": "2026-09-24T08:00:00Z",
+     "player_ids": [
+      "p99"
+     ],
+     "headline": "Unrelated player"
+    }
+   ]
+  },
+  {
+   "league_id": 2,
+   "me": "Team 3",
+   "names": {
+    "p0": "Player A (RB)",
+    "p1": "Player B (RB)",
+    "p2": "Player C (RB)",
+    "p3": "Player D (RB)",
+    "p4": "Player E (RB)",
+    "p5": "Player F (RB)",
+    "p6": "Player G (RB)",
+    "p7": "Player H (RB)",
+    "p8": "Player I (RB)",
+    "p9": "Player J (RB)",
+    "p10": "Player K (RB)",
+    "p11": "Player L (RB)",
+    "p12": "Player M (RB)",
+    "p13": "Player N (RB)",
+    "p14": "Player O (RB)",
+    "p15": "Player P (RB)",
+    "p16": "Player Q (RB)",
+    "p17": "Player R (RB)",
+    "p18": "Player S (RB)",
+    "p19": "Player T (RB)",
+    "p20": "Player U (RB)",
+    "p21": "Player V (RB)",
+    "p22": "Player W (RB)",
+    "p23": "Player X (RB)",
+    "p24": "Player Y (RB)",
+    "p25": "Player Z (RB)",
+    "p26": "Player Ax (RB)",
+    "p27": "Player Bx (RB)",
+    "p28": "Player Cx (RB)",
+    "p29": "Player Dx (RB)"
+   },
+   "calibration": {
+    "clone.accept": {
+     "calibrated": false,
+     "status": "E1 pending"
+    }
+   },
+   "acq": {
+    "best": {
+     "id": "L2-best",
+     "delta_final": 0.012,
+     "steps": [
+      {
+       "team": 5,
+       "give": [
+        "p1"
+       ],
+       "get": [
+        "p2"
+       ],
+       "p": 0.55,
+       "delta": 0.012,
+       "se": 0.004,
+       "clears": true
+      }
+     ]
+    },
+    "alternatives": [
+     {
+      "id": "L2-alt1",
+      "delta_final": 0.009,
+      "steps": [
+       {
+        "team": 6,
+        "give": [
+         "p3"
+        ],
+        "get": [
+         "p4"
+        ],
+        "p": 0.4,
+        "delta": 0.009,
+        "se": 0.006,
+        "clears": false
+       }
+      ]
+     }
+    ]
+   },
+   "partners": {},
+   "news": []
+  }
+ ]
+}

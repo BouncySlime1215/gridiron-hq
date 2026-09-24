@@ -13,25 +13,55 @@
  * Membership first, then the flag (warroom-flag.js#negotiateFlag, off by default, on
  * in preview). Opening a thread reads the step from the served War Room view, never
  * from the request body, so the stored branches are the producer's. Nothing here
- * sends an offer; the rescore is the only computation and it is one fast rescore.
+ * sends an offer.
+ *
+ * "I sent it" has ONE store: opening a thread records it through the War Room's own
+ * request path (warroom-actions/store.js#recordRequest, kind offer.sent ->
+ * trade_outcomes.sent_at), which is idempotent, so the deck's own offer.sent post and
+ * this one land on the same row; the thread only points at it. Undo takes it back the
+ * same way (a retract request).
+ *
+ * The rescore never runs here: campaign/negotiate-engine.js holds the world in one
+ * worker thread. Until it is built for this league sync the answer is
+ * { status: 'building', reason }; after that each edit is one awaited round trip,
+ * capped at 8 s, so the event loop is never held.
  */
 import { Router } from 'express';
 import { row } from '../db/index.js';
 import { assertLeagueMember } from '../platform/auth.js';
 import { previewFields, previewText } from '../services/preview-mode.js';
 import { negotiateFlag, NEGOTIATE_PREVIEW_REASON } from '../services/warroom-flag.js';
-import { warRoomView } from '../services/war-room-view.js';
-import { rescorerFor } from '../services/warroom-rescorer.js';
+import { warRoomView, loadPlans } from '../services/war-room-view.js';
+import { negotiateEngine } from '../services/campaign/negotiate-engine.js';
+import { recordRequest } from '../services/warroom-actions/store.js';
+import { unmarkSentOffer } from '../services/trade-outcomes.js';
 import {
-  REPLY_KINDS, findStep, openThread, getThread, threadsFor, eventsOf, addEvent, closeThread, closesOn,
+  REPLY_KINDS, findStep, openThread, closeIfUnsent, getThread, threadsFor, eventsOf, addEvent, closeThread, closesOn,
   addNames, replyTimes, threadView
 } from '../services/warroom-negotiate.js';
 
 const bad = (res, error) => { res.status(400).json({ error }); };
+const previewed = (flag, text) => (flag.preview && text ? previewText(text) : text);
+
+/**
+ * Undo takes "I sent it" back in its one store: a retract of the latest offer.sent
+ * request for this move (store.js unmarks trade_outcomes.sent_at). No request row by
+ * this user (the deck's post came from elsewhere): unmark the row directly.
+ */
+function undoSent(userId, leagueId, t) {
+  const sentReq = row(`SELECT id FROM warroom_requests WHERE league_id = ? AND user_id IS ? AND kind = 'offer.sent'
+                         AND json_extract(payload, '$.move_id') = ? AND json_extract(payload, '$.trade_outcome.id') = ?
+                       ORDER BY id DESC LIMIT 1`, leagueId, userId, t.move_id, t.trade_outcome_id);
+  if (sentReq) {
+    recordRequest({ userId, leagueId, kind: 'retract', payload: { request_id: sentReq.id } });
+  } else {
+    unmarkSentOffer(t.trade_outcome_id);
+  }
+}
 const idList = v => (Array.isArray(v) && v.every(x => /^[A-Za-z0-9_.:-]{1,64}$/.test(String(x))) ? v.map(String) : null);
 
 export function negotiateRouter({
-  rescorer = rescorerFor, view = warRoomView, times = replyTimes, clock = () => Date.now()
+  engine = negotiateEngine, view = warRoomView, plans = loadPlans, times = replyTimes, clock = () => Date.now()
 } = {}) {
   const r = Router();
 
@@ -60,7 +90,10 @@ export function negotiateRouter({
   function thread(req, res, { open = true } = {}) {
     const t = getThread(req.params.leagueId, Number(req.params.id));
     if (!t) { res.status(404).json({ error: 'negotiation not found' }); return null; }
-    if (open && t.status !== 'open') { res.status(409).json({ error: `this negotiation is closed (${t.closed_reason})` }); return null; }
+    if (open && (t.status !== 'open' || t.sent_at == null)) {
+      res.status(409).json({ error: `this negotiation is closed (${t.sent_at == null ? 'undone' : t.closed_reason})` });
+      return null;
+    }
     return t;
   }
 
@@ -68,6 +101,8 @@ export function negotiateRouter({
     try {
       const L = league(req, res); if (!L) return;
       const list = threadsFor(L.lg.id, { now: clock() });
+      // An open thread means the builder may be opened soon: start its build off-thread now.
+      if (L.lg.payload && list.some(t => t.status === 'open' && t.sent_at != null)) engine.warm(L.lg);
       res.json({ ...meta(L.flag), threads: await Promise.all(list.map(t => render(L.lg, L.flag, t))) });
     } catch (e) { next(e); }
   });
@@ -81,8 +116,25 @@ export function negotiateRouter({
       const v = await view(L.lg.id);
       const found = findStep(v, moveId, stepIndex);
       if (!found) return res.status(409).json({ error: 'That move is not on the current plan any more; refresh the War Room.' });
-      const id = openThread({ leagueId: L.lg.id, userId: req.auth?.userId ?? null, moveId, stepIndex,
+      // A thread whose sent mark was taken back elsewhere closes first; the new send gets a new thread.
+      closeIfUnsent(L.lg.id, moveId, stepIndex, new Date(clock()).toISOString());
+      // The one "I sent it" store. Already marked (the deck posted it first) is the same row.
+      let sent;
+      try {
+        sent = recordRequest({ userId: req.auth?.userId ?? null, leagueId: L.lg.id, kind: 'offer.sent',
+          payload: { move_id: moveId, step_index: stepIndex }, plans: await plans(), now: clock() });
+      } catch (e) {
+        if (e?.status && e.status < 500) throw e;
+        // The store refused the row (e.g. the ledger's CHECKs): no thread without it, and say why.
+        return res.status(409).json({ error: `"I sent it" could not be recorded: ${e?.message ?? e}.` });
+      }
+      const outcome = sent.trade_outcome;
+      if (outcome?.id == null) {
+        return res.status(409).json({ error: `"I sent it" could not be recorded: ${outcome?.reason ?? 'no sent-offer row'}.` });
+      }
+      const id = openThread({ leagueId: L.lg.id, userId: req.auth?.userId ?? null, tradeOutcomeId: outcome.id, moveId, stepIndex,
         step: found.step, names: v.names, snapshotId: v.snapshot?.id ?? null, at: new Date(clock()).toISOString() });
+      if (L.lg.payload) engine.warm(L.lg);
       res.status(201).json({ ...meta(L.flag), thread: await render(L.lg, L.flag, getThread(L.lg.id, id)) });
     } catch (e) { next(e); }
   });
@@ -136,6 +188,7 @@ export function negotiateRouter({
       if (reason === 'undone' && !threadView(t, [], null, clock()).can_undo) {
         return res.status(409).json({ error: 'The undo window has passed; walk away instead.' });
       }
+      if (reason === 'undone') undoSent(req.auth?.userId ?? null, L.lg.id, t);
       closeThread(t.id, reason, at);
       res.json({ ...meta(L.flag), thread: await render(L.lg, L.flag, getThread(L.lg.id, t.id)) });
     } catch (e) { next(e); }
@@ -148,28 +201,28 @@ export function negotiateRouter({
       const t = thread(req, res); if (!t) return;
       const give = idList(req.body?.give), get = idList(req.body?.get);
       if (!give || !get) return bad(res, 'give and get must be lists of player ids');
-      const R = await rescorer(L.lg);
-      if (R.fail) {
-        return res.json({ ...meta(L.flag), status: 'failed', reason: R.fail, build_ms: R.build_ms });
-      }
-      const scored = R.score({ partner: t.partner, give, get });
-      if (scored.problems.length) return res.status(422).json({ error: scored.problems[0], problems: scored.problems });
-      // The walk-away line: the package he'd get at your walk-away, on the same screen.
       const step = JSON.parse(t.step_json);
       const wa = step.walk_away;
-      const screen = wa?.status === 'ok' ? R.screenOf(wa.value.max_give ?? [], JSON.parse(t.get_json)) : null;
+      const E = await engine.rescore(L.lg, { partner: t.partner, give, get, rosters: !!req.body?.rosters,
+        ...(wa?.status === 'ok' ? { walkGive: wa.value.max_give ?? [], walkGet: JSON.parse(t.get_json) } : {}) });
+      if (E.status !== 'ok') {
+        return res.json({ ...meta(L.flag), status: E.status, reason: previewed(L.flag, E.reason), ...(E.build_ms != null ? { build_ms: E.build_ms } : {}) });
+      }
+      if (E.problems.length) return res.status(422).json({ error: E.problems[0], problems: E.problems });
+      const { scored } = E;
+      // The walk-away line: the package he'd get at your walk-away, on the same screen.
+      const screen = E.walk_screen;
       const walk_away = wa?.status !== 'ok'
         ? { status: wa?.status === 'failed' ? 'failed' : 'unknown', source: 'clone.price', reason: wa?.reason ?? 'No walk-away was priced for this step.' }
         : Number.isFinite(screen)
           ? { status: 'ok', source: 'clone.price', value: screen, unit: 'percent', text: wa.value.text }
           : { status: 'unknown', source: 'clone.price', reason: 'The walk-away package has no market value to place on his screen.' };
-      const labels = Object.fromEntries([...give, ...get].map(id => [id, R.label(id)]));
-      addNames(t.id, labels);
+      addNames(t.id, E.labels);
       res.json({
-        ...meta(L.flag), status: 'ok', partner: t.partner, give, get, names: labels,
-        ms: scored.ms, build_ms: R.build_ms, runs: scored.runs, axis: R.axis,
+        ...meta(L.flag), status: 'ok', partner: t.partner, give, get, names: E.labels,
+        ms: scored.ms, build_ms: E.build_ms, runs: scored.runs, axis: E.axis,
         nick: scored.nick, his: scored.his, walk_away,
-        ...(req.body?.rosters ? { rosters: { mine: R.roster(R.me), his: R.roster(t.partner) } } : {})
+        ...(E.rosters ? { rosters: E.rosters } : {})
       });
     } catch (e) { next(e); }
   });

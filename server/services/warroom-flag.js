@@ -37,12 +37,12 @@ export function warRoomPlansPath() {
 }
 
 /**
- * NEGOTIATE-UI: negotiation mode's switch. GRIDIRON_WARROOM_NEGOTIATE=1 turns it on
+ * NEGOTIATE-UI: negotiation mode's switch. GRIDIRON_NEGOTIATE_UI=1 turns it on
  * inside a War Room that is itself on; preview mode turns both on. Default off,
  * fly.toml does not set it. When on only because of preview, the thread carries
  * `preview: true` and NEGOTIATE_PREVIEW_REASON.
  */
-export const NEGOTIATE_ENV = 'GRIDIRON_WARROOM_NEGOTIATE';
+export const NEGOTIATE_ENV = 'GRIDIRON_NEGOTIATE_UI';
 export const NEGOTIATE_PREVIEW_REASON =
   'Negotiation mode reads an unvalidated acceptance model and hand-set follow-up rules';
 

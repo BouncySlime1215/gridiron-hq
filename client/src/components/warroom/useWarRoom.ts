@@ -1,6 +1,6 @@
 import { useApi } from '../../api';
 import type { WarRoomView } from './types';
-import type { Negotiations } from './negotiate';
+import type { Negotiations } from './negotiateModel';
 
 /**
  * The only fetch for the War Room (WAR-ROOM-UI.md 2.1). When the engine view lands

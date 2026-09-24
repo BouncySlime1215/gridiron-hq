@@ -2,7 +2,7 @@
  * NEGOTIATE-UI: the War Room's negotiation mode (WAR-ROOM-UI.md v3, new mode 1).
  *
  * Server (server/routes/warroom-negotiate.js, services/warroom-negotiate.js,
- * services/warroom-rescorer.js, migration 093):
+ * services/campaign/negotiate-engine.js, migration 102):
  *  - membership before the flag; flag off answers { enabled: false }; preview says so;
  *  - "I sent it" reads the step from the served view, never the body; one open thread
  *    per move and step; the stored branches are the step's reply_table;
@@ -12,8 +12,12 @@
  *    else the playbook's hand-set 24 h / 48 h with the reason); a counter restarts it;
  *  - Undo works for 10 minutes only;
  *  - the rescore: one world per league sync, every edit one tradeImpact against it;
- *    Nick's title-odds change, his P(yes) band and yes-point, the walk-away line.
- * Client (Negotiate.tsx, negotiate.ts, requests.ts, NextMoveDeck.tsx):
+ *    Nick's title-odds change, his P(yes) band and yes-point, the walk-away line;
+ *  - NEGOTIATE-UI-FIX: the world lives in one worker; the route answers 'building'
+ *    until it is ready and awaits each edit (never blocks), capped at 8 s;
+ *  - "I sent it" has one store: trade_outcomes.sent_at, via the War Room request path;
+ *    the thread points at it, the deck's own post dedupes onto it, Undo takes it back.
+ * Client (Negotiate.tsx, negotiateModel.ts, requests.ts, NextMoveDeck.tsx):
  *  - the thread renders branches, the live branch, the countdown, and the slider with
  *    the yes-point and walk-away line; an unknown walk-away says why, never 0;
  *  - the package reducer never empties a side and caps each at four;
@@ -35,7 +39,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-negotiate-test-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.GRIDIRON_DB_INTEGRITY_CHECK = 'off';
 delete process.env.GRIDIRON_WARROOM_ENABLED;
-delete process.env.GRIDIRON_WARROOM_NEGOTIATE;
+delete process.env.GRIDIRON_NEGOTIATE_UI;
 delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
 
 const { db, row, run } = await import('../server/db/index.js');
@@ -46,7 +50,9 @@ const { legacyAuthenticated } = await import('../server/platform/legacy-access.j
 const { negotiateRouter } = await import('../server/routes/warroom-negotiate.js');
 const { buildWarRoomView } = await import('../server/services/war-room-view.js');
 const N = await import('../server/services/warroom-negotiate.js');
-const { makeRescorer, rescorerFor, __resetRescorers, SCREEN_AXIS } = await import('../server/services/warroom-rescorer.js');
+const { makeRescorer, rescorerFor, __resetRescorers, SCREEN_AXIS, localEngine, createNegotiateEngine, ENGINE_CALL_MS } =
+  await import('../server/services/campaign/negotiate-engine.js');
+const { recordRequest } = await import('../server/services/warroom-actions/store.js');
 const { negotiateFlag, NEGOTIATE_ENV } = await import('../server/services/warroom-flag.js');
 const { PREVIEW_PREFIX } = await import('../server/services/preview-mode.js');
 const express = (await import('express')).default;
@@ -78,6 +84,14 @@ db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
 const ON = { enabled: true, preview: false };
 const served = buildWarRoomView(1, { status: 'ok', entries: structuredClone(producer.leagues), as_of: '2026-09-24T06:00:00.000Z', id: 'plans@1',
   head: { schema: producer.schema } }, ON);
+// The plans the "I sent it" store reads. trade_outcomes only takes a band with a basis the
+// ledger allows (067's CHECK), so each first step's band carries one here.
+const PLANS = { status: 'ok', entries: structuredClone(producer.leagues), as_of: '2026-09-24T06:00:00.000Z', id: 'plans@1' };
+for (const e of PLANS.entries) {
+  for (const m of [...(e.alternatives?.value ?? []), ...(e.next_move?.value ? [e.next_move.value] : [])]) {
+    for (const st of m.steps ?? []) if (st.p_yes_band) st.p_yes_band = { ...st.p_yes_band, basis: 'heuristic_unanchored' };
+  }
+}
 const MOVE = served.alternatives.value[0];
 const STEP = MOVE.steps[0];
 
@@ -114,7 +128,7 @@ const fake = {
 const app = express();
 app.use(express.json());
 app.use('/api/warroom', ...legacyAuthenticated, negotiateRouter({
-  rescorer: async () => fake, view: async () => structuredClone(served),
+  engine: localEngine(async () => fake), view: async () => structuredClone(served), plans: async () => PLANS,
   times: (l, me, p) => N.replyTimes(l, me, p, { chat: noChat }), clock
 }));
 app.use((err, _req, res, _next) => res.status(Number.isInteger(err.status) ? err.status : 500).json({ error: err.message }));
@@ -140,15 +154,21 @@ const withEnv = async (env, fn) => {
   }
 };
 const LIVE = { GRIDIRON_WARROOM_ENABLED: '1', [NEGOTIATE_ENV]: '1', GRIDIRON_PREVIEW_UNCONFIRMED: null };
-const fresh = () => { run('DELETE FROM warroom_negotiation_events'); run('DELETE FROM warroom_negotiations'); };
+const fresh = () => {
+  run('DELETE FROM negotiation_events'); run('DELETE FROM negotiation_threads');
+  run('DELETE FROM warroom_requests'); run('DELETE FROM trade_outcomes');
+};
 
 /* -------------------------------------------------------------- flag + auth */
 
-test('migration 093 adds the two negotiation tables', () => {
-  assert.ok(row(`SELECT 1 AS ok FROM schema_migrations WHERE name = '093_warroom_negotiations'`));
-  for (const t of ['warroom_negotiations', 'warroom_negotiation_events']) {
+test('migration 102 adds the two negotiation tables, neither with a sent time of its own', () => {
+  assert.ok(row(`SELECT 1 AS ok FROM schema_migrations WHERE name = '102_negotiation_threads'`));
+  for (const t of ['negotiation_threads', 'negotiation_events']) {
     assert.ok(row(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?`, t), t);
+    const cols = db.prepare(`PRAGMA table_info(${t})`).all().map(c => c.name);
+    assert.ok(!cols.includes('sent_at'), `${t} must not keep its own sent_at`);
   }
+  assert.ok(db.prepare('PRAGMA table_info(negotiation_threads)').all().some(c => c.name === 'trade_outcome_id'));
 });
 
 test('the flag: off by default, needs the War Room on, preview turns both on and says so', async () => {
@@ -355,7 +375,8 @@ test('rescore: a priced walk-away is placed on his screen with its text', async 
   priced.alternatives.value[0].steps[0].walk_away = { status: 'ok', source: 'clone.price', value: { text: 'up to P5 + P6 + P7', max_give: ['5', '6', '7'] } };
   const app2 = express();
   app2.use(express.json());
-  app2.use('/api/warroom', ...legacyAuthenticated, negotiateRouter({ rescorer: async () => fake, view: async () => priced,
+  app2.use('/api/warroom', ...legacyAuthenticated, negotiateRouter({ engine: localEngine(async () => fake), view: async () => priced,
+    plans: async () => PLANS,
     times: (l, me, p) => N.replyTimes(l, me, p, { chat: noChat }), clock }));
   const s2 = app2.listen(0);
   try {
@@ -430,9 +451,116 @@ test('his side: P(yes) band, yes-point at minus his perception shift, market-fai
   assert.match(broken.fail, /no projections/);
 });
 
+/* ------------------------------------------------- NEGOTIATE-UI-FIX: one sent store */
+
+test('"I sent it" has one store: the thread points at trade_outcomes.sent_at, the deck post dedupes, Undo takes it back', async () => {
+  fresh();
+  await withEnv(LIVE, async () => {
+    const { thread } = (await call(base, { body: { move_id: MOVE.move_id, step_index: 0 } })).body;
+    const sent = db.prepare('SELECT id, sent_at, move_id FROM trade_outcomes WHERE sent_at IS NOT NULL').all();
+    assert.equal(sent.length, 1, 'one sent-offer row');
+    assert.equal(sent[0].move_id, MOVE.move_id);
+    assert.equal(thread.sent_at, sent[0].sent_at, 'the thread reads its sent time from trade_outcomes');
+    assert.equal(row('SELECT trade_outcome_id FROM negotiation_threads WHERE id = ?', thread.id).trade_outcome_id, sent[0].id);
+    // The deck's own offer.sent post (the War Room request path) lands on the same row.
+    const deck = recordRequest({ userId: owner, leagueId: 1, kind: 'offer.sent', payload: { move_id: MOVE.move_id }, plans: PLANS, now: NOW });
+    assert.equal(deck.already_sent, true);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM trade_outcomes WHERE sent_at IS NOT NULL').get().n, 1);
+    assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM warroom_requests WHERE kind = 'offer.sent'`).get().n, 1);
+    const u = await call(`${base}/${thread.id}/close`, { body: { reason: 'undone' } });
+    assert.equal(u.body.thread.closed_reason, 'undone');
+    assert.equal(row('SELECT sent_at FROM trade_outcomes WHERE id = ?', sent[0].id).sent_at, null, 'Undo unmarks the one store');
+    assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM warroom_requests WHERE kind = 'retract'`).get().n, 1);
+  });
+});
+
+test('a sent mark taken back elsewhere reads as undone and frees the card', async () => {
+  fresh();
+  await withEnv(LIVE, async () => {
+    const { thread } = (await call(base, { body: { move_id: MOVE.move_id, step_index: 0 } })).body;
+    run('UPDATE trade_outcomes SET sent_at = NULL');
+    const list = (await call(base)).body.threads;
+    assert.equal(list[0].status, 'closed');
+    assert.equal(list[0].closed_reason, 'undone');
+    assert.equal((await call(`${base}/${thread.id}/reply`, { body: { reply: 'accept' } })).status, 409);
+    const again = (await call(base, { body: { move_id: MOVE.move_id, step_index: 0 } })).body.thread;
+    assert.notEqual(again.id, thread.id);
+    assert.equal(again.status, 'open');
+  });
+});
+
+/* --------------------------------------------- NEGOTIATE-UI-FIX: the engine worker */
+
+/** A stand-in worker: records posts; the test answers them by emitting messages. */
+function fakeWorker() {
+  const listeners = {};
+  const w = {
+    posted: [], terminated: false,
+    on(ev, fn) { (listeners[ev] ??= []).push(fn); return w; },
+    emit(ev, msg) { for (const fn of listeners[ev] ?? []) fn(msg); },
+    postMessage(m) { w.posted.push(m); },
+    unref() {}, async terminate() { w.terminated = true; }
+  };
+  return w;
+}
+
+test('the engine: first call starts the build and says "building"; ready edits are awaited round trips', async () => {
+  const w = fakeWorker();
+  const E = createNegotiateEngine({ makeWorker: () => w, callMs: 50 });
+  const lg = { id: 1, fetched_at: 'sync-1' };
+  const first = await E.rescore(lg, { partner: '3', give: ['5'], get: ['21'] });
+  assert.equal(first.status, 'building');
+  assert.match(first.reason, /still being built/);
+  assert.deepEqual(w.posted, [{ op: 'build', key: '1@sync-1', leagueId: 1 }]);
+  assert.equal((await E.rescore(lg, { partner: '3', give: ['5'], get: ['21'] })).status, 'building');
+  assert.equal(w.posted.length, 1, 'one build per league sync, however many calls');
+  w.emit('message', { op: 'built', key: '1@sync-1', build_ms: 23800 });
+  const p = E.rescore(lg, { partner: '3', give: ['5'], get: ['21'] });
+  const ask = w.posted.at(-1);
+  assert.equal(ask.op, 'rescore');
+  assert.deepEqual(ask.req, { partner: '3', give: ['5'], get: ['21'] });
+  w.emit('message', { op: 'answer', id: ask.id, value: { problems: [], scored: { ms: 310 }, build_ms: 23800 } });
+  const got = await p;
+  assert.equal(got.status, 'ok');
+  assert.equal(got.scored.ms, 310);
+  // A call the worker does not answer in time is failed, not hung; its late answer is dropped.
+  const slow = await E.rescore(lg, { partner: '3', give: ['6'], get: ['21'] });
+  assert.equal(slow.status, 'failed');
+  assert.match(slow.reason, /longer than/);
+  w.emit('message', { op: 'answer', id: w.posted.at(-1).id, value: {} });
+  // A new sync builds again; a failed build says why.
+  const next = await E.rescore({ id: 1, fetched_at: 'sync-2' }, { partner: '3', give: ['5'], get: ['21'] });
+  assert.equal(next.status, 'building');
+  w.emit('message', { op: 'built', key: '1@sync-2', fail: 'The season simulation could not be built for this league (x).' });
+  assert.match((await E.rescore({ id: 1, fetched_at: 'sync-2' }, { partner: '3', give: ['5'], get: ['21'] })).reason, /could not be built/);
+  // The worker dying fails what is pending and the next call starts a fresh one.
+  w.emit('message', { op: 'built', key: '1@sync-3', build_ms: 1 });
+  w.emit('exit', 1);
+  assert.equal(ENGINE_CALL_MS, 8000);
+  await E.stop();
+});
+
+test('the real worker thread: builds off the request thread and reports a league it cannot build', { timeout: 60_000 }, async () => {
+  const E = createNegotiateEngine();
+  const lg = row('SELECT * FROM leagues WHERE id = 1');
+  const t0 = performance.now();
+  const first = await E.rescore(lg, { partner: '3', give: ['5'], get: ['21'] });
+  assert.ok(performance.now() - t0 < 100, 'the first call returns at once');
+  assert.equal(first.status, 'building');
+  let r = first;
+  for (let i = 0; i < 200 && r.status === 'building'; i++) {
+    await new Promise(res => setTimeout(res, 100));
+    r = await E.rescore(lg, { partner: '3', give: ['5'], get: ['21'] });
+  }
+  // The fixture league has no rosters or projections: the worker's build fails and says so.
+  assert.equal(r.status, 'failed');
+  assert.ok(r.reason.length > 0);
+  await E.stop();
+});
+
 /* -------------------------------------------------------------------- client */
 
-const neg = await wr.mod('negotiate');
+const neg = await wr.mod('negotiateModel');
 const { default: Negotiate } = await wr.mod('Negotiate');
 const req = await wr.mod('requests');
 const { default: NextMoveDeck } = await wr.mod('NextMoveDeck');
@@ -564,6 +692,15 @@ test('a sent card flips to the live thread; without negotiation mode the reply t
   const undone = { ...t, status: 'closed', closed_reason: 'undone' };
   const u = textOf(renderToStaticMarkup(React.createElement(NextMoveDeck, { view: served, big: true, negotiation: { enabled: true, threads: [undone] } })));
   assert.doesNotMatch(u, /Waiting on Team/, 'an undone thread gives the card back');
+});
+
+test('the builder says the world is still being built instead of showing numbers', () => {
+  const t = threadFixture();
+  const building = { enabled: true, status: 'building', reason: 'The counter builder is still being built for this league in the background.' };
+  const html = renderToStaticMarkup(React.createElement(Negotiate, { thread: t, onThread() {}, now: Date.parse(t.sent_at), initialRescore: building }));
+  assert.match(html, /data-testid="builder-building"/);
+  assert.match(textOf(html), /still being built/);
+  assert.doesNotMatch(textOf(html), /Your title odds [+\d]/);
 });
 
 test('preview prefixes the countdown\'s sentences', async () => {

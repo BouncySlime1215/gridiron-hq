@@ -38,10 +38,11 @@ export interface Thread {
   give: string[];
   get: string[];
   names: Record<string, string>;
-  sent_at: string;
+  /** trade_outcomes.sent_at, the one "I sent it" store; null once taken back. */
+  sent_at: string | null;
   status: 'open' | 'closed';
   closed_reason: 'accepted' | 'declined' | 'walked_away' | 'undone' | null;
-  undo_until: string;
+  undo_until: string | null;
   can_undo: boolean;
   step: {
     p_yes: Num;
@@ -64,7 +65,8 @@ export type Pct = Field<number> & { unit?: string; basis?: string; text?: string
 
 export interface Rescore {
   enabled: boolean;
-  status: 'ok' | 'failed';
+  /** 'building': the server's worker is still building this league's world; ask again shortly. */
+  status: 'ok' | 'failed' | 'building';
   reason?: string;
   partner?: string;
   give?: string[];

@@ -12,7 +12,7 @@ Base: `origin/claude/cloud-fix-03` (`d7736fe`) with `origin/claude/cloud-fix-04`
 After "I sent it" the deck card becomes a live thread (`Negotiate.tsx`):
 
 1. **Reply branches.** The step's `reply_table` as the plans file served it when the
-   offer went out, stored with the thread (migration 093), so a replan does not rewrite
+   offer went out, stored with the thread (migration 102; the sent time is trade_outcomes.sent_at, the one "I sent it" store), so a replan does not rewrite
    what Nick sent against. "He did this" logs his reply; its branch goes live and shows
    its counter rules or ready message. Accept and decline close the thread; a counter
    carries his ask (picked in the builder).
@@ -80,3 +80,21 @@ Each mutant applied alone, the suite re-run, the file restored.
   counterparty-pricing.js and manager-signals.js already use); the bench prints how
   many offers join and the per-team source. Expired offers leave no row, so the
   distribution is his time when he answers at all.
+
+## NEGOTIATE-UI-FIX (2026-09-24)
+
+- The rescorer moved to `server/services/campaign/negotiate-engine.js` and runs in one unref'd
+  worker thread (the COACH-NEGOTIATE #327 pattern). The first call for a league sync starts the
+  build and answers `status: 'building'`; each edit after that is one awaited message round trip,
+  capped at 8 s. The Express thread never runs the world build or a rescore.
+  Local copy, league 4: first call 24.6 s with 24.5 s event-loop lag -> 75-129 ms with 32-63 ms lag;
+  10 edits p95 623 ms (614 ms lag) -> 314-957 ms (12-42 ms lag).
+- "I sent it" has one store, `trade_outcomes.sent_at`. Opening a thread records it through
+  `warroom-actions/store.js#recordRequest` (offer.sent, idempotent with the deck's own post) and the
+  thread keeps `trade_outcome_id`; Undo is a retract request. Migration 102 (`negotiation_threads`,
+  `negotiation_events`) replaces #309's 093, which carried its own `sent_at`.
+- `client/src/components/warroom/negotiate.ts` -> `negotiateModel.ts` (it clashed with `Negotiate.tsx`
+  on a case-insensitive disk).
+- Flag: `GRIDIRON_NEGOTIATE_UI` (was `GRIDIRON_WARROOM_NEGOTIATE`), default off, preview turns it on.
+- TODO: his yes-point should come from `server/services/people/counterpart.js` once the batch-4
+  merge lands; until then the existing acceptance model.

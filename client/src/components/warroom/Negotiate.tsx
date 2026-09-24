@@ -9,7 +9,7 @@ import {
 import {
   countdownText, elapsed, pkgReducer, samePkg, screen, slot, span,
   type Pkg, type Rescore, type RosterPlayer, type Thread, type ThreadResponse,
-} from './negotiate';
+} from './negotiateModel';
 
 /**
  * NEGOTIATION MODE (WAR-ROOM-UI.md v3, new mode 1). After "I sent it" the card is a live
@@ -44,8 +44,9 @@ export default function Negotiate({ thread, onThread, post, now: fixedNow, initi
     .then(r => { setError(null); onThread((r as ThreadResponse)?.thread ?? null); })
     .catch(e => setError(e instanceof Error ? e.message : String(e)));
 
-  const sentAt = new Date(thread.sent_at);
-  const since = sentAt.toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  const since = thread.sent_at
+    ? new Date(thread.sent_at).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+    : 'an offer that was taken back';
   const closed = thread.status === 'closed';
   const c = thread.countdown;
   const live = thread.branches.find(b => b.live) ?? null;
@@ -173,11 +174,14 @@ function CounterBuilder({ thread, mode, post, initial, onClose, onDone }: {
   const [rosters, setRosters] = useState(initial?.rosters ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bumped to ask again while the server is still building this league's world.
+  const [retry, setRetry] = useState(0);
   const seq = useRef(0);
   const L = thread.league_id;
 
   useEffect(() => {
     const mine = ++seq.current;
+    let again: number | undefined;
     setBusy(true);
     const t = window.setTimeout(() => {
       rescoreCounter(L, thread.id, pkg, rosters == null, post)
@@ -186,14 +190,15 @@ function CounterBuilder({ thread, mode, post, initial, onClose, onDone }: {
           const s = r as Rescore;
           setScore(s); setError(null);
           if (s.rosters) setRosters(s.rosters);
+          if (s.status === 'building') again = window.setTimeout(() => setRetry(n => n + 1), 3000);
         })
         .catch(e => { if (mine === seq.current) setError(e instanceof Error ? e.message : String(e)); })
         .finally(() => { if (mine === seq.current) setBusy(false); });
     }, 120);
-    return () => window.clearTimeout(t);
+    return () => { window.clearTimeout(t); if (again != null) window.clearTimeout(again); };
     // rosters is fetched once; an edit only resends the package.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [L, thread.id, pkg.give.join(), pkg.get.join(), post]);
+  }, [L, thread.id, pkg.give.join(), pkg.get.join(), post, retry]);
 
   const ok = score?.status === 'ok';
   const axis = score?.axis ?? { low: -35, high: 45 };
@@ -229,6 +234,7 @@ function CounterBuilder({ thread, mode, post, initial, onClose, onDone }: {
       {chips('get', rosters?.his)}
 
       {score?.status === 'failed' && <div className="wr-hint wr-red">{score.reason}</div>}
+      {score?.status === 'building' && <div className="wr-hint" role="status" data-testid="builder-building">{score.reason}</div>}
       <div className="wr-tiles">
         <div className="wr-tile">
           <div className="wr-l">Your title odds</div>

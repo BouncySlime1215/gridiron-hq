@@ -7,7 +7,7 @@ import { FieldBlock, SourceTag, Val } from './FieldState';
 import { pct, pts, NOT_COMPUTED, isOk } from './format';
 import ReplyTable from './ReplyTable';
 import Negotiate from './Negotiate';
-import type { Negotiations, Thread, ThreadResponse } from './negotiate';
+import type { Negotiations, Thread, ThreadResponse } from './negotiateModel';
 
 /**
  * NEXT MOVE: the one decision ("send this to this manager, yes or no") as a swipe deck

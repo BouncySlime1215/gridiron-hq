@@ -113,8 +113,11 @@ export interface BrainReport {
   blocks: string[];
   fell_back_to?: 'balanced';
 }
-/** Not in warroom-plans/1 yet (FIX-03 adds it); the view writes it unknown until then. */
-export interface NumberHealth { status: 'ok' | 'warn' | 'broken'; open: { check_id: string; text: string }[] }
+export type NumberHealthStatus = 'ok' | 'warn' | 'broken';
+/** One number-audit row (plans-schema.js number_health.checks[]). */
+export interface NumberHealthCheck { check_id: string; status: NumberHealthStatus; title: string; detail?: string; cause?: string }
+/** The contract's number_health value (plans-schema.js, written by brain-gate.js#readNumberHealth). */
+export interface NumberHealth { overall: NumberHealthStatus; broken: number; warn: number; ok: number; checks: NumberHealthCheck[] }
 /** This league's place in "needs you this week". */
 export interface Attention { rank: number; of: number; reason: string }
 

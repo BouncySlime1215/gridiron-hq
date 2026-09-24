@@ -115,12 +115,13 @@ export function flipLegsFlag(env = process.env) {
 }
 
 /**
- * FLIP-LEGS: the value of the best package of one or two of Nick's players he can give, and the
- * highest player value that package still reads fair for on the other screen (the planner's
- * fairBand: a player is in reach when his band's floor is at or under that package).
+ * FLIP-LEGS: the value of the best package of up to `k` of Nick's players he can give (2 by default;
+ * REACH-01 with its flag on passes the risk mode's max give), and the highest player value that
+ * package still reads fair for on the other screen (the planner's fairBand: a player is in reach
+ * when his band's floor is at or under that package).
  */
-export function flipReach(myValues) {
-  const top = [...myValues].filter(v => v > 0).sort((a, b) => b - a).slice(0, 2);
+export function flipReach(myValues, k = 2) {
+  const top = [...myValues].filter(v => v > 0).sort((a, b) => b - a).slice(0, k);
   const pkg = top.reduce((s, v) => s + v, 0);
   return { package_value: pkg, reaches: v => { const b = fairBand(v); return !!b && b.lo <= pkg; } };
 }
@@ -133,13 +134,16 @@ export function flipReach(myValues) {
  * the one that adds most to Nick. Returns the ids or null per leg.
  */
 export function flipLegs({ player, myIds, bIds, val, lossN, addN, pairLimit = SEARCH_DEFAULTS.pairLimit,
-  maxOverpay = DEFAULT_MAX_OVERPAY }) {
+  maxOverpay = DEFAULT_MAX_OVERPAY, maxGive = 2 }) {
   const pv = val(player);
   const band = fairBand(pv);
   const items = myIds.filter(id => id !== player).map(id => ({ id, value: val(id) }));
   const sum = (ids, m) => ids.reduce((s, id) => s + (m.get(id) ?? 0), 0);
   const worth = ids => ids.reduce((s, id) => s + val(id), 0);
-  const fairGives = [...onesInBand(items, band), ...pairsInBand(items, band, { limit: pairLimit })];
+  // REACH-01: with a max give of 3 (flag on, all-in), leg 1 may also be a three-player package.
+  const triples = maxGive >= 3 && band
+    ? combos(items.map(x => x.id), 3).filter(ids => ids.length === 3 && worth(ids) >= band.lo && worth(ids) <= band.hi) : [];
+  const fairGives = [...onesInBand(items, band), ...pairsInBand(items, band, { limit: pairLimit }), ...triples];
   // NO-OVERPAY: leg 1 never gives more market value than the player is worth; leg 2 never gives him for less.
   const gives = fairGives.filter(ids => !nickOverpays(worth(ids), pv, maxOverpay));
   const legX = gives.sort((x, y) => sum(y, lossN) - sum(x, lossN) || x.length - y.length)[0] ?? null;
@@ -159,7 +163,7 @@ export function flipLegs({ player, myIds, bIds, val, lossN, addN, pairLimit = SE
  * adapter.untouchable and each manager's nick.untouchable); a leg may be 2-for-1 (flipLegs); a flip
  * that still does not realise says which leg is missing (why, why_code).
  */
-export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 1, maxOverpay = DEFAULT_MAX_OVERPAY } = {}) {
+export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 1, maxOverpay = DEFAULT_MAX_OVERPAY, maxGive = 2 } = {}) {
   const me = adapter.league.me;
   const P = adapter.players;
   const val = id => Math.max(0, Number(P.get(id)?.value) || 0);
@@ -168,7 +172,7 @@ export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 
   for (const m of adapter.managers.values()) for (const id of m?.nick?.untouchable ?? []) untouchable.add(String(id));
   const flipOk = legsOn ? id => vals.tradable(id) && !untouchable.has(String(id)) : vals.tradable;
   const myIds = S.rosterOf(new Map(), me).filter(flipOk);
-  const reach = legsOn ? flipReach(myIds.map(val)) : null;
+  const reach = legsOn ? flipReach(myIds.map(val), maxGive) : null;
   const flips = [];
   for (const [aId, ids] of adapter.rosters) {
     if (aId === me || excluded(adapter.managers.get(aId))) continue;
@@ -196,7 +200,7 @@ export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 
     let gx, gy;
     if (legsOn) {
       const legs = flipLegs({ player: f.player, myIds, bIds: adapter.rosters.get(f.b).filter(flipOk), val,
-        lossN: vals.lossN, addN: vals.addN, pairLimit, maxOverpay });
+        lossN: vals.lossN, addN: vals.addN, pairLimit, maxOverpay, maxGive });
       gx = legs.legX; gy = legs.legY;
       if (!gx || !gy) {
         // NO-OVERPAY: a leg that only the cap removed says so (every fair package gives more than it gets).
@@ -278,9 +282,12 @@ export function twoForOneSummary(stats) {
  * two-player side) so each arm is scored on its own merits. Off, the incumbent search runs
  * unchanged. Either way a target whose owner Nick marked unreachable (or never trading) gets no
  * path: that manager is never a step (FIX-02c nick block).
+ *
+ * REACH-01: `chainGive` caps the gives on a chained finish (2, today's; the planner passes the risk
+ * mode's max_give_per_step with GRIDIRON_REACH on). The direct finish keeps maxGiveFinal (3).
  */
 export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal = 3, shortlist = [8, 12, 8],
-  maxOverpay = DEFAULT_MAX_OVERPAY, overpaySink = null } = {}) {
+  maxOverpay = DEFAULT_MAX_OVERPAY, overpaySink = null, chainGive = 2 } = {}) {
   const me = adapter.league.me;
   const P = adapter.players;
   const o = { ...SEARCH_DEFAULTS, ...(adapter.searchOpts ?? {}) };
@@ -294,7 +301,7 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     && !adapter.managers.get(id)?.checked_out);
   const lin = state => linearNick(S.rosterOf(state, me), origMine, vals.addN, vals.lossN);
   const count = (bucket, st) => { if (stats) { const k = shapeOf(st); stats[bucket][k] = (stats[bucket][k] ?? 0) + 1; } };
-  const stepsFrom = (state, team, onlyGet = null, maxGive = 2) => {
+  const stepsFrom = (state, team, onlyGet = null, maxGive = 2, prefix = null) => {
     const mine = S.rosterOf(state, me).filter(vals.tradable);
     const theirs = onlyGet != null ? [onlyGet] : S.rosterOf(state, team).filter(vals.tradable);
     const out = [];
@@ -307,7 +314,9 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
           overpaySink.rejected++;
           const c = overpaySink.closest;
           if (st.get.some(id => String(id) === String(target)) && Number.isFinite(pct) && (!c || pct < c.pct)) {
-            overpaySink.closest = { team: st.team, give: [...st.give], get: [...st.get], pct };
+            overpaySink.closest = { team: st.team, give: [...st.give], get: [...st.get], pct,
+              // REACH-01: a chained finish keeps the steps before it, so the miss prints as its whole chain.
+              ...(prefix?.length ? { chain: prefix.map(x => ({ team: x.team, give: [...x.give], get: [...x.get] })) } : {}) };
           }
         }
         return;
@@ -366,7 +375,7 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     const own = S.ownerOf(state, target);
     if (own == null || own === me) return null;
     let best = null;
-    for (const st of stepsFrom(state, own, target, 2)) {
+    for (const st of stepsFrom(state, own, target, chainGive, prefix)) {
       const steps = [...prefix, withP(state, st)];
       const e = h(steps);
       if (!best || e.expected > best.e.expected) best = { steps, e };

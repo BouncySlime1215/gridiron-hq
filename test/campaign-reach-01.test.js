@@ -51,9 +51,9 @@ test('reach bound: the plan arithmetic (direct 2-give 5,503, 3-give 7,413)', () 
 
 test('reach bound: a one-chip chain through a real 6,166 piece (the closest-miss chain)', () => {
   const b = reachBound({ mine: MINE, outside: [6166], maxGiveDirect: 3, maxGiveChain: 2, maxOverpay: 0 });
-  // Two of Nick's (5,503) for the 6,166 piece, then that piece + the best one left (1,910) = 8,076.
-  assert.equal(b.chain, 8076);
-  assert.equal(b.best, 8076);
+  // Two of Nick's (3,583 + 1,910 = 5,493) for the 6,166 piece, then that piece + the best one left (1,920) = 8,086.
+  assert.equal(b.chain, 8086);
+  assert.equal(b.best, 8086);
   assert.equal(targetReach(6791, b).in_reach, true, 'the 6,791 RB is chain-reachable with two gives');
   assert.equal(targetReach(9722, b).in_reach, false, 'the 9,722 RB is still not');
   // With no chip piece anywhere in the league, the chain adds nothing.

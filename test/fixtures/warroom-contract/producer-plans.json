@@ -3474,6 +3474,72 @@
       ],
       "refused_targets": []
      },
+     "reach": {
+      "flag": "off",
+      "targets_budget": 3,
+      "chain_give": 2,
+      "bound": {
+       "direct": {
+        "1": 3000,
+        "2": 5600,
+        "3": 7800
+       },
+       "chain": 7200,
+       "best": 7800
+      },
+      "targets": [],
+      "dropped_by_reason": {
+       "candidates": 138,
+       "search": {
+        "no_overpay": 0,
+        "out_of_reach": 0
+       },
+       "modes": {
+        "safe": {
+         "kept": 21,
+         "tolerance": {
+          "max_assets": 108,
+          "max_offers_per_manager_week": 0,
+          "max_give_per_step": 0,
+          "max_downside_per_step": 2,
+          "core_starter": 7,
+          "untouchable": 0
+         },
+         "p_complete_floor": 0,
+         "confirm": {
+          "checked": 7,
+          "failed": 0
+         }
+        },
+        "balanced": {
+         "kept": 45,
+         "tolerance": {
+          "max_assets": 75,
+          "max_offers_per_manager_week": 0,
+          "max_give_per_step": 5,
+          "max_downside_per_step": 3,
+          "core_starter": 0,
+          "untouchable": 10
+         },
+         "p_complete_floor": 0,
+         "confirm": null
+        },
+        "all_in": {
+         "kept": 88,
+         "tolerance": {
+          "max_assets": 0,
+          "max_offers_per_manager_week": 0,
+          "max_give_per_step": 0,
+          "max_downside_per_step": 1,
+          "core_starter": 0,
+          "untouchable": 34
+         },
+         "p_complete_floor": 15,
+         "confirm": null
+        }
+       }
+      }
+     },
      "requests": {
       "status": "not_read",
       "reason": "files only (no warroom_requests read)"
@@ -6994,6 +7060,72 @@
       "ids": [],
       "refused_targets": []
      },
+     "reach": {
+      "flag": "off",
+      "targets_budget": 3,
+      "chain_give": 2,
+      "bound": {
+       "direct": {
+        "1": 3000,
+        "2": 5600,
+        "3": 7800
+       },
+       "chain": 7200,
+       "best": 7800
+      },
+      "targets": [],
+      "dropped_by_reason": {
+       "candidates": 88,
+       "search": {
+        "no_overpay": 0,
+        "out_of_reach": 0
+       },
+       "modes": {
+        "safe": {
+         "kept": 7,
+         "tolerance": {
+          "max_assets": 68,
+          "max_offers_per_manager_week": 6,
+          "max_give_per_step": 0,
+          "max_downside_per_step": 0,
+          "core_starter": 7,
+          "untouchable": 0
+         },
+         "p_complete_floor": 0,
+         "confirm": null
+        },
+        "balanced": {
+         "kept": 39,
+         "tolerance": {
+          "max_assets": 42,
+          "max_offers_per_manager_week": 2,
+          "max_give_per_step": 5,
+          "max_downside_per_step": 0,
+          "core_starter": 0,
+          "untouchable": 0
+         },
+         "p_complete_floor": 0,
+         "confirm": {
+          "checked": 7,
+          "failed": 0
+         }
+        },
+        "all_in": {
+         "kept": 59,
+         "tolerance": {
+          "max_assets": 0,
+          "max_offers_per_manager_week": 0,
+          "max_give_per_step": 0,
+          "max_downside_per_step": 0,
+          "core_starter": 0,
+          "untouchable": 0
+         },
+         "p_complete_floor": 29,
+         "confirm": null
+        }
+       }
+      }
+     },
      "requests": {
       "status": "not_read",
       "reason": "files only (no warroom_requests read)"
@@ -10080,6 +10212,72 @@
       "ids": [],
       "refused_targets": []
      },
+     "reach": {
+      "flag": "off",
+      "targets_budget": 3,
+      "chain_give": 2,
+      "bound": {
+       "direct": {
+        "1": 3000,
+        "2": 5600,
+        "3": 7800
+       },
+       "chain": 7200,
+       "best": 7800
+      },
+      "targets": [],
+      "dropped_by_reason": {
+       "candidates": 121,
+       "search": {
+        "no_overpay": 0,
+        "out_of_reach": 0
+       },
+       "modes": {
+        "safe": {
+         "kept": 19,
+         "tolerance": {
+          "max_assets": 83,
+          "max_offers_per_manager_week": 10,
+          "max_give_per_step": 0,
+          "max_downside_per_step": 2,
+          "core_starter": 7,
+          "untouchable": 0
+         },
+         "p_complete_floor": 0,
+         "confirm": null
+        },
+        "balanced": {
+         "kept": 54,
+         "tolerance": {
+          "max_assets": 60,
+          "max_offers_per_manager_week": 0,
+          "max_give_per_step": 5,
+          "max_downside_per_step": 2,
+          "core_starter": 0,
+          "untouchable": 0
+         },
+         "p_complete_floor": 0,
+         "confirm": {
+          "checked": 7,
+          "failed": 0
+         }
+        },
+        "all_in": {
+         "kept": 72,
+         "tolerance": {
+          "max_assets": 0,
+          "max_offers_per_manager_week": 0,
+          "max_give_per_step": 0,
+          "max_downside_per_step": 1,
+          "core_starter": 0,
+          "untouchable": 0
+         },
+         "p_complete_floor": 48,
+         "confirm": null
+        }
+       }
+      }
+     },
      "requests": {
       "status": "not_read",
       "reason": "files only (no warroom_requests read)"
@@ -11459,6 +11657,72 @@
      "untouchable": {
       "ids": [],
       "refused_targets": []
+     },
+     "reach": {
+      "flag": "off",
+      "targets_budget": 3,
+      "chain_give": 2,
+      "bound": {
+       "direct": {
+        "1": 3000,
+        "2": 5600,
+        "3": 7800
+       },
+       "chain": 7200,
+       "best": 7800
+      },
+      "targets": [],
+      "dropped_by_reason": {
+       "candidates": 87,
+       "search": {
+        "no_overpay": 0,
+        "out_of_reach": 0
+       },
+       "modes": {
+        "safe": {
+         "kept": 13,
+         "tolerance": {
+          "max_assets": 57,
+          "max_offers_per_manager_week": 10,
+          "max_give_per_step": 0,
+          "max_downside_per_step": 0,
+          "core_starter": 7,
+          "untouchable": 0
+         },
+         "p_complete_floor": 0,
+         "confirm": null
+        },
+        "balanced": {
+         "kept": 0,
+         "tolerance": {
+          "max_assets": 87,
+          "max_offers_per_manager_week": 0,
+          "max_give_per_step": 0,
+          "max_downside_per_step": 0,
+          "core_starter": 0,
+          "untouchable": 0
+         },
+         "p_complete_floor": 0,
+         "confirm": {
+          "checked": 0,
+          "failed": 0
+         }
+        },
+        "all_in": {
+         "kept": 42,
+         "tolerance": {
+          "max_assets": 0,
+          "max_offers_per_manager_week": 0,
+          "max_give_per_step": 0,
+          "max_downside_per_step": 0,
+          "core_starter": 0,
+          "untouchable": 0
+         },
+         "p_complete_floor": 45,
+         "confirm": null
+        }
+       }
+      }
      },
      "requests": {
       "status": "not_read",

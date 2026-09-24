@@ -25,6 +25,8 @@ import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink } from './search.js';
+import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
+import { excluded } from './partners.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
 
 /** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
@@ -118,7 +120,14 @@ export function planLeague(adapter, settings) {
   const overpay = newOverpaySink(maxOverpay);
   const vals = playerValues(S, adapter, objective);
   mark('values');
-  const flip = flipMap(S, adapter, vals, { topPer: budget.flipTopPer, realise: budget.flipRealise, maxOverpay,
+  // REACH-01 (flag GRIDIRON_REACH, or preview): off, the chained finish and flipReach stay at 2 gives
+  // and every top-N upgrade is searched, as before. On, both follow the risk mode's max give and a
+  // target no package could read fair for is skipped before the top-N slice (reach.js).
+  const reachMode = reachFlag(env);
+  const reachOn = reachMode !== 'off';
+  const objTol = objective.tolerances ?? tolerancesFor(objective.risk_mode);
+  const chainGive = reachOn ? Math.max(2, Number(objTol.max_give_per_step) || 2) : 2;
+  const flip = flipMap(S, adapter, vals, { topPer: budget.flipTopPer, realise: budget.flipRealise, maxOverpay, maxGive: chainGive,
     daysLeft: Number.isInteger(L.deadline_week) ? Math.max(1, (L.deadline_week - L.week) * 7) : 1 });
 
   mark('flip');
@@ -141,10 +150,29 @@ export function planLeague(adapter, settings) {
   const idOf = s => [...adapter.players.keys()].find(k => String(k) === String(s)) ?? null;
   if (objective.kind === 'player') want(idOf(objective.target));
   for (const st of objective.stops) if (st.kind === 'get') want(idOf(st.player));
-  for (const pid of upgrades.slice(0, budget.targets)) want(pid);
+  const pval = id => Math.max(0, Number(adapter.players.get(id)?.value) || 0);
+  const bound = reachBound({ mine: myIds.filter(vals.tradable).map(pval),
+    outside: [...adapter.rosters].filter(([t]) => t !== me && !excluded(adapter.managers.get(t))).flatMap(([, ids]) => ids.filter(vals.tradable).map(pval)),
+    maxGiveDirect: 3, maxGiveChain: chainGive, maxOverpay });
+  const reachRows = [];
+  const inReach = pid => {
+    const r = targetReach(pval(pid), bound);
+    reachRows.push({ player: String(pid), owner: vals.lossO.get(pid)?.team != null ? String(vals.lossO.get(pid).team) : null,
+      value: pval(pid), need: r.need, in_reach: r.in_reach, min_gives: r.min_gives });
+    return r.in_reach;
+  };
+  // Filtered lazily, so only the upgrades the slice reaches (and the ones it skipped) are reported.
+  const auto = [];
+  for (const pid of upgrades) {
+    if (auto.length >= budget.targets) break;
+    if (untouchable.has(String(pid)) || wanted.some(w => String(w) === String(pid))) continue;
+    if (reachOn && !inReach(pid)) continue;
+    auto.push(pid);
+  }
+  for (const pid of reachOn ? auto : upgrades.slice(0, budget.targets)) want(pid);
 
   let plans = [];
-  for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay }));
+  for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay, chainGive }));
   const skipW = { player: settings.skips?.player ?? new Map(), manager: settings.skips?.manager ?? new Map() };
   plans = plans.map(p => ({ ...p, skip_weight: planSkipWeight(p, skipW) }));
   mark('search');
@@ -167,16 +195,19 @@ export function planLeague(adapter, settings) {
   const W2 = adapter.world(cSeed);
   mark('confirm_world');
   let confirm = { seed: cSeed, plan_seed: adapter.seed, status: 'failed', reason: 'confirm world failed' };
+  let confirmCounts = null;
   if (W2 && !W2.fail) {
     const S2 = makeScorer(W2, adapter);
+    const checked = deck.length;
     deck = deck.map(p => {
       const fresh = p.steps.map(st => metricOf(S2.rescore(st.state, me).me, objective));
       const re = repricePlan(p, fresh);
       const v = confirmVerdict(pathExpectation(p.steps), pathExpectation(re.steps));
       const scored = rankPlans([re], objective.risk_mode, { ...tol, max_downside_per_step: Infinity }, { ...ctx, core: null }).ranked[0];
       return { ...re, score: scored?.score ?? -Infinity, mode: objective.risk_mode, confirm: v, planned_on: p };
-    }).filter(p => p.confirm.verdict !== 'failed')
-      .sort((a, b) => b.score - a.score).slice(0, DECK_SIZE);
+    }).filter(p => p.confirm.verdict !== 'failed');
+    confirmCounts = { checked, failed: checked - deck.length };
+    deck = deck.sort((a, b) => b.score - a.score).slice(0, DECK_SIZE);
     confirm = { seed: cSeed, plan_seed: adapter.seed, status: 'ok', rescores: S2.count() };
   } else {
     deck = deck.slice(0, DECK_SIZE);
@@ -236,7 +267,8 @@ export function planLeague(adapter, settings) {
   });
 
   // Suggested targets: gain if landed x P(reach) x skip weight, with mode fit.
-  const byMode = Object.fromEntries(MODES.map(mode => { const c = ctxFor(mode); return [mode, rankPlans(plans, mode, c.tol, c.ctx).ranked]; }));
+  const rankedByMode = Object.fromEntries(MODES.map(mode => { const c = ctxFor(mode); return [mode, rankPlans(plans, mode, c.tol, c.ctx)]; }));
+  const byMode = Object.fromEntries(MODES.map(mode => [mode, rankedByMode[mode].ranked]));
   const suggestions = upgrades.slice(0, 5).map(pid => {
     const mine = byMode[objective.risk_mode].find(p => String(p.target) === String(pid));
     const any = MODES.map(md => byMode[md].find(p => String(p.target) === String(pid))).find(Boolean) ?? null;
@@ -340,6 +372,11 @@ export function planLeague(adapter, settings) {
     suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, feasibility_points, outlook,
     risk_modes: compareModes(plans, ctxFor), catch_up: catchUp, partners,
     untouchable: { ids: [...untouchable], refused_targets: refused },
+    // REACH-01: diagnostics only (no number is priced here); the producer writes them to _run.inputs.reach.
+    reach: { flag: reachMode, targets_budget: budget.targets, chain_give: chainGive,
+      bound: { direct: bound.direct, chain: bound.chain, best: bound.best }, targets: reachRows,
+      dropped_by_reason: droppedByReason({ candidates: plans.length, byMode: rankedByMode, objectiveMode: objective.risk_mode,
+        confirm: confirmCounts, noOverpay: overpay.rejected, outOfReach: reachRows.filter(r => !r.in_reach).length }) },
     ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
     sellers: { read: sellers, unreached: desperate.unreached.map(s => s.team) },
     speed_levers: sideLevers({ free, waits: playbook.map(pb => pb.wait) }),

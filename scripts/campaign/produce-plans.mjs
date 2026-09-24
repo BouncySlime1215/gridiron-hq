@@ -70,7 +70,7 @@
  * Pushes, the failed count and the summary line count only the leagues that ran.
  *
  * Usage:
- *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3] [--no-finder] [--tick]
+ *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3, or 8 with GRIDIRON_REACH on] [--no-finder] [--tick]
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -88,6 +88,7 @@ import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
 import { applyCoachMessages, coachMessagesOn } from '../../server/services/campaign/messages.js';
 import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
+import { reachFlag, REACH_TARGETS, droppedLine } from '../../server/services/campaign/reach.js';
 
 process.env.SCHEDULER_DISABLED = '1';
 
@@ -192,7 +193,8 @@ function readPrevious(file) {
 }
 
 function args(argv) {
-  const out = { leagues: null, flipTop: 3, targets: 3, finder: true, tick: false };
+  // REACH-01: with GRIDIRON_REACH on (or preview) the default search covers 8 targets, else 3.
+  const out = { leagues: null, flipTop: 3, targets: reachFlag() !== 'off' ? REACH_TARGETS : 3, finder: true, tick: false };
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === '--leagues') {
       const raw = argv[++i];
@@ -342,6 +344,8 @@ export async function buildPlansFile(leagues, {
           counterpart: counterpart ? { ...counterpart, models: res.counterpart?.models ?? [] } : { status: 'not_read' },
           // Nick's untouchables (the reader's nick block): ids excluded from targets, gets and flip legs.
           untouchable: res.untouchable ?? { ids: [], refused_targets: [] },
+          // REACH-01: why every path died (per mode) and which targets the reach filter skipped.
+          ...(res.reach ? { reach: res.reach } : {}),
           requests: ins.summary,
           deadline: adapter.league?.deadline_source ?? null, objective: objective.source,
           // Off and untriggered, the entry is byte-for-byte the incumbent's (the committed contract fixture).
@@ -371,6 +375,7 @@ export async function buildPlansFile(leagues, {
     entries.push(entry);
     log(`[warroom] league ${id}: ${entry.error ? `FAILED ${entry.error}`
       : `ok, next ${entry._run.changed.next_key}, changed ${entry._run.changed.changed}`} (${Math.round((clock() - t0) / 1000)} s, ${entry._run?.rescores ?? 0} rescores, phases ms ${JSON.stringify(entry._run?.phases_ms ?? {})})`);
+    if (entry._run?.inputs?.reach) log(`[warroom] league ${id}: ${droppedLine(entry._run.inputs.reach.dropped_by_reason)}`);
   }
 
   // Attention budget across the leagues (north-star row 19): each league carries its own row.

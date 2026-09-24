@@ -25,7 +25,7 @@ export async function counterpartsFor(svc, leagueId, adapter, { now = Date.now()
   const summary = { status: people.available ? 'ok' : 'unknown', reason: people.reason, reader: people.version,
     notes_reason: people.notes_reason ?? null, field: field.field, version: field.version, p_accept: field.p_accept,
     ...field.counts, trade_events: events.length };
-  return { counterparts, summary };
+  return { counterparts, summary, people };
 }
 
 /** One printable line per league: partner order (team ids) and top 3 targets (player names), no manager names. */

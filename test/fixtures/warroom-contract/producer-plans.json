@@ -2966,6 +2966,10 @@
       "fell_back": false,
       "testing_tier_enabled": false,
       "read_error": null
+     },
+     "coach_messages": {
+      "status": "off",
+      "reason": "GRIDIRON_COACH_MESSAGES unset and preview off"
      }
     }
    }
@@ -6038,6 +6042,10 @@
       "fell_back": false,
       "testing_tier_enabled": false,
       "read_error": null
+     },
+     "coach_messages": {
+      "status": "off",
+      "reason": "GRIDIRON_COACH_MESSAGES unset and preview off"
      }
     }
    }
@@ -8684,6 +8692,10 @@
       "fell_back": true,
       "testing_tier_enabled": false,
       "read_error": null
+     },
+     "coach_messages": {
+      "status": "off",
+      "reason": "GRIDIRON_COACH_MESSAGES unset and preview off"
      }
     }
    }
@@ -9943,6 +9955,10 @@
       "fell_back": false,
       "testing_tier_enabled": false,
       "read_error": null
+     },
+     "coach_messages": {
+      "status": "off",
+      "reason": "GRIDIRON_COACH_MESSAGES unset and preview off"
      }
     }
    }

@@ -75,6 +75,7 @@ import { diffNextMove } from '../../server/services/campaign/replan.js';
 import { rankAttention } from '../../server/services/campaign/attention.js';
 import { toEntry, failedEntry, plansFile } from '../../server/services/campaign/view.js';
 import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
+import { applyCoachMessages, coachMessagesOn } from '../../server/services/campaign/messages.js';
 import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
 
@@ -214,7 +215,7 @@ export async function buildPlansFile(leagues, {
     const prev = previous.get(String(id)) ?? null;
     let entry, res = null;
     try {
-      const { adapter, chat = null, adapterMs = 0, counterpart = null } = await load();
+      const { adapter, chat = null, adapterMs = 0, counterpart = null, profiles = null } = await load();
       if (adapter.fail) throw new Error(`world failed: ${adapter.fail}`);
       // ONE-PLANNER: the 2-for-1 search runs inside searchTarget; its counts come back on this sink.
       if (twoForOne !== 'off') {
@@ -258,6 +259,13 @@ export async function buildPlansFile(leagues, {
             read_error: brain.read.error } : { status: 'not_read' },
         };
       }
+      // COACH-MSG (#306): grounded messages into the contract's existing slots, before the contract check.
+      if (coachMessagesOn()) {
+        const msg = applyCoachMessages(entry, { profiles });
+        entry = msg.entry;
+        if (entry._run) entry._run.inputs.coach_messages = { status: 'on', profiles: profiles?.size ?? 0, steps: msg.stats.steps,
+          grounded: msg.stats.grounded, fallback: msg.stats.fallback, unpriced: msg.stats.unpriced, errors: msg.stats.errors.length };
+      } else if (entry._run) entry._run.inputs.coach_messages = { status: 'off', reason: 'GRIDIRON_COACH_MESSAGES unset and preview off' };
       const v = validateLeague(entry);
       if (!v.ok) throw new Error(`plans JSON failed its contract check: ${v.errors.slice(0, 3).map(e => `${e.path} ${e.message}`).join('; ')}`);
       if (res.best) best.set(String(id), res.best.expected);
@@ -342,12 +350,22 @@ async function main() {
         const ta = Date.now();
         const adapter = buildAdapter(svc, id, { chat: chat.rows, finder: opts.finder });
         let counterpart = { status: 'off', reason: 'GRIDIRON_COUNTERPART unset and the preview switch off (or =0)' };
+        let people = null;
         if (counterpartOn && !adapter.fail) {
           const cp = await counterpartsFor(svc, id, adapter);
           adapter.counterparts = cp.counterparts;
           counterpart = cp.summary;
+          people = cp.people ?? null;
         }
-        return { adapter, chat, adapterMs: Date.now() - ta, counterpart };
+        // COACH-MSG (FIX-306-1): profiles come from the one reader (people.profile), labels only.
+        let profiles = null;
+        if (coachMessagesOn() && !adapter.fail) {
+          const { peopleProfile } = await import('../../server/services/people/profile-reader.js');
+          people = people ?? await peopleProfile(id);
+          profiles = new Map([...(people.byRoster ?? new Map())].filter(([, e]) => e.status === 'ok' && e.profile)
+            .map(([r, e]) => [String(r), e.profile]));
+        }
+        return { adapter, chat, adapterMs: Date.now() - ta, counterpart, profiles };
       } }));
 
     const generated_at = new Date().toISOString();

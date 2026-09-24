@@ -126,6 +126,7 @@ const errorSanitizeUrl = () => compile('lib/errorSanitize.ts');
 
 const tradeCardSwaps = () => [
   ["'../lib/errorSanitize'", errorSanitizeUrl()],
+  ["'../lib/playerValues'", compile('lib/playerValues.ts')],
   ["'../api'", namedStub(['api', 'headshotUrl'])],
   ["'./PlayerCard'", namedStub(['usePlayerCard'])],
   ["'./PlayerRow'", namedStub(['Headshot'])],

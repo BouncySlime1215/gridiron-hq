@@ -109,6 +109,11 @@ test('verify: HEALTH_MISSING and DEGRADED_UNSTATED are violations', () => {
   const unstated = verifyAnswer({ ledger: fb, answer: { claims: [{ text: 'It is 0.42.', cites: ['r1#0.value'] }],
     refusals: [], health: line } });
   assert.ok(unstated.violations.some(v => v.kind === 'degraded_unstated'), JSON.stringify(unstated.violations));
+  // A number derived from the fallback carries the fallback's health.
+  fb.derive({ op: 'percent_of', inputs: ['r1#0.value', 'r1#0.value'] });
+  const derived = verifyAnswer({ ledger: fb, answer: { claims: [{ text: 'It is 100%.', cites: ['d1'] }], refusals: [] } });
+  assert.ok(derived.violations.some(v => v.kind === 'degraded_unstated'), JSON.stringify(derived.violations));
+  assert.ok(derived.violations.some(v => v.kind === 'health_missing'), 'a derived engine number needs the health line too');
   const stated = verifyAnswer({ ledger: fb, answer: { claims: [{ text: 'The market fallback says 0.42.',
     cites: ['r1#0.value'] }], refusals: [], health: line } });
   assert.equal(stated.ok, true, JSON.stringify(stated.violations));
@@ -164,9 +169,12 @@ test('RED (c3): a thrown tool error -> the answer still ships, "I couldn\'t chec
   app.use('/api/coach', coachRouter);
   const server = app.listen(0);
   try {
-    setAnthropicClientForTesting(scripted(
-      toolUse('who_plays', { season: 2026, week: 3, team: 'PHI' }),
-      says({ claims: [], refusals: [] })));
+    let calls = 0;
+    setAnthropicClientForTesting({ messages: { create: async () => {
+      calls += 1;
+      return calls === 1 ? toolUse('who_plays', { season: 2026, week: 3, team: 'PHI' })
+        : says({ claims: [{ text: 'Everyone plays.', cites: [] }], refusals: [] });
+    } } });
     const res = await fetch(`http://127.0.0.1:${server.address().port}/api/coach/ask`, {
       method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer coach-health-token' },
       body: JSON.stringify({ question: 'who plays for PHI' }) });
@@ -176,6 +184,8 @@ test('RED (c3): a thrown tool error -> the answer still ships, "I couldn\'t chec
       JSON.stringify(body.answer));
     assert.equal(body.verification.ok, true, JSON.stringify(body.verification.violations));
     assert.ok(body.plan.some(e => e.t === 'tool_error' && e.tool === 'who_plays'), 'the fault is not in the trace');
+    assert.equal(calls, 1, 'the model was asked to carry on past a real fault');
+    assert.equal(body.answer.claims.length, 0);
   } finally {
     tool.run = original;
     server.close();

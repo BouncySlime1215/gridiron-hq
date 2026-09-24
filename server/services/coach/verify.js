@@ -21,6 +21,14 @@
  * last four"), and a proper noun that appears in no cited row. Both are in the
  * audit. Digits block. Closing the word-number gap by rejecting "one" would
  * reject "one of the reasons", which is not a claim about football.
+ *
+ * Engine numbers carry their health (HEALTH-01c). A claim citing an engine cell
+ * that came without its health (a raw engine table, not engine_read) is
+ * HEALTH_MISSING, and so is an answer citing engine cells without the health
+ * line that states their as-of and whether their checks passed. A claim that
+ * stands on a fallback, a degraded or a failed number and does not say so is
+ * DEGRADED_UNSTATED: a stand-in number read as the real one is the error this
+ * check exists to stop.
  */
 import { newLedger } from './ledger.js';
 
@@ -29,8 +37,18 @@ export const VIOLATIONS = Object.freeze({
   UNCITED_CLAIM: 'uncited_claim',
   BAD_CITE: 'bad_cite',
   UNGROUNDED_NUMBER: 'ungrounded_number',
-  MISSING_AS_OF: 'missing_as_of'
+  MISSING_AS_OF: 'missing_as_of',
+  HEALTH_MISSING: 'health_missing',
+  DEGRADED_UNSTATED: 'degraded_unstated'
 });
+
+/** A claim that says its number is a stand-in or unhealthy. The fallback field's name also counts. */
+const STATES_HEALTH = /\b(fallback|degraded|failed|last good|stale|stand-in)\b/i;
+
+const isEngineTable = table => /^engine_/.test(String(table ?? ''));
+
+/** The cell and every cell it was derived from (ledger.trace), or just the cell. */
+const sourcesOf = (book, cite, cell) => (typeof book.trace === 'function' ? book.trace(cite, []) : cell ? [cell] : []);
 
 /** Digits in prose: 11, 18.4, -3.5, +2, 1,349, 28.4% — the % and , are stripped. */
 const NUMBER = /[-+]?\d[\d,]*(?:\.\d+)?/g;
@@ -111,6 +129,7 @@ export function verifyAnswer({ answer, ledger, question = '' } = {}) {
     }
 
     const cells = [];
+    const unhealthy = new Set();
     for (const cite of cites) {
       const cell = book.cell(cite);
       if (!cell) {
@@ -119,6 +138,22 @@ export function verifyAnswer({ answer, ledger, question = '' } = {}) {
         continue;
       }
       cells.push(cell);
+      // A derived cite stands on every cell it was computed from, so their health is its health.
+      for (const source of sourcesOf(book, cite, cell)) {
+        if (!source.health && (source.tables ?? []).some(isEngineTable)) {
+          violations.push({ kind: VIOLATIONS.HEALTH_MISSING, claim_index: claimIndex, cite: source.id, text,
+            detail: `${source.id} is an engine number read without its health. Read it through engine_read.` });
+        }
+        const h = source.health;
+        if (h && (h.status !== 'ok' || h.fallback_used)) unhealthy.add(h);
+      }
+    }
+    for (const h of unhealthy) {
+      if (STATES_HEALTH.test(text) || (h.fallback_field && text.includes(h.fallback_field))) continue;
+      violations.push({ kind: VIOLATIONS.DEGRADED_UNSTATED, claim_index: claimIndex, text, field: h.field,
+        status: h.status, fallback_field: h.fallback_field,
+        detail: `${h.field} for ${h.entity} is served ${h.fallback_used ? `from its fallback ${h.fallback_field}` : h.status}` +
+          ` (${h.reason}). Say so in the claim, or leave the number out.` });
     }
 
     for (const token of numericTokens(text)) {
@@ -136,6 +171,12 @@ export function verifyAnswer({ answer, ledger, question = '' } = {}) {
         detail: 'A quantity written in words is not checked against the ledger.' });
     }
   });
+
+  const engineCited = allCites.some(cite => sourcesOf(book, cite, book.cell(cite)).some(c => c.health));
+  if (engineCited && !String(answer?.health ?? '').trim()) {
+    violations.push({ kind: VIOLATIONS.HEALTH_MISSING,
+      detail: 'The answer cites engine numbers but does not state their as-of and whether their checks passed.' });
+  }
 
   const handCollected = book.handCollected(allCites);
   if (handCollected.length && !String(answer?.as_of ?? '').trim()) {

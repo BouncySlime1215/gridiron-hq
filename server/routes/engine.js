@@ -16,10 +16,14 @@
  *   stale     the producer has not run within the field's max_age_sec before as_of
  *   fallback  the monitor has the field on its fallback: the fallback field's row is served
  *   thin      the row is healthy but built on missing/fallback inputs
- *   degraded  the row's own health is degraded
+ *   degraded  the row's own health is degraded and nothing healthy can stand in for it
+ *   failed    the row failed its checks and there is no fallback or healthy row: state null
  *   league_id_required  a league-scoped entity asked for without league_id (400)
- * plus `health` and `fresh_at` (the later of the row's as_of and the producer's last
- * successful run). A failed row is never served: the last good row is.
+ * plus `health`, `fresh_at` (the later of the row's as_of and the producer's last
+ * successful run), `fallback_used` and `fallback`. A failed or degraded row is never
+ * served as itself when something healthy can stand in: the field's declared fallback
+ * field, else its last good row (HEALTH-01b, engine/state.js#readServed), labelled
+ * `fallback` with the reason. The failed value itself is never in the response.
  *
  * This process is the web server: it registers nothing and imports no writer. Field
  * specs come from engine_fields (written by the engine). GET only.
@@ -27,7 +31,7 @@
 import { Router } from 'express';
 import { db } from '../db/index.js';
 import { assertLeagueMember } from '../platform/auth.js';
-import { getState, isLeagueScoped, ENTITY_KEYS } from '../services/engine/state.js';
+import { getState, readServed, isLeagueScoped, ENTITY_KEYS } from '../services/engine/state.js';
 import { normalizeAsOf } from '../services/engine/events.js';
 import { readFieldSpec, readFallback, freshAt } from '../services/engine/fields.js';
 
@@ -77,7 +81,8 @@ r.get('/state', (req, res) => {
     assertLeagueMember(req.auth?.userId, leagueId);
   }
   const base = { entity_type: entityType, entity_id: entityId, field, league_id: leagueId, lane, as_of_requested: asOf };
-  const absent = (status, reason, extra = {}) => ({ ...base, status, reason, state: null, health: null, fresh_at: null, ...extra });
+  const absent = (status, reason, extra = {}) => ({ ...base, status, reason, state: null, health: null, fresh_at: null,
+    fallback_used: false, fallback: null, ...extra });
   if (isLeagueScoped(entityType) && leagueId == null) {
     return res.status(400).json(absent('league_id_required', `${entityType} is league-scoped: pass league_id`));
   }
@@ -90,14 +95,17 @@ r.get('/state', (req, res) => {
     const fbRow = getState(entityType, entityId, fb.fallback_field, { asOf, leagueId, lane });
     if (!fbRow) return res.json(absent('unknown', `fallback ${fb.fallback_field} in force (${fb.reason}); it has no row as of then`));
     return res.json({ ...base, status: 'fallback', reason: `${field} is on its fallback ${fb.fallback_field}: ${fb.reason}`,
-      state: stateOut(fbRow), health: fbRow.health,
+      state: stateOut(fbRow), health: fbRow.health, fallback_used: true,
+      fallback: { kind: 'monitor', field: fb.fallback_field, row_id: fbRow.id, as_of: fbRow.as_of },
       fresh_at: freshAt({ producer: fbRow.producer, leagueId, rowAsOf: fbRow.as_of, ref: asOf }, db) });
   }
-  const row = getState(entityType, entityId, field, { asOf, leagueId, lane });
-  if (!row) return res.json(absent('unknown', 'no_row_as_of'));
+  const served = readServed(entityType, entityId, field, { asOf, leagueId, lane }, db);
+  if (!served.row) return res.json(absent(served.status, served.reason, { health: served.health }));
+  const row = served.row;
   const fresh = freshAt({ producer: row.producer, leagueId, rowAsOf: row.as_of, ref: asOf }, db);
-  const [status, reason] = statusOf(row, spec, fresh, asOf);
-  res.json({ ...base, status, reason, state: stateOut(row), health: row.health, fresh_at: fresh });
+  const [status, reason] = served.fallback_used ? ['fallback', served.reason] : statusOf(row, spec, fresh, asOf);
+  res.json({ ...base, status, reason, state: stateOut(row), health: row.health, fresh_at: fresh,
+    fallback_used: served.fallback_used, fallback: served.fallback });
 });
 
 export default r;

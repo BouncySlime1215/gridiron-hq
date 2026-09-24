@@ -21,6 +21,7 @@ import express from 'express';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-serve-log-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
@@ -75,12 +76,15 @@ const FOUND = {
 };
 
 let simulateCalls = 0;
+// The stub draws from the shared rng, as simulateSeason's world draw does
+// (season-sim.js:444), so a served seed that replays the draw is a real check.
+const { random } = await import('../server/services/stats-util.js');
 const realSim = await import('../server/services/season-sim.js');
 mock.module('../server/services/season-sim.js', {
   namedExports: {
     ...realSim,
     tradeImpact: () => structuredClone(IMPACT),
-    simulateSeason: () => { simulateCalls++; return structuredClone(SIM); },
+    simulateSeason: () => { simulateCalls++; return { ...structuredClone(SIM), draw: random() }; },
   },
 });
 const realTitle = await import('../server/services/title-odds-trades.js');
@@ -88,8 +92,22 @@ mock.module('../server/services/title-odds-trades.js', {
   namedExports: { ...realTitle, titleOddsTrades: () => structuredClone(TITLE_TRADES) },
 });
 const realEngine = await import('../server/services/trade-engine.js');
+// FIX-243-1: the weekly lineup range per team. The rosters and the lineup model
+// are stubbed; lineupSpread's own maths is trade-engine's and is not under test.
+const LINEUP_TEAMS = [
+  { roster_id: '1', owner: 'Owner Me', players: [{ id: 101, spread: { floor: 88.4, mean: 112.3, ceiling: 136.2 } }] },
+  { roster_id: '2', owner: 'Owner Two', players: [{ id: 201, spread: { floor: 80.1, mean: 101.9, ceiling: 123.7 } }] },
+];
 mock.module('../server/services/trade-engine.js', {
-  namedExports: { ...realEngine, findTrades: () => structuredClone(FOUND) },
+  namedExports: {
+    ...realEngine,
+    findTrades: () => structuredClone(FOUND),
+    assetUniverse: () => [],
+    loadRosters: () => structuredClone(LINEUP_TEAMS),
+    lineupSlots: () => [{ slot: 'FLEX' }],
+    weekLineup: players => ({ slots: players.map(p => ({ slot: 'FLEX', player: p })) }),
+    lineupSpread: lineup => ({ ...lineup.slots[0].player.spread, method: 'normal approximation of the lineup total' }),
+  },
 });
 
 const serveLog = await import('../server/services/serve-log.js');
@@ -129,7 +147,11 @@ const call = async (method, url, body) => {
 };
 const tableCount = () => row('SELECT COUNT(*) n FROM served_numbers').n;
 const byField = rs => Object.fromEntries(rs.map(r => [`${r.entity}#${r.field}`, r.value]));
-test.beforeEach(() => { serveLog.__resetServeLog(); run('DELETE FROM served_numbers'); });
+test.beforeEach(() => {
+  serveLog.__resetServeLog();
+  run('DELETE FROM served_numbers'); run('DELETE FROM game_lines'); run('DELETE FROM player_week_usage');
+});
+const leaguePayloadHash = id => createHash('sha256').update(row('SELECT payload FROM leagues WHERE id = ?', id).payload).digest('hex');
 
 // ------------------------------------------------------------------ migration
 test('079 adds served_numbers with every column the grader needs, and nothing else changes', () => {
@@ -331,7 +353,8 @@ test('weekly snapshot: title odds, title trades and finder cards for each league
   const first = await serveLog.snapshotServedNumbers();
   const weekly = rows(`SELECT DISTINCT league_id, surface FROM served_numbers WHERE trigger = 'weekly' ORDER BY league_id, surface`);
   assert.deepEqual(weekly.map(r => `${r.league_id}:${r.surface}`).sort(),
-    ['61:title_odds', '61:title_trades', '61:trade_find', '62:title_odds', '62:title_trades', '62:trade_find'].sort(),
+    ['61:lineup_spread', '61:title_odds', '61:title_trades', '61:trade_find',
+      '62:lineup_spread', '62:title_odds', '62:title_trades', '62:trade_find'].sort(),
     'league 63 has no payload, so nothing');
   assert.equal(first.leagues.find(l => l.league_id === 61).state, 'snapshotted');
   assert.equal(first.leagues.find(l => l.league_id === 63).state, 'not_synced');
@@ -351,4 +374,112 @@ test('weekly snapshot is a scheduler job and runs in the refresh loop', () => {
   assert.ok(JOBS.served_numbers_weekly, 'registered');
   assert.equal(JOBS.served_numbers_weekly.run, serveLog.snapshotServedNumbers);
   assert.ok(FANTASY_LIVE_JOBS.includes('served_numbers_weekly'), 'runs while SCHEDULER_DISABLED=1');
+});
+
+
+// ------------------------------------------------------------------ FIX-243-2: replayable rows
+test('100 adds seed and input_hash to served_numbers, additively', () => {
+  const cols = db.prepare('PRAGMA table_info(served_numbers)').all().map(c => c.name);
+  assert.ok(cols.includes('seed'), 'served_numbers.seed');
+  assert.ok(cols.includes('input_hash'), 'served_numbers.input_hash');
+  assert.ok(row(`SELECT 1 x FROM schema_migrations WHERE name='100_served_numbers_replay'`), 'applied by name');
+  const src = fs.readFileSync(new URL('../server/migrations/100_served_numbers_replay.js', import.meta.url), 'utf8');
+  const up = src.replace(/export function down[\s\S]*$/, '');
+  assert.doesNotMatch(up, /\b(DROP|DELETE|UPDATE)\b/, 'up() only adds');
+  assert.doesNotMatch(up.replace(/ALTER TABLE served_numbers ADD COLUMN/g, ''), /\bALTER\b/, 'the only ALTER is ADD COLUMN');
+});
+
+test('spec (e): /simulate with no seed generates one, serves it, and the row carries seed, input_hash, model_version and as_of', async () => {
+  const res = await call('GET', '/api/model/61/simulate?runs=1234');
+  assert.equal(res.status, 200);
+  assert.ok(Number.isInteger(res.body.seed) && res.body.seed > 0, `served seed ${res.body.seed}`);
+  serveLog.flushServed();
+  const got = rows('SELECT * FROM served_numbers WHERE request_id = ?', res.requestId);
+  assert.ok(got.length > 0);
+  for (const r of got) {
+    assert.equal(r.seed, res.body.seed, 'the seed actually used');
+    assert.equal(r.input_hash, leaguePayloadHash(61), 'sha256 of the league snapshot');
+    assert.match(r.model_version, new RegExp(`seed=${res.body.seed};`));
+    assert.equal(r.as_of, '2026-09-24 12:00:00');
+  }
+  // Replayable: the same seed reproduces the same draw.
+  const replay = await call('GET', `/api/model/61/simulate?runs=1234&seed=${res.body.seed}`);
+  assert.equal(replay.body.seed, res.body.seed);
+  assert.equal(replay.body.draw, res.body.draw, 'the recorded seed replays the served simulation');
+});
+
+test('spec (e): a supplied seed is the one recorded; every request surface carries input_hash and as_of', async () => {
+  const sim = await call('GET', '/api/model/62/simulate?runs=1500&seed=4242');
+  assert.equal(sim.body.seed, 4242);
+  const imp = await call('POST', '/api/model/61/trade-impact', { my_team_id: '1', their_team_id: '2', i_give: [102], i_get: [201] });
+  const tt = await call('GET', '/api/trades/61/title-trades?team_id=1');
+  const fd = await call('GET', '/api/trades/61/find?team_id=1');
+  serveLog.flushServed();
+  assert.ok(rows('SELECT seed FROM served_numbers WHERE request_id = ?', sim.requestId).every(r => r.seed === 4242));
+  assert.ok(rows('SELECT seed FROM served_numbers WHERE request_id = ?', imp.requestId).every(r => r.seed === 777),
+    'trade impact records its paired seed');
+  const ttSeed = realSim.tradeImpactSeed(row('SELECT * FROM leagues WHERE id = 61'));
+  assert.ok(rows('SELECT seed FROM served_numbers WHERE request_id = ?', tt.requestId).every(r => r.seed === ttSeed),
+    'title trades run under tradeImpactSeed(lg)');
+  assert.ok(rows('SELECT seed FROM served_numbers WHERE request_id = ?', fd.requestId).every(r => r.seed === null),
+    'the finder draws nothing, so no seed');
+  const all = rows('SELECT * FROM served_numbers');
+  assert.ok(all.length > 0);
+  assert.ok(all.every(r => /^[0-9a-f]{64}$/.test(r.input_hash) && r.as_of && r.model_version != null));
+});
+
+test('spec (e): weekly rows carry the seed the job generated and the league snapshot hash', async () => {
+  await serveLog.snapshotServedNumbers();
+  const titleRows = rows(`SELECT * FROM served_numbers WHERE league_id = 61 AND trigger = 'weekly' AND surface = 'title_odds'`);
+  assert.ok(titleRows.length > 0);
+  const seeds = new Set(titleRows.map(r => r.seed));
+  assert.equal(seeds.size, 1);
+  assert.ok(Number.isInteger([...seeds][0]), 'a generated seed, not null');
+  assert.ok(rows(`SELECT * FROM served_numbers WHERE trigger = 'weekly'`).every(r => r.input_hash === leaguePayloadHash(r.league_id)));
+});
+
+// ------------------------------------------------------------------ FIX-243-1: lineup ranges
+test('weekly snapshot: lineup p10/p50/p90 for each team, one row per team per field', async () => {
+  const out = await serveLog.snapshotServedNumbers();
+  assert.equal(out.leagues.find(l => l.league_id === 61).state, 'snapshotted');
+  const got = rows(`SELECT entity, field, value, model FROM served_numbers
+    WHERE league_id = 61 AND trigger = 'weekly' AND surface = 'lineup_spread' ORDER BY entity, field`);
+  assert.deepEqual(got.map(r => `${r.entity}#${r.field}=${r.value}`), [
+    'team:1#lineup_p10=88.4', 'team:1#lineup_p50=112.3', 'team:1#lineup_p90=136.2',
+    'team:2#lineup_p10=80.1', 'team:2#lineup_p50=101.9', 'team:2#lineup_p90=123.7',
+  ]);
+  assert.ok(got.every(r => r.model === 'trade-engine.lineupSpread'));
+});
+
+test('lineup_spread extractor: a team with no modelled starter is recorded as null, not skipped', () => {
+  const out = serveLog.servedNumbers('lineup_spread',
+    { teams: [{ roster_id: '9', floor: null, mean: undefined, ceiling: null }] }, {});
+  assert.deepEqual(out.map(r => [r.entity, r.field, r.value]),
+    [['team:9', 'lineup_p10', null], ['team:9', 'lineup_p50', null], ['team:9', 'lineup_p90', null]]);
+});
+
+// ------------------------------------------------------------------ spec (c): pregame only
+const kickoffRow = (gameday, gametime, score = null) => run(`INSERT INTO game_lines(season, week, team, opponent, home, gameday, gametime, team_score)
+  VALUES (2026, 4, 'AAA', 'BBB', 1, ?, ?, ?)`, gameday, gametime, score);
+
+test('spec (c): the weekly capture is refused once the week\'s first kickoff has passed', async () => {
+  kickoffRow('2020-01-05', '13:00');
+  const out = await serveLog.snapshotServedNumbers();
+  const l = out.leagues.find(x => x.league_id === 61);
+  assert.equal(l.state, 'refused_slate_started');
+  assert.match(l.reason, /slate has started/);
+  assert.equal(tableCount(), 0, 'nothing written for a week already under way');
+});
+
+test('spec (c): refused once the week has outcomes, and allowed while the first kickoff is still ahead', async () => {
+  const pid = row('SELECT id FROM players LIMIT 1')?.id
+    ?? Number(run(`INSERT INTO players(name, position) VALUES ('Fixture Player', 'WR')`).lastInsertRowid);
+  run('INSERT INTO player_week_usage(player_id, season, week) VALUES (?, 2026, 4)', pid);
+  const done = await serveLog.snapshotServedNumbers();
+  assert.equal(done.leagues.find(x => x.league_id === 61).state, 'refused_slate_started');
+  assert.equal(tableCount(), 0);
+  run('DELETE FROM player_week_usage');
+  kickoffRow('2099-01-05', '13:00');
+  const ahead = await serveLog.snapshotServedNumbers();
+  assert.equal(ahead.leagues.find(x => x.league_id === 61).state, 'snapshotted');
 });

@@ -117,7 +117,8 @@ import { acceptanceBand } from './trade-acceptance.js';
 // playoff odds"), which does not exist yet. When it ships, myPlayoffOdds() should
 // read it and this import goes away. Until then the alternative was leaving the
 // live /find route on the 0.5 prior, which is the bug this item exists to fix.
-import { simulateSeason, simStartWeek } from './season-sim.js';
+import { simulateSeason, simStartWeek, tradeImpact, tradeImpactWorld } from './season-sim.js';
+import { titleMutualMode, titleCandidate, titleMutualDeals } from './title-mutual.js';
 import { horizonWeights, horizonGain, horizonNote, leagueSchedule } from './trade-horizon.js';
 // ros_ppg / playoff_ppg (and so adj_ppg): the gated rest-of-season model. This
 // week's number stays the weekly blend.
@@ -1751,9 +1752,12 @@ function findTradesKey(lg, opts = {}, ctx = null) {
   // ablation re-scored an already-surfaced list, which cannot see an idea
   // appear or disappear and reported a "no set change" that was not true.
   const zeroKey = [...zero].sort().join(',');
+  // RL-19-3: flipping the title-mutual flag (or preview mode) is a different answer.
+  const tm = titleMutualMode();
   return `findTrades:${lg.id}:${formatKey}:${target.season}:${target.week}:` +
     `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:` +
-    `${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}:z${zeroKey}`;
+    `${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}:z${zeroKey}:` +
+    `tm${tm.on ? (tm.preview ? 'p' : 1) : 0}`;
 }
 
 /**
@@ -1858,6 +1862,11 @@ function findTradesUncached(lg, {
 
   const myPool = candidates(me, slots, 11, excludeIds);
   const deals = [];
+  // RL-19-3: 1-for-1s the points gates drop, kept aside for the title-odds stage.
+  // Only beside the points-mutual class, and never on a hypothetical roster
+  // (teamsOverride): the simulator plays the league's real rosters.
+  const titleMode = titleMutualMode();
+  const titlePool = titleMode.on && requireMutual && !teamsOverride ? [] : null;
   // lineup_value on every returned deal (display only; nothing below ranks on it).
   const lineupCtx = lineupValueContext(lg, assets, teams);
 
@@ -1900,7 +1909,15 @@ function findTradesUncached(lg, {
 
         const ev = evaluate({ team: me, gives: give }, { team: them, gives: get }, slots,
           { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo, lineupValue: lineupCtx });
-        if (ev.me.ppg_delta < 0.4) continue;
+        if (ev.me.ppg_delta < 0.4) {
+          // The points gate, unchanged. A 1-for-1 it drops goes to the title-odds
+          // stage instead of nowhere (titleCandidate holds the other gates).
+          if (titlePool && titleCandidate(give, get, ev)) {
+            titlePool.push({ partner: them.owner, partner_id: them.roster_id,
+              i_give: give.map(slim), i_get: get.map(slim), tags: tagDeal(give, get, ev), ...ev });
+          }
+          continue;
+        }
         // Never even a "closest fit" fallback candidate — no real GM accepts leaving
         // a starting slot empty, whatever the value math says.
         if (ev.them.new_holes.length > 0) continue;
@@ -2041,6 +2058,15 @@ function findTradesUncached(lg, {
 
   deals.sort((a, b) => b.score_signed - a.score_signed);
 
+  // RL-19-3: the title-mutual class. Its pool is the 1-for-1s dropped at the week
+  // gate plus the ones that cleared it but not the both-sides gate (not mutual);
+  // both are simulated on the same paired-seed tradeImpact as every other
+  // title-odds surface. Off: the block says so and nothing else changes.
+  const titleMutual = titlePool
+    ? titleMutualDeals(lg, [...titlePool, ...deals.filter(d => titleCandidate(d.i_give, d.i_get, d))], {
+      myTeamId: me.roster_id, mode: titleMode, sim: { tradeImpact, tradeImpactWorld } })
+    : { status: 'off', deals: [] };
+
   // Found live, on a real league (2026-09): requireMutual=true (both sides'
   // OPTIMAL LINEUP must improve) found 1 partner out of 9 real opponents.
   // Dropping to the deduplicated list unfiltered used to be the only
@@ -2120,6 +2146,8 @@ function findTradesUncached(lg, {
   return { mode: 'league', me: { roster_id: me.roster_id, owner: me.owner }, slots,
            model_context: assets.context, considered: deals.length,
            excluded_never_trade: [...blockedManagers], deals: shown,
+           // RL-19-3: a class of its own, never merged into `deals` (see title-mutual.js).
+           title_mutual: titleMutual,
            // Every player on a roster in this league. Exposed because anything
            // checking generated prose for an invented player needs the names
            // that EXIST but are not in the deal — a proposal offering a player

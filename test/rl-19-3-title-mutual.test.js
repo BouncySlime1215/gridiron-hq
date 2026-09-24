@@ -186,6 +186,14 @@ test('RL-19-3: findTrades(requireMutual) returns the swap tagged title_mutual, b
   assert.ok(hit.me.ppg_delta < 0.4, 'the points gate itself is unchanged');
   assert.ok(hit.title.me.title_delta_clears_noise && hit.title.them.title_delta_clears_noise);
   assert.ok(hit.title.me.title_delta > 0 && hit.title.them.title_delta > 0);
+  // One-sided title gains (the fixture has several, e.g. my spare RB-for-WR moves
+  // with teams 3 and 4) are simulated and NOT kept.
+  assert.ok(out.title_mutual.simulated > out.title_mutual.deals.length, 'control: some simulated deals were rejected');
+  for (const d of out.title_mutual.deals) {
+    for (const side of [d.title.me, d.title.them]) {
+      assert.ok(side.title_delta > 0 && side.title_delta_clears_noise === true, 'both sides, both past 2 SE');
+    }
+  }
   assert.ok(!out.deals.some(isSwap), 'the points-mutual list is not changed');
   assert.ok(out.deals.every(d => !d.title_mutual), 'the two classes stay distinct');
   // Same number as every other title-odds surface (one seed, one run count).
@@ -206,4 +214,20 @@ test('RL-19-3: requireMutual=false never runs the title stage', () => {
   const loose = withEnv({ GRIDIRON_TITLE_MUTUAL_ENABLED: '1' }, () => search({ requireMutual: false }));
   assert.equal(loose.title_mutual.status, 'off');
   assert.ok(!loose.deals.some(d => d.title_mutual));
+});
+
+test('RL-19-3: a hypothetical roster (teamsOverride) never runs the title stage', () => {
+  const teams = realTradeEngine.loadRosters(league(), assets);
+  const out = withEnv({ GRIDIRON_TITLE_MUTUAL_ENABLED: '1' }, () => search({ teamsOverride: teams }));
+  assert.ifError(out.error);
+  assert.equal(out.title_mutual.status, 'off', 'the simulator plays real rosters, not this one');
+});
+
+test('RL-19-3: the keep rule is both sides up AND both past 2 SE (predicate pinned)', async () => {
+  const { mutualTitleGain } = await import('../server/services/title-mutual.js');
+  const side = (title_delta, title_delta_clears_noise) => ({ title_delta, title_delta_clears_noise });
+  assert.equal(mutualTitleGain(side(0.05, true), side(0.08, true)), true, 'control: a real two-sided gain is kept');
+  assert.equal(mutualTitleGain(side(0.01, false), side(0.08, true)), false, 'my gain inside the noise');
+  assert.equal(mutualTitleGain(side(0.05, true), side(0.01, false)), false, 'their gain inside the noise');
+  assert.equal(mutualTitleGain(side(0.05, true), side(-0.08, true)), false, 'one-sided');
 });

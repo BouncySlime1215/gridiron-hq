@@ -227,6 +227,12 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
             BOTH SIDES WIN
           </span>
         )}
+        {deal.title_mutual && deal.title && (
+          <span className="text-[10px] font-semibold text-good bg-good-tint border border-good px-2 py-0.5 rounded-full"
+            title={`Lineup points this week say no, the season sim says both of you gain title odds, each past 2 standard errors (paired seeds): you ${(deal.title.me.title_delta * 100).toFixed(1)} pts, them ${(deal.title.them.title_delta * 100).toFixed(1)} pts`}>
+            BOTH TITLE ODDS UP
+          </span>
+        )}
         {!deal.mutual && deal.plausible && (
           <span className="text-[10px] font-semibold text-[var(--accent)] bg-[var(--accent-tint)] border border-[var(--accent)]/30 px-2 py-0.5 rounded-full"
             title="Their lineup doesn't clearly improve, but the trade is fair on market value and doesn't cost them much — a realistic ask, not a lock">

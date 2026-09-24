@@ -569,6 +569,26 @@ function FindDeals({ leagueId, teamId, rosters, untouchable, untouchableNames }:
         </div>
       )}
 
+      {/* RL-19-3: 1-for-1s the lineup-points gate drops that raise BOTH teams' title
+          odds past 2 SE. Their own class, never mixed into the points list below. */}
+      {data?.title_mutual?.status === 'failed' && (
+        <p className="text-xs text-[var(--crit)] mb-3">Title-mutual check could not run: {data.title_mutual.error}</p>
+      )}
+      {data?.title_mutual?.deals?.length > 0 && (
+        <div className="mb-5">
+          <div className="text-xs text-slate-500 font-semibold mb-2">
+            {data.title_mutual.preview ? 'Preview (unconfirmed forward): ' : ''}
+            Both title odds up, points say no · {data.title_mutual.deals.length} of {data.title_mutual.simulated} simulated
+          </div>
+          <div className="space-y-3">
+            {data.title_mutual.deals.map((d: any, i: number) => (
+              <TradeCard key={`tm-${dealSignature(d) || i}`} deal={d} leagueId={leagueId} untouchableNames={untouchableNames}
+                onDismiss={() => dismiss(d)} compact />
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-3 mb-3 flex-wrap text-xs">
         <span className="text-slate-500 font-semibold">Browse every distinct idea</span>
         <label className="flex items-center gap-1.5 cursor-pointer">

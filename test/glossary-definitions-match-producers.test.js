@@ -131,6 +131,65 @@ test('no two glossary entries share a raw path (one number, one entry)', () => {
   assert.deepEqual(dupes, [], `raw paths used by more than one entry: ${dupes.join(', ')}`);
 });
 
+// Each entry as { key, name, raw }, in source order. Read from the source text,
+// so a key written twice (which an object literal would silently collapse to
+// the last one) is still seen twice.
+const entriesOf = src => {
+  const body = src.slice(src.indexOf('export const GLOSSARY'), src.indexOf('} as const satisfies'));
+  return [...body.matchAll(/^  (\w+):\s*\{(.*?)^  \}/gms)].map(([, key, inner]) => ({
+    key,
+    name: inner.match(/^    name:\s*'([^']*)'/m)?.[1] ?? null,
+    raw: inner.match(/^    raw:\s*(['"])(.*?)\1/m)?.[2] ?? null
+  }));
+};
+// Two different raw paths must never land on one display key or one display
+// name: the reader would see one label for two numbers.
+const keyCollisions = entries => {
+  const out = [];
+  for (const by of ['key', 'name']) {
+    const seen = new Map();
+    for (const e of entries) {
+      const prev = seen.get(e[by]);
+      if (prev !== undefined && prev !== e.raw) out.push(`${by} "${e[by]}" -> ${prev} and ${e.raw}`);
+      if (!seen.has(e[by])) seen.set(e[by], e.raw);
+    }
+  }
+  return out;
+};
+
+test('no two raw paths share a display key or a display name', () => {
+  const entries = entriesOf(glossary);
+  assert.ok(entries.length >= 15, `control: expected every glossary entry, found ${entries.length}`);
+  for (const e of entries) assert.ok(e.name && e.raw, `${e.key} is missing a name or a raw path`);
+  assert.deepEqual(keyCollisions(entries), [], 'one display key or name covers two different numbers');
+  // Known-collision control: the shape this test exists to stop — the season
+  // total filed under the weekly key — must be caught by the same detector.
+  const seeded = glossary.replace(/^  projected_points_season:/m, '  projected_points:');
+  assert.notEqual(seeded, glossary, 'control: projected_points_season entry not found to seed the collision');
+  assert.deepEqual(keyCollisions(entriesOf(seeded)), ['key "projected_points" -> lineup.week_points and stats.projected_points'],
+    'control: the detector must flag the season total sharing the weekly key');
+  const sameName = glossary.replace("name: 'Projected points (season)'", "name: 'Projected points (this week)'");
+  assert.equal(keyCollisions(entriesOf(sameName)).length, 1, 'control: the detector must flag two numbers under one display name');
+});
+
+test('season projected points: stats.projected_points has its own entry under a key that is not the weekly one', () => {
+  // Producer: server/routes/stats.js:98 statsFor() `projected_points: projPts`,
+  // the kind = 'projected' player_season_stats row that syncStats() writes
+  // from ESPN's full-season projection (statSourceId 1, split 0, appliedTotal).
+  const stats = read('server/routes/stats.js');
+  assert.match(stats, /projected_points:\s*projPts/, 'stats.js no longer serves projected_points from projPts — re-point the raw path');
+  assert.match(stats, /kind = 'projected'/, 'stats.js no longer reads the projected season row — re-audit');
+  assert.match(stats, /statSplitTypeId !== 0/, 'control: stats.js must still keep only full-season splits, or "whole season" is wrong');
+  assert.match(stats, /leaguedefaults/, 'control: the projection must still come from the ESPN default-scoring endpoint, or "ESPN default way" is wrong');
+  const season = block('projected_points_season');
+  assert.equal(field(season, 'raw'), 'stats.projected_points');
+  assert.equal(field(block('projected_points'), 'raw'), 'lineup.week_points', 'the weekly key must keep the weekly number');
+  const plain = plainOf('projected_points_season');
+  assert.match(plain, /whole season/i, 'the sentence must say this is a full-season total');
+  assert.match(plain, /not the number for this week/i, 'the sentence must separate it from the weekly projected_points');
+  assert.match(plain, /ESPN/, 'the sentence must say the projection is ESPN\'s, not ours');
+});
+
 test('title_delta: the sentence does not promise clean pairing while the paired-seed draw order can still shift between runs', () => {
   // Producer: season-sim.js:313 builds the per-player draw order from `roster`,
   // which is derived from each team's OWN player list order; a trade changes
@@ -153,8 +212,12 @@ test('title_delta: the sentence does not promise clean pairing while the paired-
   // Word lists cannot close this either ("zero noise", "noise is fully
   // removed" both mention noise). Pin the exact sentence; the roster/sort
   // anchors above force a re-read when the pairing bug is fixed.
-  assert.equal(plain, 'How much this move changes your championship number, from replaying the same simulated seasons before and after — figure some of the change, roughly a couple of points, is simulation noise rather than the move itself.',
+  assert.equal(plain, 'How much this move changes your championship number, from replaying the same simulated seasons before and after — figure some of the change is simulation noise rather than the move itself.',
     'title_delta sentence changed — re-check it against season-sim.js:313-356,476 and update this pin');
+  // The noise has not been measured, so the sentence may not size it. Re-add
+  // a figure only alongside a measured run of season-sim's pairing noise.
+  assert.doesNotMatch(plain, /\d|couple|few|handful|point/i,
+    'title_delta gives the pairing noise a size nobody has measured — remove it, or cite the measurement that produced it');
 });
 
 test('points_allowed_to_position: raw is the field matchups.js actually serves (`allowed`), and the sentence says multi-season, tested, not "so far"', () => {

@@ -170,7 +170,8 @@ test("Coach's fixture (#230) fails the contract only where the mismatch list say
 const DECLARED = schemaPaths();
 const WRITTEN = new Set([...writtenPaths(PRODUCER)].map(norm));
 /** A read resolves when the producer writes the path, and a scalar read does not land on a typed field. */
-const resolves = r => DECLARED.has(r.reads) && WRITTEN.has(norm(r.reads)) && !(r.scalar && DECLARED.has(`${r.reads}.status`));
+// A read on a PENDING path is declared and owned by the unit named there (FIX-05 for brain_report).
+const resolves = r => DECLARED.has(r.reads) && (WRITTEN.has(norm(r.reads)) || pending(r.reads)) && !(r.scalar && DECLARED.has(`${r.reads}.status`));
 
 test('every key a consumer reads is a key the producer writes', () => {
   const unmatched = READS.filter(r => !r.fix && !resolves(r));

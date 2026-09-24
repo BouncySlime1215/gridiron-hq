@@ -53,8 +53,6 @@ test('the producer fixture validates against the contract', () => {
  * them starts being written, so an entry cannot linger.
  */
 const PENDING = [
-  { unit: 'FIX-05', why: 'the producer does not read the brain report yet', path: /^leagues\[\]\.brain_report\.value(\.|\[|$)/ },
-  { unit: 'FIX-05', why: 'the producer does not read the number audit yet', path: /^leagues\[\]\.number_health\.value(\.|\[|$)/ },
   { unit: 'unassigned', why: 'no planner rule reads these two sliders', path: /^leagues\[\]\.destination\.value\.tolerances\.value\.(reputation_budget|ai_spend)$/ }
 ];
 const pending = p => PENDING.some(x => x.path.test(p));
@@ -166,8 +164,16 @@ const WRITTEN = new Set([...writtenPaths(PRODUCER)].map(norm));
 const resolves = r => DECLARED.has(r.reads) && (WRITTEN.has(norm(r.reads)) || pending(r.reads)) && !(r.scalar && DECLARED.has(`${r.reads}.status`));
 
 test('every key a consumer reads is a key the producer writes', () => {
-  const unmatched = READS.filter(r => !r.fix && !resolves(r));
+  const unmatched = READS.filter(r => !r.fix && !r.awaits && !resolves(r));
   assert.deepEqual(unmatched.map(r => `#${r.pr} ${r.where} reads ${r.reads}`), []);
+});
+
+test('each read that awaits a producer is declared, says why, and is still not written', () => {
+  for (const r of READS.filter(x => x.awaits)) {
+    assert.ok(DECLARED.has(r.reads), `#${r.pr} ${r.where}: ${r.reads} is not a contract path`);
+    assert.equal(WRITTEN.has(norm(r.reads)), false, `#${r.pr} ${r.where}: ${r.reads} is written now; drop its awaits`);
+    assert.ok(r.awaits.length > 10);
+  }
 });
 
 test('each recorded mismatch is still a mismatch, and its fix names a real contract path', () => {

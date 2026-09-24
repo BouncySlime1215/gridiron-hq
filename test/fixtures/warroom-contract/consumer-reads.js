@@ -10,6 +10,7 @@
  *   #230 claude/cloud-war-room-coach 6ac4758  client/src/components/warroom/coach/warroomCoach.ts,
  *                                             CoachDock.tsx, server/services/warroom-actions/schema.js
  *        (#230's reads moved to the contract by FIX-06; none carries a `fix` any more)
+ *   #234 REASON-01 after FIX-08              server/services/reasoning/cards.js (reads the contract; no fixes)
  *
  * An entry with `fix` is a read no producer writes today. `fix.to` is the
  * contract path it should read instead (the test proves `to` exists) and
@@ -36,6 +37,7 @@ const BRAIN = `${WRC}/BrainCheckCard.tsx`;
 const CO = 'client/src/components/warroom/coach/warroomCoach.ts';
 const DOCK = 'client/src/components/warroom/coach/CoachDock.tsx';
 const ACT = 'server/services/warroom-actions/schema.js';
+const RS = 'server/services/reasoning/cards.js';
 
 export const READS = [
   /* ---------------------------------------------------------------- #231 UI */
@@ -135,7 +137,42 @@ export const READS = [
   { pr: 230, where: `${CO}:56`, reads: 'leagues[].targets.value' },
   { pr: 230, where: `${CO}:57`, reads: 'leagues[].speed_curve.value' },
   { pr: 230, where: `${CO}:58`, reads: 'leagues[].flip_map.value' },
-  { pr: 230, where: `${CO}:59`, reads: 'leagues[].brain_report.value.checks' }
+  { pr: 230, where: `${CO}:59`, reads: 'leagues[].brain_report.value.checks' },
+  /* ------------------------------------------------- #234 reasoning (FIX-08) */
+  { pr: 234, where: `${RS}:47`, reads: 'leagues[].league', scalar: true },
+  { pr: 234, where: `${RS}:154`, reads: 'leagues[].names' },
+  { pr: 234, where: `${RS}:104`, reads: 'leagues[].alternatives.value' },
+  { pr: 234, where: `${RS}:86`, reads: 'leagues[].alternatives.value[].move_id', scalar: true },
+  { pr: 234, where: `${RS}:91`, reads: 'leagues[].alternatives.value[].delta_final.value', scalar: true },
+  { pr: 234, where: `${RS}:88`, reads: 'leagues[].alternatives.value[].steps[].partner', scalar: true },
+  { pr: 234, where: `${RS}:89`, reads: 'leagues[].alternatives.value[].steps[].give' },
+  { pr: 234, where: `${RS}:89`, reads: 'leagues[].alternatives.value[].steps[].get' },
+  { pr: 234, where: `${RS}:90`, reads: 'leagues[].alternatives.value[].steps[].p_yes.value', scalar: true },
+  { pr: 234, where: `${RS}:90`, reads: 'leagues[].alternatives.value[].steps[].p_yes.n', scalar: true,
+    awaits: 'no producer writes the offer count behind p_yes yet (FIX-03 prices it with a heuristic); cards.js reads it as null' },
+  { pr: 234, where: `${RS}:84`, reads: 'leagues[].alternatives.value[].steps[].title_odds_delta.value', scalar: true },
+  { pr: 234, where: `${RS}:84`, reads: 'leagues[].alternatives.value[].steps[].title_odds_delta.se', scalar: true },
+  { pr: 234, where: `${RS}:84`, reads: 'leagues[].alternatives.value[].steps[].title_odds_delta.clears_2se', scalar: true },
+  { pr: 234, where: `${RS}:95`, reads: 'leagues[].alternatives.value[].steps[].send_when.value', scalar: true },
+  { pr: 234, where: `${RS}:96`, reads: 'leagues[].alternatives.value[].steps[].opening.value.text', scalar: true },
+  { pr: 234, where: `${RS}:98`, reads: 'leagues[].alternatives.value[].steps[].walk_away.value.text', scalar: true },
+  { pr: 234, where: `${RS}:68`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value' },
+  { pr: 234, where: `${RS}:74`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.accept.value.do', scalar: true },
+  { pr: 234, where: `${RS}:74`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.silence.value.when', scalar: true },
+  { pr: 234, where: `${RS}:75`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.counter.value.counter_rules.counter_with', scalar: true },
+  { pr: 234, where: `${RS}:75`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.counter.value.counter_rules.accept_if', scalar: true },
+  { pr: 234, where: `${RS}:76`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.counter.value.counter_rules.walk_away_if', scalar: true },
+  { pr: 234, where: `${RS}:76`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.accept.value.odds_after.value', scalar: true },
+  { pr: 234, where: `${RS}:52`, reads: 'leagues[].partners.value' },
+  { pr: 234, where: `${RS}:52`, reads: 'leagues[].partners.value[].team', scalar: true },
+  { pr: 234, where: `${RS}:169`, reads: 'leagues[].partners.value[].p_responds', scalar: true },
+  { pr: 234, where: `${RS}:170`, reads: 'leagues[].partners.value[].basis', scalar: true },
+  { pr: 234, where: `${RS}:171`, reads: 'leagues[].partners.value[].roster_holes' },
+  { pr: 234, where: `${RS}:183`, reads: 'leagues[].partners.value[].offers_logged', scalar: true },
+  { pr: 234, where: `${RS}:184`, reads: 'leagues[].partners.value[].chat_labels' },
+  { pr: 234, where: `${RS}:60`, reads: 'leagues[].brain_report.value' },
+  { pr: 234, where: `${RS}:62`, reads: 'leagues[].brain_report.value.checks[].id', scalar: true },
+  { pr: 234, where: `${RS}:64`, reads: 'leagues[].brain_report.value.checks[].status', scalar: true }
 ];
 
-export const FILES = { UI, DECK, REPLY, TOP, WR, ITIN, TGT, FLIP, BRAIN, CO, DOCK, ACT };
+export const FILES = { UI, DECK, REPLY, TOP, WR, ITIN, TGT, FLIP, BRAIN, CO, DOCK, ACT, RS };

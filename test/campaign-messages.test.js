@@ -139,21 +139,63 @@ test('the plans file with coach texts still passes validatePlans, and the input 
   assert.equal(JSON.stringify(PLANS), before);
 });
 
-test('every step gets a reply table (accept / decline / counter / silence) and a walk-away, in names not ids', () => {
+test('every priced step gets a reply table (accept / decline / counter / silence) and a walk-away, in names not ids', () => {
+  let priced = 0;
   for (const e of live()) {
     const { entry } = M.applyCoachMessages(e, { force: true });
     for (const m of M.targetMoves(entry)) {
       for (const s of m.steps) {
+        if (!M.isPriced(s)) continue;
+        priced++;
         assert.equal(s.reply_table.status, 'ok');
         for (const k of ['accept', 'decline', 'counter', 'silence']) {
           const row = s.reply_table.value[k];
           assert.equal(row.status, 'ok', k);
           assert.ok(row.value.message, `${k} has a reply text`);
         }
-        assert.equal(s.walk_away.status, 'ok');
-        assert.ok(s.walk_away.value.max_give.length >= 1);
+        // The walk-away is rephrased only where the engine priced one; otherwise its reason stays.
+        if (s.walk_away.status === 'ok') assert.ok(s.walk_away.value.max_give.length >= 1);
+        else assert.notEqual(s.walk_away.source, 'plan.path', 'no invented walk-away');
         const cr = s.reply_table.value.counter.value.counter_rules;
         if (cr) assert.doesNotMatch(cr.counter_with, /^\d+( \+ \d+)*/, 'names, not ids');
+      }
+    }
+  }
+  assert.ok(priced > 0);
+});
+
+test('a step with no playbook gets the offer message only; its reply table and walk-away stay unknown', () => {
+  let unpriced = 0;
+  for (const e of live()) {
+    const orig = new Map(M.targetMoves(e).flatMap(m => m.steps.map((s, i) => [`${m.move_id}#${i}`, s])));
+    const { entry } = M.applyCoachMessages(e, { force: true });
+    assert.equal(M.gradeEntry(entry).invented_playbook, 0);
+    for (const m of M.targetMoves(entry)) {
+      m.steps.forEach((s, i) => {
+        const before = orig.get(`${m.move_id}#${i}`);
+        if (M.isPriced(before)) return;
+        unpriced++;
+        assert.deepEqual(s.reply_table, before.reply_table, 'reply table untouched');
+        assert.deepEqual(s.walk_away, before.walk_away, 'walk-away untouched');
+        assert.deepEqual(s.opening, before.opening);
+        assert.equal(s.message.source, M.COACH_SOURCE);
+        assert.doesNotMatch(s.message.value, /backup|priced|slider/i);
+      });
+    }
+  }
+  assert.ok(unpriced > 0, 'the fixture has later steps with no playbook');
+});
+
+test('a priced step with no backup never tells Nick to use a backup', () => {
+  for (const e of live()) {
+    const { entry } = M.applyCoachMessages(e, { force: true });
+    for (const m of M.targetMoves(entry)) {
+      for (const s of m.steps) {
+        if (!M.isPriced(s) || s.reply_table.value.decline.value?.move_id) continue;
+        const rt = s.reply_table.value;
+        for (const k of ['decline', 'counter', 'silence']) assert.doesNotMatch(rt[k].value.do, /use the backup|offer Team/, k);
+        assert.doesNotMatch(rt.decline.value.do, /No backup clears/);
+        if (s.walk_away.status === 'ok') assert.doesNotMatch(s.walk_away.value.text, /backup/);
       }
     }
   }
@@ -196,6 +238,8 @@ test('gradePlansFile: the metric command, before and after, on the made-up file'
   const after = M.gradePlansFile(PLANS, { apply: true });
   assert.equal(after.totals.ungrounded, 0);
   assert.ok(after.grounded_share >= 0.9, String(after.grounded_share));
+  assert.equal(after.totals.invented_playbook, 0);
+  assert.ok(after.totals.full_coach <= after.totals.priced_steps);
   assert.ok(after.totals.max_len <= C.MAX_CHARS);
   assert.equal(validatePlans(after.doc).ok, true);
 });

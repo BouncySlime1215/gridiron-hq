@@ -193,6 +193,11 @@ export function offerText({ names, partner, prof, give, get, even, seed }) {
  */
 export function coachStep(step, { names, partnerByTeam, profiles, plan, i, moveById, phrase = offerText }) {
   const out = structuredClone(step);
+  // A step the producer gave no playbook (view.js PLAYBOOK_LATER / PLAYBOOK_FIRST_ONLY: its opening,
+  // walk_away and reply_table are 'unknown') gets the offer message only. Its reply table and walk-away
+  // stay the producer's 'unknown': nothing was priced and no backup was chosen, so there is nothing
+  // true to say about them.
+  const priced = isPriced(step);
   const partner = partnerByTeam.get(String(step.partner)) ?? null;
   const opening = okv(step.opening);
   const walk = okv(step.walk_away);
@@ -235,12 +240,13 @@ export function coachStep(step, { names, partnerByTeam, profiles, plan, i, moveB
   const msg = put(phrase({ names, partner, prof, give, get, even: pctOpen != null ? Math.abs(pctOpen) <= EVEN_PCT : null, seed }), outFacts, 'message');
   if (msg) out.message = { status: 'ok', value: msg, source: COACH_SOURCE };
 
-  // 2. Walk-away, in names.
-  const walkText = walk
-    ? `Most you give: ${plus(names, maxGive)} for ${plus(names, get)}. Past that, your backup plan is worth more.`
-    : `Most you give: ${plus(names, maxGive)} for ${plus(names, get)}. This step was only priced on this package, so anything more is unpriced.`;
-  const w = put(walkText, facts, 'walk_away');
-  if (w) out.walk_away = { status: 'ok', value: { text: w, max_give: maxGive }, source: walk ? step.walk_away.source : 'plan.path' };
+  if (!priced) return { step: out, grounded: !!msg, priced, errors };
+
+  // 2. Walk-away, in names. Only where the engine priced one; otherwise the producer's reason stands.
+  if (walk) {
+    const w = put(`Most you give: ${plus(names, maxGive)} for ${plus(names, get)}. Past that, ${backup ? 'your backup plan is worth more' : 'say no'}.`, facts, 'walk_away');
+    if (w) out.walk_away = { status: 'ok', value: { text: w, max_give: maxGive }, source: step.walk_away.source };
+  }
 
   // 3. Reply table, in names.
   const rows = {};
@@ -260,38 +266,41 @@ export function coachStep(step, { names, partnerByTeam, profiles, plan, i, moveB
   const coreNote = prof.core_ask.size ? ` Do not ask for ${joinNames(names, [...prof.core_ask])} again.` : '';
   row('decline', {
     do: (backup ? `Thank him, log why he passed, then offer Team ${backup.partner} ${deal(backup)} instead.`
-      : 'Thank him and log why he passed. No backup clears your sliders this week; the plan is redone on the next refresh.') + coreNote,
+      : 'Thank him and log why he passed. No backup is set for this step; the plan is redone on the next refresh.') + coreNote,
     message: faceSave ? 'All good, totally get it. Appreciate you looking.' : 'All good, appreciate you looking at it.',
   });
   if (counterRules && rung.length) {
     row('counter', {
-      do: `If his ask is no more than ${plus(names, maxGive)}, take it. Otherwise offer ${plus(names, rung)} for ${plus(names, get)}. Anything richer: say no and use the backup.`,
+      do: `If his ask is no more than ${plus(names, maxGive)}, take it. Otherwise offer ${plus(names, rung)} for ${plus(names, get)}. Anything richer: say no${backup ? ' and use the backup' : ''}.`,
       message: `What if I did ${joinNames(names, rung)} for ${joinNames(names, get)} instead?`,
       counter_rules: {
         accept_if: `his ask is no richer than ${plus(names, maxGive)}${pctWalk != null ? ` (his screen ${sgn(pctWalk)})` : ''}`,
         counter_with: `${plus(names, rung)}${pctRung != null ? ` (his screen ${sgn(pctRung)})` : ''}`,
-        walk_away_if: 'his ask is richer than that: your backup plan is worth more',
+        walk_away_if: backup ? 'his ask is richer than that: your backup plan is worth more' : 'his ask is richer than that: say no',
       },
     });
   } else {
     row('counter', {
-      do: `Hold at ${plus(names, maxGive)} for ${plus(names, get)}: nothing richer was priced. Say no to a counter that adds players on your side.`,
+      do: `No walk-away was priced, so hold at ${plus(names, give)} for ${plus(names, get)}. Say no to a counter that adds players on your side.`,
       message: `I think ${joinNames(names, give)} for ${joinNames(names, get)} is about where I can be.`,
     });
   }
   const slow = prof.labels.has('slow_reply');
   row('silence', {
     when: `no reply in ${NUDGE_HOURS} h`,
-    do: `${slow ? 'He tends to take a while. ' : ''}Send one nudge after ${NUDGE_HOURS} h. After ${SWITCH_HOURS} h with no answer, withdraw and use the backup.`,
+    do: `${slow ? 'He tends to take a while. ' : ''}Send one nudge after ${NUDGE_HOURS} h. After ${SWITCH_HOURS} h with no answer, withdraw${backup ? ` and offer Team ${backup.partner} ${deal(backup)}` : '; the plan is redone on the next refresh'}.`,
     message: `Any thoughts on ${joinNames(names, give)} for ${joinNames(names, get)}? Happy to tweak it.`,
   });
   if (['accept', 'decline', 'counter', 'silence'].every(k => rows[k])) {
-    out.reply_table = { status: 'ok', value: rows, source: step.reply_table?.status === 'ok' ? step.reply_table.source : 'plan.path' };
+    out.reply_table = { status: 'ok', value: rows, source: step.reply_table.source };
   }
-  return { step: out, grounded: !!msg, errors };
+  return { step: out, grounded: !!msg, priced, errors };
 }
 
 /* ------------------------------------------------------------------ the entry */
+
+/** True when the producer wrote this step a playbook (its reply table is 'ok'). */
+export const isPriced = step => step?.reply_table?.status === 'ok';
 
 /** The steps the metric grades: next move + up to five alternatives, deduplicated by move id. */
 export function targetMoves(entry) {
@@ -309,7 +318,7 @@ export function targetMoves(entry) {
  * Returns { entry, stats: { steps, grounded, fallback, errors: [{ move_id, i, errors }] } }.
  */
 export function applyCoachMessages(entry, { profiles = null, force = false, phrase } = {}) {
-  const stats = { steps: 0, grounded: 0, fallback: 0, errors: [] };
+  const stats = { steps: 0, grounded: 0, fallback: 0, unpriced: 0, errors: [] };
   if ((!force && !coachMessagesOn()) || !entry || entry.error) return { entry, stats };
   const out = structuredClone(entry);
   const names = out.names ?? {};
@@ -323,6 +332,7 @@ export function applyCoachMessages(entry, { profiles = null, force = false, phra
       const r = coachStep(s, { names, partnerByTeam, profiles, plan: m, i, moveById, ...(phrase ? { phrase } : {}) });
       stats.steps++;
       if (r.grounded) stats.grounded++; else stats.fallback++;
+      if (!r.priced) stats.unpriced++;
       if (r.errors.length) stats.errors.push({ move_id: m.move_id, i, errors: r.errors });
       return r.step;
     });
@@ -337,13 +347,18 @@ export function applyCoachMessages(entry, { profiles = null, force = false, phra
  * the checker (must be 0), and the longest message.
  */
 export function gradeEntry(entry) {
-  const r = { steps: 0, coach: 0, template: 0, missing: 0, ungrounded: 0, template_ungrounded: 0, max_len: 0 };
+  const r = { steps: 0, coach: 0, template: 0, missing: 0, ungrounded: 0, template_ungrounded: 0, max_len: 0,
+    priced_steps: 0, priced_coach: 0, full_coach: 0, invented_playbook: 0 };
   if (!entry || entry.error) return r;
   const names = entry.names ?? {};
   const partnerByTeam = new Map((okv(entry.partners) ?? []).map(p => [String(p.team), p]));
   for (const m of targetMoves(entry)) {
     for (const s of m.steps) {
       r.steps++;
+      const priced = isPriced(s);
+      if (priced) r.priced_steps++;
+      // A reply table or walk-away on a step with no playbook would be invented (must stay 0).
+      if (!priced && (s.reply_table?.status === 'ok' || s.walk_away?.status === 'ok')) r.invented_playbook++;
       const msg = s.message;
       if (msg?.status !== 'ok') { r.missing++; continue; }
       const opening = okv(s.opening);
@@ -353,7 +368,15 @@ export function gradeEntry(entry) {
         holes: partnerByTeam.get(String(s.partner))?.roster_holes ?? [], numbers: [] });
       const c = checkMessage(msg.value, f);
       r.max_len = Math.max(r.max_len, String(msg.value).length);
-      if (msg.source === COACH_SOURCE) { r.coach++; if (!c.ok) r.ungrounded++; } else { r.template++; if (!c.ok) r.template_ungrounded++; }
+      if (msg.source === COACH_SOURCE) {
+        r.coach++;
+        if (!c.ok) r.ungrounded++;
+        else if (priced) {
+          r.priced_coach++;
+          const rt = okv(s.reply_table);
+          if (['accept', 'decline', 'counter', 'silence'].every(k => rt?.[k]?.status === 'ok')) r.full_coach++;
+        }
+      } else { r.template++; if (!c.ok) r.template_ungrounded++; }
     }
   }
   return r;
@@ -366,12 +389,18 @@ export function gradeEntry(entry) {
  */
 export function gradePlansFile(file, { apply = false, profilesFor = () => null } = {}) {
   const doc = apply ? { ...file, leagues: file.leagues.map(e => applyCoachMessages(e, { force: true, profiles: profilesFor(e.league) }).entry) } : file;
-  const t = { steps: 0, coach: 0, template: 0, missing: 0, ungrounded: 0, template_ungrounded: 0, max_len: 0 };
+  const t = { steps: 0, coach: 0, template: 0, missing: 0, ungrounded: 0, template_ungrounded: 0, max_len: 0,
+    priced_steps: 0, priced_coach: 0, full_coach: 0, invented_playbook: 0 };
   for (const e of doc.leagues) {
     const g = gradeEntry(e);
     for (const k of Object.keys(t)) t[k] = k === 'max_len' ? Math.max(t[k], g[k]) : t[k] + g[k];
   }
-  return { doc, totals: t, grounded_share: t.steps ? (t.coach - t.ungrounded) / t.steps : null };
+  return {
+    doc, totals: t,
+    grounded_share: t.steps ? (t.coach - t.ungrounded) / t.steps : null,
+    // Steps with a playbook whose message AND reply table are coach texts, over all graded steps.
+    full_share: t.steps ? t.full_coach / t.steps : null,
+  };
 }
 
 /* ------------------------------------------------------------------ optional model phraser */

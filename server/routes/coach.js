@@ -58,13 +58,16 @@ r.post('/ask', ...askAccess, async (req, res, next) => {
     return res.status(413).json({ error: `page context is ${contextChars} characters, max ${MAX_CONTEXT_CHARS}` });
   }
   const leagueId = Number.isInteger(body.league_id) ? body.league_id : null;
-  if (!getApiKey()) {
+  // COACH-ANSWERS: with the brief flag on, Coach still answers the starter
+  // questions from the plan (and refuses the rest plainly) when there is no key.
+  const hasModel = !!getApiKey();
+  if (!hasModel && !coachBriefFlag().on) {
     return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
   }
 
   if (!wantsStream(req)) {
     try {
-      res.json(await askCoach({ question, context, leagueId }));
+      res.json(await askCoach({ question, context, leagueId, hasModel }));
     } catch (e) { next(e); }
     return;
   }
@@ -77,7 +80,7 @@ r.post('/ask', ...askAccess, async (req, res, next) => {
     connection: 'keep-alive'
   });
   try {
-    const result = await askCoach({ question, context, leagueId, onEvent: event => send(res, event) });
+    const result = await askCoach({ question, context, leagueId, hasModel, onEvent: event => send(res, event) });
     send(res, { t: 'result', ...result });
   } catch (e) {
     // The stream is already open, so an error is an event rather than a status

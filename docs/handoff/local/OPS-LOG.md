@@ -325,3 +325,4 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 - 01:33Z BROKEN-01 -> #237 (migration 077; audit step 5 in refresh loop; Settings 'Number health' card + red dot; 15 tests; rows A-E,H audited; F,G are labelling). TODO: live-DB control run (row A) after merge.
 - 01:36Z plans.json GENERATED for all 5 leagues (944 s, 0 failed; view sections: destination, next_move, deck, replies, itinerary, suggestions, flips, partners, catch_up, speed_curve, feasibility, risk_modes, confirm, brain_check, number_health). Attention ranking: L1 first (best move 4.3 pts), L5 second. Note: availability pooled fallback (nfl_availability_role_rates empty). Waiting on #231/#230 merge for the browser check.
 - 01:38Z RULING Nick: north-star work = league 4 (Transfer Portal) only; other leagues = training data. E1 agent told to headline L4.
+- 01:39Z PLAN v12: entire plan = league 4. Plan, TASKS, PASTE, memory updated.

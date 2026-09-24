@@ -1,6 +1,7 @@
 # PASTE THIS INTO A FRESH CLAUDE CODE SESSION TO RESUME GRIDIRON HQ
 (Refreshed 2026-09-23 2:20 PM ET by account A. Account B takes over at 3 PM ET.)
 (3:52 PM ET Nick: B is in charge of EVERYTHING: merging, #214 preview switch + run.sh restart, builds, R&D. A is winding down.)
+(PLAN v12, 9/23 ~9:45 PM: the ENTIRE plan targets league 4, Transfer Portal. Other leagues = training data only.)
 (6:35 PM ET 9/23, Nick: B works until **Mon 9/28 9:00 PM ET**, then STOPS; the other Max account resumes from this file. Budget paced to that: (94% - used) / hours left, ~0.86%/h at 9% used. B's hourly tick at :17 rewrites TASKS.md + this file's §3/§5/§7 so a fresh session can continue from here alone. Rulebook: RULES.md. Live checklist: TASKS.md.)
 
 

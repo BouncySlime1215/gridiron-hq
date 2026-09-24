@@ -9,7 +9,7 @@ PHASE B: FULL LIST in NORTH-STAR-PLAN.md 'everything in this, add, don't skip' (
 PHASE C (before Nick wakes): merge what passes; ff local clone + restart; open the War Room in the browser for each league, screenshot, check the numbers match the plans JSON; write MORNING-BRIEF.md (what's live, what's tested with numbers, what's NOT yet: always-on replanning daemon, live grading, clone validation beyond history) and SendUserFile it + screenshots.
 HONEST LIMITS to state in the brief: event-driven replanning needs EA-02 daemon (not overnight); P(accept) validated only as far as E1 allows; live grading (E2, E4-E7) needs 2026 weeks.
 
-## FOCUS: league 4 only (Transfer Portal) for all north-star work (Nick 9/23 ~9:40 PM).
+## FOCUS (PLAN v12): the ENTIRE plan is league 4 (Transfer Portal). Other leagues = training data only.
 ## Running
 - PUSH TONIGHT (Nick 8:20 PM): weekly may reach ~40% by 9/24 morning; hourly tick: treat measured pace up to that ceiling as OK, then return to 0.6%/h.
 - [ ] EA-00 spine v2 on #216 branch: wf_9249c9e5-5e8

@@ -147,18 +147,40 @@ test('groups shorter than n is ignored gracefully (falls back to ungrouped)', ()
  * `groups.length`, and the two arrays being compared over the truncated
  * window are not guaranteed to be the SAME units the docstring requires.
  */
-test('groups longer than n (item 16ii) is ignored gracefully instead of silently truncated to a mismatched pairing', () => {
-  const a = Array(12).fill(0).map((_, i) => (i % 4 < 2 ? 1 : 9));   // 12 units, the shorter side
-  const b = Array(20).fill(0).map((_, i) => (i % 4 < 2 ? 1 : 9));   // 20 units, the longer side
-  const groups = Array(20).fill(0).map((_, i) => `game${Math.floor(i / 4)}`); // built for b's length, per offseason-model.js's own pattern
-  const grouped = pairedBootstrapDiff(a, b, { iterations: 500, seed: 1, groups });
-  const ungrouped = pairedBootstrapDiff(a, b, { iterations: 500, seed: 1 });
+test('groups longer than n (item 16ii): the mismatched pairing is now refused outright, not fallen back on', () => {
+  // UPDATED 2026-09-20. This test was written for the 16(ii) fix, which made a
+  // length-mismatched `groups` array fall back to the ungrouped resample. The
+  // fallback was the right answer to the question it asked, and the question was
+  // too narrow: it treated the GROUPS as the problem when the value arrays being
+  // different lengths is the problem. `n = min(12, 20)` silently truncated `b` to
+  // its first 12 entries, and those 12 are not the units `a`'s 12 describe --
+  // clustered or not, the returned interval was a paired statistic on an unpaired
+  // pairing, which the model evidence audit measured as a sign inversion on the
+  // offseason model (D34).
+  //
+  // So the refusal moved earlier: two value arrays of different lengths have no
+  // pairing at all, and the function says so instead of estimating. The original
+  // assertion -- that a mismatched groups array is never partially trusted -- is
+  // kept below on arrays that ARE the same length, which is the only case where
+  // the groups question can still arise.
+  const a = Array(12).fill(0).map((_, i) => (i % 4 < 2 ? 1 : 9));   // 12 units
+  const b = Array(20).fill(0).map((_, i) => (i % 4 < 2 ? 1 : 9));   // 20 units
+  const groups = Array(20).fill(0).map((_, i) => `game${Math.floor(i / 4)}`);
+  const refused = pairedBootstrapDiff(a, b, { iterations: 500, seed: 1, groups });
+  assert.match(refused.error, /different lengths \(12 and 20\)/);
+  assert.equal(refused.mean_diff, undefined, 'no interval, so no truncated pairing to report');
+  assert.deepEqual(refused.lengths, [12, 20]);
+  assert.equal(refused.clustered, false);
+
+  // Equal lengths, groups built for something else: the original claim, unchanged.
+  const b12 = b.slice(0, 12);
+  const grouped = pairedBootstrapDiff(a, b12, { iterations: 500, seed: 1, groups });
+  const ungrouped = pairedBootstrapDiff(a, b12, { iterations: 500, seed: 1 });
   assert.equal(grouped.error, undefined);
-  assert.equal(grouped.n, 12, 'n is min(12, 20)');
-  // Falling back to the ungrouped path means an IDENTICAL run (same seed, same
-  // iterations, same truncated a/b) reproduces byte-for-byte -- the surest
-  // proof the mismatched groups array was set aside rather than partially trusted.
-  assert.deepEqual(grouped, ungrouped, 'a length-mismatched groups array must fall back to the exact ungrouped result, not a partially-grouped one');
+  assert.equal(grouped.n, 12);
+  assert.equal(grouped.clustered, false, 'the 20-long groups array was set aside');
+  assert.deepEqual(grouped, ungrouped,
+    'a length-mismatched groups array must fall back to the exact ungrouped result, not a partially-grouped one');
 });
 
 /**

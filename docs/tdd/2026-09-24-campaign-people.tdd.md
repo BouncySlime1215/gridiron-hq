@@ -42,7 +42,7 @@ the code): test 1 used P21, which the fixture never suggests (P11 is); test 9
 built a profile from a key the adapter does not read (`urgency` at top level), so it
 read as `unknown`.
 
-GREEN: `campaign-people.test.js` 12/12, `campaign-producer.test.js` 23/23,
+GREEN (commit `a370e50`): `campaign-people.test.js` 12/12, `campaign-producer.test.js` 23/23,
 `preview-mode.test.js` + `campaign-producer.test.js` 26/26 (both combined).
 
 ## 1b. Mutation sweep (liveness)

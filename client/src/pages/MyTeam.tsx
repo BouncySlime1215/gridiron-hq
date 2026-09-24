@@ -210,6 +210,8 @@ export default function MyTeam() {
         </div>
       )}
 
+      {synced && active && <MondayAutopsyCard leagueId={active.id} />}
+
       {!lgLoading && active && !synced && (
         <div className="card p-6 text-sm text-slate-600 mb-4">
           This league hasn't been synced yet — hit{' '}
@@ -332,6 +334,42 @@ const URGENCY_CHIP: Record<string, string> = {
  * has actually come out right; a "low" one is close to a coin flip and is styled
  * quietly on purpose. Hidden when there is nothing to change and nothing to check.
  */
+const LINK_LABEL: Record<string, string> = {
+  script: 'game script', volume: 'team volume', share: 'share', exit: 'in-game exit', efficiency: 'efficiency',
+  td: 'TD luck', news_missed: 'news we missed', blend: 'blend', other: 'other scoring',
+};
+
+/**
+ * PROJ-04-a Monday Autopsy: last week's line (team decision vs luck from the
+ * weekly autopsy, then our starters' link split) and the knowable link failing most
+ * this season. Renders nothing while the flag is off or no week is stored.
+ */
+function MondayAutopsyCard({ leagueId }: { leagueId: number }) {
+  const { data } = useApi<any>(`/trades/${leagueId}/autopsy`);
+  if (!data?.enabled || !data.autopsy) return null;
+  const { autopsy, rollup } = data;
+  const failing = rollup?.most_failing_knowable;
+  const pts = (v: number) => `${v < 0 ? '−' : '+'}${Math.abs(v).toFixed(1)}`;
+  return (
+    <div className="card p-4 mb-4">
+      <h3 className="text-sm font-bold text-slate-700 mb-2">
+        Monday Autopsy · week {data.week}
+        {data.preview && <span className="ml-2 text-[10px] font-normal text-amber-700">Preview (unconfirmed forward)</span>}
+      </h3>
+      {autopsy.team?.line && <p className="text-sm text-slate-700 mb-1">{autopsy.team.line}</p>}
+      <p className="text-sm text-slate-600">{autopsy.player_summary}</p>
+      {failing && (
+        <p className="text-xs text-slate-500 mt-2">
+          Failing link this season: <span className="font-semibold text-slate-700">{LINK_LABEL[failing.link] ?? failing.link}</span>
+          {' '}({Math.abs(failing.abs_points).toFixed(1)} pts moved, net {pts(failing.points)} over {rollup.weeks.length} week{rollup.weeks.length === 1 ? '' : 's'}).
+          {rollup.source_right?.most_often && rollup.source_right.most_often !== 'even'
+            && ` Closer projection most often: ${rollup.source_right.most_often === 'ours' ? 'ours' : 'ESPN'}.`}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function LineupDiffCard({ d, platform }: { d: any; platform: string }) {
   const swaps: any[] = d.swaps ?? [];
   const empty: string[] = d.empty_slots ?? [];

@@ -42,6 +42,7 @@ import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE, PROMPT_VERSION 
 import { recordProposalSlate, recordSentOffer } from '../services/trade-outcomes.js';
 import { recordRoute } from '../services/rec-ledger.js';
 import { offerLoopFields } from '../services/offer-loop-flag.js';
+import { autopsyView, mondayAutopsyFields } from '../services/monday-autopsy.js';
 import { lineupCall } from '../services/lineup-brain.js';
 import { lineupSignals } from '../services/lineup-signals.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
@@ -892,6 +893,24 @@ r.get('/:leagueId/offers/sent', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
     res.json(offerLoopFields());
+  } catch (e) { next(e); }
+});
+
+/**
+ * PROJ-04-a Monday Autopsy: the stored week (latest when ?week is absent) plus the
+ * season rollup per link. Behind GRIDIRON_MONDAY_AUTOPSY (read in monday-autopsy.js
+ * through preview-mode.js); off, it answers `{enabled:false, reason}`.
+ */
+r.get('/:leagueId/autopsy', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const flag = mondayAutopsyFields();
+    if (!flag.enabled) return res.json(flag);
+    const season = Number(req.query.season) || Number(lg.season);
+    if (!Number.isFinite(season)) return res.status(400).json({ error: 'league has no season; pass ?season=' });
+    const week = req.query.week == null ? null : Number(req.query.week);
+    if (week != null && !Number.isInteger(week)) return res.status(400).json({ error: 'week must be an integer' });
+    res.json({ ...flag, ...autopsyView(lg.id, season, week) });
   } catch (e) { next(e); }
 });
 

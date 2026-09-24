@@ -27,6 +27,7 @@
 import { db, rows, row } from '../db/index.js';
 import { PPR, scoreLine } from './scoring.js';
 import { gameCutoff } from './game-cutoff.js';
+import { previewUnconfirmed, previewFields } from './preview-mode.js';
 import {
   LINKS, IS_LUCK, splitMiss, stateFromLinks, stateFromUsage, sourceRight, playerLine, shareChannel,
   gradeCalls, weekSummary
@@ -34,6 +35,24 @@ import {
 
 /** The league the autopsy runs for (leagues.id). */
 export const AUTOPSY_LEAGUE_ID = Number(process.env.AUTOPSY_LEAGUE_ID) || 4;
+
+/**
+ * The one reader of GRIDIRON_MONDAY_AUTOPSY: switches the surface (GET
+ * /api/trades/:leagueId/autopsy and the My team card), not the job, which writes
+ * rows either way. Preview mode (preview-mode.js) turns it on too, labelled.
+ */
+export const MONDAY_AUTOPSY_ENV = 'GRIDIRON_MONDAY_AUTOPSY';
+export const MONDAY_AUTOPSY_OFF_REASON =
+  'Monday Autopsy card is default-off, unconfirmed forward: the link split has not been read against '
+  + `a full season of box scores and the exit link is a snap-share read. Set ${MONDAY_AUTOPSY_ENV}=1 to switch it on.`;
+
+/** Read per call, so a test or a run can flip it. */
+export function mondayAutopsyFields() {
+  if (process.env[MONDAY_AUTOPSY_ENV] === '1') return { enabled: true };
+  if (process.env[MONDAY_AUTOPSY_ENV] === '0') return { enabled: false, reason: MONDAY_AUTOPSY_OFF_REASON };
+  if (previewUnconfirmed()) return { enabled: true, ...previewFields(MONDAY_AUTOPSY_OFF_REASON) };
+  return { enabled: false, reason: MONDAY_AUTOPSY_OFF_REASON };
+}
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 const USAGE_COLS = ['attempts', 'carries', 'targets', 'receptions', 'passing_yards', 'rushing_yards',
   'receiving_yards', 'passing_tds', 'rushing_tds', 'receiving_tds', 'interceptions'];
@@ -85,11 +104,17 @@ function snapRead(season, week, playerId) {
   return { share: cur ?? null, prior: prior.length ? prior.reduce((a, b) => a + b, 0) / prior.length : null };
 }
 
+/**
+ * Verified role/availability signals between our snapshot and his kickoff. Compared as
+ * instants (julianday), not strings: a 'YYYY-MM-DD HH:MM:SS' stamp sorts before an ISO
+ * 'YYYY-MM-DDTHH:MM:SSZ' one on the same day whatever the hour.
+ */
 function newsMissed(playerId, asOf, kickoff) {
   if (!asOf || !kickoff) return [];
   return rows(`SELECT news_id, signal_type, status, role_delta, published_at FROM nfl_news_signals_current
     WHERE player_id=? AND verification_state='verified' AND signal_type IN ('role','availability')
-      AND published_at > ? AND published_at < ?`, String(playerId), asOf, kickoff);
+      AND julianday(published_at) > julianday(?) AND julianday(published_at) < julianday(?)`,
+  String(playerId), asOf, kickoff);
 }
 
 function vegasRead(season, week, team) {
@@ -215,8 +240,128 @@ export function storedAutopsy(leagueId, season, week) {
     ORDER BY is_starter DESC, miss`, leagueId, season, week).map(p => ({
     ...p, links: Object.fromEntries(links.filter(l => l.player_id === p.player_id).map(l => [l.link, l.points]))
   }));
-  return { summary: wk.summary, calls: JSON.parse(wk.calls_json), totals: JSON.parse(wk.totals_json),
+  const team = teamSplit({ leagueId, season, week, teamId: wk.team_id, players });
+  return { summary: team.line ? `${team.line} ${wk.summary}` : wk.summary, player_summary: wk.summary,
+    team, calls: JSON.parse(wk.calls_json), totals: JSON.parse(wk.totals_json),
     links_error: wk.links_error, computed_at: wk.computed_at, players };
+}
+
+const hasTable = name => !!row(`SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name=?`, name);
+const sumBy = (list, f) => list.reduce((s, x) => s + f(x), 0);
+
+/**
+ * The team-level decision-vs-luck number for the week, from AUTOPSY-01's
+ * weekly_autopsy (#295; the table EVAL E7 grades). This module's per-player links
+ * are the drill-down under it and do not produce a second team split.
+ *
+ * The two sit on different bases: weekly_autopsy uses ESPN's pregame projection in
+ * the league's own scoring over every starter (K and D/ST too); the links use our
+ * served projection in PPR over the QB/RB/WR/TE starters we could score. So the
+ * reconciliation is two labelled basis rows, and it is exact:
+ *
+ *   team luck = sum(starters' link points) + actual_basis_gap - expected_basis_gap
+ *
+ *   actual_basis_gap    team actual (league scoring, all starters) - our starters' PPR actual
+ *   expected_basis_gap  team pregame expected (ESPN)               - our starters' served projection
+ *
+ * No weekly_autopsy row (table absent, #295 not run, or the week not built) leaves
+ * the team number null with the reason; the links are then still shown, labelled as
+ * our basis only.
+ */
+/** The team's start/sit grade from weekly_autopsy's decision_points (<= 0). */
+export function lineupGrade(decision) {
+  if (decision == null) return null;
+  if (Math.abs(decision) < 0.05) return 'best lineup by pregame projection';
+  return `lineup gave up ${Math.abs(decision).toFixed(1)} by pregame projection`;
+}
+
+export function teamSplit({ leagueId, season, week, teamId, players }) {
+  const started = players.filter(p => p.is_starter);
+  const own = {
+    starters: started.length,
+    actual: sumBy(started, p => p.actual),
+    projected: sumBy(started, p => p.projected),
+    luck_links: sumBy(started, p => Object.entries(p.links).reduce((s, [l, v]) => s + (IS_LUCK[l] ? v : 0), 0)),
+    knowable_links: sumBy(started, p => Object.entries(p.links).reduce((s, [l, v]) => s + (IS_LUCK[l] ? 0 : v), 0))
+  };
+  const none = reason => ({ source: null, reason, decision_points: null, luck_points: null, line: null,
+    reconciliation: null, own_basis: own });
+  if (!hasTable('weekly_autopsy')) return none('weekly_autopsy table absent (AUTOPSY-01, #295, not migrated)');
+  const wa = row(`SELECT actual_points, expected_points, optimal_expected_points, decision_points, luck_points,
+      projection_basis, status, line FROM weekly_autopsy WHERE league_id=? AND season=? AND week=? AND team_id=?`,
+  leagueId, season, week, teamId);
+  if (!wa) return none(`weekly_autopsy has no row for ${season} week ${week}`);
+  const actualGap = wa.actual_points - own.actual;
+  const expectedGap = wa.expected_points - own.projected;
+  const rowsOut = [
+    { key: 'luck_links', label: 'luck links, our starters (PPR, served projection)', points: own.luck_links },
+    { key: 'knowable_links', label: 'knowable links, our starters (PPR, served projection)', points: own.knowable_links },
+    { key: 'actual_basis_gap', label: 'basis: team actual in league scoring (all starters) minus our starters\' PPR actual',
+      points: actualGap },
+    { key: 'expected_basis_gap', label: `basis: our served projection minus ${wa.projection_basis} expected`,
+      points: -expectedGap }
+  ];
+  const total = sumBy(rowsOut, r => r.points);
+  return {
+    source: 'weekly_autopsy', reason: null, projection_basis: wa.projection_basis, status: wa.status,
+    decision_points: wa.decision_points, luck_points: wa.luck_points,
+    actual_points: wa.actual_points, expected_points: wa.expected_points,
+    line: wa.line, lineup_grade: lineupGrade(wa.decision_points),
+    reconciliation: { rows: rowsOut, total, team_luck: wa.luck_points, residual: total - wa.luck_points },
+    own_basis: own
+  };
+}
+
+/**
+ * The season so far, per link, over our starters' stored weeks: total points, luck vs
+ * knowable, the knowable link that failed most (largest total |points|), and which
+ * projection sat closer to the actual most often. `source_right` is a per player-week
+ * verdict (the same on each of his link rows), so it is counted once per player-week.
+ */
+export function seasonRollup(leagueId, season, throughWeek = null) {
+  const wk = throughWeek == null ? '' : 'AND a.week <= ?';
+  const args = throughWeek == null ? [leagueId, season] : [leagueId, season, throughWeek];
+  const perLink = rows(`SELECT a.link, a.is_luck, SUM(a.points) AS points, SUM(ABS(a.points)) AS abs_points,
+      COUNT(*) AS n
+    FROM projection_autopsy a JOIN projection_autopsy_player p
+      ON p.league_id=a.league_id AND p.season=a.season AND p.week=a.week AND p.player_id=a.player_id
+    WHERE a.league_id=? AND a.season=? AND p.is_starter=1 ${wk}
+    GROUP BY a.link, a.is_luck`, ...args);
+  const weeks = rows(`SELECT DISTINCT week FROM projection_autopsy_week a WHERE league_id=? AND season=? ${wk}
+    ORDER BY week`, ...args).map(r => r.week);
+  const sources = rows(`SELECT a.source_right AS src, COUNT(*) AS n FROM (
+      SELECT DISTINCT a.week, a.player_id, a.source_right FROM projection_autopsy a JOIN projection_autopsy_player p
+        ON p.league_id=a.league_id AND p.season=a.season AND p.week=a.week AND p.player_id=a.player_id
+      WHERE a.league_id=? AND a.season=? AND p.is_starter=1 AND a.source_right IS NOT NULL ${wk}) a
+    GROUP BY a.source_right`, ...args);
+  const links = Object.fromEntries(LINKS.map(l => {
+    const r = perLink.find(x => x.link === l);
+    return [l, { points: r?.points ?? 0, abs_points: r?.abs_points ?? 0, is_luck: IS_LUCK[l] }];
+  }));
+  const luck = sumBy(LINKS.filter(l => IS_LUCK[l]), l => links[l].points);
+  const knowable = sumBy(LINKS.filter(l => !IS_LUCK[l]), l => links[l].points);
+  const luckAbs = sumBy(LINKS.filter(l => IS_LUCK[l]), l => links[l].abs_points);
+  const knowableAbs = sumBy(LINKS.filter(l => !IS_LUCK[l]), l => links[l].abs_points);
+  const failing = LINKS.filter(l => !IS_LUCK[l] && links[l].abs_points > 0)
+    .sort((a, b) => links[b].abs_points - links[a].abs_points)[0] ?? null;
+  const counts = Object.fromEntries(['ours', 'espn', 'tie'].map(k => [k, sources.find(s => s.src === k)?.n ?? 0]));
+  const top = Math.max(counts.ours, counts.espn);
+  const mostRight = counts.ours + counts.espn === 0 ? null
+    : counts.ours === counts.espn ? 'even' : counts.ours === top ? 'ours' : 'espn';
+  return {
+    season, weeks, links, total: luck + knowable, luck, knowable,
+    luck_share: luckAbs + knowableAbs > 0 ? luckAbs / (luckAbs + knowableAbs) : null,
+    most_failing_knowable: failing ? { link: failing, ...links[failing] } : null,
+    source_right: { ...counts, most_often: mostRight }
+  };
+}
+
+/** The route's answer: the week (latest stored when none given) plus the season rollup. */
+export function autopsyView(leagueId, season, week = null) {
+  const w = week ?? row('SELECT MAX(week) AS w FROM projection_autopsy_week WHERE league_id=? AND season=?',
+    leagueId, season)?.w ?? null;
+  const stored = w == null ? null : storedAutopsy(leagueId, season, w);
+  return { league_id: leagueId, season, week: w, autopsy: stored, rollup: seasonRollup(leagueId, season, w) };
 }
 
 /**

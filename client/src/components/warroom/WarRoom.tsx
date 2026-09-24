@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './warroom.css';
-import type { PanelId, WarRoomView } from './types';
+import type { ClonesView, PanelId, WarRoomView } from './types';
 import type { DeckLogEntry, DeckState } from './deck';
 import { postWarRoomRequest, type Poster, type WarRoomRequest } from './requests';
 import { isOk } from './format';
@@ -13,6 +13,7 @@ import FlipMap from './FlipMap';
 import TargetPicker from './TargetPicker';
 import CatchUp from './CatchUp';
 import BrainCheckCard from './BrainCheckCard';
+import CloneBoard from './CloneBoard';
 import CoachDock from './CoachDock';
 
 /**
@@ -31,6 +32,7 @@ import CoachDock from './CoachDock';
 export const PANELS: { id: PanelId; name: string }[] = [
   { id: 'next', name: 'Next move' },
   { id: 'stops', name: 'Stops' },
+  { id: 'clones', name: 'Clones' },
   { id: 'flip_map', name: 'Flip map' },
   { id: 'targets', name: 'Targets' },
   { id: 'catch', name: 'Catch-up' },
@@ -40,15 +42,16 @@ export const PANELS: { id: PanelId; name: string }[] = [
 export const GRID_AREAS = [
   'top top top top coach',
   'next next stops flip_map coach',
-  'next next stops flip_map coach',
+  'next next clones flip_map coach',
   'targets targets catch brain_report coach',
 ].map(r => `"${r}"`).join(' ');
 
 /** The no-page-scroll contract, inline so it cannot be lost to a stylesheet. */
 export const ROOT_STYLE = { position: 'fixed', inset: 0, height: '100vh', overflow: 'hidden', gridTemplateAreas: GRID_AREAS } as const;
 
-export default function WarRoom({ view, leagues, activeId, onLeague, onExit, deckInitial, onDeckLog, post }: {
+export default function WarRoom({ view, clones, leagues, activeId, onLeague, onExit, deckInitial, onDeckLog, post }: {
   view: WarRoomView;
+  clones?: ClonesView | null;
   leagues: LeagueChoice[];
   activeId: number;
   onLeague: (id: number) => void;
@@ -126,6 +129,9 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
           </Panel>
           <Panel {...common('stops')} title="Stops">
             <Itinerary field={view.itinerary} big={big('stops')} />
+          </Panel>
+          <Panel {...common('clones')} title="How each manager reads">
+            <CloneBoard view={clones} big={big('clones')} />
           </Panel>
           <Panel {...common('flip_map')} title="Flip map">
             <FlipMap field={view.flip_map} names={view.names} big={big('flip_map')} />

@@ -35,3 +35,21 @@ export function warRoomPlansPath() {
   if (set && set.trim()) return set.trim();
   return path.join(os.homedir(), 'gridiron-local', 'warroom', 'plans.json');
 }
+
+/**
+ * NEGOTIATE-UI: negotiation mode's switch. GRIDIRON_WARROOM_NEGOTIATE=1 turns it on
+ * inside a War Room that is itself on; preview mode turns both on. Default off,
+ * fly.toml does not set it. When on only because of preview, the thread carries
+ * `preview: true` and NEGOTIATE_PREVIEW_REASON.
+ */
+export const NEGOTIATE_ENV = 'GRIDIRON_WARROOM_NEGOTIATE';
+export const NEGOTIATE_PREVIEW_REASON =
+  'Negotiation mode reads an unvalidated acceptance model and hand-set follow-up rules';
+
+export function negotiateFlag() {
+  const room = warRoomFlag();
+  if (!room.enabled) return { enabled: false, preview: false };
+  if (process.env[NEGOTIATE_ENV] === '1') return { enabled: true, preview: room.preview };
+  if (previewUnconfirmed()) return { enabled: true, preview: true };
+  return { enabled: false, preview: false };
+}

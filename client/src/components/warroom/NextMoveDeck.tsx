@@ -2,10 +2,12 @@ import { useEffect, useReducer, useRef, useState } from 'react';
 import type { Move, WarRoomView } from './types';
 import { REASONING_SLOTS, namer, teamLabel } from './types';
 import { deckReducer, initialDeck, SKIP_REASONS, type DeckLogEntry, type DeckState } from './deck';
-import { flushOutbox, postWarRoomRequest, type Poster } from './requests';
+import { flushOutbox, openNegotiation, postWarRoomRequest, type Poster } from './requests';
 import { FieldBlock, SourceTag, Val } from './FieldState';
 import { pct, pts, NOT_COMPUTED, isOk } from './format';
 import ReplyTable from './ReplyTable';
+import Negotiate from './Negotiate';
+import type { Negotiations, Thread, ThreadResponse } from './negotiate';
 
 /**
  * NEXT MOVE: the one decision ("send this to this manager, yes or no") as a swipe deck
@@ -14,13 +16,16 @@ import ReplyTable from './ReplyTable';
  * picks; Back undoes a skip; after a skip an optional one-tap reason fades in and out.
  * Skips, "I sent it" and logged replies post to the request table (deck.ts, requests.ts).
  * Nothing is ever sent from here: Copy, then Nick sends it in ESPN.
+ * With negotiation mode on (`negotiation.enabled`), "I sent it" also opens a live
+ * thread on the server and the card flips to it (Negotiate.tsx).
  */
-export default function NextMoveDeck({ view, big, initialState, onLog, post }: {
+export default function NextMoveDeck({ view, big, initialState, onLog, post, negotiation }: {
   view: WarRoomView;
   big: boolean;
   initialState?: DeckState;
   onLog?: (log: DeckLogEntry[]) => void;
   post?: Poster;
+  negotiation?: Negotiations | null;
 }) {
   const field = view.alternatives;
   const moves: Move[] = isOk(field) ? field.value : [];
@@ -32,6 +37,19 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post }: {
   const move = idx < total ? moves[idx] : null;
 
   useEffect(() => { onLog?.(deck.log); }, [deck.log, onLog]);
+
+  // Negotiation mode: threads opened or changed here win over the ones the page loaded.
+  const negotiating = negotiation?.enabled === true;
+  const [threads, setThreads] = useState<Record<string, Thread | null>>({});
+  const threadFor = (moveId: string): Thread | null => {
+    const t = moveId in threads ? threads[moveId]
+      : (negotiation?.threads ?? []).find(x => x.move_id === moveId && x.step_index === 0) ?? null;
+    return t && t.closed_reason !== 'undone' ? t : null;
+  };
+  const onThread = (moveId: string) => (t: Thread | null) => {
+    setThreads(m => ({ ...m, [moveId]: t }));
+    if (t?.closed_reason === 'undone') dispatch({ type: 'unsent', card: moveId });
+  };
 
   // Post each new request once, in order. A failed post is shown, never swallowed.
   const sent = useRef(initialState?.outbox.length ?? 0);
@@ -180,6 +198,14 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post }: {
   const target = move.target != null ? n.one(move.target) : null;
   const messageText = isOk(s.message) ? s.message.value : dealLine;
   const isSent = deck.sent.includes(move.move_id);
+  const thread = negotiating ? threadFor(move.move_id) : null;
+  const markSent = () => {
+    dispatch({ type: 'sent', card: move.move_id, at: Date.now() });
+    if (!negotiating) return;
+    openNegotiation(leagueId, move.move_id, 0, post)
+      .then(r => onThread(move.move_id)((r as ThreadResponse)?.thread ?? null))
+      .catch(e => setSaveError(e instanceof Error ? e.message : String(e)));
+  };
   return (
     <div className="wr-deck">
       <div className="wr-mv-top">
@@ -221,30 +247,33 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post }: {
           {' · '}finishes <Val f={move.p_complete} fmt={v => pct(v)} /> of the time
           {' · '}finder's best single offer <Val f={view.finder_best_expected} fmt={pts} />
         </div>
-        {deck.chosen === idx && (
+        {thread && <Negotiate thread={thread} onThread={onThread(move.move_id)} post={post} />}
+        {!thread && deck.chosen === idx && (
           <div className="wr-chosen" role="status">
             <b>You picked this one.</b> Copy it and send it yourself in ESPN, then tell the planner.
             <div className="wr-acts">
               <button type="button" className="wr-btn wr-sm wr-primary" disabled={isSent}
-                onClick={() => dispatch({ type: 'sent', card: move.move_id, at: Date.now() })}>
+                onClick={markSent}>
                 {isSent ? 'Marked as sent' : 'I sent it'}
               </button>
             </div>
           </div>
         )}
-        <CopyBlock
+        {!thread && <CopyBlock
           label={isOk(s.message) ? 'Message' : 'Copy the deal'}
           text={messageText}
           note={isOk(s.message) ? undefined : (s.message.reason ?? `Message ${NOT_COMPUTED}.`)}
-        />
+        />}
         <div className="wr-acts">
           <button type="button" className="wr-btn wr-big-btn" onClick={next} title="Left arrow or swipe left">Next →</button>
           <button type="button" className="wr-btn wr-big-btn wr-primary" onClick={doIt} title="Right arrow or swipe right">Do it</button>
         </div>
         {skipRow}
         {saveNote}
-        <div className="wr-cap">If he says… (tap what happened)</div>
-        <ReplyTable replies={s.reply_table} onLog={deck.chosen === idx ? reply => dispatch({ type: 'reply', card: move.move_id, reply, at: Date.now() }) : undefined} />
+        {!thread && <>
+          <div className="wr-cap">If he says… (tap what happened)</div>
+          <ReplyTable replies={s.reply_table} onLog={deck.chosen === idx ? reply => dispatch({ type: 'reply', card: move.move_id, reply, at: Date.now() }) : undefined} />
+        </>}
         <div className="wr-cap">Reasoning</div>
         <ul className="wr-reasoning">
           {REASONING_SLOTS.map(([k, label]) => (

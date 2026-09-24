@@ -14,6 +14,7 @@ import TargetPicker from './TargetPicker';
 import CatchUp from './CatchUp';
 import BrainCheckCard from './BrainCheckCard';
 import CoachDock from './CoachDock';
+import { useNegotiations } from './useWarRoom';
 
 /**
  * The War Room: ONE dashboard, no page scroll (WAR-ROOM-UI.md v2).
@@ -105,6 +106,7 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
     if (el && deckRef.current) deckRef.current.scrollTo({ left: el.offsetLeft - deckRef.current.offsetLeft, behavior: 'smooth' });
   }, []);
 
+  const negotiations = useNegotiations(activeId);
   const d = isOk(view.destination) ? view.destination.value : undefined;
   const send = useCallback((req: WarRoomRequest) => postWarRoomRequest(activeId, req, post), [activeId, post]);
 
@@ -122,7 +124,7 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
           }}>
           <Panel {...common('next')} title="Next move">
             {view.banner && <div className="wr-banner">{view.banner}</div>}
-            <NextMoveDeck key={`${activeId}:${view.snapshot?.id ?? ''}`} view={view} big={big('next')} initialState={deckInitial} onLog={onDeckLog} post={post} />
+            <NextMoveDeck key={`${activeId}:${view.snapshot?.id ?? ''}`} view={view} big={big('next')} initialState={deckInitial} onLog={onDeckLog} post={post} negotiation={negotiations.data} />
           </Panel>
           <Panel {...common('stops')} title="Stops">
             <Itinerary field={view.itinerary} big={big('stops')} />

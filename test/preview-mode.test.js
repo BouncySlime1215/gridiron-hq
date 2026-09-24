@@ -55,3 +55,43 @@ test('preview fields and label', () => {
   assert.deepEqual(previewFields('why'), { preview: true, preview_reason: 'why' });
   assert.equal(previewText('Swap now.'), 'Preview (unconfirmed forward): Swap now.');
 });
+
+/* FIX-257-1: GRIDIRON_ENGINE_STRIP, the UI-ENG-6 engine status strip, read through preview-mode.js. */
+const previewMod = await import('../server/services/preview-mode.js');
+
+test('FIX-257-1: GRIDIRON_ENGINE_STRIP is off by default, on when set to 1, on under preview mode', () => {
+  assert.equal(typeof previewMod.engineStripFields, 'function', 'preview-mode.js exports engineStripFields');
+  assert.equal(previewMod.ENGINE_STRIP_ENV, 'GRIDIRON_ENGINE_STRIP');
+  const saved = { strip: process.env.GRIDIRON_ENGINE_STRIP, preview: process.env[PREVIEW_ENV] };
+  try {
+    delete process.env.GRIDIRON_ENGINE_STRIP; delete process.env[PREVIEW_ENV];
+    const off = previewMod.engineStripFields();
+    assert.equal(off.enabled, false); assert.match(off.reason, /GRIDIRON_ENGINE_STRIP=1/);
+    assert.equal(off.preview, undefined);
+    for (const v of ['0', 'true', '']) {
+      process.env.GRIDIRON_ENGINE_STRIP = v;
+      assert.equal(previewMod.engineStripFields().enabled, false, `${JSON.stringify(v)}: off`);
+    }
+    process.env.GRIDIRON_ENGINE_STRIP = '1';
+    assert.deepEqual(previewMod.engineStripFields(), { enabled: true });
+    delete process.env.GRIDIRON_ENGINE_STRIP;
+    process.env[PREVIEW_ENV] = '1';
+    const pv = previewMod.engineStripFields();
+    assert.equal(pv.enabled, true); assert.equal(pv.preview, true);
+    assert.equal(pv.preview_reason, previewMod.ENGINE_STRIP_OFF_REASON);
+  } finally {
+    for (const [k, v] of [['GRIDIRON_ENGINE_STRIP', saved.strip], [PREVIEW_ENV, saved.preview]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
+
+test('FIX-257-1: preview-mode.js is the only file under server/, scripts/ or client/src that names GRIDIRON_ENGINE_STRIP', () => {
+  const hits = ['server', 'scripts', 'client/src']
+    .filter(d => fs.existsSync(path.join(REPO, d)))
+    .flatMap(d => jsFiles(path.join(REPO, d)))
+    .filter(f => fs.readFileSync(f, 'utf8').includes('GRIDIRON_ENGINE_STRIP'))
+    .map(f => path.relative(REPO, f));
+  // Known-nonzero control: the producer itself must be found.
+  assert.deepEqual(hits, ['server/services/preview-mode.js']);
+});

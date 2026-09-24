@@ -2373,6 +2373,25 @@ function build() {
     }
     if (f.tree === 'extension') surfaces.push({ kind: 'extension', name: f.path, file: f.path, line: 1 });
   }
+  // PROCESSES ARE SURFACES (RULINGS 9, FIX-279-1). The refresh loop and the engine
+  // daemon are long-running processes of their own (run.sh / start-all.mjs start them;
+  // ENGINE-ARCHITECTURE.md 9.1: the web server never runs producers). What they run is
+  // live exactly as a scheduler job is, so they are a served kind. Like a route or a
+  // job, a process executes its own main body, so a dynamic import inside it is real
+  // reach (the daemon and the campaign producer load their modules that way). A script
+  // a process launches by path (a 'scripts/....mjs' string literal in its code, e.g.
+  // the loop's warroom_plans step spawning scripts/campaign/produce-plans.mjs) is a
+  // process too, transitively. Comments are blanked before this reads, so a path named
+  // only in a comment does not count. Declared here, in the checker, not in
+  // annotations.json: widening what counts as served is a code review, not a data edit.
+  const processFiles = new Set(PROCESS_ROOTS.filter(p => files.has(p)));
+  for (let queue = [...processFiles]; queue.length;) {
+    const cur = files.get(queue.shift());
+    for (const m of cur.text.matchAll(/['"`](scripts\/[\w./-]+\.m?js)['"`]/g)) {
+      if (files.has(m[1]) && !processFiles.has(m[1])) { processFiles.add(m[1]); queue.push(m[1]); }
+    }
+  }
+  for (const pf of processFiles) surfaces.push({ kind: 'process', name: `process ${pf}`, file: pf, line: 1 });
   // Migrations are loaded by filename scan (server/db/migrate.js reads the
   // directory), so "nothing imports it" is a lie about them. Same for the seed
   // fragments and the schema fragments, which db/index.js applies by name.
@@ -2496,7 +2515,9 @@ function build() {
 //   ORPHAN       — something produced that reaches no surface.
 // ---------------------------------------------------------------------------
 
-const SERVED = new Set(['route', 'job', 'client', 'extension', 'boot']);
+const SERVED = new Set(['route', 'job', 'client', 'extension', 'boot', 'process']);
+/** Long-running processes that are surfaces in their own right (see "PROCESSES ARE SURFACES"). */
+const PROCESS_ROOTS = ['scripts/refresh-live-data.mjs', 'scripts/engine-daemon.mjs'];
 /** Past this many import hops a module is sharing a library, not wired in. */
 const MAX_HOPS = 12;
 /** What counts as "wired into" for the purpose of naming a surface in a finding. */
@@ -2618,7 +2639,7 @@ function findings(model, ann) {
         consumers: readerFiles, wiring: close(surfaceFamilies(reachNames, readerFiles, CLOSE_HOPS)),
         asserted });
     } else if (readerFiles.length && writerFiles.length && served(readerKinds)
-               && !writerKinds.has('job') && !writerKinds.has('route') && !ignored.has(`table:${t.table}`)) {
+               && !writerKinds.has('job') && !writerKinds.has('process') && !writerKinds.has('route') && !ignored.has(`table:${t.table}`)) {
       add({ kind: 'missing-feed', rule: 'table-hand-fed', scope: t.scope, subject: t.table,
         detail: `read on a served surface, but every writer is a script someone has to remember to run`,
         evidence: writers.slice(0, 4).map(w => `writer ${w.file}:${w.line}`)
@@ -2626,7 +2647,7 @@ function findings(model, ann) {
         consumers: readerFiles, wiring: close(surfaceFamilies(reachNames, readerFiles, CLOSE_HOPS)),
         asserted });
     } else if (readerFiles.length && writerFiles.length && served(readerKinds)
-               && !writerKinds.has('job') && writerKinds.has('route') && !ignored.has(`table:${t.table}`)) {
+               && !writerKinds.has('job') && !writerKinds.has('process') && writerKinds.has('route') && !ignored.has(`table:${t.table}`)) {
       // NOT a missing feed on its own. Most of these are correct: the table
       // holds what a person did — a saved ticket, a draft pick, a session. It
       // is listed so that the ones which hold DERIVED data, and therefore

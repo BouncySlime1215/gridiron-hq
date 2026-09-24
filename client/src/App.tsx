@@ -9,6 +9,9 @@ import QuickJump from './components/QuickJump';
 import { NAV_GROUPS, destinationLabel } from './navigation';
 import EspnConnectGate from './components/EspnConnectGate';
 import DataFreshnessBanner from './components/DataFreshnessBanner';
+import SnapshotProvider from './engine/SnapshotProvider';
+import EngineStatusStrip from './components/engine/EngineStatusStrip';
+import { NumberHealthNavDot } from './components/NumberHealth';
 import { DataCredit } from './components/DataFreshnessBanner';
 import { Skeleton } from './components/ui/DesignSystem';
 import { PageExplainContext, type PageExplainInfo } from './components/PageExplainContext';
@@ -105,7 +108,9 @@ export default function App() {
             {!rail && <div className="mb-1 border-t border-slate-200 px-2 pt-3"><div className="text-[10px] font-extrabold uppercase tracking-[.12em] text-slate-500">{group.label}</div><div className="text-[10px] text-slate-400">{group.question}</div></div>}
             {rail && <div className="mx-2 my-2 border-t border-slate-200" />}
             {group.items.map(item => <NavLink key={item.to} to={item.to} end={item.end} title={rail ? item.label : undefined} className={({ isActive }) => `mb-0.5 flex items-center gap-2 rounded-md py-2 text-sm font-semibold transition-colors ${rail ? 'justify-center px-0' : 'px-2'} ${isActive ? 'bg-white text-emerald-800 shadow-sm ring-1 ring-slate-200' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}>
-              <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md border text-[10px] font-extrabold ${item.live ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-white text-slate-600'}`}>{item.icon}</span>
+              <span className={`relative grid h-6 w-6 shrink-0 place-items-center rounded-md border text-[10px] font-extrabold ${item.live ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-white text-slate-600'}`}>{item.icon}
+                {/* BROKEN-01b: red when any number is broken for the selected league; nothing otherwise. */}
+                {item.to === '/settings' && <span className="absolute -right-1 -top-1 flex"><NumberHealthNavDot /></span>}</span>
               {!rail && <span>{item.label}</span>}
             </NavLink>)}
           </div>)}
@@ -117,7 +122,13 @@ export default function App() {
         {/* Renders nothing once a league is connected; a slim bar if the modal
             was dismissed for this sitting; the modal itself otherwise. */}
         <EspnConnectGate />
+        {/* Under the banner: the UI-ENG-6 engine status strip, behind the engine strip flag
+            (preview-mode.js#engineStripFields, served on /api/engine/status; off renders nothing).
+            Keyed by path: one status read per page, so the heartbeat age is fresh. */}
         <DataFreshnessBanner />
+        <SnapshotProvider key={location.pathname}>
+          <EngineStatusStrip />
+        </SnapshotProvider>
         <header className="sticky top-0 z-30 flex h-12 items-center gap-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6">
           <button onClick={() => setCollapsed(v => !v)} aria-label={collapsed ? (isMobile ? 'Open menu' : 'Expand sidebar') : (isMobile ? 'Close menu' : 'Collapse sidebar')} className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50">
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><rect x="1" y="2" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.4" /><line x1="5.5" y1="2" x2="5.5" y2="13" stroke="currentColor" strokeWidth="1.4" /></svg>

@@ -27,7 +27,8 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
 import {
-  verifyProposals, cacheKeyFor, proposalsFor, proposalsPrompt, liveCaller,
+  verifyProposals, cacheKeyFor, proposalsFor, proposalsPrompt, liveCaller, failureKeyFor,
+  PROPOSALS_CALL_CONFIG,
   PROMPT_VERSION, REQUIRED_PROPOSAL_FIELDS, FAILED_SLATE_TTL_MS, RESPONSE_PROBLEMS,
 } from '../server/services/trade-proposals.js';
 import { budgetKeyFor, DEFAULT_DAILY_BUDGETS_USD, PRICING } from '../server/services/llm-budget.js';
@@ -671,13 +672,50 @@ test('G7 a budget refusal is still never remembered — nothing is wrong with th
 test('G7 a remembered failure from an older parser version is ignored, so a fix takes effect', async () => {
   const cache = memCache();
   const key = cacheKeyFor(4, [idea()]);
-  cache.set(`${key}.failed`, { v: 'trade-proposals-parse-v0', problem: 'not_a_list',
+  cache.set(failureKeyFor(key, PROPOSALS_CALL_CONFIG), { v: 'trade-proposals-parse-v0', problem: 'not_a_list',
     reason: 'stale', attempts: 3, at: Date.now() });
   let called = 0;
   const call = liveCaller(async () => { called++; return envelope(JSON.stringify([proposal()])); });
   const r = await proposalsFor(4, { ideas: [idea()], universe, call, cache });
   assert.equal(called, 1, 'shipping a parser fix has to clear what the old one could not read');
   assert.equal(r.proposals.length, 1, r.reason);
+});
+
+test('G7 a failure held under one call config is retried at once under another (FIX-HOLD-01)', async () => {
+  // After the effort/maxTokens fix, league 4 kept serving "ran out of output
+  // room" from the hold for six hours: the hold was keyed on the slate alone,
+  // so a fix to the call itself could not reach it.
+  const cache = memCache();
+  let called = 0;
+  const stub = async ({ maxTokens }) => {
+    called++;
+    return maxTokens >= 12000
+      ? envelope(JSON.stringify([proposal()]))
+      : envelope(null, { stop_reason: 'max_tokens', content: [{ type: 'thinking', thinking: '…' }] });
+  };
+  const configA = { model: 'claude-sonnet-5', maxTokens: 4000, effort: null };
+  const configB = { model: 'claude-sonnet-5', maxTokens: 12000, effort: 'low' };
+  const first = await proposalsFor(4, { ideas: [idea()], universe, call: liveCaller(stub, configA), cache });
+  assert.equal(first.problem, 'truncated', first.reason);
+  const held = await proposalsFor(4, { ideas: [idea()], universe, call: liveCaller(stub, configA), cache });
+  assert.equal(called, 1, 'under the same config the hold still saves the second call');
+  assert.equal(held.source, 'cache');
+  const r = await proposalsFor(4, { ideas: [idea()], universe, call: liveCaller(stub, configB), cache });
+  assert.equal(called, 2, 'a changed call config is a different question and is sent at once');
+  assert.equal(r.source, 'model');
+  assert.equal(r.proposals.length, 1, r.reason);
+});
+
+test('G7 each field of the call config breaks the hold on its own', async () => {
+  const base = { model: 'claude-sonnet-5', maxTokens: 12000, effort: 'low' };
+  for (const change of [{ model: 'claude-opus-5-5' }, { maxTokens: 16000 }, { effort: 'medium' }]) {
+    const cache = memCache();
+    let called = 0;
+    const stub = async () => { called++; return envelope('not json'); };
+    await proposalsFor(4, { ideas: [idea()], universe, call: liveCaller(stub, base), cache });
+    await proposalsFor(4, { ideas: [idea()], universe, call: liveCaller(stub, { ...base, ...change }), cache });
+    assert.equal(called, 2, `changing ${Object.keys(change)[0]} must retry the held slate`);
+  }
 });
 
 test('G7 verifyProposals is untouched by any of this — a live answer gets no free pass', () => {

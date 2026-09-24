@@ -19,6 +19,8 @@
  *                                                since NICK-WV01, so preview never switches it)
  *   - waiver-wire.js#waiverBoard                 snap-share order for same-team replacements
  *   - trade-acceptance.js#cloneMode              CLONE-01b b2 manager clones + veto (GRIDIRON_CLONE_V2)
+ *   - season-sim.js#rosBasisFlag                 title odds on the finder's ros_ppg (RL-17-3;
+ *                                                GRIDIRON_RL17_3_ENABLED=0 vetoes preview)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

@@ -26,7 +26,7 @@ const PRODUCER = fixture('producer-plans.json');
 const UI_FIXTURE = fixture('ui-war-room-plans.json');
 const COACH_FIXTURE = fixture('coach-plans.json');
 
-const META = /\.(status|reason|source|se|clears_2se|as_of|n)$/;
+const META = /\.(status|reason|source|se|clears_2se|as_of|n|unit|guess)$/;
 /** next_move is one deck entry, and the four reply rows share one shape. */
 const norm = p => p
   .replace(/^leagues\[\]\.next_move\.value/, 'leagues[].alternatives.value[]')
@@ -180,7 +180,8 @@ test('every key a consumer reads is a key the producer writes', () => {
 test('each recorded mismatch is still a mismatch, and its fix names a real contract path', () => {
   for (const r of READS.filter(x => x.fix)) {
     assert.equal(resolves(r), false, `#${r.pr} ${r.where}: ${r.reads} resolves now; drop its fix`);
-    assert.ok(DECLARED.has(r.fix.to) && WRITTEN.has(norm(r.fix.to)), `#${r.pr} ${r.where}: fix target ${r.fix.to} is not written`);
+    // A target on a PENDING path is declared and owned by the unit named there (FIX-05 for brain_report).
+    assert.ok(DECLARED.has(r.fix.to) && (WRITTEN.has(norm(r.fix.to)) || pending(r.fix.to)), `#${r.pr} ${r.where}: fix target ${r.fix.to} is not written`);
     assert.ok(r.fix.line.length > 10);
   }
 });

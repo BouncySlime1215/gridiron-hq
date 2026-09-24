@@ -66,8 +66,11 @@ test('B3 n=0: the clone is the population prior, and the prior is the shrunk acc
 /* ------------------------------------------------------------------- B1 */
 
 test('B1 one decline lowers his P(accept) for an equal-or-worse package, not other managers', () => {
+  // Before: 3 accepts in 9 decided offers. The decline makes it 3 in 10 on ESPN
+  // AND a settled reply; the clone takes it out of the history and applies it once.
   const fit = { replies: [decline(10)], n: 1, k: 0 };
-  const before = acc.cloneFor({ counterparty: cp(), pool: POOL, fit: null, gainPct: 10 });
+  const before = acc.cloneFor({ counterparty: cp({ accept_rate: 3 / 9, accept_rate_n: 9 }), pool: POOL,
+    fit: null, gainPct: 10 });
   const same = acc.cloneFor({ counterparty: cp(), pool: POOL, fit, gainPct: 10 });
   const worse = acc.cloneFor({ counterparty: cp(), pool: POOL, fit, gainPct: 0 });
   const better = acc.cloneFor({ counterparty: cp(), pool: POOL, fit, gainPct: 40 });
@@ -82,8 +85,9 @@ test('B1 one decline lowers his P(accept) for an equal-or-worse package, not oth
 
 test('B1b an accept raises P(accept) for an equal-or-better package', () => {
   const fit = { replies: [{ y: 1, gain_pct: 5, status: 'accepted' }], n: 1, k: 1 };
-  const before = acc.cloneFor({ counterparty: cp(), pool: POOL, fit: null, gainPct: 5 });
-  const after = acc.cloneFor({ counterparty: cp(), pool: POOL, fit, gainPct: 5 });
+  const before = acc.cloneFor({ counterparty: cp({ accept_rate: 3 / 9, accept_rate_n: 9 }), pool: POOL,
+    fit: null, gainPct: 5 });
+  const after = acc.cloneFor({ counterparty: cp({ accept_rate: 0.4 }), pool: POOL, fit, gainPct: 5 });
   assert.ok(after.p > before.p);
 });
 
@@ -109,15 +113,17 @@ test('B2 zero:[clone, veto] reproduces the band byte-for-byte', () => {
 });
 
 test('B2b on: the clone moves the centre as a capped, named factor', () => {
-  const counterparty = cp();
+  // 1 accept in 10 decided offers, 2 of them declines of offers Nick sent
+  const counterparty = cp({ accept_rate: 0.1 });
   const base = acc.acceptanceBand({ counterparty, edge: pass });
   const clone = acc.cloneFor({ counterparty, pool: POOL, fit: { replies: [decline(0), decline(0)], n: 2, k: 0 }, gainPct: 0 });
   const on = acc.acceptanceBand({ counterparty, edge: pass, clone });
   const f = on.factors.find(x => x.source === 'clone');
   assert.ok(f, 'clone factor present');
-  assert.ok(f.effect < 0);
+  // the clone replaces the raw 10% centre: shrunk up toward the 30% pool
+  assert.equal(f.effect, +(clone.p - 0.1).toFixed(3));
   assert.ok(Math.abs(f.effect) <= acc.ACCEPTANCE_SOURCES.clone.cap);
-  assert.ok(on.band.mid < base.band.mid);
+  assert.equal(on.band.mid, +(base.band.mid + f.effect).toFixed(3));
   assert.equal(on.clone.p, clone.p);
 });
 
@@ -151,7 +157,9 @@ test('B5 flag: off by default; site flag or preview turns it on, preview labelle
     assert.deepEqual(acc.cloneMode(), { on: false, preview: false });
     process.env.GRIDIRON_CLONE_V2 = '1';
     assert.deepEqual(acc.cloneMode(), { on: true, preview: false });
-    delete process.env.GRIDIRON_CLONE_V2; process.env.GRIDIRON_PREVIEW_UNCONFIRMED = '1';
+    process.env.GRIDIRON_PREVIEW_UNCONFIRMED = '1';
+    assert.deepEqual(acc.cloneMode(), { on: true, preview: false }, 'the site flag wins: not a preview');
+    delete process.env.GRIDIRON_CLONE_V2;
     assert.deepEqual(acc.cloneMode(), { on: true, preview: true });
     const c = acc.cloneFor({ counterparty: cp(), pool: POOL, fit: null, gainPct: 0, preview: true });
     assert.equal(c.preview, true);
@@ -229,9 +237,44 @@ test('B8b motive: a state moves the prior by a capped offset; no state is inert 
 /* ------------------------------------------------------------------- B9 */
 
 test('B9 the follow-up is the cheapest package above the decline bound', () => {
-  const pick = acc.cheapestAbove([{ id: 'a', gain_pct: 5 }, { id: 'b', gain_pct: 25 }, { id: 'c', gain_pct: 15 }], 10);
+  const pick = acc.cheapestAbove([{ id: 'a', gain_pct: 5 }, { id: 'e', gain_pct: 10 }, { id: 'b', gain_pct: 25 },
+    { id: 'c', gain_pct: 15 }], 10);
   assert.equal(pick.id, 'c');
   assert.equal(acc.cheapestAbove([{ id: 'a', gain_pct: 5 }], 10), null);
   assert.equal(acc.packageGainPct(pkg(10).give, pkg(10).get), 10);
   assert.equal(acc.packageGainPct([{ value: null }], [{ value: 100 }]), null);
+});
+
+/* ------------------------------------------------------------------ B10 */
+
+test('B10 call site: off gives no clone context; on, each deal reads ITS partner fit and the veto', async () => {
+  const eng = await import('../server/services/trade-engine.js');
+  const save = { c: process.env.GRIDIRON_CLONE_V2, p: process.env.GRIDIRON_PREVIEW_UNCONFIRMED };
+  try {
+    delete process.env.GRIDIRON_CLONE_V2; delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+    const cps = new Map([['7', cp()], ['8', cp({ accept_rate: 0.5 })]]);
+    assert.equal(eng.cloneContext({ id: LEAGUE }, cps, SEASON), null);
+    process.env.GRIDIRON_CLONE_V2 = '1';
+    const ctx = eng.cloneContext({ id: LEAGUE }, cps, SEASON);
+    assert.equal(ctx.fits.get('7').n, 2, 'reads manager_clone_fits written in B6');
+    assert.equal(+ctx.pool.p0.toFixed(3), 0.4);
+    const deal = partner => ({ partner_id: partner, their_value_pct: 30, counterparty: {},
+      i_give: [{ value: 110 }], i_get: [{ value: 100 }] });
+    const climate = { votes_required: 4, other_owners: 8, n: 1, reference_n: 1, reference_skew_pct: 18, observed_max_votes: 4 };
+    const seven = eng.cloneInputs(ctx, cps.get('7'), deal(7), climate);
+    const eight = eng.cloneInputs(ctx, cps.get('8'), deal(8), climate);
+    assert.equal(seven.clone.n, 2);
+    assert.equal(seven.clone.gain_pct, 10);
+    assert.equal(eight.clone.n, 0);
+    assert.equal(seven.veto.level, 'high');
+    assert.equal(eng.cloneInputs(ctx, cps.get('7'), deal(7), null).veto.p_veto, null);
+    // follow-up: cheapest shown package above the bound (10%) is marked
+    const shown = [15, 12, 30].map(g => ({ partner_id: 7, acceptance: { clone: { gain_pct: g, price_bound: { gain_pct: 10 } } } }));
+    eng.markCloneFollowUps(shown);
+    assert.deepEqual(shown.map(d => !!d.acceptance.clone.follow_up), [false, true, false]);
+  } finally {
+    for (const [k, v] of [['GRIDIRON_CLONE_V2', save.c], ['GRIDIRON_PREVIEW_UNCONFIRMED', save.p]]) {
+      if (v == null) delete process.env[k]; else process.env[k] = v;
+    }
+  }
 });

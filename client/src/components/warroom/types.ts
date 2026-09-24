@@ -131,6 +131,28 @@ export interface Destination {
   ground_lost: Num;
 }
 
+/** UI-ENG-5: the `chess` section (plans-schema.js), written by campaign/chess.js. Ids and numbers only. */
+export type ChessKind = 'trade' | 'claim' | 'flip';
+export interface ChessMove { kind: ChessKind; partner: string | null; give: string[]; get: string[]; p_yes: Num; change_after: Num }
+export interface ChessStep extends ChessMove {
+  n: number;
+  week: number | null;
+  title_after: Num;
+  backup: Field<ChessMove & { path_rank: number }>;
+}
+export interface ChessArgument { believes: string; why_yes: string; could_go_wrong: string; would_change: string }
+export interface ChessPathItem {
+  rank: number;
+  p_complete: Num;
+  expected: Num;
+  full: Num;
+  vs_single: { expected: Num; full: Num } | null;
+  argument: Field<ChessArgument>;
+  steps: ChessStep[];
+  cut_at_deadline: number;
+}
+export interface Chess { replay_passed: boolean; week: number | null; deadline_week: number | null; paths: ChessPathItem[]; rival_claims?: string }
+
 export interface Snapshot { id: string; as_of: string; schema?: string; producer?: string; producer_version?: string }
 
 export interface WarRoomView {
@@ -160,9 +182,10 @@ export interface WarRoomView {
   speed_curve?: Field<SpeedPoint[]>;
   brain_report?: Field<BrainReport>;
   number_health?: Field<NumberHealth>;
+  chess?: Field<Chess>;
 }
 
-export type PanelId = 'next' | 'stops' | 'flip_map' | 'targets' | 'catch' | 'brain_report';
+export type PanelId = 'next' | 'path' | 'stops' | 'flip_map' | 'targets' | 'catch' | 'brain_report';
 
 /** Player and team labels from the entry's `names` (ids only elsewhere). */
 export function namer(names: Record<string, string> | undefined) {

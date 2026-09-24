@@ -11,13 +11,18 @@
    "names": {
     "501": "K. Bell (RB)",
     "502": "C. Ruiz (RB)",
+    "503": "R. Voss (TE)",
     "505": "E. Park (RB)",
+    "506": "V. Mensah (RB)",
+    "507": "W. Tran (WR)",
     "601": "M. Oduya (WR)",
     "602": "A. Brandt (WR)",
     "604": "T. Kline (TE)",
     "605": "I. Rourke (WR)",
+    "606": "Y. Banks (TE)",
     "701": "D. Harlow (WR)",
     "702": "N. Whitfield (WR)",
+    "703": "S. Achebe (RB)",
     "604b": "B. Lowe (WR)"
    },
    "attention": {
@@ -1399,6 +1404,779 @@
     "status": "unknown",
     "source": "campaign.plan",
     "reason": "No partner read in this fixture."
+   },
+   "chess": {
+    "status": "ok",
+    "value": {
+     "replay_passed": true,
+     "week": 5,
+     "deadline_week": 13,
+     "paths": [
+      {
+       "rank": 1,
+       "p_complete": {
+        "status": "ok",
+        "value": 0.1178,
+        "source": "plan.path",
+        "unit": "probability",
+        "guess": true
+       },
+       "expected": {
+        "status": "ok",
+        "value": 0.0133,
+        "source": "plan.path",
+        "unit": "title_odds",
+        "guess": true
+       },
+       "full": {
+        "status": "ok",
+        "value": 0.027,
+        "source": "sim.title",
+        "unit": "title_odds",
+        "guess": true,
+        "se": 0.006,
+        "clears_2se": true
+       },
+       "vs_single": {
+        "expected": {
+         "status": "ok",
+         "value": 0.0096,
+         "source": "plan.path",
+         "unit": "title_odds",
+         "guess": true
+        },
+        "full": {
+         "status": "ok",
+         "value": 0.018,
+         "source": "sim.title",
+         "unit": "title_odds",
+         "guess": true,
+         "se": 0.005,
+         "clears_2se": true
+        }
+       },
+       "argument": {
+        "status": "unknown",
+        "source": "coach.text",
+        "reason": "The argument under the steps is written by JEV-01c's writer, which is not built yet; the steps stand on their numbers."
+       },
+       "steps": [
+        {
+         "n": 1,
+         "week": 5,
+         "kind": "trade",
+         "partner": "7",
+         "give": [
+          "601"
+         ],
+         "get": [
+          "502"
+         ],
+         "p_yes": {
+          "status": "ok",
+          "value": 0.38,
+          "source": "clone.accept",
+          "unit": "probability",
+          "guess": true
+         },
+         "change_after": {
+          "status": "ok",
+          "value": 0.012,
+          "source": "sim.title",
+          "unit": "title_odds",
+          "guess": true,
+          "se": 0.004,
+          "clears_2se": true
+         },
+         "title_after": {
+          "status": "unknown",
+          "source": "sim.title",
+          "reason": "CHESS-01a keeps the change against today, not the level of your title odds."
+         },
+         "backup": {
+          "status": "ok",
+          "value": {
+           "path_rank": 4,
+           "kind": "trade",
+           "partner": "5",
+           "give": [
+            "602"
+           ],
+           "get": [
+            "501"
+           ],
+           "p_yes": {
+            "status": "ok",
+            "value": 0.41,
+            "source": "clone.accept",
+            "unit": "probability",
+            "guess": true
+           },
+           "change_after": {
+            "status": "ok",
+            "value": 0.009,
+            "source": "sim.title",
+            "unit": "title_odds",
+            "guess": true,
+            "se": 0.004,
+            "clears_2se": true
+           }
+          },
+          "source": "plan.path"
+         }
+        },
+        {
+         "n": 2,
+         "week": 6,
+         "kind": "claim",
+         "partner": null,
+         "give": [
+          "606"
+         ],
+         "get": [
+          "703"
+         ],
+         "p_yes": {
+          "status": "unknown",
+          "source": "clone.accept",
+          "reason": "Rival claims are not modelled; the search assumes the claim clears."
+         },
+         "change_after": {
+          "status": "ok",
+          "value": 0.019,
+          "source": "sim.title",
+          "unit": "title_odds",
+          "guess": true,
+          "se": 0.005,
+          "clears_2se": true
+         },
+         "title_after": {
+          "status": "unknown",
+          "source": "sim.title",
+          "reason": "CHESS-01a keeps the change against today, not the level of your title odds."
+         },
+         "backup": {
+          "status": "ok",
+          "value": {
+           "path_rank": 3,
+           "kind": "trade",
+           "partner": "9",
+           "give": [
+            "604"
+           ],
+           "get": [
+            "505"
+           ],
+           "p_yes": {
+            "status": "ok",
+            "value": 0.29,
+            "source": "clone.accept",
+            "unit": "probability",
+            "guess": true
+           },
+           "change_after": {
+            "status": "ok",
+            "value": 0.016,
+            "source": "sim.title",
+            "unit": "title_odds",
+            "guess": true,
+            "se": 0.005,
+            "clears_2se": true
+           }
+          },
+          "source": "plan.path"
+         }
+        },
+        {
+         "n": 3,
+         "week": 7,
+         "kind": "flip",
+         "partner": "2",
+         "give": [
+          "502"
+         ],
+         "get": [
+          "701"
+         ],
+         "p_yes": {
+          "status": "ok",
+          "value": 0.31,
+          "source": "clone.accept",
+          "unit": "probability",
+          "guess": true
+         },
+         "change_after": {
+          "status": "ok",
+          "value": 0.027,
+          "source": "sim.title",
+          "unit": "title_odds",
+          "guess": true,
+          "se": 0.006,
+          "clears_2se": true
+         },
+         "title_after": {
+          "status": "unknown",
+          "source": "sim.title",
+          "reason": "CHESS-01a keeps the change against today, not the level of your title odds."
+         },
+         "backup": {
+          "status": "ok",
+          "value": {
+           "path_rank": 2,
+           "kind": "trade",
+           "partner": "4",
+           "give": [
+            "605"
+           ],
+           "get": [
+            "507"
+           ],
+           "p_yes": {
+            "status": "ok",
+            "value": 0.44,
+            "source": "clone.accept",
+            "unit": "probability",
+            "guess": true
+           },
+           "change_after": {
+            "status": "ok",
+            "value": 0.021,
+            "source": "sim.title",
+            "unit": "title_odds",
+            "guess": true,
+            "se": 0.005,
+            "clears_2se": true
+           }
+          },
+          "source": "plan.path"
+         }
+        }
+       ],
+       "cut_at_deadline": 0
+      },
+      {
+       "rank": 2,
+       "p_complete": {
+        "status": "ok",
+        "value": 0.1672,
+        "source": "plan.path",
+        "unit": "probability",
+        "guess": true
+       },
+       "expected": {
+        "status": "ok",
+        "value": 0.0128,
+        "source": "plan.path",
+        "unit": "title_odds",
+        "guess": true
+       },
+       "full": {
+        "status": "ok",
+        "value": 0.021,
+        "source": "sim.title",
+        "unit": "title_odds",
+        "guess": true,
+        "se": 0.005,
+        "clears_2se": true
+       },
+       "vs_single": {
+        "expected": {
+         "status": "ok",
+         "value": 0.0091,
+         "source": "plan.path",
+         "unit": "title_odds",
+         "guess": true
+        },
+        "full": {
+         "status": "ok",
+         "value": 0.012,
+         "source": "sim.title",
+         "unit": "title_odds",
+         "guess": true,
+         "se": 0.005,
+         "clears_2se": true
+        }
+       },
+       "argument": {
+        "status": "unknown",
+        "source": "coach.text",
+        "reason": "The argument under the steps is written by JEV-01c's writer, which is not built yet; the steps stand on their numbers."
+       },
+       "steps": [
+        {
+         "n": 1,
+         "week": 5,
+         "kind": "trade",
+         "partner": "7",
+         "give": [
+          "601"
+         ],
+         "get": [
+          "502"
+         ],
+         "p_yes": {
+          "status": "ok",
+          "value": 0.38,
+          "source": "clone.accept",
+          "unit": "probability",
+          "guess": true
+         },
+         "change_after": {
+          "status": "ok",
+          "value": 0.012,
+          "source": "sim.title",
+          "unit": "title_odds",
+          "guess": true,
+          "se": 0.004,
+          "clears_2se": true
+         },
+         "title_after": {
+          "status": "unknown",
+          "source": "sim.title",
+          "reason": "CHESS-01a keeps the change against today, not the level of your title odds."
+         },
+         "backup": {
+          "status": "ok",
+          "value": {
+           "path_rank": 4,
+           "kind": "trade",
+           "partner": "5",
+           "give": [
+            "602"
+           ],
+           "get": [
+            "501"
+           ],
+           "p_yes": {
+            "status": "ok",
+            "value": 0.41,
+            "source": "clone.accept",
+            "unit": "probability",
+            "guess": true
+           },
+           "change_after": {
+            "status": "ok",
+            "value": 0.009,
+            "source": "sim.title",
+            "unit": "title_odds",
+            "guess": true,
+            "se": 0.004,
+            "clears_2se": true
+           }
+          },
+          "source": "plan.path"
+         }
+        },
+        {
+         "n": 2,
+         "week": 6,
+         "kind": "claim",
+         "partner": null,
+         "give": [
+          "606"
+         ],
+         "get": [
+          "703"
+         ],
+         "p_yes": {
+          "status": "unknown",
+          "source": "clone.accept",
+          "reason": "Rival claims are not modelled; the search assumes the claim clears."
+         },
+         "change_after": {
+          "status": "ok",
+          "value": 0.019,
+          "source": "sim.title",
+          "unit": "title_odds",
+          "guess": true,
+          "se": 0.005,
+          "clears_2se": true
+         },
+         "title_after": {
+          "status": "unknown",
+          "source": "sim.title",
+          "reason": "CHESS-01a keeps the change against today, not the level of your title odds."
+         },
+         "backup": {
+          "status": "ok",
+          "value": {
+           "path_rank": 3,
+           "kind": "trade",
+           "partner": "9",
+           "give": [
+            "604"
+           ],
+           "get": [
+            "505"
+           ],
+           "p_yes": {
+            "status": "ok",
+            "value": 0.29,
+            "source": "clone.accept",
+            "unit": "probability",
+            "guess": true
+           },
+           "change_after": {
+            "status": "ok",
+            "value": 0.016,
+            "source": "sim.title",
+            "unit": "title_odds",
+            "guess": true,
+            "se": 0.005,
+            "clears_2se": true
+           }
+          },
+          "source": "plan.path"
+         }
+        },
+        {
+         "n": 3,
+         "week": 7,
+         "kind": "trade",
+         "partner": "4",
+         "give": [
+          "605"
+         ],
+         "get": [
+          "507"
+         ],
+         "p_yes": {
+          "status": "ok",
+          "value": 0.44,
+          "source": "clone.accept",
+          "unit": "probability",
+          "guess": true
+         },
+         "change_after": {
+          "status": "ok",
+          "value": 0.021,
+          "source": "sim.title",
+          "unit": "title_odds",
+          "guess": true,
+          "se": 0.005,
+          "clears_2se": true
+         },
+         "title_after": {
+          "status": "unknown",
+          "source": "sim.title",
+          "reason": "CHESS-01a keeps the change against today, not the level of your title odds."
+         },
+         "backup": {
+          "status": "ok",
+          "value": {
+           "path_rank": 1,
+           "kind": "flip",
+           "partner": "2",
+           "give": [
+            "502"
+           ],
+           "get": [
+            "701"
+           ],
+           "p_yes": {
+            "status": "ok",
+            "value": 0.31,
+            "source": "clone.accept",
+            "unit": "probability",
+            "guess": true
+           },
+           "change_after": {
+            "status": "ok",
+            "value": 0.027,
+            "source": "sim.title",
+            "unit": "title_odds",
+            "guess": true,
+            "se": 0.006,
+            "clears_2se": true
+           }
+          },
+          "source": "plan.path"
+         }
+        }
+       ],
+       "cut_at_deadline": 0
+      },
+      {
+       "rank": 3,
+       "p_complete": {
+        "status": "ok",
+        "value": 0.1102,
+        "source": "plan.path",
+        "unit": "probability",
+        "guess": true
+       },
+       "expected": {
+        "status": "ok",
+        "value": 0.0057,
+        "source": "plan.path",
+        "unit": "title_odds",
+        "guess": true
+       },
+       "full": {
+        "status": "ok",
+        "value": 0.016,
+        "source": "sim.title",
+        "unit": "title_odds",
+        "guess": true,
+        "se": 0.005,
+        "clears_2se": false
+       },
+       "vs_single": {
+        "expected": {
+         "status": "ok",
+         "value": 0.002,
+         "source": "plan.path",
+         "unit": "title_odds",
+         "guess": true
+        },
+        "full": {
+         "status": "ok",
+         "value": 0.007,
+         "source": "sim.title",
+         "unit": "title_odds",
+         "guess": true,
+         "se": 0.005,
+         "clears_2se": false
+        }
+       },
+       "argument": {
+        "status": "unknown",
+        "source": "coach.text",
+        "reason": "The argument under the steps is written by JEV-01c's writer, which is not built yet; the steps stand on their numbers."
+       },
+       "steps": [
+        {
+         "n": 1,
+         "week": 5,
+         "kind": "trade",
+         "partner": "7",
+         "give": [
+          "601"
+         ],
+         "get": [
+          "502"
+         ],
+         "p_yes": {
+          "status": "ok",
+          "value": 0.38,
+          "source": "clone.accept",
+          "unit": "probability",
+          "guess": true
+         },
+         "change_after": {
+          "status": "ok",
+          "value": 0.012,
+          "source": "sim.title",
+          "unit": "title_odds",
+          "guess": true,
+          "se": 0.004,
+          "clears_2se": true
+         },
+         "title_after": {
+          "status": "unknown",
+          "source": "sim.title",
+          "reason": "CHESS-01a keeps the change against today, not the level of your title odds."
+         },
+         "backup": {
+          "status": "ok",
+          "value": {
+           "path_rank": 4,
+           "kind": "trade",
+           "partner": "5",
+           "give": [
+            "602"
+           ],
+           "get": [
+            "501"
+           ],
+           "p_yes": {
+            "status": "ok",
+            "value": 0.41,
+            "source": "clone.accept",
+            "unit": "probability",
+            "guess": true
+           },
+           "change_after": {
+            "status": "ok",
+            "value": 0.009,
+            "source": "sim.title",
+            "unit": "title_odds",
+            "guess": true,
+            "se": 0.004,
+            "clears_2se": true
+           }
+          },
+          "source": "plan.path"
+         }
+        },
+        {
+         "n": 2,
+         "week": 6,
+         "kind": "trade",
+         "partner": "9",
+         "give": [
+          "604"
+         ],
+         "get": [
+          "505"
+         ],
+         "p_yes": {
+          "status": "ok",
+          "value": 0.29,
+          "source": "clone.accept",
+          "unit": "probability",
+          "guess": true
+         },
+         "change_after": {
+          "status": "ok",
+          "value": 0.016,
+          "source": "sim.title",
+          "unit": "title_odds",
+          "guess": true,
+          "se": 0.005,
+          "clears_2se": true
+         },
+         "title_after": {
+          "status": "unknown",
+          "source": "sim.title",
+          "reason": "CHESS-01a keeps the change against today, not the level of your title odds."
+         },
+         "backup": {
+          "status": "ok",
+          "value": {
+           "path_rank": 1,
+           "kind": "claim",
+           "partner": null,
+           "give": [
+            "606"
+           ],
+           "get": [
+            "703"
+           ],
+           "p_yes": {
+            "status": "unknown",
+            "source": "clone.accept",
+            "reason": "Rival claims are not modelled; the search assumes the claim clears."
+           },
+           "change_after": {
+            "status": "ok",
+            "value": 0.019,
+            "source": "sim.title",
+            "unit": "title_odds",
+            "guess": true,
+            "se": 0.005,
+            "clears_2se": true
+           }
+          },
+          "source": "plan.path"
+         }
+        }
+       ],
+       "cut_at_deadline": 0
+      },
+      {
+       "rank": 4,
+       "p_complete": {
+        "status": "ok",
+        "value": 0.41,
+        "source": "plan.path",
+        "unit": "probability",
+        "guess": true
+       },
+       "expected": {
+        "status": "ok",
+        "value": 0.0037,
+        "source": "plan.path",
+        "unit": "title_odds",
+        "guess": true
+       },
+       "full": {
+        "status": "ok",
+        "value": 0.009,
+        "source": "sim.title",
+        "unit": "title_odds",
+        "guess": true,
+        "se": 0.004,
+        "clears_2se": true
+       },
+       "vs_single": null,
+       "argument": {
+        "status": "unknown",
+        "source": "coach.text",
+        "reason": "The argument under the steps is written by JEV-01c's writer, which is not built yet; the steps stand on their numbers."
+       },
+       "steps": [
+        {
+         "n": 1,
+         "week": 5,
+         "kind": "trade",
+         "partner": "5",
+         "give": [
+          "602"
+         ],
+         "get": [
+          "501"
+         ],
+         "p_yes": {
+          "status": "ok",
+          "value": 0.41,
+          "source": "clone.accept",
+          "unit": "probability",
+          "guess": true
+         },
+         "change_after": {
+          "status": "ok",
+          "value": 0.009,
+          "source": "sim.title",
+          "unit": "title_odds",
+          "guess": true,
+          "se": 0.004,
+          "clears_2se": true
+         },
+         "title_after": {
+          "status": "unknown",
+          "source": "sim.title",
+          "reason": "CHESS-01a keeps the change against today, not the level of your title odds."
+         },
+         "backup": {
+          "status": "ok",
+          "value": {
+           "path_rank": 1,
+           "kind": "trade",
+           "partner": "7",
+           "give": [
+            "601"
+           ],
+           "get": [
+            "502"
+           ],
+           "p_yes": {
+            "status": "ok",
+            "value": 0.38,
+            "source": "clone.accept",
+            "unit": "probability",
+            "guess": true
+           },
+           "change_after": {
+            "status": "ok",
+            "value": 0.012,
+            "source": "sim.title",
+            "unit": "title_odds",
+            "guess": true,
+            "se": 0.004,
+            "clears_2se": true
+           }
+          },
+          "source": "plan.path"
+         }
+        }
+       ],
+       "cut_at_deadline": 0
+      }
+     ],
+     "rival_claims": "not_modelled"
+    },
+    "source": "plan.path"
    }
   },
   {
@@ -1542,6 +2320,11 @@
     "status": "unknown",
     "source": "campaign.plan",
     "reason": "No partner read in this fixture."
+   },
+   "chess": {
+    "status": "unknown",
+    "source": "plan.path",
+    "reason": "Title-odds chess (CHESS-01a) is default-off in this fixture."
    }
   }
  ]

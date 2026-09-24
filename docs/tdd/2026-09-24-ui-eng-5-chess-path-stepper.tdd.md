@@ -106,3 +106,47 @@ moves to "Path 2 of 4".
 - **What would make it wrong:** a producer that writes `paths[]` in a different order from its
   ranking (the backup rule takes "first in order"), or a CHESS-01a change to the step keys
   (`p_accept`, `title_delta_after`, `p_basis`).
+
+## Sweep fixes FIX-290-1, -2, -3 (2026-09-24)
+
+`origin/main` was merged in (merge commit `8fff6e3e`). That merge brings FIX-04's contract-reading view
+(#287), #230's Coach and #233's producer. All five conflicts (war-room-view.js, WarRoom.tsx, types.ts,
+preview-mode.js, war-room-layout.test.js) were resolved to main's side. The stepper was then rebuilt on
+that contract.
+
+RED `89586b67`: `test/war-room-chess-path.test.js` fails at import (`campaign/chess.js` missing), and
+`war-room-layout` fails on the missing `path`/`clones` areas.
+
+GREEN: chess-path 21/21 and layout 7/7. The War Room, warroom, campaign, fix-0*, reasoning and coach
+suites: 369/369. `npm run typecheck`, `npm run lint` and `npm run check:wiring` all exit 0.
+
+- **FIX-290-2, producer and contract.** `plans-schema.js` has a `chess` section: ids and numbers only.
+  `campaign/chess.js#chessSection` maps titleChess() output into it. `toEntry` writes it for every league,
+  and `buildPlansFile` takes a `chess` loader. `produce-plans.mjs#chessLoader` loads `title-chess.js`
+  lazily (#258 is not merged yet) and reads the engine's `findTradeSequences(...).chess`. Each league gets
+  a typed unknown when:
+  - `title-chess.js` is absent (#258 not merged)
+  - the chess flag is off
+  - the search was not run
+
+  `validatePlans` stays empty on the regenerated producer fixture, which now carries league 1's search.
+  The war-room-view mapper is gone: the view passes the section through.
+- **FIX-290-1, the RED.**
+  - Every step's `change_after` carries `clears_2se`, and the client greys a step that does not clear.
+  - Steps go one per week from the current week, the deadline week is shown, and no trade or flip step
+    after `deadline_week` is written. A cut path's totals come from its kept steps, and its paired
+    comparison is dropped.
+  - `replay_passed` (`GRIDIRON_CHESS_REPLAY_PASSED`, never set by preview) gates the stepper. Without it
+    the panel shows "Path search is off: it has not beaten single trades in the replay test yet
+    (CHESS-01-b)."
+  - Every path has an `argument` slot, typed unknown with JEV-01c's reason, and the steps still draw.
+- **FIX-290-3, grid and coach.** The grid is `next next path stops` / `next next clones flip_map`: one
+  grid with both areas, #270's panel fills `clones`, and it is still one viewport tall. `path` is a Coach
+  `focus_panel` id on both sides (warroom-actions/schema.js, coach/warroomCoach.ts), with
+  `COACH_PANEL_AREA.path = 'path'` and the intent word "chess".
+
+Mutation sweep (`node docs/tdd/sweeps/ui-eng-5-chess-path-mutations.mjs`): 17 mutants covering the
+producer, contract, toEntry, buildPlansFile, client, grid and coach ids, and all 17 are killed. M1
+(backup prefix check) survived the first sweep because the rewrite had dropped the test for it; that
+test was restored and M1 is now killed. Control "reword the hint" survived; control "pattern absent"
+was not applied.

@@ -24,6 +24,7 @@ import { MODE_LABELS } from './modes.js';
 import { P_ACCEPT_LABEL } from './playbook.js';
 import { dealKey } from './paths.js';
 import { hash } from './confirm.js';
+import { chessSection } from './chess.js';
 
 export const PRODUCER = 'campaign-producer';
 export const PRODUCER_VERSION = '2';
@@ -70,8 +71,10 @@ export function failedEntry(res, { names = {} } = {}) {
  * res: planLeague result. ctx: { names, as_of, previous (last entry), changed (diffNextMove result),
  *   brain (brain-gate.js#applyBrainReport result), number_health (brain-gate.js#readNumberHealth result) }
  * FIX-05: without `brain` / `number_health` the two sections are 'unknown' and say they were not read.
+ * UI-ENG-5: `chess` is { input, replayPassed } (campaign/chess.js); without it the section is 'unknown', not run.
  */
-export function toEntry(res, { names = {}, as_of, previous = null, changed = null, brain = null, number_health: health = null } = {}) {
+export function toEntry(res, { names = {}, as_of, previous = null, changed = null, brain = null, number_health: health = null,
+  chess = null } = {}) {
   if (res.error) return failedEntry(res, { names });
   const o = res.objective;
   const metric = metricKey(o);
@@ -370,8 +373,11 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     ? num(fb.expected, 'sim.title', { se: fb.se, unit: 'title_odds', guess: true, n: fb.n })
     : unknown(fb?.error ? `The Trade Lab finder baseline failed (${fb.error}).` : 'The Trade Lab finder baseline was not run for this league.', 'sim.title');
 
+  const chessOut = chessSection(chess?.input ?? null, { names, week: w, deadline_week: res.deadline_week ?? null,
+    replayPassed: chess?.replayPassed === true });
+
   return {
-    league: res.league, me: String(res.me), names,
+    league: res.league, me: String(res.me), names: { ...names, ...chessOut.names },
     ...(typeof res.sanity === 'boolean' ? { sanity_composed_equals_direct: res.sanity } : {}),
     attention: unknown('Not ranked yet.', 'campaign.plan'),
     destination, feasibility, finder_best_expected, next_move, alternatives, itinerary, stop_tradeoffs,
@@ -383,6 +389,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       : health.status === 'ok' ? ok(health.value, 'audit.numbers', health.as_of ? { as_of: health.as_of } : {})
         : { status: health.status, source: 'audit.numbers', reason: health.reason },
     risk_modes, partners,
+    chess: chessOut.field,
     _run: {
       seed: res.seed ?? null, confirm_seed: res.confirm?.seed ?? null, week: w, deadline_week: week(res.deadline_week),
       behind: !!res.behind, objective_version: o.version, objective_source: o.source, risk_mode: o.risk_mode,

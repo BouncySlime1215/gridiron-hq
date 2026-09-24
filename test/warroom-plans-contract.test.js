@@ -53,7 +53,9 @@ test('the producer fixture validates against the contract', () => {
  * them starts being written, so an entry cannot linger.
  */
 const PENDING = [
-  { unit: 'unassigned', why: 'no planner rule reads these two sliders', path: /^leagues\[\]\.destination\.value\.tolerances\.value\.(reputation_budget|ai_spend)$/ }
+  { unit: 'unassigned', why: 'no planner rule reads these two sliders', path: /^leagues\[\]\.destination\.value\.tolerances\.value\.(reputation_budget|ai_spend)$/ },
+  { unit: 'JEV-01c', why: 'the chess argument writer is not built; the slot is unknown until it is', path: /^leagues\[\]\.chess\.value\.paths\[\]\.argument\.value(\..+)?$/ },
+  { unit: 'CHESS-01a', why: 'the search keeps each step\'s change against today, not the odds level', path: /^leagues\[\]\.chess\.value\.paths\[\]\.steps\[\]\.title_after\.value$/ }
 ];
 const pending = p => PENDING.some(x => x.path.test(p));
 

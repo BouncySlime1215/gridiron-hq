@@ -55,7 +55,7 @@ function section(input = ON, opts = {}) {
 /** The real producer entry (FIX-03 fixture league 1) carrying a chess section. */
 function entryWith(sec) {
   const e = structuredClone(REAL.leagues[0]);
-  e.names = { ...e.names, ...sec.names };
+  e.names = { ...e.names, ...studyNames, ...sec.names };
   e.chess = sec.field;
   return e;
 }
@@ -141,6 +141,16 @@ test('producer: each step names its backup branch, or says none was searched', (
     assert.equal(s.backup.status, 'unknown');
     assert.match(s.backup.reason, /No backup searched/);
   }
+});
+
+test('producer: a backup must share the steps before it, even when a different path ranks higher', () => {
+  const block = structuredClone(CHESS);
+  // Ranked 2nd, a different first move (Team 5) and a different second move: not a branch of path 1's step 2.
+  block.paths.splice(1, 0, { ...structuredClone(block.paths[2]), steps: [structuredClone(block.paths[3].steps[0]), structuredClone(block.paths[2].steps[1])] });
+  block.paths[1].steps[1].partner_id = 8;
+  const s2 = section({ state: 'on', block }).field.value.paths[0].steps[1];
+  assert.equal(s2.backup.value.path_rank, 4, 'the path that shares step 1, not the higher-ranked one that does not');
+  assert.equal(s2.backup.value.partner, '9');
 });
 
 test('producer: every path has a typed argument slot, unknown with its reason until the writer exists', () => {
@@ -235,7 +245,7 @@ test('view: the chess section is served as the producer wrote it; a failed run h
 
 /* ------------------------------------------------------------ client */
 
-async function render(field, big = true, names = { ...REAL.leagues[0].names, ...section().names }) {
+async function render(field, big = true, names = { ...REAL.leagues[0].names, ...studyNames }) {
   const { default: ChessPath } = await wr.mod('ChessPath');
   return renderToStaticMarkup(React.createElement(ChessPath, { field, names, big }));
 }

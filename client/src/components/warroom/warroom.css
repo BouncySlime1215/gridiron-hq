@@ -176,6 +176,10 @@
   font-size: 11.5px; animation: wr-cardin .2s ease; }
 .wr-branch .wr-k { padding-top: 0; }
 .wr-bk { margin-top: 2px; }
+/* A step whose change sits inside 2 SE is greyed (UI-ENG-5 RED). */
+.wr-step.wr-grey .wr-step-h, .wr-step.wr-grey .wr-step-v { opacity: .55; }
+.wr-step-h .wr-wk { flex: none; margin-left: auto; font-size: 10.5px; }
+.wr-deadline, .wr-argument { margin: 2px 0; }
 
 /* ---------- coach dock (placeholder until WR-COACH) ---------- */
 .wr-coach { grid-area: coach; background: var(--wr-bg); border: 1px solid var(--wr-line); border-radius: 10px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }

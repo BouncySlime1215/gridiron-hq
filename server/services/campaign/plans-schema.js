@@ -54,6 +54,8 @@ export const SKIP_REASONS = Object.freeze(['player', 'cost', 'manager', 'not_now
 /** Why a manager said no (north-star row 21): logged by Nick, read by the producer and the E2 grader. */
 export const DECLINE_REASONS = Object.freeze(['wants_more', 'likes_his_player', 'not_interested', 'not_now', 'other']);
 export const NUMBER_HEALTH_STATUSES = Object.freeze(['ok', 'warn', 'broken']);
+/** UI-ENG-5: the moves a CHESS-01a path is made of (title-chess.js). */
+export const CHESS_KINDS = Object.freeze(['trade', 'claim', 'flip']);
 
 /**
  * stop_tradeoffs keys, exactly as Coach builds them (warroomCoach.ts tradeoffKey):
@@ -192,6 +194,29 @@ const brainReport = obj({
   blocks: arr(str)
 }, { fell_back_to: lit('balanced') });
 
+/**
+ * UI-ENG-5 / FIX-290-2: CHESS-01a's searched paths (title-chess.js titleChess(), written by
+ * the producer through campaign/chess.js#chessSection). Ids and numbers only; the client
+ * words them. `week` is the week a step goes out (one step per week from `week`); no trade
+ * or flip step after `deadline_week` is written, and `cut_at_deadline` counts what was cut.
+ * `replay_passed` is CHESS-01-b's pass flag: false means the UI shows the fallback, not a path.
+ */
+const chessMove = { kind: oneOf(CHESS_KINDS), partner: nullable(id), give: arr(pid), get: arr(pid), p_yes: probF, change_after: numF };
+const chessStep = obj({
+  n: int(1), week: nullable(int(1, 18)), ...chessMove, title_after: probF,
+  backup: field(obj({ path_rank: int(1), ...chessMove }))
+});
+const chessPath = obj({
+  rank: int(1, MAX_ALTERNATIVES), p_complete: probF, expected: numF, full: numF,
+  vs_single: nullable(obj({ expected: numF, full: numF })),
+  argument: field(obj({ believes: str, why_yes: str, could_go_wrong: str, would_change: str })),
+  steps: arr(chessStep, { min: 1 }), cut_at_deadline: int(0)
+});
+const chess = obj({
+  replay_passed: bool, week: nullable(int(1, 18)), deadline_week: nullable(int(1, 18)),
+  paths: arr(chessPath, { min: 1, max: MAX_ALTERNATIVES })
+}, { rival_claims: str });
+
 /** Every section a league entry carries unless the whole run failed (`error`). */
 export const SECTIONS = Object.freeze({
   attention: field(obj({ rank: int(1), of: int(1), reason: str })),
@@ -225,7 +250,9 @@ export const SECTIONS = Object.freeze({
   // Who to deal with: P(responds) from activity x the best edge through him. Labels and counts only.
   partners: field(arr(obj({ team: id, p_responds: prob, basis: str, edge: numF }, {
     chat_labels: arr(str), roster_holes: arr(str), offers_logged: int(0), checked_out: bool, blocked: bool
-  })))
+  }))),
+  // UI-ENG-5: the chess path stepper's paths (see `chess` above).
+  chess: field(chess)
 });
 
 /** Run bookkeeping: the producer's own memory between runs. No consumer reads it. */

@@ -21,7 +21,7 @@
  *  5. Every action is logged (session.log), refusals included.
  */
 
-export const PANELS = ['next_move', 'itinerary', 'flip_map', 'targets', 'destination', 'catch_up', 'brain_check', 'cards'] as const;
+export const PANELS = ['next_move', 'itinerary', 'flip_map', 'targets', 'destination', 'catch_up', 'brain_check', 'cards', 'path'] as const;
 export type Panel = typeof PANELS[number];
 
 export const ACTION_TYPES = [
@@ -62,7 +62,7 @@ export type PlugView = 'number' | 'list' | 'sparkline' | 'table';
 
 export const PANEL_NAMES: Record<Panel, string> = {
   next_move: 'Next move', itinerary: 'Stops', flip_map: 'Flip map', targets: 'Targets',
-  destination: 'Destination', catch_up: 'Catch-up', brain_check: 'Brain check', cards: 'Your cards'
+  destination: 'Destination', catch_up: 'Catch-up', brain_check: 'Brain check', cards: 'Your cards', path: 'Chess path'
 };
 const MODE_NAMES: Record<string, string> = { safe: 'Safe', balanced: 'Balanced', all_in: "Fuck it, let's go" };
 

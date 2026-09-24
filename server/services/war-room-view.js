@@ -52,7 +52,8 @@ export const VIEW_SECTIONS = Object.freeze([...new Set([...Object.keys(SECTIONS)
 
 /** Where a section's hidden state says it came from. */
 const SECTION_SOURCE = {
-  finder_best_expected: 'plan.path', flip_map: 'sim.title', brain_report: 'eval.check', number_health: 'audit.numbers'
+  finder_best_expected: 'plan.path', flip_map: 'sim.title', brain_report: 'eval.check', number_health: 'audit.numbers',
+  chess: 'plan.path'
 };
 const sourceOf = k => SECTION_SOURCE[k] ?? 'campaign.plan';
 const HEAD_KEYS = ['league', 'me', 'names', 'error', 'sanity_composed_equals_direct'];

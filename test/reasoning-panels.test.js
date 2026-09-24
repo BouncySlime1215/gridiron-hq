@@ -61,7 +61,7 @@ function honestPanel(card, overrides = {}) {
   return {
     card_id: card.card_id,
     case_for: { claims: [{ text: `Chance he says yes is ${Math.round(card.facts['card.p_yes'] * 100)}%.`, cites: ['card.p_yes'] }] },
-    ...(has('his_side') ? { his_side: { claims: [{ text: 'His WR hole is 4.5 points.', cites: ['his.hole.0.gap', 'his.hole.0.pos'] }] } } : {}),
+    ...(has('his_side') ? { his_side: { claims: [{ text: 'His roster read lists WR as thin.', cites: ['his.hole.0.pos'] }] } } : {}),
     devils_advocate: {
       claims: [{ text: 'The title-odds gain is only a few points.', cites: ['card.title_delta'] }],
       would_change: [{ text: 'Missing the send window would change it.', cites: ['card.send_when'] }]

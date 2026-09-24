@@ -37,8 +37,9 @@ function fingerprintOf(parts) {
 
 function partnerHasData(partner) {
   if (!partner) return false;
-  return partner.p_responds?.status === 'ok' || (partner.roster_holes?.length ?? 0) > 0 || Object.keys(partner.paper_values ?? {}).length > 0
-    || (partner.recent_moves?.length ?? 0) > 0 || cleanLabels(partner.chat_labels).labels.length > 0;
+  // FIX-03's partners row: p_responds a bare probability, roster_holes position strings.
+  return Number.isFinite(partner.p_responds) || (partner.roster_holes?.length ?? 0) > 0
+    || cleanLabels(partner.chat_labels).labels.length > 0;
 }
 
 function contextFor(card, league, leagueNews, asOf, model) {

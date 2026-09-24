@@ -15,7 +15,9 @@
  *     .steps[0].title_odds_delta.{value,se,clears_2se}
  *     .steps[0].reply_table.value.*   what to do on accept / decline / counter / silence
  *     .steps[0].walk_away.value.text
- *   partners.value[]                  his side, one row per team
+ *   partners.value[]                  his side, one row per team (FIX-03's shape: p_responds
+ *                                     a bare probability, roster_holes position strings,
+ *                                     chat_labels 'key:value' tags, offers_logged)
  *   brain_report.value.checks[E1]     whether the accept model has passed calibration
  *
  * Cost rule (ENGINE-SPECS REASON-01): only the deck gets a panel per refresh.
@@ -34,8 +36,8 @@ export const DECK_SIZE = MAX_CARDS_PER_LEAGUE - 1;
 export const NEWS_WINDOW_HOURS = 48;
 export const REPLY_KEYS = Object.freeze(['accept', 'decline', 'counter', 'silence']);
 
-/** A chat-derived label is a short tag, never a sentence or a quote. */
-const LABEL = /^[A-Za-z][A-Za-z _-]{0,39}$/;
+/** A chat-derived label is a short tag (FIX-03 writes 'open_to_trade:high'), never a sentence or a quote. */
+const LABEL = /^[A-Za-z][A-Za-z _:-]{0,39}$/;
 
 const num = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const list = v => (Array.isArray(v) ? v : []);
@@ -166,20 +168,9 @@ export function factsForCard({ card, league, news }) {
     }
   }
 
-  put(facts, 'his.p_responds', num(ok(partner.p_responds)));
+  put(facts, 'his.p_responds', num(partner.p_responds));
   put(facts, 'his.basis', str(partner.basis));
-  list(partner.roster_holes).forEach((h, i) => {
-    put(facts, `his.hole.${i}.pos`, h?.pos);
-    put(facts, `his.hole.${i}.gap`, num(h?.gap));
-  });
-  for (const [pid, v] of Object.entries(partner.paper_values ?? {})) {
-    put(facts, `his.paper_value.${pid}`, num(v));
-    put(facts, `his.paper_value.${pid}.name`, names[pid] ?? null);
-  }
-  list(partner.recent_moves).forEach((m, i) => {
-    put(facts, `his.move.${i}.type`, m?.type);
-    put(facts, `his.move.${i}.summary`, m?.summary);
-  });
+  list(partner.roster_holes).forEach((h, i) => put(facts, `his.hole.${i}.pos`, str(h)));
   put(facts, 'his.offers_logged', num(partner.offers_logged));
   cleanLabels(partner.chat_labels).labels.forEach((l, i) => put(facts, `his.label.${i}`, l));
 

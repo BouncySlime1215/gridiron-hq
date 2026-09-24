@@ -1746,54 +1746,54 @@
    },
    "partners": {
     "status": "ok",
-    "source": "clone.accept",
+    "source": "campaign.plan",
     "value": [
      {
       "team": "7",
-      "p_responds": {
-       "status": "ok",
-       "value": 0.62,
-       "source": "clone.accept"
-      },
+      "p_responds": 0.62,
       "basis": "market+activity",
-      "edge": 0.018,
+      "edge": {
+       "status": "ok",
+       "value": 0.018,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
       "chat_labels": [
        "rebuilding",
        "hates wide receivers",
        "said \"never trading\" to anyone ok"
       ],
       "roster_holes": [
-       {
-        "pos": "WR",
-        "gap": 4.5
-       }
-      ],
-      "recent_moves": [
-       {
-        "type": "add",
-        "summary": "Picked up a backup back"
-       }
+       "WR"
       ],
       "offers_logged": 3,
-      "paper_values": {
-       "601": 3100,
-       "502": 2800
-      }
+      "checked_out": false,
+      "blocked": false
      },
      {
       "team": "2",
-      "p_responds": {
-       "status": "ok",
-       "value": 0.4,
-       "source": "clone.accept"
-      },
+      "p_responds": 0.4,
       "basis": "market",
+      "edge": {
+       "status": "unknown",
+       "source": "plan.path",
+       "reason": "No edge computed through this manager."
+      },
       "offers_logged": 12,
-      "chat_labels": [],
-      "roster_holes": [],
-      "recent_moves": []
+      "checked_out": false,
+      "blocked": false
      }
     ]
+   },
+   "number_health": {
+    "status": "unknown",
+    "source": "audit.numbers",
+    "reason": "The number audit was not read for this fixture."
+   },
+   "risk_modes": {
+    "status": "unknown",
+    "source": "plan.path",
+    "reason": "Risk modes were not compared in this fixture."
    }
   },
   {
@@ -1922,6 +1922,21 @@
     "status": "unknown",
     "reason": "Brain check (EVAL-01) not built yet.",
     "source": "eval.check"
+   },
+   "partners": {
+    "status": "unknown",
+    "source": "campaign.plan",
+    "reason": "No partner read for this league in the fixture."
+   },
+   "number_health": {
+    "status": "unknown",
+    "source": "audit.numbers",
+    "reason": "The number audit was not read for this fixture."
+   },
+   "risk_modes": {
+    "status": "unknown",
+    "source": "plan.path",
+    "reason": "Risk modes were not compared in this fixture."
    }
   },
   {
@@ -2345,6 +2360,16 @@
     "status": "unknown",
     "reason": "No partner rows for this league yet.",
     "source": "clone.accept"
+   },
+   "number_health": {
+    "status": "unknown",
+    "source": "audit.numbers",
+    "reason": "The number audit was not read for this fixture."
+   },
+   "risk_modes": {
+    "status": "unknown",
+    "source": "plan.path",
+    "reason": "Risk modes were not compared in this fixture."
    }
   }
  ]

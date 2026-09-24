@@ -25,11 +25,14 @@ export function normaliseObjective(raw = {}, { leagueGoal = 'title' } = {}) {
   if (kind === 'points' && !(ppw > 0)) kind = goal;
   const risk_mode = normaliseMode(raw.risk_mode ?? DEFAULT_MODE);
   const arrive = Number(raw.arrive_by);
+  const until = Number(raw.risk_until_week);
   return {
     kind, goal,
     target: kind === 'player' ? String(raw.target) : null,
     points_per_week: kind === 'points' ? ppw : null,
     risk_mode,
+    // Coach's set_risk_mode may end the mode at a week (then the league default returns).
+    risk_until_week: Number.isInteger(until) && until >= 1 && until <= 18 ? until : null,
     tolerances: tolerancesFor(risk_mode, raw.tolerances ?? {}),
     arrive_by: Number.isInteger(arrive) && arrive > 0 ? arrive : null,
     stops: Array.isArray(raw.stops) ? raw.stops.filter(s => s && typeof s.kind === 'string') : [],

@@ -20,6 +20,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-hypo-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.SCHEDULER_DISABLED = '1';
 delete process.env.GRIDIRON_HYPO_ENABLED;
+process.env.GRIDIRON_PROCESS_ROLE = 'test'; // FIX-277-6: a write also appends to engine_events
 
 const { db, rows, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
@@ -39,7 +40,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
   first_seen_at TEXT, last_seen_at TEXT,
   PRIMARY KEY (league_id, season, tx_id))`);
 
+// engine_events is append-only (075 triggers): a test reads only the events after its reset.
+let eventMark = 0;
 function reset() {
+  eventMark = Number(rows('SELECT COALESCE(MAX(id), 0) AS m FROM engine_events')[0].m);
   run('DELETE FROM surprise_hypotheses');
   run('DELETE FROM trade_outcomes');
   run('DELETE FROM league_transactions_raw');
@@ -305,4 +309,119 @@ test('CLI: off without the flag, writes with it, lists after', async () => {
   assert.match(on.stdout, /season 2026 found 1 .* written 1/);
   const list = cli({}, '--list');
   assert.match(list.stdout, /1 open hypotheses for league 4/);
+});
+
+/* ---------------- FIX-277-5: the flag is read through preview-mode.js ---------------- */
+
+const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
+function withPreview(value, fn) {
+  const saved = process.env[PREVIEW_ENV];
+  try {
+    if (value === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = value;
+    return fn();
+  } finally {
+    if (saved === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = saved;
+  }
+}
+
+test('FIX-277-5: unset follows preview mode, =0 vetoes it, =1 is on without it', () => {
+  withPreview(undefined, () => {
+    assert.equal(hypoEnabled({}), false, 'unset, no preview: off');
+    assert.equal(hypoEnabled({ GRIDIRON_HYPO_ENABLED: '1' }), true);
+    assert.deepEqual(hypo.hypoFlag({ GRIDIRON_HYPO_ENABLED: '1' }), { on: true, preview: false });
+  });
+  withPreview('1', () => {
+    assert.equal(hypoEnabled({}), true, 'unset follows previewUnconfirmed()');
+    assert.deepEqual(hypo.hypoFlag({}), { on: true, preview: true });
+    assert.equal(hypoEnabled({ GRIDIRON_HYPO_ENABLED: '0' }), false, '=0 vetoes preview');
+    assert.deepEqual(hypo.hypoFlag({ GRIDIRON_HYPO_ENABLED: '0' }), { on: false, preview: false });
+  });
+});
+
+test('FIX-277-5: a run on only because of preview mode is labelled; a vetoed run writes nothing', () => {
+  reset();
+  proposed({ p: 0.02, status: 'accepted' });
+  const vetoed = withPreview('1', () => detectSurprises({ leagueId: LEAGUE, season: SEASON, env: { GRIDIRON_HYPO_ENABLED: '0' } }));
+  assert.equal(vetoed.enabled, false);
+  assert.equal(rows('SELECT * FROM surprise_hypotheses').length, 0);
+  const r = withPreview('1', () => detectSurprises({ leagueId: LEAGUE, season: SEASON, env: {}, write: false }));
+  assert.equal(r.enabled, true);
+  assert.equal(r.preview, true);
+  assert.match(r.preview_reason, /HYPO-01a/);
+});
+
+test('FIX-277-5: preview-mode.js lists the site and surprise.js reads the switch through it', () => {
+  const header = fs.readFileSync('server/services/preview-mode.js', 'utf8');
+  assert.match(header, /hypo\/surprise\.js#hypoFlag[\s\S]*GRIDIRON_HYPO_ENABLED=0 vetoes preview/);
+  const src = fs.readFileSync('server/services/hypo/surprise.js', 'utf8');
+  assert.match(src, /import \{[^}]*previewUnconfirmed[^}]*\} from '\.\.\/preview-mode\.js'/);
+});
+
+/* ---------------- FIX-277-6: each hypothesis is a hypo.surprise event on the hub ---------------- */
+
+const { appendEvents, getEvents, eventEntities } = await import('../server/services/engine/events.js');
+const FAR = '2100-01-01T00:00:00.000Z';
+const surpriseEvents = () => getEvents({ asOf: FAR, afterId: eventMark, types: ['hypo.surprise'] });
+
+test('FIX-277-6: every written hypothesis is published once as a hypo.surprise event with its evidence ids and as_of', () => {
+  reset();
+  const low = proposed({ p: 0.04, status: 'accepted', counterparty: '7' });
+  // The offer's own hub event (the spine backfill writes these): its id travels as evidence.
+  const [resolved] = appendEvents([{ event_type: 'trade.resolved', source: 'trade_outcomes', as_of: '2026-09-21T12:00:00.000Z',
+    league_id: LEAGUE, team_id: '1', natural_key: `${low}:accepted:fix-277-6`, entities: [{ type: 'offer', id: low }],
+    payload: { trade_outcome_id: low } }]).events;
+
+  const r = detectSurprises({ leagueId: LEAGUE, season: SEASON, enabled: true });
+  assert.equal(r.written, 1);
+  assert.equal(r.published, 1);
+  const [h] = listHypotheses({ leagueId: LEAGUE });
+  const evs = surpriseEvents();
+  assert.equal(evs.length, 1);
+  const e = evs[0];
+  assert.equal(e.source, 'surprise_hypotheses');
+  assert.equal(e.natural_key, h.surprise_key);
+  assert.equal(e.provenance, 'derived');
+  assert.equal(e.as_of, new Date(h.occurred_at).toISOString());
+  assert.equal(e.league_id, LEAGUE);
+  assert.equal(e.team_id, '7');
+  assert.equal(e.payload.hypothesis_id, h.id);
+  assert.equal(e.payload.kind, 'accept_low');
+  assert.deepEqual(e.payload.evidence.trade_outcome_ids, [low]);
+  assert.deepEqual(e.payload.evidence.event_ids, [resolved.id]);
+  assert.equal(e.payload.model.p, 0.04, 'the served p is a model output, under payload.model');
+  assert.equal(e.payload.statement, undefined, 'the detail stays in surprise_hypotheses');
+  const ents = eventEntities(e.id).map(x => `${x.entity_type}:${x.entity_id}`);
+  assert.ok(ents.includes(`hypothesis:${h.id}`));
+  assert.ok(ents.includes(`offer:${low}`));
+
+  const again = detectSurprises({ leagueId: LEAGUE, season: SEASON, enabled: true });
+  assert.equal(again.written, 0);
+  assert.equal(again.published, 0, 'an unchanged hypothesis appends nothing');
+  assert.equal(surpriseEvents().length, 1);
+});
+
+test('FIX-277-6: a burst and a dry run: the burst carries its tx ids; a dry run publishes nothing', () => {
+  reset();
+  for (let d = 1; d <= 14; d += 7) add(5, day(d));
+  const ids = [add(5, at(16, 1)), add(5, at(16, 5)), add(5, at(16, 9)), add(5, at(16, 13))];
+  detectSurprises({ leagueId: LEAGUE, season: SEASON, enabled: true, write: false });
+  assert.equal(surpriseEvents().length, 0);
+  const r = detectSurprises({ leagueId: LEAGUE, season: SEASON, enabled: true });
+  assert.ok(r.written >= 1);
+  const burst = surpriseEvents().find(e => e.payload.kind === 'roster_burst');
+  assert.ok(burst, 'the burst is on the hub');
+  assert.deepEqual(burst.payload.evidence.tx_ids, ids);
+  assert.equal(surpriseEvents().length, r.written);
+});
+
+test('FIX-277-6: without an engine write role nothing is written (row and event are one transaction)', () => {
+  reset();
+  proposed({ p: 0.03, status: 'accepted' });
+  const saved = process.env.GRIDIRON_PROCESS_ROLE;
+  process.env.GRIDIRON_PROCESS_ROLE = 'web';
+  try {
+    assert.throws(() => detectSurprises({ leagueId: LEAGUE, season: SEASON, enabled: true }), /engine tables are written only by/);
+  } finally { process.env.GRIDIRON_PROCESS_ROLE = saved; }
+  assert.equal(rows('SELECT * FROM surprise_hypotheses').length, 0);
+  assert.equal(surpriseEvents().length, 0);
 });

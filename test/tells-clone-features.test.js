@@ -122,9 +122,10 @@ test('fitWeights: under MIN_TRAIN offers the weights are zero with a reason; abo
     rows.push({ x: [x0, (i % 3) - 1, 0], offset: 0, y: (x0 > 0) === (i % 10 !== 0) ? 1 : 0 });
   }
   const shrunk = T.fitWeights(rows);
+  const uncapped = T.fitWeights(rows, { cap: Infinity });
   const loose = T.fitWeights(rows, { penalty: 1e-6, cap: Infinity });
-  assert.ok(shrunk.weights[0] > 0);
-  assert.ok(shrunk.weights[0] < loose.weights[0], 'the penalty shrinks the weight toward 0');
+  assert.ok(uncapped.weights[0] > 0);
+  assert.ok(uncapped.weights[0] < loose.weights[0] - 0.05, 'the default penalty shrinks the weight toward 0');
   assert.ok(Math.abs(shrunk.weights[0]) <= T.WEIGHT_CAP);
   assert.equal(shrunk.weights[2], 0);
 });

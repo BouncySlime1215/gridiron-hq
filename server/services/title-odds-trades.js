@@ -25,7 +25,8 @@
  */
 import { row } from '../db/index.js';
 import { findTrades } from './trade-engine.js';
-import { tradeImpact, TRADE_IMPACT_RUNS } from './season-sim.js';
+import { tradeImpact, tradeImpactWorld, fastRescoreEnabled, TRADE_IMPACT_RUNS } from './season-sim.js';
+import { mutualTitleGain } from './title-mutual.js';
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 
@@ -64,6 +65,10 @@ export function titleOddsTrades(leagueId, {
   }
 
   const scored = [];
+  // RL-19-2: the league as it is (pools, draws, every team's lineups) is built
+  // once and each deal re-solves only its two changed lineups, ~60x cheaper
+  // per deal with the same numbers. GRIDIRON_FAST_RESCORE=0 skips it.
+  const world = fastRescoreEnabled() && candidates.length ? tradeImpactWorld(lg, { runs }) : null;
   for (const d of candidates) {
     const impact = tradeImpact(lg, {
       myTeamId: teamId ?? lg.my_team_id, theirTeamId: d.partner_id,
@@ -72,7 +77,7 @@ export function titleOddsTrades(leagueId, {
       // league's scoring) are what TradeCard and the sense-check use too, so the
       // same deal shows the same delta on every surface. Every deal on this tab
       // still faces the same simulated season (one seed per league state).
-      runs
+      runs, world
     });
     if (impact.error) continue;
     scored.push({
@@ -117,14 +122,9 @@ export function titleOddsTrades(leagueId, {
   return value;
 }
 
-/**
- * Both sides gain title odds, and both gains are past their own noise band.
- * Exported for tests.
- */
-export function mutualTitleGain(me, them) {
-  return me.title_delta > 0 && them.title_delta > 0
-    && me.title_delta_clears_noise === true && them.title_delta_clears_noise === true;
-}
+// Both sides gain title odds past their own noise band. Defined beside the
+// title-mutual trade class (RL-19-3), which keeps deals on the same rule.
+export { mutualTitleGain };
 
 /**
  * The page's headline comparison, from scored deals. Exported for tests.

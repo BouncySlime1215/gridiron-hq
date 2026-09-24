@@ -27,6 +27,8 @@
 import { Router } from 'express';
 import { db, row, rows, run } from '../db/index.js';
 import { scoringFor } from '../services/scoring.js';
+// IDEA-001: every served title-odds number is queued for served_numbers (off the request thread).
+import { recordServed } from '../services/serve-log.js';
 import { buildProjections } from '../services/projections.js';
 import { clearPlayerWeekEngineCache } from '../services/player-week-engine.js';
 import { simulateSeason, simStartWeek, tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
@@ -430,14 +432,25 @@ r.get('/projections', requireAuthenticated, (req, res, next) => {
     assertLeagueMember(req.auth.userId, leagueId);
     const scoring = scoringFor(lg);
     const through = Number(req.query.through) || SEASON - 1;
-    const proj = memo(`proj:${through}:${JSON.stringify(scoring)}`, () => buildProjections({ through, scoring }));
+    // PROJ-02-a: optional as-of cutoff week inside `through`. With it, projection.links
+    // carry the predicted week's (week + 1) game script, the configuration the chain was
+    // graded on; without it they are the neutral, unscripted chain (chain_scripted false).
+    let throughWeek = null;
+    if (req.query.week != null) {
+      throughWeek = Number(req.query.week);
+      if (!Number.isInteger(throughWeek) || throughWeek < 0 || throughWeek > 22) {
+        return res.status(400).json({ error: 'week must be an integer 0-22 (the last played week)' });
+      }
+    }
+    const proj = memo(`proj:${through}:${throughWeek}:${JSON.stringify(scoring)}`,
+      () => buildProjections(throughWeek == null ? { through, scoring } : { through, throughWeek, scoring }));
 
     const pos = req.query.position;
     let list = [...proj.values()];
     if (pos) list = list.filter(p => p.position === String(pos).toUpperCase());
     list.sort((a, b) => b.points - a.points);
     res.json({
-      through, season: SEASON, count: list.length,
+      through, week: throughWeek, season: SEASON, count: list.length,
       players: list.slice(0, Number(req.query.limit) || 300)
     });
   } catch (e) { respondError(res, next, e); }
@@ -456,9 +469,11 @@ r.get('/:leagueId/simulate', requireAuthenticated, (req, res, next) => {
     // simulateSeason resolves internally, so the key and the body's from_week agree.
     const key = `sim:${lg.id}:${runs}:${simStartWeek(lg, req.query.from_week)}`;
     const seed = req.query.seed ?? null;
-    res.json(withRandomSeed(seed, () => memo(`${key}:seed:${seed ?? 'random'}`, () => simulateSeason(lg, {
+    const sim = withRandomSeed(seed, () => memo(`${key}:seed:${seed ?? 'random'}`, () => simulateSeason(lg, {
       runs, fromWeek: req.query.from_week, scoring: scoringFor(lg)
-    }))));
+    })));
+    recordServed(res, 'title_odds', lg, sim);
+    res.json(sim);
   } catch (e) { next(e); }
 });
 
@@ -469,8 +484,9 @@ r.post('/:leagueId/trade-impact', requireAuthenticated, (req, res, next) => {
     if (!lg.payload) return res.status(400).json({ error: 'league not synced yet' });
     const { my_team_id, their_team_id, i_give = [], i_get = [] } = req.body ?? {};
     if (!their_team_id) return res.status(400).json({ error: 'their_team_id required' });
-    res.json(tradeImpact(lg, {
-      myTeamId: my_team_id ?? lg.my_team_id,
+    const myTeamId = my_team_id ?? lg.my_team_id;
+    const impact = tradeImpact(lg, {
+      myTeamId,
       theirTeamId: their_team_id,
       iGive: i_give, iGet: i_get,
       runs: Math.min(3000, Number(req.body?.runs) || TRADE_IMPACT_RUNS),
@@ -479,7 +495,10 @@ r.post('/:leagueId/trade-impact', requireAuthenticated, (req, res, next) => {
       // The league's own weights, the same value tradeImpact defaults to (RL-6-3); passed
       // explicitly so this call site stays checked by test/scoring-call-sites.test.js (#163).
       scoring: scoringFor(lg)
-    }));
+    });
+    recordServed(res, 'trade_impact', lg, impact,
+      { myTeamId, theirTeamId: their_team_id, iGive: i_give, iGet: i_get });
+    res.json(impact);
   } catch (e) { next(e); }
 });
 

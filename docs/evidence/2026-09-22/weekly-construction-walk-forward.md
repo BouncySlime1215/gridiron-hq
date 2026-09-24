@@ -188,7 +188,7 @@ carried the lift and the last two did not.
 ## 8. Holdout looks
 
 Correction (fix round): `docs/evidence/HOLDOUT-LEDGER.md` was already on origin/main
-(`dd7cec20`, #154) when this was written; S-03's forward rows F018-F021 (F001-F004 on its branch) are in it (`8ddebcd8`).
+(`dd7cec20`, #154) when this was written; S-03's forward rows F022-F025 (F001-F004 on its branch, F018-F021 before PROJ-02-a took those ids on main) are in it (`8ddebcd8`).
 No 2025 outcome was graded; the promotion refit and the 2026 engine do read 2025 rows.
 
 | Unit | Date (UTC) | Hypothesis | Metric | Result |

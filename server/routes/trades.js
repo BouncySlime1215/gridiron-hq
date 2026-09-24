@@ -47,6 +47,8 @@ import { lineupSignals } from '../services/lineup-signals.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
 import { tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
+import { oneWorldFlag } from '../services/one-world.js';
+import { leagueWorld, ONE_WORLD_RUNS } from '../services/league-world.js';
 // IDEA-001: served trade-card and title-trade numbers, queued for served_numbers.
 import { recordServed, readServed, serveLogState } from '../services/serve-log.js';
 // TM-09: historical revealed trade prices (aggregate table), read-only, default-off.
@@ -1314,7 +1316,10 @@ Respond with ONLY JSON:
         if (!simArgs) return null;
         try {
           const started = Date.now();
-          const impact = tradeImpact(lg, { ...simArgs, runs });
+          // EA-07: on the snapshot's world (its runs), the same "before" as the twin.
+          const impact = oneWorldFlag().on
+            ? tradeImpact(lg, { ...simArgs, runs: ONE_WORLD_RUNS, world: leagueWorld(lg) })
+            : tradeImpact(lg, { ...simArgs, runs });
           return impact?.error ? impact : { ...impact, compute_ms: Date.now() - started };
         } catch (e) {
           console.warn(`[trade-sense-check] season simulation unavailable: ${e.message}`);

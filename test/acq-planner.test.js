@@ -176,6 +176,47 @@ test('the budget stops the search cleanly and says so', () => {
   assert.equal(full.stats.truncated, null);
 });
 
+test('exact rescores go only to target gains and states on a scored path (ranking uses the quick value)', () => {
+  const A = makeAdapter();
+  const rescored = [];
+  const spy = { ...A, rescore: st => { rescored.push(new Map(st)); return A.rescore(st); } };
+  const r = planAcquisition(spy, {});
+  const key = st => JSON.stringify([...st.entries()].map(([k, v]) => [k, [...v].sort((a, b) => a - b)]).sort());
+  const onPath = new Set();
+  for (const p of r.plans) {
+    let st = new Map();
+    for (const s of p.steps) {
+      st = new Map(st).set('1', [...(st.get('1') ?? A.roster('1'))].filter(x => !s.give.includes(x)).concat(s.get));
+      if (s.kind === 'trade') st.set(s.partner, [...(st.get(s.partner) ?? A.roster(s.partner))].filter(x => !s.get.includes(x)).concat(s.give));
+      onPath.add(key(st));
+    }
+  }
+  // A target gain: Nick gets one player from one owner for nothing.
+  const isGain = st => st.size === 2 && st.get('1').length === A.roster('1').length + 1 && A.roster('1').every(id => st.get('1').includes(id));
+  const stray = rescored.filter(st => !onPath.has(key(st)) && !isGain(st));
+  assert.equal(stray.length, 0, 'no exact rescore is spent on a single-player loss or other ranking state');
+  assert.ok(rescored.filter(isGain).length <= 6, 'target gains: at most 2 x maxTargets');
+  assert.ok(r.stats.quick > 0);
+});
+
+test('a tight budget still scores paths for every target, not just the first', () => {
+  const r = planAcquisition(makeAdapter(), { maxRescores: 21 });
+  assert.match(r.stats.truncated, /rescore cap 21/);
+  const withPlans = new Set(r.plans.map(p => p.target));
+  assert.equal(withPlans.size, 3, 'round-robin across targets');
+});
+
+test('a run cut short before any path is scored still prints its summary (LOCAL crash, PR #267)', () => {
+  const res = planAcquisition(makeAdapter(), { maxRescores: 1 });
+  assert.match(res.stats.truncated, /rescore cap 1/);
+  const entry = leagueEntry(res, { league: 4, me: '1', name });
+  assert.deepEqual(validateLeague(entry).errors, []);
+  const s = summary({ res, entry, finder: null, meta: { league: 4, me: '1', runs: 1, sanity: true, world_ms: 1, total_ms: 2 } });
+  assert.equal(s.truncated, res.stats.truncated);
+  assert.equal(s.idea_038.targets, 0);
+  assert.equal(s.best, undefined);
+});
+
 test('same inputs, same plans', () => {
   const a = planAcquisition(makeAdapter(), {}), b = planAcquisition(makeAdapter(), {});
   const sig = r => JSON.stringify(r.deck.map(p => [p.target, p.expected, p.steps.map(s => [s.partner, s.give, s.get])]));

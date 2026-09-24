@@ -262,3 +262,14 @@ test('route: a non-member gets 403; a member gets the stored card with its as_of
     assert.doesNotMatch(read(f), /\b(refitTells|gradeClone|tellsCard|loadCloneContext|writeState)\(/, `${f} computes or writes`);
   }
 });
+
+test('as of the card: an offer answered after as_of is not graded (runs last: it writes an earlier card)', async () => {
+  // Offers are proposed on days 8-11 at 10:00 and answered a day later. As of day 10 00:00 only
+  // the first has an answer; the second was proposed but not yet decided.
+  const early = iso(10, 0);
+  await producer.runTellsProducer({ database: db, asOf: early, leagues, refitEnabled: false });
+  const card = state.getState('league', String(LG), 'tells.card', { asOf: early, leagueId: LG }, db);
+  assert.equal(card.as_of, early);
+  assert.equal(card.value.grade.clone.n, 1);
+  assert.match(card.value.screen.reason, /GRIDIRON_TELLS_ENABLED/);
+});

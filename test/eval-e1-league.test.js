@@ -56,6 +56,8 @@ test('FIX-268-4: a proposal\'s terms come from its snapshot first; raw items_jso
   const snapshots = [
     { league_id: 7, season: 2026, proposal_tx_id: '110', proposer_team_id: 2, proposed_at: iso(0), items_json: JSON.stringify([{ fromTeamId: 2, toTeamId: 3, playerId: 1 }]) },
     { league_id: 7, season: 2026, proposal_tx_id: '120', proposer_team_id: 3, proposed_at: iso(1), items_json: JSON.stringify([{ fromTeamId: 3, toTeamId: 4, playerId: 2 }]) },
+    // 140: raw items still there (5 <-> 2) but the snapshot, first seen, says 5 <-> 3: the snapshot wins.
+    { league_id: 7, season: 2026, proposal_tx_id: '140', proposer_team_id: 5, proposed_at: iso(3), items_json: JSON.stringify([{ fromTeamId: 5, toTeamId: 3, playerId: 4 }]) },
   ];
   const without = L.mergeOffers({ raw });
   assert.equal(without.offers.length, 3, 'no snapshot: 110 is unreadable and 120 has no proposal');
@@ -68,6 +70,8 @@ test('FIX-268-4: a proposal\'s terms come from its snapshot first; raw items_jso
   assert.equal(by['120'].proposed_at, iso(1), 'a snapshot-only proposal is timed by its snapshot');
   assert.deepEqual([by['120'].proposer_team_id, by['120'].counterparty_team_id], ['3', '4']);
   assert.equal(by['130'].terms_source, 'league_transactions_raw');
+  assert.equal(by['140'].terms_source, 'trade_proposal_snapshots');
+  assert.equal(by['140'].counterparty_team_id, '3', 'both present: the snapshot\'s terms, not the raw row\'s');
 });
 
 test('a raw proposal already settled into trade_outcomes is counted once', () => {

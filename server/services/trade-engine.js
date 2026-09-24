@@ -97,9 +97,11 @@ import { counterpartyLayer, readDeal, counterpartyDataKey, playerValuation, self
 // counterparty read rather than describing one: a deal that is not positive for
 // Nick on our own numbers never reaches the list, whatever the other manager
 // thinks of it (master plan 00 D4, "a gift, not a trade").
-import { edgeTest, tacticsForDeal, timingRead, vetoClimate } from './trade-tactics.js';
+import { edgeTest, tacticsForDeal, timingRead, vetoClimate, vetoRiskFor } from './trade-tactics.js';
 import { LOST_IDEAS } from './rec-ledger.js';
-import { acceptanceBand } from './trade-acceptance.js';
+import { acceptanceBand, cheapestAbove, cloneFor, cloneMode, leagueAcceptPool, packageGainPct,
+  vetoFactor } from './trade-acceptance.js';
+import { cloneFitsFor } from './trade-outcomes.js';
 // tradeIdeas() only: this roster's real P(make playoffs), which is what turns the
 // horizon from a 0.5 prior into a number. season-sim.js imports assetUniverse /
 // loadRosters / lineupSlots from THIS file, so the two modules form a cycle.
@@ -2218,6 +2220,7 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
   try { timing = timingRead(lg.id, { season: weekNow.season }); } catch { timing = new Map(); }
   try { climate = vetoClimate(lg, { season: weekNow.season, priceOfPlayer: valueOfEspn }); }
   catch { climate = null; }
+  const clones = cloneContext(lg, counterparties, weekNow.season);
   try { self = selfRead(lg.id, { season: weekNow.season }); }
   catch (err) {
     console.error(`[trade-engine] selfRead lookup failed for league ${lg.id}:`, err);
@@ -2304,8 +2307,55 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
     // `says_no_holds`, which is read straight off the negotiation profile and
     // has no valuation-source name — stated here rather than implied by a
     // parameter that cannot do it.
+    const cl = clones ? cloneInputs(clones, cp, d, climate) : {};
     d.acceptance = acceptanceBand({ counterparty: d.counterparty, edge: d.edge,
-      profile: cp?.negotiation ?? null });
+      profile: cp?.negotiation ?? null, ...cl });
+  }
+  if (clones) markCloneFollowUps(shown);
+}
+
+/**
+ * CLONE-01b b2, read once per league when the clone flag is on (cloneMode):
+ * the league's accept pool and every manager's settled replies. Null when off,
+ * so the band is built exactly as before.
+ */
+// TEST SEAM: cloneContext, cloneInputs and markCloneFollowUps are exported so
+// test/clone-01b-b2.test.js pins the call site, not only the unit.
+export function cloneContext(lg, counterparties, season) {
+  const mode = cloneMode();
+  if (!mode.on) return null;
+  // CLONE-01a's fitted pool (method of moments) when that unit is on; else the
+  // n-weighted league rate at a fixed strength.
+  const cps = [...counterparties.values()];
+  const pool = cps.find(c => c?.accept_pool)?.accept_pool ?? leagueAcceptPool(cps);
+  return { mode, pool, fits: cloneFitsFor(lg.id, season) };
+}
+
+/** The clone and veto reads for one deal. His gain is priced off the deal's own player values. */
+export function cloneInputs(clones, cp, d, climate) {
+  const gainPct = packageGainPct(d.i_give, d.i_get);
+  const clone = cloneFor({ counterparty: { ...cp, ...d.counterparty }, pool: clones.pool,
+    fit: clones.fits.get(String(d.partner_id)) ?? null, gainPct, preview: clones.mode.preview });
+  const veto = vetoFactor(climate ? vetoRiskFor(climate, { theirValuePct: d.their_value_pct }) : null);
+  return { clone, veto };
+}
+
+/**
+ * After a decline, the follow-up is the cheapest shown package to that manager
+ * that clears the price his decline set. Marked on that deal's clone block only.
+ */
+export function markCloneFollowUps(shown) {
+  const byPartner = new Map();
+  for (const d of shown) {
+    const bound = d.acceptance?.clone?.price_bound?.gain_pct;
+    if (!Number.isFinite(bound)) continue;
+    if (!byPartner.has(d.partner_id)) byPartner.set(d.partner_id, { bound, deals: [] });
+    byPartner.get(d.partner_id).deals.push(d);
+  }
+  for (const { bound, deals } of byPartner.values()) {
+    const pick = cheapestAbove(deals.map(d => ({ d, gain_pct: d.acceptance.clone.gain_pct })), bound);
+    if (pick) pick.d.acceptance.clone.follow_up = { above_bound_pct: bound,
+      why: `the cheapest package here that gives him more than the ${bound}% he declined` };
   }
 }
 

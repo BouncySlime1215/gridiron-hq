@@ -126,8 +126,9 @@ export const COACH_TOOLS = Object.freeze([
     source: 'server/services/coach/catalog.js#catalog',
     tables: [],
     description: 'What Coach may read: every table it can query, what one row of it is, what it means, ' +
-      'how it is refreshed and whether it is collected automatically or by hand. Call this before writing ' +
-      'SQL against a table you have not used yet. A table absent from here cannot be read at all, and the ' +
+      'how it is refreshed and whether it is collected automatically or by hand. Call this with a table name ' +
+      'before writing SQL against a table you have not used in this conversation: it returns the real column ' +
+      'names, and a guessed column name wastes a round. A table absent from here cannot be read at all, and the ' +
       'honest answer to a question about it is that Coach does not read it.',
     input_schema: { type: 'object', properties: {
       table: { type: 'string', description: 'one table to describe; omit for the whole list' } } },

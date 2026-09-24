@@ -34,6 +34,7 @@
  */
 import { rows } from '../db/index.js';
 import { weekDesignation } from './contingency.js';
+import { previewUnconfirmed, previewFields } from './preview-mode.js';
 
 export const ESPN_ZERO_SOURCE = 'espn_projection_zero';
 /** ESPN projection last week that makes a player relevant (R&D r10's pool rule). */
@@ -71,8 +72,17 @@ const alreadyOut = status => {
  * The inactive hook for one league and week.
  * @returns {{covered, source, reason, ids: Set<players.id>, sentence, label, as_of}}
  */
-export function espnZeroInactive(leagueId, { season, week, enabled = espnZeroEnabled() }) {
-  if (!enabled) return uncovered(ESPN_ZERO_OFF_REASON);
+export function espnZeroInactive(leagueId, { season, week, enabled }) {
+  // PREVIEW-01: the local-testing switch turns the hook on when neither the caller nor the
+  // site flag has; the hook then carries preview:true and the default-off reason.
+  const preview = enabled === undefined && !espnZeroEnabled() && previewUnconfirmed();
+  const on = enabled === undefined ? (espnZeroEnabled() || preview) : enabled;
+  if (!on) return uncovered(ESPN_ZERO_OFF_REASON);
+  const hook = hookFor(leagueId, season, week);
+  return preview ? { ...hook, ...previewFields(ESPN_ZERO_OFF_REASON) } : hook;
+}
+
+function hookFor(leagueId, season, week) {
   if (leagueId == null || season == null || week == null) return uncovered('no league, season or week');
   let now, prior;
   try {

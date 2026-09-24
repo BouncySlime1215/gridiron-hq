@@ -218,18 +218,18 @@ test('POST /explain/page rejects a request with no route', async () => {
 // The real, capped, read-only tool-use loop (nfl-page-explain.js + page-
 // explain-tools.js). Unlike the tests above, these responses vary call to
 // call, so the fake fetch inspects the outgoing request body itself: a
-// request that still declares `tools` gets a tool_use reply, one without
-// `tools` (the forced-final round) gets a plain text reply — mirroring what
-// the real Anthropic API would actually do (it cannot emit tool_use for a
-// call that declared no tools).
+// request that lets the model use its tools gets a tool_use reply, one with
+// tool_choice "none" (the forced-final round) gets a plain text reply —
+// mirroring what the real Anthropic API would actually do (it cannot emit
+// tool_use under tool_choice "none").
 function mockAnthropicToolLoop({ alwaysToolUse = false, finalParagraph = 'Final answer.', finalLimitations = [] } = {}) {
   const calls = [];
   activeFetchHandler = async (url, init) => {
     const body = init?.body ? JSON.parse(init.body) : null;
     calls.push({ url: String(url), body });
-    const declaresTools = Array.isArray(body?.tools) && body.tools.length > 0;
+    const mayUseTools = Array.isArray(body?.tools) && body.tools.length > 0 && body?.tool_choice?.type !== 'none';
     let content, stop_reason;
-    if (declaresTools && (alwaysToolUse || calls.length === 1)) {
+    if (mayUseTools && (alwaysToolUse || calls.length === 1)) {
       content = [{ type: 'tool_use', id: `toolu_${calls.length}`, name: 'game_projection_breakdown',
         input: { season: 2026, week: 1, home_team: 'DAL' } }];
       stop_reason = 'tool_use';
@@ -288,7 +288,7 @@ test('POST /explain/page runs the tool once, re-calls with the result, and retur
 test('POST /explain/page enforces the tool-call round cap and surfaces an honest limitation when it is hit', async () => {
   setTestKey();
   // The model tries to call a tool on every round it's offered one; only the
-  // forced-final round (tools omitted) gets it to actually answer.
+  // forced-final round (tool_choice "none") gets it to actually answer.
   const mock = mockAnthropicToolLoop({ alwaysToolUse: true });
   let result;
   try {
@@ -302,6 +302,15 @@ test('POST /explain/page enforces the tool-call round cap and surfaces an honest
   assert.equal(result.status, 200, JSON.stringify(result.payload));
   // Cap is 4 rounds: 3 rounds of tool use, then a 4th forced-final round.
   assert.equal(mock.calls.length, 4);
+  // Every round declares the same tools (the history holds tool_use blocks);
+  // only the final one forbids using them.
+  assert.ok(mock.calls.every(call => call.body.tools?.length > 0), 'every round must declare the tools');
+  assert.deepEqual(mock.calls.map(call => call.body.tool_choice?.type ?? null), [null, null, null, 'none']);
+  // The glossary file is gone, so the prompt must not promise one, and the
+  // system prompt names no tool (the tool list is the one place tools are named).
+  const system = JSON.stringify(mock.calls[0].body.system);
+  assert.doesNotMatch(system, /GLOSSARY|glossary unavailable/);
+  for (const tool of mock.calls[0].body.tools) assert.ok(!system.includes(tool.name), `system prompt names ${tool.name}`);
   assert.ok(result.payload.limitations.some(note => /cut short/i.test(note)),
     `expected an honest "cut short" limitation, got: ${JSON.stringify(result.payload.limitations)}`);
 

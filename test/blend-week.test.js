@@ -91,7 +91,7 @@ function threeNumbers(a) {
   return {
     start_sit: startSitWeekPoints(a, 2026, 6).week_points,
     lineup_card: lineupDiffWeekPoints(a, 2026, 6),
-    // lineupSpan with one week left is exactly the card's this-week leg.
+    // lineupSpan with one week left is exactly the card's this-week leg (it rounds to 0.1).
     trade_card_week: lineupSpan([], [a], ['WR'], 1),
     trade_card_horizon_week: r2((a.adj_ppg - 0.75 * a.ros_ppg) / 0.25)
   };
@@ -129,9 +129,9 @@ test('control (flag off): the fixture really has a lift, and the three numbers d
     assert.ok(a.current_week_ppg > 0);
     assert.equal(n.start_sit, r2(a.current_week_ppg * PASS_MULT), 'Start/Sit lifts in full');
     assert.equal(n.lineup_card, n.start_sit);
-    assert.equal(n.trade_card_week, a.current_week_ppg, 'the trade card leg is unlifted');
+    assert.equal(n.trade_card_week, +a.current_week_ppg.toFixed(1), 'the trade card leg is unlifted');
     assert.ok(Math.abs(n.trade_card_horizon_week - a.current_week_ppg) < 0.05, 'adj_ppg is built on the unlifted number');
-    assert.notEqual(n.start_sit, n.trade_card_week, 'the row-G disagreement exists in the fixture');
+    assert.notEqual(+n.start_sit.toFixed(1), n.trade_card_week, 'the row-G disagreement exists in the fixture');
   });
 });
 
@@ -143,7 +143,7 @@ test('RED (flag on): Start/Sit, the lineup card and the trade card read one blen
     const n = threeNumbers(a);
     assert.equal(n.start_sit, a.blend_week);
     assert.equal(n.lineup_card, a.blend_week);
-    assert.equal(n.trade_card_week, a.blend_week);
+    assert.equal(n.trade_card_week, +a.blend_week.toFixed(1));
     assert.ok(Math.abs(n.trade_card_horizon_week - a.blend_week) < 0.05,
       `adj_ppg must be derived from blend_week (${a.blend_week}), implied week ${n.trade_card_horizon_week}`);
     assert.equal(a.week_basis.field, 'blend.week');

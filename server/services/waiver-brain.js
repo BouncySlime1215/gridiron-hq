@@ -275,6 +275,12 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
   // The same annotation is where the betting model enters: the Vegas game-script
   // multiplier scales this week's slice of each player's value. See vegasLift.
   const annotate = p => {
+    // BROKEN-G flag on: adj_ppg is already built on blend.week, lift included, so
+    // lifting its this-week share again would count the line twice.
+    if (Number.isFinite(p.blend_week)) {
+      const v = horizonValue(p, week);
+      return { ...p, horizon_ppg: v, horizon_base: v, vegas: p.blend_week_vegas?.applied ? p.blend_week_vegas : null };
+    }
     const hv = horizonValueWithVegas(p, season, week);
     return { ...p, horizon_ppg: hv.value, horizon_base: hv.base, vegas: hv.lift };
   };

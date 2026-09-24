@@ -20,6 +20,8 @@
  *   - waiver-wire.js#waiverBoard                 snap-share order for same-team replacements
  *   - season-sim.js#rosBasisFlag                 title odds on the finder's ros_ppg (RL-17-3;
  *                                                GRIDIRON_RL17_3_ENABLED=0 vetoes preview)
+ *   - price-band.js#priceBandV2Flag              fitted 80% accept band on the offer ladders
+ *                                                (PRICE-BAND-01; GRIDIRON_PRICE_BAND_V2=0 vetoes preview)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

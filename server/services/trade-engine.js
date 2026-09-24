@@ -99,6 +99,7 @@ import { counterpartyLayer, readDeal, counterpartyDataKey, playerValuation, self
 // thinks of it (master plan 00 D4, "a gift, not a trade").
 import { edgeTest, tacticsForDeal, timingRead, vetoClimate } from './trade-tactics.js';
 import { acceptanceBand } from './trade-acceptance.js';
+import { servedAcceptBand } from './price-band.js';
 // tradeIdeas() only: this roster's real P(make playoffs), which is what turns the
 // horizon from a 0.5 prior into a number. season-sim.js imports assetUniverse /
 // loadRosters / lineupSlots from THIS file, so the two modules form a cycle.
@@ -2503,6 +2504,9 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
   if (tier === 'never') return { error: `${owner.owner} is marked "Never trades," so the engine did not generate fake offers for this player.` };
   const ownerCtx = rosterContext(lg).get(String(owner.roster_id));
   const { weekNow, odds, horizon, counterparties } = ladderInputs(lg, myTeamId, playoffOdds);
+  // The price range he would say yes to (PRICE-BAND-01). Legacy [1.00, 1.65] unless
+  // GRIDIRON_PRICE_BAND_V2 / preview mode serves the fitted 80% band.
+  const band = servedAcceptBand();
 
   // How motivated is the seller? A team with surplus at his position and a hole
   // elsewhere is a much cheaper negotiation than one starting him with no cover.
@@ -2538,6 +2542,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
     upside_playoff_leg: addCeiling.playoff_leg,
     counterparty: ownerRead(counterparties, owner, tier),
     target_stance: targetStance(counterparties, owner, [target]),
+    ...(band.version === 'legacy' ? {} : { accept_band: band }),
     leverage: replaceable
       ? `${owner.owner} can cover him — losing him only costs their lineup ${theirCost} ppg. Start low.`
       : `He is load-bearing for ${owner.owner} (${theirCost} ppg of their lineup). Expect to pay a premium or get refused.`
@@ -2567,7 +2572,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
   for (const give of packages) {
     const giveValue = give.reduce((s, p) => s + Math.max(0, p.value), 0);
     const ratio = target.value ? giveValue / target.value : 0;
-    if (ratio < 0.70 || ratio > 1.65) continue;
+    if (ratio < band.window_lo || ratio > band.window_hi) continue;
     const ev = evaluate({ team: me, gives: give }, { team: owner, gives: [target] }, slots,
       { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
     const gain = ladderGain(ev, horizon);
@@ -2589,7 +2594,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
     return {
       ...context,
       error: 'He would help, but nothing on your roster prices out.',
-      reason: `Adding him is worth ${upsideHorizon} ppg to your lineup horizon-weighted (${upside} this week), but every package in his price range (${Math.round(target.value * 0.7)}–${Math.round(target.value * 1.65)}) costs you more than he returns. You need a third team, or a cheaper player at the same position.`
+      reason: `Adding him is worth ${upsideHorizon} ppg to your lineup horizon-weighted (${upside} this week), but every package in his price range (${Math.round(target.value * band.window_lo)}–${Math.round(target.value * band.window_hi)}) costs you more than he returns. You need a third team, or a cheaper player at the same position.`
         + (excludeIds?.size ? ` This search also left out the player(s) you've marked untouchable.` : '')
     };
   }
@@ -2597,7 +2602,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
   // "He might say yes": his lineup improves, or he wins on market value, or —
   // the counterparty read findTrades has always had and this ladder did not —
   // the package reads as a win from HIS side of the table.
-  const acceptable = priced.filter(p => p.them.ppg_delta > 0 || p.ratio >= 1.0
+  const acceptable = priced.filter(p => p.them.ppg_delta > 0 || p.ratio >= band.yes_point
     || (p.counterparty.perception_delta ?? 0) > 0);
   const pool = acceptable.length ? acceptable : priced;
   // Cheapest first, but among packages that cost the same never open with the one
@@ -2655,6 +2660,7 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
   if (!me) return { error: 'your team not found in this league' };
   // Same horizon and same counterparty layer as the league-wide search (G6).
   const { weekNow, odds, horizon, counterparties } = ladderInputs(lg, myTeamId, playoffOdds);
+  const band = servedAcceptBand();   // PRICE-BAND-01, as in offerFor
 
   const targets = [...new Set((targetIds ?? []).map(Number))]
     .map(id => resolvePlayer(id, assets, teams)).filter(Boolean);
@@ -2728,7 +2734,7 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
     for (const give of packages) {
       const giveValue = give.reduce((s, p) => s + Math.max(0, p.value), 0);
       const ratio = targetsValue ? giveValue / targetsValue : 0;
-      if (ratio < 0.70 || ratio > 1.65) continue;
+      if (ratio < band.window_lo || ratio > band.window_hi) continue;
       const ev = evaluate({ team: me, gives: give }, { team: owner, gives: theirTargets }, slots,
         { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
       const gain = ladderGain(ev, horizon);
@@ -2743,12 +2749,12 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
     }
     if (!priced.length) {
       ladders.push({ ...base, error: 'Nothing on your roster prices out for this package.',
-        reason: `Every combination in range (${Math.round(targetsValue * 0.7)}–${Math.round(targetsValue * 1.65)}) costs you more lineup value than it returns. Try fewer targets, or a third team.`
+        reason: `Every combination in range (${Math.round(targetsValue * band.window_lo)}–${Math.round(targetsValue * band.window_hi)}) costs you more lineup value than it returns. Try fewer targets, or a third team.`
           + (excludeIds?.size ? ` This search also left out your untouchable player(s).` : '') });
       continue;
     }
 
-    const acceptable = priced.filter(p => p.them.ppg_delta > 0 || p.ratio >= 1.0
+    const acceptable = priced.filter(p => p.them.ppg_delta > 0 || p.ratio >= band.yes_point
       || (p.counterparty.perception_delta ?? 0) > 0);
     const pool = acceptable.length ? acceptable : priced;
     const headline = list => list.slice().sort((x, y) => y.value - x.value)[0]?.id;
@@ -2770,7 +2776,8 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
 
   return { mode: 'targets',
     context: ideaContext(lg, { me, assets, odds, horizon, counterparties, useCounterparty: true, week: weekNow }),
-    me: { roster_id: me.roster_id, owner: me.owner }, model_context: assets.context, ladders };
+    me: { roster_id: me.roster_id, owner: me.owner }, model_context: assets.context,
+    ...(band.version === 'legacy' ? {} : { accept_band: band }), ladders };
 }
 
 /* --------------------------------------------------------------- self scout */

@@ -30,6 +30,9 @@
  *                                                GET /api/number-audit (#237, GRIDIRON_NUMBER_HEALTH)
  *   - offer-loop-flag.js#offerLoopFields         TradeCard "I sent this" and /offers/sent
  *                                                (#239, GRIDIRON_OFFER_LOOP)
+ *   - week.js#fantasyWeek/scoreboardWeek/        one nfl.week for every NFL-week reader, and
+ *     lineWatchWeek/leagueWeek                   league.week ignores another season's payload
+ *                                                (BROKEN-D)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

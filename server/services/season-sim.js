@@ -195,7 +195,7 @@ export function simStartWeek(lg, requested = null) {
   if (payloadSeason && season && payloadSeason !== season) return 1;
   const explicit = Number(requested);
   if (Number.isInteger(explicit) && explicit >= 1) return explicit;
-  return leagueCurrentWeek(lg);
+  return leagueCurrentWeek(lg); // league.week (week.js)
 }
 
 /**

@@ -20,6 +20,7 @@
  * budget from blind polling into a targeted instrument.
  */
 import { rows, run } from '../db/index.js';
+import { lineWatchWeek } from './week.js';
 import { lineMoveValue } from './nfl-execution-edge.js';
 import { recordSync } from './scheduler.js';
 
@@ -119,7 +120,7 @@ export async function pollEspnLines({ season = SEASON, week = 1 } = {}) {
 
 /** Scheduler entry point — polls whichever week is live. */
 export async function refreshEspnLineWatch() {
-  const week = Number(process.env.NFL_WEEK) || currentWeek();
+  const week = lineWatchWeek(SEASON);
   const result = await pollEspnLines({ season: SEASON, week });
   if (result.error) return result;
   const dispatch = await import('./nfl-capture-dispatch.js');
@@ -128,16 +129,6 @@ export async function refreshEspnLineWatch() {
   // key, a 50-credit reserve and a cooldown that collapses simultaneous moves.
   result.capture = await dispatch.dispatchTriggeredCapture();
   return result;
-}
-
-/**
- * Best guess at the live week from the schedule we already store, so the poller
- * does not need a hand-set env var to follow the season.
- */
-function currentWeek() {
-  const r = rows(`SELECT week FROM game_lines WHERE season = ? AND team_score IS NULL
-                  ORDER BY week LIMIT 1`, SEASON)[0];
-  return r?.week ?? 1;
 }
 
 /* ------------------------------------------------------------- reading it */

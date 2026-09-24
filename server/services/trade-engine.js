@@ -52,6 +52,7 @@
  */
 import crypto from 'node:crypto';
 import { rows } from '../db/index.js';
+import { fantasyWeek } from './week.js';
 import { vorBoard, volatility } from '../routes/edge.js';
 import { deriveFormat } from './format.js';
 import { pickInventory } from './picks.js';
@@ -180,9 +181,7 @@ function rosterContext(lg) {
  * @returns {Map<number, object>} player id -> asset
  */
 export function tradeWeekContext() {
-  const week = Number(process.env.NFL_WEEK) || rows(`SELECT MIN(week) AS week FROM game_lines
-    WHERE season=? AND team_score IS NULL`, SEASON)[0]?.week || 1;
-  return { season: SEASON, week: Math.max(1, Math.min(18, Number(week))) };
+  return fantasyWeek(SEASON); // nfl.week, clamped 1..18 (week.js, BROKEN-D)
 }
 
 /**

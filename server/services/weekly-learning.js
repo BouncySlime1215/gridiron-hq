@@ -18,6 +18,7 @@ import {
 import { pairedBootstrapDiff } from './backtest-significance.js';
 import { spearman } from './backtest.js';
 import { nflKickoffDate } from './date-util.js';
+import { nflWeek } from './week.js';
 import { nflEngineVersionFor } from './nfl-engine-registry.js';
 
 const predict = (weights, observation) => WEEKLY_ENSEMBLE_HEADS.reduce(
@@ -338,68 +339,11 @@ export function weeklyLearningStatus() {
   };
 }
 
-// A game missing its score this long after kickoff is no longer "hasn't been
-// played yet" — real NFL games (including OT) finish inside this window, and
-// ESPN posts finals within minutes after. Past this, a null score is either a
-// sync gap or a real data-availability hole, not a game still in progress.
-const SCORE_GRACE_HOURS = 6;
-
-/**
- * The schedule's own view of "what week is it": the earliest week whose games
- * are not ALL already in the past (i.e. the week currently underway or next
- * up), derived purely from gameday/gametime — no score data involved. Used as
- * a cross-check against the score-derived week below, and as the fallback
- * when that score-derived value looks wrong (see currentNflWeek).
- */
-function scheduleDerivedWeek(season, now = new Date()) {
-  const weeks = rows(`SELECT DISTINCT week, gameday, gametime FROM game_lines
-                      WHERE season=? AND gameday IS NOT NULL`, season);
-  if (!weeks.length) return null;
-  const maxKickoffByWeek = new Map();
-  for (const w of weeks) {
-    const kickoff = nflKickoffDate(w.gameday, w.gametime);
-    if (!kickoff) continue;
-    const prior = maxKickoffByWeek.get(w.week);
-    if (!prior || kickoff > prior) maxKickoffByWeek.set(w.week, kickoff);
-  }
-  if (!maxKickoffByWeek.size) return null;
-  const ordered = [...maxKickoffByWeek.entries()].sort((a, b) => a[0] - b[0]);
-  const notYetConcluded = ordered.find(([, maxKickoff]) => maxKickoff.getTime() >= now.getTime());
-  return (notYetConcluded ?? ordered.at(-1))[0];
-}
-
-export function currentNflWeek(season = Number(process.env.NFL_SEASON) || new Date().getFullYear(), now = new Date()) {
-  const scoreWeek = row(`SELECT MIN(week) AS week FROM game_lines
-                        WHERE season=? AND team_score IS NULL`, season)?.week ?? null;
-  const scheduleWeek = scheduleDerivedWeek(season, now);
-  const bestGuess = scoreWeek ?? scheduleWeek ?? 1;
-
-  // Cross-check: of bestGuess's games, how many are missing a score well past
-  // their own kickoff? If more than half are, the score-derived signal is
-  // unreliable (a stalled/broken sync, not just "week still in progress") and
-  // the schedule's own idea of the current week takes over instead.
-  const games = rows(`SELECT team_score, gameday, gametime FROM game_lines
-                      WHERE season=? AND week=?`, season, bestGuess);
-  const graceMs = SCORE_GRACE_HOURS * 60 * 60 * 1000;
-  const overdue = games.filter(g => {
-    if (g.team_score != null) return false;
-    const kickoff = nflKickoffDate(g.gameday, g.gametime);
-    return kickoff && (now.getTime() - kickoff.getTime()) > graceMs;
-  });
-  const looksWrong = games.length > 0 && (overdue.length / games.length) > 0.5;
-  const resolved = looksWrong && scheduleWeek != null ? scheduleWeek : bestGuess;
-
-  return {
-    season,
-    week: Number(process.env.NFL_WEEK) || resolved,
-    score_derived_week: scoreWeek,
-    schedule_derived_week: scheduleWeek,
-    score_signal_flagged: looksWrong
-  };
-}
+// nfl.week is produced by week.js (BROKEN-D); this name stays for its many readers.
+export { nflWeek as currentNflWeek };
 
 export function runWeeklyLearningCycle() {
-  const current = currentNflWeek();
+  const current = nflWeek();
   return {
     current,
     capture: captureWeeklyPredictions(current.season, current.week),

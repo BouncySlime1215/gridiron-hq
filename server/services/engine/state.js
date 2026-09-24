@@ -28,6 +28,8 @@
  *
  * `getState` is the as-of reader: the latest row (by id, the transaction clock) with
  * as_of <= asOf and id <= maxId, in lane `live` unless asked, never a failed row.
+ * What pages and Coach read (HEALTH-01b: failed/degraded rows served by a labelled stand-in)
+ * is engine/views.js#readServed, the one fallback reader; this file has no reader of its own.
  */
 import { db as appDb } from '../../db/index.js';
 import { fieldSpec, isWriterFor, laneFor, producerSpec } from './registry.js';
@@ -296,15 +298,18 @@ const parseRow = r => ({
  * row is never served by default); `version` pins one producer version.
  */
 export function getState(entityType, entityId, field, {
-  asOf = new Date(), leagueId = null, lane = 'live', version = null, maxId = null, includeFailed = false,
+  asOf = new Date(), leagueId = null, lane = 'live', version = null, maxId = null, includeFailed = false, healthyOnly = false,
 } = {}, database = appDb) {
   const where = ['entity_type = ?', 'entity_id = ?', 'field = ?', 'league_id = ?', 'lane = ?', 'as_of <= ?'];
   const params = [entityType, String(entityId), field, leagueId == null ? 0 : Number(leagueId), lane, normalizeAsOf(asOf)];
   if (version != null) { where.push('producer_version = ?'); params.push(String(version)); }
   if (maxId != null) { where.push('id <= ?'); params.push(Number(maxId)); }
-  if (!includeFailed) where.push(`json_extract(health, '$.status') <> 'failed'`);
+  // healthyOnly: neither failed nor degraded, the rows HEALTH-01b may stand in with (views.js#healthServe).
+  if (healthyOnly) where.push(`json_extract(health, '$.status') NOT IN ('failed', 'degraded')`);
+  else if (!includeFailed) where.push(`json_extract(health, '$.status') <> 'failed'`);
   const r = database.prepare(`SELECT id, entity_type, entity_id, league_id, field, value, as_of, producer, producer_version,
       lane, reason_chain, event_ids, health, run_id, written_at FROM engine_state
       WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT 1`).get(...params);
   return r ? parseRow(r) : null;
 }
+

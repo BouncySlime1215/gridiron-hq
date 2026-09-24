@@ -79,7 +79,8 @@ export function newLedger() {
     if (!query) return null;
     const row = query.rows[Number(rowIndex)];
     if (!row || !Object.hasOwn(row, column)) return null;
-    return { id: cite, value: row[column], kind: 'row', table: query.tables[0] ?? null, query: queryId };
+    return { id: cite, value: row[column], kind: 'row', table: query.tables[0] ?? null, query: queryId,
+      tables: query.tables, health: query.health };
   }
 
   /** Record what a query returned. Takes a safeSelect result or a tool result of the same shape. */
@@ -97,7 +98,9 @@ export function newLedger() {
       rows: result.rows,
       row_count: result.row_count ?? result.rows.length,
       truncated: result.truncated ?? false,
-      provenance: result.provenance ?? {}
+      provenance: result.provenance ?? {},
+      // An engine read's served status (HEALTH-01c): null for anything that is not one.
+      health: result.health ?? null
     };
     queries.push(entry);
     return entry;

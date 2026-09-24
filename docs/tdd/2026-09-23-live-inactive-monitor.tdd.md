@@ -418,9 +418,11 @@ only), so nothing was appended to `docs/evidence/HOLDOUT-LEDGER.md`.
    Bluesky rows. Follow-up: score Bluesky handles there and gate on it.
 4. **The page shows the `issue` text but not the link.** `source_url` is in the
    API response only. Follow-up: a one-line link in `Lineup.tsx` (owner's file).
-5. **Flag only.** It does not auto-bench, and it does not feed the
-   `lineup-posture.js` dead-starter guard (SS-01 proper, not built yet). SK-01
-   and WV-02 do not read it yet.
+5. **Flag only.** It does not auto-bench. Since FIX-184-2 it does feed the SS-01
+   dead-starter guard (`dead-starters.js`, as a second covered source beside
+   `espn-zero-inactive.js`), from the same set as the Start/Sit warning. It does not
+   hold the player out of the solve (only the ESPN-zero hook does). SK-01 and WV-02
+   do not read it yet.
 6. **Name matching is only as good as the player table.** A player missing from
    `players`, or without a `team_id`, cannot match (Estimé in window A). A stale
    team only matters when a shared name needs a tie-break.
@@ -428,7 +430,9 @@ only), so nothing was appended to `docs/evidence/HOLDOUT-LEDGER.md`.
    parser rules. The honest out-of-sample number is B's first run (3/945 false
    flags across all accounts, 2 from watched ones). The forward W3-W5 test is
    what confirms it.
-9. **Two producers of "out for this game" (named follow-up, not unified here).**
+9. **Two producers of "out for this game". DONE for Start/Sit in FIX-184-6**
+   (`server/services/availability-claims.js`, section 11). The News page's "My
+   Players" filter does not read it yet. The original finding follows.
    `nfl_news_signals` (writer `nfl-news-signal.js` `STATUS_RULES`, `:76`) and
    `live_inactive_claims` (writer `live-inactive-monitor.js` `recordClaim`) both turn
    news text into an availability claim. On the same input they disagree
@@ -485,3 +489,72 @@ only), so nothing was appended to `docs/evidence/HOLDOUT-LEDGER.md`.
    - The warning sits in the existing "Check before kickoff" list, one per
      starter.
    - Nav is still 8 tabs.
+
+## 11. FIX-184 sweep (2026-09-24)
+
+Branch merged with `origin/main` first (merge `152c1da`, no conflicts). Then:
+
+| Fix | What changed | RED | GREEN |
+|---|---|---|---|
+| FIX-184-1 | Migration renumbered 071 -> 093 (`server/migrations/093_live_inactive_claims.js`, `name` = `093_live_inactive_claims`). Done earlier in `9fd838a`; this sweep re-checked it. No `071_live` reference is left in the repo. | n/a | `9fd838a` |
+| FIX-184-2 | `dead-starters.js#mergeInactiveHooks` (:63), per-id source/sentence/label in `deadReason` (:115). `lineup-brain.js` merges the ESPN-zero hook with `claimInactiveHook` (:468-469), and the warnings read the same hook (:710, :787). The parallel list is gone. | `dbaa722` | `887a767` |
+| FIX-184-3 | `server/services/live-inactive-flag.js#liveInactiveFields`: the one reader of the flag, on under `previewUnconfirmed()` too, stamping `preview`/`preview_reason`. Listed in `preview-mode.js` converted sites (:33). Grep test with a control that must find the reader. | `dbaa722` | `887a767` |
+| FIX-184-4 | `NEGATED_INACTIVE_WORD_RE` (`live-inactive-monitor.js:101`, used at :147) refuses a negated INACTIVE phrase. | `dbaa722` | `dccd7c4` |
+| FIX-184-5a | `test/live-inactives-job.test.js` runs `JOBS.live_inactives.run()` with a fake Jetstream socket and a mocked `tradeWeekContext()` (2031 W13), and asserts the stored row's season/week. It passes on RED, because it pins existing behaviour. Mutation below. | `dbaa722` | (pin) |
+| FIX-184-5b | `liveClaimsLatest` (`live-inactive-monitor.js:325`) drops claims first seen at or after the player's own kickoff (`gameCutoff` over `game_lines`). It does this before choosing the latest claim. | `dbaa722` | `dccd7c4` |
+| FIX-184-5c | Test 1's flagged starter is now 0.6 to play, so he is in `risky` as well, and a broken de-dup shows two warnings. | `dbaa722` | n/a |
+| FIX-184-6 | `server/services/availability-claims.js#availabilityClaims` (:57) and `#claimInactiveHook` (:127). One reader over both tables. | `dbaa722` | `887a767` |
+
+**RED failures at `dbaa722`** (each on its assertion, none on an import):
+- `live-inactive-monitor`: 8/10 pass.
+  - FIX-184-4 fails on `refused: Fixture Runner has not been ruled out.`: it parsed as inactive.
+  - FIX-184-5b fails on `a post-kickoff "active" cannot cancel the pre-kickoff inactive`.
+- `lineup-live-inactive-warning`: 3/5 pass.
+  - FIX-184-2 fails on `no dead-starter alert; items = []`.
+  - FIX-184-3 fails on `preview mode turns the warning on`.
+- `availability-claims`: 0/4 pass (`server/services/availability-claims.js exists`).
+- `live-inactive-flag`: 0/3 pass.
+  - The grep test finds `server/services/lineup-brain.js` and `server/services/scheduler.js` naming the variable, and the reader is missing.
+  - The flag test fails on `live-inactive-flag.js exists`.
+  - The converted-sites test fails because the reader is not listed.
+- `live-inactives-job`: 1/1 pass (a pin, as noted above).
+
+**GREEN at `887a767`** (`SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<tmp> node --experimental-test-module-mocks --test <file>`):
+
+| File | Result |
+|---|---|
+| live-inactive-monitor | 10/10 |
+| lineup-live-inactive-warning | 5/5 |
+| availability-claims | 4/4 |
+| live-inactive-flag | 3/3 |
+| live-inactives-job | 1/1 |
+| growth-jobs-off-thread | 6/6 |
+| preview-mode | 3/3 |
+| fix-10-flags | 6/6 |
+| dead-starter-guard | 9/9 |
+| espn-zero-inactive | 11/11 |
+| command-center | 15/15 |
+| lineup-floor-objective | 3/3 |
+| lineup-kickoff-locks | 9/9 |
+| lineup-surfaces-agree | 2/2 |
+| lineup-signals | 12/12 |
+| scheduler-job-modules | 13/13 |
+| wiring-map | 90/90 |
+
+`npm run typecheck` 0, `npm run lint` 0, and `node scripts/wiring-map.mjs --check` 0.
+Full `npm test` at `887a767` (after `npm ci`): 5268 tests, 5226 pass, 0 fail, 42 skipped, exit 0.
+
+**Mutation checks** (each applied, run, reverted):
+- **M1, de-dup.** In `lineup-brain.js`, the `risky` filter's `!claimHook.ids.has(...)` was replaced with `true`.
+  - With the new test-1 fixture, test 1 **fails**: `one warning per starter` (4/5 pass).
+  - With the old fixture (0.85 to play), the same mutant **survives** (5/5 pass). That is why the fixture changed.
+- **M2, job week.** In `scheduler.js`, the `live_inactives` job was changed to pass `week: 3` instead of `tradeWeekContext().week`. `live-inactives-job` **fails**: stored `week: 3`, expected `week: 13`.
+
+**Design notes and open questions:**
+- **The claim hook warns. It does not hold the player out.**
+  - The ESPN-zero hook holds a flagged player out of the solve (RL-10-1's "one number"). The claim hook only warns, and names him on the dead-starter card.
+  - The reason: a public post or news item is not the official list, so the call stays the user's.
+  - The consequence: the card can say "start the bench player instead" while the recommended lineup still starts him with a "swap him before kickoff" warning. The coordinator should confirm this before the flag goes on.
+- **Latest-wins costs the first W2 case in item 9.** In that case the later verified news item said `available_positive`, and the earlier live post said `inactive`. The player did not play. Under the unified reader the news item now wins, so that warning is gone. The reader is correct to spec, but the rule "latest definitive claim wins" is wrong on the one real disagreement on file. The forward W3-W5 test should count how often a later news "available" overturns a correct live "inactive".
+- **News-only claims now warn too** (out / out_for_season / released, verified, within 6 days before kickoff). These can include "expected to miss" rows, because nfl-news-signal.js maps "to miss" to `out`. Default-off, like the rest.
+- **Migration numbers.** `ls server/migrations | cut -c1-3 | sort | uniq -d` shows only `062`. That duplicate is already on `main` (`062_google_identity_and_invites.js`, `062_league_payload_season.js`) and was not touched. `main` has no duplicate-migration-number test (FIX-255-1 has not landed), so none was run.

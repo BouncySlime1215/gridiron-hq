@@ -17,7 +17,7 @@ import { metricOf, pointsFeasibility, targetFeasibility, weeklySummary } from '.
 import { priceLadder, stepMessage, replyTable } from './playbook.js';
 import { buildItinerary, stopTradeOff, speedCurve, arrivalWeek } from './itinerary.js';
 import { orderCatchUp, freeMoves, isBehind } from './catchup.js';
-import { rankPartners, planSkipWeight, excluded } from './partners.js';
+import { rankPartners, planSkipWeight } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct } from './wait-or-act.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan } from './search.js';
@@ -101,7 +101,7 @@ export function planLeague(adapter, settings) {
   mark('flip');
   // Targets: the objective's player, Nick's "get" stops, then the biggest single-player upgrades.
   const skipP = settings.skips?.player ?? new Map();
-  const upgrades = [...vals.addN.entries()].filter(([pid]) => !excluded(adapter.managers.get(vals.lossO.get(pid)?.team)))
+  const upgrades = [...vals.addN.entries()].filter(([pid]) => !adapter.managers.get(vals.lossO.get(pid)?.team)?.blocked)
     .sort((x, y) => y[1] * (skipP.get(String(y[0])) ?? 1) - x[1] * (skipP.get(String(x[0])) ?? 1)).map(([pid]) => pid);
   const wanted = [];
   const want = pid => { if (pid != null && !wanted.some(w => String(w) === String(pid))) wanted.push(pid); };

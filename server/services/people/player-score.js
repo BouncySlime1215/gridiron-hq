@@ -21,8 +21,11 @@
  *                           on disk when this was built, ~/gridiron-local/rnd/loop/r51-TIER-VALID.md).
  *
  * hurt (typed): a high pick (pick percentile >= HURT_PICK_PCT) whose production percentile
- * is under HURT_PROD_PCT AND who has missed games (his team has played more games than he
- * has) or is on the injury report / out for the year. The score is not changed by it; the
+ * sits at least HURT_GAP points under his pick percentile (low FOR WHERE HE WENT) AND who has
+ * missed games (his team has played more games than he has) or is on the injury report / out
+ * for the year. (First cut used an absolute production percentile < 50; league 4's A.J. Brown,
+ * pick 27, one game of two, production percentile 66, read as not hurt against Nick's "AJ is
+ * just hurt", so the bar is relative to the pick. PROVISIONAL, like the weights.) The score is not changed by it; the
  * board says "hurt" next to the label so a low score from missed games is read as such.
  *
  * Labels (score bands): Elite blue chip 90+, Blue chip 80-89, Level below 70-79,
@@ -59,7 +62,7 @@ export const LABEL_NAMES = Object.freeze(LABELS.map(l => l.label));
 export const PROTECT_SCORE = 80;
 export const EARLY_GAMES = 3;
 export const HURT_PICK_PCT = 70;
-export const HURT_PROD_PCT = 50;
+export const HURT_GAP = 15;
 
 /** Gap thresholds, PROVISIONAL (named, not fitted). */
 export const GAP = Object.freeze({
@@ -135,7 +138,7 @@ export function scorePlayers(players, { picks = new Map(), nPicks = 0, weights =
     const tg = p.team_abbr ? teamGames.get(p.team_abbr) ?? 0 : 0;
     const missed = Math.max(0, tg - pr.games);
     const reported = !!p.injury || p.available === false;
-    const hurt = pickPct >= HURT_PICK_PCT && prodPct < HURT_PROD_PCT && (missed > 0 || reported);
+    const hurt = pickPct >= HURT_PICK_PCT && prodPct <= pickPct - HURT_GAP && (missed > 0 || reported);
     out.set(id, { score, label: labelOf(score), hurt,
       parts: { pick, pick_pct: Math.round(pickPct), prod_basis: pr.basis, prod_value: fin(pr.value) ? +pr.value.toFixed(2) : null,
         pos_rank: rk?.rank ?? null, pos_n: rk?.n ?? null, prod_pct: Math.round(prodPct), games: pr.games, team_games: tg, missed } });

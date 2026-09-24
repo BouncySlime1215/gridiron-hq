@@ -101,6 +101,15 @@ test('hurt: a high pick whose low production comes with missed games; the score 
   assert.equal(c.hurt, true);
   assert.equal(c.score, Math.round(0.5 * (100 * 7 / 9) + 0.5 * 0));
   assert.equal(s.get('4').hurt, false, 'a late pick is never "hurt"');
+  // Relative bar: pick 1 of 10 (100) producing at the 75th percentile with a missed game is hurt;
+  // at the 100th percentile with the same missed game he is not.
+  const mid = [{ ...WRS[0], ros_basis: { games: 3, season_to_date: 18 } }, { ...WRS[4], espn_id: 998, ros_basis: { games: 4, season_to_date: 30 } },
+    ...WRS.slice(1, 4)];
+  const m = score.scorePlayers(mid, { picks: PICKS, nPicks: 10 }).get('1');
+  assert.equal(m.parts.prod_pct, 75);
+  assert.equal(m.hurt, true);
+  const top = score.scorePlayers([{ ...WRS[0], ros_basis: { games: 3, season_to_date: 21 } }, ...WRS.slice(1)], { picks: PICKS, nPicks: 10 }).get('1');
+  assert.equal(top.hurt, false, 'missed a game but producing at his pick: not hurt');
   // Every game played but on the injury report: still hurt.
   const reported = WRS.map(p => (p.id === 3 ? { ...p, injury: 1, ros_basis: { games: 4, season_to_date: 6 } } : p));
   assert.equal(score.scorePlayers(reported, { picks: PICKS, nPicks: 10 }).get('3').hurt, true);

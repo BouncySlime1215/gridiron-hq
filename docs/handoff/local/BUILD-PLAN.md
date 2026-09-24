@@ -50,3 +50,6 @@ E1 (yes-odds) live on league offers, E2 price at yes-point, E3 done, E4 planner 
 
 ## Rules
 One producer per number. Every unit is behind a flag, on under preview. Every people feature is a weighted, graded feature, not a rule. Labels, never chat quotes, leave the chat DB. Nick's overrides beat everything.
+
+## Coach anchors every phase (COACH-ANCHOR.md, Nick 9/23 ~11:55 PM)
+Phase 1: COACH-TOOLS (Coach reads plan / people / brain / health, grounded), COACH-NAV. Phase 2: COACH-ROLEPLAY. Phase 3: COACH-NEGOTIATE, COACH-BRIEF. They go first in the build queue after FIX-06.

@@ -283,3 +283,4 @@ Loops now: (1) finish-unit BLEND-01/HX-01/S-03 (wzna5tao0); (2) build-unit-v2 CE
 - 23:46Z TICK: merged since 6:30 PM: #214 #217 #186 #215 #221 #223 #225. Gate refused: #224 (CI fail), #218 (CI fail), #174 + #219 (conflicts), #207 #190 #166 #164 (stale vs main -> re-queued B9 pid 11520). Local app ff a6a77824, restarted, health 200. Pace 4.4%/h vs 0.76 target -> no launches.
 - 23:58Z RULINGS Nick: per-league goal (title default, playoffs option); target ACTIVE managers (P(respond) x edge), volume of small positive offers within the fatigue/reputation budget. Logged in WORK-QUEUE.
 - 00:01Z Nick: sophisticated trade rank + flip plans + psychology arbitrage + 'go get player X' planner -> ACQ-01 + FLIP-01 spec (amends CHESS-01/RADAR-01) in ENGINE-SPECS.
+- 00:04Z PLAN v11 NORTH STAR (Nick): platform = FLIP + ACQ + PLAN-01 on clones/psychology; critical path EA-00..07 -> CLONE-01 -> FLIP-01 -> ACQ-01 -> PLAN-01. Plan, brief, TASKS, memory updated.

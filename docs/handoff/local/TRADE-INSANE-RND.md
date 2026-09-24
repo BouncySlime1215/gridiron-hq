@@ -1,3 +1,5 @@
+# NORTH STAR (Nick 9/23 ~8:15 PM): beat the league-mates, not ESPN. FLIP radar + "go get player X" planner + Title Plan, driven by clones + proven psychology, on the one simulator. Spec: ENGINE-SPECS.md ACQ-01 + FLIP-01 + PLAN v11.
+
 # ONE ENGINE (Nick, 3:45 PM ET 9/23: "they should be one integrated system, not separate"). Read this first; it overrides any layer-by-layer framing below.
 Everything below is **one system with one loop**, not modules: projections, sims, tells, clones, radar, chess, Coach, offer loop and autopsy.
 

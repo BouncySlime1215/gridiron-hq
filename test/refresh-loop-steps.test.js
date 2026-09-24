@@ -314,3 +314,42 @@ test('G7: the start/sit gate job is on the loop, after the jobs that settle the 
   assert.ok(ran.indexOf('start_sit_gate') > ran.indexOf('nfl_model_growth'), 'after the finalized-week ingest');
   assert.ok(ran.indexOf('start_sit_gate') > ran.indexOf('nfl_weekly_learning'), 'after the snapshot settlement');
 });
+
+// ---------------------------------------------------------------- warroom plans (CAMPAIGN-01)
+test('CAMPAIGN-01: the War Room producer runs after manager signals only when GRIDIRON_WARROOM_ENABLED=1', async () => {
+  const chat = { 'extract_league_chat.py': { stdout: 'league_chat_status {"failed_this_run":0,"failed_outstanding":0}\n' } };
+  const off = fakeSpawn(chat);
+  const before = process.env.GRIDIRON_WARROOM_ENABLED;
+  delete process.env.GRIDIRON_WARROOM_ENABLED;
+  try {
+    await LOOP.tick({ jobs: [], spawn: off.spawn, log: quiet, record: quiet, inputsKey: () => 'k' });
+    assert.ok(!off.calls.some(c => c.args.includes('scripts/campaign/produce-plans.mjs')), 'flag off: never spawned');
+    process.env.GRIDIRON_WARROOM_ENABLED = '1';
+    const on = fakeSpawn({ ...chat, 'produce-plans.mjs': { stdout: 'warroom_plans ok leagues 5 failed 0 changed 1 (90 s) -> x\n' } });
+    await LOOP.tick({ jobs: [], spawn: on.spawn, log: quiet, record: quiet, inputsKey: () => 'k2' });
+    const scripts = on.calls.map(c => path.basename(c.args.find(a => /\.(mjs|py)$/.test(a))));
+    assert.equal(scripts.at(-1), 'produce-plans.mjs', 'runs last, after the data it plans on');
+    assert.equal(on.calls.at(-1).cmd, process.execPath);
+    assert.equal(on.calls.at(-1).opts.cwd, REPO);
+  } finally {
+    if (before === undefined) delete process.env.GRIDIRON_WARROOM_ENABLED; else process.env.GRIDIRON_WARROOM_ENABLED = before;
+  }
+});
+
+test('CAMPAIGN-01: the producer\'s outcome is recorded as sync_log warroom_plans (ok / partial / error)', () => {
+  const env = { ...process.env, GRIDIRON_WARROOM_ENABLED: '1' };
+  const cases = [
+    [{ stdout: 'warroom_plans ok leagues 5 failed 0 changed 0 (80 s) -> x\n' }, 'ok'],
+    [{ stdout: 'warroom_plans PARTIAL leagues 5 failed 1 changed 0 (80 s) -> x\n' }, 'partial'],
+    [{ status: 1, stderr: 'boom\n' }, 'error'],
+  ];
+  for (const [result, want] of cases) {
+    const { spawn } = fakeSpawn({ 'produce-plans.mjs': result });
+    const { records, record } = recorder();
+    const lines = [];
+    LOOP.warRoomPlans({ spawn, log: l => lines.push(l), record, env });
+    assert.equal(records[0].job, 'warroom_plans');
+    assert.equal(records[0].status, want);
+    assert.match(lines[0], /warroom_plans/);
+  }
+});

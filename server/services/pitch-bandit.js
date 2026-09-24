@@ -36,7 +36,10 @@
  */
 import { rows, run } from '../db/index.js';
 import { offerKeyOf } from './trade-outcomes.js';
-import { negotiationProfilesFor } from './counterparty-pricing.js';
+import { pitchBanditFields } from './pitch-bandit-flag.js';
+import { peopleProfileFromChat } from './people/profile-reader.js';
+import { identityMap } from './manager-identity.js';
+import { openChatDb } from './manager-signals.js';
 
 export const PITCH_ARMS = Object.freeze(['need_first', 'fairness_first', 'urgency_first', 'face_safe_short']);
 
@@ -93,21 +96,44 @@ export function priorFromProfile(profile) {
 }
 
 /**
- * Load a manager's profile from the one reader. Returns { profile, note }: a
- * missing profile is a state (note says why), a read that throws is recorded
- * in the note and the flat prior is used, so the basis on the logged choice
- * says the profile could not be read.
+ * people.profile for one league, from the one reader (people/profile-reader.js,
+ * PEOPLE-01; SWEEP RULINGS 1). Synchronous twin of the reader's `peopleProfile`:
+ * the same identity map, chat DB and self id, handed to `peopleProfileFromChat`.
+ * Exported as a seam so a caller that already holds the league's read passes it
+ * in (pitchFor `people`) instead of opening the chat DB per step.
  */
-function loadProfile(leagueId, teamId) {
-  let res;
+export function peopleFor(leagueId) {
+  const ids = identityMap(leagueId);
+  if (!ids.size) return { available: false, reason: 'no chat corpus for this league (no confirmed chat identities)', byRoster: new Map() };
+  const chat = openChatDb();
+  if (!chat) return { available: false, reason: 'chat DB not found', byRoster: new Map() };
+  const myTeam = rows('SELECT my_team_id FROM leagues WHERE id = ?', leagueId)[0]?.my_team_id ?? null;
   try {
-    res = negotiationProfilesFor(leagueId);
-  } catch (e) {
-    return { profile: null, note: `profile read failed: ${String(e?.message ?? e)}` };
+    return peopleProfileFromChat(chat, { leagueId, ids, myTeam });
+  } finally { chat.close(); }
+}
+
+/**
+ * One manager's profile from the one reader. Returns { profile, note }: a
+ * missing or `unknown` entry (no profile, fails schema v2, or quiet in chat) is
+ * a state and the note carries the reader's reason; unknown is not scored, so it
+ * gets the flat prior. A read that throws is recorded in the note too, so the
+ * basis on the logged choice says the profile could not be read.
+ */
+function loadProfile(leagueId, teamId, people = undefined) {
+  let res = people;
+  if (res === undefined) {
+    try {
+      res = peopleFor(leagueId);
+    } catch (e) {
+      return { profile: null, note: `profile read failed: ${String(e?.message ?? e)}` };
+    }
   }
-  if (!res.available) return { profile: null, note: `no profile: ${res.reason}` };
+  if (!res?.available) return { profile: null, note: `no profile: ${res?.reason ?? 'no people read'}` };
   const hit = res.byRoster.get(String(teamId));
-  return hit ? { profile: hit.profile, note: null } : { profile: null, note: 'no profile for this manager' };
+  if (!hit) return { profile: null, note: 'no profile for this manager' };
+  // The reader leaves `profile` null on an unknown entry, with the reason.
+  return hit.profile ? { profile: hit.profile, note: null } : { profile: null, note: hit.reason };
 }
 
 const hasChoices = () => rows(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pitch_choices'`).length > 0;
@@ -116,9 +142,9 @@ const hasChoices = () => rows(`SELECT 1 FROM sqlite_master WHERE type = 'table' 
  * Posterior per arm for one manager: the prior plus every settled, sent offer
  * whose linked choice named that arm. `profile` undefined = read it; null = none.
  */
-export function posteriorFor({ league_id, season, counterparty_team_id, profile } = {}) {
+export function posteriorFor({ league_id, season, counterparty_team_id, profile, people } = {}) {
   let note = null;
-  if (profile === undefined) ({ profile, note } = loadProfile(league_id, counterparty_team_id));
+  if (profile === undefined) ({ profile, note } = loadProfile(league_id, counterparty_team_id, people));
   const prior = priorFromProfile(profile);
   const arms = {};
   for (const a of PITCH_ARMS) arms[a] = { alpha: prior.arms[a].alpha, beta: prior.arms[a].beta, n: 0, reward: 0 };
@@ -183,6 +209,7 @@ export function sampleBeta(alpha, beta, rng) {
  *   deal        optional; its offer key becomes the choice's idea_id, so
  *               "I sent this" on the same deal links this choice
  *   profile     undefined = read it; null = no profile
+ *   people      the league's people.profile read (peopleFor), when the caller holds it
  *   rng         () => [0,1); default Math.random
  *   log         false = choose without writing a row (dry runs, tests)
  *   force_arm   test seam: pick this arm, still logged with its posterior
@@ -190,12 +217,12 @@ export function sampleBeta(alpha, beta, rng) {
  * Returns { arm, choice_id, reason, eligible, floor, samples, posterior, basis }.
  */
 export function chooseFraming({ league_id, season, counterparty_team_id, deal = null, idea_id = null,
-  profile, rng = Math.random, log = true, force_arm = null, now = null } = {}) {
+  profile, people, rng = Math.random, log = true, force_arm = null, now = null } = {}) {
   if (league_id == null || season == null || counterparty_team_id == null) {
     throw new Error('pitch-bandit: league_id, season and counterparty_team_id are required');
   }
   if (force_arm != null && !PITCH_ARMS.includes(force_arm)) throw new Error(`unknown framing arm: ${force_arm}`);
-  const post = posteriorFor({ league_id, season, counterparty_team_id, profile });
+  const post = posteriorFor({ league_id, season, counterparty_team_id, profile, people });
   const open = PITCH_ARMS.filter(a => !post.vetoed.includes(a));
   const best = Math.max(...open.map(a => post.arms[a].mean));
   const floor = Math.max(FLOOR_ABS, FLOOR_REL * best);
@@ -269,11 +296,38 @@ export function frameMessage(message, arm) {
  *
  * `message` is the producer's `stepMessage(step, ctx)` result; `deal` needs the
  * same id / partner / players the page will post, so the offer key matches.
+ *
+ * Behind GRIDIRON_PITCH_BANDIT (pitch-bandit-flag.js). Off, the message comes
+ * back unchanged, no `pitch_choices` row is written and `choice` is null.
  */
-export function pitchFor({ league_id, season, counterparty_team_id, deal, message, profile, rng, now } = {}) {
-  const choice = chooseFraming({ league_id, season, counterparty_team_id, deal, profile, rng, now });
+export function pitchFor({ league_id, season, counterparty_team_id, deal, message, profile, people, rng, now } = {}) {
+  const flag = pitchBanditFields();
+  if (!flag.enabled) return { message, choice: null, ...flag };
+  const choice = chooseFraming({ league_id, season, counterparty_team_id, deal, profile, people, rng, now });
   return {
     message: { ...frameMessage(message, choice.arm), pitch_choice_id: choice.choice_id },
-    choice,
+    choice, ...flag,
+  };
+}
+
+/**
+ * The campaign producer's hook (adapter.pitch, scripts/campaign/league-adapter.mjs):
+ * one function per league run that planner.js#playbookFor calls with each step's
+ * drafted message. It reads the league's people.profile once, on the first step,
+ * and only when the flag is on; off, every message comes back unchanged.
+ *
+ * `players` maps id -> { espn_id? } so the logged idea_id is the offer key the
+ * sent deal will have when it carries ESPN ids.
+ */
+export function producerPitch({ league_id, season, players = new Map(), rng, now } = {}) {
+  let people;
+  return ({ team, give, get, message }) => {
+    if (!pitchBanditFields().enabled || season == null) return message;
+    if (people === undefined) {
+      try { people = peopleFor(league_id); } catch (e) { people = { available: false, reason: `profile read failed: ${String(e?.message ?? e)}`, byRoster: new Map() }; }
+    }
+    const who = id => ({ id: String(id), ...(players.get(id)?.espn_id != null ? { espn_id: players.get(id).espn_id } : {}) });
+    const deal = { partner_id: String(team), i_give: give.map(who), i_get: get.map(who) };
+    return pitchFor({ league_id, season, counterparty_team_id: String(team), deal, message, people, rng, now }).message;
   };
 }

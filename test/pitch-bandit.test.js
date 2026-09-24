@@ -29,6 +29,15 @@
  *  P9 migration 090 is additive: trade_outcomes' columns are unchanged.
  *  P10 pitchFor (the producer's one call) logs a choice, frames the message
  *     with that arm and carries the choice id that "I sent this" links.
+ *  F1 GRIDIRON_PITCH_BANDIT off: pitchFor returns the message unchanged and
+ *     writes no pitch_choices row; on and preview both frame and log, preview
+ *     with its fields (FIX-263-2).
+ *  R1 the prior reads people.profile from the one reader (PEOPLE-01): an ok
+ *     entry boosts and vetoes, a quiet (unknown) entry gets the flat prior with
+ *     the reader's reason (FIX-263-3).
+ *  H1 the campaign producer frames every step through adapter.pitch: a planned
+ *     step's message carries pitch_choice_id, and the War Room "I sent it"
+ *     (offer.sent) links that choice to the sent offer (FIX-263-4).
  *
  * Every team, player and league id below is made up.
  */
@@ -41,6 +50,7 @@ import fs from 'node:fs';
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-pitch-bandit-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.SCHEDULER_DISABLED = '1';
+process.env.GRIDIRON_PITCH_BANDIT = '1';
 
 const { db, rows, row, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
@@ -286,4 +296,138 @@ test('P10 pitchFor: the campaign producer\'s one call logs, frames and links', (
   const sent = recordSentOffer({ league_id: L, season: SEASON, proposer_team_id: '1', model_version: 'fixture',
     deal, pitch_choice_id: framed.pitch_choice_id });
   assert.equal(sent.pitch_choice_id, choice.choice_id);
+});
+
+/* ------------------------------------------------------------------ F1 */
+
+test('F1 flag off: pitchFor keeps the message and logs nothing; on and preview frame and log', () => {
+  const L = freshLeague();
+  const message = { text: 'Looks like you could use a WR. Would you do Give A for Get B?', facts: [], checked: true };
+  const count = () => row('SELECT COUNT(*) n FROM pitch_choices WHERE league_id = ?', L).n;
+  const call = () => pitchFor({ league_id: L, season: SEASON, counterparty_team_id: '12', deal: dealFor('12'),
+    message, profile: null, rng: seededRng(5) });
+  const saved = { bandit: process.env.GRIDIRON_PITCH_BANDIT, preview: process.env.GRIDIRON_PREVIEW_UNCONFIRMED };
+  try {
+    delete process.env.GRIDIRON_PITCH_BANDIT;
+    delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+    const off = call();
+    assert.equal(off.enabled, false);
+    assert.equal(off.message, message, 'off returns the producer message itself');
+    assert.equal(off.choice, null);
+    assert.equal(count(), 0, 'off writes no pitch_choices row');
+
+    process.env.GRIDIRON_PREVIEW_UNCONFIRMED = '1';
+    const preview = call();
+    assert.equal(preview.enabled, true);
+    assert.equal(preview.preview, true);
+    assert.match(preview.preview_reason, /default-off/);
+    assert.equal(preview.message.pitch_choice_id, preview.choice.choice_id);
+    assert.equal(count(), 1);
+
+    delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+    process.env.GRIDIRON_PITCH_BANDIT = '1';
+    const on = call();
+    assert.equal(on.enabled, true);
+    assert.equal(on.preview, undefined);
+    assert.equal(on.message.framing, on.choice.arm);
+    assert.equal(count(), 2);
+  } finally {
+    for (const [k, v] of [['GRIDIRON_PITCH_BANDIT', saved.bandit], ['GRIDIRON_PREVIEW_UNCONFIRMED', saved.preview]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
+
+/* ------------------------------------------------------------------ R1 */
+
+test('R1 the prior comes from the one people.profile reader; a quiet manager gets the flat prior', async () => {
+  const { peopleProfileFromRows } = await import('../server/services/people/profile-reader.js');
+  const profile = (extra) => ({
+    headline: 'h', says_no: { how: 'plain', hard_no_looks_like: ['x'], soft_no_looks_like: ['y'], does_his_no_hold: 'yes', evidence: ['e'] },
+    praise_means: { reading: 'belief', why: 'w', hypes_before_selling: false, agrees_with_numbers: 'a', evidence: ['e'] },
+    techniques: [{ name: 't', how_he_does_it: 'h', evidence: ['e'], how_often: 'often' }],
+    calibration: { enthusiasm_scale: 's', baseline_tone: 'b', inflation: 'none' },
+    roster_read: { really_untouchable: [], quietly_available: [], overvalues: [], undervalues: [], reasoning: 'r' },
+    what_moves_him: ['m'], best_bait: 'b', confidence: 'medium', caveats: ['c'],
+    deal_feelings: { after_win: 'w', after_loss: 'l' }, values_talk: { claims: ['c'], acts: ['a'] },
+    behaviour_vs_words: 'b', changes_since_0918: ['c'], as_of: '2026-09-22', nick_override: {}, ...extra,
+  });
+  const stored = (name, p, n) => ({ name, profile_json: JSON.stringify({ ...p, messages_read: n }), messages_read: n,
+    model: 'm', built_at: '2026-09-22 05:00:00', corpus_hash: `h-${name}` });
+  const people = peopleProfileFromRows({
+    leagueId: 77,
+    profiles: [
+      stored('Made Up A', profile({ how_to_approach: 'Keep it short and direct.', what_shuts_him_down: ['pressure and deadlines'] }), 120),
+      stored('Made Up B', profile({ how_to_approach: 'Keep it short.', what_shuts_him_down: ['s'] }), 5),
+    ],
+    ids: new Map([['21', { chat_name: 'Made Up A' }], ['22', { chat_name: 'Made Up B' }]]),
+  });
+  assert.equal(people.byRoster.get('21').status, 'ok', people.byRoster.get('21').reason ?? '');
+  assert.equal(people.byRoster.get('22').status, 'unknown');
+
+  const L = freshLeague();
+  const read = posteriorFor({ league_id: L, season: SEASON, counterparty_team_id: '21', people });
+  assert.ok(read.arms.face_safe_short.mean > read.arms.need_first.mean, 'how_to_approach boosts face_safe_short');
+  assert.deepEqual(read.vetoed, ['urgency_first']);
+  assert.match(read.basis, /keyword prior/);
+
+  const quiet = posteriorFor({ league_id: L, season: SEASON, counterparty_team_id: '22', people });
+  assert.deepEqual(new Set(PITCH_ARMS.map(a => quiet.arms[a].mean.toFixed(6))).size, 1, 'unknown is not scored');
+  assert.match(quiet.basis, /quiet in chat/);
+
+  const none = posteriorFor({ league_id: L, season: SEASON, counterparty_team_id: '23', people });
+  assert.match(none.basis, /no profile for this manager/);
+});
+
+/* ------------------------------------------------------------------ H1 */
+
+test('H1 the producer frames each step through adapter.pitch; "I sent it" links the choice', async () => {
+  const { makeAdapter } = await import('./fixtures/campaign-league.mjs');
+  const { planLeague } = await import('../server/services/campaign/planner.js');
+  const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
+  const { toEntry } = await import('../server/services/campaign/view.js');
+  const { validateLeague } = await import('../server/services/campaign/plans-schema.js');
+  const { recordRequest } = await import('../server/services/warroom-actions/store.js');
+  const { producerPitch } = bandit;
+
+  const a = makeAdapter();
+  const L = a.league.id;
+  run(`INSERT INTO leagues (id, platform, league_id, season, name, payload, team_count, my_team_id, current_week)
+       VALUES (?, 'espn', ?, ?, ?, '{"teams":[]}', 4, '1', 4)`, L, `espn-pitch-${L}`, SEASON, `L${L}`);
+  a.pitch = producerPitch({ league_id: L, season: SEASON, rng: seededRng(11), now: '2026-10-01T00:00:00Z' });
+
+  const res = planLeague(a, { objective: normaliseObjective({}) });
+  const entry = toEntry(res, { names: a.names(), as_of: '2026-10-01T00:00:00Z' });
+  assert.deepEqual(validateLeague(entry).errors, [], 'pitch_choice_id / framing are contract keys on the message field');
+
+  const step = entry.next_move.value.steps[0];
+  assert.equal(step.message.status, 'ok');
+  assert.ok(Number.isInteger(step.message.pitch_choice_id), 'a produced step carries a pitch_choice_id');
+  const choice = row('SELECT * FROM pitch_choices WHERE id = ?', step.message.pitch_choice_id);
+  assert.equal(choice.counterparty_team_id, String(step.partner));
+  assert.equal(choice.arm, step.message.framing);
+  assert.equal(choice.outcome_id, null);
+
+  // As fix-07-warroom-inputs.test.js does: the ledger takes one of 067's model_basis values.
+  step.p_yes_band = { low: Math.min(0.2, step.p_yes.value), high: Math.max(0.6, step.p_yes.value), basis: 'heuristic_unanchored' };
+  // A later run logged a newer choice for the same deal; the card's own choice is the one that links.
+  const newer = chooseFraming({ league_id: L, season: SEASON, counterparty_team_id: String(step.partner),
+    idea_id: choice.idea_id, profile: null, rng: seededRng(12), now: '2026-10-02T00:00:00Z' });
+  const plans = { status: 'ok', entries: [entry], as_of: entry.as_of ?? '2026-10-01T00:00:00Z', id: 'plans@pitch' };
+  const sent = recordRequest({ userId: 1, leagueId: L, kind: 'offer.sent',
+    payload: { move_id: entry.next_move.value.move_id }, plans });
+  assert.equal(sent.trade_outcome.state, 'recorded', JSON.stringify(sent.trade_outcome));
+  const linked = row('SELECT outcome_id FROM pitch_choices WHERE id = ?', choice.id);
+  assert.equal(linked.outcome_id, sent.trade_outcome.id, 'the sent offer links the step\'s choice');
+  assert.equal(row('SELECT outcome_id FROM pitch_choices WHERE id = ?', newer.choice_id).outcome_id, null);
+
+  const saved = process.env.GRIDIRON_PITCH_BANDIT;
+  delete process.env.GRIDIRON_PITCH_BANDIT;
+  try {
+    const before = row('SELECT COUNT(*) n FROM pitch_choices').n;
+    const off = toEntry(planLeague(Object.assign(makeAdapter(), { pitch: producerPitch({ league_id: L, season: SEASON }) }),
+      { objective: normaliseObjective({}) }), { names: a.names(), as_of: '2026-10-01T00:00:00Z' });
+    assert.equal(off.next_move.value.steps[0].message.pitch_choice_id, undefined, 'off: the draft is unframed');
+    assert.equal(row('SELECT COUNT(*) n FROM pitch_choices').n, before, 'off: the producer logs nothing');
+  } finally { process.env.GRIDIRON_PITCH_BANDIT = saved; }
 });

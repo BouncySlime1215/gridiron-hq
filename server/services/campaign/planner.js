@@ -162,7 +162,10 @@ export function planLeague(adapter, settings) {
     const m = managers.get(st.team) ?? {};
     const ladder = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode, hard: !!m.nick?.hard });
     const offer = ladder.opening ? { ...st, give: ladder.opening.give } : st;
-    const message = stepMessage(offer, { players: adapter.players, needs: m.needs ?? null });
+    const drafted = stepMessage(offer, { players: adapter.players, needs: m.needs ?? null });
+    // M5 pitch bandit (#263): the injected hook frames the draft for this manager and
+    // stamps pitch_choice_id on it; no hook, or the flag off, keeps the draft.
+    const message = adapter.pitch ? adapter.pitch({ team: st.team, give: offer.give, get: st.get, message: drafted }) : drafted;
     const next = plan.steps[i + 1] ?? null;
     return {
       step_index: i, of_steps: plan.steps.length,

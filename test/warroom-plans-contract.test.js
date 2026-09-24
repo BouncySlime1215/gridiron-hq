@@ -53,6 +53,8 @@ test('the producer fixture validates against the contract', () => {
  * them starts being written, so an entry cannot linger.
  */
 const PENDING = [
+  { unit: '#263 M5', why: 'written only while GRIDIRON_PITCH_BANDIT is on; the fixture was produced with it off',
+    path: /\.message\.(pitch_choice_id|framing)$/ },
   { unit: 'unassigned', why: 'no planner rule reads these two sliders', path: /^leagues\[\]\.destination\.value\.tolerances\.value\.(reputation_budget|ai_spend)$/ }
 ];
 const pending = p => PENDING.some(x => x.path.test(p));

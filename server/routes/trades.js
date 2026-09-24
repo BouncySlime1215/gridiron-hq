@@ -918,8 +918,8 @@ r.post('/:leagueId/pitch', (req, res, next) => {
       return res.status(400).json({ error: 'deal with partner_id and message.text required' });
     }
     if (lg.season == null) return res.status(400).json({ error: 'league has no season' });
-    res.json({ ...pitchFor({ league_id: lg.id, season: lg.season, counterparty_team_id: String(deal.partner_id),
-      deal, message }), ...flag });
+    res.json(pitchFor({ league_id: lg.id, season: lg.season, counterparty_team_id: String(deal.partner_id),
+      deal, message }));
   } catch (e) { next(e); }
 });
 

@@ -63,6 +63,7 @@ export function findCard(entries, leagueId, moveId, stepIndex = 0) {
     p_yes: num(step.p_yes), p_yes_band: bandOf(step),
     title_odds_delta: num(delta), title_odds_delta_se: num(delta?.se ?? null),
     opening: val(step.opening) ?? null, walk_away: val(step.walk_away) ?? null,
+    pitch_choice_id: num(step.message?.pitch_choice_id ?? null),
   };
 }
 

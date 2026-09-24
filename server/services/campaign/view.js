@@ -129,7 +129,10 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     if (!pb) {
       Object.assign(out, { message: later, opening: later, walk_away: later, send_when: later, reply_table: later });
     } else {
-      out.message = pb.message ? ok(pb.message.text, 'plan.template') : unknown('No message was written for this step.', 'plan.template');
+      out.message = pb.message
+        ? ok(pb.message.text, 'plan.template', pb.message.pitch_choice_id != null
+          ? { pitch_choice_id: pb.message.pitch_choice_id, framing: pb.message.framing } : {})
+        : unknown('No message was written for this step.', 'plan.template');
       out.opening = pb.opening
         ? ok({ give: ids(pb.opening.give), get: ids(st.get),
           text: `Open with ${list(pb.opening.give)} for ${list(st.get)} (his screen ${signed(pb.opening.his_pct)}).` }, 'clone.price')

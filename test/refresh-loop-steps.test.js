@@ -60,7 +60,7 @@ test('G1a/G2h: one tick runs transactions, roster snapshots, league chat, then m
   await LOOP.tick({ jobs: [], spawn, log: l => lines.push(l), record: quiet, inputsKey: () => 'k' });
   const scripts = calls.map(c => path.basename(c.args.find(a => /\.(mjs|py)$/.test(a))));
   assert.deepEqual(scripts, ['collect-league-transactions.mjs', 'collect-roster-snapshots.mjs',
-    'extract_league_chat.py', 'build-manager-signals.mjs']);
+    'extract_league_chat.py', 'build-manager-signals.mjs', 'coach-canary.mjs']);
   assert.ok(lines.at(-1).includes('tick done'));
 });
 

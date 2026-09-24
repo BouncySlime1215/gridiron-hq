@@ -22,6 +22,14 @@
  *   - season-sim.js#rosBasisFlag                 title odds on the finder's ros_ppg (RL-17-3;
  *                                                GRIDIRON_RL17_3_ENABLED=0 vetoes preview)
  *   - title-mutual.js#titleMutualMode            RL-19-3 title-mutual trade class (findTrades)
+ *   - warroom-flag.js#warRoomFlag                War Room tab in Trade Brain (plans from a study run)
+ *   - reasoning-flag.js#reasoningFlag            reasoning panels in the War Room plans (the paid-run
+ *                                                opt-in stays a separate, required gate)
+ *   - routes/brain-report.js                     GET /api/brain-report (#235, GRIDIRON_BRAIN_REPORT)
+ *   - number-health-flag.js#numberHealthFields   Settings "Number health" card, nav dot and
+ *                                                GET /api/number-audit (#237, GRIDIRON_NUMBER_HEALTH)
+ *   - offer-loop-flag.js#offerLoopFields         TradeCard "I sent this" and /offers/sent
+ *                                                (#239, GRIDIRON_OFFER_LOOP)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

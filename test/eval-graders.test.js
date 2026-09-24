@@ -63,22 +63,24 @@ test('E1 fault: inverted P(accept) is failing', () => {
   assert.ok(r.detail.why.length >= 1);
 });
 
-test('E1 threshold: 30 resolved offers -> needs 20 more offers; unresolved rows do not count', () => {
+test('E1 small n: 30 resolved offers -> not_enough_data with the evidence so far; unresolved rows do not count', () => {
   const rows = [...e1Offers(30), { league_id: 1, counterparty_team_id: 'x', model_p_accept: 0.4, status: 'proposed' },
     { league_id: 1, counterparty_team_id: 'x', model_p_accept: 0.4, status: 'ignored' }];
   const r = E1.grade(rows);
   assert.equal(r.status, 'not_enough_data');
   assert.equal(r.n, 30);
-  assert.equal(r.needs_n, 20);
-  assert.match(r.needs_text, /^needs 20 more offers/);
+  assert.ok(r.ci_low < r.metric && r.metric < r.ci_high, 'the evidence at n = 30 is reported, not withheld');
+  assert.ok(r.needs_n >= 1);
+  assert.match(r.needs_text, /^needs \d+ more offers/);
+  assert.equal(r.detail.excluded.unanswered, 2);
   assert.equal(r.detail.historical_standin.slopes[0], 0.93);
 });
 
-test('E1 threshold: 60 offers all declined still needs accepts', () => {
+test('E1: 60 offers all declined against P(accept) averaging 0.5 is failing without waiting for accepts', () => {
   const rows = e1Offers(60).map(o => ({ ...o, status: 'declined' }));
   const r = E1.grade(rows);
-  assert.equal(r.status, 'not_enough_data');
-  assert.equal(r.needs_n, 5);
+  assert.equal(r.status, 'failing');
+  assert.ok(r.ci_high < 0);
 });
 
 test('E1 baseline is cutoff-safe: first offer to a counterparty gets the prior rate, not its own outcome', () => {
@@ -91,7 +93,7 @@ test('E1 baseline is cutoff-safe: first offer to a counterparty gets the prior r
 // ------------------------------------------------------------------ E2
 function e2Offers({ nAt = 200, atTrue = 0.5, nBelow = 30, belowTrue = 0.2, seed = 21 } = {}) {
   const rand = rng(seed);
-  const at = Array.from({ length: nAt }, (_, i) => ({ league_id: 1, counterparty_team_id: String(i % 30), model_p_accept: 0.5, price_band: 'at', status: rand() < atTrue ? 'accepted' : 'declined' }));
+  const at = Array.from({ length: nAt }, (_, i) => ({ league_id: 1, counterparty_team_id: String(i % 30), model_p_accept: 0.5, price_band: 'at_point', status: rand() < atTrue ? 'accepted' : 'declined' }));
   const below = Array.from({ length: nBelow }, (_, i) => ({ league_id: 1, counterparty_team_id: String(i % 30), model_p_accept: 0.2, price_band: 'below', status: rand() < belowTrue ? 'accepted' : 'declined' }));
   return [...at, ...below];
 }
@@ -114,10 +116,21 @@ test('E2 fault: offers below the yes point mostly accepted -> failing', () => {
   assert.ok(r.detail.why.some(w => /below/.test(w)));
 });
 
-test('E2 threshold: 12 offers at the yes point -> needs 18 more offers; no source -> says which', () => {
-  assert.match(E2.grade(e2Offers({ nAt: 12 })).needs_text, /^needs 18 more offers/);
-  const none = E2.grade([], { reason: 'source table offer_log is not built yet' });
-  assert.match(none.needs_text, /needs 30 more offers \(source table offer_log is not built yet\)/);
+test('E2 small n: 12 offers at the yes point -> not_enough_data with its CS; no source -> says which', () => {
+  const r = E2.grade(e2Offers({ nAt: 12 }));
+  assert.equal(r.status, 'not_enough_data');
+  assert.ok(r.ci_low <= 0 && r.ci_high >= 0 && r.ci_high - r.ci_low > E2.MAX_WIDTH);
+  assert.match(r.needs_text, /^needs \d+ more offers/);
+  const none = E2.grade([], { reason: 'trade_outcomes lacks column(s) sent_at' });
+  const floor = E2.minOffersToDecide();
+  assert.ok(floor > 1 && floor < 30, `floor ${floor}`);
+  assert.match(none.needs_text, new RegExp(`needs ${floor} more offers \\(trade_outcomes lacks column\\(s\\) sent_at\\)`));
+});
+
+test('E2 sequential: a price model 40 points off is failing at 20 offers, not after 30', () => {
+  const r = E2.grade(e2Offers({ nAt: 20, atTrue: 0.95, nBelow: 0 }));
+  assert.equal(r.status, 'failing', JSON.stringify(r));
+  assert.equal(r.n, 20);
 });
 
 // ------------------------------------------------------------------ E3
@@ -221,9 +234,10 @@ function e6Rows({ weeks = 10, perWeek = 6, followedGain = 2, nearTie = true, see
   for (let w = 1; w <= weeks; w += 1) {
     for (let k = 0; k < perWeek; k += 1) {
       const followed = k % 2 === 0;
-      out.push({ season: 2026, week: w, disposition: 'shown', graded_at: '2026-12-01',
-        predicted_json: JSON.stringify({ near_tie: nearTie }), outcome_json: JSON.stringify({ followed }),
-        score: (followed ? followedGain : 0) + z() });
+      // follow_ledger x rec_ledger join shape (FIX-09): outcome and near_tie
+      // from the follow ledger, score from the graded call.
+      out.push({ league_id: 1, season: 2026, week: w, outcome: followed ? 'follow' : 'ignore',
+        near_tie: nearTie ? 1 : 0, score: (followed ? followedGain : 0) + z() });
     }
   }
   return out;

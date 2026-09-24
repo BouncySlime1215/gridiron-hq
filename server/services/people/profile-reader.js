@@ -419,7 +419,9 @@ export function untouchableIds(blocks) {
 export function publicNick(block) {
   if (!block || block.empty) return null;
   const { notes, warnings, note, fan_of, untouchable_names, untouchable_unmatched, ...rest } = block;
-  return { ...rest, untouchable: rest.untouchable ?? [], untouchable_unmatched_n: (untouchable_unmatched ?? []).length,
+  // untouchable: player ids once resolved against his roster; null = not resolved here (names_n says how many).
+  return { ...rest, untouchable: rest.untouchable ?? null, untouchable_names_n: (untouchable_names ?? []).length,
+    untouchable_unmatched_n: (untouchable_unmatched ?? []).length,
     notes_n: notes.length + (note ? 1 : 0), warnings_n: warnings.length };
 }
 

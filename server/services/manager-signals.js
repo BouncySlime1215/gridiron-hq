@@ -40,6 +40,8 @@ import { identityMap, matchIdentities } from './manager-identity.js';
 import { normalizePlayerName } from './player-identity.js';
 import { PROJECT_ROOT } from '../platform/paths.js';
 import { DEAD_ESPN_STATUS } from './dead-starters.js';
+import { activityIntensityFlag, leagueActivityIntensity } from './people/activity-intensity.js';
+import { previewUnconfirmed } from './preview-mode.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS manager_signals (
   league_id INTEGER NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
@@ -313,6 +315,64 @@ function deadStartSignals(leagueId, season, rosterId, week) {
   return [{ metric: 'lineup_dead_starts_last_week', value: dead.length, n: starters.length, source: 'roster' }];
 }
 
+/** Lineup slots that are not starters: bench (20) and IR (21). */
+const NON_STARTER_SLOTS = new Set(['20', '21']);
+
+/**
+ * ACTIVITY-01 (flagged): next week's add intensity per manager
+ * (people/activity-intensity.js), from the same inputs the rows above read, per
+ * week: adds (this file's addsByTeam), results (the payload schedule), dead
+ * starts (deadStartSignals, week by week) and empty starter slots (lineup slot
+ * count minus final-lineup starters). Replaces the constant tx_adds_per_week as
+ * the "who acts this week" read for its consumers; tx_adds_per_week stays.
+ * Emitted only with GRIDIRON_ACTIVITY_INTENSITY=1 or preview mode, only when the
+ * collector ran, and only from two completed weeks. Returns Map rosterId -> rows.
+ */
+function intensitySignals(payload, tx, leagueId, season, through) {
+  const out = new Map();
+  if (!(activityIntensityFlag() || previewUnconfirmed())) return out;
+  if (!tx.present || !tx.rows.length || !(through >= 2)) return out;
+  const ids = (payload.teams ?? []).map(t => Number(t.id));
+  const weeks = Array.from({ length: through }, (_, i) => i + 1);
+  const score = new Map();
+  for (const m of payload.schedule ?? []) {
+    const w = Number(m.matchupPeriodId);
+    if (!(w >= 1 && w <= through) || !m.home || !m.away) continue;
+    const hp = Number(m.home.totalPoints), ap = Number(m.away.totalPoints);
+    if (!Number.isFinite(hp) || !Number.isFinite(ap)) continue;
+    score.set(`${Number(m.home.teamId)}|${w}`, [hp, ap]);
+    score.set(`${Number(m.away.teamId)}|${w}`, [ap, hp]);
+  }
+  const slots = Object.entries(payload.settings?.rosterSettings?.lineupSlotCounts ?? {})
+    .filter(([k]) => !NON_STARTER_SLOTS.has(k)).reduce((a, [, v]) => a + (Number(v) || 0), 0);
+  const starters = new Map();
+  if (slots > 0 && tableExists('league_roster_snapshots')) {
+    for (const r of rows(`SELECT scoring_period_id AS w, team_id, COUNT(*) AS n FROM league_roster_snapshots
+                          WHERE league_id = ? AND season = ? AND source = 'final' AND is_starter = 1
+                            AND scoring_period_id <= ? GROUP BY 1, 2`, leagueId, season, through)) {
+      starters.set(`${Number(r.team_id)}|${Number(r.w)}`, r.n);
+    }
+  }
+  const teams = ids.map(id => ({
+    roster_id: String(id),
+    adds: weeks.map(w => (tx.adds.get(id) ?? []).filter(p => p === w).length),
+    points: weeks.map(w => score.get(`${id}|${w}`)?.[0] ?? null),
+    opp_points: weeks.map(w => score.get(`${id}|${w}`)?.[1] ?? null),
+    dead: weeks.map(w => deadStartSignals(leagueId, season, id, w)
+      .find(s => s.metric === 'lineup_dead_starts_last_week')?.value ?? null),
+    empty: weeks.map(w => (starters.has(`${id}|${w}`) ? Math.max(0, slots - starters.get(`${id}|${w}`)) : null)),
+  }));
+  for (const [rosterId, r] of leagueActivityIntensity(teams, through + 1)) {
+    if (r.lambda == null) continue;
+    out.set(rosterId, [
+      { metric: 'tx_adds_intensity', value: +r.lambda.toFixed(4), n: through, source: 'tx' },
+      { metric: 'tx_adds_intensity_vs_league', value: +r.vs_league.toFixed(4), n: through, source: 'tx' },
+      { metric: 'tx_p_add_next_week', value: +r.p_any_add.toFixed(4), n: through, source: 'tx' },
+    ]);
+  }
+  return out;
+}
+
 function txSignals(tx, rosterId) {
   // `team_id` is the team that ACTED. For a proposal that is the proposer; for
   // a decision it is the responder. "Offers a lot" and "gets offered a lot" are
@@ -493,6 +553,7 @@ export function buildManagerSignals(leagueId, opts = {}) {
   const arch = archetypeIndex(leagueId, season);
   // The last COMPLETED scoring period: the one in progress is still moving.
   const lastCompleted = Number(payload.scoringPeriodId) - 1;
+  const intensity = intensitySignals(payload, tx, leagueId, season, lastCompleted);
   const written = [];
   const views = new Map();
 
@@ -505,6 +566,7 @@ export function buildManagerSignals(leagueId, opts = {}) {
         ...standingsSignals(payload, rosterId),
         ...txSignals(tx, rosterId),
         ...activitySignals(tx, rosterId, lastCompleted),
+        ...(intensity.get(rosterId) ?? []),
         ...deadStartSignals(leagueId, season, rosterId, lastCompleted),
         ...(arch.byMember.get((team.owners ?? [])[0]) ?? []),
       ];

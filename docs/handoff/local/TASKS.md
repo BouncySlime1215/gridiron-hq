@@ -26,6 +26,7 @@ HONEST LIMITS to state in the brief: event-driven replanning needs EA-02 daemon 
 - [ ] Merge queues: B (53395) -> B3 (49912: 214 216 217 186 174 207 190 166 218 215 164) -> B4: 221 219
 
 ## Next (in order)
+- AS SOON AS the profile rebuild (wf_6c36f8ba-7d5) lands and is reviewed/written: PEOPLE-01 (one profile reader) then CAMPAIGN-PEOPLE (counterpart model used at every campaign step; PEOPLE-WIRING.md). Nick: 'HUGE'.
 NORTH STAR (PLAN v11.1): critical path = EA-00..EA-07 -> CLONE-01a/b -> FLIP-01 (shadow) -> ACQ-01 -> CAMPAIGN-01a-e (+PLAN-01 screen). Prefer these over fillers every slot.
 - MERGE FIXES (need an agent when pace allows): #224 CI fail, #218 CI fail, #174 conflict, #219 conflict. Queue B9 (pid 11520) re-running 207 190 166 164 (stale vs main).
 - META-01a (script-only lab, ~1 day, no deps) when pace allows; then META-01b after EA-00/EA-04.

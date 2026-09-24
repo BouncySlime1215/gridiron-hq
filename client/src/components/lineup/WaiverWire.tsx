@@ -60,7 +60,10 @@ export interface ClaimPriority {
 
 /** The league's next waiver processing run (waiver-wire.js#nextWaiverRun). */
 export type WaiverRun =
-  | { known: true; day: string; date: string; hour: number; zone: string; zone_basis: string }
+  | { known: true; day: string; date: string; hour: number; zone: string; zone_basis: string;
+      /** RL-16-2: where the time came from; the settings guess is labelled unconfirmed. */
+      basis?: 'espn_scheduled' | 'observed' | 'unconfirmed_guess'; confirmed?: boolean; label?: string;
+      minute?: number; at?: string | null; observed_runs?: number }
   | { known: false; reason: string };
 
 export interface Replacement {
@@ -414,8 +417,13 @@ const pct = (v: number | null) => (v == null ? 'no snaps yet' : `${Math.round(v 
 function runLabel(run: WaiverRun): string {
   if (!run.known) return run.reason;
   const day = run.day.charAt(0) + run.day.slice(1).toLowerCase();
-  // The zone is a guess (ESPN gives the hour with no zone); the page says so.
-  return `Claim before waivers run ${day} ${run.date}, hour ${run.hour} (${run.zone_basis}).`;
+  // RL-16-2: a scheduled or observed run gives its clock time and where it came from;
+  // the settings guess keeps its hour and says it is unconfirmed.
+  if (run.basis === 'espn_scheduled' || run.basis === 'observed') {
+    const clock = `${run.hour}:${String(run.minute ?? 0).padStart(2, '0')} ET`;
+    return `Claim before waivers run ${day} ${run.date}, ${clock} (${run.label ?? run.zone_basis}).`;
+  }
+  return `Claim before waivers run ${day} ${run.date}, hour ${run.hour} (${run.label ?? run.zone_basis}).`;
 }
 
 /**

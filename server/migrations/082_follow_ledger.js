@@ -1,4 +1,4 @@
-export const name = '081_follow_ledger';
+export const name = '082_follow_ledger';
 /**
  * `follow_ledger` — did Nick follow the call (SELF-01a).
  *
@@ -63,7 +63,7 @@ export function up(db) {
 }
 
 /**
- * Rolls 081 back only while the ledger is empty. Each row is Nick's action on a
+ * Rolls 082 back only while the ledger is empty. Each row is Nick's action on a
  * call shown at a moment that cannot be replayed; dropping a populated table
  * would delete that evidence (the same refusal 071 makes).
  */

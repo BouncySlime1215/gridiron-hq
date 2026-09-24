@@ -327,7 +327,7 @@ test('a considered-not-shown call handed to logShown directly is never logged: i
   assert.equal(ledger(761).length, 0);
 });
 
-test('rollback of 081 refuses while the ledger holds rows', async () => {
-  const mig = await import('../server/migrations/081_follow_ledger.js');
+test('rollback of 082 refuses while the ledger holds rows', async () => {
+  const mig = await import('../server/migrations/082_follow_ledger.js');
   assert.throws(() => mig.down(db), /rollback refused/);
 });

@@ -14,7 +14,7 @@ Branch `claude/cloud-self-01a-07ofag`, cut from PR #174's head
 | ENGINE-00a `engine_events` | #216, migration 075, **not merged** | not used. The spec says "logged as an engine event"; that cannot be built on a table that does not exist on main. See "Not confirmed". |
 | `forward-ledger.js`, `decision-basis.js` | betting-side | read only, as the spec asks: nothing to reuse; both are NFL betting modules |
 
-**Build a new table, `follow_ledger` (migration 081).** `rec_ledger` holds one row per (call, grading
+**Build a new table, `follow_ledger` (migration 082).** `rec_ledger` holds one row per (call, grading
 horizon) and grades the call on points; this holds one row per decision shown and records what Nick did.
 Neither stores the other's number; `rec_ledger_hash` joins them.
 

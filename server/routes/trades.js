@@ -50,6 +50,7 @@ import { marketForPlayer } from '../services/trade-market.js';
 import { playerHype } from '../services/hype.js';
 import { warRoomView } from '../services/war-room-view.js';
 import { warRoomFlag } from '../services/warroom-flag.js';
+import { warRoomClones } from '../services/warroom-clones.js';
 import {
   proposeVerifyRetryTrade, judgeTradeVerdict, tradeChallengeText, SENSE_CHECK_SIM_RUNS
 } from '../services/trade-verify.js';
@@ -667,6 +668,19 @@ r.get('/:leagueId/war-room', async (req, res, next) => {
     const lg = league(req, res); if (!lg) return;
     if (!warRoomFlag().enabled) { res.json({ enabled: false }); return; }
     res.json(await warRoomView(lg.id));
+  } catch (e) { next(e); }
+});
+
+/**
+ * UI-ENG-4: the War Room clone panel, one row per league-mate (profile labels, P(accept)
+ * band, top reasons, wants, credibility of his shop talk). Same flag and membership
+ * check as the War Room; labels only, no chat text.
+ */
+r.get('/:leagueId/war-room/clones', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    if (!warRoomFlag().enabled) { res.json({ enabled: false }); return; }
+    res.json(warRoomClones(lg.id));
   } catch (e) { next(e); }
 });
 

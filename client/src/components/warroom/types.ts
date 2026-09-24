@@ -130,4 +130,33 @@ export interface WarRoomView {
   number_health?: Field<NumberHealth>;
 }
 
-export type PanelId = 'next' | 'stops' | 'flip' | 'targets' | 'catch' | 'brain';
+export type PanelId = 'next' | 'stops' | 'clones' | 'flip' | 'targets' | 'catch' | 'brain';
+
+/* UI-ENG-4: the clone panel (server/services/warroom-clones.js). Labels only. */
+export interface CloneBand { low: number; mid: number; high: number; n: number; basis: 'his_record' | 'population'; fitted: false }
+export interface CloneReason { label: string; effect: number | null; source: string }
+export interface CloneWant {
+  player: { id: string; name: string; pos: string | null };
+  age_days: number; strength: number; state: 'fresh' | 'fading'; you_have: boolean;
+}
+export interface CloneWord { label: 'credible' | 'mixed' | 'cheap_talk'; from: 'record' | 'profile'; n: number; held?: number; reversed?: number; confidence: string }
+export interface CloneRow {
+  team: string;
+  label: string;
+  standing: 'active' | 'normal' | 'deprioritised' | 'excluded';
+  nick: string[];
+  profile: Field<{ traits: { key: string; label: string; source: string }[]; as_of: string | null; messages_read: number | null }>;
+  p_accept: Field<CloneBand> & { note?: string };
+  reasons: Field<CloneReason[]>;
+  wants: Field<CloneWant[]>;
+  credibility: Field<CloneWord>;
+}
+export interface ClonesView {
+  enabled: boolean;
+  preview?: boolean;
+  banner?: string;
+  league_id?: number;
+  as_of?: string;
+  sources?: Record<string, { label: string; calibrated: boolean }>;
+  clones?: Field<CloneRow[]>;
+}

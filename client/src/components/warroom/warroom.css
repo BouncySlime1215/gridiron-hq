@@ -190,3 +190,10 @@
   .wr-tile .wr-v { font-size: 15px; }
   .wr-reasoning { grid-template-columns: 1fr; }
 }
+
+/* UI-ENG-4: clone panel */
+.wr-clones { list-style: none; margin: 0; padding: 0; }
+.wr-clone { border-bottom: 1px solid var(--wr-line); padding: 4px 0; }
+.wr-clone-out { opacity: .6; }
+.wr-wrap { flex-wrap: wrap; }
+.wr-reasons { margin: 2px 0 0; padding-left: 18px; font-size: 12px; }

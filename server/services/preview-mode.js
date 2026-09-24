@@ -22,7 +22,8 @@
  *   - season-sim.js#rosBasisFlag                 title odds on the finder's ros_ppg (RL-17-3;
  *                                                GRIDIRON_RL17_3_ENABLED=0 vetoes preview)
  *   - title-mutual.js#titleMutualMode            RL-19-3 title-mutual trade class (findTrades)
- *   - warroom-flag.js#warRoomFlag                War Room tab in Trade Brain (plans from a study run)
+ *   - warroom-flag.js#warRoomFlag                War Room tab in Trade Brain (plans from a study run),
+ *                                                and its clone panel (warroom-clones.js, same flag)
  *   - reasoning-flag.js#reasoningFlag            reasoning panels in the War Room plans (the paid-run
  *                                                opt-in stays a separate, required gate)
  *   - routes/brain-report.js                     GET /api/brain-report (#235, GRIDIRON_BRAIN_REPORT)

@@ -3,18 +3,26 @@
  * `surprise_hypotheses` (migration 095) for Jev / R&D to test, with the ids of the
  * evidence that triggered it.
  *
- * Three streams, each scored as surprisal s = -ln p(outcome) under what we served:
- *   accept_low    an app-proposed offer resolved 'accepted' when model_p_accept < 0.10
- *                 (p(outcome) = model_p_accept)
- *   decline_high  an app-proposed offer resolved 'declined' when model_p_accept > 0.70
- *                 (p(outcome) = 1 - model_p_accept)
- *   roster_burst  a team's roster decisions (executed adds + completed trades) in a 72 h
- *                 window are improbable under its own base rate: P(N >= n) < 0.05 for
- *                 N ~ Poisson(rate x 72 h), rate from the prior 28 days (at least 7
- *                 covered), n >= 3. p(outcome) = that tail. A DECISION is a run of the
- *                 team's moves each less than 60 min after the last: counting each claim
- *                 of one run as an independent event made it read as '3 moves in 0 h' at
- *                 p = 0.000025 (local runs, PR #277). The evidence keeps every tx id.
+ * Four streams, each scored as surprisal s = -ln p(outcome) under what we served:
+ *   accept_low     a resolved league offer was accepted when P(accept) < 0.10
+ *                  (p(outcome) = P(accept))
+ *   decline_high   a resolved league offer was declined (or countered / expired, E1's
+ *                  zeros) when P(accept) > 0.70 (p(outcome) = 1 - P(accept))
+ *     The offers are E1's graded rows (eval/e1-league.js, #246): every resolved ESPN offer
+ *     in the league plus the app's SENT offers (source 'app_proposed' AND sent_at IS NOT
+ *     NULL; an unsent suggestion has no reply), each priced as of its proposal time, the
+ *     recorded P(accept) when one was stored, else the production band replayed on what
+ *     was knowable then (FIX-277-2).
+ *   roster_burst   a team's roster decisions (executed adds + completed trades) in a 72 h
+ *                  window are improbable under its own base rate: P(N >= n) < 0.05 for
+ *                  N ~ Poisson(rate x 72 h), rate from the prior 28 days (at least 7
+ *                  covered), n >= 3. p(outcome) = that tail. A DECISION is a run of the
+ *                  team's moves each less than 60 min after the last: counting each claim
+ *                  of one run as an independent event made it read as '3 moves in 0 h' at
+ *                  p = 0.000025 (local runs, PR #277). The evidence keeps every tx id. A
+ *                  burst is one scored window and never spans more than 72 h: a longer
+ *                  chain of flagged windows is split, not merged (FIX-277-2).
+ *   projection_miss  see projection-stream.js (FIX-277-4).
  *
  * The 10% / 70% cuts are the unit's own ("accept we gave <10%, decline we gave >70%").
  * The burst constants are hand-set, not fitted; the spec's per-stream 95th-percentile
@@ -23,12 +31,15 @@
  * "not a calibrated probability", so a surprise here is a surprise against what we
  * served, not against a calibrated model; the band travels in the evidence.
  *
- * Reads trade_outcomes and league_transactions_raw; writes only surprise_hypotheses.
+ * Reads trade_outcomes, league_transactions_raw, weekly_prediction_snapshots and
+ * league_roster_snapshots; writes only surprise_hypotheses.
  * Never writes P(accept) or points. Off unless GRIDIRON_HYPO_ENABLED=1 (or `enabled`).
  */
 import { db, rows, row } from '../../db/index.js';
+import { mergeOffers, scoreAsOf } from '../eval/e1-league.js';
+import { projectionUnits, projectionSurprises } from './projection-stream.js';
 
-export const DETECTOR_VERSION = 'hypo-01a-v3';
+export const DETECTOR_VERSION = 'hypo-01a-v4';
 export const ACCEPT_LOW = 0.10;
 export const DECLINE_HIGH = 0.70;
 export const BURST_WINDOW_HOURS = 72;
@@ -56,42 +67,68 @@ export function poissonTail(n, lambda) {
 }
 
 const pct = p => `${Math.round(p * 100)}%`;
-const tableExists = name =>
+export const tableExists = name =>
   !!row(`SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?`, name);
 
-function offerSurprises(leagueId, season) {
+const OFFER_COLS = ['id', 'league_id', 'season', 'source', 'proposer_team_id', 'counterparty_team_id', 'proposed_at',
+  'model_p_accept', 'model_p_accept_low', 'model_p_accept_high', 'model_basis', 'model_version', 'status',
+  'espn_tx_id', 'idea_id', 'resolved_at', 'sent_at', 'matched_tx_id'];
+const RAW_OFFER_COLS = ['league_id', 'season', 'tx_id', 'type', 'execution_type', 'team_id', 'related_tx_id',
+  'proposed_at', 'items_json'];
+
+/**
+ * Every resolved offer in the league-season, scored as of its proposal time: E1's rows
+ * (mergeOffers + scoreAsOf, eval/e1-league.js), read for one league so the replay's
+ * league-wide rate is this league's. Each carries p (P(accept)), y (1 accepted, else 0),
+ * basis ('recorded' | 'replay_anchor_only') and the surprisal of what happened.
+ */
+export function offerUnits(leagueId, season) {
+  const to = rows(`SELECT ${OFFER_COLS.join(', ')} FROM trade_outcomes
+     WHERE league_id = ? AND season = ?
+       AND (source = 'observed' OR (source = 'app_proposed' AND sent_at IS NOT NULL))`, leagueId, season);
+  const raw = tableExists(RAW_TABLE)
+    ? rows(`SELECT ${RAW_OFFER_COLS.join(', ')} FROM ${RAW_TABLE}
+         WHERE league_id = ? AND season = ? AND type IN ('TRADE_PROPOSAL', 'TRADE_ACCEPT', 'TRADE_DECLINE')`,
+      leagueId, season)
+    : [];
+  const { offers } = mergeOffers({ rows: to, raw });
+  return scoreAsOf(offers).map(o => ({
+    ...o,
+    at: o.resolved_at ?? o.proposed_at,
+    surprisal: -Math.log(Math.max(1e-12, o.y === 1 ? o.p : 1 - o.p)),
+  }));
+}
+
+function offerSurprises(units) {
   const out = [];
-  const offers = rows(
-    `SELECT id, idea_id, counterparty_team_id, model_p_accept, model_p_accept_low,
-            model_p_accept_high, model_basis, model_version, status, proposed_at, resolved_at
-       FROM trade_outcomes
-      WHERE league_id = ? AND season = ? AND model_p_accept IS NOT NULL
-        AND status IN ('accepted', 'declined')
-      ORDER BY id`, leagueId, season);
-  for (const o of offers) {
-    const p = o.model_p_accept;
-    const kind = o.status === 'accepted' && p < ACCEPT_LOW ? 'accept_low'
-      : o.status === 'declined' && p > DECLINE_HIGH ? 'decline_high' : null;
+  for (const o of units) {
+    const p = o.p;
+    const kind = o.y === 1 && p < ACCEPT_LOW ? 'accept_low'
+      : o.y === 0 && p > DECLINE_HIGH ? 'decline_high' : null;
     if (!kind) continue;
     const pOutcome = kind === 'accept_low' ? p : 1 - p;
-    const band = `band ${pct(o.model_p_accept_low)}-${pct(o.model_p_accept_high)}, ${o.model_basis}`;
+    const band = o.basis === 'recorded' && o.model_p_accept_low != null
+      ? `band ${pct(o.model_p_accept_low)}-${pct(o.model_p_accept_high)}, ${o.model_basis}`
+      : `replayed as of the proposal on the production band, ${o.prior.n} prior decisions`;
     const statement = kind === 'accept_low'
       ? `Team ${o.counterparty_team_id} accepted an offer we gave ${pct(p)} to be accepted (${band}). `
         + 'Hypothesis: the acceptance model is missing something this manager values. '
         + 'Test: does the feature that separates this deal from his declines predict his accepts, '
         + 'walk-forward, excluding this offer?'
-      : `Team ${o.counterparty_team_id} declined an offer we gave ${pct(p)} to be accepted (${band}). `
+      : `Team ${o.counterparty_team_id} ${o.status} an offer we gave ${pct(p)} to be accepted (${band}). `
         + 'Hypothesis: the acceptance model over-prices this manager\'s willingness. '
         + 'Test: does the feature that separates this deal from his accepts predict his declines, '
         + 'walk-forward, excluding this offer?';
     out.push({
-      surprise_key: `${kind}:${o.id}`,
-      kind, team_id: o.counterparty_team_id, model_p: p, surprisal: -Math.log(pOutcome),
-      outcome: o.status, occurred_at: o.resolved_at ?? o.proposed_at, statement,
+      surprise_key: o.id != null ? `${kind}:${o.id}` : `${kind}:tx:${o.league_id}:${o.season}:${o.espn_tx_id}`,
+      kind, team_id: o.counterparty_team_id == null ? null : String(o.counterparty_team_id), model_p: p,
+      surprisal: -Math.log(pOutcome), outcome: o.status, occurred_at: o.at, statement,
       evidence: {
-        trade_outcome_ids: [o.id], idea_ids: o.idea_id ? [o.idea_id] : [],
-        band: { low: o.model_p_accept_low, mid: p, high: o.model_p_accept_high },
-        basis: o.model_basis, model_version: o.model_version,
+        trade_outcome_ids: o.id != null ? [o.id] : [], tx_ids: o.espn_tx_id != null ? [String(o.espn_tx_id)] : [],
+        idea_ids: o.idea_id ? [o.idea_id] : [], source: o.source, p_basis: o.basis,
+        band: o.basis === 'recorded' ? { low: o.model_p_accept_low ?? null, mid: p, high: o.model_p_accept_high ?? null } : null,
+        prior: { decisions: o.prior.n, accepts: o.prior.acc },
+        basis: o.model_basis ?? null, model_version: o.model_version ?? null,
       },
     });
   }
@@ -158,23 +195,66 @@ function scoreWindow(moves, i, coverageStart) {
     baselineDays, lambda };
 }
 
-function burstSurprises(leagueId, season, skipped) {
+/**
+ * Every window that opens where a decision starts, per team, scored against the team's
+ * base rate (p null when the history is too short). Windows start only where a decision
+ * starts, so a window cannot open mid-decision and count that decision's earlier moves
+ * as its base rate.
+ */
+function teamWindows(leagueId, season) {
   const tx = rows(
     `SELECT tx_id, type, status, execution_type, proposed_at, processed_at, items_json
        FROM ${RAW_TABLE} WHERE league_id = ? AND season = ?`, leagueId, season);
   const stamps = tx.map(t => Date.parse(t.processed_at ?? t.proposed_at ?? '')).filter(Number.isFinite);
   if (!stamps.length) return [];
   const coverageStart = Math.min(...stamps);
-  const out = [];
-  for (const [team, moves] of movesByTeam(tx)) {
-    // Candidate windows (>= BURST_MIN_MOVES), then chains of overlapping candidates are
-    // one burst, so a run of moves is one hypothesis however the windows slide over it.
-    // Windows start only where a decision starts, so a window cannot open mid-decision and
-    // count that decision's earlier moves as its base rate.
-    const candidates = moves
+  return [...movesByTeam(tx)].map(([team, moves]) => ({
+    team,
+    windows: moves
       .map((m, i) => (i === 0 || m.at - moves[i - 1].at >= DECISION_GAP_MINUTES * 60_000
         ? scoreWindow(moves, i, coverageStart) : null))
-      .filter(w => w && w.decisions >= BURST_MIN_MOVES);
+      .filter(Boolean),
+  }));
+}
+
+/** Every scored window (a base rate known), for the walk-forward threshold (calibrate.js). */
+export function burstUnits(leagueId, season) {
+  if (!tableExists(RAW_TABLE)) return [];
+  return teamWindows(leagueId, season).flatMap(({ team, windows }) => windows
+    .filter(w => w.p != null)
+    .map(w => ({ team_id: String(team), tx_id: w.inWindow[0].tx_id, at: new Date(w.inWindow[0].at).toISOString(),
+      decisions: w.decisions, p: w.p, surprisal: -Math.log(Math.max(1e-300, w.p)) })));
+}
+
+/**
+ * Non-overlapping flagged windows, most improbable first: take the flagged window with the
+ * smallest p, drop every flagged window that overlaps it, repeat. Each burst is one scored
+ * window, so it spans less than BURST_WINDOW_HOURS; a longer chain becomes several bursts
+ * instead of one '10 moves in 113 h' row (FIX-277-2).
+ */
+function splitChain(flagged) {
+  const left = [...flagged];
+  const picked = [];
+  const span = w => [w.inWindow[0].at, w.inWindow[0].at + BURST_WINDOW_HOURS * HOUR];
+  while (left.length) {
+    const best = left.reduce((a, b) => (b.p < a.p ? b : a));
+    picked.push(best);
+    const [s0, e0] = span(best);
+    for (let i = left.length - 1; i >= 0; i--) {
+      const [s1, e1] = span(left[i]);
+      if (s1 < e0 && s0 < e1) left.splice(i, 1);
+    }
+  }
+  return picked.sort((a, b) => a.inWindow[0].at - b.inWindow[0].at);
+}
+
+function burstSurprises(leagueId, season, skipped) {
+  const out = [];
+  for (const { team, windows } of teamWindows(leagueId, season)) {
+    // Candidate windows (>= BURST_MIN_MOVES) chain when they overlap; a chain with no base
+    // rate anywhere is reported as skipped, and a chain's flagged windows are split into
+    // bursts of at most one window each.
+    const candidates = windows.filter(w => w.decisions >= BURST_MIN_MOVES);
     const clusters = [];
     for (const w of candidates) {
       const last = clusters.at(-1);
@@ -193,26 +273,27 @@ function burstSurprises(leagueId, season, skipped) {
         }
         continue;
       }
-      const burst = [...new Set(flagged.flatMap(w => w.inWindow))].sort((a, b) => a.at - b.at);
-      const best = flagged.reduce((a, b) => (b.p < a.p ? b : a));
-      const hours = Math.round((burst.at(-1).at - burst[0].at) / HOUR);
-      out.push({
-        surprise_key: `roster_burst:${leagueId}:${season}:${team}:${burst[0].tx_id}`,
-        kind: 'roster_burst', team_id: String(team), model_p: best.p, surprisal: -Math.log(best.p),
-        outcome: `${burst.length} moves (${countDecisions(burst)} decisions) in ${hours} h`,
-        occurred_at: new Date(burst[0].at).toISOString(),
-        statement: `Team ${team} made ${burst.length} roster moves (${countDecisions(burst)} separate decisions) `
-          + `in ${hours} h against a base rate of ${best.prior} decisions in the prior ${best.baselineDays.toFixed(0)} days (P = ${best.p.toExponential(1)}). `
-          + 'Hypothesis: something changed for this manager (injury news, a lost matchup, a shift to '
-          + 'buying or selling). Test: does a burst like this predict his next trade offer or '
-          + 'acceptance, walk-forward, excluding this burst?',
-        evidence: {
-          tx_ids: burst.map(m => m.tx_id), moves: burst.length, decisions: countDecisions(burst),
-          adds: burst.filter(m => m.kind === 'add').length, trades: burst.filter(m => m.kind === 'trade').length,
-          baseline: { prior_decisions: best.prior, prior_moves: best.priorMoves, days: best.baselineDays, lambda: best.lambda },
-          window_hours: BURST_WINDOW_HOURS,
-        },
-      });
+      for (const best of splitChain(flagged)) {
+        const burst = best.inWindow;
+        const hours = Math.round((burst.at(-1).at - burst[0].at) / HOUR);
+        out.push({
+          surprise_key: `roster_burst:${leagueId}:${season}:${team}:${burst[0].tx_id}`,
+          kind: 'roster_burst', team_id: String(team), model_p: best.p, surprisal: -Math.log(best.p),
+          outcome: `${burst.length} moves (${best.decisions} decisions) in ${hours} h`,
+          occurred_at: new Date(burst[0].at).toISOString(),
+          statement: `Team ${team} made ${burst.length} roster moves (${best.decisions} separate decisions) `
+            + `in ${hours} h against a base rate of ${best.prior} decisions in the prior ${best.baselineDays.toFixed(0)} days (P = ${best.p.toExponential(1)}). `
+            + 'Hypothesis: something changed for this manager (injury news, a lost matchup, a shift to '
+            + 'buying or selling). Test: does a burst like this predict his next trade offer or '
+            + 'acceptance, walk-forward, excluding this burst?',
+          evidence: {
+            tx_ids: burst.map(m => m.tx_id), moves: burst.length, decisions: best.decisions,
+            adds: burst.filter(m => m.kind === 'add').length, trades: burst.filter(m => m.kind === 'trade').length,
+            baseline: { prior_decisions: best.prior, prior_moves: best.priorMoves, days: best.baselineDays, lambda: best.lambda },
+            window_hours: BURST_WINDOW_HOURS,
+          },
+        });
+      }
     }
   }
   return out;
@@ -232,13 +313,15 @@ export function detectSurprises({ leagueId, season, enabled = null, env = proces
 
   const skipped = [];
   const rawPresent = tableExists(RAW_TABLE);
+  const projection = projectionUnits(leagueId, season);
   const surprises = [
-    ...offerSurprises(leagueId, season),
+    ...offerSurprises(offerUnits(leagueId, season)),
     ...(rawPresent ? burstSurprises(leagueId, season, skipped) : []),
+    ...projectionSurprises(projection.units),
   ];
   if (!write) {
     return { enabled: true, written: 0, already: null, dry_run: true,
-      roster_moves: rawPresent ? 'read' : 'raw_table_absent', skipped, surprises };
+      roster_moves: rawPresent ? 'read' : 'raw_table_absent', projections: projection.state, skipped, surprises };
   }
   const insert = db.prepare(`INSERT INTO surprise_hypotheses
       (surprise_key, league_id, season, kind, team_id, model_p, surprisal, outcome, evidence_json,
@@ -261,7 +344,7 @@ export function detectSurprises({ leagueId, season, enabled = null, env = proces
   }
   return {
     enabled: true, written, already: surprises.length - written,
-    roster_moves: rawPresent ? 'read' : 'raw_table_absent', skipped, surprises,
+    roster_moves: rawPresent ? 'read' : 'raw_table_absent', projections: projection.state, skipped, surprises,
   };
 }
 

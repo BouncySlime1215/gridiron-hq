@@ -107,6 +107,8 @@
     "server/services/tells/library.js",
     "server/services/tells/refit.js",
     "server/services/hypo/surprise.js",
+    "server/services/hypo/projection-stream.js",
+    "server/services/hypo/calibrate.js",
     "server/services/trend-watch.js",
     "server/services/vegas-fantasy.js",
     "server/services/week-postmortem.js"
@@ -120,6 +122,8 @@
   },
   "_PERMANENT_ORPHAN_REASONS": {
     "server/services/hypo/surprise.js": "Lands unwired on purpose in HYPO-01a: detectSurprises({leagueId, season}) writes surprise_hypotheses rows (migration 095) behind GRIDIRON_HYPO_ENABLED, run by hand through scripts/hypo-surprise.mjs. Nothing serves a hypothesis; they are questions for Jev / R&D. RETIRE THIS ENTRY WHEN the detector is registered on ENGINE-00b-a's daemon hooks or a refresh-loop step. Owner: the HYPO thread.",
+    "server/services/hypo/projection-stream.js": "HYPO-01a's projection_miss stream (FIX-277-4): read by hypo/surprise.js#detectSurprises and hypo/calibrate.js, both run by hand through scripts/hypo-surprise.mjs behind GRIDIRON_HYPO_ENABLED. Nothing serves a hypothesis. RETIRE THIS ENTRY WHEN hypo/surprise.js's entry retires (the detector on the daemon hooks or a refresh-loop step). Owner: the HYPO thread.",
+    "server/services/hypo/calibrate.js": "HYPO-01a's pre-registered walk-forward threshold fit (FIX-277-3, docs/evidence/2026-09-24/hypo-01a-threshold-prereg.md): read-only, run by hand through scripts/hypo-surprise.mjs --calibrate. RETIRE THIS ENTRY WHEN the fitted threshold becomes the detector's write rule and the detector's entry retires. Owner: the HYPO thread.",
     "server/services/tells/library.js": "Lands unwired on purpose in TELLS-01a (PR #226): the tell library that computes the Tells Factory screen's tells from engine_events as of a timestamp, pinned to the Python generator by test/tells-library.test.js (golden fixture). Its one importer is server/services/tells/refit.js, itself unwired. Nothing may read a tell before TELLS-01b registers producer 'tells' with ENGINE-00a's registry and writes engine_state. RETIRE THIS ENTRY WHEN TELLS-01b wires refitTells into the nightly engine hook or the post-sync job. Owner: the TELLS thread.",
     "server/services/tells/refit.js": "Lands unwired on purpose in TELLS-01a (PR #226): refitTells({asOf}) returns tell rows with empirical-Bayes shrinkage and writes nothing, behind GRIDIRON_TELLS_ENABLED (default off). Per the spec the writes and the registration belong to TELLS-01b (engine_state producer 'tells') and ENGINE-00b (nightly hook); until then only test/tells-library.test.js calls it. RETIRE THIS ENTRY WHEN TELLS-01b or ENGINE-00b calls refitTells. Owner: the TELLS thread.",
     "_why": "Entries in accepted_orphan_modules that are deliberate and expected to stay that way. Each carries the condition that would RETIRE it, so the list cannot rot into a junk drawer. If the condition is met and the module is still listed, that is a defect in this file, not in the module.",

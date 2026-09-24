@@ -71,3 +71,11 @@ Rule: NEW FEATURE builds are HELD (lanes/build-queue-held.json) until (a) merge 
 Step-back: every 2 h, redraw the platform model (sources -> readers -> brain -> screens, colored main / PR / loose) and re-check this gate, FIELD-REGISTRY.md, and whether the plan still fits the goal.
 - Unit scoping (9/24 4:35 AM, pattern seen 3x: FEAS-140, PYES-BASELINE, FEAS-140-ESPN ended 'blocked' because their file lists left out the CALLER): every unit's files must include the wiring point that makes the change reach the served output (the producer/planner line, route or adapter). Its metric must be read from the served output (plans.json / API), not from a function called by hand.
 - Timestamps (9/24): every OPS-LOG/LOOP-LOG/report time comes from `date` at write time, never estimated.
+
+## NICK'S RULES, 9/24 ~04:10 (verbatim intent; they override anything softer above)
+1. The coordinator NEVER stops and never waits idle. It works ALL NIGHT, no matter what: it deploys work AND does work itself.
+2. Every turn: before ending, the coordinator does at least one hands-on task itself (a fix, a test, a browser check, a PR review, a merge, a verification): not only dispatching.
+3. It organises and reasons with ALL the context (plans, rulings, results, Nick's notes), and ADAPTS THE PLAN CONSTANTLY as results come in (re-order queues, cut what stopped mattering, add what's newly needed).
+4. Deploy + work: keep every lane full (5 builds, 1 R&D, local jobs, cloud within budget, agents) AND keep a hands-on coordinator task list moving (COORD-TASKS.md).
+5. No asking Nick anything overnight; no terminal-tab commands that need his approval.
+6. Target: a working, fully tested, insane War Room + Coach on his app at 10:00 AM sharp.

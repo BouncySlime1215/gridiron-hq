@@ -24,6 +24,8 @@
  *   outcomes         season*100+week of player_week_usage (no row stamp; latest two weeks re-read)
  *   offers           trade_outcomes id (app_proposed rows only)
  *   rec              rec_ledger id, and graded_at (the settle pass updates the row in place)
+ *   league_settings  leagues.fetched_at        market_values  dynasty_values.fetched_at
+ *   matchups         league_week_scores.captured_at (saveScores re-stamps a re-captured week)
  *   coverage         sync_log.last_run_at, excluding the daemon's own heartbeat row
  *                    (its own run would otherwise be news to itself every tick)
  * Stamps compare inclusively (>=): a row written later with the same stamp is still seen.
@@ -40,6 +42,8 @@ import { ADAPTERS } from '../backfill.js';
 import { SCHEDULE_ADAPTER } from '../adapters/schedule.js';
 import { OUTCOMES_ADAPTER } from '../adapters/outcomes.js';
 import { OFFER_ADAPTER, REC_ADAPTER } from '../adapters/rec.js';
+import { LEAGUE_SETTINGS_ADAPTER, MATCHUP_RESULT_ADAPTER } from '../adapters/league.js';
+import { MARKET_VALUE_ADAPTER } from '../adapters/market.js';
 import { recordRun } from '../fields.js';
 import { assertWriteRole } from '../role.js';
 
@@ -117,11 +121,18 @@ export const CURSOR_SPECS = Object.freeze({
     where: (wm, m) => inclusive('(season * 100 + week)').where(wm == null || wm === '' ? null : Number(wm) - 1, m) },
   offers: serial('id'),
   rec: either({ id: serial('id'), graded_at: stamp('graded_at') }),
+  league_settings: stamp('fetched_at'),
+  matchups: stamp('captured_at'),
+  market_values: stamp('fetched_at'),
   coverage: { ...stamp('last_run_at', `AND job <> '${HEARTBEAT_JOB}'`), full: `job <> '${HEARTBEAT_JOB}'` },
 });
 
-/** Every stream the daemon ingests, in order: EA-00's eight, the schedule, then outcomes and decisions. */
-export const DAEMON_ADAPTERS = Object.freeze([...ADAPTERS, SCHEDULE_ADAPTER, OUTCOMES_ADAPTER, OFFER_ADAPTER, REC_ADAPTER]);
+/**
+ * Every stream the daemon ingests, in order: EA-00's eight, the schedule, outcomes and
+ * decisions, then the league and market facts the grader reads point in time (EA-04).
+ */
+export const DAEMON_ADAPTERS = Object.freeze([...ADAPTERS, SCHEDULE_ADAPTER, OUTCOMES_ADAPTER, OFFER_ADAPTER, REC_ADAPTER,
+  LEAGUE_SETTINGS_ADAPTER, MATCHUP_RESULT_ADAPTER, MARKET_VALUE_ADAPTER]);
 
 const tableExists = (database, t) =>
   !!database.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(t);

@@ -7,8 +7,13 @@
  *          the outcome's points: quantile score, CRPS approximation, 80% coverage, PIT
  *   prob   probability (a number, or {p}) scored on `truth(outcome payload)` in {0, 1}:
  *          log loss, Brier, calibration slope/intercept
- * Outcomes today are `outcome.player_week` (adapters/outcomes.js); a graded row's entity is
- * `player_week_scored` `<player>:<season>:<week>:<scoring_key>`. Decisions (lineup.call,
+ * Outcome streams (OUTCOME_STREAMS), chosen at registration with `outcome`:
+ *   outcome.player_week    (default; adapters/outcomes.js) entity `player_week_scored`
+ *                          `<player>:<season>:<week>:<scoring_key>`; decision time = kickoff
+ *   league.matchup_result  (prob only; adapters/league.js) entity `matchup`
+ *                          `<league>:<season>:<week>:<a>:<b>`; truth = team a won; decision
+ *                          time = the week's first kickoff (payload.decision_time)
+ * Decisions (lineup.call,
  * waiver.board, search.trades) go through gradeDecisions, reused unchanged
  * (grade/scorers.js DECISION_SCORER); no decision field exists yet to wire.
  *
@@ -33,7 +38,15 @@
  *                          (entity_id, state_id, outcome_event_id) it scored (the audit)
  * Labels: `forward` (season >= 2026) or `test` (earlier seasons). `fit` cannot occur: a
  * row whose training window reaches its decision time is excluded, not labelled.
- * Floors (clusterFloor): >= 4 distinct weeks and >= 20 distinct players.
+ * Floors (clusterFloor): >= 4 distinct weeks and >= 20 distinct players (or matchups).
+ * vs_incumbent (§7.2, grade/compare.js): on a SHADOW version's field, its paired score
+ * difference against the active version on the same outcomes, per week cluster, with a
+ * confidence sequence. scripts/check-promotion.mjs reads it (§6.3).
+ *   grade.decision_luck   entity `<stream>@<which>` (offer.sent@app, rec.<kind>@shown,
+ *                          rec.<kind>@considered): decision vs luck, point in time (§7.3,
+ *                          grade/decision-luck.js). Inputs in force at the decision time only:
+ *                          a league.settings or market.player_value row, or a rewritten
+ *                          forecast, that arrived after it is never used.
  * Write-on-change: a tick with no new outcome and no new prediction writes nothing.
  * Coordination: EVAL-01's `brain_report` (#235) and IDEA-001's `served_numbers` (#243) are
  * read by neither side yet; GRADE_TO_EVAL_CHECK names which grade row feeds which check.
@@ -42,8 +55,10 @@ import crypto from 'node:crypto';
 import { registerProducer, fieldSpec } from '../registry.js';
 import { quantileScore, pitFromQuantiles, inInterval, logLoss, brier, calibration, ksUniform, clusterFloor, mean }
   from '../grade/scorers.js';
+import { pairedVsIncumbent } from '../grade/compare.js';
+import { offerSplits, recSplits, summariseSplit } from '../grade/decision-luck.js';
 
-export const GRADER_VERSION = 'ea05-1';
+export const GRADER_VERSION = 'ea05-2';
 export const HOLDOUT_SEASONS = Object.freeze([2025]);
 export const FORWARD_FROM_SEASON = 2026;
 const PLAYER_CHUNK = 200;
@@ -60,6 +75,19 @@ export const GRADE_TO_EVAL_CHECK = Object.freeze({
   'autopsy.week': 'E7',
 });
 
+const DECISION_EVENTS = Object.freeze(['offer.sent', 'rec.shown', 'rec.considered', 'rec.graded', 'league.settings',
+  'market.player_value']);
+
+/** Where a graded field's outcomes come from, and how a prediction row joins one. */
+export const OUTCOME_STREAMS = Object.freeze({
+  'outcome.player_week': Object.freeze({ entityType: 'player_week_scored', kinds: ['dist', 'prob'],
+    key: p => `${p.player_id}:${p.season}:${p.week}:${p.scoring_key}`, clusterEntity: p => String(p.player_id),
+    decisionTime: p => p.kickoff, truth: null }),
+  'league.matchup_result': Object.freeze({ entityType: 'matchup', kinds: ['prob'],
+    key: p => p.matchup, clusterEntity: p => p.matchup, decisionTime: p => p.decision_time,
+    truth: p => (p.tie || p.winner == null ? null : p.winner === p.team_a ? 1 : 0) }),
+});
+
 const WRITERS = registerProducer({
   name: 'grader',
   active: GRADER_VERSION,
@@ -71,21 +99,30 @@ const WRITERS = registerProducer({
       description: 'Proper scores of one producer version, season to date, per graded field' },
     { field: 'grade.week', valueType: 'object', entityTypes: ['producer'],
       description: 'Proper scores of one producer version for the latest graded week, with every graded pair' },
+    { field: 'grade.decision_luck', valueType: 'object', entityTypes: ['producer'],
+      description: 'Decision vs luck per decision stream: expected value at decision time from inputs in force then; luck = the rest' },
   ],
-  inputs: { events: ['outcome.player_week'], fields: [], grades: true, scope: 'global', schedule: 'tick', cost: 'cheap',
-    budget_ms: 60000 },
+  inputs: { events: [...Object.keys(OUTCOME_STREAMS), ...DECISION_EVENTS], fields: [], grades: true, scope: 'global',
+    schedule: 'tick', cost: 'cheap', budget_ms: 60000 },
 });
 
 const graded = new Map();
 
-/** Grade `field` from now on. kind 'dist' | 'prob'; a prob field needs truth(payload) -> 0 | 1. */
-export function registerGraded(field, { kind, truth = null, decisionTime = null } = {}) {
+/**
+ * Grade `field` from now on. kind 'dist' | 'prob'; `outcome` one of OUTCOME_STREAMS (default
+ * outcome.player_week). A prob field needs truth(payload) -> 0 | 1 unless its stream has one.
+ */
+export function registerGraded(field, { kind, truth = null, decisionTime = null, outcome = 'outcome.player_week' } = {}) {
   if (!['dist', 'prob'].includes(kind)) throw new Error(`graded field ${field}: kind must be dist or prob`);
-  if (kind === 'prob' && typeof truth !== 'function') throw new Error(`graded field ${field}: a prob field needs truth(payload)`);
+  const stream = OUTCOME_STREAMS[outcome];
+  if (!stream) throw new Error(`graded field ${field}: outcome must be one of ${Object.keys(OUTCOME_STREAMS).join(', ')}`);
+  if (!stream.kinds.includes(kind)) throw new Error(`graded field ${field}: ${outcome} grades ${stream.kinds.join('/')} only`);
+  const truthFn = truth ?? stream.truth;
+  if (kind === 'prob' && typeof truthFn !== 'function') throw new Error(`graded field ${field}: a prob field needs truth(payload)`);
   const spec = fieldSpec(field);
   if (spec && spec.valueType !== kind) throw new Error(`graded field ${field} is valueType ${spec.valueType}, not ${kind}`);
   if (graded.has(field)) return graded.get(field);
-  const g = Object.freeze({ field, kind, truth, decisionTime });
+  const g = Object.freeze({ field, kind, truth: truthFn, decisionTime, outcome });
   graded.set(field, g);
   return g;
 }
@@ -94,7 +131,6 @@ export const listGraded = () => [...graded.values()];
 
 const hash = v => crypto.createHash('sha256').update(JSON.stringify(v)).digest('hex').slice(0, 16);
 const r6 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(6));
-const baseKey = p => `${p.player_id}:${p.season}:${p.week}:${p.scoring_key}`;
 
 function quantilesOf(value) {
   if (Array.isArray(value?.levels) && Array.isArray(value?.values)) return { levels: value.levels.map(Number), values: value.values.map(Number) };
@@ -113,26 +149,51 @@ function trainingEnd(tw) {
   return Number.isFinite(t) ? { ok: true, end: new Date(t).toISOString() } : { ok: false, end: null };
 }
 
-/** The latest outcome per (player, season, week, scoring key), for the players that have predictions. */
-function latestOutcomes(ctx, playerIds) {
-  const from = new Date(Date.parse(ctx.tick.as_of) - LOOKBACK_DAYS * 86400000).toISOString();
-  const latest = new Map();
+const lookbackFrom = ctx => new Date(Date.parse(ctx.tick.as_of) - LOOKBACK_DAYS * 86400000).toISOString();
+
+/** Events of `types` naming any of these players, read in chunks (every getEvents read is bounded). */
+function eventsForPlayers(ctx, types, playerIds, from = undefined) {
+  const out = [];
   const ids = [...playerIds].sort((a, b) => a - b);
   for (let i = 0; i < ids.length; i += PLAYER_CHUNK) {
     const entities = ids.slice(i, i + PLAYER_CHUNK).map(p => `player:${p}`);
-    for (const e of ctx.read.events({ types: ['outcome.player_week'], from, entities })) {
-      const k = baseKey(e.payload);
-      if (!latest.has(k) || latest.get(k).id < e.id) latest.set(k, e);
+    out.push(...ctx.read.events({ types, entities, ...(from ? { from } : {}) }));
+  }
+  return out;
+}
+
+/**
+ * The latest outcome per outcome entity, per stream: player-weeks for the players that have
+ * predictions (a stat correction replaces the outcome), matchups for the leagues that do.
+ */
+function latestOutcomes(ctx, predictionRows) {
+  const byStream = new Map(Object.keys(OUTCOME_STREAMS).map(s => [s, new Map()]));
+  const keep = (stream, e) => {
+    const m = byStream.get(stream);
+    const k = OUTCOME_STREAMS[stream].key(e.payload);
+    if (!m.has(k) || m.get(k).id < e.id) m.set(k, e);
+  };
+  const players = new Set(); const leagues = new Set();
+  for (const r of predictionRows) {
+    if (r.entity_type === 'player_week_scored') players.add(Number(r.entity_id.split(':')[0]));
+    else if (r.entity_type === 'matchup') leagues.add(Number(r.entity_id.split(':')[0]));
+  }
+  if (players.size) {
+    for (const e of eventsForPlayers(ctx, ['outcome.player_week'], players, lookbackFrom(ctx))) keep('outcome.player_week', e);
+  }
+  for (const league of [...leagues].sort((a, b) => a - b)) {
+    for (const e of ctx.read.events({ types: ['league.matchup_result'], leagueId: league, from: lookbackFrom(ctx) })) {
+      keep('league.matchup_result', e);
     }
   }
-  return latest;
+  return byStream;
 }
 
 /** Score one prediction row against one outcome. Returns the item, or a reason it cannot be scored. */
 function scoreItem(g, pred, outcome) {
   const p = outcome.payload;
   const base = { entity_id: pred.entity_id, state_id: pred.id, outcome_event_id: outcome.id,
-    week: `${p.season}:${p.week}`, entity: String(p.player_id), season: p.season };
+    week: `${p.season}:${p.week}`, entity: OUTCOME_STREAMS[g.outcome].clusterEntity(p), season: p.season };
   if (g.kind === 'dist') {
     const q = quantilesOf(pred.value);
     if (!q) return { reason: 'malformed' };
@@ -177,14 +238,16 @@ function summarise(g, lane, items, excluded) {
 }
 
 /** Grade every version of one field. Returns [{version, lane, items, excluded}] (items already cut and scored). */
-function gradeField(ctx, g, read, outcomes) {
+function gradeField(ctx, g, read, outcomesByStream) {
+  const stream = OUTCOME_STREAMS[g.outcome];
+  const outcomes = outcomesByStream.get(g.outcome);
   const out = [];
   for (const v of read.versions) {
     if (v.status !== 'active' && v.status !== 'shadow') continue;
     const lane = v.status === 'active' ? 'live' : 'shadow';
     const byEntity = new Map();
     for (const r of read.rows) {
-      if (r.producer_version !== v.version || r.entity_type !== 'player_week_scored') continue;
+      if (r.producer_version !== v.version || r.entity_type !== stream.entityType) continue;
       if (!byEntity.has(r.entity_id)) byEntity.set(r.entity_id, []);
       byEntity.get(r.entity_id).push(r);
     }
@@ -197,7 +260,7 @@ function gradeField(ctx, g, read, outcomes) {
       if (!outcome) continue; // not settled yet: nothing to grade, nothing excluded
       const p = outcome.payload;
       if (HOLDOUT_SEASONS.includes(Number(p.season))) { excluded.holdout_2025 += 1; continue; }
-      const T = g.decisionTime ? g.decisionTime(p) : p.kickoff;
+      const T = g.decisionTime ? g.decisionTime(p) : stream.decisionTime(p);
       if (!T) { excluded.no_decision_time += 1; continue; }
       if (!(v.registered_at <= T)) { excluded.version_after_decision += 1; continue; }
       if (!tw.ok) { excluded.training_window_unreadable += 1; continue; }
@@ -215,17 +278,20 @@ function gradeField(ctx, g, read, outcomes) {
 }
 
 function run(ctx) {
+  gradeFields(ctx);
+  gradeDecisionLuck(ctx);
+}
+
+function gradeFields(ctx) {
   const specs = listGraded();
   if (!specs.length) return;
   const reads = new Map(specs.map(g => [g.field, ctx.read.graded(g.field)]));
-  const players = new Set();
-  for (const r of reads.values()) {
-    for (const row of r.rows) if (row.entity_type === 'player_week_scored') players.add(Number(row.entity_id.split(':')[0]));
-  }
-  if (!players.size) return;
-  const outcomes = latestOutcomes(ctx, players);
+  const predictionRows = [...reads.values()].flatMap(r => r.rows);
+  if (!predictionRows.length) return;
+  const outcomes = latestOutcomes(ctx, predictionRows);
   const results = new Map(); // `${producer}@${version}` -> {field -> {lane, items, excluded}}
-  const activeItems = new Map(); // field -> items of its active version (for vs_fallback)
+  const activeItems = new Map(); // field -> items of its active version (for vs_fallback and vs_incumbent)
+  const activeVersions = new Map(); // field -> its active version
   for (const g of specs) {
     const read = reads.get(g.field);
     if (!read.producer) continue;
@@ -234,7 +300,7 @@ function run(ctx) {
       if (!r.items.length && !Object.values(r.excluded).some(n => n > 0)) continue;
       if (!results.has(key)) results.set(key, new Map());
       results.get(key).set(g.field, r);
-      if (r.lane === 'live') activeItems.set(g.field, r.items);
+      if (r.lane === 'live') { activeItems.set(g.field, r.items); activeVersions.set(g.field, r.version); }
     }
   }
   const allItems = [...results.values()].flatMap(m => [...m.values()].flatMap(r => r.items));
@@ -259,12 +325,19 @@ function run(ctx) {
         std.vs_fallback = { field: fb, n_pairs: deltas.length, delta_mean: r6(mean(deltas)),
           sign: 'this minus the fallback, in the primary score; negative favours this version' };
       }
+      if (r.lane === 'shadow' && activeItems.has(field)) {
+        const cmp = pairedVsIncumbent(inSeason(r.items), inSeason(activeItems.get(field)));
+        if (cmp) {
+          std.vs_incumbent = { version: activeVersions.get(field) ?? null, ...cmp, delta_mean: r6(cmp.delta_mean),
+            interval: { ...cmp.interval, lo: r6(cmp.interval.lo), hi: r6(cmp.interval.hi) } };
+        }
+      }
       stdByField[field] = std;
       const wItems = inWeek(r.items);
       weekByField[field] = { ...summarise(g, r.lane, wItems, {}),
         graded: wItems.map(i => ({ entity_id: i.entity_id, state_id: i.state_id, outcome_event_id: i.outcome_event_id })) };
     }
-    const text = n => `${n} predictions graded against outcome.player_week at each one's decision time`;
+    const text = n => `${n} predictions graded against their outcomes at each one's decision time`;
     const nStd = Object.values(stdByField).reduce((s, f) => s + f.n, 0);
     ctx.write(WRITERS['grade.season_to_date'], { entityType: 'producer', entityId: entity, field: 'grade.season_to_date',
       value: { season, by_field: stdByField },
@@ -275,6 +348,38 @@ function run(ctx) {
         value: { season, week, by_field: weekByField },
         reasonChain: { contributions: [{ source: 'outcome.player_week', kind: 'event', event_ids: [], delta: null, text: text(nWeek) }] } });
     }
+  }
+}
+
+/**
+ * Decision vs luck (§7.3): offers and recs, each graded with inputs in force at its decision
+ * time only (grade/decision-luck.js). One grade.decision_luck row per stream; a stream with
+ * nothing settled writes nothing, one whose decisions were all excluded writes its reasons.
+ */
+function gradeDecisionLuck(ctx) {
+  const from = lookbackFrom(ctx);
+  const offers = ctx.read.events({ types: ['offer.sent'], from });
+  const made = ctx.read.events({ types: ['rec.shown', 'rec.considered'], from });
+  const settled = ctx.read.events({ types: ['rec.graded'], from });
+  const streams = {};
+  if (offers.length) {
+    const pids = new Set();
+    for (const o of offers) {
+      for (const x of [...(o.payload.give ?? []), ...(o.payload.get ?? [])]) {
+        const pid = Number(typeof x === 'object' && x ? x.id : x);
+        if (pid > 0) pids.add(pid);
+      }
+    }
+    const settings = ctx.read.events({ types: ['league.settings'] });
+    const values = pids.size ? eventsForPlayers(ctx, ['market.player_value'], pids) : [];
+    Object.assign(streams, offerSplits(offers, settings, values));
+  }
+  if (made.length && settled.length) Object.assign(streams, recSplits(made, settled));
+  for (const [entity, split] of Object.entries(streams).sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+    const value = summariseSplit(split);
+    ctx.write(WRITERS['grade.decision_luck'], { entityType: 'producer', entityId: entity, field: 'grade.decision_luck', value,
+      reasonChain: { contributions: [{ source: entity.split('@')[0], kind: 'event', event_ids: [], delta: null,
+        text: `${value.n} decisions split into decision (inputs in force at decision time) and luck` }] } });
   }
 }
 

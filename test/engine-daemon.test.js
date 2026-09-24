@@ -334,7 +334,7 @@ test('calendar, league, gamescript: nfl.week, game.cutoff (= gameCutoff), league
   const snap = snapshotsMod.latestSnapshot(0, db);
   assert.deepEqual([snap.season, snap.nfl_week], [2026, 2]);
   assert.equal(snap.world, snapshotsMod.worldSeed(2026, 2));
-  assert.deepEqual(snap.version_set, { calendar: 'ea02-1', league: 'ea02-1', gamescript: 'ea02-1', grader: 'ea05-1' });
+  assert.deepEqual(snap.version_set, { calendar: 'ea02-1', league: 'ea02-1', gamescript: 'ea02-1', grader: 'ea05-2' });
   const again = await tickMod.runTick({ database: db, dag });
   assert.equal(again.runs.reduce((a, r) => a + r.written, 0), 0, 'the tiny producers rewrote an unchanged world');
   assert.ok(again.runs.every(r => r.ms < 30000));

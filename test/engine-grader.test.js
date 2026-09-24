@@ -423,17 +423,17 @@ test('A6: market.player_value is one event per (format, player) per value change
 
 test('D1: an offer\'s decision grade uses only the settings and values in force at its decision time; luck is what moved after', async () => {
   need(graderMod, 'producers/grader.js');
-  at('2026-09-15T12:00:00.000Z');
+  at('2026-09-15T15:00:00.000Z'); // a tick after RED (3)'s: a grader row's key includes its tick as_of
   run(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id, give_json, get_json,
          proposed_at, model_p_accept, model_p_accept_low, model_p_accept_high, model_basis, status, idea_id, created_at)
        VALUES (91, 2026, 'app_proposed', '1', '3', '[9203]', '[9204]', '2026-09-12T20:00:00.000Z', 0.3, 0.1, 0.5,
          'heuristic_unanchored', 'proposed', 'fx-idea-3', '2026-09-12T20:00:00.000Z')`);
   cursorsMod.runAdapterStream(recMod.OFFER_ADAPTER, { database: db });
-  const t = await graderTick('2026-09-15T12:00:00.000Z');
+  const t = await graderTick('2026-09-15T15:00:00.000Z');
   assert.equal(t.failed.length, 0, JSON.stringify(t.failed));
   const g = gradeRow('offer.sent@app', 'grade.decision_luck');
   assert.ok(g, 'a grade.decision_luck row for offers');
-  assert.equal(g.value.items.length, 1);
+  assert.equal(g.value.items.length, 1, JSON.stringify(g.value.excluded));
   const [first] = g.value.items;
   assert.equal(first.format_key, 'rd_sf1_t12_ppr1', 'the format in force at 09-12, not the 09-14 change (t10)');
   assert.equal(first.decision, 600, 'get 9202 (5600) minus give 9201 (5000), the values in force at proposed_at');
@@ -468,7 +468,7 @@ test('D2: a rec\'s decision is its before-the-fact forecast; luck is where the r
   const it = trade.value.items[0];
   assert.equal(it.decision, 1, 'the median of the before-the-fact distribution');
   assert.equal(it.luck, 2);
-  assert.ok(Math.abs(it.pit - (0.5 + 0.4 * (2 / 3))) < 1e-9, `PIT ${it.pit}`);
+  assert.ok(Math.abs(it.pit - (0.5 + 0.4 * (2 / 3))) < 1e-6, `PIT ${it.pit} (stored to 6 dp)`);
   assert.equal(trade.value.pit_ks.n, 1, 'PIT uniformity is checked per stream');
   assert.equal(gradeRow('rec.waiver@considered', 'grade.decision_luck'), null, 'an ungraded rec has no grade');
 });

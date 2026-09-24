@@ -18,18 +18,20 @@
  * served plan names a backup: the best other scored path to the same target
  * that shares the steps before it, and what it is worth from there.
  *
- * Search is two-stage, because exact rescores are the cost: a cheap linear
- * estimate (sum of single-player title values) ranks every candidate, then a
- * shortlist is rescored exactly. The shortlist is taken per bucket (direct
+ * Search is two-stage, because exact rescores are the cost (each replays the
+ * season): A.quick(state), Nick's expected starting-lineup points, ranks every
+ * candidate and shortlists the targets, then only the targets' gains and a
+ * shortlist of paths are rescored exactly. The shortlist is taken per bucket (direct
  * 1-for-1, direct 2-for-1, direct 1-for-2, chip paths of 1-for-1s, chip paths
- * with a two-player side) and scored round-robin, so the 1-for-1 arm is
+ * with a two-player side) and scored round-robin across targets and buckets, so the 1-for-1 arm is
  * always scored on its own merits and a budget cut trims every arm evenly.
  * That makes the IDEA-038 comparison (best path with a 2-for-1 vs best
  * 1-for-1-only path, same world, same seeds) a measurement, not a by-product.
  *
  * The adapter (world-adapter.js on a real league, a fake in the tests):
  *   me, teams[], blocked:Set, freeAgents[], roster(team) -> ids, value(id),
- *   tradable(id), rescore(state) -> { title_before, title_after, title_delta,
+ *   tradable(id), quick(state) -> Nick's expected lineup points (cheap),
+ *   rescore(state) -> { title_before, title_after, title_delta,
  *   title_delta_se, clears }, pAccept(team, theyGive, theyGet) -> { p, low, high, basis },
  *   claimP(id) -> { p, basis, reason? }, now() -> ms.
  * `state` is a Map team -> ids holding only the rosters that changed.
@@ -43,7 +45,7 @@ export const CLAIM_PARTNER = 'waivers';
 export const PLAN_DEFAULTS = Object.freeze({
   maxTargets: 3, twoForOne: true, claims: true, chips: true,
   budgetMs: 240_000, maxRescores: 5000,
-  chipLimit: 150, perBucket: 8, pairLimit: 60, fillers: 4, deck: 5, untouchables: []
+  chipLimit: 150, perBucket: 5, pairLimit: 60, fillers: 4, deck: 5, untouchables: []
 });
 
 export class BudgetExceeded extends Error {}
@@ -90,7 +92,7 @@ const sig = s => `${s.kind}|${s.partner}|${[...s.give].sort().join('+')}>${[...s
 export function planAcquisition(A, opts = {}) {
   const o = { ...PLAN_DEFAULTS, ...opts };
   const t0 = A.now();
-  const stats = { rescores: 0, truncated: null, candidates: 0, scored: 0, phases_ms: {} };
+  const stats = { rescores: 0, rescore_ms: 0, quick: 0, truncated: null, candidates: 0, scored: 0, phases_ms: {} };
   const untouch = new Set(o.untouchables);
   const memo = new Map();
   const keyOf = s => JSON.stringify([...s.entries()].map(([k, v]) => [k, [...v].sort((a, b) => (a > b ? 1 : a < b ? -1 : 0))])
@@ -104,7 +106,9 @@ export function planAcquisition(A, opts = {}) {
     if (stats.rescores >= o.maxRescores) throw new BudgetExceeded(`rescore cap ${o.maxRescores} reached`);
     overBudget();
     stats.rescores++;
+    const t = A.now();
     const r = A.rescore(s);
+    stats.rescore_ms += A.now() - t;
     memo.set(k, r);
     return r;
   };
@@ -122,41 +126,53 @@ export function planAcquisition(A, opts = {}) {
   const orig = new Set(base.get(A.me));
   const phase = (name, fn) => { const t = A.now(); try { return fn(); } finally { stats.phases_ms[name] = A.now() - t; } };
 
-  /* ---- 0. single-player title values (exact) ---- */
-  const addN = new Map(), addSe = new Map(), lossN = new Map();
-  const values = () => {
-    for (const t of partners) for (const pid of base.get(t).filter(A.tradable)) {
-      const r = rescore(applyStep(new Map(), { kind: 'trade', partner: t, give: [], get: [pid] }));
-      addN.set(pid, r.title_delta); addSe.set(pid, r.title_delta_se);
-    }
-    for (const pid of base.get(A.me).filter(A.tradable)) {
-      lossN.set(pid, rescore(new Map([[A.me, base.get(A.me).filter(x => x !== pid)]])).title_delta);
-    }
-    if (o.claims) for (const fa of A.freeAgents) {
-      const r = rescore(new Map([[A.me, [...base.get(A.me), fa]]]));
-      addN.set(fa, r.title_delta); addSe.set(fa, r.title_delta_se);
-    }
-  };
-  try { phase('values', values); } catch (e) {
-    if (!(e instanceof BudgetExceeded)) throw e;
-    stats.truncated = `single-player values: ${e.message}`;
-    return { targets: [], plans: [], deck: [], stats: finish(stats, A, t0), values: { addN, lossN } };
-  }
+  /* ---- 0. quick values: Nick's expected lineup points, no season replay ---- */
+  // An exact rescore replays the season (~1 s or more on a real league), so it is
+  // spent only on shortlisted paths and target gains. Every ranking before that
+  // uses A.quick(state): Nick's expected starting-lineup points over the
+  // simulated weeks, which is cheap and moves with the same roster changes.
+  const qMemo = new Map();
+  const q0 = A.quick(new Map());
   const lin = s => {
-    let v = 0;
-    const fin = new Set(rosterOf(s, A.me));
-    for (const id of fin) if (!orig.has(id)) v += addN.get(id) ?? 0;
-    for (const id of orig) if (!fin.has(id)) v += lossN.get(id) ?? 0;
-    return v;
+    const k = keyOf(s);
+    if (!qMemo.has(k)) { stats.quick++; qMemo.set(k, A.quick(s) - q0); }
+    return qMemo.get(k);
   };
+  const addQ = new Map(), lossQ = new Map(), addN = new Map(), addSe = new Map();
+  phase('quick_values', () => {
+    for (const t of partners) for (const pid of base.get(t).filter(A.tradable)) {
+      addQ.set(pid, lin(applyStep(new Map(), { kind: 'trade', partner: t, give: [], get: [pid] })));
+    }
+    for (const pid of base.get(A.me).filter(A.tradable)) lossQ.set(pid, lin(new Map([[A.me, base.get(A.me).filter(x => x !== pid)]])));
+    if (o.claims) for (const fa of A.freeAgents) addQ.set(fa, lin(new Map([[A.me, [...base.get(A.me), fa]]])));
+  });
 
-  /* ---- targets ---- */
+  /* ---- targets: shortlisted on quick value, chosen on exact title value ---- */
   const ownerOfBase = pid => A.teams.find(t => base.get(t).includes(pid)) ?? null;
-  let targetIds;
-  if (o.target != null) targetIds = [o.target];
-  else {
-    targetIds = [...addN.entries()].filter(([pid]) => { const ow = ownerOfBase(pid); return ow && ow !== A.me && !A.blocked.has(ow); })
-      .sort((a, b) => b[1] - a[1]).slice(0, o.maxTargets).map(([pid]) => pid);
+  const exactGain = pid => {
+    const ow = ownerOfBase(pid);
+    const r = rescore(applyStep(new Map(), { kind: 'trade', partner: ow, give: [], get: [pid] }));
+    addN.set(pid, r.title_delta); addSe.set(pid, r.title_delta_se);
+  };
+  let targetIds = [];
+  try {
+    phase('targets', () => {
+      if (o.target != null) {
+        targetIds = [o.target];
+        const ow = ownerOfBase(o.target);
+        if (ow && ow !== A.me) exactGain(o.target);
+        return;
+      }
+      const cands = [...addQ.keys()].filter(pid => { const ow = ownerOfBase(pid); return ow && ow !== A.me && !A.blocked.has(ow); })
+        .sort((x, y) => addQ.get(y) - addQ.get(x)).slice(0, o.maxTargets * 2);
+      for (const pid of cands) exactGain(pid);
+      targetIds = cands.sort((x, y) => addN.get(y) - addN.get(x)).slice(0, o.maxTargets);
+    });
+  } catch (e) {
+    if (!(e instanceof BudgetExceeded)) throw e;
+    stats.truncated = `target values: ${e.message}`;
+    stats.two_for_one = twoForOneSummary([]);
+    return { targets: [], plans: [], deck: [], stats: finish(stats, A, t0), values: { addQ, lossQ, addN } };
   }
 
   /* ---- P(yes), cached ---- */
@@ -177,7 +193,7 @@ export function planAcquisition(A, opts = {}) {
     if (!allow2) return out;
     for (const give of pairsInBand(mine, band, { limit: o.pairLimit })) out.push({ kind: 'trade', partner: owner, give, get: [target] });
     const fillers = rosterOf(s, owner).filter(id => id !== target && A.tradable(id))
-      .sort((a, b) => (addN.get(b) ?? 0) - (addN.get(a) ?? 0)).slice(0, o.fillers);
+      .sort((a, b) => (addQ.get(b) ?? 0) - (addQ.get(a) ?? 0)).slice(0, o.fillers);
     for (const f of fillers) {
       for (const give of onesInBand(mine, fairBand(A.value(target) + A.value(f)))) out.push({ kind: 'trade', partner: owner, give, get: [target, f] });
     }
@@ -206,7 +222,7 @@ export function planAcquisition(A, opts = {}) {
     out.push(...kept);
     if (o.claims && A.freeAgents.length) {
       // The cut: the player whose loss costs Nick least, cheapest first.
-      const drop = mine.map(x => x.id).sort((a, b) => (lossN.get(b) ?? 0) - (lossN.get(a) ?? 0) || A.value(a) - A.value(b))[0];
+      const drop = mine.map(x => x.id).sort((a, b) => (lossQ.get(b) ?? 0) - (lossQ.get(a) ?? 0) || A.value(a) - A.value(b))[0];
       if (drop != null) for (const fa of A.freeAgents) out.push({ kind: 'claim', partner: CLAIM_PARTNER, give: [drop], get: [fa] });
     }
     return out;
@@ -217,10 +233,11 @@ export function planAcquisition(A, opts = {}) {
     return pathExpectation(steps.map(st => { s = applyStep(s, st); return { p: price(st).p, delta: lin(s) }; })).expected;
   };
 
-  /* ---- search, per target ---- */
+  /* ---- search: enumerate every target's candidates, then score round-robin ---- */
   const plans = [];
   const targets = [];
-  const search = () => {
+  const enumerate = () => {
+    const out = [];
     for (const target of targetIds) {
       const owner = ownerOfBase(target);
       if (!owner || owner === A.me) { targets.push({ target, owner, error: owner === A.me ? 'already on your roster' : 'not on any roster' }); continue; }
@@ -252,11 +269,18 @@ export function planAcquisition(A, opts = {}) {
         }
       }
       const lists = Object.values(buckets).map(l => { l.sort((a, b) => b.h - a.h); stats.candidates += l.length; return l.slice(0, o.perBucket); });
-      const tp = { target, owner, gain_if_landed: addN.get(target) ?? null, gain_se: addSe.get(target) ?? null,
-        fair_direct: Object.fromEntries(Object.entries(buckets).map(([k, l]) => [k, l.length])) };
-      targets.push(tp);
-      const seen = new Set();
-      for (let r = 0; r < o.perBucket; r++) {
+      targets.push({ target, owner, gain_if_landed: addN.get(target) ?? null, gain_se: addSe.get(target) ?? null,
+        fair_direct: Object.fromEntries(Object.entries(buckets).map(([k, l]) => [k, l.length])) });
+      out.push({ target, owner, lists });
+    }
+    return out;
+  };
+  // Round-robin over rank, then target, then bucket: a budget cut trims every
+  // target and every arm evenly instead of starving the last target.
+  const score = work => {
+    const seen = new Set();
+    for (let r = 0; r < o.perBucket; r++) {
+      for (const { target, owner, lists } of work) {
         for (const l of lists) {
           const c = l[r];
           if (!c) continue;
@@ -281,7 +305,10 @@ export function planAcquisition(A, opts = {}) {
     return { target, owner, steps, depth: steps.length, chained: isChained(steps), one_for_one_only: oneForOneOnly(steps),
       heuristic: c.h, ...pathExpectation(steps) };
   };
-  try { phase('search', search); } catch (e) {
+  try {
+    const work = phase('enumerate', enumerate);
+    phase('score', () => score(work));
+  } catch (e) {
     if (!(e instanceof BudgetExceeded)) throw e;
     stats.truncated = `path search: ${e.message}`;
   }
@@ -306,7 +333,7 @@ export function planAcquisition(A, opts = {}) {
     deck.push({ ...p, backups: p.steps.map((_, i) => backupFor(plans, p, i)) });
   }
   stats.two_for_one = twoForOneSummary(targets);
-  return { targets, plans, deck, stats: finish(stats, A, t0), values: { addN, lossN } };
+  return { targets, plans, deck, stats: finish(stats, A, t0), values: { addQ, lossQ, addN } };
 }
 
 /** Where Nick stands going into step i of `steps`, and what the rest is worth from there. */

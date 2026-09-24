@@ -12,7 +12,7 @@
  *
  * Usage (on a DB copy):
  *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<copy> node scripts/acq/produce-acq-plans.mjs \
- *     [--leagues 4] [--target <asset id>] [--finder] [--budget-ms 240000] [--free-agents 6] [--out <file>] [--no-write]
+ *     [--leagues 4] [--target <asset id>] [--finder] [--budget-ms <ms>, default 270 s minus the world build] [--free-agents 6] [--out <file>] [--no-write]
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -22,7 +22,7 @@ import { pathToFileURL } from 'node:url';
 process.env.SCHEDULER_DISABLED = '1';
 
 export function parseArgs(argv) {
-  const o = { leagues: [4], target: null, finder: false, budgetMs: 240_000, freeAgents: 6, out: null, write: true };
+  const o = { leagues: [4], target: null, finder: false, budgetMs: null, freeAgents: 6, out: null, write: true };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--leagues') o.leagues = argv[++i].split(',').map(Number);
@@ -47,13 +47,15 @@ export function summary(out) {
   if (out.skipped) return { skipped: true, reason: out.reason };
   if (out.error) return { league: out.league, error: out.error };
   const { res, meta, entry, finder } = out;
-  const tf = res.stats.two_for_one;
+  const tf = res.stats.two_for_one ?? { targets: 0, missed_by_one_for_one: 0, one_for_one_finds_nothing: 0, rows: [] };
   const plan = p => p && { target: p.target, depth: p.depth, shapes: p.steps.map(s => s.shape), p_complete: r4(p.p_complete),
     delta_final: r4(p.delta_final), expected: r4(p.expected), expected_se: r4(p.expected_se), chained: p.chained };
   return {
     league: meta.league, me: meta.me, runs: meta.runs, sanity_composed_equals_direct: meta.sanity,
     world_ms: meta.world_ms, plan_ms: res.stats.runtime_ms, total_ms: meta.total_ms, under_300s: meta.total_ms < 300_000,
-    rescores: res.stats.rescores, candidates: res.stats.candidates, scored: res.stats.scored, truncated: res.stats.truncated,
+    rescores: res.stats.rescores, rescore_ms: res.stats.rescore_ms,
+    ms_per_rescore: res.stats.rescores ? Math.round(res.stats.rescore_ms / res.stats.rescores) : null, quick: res.stats.quick,
+    candidates: res.stats.candidates, scored: res.stats.scored, truncated: res.stats.truncated,
     phases_ms: res.stats.phases_ms, targets: res.targets.map(t => t.target), deck: res.deck.length,
     best: plan(res.deck[0]), backups_on_best: res.deck[0]?.backups.map(b => (b ? r4(b.expected) : null)) ?? [],
     idea_038: { targets: tf.targets, missed_by_one_for_one: tf.missed_by_one_for_one, one_for_one_finds_nothing: tf.one_for_one_finds_nothing,

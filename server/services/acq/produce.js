@@ -14,6 +14,9 @@ import { previewUnconfirmed, previewFields } from '../preview-mode.js';
 import { planAcquisition, PLAN_DEFAULTS } from './planner.js';
 import { leagueEntry } from './contract.js';
 
+/** The whole run (world build + search) stays under 300 s per league with margin. */
+export const TOTAL_BUDGET_MS = 270_000;
+
 export const ACQ_PREVIEW_REASON = 'ACQ-01 planner: P(yes) is today\'s unfitted acceptance model (edge test assumed passed on every step) '
   + 'and claims are assumed to land; the path search is not yet graded against real offers.';
 
@@ -52,7 +55,9 @@ export async function produceAcq(leagueId, opts = {}) {
   if (built.error) return { error: built.error, league: Number(leagueId) };
   const { adapter, meta } = built;
   const worldMs = Date.now() - t0;
-  const planOpts = Object.fromEntries(Object.keys(PLAN_DEFAULTS).filter(k => k in opts).map(k => [k, opts[k]]));
+  const planOpts = Object.fromEntries(Object.keys(PLAN_DEFAULTS).filter(k => opts[k] != null).map(k => [k, opts[k]]));
+  // One end-to-end budget: what the world build spent comes off the search's share.
+  if (planOpts.budgetMs == null) planOpts.budgetMs = Math.max(30_000, TOTAL_BUDGET_MS - worldMs);
   if (opts.target != null) planOpts.target = opts.target;
   const res = planAcquisition(adapter, planOpts);
   let finder = null;

@@ -12,6 +12,8 @@
  * 2300), so no 1-for-1 is screen-fair for him, while two mid pieces (2100 +
  * 2000 = 4100) are.
  *
+ * Quick value: Nick's strength (the lineup-points stand-in).
+ *
  * P(yes): a base rate per team, up 0.1 when he gets more market value than he
  * gives, and up 0.15 when he gets a TE and wants one (team 2). Band = mid +/- 0.1.
  */
@@ -59,6 +61,7 @@ export function makeAdapter({ ps = players(), rosters = ROSTERS(), base = { 2: 0
     roster: k => [...rosters.get(k)],
     value,
     tradable: id => ['QB', 'RB', 'WR', 'TE'].includes(ps.get(id)?.position) && value(id) > 0,
+    quick: state => strength(state.get('1') ?? rosters.get('1')),
     rescore: state => {
       rescores++;
       const after = odds(state).get('1');

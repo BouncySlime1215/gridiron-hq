@@ -60,6 +60,16 @@ export function leagueAdapter(leagueId, { freeAgents = 6, now = () => Date.now()
     }
     return out;
   };
+  // Quick value: Nick's expected starting-lineup points summed over the simulated
+  // weeks, with each player at his expected score (no draws, no season replay).
+  const expectedPoints = ids => {
+    const players = ids.map(id => assets.get(id)).filter(Boolean);
+    let total = 0;
+    for (const [, { expected }] of w.draws) total += lineupPoints(players, w.prep.slots, expected, expected);
+    return total;
+  };
+  const baseMine = w.prep.teams.find(t => t.roster_id === me)?.players.map(p => p.id) ?? [];
+  const quick = state => expectedPoints(state.get(me) ?? baseMine);
   const other = w.prep.teams.find(t => t.roster_id !== me)?.roster_id;
   const rescoreFull = state => {
     const teams = w.prep.teams.map(t => (state.has(t.roster_id)
@@ -114,6 +124,7 @@ export function leagueAdapter(leagueId, { freeAgents = 6, now = () => Date.now()
     roster: t => w.prep.teams.find(x => x.roster_id === t).players.map(p => p.id),
     value,
     tradable: id => SCORED.has(assets.get(id)?.position) && value(id) > 0,
+    quick,
     rescore,
     pAccept,
     claimP: () => ({ p: 1, basis: 'assumed', reason: CLAIM_REASON }),

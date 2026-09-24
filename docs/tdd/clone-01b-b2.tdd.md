@@ -112,6 +112,36 @@ everything): clone −0.054 [−0.147, −0.006]. The declared `m = 15` shrinks
 harder than the baseline's 5, so with managers this different it loses; the
 grade is sensitive in that direction, which is the known-nonzero case.
 
+## Pre-registration, Arm 1 (Sleeper waiver choices), fixed before the run (FIX-288-6)
+
+Committed before `scripts/rnd/grade-clone-arm1.mjs` exists or has run.
+Spec: CLONE-01b "PRE clone test, Arm 1 (primary): Sleeper 2024 waiver choices,
+managers with >= 10 prior claims."
+
+- **Data.** A `sqlite3 .backup` copy of `data/derived/sleeper_history.sqlite`, and
+  a copy of the app DB for the Sleeper id -> position map (`off_sleeper_players`,
+  else `players`). The query reads season 2024 only; 2025 is never opened.
+- **Events.** `sh_transactions` rows, `type = 'waiver'`, `status = 'complete'`,
+  exactly one add, in a 2024 league. Ordered by week, then `created_ms`, then `seq`.
+  Manager = (league, roster) within the 2024 league-season.
+- **Outcome.** The position of the claimed player: QB, RB, WR, TE, K or DEF
+  (a team-abbreviation id is DEF). An unmapped player is counted and skipped.
+- **Graded events.** Claims by a manager who already has >= 10 complete one-add
+  claims earlier in that league-season (prequential: only earlier claims are used).
+- **What is tested.** Waivers have no price and no decline, so the price-relevance
+  weighting and the price bound cannot be tested here; motive and activity are
+  also left out. Arm 1 tests the clone's per-manager update, the categorical form
+  of the shipped rule `(k + m*p0) / (n + m)` at the shipped `m = 15`.
+  - pool `p0`: the league's earlier claims by position, `(count + 1) / (N + 6)`
+  - **clone:** `(his count + 15 * p0) / (his n + 15)`
+  - **baseline (primary):** EVAL E1's activity-only shape, `(his count + 5 * p0) / (his n + 5)`
+  - **population (secondary):** `p0` alone, which is the clone at n = 0
+- **Metric.** Mean per-claim log-loss gain = LL(baseline) - LL(clone), with a
+  manager-clustered bootstrap 90% CI (1,000 resamples, seed 7).
+- **Rule.** Pass: CI lower > 0. Fail: CI upper < 0 (the m = 15 strength is revisited).
+  Otherwise: not decided. **Ship (spec):** only if Arm 1 passes AND Arm 2 is not
+  worse in direction; else the flag stays default-off.
+
 ## Five questions
 
 1. **Well built?** Pure functions in trade-acceptance.js, one writer in

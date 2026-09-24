@@ -712,6 +712,33 @@ async function refreshManagerArchetypes() {
 }
 
 /**
+ * CRED-01 nightly: per-manager credibility (follow-through lift per statement
+ * type x manager, 7d/21d, shrunk to the league, as-of versioned) into
+ * people_credibility. A child process like the archetype build, so the
+ * transaction replay stays off this thread.
+ *
+ * Behind GRIDIRON_PEOPLE_CREDIBILITY=1 (default off): its statement labels
+ * (GRIDIRON_PEOPLE_LABELS_DIR) and the chat DB exist only on Nick's Mac. With
+ * the flag off the job records a skip, never an empty table that reads as
+ * "every manager is noise". The script itself skips when an input is missing.
+ */
+async function refreshPeopleCredibility() {
+  if (process.env.GRIDIRON_PEOPLE_CREDIBILITY !== '1') return { skipped: 'flag off (GRIDIRON_PEOPLE_CREDIBILITY)' };
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const path = await import('node:path');
+  const { PROJECT_ROOT } = await import('../platform/paths.js');
+  const script = path.join(PROJECT_ROOT, 'scripts/people/credibility.mjs');
+  const league = process.env.GRIDIRON_PEOPLE_CREDIBILITY_LEAGUE || '4';
+  const { stdout } = await promisify(execFile)(process.execPath, [script, '--league', league, '--json'],
+    { cwd: PROJECT_ROOT, env: process.env, encoding: 'utf8', timeout: 5 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+  const report = JSON.parse(stdout.trim().split('\n').at(-1));
+  if (report.status === 'error') throw new Error(`people credibility: ${report.error}`);
+  return { status: report.status, reason: report.reason ?? null, as_of: report.as_of ?? null,
+    rows: report.stored ?? 0, by_status: report.by_status ?? null };
+}
+
+/**
  * The historical facts the manager layer stands on: each league-season's final
  * standings (`league_season_teams`) and weekly scores (`league_week_scores`).
  *
@@ -1579,6 +1606,8 @@ export const JOBS = {
     label: 'League history: final standings and weekly scores per league-season (ESPN, paced)' },
   manager_archetypes: { run: refreshManagerArchetypes, maxAgeMinutes: 24 * 60, tier: 'heavy', timeoutMs: 10 * 60_000,
     label: 'Manager archetypes: draft-revealed preference and all-play/luck outcomes (child process)' },
+  people_credibility: { run: refreshPeopleCredibility, maxAgeMinutes: 24 * 60, tier: 'heavy', timeoutMs: 6 * 60_000,
+    label: 'People credibility: follow-through lift per statement type x manager, nightly (CRED-01, flagged, child process)' },
   /*
    * Prop quote capture. Every hour during a slate, because a prop line that is
    * only observed once cannot yield closing-line value — CLV needs the price

@@ -30,6 +30,11 @@
  *                                                GET /api/number-audit (#237, GRIDIRON_NUMBER_HEALTH)
  *   - offer-loop-flag.js#offerLoopFields         TradeCard "I sent this" and /offers/sent
  *                                                (#239, GRIDIRON_OFFER_LOOP)
+ *   - one-world.js#oneWorldFlag                  one set of draws per NFL week behind the title
+ *                                                odds, trade cards, ceiling lineup and posture
+ *                                                (EA-07; GRIDIRON_ONE_WORLD=0 vetoes preview)
+ *   - price-band.js#priceBandV2Flag              fitted 80% accept band on the offer ladders
+ *                                                (PRICE-BAND-01; GRIDIRON_PRICE_BAND_V2=0 vetoes preview)
  *   - monday-autopsy.js#mondayAutopsyFields     GET /api/trades/:leagueId/autopsy and the My team
  *                                                Monday Autopsy card (#251, GRIDIRON_MONDAY_AUTOPSY)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.

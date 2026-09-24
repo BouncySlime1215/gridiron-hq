@@ -57,7 +57,7 @@ Each mutant applied alone to the GREEN tree, `test/fix-07-warroom-inputs.test.js
 | M9 mode.set not folded | requests.js#foldRequests | killed (G1, G3) |
 | M10 call-site query reads `sent_at IS NULL` | league-adapter.mjs#sentThisWeek | killed (G8) |
 | C1 control: comment text edited | requests.js | survived (designed) |
-| C2 control: pattern absent from file | script check | reported NOT APPLIED, not run (designed) |
+| C2 control: `objective.risk_mode = p.modeX;` (absent from the file) | requests.js | reported NOT APPLIED, not run (designed) |
 
 Standing gaps (no test drives these call sites): `produce-plans.mjs#main`
 calling `leagueInputs` / `consumeWith` (main needs the full sim), the WR-3

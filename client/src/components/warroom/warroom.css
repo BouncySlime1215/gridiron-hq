@@ -115,6 +115,22 @@
 .wr-state-failed { color: var(--wr-danger); border-color: color-mix(in srgb, var(--wr-danger) 40%, transparent); background: var(--wr-danger-tint); }
 .wr-banner { font-size: 11px; color: var(--wr-muted); border-left: 3px solid var(--wr-subtle); padding: 2px 8px; margin-bottom: 6px; }
 
+/* ---------- coach brief (COACH-BRIEF-UI): top of the Coach dock ---------- */
+.wr-brief { border-bottom: 1px solid var(--wr-line); padding-bottom: 6px; margin-bottom: 6px; }
+.wr-brief-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.wr-brief-top .wr-cap { margin-top: 0; }
+.wr-brief-kinds { display: inline-flex; gap: 4px; margin-left: auto; }
+.wr-brief-kinds .wr-xp.wr-on { background: var(--wr-ink); color: var(--wr-bg); border-color: var(--wr-ink); }
+.wr-brief-list { list-style: none; margin: 4px 0 0; padding: 0; font-size: 12px; }
+.wr-brief-claim { margin: 3px 0; line-height: 1.35; }
+.wr-brief-h { display: block; font-size: 9.5px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: var(--wr-muted); margin-top: 6px; }
+.wr-brief-unknown { color: var(--wr-muted); font-style: italic; }
+.wr-cite { border: 1px solid var(--wr-line); background: var(--wr-surface); color: var(--wr-info); border-radius: 4px; font-size: 9.5px; font-weight: 800;
+  line-height: 1; padding: 1px 4px; margin-left: 3px; vertical-align: 1px; cursor: pointer; }
+.wr-cite.wr-on { background: var(--wr-info-tint); border-color: var(--wr-info); }
+.wr-brief-src { font-size: 10.5px; color: var(--wr-muted); background: var(--wr-surface); border-left: 3px solid var(--wr-info); padding: 3px 6px; margin-top: 3px; overflow-wrap: anywhere; }
+.wr-brief-err { color: var(--wr-danger); }
+
 /* ---------- next move deck ---------- */
 .wr-mv-top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .wr-count { font-size: 11px; font-weight: 900; color: var(--wr-muted); }

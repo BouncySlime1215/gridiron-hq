@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import CoachBrief from './CoachBrief';
 import type { WarRoomCoach } from './useWarRoomCoach';
 import PlugInCard from './PlugInCard';
 import { NOT_COMPUTED, pts, size } from '../format';
@@ -69,6 +70,7 @@ export default function CoachDock({ coach, plans, open = true, onToggle }: { coa
         <span className="wr-tog" aria-hidden>{open ? '▼' : '▲'}</span>
       </div>
       <div className="wr-chat" aria-live="polite">
+        <CoachBrief leagueId={plans?.league_id} />
         {coach.error && (
           <div role="alert" className="wr-state wr-state-failed">
             {coach.error} <button type="button" className="wr-link" onClick={coach.clearError}>Dismiss</button>

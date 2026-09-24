@@ -59,8 +59,14 @@ function streamer(onRecord) {
   };
 }
 
-/** Fetches an nflverse CSV (plain or gzipped) and calls `onRow` with a row object. */
-async function eachRow(url, onRow) {
+/**
+ * Fetches an nflverse CSV (plain or gzipped) and calls `onRow` with a row object.
+ *
+ * Exported for nfl-roster-weekly.js, which reads the same release host in the same
+ * shape. There are already two copies of this parser in the tree (here and
+ * play-by-play); a third would be the one that drifts.
+ */
+export async function eachRow(url, onRow) {
   const res = await fetch(url, { signal: AbortSignal.timeout(180000) });
   if (!res.ok) throw new Error(`${url} -> HTTP ${res.status}`);
   let header = null;

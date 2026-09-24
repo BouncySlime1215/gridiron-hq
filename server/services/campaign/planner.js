@@ -120,7 +120,7 @@ export function planLeague(adapter, settings) {
   const overpay = newOverpaySink(maxOverpay);
   const vals = playerValues(S, adapter, objective);
   mark('values');
-  // REACH-01 (flag GRIDIRON_REACH, or preview): off, the chained finish and flipReach stay at 2 gives
+  // REACH-01 (flag GRIDIRON_REACH=1 only; default off): off, the chained finish and flipReach stay at 2 gives
   // and every top-N upgrade is searched, as before. On, both follow the risk mode's max give and a
   // target no package could read fair for is skipped before the top-N slice (reach.js).
   const reachMode = reachFlag(env);

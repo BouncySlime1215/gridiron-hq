@@ -17,23 +17,22 @@
  * plus the search-level counts (steps the no-overpay cap turned away, targets skipped as out of
  * reach). Counts of numbers the planner already computes; nothing is priced here.
  *
- * Flag GRIDIRON_REACH: '1' on, '0' off, unset follows the preview switch. On, the planner filters
- * targets on reach, and the chained finish and flipReach package up to the mode's max give.
+ * Flag GRIDIRON_REACH: '1' on; anything else (unset included) off. The preview switch does NOT turn
+ * it on: it stays off until the league-4 measurement passes (the project's "nothing unproven moves a
+ * number Nick sees"). On, the planner filters targets on reach, the chained finish and flipReach
+ * package up to the mode's max give, and the loop searches REACH_TARGETS targets.
  */
 import { fairBand, SCREEN_WINDOW } from './paths.js';
 import { TOLERANCE_CODES, MODES } from './modes.js';
-import { PREVIEW_ENV } from '../preview-mode.js';
 
 export const REACH_ENV = 'GRIDIRON_REACH';
 /** Targets the loop searches with the flag on (ONE-PLAN night 1: 8, up from 3). */
 export const REACH_TARGETS = 8;
 const EPS = 1e-9;
 
-/** 'on' (=1), 'off' (=0, which vetoes preview), 'preview' (unset, preview on) or 'off'. */
+/** 'on' only when GRIDIRON_REACH=1; unset, 0 or anything else is 'off' (preview does not turn it on). */
 export function reachFlag(env = process.env) {
-  if (env?.[REACH_ENV] === '1') return 'on';
-  if (env?.[REACH_ENV] === '0') return 'off';
-  return env?.[PREVIEW_ENV] === '1' ? 'preview' : 'off';
+  return env?.[REACH_ENV] === '1' ? 'on' : 'off';
 }
 
 const topSum = (vals, k) => [...vals].sort((a, b) => b - a).slice(0, k).reduce((s, v) => s + v, 0);

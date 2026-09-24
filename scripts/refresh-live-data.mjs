@@ -242,7 +242,7 @@ export function warRoomPlans({ launch = launchDetached, log = console.log, recor
     return;
   }
   const only = warRoomLeagues(env);
-  // REACH-01: with GRIDIRON_REACH on (or preview) the loop searches 8 targets (ONE-PLAN night 1), else the producer's 3.
+  // REACH-01: with GRIDIRON_REACH=1 (default off) the loop searches 8 targets (ONE-PLAN night 1), else the producer's 3.
   const reach = reachFlag(env) !== 'off';
   const pid = launch(process.execPath, ['--env-file-if-exists=.env', 'scripts/campaign/produce-plans.mjs',
     ...(only ? ['--leagues', only] : []), ...(reach ? ['--targets', String(REACH_TARGETS)] : [])], { cwd: ROOT, env, log: files.log });

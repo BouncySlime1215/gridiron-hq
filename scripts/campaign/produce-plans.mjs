@@ -193,7 +193,7 @@ function readPrevious(file) {
 }
 
 function args(argv) {
-  // REACH-01: with GRIDIRON_REACH on (or preview) the default search covers 8 targets, else 3.
+  // REACH-01: with GRIDIRON_REACH=1 the default search covers 8 targets, else 3 (default off).
   const out = { leagues: null, flipTop: 3, targets: reachFlag() !== 'off' ? REACH_TARGETS : 3, finder: true, tick: false };
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === '--leagues') {

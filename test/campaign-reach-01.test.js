@@ -21,10 +21,10 @@ const ON = { [REACH_ENV]: '1' }, OFF = { [REACH_ENV]: '0' };
 
 /* ---------------------------------------------------------------- the flag */
 
-test('flag: 1 on, 0 off, unset follows preview', () => {
+test('flag: only 1 turns it on; unset is off even under preview (unproven until league 4 is measured)', () => {
   assert.equal(reachFlag({ [REACH_ENV]: '1' }), 'on');
   assert.equal(reachFlag({ [REACH_ENV]: '0', GRIDIRON_PREVIEW_UNCONFIRMED: '1' }), 'off');
-  assert.equal(reachFlag({ GRIDIRON_PREVIEW_UNCONFIRMED: '1' }), 'preview');
+  assert.equal(reachFlag({ GRIDIRON_PREVIEW_UNCONFIRMED: '1' }), 'off');
   assert.equal(reachFlag({}), 'off');
   assert.equal(REACH_TARGETS, 8);
 });

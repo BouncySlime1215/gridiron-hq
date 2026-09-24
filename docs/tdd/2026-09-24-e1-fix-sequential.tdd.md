@@ -35,6 +35,6 @@ across the eval and brain-report files.
 | only the anytime-valid rule fails E1 | inverted model at n = 12 warns on slope, not failing |
 | E2 sequential | 95% accepted where 50% predicted: failing at 20 offers |
 
-The last row's test was added in the GREEN phase, after benchmarking showed the
+The "only the anytime-valid rule fails E1" test was added in the GREEN phase, after benchmarking showed the
 slope interval would have flagged an inverted model at n = 9. Full `npm test`
 on the GREEN tree: 4833 tests, 4791 pass, 0 fail.

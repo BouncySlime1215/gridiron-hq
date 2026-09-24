@@ -2840,6 +2840,22 @@
        "get": [
         "22"
        ]
+      },
+      "no_trade": {
+       "expected": {
+        "status": "ok",
+        "value": 0,
+        "source": "plan.path",
+        "unit": "title_odds"
+       },
+       "p_complete": {
+        "status": "ok",
+        "value": 1,
+        "source": "plan.path",
+        "unit": "probability"
+       },
+       "pick": "plan",
+       "why": "The best plan scores above keeping your roster."
       }
      },
      {
@@ -2874,6 +2890,22 @@
        "get": [
         "22"
        ]
+      },
+      "no_trade": {
+       "expected": {
+        "status": "ok",
+        "value": 0,
+        "source": "plan.path",
+        "unit": "title_odds"
+       },
+       "p_complete": {
+        "status": "ok",
+        "value": 1,
+        "source": "plan.path",
+        "unit": "probability"
+       },
+       "pick": "plan",
+       "why": "The best plan scores above keeping your roster."
       }
      },
      {
@@ -2908,6 +2940,22 @@
        "get": [
         "11"
        ]
+      },
+      "no_trade": {
+       "expected": {
+        "status": "ok",
+        "value": 0,
+        "source": "plan.path",
+        "unit": "title_odds"
+       },
+       "p_complete": {
+        "status": "ok",
+        "value": 1,
+        "source": "plan.path",
+        "unit": "probability"
+       },
+       "pick": "plan",
+       "why": "The best plan scores above keeping your roster."
       }
      }
     ],
@@ -3492,6 +3540,44 @@
       "status": "off",
       "reason": "GRIDIRON_COACH_MESSAGES unset and preview off"
      }
+    },
+    "shrink": {
+     "status": "shadow",
+     "tau2": 0.004881739235728325,
+     "n": 138,
+     "basis": "empirical Bayes toward the no-trade gain (0); not graded, reads nothing served",
+     "modes": [
+      {
+       "mode": "safe",
+       "best": "3|4+7|22",
+       "shrunk_best": "3|4+7|22",
+       "reorders": false,
+       "best_expected": 0.10134795630851288,
+       "best_shrunk_expected": 0.10128218891328554,
+       "shrunk_best_expected": 0.10128218891328554,
+       "shrunk_pick": "plan"
+      },
+      {
+       "mode": "balanced",
+       "best": "3|4+7|22",
+       "shrunk_best": "3|4+7|22",
+       "reorders": false,
+       "best_expected": 0.10314611506149501,
+       "best_shrunk_expected": 0.10310038828739057,
+       "shrunk_best_expected": 0.10310038828739057,
+       "shrunk_pick": "plan"
+      },
+      {
+       "mode": "all_in",
+       "best": "2|3+6|11",
+       "shrunk_best": "2|3+6|11",
+       "reorders": false,
+       "best_expected": 0.02187968280678477,
+       "best_shrunk_expected": 0.021879612933355747,
+       "shrunk_best_expected": 0.021879612933355747,
+       "shrunk_pick": "plan"
+      }
+     ]
     }
    }
   },
@@ -6608,6 +6694,22 @@
        "get": [
         "22"
        ]
+      },
+      "no_trade": {
+       "expected": {
+        "status": "ok",
+        "value": 0,
+        "source": "plan.path",
+        "unit": "points_per_week"
+       },
+       "p_complete": {
+        "status": "ok",
+        "value": 1,
+        "source": "plan.path",
+        "unit": "probability"
+       },
+       "pick": "plan",
+       "why": "The best plan scores above keeping your roster."
       }
      },
      {
@@ -6642,6 +6744,22 @@
        "get": [
         "22"
        ]
+      },
+      "no_trade": {
+       "expected": {
+        "status": "ok",
+        "value": 0,
+        "source": "plan.path",
+        "unit": "points_per_week"
+       },
+       "p_complete": {
+        "status": "ok",
+        "value": 1,
+        "source": "plan.path",
+        "unit": "probability"
+       },
+       "pick": "plan",
+       "why": "The best plan scores above keeping your roster."
       }
      },
      {
@@ -6676,6 +6794,22 @@
        "get": [
         "11"
        ]
+      },
+      "no_trade": {
+       "expected": {
+        "status": "ok",
+        "value": 0,
+        "source": "plan.path",
+        "unit": "points_per_week"
+       },
+       "p_complete": {
+        "status": "ok",
+        "value": 1,
+        "source": "plan.path",
+        "unit": "probability"
+       },
+       "pick": "plan",
+       "why": "The best plan scores above keeping your roster."
       }
      }
     ],
@@ -7012,6 +7146,44 @@
       "status": "off",
       "reason": "GRIDIRON_COACH_MESSAGES unset and preview off"
      }
+    },
+    "shrink": {
+     "status": "shadow",
+     "tau2": 17.67824523327396,
+     "n": 88,
+     "basis": "empirical Bayes toward the no-trade gain (0); not graded, reads nothing served",
+     "modes": [
+      {
+       "mode": "safe",
+       "best": "3|4+7|22",
+       "shrunk_best": "3|4+7|22",
+       "reorders": false,
+       "best_expected": 6.231521739130436,
+       "best_shrunk_expected": 6.200636797951796,
+       "shrunk_best_expected": 6.200636797951796,
+       "shrunk_pick": "plan"
+      },
+      {
+       "mode": "balanced",
+       "best": "3|4+7|22",
+       "shrunk_best": "3|4+7|22",
+       "reorders": false,
+       "best_expected": 6.4718804347826095,
+       "best_shrunk_expected": 6.443824707343492,
+       "shrunk_best_expected": 6.443824707343492,
+       "shrunk_pick": "plan"
+      },
+      {
+       "mode": "all_in",
+       "best": "2|3+5|11",
+       "shrunk_best": "2|3+5|11",
+       "reorders": false,
+       "best_expected": 1.2799006211180124,
+       "best_shrunk_expected": 1.279869268706155,
+       "shrunk_best_expected": 1.279869268706155,
+       "shrunk_pick": "plan"
+      }
+     ]
     }
    }
   },
@@ -9631,6 +9803,22 @@
        "get": [
         "21"
        ]
+      },
+      "no_trade": {
+       "expected": {
+        "status": "ok",
+        "value": 0,
+        "source": "plan.path",
+        "unit": "title_odds"
+       },
+       "p_complete": {
+        "status": "ok",
+        "value": 1,
+        "source": "plan.path",
+        "unit": "probability"
+       },
+       "pick": "plan",
+       "why": "The best plan scores above keeping your roster."
       }
      },
      {
@@ -9665,6 +9853,22 @@
        "get": [
         "22"
        ]
+      },
+      "no_trade": {
+       "expected": {
+        "status": "ok",
+        "value": 0,
+        "source": "plan.path",
+        "unit": "title_odds"
+       },
+       "p_complete": {
+        "status": "ok",
+        "value": 1,
+        "source": "plan.path",
+        "unit": "probability"
+       },
+       "pick": "plan",
+       "why": "The best plan scores above keeping your roster."
       }
      },
      {
@@ -9700,6 +9904,22 @@
        "get": [
         "11"
        ]
+      },
+      "no_trade": {
+       "expected": {
+        "status": "ok",
+        "value": 0,
+        "source": "plan.path",
+        "unit": "title_odds"
+       },
+       "p_complete": {
+        "status": "ok",
+        "value": 1,
+        "source": "plan.path",
+        "unit": "probability"
+       },
+       "pick": "plan",
+       "why": "The best plan scores above keeping your roster."
       }
      }
     ],
@@ -10098,6 +10318,44 @@
       "status": "off",
       "reason": "GRIDIRON_COACH_MESSAGES unset and preview off"
      }
+    },
+    "shrink": {
+     "status": "shadow",
+     "tau2": 0.004488781026757057,
+     "n": 121,
+     "basis": "empirical Bayes toward the no-trade gain (0); not graded, reads nothing served",
+     "modes": [
+      {
+       "mode": "safe",
+       "best": "3|5+6|21",
+       "shrunk_best": "3|5+6|21",
+       "reorders": false,
+       "best_expected": 0.053228242290398464,
+       "best_shrunk_expected": 0.05319359070511202,
+       "shrunk_best_expected": 0.05319359070511202,
+       "shrunk_pick": "plan"
+      },
+      {
+       "mode": "balanced",
+       "best": "3|4+7|22",
+       "shrunk_best": "3|4+7|22",
+       "reorders": false,
+       "best_expected": 0.10607809571182968,
+       "best_shrunk_expected": 0.10601817683667956,
+       "shrunk_best_expected": 0.10601817683667956,
+       "shrunk_pick": "plan"
+      },
+      {
+       "mode": "all_in",
+       "best": "2|4+6+7|11",
+       "shrunk_best": "2|4+6+7|11",
+       "reorders": false,
+       "best_expected": 0.03677000998338296,
+       "best_shrunk_expected": 0.03676941283012925,
+       "shrunk_best_expected": 0.03676941283012925,
+       "shrunk_pick": "plan"
+      }
+     ]
     }
    }
   },
@@ -11184,6 +11442,22 @@
        "get": [
         "33"
        ]
+      },
+      "no_trade": {
+       "expected": {
+        "status": "ok",
+        "value": 0,
+        "source": "plan.path",
+        "unit": "title_odds"
+       },
+       "p_complete": {
+        "status": "ok",
+        "value": 1,
+        "source": "plan.path",
+        "unit": "probability"
+       },
+       "pick": "no_trade",
+       "why": "The best plan scores no better than keeping your roster."
       }
      },
      {
@@ -11205,7 +11479,23 @@
        "source": "plan.path",
        "reason": "No plan fits this mode."
       },
-      "first_step": null
+      "first_step": null,
+      "no_trade": {
+       "expected": {
+        "status": "ok",
+        "value": 0,
+        "source": "plan.path",
+        "unit": "title_odds"
+       },
+       "p_complete": {
+        "status": "ok",
+        "value": 1,
+        "source": "plan.path",
+        "unit": "probability"
+       },
+       "pick": "no_trade",
+       "why": "No plan fits this mode, so keeping your roster is the pick."
+      }
      },
      {
       "mode": "all_in",
@@ -11240,6 +11530,22 @@
        "get": [
         "11"
        ]
+      },
+      "no_trade": {
+       "expected": {
+        "status": "ok",
+        "value": 0,
+        "source": "plan.path",
+        "unit": "title_odds"
+       },
+       "p_complete": {
+        "status": "ok",
+        "value": 1,
+        "source": "plan.path",
+        "unit": "probability"
+       },
+       "pick": "plan",
+       "why": "The best plan scores above keeping your roster."
       }
      }
     ],
@@ -11478,6 +11784,43 @@
       "status": "off",
       "reason": "GRIDIRON_COACH_MESSAGES unset and preview off"
      }
+    },
+    "shrink": {
+     "status": "shadow",
+     "tau2": 0.00396021872029883,
+     "n": 87,
+     "basis": "empirical Bayes toward the no-trade gain (0); not graded, reads nothing served",
+     "modes": [
+      {
+       "mode": "safe",
+       "best": "4|5|33",
+       "shrunk_best": "4|5|33",
+       "reorders": false,
+       "best_expected": 0.006684580560367098,
+       "best_shrunk_expected": 0.006683779885386528,
+       "shrunk_best_expected": 0.006683779885386528,
+       "shrunk_pick": "no_trade"
+      },
+      {
+       "mode": "balanced",
+       "best": null,
+       "shrunk_best": null,
+       "reorders": false,
+       "best_expected": null,
+       "best_shrunk_expected": null,
+       "shrunk_best_expected": null
+      },
+      {
+       "mode": "all_in",
+       "best": "2|4+6+7|11",
+       "shrunk_best": "2|4+6+7|11",
+       "reorders": false,
+       "best_expected": 0.03677000998338296,
+       "best_shrunk_expected": 0.036769333130770875,
+       "shrunk_best_expected": 0.036769333130770875,
+       "shrunk_pick": "plan"
+      }
+     ]
     }
    }
   }

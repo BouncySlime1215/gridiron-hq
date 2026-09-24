@@ -258,7 +258,8 @@
        },
        "p_yes_band": {
         "low": 0.4899999999999998,
-        "high": 0.6499999999999998
+        "high": 0.6499999999999998,
+        "basis": "heuristic_unanchored"
        }
       }
      ],
@@ -432,7 +433,8 @@
         },
         "p_yes_band": {
          "low": 0.4899999999999998,
-         "high": 0.6499999999999998
+         "high": 0.6499999999999998,
+         "basis": "heuristic_unanchored"
         }
        }
       ],
@@ -621,7 +623,8 @@
         },
         "p_yes_band": {
          "low": 0.445,
-         "high": 0.605
+         "high": 0.605,
+         "basis": "heuristic_unanchored"
         }
        }
       ],
@@ -810,7 +813,8 @@
         },
         "p_yes_band": {
          "low": 0.445,
-         "high": 0.605
+         "high": 0.605,
+         "basis": "heuristic_unanchored"
         }
        }
       ],
@@ -999,7 +1003,8 @@
         },
         "p_yes_band": {
          "low": 0.39999999999999997,
-         "high": 0.5599999999999999
+         "high": 0.5599999999999999,
+         "basis": "heuristic_unanchored"
         }
        }
       ],
@@ -1180,7 +1185,8 @@
         },
         "p_yes_band": {
          "low": 0.39999999999999997,
-         "high": 0.5599999999999999
+         "high": 0.5599999999999999,
+         "basis": "heuristic_unanchored"
         }
        }
       ],
@@ -2552,7 +2558,8 @@
      "p": 0.5699999999999998,
      "band": {
       "low": 0.4899999999999998,
-      "high": 0.6499999999999998
+      "high": 0.6499999999999998,
+      "basis": "heuristic_unanchored"
      },
      "delta": 0.09376688121122545,
      "se": 0.003,
@@ -3003,7 +3010,8 @@
        },
        "p_yes_band": {
         "low": 0.5134782608695654,
-        "high": 0.6734782608695653
+        "high": 0.6734782608695653,
+        "basis": "heuristic_unanchored"
        }
       },
       {
@@ -3123,7 +3131,8 @@
        },
        "p_yes_band": {
         "low": 0,
-        "high": 0.14749999999999996
+        "high": 0.14749999999999996,
+        "basis": "heuristic_unanchored"
        }
       }
      ],
@@ -3317,7 +3326,8 @@
         },
         "p_yes_band": {
          "low": 0.5134782608695654,
-         "high": 0.6734782608695653
+         "high": 0.6734782608695653,
+         "basis": "heuristic_unanchored"
         }
        },
        {
@@ -3437,7 +3447,8 @@
         },
         "p_yes_band": {
          "low": 0,
-         "high": 0.14749999999999996
+         "high": 0.14749999999999996,
+         "basis": "heuristic_unanchored"
         }
        }
       ],
@@ -3606,7 +3617,8 @@
         },
         "p_yes_band": {
          "low": 0.445,
-         "high": 0.605
+         "high": 0.605,
+         "basis": "heuristic_unanchored"
         }
        },
        {
@@ -3664,7 +3676,8 @@
         },
         "p_yes_band": {
          "low": 0.46260869565217383,
-         "high": 0.6226086956521738
+         "high": 0.6226086956521738,
+         "basis": "heuristic_unanchored"
         }
        }
       ],
@@ -3833,7 +3846,8 @@
         },
         "p_yes_band": {
          "low": 0.445,
-         "high": 0.605
+         "high": 0.605,
+         "basis": "heuristic_unanchored"
         }
        },
        {
@@ -3891,7 +3905,8 @@
         },
         "p_yes_band": {
          "low": 0.46260869565217383,
-         "high": 0.6226086956521738
+         "high": 0.6226086956521738,
+         "basis": "heuristic_unanchored"
         }
        }
       ],
@@ -4060,7 +4075,8 @@
         },
         "p_yes_band": {
          "low": 0.39999999999999997,
-         "high": 0.5599999999999999
+         "high": 0.5599999999999999,
+         "basis": "heuristic_unanchored"
         }
        },
        {
@@ -4118,7 +4134,8 @@
         },
         "p_yes_band": {
          "low": 0.46260869565217383,
-         "high": 0.6226086956521738
+         "high": 0.6226086956521738,
+         "basis": "heuristic_unanchored"
         }
        }
       ],
@@ -4300,7 +4317,8 @@
         },
         "p_yes_band": {
          "low": 0.39999999999999997,
-         "high": 0.5599999999999999
+         "high": 0.5599999999999999,
+         "basis": "heuristic_unanchored"
         }
        },
        {
@@ -4358,7 +4376,8 @@
         },
         "p_yes_band": {
          "low": 0.46260869565217383,
-         "high": 0.6226086956521738
+         "high": 0.6226086956521738,
+         "basis": "heuristic_unanchored"
         }
        }
       ],
@@ -5521,7 +5540,8 @@
      "p": 0.5934782608695653,
      "band": {
       "low": 0.5134782608695654,
-      "high": 0.6734782608695653
+      "high": 0.6734782608695653,
+      "basis": "heuristic_unanchored"
      },
      "delta": 10.5,
      "se": 0.5,
@@ -6020,7 +6040,8 @@
        },
        "p_yes_band": {
         "low": 0.445,
-        "high": 0.605
+        "high": 0.605,
+        "basis": "heuristic_unanchored"
        }
       }
      ],
@@ -6214,7 +6235,8 @@
         },
         "p_yes_band": {
          "low": 0.445,
-         "high": 0.605
+         "high": 0.605,
+         "basis": "heuristic_unanchored"
         }
        }
       ],
@@ -6403,7 +6425,8 @@
         },
         "p_yes_band": {
          "low": 0.445,
-         "high": 0.605
+         "high": 0.605,
+         "basis": "heuristic_unanchored"
         }
        }
       ],
@@ -6592,7 +6615,8 @@
         },
         "p_yes_band": {
          "low": 0.39999999999999997,
-         "high": 0.5599999999999999
+         "high": 0.5599999999999999,
+         "basis": "heuristic_unanchored"
         }
        }
       ],
@@ -6781,7 +6805,8 @@
         },
         "p_yes_band": {
          "low": 0.39999999999999997,
-         "high": 0.5599999999999999
+         "high": 0.5599999999999999,
+         "basis": "heuristic_unanchored"
         }
        }
       ],
@@ -6962,7 +6987,8 @@
         },
         "p_yes_band": {
          "low": 0.3550000000000001,
-         "high": 0.5150000000000001
+         "high": 0.5150000000000001,
+         "basis": "heuristic_unanchored"
         }
        }
       ],
@@ -8244,7 +8270,8 @@
      "p": 0.525,
      "band": {
       "low": 0.445,
-      "high": 0.605
+      "high": 0.605,
+      "basis": "heuristic_unanchored"
      },
      "delta": 0.11638126385069636,
      "se": 0.003,

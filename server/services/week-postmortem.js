@@ -28,6 +28,7 @@ import { PPR, scoreLine } from './scoring.js';
 import { deriveFormat } from './format.js';
 import { assetUniverse, loadRosters, lineupSlots, bestLineup } from './trade-engine.js';
 import { buildProjections, sampleWeeks } from './projections.js';
+import { storedAutopsy } from './monday-autopsy.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
@@ -165,6 +166,10 @@ export function weekPostmortem(leagueId, {
     })(),
 
     players: perPlayer.sort((a, b) => (a.miss ?? 0) - (b.miss ?? 0)),
+    // PROJ-04-a: each player's projection error split into links (script, volume, share,
+    // exit, efficiency, TD luck, news missed), as stored by the Monday Autopsy job; null
+    // until that job has run for this league-week.
+    link_split: storedAutopsy(leagueId, season, week),
     biggest_miss: worstStarter ? { name: worstStarter.name, actual: r2(actual.get(worstStarter.id) ?? 0) } : null,
     best_bench: benchHeroes ? { name: benchHeroes.name, actual: r2(actual.get(benchHeroes.id) ?? 0) } : null,
     note: usedEngineLineup

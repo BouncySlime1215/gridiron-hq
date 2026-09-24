@@ -77,6 +77,14 @@ export async function main(argv = process.argv.slice(2)) {
     return 2;
   }
   const { acquireEngineLock, LockHeldError } = await import('../server/services/engine/daemon/lock.js');
+  // Signal handlers go in BEFORE the lock is taken: the imports below are slow on a busy
+  // machine, and a SIGTERM that lands between taking the lock and installing the handler
+  // would kill the process with the default action and leave engine.lock behind.
+  let stopping = false;
+  const stop = () => { stopping = true; };
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
+
   let lock;
   try { lock = acquireEngineLock(dbPath); } catch (error) {
     if (error instanceof LockHeldError) { console.error(`engine daemon: ${error.message}`); return 3; }
@@ -90,11 +98,6 @@ export async function main(argv = process.argv.slice(2)) {
   const { serveRequests } = await import('../server/services/engine/daemon/requests.js');
   const { recordSync } = await import('../server/services/scheduler.js');
   const hooks = createHookRunner({ database: db, log: m => console.log(`${stamp()} ${m}`) });
-
-  let stopping = false;
-  const stop = () => { stopping = true; };
-  process.on('SIGTERM', stop);
-  process.on('SIGINT', stop);
 
   let lastSweepDay = null;
   const tickOnce = async reason => {

@@ -562,6 +562,47 @@ test('G2f: consolidate for need is 2-for-1 into a position he is short at', () =
   assert.ok(hit.numbers.need_premium_value > 0, 'the premium his need pays must be a number');
 });
 
+test('RL-19-1: off by default, consolidate_for_need still claims a price premium', () => {
+  delete process.env.GRIDIRON_RL19_1_ENABLED;
+  delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+  const need = p => ({ player: p.name, our_value: p.value, their_value: p.value * 1.08, multiplier: 1.08,
+    owns: false, factors: [{ source: 'positional_need', label: 'x', effect: 0.08, n: 15, cap: 0.08,
+      fitted: false, why: 'he is short at RB' }] });
+  const a = { name: 'Depth A', position: 'RB', value: 2000, ros_ppg: 10 };
+  const b = { name: 'Depth B', position: 'RB', value: 1800, ros_ppg: 9 };
+  const star = { name: 'Star', position: 'WR', value: 4200, ros_ppg: 16 };
+  const out = tactics.tacticsForDeal({ give: [a, b], get: [star],
+    manager: { receptiveness: 1, needs: new Set(['RB']) },
+    valuationOf: p => (p.name === 'Star'
+      ? { player: 'Star', our_value: 4200, their_value: 4200, multiplier: 1, owns: true, factors: [] }
+      : need(p)), partnerId: '2' });
+  const hit = out.tactics.find(t => t.key === 'consolidate_for_need');
+  assert.match(hit.why, /pays about/, 'off the flag, the incumbent price-premium framing is unchanged');
+});
+
+test('RL-19-1: on the flag, consolidate_for_need reads as targeting, not a price premium', () => {
+  process.env.GRIDIRON_RL19_1_ENABLED = '1';
+  try {
+    const need = p => ({ player: p.name, our_value: p.value, their_value: p.value * 1.02, multiplier: 1.02,
+      owns: false, factors: [{ source: 'positional_need', label: 'x', effect: 0.02, n: 15, cap: 0.02,
+        fitted: false, why: 'he is short at RB' }] });
+    const a = { name: 'Depth A', position: 'RB', value: 2000, ros_ppg: 10 };
+    const b = { name: 'Depth B', position: 'RB', value: 1800, ros_ppg: 9 };
+    const star = { name: 'Star', position: 'WR', value: 4200, ros_ppg: 16 };
+    const out = tactics.tacticsForDeal({ give: [a, b], get: [star],
+      manager: { receptiveness: 1, needs: new Set(['RB']) },
+      valuationOf: p => (p.name === 'Star'
+        ? { player: 'Star', our_value: 4200, their_value: 4200, multiplier: 1, owns: true, factors: [] }
+        : need(p)), partnerId: '2' });
+    const hit = out.tactics.find(t => t.key === 'consolidate_for_need');
+    assert.ok(hit, 'the tactic still fires — the flag changes the framing, not whether it fires');
+    assert.doesNotMatch(hit.why, /pays about/, 'the flag must drop the price-premium claim');
+    assert.match(hit.why, /more likely to land/, 'it must read as a targeting/framing note instead');
+  } finally {
+    delete process.env.GRIDIRON_RL19_1_ENABLED;
+  }
+});
+
 test('G2g: outscoring-usage says it is off and why when the gap has fewer than two games', () => {
   const p = { name: 'Hot', position: 'WR', value: 2000, ros_ppg: 13 };
   const gaps = new Map([['hot', { games: 1, gap_per_game: 7.0, xfp_per_game: 6, actual_per_game: 13 }]]);

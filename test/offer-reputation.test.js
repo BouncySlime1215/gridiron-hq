@@ -39,7 +39,7 @@ const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 
 const {
-  offerGate, reputationLedger, reputationLimits, offerGateFor,
+  offerGate, reputationLedger, reputationLimits, offerGateFor, gateDeals,
   REPUTATION_DEFAULTS, LEAGUE_REPUTATION_DEFAULTS, REPUTATION_HALF_LIFE_DAYS,
 } = await import('../server/services/offer-reputation.js');
 
@@ -291,7 +291,7 @@ test('R9 the adapter reads trade_outcomes and the profile tier for one league', 
       (league_id, season, source, proposer_team_id, counterparty_team_id, proposed_at,
        model_p_accept, model_p_accept_low, model_p_accept_high, model_basis, model_version,
        status, resolved_at, espn_tx_id, created_at)
-      VALUES (4, 2026, @source, @proposer, @cp, @at, 0.1, 0.05, 0.15, 'fixture', 'v0',
+      VALUES (4, 2026, @source, @proposer, @cp, @at, 0.1, 0.05, 0.15, 'heuristic_unanchored', 'v0',
        @status, @resolved, @tx, @at)`, o);
   insert({ source: 'app_proposed', proposer: '1', cp: '3', at: ago(3), status: 'countered', resolved: ago(2.5), tx: null });
   insert({ source: 'app_proposed', proposer: '1', cp: '3', at: ago(2), status: 'countered', resolved: ago(1.5), tx: null });
@@ -311,4 +311,24 @@ test('R9 the adapter reads trade_outcomes and the profile tier for one league', 
 
 test('R9 the adapter refuses a league it cannot read rather than allowing blind', () => {
   assert.throws(() => offerGateFor({ leagueId: 999, season: 2026, offer: FAIR_OFFER, now: NOW }), /league 999/);
+});
+
+test('R9 gateDeals stamps each finder deal with its verdict and leaves the cached result untouched', () => {
+  const result = { mode: 'league', deals: [
+    { partner_id: '3', acceptance: { band: { low: 0.4, mid: 0.5, high: 0.6 } } },
+    { partner_id: '5', acceptance: { band: null } },
+  ] };
+  const frozen = JSON.stringify(result);
+  const out = gateDeals({ id: 4, season: 2026 }, result, { now: NOW });
+  assert.equal(JSON.stringify(result), frozen, 'input not mutated');
+  assert.equal(out.deals[0].reputation.decision, 'delay');
+  assert.equal(out.deals[0].reputation.code, 'weekly_cap');
+  assert.equal(out.deals[0].reputation.offer_cost_basis, 'p_accept_proxy', 'the band top reaches the gate');
+  assert.equal(out.deals[1].reputation.decision, 'allow');
+  assert.equal(out.deals[1].reputation.offer_cost_basis, 'unpriced');
+
+  const blind = gateDeals({ id: 999, season: 2026 }, result, { now: NOW });
+  assert.equal(blind.deals[0].reputation.decision, null);
+  assert.match(blind.deals[0].reputation.reason, /league 999/);
+  assert.equal(gateDeals({ id: 4 }, { error: 'x' }).error, 'x');
 });

@@ -26,6 +26,7 @@ import { deriveFormat } from '../services/format.js';
 import { marketAsOf, marketHistory } from '../services/dynasty-value-history.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
 import { managerProfiles, setManagerProfile } from '../services/league-brain.js';
+import { gateDeals } from '../services/offer-reputation.js';
 // The measured manager layer: what has been observed about each counterparty, as
 // opposed to `manager_profiles`, which is the tier Nick set by hand.
 import { SIGNAL_SOURCES, refreshManagerData, signalRowsFor, transactionsCollected, chatCorpusState,
@@ -733,7 +734,8 @@ r.get('/:leagueId/lineup-diff', (req, res, next) => {
 r.get('/:leagueId/find', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    res.json(findTrades(lg, {
+    // REP-01: each deal carries its fatigue / reputation verdict for the partner.
+    res.json(gateDeals(lg, findTrades(lg, {
       myTeamId: req.query.team_id,
       maxPerSide: Math.min(3, Number(req.query.max_per_side) || 2),
       // Off by default in the UI's "aggressive" mode: deals that only help me are
@@ -748,7 +750,7 @@ r.get('/:leagueId/find', (req, res, next) => {
       limit: Math.min(300, Number(req.query.limit) || 20),
       targetId: req.query.target_id || null,
       excludeIds: excludeSet(req)
-    }));
+    })));
   } catch (e) { next(e); }
 });
 

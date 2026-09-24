@@ -79,9 +79,11 @@ for (let i = 0; i < 100; i++) {
   const id = offer({ status: y ? 'accepted' : 'declined', proposedAt: t, resolvedAt: t + 2 * DAY, team: 1 + (i % 6) });
   // An early, uninformed answer, then the one graded: the last before the outcome.
   answer('jev.p_accept.jev_a', 'offer', id, t - 3600000, 0.5);
-  answer('jev.p_accept.jev_a', 'offer', id, t, clamp(0.4 + (y ? 0.3 : -0.2) + (r() - 0.5) * 0.2));
-  answer('jev.p_accept.jev_b', 'offer', id, t, clamp(0.4 + (y ? 0.2 : -0.1) + (r() - 0.5) * 0.3));
-  offers.push({ id, y, t });
+  const a = clamp(0.4 + (y ? 0.3 : -0.2) + (r() - 0.5) * 0.2);
+  const b = clamp(0.4 + (y ? 0.2 : -0.1) + (r() - 0.5) * 0.3);
+  answer('jev.p_accept.jev_a', 'offer', id, t, a);
+  answer('jev.p_accept.jev_b', 'offer', id, t, b);
+  offers.push({ id, y, t, claim: (a + b) / 2 });
 }
 // Leak: an answer stamped after the offer resolved is never graded (the earlier one is).
 const LATE = offer({ status: 'accepted', proposedAt: T0, resolvedAt: T0 + DAY, team: 2 });
@@ -112,7 +114,9 @@ answer('jev.plays_sunday.jev_a', 'player', 701, W3 - DAY, 0.3);
 answer('jev.plays_sunday.jev_b', 'player', 701, W3 - DAY, 0.4);
 answer('jev.plays_sunday.jev_a', 'player', 702, W3 - 2 * DAY, 0.8);
 answer('jev.plays_sunday.jev_a', 'player', 702, W3 + DAY, 0.95); // after TNF: excluded, the earlier one stands
-answer('jev.plays_sunday.jev_a', 'player', 700, W4 - DAY, 0.9); // week 4: not final
+// Week 4, before the grade time: not final. (A different p: engine_state's write-on-change stores no new
+// row for an unchanged answer, which is why plays_sunday answers should be keyed by player_week.)
+answer('jev.plays_sunday.jev_a', 'player', 700, W4 - 2 * DAY, 0.85);
 
 test('p_accept: one unit per offer and arm, the last answer before the outcome, leaks and open offers excluded', () => {
   const g = grader.gradeJevAnswers({ asOf: GRADE_AT });
@@ -130,6 +134,7 @@ test('p_accept: one unit per offer and arm, the last answer before the outcome, 
     const u = byId.get(String(o.id));
     assert.equal(u.y, o.y);
     assert.ok(u.t === o.t, 'graded on the last answer before the outcome, not the early one');
+    assert.ok(Math.abs(u.claim - o.claim) < 1e-12, 'the claim is the mean of each arm\'s last answer');
     assert.equal(u.inc, 0.4, "the incumbent is the ledger's model_p_accept");
   }
   assert.equal(q.arms.jev_a.status, 'measured');
@@ -155,7 +160,8 @@ test('plays_sunday: settled on a final week, the answer before the first kickoff
   assert.equal(q.excluded.asked_after_kickoff, 1);
   assert.equal(q.excluded.unsettled, 1, 'week 4 is not final');
   assert.deepEqual(q.arms.jev_a, { status: 'unknown', reason: 'thin', n: 3 });
-  assert.deepEqual(q.blend, { status: 'unknown', reason: 'no_incumbent', n: 3 });
+  assert.deepEqual({ status: q.blend.status, reason: q.blend.reason, n: q.blend.n }, { status: 'unknown', reason: 'no_incumbent', n: 3 });
+  assert.equal(q.blend.alone.incumbent, 'none', 'with no incumbent, Jev is scored alone');
 });
 
 test("writeJevGrades writes producer 'jev_grader' fields, typed, citing the answers", () => {

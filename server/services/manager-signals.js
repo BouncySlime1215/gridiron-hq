@@ -40,7 +40,7 @@ import { identityMap, matchIdentities } from './manager-identity.js';
 import { normalizePlayerName } from './player-identity.js';
 import { PROJECT_ROOT } from '../platform/paths.js';
 import { DEAD_ESPN_STATUS } from './dead-starters.js';
-import { jevChatBlendEnabled, jevChatBlendRows } from './jev/chat-grader.js';
+import { jevChatBlendFields, jevChatBlendRows } from './jev/chat-grader.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS manager_signals (
   league_id INTEGER NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
@@ -532,8 +532,10 @@ export function buildManagerSignals(leagueId, opts = {}) {
       }
       for (const s of signals) written.push({ rosterId, ...s });
     }
-    if (chat && jevChatBlendEnabled()) {
+    const blendFlag = jevChatBlendFields();
+    if (chat && blendFlag.enabled) {
       jevBlend = jevChatBlendRows(leagueId, { chat, asOf: opts.asOf ?? Date.now() });
+      if (blendFlag.preview) jevBlend.state = { ...jevBlend.state, preview: true, preview_reason: blendFlag.preview_reason };
       for (const r of jevBlend.rows) {
         written.push({ rosterId: r.roster_id, metric: r.metric, value: r.value, n: r.n, source: r.source });
       }

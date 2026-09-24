@@ -25,15 +25,29 @@ import { identityMap } from '../manager-identity.js';
 import { normalizePlayerName } from '../player-identity.js';
 import { fitCalibration, applyCalibration, clampP } from './calibrate.js';
 import { blend, fitWeight, logLoss, brier, clusterBootstrapCI } from './stack.js';
+import { previewUnconfirmed, previewFields } from '../preview-mode.js';
 
 /** Default off. With it on, buildManagerSignals adds the `jev_blend` rows. */
 export const JEV_CHAT_BLEND_ENV = 'GRIDIRON_JEV_CHAT_BLEND';
-export const jevChatBlendEnabled = () => process.env[JEV_CHAT_BLEND_ENV] === '1';
+export const JEV_CHAT_BLEND_OFF_REASON =
+  'Jev chat blend is default-off, unconfirmed forward: no real-data grade has run yet (the prereg expects ' +
+  'every question thin this season), and its incumbents are hand-set formulas, not backtested. ' +
+  `Set ${JEV_CHAT_BLEND_ENV}=1 to switch it on.`;
+
+/**
+ * The one reader of GRIDIRON_JEV_CHAT_BLEND, read per call. The site flag wins; preview mode
+ * (preview-mode.js) turns it on too, and the build summary then carries the preview fields.
+ */
+export function jevChatBlendFields() {
+  if (process.env[JEV_CHAT_BLEND_ENV] === '1') return { enabled: true };
+  if (previewUnconfirmed()) return { enabled: true, ...previewFields(JEV_CHAT_BLEND_OFF_REASON) };
+  return { enabled: false, reason: JEV_CHAT_BLEND_OFF_REASON };
+}
+export const jevChatBlendEnabled = () => jevChatBlendFields().enabled;
 
 export const WINDOW_DAYS = 14;
 export const LOOKBACK_DAYS = 7;
 export const PRIOR_DAYS = 28;
-export const ROSTER_SIZE = 16;
 export const MIN_N = 60;
 export const MIN_CLASS = 10;
 export const MIN_HOLDOUT = 20;
@@ -45,6 +59,22 @@ export const QUESTIONS = Object.freeze({
   open_to_trade: 'jev_p_trade_14d',
   'own_roster.untouchable': 'jev_p_declaration_holds',
 });
+
+/** ESPN lineup slot 21 is IR: it holds players beyond the roster size, so it is not counted. */
+const IR_SLOT = '21';
+
+/**
+ * The league's roster size from its payload: starters plus bench, the sum of
+ * settings.rosterSettings.lineupSlotCounts without IR. `{ size }`, or a typed unknown when
+ * the payload carries no slots: never a default size (prereg addendum 2).
+ */
+export function rosterSize(payload) {
+  const counts = payload?.settings?.rosterSettings?.lineupSlotCounts;
+  const size = counts && typeof counts === 'object'
+    ? Object.entries(counts).reduce((s, [slot, n]) => s + (slot === IR_SLOT ? 0 : Math.max(0, Number(n) || 0)), 0)
+    : 0;
+  return size > 0 ? { size } : { status: 'unknown', reason: 'no_roster_size' };
+}
 
 const DAY = 86400000;
 const WINDOW = WINDOW_DAYS * DAY;
@@ -113,13 +143,13 @@ function tradeIncumbent(ledger, team, t, teams) {
   return clampP(1 - Math.exp(-WINDOW_DAYS * rate));
 }
 
-/** P(a player on his roster is still there in 14 days), from moves before t only. */
-function holdIncumbent(ledger, team, t, teams) {
+/** P(a player on his roster is still there in 14 days), from moves before t only. `slots` is the league's roster size. */
+function holdIncumbent(ledger, team, t, teams, slots) {
   const days = Math.max(0, (t - ledger.start) / DAY);
   const before = ledger.offs.filter(x => x.at < t);
   const mine = before.filter(x => x.team === team).length;
-  const league = (before.length + 0.5) / (teams * ROSTER_SIZE * days + ROSTER_SIZE * WINDOW_DAYS);
-  const rate = (mine + league * ROSTER_SIZE * PRIOR_DAYS) / (ROSTER_SIZE * (days + PRIOR_DAYS));
+  const league = (before.length + 0.5) / (teams * slots * days + slots * WINDOW_DAYS);
+  const rate = (mine + league * slots * PRIOR_DAYS) / (slots * (days + PRIOR_DAYS));
   return clampP(Math.exp(-WINDOW_DAYS * rate));
 }
 
@@ -194,9 +224,11 @@ export function buildUnits(leagueId, { chat, asOf = Date.now() }) {
   }
 
   // ---- own_roster.untouchable: one declaration about a player he owns
+  const slots = rosterSize(payload);
+  const absent = slots.size ? {} : { 'own_roster.untouchable': slots.reason };
   const ids = snapshotIds(leagueId, season);
   const decl = [], recentDecl = [];
-  for (const s of chat.prepare(`SELECT s.msg_id, s.name, s.mentioned_player, s.probability, m.ts_utc
+  if (slots.size) for (const s of chat.prepare(`SELECT s.msg_id, s.name, s.mentioned_player, s.probability, m.ts_utc
                                  FROM jev_chat_signals s JOIN messages m ON m.msg_id = s.msg_id
                                  WHERE s.question = 'own_roster.untouchable' AND s.mentioned_player IS NOT NULL
                                    AND s.probability IS NOT NULL`).all()) {
@@ -207,7 +239,7 @@ export function buildUnits(leagueId, { chat, asOf = Date.now() }) {
     const espn = ids.get(team)?.get(normalizePlayerName(s.mentioned_player));
     if (espn == null || !ownedAt(ledger, team, espn, t)) continue;
     const unit = { roster_id: roster, cluster: roster, t, claim: s.probability,
-      inc: holdIncumbent(ledger, team, t, teams), player: s.mentioned_player, msg_id: s.msg_id };
+      inc: holdIncumbent(ledger, team, t, teams, slots.size), player: s.mentioned_player, msg_id: s.msg_id };
     if (t + WINDOW <= asOf) decl.push({ ...unit, y: heldThrough(ledger, team, espn, t) ? 1 : 0 });
     else if (t >= asOf - WINDOW) recentDecl.push(unit);
   }
@@ -220,6 +252,7 @@ export function buildUnits(leagueId, { chat, asOf = Date.now() }) {
   return {
     coverage: { start: new Date(ledger.start).toISOString(), as_of: new Date(asOf).toISOString(), untimed: ledger.untimed },
     units: { open_to_trade: open, 'own_roster.untouchable': decl },
+    absent,
     current: { open_to_trade: currentOpen, 'own_roster.untouchable': recentDecl },
   };
 }
@@ -287,7 +320,8 @@ function gradeFrom(leagueId, chat, asOf) {
   if (!chat) return { grade: { league_id: leagueId, status: 'unknown', reason: 'no_chat_corpus' } };
   const built = buildUnits(leagueId, { chat, asOf });
   if (built.reason) return { grade: { league_id: leagueId, status: 'unknown', reason: built.reason } };
-  const questions = Object.fromEntries(Object.keys(QUESTIONS).map(q => [q, gradeUnits(built.units[q])]));
+  const questions = Object.fromEntries(Object.keys(QUESTIONS).map(q => [q,
+    built.absent[q] ? { status: 'unknown', reason: built.absent[q] } : gradeUnits(built.units[q])]));
   const measured = Object.values(questions).some(q => q.status === 'measured');
   return {
     built,

@@ -112,3 +112,37 @@ one failure.
   in the PR); the pre-registration expects `thin` on every question this week.
 - Ownership before the first roster event falls back to "ever in a snapshot",
   the same looseness bluff-detector.js documents.
+
+## Sweep fixes FIX-289-1..4 (2026-09-24)
+
+The order was prereg addendum 2 (`96729bf6`, rules for the roster size and the engine grader), then RED `0255f5ca`, then GREEN.
+
+- **RED**:
+  - `test/jev-01b-chat-grader.test.js`: 6 pass, 4 fail (preview routing, the identityMap report, roster size 15, roster size absent).
+  - `test/jev-01b-grader.test.js`: `ERR_MODULE_NOT_FOUND … server/services/jev/grader.js`.
+- **GREEN**: chat-grader 10/10, grader 4/4, calibrate 9/9, preview-mode 3/3.
+
+| Fix | Change | Test |
+|---|---|---|
+| FIX-289-1 | `jevChatBlendFields()` is now the one reader of `GRIDIRON_JEV_CHAT_BLEND`: `{enabled:false, reason}`, `{enabled:true}`, or, under preview mode only, `{enabled:true, preview:true, preview_reason}`. The site flag wins. The build summary's `jev_blend` carries `preview` and `preview_reason`. The site is listed in `preview-mode.js`. | off / preview / flag-on, the rows written under preview, the summary fields, and the site named in preview-mode.js |
+| FIX-289-2 | `scripts/jev-grade-report.mjs` lists ESPN leagues and keeps those where `identityMap(id).size > 0` (trusted rows only). It no longer reads `league_member_identity` directly. | a grep on the source, and running the script against the fixture DB: exit 0, league graded, no names in the output |
+| FIX-289-3 | `ROSTER_SIZE = 16` is removed. `rosterSize(payload)` sums `settings.rosterSettings.lineupSlotCounts` without IR (slot 21). With no slots it returns `{status:'unknown', reason:'no_roster_size'}`, and the untouchable question grades to that typed unknown. | on a 15-slot fixture the incumbent equals the 15-slot formula to 1e-12 and differs from 16. With no slots: `unknown:no_roster_size`, and open_to_trade is still measured |
+| FIX-289-4 | `server/services/jev/grader.js`: producer `jev_grader` with 8 literal fields (`jev_cal.<qtype>.<arm>`, `jev_weight.<qtype>`, `jev_score.<qtype>`). It grades `p_accept` (trade_outcomes, incumbent `model_p_accept`) and `plays_sunday` (nfl_snaps, a final `nfl.week`, no incumbent yet), reusing calibrate.js, stack.js and `gradeUnits`. The report prints the engine grade read-only. | the leak test: nothing is graded before settlement; an answer after the outcome or after kickoff is excluded and counted; open offers are unsettled. One unit per offer/arm, on the last answer before the outcome. Typed nulls for `thin` and `no_incumbent`. Rows cite the answers they graded. Another producer's claim throws |
+
+Found while building FIX-289-4: `engine_state` writes on change only. When the stage asks `plays_sunday` about the same player in week 4 and gets the same answer as in week 3, no new row is stored. The week-4 answer is therefore invisible to the grader. #248 should key `plays_sunday` answers by `player_week`, not `player`. The test uses a different p for the week-4 answer and says so in a comment.
+
+Mutation sweep over the fixes. Each mutant was run against `jev-01b-chat-grader` plus `jev-01b-grader`, and the "fail" column is the number of tests that failed.
+
+| Mutant | fail |
+|---|---|
+| M1 grader: settlement check off | 3 (killed) |
+| M2 grader: leak cut off (answers after the outcome are graded) | 3 (killed) |
+| M3 grader: week-final check off | 1 (killed) |
+| M4 grader: first answer graded instead of the last | 0 at first. **Survived.** I added the "claim is the mean of each arm's last answer" assertion, and it is now killed (1) |
+| M5 grader: `no_incumbent` branch off | 2 (killed) |
+| M6 chat-grader: IR slot counted in roster size | 1 (killed) |
+| M7 chat-grader: preview branch off | 1 (killed) |
+| M8 manager-signals: preview fields dropped from the summary | 1 (killed) |
+| C1 control: grader reads no answers | 2 (fails as expected) |
+
+Full `npm run check` on this branch, with the fixes and main `36e3b94b` already merged: **exit 0**. The suite ran 5269 tests: 5227 pass, 0 fail, 42 skipped, 0 cancelled. `check:wiring` exits 0 with one new accepted-orphan entry, `jev/grader.js`, which RETIRES WHEN the daemon's nightly hook calls `runJevGrader`. The smoke run passed on its isolated DB (32 teams).

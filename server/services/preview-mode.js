@@ -30,6 +30,8 @@
  *                                                GET /api/number-audit (#237, GRIDIRON_NUMBER_HEALTH)
  *   - offer-loop-flag.js#offerLoopFields         TradeCard "I sent this" and /offers/sent
  *                                                (#239, GRIDIRON_OFFER_LOOP)
+ *   - jev/chat-grader.js#jevChatBlendFields      jev_blend rows in manager_signals and the build
+ *                                                summary's jev_blend (#289, GRIDIRON_JEV_CHAT_BLEND)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

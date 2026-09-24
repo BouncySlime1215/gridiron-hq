@@ -295,6 +295,9 @@ test('the grade report reads identities through identityMap, never the table', (
   assert.ok(l21, 'league 21 (trusted identities) is graded');
   assert.equal(l21.questions.open_to_trade.status, 'measured');
   for (const n of NAMES) assert.ok(!r.stdout.includes(n), `${n} in the report`);
+  // FIX-289-4: the report also prints the engine grade (read-only); no jev.* answers exist here.
+  assert.equal(out.engine.questions.p_accept.units, 0);
+  assert.equal(out.engine.questions.plays_sunday.blend.reason, 'thin');
 });
 
 /* ------------------------------------------------ FIX-289-3: the league's roster size */

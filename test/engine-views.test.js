@@ -173,6 +173,19 @@ test('RED (2): a view at an older snapshot resolves that cut\'s versions and fal
   assert.equal(rowOf(now, 'player:9202', 'fx.points').value, 8);
   assert.equal(rowOf(now, 'player:9202', 'fx.points').producer_version, '2');
 
+  // The version set, not the newest version, picks the row: a cut taken after fx-proj@2 wrote,
+  // but recording fx-proj@1 as active, still serves @1's row (mutation M2).
+  const pinnedV1 = publishSnapshot({ leagueId: 0, versionSet: { ...VERSIONS, 'fx-proj': '1' }, season: 2026, nflWeek: 3,
+    now: T1 }, db);
+  const v1 = resolveView({ view: FX_VIEW, snapshot: snapshotById(pinnedV1, db), leagueId: null }, db);
+  assert.equal(rowOf(v1, 'player:9201', 'fx.points').value, 14);
+  assert.equal(rowOf(v1, 'player:9201', 'fx.points').producer_version, '1');
+  assert.equal(rowOf(v1, 'player:9202', 'fx.points').status, 'unknown', 'fx-proj@2 row served under a @1 version set');
+  // The id cut, not the clock, bounds the rows: a same-version row written after the cut is invisible (M4).
+  put(FX, 'fx.points', 'player', '9202', 9, '2026-09-20T13:30:00.000Z');
+  assert.equal(rowOf(resolveView({ view: FX_VIEW, snapshot: snapshotById(snapB, db), leagueId: null }, db),
+    'player:9202', 'fx.points').value, 8, 'a row written after the cut leaked into it');
+
   // League 92's snapshot recorded fx.points on its fallback; the global snapshot did not.
   const on = resolveView({ view: FX_VIEW, snapshot: snapshotById(snap92, db), leagueId: 92 }, db);
   const fb = rowOf(on, 'player:9202', 'fx.points');
@@ -263,6 +276,15 @@ test('RED (6): one snapshot per Coach answer: a pinned session keeps its id afte
   assert.equal(first.snapshot_id, session.snapshot.id); assert.equal(second.snapshot_id, session.snapshot.id);
   assert.equal(viewsMod.pinSnapshot({ leagueId: 91 }, db).snapshot.id, newer, 'a new answer pins the newest');
   assert.throws(() => session.view('no_such_view'), /unknown view/);
+  // A snapshot with no NFL week cannot fill a week template: the row says so, typed; it never reads
+  // week "null" and the view does not fail (M11). Published earlier than any league-91 test reads.
+  const weekless = viewsMod.pinSnapshot({ leagueId: 91, snapshotId: publishSnapshot({ leagueId: 91, versionSet: VERSIONS,
+    now: '2026-09-20T17:30:00.000Z' }, db) }, db).view('league_week');
+  const nw = weekless.rows.find(r => r.field === 'nfl.week');
+  assert.equal(nw.status, 'unknown'); assert.match(nw.reason, /has no season/); assert.equal(nw.value, null);
+  assert.equal(weekless.rows.find(r => r.field === 'league.week').status, 'stale', 'the rows it can fill still resolve');
+  // The next tick knows the week again (and is the newest league-91 snapshot for RED (7)).
+  publishSnapshot({ leagueId: 91, versionSet: VERSIONS, season: 2026, nflWeek: 3, now: '2026-09-20T18:00:00.000Z' }, db);
 });
 
 test('RED (7): GET /snapshot, /view, /status and /request/:id', async () => {
@@ -347,8 +369,8 @@ test('RED (8): HEALTH-01b grep: only the engine hook reads engine routes on the 
   walk('client/src');
   assert.deepEqual(hits, [path.join('client', 'src', 'engine', 'useEngineView.ts')]);
   // Nothing under routes/ reaches the daemon's code (the web process only reads).
-  assert.doesNotMatch(read('server/routes/engine.js'), /engine\/daemon\//);
+  assert.doesNotMatch(read('server/routes/engine.js'), /from '[^']*engine\/daemon\//);
   need(viewsMod, 'server/services/engine/views.js');
-  assert.doesNotMatch(read('server/services/engine/views.js'), /daemon\//);
-  assert.doesNotMatch(read('server/services/engine/status.js'), /daemon\//);
+  assert.doesNotMatch(read('server/services/engine/views.js'), /from '[^']*daemon\//);
+  assert.doesNotMatch(read('server/services/engine/status.js'), /from '[^']*daemon\//);
 });

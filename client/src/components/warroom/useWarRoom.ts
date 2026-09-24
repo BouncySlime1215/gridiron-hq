@@ -8,3 +8,8 @@ import type { WarRoomView } from './types';
 export function useWarRoom(leagueId: number | null) {
   return useApi<WarRoomView>(leagueId ? `/trades/${leagueId}/war-room` : null);
 }
+
+/** SELF-01b: RED stub. */
+export function useWarRoomSelf(_leagueId: number | null) {
+  return useApi<unknown>(null);
+}

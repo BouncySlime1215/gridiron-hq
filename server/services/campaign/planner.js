@@ -17,7 +17,7 @@ import { metricOf, pointsFeasibility, targetFeasibility, weeklySummary } from '.
 import { priceLadder, stepMessage, replyTable } from './playbook.js';
 import { buildItinerary, stopTradeOff, speedCurve, arrivalWeek } from './itinerary.js';
 import { orderCatchUp, freeMoves, isBehind } from './catchup.js';
-import { rankPartners, planSkipWeight } from './partners.js';
+import { rankPartners, planSkipWeight, excluded } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct } from './wait-or-act.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan } from './search.js';
@@ -101,7 +101,7 @@ export function planLeague(adapter, settings) {
   mark('flip');
   // Targets: the objective's player, Nick's "get" stops, then the biggest single-player upgrades.
   const skipP = settings.skips?.player ?? new Map();
-  const upgrades = [...vals.addN.entries()].filter(([pid]) => !adapter.managers.get(vals.lossO.get(pid)?.team)?.blocked)
+  const upgrades = [...vals.addN.entries()].filter(([pid]) => !excluded(adapter.managers.get(vals.lossO.get(pid)?.team)))
     .sort((x, y) => y[1] * (skipP.get(String(y[0])) ?? 1) - x[1] * (skipP.get(String(x[0])) ?? 1)).map(([pid]) => pid);
   const wanted = [];
   const want = pid => { if (pid != null && !wanted.some(w => String(w) === String(pid))) wanted.push(pid); };
@@ -159,14 +159,14 @@ export function planLeague(adapter, settings) {
     const st = plan.steps[i];
     const stateBefore = i === 0 ? new Map() : plan.steps[i - 1].state ?? (plan.planned_on?.steps[i - 1].state) ?? new Map();
     const { curve, basis } = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta);
-    const ladder = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode });
     const m = managers.get(st.team) ?? {};
+    const ladder = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode, hard: !!m.nick?.hard });
     const offer = ladder.opening ? { ...st, give: ladder.opening.give } : st;
     const message = stepMessage(offer, { players: adapter.players, needs: m.needs ?? null });
     const next = plan.steps[i + 1] ?? null;
     return {
       step_index: i, of_steps: plan.steps.length,
-      message, ladder: { ...ladder, basis },
+      message, ladder: { ...ladder, basis }, nick_shift: ladder.nick_shift ?? null,
       opening: ladder.opening ? { give: ladder.opening.give, p: ladder.opening.p, his_pct: ladder.opening.his_pct } : null,
       walk_away: ladder.walk_away ? { give: ladder.walk_away.give, p: ladder.walk_away.p, his_pct: ladder.walk_away.his_pct,
         text: `Stop at ${ladder.walk_away.give.map(names).join(' + ')}: past that, your backup plan is worth more.` } : null,

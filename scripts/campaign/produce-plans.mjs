@@ -3,12 +3,13 @@
  * CAMPAIGN-01 producer: writes the War Room plans JSON for every league.
  *
  * Runs OFF the web server: the refresh loop (scripts/refresh-live-data.mjs,
- * step `warroom_plans`, only when GRIDIRON_WARROOM_ENABLED=1) spawns it after
+ * step `warroom_plans`, only when warroom-flag.js#warRoomFlag is on) spawns it after
  * each tick, or run it by hand. The web server only reads the file
  * (server/services/war-room-view.js, WR-1); nothing here runs on a request.
  *
  * Files (all local, all outside the repo: they hold league data):
- *   GRIDIRON_WARROOM_PLANS       output   (default ~/gridiron-local/warroom/plans.json)
+ *   plans file                   output   server/services/warroom-flag.js#warRoomPlansPath()
+ *                                         (default ~/gridiron-local/warroom/plans.json)
  *   GRIDIRON_WARROOM_OBJECTIVES  input    { "<league id>": { kind, goal, target, points_per_week, risk_mode,
  *                                          tolerances, arrive_by, stops, untouchables, version } } (optional)
  *   GRIDIRON_WARROOM_SKIPS       input    JSONL { league, player?, manager?, reason, at } (optional; swipe-deck skips)
@@ -24,17 +25,15 @@
  *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3]
  */
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
 
 process.env.SCHEDULER_DISABLED = '1';
 
-export function plansPath(env = process.env) {
-  return path.resolve(env.GRIDIRON_WARROOM_PLANS || env.GRIDIRON_WARROOM_SOURCE
-    || path.join(os.homedir(), 'gridiron-local', 'warroom', 'plans.json'));
-}
-const sibling = (env, key, name) => path.resolve(env[key] || path.join(path.dirname(plansPath(env)), name));
+/** The plans file: warroom-flag.js is the one reader of its path variable. */
+export const plansPath = () => path.resolve(warRoomPlansPath());
+const sibling = (env, key, name) => path.resolve(env[key] || path.join(path.dirname(plansPath()), name));
 
 /** JSONL reader: absent file -> []; a bad line is counted and reported, never silently dropped. */
 export function readJsonl(file) {
@@ -90,7 +89,7 @@ async function main() {
   const t0 = Date.now();
   const opts = args(process.argv);
   const env = process.env;
-  const out = plansPath(env);
+  const out = plansPath();
   fs.mkdirSync(path.dirname(out), { recursive: true });
   const release = takeLock(out);
   if (!release) { console.log('warroom_plans skipped: another run holds the lock'); return; }
@@ -104,6 +103,9 @@ async function main() {
     const { diffNextMove } = await import('../../server/services/campaign/replan.js');
     const { rankAttention } = await import('../../server/services/campaign/attention.js');
     const { toEntry, validateEntry, plansFile } = await import('../../server/services/campaign/view.js');
+    const { modelFlags } = await import('../../server/services/campaign/model-flags.js');
+    const flags = await modelFlags();
+    console.log(`[warroom] model flags ${JSON.stringify(flags)}`);
 
     const objectives = readObjectives(sibling(env, 'GRIDIRON_WARROOM_OBJECTIVES', 'objectives.json'));
     const skips = readJsonl(sibling(env, 'GRIDIRON_WARROOM_SKIPS', 'skips.jsonl'));
@@ -134,7 +136,8 @@ async function main() {
         entry = toEntry(res, { names: adapter.names(), as_of: generated_at, previous: prev, changed });
         entry.roster_key = next.roster_key;
         entry.phases_ms = { adapter_and_world: adapterMs, ...(entry.phases_ms ?? {}) };
-        entry.inputs = { chat: { status: chat.status, reason: chat.reason ?? null, negotiation: chat.negotiation ?? null },
+        entry.inputs = { chat: { status: chat.status, reason: chat.reason ?? null, negotiation: chat.negotiation ?? null,
+          nick: { status: chat.nick_status ?? 'unknown', reason: chat.nick_reason ?? chat.reason ?? null, rosters: chat.nick_rosters ?? 0 } },
           skips: { status: skips.status, rows: skips.rows.filter(s => String(s.league) === String(id)).length, bad_lines: skips.bad },
           offers: { status: offers.status, bad_lines: offers.bad }, deadline: adapter.league.deadline_source,
           objective: objective.source };
@@ -153,7 +156,7 @@ async function main() {
     const attention = rankAttention(entries.map(e => ({ league: e.league, error: e.error ?? null,
       expected: e.acq?.best?.expected ?? 0, changed: !!e.changed?.changed,
       weeksToDeadline: Number.isInteger(e.deadline_week) && Number.isInteger(e.week) ? e.deadline_week - e.week : null })));
-    const file = plansFile(entries, { generated_at, attention, pushes });
+    const file = plansFile(entries, { generated_at, attention, pushes, flags });
     const tmp = `${out}.tmp-${process.pid}`;
     fs.writeFileSync(tmp, JSON.stringify(file));
     fs.renameSync(tmp, out);

@@ -158,7 +158,7 @@ app.use('/api/execution-slate', ...legacyAuthenticated, executionSlateRouter);
 // so it is mounted bare rather than behind legacyAuthenticated.
 app.use('/api/coach', coachRouter);
 // War Room writes (WR-3 requests, saved layouts, Coach action log). Records only;
-// default-off behind GRIDIRON_WARROOM_ENABLED (answers { enabled: false } when off).
+// default-off behind the War Room flag, warroom-flag.js (answers { enabled: false } when off).
 app.use('/api/warroom', ...legacyAuthenticated, warroomRouter);
 
 app.use((err, req, res, next) => {

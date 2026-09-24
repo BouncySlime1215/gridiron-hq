@@ -14,6 +14,7 @@
  *   SourceId 'plan.template' (message written from engine facts by a template; Coach text pending)
  *   view.deck, view.risk_modes, view.catch_up, view.partners, view.feasibility, view.confirm
  */
+import { versionWithFlags } from './model-flags.js';
 import { metricKey, objectiveLabel } from './objectives.js';
 import { MODE_LABELS } from './modes.js';
 import { P_ACCEPT_LABEL } from './playbook.js';
@@ -62,6 +63,7 @@ function card(plan, pb, i, ctx) {
     { text: `Chance he says yes: ${(st.p * 100).toFixed(0)}% (${P_ACCEPT_LABEL}).`, source: 'clone.accept' },
   ];
   if (plan.confirm) why.push({ text: `Re-checked on fresh dice: ${plan.confirm.verdict}.`, source: 'sim.title' });
+  if (pb?.nick_shift) why.push({ text: pb.nick_shift.text, source: 'plan.template' });
   if (pb?.wait?.flag === 'wait') why.push({ text: `Wait ${pb.wait.days} days: ${pb.wait.reason}.`, source: 'plan.path' });
   return {
     step_index: i, of_steps: plan.steps.length, partner: String(st.team), give: ids(st.give), get: ids(st.get),
@@ -193,7 +195,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     gain: num(c.gain, 'plan.path') })), src('plan.path'));
   const partners = field('ok', res.partners.map(p => ({ team: p.team, p_responds: p.p_responds, basis: p.basis,
     edge: num(p.edge, 'plan.path'), score: p.score, shadow_score: p.shadow_score, chat: p.chat,
-    checked_out: p.checked_out, blocked: p.blocked })), { ...src('chat.labels'), reason: 'chat labels run in shadow; ranking uses activity x edge' });
+    checked_out: p.checked_out, blocked: p.blocked, excluded: p.excluded ?? false, nick: p.nick ?? null })),
+  { ...src('chat.labels'), reason: 'chat labels run in shadow; ranking uses activity x edge, with Nick\'s own read over both' });
   const feasibility = res.feasibility ? field('ok', res.feasibility, src('sim.title'))
     : res.outlook ? field('ok', { kind: 'outlook', season_mean: res.outlook.season_mean, per_week: res.outlook.per_week.map(w => ({ week: w.week, mean: w.mean })) }, src('sim.title'))
       : unknown('The weekly points outlook was not computed.', 'sim.title');
@@ -266,10 +269,13 @@ export function validateEntry(entry) {
   return errs;
 }
 
-/** The whole file. */
-export function plansFile(entries, { generated_at, attention = [], pushes = [] } = {}) {
+/**
+ * The whole file. flags: model-flags.js#modelFlags() for this run; they go into the head's
+ * producer_version (FIX-02b), so plans priced with other flags than Trade Lab say so.
+ */
+export function plansFile(entries, { generated_at, attention = [], pushes = [], flags = null } = {}) {
   return {
-    producer: PRODUCER, producer_version: PRODUCER_VERSION, study: true, generated_at,
+    producer: PRODUCER, producer_version: versionWithFlags(PRODUCER_VERSION, flags), study: true, generated_at,
     labels: { p_accept: P_ACCEPT_LABEL, preview_reason: PREVIEW_REASON },
     attention, pushes, leagues: entries,
   };

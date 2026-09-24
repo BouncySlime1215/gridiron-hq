@@ -20,6 +20,7 @@ const { db, rows, run } = await import('../server/db/index.js');
 // can run this before the web server has been restarted onto new code.
 await (await import('../server/db/migrate.js')).runMigrations();
 const { BROWSER_HEADERS } = await import('../server/services/espn-draft.js');
+const { settleOfferLoop } = await import('../server/services/trade-outcomes.js');
 
 db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
   league_id INTEGER NOT NULL, season INTEGER NOT NULL, tx_id TEXT NOT NULL,
@@ -94,6 +95,15 @@ for (const lg of leagues) {
       + `offers ${snap.captured} captured / ${snap.seen} seen${snap.no_items ? ` (${snap.no_items} without items)` : ''}; `
       + `decisions ${links.linked} linked, ${links.missing} proposal_missing `
       + `(${Object.entries(links.byReason).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'})`);
+    // Post-sync (CLONE-01b b1): grade every offer Nick logged as sent against the
+    // rows just collected. Read-only toward ESPN; writes trade_outcomes only.
+    try {
+      const s = settleOfferLoop(lg.id, lg.season);
+      console.log(`league ${lg.id}: offers observed ${s.observed.written} new (${s.observed.state}), `
+        + `sent ${s.sent.settled} settled / ${s.sent.matched} matched / ${s.sent.pending} pending (${s.sent.state})`);
+    } catch (e) {
+      failed++; console.log(`league ${lg.id}: offer settle ERROR ${String(e?.message ?? e).slice(0, 160)}`);
+    }
   } catch (e) {
     failed++; console.log(`league ${lg.id}: ERROR ${String(e?.message ?? e).slice(0, 120)}`);
   }

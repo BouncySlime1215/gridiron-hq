@@ -55,8 +55,9 @@ test('083 is applied and every reader names the missing sibling source instead o
   assert.ok(db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'view' AND name = 'title_odds_snapshots'`).get());
   // served_numbers comes with 083 (079's DDL), so the view reads cleanly and
   // a table rename elsewhere in the database is not blocked by it.
+  // 100_served_numbers_replay then adds seed and input_hash (RL-20-1 spec e).
   assert.deepEqual(cols('served_numbers'), ['id', 'league_id', 'surface', 'entity', 'field', 'value', 'model',
-    'model_version', 'as_of', 'served_at', 'request_id', 'trigger', 'season', 'week']);
+    'model_version', 'as_of', 'served_at', 'request_id', 'trigger', 'season', 'week', 'seed', 'input_hash']);
   const e3 = E3.load(db);
   assert.deepEqual(e3.rows, []);
   assert.equal(e3.reason ?? null, null);

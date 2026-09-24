@@ -46,7 +46,7 @@ import { lineupCall } from '../services/lineup-brain.js';
 import { lineupSignals } from '../services/lineup-signals.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
-import { tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
+import { tradeImpact, tradeImpactSeed, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
 // IDEA-001: served trade-card and title-trade numbers, queued for served_numbers.
 import { recordServed, readServed, serveLogState } from '../services/serve-log.js';
 // TM-09: historical revealed trade prices (aggregate table), read-only, default-off.
@@ -693,7 +693,8 @@ r.get('/:leagueId/title-trades', (req, res, next) => {
       shortlist: Math.min(12, Math.max(3, Number(req.query.shortlist) || 6)),
       runs: Math.min(2000, Number(req.query.runs) || TRADE_IMPACT_RUNS)
     });
-    recordServed(res, 'title_trades', lg, out, { myTeamId: req.query.team_id ?? lg.my_team_id });
+    // Every deal runs under tradeImpact's default seed (title-odds-trades.js:76-79).
+    recordServed(res, 'title_trades', lg, out, { myTeamId: req.query.team_id ?? lg.my_team_id, seed: tradeImpactSeed(lg) });
     res.json(out);
   } catch (e) { next(e); }
 });

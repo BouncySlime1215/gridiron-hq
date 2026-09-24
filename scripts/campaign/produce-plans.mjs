@@ -46,6 +46,11 @@
  * GRIDIRON_ALLOW_PAID_RUN is set; otherwise each move's reasoning is 'unknown'
  * with the reason. The file is checked with validatePlans again after it.
  *
+ * --leagues 4 (the refresh loop passes GRIDIRON_WARROOM_LEAGUES here) replans only
+ * those leagues; every other league's previous entry is copied into the new file
+ * unchanged (mergeKept), so a subset run never drops or rewrites the others.
+ * Pushes, the failed count and the summary line count only the leagues that ran.
+ *
  * Usage:
  *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3] [--no-finder]
  */
@@ -100,12 +105,38 @@ function readPrevious(file) {
 function args(argv) {
   const out = { leagues: null, flipTop: 3, targets: 3, finder: true };
   for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--leagues') out.leagues = argv[++i].split(',').map(Number);
+    if (argv[i] === '--leagues') {
+      const raw = argv[++i];
+      out.leagues = parseLeagueList(raw);
+      if (!out.leagues && String(raw ?? '').trim().toLowerCase() !== 'all') out.leaguesBad = String(raw ?? '').slice(0, 40);
+    }
     else if (argv[i] === '--flip-top') out.flipTop = Number(argv[++i]);
     else if (argv[i] === '--targets') out.targets = Number(argv[++i]);
     else if (argv[i] === '--no-finder') out.finder = false;
   }
   return out;
+}
+
+/** '4' / '1, 4' -> [4] / [1, 4]; empty, 'all' or anything not a list of ids -> null (every league). */
+export function parseLeagueList(text) {
+  const t = String(text ?? '').trim();
+  if (!t || t.toLowerCase() === 'all' || !/^\d+(\s*,\s*\d+)*$/.test(t)) return null;
+  return [...new Set(t.split(',').map(Number))];
+}
+
+/**
+ * A subset run's file plus every kept league's previous entry, as it was (the
+ * same object read from the previous file, so it serialises to the same bytes).
+ * `order` is every league id in file order; ids in `ran` come from `file`, the
+ * rest from `previous` when it has them. No kept entry -> `file` itself.
+ */
+export function mergeKept(file, previous, { order, ran }) {
+  const ranIds = new Set(ran.map(String));
+  const fresh = new Map(file.leagues.map(e => [String(e.league), e]));
+  const kept = order.map(String).filter(id => !ranIds.has(id) && previous.has(id));
+  if (!kept.length) return file;
+  const leagues = order.map(String).map(id => (ranIds.has(id) ? fresh.get(id) : previous.get(id))).filter(Boolean);
+  return { ...file, leagues };
 }
 
 /** The producer's lock on the plans file; scripts/reasoning/run.mjs takes the same one. */
@@ -251,7 +282,10 @@ async function main() {
     const skips = readJsonl(sibling(env, 'GRIDIRON_WARROOM_SKIPS', 'skips.jsonl'));
     const previous = readPrevious(out);
     const svc = await loadServices();
-    const leagues = svc.db.rows('SELECT id FROM leagues ORDER BY id').map(r => r.id)
+    const allIds = svc.db.rows('SELECT id FROM leagues ORDER BY id').map(r => r.id);
+    if (opts.leaguesBad) console.log(`[warroom] --leagues ${JSON.stringify(opts.leaguesBad)} is not a comma list of league ids; planning every league`);
+    if (opts.leagues) console.log(`[warroom] leagues ${opts.leagues.join(',')} only; the others keep their previous entries`);
+    const leagues = allIds
       .filter(id => !opts.leagues || opts.leagues.includes(id))
       .map(id => ({ id, load: async () => {
         const chat = await chatRowsFor(id);
@@ -278,12 +312,14 @@ async function main() {
     const reasoning = await reasonPlans({ plans: file, plansFile: out, env, log: l => console.log(JSON.stringify(l)) });
     if (reasoning.result.status === 'failed') console.error(`[warroom] reasoning step failed: ${reasoning.result.error}`);
     console.log(`[warroom] reasoning ${JSON.stringify(reasoning.summary)}`);
-    const checked = validatePlans(file);
+    // A --leagues run keeps every other league's previous entry untouched.
+    const written = opts.leagues ? mergeKept(file, previous, { order: allIds, ran: leagues.map(l => l.id) }) : file;
+    const checked = validatePlans(written);
     if (!checked.ok) throw new Error(`plans file failed its contract check after reasoning: ${checked.errors.slice(0, 3).map(e => `${e.path} ${e.message}`).join('; ')}`);
     const tmp = `${out}.tmp-${process.pid}`;
     // FIX-07: stamp the consumed requests in the same transaction as the plans write.
     const stamped = consumeWith(consumed, () => {
-      fs.writeFileSync(tmp, JSON.stringify(file));
+      fs.writeFileSync(tmp, JSON.stringify(written));
       fs.renameSync(tmp, out);
     }, { at: generated_at });
     console.log(`[warroom] requests consumed ${stamped.consumed}, campaign_steps written ${stamped.campaign_steps}`
@@ -295,7 +331,8 @@ async function main() {
     }
     const entries = file.leagues;
     const failed = entries.filter(e => e.error).length;
-    console.log(`warroom_plans ${failed ? 'PARTIAL' : 'ok'} leagues ${entries.length} failed ${failed} changed ${pushes.length} (${Math.round((Date.now() - t0) / 1000)} s) -> ${out}`);
+    const keptNote = written === file ? '' : ` kept ${written.leagues.length - entries.length}`;
+    console.log(`warroom_plans ${failed ? 'PARTIAL' : 'ok'} leagues ${entries.length} failed ${failed} changed ${pushes.length}${keptNote} (${Math.round((Date.now() - t0) / 1000)} s) -> ${out}`);
     if (failed === entries.length && entries.length) process.exitCode = 1;
   } finally { release(); }
 }

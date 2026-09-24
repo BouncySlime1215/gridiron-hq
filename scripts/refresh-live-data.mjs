@@ -32,7 +32,11 @@
  *                        its own switch or preview mode); launched detached every tick
  *                        (skipped while the previous run holds its lock) so each league's
  *                        next move is replanned on the fresh data and gated on this
- *                        tick's brain report and number audit (FIX-05)
+ *                        tick's brain report and number audit (FIX-05).
+ *                        GRIDIRON_WARROOM_LEAGUES=4 (comma list of leagues.id) plans only
+ *                        those leagues (--leagues); the others keep their previous entries.
+ *                        Unset, empty or 'all' plans every league (the default). Set it in
+ *                        the local runner (e.g. ~/gridiron-local/refresh.sh), not in the repo.
  *
  * ALLOWLIST ONLY. Betting collectors (line snapshots, Polymarket, book feeds,
  * prop capture, t60 runner…) are deliberately absent: Nick turned them off.
@@ -231,9 +235,24 @@ export function warRoomPlans({ launch = launchDetached, log = console.log, recor
     log(`${stamp()} ${'warroom_plans'.padEnd(18)} still running (pid ${holder}); last: ${(last ?? 'none yet').slice(0, 160)}`);
     return;
   }
-  const pid = launch(process.execPath, ['--env-file-if-exists=.env', 'scripts/campaign/produce-plans.mjs'],
-    { cwd: ROOT, env, log: files.log });
-  log(`${stamp()} ${'warroom_plans'.padEnd(18)} launched (pid ${pid}); last: ${(last ?? 'none yet').slice(0, 160)}`);
+  const only = warRoomLeagues(env);
+  const pid = launch(process.execPath, ['--env-file-if-exists=.env', 'scripts/campaign/produce-plans.mjs',
+    ...(only ? ['--leagues', only] : [])], { cwd: ROOT, env, log: files.log });
+  log(`${stamp()} ${'warroom_plans'.padEnd(18)} launched (pid ${pid}${only ? `, leagues ${only}` : ''}); last: ${(last ?? 'none yet').slice(0, 160)}`);
+}
+
+export const WARROOM_LEAGUES_ENV = 'GRIDIRON_WARROOM_LEAGUES';
+
+/**
+ * GRIDIRON_WARROOM_LEAGUES: the leagues the producer replans each tick, or null for
+ * every league (unset, empty or 'all'). Only whitespace is stripped here: the producer
+ * (produce-plans.mjs#parseLeagueList, the one parser, not imported because importing
+ * the producer sets SCHEDULER_DISABLED) reads anything that is not a comma list of ids
+ * as every league and says so in its log, so a typo never stops the plans refreshing.
+ */
+export function warRoomLeagues(env = process.env) {
+  const raw = String(env[WARROOM_LEAGUES_ENV] ?? '').replace(/\s+/g, '');
+  return !raw || raw.toLowerCase() === 'all' ? null : raw;
 }
 
 /** The producer's log and lock, next to the plans file it writes. */

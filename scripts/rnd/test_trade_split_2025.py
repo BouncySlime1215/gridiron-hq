@@ -66,6 +66,7 @@ class LineupValue(unittest.TestCase):
         lv = S.lineup_value(['x', 'y', 'z'], ['x', 'y'], ['a'], rate, pos, top2(rate), wire=wire)
         self.assertEqual(lv['replacement'], ['w1'])
         self.assertEqual(lv['per_week'], 0.0)           # 10 + 6 - (9 + 7)
+        self.assertEqual(lv['unfilled_spots'], 0)       # the freed spot was filled
         bare = S.lineup_value(['x', 'y', 'z'], ['x', 'y'], ['a'], rate, pos, top2(rate), wire=[])
         self.assertEqual(bare['per_week'], -4.0)        # 10 + 2 - 16: the spot stays empty
         self.assertEqual(bare['unfilled_spots'], 1)
@@ -121,3 +122,30 @@ class PickRate(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class Sources(unittest.TestCase):
+    """FIX-207-2: read the worktree's own data/, never the live repo clone (as --local-db never reads the live DB)."""
+    HERE = os.path.dirname(os.path.abspath(__file__))
+
+    def test_repo_data_defaults_to_this_worktree(self):
+        want = os.path.normpath(os.path.join(self.HERE, '..', '..', 'data'))
+        self.assertEqual(S.DEFAULT_REPO_DATA, want)
+        args = S.build_parser().parse_args(['--local-db', 'copy.sqlite'])
+        self.assertEqual(args.repo_data, want)
+        self.assertNotIn('/Users/', open(os.path.join(self.HERE, 'trade_split_2025.py')).read())
+
+    def test_live_repo_clone_is_refused(self):
+        live = os.path.join(self.HERE, 'fake-live-clone')
+        with self.assertRaises(SystemExit) as cm:
+            S.check_sources('copy.sqlite', os.path.join(live, 'data'), gl='/gl', live_repo=live)
+        self.assertIn('live repo clone', str(cm.exception))
+        # the same path spelled differently is still the live clone
+        with self.assertRaises(SystemExit):
+            S.check_sources('copy.sqlite', os.path.join(live, 'x', '..', 'data') + os.sep, gl='/gl', live_repo=live)
+        S.check_sources('copy.sqlite', os.path.join(self.HERE, 'data'), gl='/gl', live_repo=live)  # a worktree: fine
+
+    def test_live_db_is_still_refused(self):
+        with self.assertRaises(SystemExit) as cm:
+            S.check_sources('/gl/data.sqlite', os.path.join(self.HERE, 'data'), gl='/gl', live_repo='/nowhere')
+        self.assertIn('live data.sqlite', str(cm.exception))

@@ -73,12 +73,14 @@
     "server/services/coach/stat-names.js",
     "server/services/consensus-weights.js",
     "server/services/draft-abstention-audit.js",
+    "server/services/engine/backfill.js",
     "server/services/espn-market.js",
     "server/services/forecast-combination.js",
     "server/services/gate-verdicts.js",
     "server/services/historical-adp-scrapes.js",
     "server/services/joint-score-backtest.js",
     "server/services/level-information-decomposition.js",
+    "server/services/licence-gate.js",
     "server/services/line-move-study.js",
     "server/services/nfl-ensemble-rank.js",
     "server/services/nfl-execution-clv-downsize.js",
@@ -95,6 +97,7 @@
     "server/services/nfl-qb-quality.js",
     "server/services/nfl-team-strength.js",
     "server/services/nfl-weekly-feature-store-v2.js",
+    "server/services/nflverse-pbp.js",
     "server/services/opportunity-model.js",
     "server/services/position-liquidity.js",
     "server/services/props-total-consistency.js",
@@ -107,9 +110,7 @@
     "server/services/tells/refit.js",
     "server/services/trend-watch.js",
     "server/services/vegas-fantasy.js",
-    "server/services/week-postmortem.js",
-    "server/services/licence-gate.js",
-    "server/services/nflverse-pbp.js"
+    "server/services/week-postmortem.js"
   ],
   "_ORPHAN_README": "Modules that exist today and reach no live surface. Every one was checked on 2026-09-19: they are deliberate research, a measured-and-declined experiment, or half of a split that never finished. They are listed so the build fails on the NEXT one, not on these. Adding to this list is how you say out loud that a module is landing unwired on purpose - put the reason in the review, not here.",
   "_NEWLY_BASELINED_2026_09_19": {

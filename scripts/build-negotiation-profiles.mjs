@@ -38,8 +38,10 @@
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { assertPaidRunOptIn } from './paid-run-optin.mjs';
+import { parseProfileJson, readProfile } from '../server/services/people/profile-reader.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Same variable server/services/manager-signals.js:85 already reads for this
@@ -51,59 +53,6 @@ const ONLY = onlyIdx > -1 ? process.argv[onlyIdx + 1] : null;
 /** Enough conversation to read a style; beyond this it is repetition we pay for. */
 const MAX_MESSAGES = 160;
 const CONTEXT_BEFORE = 2;
-
-// This makes real, billed calls to the Anthropic API (callClaude at :244/:402
-// below) unless --dry-run is passed. --dry-run is the one flag that exists
-// specifically to avoid spending, so it stays usable without the opt-in;
-// every other invocation needs GRIDIRON_ALLOW_PAID_RUN set. Checked before
-// the chat database opens (next line) — same ordering discipline as
-// scripts/run-news-event-impact.mjs's guard, and for the same reason: a
-// refusal that runs after the database opens has already done the thing it
-// claims to prevent.
-if (!DRY) assertPaidRunOptIn();
-
-const chat = new DatabaseSync(CHAT_DB);
-chat.exec('PRAGMA busy_timeout=60000');
-chat.exec(`CREATE TABLE IF NOT EXISTS negotiation_profiles (
-  name TEXT PRIMARY KEY, profile_json TEXT NOT NULL, messages_read INTEGER,
-  corpus_hash TEXT, model TEXT, built_at TEXT NOT NULL)`);
-
-/**
- * The messages worth reading: anything about a trade, a player opinion, an
- * openness signal, or a refusal — plus the couple of messages before each, so
- * the model sees what he was responding to. A refusal without its question is
- * unreadable.
- */
-function corpusFor(name) {
-  const anchors = chat.prepare(`
-    SELECT DISTINCT m.msg_id, m.chat_kind, m.chat_name, m.ts_utc
-    FROM messages m JOIN jev_chat_signals s ON s.msg_id = m.msg_id
-    WHERE m.name = ? AND (
-      s.question = 'topic.argmax:trade_talk' OR s.question = 'topic.argmax:player_opinion'
-      OR (s.question = 'open_to_trade' AND s.probability > 0.45)
-      OR (s.question = 'own_roster.untouchable' AND s.probability > 0.4))
-    ORDER BY m.ts_utc DESC LIMIT ?`).all(name, MAX_MESSAGES);
-  if (!anchors.length) return [];
-  const ctx = chat.prepare(`SELECT name, ts_utc, text FROM messages
-    WHERE chat_name = ? AND ts_utc < ? AND text IS NOT NULL
-      AND trim(replace(text, char(65532), '')) <> ''
-    ORDER BY ts_utc DESC LIMIT ?`);
-  const getMsg = chat.prepare('SELECT name, ts_utc, text, chat_kind, chat_name FROM messages WHERE msg_id = ?');
-  const seen = new Set();
-  const out = [];
-  for (const a of anchors.slice().reverse()) {
-    for (const c of ctx.all(a.chat_name, a.ts_utc, CONTEXT_BEFORE).reverse()) {
-      const k = `${c.ts_utc}|${c.name}`;
-      if (seen.has(k)) continue; seen.add(k);
-      out.push({ who: c.name === 'ME' ? 'NICK' : c.name, at: c.ts_utc, text: c.text, ctx: true });
-    }
-    const m = getMsg.get(a.msg_id);
-    const k = `${m.ts_utc}|${m.name}`;
-    if (seen.has(k)) continue; seen.add(k);
-    out.push({ who: m.name, at: m.ts_utc, text: m.text, where: m.chat_kind === 'group' ? 'GROUP' : 'DM' });
-  }
-  return out;
-}
 
 const PROFILE_TOOL = {
   name: 'record_negotiation_profile',
@@ -254,136 +203,229 @@ const profileErrors = profile => schemaErrors(PROFILE_TOOL.input_schema, profile
 /** Attempts per manager. Each failed attempt is paid for, so this is a cost cap as much as a retry count. */
 const MAX_ATTEMPTS = 3;
 
-const { callClaude } = await import('../server/services/claude.js');
-const { rows: appRows } = await import('../server/db/index.js');
-const { expectationGaps } = await import('../server/services/talk-vs-model.js');
-const { managerSignalsFor } = await import('../server/services/manager-signals.js');
-const { declarationCredibility } = await import('../server/services/bluff-detector.js');
-const { assetUniverse, tradeWeekContext } = await import('../server/services/trade-engine.js');
-const { deriveFormat } = await import('../server/services/format.js');
-
-const LEAGUE_ID = 4;
-const weekNow = tradeWeekContext();
-const gaps = expectationGaps(weekNow.season, weekNow.week);
-const signals = managerSignalsFor(LEAGUE_ID);
-const credibility = declarationCredibility();
-const identity = new Map(appRows(
-  `SELECT chat_name, roster_id, espn_name, team_name FROM league_member_identity
-   WHERE league_id = ? AND chat_name IS NOT NULL`, LEAGUE_ID).map(r => [r.chat_name, r]));
-const leagueRow = appRows('SELECT * FROM leagues WHERE id = ?', LEAGUE_ID)[0];
-const payload = JSON.parse(leagueRow.payload);
-// Our own valuation and projection for every player, so the model sees what we
-// think a name is worth next to what he says about it. assetUniverse returns a
-// Map of player id -> priced asset, with a `context` property hung off it.
-const assets = assetUniverse(leagueRow, deriveFormat(leagueRow).formatKey);
-const assetByName = new Map();
-for (const a of assets.values()) if (a?.name) assetByName.set(String(a.name).toLowerCase(), a);
-
-function rosterPacket(rosterId) {
-  const team = (payload.teams ?? []).find(t => String(t.id) === String(rosterId));
-  if (!team) return null;
-  return (team.roster?.entries ?? []).map(e => {
-    const pl = e.playerPoolEntry?.player ?? {};
-    const nm = pl.fullName ?? '';
-    const g = gaps.get(nm.toLowerCase());
-    const a = assetByName.get(nm.toLowerCase());
-    return {
-      player: nm,
-      pos: ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'][pl.defaultPositionId - 1] ?? '?',
-      our_ppg: a?.adj_ppg != null ? +a.adj_ppg.toFixed(1) : null,
-      our_value: a?.value != null ? Math.round(a.value) : null,
-      expected_pts_per_game: g?.xfp_per_game ?? null,
-      actual_pts_per_game: g?.actual_per_game ?? null,
-      above_expectation: g?.gap_per_game ?? null,
-      injury: pl.injuryStatus && pl.injuryStatus !== 'ACTIVE' ? pl.injuryStatus : null,
-      acquired: e.acquisitionType ?? null,
-      starting: e.lineupSlotId !== 20 && e.lineupSlotId !== 21,
-    };
-  }).filter(p => p.player);
-}
-
-function statsPacket(name) {
-  const id = identity.get(name);
-  if (!id) return null;
-  const s = signals.get(String(id.roster_id));
-  const cred = credibility?.byManager?.get(name) ?? null;
-  const tx = appRows(`SELECT type, status, COUNT(*) n FROM league_transactions_raw
-                      WHERE league_id = ? AND team_id = ? GROUP BY type, status`, LEAGUE_ID, Number(id.roster_id));
-  return {
-    espn_name: id.espn_name, team: id.team_name, roster_id: id.roster_id,
-    his_roster: rosterPacket(id.roster_id),
-    nicks_roster: rosterPacket(String(leagueRow.my_team_id ?? 5)),
-    measured_chat_behaviour: s ? Object.fromEntries(Object.entries(s.metrics)
-      .filter(([k]) => k.startsWith('chat_')).map(([k, v]) => [k, v])) : null,
-    his_opinions_on_players: s?.players
-      ? [...s.players].map(([pn, v]) => ({ player: pn, sentiment_0to4: v.sentiment, mentions: v.n, last: v.last }))
-        .sort((a, b) => b.mentions - a.mentions).slice(0, 18)
-      : [],
-    declaration_record: cred
-      ? { declarations: cred.declarations, reversed_outright: cred.hard_reversals,
-        hedged_in_same_message: cred.hedged, held: cred.held,
-        credibility_0to1: cred.credibility, note: 'a reversal is him calling a player untouchable and reopening him within 10 days' }
-      : null,
-    transactions_last_3_days: tx,
-  };
+/**
+ * READER-SWITCH: a stored row is checked by the one reader
+ * (server/services/people/profile-reader.js, schema v2), not by PROFILE_TOOL.
+ * PROFILE_TOOL is the MODEL's contract; a stored row also carries keys the
+ * model never writes (nick_override, as_of, messages_read, ...) and sentences
+ * in the enum slots, so the tool schema called every stored profile malformed
+ * and a rebuild re-bought all of them. Takes parseProfileJson's result; [] = valid.
+ */
+export function storedProfileErrors({ raw, error }) {
+  return error ? [error] : readProfile(raw).errors;
 }
 
 /**
- * --self profiles NICK — stored under the name 'ME' — as the other nine experience him.
- *
- * Nick, 2026-09-18: "I want the coach to always be considering how I look." A
- * counterparty's answer depends on how he reads the proposer, not only on the
- * package, so Nick's own profile is an input to every idea and every message the
- * Coach drafts. It gets the same schema as everyone else plus a reputation block:
- * his share of the league's trade offers, the veto votes on his accepted deals, and
- * how his message volume compares.
+ * Nick's own read is never the model's to overwrite: the prior row's
+ * nick_override object (`priorRaw`, the parsed prior row) is carried onto the
+ * new profile as-is. No prior row, or no override object, leaves it unchanged.
  */
-const SELF = process.argv.includes('--self');
-function reputationPacket() {
-  const me = Number(identity.get('ME')?.roster_id);
-  const tx = appRows('SELECT * FROM league_transactions_raw WHERE league_id = ?', LEAGUE_ID);
-  const props = tx.filter(t => t.type === 'TRADE_PROPOSAL');
-  const offersBy = {};
-  for (const p of props) offersBy[p.team_id] = (offersBy[p.team_id] ?? 0) + 1;
-  const involvesMe = p => JSON.parse(p.items_json || '[]').some(i => i.fromTeamId === me || i.toTeamId === me);
-  const vetoes = props.filter(involvesMe).map(p => {
-    const d = tx.filter(x => x.related_tx_id === p.tx_id);
-    return { proposed_at: p.proposed_at?.slice(0, 10), proposer: p.team_id,
-      accepted: d.some(x => x.type === 'TRADE_ACCEPT'), veto_votes: d.filter(x => x.type === 'TRADE_VETO').length,
-      upheld: d.some(x => x.type === 'TRADE_UPHOLD') };
-  }).filter(v => v.accepted);
-  const style = chat.prepare('SELECT * FROM manager_chat_profile').all();
-  const rankOf = m => [...style].sort((a, b) => (b[m] ?? 0) - (a[m] ?? 0)).findIndex(x => x.name === 'ME') + 1;
-  const sent = chat.prepare(`SELECT chat_name, count(*) n FROM messages WHERE name='ME' AND chat_kind='dm' GROUP BY 1`).all();
-  const recv = new Map(chat.prepare(`SELECT chat_name, count(*) n FROM messages WHERE name<>'ME' AND chat_kind='dm' GROUP BY 1`).all().map(r => [r.chat_name, r.n]));
-  return {
-    league: 'Transfer portal (ESPN league 4), 10 teams; roster ids map to managers in the identity packet',
-    trade_offers_sent_by_roster: offersBy, his_roster: me,
-    his_accepted_deals_and_league_veto_votes: vetoes,
-    chat_rank_of_10: Object.fromEntries(['msgs', 'group_msgs', 'tapbacks', 'p_trade_talk', 'p_open_to_trade', 'p_reacting_to_loss', 'p_competitive', 'confidence_mean'].map(m => [m, rankOf(m)])),
-    dm_messages_he_sent_vs_received: Object.fromEntries(sent.map(r => [r.chat_name, { sent: r.n, received: recv.get(r.chat_name) ?? 0 }])),
-  };
+export function withNickOverride(profile, priorRaw) {
+  const override = priorRaw?.nick_override;
+  if (override == null || typeof override !== 'object' || Array.isArray(override)) return profile;
+  return { ...profile, nick_override: override };
 }
-const names = SELF ? ['ME'] : ONLY ? [ONLY] : chat.prepare(
-  `SELECT DISTINCT name FROM messages WHERE name <> 'ME' ORDER BY name`).all().map(r => r.name);
 
-let built = 0, skipped = 0, failed = 0, tokensIn = 0, tokensOut = 0;
-for (const name of names) {
-  const corpus = corpusFor(name);
-  if (corpus.length < 12) { console.log(`${name}: only ${corpus.length} readable messages — skipped`); skipped++; continue; }
-  const hash = crypto.createHash('sha1')
-    .update(corpus.map(c => `${c.at}|${c.who}|${c.text}`).join('\n')).digest('hex').slice(0, 16);
-  const prior = chat.prepare('SELECT corpus_hash, profile_json FROM negotiation_profiles WHERE name = ?').get(name);
-  let priorErrors = [];
-  try { priorErrors = prior ? profileErrors(JSON.parse(prior.profile_json)) : []; } catch { priorErrors = ['unparseable JSON']; }
-  if (prior?.corpus_hash === hash && !priorErrors.length) { console.log(`${name}: unchanged since last profile — skipped`); skipped++; continue; }
-  if (prior?.corpus_hash === hash) console.log(`${name}: messages unchanged but stored profile is malformed (${priorErrors.length} errors, e.g. ${priorErrors[0]}) — rebuilding`);
+// Importing this file (the tests do) runs nothing: no opt-in check, no database.
+const IS_MAIN = process.argv[1] != null && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (IS_MAIN) await main();
 
-  const transcript = corpus.map(c =>
-    `[${c.at.slice(0, 16)}${c.where ? ' ' + c.where : ''}] ${c.who === name || (SELF && c.who === 'NICK') ? 'HIM' : c.who}: ${String(c.text).slice(0, 260)}`
-  ).join('\n');
-  const stats = statsPacket(name);
-  const prompt = (SELF ? `Profile the negotiating style of NICK (referred to as HIM below) as the OTHER league members
+async function main() {
+  // This makes real, billed calls to the Anthropic API (callClaude in main()
+  // below) unless --dry-run is passed. --dry-run is the one flag that exists
+  // specifically to avoid spending, so it stays usable without the opt-in;
+  // every other invocation needs GRIDIRON_ALLOW_PAID_RUN set. Checked before
+  // the chat database opens (next line) — same ordering discipline as
+  // scripts/run-news-event-impact.mjs's guard, and for the same reason: a
+  // refusal that runs after the database opens has already done the thing it
+  // claims to prevent.
+  if (!DRY) assertPaidRunOptIn();
+
+  const chat = new DatabaseSync(CHAT_DB);
+  chat.exec('PRAGMA busy_timeout=60000');
+  chat.exec(`CREATE TABLE IF NOT EXISTS negotiation_profiles (
+  name TEXT PRIMARY KEY, profile_json TEXT NOT NULL, messages_read INTEGER,
+  corpus_hash TEXT, model TEXT, built_at TEXT NOT NULL)`);
+
+  /**
+   * The messages worth reading: anything about a trade, a player opinion, an
+   * openness signal, or a refusal — plus the couple of messages before each, so
+   * the model sees what he was responding to. A refusal without its question is
+   * unreadable.
+   */
+  function corpusFor(name) {
+    const anchors = chat.prepare(`
+    SELECT DISTINCT m.msg_id, m.chat_kind, m.chat_name, m.ts_utc
+    FROM messages m JOIN jev_chat_signals s ON s.msg_id = m.msg_id
+    WHERE m.name = ? AND (
+      s.question = 'topic.argmax:trade_talk' OR s.question = 'topic.argmax:player_opinion'
+      OR (s.question = 'open_to_trade' AND s.probability > 0.45)
+      OR (s.question = 'own_roster.untouchable' AND s.probability > 0.4))
+    ORDER BY m.ts_utc DESC LIMIT ?`).all(name, MAX_MESSAGES);
+    if (!anchors.length) return [];
+    const ctx = chat.prepare(`SELECT name, ts_utc, text FROM messages
+    WHERE chat_name = ? AND ts_utc < ? AND text IS NOT NULL
+      AND trim(replace(text, char(65532), '')) <> ''
+    ORDER BY ts_utc DESC LIMIT ?`);
+    const getMsg = chat.prepare('SELECT name, ts_utc, text, chat_kind, chat_name FROM messages WHERE msg_id = ?');
+    const seen = new Set();
+    const out = [];
+    for (const a of anchors.slice().reverse()) {
+      for (const c of ctx.all(a.chat_name, a.ts_utc, CONTEXT_BEFORE).reverse()) {
+        const k = `${c.ts_utc}|${c.name}`;
+        if (seen.has(k)) continue; seen.add(k);
+        out.push({ who: c.name === 'ME' ? 'NICK' : c.name, at: c.ts_utc, text: c.text, ctx: true });
+      }
+      const m = getMsg.get(a.msg_id);
+      const k = `${m.ts_utc}|${m.name}`;
+      if (seen.has(k)) continue; seen.add(k);
+      out.push({ who: m.name, at: m.ts_utc, text: m.text, where: m.chat_kind === 'group' ? 'GROUP' : 'DM' });
+    }
+    return out;
+  }
+
+  const { callClaude } = await import('../server/services/claude.js');
+  const { rows: appRows } = await import('../server/db/index.js');
+  const { expectationGaps } = await import('../server/services/talk-vs-model.js');
+  const { managerSignalsFor } = await import('../server/services/manager-signals.js');
+  const { declarationCredibility } = await import('../server/services/bluff-detector.js');
+  const { assetUniverse, tradeWeekContext } = await import('../server/services/trade-engine.js');
+  const { deriveFormat } = await import('../server/services/format.js');
+
+  const LEAGUE_ID = 4;
+  const weekNow = tradeWeekContext();
+  const gaps = expectationGaps(weekNow.season, weekNow.week);
+  const signals = managerSignalsFor(LEAGUE_ID);
+  const credibility = declarationCredibility();
+  const identity = new Map(appRows(
+    `SELECT chat_name, roster_id, espn_name, team_name FROM league_member_identity
+   WHERE league_id = ? AND chat_name IS NOT NULL`, LEAGUE_ID).map(r => [r.chat_name, r]));
+  const leagueRow = appRows('SELECT * FROM leagues WHERE id = ?', LEAGUE_ID)[0];
+  const payload = JSON.parse(leagueRow.payload);
+  // Our own valuation and projection for every player, so the model sees what we
+  // think a name is worth next to what he says about it. assetUniverse returns a
+  // Map of player id -> priced asset, with a `context` property hung off it.
+  const assets = assetUniverse(leagueRow, deriveFormat(leagueRow).formatKey);
+  const assetByName = new Map();
+  for (const a of assets.values()) if (a?.name) assetByName.set(String(a.name).toLowerCase(), a);
+
+  function rosterPacket(rosterId) {
+    const team = (payload.teams ?? []).find(t => String(t.id) === String(rosterId));
+    if (!team) return null;
+    return (team.roster?.entries ?? []).map(e => {
+      const pl = e.playerPoolEntry?.player ?? {};
+      const nm = pl.fullName ?? '';
+      const g = gaps.get(nm.toLowerCase());
+      const a = assetByName.get(nm.toLowerCase());
+      return {
+        player: nm,
+        pos: ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'][pl.defaultPositionId - 1] ?? '?',
+        our_ppg: a?.adj_ppg != null ? +a.adj_ppg.toFixed(1) : null,
+        our_value: a?.value != null ? Math.round(a.value) : null,
+        expected_pts_per_game: g?.xfp_per_game ?? null,
+        actual_pts_per_game: g?.actual_per_game ?? null,
+        above_expectation: g?.gap_per_game ?? null,
+        injury: pl.injuryStatus && pl.injuryStatus !== 'ACTIVE' ? pl.injuryStatus : null,
+        acquired: e.acquisitionType ?? null,
+        starting: e.lineupSlotId !== 20 && e.lineupSlotId !== 21,
+      };
+    }).filter(p => p.player);
+  }
+
+  function statsPacket(name) {
+    const id = identity.get(name);
+    if (!id) return null;
+    const s = signals.get(String(id.roster_id));
+    const cred = credibility?.byManager?.get(name) ?? null;
+    const tx = appRows(`SELECT type, status, COUNT(*) n FROM league_transactions_raw
+                      WHERE league_id = ? AND team_id = ? GROUP BY type, status`, LEAGUE_ID, Number(id.roster_id));
+    return {
+      espn_name: id.espn_name, team: id.team_name, roster_id: id.roster_id,
+      his_roster: rosterPacket(id.roster_id),
+      nicks_roster: rosterPacket(String(leagueRow.my_team_id ?? 5)),
+      measured_chat_behaviour: s ? Object.fromEntries(Object.entries(s.metrics)
+        .filter(([k]) => k.startsWith('chat_')).map(([k, v]) => [k, v])) : null,
+      his_opinions_on_players: s?.players
+        ? [...s.players].map(([pn, v]) => ({ player: pn, sentiment_0to4: v.sentiment, mentions: v.n, last: v.last }))
+          .sort((a, b) => b.mentions - a.mentions).slice(0, 18)
+        : [],
+      declaration_record: cred
+        ? { declarations: cred.declarations, reversed_outright: cred.hard_reversals,
+          hedged_in_same_message: cred.hedged, held: cred.held,
+          credibility_0to1: cred.credibility, note: 'a reversal is him calling a player untouchable and reopening him within 10 days' }
+        : null,
+      transactions_last_3_days: tx,
+    };
+  }
+
+  /**
+   * --self profiles NICK — stored under the name 'ME' — as the other nine experience him.
+   *
+   * Nick, 2026-09-18: "I want the coach to always be considering how I look." A
+   * counterparty's answer depends on how he reads the proposer, not only on the
+   * package, so Nick's own profile is an input to every idea and every message the
+   * Coach drafts. It gets the same schema as everyone else plus a reputation block:
+   * his share of the league's trade offers, the veto votes on his accepted deals, and
+   * how his message volume compares.
+   */
+  const SELF = process.argv.includes('--self');
+  function reputationPacket() {
+    const me = Number(identity.get('ME')?.roster_id);
+    const tx = appRows('SELECT * FROM league_transactions_raw WHERE league_id = ?', LEAGUE_ID);
+    const props = tx.filter(t => t.type === 'TRADE_PROPOSAL');
+    const offersBy = {};
+    for (const p of props) offersBy[p.team_id] = (offersBy[p.team_id] ?? 0) + 1;
+    const involvesMe = p => JSON.parse(p.items_json || '[]').some(i => i.fromTeamId === me || i.toTeamId === me);
+    const vetoes = props.filter(involvesMe).map(p => {
+      const d = tx.filter(x => x.related_tx_id === p.tx_id);
+      return { proposed_at: p.proposed_at?.slice(0, 10), proposer: p.team_id,
+        accepted: d.some(x => x.type === 'TRADE_ACCEPT'), veto_votes: d.filter(x => x.type === 'TRADE_VETO').length,
+        upheld: d.some(x => x.type === 'TRADE_UPHOLD') };
+    }).filter(v => v.accepted);
+    const style = chat.prepare('SELECT * FROM manager_chat_profile').all();
+    const rankOf = m => [...style].sort((a, b) => (b[m] ?? 0) - (a[m] ?? 0)).findIndex(x => x.name === 'ME') + 1;
+    const sent = chat.prepare(`SELECT chat_name, count(*) n FROM messages WHERE name='ME' AND chat_kind='dm' GROUP BY 1`).all();
+    const recv = new Map(chat.prepare(`SELECT chat_name, count(*) n FROM messages WHERE name<>'ME' AND chat_kind='dm' GROUP BY 1`).all().map(r => [r.chat_name, r.n]));
+    return {
+      league: 'Transfer portal (ESPN league 4), 10 teams; roster ids map to managers in the identity packet',
+      trade_offers_sent_by_roster: offersBy, his_roster: me,
+      his_accepted_deals_and_league_veto_votes: vetoes,
+      chat_rank_of_10: Object.fromEntries(['msgs', 'group_msgs', 'tapbacks', 'p_trade_talk', 'p_open_to_trade', 'p_reacting_to_loss', 'p_competitive', 'confidence_mean'].map(m => [m, rankOf(m)])),
+      dm_messages_he_sent_vs_received: Object.fromEntries(sent.map(r => [r.chat_name, { sent: r.n, received: recv.get(r.chat_name) ?? 0 }])),
+    };
+  }
+  const names = SELF ? ['ME'] : ONLY ? [ONLY] : chat.prepare(
+    `SELECT DISTINCT name FROM messages WHERE name <> 'ME' ORDER BY name`).all().map(r => r.name);
+
+  let built = 0, skipped = 0, failed = 0, tokensIn = 0, tokensOut = 0;
+  for (const name of names) {
+    const corpus = corpusFor(name);
+    if (corpus.length < 12) { console.log(`${name}: only ${corpus.length} readable messages — skipped`); skipped++; continue; }
+    const hash = crypto.createHash('sha1')
+      .update(corpus.map(c => `${c.at}|${c.who}|${c.text}`).join('\n')).digest('hex').slice(0, 16);
+    const prior = chat.prepare('SELECT corpus_hash, profile_json FROM negotiation_profiles WHERE name = ?').get(name);
+    const priorRead = prior ? parseProfileJson(prior.profile_json) : null;
+    const priorErrors = priorRead ? storedProfileErrors(priorRead) : [];
+    if (DRY && prior) {
+      // Counts and verdicts only. The override check runs the same merge the
+      // write does, on a model-shaped stand-in (the prior row without its
+      // override: the model never writes one), so no model is called.
+      const raw = priorRead.raw;
+      const had = raw?.nick_override != null;
+      const standIn = raw && typeof raw === 'object' ? { ...raw } : {};
+      delete standIn.nick_override;
+      const kept = had && isDeepStrictEqual(withNickOverride(standIn, raw).nick_override, raw.nick_override);
+      console.log(`${name}: stored profile ${priorErrors.length ? `malformed under schema v2 (${priorErrors.length} errors)` : 'valid under schema v2'}`
+        + `; ${had ? (kept ? 'nick_override kept' : 'nick_override LOST') : 'no nick_override'}`);
+    }
+    if (prior?.corpus_hash === hash && !priorErrors.length) { console.log(`${name}: unchanged since last profile — skipped`); skipped++; continue; }
+    if (prior?.corpus_hash === hash) console.log(`${name}: messages unchanged but stored profile is malformed (${priorErrors.length} errors, e.g. ${priorErrors[0]}) — rebuilding`);
+
+    const transcript = corpus.map(c =>
+      `[${c.at.slice(0, 16)}${c.where ? ' ' + c.where : ''}] ${c.who === name || (SELF && c.who === 'NICK') ? 'HIM' : c.who}: ${String(c.text).slice(0, 260)}`
+    ).join('\n');
+    const stats = statsPacket(name);
+    const prompt = (SELF ? `Profile the negotiating style of NICK (referred to as HIM below) as the OTHER league members
 experience him. HIM is the person who runs this trade tool; the profile is used to predict how his offers and
 messages land with each leaguemate, so be candid about what they see: pressure, volume, how his praise and his
 "no" read from their side, and anything that makes them wary (for example veto votes on his deals). For best_bait,
@@ -408,54 +450,60 @@ Reading guide for the numbers:
 === HIS MESSAGES (${corpus.length}, oldest first, with what he was replying to) ===
 ${transcript}`;
 
-  if (DRY) { console.log(`${name}: would send ${corpus.length} messages, ~${Math.round(prompt.length / 4)} tokens`); continue; }
-  try {
-   let msg, profile, lastErr;
-   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    msg = await callClaude({
-      // Sonnet 5 thinks by default and thinking counts toward max_tokens, so
-      // the cap leaves room for thinking plus the whole profile (stays under
-      // the ~16K non-streaming ceiling). Only produced tokens are billed.
-      feature: 'negotiation_profile', model: 'claude-sonnet-5', maxTokens: 16000,
-      system: SYSTEM, prompt,
-      // Tool use rather than "return JSON": free-form JSON truncated mid-string
-      // on 8 of 9 managers, which is a parse failure that looks like a model
-      // failure. A forced tool call is validated at the API boundary.
-      tools: [PROFILE_TOOL],
-      toolChoice: { type: 'tool', name: PROFILE_TOOL.name, disable_parallel_tool_use: true },
-    });
-    tokensIn += msg.usage?.input_tokens ?? 0; tokensOut += msg.usage?.output_tokens ?? 0;
-    const block = msg.content?.find(c => c.type === 'tool_use' && c.name === PROFILE_TOOL.name);
-    if (!block?.input) { lastErr = 'model did not call the profile tool'; continue; }
-    profile = block.input;
-    // A tool call that hits the output cap comes back as a PARTIAL object: the
-    // nested keys arrive flattened at the root and the sections we actually use
-    // are undefined. That parses cleanly and is worthless, so check the shape
-    // rather than trusting that it parsed. `stop_reason: 'max_tokens'` is the
-    // other half of the same signal.
-    const missing = ['headline', 'says_no', 'praise_means', 'techniques', 'calibration', 'how_to_approach']
-      .filter(k => profile[k] == null);
-    if (missing.length || msg.stop_reason === 'max_tokens') {
-      lastErr = `incomplete profile (stop=${msg.stop_reason}, missing: ${missing.join(',') || 'none'})`;
-      profile = null; console.log(`${name}: attempt ${attempt} ${lastErr}`); continue;
-    }
-    const shapeErrs = profileErrors(profile);
-    if (shapeErrs.length) {
-      lastErr = `malformed profile (${shapeErrs.length} errors, e.g. ${shapeErrs.slice(0, 2).join('; ')})`;
-      profile = null; console.log(`${name}: attempt ${attempt} ${lastErr}`); continue;
-    }
-    break;
-   }
-    if (!profile) throw new Error(`${lastErr} after ${MAX_ATTEMPTS} attempts`);
-    chat.prepare(`INSERT OR REPLACE INTO negotiation_profiles
+    if (DRY) { console.log(`${name}: would send ${corpus.length} messages, ~${Math.round(prompt.length / 4)} tokens`); continue; }
+    try {
+     let msg, profile, lastErr;
+     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      msg = await callClaude({
+        // Sonnet 5 thinks by default and thinking counts toward max_tokens, so
+        // the cap leaves room for thinking plus the whole profile (stays under
+        // the ~16K non-streaming ceiling). Only produced tokens are billed.
+        feature: 'negotiation_profile', model: 'claude-sonnet-5', maxTokens: 16000,
+        system: SYSTEM, prompt,
+        // Tool use rather than "return JSON": free-form JSON truncated mid-string
+        // on 8 of 9 managers, which is a parse failure that looks like a model
+        // failure. A forced tool call is validated at the API boundary.
+        tools: [PROFILE_TOOL],
+        toolChoice: { type: 'tool', name: PROFILE_TOOL.name, disable_parallel_tool_use: true },
+      });
+      tokensIn += msg.usage?.input_tokens ?? 0; tokensOut += msg.usage?.output_tokens ?? 0;
+      const block = msg.content?.find(c => c.type === 'tool_use' && c.name === PROFILE_TOOL.name);
+      if (!block?.input) { lastErr = 'model did not call the profile tool'; continue; }
+      profile = block.input;
+      // A tool call that hits the output cap comes back as a PARTIAL object: the
+      // nested keys arrive flattened at the root and the sections we actually use
+      // are undefined. That parses cleanly and is worthless, so check the shape
+      // rather than trusting that it parsed. `stop_reason: 'max_tokens'` is the
+      // other half of the same signal.
+      const missing = ['headline', 'says_no', 'praise_means', 'techniques', 'calibration', 'how_to_approach']
+        .filter(k => profile[k] == null);
+      if (missing.length || msg.stop_reason === 'max_tokens') {
+        lastErr = `incomplete profile (stop=${msg.stop_reason}, missing: ${missing.join(',') || 'none'})`;
+        profile = null; console.log(`${name}: attempt ${attempt} ${lastErr}`); continue;
+      }
+      const shapeErrs = profileErrors(profile);
+      if (shapeErrs.length) {
+        lastErr = `malformed profile (${shapeErrs.length} errors, e.g. ${shapeErrs.slice(0, 2).join('; ')})`;
+        profile = null; console.log(`${name}: attempt ${attempt} ${lastErr}`); continue;
+      }
+      break;
+     }
+      if (!profile) throw new Error(`${lastErr} after ${MAX_ATTEMPTS} attempts`);
+      // Nick's override survives the rebuild, and the row written must be one
+      // the reader accepts: a row the reader rejects is never stored.
+      profile = withNickOverride(profile, priorRead?.raw);
+      const rowErrs = storedProfileErrors(parseProfileJson(profile));
+      if (rowErrs.length) throw new Error(`row fails schema v2 (${rowErrs.length} errors, e.g. ${rowErrs[0]})`);
+      chat.prepare(`INSERT OR REPLACE INTO negotiation_profiles
       (name, profile_json, messages_read, corpus_hash, model, built_at)
       VALUES (?,?,?,?,?,datetime('now'))`)
-      .run(name, JSON.stringify(profile), corpus.length, hash, 'claude-sonnet-5');
-    built++;
-    console.log(`${name}: profiled from ${corpus.length} messages — ${profile.headline ?? ''}`);
-  } catch (e) {
-    failed++; console.log(`${name}: FAILED ${String(e?.message ?? e).slice(0, 160)}`);
+        .run(name, JSON.stringify(profile), corpus.length, hash, 'claude-sonnet-5');
+      built++;
+      console.log(`${name}: profiled from ${corpus.length} messages — ${profile.headline ?? ''}`);
+    } catch (e) {
+      failed++; console.log(`${name}: FAILED ${String(e?.message ?? e).slice(0, 160)}`);
+    }
   }
+  console.log(`\nbuilt ${built}, skipped ${skipped}, failed ${failed} | tokens in ${tokensIn.toLocaleString()} out ${tokensOut.toLocaleString()}`);
+  process.exit(failed && !built ? 1 : 0);
 }
-console.log(`\nbuilt ${built}, skipped ${skipped}, failed ${failed} | tokens in ${tokensIn.toLocaleString()} out ${tokensOut.toLocaleString()}`);
-process.exit(failed && !built ? 1 : 0);

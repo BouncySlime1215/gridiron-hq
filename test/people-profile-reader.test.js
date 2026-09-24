@@ -236,31 +236,27 @@ test('FIX-00: the schema still rejects what it should', () => {
   assert.deepEqual(reader.readProfile('x').errors, ['profile: expected object']);
 });
 
-test('FIX-00: manager_notes give Nick\'s read per roster; nick_override beats it', () => {
+test('FIX-00 / READER-SWITCH: Nick\'s read per roster is the reader\'s one rule', () => {
+  // THE rule (profile-reader.js#nickBlock): nick_override, then only notes whose
+  // source starts 'nick-chat-'. The fixture's 'nick' / 'chat' notes are not
+  // Nick's chat with Claude, so they no longer set anything (they used to, via
+  // the retired nickRead word rules).
   const r = pricing.negotiationProfilesFor(41);
-  const b = r.byRoster.get('2').nick;
-  assert.equal(b.active, false);
-  assert.equal(b.contactable, false);
-  assert.equal(b.from.contactable, 'manager_notes');
-  assert.equal(b.notes.length, 2);
-  assert.equal(b.notes[0].noted_at, '2026-09-21', 'newest note first');
+  assert.equal(r.byRoster.get('2').nick, null, "'nick' / 'chat' source notes are not read");
 
   const c = r.byRoster.get('3').nick;
   assert.equal(c.contactable, true, 'override beats "unreachable" in the notes');
-  assert.equal(c.from.contactable, 'nick_override');
+  assert.equal(c.sources.contactable, 'nick_override');
   assert.equal(c.active, true);
   assert.equal(c.difficulty, 'hard');
   assert.equal(c.buyer, false);
-  assert.equal(c.from.buyer, 'nick_override');
-  assert.equal(c.notes[0].source, 'nick_override');
+  assert.equal(c.sources.buyer, 'nick_override');
+  assert.equal(c.note, 'set by hand');
 
-  const d = r.byRoster.get('4').nick;
-  assert.deepEqual([d.contactable, d.active, d.difficulty, d.buyer], [null, null, null, null]);
-  assert.deepEqual(d.notes, []);
-
-  // A person with notes and no profile still has Nick's read.
-  assert.equal(r.nickByRoster.get('11').buyer, true);
-  assert.equal(r.nickByRoster.get('2'), r.byRoster.get('2').nick);
+  assert.equal(r.byRoster.get('4').nick, null);
+  // A person with only non-nick-chat notes and no profile has no read.
+  assert.equal(r.nickByRoster.has('11'), false);
+  assert.equal(r.nickByRoster.get('3'), r.byRoster.get('3').nick);
   assert.equal(r.nickByRoster.has('1'), false, 'Nick has no read of himself');
 });
 

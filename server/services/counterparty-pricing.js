@@ -21,7 +21,7 @@ import { rows } from '../db/index.js';
 import { managerSignalsFor, openChatDb, chatDataKey, transactionsCollected, archetypesBuilt, jevEvaluated }
   from './manager-signals.js';
 import { identityMap } from './manager-identity.js';
-import { readProfile, nickRead } from './people/profile-reader.js';
+import { readProfile, peopleProfileFromChat } from './people/profile-reader.js';
 import { talkReads, expectationGaps, rosterOwnership, HOT_GAP_PER_GAME } from './talk-vs-model.js';
 import { declarationCredibility, untouchableStance } from './bluff-detector.js';
 import { analyzeLeague } from '../routes/tradelab.js';
@@ -1347,32 +1347,37 @@ export function counterpartyDataKey(leagueId) {
 
 // The schema (v2), the enum parsing and Nick's read live in
 // people/profile-reader.js — the one place that says what a stored read means.
-// TEST SEAM: no production importer. Called by `negotiationProfilesFor` below;
-// exported so the schema validation can be tested against a bad profile without
-// writing one into a database. Checks the NORMALISED profile, as the reader does.
+// TEST SEAM: no production importer. `negotiationProfilesFor` below validates
+// through the reader itself; this stays exported so the schema can be tested
+// against a bad profile without writing one into a database.
 export function negotiationProfileErrors(profile) {
   return readProfile(profile).errors;
 }
 
 /**
- * The one server reader for negotiation_profiles (private chat DB, written by
- * scripts/build-negotiation-profiles.mjs with Sonnet 5).
+ * The counterparty view of people.profile (people/profile-reader.js is the one
+ * reader of negotiation_profiles in the private chat DB, written by
+ * scripts/build-negotiation-profiles.mjs with Sonnet 5; this file never parses
+ * a stored profile itself).
  *
  * Returns, for one league:
- *   byRoster  roster_id -> { name, profile, built_at, messages_read, model, unparsed, nick }
+ *   byRoster  roster_id -> { name, profile, built_at, messages_read, model, corpus_hash, unparsed, nick }
  *             for every VALID profile whose person is a trusted identity here.
  *             `profile` is normalised (people/profile-reader.js#readProfile):
  *             enum slots hold the enum, `<slot>_text` the stored sentence;
  *             `unparsed` lists slots whose sentence matched no enum word.
- *   nickByRoster roster_id -> Nick's read (contactable, active, difficulty,
- *             buyer, notes[]) from manager_notes and the profile's
- *             nick_override, which wins; for every trusted non-Nick identity
- *             that has either
+ *             No quiet gate here (quietBelow 0): pricing weighs a thin profile
+ *             by its own messages_read.
+ *   nickByRoster roster_id -> Nick's block (people/profile-reader.js#nickBlock)
+ *             for every trusted non-Nick identity that has one. THE rule: the
+ *             profile's nick_override, then manager_notes whose source starts
+ *             'nick-chat-' (a JSON note is read as keys, any other note is kept
+ *             as text, never read for meaning); override beats a note.
  *   notes_reason  why manager_notes contributed nothing, else null
  *   self      'ME' — Nick as the league-4 chat experiences him. Never a
  *             counterparty; it answers "how do I look to them".
- *   invalid   [{ name, errors }] — stored rows that fail the schema; not used
- *   unmapped  valid profiles with no trusted identity in this league
+ *   invalid   [{ name, errors }] — mapped rows that fail schema v2; not used
+ *   unmapped  stored profiles with no trusted identity in this league
  *
  * A league with no trusted chat identity returns available=false: the profiles
  * are read from one chat, and attaching them to namesakes elsewhere would be
@@ -1389,65 +1394,31 @@ export function negotiationProfilesFor(leagueId) {
   if (!ids.size) return result(false, 'no chat corpus for this league (no confirmed chat identities)');
   const chat = openChatDb();
   if (!chat) return result(false, 'chat DB not found');
-  let stored;
-  let notes = [];
-  let notesReason = null;
+  const myTeam = rows('SELECT my_team_id FROM leagues WHERE id = ?', leagueId)[0]?.my_team_id ?? null;
+  let people;
   try {
-    stored = chat.prepare(`SELECT name, profile_json, messages_read, model, built_at, corpus_hash
-                           FROM negotiation_profiles ORDER BY name`).all();
-    // Nick's own notes about each manager. Optional: absent means none written.
-    try {
-      notes = chat.prepare('SELECT name, note, source, noted_at FROM manager_notes').all();
-    } catch (e) {
-      if (!/no such table/.test(String(e?.message))) throw e;
-      notesReason = 'no manager_notes table';
-    }
-  } catch (e) {
-    if (/no such table: negotiation_profiles/.test(String(e?.message))) {
-      return result(false, 'no negotiation_profiles table (scripts/build-negotiation-profiles.mjs has not run)');
-    }
-    throw e;
+    people = peopleProfileFromChat(chat, { leagueId, ids, myTeam, quietBelow: 0 });
   } finally { chat.close(); }
+  if (!people.available) {
+    return result(false, /negotiation_profiles/.test(people.reason ?? '')
+      ? 'no negotiation_profiles table (scripts/build-negotiation-profiles.mjs has not run)' : people.reason);
+  }
 
   const out = result(true);
-  out.notes_reason = notesReason;
-  const notesByName = new Map();
-  for (const n of notes) {
-    if (!notesByName.has(n.name)) notesByName.set(n.name, []);
-    notesByName.get(n.name).push(n);
+  out.notes_reason = people.notes_reason ?? null;
+  const view = e => ({ name: e.name, profile: e.profile, built_at: e.built_at, messages_read: e.messages_read,
+    model: e.model, corpus_hash: e.corpus_hash, unparsed: e.unparsed });
+  const s = people.self;
+  if (s?.errors.length) out.invalid.push({ name: s.name, errors: s.errors });
+  else if (s?.profile && s.name === 'ME') {
+    out.self = { ...view(s), roster_id: s.roster_id ?? (myTeam == null ? null : String(myTeam)),
+      scope: 'how the league chat sees Nick' };
+  } else if (s?.profile) out.unmapped.push(s.name); // another name on Nick's roster: never a counterparty
+  for (const [rid, e] of people.byRoster) {
+    if (e.errors.length) out.invalid.push({ name: e.name, errors: e.errors });
+    if (e.nick) out.nickByRoster.set(rid, e.nick);
+    if (e.profile) out.byRoster.set(rid, { ...view(e), roster_id: rid, nick: e.nick });
   }
-  const overrideByName = new Map();
-  const rosterByName = new Map([...ids.values()].map(i => [i.chat_name, i.roster_id]));
-  const myTeam = rows('SELECT my_team_id FROM leagues WHERE id = ?', leagueId)[0]?.my_team_id ?? null;
-  for (const r of stored) {
-    let parsed;
-    try { parsed = JSON.parse(r.profile_json); } catch { parsed = undefined; }
-    if (parsed === undefined) { out.invalid.push({ name: r.name, errors: ['unparseable JSON'] }); continue; }
-    const { profile, errors, unparsed } = readProfile(parsed);
-    if (errors.length) { out.invalid.push({ name: r.name, errors }); continue; }
-    overrideByName.set(r.name, profile.nick_override ?? null);
-    const entry = { name: r.name, profile, built_at: r.built_at, messages_read: r.messages_read,
-      model: r.model, corpus_hash: r.corpus_hash, unparsed };
-    if (r.name === 'ME') {
-      out.self = { ...entry, roster_id: rosterByName.get('ME') ?? (myTeam == null ? null : String(myTeam)),
-        scope: 'how the league chat sees Nick' };
-      continue;
-    }
-    const rosterId = rosterByName.get(r.name);
-    if (rosterId == null || String(rosterId) === String(myTeam)) { out.unmapped.push(r.name); continue; }
-    out.byRoster.set(String(rosterId), { ...entry, roster_id: String(rosterId) });
-  }
-  // Nick's read, for every trusted identity except Nick; a profile's
-  // nick_override beats what the notes say.
-  for (const [name, rosterId] of rosterByName) {
-    const rid = String(rosterId);
-    if (name === 'ME' || rid === String(myTeam)) continue;
-    const override = overrideByName.get(name) ?? null;
-    const own = notesByName.get(name) ?? [];
-    if (!own.length && override == null && !out.byRoster.has(rid)) continue;
-    const nick = nickRead(override, own);
-    out.nickByRoster.set(rid, nick);
-    if (out.byRoster.has(rid)) out.byRoster.get(rid).nick = nick;
-  }
+  out.unmapped.push(...people.unmapped);
   return out;
 }

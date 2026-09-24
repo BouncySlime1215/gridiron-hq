@@ -103,7 +103,7 @@ test('RED: under preview there is ONE checked-out signal per manager, and it is 
     assert.equal(got[0].engine.lane, 'shadow');
     assert.equal(got[0].preview, true, 'on only through preview: labelled');
     const row = db.prepare(`SELECT value FROM engine_state WHERE id = ?`).get(got[0].engine.row_id);
-    p[team] = JSON.parse(row.value).probs[2];
+    p[team] = JSON.parse(row.value).probs.checked_out;
     assert.equal(got[0].effect, +(p[team] * perUnit).toFixed(4), 'effect is P(checked out) x the dead-start coefficient');
   }
   assert.ok(p['2'] > p['1'], `the quiet dead-start team (${p['2']}) should read more checked out than the busy one (${p['1']})`);

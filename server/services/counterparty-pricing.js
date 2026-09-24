@@ -25,6 +25,7 @@ import { talkReads, expectationGaps, rosterOwnership, HOT_GAP_PER_GAME } from '.
 import { declarationCredibility, untouchableStance } from './bluff-detector.js';
 import { analyzeLeague } from '../routes/tradelab.js';
 import { previewUnconfirmed, previewFields, previewText } from './preview-mode.js';
+import { activityCheckedOut } from './checked-out-signal.js';
 
 /**
  * RL-19-1: default-off preview of the r19-measured `positional_need` cap.
@@ -393,7 +394,10 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
     const activityTerm = offUnless(activityOn, activityPreview,
       zero.includes('trade_activity') ? null : activityFactor(m, s.samples, activityMean));
     if (Number.isFinite(activityTerm?.effect)) score += activityTerm.effect;
-    const checkedOut = offUnless(activityOn, activityPreview, zero.includes('checked_out') ? null : checkedOutFactor(m, s.samples));
+    // BROKEN-H: when activity.manager is visible (live row, or flag / preview) it is the
+    // one checked-out input and checkedOutFactor is not called (checked-out-signal.js).
+    const checkedOut = offUnless(activityOn, activityPreview, zero.includes('checked_out') ? null
+      : checkedOutTerm(leagueId, id, m, s.samples));
     if (Number.isFinite(checkedOut?.effect)) score += checkedOut.effect;
 
     // Observed behaviour outranks talk. Only applied once there are enough
@@ -566,6 +570,13 @@ export function activityFactor(metrics, samples, mean) {
  * for that week) the entry is withheld with that reason; when he had no dead
  * start, or there is no final lineup, there is nothing to report.
  */
+/** The one checked-out term: activity.manager when it owns the signal, else the legacy factor. */
+function checkedOutTerm(leagueId, rosterId, metrics, samples) {
+  const perUnit = (ACTIVITY_FIT.dead_start / ACTIVITY_FIT.base) * SCORE_PER_RELATIVE;
+  const a = activityCheckedOut(leagueId, rosterId, { perUnit });
+  return a.replaced ? a.factor : checkedOutFactor(metrics, samples);
+}
+
 // TEST SEAM: exported for the corpus grade script, like activityFactor.
 export function checkedOutFactor(metrics, samples) {
   const label = 'Checked out (left a starter in who did not play)';

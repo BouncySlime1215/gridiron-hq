@@ -1,8 +1,17 @@
 /**
- * The reader for stored negotiation profiles (schema v2) and Nick's own notes
- * about each manager. Pure: no database access here. The caller
- * (counterparty-pricing.js#negotiationProfilesFor) reads the private chat DB
- * and hands the rows in; nothing read here is written anywhere.
+ * PEOPLE-01 / ONE-READER: the one reader of the stored people profiles
+ * (negotiation_profiles.profile_json, schema v2) and of Nick's own read of each
+ * manager (profile_json.nick_override + manager_notes rows whose source starts
+ * 'nick-chat-'). It is the ONE producer of the field `people.profile`
+ * (docs/handoff/local/FIELD-REGISTRY.md); no other file may parse profile_json
+ * (test/people-reader-ratchet.test.js holds that line).
+ *
+ * Layers, top to bottom:
+ *   schema v2 + enum parsing   readProfile / normaliseProfile (pure)
+ *   Nick's read                nickBlock (the FIX-02 #276 block, folded in) and
+ *                              nickRead (the FIX-00 shape counterparty-pricing reads)
+ *   people.profile             peopleProfileFromRows (pure) <- peopleProfileFromChat
+ *                              (an open chat DB handle) <- peopleProfile (opens it)
  *
  * Why v2: the profiles rebuilt after 2026-09-18 carry new top-level keys and
  * write sentences where v1 had enum values ("rarely (… is the exception)",
@@ -10,8 +19,10 @@
  * counterparty read went blank. v2 declares the new keys and parses each enum
  * slot from its leading word, keeping the sentence beside it as `<slot>_text`.
  *
- * Seed of PEOPLE-01's reader: one place that says what a person's stored read
- * means.
+ * Typed absence: a manager with no profile, an invalid profile, or fewer than
+ * QUIET_MESSAGES messages read is `status: 'unknown'` with a reason. Unknown is
+ * not neutral: consumers must not score it. Nick's block still applies to him.
+ * Nothing read here is written anywhere; labels and counts only leave the chat DB.
  */
 
 const strings = { type: 'array', items: { type: 'string' } };
@@ -59,7 +70,8 @@ export const NEGOTIATION_PROFILE_SCHEMA_V2 = Object.freeze({
     what_moves_him: strings,
     what_shuts_him_down: strings,
     how_to_approach: text,
-    best_bait: { anyOf: [text, { type: 'object' }] }, // an object on one live row (LOCAL run, a5598584)
+    // an object on one live row (LOCAL run, a5598584); a list of strings on another (ONE-READER local copy, 9/24)
+    best_bait: { anyOf: [text, { type: 'object' }, strings] },
     confidence: enumSlot(CONFIDENCE), confidence_text: text,
     caveats: strings,
     // v2 — shapes not fixed by the builder; any JSON, still checked for leaked markup.
@@ -308,4 +320,244 @@ export function nickRead(override, notes = []) {
     out.notes.unshift({ note: o.note, source: 'nick_override', noted_at: null });
   }
   return out;
+}
+
+// ------------------------------------------------------------ one parse of profile_json
+
+/**
+ * The only JSON.parse of a stored profile_json in the codebase (ratchet:
+ * test/people-reader-ratchet.test.js). `{ raw, error }`; error is a fixed
+ * message, never the stored text.
+ */
+export function parseProfileJson(json) {
+  if (json != null && typeof json === 'object') return { raw: json, error: null };
+  if (typeof json !== 'string') return { raw: null, error: 'profile_json: missing' };
+  try { return { raw: JSON.parse(json), error: null }; } catch { return { raw: null, error: 'unparseable JSON' }; }
+}
+
+// ------------------------------------------------------------ Nick's block (FIX-02 #276, folded in)
+
+/** manager_notes rows Nick wrote in chat with Claude carry a source starting with this. */
+export const NICK_NOTES_PREFIX = 'nick-chat-';
+export const isNickNote = n => typeof n?.source === 'string' && n.source.startsWith(NICK_NOTES_PREFIX);
+
+const boolOf = v => (v === true || v === false ? v : v === 1 || v === 0 ? v === 1 : parseBool(v));
+const textOf = v => (typeof v === 'string' && v.trim() ? v.trim() : null);
+
+/** 'probably none', 'none', 'no' -> this manager does not expect to trade. */
+export function tradesNone(trades) {
+  return typeof trades === 'string' && /\b(none|no|never)\b/i.test(trades);
+}
+
+/**
+ * One manager's Nick block from his nick_override object and his notes.
+ * Notes with a source are used only when it starts NICK_NOTES_PREFIX. A note
+ * whose text is a JSON object is read as override keys; any other note is kept
+ * as a note, never parsed for meaning. nick_override beats a note on the same key.
+ * Returns null when there is nothing; `{ empty: true, warnings }` when there
+ * was input but none of it usable.
+ *
+ *   contactable:false  he cannot be reached: never a step, flip leg or target owner
+ *   active:true        in the active trading pool
+ *   buyer:false / trades:'probably none'   deprioritised
+ *   difficulty         tougher pricing when it says hard / difficult / tough
+ */
+export function nickBlock(override = null, notes = []) {
+  const keys = {};
+  const kept = [];
+  const warnings = [];
+  const take = (obj, from) => {
+    for (const [k, v] of Object.entries(obj)) {
+      if (!NICK_OVERRIDE_KEYS.includes(k)) { warnings.push(`${from}.${k}: unexpected key, ignored`); continue; }
+      keys[k] = { v, from };
+    }
+  };
+  for (const n of notes ?? []) {
+    if (n?.source != null && !isNickNote(n)) continue;
+    const raw = textOf(n?.note);
+    if (!raw) continue;
+    let parsed = null;
+    if (raw.startsWith('{')) {
+      try { parsed = JSON.parse(raw); } catch { warnings.push('manager_notes: a note starting with { is not JSON; kept as text'); }
+    }
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) take(parsed, 'manager_notes');
+    else kept.push({ text: raw, at: n?.noted_at ?? null });
+  }
+  if (override != null) {
+    if (typeof override === 'object' && !Array.isArray(override)) take(override, 'nick_override');
+    else warnings.push('nick_override: expected an object, ignored');
+  }
+  if (!Object.keys(keys).length && !kept.length) return warnings.length ? { empty: true, warnings } : null;
+
+  const val = k => keys[k]?.v;
+  const contactable = boolOf(val('contactable'));
+  const active = boolOf(val('active'));
+  const buyer = boolOf(val('buyer'));
+  const difficulty = val('difficulty') == null ? null : textOf(String(val('difficulty')));
+  const trades = textOf(val('trades'));
+  const unreachable = contactable === false;
+  const hard = !!difficulty && /\bhard\b|\bdifficult\b|\btough\b/i.test(difficulty);
+  const deprioritised = !unreachable && (buyer === false || tradesNone(trades));
+  return {
+    contactable, active, buyer, difficulty, trades,
+    fan_of: val('fan_of') ?? null, note: textOf(val('note')),
+    unreachable, deprioritised, hard,
+    // The pool is who Nick says trades; an unreachable or deprioritised manager is never in it.
+    in_active_pool: active === true && !unreachable && !deprioritised,
+    sources: Object.fromEntries(Object.entries(keys).map(([k, x]) => [k, x.from])),
+    notes: kept, warnings,
+  };
+}
+
+/** The block without note text: what may go into a plans file or a page. */
+export function publicNick(block) {
+  if (!block || block.empty) return null;
+  const { notes, warnings, note, fan_of, ...rest } = block;
+  return { ...rest, notes_n: notes.length + (note ? 1 : 0), warnings_n: warnings.length };
+}
+
+// ------------------------------------------------------------ people.profile
+
+export const PEOPLE_PROFILE_FIELD = 'people.profile';
+export const READER_VERSION = 'people-profile.1';
+export const UNKNOWN = 'unknown';
+/**
+ * THE quiet threshold: below this many messages read, a profile is too thin to
+ * act on and reads `unknown`. One number for every consumer: #254 used 30,
+ * #270 used 25; 30 is also where campaign partners' engagement band stops
+ * being 'low' (partners.js, msgs >= 30 -> 'medium').
+ */
+export const QUIET_MESSAGES = 30;
+
+const SELF = 'ME';
+const num = v => (v == null || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null);
+
+/**
+ * One manager's typed entry. `row` is a negotiation_profiles row (or null),
+ * `notes` his manager_notes rows.
+ *   { name, roster_id, status: 'ok'|'unknown', reason, valid, errors, unparsed,
+ *     profile, as_of, messages_read, built_at, model, corpus_hash, nick }
+ * `profile` (normalised, enum slots parsed) is null unless status is 'ok'.
+ */
+export function peopleProfileEntry({ name, rosterId = null, row = null, notes = [], quietBelow = QUIET_MESSAGES }) {
+  const parsed = row ? parseProfileJson(row.profile_json) : { raw: null, error: null };
+  const read = parsed.raw != null ? readProfile(parsed.raw) : null;
+  const errors = parsed.error ? [parsed.error] : read?.errors ?? [];
+  const override = read?.profile?.nick_override ?? null;
+  const nick = nickBlock(override, notes);
+  const messagesRead = num(row?.messages_read) ?? num(read?.profile?.messages_read);
+  const valid = !!row && errors.length === 0;
+  let reason = null;
+  if (!row) reason = 'no chat profile built for this manager';
+  else if (!valid) reason = 'stored profile fails schema v2';
+  else if (messagesRead == null || messagesRead < quietBelow) {
+    reason = `quiet in chat (${messagesRead ?? 0} messages read, under ${quietBelow}): no personal read`;
+  }
+  return {
+    name, roster_id: rosterId == null ? null : String(rosterId),
+    status: reason ? UNKNOWN : 'ok', reason, valid, errors, unparsed: read?.unparsed ?? [],
+    profile: reason ? null : read.profile,
+    as_of: read?.profile?.as_of ?? null, messages_read: messagesRead,
+    built_at: row?.built_at ?? null, model: row?.model ?? null, corpus_hash: row?.corpus_hash ?? null,
+    nick: nick && !nick.empty ? nick : null,
+  };
+}
+
+/**
+ * people.profile for one league, from rows already read. Pure.
+ *   profiles  negotiation_profiles rows { name, profile_json, messages_read, built_at, model, corpus_hash }
+ *   notes     manager_notes rows { name, note, source, noted_at } (any source; nickBlock keeps nick-chat-*)
+ *   ids       Map roster_id -> { chat_name } (trusted identities)
+ *   myTeam    Nick's roster id: his entry is `self`, never a counterparty
+ *   asOf      optional: a profile built after it is not visible (backtests read what existed then)
+ * Every trusted non-Nick roster gets an entry, typed unknown when there is no read.
+ */
+export function peopleProfileFromRows({ leagueId = null, profiles = [], notes = [], ids = new Map(), myTeam = null,
+  asOf = null, quietBelow = QUIET_MESSAGES, notesReason = null } = {}) {
+  const visible = profiles.filter(r => asOf == null || r.built_at == null || String(r.built_at) <= String(asOf));
+  const rowByName = new Map(visible.map(r => [r.name, r]));
+  const notesByName = new Map();
+  for (const n of notes) {
+    if (!notesByName.has(n.name)) notesByName.set(n.name, []);
+    notesByName.get(n.name).push(n);
+  }
+  const byRoster = new Map();
+  let self = null;
+  const mapped = new Set();
+  for (const [rosterId, ident] of ids) {
+    const name = ident?.chat_name;
+    if (name == null) continue;
+    mapped.add(name);
+    const entry = peopleProfileEntry({ name, rosterId, row: rowByName.get(name) ?? null,
+      notes: notesByName.get(name) ?? [], quietBelow });
+    if (name === SELF || (myTeam != null && String(rosterId) === String(myTeam))) {
+      self = { ...entry, nick: null, scope: 'how the league chat sees Nick' };
+      continue;
+    }
+    byRoster.set(String(rosterId), entry);
+  }
+  if (!self && rowByName.has(SELF)) {
+    self = { ...peopleProfileEntry({ name: SELF, rosterId: myTeam, row: rowByName.get(SELF), quietBelow }),
+      nick: null, scope: 'how the league chat sees Nick' };
+    mapped.add(SELF);
+  }
+  const entries = [...byRoster.values()];
+  return {
+    field: PEOPLE_PROFILE_FIELD, source: 'server/services/people/profile-reader.js', version: READER_VERSION,
+    league_id: leagueId, as_of: asOf, available: true, reason: null, notes_reason: notesReason,
+    quiet_below: quietBelow, byRoster, self,
+    unmapped: visible.map(r => r.name).filter(n => !mapped.has(n)),
+    counts: { rosters: entries.length, ok: entries.filter(e => e.status === 'ok').length,
+      unknown: entries.filter(e => e.status === UNKNOWN).length, invalid: entries.filter(e => e.errors.length).length,
+      nick: entries.filter(e => e.nick).length, unreachable: entries.filter(e => e.nick?.unreachable).length },
+  };
+}
+
+const missingTable = e => /no such table/.test(String(e?.message));
+const unavailable = (leagueId, reason) => ({ field: PEOPLE_PROFILE_FIELD, source: 'server/services/people/profile-reader.js',
+  version: READER_VERSION, league_id: leagueId, available: false, reason, byRoster: new Map(), self: null, unmapped: [] });
+
+/**
+ * people.profile from an open chat DB handle. An absent negotiation_profiles
+ * table is `available: false` with a reason; an absent manager_notes table is
+ * `notes_reason`; any other DB error throws.
+ */
+export function peopleProfileFromChat(chat, { leagueId = null, ids = new Map(), myTeam = null, asOf = null,
+  quietBelow = QUIET_MESSAGES } = {}) {
+  let profiles;
+  try {
+    profiles = chat.prepare(`SELECT name, profile_json, messages_read, model, built_at, corpus_hash
+                             FROM negotiation_profiles ORDER BY name`).all();
+  } catch (e) {
+    if (missingTable(e)) return unavailable(leagueId, 'no negotiation_profiles table (the profile build has not run)');
+    throw e;
+  }
+  let notes = [];
+  let notesReason = null;
+  try {
+    notes = chat.prepare('SELECT name, note, source, noted_at FROM manager_notes').all();
+  } catch (e) {
+    if (!missingTable(e)) throw e;
+    notesReason = 'no manager_notes table';
+  }
+  return peopleProfileFromRows({ leagueId, profiles, notes, ids, myTeam, asOf, quietBelow, notesReason });
+}
+
+/**
+ * people.profile for one league: opens the private chat DB read-only and the
+ * league's trusted identities. Async only because the DB modules load lazily,
+ * so importing this file never opens a database.
+ */
+export async function peopleProfile(leagueId, { asOf = null, quietBelow = QUIET_MESSAGES } = {}) {
+  const { identityMap } = await import('../manager-identity.js');
+  const { openChatDb } = await import('../manager-signals.js');
+  const { rows } = await import('../../db/index.js');
+  const ids = identityMap(leagueId);
+  if (!ids.size) return unavailable(leagueId, 'no chat corpus for this league (no confirmed chat identities)');
+  const chat = openChatDb();
+  if (!chat) return unavailable(leagueId, 'chat DB not found');
+  const myTeam = rows('SELECT my_team_id FROM leagues WHERE id = ?', leagueId)[0]?.my_team_id ?? null;
+  try {
+    return peopleProfileFromChat(chat, { leagueId, ids, myTeam, asOf, quietBelow });
+  } finally { chat.close(); }
 }

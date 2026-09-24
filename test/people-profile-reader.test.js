@@ -280,4 +280,117 @@ test('FIX-00: no manager_notes table is not an error', () => {
   }
 });
 
+// ------------------------------------------------------------ ONE-READER: people.profile
+// Shapes only: invented names, no chat text. The live DB had one best_bait as a
+// list of strings, which v2 rejected (9/10 valid on the ONE-READER local copy).
+
+test('ONE-READER: a best_bait list of strings is valid', () => {
+  const p = { ...LIVE_SHAPES[1][1], best_bait: ['b1', 'b2', 'b3'] };
+  assert.deepEqual(reader.readProfile(p).errors, []);
+  assert.ok(reader.readProfile({ ...p, best_bait: [1] }).errors.some(e => /best_bait: expected/.test(e)));
+});
+
+test('ONE-READER: parseProfileJson is the one parse; it names no stored text', () => {
+  assert.deepEqual(reader.parseProfileJson('{"a":1}'), { raw: { a: 1 }, error: null });
+  assert.deepEqual(reader.parseProfileJson('{"a":'), { raw: null, error: 'unparseable JSON' });
+  assert.deepEqual(reader.parseProfileJson(null), { raw: null, error: 'profile_json: missing' });
+});
+
+const nickNote = (name, note, at = '2026-09-23') => ({ name, note, source: 'nick-chat-2026-09-23', noted_at: at });
+
+test('ONE-READER: nickBlock reads nick_override and nick-chat-* notes only; override wins', () => {
+  const b = reader.nickBlock({ contactable: false, note: 'n' }, [
+    nickNote('X', 'free text is kept, never parsed'),
+    nickNote('X', '{"active": true, "contactable": true}'),
+    { name: 'X', note: '{"buyer": false}', source: 'chat', noted_at: '2026-09-22' },   // not Nick's: ignored
+  ]);
+  assert.equal(b.contactable, false, 'override beats the note on the same key');
+  assert.equal(b.sources.contactable, 'nick_override');
+  assert.equal(b.active, true);
+  assert.equal(b.sources.active, 'manager_notes');
+  assert.equal(b.buyer, null, 'a non nick-chat source is not Nick\'s block');
+  assert.equal(b.unreachable, true);
+  assert.equal(b.in_active_pool, false, 'an unreachable manager is never in the pool');
+  assert.equal(b.notes.length, 1);
+  const pub = reader.publicNick(b);
+  assert.equal(pub.notes_n, 2);
+  assert.ok(!('notes' in pub) && !('note' in pub), 'no note text in the public block');
+
+  const d = reader.nickBlock({ buyer: 'no', trades: 'probably none', difficulty: 'hard to deal with', active: 'true' });
+  assert.deepEqual([d.buyer, d.deprioritised, d.hard, d.active, d.in_active_pool], [false, true, true, true, false]);
+  assert.equal(reader.nickBlock(null, []), null);
+  assert.deepEqual(reader.nickBlock({ mood: 'x' }), { empty: true, warnings: ['nick_override.mood: unexpected key, ignored'] });
+});
+
+function shape(i, extra = {}) { return withSlots(v2(i, extra), { holds: 'Rarely.', reading: 'belief', inflation: 'mild', often: ['once'] }); }
+const row = (name, p, messagesRead, builtAt = '2026-09-22 05:00:00') => ({ name, profile_json: JSON.stringify(p),
+  messages_read: messagesRead, model: 'm', built_at: builtAt, corpus_hash: `h-${name}` });
+
+test('ONE-READER: people.profile types every roster; ONE quiet threshold; nick block on every noted manager', () => {
+  assert.equal(reader.QUIET_MESSAGES, 30);
+  const ids = new Map([['1', { chat_name: 'ME' }], ['2', { chat_name: 'A' }], ['3', { chat_name: 'B' }],
+    ['4', { chat_name: 'C' }], ['5', { chat_name: 'D' }], ['6', { chat_name: 'E' }]]);
+  const profiles = [
+    row('ME', shape(0), 900),
+    row('A', shape(1, { nick_override: { contactable: false } }), 200),
+    row('B', shape(2, { nick_override: { active: true } }), 29),         // quiet: one under
+    row('C', shape(3), 30),                                              // exactly the threshold: read
+    row('D', { ...shape(4), messages_read: 'many' }, 150),               // invalid
+    row('Z', shape(5), 100),                                             // no identity
+  ];
+  const notes = [nickNote('A', 'kept'), nickNote('B', 'kept'), nickNote('E', 'kept'), nickNote('ME', 'kept'),
+    { name: 'C', note: 'kept', source: 'nick', noted_at: '2026-09-20' }];
+  const r = reader.peopleProfileFromRows({ leagueId: 41, profiles, notes, ids, myTeam: '1' });
+  assert.equal(r.field, 'people.profile');
+  assert.equal(r.version, reader.READER_VERSION);
+  assert.equal(r.self.name, 'ME');
+  assert.equal(r.self.nick, null, 'Nick has no block on himself');
+  assert.deepEqual([...r.byRoster.keys()], ['2', '3', '4', '5', '6']);
+  const e = id => r.byRoster.get(id);
+  assert.deepEqual([e('2').status, e('2').nick.contactable, e('2').nick.unreachable], ['ok', false, true]);
+  assert.equal(e('3').status, 'unknown');
+  assert.match(e('3').reason, /quiet in chat \(29 messages read, under 30\)/);
+  assert.equal(e('3').profile, null, 'a quiet manager has no personal read');
+  assert.equal(e('3').valid, true);
+  assert.equal(e('3').nick.active, true, 'Nick\'s word does not depend on chat volume');
+  assert.equal(e('4').status, 'ok');
+  assert.equal(e('4').nick, null, 'a note that is not nick-chat-* is not a block');
+  assert.deepEqual([e('5').status, e('5').valid], ['unknown', false]);
+  assert.ok(e('5').errors.some(x => /messages_read: expected number/.test(x)));
+  assert.deepEqual([e('6').status, e('6').reason], ['unknown', 'no chat profile built for this manager']);
+  assert.equal(e('6').nick.notes.length, 1, 'notes without a profile still give a block');
+  assert.deepEqual(r.unmapped, ['Z']);
+  assert.deepEqual(r.counts, { rosters: 5, ok: 2, unknown: 3, invalid: 1, nick: 3, unreachable: 1 });
+  assert.equal(reader.peopleProfileFromRows({ profiles, ids, quietBelow: 20 }).byRoster.get('3').status, 'ok');
+  assert.equal(reader.peopleProfileFromRows({ profiles, ids, asOf: '2026-09-21' }).byRoster.get('2').reason,
+    'no chat profile built for this manager', 'a profile built after asOf is not visible');
+});
+
+test('ONE-READER: peopleProfile reads the chat DB and agrees with negotiationProfilesFor', async () => {
+  const r = await reader.peopleProfile(41);
+  const old = pricing.negotiationProfilesFor(41);
+  assert.equal(r.available, true);
+  assert.equal(r.self.name, 'ME');
+  assert.deepEqual([...r.byRoster.keys()].filter(k => r.byRoster.get(k).valid).sort(), [...old.byRoster.keys()].sort());
+  assert.equal(r.byRoster.get('11').status, 'unknown', 'a person with notes and no profile is typed unknown');
+  assert.equal(r.byRoster.get('3').nick.contactable, true, 'nick_override on the stored profile');
+  assert.equal(r.byRoster.get('2').nick, null, 'notes from other sources are not Nick\'s block');
+  const b = r.byRoster.get('2').profile;
+  assert.equal(b.says_no.does_his_no_hold, 'rarely');
+
+  const chat = new DatabaseSync(CHAT_PATH);
+  chat.exec('ALTER TABLE negotiation_profiles RENAME TO np_off');
+  chat.close();
+  try {
+    const off = await reader.peopleProfile(41);
+    assert.equal(off.available, false);
+    assert.match(off.reason, /no negotiation_profiles table/);
+  } finally {
+    const c = new DatabaseSync(CHAT_PATH);
+    c.exec('ALTER TABLE np_off RENAME TO negotiation_profiles');
+    c.close();
+  }
+  assert.equal((await reader.peopleProfile(999)).available, false, 'no identities: unavailable, said');
+});
+
 test.after(() => fs.rmSync(temp, { recursive: true, force: true }));

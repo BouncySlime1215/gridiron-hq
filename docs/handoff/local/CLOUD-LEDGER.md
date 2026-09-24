@@ -27,3 +27,18 @@ Running est total: $0 (updated as agents finish). Nick can check the real balanc
 | 09/23 09:19 PM | CLONE-01b-b1 | CLOUD (other acct) https://claude.ai/code/session_01VQXrNoHmo243E5wLAa1Q3f | running | | |
 | 09/23 09:20 PM | SELF-01a | CLOUD (other acct) https://claude.ai/code/session_01BqQpRrjXqGbnHW5JbxcB4L | running | | |
 | 09/23 09:21 PM | RL-16-2 | CLOUD (other acct) https://claude.ai/code/session_01ReeEVR6HECBjaKAJV5BDFo | running | | |
+
+**9/23 ~10:40 PM (Nick):** all cloud sessions finished; total ~$50 of credit on the other account for ~17 PRs (#230-#246). Open cloud PRs: 230 231 232 233 234 235 236 237 238 239 240 241 242 243 244 245 246 (+ OFFER-SNAPSHOT pending check).
+| 09/23 10:18 PM | PEOPLE-01 | CLOUD (other acct) https://claude.ai/code/session_01Eq8VyCDQDcnS2fxypNVn5f | running | | |
+| 09/23 10:19 PM | CAMPAIGN-PEOPLE | CLOUD (other acct) https://claude.ai/code/session_012LMhHvtXKbUtngNV6UmoBV | running | | |
+| 09/23 10:20 PM | JEV-01a | CLOUD (other acct) https://claude.ai/code/session_01B84SGmbtFFQHc1Kf5Stbyu | running | | |
+| 09/23 10:20 PM | EA-04 | CLOUD (other acct) https://claude.ai/code/session_0128uL6mxVDZasRVLDezTMff | running | | |
+| 09/23 10:20 PM | HEALTH-01bc | CLOUD (other acct) https://claude.ai/code/session_01FDizYR8dpBPV1Dm599wfWq | running | | |
+| 09/23 10:20 PM | PROJ-04a | CLOUD (other acct) https://claude.ai/code/session_01UXyyE5Y9UWzaM1ccieC5jD | running | | |
+| 09/23 10:21 PM | EA-05 | CLOUD (other acct) https://claude.ai/code/session_01PEa2yDihPdpdkNYyVaopg6 | running | | |
+| 09/23 10:21 PM | HEALTH-01de | CLOUD (other acct) https://claude.ai/code/session_01YXnAj8y9XtVb5EtEAYjK6G | running | | |
+| 09/23 10:22 PM | COACH-01a | CLOUD (other acct) https://claude.ai/code/session_0128k6nzXAwyioZazTVCTtfJ | running | | |
+| 09/23 10:22 PM | LIVING-01b | CLOUD (other acct) https://claude.ai/code/session_01X5q3RVMuW4Y4ZRjqbsiBuh | running | | |
+| 09/23 10:22 PM | CHESS-01a | CLOUD (other acct) https://claude.ai/code/session_01R3Wiw9APkszqNQMVw869oR | running | | |
+| 09/23 10:23 PM | M5-BANDIT | CLOUD (other acct) https://claude.ai/code/session_012shogkouk3AKFFQswESymg | running | | |
+| 09/23 10:24 PM | REP-01 | CLOUD (other acct)  | running | | |

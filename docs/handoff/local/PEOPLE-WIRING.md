@@ -43,3 +43,29 @@ The campaign producer (#233) gets a COUNTERPART MODEL per league-4 manager, buil
 9. **Replanning:** a profile change (changes_since, new chat) is an event that re-runs the plan.
 10. **Reasoning panel:** "his side of the table" cites the profile traits (labels, no quotes).
 Honesty rule: every people-based adjustment is a FEATURE with a weight, shown in the reason chain, and graded (EVAL E1/E2/C7); traits that don't earn weight fade. Tonight: PEOPLE-01 then CAMPAIGN-PEOPLE (cloud) once the rebuilt profiles land.
+
+## The 10 counterpart modules, each with its own stat (Nick 9/23 ~10:25 PM: "these 10 modules need to be insane; we have so much data from the texts that the model has no excuse not to win")
+Key insight: the texts are rich in WORDS but league 4 has only ~40 decided offers (thin OUTCOMES). So each module is graded on the chat's OWN follow-through, which gives thousands of labelled events: a statement in chat (wants X, untouchable Y, frustrated with Z, 'need a move', 'no chance') followed later by an observable action (trade, add/drop, offer, reply). Words -> later actions is the ground truth we have plenty of.
+| # | module | stat that proves it works (graded on league 4 + chat follow-through, as-of) |
+|---|---|---|
+| M1 targets | sellers-to-be | of players the module flags 'owner would sell', share actually moved ([mgr]/dropped) within 3 weeks vs base rate |
+| M2 partner order | who engages | reply rate / response time of top-ranked partners vs others |
+| M3 price | yes-point | accept rate at the module's price vs predicted; overpay avoided (title-odds given up) |
+| M4 package | what he wants | share of his next acquisitions matching his stated wants / hyped players vs base rate |
+| M5 message | framing | accept rate by framing arm (bandit, IDEA-037), face-safe vs not |
+| M6 reply tree | counters | predicted counter/no-style vs actual reply (exact / close / miss) |
+| M7 timing | urgency windows | after an urgency spike in chat, P(trade within 7 days) vs baseline |
+| M8 simulation | opponent model | log loss of simulated responses vs real responses (E1) |
+| M9 replanning | profile change -> plan change | share of profile changes that preceded a real behaviour change |
+| M10 reasoning | his side of the table | share of reasoning claims that came true |
+Build order: (1) PEOPLE-LAB (local R&D now): extract statement->action pairs from ALL chat history (as-of), compute M1/M4/M6/M7/M9 baselines and the lift of the rebuilt profiles; (2) COUNTERPART-01 (cloud): the counterpart model + M3/M4/M6/M7 hooks in the campaign producer behind flags; (3) M5 bandit once offers log; (4) all grades feed EVAL + the War Room 'Is the brain working?' card.
+
+## Nick's ground truth (9/23 ~10:45 PM) -> manager_notes + profile nick_override (overrides chat-derived reads everywhere)
+- Partner pool for league-4 campaigns: ACTIVE = Lars, [mgr], Rami, Raj (Rami + Raj hard to deal with: tough negotiators -> lower P(accept), stricter pricing, patient reply trees). EXCLUDE [mgr] (abroad, unreachable). DEPRIORITIZE Zach (not doing trades). AV: NYG fan; Dart out for season. Josh: 'need a QB' texts are youth football.
+- Rule: nick_override beats any model/chat read; the campaign producer and clones must read it (PEOPLE-01 reader).
+
+## PEOPLE-LAB result (verified by coordinator 9/23 ~10:30 PM) -> what each module uses
+- M4/C4/C2/M2: wants_player[mgr][player] = STRONG (17x acquire in 7d, CI 9.7-25.5). Use: he is in-market for X, so sell X-type assets to him at a premium, don't bid against him for X, and put him first in partner order that week. Decays over 7->21 days.
+- Per-manager credibility: one roster's 'for sale' talk is credible and another's is cheap talk (shop->moved 0.0x). Weight each manager's SHOP/UNTOUCHABLE by his own follow-through; unknown for quiet rosters (2, 4, 11, 12).
+- Dead as signals (no weight): frustrated, untouchable, want-position, chat 'no' style. M6 reply prior: ignore 45 / counter 33 / decline 17 / accept 5.
+- Data gaps: 84% of statements come from 3 rosters; the ESPN feed missed some executed trades (17 players excluded); 46 league-4 proposals were never captured (pre-collector, unrecoverable); screenshots add 7 trades not in the feed.

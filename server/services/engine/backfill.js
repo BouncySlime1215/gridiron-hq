@@ -16,7 +16,9 @@
  *                 proposed_at, or every decline would be dated at its proposal
  *   lineups       changed_at (exact); actual/projected points are NOT copied
  *   news          published_at (exact); later than the row's own ingested_at -> clamped to
- *                 it with payload.source_as_of; a bare date -> end of day ET (date_only);
+ *                 it with payload.source_as_of; a bare date -> end of day ET (date_only), and
+ *                 so is a stamp at exactly local midnight on the row's own `date` (ESPN
+ *                 Transactions: '...T07:00:00.000Z' = 00:00 PT, the source only knows the day);
  *                 else ingested_at/created_at (first_seen)
  *   game lines    fetched_at (first_seen: the capture that saw the line); scores and
  *                 closing lines are NOT copied
@@ -34,7 +36,7 @@
  * Run off-server by scripts/engine-backfill.mjs (role script). Never from the web server.
  */
 import { db as appDb } from '../../db/index.js';
-import { appendEvents, normalizeAsOf } from './events.js';
+import { appendEvents, normalizeAsOf, endOfDayEastern } from './events.js';
 import { writeState } from './state.js';
 import { registerField } from './registry.js';
 import { recordRun } from './fields.js';
@@ -68,6 +70,33 @@ const team = (leagueId, teamId, entityRole) => (present(leagueId) && present(tea
   ? { type: 'league_team', id: `${leagueId}:${teamId}`, role: entityRole } : null);
 
 const STATUS_WITHOUT_PROCESSED = new Set(['PENDING']);
+
+// A source that only knows the day encodes it as local midnight: ESPN's transactions API
+// gives '2026-09-02T07:00Z' (00:00 Pacific) for "some time on 2026-09-02". Taken as exact,
+// an as-of read early on that day would see a move reported later that day.
+const MIDNIGHT_ZONES = ['UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles'];
+const localParts = (ms, timeZone) => Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+  timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  hourCycle: 'h23' }).formatToParts(new Date(ms)).map(p => [p.type, p.value]));
+
+/**
+ * The bare date a news stamp stands for, or null when it is a real timestamp: a literal
+ * 'YYYY-MM-DD', or an instant that is exactly midnight in a US zone (or UTC) whose local
+ * date is the row's own `date`. Needs the row's date for the midnight case, so a story
+ * really published at 00:00:00.000 on some other day is not misread.
+ */
+export function newsBareDate(publishedAt, rowDate) {
+  const raw = String(publishedAt).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const day = present(rowDate) ? String(rowDate).trim().slice(0, 10) : null;
+  const ms = Date.parse(raw);
+  if (!day || !Number.isFinite(ms) || ms % 1000 !== 0) return null;
+  for (const zone of MIDNIGHT_ZONES) {
+    const p = localParts(ms, zone);
+    if (p.hour === '00' && p.minute === '00' && p.second === '00' && `${p.year}-${p.month}-${p.day}` === day) return day;
+  }
+  return null;
+}
 
 /** One adapter per stream. `sql(table)` selects source rows; `map(row, ctx)` returns events. */
 export const ADAPTERS = Object.freeze([
@@ -130,13 +159,14 @@ export const ADAPTERS = Object.freeze([
       const payload = { news_id: r.id, headline: r.headline, importance: r.importance, news_source: r.source,
         transaction_type: r.transaction_type, nfl_team_id: r.team_id, player_ids: players };
       let asOf; let quality;
-      if (present(r.published_at) && /^\d{4}-\d{2}-\d{2}$/.test(String(r.published_at).trim())) {
-        [asOf, quality] = [String(r.published_at).trim(), 'date_only'];
-      } else if (present(r.published_at)) {
-        [asOf, quality] = [r.published_at, 'exact'];
+      const bareDate = present(r.published_at) ? newsBareDate(r.published_at, r.date) : null;
+      if (present(r.published_at)) {
+        [asOf, quality] = bareDate ? [endOfDayEastern(bareDate), 'date_only'] : [normalizeAsOf(r.published_at), 'exact'];
+        // Keep the source's own stamp when it is not the as_of we chose (midnight-encoded date, or clamped).
+        if (bareDate && String(r.published_at).trim() !== bareDate) payload.source_as_of = normalizeAsOf(r.published_at);
         const received = present(r.ingested_at) ? normalizeAsOf(r.ingested_at) : null;
-        if (received && normalizeAsOf(r.published_at) > received) {
-          payload.source_as_of = normalizeAsOf(r.published_at);
+        if (received && asOf > received) {
+          payload.source_as_of = asOf;
           [asOf, quality] = [received, 'clamped'];
         }
       } else if (present(r.ingested_at) || present(r.created_at)) {

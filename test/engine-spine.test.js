@@ -115,6 +115,15 @@ run(`INSERT INTO news_items (date, headline, body, importance, source, published
 run(`INSERT INTO news_items (date, headline, importance, source, published_at, ingested_at, entities_json)
      VALUES ('2026-09-19', 'Fixture late stamp', 2, 'fixture', '2026-09-19T21:00:00.000Z', '2026-09-19T16:00:00.000Z',
        '{"players":[],"teams":[]}')`);
+// ESPN Transactions rows: the API gives a bare date, stored as midnight Pacific ('...T07:00:00.000Z'), with
+// `date` = that day. A move reported any time that day must not be visible from 00:00 PT (A10, section 3.1).
+run(`INSERT INTO news_items (date, headline, importance, source, published_at, ingested_at, entities_json)
+     VALUES ('2026-09-02', 'Fixture midnight wire', 2, 'ESPN Transactions', '2026-09-02T07:00:00.000Z',
+       '2026-09-03T18:16:24.444Z', '{"players":[],"teams":[]}')`);
+// Same shape, received the same afternoon: end of day ET is after our receipt, so it is clamped to ingested_at.
+run(`INSERT INTO news_items (date, headline, importance, source, published_at, ingested_at, entities_json)
+     VALUES ('2026-09-03', 'Fixture midnight wire same day', 2, 'ESPN Transactions', '2026-09-03T07:00:00.000Z',
+       '2026-09-03T19:51:01.093Z', '{"players":[],"teams":[]}')`);
 run(`INSERT INTO game_lines (season, week, team, opponent, home, spread, total, implied_points, source, fetched_at)
      VALUES (2026, 3, 'AAA', 'BBB', 1, -3.5, 44.5, 24, 'fixture', '2026-09-18 12:00:00')`);
 run(`INSERT INTO nfl_injuries (season, week, gsis_id, team, full_name, position, report_status, practice_status,
@@ -490,6 +499,26 @@ test('RED (6): a news stamp later than ingest is clamped and keeps source_as_of'
     natural_key: 'date-1', payload: {} }]).events;
   assert.equal(d.as_of, '2026-09-11T03:59:59.999Z');
   assert.equal(d.as_of_quality, 'date_only');
+});
+
+test('RED (6b): a midnight-truncated ESPN Transactions stamp is a bare date: end of day ET, date_only', () => {
+  const news = headline => rows(`SELECT * FROM engine_events WHERE event_type = 'news.item'`)
+    .find(e => JSON.parse(e.payload).headline === headline);
+  const ev = news('Fixture midnight wire');
+  assert.ok(ev);
+  assert.equal(ev.as_of, '2026-09-03T03:59:59.999Z', 'a bare-date move was dated at the start of its day');
+  assert.equal(ev.as_of_quality, 'date_only');
+  assert.equal(JSON.parse(ev.payload).source_as_of, '2026-09-02T07:00:00.000Z');
+  // A replay early on 2026-09-02 must not see a move ESPN only dated to that day.
+  const early = events.getEvents({ asOf: '2026-09-02T12:00:00Z', types: ['news.item'] });
+  assert.ok(!early.some(e => e.id === ev.id), 'an as-of read early on day D saw a day-D bare-date move');
+  const same = news('Fixture midnight wire same day');
+  assert.ok(same);
+  assert.equal(same.as_of, '2026-09-03T19:51:01.093Z');
+  assert.equal(same.as_of_quality, 'clamped');
+  assert.equal(JSON.parse(same.payload).source_as_of, '2026-09-04T03:59:59.999Z');
+  // A real timestamp that is not a midnight stays exact.
+  assert.equal(news('Fixture Back limited').as_of_quality, 'exact');
 });
 
 test('RED (7): a chain whose deltas do not sum in its declared space is refused', () => {

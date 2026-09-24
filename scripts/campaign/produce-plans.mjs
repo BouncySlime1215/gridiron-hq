@@ -15,6 +15,7 @@
  *   GRIDIRON_WARROOM_OFFERS      input    JSONL { league, manager, at } (optional; "I sent it" log, fatigue cap)
  *   GRIDIRON_WARROOM_PUSHES      output   JSONL, one row per league whose next move changed
  *   GRIDIRON_CHAT_DB_PATH        input    local chat DB (optional; labels only)
+ *   GRIDIRON_WARROOM_RESCORE_CACHE  in/out  rescore cache (PRODUCER-FAST only; scripts/campaign/rescore-cache.mjs)
  * Defaults for the inputs sit next to the plans file.
  *
  * The file is the War Room contract (server/services/campaign/plans-schema.js,
@@ -140,6 +141,8 @@ export async function buildPlansFile(leagues, {
           skips: { ...(inputs.skips ?? { status: 'none' }), rows: skips.filter(s => String(s.league) === String(id)).length },
           offers: inputs.offers ?? { status: 'none' },
           deadline: adapter.league?.deadline_source ?? null, objective: objective.source,
+          // PRODUCER-FAST: hits / misses of the rescore cache, only when the flag gave the run one.
+          ...(adapter.cacheStats?.() ? { rescore_cache: adapter.cacheStats() } : {}),
         };
       }
       const v = validateLeague(entry);
@@ -187,20 +190,29 @@ async function main() {
   if (!release) { console.log('warroom_plans skipped: another run holds the lock'); return; }
   console.log(`warroom_plans started ${new Date().toISOString()} pid ${process.pid}`);
   try {
-    const { loadServices, buildAdapter } = await import('./league-adapter.mjs');
+    const { loadServices, buildAdapter, producerFastEnabled } = await import('./league-adapter.mjs');
+    const { readRescoreCache, writeRescoreCache, leagueCache } = await import('./rescore-cache.mjs');
     const { chatRowsFor } = await import('./chat-labels.mjs');
 
     const objectives = readObjectives(sibling(env, 'GRIDIRON_WARROOM_OBJECTIVES', 'objectives.json'));
     const skips = readJsonl(sibling(env, 'GRIDIRON_WARROOM_SKIPS', 'skips.jsonl'));
     const offers = readJsonl(sibling(env, 'GRIDIRON_WARROOM_OFFERS', 'offers.jsonl'));
     const previous = readPrevious(out);
+    // PRODUCER-FAST: last run's rescores, reused only for a world with the same content hash.
+    const fast = producerFastEnabled();
+    const cacheFile = sibling(env, 'GRIDIRON_WARROOM_RESCORE_CACHE', 'rescore-cache.json');
+    const cacheIn = fast ? readRescoreCache(cacheFile) : null;
+    if (cacheIn && cacheIn.status !== 'ok' && cacheIn.status !== 'absent') console.warn(`[warroom] rescore cache ${cacheIn.status}`);
+    const caches = new Map();
     const svc = await loadServices();
     const leagues = svc.db.rows('SELECT id FROM leagues ORDER BY id').map(r => r.id)
       .filter(id => !opts.leagues || opts.leagues.includes(id))
       .map(id => ({ id, load: async () => {
         const chat = await chatRowsFor(id);
         const ta = Date.now();
-        const adapter = buildAdapter(svc, id, { chat: chat.rows, offerLog: offers.rows, finder: opts.finder });
+        const rescoreCache = fast ? leagueCache(cacheIn.leagues[String(id)] ?? {}) : null;
+        if (rescoreCache) caches.set(String(id), rescoreCache);
+        const adapter = buildAdapter(svc, id, { chat: chat.rows, offerLog: offers.rows, finder: opts.finder, fast, rescoreCache });
         return { adapter, chat, adapterMs: Date.now() - ta };
       } }));
 
@@ -213,6 +225,7 @@ async function main() {
     const tmp = `${out}.tmp-${process.pid}`;
     fs.writeFileSync(tmp, JSON.stringify(file));
     fs.renameSync(tmp, out);
+    if (fast) writeRescoreCache(cacheFile, Object.fromEntries([...caches].map(([id, c]) => [id, c.next])));
     const pushes = pushesOf(file);
     if (pushes.length) {
       fs.appendFileSync(sibling(env, 'GRIDIRON_WARROOM_PUSHES', 'pushes.jsonl'), pushes.map(p => JSON.stringify(p)).join('\n') + '\n');

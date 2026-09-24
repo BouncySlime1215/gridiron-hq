@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 const { makeAdapter } = await import('./fixtures/campaign-league.mjs');
 const { planLeague } = await import('../server/services/campaign/planner.js');
 const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
-const { rankPlans, tolerancesFor, compareModes, MODES, NO_TRADE, shrinkPrior, shrinkExpected, shadowShrink } =
+const { rankPlans, tolerancesFor, compareModes, MODES, NO_TRADE, shrinkPrior, shrinkExpected, shrinkFactor, shadowShrink } =
   await import('../server/services/campaign/modes.js');
 const { toEntry } = await import('../server/services/campaign/view.js');
 const { validateLeague } = await import('../server/services/campaign/plans-schema.js');
@@ -102,4 +102,47 @@ test('planner: risk_modes rows carry no_trade, _run.shrink is shadow, entry vali
     assert.ok(['plan', 'no_trade'].includes(r.no_trade.pick));
   }
   assert.equal(entry._run.shrink.status, 'shadow');
+});
+
+/* ------------------------------------------------------------ review fixes (PR #383 review) */
+
+test('review 1: the pick agrees with the served move in every mode (priced on the confirm dice)', () => {
+  for (const mode of MODES) {
+    const res = planLeague(makeAdapter(), { objective: normaliseObjective({ risk_mode: mode }) });
+    const row = res.risk_modes.find(r => r.mode === mode);
+    assert.equal(row.no_trade.pick, res.best ? 'plan' : 'no_trade',
+      `${mode}: served move ${res.best ? 'present' : 'absent'} but pick ${row.no_trade.pick}`);
+    // A served move beats doing nothing under its own mode on the confirm dice.
+    if (res.best) assert.ok(res.best.score > 0, `${mode}: served best scores ${res.best.score}`);
+    for (const c of res.deck) assert.ok(c.score > 0, `${mode}: a deck card scores ${c.score}`);
+  }
+});
+
+test('review 1: Safe never serves a move whose own score is at or below doing nothing', () => {
+  const res = planLeague(makeAdapter(), { objective: normaliseObjective({ risk_mode: 'safe' }) });
+  const row = res.risk_modes.find(r => r.mode === 'safe');
+  assert.ok(!(res.best && row.no_trade.pick === 'no_trade'));
+});
+
+test('review 2: a best plan without an SE makes reorders unknown, never a false true', () => {
+  const noSe = plan('2', 1, 0.05, null), b = plan('3', 1, 0.01, 0.001), c = plan('4', 1, 0.02, 0.001);
+  const bal = shadowShrink([noSe, b, c], ctxFor).modes.find(m => m.mode === 'balanced');
+  assert.equal(bal.best, '2|1|20');
+  assert.equal(bal.reorders, null);
+});
+
+test('review 3: all-in shrinks the if-it-lands gain with its own prior and the last step SE', () => {
+  const shot = plan('2', 0.1, 0.2, 0.1), sure = plan('3', 1, 0.01, 0.001);
+  const pool = [shot, sure];
+  const sh = shadowShrink(pool, ctxFor);
+  const ai = sh.modes.find(m => m.mode === 'all_in');
+  const pf = shrinkPrior([{ expected: 0.2, expected_se: 0.1 }, { expected: 0.01, expected_se: 0.001 }]);
+  assert.equal(ai.best, '2|1|20');
+  close(ai.best_shrunk_if_complete, 0.2 * pf.tau2 / (pf.tau2 + 0.01), 1e-12);
+  assert.ok(ai.best_shrunk_if_complete < 0.2 * 0.6, 'a 0.1-SE landing gain is shrunk hard, not ~1%');
+});
+
+test('review minor: an exact gain (se 0) is not shrunk, even with tau^2 = 0', () => {
+  assert.equal(shrinkFactor(0, 0), 1);
+  assert.equal(shrinkFactor(0, 0.0004), 1);
 });

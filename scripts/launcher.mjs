@@ -121,7 +121,10 @@ export function createAppStarter({ root = ROOT, appPort, nodeBin, env = process.
     let child;
     try {
       const out = openLog('server.log');
-      child = spawn(bin, ['--env-file-if-exists=.env', 'server/index.js'],
+      // GRIDIRON_START_ALL=1: start the supervisor (web + engine daemon, restarted on exit)
+      // instead of the web server alone. Off by default (EA-02).
+      const entry = childEnv.GRIDIRON_START_ALL === '1' ? 'scripts/start-all.mjs' : 'server/index.js';
+      child = spawn(bin, ['--env-file-if-exists=.env', entry],
         { cwd: root, detached: true, stdio: ['ignore', out, out], env: childEnv });
     } catch (e) { fail(`server could not start: ${e.message}`); return; }
     current = child;

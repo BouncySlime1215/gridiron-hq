@@ -10,12 +10,20 @@
  * Files (all local, all outside the repo: they hold league data):
  *   GRIDIRON_WARROOM_PLANS       output   (default ~/gridiron-local/warroom/plans.json)
  *   GRIDIRON_WARROOM_OBJECTIVES  input    { "<league id>": { kind, goal, target, points_per_week, risk_mode,
- *                                          tolerances, arrive_by, stops, untouchables, version } } (optional)
- *   GRIDIRON_WARROOM_SKIPS       input    JSONL { league, player?, manager?, reason, at } (optional; swipe-deck skips)
- *   GRIDIRON_WARROOM_OFFERS      input    JSONL { league, manager, at } (optional; "I sent it" log, fatigue cap)
+ *                                          tolerances, arrive_by, stops, untouchables, version } } (optional;
+ *                                          CLI/test input only)
+ *   GRIDIRON_WARROOM_SKIPS       input    JSONL { league, player?, manager?, reason, at } (optional; CLI/test input only)
  *   GRIDIRON_WARROOM_PUSHES      output   JSONL, one row per league whose next move changed
  *   GRIDIRON_CHAT_DB_PATH        input    local chat DB (optional; labels only)
  * Defaults for the inputs sit next to the plans file.
+ *
+ * War Room inputs (FIX-07) come from the DB, not files: `warroom_requests` (076)
+ * folds into each league's objective and skip weights
+ * (server/services/campaign/requests.js), and a request overrides the files for
+ * the same key. The pending rows are stamped consumed_at in the same transaction
+ * as the plans write; a league whose planner failed keeps its rows pending. The
+ * fatigue cap counts `trade_outcomes WHERE sent_at IS NOT NULL` (War Room and
+ * TradeCard "I sent it" alike) next to ESPN's own proposals (league-adapter.mjs).
  *
  * Every re-run diffs each league's next move against the previous plans file and
  * writes `changed` + `reason`; a changed move appends one push row.
@@ -99,21 +107,19 @@ async function main() {
     const { loadServices, buildAdapter } = await import('./league-adapter.mjs');
     const { chatRowsFor } = await import('./chat-labels.mjs');
     const { planLeague } = await import('../../server/services/campaign/planner.js');
-    const { normaliseObjective } = await import('../../server/services/campaign/objectives.js');
-    const { skipWeights } = await import('../../server/services/campaign/partners.js');
+    const { leagueInputs, consumeWith } = await import('../../server/services/campaign/requests.js');
     const { diffNextMove } = await import('../../server/services/campaign/replan.js');
     const { rankAttention } = await import('../../server/services/campaign/attention.js');
     const { toEntry, validateEntry, plansFile } = await import('../../server/services/campaign/view.js');
 
     const objectives = readObjectives(sibling(env, 'GRIDIRON_WARROOM_OBJECTIVES', 'objectives.json'));
     const skips = readJsonl(sibling(env, 'GRIDIRON_WARROOM_SKIPS', 'skips.jsonl'));
-    const offers = readJsonl(sibling(env, 'GRIDIRON_WARROOM_OFFERS', 'offers.jsonl'));
     const previous = readPrevious(out);
     const svc = await loadServices();
     const leagues = svc.db.rows('SELECT id FROM leagues ORDER BY id').map(r => r.id)
       .filter(id => !opts.leagues || opts.leagues.includes(id));
 
-    const entries = [], pushes = [];
+    const entries = [], pushes = [], consumed = [];
     const generated_at = new Date().toISOString();
     for (const id of leagues) {
       const tl = Date.now();
@@ -122,11 +128,12 @@ async function main() {
       try {
         const chat = await chatRowsFor(id);
         const ta = Date.now();
-        const adapter = buildAdapter(svc, id, { chat: chat.rows, offerLog: offers.rows });
+        const adapter = buildAdapter(svc, id, { chat: chat.rows });
         const adapterMs = Date.now() - ta;
         if (adapter.fail) throw new Error(`world failed: ${adapter.fail}`);
-        const objective = normaliseObjective(objectives[String(id)] ?? {}, { leagueGoal: objectives[String(id)]?.goal ?? 'title' });
-        const res = planLeague(adapter, { objective, skips: skipWeights(skips.rows, id), previous: prev,
+        const ins = leagueInputs(id, { objectiveRow: objectives[String(id)] ?? null, fileSkips: skips.rows });
+        const { objective } = ins;
+        const res = planLeague(adapter, { objective, skips: ins.weights, previous: prev,
           budget: { flipTopPer: opts.flipTop, targets: opts.targets } });
         const next = { next_step: res.best?.steps[0] ?? null, objective_version: objective.version, risk_mode: objective.risk_mode,
           roster_key: res.error ? null : adapter.rosterKey() };
@@ -136,10 +143,11 @@ async function main() {
         entry.phases_ms = { adapter_and_world: adapterMs, ...(entry.phases_ms ?? {}) };
         entry.inputs = { chat: { status: chat.status, reason: chat.reason ?? null, negotiation: chat.negotiation ?? null },
           skips: { status: skips.status, rows: skips.rows.filter(s => String(s.league) === String(id)).length, bad_lines: skips.bad },
-          offers: { status: offers.status, bad_lines: offers.bad }, deadline: adapter.league.deadline_source,
+          requests: ins.summary, deadline: adapter.league.deadline_source,
           objective: objective.source };
         const errs = validateEntry(entry);
         if (errs.length) throw new Error(`plans JSON failed its contract check: ${errs.slice(0, 3).join('; ')}`);
+        consumed.push(ins.consume);
       } catch (e) {
         console.error(`[warroom] league ${id}: ${e.stack ?? e}`);
         entry = toEntry({ league: id, me: prev?.me ?? null, error: String(e.message ?? e) },
@@ -155,8 +163,12 @@ async function main() {
       weeksToDeadline: Number.isInteger(e.deadline_week) && Number.isInteger(e.week) ? e.deadline_week - e.week : null })));
     const file = plansFile(entries, { generated_at, attention, pushes });
     const tmp = `${out}.tmp-${process.pid}`;
-    fs.writeFileSync(tmp, JSON.stringify(file));
-    fs.renameSync(tmp, out);
+    const stamped = consumeWith(consumed, () => {
+      fs.writeFileSync(tmp, JSON.stringify(file));
+      fs.renameSync(tmp, out);
+    }, { at: generated_at });
+    console.log(`[warroom] requests consumed ${stamped.consumed}, campaign_steps written ${stamped.campaign_steps}`
+      + (typeof stamped.campaign_steps_skipped === 'string' ? ` (${stamped.campaign_steps_skipped})` : ''));
     if (pushes.length) {
       fs.appendFileSync(sibling(env, 'GRIDIRON_WARROOM_PUSHES', 'pushes.jsonl'), pushes.map(p => JSON.stringify(p)).join('\n') + '\n');
     }

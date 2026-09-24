@@ -44,6 +44,8 @@ test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
 
 const iso = (day, hour = 0) => new Date(Date.UTC(2026, 8, 1 + day, hour)).toISOString();
 const cols = t => db.prepare('SELECT name FROM pragma_table_info(?)').all(t).map(c => c.name);
+/** Which sibling PRs' schema this tree already carries (080 offer loop, 082 follow ledger). */
+const SIBLINGS = { sent: cols('trade_outcomes').includes('sent_at'), follow: cols('follow_ledger').length > 0 };
 
 // ------------------------------------------------------------ before siblings
 test('083 is applied and every reader names the missing sibling source instead of throwing', () => {
@@ -59,12 +61,14 @@ test('083 is applied and every reader names the missing sibling source instead o
   assert.deepEqual(e3.rows, []);
   assert.equal(e3.reason ?? null, null);
   db.exec('CREATE TABLE rename_probe (x); ALTER TABLE rename_probe RENAME TO rename_probe_2; DROP TABLE rename_probe_2');
-  const e6 = E6.load(db);
-  assert.match(e6.reason, /follow_ledger/);
-  const e1 = E1.load(db);
-  assert.match(e1.app_arm ?? '', /sent_at/, 'without sent_at no app row can be shown to have been sent');
-  const e2 = E2.load(db);
-  assert.match(e2.reason, /sent_at/);
+  // Only while the sibling PRs have not landed: on a tree that carries 080/082
+  // their tables exist from the start and there is nothing missing to name.
+  if (!SIBLINGS.follow) assert.match(E6.load(db).reason, /follow_ledger/);
+  if (!SIBLINGS.sent) {
+    const e1 = E1.load(db);
+    assert.match(e1.app_arm ?? '', /sent_at/, 'without sent_at no app row can be shown to have been sent');
+    assert.match(E2.load(db).reason, /sent_at/);
+  }
 });
 
 test('readSource reports a view whose table is missing as a missing source, and rethrows anything else', async () => {
@@ -82,9 +86,9 @@ test('readSource reports a view whose table is missing as a missing source, and 
 
 // The sibling PRs' tables, as their own migrations create them.
 test('the sibling PR tables arrive after 083 (any merge order works)', () => db.exec(`
-  ALTER TABLE trade_outcomes ADD COLUMN sent_at TEXT;
+  ${SIBLINGS.sent ? '' : `ALTER TABLE trade_outcomes ADD COLUMN sent_at TEXT;
   ALTER TABLE trade_outcomes ADD COLUMN matched_tx_id TEXT;
-  ALTER TABLE trade_outcomes ADD COLUMN settle_reason TEXT;
+  ALTER TABLE trade_outcomes ADD COLUMN settle_reason TEXT;`}
   CREATE TABLE IF NOT EXISTS rec_ledger (
     id INTEGER PRIMARY KEY AUTOINCREMENT, league_id INTEGER NOT NULL,
     kind TEXT NOT NULL CHECK (kind IN ('trade', 'lineup', 'waiver', 'scenario')),

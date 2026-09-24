@@ -26,6 +26,7 @@
 import { row } from '../db/index.js';
 import { findTrades } from './trade-engine.js';
 import { tradeImpact, tradeImpactWorld, fastRescoreEnabled, TRADE_IMPACT_RUNS } from './season-sim.js';
+import { mutualTitleGain } from './title-mutual.js';
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 
@@ -121,14 +122,9 @@ export function titleOddsTrades(leagueId, {
   return value;
 }
 
-/**
- * Both sides gain title odds, and both gains are past their own noise band.
- * Exported for tests.
- */
-export function mutualTitleGain(me, them) {
-  return me.title_delta > 0 && them.title_delta > 0
-    && me.title_delta_clears_noise === true && them.title_delta_clears_noise === true;
-}
+// Both sides gain title odds past their own noise band. Defined beside the
+// title-mutual trade class (RL-19-3), which keeps deals on the same rule.
+export { mutualTitleGain };
 
 /**
  * The page's headline comparison, from scored deals. Exported for tests.

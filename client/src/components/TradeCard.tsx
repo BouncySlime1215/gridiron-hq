@@ -5,6 +5,7 @@ import { Headshot } from './PlayerRow';
 import ManagerRead from './trade/ManagerRead';
 import PlayerEvidence from './trade/PlayerEvidence';
 import RiskStrip from './trade/RiskStrip';
+import SentOfferButton from './trade/SentOfferButton';
 import { hasEvidence } from './trade/types';
 import { logServerDetail, sanitizedMessage } from '../lib/errorSanitize';
 
@@ -236,6 +237,12 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
             BOTH SIDES WIN
           </span>
         )}
+        {deal.title_mutual && deal.title && (
+          <span className="text-[10px] font-semibold text-good bg-good-tint border border-good px-2 py-0.5 rounded-full"
+            title={`Lineup points this week say no, the season sim says both of you gain title odds, each past 2 standard errors (paired seeds): you ${(deal.title.me.title_delta * 100).toFixed(1)} pts, them ${(deal.title.them.title_delta * 100).toFixed(1)} pts`}>
+            BOTH TITLE ODDS UP
+          </span>
+        )}
         {!deal.mutual && deal.plausible && (
           <span className="text-[10px] font-semibold text-[var(--accent)] bg-[var(--accent-tint)] border border-[var(--accent)]/30 px-2 py-0.5 rounded-full"
             title="Their lineup doesn't clearly improve, but the trade is fair on market value and doesn't cost them much — a realistic ask, not a lock">
@@ -320,6 +327,8 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
         <button className="btn-ghost text-xs" onClick={senseCheck} disabled={senseBusy}>
           {senseBusy ? 'Checking…' : '🔍 AI sense check'}
         </button>
+        {/* CLONE-01b b1 "I sent this"; absent unless GRIDIRON_OFFER_LOOP is on (FIX-10). */}
+        <SentOfferButton deal={deal} leagueId={leagueId} onError={setErr} />
         {onDismiss && (
           <button className="btn-ghost text-xs text-[var(--muted)] ml-auto" onClick={onDismiss} title="Hide this idea — it won't come back on refresh">
             ✕ Not interested

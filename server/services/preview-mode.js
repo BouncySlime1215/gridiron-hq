@@ -20,6 +20,8 @@
  *   - waiver-wire.js#waiverBoard                 snap-share order for same-team replacements
  *   - avail-p-play.js#availPPlayMode              BROKEN-E one avail.p_play, typed unknown + fitted prior
  *                                                (trade-engine.js asset build + lineup diff, season-sim.js)
+ *   - season-sim.js#rosBasisFlag                 title odds on the finder's ros_ppg (RL-17-3;
+ *                                                GRIDIRON_RL17_3_ENABLED=0 vetoes preview)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

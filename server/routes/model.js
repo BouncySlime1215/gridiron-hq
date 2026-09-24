@@ -27,6 +27,8 @@
 import { Router } from 'express';
 import { db, row, rows, run } from '../db/index.js';
 import { scoringFor } from '../services/scoring.js';
+// IDEA-001: every served title-odds number is queued for served_numbers (off the request thread).
+import { recordServed } from '../services/serve-log.js';
 import { buildProjections } from '../services/projections.js';
 import { clearPlayerWeekEngineCache } from '../services/player-week-engine.js';
 import { simulateSeason, simStartWeek, tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
@@ -470,16 +472,20 @@ r.get('/:leagueId/simulate', requireAuthenticated, (req, res, next) => {
     if (oneWorldFlag().on) {
       const ignored = Object.fromEntries(['runs', 'seed', 'from_week']
         .filter(k => req.query[k] != null).map(k => [k, req.query[k]]));
-      return res.json(oneWorldTitleOdds(lg, { ignored }));
+      const world = oneWorldTitleOdds(lg, { ignored });
+      recordServed(res, 'title_odds', lg, world);
+      return res.json(world);
     }
     const runs = Math.min(6000, Number(req.query.runs) || 2000);
     // The memo key uses the same producer on the same raw input that
     // simulateSeason resolves internally, so the key and the body's from_week agree.
     const key = `sim:${lg.id}:${runs}:${simStartWeek(lg, req.query.from_week)}`;
     const seed = req.query.seed ?? null;
-    res.json(withRandomSeed(seed, () => memo(`${key}:seed:${seed ?? 'random'}`, () => simulateSeason(lg, {
+    const sim = withRandomSeed(seed, () => memo(`${key}:seed:${seed ?? 'random'}`, () => simulateSeason(lg, {
       runs, fromWeek: req.query.from_week, scoring: scoringFor(lg)
-    }))));
+    })));
+    recordServed(res, 'title_odds', lg, sim);
+    res.json(sim);
   } catch (e) { next(e); }
 });
 
@@ -490,16 +496,16 @@ r.post('/:leagueId/trade-impact', requireAuthenticated, (req, res, next) => {
     if (!lg.payload) return res.status(400).json({ error: 'league not synced yet' });
     const { my_team_id, their_team_id, i_give = [], i_get = [] } = req.body ?? {};
     if (!their_team_id) return res.status(400).json({ error: 'their_team_id required' });
+    const myTeamId = my_team_id ?? lg.my_team_id;
     // EA-07: priced on the snapshot's world, so this card's "before" is the twin's
     // title odds. The world fixes the runs and the seed; a client value is not used.
-    if (oneWorldFlag().on) {
-      return res.json(tradeImpact(lg, {
-        myTeamId: my_team_id ?? lg.my_team_id, theirTeamId: their_team_id,
+    const impact = oneWorldFlag().on
+      ? tradeImpact(lg, {
+        myTeamId, theirTeamId: their_team_id,
         iGive: i_give, iGet: i_get, runs: ONE_WORLD_RUNS, scoring: scoringFor(lg), world: leagueWorld(lg)
-      }));
-    }
-    res.json(tradeImpact(lg, {
-      myTeamId: my_team_id ?? lg.my_team_id,
+      })
+      : tradeImpact(lg, {
+      myTeamId,
       theirTeamId: their_team_id,
       iGive: i_give, iGet: i_get,
       runs: Math.min(3000, Number(req.body?.runs) || TRADE_IMPACT_RUNS),
@@ -508,7 +514,10 @@ r.post('/:leagueId/trade-impact', requireAuthenticated, (req, res, next) => {
       // The league's own weights, the same value tradeImpact defaults to (RL-6-3); passed
       // explicitly so this call site stays checked by test/scoring-call-sites.test.js (#163).
       scoring: scoringFor(lg)
-    }));
+    });
+    recordServed(res, 'trade_impact', lg, impact,
+      { myTeamId, theirTeamId: their_team_id, iGive: i_give, iGet: i_get });
+    res.json(impact);
   } catch (e) { next(e); }
 });
 

@@ -248,13 +248,21 @@ test('each question type returns a probability, an action and the cited state id
     assert.equal(typeof r.action, 'string');
     assert.equal(r.weight, 0);
     assert.equal(r.lane, 'shadow');
-    assert.ok(r.cited.state_ids.includes(11));
+    assert.ok(r.cited.state_ids.length > 0);
     assert.ok(!r.cited.state_ids.includes(99));
+    // Player questions read the player's rows; an offer question reads team context, not p1's sim rows.
+    assert.equal(r.cited.state_ids.includes(11), r.qtype !== 'p_accept');
   }
   assert.equal(out.results[0].action, 'no_change');
   assert.equal(out.results[1].choice, 'down');
   assert.equal(out.results[2].action, 'send');
   assert.equal(out.results[3].link, 'sim.week.q50');
+  const logged = sink.events.filter(e => e.type === 'jev_call');
+  assert.equal(logged.length, 8);
+  for (const e of logged) {
+    const r = out.results.find(x => x.qtype === e.payload.qtype);
+    assert.deepEqual(e.payload.state_ids, r.cited.state_ids, 'each jev_call names the state rows Jev read');
+  }
   const answers = sink.state.filter(r => /^jev\.[a-z_]+\.jev_[ab]$/.test(r.field));
   assert.equal(answers.length, 8, 'two arms per question type');
   assert.ok(answers.every(r => r.producer === 'jev' && r.value.weight === 0 && r.reason_chain.state_ids.length));

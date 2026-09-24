@@ -37,7 +37,11 @@ const HAIKU_4_5 = Object.freeze({ in: 1.00, out: 5.00, cache_write_5m: 1.25, cac
 export const PRICING = Object.freeze({
   'claude-sonnet-5': SONNET_5,
   'claude-haiku-4-5-20251001': HAIKU_4_5,
-  'claude-haiku-4-5': HAIKU_4_5
+  'claude-haiku-4-5': HAIKU_4_5,
+  // Jev on the Vercel AI Gateway (JEV-01a). Billed on input tokens only, at the
+  // rate the Jev scripts already use (build-manager-archetypes.mjs USD_PER_MTOK).
+  // Jev is never routed through reserveBudget: Nick set no cap on it.
+  'typesafe-ai/jev': Object.freeze({ in: 0.042, out: 0, cache_write_5m: 0, cache_write_1h: 0, cache_read: 0 })
 });
 
 export const DEFAULT_DAILY_BUDGETS_USD = Object.freeze({ coach: 1.00, trade_proposals: 0.50 });

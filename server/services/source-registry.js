@@ -259,3 +259,308 @@ export function allSources() {
   const manual = Object.entries(MANUAL_SOURCES).map(([name, meta]) => statusFor(name, meta, false));
   return [...scheduled, ...manual].sort((a, b) => a.source.localeCompare(b.source));
 }
+
+/* -------------------------------------------------- what the app serves now */
+
+/**
+ * One entry per table the app SERVES, with a rule that answers "is this
+ * current?" in SQL rather than in prose.
+ *
+ * WHY THIS IS NOT A LIST OF TIMESTAMPS. The obvious registry keys off an
+ * `updated_at` column: when did we last write this. That is the wrong question
+ * and it is the exact shape of the bug this registry exists to kill. A sync
+ * that ran, succeeded and wrote nothing leaves a fresh timestamp on an empty
+ * table, and the banner says healthy while the page serves nothing. This
+ * project has shipped that failure more than once.
+ *
+ * So the primary mechanism here is COVERAGE: does the table actually hold rows
+ * for the season and week the app is currently serving. A timestamp says when
+ * we last tried. Coverage says whether the data is there. Only the second one
+ * is what a user sees.
+ *
+ * That choice is also forced by the schema, which is worth knowing before
+ * anyone proposes simplifying it: of the tables below, `player_week_usage`,
+ * `schedule_games`, `nfl_injuries`, `nfl_depth`, `nfl_player_week_features`
+ * and `league_roster_snapshots` have **no timestamp column at all**. A
+ * timestamp-based registry could not describe them even if it wanted to, and
+ * they are the tables the fantasy surfaces lean on hardest.
+ *
+ * CONTRACT, so the consumer can be written against it without reading this
+ * file:
+ *
+ *   table       string  the SQLite table name
+ *   season_col  string|null  its season column, null if it has none
+ *   week_col    string|null  its week column, null if it is season-grained
+ *   updated_col string|null  a write timestamp IF one exists. Usually null.
+ *                            Never the basis of the verdict; useful only for
+ *                            "we last tried at ..." next to the real answer.
+ *   current_rule.text  one plain sentence, written for someone who does not
+ *                      deal with stats, saying what current means here
+ *   current_rule.sql   a query returning exactly one row, one column, 1 when
+ *                      the table is current and 0 when it is not
+ *   current_rule.params  the bind order for that SQL, e.g. ['season','week'].
+ *                      Positional `?` rather than named, so the consumer does
+ *                      not have to care which named-parameter dialect
+ *                      node:sqlite accepts. db/index.js `row` is variadic, so
+ *                      the call site spreads: row(sql, ...params.map(pick)).
+ *                      Passing the array unspread throws "Unknown named
+ *                      parameter '0'" -- found by the test, not in the banner.
+ *   grain       'week' | 'season' | 'static' | 'fit'  how often it should move
+ *   fitted_col  'fit' grain only: the stamp to show beside the verdict
+ *   reader      'fit' grain only: the service whose answer degrades without it
+ *
+ * The season and week to bind come from `NFL_SEASON` and `currentNflWeek`
+ * (weekly-learning.js) — the same pair the rest of the app serves from, so the
+ * banner cannot disagree with the page beside it.
+ *
+ * DELIBERATELY NOT EXHAUSTIVE, and it says so rather than implying coverage it
+ * does not have. 100 tables in this schema carry a season or week column; most
+ * are internal (audit ledgers, replay caches, backfill checkpoints) and a
+ * banner listing them would be noise a user has to learn to ignore. These are
+ * the tables read on the served fantasy read path, taken from the query counts
+ * in server/routes/. Betting-side tables are out of scope by Nick's ruling and
+ * are not listed. Adding an entry is the mechanism for widening it.
+ *
+ * THE 'fit' GRAIN, added after the model-evidence audit reconciled its 82
+ * model-read tables against the ten feeds here. A feed-only registry misses the
+ * same failure one layer up: an unfitted or never-promoted model still answers,
+ * and still reads fresh, because the feeds under it are fine.
+ *
+ * And for a fit store the test is neither a timestamp nor a row count. Two of
+ * these tables default to NOT live -- `shrinkage_fits.active` DEFAULT 0 and
+ * `weekly_ensemble_fits.promoted` DEFAULT 0 -- so a table full of fits with none
+ * active is a model running on its hardcoded fallback behind a recent stamp and
+ * a healthy count. `weekly_ensemble_fits` even stores its rejections, with
+ * `rejection_reason`, so counting rows counts rejected candidates as coverage.
+ *
+ * GET /api/model/status has exactly that bug today: `correlations_fitted` and
+ * `gamescript_fitted` (server/routes/model.js:598-599 at 654ff93) are bare
+ * `SELECT COUNT(*)`, with no predicate on `fitted_at` and no check that
+ * gamescript has both of its two targets. The rules below are strictly stronger
+ * than a count, and the suite proves it by inserting rows a count would pass.
+ */
+export function servedTables() {
+  return [
+    {
+      table: 'player_week_usage',
+      season_col: 'season', week_col: 'week', updated_col: null, grain: 'week',
+      current_rule: {
+        text: 'Weekly usage is current when it holds rows for this season up to '
+          + 'the week being served. This is the table the whole fantasy model '
+          + 'reads, so if it stops at an earlier week every projection quietly '
+          + 'falls back to older form.',
+        sql: 'SELECT CASE WHEN MAX(week) >= ? THEN 1 ELSE 0 END AS current '
+          + 'FROM player_week_usage WHERE season = ?',
+        params: ['week', 'season'],
+      },
+    },
+    {
+      table: 'nfl_player_week_features',
+      season_col: 'season', week_col: 'week', updated_col: null, grain: 'week',
+      current_rule: {
+        text: 'The per-week feature rows the model scores from are current when '
+          + 'they reach the week being served.',
+        sql: 'SELECT CASE WHEN MAX(week) >= ? THEN 1 ELSE 0 END AS current '
+          + 'FROM nfl_player_week_features WHERE season = ?',
+        params: ['week', 'season'],
+      },
+    },
+    {
+      table: 'schedule_games',
+      season_col: 'season', week_col: 'week', updated_col: null, grain: 'season',
+      current_rule: {
+        text: 'The schedule is current when this season\'s games are loaded at '
+          + 'all. It is published once and rarely changes, so an empty season '
+          + 'here means the season was never ingested rather than that it went '
+          + 'stale.',
+        sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current '
+          + 'FROM schedule_games WHERE season = ?',
+        params: ['season'],
+      },
+    },
+    {
+      table: 'nfl_injuries',
+      season_col: 'season', week_col: 'week', updated_col: null, grain: 'week',
+      current_rule: {
+        text: 'Injury rows are current when they exist for the week being '
+          + 'served. Last week\'s injuries are worse than none, because they '
+          + 'read as a clean bill of health for someone who is out.',
+        sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current '
+          + 'FROM nfl_injuries WHERE season = ? AND week = ?',
+        params: ['season', 'week'],
+      },
+    },
+    {
+      table: 'nfl_depth',
+      season_col: 'season', week_col: 'week', updated_col: null, grain: 'week',
+      current_rule: {
+        text: 'Depth charts are current when they exist for the week being '
+          + 'served. A depth chart is a live opinion, not a settled fact, so an '
+          + 'old one is a wrong one.',
+        sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current '
+          + 'FROM nfl_depth WHERE season = ? AND week = ?',
+        params: ['season', 'week'],
+      },
+    },
+    {
+      table: 'player_season_stats',
+      season_col: 'season', week_col: null, updated_col: 'fetched_at', grain: 'season',
+      current_rule: {
+        text: 'Season totals are current when this season has rows. The '
+          + 'fetched_at column says when we last pulled them, which is worth '
+          + 'showing beside the answer but is not the answer.',
+        sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current '
+          + 'FROM player_season_stats WHERE season = ?',
+        params: ['season'],
+      },
+    },
+    {
+      table: 'roster_players',
+      season_col: null, week_col: null, updated_col: 'fetched_at', grain: 'week',
+      current_rule: {
+        text: 'League rosters are current when every connected league was '
+          + 'refreshed within the last day. This is the one table where a '
+          + 'timestamp is the right test, because a roster has no season or '
+          + 'week of its own — it is simply whatever it was when we last looked.',
+        sql: 'SELECT CASE WHEN MIN(fetched_at) >= datetime(\'now\', \'-1 day\') '
+          + 'THEN 1 ELSE 0 END AS current FROM roster_players',
+        params: [],
+      },
+    },
+    {
+      table: 'league_roster_snapshots',
+      season_col: 'season', week_col: null, updated_col: null, grain: 'week',
+      current_rule: {
+        text: 'Roster history is current when this season has at least one '
+          + 'snapshot. It is an append-only record, so the question is whether '
+          + 'we started collecting this season, not whether it moved today.',
+        sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current '
+          + 'FROM league_roster_snapshots WHERE season = ?',
+        params: ['season'],
+      },
+    },
+    {
+      table: 'news_items',
+      season_col: null, week_col: null, updated_col: 'created_at', grain: 'week',
+      current_rule: {
+        text: 'News is current when something arrived in the last two days. '
+          + 'A quiet stretch in the offseason is normal; two days of silence '
+          + 'during a season means the feed stopped rather than that nothing '
+          + 'happened.',
+        sql: 'SELECT CASE WHEN MAX(created_at) >= datetime(\'now\', \'-2 days\') '
+          + 'THEN 1 ELSE 0 END AS current FROM news_items',
+        params: [],
+      },
+    },
+    {
+      table: 'players',
+      season_col: null, week_col: null, updated_col: null, grain: 'static',
+      current_rule: {
+        text: 'The player universe is current when it is populated at all. It '
+          + 'is the join target for nearly every other table, so empty here '
+          + 'means the whole app is empty, not that one feed is late.',
+        sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current FROM players',
+        params: [],
+      },
+    },
+
+    // ---- the 'fit' grain: is the MODEL fitted, not is the feed fresh ----
+
+    {
+      table: 'shrinkage_fits',
+      season_col: 'through_season', week_col: null, updated_col: 'fitted_at',
+      grain: 'fit', fitted_col: 'fitted_at', reader: 'shrinkage-fit.js',
+      current_rule: {
+        text: 'Shrinkage is fitted when one fit is marked ACTIVE. Rows alone '
+          + 'prove nothing: active defaults to 0, so a table of fits with none '
+          + 'activated is the hardcoded fallback answering instead, and a count '
+          + 'would read green. No season rule here on purpose -- a fit through '
+          + 'the last completed season is the correct state mid-season.',
+        sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current '
+          + 'FROM shrinkage_fits WHERE active = 1',
+        params: [],
+      },
+    },
+    {
+      table: 'weekly_ensemble_fits',
+      season_col: 'through_season', week_col: 'through_week', updated_col: 'created_at',
+      grain: 'fit', fitted_col: 'created_at', reader: 'weekly-learning.js',
+      current_rule: {
+        text: 'The weekly ensemble is fitted when a PROMOTED fit for this '
+          + 'season reaches the week being served. promoted defaults to 0, and '
+          + 'this table also stores its rejections with a rejection_reason, so a '
+          + 'row count counts rejected candidates as if they were the model.',
+        sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current '
+          + 'FROM weekly_ensemble_fits WHERE promoted = 1 AND through_season = ? '
+          + 'AND through_week >= ?',
+        params: ['season', 'week'],
+      },
+    },
+    {
+      table: 'correlation_estimates',
+      season_col: null, week_col: null, updated_col: 'fitted_at',
+      grain: 'fit', fitted_col: 'fitted_at', reader: 'correlation.js',
+      current_rule: {
+        text: 'Correlations are fitted when estimates exist AND carry a fitted '
+          + 'stamp. fitted_at is nullable, so a row written without one is an '
+          + 'estimate nobody can date.',
+        sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current '
+          + 'FROM correlation_estimates WHERE fitted_at IS NOT NULL',
+        params: [],
+      },
+    },
+    {
+      table: 'gamescript_model',
+      season_col: null, week_col: null, updated_col: 'fitted_at',
+      grain: 'fit', fitted_col: 'fitted_at', reader: 'gamescript.js',
+      current_rule: {
+        text: 'Game script is fitted when BOTH of its targets are -- pass_att '
+          + 'and rush_att. target is the primary key, so one fitted target and '
+          + 'one missing is a half-fitted model that any count of rows passes.',
+        sql: 'SELECT CASE WHEN COUNT(DISTINCT target) >= 2 THEN 1 ELSE 0 END AS current '
+          + 'FROM gamescript_model WHERE fitted_at IS NOT NULL',
+        params: [],
+      },
+    },
+    {
+      table: 'fantasy_coordinator_fits',
+      season_col: 'through_season', week_col: null, updated_col: 'created_at',
+      grain: 'fit', fitted_col: 'created_at', reader: 'fantasy-coordinator.js',
+      current_rule: {
+        text: 'The coordinator is fitted when a fit exists that was built on '
+          + 'actual rows. The row count it was fitted from is stored, so a fit '
+          + 'over zero rows can be told from a real one.',
+        sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current '
+          + 'FROM fantasy_coordinator_fits WHERE "rows" > 0',
+        params: [],
+      },
+    },
+    {
+      table: 'nfl_ensemble_fit_artifacts',
+      season_col: null, week_col: null, updated_col: 'created_at',
+      grain: 'fit', fitted_col: 'created_at', reader: 'nfl-ensemble.js',
+      current_rule: {
+        text: 'The NFL ensemble is fitted when at least one artifact exists. '
+          + 'Stated as the weak test it is: this table carries no season, week '
+          + 'or promotion flag, so presence is the only honest question it can '
+          + 'answer, and the stamp beside it is what a reader should judge.',
+        sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current '
+          + 'FROM nfl_ensemble_fit_artifacts',
+        params: [],
+      },
+    },
+    {
+      table: 'nfl_sim_calibration_artifacts',
+      season_col: 'season', week_col: 'week', updated_col: 'created_at',
+      grain: 'fit', fitted_col: 'created_at', reader: 'nfl-sim-calibration.js',
+      current_rule: {
+        text: 'The simulator is calibrated when an artifact for this season '
+          + 'reaches the week being served. An older week\'s calibration is a '
+          + 'real answer to a different question.',
+        sql: 'SELECT CASE WHEN MAX(week) >= ? THEN 1 ELSE 0 END AS current '
+          + 'FROM nfl_sim_calibration_artifacts WHERE season = ?',
+        params: ['week', 'season'],
+      },
+    },
+  ];
+}

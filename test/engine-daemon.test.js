@@ -246,7 +246,7 @@ test('RED (9): a declaration cycle refuses to start, and so does an input nobody
   assert.deepEqual(order.map(o => o.name), ['early', 'late']);
   need(producersMod, 'producers/index.js');
   const real = dagMod.buildDag(producersMod.daemonProducers()).order.map(o => o.name);
-  assert.deepEqual(real, ['calendar', 'league', 'gamescript']);
+  assert.deepEqual(real, ['calendar', 'league', 'gamescript', 'grader']);
 });
 
 /* ------------------------------------------------------------------ RED (1) */
@@ -334,7 +334,7 @@ test('calendar, league, gamescript: nfl.week, game.cutoff (= gameCutoff), league
   const snap = snapshotsMod.latestSnapshot(0, db);
   assert.deepEqual([snap.season, snap.nfl_week], [2026, 2]);
   assert.equal(snap.world, snapshotsMod.worldSeed(2026, 2));
-  assert.deepEqual(snap.version_set, { calendar: 'ea02-1', league: 'ea02-1', gamescript: 'ea02-1' });
+  assert.deepEqual(snap.version_set, { calendar: 'ea02-1', league: 'ea02-1', gamescript: 'ea02-1', grader: 'ea05-2' });
   const again = await tickMod.runTick({ database: db, dag });
   assert.equal(again.runs.reduce((a, r) => a + r.written, 0), 0, 'the tiny producers rewrote an unchanged world');
   assert.ok(again.runs.every(r => r.ms < 30000));

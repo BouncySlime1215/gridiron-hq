@@ -7,6 +7,7 @@ import { producerSpec } from '../registry.js';
 import { calendarProducer } from './calendar.js';
 import { leagueProducer } from './league.js';
 import { gamescriptProducer } from './gamescript.js';
+import { graderProducer } from './grader.js';
 
 /** A module's producer plus its registered declaration. */
 export function producerEntry(mod) {
@@ -16,5 +17,5 @@ export function producerEntry(mod) {
 }
 
 export function daemonProducers() {
-  return [calendarProducer, leagueProducer, gamescriptProducer].map(producerEntry);
+  return [calendarProducer, leagueProducer, gamescriptProducer, graderProducer].map(producerEntry);
 }

@@ -9705,7 +9705,7 @@
       "reasoning": {
        "status": "ok",
        "value": {
-        "case_for": "Team 3 and Team 2 price P21 (WR) differently: the spread is 12.4 pts of title odds.",
+        "case_for": "Team 3 and Manager B (Team 2) price P21 (WR) differently: the spread is 12.4 pts of title odds.",
         "his_side": "No chat read on either side.",
         "devils_advocate": "The spread clears the noise; both legs still have to land.",
         "news_check": "Not checked for flips: the news read runs on the offers in a plan.",
@@ -9780,7 +9780,7 @@
       "reasoning": {
        "status": "ok",
        "value": {
-        "case_for": "Team 3 and Team 2 price P22 (QB) differently: the spread is 15.9 pts of title odds.",
+        "case_for": "Team 3 and Manager B (Team 2) price P22 (QB) differently: the spread is 15.9 pts of title odds.",
         "his_side": "No chat read on either side.",
         "devils_advocate": "The spread clears the noise; both legs still have to land.",
         "news_check": "Not checked for flips: the news read runs on the offers in a plan.",
@@ -9826,7 +9826,7 @@
       },
       "why": {
        "status": "ok",
-       "value": "P11 adds 45.0 pts if landed; 1-step path from Team 2, lands 9% of the time.",
+       "value": "P11 adds 45.0 pts if landed; 1-step path from Manager B (Team 2), lands 9% of the time.",
        "source": "plan.template"
       },
       "approved": false,
@@ -9834,8 +9834,8 @@
       "reasoning": {
        "status": "ok",
        "value": {
-        "case_for": "P11 adds 45.0 pts if landed; 1-step path from Team 2, lands 9% of the time.",
-        "his_side": "Team 2's roster read lists WR as thin.",
+        "case_for": "P11 adds 45.0 pts if landed; 1-step path from Manager B (Team 2), lands 9% of the time.",
+        "his_side": "Manager B (Team 2)'s roster read lists WR as thin.",
         "devils_advocate": "Only an all-in plan reaches him.",
         "news_check": "Not checked for targets: the news read runs on the offers in a plan.",
         "confidence": "The path lands 9% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
@@ -9873,7 +9873,7 @@
       },
       "why": {
        "status": "ok",
-       "value": "P12 adds 34.8 pts if landed; 2-step path from Team 2, lands 5% of the time.",
+       "value": "P12 adds 34.8 pts if landed; 2-step path from Manager B (Team 2), lands 5% of the time.",
        "source": "plan.template"
       },
       "approved": false,
@@ -9881,8 +9881,8 @@
       "reasoning": {
        "status": "ok",
        "value": {
-        "case_for": "P12 adds 34.8 pts if landed; 2-step path from Team 2, lands 5% of the time.",
-        "his_side": "Team 2's roster read lists WR as thin.",
+        "case_for": "P12 adds 34.8 pts if landed; 2-step path from Manager B (Team 2), lands 5% of the time.",
+        "his_side": "Manager B (Team 2)'s roster read lists WR as thin.",
         "devils_advocate": "Only an all-in plan reaches him.",
         "news_check": "Not checked for targets: the news read runs on the offers in a plan.",
         "confidence": "The path lands 5% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
@@ -9920,7 +9920,7 @@
       },
       "why": {
        "status": "ok",
-       "value": "P13 adds 19.4 pts if landed; 2-step path from Team 2, lands 1% of the time.",
+       "value": "P13 adds 19.4 pts if landed; 2-step path from Manager B (Team 2), lands 1% of the time.",
        "source": "plan.template"
       },
       "approved": false,
@@ -9928,8 +9928,8 @@
       "reasoning": {
        "status": "ok",
        "value": {
-        "case_for": "P13 adds 19.4 pts if landed; 2-step path from Team 2, lands 1% of the time.",
-        "his_side": "Team 2's roster read lists WR as thin.",
+        "case_for": "P13 adds 19.4 pts if landed; 2-step path from Manager B (Team 2), lands 1% of the time.",
+        "his_side": "Manager B (Team 2)'s roster read lists WR as thin.",
         "devils_advocate": "No plan inside the sliders reaches him.",
         "news_check": "Not checked for targets: the news read runs on the offers in a plan.",
         "confidence": "The path lands 1% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
@@ -10049,7 +10049,7 @@
       "steps": 0
      },
      {
-      "text": "Buy P22 from Team 3, sell to Team 2.",
+      "text": "Buy P22 from Team 3, sell to Manager B (Team 2).",
       "gain": {
        "status": "ok",
        "value": 0.027464309177434375,
@@ -10079,7 +10079,7 @@
       "steps": 2
      },
      {
-      "text": "Buy P32 from Team 4, sell to Team 2.",
+      "text": "Buy P32 from Team 4, sell to Manager B (Team 2).",
       "gain": {
        "status": "ok",
        "value": 0.017133596255895132,
@@ -10089,7 +10089,7 @@
       "steps": 2
      },
      {
-      "text": "Buy P31 from Team 4, sell to Team 2.",
+      "text": "Buy P31 from Team 4, sell to Manager B (Team 2).",
       "gain": {
        "status": "ok",
        "value": 0.0026517489199034154,

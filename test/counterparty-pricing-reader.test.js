@@ -82,7 +82,7 @@ test('READER-SWITCH: free-text notes never set buyer (the disagreement pattern)'
   assert.equal(b.buyer, null, 'a note saying "selling" is kept as text, not read as buyer=false');
   assert.equal(b.active, true, 'the override still applies');
   assert.equal(b.deprioritised, false);
-  assert.equal(b.notes.length, 1, "only the nick-chat note is kept; the 'nick' source note is not read");
+  assert.equal(b.notes.length, 2, "both Nick-authored notes are kept as text (source LIKE 'nick%')");
 });
 
 test('READER-SWITCH: a JSON nick-chat note sets keys; the override beats it; other sources are ignored', () => {

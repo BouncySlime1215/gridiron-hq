@@ -15,6 +15,7 @@
  *   sanity            composed rescore == served tradeImpact on one one-for-one deal
  */
 import { chatLabels } from '../../server/services/campaign/partners.js';
+import { resolveUntouchables } from '../../server/services/people/profile-reader.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 const FLEX = { FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'], WRRB_FLEX: ['RB', 'WR'],
@@ -208,7 +209,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       title_now: titleByTeam.get(t) ?? null,
       sent_this_week: sent.get(t) ?? 0,
       send_when: send,
-      nick: chat?.get(t)?.nick ?? null,
+      // Nick's block (the one reader); 'untouchable: <player>' notes resolved against this roster's players.
+      nick: resolveUntouchables(chat?.get(t)?.nick ?? null, (rosters.get(t) ?? []).map(id => players.get(id)).filter(Boolean)),
       chat: chat?.has(t) ? chatLabels({ ...chat.get(t),
         sentiment: (chat.get(t).sentiment ?? []).map(x => ({ ...x, player: nameToId(x.player) ?? x.player })) }) : chatLabels(),
     });

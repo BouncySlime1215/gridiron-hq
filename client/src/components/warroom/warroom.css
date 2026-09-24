@@ -226,3 +226,25 @@
   .wr-ch { padding-right: 80px; }
   .wr-coach.wr-open .wr-ask { padding-right: 10px; }
 }
+
+/* Negotiation mode (NEGOTIATE-UI): the live thread, countdown and counter builder. Tokens only. */
+.wr-neg { border: 1px solid var(--wr-accent); border-radius: 10px; padding: 8px 10px; margin: 6px 0; background: var(--wr-bg); }
+.wr-clock { border: 1px solid var(--wr-line); border-radius: 8px; padding: 6px 8px; margin: 6px 0; font-size: 12.5px; }
+.wr-clock-follow_up { border-color: var(--wr-warn); background: var(--wr-warn-tint); }
+.wr-clock-move_on { border-color: var(--wr-danger); background: var(--wr-danger-tint); }
+.wr-bar { height: 4px; border-radius: 2px; background: var(--wr-line); overflow: hidden; margin: 4px 0; }
+.wr-bar > i { display: block; height: 100%; background: var(--wr-accent); }
+.wr-clock-move_on .wr-bar > i { background: var(--wr-danger); }
+.wr-thread { margin: 6px 0; padding-left: 18px; font-size: 12px; }
+.wr-rules { margin: 4px 0 0; padding-left: 16px; font-size: 12px; }
+.wr-builder { border-top: 1px solid var(--wr-line); margin-top: 8px; padding-top: 6px; }
+.wr-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 3px 0; }
+.wr-chip { border: 1px solid var(--wr-line); background: var(--wr-bg); color: var(--wr-ink); border-radius: 999px; padding: 2px 8px; font-size: 11.5px; }
+.wr-chip.wr-on { background: var(--wr-accent); border-color: var(--wr-accent); color: var(--wr-on-accent); }
+.wr-slider { margin: 8px 0 4px; }
+.wr-track { position: relative; height: 10px; border-radius: 5px; background: linear-gradient(90deg, var(--wr-info-tint), var(--wr-warn-tint)); border: 1px solid var(--wr-line); }
+.wr-mk { position: absolute; top: -4px; transform: translateX(-50%); }
+.wr-mk-at { width: 14px; height: 14px; top: -3px; border-radius: 50%; background: var(--wr-accent); border: 2px solid var(--wr-bg); }
+.wr-mk-yes { width: 2px; height: 18px; background: var(--wr-info); }
+.wr-mk-walk { width: 3px; height: 18px; background: var(--wr-danger); }
+@media (max-width: 699px) { .wr-chip { padding: 4px 10px; font-size: 12.5px; } }

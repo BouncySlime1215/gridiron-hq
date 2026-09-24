@@ -46,10 +46,227 @@ export const PASS_BAR = 'planner minus the best simple baseline (finder best off
   + 'realized title gain, league-clustered 95% CI > 0';
 
 /**
- * The frozen historical result (null until the graded run is frozen here).
- * Written from the replay script's summary; every number is an aggregate.
+ * The frozen historical result: the graded 2023-24 run's summary (aggregates only),
+ * copied from scripts/eval/e4-planner-replay.mjs output. Title gains on the 0-1 scale.
  */
-export const HISTORICAL = null;
+export const HISTORICAL = Object.freeze({
+  "title": {
+    "n": 1792,
+    "league_seasons": 896,
+    "means": {
+      "planner": 0.00163,
+      "finder": 0.0005,
+      "nothing": 0,
+      "greedy": -0.001
+    },
+    "best_baseline": "finder",
+    "vs_best": {
+      "mean": 0.00113,
+      "ci": [
+        -0.00457,
+        0.00685
+      ]
+    },
+    "vs": {
+      "finder": {
+        "mean": 0.00113,
+        "ci": [
+          -0.00457,
+          0.00685
+        ]
+      },
+      "nothing": {
+        "mean": 0.00163,
+        "ci": [
+          -0.00382,
+          0.00659
+        ]
+      },
+      "greedy": {
+        "mean": 0.00262,
+        "ci": [
+          -0.00238,
+          0.00752
+        ]
+      }
+    }
+  },
+  "playoff": {
+    "n": 1792,
+    "league_seasons": 896,
+    "means": {
+      "planner": 0.00014,
+      "finder": -0.00531,
+      "nothing": 0,
+      "greedy": 0.00631
+    },
+    "best_baseline": "greedy",
+    "vs_best": {
+      "mean": -0.00617,
+      "ci": [
+        -0.01175,
+        -0.00064
+      ]
+    },
+    "vs": {
+      "finder": {
+        "mean": 0.00545,
+        "ci": [
+          -0.00074,
+          0.01223
+        ]
+      },
+      "nothing": {
+        "mean": 0.00014,
+        "ci": [
+          -0.00541,
+          0.00567
+        ]
+      },
+      "greedy": {
+        "mean": -0.00617,
+        "ci": [
+          -0.01175,
+          -0.00064
+        ]
+      }
+    }
+  },
+  "title_if_completed": {
+    "n": 1792,
+    "league_seasons": 896,
+    "means": {
+      "planner": 0.00614,
+      "finder": 0.00056,
+      "nothing": 0,
+      "greedy": -0.00391
+    },
+    "best_baseline": "finder",
+    "vs_best": {
+      "mean": 0.00558,
+      "ci": [
+        -0.00949,
+        0.02009
+      ]
+    },
+    "vs": {
+      "finder": {
+        "mean": 0.00558,
+        "ci": [
+          -0.00949,
+          0.02009
+        ]
+      },
+      "nothing": {
+        "mean": 0.00614,
+        "ci": [
+          -0.00837,
+          0.02009
+        ]
+      },
+      "greedy": {
+        "mean": 0.01004,
+        "ci": [
+          -0.00558,
+          0.02455
+        ]
+      }
+    }
+  },
+  "playoff_if_completed": {
+    "n": 1792,
+    "league_seasons": 896,
+    "means": {
+      "planner": 0.00446,
+      "finder": -0.01283,
+      "nothing": 0,
+      "greedy": 0.01953
+    },
+    "best_baseline": "greedy",
+    "vs_best": {
+      "mean": -0.01507,
+      "ci": [
+        -0.03181,
+        0.00167
+      ]
+    },
+    "vs": {
+      "finder": {
+        "mean": 0.0173,
+        "ci": [
+          0.00056,
+          0.03516
+        ]
+      },
+      "nothing": {
+        "mean": 0.00446,
+        "ci": [
+          -0.01116,
+          0.02009
+        ]
+      },
+      "greedy": {
+        "mean": -0.01507,
+        "ci": [
+          -0.03181,
+          0.00167
+        ]
+      }
+    }
+  },
+  "by_season_title": {
+    "2023": {
+      "n": 890,
+      "means": {
+        "planner": 0.00103,
+        "finder": -0.00254,
+        "nothing": 0,
+        "greedy": -0.00212
+      },
+      "vs_best": {
+        "mean": 0.00103,
+        "ci": [
+          -0.00628,
+          0.00811
+        ]
+      }
+    },
+    "2024": {
+      "n": 902,
+      "means": {
+        "planner": 0.00221,
+        "finder": 0.0035,
+        "nothing": 0,
+        "greedy": 0.00011
+      },
+      "vs_best": {
+        "mean": -0.00129,
+        "ci": [
+          -0.00971,
+          0.00728
+        ]
+      }
+    }
+  },
+  "focal_teams": 1792,
+  "league_seasons_exported": 948,
+  "skipped_format": 52,
+  "moves_made": {
+    "planner": 1514,
+    "finder": 1403,
+    "greedy": 1769
+  },
+  "planner_mean_depth": 1.292,
+  "planner_mean_sim_expected_title": 0.01011,
+  "same_first_move_as_finder": 0.0185,
+  "same_first_move_as_greedy": 0.041,
+  "fidelity_champion_do_nothing": 0.4498,
+  "split": "fit 2021-22 (simulator sd / miss rate), graded 2023-24 once, 2025 untouched",
+  "acceptance": "assumed: p = clamp(0.35 + 0.01 x screen%, 0.02, 0.9)",
+  "runs": 400,
+  "decision_week": 7,
+  "source": "scripts/eval/e4-planner-replay.mjs (pre-registered at a1ad1148), PR #294"
+});
 
 /** Gain of one arm on one row for a target ('title' | 'playoff'); nothing is 0 by definition. */
 export function gainOf(row, arm, target = 'title') {

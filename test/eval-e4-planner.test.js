@@ -208,3 +208,12 @@ test('adapter: planner-shaped, market value above replacement, week-7 decision',
 test('export refuses the held-out 2025 season before reading anything', () => {
   assert.throws(() => exportLeagues({ sh: '/nonexistent', cache: '/nonexistent', seasons: [2024, 2025], out: '/dev/null' }), /2025 is held out/);
 });
+
+test('frozen 2023-24 result: planner minus best baseline straddles 0 -> not_enough_data, never an empty pass', () => {
+  const r = E4.historical();
+  assert.equal(r.status, STATUS.NOT_ENOUGH_DATA);
+  assert.equal(r.n, E4.HISTORICAL.title.n);
+  assert.ok(r.ci_low < 0 && r.ci_high > 0);
+  assert.equal(r.detail.best_baseline, undefined, 'detail keeps the full summary per target');
+  assert.equal(r.detail.title.best_baseline, 'finder');
+});

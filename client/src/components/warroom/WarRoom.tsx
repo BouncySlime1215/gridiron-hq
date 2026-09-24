@@ -4,6 +4,7 @@ import type { PanelId, WarRoomView } from './types';
 import type { DeckLogEntry, DeckState } from './deck';
 import { postWarRoomRequest, type Poster, type WarRoomRequest } from './requests';
 import { isOk } from './format';
+import ChessPath from './ChessPath';
 import { SourcesContext } from './FieldState';
 import { Panel } from './Panel';
 import TopStrip, { type LeagueChoice } from './TopStrip';
@@ -13,7 +14,6 @@ import FlipMap from './FlipMap';
 import TargetPicker from './TargetPicker';
 import CatchUp from './CatchUp';
 import BrainCheckCard from './BrainCheckCard';
-import ChessPath from './ChessPath';
 import { CoachDock, useWarRoomCoach, type Panel as CoachPanel } from './coach';
 
 /**

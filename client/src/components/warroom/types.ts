@@ -185,7 +185,8 @@ export interface WarRoomView {
   chess?: Field<Chess>;
 }
 
-export type PanelId = 'next' | 'path' | 'stops' | 'flip_map' | 'targets' | 'catch' | 'brain_report';
+/** 'clones' is the clone view's area (UI-ENG-4, #270), in the grid ahead of its panel. */
+export type PanelId = 'next' | 'path' | 'stops' | 'clones' | 'flip_map' | 'targets' | 'catch' | 'brain_report';
 
 /** Player and team labels from the entry's `names` (ids only elsewhere). */
 export function namer(names: Record<string, string> | undefined) {

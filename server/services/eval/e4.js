@@ -58,7 +58,7 @@ export function grade(file, { reason = null } = {}) {
 
 /** The replay file, or why there is none. A file that exists but will not parse is an error, not an absence. */
 export function load(filePath = process.env.GRIDIRON_E4_REPLAY_JSON || DEFAULT_PATH) {
-  if (!fs.existsSync(filePath)) return { file: null, reason: 'planner replay output not produced yet (Sleeper replay harness)' };
+  if (!fs.existsSync(filePath)) return { file: null, reason: 'planner replay output not produced yet; the E4 planner replay harness (Sleeper, no unit assigned yet) produces it' };
   return { file: JSON.parse(fs.readFileSync(filePath, 'utf8')) };
 }
 

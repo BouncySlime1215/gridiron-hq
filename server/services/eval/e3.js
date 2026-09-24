@@ -121,7 +121,7 @@ const COLS = ['league_id', 'season', 'team_id', 'week', 'p_playoffs', 'p_title',
 
 export function load(database) {
   const s = readSource(database, 'title_odds_snapshots', COLS);
-  if (!s.ok) return { rows: [], reason: `${s.reason}; the title-odds producer writes it` };
+  if (!s.ok) return { rows: [], reason: `${s.reason}; migration 083 builds the view over serve-log (#243) served_numbers` };
   const hasBase = database.prepare(`SELECT 1 FROM pragma_table_info('title_odds_snapshots') WHERE name = 'baseline_p_playoffs'`).get();
   if (!hasBase) return { rows: s.rows };
   return { rows: database.prepare(`SELECT ${COLS.join(', ')}, baseline_p_playoffs FROM title_odds_snapshots`).all() };

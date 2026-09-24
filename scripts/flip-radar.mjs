@@ -14,8 +14,12 @@ const argv = process.argv.slice(2);
 const at = f => { const i = argv.indexOf(f); return i >= 0 ? argv[i + 1] : null; };
 const leagueId = Number(at('--league') ?? 4);
 
-const { runMigrations } = await import('../server/db/migrate.js');
-await runMigrations();
+// Only this producer's own table (085), applied through migrate() alone: the full
+// runMigrations() takes a whole-DB snapshot first, and on a disposable copy that
+// snapshot is pure cost (it refused on a near-full disk: PR #265 LOCAL run).
+const { db, migrate } = await import('../server/db/index.js');
+const m085 = await import('../server/migrations/085_flip_map_snapshots.js');
+migrate(m085.name, () => m085.up(db));
 const radar = await import('../server/services/flip-radar/flip-radar.js');
 const { validateLeague } = await import('../server/services/campaign/plans-schema.js');
 

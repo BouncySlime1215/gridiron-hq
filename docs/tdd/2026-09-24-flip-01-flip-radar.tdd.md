@@ -62,3 +62,13 @@ down/re-up tests). 085 now has `down()`; those two files re-run: pass 53, fail 0
 
 The real-league run (world build, rescore count, runtime, how many flips clear on league
 4) needs the local DB. It is the `LOCAL:` line in the PR body.
+
+## LOCAL run 1 (coordinator, `372d6b2`)
+
+Both LOCAL lines stopped before the radar ran. `runMigrations()` refused its pre-migration
+snapshot (0.9 GB DB, 1.1 GB free). Fix: `scripts/flip-radar.mjs` now applies only 085
+through `migrate()`, which takes no snapshot. The runner works on a disposable copy, and
+the radar reads no other pending migration's tables. The global snapshot rule is unchanged.
+A second bug found on an empty-league copy: `tradeImpactWorld`'s `fail` is an object, and
+the error read `[object Object]`. It now reads e.g. `title-odds world failed: league rules
+incomplete: leagues.payload`.

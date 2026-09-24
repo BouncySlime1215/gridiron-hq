@@ -29,7 +29,10 @@ export function flipWorld(leagueId) {
   if (lg.my_team_id == null) return { error: `league ${leagueId} has no my_team_id` };
   const me = String(lg.my_team_id);
   const w = tradeImpactWorld(lg);
-  if (!w || w.fail) return { error: `title-odds world failed${w?.fail ? `: ${w.fail}` : ''}` };
+  if (!w || w.fail) {
+    const why = w?.fail?.error ?? (typeof w?.fail === 'string' ? w.fail : JSON.stringify(w?.fail ?? null));
+    return { error: `title-odds world failed: ${why}` };
+  }
   const assets = w.prep.assets;
   let rescores = 0;
 

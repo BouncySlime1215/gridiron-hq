@@ -64,16 +64,18 @@
  * Usage:
  *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3] [--no-finder] [--tick]
  */
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateLeague, validatePlans } from '../../server/services/campaign/plans-schema.js';
 import { planLeague } from '../../server/services/campaign/planner.js';
 import { normaliseObjective } from '../../server/services/campaign/objectives.js';
 import { skipWeights } from '../../server/services/campaign/partners.js';
 import { diffNextMove } from '../../server/services/campaign/replan.js';
 import { rankAttention } from '../../server/services/campaign/attention.js';
-import { toEntry, failedEntry, plansFile } from '../../server/services/campaign/view.js';
+import { toEntry, failedEntry, plansFile, PRODUCER_VERSION } from '../../server/services/campaign/view.js';
+import { versionWithFlags } from '../../server/services/campaign/model-flags.js';
 import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
 import { applyCoachMessages, coachMessagesOn } from '../../server/services/campaign/messages.js';
 import { previewUnconfirmed } from '../../server/services/preview-mode.js';
@@ -90,6 +92,34 @@ export const TWO_FOR_ONE_ENV = 'GRIDIRON_TWO_FOR_ONE';
 export function twoForOneFlag(env = process.env) {
   if (env[TWO_FOR_ONE_ENV] === '1') return 'on';
   return previewUnconfirmed() ? 'preview' : 'off';
+}
+
+/**
+ * PLAN-BASELINE: the code a plan's title odds come from (season sim, availability,
+ * title odds of a trade, the horizon weight, the adapter that feeds them, the planner).
+ * A change to any of them is a new model, so the War Room's "this week's plan" restarts
+ * instead of comparing across models.
+ */
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+export const PLAN_MODEL_FILES = Object.freeze([
+  'server/services/season-sim.js', 'server/services/player-availability.js', 'server/services/nfl-availability.js',
+  'server/services/availability-basis.js', 'server/services/title-odds-trades.js', 'server/services/title-mutual.js',
+  'server/services/trade-horizon.js', 'scripts/campaign/league-adapter.mjs', 'server/services/campaign/planner.js',
+].map(f => path.join(REPO, f)));
+
+/**
+ * This run's model key: the producer version with its model flags (model-flags.js), then a
+ * short hash of the title-odds code. A file that cannot be read is hashed as its name plus
+ * 'absent', so a missing module is a different model, never a silent match.
+ */
+export function planModelKey({ flags = null, files = PLAN_MODEL_FILES } = {}) {
+  const h = crypto.createHash('sha256');
+  for (const f of files) {
+    h.update(path.basename(f)).update('\0');
+    try { h.update(fs.readFileSync(f)); } catch { h.update('absent'); }
+    h.update('\0');
+  }
+  return `${versionWithFlags(PRODUCER_VERSION, flags)}|code=${h.digest('hex').slice(0, 12)}`;
 }
 
 /* FLIP-01's schedule, as this producer's runner (moved in from PR #265 flip-radar.js#decideRun). */
@@ -199,6 +229,8 @@ export function fileInputs(id, { objectiveRow = null, fileSkips = [] } = {}) {
  * opts: { generated_at, objectives ({ id: raw objective }), skips (rows), previous (Map id -> last entry),
  *         inputs ({ skips } read status), clock, budget, env (FEAS-140 flags; main() passes process.env), log,
  *         flags (FIX-02b, optional): model-flags.js#modelFlags() for the head's producer_version,
+ *         model (PLAN-BASELINE, optional): planModelKey() for this run, stamped on `_run.inputs.model`; a previous
+ *           trajectory made under another key is not compared with (view.js#planBaseline),
  *         brain (FIX-05, optional): { read: readBrainReport result, applyBrainReport, numberHealth: id -> readNumberHealth result },
  *         leagueInputs (FIX-07, optional): (id, { objectiveRow, fileSkips }) -> { objective, weights, consume, summary }
  *           (requests.js#leagueInputs; default: the objectives/skips files alone),
@@ -207,7 +239,7 @@ export function fileInputs(id, { objectiveRow = null, fileSkips = [] } = {}) {
  */
 export async function buildPlansFile(leagues, {
   generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, env = {}, log = () => {},
-  flags = null, brain = null, leagueInputs = fileInputs, consumed = null, twoForOne = 'off', trigger = null,
+  flags = null, brain = null, leagueInputs = fileInputs, consumed = null, twoForOne = 'off', trigger = null, model = null,
 } = {}) {
   const entries = [], best = new Map();
   for (const { id, load } of leagues) {
@@ -234,12 +266,13 @@ export async function buildPlansFile(leagues, {
       const rosterKey = res.error ? null : adapter.rosterKey?.() ?? null;
       const changed = diffNextMove(prev?._run ?? null, { next_step: res.best?.steps[0] ?? null,
         objective_version: objective.version, risk_mode: objective.risk_mode, roster_key: rosterKey });
-      entry = toEntry(res, { names: adapter.names(), as_of: generated_at, previous: prev, changed,
+      entry = toEntry(res, { names: adapter.names(), as_of: generated_at, previous: prev, changed, model,
         brain: gate, number_health: brain ? brain.numberHealth(id) : null });
       if (entry._run) {
         entry._run.roster_key = rosterKey;
         entry._run.phases_ms = { adapter_and_world: adapterMs, ...entry._run.phases_ms };
         entry._run.inputs = {
+          ...entry._run.inputs,
           chat: chat ? { status: chat.status, reason: chat.reason ?? null, negotiation: chat.negotiation ?? null,
             // FIX-02c: Nick's own read (nick_override + manager_notes), applied over every chat label.
             nick: { status: chat.nick_status ?? 'unknown', reason: chat.nick_reason ?? chat.reason ?? null, rosters: chat.nick_rosters ?? 0 } }
@@ -379,6 +412,8 @@ async function main() {
     const file = await buildPlansFile(leagues, { generated_at, objectives, skips: skips.rows, previous,
       inputs: { skips: { status: skips.status, bad_lines: skips.bad } }, leagueInputs, consumed,
       budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags, brain, twoForOne, trigger, env,
+      // PLAN-BASELINE: "this week's plan" compares only with a plan made under this same model.
+      model: planModelKey({ flags }),
       log: line => (line.includes('FAILED') || line.includes('\n') ? console.error(line) : console.log(line)) });
     // FIX-08: reasoning goes into each move before the one atomic write. Both gates
     // off (or either) -> no call, and every move says why its panel is missing.

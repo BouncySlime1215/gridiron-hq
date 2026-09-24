@@ -27,6 +27,7 @@ import { row } from '../db/index.js';
 import { findTrades } from './trade-engine.js';
 import { tradeImpact, tradeImpactWorld, fastRescoreEnabled, TRADE_IMPACT_RUNS } from './season-sim.js';
 import { mutualTitleGain } from './title-mutual.js';
+import { pPlayCacheTag } from './avail-p-play.js';
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 
@@ -45,7 +46,9 @@ export function titleOddsTrades(leagueId, {
   const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg?.payload) return { error: 'league not synced yet' };
 
-  const key = `${leagueId}|${teamId}|${shortlist}|${runs}|${requireMutual}|${lg.fetched_at}`;
+  // FIX-285-2: the simulated pools are priced on avail.p_play when it is on, so
+  // the flag state is part of what a cached answer means.
+  const key = `${leagueId}|${teamId}|${shortlist}|${runs}|${requireMutual}|${lg.fetched_at}${pPlayCacheTag()}`;
   if (_cache.has(key)) return _cache.get(key);
 
   const found = findTrades(lg, { myTeamId: teamId, requireMutual, limit: shortlist * 3 });

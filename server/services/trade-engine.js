@@ -62,8 +62,8 @@ import { SLOT_NAME } from './espn-draft.js';
 import { rosterLocks, lockPins } from './lineup-lock.js';
 import { seasonEndingEspnIds } from './player-availability.js';
 import { buildPlayerWeekEngine, playerWeekDistribution } from './player-week-engine.js';
-import { weeklyAvailability, availabilityBasis } from './contingency.js';
-import { availPPlayMode, availPPlayWeek, pPlayJson } from './avail-p-play.js';
+import { weeklyAvailability, availabilityBasis, legacyActiveProbability } from './contingency.js';
+import { availPPlayMode, availPPlayWeek, pPlayJson, pPlayCacheTag } from './avail-p-play.js';
 import { activeInjuryFlagIds } from './injury-flags.js';
 import { cached, fingerprint } from './compute-cache.js';
 import { activeWeeklyWeightSet } from './weekly-weight-store.js';
@@ -303,7 +303,7 @@ const injuryFlagKey = () => crypto.createHash('sha1')
 export function assetUniverse(lg, formatKey, requested = null) {
   const target = requested ?? tradeWeekContext();
   return cached(
-    `assets:${lg.id}:${formatKey}:${target.season}:${target.week}${availPPlayMode().on ? ':pplay' : ''}`,
+    `assets:${lg.id}:${formatKey}:${target.season}:${target.week}${pPlayCacheTag()}`,
     fingerprint(ASSET_INPUT_TABLES, assetInputsKey(lg, formatKey, target)),
     () => buildAssetUniverse(lg, formatKey, target));
 }
@@ -392,7 +392,7 @@ function buildAssetUniverse(lg, formatKey, target) {
     const tr = trending.get(p.id);
     const availability = active.get(p.id);
     const pPlayed = pPlayWeek?.of(p.id, p.position) ?? null;
-    const activeProbability = pPlayed ? pPlayed.value : availability?.active_probability ?? 0.92;
+    const activeProbability = pPlayed ? pPlayed.value : legacyActiveProbability(availability);
     const weeklyPpg = weekProjection?.ppg ?? (proj / GAMES);
     const thisGame = sched.games?.find(game => game.week === target.week) ?? null;
     // The coordinator only corrects THIS week's number (ensemble_shift and
@@ -3250,7 +3250,7 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null, now = Da
       // (an unknown player's is his labelled prior), so there is no default to reach.
       const unknownIn = versusZero && x.in.p_play?.status === 'unknown';
       const p = versusZero
-        ? (x.in.p_play ? x.in.active_probability : x.in.active_probability ?? 0.92)
+        ? (x.in.p_play ? x.in.active_probability : legacyActiveProbability(x.in))
         : swapRightProbability(x.gap);
       return {
         slot: slotOf.get(x.in.id),

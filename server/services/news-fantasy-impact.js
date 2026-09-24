@@ -3,6 +3,7 @@ import { buildPlayerWeekEngine, playerWeekDistribution } from './player-week-eng
 import { normalizePlayerName } from './player-identity.js';
 import { scoreLine } from './scoring.js';
 import { weeklyAvailability } from './contingency.js';
+import { availPPlayMode, availPPlayWeek, chanceToPlay } from './avail-p-play.js';
 
 const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
 const round = (value, digits = 1) => value == null || !Number.isFinite(value) ? null : +value.toFixed(digits);
@@ -70,6 +71,8 @@ export function trackingVerdict(signal, actual, prior, gameFinished) {
 export function newsFantasyTracker(signals) {
   const cache = new Map();
   const availabilityCache = new Map();
+  // BROKEN-E (default off): one avail.p_play read per game week, typed unknown + labelled prior.
+  const pPlayMode = availPPlayMode();
   const nowDay = new Date().toISOString().slice(0, 10);
   const tracked = signals.map(signal => {
     const game = nextTeamGame(signal.team, signal.published_at);
@@ -82,9 +85,15 @@ export function newsFantasyTracker(signals) {
     const confidence = clamp(Number(signal.confidence ?? 0), 0, 1);
     const availabilityKey = `${game.season}|${game.week}`;
     if (!availabilityCache.has(availabilityKey)) {
-      availabilityCache.set(availabilityKey, weeklyAvailability(Number(game.season), Number(game.week), { through: Number(game.season) - 1 }));
+      availabilityCache.set(availabilityKey, pPlayMode.on
+        ? availPPlayWeek(Number(game.season), Number(game.week), { preview: pPlayMode.preview })
+        : weeklyAvailability(Number(game.season), Number(game.week), { through: Number(game.season) - 1 }));
     }
-    const baselineActive = availabilityCache.get(availabilityKey).get(projection.player_id)?.active_probability ?? 0.92;
+    const cachedWeek = availabilityCache.get(availabilityKey);
+    const baselineChance = pPlayMode.on
+      ? chanceToPlay(cachedWeek, null, projection.player_id, projection.position)
+      : chanceToPlay(null, cachedWeek.get(projection.player_id));
+    const baselineActive = baselineChance.value;
     const reportedActive = clamp(1 - Number(signal.unavailable_probability ?? 0) * confidence, 0, 1);
     const roleMultiplier = signal.signal_type === 'role'
       ? clamp(1 + Number(signal.role_delta ?? 0) * confidence, 0.1, 1.75) : 1;
@@ -122,6 +131,7 @@ export function newsFantasyTracker(signals) {
         },
         usage_delta_percent: round((roleMultiplier * activeProbability / Math.max(0.01, baselineActive) - 1) * 100),
         baseline_active_probability: round(baselineActive * 100),
+        ...(baselineChance.p_play ? { baseline_p_play: baselineChance.p_play } : {}),
         active_probability: round(activeProbability * 100),
         note: 'What-if scenario from a timestamped claim; it does not alter production picks until forward calibration passes.'
       },

@@ -22,7 +22,7 @@
  * Default off. GRIDIRON_AVAIL_P_PLAY=1 is the ship switch; the preview switch
  * (preview-mode.js) also turns it on and then marks the output preview: true.
  */
-import { weeklyAvailability, fittedAvailability } from './contingency.js';
+import { weeklyAvailability, fittedAvailability, legacyActiveProbability } from './contingency.js';
 import { DEFAULT_ACTIVE_PROBABILITY } from './availability-basis.js';
 import { previewUnconfirmed, previewFields } from './preview-mode.js';
 
@@ -120,4 +120,28 @@ export function availPPlayWeek(season, week, { rows = null, fitted = undefined, 
 export function pPlayJson(pp) {
   const { value, ...rest } = pp;
   return rest.status === 'ok' ? { ...rest, p_play: +rest.p_play.toFixed(3) } : rest;
+}
+
+/**
+ * A caller that needs one number for one player (FIX-285-1: roster-risk,
+ * role-scenario-engine, news-fantasy-impact). Flag on (`week` is an
+ * availPPlayWeek): the avail.p_play value, which for an unknown player is his
+ * labelled prior, plus the JSON to serve beside it. Flag off (`week` null): the
+ * old read of `row`, unchanged, and no p_play.
+ */
+export function chanceToPlay(week, row, playerId, position = null) {
+  if (!week) return { value: legacyActiveProbability(row), p_play: null };
+  const pp = week.of(playerId, position);
+  return { value: pp.value, p_play: pPlayJson(pp) };
+}
+
+/**
+ * The part of a cache key that says which chance to play produced the value
+ * (FIX-285-2). A cache that holds numbers built on avail.p_play must not hand
+ * the flag-on answer to a flag-off request or back; preview adds its own fields,
+ * so it is a third state.
+ */
+export function pPlayCacheTag() {
+  const { on, preview } = availPPlayMode();
+  return !on ? '' : preview ? ':pplay-preview' : ':pplay';
 }

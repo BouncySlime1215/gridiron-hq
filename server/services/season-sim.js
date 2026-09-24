@@ -29,7 +29,7 @@ import { deriveFormat } from './format.js';
 import { gameScriptFor } from './gamescript.js';
 import { loadRosters, assetUniverse, lineupSlots } from './trade-engine.js';
 import { random, withRandomSeed, keyedSeed } from './stats-util.js';
-import { weeklyAvailability } from './contingency.js';
+import { weeklyAvailability, legacyActiveProbability } from './contingency.js';
 import { availPPlayMode, availPPlayWeek } from './avail-p-play.js';
 import { leagueCurrentWeek } from './league-week.js';
 import { previewUnconfirmed, previewFields } from './preview-mode.js';
@@ -470,7 +470,7 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
       const gs = gameScriptFor(p.team_abbr, SEASON, week);
       const mult = { pass: base * gs.pass_mult, rush: base * gs.rush_mult };
       const pPlayed = pPlayWeek?.of(p.id, p.position) ?? null;
-      const activeProbability = pPlayed ? pPlayed.value : activeChance.get(p.id)?.active_probability ?? 0.92;
+      const activeProbability = pPlayed ? pPlayed.value : legacyActiveProbability(activeChance.get(p.id));
       const s = withRandomSeed(keyedSeed(world, 'pool', p.id, week),
         () => sampleWeeks(pr.params, POOL, scoring, scaled(mult, basis.scale.get(p.id)), activeProbability))
         .sort((a, b) => a - b);

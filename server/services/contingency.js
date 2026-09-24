@@ -931,6 +931,18 @@ export function designationRoleGate(gateRows, gate = DESIGNATION_ROLE_GATE) {
  * was priced on (an ESPN label such as 'Out (ESPN)' when ESPN's is the more severe);
  * `designation` / `designation_source` / `espn_status` say which and why.
  */
+/**
+ * BROKEN-E: the chance-to-play default every caller used to type for itself,
+ * `row?.active_probability ?? 0.92`, kept in this one place. Only the flag-off
+ * arm of a caller reaches it; with GRIDIRON_AVAIL_P_PLAY on, callers read
+ * avail-p-play.js instead, where a player with no number is a typed unknown
+ * priced at a labelled prior. test/avail-p-play-sites.test.js fails if a
+ * `?? 0.92` default appears in served code outside this file.
+ */
+export function legacyActiveProbability(row) {
+  return row?.active_probability ?? 0.92;
+}
+
 export function weeklyAvailability(season, week, { through = season - 1, useRole = true, espn = true } = {}) {
   const base = availability({ through });
   const players = rows(`SELECT p.id, p.name, p.position, p.gsis_id, p.espn_id, t.abbr AS team

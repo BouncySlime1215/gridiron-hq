@@ -45,7 +45,7 @@ Source: NORTH-STAR-PLAN row 7 and ENGINE-SPECS CAMPAIGN-01c (branch
   result goes on the `warroom_plans` summary line the refresh loop records in
   `sync_log`.
 
-GREEN, the five suites the change touches:
+GREEN, commit `bd92d57e`. The five suites the change touches:
 
 ```
 # pass 80
@@ -99,3 +99,15 @@ designed controls.
 | C3 migration without the one-queued UNIQUE index | **survived** on the first sweep; UNIQUE assertion added to test 1; now killed |
 | CTRL surviving: ntfy `Title` header text | survived (by design: cosmetic, untested) |
 | CTRL not applied: absent pattern | not applied (sweep reports it, does not count it) |
+
+## 5. Guard run (tree `763db19b`, GREEN head `bd92d57e`)
+
+- `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, `npm run start:smoke`: exit 0.
+  Tests 4868, pass 4825, fail 0, skipped 43. `git write-tree` identical before and after.
+- `npm run check:wiring`: exit 1, 15 `module-reaches-no-surface` findings under
+  `server/services/campaign/`. 14 are on the base (#272 head `d7736fe`, same command,
+  same 14 lines); `push-alerts.js` is the 15th, same class. Cause, on the base:
+  `scripts/refresh-live-data.mjs:219` launches the producer with
+  `launch(process.execPath, [..., 'scripts/campaign/produce-plans.mjs'])`, which
+  `scripts/wiring-map.mjs:1010-1011` (`entryPointScripts`) does not match, so the
+  producer is not a root. Reported, not edited: neither file is this unit's.

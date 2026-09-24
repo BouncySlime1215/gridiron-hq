@@ -15,8 +15,11 @@
  *   2  a league whose world failed: the contract's { league, me, names, error }
  *   3  points objective, team 3 nearly out of it (a "desperate" catch-up move
  *      that is also a deck card) and team 4 checked out
- *   4  go get player 21
+ *   4  go get player 21, points side panel at 105 a week (reachable under the FIX-05 balanced fallback: by_week is ok)
  *   5  sliders at zero assets: nothing clears, so next_move is unknown with its reason
+ *
+ * The FEAS-140 points side panel is switched on (ENV below, never the process env), so
+ * every non-points league writes feasibility_points; league 3 writes it as unknown.
  *
  * FIX-05: every league goes through the brain gate (campaign/brain-gate.js) on a
  * made-up report card with E1 failing, so league 4's all_in falls back to
@@ -37,6 +40,7 @@ import { buildCounterparts } from '../../../server/services/people/counterpart.j
 
 const FIRST_AT = '2026-09-24T05:00:00.000Z';
 const GENERATED_AT = '2026-09-24T06:00:00.000Z';
+const ENV = { GRIDIRON_POINTS_FEASIBILITY: '1' };
 const CHAT_OK = { engagement: 'high', tone: 'friendly', open_to_trade: 'high', no_holds: 'no', loves: [], hates: [], messages: 40, source: 'chat', status: 'ok' };
 
 const leagueOf = (id, opts = {}) => {
@@ -49,7 +53,7 @@ export const OBJECTIVES = {
   1: { risk_mode: 'safe', risk_until_week: 6, arrive_by: 6, untouchables: ['2'], version: 3,
     stops: [{ kind: 'get', player: '21' }, { kind: 'sell', player: '2' }, { kind: 'cover_bye', week: 6 }, { kind: 'custom', label: 'Keep a TE' }] },
   3: { kind: 'points', points_per_week: 95 },
-  4: { kind: 'player', target: '21', risk_mode: 'all_in' },
+  4: { kind: 'player', target: '21', risk_mode: 'all_in', side_points_per_week: 105 },
   5: { tolerances: { max_assets: 0 } },
 };
 
@@ -103,9 +107,9 @@ export async function makeProducerPlans() {
     { id: 4, load: async () => ({ adapter: leagueOf(4) }) },
     { id: 5, load: async () => ({ adapter: leagueOf(5) }) },
   ];
-  const first = await buildPlansFile(leagues, { generated_at: FIRST_AT, objectives: OBJECTIVES, clock: () => 0, brain: BRAIN });
+  const first = await buildPlansFile(leagues, { generated_at: FIRST_AT, objectives: OBJECTIVES, clock: () => 0, brain: BRAIN, env: ENV });
   const previous = new Map(first.leagues.map(e => [String(e.league), e]));
-  return buildPlansFile(leagues, { generated_at: GENERATED_AT, objectives: OBJECTIVES, previous, clock: () => 0, brain: BRAIN });
+  return buildPlansFile(leagues, { generated_at: GENERATED_AT, objectives: OBJECTIVES, previous, clock: () => 0, brain: BRAIN, env: ENV });
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

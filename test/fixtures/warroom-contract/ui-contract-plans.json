@@ -136,6 +136,11 @@
     },
     "source": "campaign.plan"
    },
+   "feasibility_points": {
+    "status": "unknown",
+    "source": "sim.title",
+    "reason": "This league is already planned on points: see feasibility."
+   },
    "finder_best_expected": {
     "status": "ok",
     "value": 0.00341,
@@ -1477,6 +1482,11 @@
     "status": "unknown",
     "reason": "No points objective set.",
     "source": "campaign.plan"
+   },
+   "feasibility_points": {
+    "status": "unknown",
+    "source": "sim.title",
+    "reason": "Points side panel is off (GRIDIRON_POINTS_FEASIBILITY), or the world has no weekly lineup points."
    },
    "finder_best_expected": {
     "status": "unknown",

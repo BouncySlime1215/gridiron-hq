@@ -197,7 +197,7 @@ export function fileInputs(id, { objectiveRow = null, fileSkips = [] } = {}) {
 /**
  * leagues: [{ id, load: async () => ({ adapter, chat?, adapterMs? }) }]
  * opts: { generated_at, objectives ({ id: raw objective }), skips (rows), previous (Map id -> last entry),
- *         inputs ({ skips } read status), clock, budget, log,
+ *         inputs ({ skips } read status), clock, budget, env (FEAS-140 flags; main() passes process.env), log,
  *         flags (FIX-02b, optional): model-flags.js#modelFlags() for the head's producer_version,
  *         brain (FIX-05, optional): { read: readBrainReport result, applyBrainReport, numberHealth: id -> readNumberHealth result },
  *         leagueInputs (FIX-07, optional): (id, { objectiveRow, fileSkips }) -> { objective, weights, consume, summary }
@@ -206,7 +206,7 @@ export function fileInputs(id, { objectiveRow = null, fileSkips = [] } = {}) {
  * Without `brain`, brain_report and number_health are unknown "not read" and the requested mode is planned.
  */
 export async function buildPlansFile(leagues, {
-  generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, log = () => {},
+  generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, env = {}, log = () => {},
   flags = null, brain = null, leagueInputs = fileInputs, consumed = null, twoForOne = 'off', trigger = null,
 } = {}) {
   const entries = [], best = new Map();
@@ -230,7 +230,7 @@ export async function buildPlansFile(leagues, {
         now: new Date(generated_at) }) : null;
       const objective = gate ? gate.objective : requested;
       if (gate?.rule.fell_back) log(`[warroom] league ${id}: ${gate.rule.reason}`);
-      res = planLeague(adapter, { objective, skips: ins.weights, budget });
+      res = planLeague(adapter, { objective, skips: ins.weights, budget, env });
       const rosterKey = res.error ? null : adapter.rosterKey?.() ?? null;
       const changed = diffNextMove(prev?._run ?? null, { next_step: res.best?.steps[0] ?? null,
         objective_version: objective.version, risk_mode: objective.risk_mode, roster_key: rosterKey });
@@ -378,7 +378,7 @@ async function main() {
     // Checked with validatePlans inside; a file that fails throws here and the previous file stays.
     const file = await buildPlansFile(leagues, { generated_at, objectives, skips: skips.rows, previous,
       inputs: { skips: { status: skips.status, bad_lines: skips.bad } }, leagueInputs, consumed,
-      budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags, brain, twoForOne, trigger,
+      budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags, brain, twoForOne, trigger, env,
       log: line => (line.includes('FAILED') || line.includes('\n') ? console.error(line) : console.log(line)) });
     // FIX-08: reasoning goes into each move before the one atomic write. Both gates
     // off (or either) -> no call, and every move says why its panel is missing.

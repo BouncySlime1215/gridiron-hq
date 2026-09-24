@@ -213,6 +213,16 @@ export const SECTIONS = Object.freeze({
   feasibility: field(obj({
     points_per_week: num, projected_points: numF, p_hit: probF, by_week: field(int(1, 18))
   }, { cost_text: str })),
+  // FEAS-140: the points question on a league planned on something else (title, playoffs,
+  // get-player), as its own card next to `feasibility`; never nested in it. A points
+  // league writes this as 'unknown' and keeps its answer in `feasibility`.
+  feasibility_points: field(obj({
+    points_per_week: num, league_objective: oneOf(['title', 'playoffs', 'get_player']),
+    outlook: oneOf(['on_track', 'reachable', 'out_of_reach']),
+    projected_points: numF, p_hit: probF, by_week: field(int(1, 18)),
+    cost_players: int(0), cost_offers: int(0), objective_cost: numF,
+    bye_warnings: int(0), injury_warnings: int(0)
+  }, { cost_text: str })),
   finder_best_expected: numF,
   next_move: field(move),
   alternatives: field(arr(move, { max: MAX_ALTERNATIVES })),
@@ -252,7 +262,7 @@ const run = obj({
   objective_version: int(0), objective_source: str, risk_mode: oneOf(RISK_MODES),
   next_step: json, trajectory: arr(obj({ week: int(1, 18), planned: num })),
   changed: obj({ changed: bool, reason: str }, { previous_key: nullable(str), next_key: str }),
-  roster_key: nullable(str), confirm: json, outlook: json, feasibility_detail: json,
+  roster_key: nullable(str), confirm: json, outlook: json, feasibility_detail: json, feasibility_points_detail: json,
   candidates_scored: int(0), rescores: int(0), runtime_ms: num, phases_ms: json, inputs: json
 });
 

@@ -392,6 +392,23 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     ...(f.at_what_cost ? { cost_text: `${f.at_what_cost.players} player(s) over ${f.at_what_cost.steps} offer(s)` } : {}),
   }, 'sim.title') : unknown(`points objective not set: this league is planned on ${LABEL[metric]}.`, 'sim.title');
 
+  // FEAS-140: the points side panel, its own card. Title-odds (or playoff-odds) cost is the best
+  // plan's expected gain minus the option's, on the same rescores: priced in the league's metric.
+  const sp = res.feasibility_points;
+  const GOAL_OF = { title: 'title', playoffs: 'playoffs', playoff: 'playoffs', player: 'get_player' }; // FIX-300-2: objectives.js says 'playoffs'
+  const feasibility_points = sp?.kind === 'points' && GOAL_OF[sp.league_objective] ? ok({
+    points_per_week: sp.target, league_objective: GOAL_OF[sp.league_objective], outlook: sp.status,
+    projected_points: num(sp.options?.[0]?.season_mean_after ?? sp.now?.season_mean, 'sim.title', { unit: 'points_per_week' }),
+    p_hit: num(sp.p_reach, 'sim.title', { prob: true, unit: 'probability' }),
+    by_week: week(sp.arrive_week) ? ok(sp.arrive_week, 'sim.title') : unknown(`No plan reaches ${sp.target} points a week inside the weeks simulated.`, 'sim.title'),
+    cost_players: sp.cost.players, cost_offers: sp.cost.steps,
+    objective_cost: sp.cost.basis === 'no plan to price' ? unknown('No plan on the league objective to price against.', 'sim.title')
+      : num(sp.cost.title_odds, 'sim.title', { unit, missing: 'No plan to price against.' }),
+    bye_warnings: sp.warnings_count.bye, injury_warnings: sp.warnings_count.injury,
+    ...(sp.cost.players ? { cost_text: `${sp.cost.players} player(s) over ${sp.cost.steps} offer(s)` } : {}),
+  }, 'sim.title') : unknown(o.kind === 'points' ? 'This league is already planned on points: see feasibility.'
+    : 'Points side panel is off (GRIDIRON_POINTS_FEASIBILITY), or the world has no weekly lineup points.', 'sim.title');
+
   const fb = res.finder_best;
   const finder_best_expected = fb && fin(fb.expected)
     ? num(fb.expected, 'sim.title', { se: fb.se, unit: 'title_odds', guess: true, n: fb.n })
@@ -401,7 +418,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     league: res.league, me: String(res.me), names,
     ...(typeof res.sanity === 'boolean' ? { sanity_composed_equals_direct: res.sanity } : {}),
     attention: unknown('Not ranked yet.', 'campaign.plan'),
-    destination, feasibility, finder_best_expected, next_move, alternatives, itinerary, stop_tradeoffs,
+    destination, feasibility, feasibility_points, finder_best_expected, next_move, alternatives, itinerary, stop_tradeoffs,
     flip_map, targets, catch_up, speed_curve,
     brain_report: brain
       ? ok(brain.section, 'eval.check', brain.as_of ? { as_of: brain.as_of } : {})
@@ -420,6 +437,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
         cards: deck.map(c => c.confirm) },
       outlook: res.outlook ? { season_mean: res.outlook.season_mean, per_week: res.outlook.per_week.map(x => ({ week: x.week, mean: x.mean })) } : null,
       feasibility_detail: f ?? null,
+      feasibility_points_detail: sp ?? null,
       candidates_scored: res.candidates_scored, rescores: res.rescores ?? 0, runtime_ms: res.runtime_ms ?? 0, phases_ms: res.phases_ms ?? {},
       inputs: {},
     },

@@ -28,6 +28,7 @@
  *                 result; the app's own model outputs go under payload.model
  *   signals       computed_at; every manager_signals source, counts and rates per fantasy
  *                 team only; the league's scoring period is in the natural key
+ *   people_pulse  the statement's message time (exact); PULSE-01's labels, never text
  *   coverage      sync_log.last_run_at: one source.coverage event per collector run seen
  *                 (compare-latest), so a window with no run reads unknown, never zero
  * Every party is an entity; a player without a players.id is an alias (espn:/gsis:).
@@ -270,6 +271,25 @@ export const ADAPTERS = Object.freeze([
         event_type: 'manager.signal', as_of: r.computed_at, as_of_quality: 'exact', league_id: r.league_id,
         team_id: r.roster_id, natural_key: `${r.league_id}:${r.roster_id}:${r.metric}:${period ?? 'unknown'}`,
         payload: { signal_source: r.source, metric: r.metric, value: r.value, n: r.n, scoring_period: period },
+      }];
+    },
+  },
+  {
+    // PULSE-01: labelled chat statements (labels and ids only; people_pulse holds no text).
+    stream: 'people_pulse', table: 'people_pulse',
+    sql: t => `SELECT id, league_id, roster_id, as_of, statement_type, player_ids_json, pos, own, style, weight,
+                 credible, live, labeller_version FROM ${t}`,
+    context: database => ({ byEspn: playerIndex(database, 'espn_id') }),
+    map: (r, { byEspn }) => {
+      const ids = parse(r.player_ids_json, []) ?? [];
+      return [{
+        event_type: 'people.statement', as_of: r.as_of, as_of_quality: 'exact', league_id: r.league_id,
+        team_id: r.roster_id, natural_key: `pulse:${r.id}`,
+        entities: [team(r.league_id, r.roster_id, 'subject'),
+          ...ids.map(id => playerEntity(byEspn.get(String(id)), 'espn', id, 'counterparty'))].filter(Boolean),
+        payload: { pulse_id: r.id, statement_type: r.statement_type, roster_id: r.roster_id, espn_player_ids: ids,
+          pos: r.pos ?? null, own: r.own ?? null, style: r.style ?? null, weight: r.weight ?? null,
+          credible: !!r.credible, live: !!r.live, labeller_version: r.labeller_version },
       }];
     },
   },

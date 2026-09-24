@@ -370,18 +370,30 @@ test('people_read: no profile reader on this build is typed unknown', noBrain, (
 
 /* ------------------------------------------------------------ pulse, brain, health */
 
-test('pulse_read: typed unknown until PULSE-01 is on this build, and it queries no table', noBrain, () => {
+test('pulse_read: reads PULSE-01 people_pulse; typed unknown when the table is absent or the pulse never ran', noBrain, () => {
+  // A database without migration 098: typed unknown, and no table is queried.
+  const bare = { prepare: sql => { if (!/sqlite_master/.test(sql)) throw new Error(`queried ${sql}`); return { get: () => undefined }; } };
+  const [absent] = brain.pulseRead({ league_id: LEAGUE }, { database: bare });
+  assert.deepEqual([absent.status, absent.reason], ['unknown', brain.PULSE_NOT_BUILT]);
+  // The app DB has the tables (098), but no pulse run for this league yet.
   const [none] = brain.pulseRead({ league_id: LEAGUE });
-  assert.equal(none.status, 'unknown');
-  assert.equal(none.reason, brain.PULSE_NOT_BUILT);
-  // A stray legacy table must not be read: nothing writes it.
-  db.exec(`CREATE TABLE pulse_statements (league_id INTEGER, label TEXT, at TEXT)`);
+  assert.deepEqual([none.status, none.reason], ['unknown', brain.PULSE_NOT_RUN]);
+  // A run with one labelled statement: labels and a phrase, never a quote.
+  const now = new Date().toISOString();
+  run(`INSERT INTO people_pulse_runs (league_id, ran_at, from_msg_id, to_msg_id, messages_read, statements, credible, backfill, labeller_version)
+       VALUES (?, ?, 1, 2, 1, 1, 1, 0, 'pulse-1')`, LEAGUE, now);
+  run(`INSERT INTO people_pulse (league_id, roster_id, msg_id, chat_kind, as_of, statement_type, stmt_key, player_ids_json, pos, own, style,
+       conf, weight, weight_basis, credible, live, labeller_version)
+       VALUES (?, 3, 2, 'group', ?, 'SHOP', 'SHOP|[]|', '[]', NULL, NULL, NULL, 0.9, 2.5, 'fixture', 1, 1, 'pulse-1')`, LEAGUE, now);
   try {
-    run(`INSERT INTO pulse_statements VALUES (?, 'shopping', ?)`, LEAGUE, new Date().toISOString());
     const rows = brain.pulseRead({ league_id: LEAGUE, days: 14 });
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].status, 'unknown');
-  } finally { db.exec('DROP TABLE pulse_statements'); }
+    assert.deepEqual([rows[0].status, rows[0].type, rows[0].roster_id, rows[0].credible], ['ok', 'SHOP', '3', true]);
+    assert.ok(!('text' in rows[0]));
+  } finally {
+    run('DELETE FROM people_pulse WHERE league_id = ?', LEAGUE);
+    run('DELETE FROM people_pulse_runs WHERE league_id = ?', LEAGUE);
+  }
   assert.throws(() => brain.pulseRead({ league_id: LEAGUE, days: 0 }), /days/);
 });
 

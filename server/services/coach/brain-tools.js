@@ -2,7 +2,7 @@
  * COACH-TOOLS: Coach's typed read tools over the brain for one league
  * (COACH-ANCHOR.md, "Tools Coach gets").
  *
- *   plan_read    the War Room plans file (GRIDIRON_WARROOM_PLANS), one section
+ *   plan_read    the War Room plans file (warroom-flag.js#warRoomPlansPath), one section
  *                at a time, checked against plans-schema.js before a cell of it
  *                is shown. Producer: the campaign producer (FIX-03).
  *   people_read  the counterpart profile per manager (people/profile-reader.js,
@@ -35,9 +35,10 @@
  * preview). With the flag off Coach is offered exactly the tools it had.
  */
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { previewUnconfirmed } from '../preview-mode.js';
+import { warRoomPlansPath } from '../warroom-flag.js';
+import { recentPulse } from '../people/pulse.js';
 import { validateLeague, SCHEMA_VERSION, SECTIONS } from '../campaign/plans-schema.js';
 import { db } from '../../db/index.js';
 import { openChatDb } from '../manager-signals.js';
@@ -146,9 +147,9 @@ const iso = ms => (Number.isFinite(ms) ? new Date(ms).toISOString() : null);
 
 /* ---------------------------------------------------------------- plan_read */
 
+/** The one plans-path reader (server/services/warroom-flag.js, FIX-02a); Coach never names the variable. */
 export function plansPath() {
-  return path.resolve(process.env.GRIDIRON_WARROOM_PLANS
-    || path.join(os.homedir(), 'gridiron-local', 'warroom', 'plans.json'));
+  return path.resolve(warRoomPlansPath());
 }
 
 /**
@@ -188,7 +189,7 @@ function loadLeaguePlan(leagueId) {
     text = fs.readFileSync(file, 'utf8');
   } catch (e) {
     if (e?.code === 'ENOENT') {
-      return { rows: unknownRow('no War Room plans file yet (GRIDIRON_WARROOM_PLANS): the campaign producer has not run on this machine') };
+      return { rows: unknownRow('no War Room plans file yet (warroom-flag.js#warRoomPlansPath): the campaign producer has not run on this machine') };
     }
     throw e;
   }
@@ -299,19 +300,29 @@ export function peopleRead(input) {
 /* ---------------------------------------------------------------- pulse_read */
 
 /**
- * The pulse producer (PULSE-01, #316) writes people_pulse, and that table and
- * its reader are not on main yet. Until they are, pulse_read queries nothing
- * and says so, so Coach refuses instead of reading an empty pulse as "nobody
- * said anything". Point this at #316's reader once it merges.
+ * pulse_read reads PULSE-01's people_pulse (#316) through its one reader
+ * (people/pulse.js#recentPulse). No people_pulse table (migration 098 not run)
+ * -> typed unknown, and no table is queried; a table with no pulse run for the
+ * league -> typed unknown too, so Coach never reads a pulse that never ran as
+ * "nobody said anything". Rows are labels and phrases, never quotes.
  */
-export const PULSE_NOT_BUILT = 'pulse not built yet: the people_pulse producer (PULSE-01) is not on this build';
+export const PULSE_NOT_BUILT = 'pulse not built yet: the people_pulse table (PULSE-01, migration 098) is not on this database';
+export const PULSE_NOT_RUN = 'pulse not run yet for this league: no people_pulse run is recorded';
 
 /** pulse_read: labelled statements from the last `days` days (labels, never quotes). */
-export function pulseRead(input) {
-  leagueArg(input);
+export function pulseRead(input, { database = db } = {}) {
+  const league = leagueArg(input);
   const days = input?.days == null ? 14 : Number(input.days);
   if (!Number.isFinite(days) || days <= 0 || days > 120) throw new BrainToolInputError('days must be from 1 to 120.');
-  return unknownRow(PULSE_NOT_BUILT);
+  if (!tableIn(database, 'people_pulse') || !tableIn(database, 'people_pulse_runs')) return unknownRow(PULSE_NOT_BUILT);
+  const r = recentPulse(league, { database, hours: days * 24, limit: 50 });
+  if (r.status !== 'ok') return unknownRow(PULSE_NOT_BUILT);
+  if (!r.last_run) return unknownRow(PULSE_NOT_RUN);
+  if (!r.items.length) {
+    return [{ status: 'ok', statements: 0, days, last_run_at: r.last_run.ran_at, source: 'people_pulse (PULSE-01)' }];
+  }
+  return r.items.map(it => ({ status: 'ok', roster_id: String(it.roster_id), type: it.type, phrase: it.phrase,
+    credible: it.credible, weight: it.weight, as_of: it.as_of, ago: it.ago, source: 'people_pulse (PULSE-01)' }));
 }
 
 /* ---------------------------------------------------------------- brain_read */
@@ -407,7 +418,7 @@ export const BRAIN_TOOLS = Object.freeze([
       roster_id: { type: 'string', description: 'one team; omit for all' } } }
   }),
   tool({
-    name: 'pulse_read', fn: pulseRead, tables: [],
+    name: 'pulse_read', fn: pulseRead, tables: ['people_pulse', 'people_pulse_runs'],
     description: 'Recent labelled statements by managers (what kind of thing was said about which player, and ' +
       'whether it is credible), never the words. Unknown until the pulse producer has run.',
     input_schema: { type: 'object', required: ['league_id'], properties: { ...leagueProp,

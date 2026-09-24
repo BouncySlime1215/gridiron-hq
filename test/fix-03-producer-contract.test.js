@@ -139,11 +139,11 @@ test('P12/P13/P16: targets, flip_map, risk_modes and partners are contract secti
   assert.equal(entry.partners.value.length, res.partners.length);
 });
 
-test('P14/P15: brain_report and number_health say they are not read yet instead of hard-coding a verdict', () => {
+test('P14/P15: without a brain read, brain_report and number_health say so instead of hard-coding a verdict', () => {
   const { entry } = plan();
   for (const k of ['brain_report', 'number_health']) {
     assert.equal(entry[k].status, 'unknown', k);
-    assert.match(entry[k].reason, /FIX-05/);
+    assert.match(entry[k].reason, /not read/); // FIX-05 fills them when the producer passes the reads (campaign-brain-gate.test.js)
   }
 });
 

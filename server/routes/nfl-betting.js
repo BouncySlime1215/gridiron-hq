@@ -498,7 +498,7 @@ Model's own confidence label: ${reasoning.confidence}
 
 Return ONLY JSON with:
 {
-  "paragraph": "4-6 sentences explaining what drove the number, what opposed it, and how thin the evidence is",
+  "paragraph": "one paragraph explaining what drove the number, what opposed it, and how thin the evidence is",
   "factor_keys_used": ${JSON.stringify(availableFactorKeys)},
   "limitations": ["short evidence limitation stated in the paragraph"]
 }

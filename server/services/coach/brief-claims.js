@@ -94,16 +94,87 @@ export function nextMove(entry, ledger, section) {
 /* ------------------------------------------------------------ overnight */
 
 /**
- * Statements and credibility come only from their producers (PULSE-01, CRED-01);
- * brief-inputs.js returns both typed unknown until those are on main. Such a
- * section says it was not read, with the reason. An 'ok' section here would be
- * rows with no renderer yet, so it throws rather than vanish from the brief.
+ * Statements and credibility come only from their producers (PULSE-01, CRED-01)
+ * through brief-inputs.js. A section the producer has no row for says it was
+ * not read, with the reason; an 'ok' section cites the producer's own rows,
+ * recorded in the ledger under the producer's table.
  */
 function notRead(s, ledger, { section, tool, what }) {
-  if (s.status === 'ok') throw new Error(`${what}: rows arrived but the brief has no renderer for them yet (wire the producer's rows here)`);
   const reason = s.reason ?? 'not read.';
   const c = record(ledger, tool, [{ reason }]);
   return [{ section, text: `${what} not read: ${reason}.`, cites: [c(0, 'reason')] }];
+}
+
+/** At most this many statement lines; the rest are counted in the summary line. */
+export const MAX_STATEMENT_LINES = 6;
+const times = w => `${w.toFixed(1)}x`;
+
+/** What league-mates said in the window: PULSE-01's labelled statements, credible first, then newest. */
+function statements(s, ledger) {
+  const section = 'statements';
+  if (s.status !== 'ok') return notRead(s, ledger, { section, tool: 'pulse_read', what: 'Statements' });
+  if (!s.rows.length) {
+    const c = record(ledger, 'people_pulse_runs', [{ statements: 0, last_run: s.last_run }]);
+    return [{ section, text: `No labelled statements from league-mates in this window (the chat pulse last ran ${s.last_run}).`,
+      cites: [c(0, 'statements'), c(0, 'last_run')] }];
+  }
+  const rows = [...s.rows].sort((a, b) => Number(b.credible) - Number(a.credible) || Date.parse(b.as_of) - Date.parse(a.as_of));
+  const c = record(ledger, 'people_pulse', rows.map(r => ({ id: r.id, roster_id: r.roster_id, type: r.type, phrase: r.phrase,
+    credible: r.credible ? 1 : 0, weight: r.weight, bar: s.credible_lift, as_of: r.as_of, ago: `${r.ago} ago` })));
+  const credible = ledger.derive({ op: 'sum', inputs: rows.map((_, i) => c(i, 'credible')), label: 'credible statements' });
+  const head = record(ledger, 'people_pulse', [{ statements: rows.length, shown: Math.min(rows.length, MAX_STATEMENT_LINES) }]);
+  const out = [{ section, cites: [head(0, 'statements'), credible.id],
+    text: `League-mates made ${rows.length} labelled statement${rows.length === 1 ? '' : 's'} in this window; ${credible.value} credible.` }];
+  rows.slice(0, MAX_STATEMENT_LINES).forEach((r, i) => {
+    const cites = [c(i, 'roster_id'), c(i, 'phrase'), c(i, 'ago')];
+    let why;
+    if (r.weight == null) why = 'the pulse gives this kind of talk no weight yet';
+    else if (r.credible) { why = `credible: it has followed through at ${times(r.weight)} the base rate`; cites.push(c(i, 'weight'), c(i, 'credible')); }
+    else { why = `follow-through ${times(r.weight)} the base rate, under the ${times(s.credible_lift)} bar`; cites.push(c(i, 'weight'), c(i, 'bar')); }
+    out.push({ section, cites, text: `Team ${r.roster_id}, ${r.ago} ago: ${r.phrase} (${why}).` });
+  });
+  if (rows.length > MAX_STATEMENT_LINES) {
+    out.push({ section, text: `${rows.length - MAX_STATEMENT_LINES} more not listed here.`,
+      cites: [ledger.derive({ op: 'difference', inputs: [head(0, 'statements'), head(0, 'shown')], label: 'statements not listed' }).id] });
+  }
+  return out;
+}
+
+const SAYS = {
+  WANT_PLAYER: 'says he wants a player', SHOP: 'shops his own player', FRUSTRATED: 'vents about his own player',
+  UNTOUCHABLE: 'calls his own player untouchable', HYPE_OWN: 'talks up his own player',
+  HYPE_OTHER: "talks up another team's player", WANT_POS: 'says he needs a position'
+};
+const THEN = {
+  acquired: 'he gets that player', left_roster: 'that player leaves his roster',
+  acquired_or_proposed: 'he gets or bids for that player', next_acquisition_at_pos: 'his next pickup is at that position'
+};
+const STATUS = { proven: 'proven league-wide', manager_split: 'proven for him alone' };
+/** At most this many credibility lines; the rest are counted in the head line. */
+export const MAX_CREDIBILITY_LINES = 5;
+
+/** Who is credible: CRED-01's rows whose weight clears PULSE-01's bar, strongest first. */
+function credibility(s, ledger) {
+  const section = 'credibility';
+  if (s.status !== 'ok') return notRead(s, ledger, { section, tool: 'credibility_read', what: 'Follow-through' });
+  const head = record(ledger, 'people_credibility', [{ as_of: s.as_of, credible: s.rows.length, bar: s.credible_lift,
+    window_days: s.window_days }]);
+  const headCites = [head(0, 'as_of'), head(0, 'credible'), head(0, 'bar'), head(0, 'window_days')];
+  if (!s.rows.length) {
+    return [{ section, cites: headCites,
+      text: `Follow-through (run of ${s.as_of}): no manager's talk clears the ${times(s.credible_lift)} bar within ${s.window_days} days.` }];
+  }
+  const c = record(ledger, 'people_credibility', s.rows.map(r => ({ ...r })));
+  const out = [{ section, cites: headCites,
+    text: `Follow-through (run of ${s.as_of}): ${s.rows.length} manager-and-statement pair${s.rows.length === 1 ? '' : 's'} ` +
+      `clear the ${times(s.credible_lift)} bar within ${s.window_days} days.` }];
+  s.rows.slice(0, MAX_CREDIBILITY_LINES).forEach((r, i) => {
+    out.push({ section, cites: [c(i, 'roster_id'), c(i, 'stmt_type'), c(i, 'window_days'), c(i, 'weight'), c(i, 'status'), c(i, 'n_statements')],
+      text: `Team ${r.roster_id} is credible when he ${SAYS[r.stmt_type] ?? human(r.stmt_type).toLowerCase()}: ` +
+        `within ${r.window_days} days ${THEN[r.outcome] ?? human(r.outcome)} at ${times(r.weight)} his base rate ` +
+        `(${STATUS[r.status] ?? human(r.status)}; ${r.n_statements} statement${r.n_statements === 1 ? '' : 's'}).` });
+  });
+  return out;
 }
 
 function replies(s, ledger) {
@@ -465,8 +536,7 @@ export function answerClaimsFor(intent, { entry, ledger }) {
 
 export function claimsFor(kind, { entry, inputs, ledger }) {
   if (kind === 'morning') {
-    return [...notRead(inputs.statements, ledger, { section: 'statements', tool: 'pulse_read', what: 'Statements' }),
-      ...notRead(inputs.credibility, ledger, { section: 'credibility', tool: 'credibility_read', what: 'Follow-through' }),
+    return [...statements(inputs.statements, ledger), ...credibility(inputs.credibility, ledger),
       ...replies(inputs.replies, ledger), ...injuries(inputs.injuries, ledger),
       ...nextMove(entry, ledger, 'next_move'), ...brain(entry, ledger), ...footer(entry, ledger)];
   }

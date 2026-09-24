@@ -8,8 +8,9 @@
  *
  * No push text here: the one push (change detection, text, delivery) is
  * PUSH-01's (#293). Statements and
- * credibility come only from their producers, PULSE-01 and CRED-01; until those
- * are on main the brief says they were not read (brief-inputs.js).
+ * credibility come only from their producers, PULSE-01 and CRED-01, through
+ * their own readers; a producer with no row for the league and window is said
+ * to be not read, with the reason (brief-inputs.js).
  *
  * No model call. Every line is built from the plans file (the warroom-plans/1
  * contract, FIX-03) and the overnight rows (brief-inputs.js), and every line
@@ -228,7 +229,7 @@ function finish({ db, key, flag, cacheOk, body }) {
 
 /**
  * The morning brief. Reads the app DB and the plans file only; statements and
- * credibility are typed unknown until their producers are on main.
+ * credibility come from PULSE-01 and CRED-01's tables in the app DB.
  */
 export function morningBrief({ db, file, leagueId = TARGET_LEAGUE, now = new Date(), since = null, env = process.env } = {}) {
   const f = frame({ db, file, leagueId, env, now });
@@ -247,8 +248,8 @@ export function morningBrief({ db, file, leagueId = TARGET_LEAGUE, now = new Dat
     return m?.steps?.[0]?.partner == null ? null : String(m.steps[0].partner);
   };
   const inputs = {
-    statements: readStatements(),
-    credibility: readCredibility(),
+    statements: readStatements(db, { leagueId, since: from, until, exclude }),
+    credibility: readCredibility(db, { leagueId, until }),
     replies: readReplies(db, { leagueId, me, since: from, until, partnerOf, exclude }),
     injuries: readInjuries(db, { leagueId, me, since: from, until, watch: step ? [...step.give, ...step.get] : [], exclude })
   };

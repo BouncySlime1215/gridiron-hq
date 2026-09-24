@@ -43,13 +43,26 @@ const arg = (args, name, fallback = null) => {
   return i > -1 ? args[i + 1] : fallback;
 };
 
-/** CRED-01's per-manager follow-through, when that module is on this tree. */
+/**
+ * CRED-01's per-manager follow-through (FIX-316-2: through CRED-01's own API, the one producer of
+ * people.credibility): the newest stored run (readCredibility) as the (rosterId, type) reader
+ * pulse.js#statementWeight takes (pulseCredibility). No module, no table or no run yet -> the
+ * pooled prior, and the source says which.
+ */
 export async function loadCredibility(leagueId, database, { root = ROOT } = {}) {
   const file = path.join(root, 'server/services/people/credibility.js');
   if (!fs.existsSync(file)) return { source: 'pooled_prior', fn: null };
   const mod = await import(pathToFileURL(file).href);
-  if (typeof mod.followThrough !== 'function') return { source: 'pooled_prior (credibility.js has no followThrough)', fn: null };
-  return { source: 'cred-01', fn: mod.followThrough(leagueId, { database }) };
+  if (typeof mod.readCredibility !== 'function' || typeof mod.pulseCredibility !== 'function') {
+    return { source: 'pooled_prior (credibility.js has no readCredibility/pulseCredibility)', fn: null };
+  }
+  let table;
+  try { table = mod.readCredibility(database, leagueId); } catch (e) {
+    if (/no such table/.test(String(e?.message))) return { source: 'pooled_prior (no people_credibility table: migration 099 not run)', fn: null };
+    throw e;
+  }
+  if (!table) return { source: 'pooled_prior (no people_credibility run stored yet)', fn: null };
+  return { source: `cred-01 (as of ${table.as_of})`, fn: mod.pulseCredibility(table) };
 }
 
 /**

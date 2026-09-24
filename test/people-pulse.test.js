@@ -343,3 +343,11 @@ test('FIX-316-3: a statement from a manager Nick marked unreachable or not tradi
     assert.match(row.weight_basis, /Nick's read: unreachable/);
   } finally { chat.close(); }
 });
+
+test('FIX-316-2: loadCredibility reads CRED-01 through readCredibility + pulseCredibility, else the pooled prior', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pulse-cred-'));
+  assert.equal((await cli.loadCredibility(LEAGUE, db, { root })).source, 'pooled_prior', 'no module on the tree');
+  const real = await cli.loadCredibility(LEAGUE, db);
+  assert.match(real.source, /^pooled_prior \(no people_credibility (run stored yet|table)/);
+  assert.equal(real.fn, null);
+});

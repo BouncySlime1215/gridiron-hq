@@ -35,6 +35,8 @@
  *                                                (EA-07; GRIDIRON_ONE_WORLD=0 vetoes preview)
  *   - price-band.js#priceBandV2Flag              fitted 80% accept band on the offer ladders
  *                                                (PRICE-BAND-01; GRIDIRON_PRICE_BAND_V2=0 vetoes preview)
+ *   - warroom-flag.js#peopleBoardFlag            War Room People Board rail (plan partners + the people
+ *                                                hub; own switch GRIDIRON_WARROOM_PEOPLE_ENABLED)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

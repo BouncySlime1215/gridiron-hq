@@ -19,10 +19,22 @@
  * and parsed only when its mtime or size changes; validation walks one league entry.
  * No producer module is imported at load. The one exception is WR-POLISH's fallback: a
  * plan with no number_health reads the number audit (a SELECT) through lazy imports.
+ *
+ * PEOPLE-BOARD (behind warroom-flag.js#peopleBoardFlag): `people`, one tile per league-mate,
+ * a join by roster id of reads only, each from its ONE producer (FIELD-REGISTRY.md):
+ *   P(responds), fatigue   the plan's `partners` (campaign planner over people.counterpart;
+ *                          offers this week = FIX-07 sentThisWeek) and destination.tolerances
+ *   Nick's word            people.counterpart override (the one reader's nick block from
+ *                          Nick's notes) off the engine hub, people.profile nick as fallback
+ *   approach               people.profile labels off the hub (hub-read.js)
+ *   mood, in market        people_pulse (pulse.js#recentPulse)
+ *   his word               people_credibility (credibility.js#readCredibility)
+ * All SELECTs through lazy imports; nothing is computed that a producer did not write, and
+ * a slot whose producer has no row is typed unknown with the reason, never 0.
  */
 import fs from 'node:fs/promises';
 import { previewFields, previewText } from './preview-mode.js';
-import { warRoomFlag, warRoomPlansPath, WARROOM_PREVIEW_REASON } from './warroom-flag.js';
+import { warRoomFlag, peopleBoardFlag, warRoomPlansPath, WARROOM_PREVIEW_REASON } from './warroom-flag.js';
 import { SECTIONS, SOURCE_IDS, STATUSES, validateLeague } from './campaign/plans-schema.js';
 
 /** Labels for every contract SourceId (WAR-ROOM-UI.md 2.3). Only the market value is calibrated today. */
@@ -300,5 +312,222 @@ export async function warRoomView(leagueId) {
     const live = await liveNumberHealth(leagueId);
     if (live.status === 'ok') view.number_health = finalize({ x: live }, flag).x;
   }
+  const people = peopleBoardFlag();
+  view.people_board = people;
+  if (people.enabled) {
+    view.people = finalize({ x: buildPeopleBoard(view, await cachedPeopleInputs(leagueId)) }, people).x;
+    view.sources = { ...view.sources, ...PEOPLE_SOURCES };
+  }
   return view;
+}
+
+/* ----------------------------------------------------------- PEOPLE-BOARD */
+
+/** Source tags the board adds (labels for the tag; none of these is calibrated). */
+export const PEOPLE_SOURCES = Object.freeze({
+  'people.profile': Object.freeze({ label: 'Chat profile (labels only)', calibrated: false }),
+  'people.counterpart': Object.freeze({ label: "Counterpart model + Nick's notes", calibrated: false }),
+  'people.pulse': Object.freeze({ label: 'Chat pulse (labelled statements)', calibrated: false }),
+  'people.credibility': Object.freeze({ label: 'Follow-through record', calibrated: false }),
+});
+
+export const LAST_CONTACT_REASON =
+  'Nothing produces last contact yet (offers and replies are not logged per manager with a date), so it is not known.';
+/** Pulse windows: mood reads the last week of talk, in-market the last three (wants fade by day 21). */
+export const MOOD_DAYS = 7;
+export const MARKET_DAYS = 21;
+const MOOD_OF = { FRUSTRATED: 'frustrated', URGENCY: 'needs a move', ACCEPT_TALK: 'ready to deal', REFUSAL: 'turning deals down',
+  HYPE: 'talking his players up', TRADE_REACTION: 'reacting to trades' };
+const MARKET_TYPES = new Set(['WANT_PLAYER', 'WANT_POS', 'SHOP']);
+
+const ok = (value, source, extra = {}) => ({ status: 'ok', source, ...extra, value });
+const unknownF = (reason, source) => ({ status: 'unknown', source, reason });
+const failedF = (reason, source) => ({ status: 'failed', source, reason });
+const errText = e => String(e?.message ?? e).slice(0, 160);
+
+/**
+ * Every read the board joins, each caught on its own: one input failing types its slots
+ * failed with the reason and leaves the others. Reads only (SELECTs), lazy imports.
+ */
+export async function peopleInputs(leagueId, { now = new Date() } = {}) {
+  const out = { now: new Date(now).toISOString() };
+  return readPeopleInputs(leagueId, now, out);
+}
+
+/**
+ * The route's copy of peopleInputs, kept PEOPLE_TTL_MS per league: the producers behind it
+ * move on the refresh cadence (minutes), so a burst of view requests does its SELECTs once.
+ */
+export const PEOPLE_TTL_MS = 30_000;
+const peopleCache = new Map();
+/** Test hook: forget the cached reads. */
+export function __resetPeopleCache() { peopleCache.clear(); }
+export async function cachedPeopleInputs(leagueId, { nowMs = Date.now() } = {}) {
+  const hit = peopleCache.get(Number(leagueId));
+  if (hit && nowMs - hit.at < PEOPLE_TTL_MS) return hit.inputs;
+  const inputs = await peopleInputs(leagueId, { now: new Date(nowMs) });
+  peopleCache.set(Number(leagueId), { at: nowMs, inputs });
+  return inputs;
+}
+
+async function readPeopleInputs(leagueId, now, out) {
+  const hub = await import('./people/hub-read.js').catch(e => ({ error: e }));
+  for (const [k, fn] of [['profile', 'hubPeopleProfile'], ['counterpart', 'hubPeopleCounterpart']]) {
+    try {
+      if (hub.error) throw hub.error;
+      out[k] = await hub[fn](leagueId, { asOf: now });
+    } catch (e) { out[k] = { available: false, failed: true, reason: `the hub read failed (${errText(e)})` }; }
+  }
+  let database = null;
+  try { database = (await import('../db/index.js')).db; } catch (e) { out.dbError = errText(e); }
+  try {
+    const { recentPulse } = await import('./people/pulse.js');
+    out.pulse = recentPulse(Number(leagueId), { database, now, hours: MARKET_DAYS * 24, limit: 400 });
+  } catch (e) { out.pulse = { status: 'failed', reason: errText(e), items: [] }; }
+  try {
+    const { readCredibility } = await import('./people/credibility.js');
+    out.credibility = readCredibility(database, Number(leagueId));
+  } catch (e) {
+    out.credibility = /no such table/.test(String(e?.message))
+      ? { absent: 'the follow-through table is missing (migration 099 not applied)' }
+      : { failed: errText(e) };
+  }
+  return out;
+}
+
+/** Nick's read of one manager: the counterpart override (hub), else the profile's nick block. */
+function nickRead(team, inputs) {
+  const cp = inputs.counterpart?.byRoster?.get?.(team)?.value?.override;
+  const pn = inputs.profile?.byRoster?.get?.(team)?.value?.nick;
+  const never = !!(cp?.exclude || pn?.unreachable);
+  const last = !never && !!(cp?.deprioritize || pn?.deprioritised);
+  const hard = !!(cp?.toughen || pn?.hard);
+  const said = [];
+  if (never) said.push("Nick: can't reach him, never a partner");
+  if (last) said.push('Nick: not a buyer, goes last');
+  if (hard) said.push('Nick: hard negotiator, hold your price');
+  return { never, last, hard, said, from: cp?.status === 'ok' ? 'people.counterpart' : pn ? 'people.profile' : null };
+}
+
+function approachOf(team, inputs, nick) {
+  const pr = inputs.profile;
+  if (!pr?.available) return (pr?.failed ? failedF : unknownF)(`No profile read: ${pr?.reason ?? 'the hub has no people.profile rows'}.`, 'people.profile');
+  const e = pr.byRoster.get(team);
+  const v = e?.value;
+  if (!v) return unknownF(`No profile read: ${e?.absence?.reason ?? 'the hub has no row for him'}.`, 'people.profile');
+  if (v.status !== 'ok' || !v.labels) return unknownF(`No profile read: ${v.reason ?? 'his profile is not usable'}.`, 'people.profile');
+  const l = v.labels;
+  const bits = [];
+  if (l.does_his_no_hold === 'yes' || l.does_his_no_hold === 'usually') bits.push('his no holds: make one fair offer');
+  else if (l.does_his_no_hold === 'rarely') bits.push('his no rarely holds: counter once');
+  if (l.inflation === 'heavy') bits.push('discount his hype');
+  else if (l.inflation === 'mild') bits.push('some hype in his talk');
+  if (l.praise_reading === 'marketing' || l.hypes_before_selling === true) bits.push('praise means he is selling');
+  if (nick.hard) bits.push('hold your price');
+  if (!bits.length) return unknownF('His profile has no approach label (no-holds, inflation or praise read).', 'people.profile');
+  return ok(bits.join(' · '), 'people.profile', { guess: true });
+}
+
+function pulseFor(team, inputs) {
+  const p = inputs.pulse;
+  if (!p || p.status === 'failed') return { err: failedF(`The chat pulse could not be read (${p?.reason ?? 'no result'}).`, 'people.pulse') };
+  if (p.status === 'table_absent') return { err: unknownF('The chat pulse has not run here (migration 098 not applied).', 'people.pulse') };
+  const nowMs = Date.parse(inputs.now);
+  return { items: p.items.filter(i => String(i.roster_id) === team).map(i => ({ ...i, age_days: (nowMs - Date.parse(i.as_of)) / 864e5 })) };
+}
+
+function moodOf(team, inputs, partner) {
+  const p = pulseFor(team, inputs);
+  const tone = partner?.chat_labels?.find(l => l.startsWith('tone:'))?.slice(5);
+  if (!p.err) {
+    const hit = p.items.find(i => i.age_days <= MOOD_DAYS && MOOD_OF[i.type]);
+    if (hit) return ok(`${MOOD_OF[hit.type]} (${hit.ago})`, 'people.pulse', { guess: true });
+  }
+  if (tone) return ok(tone, 'chat.labels', { guess: true });
+  return p.err ?? unknownF(`No mood read: no labelled mood statement from him in ${MOOD_DAYS} days and no chat tone label.`, 'people.pulse');
+}
+
+function marketOf(team, inputs) {
+  const p = pulseFor(team, inputs);
+  if (p.err) return p.err;
+  const said = p.items.filter(i => MARKET_TYPES.has(i.type) && i.age_days <= MARKET_DAYS);
+  const wants = inputs.counterpart?.byRoster?.get?.(team)?.value?.wants ?? [];
+  if (!said.length && !wants.length) {
+    return unknownF(`Not in the market as far as the chat shows: no want or shop statement from him in ${MARKET_DAYS} days.`, 'people.pulse');
+  }
+  return ok({ said: said.slice(0, 3).map(i => ({ text: i.phrase, ago: i.ago, credible: !!i.credible, fading: i.age_days > MOOD_DAYS })),
+    said_n: said.length, wants_n: wants.length }, 'people.pulse', { guess: true });
+}
+
+function wordOf(team, inputs) {
+  const c = inputs.credibility;
+  if (c?.failed) return failedF(`The follow-through record could not be read (${c.failed}).`, 'people.credibility');
+  if (c?.absent) return unknownF(`No follow-through record: ${c.absent}.`, 'people.credibility');
+  if (!c) return unknownF('No follow-through record: the credibility run has not stored one for this league.', 'people.credibility');
+  const rows = c.rosters?.[team] ?? {};
+  const want = rows.WANT_PLAYER?.[7];
+  const shop = rows.SHOP?.[7];
+  const graded = [want, shop].filter(r => r && r.status !== 'unknown');
+  if (!graded.length) return unknownF('No follow-through record: he has made no graded want or shop statement.', 'people.credibility');
+  return ok({
+    wants: want && want.status !== 'unknown' ? { status: want.status, n: want.n_statements, weight: want.weight } : null,
+    shop: shop && shop.status !== 'unknown' ? { status: shop.status, n: shop.n_statements, weight: shop.weight } : null,
+    as_of: c.as_of,
+  }, 'people.credibility');
+}
+
+/** How many of the plan's moves have a step with him (the deck focus a tap applies). */
+function movesWith(team, view) {
+  const alts = view.alternatives?.status === 'ok' && Array.isArray(view.alternatives.value) ? view.alternatives.value : [];
+  return alts.filter(m => (m?.steps ?? []).some(s => String(s?.partner) === team)).length;
+}
+
+/**
+ * Pure: the board from the view (its plan) and peopleInputs(). Order: the plan's partner
+ * order (its ranking), then managers only the hub knows; Nick's "goes last" next; Nick's
+ * "never a partner" at the very end.
+ */
+export function buildPeopleBoard(view, inputs) {
+  const me = view.me == null ? null : String(view.me);
+  const pf = view.partners;
+  const partners = pf?.status === 'ok' && Array.isArray(pf.value) ? pf.value : [];
+  const pBy = new Map(partners.map(p => [String(p.team), p]));
+  const hubTeams = r => (r?.available ? [...r.byRoster.keys()].map(String) : []);
+  const order = [...new Set([...partners.map(p => String(p.team)), ...hubTeams(inputs.counterpart), ...hubTeams(inputs.profile)])]
+    .filter(t => t !== me);
+  const planWhy = pf?.status === 'ok' ? 'The planner did not score him as a partner this run.'
+    : (pf?.reason ?? 'The plan has no partners section.');
+  const tf = view.destination?.status === 'ok' ? view.destination.value?.tolerances : null;
+  const tol = tf && typeof tf === 'object' && 'status' in tf ? (tf.status === 'ok' ? tf.value : null) : tf;
+  const limit = Number.isInteger(tol?.max_offers_per_manager_week) ? tol.max_offers_per_manager_week : null;
+
+  const tiles = order.map(team => {
+    const p = pBy.get(team);
+    const nick = nickRead(team, inputs);
+    const hole = p ? null : (pf?.status === 'failed' ? failedF : unknownF)(planWhy, 'campaign.plan');
+    return {
+      team, label: `Team ${team}`,
+      standing: nick.never ? 'never' : nick.last ? 'last' : 'live',
+      nick: { never: nick.never, last: nick.last, hard: nick.hard, said: nick.said, source: nick.from },
+      checked_out: p?.checked_out === true,
+      blocked: p?.blocked === true,
+      p_responds: p && typeof p.p_responds === 'number'
+        ? ok({ p: p.p_responds, basis: p.basis ?? '' }, 'campaign.plan', { guess: true, unit: 'probability' }) : hole
+          ?? unknownF('The plan scored him without a chance he responds.', 'campaign.plan'),
+      fatigue: p && Number.isInteger(p.offers_logged) ? ok({ used: p.offers_logged, limit }, 'campaign.plan')
+        : hole ?? unknownF('The plan carries no offers count for him this week.', 'campaign.plan'),
+      mood: moodOf(team, inputs, p),
+      in_market: marketOf(team, inputs),
+      word: wordOf(team, inputs),
+      approach: approachOf(team, inputs, nick),
+      last_contact: unknownF(LAST_CONTACT_REASON, 'campaign.plan'),
+      moves_n: movesWith(team, view),
+    };
+  });
+  const rank = { live: 0, last: 1, never: 2 };
+  const sorted = tiles.map((t, i) => [t, i]).sort((a, b) => rank[a[0].standing] - rank[b[0].standing] || a[1] - b[1]).map(x => x[0]);
+  if (!sorted.length) {
+    return unknownF(`No managers to show: ${planWhy} ${inputs.counterpart?.reason ?? ''}`.trim(), 'campaign.plan');
+  }
+  return ok(sorted, 'campaign.plan', { as_of: inputs.now });
 }

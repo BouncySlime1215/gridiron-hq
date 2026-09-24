@@ -21,6 +21,7 @@ import { rows } from '../db/index.js';
 import { managerSignalsFor, openChatDb, chatDataKey, transactionsCollected, archetypesBuilt, jevEvaluated }
   from './manager-signals.js';
 import { identityMap } from './manager-identity.js';
+import { readProfile, peopleProfileFromChat } from './people/profile-reader.js';
 import { talkReads, expectationGaps, rosterOwnership, HOT_GAP_PER_GAME } from './talk-vs-model.js';
 import { declarationCredibility, untouchableStance } from './bluff-detector.js';
 import { analyzeLeague } from '../routes/tradelab.js';
@@ -1344,108 +1345,39 @@ export function counterpartyDataKey(leagueId) {
     + `|mp:${part('manager_profiles', 'updated_at')}|chat:${chat}`;
 }
 
-/**
- * Shape of one stored negotiation profile — the input schema of the tool
- * scripts/build-negotiation-profiles.mjs forces the model to call. Kept here so
- * the server has one reader that checks what it reads; the script should import
- * it rather than carry a second copy.
- */
-const strings = { type: 'array', items: { type: 'string' } };
-// NOT exported. Nothing outside this file imports it and no test references it;
-// its only reader is `negotiationProfileErrors` below. It was the one genuinely
-// dead export of the fifteen the wiring map flagged — the other eight with no
-// production consumer are deliberate test seams, annotated where they are
-// declared, and none of them is dead code.
-const NEGOTIATION_PROFILE_SCHEMA = Object.freeze({
-  type: 'object',
-  properties: {
-    headline: { type: 'string' },
-    says_no: { type: 'object', properties: {
-      how: { type: 'string' }, hard_no_looks_like: strings, soft_no_looks_like: strings,
-      does_his_no_hold: { type: 'string', enum: ['yes', 'usually', 'rarely', 'unknown'] }, evidence: strings,
-    }, required: ['how', 'does_his_no_hold', 'evidence'] },
-    praise_means: { type: 'object', properties: {
-      reading: { type: 'string', enum: ['belief', 'marketing', 'habit', 'mixed', 'unknown'] },
-      why: { type: 'string' }, hypes_before_selling: { type: 'boolean' }, agrees_with_numbers: { type: 'string' },
-      evidence: strings,
-    }, required: ['reading', 'why', 'evidence'] },
-    techniques: { type: 'array', items: { type: 'object', properties: {
-      name: { type: 'string' }, how_he_does_it: { type: 'string' }, evidence: strings,
-      how_often: { type: 'string', enum: ['often', 'sometimes', 'once'] },
-    }, required: ['name', 'how_he_does_it', 'how_often'] } },
-    calibration: { type: 'object', properties: {
-      enthusiasm_scale: { type: 'string' }, baseline_tone: { type: 'string' },
-      inflation: { type: 'string', enum: ['none', 'mild', 'heavy', 'unknown'] },
-    }, required: ['enthusiasm_scale', 'inflation'] },
-    roster_read: { type: 'object', properties: {
-      really_untouchable: strings, quietly_available: strings, overvalues: strings, undervalues: strings,
-      reasoning: { type: 'string' },
-    } },
-    what_moves_him: strings,
-    what_shuts_him_down: strings,
-    how_to_approach: { type: 'string' },
-    best_bait: { type: 'string' },
-    confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
-    caveats: strings,
-  },
-  required: ['headline', 'says_no', 'praise_means', 'techniques', 'calibration',
-    'what_moves_him', 'how_to_approach', 'confidence', 'caveats'],
-});
-
-/**
- * Every violation of the schema, recursively: type, enum, required keys,
- * unexpected keys, and tool-call markup leaked into a string — the failure
- * that left six of nine profiles unusable on 2026-09-18 while still parsing.
- */
-function schemaErrors(schema, value, where = 'profile') {
-  if (value == null) return [];
-  switch (schema.type) {
-    case 'object': {
-      if (typeof value !== 'object' || Array.isArray(value)) {
-        return [`${where}: expected object, got ${Array.isArray(value) ? 'array' : typeof value}`];
-      }
-      const errs = [];
-      for (const k of schema.required ?? []) if (value[k] == null) errs.push(`${where}.${k}: missing`);
-      const known = schema.properties ?? {};
-      for (const k of Object.keys(value)) {
-        if (!(k in known)) errs.push(`${where}.${k}: unexpected key`);
-        else errs.push(...schemaErrors(known[k], value[k], `${where}.${k}`));
-      }
-      return errs;
-    }
-    case 'array':
-      if (!Array.isArray(value)) return [`${where}: expected array, got ${typeof value}`];
-      return value.flatMap((v, i) => schemaErrors(schema.items, v, `${where}[${i}]`));
-    case 'string':
-      if (typeof value !== 'string') return [`${where}: expected string, got ${typeof value}`];
-      if (/<\/?parameter\b/.test(value)) return [`${where}: leaked tool-call markup`];
-      if (schema.enum && !schema.enum.includes(value)) return [`${where}: "${value}" not in ${schema.enum.join('/')}`];
-      return [];
-    case 'boolean':
-      return typeof value === 'boolean' ? [] : [`${where}: expected boolean, got ${typeof value}`];
-    default:
-      return [];
-  }
-}
-// TEST SEAM: no production importer. Called by `negotiationProfilesFor` below;
-// exported so the schema validation can be tested against a bad profile without
-// writing one into a database.
+// The schema (v2), the enum parsing and Nick's read live in
+// people/profile-reader.js — the one place that says what a stored read means.
+// TEST SEAM: no production importer. `negotiationProfilesFor` below validates
+// through the reader itself; this stays exported so the schema can be tested
+// against a bad profile without writing one into a database.
 export function negotiationProfileErrors(profile) {
-  if (profile == null || typeof profile !== 'object') return ['profile: expected object'];
-  return schemaErrors(NEGOTIATION_PROFILE_SCHEMA, profile);
+  return readProfile(profile).errors;
 }
 
 /**
- * The one server reader for negotiation_profiles (private chat DB, written by
- * scripts/build-negotiation-profiles.mjs with Sonnet 5).
+ * The counterparty view of people.profile (people/profile-reader.js is the one
+ * reader of negotiation_profiles in the private chat DB, written by
+ * scripts/build-negotiation-profiles.mjs with Sonnet 5; this file never parses
+ * a stored profile itself).
  *
  * Returns, for one league:
- *   byRoster  roster_id -> { name, profile, built_at, messages_read, model } for
- *             every VALID profile whose person is a trusted identity here
+ *   byRoster  roster_id -> { name, profile, built_at, messages_read, model, corpus_hash, unparsed, nick }
+ *             for every VALID profile whose person is a trusted identity here.
+ *             `profile` is normalised (people/profile-reader.js#readProfile):
+ *             enum slots hold the enum, `<slot>_text` the stored sentence;
+ *             `unparsed` lists slots whose sentence matched no enum word.
+ *             No quiet gate here (quietBelow 0): pricing weighs a thin profile
+ *             by its own messages_read.
+ *   nickByRoster roster_id -> Nick's block (people/profile-reader.js#nickBlock)
+ *             for every trusted non-Nick identity that has one. THE rule: the
+ *             profile's nick_override, then manager_notes whose source starts
+ *             'nick-chat-' (a JSON note is read as keys, any other note is kept
+ *             as text, never read for meaning); override beats a note.
+ *   notes_reason  why manager_notes contributed nothing, else null
  *   self      'ME' — Nick as the league-4 chat experiences him. Never a
  *             counterparty; it answers "how do I look to them".
- *   invalid   [{ name, errors }] — stored rows that fail the schema; not used
- *   unmapped  valid profiles with no trusted identity in this league
+ *   invalid   [{ name, errors }] — mapped rows that fail schema v2; not used
+ *   unmapped  stored profiles with no trusted identity in this league
  *
  * A league with no trusted chat identity returns available=false: the profiles
  * are read from one chat, and attaching them to namesakes elsewhere would be
@@ -1456,41 +1388,37 @@ export function negotiationProfileErrors(profile) {
 export function negotiationProfilesFor(leagueId) {
   const result = (available, reason = null) => ({
     league_id: leagueId, available, reason, byRoster: new Map(), self: null, invalid: [], unmapped: [],
+    nickByRoster: new Map(), notes_reason: null,
   });
   const ids = identityMap(leagueId);
   if (!ids.size) return result(false, 'no chat corpus for this league (no confirmed chat identities)');
   const chat = openChatDb();
   if (!chat) return result(false, 'chat DB not found');
-  let stored;
+  const myTeam = rows('SELECT my_team_id FROM leagues WHERE id = ?', leagueId)[0]?.my_team_id ?? null;
+  let people;
   try {
-    stored = chat.prepare(`SELECT name, profile_json, messages_read, model, built_at, corpus_hash
-                           FROM negotiation_profiles ORDER BY name`).all();
-  } catch (e) {
-    if (/no such table/.test(String(e?.message))) {
-      return result(false, 'no negotiation_profiles table (scripts/build-negotiation-profiles.mjs has not run)');
-    }
-    throw e;
+    people = peopleProfileFromChat(chat, { leagueId, ids, myTeam, quietBelow: 0 });
   } finally { chat.close(); }
+  if (!people.available) {
+    return result(false, /negotiation_profiles/.test(people.reason ?? '')
+      ? 'no negotiation_profiles table (scripts/build-negotiation-profiles.mjs has not run)' : people.reason);
+  }
 
   const out = result(true);
-  const rosterByName = new Map([...ids.values()].map(i => [i.chat_name, i.roster_id]));
-  const myTeam = rows('SELECT my_team_id FROM leagues WHERE id = ?', leagueId)[0]?.my_team_id ?? null;
-  for (const r of stored) {
-    let profile = null;
-    let errors;
-    try { profile = JSON.parse(r.profile_json); errors = negotiationProfileErrors(profile); }
-    catch { errors = ['unparseable JSON']; }
-    if (errors.length) { out.invalid.push({ name: r.name, errors }); continue; }
-    const entry = { name: r.name, profile, built_at: r.built_at, messages_read: r.messages_read,
-      model: r.model, corpus_hash: r.corpus_hash };
-    if (r.name === 'ME') {
-      out.self = { ...entry, roster_id: rosterByName.get('ME') ?? (myTeam == null ? null : String(myTeam)),
-        scope: 'how the league chat sees Nick' };
-      continue;
-    }
-    const rosterId = rosterByName.get(r.name);
-    if (rosterId == null || String(rosterId) === String(myTeam)) { out.unmapped.push(r.name); continue; }
-    out.byRoster.set(String(rosterId), { ...entry, roster_id: String(rosterId) });
+  out.notes_reason = people.notes_reason ?? null;
+  const view = e => ({ name: e.name, profile: e.profile, built_at: e.built_at, messages_read: e.messages_read,
+    model: e.model, corpus_hash: e.corpus_hash, unparsed: e.unparsed });
+  const s = people.self;
+  if (s?.errors.length) out.invalid.push({ name: s.name, errors: s.errors });
+  else if (s?.profile && s.name === 'ME') {
+    out.self = { ...view(s), roster_id: s.roster_id ?? (myTeam == null ? null : String(myTeam)),
+      scope: 'how the league chat sees Nick' };
+  } else if (s?.profile) out.unmapped.push(s.name); // another name on Nick's roster: never a counterparty
+  for (const [rid, e] of people.byRoster) {
+    if (e.errors.length) out.invalid.push({ name: e.name, errors: e.errors });
+    if (e.nick) out.nickByRoster.set(rid, e.nick);
+    if (e.profile) out.byRoster.set(rid, { ...view(e), roster_id: rid, nick: e.nick });
   }
+  out.unmapped.push(...people.unmapped);
   return out;
 }

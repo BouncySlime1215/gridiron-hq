@@ -39,8 +39,16 @@ Assertion-level RED, with `title-chess.js` and `season-sim.js` present but
 
 ## GREEN
 
-The GREEN commit follows RED on this branch; `test/chess-sequences.test.js`
-10 of 10 pass.
+`1de1b06` "feat: CHESS-01a title-odds chess paths (trade -> claim -> flip beam search)";
+`test/chess-sequences.test.js` 10 of 10 pass.
+
+## Merge gate
+
+- `git merge origin/main` (main at `12a6de9`): clean merge. `git status --porcelain` empty.
+- `npm ci` run on this fresh clone.
+- `npm run check` on tree `f113eab`: **exit 0**. Tests 4,832: pass 4,790, fail 0, skipped 42.
+  Startup smoke passed. `git write-tree` before and after: `f113eab` both times.
+- This evidence-file edit (docs only) lands after that run.
 
 ## Liveness: mutation sweep (unit and call site)
 

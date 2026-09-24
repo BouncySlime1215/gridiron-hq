@@ -199,3 +199,20 @@ test('GET /api/brain-report lists C8 (REASON-02) as not_enough_data with its rea
     if (before !== undefined) process.env[PREVIEW_ENV] = before;
   }
 });
+
+test('runner: with reasoning grading on it records and settles claims first, and the summary stays the last line', async () => {
+  const before = { preview: process.env[PREVIEW_ENV], plans: process.env.GRIDIRON_WARROOM_PLANS };
+  process.env[PREVIEW_ENV] = '1';
+  process.env.GRIDIRON_WARROOM_PLANS = path.join(temp, 'no-plans-here', 'plans.json');
+  try {
+    const lines = [];
+    const { ok } = await RUNNER.main({ now: new Date(), log: l => lines.push(l) });
+    assert.equal(ok, true);
+    assert.ok(lines.some(l => /^reasoning_claims: .*no plans file/.test(l)), lines.join(' | '));
+    assert.match(lines.at(-1), /^brain_report: \d+ passing/);
+  } finally {
+    for (const [k, env] of [['preview', PREVIEW_ENV], ['plans', 'GRIDIRON_WARROOM_PLANS']]) {
+      if (before[k] === undefined) delete process.env[env]; else process.env[env] = before[k];
+    }
+  }
+});

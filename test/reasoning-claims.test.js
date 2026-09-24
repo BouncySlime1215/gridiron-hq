@@ -16,7 +16,8 @@ import { cardsForLeague } from '../server/services/reasoning/cards.js';
 import { claimsFromPanel, recordClaims, RULES } from '../server/services/reasoning/claims.js';
 import { resolveOpenClaims } from '../server/services/reasoning/resolve.js';
 import * as c8 from '../server/services/reasoning/grade.js';
-import { runReasoningGrading } from '../server/services/reasoning/grading.js';
+import * as grading from '../server/services/reasoning/grading.js';
+const { runReasoningGrading } = grading;
 import { PREVIEW_ENV } from '../server/services/preview-mode.js';
 
 const AS_OF = '2026-09-24T12:00:00Z';
@@ -502,5 +503,55 @@ test('C8 with no claims table yet is waiting, not an error', async () => {
     const r = c8.run(db);
     assert.equal(r.status, 'not_enough_data');
     assert.match(r.needs_text, /reasoning_claims/);
+  });
+});
+
+// ---- the refresh-loop step (scripts/eval/run-graders.mjs) -------------------
+
+function planFiles({ plans = plansFor(), panels = null, raw = null } = {}) {
+  const dir = fs.mkdtempSync(path.join(temp, 'plans-'));
+  const plansPath = path.join(dir, 'plans.json');
+  fs.writeFileSync(plansPath, raw ?? JSON.stringify(plans));
+  const cache = panels ?? { as_of: AS_OF, leagues: [{ league_id: LEAGUE, panels: [panelFor(plans)] }] };
+  fs.writeFileSync(path.join(dir, 'panels.json'), JSON.stringify(cache));
+  return plansPath;
+}
+
+test('refreshReasoningClaims: off, it reads nothing and writes nothing', () => {
+  const before = process.env[PREVIEW_ENV];
+  delete process.env[PREVIEW_ENV];
+  try {
+    const db = freshDb();
+    const out = grading.refreshReasoningClaims(db, { plansPath: planFiles(), now: new Date(AS_OF) });
+    assert.equal(out.enabled, false);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM reasoning_claims').get().n, 0);
+  } finally {
+    if (before !== undefined) process.env[PREVIEW_ENV] = before;
+  }
+});
+
+test('refreshReasoningClaims: on, it records the plans file\'s panels from the cache next to it and settles', async () => {
+  await withPreview(() => {
+    const db = seedPlayers(freshDb());
+    insertOutcome(db, { status: 'countered', counter: COUNTER_TE });
+    const out = grading.refreshReasoningClaims(db, { plansPath: planFiles(), now: new Date('2026-09-26T00:00:00Z') });
+    assert.equal(out.enabled, true);
+    assert.equal(out.recorded.inserted, 8);
+    assert.equal(out.resolved.true, 1);
+    assert.deepEqual(out.notes, ['no news feed in the loop; check_first quotes are stored uncheckable']);
+  });
+});
+
+test('refreshReasoningClaims: no plans file still settles what is stored; a corrupt one is an error, not an empty run', async () => {
+  await withPreview(() => {
+    const db = freshDb();
+    const missing = grading.refreshReasoningClaims(db, { plansPath: path.join(temp, 'nope', 'plans.json'), now: new Date(AS_OF) });
+    assert.equal(missing.recorded, null);
+    assert.match(missing.notes[0], /no plans file/);
+    assert.ok(missing.resolved);
+
+    const bad = grading.refreshReasoningClaims(db, { plansPath: planFiles({ raw: '{ not json' }), now: new Date(AS_OF) });
+    assert.match(bad.error, /plans file .* could not be read/);
+    assert.equal(bad.recorded, null);
   });
 });

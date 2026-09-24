@@ -214,7 +214,8 @@ test('the refresh loop runs the audit after manager signals, and the web server 
   const numberAudit = LOOP.createNumberAuditStep({ log: l => lines.push(l),
     audit: async () => { order.push('number_audit'); return { audited: [{ league_id: 1 }], failed: [], skipped_fresh: 0 }; } });
   await LOOP.tick({ jobs: [], spawn, log: l => lines.push(l), record: () => {}, inputsKey: () => 'k', numberAudit });
-  assert.deepEqual(order.slice(-2), ['build-manager-signals.mjs', 'number_audit']);
+  // Integration order (INTEGRATION-AUDIT-0923 section 2): number_audit, then EVAL-01's brain_report last.
+  assert.deepEqual(order.slice(-3), ['build-manager-signals.mjs', 'number_audit', 'run-graders.mjs']);
   assert.ok(lines.some(l => /number_audit\s+ok 1 audited/.test(l)), lines.join('\n'));
   // "No page recomputes": the route imports only the reader, and the service loads the
   // producers lazily inside collectLeagueSnapshot, so importing it runs no simulation.

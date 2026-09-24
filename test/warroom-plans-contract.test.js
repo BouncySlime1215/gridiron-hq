@@ -53,7 +53,9 @@ test('the producer fixture validates against the contract', () => {
  * them starts being written, so an entry cannot linger.
  */
 const PENDING = [
-  { unit: 'unassigned', why: 'no planner rule reads these two sliders', path: /^leagues\[\]\.destination\.value\.tolerances\.value\.(reputation_budget|ai_spend)$/ }
+  { unit: 'unassigned', why: 'no planner rule reads these two sliders', path: /^leagues\[\]\.destination\.value\.tolerances\.value\.(reputation_budget|ai_spend)$/ },
+  { unit: 'EVAL E1 (PEOPLE-03)', why: 'no per-step counterpart feature names a player until E1 grades one positive (stepAdjust returns none)',
+    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.counterpart\.value\.reason_chain\[\]\.(player|n)$/ }
 ];
 const pending = p => PENDING.some(x => x.path.test(p));
 
@@ -193,4 +195,15 @@ test('when a consumer file is in this tree, each recorded read still appears in 
     const leaf = r.reads.replace(/(\.value|\[\]|\{\})+$/, '').split('.').pop().replace(/\W/g, '');
     assert.ok(src.includes(leaf), `${r.where} no longer mentions ${leaf}; update consumer-reads.js`);
   }
+});
+
+test("INT-4 / RULINGS 17: Nick's untouchable (league 1, team 4's P33) is never a target, a get or a flip leg", () => {
+  const L = PRODUCER.leagues.find(e => e.league === 1);
+  const moves = [L.next_move.value, ...(L.alternatives.value ?? [])].filter(Boolean);
+  assert.ok(moves.length > 0, 'league 1 still has a plan');
+  assert.ok(moves.every(m => String(m.target) !== '33' && m.steps.every(s => !s.get.includes('33'))), 'never a get');
+  assert.ok((L.targets.value ?? []).every(t => String(t.player) !== '33'), 'never a target');
+  assert.ok((L.flip_map.value ?? []).every(f => String(f.player) !== '33' && String(f.legs?.get_b ?? '') !== '33'), 'never a flip leg');
+  assert.deepEqual(L.partners.value.find(p => p.team === '4').untouchable, ['33']);
+  assert.deepEqual(L._run.inputs.untouchable.ids, ['33']);
 });

@@ -52,6 +52,7 @@ export type DeckAction =
   | { type: 'skip_reason'; reason: SkipReason; card: string; at: number }
   | { type: 'dismiss_reason' }
   | { type: 'sent'; card: string; at: number }
+  | { type: 'unsent'; card: string }
   | { type: 'reply'; card: string; reply: ReplyKind; at: number }
   | { type: 'reset'; at: number };
 
@@ -99,6 +100,9 @@ export function deckReducer(s: DeckState, a: DeckAction): DeckState {
       return { ...s, sent: [...s.sent, a.card], outbox: [...s.outbox, { kind: 'offer.sent', payload: { move_id: a.card } }],
         log: [...s.log, { kind: 'sent', index: s.index, card: a.card, at: a.at }] };
     }
+    case 'unsent':
+      // Negotiation mode's Undo closed the thread server-side; the card offers "I sent it" again.
+      return s.sent.includes(a.card) ? { ...s, sent: s.sent.filter(c => c !== a.card) } : s;
     case 'reply':
       return { ...s, outbox: [...s.outbox, { kind: 'offer.reply', payload: { move_id: a.card, reply: a.reply } }],
         log: [...s.log, { kind: 'reply', index: s.index, card: a.card, reply: a.reply, at: a.at }] };

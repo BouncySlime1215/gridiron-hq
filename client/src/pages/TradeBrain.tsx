@@ -6,6 +6,7 @@ import { usePageExplain } from '../components/PageExplainContext';
 import { PageLoading, PageError, EmptyState } from '../components/PageState';
 import ManagerBoard from '../components/brain/ManagerBoard';
 import ProposalSlate from '../components/brain/ProposalSlate';
+import PulseTicker from '../components/brain/PulseTicker';
 import type { ProfilesResponse, SignalsResponse } from '../components/brain/types';
 import WarRoom from '../components/warroom/WarRoom';
 import { useWarRoom } from '../components/warroom/useWarRoom';
@@ -132,6 +133,7 @@ export default function TradeBrain() {
 
       {activeId && (
         <>
+          <PulseTicker leagueId={activeId} />
           <div className="flex gap-1 overflow-x-auto border-b border-slate-200">
             {TABS.filter(t => t.id !== 'war-room' || warOn).map(t => (
               <button key={t.id} type="button" onClick={() => setTab(t.id)} title={t.hint}

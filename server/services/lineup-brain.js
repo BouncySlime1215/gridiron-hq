@@ -535,7 +535,14 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // margins: "Tony Pollard over Jonathan Taylor by -2.56", which reads as the
   // optimiser contradicting itself when it was right all along.
   const startable = annotated.filter(p => p.available !== false && !pins.has(p.id));
-  const bench = startable.filter(p => !startingIds.has(p.id) && (p.week_points ?? 0) > 0)
+  // Whether a player carries a weekly projection. A week_points of 0 used to always read as
+  // missing data, but ESPN projects a ruled-out player at 0 (BLEND-01): when this week's
+  // number is ESPN's 0 (week_blend.espn_ppg === 0 and he has a game), that 0 IS the
+  // projection, so he is compared at 0 rather than reported as unpriced. A 0 with no ESPN
+  // value behind it is still missing data.
+  const projected = p => (p.week_points ?? 0) > 0
+    || (p.week_points === 0 && p.week_blend?.espn_ppg === 0 && p.week_blend?.basis !== 'no_game');
+  const bench = startable.filter(p => !startingIds.has(p.id) && projected(p))
     .sort((a, b) => b.week_points - a.week_points);
   // Who each start "beat" has to be chosen on the SAME basis the lineup was solved
   // on, and the margin computed on that basis only. It used to pick the alternative
@@ -543,17 +550,17 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // objective a starter's p90 could be compared against a benched player's MEAN.
   // For the default week_points objective this is the same list as `bench`.
   const alternatives = startable
-    .filter(p => !startingIds.has(p.id) && Number.isFinite(p[key]) && (p.week_points ?? 0) > 0)
+    .filter(p => !startingIds.has(p.id) && Number.isFinite(p[key]) && projected(p))
     .sort((a, b) => b[key] - a[key] || (b.week_points ?? 0) - (a.week_points ?? 0));
   // Bench players who could legally start but carry no weekly projection. Both
-  // lists above filter on `week_points > 0`, so when the projection pipeline
+  // lists above filter on `projected`, so when the projection pipeline
   // yields nothing these players vanish from the comparison and every slot
   // comes back "only option" — which then printed "Nobody else on the roster
   // can fill FLEX" with three benched flex-eligible players sitting there. An
   // empty alternatives list for want of a number is not the same fact as a
   // roster with one eligible player, and only this list can tell them apart.
   const unpricedBench = startable
-    .filter(p => !startingIds.has(p.id) && !((p.week_points ?? 0) > 0));
+    .filter(p => !startingIds.has(p.id) && !projected(p));
   // Kept separately and reported, because "why is my best back on the bench" is
   // the first question this page has to answer.
   const unavailable = annotated

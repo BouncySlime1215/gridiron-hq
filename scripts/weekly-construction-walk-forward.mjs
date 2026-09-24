@@ -282,9 +282,13 @@ async function servedIdentity({ coordinator, s02, wf, PPR, buildPlayerWeekEngine
     const served = coordinator.servedWeekConstruction(proj, { fit, season: FORWARD, week, scoring: PPR });
     const arms = s02.constructArms(proj, { season: FORWARD, week, scoring: PPR, fitS: fit, fitE: fit, lambda: 1 }, wf.LIFT_DEPS);
     const miss = what => { throw new Error(`served identity, week ${week}, player ${id}: ${what}`); };
-    if (asset.week_basis !== served.basis) miss(`asset.week_basis ${asset.week_basis} vs ${served.basis}`);
+    // Our construction is the blend's ours input (week_blend.ours), not the served number: with
+    // the week blend on, current_week_ppg may be ESPN's (weekly-blend.js, BLEND-01).
+    const ours = asset.week_blend?.ours;
+    if (!ours) miss('asset.week_blend.ours is missing');
+    if (ours.week_basis !== served.basis) miss(`week_blend.ours.week_basis ${ours.week_basis} vs ${served.basis}`);
     const expected = asset.matchup ? r2(served.ppg * asset.matchup.mult * asset.active_probability) : 0;
-    if (asset.current_week_ppg !== expected) miss(`current_week_ppg ${asset.current_week_ppg} vs construction x mult x p ${expected}`);
+    if (ours.ppg !== expected) miss(`week_blend.ours.ppg ${ours.ppg} vs construction x mult x p ${expected}`);
     if (served.coordinated) {
       if (served.ppg !== arms.S1) miss(`served ${served.ppg} vs arm S1 ${arms.S1}`);
       if (served.basis !== 'structural+coordinator') miss(`basis ${served.basis}`);

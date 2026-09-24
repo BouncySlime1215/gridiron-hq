@@ -16,7 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { constrainedLeastSquares } from '../server/services/forecast-combination.js';
-import { blendWeekPoints, CANDIDATES, PHASES, phaseFor, BLEND_POSITIONS } from '../server/services/weekly-blend.js';
+import { blendWeekPoints, CANDIDATES, PHASES, phaseFor, BLEND_POSITIONS, FORWARD_CONFIRMATION, isBlindForwardWeek, forwardConfirmed } from '../server/services/weekly-blend.js';
 import { startSitPairAccuracy } from './promote-early-week-weights.mjs';
 import { decisionWinRate, mde80 } from './weekly-construction-grade-lib.mjs';
 
@@ -26,6 +26,8 @@ export const SEED = 1;
 export const FIT_SEASONS_FOR = Object.freeze({ 2023: [2022], 2024: [2022, 2023] });
 export const GRADED_SEASONS = Object.freeze([2023, 2024]);
 export const SHIP_FIT_SEASONS = Object.freeze([2022, 2023, 2024]);
+/** The forward week the pre-registration names (§7): 2026 week 2. Later weeks are blind (forwardBlind). */
+export const PREREG_FORWARD_WEEKS = Object.freeze([2]);
 /** The pre-registered ladder (§6.3); equal numbers are one rung. */
 export const LADDER = Object.freeze(Object.fromEntries(Object.entries(CANDIDATES).map(([k, v]) => [k, v.ladder])));
 export const CANDIDATE_IDS = Object.freeze(Object.keys(CANDIDATES));
@@ -319,6 +321,44 @@ export function shipDecision(winner, history, forward) {
   return { on: true, verdict: 'shipped', reason: `${winner} is good on 2023-2024 and holds on 2026 week 2` };
 }
 
+/* ------------------------------------------------------------------ the forward hold (FIX-164-1) */
+
+/**
+ * The blind forward check behind weekly-blend.js's `forward_unconfirmed` hold. `weeks` lists
+ * 2026 weeks in order as { week, first_gameday, complete } (complete = every game has a score).
+ * A week is graded only when it is blind (first game day after the pre-registration commit) and
+ * complete; the first week that is not yet complete ends the list. Each graded week, and the
+ * weeks pooled, is ESPN against ours on the primary rows (an ESPN value; ours >= 4 universe).
+ * `rows` are the assembled 2026 rows (rows-2026.ndjson). Returns the record the tournament
+ * output keeps as `forward_blind`; `lifts_hold` is weekly-blend.js#forwardConfirmed on it.
+ */
+export function forwardBlind(rows, weeks, { committedAt = FORWARD_CONFIRMATION.prereg_committed_at, iterations = ITERATIONS, seed = SEED } = {}) {
+  const universe = r => r.ours >= THRESHOLD;
+  const grade = list => {
+    const pairs = enumeratePairs(list, universe);
+    const draws = playerDraws(pairs.players, { iterations, seed });
+    return comparePreds(list, pairs, list.map(r => r.espn), list.map(r => r.ours), draws);
+  };
+  const graded = [], excluded = [], pool = [];
+  for (const w of [...weeks].sort((a, b) => a.week - b.week)) {
+    const blind = isBlindForwardWeek(w.first_gameday, committedAt);
+    if (!blind) { excluded.push({ week: w.week, first_gameday: w.first_gameday, blind, reason: 'first game on or before the pre-registration commit' }); continue; }
+    if (!w.complete) { excluded.push({ week: w.week, first_gameday: w.first_gameday, blind, reason: 'not every game has a final score yet' }); break; }
+    const list = rows.filter(r => r.season === FORWARD_CONFIRMATION.season && r.week === w.week && r.ours != null && r.espn != null);
+    if (!list.length) throw new Error(`blind forward week ${w.week} is complete but has no assembled rows; run --assemble --forward-only --forward-weeks ${w.week}`);
+    const cmp = grade(list);
+    graded.push({ week: w.week, first_gameday: w.first_gameday, blind, rows: list.length,
+      pairs: cmp.pairs, pa_espn: cmp.pa_x, pa_ours: cmp.pa_y, pa_diff: cmp.pa_diff, pa: cmp.pa, decisions: cmp.decisions });
+    pool.push(...list);
+  }
+  const pooled = pool.length ? (({ pairs, pa_x, pa_y, pa_diff, pa, decisions }) => ({ weeks: graded.map(g => g.week), pairs,
+    pa_espn: pa_x, pa_ours: pa_y, pa_diff, pa, decisions }))(grade(pool)) : null;
+  const record = { prereg_commit: FORWARD_CONFIRMATION.prereg_commit, prereg_committed_at: committedAt,
+    rule: FORWARD_CONFIRMATION.rule, sign: 'ESPN minus ours; positive favours ESPN',
+    weeks: graded, excluded, pooled };
+  return { ...record, lifts_hold: forwardConfirmed(record) };
+}
+
 /* ------------------------------------------------------------------ diagnostics (no rule attached) */
 
 /**
@@ -390,7 +430,7 @@ function gradeWindow(rows, preds, { draws, universe, label, winner = null }) {
   return { label, rows: rows.length, players: pairs.players, pairs: pairs.a.length, pairsObj: pairs, vsOurs, vsEspn, winner };
 }
 
-export async function grade({ root, rowsDir, out, prereg, git, log }) {
+export async function grade({ root, rowsDir, out, prereg, git, log, blindWeeks = null }) {
   // ---- Stop: the pre-registration must be committed and unchanged.
   if (!git('ls-files', prereg)) throw new Error(`${prereg} is not committed; pre-register before any number is run`);
   if (git('status', '--porcelain', '--', prereg)) throw new Error(`${prereg} has uncommitted changes`);
@@ -512,7 +552,9 @@ export async function grade({ root, rowsDir, out, prereg, git, log }) {
   };
 
   // ---- Forward: 2026 week 2 with the shipping parameters (fit on 2022-2024).
-  const fwdAll = readRows(dir, 2026);
+  // The pre-registered forward views are week 2 only; blind weeks are graded apart (forward_blind).
+  const rows2026 = readRows(dir, 2026);
+  const fwdAll = rows2026.filter(r => PREREG_FORWARD_WEEKS.includes(r.week));
   const fwdParams = () => shipFit;
   const forwardView = (label, rowsIn) => {
     if (!rowsIn.length) return { label, rows: 0 };
@@ -552,6 +594,8 @@ export async function grade({ root, rowsDir, out, prereg, git, log }) {
           : { b: roundTable(shipFit.espn_proven.b) },
     beats_espn_alone: beatsEspn
   };
+  // FIX-164-1: the blind forward weeks behind weekly-blend.js's forward_unconfirmed hold.
+  if (blindWeeks) report.forward_blind = { graded_at: new Date().toISOString(), ...forwardBlind(rows2026, blindWeeks) };
   report.finished_at = new Date().toISOString();
   fs.writeFileSync(path.resolve(root, out), `${JSON.stringify(report, null, 2)}\n`);
   log('decision', JSON.stringify({ winner, news_layer: newsLayer, on: decision.on, verdict: decision.verdict, reason: decision.reason }));

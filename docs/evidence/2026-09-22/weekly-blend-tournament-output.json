@@ -4594,5 +4594,39 @@
       "forward": "the winner is ESPN alone"
     }
   },
-  "finished_at": "2026-09-23T01:07:37.742Z"
+  "finished_at": "2026-09-23T01:07:37.742Z",
+  "forward_blind": {
+    "graded_at": "2026-09-24T09:59:15.898Z",
+    "tree": {
+      "head": "07c81a6dc525c9ea2cbd5f5c82ec865f1d8c0b00"
+    },
+    "label": "local copy, not production",
+    "prereg_commit": "7c443485a6d0efe1d930b254ac13ec98525c9eac",
+    "prereg_committed_at": "2026-09-22T20:21:29-04:00",
+    "rule": "pooled blind 2026 weeks: ESPN minus ours pair accuracy, 90% CI lower bound > 0",
+    "sign": "ESPN minus ours; positive favours ESPN",
+    "weeks": [],
+    "excluded": [
+      {
+        "week": 1,
+        "first_gameday": "2026-09-09",
+        "blind": false,
+        "reason": "first game on or before the pre-registration commit"
+      },
+      {
+        "week": 2,
+        "first_gameday": "2026-09-17",
+        "blind": false,
+        "reason": "first game on or before the pre-registration commit"
+      },
+      {
+        "week": 3,
+        "first_gameday": "2026-09-24",
+        "blind": true,
+        "reason": "not every game has a final score yet"
+      }
+    ],
+    "pooled": null,
+    "lifts_hold": false
+  }
 }

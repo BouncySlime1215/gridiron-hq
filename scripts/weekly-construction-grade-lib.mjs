@@ -404,14 +404,17 @@ export function gradeWindow(rows, { m0 = null, light = false } = {}) {
  * This is a check on the served output, not a producer: it builds no served number.
  */
 export function consumerDecomposition(asset, arms, pageWeekPoints, engineTeam) {
-  const servedB = asset.fantasy_coordinator?.corrected_ppg ?? null;
+  // Our construction is the week blend's ours input (week_blend.ours, BLEND-01): with the blend
+  // on, current_week_ppg and the top-level fantasy_coordinator may describe ESPN's number instead.
+  const ours = asset.week_blend?.ours ?? null;
+  const servedB = ours?.fantasy_coordinator?.corrected_ppg ?? null;
   const bye = !asset.matchup;
   const mult = bye ? 0 : asset.matchup.mult;
   const p = asset.active_probability;
   const expected = bye ? 0 : +(servedB * mult * p).toFixed(2);
   return {
     b_parity: servedB === arms.B,
-    current_week_identity: asset.current_week_ppg === expected,
+    current_week_identity: ours?.ppg === expected,
     expected_current_week_ppg: expected,
     p, mult, bye,
     arm_D: round2(arms.D), page: pageWeekPoints,

@@ -83,7 +83,7 @@ import { leagueWire } from './league-wire.js';
 import { normalCdf, withRandomSeed } from './stats-util.js';
 // BLEND-01: this week's number goes through the tournament's served blend with ESPN's
 // weekly projection (weekly-blend.js), which reads ESPN's number from league_roster_snapshots.
-import { servedWeekBlend, SERVED_BLEND, espnWeekProjections, espnValueFor, weekBlendContext } from './weekly-blend.js';
+import { servedWeekBlend, SERVED_BLEND, espnWeekProjections, espnValueFor, weekBlendContext, servedWeekBasis, servedWeekBasisContext } from './weekly-blend.js';
 // lineupSpread() only: each starter's played-week draws and the fitted archetype
 // correlations, for the lineup-total floor/ceiling.
 import { sampleWeeks } from './projections.js';
@@ -420,14 +420,21 @@ function buildAssetUniverse(lg, formatKey, target) {
     // BLEND-01: ours (this construction x the game factor x his chance to play, 0 with no
     // game) through the one served blend with ESPN's weekly projection. Every weekly page reads
     // current_week_ppg, so this is the only place the blend happens (weekly-blend.js).
+    const oursWeekPpg = thisGame ? currentWeekBasePpg * thisGame.mult * activeProbability : 0;
     const weekBlend = servedWeekBlend({
-      ours: thisGame ? currentWeekBasePpg * thisGame.mult * activeProbability : 0,
+      ours: oursWeekPpg,
       espn: espnValueFor(espnWeek, p.espn_id), position: p.position, week: target.week,
       // Only skill positions get a schedule (sched above), so only they can be on a bye here;
       // a K/DEF is labelled by its position ('ours_position_not_graded'), not as having no game.
       reportStatus: availability?.report_status ?? null, bye: SCORED.has(p.position) ? !thisGame : false
     }, SERVED_BLEND);
     const currentWeekPpg = weekBlend.ppg;
+    const coordinatorBlock = coordinated
+      ? { corrected_ppg: coordinated.corrected_ppg, correction: coordinated.correction, contributions: coordinated.contributions,
+        base: construction.base }
+      : null;
+    // The served number is ours alone (weight 1, or 0 with no game): the coordinator block describes it.
+    const servedIsOurs = weekBlend.weight_ours == null || weekBlend.weight_ours === 1;
     // Rest-of-season weekly rate. No schedule tilt (see scheduleTilt above), no
     // availability term — per game played, the same basis it has always had. It used
     // to BE weeklyPpg, which at week 2 is 80% the week-1 score (Coker 29.9 after a
@@ -538,8 +545,12 @@ function buildAssetUniverse(lg, formatKey, target) {
       // How the week blend priced current_week_ppg (BLEND-01): 'blend' | 'espn_late_news' |
       // 'no_espn_value' | 'ours_position_not_graded' | 'no_game' | 'blend_off' | 'ours', the share
       // of it that is ours, and ESPN's number where there is one (a model input, not a pick).
+      // `ours` is the blend's ours input and what built it (S-03's construction x this game's
+      // factor x his chance to play): the checks on our construction read it, not the served number.
       week_blend: { basis: weekBlend.basis, weight_ours: weekBlend.weight_ours,
-        espn_ppg: weekBlend.espn == null ? null : +weekBlend.espn.toFixed(2) },
+        espn_ppg: weekBlend.espn == null ? null : +weekBlend.espn.toFixed(2),
+        ours: { ppg: +oursWeekPpg.toFixed(2), week_basis: construction?.basis ?? 'season_projection',
+          fantasy_coordinator: coordinatorBlock } },
       // His team has no game in the target week (onBye above, the same detector
       // current_week_ppg uses). weekLineup() reads it so selfScout and a trade card's
       // weekly floor/ceiling solve this week's lineup without him (RL-5-3).
@@ -547,15 +558,14 @@ function buildAssetUniverse(lg, formatKey, target) {
       // Transparency for the correction folded into current_week_ppg above —
       // null when no fit is promoted, the week is outside its promoted windows, or
       // this player has no weekly projection to correct (construction.coordinator_off).
-      fantasy_coordinator: coordinated
-        ? { corrected_ppg: coordinated.corrected_ppg, correction: coordinated.correction, contributions: coordinated.contributions,
-          base: construction.base }
-        : null,
+      // Null too where current_week_ppg is not ours alone (the block is then under week_blend.ours).
+      fantasy_coordinator: servedIsOurs ? coordinatorBlock : null,
       // What current_week_ppg was built from, before this game's factor and the chance to
       // play: 'structural+coordinator' | 'ensemble+coordinator' | 'ensemble', or
-      // 'season_projection' when there is no weekly projection (the season total / 17).
+      // 'season_projection' when there is no weekly projection (the season total / 17);
+      // 'espn' where none of it is ours and 'blend' where part of it is (weekly-blend.js#servedWeekBasis).
       // The sentence for a reader is context.week_basis.label.
-      week_basis: construction?.basis ?? 'season_projection',
+      week_basis: servedWeekBasis(construction?.basis ?? 'season_projection', weekBlend.weight_ours),
       ros_ppg: +rosPpg.toFixed(2),
       // What ros_ppg was built from; null = no ROS entry (no game yet), { failed } = the
       // ROS build failed; in both cases ros_ppg is the weekly number.
@@ -600,7 +610,8 @@ function buildAssetUniverse(lg, formatKey, target) {
     week_blend: weekBlendContext(espnWeek, SERVED_BLEND),
     // What this week's number is built from (S-03): the served coordinator fit and its
     // windows, the betting-line lift's switch, and one plain sentence for the page.
-    week_basis: weekConstructionBasis({ fit: fantasyFit, week: target.week, lift: BETTING_LINE_LIFT })
+    // With the blend on, the label names the served source first (weekly-blend.js#servedWeekBasisContext).
+    week_basis: servedWeekBasisContext(weekConstructionBasis({ fit: fantasyFit, week: target.week, lift: BETTING_LINE_LIFT }), SERVED_BLEND)
   };
   return out;
 }

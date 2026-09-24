@@ -125,6 +125,34 @@ export const TOURNAMENT_DECISION = Object.freeze({
 });
 
 /**
+ * FIX-164-1: the forward check the ship rule needs. The tournament's 2026 week 2 check is one
+ * week, its pair-accuracy CI crosses 0 (ESPN minus ours +0.052 [-0.002, +0.102]) and it was
+ * looked at before the pre-registration was committed. Only BLIND forward weeks count: 2026
+ * weeks whose first game is after the pre-registration commit, graded by
+ * `scripts/weekly-blend-tournament.mjs --forward-blind` (tournament output `forward_blind`,
+ * one row per graded week in docs/evidence/HOLDOUT-LEDGER.md). The hold lifts only when the
+ * pooled blind weeks give an ESPN-minus-ours pair-accuracy 90% CI lower bound above 0.
+ */
+export const FORWARD_CONFIRMATION = Object.freeze({
+  prereg_commit: '7c443485a6d0efe1d930b254ac13ec98525c9eac',
+  prereg_committed_at: '2026-09-22T20:21:29-04:00',
+  season: 2026,
+  rule: 'pooled blind 2026 weeks: ESPN minus ours pair accuracy, 90% CI lower bound > 0'
+});
+
+/** A week is blind when its first game day starts after the pre-registration commit. */
+export function isBlindForwardWeek(firstGameday, committedAt = FORWARD_CONFIRMATION.prereg_committed_at) {
+  const day = Date.parse(`${firstGameday}T00:00:00Z`);
+  return Number.isFinite(day) && day > Date.parse(committedAt);
+}
+
+/** The forward hold's lift test on a `forward_blind` record (weeks graded, pooled comparison). */
+export function forwardConfirmed(blind) {
+  const lo = blind?.pooled?.pa?.ci90?.[0];
+  return Boolean(blind?.weeks?.length) && blind.weeks.every(w => w.blind === true) && typeof lo === 'number' && lo > 0;
+}
+
+/**
  * Why the winner is not served yet. The tournament graded start/sit pairs where BOTH players
  * had an ESPN number; serving it changes numbers other pages compare across that line. Each
  * hold names what lifts it. While any stands, current_week_ppg is ours, labelled 'blend_off',
@@ -137,21 +165,48 @@ export const SERVING_HOLDS = Object.freeze([
     lifts_when: 'free agents have an ESPN capture (RL-1-1) or a waiver decision grade on 2023-2024 passes'
   }),
   Object.freeze({
-    id: 'espn_zero_reads_as_missing',
-    reason: 'Start/Sit (lineup-brain.js lineupCall) reads a weekly number of 0 as missing data, and ESPN projects ruled-out players at 0',
-    lifts_when: 'lineupCall treats week_blend.espn_ppg === 0 as a projection of 0, not an absence'
-  }),
-  Object.freeze({
-    id: 'labels_describe_ours',
-    reason: 'week_basis, fantasy_coordinator and context.week_basis.label (S-03) describe our construction as current_week_ppg',
-    lifts_when: 'one provenance label: week_basis says espn where weight_ours is 0, and the coordinator block moves under ours'
-  }),
-  Object.freeze({
-    id: 's03_identity',
-    reason: 'scripts/weekly-construction-walk-forward.mjs --served-identity and the grade\'s consumer parity assert current_week_ppg is our construction x game factor x chance to play',
-    lifts_when: 'those checks compare our construction with the blend\'s ours input instead of the served number'
+    id: 'forward_unconfirmed',
+    reason: 'the only forward week (2026 week 2) was looked at before the pre-registration, and its ESPN-minus-ours pair-accuracy CI crosses 0',
+    lifts_when: 'blind forward 2026 weeks (first game after the pre-registration commit) give an ESPN-minus-ours pair-accuracy CI lower bound above 0 (forwardConfirmed on the tournament output\'s forward_blind)'
   })
 ]);
+
+/**
+ * Holds that were code-only and are lifted, each with the test that lifted it (FIX-164-3).
+ * Kept so the surface and the evidence can say what was checked, not only what is left.
+ */
+export const LIFTED_HOLDS = Object.freeze([
+  Object.freeze({ id: 'espn_zero_reads_as_missing', lifted_by: 'test/weekly-blend-holds.test.js',
+    what: 'lineupCall compares a player whose weekly number is ESPN\'s 0 at 0 instead of reporting him as unpriced' }),
+  Object.freeze({ id: 'labels_describe_ours', lifted_by: 'test/weekly-blend-wiring.test.js',
+    what: 'week_basis says espn where weight_ours is 0, fantasy_coordinator and our construction move under week_blend.ours, and context.week_basis.label names the served source' }),
+  Object.freeze({ id: 's03_identity', lifted_by: 'test/weekly-construction-grade.test.js',
+    what: 'the served-identity walk and the consumer-parity check compare our construction with week_blend.ours.ppg, the blend\'s ours input' })
+]);
+
+/**
+ * One provenance label for the served number (FIX-164-3b): 'espn' where none of it is ours,
+ * 'blend' where part of it is, otherwise our construction's own basis.
+ */
+export function servedWeekBasis(oursBasis, weightOurs) {
+  if (weightOurs === 0) return 'espn';
+  if (typeof weightOurs === 'number' && weightOurs > 0 && weightOurs < 1) return 'blend';
+  return oursBasis;
+}
+
+/**
+ * context.week_basis for the served number: S-03's record of our construction as it is while
+ * the blend is off; with it on, the label leads with the served source and our construction's
+ * sentence moves to `ours_label`.
+ */
+export function servedWeekBasisContext(oursContext, config = SERVED_BLEND) {
+  if (!config?.on || !oursContext) return oursContext;
+  const rest = String(oursContext.label ?? '').replace(/^This week's points: /, '');
+  const lead = config.candidate === 'espn'
+    ? "This week's points: ESPN's weekly projection where ESPN has one. Where it has none, "
+    : `This week's points: our projection blended with ESPN's weekly projection (${config.candidate}). Our part is `;
+  return { ...oursContext, served: config.candidate, ours_label: oursContext.label, label: `${lead}${rest}` };
+}
 
 /**
  * The served switch: the tournament's winner, on only when the tournament said ship AND no

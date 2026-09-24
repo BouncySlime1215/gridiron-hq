@@ -22,6 +22,14 @@
  *                2025 is refused everywhere (the used-up holdout).
  *   --grade      the tournament itself. Refuses to run unless the pre-registration is
  *                committed and unchanged. Reads --rows-dir, writes aggregates only to --out.
+ *   --forward-blind  FIX-164-1: grades only the BLIND forward weeks (2026 weeks whose first game
+ *                is after the pre-registration commit and whose games all have scores), ESPN
+ *                against ours, per week and pooled, and writes `forward_blind` into --out
+ *                (default: the committed output), leaving every other key as it was. The
+ *                `forward_unconfirmed` serving hold (weekly-blend.js) lifts only when its
+ *                pooled CI lower bound is above 0. Assemble a newly completed week first:
+ *                --assemble --forward-only --forward-weeks <N>. Add one HOLDOUT-LEDGER.md row
+ *                per graded week.
  *
  * Options:
  *   --rows-dir <dir>       where --assemble writes and --grade reads (default .local-db/blend-rows)
@@ -30,6 +38,7 @@
  *                          Benchmark data, local only (licence: Disney terms of use, personal
  *                          non-commercial; r2-external-espn-weekly-projection-history.md §0).
  *   --out <file.json>      aggregates (default for --grade: the committed output file)
+ *   --forward-weeks <a,b>  --assemble: 2026 weeks to assemble beside week 2 (e.g. 3,4)
  *
  * Output: aggregates only (no player rows, no league or manager data), labelled
  * "local copy, not production".
@@ -258,7 +267,9 @@ async function assemble({ rowsDir, archiveDir, log, forwardOnly = false }) {
   const truth = actuals(season, PPR);
   const known = teamsInSeason(season);
   const out = [];
-  for (const week of FORWARD_WEEKS) {
+  const extra = (arg('--forward-weeks') ?? '').split(',').filter(Boolean).map(Number);
+  if (extra.some(w => !Number.isInteger(w) || w < 1 || w > 18)) throw new Error(`--forward-weeks ${arg('--forward-weeks')}: weeks 1-18`);
+  for (const week of [...new Set([...FORWARD_WEEKS, ...extra])].sort((a, b) => a - b)) {
     const engine = buildPlayerWeekEngine({ season, week, scoring: PPR });
     const availability = weeklyAvailability(season, week, { through: season - 1 });
     const withGame = teamsWithGame(season, week);
@@ -327,9 +338,20 @@ async function assemble({ rowsDir, archiveDir, log, forwardOnly = false }) {
   return report;
 }
 
+/**
+ * 2026 weeks in order with their first game day and whether every game has a final score
+ * (game_lines), for the blind forward check. Reads the database copy only.
+ */
+export async function forwardWeeks(season = FORWARD) {
+  const { rows: dbRows } = await import('../server/db/index.js');
+  return dbRows(`SELECT week, MIN(gameday) AS first_gameday, SUM(team_score IS NULL) AS unscored
+                 FROM game_lines WHERE season = ? AND gameday IS NOT NULL GROUP BY week ORDER BY week`, season)
+    .map(r => ({ week: r.week, first_gameday: r.first_gameday, complete: r.unscored === 0 }));
+}
+
 async function main() {
-  const mode = ['--assemble', '--grade'].find(m => process.argv.includes(m));
-  if (!mode) throw new Error('choose one mode: --assemble or --grade');
+  const mode = ['--assemble', '--grade', '--forward-blind'].find(m => process.argv.includes(m));
+  if (!mode) throw new Error('choose one mode: --assemble, --grade or --forward-blind');
   if (!process.env.GRIDIRON_DB_PATH) throw new Error('set GRIDIRON_DB_PATH to a COPY of the app database');
   if (path.resolve(process.env.GRIDIRON_DB_PATH) === path.resolve(ORIGINAL_DB)) {
     throw new Error(`refusing to run on ${ORIGINAL_DB}; make a .backup copy first`);
@@ -347,8 +369,24 @@ async function main() {
     log('assembled; counts in', path.relative(ROOT, file));
     return;
   }
-  const { grade } = await import('./weekly-blend-tournament-lib.mjs');
-  await grade({ root: ROOT, rowsDir, out: arg('--out') ?? DEFAULT_OUT, prereg: PREREG, git, log });
+  const lib = await import('./weekly-blend-tournament-lib.mjs');
+  const blindWeeks = await forwardWeeks();
+  const out = arg('--out') ?? DEFAULT_OUT;
+  if (mode === '--forward-blind') {
+    if (!git('ls-files', PREREG) || git('status', '--porcelain', '--', PREREG)) throw new Error(`${PREREG} must be committed and unchanged`);
+    const file = path.resolve(ROOT, out);
+    const report = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const rowsFile = path.resolve(ROOT, rowsDir, 'rows-2026.ndjson');
+    const rows = fs.existsSync(rowsFile)
+      ? fs.readFileSync(rowsFile, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)) : [];
+    report.forward_blind = { graded_at: new Date().toISOString(), tree: { head: git('rev-parse', 'HEAD') },
+      label: 'local copy, not production', ...lib.forwardBlind(rows, blindWeeks) };
+    fs.writeFileSync(file, `${JSON.stringify(report, null, 2)}\n`);
+    log('forward_blind', JSON.stringify({ graded: report.forward_blind.weeks.map(w => ({ week: w.week, pa_diff: w.pa_diff, ci90: w.pa.ci90 })),
+      pooled: report.forward_blind.pooled?.pa ?? null, lifts_hold: report.forward_blind.lifts_hold }));
+    return;
+  }
+  await lib.grade({ root: ROOT, rowsDir, out, prereg: PREREG, git, log, blindWeeks });
 }
 
 const invokedDirectly = (() => {

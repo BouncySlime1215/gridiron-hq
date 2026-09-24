@@ -125,6 +125,12 @@ test('current_week_ppg is the served candidate of ours and ESPN\'s number, and s
   assert.equal(a.week_blend.basis, 'blend');
   assert.equal(a.week_blend.espn_ppg, 20);
   assert.equal(a.week_blend.weight_ours, 0.5);
+  // One provenance label (FIX-164-3b): part of the number is ours, so week_basis says blend and
+  // our construction is under week_blend.ours, with the ours input the blend was given.
+  assert.equal(a.week_basis, 'blend');
+  assert.equal(a.fantasy_coordinator, null);
+  assert.equal(a.week_blend.ours.week_basis, 'ensemble');
+  near(a.week_blend.ours.ppg, ours(a), 0.006);
 });
 
 test('a player ESPN has no number for keeps ours, labelled; a player with no game is 0', () => {
@@ -189,6 +195,20 @@ test('the tournament\'s winner through the call site: ESPN\'s number, 0 included
     assert.equal(f.current_week_ppg, 5);
     assert.equal(f.week_blend.basis, 'blend');
     assert.equal(f.week_blend.weight_ours, 0);
+    // labels_describe_ours lifted (FIX-164-3b): week_basis says espn where weight_ours is 0, the
+    // coordinator block and our construction move under week_blend.ours, and the page's sentence
+    // names ESPN first, keeping our construction's sentence as ours_label.
+    assert.equal(f.week_basis, 'espn');
+    assert.equal(f.fantasy_coordinator, null);
+    assert.equal(f.week_blend.ours.week_basis, 'ensemble');
+    // s03_identity lifted (FIX-164-3c): the ours input is still our construction x game x p.
+    near(f.week_blend.ours.ppg, ours(f), 0.006);
+    assert.match(u.context.week_basis.label, /^This week's points: ESPN's weekly projection where ESPN has one\. Where it has none, our weekly projection/);
+    assert.match(u.context.week_basis.ours_label, /^This week's points: our weekly projection/);
+    assert.equal(u.context.week_basis.served, 'espn');
+    const b = u.get(P2.id);
+    assert.equal(b.week_blend.basis, 'no_espn_value');
+    assert.equal(b.week_basis, 'ensemble', 'no ESPN value: the number is ours and so is its label');
     const e = u.get(P5.id);
     assert.equal(e.current_week_ppg, 0);
     assert.equal(e.week_blend.basis, 'blend');
@@ -215,6 +235,11 @@ test('the real served config (held off by its serving holds) reaches the one pro
     near(a.current_week_ppg, ours(a));
     assert.equal(a.week_blend.basis, 'blend_off');
     assert.equal(u.context.week_blend.on, false);
+    // Held off, the labels are S-03's: week_basis is our construction, ours input = served number.
+    assert.equal(a.week_basis, 'ensemble');
+    assert.equal(a.week_blend.ours.ppg, a.current_week_ppg);
+    assert.equal(u.context.week_basis.ours_label, undefined);
+    assert.match(u.context.week_basis.label, /^This week's points: our weekly projection/);
     assert.deepEqual(u.context.week_blend.holds, realBlend.SERVING_HOLDS.map(h => h.id));
   } finally {
     for (const k of Object.keys(ON)) delete ON[k];

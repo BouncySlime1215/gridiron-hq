@@ -271,3 +271,34 @@ test('the availability diagnostic grades our base without the chance to play, on
   near(d.designated_only_vs_ours.pa_x, 1, 1e-4);      // p only for the Out player: all three right
   assert.deepEqual(d.startable_no_designation, { rows: 2, mean_p: 0.7, played_share: 1 });
 });
+
+test('forwardBlind (FIX-164-1): grades only complete blind weeks, per week and pooled, ESPN minus ours', () => {
+  // Two positions, ESPN orders every pair right and ours orders every pair wrong in weeks 3-4.
+  const mk = (week, id, actual, espn, ours) => ({ season: 2026, week, player_id: id, position: 'WR', actual, espn, ours, played: true });
+  const rows = [];
+  for (const week of [2, 3, 4]) {
+    for (let i = 0; i < 8; i++) rows.push(mk(week, `${week}-${i}`, 20 - i, 20 - i, 5 + i));
+  }
+  const weeks = [
+    { week: 2, first_gameday: '2026-09-17', complete: true },
+    { week: 3, first_gameday: '2026-09-24', complete: true },
+    { week: 4, first_gameday: '2026-10-01', complete: true },
+    { week: 5, first_gameday: '2026-10-08', complete: false },
+    { week: 6, first_gameday: '2026-10-15', complete: false }
+  ];
+  const out = lib.forwardBlind(rows, weeks, { iterations: 200 });
+  assert.deepEqual(out.weeks.map(w => w.week), [3, 4], 'week 2 is not blind; weeks 5+ are not complete');
+  assert.deepEqual(out.excluded.map(w => [w.week, w.blind]), [[2, false], [5, true]], 'the first incomplete week ends the list');
+  assert.ok(out.weeks.every(w => w.pa_diff === 1 && w.pa_espn === 1 && w.pa_ours === 0));
+  assert.deepEqual(out.pooled.weeks, [3, 4]);
+  assert.ok(out.pooled.pa.ci90[0] > 0);
+  assert.equal(out.lifts_hold, true);
+  // Nothing blind and complete yet (today's state): the hold cannot lift.
+  const none = lib.forwardBlind(rows, weeks.map(w => (w.week >= 3 ? { ...w, complete: false } : w)), { iterations: 200 });
+  assert.deepEqual([none.weeks.length, none.pooled, none.lifts_hold], [0, null, false]);
+  // Ours better in the blind weeks: the bound is below 0 and the hold stands.
+  const flipped = rows.map(r => ({ ...r, espn: r.ours, ours: r.espn }));
+  assert.equal(lib.forwardBlind(flipped, weeks, { iterations: 200 }).lifts_hold, false);
+  // A complete blind week with no assembled rows is an error, not a silent skip.
+  assert.throws(() => lib.forwardBlind(rows.filter(r => r.week !== 3), weeks, { iterations: 200 }), /--forward-weeks 3/);
+});

@@ -612,8 +612,11 @@ test('assertS3UsedLambda stops when a graded row\'s S3 was not built with its wi
 
 test('consumerDecomposition: the page number is B x game factor x chance to play x lift (trade-engine.js:359)', () => {
   const arms = { B: 12.345, D: 12.345 * 1.2 };
+  const oursPpg = +(12.345 * 1 * 0.749).toFixed(2);
   const asset = { team_abbr: 'HI', position: 'QB', active_probability: 0.749, matchup: { mult: 1 },
-    fantasy_coordinator: { corrected_ppg: 12.345 }, current_week_ppg: +(12.345 * 1 * 0.749).toFixed(2) };
+    fantasy_coordinator: { corrected_ppg: 12.345 }, current_week_ppg: oursPpg,
+    week_blend: { basis: 'blend_off', weight_ours: 1, espn_ppg: 20,
+      ours: { ppg: oursPpg, week_basis: 'structural+coordinator', fantasy_coordinator: { corrected_ppg: 12.345 } } } };
   const page = startSitWeekPoints(asset, 2025, 6).week_points;
   const d = lib.consumerDecomposition(asset, arms, page, 'HI');
   assert.deepEqual([d.b_parity, d.current_week_identity, d.bye, d.team_differs], [true, true, false, false]);
@@ -621,10 +624,19 @@ test('consumerDecomposition: the page number is B x game factor x chance to play
   assert.ok(Math.abs(d.page_over_D - page / arms.D) < 1e-12);
   // The page carries p; since S-03 it no longer carries the lift the arm D has (x 1.2 here).
   assert.ok(Math.abs(d.page_over_D - 0.749 / 1.2) < 0.001, `page / D ${d.page_over_D}: p and no lift`);
-  const bye = lib.consumerDecomposition({ ...asset, matchup: null, current_week_ppg: 0 }, arms, 0, 'HI');
+  const withOurs = (a, ours) => ({ ...a, week_blend: { ...a.week_blend, ours: { ...a.week_blend.ours, ...ours } } });
+  const bye = lib.consumerDecomposition(withOurs({ ...asset, matchup: null, current_week_ppg: 0 }, { ppg: 0 }), arms, 0, 'HI');
   assert.deepEqual([bye.current_week_identity, bye.bye, bye.page_over_D], [true, true, 0]);
-  assert.equal(lib.consumerDecomposition({ ...asset, current_week_ppg: 12.35 }, arms, page, 'HI').current_week_identity, false);
+  assert.equal(lib.consumerDecomposition(withOurs(asset, { ppg: 12.35 }), arms, page, 'HI').current_week_identity, false);
   assert.equal(lib.consumerDecomposition(asset, { ...arms, B: 12.3 }, page, 'HI').b_parity, false);
+  // FIX-164-3c: the identity is on the blend's ours input. With ESPN's number served
+  // (current_week_ppg 20, weight 0, the top-level coordinator block moved under ours) it holds.
+  const espnServed = { ...asset, current_week_ppg: 20, fantasy_coordinator: null, week_basis: 'espn',
+    week_blend: { ...asset.week_blend, basis: 'blend', weight_ours: 0 } };
+  const e = lib.consumerDecomposition(espnServed, arms, 20, 'HI');
+  assert.deepEqual([e.b_parity, e.current_week_identity], [true, true]);
+  assert.equal(lib.consumerDecomposition({ ...asset, week_blend: undefined }, arms, page, 'HI').current_week_identity, false,
+    'no ours input: the identity cannot pass on the served number');
   assert.equal(lib.consumerDecomposition(asset, arms, page, 'LO').team_differs, true);
 });
 

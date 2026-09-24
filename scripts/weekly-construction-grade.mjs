@@ -373,12 +373,12 @@ export async function consumerParity({ lib, PPR, buildPlayerWeekEngine, activeFa
     if (!lib.SKILL_POSITIONS.has(asset?.position)) continue;
     const proj = engine.get(id);
     if (!proj) { skipped.no_engine_projection++; continue; }
-    if (!asset.fantasy_coordinator) { skipped.no_coordinator_correction++; continue; }
+    if (!asset.week_blend?.ours?.fantasy_coordinator) { skipped.no_coordinator_correction++; continue; }
     const arms = lib.constructArms(proj, { season: target.season, week: target.week, scoring: PPR, fitS: servedFit, fitE: servedFit, lambda: 1 });
     const page = startSitWeekPoints(asset, target.season, target.week).week_points;
     const d = lib.consumerDecomposition(asset, arms, page, proj.team);
-    if (!d.b_parity) throw new Error(`consumer parity: player ${id} served B ${asset.fantasy_coordinator.corrected_ppg} vs study B ${arms.B}`);
-    if (!d.current_week_identity) throw new Error(`consumer parity: player ${id} current_week_ppg ${asset.current_week_ppg} vs B x mult x p ${d.expected_current_week_ppg}`);
+    if (!d.b_parity) throw new Error(`consumer parity: player ${id} served B ${asset.week_blend.ours.fantasy_coordinator.corrected_ppg} vs study B ${arms.B}`);
+    if (!d.current_week_identity) throw new Error(`consumer parity: player ${id} week_blend.ours.ppg ${asset.week_blend.ours.ppg} vs B x mult x p ${d.expected_current_week_ppg}`);
     const a = avail.get(id);
     checked.push({ ...d, position: asset.position, no_report: !asset.injury_status, no_team: !asset.team_abbr,
       p_is_durability_prior: a ? a.active_probability === a.durability_prior : null });

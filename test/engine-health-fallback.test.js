@@ -2,9 +2,11 @@
  * HEALTH-01b: fallback, never fake (ENGINE-SPECS.md HEALTH-01).
  *
  * Every served engine field names a stand-in: its declared fallbackField, else its own last
- * good row. The reader (engine/state.js#readServed) returns {value, health, fallback_used,
- * reason}; a failed or degraded field serves the stand-in, labelled, and a failed value is
- * never returned by the reader or the route, not even inside the reason.
+ * good row. The one fallback reader (engine/views.js#readServed; FIX-250-1: EA-03's
+ * views.js, #257, owns HEALTH-01b, and state.js keeps no reader of its own) returns
+ * {value, health, fallback_used, reason, problem}; a failed or degraded field serves the
+ * stand-in, labelled, and a failed value is never returned by the reader or the route, not
+ * even inside the reason.
  *
  * RED rows: a failed field -> the reader serves the fallback with fallback_used=true and a
  * reason; no page renders a failed value (a grep over client reads, plus the route itself).
@@ -27,10 +29,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 await (await import('../server/db/migrate.js')).runMigrations();
 const registry = await import('../server/services/engine/registry.js');
 const state = await import('../server/services/engine/state.js');
+const views = await import('../server/services/engine/views.js');
 const { default: engineRouter } = await import('../server/routes/engine.js');
 const express = (await import('express')).default;
 
-const need = () => assert.equal(typeof state.readServed, 'function', 'engine/state.js#readServed does not exist');
+const need = () => assert.equal(typeof views.readServed, 'function', 'engine/views.js#readServed does not exist');
 
 // A probability field whose declared stand-in is the market's number, and one with no stand-in.
 const W = registry.registerProducer({ name: 'producer-hfb', active: '1', versions: { 1: {} },
@@ -62,7 +65,7 @@ put('test.hfb_solo', '9105', 0.6, '2026-09-02T00:00:00Z', { inputsHealth: 'degra
 
 test('RED (b1): a failed field serves its declared fallback, fallback_used=true, with the reason', () => {
   need();
-  const s = state.readServed('player', '9101', 'test.hfb_prob', AT);
+  const s = views.readServed('player', '9101', 'test.hfb_prob', AT);
   assert.equal(s.status, 'fallback');
   assert.equal(s.value, 0.42);
   assert.equal(s.fallback_used, true);
@@ -70,23 +73,25 @@ test('RED (b1): a failed field serves its declared fallback, fallback_used=true,
   assert.equal(s.fallback.field, 'test.hfb_market');
   assert.match(s.reason, /failed its checks \(prob_unit\)/);
   assert.match(s.reason, /test\.hfb_market/);
-  assert.equal(s.health.status, 'failed', 'the health reported is the field\'s own: failed');
+  assert.equal(s.problem.status, 'failed', 'the field\'s own row is reported as the problem: failed');
+  assert.equal(s.health.status, 'ok', 'the health served is the stand-in\'s, never a failed one');
   assert.doesNotMatch(JSON.stringify(s), /1\.37/, 'the failed value leaked into the served read');
 });
 
 test('RED (b2): with no fallback field, a failed field serves its last good row, labelled', () => {
   need();
-  const s = state.readServed('player', '9102', 'test.hfb_solo', AT);
-  assert.equal(s.status, 'fallback');
+  const s = views.readServed('player', '9102', 'test.hfb_solo', AT);
+  assert.equal(s.status, 'last_good', 'one status word for a last good row, the same as /view');
   assert.equal(s.value, 0.25);
   assert.equal(s.fallback_used, true);
   assert.equal(s.fallback.kind, 'last_good');
   assert.match(s.reason, /last good row/);
+  assert.match(s.reason, /last good, \d+ min old/, 'the same label EngineValue renders for /view');
 });
 
 test('RED (b3): a failed field with nothing healthy serves no value, never the failed one', () => {
   need();
-  const s = state.readServed('player', '9103', 'test.hfb_solo', AT);
+  const s = views.readServed('player', '9103', 'test.hfb_solo', AT);
   assert.equal(s.status, 'failed');
   assert.equal(s.value, null);
   assert.equal(s.row, null);
@@ -97,13 +102,13 @@ test('RED (b3): a failed field with nothing healthy serves no value, never the f
 
 test('RED (b4): degraded serves the fallback when there is one, else the degraded value labelled', () => {
   need();
-  const fb = state.readServed('player', '9104', 'test.hfb_prob', AT);
+  const fb = views.readServed('player', '9104', 'test.hfb_prob', AT);
   assert.equal(fb.status, 'fallback'); assert.equal(fb.value, 0.51); assert.equal(fb.fallback_used, true);
   assert.match(fb.reason, /degraded inputs/);
-  const deg = state.readServed('player', '9105', 'test.hfb_solo', AT);
+  const deg = views.readServed('player', '9105', 'test.hfb_solo', AT);
   assert.equal(deg.status, 'degraded'); assert.equal(deg.value, 0.6); assert.equal(deg.fallback_used, false);
   assert.match(deg.reason, /degraded/);
-  const ok = state.readServed('player', '9101', 'test.hfb_market', AT);
+  const ok = views.readServed('player', '9101', 'test.hfb_market', AT);
   assert.equal(ok.status, 'ok'); assert.equal(ok.fallback_used, false); assert.equal(ok.reason, null);
 });
 
@@ -143,7 +148,9 @@ test('RED (b6): no page renders a failed value: client engine reads go through t
     d.isDirectory() ? walk(path.join(dir, d.name)) : /\.(tsx?|jsx?)$/.test(d.name) ? [path.join(dir, d.name)] : []);
   const clientFiles = walk(path.join(root, 'client', 'src'));
   for (const file of clientFiles) {
-    const src = fs.readFileSync(file, 'utf8');
+    // Comments stripped: EA-03's status strip names /api/engine/status in its header but fetches
+    // no value, and a doc comment is not a read.
+    const src = fs.readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     if (!/\/api\/engine\//.test(src)) continue;
     const rel = path.relative(root, file);
     assert.doesNotMatch(src, /includeFailed|include_failed/, `${rel} asks for failed rows`);
@@ -158,4 +165,30 @@ test('RED (b6): no page renders a failed value: client engine reads go through t
   }
   assert.match(fs.readFileSync(path.join(root, 'server', 'routes', 'engine.js'), 'utf8'), /readServed\(/,
     'the engine route does not serve through readServed');
+});
+
+test('FIX-250-1: one fallback reader: state.js has none, the route and Coach read views.js#readServed', () => {
+  const src = f => fs.readFileSync(path.join(root, f), 'utf8');
+  assert.equal(state.readServed, undefined, 'engine/state.js still exports a second reader');
+  assert.doesNotMatch(src('server/services/engine/state.js'), /function\s+readServed|problemReason/,
+    'engine/state.js still carries a fallback rule');
+  for (const f of ['server/routes/engine.js', 'server/services/coach/tools.js']) {
+    assert.match(src(f), /import\s*\{[^}]*\breadServed\b[^}]*\}\s*from\s*'[^']*engine\/views\.js'/,
+      `${f} does not read through engine/views.js#readServed`);
+  }
+  // The as-of read (/state, Coach) and the snapshot read (/view) decide HEALTH-01b in one function.
+  const v = src('server/services/engine/views.js');
+  assert.equal((v.match(/function\s+healthServe\b/g) ?? []).length, 1, 'views.js has no single HEALTH-01b rule');
+  assert.ok((v.match(/healthServe\(/g) ?? []).length >= 3, 'readServed and resolveRow do not both call the one rule');
+});
+
+test('FIX-250-1: the as-of reader and the snapshot reader serve the same stand-in for the same failed field', () => {
+  // The snapshot path of the same rule is exercised in test/engine-views.test.js RED (3); here the
+  // rule itself is called with an as-of fetch and must give the same words the view gives.
+  const s = views.readServed('player', '9103', 'test.hfb_solo', AT);
+  assert.equal(s.status, 'failed');
+  assert.equal(s.health, null, 'nothing served, so no health served: a failed health is never handed out');
+  assert.equal(s.problem.status, 'failed');
+  assert.deepEqual(s.problem.failed_checks, ['prob_unit']);
+  assert.doesNotMatch(JSON.stringify(s), /1\.37/);
 });

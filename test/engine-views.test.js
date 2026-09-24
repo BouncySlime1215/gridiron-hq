@@ -220,7 +220,8 @@ test('RED (3): HEALTH-01b: a failed field serves its fallback or last good, neve
   assert.match(lg.reason, /last good, 60 min old/);
 
   const none = rowOf(v, 'player:9202', 'fx.lonely');
-  assert.equal(none.status, 'unknown'); assert.equal(none.value, null);
+  // FIX-250-1: one status word for "failed, nothing to stand in", the same as /state and Coach.
+  assert.equal(none.status, 'failed'); assert.equal(none.value, null); assert.equal(none.health, null);
   assert.match(none.reason, /failed/);
   for (const row of v.rows) {
     assert.notEqual(row.value, 99, 'a failed value was served'); assert.notEqual(row.value, 75); assert.notEqual(row.value, 70);
@@ -262,7 +263,7 @@ test('RED (5): every served row carries status, health, producer@version, as_of 
     assert.ok(statusMod.ROW_STATUSES.includes(r.status), `status ${r.status} is typed`);
   }
   assert.deepEqual([...statusMod.ROW_STATUSES].sort(),
-    ['degraded', 'fallback', 'last_good', 'ok', 'stale', 'thin', 'unknown', 'zero']);
+    ['degraded', 'failed', 'fallback', 'last_good', 'ok', 'stale', 'thin', 'unknown', 'zero']);
 });
 
 test('RED (6): one snapshot per Coach answer: a pinned session keeps its id after a newer publish', () => {

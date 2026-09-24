@@ -17,6 +17,48 @@
 import { chatLabels } from '../../server/services/campaign/partners.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
+/** The engagement field LIVING-01a writes (engine_state; FIELD-REGISTRY `activity.manager`). */
+export const ACTIVITY_FIELD = 'activity.manager';
+const LIVING01A_FLAG = 'GRIDIRON_LIVING01A_ENABLED';
+
+/**
+ * Who is checked out, per team: the latest `activity.manager` row wins (state + P(checked out));
+ * a team with no row falls back to the timing read (present, zero actions), labelled as such; a team
+ * with neither gets no entry (unknown, never "engaged").
+ * rows: [{ entity_id: '<league>:<team>', value (JSON text), lane }] newest first; timing: Map team -> timingRead entry.
+ */
+export function activityReads(rows, timing, leagueId) {
+  const out = new Map();
+  const prefix = `${leagueId}:`;
+  for (const r of rows ?? []) {
+    const id = String(r.entity_id);
+    if (!id.startsWith(prefix)) continue;
+    const team = id.slice(prefix.length);
+    if (out.has(team)) continue;
+    let v = null;
+    try { v = typeof r.value === 'string' ? JSON.parse(r.value) : r.value; } catch (e) {
+      throw new Error(`${ACTIVITY_FIELD} row for team ${team} is not JSON: ${e.message}`);
+    }
+    const p = Number.isFinite(v?.probs?.checked_out) ? v.probs.checked_out : null;
+    out.set(team, { checked_out: v?.state === 'checked_out', source: ACTIVITY_FIELD, p, lane: r.lane ?? null });
+  }
+  for (const [team, tm] of timing ?? []) {
+    const t = String(team);
+    if (out.has(t) || tm?.read_state !== 'present') continue;
+    out.set(t, { checked_out: tm.actions_n === 0, source: 'timing read', p: null, lane: null });
+  }
+  return out;
+}
+
+/** activity.manager rows for one league, newest first: live lane, plus shadow when the flag or preview is on. */
+function activityRows(svc, leagueId, env = process.env) {
+  const has = svc.db.row(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'engine_state'`);
+  if (!has) return [];
+  const lanes = env[LIVING01A_FLAG] === '1' || env.GRIDIRON_PREVIEW_UNCONFIRMED === '1' ? ['live', 'shadow'] : ['live'];
+  return svc.db.rows(`SELECT entity_id, value, lane FROM engine_state
+    WHERE field = ? AND league_id = ? AND lane IN (${lanes.map(() => '?').join(', ')})
+    ORDER BY CASE lane WHEN 'live' THEN 0 ELSE 1 END, as_of DESC, id DESC`, ACTIVITY_FIELD, Number(leagueId), ...lanes);
+}
 const FLEX = { FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'], WRRB_FLEX: ['RB', 'WR'],
   SUPER_FLEX: ['QB', 'RB', 'WR', 'TE'], OP: ['QB', 'RB', 'WR', 'TE'] };
 const DAY = 864e5;
@@ -183,6 +225,7 @@ export function buildAdapter(svc, leagueId, { chat = null, offerLog = [], now = 
     .map(r => String(r.roster_id)));
   const sent = sentThisWeek(svc, leagueId, season, me, now, offerLog);
   const titleByTeam = new Map((w0.base?.teams ?? []).map(t => [String(t.roster_id), t.title_odds]));
+  const activity = activityReads(activityRows(svc, leagueId), timing, leagueId);
   const managers = new Map();
   for (const t of rosters.keys()) {
     if (t === me) continue;
@@ -192,7 +235,9 @@ export function buildAdapter(svc, leagueId, { chat = null, offerLog = [], now = 
     managers.set(t, {
       receptiveness: m?.receptiveness ?? null, tier: m?.tier ?? null, needs: m?.needs ?? null,
       blocked: blocked.has(t),
-      checked_out: tm?.read_state === 'present' && tm.actions_n === 0,
+      checked_out: activity.get(String(t))?.checked_out ?? false,
+      checked_out_source: activity.get(String(t))?.source ?? null,
+      p_checked_out: activity.get(String(t))?.p ?? null,
       title_now: titleByTeam.get(t) ?? null,
       sent_this_week: sent.get(t) ?? 0,
       send_when: send,

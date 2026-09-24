@@ -15,9 +15,10 @@ import { dealKey, pathExpectation, combos, linearNick, screenPct } from './paths
 import { rankPlans, compareModes, tolerancesFor, MODES } from './modes.js';
 import { metricOf, pointsFeasibility, targetFeasibility, weeklySummary } from './objectives.js';
 import { priceLadder, stepMessage, replyTable } from './playbook.js';
-import { buildItinerary, stopTradeOff, speedCurve, arrivalWeek } from './itinerary.js';
-import { orderCatchUp, freeMoves, isBehind } from './catchup.js';
-import { rankPartners, planSkipWeight } from './partners.js';
+import { buildItinerary, stopTradeOff, arrivalWeek } from './itinerary.js';
+import { speedCurve, concededPlan, sideLevers } from './speed.js';
+import { orderCatchUp, freeMoves, isBehind, sellersRead, desperateMoves } from './catchup.js';
+import { rankPartners, planSkipWeight, pResponds } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct } from './wait-or-act.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan } from './search.js';
@@ -213,7 +214,10 @@ export function planLeague(adapter, settings) {
   });
 
   const clock = { currentWeek: L.week, deadlineWeek: L.deadline_week, daysLeftInWeek: L.days_left_in_week ?? 7 };
-  const speed = speedCurve(ranked, clock);
+  // Speed levers priced on the same ranked paths: the walk-away price of the best plan (its playbook
+  // ladder) and the all-in mode's best plan are the two re-priced routes (speed.js).
+  const conceded = best && playbook[0] ? concededPlan(best.planned_on ?? best, playbook[0].ladder) : null;
+  const speed = speedCurve({ ranked, conceded, allIn: byMode.all_in[0] ?? null }, clock);
 
   // Feasibility (row 9): points objective in full; player objective by path; weekly outlook always.
   let feasibility = null;
@@ -234,12 +238,15 @@ export function planLeague(adapter, settings) {
 
   // Catch-up list.
   const behind = isBehind(now.title, L.team_count ?? adapter.rosters.size);
+  const free = freeMoves(adapter.freeAgents ?? [], roster.filter(p => p.starter));
+  const sellers = sellersRead(managers);
+  const desperate = desperateMoves(ranked, sellers, { names,
+    playerValue: id => adapter.players.get(id)?.value, pResponds: t => pResponds(managers.get(t)).p });
   const items = [
-    ...freeMoves(adapter.freeAgents ?? [], roster.filter(p => p.starter)),
+    ...free,
     ...flip.realised.filter(f => f.legs && f.legs.expected > 0).map(f => ({ kind: 'flip', gain: f.legs.expected,
       text: `Buy ${names(f.player)} from Team ${f.a}, sell to Team ${f.b}.`, player: f.player })),
-    ...ranked.filter(p => { const m = managers.get(p.steps[0].team) ?? {}; return m.checked_out || (Number.isFinite(m.title_now) && m.title_now < 0.03); })
-      .slice(0, 2).map(p => ({ kind: 'desperate', gain: p.expected, steps: p.steps.length, plan_key: firstKey(p), text: `Team ${p.steps[0].team} is out of it: ${p.steps[0].get.map(names).join(' + ')} may come cheap.` })),
+    ...desperate.items,
     ...(behind ? byMode.all_in.slice(0, 1).map(p => ({ kind: 'swing', gain: p.expected, steps: p.steps.length, plan_key: firstKey(p),
       text: `You are behind: the all-in plan reaches +${(p.delta_final * 100).toFixed(1)} pts if it lands.` })) : []),
     ...playbook.filter(pb => pb.wait.flag === 'wait').map(pb => ({ kind: 'timing', gain: pb.wait.option_value, text: `Wait ${pb.wait.days} days: ${pb.wait.reason}.` })),
@@ -267,6 +274,8 @@ export function planLeague(adapter, settings) {
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
     suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, outlook,
     risk_modes: compareModes(plans, ctxFor), catch_up: catchUp, partners,
+    sellers: { read: sellers, unreached: desperate.unreached.map(s => s.team) },
+    speed_levers: sideLevers({ free, waits: playbook.map(pb => pb.wait) }),
     rescores: S.count() + (confirm.rescores ?? 0), runtime_ms: clockNow() - t0, phases_ms: phases,
   };
 }

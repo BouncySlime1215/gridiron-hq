@@ -15,6 +15,9 @@
  *   GRIDIRON_WARROOM_OFFERS      input    JSONL { league, manager, at } (optional; "I sent it" log, fatigue cap)
  *   GRIDIRON_WARROOM_PUSHES      output   JSONL, one row per league whose next move changed
  *   GRIDIRON_CHAT_DB_PATH        input    local chat DB (optional; labels only)
+ *   GRIDIRON_COUNTERPART         flag     =1 turns on the COUNTERPART-01 model (people/counterpart.js):
+ *                                         targets, package, partner order, price and reply prior
+ *                                         adjusted by named features; unset -> today's plan unchanged
  * Defaults for the inputs sit next to the plans file.
  *
  * Every re-run diffs each league's next move against the previous plans file and
@@ -98,6 +101,8 @@ async function main() {
   try {
     const { loadServices, buildAdapter } = await import('./league-adapter.mjs');
     const { chatRowsFor } = await import('./chat-labels.mjs');
+    const { flagOn, counterpartsFor, counterpartReport } = await import('./counterpart-inputs.mjs');
+    const counterpartOn = flagOn(env);
     const { planLeague } = await import('../../server/services/campaign/planner.js');
     const { normaliseObjective } = await import('../../server/services/campaign/objectives.js');
     const { skipWeights } = await import('../../server/services/campaign/partners.js');
@@ -125,6 +130,11 @@ async function main() {
         const adapter = buildAdapter(svc, id, { chat: chat.rows, offerLog: offers.rows });
         const adapterMs = Date.now() - ta;
         if (adapter.fail) throw new Error(`world failed: ${adapter.fail}`);
+        let cpInputs = null;
+        if (counterpartOn) {
+          cpInputs = await counterpartsFor(svc, id, adapter);
+          adapter.counterparts = cpInputs.counterparts;
+        }
         const objective = normaliseObjective(objectives[String(id)] ?? {}, { leagueGoal: objectives[String(id)]?.goal ?? 'title' });
         const res = planLeague(adapter, { objective, skips: skipWeights(skips.rows, id), previous: prev,
           budget: { flipTopPer: opts.flipTop, targets: opts.targets } });
@@ -137,9 +147,10 @@ async function main() {
         entry.inputs = { chat: { status: chat.status, reason: chat.reason ?? null, negotiation: chat.negotiation ?? null },
           skips: { status: skips.status, rows: skips.rows.filter(s => String(s.league) === String(id)).length, bad_lines: skips.bad },
           offers: { status: offers.status, bad_lines: offers.bad }, deadline: adapter.league.deadline_source,
-          objective: objective.source };
+          objective: objective.source, counterpart: cpInputs ? cpInputs.summary : { status: 'off', reason: 'GRIDIRON_COUNTERPART unset' } };
         const errs = validateEntry(entry);
         if (errs.length) throw new Error(`plans JSON failed its contract check: ${errs.slice(0, 3).join('; ')}`);
+        if (counterpartOn) console.log(counterpartReport(entry, res));
       } catch (e) {
         console.error(`[warroom] league ${id}: ${e.stack ?? e}`);
         entry = toEntry({ league: id, me: prev?.me ?? null, error: String(e.message ?? e) },

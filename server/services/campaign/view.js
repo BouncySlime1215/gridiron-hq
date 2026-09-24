@@ -154,6 +154,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     p_reach: num(t.p_reach, 'plan.path', { guess: true, unit: 'probability' }),
     expected: num(t.expected, 'plan.path'),
     mode_fit: t.mode_fit, why: t.why, approved: t.approved, skipped: t.skipped,
+    ...(t.reason_chain ? { reason_chain: t.reason_chain } : {}),
   })), src('plan.path')) : unknown('No single-player upgrade found on the other rosters.');
 
   const speed_curve = res.speed.length ? field('ok', res.speed.map(s => ({
@@ -193,7 +194,10 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     gain: num(c.gain, 'plan.path') })), src('plan.path'));
   const partners = field('ok', res.partners.map(p => ({ team: p.team, p_responds: p.p_responds, basis: p.basis,
     edge: num(p.edge, 'plan.path'), score: p.score, shadow_score: p.shadow_score, chat: p.chat,
-    checked_out: p.checked_out, blocked: p.blocked })), { ...src('chat.labels'), reason: 'chat labels run in shadow; ranking uses activity x edge' });
+    checked_out: p.checked_out, blocked: p.blocked,
+    ...(p.reason_chain ? { p_responds_before_counterpart: p.p_responds_before_counterpart, reason_chain: p.reason_chain } : {}) })),
+  { ...src('chat.labels'), reason: res.counterpart ? 'counterpart model on (GRIDIRON_COUNTERPART): activity x edge, adjusted by named counterpart features'
+    : 'chat labels run in shadow; ranking uses activity x edge' });
   const feasibility = res.feasibility ? field('ok', res.feasibility, src('sim.title'))
     : res.outlook ? field('ok', { kind: 'outlook', season_mean: res.outlook.season_mean, per_week: res.outlook.per_week.map(w => ({ week: w.week, mean: w.mean })) }, src('sim.title'))
       : unknown('The weekly points outlook was not computed.', 'sim.title');
@@ -215,7 +219,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     objective: { ...o, tolerances: res.tolerances }, next_step: best ? best.steps[0] : null,
     objective_version: o.version, risk_mode: o.risk_mode, trajectory: prevTraj ?? trajectory,
     acq, flip: { pairs: res.flip.pairs, clears: res.flip.clears, top: res.flip.top, realised: res.flip.realised },
-    view, changed, rescores: res.rescores, runtime_ms: res.runtime_ms, phases_ms: res.phases_ms,
+    view, changed, ...(res.counterpart ? { counterpart: res.counterpart } : {}), rescores: res.rescores, runtime_ms: res.runtime_ms, phases_ms: res.phases_ms,
   };
 }
 

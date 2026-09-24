@@ -21,6 +21,7 @@ import { rankPartners, planSkipWeight } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct } from './wait-or-act.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan } from './search.js';
+import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
 
 export const DECK_SIZE = 5;
 /** P(accept) curve window on his screen, wider than the finder's so the curve has a shape. */
@@ -77,6 +78,9 @@ function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta) {
  * settings: { objective, skips ({player, manager} Maps), previous (last entry or null), budget }
  */
 export function planLeague(adapter, settings) {
+  // COUNTERPART-01 (flag GRIDIRON_COUNTERPART, set by the producer): absent -> today's plan, unchanged.
+  const CP = adapter.counterparts ?? null;
+  if (CP) adapter = withCounterparts(adapter, CP);
   const clockNow = () => adapter.now?.() ?? 0;
   const t0 = clockNow();
   const phases = {};
@@ -101,8 +105,11 @@ export function planLeague(adapter, settings) {
   mark('flip');
   // Targets: the objective's player, Nick's "get" stops, then the biggest single-player upgrades.
   const skipP = settings.skips?.player ?? new Map();
-  const upgrades = [...vals.addN.entries()].filter(([pid]) => !adapter.managers.get(vals.lossO.get(pid)?.team)?.blocked)
-    .sort((x, y) => y[1] * (skipP.get(String(y[0])) ?? 1) - x[1] * (skipP.get(String(x[0])) ?? 1)).map(([pid]) => pid);
+  const myIds = adapter.rosters.get(me);
+  const tiltOf = pid => (CP ? targetTilt(CP, vals.lossO.get(pid)?.team, pid, myIds) : { tilt: 1, exclude: false, features: [] });
+  const upgrades = [...vals.addN.entries()].filter(([pid]) => !adapter.managers.get(vals.lossO.get(pid)?.team)?.blocked && !tiltOf(pid).exclude)
+    .sort((x, y) => y[1] * (skipP.get(String(y[0])) ?? 1) * tiltOf(y[0]).tilt - x[1] * (skipP.get(String(x[0])) ?? 1) * tiltOf(x[0]).tilt)
+    .map(([pid]) => pid);
   const wanted = [];
   const want = pid => { if (pid != null && !wanted.some(w => String(w) === String(pid))) wanted.push(pid); };
   const idOf = s => [...adapter.players.keys()].find(k => String(k) === String(s)) ?? null;
@@ -158,7 +165,10 @@ export function planLeague(adapter, settings) {
   const playbookFor = (plan, i, backup) => {
     const st = plan.steps[i];
     const stateBefore = i === 0 ? new Map() : plan.steps[i - 1].state ?? (plan.planned_on?.steps[i - 1].state) ?? new Map();
-    const { curve, basis } = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta);
+    const priced = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta);
+    const cap = CP ? priceCap(CP.get(String(st.team))) : null;
+    const curve = cap ? priced.curve.filter(c => c.his_pct <= cap.max_his_pct) : priced.curve;
+    const basis = cap ? `${priced.basis}; capped at ${cap.max_his_pct}% on his screen (nick_override)` : priced.basis;
     const ladder = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode });
     const m = managers.get(st.team) ?? {};
     const offer = ladder.opening ? { ...st, give: ladder.opening.give } : st;
@@ -173,6 +183,8 @@ export function planLeague(adapter, settings) {
       replies: replyTable(st, { next, backup, ladder, nudge: `Still open to ${st.give.map(names).join(' + ')} for ${st.get.map(names).join(' + ')}?` }),
       send_when: m.send_when ?? null,
       wait: waitOrAct(st, adapter.players),
+      ...(CP ? { reply_prior: { ...M6_REPLY_PRIOR, label: M6_LABEL },
+        reason_chain: [...adapter.priceStep(offer.team, offer.get, offer.give).features, ...(cap ? [cap.feature] : [])] } : {}),
     };
   };
   const playbook = best ? best.steps.map((_, i) => playbookFor(best, i, i === 0 ? (deck[1] ? { step: deck[1].steps[0], expected: deck[1].expected } : backups[0]) : backups[i])) : [];
@@ -190,9 +202,11 @@ export function planLeague(adapter, settings) {
     const gain = vals.addN.get(pid) ?? 0;
     const owner = vals.lossO.get(pid)?.team;
     const w = skipP.get(String(pid)) ?? 1;
+    const tt = tiltOf(pid);
     return { player: pid, owner, gain_if_landed: gain, gain_se: vals.addSe.get(pid) ?? null,
       p_reach: reach ? reach.p_complete : null, expected: reach ? reach.expected : null, mode_fit: fit,
-      rank_score: gain * (reach?.p_complete ?? 0) * w, skipped: w < 1,
+      rank_score: gain * (reach?.p_complete ?? 0) * w * tt.tilt, skipped: w < 1,
+      ...(CP ? { reason_chain: tt.features } : {}),
       why: `${names(pid)} adds ${(gain * 100).toFixed(1)} pts if landed; `
         + (reach ? `${reach.steps.length}-step path from Team ${owner}, lands ${(reach.p_complete * 100).toFixed(0)}% of the time.` : 'no path fits the sliders yet.'),
       approved: objective.kind === 'player' && String(objective.target) === String(pid) };
@@ -250,16 +264,23 @@ export function planLeague(adapter, settings) {
   mark('playbook_and_reports');
   const edge = new Map();
   for (const p of ranked) { const t = String(p.steps[0].team); edge.set(t, Math.max(edge.get(t) ?? 0, p.expected)); }
-  const partners = rankPartners(managers, edge);
+  const partners = rankPartners(managers, edge, CP ? { counterparts: CP, myIds } : null);
+  // Every counterpart adjustment on a written step is named in its reason chain.
+  const pub = p => {
+    const out = publicPlan(p);
+    if (!CP || !out) return out;
+    return { ...out, steps: out.steps.map(s => ({ ...s, reason_chain: adapter.priceStep(s.team, s.get, s.give).features })) };
+  };
 
   return {
     league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: tol,
     now, behind, week: L.week, deadline_week: L.deadline_week ?? null,
     flip, targets: wanted, candidates_scored: plans.length, dropped: dropped.slice(0, 20).map(d => ({ first: d.plan.steps[0], why: d.why })),
-    best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook })),
+    best: pub(best), deck: deckCards.map(c => ({ plan: pub(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook })),
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
     suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, outlook,
     risk_modes: compareModes(plans, ctxFor), catch_up: catchUp, partners,
+    ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
     rescores: S.count() + (confirm.rescores ?? 0), runtime_ms: clockNow() - t0, phases_ms: phases,
   };
 }

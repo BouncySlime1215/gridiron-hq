@@ -154,3 +154,13 @@ test('the War Room entry with the model on still passes its contract and carries
   assert.equal(entry.counterpart.status, 'on');
   assert.ok(JSON.stringify(entry.counterpart).length > 0, 'the model summary is JSON-safe');
 });
+
+test('a counterparty with no chat identity still gets a typed-unknown model, so the reply prior is league-wide', () => {
+  const a = makeAdapter();
+  const cps = buildCounterparts({ profiles: new Map(), players: a.players, now: NOW, teams: [...a.managers.keys()] });
+  assert.deepEqual([...cps.keys()], ['2', '3', '4']);
+  assert.ok([...cps.values()].every(c => c.status === 'unknown' && c.reason === 'no confirmed chat identity'));
+  a.counterparts = cps;
+  const res = planLeague(a, { objective: obj });
+  assert.ok(res.partners.every(p => p.reason_chain.some(f => f.feature === 'reply_prior')));
+});

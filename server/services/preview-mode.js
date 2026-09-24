@@ -18,6 +18,8 @@
  *   - streaming-board.js#streamingBoard          D/ST swap suggestion (dormant: on by default
  *                                                since NICK-WV01, so preview never switches it)
  *   - waiver-wire.js#waiverBoard                 snap-share order for same-team replacements
+ *   - activity-team-mean.js#activityMeanOn       LIVING-01c activity-adjusted team mean in
+ *                                                season-sim.js#simulateSeason (title odds)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

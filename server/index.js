@@ -65,6 +65,7 @@ const { startScheduler } = await import('./services/scheduler.js');
 const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-access.js');
 const { default: coachRouter } = await import('./routes/coach.js');
 const { default: engineRouter } = await import('./routes/engine.js');
+const { default: warroomRouter } = await import('./routes/warroom.js');
 
 const app = express();
 // First, so that ANY completed response arms the watchdog -- including a 404
@@ -177,6 +178,9 @@ app.use('/api/execution-slate', ...legacyAuthenticated, executionSlateRouter);
 app.use('/api/coach', coachRouter);
 // ONE ENGINE reader (ENGINE-00a, EA-00): read-only world state for pages and Coach, with typed status.
 app.use('/api/engine', ...legacyAuthenticated, engineRouter);
+// War Room writes (WR-3 requests, saved layouts, Coach action log). Records only;
+// default-off behind GRIDIRON_WARROOM_ENABLED (answers { enabled: false } when off).
+app.use('/api/warroom', ...legacyAuthenticated, warroomRouter);
 
 app.use((err, req, res, next) => {
   // AuthenticationError/AuthorizationError (server/platform/auth.js) set a real

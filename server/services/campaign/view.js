@@ -21,7 +21,7 @@ import { versionWithFlags } from './model-flags.js';
 import { SCHEMA_VERSION, TOLERANCE_KEYS, TRADEOFF_KEY, tradeoffKey } from './plans-schema.js';
 import { metricKey, objectiveLabel } from './objectives.js';
 import { MODE_LABELS } from './modes.js';
-import { P_ACCEPT_LABEL } from './playbook.js';
+import { P_ACCEPT_LABEL, teamLabel, acceptDo, declineDo } from './playbook.js';
 import { dealKey } from './paths.js';
 import { M6_REPLY_PRIOR } from '../people/counterpart.js';
 import { hash } from './confirm.js';
@@ -128,6 +128,13 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   const list = a => a.map(nm).join(' + ');
   const inNames = id => id != null && Object.hasOwn(names, String(id));
   const needsOf = team => (res.partners.find(p => p.team === String(team))?.needs ?? []);
+  // TEAM-NAMES-2: every team a sentence names reads playbook.js#teamLabel on this entry's teams map
+  // (the manager Nick knows when the league adapter read one, else 'Team N', as in public fixtures).
+  const tl = id => teamLabel(teams, id);
+  // Sentences the planner wrote with 'Team N' (planner.js targets / catch-up): the same label, applied
+  // only to a roster the teams map names; any other 'Team N' is left as written.
+  const relabel = text => (typeof text === 'string' && teams
+    ? text.replace(/\bTeam ([A-Za-z0-9_.:-]*[A-Za-z0-9_])(?![A-Za-z0-9_])/g, (m, id) => (Object.hasOwn(teams, id) ? tl(id) : m)) : text);
 
   /* ---------------------------------------------------------- the deck */
   const deck = res.deck;
@@ -138,9 +145,9 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     const needs = needsOf(team);
     const shrank = verdict?.verdict === 'shrank';
     return ok({
-      case_for: whole ?? `If Team ${team} says yes you move ${fmt(delta)}.`,
-      his_side: (needs.length ? `Team ${team}'s roster read lists ${needs.join(', ')} as thin, and the offer is built on it.`
-        : `There is no read of Team ${team}'s needs, so the offer leans on market value alone.`)
+      case_for: whole ?? `If ${tl(team)} says yes you move ${fmt(delta)}.`,
+      his_side: (needs.length ? `${tl(team)}'s roster read lists ${needs.join(', ')} as thin, and the offer is built on it.`
+        : `There is no read of ${tl(team)}'s needs, so the offer leans on market value alone.`)
         + (pb?.nick_shift ? ` ${pb.nick_shift.text}` : ''), // FIX-02c: Nick's read shifts the price (hand-set)
       devils_advocate: shrank ? `On fresh dice the plan shrank by ${fmt(verdict.shrink)}: the first read was lucky.`
         : clears === false ? 'The gain does not clear two standard errors of simulation noise.'
@@ -187,10 +194,10 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
         : unknown("No timing read for this manager.", 'plan.path');
       const row = kind => pb.replies.find(r => r.kind === kind);
       out.reply_table = ok({
-        accept: replyField(row('accept'), r => ({ do: r.do,
+        accept: replyField(row('accept'), r => ({ do: r.next ? acceptDo(r.next.partner, teams) : r.do,
           ...(r.next ? { move_id: thisId } : {}),
           odds_after: num(nowMetric + st.delta, 'sim.title', { unit, se: st.se, clears: st.clears }) })),
-        decline: replyField(row('decline'), r => ({ do: r.do,
+        decline: replyField(row('decline'), r => ({ do: r.next ? declineDo(r.next.partner, teams) : r.do,
           ...(backupId ? { move_id: backupId } : {}),
           ...(fin(r.expected_after) ? { odds_after: num(nowMetric + r.expected_after, 'plan.path', { unit }) } : {}) })),
         counter: replyField(row('counter'), r => ({ do: r.do, ...(r.counter_rules ? { counter_rules: r.counter_rules } : {}) })),
@@ -284,6 +291,9 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       const i = Number(pi[1]), st = res.best.steps[i], before = i === 0 ? 0 : res.best.steps[i - 1].delta;
       if (st.get.length === 1) out.player_id = String(st.get[0]);
       out.move_id = moveIds[0];
+      // itinerary.js#planStopLabel wrote ' from Team N' (the planner has no teams map): name him here.
+      const tail = ` from ${teamLabel(null, st.team)}`;
+      if (out.label.endsWith(tail)) out.label = `${out.label.slice(0, -tail.length)} from ${tl(st.team)}`;
       out.p_yes = num(st.p, 'clone.accept', { prob: true, unit: 'probability', guess: true });
       out.title_odds_delta = num(st.delta - before, 'sim.title', { se: st.se, clears: st.clears, unit });
     }
@@ -339,11 +349,11 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     player: String(t.player), owner: String(t.owner),
     gain_if_landed: num(t.gain_if_landed, 'sim.title', { se: t.gain_se, unit }),
     p_reach: num(t.p_reach, 'plan.path', { prob: true, unit: 'probability', guess: true, missing: 'No path to him fits any risk mode yet.' }),
-    mode_fit: ok(t.mode_fit, 'plan.path'), why: ok(t.why, 'plan.template'),
+    mode_fit: ok(t.mode_fit, 'plan.path'), why: ok(relabel(t.why), 'plan.template'),
     approved: !!t.approved, is_plan_target: bestTarget === String(t.player),
     reasoning: ok({
-      case_for: t.why,
-      his_side: needsOf(t.owner).length ? `Team ${t.owner}'s roster read lists ${needsOf(t.owner).join(', ')} as thin.` : `There is no read of Team ${t.owner}'s needs.`,
+      case_for: relabel(t.why),
+      his_side: needsOf(t.owner).length ? `${tl(t.owner)}'s roster read lists ${needsOf(t.owner).join(', ')} as thin.` : `There is no read of ${tl(t.owner)}'s needs.`,
       devils_advocate: t.mode_fit === 'fits' ? 'A path fits the current risk mode; landing him still takes every step saying yes.'
         : t.mode_fit === 'needs_all_in' ? 'Only an all-in plan reaches him.' : 'No plan inside the sliders reaches him.',
       news_check: 'Not checked for targets: the news read runs on the offers in a plan.',
@@ -371,7 +381,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     if (r && !r.legs && typeof r.why === 'string' && r.why.trim()) out.legs_why_not = r.why;
     if (r?.legs || f.chat_hint) {
       out.reasoning = ok({
-        case_for: `Team ${f.a} and Team ${f.b} price ${nm(f.player)} differently: the spread is ${(f.spread * 100).toFixed(1)} pts of title odds.`,
+        case_for: `${tl(f.a)} and ${tl(f.b)} price ${nm(f.player)} differently: the spread is ${(f.spread * 100).toFixed(1)} pts of title odds.`,
         his_side: f.chat_hint ? 'From chat: one side is louder about him than the other.' : 'No chat read on either side.',
         devils_advocate: f.clears ? 'The spread clears the noise; both legs still have to land.' : 'The spread does not clear two standard errors of noise.',
         news_check: 'Not checked for flips: the news read runs on the offers in a plan.',
@@ -389,7 +399,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       : c.kind === 'free' ? unknown(`A claim is priced in points a game (+${(c.ppg_gain ?? 0).toFixed(1)}), not in ${LABEL[metric]}.`, 'asset.ros')
         : c.kind === 'desperate' ? unknown('No plan through this manager fits the sliders yet.', 'plan.path')
           : unknown('The deadline clock carries no gain of its own.', 'plan.path');
-    const out = { text: c.text, gain, steps: Number.isInteger(c.steps) ? c.steps : c.kind === 'flip' ? 2 : 0, kind: c.kind };
+    const out = { text: relabel(c.text), gain, steps: Number.isInteger(c.steps) ? c.steps : c.kind === 'flip' ? 2 : 0, kind: c.kind };
     if (c.plan_key && idByFirstKey.has(c.plan_key)) out.move_id = idByFirstKey.get(c.plan_key);
     if (c.team != null) out.partner = String(c.team);
     if (c.kind === 'desperate') out.discount_pct = num(c.discount_pct, 'plan.path', { unit: 'market_value', missing: 'No price ladder for this step.' });

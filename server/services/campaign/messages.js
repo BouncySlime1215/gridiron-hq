@@ -30,7 +30,7 @@
  * called "even"), and the label keyword classes.
  */
 import { previewUnconfirmed } from '../preview-mode.js';
-import { NUDGE_HOURS, SWITCH_HOURS } from './playbook.js';
+import { NUDGE_HOURS, SWITCH_HOURS, teamLabel } from './playbook.js';
 import { checkMessage, factsFor, splitName, surname, numberTokens, MAX_CHARS } from './message-check.js';
 
 export const COACH_MESSAGES_ENV = 'GRIDIRON_COACH_MESSAGES';
@@ -189,9 +189,10 @@ export function offerText({ names, partner, prof, give, get, even, seed }) {
 
 /**
  * Coach texts for one step. Returns { step (new object), grounded (bool), errors: [..] }.
- * ctx: { names, partners (by team), profiles (roster -> profile), plan (move), i, moveById, phrase (optional sync override) }
+ * ctx: { names, partners (by team), profiles (roster -> profile), plan (move), i, moveById, phrase (optional sync override),
+ *        teams (the entry's teams map; optional) }
  */
-export function coachStep(step, { names, partnerByTeam, profiles, plan, i, moveById, phrase = offerText }) {
+export function coachStep(step, { names, partnerByTeam, profiles, plan, i, moveById, phrase = offerText, teams = null }) {
   const out = structuredClone(step);
   // A step the producer gave no playbook (view.js PLAYBOOK_LATER / PLAYBOOK_FIRST_ONLY: its opening,
   // walk_away and reply_table are 'unknown') gets the offer message only. Its reply table and walk-away
@@ -230,6 +231,11 @@ export function coachStep(step, { names, partnerByTeam, profiles, plan, i, moveB
   const prof = profileLabels(profiles?.get?.(String(step.partner)) ?? null, { giveIds: give, getIds: get, names });
   const seed = seedOf(step.partner, ...give, ...get, i);
   const errors = [];
+  // TEAM-NAMES-2: the checker grades the 'Team N' spelling (a manager's name is not a player, number or
+  // position, and would read as an invented proper noun); the text Nick reads then names the team with
+  // playbook.js#teamLabel on the entry's teams map. Only the next / backup partner is ever named.
+  const named = text => [next?.partner, backup?.partner].filter(v => v != null).map(String)
+    .reduce((t, id) => t.split(`Team ${id} `).join(`${teamLabel(teams, id)} `), text);
   const put = (text, f, label) => {
     const c = checkMessage(text, f);
     if (!c.ok) errors.push(`${label}: ${c.errors.join('; ')}`);
@@ -255,7 +261,7 @@ export function coachStep(step, { names, partnerByTeam, profiles, plan, i, moveB
     const prev = okv(table?.[kind]) ?? {};
     const texts = [['do', value.do], ...(value.message ? [['message', value.message]] : [])];
     const good = texts.every(([k, t]) => put(t, k === 'message' ? outFacts : facts, `${kind}.${k}`));
-    rows[kind] = good ? { status: 'ok', value: { ...prev, ...value }, source: table?.[kind]?.source ?? 'plan.path' } : table?.[kind] ?? null;
+    rows[kind] = good ? { status: 'ok', value: { ...prev, ...value, do: named(value.do) }, source: table?.[kind]?.source ?? 'plan.path' } : table?.[kind] ?? null;
   };
   const faceSave = prof.labels.has('his_call') || prof.labels.has('no_pressure');
   row('accept', {
@@ -323,13 +329,14 @@ export function applyCoachMessages(entry, { profiles = null, force = false, phra
   const out = structuredClone(entry);
   const names = out.names ?? {};
   const partnerByTeam = new Map((okv(out.partners) ?? []).map(p => [String(p.team), p]));
+  const teams = okv(out.teams) ?? null;
   const allMoves = [okv(out.next_move), ...(okv(out.alternatives) ?? [])].filter(Boolean);
   const moveById = new Map(allMoves.map(m => [m.move_id, m]));
   const done = new Map();
   for (const m of allMoves) {
     if (done.has(m.move_id)) { m.steps = done.get(m.move_id); continue; }
     m.steps = m.steps.map((s, i) => {
-      const r = coachStep(s, { names, partnerByTeam, profiles, plan: m, i, moveById, ...(phrase ? { phrase } : {}) });
+      const r = coachStep(s, { names, partnerByTeam, profiles, plan: m, i, moveById, teams, ...(phrase ? { phrase } : {}) });
       stats.steps++;
       if (r.grounded) stats.grounded++; else stats.fallback++;
       if (!r.priced) stats.unpriced++;

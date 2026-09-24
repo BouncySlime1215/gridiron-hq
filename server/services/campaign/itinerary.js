@@ -3,6 +3,8 @@
  * stop, and the speed curve (arrive by week N at cost) (pure).
  */
 
+import { teamLabel } from './playbook.js';
+
 /** Days one negotiation takes (offer, answer, maybe one counter). Hand-set, not fitted. */
 export const DAYS_PER_STEP = 2;
 
@@ -13,19 +15,31 @@ export function arrivalWeek(plan, currentWeek, { daysPerStep = DAYS_PER_STEP, pa
   return currentWeek + 1 + Math.floor((days - daysLeftInWeek - 1) / 7);
 }
 
+/** True when step i's get is given on by a later step (a flip, not a keep). */
+const passesOnAt = (plan, i) => plan.steps.slice(i + 1).some(t => t.give.some(id => plan.steps[i].get.includes(id)));
+
+/**
+ * TEAM-NAMES-2: a plan stop's label ('Flip X from <team>'); the team reads playbook.js#teamLabel.
+ * nm: player id -> name. view.js calls it again with the entry's teams map.
+ */
+export function planStopLabel(plan, i, nm, teams = null) {
+  const s = plan.steps[i];
+  return `${passesOnAt(plan, i) ? 'Flip' : 'Get'} ${s.get.map(nm).join(' + ')} from ${teamLabel(teams, s.team)}`;
+}
+
 /**
  * The itinerary: stops from the chosen plan plus Nick's own stops (objectives file), untouchables,
  * and conflicts (a plan step that sells an untouchable, a Nick stop the plan cannot reach).
  */
-export function buildItinerary(plan, objective, { names = {} } = {}) {
+export function buildItinerary(plan, objective, { names = {}, teams = null } = {}) {
   const nm = id => names[id] ?? `player ${id}`;
   const stops = [];
   const received = new Set();
   (plan?.steps ?? []).forEach((s, i) => {
-    const passesOn = (plan.steps.slice(i + 1)).some(t => t.give.some(id => s.get.includes(id)));
+    const passesOn = passesOnAt(plan, i);
     for (const id of s.get) received.add(id);
     stops.push({ id: `plan-${i}`, order: i, kind: passesOn ? 'flip' : 'get',
-      label: `${passesOn ? 'Flip' : 'Get'} ${s.get.map(nm).join(' + ')} from Team ${s.team}`,
+      label: planStopLabel(plan, i, nm, teams),
       status: i === 0 ? 'next' : 'waiting', added_by: 'plan', p_yes: s.p, odds_after: s.delta });
   });
   const conflicts = [];

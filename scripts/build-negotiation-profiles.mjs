@@ -387,7 +387,7 @@ async function main() {
     const sent = chat.prepare(`SELECT chat_name, count(*) n FROM messages WHERE name='ME' AND chat_kind='dm' GROUP BY 1`).all();
     const recv = new Map(chat.prepare(`SELECT chat_name, count(*) n FROM messages WHERE name<>'ME' AND chat_kind='dm' GROUP BY 1`).all().map(r => [r.chat_name, r.n]));
     return {
-      league: 'Transfer portal (ESPN league 4), 10 teams; roster ids map to managers in the identity packet',
+      league: 'The target league (ESPN league 4), 10 teams; roster ids map to managers in the identity packet',
       trade_offers_sent_by_roster: offersBy, his_roster: me,
       his_accepted_deals_and_league_veto_votes: vetoes,
       chat_rank_of_10: Object.fromEntries(['msgs', 'group_msgs', 'tapbacks', 'p_trade_talk', 'p_open_to_trade', 'p_reacting_to_loss', 'p_competitive', 'confidence_mean'].map(m => [m, rankOf(m)])),

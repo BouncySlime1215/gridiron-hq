@@ -1,4 +1,4 @@
-export const name = '071_live_inactive_claims';
+export const name = '093_live_inactive_claims';
 
 /**
  * `live_inactive_claims`: "player X is inactive / active for this week's game", as

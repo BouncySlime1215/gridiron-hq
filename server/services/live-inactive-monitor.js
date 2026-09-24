@@ -7,7 +7,7 @@
  * This module is the in-week producer. It reads a curated set of public Bluesky
  * accounts (Rotoworld plus beat and national reporters) through Jetstream, keeps only
  * definitive per-player "inactive" / "active" statements, and writes them to
- * `live_inactive_claims` (migration 071). lineup-brain.js `lineupCall` reads them and
+ * `live_inactive_claims` (migration 093). lineup-brain.js `lineupCall` reads them and
  * flags a starter under "Check before kickoff".
  *
  * Terms (copies in the research lane, fetched 2026-09-23; quoted in
@@ -259,7 +259,7 @@ const upsert = () => db.prepare(`INSERT INTO live_inactive_claims
   VALUES (?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(source_uri, player_id) DO UPDATE SET status = excluded.status, parser_version = excluded.parser_version`);
 
-/** Writer for `live_inactive_claims` (migration 071). The only one. */
+/** Writer for `live_inactive_claims` (migration 093). The only one. */
 export function recordClaim(c) {
   upsert().run(c.source_uri, c.player_id, c.player_name, c.status, c.season, c.week,
     c.source_handle, c.source_did, c.posted_at ?? null, c.first_seen_at, PARSER_VERSION);

@@ -706,7 +706,7 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // Read per call so the flag needs no restart.
   const liveInactive = process.env.LIVE_INACTIVE_WARNINGS === '1'
     ? liveInactiveClaims({ season, week }) : new Map();
-  const deadStarters = calls.filter(c => liveInactive.has(c.player.id));
+  const liveInactiveStarters = calls.filter(c => liveInactive.has(c.player.id));
   const risky = calls.filter(c => !liveInactive.has(c.player.id) &&
     ((c.player.active_probability ?? 1) < 0.75 || c.player.bye === week));
 
@@ -782,7 +782,7 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
     // projection, so no comparison happened. Counted separately from coin
     // flips: one is a close call, the other is no call at all.
     not_compared: unprojected.length,
-    warnings: [...deadStarters.map(c => {
+    warnings: [...liveInactiveStarters.map(c => {
       const claim = liveInactive.get(c.player.id);
       return {
         player: c.player.name,

@@ -65,7 +65,7 @@ Commands run on `131a7ba0` in this worktree.
     (`:27`) are **reused** for name matching here, not copied.
 - **Decision: build.** New producer `server/services/live-inactive-monitor.js`
   writes a new table `live_inactive_claims` through an additive migration,
-  `server/migrations/071_live_inactive_claims.js` (**named here as this unit's
+  `server/migrations/093_live_inactive_claims.js` (**named here as this unit's
   one migration**). The reader lives in `lineup-brain.js` `lineupCall` warnings,
   which reaches the route and page above.
 - **One number, one producer (corrected after review, 2026-09-23):** this is NOT
@@ -238,7 +238,7 @@ What changed:
 
 - **Producer.** `server/services/live-inactive-monitor.js`:
   - Writer `recordClaim` into table `live_inactive_claims` (migration
-    `071_live_inactive_claims.js`, additive, **the unit's one migration**).
+    `093_live_inactive_claims.js`, additive, **the unit's one migration**).
   - Entry point `ingestJetstreamEvent`.
   - `pollJetstream` connects to `wss://jetstream.us-east.bsky.network/xrpc/network.bsky.jetstream.subscribeEvents`
     with `collections=app.bsky.feed.post`, `kinds=commit`, one `dids` parameter per
@@ -458,7 +458,7 @@ only), so nothing was appended to `docs/evidence/HOLDOUT-LEDGER.md`.
 1. **Well built?**
    - One producer, one table, one reader, one job. Parameterised SQL. No bare
      catch. No post text stored. Deletes are honoured as retractions.
-   - An additive migration, named: `071_live_inactive_claims`.
+   - An additive migration, named: `093_live_inactive_claims`.
    - 10 test files green after the review round (5b); the mutation sweep kills 8 of 9 mutants, and the
      survivor is designed.
 2. **Stats or made up?** Stats:

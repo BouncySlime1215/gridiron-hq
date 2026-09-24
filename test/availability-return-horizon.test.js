@@ -121,14 +121,32 @@ test('ratio form: g1/g2 converge toward the player\'s own g0 rate as h grows', (
   for (let i = 1; i < s.length; i++) assert.ok(s[i] >= s[i - 1], `g1 starter non-decreasing at step ${i}`);
 });
 
-test('flag: unset off, 1 on, preview off while declined (on, labelled, when enabled), 0 vetoes preview', () => {
+test('flag: unset off, 1 on, preview on and labelled (coordinator override), 0 vetoes preview', () => {
   withEnv(OFF, () => assert.deepEqual(R.availHorizonFlag(), { on: false, preview: false }));
   withEnv(ON, () => assert.deepEqual(R.availHorizonFlag(), { on: true, preview: false }));
-  assert.equal(R.AVAIL_HORIZON_IN_PREVIEW, false, 'AVAIL-HORIZON-2 declined: preview keeps the incumbent');
-  withEnv(PREVIEW, () => assert.deepEqual(R.availHorizonFlag(), { on: false, preview: false }));
-  withEnv(PREVIEW, () => assert.deepEqual(R.availHorizonFlag({ inPreview: true }), { on: true, preview: true }));
+  assert.equal(R.AVAIL_HORIZON_IN_PREVIEW, true, 'INT6 coordinator override: preview serves AVAIL-HORIZON-3');
+  withEnv(PREVIEW, () => assert.deepEqual(R.availHorizonFlag(), { on: true, preview: true }));
   withEnv({ [R.AVAIL_HORIZON_ENV]: '0', [PREVIEW_ENV]: '1' }, () =>
-    assert.deepEqual(R.availHorizonFlag({ inPreview: true }), { on: false, preview: false }));
+    assert.deepEqual(R.availHorizonFlag(), { on: false, preview: false }, 'GRIDIRON_AVAIL_HORIZON=0 turns it off under preview'));
+  withEnv(PREVIEW, () => assert.deepEqual(R.availHorizonFlag({ inPreview: false }), { on: false, preview: false }));
+});
+
+test('preview turns it on labelled unconfirmed; GRIDIRON_AVAIL_HORIZON=0 turns it off (INT6 override)', () => {
+  withEnv(PREVIEW, () => {
+    const f = R.availHorizonFlag();
+    assert.equal(f.on, true);
+    const fields = R.availHorizonPreviewFields(f);
+    assert.equal(fields.preview, true);
+    assert.match(fields.preview_reason, /^Unconfirmed/);
+    assert.match(fields.preview_reason, /10\.4% \/ 0\.50%/);
+  });
+  withEnv({ [R.AVAIL_HORIZON_ENV]: '0', [PREVIEW_ENV]: '1' }, () => {
+    assert.equal(R.availHorizonFlag().on, false);
+    assert.deepEqual(R.availHorizonPreviewFields(R.availHorizonFlag()), {});
+  });
+  withEnv(OFF, () => assert.equal(R.availHorizonFlag().on, false, 'no preview, no flag: the incumbent'));
+  const pm = fs.readFileSync(new URL('../server/services/preview-mode.js', import.meta.url), 'utf8');
+  assert.match(pm, /availability-return\.js#availHorizonFlag/, 'preview-mode.js lists the site');
 });
 
 /* ------------------------------------------------ fixture: 2026 weeks 1-2 on file */
@@ -203,12 +221,22 @@ test('flag on: the live week is unchanged, later weeks read the curve with its l
   assert.ok(C.weeklyAvailability(2026, 8).get(932).active_probability > 0.403, 'the missed-one starter heals');
 }));
 
-test('preview mode alone keeps the incumbent while declined', () => withEnv(PREVIEW, () => {
-  const row = C.weeklyAvailability(2026, 8).get(932);
-  assert.equal(row.active_probability, 0.403);
-  assert.equal(row.horizon, undefined);
-  assert.equal(row.preview, undefined);
-}));
+test('preview mode alone serves the curve, labelled unconfirmed (INT6 coordinator override); =0 keeps the incumbent', () => {
+  withEnv(PREVIEW, () => {
+    const row = C.weeklyAvailability(2026, 8).get(932);
+    const want = R.ratioReturnProbability({ curve: R.servedReturnCurve(), pToday0: 0.953, h: 5, gap: 'g1', tier: 'starter' });
+    assert.equal(row.active_probability, +want.p.toFixed(3));
+    assert.deepEqual(row.horizon, { weeks_ahead: 5, basis: want.basis });
+    assert.equal(row.preview, true);
+    assert.equal(row.preview_reason, R.AVAIL_HORIZON_PREVIEW_REASON);
+  });
+  withEnv({ [R.AVAIL_HORIZON_ENV]: '0', [PREVIEW_ENV]: '1' }, () => {
+    const row = C.weeklyAvailability(2026, 8).get(932);
+    assert.equal(row.active_probability, 0.403);
+    assert.equal(row.horizon, undefined);
+    assert.equal(row.preview, undefined);
+  });
+});
 
 test('preview labels, when preview is allowed to turn it on', () => {
   assert.deepEqual(R.availHorizonPreviewFields({ on: true, preview: true }).preview, true);

@@ -15,10 +15,13 @@
  * file (the live anchor). A replay of a past week has h = 0 and is unchanged.
  *
  * Flag: GRIDIRON_AVAIL_HORIZON '1' on, '0' off, unset = off. Preview mode
- * (preview-mode.js#previewUnconfirmed) turns it on only while AVAIL_HORIZON_IN_PREVIEW is
- * true; AVAIL-HORIZON-2 declined (league-4 odds short of the ESPN range), so it is false and
- * the served sim is the incumbent, preview included. Off, weeklyAvailability and the season
- * sim are byte-for-byte what they were. The same flag gates season-sim.js's team-mean term.
+ * (preview-mode.js#previewUnconfirmed) turns it on while AVAIL_HORIZON_IN_PREVIEW is true.
+ * COORDINATOR OVERRIDE (INT6, 2026-09-24): true. AVAIL-HORIZON-3 missed its pre-registered
+ * ESPN range (10.4% / 0.50% vs 12-21% / 0.7-1.6%) but replaces a proven bug (TITLE-ZERO:
+ * a gap player frozen "probably still out" for every remaining week); served under preview
+ * only, labelled unconfirmed (AVAIL_HORIZON_PREVIEW_REASON). Without preview and without the
+ * flag, weeklyAvailability and the season sim are byte-for-byte what they were;
+ * GRIDIRON_AVAIL_HORIZON=0 vetoes preview. The same flag gates season-sim.js's team-mean term.
  */
 /*
  * ======================= AVAIL-HORIZON-2 PRE-REGISTRATION (change A) =======================
@@ -73,18 +76,21 @@ import { previewUnconfirmed, previewFields } from './preview-mode.js';
 
 export const AVAIL_HORIZON_ENV = 'GRIDIRON_AVAIL_HORIZON';
 export const AVAIL_HORIZON_PREVIEW_REASON =
-  'Chance to play beyond next week from a fitted return-to-play curve (AVAIL-HORIZON); default off ' +
-  'until confirmed on 2026 weeks';
+  'Unconfirmed: chance to play beyond next week from a fitted return-to-play curve (AVAIL-HORIZON-3) ' +
+  'plus a team-mean term; it missed its pre-registered ESPN range (league 4: 10.4% / 0.50% vs ' +
+  '12-21% / 0.7-1.6%) and is served in preview only because it replaces the title-zero bug; ' +
+  'not confirmed on 2026 weeks';
 
 /**
- * Whether preview mode turns the flag on. False since AVAIL-HORIZON-2 declined: with the
- * curve on gap players only plus the team-mean term, Nick's league-4 odds were 8.9% / 0.25%,
- * short of the pre-registered ESPN range 12-21% / 0.7-1.6%. AVAIL-HORIZON-3 (ratio form +
- * team-mean term, third pre-registered attempt) reached 10.4% / 0.50% (125 and 6 of 1,200
- * runs; league mean 123.96 vs 123.47 off; sums 100% / 6): still short, declined, stays false.
- * Set true to serve under preview.
+ * Whether preview mode turns the flag on. AVAIL-HORIZON-2 declined (8.9% / 0.25%, short of
+ * the pre-registered ESPN range 12-21% / 0.7-1.6%). AVAIL-HORIZON-3 (ratio form + team-mean
+ * term, third pre-registered attempt) reached 10.4% / 0.50% (125 and 6 of 1,200 runs; league
+ * mean 123.96 vs 123.47 off; sums 100% / 6): still short, so the unit declined.
+ * COORDINATOR OVERRIDE (INT6): true anyway. The incumbent is a proven bug (TITLE-ZERO, title
+ * odds 0% on league 4); the curve is the better of the two and is preview-only, labelled
+ * unconfirmed (AVAIL_HORIZON_PREVIEW_REASON). GRIDIRON_AVAIL_HORIZON=0 turns it off.
  */
-export const AVAIL_HORIZON_IN_PREVIEW = false;
+export const AVAIL_HORIZON_IN_PREVIEW = true;
 
 /** { on, preview }: read per call, so a test or a run can flip it. */
 export function availHorizonFlag({ inPreview = AVAIL_HORIZON_IN_PREVIEW } = {}) {

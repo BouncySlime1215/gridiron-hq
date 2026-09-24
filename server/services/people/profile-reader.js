@@ -337,7 +337,13 @@ export function parseProfileJson(json) {
 
 // ------------------------------------------------------------ Nick's block (FIX-02 #276, folded in)
 
-/** manager_notes rows Nick wrote in chat with Claude carry a source starting with this. */
+/**
+ * THE manager_notes source rule, decided once, here (FIX-276-1): a note is part of
+ * Nick's block only when its source starts with 'nick-chat-'. A note with no source,
+ * or any other source ('nick', 'nick+data', 'chat', ...), is not: those rows exist in
+ * the live chat DB and were not written as Nick's per-manager read. nickBlock and
+ * nickByRoster both apply this and nothing else (test/fix-02-warroom-flag-nick.test.js).
+ */
 export const NICK_NOTES_PREFIX = 'nick-chat-';
 export const isNickNote = n => typeof n?.source === 'string' && n.source.startsWith(NICK_NOTES_PREFIX);
 
@@ -351,7 +357,7 @@ export function tradesNone(trades) {
 
 /**
  * One manager's Nick block from his nick_override object and his notes.
- * Notes with a source are used only when it starts NICK_NOTES_PREFIX. A note
+ * A note is used only when isNickNote says so (source starts NICK_NOTES_PREFIX). A note
  * whose text is a JSON object is read as override keys; any other note is kept
  * as a note, never parsed for meaning. nick_override beats a note on the same key.
  * Returns null when there is nothing; `{ empty: true, warnings }` when there
@@ -373,7 +379,7 @@ export function nickBlock(override = null, notes = []) {
     }
   };
   for (const n of notes ?? []) {
-    if (n?.source != null && !isNickNote(n)) continue;
+    if (!isNickNote(n)) continue;
     const raw = textOf(n?.note);
     if (!raw) continue;
     let parsed = null;
@@ -414,6 +420,46 @@ export function publicNick(block) {
   if (!block || block.empty) return null;
   const { notes, warnings, note, fan_of, ...rest } = block;
   return { ...rest, notes_n: notes.length + (note ? 1 : 0), warnings_n: warnings.length };
+}
+
+const noSuchTable = e => /no such table|no such column/.test(String(e?.message));
+
+/**
+ * Nick's block per roster for one league, from an open chat DB handle (the one
+ * the caller already holds; nothing is opened or closed here). Reads the two
+ * sources on their own, so either may be absent without hiding the other.
+ *   ids: Map roster_id -> { chat_name } (trusted identities)
+ * Returns { status: 'ok'|'unknown', reason, byRoster: Map roster -> block,
+ *           sources: { nick_override, manager_notes: 'ok'|'absent' } }.
+ * An absent table or column is 'absent' (said, not thrown); any other DB error throws.
+ */
+export function nickByRoster(chat, ids) {
+  const sources = { nick_override: 'absent', manager_notes: 'absent' };
+  const overrides = new Map();
+  try {
+    for (const r of chat.prepare('SELECT name, profile_json FROM negotiation_profiles').all()) {
+      const { raw } = parseProfileJson(r.profile_json);   // an unparseable row is peopleProfile's to report
+      if (raw && typeof raw === 'object' && raw.nick_override != null) overrides.set(r.name, raw.nick_override);
+    }
+    sources.nick_override = 'ok';
+  } catch (e) { if (!noSuchTable(e)) throw e; }
+  const notes = new Map();
+  try {
+    // Every row is read; isNickNote (inside nickBlock) is the only source filter.
+    for (const r of chat.prepare('SELECT name, note, source, noted_at FROM manager_notes').all()) {
+      if (!notes.has(r.name)) notes.set(r.name, []);
+      notes.get(r.name).push(r);
+    }
+    sources.manager_notes = 'ok';
+  } catch (e) { if (!noSuchTable(e)) throw e; }
+  const byRoster = new Map();
+  for (const [rosterId, ident] of ids) {
+    const b = nickBlock(overrides.get(ident?.chat_name) ?? null, notes.get(ident?.chat_name) ?? []);
+    if (b && !b.empty) byRoster.set(String(rosterId), b);
+  }
+  const ok = sources.nick_override === 'ok' || sources.manager_notes === 'ok';
+  return { status: ok ? 'ok' : 'unknown',
+    reason: ok ? null : 'neither negotiation_profiles nor manager_notes is in the chat DB', byRoster, sources };
 }
 
 // ------------------------------------------------------------ people.profile

@@ -8,14 +8,15 @@
  * { status: 'unknown', reason } and every label reads 'unknown'.
  *
  * FIX-02c: each roster's row also carries `nick`, Nick's own read (nick_override +
- * manager_notes, server/services/people/nick-block.js). partners.js applies it over
- * every chat-derived label; `nick_status` says whether it could be read.
+ * nick-chat-* manager_notes, server/services/people/profile-reader.js#nickByRoster).
+ * partners.js applies it over every chat-derived label; `nick_status` says whether
+ * it could be read.
  */
 export async function chatRowsFor(leagueId) {
   const { identityMap } = await import('../../server/services/manager-identity.js');
   const { openChatDb } = await import('../../server/services/manager-signals.js');
   const { negotiationProfilesFor } = await import('../../server/services/counterparty-pricing.js');
-  const { nickBlocksFrom } = await import('../../server/services/people/nick-block.js');
+  const { nickByRoster } = await import('../../server/services/people/profile-reader.js');
   const ids = identityMap(leagueId);
   if (!ids.size) return { status: 'unknown', reason: 'no confirmed chat identities for this league', rows: new Map() };
   const chat = openChatDb();
@@ -35,7 +36,7 @@ export async function chatRowsFor(leagueId) {
       const sentiment = tryAll('SELECT player, sentiment_mean, n FROM manager_player_sentiment WHERE name = ?', ident.chat_name) ?? [];
       rows.set(String(rosterId), { profile, sentiment, negotiation: null, nick: null });
     }
-    nick = nickBlocksFrom(chat, ids);
+    nick = nickByRoster(chat, ids);
     for (const [rid, block] of nick.byRoster) if (rows.has(rid)) rows.get(rid).nick = block;
   } finally { chat.close(); }
   const neg = negotiationProfilesFor(leagueId);

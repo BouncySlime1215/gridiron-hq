@@ -69,6 +69,7 @@
     "server/platform/provision-auth.js",
     "server/services/alt-spread-import.js",
     "server/services/bottom-up-team-total.js",
+    "server/services/campaign/model-flags.js",
     "server/services/campaign/plans-schema.js",
     "server/services/cascade-grade.js",
     "server/services/coach/people/context.js",
@@ -101,6 +102,7 @@
     "server/services/nfl-team-strength.js",
     "server/services/nfl-weekly-feature-store-v2.js",
     "server/services/opportunity-model.js",
+    "server/services/people/profile-reader.js",
     "server/services/position-liquidity.js",
     "server/services/props-total-consistency.js",
     "server/services/purged-walk-forward.js",
@@ -172,5 +174,10 @@
     "server/services/coach/people/lexicons.js": "Owner: Coach. The word lists the person variables count against. Same group as context.js. RETIRES WHEN: a route, job or page reaches it.",
     "server/services/coach/people/variables.js": "Owner: Coach. Every counted variable for one person, measured against the private chat corpus. It cannot be wired to a live surface on this machine at all: the corpus lives on Nick's Mac (chatDbPath()) and openCorpus() returns null when the file is absent, which is the normal state in CI and on Fly. RETIRES WHEN: a route, job or page reaches it.",
     "server/services/coach/stat-names.js": "Owner: Coach. Maps stat ids to the names a person actually says, so a grounded answer can name a column the way the question named it. Imported by one module that no surface reaches. RETIRES WHEN: a route, job or page reaches it."
+  },
+  "_NEWLY_BASELINED_2026_09_24_FIX02": {
+    "_why": "Two modules FIX-02 (#276) adds or brings, accepted with the condition that retires each (FIX-276-3). Both are reached only through scripts/campaign/produce-plans.mjs, which the refresh loop spawns; the map does not yet treat the refresh loop as a surface. The other campaign/*.js findings of the same class are NOT accepted here: SWEEP RULINGS 9 fixes the class once in scripts/wiring-map.mjs (FIX-279-1, on #272's branch), and these two lines retire with it. The drafted 'server/services/people/nick-block.js chat' receiver line is dropped: FIX-276-1 deleted that file, and profile-reader.js#nickByRoster takes the chat handle chat-labels.mjs opens. Owner: FIX-02.",
+    "server/services/campaign/model-flags.js": "Owner: FIX-02. Asks each model flag's own reader and writes the answers into the plans head's producer_version. Imported by scripts/campaign/produce-plans.mjs (spawned by the refresh loop) and its test. RETIRES WHEN: FIX-279-1 teaches wiring-map.mjs that the refresh loop is a surface, or a route/job imports it.",
+    "server/services/people/profile-reader.js": "Owner: FIX-00 (#260). The one people-profile reader; on this branch only scripts/campaign/chat-labels.mjs (spawned producer) imports it, for nickByRoster. On #260 counterparty-pricing.js imports it and it is wired. RETIRES WHEN: #260 merges (this line then reads stale, report-only) or FIX-279-1 lands."
   }
 }

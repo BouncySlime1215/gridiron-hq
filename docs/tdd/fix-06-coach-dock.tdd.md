@@ -60,3 +60,30 @@ exemptions removed) all clean.
 Not-applied control: every mutant was a `sed` on the named line followed by
 `git checkout`; `git status --porcelain` was empty after the sweep, apart from
 the one test file edited for M1.
+
+## Sweep fix FIX-282-1 (2026-09-24)
+
+- **Rebase onto FIX-04.** The local rebaser already did this with merge commit `2374025b`,
+  which contains #287's head `cf1148a5`. `WarRoom.tsx` mounts `coach/CoachDock` and
+  `useWarRoomCoach` and passes #287's contract view as `plans`. The panels read `targets`,
+  `flip_map` and `brain_report`. The placeholder `warroom/CoachDock.tsx` stays deleted.
+- **One reason source.** `plans-schema.js` on this branch is byte-identical to #272's
+  (`git diff origin/claude/cloud-fix-03 -- server/services/campaign/plans-schema.js` is
+  empty). `warroom-actions/schema.js` re-exports its `SKIP_REASONS` / `DECLINE_REASONS`,
+  and `test/warroom-coach-dock.test.js` pins them as the same object.
+- **Defect found by re-running against the producer fixture.** The dock formatted a
+  trade-off as points only when `source === 'sim.title'`. FIX-03's producer writes
+  `stop_tradeoffs` values with `source: 'plan.path', unit: 'title_odds'`, so Coach's
+  add_stop preview on the real output read "Costs: 0, 0 extra step(s) / Gains: 0 / Net: 0".
+  `fmt` now keys on `unit === 'title_odds'`. A field with no `unit` falls back to
+  `source === 'sim.title'`, which the hand-written ui-contract fixture relies on. The
+  producer also writes `sim.title` with units `probability` and `points_per_week`, so
+  keying on the source was wrong in both directions.
+- **RED** (`test: FIX-282-1 RED …`): the new add_stop test on `producer-plans.json`
+  league 1 (`add:get:21`) fails. The new layout test (targets / flip_map / brain_report
+  panels on every drawn producer league, and Coach mounted on the same view) already passes.
+- **GREEN**: the six War Room files pass 75/75: war-room-deck, war-room-layout,
+  war-room-view, warroom-coach-dock, warroom-coach and warroom-plans-contract.
+- **Mutants:** (M7) `fmt` keyed on source only → 1 fail. (M8) `fmt` keyed on unit only,
+  with no fallback → 1 fail, on the hand fixture. (M9) the TargetPicker fed `catch_up`
+  → 1 fail. (M10) FlipMap fed `alternatives` → 2 fail. All four killed.

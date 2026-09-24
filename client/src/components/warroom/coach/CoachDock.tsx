@@ -13,13 +13,17 @@ import { NOT_COMPUTED, pts, size } from '../format';
  * field from `plans`, the same War Room view the panels draw.
  *
  * The preview is the producer's stop_tradeoffs entry, read not computed: a
- * title-odds number (source sim.title) prints in points, anything else as written.
+ * title-odds number prints in points, anything else as written. Title odds is the
+ * field's `unit: 'title_odds'` (the producer writes source plan.path for these);
+ * a field with no unit falls back to source sim.title, as before.
  */
+const isTitleOdds = (f: any): boolean => (f.unit != null ? f.unit === 'title_odds' : f.source === 'sim.title');
+
 function fmt(f: any, signed = false): string {
   if (f == null) return NOT_COMPUTED;
   if (typeof f === 'number' || typeof f === 'string') return String(f);
   if (typeof f !== 'object' || f.status !== 'ok' || typeof f.value !== 'number') return NOT_COMPUTED;
-  const text = f.source === 'sim.title' ? (signed ? pts(f.value) : size(f.value)) : String(f.value);
+  const text = isTitleOdds(f) ? (signed ? pts(f.value) : size(f.value)) : String(f.value);
   return `${text}${f.guess ? ' (guess)' : ''}`;
 }
 

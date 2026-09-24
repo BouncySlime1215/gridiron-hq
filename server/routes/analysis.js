@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
-import { unitRoster, computeSOS } from './nfldata.js';
+import { unitRoster } from './nfldata.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 
 const r = Router();
@@ -32,7 +32,6 @@ async function refreshTeam(_client, team) {
   const { players, news } = teamContext(team);
   const units = unitRoster(team.id);
   const cap = row('SELECT cap_space, dead_money FROM team_cap WHERE team_id = ?', team.id);
-  const sos = computeSOS().find(s => s.abbr === team.abbr);
 
   const skill = players.map(p => `${p.slot_code ?? p.position}: ${p.name}`).join('\n');
   const newsText = news.map(n => `[${n.date}] ${n.headline}${n.body ? ' — ' + n.body : ''}`).join('\n') || '(no recent stories)';
@@ -54,7 +53,7 @@ LINEBACKERS: ${fmtUnit(units.LB)}
 SECONDARY: ${fmtUnit(units.DB)}
 SPECIALISTS: ${fmtUnit(units.ST)}
 
-CONTEXT: ${cap ? `Cap space $${Math.round(cap.cap_space).toLocaleString()}, dead money $${Math.round(cap.dead_money ?? 0).toLocaleString()}.` : ''} ${sos ? `Strength of schedule ranks ${sos.rank}/32 (1 = easiest).` : ''}
+CONTEXT: ${cap ? `Cap space $${Math.round(cap.cap_space).toLocaleString()}, dead money $${Math.round(cap.dead_money ?? 0).toLocaleString()}.` : ''}
 
 RECENT NEWS:
 ${newsText}
@@ -66,7 +65,7 @@ Task: rewrite any analysis field that is stale, wrong, or vague. Requirements:
 - ol_analysis / dl_analysis / lb_analysis / secondary_analysis / st_analysis MUST name specific players from the unit lists above and say how the unit's makeup (talent, age, rookies, depth) affects the team on the field and fantasy production. No generic filler.
 - coach_analysis / off_scheme_detail / def_scheme_detail name skill players too (QB/RB/WR/TE), so check them against the SKILL DEPTH CHART with the same rigor: if either currently names a player who is not on the skill depth chart above, that field is stale and MUST be rewritten, even if everything else about it still reads fine.
 - Purge any player who is not on the roster above, in every field, not only the unit fields.
-- Keep the sharp, opinionated editorial voice. 2-4 sentences per field.
+- Keep the sharp, opinionated editorial voice, a short paragraph per field.
 - Omit any field that is already accurate and specific.
 - head_coach / oc_name / dc_name: only change one of these if RECENT NEWS explicitly reports that
   person being hired or fired — never because the name merely looks unfamiliar or old. If news

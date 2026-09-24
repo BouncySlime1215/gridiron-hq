@@ -22,6 +22,8 @@
 import { Worker } from 'node:worker_threads';
 import { markJobRunning, markJobAbandoned, clearJobRunning } from '../platform/loop-watchdog.js';
 import { db, rows, run, row } from '../db/index.js';
+import { MARKET_MAX_AGE_MINUTES } from './dynasty-value-history.js';
+import { snapshotServedNumbers } from './serve-log.js';
 
 /**
  * True while any linked league's draft is likely happening on ESPN itself,
@@ -344,14 +346,23 @@ export async function refreshLeagueRosters() {
     try {
       const detail = lg.platform === 'sleeper' ? await syncSleeperLeague(lg) : await syncEspnLeague(lg);
       run(`UPDATE leagues SET connection_status='connected', sync_error=NULL WHERE id=?`, lg.id);
-      results.push({ league_id: lg.id, ok: true, detail });
+      results.push({ league_id: lg.id, ok: true, scoring: detail?.scoring ?? null });
     } catch (e) {
       run(`UPDATE leagues SET connection_status='sync_failed', sync_error=? WHERE id=?`,
         String(e.message ?? e).slice(0, 500), lg.id);
       results.push({ league_id: lg.id, ok: false, error: e.message });
     }
   }
-  return { leagues: results.length, failed: results.filter(r => !r.ok).length };
+  // `results` used to be built and then thrown away here, keeping only counts.
+  // syncEspnLeague's own docstring says its scoringSummary() reaches "every
+  // manual sync and scheduled roster refresh" (espn-scoring-report.js:7-8),
+  // but the scheduled path never carried it past this return, so an ESPN
+  // league paying a stat id the app cannot apply never showed it on this
+  // path — only a manual "Sync" click did. Only `scoring` is kept (not the
+  // full sync `detail`, which can carry the whole league payload) to match
+  // the "small enough for the Data Health page" convention other jobs here
+  // already follow (see refreshManagerArchetypes above).
+  return { leagues: results.length, failed: results.filter(r => !r.ok).length, results };
 }
 
 /**
@@ -731,6 +742,27 @@ async function refreshLeagueHistory() {
 async function refreshDecayWatch() {
   const { runDecayWatch } = await import('./decay-watch.js');
   return runDecayWatch();
+}
+
+/**
+ * The recommendation ledger's grader (GR-01): fills outcome/score on every
+ * rec_ledger row whose horizon weeks have been played (+1 lineup, +2/+5 trade
+ * and waiver), from player_week_usage scored by each league's own rules.
+ * Grades only; it never writes a recommendation and never deletes one.
+ */
+async function refreshRecLedgerGrades() {
+  const { gradeDue } = await import('./rec-ledger.js');
+  return gradeDue();
+}
+
+/**
+ * The follow ledger (SELF-01a): backfill shown calls from rec_ledger, then
+ * match what was done on ESPN (lineups, waiver adds, trade actions) into
+ * follow / ignore / no_action. Records only; it never grades a call.
+ */
+async function refreshFollowLedger() {
+  const { syncFollowLedger } = await import('./engine/follow-ledger.js');
+  return syncFollowLedger();
 }
 
 /** Refit the TD calibrator on fixed chronological eras; promotion still requires replication. */
@@ -1135,7 +1167,12 @@ async function refreshNflverseWeeklyUsage() {
   return syncWeeklyUsage(season);
 }
 
-/** Snap counts for the current season — matched on name+position, so no gsis_id needed. */
+/**
+ * Snap counts for the current season. Joined by pfr_player_id -> gsis_id
+ * (players.csv, fetched by syncSnapCounts itself in this worker), with
+ * name+position as the fallback; a players.csv failure is reported as
+ * crosswalk_error in the detail and the run falls back to the name join.
+ */
 async function refreshNflverseSnapCounts() {
   const { syncSnapCounts } = await import('./nflverse.js');
   const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();
@@ -1174,6 +1211,24 @@ async function refreshSleeperPlayers() {
   // a successful sync, however cleanly the fetch returned.
   if (!result?.matched) return { ...result, error: 'matched no players — the player universe is empty or unmatched' };
   return result;
+}
+
+/**
+ * FantasyCalc's market price for every connected league format (FC-SNAP). Until this
+ * job it had no timer: the price every trade card is gated, ranked and labelled on was
+ * whatever the last league-sync button press fetched (4.2 days old on 2026-09-23 per
+ * R4). Daily, because FantasyCalc's terms ask callers to cache and ideally fetch once a
+ * day, and only the documented /values/current endpoint. The same run appends the
+ * day's row to dynasty_value_history, which C12's forward FantasyCalc test grades.
+ * The league-sync button writes the same sync_log row, so a press counts as the day's run.
+ */
+async function refreshFantasyCalcValues() {
+  const { syncDynastyValues } = await import('../routes/aggregates.js');
+  const leagues = row('SELECT COUNT(*) AS n FROM leagues')?.n ?? 0;
+  if (!leagues) return { skipped: 'no connected leagues, so no format to price' };
+  const result = await syncDynastyValues();
+  const formats = result?.formats ?? [];
+  return { ...result, attempted: formats.length, failed: formats.filter(f => f.error).length };
 }
 
 /**
@@ -1248,6 +1303,9 @@ export const JOBS = {
   sleeper_players: {
     run: refreshSleeperPlayers, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
     label: 'Sleeper player universe (sleeper_id, overall rank, injury flag)' },
+  fantasycalc_dynasty: {
+    run: refreshFantasyCalcValues, maxAgeMinutes: MARKET_MAX_AGE_MINUTES, tier: 'growth', offThread: true,
+    label: 'FantasyCalc market values per connected league format (daily; appends the value history)' },
   espn_rosters: { run: refreshEspnRosters, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
     label: 'ESPN per-team roster feed (cuts, signings, practice-squad moves)' },
   league_rosters: { run: refreshLeagueRosters, maxAgeMinutes: 60, tier: 'live', offThread: true,
@@ -1419,6 +1477,15 @@ export const JOBS = {
   // about what the job does is changed. See the note on its budget below.
   evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, tier: 'live', offThread: true,
     label: 'Forward evidence capture windows' },
+  /*
+   * IDEA-001: once per league per NFL week, the title odds, the title-trades tab
+   * and the finder's cards as they would be served, into served_numbers — so a
+   * week nobody opened a page still has a served number to grade. Idempotent per
+   * (league, season, week) inside the job; 12 h maxAge only decides how soon
+   * after a new week it lands. offThread: the season simulations run in a worker.
+   */
+  served_numbers_weekly: { run: snapshotServedNumbers, maxAgeMinutes: 12 * 60, tier: 'growth', offThread: true,
+    label: 'Served-number snapshot: title odds, title trades and trade cards, weekly per league' },
   nfl_weekly_learning: { run: refreshWeeklyLearning, maxAgeMinutes: 6 * 60, tier: 'heavy',
     label: 'Fantasy weekly snapshot, settlement, and challenger retraining' },
   // Enabled by default, unlike broad heavy research sweeps. Most checks are a
@@ -1560,6 +1627,22 @@ export const JOBS = {
    */
   decay_watch: { run: refreshDecayWatch, maxAgeMinutes: 24 * 60, tier: 'growth',
     label: 'Post-approval decay watch: do shipped findings still hold on fresh data? (report only)' },
+  /*
+   * Six hours: player_week_usage lands on the nflverse_weekly_usage job's own
+   * six-hour cadence, and a grade can only move when a week has been added.
+   * 'growth' so it runs on the default timer; off-thread because a season's
+   * actuals() read is the whole player_week_usage season.
+   */
+  rec_ledger_grade: { run: refreshRecLedgerGrades, maxAgeMinutes: 6 * 60, tier: 'growth', offThread: true,
+    label: 'Recommendation ledger: grade calls whose horizon weeks have been played (+1 lineup, +2/+5 trade and waiver)' },
+  /*
+   * Hourly: lineup snapshots and raw transactions land on the refresh loop,
+   * and ESPN keeps only about three days of transactions, so a resolver that
+   * lags a window by a day still reads its rows from the local copy.
+   * Off-thread, as rec_ledger_grade: the backfill reads the whole rec_ledger.
+   */
+  follow_ledger_sync: { run: refreshFollowLedger, maxAgeMinutes: 60, tier: 'growth', offThread: true,
+    label: 'Follow ledger: match shown calls to what was done on ESPN (follow / ignore / no_action)' },
   twitter_insiders: { run: refreshTwitterInsiders, maxAgeMinutes: 4 * 60, tier: 'metered',
     label: 'NFL insider tweets — typed injury/role claims (budget-capped, ~$0.003/handle)' },
   nfl_injuries: { run: refreshNflInjuries, maxAgeMinutes: 6 * 60, tier: 'live', offThread: true,

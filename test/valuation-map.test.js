@@ -394,7 +394,7 @@ test('G1e: the same evidence is never charged twice — a talk read replaces the
   // Hot Hype: Hayden praises him AND he is +6/game over expectation -> one read, not two.
   const hot = factorNames(byName(hayden, 'Hot Hype'));
   assert.ok(hot.includes('talk_vs_model'), 'the crossed read must fire');
-  assert.ok(!hot.includes('hype_vs_usage'),
+  assert.ok(!hot.includes('outscoring_usage'),
     'the expectation gap is the read\'s own discriminator — charging it again double-counts it');
   assert.ok(!hot.includes('chat_sentiment'),
     'raw sentiment is the fallback for the same evidence, not an addition to it');
@@ -402,7 +402,7 @@ test('G1e: the same evidence is never charged twice — a talk read replaces the
   // Silent Riser: Carl owns him, he is just as hot, and nobody has ever discussed him.
   const carl = map.managers.get('3');
   const riser = factorNames(byName(carl, 'Silent Riser'));
-  assert.ok(riser.includes('hype_vs_usage'),
+  assert.ok(riser.includes('outscoring_usage'),
     'with no talk read the expectation gap is the only thing that prices him');
 });
 
@@ -462,12 +462,12 @@ test('G3: a week-w map never reads week-w data', () => {
   // not see it; a week-(WEEK+1) map must, which is what proves the boundary is
   // the cutoff and not simply a missing row.
   const now = byName(mapFor(21).managers.get('3'), 'Silent Riser');
-  const gapNow = now.factors.find(f => f.source === 'hype_vs_usage');
+  const gapNow = now.factors.find(f => f.source === 'outscoring_usage');
   assert.ok(gapNow, 'the gap read must be firing at all for this to mean anything');
   assert.equal(gapNow.n, WEEK - 1, 'the gap may only rest on the weeks before this one');
 
   const next = pricing.valuationMap(21, { season: SEASON, week: WEEK + 1, players: PLAYERS, rosterContext: NEEDS });
-  const gapNext = byName(next.managers.get('3'), 'Silent Riser').factors.find(f => f.source === 'hype_vs_usage');
+  const gapNext = byName(next.managers.get('3'), 'Silent Riser').factors.find(f => f.source === 'outscoring_usage');
   assert.equal(gapNext.n, WEEK, 'a week later the same read sees one more week — the cutoff moved, not the data');
 });
 
@@ -521,6 +521,40 @@ test('the positional-need read raises what a manager pays at a position he is sh
   assert.ok(need, 'a hole at the position must price a player he could fill it with');
   assert.ok(need.effect > 0);
   assert.ok(qb.their_value > qb.our_value);
+});
+
+test('RL-19-1: off by default, positional_need still charges the incumbent 8% cap '
+  + 'and still discounts depth', () => {
+  delete process.env.GRIDIRON_RL19_1_ENABLED;
+  delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+  const map = mapFor(21);
+  const hayden = map.managers.get('2'); // needs QB, surplus RB
+  const need = byName(hayden, 'Nobody Talks').factors.find(f => f.source === 'positional_need');
+  assert.equal(need.effect, 0.08, 'the served default has not moved');
+  const rb = byName(hayden, 'Keeper Guy'); // a RB Hayden does not own, and is surplus at
+  const depth = rb.factors.find(f => f.source === 'positional_need');
+  assert.ok(depth, 'depth must still price off the flag');
+  assert.equal(depth.effect, -0.04, 'depth still discounts at -cap*0.5 off the flag');
+});
+
+test('RL-19-1: on the flag, positional_need caps at 0.02 and drops the depth discount', () => {
+  process.env.GRIDIRON_RL19_1_ENABLED = '1';
+  try {
+    const map = mapFor(21);
+    const hayden = map.managers.get('2');
+    const need = byName(hayden, 'Nobody Talks').factors.find(f => f.source === 'positional_need');
+    assert.ok(need, 'a hole at the position still prices, just smaller');
+    assert.ok(need.effect <= 0.02 + 1e-9, `cap must be <= 0.02 on the flag, got ${need.effect}`);
+    assert.equal(need.effect, 0.02);
+    // Whatever this manager is surplus at must carry no positional_need factor
+    // at all under the flag — the depth branch is removed, not just shrunk.
+    for (const [, v] of hayden.players) {
+      const f = v.factors.find(fx => fx.source === 'positional_need');
+      if (f) assert.ok(f.effect > 0, 'no negative (depth) positional_need factor may be served under the flag');
+    }
+  } finally {
+    delete process.env.GRIDIRON_RL19_1_ENABLED;
+  }
 });
 
 test('a declared untouchable whose word has held costs more, and a bluffer\'s does not', () => {

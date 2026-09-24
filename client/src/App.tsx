@@ -9,6 +9,7 @@ import QuickJump from './components/QuickJump';
 import { NAV_GROUPS, destinationLabel } from './navigation';
 import EspnConnectGate from './components/EspnConnectGate';
 import DataFreshnessBanner from './components/DataFreshnessBanner';
+import { NumberHealthNavDot } from './components/NumberHealth';
 import { DataCredit } from './components/DataFreshnessBanner';
 import { Skeleton } from './components/ui/DesignSystem';
 import { PageExplainContext, type PageExplainInfo } from './components/PageExplainContext';
@@ -20,6 +21,7 @@ const DraftRoom = lazy(() => import('./pages/DraftRoom'));
 const LiveDraft = lazy(() => import('./pages/LiveDraft'));
 const DraftHub = lazy(() => import('./pages/DraftHub'));
 const LeagueHub = lazy(() => import('./pages/LeagueHub'));
+const MyTeam = lazy(() => import('./pages/MyTeam'));
 const PlayerDetail = lazy(() => import('./pages/PlayerDetail'));
 const TradeLab = lazy(() => import('./pages/TradeLab'));
 const TradeBrain = lazy(() => import('./pages/TradeBrain'));
@@ -104,7 +106,9 @@ export default function App() {
             {!rail && <div className="mb-1 border-t border-slate-200 px-2 pt-3"><div className="text-[10px] font-extrabold uppercase tracking-[.12em] text-slate-500">{group.label}</div><div className="text-[10px] text-slate-400">{group.question}</div></div>}
             {rail && <div className="mx-2 my-2 border-t border-slate-200" />}
             {group.items.map(item => <NavLink key={item.to} to={item.to} end={item.end} title={rail ? item.label : undefined} className={({ isActive }) => `mb-0.5 flex items-center gap-2 rounded-md py-2 text-sm font-semibold transition-colors ${rail ? 'justify-center px-0' : 'px-2'} ${isActive ? 'bg-white text-emerald-800 shadow-sm ring-1 ring-slate-200' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}>
-              <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md border text-[10px] font-extrabold ${item.live ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-white text-slate-600'}`}>{item.icon}</span>
+              <span className={`relative grid h-6 w-6 shrink-0 place-items-center rounded-md border text-[10px] font-extrabold ${item.live ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-white text-slate-600'}`}>{item.icon}
+                {/* BROKEN-01b: red when any number is broken for the selected league; nothing otherwise. */}
+                {item.to === '/settings' && <span className="absolute -right-1 -top-1 flex"><NumberHealthNavDot /></span>}</span>
               {!rail && <span>{item.label}</span>}
             </NavLink>)}
           </div>)}
@@ -129,6 +133,7 @@ export default function App() {
         <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8"><Suspense fallback={<RouteSkeleton />}><Routes>
           <Route path="/" element={<Navigate to="/league" replace />} />
           <Route path="/league" element={<LeagueHub />} />
+          <Route path="/my-team" element={<MyTeam />} />
           <Route path="/draft" element={<DraftHub />} />
           <Route path="/teams" element={<Teams />} /><Route path="/teams/:abbr" element={<TeamDetail />} />
           <Route path="/players/:id" element={<PlayerDetail />} />
@@ -140,7 +145,7 @@ export default function App() {
               and all of which were reachable with nothing saying which was current. */}
 
           {/* Compatibility: old bookmarks resolve to the new domain hubs. */}
-          <Route path="/my-team" element={<Navigate to="/league?view=team" replace />} /><Route path="/leagues" element={<Navigate to="/league?view=connections" replace />} />
+          <Route path="/leagues" element={<Navigate to="/league?view=connections" replace />} />
           <Route path="/live-draft" element={<Navigate to="/draft?view=live" replace />} /><Route path="/live-draft/:id" element={<LiveDraft />} />
           <Route path="/drafts" element={<Navigate to="/draft" replace />} /><Route path="/drafts/:id" element={<DraftRoom />} />
           <Route path="/rankings" element={<Navigate to="/league" replace />} /><Route path="/projections" element={<Navigate to="/league" replace />} />

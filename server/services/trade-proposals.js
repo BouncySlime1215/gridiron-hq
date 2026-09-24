@@ -53,7 +53,7 @@
  * whose answer arrived and could not be used: cut off, declined, unreadable,
  * the wrong shape, or every proposal rejected. That verdict cannot change while
  * the slate and the parser are the same, so paying for it twice buys nothing.
- * See `proposalsFor` for the three bounds that keep it from sticking.
+ * See `proposalsFor` for the four bounds that keep it from sticking.
  */
 import crypto from 'node:crypto';
 import { row, run } from '../db/index.js';
@@ -412,8 +412,6 @@ export function proposalsPrompt(ideas) {
     '  risk              the one thing that could make this a mistake',
     '  data_used         which numbers you leaned on',
     '',
-    'No preamble, no markdown, no commentary. The array only.',
-    '',
     'THE SLATE:',
     JSON.stringify(slate, null, 2),
   ].join('\n');
@@ -510,14 +508,33 @@ export function readModelResponse(raw) {
  * own $0.50 a day instead of a fifth of one shared pot. `callClaude` enforces it
  * and throws when it is spent, which `proposalsFor` surfaces as a refusal.
  */
-export function liveCaller(callClaude) {
-  return async ({ leagueId, ideas }) => readModelResponse(await callClaude({
+export function liveCaller(callClaude, config = PROPOSALS_CALL_CONFIG) {
+  const { model, maxTokens, effort } = config;
+  const call = async ({ leagueId, ideas }) => readModelResponse(await callClaude({
     feature: `trade_proposals:league-${leagueId}`,
-    model: 'claude-sonnet-5',
-    maxTokens: 4000,
+    model,
+    maxTokens,
+    ...(effort == null ? {} : { effort }),
     prompt: proposalsPrompt(ideas),
   }));
+  // Read by `proposalsFor` to key the failed-slate hold: a failure is a fact
+  // about the slate AND the call that was made for it.
+  call.config = Object.freeze({ model, maxTokens, effort: effort ?? null });
+  return call;
 }
+
+/**
+ * How the proposals call is made. Part of the failed-slate key, so changing any
+ * of these retries every held slate at once instead of after the six-hour hold.
+ */
+export const PROPOSALS_CALL_CONFIG = Object.freeze({
+  model: 'claude-sonnet-5',
+  // Sonnet 5 thinks by default and thinking counts toward max_tokens: at
+  // 4,000 it spent all of it thinking and wrote nothing (2026-09-23).
+  // Low effort keeps thinking short; 12,000 leaves room for the answer.
+  maxTokens: 12000,
+  effort: 'low',
+});
 
 /**
  * The persisted cache (migration 060), in the two-method shape `proposalsFor`
@@ -552,8 +569,18 @@ export function dbCache(leagueId) {
  * A slate the model could not answer usably is remembered under this suffix,
  * next to (never instead of) the slate's own answer key, so a failure can never
  * be mistaken for a payload.
+ *
+ * The suffix carries a hash of the call config (model, maxTokens, effort): the
+ * verdict was about this slate under THAT call, and a fix to the call — like
+ * raising maxTokens after a truncation — has to retry at once, not serve the old
+ * "ran out of output room" for six more hours (FIX-HOLD-01).
  */
-const failureKeyFor = key => `${key}.failed`;
+export const failureKeyFor = (key, config) => {
+  const { model = null, maxTokens = null, effort = null } = config ?? {};
+  const tag = crypto.createHash('sha256')
+    .update(JSON.stringify({ model, maxTokens, effort })).digest('hex').slice(0, 16);
+  return `${key}.failed.${tag}`;
+};
 
 /**
  * Stamped into every remembered failure and checked on the way back out: a
@@ -581,10 +608,11 @@ export const FAILURE_RECORD_VERSION = 'trade-proposals-parse-v2';
  * JSON, JSON of the wrong shape, or proposals that all failed the verifier —
  * will do exactly the same thing next time for the same slate, so it is
  * remembered for `FAILED_SLATE_TTL_MS` and the second request costs one cache
- * read and no model call. Bounded three ways so it cannot become a permanently
+ * read and no model call. Bounded four ways so it cannot become a permanently
  * empty Trade Lab: the TTL, the slate hash (any change to the ideas is a new
- * question), and `FAILURE_RECORD_VERSION` (any change to the parser retries
- * everything). Successful answers are still the only thing cached as proposals.
+ * question), the call config on `call.config` (a new model, maxTokens or effort
+ * retries at once), and `FAILURE_RECORD_VERSION` (any change to the parser
+ * retries everything). Successful answers are still the only thing cached as proposals.
  */
 export async function proposalsFor(leagueId, { ideas = [], universe = [], call, cache = null,
   now = Date.now() } = {}) {
@@ -623,7 +651,8 @@ export async function proposalsFor(leagueId, { ideas = [], universe = [], call, 
 
   // This exact slate already came back unusable, recently, from this parser:
   // paying again buys the same answer. One cache read, no model call.
-  const failure = cache?.get?.(failureKeyFor(key)) ?? null;
+  const failureKey = failureKeyFor(key, call.config);
+  const failure = cache?.get?.(failureKey) ?? null;
   if (failure?.v === FAILURE_RECORD_VERSION && Number.isFinite(failure.at)
     && now - failure.at < FAILED_SLATE_TTL_MS) {
     return { proposals: [], rejected: failure.rejected ?? [], source: 'cache', refused: true,
@@ -660,7 +689,7 @@ export async function proposalsFor(leagueId, { ideas = [], universe = [], call, 
     // the page just looks empty.
     console.warn(`[trade-proposals] league ${leagueId}: paid for a response that cannot be used `
       + `(${problem}, attempt ${attempts}${cost == null ? '' : `, $${cost.toFixed(4)}`}) — ${reason}`);
-    cache?.set?.(failureKeyFor(key), { v: FAILURE_RECORD_VERSION, problem, reason, rejected, attempts, at });
+    cache?.set?.(failureKey, { v: FAILURE_RECORD_VERSION, problem, reason, rejected, attempts, at });
     return { proposals: [], rejected, source: 'model', refused: true, problem, attempts, cost_usd: cost,
       retry_after: new Date(at + FAILED_SLATE_TTL_MS).toISOString(), reason };
   };

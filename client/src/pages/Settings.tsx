@@ -2,7 +2,9 @@ import { useState } from 'react';
 import EspnConnect from '../components/EspnConnect';
 import PhoneAccess from '../components/PhoneAccess';
 import LeagueChatPull from '../components/LeagueChatPull';
+import NumberHealthCard from '../components/NumberHealth';
 import { api } from '../api';
+import { sanitizedMessage } from '../lib/errorSanitize';
 
 /**
  * This page used to also carry a manual "League ID / season / espn_s2 / SWID" form
@@ -23,6 +25,7 @@ export default function Settings() {
         <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-emerald-600" /><h1 className="text-xl font-bold">Local sign-in is automatic</h1></div>
         <p className="text-xs leading-5 text-slate-600">Gridiron HQ provisions this browser when it connects from your own Mac. There is no bearer token to copy or paste. Protected league, draft, trade and Model Lab calls still require a real session; the server only issues it over the loopback interface.</p>
       </div>
+      <NumberHealthCard />
       <PhoneAccess />
       <LeagueChatPull />
       <EspnConnect />
@@ -39,7 +42,7 @@ export default function Settings() {
             try {
               const r = await api('/espn/sync-players', { method: 'POST' });
               setMsg(`Player database pulled from ESPN — ${r.fetched} players (${r.added} new, ${r.updated} updated). Rookies included.`);
-            } catch (e: any) { setMsg(`Player sync failed: ${e.message}`); }
+            } catch (e: any) { setMsg(sanitizedMessage('Settings.pullPlayers', 'Player sync failed', e.message)); }
             finally { setSyncing(false); }
           }}>Pull player database</button>
           <button className="btn-ghost" disabled={syncing} onClick={async () => {
@@ -47,7 +50,7 @@ export default function Settings() {
             try {
               const r = await api('/espn/sync-news', { method: 'POST' });
               setMsg(`Pulled ${r.added} new ESPN headlines into Camp News.`);
-            } catch (e: any) { setMsg(`News sync failed: ${e.message}`); }
+            } catch (e: any) { setMsg(sanitizedMessage('Settings.pullNews', 'News sync failed', e.message)); }
             finally { setSyncing(false); }
           }}>Pull ESPN news</button>
         </div>

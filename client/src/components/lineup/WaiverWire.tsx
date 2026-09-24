@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { PageLoading, PageError } from '../PageState';
+import { PageLoading, PageError, logServerDetail } from '../PageState';
 
 /**
  * The waiver wire, on the page where the lineup is set.
@@ -43,6 +43,45 @@ export interface WaiverBoard {
   held_back?: HeldBack[]; held_back_count?: number;
   teamless_excluded?: number;
   note?: string;
+  /** WV-02: my starters who are Out / IR / Doubtful, with who replaces them and by when. */
+  injury_alerts?: InjuryAlert[];
+  waiver_run?: WaiverRun;
+  /** RL-13-2: the league's waiver-order rule and my place in line (waiver-wire.js#claimPriority). */
+  claim_priority?: ClaimPriority;
+}
+
+/** waiver-wire.js#claimPriority. Nulls are fields the synced league does not carry. */
+export interface ClaimPriority {
+  known: boolean; reason: string | null;
+  acquisition_type: string | null; uses_budget: boolean | null; resets_weekly: boolean | null;
+  current_rank: number | null; teams: number | null; teams_ahead: number | null;
+  as_of: string | null; stale_season: boolean; strategy: string | null; missing: string[]; source: string;
+}
+
+/** The league's next waiver processing run (waiver-wire.js#nextWaiverRun). */
+export type WaiverRun =
+  | { known: true; day: string; date: string; hour: number; zone: string; zone_basis: string;
+      /** RL-16-2: where the time came from; the settings guess is labelled unconfirmed. */
+      basis?: 'espn_scheduled' | 'observed' | 'unconfirmed_guess'; confirmed?: boolean; label?: string;
+      minute?: number; at?: string | null; observed_runs?: number }
+  | { known: false; reason: string };
+
+export interface Replacement {
+  player: string; position: string; team?: string | null;
+  snap_share: number | null; projected_ppg: number; ros_ppg?: number | null;
+  injury_status?: string | null; on_your_roster: boolean;
+}
+
+export interface InjuryAlert {
+  player: string; position: string; team?: string | null;
+  designation: 'out' | 'doubtful' | null;
+  designation_source: 'nfl' | 'espn' | 'feed_flag';
+  status: string | null;
+  replacements: {
+    same_team: Replacement[]; same_team_count: number; order: 'projection' | 'snap_share'; ranked_by: string;
+    best_free_agent: Replacement | null;
+  };
+  claim_by: WaiverRun;
 }
 
 /** A free agent who would help this week, but only by cutting someone worth more over the season. */
@@ -109,7 +148,9 @@ function Body({ data, loading, error, onRetry, out }: {
   if (error && !data) return <div className="mt-3"><PageError message={error} onRetry={onRetry} /></div>;
   if (!data) return null;
   if (data.error) {
-    return <p className="mt-2 text-sm leading-6 text-slate-600">No waiver board for this league right now: {data.error}.</p>;
+    // UX-08: the server's reason can carry internal detail; logged, not rendered.
+    logServerDetail('WaiverWire', data.error);
+    return <p className="mt-2 text-sm leading-6 text-slate-600">No waiver board for this league right now. Try again in a moment.</p>;
   }
 
   const immediate = (data.immediate ?? []).filter(onATeam);
@@ -124,6 +165,8 @@ function Body({ data, loading, error, onRetry, out }: {
 
   return (
     <>
+      <InjuryAlerts alerts={data.injury_alerts ?? []} />
+      {data.claim_priority && <ClaimPriorityLine cp={data.claim_priority} />}
       {/* ---------------------------------------------------------- claims now */}
       <div className="mt-3">
         <div className="text-[10px] font-black uppercase tracking-wide text-emerald-700">
@@ -337,5 +380,86 @@ export function WaiverTeaser({ data }: { data: WaiverBoard | null }) {
       </span>
       <span className="shrink-0 text-xs font-semibold text-slate-500" aria-hidden="true">↓</span>
     </a>
+  );
+}
+
+const ordinal = (n: number) => {
+  const t = n % 100;
+  if (t >= 11 && t <= 13) return `${n}th`;
+  return `${n}${({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th'}`;
+};
+
+/**
+ * RL-13-2: where you are in the claim line and how this league's order works. A
+ * weekly-reset order is a race for claims, not a spot to hold, so the line says that.
+ */
+function ClaimPriorityLine({ cp }: { cp: ClaimPriority }) {
+  if (cp.current_rank == null && cp.strategy == null) return null;
+  return (
+    <div className="mt-3 text-xs leading-5 text-slate-700">
+      <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">Your place in the claim line</div>
+      {cp.current_rank != null && !cp.stale_season && (
+        <p className="mt-1">
+          <b className="text-slate-900">{ordinal(cp.current_rank)}</b>
+          {cp.teams ? ` of ${cp.teams}` : ''}
+          {cp.teams_ahead != null ? ` (${cp.teams_ahead === 1 ? '1 team' : `${cp.teams_ahead} teams`} ahead of you)` : ''}
+          , as of the last sync.
+        </p>
+      )}
+      {cp.strategy && <p className="mt-0.5">{cp.strategy}</p>}
+      {!cp.known && cp.reason && <p className="mt-0.5 text-[11px] leading-4 text-slate-400">{cp.reason}</p>}
+    </div>
+  );
+}
+
+const pct = (v: number | null) => (v == null ? 'no snaps yet' : `${Math.round(v * 100)}% of snaps`);
+
+function runLabel(run: WaiverRun): string {
+  if (!run.known) return run.reason;
+  const day = run.day.charAt(0) + run.day.slice(1).toLowerCase();
+  // RL-16-2: a scheduled or observed run gives its clock time and where it came from;
+  // the settings guess keeps its hour and says it is unconfirmed.
+  if (run.basis === 'espn_scheduled' || run.basis === 'observed') {
+    const clock = `${run.hour}:${String(run.minute ?? 0).padStart(2, '0')} ET`;
+    return `Claim before waivers run ${day} ${run.date}, ${clock} (${run.label ?? run.zone_basis}).`;
+  }
+  return `Claim before waivers run ${day} ${run.date}, hour ${run.hour} (${run.label ?? run.zone_basis}).`;
+}
+
+/**
+ * Injured starters and who replaces them (WV-02). Same-team backups first, each with
+ * his snap share over his last three appearances, in the server's order (this week's
+ * projection by default; `ranked_by` says which); then the best free agent elsewhere.
+ * Shown above the claims because a dead starter costs the most points of anything
+ * on this card.
+ */
+function InjuryAlerts({ alerts }: { alerts: InjuryAlert[] }) {
+  if (alerts.length === 0) return null;
+  return (
+    <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
+      <div className="text-[10px] font-black uppercase tracking-wide text-rose-700">
+        Injured starters · replace before waivers run
+      </div>
+      {alerts.map((a, i) => (
+        <div key={`${a.player}-${i}`} className="mt-1.5 text-xs leading-5 text-slate-700">
+          <b className="text-slate-900">{a.player}</b> ({a.position}{a.team ? `, ${a.team}` : ''}) is{' '}
+          {a.designation_source === 'feed_flag' ? 'flagged injured by the player feed, no report yet' : a.status}.{' '}
+          {a.replacements.same_team.length > 0 ? (
+            <>Same team: {a.replacements.same_team.map((r, j) => (
+              <span key={`${r.player}-${j}`}>
+                {j > 0 ? ', ' : ''}{r.player} ({pct(r.snap_share)}{r.on_your_roster ? ', already yours' : ''})
+              </span>
+            ))}.{' '}</>
+          ) : <>No healthy same-team {a.position} is available.{' '}</>}
+          {a.replacements.best_free_agent && (
+            <>Best free agent: {a.replacements.best_free_agent.player} ({a.replacements.best_free_agent.team},{' '}
+              {fmt(a.replacements.best_free_agent.projected_ppg)} projected this week,{' '}
+              {pct(a.replacements.best_free_agent.snap_share)}).{' '}</>
+          )}
+          <span className="text-slate-500">{runLabel(a.claim_by)}</span>
+        </div>
+      ))}
+      <p className="mt-1 text-[11px] leading-4 text-slate-400">{alerts[0].replacements.ranked_by}</p>
+    </div>
   );
 }

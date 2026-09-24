@@ -41,6 +41,7 @@ import { rows } from '../db/index.js';
 // read and counterparty-pricing. Three hand-rolled MAX() queries is how three
 // surfaces come to print three different dates for one collection.
 import { transactionsCollected } from './manager-signals.js';
+import { previewUnconfirmed } from './preview-mode.js';
 
 /**
  * Whether the store this file reads exists at all.
@@ -75,7 +76,7 @@ export const TACTIC_THRESHOLDS = Object.freeze({
   sneak_share: 0.35,
   /** …and has to return at least this much more production per unit of price. */
   sneak_rate_edge: 1.25,
-  /** Games of expected-points history before the hype window may fire. */
+  /** Games of expected-points history before the outscoring-usage tactic may fire. */
   hype_min_games: 2,
   /** Points per game above what his usage earns, before "hot" means anything. */
   hype_min_gap: 3.0,
@@ -99,6 +100,16 @@ const CHAT_SOURCES = new Set(['talk_vs_model', 'chat_sentiment', 'profile_roster
 /** The blunt one. It fires on tens of thousands of cells per league at a near-uniform
  *  +-8%, so it is excluded from every "biggest gap" ranking (valuation-map handoff, T2). */
 const NEED_SOURCE = 'positional_need';
+/**
+ * RL-19-1: same default-off switch as counterparty-pricing.js's — r19 found
+ * need predicts WHICH position a manager trades for, not what he pays for it
+ * (rnd/loop/r19-external-need-steers-who-not-price.md). Off by default, this
+ * tactic keeps its incumbent "pays about N of market value" framing; on, it
+ * reads as targeting, not price.
+ */
+const RL19_1_ENV = 'GRIDIRON_RL19_1_ENABLED';
+const rl19NeedPricingOn = () =>
+  process.env[RL19_1_ENV] === '1' || previewUnconfirmed();
 
 /**
  * The nine tactics Nick named, plus the probe flag the untouchable rule needs.
@@ -120,7 +131,7 @@ export const TACTICS = Object.freeze({
   consolidate_for_need: { label: 'Consolidate into his hole', fitted: false,
     needs: 'a roster read for the league',
     why: 'two of our depth pieces into a position he is short at, back as one starter' },
-  hype_window: { label: 'Sell inside the hype window', fitted: false,
+  outscoring_usage: { label: "Sell while he's outscoring his usage", fitted: false,
     needs: 'at least two games of expected points, and praise from him',
     why: 'our player is outscoring the usage that earns it, and the man who praised him will pay for it' },
   timing: { label: 'Send it when he answers', fitted: false,
@@ -413,9 +424,9 @@ export function sendWindow(timing, { now = null, postLoss = null } = {}) {
  * eight. That difference changes what a package is allowed to look like, and it
  * is free — it is already synced.
  *
- * The observed side is one package. League 4, 2026-09-17: Nick to Rami,
- * McConkey + Achane out for Etienne + Nico Collins back, 4 votes of the 5
- * needed. `n` is printed everywhere that package is used as a reference,
+ * The observed side is one package. League 4, 2026-09-17: Nick to a league
+ * mate, McConkey + Achane out for Etienne + Nico Collins back, 4 votes of the
+ * 5 needed. `n` is printed everywhere that package is used as a reference,
  * because one is not a model.
  */
 export function vetoClimate(lg, { season = null, priceOfPlayer = null } = {}) {
@@ -757,6 +768,18 @@ export function tacticsForDeal({
   const needPieces = vGive.map(x => ({ ...x, f: needFactor(x.v) })).filter(x => x.f && x.f.effect > 0);
   if (give.length >= 2 && get.length === 1 && needPieces.length) {
     const premium = needPieces.reduce((s, x) => s + (x.v.our_value ?? 0) * x.f.effect, 0);
+    const pieceList = needPieces.map(x => `${x.p.name} (${x.f.why})`).join(', ');
+    // RL-19-1: off the flag this still reads as a price premium (the incumbent
+    // claim). On it, r19 found need predicts WHICH position a manager trades
+    // for, not what he pays for it (90% CI upper bound 2.8% of value on
+    // cross-position deals, rnd/loop/r19-external-need-steers-who-not-price.md)
+    // — so the sentence becomes a framing/targeting note, not a price claim.
+    const why = rl19NeedPricingOn()
+      ? `two of our pieces into a hole: ${pieceList}, back as one starter — he is short at these `
+        + `positions, so a package shaped like this is more likely to land with him (framing, not a `
+        + `price: a hole predicts which position he trades for, not what he pays for it)`
+      : `two of our pieces into a hole: ${pieceList}, back as one starter — his need pays about `
+        + `${Math.round(premium)} of market value over ours`;
     tactics.push({ key: 'consolidate_for_need', label: TACTICS.consolidate_for_need.label, fitted: false,
       effect: +needPieces.reduce((s, x) => s + x.f.effect, 0).toFixed(4),
       // Ranked at zero on purpose: the whole hit IS positional need, which fires
@@ -765,15 +788,14 @@ export function tacticsForDeal({
       n: Math.min(...needPieces.map(x => x.f.n ?? 0)),
       players: needPieces.map(x => cell(x.p, x.v, x.f)),
       numbers: { need_premium_value: Math.round(premium), pieces: needPieces.length },
-      why: `two of our pieces into a hole: ${needPieces.map(x => `${x.p.name} (${x.f.why})`).join(', ')}`
-        + `, back as one starter — his need pays about ${Math.round(premium)} of market value over ours` });
+      why });
   } else {
     note('consolidate_for_need', give.length < 2 || get.length !== 1
       ? 'not a two-for-one, so there is nothing to consolidate'
       : 'he is not short at any position we are sending into');
   }
 
-  // ------------------------------------------------- 5. the hype window
+  // ------------------------------------------------- 5. outscoring his usage
   const hypeGames = TACTIC_THRESHOLDS.hype_min_games;
   const hypeHits = [];
   let hypeReason = null;
@@ -792,7 +814,7 @@ export function tacticsForDeal({
     hypeHits.push({ p, v, gap, view });
   }
   if (hypeHits.length) {
-    tactics.push({ key: 'hype_window', label: TACTICS.hype_window.label, fitted: false,
+    tactics.push({ key: 'outscoring_usage', label: TACTICS.outscoring_usage.label, fitted: false,
       effect: +hypeHits.reduce((s, h) => s + h.gap.gap_per_game / 100, 0).toFixed(4),
       effect_net: null, n: Math.min(...hypeHits.map(h => h.gap.games)),
       players: hypeHits.map(h => ({ ...cell(h.p, h.v, chatFactor(h.v)),
@@ -800,10 +822,10 @@ export function tacticsForDeal({
       numbers: { gap_per_game: hypeHits[0].gap.gap_per_game },
       why: hypeHits.map(h => `${h.p.name} is +${h.gap.gap_per_game}/game above what his usage earns over `
         + `${h.gap.games} games, and ${partnerName ?? 'he'} has talked him up`).join('; ')
-        + '. (Actual vs expected points from usage — NOT the market-price curve in waiver-brain#sellHigh, '
-        + 'which answers a different question.)' });
+        + '. (Actual vs expected points from usage — NOT the trade-price hype in services/hype.js#playerHype '
+        + '(trade price minus value), which answers a different question.)' });
   } else {
-    note('hype_window', hypeReason
+    note('outscoring_usage', hypeReason
       ?? 'no player we are sending is both outscoring his usage and one this manager has praised');
   }
 

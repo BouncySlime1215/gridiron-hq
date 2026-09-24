@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { ingestAllSources } from '../news/ingest.js';
+import { attributeStory, loadAttributionIndex } from '../news/player-news.js';
 import { requireAuthenticated } from '../platform/auth.js';
 import { recordAudit } from '../platform/audit.js';
 import { newsSignalCoverage, syncStructuredNewsSignals } from '../services/nfl-news-signal.js';
@@ -61,9 +62,12 @@ r.get('/desk', requireAuthenticated, (req, res) => {
     FROM news_items n LEFT JOIN nfl_teams t ON t.id=n.team_id
     ORDER BY COALESCE(n.published_at,n.date) DESC,n.id DESC LIMIT 500`);
   const now = Date.now();
+  const attribution = loadAttributionIndex();
   const ranked = candidates.map(story => {
     const entities = safeJson(story.entities_json, {});
-    const uniquePlayers = [...new Map((entities.players ?? []).map(player => [normalizePlayerName(player.name), player])).values()];
+    // Same producer as the player card (server/news/player-news.js), so a story
+    // links to a player here exactly when it is on his card.
+    const uniquePlayers = attributeStory(story, attribution);
     const reliability = safeJson(story.reliability_json, {});
     const rosterPlayers = uniquePlayers.filter(player => mine.has(normalizePlayerName(player.name)));
     const text = `${story.headline} ${story.body ?? ''}`;
@@ -153,7 +157,7 @@ r.post('/analyze', requireAuthenticated, async (req, res, next) => {
     const msg = await callClaude({
       feature: 'news-analyze',
       maxTokens: 2048,
-      prompt: `You are an NFL training-camp analyst for a fantasy football dashboard. For each story below, write a JSON array where each element has: "team_abbr", "headline" (cleaned up), "ai_analysis" (2-3 sentences of sharp football analysis: scheme fit, depth chart, usage), "fantasy_impact" (1 sentence, specific), "importance" (1=minor, 2=notable, 3=major). Only respond with the JSON array, no other text.\n\nStories:\n${items.map((it, i) => `${i + 1}. [${it.team_abbr}] ${it.headline}${it.body ? ' — ' + it.body : ''}`).join('\n')}`
+      prompt: `You are an NFL training-camp analyst for a fantasy football dashboard. For each story below, write a JSON array where each element has: "team_abbr", "headline" (cleaned up), "ai_analysis" (short, sharp football analysis: scheme fit, depth chart, usage), "fantasy_impact" (1 sentence, specific), "importance" (1=minor, 2=notable, 3=major). Only respond with the JSON array, no other text.\n\nStories:\n${items.map((it, i) => `${i + 1}. [${it.team_abbr}] ${it.headline}${it.body ? ' — ' + it.body : ''}`).join('\n')}`
     });
     const analyzed = parseJson(msg);
     // `a.ai_analysis` is Claude's read of the pasted headline, not a reporting source —
@@ -297,8 +301,8 @@ ${depth.map(d => `${d.slot_code}: ${d.name}`).join('\n') || 'n/a'}` : ''}
 MY FANTASY ROSTER (across my leagues): ${mine.length ? mine.join(', ') : '(no leagues connected)'}
 
 Answer in JSON with exactly two keys:
-"team_impact": 2-3 sentences on what this means for ${n.team_name ?? 'the team'} as a whole — scheme, depth chart, who gains and who loses snaps/targets.
-"my_impact": 2-3 sentences on what it means specifically for MY fantasy roster listed above. If nobody on my roster is affected, say so plainly and name the one player I should be watching instead.
+"team_impact": a short paragraph on what this means for ${n.team_name ?? 'the team'} as a whole — scheme, depth chart, who gains and who loses snaps/targets.
+"my_impact": a short paragraph on what it means specifically for MY fantasy roster listed above. If nobody on my roster is affected, say so plainly and name the one player I should be watching instead.
 
 Respond with ONLY the JSON object.`
     });
@@ -336,7 +340,7 @@ MY FANTASY ROSTER: ${mine.length ? mine.join(', ') : '(none connected)'}
 
 Respond with ONLY JSON:
 {
-  "summary": "one flowing paragraph (5-7 sentences) covering the real story of the day across the league — camp battles, injuries, depth-chart movement. Prioritize what changes fantasy value. No bullet points.",
+  "summary": "one flowing paragraph covering the real story of the day across the league — camp battles, injuries, depth-chart movement. Prioritize what changes fantasy value. No bullet points.",
   "battles": [{"team":"ABBR","battle":"short label e.g. 'QB1 competition'","status":"one sentence on where it stands"}],
   "teams_affected": [{"team":"ABBR","why":"one sentence"}]
 }

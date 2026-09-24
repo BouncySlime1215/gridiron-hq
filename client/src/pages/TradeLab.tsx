@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
 import TradeCard, { PlayerPill, num } from '../components/TradeCard';
+import MarketAsOf from '../components/MarketAsOf';
 import { usePlayerCard } from '../components/PlayerCard';
 import EvidenceTable from '../components/draft/EvidenceTable';
 import StreakChips from '../components/draft/StreakChips';
@@ -110,6 +111,7 @@ export default function TradeLab({ initialTab }: { initialTab?: Tab } = {}) {
         Every deal is rebuilt for the live NFL week from the shared player model, injury availability,
         current matchup and remaining schedule. Market value is a separate price check, not the projection.
       </p>
+      <div className="-mt-3 mb-4"><MarketAsOf asOf={rosters?.market_as_of} /></div>
       {/* This page is about a deal; who will actually sign one is a different
           question and now has its own surface. */}
       <p className="text-sm text-slate-500 mb-4">
@@ -125,7 +127,7 @@ export default function TradeLab({ initialTab }: { initialTab?: Tab } = {}) {
         <Untouchables players={myPlayers} ids={untouchable} onToggle={toggleUntouchable} />
       )}
 
-      <div className="flex gap-1 border-b border-slate-200 mb-4 overflow-x-auto">
+      <div className="flex flex-wrap gap-1 border-b border-slate-200 mb-4">
         {TABS.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} title={t.hint}
             className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
@@ -273,6 +275,7 @@ function TitleTrades({ leagueId, teamId }: { leagueId: number; teamId: string | 
       <div className={`card p-4 mb-3 ${data?.objectives_disagree ? 'border-amber-300 bg-amber-50/50' : ''}`}>
         <h2 className="text-sm font-bold text-slate-800 mb-1">
           {data?.simulated ?? 0} deals simulated · ranked by championship odds
+          {data?.no_deal_clears_noise && <span className="font-normal text-slate-500"> · none moves your odds past its noise band</span>}
         </h2>
         <p className="text-xs text-slate-700 leading-relaxed">{data?.disagreement_note}</p>
       </div>
@@ -283,14 +286,21 @@ function TitleTrades({ leagueId, teamId }: { leagueId: number; teamId: string | 
       ) : (
         <div className="space-y-2">
           {deals.map((d: any, i: number) => {
-            const good = (d.title_delta ?? 0) > 0;
+            // RL-6-3: a delta inside 2 paired standard errors has no established sign,
+            // so it is greyed rather than painted as a gain or a loss.
+            const real = d.title_delta_clears_noise === true;
+            const good = real && (d.title_delta ?? 0) > 0;
+            const tone = !real ? 'text-slate-400' : good ? 'text-emerald-700' : 'text-rose-700';
             return (
               <div key={i} className={`card p-4 border ${good ? 'border-emerald-300 bg-emerald-50/40' : 'border-slate-200'}`}>
                 <div className="flex items-baseline gap-3 flex-wrap mb-2">
-                  <span className={`text-xl font-black tabular-nums ${good ? 'text-emerald-700' : 'text-rose-700'}`}>
-                    {good ? '+' : ''}{((d.title_delta ?? 0) * 100).toFixed(2)}%
+                  <span className={`text-xl font-black tabular-nums ${tone}`}>
+                    {(d.title_delta ?? 0) > 0 ? '+' : ''}{((d.title_delta ?? 0) * 100).toFixed(1)}%
                   </span>
-                  <span className="text-[11px] text-slate-500">championship odds</span>
+                  {d.title_delta_se != null && (
+                    <span className="text-[11px] tabular-nums text-slate-400">±{(2 * d.title_delta_se * 100).toFixed(1)}</span>
+                  )}
+                  <span className="text-[11px] text-slate-500">{real ? 'championship odds' : 'championship odds · within noise'}</span>
                   <span className={`text-xs font-bold tabular-nums ml-auto ${(d.ppg_delta ?? 0) > 0 ? 'text-slate-700' : 'text-slate-400'}`}>
                     {(d.ppg_delta ?? 0) > 0 ? '+' : ''}{d.ppg_delta} ppg
                   </span>
@@ -303,7 +313,10 @@ function TitleTrades({ leagueId, teamId }: { leagueId: number; teamId: string | 
                 <div className="text-[11px] text-slate-500 mt-1.5">
                   with <b className="text-slate-700">{d.partner}</b> · {d.fairness}
                   {d.their_title_delta != null && (
-                    <> · their title {(d.their_title_delta * 100).toFixed(2)}%
+                    <> · their title <span className={d.their_title_delta_clears_noise === true ? '' : 'text-slate-400'}>
+                        {(d.their_title_delta * 100).toFixed(1)}%
+                        {d.their_title_delta_se != null && <> ±{(2 * d.their_title_delta_se * 100).toFixed(1)}</>}
+                        {d.their_title_delta_clears_noise !== true && ' (within noise)'}</span>
                       {d.mutual_title_gain && <b className="text-emerald-700"> · both gain</b>}</>
                   )}
                 </div>
@@ -551,6 +564,26 @@ function FindDeals({ leagueId, teamId, rosters, untouchable, untouchableNames }:
                     onDismiss={() => dismiss(p.picked)} compact />
                 )}
               </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* RL-19-3: 1-for-1s the lineup-points gate drops that raise BOTH teams' title
+          odds past 2 SE. Their own class, never mixed into the points list below. */}
+      {data?.title_mutual?.status === 'failed' && (
+        <p className="text-xs text-[var(--crit)] mb-3">Title-mutual check could not run: {data.title_mutual.error}</p>
+      )}
+      {data?.title_mutual?.deals?.length > 0 && (
+        <div className="mb-5">
+          <div className="text-xs text-slate-500 font-semibold mb-2">
+            {data.title_mutual.preview ? 'Preview (unconfirmed forward): ' : ''}
+            Both title odds up, points say no · {data.title_mutual.deals.length} of {data.title_mutual.simulated} simulated
+          </div>
+          <div className="space-y-3">
+            {data.title_mutual.deals.map((d: any, i: number) => (
+              <TradeCard key={`tm-${dealSignature(d) || i}`} deal={d} leagueId={leagueId} untouchableNames={untouchableNames}
+                onDismiss={() => dismiss(d)} compact />
             ))}
           </div>
         </div>

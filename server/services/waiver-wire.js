@@ -30,15 +30,21 @@
  * one bad game.
  */
 import { rows } from '../db/index.js';
-import { assetUniverse, tradeWeekContext, bestLineup, lineupSlots } from './trade-engine.js';
+import { assetUniverse, tradeWeekContext, bestLineup, lineupSlots, espnPlayerResolver } from './trade-engine.js';
 import { deriveFormat } from './format.js';
-// The app's canonical name normaliser. This file used to compare raw
-// `toLowerCase()` strings, which meant a typographic apostrophe on one side and
-// a straight one on the other never matched: Ja'Marr Chase, De'Von Achane,
-// D'Andre Swift and five more were dropped from your roster AND offered back to
-// you as free agents. Every other consumer in the app already normalises.
-import { normalizePlayerName } from './player-identity.js';
-import { availabilityDegradation } from './contingency.js';
+import { leagueRules } from './league-rules.js';
+import { availabilityDegradation, roleStates, weekDesignation } from './contingency.js';
+// The league's wire, one producer shared with the trade engine's lineup value
+// (RL-9-3), keyed by the ESPN-id-first resolver (RL-6-4).
+import { rosteredAssetIds, unrosteredSkill, onNflTeam } from './league-wire.js';
+import { previewUnconfirmed, previewFields } from './preview-mode.js';
+// The one producer of "this player carries the Sleeper injury flag" (RL-12-2).
+import { activeInjuryFlagIds } from './injury-flags.js';
+import { zonedDateTime } from './date-util.js';
+// RL-16-2: the league's observed waiver runs (league_waiver_runs, league_transactions_raw).
+import { clusterRuns, observedWaiverRuns } from './waiver-runs.js';
+
+export { observedWaiverRuns };
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
@@ -74,6 +80,12 @@ const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 export const MIN_GAIN = 0.05;
 const TIE = 0.005;
 const seasonValue = p => (p.available === false ? 0 : (p.ros_ppg ?? 0));
+/**
+ * A player priced through the name fallback (identity_match 'name_position') is never
+ * a suggested cut: his price may belong to someone else (RL-6-4). Assets with no
+ * identity_match (other callers of chooseClaimCut) are unaffected.
+ */
+const cuttable = p => p.identity_match !== 'name_position';
 export const DROP_RULE = 'An immediate claim cuts the player whose loss keeps this week\'s gain and costs the ' +
   'rest of season least: never someone worth more over the rest of season than the player claimed, and never ' +
   'someone whose loss lowers your rest-of-season lineup. A claim with no such cut is held back.';
@@ -99,6 +111,7 @@ export function chooseClaimCut(active, fa, slots, weekBase, rosBase) {
   }
   let safe = null, unsafe = null;
   for (const drop of active) {
+    if (!cuttable(drop)) continue;
     const after = [...active.filter(p => p.id !== drop.id), fa];
     const week = (bestLineup(after, slots, 'current_week_ppg').points ?? 0) - weekBase;
     if (!(week > MIN_GAIN)) continue;                                   // (c)
@@ -129,18 +142,6 @@ function weekPpg(p) {
 }
 
 
-/** Every player rostered anywhere in the league, by normalised name. */
-function rosteredNames(payload) {
-  const owned = new Map();
-  for (const team of payload.teams ?? []) {
-    for (const e of team.roster?.entries ?? []) {
-      const nm = e.playerPoolEntry?.player?.fullName;
-      if (nm) owned.set(normalizePlayerName(nm), String(team.id));
-    }
-  }
-  return owned;
-}
-
 /**
  * Claims worth making, for one team.
  *
@@ -149,35 +150,48 @@ function rosteredNames(payload) {
  * sit on the bench is worth zero this week however good he looks in isolation —
  * though `ros_upgrade` keeps the rest-of-season view for stashes.
  */
-export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRosProjected = minProjected } = {}) {
+export function waiverBoard(lg, {
+  myTeamId, limit = 20, minProjected = 4, minRosProjected = minProjected, now = new Date(),
+  sameTeamOrder: sameTeamOrderArg
+} = {}) {
+  // PREVIEW-01: the local-testing switch picks snap-share order when the caller did not
+  // choose one; each alert's replacements then carry preview:true and the reason.
+  const orderPreview = sameTeamOrderArg === undefined && previewUnconfirmed();
+  const sameTeamOrder = sameTeamOrderArg === undefined ? (orderPreview ? 'snap_share' : 'projection') : sameTeamOrderArg;
   if (!lg?.payload) return { error: 'league not synced' };
   const payload = JSON.parse(lg.payload);
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   const week = tradeWeekContext();
-  const owned = rosteredNames(payload);
+  // Who each ESPN roster entry is: the ESPN id first, name + position only when no
+  // asset carries that id (trade-engine.js#espnPlayerResolver, the resolver
+  // loadRosters uses). The name-only join this replaced priced a retired or junk
+  // namesake at 0.0 / 0.0 as the suggested cut in all 5 leagues on 2026-W3.
+  const resolve = espnPlayerResolver(assets);
+  const ownedById = rosteredAssetIds(payload, resolve);
   const rosterId = String(myTeamId ?? lg.my_team_id);
   const slots = lineupSlots(lg);
 
-  // My roster, priced. Indexed once by normalised name rather than a linear
-  // scan of the asset universe per roster entry.
-  const assetByName = new Map();
-  for (const a of assets.values()) assetByName.set(normalizePlayerName(a.name), a);
   const mine = [];
   const team = (payload.teams ?? []).find(t => String(t.id) === rosterId);
   const myEntries = team?.roster?.entries ?? [];
   const unpriced = [];
+  const nameFallback = [];
   for (const e of myEntries) {
     const nm = e.playerPoolEntry?.player?.fullName;
     if (!nm) continue;
-    const asset = assetByName.get(normalizePlayerName(nm));
+    const { asset, match } = resolve(e.playerPoolEntry.player);
     if (!asset) { unpriced.push(nm); continue; }
     if (!SCORED.has(asset.position)) continue;
+    // Priced through the name fallback: the identity is unconfirmed, so he is shown
+    // and counted in the lineup but never offered as a cut (chooseClaimCut, rosBench).
+    if (match !== 'espn_id') nameFallback.push(nm);
     const espnStatus = e.playerPoolEntry?.player?.injuryStatus ?? null;
     // ESPN lineup slot 21 is the IR slot. A player parked there does not occupy
     // a bench spot, so he is not a drop candidate — suggesting him is how you
     // lose an injured starter for free.
-    mine.push({ ...asset, espn_status: espnStatus, on_ir: e.lineupSlotId === 21 || espnStatus === 'INJURY_RESERVE' });
+    mine.push({ ...asset, identity_match: match, espn_status: espnStatus, lineup_slot: e.lineupSlotId ?? null,
+      on_ir: e.lineupSlotId === ESPN_SLOT_IR || espnStatus === 'INJURY_RESERVE' });
   }
   if (!mine.length) return { error: 'could not price your roster' };
   // Pricing SOME of the roster used to be indistinguishable from pricing all of
@@ -189,7 +203,9 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
     entries_in_payload: myEntries.length,
     priced: mine.length,
     unpriced: unpriced.slice(0, 10),
-    unpriced_count: unpriced.length
+    unpriced_count: unpriced.length,
+    // Priced by name + position because no asset carries their ESPN id: never a cut.
+    name_fallback: nameFallback
   };
 
   const active = mine.filter(p => !p.on_ir);
@@ -220,11 +236,7 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
   // leagues (all ten of league 2's: out-of-work or retired quarterbacks at 13-16 a
   // week). The rows this takes off the board are counted in `teamless_excluded`
   // (below, once the stash cut is known), so the page can say so.
-  const unownedAll = [...assets.values()].filter(a =>
-    SCORED.has(a.position)
-    && !owned.has(normalizePlayerName(a.name))
-    && a.available !== false);
-  const onNflTeam = a => Boolean(a.team_abbr ?? a.team);
+  const unownedAll = unrosteredSkill(assets, ownedById);
   const unowned = unownedAll.filter(onNflTeam);
   // How much of the pool is priced at all. Distinguishes "the wire is thin"
   // from "nothing on the wire has a number", which read identically before.
@@ -245,7 +257,7 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
   // — so every stash figure on those rosters was biased low, most of all for the
   // hurt-now-good-later players the stash list exists to find.
   const rosStarters = new Set(rosBaselineLineup.slots.map(s => s.player?.id).filter(Boolean));
-  const rosBench = active.filter(p => !rosStarters.has(p.id)).sort(dropOrder(p => p.ros_ppg ?? 0));
+  const rosBench = active.filter(p => !rosStarters.has(p.id) && cuttable(p)).sort(dropOrder(p => p.ros_ppg ?? 0));
   const rosDropForStash = rosBench[0] ?? null;
   const rosAfterWith = fa =>
     bestLineup([...active.filter(p => p.id !== rosDropForStash?.id), fa], slots, 'ros_ppg').points ?? 0;
@@ -281,6 +293,10 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
     const rosDrop = rosDropForStash;
     const rosAfter = rosAfterWith(fa);
     board.push({
+      // The ids travel with the names so the recommendation ledger
+      // (rec-ledger.js recordRoute 'waivers') can grade the claim; names alone
+      // are not a join key.
+      player_id: fa.id ?? null,
       player: fa.name, position: fa.position, team: fa.team_abbr ?? fa.team,
       projected_ppg: +weekPpg(fa).toFixed(2),
       ros_ppg: fa.ros_ppg ?? null,
@@ -292,7 +308,7 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
       upgrade: +upgrade.toFixed(2),
       // Whether he would actually start, which is what makes the upgrade real.
       would_start: (after?.slots ?? []).some(s => s.player?.id === fa.id),
-      drop_candidate: drop ? { player: drop.name, position: drop.position, ppg: +weekPpg(drop).toFixed(2),
+      drop_candidate: drop ? { player_id: drop.id ?? null, player: drop.name, position: drop.position, ppg: +weekPpg(drop).toFixed(2),
         ros_ppg: drop.ros_ppg ?? null } : null,
       // What the claim-and-cut does to the rest-of-season lineup: never negative.
       ros_change: safe ? +(safe.rosAfter - rosBaseline).toFixed(2) : null,
@@ -301,7 +317,7 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
       // The cut the stash figure assumes. When it differs from drop_candidate, the
       // immediate claim and the stash claim imply different cuts, and the card
       // should say so rather than pretend there is one answer.
-      ros_drop_candidate: rosDrop ? { player: rosDrop.name, position: rosDrop.position,
+      ros_drop_candidate: rosDrop ? { player_id: rosDrop.id ?? null, player: rosDrop.name, position: rosDrop.position,
         ros_ppg: rosDrop.ros_ppg ?? null } : null,
       passes_week_gate: passesWeek(fa),
       passes_ros_gate: passesRos(fa),
@@ -322,6 +338,14 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
   // same hand-set constant.
   const availabilityBasis = assets.context?.availability_basis ?? null;
 
+  // WV-02: my injured starters and who replaces them, before the next waiver run.
+  const waiverRun = nextWaiverRun(payload, now, observedWaiverRuns(lg.id, lg.season));
+  const claimPriorityBlock = claimPriority(lg, payload, rosterId);
+  const injuryAlerts = injuryReplacementAlerts({
+    mine, assets, unowned, ownedById, rosterId, waiverRun, roles: roleStates(week.season, week.week), sameTeamOrder,
+    preview: orderPreview
+  });
+
   return {
     season: week.season, week: week.week, roster_id: rosterId,
     baseline_points: +baselinePoints.toFixed(2),
@@ -337,6 +361,12 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
     live_players: active.filter(p => (p.active_probability ?? 1) >= 0.5).length,
     roster_size: active.length,
     on_ir: mine.filter(p => p.on_ir).map(p => p.name),
+    // My starters who are Out / IR / Doubtful (or carry a current feed injury flag
+    // with no designation), each with the replacements and the claim deadline.
+    injury_alerts: injuryAlerts,
+    waiver_run: waiverRun,
+    // RL-13-2: the league's waiver-order rule and my current place in line.
+    claim_priority: claimPriorityBlock,
     immediate: starts.slice(0, limit),
     stashes: stashes.slice(0, Math.max(5, Math.floor(limit / 2))),
     // How an immediate claim's cut is chosen, and the claims no safe cut exists for.
@@ -359,4 +389,319 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
   };
 }
 
+/* ------------------------------------------------ claim priority (RL-13-2) */
+
+export const CLAIM_STRATEGY = Object.freeze({
+  reset: 'This league resets the waiver order every week, so waiting gains nothing: '
+    + 'a claim costs only this week\'s place in line. Put in a claim for anyone who helps.',
+  rolling: 'This league keeps a rolling order: a successful claim sends you to the back of the order '
+    + 'until other teams claim. Spend a high spot on a player who changes your lineup.',
+  budget: 'Claims here are won by bid; the waiver order only breaks tied bids.'
+});
+
+/**
+ * How claim priority works in this league, and where my team stands in it.
+ *
+ * The rule is league-rules.js#leagueRules().waivers (the one producer of league
+ * rules); the rank is ESPN mTeam `teams[].waiverRank` in `leagues.payload`
+ * (written by routes/leagues.js#syncEspnLeague). The rank is as of the last sync
+ * (`as_of` = leagues.fetched_at): claims processed since can move it. Nothing is
+ * defaulted: a field the payload lacks is null and named in `missing`.
+ *
+ * What the weekly reset resets TO is not in the payload. On the local copy
+ * (2026-09-23, week 3) the order equals reverse playoff seed for 19 of 46 teams
+ * (all 8 in one league), which fits "reverse standings, then claimants move
+ * back" but does not prove it, so the page does not say it.
+ */
+export function claimPriority(lg, payload, rosterId) {
+  const rules = leagueRules(lg);
+  const wv = rules.waivers;
+  const missing = rules.missing.filter(m => m.startsWith('settings.acquisitionSettings.'));
+  const teams = Array.isArray(payload?.teams) ? payload.teams : [];
+  const me = teams.find(t => String(t.id) === String(rosterId));
+  const rank = Number.isInteger(me?.waiverRank) && me.waiverRank > 0 ? me.waiverRank : null;
+  if (rank == null) missing.push('teams[].waiverRank');
+  const ahead = rank == null ? null : rank - 1;
+  const season = Number(lg.season);
+  const payloadSeason = lg.payload_season == null ? null : Number(lg.payload_season);
+  const staleSeason = payloadSeason != null && Number.isFinite(season) && payloadSeason !== season;
+
+  let strategy = null;
+  if (wv.uses_budget === true) strategy = CLAIM_STRATEGY.budget;
+  else if (wv.order_resets_weekly === true) strategy = CLAIM_STRATEGY.reset;
+  else if (wv.order_resets_weekly === false) strategy = CLAIM_STRATEGY.rolling;
+
+  let reason = null;
+  if (staleSeason) {
+    reason = `The synced rosters are from ${payloadSeason}, not ${season} (pre-draft fallback), so this rank is last season's.`;
+  } else if (missing.length) {
+    reason = `The synced league does not carry ${missing.join(', ')}.`;
+  }
+  return {
+    known: !staleSeason && missing.length === 0,
+    reason,
+    acquisition_type: wv.acquisition_type,
+    uses_budget: wv.uses_budget,
+    resets_weekly: wv.order_resets_weekly,
+    current_rank: rank,
+    teams: teams.length || null,
+    teams_ahead: ahead,
+    as_of: lg.fetched_at ?? null,
+    stale_season: staleSeason,
+    strategy,
+    missing,
+    source: 'ESPN league settings (acquisitionSettings) and team waiverRank, as of the last sync'
+  };
+}
+
 const fmt = v => (Number.isFinite(+v) ? (+v).toFixed(1) : '—');
+
+/* ---------------------------------------------- injury replacement alert (WV-02) */
+
+// ESPN lineup slot ids: 20 is the bench, 21 injured reserve. Any other slot starts.
+const ESPN_SLOT_BENCH = 20;
+const ESPN_SLOT_IR = 21;
+/** Designations (contingency.js#weekDesignation) that raise the alert. IR maps to 'out'. */
+export const ALERT_DESIGNATIONS = new Set(['out', 'doubtful']);
+const SAME_TEAM_SHOWN = 3;
+const WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+/**
+ * The clock the processing day is read on. ESPN's acquisitionSettings give
+ * waiverProcessDays and waiverProcessHour with no zone; US Eastern is a guess, said
+ * on the payload (`zone_basis`), not a measured fact.
+ */
+export const WAIVER_ZONE = 'America/New_York';
+export const SNAP_SHARE_BASIS = 'Snap share: his mean offensive snap % over his last three appearances before this '
+  + 'week (contingency.js#roleStates, the number the availability role tier uses).';
+/**
+ * How same-team replacements are ordered. Pre-registered check (docs/tdd/
+ * 2026-09-23-injury-replacement-alert.tdd.md, section 5): the snap-share pick beat the
+ * recent-points pick in 0.531 of 98 disagreements on 2022-2024, but the mean PPR
+ * difference's 90% interval [-0.772, +0.385] crossed the -0.5 non-inferiority margin,
+ * so snap-share order ships default-off. Default: this week's projection, the number
+ * the claim list ranks on (not itself graded historically).
+ */
+/** Why snap-share order is default-off; also its preview reason (PREVIEW-01). */
+export const SNAP_SHARE_UNCONFIRMED = 'unconfirmed: failed its pre-registered non-inferiority check on 2022-2024';
+export const SAME_TEAM_ORDERS = Object.freeze({
+  projection: 'Ordered by this week\'s projection. ' + SNAP_SHARE_BASIS,
+  snap_share: `Ordered by snap share (${SNAP_SHARE_UNCONFIRMED}). `
+    + SNAP_SHARE_BASIS
+});
+
+const zoneParts = new Intl.DateTimeFormat('en-US', {
+  timeZone: WAIVER_ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  second: '2-digit', hourCycle: 'h23'
+});
+const partsOf = t => Object.fromEntries(zoneParts.formatToParts(t).map(x => [x.type, x.value]));
+const dayStartUtc = q => Date.UTC(Number(q.year), Number(q.month) - 1, Number(q.day));
+
+/** Why a settings-only time is not trusted (RL-16-2 baseline: 0 of 9 checked claims right). */
+export const WAIVER_GUESS_LABEL = 'unconfirmed: read from the league\'s waiver hour setting in US Eastern; '
+  + 'on 9 checked claims this named the wrong run every time (8 about 7-8 hours late, 1 on the wrong day)';
+const MEASURED_ZONE_BASIS = 'measured: an ESPN timestamp, shown in US Eastern';
+
+/** An absolute instant -> the run fields, read on the waiver clock. */
+function runAt(t) {
+  const q = partsOf(new Date(t));
+  return {
+    day: WEEKDAYS[new Date(dayStartUtc(q)).getUTCDay()], date: `${q.year}-${q.month}-${q.day}`,
+    hour: Number(q.hour), minute: Number(q.minute), at: new Date(t).toISOString(), zone: WAIVER_ZONE
+  };
+}
+
+/**
+ * The league's next waiver processing run. RL-16-2: the settings hour alone named the
+ * wrong run in 9 of 9 checked claims, so a real time comes first:
+ *
+ *   1. `espn_scheduled`: ESPN's own next run, payload.status.waiverNextExecutionDate
+ *      (epoch ms), when it is still ahead of `now`.
+ *   2. `observed`: the league's past runs (`observed`, ISO instants from
+ *      waiver-runs.js#observedWaiverRuns). Only weekdays a run was seen on are
+ *      candidates, each at the clock time of its latest run, so a day the settings
+ *      list but the league never ran on is not named.
+ *   3. `unconfirmed_guess`: payload.settings.acquisitionSettings (mSettings, synced
+ *      by server/routes/leagues.js), waiverProcessHour read as US Eastern. Labelled.
+ *
+ * `{ known: false, reason }` when none of the three is there: an absence, not
+ * "no deadline".
+ */
+export function nextWaiverRun(payload, now = new Date(), observed = []) {
+  const nowMs = now.getTime();
+  const acq = payload?.settings?.acquisitionSettings ?? null;
+  const days = Array.isArray(acq?.waiverProcessDays) ? acq.waiverProcessDays.map(d => String(d).toUpperCase()) : [];
+  const hour = Number.isInteger(acq?.waiverProcessHour) ? acq.waiverProcessHour : null;
+  const waiverHours = acq?.waiverHours ?? null;
+
+  const scheduled = Number(payload?.status?.waiverNextExecutionDate);
+  if (Number.isFinite(scheduled) && scheduled > nowMs) {
+    return {
+      known: true, basis: 'espn_scheduled', confirmed: true, label: 'ESPN\'s scheduled run',
+      ...runAt(scheduled), zone_basis: MEASURED_ZONE_BASIS, process_days: days, waiver_hours: waiverHours,
+      source: 'ESPN league status (waiverNextExecutionDate)'
+    };
+  }
+
+  const runs = clusterRuns(observed).filter(r => Date.parse(r) <= nowMs);
+  if (runs.length) {
+    // Latest run per weekday, on the waiver clock.
+    const byDay = new Map();
+    for (const r of runs) {
+      const q = partsOf(new Date(r));
+      byDay.set(WEEKDAYS[new Date(dayStartUtc(q)).getUTCDay()], `${q.hour}:${q.minute}:${q.second}`);
+    }
+    const today = dayStartUtc(partsOf(now));
+    for (let i = 0; i <= 7; i++) {
+      const d = new Date(today + i * 86400000);
+      const clock = byDay.get(WEEKDAYS[d.getUTCDay()]);
+      if (!clock) continue;
+      const at = zonedDateTime(d.toISOString().slice(0, 10), clock, WAIVER_ZONE);
+      if (!at || at.getTime() <= nowMs) continue;
+      const observedDays = WEEKDAYS.filter(w => byDay.has(w));
+      return {
+        known: true, basis: 'observed', confirmed: true,
+        label: `this league's past runs (${runs.length} observed, last ${runs[runs.length - 1]})`,
+        ...runAt(at.getTime()), zone_basis: MEASURED_ZONE_BASIS,
+        process_days: observedDays, settings_process_days: days,
+        settings_days_never_observed: days.filter(w => !byDay.has(w)),
+        observed_runs: runs.length, last_observed: runs[runs.length - 1], waiver_hours: waiverHours,
+        source: 'processDate of executed ESPN waiver claims (league_waiver_runs, league_transactions_raw)'
+      };
+    }
+  }
+
+  if (!days.length || hour == null) {
+    return { known: false, reason: 'The synced league carries no acquisition settings (waiver days and hour) '
+      + 'and no observed waiver runs, so no processing time is shown.' };
+  }
+  const q = partsOf(now);
+  // Calendar days counted from today's date in the zone, so a DST change cannot skip one.
+  const today = dayStartUtc(q);
+  for (let i = 0; i <= 7; i++) {
+    const d = new Date(today + i * 86400000);
+    const day = WEEKDAYS[d.getUTCDay()];
+    if (!days.includes(day)) continue;
+    if (i === 0 && Number(q.hour) >= hour) continue;
+    const date = d.toISOString().slice(0, 10);
+    return {
+      known: true, basis: 'unconfirmed_guess', confirmed: false, label: WAIVER_GUESS_LABEL,
+      day, date, hour, minute: 0,
+      at: zonedDateTime(date, `${String(hour).padStart(2, '0')}:00`, WAIVER_ZONE)?.toISOString() ?? null,
+      zone: WAIVER_ZONE,
+      zone_basis: 'guess: ESPN does not state the zone of waiverProcessHour',
+      process_days: days, waiver_hours: waiverHours,
+      source: 'ESPN league settings (acquisitionSettings)'
+    };
+  }
+  return { known: false, reason: `None of the listed processing days (${days.join(', ')}) is a weekday name.` };
+}
+
+/**
+ * Players whose feed injury flag is CURRENT. Table player_metrics, source
+ * 'injury_flag', written by syncSleeper (server/routes/aggregates.js) together with
+ * the same player's 'sleeper_rank' row in one pass. The writer sets the flag and never
+ * clears it, so a flag older than that player's latest rank row is left over from an
+ * earlier sync and does not count.
+ *
+ * Whether a flag counts at all is the one producer's call (services/injury-flags.js
+ * #activeInjuryFlagIds, RL-12-2: cleared flags and stale flags on players who have
+ * played since are off); the same-sync rank-row check above is kept on top of it.
+ */
+function currentFeedFlags(ids) {
+  if (!ids.length) return new Set();
+  const active = activeInjuryFlagIds();
+  ids = ids.filter(id => active.has(id));
+  if (!ids.length) return new Set();
+  const marks = ids.map(() => '?').join(',');
+  return new Set(rows(`SELECT f.player_id FROM player_metrics f
+                       JOIN player_metrics r ON r.player_id = f.player_id AND r.source = 'sleeper_rank'
+                       WHERE f.source = 'injury_flag' AND f.value > 0 AND f.fetched_at >= r.fetched_at
+                         AND f.player_id IN (${marks})`, ...ids).map(x => x.player_id));
+}
+
+/** This week's designation for a player: the canonical weekDesignation, fed the asset and ESPN inputs. */
+function designationOf(p) {
+  const d = weekDesignation({
+    report: p.injury_status ? { report_status: p.injury_status } : null,
+    espnStatus: p.espn_status ?? null
+  });
+  // weeklyAvailability has already merged ESPN into injury_status when ESPN was more
+  // severe ("Out (ESPN)"), which weekDesignation then reads as an NFL row.
+  const source = d.source === 'nfl' && /\(ESPN/.test(String(p.injury_status)) ? 'espn' : d.source;
+  return { designation: d.designation, source, label: d.report?.report_status ?? p.espn_status ?? null };
+}
+
+const teamOf = p => p.team_abbr ?? p.team ?? null;
+const round3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
+
+function replacementRow(p, roles, onYourRoster) {
+  const role = roles.get(p.id) ?? null;
+  return {
+    player: p.name, position: p.position, team: teamOf(p),
+    snap_share: round3(role?.share ?? null),
+    snap_last_seen: role?.last_seen ?? null,
+    projected_ppg: +weekPpg(p).toFixed(2),
+    ros_ppg: p.ros_ppg ?? null,
+    injury_status: p.injury_status ?? null,
+    on_your_roster: onYourRoster
+  };
+}
+
+/** Higher snap share first; no snap share last; then this week's projection. */
+const bySnapShare = (a, b) => (b.snap_share ?? -1) - (a.snap_share ?? -1) || b.projected_ppg - a.projected_ppg;
+/** Higher projection this week first; then snap share. */
+const byProjection = (a, b) => b.projected_ppg - a.projected_ppg || (b.snap_share ?? -1) - (a.snap_share ?? -1);
+
+/**
+ * One alert per starter of mine who is Out / IR / Doubtful this week, or who carries
+ * a current feed injury flag while no designation exists yet (mid-week, before the
+ * report). Replacements: same NFL team and position, free agents or already mine,
+ * ranked by snap share; then the best free agent at the position from another team,
+ * on this week's projection (the number the claim list ranks on).
+ */
+export function injuryReplacementAlerts({
+  mine, assets, unowned, ownedById, rosterId, waiverRun, roles, sameTeamOrder = 'projection', preview = false
+}) {
+  if (!SAME_TEAM_ORDERS[sameTeamOrder]) throw new Error(`unknown sameTeamOrder: ${sameTeamOrder}`);
+  const order = sameTeamOrder === 'snap_share' ? bySnapShare : byProjection;
+  const starters = mine.filter(p => p.lineup_slot != null
+    && p.lineup_slot !== ESPN_SLOT_BENCH && p.lineup_slot !== ESPN_SLOT_IR);
+  const flagged = currentFeedFlags(starters.map(p => p.id));
+  const healthy = p => p.available !== false && !ALERT_DESIGNATIONS.has(designationOf(p).designation);
+  const mineById = new Map(mine.map(p => [p.id, p]));
+  const alerts = [];
+  for (const s of starters) {
+    const d = designationOf(s);
+    const trigger = ALERT_DESIGNATIONS.has(d.designation) ? d.source
+      : d.designation == null && flagged.has(s.id) ? 'feed_flag' : null;
+    if (!trigger) continue;
+    const team = teamOf(s);
+    const sameTeam = team == null ? [] : [...assets.values()]
+      .filter(a => a.id !== s.id && a.position === s.position && teamOf(a) === team)
+      .map(a => mineById.get(a.id) ?? a)
+      .filter(a => {
+        const holder = ownedById.get(a.id);
+        return (holder == null || holder === rosterId) && healthy(a);
+      })
+      .map(a => replacementRow(a, roles, mineById.has(a.id)))
+      .sort(order);
+    const bestFree = unowned
+      .filter(a => a.position === s.position && teamOf(a) !== team && healthy(a))
+      .sort((a, b) => weekPpg(b) - weekPpg(a))[0] ?? null;
+    alerts.push({
+      player: s.name, position: s.position, team, lineup_slot: s.lineup_slot,
+      designation: d.designation, designation_source: trigger, status: d.label,
+      snap_share: round3(roles.get(s.id)?.share ?? null),
+      replacements: {
+        same_team: sameTeam.slice(0, SAME_TEAM_SHOWN),
+        same_team_count: sameTeam.length,
+        order: sameTeamOrder,
+        ranked_by: SAME_TEAM_ORDERS[sameTeamOrder],
+        ...(preview ? previewFields(SNAP_SHARE_UNCONFIRMED) : {}),
+        best_free_agent: bestFree ? replacementRow(bestFree, roles, false) : null
+      },
+      claim_by: waiverRun
+    });
+  }
+  return alerts;
+}

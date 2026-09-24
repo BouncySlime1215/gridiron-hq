@@ -176,13 +176,14 @@ function withCachedPrefix(baseMessages, cachedPrefix, ttl) {
   return [{ ...first, content: [{ type: 'text', text: cachedPrefix, cache_control: cacheMark(ttl) }, ...content] }, ...rest];
 }
 
-function cacheBreakpoints({ system, messages, tools }) {
+function cacheBreakpoints({ system, messages, tools, cache_control: automatic }) {
   const blocks = [
     ...(Array.isArray(system) ? system : []),
     ...(tools ?? []),
     ...messages.flatMap(m => (Array.isArray(m.content) ? m.content : []))
   ];
-  return blocks.filter(block => block?.cache_control).length;
+  // Automatic caching (the top-level field) takes one of the four slots too.
+  return blocks.filter(block => block?.cache_control).length + (automatic ? 1 : 0);
 }
 
 /**
@@ -197,6 +198,10 @@ function cacheBreakpoints({ system, messages, tools }) {
  * - `cachedPrefix` is a stable context block (the Coach's situation brief, the
  *   trade-proposal context) placed first in the first user turn with its own
  *   breakpoint; the varying question follows it.
+ * - `cacheConversation: true` turns on automatic caching (a top-level
+ *   `cache_control`): the API puts a breakpoint on the last block and moves it
+ *   forward as a tool loop's history grows, so each round re-reads the rounds
+ *   before it instead of paying for them again.
  * - `cacheTtl` '5m' (default, writes cost 1.25x input) or '1h' (2x).
  * Budgets: the feature's key is its name up to the first colon, so
  * `coach:answer` draws on the `coach` budget. A refusal is an LlmBudgetError
@@ -204,7 +209,7 @@ function cacheBreakpoints({ system, messages, tools }) {
  */
 export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001', maxTokens = 1024, prompt, messages,
   tools = undefined, toolChoice = undefined, system = GROUNDING_SYSTEM, temperature = null,
-  cacheSystem = false, cachedPrefix = undefined, cacheTtl = '5m' }) {
+  cacheSystem = false, cachedPrefix = undefined, cacheConversation = false, cacheTtl = '5m', effort = undefined }) {
   const key = getApiKey();
   if (!key) {
     const err = new Error('No Anthropic API key configured — add one in the Dev Hub (top right) to enable AI features.');
@@ -215,7 +220,7 @@ export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001',
   requirePrice(model);
   assertUsageSchema();
 
-  const caching = cacheSystem || cachedPrefix != null;
+  const caching = cacheSystem || cachedPrefix != null || cacheConversation;
   const baseMessages = messages ?? [{ role: 'user', content: prompt }];
   const request = {
     model, max_tokens: maxTokens,
@@ -231,7 +236,11 @@ export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001',
     // `prompt` string and gets the original one-turn behavior.
     messages: cachedPrefix != null ? withCachedPrefix(baseMessages, cachedPrefix, cacheTtl) : baseMessages,
     ...(tools?.length ? { tools } : {}),
-    ...(toolChoice ? { tool_choice: toolChoice } : {})
+    ...(toolChoice ? { tool_choice: toolChoice } : {}),
+    // Thinking models spend max_tokens on thinking first; `effort` (low..max)
+    // is how a caller bounds that, instead of a bigger cap alone.
+    ...(effort ? { output_config: { effort } } : {}),
+    ...(cacheConversation ? { cache_control: cacheMark(cacheTtl) } : {})
   };
   const breakpoints = cacheBreakpoints(request);
   if (breakpoints > MAX_CACHE_BREAKPOINTS) {

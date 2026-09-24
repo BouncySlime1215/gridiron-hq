@@ -69,7 +69,7 @@ test('on an empty database every check runs: E3 historical passes, everything li
     assert.match(byCheck[c].needs_text, /^needs \d+ more /, c);
   }
   assert.match(byCheck.E1.needs_text, new RegExp(`^needs ${E1.minOffersToDecide()} more offers`));
-  assert.match(byCheck.E2.needs_text, /offer_log is not built yet/);
+  assert.match(byCheck.E2.needs_text, /no writer records a sent offer's price band yet/);
   assert.match(byCheck.E7.needs_text, /needs 4 more weeks/);
 });
 

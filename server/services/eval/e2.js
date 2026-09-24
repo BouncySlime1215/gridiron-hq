@@ -3,7 +3,7 @@
  * (indifference price) should be accepted at about the rate the model predicted
  * there; offers priced BELOW it should mostly be declined.
  *
- * Source: the OFFER-01 `offer_log` (not built yet). Contract, one row per sent
+ * Source: none yet (see NO_SOURCE_REASON below; FIX-09 builds it). Contract, one row per sent
  * offer: model_p_accept (at the price sent), price_band ('below' | 'at' |
  * 'above' the predicted yes point, decided by the producer that priced it),
  * status (trade_outcomes vocabulary), proposed_at. Only this app's offers can
@@ -26,7 +26,7 @@
  *                    the 'below' accept rate (if any) is under 50%.
  *   not_enough_data  anything else, with the evidence so far.
  */
-import { STATUS, result, readSource, ciExcludesZero } from './common.js';
+import { STATUS, result, ciExcludesZero } from './common.js';
 import { hierCalibration } from './hier-calibration.js';
 import { confidenceSequence, minDecisiveN } from './sequential.js';
 import { mean, moreNeeded, round } from './stats.js';
@@ -88,15 +88,16 @@ export function grade(rawOffers, { reason = null } = {}) {
   return result({ ...common, status: STATUS.NOT_ENOUGH_DATA, metric: cs.mean, ci, n: at.length, needsN: needs, needsUnit: 'offers', detail });
 }
 
-const COLS = ['league_id', 'counterparty_team_id', 'model_p_accept', 'price_band', 'status'];
+// No source yet. The planned OFFER-01 `offer_log` has no writer anywhere in the repo
+// (INTEGRATION-AUDIT-0923 section 5), so reading it only ever graded an empty table.
+// Sent offers get a price band with FIX-09: `trade_outcomes.price_band` + `move_id`
+// (migration 083), written by the War Room "I sent it" path; E2 then reads
+// trade_outcomes rows that have `sent_at`. Until then E2 says what it is waiting for.
+export const NO_SOURCE_REASON = 'no writer records a sent offer\'s price band yet '
+  + '(FIX-09 adds trade_outcomes.price_band, migration 083)';
 
-export function load(database) {
-  const s = readSource(database, 'offer_log', COLS);
-  if (!s.ok) return { rows: [], reason: `${s.reason}; OFFER-01 builds it` };
-  // proposed_at orders the sequence when the log has it; without it the
-  // sequence runs in insertion order, which is still a fixed, predictable order.
-  const hasTime = database.prepare(`SELECT 1 FROM pragma_table_info('offer_log') WHERE name = 'proposed_at'`).get();
-  return hasTime ? { rows: database.prepare(`SELECT ${COLS.join(', ')}, proposed_at FROM offer_log`).all() } : { rows: s.rows };
+export function load(_database) {
+  return { rows: [], reason: NO_SOURCE_REASON };
 }
 
 export function run(database) {

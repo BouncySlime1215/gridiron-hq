@@ -372,6 +372,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       price_a: num(f.price_a, 'clone.price', { unit: 'market_value' }), price_b: num(f.price_b, 'clone.price', { unit: 'market_value' }),
       legs: r?.legs ? {
         give_a: String(r.legs.give_a), get_b: String(r.legs.get_b),
+        ...(Array.isArray(r.legs.give_a_ids) && r.legs.give_a_ids.length ? { give_a_ids: r.legs.give_a_ids.map(String) } : {}),
+        ...(Array.isArray(r.legs.get_b_ids) && r.legs.get_b_ids.length ? { get_b_ids: r.legs.get_b_ids.map(String) } : {}),
         p1: num(r.legs.p1, 'clone.accept', { prob: true, unit: 'probability', guess: true }),
         p2: num(r.legs.p2, 'clone.accept', { prob: true, unit: 'probability', guess: true }),
         p_both: num(r.legs.p_complete, 'clone.accept', { prob: true, unit: 'probability', guess: true }),

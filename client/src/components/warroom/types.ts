@@ -101,7 +101,7 @@ export interface Target {
 export interface Flip {
   player: string; buy_from: string; sell_to: string;
   spread: Num; price_a: Num; price_b: Num;
-  legs: { give_a: string; get_b: string; p1: Num; p2: Num; p_both: Num; nick_after: Num } | null;
+  legs: { give_a: string; get_b: string; give_a_ids?: string[]; get_b_ids?: string[]; p1: Num; p2: Num; p_both: Num; nick_after: Num } | null;
   legs_why_not?: string;
   reasoning?: Field<Reasoning>;
 }

@@ -192,7 +192,9 @@ const tradeoff = obj({
 
 const flip = obj({
   player: pid, buy_from: id, sell_to: id, spread: numF, price_a: numF, price_b: numF,
-  legs: nullable(obj({ give_a: pid, get_b: pid, p1: probF, p2: probF, p_both: probF, nick_after: numF }))
+  legs: nullable(obj({ give_a: pid, get_b: pid, p1: probF, p2: probF, p_both: probF, nick_after: numF },
+    // FLIP-LEGS-2: the whole packages (give_a / get_b stay the lead id); served only when the planner priced packages.
+    { give_a_ids: arr(pid, { min: 1 }), get_b_ids: arr(pid, { min: 1 }) }))
 }, { legs_why_not: str, reasoning: field(reasoning) });
 
 const target = obj({

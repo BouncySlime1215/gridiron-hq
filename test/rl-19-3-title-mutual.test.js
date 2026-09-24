@@ -105,6 +105,17 @@ mock.module('../server/services/gamescript.js', {
 mock.module('../server/services/contingency.js', {
   namedExports: { ...realContingency, weeklyAvailability: () => new Map() }
 });
+// analyzeLeague reads the real player tables, which hold none of these players,
+// so every position would read "thin" and red-flag every swap. Hand it the
+// fixture's own needs: team 1 is short at RB with a spare WR, team 2 the reverse.
+const { default: tradelabRouter, ...realTradelab } = await import('../server/routes/tradelab.js');
+const need = (roster_id, short, spare) => ({ roster_id, needs: short ? [{ position: short }] : [],
+  surplus: spare ? [{ position: spare }] : [], window: 'contend' });
+mock.module('../server/routes/tradelab.js', {
+  defaultExport: tradelabRouter,
+  namedExports: { ...realTradelab,
+    analyzeLeague: () => ({ teams: [need(1, 'RB', 'WR'), need(2, 'WR', 'RB'), need(3), need(4)] }) }
+});
 const simModule = await import('../server/services/season-sim.js?rl193');
 mock.module('../server/services/season-sim.js', { namedExports: { ...simModule } });
 // A fresh trade-engine instance whose season-sim import is the mocked one.

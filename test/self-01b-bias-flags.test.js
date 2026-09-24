@@ -145,6 +145,29 @@ test('walkForward: too few forward predictions is held back as too_few_forward, 
   assert.equal(t.held_reason, 'too_few_forward');
 });
 
+test('walkForward: forward precision equal to the base rate is not above it, so the flag is held', () => {
+  const ev = [];
+  for (let i = 0; i < 4; i++) ev.push({ period: 1, hit: 1, cats: ['a'] }, { period: 1, hit: 0, cats: ['b'] });
+  for (const p of [2, 3]) ev.push(
+    { period: p, hit: 1, cats: ['a'] }, { period: p, hit: 0, cats: ['a'] },
+    { period: p, hit: 1, cats: ['b'] }, { period: p, hit: 0, cats: ['b'] });
+  const a = bias.walkForward(ev, { minFit: 4, minEval: 4 }).candidates.find(c => c.category === 'a');
+  assert.equal(a.forward.precision, 0.5);
+  assert.equal(a.forward.base_rate, 0.5);
+  assert.equal(a.shown, false);
+  assert.equal(a.held_reason, 'not_above_base');
+});
+
+test('walkForward: a week where the category only ties the overall rate makes no forward predictions', () => {
+  const ev = [];
+  for (let i = 0; i < 2; i++) ev.push({ period: 1, hit: 1, cats: ['a'] }, { period: 1, hit: 0, cats: ['a'] },
+    { period: 1, hit: 1, cats: ['b'] }, { period: 1, hit: 0, cats: ['b'] });
+  for (const p of [2, 3]) for (let i = 0; i < 4; i++) ev.push({ period: p, hit: 1, cats: ['a'] }, { period: p, hit: 0, cats: ['b'] });
+  const a = bias.walkForward(ev, { minFit: 4, minEval: 4 }).candidates.find(c => c.category === 'a');
+  assert.equal(a.forward.n, 4, 'active from week 3 only: at week 2 its 0.5 only ties the overall 0.5');
+  assert.equal(a.forward.base_n, 8);
+});
+
 /* ---------------------------------------------------------------- which calls he skips */
 
 function skipper(L) {
@@ -212,12 +235,12 @@ test('trade outcomes: overpaying for backs, repeated forward, is a shown flag on
   const ev = bias.overpayEvents(802);
   assert.equal(ev.state, 'ok');
   assert.equal(ev.events.length, 16);
-  const first = ev.events.find(e => e.period === 1 && e.cats.includes('acquire:RB'));
+  const first = ev.events.find(e => e.period === SEASON * 100 + 1 && e.cats.includes('acquire:RB'));
   assert.equal(first.hit, 1);
   assert.equal(first.gave_points, 40);
   assert.equal(first.got_points, 20);
   // Week 2's back came in a trade the partner proposed: still Nick's side, still an overpay.
-  assert.equal(ev.events.find(e => e.period === 2 && e.cats.includes('acquire:RB')).hit, 1);
+  assert.equal(ev.events.find(e => e.period === SEASON * 100 + 2 && e.cats.includes('acquire:RB')).hit, 1);
   const out = bias.selfBiasFlags(802);
   const f = out.flags.find(x => x.category === 'acquire:RB');
   assert.ok(f, JSON.stringify(out));
@@ -269,7 +292,7 @@ test('War Room self view: off unless its own flag is set, and held flags are cou
     const w = v.follow.value.kinds.find(k => k.kind === 'waiver');
     assert.equal(w.ignore, 8);
     assert.equal(typeof v.held, 'number');
-    assert.doesNotMatch(JSON.stringify(v), /start_sit:WR|held_reason/, 'held categories are not served');
+    assert.doesNotMatch(JSON.stringify(v), /start_sit:WR|held_reason|held_by_reason|too_few_forward|not_above_base/, 'held categories are not served');
     const empty = selfView.warRoomSelf(805);
     assert.equal(empty.follow.status, 'unknown');
     assert.match(empty.follow.reason, /no shown call has been resolved/);

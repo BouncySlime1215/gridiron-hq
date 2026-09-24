@@ -130,4 +130,30 @@ export interface WarRoomView {
   number_health?: Field<NumberHealth>;
 }
 
-export type PanelId = 'next' | 'stops' | 'flip' | 'targets' | 'catch' | 'brain';
+export type PanelId = 'next' | 'stops' | 'flip' | 'self' | 'targets' | 'catch' | 'brain';
+
+/** SELF-01b: GET /trades/:id/war-room/self (server/services/war-room-self.js). */
+export interface SelfKind {
+  kind: 'start_sit' | 'waiver' | 'trade' | 'next_move';
+  label: string;
+  follow: number;
+  ignore: number;
+  no_action: number;
+  open: number;
+}
+export interface BiasFlag {
+  category: string;
+  bias: 'ignores' | 'overpays';
+  label: string;
+  /** Walk-forward record on his own later weeks: `hits` of `n` right, against `base_rate`. */
+  forward: { n: number; hits: number; precision: number; base_rate: number };
+}
+export interface SelfView {
+  enabled: boolean;
+  league_id?: number;
+  follow?: Field<{ kinds: SelfKind[] }>;
+  flags?: Field<BiasFlag[]>;
+  /** Candidate habits that did not pass the forward check: a count, never their names. */
+  held?: number;
+  note?: string;
+}

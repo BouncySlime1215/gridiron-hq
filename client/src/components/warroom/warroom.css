@@ -167,6 +167,9 @@
 .wr-ask input { flex: 1; min-width: 0; border: 1px solid var(--wr-line); background: var(--wr-bg); border-radius: 8px; padding: 7px 9px; }
 
 /* ---------- phone: one-screen swipe deck, Coach as bottom sheet ---------- */
+.wr-self-flags, .wr-self-kinds { list-style: none; margin: 2px 0 6px; padding: 0; display: grid; gap: 4px; }
+.wr-self-flags li { border-left: 3px solid var(--wr-line); padding-left: 6px; }
+
 @media (max-width: 699px) {
   .wr-app { grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: auto minmax(0, 1fr) auto !important;
     grid-template-areas: "top" "deck" "dots" !important; padding: 6px 6px 60px; gap: 6px; }

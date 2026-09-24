@@ -98,6 +98,7 @@ import { counterpartyLayer, readDeal, counterpartyDataKey, playerValuation, self
 // Nick on our own numbers never reaches the list, whatever the other manager
 // thinks of it (master plan 00 D4, "a gift, not a trade").
 import { edgeTest, tacticsForDeal, timingRead, vetoClimate } from './trade-tactics.js';
+import { LOST_IDEAS } from './rec-ledger.js';
 import { acceptanceBand } from './trade-acceptance.js';
 // tradeIdeas() only: this roster's real P(make playoffs), which is what turns the
 // horizon from a 0.5 prior into a number. season-sim.js imports assetUniverse /
@@ -121,7 +122,7 @@ import { simulateSeason, simStartWeek, tradeImpact, tradeImpactWorld, rosterImpa
   pairedTitleSe } from './season-sim.js';
 import { titleMutualMode, titleCandidate, titleMutualDeals } from './title-mutual.js';
 import { chessMode, titleChess } from './title-chess.js';
-import { horizonWeights, horizonGain, horizonNote, leagueSchedule } from './trade-horizon.js';
+import { horizonWeights, horizonGain, horizonNote, leagueSchedule, leagueShape } from './trade-horizon.js';
 // ros_ppg / playoff_ppg (and so adj_ppg): the gated rest-of-season model. This
 // week's number stays the weekly blend.
 import { buildRosProjections } from './ros-projection.js';
@@ -1496,7 +1497,7 @@ export function lineupSpan(beforePlayers, afterPlayers, slots, weeksLeft) {
 export function lineupValueContext(lg, assets, teams) {
   const onRoster = new Set(teams.flatMap(t => t.players.map(p => p.id)));
   const wire = leagueWire(lg, assets, espnPlayerResolver(assets)).filter(a => !onRoster.has(a.id));
-  const h = horizonWeights(tradeWeekContext().week, leagueSchedule(lg));
+  const h = horizonWeights(tradeWeekContext().week, { ...leagueSchedule(lg), ...leagueShape(lg) });
   return { wire, weeksLeft: h.regular_weeks_left + h.playoff_weeks_left };
 }
 
@@ -1850,7 +1851,7 @@ function findTradesUncached(lg, {
   const odds = Number.isFinite(playoffOdds) && playoffOddsSource
     ? { value: playoffOdds, source: playoffOddsSource, interval: playoffOddsInterval }
     : horizonOdds(lg, myTeamId, playoffOdds);
-  const horizon = horizonWeights(weekNow.week, { playoffOdds: odds.value, ...leagueSchedule(lg) });
+  const horizon = horizonWeights(weekNow.week, { playoffOdds: odds.value, ...leagueSchedule(lg), ...leagueShape(lg) });
   // One memo for the whole search: the two rosters' before-lineups are the same for
   // every package against them (see evaluate()).
   const memo = new WeakMap();
@@ -2145,7 +2146,7 @@ function findTradesUncached(lg, {
   attachTactics(lg, shown, { deals, counterparties, weekNow, assets, teams, zero, ideaKey });
   const tacticsMs = Date.now() - tacticsStartedAt;
 
-  return { mode: 'league', me: { roster_id: me.roster_id, owner: me.owner }, slots,
+  const out = { mode: 'league', me: { roster_id: me.roster_id, owner: me.owner }, slots,
            model_context: assets.context, considered: deals.length,
            excluded_never_trade: [...blockedManagers], deals: shown,
            // RL-19-3: a class of its own, never merged into `deals` (see title-mutual.js).
@@ -2184,6 +2185,20 @@ function findTradesUncached(lg, {
            // cold run measured, which is what it cost to produce this answer.
            runtime_ms: Date.now() - startedAt, tactics_ms: tacticsMs,
            zeroed_sources: [...zero] } };
+  // The ideas the edge test took away, for the recommendation ledger's
+  // considered-not-shown rows (C-08). Carried on a Symbol key, so the JSON the
+  // routes send is byte-for-byte what it was, and a cache hit returns the same
+  // object with them still attached. They are NOT written here: this search
+  // also runs for /proposals, the post-draft plan, title odds, tradeIdeas and,
+  // with teamsOverride, on the made-up post-trade roster of /sequences. Only
+  // the /find route writes them (recordRoute('find'), rec-ledger.js), the same
+  // route that writes the shown rows, so the control group comes from exactly
+  // the searches the shown group comes from. An override search never carries
+  // them at all.
+  if (!teamsOverride && !assetsOverride) {
+    Object.defineProperty(out, LOST_IDEAS, { value: lostIdeas, enumerable: false });
+  }
+  return out;
 }
 
 /**
@@ -2437,7 +2452,7 @@ export function resolvePlayer(id, assets, teams) {
 function ladderInputs(lg, myTeamId, playoffOdds, useCounterparty = true) {
   const weekNow = tradeWeekContext();
   const odds = horizonOdds(lg, myTeamId, playoffOdds);
-  const horizon = horizonWeights(weekNow.week, { playoffOdds: odds.value, ...leagueSchedule(lg) });
+  const horizon = horizonWeights(weekNow.week, { playoffOdds: odds.value, ...leagueSchedule(lg), ...leagueShape(lg) });
   const counterparties = useCounterparty
     ? counterpartyLayer(lg.id, { season: weekNow.season, week: weekNow.week })
     : new Map();

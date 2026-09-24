@@ -159,14 +159,14 @@ export function planLeague(adapter, settings) {
     const st = plan.steps[i];
     const stateBefore = i === 0 ? new Map() : plan.steps[i - 1].state ?? (plan.planned_on?.steps[i - 1].state) ?? new Map();
     const { curve, basis } = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta);
-    const ladder = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode });
     const m = managers.get(st.team) ?? {};
+    const ladder = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode, hard: !!m.nick?.hard });
     const offer = ladder.opening ? { ...st, give: ladder.opening.give } : st;
     const message = stepMessage(offer, { players: adapter.players, needs: m.needs ?? null });
     const next = plan.steps[i + 1] ?? null;
     return {
       step_index: i, of_steps: plan.steps.length,
-      message, ladder: { ...ladder, basis },
+      message, ladder: { ...ladder, basis }, nick_shift: ladder.nick_shift ?? null,
       opening: ladder.opening ? { give: ladder.opening.give, p: ladder.opening.p, his_pct: ladder.opening.his_pct } : null,
       walk_away: ladder.walk_away ? { give: ladder.walk_away.give, p: ladder.walk_away.p, his_pct: ladder.walk_away.his_pct,
         text: `Stop at ${ladder.walk_away.give.map(names).join(' + ')}: past that, your backup plan is worth more.` } : null,

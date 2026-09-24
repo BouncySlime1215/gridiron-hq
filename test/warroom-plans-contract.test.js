@@ -25,12 +25,9 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fixture = name => JSON.parse(fs.readFileSync(path.join(ROOT, 'test/fixtures/warroom-contract', name), 'utf8'));
 const PRODUCER = fixture('producer-plans.json');
 const UI_FIXTURE = fixture('ui-war-room-plans.json');
-/**
- * Coach's tests (warroom-coach*.test.js) read coach-contract-plans.json: FIX-06's
- * hand-built contract league, kept apart once FIX-03 made producer-plans.json the
- * real producer's output. It must still validate against the contract.
- */
-const { league: _l, me: _m, ...COACH_FIXTURE } = fixture('coach-contract-plans.json').leagues[0];
+/** Coach's tests (warroom-coach*.test.js) read the producer's first league since FIX-06. */
+// Coach's fixture: the hand-written contract league (ui-contract-plans.json, FIX-04) carries the priced add_stop.
+const { league: _l, me: _m, ...COACH_FIXTURE } = fixture('ui-contract-plans.json').leagues[0];
 
 const META = /\.(status|reason|source|se|clears_2se|as_of|n|unit|guess)$/;
 /** next_move is one deck entry, and the four reply rows share one shape. */
@@ -56,8 +53,6 @@ test('the producer fixture validates against the contract', () => {
  * them starts being written, so an entry cannot linger.
  */
 const PENDING = [
-  { unit: 'FIX-05', why: 'the producer does not read the brain report yet', path: /^leagues\[\]\.brain_report\.value(\.|\[|$)/ },
-  { unit: 'FIX-05', why: 'the producer does not read the number audit yet', path: /^leagues\[\]\.number_health\.value(\.|\[|$)/ },
   { unit: 'unassigned', why: 'no planner rule reads these two sliders', path: /^leagues\[\]\.destination\.value\.tolerances\.value\.(reputation_budget|ai_spend)$/ }
 ];
 const pending = p => PENDING.some(x => x.path.test(p));
@@ -165,12 +160,20 @@ test("Coach's plans (#230, after FIX-06) are a contract league and validate", ()
 const DECLARED = schemaPaths();
 const WRITTEN = new Set([...writtenPaths(PRODUCER)].map(norm));
 /** A read resolves when the producer writes the path, and a scalar read does not land on a typed field. */
-const resolves = r => DECLARED.has(r.reads) && WRITTEN.has(norm(r.reads)) && !(r.scalar && DECLARED.has(`${r.reads}.status`));
+// A read on a PENDING path is declared and owned by the unit named there (FIX-05 for brain_report).
+const resolves = r => DECLARED.has(r.reads) && (WRITTEN.has(norm(r.reads)) || pending(r.reads)) && !(r.scalar && DECLARED.has(`${r.reads}.status`));
 
 test('every key a consumer reads is a key the producer writes', () => {
-  // A read on a PENDING path waits on the unit named there (FIX-05 for brain_report).
-  const unmatched = READS.filter(r => !r.fix && !resolves(r) && !pending(r.reads));
+  const unmatched = READS.filter(r => !r.fix && !r.awaits && !resolves(r));
   assert.deepEqual(unmatched.map(r => `#${r.pr} ${r.where} reads ${r.reads}`), []);
+});
+
+test('each read that awaits a producer is declared, says why, and is still not written', () => {
+  for (const r of READS.filter(x => x.awaits)) {
+    assert.ok(DECLARED.has(r.reads), `#${r.pr} ${r.where}: ${r.reads} is not a contract path`);
+    assert.equal(WRITTEN.has(norm(r.reads)), false, `#${r.pr} ${r.where}: ${r.reads} is written now; drop its awaits`);
+    assert.ok(r.awaits.length > 10);
+  }
 });
 
 test('each recorded mismatch is still a mismatch, and its fix names a real contract path', () => {

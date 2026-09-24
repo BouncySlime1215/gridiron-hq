@@ -1387,18 +1387,18 @@
    },
    "number_health": {
     "status": "unknown",
-    "reason": "not in FIX-06's hand-built fixture (FIX-03 added the section)",
-    "source": "campaign.plan"
+    "source": "audit.numbers",
+    "reason": "The number audit was not read for this fixture."
    },
    "risk_modes": {
     "status": "unknown",
-    "reason": "not in FIX-06's hand-built fixture (FIX-03 added the section)",
-    "source": "campaign.plan"
+    "source": "plan.path",
+    "reason": "Risk modes were not compared in this fixture."
    },
    "partners": {
     "status": "unknown",
-    "reason": "not in FIX-06's hand-built fixture (FIX-03 added the section)",
-    "source": "campaign.plan"
+    "source": "campaign.plan",
+    "reason": "No partner read in this fixture."
    }
   },
   {
@@ -1530,18 +1530,18 @@
    },
    "number_health": {
     "status": "unknown",
-    "reason": "not in FIX-06's hand-built fixture (FIX-03 added the section)",
-    "source": "campaign.plan"
+    "source": "audit.numbers",
+    "reason": "The number audit was not read for this fixture."
    },
    "risk_modes": {
     "status": "unknown",
-    "reason": "not in FIX-06's hand-built fixture (FIX-03 added the section)",
-    "source": "campaign.plan"
+    "source": "plan.path",
+    "reason": "Risk modes were not compared in this fixture."
    },
    "partners": {
     "status": "unknown",
-    "reason": "not in FIX-06's hand-built fixture (FIX-03 added the section)",
-    "source": "campaign.plan"
+    "source": "campaign.plan",
+    "reason": "No partner read in this fixture."
    }
   }
  ]

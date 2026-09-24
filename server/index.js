@@ -50,6 +50,7 @@ const { default: espnConnectRouter } = await import('./routes/espn-connect.js');
 const { default: leagueChatRouter } = await import('./routes/league-chat.js');
 const { default: modelRouter } = await import('./routes/model.js');
 const { default: dataFreshnessRouter } = await import('./routes/data-freshness.js');
+const { default: numberAuditRouter } = await import('./routes/number-audit.js');
 const { default: nflMarketRouter } = await import('./routes/nfl-market.js');
 const { default: nflBettingRouter } = await import('./routes/nfl-betting.js');
 const { default: bettingHubRouter } = await import('./routes/betting-hub.js');
@@ -154,6 +155,8 @@ app.use('/api/model', ...legacyAuthenticated, modelRouter);
 // contents, not a liveness check. The unauthenticated probe stays
 // platform/health.js's alone.
 app.use('/api/data-freshness', ...legacyAuthenticated, dataFreshnessRouter);
+// BROKEN-01b: read-only number-health rows the refresh loop writes (Settings card, nav dot).
+app.use('/api/number-audit', ...legacyAuthenticated, numberAuditRouter);
 // Beat-the-dumb-baseline gates (plan item C12). Read-only: each gate is computed by
 // its weekly scheduler job off the request thread and stored; a request reads it.
 app.use('/api/gates', ...legacyAuthenticated, gatesRouter);

@@ -10,6 +10,9 @@ import { fileURLToPath } from 'node:url';
 // needs a key, or spends money. ENGINE-00a (#216) is not on main yet, so the
 // engine sink is a recording fake with the same one-writer rule.
 process.env.SCHEDULER_DISABLED = '1';
+// FIX-248-2: the engine adapter writes through #216's appendEvents/writeState, which
+// refuse any process role but engine/script/test.
+process.env.GRIDIRON_PROCESS_ROLE = 'test';
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-jev-01a-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
@@ -18,7 +21,7 @@ await runMigrations();
 const { db, rows } = await import('../server/db/index.js');
 const { PRICING } = await import('../server/services/llm-budget.js');
 const { createJevGateway, createRunawayMonitor, JEV_MODEL } = await import('../server/services/jev/gateway.js');
-const { QUESTION_TYPES, buildQuestions, interpret } = await import('../server/services/jev/questions.js');
+const { QUESTION_TYPES, buildQuestions, interpret, askable, PITCH_ARMS } = await import('../server/services/jev/questions.js');
 const { buildJevState } = await import('../server/services/jev/state.js');
 const { runJevStage, guardSink } = await import('../server/services/jev/stage.js');
 
@@ -320,4 +323,170 @@ test('interpret maps each typed answer to a probability and an action', () => {
   assert.equal(role.p, 0.7);
   assert.equal(role.action, 'review_role_up');
   assert.throws(() => interpret('plays_sunday', {}), /missing answer/);
+});
+
+/* ------------------------------------------- FIX-248-1: pitch_framing, startsit_tiebreak */
+
+test('pitch_framing is a choice over the four PITCH arms, in two phrasings', () => {
+  assert.deepEqual([...PITCH_ARMS], ['need_first', 'fairness_first', 'urgency_first', 'face_safe_short']);
+  const t = QUESTION_TYPES.pitch_framing;
+  assert.equal(t.version, 1);
+  assert.equal(t.subject, 'offer');
+  const subject = { entity_type: 'offer', entity_id: '7', label: 'offer 7' };
+  const a = buildQuestions('pitch_framing', 'a', subject);
+  const b = buildQuestions('pitch_framing', 'b', subject);
+  assert.equal(a.pitch.type, 'choice');
+  assert.equal(b.pitch.type, 'choice');
+  assert.deepEqual(Object.keys(a.pitch.criteria), [...PITCH_ARMS]);
+  assert.deepEqual(Object.keys(b.pitch.criteria), [...PITCH_ARMS]);
+  assert.notEqual(a.pitch.instructions, b.pitch.instructions, 'the two arms are two phrasings');
+  const out = interpret('pitch_framing', { pitch: { type: 'choice', choice: 'fairness_first',
+    probabilities: { need_first: 0.2, fairness_first: 0.5, urgency_first: 0.2, face_safe_short: 0.1 } } });
+  assert.equal(out.choice, 'fairness_first');
+  assert.equal(out.p, 0.5);
+  assert.deepEqual(out.vector, [0.2, 0.5, 0.2, 0.1]);
+  assert.equal(out.action, 'pitch_fairness_first');
+  assert.throws(() => interpret('pitch_framing', { pitch: { type: 'choice', choice: 'flattery' } }), /not one of/);
+});
+
+test('startsit_tiebreak is a choice A/B, in two phrasings, asked only inside 1 paired SE', () => {
+  const t = QUESTION_TYPES.startsit_tiebreak;
+  assert.equal(t.version, 1);
+  const subject = { entity_type: 'league_team_week', entity_id: '4:3:2026:4', label: 'the FLEX spot',
+    options: { A: 'Player One', B: 'Player Two' }, sim_margin: 0.4, paired_se: 1.1 };
+  const a = buildQuestions('startsit_tiebreak', 'a', subject);
+  const b = buildQuestions('startsit_tiebreak', 'b', subject);
+  assert.deepEqual(Object.keys(a.start.criteria), ['A', 'B']);
+  assert.deepEqual(Object.keys(b.start.criteria), ['A', 'B']);
+  assert.notEqual(a.start.instructions, b.start.instructions);
+  assert.match(a.start.criteria.A, /Player One/);
+  assert.match(a.start.criteria.B, /Player Two/);
+  assert.deepEqual(askable('startsit_tiebreak', subject), { ok: true });
+  assert.deepEqual(askable('startsit_tiebreak', { ...subject, sim_margin: -1.1 }),
+    { ok: false, reason: 'sim_margin_over_1_paired_se' }, 'a margin of exactly 1 SE is not a tie');
+  assert.deepEqual(askable('startsit_tiebreak', { ...subject, paired_se: null }), { ok: false, reason: 'no_paired_se' });
+  assert.deepEqual(askable('startsit_tiebreak', { ...subject, sim_margin: undefined }), { ok: false, reason: 'no_sim_margin' });
+  assert.deepEqual(askable('plays_sunday', { label: 'x' }), { ok: true }, 'other types have no gate');
+  const out = interpret('startsit_tiebreak', { start: { type: 'choice', choice: 'B', probabilities: { A: 0.45, B: 0.55 } } });
+  assert.deepEqual([out.choice, out.p, out.action], ['B', 0.55, 'start_B']);
+  assert.deepEqual(out.vector, [0.45, 0.55]);
+  assert.throws(() => buildQuestions('startsit_tiebreak', 'a', { ...subject, options: { A: 'Player One' } }), /options A and B/);
+});
+
+test('the stage does not ask a start/sit tiebreak when the sim margin is 1 paired SE or more', async () => {
+  const sink = fakeSink();
+  const evaluate = okEvaluate();
+  const gw = createJevGateway({ evaluate, sink, env: KEY_ENV, getCredits: async () => ({ balance: '5', totalUsed: '0' }) });
+  const subject = { entity_type: 'league_team_week', entity_id: '4:3:2026:4', label: 'the FLEX spot',
+    options: { A: 'Player One', B: 'Player Two' }, sim_margin: 2.5, paired_se: 1.0 };
+  const out = await runJevStage({ view: view(), asOf: T, gateway: gw, sink,
+    asks: [{ qtype: 'startsit_tiebreak', subject }, { qtype: 'startsit_tiebreak', subject: { ...subject, sim_margin: 0.3 } }] });
+  assert.equal(evaluate.calls.length, 2, 'only the in-band ask reaches Jev (two arms)');
+  assert.deepEqual([out.results[0].status, out.results[0].reason, out.results[0].p], ['not_asked', 'sim_margin_over_1_paired_se', null]);
+  assert.equal(out.results[1].status, 'ok');
+  assert.ok(['start_A', 'start_B'].includes(out.results[1].action));
+});
+
+/* ------------------------------------------- FIX-248-2: #216's engine spine as the sink */
+
+const registry = await import('../server/services/engine/registry.js');
+const engineState = await import('../server/services/engine/state.js');
+const { getEvents } = await import('../server/services/engine/events.js');
+const { createEngineSink, jevCallMedianPerHour, JEV_PRODUCER_VERSIONS } = await import('../server/services/jev/engine-sink.js');
+
+// RED: the registry, not only guardSink, refuses jev.* to any other producer.
+test('a jev.* write under another producer throws via the one-writer registry', () => {
+  const spec = registry.producerSpec('jev');
+  assert.ok(spec, "producer 'jev' is registered in #216's registry");
+  for (const f of ['jev.status', 'jev.balance', 'jev.p_accept.jev_a', 'jev.pitch_framing.jev_b', 'jev.startsit_tiebreak.disagreement']) {
+    assert.ok(spec.fields.includes(f), `${f} is declared by jev`);
+    assert.equal(registry.fieldSpec(f).producer, 'jev');
+  }
+  assert.throws(() => registry.registerField('jev.p_accept.jev_a', { producer: 'acceptance', version: '1' }),
+    /already has its one producer jev/);
+  const other = registry.registerField('test.not_jev', { producer: 'someone-else', version: '1', entityTypes: ['offer'] });
+  assert.throws(() => engineState.writeState({ entityType: 'offer', entityId: '1', field: 'jev.p_accept.jev_a', value: { p: 0.5 },
+    asOf: T, writer: other, producerVersion: '1', reasonChain: { contributions: [] } }), /one writer per field/);
+});
+
+test('runJevStage through the engine sink lands jev.call events and jev.* rows in engine tables', async () => {
+  const sink = createEngineSink();
+  const gw = createJevGateway({ evaluate: okEvaluate(0.8), sink, env: KEY_ENV,
+    getCredits: async () => ({ balance: '4.50', totalUsed: '0.50' }) });
+  const asOf = '2026-09-20T16:00:00.000Z';
+  const out = await runJevStage({ view: { as_of: asOf, managers: [], rows: [], events: [] }, asOf, gateway: gw, sink,
+    asks: [{ qtype: 'plays_sunday', subject: { entity_type: 'player', entity_id: '101', label: 'Player One' } }] });
+  assert.equal(out.results[0].status, 'ok');
+  const calls = getEvents({ asOf: new Date(), types: ['jev.call'] });
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every(e => e.source === 'jev' && e.payload.ok === 1 && e.payload.qtype === 'plays_sunday'));
+  const rowsOut = rows(`SELECT field, producer, producer_version, lane, event_ids, entity_type, entity_id FROM engine_state
+    WHERE producer = 'jev' ORDER BY id`);
+  const answers = rowsOut.filter(r => /^jev\.plays_sunday\.jev_[ab]$/.test(r.field));
+  assert.equal(answers.length, 2);
+  for (const r of answers) {
+    assert.equal(r.lane, 'shadow', 'answers are shadow rows (weight 0)');
+    assert.equal(r.producer_version, JEV_PRODUCER_VERSIONS.shadow);
+    assert.equal(JSON.parse(r.event_ids).length, 1, 'each answer cites its jev.call event');
+    assert.ok(calls.some(c => c.id === JSON.parse(r.event_ids)[0]));
+  }
+  const bal = engineState.getState('engine', 'jev', 'jev.balance', { asOf: new Date() });
+  assert.ok(bal, 'jev.balance is written at stage start, readable in lane live');
+  assert.deepEqual(bal.value, { balance_usd: 4.5, total_used_usd: 0.5 });
+});
+
+test('jev.balance is written at stage start and again only after an hour', async () => {
+  let clock = Date.parse('2026-09-21T12:00:00.000Z');
+  let credits = 0;
+  const sink = createEngineSink();
+  const gw = createJevGateway({ evaluate: okEvaluate(), sink, env: KEY_ENV, now: () => clock,
+    getCredits: async () => ({ balance: String(10 - credits++), totalUsed: '0' }) });
+  const run = () => runJevStage({ view: { as_of: new Date(clock).toISOString(), managers: [], rows: [], events: [] },
+    asOf: new Date(clock).toISOString(), gateway: gw, sink, now: () => clock, asks: [] });
+  await run();
+  clock += 30 * 60_000; await run();
+  assert.equal(credits, 1, 'no second balance read inside the hour');
+  clock += 31 * 60_000; await run();
+  assert.equal(credits, 2, 'hourly');
+  const n = rows(`SELECT COUNT(*) AS n FROM engine_state WHERE field = 'jev.balance' AND as_of >= '2026-09-21'`)[0].n;
+  assert.equal(n, 2);
+});
+
+test('the no_key status lands as an engine row, and a runaway alert as a jev.runaway event', async () => {
+  const sink = createEngineSink();
+  const gw = createJevGateway({ evaluate: okEvaluate(), sink, env: {} });
+  await runJevStage({ view: { as_of: T, managers: [], rows: [], events: [] }, asOf: '2026-09-22T00:00:00.000Z', gateway: gw, sink,
+    asks: [{ qtype: 'plays_sunday', subject: { entity_type: 'player', entity_id: '101', label: 'Player One' } }] });
+  const st = engineState.getState('engine', 'jev', 'jev.status', { asOf: new Date() });
+  assert.equal(st.value.status, 'no_key');
+  let clock = Date.now();
+  const gw2 = createJevGateway({ evaluate: okEvaluate(), sink, env: KEY_ENV, now: () => clock,
+    runaway: createRunawayMonitor({ now: () => clock, medianPerHour: () => 1000 }) });
+  const q = buildQuestions('p_accept', 'a', { entity_type: 'offer', entity_id: '1', label: 'offer 1' });
+  for (let i = 0; i < 4; i++) {
+    await gw2.ask({ qtype: 'p_accept', arm: 'a', state: 'SAME', questions: q, asOf: new Date(clock).toISOString() });
+    clock += 1000;
+  }
+  const alerts = getEvents({ asOf: new Date(), types: ['jev.runaway'] });
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].payload.reasons[0].kind, 'repeat_hash');
+});
+
+test("the runaway monitor's trailing median reads jev.call events", () => {
+  // A window in the past (appendEvents clamps a future stamp to the capture time), far
+  // from the calls the tests above logged.
+  const now = Date.parse('2026-01-08T00:00:00.000Z');
+  const sink = createEngineSink();
+  // Seven days of history: 2 calls in every past hour, 10 in the most recent full hour.
+  for (let h = 1; h <= 167; h++) {
+    const n = h === 1 ? 10 : 2;
+    for (let i = 0; i < n; i++) {
+      sink.appendEvent({ type: 'jev_call', as_of: new Date(now - (h + 0.5) * 3_600_000 + i * 1000).toISOString(),
+        payload: { qtype: 'p_accept', ok: 1, prompt_hash: `h${h}-${i}` } });
+    }
+  }
+  assert.equal(jevCallMedianPerHour({ now: () => now })(), 2);
+  const m = createRunawayMonitor({ now: () => now, medianPerHour: jevCallMedianPerHour({ now: () => now }) });
+  for (let i = 0; i < 11; i++) m.recordSend({ hash: `x${i}` });
+  assert.ok(m.check().some(r => r.kind === 'rate' && r.trailing_median_per_hour === 2));
 });

@@ -36,6 +36,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
+import { withTableReplaced } from './helpers/with-table-replaced.js';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-valuation-map-'));
@@ -816,6 +817,76 @@ test('G5e: a league with no transactions and no chat says what it does not know'
   assert.equal(self.available, false);
   assert.ok(self.reason.length > 0);
   assert.equal(self.to_each_manager.size, 0);
+});
+
+/**
+ * G5e asserts `reason.length > 0`, which is true of any sentence at all. The
+ * sentence it actually gets is a positive claim about the league — "no captured
+ * transactions for this league and no chat corpus" — and until 2026-09-22
+ * `selfRead` made that claim on three different states, because
+ * `catch { tx = []; }` turned "I could not look" into "there is nothing here".
+ *
+ * This is not hypothetical. `league_transactions_raw` is in no migration: it is
+ * created by `scripts/collect-league-transactions.mjs` and nowhere else. On any
+ * database where that hand-run capture has never run, the table does not exist,
+ * the read throws, and Nick was told his league has no transaction history when
+ * in fact nobody had ever collected it.
+ *
+ * Driven through raw SQL: no writer here can leave the table unreadable.
+ */
+test('G5e2: "no captured transactions" is a claim about the league, not about a read that failed', () => {
+  const live = pricing.selfRead(23, { season: SEASON, week: WEEK });
+  assert.equal(live.available, false);
+  assert.match(live.reason, /no captured transactions/,
+    'the table is there and it read, so G5e\'s sentence is true here');
+
+  const absent = withTableReplaced({ rows, run }, 'league_transactions_raw', null,
+    () => pricing.selfRead(23, { season: SEASON, week: WEEK }));
+  const unreadable = withTableReplaced({ rows, run }, 'league_transactions_raw',
+    'CREATE TABLE league_transactions_raw (league_id INTEGER NOT NULL)',
+    () => pricing.selfRead(23, { season: SEASON, week: WEEK }));
+
+  // The sentences first, because they are what Nick reads.
+  assert.doesNotMatch(absent.reason, /no captured transactions for this league/,
+    'the capture has never run against this database, which is a different fact about a '
+    + 'different thing and the one he can act on');
+  assert.doesNotMatch(unreadable.reason, /no captured transactions for this league/,
+    'the table is there and would not read; telling him his league has no history is false');
+  assert.notEqual(absent.reason, unreadable.reason,
+    'a table nobody has ever built and a table that will not read are two different states, '
+    + 'and one sentence for both sends him to fix the wrong one');
+
+  // And the state each one is in, carried out with the answer.
+  assert.equal(live.tx_read_state, 'read');
+  assert.equal(absent.tx_read_state, 'absent');
+  assert.equal(unreadable.tx_read_state, 'unreadable');
+
+  assert.equal(pricing.selfRead(23, { season: SEASON, week: WEEK }).reason, live.reason,
+    'the table must come back exactly as it was');
+});
+
+/**
+ * The quieter half of the same defect. When something else IS available the
+ * function returns `available: true` and `reason: null`, so the empty offer
+ * history goes out with nothing attached to it — "he has sent nobody anything"
+ * and "we could not read what he sent" are the same answer to a caller.
+ */
+test('G5e3: an offer history that could not be read is not an empty offer history', () => {
+  const live = pricing.selfRead(21, { season: SEASON, week: WEEK });
+  assert.equal(live.available, true);
+  assert.ok(live.to_each_manager.size > 0, 'league 21 must have offers, or this pins nothing');
+  assert.equal(live.tx_read_state, 'read');
+
+  const blind = withTableReplaced({ rows, run }, 'league_transactions_raw',
+    'CREATE TABLE league_transactions_raw (league_id INTEGER NOT NULL)',
+    () => pricing.selfRead(21, { season: SEASON, week: WEEK }));
+  assert.equal(blind.available, true, 'the chat corpus is still there, so the read is still available');
+  assert.equal(blind.to_each_manager.size, 0, 'and it carries no offers');
+  assert.equal(blind.tx_read_state, 'unreadable',
+    'which is indistinguishable from a manager who has sent nothing, unless the read says which it is');
+
+  assert.equal(pricing.selfRead(21, { season: SEASON, week: WEEK }).to_each_manager.size,
+    live.to_each_manager.size, 'the table must come back exactly as it was');
 });
 
 // ====================================================== G7 the ablation hook

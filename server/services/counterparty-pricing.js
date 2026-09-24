@@ -1219,16 +1219,33 @@ export function selfRead(leagueId, { season = null } = {}) {
     // collection. Served on the unavailable path too — a `null` here with no date
     // reads as "he has never offered anybody anything".
     transactions: null,
+    // On EVERY path, including the early return below, because a field that is
+    // only there when the read happened is a field a consumer cannot rely on.
+    // 'not_attempted' is the honest word for a league with no roster of Nick's:
+    // we never looked, which is not the same as looking and finding nothing.
+    tx_read_state: 'not_attempted',
   };
   const yr = season ?? lg.season ?? null;
   out.transactions = Object.freeze(transactionsCollected(leagueId, yr));
   if (me == null) return { ...out, reason: 'this league has no roster marked as Nick\'s' };
 
   let tx = [];
-  try {
-    tx = rows(`SELECT tx_id, type, execution_type, team_id, related_tx_id, proposed_at, items_json
-               FROM league_transactions_raw WHERE league_id = ? AND season = ?`, leagueId, yr);
-  } catch { tx = []; }
+  // `league_transactions_raw` is in no migration: scripts/collect-league-transactions.mjs
+  // creates it and nothing else does. On a database where that hand-run capture
+  // has never run the table is simply not there, which is why this read has to
+  // say which of three things happened rather than handing back [] for all of
+  // them. An empty list is indistinguishable from a real one by the time it
+  // reaches the counting below, so the state travels out with the answer.
+  if (!hasTable('league_transactions_raw')) out.tx_read_state = 'absent';
+  else {
+    try {
+      tx = rows(`SELECT tx_id, type, execution_type, team_id, related_tx_id, proposed_at, items_json
+                 FROM league_transactions_raw WHERE league_id = ? AND season = ?`, leagueId, yr);
+      out.tx_read_state = 'read';
+    } catch {
+      out.tx_read_state = 'unreadable';
+    }
+  }
 
   const partiesOf = t => {
     let items = [];
@@ -1311,7 +1328,17 @@ export function selfRead(leagueId, { season = null } = {}) {
   if (profiles.self) out.sources.push('profile');
   out.available = out.sources.length > 0;
   if (!out.available) {
-    out.reason = 'nothing the league can see: no captured transactions for this league and no chat corpus';
+    // Each sentence is true of exactly one state, and each points at a
+    // different thing to go and fix. The old one said "no captured
+    // transactions for this league" on all three, which is a claim about the
+    // league — false, and misdirecting, whenever the read is what failed.
+    out.reason = out.tx_read_state === 'absent'
+      ? 'nothing the league can see: the transaction capture has never run against this '
+        + 'database, so there is nothing to read, and there is no chat corpus'
+      : out.tx_read_state === 'unreadable'
+        ? 'nothing the league can see: the transactions table would not read, so whether he '
+          + 'has sent anything is unknown rather than none, and there is no chat corpus'
+        : 'nothing the league can see: no captured transactions for this league and no chat corpus';
   }
   return out;
 }
@@ -1320,6 +1347,13 @@ export function selfRead(leagueId, { season = null } = {}) {
 // untouchables are decided by bluff-detector.js#untouchableStance, which reads
 // the same rows and also weighs whether the manager's word has held.
 
+/** Does this database hold that table? Asked of `sqlite_master`, so the answer
+ * is a fact about the schema and not a guess read out of an error message. The
+ * chat connection is passed in for the chat DB; the app DB is the default. */
+const hasTable = (name, conn) => (conn
+  ? conn.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).all(name)
+  : rows(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`, name)).length > 0;
+
 /**
  * Signature of every counterparty input for one league, for a cache
  * fingerprint (the findTrades cache left these out, so a rebuild served stale
@@ -1327,13 +1361,32 @@ export function selfRead(leagueId, { season = null } = {}) {
  * something changed — and different after any real change: signals and player
  * views (one stamp, see buildManagerSignals), identities, hand-set tiers, and
  * for a chat league the chat data and the negotiation profiles.
+ *
+ * WHY EACH ABSENCE IS NAMED. `trade-engine.js#findTradesKey` concatenates this
+ * into the key a whole findTrades result is stored under, so two states that
+ * fingerprint alike are two states whose cached answers are interchangeable.
+ * Until 2026-09-22 every part answered 'absent' both when its table was not
+ * there and when the table was there and the read threw, which are not the same
+ * state and must not share an entry: the second one HAS data we could not see,
+ * and its answer was being served afterwards to a league that had genuinely
+ * never built any. The existence check is asked of `sqlite_master` first, so
+ * 'absent' is a positive finding rather than what is left when a catch has
+ * swallowed everything; anything that still throws is a fault, named as one.
  */
 export function counterpartyDataKey(leagueId) {
   const part = (table, stamp) => {
+    if (!hasTable(table)) return 'absent';
     try {
       const r = rows(`SELECT COUNT(*) AS n, MAX(${stamp}) AS m FROM ${table} WHERE league_id = ?`, leagueId)[0];
       return `${r?.n ?? 0}:${r?.m ?? ''}`;
-    } catch { return 'absent'; }
+    } catch {
+      // The table is there and this read would not run: drifted schema, a
+      // renamed column, a half-applied migration. Reported, not thrown — one
+      // unreadable input must not take down every trade search — but reported
+      // as a fault, so nothing computed while blind is reused as an answer
+      // computed from an empty table.
+      return 'unreadable';
+    }
   };
   let chat = 'none';
   if (identityMap(leagueId).size) {
@@ -1341,11 +1394,14 @@ export function counterpartyDataKey(leagueId) {
     if (!c) chat = 'absent';
     else {
       try {
-        let np = 'absent';
-        try {
-          const r = c.prepare('SELECT COUNT(*) AS n, MAX(built_at) AS m FROM negotiation_profiles').get();
-          np = `${r.n}:${r.m ?? ''}`;
-        } catch { np = 'absent'; }
+        let np;
+        if (!hasTable('negotiation_profiles', c)) np = 'absent';
+        else {
+          try {
+            const r = c.prepare('SELECT COUNT(*) AS n, MAX(built_at) AS m FROM negotiation_profiles').get();
+            np = `${r.n}:${r.m ?? ''}`;
+          } catch { np = 'unreadable'; }   // same rule, the chat DB's copy of it
+        }
         chat = `${chatDataKey(c)}|np:${np}`;
       } finally { c.close(); }
     }

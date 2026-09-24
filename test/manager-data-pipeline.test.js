@@ -15,6 +15,9 @@
  *  - pricing: the "hard" tier is applied once (by the trade engine), perception
  *    is neutral when nothing is known about a player, negotiation profiles load
  *    through one validated reader, the dead untouchablesFor is gone.
+ *  - the cache fingerprint says WHICH absence it found: a table that is not
+ *    there and a table that will not read are different states and must not
+ *    share a findTrades cache entry.
  *  - bluff: credibility is cached against the chat data and invalidated by it.
  *  - script: one run over every league, idempotent, with a sync_log row.
  *
@@ -29,6 +32,7 @@ import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { withTableReplaced } from './helpers/with-table-replaced.js';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-manager-data-'));
@@ -491,6 +495,98 @@ test('signals: a re-run with no new data writes nothing, and new data rewrites t
   assert.notEqual(pricing.counterpartyDataKey(12), keyBefore, 'new data must change the key');
 });
 
+/**
+ * `counterpartyDataKey` is a cache fingerprint: `trade-engine.js#findTradesKey`
+ * concatenates it into the key a whole findTrades result is stored under. So a
+ * fingerprint that gives two different states the same word does not merely
+ * report badly — it serves the cached answer computed in one state as the answer
+ * for the other.
+ *
+ * Two states, and they are not the same thing:
+ *  - the table is not there. A league that has never built signals. There is
+ *    genuinely nothing to stamp.
+ *  - the table is there and will not read. Schema drift, a renamed column, a
+ *    half-applied migration. There IS data, and we could not see it.
+ *
+ * Both are exercised through raw SQL because no writer in this repo can produce
+ * the second one, which is exactly why it has never had a test. Asserting on
+ * the whole key rather than on a substring keeps the claim about what a caller
+ * can observe.
+ */
+test('signals: the key says WHICH absence — a table that is gone is not a table that will not read', () => {
+  const live = pricing.counterpartyDataKey(12);
+  assert.ok(/\bms:\d+:/.test(live), 'the fixtures must have built signals for league 12, or this pins nothing');
+
+  const gone = withTableReplaced({ rows, run }, 'manager_signals', null,
+    () => pricing.counterpartyDataKey(12));
+
+  // Present, and unreadable by this query: the columns it stamps are not there.
+  const unreadable = withTableReplaced({ rows, run }, 'manager_signals',
+    'CREATE TABLE manager_signals (league_id INTEGER NOT NULL, roster_id TEXT NOT NULL)',
+    () => pricing.counterpartyDataKey(12));
+
+  assert.notEqual(gone, live, 'a table that is not there must change the fingerprint');
+  assert.notEqual(unreadable, live, 'a table that will not read must change the fingerprint');
+  assert.notEqual(unreadable, gone,
+    'these are two different states, and one word for both means the cache entry built while '
+    + 'the table was unreadable is served as the entry for a league that never built one');
+
+  // And the restore has to be real, or every later test in this file is reading
+  // a table this one rebuilt wrong.
+  assert.equal(pricing.counterpartyDataKey(12), live, 'the table must come back exactly as it was');
+});
+
+/**
+ * The same rule on the other side of the same function. The chat DB's
+ * `negotiation_profiles` had the identical collision, and it is a separate
+ * fix because it is a separate connection: `hasTable` has to be asked of the
+ * chat handle, not of the app's.
+ */
+test('signals: the chat half of the key says WHICH absence as well', () => {
+  const live = pricing.counterpartyDataKey(11);
+  assert.ok(/\|np:\d+:/.test(live),
+    'league 11 must be the chat league with profiles built, or this pins nothing');
+
+  // openChatDb opens the file per call and closes it, so the fixture can be
+  // rewritten between calls and the next key reads the new state.
+  const withProfiles = (ddl, fn) => {
+    const c = new DatabaseSync(CHAT_PATH);
+    const sql = c.prepare(`SELECT sql FROM sqlite_master
+                           WHERE type = 'table' AND name = 'negotiation_profiles'`).get()?.sql;
+    assert.ok(sql, 'this test needs the fixture DDL to put back');
+    const saved = c.prepare('SELECT * FROM negotiation_profiles').all();
+    c.exec('DROP TABLE negotiation_profiles');
+    if (ddl) c.exec(ddl);
+    c.close();
+    try {
+      return fn();
+    } finally {
+      const back = new DatabaseSync(CHAT_PATH);
+      back.exec('DROP TABLE IF EXISTS negotiation_profiles');
+      back.exec(sql);
+      const cols = Object.keys(saved[0] ?? {});
+      if (cols.length) {
+        const ins = back.prepare(`INSERT INTO negotiation_profiles (${cols.join(', ')})
+                                  VALUES (${cols.map(() => '?').join(', ')})`);
+        for (const r of saved) ins.run(...cols.map(k => r[k]));
+      }
+      back.close();
+    }
+  };
+
+  const gone = withProfiles(null, () => pricing.counterpartyDataKey(11));
+  const unreadable = withProfiles('CREATE TABLE negotiation_profiles (name TEXT PRIMARY KEY)',
+    () => pricing.counterpartyDataKey(11));
+
+  assert.notEqual(gone, live, 'a profiles table that is not there must change the fingerprint');
+  assert.notEqual(unreadable, live, 'a profiles table that will not read must change the fingerprint');
+  assert.notEqual(unreadable, gone,
+    'a chat league whose profiles would not read must not share a cache entry with one that '
+    + 'has never had profiles built');
+
+  assert.equal(pricing.counterpartyDataKey(11), live, 'the fixture must come back exactly as it was');
+});
+
 test('signals: a chat league is never rebuilt without its chat DB (that would strip every chat read)', () => {
   const before = sigRows(11).length;
   const views = rows('SELECT COUNT(*) AS n FROM manager_player_view WHERE league_id = 11')[0].n;
@@ -707,6 +803,19 @@ test('trade engine: with signals built, a "hard" manager is discounted by 0.55 e
   assert.ok(partner, 'the fixture must produce at least one deal');
   run(`INSERT INTO manager_profiles (league_id, roster_id, tradeability) VALUES (301, ?, 'hard')`, String(partner));
   const hard = findTrades(lg, { myTeamId: '1', requireMutual: false, limit: 200 });
+  // findTrades is compute-cached, and its fingerprint reads manager_profiles'
+  // row COUNT and MAX(updated_at) (tradeIdeasFingerprint, trade-engine.js:1446).
+  // The INSERT above adds a row, so the count moves and this is a genuine second
+  // search. That was true before this assertion existed and was never stated:
+  // it was only implied by the ratio below landing on 0.55 rather than 1.0. A
+  // fixture that edited a tier in place instead would move neither part of the
+  // fingerprint, and the cache would hand back the first search's own objects.
+  // Said outright, so that failure names its cause here rather than arriving as
+  // an arithmetic surprise twelve lines down.
+  assert.notStrictEqual(hard, fair,
+    'the compute cache served the first search back instead of re-running it');
+  assert.notStrictEqual(hard.deals, fair.deals,
+    'the compute cache served the first search\'s deals back instead of re-running it');
   const hardByKey = new Map(hard.deals.map(d => [keyOf(d), d]));
   const pairs = fair.deals.filter(d => d.partner_id === partner && hardByKey.has(keyOf(d)));
   assert.ok(pairs.length > 0);

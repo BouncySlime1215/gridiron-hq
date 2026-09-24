@@ -273,7 +273,12 @@ export function timingRead(leagueId, { season = null, now = null } = {}) {
   // catch here also swallowed every programming error in the query below and
   // reported it as an empty history.
   const txPresent = tableExists('league_transactions_raw');
-  const tx = txPresent
+  const collected = Object.freeze(transactionsCollected(leagueId, yr));
+  // A table that exists but will not read (a drifted shape from the hand-run
+  // collector) is the accessor's 'unreadable', not a thrown query: the accessor
+  // has already probed it, and the one vocabulary is how two surfaces agree.
+  const txUnreadable = txPresent && collected.read_state === 'unreadable';
+  const tx = txPresent && !txUnreadable
     ? rows(`SELECT tx_id, type, execution_type, team_id, related_tx_id, proposed_at
             FROM league_transactions_raw WHERE league_id = ? AND (? IS NULL OR season = ?)`,
     leagueId, yr, yr)
@@ -291,7 +296,6 @@ export function timingRead(leagueId, { season = null, now = null } = {}) {
   // (waivers clear on the league's clock, not his).
   const ownAction = t => t.type !== 'DRAFT' && t.execution_type !== 'PROCESS';
 
-  const collected = Object.freeze(transactionsCollected(leagueId, yr));
   const out = new Map();
   const blank = id => ({
     roster_id: String(id), decisions_n: 0, median_hours: null,
@@ -300,9 +304,9 @@ export function timingRead(leagueId, { season = null, now = null } = {}) {
     // with no collector run, which reads identically to "we looked and he has
     // never decided anything" — a claim about a person, made from a missing
     // table. Both reason fields carry it, because a consumer may read either.
-    decisions_reason: txPresent ? null : TX_ABSENT_REASON,
-    read_state: txPresent ? 'present' : 'source_table_absent',
-    active_hours_reason: txPresent ? null : TX_ABSENT_REASON,
+    decisions_reason: !txPresent ? TX_ABSENT_REASON : txUnreadable ? collected.reason : null,
+    read_state: !txPresent ? 'source_table_absent' : txUnreadable ? 'unreadable' : 'present',
+    active_hours_reason: !txPresent ? TX_ABSENT_REASON : txUnreadable ? collected.reason : null,
     busiest_hour: null, last_decline_at: null,
     // When Nick last ASKED this person for something is already on
     // counterparty-pricing#selfRead (`to_each_manager[].last_offer_at`), which
@@ -349,7 +353,7 @@ export function timingRead(leagueId, { season = null, now = null } = {}) {
       entry.median_hours = +median(lat).toFixed(2);
       entry.fastest_hours = Math.min(...lat);
       entry.slowest_hours = Math.max(...lat);
-    } else if (txPresent) {
+    } else if (txPresent && !txUnreadable) {
       // ONLY WHEN THE STORE WAS ACTUALLY READ. This sentence says "we counted his
       // decided offers and there were not enough", which is a claim about the
       // manager. On a machine where the table does not exist nothing was counted,
@@ -367,7 +371,7 @@ export function timingRead(leagueId, { season = null, now = null } = {}) {
       const busiest = hist.indexOf(Math.max(...hist));
       entry.active_hours = hist.map((n, h) => ({ hour_utc: h, n })).filter(h => h.n > 0);
       entry.busiest_hour = busiest;
-    } else if (txPresent) {
+    } else if (txPresent && !txUnreadable) {
       // ONLY WHEN THE STORE WAS ACTUALLY READ, for the same reason as the
       // decisions sentence above: this claims a sample was taken and came back
       // short, and on a machine with no collector run no sample was taken.
@@ -457,6 +461,9 @@ export function vetoClimate(lg, { season = null, priceOfPlayer = null } = {}) {
     // Same fix as above: the veto climate's `n: 0` and empty `observed` were
     // indistinguishable from a league where nobody has ever vetoed anything.
     return { ...climate, read_state: 'source_table_absent', reason: TX_ABSENT_REASON };
+  }
+  if (climate.transactions.read_state === 'unreadable') {
+    return { ...climate, read_state: 'unreadable', reason: climate.transactions.reason };
   }
   const tx = rows(`SELECT tx_id, type, execution_type, team_id, related_tx_id, proposed_at, items_json
                    FROM league_transactions_raw WHERE league_id = ? AND (? IS NULL OR season = ?)`,

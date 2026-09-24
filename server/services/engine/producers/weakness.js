@@ -21,9 +21,12 @@
  *
  * Flag: GRIDIRON_WEAKNESS=1 puts the producer in the daemon DAG (weaknessProducers), =0
  * keeps it out; unset follows the local preview switch (preview-mode.js). Default off.
- * Registration itself is harmless: nothing runs unless the daemon's list includes it.
+ * It also needs the people producers on (GRIDIRON_HUB_PEOPLE), since it reads
+ * people.counterpart. Registration itself is harmless: nothing runs unless
+ * daemonProducers() includes it.
  */
 import { registerProducer } from '../registry.js';
+import { hubPeopleFlag } from './people.js';
 import {
   weaknessFlag, weaknessInputs, valueReads, scanLeague, PEOPLE_WEAKNESS_FIELD, WEAKNESS_VERSION, WEAKNESS_SOURCE,
   CONFIDENCE_WEIGHT, SCALES,
@@ -105,7 +108,12 @@ async function runWeakness(ctx) {
 
 export const weaknessProducer = Object.freeze({ name: 'people-weakness', run: runWeakness });
 
-/** The weakness producer for the daemon, or none when the flag is off. */
+/**
+ * The weakness producer for the daemon (producers/index.js#daemonProducers), or none when
+ * the flag is off. It reads people.counterpart, so it also stays out while the people
+ * producers are off: buildDag refuses an input field no producer writes, and the daemon
+ * would not start.
+ */
 export function weaknessProducers(env = process.env) {
-  return weaknessFlag(env).on ? [weaknessProducer] : [];
+  return weaknessFlag(env).on && hubPeopleFlag(env).on ? [weaknessProducer] : [];
 }

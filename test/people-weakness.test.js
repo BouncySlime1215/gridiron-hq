@@ -225,14 +225,13 @@ test('as of a past cut the scan sees only what was known then', async () => {
 
 /* ------------------------------------------------------------------ the hub */
 const registry = await import('../server/services/engine/registry.js');
-const peopleP = await import('../server/services/engine/producers/people.js');
 const weakP = await import('../server/services/engine/producers/weakness.js');
-const { producerEntry } = await import('../server/services/engine/producers/index.js');
+const { daemonProducers } = await import('../server/services/engine/producers/index.js');
 const { buildDag } = await import('../server/services/engine/daemon/dag.js');
 const { runTick } = await import('../server/services/engine/daemon/tick.js');
 const weakRows = () => db.prepare(`SELECT entity_id, value, health, reason_chain FROM engine_state WHERE field = 'people.weakness' ORDER BY id`).all();
 const dagOn = () => withEnv({ GRIDIRON_HUB_PEOPLE: '1', GRIDIRON_WEAKNESS: '1' },
-  () => buildDag([...peopleP.peopleProducers(), ...weakP.weaknessProducers()].map(producerEntry)).order);
+  () => buildDag(daemonProducers()).order);
 
 test('producer flag: off by default, on with GRIDIRON_WEAKNESS=1 or preview; DAG runs it after people.counterpart', () => {
   withEnv({ GRIDIRON_WEAKNESS: null, GRIDIRON_PREVIEW_UNCONFIRMED: null }, () => assert.deepEqual(weakP.weaknessProducers(), []));
@@ -240,6 +239,18 @@ test('producer flag: off by default, on with GRIDIRON_WEAKNESS=1 or preview; DAG
   withEnv({ GRIDIRON_WEAKNESS: null, GRIDIRON_PREVIEW_UNCONFIRMED: '1' }, () => assert.equal(weakP.weaknessProducers().length, 1));
   const names = dagOn().map(p => p.name);
   assert.ok(names.indexOf('people-weakness') > names.indexOf('people-counterpart'));
+});
+
+test('daemon wiring: daemonProducers() carries people-weakness only with the flag and the people producers', () => {
+  const names = env => withEnv(env, () => buildDag(daemonProducers()).order.map(p => p.name));
+  const off = { GRIDIRON_WEAKNESS: null, GRIDIRON_HUB_PEOPLE: null, GRIDIRON_PREVIEW_UNCONFIRMED: null };
+  assert.ok(!names(off).includes('people-weakness'), 'default off');
+  assert.ok(names({ ...off, GRIDIRON_WEAKNESS: '1', GRIDIRON_HUB_PEOPLE: '1' }).includes('people-weakness'), '=1 runs it in the daemon');
+  assert.ok(names({ ...off, GRIDIRON_PREVIEW_UNCONFIRMED: '1' }).includes('people-weakness'), 'preview runs it');
+  assert.ok(!names({ ...off, GRIDIRON_WEAKNESS: '0', GRIDIRON_PREVIEW_UNCONFIRMED: '1' }).includes('people-weakness'), '=0 vetoes preview');
+  // WEAKNESS=1 without the people producers: left out, and the DAG still builds (no missing-input refusal).
+  const noPeople = names({ ...off, GRIDIRON_WEAKNESS: '1', GRIDIRON_HUB_PEOPLE: '0' });
+  assert.ok(!noPeople.includes('people-weakness') && !noPeople.includes('people-counterpart'));
 });
 
 test('one daemon tick publishes people.weakness per manager (Nick typed absent), ids and labels only', async () => {

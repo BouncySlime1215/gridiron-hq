@@ -16,6 +16,7 @@
  *   GRIDIRON_WARROOM_SKIPS       input    JSONL { league, player?, manager?, reason, at } (optional; CLI/test input only)
  *   GRIDIRON_WARROOM_PUSHES      output   JSONL, one row per league whose next move changed
  *   GRIDIRON_CHAT_DB_PATH        input    local chat DB (optional; labels only)
+ *   panels.json                  cache    reasoning panels reuse cache (FIX-08), next to the plans file
  * Defaults for the inputs sit next to the plans file.
  *
  * The file is the War Room contract (server/services/campaign/plans-schema.js,
@@ -38,6 +39,12 @@
  * as the plans write; a league whose planner failed keeps its rows pending. The
  * fatigue cap counts `trade_outcomes WHERE sent_at IS NOT NULL` (War Room and
  * TradeCard "I sent it" alike) next to ESPN's own proposals (league-adapter.mjs).
+ *
+ * Reasoning (FIX-08): after planning and before the write, every deck move gets
+ * `reasoning` (scripts/reasoning/reason-plans.mjs). Calls are made only when
+ * the reasoning flag (server/services/reasoning-flag.js, or preview) is on AND
+ * GRIDIRON_ALLOW_PAID_RUN is set; otherwise each move's reasoning is 'unknown'
+ * with the reason. The file is checked with validatePlans again after it.
  *
  * Usage:
  *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3] [--no-finder]
@@ -101,7 +108,8 @@ function args(argv) {
   return out;
 }
 
-function takeLock(file) {
+/** The producer's lock on the plans file; scripts/reasoning/run.mjs takes the same one. */
+export function takeLock(file) {
   const lock = `${file}.lock`;
   if (fs.existsSync(lock)) {
     const pid = Number(fs.readFileSync(lock, 'utf8'));
@@ -264,6 +272,14 @@ async function main() {
       inputs: { skips: { status: skips.status, bad_lines: skips.bad } }, leagueInputs, consumed,
       budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags, brain,
       log: line => (line.includes('FAILED') || line.includes('\n') ? console.error(line) : console.log(line)) });
+    // FIX-08: reasoning goes into each move before the one atomic write. Both gates
+    // off (or either) -> no call, and every move says why its panel is missing.
+    const { reasonPlans } = await import('../reasoning/reason-plans.mjs');
+    const reasoning = await reasonPlans({ plans: file, plansFile: out, env, log: l => console.log(JSON.stringify(l)) });
+    if (reasoning.result.status === 'failed') console.error(`[warroom] reasoning step failed: ${reasoning.result.error}`);
+    console.log(`[warroom] reasoning ${JSON.stringify(reasoning.summary)}`);
+    const checked = validatePlans(file);
+    if (!checked.ok) throw new Error(`plans file failed its contract check after reasoning: ${checked.errors.slice(0, 3).map(e => `${e.path} ${e.message}`).join('; ')}`);
     const tmp = `${out}.tmp-${process.pid}`;
     // FIX-07: stamp the consumed requests in the same transaction as the plans write.
     const stamped = consumeWith(consumed, () => {
@@ -272,6 +288,7 @@ async function main() {
     }, { at: generated_at });
     console.log(`[warroom] requests consumed ${stamped.consumed}, campaign_steps written ${stamped.campaign_steps}`
       + (typeof stamped.campaign_steps_skipped === 'string' ? ` (${stamped.campaign_steps_skipped})` : ''));
+    reasoning.commit();
     const pushes = pushesOf(file);
     if (pushes.length) {
       fs.appendFileSync(sibling(env, 'GRIDIRON_WARROOM_PUSHES', 'pushes.jsonl'), pushes.map(p => JSON.stringify(p)).join('\n') + '\n');

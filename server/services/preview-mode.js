@@ -23,6 +23,8 @@
  *                                                GRIDIRON_RL17_3_ENABLED=0 vetoes preview)
  *   - title-mutual.js#titleMutualMode            RL-19-3 title-mutual trade class (findTrades)
  *   - warroom-flag.js#warRoomFlag                War Room tab in Trade Brain (plans from a study run)
+ *   - reasoning-flag.js#reasoningFlag            reasoning panels in the War Room plans (the paid-run
+ *                                                opt-in stays a separate, required gate)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

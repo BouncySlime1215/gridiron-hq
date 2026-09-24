@@ -6,6 +6,8 @@
  * only). The verify.js detail lives in `grounding`, for the log and the
  * grader, not on screen.
  */
+import { calibrationOf, partnerFor } from './cards.js';
+
 export const PRODUCER = 'reasoning';
 export const PRODUCER_VERSION = '1';
 /** Below this many logged offers from him, P(yes) is shown as thin. */
@@ -24,16 +26,16 @@ export function field({ status, value, reason, asOf, source = 'coach.text', n })
 
 /** Section 5: straight from the fields, never through the model. */
 export function confidenceSection(card, league, asOf) {
-  const cal = league.calibration?.['clone.accept'] ?? {};
-  const partner = league.partners?.[card.partner_team] ?? {};
+  const cal = calibrationOf(league);
+  const partner = partnerFor(league, card.partner_team) ?? {};
   const n = card.p_yes_n ?? (typeof partner.offers_logged === 'number' ? partner.offers_logged : null);
   if (card.p_yes == null) {
     return field({ status: 'unknown', asOf, source: 'clone.accept', reason: 'The plan has no chance-he-says-yes for this card.' });
   }
   const calibrated = cal.calibrated === true;
   const value = {
-    p_yes: card.p_yes, p_yes_n: n, p_yes_basis: card.p_yes_basis,
-    calibrated, calibration_status: cal.status ?? 'not reported',
+    p_yes: card.p_yes, p_yes_n: n, p_yes_basis: partner.basis ?? null,
+    calibrated, calibration_status: cal.status,
     title_delta: card.title_delta, title_delta_se: card.title_delta_se, clears_2se: card.clears_2se,
     why: [
       n == null ? 'No count of his past offers came with this plan, so the chance rests on the market alone.'
@@ -49,7 +51,7 @@ export function confidenceSection(card, league, asOf) {
   return field({ status: thin ? 'thin' : 'ok', value, asOf, source: 'clone.accept', n: n ?? undefined });
 }
 
-const REASON_FOR = Object.freeze({
+export const REASON_FOR = Object.freeze({
   capped: "Today's reasoning allowance for this league is spent. It resets at midnight.",
   failed_call: 'The reasoning call failed, so this section was not written.',
   unparsed: 'The reasoning reply could not be read, so this section was not written.',
@@ -57,7 +59,8 @@ const REASON_FOR = Object.freeze({
   dry_run: 'Dry run: no reasoning call was made.',
   ungrounded: 'This section failed its fact check (a number or cite it used is not in the plan), so it is hidden.',
   no_reply_table: 'The plan has no reply table for this card yet.',
-  no_partner: 'The plan has nothing on his roster, values or moves yet.'
+  no_partner: 'The plan has nothing on his roster, values or moves yet.',
+  no_news_feed: 'No news feed reached this run, so the news check did not run.'
 });
 
 /**
@@ -65,9 +68,9 @@ const REASON_FOR = Object.freeze({
  * @param {object} args.card, args.league, args.news
  * @param {string[]} args.omit          sections left out on purpose (reason keys in omitReason)
  * @param {object|null} args.grounded   groundSections() output, or null when nothing was written
- * @param {string|null} args.missing    REASON_FOR key when nothing was written
+ * @param {string|null} args.missing    REASON_FOR key when nothing was written (null when the model wrote this card)
  */
-export function assemblePanel({ card, league, news, omit, omitReason, grounded, missing, asOf, fingerprint, cost }) {
+export function assemblePanel({ card, league, leagueId, news, omit, omitReason, grounded, missing, asOf, fingerprint, cost }) {
   const sections = {};
   const grounding = {};
   const newsIds = news.map(n => String(n.id));
@@ -103,7 +106,7 @@ export function assemblePanel({ card, league, news, omit, omitReason, grounded, 
   const news_ = sections.news_check;
   const quoteIds = news_.status === 'ok' ? news_.value.contradictions.map(c => c.quote_id) : newsIds;
   return {
-    card_id: card.id, league_id: league.league_id, rank: card.rank, as_of: asOf, fingerprint,
+    card_id: card.id, league_id: leagueId, rank: card.rank, missing: missing ?? null, as_of: asOf, fingerprint,
     check_first: quoteIds.length > 0,
     check_first_quote_ids: quoteIds,
     sections,

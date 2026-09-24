@@ -29,6 +29,12 @@ import { teamTendencies } from '../nfl-team-tendencies.js';
 import { coachingProfile, footballContext } from '../football-context.js';
 import { sourceTrustScore } from '../beat-reporter-accuracy.js';
 import { BRAIN_TOOLS, brainToolsOn, BrainToolInputError } from './brain-tools.js';
+import { linkOn } from './entity-map.js';
+import { CONNECT_TOOL, LinkToolInputError } from './connect.js';
+import { RECALL_TOOL } from './recall.js';
+
+/** COACH-LINK's tools (connect, recall), offered with GRIDIRON_COACH_LINK or preview mode. */
+export const LINK_TOOLS = Object.freeze([CONNECT_TOOL, RECALL_TOOL]);
 
 export class CoachToolError extends Error {
   constructor(message) { super(message); this.name = 'CoachToolError'; }
@@ -240,11 +246,12 @@ export const COACH_TOOLS = Object.freeze([
 
 /**
  * The tools Coach is offered on this call: COACH_TOOLS, plus the brain read
- * tools (brain-tools.js) when GRIDIRON_COACH_BRAIN_TOOLS or preview mode is on.
- * Read per call, so the flag flips without a restart.
+ * tools (brain-tools.js) when GRIDIRON_COACH_BRAIN_TOOLS or preview mode is on,
+ * plus connect and recall (COACH-LINK) when GRIDIRON_COACH_LINK or preview
+ * mode is on. Read per call, so a flag flips without a restart.
  */
 export function activeTools() {
-  return brainToolsOn() ? [...COACH_TOOLS, ...BRAIN_TOOLS] : COACH_TOOLS;
+  return [...COACH_TOOLS, ...(brainToolsOn() ? BRAIN_TOOLS : []), ...(linkOn() ? LINK_TOOLS : [])];
 }
 
 /** The tool blocks handed to Claude: no functions, no internals. */
@@ -289,7 +296,7 @@ export function runCoachTool(name, input, { ledger } = {}) {
   try {
     ran = tool.run(input);
   } catch (e) {
-    if (e instanceof BrainToolInputError) throw new CoachToolError(e.message);
+    if (e instanceof BrainToolInputError || e instanceof LinkToolInputError) throw new CoachToolError(e.message);
     throw e;
   }
   const { value, tables } = ran;

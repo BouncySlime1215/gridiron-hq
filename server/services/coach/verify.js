@@ -34,6 +34,14 @@
  * written. A player the claim did not cite, or one no tool returned, is
  * UNGROUNDED_PLAYER and blocks like a number.
  *
+ * COACH-LINK. connect is checked like a brain tool: its text cells ground the
+ * digits written in them and a claim citing it must cite every player it names.
+ * recall is stricter. A remembered claim's text grounds its digits only from a
+ * `claim_text` cell, which recall.js serves only for a FRESH answer; a stale
+ * answer's words sit in `stale_claim_text`, which grounds no number, so an out
+ * of date number cannot be restated from memory. Its served numbers are
+ * numeric cells and ground like any other.
+ *
  * Two things warn rather than block, and they are stated here because they are
  * the honest limit of this check: a number spelled out in words ("three of the
  * last four"), and a full-name proper noun ("Firstname Lastname") that no tool
@@ -54,6 +62,16 @@ export const VIOLATIONS = Object.freeze({
 
 /** The brain read tools (brain-tools.js#BRAIN_TOOLS). Their cites turn on the player check. */
 export const BRAIN_TOOL_NAMES = Object.freeze(['plan_read', 'people_read', 'pulse_read', 'brain_read', 'health_read']);
+/** COACH-LINK's tools (tools.js#LINK_TOOLS). Their cites turn on the player check too. */
+export const LINK_TOOL_NAMES = Object.freeze(['connect', 'recall']);
+/** Tools whose cites turn on the player check, and whose names make up the vocabulary. */
+const PLAYER_CHECK_TOOLS = Object.freeze([...BRAIN_TOOL_NAMES, ...LINK_TOOL_NAMES]);
+
+/** May a digit written inside this text cell ground the same digit in a claim? */
+function textCellGrounds(tool, cite) {
+  if (BRAIN_TOOL_NAMES.includes(tool) || tool === 'connect') return true;
+  return tool === 'recall' && String(cite).endsWith('.claim_text');
+}
 
 /** Columns of a brain-tool row that hold player names (a `; `-joined list for the people lists). */
 const NAME_COLUMN = /(?:^|_)(?:name|wants|shopping|untouchable|player)$/;
@@ -117,7 +135,7 @@ const nameCore = s => String(s).replace(/\s*\([^)]*\)\s*$/, '').trim();
 function brainVocabulary(book) {
   const names = new Set();
   for (const q of book.queries ?? []) {
-    if (!BRAIN_TOOL_NAMES.includes(q.tool)) continue;
+    if (!PLAYER_CHECK_TOOLS.includes(q.tool)) continue;
     for (const row of q.rows) {
       for (const [col, value] of Object.entries(row)) {
         if (typeof value !== 'string' || !NAME_COLUMN.test(col)) continue;
@@ -195,7 +213,7 @@ export function verifyAnswer({ answer, ledger, question = '' } = {}) {
 
     for (const token of numericTokens(text)) {
       numbersChecked += 1;
-      if (cells.some(cell => grounds(cell.value, token, BRAIN_TOOL_NAMES.includes(toolOf(cell))))) continue;
+      if (cells.some(cell => grounds(cell.value, token, textCellGrounds(toolOf(cell), cell.id)))) continue;
       violations.push({
         kind: VIOLATIONS.UNGROUNDED_NUMBER, claim_index: claimIndex, number: token, text,
         detail: `${token} is in no cell this claim cites. Retrieve it, or derive it through the ledger, ` +
@@ -203,7 +221,7 @@ export function verifyAnswer({ answer, ledger, question = '' } = {}) {
       });
     }
 
-    if (cells.some(cell => BRAIN_TOOL_NAMES.includes(toolOf(cell)))) {
+    if (cells.some(cell => PLAYER_CHECK_TOOLS.includes(toolOf(cell)))) {
       vocabulary ??= brainVocabulary(book);
       const cited = cells.filter(cell => typeof cell.value === 'string').map(cell => cell.value);
       for (const player of playersNamed(text, vocabulary)) {

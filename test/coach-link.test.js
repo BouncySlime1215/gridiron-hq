@@ -233,12 +233,13 @@ test('connect: as_of keeps what was known then and counts what came after', noLi
 
 test('connect: a team timeline attributes chat only through a trusted link', noLink, () => {
   const one = conn.connect({ league_id: LEAGUE, entity: 'Fixture One' });
-  const chatEvents = one.filter(r => r.source === 'chat');
+  const events = rows => rows.filter(r => r.row_kind === 'event');
+  const chatEvents = events(one).filter(r => r.source === 'chat');
   assert.equal(chatEvents.length, 3, 'labels at or above 0.5 only');
   assert.ok(chatEvents.some(e => e.player_name === 'Cole Ruiz'));
-  assert.equal(one.filter(r => r.source === 'trade_outcomes').length, 2);
+  assert.equal(events(one).filter(r => r.source === 'trade_outcomes').length, 2);
   const two = conn.connect({ league_id: LEAGUE, entity: 'team:2' });
-  assert.equal(two.filter(r => r.source === 'chat').length, 0);
+  assert.equal(events(two).filter(r => r.source === 'chat').length, 0);
   assert.match(two[0].note, /below trusted/);
 });
 
@@ -252,10 +253,28 @@ test('connect: screenshot trades join the timeline once SHOT-01\'s table exists'
     assert.equal(map.sources.screenshots.status, 'ok');
     assert.equal(linkOf(map.entities.find(e => e.key === 'team:2'), 'screenshot', 'screenshot_team').confidence, 'exact');
     assert.equal(linkOf(map.entities.find(e => e.key === `player:${RUIZ}`), 'screenshot', 'screenshot_player').confidence, 'name');
-    const shots = conn.connect({ league_id: LEAGUE, entity: 'C. Ruiz' }).filter(r => r.source === 'screenshot');
+    const shots = conn.connect({ league_id: LEAGUE, entity: 'C. Ruiz' }).filter(r => r.row_kind === 'event' && r.source === 'screenshot');
     assert.equal(shots.length, 1);
     assert.equal(shots[0].label, 'player on the get side');
   } finally { db.exec('DROP TABLE screenshot_proposals'); }
+});
+
+test('connect: a trade id is read as ESPN first, never as another player\'s internal id', noLink, () => {
+  // An ESPN id that happens to equal Cole Ruiz's internal id belongs to someone else.
+  const hart = player('Lou Hart', 'WR', RUIZ, null, null);
+  const tx = run(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id, give_json, get_json,
+                    proposed_at, status, espn_tx_id, created_at)
+                  VALUES (?, 2026, 'observed', '3', '1', ?, '[]', '2026-09-21T15:00:00Z', 'proposed', 'tx2', '2026-09-21T16:00:00Z')`,
+  LEAGUE, JSON.stringify([{ playerId: RUIZ }])).lastInsertRowid;
+  try {
+    const ruiz = conn.connect({ league_id: LEAGUE, entity: `player:${RUIZ}` }).filter(r => r.source === 'trade_outcomes' && r.row_kind === 'event');
+    assert.equal(ruiz.length, 2, 'only tx1');
+    const lou = conn.connect({ league_id: LEAGUE, entity: `player:${hart}` }).filter(r => r.source === 'trade_outcomes' && r.row_kind === 'event');
+    assert.deepEqual(lou.map(e => e.roster_id), ['3']);
+  } finally {
+    run('DELETE FROM trade_outcomes WHERE id = ?', tx);
+    run('DELETE FROM players WHERE id = ?', hart);
+  }
 });
 
 test('connect: nothing found is typed unknown; a missing entity is a tool error', noLink, async () => {
@@ -304,7 +323,9 @@ function standIn(spec) {
     if (!row || row.status === 'unknown') return says({ claims: [], refusals: [`${spec.tool}: ${row?.reason ?? 'no row'}`], as_of: null });
     const claims = spec.claims.filter(c => c.cols.every(col => row[col] !== undefined && row[col] !== null))
       .map(c => ({ text: c.text(c.cols.map(col => row[col])), cites: c.cols.map(col => `${summary.cite_prefix}${index}.${col}`) }));
-    return says({ claims, refusals: claims.length ? [] : ['the tool did not carry that'], as_of: null });
+    // connect reads hand-collected tables, so its answer says when (verify.js MISSING_AS_OF).
+    const asOf = spec.tool === 'connect' ? `timeline as of ${summary.rows[0].as_of}` : null;
+    return says({ claims, refusals: claims.length ? [] : ['the tool did not carry that'], as_of: asOf });
   } } };
 }
 
@@ -329,7 +350,8 @@ test('memory: a grounded answer is kept with its served numbers, sources and sta
     assert.deepEqual(JSON.parse(m.served_json).map(s => [s.value, s.tool]), [[0.38, 'plan_read']]);
     assert.ok('warroom_plans_file' in JSON.parse(m.stamps_json));
     const bad = await ask({ ...PYES, claims: [{ cols: ['next_move_steps_0_p_yes_value'], text: () => 'He says yes 61% of the time.' }] });
-    assert.equal(bad.verification.ok, false);
+    assert.ok(bad.plan.some(e => e.t === 'rejected'), 'the fabricated 61% was rejected');
+    assert.equal(bad.answer.claims.length, 0);
     assert.equal(bad.memory_id, null);
   });
   await withEnv({ GRIDIRON_COACH_BRAIN_TOOLS: '1', GRIDIRON_COACH_LINK: undefined }, async () => {

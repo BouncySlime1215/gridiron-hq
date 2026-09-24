@@ -25,6 +25,8 @@ import { CoachQueryRefused, CoachQueryFailed } from './select.js';
 import { newLedger, LedgerError } from './ledger.js';
 import { verifyAnswer } from './verify.js';
 import { recordCoachAnswer } from './audit.js';
+import { linkOn } from './entity-map.js';
+import { rememberAnswer } from './recall.js';
 
 /**
  * Rounds of model call. One round is one Claude turn; a round that asks for
@@ -226,8 +228,13 @@ export async function askCoach({ question, context = null, leagueId = null,
     answer, ledger: ledgerJson, plan, verification, costUsd
   });
 
+  // COACH-LINK answer memory: only an answer that passed the grounding check is kept.
+  const memoryId = linkOn() && verification?.ok
+    ? rememberAnswer({ leagueId, question: asked, answer, ledger, verification, auditId })
+    : null;
+
   return { question: asked, answer, ledger: ledgerJson, verification, plan,
-    audit_id: auditId, cost_usd: costUsd };
+    audit_id: auditId, memory_id: memoryId, cost_usd: costUsd };
 }
 
 /**

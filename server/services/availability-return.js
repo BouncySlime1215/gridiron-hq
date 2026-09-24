@@ -43,6 +43,32 @@
  * (123.47): PASS iff |shift| < 3.
  * ==========================================================================================
  */
+/*
+ * ======================= AVAIL-HORIZON-3 PRE-REGISTRATION (ratio form) =====================
+ * Written 2026-09-24 before any ratio-form number was computed. THIRD and final time-boxed
+ * attempt at TITLE-ZERO (#349 AVAIL-HORIZON, #355 AVAIL-HORIZON-2 both declined).
+ *
+ * Diagnosis (named by #355's builder before this unit): #355 gave a gap player the RAW curve
+ * cell, which already includes future injuries, while a healthy player keeps today's
+ * calibrated one-week rate (~0.95 for a starter): gap players are discounted twice.
+ *
+ * Formula. For a player with no report, a gap state (g1/g2) and h >= 1:
+ *   p_week = clamp01( p_today_g0 x curve(gap, tier, h) / curve(g0, tier, h) )
+ * where p_today_g0 is playerActiveProbability for THIS player with his role's gap bucket set
+ * to g0 (the calibrated healthy one-week rate, durability cap included), and numerator and
+ * denominator are read at the SAME curve level (tier cell if both exist, else gap-level
+ * '*', else no change). g0 players and h = 0 are unchanged. #355's change B (season-sim
+ * team-mean SD 8, bounded) is kept byte-for-byte. No curve row, k or bucket is refitted.
+ *
+ * Metric (one sim run, local DB copy, league 4, 1,200 runs, tradeImpactSeed, preview on,
+ * GRIDIRON_AVAIL_HORIZON=1, #355's probe.mjs):
+ *   (1) Nick playoff / title odds inside 12-21% / 0.7-1.6% (ESPN range);
+ *   (2) league mean sim points per team-week vs flag off (123.47, #355): |shift| < 3;
+ *   (3) sum of title odds = 100%, sum of playoff odds = playoff_teams (6).
+ * READY iff (1), (2) and (3) all hold; otherwise DECLINE and keep the incumbent.
+ * Baselines reused from #355 (not re-run): main 4.3% / 0%; #355 A+B 8.9% / 0.25%.
+ * ==========================================================================================
+ */
 import { previewUnconfirmed, previewFields } from './preview-mode.js';
 
 export const AVAIL_HORIZON_ENV = 'GRIDIRON_AVAIL_HORIZON';

@@ -22,8 +22,11 @@
  *                  he prices below it (buy): counterparty-pricing.js#playerValuation.
  *   desperation    games behind the playoff line, recent losses, and the trade deadline
  *                  getting close; the served playoff-odds trend when two snapshots exist.
- *   attention_gap  his activity intensity (IDEA-084 point process) low against the
- *                  league, and days since his last action of any kind.
+ *   recent_activity  WEAK-02: how recently he made a roster move and his activity intensity
+ *                  (IDEA-084 point process) against the league. INVERTED from WEAK-01's
+ *                  attention_gap: r44 (rnd/loop/r44-WEAK-SLEEPER.md, 131k Sleeper manager-weeks)
+ *                  found recently active managers sell (10.5% within 14 days at 0-3 days since
+ *                  the last move vs 1.5% at 30-60 days) and idle ones do not.
  *   in_market      he said he wants a player (wants_player, from people.counterpart),
  *                  with credibility attached; shop talk only when credibility backs it.
  *
@@ -33,9 +36,11 @@
  * is listed under `absent` with the reason (typed unknown), never scored as zero; a
  * kind it read and found nothing in is listed under `clear`.
  *
- * Scores: strength in [0, 1] per surface (each formula below, all hand-set and marked
- * fitted:false), times CONFIDENCE_WEIGHT (hand-set). Ranking is within the manager;
- * the league order is by the sum of each manager's top three scores.
+ * Scores: strength in [0, 1] per surface, times CONFIDENCE_WEIGHT (hand-set), times
+ * SELLER_WEIGHT (WEAK-02, from r44): roster_hole and desperation are kept as framing facts
+ * but weigh 0 in the ranking (holes made r44's held-out log loss worse; desperation added
+ * nothing). Ranking is within the manager; the league order ("who is likely to sell") is by
+ * the sum of each manager's top three scores.
  *
  * Pure except weaknessInputs (reads the app DB, as of a cut: nothing after the cut is
  * read, so a replay of a past date sees what was known then).
@@ -45,18 +50,49 @@
  */
 import { previewUnconfirmed, previewFields } from '../preview-mode.js';
 
-export const WEAKNESS_VERSION = 'weakness.1';
+export const WEAKNESS_VERSION = 'weakness.2';
 export const PEOPLE_WEAKNESS_FIELD = 'people.weakness';
 export const WEAKNESS_ENV = 'GRIDIRON_WEAKNESS';
 export const WEAKNESS_SOURCE = 'server/services/people/weakness.js';
-export const PREVIEW_REASON = 'weakness scanner (WEAK-01) is default-off: surface scores are hand-set; only the proven labels rest on tested signals';
+export const PREVIEW_REASON = 'weakness scanner (WEAK-01/02) is default-off: the seller ranking rests on r44 (Sleeper, held out) and is not validated on ESPN leagues; other scores are hand-set';
 
 export const CONFIDENCE = Object.freeze({ proven: 'proven', measured: 'measured', unproven: 'unproven' });
 /** Hand-set: how much a surface's label discounts its strength in the ranking. */
 export const CONFIDENCE_WEIGHT = Object.freeze({ proven: 1, measured: 0.8, unproven: 0.5 });
-export const SURFACE_KINDS = Object.freeze(['roster_hole', 'value_gap', 'desperation', 'attention_gap', 'in_market']);
+export const SURFACE_KINDS = Object.freeze(['roster_hole', 'value_gap', 'desperation', 'recent_activity', 'in_market']);
 /** The signals a 'proven' label may rest on (the metric checks every proven surface names one). */
-export const PROVEN_SIGNALS = Object.freeze(['wants_player', 'activity_intensity', 'credibility']);
+export const PROVEN_SIGNALS = Object.freeze(['wants_player', 'activity_intensity', 'activity_recency', 'credibility']);
+
+/**
+ * WEAK-02: r44 WEAK-SLEEPER (rnd/loop/r44-WEAK-SLEEPER.md, CONFIRM; fit Sleeper 2021-22, graded
+ * once on 2023-24, 130,974 manager-weeks, 8,224 sellers, 809 league chains). Only the attention
+ * surface carries signal, and it runs the other way to WEAK-01's framing.
+ */
+export const R44 = Object.freeze({
+  source: 'rnd/loop/r44-WEAK-SLEEPER.md (Sleeper; fit 2021-22, graded 2023-24; league-chain bootstrap 95% CI)',
+  attention: Object.freeze({ logloss_gain: 0.00063, ci: Object.freeze([0.00034, 0.00088]), bh_p: 0.0000,
+    seller_rate_by_days: Object.freeze({ '0-3': 0.105, '3-7': 0.072, '7-14': 0.047, '14-30': 0.029, '30-60': 0.015, never: 0.015 }) }),
+  roster_hole: Object.freeze({ logloss_gain: -0.00018, ci: Object.freeze([-0.00032, -0.00005]), bh_p: 0.9955,
+    seller_rate: Object.freeze({ no_hole: 0.066, one_hole: 0.049, two_holes: 0.021, bye_crunch: 0.062, no_crunch: 0.063 }) }),
+  desperation: Object.freeze({ logloss_gain: 0.00002, ci: Object.freeze([-0.00003, 0.00006]), bh_p: 0.3473,
+    seller_rate_by_recent_losses: Object.freeze({ 0: 0.062, 1: 0.064, 2: 0.063 }) }),
+});
+
+/**
+ * WEAK-02 seller weights (fit on Sleeper 2021-22 only, never on the graded seasons): the
+ * within-14-days seller rate of each bin relative to the top bin. Days since his last roster
+ * move (0-3: 10.6%; never moved: 1.6%) times his activity intensity against the league median
+ * (at or above: 7.3%; up to half below: 6.0%; more than half below: 3.4%).
+ */
+export const SELLER = Object.freeze({
+  days: Object.freeze([[3, 1], [7, 0.629], [14, 0.428], [30, 0.334], [Infinity, 0.127]]),
+  never: 0.147,
+  intensity: Object.freeze([[0, 1], [0.5, 0.821], [Infinity, 0.47]]),
+  fit: 'Sleeper 2021-22 seller-within-14-days rates by bin, relative to the top bin (rnd/loop r44 rows; WEAK-02)',
+  holdout: 'graded Sleeper 2023-24, within league-week: top-3 hit 0.355 vs WEAK-01 0.205 (random 0.270), +0.150 [+0.132, +0.168]; AUC 0.616 vs 0.414, +0.202 [+0.184, +0.221] (499 chains with a seller, 2,000 chain-bootstrap reps)',
+});
+/** WEAK-02: a surface's weight in the seller ranking (r44). Holes and desperation stay as framing facts only. */
+export const SELLER_WEIGHT = Object.freeze({ roster_hole: 0, value_gap: 1, desperation: 0, recent_activity: 1, in_market: 1 });
 
 /**
  * IDEA-084 PP adds model (rnd/loop/r25-IDEA-084.md, CONFIRM): Poisson GLM on Sleeper 2021-22
@@ -86,8 +122,6 @@ export const SCALES = Object.freeze({
   behind_full: 3,              // wins behind the playoff line + half a point per recent loss, /3
   deadline_days: 70,           // deadline pressure is linear over the last 70 days
   odds_drop_full: 0.25,        // a 25-point fall in served playoff odds = strength 1
-  idle_days_full: 14,          // 14 days with no action of any kind = strength 1
-  intensity_gap_weight: 1,     // strength = share his intensity sits below the league median
   wants_prior: 2.0,            // counterpart.js WANTS_PRIOR_LOG_LIFT: full lift = strength 1
   wants_not_nicks: 0.5,        // he wants a player Nick does not have: half strength
   top_n: 3,
@@ -119,6 +153,8 @@ export const txTime = r => toMs(r.processed_at) ?? toMs(r.proposed_at);
 const ROSTER_MOVE = r => (r.type === 'DRAFT' && r.status === 'EXECUTED')
   || ((r.type === 'FREEAGENT' || r.type === 'WAIVER') && r.status === 'EXECUTED')
   || (r.type === 'TRADE_ACCEPT' && r.status === 'EXECUTED' && r.execution_type === 'PROCESS');
+/** r44's "move" on Sleeper: a waiver or free-agent claim (any status) or a completed trade. */
+const IS_MOVE = r => r.type === 'FREEAGENT' || r.type === 'WAIVER' || isExecutedTrade(r);
 export const isExecutedTrade = r => r.type === 'TRADE_ACCEPT' && r.status === 'EXECUTED' && r.execution_type === 'PROCESS';
 
 const items = r => {
@@ -129,13 +165,15 @@ const items = r => {
  * Replay the league's transaction ledger up to (not including) cutMs.
  * Returns rosters (Map team -> Set player id: `base` (a captured lineup, known at baseMs)
  * or the draft, plus every executed add, drop and trade after it), each team's last action of any kind (lineup, add, proposal, reply, vote; the
- * draft itself excluded) and adds per scoring period.
+ * draft itself excluded), each team's last roster move (lastMove: a free-agent or waiver claim
+ * of any status, or an executed trade; r44's "last move" on Sleeper) and adds per scoring period.
  */
 export function replayLedger(txRows, cutMs, { base = null, baseMs = -Infinity } = {}) {
   const rows = txRows.map(r => ({ r, t: txTime(r) })).filter(x => x.t != null && x.t < cutMs)
     .sort((a, b) => a.t - b.t || String(a.r.tx_id).localeCompare(String(b.r.tx_id)));
   const rosters = new Map(base ? [...base].map(([t, set]) => [String(t), new Set(set)]) : []);
   const lastAction = new Map();
+  const lastMove = new Map();
   const adds = new Map();
   const seenTx = new Set();
   const of = team => { const k = String(team); if (!rosters.has(k)) rosters.set(k, new Set()); return rosters.get(k); };
@@ -144,6 +182,11 @@ export function replayLedger(txRows, cutMs, { base = null, baseMs = -Infinity } 
     if (actor && r.type !== 'DRAFT') {
       const prev = lastAction.get(actor);
       if (!prev || t > prev.at) lastAction.set(actor, { at: t, type: r.type });
+    }
+    if (IS_MOVE(r)) {
+      const movers = new Set(actor ? [actor] : []);
+      if (r.type === 'TRADE_ACCEPT') for (const i of items(r)) for (const x of [i.fromTeamId, i.toTeamId]) if (Number(x) > 0) movers.add(String(x));
+      for (const m of movers) { const prev = lastMove.get(m); if (!prev || t > prev.at) lastMove.set(m, { at: t, type: r.type }); }
     }
     if (!ROSTER_MOVE(r)) continue;
     const moves = t > baseMs && !(base && r.type === 'DRAFT');
@@ -168,7 +211,7 @@ export function replayLedger(txRows, cutMs, { base = null, baseMs = -Infinity } 
       }
     }
   }
-  return { rosters, lastAction, adds };
+  return { rosters, lastAction, lastMove, adds };
 }
 
 /** Executed trades in the ledger: [{ tx_id, at, week, sides: Map team -> [player ids he gave] }]. */
@@ -258,8 +301,11 @@ export function rosterHoleSurface({ roster, slots, weeks, currentWeek, asOfMs, b
         weeks: perWeek.map(x => ({ week: x.week, unfillable: x.unfillable_slots.length, crunch: x.crunch })),
         roster_size: roster.length, unknown_positions: unknownPos, roster_basis: basis, streamed_slots_ignored: STREAMED_SLOTS.slice(0, 2),
         formula: `min(1, unfillable/${SCALES.hole_slots_full} + ${SCALES.crunch_strength} if >=${SCALES.crunch_min} on bye) x ${SCALES.hole_far_weight} beyond ${SCALES.hole_near_weeks} weeks (hand-set, fitted:false)`,
+        seller_weight: SELLER_WEIGHT.roster_hole,
+        measured_lift: `r44: not a seller signal. Managers with two unfillable slots next week sold within 14 days at ${pct(R44.roster_hole.seller_rate.two_holes)} vs ${pct(R44.roster_hole.seller_rate.no_hole)} with none (likely abandoned teams); a bye crunch ${pct(R44.roster_hole.seller_rate.bye_crunch)} vs ${pct(R44.roster_hole.seller_rate.no_crunch)}; adding holes made held-out log loss worse (${R44.roster_hole.logloss_gain} [${R44.roster_hole.ci[0]}, ${R44.roster_hole.ci[1]}]). Weight 0 in the seller ranking`,
+        source: R44.source,
       },
-      use: 'targets and timing: offer the position he cannot start in that week, before that week',
+      use: 'framing only (unproven as a reason he will deal): which position he is short that week',
     },
   };
 }
@@ -296,30 +342,42 @@ export function ppIntensity(history, { leagueMeanAdds, leagueMeanPts }) {
 
 const median = xs => { const s = [...xs].sort((a, b) => a - b); const n = s.length; return n ? (n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2) : null; };
 
-/** Attention surface from his intensity against the league's and his days since last action. */
-export function attentionSurface({ intensity, leagueLambdas, lastAction, cutMs, asOfMs }) {
+const pct = x => `${(x * 100).toFixed(1)}%`;
+const binOf = (x, table) => table.find(([hi]) => x <= hi)[1];
+
+/**
+ * WEAK-02 recent_activity (replaces WEAK-01's attention_gap, which scored idleness as a
+ * weakness; r44 found that backwards). Strength = SELLER.days bin of his days since his last
+ * roster move (never moved: SELLER.never) x SELLER.intensity bin of how far his IDEA-084
+ * intensity sits below the league median (1 before two completed weeks). Recent and busy
+ * managers score high: the ones who actually sell.
+ */
+export function recentActivitySurface({ intensity, leagueLambdas, lastMove, lastAction = null, cutMs, asOfMs }) {
   // Whole days, so a published scan changes once a day, not every tick (write-on-change).
-  const days = lastAction ? Math.floor((cutMs - lastAction.at) / DAY) : null;
-  const idle = days == null ? null : clamp(days / SCALES.idle_days_full, 0, 1);
+  const days = lastMove ? Math.floor((cutMs - lastMove.at) / DAY) : null;
+  const recency = days == null ? SELLER.never : binOf(Math.max(0, days), SELLER.days);
   const med = intensity?.status === 'ok' ? median(leagueLambdas) : null;
-  const below = med ? clamp((med - intensity.lambda) / med, 0, 1) * SCALES.intensity_gap_weight : null;
-  const parts = [below, idle].filter(x => x != null);
-  if (!parts.length) return { surface: null, absent: 'no activity read: no completed weeks and no recorded action' };
-  const strength = Math.max(...parts);
-  if (strength <= 0) return { surface: null };
-  const proven = below != null && below >= (idle ?? 0);
+  const below = med ? clamp((med - intensity.lambda) / med, 0, 1) : null;
+  const mult = below == null ? 1 : binOf(below, SELLER.intensity);
+  const strength = recency * mult;
+  const r = R44.attention;
   return {
     surface: {
-      kind: 'attention_gap', confidence: proven ? CONFIDENCE.proven : CONFIDENCE.measured, strength: r3(strength),
-      as_of: iso(asOfMs), signal: proven ? 'activity_intensity' : 'days since last action',
+      kind: 'recent_activity', confidence: CONFIDENCE.proven, strength: r3(strength),
+      as_of: iso(asOfMs), signal: 'activity_recency',
       evidence: {
+        days_since_last_move: days, never_moved: days == null, last_move_type: lastMove?.type ?? null, last_move_at: iso(lastMove?.at),
+        days_since_last_action: lastAction ? Math.floor((cutMs - lastAction.at) / DAY) : null, last_action_type: lastAction?.type ?? null,
+        recency_weight: recency, intensity_weight: mult,
         intensity: intensity?.status === 'ok' ? { adds_next_week: r3(intensity.lambda), league_median: r3(med), below_median: r3(below),
-          week: intensity.week, features: intensity.features, model: PP_ADDS.source,
-          caveat: 'fit on Sleeper; transfer to this ESPN league not yet validated' } : { status: intensity?.status ?? 'unknown', reason: intensity?.reason ?? null },
-        days_since_last_action: r3(days), last_action_type: lastAction?.type ?? null, last_action_at: iso(lastAction?.at),
-        formula: `max(share his PP intensity sits below the league median, days idle/${SCALES.idle_days_full}) (hand-set, fitted:false)`,
+          week: intensity.week, features: intensity.features, model: PP_ADDS.source } : { status: intensity?.status ?? 'unknown', reason: intensity?.reason ?? null },
+        measured_lift: `r44: sold within 14 days at ${pct(r.seller_rate_by_days['0-3'])} when his last move was 0-3 days ago vs ${pct(r.seller_rate_by_days['30-60'])} at 30-60 days (never moved ${pct(r.seller_rate_by_days.never)}); held-out log-loss gain +${r.logloss_gain} [+${r.ci[0]}, +${r.ci[1]}], BH p ${r.bh_p.toFixed(4)}`,
+        ranking_holdout: SELLER.holdout,
+        formula: `days-since-last-move bin weight x intensity-gap bin weight (${SELLER.fit})`,
+        source: R44.source,
+        caveat: 'measured on Sleeper; transfer to this ESPN league is not validated. A move here is a free-agent or waiver claim or an executed trade (lineup sets and proposals do not count), as on Sleeper',
       },
-      use: 'timing: waiver-sensitive offers land before he reacts; expect slow replies',
+      use: 'targets and timing: he is active and likely to deal now; open with an offer while he is moving',
     },
   };
 }
@@ -356,8 +414,11 @@ export function desperationSurface({ team, record, standings, playoffTeams, dead
         playoff_odds_trend: odds.length >= 2 ? { from: r3(odds[0].p_playoffs), to: r3(odds[odds.length - 1].p_playoffs), snapshots: odds.length }
           : { status: 'unknown', reason: `${odds.length} served playoff-odds snapshot(s); a trend needs two` },
         formula: `max((behind + 0.5 x losing streak)/${SCALES.behind_full}, odds drop/${SCALES.odds_drop_full}) x (0.5 + 0.5 x deadline closeness over ${SCALES.deadline_days} days) (hand-set, fitted:false)`,
+        seller_weight: SELLER_WEIGHT.desperation,
+        measured_lift: `r44: not a seller signal. Sold within 14 days at ${pct(R44.desperation.seller_rate_by_recent_losses[0])}, ${pct(R44.desperation.seller_rate_by_recent_losses[1])} and ${pct(R44.desperation.seller_rate_by_recent_losses[2])} after 0, 1 and 2 recent losses; held-out log-loss gain +${R44.desperation.logloss_gain} [${R44.desperation.ci[0]}, +${R44.desperation.ci[1]}], BH p ${R44.desperation.bh_p}. Weight 0 in the seller ranking`,
+        source: R44.source,
       },
-      use: 'timing and framing: he needs points now; lead with this-week help, before the deadline',
+      use: 'framing only (unproven as a reason he will deal): he needs points now',
     },
   };
 }
@@ -442,7 +503,7 @@ export function valueGapSurface({ reads, asOfMs, readAsOf = null }) {
 
 /* ================================================================== scan (pure) */
 
-const scoreOf = s => s.strength * CONFIDENCE_WEIGHT[s.confidence];
+const scoreOf = s => s.strength * CONFIDENCE_WEIGHT[s.confidence] * (SELLER_WEIGHT[s.kind] ?? 1);
 
 /**
  * One manager's scan from the per-kind results. results: { kind: { surface, absent?, clear_reason? } }.
@@ -502,8 +563,8 @@ export function scanLeague(inp, { counterparts = new Map(), counterpartAsOf = nu
         : { surface: null, absent: valueReason ?? 'valuation map not read' },
       desperation: desperationSurface({ team, record: hist.get(team), standings, playoffTeams: inp.playoffTeams,
         deadlineMs: inp.deadlineMs, cutMs, odds: inp.odds.get(team) ?? [], asOfMs: maxMs(inp.scoresAsOf, (inp.odds.get(team) ?? []).map(o => toMs(o.as_of))) }),
-      attention_gap: attentionSurface({ intensity: intensity.get(team), leagueLambdas: lambdas, lastAction: inp.lastAction.get(team) ?? null,
-        cutMs, asOfMs: maxMs(inp.lastAction.get(team)?.at, h ? inp.scoresAsOf : null) }),
+      recent_activity: recentActivitySurface({ intensity: intensity.get(team), leagueLambdas: lambdas, lastMove: inp.lastMove?.get(team) ?? null,
+        lastAction: inp.lastAction.get(team) ?? null, cutMs, asOfMs: maxMs(inp.lastMove?.get(team)?.at, h ? inp.scoresAsOf : null) ?? stampMs ?? cutMs }),
       in_market: inMarketSurface({ cp: counterparts.get(team) ?? null, cpAsOf: counterpartAsOf, nickRoster,
         cred: inp.credibility == null ? null : inp.credibility.filter(r => String(r.roster_id) === team),
         credReason: inp.credibilityReason, asOfMs: null, wantsBefore }),
@@ -729,7 +790,7 @@ export async function weaknessInputs(leagueId, { cutMs, database = null, proTeam
   }
 
   return {
-    leagueId: lg.id, season, me, cutMs, slots, rosterBasis, teams: teamList, rosters: ledger.rosters, lastAction: ledger.lastAction,
+    leagueId: lg.id, season, me, cutMs, slots, rosterBasis, teams: teamList, rosters: ledger.rosters, lastAction: ledger.lastAction, lastMove: ledger.lastMove,
     history, completedWeeks, currentWeek, lastRegularWeek: regWeeks, playoffTeams: Number(lg.playoff_teams) || 6,
     deadlineMs: toMs(lg.deadline), playerInfo, rosterAsOf, scoresAsOf, odds, credibility, credibilityReason,
   };
@@ -774,7 +835,7 @@ export async function valueReads(inp, { season = inp.season, week = inp.currentW
  * The WEAK-01 measurement for one league (read-only): scan as of `cutMs` with the hub's
  * people.counterpart (or, when the hub has no rows, the same producer function the hub
  * publishes, directPeople), the valuation map, the metric, and the retro check on weeks 1-2's
- * executed trades (as-of safe kinds only: roster_hole, desperation, attention_gap).
+ * executed trades (as-of safe kinds only: roster_hole, desperation, recent_activity).
  */
 export async function measureLeague(leagueId, { cutMs = Date.now(), retroWeeks = [1, 2] } = {}) {
   const inp = await weaknessInputs(leagueId, { cutMs });

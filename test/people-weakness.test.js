@@ -1,6 +1,7 @@
 /**
  * WEAK-01: the weakness scanner (people/weakness.js) and its hub producer
- * (engine/producers/weakness.js -> people.weakness).
+ * (engine/producers/weakness.js -> people.weakness). WEAK-02: the seller ranking inverted per
+ * r44 (recent activity raises it; roster holes and desperation weigh 0, kept as framing facts).
  *
  * Fixtures only: league 51, four invented rosters, invented player ids, no chat corpus
  * (GRIDIRON_CHAT_DB_PATH points at a file that does not exist), so the counterpart rows
@@ -115,6 +116,46 @@ test('ledger replay: a captured base plus later moves; moves at or after the cut
   assert.deepEqual(W.executedTrades(tx).map(t => [t.tx_id, [...t.sides.keys()]]), [['b', ['2']]]);
 });
 
+test('WEAK-02 recent_activity: recent and busy score high, idle and never-moved low; labels cite r44', () => {
+  const cutMs = Date.parse('2026-10-01T00:00:00Z');
+  const at = d => ({ at: cutMs - d * 864e5 - 1000, type: 'WAIVER' });
+  const s = (lastMove, intensity = null, leagueLambdas = []) => W.recentActivitySurface({ intensity, leagueLambdas, lastMove, cutMs, asOfMs: cutMs }).surface;
+  assert.equal(s(at(1)).strength, 1);
+  assert.equal(s(at(3)).strength, 1);
+  assert.equal(s(at(5)).strength, 0.629);
+  assert.equal(s(at(10)).strength, 0.428);
+  assert.equal(s(at(20)).strength, 0.334);
+  assert.equal(s(at(45)).strength, 0.127);
+  assert.equal(s(null).strength, 0.147);
+  assert.ok(s(at(1)).strength > s(at(20)).strength, 'inverted from WEAK-01: recency raises, idleness lowers');
+  // Intensity well below the league median discounts (Sleeper 2021-22: 3.4% vs 7.3%).
+  const low = s(at(1), { status: 'ok', lambda: 0.2, week: 3, features: {} }, [0.2, 1, 1]);
+  assert.equal(low.evidence.intensity_weight, 0.47);
+  assert.equal(low.strength, 0.47);
+  const r = s(at(1));
+  assert.match(r.evidence.measured_lift, /r44: sold within 14 days at 10\.5% .* vs 1\.5% at 30-60 days/);
+  assert.match(r.evidence.measured_lift, /\+0\.00063 \[\+0\.00034, \+0\.00088\]/);
+  assert.match(r.evidence.source, /r44-WEAK-SLEEPER/);
+  assert.match(r.evidence.ranking_holdout, /top-3 hit 0\.355 vs WEAK-01 0\.205/);
+  assert.ok(W.PROVEN_SIGNALS.includes(r.signal));
+  assert.deepEqual(W.SELLER_WEIGHT, { roster_hole: 0, value_gap: 1, desperation: 0, recent_activity: 1, in_market: 1 });
+});
+
+test('ledger replay: lastMove counts claims (any status) and executed trades for both sides, never lineups or proposals', () => {
+  const tx = [
+    { tx_id: 'l', type: 'ROSTER', status: 'EXECUTED', team_id: 2, proposed_at: '2026-09-20T00:00:00Z', items_json: '[]' },
+    { tx_id: 'p', type: 'TRADE_PROPOSAL', status: 'PENDING', team_id: 2, proposed_at: '2026-09-21T00:00:00Z', items_json: '[]' },
+    { tx_id: 'w', type: 'WAIVER', status: 'FAILED_PLAYERALREADYDROPPED', team_id: 2, proposed_at: '2026-09-18T00:00:00Z', items_json: '[]' },
+    { tx_id: 't', type: 'TRADE_ACCEPT', status: 'EXECUTED', execution_type: 'PROCESS', team_id: 3, processed_at: '2026-09-19T00:00:00Z',
+      items_json: JSON.stringify([{ type: 'TRADE', playerId: 6, fromTeamId: 4, toTeamId: 3 }]) },
+  ];
+  const r = W.replayLedger(tx, Date.parse('2026-09-25T00:00:00Z'));
+  assert.deepEqual(r.lastMove.get('2'), { at: Date.parse('2026-09-18T00:00:00Z'), type: 'WAIVER' });
+  assert.equal(r.lastAction.get('2').type, 'TRADE_PROPOSAL');
+  assert.equal(r.lastMove.get('3').type, 'TRADE_ACCEPT');
+  assert.equal(r.lastMove.get('4').type, 'TRADE_ACCEPT', 'the other side of an executed trade moved too');
+});
+
 /* ------------------------------------------------------------------ fixture league */
 const { db, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
@@ -194,9 +235,27 @@ test('scan: every counterparty scanned; every surface carries evidence + as_of; 
   assert.equal(desp.evidence.wins, 0);
   assert.equal(desp.evidence.losing_streak, 2);
   assert.equal(desp.evidence.playoff_odds_trend.status, 'unknown');
-  const att = t2.surfaces.find(s => s.kind === 'attention_gap');
+  // WEAK-02: a lineup set is not a move (r44's Sleeper "move" is a claim or a trade): team 2 never moved.
+  const att = t2.surfaces.find(s => s.kind === 'recent_activity');
+  assert.equal(att.evidence.never_moved, true);
   assert.equal(att.evidence.days_since_last_action, 19);
   assert.equal(att.evidence.last_action_type, 'ROSTER');
+  assert.equal(att.confidence, 'proven');
+  assert.equal(att.signal, 'activity_recency');
+  // Holes and desperation stay listed as framing facts but weigh 0 in the seller ranking, citing r44.
+  for (const x of [hole, desp]) {
+    assert.equal(x.score, 0);
+    assert.equal(x.evidence.seller_weight, 0);
+    assert.match(x.evidence.measured_lift, /^r44: not a seller signal/);
+    assert.match(x.use, /^framing only/);
+  }
+  assert.equal(t2.surfaces[0].kind, 'recent_activity', 'the only weighted surface ranks first');
+  // Team 3 moved 9/19 (5 whole days before the cut): ranks above idle team 2 (the inversion).
+  const t3 = scan.teams.get('3').surfaces.find(s => s.kind === 'recent_activity');
+  assert.equal(t3.evidence.days_since_last_move, 5);
+  assert.equal(t3.evidence.recency_weight, 0.629);
+  assert.ok(scan.teams.get('3').top_score > t2.top_score);
+  assert.ok(scan.order.indexOf('3') < scan.order.indexOf('2'));
   // Unread kinds are typed absent with a reason, never scored zero.
   assert.deepEqual(t2.absent.map(a => a.kind).sort(), ['in_market', 'value_gap']);
   assert.ok(t2.absent.every(a => a.status === 'unknown' && a.reason));

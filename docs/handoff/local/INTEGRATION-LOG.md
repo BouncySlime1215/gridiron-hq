@@ -2,7 +2,19 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-24 00:49Z.
+Last rebuilt: 2026-09-24 02:02Z.
+
+## #226: TELLS-01a: tells factory screen + tell library and refitTells (arm A confirmed; arm B lead)
+
+- Merged: 10:01 PM ET, Sep 23 as `12a6de93`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #222: PROJ-01-a: ESPN mistake map (2 proven spots, residual model not counted)
+
+- Merged: 9:49 PM ET, Sep 23 as `1786e9af`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #218: Load NFL play-by-play and participation data behind a licence gate
 

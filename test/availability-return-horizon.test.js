@@ -80,12 +80,14 @@ test('the served curve covers every horizon for g0/g1/g2 and a missed-one starte
   assert.deepEqual(R.RETURN_CURVE_FIT.fitSeasons, [2021, 2022, 2023, 2024], 'never fit on the 2025 holdout');
 });
 
-test('flag: unset off, 1 on, preview on (labelled), 0 vetoes preview', () => {
+test('flag: unset off, 1 on, preview off while declined (on, labelled, when enabled), 0 vetoes preview', () => {
   withEnv(OFF, () => assert.deepEqual(R.availHorizonFlag(), { on: false, preview: false }));
   withEnv(ON, () => assert.deepEqual(R.availHorizonFlag(), { on: true, preview: false }));
-  withEnv(PREVIEW, () => assert.deepEqual(R.availHorizonFlag(), { on: true, preview: true }));
+  assert.equal(R.AVAIL_HORIZON_IN_PREVIEW, false, 'AVAIL-HORIZON-2 declined: preview keeps the incumbent');
+  withEnv(PREVIEW, () => assert.deepEqual(R.availHorizonFlag(), { on: false, preview: false }));
+  withEnv(PREVIEW, () => assert.deepEqual(R.availHorizonFlag({ inPreview: true }), { on: true, preview: true }));
   withEnv({ [R.AVAIL_HORIZON_ENV]: '0', [PREVIEW_ENV]: '1' }, () =>
-    assert.deepEqual(R.availHorizonFlag(), { on: false, preview: false }));
+    assert.deepEqual(R.availHorizonFlag({ inPreview: true }), { on: false, preview: false }));
 });
 
 /* ------------------------------------------------ fixture: 2026 weeks 1-2 on file */
@@ -130,6 +132,15 @@ test('flag off: every future week keeps the frozen one-week rate (the incumbent,
   }
 }));
 
+test('flag on: a player who played the last game (g0) keeps his one-week rate every week (AVAIL-HORIZON-2)',
+  () => withEnv(ON, () => {
+    for (const wk of [3, 4, 8, 16]) {
+      const row = C.weeklyAvailability(2026, wk).get(931);
+      assert.equal(row.active_probability, 0.953, `week ${wk}`);
+      assert.equal(row.horizon, undefined, `week ${wk}: no curve for a g0 player`);
+    }
+  }));
+
 test('flag on: the live week is unchanged, later weeks read the curve with its label', () => withEnv(ON, () => {
   const live = C.weeklyAvailability(2026, 3);
   assert.equal(live.get(932).active_probability, 0.403, 'h 0: the one-week fit still prices the live week');
@@ -147,11 +158,18 @@ test('flag on: the live week is unchanged, later weeks read the curve with its l
   assert.ok(C.weeklyAvailability(2026, 8).get(932).active_probability > 0.403, 'the missed-one starter heals');
 }));
 
-test('preview mode turns it on and labels the row', () => withEnv(PREVIEW, () => {
+test('preview mode alone keeps the incumbent while declined', () => withEnv(PREVIEW, () => {
   const row = C.weeklyAvailability(2026, 8).get(932);
-  assert.equal(row.preview, true);
-  assert.equal(row.preview_reason, R.AVAIL_HORIZON_PREVIEW_REASON);
+  assert.equal(row.active_probability, 0.403);
+  assert.equal(row.horizon, undefined);
+  assert.equal(row.preview, undefined);
 }));
+
+test('preview labels, when preview is allowed to turn it on', () => {
+  assert.deepEqual(R.availHorizonPreviewFields({ on: true, preview: true }).preview, true);
+  assert.equal(R.availHorizonPreviewFields({ on: true, preview: true }).preview_reason, R.AVAIL_HORIZON_PREVIEW_REASON);
+  assert.deepEqual(R.availHorizonPreviewFields({ on: true, preview: false }), {});
+});
 
 test('a replayed week is never re-priced, flag on or off', () => {
   const off = withEnv(OFF, () => C.weeklyAvailability(2026, 2).get(932).active_probability);

@@ -971,7 +971,10 @@ export function weeklyAvailability(season, week, { through = season - 1, useRole
       fitted, report, prior, role, useRole, priorMeasured: measuredPrior != null
     });
     // No report can exist for a future week; the guard keeps a stray row authoritative.
-    const cell = curve && !report && role?.gap_bucket
+    // AVAIL-HORIZON-2: only a player in a gap state (missed his team's last game, g1/g2)
+    // reads the curve. A g0 player keeps today's calibrated one-week rate: the curve's g0
+    // cells carry future injuries the sim's volume scale was already fitted without.
+    const cell = curve && !report && role?.gap_bucket && role.gap_bucket !== 'g0'
       ? curve.lookup({ h: horizon, gap: role.gap_bucket, tier: role.tier }) : null;
     if (cell) {
       active = Math.max(0.001, Math.min(0.995, cell.p));

@@ -14,9 +14,11 @@
  * the number of NFL weeks between the target week and the first week with no games on
  * file (the live anchor). A replay of a past week has h = 0 and is unchanged.
  *
- * Flag: GRIDIRON_AVAIL_HORIZON '1' on, '0' off, unset = off unless preview mode
- * (preview-mode.js#previewUnconfirmed). Off, weeklyAvailability is byte-for-byte what it
- * was.
+ * Flag: GRIDIRON_AVAIL_HORIZON '1' on, '0' off, unset = off. Preview mode
+ * (preview-mode.js#previewUnconfirmed) turns it on only while AVAIL_HORIZON_IN_PREVIEW is
+ * true; AVAIL-HORIZON-2 declined (league-4 odds short of the ESPN range), so it is false and
+ * the served sim is the incumbent, preview included. Off, weeklyAvailability and the season
+ * sim are byte-for-byte what they were. The same flag gates season-sim.js's team-mean term.
  */
 /*
  * ======================= AVAIL-HORIZON-2 PRE-REGISTRATION (change A) =======================
@@ -48,12 +50,19 @@ export const AVAIL_HORIZON_PREVIEW_REASON =
   'Chance to play beyond next week from a fitted return-to-play curve (AVAIL-HORIZON); default off ' +
   'until confirmed on 2026 weeks';
 
+/**
+ * Whether preview mode turns the flag on. False since AVAIL-HORIZON-2 declined: with the
+ * curve on gap players only plus the team-mean term, Nick's league-4 odds were 8.9% / 0.25%,
+ * short of the pre-registered ESPN range 12-21% / 0.7-1.6%. Set true to serve under preview.
+ */
+export const AVAIL_HORIZON_IN_PREVIEW = false;
+
 /** { on, preview }: read per call, so a test or a run can flip it. */
-export function availHorizonFlag() {
+export function availHorizonFlag({ inPreview = AVAIL_HORIZON_IN_PREVIEW } = {}) {
   const v = process.env[AVAIL_HORIZON_ENV];
   if (v === '1') return { on: true, preview: false };
   if (v === '0') return { on: false, preview: false };
-  const preview = previewUnconfirmed();
+  const preview = inPreview && previewUnconfirmed();
   return { on: preview, preview };
 }
 

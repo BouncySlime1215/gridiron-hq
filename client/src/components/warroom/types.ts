@@ -16,6 +16,9 @@ export interface Field<T> {
   clears_2se?: boolean;
   as_of?: string;
   n?: number;
+  /** FIX-03 contract meta: what a number measures, and whether it rests on an unvalidated model. */
+  unit?: string;
+  guess?: boolean;
 }
 export type Num = Field<number>;
 

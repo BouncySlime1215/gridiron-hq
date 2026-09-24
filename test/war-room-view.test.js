@@ -11,7 +11,7 @@
  *  - preview -> every server sentence carries the prefix;
  *  - failed and unknown fields never carry a value, anywhere in the view;
  *  - no plans file / no entry / planner error / failed self-check each have their own state.
- * Fixtures: test/fixtures/warroom-contract/producer-plans.json (the contract's producer
+ * Fixtures: test/fixtures/warroom-contract/view-plans.json (main's hand-built contract
  * fixture) and test/fixtures/war-room-plans.json (the study's old shape). Invented player
  * names and team ids only.
  */
@@ -23,7 +23,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.join(HERE, 'fixtures', 'warroom-contract', 'producer-plans.json');
+const FIXTURE = path.join(HERE, 'fixtures', 'warroom-contract', 'view-plans.json');
 const STUDY_FIXTURE = path.join(HERE, 'fixtures', 'war-room-plans.json');
 const producer = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
 const study = JSON.parse(fs.readFileSync(STUDY_FIXTURE, 'utf8'));

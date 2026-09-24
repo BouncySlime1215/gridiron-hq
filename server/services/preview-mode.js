@@ -20,6 +20,9 @@
  *   - waiver-wire.js#waiverBoard                 snap-share order for same-team replacements
  *   - season-sim.js#rosBasisFlag                 title odds on the finder's ros_ppg (RL-17-3;
  *                                                GRIDIRON_RL17_3_ENABLED=0 vetoes preview)
+ *   - news/stamps.js#newsStampsFlag               news ingested_at on insert, edited_at on change,
+ *                                                as-of news reads (BROKEN-Q;
+ *                                                GRIDIRON_NEWS_STAMPS_ENABLED=0 vetoes preview)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

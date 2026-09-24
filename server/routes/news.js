@@ -4,6 +4,7 @@ import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { ingestAllSources } from '../news/ingest.js';
 import { attributeStory, loadAttributionIndex } from '../news/player-news.js';
 import { requireAuthenticated } from '../platform/auth.js';
+import { insertIngestedAt } from '../news/stamps.js';
 import { recordAudit } from '../platform/audit.js';
 import { newsSignalCoverage, syncStructuredNewsSignals } from '../services/nfl-news-signal.js';
 import { normalizePlayerName } from '../services/player-identity.js';
@@ -130,10 +131,10 @@ r.post('/', requireAuthenticated, (req, res) => {
     return res.status(400).json({ error: '"AI analysis" is not a valid reporting source — use the ai_analysis field instead' });
   }
   const team = team_abbr ? row('SELECT id FROM nfl_teams WHERE abbr = ?', team_abbr.toUpperCase()) : null;
-  const result = run(`INSERT INTO news_items (date, team_id, headline, body, ai_analysis, fantasy_impact, importance, source)
-       VALUES (?,?,?,?,?,?,?,?)`,
+  const result = run(`INSERT INTO news_items (date, team_id, headline, body, ai_analysis, fantasy_impact, importance, source, ingested_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
     date, team?.id ?? null, headline, body ?? null, ai_analysis ?? null,
-    fantasy_impact ?? null, importance, source ?? null);
+    fantasy_impact ?? null, importance, source ?? null, insertIngestedAt());
   recordAudit({ actor: String(req.auth.userId), role: 'user', action: 'news.create', entityType: 'news_item', entityId: result.lastInsertRowid, details: { headline, source } });
   res.json({ ok: true });
 });
@@ -169,10 +170,10 @@ r.post('/analyze', requireAuthenticated, async (req, res, next) => {
       const original = items[i] ?? {};
       const team = row('SELECT id FROM nfl_teams WHERE abbr = ?', (a.team_abbr || '').toUpperCase());
       const source = original.source && original.source.toLowerCase() !== 'ai analysis' ? original.source : 'user-submitted';
-      run(`INSERT INTO news_items (date, team_id, headline, body, ai_analysis, fantasy_impact, importance, source, source_url)
-           VALUES (?,?,?,?,?,?,?,?,?)`,
+      run(`INSERT INTO news_items (date, team_id, headline, body, ai_analysis, fantasy_impact, importance, source, source_url, ingested_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)`,
         date, team?.id ?? null, a.headline, original.body ?? null, a.ai_analysis, a.fantasy_impact,
-        a.importance ?? 2, source, original.source_url ?? null);
+        a.importance ?? 2, source, original.source_url ?? null, insertIngestedAt());
     }
     recordAudit({ actor: String(req.auth.userId), role: 'user', action: 'news.analyze', entityType: 'news_item', details: { count: analyzed.length } });
     res.json({ ok: true, count: analyzed.length });

@@ -25,6 +25,7 @@ import { teamRosterStrength } from './nfl-roster-strength.js';
 import { matchupTeamCards } from './nfl-team-card.js';
 import { orthogonalSpecialistPrediction } from './nfl-orthogonal-specialists.js';
 import { isFreshQuote } from './book-feeds.js';
+import { newsStampsFlag, newsKnownAtSql } from '../news/stamps.js';
 
 export const EXPERT_COUNCIL_VERSION = 'nfl-expert-council-v4-shared-weekly-state';
 
@@ -245,8 +246,11 @@ function newsFor(line, beforeIso) {
   // is what makes a story genuinely "knowable as of cutoff" rather than
   // knowable only in hindsight -- the same class of look-ahead risk closed
   // in nfl-news-signal.js's playerNewsSignal/teamNewsSignals (created_at).
+  // BROKEN-Q, flag on: the one as-of read (server/news/stamps.js) -- a row with
+  // no ingested_at counts from created_at, and a row edited after the cut is out.
+  const knownAt = newsStampsFlag().on ? newsKnownAtSql() : 'ingested_at<=?';
   const feedStories = ids.length ? rows(`SELECT COUNT(*) n FROM news_items WHERE published_at<=? AND published_at>=?
-    AND ingested_at<=?
+    AND ${knownAt}
     AND team_id IN (${ids.map(() => '?').join(',')})`, beforeIso, since, beforeIso, ...ids)[0]?.n ?? 0 : 0;
   let burdenEdge = r3((away.unavailable_burden ?? 0) - (home.unavailable_burden ?? 0));
   // A raw research opinion, not a hard-coded production weight. Each verified

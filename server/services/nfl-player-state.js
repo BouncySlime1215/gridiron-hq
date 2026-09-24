@@ -8,6 +8,7 @@
  */
 import { db, rows } from '../db/index.js';
 import { normalizePlayerName } from './player-identity.js';
+import { newsStampsFlag, newsKnownAtSql } from '../news/stamps.js';
 
 const parseJson = (value, fallback = {}) => { try { return JSON.parse(value) ?? fallback; } catch { return fallback; } };
 
@@ -55,11 +56,14 @@ export function syncRosterEventsFromNews({ before = null, limit = 5000 } = {}) {
   // look-ahead risk closed in nfl-news-signal.js's playerNewsSignal/
   // teamNewsSignals (created_at). When `before` is not given at all this
   // materializes everything up to now, so there is no cutoff to leak across.
+  // BROKEN-Q, flag on: the one as-of read (server/news/stamps.js) -- a row with
+  // no ingested_at counts from created_at, and a row edited after the cut is out.
+  const knownAt = newsStampsFlag().on ? newsKnownAtSql('n') : 'n.ingested_at<=?';
   const items = rows(`SELECT n.id,n.headline,n.published_at,n.entities_json,n.source,n.source_url,
       n.reliability_json,t.abbr team
     FROM news_items n LEFT JOIN nfl_teams t ON t.id=n.team_id
     WHERE n.source='ESPN Transactions' AND n.published_at IS NOT NULL
-      ${before ? 'AND n.published_at<=? AND n.ingested_at<=?' : ''}
+      ${before ? `AND n.published_at<=? AND ${knownAt}` : ''}
     ORDER BY n.published_at,n.id LIMIT ?`, ...[...(before ? [before, before] : []), limit]);
   const insert = db.prepare(`INSERT INTO nfl_player_roster_events
     (player_id,espn_id,gsis_id,player_name,event_type,from_team,to_team,roster_status,

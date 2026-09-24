@@ -1,4 +1,4 @@
-# COACH-BRIEF: morning brief, weekly check-in, next-move push text
+# COACH-BRIEF: morning brief and weekly check-in
 
 COACH-ANCHOR.md job 6 for the target league (leagues.id 4). Coach reads the War Room plans
 contract (FIX-03) and last night's rows, and writes three things:
@@ -113,3 +113,33 @@ did its job: the number was real but uncited, and it was not shipped until it wa
   injured".
 - **Push delivery.** PUSH-01 (open PR) sends its own text. Wiring it to use `nextMovePush` is a
   follow-up on whichever lands second.
+
+## FIXER-3 on main (2026-09-24)
+
+Merged `origin/main` 36e3b94b (merge commit). The FIX-03/FIX-06 stack under this branch is on
+main, so every stack file takes main's version, including the regenerated producer fixture
+`test/fixtures/warroom-contract/producer-plans.json`.
+
+- **Tests on main's fixture.** Before: 20 of 24 pass (4 fail: the next move is now Team 3,
+  P4 + P6 for P21, one step, one itinerary stop). After: the tests read the new plan; the
+  weekly test adds its own finished stop because main's fixture has one.
+- **Migration 088 -> 101.** 088 is reserved for FLIP-01 (#265); 101 is registered in
+  MIGRATIONS.md.
+- **Statements and credibility through their producers.** The brief had its own chat labeller
+  (`jev_chat_signals` questions -> SHOP/UNTOUCHABLE/FRUSTRATED) and its own SHOP credibility bar
+  (0.5). Those are PULSE-01's (#316, people_pulse) and CRED-01's (#321, people_credibility)
+  numbers. Neither is on main, so `readStatements` / `readCredibility` query nothing and return
+  typed unknown with that reason, and the brief says "Statements not read" / "Follow-through not
+  read". The brief no longer opens the chat DB. This also removes the check:wiring finding (an
+  unresolved `chat` receiver in brief-inputs.js).
+- **No push text.** The next-move push (change detection, text, delivery) is PUSH-01's (#293).
+  `nextMovePush`, the `push` kind (script, claims, migration CHECK) and its four tests are gone;
+  one test pins that there is no push here.
+- **Wired to a surface.** With the receiver finding gone, check:wiring reported brief.js,
+  brief-claims.js and brief-inputs.js as reaching no surface (only the CLI script imported
+  them). `GET /api/coach/brief/:leagueId?kind=morning|weekly` now serves the brief: signed-in
+  league member only, flag off -> `{ status: 'off' }` and nothing read, no plans file ->
+  `unknown`, bad JSON -> `failed`. Three route tests in `test/coach-route.test.js`.
+- **Liveness.** Mutants killed: no league-member check (403 test), `push` kind accepted (400
+  test), statements reason without the producer (typed-unknown test), an `ok` statements
+  section silently dropped (no-renderer throw test).

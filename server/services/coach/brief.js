@@ -1,12 +1,15 @@
 /**
- * COACH-BRIEF (COACH-ANCHOR.md job 6): Coach's morning brief, weekly itinerary
- * check-in and next-move push text for the target league.
+ * COACH-BRIEF (COACH-ANCHOR.md job 6): Coach's morning brief and weekly itinerary
+ * check-in for the target league.
  *
- *   morningBrief   what changed overnight (credible statements, replies,
- *                  injuries), the next move and why, and the brain's status
+ *   morningBrief   what changed overnight (statements, replies, injuries), the
+ *                  next move and why, and the brain's status
  *   weeklyCheckIn  where the plan stands against its itinerary this NFL week
- *   nextMovePush   one short text when the next move changed (PUSH-01 sends it;
- *                  nothing here sends anything)
+ *
+ * No push text here: the one push (change detection, text, delivery) is
+ * PUSH-01's (#293). Statements and
+ * credibility come only from their producers, PULSE-01 and CRED-01; until those
+ * are on main the brief says they were not read (brief-inputs.js).
  *
  * No model call. Every line is built from the plans file (the warroom-plans/1
  * contract, FIX-03) and the overnight rows (brief-inputs.js), and every line
@@ -19,7 +22,7 @@
  * its numbers must match a cited number cell. Dropped claims are kept on the
  * brief with the violation, so nothing is silently lost.
  *
- * Cost: $0. Cache (coach_briefs, migration 088): one row per league, kind,
+ * Cost: $0. Cache (coach_briefs, migration 101): one row per league, kind,
  * plan version and window. A second read of the same plan in the same window
  * is a lookup; a new plan version, a new morning or new overnight rows build a
  * fresh brief. Absent table -> the brief is built, not cached, and says so.
@@ -29,10 +32,11 @@
  * Public repo: teams are "Team <roster id>"; chat names and text never appear.
  */
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import { previewUnconfirmed, previewFields, previewText } from '../preview-mode.js';
 import { newLedger } from './ledger.js';
 import { verifyAnswer } from './verify.js';
-import { readStatements, readReplies, readInjuries, trustedChatNames } from './brief-inputs.js';
+import { readStatements, readCredibility, readReplies, readInjuries } from './brief-inputs.js';
 import { claimsFor } from './brief-claims.js';
 
 export const BRIEF_ENV = 'GRIDIRON_COACH_BRIEF_ENABLED';
@@ -51,7 +55,6 @@ export const MAX_WINDOW_HOURS = 36;
 export const LATE_ROWS_HOURS = 6;
 /** How many reported row keys a brief carries forward to the next one. */
 const MAX_CARRIED_KEYS = 2000;
-export const PUSH_MAX_CHARS = 280;
 
 /** { on, preview }: the flag wins either way; preview mode fills in only when it is unset. */
 export function coachBriefFlag(env = process.env) {
@@ -82,6 +85,19 @@ export function etDate(at) {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York',
     year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(at).map(x => [x.type, x.value]));
   return `${p.year}-${p.month}-${p.day}`;
+}
+
+/**
+ * The raw plans file (the warroom-plans/1 contract as the producer wrote it).
+ * Absent -> null, so the brief says no plan has run; unreadable JSON throws.
+ */
+export async function readPlansFile(file) {
+  let text;
+  try { text = await fs.readFile(file, 'utf8'); } catch (e) {
+    if (e?.code === 'ENOENT') return null;
+    throw e;
+  }
+  return JSON.parse(text);
 }
 
 export function leagueEntry(file, leagueId) {
@@ -161,8 +177,8 @@ function ground(draft, ledger) {
 }
 
 const HEADINGS = {
-  overnight: 'Overnight', statements: 'Overnight', replies: 'Overnight', injuries: 'Overnight',
-  next_move: 'Next move', brain: 'Brain status', itinerary: 'Itinerary', footer: null, push: null
+  statements: 'Overnight', credibility: 'Overnight', replies: 'Overnight', injuries: 'Overnight',
+  next_move: 'Next move', brain: 'Brain status', itinerary: 'Itinerary', footer: null
 };
 
 /** The text Nick reads: claims grouped under their headings, in order. */
@@ -185,16 +201,6 @@ export function render(claims, { preview = false, title = null } = {}) {
 const moveKey = e => (e?.next_move?.status === 'ok' ? String(e.next_move.value.move_id)
   : e?.next_move?.status === 'unknown' ? 'none' : null);
 
-/**
- * The next move the last push row for this league recorded: the push baseline
- * when no previous plans file is given. Only push rows count, so a morning
- * brief built after a change cannot swallow that change's push.
- */
-function lastPushedMove(db, leagueId) {
-  const r = db.prepare(`SELECT body FROM coach_briefs WHERE league_id = ? AND kind = 'push' ORDER BY id DESC LIMIT 1`).get(leagueId);
-  return r ? JSON.parse(r.body).move_key ?? null : null;
-}
-
 /** A brief as served: the stored body plus the flag's preview fields. */
 const served = (flag, body, isCached) => ({ status: 'ok', preview: flag.preview,
   ...(flag.preview ? previewFields(BRIEF_PREVIEW_REASON) : {}), ...body, cached: isCached });
@@ -211,17 +217,16 @@ function frame({ db, file, leagueId, env, now }) {
 }
 
 function finish({ db, key, flag, cacheOk, body }) {
-  if (!cacheOk) return { ...served(flag, body, false), cache: 'inert: coach_briefs (migration 088) is missing; start the app once to apply it' };
+  if (!cacheOk) return { ...served(flag, body, false), cache: 'inert: coach_briefs (migration 101) is missing; start the app once to apply it' };
   save(db, key, body);
   return { ...served(flag, body, false), cache: 'saved' };
 }
 
 /**
- * The morning brief. `chat` is the private chat DB (or null); `credibility`
- * is Map(team -> { shop }) from the counterpart model when it is available.
+ * The morning brief. Reads the app DB and the plans file only; statements and
+ * credibility are typed unknown until their producers are on main.
  */
-export function morningBrief({ db, chat = null, file, leagueId = TARGET_LEAGUE, now = new Date(), since = null,
-  credibility = new Map(), env = process.env } = {}) {
+export function morningBrief({ db, file, leagueId = TARGET_LEAGUE, now = new Date(), since = null, env = process.env } = {}) {
   const f = frame({ db, file, leagueId, env, now });
   if (f.done) return f.done;
   const { flag, entry, version, cacheOk } = f;
@@ -238,7 +243,8 @@ export function morningBrief({ db, chat = null, file, leagueId = TARGET_LEAGUE, 
     return m?.steps?.[0]?.partner == null ? null : String(m.steps[0].partner);
   };
   const inputs = {
-    statements: readStatements(chat, { names: trustedChatNames(db, leagueId), since: from, until, credibility, exclude }),
+    statements: readStatements(),
+    credibility: readCredibility(),
     replies: readReplies(db, { leagueId, me, since: from, until, partnerOf, exclude }),
     injuries: readInjuries(db, { leagueId, me, since: from, until, watch: step ? [...step.give, ...step.get] : [], exclude })
   };
@@ -249,7 +255,7 @@ export function morningBrief({ db, chat = null, file, leagueId = TARGET_LEAGUE, 
     if (hit) return served(flag, hit, true);
   }
   const ledger = newLedger();
-  const draft = claimsFor('morning', { entry, inputs, ledger, leagueId });
+  const draft = claimsFor('morning', { entry, inputs, ledger });
   const { claims, dropped } = ground(draft, ledger);
   const body = { kind: 'morning', league: leagueId, plan_version: version, move_key: moveKey(entry), window: { since: from, until },
     reported: Object.values(inputs).flatMap(x => x.keys ?? []), exclude: skip,
@@ -273,55 +279,9 @@ export function weeklyCheckIn({ db, file, leagueId = TARGET_LEAGUE, now = new Da
     if (hit) return served(flag, hit, true);
   }
   const ledger = newLedger();
-  const { claims, dropped } = ground(claimsFor('weekly', { entry, ledger, leagueId }), ledger);
+  const { claims, dropped } = ground(claimsFor('weekly', { entry, ledger }), ledger);
   const body = { kind: 'weekly', league: leagueId, plan_version: version, move_key: moveKey(entry), week, plans_as_of: file.generated_at ?? null,
     claims, dropped, text: render(claims, { preview: flag.preview, title: `Weekly check-in, league ${leagueId}` }),
     ledger: ledger.toJson() };
-  return finish({ db, key, flag, cacheOk, body });
-}
-
-/**
- * Push text for a changed next move, or { status: 'unchanged' }. `previous`
- * is the prior plans file; without one, the baseline is the last push row's
- * move (the first call records one and pushes nothing). A failed section on either
- * side is not a change. The text is capped at PUSH_MAX_CHARS by dropping
- * trailing claims, never by cutting one in half.
- */
-export function nextMovePush({ db, previous, file, leagueId = TARGET_LEAGUE, now = new Date(), env = process.env } = {}) {
-  const f = frame({ db, file, leagueId, env, now });
-  if (f.done) return f.done;
-  const { flag, entry, version, cacheOk } = f;
-  if (!previous && !cacheOk) {
-    return { status: 'unknown', preview: flag.preview,
-      reason: 'No previous plans file and no coach_briefs table (migration 088), so a change cannot be told from a first plan.' };
-  }
-  const before = previous ? moveKey(leagueEntry(previous, leagueId)) : lastPushedMove(db, leagueId);
-  const after = moveKey(entry);
-  if (!before && after && !previous && cacheOk) {
-    save(db, { league: leagueId, kind: 'push', plan_version: version, window_key: 'baseline' },
-      { kind: 'push', league: leagueId, plan_version: version, move_key: after, from: null, to: after, claims: [], dropped: [], text: '' });
-  }
-  if (!after || !before || before === after) {
-    return { status: 'unchanged', preview: flag.preview, from: before, to: after,
-      reason: !before ? 'No earlier plan to compare with: the first plan is a baseline, not a change.'
-        : !after ? 'The next move could not be read this run, so it is not a change.' : 'Same next move.' };
-  }
-  const key = { league: leagueId, kind: 'push', plan_version: version, window_key: `${before}->${after}` };
-  if (cacheOk) {
-    const hit = cached(db, key);
-    if (hit) return served(flag, hit, true);
-  }
-  const ledger = newLedger();
-  const { claims, dropped } = ground(claimsFor('push', { entry, ledger, leagueId }), ledger);
-  const kept = [];
-  for (const c of claims) {
-    const next = [...kept, c].map(x => x.text).join(' ');
-    if ((flag.preview ? previewText(next) : next).length > PUSH_MAX_CHARS) break;
-    kept.push(c);
-  }
-  const plain = kept.map(c => c.text).join(' ');
-  const body = { kind: 'push', league: leagueId, plan_version: version, move_key: after, from: before, to: after,
-    claims: kept, dropped: [...dropped, ...claims.slice(kept.length).map(c => ({ ...c, violations: ['over the push length cap'] }))],
-    text: flag.preview ? previewText(plain) : plain, ledger: ledger.toJson() };
   return finish({ db, key, flag, cacheOk, body });
 }

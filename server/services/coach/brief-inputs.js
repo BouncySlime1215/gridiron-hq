@@ -1,8 +1,7 @@
 /**
  * COACH-BRIEF inputs: what changed overnight, read as rows the brief can cite.
  *
- * Every reader takes its database as an argument (the app DB, or the private
- * chat DB) and returns one section:
+ * Every reader that reads takes the app DB as an argument and returns one section:
  *   { status: 'ok', rows, as_of } | { status: 'unknown', reason, rows: [] }
  * `keys` name the raw rows an 'ok' section used; a reader skips any key in
  * `exclude` (rows an earlier brief already reported, see brief.js windowStart).
@@ -10,34 +9,13 @@
  * the brief says "not read" instead of "nothing happened". Any other SQL error
  * throws: a broken read must not pass for a quiet night.
  *
- * Privacy (PEOPLE-FLOW guardrails): the chat reader selects labels, counts and
- * timestamps only. It never selects message text, and a chat name never leaves
- * this file: rows carry the roster id ("Team 7"), nothing else.
+ * Statements and credibility are read ONLY through their producers: chat labels
+ * from PULSE-01's people_pulse (#316) and per-manager follow-through from
+ * CRED-01's people_credibility (#321). Neither producer is on main yet, so both
+ * readers query nothing and return typed unknown with that reason. The brief
+ * never opens the chat DB and keeps no labeller or credibility bar of its own
+ * (one producer per number).
  */
-
-/**
- * Statement labels and how much weight each carries (PEOPLE-FLOW.md section 3).
- *   proven       follow-through measured league-wide (WANT_PLAYER: 17x base)
- *   per_manager  credible for some managers and noise for others (SHOP): it
- *                counts only when that manager's own credibility says so
- *   noise        measured, no predictive power: shown as a count, never as news
- */
-export const LABEL_WEIGHT = Object.freeze({
-  WANT_PLAYER: 'proven', SHOP: 'per_manager', UNTOUCHABLE: 'noise', FRUSTRATED: 'noise'
-});
-/** A SHOP statement counts as credible when his shop credibility is at least this. */
-export const SHOP_CREDIBLE_AT = 0.5;
-
-/**
- * The chat classifier's questions (scripts/news-line/jev_league_chat.mts) that
- * map onto a statement label. The classifier has no WANT_PLAYER question, so
- * that label arrives only from the PULSE-01 labeller when it lands.
- */
-const JEV_LABELS = Object.freeze({
-  open_to_trade: { label: 'SHOP', min_p: 0.5 },
-  'own_roster.argmax:untouchable': { label: 'UNTOUCHABLE', min_p: 0.5 },
-  'own_roster.argmax:complaining': { label: 'FRUSTRATED', min_p: 0.5 }
-});
 
 const unknown = reason => ({ status: 'unknown', reason, rows: [] });
 const inWindow = col => `julianday(${col}) > julianday(?) AND julianday(${col}) <= julianday(?)`;
@@ -46,56 +24,26 @@ function tableExists(db, name) {
   return !!db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
 }
 
+export const PULSE_NOT_BUILT =
+  'chat labels not built yet: their producer, PULSE-01 (people_pulse), is not on this build';
+export const CRED_NOT_BUILT =
+  'per-manager credibility not built yet: its producer, CRED-01 (people_credibility), is not on this build';
+
 /**
- * Trusted roster -> chat name joins for one league, read from the app DB
- * (manager-identity.js owns the table). Returns Map(chat name -> roster id).
+ * Labelled statements a league-mate made in the window. The one producer is
+ * PULSE-01 (people_pulse); until it is on main this reads nothing and says so,
+ * so the brief says "not read" rather than "nobody said anything".
  */
-export function trustedChatNames(db, leagueId, trusted = ['confirmed', 'exact']) {
-  if (!tableExists(db, 'league_member_identity')) return new Map();
-  const rows = db.prepare(`SELECT roster_id, chat_name FROM league_member_identity
-    WHERE league_id = ? AND chat_name IS NOT NULL AND confidence IN (${trusted.map(() => '?').join(', ')})`)
-    .all(leagueId, ...trusted);
-  return new Map(rows.map(r => [r.chat_name, String(r.roster_id)]));
+export function readStatements() {
+  return unknown(PULSE_NOT_BUILT);
 }
 
 /**
- * Labelled statements in the window, one row per (team, label):
- *   { team, label, weight, n, credible, last_at }
- * `credibility` is optional: Map(team -> { shop: number }) from the counterpart
- * model. Without it a SHOP statement is reported as "not proven for him yet".
+ * Whether a manager's statements of a kind turn into action. The one producer
+ * is CRED-01 (people_credibility); until it is on main this reads nothing.
  */
-export function readStatements(chat, { names, since, until, credibility = new Map(), exclude = new Set() }) {
-  if (!chat) return unknown('No chat DB on this machine (GRIDIRON_CHAT_DB_PATH), so no statements were read.');
-  if (!names?.size) return unknown('No confirmed chat identities for this league, so no statement can be tied to a team.');
-  if (!tableExists(chat, 'jev_chat_signals') || !tableExists(chat, 'messages')) {
-    return unknown('The chat DB has no labelled statements yet (jev_chat_signals is missing).');
-  }
-  const questions = Object.keys(JEV_LABELS);
-  const raw = chat.prepare(`SELECT s.msg_id AS msg_id, s.name AS speaker, s.question AS question, s.probability AS p, m.ts_utc AS at
-    FROM jev_chat_signals s JOIN messages m ON m.msg_id = s.msg_id
-    WHERE s.question IN (${questions.map(() => '?').join(', ')}) AND ${inWindow('m.ts_utc')}`)
-    .all(...questions, since, until);
-  const byKey = new Map();
-  const keys = [];
-  for (const r of raw) {
-    const team = names.get(r.speaker);
-    const map = JEV_LABELS[r.question];
-    if (!team || !map || !(Number(r.p) >= map.min_p)) continue;
-    const k = `s:${r.msg_id}:${r.question}`;
-    if (exclude.has(k)) continue;
-    keys.push(k);
-    const key = `${team}|${map.label}`;
-    const cur = byKey.get(key) ?? { team, label: map.label, weight: LABEL_WEIGHT[map.label], n: 0, last_at: null };
-    cur.n += 1;
-    if (!cur.last_at || r.at > cur.last_at) cur.last_at = r.at;
-    byKey.set(key, cur);
-  }
-  const rows = [...byKey.values()].map(r => {
-    const shop = credibility.get(r.team)?.shop;
-    const credible = r.weight === 'proven' || (r.weight === 'per_manager' && Number(shop) >= SHOP_CREDIBLE_AT);
-    return { ...r, credible, shop_credibility: typeof shop === 'number' ? shop : null };
-  }).sort((a, b) => Number(b.credible) - Number(a.credible) || b.n - a.n || a.team.localeCompare(b.team));
-  return { status: 'ok', rows, keys, as_of: until };
+export function readCredibility() {
+  return unknown(CRED_NOT_BUILT);
 }
 
 const OUTCOME_REPLY = { accepted: 'accept', declined: 'decline', countered: 'counter', expired: 'silence' };

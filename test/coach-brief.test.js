@@ -1,16 +1,17 @@
 /**
- * COACH-BRIEF (COACH-ANCHOR.md job 6): Coach's morning brief, weekly itinerary
- * check-in and next-move push text for the target league (leagues.id 4).
+ * COACH-BRIEF (COACH-ANCHOR.md job 6): Coach's morning brief and weekly
+ * itinerary check-in for the target league (leagues.id 4).
  *
  * Pinned here:
  *   - off unless GRIDIRON_COACH_BRIEF_ENABLED=1 or preview mode; =0 vetoes preview
  *   - every shipped line is a claim that passes Coach's verify.js against the
  *     rows it cites; an invented number drops the claim and the brief says so
- *   - overnight = credible statements (labels and counts, no names, no text),
- *     replies to Nick's offers, injuries on his roster or in the next move
+ *   - overnight = replies to Nick's offers and injuries on his roster or in the
+ *     next move; statements and credibility only through their producers
+ *     (PULSE-01, CRED-01), typed unknown with the reason until those are on main
  *   - cached per plan version and window: same plan + same night is a lookup
- *   - push text only on a changed next move, capped, first sighting a baseline
- * In-memory SQLite for the app and chat DBs; plans from the real producer's
+ *   - no push text: the one push is PUSH-01's (#293)
+ * In-memory SQLite for the app DB; plans from main's regenerated producer
  * fixture (FIX-03). No network, no model call, no league or manager names.
  */
 import test from 'node:test';
@@ -22,8 +23,10 @@ import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 
 const brief = await import('../server/services/coach/brief.js');
+const inputs = await import('../server/services/coach/brief-inputs.js');
+const { claimsFor } = await import('../server/services/coach/brief-claims.js');
 const { newLedger } = await import('../server/services/coach/ledger.js');
-const mig088 = await import('../server/migrations/088_coach_briefs.js');
+const mig101 = await import('../server/migrations/101_coach_briefs.js');
 const mig058 = await import('../server/migrations/058_league_roster_snapshots.js');
 const mig067 = await import('../server/migrations/067_outcome_ledgers.js');
 const mig076 = await import('../server/migrations/076_warroom_requests.js');
@@ -34,6 +37,8 @@ const FIXTURE = path.join(ROOT, 'test/fixtures/warroom-contract/producer-plans.j
 const PLANS = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
 const plans = () => structuredClone(PLANS);
 const l4 = file => file.leagues.find(e => e.league === 4);
+// League 4's next move in main's regenerated fixture: one step, Team 3, P4 + P6 for P21.
+const NEXT_MOVE = 'L4-1dhntz0';
 
 const ON = { GRIDIRON_COACH_BRIEF_ENABLED: '1' };
 // 2026-09-24 is EDT: 11:00Z = 7 AM ET. The default window is the 12 hours before.
@@ -43,58 +48,32 @@ const EARLIER = '2026-09-23T12:00:00.000Z';
 
 function appDb({ cache = true } = {}) {
   const d = new DatabaseSync(':memory:');
-  if (cache) mig088.up(d);
+  if (cache) mig101.up(d);
   mig058.up(d); mig067.up(d); mig076.up(d);
-  d.exec(`CREATE TABLE league_member_identity (league_id INTEGER, roster_id TEXT, chat_name TEXT, confidence TEXT)`);
   return d;
 }
 
-function chatDb() {
-  const c = new DatabaseSync(':memory:');
-  c.exec(`CREATE TABLE messages (msg_id INTEGER, chat_kind TEXT, chat_name TEXT, handle TEXT, name TEXT, is_from_me INTEGER,
-            ts_utc TEXT, text TEXT, is_tapback INTEGER, is_reply INTEGER);
-          CREATE TABLE jev_chat_signals (msg_id INTEGER, name TEXT, chat_kind TEXT, mentioned_player TEXT, question TEXT,
-            probability REAL, evaluated_at TEXT)`);
-  return c;
-}
-
-function say(c, id, speaker, question, p, at, text = 'SECRET MESSAGE TEXT') {
-  c.prepare('INSERT INTO messages (msg_id, name, ts_utc, text) VALUES (?, ?, ?, ?)').run(id, speaker, at, text);
-  c.prepare('INSERT INTO jev_chat_signals (msg_id, name, question, probability) VALUES (?, ?, ?, ?)').run(id, speaker, question, p);
-}
-
-/** A night in league 4: statements, replies and injuries, plus rows that must be ignored. */
+/** A night in league 4: replies and injuries, plus rows that must be ignored. */
 function night() {
   const db = appDb();
-  const ident = db.prepare('INSERT INTO league_member_identity VALUES (4, ?, ?, ?)');
-  ident.run('7', 'Chat Person A', 'confirmed');
-  ident.run('5', 'Chat Person B', 'exact');
-  ident.run('6', 'Chat Person C', 'likely'); // untrusted: never tied to a team
-  const chat = chatDb();
-  say(chat, 1, 'Chat Person A', 'open_to_trade', 0.9, NIGHT);
-  say(chat, 2, 'Chat Person A', 'open_to_trade', 0.8, NIGHT);
-  say(chat, 3, 'Chat Person A', 'open_to_trade', 0.2, NIGHT);                  // below the bar
-  say(chat, 4, 'Chat Person B', 'own_roster.argmax:untouchable', 1, NIGHT);    // noise label
-  say(chat, 5, 'Chat Person C', 'open_to_trade', 0.9, NIGHT);                  // untrusted identity
-  say(chat, 6, 'Chat Person A', 'open_to_trade', 0.9, EARLIER);                // outside the window
   const offer = db.prepare(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id,
     model_p_accept, model_basis, status, resolved_at, created_at) VALUES (4, 2026, 'app_proposed', ?, ?, 0.3, 'no_information', ?, ?, ?)`);
   offer.run('1', '3', 'declined', NIGHT, EARLIER);
   offer.run('1', '8', 'accepted', EARLIER, EARLIER);                           // resolved before the window
   offer.run('9', '1', 'declined', NIGHT, EARLIER);                             // not Nick's offer
   const req = db.prepare(`INSERT INTO warroom_requests (user_id, league_id, kind, payload, created_at) VALUES (1, 4, ?, ?, ?)`);
-  req.run('offer.reply', JSON.stringify({ move_id: 'L4-152u91k', reply: 'counter', decline_reason: null }), NIGHT);
+  req.run('offer.reply', JSON.stringify({ move_id: NEXT_MOVE, reply: 'counter', decline_reason: null }), NIGHT);
   const gone = req.run('offer.reply', JSON.stringify({ move_id: 'L4-qmj39s', reply: 'accept', decline_reason: null }), NIGHT);
   req.run('retract', JSON.stringify({ request_id: Number(gone.lastInsertRowid) }), NIGHT);
   const snap = db.prepare(`INSERT INTO league_roster_snapshots (league_id, season, scoring_period_id, team_id, espn_player_id,
     player_id, player_name, lineup_slot_id, is_starter, injury_status, source, first_seen_at, changed_at)
     VALUES (4, 2026, 4, ?, ?, ?, ?, 0, 1, ?, 'live', ?, ?)`);
   snap.run(1, 101, 3, 'Roster Back', 'QUESTIONABLE', EARLIER, NIGHT);           // mine
-  snap.run(2, 111, 11, 'Target Wideout', 'OUT', EARLIER, NIGHT);               // in the next move
+  snap.run(3, 121, 21, 'Target Wideout', 'OUT', EARLIER, NIGHT);               // in the next move (P21)
   snap.run(6, 150, 50, 'Other Guy', 'OUT', EARLIER, NIGHT);                    // neither
-  snap.run(1, 102, 4, 'Healthy Guy', 'ACTIVE', EARLIER, NIGHT);                // healthy
+  snap.run(1, 102, 4, 'Healthy Guy', 'ACTIVE', EARLIER, NIGHT);                // healthy (and in the move)
   snap.run(1, 103, 6, 'Old News', 'OUT', EARLIER, EARLIER);                    // not changed overnight
-  return { db, chat, credibility: new Map([['7', { shop: 0.8 }]]) };
+  return { db };
 }
 
 const rows = (db, kind) => db.prepare('SELECT * FROM coach_briefs WHERE kind = ? ORDER BY id').all(kind);
@@ -130,11 +109,11 @@ test('preview mode turns it on and labels it; =0 vetoes preview', () => {
 
 /* ------------------------------------------------------------- migration */
 
-test('migration 088 is additive: one table and its unique key, idempotent', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'server/migrations/088_coach_briefs.js'), 'utf8');
+test('migration 101 is additive: one table and its unique key, idempotent', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'server/migrations/101_coach_briefs.js'), 'utf8');
   assert.doesNotMatch(src.slice(src.indexOf('export function up'), src.indexOf('export function down')), /\b(DROP|ALTER|DELETE)\b/i);
   const d = new DatabaseSync(':memory:');
-  mig088.up(d); mig088.up(d);
+  mig101.up(d); mig101.up(d);
   assert.deepEqual(d.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map(r => r.name)
     .filter(n => n !== 'sqlite_sequence'), ['coach_briefs']);
   const ins = d.prepare(`INSERT INTO coach_briefs (league_id, kind, plan_version, window_key, body) VALUES (4, 'morning', 'v', 'w', '{}')`);
@@ -150,12 +129,17 @@ test('morning brief on the real producer plan: every line grounds, none dropped'
   assert.equal(r.status, 'ok');
   assert.deepEqual(r.dropped, []);
   assert.ok(r.claims.length >= 10);
-  assert.match(r.text, /Offer Team 2 P3 \(RB\) \+ P5 \(TE\) for P11 \(WR\)\./);
-  assert.match(r.text, /If he says yes, title odds move \+30\.7 pts to 73%\./);
-  assert.match(r.text, /Chance he says yes: 6%, a guess until the yes-model is proven\./);
-  assert.match(r.text, /Why: If all 2 step\(s\) land you gain 37\.1 pts/);
+  assert.match(r.text, /Offer Team 3 P4 \(WR\) \+ P6 \(RB\) for P21 \(WR\)\./);
+  assert.doesNotMatch(r.text, /It is the first of/, 'a one-step move says no step count');
+  assert.match(r.text, /If he says yes, title odds move \+11\.6 pts to 54%\./);
+  assert.match(r.text, /Chance he says yes: 53%, a guess until the yes-model is proven\./);
+  assert.match(r.text, /Why: If all 1 step\(s\) land you gain 11\.6 pts of title odds; across yes and no outcomes that is 6\.1 pts/);
+  assert.match(r.text, /When: Now: nothing argues for waiting\./);
+  assert.match(r.text, /Brain check overall: failing\./);
+  assert.match(r.text, /0 of 7 checks pass\./);
   assert.match(r.text, /The brain isn't proven here yet/);
-  assert.match(r.text, /Destination: Get P21 \(WR\) · where we are: title odds 43% in week 4 · next move: Get P11 from Team 2$/);
+  assert.match(r.text, /Number check not read: The number audit has not run for this league yet\./);
+  assert.match(r.text, /Destination: Get P21 \(WR\) · where we are: title odds 43% in week 4 · next move: Get P21 from Team 3$/);
 });
 
 test('an invented number drops its claim, and the brief keeps the reason', () => {
@@ -179,14 +163,12 @@ test('a quoted producer string is its own evidence, but not for a strict claim',
 
 /* ------------------------------------------------------------- overnight */
 
-test('overnight: credible statements, replies and injuries, each from its window', () => {
-  const { db, chat, credibility } = night();
-  const r = brief.morningBrief({ db, chat, file: plans(), env: ON, now: MORNING, credibility });
+test('overnight: replies and injuries, each from its window', () => {
+  const { db } = night();
+  const r = brief.morningBrief({ db, file: plans(), env: ON, now: MORNING });
   assert.deepEqual(r.dropped, []);
-  assert.match(r.text, /Team 7 said he is open to dealing \(SHOP, 2x, his follow-through on this is 0\.80\)\./);
-  assert.match(r.text, /Not counted as news: 1 statements whose kind has no proven follow-through for that manager \(UNTOUCHABLE\)\./);
   assert.match(r.text, /Team 3 declined your offer\./);
-  assert.match(r.text, /Team 2 countered your offer\./);
+  assert.match(r.text, /Team 3 countered your offer\./, 'a logged reply on the next move names its partner');
   assert.doesNotMatch(r.text, /accepted/, 'a retracted reply and an out-of-window outcome are not news');
   assert.doesNotMatch(r.text, /Team 9|Team 6/);
   assert.match(r.text, /Roster Back \(your roster\) is listed QUESTIONABLE\./);
@@ -194,29 +176,39 @@ test('overnight: credible statements, replies and injuries, each from its window
   assert.doesNotMatch(r.text, /Other Guy|Healthy Guy|Old News/);
 });
 
-test('no chat name and no message text leave the chat DB', () => {
-  const { db, chat, credibility } = night();
-  brief.morningBrief({ db, chat, file: plans(), env: ON, now: MORNING, credibility });
-  const stored = db.prepare('SELECT body FROM coach_briefs').all().map(r => r.body).join('\n');
-  assert.doesNotMatch(stored, /Chat Person|SECRET MESSAGE/);
-});
-
-test('without his credibility a SHOP statement is not counted as news', () => {
-  const { db, chat } = night();
-  const r = brief.morningBrief({ db, chat, file: plans(), env: ON, now: MORNING });
-  assert.doesNotMatch(r.text, /Team 7 said/);
-  assert.match(r.text, /Not counted as news: 3 statements .*\(SHOP, UNTOUCHABLE\)|Not counted as news: 3 statements .*\(UNTOUCHABLE, SHOP\)/);
+test('statements and credibility only through PULSE-01 and CRED-01: typed unknown until they are on main', () => {
+  for (const [read, re] of [[inputs.readStatements, /PULSE-01 \(people_pulse\)/], [inputs.readCredibility, /CRED-01 \(people_credibility\)/]]) {
+    const s = read();
+    assert.equal(s.status, 'unknown');
+    assert.match(s.reason, re);
+    assert.deepEqual(s.rows, []);
+  }
+  const { db } = night();
+  const r = brief.morningBrief({ db, file: plans(), env: ON, now: MORNING });
+  assert.deepEqual(r.dropped, []);
+  assert.match(r.text, /Statements not read: chat labels not built yet: their producer, PULSE-01 \(people_pulse\), is not on this build\./);
+  assert.match(r.text, /Follow-through not read: per-manager credibility not built yet: its producer, CRED-01 \(people_credibility\), is not on this build\./);
+  // No second labeller and no credibility bar of its own, and the chat DB is never opened.
+  for (const rel of ['server/services/coach/brief-inputs.js', 'server/services/coach/brief.js',
+    'server/services/coach/brief-claims.js', 'scripts/coach/morning-brief.mjs']) {
+    const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    assert.doesNotMatch(src, /jev_chat_signals|openChatDb|league_member_identity|SHOP_CREDIBLE_AT|open_to_trade/, rel);
+  }
+  // Rows arriving without a renderer fail loudly rather than vanish from the brief.
+  assert.throws(() => claimsFor('morning', { entry: l4(plans()), ledger: newLedger(),
+    inputs: { statements: { status: 'ok', rows: [{}] }, credibility: inputs.readCredibility(),
+      replies: { status: 'ok', rows: [] }, injuries: { status: 'ok', rows: [] } } }), /no renderer/);
 });
 
 test('a missing source says it was not read; a quiet night says nothing happened', () => {
   const r = brief.morningBrief({ db: new DatabaseSync(':memory:'), file: plans(), env: ON, now: MORNING });
-  assert.match(r.text, /Statements not read: No chat DB/);
+  assert.match(r.text, /Statements not read: chat labels not built yet/);
   assert.match(r.text, /Replies not read:/);
   assert.match(r.text, /Injuries not read:/);
   assert.match(r.cache, /^inert/);
-  const quiet = brief.morningBrief({ db: appDb(), chat: chatDb(), file: plans(), env: ON, now: MORNING });
-  assert.match(quiet.text, /Statements not read: No confirmed chat identities/);
+  const quiet = brief.morningBrief({ db: appDb(), file: plans(), env: ON, now: MORNING });
   assert.match(quiet.text, /No replies to your offers in this window\./);
+  assert.match(quiet.text, /Injuries not read: No ESPN roster snapshot for this league yet\./);
 });
 
 test('a failed plan run or a missing league is said plainly', () => {
@@ -233,20 +225,22 @@ test('a failed plan run or a missing league is said plainly', () => {
 /* ----------------------------------------------------------------- cache */
 
 test('cached per plan version and window', () => {
-  const { db, chat, credibility } = night();
-  const a = brief.morningBrief({ db, chat, file: plans(), env: ON, now: MORNING, credibility });
-  const b = brief.morningBrief({ db, chat, file: plans(), env: ON, now: new Date(MORNING.getTime() + 60e3), credibility });
+  const { db } = night();
+  const a = brief.morningBrief({ db, file: plans(), env: ON, now: MORNING });
+  const b = brief.morningBrief({ db, file: plans(), env: ON, now: new Date(MORNING.getTime() + 60e3) });
   assert.equal(a.cached, false);
   assert.equal(b.cached, true);
   assert.equal(b.text, a.text);
   assert.equal(rows(db, 'morning').length, 1);
   const newer = plans(); newer.generated_at = '2026-09-24T10:30:00.000Z';
-  assert.equal(brief.morningBrief({ db, chat, file: newer, env: ON, now: MORNING, credibility }).cached, false, 'a new plan version builds fresh');
-  say(chat, 9, 'Chat Person A', 'open_to_trade', 0.9, '2026-09-24T10:59:00.000Z');
-  const later = brief.morningBrief({ db, chat, file: newer, env: ON, now: new Date(MORNING.getTime() + 120e3), credibility });
+  assert.equal(brief.morningBrief({ db, file: newer, env: ON, now: MORNING }).cached, false, 'a new plan version builds fresh');
+  db.prepare(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id, model_p_accept,
+    model_basis, status, resolved_at, created_at) VALUES (4, 2026, 'app_proposed', '1', '4', 0.3, 'no_information', 'declined', ?, ?)`)
+    .run('2026-09-24T10:59:00.000Z', EARLIER);
+  const later = brief.morningBrief({ db, file: newer, env: ON, now: new Date(MORNING.getTime() + 120e3) });
   assert.equal(later.cached, false, 'a new overnight row builds fresh');
   assert.equal(later.window.since, a.window.since, 'a re-read the same morning covers the same night');
-  assert.match(later.text, /SHOP, 3x/);
+  assert.match(later.text, /Team 4 declined your offer\./);
   assert.equal(rows(db, 'morning').length, 3);
 });
 
@@ -275,7 +269,8 @@ test('weekly check-in reads the itinerary and is cached per NFL week', () => {
   const db = appDb();
   const file = plans();
   const it = l4(file).itinerary.value;
-  it.stops[1].status = 'done';
+  // main's fixture has one stop (the next move); a finished stop ahead of it is added here.
+  it.stops.unshift({ id: 'plan-done', order: 0, kind: 'get', label: 'Get P41 off waivers', status: 'done', added_by: 'plan' });
   it.conflicts = [{ text: 'Selling P2 conflicts with untouchable.' }];
   it.untouchables = ['2'];
   l4(file)._run.behind = true;
@@ -284,11 +279,12 @@ test('weekly check-in reads the itinerary and is cached per NFL week', () => {
   assert.match(w.text, /^Weekly check-in, league 4/);
   assert.match(w.text, /Goal: Get P21 \(WR\)\./);
   assert.match(w.text, /It is week 4; the trade deadline is week 8\./);
-  assert.match(w.text, new RegExp(`Stops: 1 of ${it.stops.length} done, 0 waiting, 0 blocked\\.`));
-  assert.match(w.text, /Next stop: Get P11 from Team 2\./);
+  assert.equal(it.stops.length, 2);
+  assert.match(w.text, /Stops: 1 of 2 done, 0 waiting, 0 blocked\./);
+  assert.match(w.text, /Next stop: Get P21 from Team 3\./);
   assert.match(w.text, /Conflict: Selling P2 conflicts with untouchable\./);
   assert.match(w.text, /Untouchable players kept out of every deal: 1\./);
-  assert.match(w.text, /Behind plan\. Cheapest way back: /);
+  assert.match(w.text, /Behind plan\. Cheapest way back: Claim P41: 9\.5 pts a game rest of season vs P4's 8\.0\./);
   assert.equal(w.week, 4);
   assert.equal(brief.weeklyCheckIn({ db, file, env: ON }).cached, true);
   l4(file)._run.week = 5;
@@ -297,51 +293,15 @@ test('weekly check-in reads the itinerary and is cached per NFL week', () => {
 
 /* ------------------------------------------------------------------ push */
 
-test('push: first sighting is a baseline, a changed move drafts one capped text', () => {
-  const db = appDb();
-  const first = brief.nextMovePush({ db, file: plans(), env: ON });
-  assert.equal(first.status, 'unchanged');
-  assert.match(first.reason, /baseline/);
-  assert.equal(brief.nextMovePush({ db, file: plans(), env: ON }).status, 'unchanged');
-  const moved = plans();
-  const e = l4(moved);
-  e.next_move.value.move_id = 'L4-new';
-  e._run.changed = { changed: true, reason: 'better partner now: Team 2', previous_key: 'x', next_key: 'y' };
-  const p = brief.nextMovePush({ db, file: moved, env: ON });
-  assert.equal(p.status, 'ok');
-  assert.deepEqual([p.from, p.to], ['L4-152u91k', 'L4-new']);
-  assert.ok(p.text.length <= brief.PUSH_MAX_CHARS, p.text);
-  assert.match(p.text, /^League 4: new next move\. What changed: better partner now: Team 2 Offer Team 2 P3 \(RB\) \+ P5 \(TE\) for P11 \(WR\)\./);
-  assert.equal(brief.nextMovePush({ db, file: moved, env: ON }).status, 'unchanged', 'announced once');
-  assert.equal(rows(db, 'push').length, 2);
-});
-
-test('push against a previous plans file; an unreadable move is not a change', () => {
-  const db = appDb();
-  const prev = plans();
-  l4(prev).next_move.value.move_id = 'L4-old';
-  const p = brief.nextMovePush({ db, previous: prev, file: plans(), env: ON });
-  assert.equal(p.status, 'ok');
-  assert.equal(brief.nextMovePush({ db, previous: prev, file: plans(), env: ON }).cached, true);
-  const failed = plans();
-  l4(failed).next_move = { status: 'failed', reason: 'rescorer disagreed', source: 'plan.path' };
-  assert.equal(brief.nextMovePush({ db, previous: prev, file: failed, env: ON }).status, 'unchanged');
-  const none = plans();
-  l4(none).next_move = { status: 'unknown', reason: 'No move clears the bar this week.', source: 'plan.path' };
-  const n = brief.nextMovePush({ db, previous: prev, file: none, env: ON });
-  assert.match(n.text, /^League 4: the next move changed\. No next move: No move clears the bar this week\.$/);
-});
-
-test('push text is cut at whole claims when long', () => {
-  const file = plans();
-  const e = l4(file);
-  e.next_move.value.move_id = 'L4-long';
-  e._run.changed = { changed: true, reason: `new numbers moved a different deal to the top ${'and more '.repeat(20)}`.trim() + '.' };
-  const prev = plans();
-  const p = brief.nextMovePush({ db: appDb(), previous: prev, file, env: ON });
-  assert.ok(p.text.length <= brief.PUSH_MAX_CHARS);
-  assert.ok(p.dropped.some(d => d.violations[0] === 'over the push length cap'));
-  assert.ok(p.text.endsWith('.'));
+test('no push text here: the one push is PUSH-01\'s (#293)', () => {
+  assert.equal(brief.nextMovePush, undefined);
+  assert.equal(brief.PUSH_MAX_CHARS, undefined);
+  assert.deepEqual(script.KINDS, ['morning', 'weekly']);
+  assert.throws(() => script.parseArgs(['n', 's', '--kind', 'push']), /--kind/);
+  assert.throws(() => script.parseArgs(['n', 's', '--previous', 'x.json']), /unknown argument/);
+  const d = new DatabaseSync(':memory:');
+  mig101.up(d);
+  assert.throws(() => d.prepare(`INSERT INTO coach_briefs (league_id, kind, plan_version, window_key, body) VALUES (4, 'push', 'v', 'a->b', '{}')`).run(), /CHECK/);
 });
 
 /* ---------------------------------------------------------------- script */
@@ -354,7 +314,7 @@ test('script: args, summary line, and an end-to-end run on a DB copy', () => {
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'coach-brief-'));
   const env = { ...process.env, GRIDIRON_DB_PATH: path.join(tmp, 'app.sqlite'), GRIDIRON_WARROOM_PLANS: FIXTURE,
-    GRIDIRON_CHAT_DB_PATH: path.join(tmp, 'absent.sqlite'), SCHEDULER_DISABLED: '1' };
+    SCHEDULER_DISABLED: '1' };
   delete env.GRIDIRON_PREVIEW_UNCONFIRMED;
   delete env.GRIDIRON_COACH_BRIEF_ENABLED;
   const run = (...args) => spawnSync(process.execPath, [path.join(ROOT, 'scripts/coach/morning-brief.mjs'), ...args],
@@ -380,30 +340,33 @@ test('script: args, summary line, and an end-to-end run on a DB copy', () => {
 
 test('strict planner prose: an id or step count cannot ground a number that equals it', () => {
   const file = plans();
-  // 11 is the id of the player he gets (P11); an id is a label, never evidence for a number.
-  l4(file).next_move.value.reasoning.value.case_for = 'Team 2 wants 11 more points from this.';
+  // 21 is the id of the player he gets (P21); an id is a label, never evidence for a number.
+  l4(file).next_move.value.reasoning.value.case_for = 'Team 3 wants 21 more points from this.';
   const r = brief.morningBrief({ db: appDb(), file, env: ON, now: MORNING });
-  assert.ok(r.dropped.some(d => d.text.startsWith('Why: Team 2 wants 11 more')), 'the 11 is not grounded by a player id');
+  assert.ok(r.dropped.some(d => d.text.startsWith('Why: Team 3 wants 21 more')), 'the 21 is not grounded by a player id');
+  // "What changed" is planner prose too: strict, so a number in it must match a result cell.
   const moved = plans();
-  const e = l4(moved);
-  e.next_move.value.move_id = 'L4-x';
-  e._run.changed = { changed: true, reason: 'Team 2 now pays 45% more.' };
-  const p = brief.nextMovePush({ db: appDb(), previous: plans(), file: moved, env: ON });
-  assert.doesNotMatch(p.text, /45%/);
-  assert.ok(p.dropped.some(d => d.text.startsWith('What changed: Team 2 now pays 45%')));
+  l4(moved)._run.changed = { changed: true, reason: 'Team 3 now pays 45% more.' };
+  const m = brief.morningBrief({ db: appDb(), file: moved, env: ON, now: MORNING });
+  assert.doesNotMatch(m.text, /45%/);
+  assert.ok(m.dropped.some(d => d.text.startsWith('What changed: Team 3 now pays 45%')));
+  const real = plans();
+  l4(real)._run.changed = { changed: true, reason: 'The new deal adds 11.6 pts.' };
+  assert.match(brief.morningBrief({ db: appDb(), file: real, env: ON, now: MORNING }).text,
+    /What changed: The new deal adds 11\.6 pts\./, 'a number that is a result cell grounds');
 });
 
 test('a row written after the brief, dated before it, is caught next morning and not repeated', () => {
-  const { db, chat, credibility } = night();
-  const first = brief.morningBrief({ db, chat, file: plans(), env: ON, now: MORNING, credibility });
+  const { db } = night();
+  const first = brief.morningBrief({ db, file: plans(), env: ON, now: MORNING });
   assert.match(first.text, /Team 3 declined your offer\./);
   // Synced at 7:30 AM ET with the decline's own time, 6:55 AM ET: after the brief ran.
   db.prepare(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id, model_p_accept,
     model_basis, status, resolved_at, created_at) VALUES (4, 2026, 'app_proposed', '1', '4', 0.3, 'no_information', 'declined', ?, ?)`)
     .run('2026-09-24T10:55:00.000Z', '2026-09-24T11:30:00.000Z');
-  const next = brief.morningBrief({ db, chat, file: plans(), env: ON, now: new Date(MORNING.getTime() + 24 * 3600e3), credibility });
+  const next = brief.morningBrief({ db, file: plans(), env: ON, now: new Date(MORNING.getTime() + 24 * 3600e3) });
   assert.match(next.text, /Team 4 declined your offer\./);
-  assert.doesNotMatch(next.text, /Team 3 declined|Team 2 countered|Team 7 said/, 'rows already reported are not news twice');
+  assert.doesNotMatch(next.text, /Team 3 declined|Team 3 countered|Roster Back/, 'rows already reported are not news twice');
 });
 
 test('a logged reply on a move that left the plan does not repeat its outcome', () => {
@@ -416,12 +379,6 @@ test('a logged reply on a move that left the plan does not repeat its outcome', 
   const r = brief.morningBrief({ db, file: plans(), env: ON, now: MORNING });
   assert.match(r.text, /Team 3 declined your offer\./);
   assert.doesNotMatch(r.text, /no longer in the plan/);
-});
-
-test('push without a previous file or the cache table is unknown, not unchanged', () => {
-  const r = brief.nextMovePush({ db: new DatabaseSync(':memory:'), file: plans(), env: ON });
-  assert.equal(r.status, 'unknown');
-  assert.match(r.reason, /migration 088/);
 });
 
 test('an explicit since is a one-off read: not saved, and not tomorrow\'s window', () => {

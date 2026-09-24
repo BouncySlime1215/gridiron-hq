@@ -24,12 +24,6 @@ function record(ledger, tool, rows) {
   return (i, col) => `${e.id}#${i}.${col}`;
 }
 
-const STATEMENT_PHRASE = {
-  WANT_PLAYER: 'said he wants a player',
-  SHOP: 'said he is open to dealing',
-  UNTOUCHABLE: 'called a player untouchable',
-  FRUSTRATED: 'sounded frustrated with his roster'
-};
 const REPLY_PHRASE = {
   accept: 'accepted your offer', decline: 'declined your offer', counter: 'countered your offer',
   silence: 'let your offer expire without a reply'
@@ -99,34 +93,17 @@ function nextMove(entry, ledger, section) {
 
 /* ------------------------------------------------------------ overnight */
 
-function statements(s, ledger) {
-  const section = 'statements';
-  if (s.status !== 'ok') {
-    const c = record(ledger, 'pulse_read', [{ reason: s.reason }]);
-    return [{ section, text: `Statements not read: ${s.reason}`, cites: [c(0, 'reason')] }];
-  }
-  const sum = record(ledger, 'pulse_read', [{ rows: s.rows.length }]);
-  if (!s.rows.length) {
-    return [{ section, text: 'No labelled statements from league managers in this window.', cites: [sum(0, 'rows')] }];
-  }
-  const c = record(ledger, 'pulse_statements', s.rows.map(r => ({ team: r.team, label: r.label, n: r.n,
-    credible: r.credible ? 1 : 0, shop_credibility: r.shop_credibility })));
-  const out = [];
-  const quiet = [];
-  s.rows.forEach((r, i) => {
-    if (!r.credible) { quiet.push(i); return; }
-    const cred = r.shop_credibility != null ? `, his follow-through on this is ${r.shop_credibility.toFixed(2)}` : '';
-    out.push({ section, text: `Team ${r.team} ${STATEMENT_PHRASE[r.label]} (${r.label}, ${r.n}x${cred}).`,
-      cites: [c(i, 'team'), c(i, 'label'), c(i, 'n'), ...(cred ? [c(i, 'shop_credibility')] : [])] });
-  });
-  if (quiet.length) {
-    const total = ledger.derive({ op: 'sum', inputs: quiet.map(i => c(i, 'n')), label: 'statements not counted' });
-    const labels = [...new Set(quiet.map(i => s.rows[i].label))].join(', ');
-    const l = record(ledger, 'pulse_read', [{ labels }]);
-    out.push({ section, cites: [total.id, l(0, 'labels')],
-      text: `Not counted as news: ${total.value} statements whose kind has no proven follow-through for that manager (${labels}).` });
-  }
-  return out;
+/**
+ * Statements and credibility come only from their producers (PULSE-01, CRED-01);
+ * brief-inputs.js returns both typed unknown until those are on main. Such a
+ * section says it was not read, with the reason. An 'ok' section here would be
+ * rows with no renderer yet, so it throws rather than vanish from the brief.
+ */
+function notRead(s, ledger, { section, tool, what }) {
+  if (s.status === 'ok') throw new Error(`${what}: rows arrived but the brief has no renderer for them yet (wire the producer's rows here)`);
+  const reason = s.reason ?? 'not read.';
+  const c = record(ledger, tool, [{ reason }]);
+  return [{ section, text: `${what} not read: ${reason}.`, cites: [c(0, 'reason')] }];
 }
 
 function replies(s, ledger) {
@@ -292,23 +269,16 @@ function footer(entry, ledger) {
 
 /* ----------------------------------------------------------------- kinds */
 
-export function claimsFor(kind, { entry, inputs, ledger, leagueId }) {
+export function claimsFor(kind, { entry, inputs, ledger }) {
   if (kind === 'morning') {
-    return [...statements(inputs.statements, ledger), ...replies(inputs.replies, ledger), ...injuries(inputs.injuries, ledger),
+    return [...notRead(inputs.statements, ledger, { section: 'statements', tool: 'pulse_read', what: 'Statements' }),
+      ...notRead(inputs.credibility, ledger, { section: 'credibility', tool: 'credibility_read', what: 'Follow-through' }),
+      ...replies(inputs.replies, ledger), ...injuries(inputs.injuries, ledger),
       ...nextMove(entry, ledger, 'next_move'), ...brain(entry, ledger), ...footer(entry, ledger)];
   }
   if (kind === 'weekly') {
     return [...itinerary(entry, ledger), ...nextMove(entry, ledger, 'next_move').slice(0, 3), ...brain(entry, ledger).slice(0, 2),
       ...footer(entry, ledger)];
-  }
-  if (kind === 'push') {
-    const c = record(ledger, 'plan_league', [{ league: leagueId }]);
-    const head = ok(entry.next_move) ? `League ${leagueId}: new next move.` : `League ${leagueId}: the next move changed.`;
-    const moves = nextMove(entry, ledger, 'push');
-    const order = ['What changed', 'Offer', 'If he says yes', 'Chance', 'No next move', 'The last plan run'];
-    const rank = t => { const i = order.findIndex(p => t.startsWith(p)); return i === -1 ? order.length : i; };
-    return [{ section: 'push', text: head, cites: [c(0, 'league')] },
-      ...moves.filter(m => rank(m.text) < order.length).sort((a, b) => rank(a.text) - rank(b.text))];
   }
   throw new Error(`unknown brief kind ${kind}`);
 }

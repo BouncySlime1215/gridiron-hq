@@ -64,3 +64,21 @@ News: the contract has no news section. `produceReasoning({ news })` takes news 
 ## Wiring
 
 The `reasoning/*` entries are removed from `docs/wiring/annotations.json`. `check:wiring` now reports the 8 reasoning modules as `module-reaches-no-surface`, the same finding #233's head already has for its 14 campaign modules. The map counts only routes, jobs and pages as surfaces. The producer is spawned by the refresh loop (`scripts/refresh-live-data.mjs`), which is neither, so the map cannot credit that edge. Both sets clear together once the producer is reached, or once they are accepted in one entry.
+
+## Liveness: mutation sweep
+
+Run on the GREEN tree against `test/reasoning-panels.test.js` + `test/reasoning-in-plan.test.js` (25 tests). The control run with no mutation fails 0.
+
+| mutant | where | failing tests |
+|---|---|---|
+| M1 paid gate removed | `plan-reasoning.js#applyReasoning` | 1 (killed) |
+| M2 flag gate removed | `plan-reasoning.js#applyReasoning` | 1 (killed) |
+| M3 call site: `paid: true` always | `reason-plans.mjs` (the predicate the caller passes) | 1 (killed) |
+| M4 card id from rank, not `move_id` | `cards.js#cardFromMove` | 7 (killed) |
+| M5 `p_yes.n` ignored | `cards.js#cardFromMove` | **0: survived** on the first sweep. The fixture's `p_yes.n` (3) equalled his `offers_logged` (3), so the fallback hid the mutant. The fixture now carries n = 4; re-run: 1 (killed) |
+| M6 calibration always true | `cards.js#calibrationOf` | 1 (killed) |
+| M7 `next_move` not written | `plan-reasoning.js#eachMove` | 4 (killed) |
+| M8 no news feed treated as a quiet 48 h | `produce.js#contextFor` | 1 (killed) |
+| M9 deck cap removed | `cards.js#cardsForLeague` | 1 (killed) |
+| designed survivor: comment-only edit | `cards.js` | 0 (survives, as designed) |
+| designed not-applied: pattern absent | `cards.js` | not applied (the harness refuses it) |

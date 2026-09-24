@@ -199,7 +199,7 @@ test('confidence is built from the fields: p_yes.n and the brain report E1 statu
   const out = await produceReasoning({ plans: plans(), news: news(), callClaude: injectedWriter().callClaude });
   const [top, second] = ok(out);
   assert.equal(top.sections.confidence.status, 'thin');
-  assert.equal(top.sections.confidence.n, 3);
+  assert.equal(top.sections.confidence.n, 4, 'p_yes.n, not his offers_logged (3)');
   assert.equal(top.sections.confidence.value.calibrated, false);
   assert.equal(top.sections.confidence.value.calibration_status, 'E1 not_enough_data');
   assert.equal(top.sections.confidence.value.p_yes_basis, 'market+activity');

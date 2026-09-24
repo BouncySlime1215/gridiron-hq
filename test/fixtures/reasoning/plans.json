@@ -165,7 +165,7 @@
         "status": "ok",
         "value": 0.38,
         "source": "clone.accept",
-        "n": 3
+        "n": 4
        },
        "title_odds_delta": {
         "status": "ok",
@@ -442,7 +442,7 @@
          "status": "ok",
          "value": 0.38,
          "source": "clone.accept",
-         "n": 3
+         "n": 4
         },
         "title_odds_delta": {
          "status": "ok",

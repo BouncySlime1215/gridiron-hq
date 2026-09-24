@@ -377,6 +377,50 @@ test('RED (8): HEALTH-01b grep: only the engine hook reads engine routes on the 
   assert.doesNotMatch(read('server/services/engine/status.js'), /from '[^']*daemon\//);
 });
 
+/* RULINGS 3: ONE last-good rule. The views read state.js#readServed (#250), pinned to the snapshot. */
+test('RULINGS 3: views use the engine spine\'s fallback rule, pinned to the snapshot cut and versions', () => {
+  need(viewsMod, 'server/services/engine/views.js');
+  const { resolveView, snapshotById } = viewsMod;
+  const T2 = '2026-09-20T16:00:00.000Z';
+  const T3 = '2026-09-20T17:00:00.000Z';
+  // 9301: an ok row, then a degraded one. #250's rule: degraded is served its last healthy row.
+  put(FX, 'fx.lonely', 'player', '9301', 4, '2026-09-20T15:00:00.000Z');
+  put(FX, 'fx.lonely', 'player', '9301', 6, T2, { inputsHealth: 'degraded' });
+  // 9302: degraded with nothing healthy before it: served as itself, labelled degraded.
+  put(FX, 'fx.lonely', 'player', '9302', 3, T2, { inputsHealth: 'degraded' });
+  // 9303: failed at the cut; its only good row is written AFTER the snapshot, so it is not served.
+  put(FX, 'fx.lonely', 'player', '9303', 80, T2);
+  runRow('fx-proj', '2', T2);
+  const snapC = publishSnapshot({ leagueId: 0, versionSet: VERSIONS, season: 2026, nflWeek: 3, now: T2 }, db);
+  put(FX, 'fx.lonely', 'player', '9303', 9, T3);
+  const view = { name: 'fx_r3', scope: 'global', rows: ['9301', '9302', '9303'].map(id => ({ entity: `player:${id}`, field: 'fx.lonely' })) };
+  const v = resolveView({ view, snapshot: snapshotById(snapC, db), leagueId: null }, db);
+
+  const lg = rowOf(v, 'player:9301', 'fx.lonely');
+  assert.equal(lg.status, 'last_good', JSON.stringify(lg));
+  assert.equal(lg.value, 4); assert.equal(lg.fallback_used, true);
+  assert.match(lg.reason, /degraded/); assert.match(lg.reason, /last good, 60 min old/);
+
+  const dg = rowOf(v, 'player:9302', 'fx.lonely');
+  assert.equal(dg.status, 'degraded', JSON.stringify(dg));
+  assert.equal(dg.value, 3); assert.equal(dg.fallback_used, false);
+
+  const cut = rowOf(v, 'player:9303', 'fx.lonely');
+  assert.equal(cut.status, 'unknown', 'a good row after the cut is not the last good at the snapshot');
+  assert.equal(cut.value, null); assert.match(cut.reason, /failed/);
+
+  // An older snapshot's version pin holds for the last good row too: at snapshot A (fx-proj@1)
+  // fx.lonely has no v1 row at all, so nothing of v2 leaks back.
+  const old = resolveView({ view, snapshot: snapshotById(snapA, db), leagueId: null }, db);
+  for (const r of old.rows) assert.equal(r.value, null, `${r.entity_id} at snapshot A`);
+});
+
+test('RULINGS 3: views.js has no last-good query of its own', () => {
+  const src = fs.readFileSync(new URL('../server/services/engine/views.js', import.meta.url), 'utf8');
+  assert.match(src, /readServed\(/, 'views read the spine\'s rule');
+  assert.doesNotMatch(src, /okOnly|includeFailed:\s*true/, 'no second copy of the last-good query');
+});
+
 test('RED (9) FIX-257-1: /status carries the strip flag and a typed row per producer', async () => {
   need(statusMod, 'server/services/engine/status.js');
   // calendar: its newest run failed after its last good one. fx-idle: registered, never ran.

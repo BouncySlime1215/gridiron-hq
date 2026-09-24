@@ -93,6 +93,12 @@ test('untouchable talk: credible -> never asked for (target skipped); broken bef
   close(kept.get('2').credibility.untouchable.value, 2 / 3);
   const on = plan(kept);
   assert.ok(!on.targets.includes(11));
+  // Every upgrade searched (wide budget): the call-site filter, not the top-3 slice, keeps him out.
+  const wide = makeAdapter(); wide.counterparts = kept;
+  const all = planLeague(wide, { objective: obj, budget: { targets: 50 } });
+  assert.ok(!all.targets.includes(11), 'a credible untouchable is never a searched target');
+  assert.ok(!stepsOf(all).some(s => s.get.includes(11)));
+  close(stepAdjust(kept.get('2'), { team: '2', get: [11], give: [2] }).mult, 0);
   assert.ok(!on.suggestions.some(s => s.player === 11));
   assert.ok(!stepsOf(on).some(s => s.get.includes(11)), 'no written plan asks for an untouchable');
   // He called him untouchable, then traded him away once: broken -> credibility 1/3, asked but scaled.

@@ -209,9 +209,11 @@ export function stepAdjust(cp, { team, get, give }) {
     for (const id of get) {
       if (has(cp.untouchable, id)) {
         const c = cp.credibility.untouchable;
-        mult *= 1 - c.value;
-        features.push(feat('untouchable_talk', team, { player: String(id), effect: 'multiplier', value: 1 - c.value, n: c.n,
-          basis: `he called him untouchable; credibility ${c.value.toFixed(2)} (${c.basis})` }));
+        const never = c.value >= UNTOUCHABLE_EXCLUDE;
+        mult *= never ? 0 : 1 - c.value;
+        features.push(feat('untouchable_talk', team, { player: String(id), effect: never ? 'exclude' : 'multiplier',
+          value: never ? 0 : 1 - c.value, n: c.n,
+          basis: `he called him untouchable; credibility ${c.value.toFixed(2)}${never ? ` >= ${UNTOUCHABLE_EXCLUDE}: never ask` : ''} (${c.basis})` }));
       } else if (has(cp.shopping, id)) {
         const c = cp.credibility.shop;
         lift += SHOP_LOG_LIFT * c.value;

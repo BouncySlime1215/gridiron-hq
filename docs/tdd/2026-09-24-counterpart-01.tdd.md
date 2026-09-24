@@ -52,3 +52,15 @@ GREEN (the commit that adds this file): 15/15 new, plus `campaign-producer`,
 | override | exclude -> in no plan, P(responds) 0; deprioritize -> x0.5; toughen -> ladder never above fair on his screen |
 | contract | the entry with the model on passes `validateEntry`; partners carry reason chains |
 | no identity | a counterparty with no chat identity gets a typed-unknown model; the M6 prior applies league-wide |
+
+## 3. Liveness (mutants, run on the GREEN tree with the two new test files)
+
+| mutant | result |
+|---|---|
+| M1 `stepAdjust` drops the wants lift | killed (1 fail) |
+| M2 call site: planner stops filtering excluded targets (`!tiltOf(pid).exclude` -> `true`) | killed after the wide-budget assertion was added (it survived first: the top-3 slice hid it) |
+| M3 planner drops the price cap filter | killed |
+| M4 reader ignores `as_of` | killed |
+| M5 broken untouchable claims not counted | killed |
+| M6 a credible untouchable ask is scaled, not zeroed | killed |
+| control: name resolver lowercases instead of normalising (same on fixture names) | survived, as designed |

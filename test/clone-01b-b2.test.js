@@ -502,3 +502,34 @@ const rt = createRequire(${rt})(${rt}); export const jsx = rt.jsx; export const 
   assert.doesNotMatch(on, /Preview/);
   assert.match(html({ preview: true, follow_up: { above_bound_pct: 10, why: 'w' } }), /Preview \(unconfirmed forward\)/);
 });
+
+/* ------------------------------------------------------------------ B16 */
+
+test('B16 Arm 1 grades only claims with >= 10 earlier claims by that manager, 2024 only', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const sl = path.join(temp, 'sleeper.sqlite');
+  const ap = path.join(temp, 'app.sqlite');
+  const s = new DatabaseSync(sl);
+  s.exec(`CREATE TABLE sh_leagues (league_id TEXT PRIMARY KEY, season INTEGER NOT NULL);
+    CREATE TABLE sh_transactions (league_id TEXT NOT NULL, week INTEGER NOT NULL, seq INTEGER NOT NULL, type TEXT,
+      status TEXT, roster_ids_json TEXT, adds_json TEXT, drops_json TEXT, waiver_bid REAL, draft_picks INTEGER,
+      created_ms INTEGER, latency_ms INTEGER, PRIMARY KEY (league_id, week, seq));
+    INSERT INTO sh_leagues VALUES ('A', 2024), ('Z', 2025);`);
+  const ins = s.prepare(`INSERT INTO sh_transactions (league_id, week, seq, type, status, adds_json, created_ms)
+    VALUES (?, ?, ?, 'waiver', ?, ?, ?)`);
+  // roster 1: 12 RB claims (graded: the 11th and 12th); roster 2: 5 claims (never graded)
+  for (let i = 0; i < 12; i += 1) ins.run('A', 1 + i, 1, 'complete', JSON.stringify({ 100: 1 }), i);
+  for (let i = 0; i < 5; i += 1) ins.run('A', 1 + i, 2, 'complete', JSON.stringify({ 200: 2 }), i);
+  ins.run('A', 14, 3, 'failed', JSON.stringify({ 100: 1 }), 99);         // failed: not a claim
+  for (let i = 0; i < 12; i += 1) ins.run('Z', 1 + i, 1, 'complete', JSON.stringify({ 100: 1 }), i); // 2025: never read
+  s.close();
+  const a = new DatabaseSync(ap);
+  a.exec(`CREATE TABLE off_sleeper_players (sleeper_id TEXT PRIMARY KEY, position TEXT);
+    INSERT INTO off_sleeper_players VALUES ('100', 'RB'), ('200', 'WR');`);
+  a.close();
+  const out = execFileSync(process.execPath, ['scripts/rnd/grade-clone-arm1.mjs', '--sleeper', sl, '--app', ap],
+    { cwd: new URL('..', import.meta.url).pathname, encoding: 'utf8' });
+  assert.match(out, /complete waiver claims read: 17;/);
+  assert.match(out, /graded claims \(manager has >= 10 earlier claims\): 2; managers: 1; leagues: 1/);
+  assert.match(out, /PRIMARY gain clone vs activity-only: -?\d/);
+});

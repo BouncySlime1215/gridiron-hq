@@ -31,7 +31,7 @@ before and returns the same bytes.
   threshold is unreachable, null with a reason when `vetoVotesRequired` is
   absent. `completion.band` = band × (1 − P(veto)). The band stays P(accept).
 - **Writer**: `refreshCloneFits` (trade-outcomes.js), called by
-  `settleOfferLoop` after every settle. Migration 086 adds
+  `settleOfferLoop` after every settle. Migration 096 adds
   `manager_clone_fits` and `trade_outcomes.pitch_json` (additive).
 
 ## Gates
@@ -52,6 +52,14 @@ before and returns the same bytes.
 | B8 / B8b | activity not double counted; motive capped, null state inert with its reason |
 | B9 | cheapest package strictly above the bound |
 | B10 | call site: context null when off; each deal reads its own partner's fit; veto from climate |
+| B1d | a counter is not subtracted from the ESPN history (it is not in `tx_accept_rate`) |
+| B11 / B11b | every "I sent this" writes `pitch_json` (fairness, shape, lead need, the one factor varied); accept rate by arm says "no claim before the prereg n" |
+| B12 / B12b | `clone` valuation source inside `PLAYER_VALUATION_CAP`; `zero:['clone']` and flag-off byte-identical; the layer attaches `clone_fit` only when on |
+| B13 | settled-reply terms: snapshot, then raw, then stored package; share reported |
+| B14 | E1 grade reads terms snapshot-first and prints the share with terms |
+| B15 | TradeCard follow-up chip only when `clone.follow_up` is set; preview labelled |
+| B16 | Arm 1 grades only claims with >= 10 earlier claims, 2024 only |
+| O9 | (offer-loop.test.js) pitch arm on a new row and on a slate row marked sent |
 
 ## RED
 
@@ -142,22 +150,73 @@ managers with >= 10 prior claims."
   Otherwise: not decided. **Ship (spec):** only if Arm 1 passes AND Arm 2 is not
   worse in direction; else the flag stays default-off.
 
+## PR sweep fixes (FIX-288-1..6), 9/24
+
+- **FIX-1** migration is 096 (MIGRATIONS.md registry; no other open PR uses 096).
+- **FIX-2** `CloneFollowUpChip` (client/src/components/trade/CloneFollowUpChip.tsx), rendered
+  by TradeCard: "Cheapest package above the price he declined (+X% for him)". The server
+  sets `clone.follow_up` only when `cloneMode()` is on (GRIDIRON_CLONE_V2, or preview mode
+  through preview-mode.js, then the chip says "Preview (unconfirmed forward)").
+- **FIX-3** `pitchArmOf` / `recordSentOffer` write `pitch_json` on every "I sent this"
+  (TradeCard route and War Room store alike). Control arm: fair on his screen
+  (|their_value_pct| <= 4, the engine's Fair & Clean line), 1-for-1, leads with a position
+  he is short at. `varied` names the one factor that differs; two differ -> 'multiple';
+  an unread factor -> 'unknown' (never the control). `pitchArmRates` and
+  `GET /:leagueId/offers/pitch-arms` report accept rate by arm with a Wilson 90% CI,
+  labelled "no claim before the prereg n" (20 settled offers per arm, a guess).
+- **FIX-4** `VALUATION_SOURCES.clone` (cap 0.10, min_n 1) inside PLAYER_VALUATION_CAP.
+  `counterpartyLayer` attaches `clone_fit` from `cloneFitsFor` only when the flag is on.
+  For a player he owns, a decline at +g% for him prices that player up by g% (capped);
+  a decline that already cost him value is inert with its reason.
+- **FIX-5** `refreshCloneFits` and `grade-clone-e1.mjs` read offer terms from
+  `trade_proposal_snapshots` (#247, migration 084) first, then raw `items_json`.
+- **FIX-6** below.
+
+## Results on the local DB copies (FIX-288-6)
+
+**Does `tx_accept_rate` include settled sent offers?** Mostly. manager-signals counts a
+manager's own `EXECUTE` TRADE_ACCEPT and TRADE_DECLINE rows. On the DB copy, for all 6 of
+6 managers who carry the metric (n >= 5), the stored rate and n match that raw count
+exactly. So a settled **accept or decline** of an offer Nick sent is inside it once the
+collector has seen it. A **counter** is not: ESPN writes it as his own TRADE_PROPOSAL.
+`cloneFor` now subtracts only accepts and declines (B1d). There are still 0 settled sent
+offers (`trade_outcomes` has 0 rows with `sent_at`), so this is checked on the ESPN
+rows, not on a real sent offer.
+
+**Arm 2 (ESPN, `grade-clone-e1.mjs --db <copy>`):**
+- **n:** 37 decided offers graded (7 accepted), 13 deciders, 3 leagues.
+- **Terms:** 37 of 78 decided offers had terms (47.4%), all from raw rows. `trade_proposal_snapshots` is absent on this DB (#247 is unmerged). 41 decided offers have no terms, and 36 of 37 have a known price.
+- **Log loss:** activity-only 0.5301, clone 0.5450, clone without price 0.5433.
+- **Clone vs activity-only:** −0.0150, 90% CI [−0.0488, +0.0151]. The CI spans 0, so this is not decided, and the direction is worse.
+- **Clone without price:** −0.0132 [−0.0371, +0.0074].
+
+**Arm 1 (Sleeper 2024 waiver choices, `grade-clone-arm1.mjs`, pre-registered above):**
+- **n:** 37,541 complete 2024 claims read (818 unmapped). 9,364 were graded, from 1,331 managers with at least 10 earlier claims, in 407 leagues.
+- **Log loss:** population 1.6795, activity-only (k=5) 1.7354, clone (m=15) 1.6855.
+- **Primary, clone vs activity-only:** +0.0499, 90% CI [+0.0464, +0.0533]. This is a **PASS** by the pre-registered rule.
+- **Secondary, clone vs population:** −0.0059 [−0.0112, −0.0008]. This **fails**.
+- **Reading:** The primary pass comes from shrinking harder (m = 15 beats k = 5). It does not come from learning the manager. The pool alone beats both per-manager updates.
+
+**Verdict under the spec's ship rule.** Arm 1 passes its primary, but Arm 2 is worse in direction (−0.0150), so the rule is not met. `GRIDIRON_CLONE_V2` stays default-off. The secondary suggests m should be larger than 15, or the update should carry less weight than a full claim. That is a hypothesis for a new pre-registration, and this data is not used to pick m.
+
 ## Five questions
 
 1. **Well built?** Pure functions in trade-acceptance.js, one writer in
    trade-outcomes.js, one call site in trade-engine.js; 15 tests, 14 mutants killed.
 2. **Stats or made up?** The shrinkage is a beta-binomial posterior; `m`, the
    motive and activity offsets, the decay scale and the P(veto) levels are guesses.
-3. **How we know:** nothing yet — the E1 grade runs on the local DB (LOCAL line).
+3. **How we know:** Arm 2 not decided (n = 37, worse in direction); Arm 1 primary passes, secondary fails (see Results).
 4. **Pointed anywhere else?** `d.acceptance` on every finder idea (trade-engine.js
    `attachTactics`), so `/find`, `/evaluate`, `/offers/sent` (stores the band) and
    TradeCard see it when on.
 5. **How it unifies:** no new service or ledger; acceptanceBand stays the one
    P(accept) producer, trade_outcomes the one offer ledger, vetoRiskFor the one veto read.
 
-**Not covered:** the UI follow-up chip (the flag is on the deal's clone block
-only); CLONE-01a is unmerged, so its fitted pool (`accept_pool`) is used when a
-profile carries it and the n-weighted league rate at m = 15 otherwise; Sleeper
-Arm 1 (Sleeper has no declines). **What would make it wrong:** manager-signals'
-`tx_accept_rate` not containing the settled sent offers (then B1c's subtraction
-under-counts his history by those replies).
+**Not covered:** CLONE-01a is unmerged, so its fitted pool (`accept_pool`) is used when a
+profile carries it and the n-weighted league rate at m = 15 otherwise. Arm 1 cannot test
+price relevance (Sleeper has no declines or prices). The `clone` valuation source and the
+band's clone factor read the same declines (the spec asks for both); with the flag on, a
+decline lowers P(accept) and raises his price, and whether that double-charges is not graded.
+**What would make it wrong:** a settled sent offer that the collector has not seen yet, or
+a manager-signals build older than the settle, is in the update but not yet in
+`tx_accept_rate`, so the subtraction under-counts his history until the next build.

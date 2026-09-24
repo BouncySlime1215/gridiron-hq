@@ -89,6 +89,25 @@ export function resolveGoogleAccount(profile) {
       run(`UPDATE users SET email=?, display_name=COALESCE(?, display_name),
              avatar_url=COALESCE(?, avatar_url), last_login_at=datetime('now') WHERE id=?`,
         email, profile.displayName ?? null, profile.avatarUrl ?? null, user.id);
+
+      // The admin grant converges; it is not one-shot. It used to be made only
+      // on the branch below, the one that creates or links an identity, so an
+      // account that ALREADY carried a Google identity when
+      // GRIDIRON_ADMIN_EMAIL was pointed at its address could never acquire
+      // the grant: every sign-in after the first takes this branch and returns
+      // before reaching it. The address is the policy, so re-asserting it on
+      // each sign-in is what makes the setting mean what it says.
+      //
+      // Only the grant converges, never a revocation, and that asymmetry is
+      // deliberate. `model_permissions` also holds narrower grants that were
+      // never about this address at all -- `model:train`, `model:promote`,
+      // `model:execute`, handed out by platform/provision-auth.js -- so
+      // "withdraw what the address no longer justifies" is a different policy
+      // against a table this one does not own. It also fails far worse: a
+      // mistyped GRIDIRON_ADMIN_EMAIL would lock the real administrator out on
+      // their next sign-in, and the fix for that would itself need an admin.
+      if (adminEmail() != null && email === adminEmail()) grantAdmin(user.id);
+
       db.exec('COMMIT');
       return { userId: user.id, created: false, linked: false, admin: isAdmin(user.id) };
     }

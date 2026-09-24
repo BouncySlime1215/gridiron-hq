@@ -68,3 +68,27 @@ off the asset is byte-identical (no `p_play` field, 0.92).
 5. How it unifies: trade-engine and season-sim read one `availPPlayWeek` with fixed
    arguments. This matches EA-06/07's `avail.p_play` field shape (`status` + value), so
    the spine producer can wrap it.
+
+## Sweep fixes (2026-09-24): FIX-285-1 and FIX-285-2
+
+- **FIX-285-1**: roster-risk.js (fragility), role-scenario-engine.js
+  (buildPlayerScenarios) and news-fantasy-impact.js (newsFantasyTracker) read
+  `availPPlayWeek` through `chanceToPlay` when the flag is on. An unknown player is priced
+  at his labelled prior and the typed unknown is served (`p_play`, `baseline_p_play`).
+  The flag-off default is one function, `contingency.js#legacyActiveProbability`.
+  trade-engine.js, season-sim.js and number-audit.js call it instead of typing 0.92. A
+  ratchet (`test/avail-p-play-sites.test.js`) fails on any `?? 0.92` in server/ or
+  client/src outside contingency.js.
+- **FIX-285-2**: `pPlayCacheTag()` ('' / ':pplay' / ':pplay-preview') is part of the GET
+  /simulate memo key (`routes/model.js#simulateMemoKey`), the titleOddsTrades cache key,
+  and the asset-universe key (which already carried ':pplay').
+- **RED**: `test/avail-p-play-sites.test.js` + `test/avail-p-play-cache.test.js`, 4 pass /
+  8 fail. The role scenario, news and fragility sites served 0.92 where the fitted prior
+  is 0.759. The ratchet found three sites. Both caches returned the other flag state's
+  odds (expected 'on', actual 'off'; expected 0.05, actual 0.01).
+- **GREEN**: 12 of 12. `test/avail-p-play.test.js` 11 of 11.
+  `test/historical-consensus-head-to-head.test.js` 39 of 39: its source pin now follows
+  the default into contingency.js.
+- The first full run found one real failure. `test/b-01-real-record-odds.test.js` bans a
+  `fromWeek` token outside season-sim.js, and the new key helper used that parameter
+  name. It was renamed to `clientWeek`.

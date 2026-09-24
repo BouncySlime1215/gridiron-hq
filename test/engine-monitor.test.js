@@ -397,6 +397,29 @@ test('FIX-281-2: one fallback reader: served.js is gone, the route reads views.j
   assert.match(v.reason, /last healthy snapshot/);
 });
 
+test('FIX-281-3: one writer of number_audit rows: a drift row and an audit row for one league land through writeAuditRows', async () => {
+  const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+  const walk = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(d =>
+    d.isDirectory() ? walk(path.join(dir, d.name)) : d.name.endsWith('.js') ? [path.join(dir, d.name)] : []);
+  const inserts = walk(path.join(root, 'server')).filter(f => /INSERT\s+INTO\s+number_audit\b/i.test(fs.readFileSync(f, 'utf8')))
+    .map(f => path.relative(root, f));
+  assert.deepEqual(inserts, ['server/services/number-audit.js'], 'number_audit has more than one writer');
+  const access = fs.readFileSync(path.join(root, 'server/services/engine/daemon/monitor-access.js'), 'utf8');
+  assert.match(access, /import\s*\{[^}]*\bwriteAuditRows\b[^}]*\}\s*from\s*'[^']*number-audit\.js'/,
+    'monitor-access.js does not write the card through number-audit.js#writeAuditRows');
+  // Behaviour through the shared function: the BROKEN-01 audit row and the monitor's drift row for
+  // league 94 sit side by side, and the drift row keeps first_seen_at while its status holds.
+  const { writeAuditRows } = await import('../server/services/number-audit.js');
+  writeAuditRows(94, [{ check_id: 'A_title_paths', status: 'warn', title: 'fixture audit row', detail: 'fixture',
+    pages_affected: ['Title'], values: { a: 1 } }], { asOf: '2026-09-20T13:10:00.000Z', database: db });
+  const drift = audit('mtest.range');
+  assert.equal(drift.status, 'broken');
+  const firstSeen = drift.first_seen_at;
+  monitorTick('2026-09-20T13:15:00.000Z');
+  assert.equal(audit('mtest.range').first_seen_at, firstSeen, 'the upsert kept first_seen_at while broken');
+  assert.equal(row(`SELECT status FROM number_audit WHERE league_id = 94 AND check_id = 'A_title_paths'`).status, 'warn');
+});
+
 test('F: a field older than its max age is stale: a warn row on the card, no fallback', () => {
   need(monitorMod, 'producers/monitor.js');
   monitorTick('2026-09-20T14:00:00.000Z'); // 2.5 h after mtest's last run, max age 1 h

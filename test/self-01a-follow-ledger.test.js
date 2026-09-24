@@ -320,6 +320,13 @@ test('backfill turns shown rec_ledger rows into follow rows, resolved on the fin
   assert.equal(L.id, 751);
 });
 
+test('a considered-not-shown call handed to logShown directly is never logged: it was not shown', () => {
+  const L = league(761);
+  const out = follow.logShown(L, [{ ...tradeRec(761), disposition: 'considered_not_shown' }], { now: T0 });
+  assert.equal(out.inserted, 0);
+  assert.equal(ledger(761).length, 0);
+});
+
 test('rollback of 081 refuses while the ledger holds rows', async () => {
   const mig = await import('../server/migrations/081_follow_ledger.js');
   assert.throws(() => mig.down(db), /rollback refused/);

@@ -164,7 +164,8 @@
        "p_yes": {
         "status": "ok",
         "value": 0.38,
-        "source": "clone.accept"
+        "source": "clone.accept",
+        "n": 3
        },
        "title_odds_delta": {
         "status": "ok",
@@ -489,7 +490,8 @@
         "p_yes": {
          "status": "ok",
          "value": 0.38,
-         "source": "clone.accept"
+         "source": "clone.accept",
+         "n": 3
         },
         "title_odds_delta": {
          "status": "ok",
@@ -1384,6 +1386,56 @@
      "fell_back_to": "balanced"
     },
     "source": "eval.check"
+   },
+   "partners": {
+    "status": "ok",
+    "source": "clone.accept",
+    "value": [
+     {
+      "team": "7",
+      "p_responds": {
+       "status": "ok",
+       "value": 0.62,
+       "source": "clone.accept"
+      },
+      "basis": "market+activity",
+      "edge": 0.018,
+      "chat_labels": [
+       "rebuilding",
+       "hates wide receivers"
+      ],
+      "roster_holes": [
+       {
+        "pos": "WR",
+        "gap": 4.5
+       }
+      ],
+      "recent_moves": [
+       {
+        "type": "add",
+        "summary": "Picked up a backup back"
+       }
+      ],
+      "offers_logged": 3,
+      "paper_values": {
+       "601": 3100,
+       "502": 2800
+      }
+     },
+     {
+      "team": "2",
+      "p_responds": {
+       "status": "ok",
+       "value": 0.4,
+       "source": "clone.accept"
+      },
+      "basis": "market",
+      "offers_logged": 12,
+      "chat_labels": [],
+      "roster_holes": [],
+      "recent_moves": []
+     }
+    ]
    }
   },
   {

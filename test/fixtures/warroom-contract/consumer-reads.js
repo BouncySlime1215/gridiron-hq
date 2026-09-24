@@ -7,6 +7,7 @@
  *   #231 claude/cloud-war-room-ui    cce5005  server/services/war-room-view.js
  *   #230 claude/cloud-war-room-coach 6ac4758  client/src/components/warroom/coach/warroomCoach.ts,
  *                                             CoachDock.tsx, server/services/warroom-actions/schema.js
+ *   #234 REASON-01 after FIX-08              server/services/reasoning/cards.js (reads the contract; no fixes)
  *
  * An entry with `fix` is a read no producer writes today. `fix.to` is the
  * contract path it should read instead (the test proves `to` exists) and
@@ -24,6 +25,7 @@ const UI = 'server/services/war-room-view.js';
 const CO = 'client/src/components/warroom/coach/warroomCoach.ts';
 const DOCK = 'client/src/components/warroom/coach/CoachDock.tsx';
 const ACT = 'server/services/warroom-actions/schema.js';
+const RS = 'server/services/reasoning/cards.js';
 
 const deckFix = (field, to, line) => ({ fix: { to: `leagues[].alternatives.value[].${to}`, line } });
 
@@ -116,7 +118,43 @@ export const READS = [
   { pr: 230, where: `${CO}:60`, reads: 'leagues[].title.value.odds_by_week',
     fix: { to: 'leagues[].destination.value.path.value', line: "PLUG_IN_FIELDS: replace 'title.odds_by_week' with 'destination.path' (week-by-week planned vs actual title odds)." } },
   { pr: 230, where: `${CO}:59`, reads: 'leagues[].roster.value.bye_holes',
-    fix: { to: 'leagues[].itinerary.value.stops[].week', line: "PLUG_IN_FIELDS: drop 'roster.bye_holes' until a producer writes it; bye cover today is a `cover_bye` stop with its `week`." } }
+    fix: { to: 'leagues[].itinerary.value.stops[].week', line: "PLUG_IN_FIELDS: drop 'roster.bye_holes' until a producer writes it; bye cover today is a `cover_bye` stop with its `week`." } },
+  /* ------------------------------------------------- #234 reasoning (FIX-08) */
+  { pr: 234, where: `${RS}:47`, reads: 'leagues[].league', scalar: true },
+  { pr: 234, where: `${RS}:154`, reads: 'leagues[].names' },
+  { pr: 234, where: `${RS}:104`, reads: 'leagues[].alternatives.value' },
+  { pr: 234, where: `${RS}:86`, reads: 'leagues[].alternatives.value[].move_id', scalar: true },
+  { pr: 234, where: `${RS}:91`, reads: 'leagues[].alternatives.value[].delta_final.value', scalar: true },
+  { pr: 234, where: `${RS}:88`, reads: 'leagues[].alternatives.value[].steps[].partner', scalar: true },
+  { pr: 234, where: `${RS}:89`, reads: 'leagues[].alternatives.value[].steps[].give' },
+  { pr: 234, where: `${RS}:89`, reads: 'leagues[].alternatives.value[].steps[].get' },
+  { pr: 234, where: `${RS}:90`, reads: 'leagues[].alternatives.value[].steps[].p_yes.value', scalar: true },
+  { pr: 234, where: `${RS}:90`, reads: 'leagues[].alternatives.value[].steps[].p_yes.n', scalar: true },
+  { pr: 234, where: `${RS}:84`, reads: 'leagues[].alternatives.value[].steps[].title_odds_delta.value', scalar: true },
+  { pr: 234, where: `${RS}:84`, reads: 'leagues[].alternatives.value[].steps[].title_odds_delta.se', scalar: true },
+  { pr: 234, where: `${RS}:84`, reads: 'leagues[].alternatives.value[].steps[].title_odds_delta.clears_2se', scalar: true },
+  { pr: 234, where: `${RS}:95`, reads: 'leagues[].alternatives.value[].steps[].send_when.value', scalar: true },
+  { pr: 234, where: `${RS}:96`, reads: 'leagues[].alternatives.value[].steps[].opening.value.text', scalar: true },
+  { pr: 234, where: `${RS}:98`, reads: 'leagues[].alternatives.value[].steps[].walk_away.value.text', scalar: true },
+  { pr: 234, where: `${RS}:68`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value' },
+  { pr: 234, where: `${RS}:74`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.accept.value.do', scalar: true },
+  { pr: 234, where: `${RS}:74`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.silence.value.when', scalar: true },
+  { pr: 234, where: `${RS}:75`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.counter.value.counter_rules.counter_with', scalar: true },
+  { pr: 234, where: `${RS}:75`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.counter.value.counter_rules.accept_if', scalar: true },
+  { pr: 234, where: `${RS}:76`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.counter.value.counter_rules.walk_away_if', scalar: true },
+  { pr: 234, where: `${RS}:76`, reads: 'leagues[].alternatives.value[].steps[].reply_table.value.accept.value.odds_after.value', scalar: true },
+  { pr: 234, where: `${RS}:52`, reads: 'leagues[].partners.value' },
+  { pr: 234, where: `${RS}:52`, reads: 'leagues[].partners.value[].team', scalar: true },
+  { pr: 234, where: `${RS}:169`, reads: 'leagues[].partners.value[].p_responds.value', scalar: true },
+  { pr: 234, where: `${RS}:170`, reads: 'leagues[].partners.value[].basis', scalar: true },
+  { pr: 234, where: `${RS}:171`, reads: 'leagues[].partners.value[].roster_holes' },
+  { pr: 234, where: `${RS}:175`, reads: 'leagues[].partners.value[].paper_values' },
+  { pr: 234, where: `${RS}:179`, reads: 'leagues[].partners.value[].recent_moves' },
+  { pr: 234, where: `${RS}:183`, reads: 'leagues[].partners.value[].offers_logged', scalar: true },
+  { pr: 234, where: `${RS}:184`, reads: 'leagues[].partners.value[].chat_labels' },
+  { pr: 234, where: `${RS}:60`, reads: 'leagues[].brain_report.value' },
+  { pr: 234, where: `${RS}:62`, reads: 'leagues[].brain_report.value.checks[].id', scalar: true },
+  { pr: 234, where: `${RS}:64`, reads: 'leagues[].brain_report.value.checks[].status', scalar: true }
 ];
 
-export const FILES = { UI, CO, DOCK, ACT };
+export const FILES = { UI, CO, DOCK, ACT, RS };

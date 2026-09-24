@@ -20,6 +20,9 @@
  *   4. manager_signals   who-is-who + per-manager signals for all leagues
  *                        (build-manager-signals.mjs), after the chat rollup has
  *                        finished, and only when one of its inputs changed
+ *   5. warroom_plans     the War Room campaign producer (scripts/campaign/produce-plans.mjs),
+ *                        only when GRIDIRON_WARROOM_ENABLED=1; reruns every tick so each
+ *                        league's next move is replanned on the fresh data
  *
  * ALLOWLIST ONLY. Betting collectors (line snapshots, Polymarket, book feeds,
  * prop capture, t60 runner…) are deliberately absent: Nick turned them off.
@@ -180,6 +183,26 @@ export function chatBackfill({ spawn = spawnSync, log = console.log, record = re
     + `${text.slice(0, 200)}${note} (${Date.now() - t0} ms)`);
 }
 
+/**
+ * CAMPAIGN-01: rebuild the War Room plans file (every league) after the data steps,
+ * so each refresh replans and flags a changed next move. Off unless
+ * GRIDIRON_WARROOM_ENABLED=1; the producer writes its own file and push log, the loop
+ * records the outcome as sync_log 'warroom_plans'.
+ */
+export function warRoomPlans({ spawn = spawnSync, log = console.log, record = recordSync, env = process.env } = {}) {
+  if (env.GRIDIRON_WARROOM_ENABLED !== '1') return;
+  const t0 = Date.now();
+  const r = spawn(process.execPath, ['--env-file-if-exists=.env', 'scripts/campaign/produce-plans.mjs'],
+    { cwd: ROOT, env, encoding: 'utf8', timeout: 14 * 60 * 1000 });
+  const lines = outputLines(r);
+  const failed = spawnFailure(r);
+  const last = lines.filter(l => l.startsWith('warroom_plans ')).at(-1) ?? null;
+  const status = failed || r.status !== 0 || !last ? 'error' : /PARTIAL/.test(last) ? 'partial' : 'ok';
+  record('warroom_plans', status, { exit: r.status, line: (last ?? failed ?? lines.slice(-3).join(' | ')).slice(0, 300) });
+  log(`${stamp()} ${'warroom_plans'.padEnd(18)} ${status === 'ok' ? 'ok' : status.toUpperCase()} `
+    + `${(last ?? failed ?? `exit ${r.status}`).slice(0, 200)} (${Date.now() - t0} ms)`);
+}
+
 const sha = value => crypto.createHash('sha1').update(JSON.stringify(value)).digest('hex').slice(0, 16);
 
 /**
@@ -275,6 +298,7 @@ export async function tick({ jobs = FANTASY_LIVE_JOBS, spawn = spawnSync, log = 
   step('roster_snapshots', () => rosterSnapshots({ spawn, log, record }));
   step('league_chat', () => chatBackfill({ spawn, log, record }));
   step('manager_signals', () => signals());
+  step('warroom_plans', () => warRoomPlans({ spawn, log, record }));
   log(`${stamp()} tick done in ${Math.round((Date.now() - started) / 1000)} s`);
 }
 
@@ -294,7 +318,8 @@ async function main(args = process.argv.slice(2)) {
     return;
   }
   console.log(`${stamp()} refresh-live-data loop every ${loopSeconds} s — jobs: ${FANTASY_LIVE_JOBS.join(', ')}`
-    + ', then league_tx, roster_snapshots, league_chat, manager_signals');
+    + ', then league_tx, roster_snapshots, league_chat, manager_signals'
+    + (process.env.GRIDIRON_WARROOM_ENABLED === '1' ? ', warroom_plans' : ''));
   while (!stopping) {
     await tick({ force, managerSignals });
     const until = Date.now() + loopSeconds * 1000;

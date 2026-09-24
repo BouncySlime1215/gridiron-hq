@@ -34,7 +34,7 @@ Cross-cutting rule (UI spec finding): the engine reader must return a TYPED abse
 
    | Number | Producer on main (or in PR) | Extended by |
    |---|---|---|
-   | This week's number | `weekly-blend.js` (#164, the BLEND-01 producer) | PROJ-01, BLEND-02 |
+   | This week's number | `blend-week.js` (#291 BROKEN-G; #164's blend is a layer in it, ruling 18) | PROJ-01, BLEND-02 |
    | Volume/share chain | `projections.js` (already `targets = target_share x team pass attempts`, :1-17, team volume :394/:817) | PROJ-02 |
    | Game-level expectations from lines | `gamescript.js` (:331/:389/:416) | PROJ-03-a |
    | Per-player week draws | `projections.js:861 sampleWeekEvents` / `:981 sampleWeeks` (independent negative-binomial volume per player today, :871-877) | PROJ-03-b |

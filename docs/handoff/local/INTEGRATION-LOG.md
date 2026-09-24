@@ -2,7 +2,25 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-24 09:04Z.
+Last rebuilt: 2026-09-24 11:53Z.
+
+## #364: Integration 6: people board, names, partner kernel, title-odds fix (11 PRs)
+
+- Merged: 7:52 AM ET, Sep 24 as `d8f7fa3b`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #359: Integration 5: 10 AM War Room + Coach UI (14 PRs)
+
+- Merged: 7:17 AM ET, Sep 24 as `b7c79d94`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #340: Merge train batch 4: people core (one reader + one counterpart + untouchables), one planner, sim truth, Coach, feasibility, evals
+
+- Merged: 5:28 AM ET, Sep 24 as `3b72b78d`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #333: fix: War Room polish, the 8 league-4 audit defects (WR-POLISH)
 

@@ -6,8 +6,8 @@
  *      LIVING-01b (a SHA-256 of their seeded output, taken on the base commit);
  *   2. same seed, same living season; the frozen odds it reports are the frozen sim's
  *      own on the same draws (common random numbers);
- *   3. a checked-out manager leaves stale lineups (a dead starter in ~93% of weeks,
- *      LIVING-01a's fitted rate) and makes no claims; an engaged one claims the free
+ *   3. a checked-out manager leaves stale lineups (a dead starter in ~93% of his
+ *      checked-out weeks, LIVING-01a's fitted rate) and barely claims; an engaged one claims the free
  *      agent and rarely leaves a dead slot;
  *   4. RL-19-2's structure holds: the fast rescore on a shared world equals the two
  *      full runs under the flag.
@@ -140,7 +140,8 @@ const all = v => new Map(['1', '2', '3', '4'].map(id => [id, v]));
 const sha = x => crypto.createHash('sha256').update(JSON.stringify(x, (k, v) =>
   v instanceof Map ? [...v].map(([a, b]) => [a, { title: [...b.title], playoffs: [...b.playoffs] }]) : v)).digest('hex');
 
-// Taken on the base (PR #241 head d748c02) before any LIVING-01b code: the seeded
+// Taken on the base (PR #241 head d748c02) before any LIVING-01b code, and re-checked
+// on main 3b72b78d (its season-sim.js alone gives the same hash): the seeded
 // outputs of simulateSeason (2 seeds) and tradeImpact (both paths) on this fixture.
 const GOLDEN_OFF = '8c80fa4b88d042a7a4bff5bebd6ba9c19af5284e3db6d6fcfa14d1098a60bd45';
 
@@ -187,9 +188,12 @@ test('LIVING-01b: a checked-out manager leaves stale lineups and makes no claims
   const teamWeeks = 4 * 3;   // four teams over weeks 2, 3 and the week-4 final
   const out = withEnv(ON, () => sim(31, { living: all(state(0, 0, 1)) }));
   const share = out.living.lineup_errors_per_run / teamWeeks;
-  // LIVING-01a: sigmoid(2.6171) = 0.932 in the checked-out state.
-  assert.ok(Math.abs(share - 0.932) < 0.03, `dead-starter share ${share}`);
-  assert.ok(out.living.adds_per_run < 0.05, `adds per run ${out.living.adds_per_run}`);
+  // LIVING-01a: sigmoid(2.6171) = 0.932 in the checked-out state; ~3% of team-weeks
+  // drift back out of it, so ~0.905 overall.
+  assert.ok(Math.abs(share - 0.905) < 0.03, `dead-starter share ${share}`);
+  // LIVING-01a lam plus the drift back out of checked_out: ~0.09 claims per team over the
+  // three weeks, ~0.36 a run for four teams (engaged: ~20).
+  assert.ok(out.living.claims_per_run < 0.8, `claims per run ${out.living.claims_per_run}`);
   assert.ok(out.living.checked_out_share > 0.97);
   for (const t of out.teams) {
     const f = out.living.frozen.find(x => x.roster_id === t.roster_id);
@@ -198,7 +202,15 @@ test('LIVING-01b: a checked-out manager leaves stale lineups and makes no claims
   // Control: engaged managers rarely leave a dead slot (sigmoid(-2.8666) = 0.054) and do claim.
   const eng = withEnv(ON, () => sim(31, { living: all(state(1, 0, 0)) }));
   assert.ok(eng.living.lineup_errors_per_run / teamWeeks < 0.12, `engaged share ${eng.living.lineup_errors_per_run / teamWeeks}`);
-  assert.ok(eng.living.adds_per_run > 0.5, `engaged adds ${eng.living.adds_per_run}`);
+  assert.ok(eng.living.claims_per_run > 15, `engaged claims ${eng.living.claims_per_run}`);
+  assert.ok(eng.living.adds_per_run > 0.9, `engaged: the 15-ppg free agent is claimed (${eng.living.adds_per_run})`);
+});
+
+test('LIVING-01b: a drifting manager can check out mid-season (the fitted weekly transitions)', () => {
+  const out = withEnv(ON, () => sim(37, { living: all(state(0, 1, 0)) }));
+  // From drifting, LIVING-01a moves to checked_out 5.2% a week: over weeks 2-4 about 9% of team-weeks.
+  const share = out.living.checked_out_share;
+  assert.ok(share > 0.05 && share < 0.15, `checked-out share ${share}`);
 });
 
 test('LIVING-01b: one checked-out team loses ground to engaged league-mates', () => {

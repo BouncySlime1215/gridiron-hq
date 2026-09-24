@@ -41,6 +41,13 @@ export const STOP_STATUSES = Object.freeze(['next', 'waiting', 'done', 'dropped'
 export const REASONING_SLOTS = Object.freeze(['case_for', 'his_side', 'devils_advocate', 'news_check', 'confidence', 'counter']);
 export const BRAIN_CHECK_IDS = Object.freeze(['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7']);
 export const MAX_ALTERNATIVES = 5;
+/**
+ * Nick's one-tap reasons, shared by the War Room deck, Coach's request schema
+ * (warroom-actions/schema.js) and the producer's skip weights, so a reason id
+ * means one thing everywhere.
+ */
+export const SKIP_REASONS = Object.freeze(['player', 'cost', 'manager', 'not_now']);
+export const DECLINE_REASONS = Object.freeze(['wants_more', 'likes_his_player', 'not_interested', 'not_now', 'other']);
 
 /**
  * stop_tradeoffs keys, exactly as Coach builds them (warroomCoach.ts tradeoffKey):

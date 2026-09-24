@@ -6,24 +6,22 @@
  * does that work off the request thread. Tables: server/migrations/076_warroom_requests.js.
  */
 import { row, rows, run } from '../../db/index.js';
-import { previewUnconfirmed, previewFields } from '../preview-mode.js';
+import { previewFields } from '../preview-mode.js';
+import { warRoomFlag } from '../warroom-flag.js';
 import { validateRequest, validateAction } from './schema.js';
 
-export const WARROOM_ENV = 'GRIDIRON_WARROOM_ENABLED';
-
 /**
- * Default off. On with GRIDIRON_WARROOM_ENABLED=1, or locally through preview
- * mode (preview-mode.js stays the only reader of its own variable).
- * WAR-ROOM-UI.md section 6 names server/services/warroom-flag.js as the one
- * reader for the dashboard; when that file lands this should call it instead.
+ * Default off. warroom-flag.js is the one reader of GRIDIRON_WARROOM_ENABLED
+ * (and of preview mode for the War Room); the controls follow the same switch
+ * as the dashboard.
  */
 export function warRoomEnabled() {
-  return process.env[WARROOM_ENV] === '1' || previewUnconfirmed();
+  return warRoomFlag().enabled;
 }
 
 /** Fields a response carries when the War Room is on only because of preview mode. */
 export function warRoomPreview() {
-  return process.env[WARROOM_ENV] !== '1' && previewUnconfirmed()
+  return warRoomFlag().preview
     ? previewFields('War Room controls are default-off; on only because of preview mode')
     : {};
 }

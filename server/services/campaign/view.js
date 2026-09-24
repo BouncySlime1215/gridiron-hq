@@ -22,7 +22,7 @@ export const PRODUCER = 'campaign-producer';
 export const PRODUCER_VERSION = '1';
 export const FIELD_STATUSES = Object.freeze(['ok', 'zero', 'thin', 'stale', 'fallback', 'unknown', 'failed']);
 export const SOURCE_IDS = Object.freeze(['sim.title', 'clone.accept', 'clone.price', 'market.fc', 'plan.path',
-  'coach.text', 'plan.template', 'eval.check', 'audit.numbers', 'chat.labels', 'asset.ros']);
+  'coach.text', 'plan.template', 'eval.check', 'audit.numbers', 'chat.labels', 'asset.ros', 'people.profile']);
 export const PREVIEW_REASON = "Plans use today's unvalidated chance-he-says-yes model (E1 pending)";
 export const SECTIONS = Object.freeze(['destination', 'next_move', 'replies', 'deck', 'itinerary', 'suggestions',
   'speed_curve', 'flips', 'brain_check', 'number_health', 'risk_modes', 'catch_up', 'partners', 'feasibility', 'confirm']);
@@ -63,6 +63,10 @@ function card(plan, pb, i, ctx) {
   ];
   if (plan.confirm) why.push({ text: `Re-checked on fresh dice: ${plan.confirm.verdict}.`, source: 'sim.title' });
   if (pb?.wait?.flag === 'wait') why.push({ text: `Wait ${pb.wait.days} days: ${pb.wait.reason}.`, source: 'plan.path' });
+  // CAMPAIGN-PEOPLE: every people adjustment is a line in the reason chain (trait label, weight, effect).
+  for (const f of pb?.people?.features ?? []) {
+    why.push({ text: `His side: ${f.trait} (${f.step}): ${f.effect}.`, source: 'people.profile', feature: f.feature, weight: f.weight, from: f.source });
+  }
   return {
     step_index: i, of_steps: plan.steps.length, partner: String(st.team), give: ids(st.give), get: ids(st.get),
     target: plan.target != null ? String(plan.target) : null,
@@ -84,6 +88,7 @@ function card(plan, pb, i, ctx) {
     wait: pb?.wait ?? null,
     why, vs_finder: null, sent: null,
     confirm: plan.confirm ?? null,
+    ...(pb?.people ? { his_side: pb.people.his_side, people_features: pb.people.features } : {}),
     label: `Offer Team ${st.team}: ${st.give.map(nm).join(' + ')} for ${st.get.map(nm).join(' + ')}`,
   };
 }
@@ -193,7 +198,10 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     gain: num(c.gain, 'plan.path') })), src('plan.path'));
   const partners = field('ok', res.partners.map(p => ({ team: p.team, p_responds: p.p_responds, basis: p.basis,
     edge: num(p.edge, 'plan.path'), score: p.score, shadow_score: p.shadow_score, chat: p.chat,
-    checked_out: p.checked_out, blocked: p.blocked })), { ...src('chat.labels'), reason: 'chat labels run in shadow; ranking uses activity x edge' });
+    checked_out: p.checked_out, blocked: p.blocked,
+    ...(p.people ? { excluded: p.excluded, people: p.people, his_side: p.his_side } : {}) })),
+  { ...src('chat.labels'), reason: res.people?.enabled ? 'ranking uses activity x people weights x edge; chat labels still shadow'
+    : 'chat labels run in shadow; ranking uses activity x edge' });
   const feasibility = res.feasibility ? field('ok', res.feasibility, src('sim.title'))
     : res.outlook ? field('ok', { kind: 'outlook', season_mean: res.outlook.season_mean, per_week: res.outlook.per_week.map(w => ({ week: w.week, mean: w.mean })) }, src('sim.title'))
       : unknown('The weekly points outlook was not computed.', 'sim.title');
@@ -215,7 +223,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     objective: { ...o, tolerances: res.tolerances }, next_step: best ? best.steps[0] : null,
     objective_version: o.version, risk_mode: o.risk_mode, trajectory: prevTraj ?? trajectory,
     acq, flip: { pairs: res.flip.pairs, clears: res.flip.clears, top: res.flip.top, realised: res.flip.realised },
-    view, changed, rescores: res.rescores, runtime_ms: res.runtime_ms, phases_ms: res.phases_ms,
+    view, changed, people: res.people ?? null, people_versions: res.people?.versions ?? null, rescores: res.rescores, runtime_ms: res.runtime_ms, phases_ms: res.phases_ms,
   };
 }
 

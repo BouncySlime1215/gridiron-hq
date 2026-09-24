@@ -13,6 +13,7 @@
  *   skip log     options Nick skipped sink (a multiplier on the positive score),
  *                they are not hidden; "not now" fades after a week.
  */
+import { respondsWeight, hisSide } from './counterpart.js';
 
 export const UNKNOWN = 'unknown';
 /** P(responds) at receptiveness 1.0 (no information). Hand-set anchor, not fitted. */
@@ -70,16 +71,21 @@ export function shadowResponds(pr, labels) {
  * Rank partners: edge = best expected gain available through him (objective units).
  * managers: Map team -> { ...layer entry, checked_out, blocked, chat }
  */
-export function rankPartners(managers, edgeByTeam) {
+export function rankPartners(managers, edgeByTeam, { people = null } = {}) {
   const out = [];
   for (const [team, m] of managers) {
-    const pr = pResponds(m);
+    const cp = people?.get(String(team)) ?? null;
+    const rw = cp ? respondsWeight(cp) : null;
+    const pr = pResponds(rw?.excluded ? { ...m, blocked: false } : m);
+    const p = rw ? (rw.excluded ? 0 : clamp(pr.p * rw.w, 0, 0.95)) : pr.p;
     const edge = edgeByTeam.get(String(team)) ?? 0;
-    out.push({ team: String(team), p_responds: pr.p, basis: pr.basis, edge, score: pr.p * Math.max(0, edge),
-      chat: m.chat ?? chatLabels(), shadow_score: (shadowResponds(pr.p, m.chat) ?? pr.p) * Math.max(0, edge),
-      checked_out: !!m.checked_out, blocked: !!m.blocked });
+    out.push({ team: String(team), p_responds: p, basis: rw?.excluded ? `excluded: ${rw.reason}` : rw?.features.length ? `${pr.basis}; people x${rw.w.toFixed(2)}` : pr.basis,
+      edge, score: p * Math.max(0, edge),
+      chat: m.chat ?? chatLabels(), shadow_score: (shadowResponds(p, m.chat) ?? p) * Math.max(0, edge),
+      checked_out: !!m.checked_out, blocked: !!m.blocked && !rw?.excluded,
+      ...(cp ? { excluded: !!rw.excluded, people: rw.features, his_side: hisSide(cp) } : {}) });
   }
-  return out.sort((a, b) => b.score - a.score);
+  return out.sort((a, b) => (!!a.excluded - !!b.excluded) || b.score - a.score);
 }
 
 /**

@@ -6,6 +6,7 @@
  * can fire only when the move Nick should make is different.
  */
 import { dealKey } from './paths.js';
+import { profileChanges } from './counterpart.js';
 
 export function nextMoveKey(entry) {
   const s = entry?.next_step ?? null;
@@ -13,20 +14,25 @@ export function nextMoveKey(entry) {
 }
 
 /**
- * prev / next: { next_step, objective_version, risk_mode, title_now, roster_key }
- * Returns { changed, reason, previous_key, next_key }.
+ * prev / next: { next_step, objective_version, risk_mode, title_now, roster_key, people_versions }
+ * Returns { changed, reason, previous_key, next_key, profile_changed }. profile_changed (CAMPAIGN-PEOPLE):
+ * teams whose profile version moved since the last plan, recorded even when the move holds.
  */
 export function diffNextMove(prev, next) {
   const nk = nextMoveKey(next);
-  if (!prev) return { changed: nk !== 'none', reason: nk === 'none' ? 'no move yet' : 'first plan for this league', previous_key: null, next_key: nk };
+  if (!prev) return { changed: nk !== 'none', reason: nk === 'none' ? 'no move yet' : 'first plan for this league', previous_key: null, next_key: nk, profile_changed: [] };
   const pk = nextMoveKey(prev);
-  if (pk === nk) return { changed: false, reason: 'same next move', previous_key: pk, next_key: nk };
+  const profile_changed = profileChanges(prev.people_versions, next.people_versions);
+  if (pk === nk) return { changed: false, reason: 'same next move', previous_key: pk, next_key: nk, profile_changed };
+  const involved = [prev.next_step?.team, next.next_step?.team].filter(t => t != null).map(String);
+  const moved = profile_changed.find(t => involved.includes(t));
   let reason;
   if (nk === 'none') reason = 'no move clears the bar now';
   else if ((prev.objective_version ?? 0) !== (next.objective_version ?? 0)) reason = 'you changed the goal';
   else if (prev.risk_mode !== next.risk_mode) reason = `risk mode changed to ${next.risk_mode}`;
   else if (prev.roster_key && next.roster_key && prev.roster_key !== next.roster_key) reason = 'rosters changed (a trade, claim or drop landed)';
+  else if (moved) reason = `his profile changed: Team ${moved}`;
   else if (pk !== 'none' && prev.next_step && next.next_step && String(prev.next_step.team) !== String(next.next_step.team)) reason = `better partner now: Team ${next.next_step.team}`;
   else reason = 'new numbers moved a different deal to the top';
-  return { changed: true, reason, previous_key: pk, next_key: nk };
+  return { changed: true, reason, previous_key: pk, next_key: nk, profile_changed };
 }

@@ -15,6 +15,9 @@
  *   GRIDIRON_WARROOM_OFFERS      input    JSONL { league, manager, at } (optional; "I sent it" log, fatigue cap)
  *   GRIDIRON_WARROOM_PUSHES      output   JSONL, one row per league whose next move changed
  *   GRIDIRON_CHAT_DB_PATH        input    local chat DB (optional; labels only)
+ *   GRIDIRON_WARROOM_PEOPLE      input    { "<league id>": { "<roster id>": { ...typed profile keys } } } (optional;
+ *                                          Nick's ground truth per manager, wins over the chat profile)
+ *   GRIDIRON_CAMPAIGN_PEOPLE_ENABLED  flag  1 on / 0 off / unset follows preview mode (counterpart model)
  * Defaults for the inputs sit next to the plans file.
  *
  * Every re-run diffs each league's next move against the previous plans file and
@@ -104,6 +107,9 @@ async function main() {
     const { diffNextMove } = await import('../../server/services/campaign/replan.js');
     const { rankAttention } = await import('../../server/services/campaign/attention.js');
     const { toEntry, validateEntry, plansFile } = await import('../../server/services/campaign/view.js');
+    const { campaignPeople } = await import('../../server/services/campaign/people-flag.js');
+    const peopleFlag = campaignPeople(env);
+    const peopleOverrides = readObjectives(sibling(env, 'GRIDIRON_WARROOM_PEOPLE', 'people.json'));
 
     const objectives = readObjectives(sibling(env, 'GRIDIRON_WARROOM_OBJECTIVES', 'objectives.json'));
     const skips = readJsonl(sibling(env, 'GRIDIRON_WARROOM_SKIPS', 'skips.jsonl'));
@@ -122,14 +128,14 @@ async function main() {
       try {
         const chat = await chatRowsFor(id);
         const ta = Date.now();
-        const adapter = buildAdapter(svc, id, { chat: chat.rows, offerLog: offers.rows });
+        const adapter = buildAdapter(svc, id, { chat: chat.rows, offerLog: offers.rows, peopleOverrides: peopleOverrides[String(id)] ?? null });
         const adapterMs = Date.now() - ta;
         if (adapter.fail) throw new Error(`world failed: ${adapter.fail}`);
         const objective = normaliseObjective(objectives[String(id)] ?? {}, { leagueGoal: objectives[String(id)]?.goal ?? 'title' });
         const res = planLeague(adapter, { objective, skips: skipWeights(skips.rows, id), previous: prev,
-          budget: { flipTopPer: opts.flipTop, targets: opts.targets } });
+          budget: { flipTopPer: opts.flipTop, targets: opts.targets }, people: { enabled: peopleFlag.enabled, now: Date.now() } });
         const next = { next_step: res.best?.steps[0] ?? null, objective_version: objective.version, risk_mode: objective.risk_mode,
-          roster_key: res.error ? null : adapter.rosterKey() };
+          roster_key: res.error ? null : adapter.rosterKey(), people_versions: res.people?.versions ?? null };
         const changed = diffNextMove(prev, next);
         entry = toEntry(res, { names: adapter.names(), as_of: generated_at, previous: prev, changed });
         entry.roster_key = next.roster_key;
@@ -137,7 +143,7 @@ async function main() {
         entry.inputs = { chat: { status: chat.status, reason: chat.reason ?? null, negotiation: chat.negotiation ?? null },
           skips: { status: skips.status, rows: skips.rows.filter(s => String(s.league) === String(id)).length, bad_lines: skips.bad },
           offers: { status: offers.status, bad_lines: offers.bad }, deadline: adapter.league.deadline_source,
-          objective: objective.source };
+          objective: objective.source, people: { ...peopleFlag, overrides: Object.keys(peopleOverrides[String(id)] ?? {}).length } };
         const errs = validateEntry(entry);
         if (errs.length) throw new Error(`plans JSON failed its contract check: ${errs.slice(0, 3).join('; ')}`);
       } catch (e) {

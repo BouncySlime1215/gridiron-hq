@@ -30,10 +30,15 @@ const teamsIn = res => new Set([res.best, ...res.deck.map(c => c.plan)].filter(B
 
 test('1 targets: an untouchable is never suggested; a frustrated owner ranks his player up', () => {
   const off = plan({}, {}, false).res;
-  assert.ok(off.suggestions.some(s => String(s.player) === '21'), 'fixture: P21 is a suggestion without people');
-  const on = plan({ 3: { values_talk: { untouchable: [21] } } }).res;
-  assert.ok(!on.suggestions.some(s => String(s.player) === '21'), 'untouchable skipped');
-  assert.ok(!on.targets.some(t => String(t) === '21'));
+  assert.ok(off.suggestions.some(s => String(s.player) === '11'), 'fixture: P11 is a suggestion without people');
+  assert.ok(off.targets.some(t => String(t) === '11'));
+  const on = plan({ 2: { values_talk: { untouchable: [11] } } }).res;
+  assert.ok(!on.suggestions.some(s => String(s.player) === '11'), 'untouchable skipped');
+  assert.ok(!on.targets.some(t => String(t) === '11'));
+  // Only team 2 left to ask: the untouchable must be filtered, not merely ranked last (call-site mutant).
+  const solo = plan({ 2: { values_talk: { untouchable: [11] } }, 3: { contactable: false }, 4: { contactable: false } }).res;
+  assert.ok(solo.suggestions.length > 0, 'fixture: team 2 still has suggestions');
+  assert.ok(!solo.suggestions.some(s => String(s.player) === '11'), 'untouchable filtered even when the list has room');
   const w = C.targetWeight(cp({ deal_feelings: { frustrated_with: [11], urgency: 'high' }, values_talk: { wants: ['RB'] } }), 11, { nickPositions: ['RB'] });
   assert.ok(w.w > 1.5 && !w.skip);
   assert.deepEqual(w.features.map(f => f.feature), ['people.frustrated_with', 'people.urgency', 'people.wants']);
@@ -44,6 +49,7 @@ test('1 targets: an untouchable is never suggested; a frustrated owner ranks his
 test('2 partners: contactable:false is EXCLUDED everywhere; buyer:false and hard sink P(responds)', () => {
   const { res } = plan({ 3: { contactable: false } });
   assert.ok(!teamsIn(res).has('3'), 'no plan routes through a manager who cannot be contacted');
+  assert.ok(!res.suggestions.some(s => String(s.owner) === '3'), 'none of his players is suggested as a target');
   const row = res.partners.find(p => p.team === '3');
   assert.equal(row.excluded, true); assert.equal(row.score, 0);
   assert.equal(res.partners[res.partners.length - 1].team, '3', 'excluded partner listed last');
@@ -155,7 +161,7 @@ test('9 replanning: a changed profile version is an event that re-runs the plan 
   const same = diffNextMove({ ...prev, people_versions: { 3: 'v1' } }, { ...prev, people_versions: { 3: 'v2' } });
   assert.equal(same.changed, false);
   assert.deepEqual(same.profile_changed, ['3'], 'the event is recorded even when the move holds');
-  const { res } = plan({ 2: { version: 'v7', urgency: 'x' } });
+  const { res } = plan({ 2: { version: 'v7', posture: 'haggler' } });
   assert.equal(res.people.versions['2'], 'v7');
 });
 

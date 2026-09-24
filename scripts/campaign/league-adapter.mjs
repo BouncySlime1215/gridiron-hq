@@ -12,6 +12,7 @@
  *   managers          counterparty layer (activity, needs) + timing read + chat labels
  */
 import { chatLabels } from '../../server/services/campaign/partners.js';
+import { readProfile } from '../../server/services/people/profile-adapter.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 const FLEX = { FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'], WRRB_FLEX: ['RB', 'WR'],
@@ -91,12 +92,20 @@ function sentThisWeek(svc, leagueId, season, me, now, offerLog = []) {
   return out;
 }
 
+/** A manager's typed profile (profile-adapter.js) with Nick's override merged in; null raw + no override -> unknown. */
+function peopleProfile(raw, override, nameToId) {
+  if (raw == null && override == null) return readProfile(null);
+  return readProfile({ ...(raw ?? {}), ...(override ? { nick_override: override } : {}) }, { nameToId });
+}
+
 /**
  * Build the adapter for one league. chat: Map roster -> { profile, negotiation, sentiment: [{ player
  * (name), sentiment_mean, n }] } from scripts/campaign/chat-labels.mjs, or null (no chat -> every
  * label 'unknown'); offerLog: parsed War Room offer log rows.
+ * peopleOverrides (CAMPAIGN-PEOPLE): { "<roster id>": { ...typed keys } }, Nick's ground truth, merged
+ * into each manager's profile as `nick_override` (it wins over the profile, key by key).
  */
-export function buildAdapter(svc, leagueId, { chat = null, offerLog = [], now = Date.now() } = {}) {
+export function buildAdapter(svc, leagueId, { chat = null, offerLog = [], now = Date.now(), peopleOverrides = null } = {}) {
   const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg) throw new Error(`league ${leagueId} not found`);
   const payload = JSON.parse(lg.payload ?? '{}');
@@ -192,6 +201,7 @@ export function buildAdapter(svc, leagueId, { chat = null, offerLog = [], now = 
       title_now: titleByTeam.get(t) ?? null,
       sent_this_week: sent.get(t) ?? 0,
       send_when: send,
+      people: peopleProfile(chat?.get(t)?.negotiation ?? null, peopleOverrides?.[t] ?? null, nameToId),
       chat: chat?.has(t) ? chatLabels({ ...chat.get(t),
         sentiment: (chat.get(t).sentiment ?? []).map(x => ({ ...x, player: nameToId(x.player) ?? x.player })) }) : chatLabels(),
     });

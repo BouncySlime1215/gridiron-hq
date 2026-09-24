@@ -118,6 +118,9 @@ export function makeAdapter({ seed = 12345, receptiveness = { 2: 0.3, 3: 1.3, 4:
     return build(seed).rescore(state, '1', '2').me.title_after === build(seed).rescore(new Map(state), '1', '2').me.title_after;
   };
   return {
+    // NO-OVERPAY: this fixture's worlds predate Nick's cap on market value given; they plan uncapped
+    // (the cap itself is covered by test/campaign-no-overpay.test.js).
+    maxOverpay: Infinity,
     league: { id: 99, me: '1', fetched_at: 'fixture', week: 4, deadline_week: 8, days_left_in_week: 3, team_count: 4 },
     seed, world, worldsBuilt, rosters, players, managers,
     starters: new Set([1, 2, 3, 4, 5]),

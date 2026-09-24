@@ -24,7 +24,7 @@ import { rankPartners, planSkipWeight, pResponds } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
-import { makeScorer, playerValues, flipMap, searchTarget, publicPlan } from './search.js';
+import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink } from './search.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
 
 /** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
@@ -61,7 +61,7 @@ export function backupBranches(best, ranked) {
   });
 }
 
-function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta) {
+function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta, maxOverpay) {
   const me = adapter.league.me;
   const val = id => Math.max(0, Number(adapter.players.get(id)?.value) || 0);
   const mine = S.rosterOf(stateBefore, me).filter(vals.tradable);
@@ -76,11 +76,14 @@ function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta) {
     const gv = give.reduce((s, id) => s + val(id), 0);
     const his = screenPct(gv, getV);
     if (his == null || his < CURVE_WINDOW.low || his > CURVE_WINDOW.high) continue;
+    // NO-OVERPAY: the ladder (opening, walk-away) never climbs past Nick's cap on market value given.
+    if (nickOverpays(gv, getV, maxOverpay)) continue;
     const p = adapter.priceStep(step.team, step.get, give).p;
     const delta = lin(S.applyTrade(stateBefore, me, step.team, give, step.get)) * scale;
     out.push({ give, his_pct: his, p, delta, nick_gain: p * delta });
   }
-  return { curve: out.sort((a, b) => a.his_pct - b.his_pct).slice(0, 60), basis: 'linear single-player values, rescaled to the exact rescore of the planned package' };
+  return { curve: out.sort((a, b) => a.his_pct - b.his_pct).slice(0, 60),
+    basis: `linear single-player values, rescaled to the exact rescore of the planned package; never past +${Math.round(maxOverpay * 100)}% market value given` };
 }
 
 /**
@@ -109,9 +112,13 @@ export function planLeague(adapter, settings) {
   const base = S.rescore(new Map(), me);
   const now = { title: base.me.title_before, playoff: base.me.playoff_before, metric: metricOf(base.me, objective).before };
 
+  // NO-OVERPAY: Nick's cap on market value given (destination tolerance max_overpay; default 0).
+  // An adapter may carry its own cap (adapter.maxOverpay; the pre-cap test fixtures set Infinity); the destination's wins.
+  const maxOverpay = maxOverpayOf({ max_overpay: objective.tolerances?.max_overpay ?? adapter.maxOverpay });
+  const overpay = newOverpaySink(maxOverpay);
   const vals = playerValues(S, adapter, objective);
   mark('values');
-  const flip = flipMap(S, adapter, vals, { topPer: budget.flipTopPer, realise: budget.flipRealise,
+  const flip = flipMap(S, adapter, vals, { topPer: budget.flipTopPer, realise: budget.flipRealise, maxOverpay,
     daysLeft: Number.isInteger(L.deadline_week) ? Math.max(1, (L.deadline_week - L.week) * 7) : 1 });
 
   mark('flip');
@@ -137,7 +144,7 @@ export function planLeague(adapter, settings) {
   for (const pid of upgrades.slice(0, budget.targets)) want(pid);
 
   let plans = [];
-  for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target));
+  for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay }));
   const skipW = { player: settings.skips?.player ?? new Map(), manager: settings.skips?.manager ?? new Map() };
   plans = plans.map(p => ({ ...p, skip_weight: planSkipWeight(p, skipW) }));
   mark('search');
@@ -184,7 +191,7 @@ export function planLeague(adapter, settings) {
   const playbookFor = (plan, i, backup) => {
     const st = plan.steps[i];
     const stateBefore = i === 0 ? new Map() : plan.steps[i - 1].state ?? (plan.planned_on?.steps[i - 1].state) ?? new Map();
-    const priced = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta);
+    const priced = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta, maxOverpay);
     const m = managers.get(st.team) ?? {};
     // Nick's "hard" read is applied ONCE (RULINGS 17): FIX-02c's hard shift when the adapter carries his block
     // (m.nick, the real producer); otherwise the counterpart's cap at fair on his screen (the same reader flag).
@@ -322,7 +329,8 @@ export function planLeague(adapter, settings) {
   mark('finder_and_sanity');
 
   return {
-    league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: tol,
+    league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: { ...tol, max_overpay: maxOverpay },
+    no_overpay: overpay,
     now, behind, week: L.week, deadline_week: L.deadline_week ?? null,
     eta_week: best ? arrivalWeek(best, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) : null,
     finder_best, sanity,

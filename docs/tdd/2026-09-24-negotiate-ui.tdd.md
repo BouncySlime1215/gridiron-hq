@@ -12,7 +12,7 @@ Base: `origin/claude/cloud-fix-03` (`d7736fe`) with `origin/claude/cloud-fix-04`
 After "I sent it" the deck card becomes a live thread (`Negotiate.tsx`):
 
 1. **Reply branches.** The step's `reply_table` as the plans file served it when the
-   offer went out, stored with the thread (migration 087), so a replan does not rewrite
+   offer went out, stored with the thread (migration 093), so a replan does not rewrite
    what Nick sent against. "He did this" logs his reply; its branch goes live and shows
    its counter rules or ready message. Accept and decline close the thread; a counter
    carries his ask (picked in the builder).

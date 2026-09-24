@@ -1,4 +1,4 @@
-export const name = '087_warroom_negotiations';
+export const name = '093_warroom_negotiations';
 /**
  * NEGOTIATE-UI (WAR-ROOM-UI.md v3, new mode 1). Additive only: two new tables.
  *
@@ -16,8 +16,8 @@ export const name = '087_warroom_negotiations';
  * Written and read by server/services/warroom-negotiate.js only. No manager names:
  * teams are roster ids, players are ids plus the labels the plans file already served.
  *
- * Numbered 087: main tops at 073; 071, 074 and 075 are held by open PRs, and the
- * handoff queue assigned 087 to this unit.
+ * Numbered 093: main tops at 073, and 074-088 and 098 are each held by at least one
+ * open branch (087 by four of them), so this takes an unclaimed number.
  */
 export function up(db) {
   db.exec(`

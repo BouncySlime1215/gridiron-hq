@@ -10,7 +10,7 @@
  *   - the counter builder (warroom-rescorer.js) and the walk-away line.
  *
  * Nothing here sends an offer or changes a plan. Threads live in the two tables of
- * migration 087; every query is parameterised.
+ * migration 093; every query is parameterised.
  */
 import { row, rows, run } from '../db/index.js';
 import { NUDGE_HOURS, SWITCH_HOURS } from './campaign/playbook.js';

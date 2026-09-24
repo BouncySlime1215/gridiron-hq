@@ -2,7 +2,7 @@
  * NEGOTIATE-UI: the War Room's negotiation mode (WAR-ROOM-UI.md v3, new mode 1).
  *
  * Server (server/routes/warroom-negotiate.js, services/warroom-negotiate.js,
- * services/warroom-rescorer.js, migration 087):
+ * services/warroom-rescorer.js, migration 093):
  *  - membership before the flag; flag off answers { enabled: false }; preview says so;
  *  - "I sent it" reads the step from the served view, never the body; one open thread
  *    per move and step; the stored branches are the step's reply_table;
@@ -144,8 +144,8 @@ const fresh = () => { run('DELETE FROM warroom_negotiation_events'); run('DELETE
 
 /* -------------------------------------------------------------- flag + auth */
 
-test('migration 087 adds the two negotiation tables', () => {
-  assert.ok(row(`SELECT 1 AS ok FROM schema_migrations WHERE name = '087_warroom_negotiations'`));
+test('migration 093 adds the two negotiation tables', () => {
+  assert.ok(row(`SELECT 1 AS ok FROM schema_migrations WHERE name = '093_warroom_negotiations'`));
   for (const t of ['warroom_negotiations', 'warroom_negotiation_events']) {
     assert.ok(row(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?`, t), t);
   }

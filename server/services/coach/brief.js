@@ -15,7 +15,7 @@
  * is not in a cited cell drops the claim. A cited string cell quoted word for
  * word is its own evidence, so a producer reason ("No arrive-by week is set.")
  * passes while a number Coach wrote around it still has to ground. A claim
- * marked `strict` (the planner's own why-text) gets no such allowance: each of
+ * marked `strict` (the planner's own prose) gets no such allowance: each of
  * its numbers must match a cited number cell. Dropped claims are kept on the
  * brief with the violation, so nothing is silently lost.
  *
@@ -43,6 +43,14 @@ export const BRIEF_PREVIEW_REASON =
 export const DEFAULT_WINDOW_HOURS = 12;
 /** An earlier brief older than this does not set the window (a missed morning is not "overnight"). */
 export const MAX_WINDOW_HOURS = 36;
+/**
+ * Rows arrive late (an ESPN sync writes a 6:55 decline at 7:30; the classifier labels
+ * a message hours after it was sent), so the next window reaches back this far past
+ * the last brief's end, and skips rows that brief already reported.
+ */
+export const LATE_ROWS_HOURS = 6;
+/** How many reported row keys a brief carries forward to the next one. */
+const MAX_CARRIED_KEYS = 2000;
 export const PUSH_MAX_CHARS = 280;
 
 /** { on, preview }: the flag wins either way; preview mode fills in only when it is unset. */
@@ -99,17 +107,23 @@ function save(db, key, body) {
 }
 
 /**
- * Where this morning's window starts. A brief already built today (ET) keeps
- * its start, so a re-read the same morning covers the same night; otherwise
- * the last brief's end, if it is recent enough to count as "overnight".
+ * Where this morning's window starts, and which rows it skips. A brief already
+ * built today (ET) keeps its start and skip list, so a re-read the same morning
+ * covers the same night. Otherwise the window starts LATE_ROWS_HOURS before the
+ * last brief's end (if that brief is recent enough to count as "overnight") and
+ * skips every row the last brief reported, so a late row is caught and an early
+ * one is not repeated.
  */
 function windowStart(db, leagueId, now) {
   const r = db.prepare(`SELECT body FROM coach_briefs WHERE league_id = ? AND kind = 'morning' ORDER BY id DESC LIMIT 1`).get(leagueId);
-  const w = r ? JSON.parse(r.body).window : null;
+  const b = r ? JSON.parse(r.body) : null;
+  const w = b?.window;
   if (!w?.until) return null;
-  if (etDate(new Date(w.until)) === etDate(now)) return w.since;
+  if (etDate(new Date(w.until)) === etDate(now)) return { since: w.since, exclude: b.exclude ?? [] };
   const age = now.getTime() - Date.parse(w.until);
-  return age > 0 && age <= MAX_WINDOW_HOURS * 3600e3 ? w.until : null;
+  if (!(age > 0 && age <= MAX_WINDOW_HOURS * 3600e3)) return null;
+  return { since: new Date(Date.parse(w.until) - LATE_ROWS_HOURS * 3600e3).toISOString(),
+    exclude: [...(b.reported ?? []), ...(b.exclude ?? [])].slice(0, MAX_CARRIED_KEYS) };
 }
 
 /* ------------------------------------------------------------ grounding */
@@ -126,6 +140,11 @@ export function checkClaim(claim, ledger) {
       const v = ledger.cell(cite)?.value;
       if (typeof v === 'string' && v.length >= 3) text = text.split(v).join(' ');
     }
+  }
+  // Identifier phrases ("Team 7", a player's name) are names, not claims: removed
+  // longest first so "Team 12" never leaves a stray "2" behind "Team 1".
+  for (const l of [...(claim.labels ?? [])].sort((x, y) => y.length - x.length)) {
+    if (l) text = text.split(l).join(' ');
   }
   return verifyAnswer({ answer: { claims: [{ text, cites: claim.cites }], as_of: 'plans file' }, ledger });
 }
@@ -207,8 +226,10 @@ export function morningBrief({ db, chat = null, file, leagueId = TARGET_LEAGUE, 
   if (f.done) return f.done;
   const { flag, entry, version, cacheOk } = f;
   const until = now.toISOString();
-  const from = since ?? (cacheOk ? windowStart(db, leagueId, now) : null)
-    ?? new Date(now.getTime() - DEFAULT_WINDOW_HOURS * 3600e3).toISOString();
+  const start = since ? null : cacheOk ? windowStart(db, leagueId, now) : null;
+  const from = since ?? start?.since ?? new Date(now.getTime() - DEFAULT_WINDOW_HOURS * 3600e3).toISOString();
+  const skip = start?.exclude ?? [];
+  const exclude = new Set(skip);
   const me = entry.me ?? null;
   const step = entry.next_move?.status === 'ok' ? entry.next_move.value.steps?.[0] : null;
   const partnerOf = moveId => {
@@ -217,13 +238,13 @@ export function morningBrief({ db, chat = null, file, leagueId = TARGET_LEAGUE, 
     return m?.steps?.[0]?.partner == null ? null : String(m.steps[0].partner);
   };
   const inputs = {
-    statements: readStatements(chat, { names: trustedChatNames(db, leagueId), since: from, until, credibility }),
-    replies: readReplies(db, { leagueId, me, since: from, until, partnerOf }),
-    injuries: readInjuries(db, { leagueId, me, since: from, until, watch: step ? [...step.give, ...step.get] : [] })
+    statements: readStatements(chat, { names: trustedChatNames(db, leagueId), since: from, until, credibility, exclude }),
+    replies: readReplies(db, { leagueId, me, since: from, until, partnerOf, exclude }),
+    injuries: readInjuries(db, { leagueId, me, since: from, until, watch: step ? [...step.give, ...step.get] : [], exclude })
   };
   const key = { league: leagueId, kind: 'morning', plan_version: version,
     window_key: `${etDate(now)}|${sha(JSON.stringify(Object.values(inputs).map(s => [s.status, s.rows])))}` };
-  if (cacheOk) {
+  if (cacheOk && !since) {
     const hit = cached(db, key);
     if (hit) return served(flag, hit, true);
   }
@@ -231,9 +252,12 @@ export function morningBrief({ db, chat = null, file, leagueId = TARGET_LEAGUE, 
   const draft = claimsFor('morning', { entry, inputs, ledger, leagueId });
   const { claims, dropped } = ground(draft, ledger);
   const body = { kind: 'morning', league: leagueId, plan_version: version, move_key: moveKey(entry), window: { since: from, until },
+    reported: Object.values(inputs).flatMap(x => x.keys ?? []), exclude: skip,
     plans_as_of: file.generated_at ?? null, claims, dropped,
     text: render(claims, { preview: flag.preview, title: `Morning brief, league ${leagueId}` }),
     ledger: ledger.toJson() };
+  // A hand-picked window (--since) is a one-off read: saving it would make it tonight's window.
+  if (since) return { ...served(flag, body, false), cache: 'not saved: an explicit since is a one-off read' };
   return finish({ db, key, flag, cacheOk, body });
 }
 
@@ -267,7 +291,11 @@ export function nextMovePush({ db, previous, file, leagueId = TARGET_LEAGUE, now
   const f = frame({ db, file, leagueId, env, now });
   if (f.done) return f.done;
   const { flag, entry, version, cacheOk } = f;
-  const before = previous ? moveKey(leagueEntry(previous, leagueId)) : cacheOk ? lastPushedMove(db, leagueId) : null;
+  if (!previous && !cacheOk) {
+    return { status: 'unknown', preview: flag.preview,
+      reason: 'No previous plans file and no coach_briefs table (migration 088), so a change cannot be told from a first plan.' };
+  }
+  const before = previous ? moveKey(leagueEntry(previous, leagueId)) : lastPushedMove(db, leagueId);
   const after = moveKey(entry);
   if (!before && after && !previous && cacheOk) {
     save(db, { league: leagueId, kind: 'push', plan_version: version, window_key: 'baseline' },

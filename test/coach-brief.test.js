@@ -250,11 +250,11 @@ test('cached per plan version and window', () => {
   assert.equal(rows(db, 'morning').length, 3);
 });
 
-test('the next morning starts where the last brief ended', () => {
+test('the next morning starts just before where the last brief ended', () => {
   const db = appDb();
   const a = brief.morningBrief({ db, file: plans(), env: ON, now: MORNING });
   const next = brief.morningBrief({ db, file: plans(), env: ON, now: new Date(MORNING.getTime() + 24 * 3600e3) });
-  assert.equal(next.window.since, a.window.until);
+  assert.equal(Date.parse(a.window.until) - Date.parse(next.window.since), brief.LATE_ROWS_HOURS * 3600e3, 'reaches back for late rows');
   const late = brief.morningBrief({ db, file: plans(), env: ON, now: new Date(MORNING.getTime() + 72 * 3600e3) });
   assert.equal(Date.parse(late.window.until) - Date.parse(late.window.since), brief.DEFAULT_WINDOW_HOURS * 3600e3);
 });
@@ -359,9 +359,10 @@ test('script: args, summary line, and an end-to-end run on a DB copy', () => {
   delete env.GRIDIRON_COACH_BRIEF_ENABLED;
   const run = (...args) => spawnSync(process.execPath, [path.join(ROOT, 'scripts/coach/morning-brief.mjs'), ...args],
     { env, encoding: 'utf8', timeout: 120_000 });
-  const off = run();
+  const off = run('--migrate');
   assert.equal(off.status, 0, off.stderr);
   assert.match(off.stdout, /\[coach-brief\] morning: off/);
+  assert.equal(fs.existsSync(env.GRIDIRON_DB_PATH), false, 'off opens, creates and migrates nothing');
   env.GRIDIRON_COACH_BRIEF_ENABLED = '1';
   const on = run('--migrate', '--json');
   assert.equal(on.status, 0, on.stderr);
@@ -373,4 +374,62 @@ test('script: args, summary line, and an end-to-end run on a DB copy', () => {
   assert.match(on.stderr, /morning league 4: \d+ claims kept, 0 dropped, saved/);
   const again = run();
   assert.match(again.stderr, /from cache/);
+});
+
+/* ------------------------------------------------- review findings (diff review) */
+
+test('strict planner prose: an id or step count cannot ground a number that equals it', () => {
+  const file = plans();
+  // 11 is the id of the player he gets (P11); an id is a label, never evidence for a number.
+  l4(file).next_move.value.reasoning.value.case_for = 'Team 2 wants 11 more points from this.';
+  const r = brief.morningBrief({ db: appDb(), file, env: ON, now: MORNING });
+  assert.ok(r.dropped.some(d => d.text.startsWith('Why: Team 2 wants 11 more')), 'the 11 is not grounded by a player id');
+  const moved = plans();
+  const e = l4(moved);
+  e.next_move.value.move_id = 'L4-x';
+  e._run.changed = { changed: true, reason: 'Team 2 now pays 45% more.' };
+  const p = brief.nextMovePush({ db: appDb(), previous: plans(), file: moved, env: ON });
+  assert.doesNotMatch(p.text, /45%/);
+  assert.ok(p.dropped.some(d => d.text.startsWith('What changed: Team 2 now pays 45%')));
+});
+
+test('a row written after the brief, dated before it, is caught next morning and not repeated', () => {
+  const { db, chat, credibility } = night();
+  const first = brief.morningBrief({ db, chat, file: plans(), env: ON, now: MORNING, credibility });
+  assert.match(first.text, /Team 3 declined your offer\./);
+  // Synced at 7:30 AM ET with the decline's own time, 6:55 AM ET: after the brief ran.
+  db.prepare(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id, model_p_accept,
+    model_basis, status, resolved_at, created_at) VALUES (4, 2026, 'app_proposed', '1', '4', 0.3, 'no_information', 'declined', ?, ?)`)
+    .run('2026-09-24T10:55:00.000Z', '2026-09-24T11:30:00.000Z');
+  const next = brief.morningBrief({ db, chat, file: plans(), env: ON, now: new Date(MORNING.getTime() + 24 * 3600e3), credibility });
+  assert.match(next.text, /Team 4 declined your offer\./);
+  assert.doesNotMatch(next.text, /Team 3 declined|Team 2 countered|Team 7 said/, 'rows already reported are not news twice');
+});
+
+test('a logged reply on a move that left the plan does not repeat its outcome', () => {
+  const db = appDb();
+  db.prepare(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id, model_p_accept,
+    model_basis, status, resolved_at, created_at) VALUES (4, 2026, 'app_proposed', '1', '3', 0.3, 'no_information', 'declined', ?, ?)`)
+    .run(NIGHT, EARLIER);
+  db.prepare(`INSERT INTO warroom_requests (user_id, league_id, kind, payload, created_at) VALUES (1, 4, 'offer.reply', ?, ?)`)
+    .run(JSON.stringify({ move_id: 'L4-gone', reply: 'decline', decline_reason: 'wants_more' }), NIGHT);
+  const r = brief.morningBrief({ db, file: plans(), env: ON, now: MORNING });
+  assert.match(r.text, /Team 3 declined your offer\./);
+  assert.doesNotMatch(r.text, /no longer in the plan/);
+});
+
+test('push without a previous file or the cache table is unknown, not unchanged', () => {
+  const r = brief.nextMovePush({ db: new DatabaseSync(':memory:'), file: plans(), env: ON });
+  assert.equal(r.status, 'unknown');
+  assert.match(r.reason, /migration 088/);
+});
+
+test('an explicit since is a one-off read: not saved, and not tomorrow\'s window', () => {
+  const db = appDb();
+  const r = brief.morningBrief({ db, file: plans(), env: ON, now: MORNING, since: '2026-09-20T00:00:00.000Z' });
+  assert.equal(r.status, 'ok');
+  assert.match(r.cache, /not saved/);
+  assert.equal(rows(db, 'morning').length, 0);
+  const normal = brief.morningBrief({ db, file: plans(), env: ON, now: MORNING });
+  assert.equal(Date.parse(normal.window.until) - Date.parse(normal.window.since), brief.DEFAULT_WINDOW_HOURS * 3600e3);
 });

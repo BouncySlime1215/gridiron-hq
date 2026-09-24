@@ -81,13 +81,17 @@ function nextMove(entry, ledger, section) {
     out.push({ section, cites: [c(0, 'p_yes')],
       text: `Chance he says yes: ${pct(row.p_yes)}${row.guess ? ', a guess until the yes-model is proven' : ''}.` });
   }
-  if (row.case_for) {
-    // The planner's own words, held to the numbers they stand on: no verbatim allowance.
-    out.push({ section, strict: true, text: `Why: ${row.case_for}`,
-      cites: [...['partner', 'delta', 'p_yes', 'title_after', 'steps', 'delta_final', 'p_complete', 'expected'].map(k => c(0, k)), ...deal] });
-  }
+  // The planner's own prose, held to the numbers they stand on: strict, citing only
+  // result cells. Team and player names are removed as labels, never matched as
+  // numbers, so an id or a step count cannot ground a figure that happens to equal it.
+  const teams = [...new Set([String(entry.me), row.partner, move.target_owner,
+    ...(val(entry.alternatives) ?? []).flatMap(m => (m.steps ?? []).map(x => x.partner))]
+    .filter(t => t != null && t !== 'undefined').map(String))].map(t => `Team ${t}`);
+  const labels = [...teams, ...players.map(x => x.name), `${row.steps} step(s)`, `${row.steps} steps`];
+  const numeric = ['delta', 'p_yes', 'title_after', 'delta_final', 'p_complete', 'expected'].map(k => c(0, k));
+  if (row.case_for) out.push({ section, strict: true, labels, text: `Why: ${row.case_for}`, cites: numeric });
   if (row.changed && row.changed_reason) {
-    out.push({ section, text: `What changed: ${row.changed_reason}`, cites: [c(0, 'changed_reason')] });
+    out.push({ section, strict: true, labels, text: `What changed: ${row.changed_reason}`, cites: [c(0, 'changed_reason'), ...numeric] });
   }
   if (row.send_when) out.push({ section, text: `When: ${row.send_when}`, cites: [c(0, 'send_when')] });
   return out;

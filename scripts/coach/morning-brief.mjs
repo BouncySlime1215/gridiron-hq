@@ -59,13 +59,13 @@ export function summaryLine(kind, r) {
 
 async function main() {
   const a = parseArgs(process.argv);
+  // The flag first: off must not open, create or migrate any DB.
+  const brief = await import('../../server/services/coach/brief.js');
+  if (!brief.coachBriefFlag().on) { console.log(summaryLine(a.kind, { status: 'off', line: `${brief.BRIEF_ENV} not 1` })); return; }
   const { db } = await import('../../server/db/index.js');
   if (a.migrate) await (await import('../../server/db/migrate.js')).runMigrations();
   const { warRoomPlansPath } = await import('../../server/services/warroom-flag.js');
-  const brief = await import('../../server/services/coach/brief.js');
   const leagueId = a.league ?? brief.TARGET_LEAGUE;
-  const flag = brief.coachBriefFlag();
-  if (!flag.on) { console.log(summaryLine(a.kind, { status: 'off', line: `${brief.BRIEF_ENV} not 1` })); return; }
   const file = readPlans(a.plans ?? warRoomPlansPath());
   let r;
   if (a.kind === 'weekly') r = brief.weeklyCheckIn({ db, file, leagueId });

@@ -32,7 +32,7 @@ Error [ERR_MODULE_NOT_FOUND]: Cannot find module '.../server/services/coach/brie
 ## GREEN
 
 ```
-node --test test/coach-brief.test.js      # 19 pass, 0 fail
+node --test test/coach-brief.test.js      # 24 pass, 0 fail (19 + 5 from the diff review)
 ```
 
 What the tests pin:
@@ -58,6 +58,29 @@ What the tests pin:
   characters, cut at whole claims, and is announced once. A failed next move is not a change.
 - **Script.** Argument parsing, the "off" line, and an end-to-end `--migrate --json` run on a
   temp DB, then a cache hit on the second run.
+
+## Diff review (one reviewer agent, read the diff)
+
+The reviewer found seven defects, all fixed with a test each:
+
+1. **Strict "Why" cited id and count cells.** `verify.js` also accepts a value ×100 or ÷100, so
+   a planner number equal to a team id, a player id or the step count got through. The claim now
+   cites only result cells. Team and player names are removed as labels and never used as
+   evidence.
+2. **"What changed" had the quote allowance but is planner prose.** It is now strict, like
+   "Why".
+3. **Rows can arrive after the brief but carry an earlier timestamp.** Example: an ESPN sync
+   writes a 6:55 AM decline at 7:30 AM. The next window now reaches `LATE_ROWS_HOURS` (6) back
+   past the last brief's end and skips rows that brief already reported (keys carried in the
+   body).
+4. **A logged reply on a move that has left the plan repeated its outcome.** It is now removed
+   as a duplicate when an outcome with the same reply exists.
+5. **Push with no previous file and no cache table read as "unchanged".** It is now `unknown`,
+   with the reason.
+6. **The script opened, and could migrate, the DB before checking the flag.** The flag is now
+   checked first; off touches nothing.
+7. **A `--since` read was saved and became the next window.** It is now a one-off read and is
+   not saved.
 
 ## Measured (fixture, all five leagues, in-memory DB)
 

@@ -754,6 +754,16 @@ async function refreshRecLedgerGrades() {
   return gradeDue();
 }
 
+/**
+ * The follow ledger (SELF-01a): backfill shown calls from rec_ledger, then
+ * match what was done on ESPN (lineups, waiver adds, trade actions) into
+ * follow / ignore / no_action. Records only; it never grades a call.
+ */
+async function refreshFollowLedger() {
+  const { syncFollowLedger } = await import('./engine/follow-ledger.js');
+  return syncFollowLedger();
+}
+
 /** Refit the TD calibrator on fixed chronological eras; promotion still requires replication. */
 async function refreshNflPropCalibration() {
   const { propReplayRows } = await import('./nfl-props.js');
@@ -1602,6 +1612,13 @@ export const JOBS = {
    */
   rec_ledger_grade: { run: refreshRecLedgerGrades, maxAgeMinutes: 6 * 60, tier: 'growth', offThread: true,
     label: 'Recommendation ledger: grade calls whose horizon weeks have been played (+1 lineup, +2/+5 trade and waiver)' },
+  /*
+   * Hourly: lineup snapshots and raw transactions land on the refresh loop,
+   * and ESPN keeps only about three days of transactions, so a resolver that
+   * lags a window by a day still reads its rows from the local copy.
+   */
+  follow_ledger_sync: { run: refreshFollowLedger, maxAgeMinutes: 60, tier: 'growth',
+    label: 'Follow ledger: match shown calls to what was done on ESPN (follow / ignore / no_action)' },
   twitter_insiders: { run: refreshTwitterInsiders, maxAgeMinutes: 4 * 60, tier: 'metered',
     label: 'NFL insider tweets — typed injury/role claims (budget-capped, ~$0.003/handle)' },
   nfl_injuries: { run: refreshNflInjuries, maxAgeMinutes: 6 * 60, tier: 'live', offThread: true,

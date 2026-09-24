@@ -18,9 +18,12 @@ import * as e4 from './e4.js';
 import * as e5 from './e5.js';
 import * as e6 from './e6.js';
 import * as e7 from './e7.js';
+import * as e3espn from './e3-espn.js';
 import { result, STATUS } from './common.js';
 
-export const GRADERS = Object.freeze([e1, e2, e3, e4, e5, e6, e7]);
+// FIX-322-1: E3-ESPN (week-7 title-odds replay on Nick's past ESPN seasons) runs with the report card,
+// so the one brain_report producer stores it every run; its id is in plans-schema.js BRAIN_CHECK_IDS.
+export const GRADERS = Object.freeze([e1, e2, e3, e4, e5, e6, e7, e3espn]);
 
 export function runAll(database, opts = {}) {
   const out = [];

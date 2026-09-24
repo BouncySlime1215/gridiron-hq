@@ -60,7 +60,8 @@ test('migration 078 is applied and its CHECKs are the contract', () => {
 test('on an empty database every check runs: E3 historical passes, everything live says what it needs', () => {
   const { results, errors } = EVAL.runAll(db);
   assert.deepEqual(errors, []);
-  assert.deepEqual(results.map(r => r.check), ['E1', 'E2', 'E3', 'E3-live', 'E4', 'E5', 'E6', 'E7']);
+  // E3-ESPN (FIX-322-1) runs with the card; on an empty database it says its source table is not built.
+  assert.deepEqual(results.map(r => r.check), ['E1', 'E2', 'E3', 'E3-live', 'E4', 'E5', 'E6', 'E7', 'E3-ESPN']);
   const byCheck = Object.fromEntries(results.map(r => [r.check, r]));
   assert.equal(byCheck.E3.status, 'passing');
   assert.equal(byCheck.E3.source, 'historical_fixed');
@@ -150,11 +151,11 @@ test('runner stores one run; the latest run is read back with its summary', asyn
   const lines = [];
   const { ok, stored } = await RUNNER.main({ now: new Date('2020-01-01T00:00:00Z'), log: l => lines.push(l) });
   assert.equal(ok, true);
-  assert.match(lines.at(-1), /^brain_report: 1 passing, 7 not_enough_data, 0 failing \(run /);
+  assert.match(lines.at(-1), /^brain_report: 1 passing, 8 not_enough_data, 0 failing \(run /);
   const rep = EVAL.latestReport(db);
   assert.equal(rep.run_id, stored.run_id);
-  assert.equal(rep.checks.length, 8);
-  assert.deepEqual(rep.summary, { passing: 1, not_enough_data: 7, failing: 0 });
+  assert.equal(rep.checks.length, 9);
+  assert.deepEqual(rep.summary, { passing: 1, not_enough_data: 8, failing: 0 });
   assert.equal(rep.checks.find(c => c.check === 'E3').detail.league_seasons, 906);
 });
 
@@ -167,7 +168,7 @@ test('GET /api/brain-report is default-off, and on it serves the stored run and 
   try {
     const on = await request(app, '/api/brain-report');
     assert.equal(on.body.enabled, true);
-    assert.equal(on.body.report.checks.length, 8);
+    assert.equal(on.body.report.checks.length, 9);
     assert.equal(on.body.fallback_if_all_in.testing_tier_enabled, false, 'the stored run is dated 2020: stale fails closed');
   } finally {
     delete process.env[BRAIN_REPORT_FLAG];

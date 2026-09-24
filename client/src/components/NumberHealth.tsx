@@ -27,6 +27,10 @@ export interface NumberAuditRow {
 }
 
 export interface NumberAuditPayload {
+  /** FIX-10: GRIDIRON_NUMBER_HEALTH. Off, the route sends only `{enabled:false, reason}`. */
+  enabled: boolean;
+  preview?: boolean;
+  preview_reason?: string;
   league_id: number | null;
   table_missing: boolean;
   as_of: string | null;
@@ -107,11 +111,16 @@ const auditPath = (leagueId: number | null) => (leagueId ? `/number-audit?league
 export default function NumberHealthCard() {
   const { activeId, active } = useLeague();
   const { data, loading, error } = useApi<NumberAuditPayload>(auditPath(activeId));
+  // FIX-10: no card unless the route says the flag is on. A failed read still shows the
+  // card with its error, so a broken route is not mistaken for "switched off".
+  if (!error && data?.enabled !== true) return null;
   return <section className="card p-5 mb-4 space-y-3" aria-labelledby="number-health-heading">
     <div className="flex items-center gap-2">
       <BrokenDot broken={data?.broken ?? 0} />
       <h2 id="number-health-heading" className="text-lg font-bold">Number health</h2>
       {active?.name && <span className="text-xs text-slate-500">{active.name}</span>}
+      {data?.preview && <span data-preview title={data.preview_reason}
+        className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">Preview (unconfirmed forward)</span>}
     </div>
     <p className="text-xs text-slate-500">Numbers that disagree between pages or fail a sanity check, and what to trust until they are fixed.</p>
     <NumberHealthView payload={data} loading={loading} error={error} />
@@ -129,5 +138,5 @@ export function BrokenDot({ broken }: { broken: number }) {
 export function NumberHealthNavDot() {
   const { activeId } = useLeague();
   const { data } = useApi<NumberAuditPayload>(auditPath(activeId), { staleTime: 5 * 60 * 1000 });
-  return <BrokenDot broken={data?.broken ?? 0} />;
+  return <BrokenDot broken={data?.enabled ? data.broken : 0} />;
 }

@@ -27,6 +27,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-number-audit-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.SCHEDULER_DISABLED = '1';
+// FIX-10: the card and route are behind GRIDIRON_NUMBER_HEALTH; these tests pin the ON
+// behaviour, and the OFF / preview cases set their own env below.
+process.env.GRIDIRON_NUMBER_HEALTH = '1';
+delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
 test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
 
 const { db } = await import('../server/db/index.js');
@@ -238,6 +242,8 @@ test('GET /api/number-audit returns the stored rows, read-only; a bad id is a 40
     writeAuditRows(21, evaluateSnapshot(snap, { now: NOW }), { asOf: '2026-09-23T20:00:00.000Z' });
     const before = db.prepare('SELECT COUNT(*) n FROM number_audit').get().n;
     const body = await (await fetch(`${base}?league_id=21`)).json();
+    assert.equal(body.enabled, true);
+    assert.equal(body.preview, undefined, 'flag on: not a preview');
     assert.equal(body.broken, 1);
     assert.equal(body.rows[0].status, 'broken');
     assert.match(body.rows[0].detail, /31% vs 26%/);
@@ -246,6 +252,32 @@ test('GET /api/number-audit returns the stored rows, read-only; a bad id is a 40
     const empty = await (await fetch(`${base}?league_id=999`)).json();
     assert.deepEqual([empty.broken, empty.rows.length], [0, 0]);
   } finally { server.close(); }
+});
+
+test('FIX-10: GET /api/number-audit answers {enabled:false} when the flag is off, and is labelled in preview', async () => {
+  const { default: router } = await import('../server/routes/number-audit.js');
+  const app = express();
+  app.use('/api/number-audit', router);
+  const server = app.listen(0);
+  try {
+    const base = `http://127.0.0.1:${server.address().port}/api/number-audit`;
+    writeAuditRows(22, evaluateSnapshot(cleanSnapshot(), { now: NOW }), { asOf: '2026-09-23T20:00:00.000Z' });
+    delete process.env.GRIDIRON_NUMBER_HEALTH;
+    const off = await (await fetch(`${base}?league_id=22`)).json();
+    assert.equal(off.enabled, false);
+    assert.match(off.reason, /GRIDIRON_NUMBER_HEALTH=1/);
+    assert.equal(off.rows, undefined, 'off: no rows served');
+    process.env.GRIDIRON_PREVIEW_UNCONFIRMED = '1';
+    const preview = await (await fetch(`${base}?league_id=22`)).json();
+    assert.equal(preview.enabled, true);
+    assert.equal(preview.preview, true);
+    assert.match(preview.preview_reason, /default-off/);
+    assert.ok(preview.rows.length > 0, 'preview serves the rows');
+  } finally {
+    process.env.GRIDIRON_NUMBER_HEALTH = '1';
+    delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+    server.close();
+  }
 });
 
 // ------------------------------------------------------------------ client
@@ -275,7 +307,7 @@ test('the card renders a broken row in plain words: what, pages, what to trust',
   const snap = cleanSnapshot();
   snap.title_paths[1].title = { 1: 0.26, 2: 0.32, 3: 0.23, 4: 0.19 };
   writeAuditRows(21, evaluateSnapshot(snap, { now: NOW }), { asOf: new Date().toISOString() });
-  globalThis.__auditPayload = readNumberAudit(21);
+  globalThis.__auditPayload = { enabled: true, ...readNumberAudit(21) };
   const html = renderToStaticMarkup(React.createElement(UI.default));
   const t = text(html);
   assert.equal(globalThis.__auditPath, '/number-audit?league_id=21', 'reads the selected league');
@@ -291,11 +323,11 @@ test('the card renders a broken row in plain words: what, pages, what to trust',
 });
 
 test('the nav dot is hidden when 0 are broken and shown when any is', () => {
-  globalThis.__auditPayload = { league_id: 21, table_missing: false, as_of: null, broken: 0, warn: 2, ok: 9, rows: [] };
+  globalThis.__auditPayload = { enabled: true, league_id: 21, table_missing: false, as_of: null, broken: 0, warn: 2, ok: 9, rows: [] };
   assert.equal(renderToStaticMarkup(React.createElement(UI.NumberHealthNavDot)), '');
   globalThis.__auditPayload = null;
   assert.equal(renderToStaticMarkup(React.createElement(UI.NumberHealthNavDot)), '', 'no data yet: no dot');
-  globalThis.__auditPayload = { league_id: 21, table_missing: false, as_of: null, broken: 2, warn: 0, ok: 9, rows: [] };
+  globalThis.__auditPayload = { enabled: true, league_id: 21, table_missing: false, as_of: null, broken: 2, warn: 0, ok: 9, rows: [] };
   const dot = renderToStaticMarkup(React.createElement(UI.NumberHealthNavDot));
   assert.match(dot, /data-broken-dot/);
   assert.match(dot, /bg-rose-600/);
@@ -309,4 +341,22 @@ test('the card says when the loop has not checked a league yet, or the table is 
   const missing = text(renderToStaticMarkup(React.createElement(UI.NumberHealthView,
     { payload: { league_id: 21, table_missing: true, as_of: null, broken: 0, warn: 0, ok: 0, rows: [] } })));
   assert.match(missing, /not set up yet/);
+});
+
+test('FIX-10: flag off, the card and the nav dot are absent; preview, the card says so', () => {
+  const rows = { league_id: 21, table_missing: false, as_of: new Date().toISOString(), broken: 2, warn: 0, ok: 9, rows: [] };
+  globalThis.__auditPayload = { enabled: false, reason: 'off' };
+  assert.equal(renderToStaticMarkup(React.createElement(UI.default)), '', 'off: no card');
+  assert.equal(renderToStaticMarkup(React.createElement(UI.NumberHealthNavDot)), '', 'off: no dot');
+  globalThis.__auditPayload = null;
+  assert.equal(renderToStaticMarkup(React.createElement(UI.default)), '', 'flag not known yet: no card');
+  globalThis.__auditPayload = { enabled: true, ...rows };
+  const on = renderToStaticMarkup(React.createElement(UI.default));
+  assert.match(on, /Number health/);
+  assert.doesNotMatch(on, /data-preview/, 'flag on: no preview label');
+  globalThis.__auditPayload = { enabled: true, preview: true, preview_reason: 'default-off: why', ...rows };
+  const preview = renderToStaticMarkup(React.createElement(UI.default));
+  assert.match(text(preview), /Preview \(unconfirmed forward\)/);
+  assert.match(preview, /data-preview/);
+  assert.match(renderToStaticMarkup(React.createElement(UI.NumberHealthNavDot)), /data-broken-dot/, 'preview: the dot shows');
 });

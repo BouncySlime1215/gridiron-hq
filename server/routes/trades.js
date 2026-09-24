@@ -41,6 +41,7 @@ import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE, PROMPT_VERSION 
   from '../services/trade-proposals.js';
 import { recordProposalSlate, recordSentOffer } from '../services/trade-outcomes.js';
 import { recordRoute } from '../services/rec-ledger.js';
+import { offerLoopFields } from '../services/offer-loop-flag.js';
 import { lineupCall } from '../services/lineup-brain.js';
 import { lineupSignals } from '../services/lineup-signals.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
@@ -857,10 +858,15 @@ r.get('/:leagueId/proposals', async (req, res, next) => {
  *
  * The band is the one on the deal as served. It is not recomputed here: a
  * re-run now would score a different model against a decision already made.
+ *
+ * FIX-10: behind GRIDIRON_OFFER_LOOP (offer-loop-flag.js). Off, it answers
+ * `{enabled:false, reason}` and records nothing.
  */
 r.post('/:leagueId/offers/sent', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
+    const flag = offerLoopFields();
+    if (!flag.enabled) return res.json(flag);
     const deal = req.body?.deal;
     if (!deal || deal.partner_id == null || !Array.isArray(deal.i_give) || !Array.isArray(deal.i_get)) {
       return res.status(400).json({ error: 'deal with partner_id, i_give and i_get required' });
@@ -877,7 +883,15 @@ r.post('/:leagueId/offers/sent', (req, res, next) => {
       // the caller's input, said as such, not a server fault.
       return res.status(400).json({ error: String(e?.message ?? e) });
     }
-    res.json(out);
+    res.json({ ...out, ...flag });
+  } catch (e) { next(e); }
+});
+
+/** FIX-10: whether the "I sent this" button shows, and with the preview label. */
+r.get('/:leagueId/offers/sent', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(offerLoopFields());
   } catch (e) { next(e); }
 });
 

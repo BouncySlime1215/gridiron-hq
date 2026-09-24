@@ -291,27 +291,53 @@ export function simulateSeason(lg, {
   runs = 2000, fromWeek: requestedWeek = null, scoring = PPR, overrides = null, projections = null,
   keepRuns = false, universe = null
 } = {}) {
+  const prep = prepareSeason(lg, { requestedWeek, scoring, overrides, projections, universe });
+  if (prep.fail) return prep.fail;
+  // A run's draws for a week, made once and shared by every team and by the
+  // bracket (the draw is keyed by run, so a repeat call would give the same values).
+  let cachedRun = -1, cache = new Map();
+  const drawnFor = (run, week) => {
+    if (run !== cachedRun) { cachedRun = run; cache = new Map(); }
+    let got = cache.get(week);
+    if (got) return got;
+    const wd = prep.weekData.get(week);
+    const drawn = new Map();
+    const vals = wd.draw(run);
+    for (let i = 0; i < wd.ids.length; i++) drawn.set(wd.ids[i], vals[i]);
+    got = { drawn, expected: wd.expected };
+    cache.set(week, got);
+    return got;
+  };
+  return playSeasons(prep, prep.teams, runs, keepRuns, (t, run, week) => {
+    const { drawn, expected } = drawnFor(run, week);
+    return lineupPoints(t.players, prep.slots, drawn, expected);
+  });
+}
+
+/**
+ * Everything a simulated season is built from before a single run is played:
+ * the league's rules and fixtures, the rosters (with `overrides` applied), and
+ * each player-week's outcome pool and copula sampler. It draws the one number
+ * that names the simulated world from the caller's random stream, exactly once.
+ */
+function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = null, projections = null, universe = null }) {
   const fromWeek = simStartWeek(lg, requestedWeek);
   // The league's own rules, never a hard-coded default: a missing field is a
   // named error with its payload path (league-rules.js#simRulesProblem).
   const rules = leagueRules(lg);
   const problem = simRulesProblem(rules);
-  if (problem) return problem;
+  if (problem) return { fail: problem };
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   let teams = loadRosters(lg, assets);
   const slots = lineupSlots(lg);
   const proj = projections ?? buildProjections({ through: SEASON - 1, scoring });
 
-  if (overrides) {
-    teams = teams.map(t => overrides.has(t.roster_id)
-      ? { ...t, players: overrides.get(t.roster_id).map(id => assets.get(id)).filter(Boolean) }
-      : t);
-  }
+  if (overrides) teams = applyOverrides(teams, overrides, assets);
 
   const sched = fixtures(lg, rules);
   const weeks = [...sched.keys()].filter(w => w >= fromWeek).sort((a, b) => a - b);
-  if (!weeks.length) return { error: 'no remaining fixtures in this league schedule' };
+  if (!weeks.length) return { fail: { error: 'no remaining fixtures in this league schedule' } };
 
   // The bracket is played on the league's own playoff weeks: the NFL weeks after its
   // regular season, `playoffMatchupPeriodLength` weeks per round. Two of the five
@@ -319,9 +345,6 @@ export function simulateSeason(lg, {
   // the old fixed 15-17 applied the wrong NFL byes and opponents to their brackets.
   const bracketWeeks = rules.schedule.playoff_weeks;
   const simWeeks = [...new Set([...weeks, ...bracketWeeks.flat()])].sort((a, b) => a - b);
-
-  const playoffTeams = rules.schedule.playoff_teams;
-  const medianGame = rules.median_game === true;
 
   // Every player who could be started by anyone, deduplicated, in id order.
   // RL-6-3: the order is by identity, never by roster position. A trade rebuilds
@@ -336,7 +359,7 @@ export function simulateSeason(lg, {
   // number below is addressed by (world, player, week[, run]) off it, so under
   // one seed the same player gets the same football in every configuration.
   const world = Math.floor(random() * 0x100000000) >>> 0;
-  const { schedule: nflSchedule, byeWeek } = matchupModel();
+  const { schedule: nflSchedule } = matchupModel();
 
   /* --- pre-generate each player's outcome pool per week ---------------------
    * Sampling is by far the most expensive part, and a player's distribution only
@@ -386,7 +409,29 @@ export function simulateSeason(lg, {
     });
   }
 
-  /* --- run the season ---------------------------------------------------- */
+  return {
+    lg, rules, fromWeek, assets, teams, slots, sched, weeks, simWeeks, bracketWeeks, weekData,
+    playoffTeams: rules.schedule.playoff_teams, medianGame: rules.median_game === true,
+    rosterIds: new Set(roster.map(p => p.id))
+  };
+}
+
+/** A trade's rosters: each overridden team's players replaced by the listed ids. */
+function applyOverrides(teams, overrides, assets) {
+  return teams.map(t => overrides.has(t.roster_id)
+    ? { ...t, players: overrides.get(t.roster_id).map(id => assets.get(id)).filter(Boolean) }
+    : t);
+}
+
+/**
+ * Plays the prepared season `runs` times: regular-season fixtures, the league's
+ * seeding, then its bracket. `pointsFor(team, run, week)` is that team's lineup
+ * total in that run and NFL week; it is the only thing that differs between a
+ * full simulation (lineups set from fresh draws) and a trade rescore (lineups
+ * read from a prebuilt world), so both give the same numbers.
+ */
+function playSeasons(prep, teams, runs, keepRuns, pointsFor) {
+  const { lg, rules, fromWeek, sched, weeks, bracketWeeks, playoffTeams, medianGame } = prep;
   const ids = teams.map(t => t.roster_id);
   const teamOf = new Map(teams.map(t => [t.roster_id, t]));
   const startingRecords = initialRecords(lg, teams, fromWeek, medianGame);
@@ -403,13 +448,8 @@ export function simulateSeason(lg, {
     const record = new Map(ids.map(id => [id, { ...(startingRecords.get(id) ?? { w: 0, pf: 0 }) }]));
 
     for (const week of weeks) {
-      const wd = weekData.get(week);
-      const drawn = new Map();
-      const vals = wd.draw(run);
-      for (let i = 0; i < wd.ids.length; i++) drawn.set(wd.ids[i], vals[i]);
-
       const weekScore = new Map();
-      for (const t of teams) weekScore.set(t.roster_id, lineupPoints(t.players, slots, drawn, wd.expected));
+      for (const t of teams) weekScore.set(t.roster_id, pointsFor(t, run, week));
       for (const [a, b] of sched.get(week) ?? []) {
         const sa = weekScore.get(a) ?? 0, sb = weekScore.get(b) ?? 0;
         if (sa > sb) record.get(a).w++;
@@ -432,22 +472,8 @@ export function simulateSeason(lg, {
     }
 
     /* --- playoff bracket: the league's own format (playBracket) --- */
-    const drawsByWeek = new Map();
-    const drawWeek = week => {
-      let got = drawsByWeek.get(week);
-      if (got) return got;
-      const wd = weekData.get(week);
-      const drawn = new Map();
-      const vals = wd.draw(run);
-      for (let i = 0; i < wd.ids.length; i++) drawn.set(wd.ids[i], vals[i]);
-      got = { drawn, expected: wd.expected };
-      drawsByWeek.set(week, got);
-      return got;
-    };
-    const bracket = playBracket(field, rules.schedule, (id, roundWeeks) => roundWeeks.reduce((sum, week) => {
-      const { drawn, expected } = drawWeek(week);
-      return sum + lineupPoints(teamOf.get(id).players, slots, drawn, expected);
-    }, 0));
+    const bracket = playBracket(field, rules.schedule, (id, roundWeeks) =>
+      roundWeeks.reduce((sum, week) => sum + pointsFor(teamOf.get(id), run, week), 0));
     for (const id of bracket.byes) stats.get(id).byes++;
     for (const id of bracket.finalists) stats.get(id).finals++;
     if (bracket.champion) {
@@ -514,6 +540,98 @@ export function tradeImpactSeed(lg) {
 export const TRADE_IMPACT_RUNS = SENSE_CHECK_SIM_RUNS;
 
 /**
+ * GRIDIRON_FAST_RESCORE (default on; `0` restores the old path for one release):
+ * a trade is scored by rescoring only the two changed lineups inside a world
+ * built once (tradeImpactWorld) instead of re-running the whole league twice.
+ * Same numbers either way (test/rl-19-2-fast-rescore.test.js); this is a kill
+ * switch, not a model choice.
+ */
+export function fastRescoreEnabled() {
+  return process.env.GRIDIRON_FAST_RESCORE !== '0';
+}
+
+/** Read-only view of one run's draws for one week, shaped like the Map lineupPoints reads. */
+class RunDraws {
+  constructor(vals, index) { this.vals = vals; this.index = index; }
+  get(id) { const i = this.index.get(id); return i === undefined ? undefined : this.vals[i]; }
+}
+
+/**
+ * Everything a trade cannot change, built once per league state: the prepared
+ * season (the same prepareSeason tradeImpact's full runs use, under the same
+ * seed), every run's draws for every player-week, every team's per-run lineup
+ * points, and the unchanged league's result. A trade then only re-solves the two
+ * changed lineups (tradeImpact with `world`). Pass it to every deal scored off
+ * the same league state; it holds ~runs x weeks x players doubles (tens of MB).
+ *
+ * `universe`: extra asset ids (e.g. free agents a claim ladder will offer) to
+ * simulate even though no roster holds them. A deal that names a player outside
+ * the world's universe gets its own world, because adding a player to a
+ * same-game block changes the copula rows of the players after him.
+ */
+export function tradeImpactWorld(lg, {
+  runs = TRADE_IMPACT_RUNS, scoring = null, fromWeek: requestedWeek = null, seed = null,
+  universe = [], projections = null
+} = {}) {
+  scoring = scoring ?? scoringFor(lg);
+  projections = projections ?? buildProjections({ through: SEASON - 1, scoring });
+  const pairedSeed = seed == null ? tradeImpactSeed(lg) : Number(seed);
+  const universeIds = [...new Set([...universe].map(Number))].sort((a, b) => a - b);
+  const prep = withRandomSeed(pairedSeed,
+    () => prepareSeason(lg, { requestedWeek, scoring, projections, universe: universeIds }));
+  const key = {
+    league: lg.id, fetched_at: lg.fetched_at ?? null, runs, fromWeek: simStartWeek(lg, requestedWeek),
+    scoring: JSON.stringify(scoring), seed: pairedSeed
+  };
+  if (prep.fail) return { key, projections, universe: universeIds, fail: prep.fail };
+
+  const draws = new Map();
+  for (const week of prep.simWeeks) {
+    const wd = prep.weekData.get(week);
+    const index = new Map(wd.ids.map((id, i) => [id, i]));
+    const byRun = new Array(runs);
+    for (let run = 0; run < runs; run++) byRun[run] = new RunDraws(wd.draw(run), index);
+    draws.set(week, { byRun, expected: wd.expected });
+  }
+  // Simulated players no roster holds (free agents from `universe`).
+  const rostered = new Set(prep.teams.flatMap(t => t.players.map(p => p.id)));
+  const extras = [...prep.rosterIds].filter(id => !rostered.has(id));
+  const w = { key, projections, universe: universeIds, extras, prep, draws, runs };
+  w.points = new Map(prep.teams.map(t => [t.roster_id, teamPoints(w, t.players)]));
+  w.base = playSeasons(prep, prep.teams, runs, true, pointsReader(w, w.points));
+  return w;
+}
+
+/** One roster's lineup total in every run and week: week -> Float64Array[run]. */
+function teamPoints(w, players) {
+  const out = new Map();
+  for (const [week, { byRun, expected }] of w.draws) {
+    const arr = new Float64Array(w.runs);
+    for (let run = 0; run < w.runs; run++) arr[run] = lineupPoints(players, w.prep.slots, byRun[run], expected);
+    out.set(week, arr);
+  }
+  return out;
+}
+
+const pointsReader = (w, points) => (t, run, week) => points.get(t.roster_id).get(week)[run];
+
+/** Whether a prebuilt world is the one this deal's full simulation would have built. */
+function worldFits(w, lg, { runs, scoring, fromWeek, seed, dealIds }) {
+  if (!w || w.fail) return false;
+  const k = w.key;
+  if (k.league !== lg.id || k.fetched_at !== (lg.fetched_at ?? null) || k.runs !== runs
+    || k.fromWeek !== fromWeek || k.scoring !== JSON.stringify(scoring) || k.seed !== seed) return false;
+  // The world's copula must hold exactly the players the full runs would: every
+  // rostered player plus the ones this deal names. A named player outside it, or
+  // an extra free agent the deal does not name, would change his game-mates' draws.
+  const named = new Set(dealIds);
+  return w.extras.every(id => named.has(id)) && dealIds.every(id => {
+    const p = w.prep.assets.get(id);
+    return !p || !SCORED.has(p.position) || w.prep.rosterIds.has(id);
+  });
+}
+
+/**
  * Title-odds impact of a proposed trade.
  *
  * Runs the league twice — as it is, and as it would be — with the same projection set
@@ -521,18 +639,24 @@ export const TRADE_IMPACT_RUNS = SENSE_CHECK_SIM_RUNS;
  * his roster position), so the difference is the trade and nothing else. Each delta
  * carries its paired standard error, and `*_clears_noise` says whether it is past
  * TRADE_DELTA_NOISE_SE of them.
+ *
+ * RL-19-2: by default the "as it is" league and every player's draws come from a
+ * world built once (tradeImpactWorld; pass `world` to reuse one across deals) and
+ * only the two changed lineups are re-solved. The numbers are the same as two full
+ * runs; GRIDIRON_FAST_RESCORE=0 runs them the old way.
  */
 export function tradeImpact(lg, {
   myTeamId, theirTeamId, iGive = [], iGet = [], runs = TRADE_IMPACT_RUNS,
-  scoring = null, fromWeek: requestedWeek = null, seed = null
+  scoring = null, fromWeek: requestedWeek = null, seed = null, world = null
 }) {
   // Callers no longer pick these: one seed, one run count and the league's own
   // scoring, so every surface shows the same delta for the same deal.
   scoring = scoring ?? scoringFor(lg);
   const fromWeek = simStartWeek(lg, requestedWeek);
-  const { formatKey } = deriveFormat(lg);
-  const assets = assetUniverse(lg, formatKey);
-  const teams = loadRosters(lg, assets);
+  // A world from this same league sync already holds its rosters.
+  const sameSync = fastRescoreEnabled() && world?.prep && world.key.league === lg.id
+    && world.key.fetched_at === (lg.fetched_at ?? null);
+  const teams = sameSync ? world.prep.teams : loadRosters(lg, assetUniverse(lg, deriveFormat(lg).formatKey));
   const me = teams.find(t => t.roster_id === String(myTeamId));
   const them = teams.find(t => t.roster_id === String(theirTeamId));
   if (!me || !them) return { error: 'both teams required' };
@@ -543,17 +667,35 @@ export function tradeImpact(lg, {
     [them.roster_id, [...them.players.filter(p => !get.has(p.id)).map(p => p.id), ...give]]
   ]);
 
-  // One projection build shared by both runs — rebuilding would introduce noise that
-  // has nothing to do with the trade.
-  const projections = buildProjections({ through: SEASON - 1, scoring });
   const pairedSeed = seed == null ? tradeImpactSeed(lg) : Number(seed);
   // One shared player universe for both arms: a received player nobody rosters
   // today (a free agent in a claim ladder) is simulated in the "before" arm too.
   const universe = [...give, ...get];
-  const before = withRandomSeed(pairedSeed,
-    () => simulateSeason(lg, { runs, fromWeek, scoring, projections, keepRuns: true, universe }));
-  const after = withRandomSeed(pairedSeed,
-    () => simulateSeason(lg, { runs, fromWeek, scoring, projections, overrides, keepRuns: true, universe }));
+  let before, after;
+  if (fastRescoreEnabled()) {
+    let w = world;
+    if (!worldFits(w, lg, { runs, scoring, fromWeek, seed: pairedSeed, dealIds: universe })) {
+      w = tradeImpactWorld(lg, {
+        runs, scoring, fromWeek, seed: pairedSeed, universe,
+        // A world from this league state and scoring already paid for the projections.
+        projections: w?.key?.scoring === JSON.stringify(scoring) ? w.projections : null
+      });
+    }
+    if (w.fail) return w.fail;
+    before = w.base;
+    const afterTeams = applyOverrides(w.prep.teams, overrides, w.prep.assets);
+    const points = new Map(w.points);
+    for (const t of afterTeams) if (overrides.has(t.roster_id)) points.set(t.roster_id, teamPoints(w, t.players));
+    after = playSeasons(w.prep, afterTeams, runs, true, pointsReader(w, points));
+  } else {
+    // One projection build shared by both runs — rebuilding would introduce noise that
+    // has nothing to do with the trade.
+    const projections = buildProjections({ through: SEASON - 1, scoring });
+    before = withRandomSeed(pairedSeed,
+      () => simulateSeason(lg, { runs, fromWeek, scoring, projections, keepRuns: true, universe }));
+    after = withRandomSeed(pairedSeed,
+      () => simulateSeason(lg, { runs, fromWeek, scoring, projections, overrides, keepRuns: true, universe }));
+  }
   if (before.error || after.error) return before.error ? before : after;
 
   const pick = (sim, id) => sim.teams.find(t => t.roster_id === id);

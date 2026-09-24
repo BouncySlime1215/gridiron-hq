@@ -2175,7 +2175,15 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
   try { timing = timingRead(lg.id, { season: weekNow.season }); } catch { timing = new Map(); }
   try { climate = vetoClimate(lg, { season: weekNow.season, priceOfPlayer: valueOfEspn }); }
   catch { climate = null; }
-  try { self = selfRead(lg.id, { season: weekNow.season }); } catch { self = null; }
+  try { self = selfRead(lg.id, { season: weekNow.season }); }
+  catch (err) {
+    console.error(`[trade-engine] selfRead lookup failed for league ${lg.id}:`, err);
+    // Typed absence, not a silent null: trade-tactics.js's how_nick_looks
+    // note reads `self.available === false` and surfaces `self.reason`, so a
+    // lookup FAULT is told apart from the genuine "he's never made an offer"
+    // empty case instead of reading through as the same healthy sentence.
+    self = { league_id: lg.id, available: false, reason: 'self-scout lookup failed' };
+  }
   const ownerNames = teams.map(t => t.owner).filter(Boolean);
   // Median points-per-1,000-of-price BY POSITION, over every rostered player in
   // this league. The sneak-in rule needs a baseline that is not cross-position:
@@ -2876,14 +2884,13 @@ export function selfScout(lg, myTeamId) {
       issue: `${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} on bye in week ${w}, one of this league's playoff weeks.`,
       action: 'Plan that week\'s replacement early — the bye is certain, unlike any read on playoff matchups.' });
   }
-  if (spread.floor != null && spread.coverage > 0.5) {
-    const rank = myRank <= 3 ? 'contender' : myRank >= rivals.length - 1 ? 'longshot' : 'bubble';
-    fixes.push({ priority: 'low', area: 'Roster shape',
-      issue: `Your starters total about ${spread.floor} in a bad week and ${spread.ceiling} in a good one (1 week in 10 each); you project ${myRank}${ord(myRank)} of ${allLineups.length}.`,
-      action: rank === 'contender'
-        ? 'You are ahead — trade ceiling for floor and consistency to protect the lead.'
-        : 'You need variance — target boom-rate players over steady ones; a median week does not win you the league from here.' });
-  }
+  // No "Roster shape" fix (RL-15-2). It told every team outside this week's projected
+  // top 3 to "chase variance" and the top 3 to "trade ceiling for floor". In Sleeper
+  // 2021-24 (21,946 team-seasons, R&D r15, pre-registered) the teams it called bubble
+  // won fewer titles at higher weekly variance (-0.138 log-odds/SD [-0.214,-0.067]) and
+  // the contender half had no support. Variance is a weekly, matchup-conditional call:
+  // lineup-posture.js on Start/Sit is its one producer. The range and rank the fix
+  // repeated are still returned (spread, rank) and shown on the Scout header.
 
   return {
     team: { roster_id: me.roster_id, owner: me.owner },

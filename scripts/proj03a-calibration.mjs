@@ -1,107 +1,115 @@
 #!/usr/bin/env node
-// PROJ-03-a-v2 calibration of the shared game-path sampler.
-// Pre-registration: docs/tdd/2026-09-23-proj-03a-v2-game-path.tdd.md section 3.
-// The Normal CRPS closed form, the teamGames query shape and the weekly-cluster grading
-// are carried over from PR #215's version of this script (branch
-// claude/local-proj-03-a-game-script-sampler, declined); the v1 bucketed Gamma parts are dropped.
+// PROJ-03-a calibration of the game-script sampler's team-points distribution.
+// Pre-registration: docs/tdd/2026-09-23-proj-03a-game-script-sampler.tdd.md section 2.
 // Read-only. Run on a local copy:
 //   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=.local-db/data.sqlite node scripts/proj03a-calibration.mjs
-// Fit 2021-22; grade 2023 and 2024 separately. 2025 is never opened.
-import { fitGamePath, gamePathKey, pearson, residuals, sampleGamePath, scoredGames } from './proj03a/game-path-v2.mjs';
-import { normalCdf, quantile, random, weeklyClusterBootstrap, withRandomSeed } from '../server/services/stats-util.js';
+// Test seasons 2023 (fit 2021-22) and 2024 (fit 2021-23); forward 2026 (fit 2021-25).
+// 2025 is never scored here.
+import { rows } from '../server/db/index.js';
+import { scoreModelAt, teamPointsDistribution, spreadBucket, regularizedGammaP } from './proj03a/game-script-sampler.mjs';
+import { normalCdf, weeklyClusterBootstrap, withRandomSeed, random } from '../server/services/stats-util.js';
 
-const FIT = [2021, 2022];
-const GRADE = [2023, 2024];
-const M = Number(process.env.PROJ03A_DRAWS) || 4000;
+const BUCKETS = ['lt3', '3to7', 'gt7'];
 const SQRT_PI = Math.sqrt(Math.PI);
-const r = (v, d = 4) => (v == null ? null : +v.toFixed(d));
 
-/** CRPS of Normal(mu, sigma) at y (Gneiting & Raftery 2007). From PR #215. */
-export function crpsNormal(mu, sigma, y) {
+function teamGames(season) {
+  return rows(`SELECT season, week, team, COALESCE(closing_spread, spread) AS spread,
+                      COALESCE(closing_total, total) AS total, team_score AS y
+                 FROM game_lines
+                WHERE season = ? AND team_score IS NOT NULL AND opp_score IS NOT NULL
+                  AND COALESCE(closing_spread, spread) IS NOT NULL AND COALESCE(closing_total, total) IS NOT NULL
+                ORDER BY week, team`, season);
+}
+
+/** CRPS of Gamma(k, theta) at y (Scheuerer & Moller 2015, Ann. Appl. Stat. 9:1328, eq. 9). */
+function crpsGamma(k, theta, y) {
+  const F = (a, x) => (x <= 0 ? 0 : regularizedGammaP(a, x / theta));
+  const logB = lg(0.5) + lg(k) - lg(k + 0.5);
+  return y * (2 * F(k, y) - 1) - k * theta * (2 * F(k + 1, y) - 1) - k * theta * Math.exp(Math.log(2) - Math.log(k) - logB) / 2;
+}
+function lg(x) { // Lanczos, for the Beta function only
+  const c = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
+    -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+  if (x < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * x)) - lg(1 - x);
+  x -= 1; let a = c[0]; const t = x + 7.5;
+  for (let i = 1; i < 9; i++) a += c[i] / (x + i);
+  return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+}
+/** CRPS of Normal(mu, sigma) at y (Gneiting & Raftery 2007). */
+function crpsNormal(mu, sigma, y) {
   const z = (y - mu) / sigma;
   return sigma * (z * (2 * normalCdf(z) - 1) + 2 * Math.exp(-z * z / 2) / Math.sqrt(2 * Math.PI) - 1 / SQRT_PI);
 }
-
-/** Sample CRPS / energy score: E|X - y| - 0.5 E|X - X'|, X' = the draw half a sample away. */
-function sampleScore(xs, y, dist) {
-  const n = xs.length, h = n >> 1;
-  let a = 0, b = 0;
-  for (let i = 0; i < n; i++) a += dist(xs[i], y);
-  for (let i = 0; i < h; i++) b += dist(xs[i], xs[i + h]);
-  return a / n - 0.5 * b / h;
+/** Numeric CRPS, used once as a check on the closed form. */
+function crpsNumeric(cdf, y, hi = 150, steps = 30000) {
+  let s = 0; const h = hi / steps;
+  for (let i = 0; i < steps; i++) { const x = (i + 0.5) * h; const d = cdf(x) - (x >= y ? 1 : 0); s += d * d * h; }
+  return s;
 }
-const abs1 = (x, y) => Math.abs(x - y);
-const eucl = (x, y) => Math.hypot(x[0] - y[0], x[1] - y[1]);
+const chiSqP = (x, df) => 1 - regularizedGammaP(df / 2, x / 2);
+function ksStat(us) {
+  const s = [...us].sort((a, b) => a - b); const n = s.length; let d = 0;
+  s.forEach((u, i) => { d = Math.max(d, (i + 1) / n - u, u - i / n); });
+  return d;
+}
+const wilson = (x, n, z = 1.96) => {
+  const p = x / n, den = 1 + z * z / n, c = (p + z * z / (2 * n)) / den, h = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / den;
+  return [c - h, c + h];
+};
+const mde = n => 2.8 * Math.sqrt(0.8 * 0.2 / n); // coverage deviation at 80% power, alpha .05 two-sided
+const r = (v, d = 3) => +v.toFixed(d);
 
-/** Week-cluster bootstrap CI of the home/away residual correlation. */
-function correlationCI(games, level = 0.9, iterations = 4000, seed = 20260923) {
-  const byWeek = new Map();
-  for (const g of games) (byWeek.get(g.week) ?? byWeek.set(g.week, []).get(g.week)).push(g);
-  const weeks = [...byWeek.keys()], draws = [];
-  withRandomSeed(seed, () => {
-    for (let t = 0; t < iterations; t++) {
-      const s = [];
-      for (let i = 0; i < weeks.length; i++) s.push(...byWeek.get(weeks[Math.floor(random() * weeks.length)]));
-      const { h, a } = residuals(s);
-      draws.push(pearson(h, a));
+function grade(season, label) {
+  const params = scoreModelAt(season, 1);
+  const tg = teamGames(season);
+  const cells = Object.fromEntries(BUCKETS.map(b => [b, { n: 0, cov: 0 }]));
+  const pits = [], dRows = [];
+  let crpsS = 0, crpsN = 0, checked = null;
+  withRandomSeed(20260923, () => {
+    for (const g of tg) {
+      const mu = g.total / 2 - g.spread / 2;
+      const dist = teamPointsDistribution(mu, g.spread, params);
+      const b = spreadBucket(g.spread);
+      const q10 = dist.quantile(0.1), q90 = dist.quantile(0.9);
+      cells[b].n++; if (g.y >= q10 && g.y <= q90) cells[b].cov++;
+      const lo = dist.cdf(g.y - 0.5), hi = dist.cdf(g.y + 0.5);
+      pits.push(lo + random() * (hi - lo));
+      const shape = (dist.mean / dist.sd) ** 2, theta = dist.sd ** 2 / dist.mean;
+      const cs = crpsGamma(shape, theta, g.y), cn = crpsNormal(mu, params.pooled_sd, g.y);
+      if (!checked) checked = { closed: r(cs, 4), numeric: r(crpsNumeric(dist.cdf, g.y), 4) };
+      crpsS += cs; crpsN += cn;
+      dRows.push({ season: g.season, week: g.week, units: cs - cn });
     }
   });
-  const tail = (1 - level) / 2;
-  return [quantile(draws, tail), quantile(draws, 1 - tail)];
-}
-
-function grade(season, params) {
-  const games = scoredGames(season, season);
-  let crpsNorm = 0, crpsPath = 0, n = 0;
-  const dRows = [], simH = [], simA = [];
-  for (const g of games) {
-    const pathDraws = [], indDraws = [];
-    for (let m = 0; m < M; m++) {
-      const key = gamePathKey(g.season, g.week, g.home, g.away, m);
-      const p = sampleGamePath(g, key, params), q = sampleGamePath(g, key, params, 0);
-      pathDraws.push([p.points.home, p.points.away]);
-      indDraws.push([q.points.home, q.points.away]);
-      if (m < 200) { simH.push(p.z.home); simA.push(p.z.away); }
-    }
-    const y = [g.home_pts, g.away_pts];
-    for (const side of [0, 1]) {
-      const implied = side ? g.total / 2 + g.spread / 2 : g.total / 2 - g.spread / 2;
-      crpsNorm += crpsNormal(implied, params.sd, y[side]);
-      crpsPath += sampleScore(pathDraws.map(x => x[side]), y[side], abs1);
-      n++;
-    }
-    const d = sampleScore(pathDraws, y, eucl) - sampleScore(indDraws, y, eucl);
-    dRows.push({ season: g.season, week: g.week, units: d, es_path: sampleScore(pathDraws, y, eucl) });
-  }
+  const n = tg.length;
+  const bins = Array(10).fill(0); pits.forEach(u => bins[Math.min(9, Math.floor(u * 10))]++);
+  const chi = bins.reduce((s, o) => s + (o - n / 10) ** 2 / (n / 10), 0);
   const boot = weeklyClusterBootstrap(dRows);
-  const { h, a } = residuals(games);
-  const hist = pearson(h, a), ci = correlationCI(games);
-  const sim = pearson(simH, simA);
-  const esPath = dRows.reduce((s, x) => s + x.es_path, 0) / dRows.length;
-  const meanD = dRows.reduce((s, x) => s + x.units, 0) / dRows.length;
+  const meanD = (crpsS - crpsN) / n;
+  const cov = Object.fromEntries(BUCKETS.map(b => {
+    const c = cells[b], rate = c.cov / c.n;
+    return [b, { n: c.n, coverage: r(rate), pass: rate >= 0.77 && rate <= 0.83, mde_at_80pct_power: r(mde(c.n)) }];
+  }));
+  const pooledCov = BUCKETS.reduce((s, b) => s + cells[b].cov, 0);
   return {
-    season, games: games.length, team_games: n,
-    crps: { normal_pooled: r(crpsNorm / n), path_sampler: r(crpsPath / n),
-      pass: crpsPath / n <= crpsNorm / n + 0.01 },
-    energy: { path: r(esPath), independent: r(esPath - meanD), mean_d: r(meanD, 5),
-      d_ci95_week_cluster: boot.roi_95, clusters: boot.clusters,
-      pass: boot.roi_95[1] != null && boot.roi_95[1] < 0, sign: 'negative d = path better' },
-    team_pair_rho: { historical: r(hist), ci90_week_cluster: ci.map(v => r(v)), simulated: r(sim),
-      pass: sim >= ci[0] && sim <= ci[1] }
+    label, season, fitted_through: params.fitted_through, training_games: params.games, team_games: n,
+    bucket_params: Object.fromEntries(BUCKETS.map(b => [b, { n: params.buckets[b].n, sd: r(params.buckets[b].sd, 2), margin_sd: r(params.buckets[b].margin_sd, 2), rho: r(params.buckets[b].rho) }])),
+    pooled_sd: r(params.pooled_sd, 2),
+    coverage_80: cov, coverage_pooled: r(pooledCov / n), coverage_pooled_wilson95: wilson(pooledCov, n).map(v => r(v)),
+    pit: { bins, chi_square: r(chi, 2), df: 9, p: r(chiSqP(chi, 9), 4), pass: chiSqP(chi, 9) >= 0.01, ks_d: r(ksStat(pits), 4) },
+    crps: { sampler: r(crpsS / n), normal_pooled: r(crpsN / n), mean_d: r(meanD), d_ci95_week_cluster: boot.roi_95, clusters: boot.clusters,
+      pass: boot.roi_95[1] != null && boot.roi_95[1] <= 0.05, sign: 'negative d = sampler better' },
+    crps_closed_form_check: checked
   };
 }
 
-const fitGames = scoredGames(...FIT);
-const params = fitGamePath(fitGames);
-const tests = GRADE.map(s => grade(s, params));
-const out = {
-  run_at: new Date().toISOString(), note: 'local copy, not production', draws_per_game: M,
-  fit: { seasons: FIT, games: params.games, pooled_sd: r(params.sd, 3), rho: r(params.rho) },
-  tests,
-  crps_pass: tests.every(t => t.crps.pass),
-  energy_pass: tests.every(t => t.energy.pass),
-  rho_pass: tests.every(t => t.team_pair_rho.pass)
-};
-out.preregistered_pass = out.crps_pass && out.energy_pass && out.rho_pass;
-out.verdict = out.energy_pass ? (out.preregistered_pass ? 'BUILD' : 'HOLD') : 'DECLINE (kill rule: energy score)';
+const out = { run_at: new Date().toISOString(), note: 'local copy, not production', tests: [grade(2023, 'test'), grade(2024, 'test')] };
+const fwd = teamGames(2026);
+out.forward = fwd.length ? grade(2026, 'forward 2026 (anecdote-sized)') : null;
+const t = out.tests;
+out.preregistered_pass = t.every(x => Object.values(x.coverage_80).every(c => c.pass) && x.pit.pass && x.crps.pass);
+if (out.forward) {
+  const f = out.forward;
+  out.forward_holds = f.coverage_pooled_wilson95[0] <= 0.8 && f.coverage_pooled_wilson95[1] >= 0.8 && f.crps.mean_d <= 0.05;
+}
 console.log(JSON.stringify(out, null, 2));

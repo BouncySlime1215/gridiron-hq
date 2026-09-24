@@ -44,7 +44,7 @@ study code and doc are pushed.
 
 Command (read-only, local copy):
 
-    SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=.local-db/data.sqlite node scripts/proj03a-calibration.mjs
+    SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=.local-db/data.sqlite node scripts/proj03a-v2-calibration.mjs
 
 ## 4. Result
 

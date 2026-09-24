@@ -9,15 +9,15 @@ Source: Nick's pasted block (9/23 ~8:55 PM): "everything from here down was 100%
 | 4 | "Beat my boys, not ESPN" | ESPN's projection used as the weather; our edge = league-mates (clones, psychology) | DONE (ruling + META-01) |
 | 5 | "Set the objective in the UI" / "the model gives me a player we're bullish on, I approve or choose my own" | Objective picker + "Suggest targets" (ranked by title-odds gain x reachability, one-line why), approve or choose | MORNING |
 | 6 | "Exact things to say, how to respond, next moves" | Per step: copyable message (true facts, framed on his needs), walk-away price, reply table (accept / decline / counter / silence -> what to do) | MORNING (prototype-level; Coach-written text next) |
-| 7 | "Always running on sims, game theory, always inching closer" | Plans recomputed on every data refresh now; event-by-event replanning with push alerts | PARTIAL: refresh-based by morning; always-on replanning LATER (engine daemon EA-02) |
+| 7 | "Always running on sims, game theory, always inching closer" | Plans recomputed on every data refresh now; event-by-event replanning with push alerts | MORNING: replans every data refresh (15 min) AND on every offer reply / league trade / injury picked up by that refresh, with a push when the next move changes (true second-by-second daemon = EA-02 upgrade later, same outputs) |
 | 8 | "Risk modes and tolerance, up to fuck it let's go" | Safe / Balanced / Fuck it (max chance to win it all); sliders: assets to spend, offers per manager, risk per move | MORNING (modes change the plan's scoring) |
-| 9 | "140 projected points every week" | Objective type "hit X projected pts/week" with a feasibility check: how likely, by when, at what cost; bye/injury warnings | MORNING (feasibility report) |
-| 10 | "Goal changes, add stops, Coach as the middle man, don't lose sight" | Itinerary (destination + stops + rules); Coach shows the trade-off before adding a stop; weekly check-in | PARTIAL: itinerary + trade-off in the War Room by morning; Coach chat edits LATER (COACH-01) |
+| 9 | "140 projected points every week" | Objective type "hit X projected pts/week" with a feasibility check: how likely, by when, at what cost; bye/injury warnings | MORNING: objective added for ALL 5 leagues (Nick: 'add objective'), feasibility: how likely, by when, at what cost; bye/injury warnings |
+| 10 | "Goal changes, add stops, Coach as the middle man, don't lose sight" | Itinerary (destination + stops + rules); Coach shows the trade-off before adding a stop; weekly check-in | MORNING: itinerary + trade-off in the War Room AND a Coach tool that turns plain words into itinerary edits with the engine's trade-off preview (COACH-NAV unit tonight) |
 | 11 | "Can we speed up / make up ground" | Speed curve: arrive by week N at cost X; speed levers priced | MORNING |
 | 12 | "How do we catch back up" | Catch-up list in order: free moves -> flips -> desperate / checked-out managers -> bigger swings when behind -> timing | MORNING |
-| 13 | "How do we know it works / this is a prayer" | Report card: E1 "yes" odds on real trades, E3 title odds on real Sleeper seasons (numbers by morning); E2, E4-E7 graded as 2026 weeks come in; failing check -> falls back to Balanced | TESTED: E1 + E3 by morning; rest LATER |
+| 13 | "How do we know it works / this is a prayer" | Report card: E1 "yes" odds on real trades, E3 title odds on real Sleeper seasons (numbers by morning); E2, E4-E7 graded as 2026 weeks come in; failing check -> falls back to Balanced | MORNING: E1 + E3 tested on history with numbers; E2 + E4-E7 graders BUILT tonight and running, showing 'not enough data yet, needs N weeks' until 2026 results arrive (can't be faked) |
 | 14 | "GPS: weather from ESPN/Vegas, route is ours" | ESPN + Vegas feed the simulator; honest range; the route graded on history and live | DONE (design) + MORNING (range shown) |
-| 15 | "See when numbers break, in the app" | Number health card + red dot; broken-numbers list | LATER this week (BROKEN-01), list kept now |
+| 15 | "See when numbers break, in the app" | Number health card + red dot; broken-numbers list | MORNING: BROKEN-01a+b tonight (audit job + Number health card + red dot) |
 | 16 | "UI overhaul" | War Room inside Trade Brain, designed for one decision per screen, phone + desktop, mockup first | MORNING (mockup + first build behind preview) |
 
 ## Build order tonight
@@ -42,3 +42,15 @@ Engine daemon (always-on replanning, 7) -> manager clones validated (better P(ye
 | 26 | Clone of Nick | SELF-01 bias flags + follow/ignore | LATER |
 | 27 | League self-play | IDEA-188 moonshot | LATER |
 Rows 17-22 are in tonight's Phase B scope.
+
+## Nick 9/23 ~9:25 PM: "everything in this, add, don't skip"
+Every pasted item is now in tonight's scope. The only things that cannot be finished tonight are the ones that need real 2026 weeks to have happened (live grading E2, E4-E7): their graders are built and running tonight and fill in as weeks complete.
+Tonight's unit list (launch order, <=3 build loops at once):
+1. EA-00 spine v2 (running) | 2. ACQ-FLIP-proto (running) | 3. WR-1 War Room read path + decision card (running)
+4. CAMPAIGN producer: flip map, targets, best path + backup, playbook (message, walk-away, reply table), risk modes, sliders, objectives (title / playoffs / get X / X projected pts for all 5 leagues), itinerary + stop trade-off, speed curve, catch-up list, my rows 17-20 + 22; replans every refresh + on offer/trade/injury events, push on change
+5. WR-2 War Room route/stops/targets/speed/flip map/phone/dark
+6. WR-3 War Room buttons (set goal, approve target, I sent it, log reply + one-tap decline reason, risk mode, add a stop) via a small request table the producer reads (no computing in the web server)
+7. COACH-NAV: Coach tool for itinerary edits with the engine's trade-off preview; every reply shows destination + stops + next move
+8. BROKEN-01a+b: audit job + Number health card + red dot
+9. EVAL graders E1-E7 + 'Is the brain working?' card (fallback to Balanced on a failing check)
+Then Phase C: merge, local app, browser check of every league, screenshots, MORNING-BRIEF.md.

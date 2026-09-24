@@ -20,6 +20,9 @@
  *   - waiver-wire.js#waiverBoard                 snap-share order for same-team replacements
  *   - season-sim.js#rosBasisFlag                 title odds on the finder's ros_ppg (RL-17-3;
  *                                                GRIDIRON_RL17_3_ENABLED=0 vetoes preview)
+ *   - one-world.js#oneWorldFlag                  one set of draws per NFL week behind the title
+ *                                                odds, trade cards, ceiling lineup and posture
+ *                                                (EA-07; GRIDIRON_ONE_WORLD=0 vetoes preview)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

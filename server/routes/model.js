@@ -30,6 +30,8 @@ import { scoringFor } from '../services/scoring.js';
 import { buildProjections } from '../services/projections.js';
 import { clearPlayerWeekEngineCache } from '../services/player-week-engine.js';
 import { simulateSeason, simStartWeek, tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
+import { oneWorldFlag } from '../services/one-world.js';
+import { leagueWorld, oneWorldTitleOdds, clearLeagueWorlds, ONE_WORLD_RUNS } from '../services/league-world.js';
 import { fitCorrelations, clearCorrelationCache } from '../services/correlation.js';
 import { fitGameScript, syncHistoricalLines, syncCurrentLines, clearGameScriptCache } from '../services/gamescript.js';
 import { syncAll as syncNflverse } from '../services/nflverse.js';
@@ -121,7 +123,7 @@ const memo = (key, fn) => {
   if (!cache.has(key)) cache.set(key, fn());
   return cache.get(key);
 };
-export function clearModelCache() { cache.clear(); clearPlayerWeekEngineCache(); }
+export function clearModelCache() { cache.clear(); clearPlayerWeekEngineCache(); clearLeagueWorlds(); }
 
 /* ------------------------------------------------ persisted model registry */
 
@@ -462,6 +464,14 @@ r.get('/:leagueId/simulate', requireAuthenticated, (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
     if (!lg.payload) return res.status(400).json({ error: 'league not synced yet' });
+    // EA-07: with the one world on, the twin serves the snapshot's one title.odds
+    // (the same row the Title tab and the TradeCard start from). runs/seed/from_week
+    // no longer pick a different number; any sent is echoed back as ignored.
+    if (oneWorldFlag().on) {
+      const ignored = Object.fromEntries(['runs', 'seed', 'from_week']
+        .filter(k => req.query[k] != null).map(k => [k, req.query[k]]));
+      return res.json(oneWorldTitleOdds(lg, { ignored }));
+    }
     const runs = Math.min(6000, Number(req.query.runs) || 2000);
     // The memo key uses the same producer on the same raw input that
     // simulateSeason resolves internally, so the key and the body's from_week agree.
@@ -480,6 +490,14 @@ r.post('/:leagueId/trade-impact', requireAuthenticated, (req, res, next) => {
     if (!lg.payload) return res.status(400).json({ error: 'league not synced yet' });
     const { my_team_id, their_team_id, i_give = [], i_get = [] } = req.body ?? {};
     if (!their_team_id) return res.status(400).json({ error: 'their_team_id required' });
+    // EA-07: priced on the snapshot's world, so this card's "before" is the twin's
+    // title odds. The world fixes the runs and the seed; a client value is not used.
+    if (oneWorldFlag().on) {
+      return res.json(tradeImpact(lg, {
+        myTeamId: my_team_id ?? lg.my_team_id, theirTeamId: their_team_id,
+        iGive: i_give, iGet: i_get, runs: ONE_WORLD_RUNS, scoring: scoringFor(lg), world: leagueWorld(lg)
+      }));
+    }
     res.json(tradeImpact(lg, {
       myTeamId: my_team_id ?? lg.my_team_id,
       theirTeamId: their_team_id,

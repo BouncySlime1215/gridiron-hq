@@ -27,11 +27,12 @@ import { gameMultiplier, matchupModel } from './matchups.js';
 import { leagueRules, seedStandings, simRulesProblem } from './league-rules.js';
 import { deriveFormat } from './format.js';
 import { gameScriptFor } from './gamescript.js';
-import { loadRosters, assetUniverse, lineupSlots } from './trade-engine.js';
+import { loadRosters, assetUniverse, lineupSlots, tradeWeekContext } from './trade-engine.js';
 import { random, withRandomSeed, keyedSeed } from './stats-util.js';
 import { weeklyAvailability } from './contingency.js';
 import { leagueCurrentWeek } from './league-week.js';
 import { previewUnconfirmed, previewFields } from './preview-mode.js';
+import { oneWorldFlag, oneWorldSeed, rosFactor } from './one-world.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
@@ -296,6 +297,8 @@ export const __test = { lineupPoints, initialRecords, playBracket, addMedianResu
  * counted in `ros_unscaled`, never silently.
  *
  * GRIDIRON_RL17_3_ENABLED: '1' on, '0' off, unset = off unless preview mode.
+ * EA-07: the one world (one-world.js) always reads proj.ros, so with the one world
+ * on the basis is on too; an explicit '0' here still vetoes it (kill switch).
  */
 export const RL17_3_ENV = 'GRIDIRON_RL17_3_ENABLED';
 const RL17_3_PREVIEW_REASON =
@@ -306,6 +309,8 @@ export function rosBasisFlag() {
   const v = process.env[RL17_3_ENV];
   if (v === '1') return { on: true, preview: false };
   if (v === '0') return { on: false, preview: false };
+  const world = oneWorldFlag();
+  if (world.on) return world;
   const preview = previewUnconfirmed();
   return { on: preview, preview };
 }
@@ -319,9 +324,8 @@ function rosScale(roster, proj, flag) {
   if (!flag.on) return { scale, fields: null };
   let unscaled = 0;
   for (const p of roster) {
-    const ppg = proj.get(p.id)?.ppg;
-    const ros = p.ros_ppg;
-    if (Number.isFinite(ros) && ros >= 0 && Number.isFinite(ppg) && ppg > 0) scale.set(p.id, ros / ppg);
+    const f = rosFactor(p.ros_ppg, proj.get(p.id)?.ppg);
+    if (f !== undefined) scale.set(p.id, f);
     else if (proj.get(p.id)) unscaled++;
   }
   return {
@@ -369,9 +373,9 @@ export function simPlayerMeans(world) {
  */
 export function simulateSeason(lg, {
   runs = 2000, fromWeek: requestedWeek = null, scoring = PPR, overrides = null, projections = null,
-  keepRuns = false, universe = null
+  keepRuns = false, universe = null, worldId = null
 } = {}) {
-  const prep = prepareSeason(lg, { requestedWeek, scoring, overrides, projections, universe });
+  const prep = prepareSeason(lg, { requestedWeek, scoring, overrides, projections, universe, worldId });
   if (prep.fail) return prep.fail;
   // A run's draws for a week, made once and shared by every team and by the
   // bracket (the draw is keyed by run, so a repeat call would give the same values).
@@ -398,10 +402,11 @@ export function simulateSeason(lg, {
  * Everything a simulated season is built from before a single run is played:
  * the league's rules and fixtures, the rosters (with `overrides` applied), and
  * each player-week's outcome pool and copula sampler. It draws the one number
- * that names the simulated world from the caller's random stream, exactly once.
+ * that names the simulated world from the caller's random stream, exactly once,
+ * unless `worldId` names it (EA-07: the week's world, oneWorldSeed).
  */
 function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = null, projections = null, universe = null,
-  basisFlag = rosBasisFlag() }) {
+  basisFlag = rosBasisFlag(), worldId = null }) {
   const fromWeek = simStartWeek(lg, requestedWeek);
   // The league's own rules, never a hard-coded default: a missing field is a
   // named error with its payload path (league-rules.js#simRulesProblem).
@@ -441,7 +446,8 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
   // One draw from the caller's stream names this simulated world. Every random
   // number below is addressed by (world, player, week[, run]) off it, so under
   // one seed the same player gets the same football in every configuration.
-  const world = Math.floor(random() * 0x100000000) >>> 0;
+  // EA-07: a named world (the NFL week's) takes no draw from the stream.
+  const world = worldId != null ? Number(worldId) >>> 0 : Math.floor(random() * 0x100000000) >>> 0;
   const { schedule: nflSchedule } = matchupModel();
 
   /* --- pre-generate each player's outcome pool per week ---------------------
@@ -453,31 +459,8 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
     const entries = [];
     const activeChance = weeklyAvailability(SEASON, week);
     for (const p of roster) {
-      const pr = proj.get(p.id);
-      const nflWeek = nflSchedule.get(p.team_abbr)?.find(g => g.week === week);
-      // On bye, or no NFL game that week, the player scores nothing.
-      if (!pr || !nflWeek) { entries.push({ p, samples: null, meta: null }); continue; }
-      // matchups.js's one matchup multiplier: exactly 1 in its tested state (no home/away
-      // or defense-vs-position arm beat no adjustment, MATCHUP_EVIDENCE). This used to
-      // hard-code `dvpFor(...).mult * (home ? 1.02 : 0.98)`, a tilt matchups.js retired.
-      const base = gameMultiplier(nflWeek.opponent_abbr, nflWeek.home, p.position);
-      // Matchup difficulty and game script are independent effects on the same volume:
-      // who you play, and how the game is expected to unfold.
-      const gs = gameScriptFor(p.team_abbr, SEASON, week);
-      const mult = { pass: base * gs.pass_mult, rush: base * gs.rush_mult };
-      const activeProbability = activeChance.get(p.id)?.active_probability ?? 0.92;
-      const s = withRandomSeed(keyedSeed(world, 'pool', p.id, week),
-        () => sampleWeeks(pr.params, POOL, scoring, scaled(mult, basis.scale.get(p.id)), activeProbability))
-        .sort((a, b) => a - b);
-      entries.push({
-        p, samples: s,
-        meta: {
-          id: p.id, position: p.position,
-          team: p.team_abbr, opponent: nflWeek.opponent_abbr,
-          target_share: pr.volume?.target_share ?? null,
-          active_probability: activeProbability
-        }
-      });
+      const pool = weekPool(p, week, { world, proj, scoring, scale: basis.scale.get(p.id), activeChance, nflSchedule });
+      entries.push(pool ? { p, ...pool } : { p, samples: null, meta: null });
     }
     const active = entries.filter(e => e.samples);
     const expected = new Map(active.map(e => [
@@ -489,15 +472,71 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
       // week-w outcome in run r is the same wherever he is rostered.
       draw: correlatedSampler(active.map(e => e.meta), active.map(e => e.samples),
         active.map(e => keyedSeed(world, 'copula', e.p.id, week))),
-      ids: active.map(e => e.p.id), expected
+      ids: active.map(e => e.p.id), expected,
+      // The sorted pools themselves: a page's range.week is read off these (EA-07).
+      pools: new Map(active.map(e => [e.p.id, e.samples]))
     });
   }
 
   return {
-    lg, rules, fromWeek, assets, teams, slots, sched, weeks, simWeeks, bracketWeeks, weekData,
+    lg, rules, fromWeek, assets, teams, slots, sched, weeks, simWeeks, bracketWeeks, weekData, world,
     playoffTeams: rules.schedule.playoff_teams, medianGame: rules.median_game === true,
     rosterIds: new Set(roster.map(p => p.id)), basisFields: basis.fields
   };
+}
+
+/**
+ * One player's sorted outcome pool for one NFL week inside world `world`, and the
+ * copula meta that goes with it; null on a bye or without a projection (he scores
+ * nothing). The only place a pool is drawn, so any caller that passes the same
+ * inputs gets the same array the title odds index (EA-07).
+ */
+function weekPool(p, week, { world, proj, scoring, scale, activeChance, nflSchedule }) {
+  const pr = proj.get(p.id);
+  const nflWeek = nflSchedule.get(p.team_abbr)?.find(g => g.week === week);
+  // On bye, or no NFL game that week, the player scores nothing.
+  if (!pr || !nflWeek) return null;
+  // matchups.js's one matchup multiplier: exactly 1 in its tested state (no home/away
+  // or defense-vs-position arm beat no adjustment, MATCHUP_EVIDENCE). This used to
+  // hard-code `dvpFor(...).mult * (home ? 1.02 : 0.98)`, a tilt matchups.js retired.
+  const base = gameMultiplier(nflWeek.opponent_abbr, nflWeek.home, p.position);
+  // Matchup difficulty and game script are independent effects on the same volume:
+  // who you play, and how the game is expected to unfold.
+  const gs = gameScriptFor(p.team_abbr, SEASON, week);
+  const mult = { pass: base * gs.pass_mult, rush: base * gs.rush_mult };
+  const activeProbability = activeChance.get(p.id)?.active_probability ?? 0.92;
+  const samples = withRandomSeed(keyedSeed(world, 'pool', p.id, week),
+    () => sampleWeeks(pr.params, POOL, scoring, scaled(mult, scale), activeProbability))
+    .sort((a, b) => a - b);
+  return {
+    samples,
+    meta: {
+      id: p.id, position: p.position,
+      team: p.team_abbr, opponent: nflWeek.opponent_abbr,
+      target_share: pr.volume?.target_share ?? null,
+      active_probability: activeProbability
+    }
+  };
+}
+
+/**
+ * EA-07: a player's pool in this NFL week's world without building the league's
+ * whole world: the same draw (same seed address, projection, game script,
+ * availability and RL-17-3 scale on `p.ros_ppg`) as the world's own. For the one
+ * caller that cannot wait for a world because the world is built on it: the asset
+ * universe's floor/ceiling (trade-engine.js). Everyone else reads the world
+ * (league-world.js). `proj` is buildProjections({ through: SEASON - 1, scoring }),
+ * passed so a caller pricing many players builds it once; `activeChance` likewise.
+ */
+export function worldPoolFor(p, week, { scoring, proj, world = null, activeChance = null } = {}) {
+  if (!SCORED.has(p?.position)) return null;
+  const ctx = tradeWeekContext();
+  return weekPool(p, Number(week), {
+    world: world ?? oneWorldSeed(ctx.season, ctx.week), proj, scoring,
+    scale: rosFactor(p.ros_ppg, proj.get(p.id)?.ppg),
+    activeChance: activeChance ?? weeklyAvailability(SEASON, Number(week)),
+    nflSchedule: matchupModel().schedule
+  })?.samples ?? null;
 }
 
 /** A trade's rosters: each overridden team's players replaced by the listed ids. */
@@ -613,8 +652,17 @@ function pairedSe(before, after) {
  * every click (it used to be a fresh random seed per request).
  */
 export function tradeImpactSeed(lg) {
+  // EA-07: with the one world on, every deal on every surface faces this NFL
+  // week's world, which a sync does not re-roll (only a changed input moves a number).
+  if (oneWorldFlag().on) {
+    const { season, week } = tradeWeekContext();
+    return oneWorldSeed(season, week);
+  }
   return keyedSeed('trade-impact', lg.id, lg.fetched_at ?? '');
 }
+
+/** 'week' when the seed IS the world (EA-07), 'stream' when the world is drawn off it. */
+const worldMode = () => (oneWorldFlag().on ? 'week' : 'stream');
 
 /**
  * The one run count every title-odds delta is simulated at (Title-impact tab,
@@ -663,11 +711,13 @@ export function tradeImpactWorld(lg, {
   const pairedSeed = seed == null ? tradeImpactSeed(lg) : Number(seed);
   const universeIds = [...new Set([...universe].map(Number))].sort((a, b) => a - b);
   const basisFlag = rosBasisFlag();
+  const mode = worldMode();
   const prep = withRandomSeed(pairedSeed,
-    () => prepareSeason(lg, { requestedWeek, scoring, projections, universe: universeIds, basisFlag }));
+    () => prepareSeason(lg, { requestedWeek, scoring, projections, universe: universeIds, basisFlag,
+      worldId: mode === 'week' ? pairedSeed : null }));
   const key = {
     league: lg.id, fetched_at: lg.fetched_at ?? null, runs, fromWeek: simStartWeek(lg, requestedWeek),
-    scoring: JSON.stringify(scoring), seed: pairedSeed, basis: basisKey(basisFlag)
+    scoring: JSON.stringify(scoring), seed: pairedSeed, basis: basisKey(basisFlag), mode
   };
   if (prep.fail) return { key, projections, universe: universeIds, fail: prep.fail };
 
@@ -707,7 +757,7 @@ function worldFits(w, lg, { runs, scoring, fromWeek, seed, dealIds }) {
   const k = w.key;
   if (k.league !== lg.id || k.fetched_at !== (lg.fetched_at ?? null) || k.runs !== runs
     || k.fromWeek !== fromWeek || k.scoring !== JSON.stringify(scoring) || k.seed !== seed
-    || k.basis !== basisKey(rosBasisFlag())) return false;
+    || k.basis !== basisKey(rosBasisFlag()) || k.mode !== worldMode()) return false;
   // The world's copula must hold exactly the players the full runs would: every
   // rostered player plus the ones this deal names. A named player outside it, or
   // an extra free agent the deal does not name, would change his game-mates' draws.
@@ -758,7 +808,7 @@ export function tradeImpact(lg, {
   // One shared player universe for both arms: a received player nobody rosters
   // today (a free agent in a claim ladder) is simulated in the "before" arm too.
   const universe = [...give, ...get];
-  let before, after;
+  let before, after, reused = null;
   if (fastRescoreEnabled()) {
     let w = world;
     if (!worldFits(w, lg, { runs, scoring, fromWeek, seed: pairedSeed, dealIds: universe })) {
@@ -769,6 +819,7 @@ export function tradeImpact(lg, {
       });
     }
     if (w.fail) return w.fail;
+    reused = w === world;
     before = w.base;
     const afterTeams = applyOverrides(w.prep.teams, overrides, w.prep.assets);
     const points = new Map(w.points);
@@ -778,10 +829,11 @@ export function tradeImpact(lg, {
     // One projection build shared by both runs — rebuilding would introduce noise that
     // has nothing to do with the trade.
     const projections = buildProjections({ through: SEASON - 1, scoring });
+    const worldId = worldMode() === 'week' ? pairedSeed : null;
     before = withRandomSeed(pairedSeed,
-      () => simulateSeason(lg, { runs, fromWeek, scoring, projections, keepRuns: true, universe }));
+      () => simulateSeason(lg, { runs, fromWeek, scoring, projections, keepRuns: true, universe, worldId }));
     after = withRandomSeed(pairedSeed,
-      () => simulateSeason(lg, { runs, fromWeek, scoring, projections, overrides, keepRuns: true, universe }));
+      () => simulateSeason(lg, { runs, fromWeek, scoring, projections, overrides, keepRuns: true, universe, worldId }));
   }
   if (before.error || after.error) return before.error ? before : after;
 
@@ -807,5 +859,8 @@ export function tradeImpact(lg, {
   return { runs, from_week: fromWeek, seed: pairedSeed, paired_simulation: true,
     ...(before.projection_basis ? { projection_basis: before.projection_basis,
       ...(before.preview ? previewFields(before.preview_reason) : {}) } : {}),
+    // EA-07: whether this deal was priced on the caller's world (the snapshot's one
+    // title.odds) or needed its own (it names a player outside that world).
+    ...(worldMode() === 'week' ? { world_id: pairedSeed, world_reused: reused } : {}),
     me: delta(me.roster_id), them: delta(them.roster_id) };
 }

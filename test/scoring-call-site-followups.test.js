@@ -42,7 +42,10 @@ test('myPlayoffOdds (trade-engine.js:1420-1421) hands simulateSeason the league\
       __test: {},
       simulateSeason: (_lg, opts = {}) => { seen.push(opts.scoring); return { teams: [], runs: opts.runs, from_week: opts.fromWeek }; },
       simStartWeek: () => 1,
-      tradeImpact: () => ({ ok: true })
+      tradeImpact: () => ({ ok: true }),
+      // EA-07 (league-world.js, trade-engine.js) imports these; the one world is off here.
+      worldPoolFor: () => null, rosBasisFlag: () => ({ on: false, preview: false }),
+      tradeImpactWorld: () => ({ fail: { error: 'mocked' } })
     }
   });
   const { myPlayoffOdds } = await import('../server/services/trade-engine.js');

@@ -52,7 +52,10 @@ mock.module('../server/services/season-sim.js', {
     tradeImpact: (_lg, opts = {}) => { seen.push({ at: 'tradeImpact', scoring: opts.scoring }); return { ok: true }; },
     // model.js also imports the trade-impact default run count (RL-6-3); its value is
     // not what this file checks. Same number as season-sim.js (SENSE_CHECK_SIM_RUNS).
-    TRADE_IMPACT_RUNS: 1200
+    TRADE_IMPACT_RUNS: 1200,
+    // EA-07 (league-world.js, trade-engine.js) imports these; the one world is off here.
+    worldPoolFor: () => null, rosBasisFlag: () => ({ on: false, preview: false }),
+    tradeImpactWorld: () => ({ fail: { error: 'mocked' } })
   }
 });
 mock.module('../server/services/player-week-engine.js', {

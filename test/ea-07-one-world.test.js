@@ -272,6 +272,13 @@ test('EA-07 (row C): the ceiling lineup ranks on the world pool means; lineup po
       assert.equal(slot.mean_points, +worldRange(lg, p, 2).mean.toFixed(2), `${slot.player}`);
     }
   });
+  // Keyed on the world: the same call is the same draws (an unkeyed copula would
+  // take the next numbers off the shared stream and move on every call).
+  on(() => {
+    const a = ceilingLineup(4, { teamId: '1', week: 2, trials: 300 });
+    const b = ceilingLineup(4, { teamId: '1', week: 2, trials: 300 });
+    assert.deepEqual(b.distribution, a.distribution);
+  });
   // lineupMoments: a player's world SD replaces the positional CV spread.
   const withSd = lineupMoments([{ position: 'WR', week_points: 10, week_sd: 4 }]);
   assert.equal(withSd.sd, 4 * SPREAD_SCALE);
@@ -303,4 +310,25 @@ test('EA-07: preview mode turns it on and labels it; an explicit 0 wins', () => 
     assert.equal(tradeImpactSeed(lg), keyedSeed('trade-impact', lg.id, lg.fetched_at));
   });
   assert.equal(rangeFromPool([]), null);
+});
+
+test('EA-07: rangeFromPool reads quantiles at floor(q x n), the copula\'s index', () => {
+  // n = 7: floor(0.1 x 7) = 0 and floor(0.9 x 7) = 6, where rounding would give 1 and 6.
+  const r = rangeFromPool([0, 1, 2, 3, 4, 5, 6], 'WR');
+  assert.equal(r.p10, 0);
+  assert.equal(r.p25, 1);
+  assert.equal(r.p50, 3);
+  assert.equal(r.p90, 6);
+  assert.equal(r.mean, 3);
+  assert.equal(r.draws, 7);
+});
+
+test('EA-07: a world drawn off the stream is never reused as the week\'s world', () => {
+  const lg = league();
+  const args = { ...DEALS[0], runs: 200, seed: 4242 };
+  const stream = withEnv({ [ONE_WORLD_ENV]: '0', GRIDIRON_RL17_3_ENABLED: '1' }, () => sim.tradeImpactWorld(lg, { runs: 200, seed: 4242 }));
+  const reused = withEnv({ [ONE_WORLD_ENV]: '1', GRIDIRON_RL17_3_ENABLED: '1' }, () => tradeImpact(lg, { ...args, world: stream }));
+  const fresh = withEnv({ [ONE_WORLD_ENV]: '1', GRIDIRON_RL17_3_ENABLED: '1' }, () => tradeImpact(lg, args));
+  assert.equal(reused.world_reused, false);
+  assert.deepEqual(reused.me, fresh.me);
 });

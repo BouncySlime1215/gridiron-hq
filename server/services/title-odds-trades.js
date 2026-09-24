@@ -26,6 +26,8 @@
 import { row } from '../db/index.js';
 import { findTrades } from './trade-engine.js';
 import { tradeImpact, tradeImpactWorld, fastRescoreEnabled, TRADE_IMPACT_RUNS } from './season-sim.js';
+import { oneWorldFlag, oneWorldPreviewFields } from './one-world.js';
+import { leagueWorld, worldStamp, ONE_WORLD_RUNS } from './league-world.js';
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 
@@ -43,8 +45,15 @@ export function titleOddsTrades(leagueId, {
 } = {}) {
   const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg?.payload) return { error: 'league not synced yet' };
+  // EA-07: with the one world on, every deal here is priced on the snapshot's world
+  // (its runs, its seed), so each deal's "before" is the twin's title odds.
+  const oneWorld = oneWorldFlag();
+  const shared = oneWorld.on ? leagueWorld(lg) : null;
+  if (shared?.fail) return shared.fail;
+  if (shared) runs = ONE_WORLD_RUNS;
 
-  const key = `${leagueId}|${teamId}|${shortlist}|${runs}|${requireMutual}|${lg.fetched_at}`;
+  const key = `${leagueId}|${teamId}|${shortlist}|${runs}|${requireMutual}|${lg.fetched_at}` +
+    (shared ? `|world:${JSON.stringify(worldStamp(lg, shared))}` : '');
   if (_cache.has(key)) return _cache.get(key);
 
   const found = findTrades(lg, { myTeamId: teamId, requireMutual, limit: shortlist * 3 });
@@ -67,7 +76,7 @@ export function titleOddsTrades(leagueId, {
   // RL-19-2: the league as it is (pools, draws, every team's lineups) is built
   // once and each deal re-solves only its two changed lineups, ~60x cheaper
   // per deal with the same numbers. GRIDIRON_FAST_RESCORE=0 skips it.
-  const world = fastRescoreEnabled() && candidates.length ? tradeImpactWorld(lg, { runs }) : null;
+  const world = shared ?? (fastRescoreEnabled() && candidates.length ? tradeImpactWorld(lg, { runs }) : null);
   for (const d of candidates) {
     const impact = tradeImpact(lg, {
       myTeamId: teamId ?? lg.my_team_id, theirTeamId: d.partner_id,
@@ -110,6 +119,12 @@ export function titleOddsTrades(leagueId, {
     simulated: scored.length,
     runs_each: runs,
     deals: scored,
+    ...(shared ? {
+      one_world: worldStamp(lg, shared),
+      // The title odds every deal above starts from: the snapshot's one title.odds.
+      title_now: shared.base.teams.find(t => t.roster_id === String(teamId ?? lg.my_team_id))?.title_odds ?? null,
+      ...oneWorldPreviewFields(oneWorld)
+    } : {}),
     ...summariseTitleTrades(scored),
     note: 'Each deal is simulated twice under common random numbers: every player gets the same ' +
       'simulated football with and without the trade, so the delta is the trade\'s effect. It still ' +

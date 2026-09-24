@@ -20,7 +20,12 @@
  *
  * No network, no paid model call: every Claude call is
  * claude.js#setAnthropicClientForTesting. Fixture plans are the committed
- * warroom contract fixture relabelled as league 4; no real league data.
+ * warroom contract fixture (its third league, FIXTURE_INDEX: the one whose plan
+ * carries a two-step next move and an alternative path) relabelled as league
+ * 4, with the three players of the next move renamed initial-style
+ * (FIXTURE_NAMES), because the contract fixture writes players as "P4" and the
+ * player check looks for names the way the live plans file writes them. No
+ * real league data.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -56,7 +61,10 @@ const LEAGUE = 4;
 
 const contract = JSON.parse(fs.readFileSync(
   new URL('./fixtures/warroom-contract/producer-plans.json', import.meta.url), 'utf8'));
-const league4 = { ...structuredClone(contract.leagues[0]), league: LEAGUE };
+const FIXTURE_INDEX = 2;
+const FIXTURE_NAMES = { 4: 'M. Oduya (WR)', 7: 'T. Kline (WR)', 22: 'C. Ruiz (QB)' };
+const league4 = { ...structuredClone(contract.leagues[FIXTURE_INDEX]), league: LEAGUE };
+Object.assign(league4.names, FIXTURE_NAMES);
 const plansDoc = { ...structuredClone(contract), leagues: [league4] };
 const writePlans = doc => fs.writeFileSync(PLANS_FILE, JSON.stringify(doc));
 writePlans(plansDoc);
@@ -275,12 +283,12 @@ test('plan_read: a section comes back as one flat citable row, players named', n
   const r = rows[0];
   assert.equal(r.status, 'ok');
   assert.equal(r.league_id, LEAGUE);
-  assert.equal(r.next_move_steps_0_p_yes_value, 0.38);
-  assert.equal(r.next_move_steps_0_give_0, '601');
+  assert.equal(r.next_move_steps_0_p_yes_value, league4.next_move.value.steps[0].p_yes.value);
+  assert.equal(r.next_move_steps_0_give_0, '4');
   assert.equal(r.next_move_steps_0_give_0_name, 'M. Oduya (WR)');
   assert.equal(r.next_move_steps_0_walk_away_value_text, undefined, 'the playbook is its own view');
   const [book] = brain.planRead({ league_id: LEAGUE, section: 'next_move_playbook' });
-  assert.equal(book.next_move_playbook_steps_0_walk_away_value_text, 'Stop if he asks for more than these two.');
+  assert.equal(book.next_move_playbook_steps_0_walk_away_value_text, 'Stop at P5 + P6: past that, your backup plan is worth more.');
   assert.equal(r.plans_generated_at, contract.generated_at);
   for (const col of Object.keys(r)) assert.match(col, /^[A-Za-z_][A-Za-z0-9_]*$/, `${col} must be citable`);
 });
@@ -396,7 +404,7 @@ test('brain_read: without the table it falls back to the plan, then to unknown',
   try {
     const rows = brain.brainRead({ league_id: LEAGUE });
     assert.equal(rows[0].origin, 'plans file');
-    assert.equal(rows[0].overall, 'not_enough_data');
+    assert.equal(rows[0].overall, league4.brain_report.value.overall);
     fs.renameSync(PLANS_FILE, `${PLANS_FILE}.away`);
     try {
       const [r] = brain.brainRead({ league_id: LEAGUE });
@@ -430,7 +438,7 @@ function planLedger(section = 'next_move') {
 test('verify: a fabricated number next to a real cite is rejected', noBrain, async () => {
   const ledger = await planLedger();
   const ok = verifyAnswer({ ledger, answer: { claims: [
-    { text: 'He says yes 38% of the time.', cites: ['r1#0.next_move_steps_0_p_yes_value'] }] } });
+    { text: 'He says yes 59.3% of the time.', cites: ['r1#0.next_move_steps_0_p_yes_value'] }] } });
   assert.equal(ok.ok, true, JSON.stringify(ok.violations));
   const bad = verifyAnswer({ ledger, answer: { claims: [
     { text: 'He says yes 52% of the time.', cites: ['r1#0.next_move_steps_0_p_yes_value'] }] } });
@@ -442,11 +450,11 @@ test('verify: a fabricated number next to a real cite is rejected', noBrain, asy
 test('verify: a digit inside a cited text cell is grounded by that cell', noBrain, async () => {
   const ledger = await planLedger('next_move_playbook');
   const v = verifyAnswer({ ledger, answer: { claims: [
-    { text: 'If he says yes: Send step 2 to Team 2.',
+    { text: 'If he says yes: Send the next step to Team 2.',
       cites: ['r1#0.next_move_playbook_steps_0_reply_table_value_accept_value_do'] }] } });
   assert.equal(v.ok, true, JSON.stringify(v.violations));
   const off = verifyAnswer({ ledger, answer: { claims: [
-    { text: 'If he says yes: Send step 3 to Team 2.',
+    { text: 'If he says yes: Send the next step to Team 3.',
       cites: ['r1#0.next_move_playbook_steps_0_reply_table_value_accept_value_do'] }] } });
   assert.deepEqual(off.violations.map(x => x.number), ['3']);
 });
@@ -481,13 +489,13 @@ test('verify: a player the claim did not cite, or one no tool returned, is rejec
 test('verify: groundAnswer drops exactly the claims that failed and says so', noBrain, async () => {
   const ledger = await planLedger();
   const answer = { claims: [
-    { text: 'He says yes 38% of the time.', cites: ['r1#0.next_move_steps_0_p_yes_value'] },
+    { text: 'He says yes 59.3% of the time.', cites: ['r1#0.next_move_steps_0_p_yes_value'] },
     { text: 'He says yes 52% of the time.', cites: ['r1#0.next_move_steps_0_p_yes_value'] }
   ], refusals: [], as_of: null };
   const verification = verifyAnswer({ ledger, answer });
   const grounded = groundAnswer(answer, verification);
   assert.equal(grounded.claims.length, 1);
-  assert.equal(grounded.claims[0].text, 'He says yes 38% of the time.');
+  assert.equal(grounded.claims[0].text, 'He says yes 59.3% of the time.');
   assert.equal(grounded.dropped, 1);
   assert.match(grounded.refusals[0], /dropped 1 claim/);
   assert.equal(verifyAnswer({ ledger, answer: grounded }).ok, true);

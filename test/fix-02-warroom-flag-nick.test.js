@@ -134,8 +134,8 @@ test('(c) nick block: nick_override beats a structured note; unreachable, not tr
   const unreachable = nickBlock({ contactable: false }, [{ note: '{"active": true}' }]);
   assert.equal(unreachable.unreachable, true);
   assert.equal(unreachable.in_active_pool, false, 'active but unreachable is not in the pool');
-  const zach = nickBlock({ buyer: false, trades: 'probably none' });
-  assert.equal(zach.deprioritised, true);
+  const notTrading = nickBlock({ buyer: false, trades: 'probably none' });
+  assert.equal(notTrading.deprioritised, true);
   assert.equal(nickBlock({ trades: 'probably none' }).deprioritised, true);
   const hard = nickBlock({ active: true, difficulty: 'hard to deal with' });
   assert.deepEqual([hard.in_active_pool, hard.hard], [true, true]);

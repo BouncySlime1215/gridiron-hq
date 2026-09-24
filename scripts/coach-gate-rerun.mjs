@@ -64,6 +64,8 @@ for (const [mode, pairs] of byMode) {
       + `${pad(s.precision, 8)}${pad(s.recall, 8)}${pad(s.lift, 7)}${pad(`${s.ci90[0]}..${s.ci90[1]}`, 18)}${s.beats_base}`);
   }
   for (const [o, s] of Object.entries(r.outcomes)) console.log(`  ${o}: ${s.statement}`);
+  console.log(`  gate passes: ${r.passed.map(p => `${p.template} (${p.pass_share}${p.confirmed_for.length
+    ? `, confirmed ${p.confirmed_for.join('+')}` : ''})`).join(', ') || 'none'}`);
   console.log(`  gate claim: ${r.gate_claim}${r.claimed_for.length ? ` (${r.claimed_for.join(', ')})` : ''}`);
 }
 

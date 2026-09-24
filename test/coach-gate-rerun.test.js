@@ -139,6 +139,7 @@ test('precision is reported next to the base rate, with recall and a clustered C
   assert.ok(Array.isArray(adds.ci90) && adds.ci90.length === 2);
   assert.equal(report.clusters, 20);
   assert.equal(report.bootstrap.unit, 'league-season');
+  assert.deepEqual(report.passed.map(p => [p.template, p.confirmed_for]), [['STABLE', ['adds']]]);
 });
 
 test('precision is only claimed when the CI clears the base rate', () => {
@@ -177,3 +178,108 @@ test('templates in the panel but not in the screen are outside the universe, and
   assert.equal(report.templates, 2);
   assert.equal(report.templates_unscreened, 1);
 });
+
+/**
+ * FIX-249-2: the panel builder covers every template in the committed screen.
+ * The golden file is the panel's own output on the synthetic golden fixture
+ * (template names and counts only). CI has no pandas, so the checks that run
+ * the Python builder skip without it; the count check against the screen
+ * always runs.
+ */
+import { spawnSync } from 'node:child_process';
+import zlib from 'node:zlib';
+import { loadTellsScreen } from '../server/services/coach/people/grading.js';
+
+const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const golden = JSON.parse(fs.readFileSync(path.join(repo, 'test/fixtures/coach-gate-panel-golden.json'), 'utf8'));
+const screenTemplates = [...templateLabels(loadTellsScreen()).keys()].sort();
+
+function pandasPython() {
+  for (const bin of [process.env.GRIDIRON_PYTHON, 'python3'].filter(Boolean)) {
+    const r = spawnSync(bin, ['-c', 'import pandas, numpy, scipy, sklearn'], { encoding: 'utf8' });
+    if (r.status === 0) return bin;
+  }
+  return null;
+}
+const python = pandasPython();
+const noPython = python ? false : 'needs python3 with pandas, numpy, scipy and sklearn (set GRIDIRON_PYTHON)';
+const panelScript = path.join(repo, 'scripts/rnd/coach-gate-panel.py');
+const fixture = path.join(repo, 'test/fixtures/tells-golden-fixture.json');
+
+test('golden panel: template count equals the screen\'s, in both window modes', () => {
+  assert.equal(screenTemplates.length, 542);
+  assert.equal(golden.templates.length, screenTemplates.length);
+  assert.deepEqual(golden.templates, screenTemplates);
+  for (const mode of Object.values(WINDOW_MODES)) {
+    assert.equal(golden.modes[mode].templates, screenTemplates.length, `${mode} covers every screened template`);
+  }
+  for (const family of ['afterloss', 'TRADESHAPE', 'DROPTEN']) {
+    assert.ok(golden.templates.some(t => t.includes(family)), `${family} is in the panel`);
+  }
+});
+
+test('panel builder on the golden fixture reproduces the golden file', { skip: noPython }, () => {
+  const out = path.join(temp, 'panel.ndjson.gz');
+  const r = spawnSync(python, [panelScript, '--fixture', fixture, '--out', out], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const rows = zlibGunzip(out);
+  const meta = rows.shift().meta;
+  assert.equal(meta.team_seasons, golden.team_seasons);
+  const modes = {};
+  for (const row of rows) {
+    modes[row.mode] ??= { templates: 0, with_values: 0 };
+    modes[row.mode].templates += 1;
+    if (Object.keys(row.clusters).length) modes[row.mode].with_values += 1;
+  }
+  assert.deepEqual(modes, golden.modes);
+  assert.deepEqual([...new Set(rows.map(row => row.template))].sort(), golden.templates);
+});
+
+test('panel catalogue equals the screen, and weeks 1-6 equal the factory\'s own columns', { skip: noPython }, () => {
+  const list = spawnSync(python, [panelScript, '--list-templates'], { encoding: 'utf8' });
+  assert.equal(list.status, 0, list.stderr);
+  assert.deepEqual(JSON.parse(list.stdout), screenTemplates);
+  const parity = spawnSync(python, [panelScript, '--parity', fixture], { encoding: 'utf8' });
+  assert.equal(parity.status, 0, parity.stderr);
+  const p = JSON.parse(parity.stdout.trim().split('\n').pop());
+  assert.ok(p.compared >= 500, `compared ${p.compared}`);
+  assert.equal(p.max_abs_diff, 0);
+  assert.deepEqual(p.nan_mismatch, []);
+  for (const stat of ['afterloss', 'recv', 'uneven', 'DROPTEN']) assert.ok(p.stats_compared.includes(stat), stat);
+});
+
+test('late-window values do not move when early-window transactions change', { skip: noPython }, () => {
+  // The split_70_30 cut is weeks 1-8 vs 9-12. Afterloss pairs and DROPTEN tenure reach back a
+  // week or more; if either leaked across the cut, the late values would change here. Early
+  // transactions move three hours and one week earlier (staying early), so the early values
+  // change but stay defined, and every template keeps its pairs.
+  const fx = JSON.parse(fs.readFileSync(fixture, 'utf8'));
+  const cut = { ...fx, transactions: fx.transactions.map(t => (t.week <= 8
+    ? { ...t, week: Math.max(1, t.week - 1), ms: t.ms - 3 * 3600e3 } : t)) };
+  const cutPath = path.join(temp, 'fixture-late-only.json');
+  fs.writeFileSync(cutPath, JSON.stringify(cut));
+  const late = file => {
+    const r = spawnSync(python, [panelScript, '--fixture', file.in, '--out', file.out], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    const out = new Map();
+    for (const row of zlibGunzip(file.out).slice(1)) {
+      if (row.mode !== WINDOW_MODES.PRIMARY) continue;
+      out.set(row.template, Object.values(row.clusters).flat().map(([, l]) => l));
+    }
+    return out;
+  };
+  const full = late({ in: fixture, out: path.join(temp, 'full.ndjson.gz') });
+  const lateOnly = late({ in: cutPath, out: path.join(temp, 'moved.ndjson.gz') });
+  let compared = 0;
+  for (const [template, values] of lateOnly) {
+    const before = full.get(template);
+    if (before.length !== values.length) continue; // a template whose early value went undefined
+    assert.deepEqual(values, before, template);
+    if (/afterloss|DROPTEN|TRADESHAPE/.test(template) && values.length) compared += 1;
+  }
+  assert.ok(compared > 0, 'no multi-week template was compared');
+});
+
+function zlibGunzip(file) {
+  return zlib.gunzipSync(fs.readFileSync(file)).toString('utf8').trim().split('\n').map(line => JSON.parse(line));
+}

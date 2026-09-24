@@ -13,11 +13,19 @@ the change that straddles the cut belongs to neither window. Window rules mirror
 server/services/coach/people/gate-rerun.js (teamSeasonWindows / splitEvents), which the JS
 tests pin.
 
-Templates are the TELLS-01a per-family statistics (rate, active, night, sun, montue, wedthu,
-frisat, medhour, burst; loglat, lastlat, bid, prem for claims) and the LINEUP means, computed the
-way tells-factory.py's build_arm_a computes its `w16` columns, over the window's weeks instead of
-weeks 1-6. The afterloss, TRADESHAPE and DROPTEN templates are not rebuilt here; the runner reports
-how many screened templates the panel covers.
+Templates are every TELLS-01a arm A template (`template_catalogue`, 542, the screen's count):
+the per-family statistics (rate, active, night, sun, montue, wedthu, frisat, medhour, burst;
+loglat, lastlat, bid, prem for claims), afterloss, the LINEUP means, TRADESHAPE and DROPTEN,
+computed the way tells-factory.py's build_arm_a computes them, over the window's weeks instead of
+weeks 1-6. Two recipes need more than one week, and both stay inside the window:
+
+  afterloss   activity in week w after a loss in week w-1, minus after a win; the pair (w-1, w)
+              must both be in the window, so the pair across the cut is used by neither
+  DROPTEN     a drop's tenure counts from the player's first add INSIDE the window; a player
+              added before the window counts as an original-roster drop (origshare)
+
+Every catalogue template gets a panel row in every mode, with no clusters when no team-season
+has a value, so the covered count is the catalogue's count on any input.
 
 Output: gzip NDJSON, one line per (mode, template) with {cluster: [[early, late], ...]}. The
 cluster is the factory's opaque league-season index (no league ids, no roster ids, no names).
@@ -52,6 +60,21 @@ MODES = {
 }
 STATS = ('night', 'sun', 'montue', 'wedthu', 'frisat', 'medhour', 'burst')
 CLAIM_STATS = ('loglat', 'lastlat', 'bid', 'prem')
+TRADESHAPE_STATS = ('recv', 'sent', 'uneven', 'picks')
+DROPTEN_STATS = ('tenure', 'origshare')
+
+
+def template_catalogue():
+    """Every arm A template build_arm_a writes, without its window suffix (the screen's universe)."""
+    out = []
+    for f in F.ALL_FAMS:
+        out += [f'{f}|{s}' for s in ('rate', 'active') + STATS + ('afterloss',)]
+        if f.startswith('CLAIM'):
+            out += [f'{f}|{s}' for s in CLAIM_STATS]
+    out += [f'LINEUP|{c}' for c in F.LINEUP_STATS]
+    out += [f'TRADESHAPE|{s}' for s in TRADESHAPE_STATS]
+    out += [f'DROPTEN:{P}|{s}' for P in ['ALL'] + F.POSITIONS for s in DROPTEN_STATS]
+    return sorted(out)
 
 
 def windowed_lineups(tw, pos, wks):
@@ -60,8 +83,8 @@ def windowed_lineups(tw, pos, wks):
     return F.lineup_frame(sub, pos) if len(sub) else sub
 
 
-def window_values(ev, tw, pos, K, wks):
-    """Template values over weeks `wks`, the build_arm_a `w16` recipe on an arbitrary window."""
+def window_values(ev, trades, tw, pos, K, wks):
+    """Template values over weeks `wks`, the build_arm_a recipes on an arbitrary window."""
     n_w = len(wks)
     e = ev[ev.week.isin(wks)].copy()
     e['night'] = (e.hour < 6).astype(float)
@@ -100,7 +123,57 @@ def window_values(ev, tw, pos, K, wks):
         grp = lu.groupby(['lg', 'roster'])
         for c in F.LINEUP_STATS:
             cols[f'LINEUP|{c}'] = grp[c].mean().reindex(K)
-    return pd.DataFrame(cols)
+    cols.update(afterloss_values(e, lu, K, wks))
+    cols.update(tradeshape_values(trades, K, wks))
+    cols.update(dropten_values(e, K))
+    return pd.DataFrame(cols).reindex(columns=template_catalogue())
+
+
+def afterloss_values(e, lu, K, wks):
+    """build_arm_a's afterloss: mean events in week w after a loss in w-1 minus after a win.
+    Only pairs with both weeks in the window count, so no pair spans the cut."""
+    cols = {}
+    if not len(lu):
+        return cols
+    inside = set(wks)
+    res = lu[['lg', 'roster', 'week', 'loss', 'win']].copy()
+    res['week'] = res.week + 1
+    grid = res[res.week.isin([w for w in wks if w - 1 in inside])]
+    wkc = e.groupby(['lg', 'roster', 'fam', 'week']).size().rename('c').reset_index()
+    for f in F.ALL_FAMS:
+        wf = wkc[wkc.fam == f][['lg', 'roster', 'week', 'c']]
+        m = grid.merge(wf, on=['lg', 'roster', 'week'], how='left').fillna({'c': 0})
+        al = m[m.loss == 1].groupby(['lg', 'roster']).c.mean()
+        aw = m[m.win == 1].groupby(['lg', 'roster']).c.mean()
+        cols[f'{f}|afterloss'] = (al - aw).reindex(K)
+    return cols
+
+
+def tradeshape_values(trades, K, wks):
+    """build_arm_a's TRADESHAPE means over the trades inside the window."""
+    t = trades[trades.week.isin(wks)].copy()
+    t['uneven'] = (t.nr != t.ns).astype(float)
+    g = t.groupby(['lg', 'roster'])
+    return {'TRADESHAPE|recv': g.nr.mean().reindex(K), 'TRADESHAPE|sent': g.ns.mean().reindex(K),
+            'TRADESHAPE|uneven': g.uneven.mean().reindex(K), 'TRADESHAPE|picks': g.picks.mean().reindex(K)}
+
+
+def dropten_values(e, K):
+    """build_arm_a's DROPTEN over the window's events only (`e` is already cut to the window):
+    tenure from the first add inside the window; no add inside it counts as original roster."""
+    ad = e[e.fam == 'ADD_ANY:ALL'][['lg', 'roster', 'week', 'player']]
+    first_add = ad.groupby(['lg', 'roster', 'player']).week.min().rename('aw')
+    dr = e[e.fam.str.startswith('DROP:')].copy()
+    dr['P'] = dr.fam.str.split(':').str[1]
+    dr = dr.merge(first_add, left_on=['lg', 'roster', 'player'], right_index=True, how='left')
+    dr['ten'] = np.where(dr.aw.notna() & (dr.aw <= dr.week), dr.week - dr.aw, np.nan)
+    dr['orig'] = dr.aw.isna().astype(float)
+    cols = {}
+    for P in ['ALL'] + F.POSITIONS:
+        dd = dr[dr.P == P].groupby(['lg', 'roster'])
+        cols[f'DROPTEN:{P}|tenure'] = dd.ten.median().reindex(K)
+        cols[f'DROPTEN:{P}|origshare'] = dd.orig.mean().reindex(K)
+    return cols
 
 
 def build(tx, tw, pos, lg_season=None):
@@ -115,11 +188,11 @@ def build(tx, tw, pos, lg_season=None):
     for mode, cut in MODES.items():
         early_w, late_w = cut(weeks)
         assert not set(early_w) & set(late_w), 'windows overlap'
-        E = window_values(ev, tw12, pos, K, early_w)
-        L = window_values(ev, tw12, pos, K, late_w)
+        E = window_values(ev, trades, tw12, pos, K, early_w)
+        L = window_values(ev, trades, tw12, pos, K, late_w)
         clusters = np.asarray(K.get_level_values(0))
         rows = {}
-        for t in sorted(set(E.columns) & set(L.columns)):
+        for t in template_catalogue():
             a, b = E[t].to_numpy(float), L[t].to_numpy(float)
             ok = ~np.isnan(a) & ~np.isnan(b)
             by = {}
@@ -129,6 +202,33 @@ def build(tx, tw, pos, lg_season=None):
         out[mode] = {'early_weeks': early_w, 'late_weeks': late_w, 'templates': rows}
         F.log(mode, 'templates', len(rows), 'team-seasons', len(K))
     return out, len(K)
+
+
+def parity(fixture_path):
+    """On weeks 1-6 the panel must equal build_arm_a's w16 columns (w26 for afterloss)."""
+    fx = json.load(open(fixture_path))
+    pos = F.pos_fn(fx['positions'])
+    tx, tw = F.fixture_frames(fx)
+    tx, tw = tx[tx.week.between(1, 12)], tw[tw.week.between(1, 12)]
+    K, _, _, X, _ = F.build_arm_a(tx, tw, pos, fams=F.ALL_FAMS)
+    ev, trades = F.events_from_tx(tx, pos)
+    W = window_values(F.expand_events(ev, trades), trades, tw, pos, K, [1, 2, 3, 4, 5, 6])
+    compared, worst, nan_mismatch = [], 0.0, []
+    for t in W.columns:
+        c = f'{t}|w26' if t.endswith('|afterloss') else f'{t}|w16'
+        if c not in X.columns:
+            continue
+        a, b = W[t].to_numpy(float), X[c].to_numpy(float)
+        if (np.isnan(a) != np.isnan(b)).any():
+            nan_mismatch.append(t)
+        ok = ~np.isnan(a) & ~np.isnan(b)
+        if ok.any():
+            worst = max(worst, float(np.abs(a[ok] - b[ok]).max()))
+        compared.append(t)
+    fams = lambda ts: sorted({t.split('|')[1] if t.startswith(('LINEUP', 'TRADESHAPE')) else t.split('|')[-1]
+                              if not t.startswith('DROPTEN') else 'DROPTEN' for t in ts})
+    return {'compared': len(compared), 'max_abs_diff': worst, 'nan_mismatch': nan_mismatch,
+            'stats_compared': fams(compared)}
 
 
 def write(out, n_units, path, source):
@@ -145,10 +245,18 @@ def write(out, n_units, path, source):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--out', required=True)
+    ap.add_argument('--out')
     ap.add_argument('--fixture')
+    ap.add_argument('--list-templates', action='store_true', help='print the template catalogue as JSON and exit')
+    ap.add_argument('--parity', metavar='FIXTURE', help='compare weeks 1-6 with build_arm_a on FIXTURE, print JSON')
     ap.add_argument('--seasons', default='2021-2024', help='e.g. 2021-2022; 2025 is never opened')
     a = ap.parse_args()
+    if a.list_templates:
+        return print(json.dumps(template_catalogue()))
+    if a.parity:
+        return print(json.dumps(parity(a.parity)))
+    if not a.out:
+        ap.error('--out is required')
     if a.fixture:
         fx = json.load(open(a.fixture))
         tx, tw = F.fixture_frames(fx)

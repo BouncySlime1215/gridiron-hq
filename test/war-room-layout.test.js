@@ -106,6 +106,40 @@ test('flag-on view renders every contract section from the producer, never 0', (
   assert.match(textOf(empty), /not ranked yet/);
 });
 
+test("FIX-282-1: the producer fixture through #287's contract view: targets, flip_map and brain_report panels and Coach read it", async () => {
+  const real = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'warroom-contract', 'producer-plans.json'), 'utf8'));
+  const realPlans = { status: 'ok', entries: structuredClone(real.leagues), as_of: real.generated_at, id: 'p' };
+  const { useWarRoomCoach } = await wr.mod('coach/useWarRoomCoach');
+  const drawn = real.leagues.filter(e => !e.error);
+  assert.ok(drawn.length >= 3, 'the fixture has leagues to draw');
+  for (const e of drawn) {
+    const v = buildWarRoomView(e.league, realPlans, { enabled: true, preview: false });
+    const text = textOf(renderToStaticMarkup(React.createElement(WarRoom, {
+      view: v, leagues: [{ id: e.league, name: `L${e.league}` }], activeId: e.league, onLeague() {}, onExit() {},
+    })));
+    const at = (id, title) => text.includes(title) || assert.fail(`${id} panel missing on league ${e.league}`);
+    at('targets', 'Suggested targets'); at('flip_map', 'Flip map'); at('brain_report', 'Is the brain working?');
+    if (v.targets.status === 'ok' && v.targets.value.length) assert.ok(text.includes(v.names[v.targets.value[0].player]), `league ${e.league}: first target drawn`);
+    else assert.ok(text.includes(v.targets.reason), `league ${e.league}: targets say why`);
+    if (v.flip_map.status === 'ok' && v.flip_map.value.length) {
+      const f = v.flip_map.value[0];
+      assert.ok(text.includes(`${v.names[f.player]} gap`), `league ${e.league}: first flip drawn`);
+    } else assert.ok(text.includes(v.flip_map.reason), `league ${e.league}: flip map says why`);
+    if (v.brain_report.status === 'ok') for (const c of v.brain_report.value.checks) assert.ok(text.includes(c.id), c.id);
+    else assert.ok(text.includes(v.brain_report.reason), `league ${e.league}: brain report says why`);
+    assert.doesNotMatch(text, /NaN|undefined/);
+    // Coach is handed this same contract view (WarRoom.tsx: useWarRoomCoach({ ..., plans: view })).
+    let coach = null;
+    const Probe = () => { coach = useWarRoomCoach({ leagueId: e.league, leagues: [e.league], plans: v }); return null; };
+    renderToStaticMarkup(React.createElement(Probe));
+    assert.ok(coach, `league ${e.league}: Coach mounts on the contract view`);
+  }
+  const src = fs.readFileSync(path.join(WARROOM_DIR, 'WarRoom.tsx'), 'utf8');
+  assert.match(src, /useWarRoomCoach\(\{[^}]*plans: view/);
+  assert.match(src, /<CoachDock coach=\{coach\} plans=\{view\}/);
+  assert.equal(fs.existsSync(path.join(WARROOM_DIR, 'CoachDock.tsx')), false, 'the placeholder dock stays deleted');
+});
+
 test('only useWarRoom.ts reads and only requests.ts writes, each to its one route', () => {
   const files = fs.readdirSync(WARROOM_DIR).filter(f => /\.tsx?$/.test(f));
   const src = f => fs.readFileSync(path.join(WARROOM_DIR, f), 'utf8');

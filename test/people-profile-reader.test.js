@@ -59,11 +59,15 @@ function v2(i, extra = {}) {
     ...extra,
   };
 }
+const CONFIDENCE_SENTENCES = ['medium — corpus is thin before week 2', 'High.', 'low (few trade threads)',
+  'moderate', 'medium-high'];
 function withSlots(p, { holds, reading, inflation, often }) {
   p.says_no.does_his_no_hold = holds;
   p.praise_means.reading = reading;
   p.calibration.inflation = inflation;
   p.techniques = often.map((o, k) => ({ name: `t${k}`, how_he_does_it: 'h', evidence: ['e'], how_often: o }));
+  // Every live row writes a sentence here too (LOCAL run on a5598584: 10/10).
+  p.confidence = CONFIDENCE_SENTENCES[p.messages_read % CONFIDENCE_SENTENCES.length];
   return p;
 }
 
@@ -83,11 +87,13 @@ const LIVE_SHAPES = [
   ['Person E', withSlots(v2(4, { league4_roster_id: '5', aliases: [] }),
     { holds: 'yes — held every time', reading: 'hard to say', inflation: 'none that shows',
       often: ['once, in week 2'] })],
-  ['Person F', withSlots(v2(5), { holds: 'rarely', reading: 'mixed: some belief, some marketing',
+  ['Person F', withSlots(v2(5, { relations_note: 'r', security_note: 's', built_from: { messages: 3 } }), { holds: 'rarely', reading: 'mixed: some belief, some marketing',
     inflation: 'unknown', often: ['very often', '3 times'] })],
-  ['Person G', withSlots(v2(6, { slug: 'person-g' }), { holds: 'usually (two exceptions)',
+  ['Person G', withSlots(v2(6, { slug: 'person-g', league4_trade_record: [{ week: 2 }], built_at: '2026-09-22',
+    sources: ['chat'] }), { holds: 'usually (two exceptions)',
     reading: 'belief', inflation: 'moderate to heavy', often: ['occasionally'] })],
-  ['Person H', withSlots(v2(7, { name: 'Person H', subject: { chat_name: 'Person H' } }),
+  ['Person H', withSlots(v2(7, { name: 'Person H', subject: { chat_name: 'Person H' },
+    best_bait: { player: 'Player Y', why: 'w' } }),
     { holds: 'mostly holds', reading: 'marketing', inflation: 'low', often: ['frequently'] })],
   ['Person I', withSlots(v2(8, { nick_override: { fan_of: ['Team Z'], trades: 'rarely' } }),
     { holds: 'no — folds when pushed', reading: 'unknown', inflation: 'heavy', often: ['twice'] })],
@@ -149,6 +155,10 @@ test('FIX-00: enum slots are normalised and the sentence is kept as <slot>_text'
   assert.equal(b.calibration.inflation_text, 'moderate');
   assert.deepEqual(b.techniques.map(t => t.how_often), ['often', 'sometimes']);
   assert.equal(b.techniques[0].how_often_text, 'often (8 offers in the window)');
+  assert.equal(b.confidence, 'high');
+  assert.equal(b.confidence_text, 'High.');
+  const h = pricing.negotiationProfilesFor(41).byRoster.get('8').profile;
+  assert.deepEqual(h.best_bait, { player: 'Player Y', why: 'w' }, 'an object best_bait is kept');
 });
 
 test('FIX-00: parser cases', () => {
@@ -172,6 +182,17 @@ test('FIX-00: parser cases', () => {
   assert.equal(o('1 time'), 'once');
   assert.equal(o('9 times'), 'often');
   assert.equal(o('frequently'), 'often');
+
+  const c = s => reader.parseConfidence(s).value;
+  assert.equal(c('High.'), 'high');
+  assert.equal(c('medium — corpus is thin'), 'medium');
+  assert.equal(c('medium-high'), 'medium');
+  assert.equal(c('moderate'), 'medium');
+  assert.equal(c('low (few trade threads)'), 'low');
+  assert.deepEqual(reader.parseConfidence('hard to say'), { value: 'low', parsed: false },
+    'an unparseable confidence is low');
+  assert.equal(reader.parseReading('mostly marketing').value, 'marketing', 'a hedge word is skipped');
+  assert.equal(reader.parseHolds('mostly holds').value, 'usually', '...unless the parser knows it');
 
   const f = s => reader.parseInflation(s).value;
   assert.equal(f('moderate'), 'mild');
@@ -210,7 +231,8 @@ test('FIX-00: the schema still rejects what it should', () => {
   assert.ok(leak.errors.some(e => /deal_feelings\.a: leaked tool-call markup/.test(e)));
   const nonString = reader.readProfile({ ...ok, says_no: { ...ok.says_no, does_his_no_hold: 3 } });
   assert.ok(nonString.errors.some(e => /does_his_no_hold: expected string/.test(e)));
-  assert.ok(reader.readProfile({ ...ok, confidence: 'certain' }).errors.some(e => /confidence/.test(e)));
+  const conf = reader.readProfile({ ...ok, confidence: 7 });
+  assert.ok(conf.errors.some(e => /confidence: expected string/.test(e)));
   assert.deepEqual(reader.readProfile('x').errors, ['profile: expected object']);
 });
 

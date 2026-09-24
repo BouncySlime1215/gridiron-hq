@@ -29,12 +29,30 @@
  * per team. A team without one runs on the population prior and is counted.
  */
 import { random, withRandomSeed, keyedSeed, randPoisson } from './stats-util.js';
+import { previewUnconfirmed } from './preview-mode.js';
 
 export const LIVING01B_ENV = 'GRIDIRON_LIVING01B_ENABLED';
 export const LIVING_MODEL = 'living01b-1';
 
-/** On only when set to exactly '1'. Default off: the PRE kill test has not run. */
-export const livingEnabled = () => process.env[LIVING01B_ENV] === '1';
+/**
+ * RULINGS 13: activity is counted once. LIVING-01c (#273, activity-team-mean.js)
+ * ships; this module's activity adjustment stands down whenever 01c's flag is on,
+ * and the sim says so (`living_off`). 01c's switch is GRIDIRON_ACTIVITY_MEAN=1 or
+ * preview mode (its activityMeanOn); it is read here the same way because #273 is not
+ * on main yet. Swap for an import of activityMeanOn once it is.
+ */
+export const ACTIVITY_MEAN_ENV = 'GRIDIRON_ACTIVITY_MEAN';
+export const LIVING_OFF_FOR_01C =
+  "LIVING-01b is off: LIVING-01c's activity-adjusted team mean is on, and activity is counted once (RULINGS 13)";
+
+/** LIVING-01c's flag, as activity-team-mean.js#activityMeanOn reads it. */
+export const activityMeanFlagOn = () => process.env[ACTIVITY_MEAN_ENV] === '1' || previewUnconfirmed();
+
+/** 01b's own switch, as set: exactly '1'. Default off: the PRE kill test has not run. */
+export const livingRequested = () => process.env[LIVING01B_ENV] === '1';
+
+/** On only when requested AND LIVING-01c's flag is off (the RULINGS 13 guard). */
+export const livingEnabled = () => livingRequested() && !activityMeanFlagOn();
 
 export const STATES = Object.freeze(['engaged', 'drifting', 'checked_out']);
 

@@ -28,6 +28,7 @@ process.env.GRIDIRON_DB_INTEGRITY_CHECK = 'off';
 process.env.SCHEDULER_DISABLED = '1';
 process.env.NFL_WEEK = '2';
 delete process.env.GRIDIRON_LIVING01B_ENABLED;
+delete process.env.GRIDIRON_ACTIVITY_MEAN;
 delete process.env.GRIDIRON_RL17_3_ENABLED;
 delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
 delete process.env.GRIDIRON_FAST_RESCORE;
@@ -97,6 +98,7 @@ mock.module('../server/services/contingency.js', {
   namedExports: { ...realContingency, weeklyAvailability: () => new Map() }
 });
 const { simulateSeason, tradeImpact, tradeImpactWorld } = await import('../server/services/season-sim.js?living01b');
+const { LIVING_OFF_FOR_01C } = await import('../server/services/living-league.js');
 const { withRandomSeed } = await import('../server/services/stats-util.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -238,4 +240,29 @@ test('LIVING-01b: the fast rescore on a shared world equals the two full runs un
     assert.deepEqual(tradeImpact(league(), { ...DEAL, runs: RUNS, seed: 17, living: other, world }),
       withEnv({ GRIDIRON_FAST_RESCORE: '0' }, () => tradeImpact(league(), { ...DEAL, runs: RUNS, seed: 17, living: other })));
   });
+});
+
+test('LIVING-01b: with LIVING-01c on too, 01b stands down and says so (RULINGS 13)', () => {
+  const living = all(state(0, 0, 1));
+  for (const c01 of [{ GRIDIRON_ACTIVITY_MEAN: '1' }, { GRIDIRON_PREVIEW_UNCONFIRMED: '1' }]) {
+    const both = { ...ON, ...c01 };
+    // The same sim with 01b not asked for (preview also turns on other sim flags).
+    const frozen = withEnv(c01, () => sim(29, { living }));
+    assert.equal(frozen.living, undefined);
+    const out = withEnv(both, () => sim(29, { living }));
+    assert.equal(out.living, undefined, `${JSON.stringify(both)}: no living block`);
+    assert.equal(out.living_off, LIVING_OFF_FOR_01C, 'the reason is on the result');
+    // 01b's adjustment is zero: every number is the flag-off sim's (checked-out managers
+    // would otherwise cost ~90% of team-weeks a starter).
+    const { living_off: _, ...rest } = out;
+    assert.deepEqual(rest, frozen);
+    const deal = withEnv(both, () => tradeImpact(league(), { ...DEAL, runs: RUNS, seed: 17, living }));
+    assert.equal(deal.living_sim, undefined, 'trade scoring carries no living model');
+    assert.equal(deal.living_off, LIVING_OFF_FOR_01C);
+  }
+  // Control: 01c alone (01b not asked for) adds no note.
+  const only01c = withEnv({ GRIDIRON_ACTIVITY_MEAN: '1' }, () => sim(29, { living }));
+  assert.equal(only01c.living_off, undefined);
+  // Control: 01b alone runs the living league.
+  assert.ok(withEnv(ON, () => sim(29, { living })).living);
 });

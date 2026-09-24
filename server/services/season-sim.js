@@ -34,7 +34,7 @@ import { leagueCurrentWeek } from './league-week.js';
 import { previewUnconfirmed, previewFields } from './preview-mode.js';
 import { oneWorldFlag, oneWorldSeed, rosFactor } from './one-world.js';
 import { projectionAsOf } from './projection-asof.js';
-import { livingEnabled, livingInputs, livingKey, livingPoints, freeAgentPool } from './living-league.js';
+import { livingEnabled, livingRequested, LIVING_OFF_FOR_01C, livingInputs, livingKey, livingPoints, freeAgentPool } from './living-league.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
@@ -569,10 +569,12 @@ export function simulateSeason(lg, {
     return got;
   };
   if (prep.living) return livingSeasons(prep, prep.teams, runs, keepRuns, drawnFor, living);
-  return playSeasons(prep, prep.teams, runs, keepRuns, (t, run, week) => {
+  const out = playSeasons(prep, prep.teams, runs, keepRuns, (t, run, week) => {
     const { drawn, expected, kdst } = drawnFor(run, week);
     return lineupPoints(t.players, prep.slots, drawn, expected, kdst);
   });
+  // LIVING-01b asked for but stood down for LIVING-01c (RULINGS 13): said, never silent.
+  return livingRequested() ? { ...out, living_off: LIVING_OFF_FOR_01C } : out;
 }
 
 /**
@@ -1097,5 +1099,6 @@ export function tradeImpact(lg, {
       ...(before.preview ? previewFields(before.preview_reason) : {}) } : {}),
     ...(worldMode() === 'week' ? { world_id: pairedSeed, world_reused: reused } : {}),
     ...(before.living ? { living_sim: before.living.model } : {}),
+    ...(livingRequested() && !before.living ? { living_off: LIVING_OFF_FOR_01C } : {}),
     me: delta(me.roster_id), them: delta(them.roster_id) };
 }

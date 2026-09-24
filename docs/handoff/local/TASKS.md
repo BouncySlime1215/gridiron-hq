@@ -1,7 +1,7 @@
 # TASKS (live checklist; update at every launch, merge, decision)
 Updated 2026-09-23 7:50 PM ET by B coordinator (session c4cebb1f). Pace: 4.4%/h vs 0.76%/h target -> launches held.
 
-## OVERNIGHT PLAN 9/23 -> 9/24 morning (Nick ~8:55 PM: "everything from the north star down was 100% perfect; ready by the time I wake up, statistically tested and ready with UI; requires a UI overhaul")
+## OVERNIGHT PLAN 9/23 -> 9/24 morning (mapped row by row to Nick's asks in NORTH-STAR-PLAN.md; that file is the checklist for the morning brief) (Nick ~8:55 PM: "everything from the north star down was 100% perfect; ready by the time I wake up, statistically tested and ready with UI; requires a UI overhaul")
 Scope = the north star + CAMPAIGN-01a-g (objectives: get player X / title / playoffs / X projected pts per week; suggest targets; playbook with exact message + reply table + walk-away; risk modes Safe/Balanced/Fuck-it; Coach navigator itinerary; speed curve; catch-up engine) + EVAL-01 + War Room UI in Trade Brain.
 Budget ceiling for the night: weekly up to ~45% by 9 AM (Nick authorized the push); then ~0.55%/h to Mon 9 PM.
 PHASE A (running now): EA-00 spine v2 (wf_9249c9e5-5e8); ACQ-FLIP-proto on real leagues (wf_99afee34-e2c); E1 accept calibration + E3 title-odds calibration on Sleeper history (agent); War Room UI design + static mock (agent -> WAR-ROOM-UI.md, war-room-mock.html); merge doctor (#224 #218 #174 #219).

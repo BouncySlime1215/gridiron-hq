@@ -28,6 +28,36 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import consensus_vs_humans_lineup as C  # noqa: E402
 
 SEASON = 2025
+
+# FIX-207-2: the study reads the data/ dir of the checkout it runs from (a worktree), never the live repo clone
+# the app serves from, the same way --local-db never reads the live data.sqlite.
+DEFAULT_REPO_DATA = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'data'))
+DEFAULT_LIVE_REPO = os.environ.get('GRIDIRON_LIVE_REPO', os.path.expanduser('~/Documents/GitHub/gridiron-hq'))
+DEFAULT_GL = os.path.expanduser('~/gridiron-local')
+
+
+def build_parser():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--local-db', required=True, help='a .backup copy of data.sqlite (never the live file)')
+    ap.add_argument('--repo-data', default=DEFAULT_REPO_DATA,
+                    help="data/ of this worktree (default); the live repo clone's data/ is refused")
+    ap.add_argument('--live-repo', default=DEFAULT_LIVE_REPO,
+                    help='the live repo clone the app serves from (env GRIDIRON_LIVE_REPO); never read')
+    ap.add_argument('--gl', default=DEFAULT_GL)
+    ap.add_argument('--season', type=int, default=SEASON)
+    ap.add_argument('--smoke', action='store_true',
+                    help='engineering check: run every step but print counts only, never a rate (no outcome read)')
+    return ap
+
+
+def check_sources(local_db, repo_data, gl, live_repo):
+    """Refuse the live data.sqlite and the live repo clone's data/ (compared by real path)."""
+    real = lambda p: os.path.realpath(os.path.normpath(p))  # noqa: E731
+    if real(local_db) == real(os.path.join(gl, 'data.sqlite')):
+        raise SystemExit('refusing to read the live data.sqlite; pass a .backup copy')
+    if real(repo_data) == real(os.path.join(live_repo, 'data')):
+        raise SystemExit('refusing to read the live repo clone\'s data/; run from a worktree or pass its data/')
 SKILL_SLOTS = ('QB', 'RB', 'WR', 'TE', 'WRRB_FLEX', 'REC_FLEX', 'FLEX', 'SUPER_FLEX')
 
 
@@ -118,7 +148,6 @@ def pick_rate(rows, mkey, ykey):
 
 # ---------------------------------------------------------------------------------------------------------- study
 def main():  # noqa: C901 (one linear study script)
-    import argparse
     import csv
     import datetime as dt
     import json
@@ -127,16 +156,8 @@ def main():  # noqa: C901 (one linear study script)
     import pandas as pd
 
     os.environ.setdefault('OMP_NUM_THREADS', '1')
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--local-db', required=True, help='a .backup copy of data.sqlite (never the live file)')
-    ap.add_argument('--repo-data', default='/Users/nick_matta/Documents/GitHub/gridiron-hq/data')
-    ap.add_argument('--gl', default='/Users/nick_matta/gridiron-local')
-    ap.add_argument('--season', type=int, default=SEASON)
-    ap.add_argument('--smoke', action='store_true',
-                    help='engineering check: run every step but print counts only, never a rate (no outcome read)')
-    args = ap.parse_args()
-    if os.path.realpath(args.local_db) == os.path.realpath(os.path.join(args.gl, 'data.sqlite')):
-        raise SystemExit('refusing to read the live data.sqlite; pass a .backup copy')
+    args = build_parser().parse_args()
+    check_sources(args.local_db, args.repo_data, args.gl, args.live_repo)
     GL = args.gl
     sys.path.insert(0, GL + '/rnd/skill/trades')
     import tr_common as T

@@ -34,6 +34,7 @@ import { SIGNAL_SOURCES, refreshManagerData, signalRowsFor, transactionsCollecte
 import { identityMap, identityRows, identityWarnings } from '../services/manager-identity.js';
 import { counterpartyLayer, valuationMap, playerValuation, RECEPTIVENESS_RANGE, managerModelReads }
   from '../services/counterparty-pricing.js';
+import { valueLabelBlock, carryNamedValues, stampValueKind } from '../services/player-values.js';
 // Every other route in this file is a read behind a bearer session; the one that
 // triggers work needs the administrator grant on top (server/platform/legacy-access.js).
 import { requirePlatformAdmin } from '../platform/legacy-access.js';
@@ -765,7 +766,8 @@ r.get('/:leagueId/lineup-diff', (req, res, next) => {
 r.get('/:leagueId/find', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    const out = findTrades(lg, {
+    // BROKEN-F: the finder's values are market values, labelled on the response.
+    const out = stampValueKind(findTrades(lg, {
       myTeamId: req.query.team_id,
       maxPerSide: Math.min(3, Number(req.query.max_per_side) || 2),
       // Off by default in the UI's "aggressive" mode: deals that only help me are
@@ -780,7 +782,7 @@ r.get('/:leagueId/find', (req, res, next) => {
       limit: Math.min(300, Number(req.query.limit) || 20),
       targetId: req.query.target_id || null,
       excludeIds: excludeSet(req)
-    });
+    }), 'market_value');
     recordRoute('find', lg, out);
     // Queued before res.json, extracted at flush — after serialisation has already
     // settled the lazy floor_delta/ceiling_delta, so logging them costs nothing extra.
@@ -899,12 +901,12 @@ r.get('/:leagueId/offers/sent', (req, res, next) => {
 r.get('/:leagueId/find/sequences', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    res.json(findTradeSequences(lg, {
+    res.json(stampValueKind(findTradeSequences(lg, {
       myTeamId: req.query.team_id,
       maxPerSide: Math.min(3, Number(req.query.max_per_side) || 2),
       requireMutual: req.query.mutual !== '0',
       excludeIds: excludeSet(req)
-    }));
+    }), 'market_value'));
   } catch (e) { next(e); }
 });
 
@@ -913,9 +915,9 @@ r.get('/:leagueId/offer', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
     if (!req.query.player_id) return res.status(400).json({ error: 'player_id required' });
-    const out = offerFor(lg, {
+    const out = stampValueKind(offerFor(lg, {
       myTeamId: req.query.team_id, targetId: req.query.player_id, excludeIds: excludeSet(req)
-    });
+    }), 'market_value');
     recordRoute('offer', lg, out);
     res.json(out);
   } catch (e) { next(e); }
@@ -927,10 +929,10 @@ r.get('/:leagueId/offer-many', (req, res, next) => {
     const lg = league(req, res); if (!lg) return;
     const raw = String(req.query.player_ids ?? '').trim();
     if (!raw) return res.status(400).json({ error: 'player_ids required (comma-separated)' });
-    const out = offerForMany(lg, {
+    const out = stampValueKind(offerForMany(lg, {
       myTeamId: req.query.team_id, targetIds: raw.split(',').map(Number).filter(Number.isFinite),
       excludeIds: excludeSet(req)
-    });
+    }), 'market_value');
     recordRoute('offer-many', lg, out);
     res.json(out);
   } catch (e) { next(e); }
@@ -981,6 +983,8 @@ r.get('/:leagueId/rosters', (req, res, next) => {
       model_context: assets.context,
       // How old the FantasyCalc price behind every value on this page is (FC-SNAP).
       market_as_of: marketAsOf(formatKey),
+      // BROKEN-F: which of the three player values `value` is (preview only).
+      ...valueLabelBlock('market_value'),
       slots,
       teams: teams.map(t => {
         const line = bestLineup(t.players, slots);
@@ -991,7 +995,7 @@ r.get('/:leagueId/rosters', (req, res, next) => {
             .map(p => ({
               id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
               espn_id: p.espn_id, sleeper_id: p.sleeper_id,
-              value: p.value, proj: p.proj, ppg: p.ppg, adj_ppg: p.adj_ppg,
+              value: p.value, ...carryNamedValues(p), proj: p.proj, ppg: p.ppg, adj_ppg: p.adj_ppg,
               // No sos/playoff_sos: both are 1 with no validated signal (matchups.js).
               age: p.age, bye: p.bye, injury: p.injury,
               starter: starters.has(p.id)
@@ -1090,6 +1094,7 @@ function valuationPanel(lg, playerId) {
 
   const owner = new Map(teams.map(t => [String(t.roster_id), t.owner ?? null]));
   const key = String(player.name ?? '').toLowerCase();
+  const labels = valueLabelBlock('clone_price');
   const managers = [];
   for (const [rid, m] of map.managers) {
     const valuation = m.players?.get(key) ?? null;
@@ -1110,6 +1115,11 @@ function valuationPanel(lg, playerId) {
       roster_id: String(rid), owner: owner.get(String(rid)) ?? null,
       receptiveness: m.receptiveness ?? null, tier: m.tier ?? null,
       valuation: jsonSafe(valuation), ablation,
+      // BROKEN-F: their_value is this manager's CLONE price, our_value the
+      // FantasyCalc market value it starts from. Named under preview.
+      ...(labels.value_kind ? {
+        clone_price: valuation?.their_value ?? null, market_value: valuation?.our_value ?? null,
+      } : {}),
     });
   }
 
@@ -1117,6 +1127,7 @@ function valuationPanel(lg, playerId) {
     league_id: lg.id, season: map.season, week: map.week,
     available: true, reason: null, my_roster_id: map.my_roster_id,
     sources_used: map.sources_used, sources_absent: map.sources_absent, managers,
+    ...labels,
   };
 }
 
@@ -1137,7 +1148,7 @@ r.get('/:leagueId/player/:id', (req, res, next) => {
         my_roster_id: null, sources_used: [], sources_absent: [], managers: [],
       };
     }
-    res.json({ ...playerOutlook(lg, req.params.id), valuation_map: panel });
+    res.json(stampValueKind({ ...playerOutlook(lg, req.params.id), valuation_map: panel }, 'market_value'));
   } catch (e) { next(e); }
 });
 

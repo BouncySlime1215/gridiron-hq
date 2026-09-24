@@ -11,6 +11,7 @@ import { statHeadline } from '../components/draft/types';
 import { hasEvidence } from '../components/trade/types';
 import { usePageExplain } from '../components/PageExplainContext';
 import { PageLoading, PageError, EmptyState } from '../components/PageState';
+import { valueLabel, valueShort } from '../lib/playerValues';
 
 const TABS = [
   { id: 'news', label: 'News edge', hint: 'Act on news your league has not seen yet' },
@@ -702,7 +703,7 @@ function TargetPlayer({ leagueId, teamId, rosters, untouchable, untouchableNames
                   <span className="font-semibold">{p.name}</span>
                   <span className="text-xs text-slate-400">{p.team_abbr}</span>
                   <span className="text-xs text-slate-500 ml-auto">{p.owner}</span>
-                  <span className="text-xs text-emerald-700 font-semibold tabular-nums">{p.value?.toLocaleString()}</span>
+                  <span className="text-xs text-emerald-700 font-semibold tabular-nums" title={valueLabel(p, 'Market value')}>{valueShort(p) && <span className="text-[10px] text-slate-400 font-normal mr-1">{valueShort(p)}</span>}{p.value?.toLocaleString()}</span>
                 </button>
               ))}
             </div>
@@ -827,7 +828,7 @@ function TargetMany({ leagueId, teamId, rosters, untouchable, untouchableNames }
                 <span className="font-semibold">{p.name}</span>
                 <span className="text-xs text-slate-400">{p.team_abbr}</span>
                 <span className="text-xs text-slate-500 ml-auto">{p.owner}</span>
-                <span className="text-xs text-emerald-700 font-semibold tabular-nums">{p.value?.toLocaleString()}</span>
+                <span className="text-xs text-emerald-700 font-semibold tabular-nums" title={valueLabel(p, 'Market value')}>{valueShort(p) && <span className="text-[10px] text-slate-400 font-normal mr-1">{valueShort(p)}</span>}{p.value?.toLocaleString()}</span>
               </button>
             ))}
           </div>
@@ -909,7 +910,7 @@ function PlayerOutlook({ o }: { o: any }) {
         </div>
         <dl className="p-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
           <div><dt className="text-slate-400">Projected</dt><dd className="font-semibold tabular-nums">{o.proj} pts · {o.ppg}/wk</dd></div>
-          <div><dt className="text-slate-400">Market</dt><dd className="font-semibold tabular-nums">{o.value?.toLocaleString()}</dd></div>
+          <div><dt className="text-slate-400">{valueLabel(o, 'Market')}</dt><dd className="font-semibold tabular-nums">{o.value?.toLocaleString()}</dd></div>
           <div><dt className="text-slate-400">Floor / ceiling</dt><dd className="tabular-nums">{o.floor ?? '—'} / {o.ceiling ?? '—'}</dd></div>
           <div><dt className="text-slate-400">Consistency</dt><dd className="tabular-nums">{o.consistency ?? '—'}</dd></div>
           <div><dt className="text-slate-400">Season SOS</dt>
@@ -1081,7 +1082,7 @@ function MockTrade({ leagueId, teamId, rosters, untouchable, untouchableNames }:
               <span className={`truncate ${p.starter ? 'font-semibold text-slate-800' : 'text-slate-500'}`}>{p.name}</span>
               {p.starter && <span className="text-[9px] text-emerald-600 font-bold">ST</span>}
               {locked && <span className="text-[10px]" title="Untouchable">🔒</span>}
-              <span className="ml-auto text-slate-400 tabular-nums shrink-0">{p.value?.toLocaleString()}</span>
+              <span className="ml-auto text-slate-400 tabular-nums shrink-0" title={valueLabel(p, 'Market value')}>{valueShort(p) && <span className="text-[10px] mr-1">{valueShort(p)}</span>}{p.value?.toLocaleString()}</span>
             </button>
           );
         })}

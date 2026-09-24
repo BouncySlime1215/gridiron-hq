@@ -188,7 +188,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
         const backup = i === 0 ? moveIds[1] ?? null : null;
         return step(plan, i, res.playbook[i] ?? null, { thisId, backupId: backup, verdict: c.confirm, laterReason: PLAYBOOK_LATER });
       }
-      return step(plan, i, i === 0 ? c.playbook : null, { thisId, backupId: i === 0 ? moveIds[j + 1] ?? null : null,
+      return step(plan, i, i === 0 ? c.playbook : c.playbooks?.[i] ?? null, { thisId, backupId: i === 0 ? moveIds[j + 1] ?? null : null,
         verdict: c.confirm, laterReason: PLAYBOOK_FIRST_ONLY });
     });
     const s0 = plan.steps[0];

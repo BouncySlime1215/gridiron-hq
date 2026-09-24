@@ -45,6 +45,8 @@ import { lineupSignals } from '../services/lineup-signals.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
 import { tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
+// IDEA-001: served trade-card and title-trade numbers, queued for served_numbers.
+import { recordServed, readServed, serveLogState } from '../services/serve-log.js';
 // TM-09: historical revealed trade prices (aggregate table), read-only, default-off.
 import { marketForPlayer } from '../services/trade-market.js';
 import { playerHype } from '../services/hype.js';
@@ -660,11 +662,13 @@ r.get('/:leagueId/ceiling-lineup', (req, res, next) => {
 r.get('/:leagueId/title-trades', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    res.json(titleOddsTrades(lg.id, {
+    const out = titleOddsTrades(lg.id, {
       teamId: req.query.team_id,
       shortlist: Math.min(12, Math.max(3, Number(req.query.shortlist) || 6)),
       runs: Math.min(2000, Number(req.query.runs) || TRADE_IMPACT_RUNS)
-    }));
+    });
+    recordServed(res, 'title_trades', lg, out, { myTeamId: req.query.team_id ?? lg.my_team_id });
+    res.json(out);
   } catch (e) { next(e); }
 });
 
@@ -733,7 +737,7 @@ r.get('/:leagueId/lineup-diff', (req, res, next) => {
 r.get('/:leagueId/find', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    res.json(findTrades(lg, {
+    const found = findTrades(lg, {
       myTeamId: req.query.team_id,
       maxPerSide: Math.min(3, Number(req.query.max_per_side) || 2),
       // Off by default in the UI's "aggressive" mode: deals that only help me are
@@ -748,7 +752,11 @@ r.get('/:leagueId/find', (req, res, next) => {
       limit: Math.min(300, Number(req.query.limit) || 20),
       targetId: req.query.target_id || null,
       excludeIds: excludeSet(req)
-    }));
+    });
+    // Queued before res.json, extracted at flush — after serialisation has already
+    // settled the lazy floor_delta/ceiling_delta, so logging them costs nothing extra.
+    recordServed(res, 'trade_find', lg, found);
+    res.json(found);
   } catch (e) { next(e); }
 });
 
@@ -914,6 +922,21 @@ r.get('/:leagueId/rosters', (req, res, next) => {
         };
       })
     });
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------------- served numbers */
+/**
+ * IDEA-001: what this league was actually served (served_numbers), newest first,
+ * plus the serve-log queue's own state — a queue that is dropping or failing to
+ * write says so here rather than going quiet. `?request_id=` is the
+ * `X-Served-Request-Id` header of the response in question.
+ */
+r.get('/:leagueId/served-numbers', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json({ league_id: lg.id, queue: serveLogState(),
+      rows: readServed(lg.id, { requestId: req.query.request_id, entity: req.query.entity, limit: req.query.limit }) });
   } catch (e) { next(e); }
 });
 

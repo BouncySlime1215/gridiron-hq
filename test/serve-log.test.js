@@ -224,6 +224,18 @@ test('a full queue drops its oldest entry and counts it, so a stalled flush is v
   assert.equal(s.dropped, 3);
 });
 
+test('one flush tick writes a bounded number of rows, so a full queue never blocks the thread in one go', () => {
+  const lg = row('SELECT * FROM leagues WHERE id = 61');
+  for (let i = 0; i < 10; i++) serveLog.recordServed(null, 'title_odds', lg, SIM, {});
+  const per = serveLog.servedNumbers('title_odds', SIM, {}).length;
+  const first = serveLog.flushServed({ maxRows: per * 3 });
+  assert.equal(first.entries, 3, 'stops at the row budget');
+  assert.equal(serveLog.serveLogState().queued, 7);
+  assert.ok(serveLog.SERVE_LOG_FLUSH_ROWS <= 5000, 'the default tick stays small');
+  while (serveLog.serveLogState().queued) serveLog.flushServed({ maxRows: per * 3 });
+  assert.equal(tableCount(), per * 10, 'and the rest drains on later ticks');
+});
+
 test('a failed flush puts the batch back, records why, and throws', () => {
   const lg = row('SELECT * FROM leagues WHERE id = 61');
   serveLog.recordServed(null, 'title_odds', lg, SIM, {});

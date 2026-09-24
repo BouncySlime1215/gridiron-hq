@@ -81,6 +81,11 @@ seedIfEmpty();
 // actually over, with no request needed -- so an app nobody has visited yet is
 // still protected. See server/platform/loop-watchdog.js.
 startScheduler({ intervalMinutes: 5, onBootComplete: armLoopWatchdog });
+// IDEA-001: the serve-log flush loop. Started unconditionally, not by the
+// scheduler: routes queue every served number, and a queue that only drains
+// when SCHEDULER_DISABLED is unset would just fill and drop.
+const { startServeLogFlusher } = await import('./services/serve-log.js');
+startServeLogFlusher();
 // Server-owned draft pick clock: survives reconnects and server restarts,
 // since it's driven by drafts.turn_deadline in SQLite rather than any client's
 // setTimeout. Without this, a draft only advanced past the clock while a

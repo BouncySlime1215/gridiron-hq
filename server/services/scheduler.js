@@ -23,6 +23,7 @@ import { Worker } from 'node:worker_threads';
 import { markJobRunning, markJobAbandoned, clearJobRunning } from '../platform/loop-watchdog.js';
 import { db, rows, run, row } from '../db/index.js';
 import { MARKET_MAX_AGE_MINUTES } from './dynasty-value-history.js';
+import { snapshotServedNumbers } from './serve-log.js';
 
 /**
  * True while any linked league's draft is likely happening on ESPN itself,
@@ -1442,6 +1443,15 @@ export const JOBS = {
   // about what the job does is changed. See the note on its budget below.
   evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, tier: 'live', offThread: true,
     label: 'Forward evidence capture windows' },
+  /*
+   * IDEA-001: once per league per NFL week, the title odds, the title-trades tab
+   * and the finder's cards as they would be served, into served_numbers — so a
+   * week nobody opened a page still has a served number to grade. Idempotent per
+   * (league, season, week) inside the job; 12 h maxAge only decides how soon
+   * after a new week it lands. offThread: the season simulations run in a worker.
+   */
+  served_numbers_weekly: { run: snapshotServedNumbers, maxAgeMinutes: 12 * 60, tier: 'growth', offThread: true,
+    label: 'Served-number snapshot: title odds, title trades and trade cards, weekly per league' },
   nfl_weekly_learning: { run: refreshWeeklyLearning, maxAgeMinutes: 6 * 60, tier: 'heavy',
     label: 'Fantasy weekly snapshot, settlement, and challenger retraining' },
   // Enabled by default, unlike broad heavy research sweeps. Most checks are a

@@ -7,12 +7,15 @@ import { FieldBlock, SourceTag, Val } from './FieldState';
 import { pct, pts, NOT_COMPUTED, isOk } from './format';
 import ReplyTable from './ReplyTable';
 import NoMoveCard from './NoMoveCard';
+import SwipeDeck from './SwipeDeck';
 
 /**
  * NEXT MOVE: the one decision ("send this to this manager, yes or no") as a swipe deck
  * of the producer's ranked moves, `alternatives.value`, best first (its head is
- * `next_move`). Next / swipe left / left arrow skips; Do it / swipe right / right arrow
- * picks; Back undoes a skip; after a skip an optional one-tap reason fades in and out.
+ * `next_move`), one card at a time (SwipeDeck.tsx: gestures, keys, the wipe, "2 of 5").
+ * Next / swipe left / left arrow skips; Do it / swipe right / right arrow opens the card's
+ * actions (I sent it); Back undoes a skip; after a skip an optional one-tap reason fades in
+ * and out. Past the last card: "That's every option that cleared; see near-misses".
  * Skips, "I sent it" and logged replies post to the request table (deck.ts, requests.ts).
  * Nothing is ever sent from here: Copy, then Nick sends it in ESPN.
  */
@@ -78,41 +81,8 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, onA
     if (prev != null) dispatch({ type: 'back', card: moves[prev]?.move_id ?? '', at: Date.now() });
   };
 
-  // Arrow keys, unless Nick is typing.
-  const keys = useRef({ next, doIt });
-  keys.current = { next, doIt };
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const tag = (document.activeElement?.tagName ?? '').toUpperCase();
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.altKey || e.metaKey || e.ctrlKey) return;
-      if (e.key === 'ArrowLeft') { e.preventDefault(); keys.current.next(); }
-      if (e.key === 'ArrowRight') { e.preventDefault(); keys.current.doIt(); }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  const [showNear, setShowNear] = useState(false);
 
-  // Swipe on the card (touch).
-  const touch = useRef<{ x: number; y: number; dx: number } | null>(null);
-  const [drag, setDrag] = useState(0);
-  const onTouchStart = (e: React.TouchEvent) => { touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, dx: 0 }; e.stopPropagation(); };
-  const onTouchMove = (e: React.TouchEvent) => {
-    const t = touch.current; if (!t) return;
-    const dx = e.touches[0].clientX - t.x, dy = e.touches[0].clientY - t.y;
-    if (Math.abs(dx) > Math.abs(dy)) { t.dx = dx; setDrag(dx); }
-    e.stopPropagation();
-  };
-  const onTouchEnd = (e: React.TouchEvent) => {
-    const dx = touch.current?.dx ?? 0; touch.current = null; setDrag(0); e.stopPropagation();
-    if (dx < -70) next(); else if (dx > 70) doIt();
-  };
-
-  const counter = total ? (
-    <span className="wr-count" data-testid="deck-count">
-      {Math.min(idx + 1, total)} of {total}
-      {deck.skipped.length > 0 && <button type="button" className="wr-link" onClick={back}>← back</button>}
-    </span>
-  ) : null;
   const saveNote = saveError ? <div className="wr-hint wr-red" role="status">Could not save that to the planner: {saveError}</div> : null;
 
   if (!isOk(field)) {
@@ -122,26 +92,7 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, onA
     // Audit defect 2: the reason, then the closest path and the all-in option, never a blank slot.
     return <div className="wr-deck"><NoMoveCard view={view} onAsk={onAsk} /></div>;
   }
-  if (!move) {
-    return (
-      <div className="wr-deck">
-        {counter}
-        <div className="wr-empty">
-          That was every move the planner has for this league.
-          <div className="wr-acts">
-            <button type="button" className="wr-btn" onClick={back}>← Back to the last one</button>
-            <button type="button" className="wr-btn" onClick={() => dispatch({ type: 'reset', at: Date.now() })}>Start over</button>
-          </div>
-          <span className="wr-hint">Your skips go to the planner; its next run weighs them.</span>
-        </div>
-        {saveNote}
-      </div>
-    );
-  }
 
-  const s = move.steps[0];
-  const partner = teamLabel(s.partner);
-  const dealLine = `Offer ${partner}: ${n.text(s.give)} for ${n.text(s.get)}`;
   const skipRow = deck.asking != null ? (
     <div className="wr-reasons" role="group" aria-label="Why skip? (optional)">
       <span className="wr-muted">Why skip? (optional)</span>
@@ -153,52 +104,77 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, onA
     </div>
   ) : null;
 
-  const deal = (
-    <div className="wr-gg">
-      <span className="wr-k">You give</span><span>{n.text(s.give)}</span>
-      <span className="wr-k">You get</span><span>{n.text(s.get)}</span>
+  // WR-SWIPE: past the last card, every option that cleared has been seen; the near-misses
+  // (NoMoveCard, minus any path that is one of the cards) are one tap away.
+  const end = (
+    <div className="wr-empty wr-swipe-done">
+      <b>That&apos;s every option that cleared; see near-misses.</b>
+      <div className="wr-hint">That was every move the planner has for this league. Your skips go to the planner; its next run weighs them.</div>
+      <div className="wr-acts">
+        <button type="button" className="wr-btn wr-primary" aria-expanded={showNear} onClick={() => setShowNear(v => !v)}>
+          {showNear ? 'Hide near-misses' : 'See near-misses'}
+        </button>
+        <button type="button" className="wr-btn" onClick={back}>← Back to the last one</button>
+        <button type="button" className="wr-btn" onClick={() => { setShowNear(false); dispatch({ type: 'reset', at: Date.now() }); }}>Start over</button>
+      </div>
+      {showNear && <div className="wr-swipe-near"><NoMoveCard view={nearMissView(view, moves)} onAsk={onAsk} /></div>}
     </div>
   );
 
-  if (!big) {
-    return (
-      <div className="wr-deck">
-        <div className="wr-mv-top">{counter}</div>
-        <div className="wr-movecard" key={idx} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+  const card = (m: Move, i: number) => {
+    const s = m.steps[0];
+    const partner = teamLabel(s.partner);
+    const isSent = deck.sent.includes(m.move_id);
+    const deal = (
+      <div className="wr-gg">
+        <span className="wr-k">You give</span><span>{n.text(s.give)}</span>
+        <span className="wr-k">You get</span><span>{n.text(s.get)}</span>
+      </div>
+    );
+    const picked = deck.chosen === i ? (
+      <div className="wr-chosen" role="status">
+        <b>You picked this one.</b> Copy it and send it yourself in ESPN, then tell the planner.
+        <div className="wr-acts">
+          <button type="button" className="wr-btn wr-sm wr-primary" disabled={isSent}
+            onClick={() => dispatch({ type: 'sent', card: m.move_id, at: Date.now() })}>
+            {isSent ? 'Marked as sent' : 'I sent it'}
+          </button>
+        </div>
+      </div>
+    ) : null;
+    const buttons = (
+      <div className="wr-acts">
+        <button type="button" className={`wr-btn${big ? ' wr-big-btn' : ''}`} onClick={next} title="Left arrow or swipe left">Next →</button>
+        <button type="button" className={`wr-btn${big ? ' wr-big-btn' : ''} wr-primary`} onClick={doIt} title="Right arrow or swipe right">Do it</button>
+      </div>
+    );
+    const dealLine = `Offer ${partner}: ${n.text(s.give)} for ${n.text(s.get)}`;
+
+    if (!big) {
+      return (
+        <>
           <div className="wr-who wr-who-sm">Send to {partner}</div>
           {deal}
           <div className="wr-sub">
             <Val f={s.p_yes} fmt={v => `${pct(v)} yes`} /> · <Val f={s.title_odds_delta} fmt={pts} />
           </div>
-          <div className="wr-acts">
-            <button type="button" className="wr-btn" onClick={next}>Next →</button>
-          </div>
-        </div>
-        {skipRow}
-        {saveNote}
-      </div>
-    );
-  }
+          {picked}
+          {picked && <CopyBlock label={isOk(s.message) ? 'Message' : 'Copy the deal'} text={isOk(s.message) ? s.message.value : dealLine}
+            note={isOk(s.message) ? undefined : (s.message.reason ?? `Message ${NOT_COMPUTED}.`)} />}
+          {buttons}
+        </>
+      );
+    }
 
-  const titleNow = isOk(view.destination) ? view.destination.value.title_now : undefined;
-  const target = move.target != null ? n.one(move.target) : null;
-  const messageText = isOk(s.message) ? s.message.value : dealLine;
-  const isSent = deck.sent.includes(move.move_id);
-  return (
-    <div className="wr-deck">
-      <div className="wr-mv-top">
-        {counter}
-        <span className="wr-tag wr-src">{move.rank === 1 ? 'Best plan' : `Plan ${move.rank}`}</span>
-        <span className="wr-sp" />
-        <span className="wr-hint">send by <Val f={s.send_when} fmt={v => v} /></span>
-      </div>
-      <div className="wr-movecard" key={idx} data-testid="move-card" data-move={move.move_id}
-        style={drag ? { transform: `translateX(${drag}px) rotate(${drag / 40}deg)`, transition: 'none' } : undefined}
-        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+    const titleNow = isOk(view.destination) ? view.destination.value.title_now : undefined;
+    const target = m.target != null ? n.one(m.target) : null;
+    const messageText = isOk(s.message) ? s.message.value : dealLine;
+    return (
+      <>
         <div className="wr-who">Send this to {partner}</div>
         {deal}
         {target && (
-          <div className="wr-sub">Step 1 of {move.steps.length} toward {target.name}{move.target_owner ? ` (${teamLabel(move.target_owner)})` : ''}</div>
+          <div className="wr-sub">Step 1 of {m.steps.length} toward {target.name}{m.target_owner ? ` (${teamLabel(m.target_owner)})` : ''}</div>
         )}
         <div className="wr-tiles">
           <div className="wr-tile">
@@ -221,45 +197,59 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, onA
           </div>
         </div>
         <div className="wr-sub">
-          Whole path: <Val f={move.expected} fmt={pts} showSe /> expected
-          {' · '}finishes <Val f={move.p_complete} fmt={v => pct(v)} /> of the time
+          Whole path: <Val f={m.expected} fmt={pts} showSe /> expected
+          {' · '}finishes <Val f={m.p_complete} fmt={v => pct(v)} /> of the time
           {' · '}finder's best single offer <Val f={view.finder_best_expected} fmt={pts} />
         </div>
-        {deck.chosen === idx && (
-          <div className="wr-chosen" role="status">
-            <b>You picked this one.</b> Copy it and send it yourself in ESPN, then tell the planner.
-            <div className="wr-acts">
-              <button type="button" className="wr-btn wr-sm wr-primary" disabled={isSent}
-                onClick={() => dispatch({ type: 'sent', card: move.move_id, at: Date.now() })}>
-                {isSent ? 'Marked as sent' : 'I sent it'}
-              </button>
-            </div>
-          </div>
-        )}
+        {picked}
         <CopyBlock
           label={isOk(s.message) ? 'Message' : 'Copy the deal'}
           text={messageText}
           note={isOk(s.message) ? undefined : (s.message.reason ?? `Message ${NOT_COMPUTED}.`)}
         />
-        <div className="wr-acts">
-          <button type="button" className="wr-btn wr-big-btn" onClick={next} title="Left arrow or swipe left">Next →</button>
-          <button type="button" className="wr-btn wr-big-btn wr-primary" onClick={doIt} title="Right arrow or swipe right">Do it</button>
-        </div>
-        {skipRow}
-        {saveNote}
+        {buttons}
         <div className="wr-cap">If he says… (tap what happened)</div>
-        <ReplyTable replies={s.reply_table} onLog={deck.chosen === idx ? reply => dispatch({ type: 'reply', card: move.move_id, reply, at: Date.now() }) : undefined} />
+        <ReplyTable replies={s.reply_table} onLog={deck.chosen === i ? reply => dispatch({ type: 'reply', card: m.move_id, reply, at: Date.now() }) : undefined} />
         <div className="wr-cap">Reasoning</div>
         <ul className="wr-reasoning">
           {REASONING_SLOTS.map(([k, label]) => (
             <li key={k}><span className="wr-k">{label}</span>
-              {isOk(move.reasoning) ? <span>{move.reasoning.value[k]}</span> : <Val f={move.reasoning} fmt={() => ''} />}
+              {isOk(m.reasoning) ? <span>{m.reasoning.value[k]}</span> : <Val f={m.reasoning} fmt={() => ''} />}
             </li>
           ))}
         </ul>
-      </div>
+      </>
+    );
+  };
+
+  const bar = big && move ? (
+    <>
+      <span className="wr-tag wr-src">{move.rank === 1 ? 'Best plan' : `Plan ${move.rank}`}</span>
+      <span className="wr-sp" />
+      <span className="wr-hint">send by <Val f={move.steps[0].send_when} fmt={v => v} /></span>
+    </>
+  ) : null;
+
+  return (
+    <div className="wr-deck">
+      <SwipeDeck cards={moves} index={idx} onNext={next} onOpen={doIt} onBack={back} canBack={deck.skipped.length > 0}
+        renderCard={card} overlay={skipRow} end={end} bar={bar} />
+      {saveNote}
     </div>
   );
+}
+
+const sameStep = (a: { partner: string; give: string[]; get: string[] }, b: { partner: string; give: string[]; get: string[] }) =>
+  a.partner === b.partner && a.give.join('|') === b.give.join('|') && a.get.join('|') === b.get.join('|');
+
+/**
+ * The view NoMoveCard reads at the end of the deck: risk-mode rows whose first step is one
+ * of the deck's cards cleared, so they are not near-misses and are left out.
+ */
+export function nearMissView(view: WarRoomView, moves: Move[]): WarRoomView {
+  if (!isOk(view.risk_modes)) return view;
+  const rows = view.risk_modes.value.filter(r => !r.first_step || !moves.some(m => m.steps[0] && sameStep(r.first_step!, m.steps[0])));
+  return { ...view, risk_modes: { ...view.risk_modes, value: rows } };
 }
 
 /** The copyable message. The clipboard can be blocked over plain HTTP; then the text stays selectable. */

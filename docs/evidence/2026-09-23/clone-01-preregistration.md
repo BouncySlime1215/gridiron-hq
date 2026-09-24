@@ -216,3 +216,22 @@ reported beside it, not decided on.
 built the same way, so the reader can see whether the fit learned trade choice at all.
 
 2025 is not opened. The run prints aggregates only.
+
+### Amendment 1 results (added after the amendment commit `b4908342`)
+
+Run on commit `b5845317` (tree `df9232c7`), the same command and fresh `.backup` copies of both
+DBs. The Part 2/3 numbers reproduced exactly on this run (M1 - B0 -1.07341, M2 - M1 -0.00265),
+so the comparison below is like for like.
+
+- Trade events in the fit: 16,103 received skill players from 2021-23 trades (total weight 9,752
+  after 1/k), next to the same 6,000 sampled claims.
+- **M3 - M1 on 2024 waiver claims: +0.555 log loss, 90% CI [+0.544, +0.565]** (28,053 claims,
+  4,194 manager clusters). The CI is entirely above 0, so the trade positives make claim
+  prediction **worse**. Top-1 drops 9.5% -> 8.5% (-1.0 point [-1.2, -0.8]).
+- **Verdict: declined.** M1 stays the population waiver model. Completed trades do not enter it.
+- Secondary (descriptive): on 4,330 events from 2024 trades, M3 beats M1 by -1.213 [-1.249, -1.178]
+  (M1 6.291 -> M3 5.078). So the fit did learn trade choice; trade choice and waiver choice just
+  pull the shared coefficients apart. M3 cuts the recent-usage weight (1.20 -> 0.32) and the PPG
+  weight (1.10 -> 0.39): a trade buys a known name, a claim chases this week's usage.
+- Read: a trade target and a waiver claim are different decisions. If trades are used later
+  (CLONE-01b's accept model is the natural home), they need their own coefficients, not a pooled fit.

@@ -375,3 +375,26 @@ export function buildAdapter() { const end = Date.now() + ${BUILD_MS}; while (Da
     neg.setNegotiatorSources({ engine: id => (id === LEAGUE ? counted : null), engineModule: null });
   }
 });
+
+// 9/24 coordinator safety fix (review of #327): a reply that ends on a no must never get an
+// acceptance draft, even when the keyword classifier reads it as a counter priced 'take'.
+const ENDS_NO = [
+  "No, not if you're only giving me Dell for Knox",
+  'Dell for Knox? Never.',
+  "I don't want Dell for Knox",
+  'Not a chance, Dell for Knox is a joke',
+  "Nah I'd rather have Knox than Dell",
+  'Hell no. Knox for Dell alone is a ripoff',
+  'No way I\'d do Knox for Dell and Frye'
+];
+test('safety: a reply that ends on a no never gets a "Deal" draft (7 phrasings)', () => {
+  const out = withFlag(() => ENDS_NO.map(reply => tools.runCoachTool('negotiate_reply', { league_id: LEAGUE, reply }, { ledger: newLedger() }).summary));
+  out.forEach((s, i) => {
+    assert.doesNotMatch(String(s.draft ?? ''), /\bdeal\b|i'?ll accept/i, `draft for "${ENDS_NO[i]}": ${s.draft}`);
+    assert.notEqual(s.recommendation?.do, 'take', `recommendation for "${ENDS_NO[i]}"`);
+  });
+});
+test('safety guard keeps a real counter takeable: "No, but Dell for Knox works" is still a take', () => {
+  const s = withFlag(() => tools.runCoachTool('negotiate_reply', { league_id: LEAGUE, reply: 'No, but Dell for Knox works' }, { ledger: newLedger() }).summary);
+  assert.equal(s.recommendation?.do, 'take');
+});

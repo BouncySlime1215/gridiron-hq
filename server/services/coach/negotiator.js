@@ -336,6 +336,22 @@ function noOrCounter(t, players) {
 }
 
 /**
+ * Safety (9/24 review of #327): negative words the classifier's cue list misses. A take is
+ * never drafted when the LAST thing he said carries one of these or a decline cue:
+ * "Dell for Knox? Never." / "Hell no. Knox for Dell alone is a ripoff" are no's, while
+ * "No, but Dell for Knox works" ends on the package and stays a counter Coach may take.
+ */
+const NEGATIVE = /\b(no|nope|nah|never|not a chance|no chance|no way|hell no|don'?t want|do not want|not if|not for|rather not|rip ?off|ripoff|joke|lol no|not happening|not interested|pass|won'?t|can'?t|not trading|not selling|not giving|not doing|not moving|keeping)\b/;
+export function endsNegative(text) {
+  const t = String(text ?? '').toLowerCase();
+  for (const seg of segments(t).reverse()) {
+    if (NEGATIVE.test(seg.text)) return true;
+    if (CUES.proposal.test(seg.text) || CUES.weak.test(seg.text) || CUES.accept.test(seg.text)) return false;
+  }
+  return false;
+}
+
+/**
  * One reply -> its kind, by rules, in this order:
  *   1. empty -> silence; a tap (`reply_kind`) wins over words.
  *   2. names a player and makes a proposal ("how about", "I'd do", "throw in",
@@ -733,6 +749,12 @@ export function negotiate({ leagueId, reply = '', replyKind = null, stepIndex = 
       cites: [ruleCite, ...walkNameCites(), ...pkgCites(0, pkg)].filter(Boolean) });
     walkLine();
     draft = "Can't go that far on my end, so I'll pass on this one. Thanks for looking.";
+  } else if (decision === 'take' && read.basis !== 'tapped' && endsNegative(reply)) {
+    // Never draft an acceptance to a reply whose last word is a no: ask Nick instead.
+    recommendation.do = 'ask';
+    recommendation.because = 'his reply ends on a no, so Coach will not draft an acceptance';
+    refusals.push('His reply ends on a no, so Coach will not draft "deal". If he really offered that package, tap counter; if it is a no, tap decline.');
+    draft = null;
   } else if (decision === 'take') {
     recommendation.because = hisPrice ? 'inside the walk-away and the engine re-price beats the backup' : 'inside the walk-away (not re-priced)';
     claims.push({ text: `Recommendation: take it. ${book.row[`${R}value_counter_rules_accept_if`] ?? 'His ask is inside the walk-away package.'}`,

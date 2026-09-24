@@ -106,6 +106,8 @@
     "server/services/td-features.js",
     "server/services/td-regression.js",
     "server/services/tells/library.js",
+    "server/services/tells/clone-features.js",
+    "server/services/tells/producer.js",
     "server/services/tells/refit.js",
     "server/services/trend-watch.js",
     "server/services/vegas-fantasy.js",

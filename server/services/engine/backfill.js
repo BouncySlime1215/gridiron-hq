@@ -38,7 +38,7 @@
 import { db as appDb } from '../../db/index.js';
 import { appendEvents, normalizeAsOf, endOfDayEastern } from './events.js';
 import { writeState } from './state.js';
-import { registerField } from './registry.js';
+import { registerField, registerEventType } from './registry.js';
 import { recordRun } from './fields.js';
 
 // The spine's own field. This module is its one writer; the capability stays here.
@@ -48,6 +48,46 @@ const INGEST_WRITER = registerField('engine.ingest', {
 });
 
 const CHUNK = 2000;
+
+/**
+ * TELLS-01b: the tell library's two input types (tells/library.js TELL_EVENT_TYPES), and
+ * the ESPN team counter saveTeams can hand to an emitter (league-history.js). They are
+ * registered here, beside the adapters that append them, so refitTells has input.
+ */
+export const TELLS_EVENT_TYPES = Object.freeze({
+  'league.transaction': 'A completed or failed roster move in the tell library shape (adds/drops by roster), from league_transactions_raw',
+  'league.team_week': "A fantasy team's week: points, opponent and final lineup, in the tell library shape, from league_week_scores",
+  'league.team_counter': "ESPN's per-team season counters (transactionCounter: trades, acquisitions, drops), from league-history saveTeams",
+});
+for (const [type, description] of Object.entries(TELLS_EVENT_TYPES)) registerEventType(type, { description });
+
+/** An ESPN raw move as the tell library's transaction, or null when it is not a move. */
+export function tellTransaction(r) {
+  let kind; let status;
+  const st = String(r.status ?? '');
+  if (r.type === 'FREEAGENT' && st === 'EXECUTED') [kind, status] = ['free_agent', 'complete'];
+  else if (r.type === 'WAIVER' && st === 'EXECUTED') [kind, status] = ['waiver', 'complete'];
+  else if (r.type === 'WAIVER' && st.startsWith('FAILED')) [kind, status] = ['waiver', 'failed'];
+  // The league PROCESSED an accepted trade (manager-signals.js txIndex): the one row a
+  // completed trade leaves under the proposer with its items.
+  else if (r.type === 'TRADE_ACCEPT' && r.execution_type === 'PROCESS' && st === 'EXECUTED') [kind, status] = ['trade', 'complete'];
+  else return null;
+  const items = parse(r.items_json, []) ?? [];
+  const adds = {}; const drops = {};
+  for (const i of items) {
+    if (i?.playerId == null) continue;
+    const to = Number(i.toTeamId); const from = Number(i.fromTeamId);
+    if ((i.type === 'ADD' || i.type === 'TRADE') && to > 0) adds[String(i.playerId)] = to;
+    if ((i.type === 'DROP' || i.type === 'TRADE') && from > 0) drops[String(i.playerId)] = from;
+  }
+  const rosterIds = kind === 'trade'
+    ? [...new Set(items.flatMap(i => [Number(i?.fromTeamId), Number(i?.toTeamId)]).filter(x => x > 0))].sort((a, b) => a - b)
+    : (Number(r.team_id) > 0 ? [Number(r.team_id)] : []);
+  return { week: r.scoring_period == null ? null : Number(r.scoring_period), type: kind, status, roster_ids: rosterIds,
+    adds, drops, bid: r.bid_amount ?? null,
+    // ESPN items carry no draft picks and no claim latency: absent, never zero.
+    picks: null, latency_ms: null };
+}
 
 const parse = (s, fallback) => {
   if (s == null || s === '') return fallback;
@@ -101,7 +141,7 @@ export function newsBareDate(publishedAt, rowDate) {
 /** One adapter per stream. `sql(table)` selects source rows; `map(row, ctx)` returns events. */
 export const ADAPTERS = Object.freeze([
   {
-    stream: 'transactions', table: 'league_transactions_raw',
+    stream: 'transactions', table: 'league_transactions_raw', eventTypes: ['espn.transaction'],
     sql: t => `SELECT league_id, season, tx_id, type, status, execution_type, proposed_at, processed_at, team_id,
                  scoring_period, bid_amount, is_pending, items_json, first_seen_at FROM ${t}`,
     context: database => ({ byEspn: playerIndex(database, 'espn_id') }),
@@ -274,6 +314,59 @@ export const ADAPTERS = Object.freeze([
     },
   },
   {
+    // TELLS-01b: the same raw rows as `transactions`, reshaped for the tell library. The
+    // natural key carries the event type, so the two streams never share a dedupe key.
+    stream: 'tells_transactions', table: 'league_transactions_raw', eventTypes: ['league.transaction'],
+    sql: t => `SELECT league_id, season, tx_id, type, status, execution_type, proposed_at, processed_at, team_id,
+                 scoring_period, bid_amount, items_json, first_seen_at FROM ${t}
+               WHERE type IN ('FREEAGENT', 'WAIVER', 'TRADE_ACCEPT')`,
+    map: r => {
+      const payload = tellTransaction(r);
+      if (!payload) return [];
+      const [asOf, quality] = present(r.processed_at) ? [r.processed_at, 'exact']
+        : present(r.proposed_at) ? [r.proposed_at, 'exact'] : [r.first_seen_at, 'first_seen'];
+      return [{
+        event_type: 'league.transaction', as_of: asOf, as_of_quality: quality, league_id: r.league_id,
+        team_id: Number(r.team_id) > 0 ? r.team_id : null,
+        natural_key: `league.transaction:${r.league_id}:${r.season}:${r.tx_id}`,
+        entities: payload.roster_ids.map(id => team(r.league_id, id, 'subject')).filter(Boolean),
+        payload: { season: r.season, tx_id: r.tx_id, ...payload },
+      }];
+    },
+  },
+  {
+    // TELLS-01b: one event per fantasy team-week, the tell library's league.team_week.
+    // Points and opponent from league_week_scores; the final lineup from
+    // league_roster_snapshots (source 'final'). An empty starting slot leaves no snapshot
+    // row, so `starters` lists filled slots only and says so (starters_complete: false).
+    stream: 'tells_team_weeks', table: 'league_week_scores', eventTypes: ['league.team_week'],
+    sql: t => `SELECT league_id, season, week, roster_id, points, opponent_roster_id, is_playoff, captured_at FROM ${t}`,
+    context: database => {
+      const lineups = new Map();
+      if (!tableExists(database, 'league_roster_snapshots')) return { lineups, lineupsRead: false };
+      for (const r of database.prepare(`SELECT league_id, season, scoring_period_id, team_id, espn_player_id, is_starter
+          FROM league_roster_snapshots WHERE source = 'final' AND on_roster = 1`).all()) {
+        const k = `${r.league_id}:${r.season}:${r.scoring_period_id}:${r.team_id}`;
+        const e = lineups.get(k) ?? lineups.set(k, { starters: [], players: [] }).get(k);
+        e.players.push(String(r.espn_player_id));
+        if (Number(r.is_starter) === 1) e.starters.push(String(r.espn_player_id));
+      }
+      return { lineups, lineupsRead: true };
+    },
+    map: (r, { lineups, lineupsRead }) => {
+      const lu = lineups.get(`${r.league_id}:${r.season}:${r.week}:${r.roster_id}`) ?? null;
+      return [{
+        event_type: 'league.team_week', as_of: r.captured_at, as_of_quality: 'first_seen', league_id: r.league_id,
+        team_id: r.roster_id, natural_key: `league.team_week:${r.league_id}:${r.season}:${r.week}:${r.roster_id}`,
+        entities: [team(r.league_id, r.roster_id, 'subject')].filter(Boolean),
+        payload: { season: r.season, week: Number(r.week), points: r.points,
+          opp: r.opponent_roster_id == null ? null : Number(r.opponent_roster_id), is_playoff: r.is_playoff,
+          starters: lu?.starters ?? [], players: lu?.players ?? [], starters_complete: false,
+          lineup: lu ? 'final_snapshot' : lineupsRead ? 'no_final_snapshot' : 'table_absent' },
+      }];
+    },
+  },
+  {
     stream: 'coverage', table: 'sync_log',
     // last_detail is free text from the collectors: never copied.
     sql: t => `SELECT job, last_run_at, last_status, runs, consecutive_failures FROM ${t}`,
@@ -338,8 +431,11 @@ export function backfillAll({ database = appDb, now = new Date(), provenance = '
   const summary = {};
   const contributions = [];
   for (const s of streams) {
-    const agg = database.prepare(`SELECT COUNT(*) AS n, MAX(id) AS m FROM engine_events WHERE source = ? AND as_of <= ?`)
-      .get(s.source, asOf);
+    // Two streams read league_transactions_raw; each counts only its own event types.
+    const types = ADAPTERS.find(a => a.stream === s.stream).eventTypes ?? null;
+    const agg = database.prepare(`SELECT COUNT(*) AS n, MAX(id) AS m FROM engine_events WHERE source = ? AND as_of <= ?
+        ${types ? `AND event_type IN (${types.map(() => '?').join(', ')})` : ''}`)
+      .get(s.source, asOf, ...(types ?? []));
     summary[s.stream] = { table: s.table, table_state: s.table_state, events: Number(agg.n), max_event_id: agg.m == null ? null : Number(agg.m) };
     contributions.push({ source: s.source, kind: 'event', event_ids: [], delta: s.inserted,
       text: s.table_state === 'table_absent'

@@ -3,7 +3,10 @@
  * (indifference price) should be accepted at about the rate the model predicted
  * there; offers priced BELOW it should mostly be declined.
  *
- * Source: the OFFER-01 `offer_log` (not built yet). Contract, one row per sent
+ * Source: none readable yet. The OFFER-01 `offer_log` it was written against is
+ * dropped (FIX-09, #266): nothing ever wrote it. Its successor is trade_outcomes
+ * app_proposed rows that were SENT (sent_at, #239) with a price_band (083, #266);
+ * until both merge, load() returns no rows and says so. Contract, one row per sent
  * offer: model_p_accept (at the price sent), price_band ('below' | 'at' |
  * 'above' the predicted yes point, decided by the producer that priced it),
  * status (trade_outcomes vocabulary), proposed_at. Only this app's offers can
@@ -90,13 +93,12 @@ export function grade(rawOffers, { reason = null } = {}) {
 
 const COLS = ['league_id', 'counterparty_team_id', 'model_p_accept', 'price_band', 'status'];
 
-export function load(database) {
-  const s = readSource(database, 'offer_log', COLS);
-  if (!s.ok) return { rows: [], reason: `${s.reason}; OFFER-01 builds it` };
-  // proposed_at orders the sequence when the log has it; without it the
-  // sequence runs in insertion order, which is still a fixed, predictable order.
-  const hasTime = database.prepare(`SELECT 1 FROM pragma_table_info('offer_log') WHERE name = 'proposed_at'`).get();
-  return hasTime ? { rows: database.prepare(`SELECT ${COLS.join(', ')}, proposed_at FROM offer_log`).all() } : { rows: s.rows };
+export const NO_SOURCE_REASON = 'no priced, sent offer source yet: offer_log is dropped (FIX-09, #266); '
+  + 'E2 reads trade_outcomes sent_at (#239) and price_band (083, #266) once both merge';
+
+// `database` is kept for the runAll contract; there is nothing to read from it yet.
+export function load(_database) {
+  return { rows: [], reason: NO_SOURCE_REASON };
 }
 
 export function run(database) {

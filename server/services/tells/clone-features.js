@@ -41,7 +41,7 @@
  * any served P(accept); the TELLS-01 spec's trade KILL still stands.
  */
 import { activityBaseline, grade as gradeE1 } from '../eval/e1.js';
-import { loadLeagueOffers, priorCounts } from '../eval/e1-league.js';
+import { loadLeagueOffers, priorCounts, SNAPSHOT_COLS } from '../eval/e1-league.js';
 import { readSource } from '../eval/common.js';
 import { logit, round } from '../eval/stats.js';
 
@@ -295,7 +295,8 @@ export function gradeClone(offers, ctx, { leagueId, excluded = null, sources = n
   const clone = gradeE1(target.map(o => ({ ...strip(o), model_p_accept: o.p })),
     { alreadyMerged: true, excluded, sources, reason });
   const production = gradeE1(target.map(o => strip(o)), { alreadyMerged: true, excluded, sources, reason });
-  return { league_id: Number(leagueId), version: CLONE_FEATURES_VERSION, features: GRADED_FEATURES, clone, production };
+  return { league_id: Number(leagueId), version: CLONE_FEATURES_VERSION, features: GRADED_FEATURES,
+    terms_sources: termsCount(target), clone, production };
 }
 
 /* ------------------------------------------------------------------ the card */
@@ -369,13 +370,25 @@ export function tellsCard(ctx, { leagueId, asOf = new Date().toISOString(), grad
   return {
     league_id: Number(leagueId), as_of: asOf, version: CLONE_FEATURES_VERSION,
     weights: Object.fromEntries(GRADED_FEATURES.map((id, i) => [id, round(fit.weights[i], 4)])),
-    fit_n: fit.n, fit_reason: fit.reason, missing_sources: ctx.missing, managers,
+    fit_n: fit.n, fit_reason: fit.reason, missing_sources: ctx.missing,
+    // Which table each league offer's terms were read from (snapshot first).
+    terms_sources: termsCount(ctx.offers.filter(o => String(o.league_id) === String(leagueId))), managers,
   };
 }
 
 /* ------------------------------------------------------------------ loading */
 
 const RAW_COLS = ['league_id', 'season', 'tx_id', 'type', 'execution_type', 'team_id', 'proposed_at', 'items_json'];
+
+/** How many offers took their terms from each table ('none': unpriced). */
+export function termsCount(offers) {
+  const out = {};
+  for (const o of offers) {
+    const from = o.terms_source ?? 'none';
+    out[from] = (out[from] ?? 0) + 1;
+  }
+  return out;
+}
 
 function parseItems(json) {
   try {
@@ -386,26 +399,53 @@ function parseItems(json) {
   }
 }
 
-/** Everything from the app DB. Missing optional sources are listed, never thrown. */
+/**
+ * Everything from the app DB. Missing optional sources are listed, never thrown.
+ *
+ * OFFER TERMS come from `trade_proposal_snapshots` (#247, migration 084) first
+ * and from `league_transactions_raw.items_json` only when no snapshot exists
+ * for that proposal: the raw upsert overwrites items_json on every sighting,
+ * the snapshot keeps the terms as first seen. `termsSource` maps each proposal
+ * to the table its terms came from; each offer carries it as `terms_source`
+ * (null: no terms anywhere, so the offer is unpriced).
+ */
 export function loadCloneContext(database) {
-  const { offers, excluded, sources, reason } = loadLeagueOffers(database);
+  const { offers: loaded, excluded, sources, reason, terms_sources: offerTerms = null } = loadLeagueOffers(database);
   const missing = [];
   const proposals = [];
   const itemsByTx = new Map();
+  const termsSource = new Map();
+  const addProposal = (r, items, from) => {
+    const k = itemsKey(r.league_id, r.season, r.tx_id);
+    if (itemsByTx.has(k)) return;
+    itemsByTx.set(k, items);
+    termsSource.set(k, from);
+    const others = [...new Set(items.flatMap(i => [i?.fromTeamId, i?.toTeamId])
+      .filter(x => x != null && Number(x) > 0).map(String))].filter(x => x !== String(r.team_id));
+    if (r.team_id != null && others.length === 1) {
+      proposals.push({ league_id: r.league_id, proposer: String(r.team_id), counterparty: others[0], proposed_at: r.proposed_at });
+    }
+  };
+  const snaps = readSource(database, 'trade_proposal_snapshots', SNAPSHOT_COLS);
+  if (snaps.ok) {
+    for (const sn of snaps.rows) {
+      const items = parseItems(sn.items_json);
+      if (items?.length) {
+        addProposal({ league_id: sn.league_id, season: sn.season, tx_id: sn.proposal_tx_id, team_id: sn.proposer_team_id,
+          proposed_at: sn.proposed_at }, items, 'trade_proposal_snapshots');
+      }
+    }
+  } else missing.push(`${snaps.reason}; offer terms fall back to league_transactions_raw.items_json`);
   const raw = readSource(database, 'league_transactions_raw', RAW_COLS,
     `SELECT ${RAW_COLS.join(', ')} FROM league_transactions_raw WHERE type = 'TRADE_PROPOSAL' AND execution_type = 'EXECUTE'`);
   if (raw.ok) {
     for (const r of raw.rows) {
       const items = parseItems(r.items_json);
-      if (!items) continue;
-      itemsByTx.set(itemsKey(r.league_id, r.season, r.tx_id), items);
-      const others = [...new Set(items.flatMap(i => [i?.fromTeamId, i?.toTeamId])
-        .filter(x => x != null && Number(x) > 0).map(String))].filter(x => x !== String(r.team_id));
-      if (r.team_id != null && others.length === 1) {
-        proposals.push({ league_id: r.league_id, proposer: String(r.team_id), counterparty: others[0], proposed_at: r.proposed_at });
-      }
+      if (items) addProposal(r, items, 'league_transactions_raw');
     }
   } else missing.push(raw.reason);
+  const offers = loaded.map(o => ({ ...o,
+    terms_source: termsSource.get(itemsKey(o.league_id, o.season, o.espn_tx_id)) ?? null }));
 
   const valueHistory = new Map();
   const names = new Map();
@@ -431,5 +471,5 @@ export function loadCloneContext(database) {
   if (!wv.ok) missing.push(wv.reason);
 
   const ctx = makeContext({ offers, proposals, itemsByTx, valueHistory, names, wants: wv.ok ? wv.rows : [], missing });
-  return { ...ctx, excluded, sources, reason };
+  return { ...ctx, excluded, sources, reason, terms_sources: termsCount(offers), offer_parties_from: offerTerms };
 }

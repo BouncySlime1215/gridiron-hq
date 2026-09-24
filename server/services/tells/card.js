@@ -5,21 +5,32 @@
  * once E1 passes for the clone on league offers), or locally with preview mode
  * (previewUnconfirmed()), in which case the response is labelled a preview.
  *
- * The card and its grade are computed from the same loaded context, so the
- * weights and the E1 row the page shows are the ones that were graded.
+ * READ ONLY. The card and its E1 grade are computed off the request thread by
+ * producer 'tells' (tells/producer.js, run by scripts/engine-tells.mjs after each
+ * sync) and stored in engine_state as `tells.card`. This serves the stored row as
+ * of `asOf` with that row's as_of; it never fits or grades anything, so a request
+ * costs one indexed read however many offers the league has.
  */
-import { loadCloneContext, gradeClone, tellsCard } from './clone-features.js';
+import { getState } from '../engine/state.js';
 import { previewUnconfirmed, previewFields } from '../preview-mode.js';
 
 export const TELLS_CARD_FLAG = 'GRIDIRON_TELLS_CARD';
 export const OFF_REASON = 'TELLS-01b tells card is default-off: the clone features have not passed E1 (log loss vs activity-only) on league offers';
+export const NOT_RUN_REASON = 'no tells card is stored for this league yet: the tells producer (scripts/engine-tells.mjs, run after each sync) has not written one';
 
-export function tellsCardResponse(database, leagueId, { now = new Date() } = {}) {
+const engineStateBuilt = database =>
+  !!database.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'engine_state'`).get();
+
+export function tellsCardResponse(database, leagueId, { asOf = new Date() } = {}) {
   const flagOn = process.env[TELLS_CARD_FLAG] === '1';
   const preview = !flagOn && previewUnconfirmed();
   if (!flagOn && !preview) return { enabled: false, reason: OFF_REASON, flag: TELLS_CARD_FLAG };
-  const ctx = loadCloneContext(database);
-  const grade = gradeClone(ctx.offers, ctx, { leagueId, excluded: ctx.excluded, sources: ctx.sources, reason: ctx.reason });
-  const card = tellsCard(ctx, { leagueId, asOf: now.toISOString(), grade });
-  return { enabled: true, ...(preview ? previewFields(OFF_REASON) : {}), card, grade };
+  const labels = preview ? previewFields(OFF_REASON) : {};
+  if (!engineStateBuilt(database)) {
+    return { enabled: true, ...labels, card: null, as_of: null, reason: 'engine_state is not built on this database (migration 075)' };
+  }
+  const row = getState('league', String(leagueId), 'tells.card', { asOf, leagueId }, database);
+  if (!row) return { enabled: true, ...labels, card: null, as_of: null, reason: NOT_RUN_REASON };
+  return { enabled: true, ...labels, card: row.value, grade: row.value?.grade ?? null, as_of: row.as_of,
+    producer_version: row.producer_version, written_at: row.written_at };
 }

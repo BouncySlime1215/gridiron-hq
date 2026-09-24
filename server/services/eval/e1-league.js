@@ -13,8 +13,12 @@
  *   2. `league_transactions_raw`, read directly for proposals the settler has
  *      not written yet. Same reading as trade-outcomes.js#settleObservedOutcomes:
  *      a TRADE_PROPOSAL/EXECUTE row, answered by a TRADE_ACCEPT or
- *      TRADE_DECLINE EXECUTE row that names it in related_tx_id.
- *   3. OFFER-01 `offer_log` when it exists (deduplicated on idea_id).
+ *      TRADE_DECLINE EXECUTE row that names it in related_tx_id. Its TERMS
+ *      (proposer, items) are read from `trade_proposal_snapshots` (#247) first
+ *      and from the raw items_json only when no snapshot exists; each offer's
+ *      `terms_source` says which.
+ *   There is no separate offer log (FIX-09, #266): nothing writes `offer_log`,
+ *   and the app's sent offers are trade_outcomes 'app_proposed' rows.
  *
  * EXCLUDED, and counted so the report can say so:
  *   - withdrawn: cancelled by the proposer (TRADE_PROPOSAL/CANCEL, no answer).
@@ -46,7 +50,7 @@ const DEDUP_WINDOW_MS = 72 * 3_600_000;
 const TO_COLS = ['league_id', 'season', 'source', 'proposer_team_id', 'counterparty_team_id', 'proposed_at',
   'model_p_accept', 'status', 'espn_tx_id', 'idea_id', 'resolved_at'];
 const RAW_COLS = ['league_id', 'season', 'tx_id', 'type', 'execution_type', 'team_id', 'related_tx_id', 'proposed_at', 'items_json'];
-const LOG_COLS = ['league_id', 'counterparty_team_id', 'proposed_at', 'model_p_accept', 'status', 'idea_id'];
+export const SNAPSHOT_COLS = Object.freeze(['league_id', 'season', 'proposal_tx_id', 'proposer_team_id', 'proposed_at', 'items_json']);
 
 const t = s => (s == null ? NaN : Date.parse(s));
 const key = (...xs) => xs.map(String).join(':');
@@ -63,8 +67,23 @@ function partiesOf(tx) {
   return others.length === 1 ? { proposer, counterparty: others[0] } : { error: `${others.length} counterparties` };
 }
 
-/** Resolved offers straight from ESPN's raw rows. */
-export function offersFromRaw(raw) {
+/** A snapshot row in the raw proposal's shape, so partiesOf reads both alike. */
+const snapshotAsProposal = sn => ({
+  league_id: sn.league_id, season: sn.season, tx_id: sn.proposal_tx_id, type: 'TRADE_PROPOSAL',
+  execution_type: 'EXECUTE', team_id: sn.proposer_team_id, proposed_at: sn.proposed_at, items_json: sn.items_json,
+});
+
+/**
+ * Resolved offers straight from ESPN's raw rows. The TERMS (proposer and
+ * items) come from `trade_proposal_snapshots` (#247, migration 084) first:
+ * the raw upsert overwrites items_json on every sighting, so a resolved offer
+ * ESPN hands back with no items loses the terms it had while pending, and the
+ * snapshot kept them. The raw row's items are the fallback only when no
+ * snapshot exists. Each offer says which it used in `terms_source`. A proposal
+ * the raw table never held but a snapshot did is still an offer when a raw
+ * answer names it.
+ */
+export function offersFromRaw(raw, snapshots = []) {
   const out = [];
   const excluded = { withdrawn: 0, unanswered: 0, unreadable: 0 };
   const related = new Map();
@@ -73,22 +92,29 @@ export function offersFromRaw(raw) {
     const k = key(r.league_id, r.season, r.related_tx_id);
     (related.get(k) ?? related.set(k, []).get(k)).push(r);
   }
-  for (const p of raw) {
-    if (p.type !== 'TRADE_PROPOSAL' || p.execution_type !== 'EXECUTE') continue;
-    const after = related.get(key(p.league_id, p.season, p.tx_id)) ?? [];
+  const snap = new Map(snapshots.map(sn => [key(sn.league_id, sn.season, sn.proposal_tx_id), sn]));
+  const proposals = raw.filter(p => p.type === 'TRADE_PROPOSAL' && p.execution_type === 'EXECUTE');
+  const seen = new Set(proposals.map(p => key(p.league_id, p.season, p.tx_id)));
+  for (const [k, sn] of snap) if (!seen.has(k) && related.has(k)) proposals.push({ ...snapshotAsProposal(sn), snapshot_only: true });
+  for (const p of proposals) {
+    const k = key(p.league_id, p.season, p.tx_id);
+    const after = related.get(k) ?? [];
     const answer = after.find(a => (a.type === 'TRADE_ACCEPT' || a.type === 'TRADE_DECLINE') && a.execution_type === 'EXECUTE');
     if (!answer) {
       if (after.some(a => a.type === 'TRADE_PROPOSAL' && a.execution_type === 'CANCEL')) excluded.withdrawn += 1;
       else excluded.unanswered += 1;
       continue;
     }
-    const sides = partiesOf(p);
+    const sn = snap.get(k);
+    const terms = sn ? snapshotAsProposal(sn) : p;
+    const sides = partiesOf(terms);
     if (!sides || sides.error) { excluded.unreadable += 1; continue; }
     out.push({
       league_id: p.league_id, season: p.season, source: 'observed', proposer_team_id: sides.proposer,
-      counterparty_team_id: sides.counterparty, proposed_at: p.proposed_at ?? null,
+      counterparty_team_id: sides.counterparty, proposed_at: p.proposed_at ?? terms.proposed_at ?? null,
       resolved_at: answer.proposed_at ?? null, model_p_accept: null,
       status: answer.type === 'TRADE_ACCEPT' ? 'accepted' : 'declined', espn_tx_id: String(p.tx_id),
+      terms_source: sn ? 'trade_proposal_snapshots' : 'league_transactions_raw',
     });
   }
   return { offers: out, excluded };
@@ -96,18 +122,17 @@ export function offersFromRaw(raw) {
 
 /**
  * Merge the sources into one list of resolved offers. `rows` are
- * trade_outcomes rows, `raw` league_transactions_raw rows, `log` offer_log rows.
+ * trade_outcomes rows, `raw` league_transactions_raw rows, `snapshots`
+ * trade_proposal_snapshots rows (terms first; see offersFromRaw).
  */
-export function mergeOffers({ rows = [], raw = [], log = [] } = {}) {
+export function mergeOffers({ rows = [], raw = [], snapshots = [] } = {}) {
   const excluded = { withdrawn: 0, unanswered: 0, unreadable: 0, no_proposal_time: 0, espn_copy_of_app_offer: 0 };
-  const fromRaw = offersFromRaw(raw);
+  const fromRaw = offersFromRaw(raw, snapshots);
   for (const [k, v] of Object.entries(fromRaw.excluded)) excluded[k] += v;
   const settled = new Set(rows.filter(r => r.espn_tx_id != null).map(r => key(r.league_id, r.season, r.espn_tx_id)));
   const all = [...rows, ...fromRaw.offers.filter(o => !settled.has(key(o.league_id, o.season, o.espn_tx_id)))];
-  const seenIdea = new Set(rows.filter(r => r.idea_id != null).map(r => key(r.league_id, r.idea_id)));
-  for (const r of log) if (r.idea_id == null || !seenIdea.has(key(r.league_id, r.idea_id))) all.push({ ...r, source: r.source ?? 'offer_log' });
 
-  const app = all.filter(o => o.source === 'app_proposed' || o.source === 'offer_log');
+  const app = all.filter(o => o.source === 'app_proposed');
   const out = [];
   for (const o of all) {
     if (!Object.hasOwn(OUTCOME, o.status)) { excluded.unanswered += 1; continue; }
@@ -190,8 +215,16 @@ export function loadLeagueOffers(database) {
     `SELECT ${RAW_COLS.join(', ')} FROM league_transactions_raw
      WHERE type IN ('TRADE_PROPOSAL', 'TRADE_ACCEPT', 'TRADE_DECLINE')`);
   if (raw.ok) sources.push('league_transactions_raw'); else reasons.push(raw.reason);
-  const log = readSource(database, 'offer_log', LOG_COLS);
-  if (log.ok) sources.push('offer_log');
-  const merged = mergeOffers({ rows: to.ok ? to.rows : [], raw: raw.ok ? raw.rows : [], log: log.ok ? log.rows : [] });
-  return { ...merged, sources, reason: sources.length ? null : reasons.join('; ') };
+  // Offer terms: the snapshot first (#247), the raw row only where none exists.
+  const snaps = readSource(database, 'trade_proposal_snapshots', SNAPSHOT_COLS);
+  if (snaps.ok) sources.push('trade_proposal_snapshots');
+  const merged = mergeOffers({ rows: to.ok ? to.rows : [], raw: raw.ok ? raw.rows : [], snapshots: snaps.ok ? snaps.rows : [] });
+  const termsSources = {};
+  for (const o of merged.offers) {
+    const from = o.terms_source ?? 'trade_outcomes';
+    termsSources[from] = (termsSources[from] ?? 0) + 1;
+  }
+  return { ...merged, sources, terms_sources: termsSources,
+    snapshot_reason: snaps.ok ? null : `${snaps.reason}; offer terms fall back to league_transactions_raw.items_json`,
+    reason: sources.length ? null : reasons.join('; ') };
 }

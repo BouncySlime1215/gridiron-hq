@@ -20,8 +20,11 @@
  *   4. manager_signals   who-is-who + per-manager signals for all leagues
  *                        (build-manager-signals.mjs), after the chat rollup has
  *                        finished, and only when one of its inputs changed
- *   5. brain_report      EVAL-01 graders E1-E7 (scripts/eval/run-graders.mjs), last,
- *                        so they grade this tick's rows; stores one run in brain_report
+ *   5. brain_report      EVAL-01 graders E1-E7 (scripts/eval/run-graders.mjs), after the
+ *                        syncs, so they grade this tick's rows; stores one run in brain_report
+ *   6. tells             TELLS-01b producer 'tells' (scripts/engine-tells.mjs, role engine):
+ *                        the tells card, prior trades and checkout risk into engine_state,
+ *                        so the tells route only reads. This loop never imports the engine.
  *
  * ALLOWLIST ONLY. Betting collectors (line snapshots, Polymarket, book feeds,
  * prop capture, t60 runner…) are deliberately absent: Nick turned them off.
@@ -270,6 +273,23 @@ export function brainReport({ spawn = spawnSync, log = console.log, record = rec
   log(`${stamp()} ${'brain_report'.padEnd(18)} ${r.status === 0 ? 'ok' : 'ERROR'} ${text.slice(0, 300)} (${Date.now() - t0} ms)`);
 }
 
+// TELLS-01b: the tells producer, off the request thread. The child is the engine writer; the
+// loop records only a failure to start, as for the brain report.
+export function tellsStep({ spawn = spawnSync, log = console.log, record = recordSync } = {}) {
+  const t0 = Date.now();
+  const r = spawn(process.execPath, ['--env-file-if-exists=.env', 'scripts/engine-tells.mjs'],
+    { cwd: ROOT, env: process.env, encoding: 'utf8', timeout: 5 * 60 * 1000 });
+  const failed = spawnFailure(r);
+  if (failed) {
+    record('tells', 'error', { error: failed.slice(0, 300), spawn_failed: true });
+    log(`${stamp()} ${'tells'.padEnd(18)} ERROR ${failed.slice(0, 160)} (${Date.now() - t0} ms)`);
+    return;
+  }
+  const lines = outputLines(r);
+  const summary = lines.filter(l => /^tells: /.test(l)).at(-1) ?? lines.at(-1) ?? `exit ${r.status}`;
+  log(`${stamp()} ${'tells'.padEnd(18)} ${r.status === 0 ? 'ok' : 'ERROR'} ${summary.slice(0, 300)} (${Date.now() - t0} ms)`);
+}
+
 export async function tick({ jobs = FANTASY_LIVE_JOBS, spawn = spawnSync, log = console.log, record = recordSync,
   runJob = runIfStale, force = false, managerSignals = null, inputsKey } = {}) {
   const started = Date.now();
@@ -296,6 +316,7 @@ export async function tick({ jobs = FANTASY_LIVE_JOBS, spawn = spawnSync, log = 
   step('league_chat', () => chatBackfill({ spawn, log, record }));
   step('manager_signals', () => signals());
   step('brain_report', () => brainReport({ spawn, log, record }));
+  step('tells', () => tellsStep({ spawn, log, record }));
   log(`${stamp()} tick done in ${Math.round((Date.now() - started) / 1000)} s`);
 }
 
@@ -315,7 +336,7 @@ async function main(args = process.argv.slice(2)) {
     return;
   }
   console.log(`${stamp()} refresh-live-data loop every ${loopSeconds} s — jobs: ${FANTASY_LIVE_JOBS.join(', ')}`
-    + ', then league_tx, roster_snapshots, league_chat, manager_signals, brain_report');
+    + ', then league_tx, roster_snapshots, league_chat, manager_signals, brain_report, tells');
   while (!stopping) {
     await tick({ force, managerSignals });
     const until = Date.now() + loopSeconds * 1000;

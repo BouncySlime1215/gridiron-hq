@@ -216,6 +216,12 @@ test('recording is a queue push: nothing reaches the table until the flush loop 
   assert.equal(serveLog.serveLogState().queued, 0);
 });
 
+test('an error payload served no number, so it queues nothing and gets no request id', () => {
+  const lg = row('SELECT * FROM leagues WHERE id = 61');
+  assert.equal(serveLog.recordServed(null, 'trade_impact', lg, { error: 'both teams required' }, {}), null);
+  assert.equal(serveLog.serveLogState().queued, 0);
+});
+
 test('a full queue drops its oldest entry and counts it, so a stalled flush is visible', () => {
   const lg = row('SELECT * FROM leagues WHERE id = 61');
   for (let i = 0; i < serveLog.SERVE_LOG_QUEUE_CAP + 3; i++) serveLog.recordServed(null, 'title_odds', lg, SIM, {});

@@ -107,6 +107,27 @@ test('view: each step names the backup branch when it fails', () => {
   assert.equal(s3.fail_label, 'If he says no');
 });
 
+test('view: a backup must share the steps before it, even when a different path ranks higher', () => {
+  const s2 = viewWith(c => {
+    // Ranked 2nd, different first move (Team 5), and a different second move: not a branch of path 1's step 2.
+    c.paths.splice(1, 0, { ...structuredClone(c.paths[2]), steps: [structuredClone(c.paths[3].steps[0]), structuredClone(c.paths[2].steps[1])] });
+    c.paths[1].steps[1].partner_id = 8;
+  }).chess_path.value.paths[0].steps[1];
+  assert.equal(s2.if_fails.backup.value.line, 'Team 9: give T. Kline (TE) for E. Park (RB)');
+  assert.equal(s2.if_fails.backup.value.path_rank, 4);
+});
+
+test('view: a failed league run or a failed sanity check hides the chess path too', () => {
+  for (const mutate of [e => { e.error = 'world build failed'; }, e => { e.sanity_composed_equals_direct = false; }]) {
+    const entries = structuredClone(plans);
+    entries[0].chess = structuredClone(chess);
+    mutate(entries[0]);
+    const f = buildWarRoomView(1, { status: 'ok', entries, as_of: 'x', id: 'y' }, { enabled: true, preview: false }).chess_path;
+    assert.equal(f.status, 'failed');
+    assert.equal(values(f), 0);
+  }
+});
+
 test('view: a step no other searched path branches from says so', () => {
   const only = viewWith(c => { c.paths = [c.paths[0]]; }).chess_path.value.paths[0].steps;
   for (const s of only) {

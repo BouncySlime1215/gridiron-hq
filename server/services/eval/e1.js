@@ -38,7 +38,7 @@
 import { STATUS, result } from './common.js';
 import { hierCalibration } from './hier-calibration.js';
 import { loadLeagueOffers, mergeOffers, priorCounts, scoreAsOf } from './e1-league.js';
-import { confidenceSequence, minDecisiveN } from './sequential.js';
+import { confidenceSequence, minDecisiveN, projectedTotalN } from './sequential.js';
 import { logLoss, mean, moreNeeded, reliabilityBuckets, round } from './stats.js';
 
 export const CHECK = 'E1';
@@ -47,8 +47,10 @@ export const SLOPE_BAND = [0.8, 1.2];
 export const ALPHA = 0.05;
 export const P_CLIP = 0.02;
 export const MAX_SLOPE_SE = 0.25;
-/** A log-loss difference smaller than this is coin-flip level: not worth deciding. */
+/** A log-loss difference smaller than this is coin-flip level (reported as `coin_flip_level`). */
 export const MIN_GAIN = 0.01;
+/** "needs N more" never asks for more than this many times the offers graded so far. */
+export const NEEDS_CAP_X = 10;
 const PASS_BAR = 'log-loss gain vs activity-only: 95% anytime-valid CS > 0; pooled reliability slope 0.8-1.2 (se <= 0.25)';
 const SHRINK_K = 5;
 const GAIN_RANGE = Math.log((1 - P_CLIP) / P_CLIP);
@@ -71,6 +73,43 @@ export function minOffersToDecide() {
   return decisiveN;
 }
 
+/**
+ * How many more offers would decide the check, derived from the anytime-valid
+ * CS itself: the n at which its half-width would reach the larger of |gain|
+ * and half the current half-width (so a gain near zero asks for the CS to
+ * halve, not to shrink to the width of a coin flip), and the n at which the
+ * pooled slope's se would reach MAX_SLOPE_SE. Capped at NEEDS_CAP_X x n: past
+ * that the effect is too close to zero for more offers to settle soon, and
+ * the text says so instead of printing a six-figure count.
+ */
+export function needsProjection({ n, gain, lower, upper, slopeSe = null, slopeOk = slopeSe == null, floor = minOffersToDecide() }) {
+  const cap = Math.max(NEEDS_CAP_X * n, floor);
+  const half = (upper - lower) / 2;
+  const target = Math.max(Math.abs(gain), half / 2);
+  let gainMore = 1;
+  if (!(lower > 0)) {
+    const total = projectedTotalN({ n, halfWidth: half, target, maxN: n + cap });
+    gainMore = total == null ? Infinity : Math.max(1, total - n);
+  }
+  const slopeMore = slopeOk || slopeSe == null ? 1 : moreNeeded(n, slopeSe, MAX_SLOPE_SE);
+  const wanted = Math.max(gainMore, slopeMore, floor - n);
+  const capped = wanted > cap;
+  const needsN = capped ? cap : wanted;
+  return {
+    needsN, capped, target, halfWidth: half,
+    needsText: capped ? `needs more than ${cap} more offers (effect near zero)` : `needs ${needsN} more offers`,
+  };
+}
+
+/** Gradable, accepted and excluded offers per league. */
+export function offersByLeague(offers, excludedByLeague = {}) {
+  const out = {};
+  const at = lg => (out[lg] ??= { gradable: 0, accepted: 0, excluded: 0 });
+  for (const o of offers) { at(o.league_id).gradable += 1; at(o.league_id).accepted += o.y; }
+  for (const [lg, k] of Object.entries(excludedByLeague ?? {})) at(lg).excluded += k;
+  return out;
+}
+
 /** Activity-only baseline per offer, from offers resolved before it was proposed. */
 export function activityBaseline(offers, priors = priorCounts(offers)) {
   return offers.map((o, i) => {
@@ -85,9 +124,11 @@ export function activityBaseline(offers, priors = priorCounts(offers)) {
  * Grade already-read rows (trade_outcomes shaped). `excluded`, `sources` and
  * `appArm` come from the loader when grading a database.
  */
-export function grade(rawRows, { reason = null, excluded = null, sources = null, appArm = null, alreadyMerged = false } = {}) {
+export function grade(rawRows, { reason = null, excluded = null, excludedByLeague = null, sources = null, appArm = null, alreadyMerged = false } = {}) {
   const merged = alreadyMerged ? { offers: rawRows, excluded: excluded ?? {} } : mergeOffers({ rows: rawRows });
   const why = { ...(excluded ?? {}), ...merged.excluded };
+  const exBy = { ...(excludedByLeague ?? {}) };
+  for (const [lg, k] of Object.entries(merged.excluded_by_league ?? {})) exBy[lg] = (exBy[lg] ?? 0) + k;
   const offers = scoreAsOf(merged.offers)
     .map((o, i) => ({ o, i }))
     .sort((a, b) => Date.parse(a.o.proposed_at) - Date.parse(b.o.proposed_at) || a.i - b.i)
@@ -101,6 +142,7 @@ export function grade(rawRows, { reason = null, excluded = null, sources = null,
     offers_by_basis: countBy(offers, o => o.basis),
     proposers: new Set(offers.map(o => `${o.league_id}:${o.proposer_team_id ?? 'app'}`)).size,
     leagues: new Set(offers.map(o => o.league_id)).size,
+    offers_by_league: offersByLeague(offers, exBy),
     excluded: why, ...(sources ? { sources } : {}), ...(appArm ? { app_arm: appArm } : {}), ...(reason ? { reason } : {}),
     rule: { alpha: ALPHA, p_clip: P_CLIP, min_gain: MIN_GAIN, min_offers_to_decide: floor },
   };
@@ -142,17 +184,12 @@ export function grade(rawRows, { reason = null, excluded = null, sources = null,
   const slopeOk = slope != null && slope >= lo && slope <= hi && se != null && se <= MAX_SLOPE_SE;
   if (cs.lower > 0 && slopeOk) return result({ ...common, status: STATUS.PASSING, metric: gain, ci, n, detail });
 
-  // How many more: the CS half-width shrinks about as 1/sqrt(n); decide once
-  // it is below the observed gain (or MIN_GAIN, if the gain is smaller — a
-  // coin-flip-level difference is not chased forever).
-  const target = Math.max(Math.abs(gain), MIN_GAIN);
-  const needs = Math.max(
-    cs.lower > 0 ? 1 : moreNeeded(n, cs.upper - cs.lower, 2 * target),
-    slopeOk ? 1 : (se != null ? moreNeeded(n, se, MAX_SLOPE_SE) : 1),
-    floor - n,
-  );
-  return result({ ...common, status: STATUS.NOT_ENOUGH_DATA, metric: gain, ci, n, needsN: needs, needsUnit: 'offers', detail: {
-    ...detail, coin_flip_level: Math.abs(gain) < MIN_GAIN } });
+  const needs = needsProjection({ n, gain, lower: cs.lower, upper: cs.upper, slopeSe: se, slopeOk, floor });
+  return result({ ...common, status: STATUS.NOT_ENOUGH_DATA, metric: gain, ci, n,
+    needsN: needs.needsN, needsUnit: 'offers', needsText: needs.needsText, detail: {
+      ...detail, coin_flip_level: Math.abs(gain) < MIN_GAIN,
+      needs_projection: { target_half_width: round(needs.target, 5), half_width: round(needs.halfWidth, 5), capped: needs.capped, cap_x: NEEDS_CAP_X },
+    } });
 }
 
 function countBy(xs, f) {
@@ -166,6 +203,6 @@ export function load(database) {
 }
 
 export function run(database) {
-  const { offers, excluded, sources, app_arm: appArm, reason } = load(database);
-  return grade(offers, { reason, excluded, sources, appArm, alreadyMerged: true });
+  const { offers, excluded, excluded_by_league: excludedByLeague, sources, app_arm: appArm, reason } = load(database);
+  return grade(offers, { reason, excluded, excludedByLeague, sources, appArm, alreadyMerged: true });
 }

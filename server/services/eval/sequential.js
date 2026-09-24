@@ -114,3 +114,25 @@ export function minDecisiveN({ lo, hi, alpha = 0.05, ref = 0, cap = 1000 } = {})
   }
   return cap;
 }
+
+/**
+ * Total n at which a CS whose half-width is `halfWidth` at `n` would narrow to
+ * `target`, or null if it would not by `maxN`. The betting CS with the
+ * predictable plug-in bets above narrows like sqrt(log(n) / n) at a fixed
+ * variance (Waudby-Smith & Ramdas 2024, section 3), slower than a fixed-n
+ * interval's 1/sqrt(n): projecting with 1/sqrt(n) alone would under-ask.
+ * The variance is held at what has been seen so far — a projection, not a
+ * promise.
+ */
+export function projectedTotalN({ n, halfWidth, target, maxN }) {
+  if (!(n > 0) || !(halfWidth > 0) || !(target > 0)) return n;
+  if (halfWidth <= target) return n;
+  const width = m => halfWidth * Math.sqrt((n * Math.log(m + 1)) / (m * Math.log(n + 1)));
+  if (width(maxN) > target) return null;
+  let lo = n; let hi = maxN;
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (width(mid) <= target) hi = mid; else lo = mid;
+  }
+  return hi;
+}

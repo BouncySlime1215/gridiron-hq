@@ -107,7 +107,9 @@ test('a coin-flip-level difference stays not_enough_data, with its evidence', ()
   const r = E1.grade(offers(400, { truth: () => 0.5, model: (t, i, rand) => 0.5 + (rand() - 0.5) * 0.04 }));
   assert.equal(r.status, 'not_enough_data', JSON.stringify(r.detail.why));
   assert.ok(r.ci_low < 0 && r.ci_high > 0, 'the CS covers 0');
-  assert.ok(r.needs_n >= 1 && /^needs \d+ more offers/.test(r.needs_text));
+  // FIX-246-1: a coin flip at n = 400 is past the 10x cap, and says so.
+  assert.equal(r.needs_n, 4000);
+  assert.equal(r.needs_text, 'needs more than 4000 more offers (effect near zero)');
   assert.ok(Number.isFinite(r.detail.e_value_model_better) && Number.isFinite(r.detail.e_value_model_worse));
 });
 
@@ -168,4 +170,62 @@ test('only the anytime-valid rule can fail E1: an inverted model at n = 12 warns
   const r = E1.grade(rows);
   assert.equal(r.status, 'not_enough_data');
   assert.match(r.detail.slope_warning, /not anytime-valid/);
+});
+
+// -------------------------------------------- FIX-246-1: the needs projection
+test('needs projection: the real-DB shape (n=37, CS +/-0.68, gain -0.004) asks for a finite number, at most 10x n', () => {
+  // Coordinator's Mac, 9/24: this shape printed "needs 171590 more offers".
+  const p = E1.needsProjection({ n: 37, gain: -0.0043, lower: -0.684, upper: 0.676 });
+  assert.ok(Number.isFinite(p.needsN) && p.needsN >= 1, `needs ${p.needsN}`);
+  assert.ok(p.needsN <= 370, `capped at 10 x 37, got ${p.needsN}`);
+  assert.match(p.needsText, /^needs \d+ more offers$/);
+  assert.equal(p.capped, false);
+  // The target is the larger of |gain| and half the current half-width.
+  assert.ok(Math.abs(p.target - 0.34) < 1e-9, `target ${p.target}`);
+});
+
+test('needs projection: the anytime-valid CS shrinks slower than 1/sqrt(n), so it asks for more than the fixed-n formula', () => {
+  const p = E1.needsProjection({ n: 100, gain: 0, lower: -0.2, upper: 0.2 });
+  // 1/sqrt(n) alone would say 4n total = 300 more; the log factor adds to it.
+  assert.ok(p.needsN > 300 && p.needsN <= 1000, `needs ${p.needsN}`);
+});
+
+test('needs projection: past 10x n it says "more than N offers (effect near zero)"', () => {
+  // A slope measured to +/-5 needs (5/0.25)^2 = 400x the offers to reach se 0.25.
+  const p = E1.needsProjection({ n: 37, gain: -0.0043, lower: -0.684, upper: 0.676, slopeSe: 5 });
+  assert.equal(p.capped, true);
+  assert.equal(p.needsN, 370);
+  assert.equal(p.needsText, 'needs more than 370 more offers (effect near zero)');
+});
+
+test('E1 grade on 37 coin-flip offers over 3 leagues: finite needs_text <= 370 and a per-league block', () => {
+  const rows = offers(37, { truth: () => 0.2, model: t => t, seed: 11 })
+    .map((o, i) => ({ ...o, league_id: [7, 8, 9][i % 3], model_p_accept: null }));
+  const excludedByLeague = { 7: 20, 8: 11, 9: 9 };
+  const r = E1.grade(rows, { excluded: { withdrawn: 31, unanswered: 9 }, excludedByLeague });
+  assert.equal(r.status, 'not_enough_data', JSON.stringify(r.detail.why));
+  assert.ok(r.needs_n >= 1 && r.needs_n <= 370, `needs_n ${r.needs_n}`);
+  assert.match(r.needs_text, /^needs (more than )?\d+ more offers/);
+  const by = r.detail.offers_by_league;
+  assert.deepEqual(Object.keys(by).sort(), ['7', '8', '9']);
+  for (const [lg, c] of Object.entries(by)) {
+    assert.deepEqual(Object.keys(c).sort(), ['accepted', 'excluded', 'gradable']);
+    assert.equal(c.excluded, excludedByLeague[lg]);
+  }
+  assert.equal(Object.values(by).reduce((a, c) => a + c.gradable, 0), r.n);
+  assert.equal(Object.values(by).reduce((a, c) => a + c.accepted, 0), r.detail.accepted);
+});
+
+test('mergeOffers counts exclusions per league, and grade carries them into offers_by_league', () => {
+  const other = rawLeague().map(r => ({ ...r, league_id: 8, tx_id: `8-${r.tx_id}`, related_tx_id: r.related_tx_id && `8-${r.related_tx_id}` }));
+  const { offers: rows, excluded, excluded_by_league: exBy } = L.mergeOffers({ raw: [...rawLeague(), ...other] });
+  assert.deepEqual(exBy, { 7: 2, 8: 2 });
+  const r = E1.grade(rows, { alreadyMerged: true, excluded, excludedByLeague: exBy });
+  assert.deepEqual(r.detail.offers_by_league, {
+    7: { gradable: 5, accepted: 2, excluded: 2 },
+    8: { gradable: 5, accepted: 2, excluded: 2 },
+  });
+  // Un-merged rows go through mergeOffers inside grade and keep its per-league counts.
+  const unsent = { league_id: 9, season: 2026, source: 'app_proposed', proposer_team_id: '1', counterparty_team_id: '3', proposed_at: iso(3), model_p_accept: 0.4, status: 'declined', sent_at: null };
+  assert.deepEqual(E1.grade([unsent]).detail.offers_by_league, { 9: { gradable: 0, accepted: 0, excluded: 1 } });
 });

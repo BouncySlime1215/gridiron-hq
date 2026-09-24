@@ -98,7 +98,10 @@ test('E1 reads the real trade_outcomes ledger: sent app_proposed rows only; offe
   assert.equal(r.n, 12);
   assert.equal(r.detail.offers_by_basis.recorded, 12, 'every one carried the prediction recorded when it was sent');
   assert.equal(r.status, 'not_enough_data');
-  assert.match(r.needs_text, /^needs \d+ more offers/);
+  // Constant p = 0.3 leaves the slope unmeasured: past the 10x cap (FIX-246-1).
+  assert.match(r.needs_text, /^needs (more than )?\d+ more offers/);
+  assert.ok(r.needs_n <= 10 * r.n);
+  assert.deepEqual(r.detail.offers_by_league, { 1: { gradable: 12, accepted: 6, excluded: 1 } }, 'the open row is excluded in league 1 (the unsent one is filtered in SQL)');
   db.exec('DROP TABLE offer_log');
 });
 

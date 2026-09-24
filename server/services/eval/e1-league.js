@@ -18,7 +18,8 @@
  *      a TRADE_PROPOSAL/EXECUTE row, answered by a TRADE_ACCEPT or
  *      TRADE_DECLINE EXECUTE row that names it in related_tx_id.
  *
- * EXCLUDED, and counted so the report can say so:
+ * EXCLUDED, and counted so the report can say so (in total, and per league
+ * in `excluded_by_league`):
  *   - withdrawn: cancelled by the proposer (TRADE_PROPOSAL/CANCEL, no answer).
  *     The other side never decided, so it is not an outcome.
  *   - unanswered ('proposed', 'ignored'): silence is not a no.
@@ -58,6 +59,7 @@ const SENT_COLS = ['sent_at', 'matched_tx_id'];
 const RAW_COLS = ['league_id', 'season', 'tx_id', 'type', 'execution_type', 'team_id', 'related_tx_id', 'proposed_at', 'items_json'];
 
 const t = s => (s == null ? NaN : Date.parse(s));
+const bump = (byLeague, lg) => { byLeague[lg] = (byLeague[lg] ?? 0) + 1; };
 const key = (...xs) => xs.map(String).join(':');
 
 /** Proposer and the single counterparty of a raw proposal, or null. */
@@ -76,6 +78,7 @@ function partiesOf(tx) {
 export function offersFromRaw(raw) {
   const out = [];
   const excluded = { withdrawn: 0, unanswered: 0, unreadable: 0 };
+  const byLeague = {};
   const related = new Map();
   for (const r of raw) {
     if (r.related_tx_id == null) continue;
@@ -87,12 +90,13 @@ export function offersFromRaw(raw) {
     const after = related.get(key(p.league_id, p.season, p.tx_id)) ?? [];
     const answer = after.find(a => (a.type === 'TRADE_ACCEPT' || a.type === 'TRADE_DECLINE') && a.execution_type === 'EXECUTE');
     if (!answer) {
+      bump(byLeague, p.league_id);
       if (after.some(a => a.type === 'TRADE_PROPOSAL' && a.execution_type === 'CANCEL')) excluded.withdrawn += 1;
       else excluded.unanswered += 1;
       continue;
     }
     const sides = partiesOf(p);
-    if (!sides || sides.error) { excluded.unreadable += 1; continue; }
+    if (!sides || sides.error) { excluded.unreadable += 1; bump(byLeague, p.league_id); continue; }
     out.push({
       league_id: p.league_id, season: p.season, source: 'observed', proposer_team_id: sides.proposer,
       counterparty_team_id: sides.counterparty, proposed_at: p.proposed_at ?? null,
@@ -100,7 +104,7 @@ export function offersFromRaw(raw) {
       status: answer.type === 'TRADE_ACCEPT' ? 'accepted' : 'declined', espn_tx_id: String(p.tx_id),
     });
   }
-  return { offers: out, excluded };
+  return { offers: out, excluded, excluded_by_league: byLeague };
 }
 
 /**
@@ -111,6 +115,7 @@ export function mergeOffers({ rows = [], raw = [] } = {}) {
   const excluded = { withdrawn: 0, unanswered: 0, unreadable: 0, no_proposal_time: 0, espn_copy_of_app_offer: 0, unsent_app_offer: 0 };
   const fromRaw = offersFromRaw(raw);
   for (const [k, v] of Object.entries(fromRaw.excluded)) excluded[k] += v;
+  const byLeague = { ...fromRaw.excluded_by_league };
   const settled = new Set(rows.filter(r => r.espn_tx_id != null).map(r => key(r.league_id, r.season, r.espn_tx_id)));
   const all = [...rows, ...fromRaw.offers.filter(o => !settled.has(key(o.league_id, o.season, o.espn_tx_id)))];
 
@@ -132,13 +137,14 @@ export function mergeOffers({ rows = [], raw = [] } = {}) {
 
   const out = [];
   for (const o of all) {
-    if (unsent(o)) { excluded.unsent_app_offer += 1; continue; }
-    if (copies.has(o)) { excluded.espn_copy_of_app_offer += 1; continue; }
-    if (!Object.hasOwn(OUTCOME, o.status)) { excluded.unanswered += 1; continue; }
-    if (!Number.isFinite(t(o.proposed_at))) { excluded.no_proposal_time += 1; continue; }
+    const why = unsent(o) ? 'unsent_app_offer'
+      : copies.has(o) ? 'espn_copy_of_app_offer'
+        : !Object.hasOwn(OUTCOME, o.status) ? 'unanswered'
+          : !Number.isFinite(t(o.proposed_at)) ? 'no_proposal_time' : null;
+    if (why) { excluded[why] += 1; bump(byLeague, o.league_id); continue; }
     out.push({ ...o, y: OUTCOME[o.status] });
   }
-  return { offers: out, excluded };
+  return { offers: out, excluded, excluded_by_league: byLeague };
 }
 
 /**

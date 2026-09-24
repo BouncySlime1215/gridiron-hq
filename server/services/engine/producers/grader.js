@@ -29,7 +29,8 @@
  * ROWS. Entity `producer` `<producer>@<version>`, global (league 0):
  *   grade.season_to_date  {season, by_field: {field: {kind, lane, n, clusters, floor_met,
  *                          metrics, labels, excluded, outcomes_hash, vs_fallback}}}
- *   grade.week            the same for the latest graded week, plus `graded`: every
+ *   grade.week            the same for the latest graded week (vs_fallback per week too),
+ *                          plus `graded`: every
  *                          (entity_id, state_id, outcome_event_id) it scored (the audit)
  * Labels: `forward` (season >= 2026) or `test` (earlier seasons). `fit` cannot occur: a
  * row whose training window reaches its decision time is excluded, not labelled.
@@ -151,6 +152,28 @@ function scoreItem(g, pred, outcome) {
   return { item: { ...base, primary: logLoss(prob, y), brier: brier(prob, y), p: prob, y } };
 }
 
+/**
+ * This version against the fallback field on the same outcomes: one pair per base key
+ * (player:season:week) both scored. Deltas are this minus the fallback in the primary
+ * score (a loss), so a positive mean says this version is worse. `entities` counts
+ * distinct players in the pairs (the cluster floor's second count; EA-06 monitor reads it).
+ */
+export function pairedVsFallback(items, fallbackItems, fallbackField) {
+  const base = i => i.entity_id.split(':').slice(0, 3).join(':');
+  const theirs = new Map(fallbackItems.map(i => [base(i), i.primary]));
+  const deltas = []; const players = new Set();
+  for (const i of items) {
+    const other = theirs.get(base(i));
+    if (other == null) continue;
+    deltas.push(i.primary - other);
+    players.add(i.entity ?? i.entity_id.split(':')[0]);
+  }
+  const m = mean(deltas);
+  const sd = deltas.length > 1 ? Math.sqrt(deltas.reduce((s, d) => s + (d - m) ** 2, 0) / (deltas.length - 1)) : null;
+  return { field: fallbackField, n_pairs: deltas.length, entities: players.size, delta_mean: r6(m), delta_sd: r6(sd),
+    sign: 'this minus the fallback, in the primary score; negative favours this version' };
+}
+
 function summarise(g, lane, items, excluded) {
   const floor = clusterFloor(items);
   const labels = {};
@@ -250,18 +273,12 @@ function run(ctx) {
       const g = graded.get(field);
       const std = summarise(g, r.lane, inSeason(r.items), r.excluded);
       const fb = fieldSpec(field)?.fallbackField;
-      if (fb && activeItems.has(fb)) {
-        const theirs = new Map(inSeason(activeItems.get(fb)).map(i => [i.entity_id.split(':').slice(0, 3).join(':'), i.primary]));
-        const deltas = inSeason(r.items).map(i => {
-          const other = theirs.get(i.entity_id.split(':').slice(0, 3).join(':'));
-          return other == null ? null : i.primary - other;
-        }).filter(d => d != null);
-        std.vs_fallback = { field: fb, n_pairs: deltas.length, delta_mean: r6(mean(deltas)),
-          sign: 'this minus the fallback, in the primary score; negative favours this version' };
-      }
+      const fbItems = fb && activeItems.has(fb) ? activeItems.get(fb) : null;
+      if (fbItems) std.vs_fallback = pairedVsFallback(inSeason(r.items), inSeason(fbItems), fb);
       stdByField[field] = std;
       const wItems = inWeek(r.items);
       weekByField[field] = { ...summarise(g, r.lane, wItems, {}),
+        ...(fbItems ? { vs_fallback: pairedVsFallback(wItems, inWeek(fbItems), fb) } : {}),
         graded: wItems.map(i => ({ entity_id: i.entity_id, state_id: i.state_id, outcome_event_id: i.outcome_event_id })) };
     }
     const text = n => `${n} predictions graded against outcome.player_week at each one's decision time`;

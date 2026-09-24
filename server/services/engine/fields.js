@@ -8,7 +8,8 @@
  * migration of the field, never a silent takeover), and the table's trigger refuses it too.
  *
  * `recordRun` appends one engine_runs row per finished producer run (its input cut is the
- * lineage of the rows it wrote); `setFallback` is the monitor's writer of engine_fallback.
+ * lineage of the rows it wrote); `setFallback` / `clearFallback` are the monitor's writers
+ * of engine_fallback (producers/monitor.js).
  * Both are role-guarded like every engine write.
  *
  * Readers (any process, the web included): `readFieldSpec`, `readFallback`, `freshAt`.
@@ -128,4 +129,11 @@ export function setFallback({ field, leagueId = 0, fallbackField, reason, n = nu
       ON CONFLICT (field, league_id) DO UPDATE SET fallback_field = excluded.fallback_field, since = excluded.since,
         reason = excluded.reason, n = excluded.n`)
     .run(field, Number(leagueId ?? 0), fallbackField, new Date(since).toISOString(), reason, n);
+}
+
+/** Take a field off its fallback for one league (0 = every league). Returns true when a row was removed. */
+export function clearFallback({ field, leagueId = 0 }, database) {
+  assertWriteRole('clearFallback');
+  if (!field) throw new Error('clearFallback needs field');
+  return database.prepare('DELETE FROM engine_fallback WHERE field = ? AND league_id = ?').run(field, Number(leagueId ?? 0)).changes > 0;
 }

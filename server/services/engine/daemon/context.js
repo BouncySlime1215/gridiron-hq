@@ -21,6 +21,9 @@
  *                   owner's versions from engine_producers (status, registered_at,
  *                   training_window). It is the one read that is not an as-of read: the
  *                   grader applies each row's own decision-time cut itself.
+ *   ctx.monitor     for a producer declaring `inputs.monitor: true` only (the monitor,
+ *                   §7.4): every field's health, freshness and the fallback table
+ *                   (daemon/monitor-access.js); absent for every other producer
  *   ctx.write(writer, {entityType, entityId, field, value | absence, reasonChain, eventIds,
  *                      stateIds, leagueId})
  *                   writeState with as_of, version, run_id and inputs_health bound here
@@ -31,6 +34,7 @@ import { getEvents } from '../events.js';
 import { getState, writeState } from '../state.js';
 import { producerSpec, fieldSpec } from '../registry.js';
 import { worstHealth } from '../health.js';
+import { makeMonitorAccess } from './monitor-access.js';
 
 const parseRow = r => ({
   ...r, id: Number(r.id), value: r.value == null ? null : JSON.parse(r.value), reason_chain: JSON.parse(r.reason_chain),
@@ -104,5 +108,6 @@ export function makeContext({ database, producer, version, lane, tick, cut, leag
     return r;
   }
 
-  return { ctx: { tick, version, lane, league, cut, fit, read, write }, counts };
+  const monitor = producer.inputs?.monitor === true ? makeMonitorAccess({ database, tick, cut }) : undefined;
+  return { ctx: { tick, version, lane, league, cut, fit, read, write, monitor }, counts };
 }

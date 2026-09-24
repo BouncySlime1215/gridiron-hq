@@ -63,6 +63,7 @@ export const ENTITY_KEYS = Object.freeze({
   hypothesis: k(HEX),
   producer: k('[a-z0-9][a-z0-9_.-]*@[A-Za-z0-9_.-]+'),
   engine: k('(events|daemon|jev)'),
+  engine_field: k('[a-z0-9][a-z0-9_.-]*'),
 });
 
 export function isLeagueScoped(entityType) {

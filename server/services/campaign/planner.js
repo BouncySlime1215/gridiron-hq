@@ -77,21 +77,28 @@ function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta) {
  * settings: { objective, skips ({player, manager} Maps), previous (last entry or null), budget }
  */
 export function planLeague(adapter, settings) {
-  const t0 = adapter.now?.() ?? 0;
+  const clockNow = () => adapter.now?.() ?? 0;
+  const t0 = clockNow();
+  const phases = {};
+  let tp = t0;
+  const mark = name => { const t = clockNow(); phases[name] = t - tp; tp = t; };
   const { objective } = settings;
   const budget = { flipTopPer: 3, flipRealise: 6, targets: 3, ...(settings.budget ?? {}) };
   const L = adapter.league;
   const me = L.me;
   const W = adapter.world(adapter.seed);
   if (!W || W.fail) return { league: L.id, me, error: `world failed: ${W?.fail ?? 'no world'}` };
+  mark('world');
   const S = makeScorer(W, adapter);
   const base = S.rescore(new Map(), me);
   const now = { title: base.me.title_before, playoff: base.me.playoff_before, metric: metricOf(base.me, objective).before };
 
   const vals = playerValues(S, adapter, objective);
+  mark('values');
   const flip = flipMap(S, adapter, vals, { topPer: budget.flipTopPer, realise: budget.flipRealise,
     daysLeft: Number.isInteger(L.deadline_week) ? Math.max(1, (L.deadline_week - L.week) * 7) : 1 });
 
+  mark('flip');
   // Targets: the objective's player, Nick's "get" stops, then the biggest single-player upgrades.
   const skipP = settings.skips?.player ?? new Map();
   const upgrades = [...vals.addN.entries()].filter(([pid]) => !adapter.managers.get(vals.lossO.get(pid)?.team)?.blocked)
@@ -107,6 +114,7 @@ export function planLeague(adapter, settings) {
   for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target));
   const skipW = { player: settings.skips?.player ?? new Map(), manager: settings.skips?.manager ?? new Map() };
   plans = plans.map(p => ({ ...p, skip_weight: planSkipWeight(p, skipW) }));
+  mark('search');
 
   // Sliders and context per mode.
   const core = new Set([...vals.lossN.entries()].filter(([id]) => adapter.starters.has(id))
@@ -124,6 +132,7 @@ export function planLeague(adapter, settings) {
   let deck = deckOf(ranked, DECK_SIZE + 2);
   const cSeed = confirmSeed(adapter.seed, L.id, L.fetched_at ?? '');
   const W2 = adapter.world(cSeed);
+  mark('confirm_world');
   let confirm = { seed: cSeed, plan_seed: adapter.seed, status: 'failed', reason: 'confirm world failed' };
   if (W2 && !W2.fail) {
     const S2 = makeScorer(W2, adapter);
@@ -139,6 +148,7 @@ export function planLeague(adapter, settings) {
   } else {
     deck = deck.slice(0, DECK_SIZE);
   }
+  mark('confirm_rescore');
   const best = deck[0] ?? null;
   const backups = best ? backupBranches(best.planned_on ?? best, ranked) : [];
 
@@ -237,6 +247,7 @@ export function planLeague(adapter, settings) {
   ];
   const catchUp = orderCatchUp(items);
 
+  mark('playbook_and_reports');
   const edge = new Map();
   for (const p of ranked) { const t = String(p.steps[0].team); edge.set(t, Math.max(edge.get(t) ?? 0, p.expected)); }
   const partners = rankPartners(managers, edge);
@@ -249,6 +260,6 @@ export function planLeague(adapter, settings) {
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
     suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, outlook,
     risk_modes: compareModes(plans, ctxFor), catch_up: catchUp, partners,
-    rescores: S.count() + (confirm.rescores ?? 0), runtime_ms: (adapter.now?.() ?? 0) - t0,
+    rescores: S.count() + (confirm.rescores ?? 0), runtime_ms: clockNow() - t0, phases_ms: phases,
   };
 }

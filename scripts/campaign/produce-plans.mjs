@@ -94,6 +94,7 @@ async function main() {
   fs.mkdirSync(path.dirname(out), { recursive: true });
   const release = takeLock(out);
   if (!release) { console.log('warroom_plans skipped: another run holds the lock'); return; }
+  console.log(`warroom_plans started ${new Date().toISOString()} pid ${process.pid}`);
   try {
     const { loadServices, buildAdapter } = await import('./league-adapter.mjs');
     const { chatRowsFor } = await import('./chat-labels.mjs');
@@ -120,7 +121,9 @@ async function main() {
       const prev = previous.get(String(id)) ?? null;
       try {
         const chat = await chatRowsFor(id);
+        const ta = Date.now();
         const adapter = buildAdapter(svc, id, { chat: chat.rows, offerLog: offers.rows });
+        const adapterMs = Date.now() - ta;
         if (adapter.fail) throw new Error(`world failed: ${adapter.fail}`);
         const objective = normaliseObjective(objectives[String(id)] ?? {}, { leagueGoal: objectives[String(id)]?.goal ?? 'title' });
         const res = planLeague(adapter, { objective, skips: skipWeights(skips.rows, id), previous: prev,
@@ -130,6 +133,7 @@ async function main() {
         const changed = diffNextMove(prev, next);
         entry = toEntry(res, { names: adapter.names(), as_of: generated_at, previous: prev, changed });
         entry.roster_key = next.roster_key;
+        entry.phases_ms = { adapter_and_world: adapterMs, ...(entry.phases_ms ?? {}) };
         entry.inputs = { chat: { status: chat.status, reason: chat.reason ?? null, negotiation: chat.negotiation ?? null },
           skips: { status: skips.status, rows: skips.rows.filter(s => String(s.league) === String(id)).length, bad_lines: skips.bad },
           offers: { status: offers.status, bad_lines: offers.bad }, deadline: adapter.league.deadline_source,
@@ -144,7 +148,7 @@ async function main() {
       entry.runtime_ms = Date.now() - tl;
       if (entry.changed?.changed) pushes.push({ league: id, at: generated_at, reason: entry.changed.reason, next: entry.changed.next_key });
       entries.push(entry);
-      console.log(`[warroom] league ${id}: ${entry.error ? `FAILED ${entry.error}` : `ok, next ${entry.changed?.next_key}, changed ${entry.changed?.changed}`} (${Math.round(entry.runtime_ms / 1000)} s, ${entry.rescores ?? 0} rescores)`);
+      console.log(`[warroom] league ${id}: ${entry.error ? `FAILED ${entry.error}` : `ok, next ${entry.changed?.next_key}, changed ${entry.changed?.changed}`} (${Math.round(entry.runtime_ms / 1000)} s, ${entry.rescores ?? 0} rescores, phases ms ${JSON.stringify(entry.phases_ms ?? {})})`);
     }
     const attention = rankAttention(entries.map(e => ({ league: e.league, error: e.error ?? null,
       expected: e.acq?.best?.expected ?? 0, changed: !!e.changed?.changed,

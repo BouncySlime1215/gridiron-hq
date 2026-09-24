@@ -215,7 +215,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     objective: { ...o, tolerances: res.tolerances }, next_step: best ? best.steps[0] : null,
     objective_version: o.version, risk_mode: o.risk_mode, trajectory: prevTraj ?? trajectory,
     acq, flip: { pairs: res.flip.pairs, clears: res.flip.clears, top: res.flip.top, realised: res.flip.realised },
-    view, changed, rescores: res.rescores, runtime_ms: res.runtime_ms,
+    view, changed, rescores: res.rescores, runtime_ms: res.runtime_ms, phases_ms: res.phases_ms,
   };
 }
 

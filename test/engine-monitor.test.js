@@ -44,7 +44,9 @@ const producersMod = await import('../server/services/engine/producers/index.js'
 const graderMod = await import('../server/services/engine/producers/grader.js');
 const confseq = await optionalImport('../server/services/engine/stats/confseq.js');
 const monitorMod = await optionalImport('../server/services/engine/producers/monitor.js');
-const servedMod = await optionalImport('../server/services/engine/served.js');
+// FIX-281-2: the served read is the one fallback reader, engine/views.js#readServed (#257/#250);
+// served.js is folded into it and deleted.
+const servedMod = await optionalImport('../server/services/engine/views.js');
 const need = (mod, name) => assert.ok(mod, `${name} does not exist: the drift monitor is not built`);
 
 /* ------------------------------------------------------------------ helpers */
@@ -304,7 +306,7 @@ test('M1: a healthy tick writes a monitor row per field and no fallback', () => 
 
 test('3: on drift the served value is the fallback field, labelled, and its chain names the monitor; the card gets a HEALTH-01 row', () => {
   need(monitorMod, 'producers/monitor.js');
-  need(servedMod, 'served.js');
+  need(servedMod, 'views.js');
   const weeks = Array.from({ length: 4 }, (_, i) => wk(i + 1, 0.5, { sd: 0.3 }));
   monitorTick('2026-09-20T12:20:00.000Z', gradeRow(weeks, 'mtest.range', 'mtest.base'));
   const m = monitorRow('mtest.range');
@@ -347,7 +349,7 @@ test('S: a fallback field with no row for the entity serves the last healthy sna
 });
 
 test('W: GET /api/engine/state serves the snapshot fallback, labelled; not before the flip', async () => {
-  need(servedMod, 'served.js');
+  need(servedMod, 'views.js');
   const { default: express } = await import('express');
   const { default: engineRouter } = await import('../server/routes/engine.js');
   const app = express();
@@ -363,6 +365,8 @@ test('W: GET /api/engine/state serves the snapshot fallback, labelled; not befor
     assert.equal(r.fallback.kind, 'snapshot');
     assert.match(r.reason, /last healthy snapshot/);
     assert.equal(r.state.reason_chain.contributions[0].source, 'health_monitor');
+    assert.match(r.state.reason_chain.contributions[0].text, /^fell back: /);
+    assert.equal(r.fallback_used, true);
     // before the flip (12:40) the field is not on its fallback: the row then is served as it was
     const before = await get(`entity=player_week_scored:${SCORED(9402)}&field=mtest.solo&as_of=2026-09-20T12:35:00Z`);
     assert.notEqual(before.status, 'fallback');
@@ -372,6 +376,25 @@ test('W: GET /api/engine/state serves the snapshot fallback, labelled; not befor
   } finally {
     server.close();
   }
+});
+
+test('FIX-281-2: one fallback reader: served.js is gone, the route reads views.js#readServed only', async () => {
+  const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+  assert.equal(fs.existsSync(path.join(root, 'server/services/engine/served.js')), false, 'served.js is still a second reader');
+  const route = fs.readFileSync(path.join(root, 'server/routes/engine.js'), 'utf8');
+  assert.doesNotMatch(route, /engine\/served\.js/);
+  assert.match(route, /import\s*\{[^}]*\breadServed\b[^}]*\}\s*from\s*'[^']*engine\/views\.js'/);
+  // The snapshot read uses the same monitor rule: with the fallback in the snapshot's fallback_set and
+  // no fallback-field row, the view serves the field as of the last healthy snapshot, labelled.
+  const snap = publishSnapshot({ leagueId: 0, versionSet: { mtest: 'v1' }, now: '2026-09-20T13:05:00.000Z' }, db);
+  const s = servedMod.snapshotById(snap, db);
+  assert.equal(s.fallback_set['mtest.solo'], 'mtest.none', 'fixture: the snapshot recorded the fallback in force');
+  const v = servedMod.resolveRow({ entityType: 'player_week_scored', entityId: SCORED(9402), field: 'mtest.solo' }, s, null, db);
+  assert.equal(v.status, 'fallback', JSON.stringify(v));
+  assert.deepEqual(v.value, dist(7));
+  assert.equal(v.fallback_used, true);
+  assert.equal(v.reason_chain.contributions[0].source, 'health_monitor');
+  assert.match(v.reason, /last healthy snapshot/);
 });
 
 test('F: a field older than its max age is stale: a warn row on the card, no fallback', () => {
@@ -393,7 +416,7 @@ test('F: a field older than its max age is stale: a warn row on the card, no fal
 
 test('R: recovery clears the fallback and the card row, only after a fresh window', () => {
   need(monitorMod, 'producers/monitor.js');
-  need(servedMod, 'served.js');
+  need(servedMod, 'views.js');
   const bad = Array.from({ length: 4 }, (_, i) => wk(i + 1, 0.5, { sd: 0.3 }));
   const good = [5, 6, 7, 8].map(i => wk(i, -0.5, { sd: 0.3 }));
   monitorTick('2026-09-20T14:20:00.000Z', gradeRow([...bad, ...good.slice(0, 3)], 'mtest.range', 'mtest.base'));
@@ -410,7 +433,7 @@ test('R: recovery clears the fallback and the card row, only after a fresh windo
 
 test('X: a field whose latest row failed its checks is broken on the card; the last good row is still served', () => {
   need(monitorMod, 'producers/monitor.js');
-  need(servedMod, 'served.js');
+  need(servedMod, 'views.js');
   const P = registry.registerProducer({ name: 'mtest-prob', active: 'p1', versions: { p1: {} },
     fields: [{ field: 'mtest.p', valueType: 'prob', entityTypes: ['player'], checks: ['prob_unit'], description: 'fixture' }],
     inputs: { scope: 'global' } });

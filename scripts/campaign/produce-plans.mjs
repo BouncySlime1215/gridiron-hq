@@ -25,8 +25,20 @@
  * appends one push row. --no-finder skips the Trade Lab finder baseline
  * (`finder_best_expected` is then unknown with that reason).
  *
+ * ONE-PLANNER: this is the only planner and plans.json its only output.
+ *   - ACQ-01's 2-for-1 / 1-for-2 search (PR #267) runs inside the path search
+ *     (server/services/campaign/search.js#searchTarget) behind GRIDIRON_TWO_FOR_ONE
+ *     (default off; on under preview-mode.js#previewUnconfirmed). Its counts and the
+ *     IDEA-038 comparison go to `_run.inputs.two_for_one`. There is no acq-plans.json.
+ *   - FLIP-01's nightly / on-news schedule (PR #265) is `--tick`: it re-runs this
+ *     producer when plans.json is a day old, or when news about a rostered player
+ *     landed since the last run (at most one news run an hour). The flip map it
+ *     refreshes is plans.json's `flip_map`; there is no second flip output.
+ *   - Nick's unreachable managers (FIX-02c nick block) are never a step, flip leg or
+ *     target owner (search.js, partners.js#excluded).
+ *
  * Usage:
- *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3] [--no-finder]
+ *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3] [--no-finder] [--tick]
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -39,12 +51,52 @@ import { diffNextMove } from '../../server/services/campaign/replan.js';
 import { rankAttention } from '../../server/services/campaign/attention.js';
 import { toEntry, failedEntry, plansFile } from '../../server/services/campaign/view.js';
 import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
+import { previewUnconfirmed } from '../../server/services/preview-mode.js';
+import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
 
 process.env.SCHEDULER_DISABLED = '1';
 
 /** The plans file: warroom-flag.js is the one reader of its path variable. */
 export const plansPath = () => path.resolve(warRoomPlansPath());
 const sibling = (env, key, name) => path.resolve(env[key] || path.join(path.dirname(plansPath()), name));
+
+/** The flag for the 2-for-1 search: 'on' (GRIDIRON_TWO_FOR_ONE=1), 'preview' (on only via preview mode) or 'off'. */
+export const TWO_FOR_ONE_ENV = 'GRIDIRON_TWO_FOR_ONE';
+export function twoForOneFlag(env = process.env) {
+  if (env[TWO_FOR_ONE_ENV] === '1') return 'on';
+  return previewUnconfirmed() ? 'preview' : 'off';
+}
+
+/* FLIP-01's schedule, as this producer's runner (moved in from PR #265 flip-radar.js#decideRun). */
+export const NIGHTLY_MINUTES = 24 * 60;
+/** Two news runs are at least this far apart, so a burst of news costs one run. */
+export const NEWS_GAP_MINUTES = 60;
+
+/** Whether a --tick runs now. Pure. lastAt: the previous plans file's generated_at. */
+export function decideRun({ lastAt, now = Date.now(), newsHits = 0, force = false }) {
+  if (force) return { run: true, trigger: 'manual' };
+  const ageMin = lastAt ? (now - Date.parse(lastAt)) / 60_000 : Infinity;
+  if (!(ageMin < NIGHTLY_MINUTES)) return { run: true, trigger: 'nightly' };
+  if (newsHits > 0 && ageMin >= NEWS_GAP_MINUTES) return { run: true, trigger: 'news' };
+  return { run: false, reason: newsHits > 0 ? 'news seen, inside the news gap' : 'fresh, no news since' };
+}
+
+/** News rows newer than `since` about a player rostered in any of `leagueIds` (count only). */
+export function newsHitsSince(db, leagueIds, since, normalise) {
+  const names = new Set();
+  for (const id of leagueIds) {
+    const lg = db.row('SELECT payload FROM leagues WHERE id = ?', id);
+    let p = lg?.payload;
+    if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) { if (e instanceof SyntaxError) continue; throw e; } }
+    for (const t of p?.teams ?? []) for (const e of t.roster?.entries ?? []) {
+      const n = normalise(e.playerPoolEntry?.player?.fullName);
+      if (n) names.add(n);
+    }
+  }
+  if (!names.size) return 0;
+  return db.rows(`SELECT player_name FROM nfl_news_signals WHERE created_at > datetime(?)`, since ?? '1970-01-01T00:00:00Z')
+    .filter(r => names.has(normalise(r.player_name))).length;
+}
 
 /** JSONL reader: absent file -> []; a bad line is counted and reported, never silently dropped. */
 export function readJsonl(file) {
@@ -77,12 +129,13 @@ function readPrevious(file) {
 }
 
 function args(argv) {
-  const out = { leagues: null, flipTop: 3, targets: 3, finder: true };
+  const out = { leagues: null, flipTop: 3, targets: 3, finder: true, tick: false };
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === '--leagues') out.leagues = argv[++i].split(',').map(Number);
     else if (argv[i] === '--flip-top') out.flipTop = Number(argv[++i]);
     else if (argv[i] === '--targets') out.targets = Number(argv[++i]);
     else if (argv[i] === '--no-finder') out.finder = false;
+    else if (argv[i] === '--tick') out.tick = true;
   }
   return out;
 }
@@ -116,7 +169,7 @@ function takeLock(file) {
  */
 export async function buildPlansFile(leagues, {
   generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, log = () => {},
-  flags = null,
+  flags = null, twoForOne = 'off', trigger = null,
 } = {}) {
   const entries = [], best = new Map();
   for (const { id, load } of leagues) {
@@ -126,6 +179,11 @@ export async function buildPlansFile(leagues, {
     try {
       const { adapter, chat = null, adapterMs = 0 } = await load();
       if (adapter.fail) throw new Error(`world failed: ${adapter.fail}`);
+      // ONE-PLANNER: the 2-for-1 search runs inside searchTarget; its counts come back on this sink.
+      if (twoForOne !== 'off') {
+        adapter.searchOpts = { ...(adapter.searchOpts ?? {}), twoForOne: true };
+        adapter.searchStats = newSearchStats(true);
+      }
       const raw = objectives[String(id)] ?? {};
       const objective = normaliseObjective(raw, { leagueGoal: raw.goal ?? 'title' });
       res = planLeague(adapter, { objective, skips: skipWeights(skips, id), budget });
@@ -144,6 +202,9 @@ export async function buildPlansFile(leagues, {
           skips: { ...(inputs.skips ?? { status: 'none' }), rows: skips.filter(s => String(s.league) === String(id)).length },
           offers: inputs.offers ?? { status: 'none' },
           deadline: adapter.league?.deadline_source ?? null, objective: objective.source,
+          // Off and untriggered, the entry is byte-for-byte the incumbent's (the committed contract fixture).
+          ...(trigger ? { trigger } : {}),
+          ...(twoForOne !== 'off' ? { two_for_one: { flag: twoForOne, ...twoForOneSummary(adapter.searchStats) } } : {}),
         };
       }
       const v = validateLeague(entry);
@@ -189,9 +250,23 @@ async function main() {
   fs.mkdirSync(path.dirname(out), { recursive: true });
   const release = takeLock(out);
   if (!release) { console.log('warroom_plans skipped: another run holds the lock'); return; }
-  console.log(`warroom_plans started ${new Date().toISOString()} pid ${process.pid}`);
   try {
     const { loadServices, buildAdapter } = await import('./league-adapter.mjs');
+    const svc = await loadServices();
+    const leagueIds = svc.db.rows('SELECT id FROM leagues ORDER BY id').map(r => r.id)
+      .filter(id => !opts.leagues || opts.leagues.includes(id));
+    let trigger = 'manual';
+    if (opts.tick) {
+      let lastAt = null;
+      try { lastAt = fs.existsSync(out) ? JSON.parse(fs.readFileSync(out, 'utf8')).generated_at ?? null : null; } catch { lastAt = null; }
+      const { normalizePlayerName } = await import('../../server/services/player-identity.js');
+      const newsHits = lastAt ? newsHitsSince(svc.db, leagueIds, lastAt, normalizePlayerName) : 0;
+      const d = decideRun({ lastAt, newsHits });
+      if (!d.run) { console.log(`warroom_plans skipped: ${d.reason}`); return; }
+      trigger = d.trigger;
+    }
+    const twoForOne = twoForOneFlag(env);
+    console.log(`warroom_plans started ${new Date().toISOString()} pid ${process.pid} trigger ${trigger} two_for_one ${twoForOne}`);
     const { chatRowsFor } = await import('./chat-labels.mjs');
     const { modelFlags } = await import('../../server/services/campaign/model-flags.js');
     const flags = await modelFlags();
@@ -201,9 +276,7 @@ async function main() {
     const skips = readJsonl(sibling(env, 'GRIDIRON_WARROOM_SKIPS', 'skips.jsonl'));
     const offers = readJsonl(sibling(env, 'GRIDIRON_WARROOM_OFFERS', 'offers.jsonl'));
     const previous = readPrevious(out);
-    const svc = await loadServices();
-    const leagues = svc.db.rows('SELECT id FROM leagues ORDER BY id').map(r => r.id)
-      .filter(id => !opts.leagues || opts.leagues.includes(id))
+    const leagues = leagueIds
       .map(id => ({ id, load: async () => {
         const chat = await chatRowsFor(id);
         const ta = Date.now();
@@ -215,7 +288,7 @@ async function main() {
     // Checked with validatePlans inside; a file that fails throws here and the previous file stays.
     const file = await buildPlansFile(leagues, { generated_at, objectives, skips: skips.rows, previous,
       inputs: { skips: { status: skips.status, bad_lines: skips.bad }, offers: { status: offers.status, bad_lines: offers.bad } },
-      budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags,
+      budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags, twoForOne, trigger,
       log: line => (line.includes('FAILED') || line.includes('\n') ? console.error(line) : console.log(line)) });
     const tmp = `${out}.tmp-${process.pid}`;
     fs.writeFileSync(tmp, JSON.stringify(file));

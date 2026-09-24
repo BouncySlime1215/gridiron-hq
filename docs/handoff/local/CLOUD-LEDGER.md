@@ -42,3 +42,4 @@ Running est total: $0 (updated as agents finish). Nick can check the real balanc
 | 09/23 10:22 PM | CHESS-01a | CLOUD (other acct) https://claude.ai/code/session_01R3Wiw9APkszqNQMVw869oR | running | | |
 | 09/23 10:23 PM | M5-BANDIT | CLOUD (other acct) https://claude.ai/code/session_012shogkouk3AKFFQswESymg | running | | |
 | 09/23 10:24 PM | REP-01 | CLOUD (other acct)  | running | | |
+- 9/23 ~10:45 PM launched: COUNTERPART-01, FIX-00, FIX-01, FIX-09, FIX-10, EA-07, FLIP-01, ACQ-01, UI-ENG-4, TELLS-01b, REASON-02 (11 sessions; urls in /tmp/claude-501/cloud-batch.out). Local: merge train agent, R&D r24 (IDEA-151/146), r23 verifier, PEOPLE-02+SHOT-01 builder.

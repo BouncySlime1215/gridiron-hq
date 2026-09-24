@@ -22,6 +22,7 @@ import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct } from './wait-or-act.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan } from './search.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
+import { pYesFlag, pYesTableFor, withPYes, pYesSummary } from '../people/p-yes.js';
 
 export const DECK_SIZE = 5;
 /** P(accept) curve window on his screen, wider than the finder's so the curve has a shape. */
@@ -81,6 +82,14 @@ export function planLeague(adapter, settings) {
   // COUNTERPART-01 (flag GRIDIRON_COUNTERPART, set by the producer): absent -> today's plan, unchanged.
   const CP = adapter.counterparts ?? null;
   if (CP) adapter = withCounterparts(adapter, CP);
+  // PYES-BASELINE (flag GRIDIRON_PYES_BASELINE): every P(yes) the search, flip legs, price
+  // curve and itinerary read comes from people/p-yes.js; the clone band rides along as the
+  // shadow challenger. settings.pYes = { flag, table, challengerPassing } overrides (tests).
+  const pyFlag = settings.pYes?.flag ?? pYesFlag();
+  const pyTable = pyFlag.on ? (settings.pYes?.table ?? pYesTableFor(adapter.league.id)) : null;
+  const pyPassing = !!settings.pYes?.challengerPassing;
+  const PY = withPYes(adapter, pyTable, { on: pyFlag.on, challengerPassing: pyPassing });
+  adapter = PY.adapter;
   const clockNow = () => adapter.now?.() ?? 0;
   const t0 = clockNow();
   const phases = {};
@@ -268,8 +277,11 @@ export function planLeague(adapter, settings) {
   // Every counterpart adjustment on a written step is named in its reason chain.
   const pub = p => {
     const out = publicPlan(p);
-    if (!CP || !out) return out;
-    return { ...out, steps: out.steps.map(s => ({ ...s, reason_chain: adapter.priceStep(s.team, s.get, s.give).features })) };
+    if (!out || (!CP && !PY.on)) return out;
+    return { ...out, steps: out.steps.map(s => ({ ...s,
+      ...(CP ? { reason_chain: adapter.priceStep(s.team, s.get, s.give).features } : {}),
+      // The clone band, logged beside the served number and graded by E1; never served.
+      ...(PY.on ? { p_yes_challenger: PY.shadow(s.team, s.get, s.give) } : {}) })) };
   };
   // The Trade Lab finder's best single offer on the same league, and the composed-rescore probe:
   // both optional adapter hooks (the real adapter runs the served finder; a fixture may not).
@@ -288,6 +300,7 @@ export function planLeague(adapter, settings) {
     suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, outlook,
     risk_modes: compareModes(plans, ctxFor), catch_up: catchUp, partners,
     ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
+    ...(pyFlag.on ? { p_yes: pYesSummary(pyFlag, pyTable, PY, { challengerPassing: pyPassing }) } : {}),
     rescores: S.count() + (confirm.rescores ?? 0), runtime_ms: clockNow() - t0, phases_ms: phases,
   };
 }

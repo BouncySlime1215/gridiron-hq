@@ -17,7 +17,7 @@
  * must be able to break a tie, never to overturn a valuation. The caps below
  * are the contract that keeps a chatty manager from dominating the ranking.
  */
-import { rows } from '../db/index.js';
+import { rows, db } from '../db/index.js';
 import { managerSignalsFor, openChatDb, chatDataKey, transactionsCollected, archetypesBuilt, jevEvaluated }
   from './manager-signals.js';
 import { identityMap } from './manager-identity.js';
@@ -26,6 +26,7 @@ import { talkReads, expectationGaps, rosterOwnership, HOT_GAP_PER_GAME } from '.
 import { declarationCredibility, untouchableStance } from './bluff-detector.js';
 import { analyzeLeague } from '../routes/tradelab.js';
 import { previewUnconfirmed, previewFields, previewText } from './preview-mode.js';
+import { pYesFlag, pYesTable, registerPYesTable } from './people/p-yes.js';
 
 /**
  * RL-19-1: default-off preview of the r19-measured `positional_need` cap.
@@ -307,6 +308,14 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
   const activityPreview = activity == null && process.env[ACTIVITY_FLAG] !== '1' && previewUnconfirmed();
   const activityOn = activity ?? (process.env[ACTIVITY_FLAG] === '1' || activityPreview);
   const signals = managerSignalsFor(leagueId);
+  // PYES-BASELINE (flag GRIDIRON_PYES_BASELINE): the served P(yes) table for this league,
+  // built from the decided offers once per layer read and handed to people/p-yes.js,
+  // the one producer of p_yes. A failed read registers the failure, never a number.
+  if (pYesFlag().on) {
+    try { registerPYesTable(leagueId, pYesTable(db, leagueId)); } catch (e) {
+      registerPYesTable(leagueId, { error: `decided offers could not be read: ${e.message ?? e}` });
+    }
+  }
   // One block per league, shared by every manager entry and frozen for that
   // reason. `luck_self_view` is priced off this store, so its age travels with
   // the reading rather than being left for a page to guess at.

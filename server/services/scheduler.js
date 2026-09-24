@@ -1244,6 +1244,12 @@ async function refreshStartSitGate() {
   return run();
 }
 
+/** PROJ-04-a Monday Autopsy: split last week's misses into links for the autopsy league. */
+async function refreshMondayAutopsy() {
+  const { refreshMondayAutopsy: run } = await import('./monday-autopsy.js');
+  return run();
+}
+
 export const JOBS = {
   player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60, tier: 'live', offThread: true,
     label: 'Player team assignments — the actual fix for stale roster spots' },
@@ -1653,7 +1659,11 @@ export const JOBS = {
   // ~23 (docs/tdd/2026-09-22-start-sit-baseline-gate.tdd.md); the budget is ~11x that.
   start_sit_gate: { run: refreshStartSitGate, maxAgeMinutes: 7 * 24 * 60, tier: 'growth', offThread: true,
     timeoutMs: 10 * 60_000,
-    label: 'Start/sit gate: our projection vs ESPN\'s projection (the plan\'s rule), with "start the higher season average" as a floor check (plan item C12)' }
+    label: 'Start/sit gate: our projection vs ESPN\'s projection (the plan\'s rule), with "start the higher season average" as a floor check (plan item C12)' },
+  // Daily; writes a week once its box scores are in (after Monday night) and never recomputes it.
+  monday_autopsy: { run: refreshMondayAutopsy, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
+    timeoutMs: 10 * 60_000,
+    label: 'Monday Autopsy: last week\'s projection misses split into links, start/sit calls graded decision vs luck (PROJ-04-a)' }
 };
 
 /** Runs one job if it is older than its threshold. `force` ignores the age. */

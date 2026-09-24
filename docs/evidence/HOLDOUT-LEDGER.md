@@ -374,6 +374,16 @@ were added in HX-01's round 3. The ids collide with the unmerged S-03 and BLEND-
 | F020 | 2026-09-23 | PROJ-02-a | fantasy | other | Chain team plays (neutral shrunk pace x gameScriptFor script) beat main's neutral shrunk pace (teamVolume) on 2026 week 2 | plays per team-game MAE, chain − neutral pace, 32 team-weeks | chain ahead (one week) | -0.2284 |  |  |  |  | - | no (2023/2024 vs neutral pace: +0.1065 / -0.0214, pooled CI straddles 0); reverses F016's ship | `docs/evidence/2026-09-23/proj-02-a-sharp-chain-output.json` `forward.plays_neutral` | skeptic round 1: the season average was a straw-man incumbent; one week, anecdote |
 | F021 | 2026-09-23 | PROJ-02-a | fantasy | other | Chain pass rate (scripted) beats main's neutral pace ratio on 2026 week 2 | pass-rate MAE, chain − neutral ratio, 32 team-weeks | neutral ahead (one week) | +0.0018 |  |  |  |  | + | no (2023/2024 vs neutral: +0.0001 / -0.0017, CI straddles 0; forward opposite sign); reverses F017's ship | same file, `forward.pass_rate_neutral` | skeptic round 1; one week, anecdote |
 
+## 2023-2024 held-out looks (2025 not opened)
+
+Pre-registered tests graded on 2023 and 2024 that never read 2025. They do not spend
+2025 and are not in the BH family (which reads only `L` rows); they are listed so a
+2023-24 holdout that has been looked at is visible. Ids are `H` + three digits.
+
+| id | date | unit/PR | domain | family | hypothesis | metric | result | est | lo | hi | level | p (source) | better | shipped | file:line | note |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| H001 | 2026-09-24 | LIVING-01b PRE, #261 (FIX-261-2) | fantasy | other | From week 7, the living sim (engagement chain, claims, lineup errors; team-level replay, fit Sleeper 2021-22) beats the frozen sim on log score of real playoff and title outcomes, 2023 and 2024 separately | per-team log-score delta, living - frozen; league bootstrap | PASSED all four: playoff 2023 / 2024, title 2023 / 2024 lower bounds > 0 | +0.00745 | +0.00483 | +0.01009 | 90 |  | + | no (flag off: hard gate CE-03 and PROJ-03-c) | `docs/evidence/2026-09-24/living-01b-pre-results.md` | est/lo/hi = the weakest of the four (2024 title); a disclosed R=50 smoke run looked first; team-level, not the player-level sim |
+
 ## File classification: every file the census returns
 
 | file | class | rows | why |

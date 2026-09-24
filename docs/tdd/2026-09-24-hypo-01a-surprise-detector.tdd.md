@@ -134,3 +134,33 @@ baseline. Windows open only where a decision starts.
 | M15 | `DECISION_GAP_MINUTES` 60 -> 0 | killed (2 tests) |
 | M16 | windows open at every move | survived first, then killed by the mid-decision test |
 | M14 | baseline counted in moves (re-run on v3) | killed |
+
+## Sweep fixes (2026-09-24): FIX-277-1 to FIX-277-4
+
+- **FIX-277-1** (migration number): already `095_surprise_hypotheses` at `aec1fe3d`, the
+  number MIGRATIONS.md registers to #277; main has no 095. Name, file, tests and this
+  file already say 095. No change.
+- **Pre-registration** `2d8bd1d`: `docs/evidence/2026-09-24/hypo-01a-threshold-prereg.md`
+  (sha256 `837525e0…`), committed before the calibration code and before any run.
+- **RED** `ce20f29`: `test/hypo-surprise-streams.test.js` fails to load
+  (`ERR_MODULE_NOT_FOUND: server/services/hypo/projection-stream.js`); the existing
+  fixture's app offers are now marked sent, and `test/hypo-surprise.test.js` alone
+  passes 15 of 15 on the old code.
+- **GREEN** `21e0e33`: both files, 24 of 24 pass.
+
+| Mutant | Result |
+|---|---|
+| M17 offer SQL reads unsent app rows | survived: equivalent. `mergeOffers` (e1-league.js) excludes an unsent app row on its own, so the SQL filter is a second guard with the same behaviour |
+| M18 a chain of flagged windows is not split | killed (2 fail) |
+| M19 accept cut loosened to 0.3 | killed (2 fail) |
+| M20 projection_miss flags every unit | killed (1 fail) |
+| M21 one-sided tail probability | killed (1 fail) |
+| M22 projection scope drops the roster join key | killed (1 fail) |
+| M23 walk-forward history never grows | killed (1 fail) |
+| M24 walk-forward threshold ignored | killed (1 fail) |
+| M25 no minimum history | killed (1 fail) |
+
+Command: `SCHEDULER_DISABLED=1 NODE_OPTIONS='--import ./test/offline-guard.mjs' node --experimental-test-module-mocks --test test/hypo-surprise-streams.test.js test/hypo-surprise.test.js`
+
+Not built: FIX-277-4's second stream (a PROJ-04 autopsy row's knowable miss) needs #251's
+`projection_autopsy` table, which is not on main.

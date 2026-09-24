@@ -724,7 +724,7 @@ const parseSide = json => {
  */
 export function refreshCloneFits(leagueId, season) {
   if (!tableExists('manager_clone_fits')) {
-    return { state: 'table_absent', managers: 0, reason: 'manager_clone_fits does not exist — migration 086 has not run here' };
+    return { state: 'table_absent', managers: 0, reason: 'manager_clone_fits does not exist — migration 096 has not run here' };
   }
   if (!hasSentColumns()) {
     return { state: 'table_absent', managers: 0, reason: 'trade_outcomes.sent_at does not exist — migration 080 has not run here' };

@@ -15,7 +15,7 @@
  *  B4 vetoVotesRequired null gives an inert veto factor with a reason.
  *  B5 flag: off by default, on by GRIDIRON_CLONE_V2=1 or preview mode (labelled).
  *  B6 refreshCloneFits: settled sent offers -> manager_clone_fits, idempotent.
- *  B7 migration 086: manager_clone_fits + trade_outcomes.pitch_json, additive.
+ *  B7 migration 096: manager_clone_fits + trade_outcomes.pitch_json, additive.
  *  B8 an activity term already applied in receptiveness is not counted again.
  *  B9 the follow-up: the cheapest package above a decline's price bound.
  *
@@ -173,7 +173,7 @@ test('B5 flag: off by default; site flag or preview turns it on, preview labelle
 
 /* ------------------------------------------------------------------- B7 */
 
-test('B7 migration 086: manager_clone_fits and trade_outcomes.pitch_json exist', () => {
+test('B7 migration 096: manager_clone_fits and trade_outcomes.pitch_json exist', () => {
   const cols = rows('PRAGMA table_info(manager_clone_fits)').map(c => c.name);
   for (const c of ['league_id', 'season', 'roster_id', 'coef_json', 'n', 'k', 'fit_stamp']) assert.ok(cols.includes(c), c);
   assert.ok(rows('PRAGMA table_info(trade_outcomes)').some(c => c.name === 'pitch_json'));

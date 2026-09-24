@@ -48,7 +48,7 @@ before and returns the same bytes.
 | B5 | off by default; site flag on (not preview, even with preview set); preview alone on + labelled |
 | B6 | refresh writes only decided sent replies (expired / pending left out), idempotent |
 | B6b | `settleOfferLoop` returns `clones` |
-| B7 | migration 086 columns exist |
+| B7 | migration 096 columns exist |
 | B8 / B8b | activity not double counted; motive capped, null state inert with its reason |
 | B9 | cheapest package strictly above the bound |
 | B10 | call site: context null when off; each deal reads its own partner's fit; veto from climate |

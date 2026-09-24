@@ -1,4 +1,4 @@
-export const name = '086_manager_clone_fits';
+export const name = '096_manager_clone_fits';
 /**
  * CLONE-01b b2, manager clones: one table and one column, additive only.
  *
@@ -14,7 +14,7 @@ export const name = '086_manager_clone_fits';
  *                        2-for-1 vs 1-for-1, lead need). b1 (migration 080)
  *                        left it out so that this ADD COLUMN would not collide.
  *
- * Spec numbered this 078; 086 is the next free number at build time.
+ * Spec numbered this 078, then 086; 096 per the MIGRATIONS.md registry.
  */
 const cols = (db, t) => db.prepare(`PRAGMA table_info(${t})`).all().map(c => c.name);
 

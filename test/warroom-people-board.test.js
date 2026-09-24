@@ -121,7 +121,9 @@ test('one tile per league-mate: partners joined to clone rows, Nick left out', (
   const tiles = peopleTiles(view(), clones());
   assert.deepEqual(tiles.map(t => t.team).sort(), ['1', '2', '4', '5', '6']);
   assert.ok(!tiles.some(t => t.team === ME));
-  for (const t of tiles) assert.equal(t.label, `Team ${t.team}`);
+  for (const t of tiles) assert.equal(t.label, `Team ${t.team}`);  // Even if a read carries Nick's own roster, he gets no tile.
+  const withMe = { ...PARTNERS, value: [...PARTNERS.value, { team: ME, p_responds: 1, basis: 'x', edge: edge(0), checked_out: false, blocked: false }] };
+  assert.ok(!peopleTiles(view(withMe), clones()).some(t => t.team === ME));
 });
 
 test('order: live tiles in the producer partner order first, greyed tiles last', () => {

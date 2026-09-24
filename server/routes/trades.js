@@ -49,7 +49,7 @@ import { tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
 import { marketForPlayer } from '../services/trade-market.js';
 import { playerHype } from '../services/hype.js';
 import { warRoomView } from '../services/war-room-view.js';
-import { warRoomFlag } from '../services/warroom-flag.js';
+import { warRoomFlag, peopleBoardFlag } from '../services/warroom-flag.js';
 import { warRoomClones } from '../services/warroom-clones.js';
 import {
   proposeVerifyRetryTrade, judgeTradeVerdict, tradeChallengeText, SENSE_CHECK_SIM_RUNS
@@ -674,13 +674,15 @@ r.get('/:leagueId/war-room', async (req, res, next) => {
 /**
  * UI-ENG-4: the War Room clone panel, one row per league-mate (profile labels, P(accept)
  * band, top reasons, wants, credibility of his shop talk). Same flag and membership
- * check as the War Room; labels only, no chat text.
+ * check as the War Room; labels only, no chat text. `people_board` is the People Board
+ * rail's switch (warroom-flag.js#peopleBoardFlag).
  */
 r.get('/:leagueId/war-room/clones', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
     if (!warRoomFlag().enabled) { res.json({ enabled: false }); return; }
-    res.json(warRoomClones(lg.id));
+    // PEOPLE-BOARD: the rail reads these rows too, so its switch rides on this response.
+    res.json({ ...warRoomClones(lg.id), people_board: peopleBoardFlag() });
   } catch (e) { next(e); }
 });
 

@@ -83,9 +83,13 @@ function Row({ c, big }: { c: CloneRow; big: boolean }) {
   );
 }
 
-export default function CloneBoard({ view, big }: { view: ClonesView | null | undefined; big: boolean }) {
+/** `focus`: one manager's row only (a People Board tap); `onAllManagers` clears it. */
+export default function CloneBoard({ view, big, focus, onAllManagers }: {
+  view: ClonesView | null | undefined; big: boolean; focus?: string | null; onAllManagers?: () => void;
+}) {
   const field = view?.clones;
-  const list = field?.status === 'ok' && field.value ? field.value : [];
+  const all = field?.status === 'ok' && field.value ? field.value : [];
+  const list = focus ? all.filter(c => c.team === focus) : all;
   const pg = usePager(list.length, big ? 4 : 2);
   const outer = useContext(SourcesContext);
   if (!view) return <div className="wr-state" role="status" data-state="unknown">Clone reads loading.</div>;
@@ -96,11 +100,14 @@ export default function CloneBoard({ view, big }: { view: ClonesView | null | un
         <>
           <div className="wr-row wr-sub">
             <span>Chance he says yes · why · what he wants · does his talk hold</span>
-            <span className="wr-sp" />{pg.control}
+            <span className="wr-sp" />
+            {focus && onAllManagers && <button type="button" className="wr-xp" onClick={onAllManagers}>All managers</button>}
+            {pg.control}
           </div>
           {view.banner && <div className="wr-hint">{view.banner}</div>}
+          {focus && !list.length && <div className="wr-state" role="status" data-state="unknown">No clone row for Team {focus}.</div>}
           <ul className="wr-clones">
-            {rows.slice(pg.a, pg.b).map(c => <Row key={c.team} c={c} big={big} />)}
+            {list.slice(pg.a, pg.b).map(c => <Row key={c.team} c={c} big={big} />)}
           </ul>
         </>
       )}

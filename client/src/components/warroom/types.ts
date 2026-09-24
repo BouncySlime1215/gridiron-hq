@@ -163,9 +163,10 @@ export interface WarRoomView {
   speed_curve?: Field<SpeedPoint[]>;
   brain_report?: Field<BrainReport>;
   number_health?: Field<NumberHealth>;
+  partners?: Field<Partner[]>;
 }
 
-export type PanelId = 'next' | 'stops' | 'clones' | 'flip_map' | 'targets' | 'catch' | 'brain_report';
+export type PanelId = 'next' | 'people' | 'stops' | 'clones' | 'flip_map' | 'targets' | 'catch' | 'brain_report';
 
 /** Player and team labels from the entry's `names` (ids only elsewhere). */
 export function namer(names: Record<string, string> | undefined) {
@@ -202,4 +203,19 @@ export interface ClonesView {
   as_of?: string;
   sources?: Record<string, { label: string; calibrated: boolean }>;
   clones?: Field<CloneRow[]>;
+  /** PEOPLE-BOARD: the rail's switch (warroom-flag.js#peopleBoardFlag). */
+  people_board?: { enabled: boolean; preview: boolean };
+}
+
+/** The contract's `partners` entry: who to deal with. Labels and counts only. */
+export interface Partner {
+  team: string;
+  p_responds: number;
+  basis: string;
+  edge: Num;
+  chat_labels?: string[];
+  roster_holes?: string[];
+  offers_logged?: number;
+  checked_out?: boolean;
+  blocked?: boolean;
 }

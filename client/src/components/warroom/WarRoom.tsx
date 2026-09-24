@@ -14,6 +14,7 @@ import TargetPicker from './TargetPicker';
 import CatchUp from './CatchUp';
 import BrainCheckCard from './BrainCheckCard';
 import CloneBoard from './CloneBoard';
+import PeopleBoard from './PeopleBoard';
 import CoachDock from './CoachDock';
 
 /**
@@ -28,6 +29,11 @@ import CoachDock from './CoachDock';
  * It renders only what the view says (the contract's league entry: `alternatives`,
  * `targets`, `flip_map`, `brain_report`, ...); useWarRoom is the one read and
  * requests.ts the one write (skips, "I sent it", replies, target approvals).
+ *
+ * PEOPLE-BOARD (WAR-ROOM-UI.md v3): when the clones read says `people_board.enabled`,
+ * a People rail takes the column left of Coach, top to bottom; on the phone it is the
+ * deck page right after Next move. Tapping a tile swaps his clone panel into the big
+ * slot with only his row. Off, the grid is exactly GRID_AREAS.
  */
 export const PANELS: { id: PanelId; name: string }[] = [
   { id: 'next', name: 'Next move' },
@@ -46,10 +52,24 @@ export const GRID_AREAS = [
   'targets targets catch brain_report coach',
 ].map(r => `"${r}"`).join(' ');
 
+/** The same grid with the People rail between the panels and Coach. */
+export const GRID_AREAS_PEOPLE = [
+  'top top top top top coach',
+  'next next stops flip_map people coach',
+  'next next clones flip_map people coach',
+  'targets targets catch brain_report people coach',
+].map(r => `"${r}"`).join(' ');
+
 /** The no-page-scroll contract, inline so it cannot be lost to a stylesheet. */
 export const ROOT_STYLE = { position: 'fixed', inset: 0, height: '100vh', overflow: 'hidden', gridTemplateAreas: GRID_AREAS } as const;
+const ROOT_STYLE_PEOPLE = { ...ROOT_STYLE, gridTemplateAreas: GRID_AREAS_PEOPLE } as const;
+export const rootStyle = (people: boolean) => (people ? ROOT_STYLE_PEOPLE : ROOT_STYLE);
 
-export default function WarRoom({ view, clones, leagues, activeId, onLeague, onExit, deckInitial, onDeckLog, post }: {
+/** Panel order = DOM order = phone deck order; the People rail goes right after Next move. */
+const PANELS_PEOPLE = [PANELS[0], { id: 'people' as const, name: 'People' }, ...PANELS.slice(1)];
+export const panelsFor = (people: boolean) => (people ? PANELS_PEOPLE : PANELS);
+
+export default function WarRoom({ view, clones, leagues, activeId, onLeague, onExit, deckInitial, onDeckLog, post, initialFocus }: {
   view: WarRoomView;
   clones?: ClonesView | null;
   leagues: LeagueChoice[];
@@ -59,8 +79,11 @@ export default function WarRoom({ view, clones, leagues, activeId, onLeague, onE
   deckInitial?: DeckState;
   onDeckLog?: (log: DeckLogEntry[]) => void;
   post?: Poster;
+  /** A manager whose clone panel starts open in the big slot (a People Board tap). */
+  initialFocus?: string;
 }) {
-  const [swap, setSwap] = useState<PanelId | null>(null);
+  const [swap, setSwap] = useState<PanelId | null>(initialFocus ? 'clones' : null);
+  const [focus, setFocus] = useState<string | null>(initialFocus ?? null);
   const [coachOpen, setCoachOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [phone, setPhone] = useState(false);
@@ -93,7 +116,11 @@ export default function WarRoom({ view, clones, leagues, activeId, onLeague, onE
   }, []);
 
   // A new league starts on its own deck.
-  useEffect(() => { setSwap(null); }, [activeId]);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    setSwap(null); setFocus(null);
+  }, [activeId]);
 
   const areaOf = (p: PanelId) => (swap ? (p === swap ? 'next' : p === 'next' ? swap : p) : p);
   const big = (p: PanelId) => phone || areaOf(p) === 'next';
@@ -108,12 +135,16 @@ export default function WarRoom({ view, clones, leagues, activeId, onLeague, onE
     if (el && deckRef.current) deckRef.current.scrollTo({ left: el.offsetLeft - deckRef.current.offsetLeft, behavior: 'smooth' });
   }, []);
 
+  const people = clones?.people_board?.enabled === true;
+  const panels = panelsFor(people);
+  const openClone = useCallback((team: string) => { setFocus(team); setSwap('clones'); }, []);
+
   const d = isOk(view.destination) ? view.destination.value : undefined;
   const send = useCallback((req: WarRoomRequest) => postWarRoomRequest(activeId, req, post), [activeId, post]);
 
   return (
     <SourcesContext.Provider value={view.sources ?? {}}>
-      <div className="wr-root wr-app" data-theme={theme} data-testid="war-room-grid" style={ROOT_STYLE}>
+      <div className={`wr-root wr-app${people ? ' wr-people-on' : ''}`} data-theme={theme} data-testid="war-room-grid" style={rootStyle(people)}>
         <TopStrip view={view} leagues={leagues} activeId={activeId} onLeague={onLeague} onExit={onExit}
           theme={theme} onTheme={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))} />
 
@@ -127,11 +158,16 @@ export default function WarRoom({ view, clones, leagues, activeId, onLeague, onE
             {view.banner && <div className="wr-banner">{view.banner}</div>}
             <NextMoveDeck key={`${activeId}:${view.snapshot?.id ?? ''}`} view={view} big={big('next')} initialState={deckInitial} onLog={onDeckLog} post={post} />
           </Panel>
+          {people && (
+            <Panel {...common('people')} title="People">
+              <PeopleBoard view={view} clones={clones} big={big('people')} onOpen={openClone} />
+            </Panel>
+          )}
           <Panel {...common('stops')} title="Stops">
             <Itinerary field={view.itinerary} big={big('stops')} />
           </Panel>
           <Panel {...common('clones')} title="How each manager reads">
-            <CloneBoard view={clones} big={big('clones')} />
+            <CloneBoard view={clones} big={big('clones')} focus={swap === 'clones' ? focus : null} onAllManagers={() => setFocus(null)} />
           </Panel>
           <Panel {...common('flip_map')} title="Flip map">
             <FlipMap field={view.flip_map} names={view.names} big={big('flip_map')} />
@@ -149,7 +185,7 @@ export default function WarRoom({ view, clones, leagues, activeId, onLeague, onE
         </main>
 
         <nav className="wr-dots" aria-label="Panels">
-          {PANELS.map((p, i) => (
+          {panels.map((p, i) => (
             <button key={p.id} type="button" className={i === deckPos ? 'wr-on' : undefined} onClick={() => gotoPanel(i)}>{p.name}</button>
           ))}
         </nav>

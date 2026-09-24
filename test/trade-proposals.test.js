@@ -27,7 +27,8 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
 import {
-  verifyProposals, cacheKeyFor, proposalsFor, proposalsPrompt, liveCaller,
+  verifyProposals, cacheKeyFor, proposalsFor, proposalsPrompt, liveCaller, failureKeyFor,
+  PROPOSALS_CALL_CONFIG,
   PROMPT_VERSION, REQUIRED_PROPOSAL_FIELDS, FAILED_SLATE_TTL_MS, RESPONSE_PROBLEMS,
 } from '../server/services/trade-proposals.js';
 import { budgetKeyFor, DEFAULT_DAILY_BUDGETS_USD, PRICING } from '../server/services/llm-budget.js';
@@ -671,7 +672,7 @@ test('G7 a budget refusal is still never remembered — nothing is wrong with th
 test('G7 a remembered failure from an older parser version is ignored, so a fix takes effect', async () => {
   const cache = memCache();
   const key = cacheKeyFor(4, [idea()]);
-  cache.set(`${key}.failed`, { v: 'trade-proposals-parse-v0', problem: 'not_a_list',
+  cache.set(failureKeyFor(key, PROPOSALS_CALL_CONFIG), { v: 'trade-proposals-parse-v0', problem: 'not_a_list',
     reason: 'stale', attempts: 3, at: Date.now() });
   let called = 0;
   const call = liveCaller(async () => { called++; return envelope(JSON.stringify([proposal()])); });

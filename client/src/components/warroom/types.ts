@@ -130,6 +130,8 @@ export interface NumberHealth {
 export interface RiskModeRow {
   mode: RiskMode; label: string; active: boolean; expected: Num; if_complete: Num; p_complete: Num;
   first_step: { partner: string; give: string[]; get: string[] } | null;
+  /** NO-TRADE-SHRINK: keeping today's roster (0 gain, lands for sure) and which option the mode's objective picks. */
+  no_trade?: { expected: Num; p_complete: Num; pick: 'plan' | 'no_trade'; why: string };
 }
 /** Targets the view hid because the plan marks them untouchable on their owner's roster. */
 export interface HiddenTarget { player: string; owner: string; label: string }

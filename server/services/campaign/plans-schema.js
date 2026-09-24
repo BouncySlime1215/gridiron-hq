@@ -255,6 +255,9 @@ export const SECTIONS = Object.freeze({
   risk_modes: field(arr(obj({
     mode: oneOf(RISK_MODES), label: str, active: bool, expected: numF, if_complete: numF, p_complete: probF,
     first_step: nullable(obj({ partner: id, give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }) }))
+  }, {
+    // NO-TRADE-SHRINK: the do-nothing option beside the mode's best plan, and which one the mode's objective picks.
+    no_trade: obj({ expected: numF, p_complete: probF, pick: oneOf(['plan', 'no_trade']), why: str })
   }))),
   // Who to deal with: P(responds) from activity x the best edge through him. Labels and counts only.
   partners: field(arr(obj({ team: id, p_responds: prob, basis: str, edge: numF }, {
@@ -281,6 +284,9 @@ const run = obj({
   changed: obj({ changed: bool, reason: str }, { previous_key: nullable(str), next_key: str }),
   roster_key: nullable(str), confirm: json, outlook: json, feasibility_detail: json, feasibility_points_detail: json,
   candidates_scored: int(0), rescores: int(0), runtime_ms: num, phases_ms: json, inputs: json
+}, {
+  // NO-TRADE-SHRINK: the shadow pre-rank shrinkage report (modes.js#shadowShrink). Optional: older files validate.
+  shrink: json
 });
 
 const league = obj(

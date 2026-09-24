@@ -94,9 +94,8 @@ test('planner: risk_modes rows carry no_trade, _run.shrink is shadow, entry vali
   assert.equal(res.risk_modes.length, 3);
   for (const r of res.risk_modes) assert.ok(['plan', 'no_trade'].includes(r.no_trade.pick));
   assert.equal(res.shrink.status, 'shadow');
-  const entry = toEntry(res, { names: {} });
-  const errs = validateLeague(entry);
-  assert.deepEqual(errs, []);
+  const entry = toEntry(res, { names: a.names(), as_of: '2026-09-24T00:00:00Z' });
+  assert.deepEqual(validateLeague(entry).errors, []);
   for (const r of entry.risk_modes.value) {
     assert.equal(r.no_trade.expected.value, 0);
     assert.equal(r.no_trade.p_complete.value, 1);

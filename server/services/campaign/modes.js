@@ -123,7 +123,21 @@ export function rankPlans(plans, mode, tol, ctx = {}) {
   return { ranked: kept, dropped };
 }
 
-/** Same-dice comparison of the three modes' best plans, for the risk-mode sheet. */
+/**
+ * NO-TRADE-SHRINK: the do-nothing option. Keeping today's roster gains nothing, spreads nothing and
+ * lands for sure, so every mode's objective scores it exactly 0 (safe: 0 - 0; balanced: 0; all_in: 0).
+ */
+export const NO_TRADE = Object.freeze({ expected: 0, if_complete: 0, p_complete: 1 });
+
+/** Which option a mode's own objective prefers: its best plan only when it scores above doing nothing. */
+export function noTradeRow(best) {
+  if (!best) return { ...NO_TRADE, pick: 'no_trade', why: 'No plan fits this mode, so keeping your roster is the pick.' };
+  return best.score > 0
+    ? { ...NO_TRADE, pick: 'plan', why: 'The best plan scores above keeping your roster.' }
+    : { ...NO_TRADE, pick: 'no_trade', why: 'The best plan scores no better than keeping your roster.' };
+}
+
+/** Same-dice comparison of the three modes' best plans, for the risk-mode sheet, each beside the no-trade option. */
 export function compareModes(plans, ctxFor) {
   return MODES.map(mode => {
     const { tol, ctx } = ctxFor(mode);
@@ -135,6 +149,78 @@ export function compareModes(plans, ctxFor) {
       p_complete: best ? best.p_complete : null,
       first_step: best ? best.steps[0] : null,
       steps: best ? best.steps.length : null,
+      no_trade: noTradeRow(best),
     };
   });
+}
+
+/* ------------------------------------------------------------ pre-rank shrinkage (SHADOW)
+ * The optimizer's curse (ONE-PLAN spot-check row 6): the top of a ranking of noisy gains is biased
+ * up, most for the noisiest. confirm.js measures the bias after the fact on fresh dice; this shrinks
+ * BEFORE ranking. Normal-normal empirical Bayes with the prior centred on the no-trade gain (0):
+ * tau^2 = max(0, mean(e^2) - mean(se^2)) over the candidate pool, shrunk e = e x tau^2 / (tau^2 + se^2).
+ * Unproven (no graded plan outcome yet), so it is SHADOW: reported under _run.shrink, never read by the
+ * ranker, the deck, the confirm pass or any served number.
+ */
+
+/** The shrinkage prior from a pool of { expected, expected_se }. tau2 null when no plan carries an SE. */
+export function shrinkPrior(items) {
+  const xs = items.filter(x => Number.isFinite(x.expected) && Number.isFinite(x.expected_se));
+  if (!xs.length) return { tau2: null, n: 0 };
+  const m2 = xs.reduce((s, x) => s + x.expected ** 2, 0) / xs.length;
+  const v = xs.reduce((s, x) => s + x.expected_se ** 2, 0) / xs.length;
+  return { tau2: Math.max(0, m2 - v), n: xs.length };
+}
+
+/** The share of a gain that survives shrinkage: tau^2 / (tau^2 + se^2), in [0, 1]; null when unknown. */
+export function shrinkFactor(se, tau2) {
+  if (!Number.isFinite(se) || !Number.isFinite(tau2)) return null;
+  const d = tau2 + se ** 2;
+  return d > 0 ? tau2 / d : 0;
+}
+
+/** One gain shrunk toward 0 (no trade); null when the SE or the prior is unknown. */
+export function shrinkExpected(expected, se, tau2) {
+  const k = shrinkFactor(se, tau2);
+  return k == null || !Number.isFinite(expected) ? null : expected * k;
+}
+
+const planKey = p => { const s = p.steps[0]; return `${s.team}|${s.give.join('+')}|${s.get.join('+')}`; };
+
+/**
+ * Shadow report: per mode, the served best (point estimate) beside the best after shrinking each
+ * plan's expected gain, and whether shrinkage would reorder the top. Balanced / safe objectives use
+ * the shrunk expected (safe keeps its spread penalty); all_in's landing value is shrunk by the same
+ * factor. Nothing here feeds a served number.
+ */
+export function shadowShrink(plans, ctxFor) {
+  const scored = plans.map(p => ({ p, e: pathExpectation(p.steps) }));
+  const prior = shrinkPrior(scored.map(x => x.e));
+  const modes = MODES.map(mode => {
+    const { tol, ctx } = ctxFor(mode);
+    const ranked = rankPlans(plans, mode, tol, ctx).ranked;
+    const best = ranked[0] ?? null;
+    if (!best || prior.tau2 == null) {
+      return { mode, best: best ? planKey(best) : null, shrunk_best: null, reorders: false,
+        best_expected: best?.expected ?? null, best_shrunk_expected: null, shrunk_best_expected: null };
+    }
+    const shr = ranked.map(r => {
+      const k = shrinkFactor(r.expected_se, prior.tau2);
+      if (k == null) return { r, shrunk: null, score: null };
+      const w = r.skip_weight ?? 1;
+      const tilt = v => (v > 0 ? v * w : v);
+      const shrunk = r.expected * k;
+      const score = mode === 'safe' ? tilt(shrunk - SAFE_LAMBDA * r.sd)
+        : mode === 'all_in' ? tilt(r.delta_final * k) : tilt(shrunk);
+      return { r, shrunk, score };
+    }).filter(x => x.score != null).sort((a, b) => b.score - a.score || (a.r.steps.length - b.r.steps.length));
+    const top = shr[0] ?? null;
+    const own = shr.find(x => x.r === best) ?? null;
+    return { mode, best: planKey(best), shrunk_best: top ? planKey(top.r) : null,
+      reorders: !!top && top.r !== best, best_expected: best.expected,
+      best_shrunk_expected: own?.shrunk ?? null, shrunk_best_expected: top?.shrunk ?? null,
+      shrunk_pick: top ? (top.score > 0 ? 'plan' : 'no_trade') : 'no_trade' };
+  });
+  return { status: 'shadow', tau2: prior.tau2, n: prior.n,
+    basis: 'empirical Bayes toward the no-trade gain (0); not graded, reads nothing served', modes };
 }

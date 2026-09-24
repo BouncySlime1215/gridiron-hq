@@ -430,6 +430,10 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     if_complete: num(m.if_complete, 'plan.path', { unit, missing: 'No plan fits this mode.' }),
     p_complete: num(m.p_complete, 'plan.path', { prob: true, unit: 'probability', guess: true, missing: 'No plan fits this mode.' }),
     first_step: m.first_step ? { partner: String(m.first_step.team), give: ids(m.first_step.give), get: ids(m.first_step.get) } : null,
+    // NO-TRADE-SHRINK: keeping today's roster, scored by the same objective (exactly 0 gain, lands for sure).
+    ...(m.no_trade ? { no_trade: { expected: num(m.no_trade.expected, 'plan.path', { unit }),
+      p_complete: num(m.no_trade.p_complete, 'plan.path', { prob: true, unit: 'probability' }),
+      pick: m.no_trade.pick, why: m.no_trade.why } } : {}),
   })), 'plan.path');
 
   const chatLabels = c => (c?.status === 'ok'
@@ -512,6 +516,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       candidates_scored: res.candidates_scored, rescores: res.rescores ?? 0, runtime_ms: res.runtime_ms ?? 0, phases_ms: res.phases_ms ?? {},
       // PLAN-BASELINE: the model this run's trajectory was made under (the contract keeps `_run` keys fixed; inputs is free-form).
       inputs: model != null ? { model } : {},
+      // NO-TRADE-SHRINK: the shadow pre-rank shrinkage report (modes.js#shadowShrink); bookkeeping only.
+      ...(res.shrink ? { shrink: res.shrink } : {}),
     },
   };
 }

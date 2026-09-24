@@ -26,12 +26,30 @@
  *   - reasoning-flag.js#reasoningFlag            reasoning panels in the War Room plans (the paid-run
  *                                                opt-in stays a separate, required gate)
  *   - routes/brain-report.js                     GET /api/brain-report (#235, GRIDIRON_BRAIN_REPORT)
+ *   - reasoning/grade.js#reasoningGradingEnabled C8 reasoning-claim grading in the brain report and
+ *                                                npm run reasoning:grade (#271 REASON-02; no site flag yet)
  *   - number-health-flag.js#numberHealthFields   Settings "Number health" card, nav dot and
  *                                                GET /api/number-audit (#237, GRIDIRON_NUMBER_HEALTH)
  *   - offer-loop-flag.js#offerLoopFields         TradeCard "I sent this" and /offers/sent
  *                                                (#239, GRIDIRON_OFFER_LOOP)
+ *   - one-world.js#oneWorldFlag                  one set of draws per NFL week behind the title
+ *                                                odds, trade cards, ceiling lineup and posture
+ *                                                (EA-07; GRIDIRON_ONE_WORLD=0 vetoes preview)
+ *   - price-band.js#priceBandV2Flag              fitted 80% accept band on the offer ladders
+ *                                                (PRICE-BAND-01; GRIDIRON_PRICE_BAND_V2=0 vetoes preview)
+ *   - warroom-flag.js#negotiateFlag              War Room negotiation mode (live thread, counter builder)
+ *   - coach/brief.js#coachBriefFlag              Coach's morning brief and weekly check-in
+ *                                                (COACH-BRIEF; GRIDIRON_COACH_BRIEF_ENABLED=0
+ *                                                vetoes preview)
+ *   - campaign/his-screen.js#hisScreenFor        HIS-SCREEN offer preview (site flag GRIDIRON_HIS_SCREEN)
+ *   - warroom-flag.js#peopleBoardFlag            War Room People Board rail (plan partners + the people
+ *                                                hub; own switch GRIDIRON_WARROOM_PEOPLE_ENABLED)
+ *   - availability-return.js#availHorizonFlag    return-to-play curve past next week + season-sim
+ *                                                team-mean term (AVAIL-HORIZON-3; coordinator override,
+ *                                                unconfirmed; GRIDIRON_AVAIL_HORIZON=0 vetoes preview)
  *   - scripts/campaign/league-adapter.mjs#producerFastEnabled  PRODUCER-FAST: fast lineups +
  *                                                rescore cache in the War Room producer
+ *                                                (GRIDIRON_PRODUCER_FAST=0 vetoes preview)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

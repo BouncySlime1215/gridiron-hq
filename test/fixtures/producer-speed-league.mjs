@@ -10,13 +10,15 @@
  * season-sim.js) first, under --experimental-test-module-mocks, with
  * GRIDIRON_DB_PATH pointing at a fresh file.
  *
- *   setupLeague({ teams, perTeam, regularWeeks, currentWeek, playoffTeams }) -> { leagueId, svc, buildAdapter }
+ *   setupLeague({ teams, perTeam, regularWeeks, currentWeek, playoffTeams, kdst }) -> { leagueId, svc, buildAdapter }
+ *   kdst: each team also rosters a K and a D/ST and the lineup starts both (SIM-KDST); their
+ *   ESPN weekly projections are in the payload.
  */
 import { mock } from 'node:test';
 
 const POS_LAYOUT = ['QB', 'QB', 'RB', 'RB', 'RB', 'RB', 'RB', 'WR', 'WR', 'WR', 'WR', 'WR', 'TE', 'TE', 'RB', 'WR'];
-const ESPN_POS = { QB: 1, RB: 2, WR: 3, TE: 4 };
-const MU = { QB: 18, RB: 10, WR: 10, TE: 7 };
+const ESPN_POS = { QB: 1, RB: 2, WR: 3, TE: 4, K: 5, DEF: 16 };
+const MU = { QB: 18, RB: 10, WR: 10, TE: 7, K: 8, DEF: 7 };
 
 /** Deterministic xorshift for the invented projections (never Math.random). */
 function rng(seed) {
@@ -25,7 +27,7 @@ function rng(seed) {
 }
 
 export async function setupLeague({ teams = 10, perTeam = 16, regularWeeks = 14, currentWeek = 4, playoffTeams = 6,
-  leagueId = 4, seed = 7 } = {}) {
+  leagueId = 4, seed = 7, kdst = false } = {}) {
   const r = rng(seed);
   const { db, run } = await import('../../server/db/index.js');
   const { runMigrations } = await import('../../server/db/migrate.js');
@@ -50,16 +52,21 @@ export async function setupLeague({ teams = 10, perTeam = 16, regularWeeks = 14,
     }
   }
 
-  const assets = new Map(), projMap = new Map(), teamPlayers = new Map();
+  const assets = new Map(), projMap = new Map(), teamPlayers = new Map(), kdstStats = new Map();
   let pid = 100;
   for (let t = 1; t <= teams; t++) {
     const ids = [];
-    POS_LAYOUT.slice(0, perTeam).forEach((pos, i) => {
+    [...POS_LAYOUT.slice(0, perTeam), ...(kdst ? ['K', 'DEF'] : [])].forEach((pos, i) => {
       const id = pid++;
       const mu = MU[pos] * (0.55 + 0.9 * r()) * (i < 2 || pos === 'TE' ? 1 : 1 - i * 0.01);
       assets.set(id, { id, name: `P${id}`, position: pos, team_abbr: NFL[(t * 3 + i * 5) % 16], espn_id: 50000 + id,
         available: true, current_week_ppg: mu, adj_ppg: mu, ppg: mu, ros_ppg: mu, value: Math.round(mu * 150) });
-      projMap.set(id, { params: { pid: id, mu }, volume: { target_share: pos === 'WR' ? 0.2 : null } });
+      if (pos === 'K' || pos === 'DEF') {
+        // SIM-KDST reads these from the payload: an ESPN weekly projection per week, and a season one.
+        kdstStats.set(id, [{ statSourceId: 1, seasonId: 2026, statSplitTypeId: 0, scoringPeriodId: 0, appliedAverage: mu },
+          ...Array.from({ length: 18 }, (_, k) => ({ statSourceId: 1, seasonId: 2026, statSplitTypeId: 1, scoringPeriodId: k + 1,
+            appliedTotal: Math.round(mu * (0.6 + 0.8 * r()) * 100) / 100 }))]);
+      } else projMap.set(id, { params: { pid: id, mu }, volume: { target_share: pos === 'WR' ? 0.2 : null } });
       ids.push(id);
     });
     teamPlayers.set(t, ids);
@@ -93,7 +100,8 @@ export async function setupLeague({ teams = 10, perTeam = 16, regularWeeks = 14,
   const payload = {
     teams: ids.map(t => ({ id: t, divisionId: 0, name: `Team ${t}`,
       roster: { entries: teamPlayers.get(t).map(id => ({ lineupSlotId: 20,
-        playerPoolEntry: { player: { id: 50000 + id, fullName: `P${id}`, defaultPositionId: ESPN_POS[assets.get(id).position] } } })) } })),
+        playerPoolEntry: { player: { id: 50000 + id, fullName: `P${id}`, defaultPositionId: ESPN_POS[assets.get(id).position],
+          ...(kdstStats.has(id) ? { stats: kdstStats.get(id) } : {}) } } })) } })),
     schedule,
     settings: { scheduleSettings: { matchupPeriodCount: regularWeeks, matchupPeriodLength: 1, playoffTeamCount: playoffTeams,
       playoffMatchupPeriodLength: 1, playoffReseed: false, playoffSeedingRule: 'TOTAL_POINTS_SCORED',
@@ -101,7 +109,8 @@ export async function setupLeague({ teams = 10, perTeam = 16, regularWeeks = 14,
   };
   run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, roster_positions,
        payload, current_week, payload_season, fetched_at) VALUES (?, 'espn', 'speed', 2026, 'Speed', '1', ?, 1, ?, ?, ?, 2026, '2026-09-24T08:00:00Z')`,
-  leagueId, teams, JSON.stringify(['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX', 'BE', 'BE']), JSON.stringify(payload), currentWeek);
+  leagueId, teams, JSON.stringify(['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX', ...(kdst ? ['K', 'D/ST'] : []), 'BE', 'BE']),
+  JSON.stringify(payload), currentWeek);
 
   // A fresh season-sim instance that sees the mocks (the plain one was loaded, unmocked, by
   // the trade-engine import above), then point everything else at it (RL-19-2's recipe).

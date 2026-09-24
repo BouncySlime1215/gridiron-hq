@@ -14,6 +14,9 @@
 import { DEFAULT_MODE, normaliseMode, tolerancesFor } from './modes.js';
 import { arrivalWeek } from './itinerary.js';
 
+/** FEAS-140: Nick's standing "140 projected points a week" ask, shown on every league unless configured. */
+export const DEFAULT_SIDE_POINTS = 140;
+
 export const OBJECTIVE_KINDS = Object.freeze(['title', 'playoffs', 'player', 'points']);
 
 /** Read one league's stored objective (file row) into a complete objective. */
@@ -26,10 +29,13 @@ export function normaliseObjective(raw = {}, { leagueGoal = 'title' } = {}) {
   const risk_mode = normaliseMode(raw.risk_mode ?? DEFAULT_MODE);
   const arrive = Number(raw.arrive_by);
   const until = Number(raw.risk_until_week);
+  const side = Number(raw.side_points_per_week);
   return {
     kind, goal,
     target: kind === 'player' ? String(raw.target) : null,
     points_per_week: kind === 'points' ? ppw : null,
+    // FEAS-140: the points side panel's target on a league planned on another objective (feasibility.js).
+    side_points_per_week: side > 0 ? side : DEFAULT_SIDE_POINTS,
     risk_mode,
     // Coach's set_risk_mode may end the mode at a week (then the league default returns).
     risk_until_week: Number.isInteger(until) && until >= 1 && until <= 18 ? until : null,

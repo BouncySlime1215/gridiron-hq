@@ -4,7 +4,7 @@
  * A rescore is a pure function of the world and the changed rosters. The cache is
  * keyed by a content hash of everything a rescore reads from the world (the
  * league row's payload and rules, the rosters and positions, the lineup slots,
- * every week's expected points and every run's draws), so an entry is reused only
+ * every week's expected points and K / D/ST points (SIM-KDST) and every run's draws), so an entry is reused only
  * when the numbers it would recompute are the same numbers. A new sync, a new
  * seed, a roster move or a news event that changes a player's pool is a
  * different world and a miss, never a stale hit.
@@ -46,9 +46,11 @@ export function worldPrint(w, lg) {
   H.str(JSON.stringify([prep.fromWeek, prep.weeks, prep.bracketWeeks, prep.playoffTeams, prep.medianGame]));
   H.str(JSON.stringify([...(prep.sched ?? new Map())]));
   for (const t of prep.teams) H.str(`${t.roster_id}:${t.players.map(p => `${p.id}/${p.position}`).join(',')}`);
-  for (const [week, { byRun, expected }] of w.draws) {
+  for (const [week, { byRun, expected, kdst }] of w.draws) {
     H.str(`w${week}`);
     H.str(JSON.stringify([...expected]));
+    // SIM-KDST: w.key.kdst carries the flag; the week's K / D/ST points are hashed too.
+    H.str(kdst ? JSON.stringify([...kdst]) : 'kdst:off');
     if (byRun.length) H.str(JSON.stringify([...byRun[0].index]));
     for (const d of byRun) H.doubles(d.vals);
   }

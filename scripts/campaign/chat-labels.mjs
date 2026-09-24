@@ -8,14 +8,14 @@
  * { status: 'unknown', reason } and every label reads 'unknown'.
  *
  * FIX-02c: each roster's row also carries `nick`, Nick's own read (nick_override +
- * manager_notes, server/services/people/nick-block.js). partners.js applies it over
+ * manager_notes, server/services/people/profile-reader.js, the one reader). partners.js applies it over
  * every chat-derived label; `nick_status` says whether it could be read.
  */
 export async function chatRowsFor(leagueId) {
   const { identityMap } = await import('../../server/services/manager-identity.js');
   const { openChatDb } = await import('../../server/services/manager-signals.js');
   const { negotiationProfilesFor } = await import('../../server/services/counterparty-pricing.js');
-  const { nickBlocksFrom } = await import('../../server/services/people/nick-block.js');
+  const { nickBlocksFrom } = await import('../../server/services/people/profile-reader.js');
   const ids = identityMap(leagueId);
   if (!ids.size) return { status: 'unknown', reason: 'no confirmed chat identities for this league', rows: new Map() };
   const chat = openChatDb();

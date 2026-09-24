@@ -149,13 +149,10 @@ test('the producer reports the cache on each league (and nothing without one)', 
   assert.equal('rescore_cache' in offEntry._run.inputs, false, 'no cache, no field: the FIX-03 contract fixture is unchanged');
 });
 
-test('flag: off by default, on with GRIDIRON_PRODUCER_FAST=1 or under preview mode', () => {
+test('flag: off by default, on with GRIDIRON_PRODUCER_FAST=1 or under preview mode; =0 vetoes preview', () => {
   assert.equal(producerFastEnabled({}), false);
   assert.equal(producerFastEnabled({ [PRODUCER_FAST_ENV]: '1' }), true);
   assert.equal(producerFastEnabled({ [PRODUCER_FAST_ENV]: 'true' }), false);
-  const prior = process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
-  process.env.GRIDIRON_PREVIEW_UNCONFIRMED = '1';
-  try { assert.equal(producerFastEnabled({}), true); } finally {
-    if (prior == null) delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED; else process.env.GRIDIRON_PREVIEW_UNCONFIRMED = prior;
-  }
+  assert.equal(producerFastEnabled({ GRIDIRON_PREVIEW_UNCONFIRMED: '1' }), true);
+  assert.equal(producerFastEnabled({ GRIDIRON_PREVIEW_UNCONFIRMED: '1', [PRODUCER_FAST_ENV]: '0' }), false);
 });

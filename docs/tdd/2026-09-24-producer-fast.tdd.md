@@ -96,3 +96,9 @@ Six-team test fixture (`campaign-producer-speed.test.js`): off 15.1 s, cold
   (~1.3-1.5 s); they are the floor of a warm run.
 - **Real league 4.** Not measured here: the DB is on the Mac. The PR carries
   `LOCAL:` lines that run the bench there.
+
+## FIX-308 (9/24 catch-up review)
+- Merged origin/main (FIX-07/08 producer, preview-mode list, counterpart, coach messages, his-screen) keeping this PR's cache and fast-lineup calls.
+- `producerFastEnabled`: `GRIDIRON_PRODUCER_FAST=0` now vetoes preview mode.
+- SIM-KDST (#314): `teamPointsFast`/`lineupStarters` take the week's `kdst` map (K / D/ST at their fixed projection, same pool order and slot order as `lineupPoints`); the adapter's slow `teamPoints` now passes it too; the cache print hashes each week's K / D/ST points (the flag is already in `w.key.kdst`).
+- RED: `test/campaign-producer-speed-kdst.test.js` failed 2/4 with `kdst` dropped from the fast path; GREEN 4/4.

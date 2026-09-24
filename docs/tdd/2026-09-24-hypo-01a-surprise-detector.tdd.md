@@ -22,7 +22,7 @@ LLM spend: $0.
 |---|---|---|
 | Surprise detector, s = -ln p(outcome) | Yes, three streams: `accept_low`, `decline_high`, `roster_burst` | The task's three cases |
 | Threshold = per-stream 95th percentile, refit nightly | **No.** Fixed cuts: 10% / 70% (the task's), burst P < 0.05 (hand-set) | No graded calibration window yet (the spec itself waits for >= 6 graded weeks) |
-| `surprise` event in engine_events | **No.** Row in `surprise_hypotheses` (migration 086) | ENGINE-00a spine (075, #216) is not on main |
+| `surprise` event in engine_events | **No.** Row in `surprise_hypotheses` (migration 095) | ENGINE-00a spine (075, #216) was not on main when written; it merged since. Moving the rows to engine_state is a follow-up |
 | Reasoner via JEV-01a gateway, spec grammar, pre-registration | **No** | JEV-01a not on main; HYPO-01a-2 |
 | onEvent learner on ENGINE-00b-a hooks | **No.** CLI `scripts/hypo-surprise.mjs` | Daemon not on main |
 
@@ -47,7 +47,7 @@ Commit `test: HYPO-01a surprise detector RED`: `test/hypo-surprise.test.js` fail
 
 ## GREEN
 
-`server/services/hypo/surprise.js`, `server/migrations/086_surprise_hypotheses.js`,
+`server/services/hypo/surprise.js`, `server/migrations/095_surprise_hypotheses.js` (first numbered 086; renumbered to 095 per the coordinator ledger),
 `scripts/hypo-surprise.mjs`: pass 12, fail 0 (the 10 RED tests plus a dry-run test and a
 CLI test added with the CLI).
 

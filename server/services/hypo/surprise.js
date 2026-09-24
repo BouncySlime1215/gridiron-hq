@@ -1,6 +1,6 @@
 /**
  * HYPO-01a surprise detector: an outcome the model did not expect becomes a row in
- * `surprise_hypotheses` (migration 086) for Jev / R&D to test, with the ids of the
+ * `surprise_hypotheses` (migration 095) for Jev / R&D to test, with the ids of the
  * evidence that triggered it.
  *
  * Three streams, each scored as surprisal s = -ln p(outcome) under what we served:

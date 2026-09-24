@@ -1,4 +1,4 @@
-export const name = '086_surprise_hypotheses';
+export const name = '095_surprise_hypotheses';
 /**
  * HYPO-01a. Additive only: one new table.
  *
@@ -8,9 +8,10 @@ export const name = '086_surprise_hypotheses';
  * HYPO-01b decides later whether a hypothesis survives a walk-forward screen.
  *
  * The spec (ENGINE-SPECS HYPO-01a) wanted these as engine_state rows with entity
- * `hypothesis`. ENGINE-00a's spine (075, PR #216) is not on main, so the rows live
- * in their own table until it is; the columns map one to one onto a state row
- * (surprise_key = entity key, evidence_json = the reason chain's event ids).
+ * `hypothesis`. The unit was written before ENGINE-00a's spine (075, PR #216) reached
+ * main, so the rows live in their own table; the columns map one to one onto a state
+ * row (surprise_key = entity key, evidence_json = the reason chain's event ids), and
+ * moving them onto the spine is a follow-up.
  *
  * THE EVIDENCE IS THE CONTRACT. A hypothesis that cannot name the rows that
  * triggered it cannot be tested without double-dipping (HYPO-01b excludes the
@@ -19,7 +20,7 @@ export const name = '086_surprise_hypotheses';
  * JSON path gives NULL, and a CHECK that evaluates to NULL passes.
  *
  * Idempotent on surprise_key: re-running the detector over the same rows writes
- * nothing. Numbered 086: 074-085 are on main or claimed by open branches.
+ * nothing. Numbered 095 by the coordinator's ledger (handoff MIGRATIONS.md); 086 is taken.
  */
 export function up(db) {
   db.exec(`

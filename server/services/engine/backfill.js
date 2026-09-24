@@ -40,6 +40,7 @@ import { appendEvents, normalizeAsOf, endOfDayEastern } from './events.js';
 import { writeState } from './state.js';
 import { registerField } from './registry.js';
 import { recordRun } from './fields.js';
+import { newsStampsFlag } from '../../news/stamps.js';
 
 // The spine's own field. This module is its one writer; the capability stays here.
 const INGEST_WRITER = registerField('engine.ingest', {
@@ -98,6 +99,43 @@ export function newsBareDate(publishedAt, rowDate) {
   return null;
 }
 
+/**
+ * FIX-286-3 (GRIDIRON_NEWS_STAMPS_ENABLED): the news stream's knowledge-time events.
+ *
+ * `news.item` dates a story at its valid time (published_at; a bare date is end of day ET).
+ * An as-of read of text needs knowledge time instead: when we held this content. That is
+ * the clock newsKnownAtSql (server/news/stamps.js) applies to news_items,
+ * COALESCE(edited_at, ingested_at, created_at), so these two events carry it as `as_of`
+ * and a spine as-of read excludes exactly what newsKnownAtSql excludes:
+ *   news.ingested  one per row, at the first receipt (ingested_at ?? created_at). Its
+ *                  payload holds only stamps that never change after insert, so a later
+ *                  edit cannot re-append it (compare-latest) at the first receipt's time.
+ *   news.edited    one per edited_at value, at that edit, with the row's content then
+ *                  (headline, importance, player ids).
+ * Both carry published_at as stored. The web server cannot write the spine (role.js), so
+ * the adapter appends them on its next pass; an edit moves no `id`, so it arrives with the
+ * daily sweep. `as_of` is the stamp either way, not the pass.
+ */
+function newsKnowledgeEvents(r, players) {
+  const entities = players.map(p => ({ type: 'player', id: p, role: 'subject' }));
+  const playerId = players.length === 1 ? players[0] : null;
+  const out = [];
+  const receipt = present(r.ingested_at) ? r.ingested_at : present(r.created_at) ? r.created_at : null;
+  if (receipt) {
+    out.push({ event_type: 'news.ingested', as_of: normalizeAsOf(receipt), as_of_quality: 'first_seen',
+      player_id: playerId, natural_key: `ingested:${r.id}`, entities,
+      payload: { news_id: r.id, news_source: r.source, published_at: r.published_at ?? null,
+        ingested_at: r.ingested_at ?? null, receipt: present(r.ingested_at) ? 'ingested_at' : 'created_at' } });
+  }
+  if (present(r.edited_at)) {
+    out.push({ event_type: 'news.edited', as_of: normalizeAsOf(r.edited_at), as_of_quality: 'first_seen',
+      player_id: playerId, natural_key: `edited:${r.id}`, entities,
+      payload: { news_id: r.id, news_source: r.source, published_at: r.published_at ?? null, edited_at: r.edited_at,
+        headline: r.headline, importance: r.importance, player_ids: players } });
+  }
+  return out;
+}
+
 /** One adapter per stream. `sql(table)` selects source rows; `map(row, ctx)` returns events. */
 export const ADAPTERS = Object.freeze([
   {
@@ -153,7 +191,7 @@ export const ADAPTERS = Object.freeze([
   {
     stream: 'news', table: 'news_items',
     sql: t => `SELECT id, date, team_id, headline, importance, source, published_at, ingested_at, created_at,
-                 transaction_type, entities_json FROM ${t}`,
+                 transaction_type, entities_json${newsStampsFlag().on ? ', edited_at' : ''} FROM ${t}`,
     map: r => {
       const players = [...new Set((parse(r.entities_json, {})?.players ?? []).map(p => p.id).filter(Number.isInteger))];
       const payload = { news_id: r.id, headline: r.headline, importance: r.importance, news_source: r.source,
@@ -174,11 +212,12 @@ export const ADAPTERS = Object.freeze([
       } else {
         [asOf, quality] = [r.date, 'date_only'];
       }
-      return [{
+      const item = {
         event_type: 'news.item', as_of: asOf, as_of_quality: quality,
         player_id: players.length === 1 ? players[0] : null, natural_key: String(r.id),
         entities: players.map(p => ({ type: 'player', id: p, role: 'subject' })), payload,
-      }];
+      };
+      return newsStampsFlag().on ? [item, ...newsKnowledgeEvents(r, players)] : [item];
     },
   },
   {

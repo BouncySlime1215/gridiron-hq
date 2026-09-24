@@ -1,4 +1,5 @@
 import { row } from '../db/index.js';
+import { newsStampsFlag } from './stamps.js';
 
 // Every column the update branch writes other than the provenance timestamps
 // themselves (ingested_at/updated_at). Comparing the incoming values against
@@ -60,21 +61,30 @@ export function upsertNormalizedNewsItem(normalized, { teamId = null, date } = {
   // that's when THIS version of the content was actually received, and freezing
   // it at the original receipt time is a look-ahead risk for anything downstream
   // that treats ingested_at as "when we knew this."
+  //
+  // BROKEN-Q, flag on (server/news/stamps.js): ingested_at is the first receipt
+  // and is never overwritten; the revision's receipt goes to edited_at instead
+  // (migration 087), and the as-of read (newsKnownAtSql) reads edited_at for
+  // the same look-ahead guard. Flag off: the behaviour above, unchanged.
+  const stamps = newsStampsFlag().on;
   const existing = row(`SELECT ${CONTENT_COLUMNS.join(', ')}, ingested_at FROM news_items
     WHERE duplicate_group_id = ?`, normalized.duplicate_group_id);
   const contentChanged = !existing || CONTENT_COLUMNS.some(column => existing[column] != values[column]);
-  const ingestedAt = contentChanged ? normalized.ingested_at : existing.ingested_at;
+  // NULL leaves edited_at as it is (COALESCE below): the flag-off path and a pure resend.
+  const editedAt = stamps && contentChanged ? normalized.ingested_at : null;
+  const ingestedAt = stamps && existing ? existing.ingested_at
+    : contentChanged ? normalized.ingested_at : existing.ingested_at;
 
   const updated = row(`UPDATE news_items SET
       date=?, team_id=?, headline=?, body=?, importance=?, source=?, source_url=?, source_type=?,
-      author=?, published_at=?, ingested_at=?, updated_at=?, canonical_url=?, entities_json=?, injury_entities_json=?,
+      author=?, published_at=?, ingested_at=?, edited_at=COALESCE(?, edited_at), updated_at=?, canonical_url=?, entities_json=?, injury_entities_json=?,
       transaction_type=?, reliability_json=?, user_relevance_json=?, confidence=?, classification_version=?,
       attribution_required=?
     WHERE duplicate_group_id = ?
     RETURNING id`,
     values.date, values.team_id, values.headline, values.body, values.importance,
     values.source, values.source_url, values.source_type, values.author,
-    values.published_at, ingestedAt, normalized.updated_at, values.canonical_url,
+    values.published_at, ingestedAt, editedAt, normalized.updated_at, values.canonical_url,
     values.entities_json, values.injury_entities_json,
     values.transaction_type, values.reliability_json,
     values.user_relevance_json,

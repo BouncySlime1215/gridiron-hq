@@ -4,6 +4,7 @@ import { espnCookies, BROWSER_HEADERS } from '../services/espn-draft.js';
 import { findPlayerMatch } from '../services/player-identity.js';
 import { recordSync } from '../services/scheduler.js';
 import { extractEntities } from '../news/normalize.js';
+import { insertIngestedAt } from '../news/stamps.js';
 
 const r = Router();
 
@@ -194,9 +195,10 @@ function insertArticles(articles, teams, forcedTeamId = null) {
     // published timestamp when ESPN provides one; the ingest time otherwise,
     // which is still strictly after the story existed and keeps it visible.
     const publishedAt = a.published ? new Date(a.published).toISOString() : new Date().toISOString();
-    run(`INSERT INTO news_items (date, team_id, headline, body, importance, source, entities_json, published_at)
-         VALUES (?,?,?,?,2,'ESPN',?,?)`, date, team?.id ?? null, a.headline, a.description ?? null,
-      JSON.stringify(entities), publishedAt);
+    // BROKEN-Q: this was the largest of the paths that never stamped ingested_at.
+    run(`INSERT INTO news_items (date, team_id, headline, body, importance, source, entities_json, published_at, ingested_at)
+         VALUES (?,?,?,?,2,'ESPN',?,?,?)`, date, team?.id ?? null, a.headline, a.description ?? null,
+      JSON.stringify(entities), publishedAt, insertIngestedAt());
     added++;
   }
   return added;
@@ -265,5 +267,7 @@ r.post('/sync-news', async (req, res, next) => {
     res.json({ ok: true, added });
   } catch (e) { next(e); }
 });
+
+export const __test = { insertArticles };
 
 export default r;

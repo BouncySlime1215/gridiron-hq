@@ -239,6 +239,8 @@ export const SPINE_EVENT_TYPES = Object.freeze({
   'espn.transaction': 'An ESPN league transaction status row (waiver, free agent, trade), from league_transactions_raw',
   'league.lineup': "A fantasy team's lineup slot for one player in one scoring period, from league_roster_snapshots",
   'news.item': 'A news item with its resolved player ids (headline only, no body), from news_items',
+  'news.ingested': 'A news_items row first received, at its receipt time (ingested_at, else created_at) (BROKEN-Q, flagged)',
+  'news.edited': 'A news_items revision, at its edited_at, headline only (BROKEN-Q, flagged)',
   'market.game_line': 'A game spread/total/implied points as captured, from game_lines',
   'nfl.injury': 'An official NFL injury report line, from nfl_injuries',
   'trade.proposed': 'A trade proposal recorded in trade_outcomes (model outputs under payload.model)',

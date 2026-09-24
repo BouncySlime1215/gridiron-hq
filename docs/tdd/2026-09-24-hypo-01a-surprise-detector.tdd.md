@@ -164,3 +164,28 @@ Command: `SCHEDULER_DISABLED=1 NODE_OPTIONS='--import ./test/offline-guard.mjs' 
 
 Not built: FIX-277-4's second stream (a PROJ-04 autopsy row's knowable miss) needs #251's
 `projection_autopsy` table, which is not on main.
+
+## Catch-up review fixes (2026-09-24): FIX-277-5, FIX-277-6
+
+- **FIX-277-5** (flag through preview-mode.js): `hypoFlag(env)` in `hypo/surprise.js`.
+  `GRIDIRON_HYPO_ENABLED` '1' is on, '0' vetoes preview, unset follows
+  `previewUnconfirmed()`; a run on only because of preview carries `preview: true` and
+  `preview_reason`. Listed in the preview-mode.js header.
+- **FIX-277-6** (engine hub): every hypothesis of a write run is appended as a
+  `hypo.surprise` event (source `surprise_hypotheses`, natural key = `surprise_key`,
+  provenance `derived`, as_of = `occurred_at`, else first_seen). The payload has the
+  evidence ids (`trade_outcome_ids`, `tx_ids`, `snapshot_keys`) plus the hub `event_ids` of
+  the evidence the spine already holds. The served p and surprisal go under `payload.model`.
+  Entities are `hypothesis:<row id>` (a new entity type in events.js) and `offer:<id>`.
+  The row and the event commit in one transaction, so a process without an engine write
+  role writes neither. `surprise_hypotheses` stays the detail table (it holds the statement).
+- **RED** `0b94a6a9`: 6 new tests fail (`hypoFlag is not a function`, no hub events).
+- **GREEN**: 30 of 30 in the two hypo files; 384 of 384 across every test file that
+  imports hypo/, engine/events, engine/registry or preview-mode.
+
+| Mutant | Result |
+|---|---|
+| M26 `=0` does not veto preview | killed (2 fail) |
+| M27 nothing published | killed (3 fail) |
+| M28 a surprise's own event counted as its evidence | killed (1 fail) |
+| M29 as_of is the capture time, not the outcome's | killed (1 fail) |

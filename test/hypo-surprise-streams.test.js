@@ -21,6 +21,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-hypo-streams-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.SCHEDULER_DISABLED = '1';
 delete process.env.GRIDIRON_HYPO_ENABLED;
+process.env.GRIDIRON_PROCESS_ROLE = 'test'; // a write also appends hypo.surprise events (FIX-277-6)
 
 const { db, rows, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');

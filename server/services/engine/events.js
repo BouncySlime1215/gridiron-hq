@@ -38,7 +38,7 @@ export const PROVENANCE = Object.freeze(['captured', 'reconstructed', 'derived']
 export const ENTITY_ROLES = Object.freeze(['subject', 'from', 'to', 'counterparty', 'league']);
 /** Entity types an event may name: the state grammar's plus raw-source aliases. */
 export const EVENT_ENTITY_TYPES = Object.freeze(['player', 'league', 'league_team', 'nfl_team', 'game', 'week',
-  'offer', 'rec', 'deal', 'gsis', 'espn', 'sleeper', 'source', 'engine']);
+  'offer', 'rec', 'deal', 'gsis', 'espn', 'sleeper', 'source', 'engine', 'hypothesis']);
 const ALIAS_COLUMNS = Object.freeze({ espn: 'espn_id', gsis: 'gsis_id', sleeper: 'sleeper_id' });
 const MAX_LIMIT = 50000;
 

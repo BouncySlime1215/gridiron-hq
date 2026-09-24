@@ -32,10 +32,17 @@
  * served, not against a calibrated model; the band travels in the evidence.
  *
  * Reads trade_outcomes, league_transactions_raw, weekly_prediction_snapshots and
- * league_roster_snapshots; writes only surprise_hypotheses.
- * Never writes P(accept) or points. Off unless GRIDIRON_HYPO_ENABLED=1 (or `enabled`).
+ * league_roster_snapshots; writes surprise_hypotheses (the detail) and, in the same
+ * transaction, one `hypo.surprise` event per hypothesis on the engine hub (engine_events,
+ * migration 075; FIX-277-6) carrying its evidence ids and as_of. The write therefore needs
+ * an engine write role (role.js); the CLI runs as 'script'.
+ * Never writes P(accept) or points. The switch is hypoFlag (FIX-277-5): GRIDIRON_HYPO_ENABLED
+ * '1' on, '0' off, unset follows preview mode (preview-mode.js); `enabled` overrides it.
  */
 import { db, rows, row } from '../../db/index.js';
+import { previewUnconfirmed, previewFields } from '../preview-mode.js';
+import { appendEvents } from '../engine/events.js';
+import { registerEventType } from '../engine/registry.js';
 import { mergeOffers, scoreAsOf } from '../eval/e1-league.js';
 import { projectionUnits, projectionSurprises } from './projection-stream.js';
 
@@ -53,9 +60,31 @@ const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const RAW_TABLE = 'league_transactions_raw';
 
-export function hypoEnabled(env = process.env) {
-  return ['1', 'true', 'on'].includes(String(env.GRIDIRON_HYPO_ENABLED ?? '').toLowerCase());
+export const HYPO_ENV = 'GRIDIRON_HYPO_ENABLED';
+export const HYPO_PREVIEW_REASON = 'HYPO-01a surprise detector: hypothesis rows for Jev / R&D and their '
+  + 'hypo.surprise hub events; default off until the pre-registered threshold is the write rule';
+
+/**
+ * { on, preview }, read per call. '1' / 'true' / 'on' is on; '0' / 'false' / 'off' vetoes
+ * preview mode; unset (or anything else) follows previewUnconfirmed().
+ */
+export function hypoFlag(env = process.env) {
+  const v = String(env[HYPO_ENV] ?? '').toLowerCase();
+  if (['1', 'true', 'on'].includes(v)) return { on: true, preview: false };
+  if (['0', 'false', 'off'].includes(v)) return { on: false, preview: false };
+  const preview = previewUnconfirmed();
+  return { on: preview, preview };
 }
+
+export const hypoEnabled = (env = process.env) => hypoFlag(env).on;
+
+/** The hub event each hypothesis is published as (FIX-277-6); surprise_hypotheses keeps the detail. */
+export const SURPRISE_EVENT = 'hypo.surprise';
+const SURPRISE_SOURCE = 'surprise_hypotheses';
+registerEventType(SURPRISE_EVENT, {
+  description: 'A HYPO-01a surprise: an outcome the served model did not expect, with its evidence ids '
+    + '(detail row in surprise_hypotheses; model outputs under payload.model)',
+});
 
 /** P(N >= n) for N ~ Poisson(lambda). */
 export function poissonTail(n, lambda) {
@@ -308,8 +337,9 @@ function burstSurprises(leagueId, season, skipped) {
 export function detectSurprises({ leagueId, season, enabled = null, env = process.env, write = true,
   now = () => new Date().toISOString() } = {}) {
   if (leagueId == null || season == null) throw new Error('detectSurprises needs leagueId and season');
-  const on = enabled ?? hypoEnabled(env);
-  if (!on) return { enabled: false, written: 0, already: 0, roster_moves: null, skipped: [], surprises: [] };
+  const flag = enabled == null ? hypoFlag(env) : { on: !!enabled, preview: false };
+  if (!flag.on) return { enabled: false, written: 0, already: 0, published: 0, roster_moves: null, skipped: [], surprises: [] };
+  const label = flag.preview ? previewFields(HYPO_PREVIEW_REASON) : {};
 
   const skipped = [];
   const rawPresent = tableExists(RAW_TABLE);
@@ -320,7 +350,7 @@ export function detectSurprises({ leagueId, season, enabled = null, env = proces
     ...projectionSurprises(projection.units),
   ];
   if (!write) {
-    return { enabled: true, written: 0, already: null, dry_run: true,
+    return { enabled: true, ...label, written: 0, already: null, published: 0, dry_run: true,
       roster_moves: rawPresent ? 'read' : 'raw_table_absent', projections: projection.state, skipped, surprises };
   }
   const insert = db.prepare(`INSERT INTO surprise_hypotheses
@@ -329,6 +359,7 @@ export function detectSurprises({ leagueId, season, enabled = null, env = proces
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(surprise_key) DO NOTHING`);
   let written = 0;
+  let published = 0;
   const at = now();
   db.exec('BEGIN');
   try {
@@ -337,15 +368,69 @@ export function detectSurprises({ leagueId, season, enabled = null, env = proces
         s.surprisal, s.outcome, JSON.stringify(s.evidence), s.statement, DETECTOR_VERSION,
         s.occurred_at ?? null, at).changes);
     }
+    // Every hypothesis of this run, new or already stored: appendEvents appends only when the
+    // payload differs from the latest event for the key, so a rerun adds nothing and a row
+    // written before FIX-277-6 is published once. Inside this transaction: row and event
+    // commit together, or neither does.
+    if (surprises.length) {
+      published = appendEvents(surpriseEvents(leagueId, season, surprises.map(s => s.surprise_key))).inserted;
+    }
     db.exec('COMMIT');
   } catch (e) {
-    db.exec('ROLLBACK');
+    if (db.isTransaction) db.exec('ROLLBACK');
     throw e;
   }
   return {
-    enabled: true, written, already: surprises.length - written,
+    enabled: true, ...label, written, already: surprises.length - written, published,
     roster_moves: rawPresent ? 'read' : 'raw_table_absent', projections: projection.state, skipped, surprises,
   };
+}
+
+/**
+ * Hub event ids for the evidence the spine already holds: offers by entity, ESPN tx by natural
+ * key. A surprise's own events name the offer too; they are not evidence.
+ */
+function evidenceEventIds(leagueId, season, evidence) {
+  const ids = new Set();
+  for (const id of evidence.trade_outcome_ids ?? []) {
+    for (const r of rows(`SELECT n.event_id FROM engine_event_entities n JOIN engine_events e ON e.id = n.event_id
+        WHERE n.entity_type = 'offer' AND n.entity_id = ? AND e.source <> ?`, String(id), SURPRISE_SOURCE)) {
+      ids.add(Number(r.event_id));
+    }
+  }
+  for (const tx of evidence.tx_ids ?? []) {
+    for (const r of rows(`SELECT id FROM engine_events WHERE source = ? AND natural_key >= ? AND natural_key < ?`,
+      RAW_TABLE, `${leagueId}:${season}:${tx}:`, `${leagueId}:${season}:${tx};`)) ids.add(Number(r.id));
+  }
+  return [...ids].sort((a, b) => a - b);
+}
+
+/**
+ * One hypo.surprise event per stored hypothesis (FIX-277-6). as_of is the outcome's time
+ * (occurred_at), or the capture time labelled first_seen when the outcome has none. The
+ * payload carries ids and the served numbers only; the statement stays in the detail row.
+ */
+function surpriseEvents(leagueId, season, keys) {
+  const stored = rows(`SELECT * FROM surprise_hypotheses WHERE surprise_key IN (${keys.map(() => '?').join(', ')})`, ...keys);
+  return stored.map(h => {
+    const ev = JSON.parse(h.evidence_json);
+    const evidence = {
+      trade_outcome_ids: ev.trade_outcome_ids ?? [], tx_ids: ev.tx_ids ?? [], snapshot_keys: ev.snapshot_keys ?? [],
+      event_ids: evidenceEventIds(leagueId, season, ev),
+    };
+    return {
+      event_type: SURPRISE_EVENT, source: SURPRISE_SOURCE, natural_key: h.surprise_key, provenance: 'derived',
+      ...(h.occurred_at ? { as_of: h.occurred_at } : { as_of_quality: 'first_seen' }),
+      league_id: leagueId, team_id: h.team_id,
+      player_id: ev.player_id ?? null,
+      entities: [{ type: 'hypothesis', id: h.id, role: 'subject' },
+        ...evidence.trade_outcome_ids.map(id => ({ type: 'offer', id, role: 'subject' }))],
+      payload: {
+        hypothesis_id: Number(h.id), kind: h.kind, season: Number(h.season), outcome: h.outcome, evidence,
+        model: { p: h.model_p, surprisal: h.surprisal, detector_version: h.detector_version },
+      },
+    };
+  });
 }
 
 /** Hypothesis rows for Jev / R&D, newest first, evidence parsed. */

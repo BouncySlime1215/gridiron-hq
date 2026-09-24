@@ -6,13 +6,17 @@
  *   node scripts/hypo-surprise.mjs --league 4 --list      # read the open hypotheses
  *   node scripts/hypo-surprise.mjs --league 4 --calibrate # walk-forward threshold per stream (read-only)
  *
- * Off unless GRIDIRON_HYPO_ENABLED=1: with the flag unset it says so and writes nothing.
+ * Off unless GRIDIRON_HYPO_ENABLED=1 or preview mode (hypo/surprise.js#hypoFlag; =0 vetoes
+ * preview): off, it says so and writes nothing. A write also publishes each hypothesis as a
+ * hypo.surprise event on the engine hub (FIX-277-6).
  * Prints team ids, probabilities and evidence ids only. Exit 1 on a bad argument or a
  * failed run; an empty result is exit 0 with the reason printed.
  */
 import { parseArgs } from 'node:util';
 
 process.env.SCHEDULER_DISABLED = '1';
+// A write appends hypo.surprise events to engine_events (FIX-277-6), an engine write.
+process.env.GRIDIRON_PROCESS_ROLE = 'script';
 const { values } = parseArgs({
   options: {
     league: { type: 'string' }, season: { type: 'string' },
@@ -29,7 +33,8 @@ if (!Number.isInteger(leagueId) || leagueId <= 0) {
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 const { row } = await import('../server/db/index.js');
-const { detectSurprises, listHypotheses, hypoEnabled } = await import('../server/services/hypo/surprise.js');
+const { detectSurprises, listHypotheses, hypoFlag, HYPO_ENV } = await import('../server/services/hypo/surprise.js');
+const { previewText } = await import('../server/services/preview-mode.js');
 const evidenceIds = e => [...(e.trade_outcome_ids ?? []), ...(e.tx_ids ?? []), ...(e.snapshot_keys ?? [])];
 
 if (values.list) {
@@ -68,12 +73,15 @@ if (values.calibrate) {
   if (values.json) console.log(JSON.stringify(c, null, 2));
   process.exit(0);
 }
-if (!hypoEnabled()) {
-  console.log('hypo_surprise: off (GRIDIRON_HYPO_ENABLED is not set); nothing written');
+const flag = hypoFlag();
+if (!flag.on) {
+  const why = process.env[HYPO_ENV] == null || process.env[HYPO_ENV] === '' ? 'is not set' : `is ${process.env[HYPO_ENV]}`;
+  console.log(`hypo_surprise: off (${HYPO_ENV} ${why}); nothing written`);
   process.exit(0);
 }
 
-const r = detectSurprises({ leagueId, season, enabled: true, write: !values['dry-run'] });
+const r = detectSurprises({ leagueId, season, write: !values['dry-run'] });
+if (r.preview) console.log(previewText(r.preview_reason));
 if (values.json) console.log(JSON.stringify(r, null, 2));
 else {
   for (const s of r.surprises) {
@@ -85,5 +93,5 @@ else {
 }
 const counts = r.surprises.reduce((m, s) => ({ ...m, [s.kind]: (m[s.kind] ?? 0) + 1 }), {});
 console.log(`hypo_surprise: league ${leagueId} season ${season} ${r.dry_run ? 'dry run, ' : ''}`
-  + `found ${r.surprises.length} ${JSON.stringify(counts)} written ${r.written} already ${r.already ?? '-'} `
+  + `found ${r.surprises.length} ${JSON.stringify(counts)} written ${r.written} already ${r.already ?? '-'} published ${r.published} `
   + `skipped ${r.skipped.length} roster_moves ${r.roster_moves} projections ${r.projections}`);

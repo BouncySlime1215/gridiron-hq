@@ -31,7 +31,14 @@ preview-mode.js (then `preview: true` + reason on each p_play).
 `test/avail-p-play.test.js` against main: the file fails to load,
 `ERR_MODULE_NOT_FOUND: .../server/services/avail-p-play.js`. 1 file, 0 pass, 1 fail.
 
-## GREEN
+## GREEN (commits 9dbecb2a, 58195475; merged with main at 547d0d68)
+
+Mutation sweep on 58195475 (test/avail-p-play.test.js): 7 of 7 mutants die.
+M1 drop no_games_no_report (4 fail), M2 unknown value = 0.92 (2), M3 trade-engine
+asset ignores p_play (2), M4 season-sim ignores p_play (1, source pin only), M5 lineup
+diff ignores p_play (1, source pin only), M6 flag always off (2), M7 cache key drops
+`:pplay` (1). Controls: comment edit survives (0 fail); not-applied pattern, 0 fail.
+
 
 `test/avail-p-play.test.js`: 11 pass, 0 fail. Fixture numbers (not the live DB):
 the unseen rookie is served 0.92 on the old path; with the flag on he is
@@ -46,3 +53,18 @@ off the asset is byte-identical (no `p_play` field, 0.92).
 - Four other `?? 0.92` sites are outside row E: roster-risk.js:257,
   role-scenario-engine.js:124, news-fantasy-impact.js:87, contingency.js
   DEFAULT_DURABILITY_PRIOR itself.
+
+## Nick's five questions
+
+1. Well built? One reader, typed status, default off, 11 tests, 7/7 mutants killed.
+   Sim and lineup-diff wiring are pinned by source only.
+2. Stats or made up? The prior is fitted: the role table's no-report cell (fit on
+   2021-24, n stated), else a mean over this week's measured players (n ≥ 20). It falls
+   back to 0.92 only when there is nothing to fit, and then it is labelled `fitted: false`.
+3. How we know: no backtest of the unknown-player prior. The role cell is the fit
+   scripts/fit-availability.mjs already graded. MIN_PRIOR_N = 20 is a hand-set constant.
+4. Pointed elsewhere? The trade-engine asset feeds the trade cards, Start/Sit swaps and
+   season-sim title odds. Four other `?? 0.92` sites are not converted (listed above).
+5. How it unifies: trade-engine and season-sim read one `availPPlayWeek` with fixed
+   arguments. This matches EA-06/07's `avail.p_play` field shape (`status` + value), so
+   the spine producer can wrap it.

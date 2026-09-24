@@ -342,8 +342,9 @@ export async function buildPlansFile(leagues, {
           counterpart: counterpart ? { ...counterpart, models: res.counterpart?.models ?? [] } : { status: 'not_read' },
           // Nick's untouchables (the reader's nick block): ids excluded from targets, gets and flip legs.
           untouchable: res.untouchable ?? { ids: [], refused_targets: [] },
-          // CAP-1C: the depth-only 2-for-1 premium (board on / none, screened, gated out by reason, confirm failures).
-          depth_premium: res.no_overpay?.depth_premium ?? { status: 'not_read' },
+          // CAP-1C: the depth-only 2-for-1 premium (screened, gated out by reason, confirm failures). Written only
+          // when a blue-chip board turned it on, so with no board the entry is byte-for-byte the incumbent's.
+          ...(res.no_overpay?.depth_premium?.board === 'on' ? { depth_premium: res.no_overpay.depth_premium } : {}),
           requests: ins.summary,
           deadline: adapter.league?.deadline_source ?? null, objective: objective.source,
           // Off and untriggered, the entry is byte-for-byte the incumbent's (the committed contract fixture).

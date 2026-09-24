@@ -15,7 +15,8 @@
  *  - Rosters come from PRIOR weeks. A player ruled out has no box-score row the week he
  *    misses; searching the graded week finds nobody (the 0-of-5,336 bug the 9/19 study
  *    pinned in test/opportunity-model.test.js).
- *  - "Out" is the role layer's P(out) (nfl_availability_role_rates) clearing OUT_THRESHOLD.
+ *  - "Out" is P(out) clearing OUT_THRESHOLD. Serving reads the role layer (nfl_availability_role_rates);
+ *    the study uses fitPOut(fit seasons) so the graded season never defines who is out.
  *    A questionable teammate gives no bump: he is surfaced as a pending watch item only.
  *  - An event moves a number only if it passed the pre-registered gate (FITTED_EFFECTS
  *    below, passes_gate). Everything else is served as 'watch' with its evidence.
@@ -102,7 +103,17 @@ const PRACTICE = s => {
 };
 const REPORT_DEFAULT = { out: 1, doubtful: 0.9, questionable: 0.25 };
 
-/** P(out) lookup from the role layer's fitted cells (tier and gap pooled). */
+/** Lookup over a cells map, falling back to the report-status defaults. */
+function pOutLookup(cells) {
+  return (report, practice, position) => {
+    const rep = String(report ?? '').toLowerCase();
+    if (!REPORT_DEFAULT[rep]) return 0; // not on the report as out/doubtful/questionable: not flagged
+    const pr = PRACTICE(practice);
+    return cells.get(`${rep}|${pr}|${position}`) ?? cells.get(`${rep}|*|${position}`) ?? REPORT_DEFAULT[rep];
+  };
+}
+
+/** P(out) lookup from the role layer's fitted cells (tier and gap pooled). Used for serving. */
 export function loadPOut() {
   const cells = new Map();
   try {
@@ -111,12 +122,49 @@ export function loadPOut() {
       cells.set(`${r.report_status}|${r.practice_status}|${r.position}`, 1 - r.p_active);
     }
   } catch { /* table absent in a bare test DB: report-status defaults below */ }
-  return (report, practice, position) => {
-    const rep = String(report ?? '').toLowerCase();
-    if (!REPORT_DEFAULT[rep]) return 0; // not on the report as out/doubtful/questionable: not flagged
-    const pr = PRACTICE(practice);
-    return cells.get(`${rep}|${pr}|${position}`) ?? cells.get(`${rep}|*|${position}`) ?? REPORT_DEFAULT[rep];
-  };
+  return pOutLookup(cells);
+}
+
+export const POUT_SHRINK_K = 10;
+const POS_OF = p => { const u = String(p ?? '').toUpperCase(); return u === 'FB' || u === 'HB' ? 'RB' : u; };
+
+/**
+ * Study-only P(out) cells fitted on the given seasons alone. The role-layer table is fitted on
+ * 2021-24, which includes the graded season, so the study must not use it to decide who is "out".
+ * Out = on the report and no usage row that week (the role layer's own outcome definition),
+ * shrunk toward the report-status default with k = POUT_SHRINK_K.
+ */
+export function fitPOut(seasons, { k = POUT_SHRINK_K } = {}) {
+  if (!seasons?.length) throw new Error('fitPOut needs seasons');
+  const agg = new Map();
+  const add = (key, out) => { const a = agg.get(key) ?? { n: 0, out: 0 }; a.n++; a.out += out; agg.set(key, a); };
+  const list = rows(`
+    WITH played AS (
+      SELECT DISTINCT u.season, u.week, p.gsis_id
+        FROM player_week_usage u JOIN players p ON p.id = u.player_id
+       WHERE p.gsis_id IS NOT NULL AND u.season IN (${seasons.map(Number).join(',')})
+    )
+    SELECT i.report_status, i.practice_status, i.position,
+           CASE WHEN played.gsis_id IS NULL THEN 1 ELSE 0 END AS out
+      FROM nfl_injuries i
+      LEFT JOIN played ON played.season = i.season AND played.week = i.week AND played.gsis_id = i.gsis_id
+     WHERE i.season IN (${seasons.map(Number).join(',')}) AND i.gsis_id IS NOT NULL
+       AND upper(i.position) IN ('QB','RB','WR','TE','FB','HB')`);
+  for (const r of list) {
+    const rep = String(r.report_status ?? '').toLowerCase();
+    if (!REPORT_DEFAULT[rep]) continue;
+    const pos = POS_OF(r.position);
+    add(`${rep}|${PRACTICE(r.practice_status)}|${pos}`, r.out);
+    add(`${rep}|*|${pos}`, r.out);
+  }
+  const cells = new Map();
+  for (const [key, a] of agg) {
+    const prior = REPORT_DEFAULT[key.split('|')[0]];
+    cells.set(key, (a.out + k * prior) / (a.n + k));
+  }
+  const lookup = pOutLookup(cells);
+  lookup.cells = Object.fromEntries([...agg].map(([key, a]) => [key, { n: a.n, p_out: +cells.get(key).toFixed(3) }]));
+  return lookup;
 }
 
 // ---------------------------------------------------------------- season loaders
@@ -626,17 +674,18 @@ export function pairAccuracy(rowsIn, shift) {
 
 /**
  * Written by scripts/fit-opportunity-radar.mjs (fit 2021-2023, graded 2024, 2025 closed).
+ * "Out" in the study comes from fitPOut(2021-2023), never from the 2021-24 role-layer table.
  * Key: `${type}|${group}`. beta is per unit of the event's magnitude m, on `opp1` (the
  * gate outcome); opp3/ppr1/eff1 carry their own betas for display. passes_gate is the
  * pre-registered decision; only those move a number.
  */
 export const FITTED_EFFECTS = Object.freeze({
   'teammate_out|RB': {"beta": 0.2116, "ci": [0.1621, 0.2653], "n": 306, "players": 142, "opp3": 0.1807, "ppr1": 0.1548, "ppr1_ci": [0.1079, 0.2025], "eff1": -0.003, "eff1_ci": [-0.0069, 0.0014], "graded": {"n": 118, "gain": 0.7668, "ci": [0.3788, 1.1764]}, "passes_gate": true, "robust": true},
-  'teammate_out|WRTE': {"beta": 0.0491, "ci": [0.0294, 0.068], "n": 1979, "players": 423, "opp3": 0.0423, "ppr1": 0.1017, "ppr1_ci": [0.0562, 0.1446], "eff1": -0.0006, "eff1_ci": [-0.0104, 0.0099], "graded": {"n": 661, "gain": 0.0049, "ci": [-0.0159, 0.025]}, "passes_gate": false},
+  'teammate_out|WRTE': {"beta": 0.055, "ci": [0.0307, 0.0788], "n": 1583, "players": 398, "opp3": 0.043, "ppr1": 0.1138, "ppr1_ci": [0.0615, 0.1663], "eff1": 0.0022, "eff1_ci": [-0.0099, 0.015], "graded": {"n": 525, "gain": 0.0174, "ci": [-0.0055, 0.0424]}, "passes_gate": false},
   'backup_qb_start|RB': {"beta": 0.0859, "ci": [-0.7327, 0.8978], "n": 198, "players": 107, "opp3": 0.056, "ppr1": 0.7865, "ppr1_ci": [-0.1546, 1.7724], "eff1": -0.0056, "eff1_ci": [-0.0947, 0.0775], "graded": {"n": 51, "gain": -0.0084, "ci": [-0.0286, 0.0109]}, "passes_gate": false},
   'backup_qb_start|WRTE': {"beta": 0.0563, "ci": [-0.1264, 0.2301], "n": 474, "players": 254, "opp3": -0.0384, "ppr1": -0.2938, "ppr1_ci": [-0.7298, 0.1221], "eff1": -0.0453, "eff1_ci": [-0.16, 0.065], "graded": {"n": 131, "gain": 0.0045, "ci": [-0.0037, 0.012]}, "passes_gate": false},
-  'qb_return|RB': {"beta": -0.0068, "ci": [-0.8124, 0.7596], "n": 101, "players": 72, "opp3": 0.012, "ppr1": -0.1683, "ppr1_ci": [-1.191, 0.799], "eff1": -0.0525, "eff1_ci": [-0.1659, 0.057], "graded": {"n": 13, "gain": -0.0016, "ci": [-0.0047, 0.0016]}, "passes_gate": false},
-  'qb_return|WRTE': {"beta": -0.232, "ci": [-0.4918, 0.0242], "n": 247, "players": 167, "opp3": -0.1614, "ppr1": -0.1176, "ppr1_ci": [-0.6511, 0.3984], "eff1": 0.015, "eff1_ci": [-0.1656, 0.1985], "graded": {"n": 34, "gain": 0.1058, "ci": [0.0464, 0.1617]}, "passes_gate": false},
+  'qb_return|RB': {"beta": -0.0068, "ci": [-0.8124, 0.7596], "n": 101, "players": 72, "opp3": 0.012, "ppr1": -0.1683, "ppr1_ci": [-1.191, 0.799], "eff1": -0.0525, "eff1_ci": [-0.1659, 0.057], "graded": {"n": 16, "gain": -0.0017, "ci": [-0.0042, 0.0008]}, "passes_gate": false},
+  'qb_return|WRTE': {"beta": -0.232, "ci": [-0.4918, 0.0242], "n": 247, "players": 167, "opp3": -0.1614, "ppr1": -0.1176, "ppr1_ci": [-0.6511, 0.3984], "eff1": 0.015, "eff1_ci": [-0.1656, 0.1985], "graded": {"n": 41, "gain": 0.0766, "ci": [0.0207, 0.1251]}, "passes_gate": false},
   'oline_out|QB': {"beta": 0.5318, "ci": [-0.8936, 1.9537], "n": 196, "players": 70, "opp3": 0.2133, "ppr1": -0.5483, "ppr1_ci": [-1.4948, 0.4498], "eff1": -0.0355, "eff1_ci": [-0.077, 0.006], "graded": {"n": 68, "gain": -0.0143, "ci": [-0.1228, 0.0997]}, "passes_gate": false},
   'oline_out|RB': {"beta": -0.1788, "ci": [-0.5389, 0.18], "n": 495, "players": 162, "opp3": -0.2055, "ppr1": -0.188, "ppr1_ci": [-0.6796, 0.2943], "eff1": 0.0016, "eff1_ci": [-0.0501, 0.055], "graded": {"n": 173, "gain": 0.0032, "ci": [-0.0247, 0.0282]}, "passes_gate": false},
   'oline_out|WRTE': {"beta": 0.0909, "ci": [-0.0183, 0.2049], "n": 1208, "players": 353, "opp3": 0.0097, "ppr1": -0.037, "ppr1_ci": [-0.3233, 0.2414], "eff1": -0.0195, "eff1_ci": [-0.1094, 0.0757], "graded": {"n": 413, "gain": -0.0075, "ci": [-0.0157, 0.0007]}, "passes_gate": false},
@@ -668,8 +717,8 @@ export const FITTED_EFFECTS = Object.freeze({
   'coach_change|QB': {"beta": null, "ci": null, "n": 0, "players": 0, "opp3": null, "ppr1": null, "ppr1_ci": null, "eff1": null, "eff1_ci": null, "graded": null, "passes_gate": false},
   'coach_change|RB': {"beta": null, "ci": null, "n": 0, "players": 0, "opp3": null, "ppr1": null, "ppr1_ci": null, "eff1": null, "eff1_ci": null, "graded": null, "passes_gate": false},
   'coach_change|WRTE': {"beta": null, "ci": null, "n": 0, "players": 0, "opp3": null, "ppr1": null, "ppr1_ci": null, "eff1": null, "eff1_ci": null, "graded": null, "passes_gate": false},
-  'star_return|RB': {"beta": -0.0703, "ci": [-0.1291, -0.0092], "n": 227, "players": 119, "opp3": -0.0782, "ppr1": -0.0721, "ppr1_ci": [-0.1283, -0.0108], "eff1": 0.0006, "eff1_ci": [-0.0063, 0.0086], "graded": {"n": 79, "gain": 0.1486, "ci": [0.0096, 0.3004]}, "passes_gate": true, "robust": false, "robust_note": "passes at the pre-registered seed; fails at 1 of 3 alternate bootstrap seeds (graded CI low -0.008)"},
-  'star_return|WRTE': {"beta": -0.0161, "ci": [-0.0398, 0.0084], "n": 971, "players": 359, "opp3": -0.0276, "ppr1": -0.0139, "ppr1_ci": [-0.0702, 0.045], "eff1": 0.0085, "eff1_ci": [-0.005, 0.023], "graded": {"n": 348, "gain": 0.0151, "ci": [0.005, 0.025]}, "passes_gate": false},
+  'star_return|RB': {"beta": -0.0703, "ci": [-0.1291, -0.0092], "n": 227, "players": 119, "opp3": -0.0782, "ppr1": -0.0721, "ppr1_ci": [-0.1283, -0.0108], "eff1": 0.0006, "eff1_ci": [-0.0063, 0.0086], "graded": {"n": 79, "gain": 0.1486, "ci": [0.0096, 0.3004]}, "passes_gate": true, "robust": false, "robust_note": "passes at the pre-registered seed and at alternate seeds 1, 7 and 42, but the graded CI low is 0.001-0.010 and one earlier alternate seed put it at -0.008"},
+  'star_return|WRTE': {"beta": -0.0273, "ci": [-0.0528, -0.0012], "n": 920, "players": 352, "opp3": -0.0352, "ppr1": -0.0365, "ppr1_ci": [-0.0968, 0.0269], "eff1": 0.0027, "eff1_ci": [-0.0109, 0.0173], "graded": {"n": 332, "gain": 0.0259, "ci": [0.0095, 0.0435]}, "passes_gate": true, "robust": false, "robust_note": "passes at the pre-registered seed and at alternate seeds 1, 7 and 42, but the fit CI high is -0.000 to -0.001 and the graded gain is small (+0.026)"},
   'rookie_ramp|QB': {"beta": 0.2671, "ci": [-1.1793, 1.7516], "n": 136, "players": 26, "opp3": -0.1208, "ppr1": 0.8545, "ppr1_ci": [-0.0166, 1.7757], "eff1": 0.0217, "eff1_ci": [-0.0248, 0.0682], "graded": {"n": 48, "gain": 0.0111, "ci": [-0.0396, 0.0794]}, "passes_gate": false},
   'rookie_ramp|RB': {"beta": -0.0855, "ci": [-0.5273, 0.3419], "n": 444, "players": 77, "opp3": -0.0711, "ppr1": -0.2097, "ppr1_ci": [-0.6022, 0.1598], "eff1": -0.0223, "eff1_ci": [-0.0708, 0.0274], "graded": {"n": 130, "gain": 0.0045, "ci": [-0.0069, 0.0159]}, "passes_gate": false},
   'rookie_ramp|WRTE': {"beta": 0.2416, "ci": [0.1474, 0.3363], "n": 977, "players": 174, "opp3": 0.3617, "ppr1": 0.5152, "ppr1_ci": [0.2826, 0.7341], "eff1": 0.0367, "eff1_ci": [-0.0392, 0.1146], "graded": {"n": 311, "gain": -0.0446, "ci": [-0.0701, -0.0194]}, "passes_gate": false},
@@ -677,7 +726,7 @@ export const FITTED_EFFECTS = Object.freeze({
   'news_role|RB': {"beta": null, "ci": null, "n": 0, "players": 0, "opp3": null, "ppr1": null, "ppr1_ci": null, "eff1": null, "eff1_ci": null, "graded": null, "passes_gate": false},
   'news_role|WRTE': {"beta": null, "ci": null, "n": 0, "players": 0, "opp3": null, "ppr1": null, "ppr1_ci": null, "eff1": null, "eff1_ci": null, "graded": null, "passes_gate": false},
 });
-export const FITTED_PROVENANCE = Object.freeze({ fit: '2021-2023', graded: '2024', script: 'scripts/fit-opportunity-radar.mjs', tree: '912cb492 (pre-registration commit); re-run identical on the PR head' });
+export const FITTED_PROVENANCE = Object.freeze({ fit: '2021-2023', graded: '2024', script: 'scripts/fit-opportunity-radar.mjs', p_out: 'fitPOut(2021-2023): study-only cells, the role-layer table includes 2024', tree: 'fix commit after 24235c40 (review of #377)' });
 
 // ---------------------------------------------------------------- serving
 

@@ -23,7 +23,15 @@
  * Flag: GRIDIRON_PARTNER_KERNEL=1 on, =0 off (vetoes preview); unset = on only under
  * preview mode (preview-mode.js#previewUnconfirmed), labelled preview. Default off.
  * Transfer caveat: fitted on Sleeper; the ESPN 2026 check is descriptive only.
+ *
+ * Served path: planner.js#planLeague passes { league } to rankPartners; with the flag on,
+ * rankPartners calls leagueKernel below, which reads the league's completed ESPN trades
+ * (league_transactions_raw, read-only, the same DB file as server/db/index.js) and builds the
+ * kernel as of now. The planner's import graph stays DB-free: node:sqlite is opened per call.
  */
+import { DatabaseSync } from 'node:sqlite';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { previewUnconfirmed } from '../preview-mode.js';
 
 /** RL-46-1 constants (checker refit, /rnd/loop/data/r46-IDEA-134-check/check.out). */
@@ -109,4 +117,33 @@ export function completedTradesFromEspn(rows) {
     if (teams.length) out.push({ season: Number(t.season), at: t.processed_at ?? t.proposed_at, teams });
   }
   return out;
+}
+
+// Same file as server/db/index.js (GRIDIRON_DB_PATH, else server/data.sqlite); read per call.
+const DEFAULT_DB = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'data.sqlite');
+
+/** Completed-trade rows (TRADE_ACCEPT) for one league, this season and earlier. Read-only; throws on a missing DB/table. */
+export function espnTradeRows({ leagueId, season, dbPath = process.env.GRIDIRON_DB_PATH || DEFAULT_DB }) {
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  try {
+    return db.prepare(`SELECT tx_id, season, type, execution_type, status, proposed_at, processed_at, items_json
+      FROM league_transactions_raw WHERE league_id = ? AND season <= ? AND type = 'TRADE_ACCEPT'`).all(leagueId, Number(season));
+  } finally { db.close(); }
+}
+
+/**
+ * The served kernel for one league: { kernel (Map, or null), status, trades }. status is 'ok', or says why
+ * there is no kernel (no league/season on the plan, or the read failed); a failure is reported, not hidden.
+ * ESPN team ids are taken as the manager id across seasons (prev_season / repeat); only 2026 is stored today.
+ */
+export function leagueKernel({ league, candidates, now = Date.now(), readRows = espnTradeRows }) {
+  const season = Number(league?.season);
+  if (league?.id == null || !Number.isFinite(season)) return { kernel: null, status: 'no league id / season on the plan', trades: 0 };
+  let trades;
+  try {
+    trades = completedTradesFromEspn(readRows({ leagueId: league.id, season }));
+  } catch (err) {
+    return { kernel: null, status: `kernel read failed: ${err.message}`, trades: 0 };
+  }
+  return { kernel: kernelFromTrades({ me: league.me, candidates, trades, season, now }), status: 'ok', trades: trades.length };
 }

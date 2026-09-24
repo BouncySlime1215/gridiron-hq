@@ -1,11 +1,18 @@
 // PARTNER-KERNEL (RL-46-1): the fitted who-trades-with-whom tilt on Nick's partner ranking.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import {
   KERNEL_C, KERNEL_A, KERNEL_LAM, kernelWeight, kernelWeights, kernelFromTrades, completedTradesFromEspn,
-  partnerKernelFlag, PARTNER_KERNEL_ENV,
+  partnerKernelFlag, PARTNER_KERNEL_ENV, leagueKernel, espnTradeRows,
 } from '../server/services/people/partner-kernel.js';
 import { rankPartners, pResponds } from '../server/services/campaign/partners.js';
+import { planLeague } from '../server/services/campaign/planner.js';
+import { normaliseObjective } from '../server/services/campaign/objectives.js';
+import { makeAdapter } from './fixtures/campaign-league.mjs';
 
 const ON = { on: true, preview: false };
 const OFF = { on: false, preview: false };
@@ -124,4 +131,85 @@ test('preview mode labels the kernel entry', () => {
   const on = rankPartners(managers(), edge, null, { kernel, flag: { on: true, preview: true } });
   assert.equal(on[0].partner_kernel.preview, true);
   assert.match(on[0].partner_kernel.preview_reason, /descriptive/);
+});
+
+// ---- served path: the planner hands rankPartners its league; the kernel is built from the DB ----
+
+/** A throwaway DB with only league_transactions_raw: league 99 (made up), team 3 in three completed trades. */
+function tradesDb() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'partner-kernel-'));
+  const file = path.join(dir, 'k.sqlite');
+  const db = new DatabaseSync(file);
+  db.exec(`CREATE TABLE league_transactions_raw (league_id INTEGER, season INTEGER, tx_id TEXT, type TEXT, execution_type TEXT,
+    status TEXT, team_id INTEGER, proposed_at TEXT, processed_at TEXT, related_tx_id TEXT, items_json TEXT)`);
+  const ins = db.prepare('INSERT INTO league_transactions_raw VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+  const items = (a, b) => JSON.stringify([{ fromTeamId: a, toTeamId: b }, { fromTeamId: b, toTeamId: a }]);
+  ins.run(99, 2026, 't1', 'TRADE_ACCEPT', 'PROCESS', 'EXECUTED', 3, '2026-09-01T00:00:00Z', '2026-09-02T00:00:00Z', null, items(3, 4));
+  ins.run(99, 2026, 't2', 'TRADE_ACCEPT', 'PROCESS', 'EXECUTED', 3, '2026-09-05T00:00:00Z', '2026-09-06T00:00:00Z', null, items(3, 4));
+  ins.run(99, 2026, 't3', 'TRADE_ACCEPT', 'PROCESS', 'EXECUTED', 3, '2026-09-08T00:00:00Z', '2026-09-09T00:00:00Z', null, items(3, 2));
+  ins.run(99, 2026, 'p1', 'TRADE_PROPOSAL', 'EXECUTE', 'PENDING', 2, '2026-09-10T00:00:00Z', null, null, items(2, 4)); // not a completed trade
+  ins.run(98, 2026, 'o1', 'TRADE_ACCEPT', 'PROCESS', 'EXECUTED', 2, '2026-09-01T00:00:00Z', '2026-09-02T00:00:00Z', null, items(2, 4)); // other league
+  db.close();
+  return { file, done: () => fs.rmSync(dir, { recursive: true, force: true }) };
+}
+
+const NOW = Date.parse('2026-09-24T00:00:00Z');
+
+test('leagueKernel reads the league\'s completed trades from the DB file, as of now', () => {
+  const t = tradesDb();
+  try {
+    const rows = espnTradeRows({ leagueId: 99, season: 2026, dbPath: t.file });
+    assert.deepEqual(rows.map(r => r.tx_id).sort(), ['t1', 't2', 't3']);
+    const k = leagueKernel({ league: { id: 99, me: '1', season: 2026 }, candidates: ['2', '3', '4'], now: NOW,
+      readRows: a => espnTradeRows({ ...a, dbPath: t.file }) });
+    assert.equal(k.status, 'ok');
+    assert.equal(k.trades, 3);
+    assert.deepEqual(['2', '3', '4'].map(x => k.kernel.get(x).trade_ends), [1, 3, 2]);
+    const early = leagueKernel({ league: { id: 99, me: '1', season: 2026 }, candidates: ['2', '3', '4'], now: Date.parse('2026-09-03T00:00:00Z'),
+      readRows: a => espnTradeRows({ ...a, dbPath: t.file }) });
+    assert.deepEqual(['2', '3', '4'].map(x => early.kernel.get(x).trade_ends), [0, 1, 1]); // strictly before now
+    assert.equal(leagueKernel({ league: { id: 99, me: '1' }, candidates: ['2'] }).kernel, null); // no season
+  } finally { t.done(); }
+});
+
+test('rankPartners builds the kernel from { league } when the flag is on; the reason shows in basis', () => {
+  const t = tradesDb();
+  try {
+    const mgr = () => new Map([['2', { receptiveness: 1 }], ['3', { receptiveness: 1 }], ['4', { receptiveness: 1, nick: { unreachable: true } }]]);
+    const e = new Map([['2', 0.01], ['3', 0.01], ['4', 0.01]]);
+    const league = { id: 99, me: '1', season: 2026 };
+    const readRows = a => espnTradeRows({ ...a, dbPath: t.file });
+    const off = rankPartners(mgr(), e, null, { league, readRows, now: NOW, flag: OFF });
+    assert.deepEqual(off, rankPartners(mgr(), e, null, { flag: OFF })); // flag off: league is ignored
+    const on = rankPartners(mgr(), e, null, { league, readRows, now: NOW, flag: ON });
+    assert.equal(on[0].team, '3');
+    assert.ok(on[0].partner_kernel.tilt > 1);
+    assert.match(on[0].basis, /partner kernel \(trades a lot\), order only/);
+    assert.equal(on[0].p_responds, off.find(r => r.team === '3').p_responds);
+    const four = on.find(r => r.team === '4');
+    assert.equal(four.score, 0);
+    assert.equal(four.basis, 'Nick: unreachable');
+    // A failed read is reported on every partner, and the order is today's.
+    const bad = rankPartners(mgr(), e, null, { league, now: NOW, flag: ON, readRows: () => { throw new Error('no such table'); } });
+    assert.match(bad[0].partner_kernel.basis, /kernel read failed: no such table/);
+    assert.deepEqual(bad.map(r => r.team), off.map(r => r.team));
+  } finally { t.done(); }
+});
+
+test('served path: planLeague passes its league, so the flag changes the plan\'s partner order and basis', () => {
+  const t = tradesDb();
+  try {
+    const run = flag => withEnv({ [PARTNER_KERNEL_ENV]: flag, GRIDIRON_PREVIEW_UNCONFIRMED: null, GRIDIRON_DB_PATH: t.file }, () => {
+      const a = makeAdapter();
+      a.league = { ...a.league, season: 2026 };
+      return planLeague(a, { objective: normaliseObjective({ risk_mode: 'balanced' }) }).partners;
+    });
+    const off = run('0'), on = run('1');
+    assert.ok(off.every(p => !('partner_kernel' in p)));
+    const three = on.find(p => p.team === '3');
+    assert.ok(three.partner_kernel.tilt > 1, 'team 3 (three trades) is tilted up in the served plan');
+    assert.equal(three.partner_kernel.trade_ends, 3);
+    assert.match(three.basis, /partner kernel/);
+    for (const p of on) assert.equal(p.p_responds, off.find(x => x.team === p.team).p_responds, `team ${p.team} P(responds)`);
+  } finally { t.done(); }
 });

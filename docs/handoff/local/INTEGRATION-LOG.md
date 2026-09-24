@@ -2,7 +2,19 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-24 04:31Z.
+Last rebuilt: 2026-09-24 05:25Z.
+
+## #317: integration: merge batch 3 (#272 #276 #287 #282 #274 #275 #266 #279 #262)
+
+- Merged: 1:24 AM ET, Sep 24 as `60b9e890`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #299: integration: merge batch 2 (#246 #237 #227 #233 #231 #230 #234) + wiring fixes
+
+- Merged: 12:56 AM ET, Sep 24 as `63ed648c`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #278: integration: merge batch 1 (#174 #244 #243 #239 #236 #240 #216 #242 #235)
 

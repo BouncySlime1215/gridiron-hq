@@ -27,5 +27,7 @@ main tops at 073 + merged since. Numbers below are RESERVED; any PR using a diff
 | 095 | #277 HYPO-01a | |
 | 096 | #288 CLONE-01b b2 | |
 | 097 | #295 | |
-| 098+ | next free: take the lowest unlisted number and ADD A ROW HERE in the same PR | |
+| 098 | #316 PULSE-01 chat pulse | people_pulse, people_pulse_runs |
+| 099 | #321 CRED-01 per-manager credibility | people_credibility |
+| 100+ | next free: take the lowest unlisted number and ADD A ROW HERE in the same PR | |
 Rule: a test in main (FIX-255-1) fails on duplicate numbers once merged.

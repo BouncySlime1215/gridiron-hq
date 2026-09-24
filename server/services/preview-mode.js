@@ -21,6 +21,9 @@
  *   - warroom-flag.js#warRoomFlag                War Room tab in Trade Brain (plans from a study run)
  *   - season-sim.js#rosBasisFlag                 title odds on the finder's ros_ppg (RL-17-3;
  *                                                GRIDIRON_RL17_3_ENABLED=0 vetoes preview)
+ *   - coach/brief.js#coachBriefFlag              Coach's morning brief, weekly check-in and push
+ *                                                text (COACH-BRIEF; GRIDIRON_COACH_BRIEF_ENABLED=0
+ *                                                vetoes preview)
  * Not converted, with the reason, in docs/tdd/2026-09-23-preview-01-preview-unconfirmed.tdd.md.
  */
 export const PREVIEW_ENV = 'GRIDIRON_PREVIEW_UNCONFIRMED';

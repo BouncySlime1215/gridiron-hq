@@ -65,7 +65,7 @@ test('typed fields: ok carries a value; unknown and failed carry a reason and no
   assert.equal(at(l => { l.attention = { status: 'unknown', source: 'campaign.plan', value: 0, reason: 'x' }; }).ok, false);
   assert.equal(at(l => { l.attention = { status: 'failed', source: 'campaign.plan' }; }).ok, false);
   assert.equal(at(l => { l.attention = { status: 'unknown', source: 'campaign.plan', reason: 'Not ranked yet.' }; }).ok, true);
-  assert.equal(at(l => { l.attention.status = 'zero'; }).ok, false, 'only ok / unknown / failed');
+  assert.equal(at(l => { l.attention = { status: 'zero', source: 'campaign.plan', reason: 'No offers yet.' }; }).ok, false, 'only ok / unknown / failed');
   assert.equal(at(l => { l.attention.source = 'made.up'; }).ok, false, 'source must be a known SourceId');
   assert.equal(at(l => { l.destination.value.title_now = 0.118; }).ok, false, 'a bare number is not a typed field');
   assert.equal(at(l => { l.next_move.value.steps[0].p_yes.value = 1.4; }).ok, false, 'a probability stays in 0..1');

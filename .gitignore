@@ -93,3 +93,6 @@ docs/tdd/sweeps/*.results.json
 
 # EVAL-01 E4 planner replay output (scripts write it locally; never committed)
 server/data/eval/
+
+# REASON-01 reasoning panels (offline output, rebuilt every refresh)
+server/data/reasoning/

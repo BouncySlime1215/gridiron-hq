@@ -5,7 +5,7 @@
  *   luck     = actual points - expected points of the lineup that was started
  *   decision = expected points started - expected points of the best lineup (<= 0)
  *
- * Source: `weekly_autopsy` (the Monday Autopsy producer, not built yet).
+ * Source: `weekly_autopsy` (PROJ-04-a, the Monday Autopsy producer, not built yet).
  * Contract: one row per team-week with season, week, league_id, team_id,
  * actual_points, expected_points, optimal_expected_points, all using the
  * pregame expected points that were served.
@@ -60,7 +60,7 @@ const COLS = ['season', 'week', 'league_id', 'team_id', 'actual_points', 'expect
 
 export function load(database) {
   const s = readSource(database, 'weekly_autopsy', COLS);
-  return s.ok ? { rows: s.rows } : { rows: [], reason: `${s.reason}; the Monday Autopsy producer builds it` };
+  return s.ok ? { rows: s.rows } : { rows: [], reason: `${s.reason}; PROJ-04-a (Monday Autopsy) builds it` };
 }
 
 export function run(database) {

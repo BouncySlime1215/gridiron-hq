@@ -70,8 +70,13 @@ function daysLeftInWeek(svc, lg, week, now) {
   return Number.isFinite(t) ? Math.max(0, Math.floor((t - now) / DAY)) : 7;
 }
 
-/** Offers Nick sent each manager in the last 7 days (ESPN proposals + War Room "I sent it" log). */
-function sentThisWeek(svc, leagueId, season, me, now, offerLog = []) {
+/**
+ * Offers Nick sent each manager in the last 7 days: ESPN's own proposals, plus
+ * every "I sent it" in `trade_outcomes` (sent_at IS NOT NULL; War Room and
+ * TradeCard taps alike) that the settle job has not matched to one of those
+ * proposals, so a tapped offer ESPN also shows counts once.
+ */
+export function sentThisWeek(svc, leagueId, season, me, now) {
   const out = new Map();
   const rows = svc.db.rows(`SELECT tx_id, items_json, proposed_at FROM league_transactions_raw
                             WHERE league_id = ? AND season = ? AND type = 'TRADE_PROPOSAL' AND team_id = ?
@@ -88,9 +93,16 @@ function sentThisWeek(svc, leagueId, season, me, now, offerLog = []) {
     const other = new Set(items.flatMap(i => [i.fromTeamId, i.toTeamId]).filter(t => t != null && t > 0 && String(t) !== String(me)).map(String));
     for (const t of other) out.set(t, (out.get(t) ?? 0) + 1);
   }
-  for (const o of offerLog) {
-    if (String(o.league) !== String(leagueId) || !Number.isFinite(Date.parse(o.at)) || now - Date.parse(o.at) > 7 * DAY) continue;
-    out.set(String(o.manager), (out.get(String(o.manager)) ?? 0) + 1);
+  const sentCols = svc.db.rows('PRAGMA table_info(trade_outcomes)').map(c => c.name);
+  if (!sentCols.includes('sent_at')) return out;
+  const tapped = svc.db.rows(`SELECT counterparty_team_id, sent_at, matched_tx_id FROM trade_outcomes
+                              WHERE league_id = ? AND season = ? AND sent_at IS NOT NULL AND counterparty_team_id IS NOT NULL`,
+  leagueId, season);
+  for (const o of tapped) {
+    if (o.matched_tx_id != null && seen.has(String(o.matched_tx_id))) continue;
+    const at = Date.parse(o.sent_at);
+    if (!Number.isFinite(at) || now - at > 7 * DAY) continue;
+    out.set(String(o.counterparty_team_id), (out.get(String(o.counterparty_team_id)) ?? 0) + 1);
   }
   return out;
 }
@@ -98,9 +110,9 @@ function sentThisWeek(svc, leagueId, season, me, now, offerLog = []) {
 /**
  * Build the adapter for one league. chat: Map roster -> { profile, negotiation, sentiment: [{ player
  * (name), sentiment_mean, n }], nick } from scripts/campaign/chat-labels.mjs, or null (no chat -> every
- * label 'unknown'); offerLog: parsed War Room offer log rows.
+ * label 'unknown').
  */
-export function buildAdapter(svc, leagueId, { chat = null, offerLog = [], now = Date.now(), finder = true } = {}) {
+export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true } = {}) {
   const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg) throw new Error(`league ${leagueId} not found`);
   const payload = JSON.parse(lg.payload ?? '{}');
@@ -181,7 +193,7 @@ export function buildAdapter(svc, leagueId, { chat = null, offerLog = [], now = 
   const timing = svc.tactics.timingRead(leagueId, { season });
   const blocked = new Set(svc.db.rows(`SELECT roster_id FROM manager_profiles WHERE league_id = ? AND tradeability = 'never'`, leagueId)
     .map(r => String(r.roster_id)));
-  const sent = sentThisWeek(svc, leagueId, season, me, now, offerLog);
+  const sent = sentThisWeek(svc, leagueId, season, me, now);
   const titleByTeam = new Map((w0.base?.teams ?? []).map(t => [String(t.roster_id), t.title_odds]));
   const managers = new Map();
   for (const t of rosters.keys()) {

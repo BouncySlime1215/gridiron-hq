@@ -7,7 +7,8 @@
  *  - the stylesheet never lets the grid or the page scroll; the phone layout (< 700 px)
  *    is a horizontal scroll-snap deck, still no vertical page scroll;
  *  - dark tokens exist (prefers-color-scheme and [data-theme="dark"]);
- *  - only useWarRoom.ts fetches; no arithmetic on `.value` in components;
+ *  - only useWarRoom.ts reads and only requests.ts writes (the request table); no
+ *    arithmetic on `.value` in components;
  *  - navigation stays 8 items and App.tsx gains no route.
  */
 import test from 'node:test';
@@ -21,7 +22,7 @@ import { loadWarRoom, textOf, WARROOM_DIR } from './helpers/warroom-tsx.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
-const fixture = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'war-room-plans.json'), 'utf8'));
+const producer = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'warroom-contract', 'ui-contract-plans.json'), 'utf8'));
 const { buildWarRoomView } = await import('../server/services/war-room-view.js');
 
 const wr = await loadWarRoom();
@@ -29,7 +30,8 @@ test.after(() => wr.cleanup());
 const { default: WarRoom, ROOT_STYLE, PANELS } = await wr.mod('WarRoom');
 const { useWarRoom } = await wr.mod('useWarRoom');
 
-const view = buildWarRoomView(1, { status: 'ok', entries: structuredClone(fixture), as_of: 'x', id: 'y' }, { enabled: true, preview: true });
+const plans = { status: 'ok', entries: structuredClone(producer.leagues), as_of: producer.generated_at, id: 'y' };
+const view = buildWarRoomView(1, plans, { enabled: true, preview: true });
 const html = renderToStaticMarkup(React.createElement(WarRoom, {
   view, leagues: [{ id: 1, name: 'League 1' }, { id: 2, name: 'League 2' }], activeId: 1, onLeague() {}, onExit() {},
 }));
@@ -60,7 +62,7 @@ test('every panel and the Coach dock sit in the one grid, each in a named area',
   for (const p of PANELS) assert.match(html, new RegExp(`data-panel="${p.id}"[^>]*style="grid-area:${p.id}"`), p.id);
   assert.match(html, /class="wr-coach/);
   assert.match(css, /\.wr-coach \{ grid-area: coach;/);
-  for (const a of ['top', 'next', 'stops', 'flip', 'targets', 'catch', 'brain', 'coach']) assert.ok(ROOT_STYLE.gridTemplateAreas.includes(a), a);
+  for (const a of ['top', 'next', 'stops', 'flip_map', 'targets', 'catch', 'brain_report', 'coach']) assert.ok(ROOT_STYLE.gridTemplateAreas.includes(a), a);
   // Panels clip; their bodies are the only thing allowed to scroll, inside the panel.
   assert.match(rule('.wr-panel'), /overflow:\s*hidden/);
   assert.match(rule('.wr-panel'), /min-height:\s*0/);
@@ -86,18 +88,31 @@ test('dark tokens: system dark and the explicit toggle both define every token',
   }
 });
 
-test('flag-on view renders the whole dashboard with unknowns named, never 0', () => {
+test('flag-on view renders every contract section from the producer, never 0', () => {
   const text = textOf(html);
   for (const s of ['War Room', 'Next move', 'Stops', 'Flip map', 'Suggested targets', 'Catch-up', 'Is the brain working?', 'Coach',
-    'Preview, unconfirmed', 'not ranked yet', '1 of 4', 'Send this to Team 7']) assert.ok(text.includes(s), s);
+    'Preview, unconfirmed', '1 of 2', 'Send this to Team 7',
+    // destination, attention, speed curve, catch-up, brain report and targets are the producer's, not "not built"
+    '11.8%', 'rank 1 of 3', 'Offer Team 9 the bench receiver', 'wk 5', 'D. Harlow (WR)', 'not enough data']) assert.ok(text.includes(s), s);
   assert.doesNotMatch(text, /\b0\.0%|\b0%|NaN|undefined/);
   for (const id of ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7']) assert.ok(text.includes(id), id);
+  // WarRoom wires the request route into the target picker (the call site of target.approve).
+  assert.match(html, /<button type="button" class="wr-btn wr-sm">Approve<\/button>/);
+  // A league with nothing produced still draws every panel, each saying why.
+  const empty = renderToStaticMarkup(React.createElement(WarRoom, {
+    view: buildWarRoomView(99, plans, { enabled: true, preview: false }), leagues: [{ id: 99, name: null }], activeId: 99, onLeague() {}, onExit() {},
+  }));
+  assert.match(textOf(empty), /No plan has been run for this league yet/);
+  assert.match(textOf(empty), /not ranked yet/);
 });
 
-test('only useWarRoom.ts fetches, and it asks for the one route', () => {
+test('only useWarRoom.ts reads and only requests.ts writes, each to its one route', () => {
   const files = fs.readdirSync(WARROOM_DIR).filter(f => /\.tsx?$/.test(f));
-  const fetchers = files.filter(f => /\buseApi\s*[<(]|\bapi\s*[<(]|\bfetch\s*\(/.test(fs.readFileSync(path.join(WARROOM_DIR, f), 'utf8')));
-  assert.deepEqual(fetchers, ['useWarRoom.ts']);
+  const src = f => fs.readFileSync(path.join(WARROOM_DIR, f), 'utf8');
+  const fetchers = files.filter(f => /from ['"]\.\.\/\.\.\/api['"]|\bfetch\s*\(/.test(src(f)));
+  assert.deepEqual(fetchers.sort(), ['requests.ts', 'useWarRoom.ts']);
+  assert.doesNotMatch(src('requests.ts'), /\buseApi\b|\bfetch\s*\(/);
+  assert.match(src('requests.ts'), /`\/warroom\/\$\{leagueId\}\/requests`/);
   globalThis.__warRoomPaths = [];
   const Probe = () => { useWarRoom(3); useWarRoom(null); return null; };
   renderToStaticMarkup(React.createElement(Probe));

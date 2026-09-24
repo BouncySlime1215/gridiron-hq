@@ -118,6 +118,35 @@ const EXTRACTORS = {
     const c = p.model_context ?? {};
     return { model: 'trade-engine.findTrades', version: `${c.engine ?? ''}|cutoff=${c.cutoff ?? ''}`, numbers };
   },
+  /**
+   * GET /api/trades/:id/war-room — the War Room's numbers, read from the plans
+   * file (contract warroom-plans/1): the next move and each deck card's first
+   * step (p_yes, title_odds_delta ± 2 SE, title_after) and my title odds now.
+   * Payload: the league's plans entry. A field that is not 'ok' served no number.
+   */
+  war_room: p => {
+    const v = f => (f?.status === 'ok' ? f.value : null);
+    const moves = [v(p.next_move), ...(v(p.alternatives) ?? [])].filter(m => m?.move_id);
+    if (!moves.length && !p.destination) throw new Error('war_room payload has no next move, deck or destination');
+    const numbers = [];
+    const seen = new Set();
+    for (const m of moves) {
+      const st = m.steps?.[0];
+      if (!st) continue;
+      const e = dealEntity(p.me, st.partner, st.give, st.get);
+      if (seen.has(e)) continue;
+      seen.add(e);
+      const d = st.title_odds_delta;
+      numbers.push([e, 'p_yes', v(st.p_yes)], [e, 'title_odds_delta', v(d)],
+        [e, 'title_odds_delta_se', d?.status === 'ok' ? d.se : null],
+        [e, 'title_odds_delta_lo', d?.status === 'ok' ? band(d.value, d.se, -1) : null],
+        [e, 'title_odds_delta_hi', d?.status === 'ok' ? band(d.value, d.se, +1) : null],
+        [e, 'title_after', v(st.title_after)]);
+    }
+    const dest = v(p.destination);
+    if (dest) numbers.push([`team:${p.me}`, 'title_now', v(dest.title_now)]);
+    return { model: 'campaign-producer.plans', version: String(p.plans_version ?? ''), numbers };
+  },
 };
 export const SERVED_SURFACES = Object.keys(EXTRACTORS);
 

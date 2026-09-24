@@ -25,6 +25,7 @@ import { talkReads, expectationGaps, rosterOwnership, HOT_GAP_PER_GAME } from '.
 import { declarationCredibility, untouchableStance } from './bluff-detector.js';
 import { analyzeLeague } from '../routes/tradelab.js';
 import { previewUnconfirmed, previewFields, previewText } from './preview-mode.js';
+import { lopsidednessLedger, sentOfferHistory } from './offer-reputation.js';
 
 /**
  * RL-19-1: default-off preview of the r19-measured `positional_need` cap.
@@ -1194,9 +1195,13 @@ export function valuationMap(leagueId, { season, week, players, layer = null,
  *     EXECUTE rows only — the de-duplication manager-signals.js documented);
  *   - what the league knows he is shopping (his own chat talk about his own
  *     players, plus the `ME` negotiation profile's own list);
- *   - the veto votes cast against deals he was part of.
+ *   - the veto votes cast against deals he was part of;
+ *   - how lopsided his sent offers have been, per manager and league-wide
+ *     (REP-01, offer-reputation.js#lopsidednessLedger over trade_outcomes: each
+ *     lowball's cost decayed on the reputation half-life). acceptanceBand's
+ *     default-off `reputation` factor reads the per-manager entry.
  */
-export function selfRead(leagueId, { season = null } = {}) {
+export function selfRead(leagueId, { season = null, now = Date.now() } = {}) {
   const lg = rows('SELECT season, payload, my_team_id FROM leagues WHERE id = ?', leagueId)[0] ?? null;
   const me = lg?.my_team_id == null ? null : String(lg.my_team_id);
   const out = {
@@ -1209,10 +1214,12 @@ export function selfRead(leagueId, { season = null } = {}) {
     // collection. Served on the unavailable path too — a `null` here with no date
     // reads as "he has never offered anybody anything".
     transactions: null,
+    lopsidedness: null,
   };
   const yr = season ?? lg.season ?? null;
   out.transactions = Object.freeze(transactionsCollected(leagueId, yr));
   if (me == null) return { ...out, reason: 'this league has no roster marked as Nick\'s' };
+  out.lopsidedness = lopsidednessLedger(sentOfferHistory(leagueId, yr, me), { now });
 
   let tx = [];
   try {

@@ -81,7 +81,30 @@ export const ACCEPTANCE_SOURCES = Object.freeze({
     fitted: false,
     needs: 'a valid negotiation profile stating does_his_no_hold',
   },
+  /**
+   * REP-01: how lopsided the offers Nick already sent him were, decayed on the
+   * reputation half-life (selfRead's lopsidedness ledger). Not a price term: it
+   * is his memory of the sender, which perception_delta (this package, on his
+   * numbers) does not contain. DEFAULT-OFF: only a caller with
+   * GRIDIRON_REPUTATION on passes a ledger, and with none passed the band is
+   * exactly what it was. Forward-only until ~40 app offers settle (ENGINE-SPECS
+   * REP-01 PRE).
+   */
+  reputation: {
+    label: 'how lopsided your recent offers to him were',
+    cap: 0.10,
+    fitted: false,
+    default_off: true,
+    needs: 'GRIDIRON_REPUTATION on and offers logged in trade_outcomes',
+  },
 });
+
+/**
+ * P(accept) lost per unit of decayed lopsided spend (one full lowball = 1).
+ * DECLARED, not fitted: three fresh lowballs cost about 0.09, just under the
+ * cap. The PRE in ENGINE-SPECS REP-01 replaces it.
+ */
+export const REPUTATION_P_PER_UNIT = 0.03;
 
 /**
  * With no decided offers there is no observed rate to anchor on. This is a
@@ -138,8 +161,11 @@ const NO_HOLDS_EFFECT = Object.freeze({
  *   fails closed rather than being read as a pass.
  * @param {object}   [profile]    the manager's negotiation profile, if valid.
  * @param {string[]} [zero]       sources to suppress, for the ablation.
+ * @param {object}   [reputation] this manager's entry in selfRead's lopsidedness
+ *   ledger ({ spent, offers, half_life_days }). Omitted (the default, and always
+ *   while GRIDIRON_REPUTATION is off) the factor is not read at all.
  */
-export function acceptanceBand({ counterparty = null, edge = null, profile = null, zero = [] } = {}) {
+export function acceptanceBand({ counterparty = null, edge = null, profile = null, zero = [], reputation = null } = {}) {
   const off = new Set(zero);
   const factors = [];
   const inert = [];
@@ -262,6 +288,22 @@ export function acceptanceBand({ counterparty = null, edge = null, profile = nul
     skip('says_no_holds', profile
       ? `his profile records does_his_no_hold as ${noHold ?? 'absent'}`
       : 'no valid negotiation profile for this manager');
+  }
+
+  // ------------------------------------- 4. his memory of your offers (REP-01)
+  // Default-off: with no ledger supplied nothing is added, not even an inert
+  // line, so a caller with the flag off gets today's band byte for byte.
+  if (reputation) {
+    const spent = Number(reputation.spent);
+    if (!(reputation.offers > 0)) {
+      skip('reputation', 'no logged offers to this manager, so there is no lopsidedness to charge');
+    } else if (!Number.isFinite(spent) || spent < 0) {
+      skip('reputation', `the ledger's decayed spend (${reputation.spent}) is not a usable number`);
+    } else {
+      add('reputation', -REPUTATION_P_PER_UNIT * spent,
+        `${reputation.offers} logged offer${reputation.offers === 1 ? '' : 's'} to him, lopsided spend `
+        + `${spent.toFixed(2)} after decay (half-life ${reputation.half_life_days ?? '?'} days)`);
+    }
   }
 
   // ------------------------------------------------------------ the band

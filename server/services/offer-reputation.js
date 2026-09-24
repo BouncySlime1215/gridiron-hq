@@ -10,14 +10,15 @@
  * for the same inputs and a test can pin every branch. `offerGateFor` is the
  * one reader that fills those inputs from trade_outcomes + manager_profiles.
  * An app_proposed row with no sent_at is a suggestion Nick never sent, so it is
- * not an offer and never counts. The finder hook is behind GRIDIRON_REP_GATE
- * (offer-reputation-flag.js).
+ * not an offer and never counts. The finder hook is behind GRIDIRON_REPUTATION
+ * (offer-reputation-flag.js, read through preview-mode.js).
  *
  * What it counts, per manager:
- *   - offers sent in the last 7 days (fatigue). In the league reader this is
- *     THE one fatigue counter, FIX-07's sentThisWeek (scripts/campaign/league-adapter.mjs:
- *     ESPN's own proposals + trade_outcomes WHERE sent_at IS NOT NULL), so the
- *     War Room producer and this gate never disagree (RULINGS 4),
+ *   - offers sent in the last 7 days (fatigue). THE one fatigue counter is
+ *     `countSentThisWeek` below (ESPN's own proposals + trade_outcomes WHERE
+ *     sent_at IS NOT NULL, de-duplicated on matched_tx_id). The War Room
+ *     producer's league-adapter.mjs#sentThisWeek calls it, so the War Room cap
+ *     and this gate never disagree (RULINGS 4, FIX-264-1),
  *   - declines in a row (declined / ignored / expired; accepted or countered
  *     ends the run),
  *   - an unanswered offer still open,
@@ -37,8 +38,7 @@
 import { row, rows } from '../db/index.js';
 import { outcomesFor } from './trade-outcomes.js';
 import { toTime } from './trade-tactics.js';
-import { sentThisWeek } from '../../scripts/campaign/league-adapter.mjs';
-import { repGateFields } from './offer-reputation-flag.js';
+import { reputationFields } from './offer-reputation-flag.js';
 
 const DAY_MS = 86_400_000;
 const WEEK_DAYS = 7;
@@ -267,9 +267,103 @@ export function offerGate({ offer, history, tier = null, now, overrides = {}, se
 }
 
 /**
+ * THE fatigue counter (RULINGS 4): offers my team actually sent each manager in
+ * the 7 days before `now`, as a Map roster id -> count. Two sources, counted
+ * once each:
+ *   - ESPN's own TRADE_PROPOSAL rows by my team (league_transactions_raw, any
+ *     execution type but CANCEL / PROCESS), and
+ *   - trade_outcomes rows with sent_at stamped ("I sent it", TradeCard or War
+ *     Room taps). A row with no sent_at is a suggestion and never counts; a row
+ *     whose matched_tx_id is one of the ESPN rows above is the same offer and
+ *     counts once.
+ * Moved here from scripts/campaign/league-adapter.mjs (#275 FIX-07), which now
+ * calls it, so the War Room cap and the finder gate read one number (FIX-264-1).
+ *
+ * @param {{ rows: Function, toTime: Function }} io  a `rows(sql, ...args)` reader
+ *   and the ESPN timestamp parser (trade-tactics.js toTime).
+ */
+export function countSentThisWeek({ rows: readRows, toTime: parseTime }, leagueId, season, me, now) {
+  const out = new Map();
+  const espn = readRows(`SELECT tx_id, items_json, proposed_at FROM league_transactions_raw
+                         WHERE league_id = ? AND season = ? AND type = 'TRADE_PROPOSAL' AND team_id = ?
+                           AND (execution_type IS NULL OR execution_type NOT IN ('CANCEL', 'PROCESS'))`,
+  leagueId, season, Number(me));
+  const seen = new Set();
+  for (const r of espn) {
+    if (seen.has(r.tx_id)) continue;
+    seen.add(r.tx_id);
+    const at = parseTime(r.proposed_at);
+    if (at == null || now - at > WEEK_DAYS * DAY_MS) continue;
+    let items;
+    try { items = JSON.parse(r.items_json || '[]'); } catch (e) { throw new Error(`league ${leagueId} tx ${r.tx_id}: items_json unreadable (${e.message})`); }
+    const other = new Set(items.flatMap(i => [i.fromTeamId, i.toTeamId])
+      .filter(t => t != null && t > 0 && String(t) !== String(me)).map(String));
+    for (const t of other) out.set(t, (out.get(t) ?? 0) + 1);
+  }
+  const cols = readRows('PRAGMA table_info(trade_outcomes)').map(c => c.name);
+  if (!cols.includes('sent_at')) return out;
+  const tapped = readRows(`SELECT counterparty_team_id, sent_at, matched_tx_id FROM trade_outcomes
+                           WHERE league_id = ? AND season = ? AND sent_at IS NOT NULL AND counterparty_team_id IS NOT NULL`,
+  leagueId, season);
+  for (const o of tapped) {
+    if (o.matched_tx_id != null && seen.has(String(o.matched_tx_id))) continue;
+    const at = Date.parse(o.sent_at);
+    if (!Number.isFinite(at) || now - at > WEEK_DAYS * DAY_MS) continue;
+    out.set(String(o.counterparty_team_id), (out.get(String(o.counterparty_team_id)) ?? 0) + 1);
+  }
+  return out;
+}
+
+/**
+ * The offers my team sent in one league, from trade_outcomes: any source but
+ * considered_only, proposed by `me`, and never an app_proposed row with no
+ * sent_at (a suggestion Nick did not send).
+ */
+export function sentOfferHistory(leagueId, season, me) {
+  return outcomesFor(leagueId, season)
+    .filter(r => r.source !== 'considered_only' && String(r.proposer_team_id ?? '') === String(me)
+      && !(r.source === 'app_proposed' && r.sent_at == null));
+}
+
+/**
+ * The lopsidedness ledger for selfRead ("HOW NICK LOOKS") and the acceptance
+ * band's `reputation` factor: per manager and league-wide, the decayed spend of
+ * the offers sent (same cost and half-life as the gate), as of `now`.
+ * `none` is the entry for a manager with nothing logged, so a caller never
+ * mistakes "no ledger supplied" for "a clean ledger".
+ */
+export function lopsidednessLedger(history, { now }) {
+  const nowMs = toMs(now, 'now');
+  const all = normalise(history, nowMs);
+  const entry = () => ({ spent: 0, offers: 0, lopsided_offers_14d: 0, unpriced_offers: 0,
+    last_offer_at: null, half_life_days: REPUTATION_HALF_LIFE_DAYS });
+  const perManager = new Map();
+  const league = entry();
+  for (const h of all) {
+    if (!h.counterparty) continue;
+    const m = perManager.get(h.counterparty) ?? entry();
+    for (const e of [m, league]) {
+      e.spent += decayed(h, nowMs);
+      e.offers += 1;
+      if (h.cost > 0 && h.proposed > nowMs - LOPSIDED_WINDOW_DAYS * DAY_MS) e.lopsided_offers_14d += 1;
+      if (h.basis === 'unpriced') e.unpriced_offers += 1;
+      if (!e.last_offer_at || h.proposed > Date.parse(e.last_offer_at)) e.last_offer_at = iso(h.proposed);
+    }
+    perManager.set(h.counterparty, m);
+  }
+  return {
+    as_of: iso(nowMs), half_life_days: REPUTATION_HALF_LIFE_DAYS, per_manager: perManager, league,
+    none: entry(),
+    basis: all.some(h => h.basis === 'lopsidedness') ? 'lopsidedness'
+      : all.some(h => h.basis === 'p_accept_proxy') ? 'p_accept_proxy' : 'unpriced',
+    reason: all.length ? null : 'no logged offers from this team in this league, so there is no lopsidedness to read',
+  };
+}
+
+/**
  * The gate for one league, reading its own inputs: the offers this app's team
  * sent (trade_outcomes, any source but considered_only, and never an app_proposed
- * row that was not sent), the 7-day count from sentThisWeek, and the profile tier.
+ * row that was not sent), the 7-day count from countSentThisWeek, and the profile tier.
  * Throws on a league it cannot read: an unknown sender would count nothing and
  * allow blind.
  */
@@ -280,17 +374,15 @@ export function offerGateFor({ leagueId, season, offer, now, overrides }) {
   if (!me) throw new Error(`offerGateFor: league ${leagueId} has no my_team_id, so its sent offers cannot be told apart`);
   const profile = row('SELECT tradeability FROM manager_profiles WHERE league_id = ? AND roster_id = ?',
     leagueId, String(offer?.counterparty_id ?? ''));
-  const history = outcomesFor(leagueId, season)
-    .filter(r => r.source !== 'considered_only' && String(r.proposer_team_id ?? '') === me
-      && !(r.source === 'app_proposed' && r.sent_at == null));
+  const history = sentOfferHistory(leagueId, season, me);
   const nowMs = toMs(now, 'now');
-  // sentThisWeek counts ESPN's own proposals too; without the collector's table those
+  // countSentThisWeek counts ESPN's own proposals too; without the collector's table those
   // are unknown, and a count missing them would allow blind.
   if (!row(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'league_transactions_raw'`)) {
     throw new Error('league_transactions_raw does not exist here (the transactions collector has not run), '
       + "so ESPN's own proposals cannot be counted");
   }
-  const sent = sentThisWeek({ db: { rows }, tactics: { toTime } }, leagueId, season, me, nowMs);
+  const sent = countSentThisWeek({ rows, toTime }, leagueId, season, me, nowMs);
   const sentCount = sent.get(String(offer?.counterparty_id ?? '')) ?? 0;
   return offerGate({ offer, history, tier: profile?.tradeability ?? null, now: nowMs, overrides, sentCount });
 }
@@ -301,12 +393,12 @@ export function offerGateFor({ leagueId, season, offer, now, overrides }) {
  * shared, so it is never written into. A league the gate cannot read gives each
  * deal `decision: null` with the reason, never a silent allow.
  *
- * Behind GRIDIRON_REP_GATE: off, the result is returned as it came (no
+ * Behind GRIDIRON_REPUTATION: off, the result is returned as it came (no
  * `reputation` field). On only through preview mode, each verdict says so.
  */
 export function gateDeals(lg, result, { now = new Date() } = {}) {
   if (!Array.isArray(result?.deals)) return result;
-  const flag = repGateFields();
+  const flag = reputationFields();
   if (!flag.enabled) return result;
   const label = flag.preview ? { preview: true, preview_reason: flag.preview_reason } : {};
   const gate = d => {

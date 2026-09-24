@@ -103,3 +103,47 @@ deal without a priced fixture. Open item.
 - **What would make it wrong:** managers who do not tire of offers (the caps then
   cost trades), or the p_accept < 0.2 proxy mislabelling fair-but-unlikely offers
   as lowballs.
+
+## Sweep fixes (FIX-264-1, -2, -3), 2026-09-24
+
+RED `b9a0575d` gave 25 pass / 10 fail on `test/offer-reputation.test.js`. Two of the fails were the
+renamed flag, which R9 and R11 now set; the other eight were the new R12-R14. GREEN: 35/35.
+Neighbouring suites (trade-acceptance*, fix-07*, campaign*, preview-mode*, counterparty*, trade-outcomes*,
+offer-*, wiring*) 321/321.
+
+- **FIX-264-1, one fatigue number.** The counter is now `offer-reputation.js#countSentThisWeek`. It counts
+  trade_outcomes rows with `sent_at IS NOT NULL` plus ESPN TRADE_PROPOSALs, and a tapped offer ESPN also
+  shows (matched on `matched_tx_id`) counts once. `scripts/campaign/league-adapter.mjs#sentThisWeek` now
+  calls it. The server service no longer imports from `scripts/`.
+- **FIX-264-2, flag.** The flag is `GRIDIRON_REPUTATION`. Its one reader is `offer-reputation-flag.js#reputationFields`,
+  which goes through `preview-mode.js previewUnconfirmed()`. R13 is a route test: `GET /find`, with
+  `findTrades` stubbed to one seeded deal, serves `deal.reputation`, and with the flag off it serves none.
+  That kills the survivor recorded above.
+- **FIX-264-3, reputation factor.** `selfRead(leagueId, { season, now })` now has `lopsidedness`, built by
+  `lopsidednessLedger` over `sentOfferHistory`. It holds the decayed spend per manager and league-wide,
+  with the gate's half-life and cost. `acceptanceBand({ ..., reputation })` gets the source `reputation`:
+  cap 0.10, `default_off: true`, effect `-0.03 × spent` (declared, not fitted).
+  - With no ledger supplied, the band is byte-identical to before.
+  - With a ledger showing 0 offers, the factor is inert with a reason.
+  - The War Room producer passes the ledger only while `reputationFields().enabled`.
+
+| id | mutant | result |
+|---|---|---|
+| M1 | remove `gateDeals` wrap in `/find` | killed (R13) |
+| M2 | drop `sent_at IS NOT NULL` from the tapped query | survived: **equivalent**. A null `sent_at` fails `Number.isFinite(Date.parse(...))` on the next line |
+| M3 | no `matched_tx_id` de-dup | killed |
+| M4 | adapter keeps its own counter | killed |
+| M5 | flag always on | killed |
+| M6 | factor sign flipped | killed |
+| M7 | factor counts offers, ignores decay | killed |
+| M8 | no-offers branch removed | killed |
+| M9 | selfRead ledger dropped | killed |
+| M10 | ledger pools managers | killed |
+| M11 | unsent app_proposed rows in history | killed |
+| M12 | adapter ignores flag | killed (by a source check only) |
+| C1 | reword comment | survived (control) |
+| C2 | absent pattern | not applied (control) |
+
+"Decays to 0" is exponential: the effect halves every 14 days. It drops below the band's 0.001
+reporting floor, and so stops being a factor, after about 6.5 half-lives for 3 lowballs. The test
+checks halving at 1 half-life and no factor at 8.

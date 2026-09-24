@@ -786,7 +786,7 @@ r.get('/:leagueId/find', (req, res, next) => {
     // Queued before res.json, extracted at flush — after serialisation has already
     // settled the lazy floor_delta/ceiling_delta, so logging them costs nothing extra.
     recordServed(res, 'trade_find', lg, out);
-    // REP-01: each deal carries its fatigue / reputation verdict for the partner (behind GRIDIRON_REP_GATE).
+    // REP-01: each deal carries its fatigue / reputation verdict for the partner (behind GRIDIRON_REPUTATION).
     res.json(gateDeals(lg, out));
   } catch (e) { next(e); }
 });

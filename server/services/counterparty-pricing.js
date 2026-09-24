@@ -577,7 +577,10 @@ function postLossFactor(metrics, samples) {
     effect: +(cap * strength).toFixed(4), n, cap, fitted: false,
     why: lost >= habit
       ? `lost last week by ${Math.abs(margin).toFixed(0)}`
-      : `reacts to losses in ${(metrics.chat_reacting_to_loss * 100).toFixed(0)}% of his messages`,
+      // An average 0-1 classifier probability over his messages
+      // (manager_chat_profile.p_reacting_to_loss), NOT a share of messages:
+      // same wording as TargetBoard.tsx ChatProb.
+      : `reacting to a loss: ${metrics.chat_reacting_to_loss.toFixed(2)} avg probability 0-1 over his messages`,
   };
 }
 

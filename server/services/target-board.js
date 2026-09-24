@@ -37,7 +37,7 @@ import { identityMap } from './manager-identity.js';
 import { rosterOwnership, talkReads } from './talk-vs-model.js';
 import { timingRead, TACTIC_THRESHOLDS } from './trade-tactics.js';
 import { analyzeLeague } from '../routes/tradelab.js';
-import { leagueCurrentWeek } from './league-week.js';
+import { tradeWeekContext } from './trade-engine.js';
 
 export const TARGET_BOARD_THIN_N = 5;
 const LS_TABLES = ['lineup_signals', 'lineup_signal'];
@@ -130,7 +130,10 @@ function lineupSignalReader() {
  *
  * @param lg the leagues row (payload, platform, my_team_id, season).
  * @param opts.week the week talkReads reads expectation gaps before; omitted, the
- *   league's current week (the same week /managers/signals prices with).
+ *   trade finder's own week (tradeWeekContext(), the week findTrades hands
+ *   counterpartyLayer -> talkReads), so the board and the finder cannot read
+ *   talk on different weeks. When BROKEN-D's league.week lands (#283) it
+ *   replaces tradeWeekContext() in both places at once.
  * @param opts.analysis an analyzeLeague result (tests); omitted, analyzeLeague(lg).
  * @returns {{ managers: Map<string, object>, meta: object }}
  */
@@ -149,7 +152,7 @@ export function targetBoard(lg, { week = undefined, analysis = null } = {}) {
   const corpus = identityMap(leagueId);
   const owned = rosterOwnership(leagueId) ?? new Map();
   const season = lg.season ?? null;
-  const asOfWeek = week === undefined ? leagueCurrentWeek(lg) : week;
+  const asOfWeek = week === undefined ? tradeWeekContext().week : week;
   // The trade finder's own talk read: same call, same thresholds, same ownership.
   const talk = new Map();
   for (const [rid, byName] of talkReads(leagueId, season, asOfWeek, { ownedBy: owned })) {

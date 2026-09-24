@@ -336,3 +336,24 @@ decision-inbox 8/8, decision-leftovers-lineup 10/10, gridiron-model 12/12 (3 ski
 lineup-floor-objective 3/3, lineup-diff-urgency 10/10, model-integrity 89/89, nfl-model-fixes 4/4,
 posture-calibration 6/6, start-sit-decision-curve 12/12, decision-leftovers-home-away 5/5,
 decay-watch 7/7, wiring-map 90/90.
+
+## 12. Sweep fix round (2026-09-24, SWEEP-RULINGS rule 12)
+
+Main merged at `36e3b94b` (`75441e58`); #291 (BROKEN-G, head `988082f5`) merged in (`8583574d`), so
+`blend.week` is the one this-week producer and S-03's switch and label fold into it. Node 22.22.2, after `npm ci`.
+
+| Fix | Change | RED | GREEN | Proof |
+|---|---|---|---|---|
+| FIX-166-1 | Forward rows F018-F021 → **F028-F031** (main holds F016-F021 for PROJ-02-a; open #164 holds F022-F026, #207 holds F027). Every reference here, in the walk-forward evidence file and in the ledger notes updated | n.a. (docs) | `75441e58`, `a36cd8fc` | `node scripts/check-prereg-order.mjs` exit 0; `origin/main` has no F028-F031 |
+| FIX-166-2 | `fantasy-coordinator.js` exports `constructionWindow(week, { gradedOnly })`, `GRADED_WEEKS`, `gradedWeek`; `weekly-construction-grade-lib.mjs#weekWindow` is `constructionWindow(week, { gradedOnly: true })` | `cccbff65`: `test/construction-window.test.js` 0 / 5 (`fc.constructionWindow is not a function`) | `15f5ddcd`: 5 / 5 | mutants: `gradedWeek` `<=` → `<` 3 fail; lib restating bounds with week 18 in 5-17: 2 fail |
+| FIX-166-3 | `weekConstructionBasis` takes the blend flag and adds `field` / `producer` / `preview` (#291's keys) beside the label; `context.week_basis` is the one object. #291's per-asset `week_basis` object dropped (the merge had it overwritten by S-03's string); S-03's per-asset string is now `week_construction` (also on `weeklyProjectionFor`). `blend.week` reads `vegasLift`, so with `BETTING_LINE_LIFT` off it equals `current_week_ppg` | `f2527988`: served-weekly-construction 29 / 32 (29, 31, 32 fail), blend-week 6 / 7 (#291's lift-on assertions rewritten to pin S-03's switch, as #291's body predicted) | `768f7356`: 32 / 32 and 7 / 7 | mutants: blend flag ignored in the basis 2 fail; `blendWeek` on `gameScriptLift` 4 fail; lineup `week_basis` null 2 fail |
+| FIX-166-4 | `trade-horizon.js#horizonNote(weights, gain, weekBasis)`: the betting-line wording only when `week_basis.betting_line_lift.on`; otherwise the note carries `week_basis.label`. `lineupCall` and `waiverBoard` serve `week_basis`, which `GET /:leagueId/lineup` and `GET /:leagueId/waivers` pass through. Lift-claim regex extended with `betting-line adjustment/correction` | same RED | same GREEN | mutants: note lift always on 1 fail; note drops the label 1 fail; waivers `week_basis` null 1 fail |
+
+One test assertion was corrected during GREEN: the two-player fixture prices no offer package, so the TradeCard
+check reads `offer.target` and `offer.model_context` from the reply (which carries them) instead of `ifError`.
+The lift guard test also now lists `services/projections.js` (PROJ-02-a chain, every link default off), which
+reached this branch with the merge of main.
+
+Guard run on tree `2101006c` (head `a36cd8fc`): `npm run check` exit 0; 5301 tests, 5260 pass, 0 fail, 41
+skipped; typecheck, lint, check:wiring, build and startup smoke clean; `git write-tree` identical before and
+after, porcelain empty. This section is the only change after it (docs).

@@ -76,6 +76,7 @@ export async function loadServices() {
     week: await import('../../server/services/league-week.js'),
     horizon: await import('../../server/services/trade-horizon.js'),
     titleOdds: await import('../../server/services/title-odds-trades.js'),
+    identity: await import('../../server/services/manager-identity.js'),
   };
 }
 
@@ -111,6 +112,28 @@ function daysLeftInWeek(svc, lg, week, now) {
   const r = svc.db.row('SELECT MIN(date) AS d FROM schedule_games WHERE season = ? AND week = ?', lg.season, week + 1);
   const t = Date.parse(r?.d ?? '');
   return Number.isFinite(t) ? Math.max(0, Math.floor((t - now) / DAY)) : 7;
+}
+
+const text = v => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 80) : null);
+
+/**
+ * TEAM-NAMES: who each roster is, read at run time from the league payload (never committed):
+ * { [roster_id]: { name?: ESPN team name, manager?: who Nick knows him as } }. The manager is the
+ * trusted chat identity's name first (the name Nick's own manager_notes are keyed by), else the
+ * ESPN owner's first name, else his display name. A roster with neither is left out, so the page
+ * says 'Team N' for it.
+ */
+export function teamNames(payload, chatNames = new Map()) {
+  const members = new Map((payload?.members ?? []).map(m => [String(m?.id), m]));
+  const out = {};
+  for (const t of payload?.teams ?? []) {
+    if (t?.id == null) continue;
+    const owner = members.get(String(t.primaryOwner ?? t.owners?.[0]));
+    const name = text(t.name) ?? text(`${t.location ?? ''} ${t.nickname ?? ''}`);
+    const manager = text(chatNames.get(String(t.id))) ?? text(owner?.firstName) ?? text(owner?.displayName);
+    if (name || manager) out[String(t.id)] = { ...(name ? { name } : {}), ...(manager ? { manager } : {}) };
+  }
+  return out;
 }
 
 /**
@@ -326,6 +349,7 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     ...(finder ? { finderBest } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
+    teams: () => teamNames(payload, new Map([...(svc.identity?.identityMap(leagueId) ?? [])].map(([r, i]) => [String(r), i.chat_name]))),
     rosterKey: () => [...rosters.entries()].map(([t, ids]) => `${t}:${[...ids].sort((a, b) => a - b).join(',')}`).join('|'),
   };
 }

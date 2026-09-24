@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './warroom.css';
-import type { PanelId, WarRoomView } from './types';
+import { setTeamNames, type PanelId, type WarRoomView } from './types';
 import type { DeckLogEntry, DeckState } from './deck';
 import { postWarRoomRequest, type Poster, type WarRoomRequest } from './requests';
 import { isOk } from './format';
@@ -73,6 +73,8 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
   onDeckLog?: (log: DeckLogEntry[]) => void;
   post?: Poster;
 }) {
+  // TEAM-NAMES: before any panel renders, so every teamLabel reads this view's names.
+  setTeamNames(isOk(view.teams) ? view.teams.value : null);
   const [swap, setSwap] = useState<PanelId | null>(null);
   const [coachOpen, setCoachOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');

@@ -3032,6 +3032,24 @@
     ],
     "source": "campaign.plan"
    },
+   "teams": {
+    "status": "ok",
+    "value": {
+     "1": {
+      "name": "Team 1"
+     },
+     "2": {
+      "name": "Team 2"
+     },
+     "3": {
+      "name": "Team 3"
+     },
+     "4": {
+      "name": "Team 4"
+     }
+    },
+    "source": "campaign.plan"
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 595842253,
@@ -6720,6 +6738,24 @@
     ],
     "source": "campaign.plan"
    },
+   "teams": {
+    "status": "ok",
+    "value": {
+     "1": {
+      "name": "Team 1"
+     },
+     "2": {
+      "name": "Team 2"
+     },
+     "3": {
+      "name": "Team 3"
+     },
+     "4": {
+      "name": "Team 4"
+     }
+    },
+    "source": "campaign.plan"
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 1212727519,
@@ -9726,6 +9762,24 @@
     ],
     "source": "campaign.plan"
    },
+   "teams": {
+    "status": "ok",
+    "value": {
+     "1": {
+      "name": "Team 1"
+     },
+     "2": {
+      "name": "Team 2"
+     },
+     "3": {
+      "name": "Team 3"
+     },
+     "4": {
+      "name": "Team 4"
+     }
+    },
+    "source": "campaign.plan"
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 1458790284,
@@ -11246,6 +11300,25 @@
       "blocked": false
      }
     ],
+    "source": "campaign.plan"
+   },
+   "teams": {
+    "status": "ok",
+    "value": {
+     "1": {
+      "name": "Team 1"
+     },
+     "2": {
+      "name": "Team 2",
+      "manager": "Manager B"
+     },
+     "3": {
+      "name": "Team 3"
+     },
+     "4": {
+      "name": "Team 4"
+     }
+    },
     "source": "campaign.plan"
    },
    "_run": {

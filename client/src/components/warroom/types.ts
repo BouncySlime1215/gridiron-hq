@@ -179,7 +179,11 @@ export interface WarRoomView {
   brain_report?: Field<BrainReport>;
   number_health?: Field<NumberHealth>;
   risk_modes?: Field<RiskModeRow[]>;
+  teams?: Field<Record<string, TeamName>>;
 }
+
+/** TEAM-NAMES: who a roster is, from the league payload at run time (never committed). */
+export interface TeamName { name?: string; manager?: string }
 
 export type PanelId = 'next' | 'stops' | 'flip_map' | 'targets' | 'catch' | 'brain_report';
 
@@ -189,4 +193,17 @@ export function namer(names: Record<string, string> | undefined) {
   const text = (ids: string[] | undefined) => (ids ?? []).map(id => one(id).name).join(' + ');
   return { one, text };
 }
-export const teamLabel = (id: string | null | undefined) => (id == null ? '' : `Team ${id}`);
+
+/** The loaded view's roster names; WarRoom fills it (setTeamNames) so every teamLabel call site reads it. */
+let teamNames: Record<string, TeamName> = {};
+export function setTeamNames(teams: Record<string, TeamName> | null | undefined) { teamNames = teams ?? {}; }
+
+/** 'Manager (Team name)' when known, else whichever is known, else 'Team N'. */
+export function teamLabel(id: string | null | undefined): string {
+  if (id == null) return '';
+  const t = teamNames[String(id)];
+  const manager = t?.manager?.trim();
+  const name = t?.name?.trim();
+  if (manager && name) return `${manager} (${name})`;
+  return manager || name || `Team ${id}`;
+}

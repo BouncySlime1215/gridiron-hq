@@ -79,7 +79,10 @@ export const AVAIL_HORIZON_PREVIEW_REASON =
 /**
  * Whether preview mode turns the flag on. False since AVAIL-HORIZON-2 declined: with the
  * curve on gap players only plus the team-mean term, Nick's league-4 odds were 8.9% / 0.25%,
- * short of the pre-registered ESPN range 12-21% / 0.7-1.6%. Set true to serve under preview.
+ * short of the pre-registered ESPN range 12-21% / 0.7-1.6%. AVAIL-HORIZON-3 (ratio form +
+ * team-mean term, third pre-registered attempt) reached 10.4% / 0.50% (125 and 6 of 1,200
+ * runs; league mean 123.96 vs 123.47 off; sums 100% / 6): still short, declined, stays false.
+ * Set true to serve under preview.
  */
 export const AVAIL_HORIZON_IN_PREVIEW = false;
 
@@ -140,6 +143,8 @@ export function buildReturnLookup(rows = []) {
   const cells = new Map(rows.map(r => [`${r.h}|${r.gap}|${r.tier}`, r]));
   return {
     size: cells.size,
+    /** The fitted row at exactly (h bucket, gap, tier), or null. */
+    cell: (hb, gap, tier) => cells.get(`${hb}|${gap}|${tier}`) ?? null,
     lookup({ h, gap, tier }) {
       const hb = horizonBucket(h);
       if (!hb || !gap) return null;
@@ -299,6 +304,34 @@ export const RETURN_CURVE_FIT = Object.freeze({
     { h: 'h3', gap: 'g2', tier: 'starter', p_active: 0.4158, n: 552 }
   ])
 });
+
+/**
+ * AVAIL-HORIZON-3 ratio form (pre-registered above). A gap player returns toward HIS OWN
+ * healthy one-week rate at the curve's relative pace:
+ *   p = clamp01(pToday0 x curve(gap, tier, h) / curve(g0, tier, h)),
+ * numerator and denominator read at the same level (tier cell, else gap-level '*').
+ * Returns null (caller keeps its rate) for g0, h < 1, a missing cell or a bad input. Pure.
+ *
+ * @param curve a buildReturnLookup result (exposes `cell`)
+ * @returns { p, ratio, n, basis } | null
+ */
+export function ratioReturnProbability({ curve, pToday0, h, gap, tier }) {
+  if (!curve || !gap || gap === 'g0' || !Number.isFinite(pToday0)) return null;
+  const hb = horizonBucket(h);
+  if (!hb) return null;
+  for (const t of [tier ?? 'unknown', '*']) {
+    const num = curve.cell(hb, gap, t);
+    const den = curve.cell(hb, 'g0', t);
+    if (num && den && den.p_active > 0) {
+      const ratio = num.p_active / den.p_active;
+      return {
+        p: Math.max(0, Math.min(1, pToday0 * ratio)), ratio: +ratio.toFixed(4), n: num.n,
+        basis: `${hb}/${gap}${t === '*' ? '' : `/${t}`} over g0`
+      };
+    }
+  }
+  return null;
+}
 
 let _served = null;
 /** The lookup over RETURN_CURVE_FIT, built once. */

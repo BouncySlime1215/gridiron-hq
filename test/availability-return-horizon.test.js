@@ -80,6 +80,47 @@ test('the served curve covers every horizon for g0/g1/g2 and a missed-one starte
   assert.deepEqual(R.RETURN_CURVE_FIT.fitSeasons, [2021, 2022, 2023, 2024], 'never fit on the 2025 holdout');
 });
 
+test('ratio form: g0 is unchanged, h 0 is unchanged, same-level cells, clamped to [0, 1]', () => {
+  const lk = R.servedReturnCurve();
+  for (const h of [1, 4, 12]) {
+    assert.equal(R.ratioReturnProbability({ curve: lk, pToday0: 0.95, h, gap: 'g0', tier: 'starter' }), null,
+      'a g0 player keeps today\'s rate');
+  }
+  assert.equal(R.ratioReturnProbability({ curve: lk, pToday0: 0.95, h: 0, gap: 'g1', tier: 'starter' }), null);
+  // h1 g1 starter 0.4593 / h1 g0 starter 0.8768
+  const r = R.ratioReturnProbability({ curve: lk, pToday0: 0.95, h: 1, gap: 'g1', tier: 'starter' });
+  assert.equal(r.ratio, +(0.4593 / 0.8768).toFixed(4));
+  assert.ok(Math.abs(r.p - 0.95 * 0.4593 / 0.8768) < 1e-12);
+  assert.equal(r.basis, 'h1/g1/starter over g0');
+  // pToday0 scales the answer: the player's own healthy rate, not the curve's g0 level.
+  const lo = R.ratioReturnProbability({ curve: lk, pToday0: 0.5, h: 1, gap: 'g1', tier: 'starter' });
+  assert.ok(Math.abs(lo.p / r.p - 0.5 / 0.95) < 1e-12);
+  // Tier with no g0 cell at that level falls back to the gap-level '*' pair (same level).
+  const fake = R.buildReturnLookup([
+    { h: 'h2', gap: 'g1', tier: 'starter', p_active: 0.5, n: 10 }, { h: 'h2', gap: 'g1', tier: '*', p_active: 0.4, n: 20 },
+    { h: 'h2', gap: 'g0', tier: '*', p_active: 0.8, n: 50 }, { h: 'h3', gap: 'g1', tier: '*', p_active: 0.9, n: 5 },
+    { h: 'h3', gap: 'g0', tier: '*', p_active: 0.3, n: 5 }
+  ]);
+  const fb = R.ratioReturnProbability({ curve: fake, pToday0: 1, h: 2, gap: 'g1', tier: 'starter' });
+  assert.equal(fb.p, 0.5, 'numerator and denominator at the same (gap *) level: 0.4 / 0.8');
+  assert.equal(fb.basis, 'h2/g1 over g0');
+  assert.equal(R.ratioReturnProbability({ curve: fake, pToday0: 0.9, h: 3, gap: 'g1', tier: 'x' }).p, 1, 'capped at 1');
+  assert.equal(R.ratioReturnProbability({ curve: fake, pToday0: 0.9, h: 4, gap: 'g1', tier: 'x' }), null, 'no cell');
+});
+
+test('ratio form: g1/g2 converge toward the player\'s own g0 rate as h grows', () => {
+  const lk = R.servedReturnCurve();
+  for (const tier of ['starter', 'rotation', 'depth', 'fringe', 'unknown']) for (const gap of ['g1', 'g2']) {
+    const at = h => R.ratioReturnProbability({ curve: lk, pToday0: 0.95, h, gap, tier }).p;
+    const near = at(1), far = Math.max(at(5), at(8), at(12));
+    assert.ok(near < 0.95 && far < 0.95, `${gap} ${tier}: still below his healthy rate`);
+    assert.ok(0.95 - far < 0.95 - near, `${gap} ${tier}: the gap to g0 shrinks with distance`);
+  }
+  // Starter who missed one game, week by week out to h 9: never moves away from g0.
+  const s = [1, 2, 3, 4, 5, 7].map(h => R.ratioReturnProbability({ curve: lk, pToday0: 0.95, h, gap: 'g1', tier: 'starter' }).p);
+  for (let i = 1; i < s.length; i++) assert.ok(s[i] >= s[i - 1], `g1 starter non-decreasing at step ${i}`);
+});
+
 test('flag: unset off, 1 on, preview off while declined (on, labelled, when enabled), 0 vetoes preview', () => {
   withEnv(OFF, () => assert.deepEqual(R.availHorizonFlag(), { on: false, preview: false }));
   withEnv(ON, () => assert.deepEqual(R.availHorizonFlag(), { on: true, preview: false }));
@@ -148,8 +189,12 @@ test('flag on: the live week is unchanged, later weeks read the curve with its l
   const lk = R.servedReturnCurve();
   for (const wk of [4, 8, 16]) {
     const row = C.weeklyAvailability(2026, wk).get(932);
-    const want = lk.lookup({ h: wk - 3, gap: 'g1', tier: 'starter' });
+    // AVAIL-HORIZON-3 ratio form: his own healthy one-week rate (the fixture's g0 cell,
+    // 0.953) times the curve's g1/g0 ratio at this horizon, not the raw g1 cell.
+    const want = R.ratioReturnProbability({ curve: lk, pToday0: 0.953, h: wk - 3, gap: 'g1', tier: 'starter' });
     assert.equal(row.active_probability, +want.p.toFixed(3), `week ${wk}`);
+    assert.notEqual(row.active_probability, +lk.lookup({ h: wk - 3, gap: 'g1', tier: 'starter' }).p.toFixed(3),
+      `week ${wk}: not the raw curve cell (#355's double discount)`);
     assert.deepEqual(row.horizon, { weeks_ahead: wk - 3, basis: want.basis });
     assert.equal(row.availability_basis, 'role');
     assert.match(row.source, /return-to-play curve/);

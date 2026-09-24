@@ -21,7 +21,7 @@ import { pairedBootstrapDiff } from './backtest-significance.js';
 import { espnStatusById } from './player-availability.js';
 import { AVAILABILITY_FIT_BASIS, DEFAULT_DURABILITY_PRIOR } from './availability-basis.js';
 import { activeInjuryFlagIds } from './injury-flags.js';
-import { availHorizonFlag, availHorizonPreviewFields, servedReturnCurve } from './availability-return.js';
+import { availHorizonFlag, availHorizonPreviewFields, ratioReturnProbability, servedReturnCurve } from './availability-return.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SKILL = ['QB', 'RB', 'WR', 'TE'];
@@ -974,11 +974,19 @@ export function weeklyAvailability(season, week, { through = season - 1, useRole
     // AVAIL-HORIZON-2: only a player in a gap state (missed his team's last game, g1/g2)
     // reads the curve. A g0 player keeps today's calibrated one-week rate: the curve's g0
     // cells carry future injuries the sim's volume scale was already fitted without.
+    // AVAIL-HORIZON-3: ratio form. The gap player's rate is his own healthy (g0) one-week
+    // rate times the curve's gap/g0 ratio at this horizon, so the curve's future-injury
+    // discount (already absent from healthy players' rates) is not applied twice.
     const cell = curve && !report && role?.gap_bucket && role.gap_bucket !== 'g0'
-      ? curve.lookup({ h: horizon, gap: role.gap_bucket, tier: role.tier }) : null;
+      ? ratioReturnProbability({
+          curve, h: horizon, gap: role.gap_bucket, tier: role.tier,
+          pToday0: playerActiveProbability({
+            fitted, report: null, prior, role: { ...role, gap_bucket: 'g0' }, useRole, priorMeasured: measuredPrior != null
+          }).active
+        }) : null;
     if (cell) {
       active = Math.max(0.001, Math.min(0.995, cell.p));
-      source = `return-to-play curve (${cell.basis}, n=${cell.n}, ${horizon} week${horizon > 1 ? 's' : ''} past the last game on file)`;
+      source = `return-to-play curve (${cell.basis}, ratio ${cell.ratio}, n=${cell.n}, ${horizon} week${horizon > 1 ? 's' : ''} past the last game on file)`;
       basis = 'role';
     }
     out.set(p.id, {

@@ -20,6 +20,8 @@
  *                hard to deal with -> tougher pricing (playbook.js#priceLadder).
  */
 
+import { respondsAdjust } from '../people/counterpart.js';
+
 export const UNKNOWN = 'unknown';
 /** P(responds) at receptiveness 1.0 (no information). Hand-set anchor, not fitted. */
 export const BASE_RESPONDS = 0.5;
@@ -123,13 +125,17 @@ export function shadowResponds(pr, labels) {
  * Order: score (P(responds) x edge), then Nick's tier (active pool first, excluded last), then P(responds).
  * An excluded manager stays in the list (so the reason shows) with excluded: true and score 0.
  */
-export function rankPartners(managers, edgeByTeam) {
+export function rankPartners(managers, edgeByTeam, people = null) {
   const out = [];
   for (const [team, m] of managers) {
-    const pr = pResponds(m);
+    const base = pResponds(m);
+    // COUNTERPART-01: the counterpart model re-anchors and adjusts P(responds); each change is a named feature.
+    const adj = people && !excluded(m) ? respondsAdjust(base, people.counterparts.get(String(team)), people.myIds, { baseAnchor: BASE_RESPONDS }) : null;
+    const pr = adj ? { ...base, p: adj.p } : base;
     const edge = edgeByTeam.get(String(team)) ?? 0;
     const chat = m.chat ?? chatLabels();
     out.push({ team: String(team), p_responds: pr.p, basis: pr.basis, edge, score: pr.p * Math.max(0, edge),
+      ...(adj ? { p_responds_before_counterpart: base.p, reason_chain: adj.features } : {}),
       chat, shadow_score: (shadowResponds(pr.p, chat) ?? pr.p) * Math.max(0, edge),
       checked_out: !!m.checked_out, blocked: !!m.blocked, excluded: excluded(m), tier: nickTier(m),
       nick: m.nick ? nickSummary(m.nick) : null,

@@ -16,6 +16,9 @@
  *   GRIDIRON_WARROOM_OFFERS      input    JSONL { league, manager, at } (optional; "I sent it" log, fatigue cap)
  *   GRIDIRON_WARROOM_PUSHES      output   JSONL, one row per league whose next move changed
  *   GRIDIRON_CHAT_DB_PATH        input    local chat DB (optional; labels only)
+ *   GRIDIRON_COUNTERPART         flag     =1 turns on the COUNTERPART-01 model (people/counterpart.js):
+ *                                         targets, package, partner order, price and reply prior
+ *                                         adjusted by named features; unset -> today's plan unchanged
  * Defaults for the inputs sit next to the plans file.
  *
  * The file is the War Room contract (server/services/campaign/plans-schema.js,
@@ -177,7 +180,7 @@ export async function buildPlansFile(leagues, {
     const prev = previous.get(String(id)) ?? null;
     let entry, res = null;
     try {
-      const { adapter, chat = null, adapterMs = 0 } = await load();
+      const { adapter, chat = null, counterpart = null, adapterMs = 0 } = await load();
       if (adapter.fail) throw new Error(`world failed: ${adapter.fail}`);
       // ONE-PLANNER: the 2-for-1 search runs inside searchTarget; its counts come back on this sink.
       if (twoForOne !== 'off') {
@@ -205,6 +208,7 @@ export async function buildPlansFile(leagues, {
           // Off and untriggered, the entry is byte-for-byte the incumbent's (the committed contract fixture).
           ...(trigger ? { trigger } : {}),
           ...(twoForOne !== 'off' ? { two_for_one: { flag: twoForOne, ...twoForOneSummary(adapter.searchStats) } } : {}),
+          ...(counterpart ? { counterpart } : {}),
         };
       }
       const v = validateLeague(entry);
@@ -271,6 +275,8 @@ async function main() {
     const { modelFlags } = await import('../../server/services/campaign/model-flags.js');
     const flags = await modelFlags();
     console.log(`[warroom] model flags ${JSON.stringify(flags)}`);
+    const { flagOn, counterpartsFor } = await import('./counterpart-inputs.mjs');
+    const counterpartOn = flagOn(env);
 
     const objectives = readObjectives(sibling(env, 'GRIDIRON_WARROOM_OBJECTIVES', 'objectives.json'));
     const skips = readJsonl(sibling(env, 'GRIDIRON_WARROOM_SKIPS', 'skips.jsonl'));
@@ -281,7 +287,14 @@ async function main() {
         const chat = await chatRowsFor(id);
         const ta = Date.now();
         const adapter = buildAdapter(svc, id, { chat: chat.rows, offerLog: offers.rows, finder: opts.finder });
-        return { adapter, chat, adapterMs: Date.now() - ta };
+        // ONE-COUNTERPART (flag GRIDIRON_COUNTERPART): the counterpart model on people.profile.
+        let counterpart = null;
+        if (counterpartOn && !adapter.fail) {
+          const cp = await counterpartsFor(svc, id, adapter);
+          adapter.counterparts = cp.counterparts;
+          counterpart = cp.summary;
+        }
+        return { adapter, chat, counterpart, adapterMs: Date.now() - ta };
       } }));
 
     const generated_at = new Date().toISOString();

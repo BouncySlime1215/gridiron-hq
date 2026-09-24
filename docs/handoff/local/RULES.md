@@ -63,3 +63,4 @@ Each tick logs one line: "local: <what's running> | cloud: <n running> | merged:
 - The other account's cloud is done (42 sessions, about $210 of $250). New cloud work goes through THIS account (Agent isolation 'remote'), with builds here as the fallback.
 - Every 20 min: PR SWEEP. Read each new or updated PR's claims, its Not-confirmed section and its gaps, and queue the fixes.
 - Scope for the night: Coach anchors everything (COACH-ANCHOR.md), the rest of the platform (BUILD-PLAN.md phases 0-4), the War Room UI v3.
+- Mac load cap (Nick 9/24 12:05 AM: "Mac is super slow, push it but it needs to function"): local lane 2 jobs, 4 build workflows, R&D only when the 5-min load is under 14. Only ONE produce-plans run at a time on the Mac (each run is 2-3 min alone; 5 at once took 20+ min each, load 27). Heavy work goes to cloud (main account, usage guard 70%).

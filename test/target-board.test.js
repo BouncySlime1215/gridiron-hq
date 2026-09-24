@@ -241,6 +241,71 @@ test('the board\'s buy-low list is exactly talkReads on the same week: usage-col
   } finally { db.exec(`DELETE FROM nfl_ffopportunity_weekly WHERE player_gsis_id = 'gs-cold'`); }
 });
 
+test('the board reads talk on the trade finder\'s week, not the league\'s own week, when the two differ (pre-sync / bye)', async () => {
+  // FIX-190-1. findTrades prices counterparties with tradeWeekContext()
+  // (trade-engine.js `weekNow`) -> counterpartyLayer -> talkReads. The board
+  // used leagueCurrentWeek(lg), so a league whose stored week runs ahead of the
+  // finder's (a stale current_week before sync, or a bye) read talk on a
+  // different week than the trade card beside it.
+  const { talkReads } = await import('../server/services/talk-vs-model.js');
+  const { tradeWeekContext } = await import('../server/services/trade-engine.js');
+  const { leagueCurrentWeek } = await import('../server/services/league-week.js');
+  const engineSrc = fs.readFileSync(new URL('../server/services/trade-engine.js', import.meta.url), 'utf8');
+  assert.match(engineSrc, /const weekNow = tradeWeekContext\(\);[\s\S]{0,1200}?counterpartyLayer\(lg\.id, \{ season: weekNow\.season, week: weekNow\.week/,
+    'control: the finder no longer hands tradeWeekContext() to counterpartyLayer — re-point the board at whatever it uses now');
+  const ins = db.prepare(`INSERT INTO nfl_ffopportunity_weekly (season, week, player_gsis_id, player_name, position,
+    expected_fantasy_points, actual_fantasy_points, source_release, ingested_at) VALUES (2026, ?, 'gs-cold', 'Cold Runner', 'RB', 15, 8, 't', 't')`);
+  for (const w of [1, 2, 3]) ins.run(w);
+  run('UPDATE leagues SET current_week = 6 WHERE id = 31');
+  try {
+    const lg = db.prepare('SELECT * FROM leagues WHERE id = 31').get();
+    const finderWeek = tradeWeekContext().week;
+    assert.equal(finderWeek, 2, 'control: NFL_WEEK=2 pins the finder\'s week');
+    assert.equal(leagueCurrentWeek(lg), 6, 'control: the league\'s own week must differ, or this test proves nothing');
+    const verdicts = w => [...((talkReads(31, 2026, w).get('2') ?? talkReads(31, 2026, w).get(2)) ?? new Map()).values()]
+      .filter(r => ['buy_low', 'genuine_sour'].includes(r.verdict)).map(r => [r.player, r.verdict]).sort();
+    assert.notDeepEqual(verdicts(finderWeek), verdicts(6), 'control: the two weeks must give different talk reads here');
+    const out = targetBoard(lg);
+    assert.equal(out.meta.week, finderWeek, 'the board must read talk on the finder\'s week');
+    assert.deepEqual(out.managers.get('2').down_on.map(p => [p.player, p.verdict]).sort(), verdicts(finderWeek),
+      'the board\'s reads must be exactly the finder\'s talkReads on the finder\'s week');
+  } finally {
+    run('UPDATE leagues SET current_week = NULL WHERE id = 31');
+    db.exec(`DELETE FROM nfl_ffopportunity_weekly WHERE player_gsis_id = 'gs-cold'`);
+  }
+});
+
+test('no chat probability field is printed as a share of messages', async () => {
+  // FIX-190-2. The chat_* metrics mapped from a p_* column
+  // (manager-signals.js chatSignals) are a classifier probability averaged over
+  // his messages, 0-1 — not the share of messages that did the thing.
+  // TargetBoard.tsx ChatProb prints them as "avg probability 0-1";
+  // counterparty-pricing.js printed chat_reacting_to_loss as "N% of his messages".
+  const { execFileSync } = await import('node:child_process');
+  const root = new URL('..', import.meta.url);
+  const signalsSrc = fs.readFileSync(new URL('server/services/manager-signals.js', root), 'utf8');
+  const pairs = [...signalsSrc.matchAll(/\['(chat_\w+)',\s*p\.(p_\w+)/g)];
+  assert.ok(pairs.length >= 9, `control: expected the p_*-backed chat metrics, found ${pairs.length}`);
+  assert.ok(pairs.some(([, m]) => m === 'chat_reacting_to_loss'), 'control: chat_reacting_to_loss must be one of them');
+  const fields = [...new Set(pairs.flatMap(([, m, p]) => [m, p]))];
+  const fieldRe = new RegExp(`\\b(${fields.join('|')})\\b`);
+  const asShare = /\*\s*100\b|%\s*of\s+(his|her|their|the|all)\s+(chat\s+)?messages|share of (his|her|their) messages/i;
+  const flagged = line => fieldRe.test(line) && asShare.test(line);
+  // Known-positive control: the exact line this fix replaced.
+  assert.ok(flagged("      : `reacts to losses in ${(metrics.chat_reacting_to_loss * 100).toFixed(0)}% of his messages`,"),
+    'control: the detector must catch the pre-fix wording');
+  const files = execFileSync('git', ['ls-files', 'server', 'client/src', 'scripts'], { cwd: root, encoding: 'utf8' })
+    .split('\n').filter(f => /\.(m?js|tsx?)$/.test(f));
+  assert.ok(files.length > 100, `control: expected the source tree, found ${files.length} files`);
+  const hits = [];
+  for (const f of files) {
+    fs.readFileSync(new URL(f, root), 'utf8').split('\n').forEach((line, i) => {
+      if (flagged(line)) hits.push(`${f}:${i + 1}: ${line.trim()}`);
+    });
+  }
+  assert.deepEqual(hits, [], 'a 0-1 average probability is printed as a percentage of messages');
+});
+
 test('thin(): the THIN bar is n < 5 exactly', () => {
   assert.equal(thin(4), true);
   assert.equal(thin(5), false);

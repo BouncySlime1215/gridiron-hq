@@ -10,10 +10,15 @@
  * back. Nick's roster there is team 1 of test/fixtures/campaign-league.mjs.
  * No real data, no model calls (the one askCoach test uses a stand-in client).
  *
- * METRIC (the unit's measure): 10 navigation requests ->
- *   correct edits, previews shown before any write, writes without confirm
- *   (must be 0), grounded footer present. Printed as a `# METRIC` diagnostic.
+ * METRIC (the unit's measure): 10 navigation requests, graded on the SERVED
+ * path: runCoachTool('itinerary_edit') -> the action it hands the dashboard ->
+ * the real client dispatcher (client warroomCoach.ts dispatch / confirm) ->
+ * the real POST /api/warroom/:leagueId/requests route. Counted: correct edits,
+ * previews shown before any write, writes without confirm (must be 0), every
+ * edit either recorded after its own Confirm or queued and named (served),
+ * grounded footer present. Printed as a `# METRIC` diagnostic.
  */
+import express from 'express';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
@@ -37,6 +42,9 @@ await (await import('../server/db/migrate.js')).runMigrations();
 const { newLedger } = await import('../server/services/coach/ledger.js');
 const { verifyAnswer } = await import('../server/services/coach/verify.js');
 const tools = await import('../server/services/coach/tools.js');
+const client = await import('../client/src/components/warroom/coach/warroomCoach.ts');
+const { hashSessionToken, requireAuthenticated } = await import('../server/platform/auth.js');
+const { default: warroomRouter } = await import('../server/routes/warroom.js');
 
 let nav = null;
 try { nav = await import('../server/services/coach/navigator.js'); } catch (e) {
@@ -46,6 +54,22 @@ try { nav = await import('../server/services/coach/navigator.js'); } catch (e) {
 const LEAGUE = 4;
 const USER = 7301;
 run(`INSERT OR IGNORE INTO users(id, subject, display_name) VALUES (${USER}, 'coach-nav-user', 'Reader')`);
+run(`INSERT OR REPLACE INTO auth_sessions(user_id, token_hash, expires_at)
+     VALUES (${USER}, ?, datetime('now','+1 day'))`, hashSessionToken('nav-token'));
+run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, payload, fetched_at)
+     VALUES (${LEAGUE}, 'espn', 'nav-4', 2026, 'Fixture', '1', 10, 1, '{}', '2026-09-23 01:00:00')`);
+run(`INSERT INTO league_memberships (league_id, user_id, role) VALUES (${LEAGUE}, ${USER}, 'member')`);
+
+/* The served confirm route, mounted as server/index.js mounts it. */
+const app = express();
+app.use(express.json());
+app.use('/api/warroom', requireAuthenticated, warroomRouter);
+const server = app.listen(0);
+test.after(() => server.close());
+const post = body => fetch(`http://127.0.0.1:${server.address().port}/api/warroom/${LEAGUE}/requests`, {
+  method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer nav-token' },
+  body: JSON.stringify(body) });
+const CTX = { leagues: [LEAGUE], plans: PRODUCER.leagues.find(l => l.league === LEAGUE), now: '2026-09-24T12:00:00.000Z' };
 
 /** Team 1 of campaign-league.mjs, best first per position (P2 is his RB1). */
 const ROSTER = [
@@ -90,55 +114,88 @@ function typed(e) {
 }
 const sameEdits = (got, want) => JSON.stringify(got.map(typed)) === JSON.stringify(want.map(typed));
 
+const KIND = { set_objective: 'objective.set', add_stop: 'stop.add', remove_stop: 'stop.remove', set_risk_mode: 'mode.set', set_tolerance: 'tolerance.set' };
 const FOOTER = /^Destination: .+ · Where we are: .+ · Next move: .+\.$/;
 
-/** Grade one request: parse, preview (no write), refused unconfirmed writes, grounded footer. */
-function grade({ ask, want }) {
+/**
+ * Grade one request on the served path. Turn 1 sends Nick's words through
+ * runCoachTool; each later turn sends the `queued` list back (what Coach does
+ * when Nick says "next change"). Every served action goes through the real
+ * client dispatcher, an unconfirmed POST attempt, then Confirm and the real
+ * POST with what the client sends.
+ */
+async function grade({ ask, want }) {
   const before = requestRows();
-  const ledger = newLedger();
-  const out = nav.navigate({ leagueId: LEAGUE, text: ask, ledger });
-  const afterPreview = requestRows();
-  const correct = sameEdits(out.proposal.edits, want);
-  const previewed = out.proposal.edits.length > 0 && afterPreview === before
-    && out.proposal.previews.length === out.proposal.edits.length
-    && out.proposal.previews.every(p => p.status === 'ok' || p.status === 'unknown')
-    && out.proposal.previews.every(p => Number.isFinite(p.title_now) && Number.isInteger(p.eta_week))
-    && out.answer.claims.some(c => /^Trade-off for |^The planner has not priced/.test(c.text));
-  const priced = out.proposal.previews.filter(p => p.status === 'ok').length;
-  // Every way to write without Nick's confirm of this preview.
-  const noConfirm = withNavSync(() => [
-    nav.confirmNavigation({ userId: USER, proposal: out.proposal }),
-    nav.confirmNavigation({ userId: USER, proposal: out.proposal, confirm: { token: 'not-the-token' } }),
-    nav.confirmNavigation({ userId: USER, proposal: { ...out.proposal, edits: [...out.proposal.edits, { type: 'set_risk_mode', mode: 'all_in', until_week: null }] }, confirm: { token: out.proposal.token } })
-  ]);
-  const unconfirmedWrites = requestRows() - before + noConfirm.reduce((s, r) => s + r.written, 0);
-  const last = out.answer.claims.at(-1);
-  const recheck = verifyAnswer({ answer: out.answer, ledger });
-  const footer = !!last && FOOTER.test(last.text) && out.verification.ok && recheck.ok;
-  return { ask, correct, previewed, priced, unconfirmedWrites, footer, out };
-}
-function withNavSync(fn) {
-  const was = process.env.GRIDIRON_COACH_NAV;
-  process.env.GRIDIRON_COACH_NAV = '1';
-  try { return fn(); } finally { if (was === undefined) delete process.env.GRIDIRON_COACH_NAV; else process.env.GRIDIRON_COACH_NAV = was; }
+  const coachTurn = input => {
+    const ledger = newLedger();
+    const res = tools.runCoachTool('itinerary_edit', { league_id: LEAGUE, ...input }, { ledger });
+    return { ...res, ledger };
+  };
+  const first = coachTurn({ request: ask });
+  const { proposal } = first.summary;
+  const correct = sameEdits(proposal.edits, want);
+  const previewedServer = proposal.edits.length > 0
+    && proposal.previews.length === proposal.edits.length
+    && proposal.previews.every(p => (p.status === 'ok' || p.status === 'unknown')
+      && Number.isFinite(p.title_now) && Number.isInteger(p.eta_week))
+    && first.summary.claims.some(c => /^Trade-off for |^The planner has not priced/.test(c.text));
+  const queuedNamed = !first.summary.queued.length || first.summary.refusals.some(r => r.includes('Queued behind it'));
+
+  let unconfirmedWrites = 0;
+  let previewedClient = true;
+  const recorded = [];
+  let turn = first;
+  let s = client.newSession();
+  for (let i = 0; i < 5 && turn.action; i++) {
+    const rowsBefore = requestRows();
+    const d = client.dispatch(s, turn.action, CTX, ask);
+    previewedClient &&= d.outcome.status === 'previewed' && d.session.pending?.action.type === turn.action.type;
+    // Unconfirmed: the tool, the preview, and a Coach-sourced POST without Confirm write nothing.
+    const req = client.requestFor(turn.action);
+    const bad = await post({ kind: req.kind, payload: req.payload, source: 'coach' });
+    unconfirmedWrites += requestRows() - rowsBefore + (bad.status === 201 ? 1 : 0);
+    // Confirm: what the War Room hook POSTs.
+    const c = client.confirm(d.session, CTX);
+    const ok = await post({ kind: c.request.kind, payload: c.request.payload, source: 'coach', confirmed: true });
+    if (ok.status === 201) recorded.push((await ok.json()).request);
+    s = c.session;
+    turn = turn.summary.queued.length ? coachTurn({ request: 'next change', edits: turn.summary.queued }) : { action: null };
+  }
+  // Every wanted edit ends as its own Coach-sourced, confirmed row, in order.
+  const served = recorded.length === want.length && queuedNamed
+    && recorded.every((r, i) => r.source === 'coach' && r.confirmed === true && r.kind === KIND[want[i].type]
+      && (!want[i].stop || (r.payload.stop.kind === want[i].stop.kind && (r.payload.stop.player_id ?? null) === want[i].stop.player_id)));
+  const last = first.summary.claims.at(-1);
+  const recheck = verifyAnswer({ answer: { claims: first.summary.claims, refusals: first.summary.refusals, as_of: first.summary.as_of },
+    ledger: first.ledger });
+  const footer = !!last && FOOTER.test(last.text) && first.summary.grounded && recheck.ok;
+  const priced = proposal.previews.filter(p => p.status === 'ok').length;
+  return { ask, correct, previewed: previewedServer && previewedClient, served, priced, unconfirmedWrites, footer,
+    proposal, rows: requestRows() - before, recorded: recorded.length };
 }
 
-test('METRIC: 10 navigation requests on league 4 -> edits, previews, 0 unconfirmed writes, grounded footer', t => {
+test('METRIC: 10 navigation requests on league 4, served path -> edits, previews, 0 unconfirmed writes, served, footer', async t => {
   if (!nav) {
-    t.diagnostic('METRIC correct=0/10 previews=0/10 priced=0/10 unconfirmed_writes=0 footer=0/10 (no navigator on this tree)');
+    t.diagnostic('METRIC correct=0/10 previews=0/10 served=0/10 priced=0/10 unconfirmed_writes=0 footer=0/10 (no navigator on this tree)');
     assert.fail('Coach has no navigation tool on this tree (0/10)');
   }
-  const graded = NAV_SET.map(grade);
+  process.env.GRIDIRON_WARROOM_ENABLED = '1';
+  let graded;
+  try {
+    graded = [];
+    for (const item of NAV_SET) graded.push(await withNav(() => grade(item)));
+  } finally { delete process.env.GRIDIRON_WARROOM_ENABLED; }
   const n = k => graded.filter(g => g[k]).length;
   const writes = graded.reduce((s, g) => s + g.unconfirmedWrites, 0);
   const priced = graded.filter(g => g.priced > 0).length;
-  t.diagnostic(`METRIC correct=${n('correct')}/10 previews=${n('previewed')}/10 priced=${priced}/10 unconfirmed_writes=${writes} footer=${n('footer')}/10`);
+  t.diagnostic(`METRIC correct=${n('correct')}/10 previews=${n('previewed')}/10 served=${n('served')}/10 priced=${priced}/10 unconfirmed_writes=${writes} footer=${n('footer')}/10`);
   for (const g of graded) {
-    t.diagnostic(`${g.correct ? 'ok ' : 'BAD'} ${JSON.stringify(g.ask)} -> ${JSON.stringify(g.out.proposal.edits.map(typed))}` +
-      `${g.previewed ? '' : ' [no preview]'}${g.footer ? '' : ` [footer: ${JSON.stringify(g.out.verification.violations)}]`}`);
+    t.diagnostic(`${g.correct ? 'ok ' : 'BAD'} ${JSON.stringify(g.ask)} -> ${JSON.stringify(g.proposal.edits.map(typed))}` +
+      ` recorded=${g.recorded}/${g.proposal.edits.length}${g.previewed ? '' : ' [no preview]'}${g.served ? '' : ' [not served]'}${g.footer ? '' : ' [footer]'}`);
   }
   assert.ok(n('correct') >= 9, `correct edits ${n('correct')}/10`);
   assert.equal(n('previewed'), 10);
+  assert.equal(n('served'), 10);
   assert.equal(writes, 0);
   assert.equal(n('footer'), 10);
 });
@@ -218,32 +275,47 @@ test('a stop the producer did price reads its row under the same key the dashboa
   } finally { fs.writeFileSync(plansFile, JSON.stringify(PRODUCER)); }
 });
 
-test('confirm writes exactly the previewed edits as Coach-sourced, confirmed warroom_requests rows', async () => {
-  const out = nav.navigate({ leagueId: LEAGUE, text: 'get a WR1 by week 8 but keep my RB1' });
+test('a two-edit request serves one action, queues and names the other, and nothing is written', async () => {
   const before = requestRows();
-  const res = await withNav(() => nav.confirmNavigation({ userId: USER, proposal: out.proposal, confirm: { token: out.proposal.token } }));
-  assert.equal(res.written, 2);
-  assert.equal(requestRows() - before, 2);
-  const rows = res.requests;
-  assert.deepEqual(rows.map(r => [r.kind, r.source, r.confirmed]), [['stop.add', 'coach', true], ['stop.add', 'coach', true]]);
-  assert.deepEqual(rows.map(r => r.payload.stop.kind), ['get', 'untouchable']);
-  assert.equal(rows[1].payload.stop.player_id, '2');
+  const res = await withNav(() => tools.runCoachTool('itinerary_edit',
+    { league_id: LEAGUE, request: 'get a WR1 by week 8 but keep my P2 untouchable' }, { ledger: newLedger() }));
+  assert.equal(res.summary.proposal.edits.length, 2);
+  assert.equal(res.action.type, 'add_stop');
+  assert.equal(res.action.stop.kind, 'get');
+  assert.equal(res.summary.on_screen.stop.kind, 'get');
+  assert.deepEqual(res.summary.queued.map(e => [e.type, e.stop.kind, e.stop.player_id]), [['add_stop', 'untouchable', '2']]);
+  assert.match(res.summary.refusals.join(' '), /one change at a time.+Queued behind it.+untouchable/);
+  assert.equal(requestRows(), before);
+  // "next change": the queued list comes back and is served as the next action.
+  const next = await withNav(() => tools.runCoachTool('itinerary_edit',
+    { league_id: LEAGUE, request: 'next change', edits: res.summary.queued }, { ledger: newLedger() }));
+  assert.deepEqual([next.action.stop.kind, next.action.stop.player_id], ['untouchable', '2']);
+  assert.deepEqual(next.summary.queued, []);
+  assert.equal(requestRows(), before);
 });
 
-test('confirm is refused with the flag off, and for a preview of a plan that has since changed', async () => {
-  const out = nav.navigate({ leagueId: LEAGUE, text: 'go all in' });
-  const before = requestRows();
-  const off = await withNav(() => nav.confirmNavigation({ userId: USER, proposal: out.proposal, confirm: { token: out.proposal.token } }), '0');
-  assert.equal(off.written, 0);
-  const doc = structuredClone(PRODUCER);
-  doc.generated_at = '2026-09-24T07:00:00.000Z';
-  fs.writeFileSync(plansFile, JSON.stringify(doc));
+test('queued edits passed back are re-validated: an unknown or non-plan action is refused, not served', async () => {
+  const res = await withNav(() => tools.runCoachTool('itinerary_edit',
+    { league_id: LEAGUE, request: 'next change', edits: [{ type: 'send_offer', to: '7' }, { type: 'focus_panel', panel: 'targets' }] },
+    { ledger: newLedger() }));
+  assert.equal(res.action, undefined);
+  assert.equal(res.summary.proposal.edits.length, 0);
+  assert.match(res.summary.refusals.join(' '), /unknown action.+focus_panel is not a plan change/);
+});
+
+test('the served confirm route refuses a Coach plan change without Confirm and records it with one', async () => {
+  process.env.GRIDIRON_WARROOM_ENABLED = '1';
   try {
-    const stale = await withNav(() => nav.confirmNavigation({ userId: USER, proposal: out.proposal, confirm: { token: out.proposal.token } }));
-    assert.equal(stale.written, 0);
-    assert.match(stale.refused, /plan changed since this preview/);
-  } finally { fs.writeFileSync(plansFile, JSON.stringify(PRODUCER)); }
-  assert.equal(requestRows(), before);
+    const before = requestRows();
+    const bad = await post({ kind: 'mode.set', payload: { mode: 'all_in' }, source: 'coach' });
+    assert.equal(bad.status, 400);
+    assert.equal(requestRows(), before);
+    const ok = await post({ kind: 'mode.set', payload: { mode: 'all_in' }, source: 'coach', confirmed: true });
+    assert.equal(ok.status, 201);
+    const { request } = await ok.json();
+    assert.deepEqual([request.kind, request.source, request.confirmed], ['mode.set', 'coach', true]);
+    assert.equal(requestRows(), before + 1);
+  } finally { delete process.env.GRIDIRON_WARROOM_ENABLED; }
 });
 
 test('words that are not a plan change propose nothing and say so; a stop that is not on the route is not guessed', () => {

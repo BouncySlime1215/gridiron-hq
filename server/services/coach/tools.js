@@ -364,8 +364,9 @@ export function runCoachTool(name, input, { ledger } = {}) {
 
   if (tool.kind === 'navigate') {
     // COACH-NAV: reads the plan into the ledger, proposes edits, writes nothing.
-    // The first edit goes to the dashboard as a plan-changing action, which
-    // opens the trade-off preview and waits for Nick's Confirm tap.
+    // The dashboard dispatcher holds ONE pending plan change, so navigate()
+    // serves at most one action; the other edits come back as `queued` and are
+    // named in the answer's refusals, never dropped silently.
     let out;
     try {
       out = tool.run(input, { ledger });
@@ -376,8 +377,10 @@ export function runCoachTool(name, input, { ledger } = {}) {
     const entry = ledger.queries.at(-1) ?? null;
     return { entry, ...(out.actions.length ? { action: out.actions[0] } : {}),
       summary: { proposal: out.proposal, claims: out.answer.claims, refusals: out.answer.refusals,
-        as_of: out.answer.as_of, grounded: out.verification.ok,
-        note: 'Put these claims in your answer as they are, footer last. Nothing is written until Nick confirms.' } };
+        as_of: out.answer.as_of, grounded: out.verification.ok, on_screen: out.actions[0] ?? null, queued: out.queued,
+        note: 'Put these claims and refusals in your answer as they are, footer last. Only on_screen waits for ' +
+          'Nick\'s Confirm; queued changes are not on screen and are not recorded until he asks for them again. ' +
+          'Do not call itinerary_edit again this turn: a second call replaces the preview on screen.' } };
   }
 
   if (tool.kind === 'derive') {

@@ -24,12 +24,16 @@
  * number is made up for it. The only thing done to a number is writing a
  * fraction as a percentage, which verify.js accepts as the same number.
  *
- * NO WRITE WITHOUT CONFIRM. `navigate` never writes. `confirmNavigation`
- * writes only when the confirmation carries the proposal's token, and the
- * token binds the edits to the plan version they were previewed on: a plan
- * regenerated since the preview is refused as stale. The request goes through
- * store.js#recordRequest with source 'coach', confirmed = 1, which is the only
- * way schema.js lets a Coach-proposed plan change in.
+ * NO WRITE HERE; ONE CHANGE ON SCREEN AT A TIME. `navigate` never writes.
+ * The served confirm is the War Room's own: the edit goes to the dashboard
+ * as a plan-changing action, the dispatcher (client warroomCoach.ts) holds it
+ * as the single pending preview, and Nick's Confirm tap POSTs
+ * /api/warroom/:leagueId/requests, where store.js#recordRequest refuses a
+ * Coach-sourced plan change unless it says confirmed. Because the dispatcher
+ * holds ONE pending action and cancels it when the next arrives, only the
+ * first edit of a multi-edit request is served (`actions`); the rest come back
+ * as `queued` and the reply says, in words, which changes are still to ask for
+ * after this one is confirmed. Nothing is dropped without a word.
  *
  * GROUNDED. The preview lines and the footer are claims whose cites are
  * plan_read rows recorded in the turn's ledger, and they ship only after
@@ -38,11 +42,9 @@
  * Behind GRIDIRON_COACH_NAV (default off; the preview switch turns it
  * on through preview-mode.js; GRIDIRON_COACH_NAV=0 vetoes preview).
  */
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { previewUnconfirmed } from '../preview-mode.js';
 import { validateAction, requestForAction } from '../warroom-actions/schema.js';
-import { recordRequest } from '../warroom-actions/store.js';
 import { tradeoffKey } from '../campaign/plans-schema.js';
 import { planRead, plansPath } from './brain-tools.js';
 import { verifyAnswer, groundAnswer } from './verify.js';
@@ -419,16 +421,16 @@ function footerClaim({ dest, next }) {
 
 /* ------------------------------------------------------------ navigate */
 
-const tokenFor = (leagueId, edits, generatedAt) => crypto.createHash('sha256')
-  .update(JSON.stringify({ leagueId, edits, generatedAt })).digest('hex').slice(0, 16);
-
 /**
  * One navigation turn. Reads the plan through plan_read (recorded in `ledger`),
  * parses `text` into edits, previews each, builds the footer, and verifies
  * every claim. Writes nothing.
  *
- * @returns {{ proposal: { token, league_id, plans_generated_at, edits, previews, unresolved },
- *   answer: { claims, refusals, as_of }, verification, actions: object[] }}
+ * @returns {{ proposal: { league_id, plans_generated_at, edits, previews, unresolved, queued },
+ *   answer: { claims, refusals, as_of }, verification, actions: object[], queued: object[] }}
+ *   `actions` holds at most one edit: the one the dashboard previews and Nick
+ *   confirms. `queued` holds the others, named in a refusal line so they are
+ *   never lost silently.
  */
 export function navigate({ leagueId, text, ledger = newLedger(), edits: given = null } = {}) {
   const id = Number(leagueId);
@@ -455,6 +457,13 @@ export function navigate({ leagueId, text, ledger = newLedger(), edits: given = 
     ({ edits, unresolved } = parseNavigation(text, { names, stops: stopsFrom(itin), roster: sources.roster(id) }));
   }
   for (const u of unresolved) refusals.push(`Coach could not turn this into a plan change: ${u}.`);
+  const served = edits.slice(0, 1);
+  const queued = edits.slice(1);
+  if (queued.length) {
+    refusals.push(`The dashboard confirms one change at a time, so only "${describe(edits[0])}" is waiting for your Confirm now. ` +
+      `Queued behind it, not on screen and not recorded yet: ${queued.map(e => `"${describe(e)}"`).join('; ')}. ` +
+      'After you confirm, say "next change" and Coach previews the next one.');
+  }
   if (!edits.length && !unresolved.length && text) {
     refusals.push('That does not read as a change to the plan (goal, stops, rules or risk mode), so nothing is proposed.');
   }
@@ -472,36 +481,10 @@ export function navigate({ leagueId, text, ledger = newLedger(), edits: given = 
   const draft = { claims, refusals, as_of: generatedAt ? `plans file generated ${generatedAt}` : null };
   const verification = verifyAnswer({ answer: draft, ledger, question: String(text ?? '') });
   const answer = verification.ok ? draft : groundAnswer(draft, verification);
-  const proposal = { token: tokenFor(id, edits, generatedAt), league_id: id, plans_generated_at: generatedAt,
-    edits, previews, unresolved, writes: 0,
-    note: edits.length ? 'Nothing is written yet. Nick confirms this preview and only then is it recorded.' : 'No plan change proposed.' };
-  return { proposal, answer, verification, actions: edits };
-}
-
-/**
- * Record a previewed proposal, only on Nick's confirm of THAT preview.
- *
- * @param {{ userId: number, proposal: object, confirm?: { token: string } | null }} args
- * @returns {{ written: number, requests: object[], refused?: string }}
- */
-export function confirmNavigation({ userId, proposal, confirm = null, now = Date.now() } = {}) {
-  if (!navOn()) return { written: 0, requests: [], refused: 'Coach navigation is off (GRIDIRON_COACH_NAV).' };
-  if (!proposal?.edits?.length) return { written: 0, requests: [], refused: 'There is no proposed change to confirm.' };
-  if (!confirm || confirm.token !== proposal.token) {
-    return { written: 0, requests: [], refused: 'Not confirmed: nothing changes until Nick confirms this exact preview.' };
-  }
-  // The plan must still be the one the preview was read from.
-  const current = planRead({ league_id: proposal.league_id, section: 'destination' })[0]?.plans_generated_at ?? null;
-  if (current !== proposal.plans_generated_at
-    || tokenFor(proposal.league_id, proposal.edits, current) !== proposal.token) {
-    return { written: 0, requests: [], refused: 'The plan changed since this preview. Ask again to see the new trade-off.' };
-  }
-  const requests = proposal.edits.map(edit => {
-    const req = requestForAction(edit);
-    return recordRequest({ userId, leagueId: proposal.league_id, kind: req.kind, payload: req.payload,
-      source: 'coach', confirmed: true, now });
-  });
-  return { written: requests.length, requests };
+  const proposal = { league_id: id, plans_generated_at: generatedAt,
+    edits, previews, unresolved, queued, writes: 0,
+    note: edits.length ? 'Nothing is written yet. The dashboard previews the first change and records it only on Nick\'s Confirm tap.' : 'No plan change proposed.' };
+  return { proposal, answer, verification, actions: served, queued };
 }
 
 /* ------------------------------------------------------------ tool */
@@ -511,15 +494,20 @@ export const NAV_TOOL = Object.freeze({
   name: 'itinerary_edit', kind: 'navigate', source: 'server/services/coach/navigator.js#navigate',
   tables: ['warroom_plans_file'],
   description: "Turn Nick's words about the plan into itinerary edits (goal, stops, untouchables, risk mode) and read " +
-    "the engine's trade-off for each (title odds, cost, ETA) from the plan. Pass his words as `request`. Nothing is " +
-    'written: the dashboard shows the preview and Nick confirms it. The result carries ready-made claims with cites; ' +
+    "the engine's trade-off for each (title odds, cost, ETA) from the plan. Pass his words as `request`, once per turn. " +
+    'Nothing is written: the dashboard previews the first change and Nick confirms it; any other changes come back ' +
+    'as `queued` with a line telling him to ask for them next. The result carries ready-made claims with cites; ' +
     'put them in your answer as they are, and keep the footer claim (destination, where we are, next move) last. ' +
     'Never state a trade-off number yourself.',
   input_schema: { type: 'object', required: ['league_id', 'request'], properties: {
     league_id: { type: 'integer', description: "the user's league id" },
-    request: { type: 'string', description: "Nick's words, as he said them" } } },
+    request: { type: 'string', description: "Nick's words, as he said them" },
+    edits: { type: 'array', items: { type: 'object' }, description: 'Only when Nick asks for the queued changes ' +
+      'from the last itinerary_edit result: pass that `queued` list here exactly as it came back, and they are ' +
+      'previewed again (the first on screen) instead of re-reading his words.' } } },
   run(input, { ledger }) {
-    return navigate({ leagueId: input?.league_id, text: String(input?.request ?? ''), ledger });
+    return navigate({ leagueId: input?.league_id, text: String(input?.request ?? ''), ledger,
+      edits: Array.isArray(input?.edits) && input.edits.length ? input.edits : null });
   }
 });
 

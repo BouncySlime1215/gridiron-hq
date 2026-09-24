@@ -1,0 +1,617 @@
+diff --git a/scripts/campaign/produce-plans.mjs b/scripts/campaign/produce-plans.mjs
+index 5f17f122..3a697aaf 100644
+--- a/scripts/campaign/produce-plans.mjs
++++ b/scripts/campaign/produce-plans.mjs
+@@ -191,6 +191,8 @@ async function main() {
+     const { chatRowsFor } = await import('./chat-labels.mjs');
+     const { flagOn, counterpartsFor } = await import('./counterpart-inputs.mjs');
+     const counterpartOn = flagOn(env);
++    const { opponentFlag, opponentInputsFor, withOpponentModel, publicOpponentModel } = await import('../../server/services/campaign/opponent-model.js');
++    const opponent = opponentFlag(env);
+ 
+     const objectives = readObjectives(sibling(env, 'GRIDIRON_WARROOM_OBJECTIVES', 'objectives.json'));
+     const skips = readJsonl(sibling(env, 'GRIDIRON_WARROOM_SKIPS', 'skips.jsonl'));
+@@ -202,9 +204,15 @@ async function main() {
+       .map(id => ({ id, load: async () => {
+         const chat = await chatRowsFor(id);
+         const ta = Date.now();
+-        const adapter = buildAdapter(svc, id, { chat: chat.rows, offerLog: offers.rows, finder: opts.finder });
++        let adapter = buildAdapter(svc, id, { chat: chat.rows, offerLog: offers.rows, finder: opts.finder });
+         // COUNTERPART-01 (GRIDIRON_COUNTERPART=1): per-manager counterpart model on the adapter.
+         if (counterpartOn && !adapter.fail) adapter.counterparts = (await counterpartsFor(svc, id, adapter)).counterparts;
++        // COUNTERPART-02 (GRIDIRON_OPPONENT_MODEL=1, or preview): simulated replies replace the flat clone P(yes).
++        if (opponent.on && !adapter.fail) {
++          const { model, summary } = await opponentInputsFor(svc, id, adapter);
++          adapter = withOpponentModel(adapter, model);
++          console.log(`[opponent] league ${id}${opponent.preview ? ' (preview)' : ''}: ${JSON.stringify(summary)} ${JSON.stringify(publicOpponentModel(model))}`);
++        }
+         return { adapter, chat, adapterMs: Date.now() - ta };
+       } }));
+ 
+diff --git a/server/services/campaign/opponent-model.js b/server/services/campaign/opponent-model.js
+new file mode 100644
+index 00000000..1a01b1b1
+--- /dev/null
++++ b/server/services/campaign/opponent-model.js
+@@ -0,0 +1,344 @@
++/**
++ * COUNTERPART-02 (PEOPLE-WIRING module M8): the War Room planner's opponent model.
++ *
++ * Replaces the flat clone P(yes) on a planned step with a simulated reply per
++ * target-league manager: ignore / counter / decline / accept, so paths route
++ * through the people most likely to deal. Flag GRIDIRON_OPPONENT_MODEL=1, also on
++ * in preview mode (preview-mode.js#previewUnconfirmed). Off -> the planner is
++ * byte-for-byte today's.
++ *
++ * Pure core (no DB, no env, no clock) plus one async IO entry point,
++ * opponentInputsFor, that the producer calls (the profilesFor pattern).
++ *
++ *   reply       Dirichlet over { ignore, counter, decline, accept }. Prior: the M6
++ *               reply prior (PEOPLE-LAB) .45 / .33 / .17 / .05 at strength
++ *               PRIOR_STRENGTH, updated first on the league's own classified
++ *               offers (partial pooling), then per manager on his own offers as
++ *               the receiver (strength MANAGER_STRENGTH from the league mean).
++ *               Only offers resolved before `now` count (as-of, no leak).
++ *   P(yes)      clone P(yes) (the served acceptance band midpoint, which E1 found
++ *               about right in level on this league but with no ranking skill)
++ *               x his deal rate / the league's deal rate, where deal rate =
++ *               accept + COUNTER_CLOSE x counter. So the clone still prices the
++ *               package; the reply history says who deals.
++ *   nick_override  Nick's ground truth beats every model read:
++ *               exclude (contactable false / "exclude" / "abroad") -> never a partner;
++ *               deprioritize ("not doing trades", buyer false, trades none) -> x OVERRIDE_DEPRIORITIZE;
++ *               difficulty "hard" -> odds x HARD_ODDS;
++ *               when the league has an active pool (active=true), a manager outside
++ *               it -> x OUT_OF_POOL.
++ *   wants_player  he said he wants a player Nick has (COUNTERPART-01 wants, with its
++ *               n-shrink and 7->21 day decay): a step that gives him that player
++ *               ranks higher in the search (rank tilt), with 0 weight in P(yes)
++ *               (PEOPLE-03: chat features do not help P(yes) yet).
++ *
++ * Every constant below is a prior or hand-set and says so; none is fitted here.
++ */
++import { previewUnconfirmed, previewFields } from '../preview-mode.js';
++
++export const OPPONENT_ENV = 'GRIDIRON_OPPONENT_MODEL';
++export const MODEL_VERSION = 'opponent-02.1';
++export const REPLY_PRIOR = Object.freeze({ ignore: 0.45, counter: 0.33, decline: 0.17, accept: 0.05 });
++export const REPLY_KINDS = Object.freeze(['ignore', 'counter', 'decline', 'accept']);
++export const PRIOR_STRENGTH = 4;          // hand-set: the M6 prior counts as 4 offers against the league's own
++export const MANAGER_STRENGTH = 4;        // hand-set: the league mean counts as 4 offers against his own
++export const COUNTER_CLOSE = 0.5;         // hand-set: a counter closes half the time
++export const COUNTER_WINDOW_DAYS = 2;     // hand-set: his own offer back within 2 days of a no is a counter
++export const IGNORE_AFTER_DAYS = 7;       // hand-set: no reply for a week (or withdrawn after a day unanswered) is an ignore
++export const WITHDRAW_EDIT_HOURS = 24;    // withdrawn sooner than this is the proposer editing, not an ignore
++export const HARD_ODDS = 0.5;             // hand-set: Nick's "hard to deal with" halves the odds
++export const OVERRIDE_DEPRIORITIZE = 0.5; // hand-set (same as COUNTERPART-01)
++export const OUT_OF_POOL = 0.5;           // hand-set: outside Nick's active pool
++export const WANTS_RANK_TILT = 0.5;       // hand-set: full wants lift -> x1.5 on the search rank
++export const WANTS_PRIOR_LOG_LIFT = 2.0;  // COUNTERPART-01's full lift, used to scale the tilt
++export const P_MAX = 0.95;
++export const PREVIEW_REASON = 'COUNTERPART-02 opponent model: hand-set constants; log loss graded on the league\'s decided offers only (n about 40), not a confirmed gain';
++
++const DAY = 864e5;
++const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
++
++/** Flag: GRIDIRON_OPPONENT_MODEL=1, or preview mode. Returns { on, preview }. */
++export function opponentFlag(env = process.env) {
++  if (env[OPPONENT_ENV] === '1') return { on: true, preview: false };
++  if (env[OPPONENT_ENV] === '0') return { on: false, preview: false };
++  return previewUnconfirmed() ? { on: true, preview: true } : { on: false, preview: false };
++}
++
++/* ------------------------------------------------------------------ offers */
++
++const itemsOf = r => {
++  if (Array.isArray(r.raw?.items)) return r.raw.items;
++  try { return JSON.parse(r.items_json || '[]'); } catch (e) { throw new Error(`tx ${r.tx_id}: items_json is not JSON (${e.message})`); }
++};
++const partiesOf = items => new Set(items.filter(i => i.type === 'TRADE')
++  .flatMap(i => [i.fromTeamId, i.toTeamId]).filter(t => Number(t) > 0).map(String));
++
++/**
++ * League trade rows -> one row per offer with its reply class. Mirrors the E1-league
++ * offer set (rnd/eval/e1l_offers.py): `decided` is E1's set (accepted, declined, or
++ * expired unanswered; withdrawn and still-open offers are out). `reply` is the
++ * four-way class the model learns from:
++ *   accept   the receiver accepted
++ *   counter  he declined (or it was cancelled) and he sent the proposer his own offer within COUNTER_WINDOW_DAYS
++ *   decline  he declined
++ *   ignore   it expired unanswered, sat IGNORE_AFTER_DAYS with no reply, or was withdrawn unanswered after WITHDRAW_EDIT_HOURS
++ *   null     too early to say (open, or withdrawn inside the edit window)
++ * rows: league_transactions_raw rows (tx_id, type, execution_type, team_id, member_id, related_tx_id, raw_json | items_json).
++ */
++export function classifyOffers(rows, { now = Infinity } = {}) {
++  const tx = new Map(), kids = new Map();
++  for (const r0 of rows) {
++    if (!String(r0.type ?? '').startsWith('TRADE')) continue;
++    let raw = r0.raw ?? null;
++    if (raw == null && r0.raw_json) { try { raw = JSON.parse(r0.raw_json); } catch { raw = {}; } }
++    const r = { ...r0, raw: raw ?? {} };
++    tx.set(r.tx_id, r);
++    if (r.related_tx_id) { if (!kids.has(r.related_tx_id)) kids.set(r.related_tx_id, []); kids.get(r.related_tx_id).push(r); }
++  }
++  const keys = new Set([...tx.values()].filter(r => r.type === 'TRADE_PROPOSAL' && r.execution_type === 'EXECUTE' && !r.related_tx_id).map(r => r.tx_id));
++  for (const k of kids.keys()) if (!tx.has(k)) keys.add(k);
++  const at = r => Number(r?.raw?.processDate ?? r?.raw?.proposedDate ?? NaN);
++  const offers = [];
++  for (const k of keys) {
++    const p = tx.get(k) ?? null;
++    const ks = kids.get(k) ?? [];
++    const cancel = ks.filter(x => x.type === 'TRADE_PROPOSAL' && x.execution_type === 'CANCEL');
++    const src = p ?? cancel[0] ?? null;
++    const items = src ? itemsOf(src) : [];
++    const parties = partiesOf(items);
++    if (parties.size > 2) continue;
++    let proposer = src?.team_id != null ? String(src.team_id) : null;
++    const answer = type => ks.find(x => x.type === type && x.execution_type === 'EXECUTE' && String(x.team_id) !== proposer);
++    const acc = answer('TRADE_ACCEPT');
++    const dec = answer('TRADE_DECLINE');
++    // An offer whose proposal row was never captured still has its answer row (E1: 38 of 82 league offers).
++    const receiver = src ? ([...parties].find(t => t !== proposer) ?? null) : String((acc ?? dec)?.team_id ?? '') || null;
++    if (!receiver || (src && (!proposer || !parties.has(proposer)))) continue;
++    const T = Number(p?.raw?.proposedDate ?? Math.min(...[src, ...ks].filter(Boolean).map(at).filter(Number.isFinite)));
++    if (!Number.isFinite(T)) continue;
++    let decided = null, reply = null, resolved = null;
++    if (acc) { decided = 1; reply = 'accept'; resolved = at(acc); }
++    else if (dec) { decided = 0; reply = 'decline'; resolved = at(dec); }
++    else if (cancel.length) {
++      const cx = cancel[0];
++      const exp = Number(src.raw?.expirationDate);
++      const ct = at(cx);
++      if (String(cx.member_id ?? '').startsWith('TradeTaskProcessor') && Number.isFinite(exp) && ct >= exp - 60_000) {
++        decided = 0; reply = 'ignore'; resolved = ct;
++      } else if (Number.isFinite(ct) && ct - T >= WITHDRAW_EDIT_HOURS * 36e5) { reply = 'ignore'; resolved = ct; }
++    } else if (now - T >= IGNORE_AFTER_DAYS * DAY) { reply = 'ignore'; resolved = T + IGNORE_AFTER_DAYS * DAY; }
++    if (proposer == null && parties.size === 2) proposer = [...parties].find(t => t !== receiver) ?? null;
++    offers.push({ offer_id: String(k), proposer, receiver, items_known: items.length > 0, T, resolved: Number.isFinite(resolved) ? resolved : null, decided, reply,
++      recv_gives: items.filter(i => i.type === 'TRADE' && String(i.fromTeamId) === receiver).map(i => String(i.playerId)),
++      recv_gets: items.filter(i => i.type === 'TRADE' && String(i.toTeamId) === receiver).map(i => String(i.playerId)) });
++  }
++  offers.sort((a, b) => a.T - b.T);
++  // A no followed by his own offer back to the proposer is a counter.
++  for (const o of offers) {
++    if (o.reply !== 'decline') continue;
++    const back = offers.find(x => x.proposer === o.receiver && x.receiver === o.proposer && x.T > o.T
++      && x.T - (o.resolved ?? o.T) <= COUNTER_WINDOW_DAYS * DAY);
++    if (back) o.reply = 'counter';
++  }
++  return offers.filter(o => o.T <= now);
++}
++
++/* ------------------------------------------------------------------ reply posterior */
++
++const norm4 = a => { const s = REPLY_KINDS.reduce((t, k) => t + a[k], 0); return Object.fromEntries(REPLY_KINDS.map(k => [k, a[k] / s])); };
++
++/** Dirichlet mean from a base mean at `strength` plus counts. */
++export function posterior(base, strength, counts) {
++  const a = Object.fromEntries(REPLY_KINDS.map(k => [k, strength * base[k] + (counts[k] ?? 0)]));
++  return norm4(a);
++}
++
++const countsOf = list => {
++  const c = { ignore: 0, counter: 0, decline: 0, accept: 0, n: 0 };
++  for (const o of list) if (o.reply) { c[o.reply]++; c.n++; }
++  return c;
++};
++
++/** Offers whose reply was known before `asOf` (resolved strictly earlier). */
++export const knownBefore = (offers, asOf) => offers.filter(o => o.reply && o.resolved != null && o.resolved < asOf);
++
++/** League posterior and one per receiver, from offers known before asOf. */
++export function replyModel(offers, asOf, { prior = REPLY_PRIOR } = {}) {
++  const known = knownBefore(offers, asOf);
++  const lc = countsOf(known);
++  const league = posterior(prior, PRIOR_STRENGTH, lc);
++  const byTeam = new Map();
++  const teams = new Set(known.map(o => o.receiver));
++  for (const t of teams) {
++    const c = countsOf(known.filter(o => o.receiver === t));
++    byTeam.set(t, { reply: posterior(league, MANAGER_STRENGTH, c), n: c.n, counts: c });
++  }
++  return { league, league_n: lc.n, byTeam };
++}
++
++export const dealRate = r => r.accept + COUNTER_CLOSE * r.counter;
++
++/**
++ * P(yes | the offer is decided) in E1's sense (accepted vs declined, countered or expired).
++ * `rho` = share of ignores that end in the decided set (expired) rather than being withdrawn.
++ */
++export const pYesDecided = (r, rho = 0) => r.accept / (r.accept + r.decline + r.counter + rho * r.ignore);
++
++/* ------------------------------------------------------------------ nick_override */
++
++/** profile_json.nick_override (object, JSON string or null) -> typed override. */
++export function readOverride(raw) {
++  let v = raw;
++  if (typeof raw === 'string') { try { v = JSON.parse(raw); } catch { v = { note: raw }; } }
++  const none = { status: 'none', active: false, exclude: false, deprioritize: false, hard: false, basis: 'no override' };
++  if (!v || typeof v !== 'object') return none;
++  const note = String(v.note ?? '').toLowerCase();
++  const exclude = v.contactable === false || v.exclude === true || /\b(exclude|abroad|unreachable|never)\b/.test(note);
++  const deprioritize = !exclude && (v.buyer === false || v.deprioritize === true || /\bnone\b/.test(String(v.trades ?? '').toLowerCase())
++    || /not doing trades|no trades/.test(note));
++  const hard = /\bhard\b/.test(String(v.difficulty ?? '').toLowerCase());
++  const active = v.active === true && !exclude;
++  const tags = [active && 'active', exclude && 'exclude', deprioritize && 'deprioritize', hard && 'hard'].filter(Boolean);
++  return { status: 'ok', active, exclude, deprioritize, hard, basis: tags.length ? `nick_override: ${tags.join(', ')}` : 'nick_override: no planning effect' };
++}
++
++/* ------------------------------------------------------------------ the model */
++
++/**
++ * teams: counterparty roster ids. offers: classifyOffers(...). overrides: Map roster -> raw nick_override.
++ * wants: Map roster -> Map playerId -> { lift, n } (COUNTERPART-01 counterpart.wants), optional.
++ * now: ms. Returns { version, now, league, pool, byTeam: Map roster -> manager model }.
++ */
++export function buildOpponentModel({ teams, offers = [], overrides = new Map(), wants = new Map(), now }) {
++  const rm = replyModel(offers, now);
++  const ov = new Map([...teams].map(t => [String(t), readOverride(overrides.get(String(t)) ?? null)]));
++  const pool = new Set([...ov].filter(([, o]) => o.active).map(([t]) => t));
++  const byTeam = new Map();
++  for (const t of teams) {
++    const team = String(t);
++    const own = rm.byTeam.get(team);
++    const reply = own?.reply ?? rm.league;
++    const o = ov.get(team);
++    const w = wants.get(team) ?? new Map();
++    byTeam.set(team, { team, reply, reply_n: own?.n ?? 0, deal_ratio: dealRate(reply) / dealRate(rm.league),
++      override: o, in_pool: pool.size ? pool.has(team) : null,
++      wants: new Map([...w].map(([pid, x]) => [String(pid), { lift: Number(x.lift) || 0, n: x.n ?? null }])) });
++  }
++  return { version: MODEL_VERSION, now, league: rm.league, league_n: rm.league_n, pool, byTeam };
++}
++
++const feat = (feature, team, extra) => ({ feature, team: String(team), fitted: false, ...extra });
++
++/**
++ * Simulated reply on one step. base: the clone's priceStep result ({ p, ... }).
++ * Returns { p, p_clone, reply, features }.
++ */
++export function simulateStep(model, team, base) {
++  const m = model?.byTeam.get(String(team));
++  const pClone = Number(base?.p_before_counterpart ?? base?.p) || 0;
++  if (!m) return { p: pClone, p_clone: pClone, reply: null, features: [] };
++  const features = [];
++  const o = m.override;
++  if (o.exclude) {
++    return { p: 0, p_clone: pClone, reply: m.reply, features: [feat('nick_override', team, { effect: 'exclude', value: 0, basis: o.basis })] };
++  }
++  let p = clamp(pClone * m.deal_ratio, 0, P_MAX);
++  features.push(feat('reply_model', team, { effect: 'multiplier', value: m.deal_ratio, n: m.reply_n,
++    basis: `his deal rate (accept + ${COUNTER_CLOSE} x counter) over the league's, M6 prior updated on ${m.reply_n} of his offers` }));
++  if (o.hard && p > 0 && p < 1) {
++    const odds = (p / (1 - p)) * HARD_ODDS;
++    p = odds / (1 + odds);
++    features.push(feat('nick_override', team, { effect: 'odds', value: HARD_ODDS, basis: o.basis }));
++  }
++  if (o.deprioritize) {
++    p *= OVERRIDE_DEPRIORITIZE;
++    features.push(feat('nick_override', team, { effect: 'multiplier', value: OVERRIDE_DEPRIORITIZE, basis: o.basis }));
++  }
++  if (m.in_pool === false) {
++    p *= OUT_OF_POOL;
++    features.push(feat('nick_override', team, { effect: 'multiplier', value: OUT_OF_POOL, basis: 'outside Nick\'s active partner pool' }));
++  }
++  return { p: clamp(p, 0, P_MAX), p_clone: pClone, reply: m.reply, features };
++}
++
++/** Search rank tilt for a step that gives him players he said he wants (0 weight in P(yes)). */
++export function rankTilt(model, team, give) {
++  const m = model?.byTeam.get(String(team));
++  if (!m || !m.wants.size) return { tilt: 1, feature: null };
++  const w = give.map(id => m.wants.get(String(id))).filter(Boolean).sort((a, b) => b.lift - a.lift)[0];
++  if (!w || !(w.lift > 0)) return { tilt: 1, feature: null };
++  const tilt = 1 + WANTS_RANK_TILT * Math.min(1, w.lift / WANTS_PRIOR_LOG_LIFT);
++  return { tilt, feature: feat('wants_player', team, { effect: 'rank', value: tilt, n: w.n, basis: 'he said he wants a player this step gives him; rank only, 0 weight in P(yes)' }) };
++}
++
++/**
++ * The adapter the planner sees with the opponent model on: priceStep simulates his reply,
++ * excluded managers are blocked, and `opponents` carries the model for search.js's rank tilt.
++ */
++export function withOpponentModel(adapter, model) {
++  const managers = new Map([...adapter.managers].map(([t, m]) => {
++    const o = model.byTeam.get(String(t))?.override;
++    return [t, o?.exclude ? { ...m, blocked: true, blocked_by: 'nick_override' } : m];
++  }));
++  const priceStep = (team, theyGive, theyGet) => {
++    const base = adapter.priceStep(team, theyGive, theyGet);
++    const sim = simulateStep(model, team, base);
++    return { ...base, p: sim.p, p_clone: sim.p_clone, reply: sim.reply, features: [...(base.features ?? []), ...sim.features] };
++  };
++  return { ...adapter, managers, priceStep, opponents: model };
++}
++
++/** JSON-safe summary for logs (roster ids and numbers only, no names). */
++export function publicOpponentModel(model) {
++  return { version: model.version, league: model.league, league_n: model.league_n, pool: [...model.pool],
++    managers: [...model.byTeam.values()].map(m => ({ team: m.team, reply: m.reply, reply_n: m.reply_n, deal_ratio: m.deal_ratio,
++      in_pool: m.in_pool, override: { active: m.override.active, exclude: m.override.exclude, deprioritize: m.override.deprioritize, hard: m.override.hard },
++      wants: m.wants.size })) };
++}
++
++export const opponentPreviewFields = () => previewFields(PREVIEW_REASON);
++
++/* ------------------------------------------------------------------ IO entry point (producer only) */
++
++/**
++ * Reads the league's trade rows, Nick's nick_override per roster (profile_json.nick_override
++ * only; the rest of the profile stays with PEOPLE-01's reader) and COUNTERPART-01's wants.
++ * svc: scripts/campaign/league-adapter.mjs#loadServices(); adapter: its buildAdapter result.
++ */
++export async function opponentInputsFor(svc, leagueId, adapter, { now = Date.now() } = {}) {
++  const season = adapter.league.season;
++  const rows = svc.db.rows(`SELECT tx_id, type, status, execution_type, team_id, member_id, related_tx_id, items_json, raw_json
++                            FROM league_transactions_raw WHERE league_id = ? AND season = ? AND type LIKE 'TRADE%'`, leagueId, season);
++  const offers = classifyOffers(rows, { now });
++  const { identityMap } = await import('../manager-identity.js');
++  const { openChatDb } = await import('../manager-signals.js');
++  const ids = identityMap(leagueId);
++  const overrides = new Map();
++  const chat = openChatDb();
++  let chatStatus = chat ? 'ok' : 'chat DB not found';
++  try {
++    if (chat) {
++      const stmt = chat.prepare(`SELECT json_extract(profile_json, '$.nick_override') AS o FROM negotiation_profiles
++                                 WHERE name = ? ORDER BY built_at DESC LIMIT 1`);
++      for (const [roster, ident] of ids) {
++        const r = stmt.get(ident.chat_name);
++        if (r?.o != null) overrides.set(String(roster), r.o);
++      }
++    }
++  } catch (e) {
++    chatStatus = `nick_override unread: ${e.message}`;
++  } finally { chat?.close(); }
++  let wants = new Map();
++  try {
++    const { profilesFor } = await import('../people/profile-reader.js');
++    const { buildCounterparts } = await import('../people/counterpart.js');
++    const profiles = await profilesFor(leagueId, { asOf: now });
++    const cps = buildCounterparts({ profiles: profiles.byRoster, players: adapter.players, events: [], now, teams: [...adapter.managers.keys()] });
++    wants = new Map([...cps].map(([t, c]) => [t, c.wants]));
++  } catch (e) {
++    chatStatus += `; wants unread: ${e.message}`;
++  }
++  const model = buildOpponentModel({ teams: [...adapter.managers.keys()], offers, overrides, wants, now });
++  return { model, summary: { status: 'on', chat: chatStatus, offers: offers.length, known: knownBefore(offers, now).length,
++    overrides: overrides.size, pool: model.pool.size } };
++}
+diff --git a/server/services/campaign/search.js b/server/services/campaign/search.js
+index e066f3d3..251f1d7a 100644
+--- a/server/services/campaign/search.js
++++ b/server/services/campaign/search.js
+@@ -12,6 +12,7 @@
+  */
+ import { screenFair, flipSpread, linearNick, combos, pathExpectation, isChained, dealKey } from './paths.js';
+ import { metricOf } from './objectives.js';
++import { rankTilt } from './opponent-model.js';
+ 
+ export const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
+ 
+@@ -167,12 +168,16 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
+     for (const st of stepsFrom(state, own, target, 2)) {
+       const steps = [...prefix, withP(state, st)];
+       const e = h(steps);
+-      if (!best || e.expected > best.e.expected) best = { steps, e };
++      const c = { steps, e };
++      if (!best || byExp(c, best) < 0) best = c;
+     }
+     return best;
+   };
+-  const byExp = (a, b) => b.e.expected - a.e.expected;
+-  const byFinal = (a, b) => b.e.delta_final - a.e.delta_final;
++  // COUNTERPART-02: with the opponent model on (adapter.opponents), a step that gives a manager a
++  // player he said he wants ranks higher in the shortlists; P(yes) and `expected` are untouched.
++  const tiltOf = c => (adapter.opponents ? c.steps.reduce((t, st) => t * rankTilt(adapter.opponents, st.team, st.give).tilt, 1) : 1);
++  const byExp = (a, b) => b.e.expected * tiltOf(b) - a.e.expected * tiltOf(a);
++  const byFinal = (a, b) => b.e.delta_final * tiltOf(b) - a.e.delta_final * tiltOf(a);
+   const d1 = direct.map(steps => ({ steps, e: h(steps) }));
+   const d2 = chipLayer([[]], 2).map(finish).filter(Boolean);
+   const d3 = chipLayer(d2.sort(byExp).slice(0, 6).map(c => c.steps.slice(0, 1)), 1).map(finish).filter(Boolean);
+diff --git a/test/campaign-opponent-model.test.js b/test/campaign-opponent-model.test.js
+new file mode 100644
+index 00000000..f39fc413
+--- /dev/null
++++ b/test/campaign-opponent-model.test.js
+@@ -0,0 +1,166 @@
++/**
++ * COUNTERPART-02: the War Room opponent model (server/services/campaign/opponent-model.js)
++ * and its use in the search (search.js). Made-up rows and the made-up four-team league
++ * (test/fixtures/campaign-league.mjs). No DB, no real league data.
++ */
++import test from 'node:test';
++import assert from 'node:assert/strict';
++
++const M = await import('../server/services/campaign/opponent-model.js');
++const { makeAdapter } = await import('./fixtures/campaign-league.mjs');
++const { planLeague } = await import('../server/services/campaign/planner.js');
++const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
++
++const DAY = 864e5;
++const T0 = Date.UTC(2026, 8, 1);
++const item = (from, to, pid) => ({ type: 'TRADE', fromTeamId: from, toTeamId: to, playerId: pid });
++const proposal = (id, team, at, items, extra = {}) => ({ tx_id: id, type: 'TRADE_PROPOSAL', execution_type: 'EXECUTE', team_id: team,
++  related_tx_id: null, raw: { proposedDate: at, expirationDate: at + 2 * DAY, items }, ...extra });
++const kid = (id, rel, type, team, at, extra = {}) => ({ tx_id: id, type, execution_type: 'EXECUTE', team_id: team, related_tx_id: rel,
++  raw: { proposedDate: at, processDate: at, items: [] }, ...extra });
++const cancel = (id, rel, team, at, member = 'someone') => ({ tx_id: id, type: 'TRADE_PROPOSAL', execution_type: 'CANCEL', team_id: team,
++  related_tx_id: rel, member_id: member, raw: { proposedDate: at, processDate: at, items: [item(1, 2, 9)] } });
++
++function rows() {
++  return [
++    // a: 1 -> 2, accepted
++    proposal('a', 1, T0, [item(1, 2, 10), item(2, 1, 20)]), kid('a1', 'a', 'TRADE_ACCEPT', 2, T0 + 3600e3),
++    // b: 1 -> 3, declined, then 3 sends 1 his own offer the next day (a counter)
++    proposal('b', 1, T0 + DAY, [item(1, 3, 11), item(3, 1, 30)]), kid('b1', 'b', 'TRADE_DECLINE', 3, T0 + DAY + 3600e3),
++    proposal('c', 3, T0 + 2 * DAY, [item(3, 1, 31), item(1, 3, 12)]),
++    // d: 1 -> 4, expired unanswered (the task processor cancels it at expiry)
++    proposal('d', 1, T0 + 3 * DAY, [item(1, 4, 13), item(4, 1, 40)]), cancel('d1', 'd', 1, T0 + 5 * DAY, 'TradeTaskProcessor-x'),
++    // e: 1 -> 2, withdrawn after 10 minutes (an edit, not a reply)
++    proposal('e', 1, T0 + 4 * DAY, [item(1, 2, 14), item(2, 1, 21)]), cancel('e1', 'e', 1, T0 + 4 * DAY + 600e3),
++    // f: the proposal row was never captured; only the decline survived
++    kid('f1', 'f', 'TRADE_DECLINE', 4, T0 + 6 * DAY),
++    // not a trade
++    { tx_id: 'w', type: 'WAIVER', execution_type: 'EXECUTE', team_id: 1, raw: {} },
++  ];
++}
++
++/* ------------------------------------------------------------ offers */
++
++test('offers are classified accept / counter / decline / ignore, with E1\'s decided set', () => {
++  const offers = M.classifyOffers(rows(), { now: T0 + 30 * DAY });
++  const by = Object.fromEntries(offers.map(o => [o.offer_id, o]));
++  assert.equal(by.a.reply, 'accept'); assert.equal(by.a.decided, 1); assert.equal(by.a.receiver, '2');
++  assert.equal(by.b.reply, 'counter', 'a no followed by his own offer back within two days is a counter');
++  assert.equal(by.b.decided, 0);
++  assert.equal(by.d.reply, 'ignore'); assert.equal(by.d.decided, 0, 'expired unanswered counts as a no, as in E1');
++  assert.equal(by.e.reply, null, 'withdrawn inside the edit window says nothing about him');
++  assert.equal(by.e.decided, null);
++  assert.equal(by.f.reply, 'decline'); assert.equal(by.f.receiver, '4'); assert.equal(by.f.items_known, false);
++  assert.equal(by.c.receiver, '1');
++  assert.ok(!by.w);
++});
++
++test('the reply model only learns from replies known before the as-of time', () => {
++  const offers = M.classifyOffers(rows(), { now: T0 + 30 * DAY });
++  const before = M.replyModel(offers, T0 + 1800e3);         // the accept on offer a lands an hour in
++  assert.equal(before.league_n, 0);
++  assert.deepEqual(before.league, M.posterior(M.REPLY_PRIOR, M.PRIOR_STRENGTH, {}));
++  const after = M.replyModel(offers, T0 + 2 * 3600e3);
++  assert.equal(after.league_n, 1);
++  assert.ok(after.byTeam.get('2').reply.accept > after.league.accept, 'his own accept moves him above the league');
++  assert.ok(after.league.accept > M.REPLY_PRIOR.accept);
++  const s = Object.values(after.byTeam.get('2').reply).reduce((a, b) => a + b, 0);
++  assert.ok(Math.abs(s - 1) < 1e-12);
++});
++
++test('with no offers the model is the M6 prior and P(yes | decided) is its accept share of the answers', () => {
++  const r = M.posterior(M.REPLY_PRIOR, M.PRIOR_STRENGTH, {});
++  for (const k of M.REPLY_KINDS) assert.ok(Math.abs(r[k] - M.REPLY_PRIOR[k]) < 1e-12);
++  assert.ok(Math.abs(M.pYesDecided(r) - 0.05 / 0.55) < 1e-12);
++});
++
++/* ------------------------------------------------------------ nick_override */
++
++test('nick_override: active, hard, unreachable and not-trading are read from the profile shape', () => {
++  assert.deepEqual(M.readOverride({ active: true, difficulty: 'hard to deal with' }),
++    { status: 'ok', active: true, exclude: false, deprioritize: false, hard: true, basis: 'nick_override: active, hard' });
++  const away = M.readOverride('{"contactable": false, "note": "unreachable; exclude from plans"}');
++  assert.equal(away.exclude, true); assert.equal(away.active, false);
++  assert.equal(M.readOverride({ buyer: false, trades: 'probably none' }).deprioritize, true);
++  const none = M.readOverride(null);
++  assert.equal(none.status, 'none');
++  const other = M.readOverride({ fan_of: 'a team', note: 'a player is out for the season' });
++  assert.deepEqual([other.active, other.exclude, other.deprioritize, other.hard], [false, false, false, false]);
++});
++
++/* ------------------------------------------------------------ simulated step */
++
++const model = (overrides = {}, wants = new Map(), offers = []) => M.buildOpponentModel({ teams: ['2', '3', '4'], offers,
++  overrides: new Map(Object.entries(overrides)), wants, now: T0 + 30 * DAY });
++
++test('P(yes): clone x deal ratio; exclude -> 0; hard halves the odds; out of the active pool halves it', () => {
++  const m = model({ 2: { active: true }, 3: { active: true, difficulty: 'hard' }, 4: { contactable: false } });
++  const base = { p: 0.4 };
++  const s2 = M.simulateStep(m, '2', base);
++  assert.ok(Math.abs(s2.p - 0.4) < 1e-12, 'no history: his deal rate is the league\'s, so the clone stands');
++  const s3 = M.simulateStep(m, '3', base);
++  assert.ok(Math.abs(s3.p - (0.4 / 0.6 * 0.5) / (1 + 0.4 / 0.6 * 0.5)) < 1e-12);
++  assert.equal(M.simulateStep(m, '4', base).p, 0);
++  const m2 = model({ 2: { active: true } });
++  assert.ok(Math.abs(M.simulateStep(m2, '3', base).p - 0.2) < 1e-12, 'outside the pool');
++  const nopool = model({});
++  assert.ok(Math.abs(M.simulateStep(nopool, '3', base).p - 0.4) < 1e-12, 'no pool named: nobody is outside it');
++  assert.ok(s3.features.every(f => f.fitted === false && f.feature && f.basis));
++});
++
++test('his reply history moves P(yes): a manager who deals rates above the league, one who declines below', () => {
++  const offers = M.classifyOffers(rows(), { now: T0 + 30 * DAY });
++  const m = model({}, new Map(), offers);
++  const p2 = M.simulateStep(m, '2', { p: 0.4 }).p, p4 = M.simulateStep(m, '4', { p: 0.4 }).p;
++  assert.ok(p2 > 0.4, `accepted before: ${p2}`);
++  assert.ok(p4 < 0.4, `ignored and declined before: ${p4}`);
++});
++
++test('wants_player raises the search rank of a step that gives him the player, never P(yes)', () => {
++  const wants = new Map([['3', new Map([['5', { lift: 2.0, n: 4 }]])]]);
++  const m = model({}, wants);
++  assert.equal(M.rankTilt(m, '3', [5]).tilt, 1 + M.WANTS_RANK_TILT);
++  assert.equal(M.rankTilt(m, '3', [4]).tilt, 1);
++  assert.equal(M.rankTilt(m, '2', [5]).tilt, 1);
++  const noWants = model({});
++  assert.equal(M.simulateStep(m, '3', { p: 0.4 }).p, M.simulateStep(noWants, '3', { p: 0.4 }).p);
++});
++
++test('flag: GRIDIRON_OPPONENT_MODEL=1 on; preview turns it on; =0 wins over preview; default off', () => {
++  const prev = process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
++  try {
++    delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
++    assert.deepEqual(M.opponentFlag({}), { on: false, preview: false });
++    assert.deepEqual(M.opponentFlag({ GRIDIRON_OPPONENT_MODEL: '1' }), { on: true, preview: false });
++    process.env.GRIDIRON_PREVIEW_UNCONFIRMED = '1';
++    assert.deepEqual(M.opponentFlag({}), { on: true, preview: true });
++    assert.deepEqual(M.opponentFlag({ GRIDIRON_OPPONENT_MODEL: '0' }), { on: false, preview: false });
++  } finally {
++    if (prev == null) delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED; else process.env.GRIDIRON_PREVIEW_UNCONFIRMED = prev;
++  }
++});
++
++/* ------------------------------------------------------------ in the planner */
++
++const plan = adapter => planLeague(adapter, { objective: normaliseObjective({}) });
++const partnersOf = res => res.deck.flatMap(c => c.plan.steps.map(s => String(s.team)));
++
++test('off: the planner is unchanged; the wrapper with a neutral model changes nothing either', () => {
++  const a = plan(makeAdapter()), b = plan(makeAdapter());
++  assert.deepEqual(a.deck.map(c => c.plan), b.deck.map(c => c.plan));
++  const neutral = M.withOpponentModel(makeAdapter(), model({}));
++  const c = plan(neutral);
++  assert.deepEqual(c.deck.map(x => x.plan.steps.map(s => [s.team, s.give, s.get, s.p])), a.deck.map(x => x.plan.steps.map(s => [s.team, s.give, s.get, s.p])));
++});
++
++test('on: an unreachable manager is in no move, and the deck routes through the active pool', () => {
++  const off = plan(makeAdapter());
++  assert.ok(partnersOf(off).includes('3'), 'fixture: team 3 is a partner today');
++  const on = plan(M.withOpponentModel(makeAdapter(), model({ 3: { contactable: false }, 2: { active: true }, 4: { active: true } })));
++  assert.ok(on.deck.length > 0);
++  assert.ok(!partnersOf(on).includes('3'), 'excluded manager in a move');
++  const pool = plan(M.withOpponentModel(makeAdapter(), model({ 4: { active: true } })));
++  const share = ps => ps.filter(t => t === '4').length / ps.length;
++  assert.ok(share(partnersOf(pool)) >= share(partnersOf(off)), 'the pool partner does not lose share');
++  for (const c of pool.deck) for (const s of c.plan.steps) assert.ok(s.p >= 0 && s.p <= M.P_MAX);
++});
+diff --git a/test/counterpart-model.test.js b/test/counterpart-model.test.js
+index 62442952..2bf0dd2e 100644
+--- a/test/counterpart-model.test.js
++++ b/test/counterpart-model.test.js
+@@ -10,7 +10,8 @@ const { makeAdapter } = await import('./fixtures/campaign-league.mjs');
+ const { makeChatDb, richProfile, DAY, T0 } = await import('./fixtures/people-chat.mjs');
+ const { planLeague } = await import('../server/services/campaign/planner.js');
+ const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
+-const { toEntry, validateEntry } = await import('../server/services/campaign/view.js');
++const { toEntry } = await import('../server/services/campaign/view.js');
++const { validateLeague } = await import('../server/services/campaign/plans-schema.js');
+ const { readProfiles } = await import('../server/services/people/profile-reader.js');
+ const cpm = await import('../server/services/people/counterpart.js');
+ const { buildCounterparts, withCounterparts, wantsLift, wantsDecay, credibility, tradeEvents, stepAdjust,
+@@ -154,11 +155,14 @@ test('the War Room entry with the model on still passes its contract and carries
+   const a = makeAdapter();
+   a.counterparts = cps;
+   const res = planLeague(a, { objective: obj });
++  // FIX-03's warroom-plans/1 contract (plans-schema.js) replaced view.js#validateEntry; the reason
++  // chains and the model summary stay on the planner result, not in the contract file.
+   const entry = toEntry(res, { names: a.names(), as_of: 'fixture', changed: { changed: false, reason: 'first plan' } });
+-  assert.deepEqual(validateEntry(entry), []);
+-  assert.ok(entry.view.partners.value.every(p => Array.isArray(p.reason_chain)));
+-  assert.equal(entry.counterpart.status, 'on');
+-  assert.ok(JSON.stringify(entry.counterpart).length > 0, 'the model summary is JSON-safe');
++  const v = validateLeague(entry);
++  assert.ok(v.ok, JSON.stringify(v.errors?.slice(0, 3)));
++  assert.ok(res.partners.every(p => Array.isArray(p.reason_chain)));
++  assert.equal(res.counterpart.status, 'on');
++  assert.ok(JSON.stringify(res.counterpart).length > 0, 'the model summary is JSON-safe');
+ });
+ 
+ test('a counterparty with no chat identity still gets a typed-unknown model, so the reply prior is league-wide', () => {

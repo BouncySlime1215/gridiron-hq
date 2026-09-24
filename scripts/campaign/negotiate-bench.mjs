@@ -15,7 +15,7 @@ const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ?
 const leagueId = Number(arg('league', 4));
 const edits = Math.max(1, Number(arg('edits', 20)));
 
-const { row, rows } = await import('../../server/db/index.js');
+const { row } = await import('../../server/db/index.js');
 const { makeRescorer, defaultDeps } = await import('../../server/services/warroom-rescorer.js');
 const { replyTimes } = await import('../../server/services/warroom-negotiate.js');
 
@@ -23,8 +23,8 @@ const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
 if (!lg) { console.error(`league ${leagueId} not found`); process.exit(1); }
 
 const R = makeRescorer(lg, await defaultDeps());
-const out = { league: leagueId, fast_rescore: (await import('../../server/services/season-sim.js')).fastRescoreEnabled(), build_ms: R.build_ms };
-if (R.fail) { out.fail = R.fail; console.log(JSON.stringify(out, null, 2)); process.exit(0); }
+const out = { league: leagueId, fast_rescore: (await import('../../server/services/season-sim.js')).fastRescoreEnabled() };
+if (R.fail) { Object.assign(out, { fail: R.fail, build_ms: R.build_ms }); console.log(JSON.stringify(out, null, 2)); process.exit(0); }
 
 // Package edits: Nick's top players against each other team's top player, one to three for one.
 const mine = R.roster(R.me).map(p => p.id);
@@ -43,18 +43,31 @@ for (let i = 0; i < edits && partners.length; i++) {
 }
 const sorted = ms.slice().sort((a, b) => a - b);
 const q = p => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] : null);
-Object.assign(out, { edits: ms.length, rescore_ms: { p50: q(0.5), p90: q(0.9), max: sorted.at(-1) ?? null }, scored });
+const tally = (list, f) => list.reduce((m, x) => ({ ...m, [f(x)]: (m[f(x)] ?? 0) + 1 }), {});
 
-// Where each team's reply-time distribution would come from.
+// ESPN offers Nick sent and how many carry his answer (the join replyTimes uses).
+try {
+  out.espn_offers = row(`SELECT COUNT(DISTINCT o.tx_id) AS offers, COUNT(DISTINCT a.related_tx_id) AS answered
+                         FROM league_transactions_raw o
+                         LEFT JOIN league_transactions_raw a ON a.league_id = o.league_id AND a.season = o.season
+                          AND a.related_tx_id = o.tx_id AND a.type IN ('TRADE_ACCEPT', 'TRADE_DECLINE') AND a.execution_type = 'EXECUTE'
+                         WHERE o.league_id = ? AND o.type = 'TRADE_PROPOSAL' AND o.execution_type = 'EXECUTE' AND o.team_id = ?`,
+  leagueId, Number(R.me));
+} catch (e) { out.espn_offers = `unreadable: ${e.message}`; }
+
+// Where each team's reply-time distribution comes from (one line per team).
 out.reply_times = [];
 for (const t of partners) {
   const d = await replyTimes(leagueId, R.me, t);
-  out.reply_times.push({ team: t, status: d.status, source: d.source, n: d.n, p50_min: d.p50_min, p90_min: d.p90_min });
+  out.reply_times.push(`team ${t}: ${d.source} n=${d.n} p50=${d.p50_min == null ? '-' : Math.round(d.p50_min)} p90=${d.p90_min == null ? '-' : Math.round(d.p90_min)} min`);
 }
-try {
-  out.espn_proposal_rows = rows(`SELECT type, execution_type, status, COUNT(*) AS n,
-                                        SUM(processed_at IS NOT NULL) AS with_processed_at
-                                 FROM league_transactions_raw WHERE league_id = ? AND type LIKE 'TRADE%'
-                                 GROUP BY type, execution_type, status ORDER BY n DESC`, leagueId);
-} catch (e) { out.espn_proposal_rows = `unreadable: ${e.message}`; }
+
+// Timings last: the runner shows the tail.
+Object.assign(out, {
+  outcomes: { problems: scored.filter(x => x.problem).length, delta: tally(scored.filter(x => !x.problem), x => x.delta_status),
+    p_yes: tally(scored.filter(x => !x.problem), x => x.p_yes_status), yes_point: tally(scored.filter(x => !x.problem), x => x.yes_point_basis) },
+  edits: ms.length,
+  build_ms: R.build_ms,
+  rescore_ms: { p50: q(0.5), p90: q(0.9), max: sorted.at(-1) ?? null }
+});
 console.log(JSON.stringify(out, null, 2));

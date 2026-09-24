@@ -63,15 +63,20 @@ Each mutant applied alone, the suite re-run, the file restored.
 | M7 | deck never flips to the thread | sent-card test |
 | M8 | a sent counter does not restart the clock | restart test |
 | M9 | Undo never expires | Undo test; thread render test |
-| M10 | cancelled ESPN proposals counted as answers | reply-times test |
+| M10 | the league's PROCESS row counted as his answer | reply-times test |
+| M11 | declines dropped from his answers | reply-times test |
 
-10 of 10 killed.
+11 of 11 killed.
 
 ## Not measured here
 
 - The 80 ms target: the rescore is timed per call (`ms` on every response) but the
   real league 4 world cannot be built in the cloud. `scripts/campaign/negotiate-bench.mjs`
   times the world build and N edits on a DB copy.
-- Which ESPN rows carry a real answer time: the bench prints the `TRADE%` rows by
-  type / execution_type / status with `processed_at` counts. An accepted trade's
-  `processed_at` may include ESPN's review period; if so, accepted rows need dropping.
+- ESPN answer times on league 4: the first LOCAL run showed `processed_at` sits on
+  TRADE_ACCEPT rows, not on proposals, so the first version (proposal proposed ->
+  processed) never fired. It now joins Nick's TRADE_PROPOSAL/EXECUTE to the partner's
+  TRADE_ACCEPT/TRADE_DECLINE/EXECUTE by related_tx_id (the reading
+  counterparty-pricing.js and manager-signals.js already use); the bench prints how
+  many offers join and the per-team source. Expired offers leave no row, so the
+  distribution is his time when he answers at all.

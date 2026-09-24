@@ -35,37 +35,38 @@ function quantile(sorted, q) {
 }
 
 /**
- * How long HE takes to answer an offer, in minutes, from ESPN's own log: proposals
- * Nick's team sent him that ESPN later processed (accepted or declined), time from
- * proposed to processed. Cancelled proposals are Nick withdrawing, not him answering.
+ * How long HE takes to answer an offer, in minutes, from ESPN's own log. ESPN writes
+ * Nick's offer as TRADE_PROPOSAL/EXECUTE under Nick's team and his answer as its own
+ * TRADE_ACCEPT or TRADE_DECLINE/EXECUTE row under HIS team, tied back by related_tx_id
+ * (the same reading as counterparty-pricing.js#selfRead and manager-signals.js). The
+ * gap is answer.proposed_at - offer.proposed_at. PROCESS and CANCEL rows are the league
+ * processing or vetoing, not him answering. Offers that expire unanswered leave no
+ * row, so this is his time when he does answer.
  */
 export function espnReplyMinutes(leagueId, me, partner) {
-  const out = [];
   let list;
   try {
-    list = rows(`SELECT tx_id, items_json, proposed_at, processed_at FROM league_transactions_raw
-                 WHERE league_id = ? AND type = 'TRADE_PROPOSAL' AND team_id = ?
-                   AND proposed_at IS NOT NULL AND processed_at IS NOT NULL
-                   AND (execution_type IS NULL OR execution_type <> 'CANCEL')`, leagueId, Number(me));
+    list = rows(`SELECT o.tx_id, o.proposed_at AS asked, a.proposed_at AS answered
+                 FROM league_transactions_raw o
+                 JOIN league_transactions_raw a
+                   ON a.league_id = o.league_id AND a.season = o.season AND a.related_tx_id = o.tx_id
+                  AND a.type IN ('TRADE_ACCEPT', 'TRADE_DECLINE') AND a.execution_type = 'EXECUTE'
+                  AND a.team_id = ?
+                 WHERE o.league_id = ? AND o.type = 'TRADE_PROPOSAL' AND o.execution_type = 'EXECUTE'
+                   AND o.team_id = ?`, Number(partner), leagueId, Number(me));
   } catch (e) {
     // The table is created by scripts/collect-league-transactions.mjs, not a migration.
-    if (/no such table/.test(e.message)) return { minutes: out, missing: 'the ESPN transaction log has not been collected on this machine' };
+    if (/no such table/.test(e.message)) return { minutes: [], missing: 'the ESPN transaction log has not been collected on this machine' };
     throw e;
   }
-  const seen = new Set();
+  const seen = new Set(), minutes = [];
   for (const r of list) {
     if (seen.has(r.tx_id)) continue;
     seen.add(r.tx_id);
-    let items;
-    try { items = JSON.parse(r.items_json || '[]'); } catch (e) {
-      throw new Error(`league ${leagueId} tx ${r.tx_id}: items_json unreadable (${e.message})`);
-    }
-    const teamsIn = new Set(items.flatMap(i => [i.fromTeamId, i.toTeamId]).filter(t => t != null).map(String));
-    if (!teamsIn.has(String(partner))) continue;
-    const gap = (Date.parse(r.processed_at) - Date.parse(r.proposed_at)) / MIN;
-    if (Number.isFinite(gap) && gap >= 0) out.push(gap);
+    const gap = (Date.parse(r.answered) - Date.parse(r.asked)) / MIN;
+    if (Number.isFinite(gap) && gap >= 0) minutes.push(gap);
   }
-  return { minutes: out };
+  return { minutes };
 }
 
 /** A chat read walks his whole message history, so each is kept this long. */
@@ -105,7 +106,7 @@ export async function replyTimes(leagueId, me, partner, { chat = chatReplyQuanti
   if (espn.minutes.length >= MIN_REPLIES) {
     const s = espn.minutes.slice().sort((a, b) => a - b);
     return { status: 'ok', p50_min: quantile(s, 0.5), p90_min: quantile(s, 0.9), n: s.length, source: 'espn.offers',
-      basis: `his answers to ${s.length} of your ESPN offers, proposed to processed` };
+      basis: `his answers to ${s.length} of your ESPN offers, offer to answer` };
   }
   const why = [espn.missing ?? `${espn.minutes.length} answered ESPN offer${espn.minutes.length === 1 ? '' : 's'} to him (needs ${MIN_REPLIES})`];
   let c;

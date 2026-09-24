@@ -273,15 +273,18 @@ test('countdown: follow up past his slow reply time, move on at twice it, floors
 
 test('reply times: his ESPN answers first, then his chat reply time, else unknown with both reasons', async () => {
   run('DELETE FROM league_transactions_raw');
-  const add = (i, mins, { to = 3, exec = null } = {}) => {
+  // ESPN's shape: Nick's offer under his team, the answer under the partner's, tied by related_tx_id.
+  const ins = (tx, type, exec, team, at, related = null) => run(`INSERT INTO league_transactions_raw
+      (league_id, season, tx_id, type, execution_type, proposed_at, team_id, related_tx_id, first_seen_at, last_seen_at)
+    VALUES (1, 2026, ?, ?, ?, ?, ?, ?, 'x', 'x')`, tx, type, exec, new Date(at).toISOString(), team, related);
+  const add = (i, mins, { to = 3, answer = 'TRADE_ACCEPT', exec = 'EXECUTE' } = {}) => {
     const at = Date.parse('2026-09-10T12:00:00Z') + i * 864e5;
-    run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, execution_type, proposed_at, processed_at, team_id, items_json, first_seen_at, last_seen_at)
-         VALUES (1, 2026, ?, 'TRADE_PROPOSAL', ?, ?, ?, 1, ?, 'x', 'x')`, `tx${i}`, exec,
-    new Date(at).toISOString(), new Date(at + mins * 60_000).toISOString(),
-    JSON.stringify([{ fromTeamId: 1, toTeamId: to }, { fromTeamId: to, toTeamId: 1 }]));
+    ins(`p${i}`, 'TRADE_PROPOSAL', 'EXECUTE', 1, at);
+    ins(`a${i}`, answer, exec, to, at + mins * 60_000, `p${i}`);
   };
-  [60, 120, 30, 240, 90].forEach((m, i) => add(i, m));
-  add(10, 5, { exec: 'CANCEL' });           // Nick withdrew: not his answer
+  [60, 120, 30, 240].forEach((m, i) => add(i, m));
+  add(4, 90, { answer: 'TRADE_DECLINE' });  // a no is an answer too
+  add(10, 5, { exec: 'PROCESS' });          // the league processing it: not his answer
   add(11, 7, { to: 4 });                    // another manager
   const espn = await N.replyTimes(1, '1', '3', { chat: noChat });
   assert.equal(espn.status, 'ok');

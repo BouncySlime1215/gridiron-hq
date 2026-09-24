@@ -132,6 +132,7 @@ const tradeCardSwaps = () => [
   ["'./trade/ManagerRead'", namedStub([])],
   ["'./trade/PlayerEvidence'", namedStub([])],
   ["'./trade/RiskStrip'", namedStub([])],
+  ["'./warroom/HisScreen'", namedStub([])],
   ["'./trade/types'", namedStub(['hasEvidence'])],
 ];
 

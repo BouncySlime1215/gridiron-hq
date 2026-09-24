@@ -242,21 +242,27 @@ test('the pulse is default-off: GRIDIRON_PULSE_ENABLED or preview mode turns it 
 
 /* --------------------------------------------------------------- the replan */
 
-test('requestReplan: no planner / War Room off are statuses; otherwise it runs produce-plans for the league', () => {
+test('requestReplan: no planner / War Room off are statuses; else it launches the producer once, through its lock', async () => {
   const empty = fs.mkdtempSync(path.join(temp, 'noplanner-'));
-  assert.equal(cli.requestReplan(4, { root: empty, env: { GRIDIRON_WARROOM_ENABLED: '1' } }).status, 'no_planner');
+  assert.equal((await cli.requestReplan(4, { root: empty, env: { GRIDIRON_WARROOM_ENABLED: '1' } })).status, 'no_planner');
   const withPlanner = fs.mkdtempSync(path.join(temp, 'planner-'));
   fs.mkdirSync(path.join(withPlanner, 'scripts/campaign'), { recursive: true });
   fs.writeFileSync(path.join(withPlanner, cli.PLANNER), '');
-  assert.equal(cli.requestReplan(4, { root: withPlanner, env: {} }).status, 'warroom_disabled');
+  assert.equal((await cli.requestReplan(4, { root: withPlanner, env: {} })).status, 'warroom_disabled');
+  const files = { lock: path.join(withPlanner, 'plans.json.lock'), log: path.join(withPlanner, 'producer.log') };
   const calls = [];
-  const spawn = (cmd, args) => { calls.push(args); return { status: 0, stdout: 'plans: ok\n', stderr: '' }; };
-  const r = cli.requestReplan(4, { root: withPlanner, env: { GRIDIRON_WARROOM_ENABLED: '1' }, spawn });
-  assert.equal(r.status, 'ran');
-  assert.deepEqual(calls[0].slice(1), [cli.PLANNER, '--leagues', '4']);
-  const bad = cli.requestReplan(4, { root: withPlanner, env: { GRIDIRON_WARROOM_ENABLED: '1' },
-    spawn: () => ({ status: 2, stdout: '', stderr: 'boom' }) });
-  assert.equal(bad.status, 'failed');
+  const launch = (cmd, args, opts) => { calls.push({ args, opts }); return 4242; };
+  const on = { GRIDIRON_WARROOM_ENABLED: '1' };
+  const r = await cli.requestReplan(4, { root: withPlanner, env: on, launch, files });
+  assert.equal(r.status, 'launched');
+  assert.deepEqual(calls[0].args.slice(1), [cli.PLANNER], 'every league: a one-league run would drop the others from plans.json');
+  assert.equal(calls[0].opts.log, files.log, 'the same log the warroom_plans step reads');
+  fs.writeFileSync(files.lock, String(process.pid));
+  const busy = await cli.requestReplan(4, { root: withPlanner, env: on, launch, files });
+  assert.equal(busy.status, 'already_running', 'a running producer is never doubled');
+  assert.equal(calls.length, 1);
+  fs.writeFileSync(files.lock, '999999');
+  assert.equal((await cli.requestReplan(4, { root: withPlanner, env: on, launch, files })).status, 'launched', 'a stale lock does not block');
 });
 
 test('runPulse: a live credible statement asks for a replan and the run row records the outcome', async () => {
@@ -264,16 +270,20 @@ test('runPulse: a live credible statement asks for a replan and the run row reco
     { id: 105, name: 'Speaker Two', ts: '2026-09-21T16:00:00Z', text: 'how much for AJO?' }]);
   chat.close();
   const lines = [];
-  const summary = await cli.runPulse({ leagueId: LEAGUE, env: {}, now: '2026-09-21T16:05:00Z', log: l => lines.push(l) });
+  const asks = [];
+  const replan = async (league, { env }) => { asks.push({ league, env }); return { status: 'launched', detail: 'pid 1' }; };
+  const summary = await cli.runPulse({ leagueId: LEAGUE, env: {}, now: '2026-09-21T16:05:00Z', log: l => lines.push(l), replan });
   assert.equal(summary.status, 'ok');
   assert.equal(summary.live_credible, 1);
-  assert.ok(['no_planner', 'warroom_disabled'].includes(summary.replan), summary.replan);
+  assert.equal(summary.replan, 'launched');
+  assert.deepEqual(asks.map(a => a.league), [LEAGUE], 'one replan request for the target league');
   assert.match(lines.at(-1), /^people_pulse: \{/);
   const runRow = row('SELECT replan_status, replan_detail FROM people_pulse_runs WHERE league_id = ? ORDER BY id DESC LIMIT 1', LEAGUE);
   assert.equal(runRow.replan_status, summary.replan);
   assert.match(runRow.replan_detail, /1 credible \(WANT_PLAYER\)/);
-  const quiet = await cli.runPulse({ leagueId: LEAGUE, env: {}, now: '2026-09-21T16:10:00Z', log: () => {} });
+  const quiet = await cli.runPulse({ leagueId: LEAGUE, env: {}, now: '2026-09-21T16:10:00Z', log: () => {}, replan });
   assert.equal(quiet.replan, 'not_needed');
+  assert.equal(asks.length, 1, 'no new credible statement, no replan');
 });
 
 test('grading: per-type precision / recall against hand labels', () => {

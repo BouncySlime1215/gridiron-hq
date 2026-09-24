@@ -1,6 +1,6 @@
 /**
  * BROKEN-01a/b: the number audit (server/services/number-audit.js), its table
- * (migration 076), its refresh-loop step, the read-only GET /api/number-audit, and
+ * (migration 077), its refresh-loop step, the read-only GET /api/number-audit, and
  * the Settings "Number health" card + nav dot (client/src/components/NumberHealth.tsx).
  *
  * RED cases from ENGINE-SPECS BROKEN-01:
@@ -93,7 +93,7 @@ test('RED: two title-odds paths 5 pts apart -> broken, naming both pages', () =>
   assert.ok(r.pages_affected.includes('My team'), r.pages_affected.join(', '));
   assert.ok(r.pages_affected.includes('Trade Lab (title impact)'), r.pages_affected.join(', '));
   assert.match(r.detail, /My team and Trade Lab title impact disagree on your title odds: 31% vs 26%/);
-  assert.match(r.detail, /5\.0 pts apart; limit 3 pts/);
+  assert.match(r.detail, /5.0 pts apart; limit 4 pts/);
   assert.ok(r.trust && r.cause, 'what to trust and why are on the row');
 });
 

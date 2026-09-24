@@ -48,6 +48,9 @@ test('migration 087 is additive: two new tables, nothing dropped or altered', ()
   const tables = d.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(r => r.name);
   assert.deepEqual(tables, ['warroom_push_alerts', 'warroom_push_state']);
   mig.up(d); // idempotent
+  const q = d.prepare("INSERT INTO warroom_push_alerts (league_id, kind, from_value, to_value, reason, created_at) VALUES ('1', 'next_move', 'a', 'b', 'r', 't')");
+  q.run();
+  assert.throws(() => q.run(), /UNIQUE/, 'at most one queued alert per league and kind');
 });
 
 test('first run records a baseline and pushes nothing (turning the flag on is not a flood)', async () => {
@@ -130,6 +133,14 @@ test('a move that flips back before delivery sends nothing', async () => {
   assert.equal(s.sent.length, 0);
 });
 
+test('after a push is sent, moving back to the old move is a new change and pushes again', async () => {
+  const d = fresh(); const s = sender(); const o = { env: ON, send: s.send, now: new Date(DAY) };
+  await push.runPushAlerts(d, file(DAY, entry(1, move('L1-a'))), o);
+  await push.runPushAlerts(d, file(DAY, entry(1, move('L1-b'))), o);
+  await push.runPushAlerts(d, file(DAY, entry(1, move('L1-a'))), o);
+  assert.equal(s.sent.length, 2, 'Nick was told L1-b; L1-a is news again');
+});
+
 test('a failed send stays queued with its error and retries; three failures mark it failed', async () => {
   const d = fresh(); let calls = 0;
   const send = async () => { calls++; throw new Error('channel down'); };
@@ -191,7 +202,7 @@ test('the push carries no league or manager names, only the league id', async ()
 
 test('the producer hands every run to the push step (the unread pushes.jsonl is gone)', () => {
   const src = fs.readFileSync(new URL('../scripts/campaign/produce-plans.mjs', import.meta.url), 'utf8');
-  assert.match(src, /runPushAlerts\(/);
+  assert.match(src, /await runPushAlerts\(svc\.db\.db, file, \{ env \}\)/, 'the live plans file and the process env reach the push step');
   assert.doesNotMatch(src, /pushes\.jsonl/);
 });
 

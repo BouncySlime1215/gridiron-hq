@@ -16,6 +16,9 @@
  *   GRIDIRON_WARROOM_SKIPS       input    JSONL { league, player?, manager?, reason, at } (optional; CLI/test input only)
  *   GRIDIRON_WARROOM_PUSHES      output   JSONL, one row per league whose next move changed
  *   GRIDIRON_CHAT_DB_PATH        input    local chat DB (optional; labels only)
+ *   GRIDIRON_COUNTERPART         flag     =1 turns on the ONE-COUNTERPART model (people/counterpart.js):
+ *                                         targets, partner order and the reply prior adjusted by named
+ *                                         features; unset follows the preview switch; =0 keeps it off
  *   panels.json                  cache    reasoning panels reuse cache (FIX-08), next to the plans file
  * Defaults for the inputs sit next to the plans file.
  *
@@ -158,7 +161,7 @@ export async function buildPlansFile(leagues, {
     const prev = previous.get(String(id)) ?? null;
     let entry, res = null;
     try {
-      const { adapter, chat = null, adapterMs = 0 } = await load();
+      const { adapter, chat = null, adapterMs = 0, counterpart = null } = await load();
       if (adapter.fail) throw new Error(`world failed: ${adapter.fail}`);
       // FIX-07: War Room requests fold into the objective and skip weights (files as fallback).
       const ins = leagueInputs(id, { objectiveRow: objectives[String(id)] ?? null, fileSkips: skips });
@@ -183,6 +186,10 @@ export async function buildPlansFile(leagues, {
             nick: { status: chat.nick_status ?? 'unknown', reason: chat.nick_reason ?? chat.reason ?? null, rosters: chat.nick_rosters ?? 0 } }
             : { status: 'not_read' },
           skips: { ...(inputs.skips ?? { status: 'none' }), rows: skips.filter(s => String(s.league) === String(id)).length },
+          // ONE-COUNTERPART: people.counterpart's summary (people/counterpart.js) and the models the planner used.
+          counterpart: counterpart ? { ...counterpart, models: res.counterpart?.models ?? [] } : { status: 'not_read' },
+          // Nick's untouchables (the reader's nick block): ids excluded from targets, gets and flip legs.
+          untouchable: res.untouchable ?? { ids: [], refused_targets: [] },
           requests: ins.summary,
           deadline: adapter.league?.deadline_source ?? null, objective: objective.source,
           brain: gate ? { run_id: gate.run_id, requested_mode: requested.risk_mode, mode: gate.rule.mode,
@@ -238,6 +245,10 @@ async function main() {
   try {
     const { loadServices, buildAdapter } = await import('./league-adapter.mjs');
     const { chatRowsFor } = await import('./chat-labels.mjs');
+    // ONE-COUNTERPART (RULINGS 17): GRIDIRON_COUNTERPART=1, or the local preview switch; =0 vetoes.
+    const { flagOn, counterpartsFor } = await import('./counterpart-inputs.mjs');
+    const counterpartOn = flagOn(env);
+    console.log(`[warroom] counterpart model ${counterpartOn ? 'on' : 'off'}`);
     const { modelFlags } = await import('../../server/services/campaign/model-flags.js');
     const flags = await modelFlags();
     console.log(`[warroom] model flags ${JSON.stringify(flags)}`);
@@ -257,7 +268,13 @@ async function main() {
         const chat = await chatRowsFor(id);
         const ta = Date.now();
         const adapter = buildAdapter(svc, id, { chat: chat.rows, finder: opts.finder });
-        return { adapter, chat, adapterMs: Date.now() - ta };
+        let counterpart = { status: 'off', reason: 'GRIDIRON_COUNTERPART unset and the preview switch off (or =0)' };
+        if (counterpartOn && !adapter.fail) {
+          const cp = await counterpartsFor(svc, id, adapter);
+          adapter.counterparts = cp.counterparts;
+          counterpart = cp.summary;
+        }
+        return { adapter, chat, adapterMs: Date.now() - ta, counterpart };
       } }));
 
     const generated_at = new Date().toISOString();

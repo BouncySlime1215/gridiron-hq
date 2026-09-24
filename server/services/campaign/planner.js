@@ -21,6 +21,13 @@ import { rankPartners, planSkipWeight } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct } from './wait-or-act.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan } from './search.js';
+import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
+
+/** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
+const yesPoint = curve => {
+  const hit = (curve ?? []).filter(c => Number.isFinite(c.his_pct) && c.p >= 0.5).sort((a, b) => a.his_pct - b.his_pct)[0];
+  return hit ? hit.his_pct : null;
+};
 
 export const DECK_SIZE = 5;
 /** P(accept) curve window on his screen, wider than the finder's so the curve has a shape. */
@@ -77,6 +84,9 @@ function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta) {
  * settings: { objective, skips ({player, manager} Maps), previous (last entry or null), budget }
  */
 export function planLeague(adapter, settings) {
+  // ONE-COUNTERPART (flag GRIDIRON_COUNTERPART or preview, set by the producer): absent -> today's plan, unchanged.
+  const CP = adapter.counterparts ?? null;
+  if (CP) adapter = withCounterparts(adapter, CP);
   const clockNow = () => adapter.now?.() ?? 0;
   const t0 = clockNow();
   const phases = {};
@@ -101,10 +111,20 @@ export function planLeague(adapter, settings) {
   mark('flip');
   // Targets: the objective's player, Nick's "get" stops, then the biggest single-player upgrades.
   const skipP = settings.skips?.player ?? new Map();
-  const upgrades = [...vals.addN.entries()].filter(([pid]) => !adapter.managers.get(vals.lossO.get(pid)?.team)?.blocked)
-    .sort((x, y) => y[1] * (skipP.get(String(y[0])) ?? 1) - x[1] * (skipP.get(String(x[0])) ?? 1)).map(([pid]) => pid);
+  const myIds = adapter.rosters.get(me);
+  const tiltOf = pid => (CP ? targetTilt(CP, vals.lossO.get(pid)?.team, pid, myIds) : { tilt: 1, exclude: false, features: [] });
+  const upgrades = [...vals.addN.entries()].filter(([pid]) => !adapter.managers.get(vals.lossO.get(pid)?.team)?.blocked && !tiltOf(pid).exclude)
+    .sort((x, y) => y[1] * (skipP.get(String(y[0])) ?? 1) * tiltOf(y[0]).tilt - x[1] * (skipP.get(String(x[0])) ?? 1) * tiltOf(x[0]).tilt)
+    .map(([pid]) => pid);
+  // Nick's untouchables (the reader's nick block via the adapter) are never a target, even when asked for.
+  const untouchable = adapter.untouchable ?? new Set();
+  const refused = [];
   const wanted = [];
-  const want = pid => { if (pid != null && !wanted.some(w => String(w) === String(pid))) wanted.push(pid); };
+  const want = pid => {
+    if (pid == null) return;
+    if (untouchable.has(String(pid))) { if (!refused.includes(String(pid))) refused.push(String(pid)); return; }
+    if (!wanted.some(w => String(w) === String(pid))) wanted.push(pid);
+  };
   const idOf = s => [...adapter.players.keys()].find(k => String(k) === String(s)) ?? null;
   if (objective.kind === 'player') want(idOf(objective.target));
   for (const st of objective.stops) if (st.kind === 'get') want(idOf(st.player));
@@ -158,8 +178,13 @@ export function planLeague(adapter, settings) {
   const playbookFor = (plan, i, backup) => {
     const st = plan.steps[i];
     const stateBefore = i === 0 ? new Map() : plan.steps[i - 1].state ?? (plan.planned_on?.steps[i - 1].state) ?? new Map();
-    const { curve, basis } = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta);
+    const priced = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta);
     const m = managers.get(st.team) ?? {};
+    // Nick's "hard" read is applied ONCE (RULINGS 17): FIX-02c's hard shift when the adapter carries his block
+    // (m.nick, the real producer); otherwise the counterpart's cap at fair on his screen (the same reader flag).
+    const cap = CP && !m.nick?.hard ? priceCap(CP.get(String(st.team))) : null;
+    const curve = cap ? priced.curve.filter(c => c.his_pct <= cap.max_his_pct) : priced.curve;
+    const basis = cap ? `${priced.basis}; capped at ${cap.max_his_pct}% on his screen (nick_override)` : priced.basis;
     const ladder = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode, hard: !!m.nick?.hard });
     const offer = ladder.opening ? { ...st, give: ladder.opening.give } : st;
     const message = stepMessage(offer, { players: adapter.players, needs: m.needs ?? null });
@@ -173,6 +198,12 @@ export function planLeague(adapter, settings) {
       replies: replyTable(st, { next, backup, ladder, nudge: `Still open to ${st.give.map(names).join(' + ')} for ${st.get.map(names).join(' + ')}?` }),
       send_when: m.send_when ?? null,
       wait: waitOrAct(st, adapter.players),
+      ...(CP ? (() => {
+        const ps = adapter.priceStep(offer.team, offer.get, offer.give);
+        return { counterpart: { reply_mix: { ...M6_REPLY_PRIOR }, label: M6_LABEL, p_accept_challenger: ps.p,
+          p_accept_served: ps.p_before_counterpart ?? ps.p, yes_point_his_pct: yesPoint(curve),
+          reason_chain: [...(ps.features ?? []), ...(cap ? [cap.feature] : [])] } };
+      })() : {}),
     };
   };
   const playbook = best ? best.steps.map((_, i) => playbookFor(best, i, i === 0 ? (deck[1] ? { step: deck[1].steps[0], expected: deck[1].expected } : backups[0]) : backups[i])) : [];
@@ -190,9 +221,11 @@ export function planLeague(adapter, settings) {
     const gain = vals.addN.get(pid) ?? 0;
     const owner = vals.lossO.get(pid)?.team;
     const w = skipP.get(String(pid)) ?? 1;
+    const tt = tiltOf(pid);
     return { player: pid, owner, gain_if_landed: gain, gain_se: vals.addSe.get(pid) ?? null,
       p_reach: reach ? reach.p_complete : null, expected: reach ? reach.expected : null, mode_fit: fit,
-      rank_score: gain * (reach?.p_complete ?? 0) * w, skipped: w < 1,
+      rank_score: gain * (reach?.p_complete ?? 0) * w * tt.tilt, skipped: w < 1,
+      ...(CP ? { reason_chain: tt.features } : {}),
       why: `${names(pid)} adds ${(gain * 100).toFixed(1)} pts if landed; `
         + (reach ? `${reach.steps.length}-step path from Team ${owner}, lands ${(reach.p_complete * 100).toFixed(0)}% of the time.` : 'no path fits the sliders yet.'),
       approved: objective.kind === 'player' && String(objective.target) === String(pid) };
@@ -250,7 +283,7 @@ export function planLeague(adapter, settings) {
   mark('playbook_and_reports');
   const edge = new Map();
   for (const p of ranked) { const t = String(p.steps[0].team); edge.set(t, Math.max(edge.get(t) ?? 0, p.expected)); }
-  const partners = rankPartners(managers, edge);
+  const partners = rankPartners(managers, edge, CP ? { counterparts: CP, myIds } : null);
   // The Trade Lab finder's best single offer on the same league, and the composed-rescore probe:
   // both optional adapter hooks (the real adapter runs the served finder; a fixture may not).
   const finder_best = adapter.finderBest ? adapter.finderBest() : null;
@@ -267,6 +300,8 @@ export function planLeague(adapter, settings) {
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
     suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, outlook,
     risk_modes: compareModes(plans, ctxFor), catch_up: catchUp, partners,
+    untouchable: { ids: [...untouchable], refused_targets: refused },
+    ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
     rescores: S.count() + (confirm.rescores ?? 0), runtime_ms: clockNow() - t0, phases_ms: phases,
   };
 }

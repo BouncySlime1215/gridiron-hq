@@ -23,7 +23,14 @@ import { metricKey, objectiveLabel } from './objectives.js';
 import { MODE_LABELS } from './modes.js';
 import { P_ACCEPT_LABEL } from './playbook.js';
 import { dealKey } from './paths.js';
+import { M6_REPLY_PRIOR } from '../people/counterpart.js';
 import { hash } from './confirm.js';
+
+const M6_MIX = Object.freeze({ ignore: M6_REPLY_PRIOR.ignore, counter: M6_REPLY_PRIOR.counter, decline: M6_REPLY_PRIOR.decline, accept: M6_REPLY_PRIOR.accept });
+/** One counterpart feature for the plans file: named, typed, no names or note text. */
+const featureOut = f => ({ feature: String(f.feature), effect: String(f.effect ?? ''),
+  ...(Number.isFinite(f.value) ? { value: f.value } : {}), ...(f.basis ? { basis: String(f.basis) } : {}),
+  ...(f.player != null ? { player: String(f.player) } : {}), ...(Number.isFinite(f.n) ? { n: f.n } : {}) });
 
 export const PRODUCER = 'campaign-producer';
 export const PRODUCER_VERSION = '2';
@@ -153,6 +160,17 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       out.reasoning = reasoning({ team: st.team, p: st.p, delta: st.delta - before, clears: st.clears, pb, verdict });
     }
     if (st.band && isProb(st.band.low) && isProb(st.band.high)) out.p_yes_band = { low: st.band.low, high: st.band.high };
+    // ONE-COUNTERPART (RULINGS 17): the counterpart's served numbers, typed (plans-schema.js `counterpart`).
+    const cp = pb?.counterpart;
+    if (cp) {
+      out.counterpart = isProb(cp.p_accept_challenger) ? ok({
+        reply_mix: { ignore: cp.reply_mix.ignore, counter: cp.reply_mix.counter, decline: cp.reply_mix.decline, accept: cp.reply_mix.accept },
+        reply_mix_label: cp.label, p_accept_challenger: cp.p_accept_challenger,
+        p_accept_served: isProb(cp.p_accept_served) ? cp.p_accept_served : cp.p_accept_challenger,
+        yes_point_his_pct: fin(cp.yes_point_his_pct) ? cp.yes_point_his_pct : null,
+        reason_chain: (cp.reason_chain ?? []).map(featureOut),
+      }, 'clone.accept', { guess: true }) : unknown('The counterpart model gave no P(accept) for this step.', 'clone.accept');
+    }
     return out;
   };
 
@@ -352,6 +370,15 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     if (labels.length) out.chat_labels = labels;
     if (p.needs?.length) out.roster_holes = p.needs;
     if (Number.isInteger(p.sent_this_week)) out.offers_logged = p.sent_this_week;
+    // Nick's untouchables on this roster (the reader's nick block): never a target, a get or a flip leg.
+    const untouchable = (p.untouchable ?? []).filter(inNames).map(String);
+    if (untouchable.length) out.untouchable = untouchable;
+    // ONE-COUNTERPART (RULINGS 17): P(responds) before the model and every named adjustment, typed.
+    if (isProb(p.p_responds_before_counterpart)) {
+      out.p_responds_before_counterpart = p.p_responds_before_counterpart;
+      out.reason_chain = (p.reason_chain ?? []).map(featureOut);
+    }
+    if (res.counterpart) out.reply_mix = { ...M6_MIX };
     // FIX-02c: a manager Nick marked unreachable is excluded everywhere; the contract says so as `blocked`.
     return { ...out, checked_out: !!p.checked_out, blocked: !!p.blocked || !!p.excluded };
   }), 'campaign.plan');

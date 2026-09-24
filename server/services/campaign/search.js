@@ -46,7 +46,9 @@ export function makeScorer(W, adapter) {
 export function playerValues(S, adapter, objective) {
   const me = adapter.league.me;
   const P = adapter.players;
-  const tradable = id => SCORED.has(P.get(id)?.position) && (P.get(id)?.value ?? 0) > 0;
+  // Nick's untouchables (adapter.untouchable, the reader's nick block) are never a target, a get or a flip leg.
+  const untouchable = adapter.untouchable ?? new Set();
+  const tradable = id => !untouchable.has(String(id)) && SCORED.has(P.get(id)?.position) && (P.get(id)?.value ?? 0) > 0;
   const addN = new Map(), addSe = new Map(), lossO = new Map(), lossN = new Map();
   for (const [tid, ids] of adapter.rosters) {
     if (tid === me || excluded(adapter.managers.get(tid))) continue;
@@ -127,7 +129,7 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
   const P = adapter.players;
   const val = id => Math.max(0, Number(P.get(id)?.value) || 0);
   const owner = vals.lossO.get(target)?.team ?? S.ownerOf(new Map(), target);
-  if (owner == null || owner === me) return [];
+  if (owner == null || owner === me || adapter.untouchable?.has(String(target))) return [];
   const origMine = adapter.rosters.get(me);
   const partners = [...adapter.rosters.keys()].filter(id => id !== me && !excluded(adapter.managers.get(id))
     && !adapter.managers.get(id)?.checked_out);

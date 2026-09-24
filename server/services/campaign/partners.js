@@ -18,7 +18,13 @@
  *                target owner; not trading -> capped at CHECKED_OUT_RESPONDS;
  *                active -> floored at BASE_RESPONDS and first at equal score;
  *                hard to deal with -> tougher pricing (playbook.js#priceLadder).
+ *   counterpart  with the ONE-COUNTERPART model on (GRIDIRON_COUNTERPART / preview),
+ *                people/counterpart.js#respondsAdjust re-anchors P(responds) on the M6
+ *                reply prior and adds the wants lift; each change is a named feature in
+ *                reason_chain. Nick's flags are read from the reader, applied once here.
  */
+
+import { respondsAdjust } from '../people/counterpart.js';
 
 export const UNKNOWN = 'unknown';
 /** P(responds) at receptiveness 1.0 (no information). Hand-set anchor, not fitted. */
@@ -123,16 +129,20 @@ export function shadowResponds(pr, labels) {
  * Order: score (P(responds) x edge), then Nick's tier (active pool first, excluded last), then P(responds).
  * An excluded manager stays in the list (so the reason shows) with excluded: true and score 0.
  */
-export function rankPartners(managers, edgeByTeam) {
+export function rankPartners(managers, edgeByTeam, people = null) {
   const out = [];
   for (const [team, m] of managers) {
-    const pr = pResponds(m);
+    const base = pResponds(m);
+    // ONE-COUNTERPART: the counterpart model re-anchors and adjusts P(responds); each change is a named feature.
+    const adj = people ? respondsAdjust(base, people.counterparts.get(String(team)), people.myIds, { baseAnchor: BASE_RESPONDS }) : null;
+    const pr = adj ? { ...base, p: adj.p } : base;
     const edge = edgeByTeam.get(String(team)) ?? 0;
     const chat = m.chat ?? chatLabels();
     out.push({ team: String(team), p_responds: pr.p, basis: pr.basis, edge, score: pr.p * Math.max(0, edge),
       chat, shadow_score: (shadowResponds(pr.p, chat) ?? pr.p) * Math.max(0, edge),
       checked_out: !!m.checked_out, blocked: !!m.blocked, excluded: excluded(m), tier: nickTier(m),
-      nick: m.nick ? nickSummary(m.nick) : null,
+      nick: m.nick ? nickSummary(m.nick) : null, untouchable: (m.nick?.untouchable ?? []).map(String),
+      ...(adj ? { p_responds_before_counterpart: base.p, reason_chain: adj.features } : {}),
       needs: (Array.isArray(m.needs) ? m.needs : m.needs ? Object.keys(m.needs) : []).map(String), sent_this_week: m.sent_this_week ?? null });
   }
   return out.sort((a, b) => (b.score - a.score) || (a.tier - b.tier) || (b.p_responds - a.p_responds));

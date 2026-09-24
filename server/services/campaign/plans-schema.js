@@ -119,6 +119,17 @@ const reply = obj({ do: str }, {
   counter_rules: obj({ accept_if: str, counter_with: str, walk_away_if: str })
 });
 
+/* ONE-COUNTERPART (RULINGS 17): the counterpart model's served numbers are typed fields, not squeezed into
+ * existing keys. reply_mix = the M6 reply prior (league-wide, not fitted per manager); p_accept_challenger =
+ * the model's P(accept) beside the served p_yes (chat weight 0 until E1 grades a feature: equal today);
+ * yes_point_his_pct = where the step's price curve first reaches P(yes) 0.5 on his screen. */
+const replyMix = obj({ ignore: prob, counter: prob, decline: prob, accept: prob });
+const cpFeature = obj({ feature: str, effect: str }, { value: num, basis: str, player: id, n: num });
+const stepCounterpart = obj({
+  reply_mix: replyMix, p_accept_challenger: prob, p_accept_served: prob, yes_point_his_pct: nullable(num),
+  reason_chain: arr(cpFeature)
+}, { reply_mix_label: str });
+
 /** One offer in a plan, with its playbook. */
 const step = obj({
   partner: id,
@@ -135,7 +146,8 @@ const step = obj({
 }, {
   reasoning: field(reasoning),
   // The acceptance band p_yes is the midpoint of; "I sent it" grades against it (#239 recordSentOffer).
-  p_yes_band: obj({ low: prob, high: prob })
+  p_yes_band: obj({ low: prob, high: prob }),
+  counterpart: field(stepCounterpart)
 });
 
 /** A plan: one deck card. */
@@ -226,7 +238,11 @@ export const SECTIONS = Object.freeze({
   }))),
   // Who to deal with: P(responds) from activity x the best edge through him. Labels and counts only.
   partners: field(arr(obj({ team: id, p_responds: prob, basis: str, edge: numF }, {
-    chat_labels: arr(str), roster_holes: arr(str), offers_logged: int(0), checked_out: bool, blocked: bool
+    chat_labels: arr(str), roster_holes: arr(str), offers_logged: int(0), checked_out: bool, blocked: bool,
+    // Nick's untouchables on his roster (profile-reader nick block): never a target, a get or a flip leg.
+    untouchable: arr(pid),
+    // ONE-COUNTERPART (RULINGS 17): P(responds) before the model, each named adjustment, the reply prior.
+    p_responds_before_counterpart: prob, reason_chain: arr(cpFeature), reply_mix: replyMix
   })))
 });
 

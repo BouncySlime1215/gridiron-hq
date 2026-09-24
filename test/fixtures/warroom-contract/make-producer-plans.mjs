@@ -9,7 +9,9 @@
  * against the first (so `ground_lost` and the change diff are real). Five
  * leagues, so the file exercises every branch a consumer reads:
  *   1  title, Nick's stops (get / sell an untouchable / bye / custom),
- *      a safe-until-week-6 mode, an arrive-by week, chat labels on team 3
+ *      a safe-until-week-6 mode, an arrive-by week, chat labels on team 3,
+ *      the ONE-COUNTERPART model on (team 3 wants Nick's P2), and Nick's
+ *      'untouchable: P33' note on team 4 (never a target, a get or a flip leg)
  *   2  a league whose world failed: the contract's { league, me, names, error }
  *   3  points objective, team 3 nearly out of it (a "desperate" catch-up move
  *      that is also a deck card) and team 4 checked out
@@ -30,6 +32,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { makeAdapter } from '../campaign-league.mjs';
 import { buildPlansFile } from '../../../scripts/campaign/produce-plans.mjs';
 import { applyBrainReport, readNumberHealth } from '../../../server/services/campaign/brain-gate.js';
+import { nickBlock, resolveUntouchables, untouchableIds } from '../../../server/services/people/profile-reader.js';
+import { buildCounterparts } from '../../../server/services/people/counterpart.js';
 
 const FIRST_AT = '2026-09-24T05:00:00.000Z';
 const GENERATED_AT = '2026-09-24T06:00:00.000Z';
@@ -75,9 +79,25 @@ const fakeAudit = leagueId => {
 export const BRAIN = { read: { report: BRAIN_REPORT, error: null }, applyBrainReport,
   numberHealth: id => readNumberHealth(null, id, { read: fakeAudit }) };
 
+/** League 1's people: Nick's untouchable note on team 4 and a counterpart model per team (no real data). */
+function withPeople(a) {
+  const nick4 = resolveUntouchables(nickBlock(null, [{ note: 'untouchable: P33 (fixture)', source: 'nick-chat-2026-09-24' }]),
+    a.rosters.get('4').map(id => a.players.get(id)));
+  a.managers.set('4', { ...a.managers.get('4'), nick: nick4 });
+  a.untouchable = untouchableIds([nick4]);
+  const at = Date.parse(FIRST_AT);
+  const profile = { values_talk: { wants: [{ player: 'P2', at, n: 4 }], untouchable: [], shopping: [], talks_up: [], talks_down: [] } };
+  // Team 3: Nick reads him as hard to deal with (the counterpart caps the price at fair on his screen).
+  const nick3 = nickBlock({ difficulty: 'hard to deal with' });
+  a.counterparts = buildCounterparts({ profiles: new Map([['3', { status: 'ok', profile, built_at: FIRST_AT, nick: nick3 }]]),
+    players: a.players, now: at, teams: [...a.managers.keys()] });
+  return a;
+}
+
 export async function makeProducerPlans() {
   const leagues = [
-    { id: 1, load: async () => ({ adapter: leagueOf(1, { managerExtra: { 3: { chat: CHAT_OK } } }) }) },
+    { id: 1, load: async () => ({ adapter: withPeople(leagueOf(1, { managerExtra: { 3: { chat: CHAT_OK } } })),
+      counterpart: { status: 'ok', reason: null, field: 'people.counterpart' } }) },
     { id: 2, load: async () => { const a = leagueOf(2); a.world = () => ({ fail: 'no schedule for this season' }); return { adapter: a }; } },
     { id: 3, load: async () => ({ adapter: leagueOf(3, { managerExtra: { 3: { title_now: 0.01 }, 4: { checked_out: true } } }) }) },
     { id: 4, load: async () => ({ adapter: leagueOf(4) }) },

@@ -381,8 +381,8 @@ export function untouchableName(note) {
 }
 
 const SUFFIX = /\b(jr|sr|ii|iii|iv|v)\b/g;
-/** A player name for matching: lowercase letters only, suffixes dropped ('Smith-Njigba Jr.' -> 'smithnjigba'). */
-export const nameKey = name => String(name ?? '').toLowerCase().replace(/[.']/g, '').replace(SUFFIX, '').replace(/[^a-z]/g, '');
+/** A player name for matching: lowercase letters and digits only, suffixes dropped ('Smith-Njigba Jr.' -> 'smithnjigba'). */
+export const nameKey = name => String(name ?? '').toLowerCase().replace(/[.']/g, '').replace(SUFFIX, '').replace(/[^a-z0-9]/g, '');
 
 /**
  * A block with its untouchable names matched against that roster's players

@@ -226,7 +226,13 @@ export function acceptanceBand({ counterparty = null, edge = null, profile = nul
   const centre = anchor.usable ? anchor.accept_rate : UNANCHORED_CENTRE;
 
   // --------------------------------------- 1. how it reads on his numbers
-  const delta = counterparty?.perception_delta;
+  // CLONE-01b b2: the `clone` valuation source prices his declines into his
+  // numbers, and the clone factor (4. below) charges the same declines here. So
+  // when the clone factor is on, his numbers are read WITHOUT that source: the
+  // declines count once in the band (readDeal serves both deltas when a fit is attached).
+  const cloneCharged = clone && Number.isFinite(clone.p) && !off.has('clone')
+    && counterparty && 'perception_delta_ex_clone' in counterparty;
+  const delta = cloneCharged ? counterparty.perception_delta_ex_clone : counterparty?.perception_delta;
   if (counterparty?.perception_informed && Number.isFinite(delta)) {
     // perception_delta is a percentage: how much more he thinks he gets than he
     // gives. 0.6 of it, capped, keeps a 20%-better-for-him deal worth about 12

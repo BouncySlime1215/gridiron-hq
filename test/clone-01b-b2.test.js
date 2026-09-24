@@ -25,6 +25,7 @@
  *      labelled 'no claim before the prereg n'.
  *  B12 playerValuation gains a 'clone' source inside PLAYER_VALUATION_CAP;
  *      zero:['clone'] (and the flag off) reproduce today's valuation byte-for-byte.
+ *  B12c the declines are charged once in the band when both clone terms are on.
  *  B13 settled-reply pricing reads the offer's terms from
  *      trade_proposal_snapshots first, then the raw row, and counts the share.
  *  B14 the E1 grade reads terms snapshot-first and prints the share with terms.
@@ -398,6 +399,31 @@ test('B12b the layer attaches clone_fit only when the clone flag is on', async (
       if (v == null) delete process.env[k]; else process.env[k] = v;
     }
   }
+});
+
+test('B12c one charge: with the clone factor on, the band reads his numbers without the clone source', async () => {
+  const pricing = await import('../server/services/counterparty-pricing.js');
+  const theirs = { name: 'His Guy', position: 'WR', value: 1000 };
+  const ours = { name: 'Our Guy', position: 'RB', value: 1100 };
+  const profile = { owned: new Set(['his guy']), players: new Map(), reads: new Map(), receptiveness: 1,
+    accept_rate: 0.3, accept_rate_n: 10,
+    clone_fit: { price_bound: { gain_pct: 8, declines: 1 }, fit_stamp: 'T' } };
+  const read = pricing.readDeal({ theirGive: [theirs], theirGet: [ours], managerProfile: profile });
+  assert.ok(read.perception_delta < 10, `the clone source priced his player up: ${read.perception_delta}`);
+  assert.equal(read.perception_delta_ex_clone, null, 'nothing but the clone source priced this deal');
+  const counterparty = { ...read, counterparty_data: true };
+  const clone = acc.cloneFor({ counterparty, pool: POOL, fit: { replies: [decline(8)] }, gainPct: 10 });
+  const on = acc.acceptanceBand({ counterparty, edge: pass, clone });
+  assert.equal(on.factors.find(f => f.source === 'perception_delta'), undefined,
+    'the decline is charged by the clone factor only');
+  assert.ok(on.factors.find(f => f.source === 'clone'));
+  const zeroed = acc.acceptanceBand({ counterparty, edge: pass, clone, zero: ['clone'] });
+  assert.ok(zeroed.factors.find(f => f.source === 'perception_delta'),
+    'with the clone factor zeroed, his numbers (clone source included) price the band as before');
+  // flag off: no fit attached, so readDeal serves no ex-clone delta
+  const { clone_fit: _, ...offProfile } = profile;
+  assert.equal('perception_delta_ex_clone' in pricing.readDeal({ theirGive: [theirs], theirGet: [ours],
+    managerProfile: offProfile }), false);
 });
 
 /* ------------------------------------------------------------------ B13 */

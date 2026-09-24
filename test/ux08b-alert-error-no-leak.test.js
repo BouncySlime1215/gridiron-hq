@@ -129,6 +129,7 @@ const tradeCardSwaps = () => [
   ["'../api'", namedStub(['api', 'headshotUrl'])],
   ["'./PlayerCard'", namedStub(['usePlayerCard'])],
   ["'./PlayerRow'", namedStub(['Headshot'])],
+  ["'./trade/CloneFollowUpChip'", namedStub([])],
   ["'./trade/ManagerRead'", namedStub([])],
   ["'./trade/PlayerEvidence'", namedStub([])],
   ["'./trade/RiskStrip'", namedStub([])],

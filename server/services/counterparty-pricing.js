@@ -1118,7 +1118,22 @@ export function readDeal({ theirGive, theirGet, managerProfile, zero = [] }) {
     accept_rate_n: managerProfile?.accept_rate_n ?? 0,
     word_credibility: managerProfile?.stance?.credibility?.credibility ?? null,
     word_note: managerProfile?.stance?.note ?? null,
+    // CLONE-01b b2: only when the clone flag attached a fit. The band's clone
+    // factor already charges his declines, so acceptanceBand reads this delta
+    // instead of perception_delta when that factor is on (one charge, not two).
+    ...(managerProfile && 'clone_fit' in managerProfile ? {
+      perception_delta_ex_clone: exCloneDelta(theirGive, theirGet, managerProfile, zero),
+    } : {}),
   };
+}
+
+/** perception_delta with the `clone` source zeroed, in readDeal's units; null when nothing priced it. */
+function exCloneDelta(theirGive, theirGet, managerProfile, zero) {
+  const z = [...zero, 'clone'];
+  const give = perceivedValue(theirGive, managerProfile, { zero: z });
+  const get = perceivedValue(theirGet, managerProfile, { zero: z });
+  if (!(give.reasons.length || get.reasons.length)) return null;
+  return +(((get.value - give.value) / (give.value || 1)) * 100).toFixed(1);
 }
 
 /**

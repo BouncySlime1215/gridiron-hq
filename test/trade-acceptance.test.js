@@ -393,7 +393,10 @@ test('G3 no price term from the valuation map is ever a band source in its own r
   // The two "byte-identical band" tests above cannot catch a future re-add, because
   // they only prove this function ignores fields it never reads. This does: the
   // moment anyone declares a valuation source as an acceptance source, it fails.
-  for (const key of Object.keys(ACCEPTANCE_SOURCES)) {
+  // The one declared exception is CLONE-01b b2's `clone` (the spec feeds it to
+  // both). It is charged once: with the band's clone factor on, the band reads
+  // readDeal's perception_delta_ex_clone (test/clone-01b-b2.test.js B12c).
+  for (const key of Object.keys(ACCEPTANCE_SOURCES).filter(k => k !== 'clone')) {
     assert.ok(!VALUATION_SOURCES[key],
       `${key} is already priced into perception_delta; it cannot also be its own band term`);
   }

@@ -133,6 +133,7 @@ const tradeCardSwaps = () => [
   ["'./trade/ManagerRead'", namedStub([])],
   ["'./trade/PlayerEvidence'", namedStub([])],
   ["'./trade/RiskStrip'", namedStub([])],
+  ["'./trade/SentOfferButton'", namedStub([])],
   ["'./trade/types'", namedStub(['hasEvidence'])],
 ];
 

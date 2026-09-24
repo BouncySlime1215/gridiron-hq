@@ -300,3 +300,52 @@ test('PREVIEW-01: the valuation panel prices receptiveness with the preview term
   assert.ok(Number.isFinite(off) && Number.isFinite(on));
   assert.ok(on > off, `preview raises the busy rival's receptiveness on the panel (off ${off}, on ${on})`);
 });
+
+/**
+ * BROKEN-F (docs/tdd/2026-09-24-broken-f-player-values.tdd.md): the panel's
+ * per-manager number is a CLONE price, the deep dive's `value` a FantasyCalc
+ * market price. Under the preview switch each says which; off, nothing changes.
+ */
+test('BROKEN-F: under preview the deep dive names its market value and the panel its clone price', async () => {
+  const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
+  const { payload, theirs } = rosterPair();
+  insertLeague(211, payload);
+  const target = theirs[0];
+  seedSentiment(211, target.name);
+  // Priced, so the clone's multiplier moves a real number: with our_value 0 the
+  // two prices are both 0 and a swapped field would pass unseen.
+  const { deriveFormat } = await import('../server/services/format.js');
+  const lg211 = rows('SELECT * FROM leagues WHERE id = 211')[0];
+  run(`INSERT OR REPLACE INTO dynasty_values (player_id, format_key, value, fetched_at) VALUES (?, ?, 5000, datetime('now'))`,
+    target.id, deriveFormat(lg211).formatKey);
+  const saved = process.env[PREVIEW_ENV];
+  try {
+    delete process.env[PREVIEW_ENV];
+    const off = (await request(`/api/trades/211/player/${target.id}`)).body;
+    for (const k of ['value_kind', 'value_label', 'preview']) {
+      assert.ok(!(k in off), `switch off: the deep dive carries no ${k}`);
+      assert.ok(!(k in off.valuation_map), `switch off: the panel carries no ${k}`);
+    }
+    assert.ok(off.valuation_map.managers.every(m => !('clone_price' in m)), 'switch off: no clone_price');
+
+    process.env[PREVIEW_ENV] = '1';
+    const on = (await request(`/api/trades/211/player/${target.id}`)).body;
+    assert.equal(on.value_kind, 'market_value');
+    assert.equal(on.value_label, 'Market value (FantasyCalc)');
+    assert.equal(on.preview, true);
+    const vm = on.valuation_map;
+    assert.equal(vm.available, true, vm.reason ?? 'the layer should be built');
+    assert.equal(vm.value_kind, 'clone_price');
+    assert.equal(vm.value_label, 'Clone price');
+    assert.ok(vm.managers.length >= 1);
+    const rival = vm.managers.find(m => String(m.roster_id) === '2');
+    assert.ok(rival && rival.market_value > 0 && rival.clone_price !== rival.market_value,
+      `the rival's clone moves the price (market ${rival?.market_value}, clone ${rival?.clone_price})`);
+    for (const m of vm.managers) {
+      assert.equal(m.clone_price, m.valuation.their_value, 'clone_price IS their_value, not a re-pricing');
+      assert.equal(m.market_value, m.valuation.our_value, 'market_value IS the price the clone starts from');
+    }
+  } finally {
+    if (saved === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = saved;
+  }
+});

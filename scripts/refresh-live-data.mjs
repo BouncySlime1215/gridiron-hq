@@ -74,6 +74,10 @@ export const FANTASY_LIVE_JOBS = [
   // whose rows it grades (nfl_model_growth's finalized weeks, nfl_weekly_learning's
   // pregame snapshots). 7-day maxAge; offThread, so its replays run in a worker.
   'start_sit_gate',
+  // IDEA-001: the weekly served-number snapshot (title odds, title trades, trade
+  // cards) into served_numbers. Nothing else runs it while SCHEDULER_DISABLED=1.
+  // Idempotent per league per NFL week; offThread, so the simulations run in a worker.
+  'served_numbers_weekly',
   // 2026-09-19: scripts/build-manager-archetypes.mjs was in no allowlist at all —
   // not here, not in package.json — so `manager_archetypes` stayed empty and the
   // `draft` and `outcome` signal sources silently never appeared for any league.

@@ -159,14 +159,14 @@ export function planLeague(adapter, settings) {
     const st = plan.steps[i];
     const stateBefore = i === 0 ? new Map() : plan.steps[i - 1].state ?? (plan.planned_on?.steps[i - 1].state) ?? new Map();
     const { curve, basis } = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta);
-    const ladder = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode });
     const m = managers.get(st.team) ?? {};
+    const ladder = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode, hard: !!m.nick?.hard });
     const offer = ladder.opening ? { ...st, give: ladder.opening.give } : st;
     const message = stepMessage(offer, { players: adapter.players, needs: m.needs ?? null });
     const next = plan.steps[i + 1] ?? null;
     return {
       step_index: i, of_steps: plan.steps.length,
-      message, ladder: { ...ladder, basis },
+      message, ladder: { ...ladder, basis }, nick_shift: ladder.nick_shift ?? null,
       opening: ladder.opening ? { give: ladder.opening.give, p: ladder.opening.p, his_pct: ladder.opening.his_pct } : null,
       walk_away: ladder.walk_away ? { give: ladder.walk_away.give, p: ladder.walk_away.p, his_pct: ladder.walk_away.his_pct,
         text: `Stop at ${ladder.walk_away.give.map(names).join(' + ')}: past that, your backup plan is worth more.` } : null,
@@ -239,8 +239,8 @@ export function planLeague(adapter, settings) {
     ...flip.realised.filter(f => f.legs && f.legs.expected > 0).map(f => ({ kind: 'flip', gain: f.legs.expected,
       text: `Buy ${names(f.player)} from Team ${f.a}, sell to Team ${f.b}.`, player: f.player })),
     ...ranked.filter(p => { const m = managers.get(p.steps[0].team) ?? {}; return m.checked_out || (Number.isFinite(m.title_now) && m.title_now < 0.03); })
-      .slice(0, 2).map(p => ({ kind: 'desperate', gain: p.expected, text: `Team ${p.steps[0].team} is out of it: ${p.steps[0].get.map(names).join(' + ')} may come cheap.` })),
-    ...(behind ? byMode.all_in.slice(0, 1).map(p => ({ kind: 'swing', gain: p.expected,
+      .slice(0, 2).map(p => ({ kind: 'desperate', gain: p.expected, steps: p.steps.length, plan_key: firstKey(p), text: `Team ${p.steps[0].team} is out of it: ${p.steps[0].get.map(names).join(' + ')} may come cheap.` })),
+    ...(behind ? byMode.all_in.slice(0, 1).map(p => ({ kind: 'swing', gain: p.expected, steps: p.steps.length, plan_key: firstKey(p),
       text: `You are behind: the all-in plan reaches +${(p.delta_final * 100).toFixed(1)} pts if it lands.` })) : []),
     ...playbook.filter(pb => pb.wait.flag === 'wait').map(pb => ({ kind: 'timing', gain: pb.wait.option_value, text: `Wait ${pb.wait.days} days: ${pb.wait.reason}.` })),
     ...(Number.isInteger(L.deadline_week) ? [{ kind: 'timing', gain: null, text: `Trade deadline: week ${L.deadline_week} (${Math.max(0, L.deadline_week - L.week)} weeks left).` }] : []),
@@ -251,10 +251,17 @@ export function planLeague(adapter, settings) {
   const edge = new Map();
   for (const p of ranked) { const t = String(p.steps[0].team); edge.set(t, Math.max(edge.get(t) ?? 0, p.expected)); }
   const partners = rankPartners(managers, edge);
+  // The Trade Lab finder's best single offer on the same league, and the composed-rescore probe:
+  // both optional adapter hooks (the real adapter runs the served finder; a fixture may not).
+  const finder_best = adapter.finderBest ? adapter.finderBest() : null;
+  const sanity = adapter.sanity ? adapter.sanity() : null;
+  mark('finder_and_sanity');
 
   return {
     league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: tol,
     now, behind, week: L.week, deadline_week: L.deadline_week ?? null,
+    eta_week: best ? arrivalWeek(best, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) : null,
+    finder_best, sanity,
     flip, targets: wanted, candidates_scored: plans.length, dropped: dropped.slice(0, 20).map(d => ({ first: d.plan.steps[0], why: d.why })),
     best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook })),
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,

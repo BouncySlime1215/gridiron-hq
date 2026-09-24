@@ -126,8 +126,10 @@ export const TRADEABILITY = {
 export function managerProfiles(leagueId) {
   const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg?.payload) return { error: 'league not synced yet' };
-  const { formatKey } = deriveFormat(lg);
-  const teams = loadRosters(lg, assetUniverse(lg, formatKey));
+  // Only roster ids and owners are read here, so no asset universe: building it runs
+  // the projection stack (13 s cold on a 12-team league) on the request thread, and
+  // Trade Brain fetches this on load.
+  const teams = loadRosters(lg, new Map());
   const saved = new Map(
     rows('SELECT * FROM manager_profiles WHERE league_id = ?', leagueId)
       .map(p => [p.roster_id, p]));

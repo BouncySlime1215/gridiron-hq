@@ -1,6 +1,6 @@
 /**
  * The one prompt REASON-01 sends per league per refresh: every card that needs
- * words (top card + deck, minus any reused from the last refresh), each with
+ * words (the deck, head first, minus any reused from the last refresh), each with
  * its own facts. The model writes sections 1-4 and 6 of ENGINE-SPECS
  * REASON-01; section 5 (confidence) is assembled from the fields directly and
  * never goes through the model.
@@ -10,8 +10,8 @@ import { GROUNDING_SYSTEM } from '../claude.js';
 export const REASONING_SYSTEM = `${GROUNDING_SYSTEM}
 
 You write the reasoning panel for fantasy football trade cards. For each card:
-- case_for: why this move, in two or three short claims, from its reason facts.
-- his_side: how the other manager sees this offer on his own screen: his roster holes, his paper values, his recent moves, his labels. Why he would say yes or no. Never quote anyone, never put words in quotation marks.
+- case_for: why this move, in two or three short claims, from its card facts (title-odds gain, chance he says yes, when to send, the opening).
+- his_side: how the other manager sees this offer on his own screen: how likely he is to answer, his roster holes, his paper values, his recent moves, his labels. Why he would say yes or no. Never quote anyone, never put words in quotation marks.
 - devils_advocate: claims = the strongest reason this move is wrong; would_change = what would change the call.
 - news_check: for each news item given that contradicts the card's numbers (stale input, role change, injury), one entry with its quote_id and a claim citing news.<id>.headline. Empty list when nothing contradicts.
 - counter: likely = what he most likely counters with; answer = the pre-planned answer. Both cite reply.* facts.
@@ -32,5 +32,5 @@ export function reasoningPrompt(items) {
     facts,
     news: news.map(n => ({ quote_id: String(n.id), headline: n.headline ?? null }))
   }));
-  return `Cards (rank 0 is the top card, the rest are the deck):\n${JSON.stringify(cards, null, 1)}`;
+  return `Cards (rank 0 is the next move, the rest are the deck):\n${JSON.stringify(cards, null, 1)}`;
 }

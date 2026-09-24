@@ -24,15 +24,41 @@ export const NUDGE_HOURS = 24;
 export const SWITCH_HOURS = 48;
 
 /**
+ * FIX-02c: a manager Nick calls hard to deal with gets tougher pricing. The opening and the
+ * walk-away each move this many points lower on HIS screen (he is offered less). Hand-set,
+ * not fitted: nothing measures how much a hard bargainer concedes.
+ */
+export const HARD_SHIFT_PCT = 10;
+export const HARD_REASON = 'Nick: hard to deal with';
+
+/**
  * curve: [{ give: ids, his_pct: % on his screen (what he gets vs gives), p, nick_gain }]
  *   his_pct   > 0 means he gets more market value than he gives
  *   nick_gain Nick's expected gain for this package: p x delta (objective units)
  * batna: Nick's expected gain from his best alternative (0 when none).
  * mode: all_in opens at the indifference point instead of below it.
+ * hard: Nick says he is hard to deal with -> opening and walk-away shifted HARD_SHIFT_PCT lower
+ *       on his screen (to the nearest package at or below the shifted point).
  *
- * Returns { opening, indifference, walk_away, ladder, reason } with curve points (or null).
+ * Returns { opening, indifference, walk_away, ladder, reason, nick_shift } with curve points (or null).
  */
-export function priceLadder(curve, { batna = 0, mode = 'balanced' } = {}) {
+export function priceLadder(curve, { batna = 0, mode = 'balanced', hard = false } = {}) {
+  const L = baseLadder(curve, { batna, mode });
+  if (!hard || !L.opening) return { ...L, nick_shift: null };
+  const worth = curve.filter(c => Number.isFinite(c.his_pct) && Number.isFinite(c.p) && Number.isFinite(c.nick_gain)
+    && c.nick_gain > batna).sort((a, b) => a.his_pct - b.his_pct);
+  // The richest package for him at or below `pct`, else the poorest one he could be offered.
+  const atOrBelow = pct => worth.filter(c => c.his_pct <= pct).at(-1) ?? worth[0];
+  const opening = atOrBelow(L.opening.his_pct - HARD_SHIFT_PCT);
+  let walk_away = atOrBelow(L.walk_away.his_pct - HARD_SHIFT_PCT);
+  if (walk_away.his_pct < opening.his_pct) walk_away = opening;
+  const ladder = worth.filter(c => c.his_pct >= opening.his_pct && c.his_pct <= walk_away.his_pct);
+  return { ...L, opening, walk_away, ladder,
+    nick_shift: { reason: HARD_REASON, shift_pct: HARD_SHIFT_PCT, basis: 'hand-set, not fitted',
+      text: `${HARD_REASON}: open ${HARD_SHIFT_PCT} pts lower on his screen and walk away ${HARD_SHIFT_PCT} pts sooner (hand-set).` } };
+}
+
+function baseLadder(curve, { batna, mode }) {
   const pts = curve.filter(c => Number.isFinite(c.his_pct) && Number.isFinite(c.p) && Number.isFinite(c.nick_gain))
     .sort((a, b) => a.his_pct - b.his_pct);
   if (!pts.length) return { opening: null, indifference: null, walk_away: null, ladder: [], reason: 'no priced packages' };

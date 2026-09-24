@@ -38,8 +38,7 @@ export function makeAdapter({ seed = 12345, receptiveness = { 2: 0.3, 3: 1.3, 4:
   const rosters = ROSTERS();
   const worldsBuilt = [];
   const strength = ids => ids.map(id => players.get(id)?.power ?? 0).sort((a, b) => b - a).slice(0, 5).reduce((s, x) => s + x, 0);
-  const world = s => {
-    worldsBuilt.push(s);
+  const build = s => {
     const odds = (state, kind) => {
       const str = new Map([...rosters.keys()].map(t => [t, strength(state.get(t) ?? rosters.get(t))]));
       const k = kind === 'title' ? 6 : 3;
@@ -80,6 +79,8 @@ export function makeAdapter({ seed = 12345, receptiveness = { 2: 0.3, 3: 1.3, 4:
       weekly,
     };
   };
+  // The planner's worlds are recorded; the finder and probe hooks below build theirs unrecorded.
+  const world = s => { worldsBuilt.push(s); return build(s); };
   const managers = new Map(['2', '3', '4'].map(t => [t, {
     receptiveness: receptiveness[t] ?? 1, needs: t === '3' ? ['RB'] : ['WR'], blocked: false, checked_out: false,
     title_now: null, sent_this_week: sent[t] ?? 0, send_when: { when: 'now', why: 'nothing argues for waiting' },
@@ -90,14 +91,38 @@ export function makeAdapter({ seed = 12345, receptiveness = { 2: 0.3, 3: 1.3, 4:
     const v = ids => ids.reduce((s, id) => s + (players.get(id)?.value ?? 0), 0);
     const ratio = v(theyGet) / Math.max(1, v(theyGive));
     const r = managers.get(String(team))?.receptiveness ?? 1;
-    return { p: Math.max(0.02, Math.min(0.97, (0.3 + 0.9 * (ratio - 1)) * r)), basis: 'fixture' };
+    const p = Math.max(0.02, Math.min(0.97, (0.3 + 0.9 * (ratio - 1)) * r));
+    return { p, band: { low: Math.max(0, p - 0.08), high: Math.min(1, p + 0.08) }, basis: 'heuristic_unanchored' };
+  };
+  // The fake "Trade Lab finder": the best p x title delta over every one-for-one swap, on the planning seed.
+  const finderBest = () => {
+    const w = build(seed);
+    let best = null, n = 0;
+    for (const [team, ids] of rosters) {
+      if (team === '1') continue;
+      for (const give of rosters.get('1')) {
+        for (const get of ids) {
+          const state = new Map([['1', [...rosters.get('1').filter(x => x !== give), get]], [team, [...ids.filter(x => x !== get), give]]]);
+          const r = w.rescore(state, '1', team).me;
+          const p = priceStep(team, [get], [give]).p;
+          n++;
+          if (!best || p * r.title_delta > best.expected) best = { expected: p * r.title_delta, se: p * r.title_delta_se, n: 0 };
+        }
+      }
+    }
+    return best && { ...best, n };
+  };
+  // The composed-rescore probe: a one-for-one applied as a roster state scores the same as the same deal rescored again.
+  const sanity = () => {
+    const state = new Map([['1', [11, 2, 3, 4, 5, 6, 7]], ['2', [1, 12, 13, 14, 15]]]);
+    return build(seed).rescore(state, '1', '2').me.title_after === build(seed).rescore(new Map(state), '1', '2').me.title_after;
   };
   return {
     league: { id: 99, me: '1', fetched_at: 'fixture', week: 4, deadline_week: 8, days_left_in_week: 3, team_count: 4 },
     seed, world, worldsBuilt, rosters, players, managers,
     starters: new Set([1, 2, 3, 4, 5]),
     freeAgents: [{ id: 41, name: 'P41', position: 'WR', ros_ppg: 9.5 }, { id: 42, name: 'P42', position: 'TE', ros_ppg: 4 }],
-    priceStep, priceOf: (team, id) => ({ mult: 1, price: players.get(id)?.value ?? 0 }),
+    priceStep, finderBest, sanity, priceOf: (team, id) => ({ mult: 1, price: players.get(id)?.value ?? 0 }),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
   };
 }

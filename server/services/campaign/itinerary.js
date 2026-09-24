@@ -36,7 +36,7 @@ export function buildItinerary(plan, objective, { names = {} } = {}) {
   (objective.stops ?? []).forEach((st, j) => {
     const player = st.player != null ? String(st.player) : null;
     const done = st.kind === 'get' && player && received.has(player);
-    stops.push({ id: `nick-${j}`, order: stops.length, kind: ['get', 'sell', 'cover_bye', 'claim', 'custom'].includes(st.kind) ? st.kind : 'custom',
+    stops.push({ id: st.id ?? `nick-${j}`, order: stops.length, kind: ['get', 'sell', 'cover_bye', 'claim', 'custom'].includes(st.kind) ? st.kind : 'custom',
       label: st.label ?? (st.kind === 'cover_bye' ? `Cover the week ${st.week} bye` : `${st.kind === 'sell' ? 'Sell' : 'Get'} ${player ? nm(player) : ''}`.trim()),
       status: done ? 'next' : 'waiting', added_by: st.added_by === 'coach' ? 'coach' : 'nick' });
     if (st.kind === 'sell' && player && untouch.has(player)) conflicts.push({ text: `Selling ${nm(player)} conflicts with untouchable.` });

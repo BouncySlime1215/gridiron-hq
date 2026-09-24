@@ -27,6 +27,10 @@ import fs from 'node:fs';
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-outcome-route-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.SCHEDULER_DISABLED = '1';
+// FIX-10: /offers/sent is behind GRIDIRON_OFFER_LOOP; these tests pin the ON behaviour,
+// and the OFF / preview cases set their own env below.
+process.env.GRIDIRON_OFFER_LOOP = '1';
+delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
 
 const { db, rows, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
@@ -230,4 +234,67 @@ test('route: when the engine prices for a team other than the one asked for, the
   } finally {
     engineTeam = null;
   }
+});
+
+// ------------------------------------------------ "I sent this" (CLONE-01b b1)
+const post = async (url, body) => {
+  const res = await fetch(`http://127.0.0.1:${port}${url}`, { method: 'POST',
+    headers: { authorization: 'Bearer outcome-token', 'content-type': 'application/json' },
+    body: JSON.stringify(body) });
+  return { status: res.status, body: await res.json() };
+};
+
+test('route: POST /offers/sent records a sent offer from the served deal, stamped with the league\'s team', async () => {
+  const sent = { ...DEALS[2], id: 'Sent Only>Sent Only', i_give: [{ id: 7, name: 'Sent Give', espn_id: 70 }] };
+  const res = await post('/api/trades/44/offers/sent', { deal: sent });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state, 'recorded');
+  const o = rows(`SELECT * FROM trade_outcomes WHERE id = ?`, res.body.id)[0];
+  assert.ok(o.sent_at, 'the row is marked sent');
+  assert.equal(o.source, 'app_proposed');
+  assert.equal(o.status, 'proposed');
+  assert.equal(o.proposer_team_id, '5', 'the league\'s own team when the page sends none');
+  assert.equal(o.counterparty_team_id, '4');
+  assert.equal(o.model_p_accept, band.band.mid);
+
+  const again = await post('/api/trades/44/offers/sent', { deal: sent });
+  assert.equal(again.body.state, 'already_sent');
+});
+
+test('route: POST /offers/sent refuses a deal with no band or no package', async () => {
+  const noBand = await post('/api/trades/44/offers/sent', { deal: { ...DEALS[0], id: 'x>y', acceptance: null } });
+  assert.equal(noBand.status, 400);
+  assert.match(noBand.body.error, /model_p_accept/);
+  const noDeal = await post('/api/trades/44/offers/sent', {});
+  assert.equal(noDeal.status, 400);
+});
+
+test('FIX-10: flag off, /offers/sent answers {enabled:false} and writes nothing; preview is labelled', async () => {
+  const sent = { ...DEALS[2], id: 'Flag Off>Flag Off', i_give: [{ id: 9, name: 'Flag Give', espn_id: 90 }] };
+  const count = () => rows(`SELECT COUNT(*) n FROM trade_outcomes`)[0].n;
+  try {
+    delete process.env.GRIDIRON_OFFER_LOOP;
+    const before = count();
+    const offPost = await post('/api/trades/44/offers/sent', { deal: sent });
+    assert.equal(offPost.status, 200);
+    assert.equal(offPost.body.enabled, false);
+    assert.match(offPost.body.reason, /GRIDIRON_OFFER_LOOP=1/);
+    assert.equal(count(), before, 'off: nothing recorded');
+    const offGet = await get('/api/trades/44/offers/sent');
+    assert.equal(offGet.body.enabled, false);
+
+    process.env.GRIDIRON_PREVIEW_UNCONFIRMED = '1';
+    const pGet = await get('/api/trades/44/offers/sent');
+    assert.deepEqual([pGet.body.enabled, pGet.body.preview], [true, true]);
+    const pPost = await post('/api/trades/44/offers/sent', { deal: sent });
+    assert.equal(pPost.body.state, 'recorded');
+    assert.equal(pPost.body.preview, true);
+    assert.match(pPost.body.preview_reason, /default-off/);
+    assert.equal(count(), before + 1);
+  } finally {
+    process.env.GRIDIRON_OFFER_LOOP = '1';
+    delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+  }
+  const on = await get('/api/trades/44/offers/sent');
+  assert.deepEqual(on.body, { enabled: true }, 'flag on: no preview label');
 });

@@ -241,7 +241,10 @@ function untouchableMark(t) {
 
 /** The entry's per-roster untouchable list, if the plan writes one: { owner: [player ids] }. */
 function rosterUntouchables(entry) {
-  const raw = entry?.untouchables_by_roster ?? entry?.roster_untouchables;
+  // The producer writes Nick's untouchables per manager on partners[].untouchable (RULINGS 17, the reader's nick block).
+  const fromPartners = entry?.partners?.status === 'ok' && Array.isArray(entry.partners.value)
+    ? Object.fromEntries(entry.partners.value.filter(p => p?.untouchable?.length).map(p => [String(p.team), p.untouchable])) : null;
+  const raw = entry?.untouchables_by_roster ?? entry?.roster_untouchables ?? (fromPartners && Object.keys(fromPartners).length ? fromPartners : null);
   const map = raw && typeof raw === 'object' && 'status' in raw ? (raw.status === 'ok' ? raw.value : null) : raw;
   if (!map || typeof map !== 'object') return null;
   return new Map(Object.entries(map).map(([owner, ids]) => [String(owner), new Set((Array.isArray(ids) ? ids : []).map(String))]));

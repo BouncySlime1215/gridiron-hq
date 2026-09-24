@@ -47,10 +47,13 @@ import { lineupSignals } from '../services/lineup-signals.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
 import { tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
+import { oneWorldFlag } from '../services/one-world.js';
+import { leagueWorld, ONE_WORLD_RUNS } from '../services/league-world.js';
 // IDEA-001: served trade-card and title-trade numbers, queued for served_numbers.
 import { recordServed, readServed, serveLogState } from '../services/serve-log.js';
 // TM-09: historical revealed trade prices (aggregate table), read-only, default-off.
 import { marketForPlayer } from '../services/trade-market.js';
+import { recentPulse, pulseEnabled, PULSE_FLAG } from '../services/people/pulse.js';
 import { playerHype } from '../services/hype.js';
 import { warRoomView, loadPlans } from '../services/war-room-view.js';
 import { logWarRoomShown } from '../services/war-room-log.js';
@@ -553,6 +556,19 @@ r.get('/:leagueId/managers/signals', async (req, res, next) => {
     let week = null;
     try { week = leagueCurrentWeek(lg); } catch { week = null; }
     res.json(await managerSignalsPayload(lg, { week }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * PULSE-01 ticker: the league-mates' labelled chat statements from the last 72 h (labels
+ * only, never a quote). Default off: `{enabled: false}` until GRIDIRON_PULSE_ENABLED=1 or
+ * preview mode, so the War Room shows nothing rather than an empty strip that looks live.
+ */
+r.get('/:leagueId/people/pulse', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    if (!pulseEnabled()) return res.json({ enabled: false, reason: `${PULSE_FLAG} is not 1`, items: [] });
+    res.json({ enabled: true, ...recentPulse(lg.id) });
   } catch (e) { next(e); }
 });
 
@@ -1314,7 +1330,10 @@ Respond with ONLY JSON:
         if (!simArgs) return null;
         try {
           const started = Date.now();
-          const impact = tradeImpact(lg, { ...simArgs, runs });
+          // EA-07: on the snapshot's world (its runs), the same "before" as the twin.
+          const impact = oneWorldFlag().on
+            ? tradeImpact(lg, { ...simArgs, runs: ONE_WORLD_RUNS, world: leagueWorld(lg) })
+            : tradeImpact(lg, { ...simArgs, runs });
           return impact?.error ? impact : { ...impact, compute_ms: Date.now() - started };
         } catch (e) {
           console.warn(`[trade-sense-check] season simulation unavailable: ${e.message}`);

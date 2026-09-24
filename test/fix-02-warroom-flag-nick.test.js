@@ -39,7 +39,7 @@ const { priceLadder, HARD_SHIFT_PCT } = await import('../server/services/campaig
 const { chatLabels, pResponds, rankPartners, BASE_RESPONDS, CHECKED_OUT_RESPONDS } = await import('../server/services/campaign/partners.js');
 const { toEntry, plansFile, PRODUCER_VERSION } = await import('../server/services/campaign/view.js');
 const { validateLeague } = await import('../server/services/campaign/plans-schema.js');
-const { nickBlock, nickBlocksFrom, publicNick, NICK_NOTES_SOURCE } = await import('../server/services/people/nick-block.js');
+const { nickBlock, nickBlocksFrom, publicNick, NICK_NOTES_SOURCE } = await import('../server/services/people/profile-reader.js');
 const { modelFlags, versionWithFlags } = await import('../server/services/campaign/model-flags.js');
 
 /* ------------------------------------------------------------ (a) one flag reader */

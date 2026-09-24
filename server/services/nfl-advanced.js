@@ -166,7 +166,11 @@ export async function syncPfrAdv(seasons) {
     }
   }
   return { rows: total, failures, complete: failures.length === 0,
-    known_coverage: 'The nflverse weekly PFR advanced release begins in 2024; earlier 404s are source absence, not empty football data.' };
+    // Corrected 2026-09-22: the previous claim that this release begins in 2024 was
+    // wrong, and it hid six seasons of real data behind a comment. Measured row counts
+    // for advstats_week_rec, each file carrying only its own season: 2018 4,292,
+    // 2019 4,269, 2020 4,428, 2021 4,608, 2022 4,547, 2023 4,594, 2024 4,453, 2025 4,533.
+    known_coverage: 'The nflverse weekly PFR advanced release covers 2018-2025 (verified 2026-09-22 by download: 4,292 rows in 2018 rising to 4,533 in 2025). A 404 inside that range is a fetch failure, not source absence.' };
 }
 
 /* ------------------------------------------------------------- snap counts */
@@ -452,6 +456,21 @@ export function reconcileHistoricalTeamCodes() {
   const changes = [];
   db.exec('BEGIN');
   try {
+    // UPDATE OR IGNORE skips a legacy team-week row whose canonical twin already
+    // exists, so re-ingested seasons kept both (SY-02). Fold the twin into the
+    // canonical row first: its values win, keys only the legacy row has are kept.
+    if (tables.has('nfl_team_week_features')) for (const [from, to] of aliases) {
+      const twins = rows(`SELECT l.rowid AS legacy_rowid, l.features AS legacy, c.rowid AS canonical_rowid, c.features AS canonical
+                          FROM nfl_team_week_features l JOIN nfl_team_week_features c
+                            ON c.season=l.season AND c.week=l.week AND c.team=?
+                          WHERE l.team=?`, to, from);
+      for (const twin of twins) {
+        const merged = { ...JSON.parse(twin.legacy), ...JSON.parse(twin.canonical) };
+        run('UPDATE nfl_team_week_features SET features=? WHERE rowid=?', JSON.stringify(merged), twin.canonical_rowid);
+        run('DELETE FROM nfl_team_week_features WHERE rowid=?', twin.legacy_rowid);
+      }
+      if (twins.length) changes.push({ table: 'nfl_team_week_features', column: 'team', from, to, rows: twins.length, merged_into_twin: true });
+    }
     for (const [table, columns] of targets) {
       if (!tables.has(table)) continue;
       const available = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(item => item.name));

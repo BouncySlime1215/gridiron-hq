@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertPortAvailable } from './platform/port-guard.js';
-import { startLoopWatchdog, watchdogArmingMiddleware } from './platform/loop-watchdog.js';
+import { startLoopWatchdog, watchdogArmingMiddleware, armLoopWatchdog } from './platform/loop-watchdog.js';
 import { healthHandler } from './platform/health.js';
 
 const PORT = Number(process.env.API_PORT) || 5177;
@@ -41,10 +41,7 @@ const { default: tradesRouter } = await import('./routes/trades.js');
 const { default: espnConnectRouter } = await import('./routes/espn-connect.js');
 const { default: leagueChatRouter } = await import('./routes/league-chat.js');
 const { default: modelRouter } = await import('./routes/model.js');
-const { default: propsRouter } = await import('./routes/props.js');
-const { default: propsTicketsRouter } = await import('./routes/props-tickets.js');
-const { default: decisionInboxRouter } = await import('./routes/decision-inbox.js');
-const { default: mlbRouter } = await import('./routes/mlb.js');
+const { default: dataFreshnessRouter } = await import('./routes/data-freshness.js');
 const { default: nflMarketRouter } = await import('./routes/nfl-market.js');
 const { default: nflBettingRouter } = await import('./routes/nfl-betting.js');
 const { default: bettingHubRouter } = await import('./routes/betting-hub.js');
@@ -53,8 +50,10 @@ const { default: localAuthRouter } = await import('./routes/local-auth.js');
 const { default: googleAuthRouter } = await import('./routes/google-auth.js');
 const { default: draftCaptureRouter, serveCaptureScript } = await import('./routes/draft-capture.js');
 const { default: executionSlateRouter } = await import('./routes/execution-slate.js');
+const { default: gatesRouter } = await import('./routes/gates.js');
 const { startScheduler } = await import('./services/scheduler.js');
 const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-access.js');
+const { default: coachRouter } = await import('./routes/coach.js');
 
 const app = express();
 // First, so that ANY completed response arms the watchdog -- including a 404
@@ -72,7 +71,15 @@ seedIfEmpty();
 // The evidence daemon has a T-15m horizon. Other jobs retain their own stale
 // thresholds, so a five-minute scheduler tick does not make heavy ingestion run
 // more often; it simply lets due capture windows fire on time.
-startScheduler({ intervalMinutes: 5 });
+// `onBootComplete` arms the event-loop watchdog. It is the second half of a
+// fix whose first half is that the host's liveness probe no longer arms it:
+// fly.toml polls /api/health every 15 seconds, so that probe was arming the
+// watchdog in the middle of this boot pass and a pass that blocked the thread
+// past the threshold became SIGKILL, restart, same pass, forever. Arming from
+// here instead means the watchdog starts watching when the boot work is
+// actually over, with no request needed -- so an app nobody has visited yet is
+// still protected. See server/platform/loop-watchdog.js.
+startScheduler({ intervalMinutes: 5, onBootComplete: armLoopWatchdog });
 // Server-owned draft pick clock: survives reconnects and server restarts,
 // since it's driven by drafts.turn_deadline in SQLite rather than any client's
 // setTimeout. Without this, a draft only advanced past the clock while a
@@ -124,15 +131,29 @@ app.use('/api/league-chat', ...legacyAuthenticated, leagueChatRouter);
 // is invisible on a Mac bound to loopback and wide open the moment the same
 // process is reachable at a public URL.
 app.use('/api/model', ...legacyAuthenticated, modelRouter);
-app.use('/api/props', ...legacyAuthenticated, propsRouter);
-app.use('/api/props-tickets', ...legacyAuthenticated, propsTicketsRouter);
-app.use('/api/decision-inbox', ...legacyAuthenticated, decisionInboxRouter);
-app.use('/api/mlb', ...legacyAuthenticated, mlbRouter);
+// Reads the served tables themselves rather than the sync log, replacing the
+// banner that called a job which ran and wrote zero rows "healthy". Gated like
+// the rest: whether the data is current is an answer about this install's own
+// contents, not a liveness check. The unauthenticated probe stays
+// platform/health.js's alone.
+app.use('/api/data-freshness', ...legacyAuthenticated, dataFreshnessRouter);
+// Beat-the-dumb-baseline gates (plan item C12). Read-only: each gate is computed by
+// its weekly scheduler job off the request thread and stored; a request reads it.
+app.use('/api/gates', ...legacyAuthenticated, gatesRouter);
+// /api/props and /api/props-tickets, the MLB props board and its saved slips, used
+// to mount here. MLB was removed from the product in #128; no client page has
+// called either path since the UI teardown 1694694c, 2026-09-19, so SY-06
+// (2026-09-22) deleted both routers, as #128 deleted the MLB router itself.
+// Their tables, props_auto_picks and saved_prop_tickets, stay
+// on disk with no reader or writer (test/mlb-removed.test.js pins both halves).
 app.use('/api/nfl-market', ...legacyAuthenticated, nflMarketRouter);
 app.use('/api/nfl-betting', ...legacyAuthenticated, nflBettingRouter);
 app.use('/api/betting/wong', ...legacyAuthenticated, wongRouter);
 app.use('/api/betting', ...legacyAuthenticated, bettingHubRouter);
 app.use('/api/execution-slate', ...legacyAuthenticated, executionSlateRouter);
+// Coach applies its own auth and rate limit per route (server/routes/coach.js:37),
+// so it is mounted bare rather than behind legacyAuthenticated.
+app.use('/api/coach', coachRouter);
 
 app.use((err, req, res, next) => {
   // AuthenticationError/AuthorizationError (server/platform/auth.js) set a real

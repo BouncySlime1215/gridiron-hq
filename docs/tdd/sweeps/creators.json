@@ -1,0 +1,74 @@
+[
+ {
+  "id": "M70",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "const t = (grain, means, freshness, collection, redact = [], createdAtRuntimeBy = null) =>",
+  "new": "const t = (grain, means, freshness, collection, redact = [], createdAtRuntimeBy = 'server/services/somewhere.js creates it') =>",
+  "desc": "every table claims a runtime creator, including the ones a migration creates"
+ },
+ {
+  "id": "M71",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "    created_at_runtime_by: meta.created_at_runtime_by ?? null };",
+  "new": "    created_at_runtime_by: null };",
+  "desc": "catalogEntry drops the creator, so nothing downstream can see how a table appears"
+ },
+ {
+  "id": "M72",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "    ['answer_json', 'ledger_json', 'plan_json'],",
+  "new": "    [],",
+  "desc": "Coach's own stored answers, ledgers and plans become readable by a generated SELECT"
+ },
+ {
+  "id": "M73",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  const notBuiltYet = absent.filter(name =>\n    /scripts\\//.test(COACH_TABLES[name]?.created_at_runtime_by ?? ''));",
+  "new": "  const notBuiltYet = [...absent];",
+  "desc": "every absent table is filed as not-built-yet, so a wrong catalog entry reads as a script nobody ran"
+ },
+ {
+  "id": "M74",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  return { not_built_yet: notBuiltYet, missing_from_database: absent.filter(name => !notBuilt.has(name)) };",
+  "new": "  return { not_built_yet: notBuiltYet, missing_from_database: [] };",
+  "desc": "a catalogued table that is absent and names no creator is reported as nothing at all"
+ },
+ {
+  "id": "M75",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  if (!entry?.created_at_runtime_by) return message;",
+  "new": "  return message;",
+  "desc": "an absent catalogued table keeps SQLite's wording, which reads like a misspelling"
+ },
+ {
+  "id": "M76",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  const entry = match && catalogEntry(match[1]);\n  if (!entry?.created_at_runtime_by) return message;",
+  "new": "  const entry = match && catalogEntry(match[1]);\n  if (!match) return message;\n  if (!entry?.created_at_runtime_by) return `${match[1]} is in Coach's catalog but has not been built on this machine. scripts/ would build it.`;",
+  "desc": "the creator sentence is offered for a name the catalog does not carry"
+ },
+ {
+  "id": "NC-catalog-2",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": " * What Coach may read, and what each table means.",
+  "new": " * What Coach may read, and what every one of its tables means.",
+  "desc": "NO-OP CONTROL: reword the file's opening line, changing no behaviour"
+ },
+ {
+  "id": "NC-select-2",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": " * The one place Coach runs a query it wrote itself.",
+  "new": " * The single place Coach runs a query it wrote itself.",
+  "desc": "NO-OP CONTROL: reword the file's opening line, changing no behaviour"
+ }
+]

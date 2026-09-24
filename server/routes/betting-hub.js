@@ -12,7 +12,6 @@ import { totalPicksStanding, gradeTotalPicks } from '../services/nfl-props.js';
 import { accuracy } from '../services/nfl-market.js';
 import { countVariables } from '../services/nfl-features.js';
 import { usage as oddsUsage } from '../services/odds-api.js';
-import { rows } from '../db/index.js';
 import { realBreakEven, riskModes } from '../services/nfl-execution-edge.js';
 import { wongHistory, teaserEV } from '../services/nfl-teasers.js';
 import { propEdgeEvidence } from '../services/nfl-prop-clv.js';
@@ -59,22 +58,6 @@ function nflStanding() {
 }
 
 /**
- * MLB's ledger lives in localStorage-backed auto-picks on the client for the
- * slip, but the auto-pick table is server-side, so the record is computed the
- * same way here. Grading needs the results feed, which the props route already
- * proxies — so this reports only what can be settled from stored picks.
- */
-function mlbStanding() {
-  const picks = rows(`SELECT * FROM props_auto_picks ORDER BY pick_date DESC, rank`);
-  return {
-    tracked_picks: picks.length,
-    days_tracked: new Set(picks.map(p => p.pick_date)).size,
-    latest_slate: picks[0]?.pick_date ?? null,
-    note: 'Grading runs client-side against the results feed on the Auto Picks page.'
-  };
-}
-
-/**
  * What actually has a case for being +EV right now, cached hourly.
  *
  * Prediction (win-accuracy/margin-MAE above) and execution are different
@@ -109,7 +92,6 @@ r.get('/summary', (req, res, next) => {
         model: modelAccuracy?.error ? null : modelAccuracy,
         variables: countVariables()
       },
-      mlb: { standing: mlbStanding() },
       odds_api: oddsUsage(),
       edges: edgeSnapshot()
     });
@@ -131,7 +113,7 @@ r.get('/execution/board', (req, res, next) => {
       middles: market === 'spreads' ? findMiddles({ limit: 12 }) : [],
       // The largest cost a bettor actually controls, and the only lever on this
       // board that works without any forecast being correct.
-      hold: bookHold({ sport: 'nfl' })
+      hold: bookHold()
     });
   } catch (e) { next(e); }
 });
@@ -362,29 +344,18 @@ r.get('/status', (req, res, next) => {
 });
 
 /**
- * The vig, per book, in any sport we hold two-sided quotes for.
+ * The vig, per book.
  *
- * Nothing in the hold calculation knows what sport it is looking at — a hold is
- * a property of two prices. Pointing it at MLB shows that player props cost
- * roughly double what NFL sides do, which is the single most important fact
- * about whether a prop edge is worth chasing.
+ * Nothing in the hold calculation knows what sport it is looking at -- a hold
+ * is a property of two prices. This served an MLB comparison alongside the NFL
+ * one until 2026-09-22, showing that player props cost roughly double what NFL
+ * sides do. MLB was removed from the product, mlb_market_quotes has no writer
+ * any more, and a comparison against a table that can only be empty is worse
+ * than no comparison: it would have reported `null` and read as "no premium".
  */
 r.get('/hold', (req, res, next) => {
   try {
-    const sport = req.query.sport === 'mlb' ? 'mlb' : 'nfl';
-    const nfl = bookHold({ sport: 'nfl' });
-    const mlb = bookHold({ sport: 'mlb' });
-    res.json({
-      requested: sport,
-      hold: sport === 'mlb' ? mlb : nfl,
-      comparison: (nfl.books?.length && mlb.books?.length) ? {
-        nfl_cheapest: nfl.books[0], mlb_cheapest: mlb.books[0],
-        prop_premium: +(mlb.books[0].hold - nfl.books[0].hold).toFixed(4),
-        note: 'MLB rows are player props and NFL rows are sides. Props carry the higher margin ' +
-          'in every book measured, so a prop edge has to be materially larger than a sides edge ' +
-          'to clear the same bar.'
-      } : null
-    });
+    res.json({ requested: 'nfl', hold: bookHold() });
   } catch (e) { next(e); }
 });
 

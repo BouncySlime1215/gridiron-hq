@@ -68,28 +68,66 @@ export interface Term {
  */
 export const GLOSSARY = {
   projected_points: {
-    name: 'Projected points',
-    plain: 'What we expect this player to score this week, as a typical week rather than a best or worst case.',
-    raw: 'projection.mean',
+    name: 'Projected points (this week)',
+    // Producer: server/services/lineup-brain.js:356 startSitWeekPoints() ->
+    // `week_points` (:363) = current_week_ppg (already times his chance to
+    // play, 0 on a bye) x the betting-line multiplier when there is one. The
+    // one week-total construction every page shares (lineup-posture.js imports
+    // it). Replaces the former start_score entry, which described the same
+    // number under a second id; `projection.mean` was never a served field.
+    // Not the season total at stats.projected_points — that is
+    // projected_points_season below, a different number under a different key.
+    plain: 'How many points we expect this player to score this week, after his chance to play is taken into account.',
+    raw: 'lineup.week_points',
     unit: 'points', precision: 1
+  },
+  projected_points_season: {
+    name: 'Projected points (season)',
+    // Producer: server/routes/stats.js:98 statsFor() `projected_points: projPts`,
+    // the `player_season_stats` row with kind = 'projected', written by
+    // syncStats() from ESPN's full-season projection (statSourceId 1,
+    // statSplitTypeId 0, `appliedTotal`) fetched from the `leaguedefaults`
+    // endpoint — ESPN's default scoring, not this league's settings. Rendered
+    // as "Proj pts" at PlayerCard.tsx:138 and StatTable.tsx:46. Same leaf name
+    // as the weekly number, which is why it has its own key.
+    plain: 'The points ESPN projects for this player over the whole season, scored the ESPN default way rather than by your league rules. It is not the number for this week.',
+    raw: 'stats.projected_points',
+    unit: 'points', precision: 0
   },
   week_floor: {
     name: 'Quiet week',
-    plain: 'A week that goes badly for this player but not catastrophically — about one week in ten looks like this or worse.',
-    raw: 'projection.p10',
+    // Producer: the assetUniverse() asset field `floor`,
+    // server/services/trade-engine.js:462 `floor: weekDist?.p10 ?? w?.floor ?? null`.
+    // Two producers serve it: (1) the week draw's p10, which includes the
+    // chance he does not suit up at all, so it can be 0.0 for a healthy
+    // starter; (2) when there is no week projection, server/routes/edge.js:145
+    // volatility() `floor: +q(0.2)` (:164), the 20th percentile of LAST
+    // season's played weeks only (did-not-play weeks are not in gamelog).
+    // See r7-internal-glossary-defines-numbers-code-no-longer-makes.md #1.
+    plain: 'A bad week for this player — the bottom one week in ten this week, which can mean he does not suit up at all. With no projection for this week yet, it is his bottom one in five of the games he played last season instead.',
+    raw: 'asset.floor',
     unit: 'points', precision: 1
   },
   week_ceiling: {
     name: 'Big week',
-    plain: 'A week that goes well for this player — about one week in ten looks like this or better.',
-    raw: 'projection.p90',
+    // Producer: same asset, trade-engine.js:462 `ceiling: weekDist?.p90 ?? w?.ceiling ?? null`;
+    // fallback is edge.js volatility() `ceiling: +q(0.8)` (:165), last season.
+    plain: 'A week that goes well for this player — about one week in ten looks like this or better. With no projection for this week yet, it is his top one in five of the games he played last season instead.',
+    raw: 'asset.ceiling',
     unit: 'points', precision: 1
   },
   season_floor: {
-    name: 'Quiet season',
-    plain: 'How the rest of the season looks if this player disappoints — about one season in five ends up here or lower.',
-    raw: 'career.p20',
-    unit: 'points_per_game', precision: 1
+    name: 'Preseason band (low)',
+    // Producer: server/services/lineup-brain.js:187 `p20: r1(preseason.p20)`, a
+    // FULL-SEASON TOTAL from the preseason model, frozen before Week 1 and never
+    // updated in-season (rendered as "preseason X-Y pts" at
+    // client/src/components/lineup/EvidenceStrip.tsx:111). There is no
+    // `career.p20` anywhere in the server, and no rest-of-season or per-game
+    // p20 is served — see r7-internal-glossary-defines-numbers-code-no-longer-
+    // makes.md #2.
+    plain: 'The low end of what our draft-day model expected for his whole season, before any games were played. It does not update in-season.',
+    raw: 'evidence.preseason.p20',
+    unit: 'points', precision: 1
   },
   chance_to_play: {
     name: 'Chance to play',
@@ -111,21 +149,30 @@ export const GLOSSARY = {
   },
   title_delta: {
     name: 'Change in title chance',
-    plain: 'How much this move moves your championship number, with the same simulated seasons run before and after so the difference is the move and not luck.',
+    // Producer: server/services/season-sim.js:476 reuses one `pairedSeed` for
+    // the before/after run, but the per-player draw order comes from `roster`
+    // (:313), built from each team's OWN player-list order, which the trade
+    // changes; that reorders `active` for correlatedSampler (:356). The same
+    // seed does not guarantee the same player gets the same draw once the
+    // roster order shifts, so this cannot yet promise the difference is purely
+    // the move — see r7-internal-glossary-defines-numbers-code-no-longer-
+    // makes.md #4 (assessed from R6's title-odds-pairing-broken finding).
+    // No size is given for that noise: it has not been measured. Add a figure
+    // only once season-sim's pairing noise is measured on a real run.
+    plain: 'How much this move changes your championship number, from replaying the same simulated seasons before and after — figure some of the change is simulation noise rather than the move itself.',
     raw: 'trade_impact.title_delta',
     unit: 'percent', precision: 1
   },
   expected_wins: {
     name: 'Expected wins',
-    plain: 'How many games your team wins in a typical run of the rest of the season.',
+    // Producer: server/services/season-sim.js:126 `initialRecords` seeds the sim
+    // from each team's REAL record (used at :364 `startingRecords`), and the
+    // season total at :431 is summed on top of it. This is the season total
+    // including games already played, not a rest-of-season count — see
+    // r7-internal-glossary-defines-numbers-code-no-longer-makes.md #3.
+    plain: 'How many games your team is on pace to win this season, counting the games you have already played.',
     raw: 'sim.expected_wins',
     unit: 'count', precision: 1
-  },
-  start_score: {
-    name: 'Start score',
-    plain: 'How strongly we want this player in your lineup this week, after his chance to play is taken into account.',
-    raw: 'lineup.score',
-    unit: 'points', precision: 1
   },
   accept_chance: {
     name: 'Chance they say yes',
@@ -153,8 +200,17 @@ export const GLOSSARY = {
   },
   points_allowed_to_position: {
     name: 'Given up to this position',
-    plain: 'What this defence has actually given up to players at this position so far. It is what happened, not what we expect next.',
-    raw: 'matchups.dvp.ppg_allowed',
+    // Producer: server/services/matchups.js:189 `allowed: +allowed.toFixed(1)`
+    // (there is no `ppg_allowed` field — rendered as "d.allowed" plus " ppg
+    // allowed" at client/src/pages/TradeLab.tsx:1128). It blends recent seasons with a
+    // 0.5 recency decay (constants at matchups.js:94-102), computed unshrunk at
+    // :186 `const allowed = b.w ? b.wpts / b.w : 0` — only the `mult` column is
+    // shrunk (:193, K_DVP=200). So it is not "so far" (this season only), and the module's
+    // own header (matchups.js:9-14) says it was tested and did not make
+    // projections more accurate — see r7-internal-glossary-defines-numbers-
+    // code-no-longer-makes.md #6.
+    plain: 'A blend of recent seasons of what this defence has given up to this position, with recent seasons counting more. We tested it and it did not make projections more accurate.',
+    raw: 'matchups.dvp.allowed',
     unit: 'points_per_game', precision: 1
   }
 } as const satisfies Record<string, Term>;

@@ -645,15 +645,23 @@ export function saveRankReport(report, { label = 'default' } = {}) {
   return { label, version: report.version, cutoff };
 }
 
-/** The stored reports, newest first. */
+const tableExists = name => rows(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`, name).length > 0;
+
+/**
+ * The stored reports, newest first.
+ *
+ * nfl_ensemble_rank_reports is created only by saveRankReport, on its first
+ * call — genuinely absent until then, which is the one case `[]` correctly
+ * means "nothing here yet". A bare catch around the whole read could not
+ * tell that apart from a real fault (a corrupt report_json row, a locked
+ * database), and reported both the same silent way. Checked explicitly now;
+ * once the table exists, a read error is a real fault and throws.
+ */
 export function rankReports({ label = null } = {}) {
-  try {
-    const where = label ? 'WHERE label = ?' : '';
-    const args = label ? [label] : [];
-    return rows(`SELECT label,version,cutoff,created_at,report_json FROM nfl_ensemble_rank_reports
-                 ${where} ORDER BY created_at DESC`, ...args)
-      .map(r => ({ ...r, report: JSON.parse(r.report_json) }));
-  } catch {
-    return [];
-  }
+  if (!tableExists('nfl_ensemble_rank_reports')) return [];
+  const where = label ? 'WHERE label = ?' : '';
+  const args = label ? [label] : [];
+  return rows(`SELECT label,version,cutoff,created_at,report_json FROM nfl_ensemble_rank_reports
+               ${where} ORDER BY created_at DESC`, ...args)
+    .map(r => ({ ...r, report: JSON.parse(r.report_json) }));
 }

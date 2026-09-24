@@ -59,6 +59,16 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Fails when a surface starts depending on something nothing produces --
+      # a page that still renders, using a constant or an empty list, and looks
+      # fine. Derived from the source by scripts/wiring-map.mjs; reads no
+      # network and no database, so it is hermetic like the rest of this job.
+      # Orphans (code that reaches no surface) are reported and deliberately do
+      # NOT fail: deleting one is a judgement call, and a gate that fails on
+      # judgement calls gets switched off.
+      - name: Wiring check
+        run: npm run check:wiring
+
       - name: Test
         # Every *.test.js file in this repo builds its own isolated temp
         # SQLite database via GRIDIRON_DB_PATH before importing app code

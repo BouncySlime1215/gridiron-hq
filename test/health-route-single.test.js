@@ -46,19 +46,50 @@ function jsFiles(dir) {
 // second one would arrive next time rather than as another line in index.js.
 const REGISTRATION = /\.(get|post|put|patch|delete|all|use)\(\s*(['"`])((?:\/[\w:-]+)*\/health)\2/g;
 
+/*
+ * THE LINE NUMBER IS NOT PART OF THE CLAIM, and it used to be in the fixture.
+ *
+ * The assertion read `['server/index.js:86 → /api/health']`, so deleting two unrelated
+ * lines higher up the file failed this test with "expected one health registration,
+ * found 1" — a message that reads like a contradiction, on a change that had nothing
+ * to do with health. It cost a full gate cycle on 2026-09-20 to find that the only
+ * difference was 86 against 85.
+ *
+ * Dropping the offset weakens nothing. The guarantee is "one registration, in this
+ * file, at this path", and a second one still lands as a second array element and
+ * still fails, whether it is in index.js or a router mounted under /api. The line is
+ * kept in the failure message, which is where a person actually needs it.
+ *
+ * THREE BRANCHES FIXED THIS THE SAME WAY ON THE SAME NIGHT, independently: the
+ * scheduler's 63ca21e strips the offset with a regex before the comparison, this one
+ * builds two arrays (one compared, one for the message), and Coach's 73e0760 compares
+ * file and path. All three assert "exactly one registration, in index.js, at
+ * /api/health" and keep the line in the failure text, so no behaviour differs between
+ * them and taking any one of them costs nothing. The branch-pair sweep should report
+ * that as a KNOWN resolve, not a new conflict.
+ *
+ * The rule the three of them are evidence for: a test that breaks on unrelated edits is
+ * reported to its owner once, not fixed in place by each thread that trips over it.
+ * Three threads each spent a gate cycle discovering the same two-digit difference.
+ */
 test('exactly one route in server/ is registered at a health path', () => {
-  const found = [];
+  const found = [], where = [];
   for (const file of jsFiles(join(ROOT, 'server'))) {
     const src = readFileSync(file, 'utf8');
     for (const match of src.matchAll(REGISTRATION)) {
       const line = src.slice(0, match.index).split('\n').length;
-      found.push(`${relative(ROOT, file)}:${line} → ${match[3]}`);
+      found.push(`${relative(ROOT, file)} → ${match[3]}`);
+      where.push(`${relative(ROOT, file)}:${line} → ${match[3]}`);
     }
   }
+  // Compared on file and path, not on the line number. The assertion is
+  // "exactly one registration, in index.js, at /api/health"; the line it sits
+  // on is incidental, and pinning it made an unrelated comment edit above it
+  // fail this test for a reason that has nothing to do with what it guards.
   assert.deepEqual(
     found,
-    ['server/index.js:86 → /api/health'],
-    `expected one health registration, found ${found.length}:\n  ${found.join('\n  ')}`,
+    ['server/index.js → /api/health'],
+    `expected one health registration, found ${found.length}:\n  ${where.join('\n  ')}`,
   );
 });
 

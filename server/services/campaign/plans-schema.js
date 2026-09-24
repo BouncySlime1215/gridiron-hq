@@ -196,9 +196,24 @@ export const SECTIONS = Object.freeze({
   brain_report: field(brainReport)
 });
 
+/**
+ * His side, one row per team the plan may deal with (audit 4d R3). Read by the
+ * reasoning panels (server/services/reasoning/cards.js). Optional on the league
+ * until the producer writes it (FIX-03 moves it into SECTIONS). Chat enters as
+ * short labels only, never text.
+ */
+const partner = obj({ team: id, p_responds: probF, basis: str }, {
+  edge: num,
+  chat_labels: arr(str),
+  roster_holes: arr(obj({ pos: str, gap: num })),
+  recent_moves: arr(obj({ type: str, summary: str })),
+  offers_logged: int(0),
+  paper_values: map(/^[A-Za-z0-9:_.-]{1,64}$/, num)
+});
+
 const league = obj(
   { league: int(1), me: id, names: map(/^[A-Za-z0-9_.:-]{1,64}$/, str) },
-  { error: str, sanity_composed_equals_direct: bool, ...SECTIONS }
+  { error: str, sanity_composed_equals_direct: bool, ...SECTIONS, partners: field(arr(partner)) }
 );
 
 const HEAD = { schema: lit(SCHEMA_VERSION), generated_at: iso, producer: str, producer_version: str };
@@ -374,8 +389,8 @@ export function writtenPaths(doc) {
     if (p) out.add(p);
     if (Array.isArray(v)) { v.forEach(x => walk(x, `${p}[]`)); return; }
     if (!isObj(v)) return;
-    // The two maps: their keys are data, not contract keys.
-    if (/(^|\.)stop_tradeoffs\.value$|^leagues\[\]\.names$/.test(p)) { for (const x of Object.values(v)) walk(x, `${p}{}`); return; }
+    // The maps: their keys are data, not contract keys.
+    if (/(^|\.)stop_tradeoffs\.value$|^leagues\[\]\.names$|\.paper_values$/.test(p)) { for (const x of Object.values(v)) walk(x, `${p}{}`); return; }
     for (const [k, x] of Object.entries(v)) walk(x, p ? `${p}.${k}` : k);
   };
   walk(doc, '');

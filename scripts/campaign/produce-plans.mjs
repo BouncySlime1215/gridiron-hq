@@ -15,7 +15,14 @@
  *   GRIDIRON_WARROOM_OFFERS      input    JSONL { league, manager, at } (optional; "I sent it" log, fatigue cap)
  *   GRIDIRON_WARROOM_PUSHES      output   JSONL, one row per league whose next move changed
  *   GRIDIRON_CHAT_DB_PATH        input    local chat DB (optional; labels only)
+ *   panels.json                  cache    reasoning panels reuse cache (FIX-08), next to the plans file
  * Defaults for the inputs sit next to the plans file.
+ *
+ * Reasoning (FIX-08): after planning and before the write, every deck move gets
+ * `reasoning` (scripts/reasoning/reason-plans.mjs). Calls are made only when
+ * the reasoning flag (server/services/reasoning-flag.js, or preview) is on AND
+ * GRIDIRON_ALLOW_PAID_RUN is set;
+ * otherwise each move's reasoning is 'unknown' with the reason.
  *
  * Every re-run diffs each league's next move against the previous plans file and
  * writes `changed` + `reason`; a changed move appends one push row.
@@ -76,7 +83,8 @@ function args(argv) {
   return out;
 }
 
-function takeLock(file) {
+/** The producer's lock on the plans file; scripts/reasoning/run.mjs takes the same one. */
+export function takeLock(file) {
   const lock = `${file}.lock`;
   if (fs.existsSync(lock)) {
     const pid = Number(fs.readFileSync(lock, 'utf8'));
@@ -154,9 +162,16 @@ async function main() {
       expected: e.acq?.best?.expected ?? 0, changed: !!e.changed?.changed,
       weeksToDeadline: Number.isInteger(e.deadline_week) && Number.isInteger(e.week) ? e.deadline_week - e.week : null })));
     const file = plansFile(entries, { generated_at, attention, pushes });
+    // FIX-08: reasoning goes into each move before the one atomic write. Both gates
+    // off (or either) -> no call, and every move says why its panel is missing.
+    const { reasonPlans } = await import('../reasoning/reason-plans.mjs');
+    const reasoning = await reasonPlans({ plans: file, plansFile: out, env, log: l => console.log(JSON.stringify(l)) });
+    if (reasoning.result.status === 'failed') console.error(`[warroom] reasoning step failed: ${reasoning.result.error}`);
+    console.log(`[warroom] reasoning ${JSON.stringify(reasoning.summary)}`);
     const tmp = `${out}.tmp-${process.pid}`;
     fs.writeFileSync(tmp, JSON.stringify(file));
     fs.renameSync(tmp, out);
+    reasoning.commit();
     if (pushes.length) {
       fs.appendFileSync(sibling(env, 'GRIDIRON_WARROOM_PUSHES', 'pushes.jsonl'), pushes.map(p => JSON.stringify(p)).join('\n') + '\n');
     }

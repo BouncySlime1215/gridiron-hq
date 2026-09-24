@@ -1,6 +1,7 @@
 /**
- * REASON-01 producer: reasoning panels for the top card + deck of every
- * league, run offline after the campaign producer and never on a web request.
+ * REASON-01 producer: reasoning panels for the deck of every league, run
+ * offline inside the campaign producer (plan-reasoning.js) and never on a web
+ * request.
  *
  * Cost guard, in order:
  * 1. Only the top card + deck (cards.js MAX_CARDS_PER_LEAGUE) ever reaches a
@@ -17,7 +18,7 @@
  */
 import crypto from 'node:crypto';
 import { callClaude as liveCallClaude, parseJson as liveParseJson } from '../claude.js';
-import { cardsForLeague, factsForCard, recentNews, cleanLabels } from './cards.js';
+import { cardsForLeague, factsForCard, recentNews, cleanLabels, partnerFor, leagueIdOf } from './cards.js';
 import { groundSections } from './ground.js';
 import { reasoningPrompt, REASONING_SYSTEM } from './prompt.js';
 import { assemblePanel, PRODUCER, PRODUCER_VERSION } from './panel.js';
@@ -36,17 +37,19 @@ function fingerprintOf(parts) {
 
 function partnerHasData(partner) {
   if (!partner) return false;
-  return (partner.roster_holes?.length ?? 0) > 0 || Object.keys(partner.paper_values ?? {}).length > 0
+  return partner.p_responds?.status === 'ok' || (partner.roster_holes?.length ?? 0) > 0 || Object.keys(partner.paper_values ?? {}).length > 0
     || (partner.recent_moves?.length ?? 0) > 0 || cleanLabels(partner.chat_labels).labels.length > 0;
 }
 
-function contextFor(card, league, asOf, model) {
-  const news = recentNews(league.news, card, asOf);
+function contextFor(card, league, leagueNews, asOf, model) {
+  const news = recentNews(leagueNews, card, asOf);
   const facts = factsForCard({ card, league, news });
   const omit = [];
   const omitReason = {};
   if (!card.reply_table.length) { omit.push('counter'); omitReason.counter = 'no_reply_table'; }
-  if (!partnerHasData(league.partners?.[card.partner_team])) { omit.push('his_side'); omitReason.his_side = 'no_partner'; }
+  if (!partnerHasData(partnerFor(league, card.partner_team))) { omit.push('his_side'); omitReason.his_side = 'no_partner'; }
+  // No feed at all is not the same as a quiet 48 h: say the check did not run.
+  if (!Array.isArray(leagueNews)) { omit.push('news_check'); omitReason.news_check = 'no_news_feed'; }
   const promptOmit = news.length ? omit : [...omit, 'news_check'];
   const fingerprint = fingerprintOf({ card, facts, news: news.map(n => n.id), v: PRODUCER_VERSION, model });
   return { card, news, facts, omit, omitReason, promptOmit, fingerprint };
@@ -56,13 +59,15 @@ const isBudgetRefusal = e => e?.code === 'LLM_BUDGET_EXHAUSTED';
 
 /**
  * @param {object} args
- * @param {object} args.plans              the campaign producer's plans JSON
+ * @param {object} args.plans              { as_of, leagues[] }: contract league entries (plans-schema.js)
+ * @param {object} [args.news]             news per league id: { "<league>": [{ id, published_at, player_ids, headline }] };
+ *                                         a league with no list gets news_check 'unknown', not an empty check
  * @param {object} [args.previous]         the last output of this function, for reuse
  * @param {boolean} [args.dryRun]          build everything but make no call
  * @param {Function} [args.callClaude]     injected in tests; defaults to claude.js
  * @param {Function} [args.log]            one line per call (cost included)
  */
-export async function produceReasoning({ plans, previous = null, dryRun = false, model = DEFAULT_MODEL,
+export async function produceReasoning({ plans, news = {}, previous = null, dryRun = false, model = DEFAULT_MODEL,
   callClaude = liveCallClaude, parseJson = liveParseJson, log = () => {} }) {
   const asOf = plans?.as_of;
   if (!asOf || !Number.isFinite(Date.parse(asOf))) throw new Error('plans.as_of is missing or not a date; news cannot be windowed without it');
@@ -75,13 +80,14 @@ export async function produceReasoning({ plans, previous = null, dryRun = false,
   const leagues = [];
   const calls = [];
   for (const league of plans.leagues ?? []) {
+    const leagueId = leagueIdOf(league);
     const { cards, dropped } = cardsForLeague(league);
-    const contexts = cards.map(c => contextFor(c, league, asOf, model));
+    const contexts = cards.map(c => contextFor(c, league, news?.[String(leagueId)], asOf, model));
     const panels = new Array(contexts.length);
 
     const todo = [];
     contexts.forEach((ctx, i) => {
-      const old = prior.get(`${league.league_id}|${ctx.card.id}`);
+      const old = prior.get(`${leagueId}|${ctx.card.id}`);
       if (old && old.fingerprint === ctx.fingerprint) panels[i] = { ...old, rank: ctx.card.rank, cost: { ...old.cost, reused: true } };
       else todo.push(i);
     });
@@ -92,8 +98,8 @@ export async function produceReasoning({ plans, previous = null, dryRun = false,
     if (todo.length && dryRun) {
       missing = 'dry_run';
     } else if (todo.length) {
-      const feature = budgetFeatureFor(league.league_id);
-      call = { league_id: league.league_id, feature, model, cards: todo.length, cost_usd: 0, outcome: 'ok' };
+      const feature = budgetFeatureFor(leagueId);
+      call = { league_id: leagueId, feature, model, cards: todo.length, cost_usd: 0, outcome: 'ok' };
       try {
         const msg = await callClaude({
           feature, model, maxTokens: MAX_TOKENS, effort: 'low', system: REASONING_SYSTEM,
@@ -123,16 +129,16 @@ export async function produceReasoning({ plans, previous = null, dryRun = false,
       const w = written?.get(String(ctx.card.id)) ?? null;
       const grounded = w ? groundSections({ written: w, facts: ctx.facts, newsIds: ctx.news.map(n => n.id) }) : null;
       panels[i] = assemblePanel({
-        ...ctx, league, grounded, missing: missing ?? 'not_returned', asOf,
+        ...ctx, league, leagueId, grounded, missing: w ? null : (missing ?? 'not_returned'), asOf,
         cost: { reused: false, call_ok: Boolean(w), model, call_cost_usd: call?.cost_usd ?? 0 }
       });
     }
 
     for (const p of panels) {
       const errors = panelErrors(p);
-      if (errors.length) throw new Error(`reasoning panel ${p.card_id} (league ${league.league_id}) breaks its contract: ${errors.join('; ')}`);
+      if (errors.length) throw new Error(`reasoning panel ${p.card_id} (league ${leagueId}) breaks its contract: ${errors.join('; ')}`);
     }
-    leagues.push({ league_id: league.league_id, dropped_cards: dropped, panels });
+    leagues.push({ league_id: leagueId, dropped_cards: dropped, panels });
   }
 
   return {

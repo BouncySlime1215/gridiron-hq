@@ -31,6 +31,7 @@ import { loadRosters, assetUniverse, lineupSlots } from './trade-engine.js';
 import { random, withRandomSeed, keyedSeed } from './stats-util.js';
 import { weeklyAvailability } from './contingency.js';
 import { leagueCurrentWeek } from './league-week.js';
+import { previewUnconfirmed, previewFields } from './preview-mode.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
@@ -274,6 +275,85 @@ function playBracket(field, { playoff_weeks: roundWeeks, reseed }, scoreFor) {
 // the decision-timing rules whose accidental reversal creates hindsight bias.
 export const __test = { lineupPoints, initialRecords, playBracket, addMedianResults };
 
+/* ------------------------------------------------- the projection basis */
+
+/**
+ * RL-17-3: which per-player rate the simulated season is centred on.
+ *
+ * The sim's outcome pools come from buildProjections({ through: SEASON - 1 }):
+ * LAST season's shape. The trade finder prices the same players on ros_ppg
+ * (trade-engine.js, from ros-projection.js#buildRosProjections: this season's
+ * games updating the preseason prior). The two orders agreed at Spearman 0.796,
+ * so the Title tab disagreed with the finder about who helps (BROKEN-NUMBERS row A).
+ *
+ * With the flag on, each player's pools keep last season's shape (target/carry/
+ * attempt mix, efficiency, dispersion) but their volume is scaled so the mean per
+ * game played is the finder's ros_ppg: expected points are linear in the volume
+ * multiplier sampleWeeks applies (projections.js#WEEKLY_LEVEL), so a factor
+ * ros_ppg / ppg moves the mean there and nothing else. It reads ros_ppg off the
+ * same assetUniverse the finder serves, so there is one ROS producer, not two.
+ * A player with no ros_ppg or no positive ppg keeps last season's rate and is
+ * counted in `ros_unscaled`, never silently.
+ *
+ * GRIDIRON_RL17_3_ENABLED: '1' on, '0' off, unset = off unless preview mode.
+ */
+export const RL17_3_ENV = 'GRIDIRON_RL17_3_ENABLED';
+const RL17_3_PREVIEW_REASON =
+  'Title odds centred on the finder\'s rest-of-season rate (RL-17-3); default off until measured on 2026 leagues';
+
+/** { on, preview }: read per call, so a test or a run can flip it. */
+export function rosBasisFlag() {
+  const v = process.env[RL17_3_ENV];
+  if (v === '1') return { on: true, preview: false };
+  if (v === '0') return { on: false, preview: false };
+  const preview = previewUnconfirmed();
+  return { on: preview, preview };
+}
+
+/**
+ * Per-player volume factor onto the finder's ros_ppg, and what the result
+ * should say about it. Empty `scale` when the flag is off (old numbers exactly).
+ */
+function rosScale(roster, proj, flag) {
+  const scale = new Map();
+  if (!flag.on) return { scale, fields: null };
+  let unscaled = 0;
+  for (const p of roster) {
+    const ppg = proj.get(p.id)?.ppg;
+    const ros = p.ros_ppg;
+    if (Number.isFinite(ros) && ros >= 0 && Number.isFinite(ppg) && ppg > 0) scale.set(p.id, ros / ppg);
+    else if (proj.get(p.id)) unscaled++;
+  }
+  return {
+    scale,
+    fields: {
+      projection_basis: 'ros', ros_scaled: scale.size, ros_unscaled: unscaled,
+      ...(flag.preview ? previewFields(RL17_3_PREVIEW_REASON) : {})
+    }
+  };
+}
+
+const basisKey = flag => (flag.on ? 'ros' : 'last_season');
+
+const scaled = (mult, f) => f === undefined ? mult : { pass: mult.pass * f, rush: mult.rush * f };
+
+/**
+ * Each simulated player's mean points per week over the simulated weeks he has a
+ * game, from a world's own pools (tradeImpactWorld). The number the RL-17-3
+ * contract compares with the finder's ros_ppg.
+ */
+export function simPlayerMeans(world) {
+  const acc = new Map();
+  for (const { expected } of world.draws.values()) {
+    for (const [id, m] of expected) {
+      const a = acc.get(id) ?? { s: 0, n: 0 };
+      a.s += m; a.n++;
+      acc.set(id, a);
+    }
+  }
+  return new Map([...acc].map(([id, a]) => [id, a.s / a.n]));
+}
+
 /* -------------------------------------------------------------- the sim */
 
 /**
@@ -320,7 +400,8 @@ export function simulateSeason(lg, {
  * each player-week's outcome pool and copula sampler. It draws the one number
  * that names the simulated world from the caller's random stream, exactly once.
  */
-function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = null, projections = null, universe = null }) {
+function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = null, projections = null, universe = null,
+  basisFlag = rosBasisFlag() }) {
   const fromWeek = simStartWeek(lg, requestedWeek);
   // The league's own rules, never a hard-coded default: a missing field is a
   // named error with its payload path (league-rules.js#simRulesProblem).
@@ -355,6 +436,8 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
   const roster = [...new Map([...teams.flatMap(t => t.players), ...extra].map(p => [p.id, p])).values()]
     .filter(p => SCORED.has(p.position))
     .sort((a, b) => (a.id > b.id) - (a.id < b.id));
+  // RL-17-3: the finder's ros_ppg as each pool's mean (empty when the flag is off).
+  const basis = rosScale(roster, proj, basisFlag);
   // One draw from the caller's stream names this simulated world. Every random
   // number below is addressed by (world, player, week[, run]) off it, so under
   // one seed the same player gets the same football in every configuration.
@@ -384,7 +467,8 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
       const mult = { pass: base * gs.pass_mult, rush: base * gs.rush_mult };
       const activeProbability = activeChance.get(p.id)?.active_probability ?? 0.92;
       const s = withRandomSeed(keyedSeed(world, 'pool', p.id, week),
-        () => sampleWeeks(pr.params, POOL, scoring, mult, activeProbability)).sort((a, b) => a - b);
+        () => sampleWeeks(pr.params, POOL, scoring, scaled(mult, basis.scale.get(p.id)), activeProbability))
+        .sort((a, b) => a - b);
       entries.push({
         p, samples: s,
         meta: {
@@ -412,7 +496,7 @@ function prepareSeason(lg, { requestedWeek = null, scoring = PPR, overrides = nu
   return {
     lg, rules, fromWeek, assets, teams, slots, sched, weeks, simWeeks, bracketWeeks, weekData,
     playoffTeams: rules.schedule.playoff_teams, medianGame: rules.median_game === true,
-    rosterIds: new Set(roster.map(p => p.id))
+    rosterIds: new Set(roster.map(p => p.id)), basisFields: basis.fields
   };
 }
 
@@ -501,6 +585,7 @@ function playSeasons(prep, teams, runs, keepRuns, pointsFor) {
     standings_carried_in: fromWeek > 1,
     odds_interval: 'run-to-run Monte Carlo error only; excludes the shared error of the fixed per-player outcome pools',
     teams: out,
+    ...(prep.basisFields ?? {}),
     ...(perRun ? { per_run: perRun } : {})
   };
 }
@@ -577,11 +662,12 @@ export function tradeImpactWorld(lg, {
   projections = projections ?? buildProjections({ through: SEASON - 1, scoring });
   const pairedSeed = seed == null ? tradeImpactSeed(lg) : Number(seed);
   const universeIds = [...new Set([...universe].map(Number))].sort((a, b) => a - b);
+  const basisFlag = rosBasisFlag();
   const prep = withRandomSeed(pairedSeed,
-    () => prepareSeason(lg, { requestedWeek, scoring, projections, universe: universeIds }));
+    () => prepareSeason(lg, { requestedWeek, scoring, projections, universe: universeIds, basisFlag }));
   const key = {
     league: lg.id, fetched_at: lg.fetched_at ?? null, runs, fromWeek: simStartWeek(lg, requestedWeek),
-    scoring: JSON.stringify(scoring), seed: pairedSeed
+    scoring: JSON.stringify(scoring), seed: pairedSeed, basis: basisKey(basisFlag)
   };
   if (prep.fail) return { key, projections, universe: universeIds, fail: prep.fail };
 
@@ -620,7 +706,8 @@ function worldFits(w, lg, { runs, scoring, fromWeek, seed, dealIds }) {
   if (!w || w.fail) return false;
   const k = w.key;
   if (k.league !== lg.id || k.fetched_at !== (lg.fetched_at ?? null) || k.runs !== runs
-    || k.fromWeek !== fromWeek || k.scoring !== JSON.stringify(scoring) || k.seed !== seed) return false;
+    || k.fromWeek !== fromWeek || k.scoring !== JSON.stringify(scoring) || k.seed !== seed
+    || k.basis !== basisKey(rosBasisFlag())) return false;
   // The world's copula must hold exactly the players the full runs would: every
   // rostered player plus the ones this deal names. A named player outside it, or
   // an extra free agent the deal does not name, would change his game-mates' draws.
@@ -718,5 +805,7 @@ export function tradeImpact(lg, {
     };
   };
   return { runs, from_week: fromWeek, seed: pairedSeed, paired_simulation: true,
+    ...(before.projection_basis ? { projection_basis: before.projection_basis,
+      ...(before.preview ? previewFields(before.preview_reason) : {}) } : {}),
     me: delta(me.roster_id), them: delta(them.roster_id) };
 }

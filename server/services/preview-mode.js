@@ -18,6 +18,8 @@
  *   - streaming-board.js#streamingBoard          D/ST swap suggestion (dormant: on by default
  *                                                since NICK-WV01, so preview never switches it)
  *   - waiver-wire.js#waiverBoard                 snap-share order for same-team replacements
+ *   - season-sim.js#rosBasisFlag                 title odds on the finder's ros_ppg (RL-17-3;
+ *                                                GRIDIRON_RL17_3_ENABLED=0 vetoes preview)
  *   - week.js#fantasyWeek/scoreboardWeek/        one nfl.week for every NFL-week reader, and
  *     lineWatchWeek/leagueWeek                   league.week ignores another season's payload
  *                                                (BROKEN-D)

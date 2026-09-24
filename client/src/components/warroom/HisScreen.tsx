@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useApi } from '../../api';
+import { useHisScreen } from './useWarRoom';
 
 /**
  * HIS-SCREEN (WAR-ROOM-UI.md v3, mode 2): one offer the way the partner sees it.
@@ -140,7 +140,7 @@ export function HisScreenView({ data }: { data: HisScreenData }) {
 
 /** Fetching wrapper: pass any offer in Nick's terms (give = what Nick sends). */
 export default function HisScreen({ leagueId, offer }: { leagueId: string | number; offer: Offer | null }) {
-  const { data, loading, error } = useApi<HisScreenData>(offer ? hisScreenPath(leagueId, offer) : null);
+  const { data, loading, error } = useHisScreen(offer ? hisScreenPath(leagueId, offer) : null);
   if (!offer) return null;
   if (loading && !data) return <p className="text-[12px] text-[var(--muted)]">Loading his screen… (an offer the planner did not score takes a few seconds)</p>;
   if (error) return <p className="text-[12px] text-crit" role="alert">His screen failed to load: {error}</p>;

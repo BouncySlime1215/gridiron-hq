@@ -2,7 +2,7 @@
 
 <!-- prereg: docs/evidence/2026-09-24/jev-01b-chat-preregistration.md -->
 
-RED `67abbb23` · GREEN follows · `test/jev-01b-calibrate.test.js` (7 cases),
+RED `67abbb23` · GREEN follows · `test/jev-01b-calibrate.test.js` (9 cases),
 `test/jev-01b-chat-grader.test.js` (6 cases).
 Pre-registration `2b15b18b`, committed before the tests; addendum 1 before any
 real-data run.
@@ -37,14 +37,24 @@ nothing else.
 
 ## On the way to GREEN
 
-Two implementation defects, fixed in the implementation:
+Three implementation defects, each fixed in the implementation and each now
+pinned by a test that fails on the unfixed code:
 
 1. **Platt diverged on a constant claim.** An arm that always says 0.9 mapped
-   to 0.9999 instead of 0.3: undamped Newton from `a = 1` overshoots when
-   every x is equal. Fix: centre the logit (a and b decouple) and halve each
-   step until the loss falls.
-2. **Weight fitted on in-sample calibration.** Changed to out-of-fold
-   (addendum 1), because an in-sample map flatters itself.
+   to 0.9999, not 0.3: undamped Newton from `a = 1` on an uncentred logit.
+   Fix: centre the logit.
+2. **Platt was fitted on the clamped log loss.** The clamp puts a kink in the
+   objective, and Newton (smooth gradient) stalled short of the minimum:
+   a = 2.08 against 2.63 on separable claims. Fix: fit the smooth logistic
+   loss; clamp only when a map is applied. Liveness: the new test
+   "Platt lands on the minimum..." run against the committed calibrate.js
+   fails `not a minimum along (0.01, 0)`.
+   Removing the step damping after that fix exposed a third case: plain
+   Newton did not converge on 168 uninformative claims. The fit now throws
+   when it does not converge, and it damps.
+3. **Weight fitted on in-sample calibration** paid a noise arm weight it had
+   not earned (0.110 vs 0.007 out-of-fold on the n=300 seed-6 fixture).
+   Fix: fit the weight out-of-fold (pre-registration addendum 1).
 
 Three corrections to the tests. Each test was wrong, not the code:
 
@@ -61,9 +71,40 @@ Three corrections to the tests. Each test was wrong, not the code:
    data, and the fixture did not test the claim. Outcomes are now fixed by
    construction (3 in 20, 3 in 4), so the incumbent is exactly right.
 
+Two tests were added because the sweep found them missing: `ME` as a
+roster-5 identity (M6 survived without it), and the negative-class floor
+(M5 survived).
+
+## Mutation sweep (final tree)
+
+Each mutant applied alone and the two JEV test files run; "killed" = at least
+one failure.
+
+| id | mutant | result |
+|---|---|---|
+| M1 | outcome window reaches before the cutoff | killed |
+| M2 | claim reads messages after the cutoff | killed |
+| M3 | unsettled windows graded | killed |
+| M4 | ownership at the message ignored | killed |
+| M5 | negative-class floor dropped | killed |
+| M6 | `ME` graded | killed |
+| M7 | flag always on (unit) | killed |
+| M8 | flag ignored at the call site (manager-signals.js) | killed |
+| M9 | `jev_blend` declared priceable | killed |
+| M10 | weight-0 shortcut removed | killed |
+| M11 | weight floor ignored in the leader rule | killed |
+| M12 | isotonic below n=200 | killed |
+| M13 | Platt undamped | killed |
+| M14 | Platt ridge 0 | killed |
+| M17 | weight fitted on in-sample calibration | killed |
+| M18 | Platt fitted on the clamped loss | killed |
+| M16 | Platt non-convergence returned instead of thrown | **survived**: no fixture makes damped Newton fail to converge; the throw is a guard |
+| C1 | control: "Jev leads" text precision 4 -> 5 digits | survived, as designed |
+| C2 | control: pattern absent from the file | not applied, as designed |
+
 ## GREEN
 
-13 of 13. `npm run check` result is in the PR body.
+15 of 15. `npm run check` result is in the PR body.
 
 ## Not covered
 

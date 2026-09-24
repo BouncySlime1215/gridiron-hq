@@ -13,7 +13,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { fitCalibration, applyCalibration, ISOTONIC_MIN_N } = await import('../server/services/jev/calibrate.js');
+const { fitCalibration, applyCalibration, ISOTONIC_MIN_N, PLATT_RIDGE, logit } =
+  await import('../server/services/jev/calibrate.js');
 const { blend, logLoss } = await import('../server/services/jev/stack.js');
 const { gradeUnits, MIN_N } = await import('../server/services/jev/chat-grader.js');
 
@@ -49,6 +50,25 @@ test('an arm that always says 0.9 on a 30%-true fixture maps to ~0.3', () => {
   }
 });
 
+const softplus = z => (z > 0 ? z + Math.log1p(Math.exp(-z)) : Math.log1p(Math.exp(z)));
+
+test('Platt lands on the minimum of its own objective when the claims separate the outcomes', () => {
+  // Claims at 0.01 / 0.99 that are always right push the slope up hard. The
+  // objective is the smooth penalised logistic loss; measured before the fix,
+  // a damped fit on the CLAMPED loss stalled at a = 2.08; the minimum is 2.63.
+  const points = Array.from({ length: 100 }, (_, i) => ({ p: i < 50 ? 0.01 : 0.99, y: i < 50 ? 0 : 1 }));
+  const cal = fitCalibration(points);
+  assert.equal(cal.kind, 'platt');
+  const objective = (a, b) => PLATT_RIDGE * a * a / 2 + points.reduce((s, { p, y }) => {
+    const z = a * (logit(p) - cal.mu) + b;
+    return s + softplus(y ? -z : z);
+  }, 0);
+  const at = objective(cal.a, cal.b);
+  for (const [da, db] of [[0.01, 0], [-0.01, 0], [0, 0.01], [0, -0.01]]) {
+    assert.ok(at <= objective(cal.a + da, cal.b + db), `not a minimum along (${da}, ${db})`);
+  }
+});
+
 test('the blend with weight 0 is the incumbent, exactly', () => {
   for (const inc of [0.01, 0.123456789, 0.5, 0.97]) {
     assert.equal(blend(inc, 0.9, 0), inc);
@@ -74,6 +94,29 @@ test('an arm worse than the incumbent gets weight <= 0.05 and the grade says the
   assert.ok(grade.weight <= 0.05, `served weight ${grade.weight}`);
   assert.equal(grade.leader, 'incumbent');
   assert.match(grade.text, /incumbent leads/);
+});
+
+test('the weight is fitted out-of-fold: a noise arm at n=300 stays under the floor', () => {
+  // Same exactly-right incumbent as above, 300 units, so the training folds
+  // sit just above and below the isotonic floor. Measured on this fixture:
+  // seed 6 buys weight 0.110 when fitted on in-sample isotonic output and
+  // 0.007 out-of-fold. Seed 1's out-of-fold Platt fit (168 claims) is the one
+  // plain Newton could not converge on.
+  for (const seed of [1, 6]) {
+    const r = rng(seed);
+    const units = [];
+    for (let i = 0; i < 300; i++) {
+      const high = i % 2 === 1, j = Math.floor(i / 2);
+      const y = high ? (j % 4 < 3 ? 1 : 0) : (j % 20 < 3 ? 1 : 0);
+      units.push({ t: i, cluster: `m${i % 8}`, inc: high ? 0.75 : 0.15, claim: r(), y });
+    }
+    const grade = gradeUnits(units);
+    assert.equal(grade.status, 'measured');
+    if (seed === 6) {
+      assert.ok(grade.holdout.weight <= 0.05, `holdout weight ${grade.holdout.weight}`);
+      assert.ok(grade.weight <= 0.05, `served weight ${grade.weight}`);
+    }
+  }
 });
 
 test('an informative arm earns weight and a lower holdout log loss than the incumbent', () => {
@@ -104,6 +147,8 @@ test('a thin question is a typed unknown with its n and floor, never a number', 
   // one outcome class under its floor is thin too, however many units there are
   const oneSided = Array.from({ length: 300 }, (_, i) => ({ t: i, cluster: 'm', inc: 0.3, claim: 0.5, y: i < 5 ? 1 : 0 }));
   assert.equal(gradeUnits(oneSided).reason, 'thin');
+  const otherSide = Array.from({ length: 300 }, (_, i) => ({ t: i, cluster: 'm', inc: 0.3, claim: 0.5, y: i < 5 ? 0 : 1 }));
+  assert.equal(gradeUnits(otherSide).reason, 'thin');
 });
 
 test('log loss is finite at the edges', () => {

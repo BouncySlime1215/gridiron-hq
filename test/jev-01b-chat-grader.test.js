@@ -93,7 +93,9 @@ say('Bravo Two', Date.parse('2026-08-20T12:00:00Z'), 'own_roster.untouchable', 0
 say('Bravo Two', Date.parse('2026-08-10T12:00:00Z'), 'own_roster.untouchable', 0.8, 'Player B'); // held
 say('Bravo Two', Date.parse('2026-08-11T12:00:00Z'), 'own_roster.untouchable', 0.7, 'Player Z'); // never his
 say('Bravo Two', Date.parse('2026-09-20T12:00:00Z'), 'own_roster.untouchable', 0.9, 'Player B'); // unsettled
-say('ME', Date.parse('2026-08-10T12:00:00Z'), 'open_to_trade', 0.9);
+// Nick's own messages: roster 5's identity is 'ME', and he is never graded or served.
+for (let k = 0; COVERAGE_START + k * 7 * DAY < AS_OF; k++) say('ME', COVERAGE_START + k * 7 * DAY - 2 * DAY, 'open_to_trade', 0.9);
+say('ME', AS_OF - 2 * DAY, 'open_to_trade', 0.9);
 chat.close();
 
 // ------------------------------------------------------------ app fixture
@@ -115,19 +117,22 @@ test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true })
 
 const LEAGUE = 21;
 const members = NAMES.map((n, i) => ({ id: `{M${i + 1}}`, firstName: n.split(' ')[0], lastName: n.split(' ')[1] }));
+const nick = { id: '{M5}', firstName: 'Nick', lastName: 'Five' };
 const payload = {
-  scoringPeriodId: 4, members,
-  teams: members.map((m, i) => ({ id: i + 1, name: `Team ${i + 1}`, owners: [m.id],
+  scoringPeriodId: 4, members: [...members, nick],
+  teams: [...members, nick].map((m, i) => ({ id: i + 1, name: `Team ${i + 1}`, owners: [m.id],
     record: { overall: { wins: 1, losses: 1, ties: 0, pointsFor: 200, pointsAgainst: 200 } }, roster: { entries: [] } })),
   schedule: [],
 };
 run(`INSERT INTO leagues(id, platform, league_id, season, name, payload, team_count, my_team_id, roster_positions)
-     VALUES (?, 'espn', 'espn-jev-21', 2026, 'L21', ?, 4, '1', '[]')`, LEAGUE, JSON.stringify(payload));
+     VALUES (?, 'espn', 'espn-jev-21', 2026, 'L21', ?, 5, '5', '[]')`, LEAGUE, JSON.stringify(payload));
 for (let i = 0; i < 4; i++) {
   run(`INSERT INTO league_member_identity (league_id, roster_id, espn_member_id, espn_name, team_name, chat_name,
          match_method, confidence) VALUES (?, ?, ?, ?, ?, ?, 'confirmed by Nick', 'confirmed')`,
   LEAGUE, String(i + 1), members[i].id, NAMES[i], `Team ${i + 1}`, NAMES[i]);
 }
+run(`INSERT INTO league_member_identity (league_id, roster_id, espn_member_id, espn_name, team_name, chat_name,
+       match_method, confidence) VALUES (?, '5', '{M5}', 'Nick Five', 'Team 5', 'ME', 'confirmed by Nick', 'confirmed')`, LEAGUE);
 let txn = 0;
 function tx(type, execution, status, team, at, items = []) {
   txn++;
@@ -166,7 +171,7 @@ test('open_to_trade units obey the leak rule and grade against the next 14 days'
     assert.ok(u.inc > 0 && u.inc < 1);
   }
   assert.ok(units.some(u => u.roster_id === '1' && Math.round((u.t - COVERAGE_START) / (7 * DAY)) === LEAK_K));
-  assert.ok(!units.some(u => u.cluster === 'ME'), 'ME is never graded');
+  assert.ok(!units.some(u => u.roster_id === '5'), 'ME (roster 5) is never graded');
 });
 
 test('untouchable units need ownership at the message and a closed window', () => {

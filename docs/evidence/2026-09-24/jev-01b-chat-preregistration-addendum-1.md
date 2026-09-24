@@ -11,13 +11,27 @@ loss over those out-of-fold values. The served calibration map is still
 fitted on every training unit, as before.
 
 **Why.** A map scored on its own fitting points flatters itself, and
-isotonic does so most, so the weight fitted on it can pay a noise arm for fit
-it does not have. Measured on the RED fixture for the spec's item 3 (a noise
-arm beside an exactly-right incumbent, 400 units,
-`test/jev-01b-calibrate.test.js`): weight 0.025 fitted on in-sample isotonic
-output, 0 fitted out-of-fold. Both are under the 0.05 floor on that fixture,
-so the test passes either way; the change is for real data, where the
-difference is not known in advance.
+isotonic does so most, so a weight fitted on it pays a noise arm for fit it
+does not have. Measured on the noise-arm fixture in
+`test/jev-01b-calibrate.test.js` (an exactly-right incumbent, claims drawn
+uniformly, 70/30 time split), training-set weight in-sample vs out-of-fold:
+
+| units | seed | in-sample | out-of-fold |
+|---|---|---|---|
+| 300 | 3 | 0.136 | 0.008 |
+| 300 | 6 | 0.110 | 0.007 |
+| 300 | 4 | 0.163 | 0.084 |
+| 400 | 7 | 0.081 | 0.007 |
+| 400 | 1 | 0.000 | 0 |
+
+Over 24 fixtures (n = 300 and 400, seeds 1-12) the in-sample weight was over
+the 0.05 floor on 11, the out-of-fold weight on 3.
+
+**Also, Platt.** "Platt (logistic on the logit, small ridge)" is fitted on the
+smooth logistic loss with a ridge of 1e-3 on the slope, by damped Newton, and
+a fit that does not converge throws. Both details were forced by failing
+fixtures (the evidence file `docs/tdd/2026-09-24-jev-01b-chat-grader.tdd.md`
+has them); neither changes what is being estimated.
 
 Nothing else changes: units, outcomes, incumbents, floors, the 70/30 time
 split and the decision rule are as pre-registered.

@@ -8,6 +8,8 @@
  */
 
 export const ISOTONIC_MIN_N = 200;
+/** Ridge on the Platt slope: keeps the fit defined for constant or separable claims. */
+export const PLATT_RIDGE = 1e-3;
 /** Every served probability stays inside this band, so a log loss is finite. */
 export const P_EPS = 1e-4;
 
@@ -39,21 +41,30 @@ function isotonic(points) {
     x: stack.map(b => b.xs / b.w), y: stack.map(b => b.sum / b.w) };
 }
 
+/** log(1 + e^z) without overflow. */
+const softplus = z => (z > 0 ? z + Math.log1p(Math.exp(-z)) : Math.log1p(Math.exp(z)));
+
 /**
- * Logistic regression y ~ a * (logit(p) - mu) + b by damped Newton. Centring
- * on mu decouples a from b, and a small ridge on `a` keeps it defined when
- * every claim is the same number (then a -> 0 and b is the base rate's logit).
- * Each step is halved until the penalised loss goes down, so it cannot diverge.
+ * Logistic regression y ~ a * (logit(p) - mu) + b by damped Newton.
+ * Centring on mu decouples a from b, and a small ridge on `a` keeps it
+ * defined when every claim is the same number (then a -> 0 and b is the base
+ * rate's logit) or when the claims separate the outcomes.
+ *
+ * Two things here were each found by a failing fixture:
+ *  - the loss is the smooth logistic one (softplus), NOT the clamped log loss
+ *    the grade reports. With the clamp inside, the objective has a kink where
+ *    the clamp starts to bind and the fit stalls short of the minimum.
+ *  - each Newton step is halved until the loss falls. Plain Newton did not
+ *    converge in 200 steps on 168 uninformative claims.
+ * A fit that has not converged throws; a half-fitted map is not returned.
  */
-function platt(points, ridge = 1e-3) {
+function platt(points, ridge = PLATT_RIDGE) {
   const xs = points.map(({ p }) => logit(p));
   const mu = xs.reduce((s, x) => s + x, 0) / xs.length;
-  const loss = (a, b) => ridge * a * a / 2 + points.reduce((s, { y }, i) => {
-    const q = clampP(sigmoid(a * (xs[i] - mu) + b));
-    return s - (y ? Math.log(q) : Math.log(1 - q));
-  }, 0);
+  const loss = (a, b) => ridge * a * a / 2
+    + points.reduce((s, { y }, i) => { const z = a * (xs[i] - mu) + b; return s + softplus(y ? -z : z); }, 0);
   let a = 1, b = 0, cur = loss(a, b);
-  for (let it = 0; it < 100; it++) {
+  for (let it = 0; it < 200; it++) {
     let ga = ridge * a, gb = 0, haa = ridge, hab = 0, hbb = 1e-9;
     points.forEach(({ y }, i) => {
       const x = xs[i] - mu;
@@ -62,17 +73,14 @@ function platt(points, ridge = 1e-3) {
       ga += r * x; gb += r; haa += w * x * x; hab += w * x; hbb += w;
     });
     const det = haa * hbb - hab * hab;
-    if (!(det > 0)) break;
     const da = (hbb * ga - hab * gb) / det, db = (haa * gb - hab * ga) / det;
+    if (!Number.isFinite(da) || !Number.isFinite(db)) break;
     let step = 1, next = loss(a - da, b - db);
-    while (next > cur && step > 1e-6) { step /= 2; next = loss(a - step * da, b - step * db); }
-    if (next > cur) break;
-    a -= step * da; b -= step * db;
-    const moved = Math.abs(step * da) + Math.abs(step * db);
-    cur = next;
-    if (moved < 1e-12) break;
+    while (next > cur && step > 1e-9) { step /= 2; next = loss(a - step * da, b - step * db); }
+    a -= step * da; b -= step * db; cur = Math.min(cur, next);
+    if (step * (Math.abs(da) + Math.abs(db)) < 1e-10) return { kind: 'platt', n: points.length, a, b, mu };
   }
-  return { kind: 'platt', n: points.length, a, b, mu };
+  throw new Error(`Platt calibration did not converge on ${points.length} points`);
 }
 
 /** points: [{ p: claimed probability, y: 0|1 }] */

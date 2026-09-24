@@ -11,9 +11,11 @@
  *   - S.fallback_set names a fallback for the field -> the fallback field's row, `fallback`;
  *   - else the latest row with producer_version = S.version_set[producer], lane live and
  *     id <= S.max_state_id;
- *   - HEALTH-01b: if that row failed its checks, the field's declared fallback field is
- *     served (`fallback`), else the last good row (`last_good`, "last good, N min old"),
- *     else `unknown`. A failed value is never served;
+ *   - HEALTH-01b: if that row failed its checks or is degraded, the ONE fallback rule
+ *     (state.js#readServed, #250; RULINGS 3) decides, pinned to the snapshot's cut and
+ *     versions: the field's declared fallback field (`fallback`), else its last healthy
+ *     row (`last_good`, "last good, N min old"), else a degraded row labelled or `unknown`.
+ *     A failed value is never served;
  *   - otherwise the typed status of rowStatus, with freshness from engine_runs at S's time;
  *   - a template the snapshot cannot fill (no NFL week once every game is final) is a row
  *     typed unknown ("snapshot N has no week"), never a read at week "null".
@@ -24,7 +26,7 @@
  * This module only reads; it imports nothing from engine/daemon/.
  */
 import { db as appDb } from '../../db/index.js';
-import { getState, isLeagueScoped } from './state.js';
+import { getState, isLeagueScoped, readServed } from './state.js';
 import { readFieldSpec, freshAt } from './fields.js';
 import { rowStatus, minutesBetween } from './status.js';
 
@@ -193,21 +195,29 @@ export function resolveRow({ entityType, entityId, field }, snapshot, leagueId, 
     return serveFallback(key, field, monitorFallback,
       fallbackReason(field, monitorFallback, snapshot.league_id, snapshot, database), snapshot, look, database);
   }
-  const { row: latest, missingVersion } = rowAtCut(key, field, spec, snapshot, { includeFailed: true }, database);
-  if (missingVersion) {
+  if (snapshot.version_set[spec.producer] == null) {
     return served(null, { ...key, field, status: 'unknown', reason: `producer_not_in_snapshot: ${spec.producer}` });
   }
-  if (!latest) return served(null, { ...key, field, status: 'unknown', reason: 'no_row_at_snapshot' });
-  if (latest.health?.status === 'failed') {
-    const failedChecks = (latest.health.checks ?? []).filter(c => !c.passed).map(c => c.id).join(', ') || 'its checks';
-    const why = `${field} failed ${failedChecks}`;
-    if (spec.fallbackField) return serveFallback(key, field, spec.fallbackField, `${why}; serving ${spec.fallbackField}`, snapshot, look, database);
-    const { row: good } = rowAtCut(key, field, spec, snapshot, {}, database);
-    if (!good) return served(null, { ...key, field, status: 'unknown', reason: `${why}; no fallback and no good row before it` });
-    const age = minutesBetween(good.as_of, snapshot.created_at);
-    return served(good, { ...key, field, status: 'last_good', fallbackUsed: true, ageMin: age,
-      reason: `${why}; last good, ${age} min old`, freshAt: good.as_of });
+  // RULINGS 3: the one last-good / fallback rule is the engine spine's (state.js#readServed,
+  // #250), read at this snapshot's cut and versions. This module maps its answer to a view row.
+  const versionFor = f => { const s = look.spec(f); return s ? snapshot.version_set[s.producer] ?? null : null; };
+  const rs = readServed(key.entityType, key.entityId, field, { asOf: FAR_FUTURE, leagueId: key.leagueId, lane: 'live',
+    pin: { maxId: snapshot.max_state_id, versionFor } }, database);
+  if (rs.status === 'unknown') {
+    return served(null, { ...key, field, status: 'unknown', reason: rs.reason === 'no_row_as_of' ? 'no_row_at_snapshot' : rs.reason });
   }
+  if (rs.status === 'failed') return served(null, { ...key, field, status: 'unknown', reason: rs.reason });
+  if (rs.status === 'fallback' && rs.fallback.kind === 'field') {
+    return served(rs.row, { ...key, field, status: 'fallback', fallbackUsed: true, fallbackField: rs.fallback.field,
+      reason: rs.reason, freshAt: look.fresh(rs.row.producer, key.leagueId, rs.row.as_of) });
+  }
+  if (rs.status === 'fallback') {
+    const age = minutesBetween(rs.row.as_of, snapshot.created_at);
+    return served(rs.row, { ...key, field, status: 'last_good', fallbackUsed: true, ageMin: age,
+      reason: `${rs.reason}; last good, ${age} min old`, freshAt: rs.row.as_of });
+  }
+  // ok, or degraded with nothing healthy to fall back to: served as itself, typed by rowStatus.
+  const latest = rs.row;
   const fresh = look.fresh(latest.producer, key.leagueId, latest.as_of);
   const [status, reason] = rowStatus(latest, spec, fresh, snapshot.created_at);
   return served(latest, { ...key, field, status, reason, freshAt: fresh,

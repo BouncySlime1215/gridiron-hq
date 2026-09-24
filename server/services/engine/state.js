@@ -28,13 +28,15 @@
  *
  * `getState` is the as-of reader: the latest row (by id, the transaction clock) with
  * as_of <= asOf and id <= maxId, in lane `live` unless asked, never a failed row.
+ * `readServed` (HEALTH-01b) is what pages and Coach read: the value plus its health, and
+ * for a failed or degraded field the declared fallback or last good row, labelled.
  */
 import { db as appDb } from '../../db/index.js';
 import { fieldSpec, isWriterFor, laneFor, producerSpec } from './registry.js';
 import { normalizeAsOf } from './events.js';
 import { assertWriteRole } from './role.js';
 import { runChecks } from './health.js';
-import { storeFieldSpec } from './fields.js';
+import { storeFieldSpec, readFieldSpec } from './fields.js';
 
 /* ------------------------------------------------------------ key grammar */
 const INT = '\\d+';
@@ -296,15 +298,82 @@ const parseRow = r => ({
  * row is never served by default); `version` pins one producer version.
  */
 export function getState(entityType, entityId, field, {
-  asOf = new Date(), leagueId = null, lane = 'live', version = null, maxId = null, includeFailed = false,
+  asOf = new Date(), leagueId = null, lane = 'live', version = null, maxId = null, includeFailed = false, okOnly = false,
 } = {}, database = appDb) {
   const where = ['entity_type = ?', 'entity_id = ?', 'field = ?', 'league_id = ?', 'lane = ?', 'as_of <= ?'];
   const params = [entityType, String(entityId), field, leagueId == null ? 0 : Number(leagueId), lane, normalizeAsOf(asOf)];
   if (version != null) { where.push('producer_version = ?'); params.push(String(version)); }
   if (maxId != null) { where.push('id <= ?'); params.push(Number(maxId)); }
-  if (!includeFailed) where.push(`json_extract(health, '$.status') <> 'failed'`);
+  if (okOnly) where.push(`json_extract(health, '$.status') = 'ok'`);
+  else if (!includeFailed) where.push(`json_extract(health, '$.status') <> 'failed'`);
   const r = database.prepare(`SELECT id, entity_type, entity_id, league_id, field, value, as_of, producer, producer_version,
       lane, reason_chain, event_ids, health, run_id, written_at FROM engine_state
       WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT 1`).get(...params);
   return r ? parseRow(r) : null;
+}
+
+/** Why a row is not served as itself. Names the failed check ids, never the failed value. */
+function problemReason(field, row) {
+  if (row.health?.status === 'failed') {
+    const ids = (row.health.checks ?? []).filter(c => !c.passed).map(c => c.id);
+    return `${field} failed its checks (${ids.join(', ') || 'unnamed'})`;
+  }
+  return `${field} was built on degraded inputs`;
+}
+
+/**
+ * HEALTH-01b, fallback never fake: what a reader (a page, Coach) is allowed to show for one
+ * field. Returns {field, status, value, row, health, fallback_used, fallback, reason}:
+ *   ok        the latest row is healthy: it is served as itself, fallback_used=false;
+ *   fallback  the latest row failed or is degraded: the field's declared fallbackField row
+ *             (healthy) is served, else the field's last healthy row; fallback_used=true,
+ *             `fallback` = {kind: 'field'|'last_good', field, row_id, as_of}, `reason` says why;
+ *   degraded  degraded with nothing healthy to fall back to: the degraded value, labelled;
+ *   failed    failed with nothing healthy to fall back to: value null, never the failed value;
+ *   unknown   no row as of then, or the field has no stored spec.
+ * The failed row's value is never returned: not as the value, not in `reason`, not in the
+ * check details (the audit keeps those in engine_state).
+ *
+ * `pin` (EA-03 views, #257; RULINGS 3) reads the same rule at a snapshot's cut:
+ * `{ maxId, versionFor(field) }` pins every read (the field, its fallback, its last good
+ * row) to id <= maxId and that field's producer version. A field whose producer has no
+ * version in the pin has no row. Without `pin` nothing changes.
+ */
+export function readServed(entityType, entityId, field, {
+  asOf = new Date(), leagueId = null, lane = 'live', pin = null,
+} = {}, database = appDb) {
+  const opts = { asOf, leagueId, lane };
+  const read = (f, extra) => {
+    if (!pin) return getState(entityType, entityId, f, { ...opts, ...extra }, database);
+    const version = pin.versionFor ? pin.versionFor(f) : null;
+    if (pin.versionFor && version == null) return null;
+    return getState(entityType, entityId, f, { ...opts, ...extra, maxId: pin.maxId ?? null, version }, database);
+  };
+  const base = { field, status: 'unknown', value: null, row: null, health: null, fallback_used: false, fallback: null };
+  const spec = readFieldSpec(field, database);
+  if (!spec) return { ...base, reason: 'field_not_registered' };
+  const latest = read(field, { includeFailed: true });
+  if (!latest) return { ...base, reason: 'no_row_as_of' };
+  const status = latest.health?.status ?? 'ok';
+  if (status === 'ok') return { ...base, status: 'ok', value: latest.value, row: latest, health: latest.health, reason: null };
+
+  const why = problemReason(field, latest);
+  // The problem row's health without check details: a failed check's detail quotes the failed value.
+  const checks = (latest.health?.checks ?? []).map(c => ({ id: c.id, passed: c.passed }));
+  const problem = { ...base, health: { ...latest.health, checks } };
+  const serve = (kind, row, text) => ({
+    ...problem, status: 'fallback', value: row.value, row, fallback_used: true,
+    fallback: { kind, field: row.field, row_id: row.id, as_of: row.as_of }, reason: `${why}; ${text}`,
+  });
+  if (spec.fallbackField) {
+    const fb = read(spec.fallbackField, { okOnly: true });
+    if (fb) return serve('field', fb, `serving its fallback ${spec.fallbackField}`);
+  }
+  const good = read(field, { okOnly: true });
+  if (good) return serve('last_good', good, `serving the last good row, as of ${good.as_of}`);
+  if (status === 'degraded') {
+    return { ...problem, status: 'degraded', value: latest.value, row: latest,
+      reason: `${why}; no fallback or healthy row, served labelled degraded` };
+  }
+  return { ...problem, status: 'failed', reason: `${why}; no fallback or healthy row to serve` };
 }

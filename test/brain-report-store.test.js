@@ -61,11 +61,14 @@ test('on an empty database every check runs: E3 historical passes, everything li
   const { results, errors } = EVAL.runAll(db);
   assert.deepEqual(errors, []);
   // E3-ESPN (FIX-322-1) runs with the card; on an empty database it says its source table is not built.
-  assert.deepEqual(results.map(r => r.check), ['E1', 'E2', 'E3', 'E3-live', 'E4', 'E5', 'E6', 'E7', 'E3-ESPN']);
+  assert.deepEqual(results.map(r => r.check), ['E1', 'E2', 'E3', 'E3-live', 'E4', 'E4-live', 'E5', 'E6', 'E7', 'E3-ESPN']);
   const byCheck = Object.fromEntries(results.map(r => [r.check, r]));
   assert.equal(byCheck.E3.status, 'passing');
   assert.equal(byCheck.E3.source, 'historical_fixed');
-  for (const c of ['E1', 'E2', 'E3-live', 'E4', 'E5', 'E6', 'E7']) {
+  // FIX-294-1: E4 is the frozen planner-vs-baselines replay (inconclusive: not_enough_data, says why).
+  assert.equal(byCheck.E4.status, 'not_enough_data');
+  assert.equal(byCheck.E4.source, 'historical_fixed');
+  for (const c of ['E1', 'E2', 'E3-live', 'E4-live', 'E5', 'E6', 'E7']) {
     assert.equal(byCheck[c].status, 'not_enough_data', c);
     assert.match(byCheck[c].needs_text, /^needs \d+ more /, c);
   }
@@ -136,7 +139,8 @@ test('E1 reads every manager\'s offers: observed trade_outcomes plus unsettled l
 test('a grader that throws is written, not hidden, and the rule treats it as blocking', async () => {
   const bad = path.join(temp, 'bad.json');
   fs.writeFileSync(bad, '{ not json');
-  const { results, errors } = EVAL.runAll(db, { E4: { filePath: bad } });
+  // A frozen replay result with no title block makes the E4 grader throw.
+  const { results, errors } = EVAL.runAll(db, { E4: { historical: { broken: true } } });
   assert.equal(errors.length, 1);
   const e4 = results.find(r => r.check === 'E4');
   assert.equal(e4.status, 'not_enough_data');
@@ -151,11 +155,11 @@ test('runner stores one run; the latest run is read back with its summary', asyn
   const lines = [];
   const { ok, stored } = await RUNNER.main({ now: new Date('2020-01-01T00:00:00Z'), log: l => lines.push(l) });
   assert.equal(ok, true);
-  assert.match(lines.at(-1), /^brain_report: 1 passing, 8 not_enough_data, 0 failing \(run /);
+  assert.match(lines.at(-1), /^brain_report: 1 passing, 9 not_enough_data, 0 failing \(run /);
   const rep = EVAL.latestReport(db);
   assert.equal(rep.run_id, stored.run_id);
-  assert.equal(rep.checks.length, 9);
-  assert.deepEqual(rep.summary, { passing: 1, not_enough_data: 8, failing: 0 });
+  assert.equal(rep.checks.length, 10);
+  assert.deepEqual(rep.summary, { passing: 1, not_enough_data: 9, failing: 0 });
   assert.equal(rep.checks.find(c => c.check === 'E3').detail.league_seasons, 906);
 });
 
@@ -168,7 +172,7 @@ test('GET /api/brain-report is default-off, and on it serves the stored run and 
   try {
     const on = await request(app, '/api/brain-report');
     assert.equal(on.body.enabled, true);
-    assert.equal(on.body.report.checks.length, 9);
+    assert.equal(on.body.report.checks.length, 10);
     assert.equal(on.body.fallback_if_all_in.testing_tier_enabled, false, 'the stored run is dated 2020: stale fails closed');
   } finally {
     delete process.env[BRAIN_REPORT_FLAG];

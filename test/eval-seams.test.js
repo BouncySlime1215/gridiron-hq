@@ -34,7 +34,7 @@ const L = await import('../server/services/eval/e1-league.js');
 const E1 = await import('../server/services/eval/e1.js');
 const E2 = await import('../server/services/eval/e2.js');
 const E3 = await import('../server/services/eval/e3.js');
-const E4 = await import('../server/services/eval/e4.js');
+const E4 = await import('../server/services/eval/e4-planner.js');
 const E5 = await import('../server/services/eval/e5.js');
 const E6 = await import('../server/services/eval/e6.js');
 const E7 = await import('../server/services/eval/e7.js');
@@ -316,10 +316,12 @@ test('E6 reads follow_ledger joined to rec_ledger on the hash: follow vs ignore,
 });
 
 // ------------------------------------------------------------ E4 / E7
-test('E4 and E7 stay not_enough_data and name the unit that will feed them', () => {
-  const e4 = E4.run(db);
-  assert.equal(e4.status, 'not_enough_data');
-  assert.match(e4.needs_text, /E4 planner replay/);
+test('E4-live and E7 stay not_enough_data and name what will feed them', () => {
+  // FIX-294-1: E4 = e4-planner.js: [historical, E4-live]; E4-live waits on its source table.
+  const [, e4live] = E4.run(db);
+  assert.equal(e4live.check, 'E4-live');
+  assert.equal(e4live.status, 'not_enough_data');
+  assert.match(e4live.needs_text, /^needs \d+ more weeks/);
   const e7 = E7.run(db);
   assert.equal(e7.status, 'not_enough_data');
   assert.match(e7.needs_text, /PROJ-04-a/);

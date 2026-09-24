@@ -14,7 +14,7 @@ import crypto from 'node:crypto';
 import * as e1 from './e1.js';
 import * as e2 from './e2.js';
 import * as e3 from './e3.js';
-import * as e4 from './e4.js';
+import * as e4 from './e4-planner.js';   // FIX-294-1: E4 = planner vs simple baselines (historical + E4-live)
 import * as e5 from './e5.js';
 import * as e6 from './e6.js';
 import * as e7 from './e7.js';

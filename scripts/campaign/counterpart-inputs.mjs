@@ -1,25 +1,29 @@
 /**
- * COUNTERPART-01 inputs for the campaign producer (flag GRIDIRON_COUNTERPART=1).
- * Reads the PEOPLE-01 profiles (server/services/people/profile-reader.js, the
- * one reader of the chat DB profiles) and the league's trade rows, and builds
- * the counterpart model per manager. Off the web server, like the producer.
+ * ONE-COUNTERPART inputs for the campaign producer (flag GRIDIRON_COUNTERPART=1,
+ * or the local preview switch; see counterpart.js#counterpartFlag).
+ * Reads people.profile (server/services/people/profile-reader.js, the one
+ * reader of the chat DB profiles and Nick's read) and the league's trade rows,
+ * and builds people.counterpart per manager. Off the web server, like the producer.
  */
-export const flagOn = (env = process.env) => env.GRIDIRON_COUNTERPART === '1';
+import { counterpartFlag } from '../../server/services/people/counterpart.js';
+
+export const flagOn = (env = process.env) => counterpartFlag(env).on;
 
 /** adapter: scripts/campaign/league-adapter.mjs#buildAdapter result. */
 export async function counterpartsFor(svc, leagueId, adapter, { now = Date.now() } = {}) {
-  const { profilesFor } = await import('../../server/services/people/profile-reader.js');
-  const { buildCounterparts, tradeEvents } = await import('../../server/services/people/counterpart.js');
-  const profiles = await profilesFor(leagueId, { asOf: now });
+  const { peopleProfile } = await import('../../server/services/people/profile-reader.js');
+  const { counterpartsFromPeople, peopleCounterpart, tradeEvents } = await import('../../server/services/people/counterpart.js');
+  const people = await peopleProfile(leagueId);
   const toMs = v => svc.tactics.toTime(v);
   const tx = svc.db.rows(`SELECT tx_id, type, status, execution_type, items_json, proposed_at, processed_at
                           FROM league_transactions_raw WHERE league_id = ? AND season = ?`, leagueId, adapter.league.season);
   const events = tradeEvents(tx, toMs);
-  const counterparts = buildCounterparts({ profiles: profiles.byRoster, players: adapter.players, events, now,
+  const counterparts = counterpartsFromPeople(people, { players: adapter.players, events, now,
     teams: [...adapter.managers.keys()] });
-  const summary = { status: profiles.status, reason: profiles.reason, reader: profiles.version, tables: profiles.tables,
-    managers: profiles.byRoster.size, known: [...counterparts.values()].filter(c => c.status === 'ok').length,
-    trade_events: events.length };
+  const field = peopleCounterpart(counterparts, { leagueId, asOf: now, people, flag: counterpartFlag() });
+  const summary = { status: people.available ? 'ok' : 'unknown', reason: people.reason, reader: people.version,
+    notes_reason: people.notes_reason ?? null, field: field.field, version: field.version, p_accept: field.p_accept,
+    ...field.counts, trade_events: events.length };
   return { counterparts, summary };
 }
 

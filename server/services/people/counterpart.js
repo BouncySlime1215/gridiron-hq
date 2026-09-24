@@ -1,47 +1,58 @@
 /**
- * COUNTERPART-01: the counterpart model the campaign producer uses per manager
- * (PEOPLE-WIRING.md, CAMPAIGN-PEOPLE). Pure: built from the PEOPLE-01 profile
- * reader's entries plus the league's own trade rows, no DB, no env, no clock.
+ * ONE-COUNTERPART: the one counterpart model per manager, and the ONE producer
+ * of the field `people.counterpart` (docs/handoff/local/FIELD-REGISTRY.md).
+ * Pure: built from `people.profile` (people/profile-reader.js, the one reader of
+ * the chat profiles and of Nick's own read) plus the league's own trade rows.
+ * No DB, no env, no clock (the flag read below is the only env read).
  *
- * Features (each one is named in the reason chain, with its basis and n; none
- * is fitted here, every constant is a prior or hand-set and says so):
+ * What each feature may move (PEOPLE-03, 9/23: chat-profile features do not
+ * improve P(accept) on league 4's 40 decided offers, log loss -0.146
+ * [-0.408, +0.022]; "log them, do not weight them" until EVAL E1 grades one
+ * positive):
  *
- *   wants_player        he said he wants a player Nick has. Log-odds lift on
- *                       P(accept) for a step that gives him that player, from
- *                       the PEOPLE-LAB prior (log-lift 2.0), shrunk by how
- *                       often he said it (n / (n + K)) and decayed by age
- *                       (full for 7 days, linear to zero at 21). Also tilts
- *                       target order toward his players and P(responds) up.
- *   untouchable_talk    he called a player untouchable. The ask is scaled by
- *                       (1 - credibility) and the target is skipped outright
- *                       when credibility >= UNTOUCHABLE_EXCLUDE (face cost).
- *   shop_talk           he said a player is available. Log-odds lift on the
- *                       step that asks for him, and a target tilt, both scaled
+ *   P(accept)           NO chat feature. stepAdjust never changes it: the
+ *                       served yes-probability is the activity/edge price the
+ *                       adapter gives, with or without chat labels.
+ *   wants_player        he said he wants a player Nick has. Target order and
+ *                       partner order (P(responds)) only, from the PEOPLE-LAB
+ *                       prior (log-lift 2.0), shrunk by how often he said it
+ *                       (n / (n + K)) and decayed by age (full for 7 days,
+ *                       linear to zero at 21).
+ *   untouchable_talk    he called a player untouchable. Targets only: scaled by
+ *                       (1 - credibility), skipped outright when credibility >=
+ *                       UNTOUCHABLE_EXCLUDE (face cost).
+ *   shop_talk           he said a player is available. Target tilt only, scaled
  *                       by credibility.
- *   credibility         per manager, per kind: his own follow-through on past
- *                       claims (an untouchable he later traded away is a broken
- *                       claim; a shopped player he never proposed or traded in
- *                       SHOP_WINDOW_DAYS is an unfollowed one), Beta(1,1)
- *                       shrunk. No resolved claims -> 0.5, status 'prior'.
- *   nick_override       Nick's note: exclude drops him as a partner (never in a
- *                       plan), deprioritize halves P(responds) and his targets'
- *                       order, toughen caps the price ladder at fair on his
- *                       screen.
+ *   credibility         per manager, per kind: his own follow-through on the
+ *                       claims in his current profile, Beta(1,1) shrunk; no
+ *                       resolved claim -> 0.5, status 'prior'. Targets only.
+ *   nick (override)     Nick's own read, through the reader's nick block:
+ *                       contactable:false -> never a partner (P(responds) 0, no
+ *                       target he owns, blocked in every plan); buyer:false or
+ *                       trades 'none' -> P(responds) and his targets halved;
+ *                       difficulty hard/difficult/tough -> the price ladder is
+ *                       capped at fair on his screen: the opening and the
+ *                       walk-away never go above fair (no opening at all when
+ *                       nothing at or below fair beats Nick's next-best plan).
  *   reply_prior         M6 prior for a reply: ignore .45 / counter .33 /
  *                       decline .17 / accept .05. The P(responds) anchor is
  *                       1 - ignore; every playbook step carries the table.
  *
- * A manager whose profile is 'unknown' (quiet, or no profile) gets no chat
- * feature at all: unknown is not neutral and is never scored. The override
- * and reply prior still apply to him, since neither comes from his chat.
+ * A manager whose profile is 'unknown' (quiet, invalid, or none) gets no chat
+ * feature at all: unknown is not neutral and is never scored. Nick's read and
+ * the reply prior still apply to him, since neither comes from his chat.
+ *
+ * Flag: GRIDIRON_COUNTERPART=1 (the producer's switch, default off), or the
+ * local preview switch (preview-mode.js); GRIDIRON_COUNTERPART=0 vetoes preview.
  */
+import { previewUnconfirmed, previewFields } from '../preview-mode.js';
+import { publicNick, UNKNOWN } from './profile-reader.js';
 
 export const WANTS_PRIOR_LOG_LIFT = 2.0;     // PEOPLE-LAB prior (not refit here)
 export const WANTS_SHRINK_K = 4;             // hand-set: n=1 keeps 20%, n=4 keeps 50%
 export const WANTS_FULL_DAYS = 7;
 export const WANTS_ZERO_DAYS = 21;
 export const WANTS_TARGET_TILT = 0.5;        // hand-set: full lift -> x1.5 on target order
-export const SHOP_LOG_LIFT = 0.5;            // hand-set
 export const SHOP_TARGET_TILT = 0.5;         // hand-set
 export const SHOP_WINDOW_DAYS = 14;          // hand-set: a shop claim resolves after two weeks
 export const UNTOUCHABLE_RESOLVE_DAYS = 21;  // hand-set: an untouchable claim held three weeks counts as kept
@@ -50,12 +61,74 @@ export const OVERRIDE_DEPRIORITIZE = 0.5;    // hand-set
 export const OVERRIDE_TOUGH_CAP_PCT = 0;     // his-screen % the ladder never goes above
 export const M6_REPLY_PRIOR = Object.freeze({ ignore: 0.45, counter: 0.33, decline: 0.17, accept: 0.05 });
 export const M6_LABEL = 'M6 reply prior (PEOPLE-LAB), league-wide, not fitted per manager';
-export const MODEL_VERSION = 'counterpart-01.1';
+export const MODEL_VERSION = 'one-counterpart.1';
+export const PEOPLE_COUNTERPART_FIELD = 'people.counterpart';
+export const P_ACCEPT_CHAT_WEIGHT = 0;       // PEOPLE-03: no chat feature in P(accept) until E1 grades one positive
+export const COUNTERPART_ENV = 'GRIDIRON_COUNTERPART';
+const PREVIEW_REASON = 'counterpart model (ONE-COUNTERPART) is default-off: chat features unproven for P(accept) (PEOPLE-03)';
+
+/**
+ * The model's switch: { on, preview }. GRIDIRON_COUNTERPART=1 turns it on, =0
+ * keeps it off even in preview; unset follows the local preview switch.
+ */
+export function counterpartFlag(env = process.env) {
+  if (env[COUNTERPART_ENV] === '1') return { on: true, preview: false };
+  if (env[COUNTERPART_ENV] === '0') return { on: false, preview: false };
+  return previewUnconfirmed() ? { on: true, preview: true, ...previewFields(PREVIEW_REASON) } : { on: false, preview: false };
+}
 
 const DAY = 864e5;
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 const logit = p => Math.log(p / (1 - p));
 const sigmoid = z => 1 / (1 + Math.exp(-z));
+
+const toMs = v => {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return v > 1e11 ? v : v * 1000;
+  const t = Date.parse(/\dT\d|Z$|[+-]\d\d:?\d\d$/.test(String(v)) ? String(v) : `${String(v).replace(' ', 'T')}Z`);
+  return Number.isFinite(t) ? t : null;
+};
+
+/** One player mention in a read profile: a string or { player|name, at|date|last_at, n|count|mentions }. */
+export function normaliseMention(x, fallbackAt = null) {
+  if (typeof x === 'string') return x.trim() ? { player: x.trim(), at: fallbackAt, n: 1, dated: false } : null;
+  if (!x || typeof x !== 'object') return null;
+  const player = String(x.player ?? x.name ?? '').trim();
+  if (!player) return null;
+  const at = toMs(x.at ?? x.date ?? x.last_at ?? x.last_seen);
+  const n = Number(x.n ?? x.count ?? x.mentions);
+  return { player, at: at ?? fallbackAt, n: Number.isFinite(n) && n > 0 ? n : 1, dated: at != null };
+}
+const mentions = (list, at) => (Array.isArray(list) ? list.map(x => normaliseMention(x, at)).filter(Boolean) : []);
+const VALUES_TALK_KEYS = ['talks_up', 'talks_down', 'untouchable', 'wants', 'shopping'];
+
+/**
+ * A people.profile entry's `profile` (already read and normalised by the
+ * reader) -> { status, talks_up, talks_down, untouchable, wants, shopping }.
+ * roster_read (the 9/18 shape) fills untouchable / shopping when values_talk
+ * lacks them, so both profile generations answer the same questions.
+ */
+export function valuesTalk(profile, builtAt) {
+  const vt = profile?.values_talk && typeof profile.values_talk === 'object' ? profile.values_talk : null;
+  const rr = profile?.roster_read;
+  if (!vt && !rr) return { status: UNKNOWN, reason: 'profile has neither values_talk nor roster_read' };
+  const out = { status: 'ok', source: vt ? 'values_talk' : 'roster_read' };
+  for (const k of VALUES_TALK_KEYS) out[k] = mentions(vt?.[k], builtAt);
+  if (!vt?.untouchable) out.untouchable = mentions(rr?.really_untouchable, builtAt);
+  if (!vt?.shopping) out.shopping = mentions(rr?.quietly_available, builtAt);
+  return out;
+}
+
+const NO_OVERRIDE = Object.freeze({ status: 'none', exclude: false, deprioritize: false, toughen: false, basis: 'no read from Nick', nick: null });
+
+/** The reader's nick block -> what the model does with it (see the header). */
+export function overrideFrom(nick) {
+  if (!nick || nick.empty) return { ...NO_OVERRIDE };
+  const from = [...new Set(Object.values(nick.sources ?? {}))];
+  const basis = `Nick's read (${from.length ? from.join(' + ') : 'notes only'})`;
+  return { status: 'ok', exclude: !!nick.unreachable, deprioritize: !!nick.deprioritised, toughen: !!nick.hard,
+    basis: nick.unreachable ? `${basis}: not contactable` : basis, nick: publicNick(nick) };
+}
 
 export function wantsDecay(ageDays) {
   if (!Number.isFinite(ageDays)) return 0;
@@ -139,28 +212,29 @@ export function credibility(kind, team, claims, events, now) {
 }
 
 /**
- * profiles: readProfiles(...).byRoster; players Map id -> { name }; events: tradeEvents(...).
- * Returns Map team -> counterpart model.
+ * profiles: Map roster -> people.profile entry (profile-reader.js#peopleProfile*: { status, reason,
+ * profile, built_at, nick }); players Map id -> { name }; events: tradeEvents(...).
+ * Returns Map team -> counterpart model. Every team in `teams` gets one, typed unknown without a read.
  */
 export function buildCounterparts({ profiles, players, events = [], now, teams = [] }) {
   const resolve = nameResolver(players);
   const out = new Map();
-  // Every counterparty gets a model (the reply prior and typed absence apply to all), chat or not.
-  const all = new Map(profiles);
-  for (const t of teams) if (!all.has(String(t))) all.set(String(t), { status: 'unknown', reason: 'no confirmed chat identity',
-    negotiation: { status: 'unknown', reason: 'no confirmed chat identity' }, override: { status: 'unknown', reason: 'no confirmed chat identity' } });
-  for (const [team, pr] of all) {
+  const all = new Map([...(profiles ?? new Map())].map(([k, v]) => [String(k), v]));
+  for (const t of teams) if (!all.has(String(t))) all.set(String(t), { status: UNKNOWN, reason: 'no confirmed chat identity', profile: null, nick: null });
+  for (const [team, entry] of all) {
     let unresolved = 0;
     const idOf = m => { const id = resolve(m.player); if (id == null) unresolved++; return id; };
-    const vt = pr.negotiation?.status === 'ok' ? pr.negotiation.values_talk : null;
-    const model = { team: String(team), version: MODEL_VERSION, as_of: pr.as_of ?? now,
-      status: vt?.status === 'ok' ? 'ok' : 'unknown',
-      reason: vt?.status === 'ok' ? null : (pr.negotiation?.reason ?? pr.reason ?? 'no profile'),
+    const builtAt = toMs(entry.built_at);
+    const vt = entry.status === 'ok' ? valuesTalk(entry.profile, builtAt) : null;
+    const known = vt?.status === 'ok';
+    const model = { team: String(team), version: MODEL_VERSION, as_of: now, profile_built_at: builtAt,
+      status: known ? 'ok' : UNKNOWN,
+      reason: known ? null : (vt?.reason ?? entry.reason ?? 'no profile'),
       wants: new Map(), untouchable: new Map(), shopping: new Map(),
       credibility: { untouchable: null, shop: null },
-      override: pr.override ?? { status: 'unknown', exclude: false, deprioritize: false, toughen: false },
+      override: overrideFrom(entry.nick),
       reply_prior: { ...M6_REPLY_PRIOR, label: M6_LABEL } };
-    if (vt?.status === 'ok') {
+    if (known) {
       for (const m of vt.wants) {
         const id = idOf(m);
         if (id == null) continue;
@@ -169,18 +243,18 @@ export function buildCounterparts({ profiles, players, events = [], now, teams =
         const prev = model.wants.get(id);
         if (w.lift > 0 && (!prev || w.lift > prev.lift)) model.wants.set(id, { player: id, n: m.n, age_days: age, dated: m.dated, ...w });
       }
-      // Credibility from every visible version's claims (earliest claim per player), graded forward only.
-      const claimsOf = key => {
+      // Credibility from the claims in his current profile (earliest dated claim per player), graded forward only.
+      const claimsOf = list => {
         const first = new Map();
-        for (const h of pr.history ?? []) for (const m of h[key] ?? []) {
+        for (const m of list) {
           const id = resolve(m.player);
           if (id == null || m.at == null) continue;
           if (!first.has(id) || m.at < first.get(id).at) first.set(id, { player: id, at: m.at });
         }
         return [...first.values()];
       };
-      model.credibility.untouchable = credibility('untouchable', team, claimsOf('untouchable'), events, now);
-      model.credibility.shop = credibility('shop', team, claimsOf('shopping'), events, now);
+      model.credibility.untouchable = credibility('untouchable', team, claimsOf(vt.untouchable), events, now);
+      model.credibility.shop = credibility('shop', team, claimsOf(vt.shopping), events, now);
       for (const m of vt.untouchable) { const id = idOf(m); if (id != null) model.untouchable.set(id, { player: id }); }
       for (const m of vt.shopping) { const id = idOf(m); if (id != null) model.shopping.set(id, { player: id }); }
     }
@@ -190,48 +264,32 @@ export function buildCounterparts({ profiles, players, events = [], now, teams =
   return out;
 }
 
+/** people.profile (the reader's result) -> counterpart models. An unavailable read types every team unknown. */
+export function counterpartsFromPeople(people, { players, events = [], now, teams = [] }) {
+  const profiles = people?.available ? people.byRoster : new Map();
+  return buildCounterparts({ profiles, players, events, now, teams });
+}
+
 const feat = (feature, team, extra) => ({ feature, team: String(team), fitted: false, ...extra });
 
-/** Per-step adjustment: he gives `get` (Nick gets), he receives `give` (Nick gives). */
-export function stepAdjust(cp, { team, get, give }) {
-  const features = [];
-  if (!cp) return { lift: 0, mult: 1, features };
-  let lift = 0, mult = 1;
-  if (cp.status === 'ok') {
-    const w = give.map(id => cp.wants.get(id) ?? cp.wants.get(String(id)) ?? cp.wants.get(Number(id))).filter(Boolean)
-      .sort((a, b) => b.lift - a.lift)[0];
-    if (w) {
-      lift += w.lift;
-      features.push(feat('wants_player', team, { player: String(w.player), effect: 'log_odds', value: w.lift, n: w.n,
-        basis: `prior log-lift ${WANTS_PRIOR_LOG_LIFT} x shrink ${w.shrink.toFixed(2)} x decay ${w.decay.toFixed(2)} (${w.age_days.toFixed(0)} d${w.dated ? '' : ', dated by profile build'})` }));
-    }
-    const has = (map, id) => map.has(id) || map.has(String(id)) || map.has(Number(id));
-    for (const id of get) {
-      if (has(cp.untouchable, id)) {
-        const c = cp.credibility.untouchable;
-        const never = c.value >= UNTOUCHABLE_EXCLUDE;
-        mult *= never ? 0 : 1 - c.value;
-        features.push(feat('untouchable_talk', team, { player: String(id), effect: never ? 'exclude' : 'multiplier',
-          value: never ? 0 : 1 - c.value, n: c.n,
-          basis: `he called him untouchable; credibility ${c.value.toFixed(2)}${never ? ` >= ${UNTOUCHABLE_EXCLUDE}: never ask` : ''} (${c.basis})` }));
-      } else if (has(cp.shopping, id)) {
-        const c = cp.credibility.shop;
-        lift += SHOP_LOG_LIFT * c.value;
-        features.push(feat('shop_talk', team, { player: String(id), effect: 'log_odds', value: SHOP_LOG_LIFT * c.value, n: c.n,
-          basis: `he said he is available; credibility ${c.value.toFixed(2)} (${c.basis})` }));
-      }
-    }
-  }
-  return { lift, mult, features };
+/**
+ * Per-step adjustment of P(accept): none. PEOPLE-03 found the chat features do
+ * not help P(yes), so no chat label (wants, shop, untouchable, credibility)
+ * moves it; wants / untouchable / shop act on targets and partner order only.
+ * Kept as the one seam where a feature enters once EVAL E1 grades it positive.
+ */
+export function stepAdjust(_cp, _step) {
+  return { lift: 0, mult: 1, features: [] };
 }
 
 export function adjustP(p, { lift, mult }) {
+  if (lift === 0 && mult === 1) return p;
   if (!(p > 0)) return 0;
   if (p >= 1) return clamp(mult, 0, 1);
   return clamp(sigmoid(logit(p) + lift) * mult, 0, 1);
 }
 
-/** The adapter the planner sees with the counterpart model on: priceStep adjusted, excluded partners blocked. */
+/** The adapter the planner sees with the counterpart model on: P(accept) unchanged, unreachable partners blocked. */
 export function withCounterparts(adapter, cps) {
   const managers = new Map([...adapter.managers].map(([t, m]) => {
     const o = cps.get(String(t))?.override;
@@ -319,12 +377,34 @@ export function priceCap(cp) {
       basis: `${cp.override.basis}: never above fair on his screen` }) } : null;
 }
 
-/** A JSON-safe summary of one model (Maps -> arrays) for the plans file. */
+/** A JSON-safe summary of one model (Maps -> arrays) for the plans file. No names, no note text. */
 export function publicModel(cp) {
   return { team: cp.team, version: cp.version, status: cp.status, reason: cp.reason,
     wants: [...cp.wants.values()].map(w => ({ player: String(w.player), n: w.n, lift: w.lift })),
     untouchable: [...cp.untouchable.keys()].map(String), shopping: [...cp.shopping.keys()].map(String),
     credibility: cp.credibility, override: { status: cp.override.status, exclude: !!cp.override.exclude,
-      deprioritize: !!cp.override.deprioritize, toughen: !!cp.override.toughen, basis: cp.override.basis ?? null },
+      deprioritize: !!cp.override.deprioritize, toughen: !!cp.override.toughen, basis: cp.override.basis ?? null,
+      nick: cp.override.nick ?? null },
+    p_accept_chat_weight: P_ACCEPT_CHAT_WEIGHT,
     reply_prior: cp.reply_prior, unresolved_names: cp.unresolved_names ?? 0 };
+}
+
+/**
+ * people.counterpart for one league: the published field (FIELD-REGISTRY.md), one model per
+ * counterparty, JSON-safe. `people` is the reader's people.profile it was built from.
+ */
+export function peopleCounterpart(cps, { leagueId = null, asOf = null, people = null, flag = null } = {}) {
+  const models = [...cps.values()].map(publicModel);
+  return {
+    field: PEOPLE_COUNTERPART_FIELD, source: 'server/services/people/counterpart.js', version: MODEL_VERSION,
+    league_id: leagueId, as_of: asOf,
+    inputs: { profile: people?.field ?? null, profile_version: people?.version ?? null, profile_available: people?.available ?? false,
+      profile_reason: people?.reason ?? null, notes_reason: people?.notes_reason ?? null },
+    p_accept: { chat_weight: P_ACCEPT_CHAT_WEIGHT, basis: 'PEOPLE-03: chat features do not improve P(accept) on league 4 (40 offers); graded by EVAL E1 before any weight' },
+    ...(flag?.preview ? previewFields(PREVIEW_REASON) : {}),
+    counts: { managers: models.length, known: models.filter(m => m.status === 'ok').length,
+      nick_read: models.filter(m => m.override.status === 'ok').length,
+      unreachable: models.filter(m => m.override.exclude).length },
+    models,
+  };
 }

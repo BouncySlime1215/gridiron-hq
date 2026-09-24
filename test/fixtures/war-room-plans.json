@@ -1,0 +1,83 @@
+[
+ {
+  "league": 1,
+  "me": "3",
+  "owner_mapping_present": false,
+  "sanity_composed_equals_direct": true,
+  "baseline": {
+   "considered": 40,
+   "simulated": 6,
+   "best_expected": { "partner": "9", "give": ["M. Oduya"], "get": ["E. Park"], "delta": 0.011, "se": 0.004, "clears": true, "p": 0.31, "expected": 0.00341, "expected_se": 0.00124 }
+  },
+  "flip": {
+   "pairs": 640,
+   "clears": 3,
+   "clears_positive_for_nick": 1,
+   "top": [
+    { "player": "501", "a": "5", "b": "8", "dB": 0.031, "dA": -0.007, "spread": 0.024, "se": 0.007, "clears": true, "price_a": 4100, "price_b": 5800, "mult_a": 0.9, "mult_b": 1.2, "price_spread": 1700 },
+    { "player": "502", "a": "7", "b": "2", "dB": 0.026, "dA": -0.006, "spread": 0.02, "se": 0.007, "clears": true, "price_a": 3600, "price_b": 4900, "mult_a": 1, "mult_b": 1.1, "price_spread": 1300 },
+    { "player": "503", "a": "4", "b": "6", "dB": 0.012, "dA": -0.004, "spread": 0.008, "se": 0.006, "clears": false, "price_a": 2100, "price_b": 2300, "mult_a": 1, "mult_b": 1, "price_spread": 200 }
+   ],
+   "realised": [
+    { "player": "501", "a": "5", "b": "8", "spread": 0.024, "se": 0.007, "clears": true,
+      "legs": { "give_a": "601", "get_b": "602", "p1": 0.38, "p2": 0.36, "d1": 0.004, "d2": 0.013, "se2": 0.005, "clears2": true, "p_complete": 0.1368, "delta_final": 0.013, "score": 0.0018, "expected": 0.0031, "stranded": 0.0009, "expected_se": 0.0011 } },
+    { "player": "502", "a": "7", "b": "2", "spread": 0.02, "se": 0.007, "clears": true, "legs": null, "why": "no screen-fair one-player leg" }
+   ]
+  },
+  "acq": {
+   "targets": ["701", "702", "703"],
+   "candidates_scored": 28,
+   "best": {
+    "target": "701", "owner": "2", "depth": 2, "heuristic": 0.004, "chained": true,
+    "steps": [
+     { "team": "7", "give": ["601", "604"], "get": ["502"], "p": 0.38, "delta": 0.018, "se": 0.005, "clears": true },
+     { "team": "2", "give": ["502", "604b"], "get": ["701"], "p": 0.44, "delta": 0.041, "se": 0.006, "clears": true }
+    ],
+    "p_complete": 0.1672, "delta_final": 0.041, "score": 0.00686, "expected": 0.01229, "stranded": 0.00383, "expected_se": 0.0021
+   },
+   "fallback": {
+    "target": "701", "owner": "2", "depth": 2, "chained": true,
+    "steps": [
+     { "team": "7", "give": ["601", "604"], "get": ["502"], "p": 0.38, "delta": 0.018, "se": 0.005, "clears": true },
+     { "team": "9", "give": ["502"], "get": ["505"], "p": 0.31, "delta": 0.015, "se": 0.006, "clears": true }
+    ],
+    "p_complete": 0.1178, "delta_final": 0.015, "score": 0.0018, "expected": 0.0065, "stranded": 0.0047, "expected_se": 0.0018
+   },
+   "best_direct": {
+    "target": "701", "owner": "2", "depth": 1, "chained": false,
+    "steps": [ { "team": "2", "give": ["601", "605"], "get": ["701"], "p": 0.19, "delta": 0.033, "se": 0.006, "clears": true } ],
+    "p_complete": 0.19, "delta_final": 0.033, "score": 0.00627, "expected": 0.00627, "stranded": 0, "expected_se": 0.00114
+   },
+   "best_two": {
+    "target": "701", "owner": "2", "depth": 2, "chained": true,
+    "steps": [
+     { "team": "7", "give": ["601", "604"], "get": ["502"], "p": 0.38, "delta": 0.018, "se": 0.005, "clears": true },
+     { "team": "2", "give": ["502", "604b"], "get": ["701"], "p": 0.44, "delta": 0.041, "se": 0.006, "clears": true }
+    ],
+    "p_complete": 0.1672, "delta_final": 0.041, "score": 0.00686, "expected": 0.01229, "stranded": 0.00383, "expected_se": 0.0021
+   },
+   "best_three": {
+    "target": "702", "owner": "5", "depth": 3, "chained": false,
+    "steps": [
+     { "team": "8", "give": ["605"], "get": ["506"], "p": 0.52, "delta": 0.004, "se": 0.004, "clears": false },
+     { "team": "4", "give": ["606"], "get": ["507"], "p": 0.41, "delta": 0.009, "se": 0.005, "clears": false },
+     { "team": "5", "give": ["601", "604"], "get": ["702"], "p": 0.26, "delta": 0.029, "se": 0.006, "clears": true }
+    ],
+    "p_complete": 0.0554, "delta_final": 0.029, "score": 0.0016, "expected": 0.0047, "stranded": 0.0021, "expected_se": 0.0012
+   },
+   "best_chained": null
+  },
+  "names": {
+   "501": "K. Bell (RB)", "502": "C. Ruiz (RB)", "503": "R. Voss (TE)", "505": "E. Park (RB)", "506": "V. Mensah (RB)", "507": "W. Tran (WR)",
+   "601": "M. Oduya (WR)", "602": "A. Brandt (WR)", "604": "T. Kline (TE)", "604b": "B. Lowe (WR)", "605": "I. Rourke (WR)", "606": "Y. Banks (TE)",
+   "701": "D. Harlow (WR)", "702": "N. Whitfield (WR)", "703": "S. Achebe (RB)"
+  }
+ },
+ { "league": 2, "me": "1", "owner_mapping_present": false, "error": "world failed" },
+ {
+  "league": 3, "me": "4", "sanity_composed_equals_direct": false,
+  "flip": { "top": [ { "player": "501", "a": "5", "b": "8", "spread": 0.024, "se": 0.007, "clears": true, "price_a": 1, "price_b": 2 } ], "realised": [] },
+  "acq": { "targets": ["701"], "best": { "target": "701", "owner": "2", "depth": 1, "steps": [ { "team": "2", "give": ["601"], "get": ["701"], "p": 0.2, "delta": 0.03, "se": 0.006, "clears": true } ], "p_complete": 0.2, "delta_final": 0.03, "expected": 0.006 } },
+  "names": { "501": "K. Bell (RB)", "601": "M. Oduya (WR)", "701": "D. Harlow (WR)" }
+ }
+]

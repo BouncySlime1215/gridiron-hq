@@ -422,3 +422,275 @@ export function outcomesFor(leagueId, season) {
   return rows(`SELECT * FROM trade_outcomes WHERE league_id = ? AND season = ?
                ORDER BY COALESCE(proposed_at, created_at), id`, leagueId, season);
 }
+
+/* ------------------------------------------------ the offer loop (CLONE-01b b1) */
+
+/**
+ * How long an offer with no ESPN trace stays open before it settles 'expired'.
+ * A GUESS, not a measured ESPN setting: the league's own proposal expiry is not
+ * read anywhere yet. Seven days is past any reply seen in the collector's sample.
+ */
+export const OFFER_EXPIRE_DAYS = 7;
+/** How far from the tap an ESPN proposal may sit and still be the one he sent. */
+export const OFFER_MATCH_WINDOW_HOURS = 48;
+const HOUR_MS = 3_600_000;
+
+const hasSentColumns = () => tableExists('trade_outcomes')
+  && rows(`PRAGMA table_info(trade_outcomes)`).some(c => c.name === 'sent_at');
+
+/** The ESPN ids of one side of a deal, sorted; null if any player has none. */
+function espnIdsOf(players) {
+  const ids = (players ?? []).map(p => p?.espn_id ?? p?.playerId ?? null);
+  if (!ids.length || ids.some(x => x == null)) return null;
+  return ids.map(String).sort();
+}
+const sameIds = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/**
+ * The app-side key for a deal: the engine's own id when it has one (the slate
+ * cites it, so a tap on a slate suggestion lands on that row), else partner and
+ * players, so the same package tapped twice is still one offer.
+ */
+function offerKeyOf(deal) {
+  if (deal?.id != null && String(deal.id).trim()) return String(deal.id);
+  const side = ps => (ps ?? []).map(p => p?.espn_id ?? p?.id ?? p?.name).map(String).sort().join('+');
+  return `${deal?.partner_id ?? '?'}:${side(deal?.i_give)}>${side(deal?.i_get)}`;
+}
+
+/** The price bands 083 allows: where the sent deal sat against the card's yes-point. */
+export const PRICE_BANDS = Object.freeze(['below', 'at_point', 'above']);
+
+const hasSeamColumns = () => rows(`PRAGMA table_info(trade_outcomes)`).some(c => c.name === 'price_band');
+
+/**
+ * "I sent this." Nick proposed this deal on ESPN himself; the app records that
+ * it was sent and what the model said about it. It never sends anything.
+ *
+ * If the slate already wrote this suggestion as `app_proposed`, THAT row is
+ * marked sent: its prediction is the one made when the deal was suggested, and
+ * a second row would count one offer twice. Otherwise a new row is written
+ * through `recordProposedOutcome`, which refuses a deal with no band.
+ *
+ * `move_id` and `price_band` (FIX-07, columns from 083) come from a War Room
+ * card: the campaign move this offer is a step of, and whether the deal sent sat
+ * below, at or above the card's yes-point. The TradeCard tap sends neither.
+ */
+export function recordSentOffer({ league_id, season, proposer_team_id = null, deal,
+  model_version = null, sent_at = null, move_id = null, price_band = null } = {}) {
+  requireFields({ league_id, season, deal }, ['league_id', 'season', 'deal']);
+  if (!hasSentColumns()) {
+    throw new Error('trade-outcomes: trade_outcomes.sent_at does not exist — migration 080 has not run here');
+  }
+  const seam = move_id != null || price_band != null;
+  if (price_band != null && !PRICE_BANDS.includes(price_band)) {
+    throw new Error(`trade-outcomes: price_band must be one of ${PRICE_BANDS.join(', ')}`);
+  }
+  if (seam && !hasSeamColumns()) {
+    throw new Error('trade-outcomes: trade_outcomes.price_band does not exist — migration 083 has not run here');
+  }
+  const sentAt = sent_at ?? new Date().toISOString();
+  const ideaId = offerKeyOf(deal);
+  const existing = row(`SELECT id, sent_at FROM trade_outcomes
+    WHERE league_id = ? AND season = ? AND idea_id = ? AND source = 'app_proposed'`,
+  league_id, season, ideaId);
+  if (existing?.sent_at) return { state: 'already_sent', id: existing.id };
+  const stampSeam = id => {
+    if (seam) run(`UPDATE trade_outcomes SET move_id = COALESCE(?, move_id), price_band = COALESCE(?, price_band)
+                   WHERE id = ?`, move_id, price_band, id);
+  };
+  if (existing) {
+    run(`UPDATE trade_outcomes SET sent_at = ?, proposer_team_id = COALESCE(proposer_team_id, ?)
+         WHERE id = ?`, sentAt, proposer_team_id, existing.id);
+    stampSeam(existing.id);
+    return { state: 'marked_sent', id: existing.id };
+  }
+  const id = recordProposedOutcome({
+    league_id, season, proposer_team_id,
+    counterparty_team_id: deal.partner_id == null ? null : String(deal.partner_id),
+    give: deal.i_give ?? [], get: deal.i_get ?? [], proposed_at: sentAt,
+    acceptance: deal.acceptance ?? null, model_version, idea_id: ideaId,
+  });
+  run(`UPDATE trade_outcomes SET sent_at = ? WHERE id = ?`, sentAt, id);
+  stampSeam(id);
+  return { state: 'recorded', id };
+}
+
+/**
+ * Undo one "I sent this" inside its undo window (War Room retract). Only a row
+ * ESPN has not yet settled or matched goes back to unsent; one that has is left
+ * alone and says so, because ESPN's record outranks the tap.
+ */
+export function unmarkSentOffer(id) {
+  const o = row(`SELECT id, status, matched_tx_id, sent_at FROM trade_outcomes WHERE id = ?`, id);
+  if (!o) return { state: 'absent', id };
+  if (!o.sent_at) return { state: 'not_sent', id };
+  if (o.status !== 'proposed' || o.matched_tx_id != null) {
+    return { state: 'kept', id, reason: `ESPN already has this offer (${o.matched_tx_id ?? o.status}); the sent mark stays` };
+  }
+  run(`UPDATE trade_outcomes SET sent_at = NULL, settle_reason = NULL${hasSeamColumns() ? ', price_band = NULL, move_id = NULL' : ''}
+       WHERE id = ?`, id);
+  return { state: 'unmarked', id };
+}
+
+/** What ESPN recorded against one proposal, most decisive first. */
+function replyTo(txId, related, counterparty) {
+  const after = related.get(txId) ?? [];
+  for (const t of after) {
+    const verdict = ANSWERS[t.type];
+    if (verdict && t.execution_type === EXECUTED) {
+      return { status: verdict, at: t.proposed_at ?? null, reason: `ESPN ${t.type} ${t.tx_id}` };
+    }
+  }
+  const counter = after.find(t => t.type === PROPOSAL && t.execution_type === EXECUTED
+    && String(t.team_id) === counterparty);
+  if (counter) {
+    return { status: 'countered', at: counter.proposed_at ?? null,
+      counter: { tx_id: String(counter.tx_id), items: itemsOf(counter.items_json).items ?? null },
+      reason: `ESPN counter proposal ${counter.tx_id} from team ${counterparty}` };
+  }
+  const cancel = after.find(t => t.type === PROPOSAL && t.execution_type === 'CANCEL');
+  if (cancel) {
+    return { status: 'expired', at: cancel.proposed_at ?? null,
+      reason: `ESPN closed proposal ${txId} (CANCEL ${cancel.tx_id}) with no answer — withdrawn or expired` };
+  }
+  return null;
+}
+
+/**
+ * Match every sent, still-open offer to the ESPN proposal Nick sent and settle
+ * it from ESPN's reply. Reads `league_transactions_raw`; writes only the sent
+ * rows' status, resolved_at, matched_tx_id, counter_json and settle_reason.
+ *
+ * A match is: proposed by his team, to the offer's counterparty, with exactly
+ * the offer's players on each side (ESPN ids), within
+ * OFFER_MATCH_WINDOW_HOURS of the tap, and not already claimed by another
+ * offer. The closest in time wins.
+ *
+ * SILENCE IS NOT A DECLINE, AND NO EVIDENCE IS NOT SILENCE. An unmatched offer
+ * expires only once the collector has looked at this league at least
+ * OFFER_EXPIRE_DAYS past the tap. Before that it stays 'proposed' and says why.
+ *
+ * Idempotent: settled rows are never touched again, and a pending row's reason
+ * is rewritten only when it changes. `now` only shapes the reason text.
+ */
+export function settleSentOffers(leagueId, season, { now = null,
+  expireDays = OFFER_EXPIRE_DAYS } = {}) {
+  const out = { state: 'settled', pending: 0, matched: 0, settled: 0, reason: null };
+  if (!hasSentColumns()) {
+    return { ...out, state: 'ledger_absent',
+      reason: 'trade_outcomes.sent_at does not exist on this database — migration 080 has not run here' };
+  }
+  const open = rows(`SELECT * FROM trade_outcomes WHERE league_id = ? AND season = ?
+    AND sent_at IS NOT NULL AND status = 'proposed' ORDER BY sent_at, id`, leagueId, season);
+  const setReason = (o, reason) => {
+    if (o.settle_reason !== reason) run(`UPDATE trade_outcomes SET settle_reason = ? WHERE id = ?`, reason, o.id);
+  };
+  if (!tableExists(RAW_TABLE)) {
+    for (const o of open) setReason(o, `left pending: ${RAW_ABSENT_REASON}`);
+    return { ...out, state: 'raw_table_absent', pending: open.length, reason: RAW_ABSENT_REASON };
+  }
+
+  const tx = rows(`SELECT tx_id, type, execution_type, team_id, related_tx_id, proposed_at, items_json,
+                          last_seen_at
+                   FROM ${RAW_TABLE} WHERE league_id = ? AND season = ?`, leagueId, season);
+  const related = new Map();
+  for (const t of tx) {
+    if (t.related_tx_id == null) continue;
+    const k = String(t.related_tx_id);
+    (related.get(k) ?? related.set(k, []).get(k)).push(t);
+  }
+  // His counter to someone else's offer carries a related_tx_id and is still an
+  // offer he sent, so it is not filtered out here; the team check does that job.
+  const proposals = tx.filter(t => t.type === PROPOSAL && t.execution_type === EXECUTED);
+  const claimed = new Set(rows(`SELECT matched_tx_id FROM trade_outcomes WHERE league_id = ? AND season = ?
+    AND matched_tx_id IS NOT NULL`, leagueId, season).map(r => String(r.matched_tx_id)));
+  const seen = tx.map(t => Date.parse(t.last_seen_at)).filter(Number.isFinite);
+  const lastLooked = seen.length ? Math.max(...seen) : null;
+  const lastLookedIso = lastLooked == null ? 'never' : new Date(lastLooked).toISOString();
+  const nowMs = now == null ? Date.now() : Date.parse(now);
+
+  for (const o of open) {
+    const sentMs = Date.parse(o.sent_at);
+    const proposer = o.proposer_team_id == null ? null : String(o.proposer_team_id);
+    const counterparty = o.counterparty_team_id == null ? null : String(o.counterparty_team_id);
+    const deadline = sentMs + expireDays * 24 * HOUR_MS;
+    const covered = lastLooked != null && lastLooked >= deadline;
+    let txId = o.matched_tx_id == null ? null : String(o.matched_tx_id);
+
+    if (!txId) {
+      const giveRead = itemsOf(o.give_json);
+      const getRead = itemsOf(o.get_json);
+      if (giveRead.error || getRead.error) {
+        setReason(o, `left pending: the offer's stored package cannot be read (${giveRead.error ?? getRead.error})`);
+        out.pending++;
+        continue;
+      }
+      const give = espnIdsOf(giveRead.items);
+      const get = espnIdsOf(getRead.items);
+      if (!proposer || !counterparty || !give || !get) {
+        setReason(o, 'left pending: the offer is missing its teams or an ESPN id on a player, '
+          + 'so it cannot be matched to an ESPN proposal');
+        out.pending++;
+        continue;
+      }
+      let best = null;
+      for (const p of proposals) {
+        if (String(p.team_id) !== proposer || claimed.has(String(p.tx_id))) continue;
+        const gap = Math.abs(Date.parse(p.proposed_at) - sentMs);
+        if (!(gap <= OFFER_MATCH_WINDOW_HOURS * HOUR_MS)) continue;
+        const sides = sidesOf(p);
+        if (sides.error || sides.counterparty !== counterparty) continue;
+        if (!sameIds(give, espnIdsOf(sides.give) ?? []) || !sameIds(get, espnIdsOf(sides.get) ?? [])) continue;
+        if (!best || gap < best.gap) best = { tx: p, gap };
+      }
+      if (best) {
+        txId = String(best.tx.tx_id);
+        claimed.add(txId);
+        run(`UPDATE trade_outcomes SET matched_tx_id = ? WHERE id = ?`, txId, o.id);
+        out.matched++;
+      }
+    }
+
+    if (txId) {
+      const reply = replyTo(txId, related, counterparty);
+      if (reply) {
+        run(`UPDATE trade_outcomes SET status = ?, resolved_at = ?, counter_json = ?, settle_reason = ?
+             WHERE id = ?`, reply.status, reply.at, reply.counter ? JSON.stringify(reply.counter) : null,
+        `matched ESPN proposal ${txId}; ${reply.reason}`, o.id);
+        out.settled++;
+      } else if (covered) {
+        run(`UPDATE trade_outcomes SET status = 'expired', resolved_at = ?, settle_reason = ? WHERE id = ?`,
+          new Date(deadline).toISOString(), `matched ESPN proposal ${txId}; no answer recorded in `
+          + `${expireDays} days (collector last looked ${lastLookedIso})`, o.id);
+        out.settled++;
+      } else {
+        setReason(o, `matched ESPN proposal ${txId}; no answer yet (collector last looked ${lastLookedIso})`);
+        out.pending++;
+      }
+      continue;
+    }
+
+    if (covered) {
+      run(`UPDATE trade_outcomes SET status = 'expired', resolved_at = ?, settle_reason = ? WHERE id = ?`,
+        new Date(deadline).toISOString(), `no ESPN proposal matched this offer in ${expireDays} days `
+        + `(collector last looked ${lastLookedIso})`, o.id);
+      out.settled++;
+      continue;
+    }
+    const clockPast = Number.isFinite(nowMs) && nowMs >= deadline;
+    setReason(o, `left pending: no ESPN proposal from team ${proposer} to team ${counterparty} with these `
+      + `players within ${OFFER_MATCH_WINDOW_HOURS}h of the tap; the collector last looked ${lastLookedIso}`
+      + (clockPast ? ` and has not looked since the ${expireDays}-day window closed, so it cannot be called expired`
+        : ''));
+    out.pending++;
+  }
+  return out;
+}
+
+/**
+ * The post-sync job: observed rows first (every ESPN proposal becomes a row),
+ * then the sent offers settled against the same raw rows. Idempotent.
+ */
+export function settleOfferLoop(leagueId, season, opts = {}) {
+  return { observed: settleObservedOutcomes(leagueId, season), sent: settleSentOffers(leagueId, season, opts) };
+}

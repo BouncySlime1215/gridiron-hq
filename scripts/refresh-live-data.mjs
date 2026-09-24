@@ -20,11 +20,7 @@
  *   4. manager_signals   who-is-who + per-manager signals for all leagues
  *                        (build-manager-signals.mjs), after the chat rollup has
  *                        finished, and only when one of its inputs changed
- *   5. warroom_plans     the War Room campaign producer (scripts/campaign/produce-plans.mjs),
- *                        only when GRIDIRON_WARROOM_ENABLED=1; launched detached every tick
- *                        (skipped while the previous run holds its lock) so each league's
- *                        next move is replanned on the fresh data
- *   6. brain_report      EVAL-01 graders E1-E7 (scripts/eval/run-graders.mjs), last,
+ *   5. brain_report      EVAL-01 graders E1-E7 (scripts/eval/run-graders.mjs), last,
  *                        so they grade this tick's rows; stores one run in brain_report
  *
  * ALLOWLIST ONLY. Betting collectors (line snapshots, Polymarket, book feeds,
@@ -38,9 +34,8 @@
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // Before any server module is imported: the scheduler must never start in this process.
@@ -76,6 +71,10 @@ export const FANTASY_LIVE_JOBS = [
   // whose rows it grades (nfl_model_growth's finalized weeks, nfl_weekly_learning's
   // pregame snapshots). 7-day maxAge; offThread, so its replays run in a worker.
   'start_sit_gate',
+  // IDEA-001: the weekly served-number snapshot (title odds, title trades, trade
+  // cards) into served_numbers. Nothing else runs it while SCHEDULER_DISABLED=1.
+  // Idempotent per league per NFL week; offThread, so the simulations run in a worker.
+  'served_numbers_weekly',
   // 2026-09-19: scripts/build-manager-archetypes.mjs was in no allowlist at all —
   // not here, not in package.json — so `manager_archetypes` stayed empty and the
   // `draft` and `outcome` signal sources silently never appeared for any league.
@@ -104,7 +103,8 @@ export const FANTASY_LIVE_JOBS = [
 export const MANAGER_SIGNALS_MAX_AGE_MINUTES = 360;
 
 const { JOBS, runIfStale, recordSync } = await import('../server/services/scheduler.js');
-const { rows } = await import('../server/db/index.js');
+const { rows, dbPath } = await import('../server/db/index.js');
+const { acquireLock, defaultLockPath, LockHeldError } = await import('../server/services/process-lock.js');
 const { openChatDb, chatDataKey } = await import('../server/services/manager-signals.js');
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -185,58 +185,6 @@ export function chatBackfill({ spawn = spawnSync, log = console.log, record = re
     : '';
   log(`${stamp()} ${'league_chat'.padEnd(18)} ${status === 'ok' ? 'ok' : status.toUpperCase()} `
     + `${text.slice(0, 200)}${note} (${Date.now() - t0} ms)`);
-}
-
-/**
- * CAMPAIGN-01: rebuild the War Room plans file (every league) after the data steps,
- * so each refresh replans and flags a changed next move. Off unless
- * GRIDIRON_WARROOM_ENABLED=1.
- *
- * The producer takes minutes per league (two simulated worlds each), longer than a
- * tick should block, so it is LAUNCHED detached and the loop moves on; its lock file
- * stops a second copy while one is running. Each tick first records the last
- * finished run's summary line (from its log) as sync_log 'warroom_plans'.
- */
-export function warRoomPlans({ launch = launchDetached, log = console.log, record = recordSync, env = process.env,
-  files = warRoomFiles(env) } = {}) {
-  if (env.GRIDIRON_WARROOM_ENABLED !== '1') return;
-  const holder = fs.existsSync(files.lock) ? Number(fs.readFileSync(files.lock, 'utf8')) : null;
-  let running = false;
-  if (holder) { try { process.kill(holder, 0); running = true; } catch { running = false; } }
-  // Only the latest run counts: the lines after its 'warroom_plans started' marker.
-  const all = fs.existsSync(files.log) ? fs.readFileSync(files.log, 'utf8').split('\n').filter(Boolean) : [];
-  const from = all.findLastIndex(l => l.startsWith('warroom_plans started'));
-  const run = from < 0 ? all : all.slice(from);
-  const last = run.filter(l => l.startsWith('warroom_plans ') && !l.startsWith('warroom_plans started')).at(-1) ?? null;
-  if (last) {
-    const status = /PARTIAL/.test(last) ? 'partial' : /^warroom_plans ok/.test(last) ? 'ok' : 'error';
-    record('warroom_plans', status, { line: last.slice(0, 300) });
-  } else if (from >= 0 && !running) {
-    record('warroom_plans', 'error', { line: `the last run stopped without a summary line: ${(run.at(-1) ?? '').slice(0, 240)}` });
-  }
-  if (running) {
-    log(`${stamp()} ${'warroom_plans'.padEnd(18)} still running (pid ${holder}); last: ${(last ?? 'none yet').slice(0, 160)}`);
-    return;
-  }
-  const pid = launch(process.execPath, ['--env-file-if-exists=.env', 'scripts/campaign/produce-plans.mjs'],
-    { cwd: ROOT, env, log: files.log });
-  log(`${stamp()} ${'warroom_plans'.padEnd(18)} launched (pid ${pid}); last: ${(last ?? 'none yet').slice(0, 160)}`);
-}
-
-/** The producer's log and lock, next to the plans file it writes. */
-export function warRoomFiles(env = process.env) {
-  const plans = path.resolve(env.GRIDIRON_WARROOM_PLANS || env.GRIDIRON_WARROOM_SOURCE
-    || path.join(os.homedir(), 'gridiron-local', 'warroom', 'plans.json'));
-  return { plans, lock: `${plans}.lock`, log: path.join(path.dirname(plans), 'producer.log') };
-}
-
-function launchDetached(cmd, args, { cwd, env, log: logFile }) {
-  fs.mkdirSync(path.dirname(logFile), { recursive: true });
-  const fd = fs.openSync(logFile, 'a');
-  const child = spawn(cmd, args, { cwd, env, detached: true, stdio: ['ignore', fd, fd] });
-  child.unref();
-  fs.closeSync(fd);
-  return child.pid;
 }
 
 const sha = value => crypto.createHash('sha1').update(JSON.stringify(value)).digest('hex').slice(0, 16);
@@ -328,7 +276,7 @@ export function brainReport({ spawn = spawnSync, log = console.log, record = rec
 }
 
 export async function tick({ jobs = FANTASY_LIVE_JOBS, spawn = spawnSync, log = console.log, record = recordSync,
-  runJob = runIfStale, force = false, managerSignals = null, inputsKey, warRoomLaunch = null } = {}) {
+  runJob = runIfStale, force = false, managerSignals = null, inputsKey } = {}) {
   const started = Date.now();
   for (const name of jobs) {
     if (!JOBS[name]) { log(`${stamp()} ${name.padEnd(18)} UNKNOWN JOB`); continue; }
@@ -352,12 +300,26 @@ export async function tick({ jobs = FANTASY_LIVE_JOBS, spawn = spawnSync, log = 
   step('roster_snapshots', () => rosterSnapshots({ spawn, log, record }));
   step('league_chat', () => chatBackfill({ spawn, log, record }));
   step('manager_signals', () => signals());
-  step('warroom_plans', () => warRoomPlans({ log, record, ...(warRoomLaunch ? { launch: warRoomLaunch } : {}) }));
   step('brain_report', () => brainReport({ spawn, log, record }));
   log(`${stamp()} tick done in ${Math.round((Date.now() - started) / 1000)} s`);
 }
 
+/** refresh.lock: next to the database unless GRIDIRON_REFRESH_LOCK names another path. */
+export function refreshLockPath(env = process.env) {
+  return env.GRIDIRON_REFRESH_LOCK || defaultLockPath(dbPath, 'refresh.lock');
+}
+
 async function main(args = process.argv.slice(2)) {
+  // One refresh at a time (two loops were found running at once, A13): a second copy exits 3.
+  let lock;
+  try { lock = acquireLock(refreshLockPath(), { name: 'refresh-live-data' }); } catch (error) {
+    if (error instanceof LockHeldError) { console.error(`refresh-live-data: ${error.message}`); return 3; }
+    throw error;
+  }
+  try { return await refresh(args); } finally { lock.release(); }
+}
+
+async function refresh(args) {
   const loopIdx = args.indexOf('--loop');
   const loopSeconds = loopIdx > -1 ? Number(args[loopIdx + 1]) || 900 : 0;
   const force = args.includes('--force');
@@ -373,8 +335,7 @@ async function main(args = process.argv.slice(2)) {
     return;
   }
   console.log(`${stamp()} refresh-live-data loop every ${loopSeconds} s — jobs: ${FANTASY_LIVE_JOBS.join(', ')}`
-    + ', then league_tx, roster_snapshots, league_chat, manager_signals'
-    + (process.env.GRIDIRON_WARROOM_ENABLED === '1' ? ', warroom_plans' : '') + ', brain_report');
+    + ', then league_tx, roster_snapshots, league_chat, manager_signals, brain_report');
   while (!stopping) {
     await tick({ force, managerSignals });
     const until = Date.now() + loopSeconds * 1000;
@@ -387,6 +348,6 @@ const invokedDirectly = (() => {
   try { return import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1] ?? '')).href; } catch { return false; }
 })();
 if (invokedDirectly) {
-  await main();
-  process.exit(0);
+  const code = await main();
+  process.exit(code ?? 0);
 }

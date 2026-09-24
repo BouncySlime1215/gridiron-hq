@@ -63,24 +63,22 @@ test('E1 fault: inverted P(accept) is failing', () => {
   assert.ok(r.detail.why.length >= 1);
 });
 
-test('E1 small n: 30 resolved offers -> not_enough_data with the evidence so far; unresolved rows do not count', () => {
+test('E1 threshold: 30 resolved offers -> needs 20 more offers; unresolved rows do not count', () => {
   const rows = [...e1Offers(30), { league_id: 1, counterparty_team_id: 'x', model_p_accept: 0.4, status: 'proposed' },
     { league_id: 1, counterparty_team_id: 'x', model_p_accept: 0.4, status: 'ignored' }];
   const r = E1.grade(rows);
   assert.equal(r.status, 'not_enough_data');
   assert.equal(r.n, 30);
-  assert.ok(r.ci_low < r.metric && r.metric < r.ci_high, 'the evidence at n = 30 is reported, not withheld');
-  assert.ok(r.needs_n >= 1);
-  assert.match(r.needs_text, /^needs \d+ more offers/);
-  assert.equal(r.detail.excluded.unanswered, 2);
+  assert.equal(r.needs_n, 20);
+  assert.match(r.needs_text, /^needs 20 more offers/);
   assert.equal(r.detail.historical_standin.slopes[0], 0.93);
 });
 
-test('E1: 60 offers all declined against P(accept) averaging 0.5 is failing without waiting for accepts', () => {
+test('E1 threshold: 60 offers all declined still needs accepts', () => {
   const rows = e1Offers(60).map(o => ({ ...o, status: 'declined' }));
   const r = E1.grade(rows);
-  assert.equal(r.status, 'failing');
-  assert.ok(r.ci_high < 0);
+  assert.equal(r.status, 'not_enough_data');
+  assert.equal(r.needs_n, 5);
 });
 
 test('E1 baseline is cutoff-safe: first offer to a counterparty gets the prior rate, not its own outcome', () => {
@@ -116,21 +114,10 @@ test('E2 fault: offers below the yes point mostly accepted -> failing', () => {
   assert.ok(r.detail.why.some(w => /below/.test(w)));
 });
 
-test('E2 small n: 12 offers at the yes point -> not_enough_data with its CS; no source -> says which', () => {
-  const r = E2.grade(e2Offers({ nAt: 12 }));
-  assert.equal(r.status, 'not_enough_data');
-  assert.ok(r.ci_low <= 0 && r.ci_high >= 0 && r.ci_high - r.ci_low > E2.MAX_WIDTH);
-  assert.match(r.needs_text, /^needs \d+ more offers/);
+test('E2 threshold: 12 offers at the yes point -> needs 18 more offers; no source -> says which', () => {
+  assert.match(E2.grade(e2Offers({ nAt: 12 })).needs_text, /^needs 18 more offers/);
   const none = E2.grade([], { reason: 'source table offer_log is not built yet' });
-  const floor = E2.minOffersToDecide();
-  assert.ok(floor > 1 && floor < 30, `floor ${floor}`);
-  assert.match(none.needs_text, new RegExp(`needs ${floor} more offers \\(source table offer_log is not built yet\\)`));
-});
-
-test('E2 sequential: a price model 40 points off is failing at 20 offers, not after 30', () => {
-  const r = E2.grade(e2Offers({ nAt: 20, atTrue: 0.95, nBelow: 0 }));
-  assert.equal(r.status, 'failing', JSON.stringify(r));
-  assert.equal(r.n, 20);
+  assert.match(none.needs_text, /needs 30 more offers \(source table offer_log is not built yet\)/);
 });
 
 // ------------------------------------------------------------------ E3

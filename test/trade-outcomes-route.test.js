@@ -231,3 +231,36 @@ test('route: when the engine prices for a team other than the one asked for, the
     engineTeam = null;
   }
 });
+
+// ------------------------------------------------ "I sent this" (CLONE-01b b1)
+const post = async (url, body) => {
+  const res = await fetch(`http://127.0.0.1:${port}${url}`, { method: 'POST',
+    headers: { authorization: 'Bearer outcome-token', 'content-type': 'application/json' },
+    body: JSON.stringify(body) });
+  return { status: res.status, body: await res.json() };
+};
+
+test('route: POST /offers/sent records a sent offer from the served deal, stamped with the league\'s team', async () => {
+  const sent = { ...DEALS[2], id: 'Sent Only>Sent Only', i_give: [{ id: 7, name: 'Sent Give', espn_id: 70 }] };
+  const res = await post('/api/trades/44/offers/sent', { deal: sent });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state, 'recorded');
+  const o = rows(`SELECT * FROM trade_outcomes WHERE id = ?`, res.body.id)[0];
+  assert.ok(o.sent_at, 'the row is marked sent');
+  assert.equal(o.source, 'app_proposed');
+  assert.equal(o.status, 'proposed');
+  assert.equal(o.proposer_team_id, '5', 'the league\'s own team when the page sends none');
+  assert.equal(o.counterparty_team_id, '4');
+  assert.equal(o.model_p_accept, band.band.mid);
+
+  const again = await post('/api/trades/44/offers/sent', { deal: sent });
+  assert.equal(again.body.state, 'already_sent');
+});
+
+test('route: POST /offers/sent refuses a deal with no band or no package', async () => {
+  const noBand = await post('/api/trades/44/offers/sent', { deal: { ...DEALS[0], id: 'x>y', acceptance: null } });
+  assert.equal(noBand.status, 400);
+  assert.match(noBand.body.error, /model_p_accept/);
+  const noDeal = await post('/api/trades/44/offers/sent', {});
+  assert.equal(noDeal.status, 400);
+});

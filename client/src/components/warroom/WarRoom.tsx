@@ -7,6 +7,7 @@ import { isOk } from './format';
 import { SourcesContext } from './FieldState';
 import { Panel } from './Panel';
 import TopStrip, { type LeagueChoice } from './TopStrip';
+import { openingLeague, TARGET_LEAGUE_ID } from './LeagueRail';
 import NextMoveDeck from './NextMoveDeck';
 import Itinerary from './Itinerary';
 import FlipMap from './FlipMap';
@@ -14,6 +15,7 @@ import TargetPicker from './TargetPicker';
 import CatchUp from './CatchUp';
 import BrainCheckCard from './BrainCheckCard';
 import { CoachDock, useWarRoomCoach, type Panel as CoachPanel } from './coach';
+import { useNegotiations } from './useWarRoom';
 
 /**
  * The War Room: ONE dashboard, no page scroll (WAR-ROOM-UI.md v2).
@@ -52,6 +54,11 @@ export const COACH_PANEL_AREA: Record<CoachPanel, PanelId | null> = {
   next_move: 'next', itinerary: 'stops', flip_map: 'flip_map', targets: 'targets', catch_up: 'catch', brain_check: 'brain_report',
   destination: null, cards: null,
 };
+
+/** WR-L4: the War Room opens on the target league once per page load; after that Nick's pick stands. */
+let openedOnTarget = false;
+/** Test hook: forget that this page load already opened on the target league. */
+export function __resetOpening() { openedOnTarget = false; }
 
 /** The no-page-scroll contract, inline so it cannot be lost to a stylesheet. */
 export const ROOT_STYLE = { position: 'fixed', inset: 0, height: '100vh', overflow: 'hidden', gridTemplateAreas: GRID_AREAS } as const;
@@ -101,6 +108,15 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Open on the target league the first time the War Room shows in this page load.
+  const target = TARGET_LEAGUE_ID;
+  useEffect(() => {
+    if (!leagues.length) return;
+    const to = openingLeague(leagues, activeId, target, openedOnTarget);
+    openedOnTarget = true;
+    if (to != null) onLeague(to);
+  }, [target, leagues, activeId, onLeague]);
+
   // A new league starts on its own deck.
   useEffect(() => { setSwap(null); }, [activeId]);
 
@@ -123,6 +139,7 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
     if (el && deckRef.current) deckRef.current.scrollTo({ left: el.offsetLeft - deckRef.current.offsetLeft, behavior: 'smooth' });
   }, []);
 
+  const negotiations = useNegotiations(activeId);
   const d = isOk(view.destination) ? view.destination.value : undefined;
   const send = useCallback((req: WarRoomRequest) => postWarRoomRequest(activeId, req, post), [activeId, post]);
 
@@ -140,7 +157,8 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
           }}>
           <Panel {...common('next')} title="Next move">
             {view.banner && <div className="wr-banner">{view.banner}</div>}
-            <NextMoveDeck key={`${activeId}:${view.snapshot?.id ?? ''}`} view={view} big={big('next')} initialState={deckInitial} onLog={onDeckLog} post={post} />
+            <NextMoveDeck key={`${activeId}:${view.snapshot?.id ?? ''}`} view={view} big={big('next')} initialState={deckInitial} onLog={onDeckLog} post={post} negotiation={negotiations.data}
+              onAsk={q => { setCoachOpen(true); void coach.ask(q); }} />
           </Panel>
           <Panel {...common('stops')} title="Stops">
             <Itinerary field={view.itinerary} big={big('stops')} />

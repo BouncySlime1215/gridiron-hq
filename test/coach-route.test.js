@@ -162,6 +162,79 @@ test('asking for the event stream streams the trace and ends with the result', a
   assert.equal(last.answer.claims.length, 1);
 });
 
+/* ----------------------------------------------------------- COACH-BRIEF */
+
+const PLANS_FIXTURE = path.join(path.dirname(new URL(import.meta.url).pathname), 'fixtures/warroom-contract/producer-plans.json');
+run(`INSERT INTO leagues(id, platform, league_id, season, name, payload, team_count, my_team_id, connection_status)
+     VALUES (4, 'espn', 'espn-coach-brief-4', 2026, 'Brief League', '{}', 10, '1', 'connected')`);
+run(`INSERT INTO leagues(id, platform, league_id, season, name, payload, team_count, my_team_id, connection_status)
+     VALUES (5, 'espn', 'espn-coach-brief-5', 2026, 'Other League', '{}', 10, '1', 'connected')`);
+run(`INSERT INTO league_memberships (league_id, user_id, role) VALUES (4, 9101, 'member')`);
+
+async function withBriefEnv(env, fn) {
+  const keys = ['GRIDIRON_COACH_BRIEF_ENABLED', 'GRIDIRON_PREVIEW_UNCONFIRMED', 'GRIDIRON_WARROOM_PLANS'];
+  const saved = Object.fromEntries(keys.map(k => [k, process.env[k]]));
+  for (const k of keys) delete process.env[k];
+  Object.assign(process.env, env);
+  try { return await fn(); } finally {
+    for (const k of keys) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+  }
+}
+
+test('brief: flag off answers off and reads nothing', async () => {
+  await withBriefEnv({ GRIDIRON_WARROOM_PLANS: PLANS_FIXTURE }, async () => {
+    const response = await get(`${base}/brief/4`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.status, 'off');
+    assert.equal(body.text, undefined);
+  });
+});
+
+test('brief: the morning brief and weekly check-in come back grounded, with the ledger behind every cite', async () => {
+  await withBriefEnv({ GRIDIRON_COACH_BRIEF_ENABLED: '1', GRIDIRON_WARROOM_PLANS: PLANS_FIXTURE }, async () => {
+    for (const [url, title] of [[`${base}/brief/4`, /^Morning brief, league 4/], [`${base}/brief/4?kind=weekly`, /^Weekly check-in, league 4/]]) {
+      const response = await get(url);
+      assert.equal(response.status, 200, url);
+      const body = await response.json();
+      assert.equal(body.status, 'ok', JSON.stringify(body).slice(0, 300));
+      assert.match(body.text, title);
+      assert.deepEqual(body.dropped, []);
+      assert.ok(body.claims.length >= 5);
+      const ids = new Set(body.ledger.queries.map(q => q.id));
+      for (const c of body.claims) {
+        for (const cite of c.cites) {
+          assert.ok(ids.has(cite.split('#')[0]) || body.ledger.derived.some(d => d.id === cite), `${cite} is not in the ledger`);
+        }
+      }
+    }
+    const morning = await (await get(`${base}/brief/4`)).json();
+    assert.match(morning.text, /Statements not read: the brief does not read chat labels yet: their producer, PULSE-01/);
+    assert.match(morning.text, /Offer Team 3 P4 \(WR\) \+ P6 \(RB\) for P21 \(WR\)\./);
+  });
+});
+
+test('brief: another league, a bad id or a push kind is refused; no plans file is said plainly', async () => {
+  await withBriefEnv({ GRIDIRON_COACH_BRIEF_ENABLED: '1', GRIDIRON_WARROOM_PLANS: PLANS_FIXTURE }, async () => {
+    assert.equal((await get(`${base}/brief/5`)).status, 403, 'not a member of league 5');
+    assert.equal((await get(`${base}/brief/abc`)).status, 400);
+    assert.equal((await get(`${base}/brief/4?kind=push`)).status, 400, 'the push is PUSH-01\'s');
+    assert.equal((await fetch(`${base}/brief/4`)).status, 401);
+  });
+  await withBriefEnv({ GRIDIRON_COACH_BRIEF_ENABLED: '1', GRIDIRON_WARROOM_PLANS: path.join(temp, 'absent-plans.json') }, async () => {
+    const body = await (await get(`${base}/brief/4`)).json();
+    assert.equal(body.status, 'unknown');
+    assert.match(body.reason, /No plans file has been written yet/);
+  });
+  const broken = path.join(temp, 'broken-plans.json');
+  fs.writeFileSync(broken, '{ not json');
+  await withBriefEnv({ GRIDIRON_COACH_BRIEF_ENABLED: '1', GRIDIRON_WARROOM_PLANS: broken }, async () => {
+    const body = await (await get(`${base}/brief/4`)).json();
+    assert.equal(body.status, 'failed');
+    assert.match(body.reason, /could not be read \(SyntaxError\)/);
+  });
+});
+
 // LAST ON PURPOSE. This exhausts the minute bucket for the session every test
 // in this file uses, so anything after it would get a 429 it did not ask for.
 test('the ask route is rate limited, and says so before it spends anything', async () => {

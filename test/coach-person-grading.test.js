@@ -342,7 +342,7 @@ test('a constant-in-time column is refused, not passed', () => {
   // unrefused, it passes with skill 1 and rank 1.
   for (const [index, person] of PEOPLE.entries()) {
     for (let r = 0; r <= index; r++) {
-      addPersonContext({ person: person.name, scope: 'fixture', rule: `fixture rule ${r}`, author: 'test' });
+      addPersonContext({ person: person.name, scope: 'other', rule: `fixture rule ${r}`, author: 'test' });
     }
   }
   const db = corpus();

@@ -1,0 +1,92 @@
+# TDD evidence: HYPO-01a surprise detector
+
+Source: ENGINE-SPECS HYPO-01a (handoff package, `docs/handoff/local/ENGINE-SPECS.md`),
+narrowed by the cloud task: "when a league outcome deviates from the model (accept we
+gave <10%, decline we gave >70%, sudden roster move), write a hypothesis row for Jev/R&D
+to test, with the evidence ids. Behind a flag."
+
+Built in a Claude Code cloud session, 2026-09-24. No league DB in the box, so everything
+here is fixture-verified. The run on a copy of the real DB is a `LOCAL:` line in the PR.
+
+Runner:
+
+    GRIDIRON_DB_PATH="$(mktemp -u "${TMPDIR:-/tmp}/gridiron-test-XXXXXX").sqlite" SCHEDULER_DISABLED=1 \
+      NODE_OPTIONS='--import ./test/offline-guard.mjs' node --experimental-test-module-mocks --test \
+      test/hypo-surprise.test.js
+
+LLM spend: $0.
+
+## What was built, and what of the spec was not
+
+| Spec part | Here | Why |
+|---|---|---|
+| Surprise detector, s = -ln p(outcome) | Yes, three streams: `accept_low`, `decline_high`, `roster_burst` | The task's three cases |
+| Threshold = per-stream 95th percentile, refit nightly | **No.** Fixed cuts: 10% / 70% (the task's), burst P < 0.05 (hand-set) | No graded calibration window yet (the spec itself waits for >= 6 graded weeks) |
+| `surprise` event in engine_events | **No.** Row in `surprise_hypotheses` (migration 086) | ENGINE-00a spine (075, #216) is not on main |
+| Reasoner via JEV-01a gateway, spec grammar, pre-registration | **No** | JEV-01a not on main; HYPO-01a-2 |
+| onEvent learner on ENGINE-00b-a hooks | **No.** CLI `scripts/hypo-surprise.mjs` | Daemon not on main |
+
+## Gates, stated before the implementation
+
+- **G1 flag.** Off unless `GRIDIRON_HYPO_ENABLED=1`; off writes nothing.
+- **G2 cuts.** Accepted at p < 0.10 and declined at p > 0.70 are surprises; the edges
+  (0.10, 0.70), unanswered offers and expected outcomes are not.
+- **G3 evidence ids.** Every row names its trade_outcomes id(s) or tx ids; the table
+  refuses a row that names neither.
+- **G4 idempotent.** A second run writes nothing.
+- **G5 league scoped.** Another league's rows are not read.
+- **G6 burst.** A quiet team's 4 moves in 48 h is one `roster_burst` carrying all 4 tx
+  ids; a steady team is not flagged; a trade counts for both parties.
+- **G7 no silent skip.** A run of moves with < 7 days of collected history is reported
+  as skipped with a reason; an absent `league_transactions_raw` is a stated state.
+
+## RED
+
+Commit `test: HYPO-01a surprise detector RED`: `test/hypo-surprise.test.js` fails with
+`ERR_MODULE_NOT_FOUND` for `server/services/hypo/surprise.js` (pass 0, fail 1).
+
+## GREEN
+
+`server/services/hypo/surprise.js`, `server/migrations/086_surprise_hypotheses.js`,
+`scripts/hypo-surprise.mjs`: pass 12, fail 0 (the 10 RED tests plus a dry-run test and a
+CLI test added with the CLI).
+
+`npm run lint`, `npm run typecheck`, `npm run check:wiring` clean (the module is on the
+accepted-orphan list with a retire condition, as TELLS-01a's were).
+
+## Liveness: mutation sweep
+
+Each mutant applied alone to the GREEN tree, `test/hypo-surprise.test.js` re-run.
+
+| # | Mutant | Result |
+|---|---|---|
+| M1 | `p < ACCEPT_LOW` -> `<=` | killed (fail 1) |
+| M2 | `p > DECLINE_HIGH` -> `>=` | killed |
+| M3 | offer read drops `league_id = ?` | killed |
+| M4 | flag forced on | killed |
+| M5 | migration CHECK without COALESCE on `trade_outcome_ids` | killed |
+| M6 | migration CHECK without COALESCE on `tx_ids` | killed |
+| M7 | reported window = least improbable instead of most | **survived first**: both windows were identical in the fixture (same timestamp). Fixture staggered; now killed |
+| M8 | a trade counts for its first party only | **survived first**: the test never checked the second party. Test now asserts team 6's burst carries the trade; killed |
+| M9 | `BASELINE_MIN_DAYS` 7 -> 0 | killed |
+| M10 | `ON CONFLICT DO NOTHING` -> `DO UPDATE` | killed |
+| M11 | baseline window includes its own start (`<=`) | killed |
+| C1 | control: whitespace-only change to a constant line | survived (as designed) |
+| C2 | control: a mutation string that is not in the file (the first M7 spelling) | not applied (assert fired, no test run) |
+
+After M7/M8 the RED was re-run against the unfixed tree (no `surprise.js`): still fails
+at import, `ERR_MODULE_NOT_FOUND`.
+
+## Nick's five questions
+
+1. **Well built?** One writer (`detectSurprises`) to one new table with CHECKs for the
+   evidence contract; idempotent; flag-gated; no served number reads it.
+2. **Stats or made up?** Surprisal is -ln p(outcome) under what was served. The 10%/70%
+   cuts are the task's. The burst rule (72 h, >= 3 moves, P < 0.05 Poisson on a 28-day
+   base rate, 0.5 pseudo-count, >= 7 days history) is **hand-set, a guess**.
+3. **How we know:** nothing measured yet. Fixtures only; the real-DB count is the PR's
+   `LOCAL:` line. The spec's 5% +/- 1.5% calibrated surprise rate on the 2024 replay is
+   **not** checked.
+4. **Pointed anywhere?** No. Nothing reads `surprise_hypotheses` except the CLI's `--list`.
+5. **How it unifies:** the row maps onto ENGINE-00a's engine_state `hypothesis` entity
+   when the spine merges; HYPO-01b's screen excludes `evidence` ids (no double-dipping).

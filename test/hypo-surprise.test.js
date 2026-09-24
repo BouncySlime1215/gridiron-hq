@@ -82,6 +82,7 @@ function trade(a, b, at) {
   return `tx-${tx}`;
 }
 const day = d => new Date(Date.UTC(2026, 8, d, 12)).toISOString();
+const at = (d, h) => new Date(Date.UTC(2026, 8, d, h)).toISOString();
 
 test('off by default: the flag is GRIDIRON_HYPO_ENABLED and nothing is written without it', () => {
   reset();
@@ -146,10 +147,11 @@ test('only this league: another league\'s surprise is not read', () => {
 
 test('a sudden run of roster moves by a quiet team is a roster_burst with every tx id', () => {
   reset();
-  // Coverage from the 1st; team 3 is quiet (one add on the 5th), then four moves in 48 h.
+  // Coverage from the 1st; team 3 is quiet (one add on the 5th), then four moves in 48 h. The windows
+  // starting at each move differ, so the one reported must be the most improbable.
   add(8, day(1));
   add(3, day(5));
-  const burst = [add(3, day(20)), add(3, day(20)), trade(3, 8, day(21)), add(3, day(22))];
+  const burst = [add(3, day(20)), add(3, at(20, 18)), trade(3, 8, day(21)), add(3, day(22))];
   // Team 8 moves steadily: about one move every three days, never a burst.
   for (const d of [4, 7, 10, 13, 16, 19, 22]) add(8, day(d));
 
@@ -160,7 +162,9 @@ test('a sudden run of roster moves by a quiet team is a roster_burst with every 
   assert.equal(h.team_id, '3');
   assert.deepEqual(h.evidence.tx_ids, burst);
   assert.equal(h.evidence.moves, 4);
-  assert.ok(h.model_p < 0.05);
+  // The most improbable window: all 4 moves against 1 prior move in 19 covered days.
+  assert.ok(Math.abs(h.model_p - poissonTail(4, ((1 + 0.5) / 19) * 3)) < 1e-12);
+  assert.equal(h.evidence.baseline.prior_moves, 1);
   assert.ok(Math.abs(h.surprisal - -Math.log(h.model_p)) < 1e-9);
   assert.match(h.statement, /4 roster moves/);
 });
@@ -169,9 +173,13 @@ test('a trade counts for both teams, but a steady team is not flagged', () => {
   reset();
   add(8, day(1));
   for (const d of [4, 5, 7, 10, 12, 13, 16, 18, 19, 21]) add(8, day(d));
-  trade(8, 6, day(21));
+  // Team 6 is quiet, then two adds and the trade: the trade is its third move.
+  const burst6 = [add(6, day(20)), add(6, day(20)), trade(8, 6, day(21))];
   detectSurprises({ leagueId: LEAGUE, season: SEASON, enabled: true });
-  assert.equal(listHypotheses({ leagueId: LEAGUE }).filter(h => h.kind === 'roster_burst').length, 0);
+  const got = listHypotheses({ leagueId: LEAGUE }).filter(h => h.kind === 'roster_burst');
+  assert.deepEqual(got.map(h => h.team_id), ['6']);
+  assert.deepEqual(got[0].evidence.tx_ids, burst6);
+  assert.equal(got[0].evidence.trades, 1);
 });
 
 test('too little history to know a base rate is reported, never silently skipped', () => {
@@ -205,4 +213,30 @@ test('the table refuses a hypothesis with no evidence', () => {
     (surprise_key, league_id, season, kind, model_p, surprisal, outcome, evidence_json, statement,
      detector_version, detected_at)
     VALUES ('k', 4, 2026, 'accept_low', 0.05, 3, 'accepted', '{}', 's', 'v', 'now')`));
+});
+
+test('dry run finds the surprise and writes nothing', () => {
+  reset();
+  proposed({ p: 0.02, status: 'accepted' });
+  const r = detectSurprises({ leagueId: LEAGUE, season: SEASON, enabled: true, write: false });
+  assert.equal(r.dry_run, true);
+  assert.equal(r.surprises.length, 1);
+  assert.equal(rows('SELECT * FROM surprise_hypotheses').length, 0);
+});
+
+test('CLI: off without the flag, writes with it, lists after', async () => {
+  reset();
+  proposed({ p: 0.02, status: 'accepted' });
+  const { spawnSync } = await import('node:child_process');
+  const cli = (env, ...args) => spawnSync(process.execPath, ['scripts/hypo-surprise.mjs', '--league', '4', ...args],
+    { encoding: 'utf8', env: { PATH: process.env.PATH, GRIDIRON_DB_PATH: process.env.GRIDIRON_DB_PATH, ...env } });
+  const off = cli({});
+  assert.equal(off.status, 0, off.stderr);
+  assert.match(off.stdout, /off \(GRIDIRON_HYPO_ENABLED is not set\)/);
+  assert.equal(rows('SELECT * FROM surprise_hypotheses').length, 0);
+  const on = cli({ GRIDIRON_HYPO_ENABLED: '1' });
+  assert.equal(on.status, 0, on.stderr);
+  assert.match(on.stdout, /season 2026 found 1 .* written 1/);
+  const list = cli({}, '--list');
+  assert.match(list.stdout, /1 open hypotheses for league 4/);
 });

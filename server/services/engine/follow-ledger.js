@@ -7,7 +7,7 @@
  * actually done on ESPN into follow / ignore / no_action. Grading the choice is
  * SELF-01b's job; this file records, it never scores.
  *
- * Table: `follow_ledger` (server/migrations/081_follow_ledger.js).
+ * Table: `follow_ledger` (server/migrations/082_follow_ledger.js).
  * Writers: `logShown()`, called live from rec-ledger.js `recordRoute()` for
  * every shown call the recommending routes make; `logNextMove()` for the War
  * Room (no caller yet: the War Room is not built); `backfillFromRecLedger()`
@@ -170,7 +170,7 @@ function pairAtShown(lg, d) {
 function insertDecisions(lg, decisions) {
   const out = { state: 'recorded', inserted: 0, skipped: 0 };
   if (!tableExists('follow_ledger')) {
-    return { ...out, state: 'ledger_absent', reason: 'follow_ledger does not exist here; migration 081 has not run' };
+    return { ...out, state: 'ledger_absent', reason: 'follow_ledger does not exist here; migration 082 has not run' };
   }
   const owned = !db.isTransaction;
   try {

@@ -39,17 +39,21 @@ import { counterpartyLayer, valuationMap, playerValuation, RECEPTIVENESS_RANGE, 
 import { requirePlatformAdmin } from '../platform/legacy-access.js';
 import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE, PROMPT_VERSION }
   from '../services/trade-proposals.js';
-import { recordProposalSlate } from '../services/trade-outcomes.js';
+import { recordProposalSlate, recordSentOffer } from '../services/trade-outcomes.js';
 import { recordRoute } from '../services/rec-ledger.js';
+import { offerLoopFields } from '../services/offer-loop-flag.js';
 import { lineupCall } from '../services/lineup-brain.js';
 import { lineupSignals } from '../services/lineup-signals.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
 import { tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
+// IDEA-001: served trade-card and title-trade numbers, queued for served_numbers.
+import { recordServed, readServed, serveLogState } from '../services/serve-log.js';
 // TM-09: historical revealed trade prices (aggregate table), read-only, default-off.
 import { marketForPlayer } from '../services/trade-market.js';
 import { playerHype } from '../services/hype.js';
-import { warRoomView } from '../services/war-room-view.js';
+import { warRoomView, loadPlans } from '../services/war-room-view.js';
+import { logWarRoomShown } from '../services/war-room-log.js';
 import { warRoomFlag } from '../services/warroom-flag.js';
 import { warRoomSelf } from '../services/war-room-self.js';
 import {
@@ -662,7 +666,7 @@ r.get('/:leagueId/ceiling-lineup', (req, res, next) => {
 /**
  * WR-1: the War Room (a tab inside Trade Brain). Read-only and precomputed: it
  * reshapes a plans JSON written ahead of time by the study/campaign producer and
- * computes nothing here. Flag off (GRIDIRON_WARROOM_ENABLED unset, preview mode off)
+ * computes nothing here. Flag off (warroom-flag.js: own switch unset, preview mode off)
  * answers { enabled: false } and the client does not draw the tab.
  */
 r.get('/:leagueId/war-room', async (req, res, next) => {
@@ -670,7 +674,11 @@ r.get('/:leagueId/war-room', async (req, res, next) => {
     // Membership first: even the "off" answer is only for a member of this league.
     const lg = league(req, res); if (!lg) return;
     if (!warRoomFlag().enabled) { res.json({ enabled: false }); return; }
-    res.json(await warRoomView(lg.id));
+    const view = await warRoomView(lg.id);
+    // FIX-07: the shown next move goes to follow_ledger and the numbers to the serve log
+    // (both off the plans file loadPlans already cached for the view).
+    const logged = logWarRoomShown(res, lg, await loadPlans());
+    res.json({ ...view, logged });
   } catch (e) { next(e); }
 });
 
@@ -694,11 +702,13 @@ r.get('/:leagueId/war-room/self', (req, res, next) => {
 r.get('/:leagueId/title-trades', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    res.json(titleOddsTrades(lg.id, {
+    const out = titleOddsTrades(lg.id, {
       teamId: req.query.team_id,
       shortlist: Math.min(12, Math.max(3, Number(req.query.shortlist) || 6)),
       runs: Math.min(2000, Number(req.query.runs) || TRADE_IMPACT_RUNS)
-    }));
+    });
+    recordServed(res, 'title_trades', lg, out, { myTeamId: req.query.team_id ?? lg.my_team_id });
+    res.json(out);
   } catch (e) { next(e); }
 });
 
@@ -786,6 +796,9 @@ r.get('/:leagueId/find', (req, res, next) => {
       excludeIds: excludeSet(req)
     });
     recordRoute('find', lg, out);
+    // Queued before res.json, extracted at flush — after serialisation has already
+    // settled the lazy floor_delta/ceiling_delta, so logging them costs nothing extra.
+    recordServed(res, 'trade_find', lg, out);
     res.json(out);
   } catch (e) { next(e); }
 });
@@ -848,6 +861,51 @@ r.get('/:leagueId/proposals', async (req, res, next) => {
       ledger = { state: 'write_failed', reason: String(e?.message ?? e) };
     }
     res.json({ ...result, outcome_ledger: ledger });
+  } catch (e) { next(e); }
+});
+
+/**
+ * "I sent this" (CLONE-01b b1). Nick proposed this deal on ESPN himself; this
+ * records that it was sent, with the P(accept) band the card showed him, so the
+ * post-sync settle job can grade it against ESPN's reply. It never sends
+ * anything to ESPN.
+ *
+ * The band is the one on the deal as served. It is not recomputed here: a
+ * re-run now would score a different model against a decision already made.
+ *
+ * FIX-10: behind GRIDIRON_OFFER_LOOP (offer-loop-flag.js). Off, it answers
+ * `{enabled:false, reason}` and records nothing.
+ */
+r.post('/:leagueId/offers/sent', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const flag = offerLoopFields();
+    if (!flag.enabled) return res.json(flag);
+    const deal = req.body?.deal;
+    if (!deal || deal.partner_id == null || !Array.isArray(deal.i_give) || !Array.isArray(deal.i_get)) {
+      return res.status(400).json({ error: 'deal with partner_id, i_give and i_get required' });
+    }
+    let out;
+    try {
+      out = recordSentOffer({
+        league_id: lg.id, season: lg.season ?? null,
+        proposer_team_id: String(req.body?.team_id ?? lg.my_team_id ?? '') || null,
+        deal, model_version: 'acceptanceBand/served-deal',
+      });
+    } catch (e) {
+      // The writer refuses a deal it cannot grade (no band, no season). That is
+      // the caller's input, said as such, not a server fault.
+      return res.status(400).json({ error: String(e?.message ?? e) });
+    }
+    res.json({ ...out, ...flag });
+  } catch (e) { next(e); }
+});
+
+/** FIX-10: whether the "I sent this" button shows, and with the preview label. */
+r.get('/:leagueId/offers/sent', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(offerLoopFields());
   } catch (e) { next(e); }
 });
 
@@ -956,6 +1014,21 @@ r.get('/:leagueId/rosters', (req, res, next) => {
         };
       })
     });
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------------- served numbers */
+/**
+ * IDEA-001: what this league was actually served (served_numbers), newest first,
+ * plus the serve-log queue's own state — a queue that is dropping or failing to
+ * write says so here rather than going quiet. `?request_id=` is the
+ * `X-Served-Request-Id` header of the response in question.
+ */
+r.get('/:leagueId/served-numbers', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json({ league_id: lg.id, queue: serveLogState(),
+      rows: readServed(lg.id, { requestId: req.query.request_id, entity: req.query.entity, limit: req.query.limit }) });
   } catch (e) { next(e); }
 });
 

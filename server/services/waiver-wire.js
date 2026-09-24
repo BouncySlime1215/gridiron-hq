@@ -40,6 +40,11 @@ import { rosteredAssetIds, unrosteredSkill, onNflTeam } from './league-wire.js';
 import { previewUnconfirmed, previewFields } from './preview-mode.js';
 // The one producer of "this player carries the Sleeper injury flag" (RL-12-2).
 import { activeInjuryFlagIds } from './injury-flags.js';
+import { zonedDateTime } from './date-util.js';
+// RL-16-2: the league's observed waiver runs (league_waiver_runs, league_transactions_raw).
+import { clusterRuns, observedWaiverRuns } from './waiver-runs.js';
+
+export { observedWaiverRuns };
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
@@ -334,7 +339,7 @@ export function waiverBoard(lg, {
   const availabilityBasis = assets.context?.availability_basis ?? null;
 
   // WV-02: my injured starters and who replaces them, before the next waiver run.
-  const waiverRun = nextWaiverRun(payload, now);
+  const waiverRun = nextWaiverRun(payload, now, observedWaiverRuns(lg.id, lg.season));
   const claimPriorityBlock = claimPriority(lg, payload, rosterId);
   const injuryAlerts = injuryReplacementAlerts({
     mine, assets, unowned, ownedById, rosterId, waiverRun, roles: roleStates(week.season, week.week), sameTeamOrder,
@@ -485,36 +490,106 @@ export const SAME_TEAM_ORDERS = Object.freeze({
 });
 
 const zoneParts = new Intl.DateTimeFormat('en-US', {
-  timeZone: WAIVER_ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23'
+  timeZone: WAIVER_ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  second: '2-digit', hourCycle: 'h23'
 });
+const partsOf = t => Object.fromEntries(zoneParts.formatToParts(t).map(x => [x.type, x.value]));
+const dayStartUtc = q => Date.UTC(Number(q.year), Number(q.month) - 1, Number(q.day));
+
+/** Why a settings-only time is not trusted (RL-16-2 baseline: 0 of 9 checked claims right). */
+export const WAIVER_GUESS_LABEL = 'unconfirmed: read from the league\'s waiver hour setting in US Eastern; '
+  + 'on 9 checked claims this named the wrong run every time (8 about 7-8 hours late, 1 on the wrong day)';
+const MEASURED_ZONE_BASIS = 'measured: an ESPN timestamp, shown in US Eastern';
+
+/** An absolute instant -> the run fields, read on the waiver clock. */
+function runAt(t) {
+  const q = partsOf(new Date(t));
+  return {
+    day: WEEKDAYS[new Date(dayStartUtc(q)).getUTCDay()], date: `${q.year}-${q.month}-${q.day}`,
+    hour: Number(q.hour), minute: Number(q.minute), at: new Date(t).toISOString(), zone: WAIVER_ZONE
+  };
+}
 
 /**
- * The league's next waiver processing run, from the synced ESPN settings
- * (payload.settings.acquisitionSettings, present because the sync asks for
- * view=mSettings, server/routes/leagues.js). The first processing day at or after
- * `now` whose hour has not passed yet. `{ known: false, reason }` when the payload
- * has no such settings: an absence, not "no deadline".
+ * The league's next waiver processing run. RL-16-2: the settings hour alone named the
+ * wrong run in 9 of 9 checked claims, so a real time comes first:
+ *
+ *   1. `espn_scheduled`: ESPN's own next run, payload.status.waiverNextExecutionDate
+ *      (epoch ms), when it is still ahead of `now`.
+ *   2. `observed`: the league's past runs (`observed`, ISO instants from
+ *      waiver-runs.js#observedWaiverRuns). Only weekdays a run was seen on are
+ *      candidates, each at the clock time of its latest run, so a day the settings
+ *      list but the league never ran on is not named.
+ *   3. `unconfirmed_guess`: payload.settings.acquisitionSettings (mSettings, synced
+ *      by server/routes/leagues.js), waiverProcessHour read as US Eastern. Labelled.
+ *
+ * `{ known: false, reason }` when none of the three is there: an absence, not
+ * "no deadline".
  */
-export function nextWaiverRun(payload, now = new Date()) {
+export function nextWaiverRun(payload, now = new Date(), observed = []) {
+  const nowMs = now.getTime();
   const acq = payload?.settings?.acquisitionSettings ?? null;
   const days = Array.isArray(acq?.waiverProcessDays) ? acq.waiverProcessDays.map(d => String(d).toUpperCase()) : [];
   const hour = Number.isInteger(acq?.waiverProcessHour) ? acq.waiverProcessHour : null;
-  if (!days.length || hour == null) {
-    return { known: false, reason: 'The synced league carries no acquisition settings (waiver days and hour), '
-      + 'so no processing time is shown.' };
+  const waiverHours = acq?.waiverHours ?? null;
+
+  const scheduled = Number(payload?.status?.waiverNextExecutionDate);
+  if (Number.isFinite(scheduled) && scheduled > nowMs) {
+    return {
+      known: true, basis: 'espn_scheduled', confirmed: true, label: 'ESPN\'s scheduled run',
+      ...runAt(scheduled), zone_basis: MEASURED_ZONE_BASIS, process_days: days, waiver_hours: waiverHours,
+      source: 'ESPN league status (waiverNextExecutionDate)'
+    };
   }
-  const q = Object.fromEntries(zoneParts.formatToParts(now).map(x => [x.type, x.value]));
+
+  const runs = clusterRuns(observed).filter(r => Date.parse(r) <= nowMs);
+  if (runs.length) {
+    // Latest run per weekday, on the waiver clock.
+    const byDay = new Map();
+    for (const r of runs) {
+      const q = partsOf(new Date(r));
+      byDay.set(WEEKDAYS[new Date(dayStartUtc(q)).getUTCDay()], `${q.hour}:${q.minute}:${q.second}`);
+    }
+    const today = dayStartUtc(partsOf(now));
+    for (let i = 0; i <= 7; i++) {
+      const d = new Date(today + i * 86400000);
+      const clock = byDay.get(WEEKDAYS[d.getUTCDay()]);
+      if (!clock) continue;
+      const at = zonedDateTime(d.toISOString().slice(0, 10), clock, WAIVER_ZONE);
+      if (!at || at.getTime() <= nowMs) continue;
+      const observedDays = WEEKDAYS.filter(w => byDay.has(w));
+      return {
+        known: true, basis: 'observed', confirmed: true,
+        label: `this league's past runs (${runs.length} observed, last ${runs[runs.length - 1]})`,
+        ...runAt(at.getTime()), zone_basis: MEASURED_ZONE_BASIS,
+        process_days: observedDays, settings_process_days: days,
+        settings_days_never_observed: days.filter(w => !byDay.has(w)),
+        observed_runs: runs.length, last_observed: runs[runs.length - 1], waiver_hours: waiverHours,
+        source: 'processDate of executed ESPN waiver claims (league_waiver_runs, league_transactions_raw)'
+      };
+    }
+  }
+
+  if (!days.length || hour == null) {
+    return { known: false, reason: 'The synced league carries no acquisition settings (waiver days and hour) '
+      + 'and no observed waiver runs, so no processing time is shown.' };
+  }
+  const q = partsOf(now);
   // Calendar days counted from today's date in the zone, so a DST change cannot skip one.
-  const today = Date.UTC(Number(q.year), Number(q.month) - 1, Number(q.day));
+  const today = dayStartUtc(q);
   for (let i = 0; i <= 7; i++) {
     const d = new Date(today + i * 86400000);
     const day = WEEKDAYS[d.getUTCDay()];
     if (!days.includes(day)) continue;
     if (i === 0 && Number(q.hour) >= hour) continue;
+    const date = d.toISOString().slice(0, 10);
     return {
-      known: true, day, date: d.toISOString().slice(0, 10), hour, zone: WAIVER_ZONE,
+      known: true, basis: 'unconfirmed_guess', confirmed: false, label: WAIVER_GUESS_LABEL,
+      day, date, hour, minute: 0,
+      at: zonedDateTime(date, `${String(hour).padStart(2, '0')}:00`, WAIVER_ZONE)?.toISOString() ?? null,
+      zone: WAIVER_ZONE,
       zone_basis: 'guess: ESPN does not state the zone of waiverProcessHour',
-      process_days: days, waiver_hours: acq.waiverHours ?? null,
+      process_days: days, waiver_hours: waiverHours,
       source: 'ESPN league settings (acquisitionSettings)'
     };
   }

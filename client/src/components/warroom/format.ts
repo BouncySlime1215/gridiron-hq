@@ -37,3 +37,8 @@ export function fieldText<T>(f: Field<T> | undefined | null, fmt: (v: T) => stri
 
 export const isOk = <T,>(f: Field<T> | undefined | null): f is Field<T> & { value: T } =>
   !!f && f.status === 'ok' && f.value !== undefined;
+
+/** A title-odds size with no sign (a cost or a gain) 0.006 -> "0.6 pts". */
+export function size(v: number): string {
+  return `${Math.abs(v * 100).toFixed(1)} pts`;
+}

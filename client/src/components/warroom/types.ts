@@ -1,7 +1,9 @@
 /**
- * The War Room's one contract (server/services/war-room-view.js). Every number is a
- * Field: `value` exists only when status is 'ok'. The client formats; it never does
- * arithmetic on a value (WAR-ROOM-UI.md 2.1).
+ * The War Room's one contract: the plans file's league entry (warroom-plans/1,
+ * server/services/campaign/plans-schema.js), passed through by
+ * server/services/war-room-view.js with the view's own meta on top. Coach (#230)
+ * reads the same keys. Every number is a Field: `value` exists only when status is
+ * 'ok'. The client formats; it never does arithmetic on a value (WAR-ROOM-UI.md 2.1).
  */
 export type FieldStatus = 'ok' | 'unknown' | 'failed';
 
@@ -10,18 +12,14 @@ export interface Field<T> {
   value?: T;
   reason?: string;
   source: string;
-  producer: string;
-  producer_version: string;
   se?: number;
   clears_2se?: boolean;
-  guess?: boolean;
-  preview?: boolean;
+  as_of?: string;
+  n?: number;
 }
 export type Num = Field<number>;
 
 export interface PlayerRef { id: string; name: string }
-
-export interface Reply { kind: 'accept' | 'decline' | 'counter' | 'silence'; do: string; odds_after?: Num }
 
 export const REASONING_SLOTS = [
   ['case_for', 'Case for'],
@@ -32,74 +30,99 @@ export const REASONING_SLOTS = [
   ['counter', 'If he counters'],
 ] as const;
 export type ReasoningSlot = typeof REASONING_SLOTS[number][0];
+export type Reasoning = Record<ReasoningSlot, string> & { cites: string[]; check_first?: boolean };
 
-export interface MoveCard {
-  rank: number;
-  origin: string;
-  origin_label: string;
-  step_index: number;
-  of_steps: number;
-  target: PlayerRef | null;
-  target_owner: string | null;
+export type ReplyKind = 'accept' | 'decline' | 'counter' | 'silence';
+export interface Reply {
+  do: string;
+  when?: string;
+  message?: string;
+  odds_after?: Num;
+  move_id?: string;
+  counter_rules?: { accept_if: string; counter_with: string; walk_away_if: string };
+}
+
+/** One offer in a plan, with its playbook. */
+export interface Step {
   partner: string;
-  partner_label: string;
-  give: PlayerRef[];
-  get: PlayerRef[];
-  deal_line: string;
+  give: string[];
+  get: string[];
   p_yes: Num;
-  odds_effect: { before: Num; after: Num; delta: Num };
-  path_effect: { delta_final: Num; p_complete: Num; expected: Num; chained: boolean | null };
-  vs_finder: { finder_expected: Num; this_expected: Num };
-  message: Field<{ text: string }>;
-  walk_away: Field<string>;
+  title_odds_delta: Num;
+  title_after: Num;
+  message: Field<string>;
+  opening: Field<{ give: string[]; get: string[]; text?: string }>;
+  walk_away: Field<{ text: string; max_give: string[] }>;
   send_when: Field<string>;
-  why: Field<unknown>;
-  replies: Record<'accept' | 'decline' | 'counter' | 'silence', Field<Reply>>;
-  reasoning: Record<ReasoningSlot, Field<string>>;
+  reply_table: Field<Record<ReplyKind, Field<Reply>>>;
+  reasoning?: Field<Reasoning>;
+}
+
+/** A plan: one deck card. `alternatives.value` is the deck, best first; its head is `next_move`. */
+export interface Move {
+  move_id: string;
+  rank: number;
+  target: string | null;
+  target_owner: string | null;
+  chained: boolean;
+  steps: Step[];
+  p_complete: Num;
+  delta_final: Num;
+  expected: Num;
+  reasoning: Field<Reasoning>;
 }
 
 export interface Stop {
   id: string; order: number;
-  kind: 'get' | 'sell' | 'flip' | 'claim' | 'cover_bye' | 'custom';
+  kind: 'get' | 'sell' | 'flip' | 'claim' | 'cover_bye' | 'untouchable' | 'custom';
   label: string;
-  give: PlayerRef[]; get: PlayerRef[];
   status: 'next' | 'waiting' | 'done' | 'dropped' | 'blocked';
   added_by: 'plan' | 'nick' | 'coach';
-  p_yes: Num; odds_after: Num;
+  player_id?: string; week?: number; move_id?: string;
+  p_yes?: Num; title_odds_delta?: Num;
 }
-export interface Itinerary { target: PlayerRef | null; stops: Stop[]; untouchables: string[]; conflicts: { text: string }[] }
+export interface Itinerary { version: number; stops: Stop[]; stops_left: number; untouchables: string[]; conflicts: { text: string }[] }
 
 export interface Target {
-  player: PlayerRef;
-  owner: Field<string>;
+  player: string;
+  owner: string;
   gain_if_landed: Num;
   p_reach: Num;
-  mode_fit: Field<string>;
+  mode_fit: Field<'fits' | 'needs_all_in' | 'too_risky_for_safe'>;
+  why: Field<string>;
   approved: boolean;
   is_plan_target: boolean;
+  reasoning?: Field<Reasoning>;
 }
 
 export interface Flip {
-  player: PlayerRef; buy_from: string; sell_to: string;
+  player: string; buy_from: string; sell_to: string;
   spread: Num; price_a: Num; price_b: Num;
-  legs: { give_a: PlayerRef; get_b: PlayerRef; p1: Num; p2: Num; p_both: Num; nick_after: Num } | null;
-  legs_why_not: string | null;
+  legs: { give_a: string; get_b: string; p1: Num; p2: Num; p_both: Num; nick_after: Num } | null;
+  legs_why_not?: string;
+  reasoning?: Field<Reasoning>;
 }
 
-export interface CatchUpItem { text: string; gain: Num; steps: number }
-export interface SpeedPoint { arrive_by: number; net: Num; picked?: boolean }
+export interface CatchUpItem { text: string; gain: Num; steps: number; move_id?: string }
+export interface SpeedPoint { arrive_by: number; cost: Num; net: Num; variance_note: string; offers_used: number; before_deadline: boolean }
 
-export interface BrainCheck {
+export type CheckStatus = 'passing' | 'not_enough_data' | 'failing' | 'running' | 'not_run';
+export interface BrainReport {
   overall: 'passing' | 'not_enough_data' | 'failing';
-  checks: { id: string; status: 'passing' | 'not_enough_data' | 'failing' | 'running' | 'not_run'; result?: string }[];
+  checks: { id: string; name: string; bar: string; status: CheckStatus; result?: string; n?: number; as_of?: string }[];
   blocks: string[];
+  fell_back_to?: 'balanced';
 }
+/** Not in warroom-plans/1 yet (FIX-03 adds it); the view writes it unknown until then. */
 export interface NumberHealth { status: 'ok' | 'warn' | 'broken'; open: { check_id: string; text: string }[] }
-export interface Attention { league_id: number; rank: number; text: string }
+/** This league's place in "needs you this week". */
+export interface Attention { rank: number; of: number; reason: string }
 
+export type RiskMode = 'safe' | 'balanced' | 'all_in';
 export interface Destination {
-  goal: Field<{ label: string }>;
-  risk_mode: Field<'safe' | 'balanced' | 'all_in'>;
+  goal: Field<{ kind: 'title' | 'playoffs' | 'get_player' | 'points'; label: string; player_id?: string; points_per_week?: number }>;
+  risk_mode: Field<{ mode: RiskMode; until_week?: number }>;
+  tolerances: Field<Record<string, number>>;
   arrive_by: Num;
   eta_week: Num;
   title_now: Num;
@@ -108,29 +131,46 @@ export interface Destination {
   ground_lost: Num;
 }
 
+export interface Snapshot { id: string; as_of: string; schema?: string; producer?: string; producer_version?: string }
+
 export interface WarRoomView {
   enabled: boolean;
   preview?: boolean;
   preview_reason?: string;
   banner?: string;
   league_id?: number;
-  me?: string | null;
-  snapshot?: { id: string; as_of: string } | null;
-  names?: Record<string, string>;
+  snapshot?: Snapshot | null;
   sources?: Record<string, { label: string; calibrated: boolean }>;
-  attention?: Field<Attention[]>;
-  destination?: Destination;
-  next_move?: Field<{ cards: MoveCard[]; deck_note: string }>;
+  // The league entry, as the contract writes it.
+  league?: number;
+  me?: string | null;
+  names?: Record<string, string>;
+  error?: string;
+  attention?: Field<Attention>;
+  destination?: Field<Destination>;
+  feasibility?: Field<unknown>;
+  finder_best_expected?: Num;
+  next_move?: Field<Move>;
+  alternatives?: Field<Move[]>;
   itinerary?: Field<Itinerary>;
-  suggestions?: Field<Target[]>;
-  speed_curve?: Field<SpeedPoint[]>;
+  stop_tradeoffs?: Field<Record<string, unknown>>;
+  flip_map?: Field<Flip[]>;
+  targets?: Field<Target[]>;
   catch_up?: Field<CatchUpItem[]>;
-  flips?: Field<Flip[]>;
-  brain_check?: Field<BrainCheck>;
+  speed_curve?: Field<SpeedPoint[]>;
+  brain_report?: Field<BrainReport>;
   number_health?: Field<NumberHealth>;
 }
 
-export type PanelId = 'next' | 'stops' | 'flip' | 'self' | 'targets' | 'catch' | 'brain';
+export type PanelId = 'next' | 'stops' | 'flip_map' | 'self' | 'targets' | 'catch' | 'brain_report';
+
+/** Player and team labels from the entry's `names` (ids only elsewhere). */
+export function namer(names: Record<string, string> | undefined) {
+  const one = (id: string): PlayerRef => ({ id, name: names?.[id] ?? `Player ${id}` });
+  const text = (ids: string[] | undefined) => (ids ?? []).map(id => one(id).name).join(' + ');
+  return { one, text };
+}
+export const teamLabel = (id: string | null | undefined) => (id == null ? '' : `Team ${id}`);
 
 /** SELF-01b: GET /trades/:id/war-room/self (server/services/war-room-self.js). */
 export interface SelfKind {

@@ -12,7 +12,15 @@
  *   team for this card (idea_id = card id, or the same players either way
  *   round) made at or after the claim, answered accepted/declined/countered.
  *   True when the answer is the predicted reply and, when the claim named a
- *   position and the counter lists `get_positions`, that position is in it.
+ *   position and the counter's positions are known, that position is in them.
+ *   The counter's positions come from counter_json as #239 writes it
+ *   (trade-outcomes.js settleSentOffers: { tx_id, items } with the counter
+ *   proposal's raw ESPN items): the players on HIS receive side (toTeamId =
+ *   the counterparty), placed through players.espn_id -> players.position.
+ *   The players table holds one current position per player and no history,
+ *   so the position is today's, not the one at the counter's time; the
+ *   evidence says so. Positions count as known only when every asked player
+ *   is placed; otherwise the position is left unchecked and the ids named.
  * acquires_position_v1 (wants_position) — league_roster_snapshots (058): a
  *   player at the position first seen on his roster inside the window who was
  *   not on it before the claim. False only when snapshots reach past the
@@ -52,10 +60,34 @@ function waitOrVoid(claim, now, why, extra = {}) {
   return now.getTime() >= graceEnd ? { status: 'void', evidence: { why, ...extra } } : null;
 }
 
+export const POSITION_SOURCE = 'players.position (current only; the players table has no position history)';
+
+/**
+ * The positions he asked for in a #239 counter: players moving to him
+ * (toTeamId = counterparty), resolved by ESPN id. Asked ids and unresolved ids
+ * are always reported; `positions` is null unless every one was placed.
+ */
+function askedPositions(db, counter, counterparty) {
+  const items = Array.isArray(counter?.items) ? counter.items : null;
+  if (!items) return { ids: null, positions: null, unresolved: null, source: 'counter_json carries no items' };
+  const ids = [...new Set(items.filter(i => i && String(i.toTeamId) === String(counterparty) && i.playerId != null)
+    .map(i => String(i.playerId)))].sort();
+  if (!ids.length) return { ids, positions: null, unresolved: [], source: 'the counter asks for no player' };
+  if (!hasTable(db, 'players')) return { ids, positions: null, unresolved: ids, source: 'no players table to place the asked players' };
+  const lookup = db.prepare('SELECT UPPER(position) pos FROM players WHERE espn_id = ? AND position IS NOT NULL ORDER BY id LIMIT 1');
+  const found = new Set();
+  const unresolved = [];
+  for (const id of ids) {
+    const r = lookup.get(idNum(id));
+    if (r?.pos) found.add(r.pos); else unresolved.push(id);
+  }
+  return { ids, positions: unresolved.length ? null : [...found].sort(), unresolved, source: POSITION_SOURCE };
+}
+
 function offerReply(db, claim, pred, now) {
   const late = now.getTime() >= Date.parse(claim.resolve_by);
   if (!hasTable(db, 'trade_outcomes')) return late ? { status: 'void', evidence: { why: 'no_offer_ledger' } } : null;
-  const rows = db.prepare(`SELECT id, status, counter_json, give_json, get_json, idea_id, proposed_at
+  const rows = db.prepare(`SELECT id, status, counter_json, counterparty_team_id, give_json, get_json, idea_id, proposed_at
     FROM trade_outcomes WHERE league_id = ? AND counterparty_team_id = ? AND proposed_at >= ?
     ORDER BY proposed_at, id`).all(claim.league_id, pred.partner_team, claim.made_at);
   const unreadable = [];
@@ -70,14 +102,19 @@ function offerReply(db, claim, pred, now) {
   const answered = mine.find(r => ANSWERED.has(r.status));
   if (!answered) return late ? { status: 'void', evidence: { why: 'offer_never_answered', offers_matched: mine.length, unreadable_cells: unreadable.length } } : null;
   const counter = parse(answered.counter_json, null, unreadable);
-  const asked = Array.isArray(counter?.get_positions) ? counter.get_positions.map(p => String(p).toUpperCase()) : null;
+  const ask = answered.status === 'countered'
+    ? askedPositions(db, counter, answered.counterparty_team_id ?? pred.partner_team)
+    : { ids: null, positions: null, unresolved: null, source: null };
+  const asked = ask.positions;
   const replyOk = answered.status === REPLY_STATUS[pred.reply];
   const posChecked = replyOk && pred.reply === 'counter' && pred.pos != null && asked != null;
   const posOk = !posChecked || asked.includes(pred.pos.toUpperCase());
   return {
     status: replyOk && posOk ? 'true' : 'false',
     evidence: { trade_outcome_id: answered.id, outcome_status: answered.status, predicted: pred.reply,
-      pos_checked: posChecked, asked_positions: asked, unreadable_cells: unreadable.length }
+      predicted_pos: pred.pos ?? null, pos_checked: posChecked, asked_positions: asked,
+      asked_player_ids: ask.ids, unresolved_player_ids: ask.unresolved, position_source: ask.source,
+      unreadable_cells: unreadable.length }
   };
 }
 

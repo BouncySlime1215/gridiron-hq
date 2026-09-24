@@ -18,9 +18,16 @@ import * as e4 from './e4.js';
 import * as e5 from './e5.js';
 import * as e6 from './e6.js';
 import * as e7 from './e7.js';
+import * as c8 from '../reasoning/grade.js';
 import { result, STATUS } from './common.js';
 
-export const GRADERS = Object.freeze([e1, e2, e3, e4, e5, e6, e7]);
+/**
+ * C8 (REASON-02, #271): the share of reasoning claims that came true. Behind
+ * reasoning/grade.js#reasoningGradingEnabled() (preview-mode.js): while it is
+ * off, c8.run writes a not_enough_data row that names the flag, so the report
+ * says why C8 is waiting instead of leaving it out.
+ */
+export const GRADERS = Object.freeze([e1, e2, e3, e4, e5, e6, e7, c8]);
 
 export function runAll(database, opts = {}) {
   const out = [];

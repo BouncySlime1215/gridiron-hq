@@ -26,6 +26,8 @@
  *   - reasoning-flag.js#reasoningFlag            reasoning panels in the War Room plans (the paid-run
  *                                                opt-in stays a separate, required gate)
  *   - routes/brain-report.js                     GET /api/brain-report (#235, GRIDIRON_BRAIN_REPORT)
+ *   - reasoning/grade.js#reasoningGradingEnabled C8 reasoning-claim grading in the brain report and
+ *                                                npm run reasoning:grade (#271 REASON-02; no site flag yet)
  *   - number-health-flag.js#numberHealthFields   Settings "Number health" card, nav dot and
  *                                                GET /api/number-audit (#237, GRIDIRON_NUMBER_HEALTH)
  *   - offer-loop-flag.js#offerLoopFields         TradeCard "I sent this" and /offers/sent

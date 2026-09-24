@@ -13,6 +13,7 @@
  *   finderBest        the Trade Lab finder's best single offer (title-odds-trades.js x
  *                     findTrades acceptance midpoint), the study's baseline; off with --no-finder
  *   sanity            composed rescore == served tradeImpact on one one-for-one deal
+ *   pitch             pitch-bandit.js#producerPitch: frames each step message (GRIDIRON_PITCH_BANDIT)
  */
 import { chatLabels } from '../../server/services/campaign/partners.js';
 
@@ -33,6 +34,7 @@ export async function loadServices() {
     week: await import('../../server/services/league-week.js'),
     horizon: await import('../../server/services/trade-horizon.js'),
     titleOdds: await import('../../server/services/title-odds-trades.js'),
+    pitch: await import('../../server/services/pitch-bandit.js'),
   };
 }
 
@@ -275,6 +277,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
     ...(finder ? { finderBest } : {}),
+    // M5 pitch bandit (#263): frames each step message and logs a pitch_choices row; a no-op while its flag is off.
+    ...(svc.pitch ? { pitch: svc.pitch.producerPitch({ league_id: leagueId, season, players }) } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     rosterKey: () => [...rosters.entries()].map(([t, ids]) => `${t}:${[...ids].sort((a, b) => a - b).join(',')}`).join('|'),

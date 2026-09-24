@@ -30,6 +30,8 @@ process.env.SCHEDULER_DISABLED = '1';
 // FIX-10: /offers/sent is behind GRIDIRON_OFFER_LOOP; these tests pin the ON behaviour,
 // and the OFF / preview cases set their own env below.
 process.env.GRIDIRON_OFFER_LOOP = '1';
+// #263: POST /pitch is behind GRIDIRON_PITCH_BANDIT; ON here, OFF/preview pinned in its own test.
+process.env.GRIDIRON_PITCH_BANDIT = '1';
 delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
 
 const { db, rows, run } = await import('../server/db/index.js');
@@ -267,6 +269,65 @@ test('route: POST /offers/sent refuses a deal with no band or no package', async
   assert.match(noBand.body.error, /model_p_accept/);
   const noDeal = await post('/api/trades/44/offers/sent', {});
   assert.equal(noDeal.status, 400);
+});
+
+test('route: POST /offers/sent links the pitch-bandit choice the page names (M5)', async () => {
+  const deal = { ...DEALS[2], id: 'Pitch Named>Pitch Named', i_give: [{ id: 8, name: 'Pitch Give', espn_id: 80 }] };
+  const season = rows('SELECT season FROM leagues WHERE id = 44')[0].season;
+  const insert = () => Number(run(`INSERT INTO pitch_choices (league_id, season, counterparty_team_id, idea_id, arm,
+      prior_basis, samples_json, posterior_json, eligible_json, floor, reason, chosen_at)
+    VALUES (44, ?, '4', 'Pitch Named>Pitch Named', 'need_first', 'fixture', '{}', '{}', '[]', 0.1, 'fixture', ?)`,
+  season, new Date().toISOString()).lastInsertRowid);
+  const named = insert();
+  insert(); // a later choice for the same deal: the latest, but not the one named
+  const res = await post('/api/trades/44/offers/sent', { deal, pitch_choice_id: named });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.pitch_choice_id, named);
+  assert.equal(rows('SELECT outcome_id FROM pitch_choices WHERE id = ?', named)[0].outcome_id, res.body.id);
+});
+
+test('route: POST /pitch picks a framing, logs it against the deal, and "I sent this" links it (M5)', async () => {
+  const deal = { ...DEALS[2], id: 'Pitch Route>Pitch Route', i_give: [{ id: 9, name: 'Route Give', espn_id: 90 }] };
+  const message = { text: 'Looks like you could use a WR. Would you do Route Give for Route Get?', facts: [] };
+  const res = await post('/api/trades/44/pitch', { deal, message });
+  assert.equal(res.status, 200);
+  const id = res.body.message.pitch_choice_id;
+  assert.ok(Number.isInteger(id));
+  assert.equal(res.body.message.framing, res.body.choice.arm);
+  const logged = rows('SELECT * FROM pitch_choices WHERE id = ?', id)[0];
+  assert.equal(logged.idea_id, 'Pitch Route>Pitch Route');
+  assert.equal(logged.counterparty_team_id, '4');
+  const sent = await post('/api/trades/44/offers/sent', { deal, pitch_choice_id: id });
+  assert.equal(sent.body.pitch_choice_id, id);
+  const bad = await post('/api/trades/44/pitch', { deal });
+  assert.equal(bad.status, 400);
+});
+
+test('#263: pitch bandit flag off, POST /pitch answers {enabled:false} and logs nothing; preview is labelled', async () => {
+  const deal = { ...DEALS[2], id: 'Pitch Flag>Pitch Flag', i_give: [{ id: 10, name: 'Flag Pitch', espn_id: 100 }] };
+  const message = { text: 'Would you do Flag Pitch for Pitch Flag?', facts: [] };
+  const count = () => rows(`SELECT COUNT(*) n FROM pitch_choices`)[0].n;
+  try {
+    delete process.env.GRIDIRON_PITCH_BANDIT;
+    const before = count();
+    const off = await post('/api/trades/44/pitch', { deal, message });
+    assert.equal(off.status, 200);
+    assert.equal(off.body.enabled, false);
+    assert.match(off.body.reason, /GRIDIRON_PITCH_BANDIT=1/);
+    assert.equal(off.body.message, undefined, 'off: no reshaped message');
+    assert.equal(count(), before, 'off: no pitch_choices row');
+
+    process.env.GRIDIRON_PREVIEW_UNCONFIRMED = '1';
+    const p = await post('/api/trades/44/pitch', { deal, message });
+    assert.equal(p.status, 200);
+    assert.deepEqual([p.body.enabled, p.body.preview], [true, true]);
+    assert.match(p.body.preview_reason, /default-off/);
+    assert.ok(Number.isInteger(p.body.message.pitch_choice_id));
+    assert.equal(count(), before + 1);
+  } finally {
+    process.env.GRIDIRON_PITCH_BANDIT = '1';
+    delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+  }
 });
 
 test('FIX-10: flag off, /offers/sent answers {enabled:false} and writes nothing; preview is labelled', async () => {

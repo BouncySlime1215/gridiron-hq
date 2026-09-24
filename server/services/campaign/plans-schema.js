@@ -103,8 +103,8 @@ const nullable = inner => ({ t: 'nullable', inner });
 const obj = (req, opt = {}) => ({ t: 'obj', req, opt });
 /** Any JSON value. Only under `_run` (bookkeeping no consumer reads). */
 const json = { t: 'json' };
-/** A typed field; `value` follows `inner` when status is 'ok'. */
-const field = inner => ({ t: 'field', inner });
+/** A typed field; `value` follows `inner` when status is 'ok'. `extra`: meta keys only this field may carry. */
+const field = (inner, extra = {}) => ({ t: 'field', inner, extra });
 /** A number with its uncertainty, as a typed field. */
 const numF = field(num);
 const probF = field(prob);
@@ -127,7 +127,8 @@ const step = obj({
   p_yes: probF,
   title_odds_delta: numF,
   title_after: probF,
-  message: field(str),
+  // M5 pitch bandit (#263): a framed message carries its pitch_choice_id; "I sent it" links that choice.
+  message: field(str, { pitch_choice_id: int(1), framing: str }),
   opening: field(obj({ give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }) }, { text: str })),
   walk_away: field(obj({ text: str, max_give: arr(pid) })),
   send_when: field(str),
@@ -303,8 +304,9 @@ function check(node, v, path, ctx) {
     case 'field': {
       if (!isObj(v) || !('status' in v)) { err('must be a typed field { status, source, ... }'); return; }
       for (const k of Object.keys(v)) {
-        if (k !== 'value' && !FIELD_META.includes(k)) ctx.errors.push({ path: `${path}.${k}`, message: 'is not a typed-field key' });
+        if (k !== 'value' && !FIELD_META.includes(k) && !(k in node.extra)) ctx.errors.push({ path: `${path}.${k}`, message: 'is not a typed-field key' });
       }
+      for (const [k, sub] of Object.entries(node.extra)) if (k in v) check(sub, v[k], `${path}.${k}`, ctx);
       if (!STATUSES.includes(v.status)) { err(`status must be one of ${STATUSES.join(', ')}`); return; }
       if (!SOURCE_IDS.includes(v.source)) err(`source must be one of ${SOURCE_IDS.join(', ')}`);
       if ('se' in v && !(typeof v.se === 'number' && v.se >= 0)) err('se must be a number >= 0');
@@ -405,6 +407,7 @@ export function schemaPaths() {
         return;
       case 'field':
         for (const k of FIELD_META) out.add(`${p}.${k}`);
+        for (const k of Object.keys(node.extra)) out.add(`${p}.${k}`);
         walk(node.inner, `${p}.value`);
         return;
       default:

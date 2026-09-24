@@ -72,6 +72,7 @@ function sentOffer({ leagueId, card, sentAs, plans, now }) {
     proposer_team_id: card.me ?? (lg.my_team_id == null ? null : String(lg.my_team_id)),
     deal: built.deal, model_version: `campaign-producer plans ${plans?.as_of ?? 'unknown'}`,
     sent_at: new Date(now).toISOString(), move_id: card.move_id, price_band: built.price_band,
+    pitch_choice_id: card.pitch_choice_id ?? null,
   });
   return { state: out.state, id: out.id, price_band: built.price_band };
 }

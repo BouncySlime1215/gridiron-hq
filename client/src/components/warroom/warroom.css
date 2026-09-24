@@ -132,6 +132,9 @@
 .wr-gg { display: grid; grid-template-columns: auto 1fr; gap: 1px 8px; font-size: 12.5px; margin: 4px 0 6px; }
 .wr-k { font-size: 9.5px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: var(--wr-muted); padding-top: 2px; }
 .wr-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 4px 0 6px; }
+.wr-ladder { list-style: none; margin: 4px 0 6px; padding: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 12.5px; }
+.wr-ladder li { display: contents; }
+.wr-ladder li[data-rung="plan"] > span:last-child { font-weight: 700; }
 .wr-tile { border: 1px solid var(--wr-line); border-radius: 8px; padding: 5px 8px; min-width: 0; }
 .wr-tile .wr-l { font-size: 9.5px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; color: var(--wr-muted); }
 .wr-tile .wr-v { font-size: 17px; font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

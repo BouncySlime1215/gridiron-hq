@@ -46,6 +46,22 @@ const signed = x => `${x >= 0 ? '+' : ''}${x.toFixed(0)}%`;
 const ok = (value, source, meta = {}) => ({ status: 'ok', value, source, ...meta });
 const unknown = (reason, source) => ({ status: 'unknown', source, reason });
 
+const ET = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'numeric',
+  day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+
+/**
+ * CARD-CLARITY: the send-when line in words Nick reads, never a raw ISO time.
+ * { when: 'wait', until, why } -> "Wait until Fri 9/25, 11:51 AM ET: <why>." (America/New_York);
+ * { when: 'now', why } -> "Now: <why>.". A wait whose time does not parse says "Wait: <why>.".
+ */
+export function sendWhenText({ when, until, why }) {
+  if (when !== 'wait') return `Now: ${why}.`;
+  const t = typeof until === 'string' || typeof until === 'number' ? new Date(until) : null;
+  if (!t || !Number.isFinite(t.getTime())) return `Wait: ${why}.`;
+  const p = Object.fromEntries(ET.formatToParts(t).map(x => [x.type, x.value]));
+  return `Wait until ${p.weekday} ${p.month}/${p.day}, ${p.hour}:${p.minute} ${p.dayPeriod} ET: ${why}.`;
+}
+
 /** A number as a typed field: ok when finite (and inside 0..1 for a probability), else unknown with the reason. */
 function num(value, source, { se, clears, unit, guess, n, prob = false, missing = 'Not computed for this league.' } = {}) {
   if (!fin(value)) return unknown(missing, source);
@@ -140,7 +156,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       out.walk_away = pb.walk_away ? ok({ text: pb.walk_away.text, max_give: ids(pb.walk_away.give) }, 'clone.price')
         : unknown(`No walk-away: ${pb.ladder?.reason ?? 'the ladder is empty'}.`, 'clone.price');
       out.send_when = pb.send_when
-        ? ok(pb.send_when.when === 'wait' ? `After ${pb.send_when.until}: ${pb.send_when.why}.` : `Now: ${pb.send_when.why}.`, 'plan.path')
+        ? ok(sendWhenText(pb.send_when), 'plan.path')
         : unknown("No timing read for this manager.", 'plan.path');
       const row = kind => pb.replies.find(r => r.kind === kind);
       out.reply_table = ok({

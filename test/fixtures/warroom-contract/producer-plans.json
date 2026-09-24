@@ -8445,7 +8445,7 @@
     "value": {
      "rank": 5,
      "of": 5,
-     "reason": "best move worth 0.0 pts"
+     "reason": "no move clears your sliders"
     },
     "source": "campaign.plan"
    },

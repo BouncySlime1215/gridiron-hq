@@ -159,7 +159,7 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, onA
             <Val f={s.p_yes} fmt={v => `${pct(v)} yes`} /> · <Val f={s.title_odds_delta} fmt={pts} />
           </div>
           {picked}
-          {picked && <CopyBlock label={isOk(s.message) ? 'Message' : 'Copy the deal'} text={isOk(s.message) ? s.message.value : dealLine}
+          {picked && <CopyBlock label={isOk(s.message) ? messageLabel(s) : 'Copy the deal'} text={isOk(s.message) ? s.message.value : dealLine}
             note={isOk(s.message) ? undefined : (s.message.reason ?? `Message ${NOT_COMPUTED}.`)} />}
           {buttons}
         </>
@@ -196,6 +196,7 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, onA
             <div className="wr-v wr-v-text"><Val f={s.walk_away} fmt={v => v.text} /></div>
           </div>
         </div>
+        <Ladder s={s} text={n.text} />
         <div className="wr-sub">
           Whole path: <Val f={m.expected} fmt={pts} showSe /> expected
           {' · '}finishes <Val f={m.p_complete} fmt={v => pct(v)} /> of the time
@@ -203,7 +204,7 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, onA
         </div>
         {picked}
         <CopyBlock
-          label={isOk(s.message) ? 'Message' : 'Copy the deal'}
+          label={isOk(s.message) ? messageLabel(s) : 'Copy the deal'}
           text={messageText}
           note={isOk(s.message) ? undefined : (s.message.reason ?? `Message ${NOT_COMPUTED}.`)}
         />
@@ -226,7 +227,7 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, onA
     <>
       <span className="wr-tag wr-src">{move.rank === 1 ? 'Best plan' : `Plan ${move.rank}`}</span>
       <span className="wr-sp" />
-      <span className="wr-hint">send by <Val f={move.steps[0].send_when} fmt={v => v} /></span>
+      <span className="wr-hint">When to send: <Val f={move.steps[0].send_when} fmt={v => v} /></span>
     </>
   ) : null;
 
@@ -250,6 +251,34 @@ export function nearMissView(view: WarRoomView, moves: Move[]): WarRoomView {
   if (!isOk(view.risk_modes)) return view;
   const rows = view.risk_modes.value.filter(r => !r.first_step || !moves.some(m => m.steps[0] && sameStep(r.first_step!, m.steps[0])));
   return { ...view, risk_modes: { ...view.risk_modes, value: rows } };
+}
+
+type Step = Move['steps'][number];
+const samePkg = (a: string[], b: string[]) => [...a].sort().join('|') === [...b].sort().join('|');
+/** CARD-CLARITY: the step's opening ask, when it is a different package from the planned step. */
+const openingAsk = (s: Step) => (isOk(s.opening) && !samePkg(s.opening.value.give, s.give) ? s.opening.value : null);
+/** The message is written from the opening ask; say so whenever that differs from the plan. */
+const messageLabel = (s: Step) => (openingAsk(s) ? 'Opening message (the opening ask, not the plan)' : 'Message');
+
+/**
+ * CARD-CLARITY: the negotiation ladder, from the contract fields the step already carries:
+ * Open with (step.opening, only when it differs from the plan), Plan (the step's give/get),
+ * Walk away at (walk_away.max_give). One package per labelled rung, never an unlabelled third.
+ */
+function Ladder({ s, text }: { s: Step; text: (ids: string[]) => string }) {
+  const open = openingAsk(s);
+  return (
+    <ol className="wr-ladder" aria-label="Negotiation ladder">
+      {open && (
+        <li data-rung="open"><span className="wr-k">Open with</span>
+          <span>{text(open.give)} for {text(open.get)}<span className="wr-hint"> Coach&apos;s opening ask, lower than the plan</span></span></li>
+      )}
+      <li data-rung="plan"><span className="wr-k">Plan</span><span>{text(s.give)} for {text(s.get)}</span></li>
+      <li data-rung="walk"><span className="wr-k">Walk away at</span>
+        <span title={isOk(s.walk_away) ? s.walk_away.value.text : undefined}>
+          <Val f={s.walk_away} fmt={v => `${text(v.max_give)} for ${text(s.get)}`} showReason /></span></li>
+    </ol>
+  );
 }
 
 /** The copyable message. The clipboard can be blocked over plain HTTP; then the text stays selectable. */

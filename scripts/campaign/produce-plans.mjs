@@ -206,12 +206,13 @@ export async function buildPlansFile(leagues, {
 
   // Attention budget across the leagues (north-star row 19): each league carries its own row.
   const ranked = rankAttention(entries.map(e => ({ league: e.league, error: e.error ?? null, expected: best.get(String(e.league)) ?? 0,
+    hasMove: e.next_move?.status === 'ok',
     changed: !!e._run?.changed?.changed,
     weeksToDeadline: Number.isInteger(e._run?.deadline_week) && Number.isInteger(e._run?.week) ? e._run.deadline_week - e._run.week : null })));
   for (const e of entries) {
     if (e.error) continue;
     const r = ranked.find(x => x.league === e.league);
-    e.attention = { status: 'ok', value: { rank: r.rank, of: entries.length, reason: r.why }, source: 'campaign.plan' };
+    e.attention = { status: 'ok', value: { rank: r.rank, of: r.of, reason: r.why }, source: 'campaign.plan' };
   }
 
   const file = plansFile(entries, { generated_at, flags });

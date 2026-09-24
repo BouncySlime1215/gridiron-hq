@@ -210,6 +210,26 @@ test('a waiver run is one decision: three claims processed at one instant are no
   assert.ok(Math.abs(b[0].model_p - poissonTail(3, ((1 + 0.5) / 19) * 3)) < 1e-12);
 });
 
+test('moves minutes apart are one decision: a claim run processed over a few minutes is not a burst', () => {
+  // Local run on PR #277 at 0e7f5e6e (v2): team 10 still showed '3 moves (3 decisions) in 0 h'.
+  // The claims were not at one instant but within the same hour; ESPN processes a run of
+  // claims one after another, so an exact-timestamp rule missed them.
+  reset();
+  add(8, day(1));
+  add(3, day(5));
+  const at2 = (d, h, m) => new Date(Date.UTC(2026, 8, d, h, m)).toISOString();
+  add(3, at2(20, 12, 0)); add(3, at2(20, 12, 2)); add(3, at2(20, 12, 41));
+  const r = detectSurprises({ leagueId: LEAGUE, season: SEASON, enabled: true, write: false });
+  assert.deepEqual(r.surprises.filter(x => x.team_id === '3'), [], JSON.stringify(r.surprises));
+  // Two more sessions hours apart make three decisions: a burst of 5 moves.
+  add(3, at2(20, 18, 0)); add(3, at2(21, 9, 0));
+  const r2 = detectSurprises({ leagueId: LEAGUE, season: SEASON, enabled: true, write: false });
+  const b = r2.surprises.filter(x => x.team_id === '3');
+  assert.equal(b.length, 1);
+  assert.equal(b[0].evidence.moves, 5);
+  assert.equal(b[0].evidence.decisions, 3);
+});
+
 test('too little history to know a base rate is reported, never silently skipped', () => {
   reset();
   add(3, at(20, 6)); add(3, day(20)); add(3, day(21));

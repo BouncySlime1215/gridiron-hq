@@ -209,7 +209,7 @@ test('render: the playbook and numbers come from the move; missing ones say "not
   const tile = textOf(html.split('Chance he says yes')[1].split('Title odds')[0]);
   assert.match(tile, /not computed yet/);
   assert.doesNotMatch(tile, /\b0%/);
-  for (const label of ['Walk away if', 'Case for', 'His side of the table', "Devil's advocate", 'News check', 'Confidence, explained', 'If he counters']) {
+  for (const label of ['Walk away at', 'Case for', 'His side of the table', "Devil's advocate", 'News check', 'Confidence, explained', 'If he counters']) {
     const after = text.split(label)[1] ?? '';
     assert.match(after.slice(0, 40), /not computed yet/, `${label} reads not computed yet`);
   }

@@ -21,6 +21,37 @@ import { previewUnconfirmed } from '../preview-mode.js';
 
 export const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
+/**
+ * NO-OVERPAY: Nick's cap on what he gives up in market value (the adapter's player value, the app's
+ * one market price: player_metrics fc_value). A fraction of what he gets: 0 (the default, Nick's
+ * stated preference) means he never gives more market value than he receives; 0.05 allows +5%.
+ * A hard filter on every planned step, every flip leg Nick is on and the walk-away (planner.js).
+ */
+export const DEFAULT_MAX_OVERPAY = 0;
+const OVERPAY_EPS = 1e-9;
+
+/** The destination's max_overpay when it is a number >= 0 (Infinity = no cap), else the default. */
+export function maxOverpayOf(tol) {
+  const v = Number(tol?.max_overpay);
+  return tol?.max_overpay != null && !Number.isNaN(v) && v >= 0 ? v : DEFAULT_MAX_OVERPAY;
+}
+
+/** Nick's overpay as a fraction of what he gets: (given - received) / received (negative = he gets more). */
+export function overpayPct(giveValue, getValue) {
+  if (!(getValue > 0)) return giveValue > 0 ? Infinity : 0;
+  return (giveValue - getValue) / getValue;
+}
+
+/** Whether Nick gives more market value than he gets by more than `max`. */
+export function nickOverpays(giveValue, getValue, max = DEFAULT_MAX_OVERPAY) {
+  return overpayPct(giveValue, getValue) > max + OVERPAY_EPS;
+}
+
+/** A fresh sink for the steps the cap turned away: how many, and the closest one to the target. */
+export function newOverpaySink(max = DEFAULT_MAX_OVERPAY) {
+  return { max_overpay: max, rejected: 0, closest: null };
+}
+
 /** A rescore wrapper with a memo, a counter and a budget. */
 export function makeScorer(W, adapter) {
   const baseRoster = adapter.rosters;
@@ -101,17 +132,21 @@ export function flipReach(myValues) {
  * of B's players the player reads screen-fair against (a pair on its SUM, the same screenFair);
  * the one that adds most to Nick. Returns the ids or null per leg.
  */
-export function flipLegs({ player, myIds, bIds, val, lossN, addN, pairLimit = SEARCH_DEFAULTS.pairLimit }) {
+export function flipLegs({ player, myIds, bIds, val, lossN, addN, pairLimit = SEARCH_DEFAULTS.pairLimit,
+  maxOverpay = DEFAULT_MAX_OVERPAY }) {
   const pv = val(player);
   const band = fairBand(pv);
   const items = myIds.filter(id => id !== player).map(id => ({ id, value: val(id) }));
   const sum = (ids, m) => ids.reduce((s, id) => s + (m.get(id) ?? 0), 0);
-  const gives = [...onesInBand(items, band), ...pairsInBand(items, band, { limit: pairLimit })];
+  const worth = ids => ids.reduce((s, id) => s + val(id), 0);
+  const fairGives = [...onesInBand(items, band), ...pairsInBand(items, band, { limit: pairLimit })];
+  // NO-OVERPAY: leg 1 never gives more market value than the player is worth; leg 2 never gives him for less.
+  const gives = fairGives.filter(ids => !nickOverpays(worth(ids), pv, maxOverpay));
   const legX = gives.sort((x, y) => sum(y, lossN) - sum(x, lossN) || x.length - y.length)[0] ?? null;
-  const gets = combos(bIds.filter(id => id !== player), 2)
-    .filter(ids => screenFair(pv, ids.reduce((s, id) => s + val(id), 0)));
+  const fairGets = combos(bIds.filter(id => id !== player), 2).filter(ids => screenFair(pv, worth(ids)));
+  const gets = fairGets.filter(ids => !nickOverpays(pv, worth(ids), maxOverpay));
   const legY = gets.sort((x, y) => sum(y, addN) - sum(x, addN) || x.length - y.length)[0] ?? null;
-  return { legX, legY };
+  return { legX, legY, capped: { a: !legX && fairGives.length > 0, b: !legY && fairGets.length > 0 } };
 }
 
 /**
@@ -124,7 +159,7 @@ export function flipLegs({ player, myIds, bIds, val, lossN, addN, pairLimit = SE
  * adapter.untouchable and each manager's nick.untouchable); a leg may be 2-for-1 (flipLegs); a flip
  * that still does not realise says which leg is missing (why, why_code).
  */
-export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 1 } = {}) {
+export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 1, maxOverpay = DEFAULT_MAX_OVERPAY } = {}) {
   const me = adapter.league.me;
   const P = adapter.players;
   const val = id => Math.max(0, Number(P.get(id)?.value) || 0);
@@ -161,19 +196,23 @@ export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 
     let gx, gy;
     if (legsOn) {
       const legs = flipLegs({ player: f.player, myIds, bIds: adapter.rosters.get(f.b).filter(flipOk), val,
-        lossN: vals.lossN, addN: vals.addN, pairLimit });
+        lossN: vals.lossN, addN: vals.addN, pairLimit, maxOverpay });
       gx = legs.legX; gy = legs.legY;
       if (!gx || !gy) {
-        const code = !gx && !gy ? 'no_leg_either' : !gx ? 'no_leg_a' : 'no_leg_b';
-        const why = !gx && !gy ? `no fair package (1 or 2 players) on either screen: none of yours for him to Team ${f.a}, none of Team ${f.b}'s for him`
-          : !gx ? `no fair package of 1 or 2 of your players for him on Team ${f.a}'s screen`
-            : `no fair package of 1 or 2 of Team ${f.b}'s players for him on their screen`;
+        // NO-OVERPAY: a leg that only the cap removed says so (every fair package gives more than it gets).
+        const cappedOnly = (!gx ? legs.capped.a : true) && (!gy ? legs.capped.b : true);
+        const code = cappedOnly ? 'no_leg_overpay' : !gx && !gy ? 'no_leg_either' : !gx ? 'no_leg_a' : 'no_leg_b';
+        const why = cappedOnly ? `every fair package ${!gx ? `for him on Team ${f.a}'s screen` : `from Team ${f.b} for him`} gives more market value than you get (your cap: +${Math.round(maxOverpay * 100)}%)`
+          : !gx && !gy ? `no fair package (1 or 2 players) on either screen: none of yours for him to Team ${f.a}, none of Team ${f.b}'s for him`
+            : !gx ? `no fair package of 1 or 2 of your players for him on Team ${f.a}'s screen`
+              : `no fair package of 1 or 2 of Team ${f.b}'s players for him on their screen`;
         realised.push({ ...f, legs: null, why, why_code: code });
         continue;
       }
     } else {
-      const legX = myIds.filter(x => screenFair(val(x), pv)).sort((x, y) => (vals.lossN.get(y) ?? 0) - (vals.lossN.get(x) ?? 0))[0];
-      const legY = adapter.rosters.get(f.b).filter(vals.tradable).filter(y => screenFair(pv, val(y)))
+      const legX = myIds.filter(x => screenFair(val(x), pv) && !nickOverpays(val(x), pv, maxOverpay))
+        .sort((x, y) => (vals.lossN.get(y) ?? 0) - (vals.lossN.get(x) ?? 0))[0];
+      const legY = adapter.rosters.get(f.b).filter(vals.tradable).filter(y => screenFair(pv, val(y)) && !nickOverpays(pv, val(y), maxOverpay))
         .sort((x, y) => (vals.addN.get(y) ?? 0) - (vals.addN.get(x) ?? 0))[0];
       if (legX == null || legY == null) { realised.push({ ...f, legs: null, why: 'no fair one-player leg on both screens' }); continue; }
       gx = [legX]; gy = [legY];
@@ -240,7 +279,8 @@ export function twoForOneSummary(stats) {
  * unchanged. Either way a target whose owner Nick marked unreachable (or never trading) gets no
  * path: that manager is never a step (FIX-02c nick block).
  */
-export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal = 3, shortlist = [8, 12, 8] } = {}) {
+export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal = 3, shortlist = [8, 12, 8],
+  maxOverpay = DEFAULT_MAX_OVERPAY, overpaySink = null } = {}) {
   const me = adapter.league.me;
   const P = adapter.players;
   const o = { ...SEARCH_DEFAULTS, ...(adapter.searchOpts ?? {}) };
@@ -258,7 +298,22 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     const mine = S.rosterOf(state, me).filter(vals.tradable);
     const theirs = onlyGet != null ? [onlyGet] : S.rosterOf(state, team).filter(vals.tradable);
     const out = [];
-    const push = st => { count('screened', st); out.push(st); };
+    // NO-OVERPAY: a step where Nick gives more market value than he gets (past the cap) is never planned;
+    // the sink keeps the closest such offer for the target so the deck can say what it would have cost.
+    const push = st => {
+      const pct = overpayPct(st.give.reduce((s, id) => s + val(id), 0), st.get.reduce((s, id) => s + val(id), 0));
+      if (pct > maxOverpay + OVERPAY_EPS) {
+        if (overpaySink) {
+          overpaySink.rejected++;
+          const c = overpaySink.closest;
+          if (st.get.some(id => String(id) === String(target)) && Number.isFinite(pct) && (!c || pct < c.pct)) {
+            overpaySink.closest = { team: st.team, give: [...st.give], get: [...st.get], pct };
+          }
+        }
+        return;
+      }
+      count('screened', st); out.push(st);
+    };
     if (!two) {
       for (const get of theirs) for (const give of combos(mine, maxGive)) {
         if (give.includes(onlyGet)) continue;

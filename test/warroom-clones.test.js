@@ -134,6 +134,58 @@ test('credibility: his declaration record first, the profile label second, unkno
   assert.equal('value' in quiet, false);
 });
 
+test('live v2 shapes: urgency under deal_feelings.urgency_desperation, word match from the claims list', () => {
+  const t = over => read(rawProfile(over)).traits;
+  // Key paths as found on the live rows (chat DB copy, 9/24); values are invented shapes.
+  const urg = u => t({ deal_feelings: { urgency_desperation: { count: 3, ids: [1, 2], ...u } } }).urgency;
+  assert.equal(urg({ read: `no real urgency: ${SENTINEL}` }), 'low');
+  assert.equal(urg({ read: `mild ${SENTINEL}` }), 'medium');
+  assert.equal(urg({ note: `rising ${SENTINEL}` }), 'high');
+  assert.equal(urg({ level: `no ${SENTINEL}`, read: `rising ${SENTINEL}` }), 'low', 'level is read first');
+  assert.equal(urg({ reads: `who knows ${SENTINEL}` }), 'unknown');
+  assert.equal(t({ deal_feelings: { face_status: { count: 2 } } }).urgency, 'unknown', 'no urgency key -> unknown');
+  const claims = (...v) => t({ behaviour_vs_words: v.map(x => (typeof x === 'boolean'
+    ? { topic: SENTINEL, words: SENTINEL, agree: x } : { topic: SENTINEL, words: SENTINEL, verdict: `${x} ${SENTINEL}` })) }).word_match;
+  assert.equal(claims('agree', 'consistent', true, 'unclear'), 'credible');
+  assert.equal(claims('disagree', 'disagrees', false, 'agree'), 'cheap_talk');
+  assert.equal(claims('agree', 'disagree', 'partly'), 'mixed');
+  assert.equal(claims('agree', 'unclear', 'cannot'), 'unknown', 'one decided claim is not enough');
+  assert.equal(claims(), 'unknown');
+});
+
+test('the tells section is typed unknown on every row until TELLS-01b is merged', () => {
+  for (const r of league()) {
+    assert.equal(r.tells.status, 'unknown', r.team);
+    assert.equal(r.tells.reason, 'tells not live: TELLS-01b not merged');
+    assert.equal(r.tells.source, 'tells.card');
+    assert.equal('value' in r.tells, false);
+  }
+});
+
+test('one decline for one manager changes only that manager\'s row', () => {
+  const base = new Map([['2', { accept_rate: 0.5, accept_rate_n: 8, receptiveness: 1 }],
+    ['3', { accept_rate: 0.25, accept_rate_n: 4, receptiveness: 1 }]]);
+  // One more decided offer, declined: accepts stay, n grows by one.
+  const decline = (cp, team) => {
+    const next = new Map([...cp].map(([k, v]) => [k, { ...v }]));
+    const c = next.get(team) ?? { receptiveness: 1, accept_rate: null, accept_rate_n: 0 };
+    const accepts = Math.round((c.accept_rate ?? 0) * c.accept_rate_n);
+    next.set(team, { ...c, accept_rate: accepts / (c.accept_rate_n + 1), accept_rate_n: c.accept_rate_n + 1 });
+    return next;
+  };
+  const before = Object.fromEntries(league({ cp: base }).map(r => [r.team, r]));
+  for (const team of ['2', '5']) {
+    const after = Object.fromEntries(league({ cp: decline(base, team) }).map(r => [r.team, r]));
+    assert.deepEqual(Object.keys(after).sort(), Object.keys(before).sort());
+    for (const k of Object.keys(before)) {
+      if (k === team) assert.notDeepEqual(after[k], before[k], `team ${team}'s row moves`);
+      else assert.deepEqual(after[k], before[k], `team ${k} unchanged by a decline to team ${team}`);
+    }
+    assert.ok(after[team].p_accept.value.mid <= before[team].p_accept.value.mid, 'a decline never raises his band');
+  }
+  assert.equal(Object.fromEntries(league({ cp: decline(base, '5') }).map(r => [r.team, r]))['5'].p_accept.value.basis, 'his_record');
+});
+
 function league({ profilesAvailable = true, cp = new Map(), cpState } = {}) {
   const byRoster = new Map([
     ['2', read(rawProfile({ nick_override: { active: true, difficulty: 'hard to deal with' } }))],

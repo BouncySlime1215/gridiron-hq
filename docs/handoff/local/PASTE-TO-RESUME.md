@@ -1,3 +1,5 @@
+> **9/24 12:20 AM: READ NIGHT-PLAN.md FIRST** (lanes, refillers, restart steps). Nonstop until Mon 9/28 9 PM ET.
+
 # PASTE THIS INTO A FRESH CLAUDE CODE SESSION TO RESUME GRIDIRON HQ
 (Refreshed 2026-09-23 2:20 PM ET by account A. Account B takes over at 3 PM ET.)
 (3:52 PM ET Nick: B is in charge of EVERYTHING: merging, #214 preview switch + run.sh restart, builds, R&D. A is winding down.)

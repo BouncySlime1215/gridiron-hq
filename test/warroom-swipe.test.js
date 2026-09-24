@@ -223,9 +223,13 @@ function mount(props = {}) {
   const container = doc.body.appendChild(doc.createElement('div'));
   const root = createRoot(container);
   root.render(React.createElement(NextMoveDeck, { view: view(), big: false, post, ...props }));
-  return { container, calls, unmount: () => { root.unmount(); doc.body.removeChild(container); } };
+  return { container, calls, unmount: () => { root.unmount(); doc.body.removeChild(container); assert.equal(keysBound(), false, 'unmount unbinds the keys'); } };
 }
 const liveCard = c => byTestId(c, 'move-card')[0] ?? null;
+/** SwipeDeck binds its arrow keys in a passive effect, which can run after card 1 is in the DOM. */
+const keysBound = () => winNode._l.some(l => l.type === 'keydown');
+/** Mounted = card 1 drawn AND every effect run (the keydown listener is the last one bound). */
+const mounted = ui => waitFor(() => cardId(ui.container) === 'L4-m1' && keysBound(), 'card 1 = next_move, keys bound');
 const cardId = c => liveCard(c)?.getAttribute('data-move') ?? null;
 const counter = c => textOf(byTestId(c, 'deck-count')[0] ?? { nodeType: 8 });
 
@@ -241,7 +245,7 @@ test('the fixture is a valid league-4 entry; the deck is alternatives, head = ne
 test('phone: swipe left walks the deck in order with "k of 5", then the end state', async () => {
   const ui = mount();
   try {
-    await waitFor(() => cardId(ui.container) === 'L4-m1', 'card 1 = next_move');
+    await mounted(ui);
     const seen = [];
     for (let k = 1; k <= 5; k++) {
       assert.equal(counter(ui.container), `${k} of 5`, `position indicator on card ${k}`);
@@ -282,7 +286,7 @@ test('phone: swipe left walks the deck in order with "k of 5", then the end stat
 test('a small or vertical drag is not a swipe', async () => {
   const ui = mount();
   try {
-    await waitFor(() => cardId(ui.container) === 'L4-m1', 'mounted');
+    await mounted(ui);
     swipe(liveCard(ui.container), -30);
     swipe(liveCard(ui.container), -90, -200);
     await settle();
@@ -294,7 +298,7 @@ test('a small or vertical drag is not a swipe', async () => {
 test('skip with a reason posts exactly one deck.skip carrying the reason', async () => {
   const ui = mount();
   try {
-    await waitFor(() => cardId(ui.container) === 'L4-m1', 'mounted');
+    await mounted(ui);
     swipe(liveCard(ui.container), -140);
     await waitFor(() => button(ui.container, 'Costs too much'), 'the optional reason row');
     for (const label of ["Don't like the player", "Don't trust this manager", 'Not now']) assert.ok(button(ui.container, label), label);
@@ -312,7 +316,7 @@ test('skip with a reason posts exactly one deck.skip carrying the reason', async
 test('phone: swipe right opens the card\'s actions; "I sent it" posts exactly one offer.sent', async () => {
   const ui = mount();
   try {
-    await waitFor(() => cardId(ui.container) === 'L4-m1', 'mounted');
+    await mounted(ui);
     assert.equal(button(ui.container, 'I sent it'), null, 'actions closed until opened');
     swipe(liveCard(ui.container), 140);
     await waitFor(() => button(ui.container, 'I sent it'), 'actions open');
@@ -329,7 +333,7 @@ test('phone: swipe right opens the card\'s actions; "I sent it" posts exactly on
 test('desktop: arrow keys and buttons move through the deck and open the actions', async () => {
   const ui = mount({ big: true });
   try {
-    await waitFor(() => cardId(ui.container) === 'L4-m1', 'mounted');
+    await mounted(ui);
     key('ArrowLeft');
     await waitFor(() => cardId(ui.container) === 'L4-m2', 'left arrow = Next');
     assert.equal(counter(ui.container).startsWith('2 of 5'), true);
@@ -392,7 +396,7 @@ function flowTree(root) {
 test('no layout shift at 375x812: the deck frame never changes shape; motion is transform-only', async () => {
   const ui = mount();
   try {
-    await waitFor(() => cardId(ui.container) === 'L4-m1', 'mounted');
+    await mounted(ui);
     const frame = flowTree(ui.container);
     assert.match(frame, /div\.wr-swipe-bar/);
     assert.match(frame, /div\.wr-swipe-stage/);

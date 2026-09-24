@@ -7,8 +7,10 @@
  * This module is the in-week producer. It reads a curated set of public Bluesky
  * accounts (Rotoworld plus beat and national reporters) through Jetstream, keeps only
  * definitive per-player "inactive" / "active" statements, and writes them to
- * `live_inactive_claims` (migration 093). lineup-brain.js `lineupCall` reads them and
- * flags a starter under "Check before kickoff".
+ * `live_inactive_claims` (migration 093). availability-claims.js reads them beside
+ * nfl_news_signals (one reader, FIX-184-6), and lineup-brain.js `lineupCall` flags a
+ * starter from that one set, both under "Check before kickoff" and on the SS-01
+ * dead-starter card (FIX-184-2). The switch is live-inactive-flag.js.
  *
  * Terms (copies in the research lane, fetched 2026-09-23; quoted in
  * docs/tdd/2026-09-23-live-inactive-monitor.tdd.md):
@@ -29,6 +31,7 @@
  */
 import { rows, run, db } from '../db/index.js';
 import { normalizePlayerName } from './player-identity.js';
+import { gameCutoff } from './game-cutoff.js';
 
 export const PARSER_VERSION = 'live-inactive-v1';
 export const JETSTREAM_HOST = 'jetstream.us-east.bsky.network';
@@ -88,6 +91,14 @@ const PAST_RE = /\b(?:was|were)\s+(?:\w+\s+)?(?:inactive|out|active)\b|\blast (?
 const HEDGE_RE = /\b(?:trending|expect(?:s|ed|ing)?|(?:un)?likely|probabl[ey]|not sure|unsure|uncertain|unclear|game[- ]time|hop(?:e|es|ed|ing|eful)|might|may|could|possibly|if|whether|should)\b/i;
 /** "not expected to play", "isn't good to go": a negated active word is not an active claim. */
 const NEGATED_ACTIVE_WORD_RE = /(?:\bnot|\bnever|n't)\s+(?:\w+\s+){0,2}$/i;
+/**
+ * The mirror (FIX-184-4): "has not been ruled out", "isn't ruled out", "is not inactive",
+ * "will not be scratched". A negation in the two words before an INACTIVE phrase refuses
+ * the clause. Phrases that carry their own "not" ("will not play", "not playing") match
+ * INACTIVE_RE from the "not" itself, so nothing before them is negated and they still
+ * claim.
+ */
+const NEGATED_INACTIVE_WORD_RE = NEGATED_ACTIVE_WORD_RE;
 /** "..., as is <player>" carries the previous clause's status over. */
 const INHERIT_RE = /^as\s+(?:is|are|was|were)\b/i;
 
@@ -132,7 +143,10 @@ export function parseStatusClauses(text) {
       let ma = ACTIVE_RE.exec(clause);
       // A negated active word is refused outright rather than flipped to inactive:
       // "not good to go" is closer to a hedge than to "ruled out".
-      if (ma && NEGATED_ACTIVE_WORD_RE.test(clause.slice(0, ma.index))) { out.push({ clause, status: null, at: null, end: null }); prev = null; continue; }
+      if ((ma && NEGATED_ACTIVE_WORD_RE.test(clause.slice(0, ma.index)))
+        || (mi && NEGATED_INACTIVE_WORD_RE.test(clause.slice(0, mi.index)))) {
+        out.push({ clause, status: null, at: null, end: null }); prev = null; continue;
+      }
       if (mi && !ma) { status = 'inactive'; m = mi; }
       else if (ma && !mi) { status = 'active'; m = ma; }
       else if (!mi && !ma && INHERIT_RE.test(clause)) status = prev;
@@ -298,19 +312,46 @@ export function ingestJetstreamEvent(evt, { season, week, index = null } = {}) {
 }
 
 /**
- * Reader: Map(player_id -> latest live claim) for one week, whose status is
- * 'inactive'. Retracted claims are dropped, and a later 'active' claim from any
- * watched account cancels an earlier 'inactive'. Ordered by the time the claim
- * reached this system (Jetstream's clock), then by the author's own timestamp.
+ * Map(player_id -> latest PRE-KICKOFF live claim, either status) for one week.
+ *   - Retracted claims are dropped.
+ *   - Ordered by the time the claim reached this system (Jetstream's clock), then by
+ *     the author's own timestamp.
+ *   - FIX-184-5b: a claim first seen at or after the player's own kickoff
+ *     (game-cutoff.js#gameCutoff, from game_lines) is dropped before "latest" is
+ *     chosen, so a post-game "was active" cannot cancel a pre-kickoff "inactive", and a
+ *     post-kickoff "inactive" is not a warning. No kickoff on file: the claim is kept.
+ * `kickoffOf(team_abbr) -> ISO | null` is injectable; the default is gameCutoff.
  */
-export function liveInactiveClaims({ season, week }) {
+export function liveClaimsLatest({ season, week, kickoffOf = null }) {
+  const kickoffs = new Map();
+  const kickoff = abbr => {
+    if (!abbr) return null;
+    if (!kickoffs.has(abbr)) kickoffs.set(abbr, (kickoffOf ?? (t => gameCutoff(season, week, t)))(abbr));
+    return kickoffs.get(abbr);
+  };
   const latest = new Map();
-  for (const r of rows(`SELECT player_id, player_name, status, source_handle, source_uri, posted_at, first_seen_at
-                          FROM live_inactive_claims
-                         WHERE season = ? AND week = ? AND retracted_at IS NULL
-                         ORDER BY first_seen_at, posted_at`, season, week)) {
-    latest.set(r.player_id, r);
+  for (const r of rows(`SELECT c.player_id, c.player_name, c.status, c.source_handle, c.source_uri, c.posted_at,
+                               c.first_seen_at, t.abbr AS team_abbr
+                          FROM live_inactive_claims c
+                          LEFT JOIN players p ON p.id = c.player_id
+                          LEFT JOIN nfl_teams t ON t.id = p.team_id
+                         WHERE c.season = ? AND c.week = ? AND c.retracted_at IS NULL
+                         ORDER BY c.first_seen_at, c.posted_at`, season, week)) {
+    const k = kickoff(r.team_abbr);
+    if (k != null && !(Date.parse(r.first_seen_at) < Date.parse(k))) continue;
+    latest.set(r.player_id, { ...r, kickoff: k });
   }
+  return latest;
+}
+
+/**
+ * Reader: Map(player_id -> latest pre-kickoff live claim) for one week, whose status
+ * is 'inactive'. A later 'active' claim from any watched account cancels an earlier
+ * 'inactive'. Start/Sit reads these through availability-claims.js, which also weighs
+ * nfl_news_signals.
+ */
+export function liveInactiveClaims({ season, week, kickoffOf = null }) {
+  const latest = liveClaimsLatest({ season, week, kickoffOf });
   for (const [id, r] of latest) if (r.status !== 'inactive') latest.delete(id);
   return latest;
 }

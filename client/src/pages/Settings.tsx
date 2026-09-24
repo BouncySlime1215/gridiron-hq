@@ -2,6 +2,7 @@ import { useState } from 'react';
 import EspnConnect from '../components/EspnConnect';
 import PhoneAccess from '../components/PhoneAccess';
 import LeagueChatPull from '../components/LeagueChatPull';
+import NumberHealthCard from '../components/NumberHealth';
 import { api } from '../api';
 import { sanitizedMessage } from '../lib/errorSanitize';
 
@@ -24,6 +25,7 @@ export default function Settings() {
         <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-emerald-600" /><h1 className="text-xl font-bold">Local sign-in is automatic</h1></div>
         <p className="text-xs leading-5 text-slate-600">Gridiron HQ provisions this browser when it connects from your own Mac. There is no bearer token to copy or paste. Protected league, draft, trade and Model Lab calls still require a real session; the server only issues it over the loopback interface.</p>
       </div>
+      <NumberHealthCard />
       <PhoneAccess />
       <LeagueChatPull />
       <EspnConnect />

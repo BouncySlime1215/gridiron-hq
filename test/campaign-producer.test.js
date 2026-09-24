@@ -19,7 +19,8 @@ const { diffNextMove } = await import('../server/services/campaign/replan.js');
 const { rankAttention } = await import('../server/services/campaign/attention.js');
 const { waitOrAct } = await import('../server/services/campaign/wait-or-act.js');
 const { stopTradeOff, speedCurve, arrivalWeek } = await import('../server/services/campaign/itinerary.js');
-const { toEntry, validateEntry, plansFile, SECTIONS } = await import('../server/services/campaign/view.js');
+const { toEntry, failedEntry, plansFile } = await import('../server/services/campaign/view.js');
+const { validateLeague, validatePlans, SECTIONS } = await import('../server/services/campaign/plans-schema.js');
 
 const close = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 const run = (mode, opts = {}, obj = {}) => {
@@ -115,7 +116,7 @@ test('points objective runs end to end on the fixture', () => {
   const { a, res } = run('balanced', {}, { kind: 'points', points_per_week: 95 });
   assert.equal(res.feasibility.kind, 'points');
   assert.ok(['on_track', 'reachable', 'out_of_reach'].includes(res.feasibility.status));
-  assert.deepEqual(validateEntry(toEntry(res, { names: a.names(), as_of: 't' })), []);
+  assert.deepEqual(validateLeague(toEntry(res, { names: a.names(), as_of: '2026-09-24T00:00:00Z' })).errors, []);
 });
 
 /* ------------------------------------------------------------ catch-up */
@@ -283,45 +284,37 @@ test('path outcomes sum to 1 and reproduce the prototype expectation', () => {
 
 /* ------------------------------------------------------------ the JSON contract */
 
-test('the plans JSON matches the War Room contract (WAR-ROOM-UI.md 2-4)', () => {
+test('the plans JSON matches the War Room contract (plans-schema.js, warroom-plans/1)', () => {
   const { a, res } = run('balanced');
   const entry = toEntry(res, { names: a.names(), as_of: '2026-09-24T00:00:00Z', changed: { changed: true, reason: 'first plan' } });
-  assert.deepEqual(validateEntry(entry), []);
-  for (const s of SECTIONS) assert.ok(entry.view[s], `section ${s}`);
-  const nm = entry.view.next_move.value;
-  assert.equal(entry.view.next_move.status, 'ok');
-  assert.equal(nm.step_index, 0);
-  assert.ok(nm.give.every(x => typeof x === 'string'));
-  assert.equal(nm.p_yes.guess, true);
-  assert.equal(nm.p_yes.source, 'clone.accept');
-  assert.equal(nm.message.source, 'plan.template');
-  assert.ok(nm.walk_away?.max_give?.length);
-  assert.equal(entry.view.deck.value.length, res.deck.length);
-  assert.ok(entry.view.deck.value.length <= 5);
-  assert.equal(entry.view.number_health.status, 'unknown');
-  assert.equal('value' in entry.view.number_health, false);
-  assert.deepEqual(entry.view.replies.value.map(r => r.kind), ['accept', 'decline', 'counter', 'silence']);
-  // WR-1's adapter (war-room-view.js#normalisePlans) reads { producer, leagues[] } and acq.best / acq.title_now.
-  const file = plansFile([entry], { generated_at: 't' });
-  assert.equal(Array.isArray(file.leagues), true);
+  assert.deepEqual(validateLeague(entry).errors, []);
+  for (const s of Object.keys(SECTIONS)) assert.ok(entry[s], `section ${s}`);
+  const nm = entry.next_move.value;
+  assert.equal(entry.next_move.status, 'ok');
+  const st = nm.steps[0];
+  assert.ok(st.give.every(x => typeof x === 'string'));
+  assert.equal(st.p_yes.guess, true);
+  assert.equal(st.p_yes.source, 'clone.accept');
+  assert.equal(st.message.source, 'plan.template');
+  assert.ok(st.walk_away.value.max_give.length);
+  assert.equal(entry.alternatives.value.length, res.deck.length);
+  assert.ok(entry.alternatives.value.length <= 5);
+  assert.equal(entry.number_health.status, 'unknown');
+  assert.equal('value' in entry.number_health, false);
+  assert.deepEqual(Object.keys(st.reply_table.value), ['accept', 'decline', 'counter', 'silence']);
+  const file = plansFile([entry], { generated_at: '2026-09-24T00:00:00Z' });
+  assert.deepEqual(validatePlans(file).errors, []);
   assert.equal(file.producer, 'campaign-producer');
-  assert.equal(file.study, true);
-  assert.ok(Array.isArray(file.leagues[0].acq.best.steps));
-  assert.equal(typeof file.leagues[0].acq.title_now, 'number');
-  assert.ok(file.leagues[0].acq.alternatives.length <= 4);
   // No manager names anywhere in the output: teams are ids.
   assert.doesNotMatch(JSON.stringify(file), /"owner_name"|"team_name"|"manager_name"/);
 });
 
-test('a failed league is a failed field with no digits, never a guess', () => {
-  const entry = toEntry({ league: 5, me: '1', error: 'world failed: no schedule' }, { as_of: 't' });
-  assert.deepEqual(validateEntry(entry), []);
-  for (const s of SECTIONS) {
-    assert.equal(entry.view[s].status, 'failed');
-    assert.equal('value' in entry.view[s], false);
-  }
-  const broken = { league: 1, view: { next_move: { status: 'unknown', value: 3, producer: 'x', producer_version: '1', source: 'plan.path' } } };
-  assert.ok(validateEntry(broken).some(e => /carries a value/.test(e)));
+test('a failed league carries only its error, never a guess', () => {
+  const entry = failedEntry({ league: 5, me: '1', error: 'world failed: no schedule' });
+  assert.deepEqual(validateLeague(entry).errors, []);
+  assert.doesNotMatch(JSON.stringify(entry), /\d\.\d/);
+  const broken = { league: 1, me: '1', names: {}, error: 'x', next_move: { status: 'unknown', value: 3, source: 'plan.path', reason: 'r' } };
+  assert.ok(validateLeague(broken).errors.some(e => /must not carry a value/.test(e.message)));
 });
 
 test('the deck is the top alternatives with distinct first moves', () => {

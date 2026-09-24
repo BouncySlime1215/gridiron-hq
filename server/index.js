@@ -179,7 +179,7 @@ app.use('/api/coach', coachRouter);
 // ONE ENGINE reader (ENGINE-00a, EA-00): read-only world state for pages and Coach, with typed status.
 app.use('/api/engine', ...legacyAuthenticated, engineRouter);
 // War Room writes (WR-3 requests, saved layouts, Coach action log). Records only;
-// default-off behind GRIDIRON_WARROOM_ENABLED (answers { enabled: false } when off).
+// default-off behind the War Room flag, warroom-flag.js (answers { enabled: false } when off).
 app.use('/api/warroom', ...legacyAuthenticated, warroomRouter);
 
 app.use((err, req, res, next) => {

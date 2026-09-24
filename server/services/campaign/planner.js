@@ -21,6 +21,8 @@ import { rankPartners, planSkipWeight } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct } from './wait-or-act.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan } from './search.js';
+import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
+import { pYesFlag, pYesTableFor, withPYes, pYesSummary } from '../people/p-yes.js';
 
 export const DECK_SIZE = 5;
 /** P(accept) curve window on his screen, wider than the finder's so the curve has a shape. */
@@ -77,6 +79,17 @@ function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta) {
  * settings: { objective, skips ({player, manager} Maps), previous (last entry or null), budget }
  */
 export function planLeague(adapter, settings) {
+  // COUNTERPART-01 (flag GRIDIRON_COUNTERPART, set by the producer): absent -> today's plan, unchanged.
+  const CP = adapter.counterparts ?? null;
+  if (CP) adapter = withCounterparts(adapter, CP);
+  // PYES-BASELINE (flag GRIDIRON_PYES_BASELINE): every P(yes) the search, flip legs, price
+  // curve and itinerary read comes from people/p-yes.js; the clone band rides along as the
+  // shadow challenger. settings.pYes = { flag, table, challengerPassing } overrides (tests).
+  const pyFlag = settings.pYes?.flag ?? pYesFlag();
+  const pyTable = pyFlag.on ? (settings.pYes?.table ?? pYesTableFor(adapter.league.id)) : null;
+  const pyPassing = !!settings.pYes?.challengerPassing;
+  const PY = withPYes(adapter, pyTable, { on: pyFlag.on, challengerPassing: pyPassing });
+  adapter = PY.adapter;
   const clockNow = () => adapter.now?.() ?? 0;
   const t0 = clockNow();
   const phases = {};
@@ -101,8 +114,11 @@ export function planLeague(adapter, settings) {
   mark('flip');
   // Targets: the objective's player, Nick's "get" stops, then the biggest single-player upgrades.
   const skipP = settings.skips?.player ?? new Map();
-  const upgrades = [...vals.addN.entries()].filter(([pid]) => !adapter.managers.get(vals.lossO.get(pid)?.team)?.blocked)
-    .sort((x, y) => y[1] * (skipP.get(String(y[0])) ?? 1) - x[1] * (skipP.get(String(x[0])) ?? 1)).map(([pid]) => pid);
+  const myIds = adapter.rosters.get(me);
+  const tiltOf = pid => (CP ? targetTilt(CP, vals.lossO.get(pid)?.team, pid, myIds) : { tilt: 1, exclude: false, features: [] });
+  const upgrades = [...vals.addN.entries()].filter(([pid]) => !adapter.managers.get(vals.lossO.get(pid)?.team)?.blocked && !tiltOf(pid).exclude)
+    .sort((x, y) => y[1] * (skipP.get(String(y[0])) ?? 1) * tiltOf(y[0]).tilt - x[1] * (skipP.get(String(x[0])) ?? 1) * tiltOf(x[0]).tilt)
+    .map(([pid]) => pid);
   const wanted = [];
   const want = pid => { if (pid != null && !wanted.some(w => String(w) === String(pid))) wanted.push(pid); };
   const idOf = s => [...adapter.players.keys()].find(k => String(k) === String(s)) ?? null;
@@ -158,21 +174,26 @@ export function planLeague(adapter, settings) {
   const playbookFor = (plan, i, backup) => {
     const st = plan.steps[i];
     const stateBefore = i === 0 ? new Map() : plan.steps[i - 1].state ?? (plan.planned_on?.steps[i - 1].state) ?? new Map();
-    const { curve, basis } = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta);
-    const ladder = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode });
+    const priced = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta);
+    const cap = CP ? priceCap(CP.get(String(st.team))) : null;
+    const curve = cap ? priced.curve.filter(c => c.his_pct <= cap.max_his_pct) : priced.curve;
+    const basis = cap ? `${priced.basis}; capped at ${cap.max_his_pct}% on his screen (nick_override)` : priced.basis;
     const m = managers.get(st.team) ?? {};
+    const ladder = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode, hard: !!m.nick?.hard });
     const offer = ladder.opening ? { ...st, give: ladder.opening.give } : st;
     const message = stepMessage(offer, { players: adapter.players, needs: m.needs ?? null });
     const next = plan.steps[i + 1] ?? null;
     return {
       step_index: i, of_steps: plan.steps.length,
-      message, ladder: { ...ladder, basis },
+      message, ladder: { ...ladder, basis }, nick_shift: ladder.nick_shift ?? null,
       opening: ladder.opening ? { give: ladder.opening.give, p: ladder.opening.p, his_pct: ladder.opening.his_pct } : null,
       walk_away: ladder.walk_away ? { give: ladder.walk_away.give, p: ladder.walk_away.p, his_pct: ladder.walk_away.his_pct,
         text: `Stop at ${ladder.walk_away.give.map(names).join(' + ')}: past that, your backup plan is worth more.` } : null,
       replies: replyTable(st, { next, backup, ladder, nudge: `Still open to ${st.give.map(names).join(' + ')} for ${st.get.map(names).join(' + ')}?` }),
       send_when: m.send_when ?? null,
       wait: waitOrAct(st, adapter.players),
+      ...(CP ? { reply_prior: { ...M6_REPLY_PRIOR, label: M6_LABEL },
+        reason_chain: [...adapter.priceStep(offer.team, offer.get, offer.give).features, ...(cap ? [cap.feature] : [])] } : {}),
     };
   };
   const playbook = best ? best.steps.map((_, i) => playbookFor(best, i, i === 0 ? (deck[1] ? { step: deck[1].steps[0], expected: deck[1].expected } : backups[0]) : backups[i])) : [];
@@ -190,9 +211,11 @@ export function planLeague(adapter, settings) {
     const gain = vals.addN.get(pid) ?? 0;
     const owner = vals.lossO.get(pid)?.team;
     const w = skipP.get(String(pid)) ?? 1;
+    const tt = tiltOf(pid);
     return { player: pid, owner, gain_if_landed: gain, gain_se: vals.addSe.get(pid) ?? null,
       p_reach: reach ? reach.p_complete : null, expected: reach ? reach.expected : null, mode_fit: fit,
-      rank_score: gain * (reach?.p_complete ?? 0) * w, skipped: w < 1,
+      rank_score: gain * (reach?.p_complete ?? 0) * w * tt.tilt, skipped: w < 1,
+      ...(CP ? { reason_chain: tt.features } : {}),
       why: `${names(pid)} adds ${(gain * 100).toFixed(1)} pts if landed; `
         + (reach ? `${reach.steps.length}-step path from Team ${owner}, lands ${(reach.p_complete * 100).toFixed(0)}% of the time.` : 'no path fits the sliders yet.'),
       approved: objective.kind === 'player' && String(objective.target) === String(pid) };
@@ -239,8 +262,8 @@ export function planLeague(adapter, settings) {
     ...flip.realised.filter(f => f.legs && f.legs.expected > 0).map(f => ({ kind: 'flip', gain: f.legs.expected,
       text: `Buy ${names(f.player)} from Team ${f.a}, sell to Team ${f.b}.`, player: f.player })),
     ...ranked.filter(p => { const m = managers.get(p.steps[0].team) ?? {}; return m.checked_out || (Number.isFinite(m.title_now) && m.title_now < 0.03); })
-      .slice(0, 2).map(p => ({ kind: 'desperate', gain: p.expected, text: `Team ${p.steps[0].team} is out of it: ${p.steps[0].get.map(names).join(' + ')} may come cheap.` })),
-    ...(behind ? byMode.all_in.slice(0, 1).map(p => ({ kind: 'swing', gain: p.expected,
+      .slice(0, 2).map(p => ({ kind: 'desperate', gain: p.expected, steps: p.steps.length, plan_key: firstKey(p), text: `Team ${p.steps[0].team} is out of it: ${p.steps[0].get.map(names).join(' + ')} may come cheap.` })),
+    ...(behind ? byMode.all_in.slice(0, 1).map(p => ({ kind: 'swing', gain: p.expected, steps: p.steps.length, plan_key: firstKey(p),
       text: `You are behind: the all-in plan reaches +${(p.delta_final * 100).toFixed(1)} pts if it lands.` })) : []),
     ...playbook.filter(pb => pb.wait.flag === 'wait').map(pb => ({ kind: 'timing', gain: pb.wait.option_value, text: `Wait ${pb.wait.days} days: ${pb.wait.reason}.` })),
     ...(Number.isInteger(L.deadline_week) ? [{ kind: 'timing', gain: null, text: `Trade deadline: week ${L.deadline_week} (${Math.max(0, L.deadline_week - L.week)} weeks left).` }] : []),
@@ -250,16 +273,34 @@ export function planLeague(adapter, settings) {
   mark('playbook_and_reports');
   const edge = new Map();
   for (const p of ranked) { const t = String(p.steps[0].team); edge.set(t, Math.max(edge.get(t) ?? 0, p.expected)); }
-  const partners = rankPartners(managers, edge);
+  const partners = rankPartners(managers, edge, CP ? { counterparts: CP, myIds } : null);
+  // Every counterpart adjustment on a written step is named in its reason chain.
+  const pub = p => {
+    const out = publicPlan(p);
+    if (!out || (!CP && !PY.on)) return out;
+    return { ...out, steps: out.steps.map(s => ({ ...s,
+      ...(CP ? { reason_chain: adapter.priceStep(s.team, s.get, s.give).features } : {}),
+      // The clone band, logged beside the served number and graded by E1; never served.
+      ...(PY.on ? { p_yes_challenger: PY.shadow(s.team, s.get, s.give) } : {}) })) };
+  };
+  // The Trade Lab finder's best single offer on the same league, and the composed-rescore probe:
+  // both optional adapter hooks (the real adapter runs the served finder; a fixture may not).
+  const finder_best = adapter.finderBest ? adapter.finderBest() : null;
+  const sanity = adapter.sanity ? adapter.sanity() : null;
+  mark('finder_and_sanity');
 
   return {
     league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: tol,
     now, behind, week: L.week, deadline_week: L.deadline_week ?? null,
+    eta_week: best ? arrivalWeek(best, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) : null,
+    finder_best, sanity,
     flip, targets: wanted, candidates_scored: plans.length, dropped: dropped.slice(0, 20).map(d => ({ first: d.plan.steps[0], why: d.why })),
-    best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook })),
+    best: pub(best), deck: deckCards.map(c => ({ plan: pub(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook })),
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
     suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, outlook,
     risk_modes: compareModes(plans, ctxFor), catch_up: catchUp, partners,
+    ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
+    ...(pyFlag.on ? { p_yes: pYesSummary(pyFlag, pyTable, PY, { challengerPassing: pyPassing }) } : {}),
     rescores: S.count() + (confirm.rescores ?? 0), runtime_ms: clockNow() - t0, phases_ms: phases,
   };
 }

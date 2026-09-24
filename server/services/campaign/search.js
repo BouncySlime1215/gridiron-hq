@@ -10,8 +10,10 @@
  * metric (title / playoffs / points), 3-player packages for the final leg, a
  * rescore budget, and the per-step states kept for the confirm pass.
  */
-import { screenFair, flipSpread, linearNick, combos, pathExpectation, isChained, dealKey } from './paths.js';
+import { screenFair, flipSpread, linearNick, combos, pathExpectation, isChained, dealKey,
+  fairBand, onesInBand, pairsInBand, shapeOf, oneForOneOnly } from './paths.js';
 import { metricOf } from './objectives.js';
+import { excluded } from './partners.js';
 
 export const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
@@ -48,7 +50,7 @@ export function playerValues(S, adapter, objective) {
   const tradable = id => SCORED.has(P.get(id)?.position) && (P.get(id)?.value ?? 0) > 0;
   const addN = new Map(), addSe = new Map(), lossO = new Map(), lossN = new Map();
   for (const [tid, ids] of adapter.rosters) {
-    if (tid === me || adapter.managers.get(tid)?.blocked) continue;
+    if (tid === me || excluded(adapter.managers.get(tid))) continue;
     for (const pid of ids.filter(tradable)) {
       const r = S.rescore(S.applyTrade(new Map(), me, tid, [], [pid]), me, tid);
       const m = metricOf(r.me, objective);
@@ -74,11 +76,11 @@ export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 
   const val = id => Math.max(0, Number(P.get(id)?.value) || 0);
   const flips = [];
   for (const [aId, ids] of adapter.rosters) {
-    if (aId === me) continue;
+    if (aId === me || excluded(adapter.managers.get(aId))) continue;
     const key = ids.filter(vals.tradable).sort((x, y) => val(y) - val(x)).slice(0, topPer);
     for (const pid of key) {
       for (const bId of adapter.rosters.keys()) {
-        if (bId === me || bId === aId) continue;
+        if (bId === me || bId === aId || excluded(adapter.managers.get(bId))) continue;
         const r = S.rescore(S.applyTrade(new Map(), bId, aId, [], [pid]), bId, aId);
         const s = flipSpread(r.me.title_delta, r.me.title_delta_se, r.them.title_delta, r.them.title_delta_se);
         const pa = adapter.priceOf(aId, pid), pb = adapter.priceOf(bId, pid);
@@ -90,7 +92,7 @@ export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 
     }
   }
   const myIds = S.rosterOf(new Map(), me).filter(vals.tradable);
-  const blocked = t => !!adapter.managers.get(t)?.blocked || !!adapter.managers.get(t)?.checked_out;
+  const blocked = t => excluded(adapter.managers.get(t)) || !!adapter.managers.get(t)?.checked_out;
   const realised = [];
   for (const f of flips.filter(x => x.clears).sort((x, y) => y.spread - x.spread).slice(0, realise * 2)) {
     if (realised.length >= realise) break;
@@ -117,33 +119,96 @@ export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 
   return { pairs: flips.length, clears: flips.filter(f => f.clears).length, top: ranked.slice(0, 10), realised };
 }
 
+/** ONE-PLANNER search options, read from the adapter (the producer sets them; a fixture may not). */
+export const SEARCH_DEFAULTS = Object.freeze({ twoForOne: false, pairLimit: 60, fillers: 4 });
+
+/** A fresh stats sink for one league's searches (the producer hangs it on the adapter). */
+export function newSearchStats(twoForOne = false) {
+  return { two_for_one_on: !!twoForOne, screened: {}, shortlisted: {}, targets: [] };
+}
+
+/**
+ * IDEA-038 per league: the best exact-scored path with a two-player side vs the best
+ * 1-for-1-only path, per target (same world, same seed).
+ */
+export function twoForOneSummary(stats) {
+  if (!stats) return null;
+  const rows = stats.targets;
+  return {
+    on: stats.two_for_one_on, screened: stats.screened, shortlisted: stats.shortlisted,
+    two_for_one_screened: stats.screened['2-for-1'] ?? 0,
+    targets: rows.length,
+    best_is_two: rows.filter(r => r.best_is_two).length,
+    one_for_one_finds_nothing: rows.filter(r => r.best_one_for_one == null && r.best_with_two != null).length,
+    rows,
+  };
+}
+
 /**
  * ACQ-01 path search for one target. Returns candidate plans with exact per-step metric deltas and
  * the per-step states (kept in memory for the confirm pass, dropped from the output).
+ *
+ * ONE-PLANNER (moved in from PR #267): with adapter.searchOpts.twoForOne on, a step's gives are
+ * enumerated on value bands (single pieces, pairs whose SUM is screen-fair, and the incumbent's
+ * triples on the final leg), an offer to the target's owner may also take a filler from him
+ * (1-for-2), and the exact-scored shortlist is taken per arm (1-for-1-only paths and paths with a
+ * two-player side) so each arm is scored on its own merits. Off, the incumbent search runs
+ * unchanged. Either way a target whose owner Nick marked unreachable (or never trading) gets no
+ * path: that manager is never a step (FIX-02c nick block).
  */
 export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal = 3, shortlist = [8, 12, 8] } = {}) {
   const me = adapter.league.me;
   const P = adapter.players;
+  const o = { ...SEARCH_DEFAULTS, ...(adapter.searchOpts ?? {}) };
+  const two = !!o.twoForOne;
+  const stats = adapter.searchStats ?? null;
   const val = id => Math.max(0, Number(P.get(id)?.value) || 0);
   const owner = vals.lossO.get(target)?.team ?? S.ownerOf(new Map(), target);
-  if (owner == null || owner === me) return [];
+  if (owner == null || owner === me || excluded(adapter.managers.get(owner))) return [];
   const origMine = adapter.rosters.get(me);
-  const partners = [...adapter.rosters.keys()].filter(id => id !== me && !adapter.managers.get(id)?.blocked
+  const partners = [...adapter.rosters.keys()].filter(id => id !== me && !excluded(adapter.managers.get(id))
     && !adapter.managers.get(id)?.checked_out);
   const lin = state => linearNick(S.rosterOf(state, me), origMine, vals.addN, vals.lossN);
+  const count = (bucket, st) => { if (stats) { const k = shapeOf(st); stats[bucket][k] = (stats[bucket][k] ?? 0) + 1; } };
   const stepsFrom = (state, team, onlyGet = null, maxGive = 2) => {
     const mine = S.rosterOf(state, me).filter(vals.tradable);
     const theirs = onlyGet != null ? [onlyGet] : S.rosterOf(state, team).filter(vals.tradable);
     const out = [];
-    for (const get of theirs) for (const give of combos(mine, maxGive)) {
-      if (give.includes(onlyGet)) continue;
-      if (!screenFair(give.reduce((s, id) => s + val(id), 0), val(get))) continue;
-      out.push({ team, give, get: [get] });
+    const push = st => { count('screened', st); out.push(st); };
+    if (!two) {
+      for (const get of theirs) for (const give of combos(mine, maxGive)) {
+        if (give.includes(onlyGet)) continue;
+        if (!screenFair(give.reduce((s, id) => s + val(id), 0), val(get))) continue;
+        push({ team, give, get: [get] });
+      }
+      return out;
+    }
+    const items = mine.filter(id => id !== onlyGet).map(id => ({ id, value: val(id) }));
+    for (const get of theirs) {
+      const band = fairBand(val(get));
+      for (const give of onesInBand(items, band)) push({ team, give, get: [get] });
+      if (maxGive >= 2) for (const give of pairsInBand(items, band, { limit: o.pairLimit })) push({ team, give, get: [get] });
+      if (maxGive >= 3) {
+        for (const give of combos(items.map(x => x.id), 3)) {
+          if (give.length !== 3 || !screenFair(give.reduce((s, id) => s + val(id), 0), val(get))) continue;
+          push({ team, give, get: [get] });
+        }
+      }
+    }
+    if (onlyGet != null && o.fillers > 0) {
+      // 1-for-2: the target plus a filler from his owner, for one of Nick's (ACQ-01).
+      const fillers = S.rosterOf(state, team).filter(id => id !== onlyGet && vals.tradable(id))
+        .sort((x, y) => (vals.addN.get(y) ?? 0) - (vals.addN.get(x) ?? 0)).slice(0, o.fillers);
+      for (const f of fillers) {
+        for (const give of onesInBand(items, fairBand(val(onlyGet) + val(f)))) push({ team, give, get: [onlyGet, f] });
+      }
     }
     return out;
   };
-  const withP = (state, st) => ({ ...st, p: adapter.priceStep(st.team, st.get, st.give).p,
-    state: S.applyTrade(state, me, st.team, st.give, st.get) });
+  const withP = (state, st) => {
+    const pr = adapter.priceStep(st.team, st.get, st.give);
+    return { ...st, p: pr.p, band: pr.band ?? null, state: S.applyTrade(state, me, st.team, st.give, st.get) };
+  };
   const h = steps => pathExpectation(steps.map(x => ({ p: x.p, delta: lin(x.state) })));
   const direct = stepsFrom(new Map(), owner, target, maxGiveFinal).map(st => [withP(new Map(), st)]);
   const chipLayer = (prefixes, maxGive) => {
@@ -175,21 +240,35 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
   const d2 = chipLayer([[]], 2).map(finish).filter(Boolean);
   const d3 = chipLayer(d2.sort(byExp).slice(0, 6).map(c => c.steps.slice(0, 1)), 1).map(finish).filter(Boolean);
   // Two shortlists per depth: by expected (balanced / safe) and by final delta (all-in).
-  const pick = (list, n) => [...list.sort(byExp).slice(0, n), ...list.sort(byFinal).slice(0, Math.ceil(n / 2))];
+  const pick1 = (list, n) => [...list.sort(byExp).slice(0, n), ...list.sort(byFinal).slice(0, Math.ceil(n / 2))];
+  // With the 2-for-1 search on, each arm (1-for-1-only, two-player side) gets its own shortlist,
+  // so the 1-for-1 arm is exactly what the incumbent would have scored and never crowded out.
+  const pick = (list, n) => (two
+    ? [...pick1(list.filter(c => oneForOneOnly(c.steps)), n), ...pick1(list.filter(c => !oneForOneOnly(c.steps)), n)]
+    : pick1(list, n));
   const seen = new Set();
   const short = [...pick(d1, shortlist[0]), ...pick(d2, shortlist[1]), ...pick(d3, shortlist[2])].filter(c => {
     const k = c.steps.map(dealKey).join('>');
     if (seen.has(k)) return false;
     seen.add(k); return true;
   });
-  return short.map(c => {
+  const plans = short.map(c => {
     const steps = c.steps.map(st => {
       const m = metricOf(S.rescore(st.state, me).me, objective);
-      return { team: st.team, give: st.give, get: st.get, p: st.p, delta: m.delta, se: m.se, clears: m.clears, state: st.state };
+      return { team: st.team, give: st.give, get: st.get, p: st.p, band: st.band, delta: m.delta, se: m.se, clears: m.clears, state: st.state };
     });
+    const oneOnly = oneForOneOnly(steps);
+    if (stats) { const k = oneOnly ? 'one_for_one_only' : 'two_side'; stats.shortlisted[k] = (stats.shortlisted[k] ?? 0) + 1; }
     return { target, owner, depth: steps.length, heuristic: c.e.expected, chained: isChained(steps), steps,
       ...pathExpectation(steps) };
   });
+  if (stats) {
+    const best = f => plans.filter(f).reduce((b, p) => (b == null || p.expected > b ? p.expected : b), null);
+    const one = best(p => oneForOneOnly(p.steps)), withTwo = best(p => !oneForOneOnly(p.steps));
+    stats.targets.push({ target: String(target), owner: String(owner), best_one_for_one: one, best_with_two: withTwo,
+      gain: withTwo == null ? null : withTwo - (one ?? 0), best_is_two: withTwo != null && (one == null || withTwo > one) });
+  }
+  return plans;
 }
 
 /** Drop the in-memory states from a plan before it is written. */

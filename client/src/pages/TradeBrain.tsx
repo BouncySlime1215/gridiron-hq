@@ -34,7 +34,7 @@ import { useWarRoom } from '../components/warroom/useWarRoom';
  */
 
 // WR-1: the War Room is the first tab, drawn only when the server says it is enabled
-// (GRIDIRON_WARROOM_ENABLED, or preview mode). Off = this page exactly as before.
+// (server/services/warroom-flag.js: its own switch, or preview mode). Off = this page exactly as before.
 const TABS = [
   { id: 'war-room', label: 'War Room', hint: 'The next move toward your goal, one decision at a time' },
   { id: 'managers', label: 'Who trades with you', hint: 'Your read of each manager, beside the measured one' },

@@ -663,7 +663,7 @@ r.get('/:leagueId/ceiling-lineup', (req, res, next) => {
 /**
  * WR-1: the War Room (a tab inside Trade Brain). Read-only and precomputed: it
  * reshapes a plans JSON written ahead of time by the study/campaign producer and
- * computes nothing here. Flag off (GRIDIRON_WARROOM_ENABLED unset, preview mode off)
+ * computes nothing here. Flag off (warroom-flag.js: own switch unset, preview mode off)
  * answers { enabled: false } and the client does not draw the tab.
  */
 r.get('/:leagueId/war-room', async (req, res, next) => {

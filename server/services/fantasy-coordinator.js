@@ -130,12 +130,18 @@ export function fitTargetOf(fit) {
  * S-02 graded two windows and decided each one separately. Week 1 goes with weeks 2-4
  * and week 18 with weeks 5-17: neither was graded (S-02 needs a prior played week and
  * stops at 17), and the surface label says so.
+ *
+ * This is the one week-to-window mapping. The served side calls constructionWindow(week);
+ * the grading study (scripts/weekly-construction-grade-lib.mjs#weekWindow) calls it with
+ * `gradedOnly`, which puts the ungraded weeks (1 and 18) in no window.
  */
 export const CONSTRUCTION_WINDOWS = Object.freeze(['2-4', '5-17']);
-function constructionWindow(week) {
+export const GRADED_WEEKS = Object.freeze({ first: 2, last: 17 });
+export const gradedWeek = week => Number(week) >= GRADED_WEEKS.first && Number(week) <= GRADED_WEEKS.last;
+export function constructionWindow(week, { gradedOnly = false } = {}) {
+  if (gradedOnly && !gradedWeek(week)) return null;
   return Number(week) <= 4 ? '2-4' : '5-17';
 }
-const gradedWeek = week => Number(week) >= 2 && Number(week) <= 17;
 
 const MIN_ROWS = 200;
 const RIDGE = 36;
@@ -755,7 +761,7 @@ export function weekConstructionBasis({ fit, week, lift }) {
       : `our weekly projection plus the coordinator's correction (fit #${coordinator.fit_id})`;
   const label = `This week's points: ${head}, times his chance to play. ` +
     (liftOn ? 'Times the betting-line game-script boost.' : 'No betting-line boost.') +
-    (gradedWeek(week) ? '' : ` Week ${week} was not graded (the grade covered weeks 2-17), so it follows the weeks ${window} decision.`);
+    (gradedWeek(week) ? '' : ` Week ${week} was not graded (the grade covered weeks ${GRADED_WEEKS.first}-${GRADED_WEEKS.last}), so it follows the weeks ${window} decision.`);
   return {
     window, graded_week: gradedWeek(week), coordinator,
     betting_line_lift: { on: liftOn, reason: lift?.reason ?? null, evidence: lift?.evidence ?? null },

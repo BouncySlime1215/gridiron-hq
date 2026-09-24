@@ -14,7 +14,7 @@
  * decision win rate - 0.5, positive = the arm's start/sit calls beat m0's.
  */
 import {
-  weeklyExpertValues, coordinateFantasy, fitFantasyCoordinator, buildFantasyCoordinatorExamples
+  weeklyExpertValues, coordinateFantasy, fitFantasyCoordinator, buildFantasyCoordinatorExamples, constructionWindow
 } from '../server/services/fantasy-coordinator.js';
 import { vegasLift } from '../server/services/waiver-brain.js';
 import { pairedBootstrapDiff } from '../server/services/backtest-significance.js';
@@ -114,10 +114,9 @@ export function eligibleRows(week, engine, truth) {
   return out;
 }
 
+/** The served mapping (fantasy-coordinator.js#constructionWindow), graded weeks only. */
 export function weekWindow(week) {
-  if (week >= 2 && week <= 4) return '2-4';
-  if (week >= 5 && week <= 17) return '5-17';
-  return null;
+  return constructionWindow(week, { gradedOnly: true });
 }
 
 export function mde80(ci90) {

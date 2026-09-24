@@ -447,7 +447,8 @@ test('the betting line reaches a fantasy number only through the switch, or as a
     [svc('betting-fantasy-link.js')]: 'betting side: routes/nfl-betting.js',
     [svc('nfl-context-heads.js')]: 'betting-side head research',
     [svc('nfl-prop-head-validation.js')]: 'player-prop validation',
-    [svc('nfl-props.js')]: 'player props'
+    [svc('nfl-props.js')]: 'player props',
+    [svc('projections.js')]: 'PROJ-02-a sharp chain (#221): the plays and pass-rate links read the script, and every link is default off (CHAIN_SERVED all false); served volume stays pre-script'
   };
   const STILL_APPLY_THE_LIFT = {
     [svc('ceiling-lineup.js')]: 'S-06: the Ceiling tab draws week-N volume x the line (ceiling-lineup.js:108-110)',

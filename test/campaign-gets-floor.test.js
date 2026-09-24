@@ -3,8 +3,8 @@
  * the floor on the blue-chip score (PLAYER-SCORE, adapter.scoreOf). Nick 9/24: final gets are Blue
  * chip, 83+. The floor applies to the GET only; what Nick pays with is never floored.
  *
- * Flag GRIDIRON_GETS_FLOOR: '1' enforces, '0' is off, unset is shadow (counts what it would drop,
- * moves nothing served). Made-up league (test/fixtures/campaign-league.mjs); no DB, no simulation.
+ * Flag GRIDIRON_GETS_FLOOR: '1' enforces, 'shadow' counts what it would drop and moves nothing
+ * served, unset or '0' is off. Made-up league (test/fixtures/campaign-league.mjs); no DB, no simulation.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -27,11 +27,12 @@ test('the floor: 83 by default, a destination may raise or lower it', () => {
   assert.equal(getFloorOf({ min_get_score: 74 }), 74);
 });
 
-test('the flag: unset is shadow, 1 enforces, 0 is off', () => {
-  assert.equal(getsFloorFlag({}), 'shadow');
+test('the flag: unset is off, 1 enforces, shadow counts', () => {
+  assert.equal(getsFloorFlag({}), 'off');
   assert.equal(getsFloorFlag({ GRIDIRON_GETS_FLOOR: '1' }), 'on');
+  assert.equal(getsFloorFlag({ GRIDIRON_GETS_FLOOR: 'shadow' }), 'shadow');
   assert.equal(getsFloorFlag({ GRIDIRON_GETS_FLOOR: '0' }), 'off');
-  assert.equal(getsFloorFlag(undefined), 'shadow');
+  assert.equal(getsFloorFlag(undefined), 'off');
 });
 
 test('a read: at the floor passes, under it fails, unscored and no source fail closed', () => {
@@ -75,10 +76,10 @@ test('on: every final get is 83+, below-floor targets are replaced before the to
   assert.ok(res.best, 'a plan clears with the floor on');
 });
 
-test('shadow (the default): served plans are byte-identical to off, and the would-drop count is printed', () => {
+test('shadow: served plans are byte-identical to off, and the would-drop count is printed', () => {
   for (const mode of ['balanced', 'all_in']) {
-    const off = plan({ GRIDIRON_GETS_FLOOR: '0' }, { mode }).res;
-    const shadow = plan({}, { mode }).res;
+    const off = plan({}, { mode }).res;
+    const shadow = plan({ GRIDIRON_GETS_FLOOR: 'shadow' }, { mode }).res;
     assert.equal(off.gets_floor.mode, 'off');
     assert.equal(shadow.gets_floor.mode, 'shadow');
     const served = r => JSON.stringify({ targets: r.targets, best: r.best, deck: r.deck, suggestions: r.suggestions });
@@ -112,7 +113,7 @@ test('on: a below-floor player Nick asked for is refused as a target, and named'
 });
 
 test('the floored plan still validates against the contract', () => {
-  for (const env of [ON, {}]) {
+  for (const env of [ON, { GRIDIRON_GETS_FLOOR: 'shadow' }, {}]) {
     const { a, res } = plan(env);
     const entry = toEntry(res, { names: a.names(), as_of: '2026-09-24T00:00:00Z' });
     assert.deepEqual(validateLeague(entry).errors, []);

@@ -25,6 +25,7 @@ import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink } from './search.js';
+import { makeGetsFloor } from './gets-floor.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
 
 /** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
@@ -133,15 +134,28 @@ export function planLeague(adapter, settings) {
   const untouchable = adapter.untouchable ?? new Set();
   const refused = [];
   const wanted = [];
-  const want = pid => {
+  // GETS-FLOOR (flag GRIDIRON_GETS_FLOOR: 1 on, shadow, unset off): the final get must score 83+ on the blue-chip
+  // score. On, a target under the floor is never searched and the next one that passes takes its slot.
+  const floor = makeGetsFloor(adapter, { env, tolerances: objective.tolerances });
+  const floorOn = floor.sink.mode === 'on';
+  const floored = n => {
+    if (!floorOn) return upgrades.slice(0, n);
+    const out = [];
+    for (const pid of upgrades) { if (out.length >= n) break; if (floor.keep(pid)) out.push(pid); }
+    return out;
+  };
+  const want = (pid, named = false) => {
     if (pid == null) return;
     if (untouchable.has(String(pid))) { if (!refused.includes(String(pid))) refused.push(String(pid)); return; }
+    if (named && floorOn && !floor.keep(pid)) { floor.refuse(pid); return; }
     if (!wanted.some(w => String(w) === String(pid))) wanted.push(pid);
   };
   const idOf = s => [...adapter.players.keys()].find(k => String(k) === String(s)) ?? null;
-  if (objective.kind === 'player') want(idOf(objective.target));
-  for (const st of objective.stops) if (st.kind === 'get') want(idOf(st.player));
-  for (const pid of upgrades.slice(0, budget.targets)) want(pid);
+  if (objective.kind === 'player') want(idOf(objective.target), true);
+  for (const st of objective.stops) if (st.kind === 'get') want(idOf(st.player), true);
+  for (const pid of floored(budget.targets)) want(pid);
+  // Shadow: read what is searched, count what the floor would drop, change nothing.
+  if (floor.sink.mode === 'shadow') for (const pid of wanted) floor.keep(pid);
 
   let plans = [];
   for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay }));
@@ -237,7 +251,7 @@ export function planLeague(adapter, settings) {
 
   // Suggested targets: gain if landed x P(reach) x skip weight, with mode fit.
   const byMode = Object.fromEntries(MODES.map(mode => { const c = ctxFor(mode); return [mode, rankPlans(plans, mode, c.tol, c.ctx).ranked]; }));
-  const suggestions = upgrades.slice(0, 5).map(pid => {
+  const suggestions = floored(5).map(pid => {
     const mine = byMode[objective.risk_mode].find(p => String(p.target) === String(pid));
     const any = MODES.map(md => byMode[md].find(p => String(p.target) === String(pid))).find(Boolean) ?? null;
     const reach = mine ?? any;
@@ -331,6 +345,7 @@ export function planLeague(adapter, settings) {
   return {
     league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: { ...tol, max_overpay: maxOverpay },
     no_overpay: overpay,
+    gets_floor: floor.sink,
     now, behind, week: L.week, deadline_week: L.deadline_week ?? null,
     eta_week: best ? arrivalWeek(best, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) : null,
     finder_best, sanity,

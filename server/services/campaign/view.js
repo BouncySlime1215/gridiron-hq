@@ -254,11 +254,18 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   const op = res.no_overpay ?? null;
   const cl = op?.closest && fin(op.closest.pct) ? op.closest : null;
   const closestText = cl ? `the closest is ${cl.give.map(nm).join(' + ')} for ${cl.get.map(nm).join(' + ')} at +${Math.max(1, Math.round(cl.pct * 100))}% market value (your cap: +${Math.round((op.max_overpay ?? 0) * 100)}%)` : null;
-  const next_move = best ? ok(best, 'plan.path')
-    : unknown(res.candidates_scored
-      ? `None of the ${res.candidates_scored} paths searched clears the sliders and the fresh-dice check this week.${closestText ? ` Nothing clears without overpaying; ${closestText}.` : ''} Try another target or risk mode.`
-      : closestText ? `Nothing clears without overpaying; ${closestText}.`
-        : 'The planner found no trade path worth sending this week.', 'plan.path');
+  // GETS-FLOOR: with the floor on and no move, say first that the floor is what emptied the deck.
+  const gf = res.gets_floor?.mode === 'on' ? res.gets_floor : null;
+  const floorName = gf ? `${gf.floor === 83 ? 'Blue chip floor' : 'get floor'} (${gf.floor}+)` : null;
+  const floorText = !gf ? null
+    : gf.source === 'none' ? `The ${floorName} is on but there is no player score this run, so no get can be certified.`
+      : gf.refused.length ? `${gf.refused.map(r => `${nm(r.player)} ${r.score == null ? 'has no score' : `scores ${Math.round(r.score)}`}`).join('; ')}, under the ${floorName}.`
+        : gf.dropped ? `${gf.dropped} candidate get${gf.dropped === 1 ? '' : 's'} under the ${floorName} ${gf.dropped === 1 ? 'was' : 'were'} skipped.` : null;
+  const why = res.candidates_scored
+    ? `None of the ${res.candidates_scored} paths searched clears the sliders and the fresh-dice check this week.${closestText ? ` Nothing clears without overpaying; ${closestText}.` : ''} Try another target or risk mode.`
+    : closestText ? `Nothing clears without overpaying; ${closestText}.`
+      : floorText ? null : 'The planner found no trade path worth sending this week.';
+  const next_move = best ? ok(best, 'plan.path') : unknown([floorText, why].filter(Boolean).join(' '), 'plan.path');
 
   /* ------------------------------------------------------- destination */
   // PLAN-BASELINE: an earlier trajectory is compared with only when it was made under this run's model.

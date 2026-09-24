@@ -5,6 +5,7 @@ import { Headshot } from './PlayerRow';
 import ManagerRead from './trade/ManagerRead';
 import PlayerEvidence from './trade/PlayerEvidence';
 import RiskStrip from './trade/RiskStrip';
+import HisScreen from './warroom/HisScreen';
 import { hasEvidence } from './trade/types';
 import { logServerDetail, sanitizedMessage } from '../lib/errorSanitize';
 
@@ -168,6 +169,7 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
   const [oddsBusy, setOddsBusy] = useState(false);
   const [sense, setSense] = useState<any>(null);
   const [senseBusy, setSenseBusy] = useState(false);
+  const [hisOpen, setHisOpen] = useState(false);
 
   const senseCheck = async () => {
     setSenseBusy(true); setErr(null);
@@ -311,6 +313,9 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
         <button className="btn-ghost text-xs" onClick={senseCheck} disabled={senseBusy}>
           {senseBusy ? 'Checking…' : '🔍 AI sense check'}
         </button>
+        <button className="btn-ghost text-xs" onClick={() => setHisOpen(v => !v)} aria-expanded={hisOpen}>
+          👁 His screen
+        </button>
         {onDismiss && (
           <button className="btn-ghost text-xs text-[var(--muted)] ml-auto" onClick={onDismiss} title="Hide this idea — it won't come back on refresh">
             ✕ Not interested
@@ -318,6 +323,17 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
         )}
         {err && <span className="text-[11px] text-rose-600">{err}</span>}
       </div>
+
+      {/* HIS-SCREEN: the offer as he sees it. Default-off on the server; off, it prints the reason. */}
+      {hisOpen && (
+        <div className="mt-3 rounded-xl border border-[var(--edge)] p-3">
+          <HisScreen leagueId={leagueId} offer={{
+            partner: String(deal.partner_id ?? deal.them?.roster_id ?? ''),
+            give: give.map((p: any) => String(p.id)),
+            get: get.map((p: any) => String(p.id)),
+          }} />
+        </div>
+      )}
 
       {sense && !sense.error && (
         <div className={`mt-3 rounded-xl border p-3 ${SENSE_TONE[sense.verdict] ?? 'border-slate-200 bg-slate-50/60'}`}>

@@ -154,11 +154,12 @@ test('hisScreenFor: no clone for him -> unknown badge; sim failure -> unknown ti
 });
 
 test('hisScreenFor refuses bad offers with a reason', async () => {
-  const { svc } = fakeSvc();
+  const { svc, calls } = fakeSvc();
   assert.match((await hisScreenFor(lg, { partner: '3', give: ['1'], enabled: true, svc })).error, /another team/);
   assert.match((await hisScreenFor(lg, { partner: '9', give: ['1'], enabled: true, svc })).error, /another team/);
   assert.match((await hisScreenFor(lg, { partner: '7', give: ['10'], enabled: true, svc })).error, /not on your roster: 10/);
   assert.match((await hisScreenFor(lg, { partner: '7', get: ['1'], enabled: true, svc })).error, /not on his roster: 1/);
+  assert.equal(calls.tradeImpact, null, 'a refused offer never runs the season sim');
   assert.match((await hisScreenFor(lg, { partner: '7', enabled: true, svc })).error, /names no players/);
 });
 
@@ -184,4 +185,17 @@ test('flag: off by default with the reason; site flag on; preview turns it on an
     if (saved.a === undefined) delete process.env[HIS_SCREEN_ENV]; else process.env[HIS_SCREEN_ENV] = saved.a;
     if (saved.b === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = saved.b;
   }
+});
+
+test('every source id on his screen is one the War Room contract declares', async () => {
+  const { SOURCE_IDS } = await import('../server/services/campaign/plans-schema.js');
+  const s = buildHisScreen({ offer, hisRoster, players, clone: {
+    deal: { their_perceived_give: 1100, their_perceived_get: 1000, perception_informed: false },
+    perPlayer: new Map([['10', { their_value: 1100, multiplier: 1, factors: [] }]]) },
+  impact: { them: { title_before: 0.1, title_after: 0.1, title_delta: 0, title_delta_se: 0.01 } } });
+  const seen = new Set();
+  const walk = v => { if (v && typeof v === 'object') { if (typeof v.source === 'string') seen.add(v.source); Object.values(v).forEach(walk); } };
+  walk(s);
+  assert.ok(seen.size >= 3, 'known-nonzero control: the walk found sources');
+  for (const src of seen) assert.ok(SOURCE_IDS.includes(src), `${src} is not in SOURCE_IDS`);
 });

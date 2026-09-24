@@ -79,3 +79,7 @@ Step-back: every 2 h, redraw the platform model (sources -> readers -> brain -> 
 4. Deploy + work: keep every lane full (5 builds, 1 R&D, local jobs, cloud within budget, agents) AND keep a hands-on coordinator task list moving (COORD-TASKS.md).
 5. No asking Nick anything overnight; no terminal-tab commands that need his approval.
 6. Target: a working, fully tested, insane War Room + Coach on his app at 10:00 AM sharp.
+
+## Producer runs (coordinator, 9/24 05:16)
+- "One produce-plans at a time" applies to the LIVE DB (~/gridiron-local/data.sqlite) only. A unit measuring on its OWN DB copy runs its producer under `nice -n 10` without waiting for other producers; scope any wait to its own worktree (`pgrep -f "<WORKTREE>.*produce-plans"`). A global `until ! pgrep -f produce-plans` starved REFRESH-L4 for 45 min (the refresh loop and REPRO-01 always had one running).
+- Never SendMessage a workflow's subagent to steer it: if it's mid-run, the message RESUMES A SECOND COPY in the same worktree (REFRESH-L4 9/24: two builders, one killed the other's waiters). Steer a workflow unit by stopping it and relaunching with new args instead.

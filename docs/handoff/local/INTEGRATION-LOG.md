@@ -2,7 +2,13 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-24 03:15Z.
+Last rebuilt: 2026-09-24 04:31Z.
+
+## #278: integration: merge batch 1 (#174 #244 #243 #239 #236 #240 #216 #242 #235)
+
+- Merged: 12:29 AM ET, Sep 24 as `8597f9cf`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #241: fix: centre title odds on the finder's rest-of-season rate (RL-17-3)
 
@@ -475,9 +481,3 @@ Last rebuilt: 2026-09-24 03:15Z.
 - Intake: done: (filled by the integration intake agent) 1. Upstream: canonical producer, unchanged — still reads playerweekusage.targetshare for the one number this file owns (server/services/player-advanced-stats.js:219 area). No new copy of an existing number was computed; the change adds a second axis (unavailablekind: notapplicable | notmeasured) alongside the existing value/reason shape (git show 35a61fe3 -- server/services/pl…
 - Follow-ups: none needed, or folded into existing units (see the card)
 
-# INTEGRATION LOG (coordinator, hands-on)
-## 9/23 ~11:25 PM: preview = main + #238 #233 #231 #230 #234 (+ FIX-03 #272), DB copy, port 5189, target league
-- Merge: all 5 PRs + FIX-03 merge cleanly onto main.
-- Producer: exit 0, about 151-173 s; next move computed. validatePlans: 37 errors without FIX-03, 0 errors with FIX-03. Verified and commented on #272.
-- War Room screen: every panel shows "not computed yet / not built". The UI (#231) reads the old shape and hard-codes those states, which is the audit's defect 4b. FIX-04 is needed (cloud, running). Coach isn't docked yet (FIX-06). The league rail lists all 5 leagues as "not ranked yet"; it should open on the target league.
-- Next: when FIX-04 and FIX-06 open PRs, merge them into this preview, re-check and screenshot.

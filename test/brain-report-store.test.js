@@ -69,25 +69,34 @@ test('on an empty database every check runs: E3 historical passes, everything li
     assert.match(byCheck[c].needs_text, /^needs \d+ more /, c);
   }
   assert.match(byCheck.E1.needs_text, new RegExp(`^needs ${E1.minOffersToDecide()} more offers`));
-  assert.match(byCheck.E2.needs_text, /no writer records a sent offer's price band yet/);
+  // Before 080 (#239) lands E2 names the missing column; with it, it asks for offers.
+  const hasSent = !!db.prepare(`SELECT 1 FROM pragma_table_info('trade_outcomes') WHERE name = 'sent_at'`).get();
+  assert.match(byCheck.E2.needs_text, hasSent ? /^needs \d+ more offers/ : /trade_outcomes lacks column\(s\) sent_at/);
+  assert.match(byCheck.E7.needs_text, /PROJ-04-a/);
   assert.match(byCheck.E7.needs_text, /needs 4 more weeks/);
 });
 
-test('E1 reads the real trade_outcomes ledger: app_proposed, resolved, deduped against offer_log', () => {
+test('E1 reads the real trade_outcomes ledger: sent app_proposed rows only; offer_log is never read', () => {
+  // sent_at arrives with 080 (CLONE-01b, #239); added here so this file does not
+  // depend on that PR's merge order.
+  if (!db.prepare(`SELECT 1 FROM pragma_table_info('trade_outcomes') WHERE name = 'sent_at'`).get()) {
+    db.exec('ALTER TABLE trade_outcomes ADD COLUMN sent_at TEXT; ALTER TABLE trade_outcomes ADD COLUMN matched_tx_id TEXT');
+  }
   const ins = db.prepare(`INSERT INTO trade_outcomes (league_id, season, source, counterparty_team_id, proposed_at,
-    model_p_accept, model_basis, status, idea_id, created_at) VALUES (1, 2026, ?, ?, ?, ?, 'heuristic_anchored', ?, ?, '2026-09-23')`);
-  for (let i = 0; i < 12; i += 1) ins.run('app_proposed', String(i % 3), `2026-09-${10 + i}`, 0.3, i % 2 ? 'accepted' : 'declined', `idea${i}`);
-  ins.run('app_proposed', '1', '2026-09-30', 0.3, 'proposed', 'idea-open');
+    model_p_accept, model_basis, status, idea_id, sent_at, created_at) VALUES (1, 2026, ?, ?, ?, ?, 'heuristic_anchored', ?, ?, ?, '2026-09-23')`);
+  for (let i = 0; i < 12; i += 1) ins.run('app_proposed', String(i % 3), `2026-09-${10 + i}`, 0.3, i % 2 ? 'accepted' : 'declined', `idea${i}`, `2026-09-${10 + i}`);
+  ins.run('app_proposed', '1', '2026-09-30', 0.3, 'proposed', 'idea-open', '2026-09-30');
+  ins.run('app_proposed', '2', '2026-09-29', 0.3, 'declined', 'idea-unsent', null);
   db.exec(`INSERT INTO trade_outcomes (league_id, season, source, status, not_proposed_reason, created_at)
     VALUES (1, 2026, 'considered_only', 'not_proposed', 'edge', '2026-09-23')`);
   db.exec(`CREATE TABLE offer_log (league_id INTEGER, counterparty_team_id TEXT, proposed_at TEXT, model_p_accept REAL, status TEXT, idea_id TEXT)`);
-  db.exec(`INSERT INTO offer_log VALUES (1, '0', '2026-09-10', 0.3, 'declined', 'idea0'), (1, '9', '2026-09-11', 0.6, 'accepted', 'fresh')`);
+  db.exec(`INSERT INTO offer_log VALUES (1, '9', '2026-09-11', 0.6, 'accepted', 'fresh')`);
   const { offers, sources } = E1.load(db);
-  assert.deepEqual(sources, ['trade_outcomes', 'offer_log']);
-  assert.equal(offers.length, 13, '12 resolved app_proposed + 1 new offer_log row; idea0 deduped, the open proposal is not an outcome');
+  assert.deepEqual(sources, ['trade_outcomes']);
+  assert.equal(offers.length, 12, '12 sent, resolved app_proposed rows; the open, the unsent and the offer_log row are not outcomes');
   const r = E1.run(db);
-  assert.equal(r.n, 13);
-  assert.equal(r.detail.offers_by_basis.recorded, 13, 'every one carried the prediction recorded when it was sent');
+  assert.equal(r.n, 12);
+  assert.equal(r.detail.offers_by_basis.recorded, 12, 'every one carried the prediction recorded when it was sent');
   assert.equal(r.status, 'not_enough_data');
   assert.match(r.needs_text, /^needs \d+ more offers/);
   db.exec('DROP TABLE offer_log');
@@ -118,7 +127,7 @@ test('E1 reads every manager\'s offers: observed trade_outcomes plus unsettled l
   assert.equal(new Set(league2.map(o => o.proposer_team_id)).size, 3, 'three different proposers, none of them the app');
   assert.equal(excluded.withdrawn, 1);
   const r = E1.run(db);
-  assert.equal(r.n, 15, '12 app offers in league 1 plus 3 league-2 offers from other managers');
+  assert.equal(r.n, 15, '12 sent app offers in league 1 plus 3 league-2 offers from other managers');
   assert.equal(r.detail.offers_by_basis.replay_anchor_only, 3);
   db.exec("DROP TABLE league_transactions_raw; DELETE FROM trade_outcomes WHERE league_id = 2");
 });

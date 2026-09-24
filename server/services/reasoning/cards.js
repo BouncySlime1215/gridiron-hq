@@ -1,75 +1,109 @@
 /**
- * REASON-01 input side: which cards get a reasoning panel, and the facts each
+ * REASON-01 input side: which moves get a reasoning panel, and the facts each
  * panel is allowed to state.
  *
- * The input is the campaign producer's plans JSON (one entry per league). Two
- * shapes are read, because the producer has not landed on main yet and the
- * prototype it grows from writes the second one:
+ * The input is the War Room plans file in the contract shape
+ * (server/services/campaign/plans-schema.js, `warroom-plans/1`). Every read
+ * below is a contract path, listed for the contract test in
+ * test/fixtures/warroom-contract/consumer-reads.js (pr 234):
  *
- *   league.cards[]                     explicit cards, rank 0 = the top card
- *   league.acq { best, alternatives }  planner paths; the card is each path's
- *                                      first step (the next move)
+ *   alternatives.value[]              the deck, best first; its head is next_move
+ *     .move_id                        the card id (stable across refreshes, so reuse works)
+ *     .delta_final.value              title-odds gain of the whole move
+ *     .steps[0].partner/give/get      the offer to send now
+ *     .steps[0].p_yes.{value,n}       chance he says yes, and how many offers it rests on
+ *     .steps[0].title_odds_delta.{value,se,clears_2se}
+ *     .steps[0].reply_table.value.*   what to do on accept / decline / counter / silence
+ *     .steps[0].walk_away.value.text
+ *   partners.value[]                  his side, one row per team (FIX-03's shape: p_responds
+ *                                     a bare probability, roster_holes position strings,
+ *                                     chat_labels 'key:value' tags, offers_logged)
+ *   brain_report.value.checks[E1]     whether the accept model has passed calibration
  *
- * Cost rule (ENGINE-SPECS REASON-01): only the top card and the swipe deck get
- * a panel per refresh. Everything past DECK_SIZE is dropped here, before any
- * prompt is built, so no later step can spend on it.
+ * Cost rule (ENGINE-SPECS REASON-01): only the deck gets a panel per refresh.
+ * The contract caps the deck at MAX_ALTERNATIVES (head + four), and anything
+ * past it is dropped here, before any prompt is built.
  *
  * Facts are a flat map of field id -> scalar. A panel's words may state a
  * number only when a fact it cites holds that number (verify.js). Chat enters
  * ONLY as labels: raw chat text is never read from the input, so it cannot be
  * quoted back.
  */
+import { MAX_ALTERNATIVES } from '../campaign/plans-schema.js';
 
-export const DECK_SIZE = 5;
-export const MAX_CARDS_PER_LEAGUE = 1 + DECK_SIZE;
+export const MAX_CARDS_PER_LEAGUE = MAX_ALTERNATIVES;
+export const DECK_SIZE = MAX_CARDS_PER_LEAGUE - 1;
 export const NEWS_WINDOW_HOURS = 48;
+export const REPLY_KEYS = Object.freeze(['accept', 'decline', 'counter', 'silence']);
 
-/** A chat-derived label is a short tag, never a sentence or a quote. */
-const LABEL = /^[A-Za-z][A-Za-z _-]{0,39}$/;
+/** A chat-derived label is a short tag (FIX-03 writes 'open_to_trade:high'), never a sentence or a quote. */
+const LABEL = /^[A-Za-z][A-Za-z _:-]{0,39}$/;
 
 const num = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const list = v => (Array.isArray(v) ? v : []);
+/** A typed field's value when it is ok; undefined otherwise (never a stand-in 0). */
+const ok = f => (f && typeof f === 'object' && f.status === 'ok' ? f.value : undefined);
+const str = v => (typeof v === 'string' && v.trim() ? v : null);
 
-function cardFromPlan(plan, rank, leagueId) {
-  const step = list(plan?.steps)[0];
-  if (!step) return null;
+/** The contract's league id. */
+export const leagueIdOf = league => league?.league ?? null;
+
+/** His row in `partners.value[]`, or null. */
+export function partnerFor(league, team) {
+  if (team == null) return null;
+  return list(ok(league?.partners)).find(p => String(p?.team) === String(team)) ?? null;
+}
+
+/**
+ * The calibration fact for P(yes): E1 in the brain report. `calibrated` is
+ * true only when E1 is passing; a missing report says so rather than passing.
+ */
+export function calibrationOf(league) {
+  const report = ok(league?.brain_report);
+  if (!report) return { calibrated: false, status: 'brain report not available' };
+  const e1 = list(report.checks).find(c => c?.id === 'E1');
+  if (!e1) return { calibrated: false, status: 'E1 not reported' };
+  return { calibrated: e1.status === 'passing', status: `E1 ${e1.status}` };
+}
+
+function replyRows(step) {
+  const table = ok(step?.reply_table);
+  if (!table) return [];
+  return REPLY_KEYS.flatMap(key => {
+    const r = ok(table[key]);
+    if (!r) return [];
+    return [{
+      reply: key, action: str(r.do), when: str(r.when),
+      counter: str(r.counter_rules?.counter_with), accept_if: str(r.counter_rules?.accept_if),
+      walk_away_if: str(r.counter_rules?.walk_away_if), odds_after: num(ok(r.odds_after))
+    }];
+  });
+}
+
+function cardFromMove(move) {
+  const step = list(move?.steps)[0];
+  if (!step || typeof move?.move_id !== 'string') return null;
+  const tod = step.title_odds_delta ?? {};
   return {
-    id: plan.id ?? `${leagueId}:${rank}`,
-    rank,
-    partner_team: step.team ?? null,
+    id: move.move_id,
+    rank: 0,
+    partner_team: step.partner ?? null,
     give: list(step.give), get: list(step.get),
-    p_yes: num(step.p), p_yes_n: num(step.p_n ?? plan.p_yes_n), p_yes_basis: step.basis ?? plan.p_yes_basis ?? null,
-    title_delta: num(plan.delta_final ?? step.delta), title_delta_se: num(step.se),
-    clears_2se: typeof step.clears === 'boolean' ? step.clears : null,
-    reason_chain: list(plan.reason_chain), reply_table: list(plan.reply_table ?? step.reply_table),
-    walk_away: plan.walk_away ?? null
+    p_yes: num(ok(step.p_yes)), p_yes_n: num(step.p_yes?.n),
+    title_delta: num(ok(move.delta_final)),
+    step_title_delta: num(ok(tod)),
+    title_delta_se: tod.status === 'ok' ? num(tod.se) : null,
+    clears_2se: tod.status === 'ok' && typeof tod.clears_2se === 'boolean' ? tod.clears_2se : null,
+    send_when: str(ok(step.send_when)),
+    opening: str(ok(step.opening)?.text),
+    reply_table: replyRows(step),
+    walk_away: str(ok(step.walk_away)?.text)
   };
 }
 
-function normaliseCard(card, rank) {
-  return {
-    id: String(card.id ?? rank), rank,
-    partner_team: card.partner_team ?? null,
-    give: list(card.give), get: list(card.get),
-    p_yes: num(card.p_yes), p_yes_n: num(card.p_yes_n), p_yes_basis: card.p_yes_basis ?? null,
-    title_delta: num(card.title_delta), title_delta_se: num(card.title_delta_se),
-    clears_2se: typeof card.clears_2se === 'boolean' ? card.clears_2se : null,
-    reason_chain: list(card.reason_chain), reply_table: list(card.reply_table),
-    walk_away: card.walk_away ?? null
-  };
-}
-
-/** Top card + deck for one league, at most MAX_CARDS_PER_LEAGUE, in rank order. */
+/** The deck for one league, at most MAX_CARDS_PER_LEAGUE, in rank order (0 = the head). */
 export function cardsForLeague(league) {
-  let raw;
-  if (Array.isArray(league?.cards)) {
-    raw = [...league.cards].sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0)).map(normaliseCard);
-  } else if (league?.acq) {
-    const plans = [league.acq.best, ...list(league.acq.alternatives)].filter(Boolean);
-    raw = plans.map((p, i) => cardFromPlan(p, i, league.league_id)).filter(Boolean);
-  } else {
-    raw = [];
-  }
+  const raw = list(ok(league?.alternatives)).map(cardFromMove).filter(Boolean);
   const seen = new Set();
   const cards = [];
   for (const c of raw) {
@@ -118,40 +152,30 @@ function put(facts, id, value) {
  */
 export function factsForCard({ card, league, news }) {
   const facts = {};
-  const partner = league.partners?.[card.partner_team] ?? {};
+  const partner = partnerFor(league, card.partner_team) ?? {};
   const names = league.names ?? {};
 
-  for (const k of ['rank', 'p_yes', 'p_yes_n', 'p_yes_basis', 'title_delta', 'title_delta_se', 'clears_2se', 'walk_away']) {
+  for (const k of ['rank', 'p_yes', 'p_yes_n', 'title_delta', 'step_title_delta', 'title_delta_se',
+    'clears_2se', 'send_when', 'opening', 'walk_away']) {
     put(facts, `card.${k}`, card[k]);
   }
   put(facts, 'card.partner_team', card.partner_team);
   card.give.forEach((p, i) => put(facts, `card.give.${i}`, names[p] ?? String(p)));
   card.get.forEach((p, i) => put(facts, `card.get.${i}`, names[p] ?? String(p)));
-  card.reason_chain.forEach((r, i) => put(facts, `reason.${i}`, typeof r === 'string' ? r : null));
-  card.reply_table.forEach((r, i) => {
-    put(facts, `reply.${i}.reply`, r?.reply);
-    put(facts, `reply.${i}.action`, r?.action ?? r?.answer);
-    put(facts, `reply.${i}.counter`, typeof r?.counter === 'string' ? r.counter : null);
-    put(facts, `reply.${i}.p`, num(r?.p));
-  });
-
-  list(partner.roster_holes).forEach((h, i) => {
-    put(facts, `his.hole.${i}.pos`, h?.pos);
-    put(facts, `his.hole.${i}.gap`, num(h?.gap));
-  });
-  for (const [pid, v] of Object.entries(partner.paper_values ?? {})) {
-    put(facts, `his.paper_value.${pid}`, num(v));
-    put(facts, `his.paper_value.${pid}.name`, names[pid] ?? null);
+  for (const r of card.reply_table) {
+    for (const k of ['action', 'when', 'counter', 'accept_if', 'walk_away_if', 'odds_after']) {
+      put(facts, `reply.${r.reply}.${k}`, r[k]);
+    }
   }
-  list(partner.recent_moves).forEach((m, i) => {
-    put(facts, `his.move.${i}.type`, m?.type);
-    put(facts, `his.move.${i}.summary`, m?.summary);
-  });
+
+  put(facts, 'his.p_responds', num(partner.p_responds));
+  put(facts, 'his.basis', str(partner.basis));
+  list(partner.roster_holes).forEach((h, i) => put(facts, `his.hole.${i}.pos`, str(h)));
   put(facts, 'his.offers_logged', num(partner.offers_logged));
   cleanLabels(partner.chat_labels).labels.forEach((l, i) => put(facts, `his.label.${i}`, l));
 
-  const cal = league.calibration?.['clone.accept'] ?? {};
-  put(facts, 'calibration.calibrated', typeof cal.calibrated === 'boolean' ? cal.calibrated : null);
+  const cal = calibrationOf(league);
+  put(facts, 'calibration.calibrated', cal.calibrated);
   put(facts, 'calibration.status', cal.status);
 
   for (const n of news) {

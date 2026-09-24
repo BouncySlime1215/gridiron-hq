@@ -1,6 +1,6 @@
 # HEALTH-01d chaos drills and HEALTH-01e Coach canary
 
-RED `<test commit>` · GREEN follows · `test/chaos-drills.test.js` (15 cases: 8 baseline, 7 pending),
+RED `00ba016` (test: RED for HEALTH-01d chaos drills and HEALTH-01e Coach canary) · GREEN `97b0d4a` · `test/chaos-drills.test.js` (15 cases: 8 baseline, 7 pending),
 `test/coach-canary.test.js` (14 cases), `test/refresh-loop-steps.test.js` (1 changed expectation).
 
 Spec: `ENGINE-SPECS.md` §HEALTH-01, rows d and e (branch `claude/handoff-package-2026-09-22`).

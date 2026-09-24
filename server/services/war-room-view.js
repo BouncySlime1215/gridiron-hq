@@ -1,121 +1,80 @@
 /**
- * WR-1 + WR-2: the War Room's one read (WAR-ROOM-UI.md sections 2 and 3).
+ * WR-1 + FIX-04: the War Room's one read (WAR-ROOM-UI.md sections 2 and 3).
  *
- * The War Room serves no new number. It reads one plans JSON written ahead of time by
- * the ACQ-FLIP study script (scripts/study/acq-flip-proto.mjs --json, PR #227; later
- * the campaign producer) and reshapes it into typed fields. Nothing here simulates,
- * prices or re-ranks: every number on the page is a number the producer wrote, and a
- * number the producer did not write is `unknown`, never 0.
+ * The War Room serves no new number. It reads the plans file the campaign producer
+ * writes ahead of time (warroom-plans/1, server/services/campaign/plans-schema.js) and
+ * serves this league's entry as the contract writes it, plus the view's own
+ * { enabled, preview, preview_reason, snapshot, sources, banner }. Coach (#230) and the
+ * UI read one shape. Nothing here simulates, prices, re-ranks or renames: the deck is
+ * `alternatives.value`, head first, and a number the producer did not write is
+ * `unknown`, never 0.
  *
- * Typed field (every section, and every number inside a section, is one):
- *   { status: 'ok' | 'unknown' | 'failed', value?, reason?, source, producer, producer_version,
- *     se?, clears_2se?, guess?, preview? }
- * `value` exists only for 'ok'. finalize() strips it from any failed or unknown field
- * wherever it sits in the view, so a bug upstream still cannot leak a digit.
+ * Each section is validated against the contract on its own. A section that breaks
+ * it is served `failed` with the first problem as its reason, and the other sections
+ * still pass through; keys the contract does not declare (the study's `acq`, `flip`,
+ * `baseline`) are dropped. finalize() strips `value` from any failed or unknown field
+ * wherever it sits, so a bug upstream still cannot leak a digit.
  *
  * Request-thread cost: one async stat of the plans file per request; the file is read
- * and parsed only when its mtime or size changes, and the per-league reshaping is a
- * field copy. No producer module is imported here.
+ * and parsed only when its mtime or size changes; validation walks one league entry.
+ * No producer module is imported here.
  */
 import fs from 'node:fs/promises';
 import { previewFields, previewText } from './preview-mode.js';
 import { warRoomFlag, warRoomPlansPath, WARROOM_PREVIEW_REASON } from './warroom-flag.js';
+import { SECTIONS, SOURCE_IDS, STATUSES, validateLeague } from './campaign/plans-schema.js';
 
-export const PRODUCER = 'acq-flip-proto';
-export const PRODUCER_VERSION = 'study v3 (PR #227)';
-
-/** Every number carries one of these (WAR-ROOM-UI.md 2.3). None is calibrated today. */
-export const SOURCES = Object.freeze({
-  'sim.title': { label: 'Season sim, 1,200 runs', calibrated: false },
-  'clone.accept': { label: 'Trade model: chance he says yes', calibrated: false },
-  'clone.price': { label: 'His price (from his moves)', calibrated: false },
-  'market.fc': { label: 'FantasyCalc market value', calibrated: true },
-  'plan.path': { label: 'Planner, paths searched', calibrated: false },
-  'coach.text': { label: 'Written by Coach, facts checked', calibrated: false },
-  'eval.check': { label: 'Brain check E1-E7', calibrated: false },
-  'audit.numbers': { label: 'Number check', calibrated: false },
-  'campaign.plan': { label: 'Campaign planner', calibrated: false }
-});
-
-const HIDDEN = new Set(['failed', 'unknown']);
-const REASONING_SLOTS = ['case_for', 'his_side', 'devils_advocate', 'news_check', 'confidence', 'counter'];
-const MAX_DECK = 5;
-
-const NOT_BUILT = {
-  message: "Message not written yet: Coach's playbook (CAMPAIGN-01b) is not live.",
-  walk_away: 'Walk-away price not computed yet: the concession schedule (CAMPAIGN-01b) is not built.',
-  send_when: 'Send-by time not computed yet: the campaign producer does not time offers yet.',
-  why: 'Reason chain not computed yet: the study run keeps its reasons in memory and drops them.',
-  reasoning: 'Not computed yet: the reasoning step (REASON-01) is not built.',
-  counter: 'Not planned yet: counter rules come from Coach\'s playbook (CAMPAIGN-01b).',
-  silence: 'Not planned yet: the no-reply nudge comes from Coach\'s playbook (CAMPAIGN-01b).',
-  decline_other: 'Not planned yet: the study run only writes a backup for its best plan.',
-  goal: 'No goal set yet: objectives (CAMPAIGN-01a) are not built.',
-  risk_mode: 'Risk mode not set yet: risk modes (CAMPAIGN-01d) are not built.',
-  arrive_by: 'No arrive-by week yet: the speed curve (CAMPAIGN-01g) is not built.',
-  eta: 'ETA not computed yet: the planned path (CAMPAIGN-01c) is not built.',
-  title_now: 'Title odds now not computed yet: the study run keeps deltas only (it drops title_before).',
-  title_after: 'Odds after this deal not computed yet: the study run keeps the change, not the level.',
-  planned: 'Planned odds not computed yet: the planned path (CAMPAIGN-01c) is not built.',
-  path: 'Planned path not computed yet (CAMPAIGN-01c).',
-  ground_lost: 'Ground lost not computed yet (CAMPAIGN-01g).',
-  catch_up: 'Catch-up list not computed yet: the campaign producer (CAMPAIGN-01g) is not built.',
-  speed_curve: 'Speed curve not computed yet: the planner does not price deadlines yet.',
-  target_gain: 'Gain if landed not computed yet: the study run computes it and drops it.',
-  target_reach: 'Chance to land him not computed yet: only the chosen target keeps its best path.',
-  target_owner: 'Owner not written by the study run for this target.',
-  target_fit: 'Mode fit not computed yet: risk modes (CAMPAIGN-01d) are not built.',
-  brain_check: 'Brain check (EVAL-01) not built yet: E1-E7 have not run.',
-  number_health: 'Number check (BROKEN-01a) not built yet. Treat numbers as unchecked.',
-  attention: 'League ranking ("needs you this week") is not produced yet (IDEA-007).',
-  legs_not_tried: 'Legs not searched: the study only tries two fair legs for its top spreads that clear 2 SE.',
-  chess_off: 'Chess paths not computed yet: title-odds chess (CHESS-01a) did not run for this league (it is default-off).',
-  chess_empty: 'The chess search found no path: no move cleared its P(yes) floor and raised your odds.',
-  claim_p: 'Chance not modelled: rival claims are not modelled, so this assumes the claim goes through.',
-  chess_level: 'Title odds after this step not computed as a level: the chess search keeps the change against today, not the level.',
-  chess_keep_none: 'Nothing is done yet, so there is no change to keep.',
-  chess_no_backup: 'No backup searched for this step: no other path the search kept shares the steps before it and differs here.'
+/** Labels for every contract SourceId (WAR-ROOM-UI.md 2.3). Only the market value is calibrated today. */
+const SOURCE_LABELS = {
+  'sim.title': ['Season sim, 1,200 runs', false],
+  'clone.accept': ['Trade model: chance he says yes', false],
+  'clone.price': ['His price (from his moves)', false],
+  'market.fc': ['FantasyCalc market value', true],
+  'plan.path': ['Planner, paths searched', false],
+  'coach.text': ['Written by Coach, facts checked', false],
+  'eval.check': ['Brain check E1-E7', false],
+  'audit.numbers': ['Number check', false],
+  'campaign.plan': ['Campaign planner', false],
+  'plan.template': ['Plan template', false],
+  'chat.labels': ['League chat read', false],
+  'asset.ros': ['Rest-of-season value', false]
 };
+export const SOURCES = Object.freeze(Object.fromEntries(SOURCE_IDS.map(id => {
+  const [label, calibrated] = SOURCE_LABELS[id] ?? [id, false];
+  return [id, Object.freeze({ label, calibrated })];
+})));
 
-/* ------------------------------------------------------------------ fields */
+/**
+ * Every section the view serves: the contract's, plus number_health, which the UI has
+ * a slot for and FIX-03 adds to the contract. Until then it is unknown with that reason.
+ */
+export const VIEW_SECTIONS = Object.freeze([...new Set([...Object.keys(SECTIONS), 'number_health'])]);
 
-function field(status, value, source, reason) {
-  const f = { status, source, producer: PRODUCER, producer_version: PRODUCER_VERSION };
-  if (!HIDDEN.has(status) && value !== undefined) f.value = value;
-  if (reason) f.reason = reason;
-  return f;
-}
-const ok = (value, source = 'plan.path') => field('ok', value, source);
-const unknown = (reason, source = 'plan.path') => field('unknown', undefined, source, reason);
-const failed = (reason, source = 'plan.path') => field('failed', undefined, source, reason);
+/** Where a section's hidden state says it came from. */
+const SECTION_SOURCE = {
+  finder_best_expected: 'plan.path', flip_map: 'sim.title', brain_report: 'eval.check', number_health: 'audit.numbers'
+};
+const sourceOf = k => SECTION_SOURCE[k] ?? 'campaign.plan';
+const HEAD_KEYS = ['league', 'me', 'names', 'error', 'sanity_composed_equals_direct'];
+const HIDDEN = new Set(['failed', 'unknown']);
 
-/** A producer-written number, or unknown when the producer did not write one. */
-function num(v, source, { se, clears, reason } = {}) {
-  if (typeof v !== 'number' || !Number.isFinite(v)) {
-    return unknown(reason ?? 'Not computed yet: the study run did not write this number.', source);
-  }
-  const f = ok(v, source);
-  if (typeof se === 'number' && Number.isFinite(se)) f.se = se;
-  if (typeof clears === 'boolean') f.clears_2se = clears;
-  if (!SOURCES[source]?.calibrated) f.guess = true;
-  return f;
-}
+const BANNER = 'These plans come from the campaign producer, run ahead of time. Every chance and every odds change is a guess until the brain check passes.';
+
+const hidden = (status, reason, source) => ({ status, source, reason });
 
 /**
  * The last word on "failed and unknown carry no value": walks the whole view, drops
- * `value` from every hidden field, and (in preview) marks every field and prefixes
- * every sentence the server wrote.
+ * `value` from every hidden field, and in preview prefixes every sentence the server
+ * or producer wrote as a reason, plus the banner.
  */
 export function finalize(view, { preview = false } = {}) {
-  const TEXT_KEYS = new Set(['reason', 'do', 'legs_why_not', 'banner', 'deck_note', 'note']);
   const walk = node => {
     if (Array.isArray(node)) { node.forEach(walk); return; }
     if (!node || typeof node !== 'object') return;
-    const isField = typeof node.status === 'string' && typeof node.producer === 'string';
+    const isField = STATUSES.includes(node.status) && typeof node.source === 'string';
     if (isField && HIDDEN.has(node.status)) delete node.value;
-    if (isField && preview) node.preview = true;
     for (const [k, v] of Object.entries(node)) {
-      if (preview && TEXT_KEYS.has(k) && typeof v === 'string') node[k] = previewText(v);
+      if (preview && (k === 'banner' || (isField && k === 'reason')) && typeof v === 'string') node[k] = previewText(v);
       else walk(v);
     }
   };
@@ -131,8 +90,8 @@ let cache = null;
 export function __resetPlansCache() { cache = null; }
 
 /**
- * Read the plans JSON. Returns { status: 'ok', doc, as_of, id } or a hidden state with
- * a reason. The path itself never goes into a reason (it names a home directory).
+ * Read the plans JSON. Returns { status: 'ok', entries, as_of, id, head } or a hidden
+ * state with a reason. The path itself never goes into a reason (it names a home directory).
  */
 export async function loadPlans(file = warRoomPlansPath()) {
   let st;
@@ -141,308 +100,66 @@ export async function loadPlans(file = warRoomPlansPath()) {
     return { status: 'failed', reason: `The plans file could not be opened (${e.code ?? 'error'}).` };
   }
   if (cache && cache.file === file && cache.mtimeMs === st.mtimeMs && cache.size === st.size) return cache.result;
-  let result;
+  let doc;
   try {
-    const doc = JSON.parse(await fs.readFile(file, 'utf8'));
-    const entries = Array.isArray(doc) ? doc : Array.isArray(doc?.results) ? doc.results
-      : Array.isArray(doc?.leagues) ? doc.leagues : null;
-    if (!entries) result = { status: 'failed', reason: 'The plans file has no list of leagues in it.' };
-    else {
-      const asOf = typeof doc?.generated_at === 'string' ? doc.generated_at : new Date(st.mtimeMs).toISOString();
-      result = { status: 'ok', entries, as_of: asOf, id: `plans@${Math.round(st.mtimeMs)}` };
-    }
-  } catch {
-    result = { status: 'failed', reason: 'The plans file is not valid JSON, so every plan is hidden.' };
+    doc = JSON.parse(await fs.readFile(file, 'utf8'));
+  } catch (e) {
+    const result = { status: 'failed', reason: `The plans file is not valid JSON (${e.name}), so every plan is hidden.` };
+    cache = { file, mtimeMs: st.mtimeMs, size: st.size, result };
+    return result;
   }
+  const entries = Array.isArray(doc?.leagues) ? doc.leagues : Array.isArray(doc) ? doc : null;
+  const result = !entries
+    ? { status: 'failed', reason: 'The plans file has no list of leagues in it.' }
+    : {
+      status: 'ok', entries,
+      as_of: typeof doc?.generated_at === 'string' ? doc.generated_at : new Date(st.mtimeMs).toISOString(),
+      id: `plans@${Math.round(st.mtimeMs)}`,
+      head: Object.fromEntries(['schema', 'producer', 'producer_version']
+        .filter(k => typeof doc?.[k] === 'string').map(k => [k, doc[k]]))
+    };
   cache = { file, mtimeMs: st.mtimeMs, size: st.size, result };
   return result;
 }
 
-/* -------------------------------------------------------------- reshaping */
+/* -------------------------------------------------------------- the entry */
 
-const team = id => `Team ${id}`;
-
-function namer(entry) {
-  const names = entry?.names && typeof entry.names === 'object' ? entry.names : {};
-  const one = id => ({ id: String(id), name: names[id] ?? `Player ${id}` });
-  const list = ids => (Array.isArray(ids) ? ids : []).map(one);
-  const text = ids => list(ids).map(p => p.name).join(' + ');
-  return { one, list, text };
+/** Every section hidden for one reason. */
+function allHidden(status, reason) {
+  return Object.fromEntries(VIEW_SECTIONS.map(k => [k, hidden(status, reason, sourceOf(k))]));
 }
 
-const planKey = p => JSON.stringify((p?.steps ?? []).map(s => [s.team, s.give, s.get]));
-
-/** The deck: the producer's alternatives if it wrote them, else the study's named plans in its order. */
-function deckPlans(acq) {
-  if (Array.isArray(acq?.alternatives) && acq.alternatives.length) {
-    return acq.alternatives.slice(0, MAX_DECK).map((p, i) => ({ plan: p, origin: 'alternative', rank: i + 1 }));
+/** Contract problems grouped by the entry key they sit under ('next_move', 'names', ...). */
+function problemsByKey(entry) {
+  const by = new Map();
+  for (const e of validateLeague(entry, '$').errors) {
+    const key = e.path.split(/[.[]/)[1];
+    if (!by.has(key)) by.set(key, []);
+    by.get(key).push(e);
   }
-  const named = [
-    ['best', 'Best plan by expected gain'], ['best_direct', 'Best one-step deal'], ['best_two', 'Best two-step path'],
-    ['best_three', 'Best three-step path'], ['best_chained', 'Best path that passes a player through you'],
-    ['fallback', 'Backup if the best plan\'s last step is declined']
-  ];
-  const seen = new Set(), out = [];
-  for (const [k, label] of named) {
-    const p = acq?.[k];
-    if (!p || !Array.isArray(p.steps) || !p.steps.length) continue;
-    const key = planKey(p);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({ plan: p, origin: k, origin_label: label, rank: out.length + 1 });
-    if (out.length >= MAX_DECK) break;
-  }
-  return out;
+  return by;
 }
 
-function stepLine(n, s) {
-  return `${team(s.team)}: give ${n.text(s.give)} for ${n.text(s.get)}`;
-}
+const firstProblem = errs => `${errs[0].path.slice(2)} ${errs[0].message}`;
 
-function replies(n, plan, acq, isBest) {
-  const steps = plan.steps;
-  const accept = steps.length > 1
-    ? ok({ kind: 'accept', do: `Send step 2 to ${stepLine(n, steps[1])}`, odds_after: num(steps[1].delta, 'sim.title', { se: steps[1].se, clears: steps[1].clears }) })
-    : ok({ kind: 'accept', do: 'That completes this plan: he is yours.', odds_after: num(steps[0].delta, 'sim.title', { se: steps[0].se, clears: steps[0].clears }) });
-  let decline = unknown(NOT_BUILT.decline_other);
-  const fb = acq?.fallback;
-  if (isBest && fb && Array.isArray(fb.steps) && fb.steps.length && planKey(fb) !== planKey(plan)) {
-    const at = Math.min(Math.max(steps.length - 1, 0), fb.steps.length - 1);
-    decline = ok({ kind: 'decline', do: `Switch to the backup: ${stepLine(n, fb.steps[at])}`,
-      odds_after: num(fb.steps[at].delta, 'sim.title', { se: fb.steps[at].se, clears: fb.steps[at].clears }) });
-  }
-  return {
-    accept, decline,
-    counter: unknown(NOT_BUILT.counter, 'coach.text'),
-    silence: unknown(NOT_BUILT.silence, 'coach.text')
-  };
-}
-
-function reasoning(plan) {
+/** The entry's sections, each passed through, failed on a contract break, or unknown when not written. */
+function sections(entry) {
+  const problems = problemsByKey(entry);
   const out = {};
-  for (const k of REASONING_SLOTS) {
-    const v = plan?.reasoning?.[k];
-    out[k] = typeof v === 'string' && v.trim() ? ok(v, 'coach.text') : unknown(NOT_BUILT.reasoning, 'coach.text');
+  for (const k of VIEW_SECTIONS) {
+    const src = sourceOf(k);
+    if (!(k in SECTIONS)) {
+      out[k] = hidden('unknown', `Not in the plans contract yet (${k}), so the producer cannot write it.`, src);
+    } else if (!(k in entry)) {
+      out[k] = hidden('unknown', `The producer did not write ${k} for this league.`, src);
+    } else if (problems.has(k)) {
+      const errs = problems.get(k);
+      out[k] = hidden('failed', `This section does not match the plans contract (${errs.length} problem${errs.length > 1 ? 's' : ''}; first: ${firstProblem(errs)}), so it is hidden.`, src);
+    } else {
+      out[k] = structuredClone(entry[k]);
+    }
   }
-  return out;
-}
-
-function card(n, entry, d) {
-  const { plan } = d, s = plan.steps[0], acq = entry.acq;
-  const isBest = d.origin === 'best' || (d.origin === 'alternative' && d.rank === 1);
-  const titleNow = num(acq?.title_now, 'sim.title', { reason: NOT_BUILT.title_now });
-  return {
-    rank: d.rank, origin: d.origin, origin_label: d.origin_label ?? `Alternative ${d.rank}`,
-    step_index: 1, of_steps: plan.steps.length,
-    target: plan.target != null ? n.one(plan.target) : null,
-    target_owner: plan.owner != null ? team(plan.owner) : null,
-    partner: String(s.team), partner_label: team(s.team),
-    give: n.list(s.give), get: n.list(s.get),
-    deal_line: `Offer ${team(s.team)}: ${n.text(s.give)} for ${n.text(s.get)}`,
-    p_yes: num(s.p, 'clone.accept'),
-    odds_effect: {
-      before: titleNow,
-      after: num(s.title_after, 'sim.title', { reason: NOT_BUILT.title_after }),
-      delta: num(s.delta, 'sim.title', { se: s.se, clears: s.clears })
-    },
-    path_effect: {
-      delta_final: num(plan.delta_final, 'sim.title'),
-      p_complete: num(plan.p_complete, 'plan.path'),
-      expected: num(plan.expected, 'plan.path', { se: plan.expected_se ?? undefined }),
-      chained: typeof plan.chained === 'boolean' ? plan.chained : null
-    },
-    vs_finder: {
-      finder_expected: num(entry.baseline?.best_expected?.expected, 'plan.path',
-        { se: entry.baseline?.best_expected?.expected_se ?? undefined, reason: 'The served finder had no priced single offer in this run.' }),
-      this_expected: num(plan.expected, 'plan.path', { se: plan.expected_se ?? undefined })
-    },
-    message: typeof plan.message === 'string' && plan.message.trim() ? ok({ text: plan.message }, 'coach.text') : unknown(NOT_BUILT.message, 'coach.text'),
-    walk_away: typeof plan.walk_away === 'string' && plan.walk_away.trim() ? ok(plan.walk_away, 'coach.text') : unknown(NOT_BUILT.walk_away, 'coach.text'),
-    send_when: typeof plan.send_when === 'string' && plan.send_when.trim() ? ok(plan.send_when, 'campaign.plan') : unknown(NOT_BUILT.send_when, 'campaign.plan'),
-    why: unknown(NOT_BUILT.why),
-    replies: replies(n, plan, acq, isBest),
-    reasoning: reasoning(plan)
-  };
-}
-
-function itinerary(n, best) {
-  const steps = best.steps;
-  const stops = steps.map((s, i) => {
-    const passedOn = steps.slice(i + 1).some(later => (later.give ?? []).some(id => (s.get ?? []).includes(id)));
-    return {
-      id: `plan-${i + 1}`, order: i + 1, kind: passedOn ? 'flip' : 'get',
-      label: passedOn
-        ? `Get ${n.text(s.get)} from ${team(s.team)}, then pass him on`
-        : `Get ${n.text(s.get)} from ${team(s.team)}`,
-      give: n.list(s.give), get: n.list(s.get),
-      status: i === 0 ? 'next' : 'waiting', added_by: 'plan',
-      p_yes: num(s.p, 'clone.accept'),
-      odds_after: num(s.delta, 'sim.title', { se: s.se, clears: s.clears })
-    };
-  });
-  return ok({ target: best.target != null ? n.one(best.target) : null, stops, untouchables: [], conflicts: [] });
-}
-
-function suggestions(n, acq) {
-  const list = Array.isArray(acq?.targets) ? acq.targets : [];
-  const best = acq?.best;
-  return ok(list.map(t => {
-    const obj = t && typeof t === 'object' ? t : { id: t };
-    const id = obj.id ?? obj.player;
-    const isBestTarget = best && String(best.target) === String(id);
-    const owner = obj.owner ?? (isBestTarget ? best.owner : null);
-    return {
-      player: n.one(id),
-      owner: owner != null ? ok(team(owner)) : unknown(NOT_BUILT.target_owner),
-      gain_if_landed: num(obj.gain, 'sim.title', { se: obj.se, reason: NOT_BUILT.target_gain }),
-      p_reach: num(obj.p_complete ?? (isBestTarget ? best.p_complete : undefined), 'plan.path', { reason: NOT_BUILT.target_reach }),
-      mode_fit: unknown(NOT_BUILT.target_fit, 'campaign.plan'),
-      approved: false,
-      is_plan_target: !!isBestTarget
-    };
-  }));
-}
-
-function flips(n, flip) {
-  const realised = Array.isArray(flip?.realised) ? flip.realised : [];
-  const key = f => `${f.player}|${f.a}|${f.b}`;
-  const byKey = new Map(realised.map(f => [key(f), f]));
-  return ok((Array.isArray(flip?.top) ? flip.top : []).map(f => {
-    const r = byKey.get(key(f));
-    const g = r?.legs ?? null;
-    return {
-      player: n.one(f.player), buy_from: team(f.a), sell_to: team(f.b),
-      spread: num(f.spread, 'sim.title', { se: f.se, clears: f.clears }),
-      price_a: num(f.price_a, 'clone.price'), price_b: num(f.price_b, 'clone.price'),
-      legs: g ? {
-        give_a: n.one(g.give_a), get_b: n.one(g.get_b),
-        p1: num(g.p1, 'clone.accept'), p2: num(g.p2, 'clone.accept'),
-        p_both: num(g.p_complete, 'clone.accept'),
-        nick_after: num(g.d2, 'sim.title', { se: g.se2, clears: g.clears2 })
-      } : null,
-      legs_why_not: g ? null : (r?.why ?? NOT_BUILT.legs_not_tried)
-    };
-  }));
-}
-
-/* ------------------------------------------------------------ chess path */
-
-/** Map a CHESS-01a step to the stepper row's text and ids. Selection and wording only. */
-function chessMove(n, s) {
-  const ids = xs => (Array.isArray(xs) ? xs.map(String) : []);
-  if (s.kind === 'claim') {
-    const drop = s.drop == null ? null : n.one(String(s.drop));
-    return {
-      kind: 'claim', kind_label: 'Claim', partner_label: null, give: drop ? [drop] : [], get: [n.one(String(s.claim))],
-      line: drop ? `Claim ${n.one(String(s.claim)).name}, drop ${drop.name}` : `Claim ${n.one(String(s.claim)).name} into an open spot`
-    };
-  }
-  const flip = s.kind === 'flip';
-  return {
-    kind: flip ? 'flip' : 'trade', kind_label: flip ? 'Flip' : 'Trade', partner_label: team(s.partner_id),
-    give: n.list(ids(s.give)), get: n.list(ids(s.get)),
-    line: `${team(s.partner_id)}: ${flip ? 'pass on' : 'give'} ${n.text(ids(s.give))} for ${n.text(ids(s.get))}`
-  };
-}
-
-const moveKey = s => JSON.stringify([s?.kind === 'flip' ? 'trade' : s?.kind, s?.partner_id ?? null,
-  (s?.give ?? []).map(String), (s?.get ?? []).map(String), s?.claim ?? null, s?.drop ?? null]);
-
-function chessP(s) {
-  return s.p_basis === 'not_modelled' ? unknown(NOT_BUILT.claim_p, 'clone.accept') : num(s.p_accept, 'clone.accept');
-}
-const chessChange = s => num(s.title_delta_after, 'sim.title', { se: s.title_delta_se });
-
-/**
- * The backup branch for step k of `path`: the first path in the producer's order that
- * shares steps 1..k-1 and makes a different move at step k. Chosen, not computed.
- */
-function backupFor(n, paths, path, k) {
-  const prefix = path.steps.slice(0, k).map(moveKey).join('|');
-  const own = moveKey(path.steps[k]);
-  for (let j = 0; j < paths.length; j++) {
-    const other = paths[j];
-    if (other === path || !Array.isArray(other?.steps) || other.steps.length <= k) continue;
-    if (other.steps.slice(0, k).map(moveKey).join('|') !== prefix) continue;
-    const alt = other.steps[k];
-    if (moveKey(alt) === own) continue;
-    const m = chessMove(n, alt);
-    return ok({ path_rank: j + 1, kind: m.kind, kind_label: m.kind_label, line: m.line, p_yes: chessP(alt), change_after: chessChange(alt) });
-  }
-  return unknown(NOT_BUILT.chess_no_backup);
-}
-
-/**
- * UI-ENG-5: CHESS-01a's searched paths (title-chess.js `titleChess()` output, carried in
- * the plans entry as `chess`) as stepper rows. Every number is one the search wrote; what
- * happens when a step fails is the search's own rule (stop at the first refusal and keep
- * what is done, so the odds are the previous step's change) plus the backup branch.
- */
-function chessPath(n, chess) {
-  if (!chess || typeof chess !== 'object') return unknown(NOT_BUILT.chess_off);
-  if (chess.status === 'failed') {
-    return failed(`The chess search failed (${String(chess.error ?? 'no reason given')}), so its paths are hidden. Trust the Next move deck meanwhile.`, 'sim.title');
-  }
-  const paths = (Array.isArray(chess.paths) ? chess.paths : []).filter(p => Array.isArray(p?.steps) && p.steps.length).slice(0, MAX_DECK);
-  if (!paths.length) return unknown(NOT_BUILT.chess_empty);
-  return ok({
-    note: 'Searched paths, best expected gain first. The chance you finish multiplies the steps\' chances; a claim is assumed to clear.',
-    paths: paths.map((p, i) => ({
-      rank: i + 1,
-      moves: p.steps.length,
-      kinds: p.steps.map(s => chessMove(n, s).kind_label).join(' → '),
-      p_complete: num(p.p_complete, 'plan.path'),
-      expected: num(p.expected_title_delta, 'plan.path'),
-      full: num(p.full_title_delta, 'sim.title', { se: p.full_title_delta_se, clears: p.full_clears_noise }),
-      vs_single: p.vs_best_single ? {
-        expected: num(p.vs_best_single.expected_title_delta, 'plan.path'),
-        full: num(p.vs_best_single.full_title_delta, 'sim.title', { se: p.vs_best_single.full_title_delta_se ?? undefined })
-      } : null,
-      steps: p.steps.map((s, k) => {
-        const m = chessMove(n, s);
-        return {
-          n: k + 1, ...m,
-          p_yes: chessP(s),
-          change_after: chessChange(s),
-          title_after: num(s.title_after, 'sim.title', { reason: NOT_BUILT.chess_level }),
-          fail_label: m.kind === 'claim' ? 'If the claim fails' : 'If he says no',
-          if_fails: {
-            keep_text: k === 0 ? 'You keep today\'s roster and odds.' : k === 1 ? 'You keep step 1.' : `You keep steps 1-${k}.`,
-            keep: k === 0 ? unknown(NOT_BUILT.chess_keep_none, 'sim.title') : chessChange(p.steps[k - 1]),
-            backup: backupFor(n, paths, p, k)
-          }
-        };
-      })
-    }))
-  });
-}
-
-/** Every section hidden for one reason (no plan for this league, or the file is unreadable). */
-function allHidden(make, reason) {
-  return {
-    attention: unknown(NOT_BUILT.attention, 'campaign.plan'),
-    destination: destination(null),
-    next_move: make(reason), itinerary: make(reason), suggestions: make(reason),
-    speed_curve: unknown(NOT_BUILT.speed_curve, 'campaign.plan'),
-    catch_up: unknown(NOT_BUILT.catch_up, 'campaign.plan'),
-    flips: make(reason),
-    chess_path: make(reason),
-    brain_check: unknown(NOT_BUILT.brain_check, 'eval.check'),
-    number_health: unknown(NOT_BUILT.number_health, 'audit.numbers')
-  };
-}
-
-function destination(acq) {
-  return {
-    goal: unknown(NOT_BUILT.goal, 'campaign.plan'),
-    risk_mode: unknown(NOT_BUILT.risk_mode, 'campaign.plan'),
-    arrive_by: unknown(NOT_BUILT.arrive_by, 'campaign.plan'),
-    eta_week: unknown(NOT_BUILT.eta, 'campaign.plan'),
-    title_now: num(acq?.title_now, 'sim.title', { reason: NOT_BUILT.title_now }),
-    title_planned_now: unknown(NOT_BUILT.planned, 'campaign.plan'),
-    path: unknown(NOT_BUILT.path, 'campaign.plan'),
-    ground_lost: unknown(NOT_BUILT.ground_lost, 'campaign.plan')
-  };
+  return { out, problems };
 }
 
 /**
@@ -454,52 +171,40 @@ export function buildWarRoomView(leagueId, plans, flag) {
   const base = {
     enabled: true, league_id: Number(leagueId),
     ...(flag.preview ? previewFields(WARROOM_PREVIEW_REASON) : {}),
-    banner: 'These plans come from a study run, not the live engine. Every chance and every odds change is a guess until the brain check passes.',
+    banner: BANNER,
     sources: SOURCES
   };
+  const empty = { league: Number(leagueId), me: null, names: {} };
   if (plans.status !== 'ok') {
-    const make = plans.status === 'failed' ? r => failed(r) : r => unknown(r);
-    return finalize({ ...base, me: null, snapshot: null, names: {}, ...allHidden(make, plans.reason) }, flag);
+    return finalize({ ...base, snapshot: null, ...empty, ...allHidden(plans.status === 'failed' ? 'failed' : 'unknown', plans.reason) }, flag);
   }
+  const snapshot = { id: plans.id, as_of: plans.as_of, ...(plans.head ?? {}) };
   const entry = plans.entries.find(e => String(e?.league) === String(leagueId));
-  const snapshot = { id: plans.id, as_of: plans.as_of };
   if (!entry) {
-    return finalize({ ...base, me: null, snapshot, names: {},
-      ...allHidden(unknown, 'No plan has been run for this league yet.') }, flag);
+    return finalize({ ...base, snapshot, ...empty, ...allHidden('unknown', 'No plan has been run for this league yet.') }, flag);
   }
-  const n = namer(entry);
-  const view = { ...base, me: entry.me != null ? String(entry.me) : null, snapshot, names: { ...(entry.names ?? {}) },
-    ...allHidden(unknown, 'Not computed yet.'), destination: destination(entry.acq) };
 
-  if (entry.error) {
-    const r = `The planner run failed for this league (${String(entry.error)}), so its plans are hidden.`;
-    return finalize({ ...view, next_move: failed(r), itinerary: failed(r), suggestions: failed(r), flips: failed(r, 'sim.title'), chess_path: failed(r, 'sim.title') }, flag);
+  const { out, problems } = sections(entry);
+  const headBroken = ['league', 'me', 'names'].find(k => problems.has(k));
+  const head = headBroken ? empty : Object.fromEntries(HEAD_KEYS.filter(k => k in entry).map(k => [k, structuredClone(entry[k])]));
+  const view = { ...base, snapshot, ...head, ...out };
+
+  if (headBroken) {
+    const r = `This league's plan does not match the plans contract (${firstProblem(problems.get(headBroken))}), so it is hidden.`;
+    return finalize({ ...view, ...allHidden('failed', r) }, flag);
+  }
+  if (typeof entry.error === 'string') {
+    const r = `The planner run failed for this league (${entry.error}), so its plans are hidden.`;
+    return finalize({ ...view, ...allHidden('failed', r) }, flag);
   }
   if (entry.sanity_composed_equals_direct === false) {
-    const r = 'The study run failed its own check (its composed rescore did not match the served trade impact), so its numbers are hidden. Trust Trade Lab meanwhile.';
-    return finalize({ ...view, next_move: failed(r), itinerary: failed(r), suggestions: failed(r), flips: failed(r, 'sim.title'), chess_path: failed(r, 'sim.title') }, flag);
+    const r = 'The planner failed its own check (its composed rescore did not match the served trade impact), so its numbers are hidden. Trust Trade Lab meanwhile.';
+    return finalize({ ...view, ...allHidden('failed', r) }, flag);
   }
-
-  const acq = entry.acq;
-  if (!acq) {
-    const r = 'Only the finder baseline ran for this league; the planner did not.';
-    view.next_move = unknown(r); view.itinerary = unknown(r); view.suggestions = unknown(r);
-  } else {
-    const deck = deckPlans(acq);
-    view.next_move = deck.length
-      ? ok({ cards: deck.map(d => card(n, entry, d)),
-        deck_note: Array.isArray(acq.alternatives) ? 'Top alternatives from the producer, best first.'
-          : 'The study run\'s named plans, best first. Not yet re-checked on fresh dice.' })
-      : unknown(`No path found: the planner scored ${Number.isFinite(acq.candidates_scored) ? acq.candidates_scored : 'no'} paths and none completes.`);
-    view.itinerary = acq.best?.steps?.length ? itinerary(n, acq.best) : unknown('No best plan, so no stops yet.');
-    view.suggestions = Array.isArray(acq.targets) && acq.targets.length ? suggestions(n, acq) : unknown('The planner wrote no targets for this league.');
-  }
-  view.flips = entry.flip ? flips(n, entry.flip) : unknown('The flip map did not run for this league.', 'sim.title');
-  view.chess_path = chessPath(n, entry.chess);
   return finalize(view, flag);
 }
 
-/** The route's whole job: flag, then one cached file read, then reshape. */
+/** The route's whole job: flag, then one cached file read, then the entry. */
 export async function warRoomView(leagueId) {
   const flag = warRoomFlag();
   if (!flag.enabled) return { enabled: false };

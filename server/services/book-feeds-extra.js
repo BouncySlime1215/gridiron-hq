@@ -193,10 +193,9 @@ export function parseSbr(payload, oddsType, resolve = teamResolver()) {
 /* ------------------------------------------------------------- providers */
 
 async function rotowireWeek() {
-  if (Number(process.env.NFL_WEEK)) return Number(process.env.NFL_WEEK);
   try {
-    const { currentNflWeek } = await import('./weekly-learning.js');
-    return currentNflWeek().week ?? null;
+    const { nflWeek } = await import('./week.js'); // honours NFL_WEEK
+    return nflWeek().week ?? null;
   } catch { return null; } // Rotowire defaults to its own current week
 }
 

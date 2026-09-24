@@ -28,6 +28,7 @@
  * output rather than quietly wrong.
  */
 import { rows } from '../db/index.js';
+import { scoreboardWeek } from './week.js';
 
 const SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -108,8 +109,7 @@ const clockSeconds = (period, displayClock) => {
  * Free: no key, no quota.
  */
 export async function liveGames({ season = SEASON, week = null } = {}) {
-  const wk = week ?? (rows(`SELECT week FROM game_lines WHERE season = ? AND team_score IS NULL
-                            ORDER BY week LIMIT 1`, season)[0]?.week ?? 1);
+  const wk = week ?? scoreboardWeek(season);
   let data;
   try {
     const res = await fetch(`${SCOREBOARD}?seasontype=2&week=${wk}&dates=${season}`,

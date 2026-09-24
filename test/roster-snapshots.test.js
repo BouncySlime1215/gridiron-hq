@@ -326,7 +326,8 @@ test('G2f: a network failure keeps the live capture and is recorded as partial w
   const log = rows(`SELECT last_status, last_detail FROM sync_log WHERE job = 'roster_snapshots'`)[0];
   assert.equal(log.last_status, 'partial');
   assert.match(log.last_detail, /ECONNRESET/);
-  assert.doesNotMatch(log.last_detail, /test-s2|TEST-SWID/, 'credentials never reach the log');
+  assert.doesNotMatch(log.last_detail, /test-s2/, 'the espn_s2 cookie reached sync_log.last_detail');
+  assert.doesNotMatch(log.last_detail, /TEST-SWID/, 'the SWID cookie reached sync_log.last_detail');
 });
 
 test('G2: an ESPN error status is a failure of that period, and the next tick retries it', async () => {
@@ -368,6 +369,8 @@ test('G2f: the script exits 1 and records partial when ESPN cannot be reached',
       { cwd: REPO, env: scriptEnv(), encoding: 'utf8', timeout: 60_000 });
     assert.equal(online.status, 1, online.stdout + online.stderr);
     assert.match(online.stdout, /roster_snapshots: partial/);
-    assert.doesNotMatch(online.stdout + online.stderr, /test-s2|TEST-SWID/);
+    const printed = online.stdout + online.stderr;
+    assert.doesNotMatch(printed, /test-s2/, 'the espn_s2 cookie reached the script output');
+    assert.doesNotMatch(printed, /TEST-SWID/, 'the SWID cookie reached the script output');
     assert.equal(rows(`SELECT last_status FROM sync_log WHERE job = 'roster_snapshots'`)[0].last_status, 'partial');
   });

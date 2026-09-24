@@ -24,8 +24,8 @@ const wordText = (w: { wants: PersonWord | null; shop: PersonWord | null }) => [
   w.wants ? `wants: ${WORD_TEXT[w.wants.status]}${w.wants.weight != null && w.wants.status === 'proven' ? ` (x${Math.round(w.wants.weight)})` : ''}, ${w.wants.n} said` : null,
   w.shop ? `shop talk: ${WORD_TEXT[w.shop.status]}, ${w.shop.n} said` : null,
 ].filter(Boolean).join(' · ');
-const budgetText = (v: { used: number; limit: number | null }) =>
-  (v.limit == null ? `${v.used} offer${v.used === 1 ? '' : 's'} this week (no weekly limit set)` : `${v.used} of ${v.limit} offers this week`);
+export const budgetText = (v: { used: number; limit: number | null }) =>
+  (v.limit == null ? `${v.used} offer${v.used === 1 ? '' : 's'} this week (no weekly limit set)` : (v.used > v.limit ? `${v.used} offers this week, over your ${v.limit}-a-week limit` : `${v.used} of ${v.limit} offers this week`));
 
 /** The deck's view with only the moves that have a step with `team` (a People Board tap). */
 export function focusView(view: WarRoomView, team: string): WarRoomView {

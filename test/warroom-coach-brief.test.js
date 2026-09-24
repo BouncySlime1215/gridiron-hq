@@ -216,7 +216,7 @@ test('C3: typed unknowns render as "not read: <reason>"', async () => {
     const reason = u.text.split(' not read: ')[1];
     assert.ok(marked.some(e => textOf(e).includes(`not read: ${reason}`)), `shows "${u.text}"`);
   }
-  assert.match(textOf(briefEl(ui)), /Statements not read: the brief does not read chat labels yet/);
+  assert.match(textOf(briefEl(ui)), /Statements not read: PULSE-01 has not run for league 4/);
 });
 
 test('C4: the weekly toggle asks for kind=weekly and renders every weekly claim', async () => {

@@ -163,6 +163,24 @@ test("Nick's block from people.profile stands in when the counterpart hub has no
   assert.equal(t['1'].nick.hard, true);
 });
 
+test("with no hub people rows, the plan partner's own blocked still makes roster 4 never a partner", () => {
+  const noHub = { counterpart: { available: false, reason: 'no people.counterpart rows on the hub for this league' },
+    profile: { available: false, reason: 'no people.profile rows on the hub for this league' } };
+  const f = buildPeopleBoard(view(), inputs(noHub));
+  assert.equal(f.status, 'ok');
+  const t = byTeam(f);
+  assert.equal(t['4'].standing, 'never');
+  assert.equal(t['4'].nick.never, true);
+  assert.equal(t['4'].nick.source, 'campaign.plan');
+  assert.match(t['4'].nick.said.join(), /never a partner/);
+  assert.equal(f.value.at(-1).team, '4', 'sorted last');
+  assert.equal(t['7'].standing, 'live');
+  // stale hub row (no exclude) for him: the plan's blocked still stands
+  const stale = buildPeopleBoard(view(), inputs({ counterpart: { available: true, byRoster: new Map([
+    ['4', cpRow({ team: '4', status: 'ok', wants: [], override: override() })]]) } }));
+  assert.equal(byTeam(stale)['4'].standing, 'never');
+});
+
 test('P(responds) and fatigue come from the plan partners and the weekly limit, never invented', () => {
   const v = view();
   const t = byTeam(buildPeopleBoard(v, inputs()));

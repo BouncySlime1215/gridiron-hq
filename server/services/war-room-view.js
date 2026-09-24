@@ -395,18 +395,28 @@ async function readPeopleInputs(leagueId, now, out) {
   return out;
 }
 
-/** Nick's read of one manager: the counterpart override (hub), else the profile's nick block. */
-function nickRead(team, inputs) {
+/**
+ * Nick's read of one manager: the counterpart override (hub), else the profile's nick block.
+ * Standing "never" also follows the plan partner's own `blocked` (partners.js: blocked or
+ * unreachable per Nick => P(responds) 0), so roster 4 stays "never a partner" when the hub
+ * people rows are absent or stale (they publish only under GRIDIRON_HUB_PEOPLE or preview;
+ * the board has its own switch). `blocked` is the only such flag the plans contract carries.
+ */
+function nickRead(team, inputs, partner) {
   const cp = inputs.counterpart?.byRoster?.get?.(team)?.value?.override;
   const pn = inputs.profile?.byRoster?.get?.(team)?.value?.nick;
-  const never = !!(cp?.exclude || pn?.unreachable);
+  const hubNever = !!(cp?.exclude || pn?.unreachable);
+  const planNever = partner?.blocked === true;
+  const never = hubNever || planNever;
   const last = !never && !!(cp?.deprioritize || pn?.deprioritised);
   const hard = !!(cp?.toughen || pn?.hard);
   const said = [];
-  if (never) said.push("Nick: can't reach him, never a partner");
+  if (hubNever) said.push("Nick: can't reach him, never a partner");
+  else if (planNever) said.push(`The plan marks him never trading (${partner.basis || 'blocked'}): never a partner`);
   if (last) said.push('Nick: not a buyer, goes last');
   if (hard) said.push('Nick: hard negotiator, hold your price');
-  return { never, last, hard, said, from: cp?.status === 'ok' ? 'people.counterpart' : pn ? 'people.profile' : null };
+  const from = cp?.status === 'ok' ? 'people.counterpart' : pn ? 'people.profile' : planNever ? 'campaign.plan' : null;
+  return { never, last, hard, said, from };
 }
 
 function approachOf(team, inputs, nick) {
@@ -503,7 +513,7 @@ export function buildPeopleBoard(view, inputs) {
 
   const tiles = order.map(team => {
     const p = pBy.get(team);
-    const nick = nickRead(team, inputs);
+    const nick = nickRead(team, inputs, p);
     const hole = p ? null : (pf?.status === 'failed' ? failedF : unknownF)(planWhy, 'campaign.plan');
     return {
       team, label: `Team ${team}`,

@@ -8,11 +8,16 @@
  *
  * Two facts set the weighting, and neither is a taste call:
  *
- *   1. The playoff weeks are worth several times a regular-season week.
- *      Regular-season advance and finals success have different drivers, and
- *      the published exchange rate is roughly 4:1 — a change in finals win rate
- *      is worth about four times the same change in advance rate. A week 16
- *      point and a week 6 point are not the same point.
+ *   1. A playoff week is worth more than a regular-season week, and by how much
+ *      is PLAYOFF_IMPORTANCE. The shipped 4 is NOT a measured value. It was lifted
+ *      from a best-ball tournament figure (ETR's 4:1 finals-to-advance rate,
+ *      docs/WHAT-WINS-STUDY.md:26), which prices a change in a best-ball team's
+ *      finals WIN RATE against its advance rate. It says nothing about how many
+ *      regular-season points a managed H2H playoff week is worth, and this comment
+ *      used to present it as that league's published exchange rate. RL-16-1
+ *      measured the real one (see playoffImportance below); it is on only behind
+ *      GRIDIRON_RL16_1_ENABLED or preview mode, and only for the league shape it
+ *      was measured on.
  *
  *   2. The SHARE of your remaining value that sits in the playoffs rises as the
  *      season runs down. A trade in week 3 buys twelve regular-season weeks
@@ -31,16 +36,68 @@
  */
 import { PLAYOFF_WEEKS } from './matchups.js';
 import { leagueRules } from './league-rules.js';
+import { previewUnconfirmed, previewFields } from './preview-mode.js';
 
-/** Published finals-to-advance exchange rate. */
+/**
+ * The served playoff-week weight, and still the value for every league shape
+ * RL-16-1 did not measure. Unmeasured: borrowed from a best-ball win-rate
+ * exchange rate (see the header), not fitted on any H2H league.
+ */
 export const PLAYOFF_IMPORTANCE = 4;
-/** RL-16-1 RED stub. */
-export function playoffImportance() {
-  return { value: PLAYOFF_IMPORTANCE, measured: false, source: 'unmeasured' };
+
+/**
+ * RL-16-1: default-off switch for the measured weight. Read per call (like
+ * RL-19-1's) so a test can flip it without a restart. Off: the served weight is
+ * 4 for every league and horizonWeights() output is byte-identical to before.
+ */
+const RL16_1_ENV = 'GRIDIRON_RL16_1_ENABLED';
+const rl16On = () => process.env[RL16_1_ENV] === '1';
+/**
+ * RL-16-1 (validator r16): 579 Sleeper leagues, playoff-week weight measured per
+ * team by standing. Rank 4-6 in 10-team / 6-playoff leagues, the bubble group
+ * whose trades the weight actually moves: 5.13 [4.28, 6.34]; rank 1-3: 5.67.
+ * The pooled 6.70 is pulled up by non-contenders and is NOT used, nor is the
+ * pre-registered 3.82. Interim until CE-09 per-team title odds replace this proxy.
+ */
+const RL16_1_CONTENDER_IMPORTANCE = 5.13;
+const RL16_1_SHAPE = { teams: 10, playoffTeams: 6 };
+const RL16_1_REASON = 'RL-16-1 measured playoff-week weight (10-team/6-playoff contenders, 5.13 [4.28, 6.34]) is default-off';
+
+/**
+ * The playoff-week weight for a league of this shape: { value, measured, source },
+ * plus preview fields when it is on only because of preview mode. 12/6, 8/4 and
+ * any shape the platform did not report stay on 4, labelled unmeasured.
+ */
+export function playoffImportance({ teams = null, playoffTeams = null } = {}) {
+  const unmeasured = { value: PLAYOFF_IMPORTANCE, measured: false,
+    source: `unmeasured: borrowed best-ball rate, no RL-16-1 measurement for ${teams ?? '?'}-team/${playoffTeams ?? '?'}-playoff leagues` };
+  const byFlag = rl16On();
+  const byPreview = !byFlag && previewUnconfirmed();
+  if (!byFlag && !byPreview) return unmeasured;
+  if (teams !== RL16_1_SHAPE.teams || playoffTeams !== RL16_1_SHAPE.playoffTeams) return unmeasured;
+  return {
+    value: RL16_1_CONTENDER_IMPORTANCE, measured: true,
+    source: 'RL-16-1: 579 Sleeper leagues, 10-team/6-playoff, rank 4-6 contenders, 5.13 [4.28, 6.34]',
+    ...(byPreview ? previewFields(RL16_1_REASON) : {}),
+  };
 }
-/** RL-16-1 RED stub. */
-export function leagueShape() {
-  return { teams: null, playoffTeams: null };
+
+/**
+ * Team count and playoff-team count from the synced settings, for playoffImportance.
+ * Nulls when the platform does not say (non-ESPN, unparseable, missing fields).
+ */
+export function leagueShape(lg) {
+  const none = { teams: null, playoffTeams: null };
+  if (!lg?.payload) return none;
+  let payload;
+  try {
+    payload = typeof lg.payload === 'string' ? JSON.parse(lg.payload) : lg.payload;
+  } catch (e) {
+    if (!(e instanceof SyntaxError)) throw e;
+    return none;
+  }
+  const teams = Array.isArray(payload?.teams) && payload.teams.length ? payload.teams.length : null;
+  return { teams, playoffTeams: leagueRules(lg).schedule.playoff_teams ?? null };
 }
 /** Last week of the regular season in a standard ESPN league. */
 export const REGULAR_SEASON_END = 14;
@@ -84,7 +141,8 @@ export function leagueSchedule(lg) {
  * uninformative rather than optimistic.
  */
 export function horizonWeights(week, {
-  playoffOdds = 0.5, regularSeasonEnd = REGULAR_SEASON_END, playoffWeeks = PLAYOFF_WEEKS
+  playoffOdds = 0.5, regularSeasonEnd = REGULAR_SEASON_END, playoffWeeks = PLAYOFF_WEEKS,
+  teams = null, playoffTeams = null,
 } = {}) {
   const w = Math.max(1, Math.min(18, Number(week) || 1));
   const regularLeft = Math.max(0, regularSeasonEnd - w + 1);
@@ -93,9 +151,17 @@ export function horizonWeights(week, {
   const weeksLabel = playoffWeeks.length ? `${playoffWeeks[0]}-${playoffWeeks.at(-1)}` : null;
   if (!playoffLeft) return { now: 1, playoff: 0, regular_weeks_left: regularLeft, playoff_weeks_left: 0, playoff_odds: playoffOdds, playoff_weeks_label: weeksLabel };
   const odds = Math.max(0, Math.min(1, playoffOdds));
-  const playoffMass = playoffLeft * PLAYOFF_IMPORTANCE * odds;
+  const imp = playoffImportance({ teams, playoffTeams });
+  // Flag off: no new fields, so the served horizon is exactly what it was.
+  const impFields = rl16On() || previewUnconfirmed() ? {
+    playoff_importance: imp.value,
+    playoff_importance_measured: imp.measured,
+    playoff_importance_source: imp.source,
+    ...(imp.preview ? previewFields(imp.preview_reason) : {}),
+  } : {};
+  const playoffMass = playoffLeft * imp.value * odds;
   const total = regularLeft + playoffMass;
-  if (total <= 0) return { now: 0, playoff: 1, regular_weeks_left: 0, playoff_weeks_left: playoffLeft, playoff_odds: odds, playoff_weeks_label: weeksLabel };
+  if (total <= 0) return { now: 0, playoff: 1, regular_weeks_left: 0, playoff_weeks_left: playoffLeft, playoff_odds: odds, playoff_weeks_label: weeksLabel, ...impFields };
   const playoff = playoffMass / total;
   return {
     now: +(1 - playoff).toFixed(3),
@@ -104,6 +170,7 @@ export function horizonWeights(week, {
     playoff_weeks_left: playoffLeft,
     playoff_odds: +odds.toFixed(3),
     playoff_weeks_label: weeksLabel,
+    ...impFields,
   };
 }
 
@@ -128,8 +195,10 @@ export function horizonWeights(week, {
  * 2026-09-17) — and is 1 while that stays true. So the two legs differ only by
  * WHEN points land: the "now" leg carries this week (its injuries, its byes, its
  * betting-line correction) and the playoff leg carries playoff-week byes. The
- * importance weighting (a playoff week worth PLAYOFF_IMPORTANCE regular weeks,
- * times P(make playoffs)) is untouched. When this week's projection equals the
+ * importance weighting is not applied here: it lives in horizonWeights() (a playoff
+ * week worth playoffImportance() regular weeks, times P(make playoffs)) and reaches
+ * this function only through `weights`. That weight is the unmeasured best-ball 4
+ * unless RL-16-1 is on for a 10/6 league (5.13, measured; see the file header). When this week's projection equals the
  * weekly rate for everyone involved (no bye, no injury, no this-week correction)
  * and nobody is on bye in the playoff weeks, the two legs are equal and `value`
  * is ppgDelta.

@@ -118,7 +118,7 @@ import { acceptanceBand } from './trade-acceptance.js';
 // read it and this import goes away. Until then the alternative was leaving the
 // live /find route on the 0.5 prior, which is the bug this item exists to fix.
 import { simulateSeason, simStartWeek } from './season-sim.js';
-import { horizonWeights, horizonGain, horizonNote, leagueSchedule } from './trade-horizon.js';
+import { horizonWeights, horizonGain, horizonNote, leagueSchedule, leagueShape } from './trade-horizon.js';
 // ros_ppg / playoff_ppg (and so adj_ppg): the gated rest-of-season model. This
 // week's number stays the weekly blend.
 import { buildRosProjections } from './ros-projection.js';
@@ -1493,7 +1493,7 @@ export function lineupSpan(beforePlayers, afterPlayers, slots, weeksLeft) {
 export function lineupValueContext(lg, assets, teams) {
   const onRoster = new Set(teams.flatMap(t => t.players.map(p => p.id)));
   const wire = leagueWire(lg, assets, espnPlayerResolver(assets)).filter(a => !onRoster.has(a.id));
-  const h = horizonWeights(tradeWeekContext().week, leagueSchedule(lg));
+  const h = horizonWeights(tradeWeekContext().week, { ...leagueSchedule(lg), ...leagueShape(lg) });
   return { wire, weeksLeft: h.regular_weeks_left + h.playoff_weeks_left };
 }
 
@@ -1844,7 +1844,7 @@ function findTradesUncached(lg, {
   const odds = Number.isFinite(playoffOdds) && playoffOddsSource
     ? { value: playoffOdds, source: playoffOddsSource, interval: playoffOddsInterval }
     : horizonOdds(lg, myTeamId, playoffOdds);
-  const horizon = horizonWeights(weekNow.week, { playoffOdds: odds.value, ...leagueSchedule(lg) });
+  const horizon = horizonWeights(weekNow.week, { playoffOdds: odds.value, ...leagueSchedule(lg), ...leagueShape(lg) });
   // One memo for the whole search: the two rosters' before-lineups are the same for
   // every package against them (see evaluate()).
   const memo = new WeakMap();
@@ -2390,7 +2390,7 @@ export function resolvePlayer(id, assets, teams) {
 function ladderInputs(lg, myTeamId, playoffOdds, useCounterparty = true) {
   const weekNow = tradeWeekContext();
   const odds = horizonOdds(lg, myTeamId, playoffOdds);
-  const horizon = horizonWeights(weekNow.week, { playoffOdds: odds.value, ...leagueSchedule(lg) });
+  const horizon = horizonWeights(weekNow.week, { playoffOdds: odds.value, ...leagueSchedule(lg), ...leagueShape(lg) });
   const counterparties = useCounterparty
     ? counterpartyLayer(lg.id, { season: weekNow.season, week: weekNow.week })
     : new Map();

@@ -32,6 +32,7 @@ import { recordServed } from '../services/serve-log.js';
 import { buildProjections } from '../services/projections.js';
 import { clearPlayerWeekEngineCache } from '../services/player-week-engine.js';
 import { simulateSeason, simStartWeek, tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
+import { activityMeanOn } from '../services/activity-team-mean.js';
 import { fitCorrelations, clearCorrelationCache } from '../services/correlation.js';
 import { fitGameScript, syncHistoricalLines, syncCurrentLines, clearGameScriptCache } from '../services/gamescript.js';
 import { syncAll as syncNflverse } from '../services/nflverse.js';
@@ -467,7 +468,8 @@ r.get('/:leagueId/simulate', requireAuthenticated, (req, res, next) => {
     const runs = Math.min(6000, Number(req.query.runs) || 2000);
     // The memo key uses the same producer on the same raw input that
     // simulateSeason resolves internally, so the key and the body's from_week agree.
-    const key = `sim:${lg.id}:${runs}:${simStartWeek(lg, req.query.from_week)}`;
+    // LIVING-01c: the activity-adjusted team mean changes the odds, so its switch is in the key.
+    const key = `sim:${lg.id}:${runs}:${simStartWeek(lg, req.query.from_week)}:am${activityMeanOn().on ? 1 : 0}`;
     const seed = req.query.seed ?? null;
     const sim = withRandomSeed(seed, () => memo(`${key}:seed:${seed ?? 'random'}`, () => simulateSeason(lg, {
       runs, fromWeek: req.query.from_week, scoring: scoringFor(lg)

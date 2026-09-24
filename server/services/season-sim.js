@@ -31,6 +31,7 @@ import { loadRosters, assetUniverse, lineupSlots } from './trade-engine.js';
 import { random, withRandomSeed, keyedSeed } from './stats-util.js';
 import { weeklyAvailability } from './contingency.js';
 import { leagueCurrentWeek } from './league-week.js';
+import { activityMeanFor } from './activity-team-mean.js';
 import { previewUnconfirmed, previewFields } from './preview-mode.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -366,13 +367,24 @@ export function simPlayerMeans(world) {
  *                        blocks, and therefore every player's draws, are identical
  *                        in both. Without it, a new player in a same-game block
  *                        changes the Cholesky rows of everyone sorted after him.
+ * @param opts.activityMean  LIVING-01c: true/false forces the activity-adjusted team
+ *                        mean on or off; null reads GRIDIRON_ACTIVITY_MEAN / preview
+ *                        mode (activity-team-mean.js). Off is the frozen sim, exactly.
+ *                        `{ fit }` turns it on with those coefficients (tests).
  */
 export function simulateSeason(lg, {
   runs = 2000, fromWeek: requestedWeek = null, scoring = PPR, overrides = null, projections = null,
-  keepRuns = false, universe = null
+  keepRuns = false, universe = null, activityMean = null
 } = {}) {
   const prep = prepareSeason(lg, { requestedWeek, scoring, overrides, projections, universe });
   if (prep.fail) return prep.fail;
+  // LIVING-01c: one points shift per team, added to every simulated week (regular
+  // season and bracket). The draws are untouched, so on and off share their random
+  // football (common random numbers) and differ only by the shift.
+  // `{ fit }` is the test seam: on, with those coefficients instead of the shipped ones.
+  const activity = activityMeanFor(lg, prep.teams.map(t => t.roster_id), activityMean?.fit
+    ? { on: true, fit: activityMean.fit } : { on: activityMean });
+  const shiftOf = activity?.shifts ?? new Map();
   // A run's draws for a week, made once and shared by every team and by the
   // bracket (the draw is keyed by run, so a repeat call would give the same values).
   let cachedRun = -1, cache = new Map();
@@ -388,10 +400,13 @@ export function simulateSeason(lg, {
     cache.set(week, got);
     return got;
   };
-  return playSeasons(prep, prep.teams, runs, keepRuns, (t, run, week) => {
+  const out = playSeasons(prep, prep.teams, runs, keepRuns, (t, run, week) => {
     const { drawn, expected } = drawnFor(run, week);
-    return lineupPoints(t.players, prep.slots, drawn, expected);
+    const pts = lineupPoints(t.players, prep.slots, drawn, expected);
+    const shift = shiftOf.get(String(t.roster_id));
+    return shift ? Math.max(0, pts + shift) : pts;
   });
+  return activity ? { ...out, activity_mean: activity.report } : out;
 }
 
 /**

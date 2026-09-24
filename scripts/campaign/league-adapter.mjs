@@ -78,6 +78,7 @@ export async function loadServices() {
     horizon: await import('../../server/services/trade-horizon.js'),
     titleOdds: await import('../../server/services/title-odds-trades.js'),
     identity: await import('../../server/services/manager-identity.js'),
+    radar: await import('../../server/services/opportunity-radar.js'),
   };
 }
 
@@ -345,6 +346,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
+    // O1 radar (GRIDIRON_OPP_RADAR; null when off): events + net validated opportunity change for this NFL week.
+    opportunityOf: id => svc.radar?.opportunityOf(id, { season: Number(season), week: Number(week) }) ?? null,
     // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
     untouchable: untouchableIds([...managers.values()].map(m => m.nick)),
     ...(finder ? { finderBest } : {}),

@@ -458,6 +458,11 @@ function offerKeyOf(deal) {
   return `${deal?.partner_id ?? '?'}:${side(deal?.i_give)}>${side(deal?.i_get)}`;
 }
 
+/** The price bands 083 allows: where the sent deal sat against the card's yes-point. */
+export const PRICE_BANDS = Object.freeze(['below', 'at_point', 'above']);
+
+const hasSeamColumns = () => rows(`PRAGMA table_info(trade_outcomes)`).some(c => c.name === 'price_band');
+
 /**
  * "I sent this." Nick proposed this deal on ESPN himself; the app records that
  * it was sent and what the model said about it. It never sends anything.
@@ -466,12 +471,23 @@ function offerKeyOf(deal) {
  * marked sent: its prediction is the one made when the deal was suggested, and
  * a second row would count one offer twice. Otherwise a new row is written
  * through `recordProposedOutcome`, which refuses a deal with no band.
+ *
+ * `move_id` and `price_band` (FIX-07, columns from 083) come from a War Room
+ * card: the campaign move this offer is a step of, and whether the deal sent sat
+ * below, at or above the card's yes-point. The TradeCard tap sends neither.
  */
 export function recordSentOffer({ league_id, season, proposer_team_id = null, deal,
-  model_version = null, sent_at = null } = {}) {
+  model_version = null, sent_at = null, move_id = null, price_band = null } = {}) {
   requireFields({ league_id, season, deal }, ['league_id', 'season', 'deal']);
   if (!hasSentColumns()) {
     throw new Error('trade-outcomes: trade_outcomes.sent_at does not exist — migration 080 has not run here');
+  }
+  const seam = move_id != null || price_band != null;
+  if (price_band != null && !PRICE_BANDS.includes(price_band)) {
+    throw new Error(`trade-outcomes: price_band must be one of ${PRICE_BANDS.join(', ')}`);
+  }
+  if (seam && !hasSeamColumns()) {
+    throw new Error('trade-outcomes: trade_outcomes.price_band does not exist — migration 083 has not run here');
   }
   const sentAt = sent_at ?? new Date().toISOString();
   const ideaId = offerKeyOf(deal);
@@ -479,9 +495,14 @@ export function recordSentOffer({ league_id, season, proposer_team_id = null, de
     WHERE league_id = ? AND season = ? AND idea_id = ? AND source = 'app_proposed'`,
   league_id, season, ideaId);
   if (existing?.sent_at) return { state: 'already_sent', id: existing.id };
+  const stampSeam = id => {
+    if (seam) run(`UPDATE trade_outcomes SET move_id = COALESCE(?, move_id), price_band = COALESCE(?, price_band)
+                   WHERE id = ?`, move_id, price_band, id);
+  };
   if (existing) {
     run(`UPDATE trade_outcomes SET sent_at = ?, proposer_team_id = COALESCE(proposer_team_id, ?)
          WHERE id = ?`, sentAt, proposer_team_id, existing.id);
+    stampSeam(existing.id);
     return { state: 'marked_sent', id: existing.id };
   }
   const id = recordProposedOutcome({
@@ -491,7 +512,25 @@ export function recordSentOffer({ league_id, season, proposer_team_id = null, de
     acceptance: deal.acceptance ?? null, model_version, idea_id: ideaId,
   });
   run(`UPDATE trade_outcomes SET sent_at = ? WHERE id = ?`, sentAt, id);
+  stampSeam(id);
   return { state: 'recorded', id };
+}
+
+/**
+ * Undo one "I sent this" inside its undo window (War Room retract). Only a row
+ * ESPN has not yet settled or matched goes back to unsent; one that has is left
+ * alone and says so, because ESPN's record outranks the tap.
+ */
+export function unmarkSentOffer(id) {
+  const o = row(`SELECT id, status, matched_tx_id, sent_at FROM trade_outcomes WHERE id = ?`, id);
+  if (!o) return { state: 'absent', id };
+  if (!o.sent_at) return { state: 'not_sent', id };
+  if (o.status !== 'proposed' || o.matched_tx_id != null) {
+    return { state: 'kept', id, reason: `ESPN already has this offer (${o.matched_tx_id ?? o.status}); the sent mark stays` };
+  }
+  run(`UPDATE trade_outcomes SET sent_at = NULL, settle_reason = NULL${hasSeamColumns() ? ', price_band = NULL, move_id = NULL' : ''}
+       WHERE id = ?`, id);
+  return { state: 'unmarked', id };
 }
 
 /** What ESPN recorded against one proposal, most decisive first. */

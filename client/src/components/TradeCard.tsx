@@ -5,6 +5,7 @@ import { Headshot } from './PlayerRow';
 import ManagerRead from './trade/ManagerRead';
 import PlayerEvidence from './trade/PlayerEvidence';
 import RiskStrip from './trade/RiskStrip';
+import SentOfferButton from './trade/SentOfferButton';
 import { hasEvidence } from './trade/types';
 import { logServerDetail, sanitizedMessage } from '../lib/errorSanitize';
 
@@ -168,22 +169,6 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
   const [oddsBusy, setOddsBusy] = useState(false);
   const [sense, setSense] = useState<any>(null);
   const [senseBusy, setSenseBusy] = useState(false);
-  const [sent, setSent] = useState<string | null>(null);
-  const [sentBusy, setSentBusy] = useState(false);
-
-  /**
-   * CLONE-01b b1: Nick sent this deal on ESPN himself. Logs it with the band this
-   * card showed, so the post-sync job can grade it against his reply. The app
-   * never sends the offer.
-   */
-  const markSent = async () => {
-    setSentBusy(true); setErr(null);
-    try {
-      const r = await api(`/trades/${leagueId}/offers/sent`, { method: 'POST', body: JSON.stringify({ deal }) });
-      setSent(r?.state === 'already_sent' ? 'Already logged' : 'Logged — graded when ESPN shows the reply');
-    } catch (e: any) { setErr(sanitizedMessage('TradeCard.markSent', "Couldn't log the offer", e.message)); }
-    finally { setSentBusy(false); }
-  };
 
   const senseCheck = async () => {
     setSenseBusy(true); setErr(null);
@@ -241,6 +226,12 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
           <span className="text-[10px] font-semibold text-good bg-good-tint border border-good px-2 py-0.5 rounded-full"
             title="Both starting lineups improve — this is the kind of deal that actually gets accepted">
             BOTH SIDES WIN
+          </span>
+        )}
+        {deal.title_mutual && deal.title && (
+          <span className="text-[10px] font-semibold text-good bg-good-tint border border-good px-2 py-0.5 rounded-full"
+            title={`Lineup points this week say no, the season sim says both of you gain title odds, each past 2 standard errors (paired seeds): you ${(deal.title.me.title_delta * 100).toFixed(1)} pts, them ${(deal.title.them.title_delta * 100).toFixed(1)} pts`}>
+            BOTH TITLE ODDS UP
           </span>
         )}
         {!deal.mutual && deal.plausible && (
@@ -327,13 +318,8 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
         <button className="btn-ghost text-xs" onClick={senseCheck} disabled={senseBusy}>
           {senseBusy ? 'Checking…' : '🔍 AI sense check'}
         </button>
-        {/* Only a deal with a band can be graded; the server refuses the rest. */}
-        {deal?.partner_id != null && deal?.acceptance?.band?.mid != null && (
-          <button className="btn-ghost text-xs" onClick={markSent} disabled={sentBusy || sent != null}
-            title="You proposed this on ESPN — log it so the reply is graded">
-            {sent ?? (sentBusy ? 'Logging…' : '📨 I sent this')}
-          </button>
-        )}
+        {/* CLONE-01b b1 "I sent this"; absent unless GRIDIRON_OFFER_LOOP is on (FIX-10). */}
+        <SentOfferButton deal={deal} leagueId={leagueId} onError={setErr} />
         {onDismiss && (
           <button className="btn-ghost text-xs text-[var(--muted)] ml-auto" onClick={onDismiss} title="Hide this idea — it won't come back on refresh">
             ✕ Not interested

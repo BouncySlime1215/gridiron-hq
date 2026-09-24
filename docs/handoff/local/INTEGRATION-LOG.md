@@ -2,7 +2,13 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-24 06:08Z.
+Last rebuilt: 2026-09-24 08:17Z.
+
+## #332: fix: War Room 'I sent it' works on real cards (acceptance basis carried through)
+
+- Merged: 4:16 AM ET, Sep 24 as `bd482809`
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #323: fix: War Room plans accept grader sub-check ids (E3-live)
 

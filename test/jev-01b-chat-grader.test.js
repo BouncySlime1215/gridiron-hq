@@ -157,8 +157,10 @@ test('open_to_trade units obey the leak rule and grade against the next 14 days'
     assert.ok(u.t >= COVERAGE_START, 'inside coverage');
     const k = Math.round((u.t - COVERAGE_START) / (7 * DAY));
     const team = Number(u.roster_id);
-    // the claim is the week before the cutoff, nothing after it
-    assert.equal(u.claim, claims.get(`${team}|${k}`), `claim ${team}|${k}`);
+    // the claim is the week before the cutoff, nothing after it: the loud
+    // message an hour after cutoff LEAK_K is cutoff LEAK_K + 1's, not LEAK_K's
+    const want = team === 1 && k === LEAK_K + 1 ? 0.99 : claims.get(`${team}|${k}`);
+    assert.equal(u.claim, want, `claim ${team}|${k}`);
     const y = trades.some(x => x.team === team && x.at > u.t && x.at <= u.t + 14 * DAY) ? 1 : 0;
     assert.equal(u.y, y, `outcome ${team}|${k}`);
     assert.ok(u.inc > 0 && u.inc < 1);

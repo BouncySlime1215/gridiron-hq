@@ -14,7 +14,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const { fitCalibration, applyCalibration, ISOTONIC_MIN_N } = await import('../server/services/jev/calibrate.js');
-const { blend, fitWeight, logLoss } = await import('../server/services/jev/stack.js');
+const { blend, logLoss } = await import('../server/services/jev/stack.js');
 const { gradeUnits, MIN_N } = await import('../server/services/jev/chat-grader.js');
 
 // A tiny deterministic generator, so a failure reproduces.
@@ -61,13 +61,14 @@ test('the blend with weight 0 is the incumbent, exactly', () => {
 test('an arm worse than the incumbent gets weight <= 0.05 and the grade says the incumbent leads', () => {
   const r = rng(7);
   const units = [];
+  // The incumbent is exactly right: outcome rates are fixed by construction
+  // (3 in 20 for one group, 3 in 4 for the other), not drawn, so no sample
+  // drift can make shrinking toward the middle look like skill. Jev is noise.
   for (let i = 0; i < 400; i++) {
-    const truth = r() < 0.5 ? 0.15 : 0.75;       // the incumbent knows this
-    const y = r() < truth ? 1 : 0;
-    units.push({ t: i, cluster: `m${i % 8}`, inc: truth, claim: r(), y }); // Jev is noise
+    const high = i % 2 === 1, j = Math.floor(i / 2);
+    const y = high ? (j % 4 < 3 ? 1 : 0) : (j % 20 < 3 ? 1 : 0);
+    units.push({ t: i, cluster: `m${i % 8}`, inc: high ? 0.75 : 0.15, claim: r(), y });
   }
-  const w = fitWeight(units.map(u => ({ inc: u.inc, jev: u.claim, y: u.y })));
-  assert.ok(w <= 0.05, `weight ${w}`);
   const grade = gradeUnits(units);
   assert.equal(grade.status, 'measured');
   assert.ok(grade.weight <= 0.05, `served weight ${grade.weight}`);

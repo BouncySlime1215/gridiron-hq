@@ -26,6 +26,7 @@ import { deriveFormat } from '../services/format.js';
 import { marketAsOf, marketHistory } from '../services/dynasty-value-history.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
 import { managerProfiles, setManagerProfile } from '../services/league-brain.js';
+import { gateDeals } from '../services/offer-reputation.js';
 // The measured manager layer: what has been observed about each counterparty, as
 // opposed to `manager_profiles`, which is the tier Nick set by hand.
 import { SIGNAL_SOURCES, refreshManagerData, signalRowsFor, transactionsCollected, chatCorpusState,
@@ -785,7 +786,8 @@ r.get('/:leagueId/find', (req, res, next) => {
     // Queued before res.json, extracted at flush — after serialisation has already
     // settled the lazy floor_delta/ceiling_delta, so logging them costs nothing extra.
     recordServed(res, 'trade_find', lg, out);
-    res.json(out);
+    // REP-01: each deal carries its fatigue / reputation verdict for the partner (behind GRIDIRON_REPUTATION).
+    res.json(gateDeals(lg, out));
   } catch (e) { next(e); }
 });
 

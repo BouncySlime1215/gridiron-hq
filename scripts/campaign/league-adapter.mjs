@@ -15,6 +15,8 @@
  *   sanity            composed rescore == served tradeImpact on one one-for-one deal
  */
 import { chatLabels } from '../../server/services/campaign/partners.js';
+import { countSentThisWeek, lopsidednessLedger, sentOfferHistory } from '../../server/services/offer-reputation.js';
+import { reputationFields } from '../../server/services/offer-reputation-flag.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 const FLEX = { FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'], WRRB_FLEX: ['RB', 'WR'],
@@ -71,40 +73,14 @@ function daysLeftInWeek(svc, lg, week, now) {
 }
 
 /**
- * Offers Nick sent each manager in the last 7 days: ESPN's own proposals, plus
- * every "I sent it" in `trade_outcomes` (sent_at IS NOT NULL; War Room and
- * TradeCard taps alike) that the settle job has not matched to one of those
- * proposals, so a tapped offer ESPN also shows counts once.
+ * Offers Nick sent each manager in the last 7 days. The count itself is
+ * offer-reputation.js#countSentThisWeek (ESPN's own proposals plus every
+ * "I sent it" in trade_outcomes, a tapped offer ESPN also shows counted once),
+ * the same function the finder's fatigue gate reads, so the War Room cap and
+ * the finder share one number (RULINGS 4, FIX-264-1).
  */
 export function sentThisWeek(svc, leagueId, season, me, now) {
-  const out = new Map();
-  const rows = svc.db.rows(`SELECT tx_id, items_json, proposed_at FROM league_transactions_raw
-                            WHERE league_id = ? AND season = ? AND type = 'TRADE_PROPOSAL' AND team_id = ?
-                              AND (execution_type IS NULL OR execution_type NOT IN ('CANCEL', 'PROCESS'))`,
-  leagueId, season, Number(me));
-  const seen = new Set();
-  for (const r of rows) {
-    if (seen.has(r.tx_id)) continue;
-    seen.add(r.tx_id);
-    const at = svc.tactics.toTime(r.proposed_at);
-    if (at == null || now - at > 7 * DAY) continue;
-    let items;
-    try { items = JSON.parse(r.items_json || '[]'); } catch (e) { throw new Error(`league ${leagueId} tx ${r.tx_id}: items_json unreadable (${e.message})`); }
-    const other = new Set(items.flatMap(i => [i.fromTeamId, i.toTeamId]).filter(t => t != null && t > 0 && String(t) !== String(me)).map(String));
-    for (const t of other) out.set(t, (out.get(t) ?? 0) + 1);
-  }
-  const sentCols = svc.db.rows('PRAGMA table_info(trade_outcomes)').map(c => c.name);
-  if (!sentCols.includes('sent_at')) return out;
-  const tapped = svc.db.rows(`SELECT counterparty_team_id, sent_at, matched_tx_id FROM trade_outcomes
-                              WHERE league_id = ? AND season = ? AND sent_at IS NOT NULL AND counterparty_team_id IS NOT NULL`,
-  leagueId, season);
-  for (const o of tapped) {
-    if (o.matched_tx_id != null && seen.has(String(o.matched_tx_id))) continue;
-    const at = Date.parse(o.sent_at);
-    if (!Number.isFinite(at) || now - at > 7 * DAY) continue;
-    out.set(String(o.counterparty_team_id), (out.get(String(o.counterparty_team_id)) ?? 0) + 1);
-  }
-  return out;
+  return countSentThisWeek({ rows: svc.db.rows, toTime: svc.tactics.toTime }, leagueId, season, me, now);
 }
 
 /**
@@ -194,6 +170,11 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   const blocked = new Set(svc.db.rows(`SELECT roster_id FROM manager_profiles WHERE league_id = ? AND tradeability = 'never'`, leagueId)
     .map(r => String(r.roster_id)));
   const sent = sentThisWeek(svc, leagueId, season, me, now);
+  // REP-01 reputation factor (default-off, GRIDIRON_REPUTATION): each manager's
+  // decayed lopsidedness from the offers Nick sent. Off, no ledger is passed and
+  // every band is exactly what it was.
+  const reputation = reputationFields().enabled
+    ? lopsidednessLedger(sentOfferHistory(leagueId, season, me), { now }) : null;
   const titleByTeam = new Map((w0.base?.teams ?? []).map(t => [String(t.roster_id), t.title_odds]));
   const managers = new Map();
   for (const t of rosters.keys()) {
@@ -219,7 +200,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     const counterparty = m
       ? { ...svc.cp.readDeal({ theirGive: theyGive.map(slim), theirGet: theyGet.map(slim), managerProfile: m }), counterparty_data: true }
       : { receptiveness: 1, perception_delta: null, counterparty_data: false };
-    const band = svc.acc.acceptanceBand({ counterparty, edge: { passes: true }, profile: m?.negotiation ?? null });
+    const band = svc.acc.acceptanceBand({ counterparty, edge: { passes: true }, profile: m?.negotiation ?? null,
+      reputation: reputation ? (reputation.per_manager.get(String(team)) ?? reputation.none) : null });
     const b = band.band;
     return { p: b?.mid ?? 0, band: b ? { low: b.low, high: b.high } : null, basis: band.basis };
   };

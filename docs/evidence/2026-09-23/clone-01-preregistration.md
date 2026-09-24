@@ -173,3 +173,46 @@ median pool holds 425 players (a uniform guess scores log loss 6.045).
   `motive` and moves no number. A later unit may price with it, because the bar was cleared.
 
 2025 was not opened, so there is no HOLDOUT-LEDGER row.
+
+---
+
+## Amendment 1 (FIX-229-2): completed trades as PU positives
+
+Registered and committed before any code for it is written or run. It closes the spec
+item "completed trades as PU positives", which the first pass did not build. Parts 1-3
+above, their thresholds and their results stand unchanged.
+
+**Hypothesis.** A completed trade is a labeled positive for "this manager wanted this
+player", seen against an unlabeled set (every other player he could have asked for).
+Adding those positives to the waiver-choice fit sharpens the shared player-value
+coefficients, so 2024 waiver claims are predicted better.
+
+**Trade events (PU positives).** `sh_transactions` rows with `type='trade'`,
+`status='complete'`, Sleeper leg `w` in 1..16, fit seasons 2021-23 only. Each QB/RB/WR/TE
+in `adds_json` (Sleeper id mapped to gsis, same map as Part 2) is one positive event for
+the roster that received him.
+- Timing: a leg-`w` trade can clear before the week-`w` games, so every feature is as of
+  week `w-1` (prior-season values when `w=1`), and "plays next week" is week `w`.
+- Unlabeled set: mapped skill players on the league's OTHER rosters at week `w-1`
+  (`sh_team_weeks.players_json`; week 1 when `w=1`), plus the received player if absent.
+  They are unlabeled, not negatives: they enter only through the conditional-logit
+  denominator, the standard selected-completely-at-random reading of PU for choice.
+- Claimant terms (positional need, loss streak x last week, bye crunch x plays next week)
+  are built the same way as for claims, from his roster and standings at week `w-1`.
+- Weight: each event counts `1/k`, where `k` is the number of mapped skill players that
+  roster received in that trade, so one trade counts once however many players it moved.
+  All 2021-23 trade events are used (no sample). Picks-only legs add no event.
+
+**Model.** M3: the M1 feature set, one coefficient vector, fit on the same seeded 6,000
+2021-23 waiver claims as M1 (weight 1 each) plus the weighted trade events.
+
+**Metric and ship rule.** Graded on the same 2024 waiver claims as Part 2 (full pools).
+Delta = M3 - M1 mean log loss, 90% CI by 1,000 manager-cluster bootstrap resamples,
+seed 20260923 + 3. The trade positives count as helping only if the CI upper bound is < 0;
+otherwise M1 stays the population model and the result is logged as a decline. Top-1 is
+reported beside it, not decided on.
+
+**Secondary, descriptive only (no decision).** M3 vs M1 log loss on 2024 trade events
+built the same way, so the reader can see whether the fit learned trade choice at all.
+
+2025 is not opened. The run prints aggregates only.

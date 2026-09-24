@@ -19,7 +19,7 @@ Source: NORTH-STAR-PLAN row 7 and ENGINE-SPECS CAMPAIGN-01c (branch
   previous run failed has no `_run`, so its recovery read as "first plan for this
   league" and was flagged as a change. Feasibility was never compared at all.
 - Decision: **build** the smallest sender (ntfy topic URL, or a macOS banner) and
-  a state-based diff in the app DB (migration 087), called from the producer.
+  a state-based diff in the app DB (migration 091), called from the producer.
 
 ## 1. Tests (RED first)
 
@@ -33,7 +33,7 @@ Source: NORTH-STAR-PLAN row 7 and ENGINE-SPECS CAMPAIGN-01c (branch
 
 ## 2. GREEN
 
-- `server/migrations/087_warroom_push_alerts.js`: `warroom_push_state`
+- `server/migrations/091_warroom_push_alerts.js`: `warroom_push_state`
   (seen / announced value per league and kind) and `warroom_push_alerts` (outbox;
   a partial unique index keeps one queued alert per league and kind). Additive.
 - `server/services/campaign/push-alerts.js`: `observedValues` (move_id or 'none';
@@ -56,7 +56,7 @@ GREEN, commit `bd92d57e`. The five suites the change touches:
 
 | # | Behaviour |
 |---|-----------|
-| 1 | 087 is additive and idempotent; at most one queued alert per league and kind (UNIQUE) |
+| 1 | 091 is additive and idempotent; at most one queued alert per league and kind (UNIQUE) |
 | 2 | first run baselines, pushes nothing |
 | 3 | a changed `move_id` pushes once; a repeat run pushes nothing |
 | 4 | "no move clears the bar" is a change; a failed league is not, nor is recovery to the same move |
@@ -67,7 +67,7 @@ GREEN, commit `bd92d57e`. The five suites the change touches:
 | 9 | a failed send is retried and marked failed after 3, with its error |
 | 10 | no channel: alert stays queued, summary says why |
 | 11 | off by default; preview mode turns it on and labels the text; flag=0 vetoes preview |
-| 12 | 087 missing reports INERT |
+| 12 | 091 missing reports INERT |
 | 13 | no manager names in the push text |
 | 14 | the producer calls `runPushAlerts` and no longer writes `pushes.jsonl` |
 | 15 | sender selection |

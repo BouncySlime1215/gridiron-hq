@@ -9,7 +9,7 @@
  * A failed league (no next_move, no _run) or a failed section is not read: it neither
  * changes nor clears state.
  *
- * Dedupe is state, not the previous file (tables in migration 087):
+ * Dedupe is state, not the previous file (tables in migration 091):
  *   - first sighting of a league records a baseline and pushes nothing;
  *   - a value that moved queues one alert (any older unsent one for the same league
  *     and kind is superseded), unless it moved back to what Nick was last told;
@@ -166,7 +166,7 @@ export async function runPushAlerts(db, file, { env = process.env, now = new Dat
   const flag = pushAlertsFlag(env);
   if (!flag.on) return { status: 'off', preview: false, line: `off (${FLAG_ENV} not 1)` };
   if (!tablesPresent(db)) {
-    return { status: 'inert', preview: flag.preview, line: 'INERT: tables from migration 087 missing; start the app once to apply it' };
+    return { status: 'inert', preview: flag.preview, line: 'INERT: tables from migration 091 missing; start the app once to apply it' };
   }
   const sender = send === undefined ? defaultSender(env) : send;
   const rec = recordRun(db, file, { now });

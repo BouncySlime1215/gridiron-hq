@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 
 const push = await import('../server/services/campaign/push-alerts.js');
-const mig = await import('../server/migrations/087_warroom_push_alerts.js');
+const mig = await import('../server/migrations/091_warroom_push_alerts.js');
 
 const fresh = () => { const d = new DatabaseSync(':memory:'); mig.up(d); return d; };
 
@@ -40,8 +40,8 @@ function sender() {
 }
 const ON = { GRIDIRON_WARROOM_PUSH_ENABLED: '1' };
 
-test('migration 087 is additive: two new tables, nothing dropped or altered', () => {
-  const src = fs.readFileSync(new URL('../server/migrations/087_warroom_push_alerts.js', import.meta.url), 'utf8');
+test('migration 091 is additive: two new tables, nothing dropped or altered', () => {
+  const src = fs.readFileSync(new URL('../server/migrations/091_warroom_push_alerts.js', import.meta.url), 'utf8');
   const up = src.slice(src.indexOf('export function up'), src.indexOf('export function down'));
   assert.doesNotMatch(up, /DROP|ALTER|DELETE/i);
   const d = fresh();
@@ -185,11 +185,11 @@ test('flag: off by default touches nothing; preview mode turns it on and labels 
   }
 });
 
-test('the table missing (087 not applied yet) is reported inert, not swallowed', async () => {
+test('the table missing (091 not applied yet) is reported inert, not swallowed', async () => {
   const d = new DatabaseSync(':memory:');
   const r = await push.runPushAlerts(d, file(DAY, entry(1, move('L1-a'))), { env: ON, now: new Date(DAY), send: null });
   assert.equal(r.status, 'inert');
-  assert.match(r.line, /087/);
+  assert.match(r.line, /091/);
 });
 
 test('the push carries no league or manager names, only the league id', async () => {

@@ -1,4 +1,4 @@
-export const name = '087_warroom_push_alerts';
+export const name = '091_warroom_push_alerts';
 /**
  * PUSH-01 (NORTH-STAR-PLAN row 7). Additive only: two new tables.
  *
@@ -17,7 +17,7 @@ export const name = '087_warroom_push_alerts';
  * Written and read only by server/services/campaign/push-alerts.js, called from
  * scripts/campaign/produce-plans.mjs after each plans run.
  *
- * Numbered 087: 085 and 086 are claimed by open PRs.
+ * Numbered 091 per the MIGRATIONS.md registry (first built as 087, which #286 holds).
  */
 export function up(db) {
   db.exec(`

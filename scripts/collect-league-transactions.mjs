@@ -17,6 +17,7 @@
 process.env.SCHEDULER_DISABLED = '1';
 const { db, rows, run } = await import('../server/db/index.js');
 const { BROWSER_HEADERS } = await import('../server/services/espn-draft.js');
+const { settleOfferLoop } = await import('../server/services/trade-outcomes.js');
 
 db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
   league_id INTEGER NOT NULL, season INTEGER NOT NULL, tx_id TEXT NOT NULL,
@@ -66,6 +67,15 @@ for (const lg of leagues) {
     const after = rows(`SELECT COUNT(*) AS n FROM league_transactions_raw WHERE league_id = ? AND season = ?`, lg.id, lg.season)[0].n;
     totalNew += after - before; totalSeen += all.length;
     console.log(`league ${lg.id} ${String(lg.name).trim()}: ${all.length} in window, ${after - before} new, ${after} stored`);
+    // Post-sync (CLONE-01b b1): grade every offer Nick logged as sent against the
+    // rows just collected. Read-only toward ESPN; writes trade_outcomes only.
+    try {
+      const s = settleOfferLoop(lg.id, lg.season);
+      console.log(`league ${lg.id}: offers observed ${s.observed.written} new (${s.observed.state}), `
+        + `sent ${s.sent.settled} settled / ${s.sent.matched} matched / ${s.sent.pending} pending (${s.sent.state})`);
+    } catch (e) {
+      failed++; console.log(`league ${lg.id}: offer settle ERROR ${String(e?.message ?? e).slice(0, 160)}`);
+    }
   } catch (e) {
     failed++; console.log(`league ${lg.id}: ERROR ${String(e?.message ?? e).slice(0, 120)}`);
   }

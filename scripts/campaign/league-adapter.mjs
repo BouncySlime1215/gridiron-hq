@@ -97,7 +97,7 @@ function sentThisWeek(svc, leagueId, season, me, now, offerLog = []) {
 
 /**
  * Build the adapter for one league. chat: Map roster -> { profile, negotiation, sentiment: [{ player
- * (name), sentiment_mean, n }] } from scripts/campaign/chat-labels.mjs, or null (no chat -> every
+ * (name), sentiment_mean, n }], nick } from scripts/campaign/chat-labels.mjs, or null (no chat -> every
  * label 'unknown'); offerLog: parsed War Room offer log rows.
  */
 export function buildAdapter(svc, leagueId, { chat = null, offerLog = [], now = Date.now(), finder = true } = {}) {
@@ -196,6 +196,7 @@ export function buildAdapter(svc, leagueId, { chat = null, offerLog = [], now = 
       title_now: titleByTeam.get(t) ?? null,
       sent_this_week: sent.get(t) ?? 0,
       send_when: send,
+      nick: chat?.get(t)?.nick ?? null,
       chat: chat?.has(t) ? chatLabels({ ...chat.get(t),
         sentiment: (chat.get(t).sentiment ?? []).map(x => ({ ...x, player: nameToId(x.player) ?? x.player })) }) : chatLabels(),
     });

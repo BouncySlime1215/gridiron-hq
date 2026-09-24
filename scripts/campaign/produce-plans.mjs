@@ -3,12 +3,13 @@
  * CAMPAIGN-01 producer: writes the War Room plans JSON for every league.
  *
  * Runs OFF the web server: the refresh loop (scripts/refresh-live-data.mjs,
- * step `warroom_plans`, only when GRIDIRON_WARROOM_ENABLED=1) spawns it after
+ * step `warroom_plans`, only when warroom-flag.js#warRoomFlag is on) spawns it after
  * each tick, or run it by hand. The web server only reads the file
  * (server/services/war-room-view.js, WR-1); nothing here runs on a request.
  *
  * Files (all local, all outside the repo: they hold league data):
- *   GRIDIRON_WARROOM_PLANS       output   (default ~/gridiron-local/warroom/plans.json)
+ *   plans file                   output   server/services/warroom-flag.js#warRoomPlansPath()
+ *                                         (default ~/gridiron-local/warroom/plans.json)
  *   GRIDIRON_WARROOM_OBJECTIVES  input    { "<league id>": { kind, goal, target, points_per_week, risk_mode,
  *                                          tolerances, arrive_by, stops, untouchables, version } } (optional)
  *   GRIDIRON_WARROOM_SKIPS       input    JSONL { league, player?, manager?, reason, at } (optional; swipe-deck skips)
@@ -28,7 +29,6 @@
  *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3] [--no-finder]
  */
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { validateLeague, validatePlans } from '../../server/services/campaign/plans-schema.js';
@@ -38,14 +38,13 @@ import { skipWeights } from '../../server/services/campaign/partners.js';
 import { diffNextMove } from '../../server/services/campaign/replan.js';
 import { rankAttention } from '../../server/services/campaign/attention.js';
 import { toEntry, failedEntry, plansFile } from '../../server/services/campaign/view.js';
+import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
 
 process.env.SCHEDULER_DISABLED = '1';
 
-export function plansPath(env = process.env) {
-  return path.resolve(env.GRIDIRON_WARROOM_PLANS || env.GRIDIRON_WARROOM_SOURCE
-    || path.join(os.homedir(), 'gridiron-local', 'warroom', 'plans.json'));
-}
-const sibling = (env, key, name) => path.resolve(env[key] || path.join(path.dirname(plansPath(env)), name));
+/** The plans file: warroom-flag.js is the one reader of its path variable. */
+export const plansPath = () => path.resolve(warRoomPlansPath());
+const sibling = (env, key, name) => path.resolve(env[key] || path.join(path.dirname(plansPath()), name));
 
 /** JSONL reader: absent file -> []; a bad line is counted and reported, never silently dropped. */
 export function readJsonl(file) {
@@ -112,10 +111,12 @@ function takeLock(file) {
 /**
  * leagues: [{ id, load: async () => ({ adapter, chat?, adapterMs? }) }]
  * opts: { generated_at, objectives ({ id: raw objective }), skips (rows), previous (Map id -> last entry),
- *         inputs ({ skips, offers } read status), clock, budget, log }
+ *         inputs ({ skips, offers } read status), clock, budget, log,
+ *         flags (FIX-02b, optional): model-flags.js#modelFlags() for the head's producer_version }
  */
 export async function buildPlansFile(leagues, {
   generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, log = () => {},
+  flags = null,
 } = {}) {
   const entries = [], best = new Map();
   for (const { id, load } of leagues) {
@@ -136,7 +137,10 @@ export async function buildPlansFile(leagues, {
         entry._run.roster_key = rosterKey;
         entry._run.phases_ms = { adapter_and_world: adapterMs, ...entry._run.phases_ms };
         entry._run.inputs = {
-          chat: chat ? { status: chat.status, reason: chat.reason ?? null, negotiation: chat.negotiation ?? null } : { status: 'not_read' },
+          chat: chat ? { status: chat.status, reason: chat.reason ?? null, negotiation: chat.negotiation ?? null,
+            // FIX-02c: Nick's own read (nick_override + manager_notes), applied over every chat label.
+            nick: { status: chat.nick_status ?? 'unknown', reason: chat.nick_reason ?? chat.reason ?? null, rosters: chat.nick_rosters ?? 0 } }
+            : { status: 'not_read' },
           skips: { ...(inputs.skips ?? { status: 'none' }), rows: skips.filter(s => String(s.league) === String(id)).length },
           offers: inputs.offers ?? { status: 'none' },
           deadline: adapter.league?.deadline_source ?? null, objective: objective.source,
@@ -165,7 +169,7 @@ export async function buildPlansFile(leagues, {
     e.attention = { status: 'ok', value: { rank: r.rank, of: entries.length, reason: r.why }, source: 'campaign.plan' };
   }
 
-  const file = plansFile(entries, { generated_at });
+  const file = plansFile(entries, { generated_at, flags });
   const v = validatePlans(file);
   if (!v.ok) throw new Error(`plans file failed its contract check: ${v.errors.slice(0, 3).map(e => `${e.path} ${e.message}`).join('; ')}`);
   return file;
@@ -181,7 +185,7 @@ async function main() {
   const t0 = Date.now();
   const opts = args(process.argv);
   const env = process.env;
-  const out = plansPath(env);
+  const out = plansPath();
   fs.mkdirSync(path.dirname(out), { recursive: true });
   const release = takeLock(out);
   if (!release) { console.log('warroom_plans skipped: another run holds the lock'); return; }
@@ -189,6 +193,9 @@ async function main() {
   try {
     const { loadServices, buildAdapter } = await import('./league-adapter.mjs');
     const { chatRowsFor } = await import('./chat-labels.mjs');
+    const { modelFlags } = await import('../../server/services/campaign/model-flags.js');
+    const flags = await modelFlags();
+    console.log(`[warroom] model flags ${JSON.stringify(flags)}`);
 
     const objectives = readObjectives(sibling(env, 'GRIDIRON_WARROOM_OBJECTIVES', 'objectives.json'));
     const skips = readJsonl(sibling(env, 'GRIDIRON_WARROOM_SKIPS', 'skips.jsonl'));
@@ -208,7 +215,7 @@ async function main() {
     // Checked with validatePlans inside; a file that fails throws here and the previous file stays.
     const file = await buildPlansFile(leagues, { generated_at, objectives, skips: skips.rows, previous,
       inputs: { skips: { status: skips.status, bad_lines: skips.bad }, offers: { status: offers.status, bad_lines: offers.bad } },
-      budget: { flipTopPer: opts.flipTop, targets: opts.targets },
+      budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags,
       log: line => (line.includes('FAILED') || line.includes('\n') ? console.error(line) : console.log(line)) });
     const tmp = `${out}.tmp-${process.pid}`;
     fs.writeFileSync(tmp, JSON.stringify(file));

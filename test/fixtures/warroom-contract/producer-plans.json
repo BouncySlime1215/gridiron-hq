@@ -9665,23 +9665,6 @@
     "status": "ok",
     "value": [
      {
-      "team": "2",
-      "p_responds": 0.15,
-      "basis": "activity read (receptiveness 0.30)",
-      "edge": {
-       "status": "ok",
-       "value": 0,
-       "source": "plan.path",
-       "unit": "title_odds"
-      },
-      "roster_holes": [
-       "WR"
-      ],
-      "offers_logged": 0,
-      "checked_out": false,
-      "blocked": false
-     },
-     {
       "team": "3",
       "p_responds": 0.65,
       "basis": "activity read (receptiveness 1.30)",
@@ -9702,6 +9685,23 @@
       "team": "4",
       "p_responds": 0.5,
       "basis": "activity read (receptiveness 1.00)",
+      "edge": {
+       "status": "ok",
+       "value": 0,
+       "source": "plan.path",
+       "unit": "title_odds"
+      },
+      "roster_holes": [
+       "WR"
+      ],
+      "offers_logged": 0,
+      "checked_out": false,
+      "blocked": false
+     },
+     {
+      "team": "2",
+      "p_responds": 0.15,
+      "basis": "activity read (receptiveness 0.30)",
       "edge": {
        "status": "ok",
        "value": 0,

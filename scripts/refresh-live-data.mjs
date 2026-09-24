@@ -20,6 +20,9 @@
  *   4. manager_signals   who-is-who + per-manager signals for all leagues
  *                        (build-manager-signals.mjs), after the chat rollup has
  *                        finished, and only when one of its inputs changed
+ *   5. coach_canary      twelve golden Coach questions on a fixture league
+ *                        (coach-canary.mjs), at most once a day; it writes its own
+ *                        sync_log 'coach_canary' row, which is the drift alert
  *
  * ALLOWLIST ONLY. Betting collectors (line snapshots, Polymarket, book feeds,
  * prop capture, t60 runner…) are deliberately absent: Nick turned them off.
@@ -250,8 +253,41 @@ export function createManagerSignalsStep({ spawn = spawnSync, log = console.log,
   };
 }
 
+/** The canary runs once a day; 20 h so a loop that starts a little later each morning still runs it daily. */
+export const COACH_CANARY_MAX_AGE_MINUTES = 20 * 60;
+
+const canaryLastRun = () => rows(`SELECT last_run_at FROM sync_log WHERE job = 'coach_canary'`)[0]?.last_run_at ?? null;
+
+// HEALTH-01e: the Coach canary, off the web server. Skipped while its last run
+// (any status, including 'skipped' for no key) is younger than a day, so a
+// failing canary alerts once a day rather than every tick and never spends
+// twice. The canary writes its own row; the loop records only a failure to start.
+export function createCoachCanaryStep({ spawn = spawnSync, log = console.log, record = recordSync,
+  lastRunAt = canaryLastRun, clock = Date.now } = {}) {
+  return () => {
+    const t0 = clock();
+    const last = lastRunAt();
+    const age = last ? (t0 - Date.parse(last)) / 60_000 : Infinity;
+    if (age < COACH_CANARY_MAX_AGE_MINUTES) {
+      log(`${stamp()} ${'coach_canary'.padEnd(18)} fresh (${Math.round(age)}/${COACH_CANARY_MAX_AGE_MINUTES} min)`);
+      return { skipped: true };
+    }
+    const r = spawn(process.execPath, ['--env-file-if-exists=.env', 'scripts/coach-canary.mjs'],
+      { cwd: ROOT, env: process.env, encoding: 'utf8', timeout: 20 * 60 * 1000 });
+    const failed = spawnFailure(r);
+    if (failed) {
+      record('coach_canary', 'error', { error: failed.slice(0, 300), spawn_failed: true });
+      log(`${stamp()} ${'coach_canary'.padEnd(18)} ERROR ${failed.slice(0, 160)} (${clock() - t0} ms)`);
+      return { ok: false };
+    }
+    const summary = outputLines(r).at(-1) ?? `exit ${r.status}`;
+    log(`${stamp()} ${'coach_canary'.padEnd(18)} ${r.status === 0 ? 'ok' : 'DRIFT'} ${summary.slice(0, 300)} (${clock() - t0} ms)`);
+    return { ok: r.status === 0 };
+  };
+}
+
 export async function tick({ jobs = FANTASY_LIVE_JOBS, spawn = spawnSync, log = console.log, record = recordSync,
-  runJob = runIfStale, force = false, managerSignals = null, inputsKey } = {}) {
+  runJob = runIfStale, force = false, managerSignals = null, inputsKey, coachCanary = null } = {}) {
   const started = Date.now();
   for (const name of jobs) {
     if (!JOBS[name]) { log(`${stamp()} ${name.padEnd(18)} UNKNOWN JOB`); continue; }
@@ -275,6 +311,7 @@ export async function tick({ jobs = FANTASY_LIVE_JOBS, spawn = spawnSync, log = 
   step('roster_snapshots', () => rosterSnapshots({ spawn, log, record }));
   step('league_chat', () => chatBackfill({ spawn, log, record }));
   step('manager_signals', () => signals());
+  step('coach_canary', () => (coachCanary ?? createCoachCanaryStep({ spawn, log, record }))());
   log(`${stamp()} tick done in ${Math.round((Date.now() - started) / 1000)} s`);
 }
 
@@ -294,7 +331,7 @@ async function main(args = process.argv.slice(2)) {
     return;
   }
   console.log(`${stamp()} refresh-live-data loop every ${loopSeconds} s — jobs: ${FANTASY_LIVE_JOBS.join(', ')}`
-    + ', then league_tx, roster_snapshots, league_chat, manager_signals');
+    + ', then league_tx, roster_snapshots, league_chat, manager_signals, coach_canary');
   while (!stopping) {
     await tick({ force, managerSignals });
     const until = Date.now() + loopSeconds * 1000;

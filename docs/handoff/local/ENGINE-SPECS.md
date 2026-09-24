@@ -731,3 +731,15 @@ Deps: CAMPAIGN-01a-c, COACH-01, HEALTH-01c.
 - Costs shown honestly: overpay premium in title odds, higher variance, offer fatigue / reputation budget used, and the trade deadline as a hard wall (catching up gets more expensive every week closer to it).
 - After detours, the planner reports "ground lost" and the cheapest way to make it back.
 Deps: CAMPAIGN-01a-d, ACQ-01, REP-01 budget.
+
+## REASON-01: AI reasoning at every step (Nick 9/23 ~9:55 PM: "insane ML, insane UI, and most of all insane AI reasoning at every step")
+Every War Room card (each plan step, each deck alternative, each flip, each target) carries a REASONING PANEL, produced offline by the campaign producer (never on the request thread), grounded in engine fields (verify.js: no invented numbers), graded like any other expert:
+1. **The case for** (why this move, in 2-3 lines, from the reason chain).
+2. **His side of the table:** how the other manager sees this offer on HIS screen (his roster holes, his paper values, his recent moves/tells) and why he'd say yes or no.
+3. **Devil's advocate:** the strongest reason this move is wrong (injury risk, a better use of the asset, timing, reputation cost) and what would change the call.
+4. **News check:** anything in the last 48 h of news that contradicts the numbers (stale input, role change) -> the card is marked "check first" with the quote.
+5. **Confidence, explained:** P(yes) and title-odds effect with WHY the model is sure or unsure (data behind it: n offers from this manager, calibration status from EVAL-01).
+6. **Game-theory note:** what he's likely to counter with and the pre-planned answer (from the reply table).
+Models: Claude (claude.js) writes 1-4 and 6 as typed JSON with cited field ids; Jev supplies/cross-checks the probabilities (graded vs the stats model by the Referee, META-01). Cost control: full reasoning for the top card + deck per league per refresh; others on open. Anthropic spend stays under the in-app cap (Nick approved Anthropic for Trade Brain-style reasoning; cap per league per day); Jev uncapped, logged.
+Grading: every reasoning panel's claims ("he'll counter with X", "check first") are logged and scored on what happened, so the reasoning layer earns trust the same way the numbers do.
+Tonight: unit 10 after the campaign producer lands (reasoning panel for the top card + deck in every league); ML side = clones/activity (EA-01), E3-calibrated title odds, skip-log preference learning, Thompson-sampling pitch styles once offers are logged.

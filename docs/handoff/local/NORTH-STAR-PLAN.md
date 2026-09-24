@@ -58,3 +58,5 @@ Then Phase C: merge, local app, browser check of every league, screenshots, MORN
 ## Nick 9/23 ~9:40 PM: one dashboard (no scroll) + Coach can change the UI on the spot / plug things in -> WAR-ROOM-UI.md v2; WR-2 and WR-COACH updated.
 
 ## Nick 9/23 ~9:50 PM: swipe deck on offers ('Next' wipes to the next-best, optional skip reason teaches the brain) -> WAR-ROOM-UI.md section 4; campaign producer outputs top-5 alternatives + reads the skip log; in tonight's WR-2/WR-COACH scope.
+
+## Nick 9/23 ~9:55 PM: 'insane ML, insane UI, most of all insane AI reasoning at every step' -> REASON-01 (ENGINE-SPECS): every card gets case-for / his side of the table / devil's advocate / news check / confidence explained / counter + answer; grounded + graded. Tonight unit 10 (after the campaign producer).

@@ -20,7 +20,7 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const score = await import('../server/services/people/player-score.js');
 const fpr = await import('../server/services/people/fantasypros-ros.js');
 const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
-const { blueChipBoard, draftPicks } = await import('../scripts/campaign/league-adapter.mjs');
+const { blueChipBoard, draftPicks, adapterUntouchable } = await import('../scripts/campaign/league-adapter.mjs');
 const { blueChipsSection } = await import('../server/services/campaign/view.js');
 const schema = await import('../server/services/campaign/plans-schema.js');
 const { planLeague } = await import('../server/services/campaign/planner.js');
@@ -279,6 +279,50 @@ test('planner: a player in adapter.untouchable (Nick\'s blue chips join it) is n
   const protect = new Set([...free]);
   const guarded = gives(run(protect));
   for (const id of protect) assert.ok(!guarded.has(id), `protected ${id} is never given`);
+});
+
+test('adapter.untouchable: Nick\'s own notes always, his blue chips on top when the board is on, and the planner never gives either', () => {
+  const assets = new Map(WRS.map(p => [p.id, { ...p, value: 500, available: true }]));
+  const players = new Map(WRS.slice(0, 4).map(p => [p.id, { ...p, value: 500 }]));
+  const rosters = new Map([['5', [1, 2]], ['7', [3, 4]]]);
+  const lg = { id: 4, season: 2026 };
+  const myNick = { untouchable: [2] };          // his note protects a player the board does not
+  const others = [{ untouchable: [3] }, null];   // another manager's note
+  const off = blueChipBoard(fakeSvc(), lg, { rosters, players, assets, me: '5', env: {} });
+  const on = blueChipBoard(fakeSvc(), lg, { rosters, players, assets, me: '5', env: { [score.PLAYER_SCORE_ENV]: '1' } });
+  assert.ok(on.protect.has('1') && !off.protect.has('1'), 'player 1 is one of Nick\'s blue chips only with the board on');
+
+  const uOff = adapterUntouchable({ managerNicks: others, myNick, board: off });
+  assert.deepEqual([...uOff].sort(), ['2', '3'], 'flag off: his note (#373) and others\' notes, unconditionally');
+  const uOn = adapterUntouchable({ managerNicks: others, myNick, board: on });
+  assert.ok(uOn.has('1'), 'flag on: his blue chip joins');
+  assert.ok(uOn.has('2') && uOn.has('3'), 'flag on: the notes still count');
+  assert.equal(adapterUntouchable({ managerNicks: others, myNick: null, board: on }).has('2'), false);
+
+  // buildAdapter serves exactly this union (not a hand-rolled set without the board or his notes).
+  const src = fs.readFileSync(path.join(REPO, 'scripts', 'campaign', 'league-adapter.mjs'), 'utf8');
+  const body = src.slice(src.indexOf('export function buildAdapter('), src.indexOf('export function adapterUntouchable('));
+  assert.match(body, /const board = blueChipBoard\(svc, lg, \{[^}]*untouchable: untouchableIds\(\[myNick\]\)/);
+  assert.match(body, /const untouchable = adapterUntouchable\(\{ managerNicks: \[\.\.\.managers\.values\(\)\]\.map\(m => m\.nick\), myNick, board \}\);/);
+  assert.match(body, /^\s+untouchable,$/m);
+  assert.doesNotMatch(body, /^\s+untouchable:/m, 'no second untouchable set is served');
+
+  // End to end on the planner fixture: whatever the board protects is never given.
+  const plan = u => { const a = makeAdapter(); if (u) a.untouchable = u; return planLeague(a, { objective: normaliseObjective({ risk_mode: 'all_in' }) }); };
+  const givesOf = res => {
+    const out = new Set();
+    for (const c of res.deck) {
+      for (const st of c.plan.steps) st.give.forEach(id => out.add(String(id)));
+      for (const pb of c.playbooks ?? [c.playbook]) (pb?.walk_away?.give ?? []).forEach(id => out.add(String(id)));
+    }
+    for (const f of res.flip.realised) for (const id of f.legs?.give_a_ids ?? (f.legs?.give_a != null ? [f.legs.give_a] : [])) out.add(String(id));
+    return out;
+  };
+  const free = givesOf(plan(null));
+  assert.ok(free.size > 0);
+  const u = adapterUntouchable({ managerNicks: [], myNick: null, board: { protect: new Set(free) } });
+  const guarded = givesOf(plan(u));
+  for (const id of free) assert.ok(!guarded.has(id), `board-protected ${id} is never given`);
 });
 
 /* ------------------------------------------------------------------- UI */

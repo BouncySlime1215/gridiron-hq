@@ -196,7 +196,12 @@ test('the loop is capped, and the last round is asked for an answer rather than 
   const result = await askCoach({ question: 'keep looking' });
 
   assert.equal(client.sent.length, MAX_TOOL_ROUNDS);
-  assert.equal(client.sent.at(-1).tools, undefined, 'the final round must offer no tools');
+  assert.deepEqual(client.sent.at(-1).tool_choice, { type: 'none' }, 'the final round must forbid tool use');
+  // Same tools every round: the history holds tool_use blocks, and the tools
+  // are the front of the cached prefix.
+  assert.ok(client.sent.every(req => JSON.stringify(req.tools) === JSON.stringify(client.sent[0].tools)),
+    'every round must declare the same tools');
+  assert.ok(client.sent.slice(0, -1).every(req => req.tool_choice === undefined), 'earlier rounds leave tool_choice on auto');
   assert.ok(result.answer.claims.length >= 0);
 });
 
@@ -235,6 +240,8 @@ test('the system prompt tells the model what it may read and how to cite', async
   assert.match(system, /r1#0\./, 'the cite grammar is not in the prompt');
   assert.match(system, /refus/i, 'the model is not told it may refuse');
   assert.ok(client.sent[0].tools.length >= 4, 'no tools were offered');
+  assert.equal(client.sent[0].system.at(-1).cache_control?.type, 'ephemeral', 'the system prompt is not cached');
+  assert.equal(client.sent[0].cache_control?.type, 'ephemeral', 'the tool-loop conversation is not cached');
 });
 
 test('what is on screen is context, never evidence', async () => {

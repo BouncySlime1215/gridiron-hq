@@ -1522,7 +1522,7 @@ const slim = p => ({
  * Every input here is already computed for the card; this just names the
  * pattern instead of making the manager infer it from raw numbers.
  */
-function tagDeal(give, get, ev) {
+export function tagDeal(give, get, ev) {
   const tags = [];
   const avg = (list, key, fallback) => list.length
     ? list.reduce((s, p) => s + (p[key] ?? fallback), 0) / list.length : fallback;
@@ -1543,12 +1543,18 @@ function tagDeal(give, get, ev) {
   // 'Sell High', which claimed a market-price read; the one hype producer is
   // services/hype.js#playerHype (S-19), so the tag now says only what it measures.
   if (oldest(give) >= 29 && youngest(get) < oldest(give)) tags.push('Sell the Veteran');
-  // role_change is only ever set when the weekly engine detected a real usage
-  // shift — a change of role, not noise — so this is evidence, not a guess.
-  if (get.some(p => p.role_change)) tags.push('Buy Low');
+  // role_change is detectRoleChange()'s object (role-changepoint.js), set only on a
+  // confirmed usage shift. Its status carries the DIRECTION: reading truthiness
+  // labelled players losing usage 'Buy Low' (RL-15-3). A rising role is named for
+  // what it measures (usage up, not a market-price read); a shrinking role is a
+  // caution and goes first so the two-tag cap can never hide it.
+  const roleStatus = status => get.some(p => p.role_change?.status === status);
+  const shrinking = roleStatus('confirmed_role_decrease');
+  if (roleStatus('confirmed_role_increase')) tags.push('Role Rising');
   if (give.some(p => p.injury) && !get.some(p => p.injury)) tags.push('Sell the Injury Risk');
   if (Math.abs(ev.their_value_pct) <= 4 && ev.me.ppg_delta > 0.4) tags.push('Fair & Clean');
   else if (ev.their_value_pct < -6 && ev.me.ppg_delta > 0.6) tags.push('Value Win');
+  if (shrinking) tags.unshift('Role Shrinking');
   if (!tags.length) tags.push('Straight Upgrade');
   return tags.slice(0, 2);
 }
@@ -2184,7 +2190,15 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
   try { timing = timingRead(lg.id, { season: weekNow.season }); } catch { timing = new Map(); }
   try { climate = vetoClimate(lg, { season: weekNow.season, priceOfPlayer: valueOfEspn }); }
   catch { climate = null; }
-  try { self = selfRead(lg.id, { season: weekNow.season }); } catch { self = null; }
+  try { self = selfRead(lg.id, { season: weekNow.season }); }
+  catch (err) {
+    console.error(`[trade-engine] selfRead lookup failed for league ${lg.id}:`, err);
+    // Typed absence, not a silent null: trade-tactics.js's how_nick_looks
+    // note reads `self.available === false` and surfaces `self.reason`, so a
+    // lookup FAULT is told apart from the genuine "he's never made an offer"
+    // empty case instead of reading through as the same healthy sentence.
+    self = { league_id: lg.id, available: false, reason: 'self-scout lookup failed' };
+  }
   const ownerNames = teams.map(t => t.owner).filter(Boolean);
   // Median points-per-1,000-of-price BY POSITION, over every rostered player in
   // this league. The sneak-in rule needs a baseline that is not cross-position:
@@ -2885,14 +2899,13 @@ export function selfScout(lg, myTeamId) {
       issue: `${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} on bye in week ${w}, one of this league's playoff weeks.`,
       action: 'Plan that week\'s replacement early — the bye is certain, unlike any read on playoff matchups.' });
   }
-  if (spread.floor != null && spread.coverage > 0.5) {
-    const rank = myRank <= 3 ? 'contender' : myRank >= rivals.length - 1 ? 'longshot' : 'bubble';
-    fixes.push({ priority: 'low', area: 'Roster shape',
-      issue: `Your starters total about ${spread.floor} in a bad week and ${spread.ceiling} in a good one (1 week in 10 each); you project ${myRank}${ord(myRank)} of ${allLineups.length}.`,
-      action: rank === 'contender'
-        ? 'You are ahead — trade ceiling for floor and consistency to protect the lead.'
-        : 'You need variance — target boom-rate players over steady ones; a median week does not win you the league from here.' });
-  }
+  // No "Roster shape" fix (RL-15-2). It told every team outside this week's projected
+  // top 3 to "chase variance" and the top 3 to "trade ceiling for floor". In Sleeper
+  // 2021-24 (21,946 team-seasons, R&D r15, pre-registered) the teams it called bubble
+  // won fewer titles at higher weekly variance (-0.138 log-odds/SD [-0.214,-0.067]) and
+  // the contender half had no support. Variance is a weekly, matchup-conditional call:
+  // lineup-posture.js on Start/Sit is its one producer. The range and rank the fix
+  // repeated are still returned (spread, rank) and shown on the Scout header.
 
   return {
     team: { roster_id: me.roster_id, owner: me.owner },

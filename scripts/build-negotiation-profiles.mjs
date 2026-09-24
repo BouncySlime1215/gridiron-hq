@@ -413,7 +413,10 @@ ${transcript}`;
    let msg, profile, lastErr;
    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     msg = await callClaude({
-      feature: 'negotiation_profile', model: 'claude-sonnet-5', maxTokens: 8000,
+      // Sonnet 5 thinks by default and thinking counts toward max_tokens, so
+      // the cap leaves room for thinking plus the whole profile (stays under
+      // the ~16K non-streaming ceiling). Only produced tokens are billed.
+      feature: 'negotiation_profile', model: 'claude-sonnet-5', maxTokens: 16000,
       system: SYSTEM, prompt,
       // Tool use rather than "return JSON": free-form JSON truncated mid-string
       // on 8 of 9 managers, which is a parse failure that looks like a model

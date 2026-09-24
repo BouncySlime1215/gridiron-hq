@@ -24,6 +24,7 @@ import { rankPartners, planSkipWeight, pResponds } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
+import { espnRosterAfter } from './espn-id-map.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan } from './search.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
 
@@ -81,6 +82,49 @@ function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta) {
     out.push({ give, his_pct: his, p, delta, nick_gain: p * delta });
   }
   return { curve: out.sort((a, b) => a.his_pct - b.his_pct).slice(0, 60), basis: 'linear single-player values, rescaled to the exact rescore of the planned package' };
+}
+
+/**
+ * FEAS-140-ESPN-WIRE: the `espn` argument of sidePanelFeasibility from the adapter's ESPN context
+ * ({ ctx, map, load_ms } or null). report() says what was priced: the id-map coverage, the
+ * producer's load time, and each plan the ESPN lineup could not price with the missing ids.
+ */
+export function sideEspn(E, me, myIds) {
+  const unpriced = [];
+  if (!E?.ctx) {
+    return { espn: null, report: () => ({ status: 'off', reason: E === null ? 'points side panel off or no ESPN payload for this league' : 'no ESPN context' }) };
+  }
+  const now = E.ctx.forTeam(me);
+  const forPlan = o => {
+    const r = espnRosterAfter(E.map, me, myIds, o.roster_after);
+    if (!r.ids) { unpriced.push({ label: o.label, missing_ids: r.missing, reason: r.reason }); return null; }
+    return E.ctx.forRoster(r.ids);
+  };
+  const { unresolved, ...coverage } = E.map?.coverage ?? {};
+  const deckMove = (d, weeks) => {
+    const head = { rank: d.rank, key: d.key, arrive_week: d.arrive_week ?? null };
+    const r = espnRosterAfter(E.map, me, myIds, d.roster_after);
+    if (!r.ids) return { ...head, priced: false, missing_ids: r.missing, reason: r.reason };
+    const after = weeks.filter(w => w >= (d.arrive_week ?? -Infinity));
+    if (!after.length) return { ...head, priced: false, missing_ids: [], reason: `arrives in week ${d.arrive_week}, after the last simulated week` };
+    const tot = E.ctx.forRoster(r.ids).weeks(after).map(w => w.total);
+    return { ...head, priced: true, espn_mean_after: tot.reduce((a, b) => a + b, 0) / tot.length, weeks: after.length };
+  };
+  return {
+    espn: now ? { now, forPlan } : null,
+    // options: the card's options; one unpriced for another reason (no simulated week after it lands) says so.
+    // deck: [{ rank, key, roster_after, arrive_week }]: every deck move's post-trade ESPN lineup mean over
+    // the simulated weeks after it lands, or unpriced with the missing ids.
+    report: (options = [], deck = [], weeks = []) => {
+      const named = new Set(unpriced.map(u => u.label));
+      const late = options.filter(o => o.priced === false && !named.has(o.label))
+        .map(o => ({ label: o.label, missing_ids: [], reason: `arrives in week ${o.arrive_week}, after the last simulated week` }));
+      return { status: now ? 'on' : 'no_team', ...(now ? {} : { reason: `team ${me} has no ESPN roster` }),
+        load_ms: E.load_ms ?? null, map: { ...coverage, unresolved_n: unresolved?.length ?? 0, unresolved: (unresolved ?? []).slice(0, 20) },
+        priced: options.filter(o => o.priced === true).length, options: options.length, unpriced: [...unpriced, ...late],
+        deck: deck.map(d => deckMove(d, weeks)) };
+    },
+  };
 }
 
 /**
@@ -285,10 +329,21 @@ export function planLeague(adapter, settings) {
   }
   // FEAS-140: a league not planned on points still gets the points question, as its own card
   // (feasibility_points) next to the league's card; a get-player league shows both, unnested.
-  const feasibility_points = objective.kind === 'points' ? null : sidePanelFeasibility({ objective, nowWeeks, roster, currentWeek: L.week, env,
+  // FEAS-140-ESPN-WIRE: with the producer's ESPN context (adapter.espn), the card is on ESPN's
+  // projected-lineup scale: today's lineup is Nick's ESPN roster, each plan's is his ESPN roster
+  // after the plan (roster_after mapped through the internal -> ESPN id map). A plan whose moved
+  // players have no ESPN id is unpriced, and espn_wire.unpriced names the ids.
+  const espnWire = sideEspn(adapter.espn, me, myIds);
+  const sidePanel = objective.kind === 'points' ? null : sidePanelFeasibility({ objective, nowWeeks, roster, currentWeek: L.week, env,
+    ...(espnWire.espn ? { espn: espnWire.espn } : {}),
     plans: ranked.slice(0, SIDE_OPTIONS).map(p => ({ expected: p.expected, p_complete: p.p_complete,
       arrive_week: arrivalWeek(p, L.week, { daysLeftInWeek: clock.daysLeftInWeek }), weeks: weeklyOf(p.steps[p.steps.length - 1].state),
+      roster_after: S.rosterOf(p.steps[p.steps.length - 1].state, me),
       give: [...new Set(p.steps.flatMap(s => s.give))], steps: p.steps.length })) });
+  const feasibility_points = sidePanel && adapter.espn !== undefined ? { ...sidePanel, espn_wire: espnWire.report(sidePanel.options,
+    deck.map((p, j) => ({ rank: j + 1, key: firstKey(p), roster_after: S.rosterOf(p.steps[p.steps.length - 1].state, me),
+      arrive_week: arrivalWeek(p, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) })),
+    (nowWeeks ?? []).map(w => w.week)) } : sidePanel;
   const outlook = nowWeeks ? weeklySummary(nowWeeks, 0) : null;
 
   // Catch-up list.

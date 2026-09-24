@@ -17,6 +17,9 @@
 import { chatLabels } from '../../server/services/campaign/partners.js';
 import { resolveUntouchables, untouchableIds } from '../../server/services/people/profile-reader.js';
 import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
+import { loadEspnLineup } from '../../server/services/campaign/espn-lineup.js';
+import { buildEspnIdMap } from '../../server/services/campaign/espn-id-map.js';
+import { pointsFeasibilityFlag } from '../../server/services/campaign/feasibility.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 /** The engagement field LIVING-01a writes (engine_state; FIELD-REGISTRY `activity.manager`). */
@@ -175,11 +178,24 @@ export function sentThisWeek(svc, leagueId, season, me, now) {
 }
 
 /**
+ * FEAS-140-ESPN-WIRE: { ctx (espn-lineup.js context), map (espn-id-map.js), load_ms } for the 140 card,
+ * or null when the points side panel is off or the league has no ESPN payload.
+ */
+export function espnContext(svc, leagueId, payload, assets, env = process.env) {
+  if (!pointsFeasibilityFlag(env).on) return null;
+  const t = Date.now();
+  const ctx = loadEspnLineup(svc.db, leagueId);
+  if (!ctx) return null;
+  const map = buildEspnIdMap(payload, svc.engine.espnPlayerResolver(assets), assets);
+  return { ctx, map, load_ms: Date.now() - t };
+}
+
+/**
  * Build the adapter for one league. chat: Map roster -> { profile, negotiation, sentiment: [{ player
  * (name), sentiment_mean, n }], nick } from scripts/campaign/chat-labels.mjs, or null (no chat -> every
  * label 'unknown').
  */
-export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true } = {}) {
+export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, env = process.env } = {}) {
   const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg) throw new Error(`league ${leagueId} not found`);
   const payload = JSON.parse(lg.payload ?? '{}');
@@ -335,6 +351,11 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     return { mult, price: (players.get(id)?.value ?? 0) * mult };
   };
 
+  // FEAS-140-ESPN-WIRE: the one producer of the ESPN lineup context for the 140 card, read once per
+  // run and only when the points side panel is on (flag or preview); plus the internal -> ESPN id map
+  // the planner prices each plan's post-trade lineup with. Off: no read, the planner sees null.
+  const espn = espnContext(svc, leagueId, payload, assets, env);
+
   const slots = w0.prep.slots;
   const starters = startersOf(rosters.get(me).map(id => players.get(id)).filter(Boolean), slots);
   const dl = deadlineWeek(svc, lg, payload);
@@ -348,6 +369,7 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
     untouchable: untouchableIds([...managers.values()].map(m => m.nick)),
     ...(finder ? { finderBest } : {}),
+    espn,
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     teams: () => teamNames(payload, new Map([...(svc.identity?.identityMap(leagueId) ?? [])].map(([r, i]) => [String(r), i.chat_name]))),

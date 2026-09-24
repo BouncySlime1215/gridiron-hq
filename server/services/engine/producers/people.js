@@ -25,6 +25,10 @@
  * The model's clock is the tick's UTC day (wants decay and claim windows are in days), so
  * an unchanged world writes nothing between days (write-on-change).
  *
+ * prior_trades (FIX-268-8): the counterpart also reads `tells.prior_trades` from the hub
+ * (hub-read.js). Not a DAG edge: producer 'tells' runs from scripts/engine-tells.mjs, off
+ * the daemon, so the read is as of the tick and a missing row is the feature's reason.
+ *
  * Flag: GRIDIRON_HUB_PEOPLE=1 puts both producers in the daemon DAG, =0 keeps them out;
  * unset follows the local preview switch (preview-mode.js). Registration itself is
  * harmless: nothing runs unless the daemon's producer list includes them.
@@ -37,6 +41,7 @@ import {
 import {
   counterpartsFromPeople, publicModel, tradeEvents, PEOPLE_COUNTERPART_FIELD, MODEL_VERSION, P_ACCEPT_CHAT_WEIGHT,
 } from '../../people/counterpart.js';
+import { hubTellsPriorTrades } from '../../people/hub-read.js';
 
 export const HUB_PEOPLE_ENV = 'GRIDIRON_HUB_PEOPLE';
 export const PROFILE_PRODUCER = 'people-profile';
@@ -179,8 +184,10 @@ export async function directPeople(league, { asOf, people = null } = {}) {
   const inputs = await leagueInputs(league);
   const now = modelNow(asOf);
   const others = inputs.teams.filter(t => t !== league.myTeam);
-  const cps = counterpartsFromPeople(read, { players: inputs.players, events: inputs.events, now, teams: others });
-  return { people: read, inputs, now, counterparts: cps };
+  // FIX-268-8: tells.prior_trades from the hub, as of the tick (default-off feature, counterpart.js).
+  const priorTrades = await hubTellsPriorTrades(league.id, { asOf });
+  const cps = counterpartsFromPeople(read, { players: inputs.players, events: inputs.events, now, teams: others, priorTrades });
+  return { people: read, inputs, now, counterparts: cps, priorTrades };
 }
 
 // The profile producer's read, handed to the counterpart producer in the same tick.
@@ -222,13 +229,14 @@ async function runCounterpart(ctx) {
   const cached = lastRead.tick === ctx.tick.id ? lastRead.byLeague : new Map();
   const w = COUNTERPART_WRITERS['people.counterpart'];
   for (const league of await peopleLeagues()) {
-    const { people, inputs, now, counterparts } = await directPeople(league, { asOf: ctx.tick.as_of,
+    const { people, inputs, now, counterparts, priorTrades } = await directPeople(league, { asOf: ctx.tick.as_of,
       people: cached.get(league.id) ?? null });
     const profileRows = new Map(ctx.read.latest('people.profile', { leagueId: league.id, entityType: 'league_team' })
       .map(r => [r.entity_id, r.id]));
     for (const roster of inputs.teams) {
       const id = key(league.id, roster);
-      const cite = profileRows.has(id) ? [profileRows.get(id)] : [];
+      const prior = priorTrades.available ? priorTrades.byRoster.get(roster)?.state_id : null;
+      const cite = [...(profileRows.has(id) ? [profileRows.get(id)] : []), ...(prior != null ? [prior] : [])];
       const base = { entityType: 'league_team', entityId: id, leagueId: league.id, field: 'people.counterpart', stateIds: cite };
       if (roster === league.myTeam) {
         ctx.write(w, { ...base, absence: { status: 'unknown', reason: 'Nick\'s own roster: not a counterparty' },

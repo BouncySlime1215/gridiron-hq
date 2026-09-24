@@ -3,7 +3,7 @@
  * of the field `people.counterpart` (docs/handoff/local/FIELD-REGISTRY.md).
  * Pure: built from `people.profile` (people/profile-reader.js, the one reader of
  * the chat profiles and of Nick's own read) plus the league's own trade rows.
- * No DB, no env, no clock (the flag read below is the only env read).
+ * No DB, no env, no clock (the two flag reads below are the only env reads).
  *
  * What each feature may move (PEOPLE-03, 9/23: chat-profile features do not
  * improve P(accept) on league 4's 40 decided offers, log loss -0.146
@@ -37,6 +37,10 @@
  *   reply_prior         M6 prior for a reply: ignore .45 / counter .33 /
  *                       decline .17 / accept .05. The P(responds) anchor is
  *                       1 - ignore; every playbook step carries the table.
+ *   prior_trades        TELLS-01b: he traded LAST season (producer 'tells',
+ *                       `tells.prior_trades`, read from the hub by the caller).
+ *                       P(responds) only, against the league's share who traded;
+ *                       DEFAULT-OFF (GRIDIRON_TELLS_PRIOR_TRADES, see below).
  *
  * A manager whose profile is 'unknown' (quiet, invalid, or none) gets no chat
  * feature at all: unknown is not neutral and is never scored. Nick's read and
@@ -75,6 +79,30 @@ export function counterpartFlag(env = process.env) {
   if (env[COUNTERPART_ENV] === '1') return { on: true, preview: false };
   if (env[COUNTERPART_ENV] === '0') return { on: false, preview: false };
   return previewUnconfirmed() ? { on: true, preview: true, ...previewFields(PREVIEW_REASON) } : { on: false, preview: false };
+}
+
+/**
+ * TELLS-01b `prior_trades` (FIX-268-8: moved here from counterparty-pricing.js, so the
+ * counterpart has one producer, RULINGS 2). The coefficient is TELLS-01a arm B's
+ * `PREV|any_trade` on P(trade next week), fit on Sleeper 2022 and replicated in 2023, but
+ * its 2024 90% CI did not clear 0, so the screen calls it a `lead` and PRE (d) is unmet.
+ * DEFAULT-OFF: reported on the model with what it would do; applied to P(responds) only
+ * with GRIDIRON_TELLS_PRIOR_TRADES=1 (or the preview switch, labelled; =0 vetoes preview).
+ * Never a P(accept) input. The count is stored by producer 'tells', never recomputed here.
+ */
+export const PRIOR_TRADES_FIT = Object.freeze({ tell: 'PREV|any_trade', effect: 0.0294, base: 0.2412, verdict: 'lead',
+  source: 'TELLS-01a screen arm B (server/data/tells-screen.json): fit 2022 z 3.99, 2023 z 4.88, 2024 CI not clear of 0; '
+    + 'base = the Sleeper 2021-23 weekly trade rate (counterparty-pricing.js ACTIVITY_FIT.base)' });
+export const PRIOR_TRADES_FLAG = 'GRIDIRON_TELLS_PRIOR_TRADES';
+export const PRIOR_TRADES_CAP = 0.25;        // hand-set: at most a 25% relative change in P(responds)
+export const PRIOR_TRADES_FIELD = 'tells.prior_trades';
+const PRIOR_TRADES_UNCONFIRMED = 'default-off: TELLS-01a arm B is a lead (its 2024 90% CI did not clear 0), so PRE (d) is unmet';
+
+/** The prior_trades switch: { on, preview }, like counterpartFlag. */
+export function priorTradesFlag(env = process.env) {
+  if (env[PRIOR_TRADES_FLAG] === '1') return { on: true, preview: false };
+  if (env[PRIOR_TRADES_FLAG] === '0') return { on: false, preview: false };
+  return previewUnconfirmed() ? { on: true, preview: true, ...previewFields(PRIOR_TRADES_UNCONFIRMED) } : { on: false, preview: false };
 }
 
 const DAY = 864e5;
@@ -211,16 +239,54 @@ export function credibility(kind, team, claims, events, now) {
     basis: `Beta(1,1) on ${n} resolved ${kind} claim${n === 1 ? '' : 's'} (${open} still open)` };
 }
 
+/** League share who traded last season, over the managers with a stored count (null when none). */
+export function priorTradesMean(values) {
+  const have = values.filter(v => v != null && Number.isFinite(v.any_trade));
+  return have.length ? have.reduce((a, v) => a + v.any_trade, 0) / have.length : null;
+}
+
+/**
+ * The prior_trades feature for one manager. `entry` is his hub row ({ value, absence,
+ * as_of, state_id } from hub-read.js) or null; `mean` the league share. `relative` is the
+ * change in P(responds) it would make (capped); `applied` only when the flag is on.
+ * Inert (relative null) with its reason when the count is absent.
+ */
+export function priorTradesFeature(entry, mean, flag, missingReason = null) {
+  const base = { feature: 'prior_trades', fitted: true, tell: PRIOR_TRADES_FIT.tell, verdict: PRIOR_TRADES_FIT.verdict,
+    cap: PRIOR_TRADES_CAP, as_of: entry?.as_of ?? null, state_id: entry?.state_id ?? null };
+  const v = entry?.value ?? null;
+  if (v == null) {
+    return { ...base, applied: false, relative: null, n: 0,
+      basis: `inert: ${entry?.absence?.reason ?? missingReason ?? 'no prior-season trade count is stored for him'}` };
+  }
+  if (mean == null) return { ...base, applied: false, relative: null, n: v.trades, basis: 'inert: no league mean of prior-season trades' };
+  const relative = +clamp(PRIOR_TRADES_FIT.effect * (v.any_trade - mean) / PRIOR_TRADES_FIT.base, -PRIOR_TRADES_CAP, PRIOR_TRADES_CAP).toFixed(4);
+  const why = `${v.trades} trade${v.trades === 1 ? '' : 's'} in ${v.season} (${v.source}); league share who traded `
+    + `${mean.toFixed(2)}; a manager who traded last season completes more trades (screen lead, not confirmed)`;
+  if (!flag?.on) {
+    return { ...base, applied: false, relative: null, would_relative: relative, n: v.trades,
+      basis: `not applied (${PRIOR_TRADES_UNCONFIRMED}); would move P(responds) x${(1 + relative).toFixed(2)}. ${why}` };
+  }
+  return { ...base, applied: true, relative, n: v.trades,
+    ...(flag.preview ? previewFields(PRIOR_TRADES_UNCONFIRMED) : {}),
+    basis: `${flag.preview ? 'Preview (unconfirmed forward): ' : ''}${why}` };
+}
+
 /**
  * profiles: Map roster -> people.profile entry (profile-reader.js#peopleProfile*: { status, reason,
  * profile, built_at, nick }); players Map id -> { name }; events: tradeEvents(...).
  * Returns Map team -> counterpart model. Every team in `teams` gets one, typed unknown without a read.
  */
-export function buildCounterparts({ profiles, players, events = [], now, teams = [] }) {
+export function buildCounterparts({ profiles, players, events = [], now, teams = [], priorTrades = null, priorFlag = null }) {
   const resolve = nameResolver(players);
   const out = new Map();
   const all = new Map([...(profiles ?? new Map())].map(([k, v]) => [String(k), v]));
   for (const t of teams) if (!all.has(String(t))) all.set(String(t), { status: UNKNOWN, reason: 'no confirmed chat identity', profile: null, nick: null });
+  // prior_trades: the hub's tells.prior_trades read (hub-read.js shape), or null to leave the feature out.
+  const priorRows = priorTrades?.available ? priorTrades.byRoster : new Map();
+  // The league's share, Nick's own roster included (he is in the market too, as the activity term's mean).
+  const priorMean = priorTrades ? priorTradesMean([...priorRows.values(), priorTrades.self].map(e => e?.value ?? null)) : null;
+  const pflag = priorFlag ?? (priorTrades ? priorTradesFlag() : null);
   for (const [team, entry] of all) {
     let unresolved = 0;
     const idOf = m => { const id = resolve(m.player); if (id == null) unresolved++; return id; };
@@ -259,15 +325,16 @@ export function buildCounterparts({ profiles, players, events = [], now, teams =
       for (const m of vt.shopping) { const id = idOf(m); if (id != null) model.shopping.set(id, { player: id }); }
     }
     model.unresolved_names = unresolved;
+    if (priorTrades) model.prior_trades = priorTradesFeature(priorRows.get(String(team)) ?? null, priorMean, pflag, priorTrades.reason ?? null);
     out.set(String(team), model);
   }
   return out;
 }
 
 /** people.profile (the reader's result) -> counterpart models. An unavailable read types every team unknown. */
-export function counterpartsFromPeople(people, { players, events = [], now, teams = [] }) {
+export function counterpartsFromPeople(people, { players, events = [], now, teams = [], priorTrades = null, priorFlag = null }) {
   const profiles = people?.available ? people.byRoster : new Map();
-  return buildCounterparts({ profiles, players, events, now, teams });
+  return buildCounterparts({ profiles, players, events, now, teams, priorTrades, priorFlag });
 }
 
 const feat = (feature, team, extra) => ({ feature, team: String(team), fitted: false, ...extra });
@@ -342,7 +409,7 @@ export function targetTilt(cps, owner, pid, myIds) {
   return { tilt, exclude: false, features };
 }
 
-/** P(responds) with the counterpart model: M6 anchor, override, wants lift. pr: partners.js#pResponds result. */
+/** P(responds) with the counterpart model: M6 anchor, override, prior_trades (flag on), wants lift. pr: partners.js#pResponds result. */
 export function respondsAdjust(pr, cp, myIds, { baseAnchor }) {
   const features = [];
   if (!cp) return { p: pr.p, features };
@@ -361,6 +428,12 @@ export function respondsAdjust(pr, cp, myIds, { baseAnchor }) {
   if (cp.override?.deprioritize && !nickApplied) {
     p *= OVERRIDE_DEPRIORITIZE;
     features.push(feat('nick_override', cp.team, { effect: 'multiplier', value: OVERRIDE_DEPRIORITIZE, basis: cp.override.basis }));
+  }
+  const pt = cp.prior_trades;
+  if (pt?.applied && Number.isFinite(pt.relative) && p > 0 && p < 1) {
+    p = clamp(p * (1 + pt.relative), 0, 0.95);
+    features.push(feat('prior_trades', cp.team, { effect: 'multiplier', value: 1 + pt.relative, n: pt.n, fitted: true,
+      tell: pt.tell, ...(pt.preview ? { preview: true } : {}), basis: pt.basis }));
   }
   if (cp.status === 'ok' && p > 0 && p < 1) {
     const w = myIds.map(id => cp.wants.get(id) ?? cp.wants.get(String(id))).filter(Boolean).sort((a, b) => b.lift - a.lift)[0];
@@ -389,7 +462,8 @@ export function publicModel(cp) {
       deprioritize: !!cp.override.deprioritize, toughen: !!cp.override.toughen, basis: cp.override.basis ?? null,
       nick: cp.override.nick ?? null },
     p_accept_chat_weight: P_ACCEPT_CHAT_WEIGHT,
-    reply_prior: cp.reply_prior, unresolved_names: cp.unresolved_names ?? 0 };
+    reply_prior: cp.reply_prior, unresolved_names: cp.unresolved_names ?? 0,
+    ...(cp.prior_trades ? { prior_trades: cp.prior_trades } : {}) };
 }
 
 /**

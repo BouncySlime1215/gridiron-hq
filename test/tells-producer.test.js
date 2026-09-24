@@ -246,8 +246,11 @@ test('RED (4): no this-season tell, card or checkout field reaches an acceptance
     assert.doesNotMatch(src, /tells\.card|tells\.checkout_risk|checkout_risk/, f);
     assert.doesNotMatch(src, /from ['"][^'"]*tells\//, `${f} imports a tells module`);
   }
-  assert.deepEqual([...read('server/services/counterparty-pricing.js').matchAll(/'tells\.[a-z_]+'/g)].map(m => m[0]),
-    ["'tells.prior_trades'"], 'the pricing layer reads the prior-trades count and nothing else of the tells');
+  assert.deepEqual([...read('server/services/counterparty-pricing.js').matchAll(/'tells\.[a-z_]+'/g)].map(m => m[0]), [],
+    'FIX-268-8: the pricing layer reads no tells field (prior_trades lives in the one counterpart model)');
+  assert.deepEqual([...read('server/services/people/counterpart.js').matchAll(/'tells\.[a-z_]+'/g)].map(m => m[0]),
+    ["'tells.prior_trades'"], 'the counterpart model reads the prior-trades count and nothing else of the tells');
+  assert.doesNotMatch(read('server/services/people/counterpart.js'), /tells\.card|checkout_risk|from ['"][^'"]*tells\//);
 });
 
 // ------------------------------------------------------------------ route

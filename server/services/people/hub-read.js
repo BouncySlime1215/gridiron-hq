@@ -18,6 +18,7 @@
  * unknown row stays typed unknown. Read-only; importing this file opens no database.
  */
 export const HUB_FIELDS = Object.freeze({ profile: 'people.profile', counterpart: 'people.counterpart' });
+const TELLS_PRIOR_TRADES_FIELD = 'tells.prior_trades';
 
 const parse = s => (s == null ? null : JSON.parse(s));
 
@@ -47,7 +48,9 @@ async function hubRead(field, leagueId, opts = {}) {
     as_of: null, byRoster: new Map(), self: null };
   if (found == null) return { ...out, reason: 'engine tables missing (migration 075 not applied)' };
   if (!found.length) {
-    return { ...out, reason: `no ${field} rows on the hub for this league (the engine daemon has not published it; GRIDIRON_HUB_PEOPLE off?)` };
+    return { ...out, reason: field === TELLS_PRIOR_TRADES_FIELD
+      ? `no ${field} rows on the hub for this league (producer 'tells' has not run: scripts/engine-tells.mjs)`
+      : `no ${field} rows on the hub for this league (the engine daemon has not published it; GRIDIRON_HUB_PEOPLE off?)` };
   }
   const db = opts.database ?? await defaultDb();
   const mine = db.prepare('SELECT my_team_id FROM leagues WHERE id = ?').get(Number(leagueId))?.my_team_id;
@@ -71,6 +74,12 @@ export const hubPeopleProfile = (leagueId, opts) => hubRead(HUB_FIELDS.profile, 
 /** people.counterpart for one league from the hub. */
 export const hubPeopleCounterpart = (leagueId, opts) => hubRead(HUB_FIELDS.counterpart, leagueId, opts);
 
+/**
+ * tells.prior_trades for one league from the hub (producer 'tells', run by
+ * scripts/engine-tells.mjs): the counterpart's prior_trades feature reads this.
+ */
+export const hubTellsPriorTrades = (leagueId, opts) => hubRead(TELLS_PRIOR_TRADES_FIELD, leagueId, opts);
+
 /** A published counterpart value -> the model shape counterpart.js's consumers take. */
 export function modelFromValue(v) {
   if (!v) return null;
@@ -83,6 +92,7 @@ export function modelFromValue(v) {
     override: v.override ?? { status: 'none', exclude: false, deprioritize: false, toughen: false, basis: null, nick: null },
     reply_prior: v.reply_prior ?? null,
     unresolved_names: v.unresolved_names ?? 0,
+    ...(v.prior_trades ? { prior_trades: v.prior_trades } : {}),
   };
 }
 

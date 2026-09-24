@@ -1,10 +1,11 @@
 /**
- * TELLS-01b clone feed: the `prior_trades` receptiveness factor in
- * counterparty-pricing.js, read from producer 'tells' (`tells.prior_trades`).
+ * TELLS-01b clone feed, FIX-268-8: the `prior_trades` feature lives in the ONE counterpart
+ * model (server/services/people/counterpart.js, RULINGS 2), read from producer 'tells'
+ * (`tells.prior_trades`) on the hub. counterparty-pricing.js no longer has it.
  *
- *  (3) zero:['prior_trades'] gives today's receptiveness byte-for-byte; the factor is
- *      inert with a reason when the count is absent or the flag is off. Default-off:
- *      TELLS-01a arm B (`PREV|any_trade`) is a lead, so PRE (d) is unmet.
+ *  (3) without the hub read the model is today's byte-for-byte; the feature is inert with
+ *      a reason when the count is absent, and moves nothing with the flag off. Default-off:
+ *      TELLS-01a arm B (`PREV|any_trade`) is a lead, so PRE (d) is unmet. P(accept) never moves.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -27,8 +28,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
   bid_amount REAL, is_pending INTEGER, items_json TEXT, raw_json TEXT,
   first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
   PRIMARY KEY (league_id, season, tx_id))`);
-const signals = await import('../server/services/manager-signals.js');
-const pricing = await import('../server/services/counterparty-pricing.js');
+const cp = await import('../server/services/people/counterpart.js');
+const hub = await import('../server/services/people/hub-read.js');
 const backfill = await import('../server/services/engine/backfill.js');
 const producer = await import('../server/services/tells/producer.js');
 const { PREVIEW_ENV } = await import('../server/services/preview-mode.js');
@@ -63,77 +64,98 @@ raw(81, 2025, 'FREEAGENT', 3, 4, [{ type: 'ADD', fromTeamId: 0, toTeamId: 3, pla
 league(82);
 for (const t of [1, 2, 3, 4]) for (let w = 1; w <= 6; w += 1) add(82, t, w);
 
-signals.buildManagerSignals(81, { chat: null });
-signals.buildManagerSignals(82, { chat: null });
 backfill.backfillStream('tells_transactions', { database: db });
 await producer.runTellsProducer({ database: db, asOf: new Date(Date.UTC(SEASON, 9, 20)).toISOString(),
   leagues: [{ leagueId: 81, season: SEASON }, { leagueId: 82, season: SEASON }] });
 
-const layerFor = (id, opts = {}) => pricing.counterpartyLayer(id, { season: SEASON, week: 7, rosterContext: new Map(), ...opts });
-const factor = (mp, source) => (mp.receptiveness_factors ?? []).find(f => f.source === source);
-const withoutPrior = mp => JSON.stringify({ ...mp, receptiveness_factors: mp.receptiveness_factors.filter(f => f.source !== 'prior_trades') });
+const AS_OF = new Date(Date.UTC(SEASON, 9, 21)).toISOString();
+const NOW = Date.parse(AS_OF);
+// Team 1 is Nick's (my_team_id): the hub reads it as `self`, so his counterparties are 2-4.
+const TEAMS = ['2', '3', '4'];
+const OFF = { on: false, preview: false };
+const ON = { on: true, preview: false };
+const models = async (id, priorFlag, { withPrior = true } = {}) => cp.buildCounterparts({ profiles: new Map(), players: new Map(),
+  now: NOW, teams: TEAMS, ...(withPrior ? { priorTrades: await hub.hubTellsPriorTrades(id, { asOf: AS_OF }), priorFlag } : {}) });
+const BASE = { p: 0.4, basis: 'activity' };
+const responds = (m, team) => cp.respondsAdjust(BASE, m.get(team), [], { baseAnchor: 0.55 });
 
-test('RED (3a): default-off — reported with what it would do, moves nothing', () => {
-  delete process.env[pricing.PRIOR_TRADES_FLAG];
-  const layer = layerFor(81);
-  assert.equal(layer.get('1').receptiveness, layer.get('3').receptiveness);
-  const f = factor(layer.get('1'), 'prior_trades');
-  assert.equal(f.effect, null);
-  assert.ok(f.would_effect > 0);
-  assert.match(f.why, /default-off.*lead/);
-  assert.equal(f.n, 1);
+test('the pricing layer has no prior_trades term any more: one counterpart producer (RULINGS 2)', () => {
+  const src = fs.readFileSync(path.resolve(import.meta.dirname, '../server/services/counterparty-pricing.js'), 'utf8');
+  assert.doesNotMatch(src, /prior_trades|PRIOR_TRADES|tells\./);
 });
 
-test('RED (3b): zero:[\'prior_trades\'] gives today\'s receptiveness byte-for-byte, and no factor entry', () => {
-  for (const on of [false, true]) {
-    const zeroed = layerFor(81, { zero: ['prior_trades'], priorTrades: on });
-    const off = layerFor(81, { priorTrades: false });
-    for (const id of ['1', '2', '3', '4']) {
-      assert.equal(factor(zeroed.get(id), 'prior_trades'), undefined);
-      assert.equal(JSON.stringify(zeroed.get(id)), withoutPrior(off.get(id)), `roster ${id}`);
+test('RED (3a): default-off - reported on the model with what it would do, moves nothing', async () => {
+  const m = await models(81, OFF);
+  const f = m.get('2').prior_trades;
+  assert.equal(f.applied, false);
+  assert.equal(f.relative, null);
+  assert.ok(f.would_relative > 0);
+  assert.match(f.basis, /default-off.*lead/);
+  assert.equal(f.n, 1);
+  const bare = await models(81, OFF, { withPrior: false });
+  for (const t of TEAMS) assert.deepEqual(responds(m, t), responds(bare, t), `team ${t}`);
+});
+
+test('RED (3b): without the hub read the model is today\'s byte-for-byte, with no prior_trades key', async () => {
+  const bare = await models(81, null, { withPrior: false });
+  const off = await models(81, OFF);
+  for (const t of TEAMS) {
+    assert.equal(bare.get(t).prior_trades, undefined);
+    assert.equal('prior_trades' in cp.publicModel(bare.get(t)), false);
+    const { prior_trades: _, ...rest } = cp.publicModel(off.get(t));
+    assert.equal(JSON.stringify(cp.publicModel(bare.get(t))), JSON.stringify(rest), `team ${t}`);
+  }
+});
+
+test('RED (3c): on, a manager who traded last season reads more likely to respond, capped; P(accept) never moves', async () => {
+  const m = await models(81, ON);
+  const traded = m.get('2').prior_trades;
+  const idle = m.get('3').prior_trades;
+  assert.ok(traded.relative > 0 && idle.relative < 0);
+  assert.ok(Math.abs(traded.relative) <= cp.PRIOR_TRADES_CAP);
+  assert.match(traded.basis, /1 trade in 2025 \(league_transactions\)/);
+  assert.equal(traded.tell, 'PREV|any_trade');
+  const r1 = responds(m, '2'); const r3 = responds(m, '3');
+  assert.ok(r1.p > r3.p);
+  assert.equal(r1.features.find(f => f.feature === 'prior_trades').effect, 'multiplier');
+  const adapter = { managers: new Map(TEAMS.map(t => [t, {}])), priceStep: () => ({ p: 0.3 }) };
+  assert.equal(cp.withCounterparts(adapter, m).priceStep('2', [], []).p, 0.3, 'never a P(accept) input');
+});
+
+test('RED (3d): with no stored count the feature is inert with its reason, flag on or off', async () => {
+  for (const flag of [ON, OFF]) {
+    const m = await models(82, flag);
+    for (const t of TEAMS) {
+      const f = m.get(t).prior_trades;
+      assert.equal(f.relative, null);
+      assert.match(f.basis, /^inert: no 2025 ESPN counter and no 2025 transactions/);
     }
   }
+  const none = await models(99, ON);
+  assert.match(none.get('2').prior_trades.basis, /^inert: no tells\.prior_trades rows on the hub/);
 });
 
-test('RED (3c): on, a manager who traded last season reads more receptive, capped; the counter source is named', () => {
-  const layer = layerFor(81, { priorTrades: true });
-  const traded = factor(layer.get('1'), 'prior_trades');
-  const idle = factor(layer.get('3'), 'prior_trades');
-  assert.ok(traded.effect > 0 && idle.effect < 0);
-  assert.ok(Math.abs(traded.effect) <= traded.cap);
-  assert.ok(layer.get('1').receptiveness > layer.get('3').receptiveness);
-  assert.match(traded.why, /1 trade in 2025 \(league_transactions\)/);
-  assert.equal(traded.tell, 'PREV|any_trade');
+test('the hub round-trip keeps the feature: publicModel -> modelFromValue', async () => {
+  const m = await models(81, ON);
+  const back = hub.modelFromValue(cp.publicModel(m.get('2')));
+  assert.deepEqual(back.prior_trades, m.get('2').prior_trades);
 });
 
-test('RED (3d): with no stored count the factor is inert with its reason, flag on or off', () => {
-  const on = layerFor(82, { priorTrades: true });
-  const zeroed = layerFor(82, { zero: ['prior_trades'] });
-  for (const id of ['1', '2', '3', '4']) {
-    const f = factor(on.get(id), 'prior_trades');
-    assert.equal(f.effect, null);
-    assert.match(f.why, /^inert: no 2025 ESPN counter and no 2025 transactions/);
-    assert.equal(on.get(id).receptiveness, zeroed.get(id).receptiveness);
-  }
-  const bare = pricing.priorTradesFactor(null, 0.5, 'engine_state is not built on this database');
-  assert.equal(bare.effect, null);
-  assert.match(bare.why, /engine_state is not built/);
-});
-
-test('the flag and preview mode: GRIDIRON_TELLS_PRIOR_TRADES=1 applies it; preview applies it labelled', () => {
+test('the flag and preview mode: GRIDIRON_TELLS_PRIOR_TRADES=1 applies it; preview applies it labelled; =0 vetoes preview', async () => {
   const prevPreview = process.env[PREVIEW_ENV];
   try {
-    process.env[pricing.PRIOR_TRADES_FLAG] = '1';
-    assert.ok(factor(layerFor(81).get('1'), 'prior_trades').effect > 0);
-    assert.equal(factor(layerFor(81).get('1'), 'prior_trades').preview, undefined);
-    delete process.env[pricing.PRIOR_TRADES_FLAG];
+    assert.deepEqual(cp.priorTradesFlag({ [cp.PRIOR_TRADES_FLAG]: '1' }), ON);
+    delete process.env[PREVIEW_ENV];
+    assert.equal(cp.priorTradesFlag({}).on, false);
     process.env[PREVIEW_ENV] = '1';
-    const f = factor(layerFor(81).get('1'), 'prior_trades');
-    assert.ok(f.effect > 0);
+    const flag = cp.priorTradesFlag({});
+    assert.equal(flag.preview, true);
+    assert.equal(cp.priorTradesFlag({ [cp.PRIOR_TRADES_FLAG]: '0' }).on, false);
+    const f = (await models(81, flag)).get('2').prior_trades;
+    assert.ok(f.relative > 0);
     assert.equal(f.preview, true);
-    assert.match(f.why, /^Preview \(unconfirmed forward\)/);
+    assert.match(f.basis, /^Preview \(unconfirmed forward\)/);
   } finally {
-    delete process.env[pricing.PRIOR_TRADES_FLAG];
     if (prevPreview == null) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = prevPreview;
   }
 });

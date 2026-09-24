@@ -176,23 +176,6 @@ const ACTIVITY_CAP = 0.5;
 /** Receptiveness is lo + (hi - lo) * score, so a relative change r in propensity is r / (hi - lo) in score. */
 const SCORE_PER_RELATIVE = 1 / (RECEPTIVENESS_RANGE[1] - RECEPTIVENESS_RANGE[0]);
 
-/**
- * TELLS-01b `prior_trades`: whether he traded LAST season, from producer 'tells'
- * (`tells.prior_trades` in engine_state: ESPN transactionCounter.trades for the
- * previous season, else that season's completed trades in the event log). The
- * coefficient is TELLS-01a arm B's `PREV|any_trade` on P(trade next week), fit on
- * Sleeper 2022 and replicated in 2023, but its 2024 90% CI did not clear 0, so the
- * screen calls it a `lead` and PRE (d) is unmet. DEFAULT-OFF: reported with what it
- * would do, applied only with GRIDIRON_TELLS_PRIOR_TRADES=1 (or preview mode, labelled).
- * Read straight from engine_state (no engine or tells import): a stored count, never
- * recomputed here. No adds or checkout tell is read by this module (the trade KILL).
- */
-export const PRIOR_TRADES_FIT = Object.freeze({ tell: 'PREV|any_trade', effect: 0.0294, verdict: 'lead',
-  source: 'TELLS-01a screen arm B (server/data/tells-screen.json): fit 2022 z 3.99, 2023 z 4.88, 2024 CI not clear of 0' });
-export const PRIOR_TRADES_FLAG = 'GRIDIRON_TELLS_PRIOR_TRADES';
-const PRIOR_TRADES_UNCONFIRMED = 'default-off: TELLS-01a arm B is a lead (its 2024 90% CI did not clear 0), so PRE (d) is unmet';
-const PRIOR_TRADES_CAP = 0.25;
-
 /** Points below zero last week at which the post-loss window is fully open. */
 const POST_LOSS_FULL_MARGIN = 30;
 /** Chat "reacting to loss" share that counts as a full habit. */
@@ -325,14 +308,11 @@ function jevBlockFor(read, rosterId) {
  * anyway: it is choosing between these ten people, not against an abstract
  * baseline.
  */
-export function counterpartyLayer(leagueId, { season, week, rosterContext = null, zero = [], activity = null,
-  priorTrades = null } = {}) {
+export function counterpartyLayer(leagueId, { season, week, rosterContext = null, zero = [], activity = null } = {}) {
   // PREVIEW-01: the local-testing switch turns the terms on when neither the caller nor
   // the site flag has; each applied term then says it is a preview.
   const activityPreview = activity == null && process.env[ACTIVITY_FLAG] !== '1' && previewUnconfirmed();
   const activityOn = activity ?? (process.env[ACTIVITY_FLAG] === '1' || activityPreview);
-  const priorPreview = priorTrades == null && process.env[PRIOR_TRADES_FLAG] !== '1' && previewUnconfirmed();
-  const priorOn = priorTrades ?? (process.env[PRIOR_TRADES_FLAG] === '1' || priorPreview);
   const signals = managerSignalsFor(leagueId);
   // One block per league, shared by every manager entry and frozen for that
   // reason. `luck_self_view` is priced off this store, so its age travels with
@@ -399,9 +379,6 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
   // Sleeper range of add rates, but not at its mean), so it is centred on the
   // league's own managers. Nick's roster is in the mean: he is in the market too.
   const activityMean = leagueActivityMean(ids.map(id => signals.get(id)));
-  // Read once per league, and only when the source is not zeroed for the ablation.
-  const priorReads = zero.includes('prior_trades') ? null : priorTradesReads(leagueId);
-  const priorMean = priorReads ? priorTradesMean(ids.map(id => priorReads.byRoster.get(String(id)))) : null;
   const openVals = ids.map(id => signals.get(id).metrics.chat_open_to_trade);
   const talkVals = ids.map(id => signals.get(id).metrics.chat_trade_talk);
 
@@ -426,9 +403,6 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
     if (Number.isFinite(activityTerm?.effect)) score += activityTerm.effect;
     const checkedOut = offUnless(activityOn, activityPreview, zero.includes('checked_out') ? null : checkedOutFactor(m, s.samples));
     if (Number.isFinite(checkedOut?.effect)) score += checkedOut.effect;
-    const priorTerm = priorReads == null ? null
-      : priorOff(priorOn, priorPreview, priorTradesFactor(priorReads.byRoster.get(String(id)) ?? null, priorMean, priorReads.reason));
-    if (Number.isFinite(priorTerm?.effect)) score += priorTerm.effect;
 
     // Observed behaviour outranks talk. Only applied once there are enough
     // decided proposals for the rate to mean anything (the metric is withheld
@@ -533,7 +507,6 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
         ...(postLoss ? [postLoss] : []),
         ...(activityTerm ? [activityTerm] : []),
         ...(checkedOut ? [checkedOut] : []),
-        ...(priorTerm ? [priorTerm] : []),
       ],
     });
   }
@@ -552,63 +525,6 @@ function offUnless(on, preview, f) {
   if (!f || on || f.effect == null) return f;
   return { ...f, effect: null, would_effect: f.effect,
     why: `${ACTIVITY_OFF_WHY}; would move the score ${f.effect > 0 ? '+' : ''}${f.effect.toFixed(2)}. ${f.why}` };
-}
-
-/** offUnless for the prior_trades term, with its own unconfirmed reason. */
-function priorOff(on, preview, f) {
-  if (f && on && preview && f.effect != null) {
-    return { ...f, ...previewFields(PRIOR_TRADES_UNCONFIRMED), why: previewText(f.why) };
-  }
-  if (!f || on || f.effect == null) return f;
-  return { ...f, effect: null, would_effect: f.effect,
-    why: `not applied (${PRIOR_TRADES_UNCONFIRMED}); would move the score ${f.effect > 0 ? '+' : ''}${f.effect.toFixed(2)}. ${f.why}` };
-}
-
-/**
- * The stored `tells.prior_trades` rows of one league, latest live row per team.
- * `reason` is set when none can be read (no engine_state table, or no rows yet).
- */
-export function priorTradesReads(leagueId) {
-  const built = rows(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'engine_state'`).length > 0;
-  if (!built) return { byRoster: new Map(), reason: 'engine_state is not built on this database, so no prior-season trade count is stored' };
-  const byRoster = new Map();
-  for (const r of rows(`SELECT entity_id, value, as_of, health FROM engine_state
-      WHERE field = 'tells.prior_trades' AND league_id = ? AND lane = 'live'
-        AND json_extract(health, '$.status') <> 'failed' ORDER BY id`, Number(leagueId))) {
-    const health = JSON.parse(r.health);
-    byRoster.set(String(r.entity_id).split(':')[1], { value: r.value == null ? null : JSON.parse(r.value), as_of: r.as_of,
-      absence: health.absence?.reason ?? null });
-  }
-  return { byRoster, reason: byRoster.size ? null : 'the tells producer has stored no prior-season trade count for this league' };
-}
-
-/** League mean of "traded last season", over the managers with a stored count. */
-function priorTradesMean(reads) {
-  const have = reads.filter(r => r?.value != null && Number.isFinite(r.value.any_trade));
-  return have.length ? have.reduce((a, r) => a + r.value.any_trade, 0) / have.length : null;
-}
-
-/**
- * The prior_trades term: traded last season against the league's mean, as a
- * relative change in the chance he completes a trade (PRIOR_TRADES_FIT on
- * ACTIVITY_FIT's base), capped. Inert (effect null) with a reason when the count
- * is absent. Never a P(accept) input: it moves receptiveness only, like activity.
- */
-// TEST SEAM: exported so test/counterparty-prior-trades.test.js pins the arithmetic.
-export function priorTradesFactor(read, mean, missingReason = null) {
-  const label = 'Traded last season (prior-season trades)';
-  const base = { source: 'prior_trades', label, cap: PRIOR_TRADES_CAP, fitted: true, tell: PRIOR_TRADES_FIT.tell };
-  if (!read || read.value == null) {
-    return { ...base, effect: null, n: 0,
-      why: `inert: ${read?.absence ?? missingReason ?? 'no prior-season trade count is stored for him'}` };
-  }
-  const v = read.value;
-  if (mean == null) return { ...base, effect: null, n: v.trades, why: 'inert: no league mean of prior-season trades' };
-  const relative = PRIOR_TRADES_FIT.effect * (v.any_trade - mean) / ACTIVITY_FIT.base;
-  const effect = Math.max(-PRIOR_TRADES_CAP, Math.min(PRIOR_TRADES_CAP, relative * SCORE_PER_RELATIVE));
-  return { ...base, effect: +effect.toFixed(4), n: v.trades, as_of: read.as_of,
-    why: `${v.trades} trade${v.trades === 1 ? '' : 's'} in ${v.season} (${v.source}); league share who traded `
-      + `${mean.toFixed(2)}; a manager who traded last season completes more trades (screen lead, not confirmed)` };
 }
 
 /** League means of the two activity inputs, over the managers who have them. */

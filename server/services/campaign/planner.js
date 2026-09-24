@@ -16,9 +16,11 @@ import { dealKey, pathExpectation, combos, linearNick, screenPct } from './paths
 import { rankPlans, compareModes, tolerancesFor, MODES } from './modes.js';
 import { metricOf, pointsFeasibility, targetFeasibility, weeklySummary } from './objectives.js';
 import { priceLadder, stepMessage, replyTable } from './playbook.js';
-import { buildItinerary, stopTradeOff, speedCurve, arrivalWeek } from './itinerary.js';
-import { orderCatchUp, freeMoves, isBehind } from './catchup.js';
-import { rankPartners, planSkipWeight } from './partners.js';
+import { coachMessagesOn } from './messages.js';
+import { buildItinerary, stopTradeOff, arrivalWeek } from './itinerary.js';
+import { speedCurve, concededPlan, sideLevers } from './speed.js';
+import { orderCatchUp, freeMoves, isBehind, sellersRead, desperateMoves } from './catchup.js';
+import { rankPartners, planSkipWeight, pResponds } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
@@ -212,8 +214,19 @@ export function planLeague(adapter, settings) {
   };
   const playbook = best ? best.steps.map((_, i) => playbookFor(best, i, i === 0 ? (deck[1] ? { step: deck[1].steps[0], expected: deck[1].expected } : backups[0]) : backups[i])) : [];
   // A card's BATNA is the next card: swiping past a card means the ones before it were skipped.
-  const deckCards = deck.map((p, j) => ({ plan: p, playbook: j === 0 ? playbook[0]
-    : playbookFor(p, 0, deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) }));
+  // MSG-WIRE-2 (gated on coachMessagesOn): every step of every card gets its playbook, so Coach can
+  // write a message for it; step 0's BATNA stays the next card, a later step's BATNA is that card's
+  // own backup branch. Off, the deck is the incumbent's (step 0 only, no `playbooks` key).
+  const allSteps = coachMessagesOn();
+  const deckCards = deck.map((p, j) => {
+    if (!allSteps) return { plan: p, playbook: j === 0 ? playbook[0]
+      : playbookFor(p, 0, deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) };
+    if (j === 0) return { plan: p, playbook: playbook[0], playbooks: playbook };
+    const br = p.steps.length > 1 ? backupBranches(p.planned_on ?? p, ranked) : [];
+    const pbs = p.steps.map((_, i) => playbookFor(p, i, i === 0
+      ? (deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) : br[i] ?? null));
+    return { plan: p, playbook: pbs[0], playbooks: pbs };
+  });
 
   // Suggested targets: gain if landed x P(reach) x skip weight, with mode fit.
   const byMode = Object.fromEntries(MODES.map(mode => { const c = ctxFor(mode); return [mode, rankPlans(plans, mode, c.tol, c.ctx).ranked]; }));
@@ -250,7 +263,10 @@ export function planLeague(adapter, settings) {
   });
 
   const clock = { currentWeek: L.week, deadlineWeek: L.deadline_week, daysLeftInWeek: L.days_left_in_week ?? 7 };
-  const speed = speedCurve(ranked, clock);
+  // Speed levers priced on the same ranked paths: the walk-away price of the best plan (its playbook
+  // ladder) and the all-in mode's best plan are the two re-priced routes (speed.js).
+  const conceded = best && playbook[0] ? concededPlan(best.planned_on ?? best, playbook[0].ladder) : null;
+  const speed = speedCurve({ ranked, conceded, allIn: byMode.all_in[0] ?? null }, clock);
 
   // Feasibility (row 9): points objective in full; player objective by path; weekly outlook always.
   let feasibility = null;
@@ -277,12 +293,15 @@ export function planLeague(adapter, settings) {
 
   // Catch-up list.
   const behind = isBehind(now.title, L.team_count ?? adapter.rosters.size);
+  const free = freeMoves(adapter.freeAgents ?? [], roster.filter(p => p.starter));
+  const sellers = sellersRead(managers);
+  const desperate = desperateMoves(ranked, sellers, { names,
+    playerValue: id => adapter.players.get(id)?.value, pResponds: t => pResponds(managers.get(t)).p });
   const items = [
-    ...freeMoves(adapter.freeAgents ?? [], roster.filter(p => p.starter)),
+    ...free,
     ...flip.realised.filter(f => f.legs && f.legs.expected > 0).map(f => ({ kind: 'flip', gain: f.legs.expected,
       text: `Buy ${names(f.player)} from Team ${f.a}, sell to Team ${f.b}.`, player: f.player })),
-    ...ranked.filter(p => { const m = managers.get(p.steps[0].team) ?? {}; return m.checked_out || (Number.isFinite(m.title_now) && m.title_now < 0.03); })
-      .slice(0, 2).map(p => ({ kind: 'desperate', gain: p.expected, steps: p.steps.length, plan_key: firstKey(p), text: `Team ${p.steps[0].team} is out of it: ${p.steps[0].get.map(names).join(' + ')} may come cheap.` })),
+    ...desperate.items,
     ...(behind ? byMode.all_in.slice(0, 1).map(p => ({ kind: 'swing', gain: p.expected, steps: p.steps.length, plan_key: firstKey(p),
       text: `You are behind: the all-in plan reaches +${(p.delta_final * 100).toFixed(1)} pts if it lands.` })) : []),
     ...playbook.filter(pb => pb.wait.flag === 'wait').map(pb => ({ kind: 'timing', gain: pb.wait.option_value, text: `Wait ${pb.wait.days} days: ${pb.wait.reason}.` })),
@@ -293,7 +312,9 @@ export function planLeague(adapter, settings) {
   mark('playbook_and_reports');
   const edge = new Map();
   for (const p of ranked) { const t = String(p.steps[0].team); edge.set(t, Math.max(edge.get(t) ?? 0, p.expected)); }
-  const partners = rankPartners(managers, edge, CP ? { counterparts: CP, myIds } : null);
+  // PARTNER-KERNEL: the league lets rankPartners build the who-trades-with-whom kernel when its flag is on
+  // (off: output unchanged). A fixture league without a season gets no kernel.
+  const partners = rankPartners(managers, edge, CP ? { counterparts: CP, myIds } : null, { league: { id: L.id, me, season: L.season } });
   // The Trade Lab finder's best single offer on the same league, and the composed-rescore probe:
   // both optional adapter hooks (the real adapter runs the served finder; a fixture may not).
   const finder_best = adapter.finderBest ? adapter.finderBest() : null;
@@ -306,12 +327,14 @@ export function planLeague(adapter, settings) {
     eta_week: best ? arrivalWeek(best, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) : null,
     finder_best, sanity,
     flip, targets: wanted, candidates_scored: plans.length, dropped: dropped.slice(0, 20).map(d => ({ first: d.plan.steps[0], why: d.why })),
-    best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook })),
+    best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook, ...(c.playbooks ? { playbooks: c.playbooks } : {}) })),
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
     suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, feasibility_points, outlook,
     risk_modes: compareModes(plans, ctxFor), catch_up: catchUp, partners,
     untouchable: { ids: [...untouchable], refused_targets: refused },
     ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
+    sellers: { read: sellers, unreached: desperate.unreached.map(s => s.team) },
+    speed_levers: sideLevers({ free, waits: playbook.map(pb => pb.wait) }),
     rescores: S.count() + (confirm.rescores ?? 0), runtime_ms: clockNow() - t0, phases_ms: phases,
   };
 }

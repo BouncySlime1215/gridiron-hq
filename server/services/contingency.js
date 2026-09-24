@@ -21,6 +21,7 @@ import { pairedBootstrapDiff } from './backtest-significance.js';
 import { espnStatusById } from './player-availability.js';
 import { AVAILABILITY_FIT_BASIS, DEFAULT_DURABILITY_PRIOR } from './availability-basis.js';
 import { activeInjuryFlagIds } from './injury-flags.js';
+import { availHorizonFlag, availHorizonPreviewFields, ratioReturnProbability, servedReturnCurve } from './availability-return.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SKILL = ['QB', 'RB', 'WR', 'TE'];
@@ -945,6 +946,13 @@ export function weeklyAvailability(season, week, { through = season - 1, useRole
   // Role states are only read when fitted role rates exist; without them this
   // function is byte-for-byte the pre-role path.
   const roles = useRole && fitted?.hasRole ? roleStates(season, week) : null;
+  // AVAIL-HORIZON (availability-return.js): for a week past the live anchor the role
+  // state is frozen at today's games, so the one-week rate would be reused for every
+  // remaining week. With the flag on, such a week is priced on the fitted
+  // return-to-play curve instead. h = 0 (the live week, and every replay) is untouched.
+  const horizon = roles ? weeksAhead(season, week) : 0;
+  const hFlag = horizon >= 1 ? availHorizonFlag() : { on: false, preview: false };
+  const curve = hFlag.on ? servedReturnCurve() : null;
 
   for (const p of players) {
     // No availability() row means no games on file through the cutoff, so there
@@ -959,9 +967,28 @@ export function weeklyAvailability(season, week, { through = season - 1, useRole
     const espnNow = espnStatus && p.espn_id != null ? espnStatus.get(String(p.espn_id))?.status ?? null : null;
     const week_ = weekDesignation({ report: nflReport, espnStatus: espnNow, team: p.team ?? role?.team ?? null });
     const report = week_.report;
-    const { active, source, basis } = playerActiveProbability({
+    let { active, source, basis } = playerActiveProbability({
       fitted, report, prior, role, useRole, priorMeasured: measuredPrior != null
     });
+    // No report can exist for a future week; the guard keeps a stray row authoritative.
+    // AVAIL-HORIZON-2: only a player in a gap state (missed his team's last game, g1/g2)
+    // reads the curve. A g0 player keeps today's calibrated one-week rate: the curve's g0
+    // cells carry future injuries the sim's volume scale was already fitted without.
+    // AVAIL-HORIZON-3: ratio form. The gap player's rate is his own healthy (g0) one-week
+    // rate times the curve's gap/g0 ratio at this horizon, so the curve's future-injury
+    // discount (already absent from healthy players' rates) is not applied twice.
+    const cell = curve && !report && role?.gap_bucket && role.gap_bucket !== 'g0'
+      ? ratioReturnProbability({
+          curve, h: horizon, gap: role.gap_bucket, tier: role.tier,
+          pToday0: playerActiveProbability({
+            fitted, report: null, prior, role: { ...role, gap_bucket: 'g0' }, useRole, priorMeasured: measuredPrior != null
+          }).active
+        }) : null;
+    if (cell) {
+      active = Math.max(0.001, Math.min(0.995, cell.p));
+      source = `return-to-play curve (${cell.basis}, ratio ${cell.ratio}, n=${cell.n}, ${horizon} week${horizon > 1 ? 's' : ''} past the last game on file)`;
+      basis = 'role';
+    }
     out.set(p.id, {
       player_id: p.id, name: p.name, position: p.position,
       active_probability: +active.toFixed(3),
@@ -978,10 +1005,22 @@ export function weeklyAvailability(season, week, { through = season - 1, useRole
         tier: role.tier, share: role.share == null ? null : +role.share.toFixed(3),
         gap: role.gap, in_scope: role.gap_bucket != null
       } : null,
-      source
+      source,
+      ...(cell ? { horizon: { weeks_ahead: horizon, basis: cell.basis }, ...availHorizonPreviewFields(hFlag) } : {})
     });
   }
   return out;
+}
+
+/**
+ * How many NFL weeks `week` lies past the live anchor: the first week of `season` with no
+ * usage rows before `week` (0 for a replayed week, whose previous week is on file).
+ * Before any game of the season the anchor is week 1.
+ */
+export function weeksAhead(season, week) {
+  const last = rows('SELECT MAX(week) AS w FROM player_week_usage WHERE season = ? AND week < ?', season, week)[0]?.w;
+  const anchor = Number.isInteger(last) ? last + 1 : 1;
+  return Math.max(0, week - anchor);
 }
 
 /* --------------------------------------------------------------- cascade */

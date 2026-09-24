@@ -18,6 +18,26 @@
  * carries that label.
  */
 
+/**
+ * TEAM-NAMES-2: the server's one team label, read from the plans entry's `teams` map (roster ->
+ * { name, manager }, league payload at run time, never committed). Same rule as the client's
+ * types.ts#teamLabel: 'Manager (Team name)' when both are known, else whichever is known, else 'Team N'.
+ * teams: the map itself or its contract Field ({ status: 'ok', value }); anything else reads 'Team N'.
+ */
+export function teamLabel(teams, id) {
+  if (id == null) return '';
+  const map = teams?.status === 'ok' ? teams.value : teams?.status ? null : teams;
+  const t = map && typeof map === 'object' ? map[String(id)] : null;
+  const manager = typeof t?.manager === 'string' ? t.manager.trim() : '';
+  const name = typeof t?.name === 'string' ? t.name.trim() : '';
+  if (manager && name) return `${manager} (${name})`;
+  return manager || name || `Team ${id}`;
+}
+
+/** The accept and decline rows' instructions (replyTable here; view.js re-labels with the entry's teams). */
+export const acceptDo = (partner, teams) => `Send the next step to ${teamLabel(teams, partner)}.`;
+export const declineDo = (partner, teams) => `Log the reason, then offer ${teamLabel(teams, partner)} instead.`;
+
 export const P_ACCEPT_LABEL = "today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending)";
 /** Nudge after this long without a reply, switch to the backup after SWITCH_HOURS (hand-set). */
 export const NUDGE_HOURS = 24;
@@ -113,16 +133,16 @@ export function stepMessage(step, ctx) {
 /**
  * The reply table for step i of a plan.
  * ctx: { next: step or null, backup: { step, expected } or null, ladder: priceLadder result,
- *        nudge: message text or null }
+ *        nudge: message text or null, teams: the entry's teams map (optional; 'Team N' without it) }
  */
 export function replyTable(step, ctx) {
   const deal = s => (s ? { partner: s.team, give: s.give, get: s.get } : null);
   const rows = [];
   rows.push(ctx.next
-    ? { kind: 'accept', do: `Send the next step to Team ${ctx.next.team}.`, next: deal(ctx.next) }
+    ? { kind: 'accept', do: acceptDo(ctx.next.team, ctx.teams), next: deal(ctx.next) }
     : { kind: 'accept', do: 'That completes the plan. The brain proposes the next campaign on the next refresh.' });
   rows.push(ctx.backup?.step
-    ? { kind: 'decline', do: `Log the reason, then offer Team ${ctx.backup.step.team} instead.`, next: deal(ctx.backup.step),
+    ? { kind: 'decline', do: declineDo(ctx.backup.step.team, ctx.teams), next: deal(ctx.backup.step),
       expected_after: ctx.backup.expected ?? null,
       learn: 'a decline lowers his estimated yes-rate for packages this size' }
     : { kind: 'decline', do: 'Log the reason. No backup clears the sliders this week; the brain replans on the next refresh.',

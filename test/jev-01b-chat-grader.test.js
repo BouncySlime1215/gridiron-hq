@@ -23,6 +23,8 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-jev01b-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
@@ -30,6 +32,7 @@ const CHAT_PATH = path.join(temp, 'chat.sqlite');
 process.env.GRIDIRON_CHAT_DB_PATH = CHAT_PATH;
 process.env.SCHEDULER_DISABLED = '1';
 delete process.env.GRIDIRON_JEV_CHAT_BLEND;
+delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
 
 const DAY = 86400000;
 const COVERAGE_START = Date.parse('2026-05-01T00:00:00Z');
@@ -123,6 +126,9 @@ const payload = {
   teams: [...members, nick].map((m, i) => ({ id: i + 1, name: `Team ${i + 1}`, owners: [m.id],
     record: { overall: { wins: 1, losses: 1, ties: 0, pointsFor: 200, pointsAgainst: 200 } }, roster: { entries: [] } })),
   schedule: [],
+  // FIX-289-3: a 15-slot league (QB, 2 RB, 2 WR, TE, FLEX, D/ST, K, 6 bench) plus one IR slot,
+  // which does not count toward roster size.
+  settings: { rosterSettings: { lineupSlotCounts: { 0: 1, 2: 2, 4: 2, 6: 1, 23: 1, 16: 1, 17: 1, 20: 6, 21: 1, 3: 0 } } },
 };
 run(`INSERT INTO leagues(id, platform, league_id, season, name, payload, team_count, my_team_id, roster_positions)
      VALUES (?, 'espn', 'espn-jev-21', 2026, 'L21', ?, 5, '5', '[]')`, LEAGUE, JSON.stringify(payload));
@@ -238,4 +244,89 @@ test('flag on: one blended row per chat manager, shadow only', () => {
   // and off again removes them on the next build
   withChat(c => signals.buildManagerSignals(LEAGUE, { chat: c, asOf: AS_OF }));
   assert.deepEqual(blendRows(), []);
+});
+
+/* ------------------------------------------------ FIX-289-1: preview-mode routing */
+
+test('GRIDIRON_JEV_CHAT_BLEND is read through preview-mode: off, on, and preview-only', () => {
+  delete process.env.GRIDIRON_JEV_CHAT_BLEND;
+  delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+  const off = grader.jevChatBlendFields();
+  assert.equal(off.enabled, false);
+  assert.match(off.reason, /GRIDIRON_JEV_CHAT_BLEND=1/);
+  assert.equal(grader.jevChatBlendEnabled(), false);
+  process.env.GRIDIRON_PREVIEW_UNCONFIRMED = '1';
+  try {
+    const pv = grader.jevChatBlendFields();
+    assert.deepEqual([pv.enabled, pv.preview], [true, true]);
+    assert.equal(pv.preview_reason, grader.JEV_CHAT_BLEND_OFF_REASON);
+    const res = withChat(c => signals.buildManagerSignals(LEAGUE, { chat: c, asOf: AS_OF }));
+    assert.equal(res.jev_blend.preview, true, 'the build summary says the rows are a preview');
+    assert.equal(res.jev_blend.preview_reason, grader.JEV_CHAT_BLEND_OFF_REASON);
+    assert.equal(res.jev_blend.open_to_trade, 'measured');
+    assert.equal(blendRows().length, 4, 'preview mode writes the rows');
+    process.env.GRIDIRON_JEV_CHAT_BLEND = '1';
+    assert.deepEqual(grader.jevChatBlendFields(), { enabled: true }, 'the site flag wins over preview');
+    const on = withChat(c => signals.buildManagerSignals(LEAGUE, { chat: c, asOf: AS_OF }));
+    assert.equal(on.jev_blend.preview, undefined);
+  } finally {
+    delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+    delete process.env.GRIDIRON_JEV_CHAT_BLEND;
+  }
+  withChat(c => signals.buildManagerSignals(LEAGUE, { chat: c, asOf: AS_OF }));
+  assert.deepEqual(blendRows(), []);
+  const pm = fs.readFileSync(new URL('../server/services/preview-mode.js', import.meta.url), 'utf8');
+  assert.match(pm, /jev\/chat-grader\.js#jevChatBlendFields/, 'preview-mode.js lists the site');
+  assert.match(pm, /GRIDIRON_JEV_CHAT_BLEND/);
+});
+
+/* ------------------------------------------------ FIX-289-2: identityMap in the report */
+
+test('the grade report reads identities through identityMap, never the table', () => {
+  const src = fs.readFileSync(new URL('../scripts/jev-grade-report.mjs', import.meta.url), 'utf8');
+  assert.ok(!/league_member_identity/.test(src), 'no direct league_member_identity read in the report');
+  assert.match(src, /identityMap/);
+  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const r = spawnSync(process.execPath, ['scripts/jev-grade-report.mjs', '--as-of', iso(AS_OF)], { cwd: root,
+    env: { ...process.env, GRIDIRON_DB_PATH: process.env.GRIDIRON_DB_PATH, GRIDIRON_CHAT_DB_PATH: CHAT_PATH }, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+  const l21 = out.leagues.find(l => l.league_id === LEAGUE);
+  assert.ok(l21, 'league 21 (trusted identities) is graded');
+  assert.equal(l21.questions.open_to_trade.status, 'measured');
+  for (const n of NAMES) assert.ok(!r.stdout.includes(n), `${n} in the report`);
+});
+
+/* ------------------------------------------------ FIX-289-3: the league's roster size */
+
+test("roster size is the league's slots (starters + bench, IR out), never a constant 16", () => {
+  assert.equal(grader.ROSTER_SIZE, undefined, 'the hard-coded 16 is gone');
+  assert.deepEqual(grader.rosterSize(payload), { size: 15 });
+  assert.deepEqual(grader.rosterSize({ settings: {} }), { status: 'unknown', reason: 'no_roster_size' });
+  assert.deepEqual(grader.rosterSize({ settings: { rosterSettings: { lineupSlotCounts: { 21: 2 } } } }),
+    { status: 'unknown', reason: 'no_roster_size' });
+  // The held-player incumbent on the 15-slot fixture: Player A's declaration (08-01) has no
+  // move-off before it, so P = exp(-14 * league * 28 / (days + 28)), league = 0.5 / (R * (teams * days + 14)).
+  const built = withChat(c => grader.buildUnits(LEAGUE, { chat: c, asOf: AS_OF }));
+  const a = built.units['own_roster.untouchable'].find(u => u.player === 'Player A');
+  const days = (a.t - COVERAGE_START) / DAY;
+  const inc = R => Math.exp(-14 * (0.5 / (R * (5 * days + 14))) * 28 / (days + 28));
+  assert.ok(Math.abs(a.inc - inc(15)) < 1e-12, `inc ${a.inc} vs 15-slot ${inc(15)}`);
+  assert.ok(Math.abs(a.inc - inc(16)) > 1e-9, 'not the 16-slot value');
+});
+
+test('a league with no roster slots grades untouchable as a typed unknown, not at 16', () => {
+  const noSlots = { ...payload, settings: {} };
+  run('UPDATE leagues SET payload = ? WHERE id = ?', JSON.stringify(noSlots), LEAGUE);
+  try {
+    const g = withChat(c => grader.gradeJevChatSignals(LEAGUE, { chat: c, asOf: AS_OF }));
+    assert.deepEqual(g.questions['own_roster.untouchable'], { status: 'unknown', reason: 'no_roster_size' });
+    assert.equal(g.questions.open_to_trade.status, 'measured', 'open_to_trade does not need roster size');
+    process.env.GRIDIRON_JEV_CHAT_BLEND = '1';
+    const res = withChat(c => signals.buildManagerSignals(LEAGUE, { chat: c, asOf: AS_OF }));
+    assert.equal(res.jev_blend['own_roster.untouchable'], 'unknown:no_roster_size');
+  } finally {
+    delete process.env.GRIDIRON_JEV_CHAT_BLEND;
+    run('UPDATE leagues SET payload = ? WHERE id = ?', JSON.stringify(payload), LEAGUE);
+  }
 });

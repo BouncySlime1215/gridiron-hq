@@ -48,7 +48,7 @@ CLONE-01b b1 offer loop (#239, which this branch is based on).
   without `model_version`, and with a band in the wrong shape
   (`{low, high}` rather than `{band: {low, mid, high}, basis}`). The writer's
   refusals were correct, so the test was changed, not the writer.
-- **GREEN:** P1–P9 pass.
+- **GREEN** `c3fc6d49` ("feat: M5 pitch bandit — Thompson sampling over framing arms per manager, logged with the offer (GREEN)"): P1–P10 pass 10/10, and the route file passes 9/9.
 - **Added after GREEN:** P10 and the two route cases, which came with
   `pitchFor` and the `/pitch` route. Those were written in response to the
   wiring gate (`module-only-tested`), not test-first. Mutant M11 below shows
@@ -70,3 +70,31 @@ CLONE-01b b1 offer loop (#239, which this branch is based on).
 | M10 | `recordSentOffer` never links | killed (5 fail) |
 | M11 | route drops `pitch_choice_id` (route test) | killed (1 fail) |
 | C1 | FLOOR_REL 0.5 → 0.45 (control) | survives, as designed: no fixture sits between the two |
+| C2 | a search string absent from the file (control) | not applied, as designed |
+
+## Full guard run
+
+`npm run check` exited 0 on tree `383e6cc8` (head `84bef7d3`). That head is
+GREEN merged with origin/main `12a6de93`. Tests: 4841, pass 4799, fail 0,
+skipped 42. Typecheck, lint, `check:wiring`, build and start:smoke all
+exited 0. The tree was the same before and after the run, and the worktree
+stayed clean.
+
+## Nick's five questions
+
+1. **Well built?** It is one service, `server/services/pitch-bandit.js`, plus
+   one additive table (migration 085) and a four-line link in
+   `recordSentOffer`. The route sends nothing to ESPN.
+2. **Stats or made up?** The mechanism is standard Thompson sampling on Beta
+   posteriors. The numbers are made up (hand-set): base 0.30, boost 0.45,
+   strength 4, floors 0.10 / 0.5×, reward 0.5 for a counter.
+3. **How we know:** only fixtures and a mutation sweep. There is no backtest
+   and no real data: `trade_outcomes` has 0 real sent rows, so every
+   posterior today is its prior.
+4. **Pointed anywhere else?** It reads the negotiation profiles through
+   `negotiationProfilesFor` (counterparty-pricing.js) and writes
+   `pitch_choices`. `recordSentOffer` links the two tables. JEV-01b's
+   `pitch_framing` grader can read the same arms.
+5. **How it unifies:** there is one offer ledger (`trade_outcomes`) and one
+   choice log keyed to it. The producer (#233) calls `pitchFor` and the page
+   posts `pitch_choice_id` back. Nothing else stores a pitch arm.

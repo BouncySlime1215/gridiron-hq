@@ -22,6 +22,7 @@ export const HOLDS = Object.freeze(['yes', 'usually', 'rarely', 'unknown']);
 export const HOW_OFTEN = Object.freeze(['often', 'sometimes', 'once']);
 export const INFLATION = Object.freeze(['none', 'mild', 'heavy', 'unknown']);
 export const READING = Object.freeze(['belief', 'marketing', 'habit', 'mixed', 'unknown']);
+export const CONFIDENCE = Object.freeze(['high', 'medium', 'low']);
 
 // Keys Nick may set by hand on a profile. Anything else is a typo and is reported.
 export const NICK_OVERRIDE_KEYS = Object.freeze(['active', 'difficulty', 'contactable', 'buyer', 'trades',
@@ -58,8 +59,8 @@ export const NEGOTIATION_PROFILE_SCHEMA_V2 = Object.freeze({
     what_moves_him: strings,
     what_shuts_him_down: strings,
     how_to_approach: text,
-    best_bait: text,
-    confidence: enumSlot(['high', 'medium', 'low']),
+    best_bait: { anyOf: [text, { type: 'object' }] }, // an object on one live row (LOCAL run, a5598584)
+    confidence: enumSlot(CONFIDENCE), confidence_text: text,
     caveats: strings,
     // v2 — shapes not fixed by the builder; any JSON, still checked for leaked markup.
     deal_feelings: any,
@@ -68,6 +69,13 @@ export const NEGOTIATION_PROFILE_SCHEMA_V2 = Object.freeze({
     changes_since_0918: any,
     league_roster: any,
     subject: any,
+    // Seen on live rows by the LOCAL run on a5598584; shapes not fixed either.
+    relations_note: any,
+    security_note: any,
+    built_from: any,
+    built_at: any,
+    sources: any,
+    league4_trade_record: any,
     // v2 — shapes known.
     as_of: text,
     messages_read: { type: 'number' },
@@ -110,9 +118,10 @@ export function schemaErrors(schema, value, where = 'profile') {
       if (typeof value !== 'object' || Array.isArray(value)) {
         return [`${where}: expected object, got ${Array.isArray(value) ? 'array' : typeof value}`];
       }
+      if (!schema.properties) return anyMarkup(value, where); // an object of any shape
       const errs = [];
       for (const k of schema.required ?? []) if (value[k] == null) errs.push(`${where}.${k}: missing`);
-      const known = schema.properties ?? {};
+      const known = schema.properties;
       for (const k of Object.keys(value)) {
         if (!(k in known)) errs.push(`${where}.${k}: unexpected key`);
         else errs.push(...schemaErrors(known[k], value[k], `${where}.${k}`));
@@ -151,12 +160,19 @@ function anyMarkup(value, where) {
 
 // Words that only grade the next word ("very often"); the parser skips them.
 const INTENSIFIERS = new Set(['very', 'fairly', 'pretty', 'quite', 'somewhat', 'really', 'extremely', 'a']);
+// Hedges ("mostly marketing"): skipped only when the slot's own word map does
+// not give them a meaning — "mostly" is `usually` for holds.
+const HEDGES = new Set(['mostly', 'largely', 'mainly', 'primarily', 'partly', 'probably', 'likely', 'generally',
+  'genuinely', 'seems', 'appears']);
 
-/** The first meaningful word of a free-text value, lowercased; null if none. */
-export function leadingToken(value) {
+/**
+ * The first meaningful word of a free-text value, lowercased; null if none.
+ * With `words`, a leading hedge the map does not know is skipped too.
+ */
+export function leadingToken(value, words = null) {
   if (typeof value !== 'string') return null;
-  const words = value.toLowerCase().match(/[a-z0-9]+/g) ?? [];
-  return words.find(w => !INTENSIFIERS.has(w)) ?? null;
+  const all = value.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  return all.find(w => !INTENSIFIERS.has(w) && !(words && HEDGES.has(w) && !words[w])) ?? null;
 }
 
 const HOLDS_WORDS = { yes: 'yes', always: 'yes', usually: 'usually', mostly: 'usually', generally: 'usually',
@@ -175,7 +191,7 @@ const READING_WORDS = { belief: 'belief', genuine: 'belief', sincere: 'belief', 
 
 function parser(words, fallback, numeric = null) {
   return (value) => {
-    const t = leadingToken(value);
+    const t = leadingToken(value, words);
     if (t != null && words[t]) return { value: words[t], parsed: true };
     if (t != null && numeric && /^\d+$/.test(t)) return { value: numeric(Number(t)), parsed: true };
     return { value: fallback, parsed: false };
@@ -186,6 +202,10 @@ export const parseHolds = parser(HOLDS_WORDS, 'unknown');
 export const parseHowOften = parser(OFTEN_WORDS, 'sometimes', n => (n <= 1 ? 'once' : n <= 3 ? 'sometimes' : 'often'));
 export const parseInflation = parser(INFLATION_WORDS, 'unknown');
 export const parseReading = parser(READING_WORDS, 'mixed');
+const CONFIDENCE_WORDS = { high: 'high', medium: 'medium', moderate: 'medium', mid: 'medium', fair: 'medium',
+  low: 'low' };
+// Unparsed is `low`: the pricing layer weighs an unstated confidence as low too.
+export const parseConfidence = parser(CONFIDENCE_WORDS, 'low');
 
 /**
  * Parses each enum slot of one raw profile in a copy: the slot gets the enum
@@ -207,6 +227,7 @@ export function normaliseProfile(raw) {
   slot(profile.says_no, 'does_his_no_hold', parseHolds, 'says_no');
   slot(profile.praise_means, 'reading', parseReading, 'praise_means');
   slot(profile.calibration, 'inflation', parseInflation, 'calibration');
+  slot(profile, 'confidence', parseConfidence, 'profile');
   if (Array.isArray(profile.techniques)) {
     profile.techniques.forEach((t, i) => slot(t, 'how_often', parseHowOften, `techniques[${i}]`));
   }

@@ -92,3 +92,46 @@ file restored. Unit mutants in `profile-reader.js`; call-site mutants in
 | M9 `twice` → once | unit | killed | 2, 3 |
 | C1 drop `extremely` from intensifiers | designed surviving control | survived | — |
 | C2 pattern absent from file | designed not-applied control | not applied | — |
+
+## Round 2: the live rows (LOCAL run on `a5598584`)
+
+The coordinator's run of `scripts/check-negotiation-profiles.mjs` on a copy of
+the chat DB (PR #260 comment) showed 9 of 10 live rows still invalid, for
+reasons the task text had not listed:
+
+- `confidence` held a sentence on every row (`value not in high/medium/low`);
+- six more top-level keys: `relations_note`, `security_note`, `built_from`,
+  `built_at`, `sources`, `league4_trade_record`;
+- `best_bait` was an object on one row.
+
+Also: `praise_means.reading` fell back to `mixed` on most rows.
+
+**RED** `38ad0177`: the fixture gains those shapes. 0/7 pass; test 1 fails with
+`rejected: [{"name":"ME","errors":["profile.confidence: value not in high/medium/low"]}, …`
+and the parser test with `reader.parseConfidence is not a function`.
+
+**Fix.**
+- `confidence` becomes a parsed slot (high / medium / low; `moderate`, `mid`,
+  `fair` → medium; unparsed → low, which is how `PROFILE_CONFIDENCE` already
+  weighs an unstated confidence), with `confidence_text`.
+- The six keys are declared as any JSON.
+- `best_bait` accepts a string or an object.
+- A leading hedge (`mostly`, `largely`, `partly`, …) is skipped when the slot's
+  own word map does not give it a meaning, so `mostly marketing` → marketing
+  while `mostly holds` stays `usually`.
+- `test/manager-data-pipeline.test.js:610` sent `confidence: 'certain'` to show a
+  confidence error; a sentence there is now valid by design, so it sends a
+  number, which is still an error.
+
+**GREEN**: 7/7.
+
+| Mutant | Result | Failing tests |
+|---|---|---|
+| M10 confidence not parsed | killed | 1, 2, 4, 5, 6, 7 |
+| M11 `moderate` → low | killed | 3 |
+| M12 no hedge skip | killed | 3 |
+| M13 hedge skipped even when the map knows it | killed | 3 |
+| M14 `sources` undeclared | killed | 1, 7 |
+| M15 `best_bait` string only | killed | 1, 2, 7 |
+| M16 confidence fallback medium | killed | 3 |
+| C3 drop `appears` from hedges (designed surviving control) | survived | — |

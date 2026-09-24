@@ -536,8 +536,8 @@ export function blueChipsSection(board, res = {}) {
   if (!board) return unknown('The blue-chip board was not built for this run.', 'people.score');
   if (board.status === 'off') return unknown('Blue-chip scores are off (GRIDIRON_PLAYER_SCORE; on under preview).', 'people.score');
   const gain = new Map((res.suggestions ?? []).filter(x => fin(x.gain_if_landed)).map(x => [String(x.player), x]));
-  const fpWhy = board.fp?.status === 'ok' ? 'FantasyPros has no rest-of-season rank for him (or his name did not match one player).'
-    : board.fp?.reason ?? 'FantasyPros rest-of-season ranks were not read.';
+  const fpWhy = board.fp?.status === 'ok' ? 'The consensus has no rest-of-season rank for him (or his name did not match one player).'
+    : board.fp?.reason ?? 'Consensus rest-of-season ranks were not read.';
   const rows = board.rows.map(r => {
     const g = gain.get(String(r.player));
     const parts = { pick_pct: r.parts.pick_pct, prod_basis: r.parts.prod_basis, prod_pct: r.parts.prod_pct,
@@ -552,10 +552,8 @@ export function blueChipsSection(board, res = {}) {
       model_value: fin(r.model_value) ? ok(r.model_value, 'market.fc', { unit: 'market_value' })
         : unknown('The market has no price for him.', 'market.fc'),
       ...(Number.isInteger(r.model_rank) ? { model_rank: r.model_rank } : {}),
-      fp_ros_rank: fin(r.fp_ros_rank) ? ok(r.fp_ros_rank, 'fp.ros', board.fp?.scrape_date ? { as_of: board.fp.scrape_date } : {}) : unknown(fpWhy, 'fp.ros'),
-      ...(fin(r.fp_pos_rank) ? { fp_pos_rank: r.fp_pos_rank } : {}),
-      ...(Number.isInteger(r.fp_rank) ? { fp_rank: r.fp_rank } : {}),
-      ...(Number.isInteger(r.fp_prev_rank) ? { fp_prev_rank: r.fp_prev_rank } : {}),
+      // Nick's 9/23 ruling: the consensus rank is an internal input only (it drives `gaps`); its number is never served.
+      fp_ros_rank: unknown(fin(r.fp_ros_rank) ? 'internal only: consensus ranks are not shown' : fpWhy, 'fp.ros'),
       ...(g ? { title_add: num(g.gain_if_landed, 'sim.title', { se: g.gain_se, unit: 'title_odds', guess: true }) } : {}),
       gaps: [...r.gaps], protected: !!r.protected,
     };

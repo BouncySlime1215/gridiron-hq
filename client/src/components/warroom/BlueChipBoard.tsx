@@ -9,9 +9,10 @@ import ScoreBadge from './ScoreBadge';
 /**
  * PLAYER-SCORE: the "Blue chips" panel. Three views of the producer's board:
  *   others   other teams' players scoring Blue chip or above (who to go get)
- *   risers   anyone FantasyPros ranks high whose score is still mid (buy before he is a blue chip)
+ *   risers   anyone the consensus ranks high whose score is still mid (buy before he is a blue chip)
  *   mine     Nick's roster; his blue chips are protected (never given without his approval)
- * Each row: score + label badge, owner, our model's value, FantasyPros' rest-of-season rank, gap flags.
+ * Each row: score + label badge, owner, our model's value, gap flags. The consensus rank is internal only (Nick's
+ * 9/23 ruling): it drives the gap flags and is never shown.
  */
 export type BoardFilter = 'others' | 'risers' | 'mine';
 export const FILTERS: { id: BoardFilter; name: string }[] = [
@@ -20,11 +21,11 @@ export const FILTERS: { id: BoardFilter; name: string }[] = [
   { id: 'mine', name: 'My roster' },
 ];
 export const GAP_TEXT: Record<ScoreGap, string> = {
-  undervalued_blue_chip: 'FantasyPros high, our value low',
-  fading_blue_chip: 'FantasyPros falling',
+  undervalued_blue_chip: 'consensus high, our value low',
+  fading_blue_chip: 'consensus falling',
   riser: 'rising: buy before blue chip',
-  we_value_lower: 'we price him lower than FantasyPros',
-  we_value_higher: 'we price him higher than FantasyPros',
+  we_value_lower: 'we price him lower than consensus',
+  we_value_higher: 'we price him higher than consensus',
 };
 
 export function boardRows(board: BlueChipBoardData, filter: BoardFilter): BlueChipRow[] {
@@ -56,7 +57,7 @@ export default function BlueChipBoard({ field, big, initial = 'others' }: {
             {!rows.length && <div className="wr-state" role="status">No players in this view.</div>}
             {rows.length > 0 && (
               <table className="wr-table">
-                <thead><tr><th style={{ width: '36%' }}>Player</th><th>Owner</th><th>Our value</th><th>FantasyPros ROS</th>{big && <th>Gaps</th>}</tr></thead>
+                <thead><tr><th style={{ width: '36%' }}>Player</th><th>Owner</th><th>Our value</th>{big && <th>Gaps</th>}</tr></thead>
                 <tbody>
                   {rows.slice(pg.a, pg.b).map(r => (
                     <tr key={r.player} data-player={r.player}>
@@ -64,7 +65,6 @@ export default function BlueChipBoard({ field, big, initial = 'others' }: {
                         {r.protected && <span className="wr-tag" title="Never given without your approval"> protected</span>}</td>
                       <td>{r.owner == null ? 'Free agent' : r.mine ? 'You' : teamLabel(r.owner)}</td>
                       <td className="wr-num"><Val f={r.model_value} fmt={whole} /></td>
-                      <td className="wr-num"><Val f={r.fp_ros_rank} fmt={v => `#${Math.round(v)}`} /></td>
                       {big && <td>{r.gaps.map(g => GAP_TEXT[g]).join('; ')}</td>}
                     </tr>
                   ))}
@@ -73,7 +73,6 @@ export default function BlueChipBoard({ field, big, initial = 'others' }: {
             )}
             <div className="wr-sub wr-muted">
               Score = {Math.round(b.weights.pick * 100)}% draft pick + {Math.round(b.weights.production * 100)}% production ({b.weights.basis}).
-              {b.fp.status !== 'ok' && b.fp.reason ? ` FantasyPros: ${b.fp.reason}` : ''}
             </div>
           </>
         )}

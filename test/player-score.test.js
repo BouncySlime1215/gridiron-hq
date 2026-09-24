@@ -353,13 +353,13 @@ test('badge and Blue chips panel render: score + label, hurt, filters for others
     const others = textOf(renderToStaticMarkup(React.createElement(BlueChipBoard, { field: BOARD, big: true })));
     assert.match(others, /Alpha One WR 92 Elite blue chip/);
     assert.match(others, /9,100/);
-    assert.match(others, /#4/);
+    assert.doesNotMatch(others, /#4|FantasyPros/, "the consensus rank is never shown (FantasyPros ruling)");
     assert.doesNotMatch(others, /Bravo Two/, 'others view leaves Nick\'s own out');
     assert.deepEqual(boardRows(BOARD.value, 'mine').map(r => r.player), ['2']);
     assert.deepEqual(boardRows(BOARD.value, 'risers').map(r => r.player), ['3']);
     const mine = textOf(renderToStaticMarkup(React.createElement(BlueChipBoard, { field: BOARD, big: true, initial: 'mine' })));
     assert.match(mine, /Bravo Two RB 83 Blue chip protected/);
-    assert.match(mine, /not computed yet/, 'an unknown FantasyPros rank is never a number');
+    assert.doesNotMatch(mine, /FantasyPros|#[0-9]/, 'the consensus rank never appears, known or unknown');
     const off = textOf(renderToStaticMarkup(React.createElement(BlueChipBoard, { field: { status: 'unknown', source: 'people.score', reason: 'off' }, big: false })));
     assert.doesNotMatch(off, /\d+ Elite/);
   } finally { w.cleanup(); }
@@ -368,4 +368,16 @@ test('badge and Blue chips panel render: score + label, hurt, filters for others
 test('the War Room mounts the Blue chips panel only when the board is served', () => {
   const src = fs.readFileSync(path.join(REPO, 'client', 'src', 'components', 'warroom', 'WarRoom.tsx'), 'utf8');
   assert.match(src, /view\.blue_chips && view\.blue_chips\.status === 'ok' && <BlueChipBoard/);
+});
+
+// Nick's 9/23 ruling: the consensus (FantasyPros) rank is internal only. The board never shows it and the
+// server never sends its number to the page (where Coach could repeat it).
+test('consensus rank is never displayed or served (FantasyPros ruling)', async () => {
+  const fs = await import('node:fs');
+  const ui = fs.readFileSync(new URL('../client/src/components/warroom/BlueChipBoard.tsx', import.meta.url), 'utf8');
+  assert.equal(/FantasyPros/i.test(ui), false, 'no FantasyPros text in the board UI');
+  assert.equal(/fp_ros_rank|fp_rank|fp_pos_rank|fp_prev_rank/.test(ui.replace(/^\s*\*.*$/gm, '')), false, 'the board renders no consensus rank field');
+  const view = fs.readFileSync(new URL('../server/services/campaign/view.js', import.meta.url), 'utf8');
+  assert.match(view, /fp_ros_rank: unknown\(/, 'the served consensus rank is always unknown (no number)');
+  assert.equal(/fp_pos_rank:|fp_rank:|fp_prev_rank:/.test(view), false, 'no other consensus rank field is served');
 });

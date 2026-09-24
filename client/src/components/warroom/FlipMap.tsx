@@ -36,6 +36,13 @@ export default function FlipMap({ field, names, big }: { field: Field<Flip[]> | 
   const pg = usePager(shown.length, big ? 9 : 4);
   const n = namer(names);
   const whyNot = (f: Flip) => f.legs_why_not ?? 'no fair legs found';
+  // FLIP-LEGS-2: the whole package each leg asks for ('X + Y'), else the one id the producer served.
+  const legText = (f: Flip) => {
+    if (!f.legs) return null;
+    const give = n.text(f.legs.give_a_ids?.length ? f.legs.give_a_ids : [f.legs.give_a]);
+    const get = n.text(f.legs.get_b_ids?.length ? f.legs.get_b_ids : [f.legs.get_b]);
+    return <span className="wr-muted" data-testid="flip-legs">give {give} → get {get}</span>;
+  };
   const more = (g: FlipGroup) => (g.rows.length > 1 ? ` · +${g.rows.length - 1} other buyer${g.rows.length > 2 ? 's' : ''}` : '');
   const toggle = hiddenCount > 0 ? (
     <button type="button" className="wr-link" onClick={() => setAll(a => !a)} aria-expanded={all} data-testid="flip-show-all">
@@ -61,7 +68,7 @@ export default function FlipMap({ field, names, big }: { field: Field<Flip[]> | 
               <tbody>
                 {shown.slice(pg.a, pg.b).map(({ best: f, ...g }) => (
                   <tr key={g.player} data-flip-player={g.player}>
-                    <td><b>{n.one(f.player).name}</b>{g.rows.length > 1 && <span className="wr-muted"> ×{g.rows.length}</span>}</td>
+                    <td><b>{n.one(f.player).name}</b>{g.rows.length > 1 && <span className="wr-muted"> ×{g.rows.length}</span>}{f.legs && <div>{legText(f)}</div>}</td>
                     <td>{teamLabel(f.buy_from)}</td><td>{teamLabel(f.sell_to)}</td>
                     <td className="wr-num"><Val f={f.spread} fmt={pts} showSe /></td>
                     <td className="wr-num"><Val f={f.price_a} fmt={whole} /> vs <Val f={f.price_b} fmt={whole} /></td>
@@ -80,6 +87,7 @@ export default function FlipMap({ field, names, big }: { field: Field<Flip[]> | 
                     <div className="wr-sub">
                       Buy {teamLabel(f.buy_from)} → sell {teamLabel(f.sell_to)} · {f.legs ? <>both yes <Val f={f.legs.p_both} fmt={v => pct(v)} /></> : <span title={whyNot(f)}>no fair legs yet</span>}{more(g)}
                     </div>
+                    {f.legs && <div className="wr-sub">{legText(f)}</div>}
                   </li>
                 );
               })}

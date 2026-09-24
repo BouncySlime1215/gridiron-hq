@@ -88,7 +88,7 @@ const MAX_COLUMNS = 300;
 const MAX_TEXT = 500;
 
 /** Keys whose string values (or list items) are player ids in plans-schema.js. */
-const PID_KEYS = new Set(['give', 'get', 'player', 'target', 'max_give', 'untouchables', 'player_id', 'give_a', 'get_b']);
+const PID_KEYS = new Set(['give', 'get', 'player', 'target', 'max_give', 'untouchables', 'player_id', 'give_a', 'get_b', 'give_a_ids', 'get_b_ids']);
 /** Paths into the plan that are the producer's own bookkeeping, not answers. */
 const SKIP_KEYS = new Set(['cites']);
 /** Typed-field metadata left out below the section level to keep a result small (the section's own is kept). */

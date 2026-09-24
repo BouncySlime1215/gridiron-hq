@@ -50,7 +50,7 @@ const render = (view, activeId) => renderToStaticMarkup(React.createElement(WarR
 function facts(html) {
   const top = html.slice(html.indexOf('<header class="wr-top"'), html.indexOf('</header>'));
   const out = {};
-  for (const chunk of top.split('<div class="wr-fact">').slice(1)) {
+  for (const chunk of top.split(/<div class="wr-fact"[^>]*>/).slice(1)) {
     const label = chunk.match(/<span class="wr-l">([^<]+)<\/span>/)?.[1];
     if (label) out[label] = chunk;
   }
@@ -146,7 +146,64 @@ test('served view (WR_L4_SERVED_VIEW): opens on the target, strip filled', { ski
   const view = JSON.parse(fs.readFileSync(process.env.WR_L4_SERVED_VIEW, 'utf8'));
   const opensOn = openingLeague(LEAGUES, 1, TARGET_LEAGUE_ID, false) ?? 1;
   const m = wronglyNotComputed(view, render(view, view.league_id));
-  console.log(`WR-L4 served: opens_on=${opensOn} wrongly_not_computed=${m.wrong} of ${m.of} ok fields [${m.list.join(',')}]`);
+  const nm = noMove(view, render(view, view.league_id));
+  console.log(`WR-L4 served: opens_on=${opensOn} wrongly_not_computed=${m.wrong} of ${m.of} ok fields [${m.list.join(',')}] next_move=${view.next_move?.status} no_move_reason_rendered=${nm.reasonShown}`);
   assert.equal(opensOn, 4);
   assert.equal(m.wrong, 0);
+  if (view.next_move?.status === 'unknown' && view.destination?.status === 'ok') assert.ok(nm.reasonShown, 'no-move reason renders');
+});
+
+/** Whether the strip says "No move clears this week" and shows next_move's reason. */
+function noMove(view, html) {
+  const top = html.slice(html.indexOf('<header class="wr-top"'), html.indexOf('</header>'));
+  const said = top.includes('No move clears this week');
+  const reason = view.next_move?.reason;
+  const reasonShown = said && !!reason && textOf(top).includes(reason);
+  return { said, reasonShown };
+}
+
+/** plansFor4 with the producer's "searched, nothing clears" next move (as the live league-4 entry has it). */
+function plansNoMove() {
+  const plans = plansFor4();
+  plans.entries[0].next_move = { status: 'unknown', source: 'plan.path',
+    reason: 'None of the 116 paths searched clears the sliders and the fresh-dice check this week. Try another target or risk mode.' };
+  return plans;
+}
+
+test('next_move unknown: the strip says "No move clears this week" with the reason', () => {
+  const view = buildWarRoomView(4, plansNoMove(), { enabled: true, preview: false });
+  assert.equal(view.next_move.status, 'unknown');
+  const html = render(view, 4);
+  const nm = noMove(view, html);
+  assert.ok(nm.said, 'says no move clears');
+  assert.ok(nm.reasonShown, 'shows the reason');
+  assert.deepEqual(wronglyNotComputed(view, html).list, []);
+});
+
+test('a computed next move, or no plan at all, adds no no-move fact', () => {
+  const ok = buildWarRoomView(4, plansFor4(), { enabled: true, preview: false });
+  if (ok.next_move?.status === 'ok') assert.equal(noMove(ok, render(ok, 4)).said, false);
+  const none = buildWarRoomView(4, { status: 'ok', entries: [], as_of: 'x', id: 'x' }, { enabled: true, preview: false });
+  assert.equal(noMove(none, render(none, 4)).said, false, 'no plan run: not "no move clears"');
+});
+
+test('next_move failed: the strip says hidden, not "no move clears"', () => {
+  const plans = plansFor4();
+  plans.entries[0].next_move = { status: 'failed', source: 'plan.path', reason: 'x broke' };
+  const view = buildWarRoomView(4, plans, { enabled: true, preview: false });
+  const f = facts(render(view, 4));
+  assert.match(f['This week'] ?? '', /failed its check/);
+  assert.doesNotMatch(f['This week'] ?? '', /No move clears/);
+});
+
+test('live plans file (WR_L4_PLANS): the league-4 entry renders the strip filled', { skip: !process.env.WR_L4_PLANS }, () => {
+  const raw = JSON.parse(fs.readFileSync(process.env.WR_L4_PLANS, 'utf8'));
+  const plans = { status: 'ok', entries: raw.leagues, as_of: raw.generated_at, id: 'live' };
+  const view = buildWarRoomView(4, plans, { enabled: true, preview: false });
+  const html = render(view, 4);
+  const m = wronglyNotComputed(view, html);
+  const nm = noMove(view, html);
+  console.log(`WR-L4 live-plans: wrongly_not_computed=${m.wrong} of ${m.of} [${m.list.join(',')}] next_move=${view.next_move?.status} no_move_reason_rendered=${nm.reasonShown}`);
+  assert.equal(m.wrong, 0);
+  if (view.next_move?.status === 'unknown') assert.ok(nm.reasonShown);
 });

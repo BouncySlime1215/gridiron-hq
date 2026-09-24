@@ -45,6 +45,7 @@ export default function TopStrip({ view, leagues, activeId, onLeague, onExit, th
               : (risk ?? view.destination)?.status === 'failed' ? 'hidden: failed its check' : NOT_COMPUTED}
           </button>
         </div>
+        <NoMoveFact next={view.next_move} planned={!!d} />
         <div className="wr-fact"><span className="wr-l">Checks</span><span className="wr-v">
           <span className="wr-dotwrap" data-brain={isOk(brain) ? brain.value.overall : brain?.status ?? 'unknown'}
             title={isOk(brain) ? `Brain check: ${BRAIN_WORDS[brain.value.overall] ?? brain.value.overall}` : brain?.reason ?? `Brain check ${NOT_COMPUTED}`}>
@@ -77,6 +78,27 @@ function NumberDot({ health }: { health: WarRoomView['number_health'] }) {
     <span className="wr-dotwrap" title={health?.reason ?? text} data-health={color}>
       <span className={`wr-dot wr-dot-${color}`} />
     </span>
+  );
+}
+
+export const NO_MOVE = 'No move clears this week';
+
+/**
+ * WR-L4: when the producer searched and found no move (`next_move` unknown with a reason),
+ * the strip says so in words, with the producer's reason, instead of leaving it to a blank
+ * deck. A computed next move needs no strip fact (the deck shows it); a failed one says failed.
+ */
+function NoMoveFact({ next, planned }: { next: WarRoomView['next_move']; planned: boolean }) {
+  // Only a league the planner ran for (destination ok): with no plan at all, "no move clears" would be false.
+  if (!planned || !next || isOk(next)) return null;
+  const failed = next?.status === 'failed';
+  return (
+    <div className="wr-fact" data-testid="no-move"><span className="wr-l">This week</span><span className="wr-v">
+      <span className={failed ? 'wr-fail' : 'wr-amber'} data-state={failed ? 'failed' : 'no-move'}>
+        {failed ? 'Next move hidden: failed its check' : NO_MOVE}
+      </span>
+      {next?.reason && <span className="wr-muted" data-testid="no-move-reason"> {next.reason}</span>}
+    </span></div>
   );
 }
 

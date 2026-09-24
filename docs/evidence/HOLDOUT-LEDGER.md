@@ -321,10 +321,21 @@ Two sources of `F` rows besides a unit's own rule-5 check:
 | F005 | 2026-09-23 | RL-11-1 (branch claude/local-rl-11-1-activity-receptiveness) | fantasy | other | the activity receptiveness term (adds per week + has traded) ranks 2026 teams that complete a trade in week w+1, w = 1-2 | within-league-week AUC, league_transactions_raw (local copy) | HOLDS by rule 5 (point > 0.5), anecdote-sized: 20 team-weeks, 6 trade sides, 1 league | 0.6875 |  |  |  |  | higher | no (default-off: 2024 held-out AUC 0.6439 missed its 0.645 bar) | `docs/tdd/2026-09-23-activity-receptiveness.tdd.md` | no interval (one league); MDE80 0.359; an earlier run on ce7d6137 with a trade-count bug gave 0.7568, superseded |
 | F006 | 2026-09-23 | RL-11-1 (branch claude/local-rl-11-1-activity-receptiveness) | fantasy | other | re-run of F005 after skeptic review: same data and function, the dead-start producer now matches names through normalizePlayerName, and the interval is the pre-registered team-cluster bootstrap | within-league-week AUC, league_transactions_raw (local copy) | HOLDS by rule 5 on the team-cluster interval, anecdote-sized: 20 team-weeks, 6 trade sides, 1 league, 10 teams | 0.6875 | 0.4667 | 0.8833 | 0.90 |  | higher | no (default-off: 2024 held-out AUC 0.6439 missed its 0.645 bar) | `docs/tdd/2026-09-23-activity-receptiveness.tdd.md` | F005's 'no interval' came from resampling leagues, a deviation from the pre-registration; MDE80 0.359 |
 | F017 | 2026-09-23 | PROJ-03-a (branch claude/local-proj-03-a-game-script-sampler) | fantasy | other | Rule-5 forward check: bucketed Gamma game-script sampler (fit 2021-25) is calibrated and CRPS no worse than Normal(implied, pooled sd) on 2026 weeks 1-2 | pooled 80% coverage (64 team-games) and mean CRPS d, local copy | does NOT hold: coverage 0.734 [0.615, 0.827] contains 0.80 but d +0.073 [+0.035, +0.110] > +0.05; unit declined on 2023/2024 pre-reg | +0.073 | +0.035 | +0.110 | 95 |  | - | no | `docs/tdd/2026-09-23-proj-03a-game-script-sampler.tdd.md` section 6 | 2025 used as training only, not scored |
+| F028 | 2026-09-23 | S-03 `153669da` | fantasy | other | S1 (structural head + coordinator, stored fit 7) is no worse than the ensemble on 2026 week 2: S-03's rule-5 check of S-02's decision | ΔMAE, 304 played rows (ΔDNP-MAE −0.208 [−0.259, −0.157] on 360 decision rows) | holds (both point estimates ≤ 0) | -0.136 | -0.1915 | -0.0789 | 90 |  | - | yes (coordinator on in both windows; weeks 5-17 on this proxy) | `docs/evidence/2026-09-22/weekly-construction-walk-forward.md:149` | local copy, not production; S-02 read the same week first (−0.1353), no row; S1 = B on these rows |
+| F029 | 2026-09-23 | S-03 `153669da` | fantasy | other | The betting-line lift (arm C) beats the ensemble on 2026 week 2 (report-only) | ΔMAE, 304 played rows | not distinguishable | -0.0304 | -0.0694 | +0.0073 | 90 |  | - | no (lift off: failed its pre-registered rule in 2025) | `docs/evidence/2026-09-22/weekly-construction-walk-forward.md:151` | local copy, not production |
+| F030 | 2026-09-23 | S-03 `153669da` | fantasy | other | The pre-S-03 served construction D (B × lift) beats the ensemble on 2026 week 2 (report-only) | ΔMAE, 304 played rows | better than A; 0.030 better than S1 on this week | -0.166 | -0.225 | -0.1016 | 90 |  | - | no (replaced by S1) | `docs/evidence/2026-09-22/weekly-construction-walk-forward.md:152` | one week: an anecdote under rule (e) |
+| F031 | 2026-09-23 | S-03 `a0917685` | fantasy | other | Reproduction of F028-F030 on the final code tree | same | identical output | -0.136 | -0.1915 | -0.0789 | 90 |  | - | n.a. | `docs/evidence/2026-09-22/weekly-construction-walk-forward.md:8` | a re-run spends the week again, so it is a row |
 
 Before F001 there were none. On a local copy (not production, 2026-09-22), `weekly_ensemble_fits`
 has 2 rows, both through 2025 week 18 (the known-nonzero control), and
 `model_backtests` has 0 rows.
+
+S-03's rows (F028-F031) were F001-F004 on its branch. They were renumbered to F018-F021 at its
+first merge of main, then to F028-F031 on 2026-09-24 (FIX-166-1): PROJ-02-a holds F016-F021 on
+main (F017 is also used by PROJ-03-a above), and open PRs hold F022-F026 (#164 BLEND-01) and
+F027 (#207 RL-8-2b), so F028 is the first id nobody claims. S-02's forward look at the same 2026 week 2
+(2026-09-22 20:45 UTC, `docs/evidence/2026-09-22/weekly-construction-grade.md` section 8)
+predates this ledger and has no row; it is noted on F028.
 
 **HX-01's forward read (added 2026-09-22).** The rows below are the 2026 week-2 forward read of
 HX-01 (historical head-to-head against consensus;
@@ -348,7 +359,7 @@ Which arm counts as served is settled once S-12 stores the served `week_points` 
 F001-F007 were first written in `c100bf91` calling OURS-replay "our served start/sit number";
 they were relabelled before merge (they never reached main), with every number unchanged. F008-F015
 were added in HX-01's round 3. The ids collide with the unmerged S-03 and BLEND-01 branches'
-`F` rows: whichever merges second renumbers.
+`F` rows: whichever merges second renumbers. (S-03 merged second and took F028-F031, the first ids no merged row or open PR claims.)
 
 | id | date | unit/PR | domain | family | hypothesis | metric | result | est | lo | hi | level | p (source) | better | shipped | file:line | note |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|

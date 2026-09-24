@@ -329,13 +329,25 @@ const CAPABILITIES = [
   {
     id: 'crossover.vegas_to_fantasy',
     question: 'What does the betting market imply for fantasy volume?',
-    module: 'gamescript -> waiver-brain.vegasLift',
+    module: 'gamescript -> waiver-brain.vegasLift (switched off: waiver-brain.js BETTING_LINE_LIFT)',
     domain: 'crossover',
-    evidence: { kind: 'fitted',
-      note: 'Game-script multipliers fitted out of sample and clamped to [0.75, 1.30].' },
-    baseAuthority: 'advisory',
-    note: 'Applied to a start/sit call at full weight because that decision IS one week, and to a ' +
-      'trade valuation at a quarter weight because a single line says little about fifteen weeks.'
+    evidence: { kind: 'sealed_audit_negative',
+      note: 'The game-script multipliers are fitted on the betting side and clamped to [0.75, 1.30], but ' +
+        'their use as a FANTASY multiplier had never been graded until S-02 (pre-registered, 2025 held ' +
+        'out): it made weekly projections less accurate (weeks 2-4 MAE +0.030 [+0.014, +0.047]; weeks ' +
+        '5-17 +0.009 [-0.001, +0.019], worse once missed games count) and failed its rule; S-03 graded it ' +
+        'walk-forward on 2023 and 2024 and it failed in all four season-windows. ' +
+        'docs/evidence/2026-09-22/weekly-construction-grade.md, docs/evidence/2026-09-22/weekly-construction-walk-forward.md.' },
+    baseAuthority: 'retired',
+    note: 'Switched off by S-03 (2026-09-22) in the three numbers that read vegasLift: Start/Sit, the ' +
+      'League Hub card and the waiver horizon all apply 1, through the one switch. Not yet in two ' +
+      'others, which multiply sampled volume by the line directly: the Ceiling tab (ceiling-lineup.js) ' +
+      'and the season simulation behind title/playoff odds and trade impact (season-sim.js); S-06 and ' +
+      'S-05 own those files. When it did change a 2025 weeks 5-17 start/sit call it was right 53.7% of ' +
+      'the time; a ranking-only version is an untested idea that needs its own pre-registration, not a ' +
+      'reason to keep this one.',
+    refuses: 'Cannot move a Start/Sit number, a League Hub card number or a waiver value. Still moves the ' +
+      'Ceiling tab and the season simulation until S-06 and S-05 route them through the switch.'
   },
   {
     id: 'crossover.fantasy_to_betting_spread_total',

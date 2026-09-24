@@ -348,6 +348,9 @@ export function waiverBoard(lg, {
 
   return {
     season: week.season, week: week.week, roster_id: rosterId,
+    // What this week's points are built from: the one produced basis (label, lift switch,
+    // field and producer) the Start/Sit and League Hub cards carry (FIX-166-4).
+    week_basis: assets.context?.week_basis ?? null,
     baseline_points: +baselinePoints.toFixed(2),
     free_agents_considered: free.length,
     pool_size: unowned.length,

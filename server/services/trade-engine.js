@@ -67,12 +67,18 @@ import { activeInjuryFlagIds } from './injury-flags.js';
 import { cached, fingerprint } from './compute-cache.js';
 import { activeWeeklyWeightSet } from './weekly-weight-store.js';
 import { scoringFor } from './scoring.js';
-import { activeFantasyCoordinatorFit, weeklyExpertValues, coordinateFantasy } from './fantasy-coordinator.js';
+import {
+  activeFantasyCoordinatorFit, servedWeekConstruction, weekConstructionBasis, servedCoordinatorFitKey
+} from './fantasy-coordinator.js';
 import { dynastyAgeAdjustment } from './dynasty-age-curve.js';
 // lineupDiff() only: the Start/Sit tab's own game-script lift (so both pages price
-// this week identically), the normal CDF behind a swap's probability, and the
-// write that retires a lineup recommendation lineupDiff() itself published.
-import { vegasLift } from './waiver-brain.js';
+// this week identically; switched off since S-03, see waiver-brain.js#vegasLift), the
+// normal CDF behind a swap's probability, and the write that retires a lineup
+// recommendation lineupDiff() itself published. BETTING_LINE_LIFT is read only to label
+// the week number (context.week_basis, and lineupDiff's week_basis when a caller passes
+// plain assets), never to price it.
+import { vegasLift, BETTING_LINE_LIFT } from './waiver-brain.js';
+import { blendWeek, blendWeekFlag, horizonPpg, servedBlendWeek } from './blend-week.js';
 // The league's wire, for lineupValue()'s replacement level (one producer with the
 // Waivers page's waiverBoard()).
 import { leagueWire } from './league-wire.js';
@@ -290,9 +296,12 @@ function servedInputsDigest(season, week) {
  */
 const assetInputsKey = (lg, formatKey, target) =>
   `${lg.id}:${formatKey}:${target.season}:${target.week}:` +
+  // The served coordinator fit (S-03): promoting one is an UPDATE that moves no row
+  // count and no stamp, so the table fingerprint alone would keep serving the old number.
+  `c${servedCoordinatorFitKey()}:` +
   `w${activeWeeklyWeightSet({ season: target.season, week: target.week }).id}:` +
   `d${servedInputsDigest(target.season, target.week)}:h${handFedKey(handFedInputs())}:` +
-  `i${injuryFlagKey()}`;
+  `i${injuryFlagKey()}:bw${blendWeekFlag().on ? 1 : 0}`;
 
 // A flag goes stale by the clock alone (injury-flags.js), with no table write, so the
 // active set itself is part of the key (RL-12-2).
@@ -317,6 +326,10 @@ function buildAssetUniverse(lg, formatKey, target) {
   // actually decide ITS title (see trade-horizon.js#leagueSchedule).
   const { playoffWeeks } = leagueSchedule(lg);
   const playoffWeeksLeft = playoffWeeks.filter(w => w >= target.week).length;
+  // BROKEN-G: with the flag on, every asset carries the one this-week number
+  // (blend-week.js#blendWeek) and adj_ppg is derived from it. Read once per build;
+  // the flag is part of assetInputsKey so a flip rebuilds.
+  const blendFlag = blendWeekFlag();
   // formatKey is `dyn_...`/`rd_...` per deriveFormat (format.js) — the age
   // decay only makes sense for a dynasty/keeper valuation, never redraft.
   const isDynasty = formatKey.startsWith('dyn_');
@@ -337,11 +350,10 @@ function buildAssetUniverse(lg, formatKey, target) {
     rosFailure = `rest-of-season model failed (${error.message}); ros_ppg is the weekly number`;
     console.error(`[trade-engine] league ${lg.id}, ${target.season} W${target.week}: ${rosFailure}`);
   }
-  // Read-only, no computation — the coordinator itself is refit on a schedule
-  // (scheduler.js#fantasy_coordinator_refit) and persisted; walk-forward
-  // verified (fantasy-coordinator.js's own doc-comment) to beat the plain
-  // structural+ensemble number it corrects. `ready: false` before the first
-  // background refit falls back to exactly today's prior behavior below.
+  // Read-only, no computation. The coordinator is refit on a schedule
+  // (scheduler.js#fantasy_coordinator_refit) as a candidate, and only a PROMOTED fit
+  // is returned (S-03): `ready: false` means this week's number is the ensemble alone,
+  // and context.week_basis says so.
   const fantasyFit = activeFantasyCoordinatorFit();
   const active = weeklyAvailability(target.season, target.week, { through: target.season - 1 });
   const board = new Map(vorBoard(lg.team_count || 12).map(p => [p.id, p]));
@@ -389,13 +401,20 @@ function buildAssetUniverse(lg, formatKey, target) {
     const activeProbability = availability?.active_probability ?? 0.92;
     const weeklyPpg = weekProjection?.ppg ?? (proj / GAMES);
     const thisGame = sched.games?.find(game => game.week === target.week) ?? null;
-    // The coordinator only corrects THIS week's number (ensemble_shift and
-    // game-script are both week-specific signals) — weeklyPpg itself, used
-    // below for ROS/season-long figures, is untouched: the coordinator was
-    // only walk-forward validated against weekly outcomes, not season totals.
-    const expertValues = weekProjection ? weeklyExpertValues(weekProjection, target.season, target.week, scoring) : null;
-    const coordinated = expertValues ? coordinateFantasy(fantasyFit, expertValues, weeklyPpg) : null;
-    const currentWeekBasePpg = coordinated?.ready ? coordinated.corrected_ppg : weeklyPpg;
+    // This week's number before availability: the ONE served construction
+    // (fantasy-coordinator.js#servedWeekConstruction). With a promoted fit, in its
+    // promoted weeks, it is the fit's own base plus its correction: the structural
+    // head plus the structural-residual correction, S-02's winning arm S1. It used to
+    // add that correction to the ensemble (weeklyPpg): arm B, which S-02 and S-03 graded
+    // and which passed, but is the combination S-02 did not pick.
+    // The coordinator only corrects THIS week's number — weeklyPpg itself, used below
+    // for ROS/season-long figures, is untouched: the coordinator was only graded
+    // against weekly outcomes, not season totals.
+    const construction = weekProjection
+      ? servedWeekConstruction(weekProjection, { fit: fantasyFit, season: target.season, week: target.week, scoring })
+      : null;
+    const coordinated = construction?.coordinated ?? null;
+    const currentWeekBasePpg = construction?.ppg ?? weeklyPpg;
     // thisGame.mult is exactly 1 while the matchup signal is off (matchups.js#
     // gameMultiplier); kept as a factor so this line needs no edit if a multiplier
     // ever passes the harness. thisGame itself is the bye detector: no game, 0.
@@ -431,7 +450,13 @@ function buildAssetUniverse(lg, formatKey, target) {
     // A trade is a rest-of-season decision, not DFS. The live week matters, but
     // it cannot erase the remaining schedule or turn a bye into a player-value
     // collapse. The weekly engine itself refreshes from every completed week.
-    const decisionPpg = 0.25 * currentWeekPpg + 0.75 * rosPpg;
+    // Flag off: the unlifted week number, exactly as before. Flag on: blend.week, the
+    // same number Start/Sit and the lineup card print (BROKEN-G).
+    const bw = blendFlag.on
+      ? blendWeek({ current_week_ppg: +currentWeekPpg.toFixed(2), team_abbr: p.team_abbr, position: p.position },
+        target.season, target.week)
+      : null;
+    const decisionPpg = horizonPpg(bw ? bw.value : currentWeekPpg, rosPpg);
     // 2,000 draws, playerWeekDistribution's own default. This used to override it
     // down to 400, and at 400 the percentiles are not stable enough to print, let
     // alone difference across the two sides of a trade: measured over 200 re-draws
@@ -507,16 +532,27 @@ function buildAssetUniverse(lg, formatKey, target) {
       schedule_signal: scheduleTilt, schedule_reason: scheduleTilt ? null : (sched.reason ?? MATCHUP_SIGNAL_REASON),
       adj_ppg: +decisionPpg.toFixed(2),
       current_week_ppg: +currentWeekPpg.toFixed(2),
+      // BROKEN-G: present only with the flag on. The one this-week number the three
+      // pages read; current_week_ppg above stays as its input (proj.week). Which field
+      // the pages print is context.week_basis.field (the one week_basis, FIX-166-3).
+      ...(bw ? { blend_week: bw.value, blend_week_vegas: bw.vegas } : {}),
       // His team has no game in the target week (onBye above, the same detector
       // current_week_ppg uses). weekLineup() reads it so selfScout and a trade card's
       // weekly floor/ceiling solve this week's lineup without him (RL-5-3).
       bye_this_week: onBye,
       // Transparency for the correction folded into current_week_ppg above —
-      // null when no fit is persisted yet (fantasy_coordinator_refit hasn't
-      // run) or this player has no weekly projection to correct.
-      fantasy_coordinator: coordinated?.ready
-        ? { corrected_ppg: coordinated.corrected_ppg, correction: coordinated.correction, contributions: coordinated.contributions }
+      // null when no fit is promoted, the week is outside its promoted windows, or
+      // this player has no weekly projection to correct (construction.coordinator_off).
+      fantasy_coordinator: coordinated
+        ? { corrected_ppg: coordinated.corrected_ppg, correction: coordinated.correction, contributions: coordinated.contributions,
+          base: construction.base }
         : null,
+      // What current_week_ppg was built from, before this game's factor and the chance to
+      // play: 'structural+coordinator' | 'ensemble+coordinator' | 'ensemble', or
+      // 'season_projection' when there is no weekly projection (the season total / 17).
+      // The sentence for a reader is context.week_basis.label; `week_basis` itself is
+      // only ever that one object (fantasy-coordinator.js#weekConstructionBasis).
+      week_construction: construction?.basis ?? 'season_projection',
       ros_ppg: +rosPpg.toFixed(2),
       // What ros_ppg was built from; null = no ROS entry (no game yet), { failed } = the
       // ROS build failed; in both cases ros_ppg is the weekly number.
@@ -555,7 +591,12 @@ function buildAssetUniverse(lg, formatKey, target) {
     // Which availability model priced active_probability: 'role' | 'pooled' | 'constants'
     // and the fit tables that are missing (contingency.js#availabilityBasis). The cache
     // fingerprint stamps both fit tables, so this matches the cached numbers.
-    availability_basis: availabilityBasis()
+    availability_basis: availabilityBasis(),
+    // What this week's number is built from (S-03): the served coordinator fit and its
+    // windows, the betting-line lift's switch, and one plain sentence for the page.
+    // One shape (FIX-166-3): it also names the field the pages print (blend.week or
+    // current_week_ppg) and its producer, read from the same flag this build used.
+    week_basis: weekConstructionBasis({ fit: fantasyFit, week: target.week, lift: BETTING_LINE_LIFT, blend: blendFlag })
   };
   return out;
 }
@@ -1481,7 +1522,10 @@ export function lineupSpan(beforePlayers, afterPlayers, slots, weeksLeft) {
   if (weeksLeft <= 0) return 0;
   const leg = (players, field) => bestLineup(players.map(p =>
     ({ ...p, span_leg: p[field] ?? p.adj_ppg ?? 0 })), slots, 'span_leg').points;
-  const now = leg(afterPlayers, 'current_week_ppg') - leg(beforePlayers, 'current_week_ppg');
+  // This week's leg is blend.week when the asset carries it (BROKEN-G flag on).
+  const nowLeg = players => bestLineup(players.map(p =>
+    ({ ...p, span_leg: servedBlendWeek(p) ?? p.current_week_ppg ?? p.adj_ppg ?? 0 })), slots, 'span_leg').points;
+  const now = nowLeg(afterPlayers) - nowLeg(beforePlayers);
   const rate = weeksLeft > 1 ? leg(afterPlayers, 'ros_ppg') - leg(beforePlayers, 'ros_ppg') : 0;
   return +(now + (weeksLeft - 1) * rate).toFixed(1);
 }
@@ -1507,7 +1551,7 @@ const slim = p => ({
   floor: p.floor, ceiling: p.ceiling, consistency: p.consistency,
   // sos / playoff_sos are left off: 1 with no validated signal behind them
   // (matchups.js), and a card or prompt that shows them invites reading a schedule.
-  current_week_ppg: p.current_week_ppg, bye_this_week: p.bye_this_week === true, ros_ppg: p.ros_ppg, fantasy_coordinator: p.fantasy_coordinator,
+  current_week_ppg: p.current_week_ppg, ...(servedBlendWeek(p) != null ? { blend_week: p.blend_week } : {}), bye_this_week: p.bye_this_week === true, ros_ppg: p.ros_ppg, fantasy_coordinator: p.fantasy_coordinator,
   active_probability: p.active_probability, injury_status: p.injury_status,
   practice_status: p.practice_status, model_cutoff: p.model_cutoff,
   role_change: p.role_change, matchup: p.matchup,
@@ -1715,7 +1759,7 @@ function ideaContext(lg, { me, assets, odds, horizon, counterparties, useCounter
     playoff_odds_source: odds.source,
     playoff_odds_interval: odds.interval ?? null,
     horizon: { now: horizon.now, playoff: horizon.playoff,
-      playoff_weeks: horizon.playoff_weeks_label, note: horizonNote(horizon, { playoff_tilt: 0 }) },
+      playoff_weeks: horizon.playoff_weeks_label, note: horizonNote(horizon, { playoff_tilt: 0 }, assets.context?.week_basis) },
     counterparty_available: useCounterparty && counterparties.size > 0,
     counterparty_managers: counterparties.size,
     availability_basis: assets?.context?.availability_basis ?? null,
@@ -2008,7 +2052,7 @@ function findTradesUncached(lg, {
           scoreSigned, scoreUnperceived });
         deals.push({
           partner: them.owner, partner_id: them.roster_id,
-          horizon: { ...horizon, ...gain, note: horizonNote(horizon, gain) },
+          horizon: { ...horizon, ...gain, note: horizonNote(horizon, gain, assets.context?.week_basis) },
           i_give: give.map(slim), i_get: get.map(slim),
           tags: tagDeal(give, get, ev),
           ...ev,
@@ -2621,7 +2665,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
     priced.push({
       i_give: give.map(slim), ratio: +ratio.toFixed(2), give_value: giveValue,
       ...ev,
-      horizon: { ...horizon, ...gain, note: horizonNote(horizon, gain) },
+      horizon: { ...horizon, ...gain, note: horizonNote(horizon, gain, assets.context?.week_basis) },
       counterparty: rungCounterparty(counterparties, owner, tier, { theirGive: [target], theirGet: give }),
       // Best offer = most horizon-weighted lineup gain per unit of market value
       // surrendered. Same currency findTrades ranks on.
@@ -2779,7 +2823,7 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
       priced.push({
         i_give: give.map(slim), ratio: +ratio.toFixed(2), give_value: giveValue,
         ...ev,
-        horizon: { ...horizon, ...gain, note: horizonNote(horizon, gain) },
+        horizon: { ...horizon, ...gain, note: horizonNote(horizon, gain, assets.context?.week_basis) },
         counterparty: rungCounterparty(counterparties, owner, tier, { theirGive: theirTargets, theirGet: give }),
         efficiency: +(gain.value / Math.max(1, giveValue / 100)).toFixed(3)
       });
@@ -2998,14 +3042,17 @@ const ESPN_PLAYING = new Set(['ACTIVE', 'QUESTIONABLE', 'DAY_TO_DAY', 'PROBABLE'
  * This week's number for one player, built exactly as lineup-brain.js#lineupCall
  * builds `week_points` for the Start/Sit tab: current_week_ppg (this Sunday's
  * projection times his chance to play, 0 on a bye; no opponent adjustment, none
- * is validated — matchups.js) times this week's
- * game-script multiplier from the betting line. Kept identical on purpose — if
+ * is validated — matchups.js) times vegasLift's multiplier, which is 1 while
+ * waiver-brain.js#BETTING_LINE_LIFT is off (S-03). Kept identical on purpose — if
  * the two drift, the League Hub card and the Start/Sit tab name different
  * lineups. The `?? adj_ppg ?? ppg` fallback only fires when the field is absent,
  * never on a real 0 (a bye), same as weekPpg() in lineup-posture.js and
  * waiver-wire.js (commit fe38e93).
  */
-function lineupDiffWeekPoints(p, season, week) {
+export function lineupDiffWeekPoints(p, season, week) {
+  // BROKEN-G flag on: the served blend.week, never a second lift on its own call.
+  const served = servedBlendWeek(p);
+  if (served != null) return served;
   const base = p.current_week_ppg ?? p.adj_ppg ?? p.ppg ?? 0;
   const lift = vegasLift(p, season, week);
   const v = base * (lift.applied ? lift.multiplier : 1);
@@ -3171,6 +3218,12 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null, now = Da
   if (!me) return { error: `team ${requested} is not in this league`, not_found: true };
   const isMine = lg.my_team_id != null && me.roster_id === String(lg.my_team_id);
   const { season, week } = tradeWeekContext();
+  // What week_points is built from: the one produced label (fantasy-coordinator.js#
+  // weekConstructionBasis, which reads the served fit and the BETTING_LINE_LIFT switch), so
+  // the card's sentence follows the switch instead of asserting the lift. A caller that
+  // prices the players itself (plain assets, no context) gets the same label, built here.
+  const weekBasis = assets.context?.week_basis
+    ?? weekConstructionBasis({ fit: activeFantasyCoordinatorFit(), week, lift: BETTING_LINE_LIFT, blend: blendWeekFlag() });
 
   const payload = JSON.parse(lg.payload);
   const espnTeam = payload.teams?.find(t => String(t.id) === me.roster_id);
@@ -3331,8 +3384,10 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null, now = Da
     locked: mine.filter(p => pins.has(p.id)).map(p => ({ ...brief(p),
       slot: locks.byId.get(p.id).slot, reason: locks.byId.get(p.id).reason, kickoff: locks.byId.get(p.id).kickoff })),
     lock_coverage: locks.covered,
-    note: `Week ${week} projection: this Sunday's game (0 on a bye) and injury odds, with the betting line's game script — ` +
-      'the same numbers as the Start/Sit tab. p_right is how often the higher projection actually outscored the ' +
-      'other at that gap in the 2023-2025 weekly replay.'
+    // Rendered on the League Hub card (MyTeam.tsx#LineupDiffCard) as the week's basis.
+    week_basis: weekBasis,
+    note: `Week ${week} projection (0 on a bye), the same numbers as the Start/Sit tab. ${weekBasis.label} ` +
+      'p_right is how often the higher projection actually outscored the other at that gap in the 2023-2025 ' +
+      'weekly replay.'
   };
 }

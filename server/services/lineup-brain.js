@@ -355,6 +355,11 @@ const SKILL_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE']);
  * same construction for the League Hub card.
  */
 export function startSitWeekPoints(p, season, week) {
+  // BROKEN-G flag on: the asset already carries blend.week (blend-week.js), built
+  // this same way once per universe; read it instead of lifting a second time.
+  if (Number.isFinite(p?.blend_week)) {
+    return { week_points: p.blend_week, vegas: p.blend_week_vegas ?? { multiplier: 1, line: null, applied: false } };
+  }
   const lift = vegasLift(p, season, week);
   // adj_ppg is a 25%-current/75%-rest-of-season blend built for the trade horizon, not
   // this decision, so it is only a fallback for a player with no week number at all.
@@ -709,6 +714,9 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
 
   return {
     league: lg.name, owner: me.owner, season, week, objective,
+    // What week_points is built from: the one produced basis the matchup card and the
+    // League Hub card carry (fantasy-coordinator.js#weekConstructionBasis, FIX-166-4).
+    week_basis: assets.context?.week_basis ?? null,
     // Starters set on ESPN who are Out, Doubtful, IR, on bye or inactive, each with a
     // one-tap bench replacement (suggested, never applied). The page shows it first.
     dead_starters: deadStarterCheck,

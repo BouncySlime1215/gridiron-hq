@@ -12,9 +12,12 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-fantasy-coordinator
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
 const { db } = await import('../server/db/index.js');
+// Migration 072 adds the promotion columns activeFantasyCoordinatorFit reads.
+const { runMigrations } = await import('../server/db/migrate.js');
+await runMigrations();
 const {
   fitFantasyCoordinator, coordinateFantasy, saveFantasyCoordinatorFit, activeFantasyCoordinatorFit,
-  weeklyProjectionFor, __test
+  promoteFantasyCoordinatorFit, weeklyProjectionFor, __test
 } = await import('../server/services/fantasy-coordinator.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -116,7 +119,9 @@ test('activeFantasyCoordinatorFit reports not-ready before any fit has been pers
   assert.equal(activeFantasyCoordinatorFit().ready, false);
 });
 
-test('a not-ready fit is never persisted; only a real fit is, and it round-trips exactly', () => {
+const WINDOWS = { '2-4': 'on', '5-17': 'on' };
+
+test('a not-ready fit is never persisted; a real fit is stored as a candidate and round-trips exactly once promoted', () => {
   const notReady = fitFantasyCoordinator(syntheticExamples().slice(0, 50));
   const skipResult = saveFantasyCoordinatorFit(notReady, 2024);
   assert.equal(skipResult.inserted, false, 'a warmup result has nothing usable and must not be stored');
@@ -125,18 +130,27 @@ test('a not-ready fit is never persisted; only a real fit is, and it round-trips
   const real = fitFantasyCoordinator(syntheticExamples());
   const saveResult = saveFantasyCoordinatorFit(real, 2024);
   assert.equal(saveResult.inserted, true);
+  assert.equal(saveResult.promoted, false);
+  assert.equal(activeFantasyCoordinatorFit().ready, false, 'a saved fit is a candidate until it is promoted (S-03)');
 
+  promoteFantasyCoordinatorFit(saveResult.id, { windows: WINDOWS, evidence: 'test fixture' });
   const active = activeFantasyCoordinatorFit();
   assert.equal(active.ready, true);
   assert.deepEqual(active.coefficients, real.coefficients);
+  assert.equal(active.fit_row.id, saveResult.id);
 });
 
-test('the latest saved fit wins over an earlier one', () => {
+test('the promoted fit is served over a later save; promoting the later one serves it instead', () => {
   const first = fitFantasyCoordinator(syntheticExamples());
-  saveFantasyCoordinatorFit(first, 2023);
-  const second = fitFantasyCoordinator(syntheticExamples());
-  saveFantasyCoordinatorFit(second, 2024);
+  const firstSave = saveFantasyCoordinatorFit(first, 2023);
+  promoteFantasyCoordinatorFit(firstSave.id, { windows: WINDOWS, evidence: 'test fixture' });
+  const second = fitFantasyCoordinator(syntheticExamples().slice(0, 250));
+  const secondSave = saveFantasyCoordinatorFit(second, 2024);
+  assert.equal(activeFantasyCoordinatorFit().fit_row.id, firstSave.id, 'a newer candidate changes nothing');
+  promoteFantasyCoordinatorFit(secondSave.id, { windows: WINDOWS, evidence: 'test fixture' });
   assert.equal(activeFantasyCoordinatorFit().rows, second.rows);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM fantasy_coordinator_fits WHERE promoted = 1').get().n, 1,
+    'promotion demotes the previous fit, so exactly one row is served');
 });
 
 test('weeklyProjectionFor returns null for a player with no real weekly projection, not a guess', () => {

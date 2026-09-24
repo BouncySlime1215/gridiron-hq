@@ -193,8 +193,9 @@ export function horizonWeights(week, {
  * (playoff_sos, via playoff_ppg) failed the weekly walk-forward test —
  * home field and DvP were no better than nothing on 2025 (matchups.js,
  * 2026-09-17) — and is 1 while that stays true. So the two legs differ only by
- * WHEN points land: the "now" leg carries this week (its injuries, its byes, its
- * betting-line correction) and the playoff leg carries playoff-week byes. The
+ * WHEN points land: the "now" leg carries this week (its injuries, its byes, and its
+ * betting-line correction only while waiver-brain.js#BETTING_LINE_LIFT is on, which it is
+ * not since S-03) and the playoff leg carries playoff-week byes. The
  * importance weighting is not applied here: it lives in horizonWeights() (a playoff
  * week worth playoffImportance() regular weeks, times P(make playoffs)) and reaches
  * this function only through `weights`. That weight is the unmeasured best-ball 4
@@ -248,8 +249,15 @@ export function horizonGain({ ppgDelta, playoffPpgDelta, nowBaseline, playoffBas
   };
 }
 
-/** One line a human can read, explaining which horizon drove the ranking. */
-export function horizonNote(weights, gain) {
+/**
+ * One line a human can read, explaining which horizon drove the ranking.
+ *
+ * `weekBasis` is the asset universe's context.week_basis (fantasy-coordinator.js#
+ * weekConstructionBasis). The betting line is named as part of this week's number only
+ * when its switch is on there; otherwise (off, or no basis passed) the note carries the
+ * produced label instead of claiming a line adjustment (FIX-166-4).
+ */
+export function horizonNote(weights, gain, weekBasis = null) {
   if (weights.playoff < 0.15) {
     return 'Ranked almost entirely on the remaining regular season — playoff odds are too low for December to matter.';
   }
@@ -262,11 +270,15 @@ export function horizonNote(weights, gain) {
   // injury report or bye on any player involved; 27 of them went to ~0 when this
   // week's number was set to the weekly rate, i.e. the chance-to-play prior
   // (contingency.js, ~0.57-0.86 for healthy starters) is what moves them.
+  const liftOn = weekBasis?.betting_line_lift?.on === true;
+  const label = weekBasis?.label ? ` ${weekBasis.label}` : '';
   if (gain.playoff_tilt > 0.4) {
-    return `${pct}% of this is weighted to weeks ${weeks}, and the deal is worth ${gain.playoff_tilt.toFixed(1)} more per week there than it is now — this week's number is cut by each player's modelled chance to play (and any bye or betting-line adjustment); the playoff weeks only lose byes.`;
+    const cut = liftOn ? 'and any bye or betting-line adjustment' : 'and any bye';
+    return `${pct}% of this is weighted to weeks ${weeks}, and the deal is worth ${gain.playoff_tilt.toFixed(1)} more per week there than it is now — this week's number is cut by each player's modelled chance to play (${cut}); the playoff weeks only lose byes.${label}`;
   }
   if (gain.playoff_tilt < -0.4) {
-    return `${pct}% of this is weighted to weeks ${weeks}, where the deal is ${Math.abs(gain.playoff_tilt).toFixed(1)} per week WORSE than it is now — more of its value sits in this week's number (who is likelier to play, the betting-line adjustment), or playoff-week byes on the rosters change who is needed then — a win-now move.`;
+    const sits = liftOn ? 'who is likelier to play, the betting-line adjustment' : 'who is likelier to play, who is on bye';
+    return `${pct}% of this is weighted to weeks ${weeks}, where the deal is ${Math.abs(gain.playoff_tilt).toFixed(1)} per week WORSE than it is now — more of its value sits in this week's number (${sits}), or playoff-week byes on the rosters change who is needed then — a win-now move.${label}`;
   }
   return `${pct}% weighted to weeks ${weeks}; the deal is about the same in both windows.`;
 }

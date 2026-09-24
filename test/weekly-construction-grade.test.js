@@ -71,7 +71,10 @@ function syntheticExamples(n = 320) {
 }
 const FIT = coordinator.fitFantasyCoordinator(syntheticExamples());
 const EXPERTS = { ensemble_shift: 2.4, game_script_delta: 0.3, boom_bust_signal: null };
-const stubExperts = { ...lib.SERVED, weeklyExpertValues: () => EXPERTS };
+// S-03 switched the served lift off (waiver-brain.js#BETTING_LINE_LIFT), so vegasLift now
+// returns multiplier 1. The study grades the multiplier the lift used to serve, which is
+// gameScriptLift (the same code), and S-03's runner hands it to constructArms the same way.
+const stubExperts = { ...lib.SERVED, weeklyExpertValues: () => EXPERTS, vegasLift: waiverBrain.gameScriptLift };
 const proj = (position, team, { ppg = 14.4, structural = 12.0 } = {}) =>
   ({ position, team, ppg, structural_ppg: structural, params: {}, ensemble_shift: +(ppg - structural).toFixed(4) });
 const CTX = { season: 2025, week: 6, scoring: undefined, fitS: FIT, fitE: FIT, lambda: 0.5 };
@@ -122,7 +125,7 @@ test('no expert values (no params) means no correction, as trade-engine.js:353-3
 });
 
 for (const [position, team] of [['QB', 'HI'], ['RB', 'HI'], ['RB', 'LO'], ['WR', 'LO'], ['TE', 'HI']]) {
-  test(`lifted arms equal startSitWeekPoints for a ${position} on ${team} (real vegasLift, RB split)`, () => {
+  test(`lifted arms carry the game-script multiplier for a ${position} on ${team} (RB split); the served page no longer does (S-03)`, () => {
     const p = proj(position, team);
     const arms = lib.constructArms(p, CTX, stubExperts);
     const m = MULTS[team];
@@ -130,10 +133,13 @@ for (const [position, team] of [['QB', 'HI'], ['RB', 'HI'], ['RB', 'LO'], ['WR',
     assert.ok(Math.abs(arms.lift - +expectedMult.toFixed(3)) < 1e-12, `lift ${arms.lift} vs ${expectedMult}`);
     assert.equal(arms.C, arms.A * arms.lift);
     assert.equal(arms.D, arms.B * arms.lift);
+    // Before S-03 the page equalled round2(D). With the lift switched off it is round2(B).
     const served = startSitWeekPoints({ team_abbr: team, position, current_week_ppg: arms.B }, 2025, 6).week_points;
-    assert.equal(lib.round2(arms.D), served);
+    assert.equal(served, lib.round2(arms.B));
     const servedUncoordinated = startSitWeekPoints({ team_abbr: team, position, current_week_ppg: arms.A }, 2025, 6).week_points;
-    assert.equal(lib.round2(arms.C), servedUncoordinated);
+    assert.equal(servedUncoordinated, lib.round2(arms.A));
+    // The served vegasLift is the switch; the multiplier the study grades is gameScriptLift.
+    assert.equal(lib.constructArms(p, CTX, { ...lib.SERVED, weeklyExpertValues: () => EXPERTS }).lift, 1);
   });
 }
 
@@ -613,7 +619,8 @@ test('consumerDecomposition: the page number is B x game factor x chance to play
   assert.deepEqual([d.b_parity, d.current_week_identity, d.bye, d.team_differs], [true, true, false, false]);
   assert.deepEqual([d.p, d.mult, d.arm_D, d.page], [0.749, 1, lib.round2(arms.D), page]);
   assert.ok(Math.abs(d.page_over_D - page / arms.D) < 1e-12);
-  assert.ok(d.page_over_D < 0.76 && d.page_over_D > 0.74, 'the page carries p, the arm does not');
+  // The page carries p; since S-03 it no longer carries the lift the arm D has (x 1.2 here).
+  assert.ok(Math.abs(d.page_over_D - 0.749 / 1.2) < 0.001, `page / D ${d.page_over_D}: p and no lift`);
   const bye = lib.consumerDecomposition({ ...asset, matchup: null, current_week_ppg: 0 }, arms, 0, 'HI');
   assert.deepEqual([bye.current_week_identity, bye.bye, bye.page_over_D], [true, true, 0]);
   assert.equal(lib.consumerDecomposition({ ...asset, current_week_ppg: 12.35 }, arms, page, 'HI').current_week_identity, false);

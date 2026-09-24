@@ -437,9 +437,10 @@ function LineupDiffCard({ d, platform }: { d: any; platform: string }) {
       )}
 
       <p className="text-[11px] text-slate-500 mt-2">
-        Uses THIS WEEK's projection (Week {d.week}: matchup, byes, injury odds and the betting line), the same numbers as
-        the Start/Sit tab, not the season average. "Right about X%" is how often the higher projection actually outscored the
-        other at that gap in past seasons; under 60% is close to a coin flip. Make changes on {platform} before kickoff.
+        Uses THIS WEEK's projection (Week {d.week}; 0 on a bye), the same numbers as the Start/Sit tab, not the season
+        average.{d.week_basis?.label ? ` ${d.week_basis.label}` : ''} "Right about X%" is how often the higher projection
+        actually outscored the other at that gap in past seasons; under 60% is close to a coin flip. Make changes on
+        {' '}{platform} before kickoff.
       </p>
     </div>
   );

@@ -59,12 +59,16 @@ export function deckOf(ranked, n = DECK_SIZE) {
 }
 
 /** For each step i of `best`: the best other plan sharing steps 0..i-1 with a different step i. */
-export function backupBranches(best, ranked) {
+export function backupBranches(best, ranked, ok = null) {
   return best.steps.map((_, i) => {
     const prefix = best.steps.slice(0, i).map(dealKey).join('>');
-    const alt = ranked.find(p => p !== best && p.steps.length > i
-      && p.steps.slice(0, i).map(dealKey).join('>') === prefix && dealKey(p.steps[i]) !== dealKey(best.steps[i]));
-    return alt ? { step: alt.steps[i], expected: alt.expected, plan: alt } : null;
+    // integration-7: ok(plan) -> the plan re-priced on the confirm dice when it still beats doing nothing, else null.
+    for (const p of ranked) {
+      if (p === best || p.steps.length <= i || p.steps.slice(0, i).map(dealKey).join('>') !== prefix || dealKey(p.steps[i]) === dealKey(best.steps[i])) continue;
+      const alt = ok ? ok(p) : p;
+      if (alt) return { step: alt.steps[i], expected: alt.expected, plan: alt };
+    }
+    return null;
   });
 }
 
@@ -270,38 +274,47 @@ export function planLeague(adapter, settings) {
   let confirmCounts = null;
   // integration-7: one confirm pass for every mode (NO-TRADE-SHRINK) that keeps CAP-1C's premium re-check
   // (a premium step must raise lineup points and title odds on the fresh dice too; no fresh dice, no premium card).
+  // One plan re-priced on the confirm dice under a mode (S2 required).
+  const priceOnConfirm = (p, mode, tolM, ctxM, active) => {
+    const freshMe = p.steps.map(st => S2.rescore(st.state, me).me);
+    const fresh = freshMe.map(r => metricOf(r, objective));
+    const re = repricePlan(p, fresh);
+    let v = confirmVerdict(pathExpectation(p.steps), pathExpectation(re.steps));
+    // CAP-1C: a premium step must still raise lineup points and title odds on fresh dice, or the card goes.
+    re.steps = re.steps.map((st, i) => {
+      if (!st.depth_premium) return st;
+      const h = premiumHolds(freshMe[i], i ? freshMe[i - 1] : null);
+      if (!h.ok) v = { ...v, verdict: 'failed', premium_failed: h.why };
+      return { ...st, depth_premium: { ...st.depth_premium, confirmed: h.ok ? { points_delta: h.points_delta, title_delta: h.title_delta } : null } };
+    });
+    if (v.premium_failed && active) premium.confirm_failed++;
+    const scored = rankPlans([re], mode, { ...tolM, max_downside_per_step: Infinity }, { ...ctxM, core: null }).ranked[0];
+    return { ...re, score: scored?.score ?? -Infinity, mode, confirm: v, planned_on: p };
+  };
+  const beatsNoTrade = p => p.confirm.verdict !== 'failed' && p.score > 0;
   const confirmDeck = (rankedM, mode, tolM, ctxM) => {
     const active = mode === objective.risk_mode;
     const top = deckOf(rankedM, DECK_SIZE + 2);
+    // integration-7: no confirm dice, no served move (Nick's rule: a move must beat doing nothing on them).
     if (!S2) {
-      return top.filter(p => {
-        const prem = p.steps.some(st => st.depth_premium);
-        if (prem && active) premium.confirm_failed++;
-        return !prem && p.score > 0;
-      }).slice(0, DECK_SIZE);
+      if (active) premium.confirm_failed += top.filter(p => p.steps.some(st => st.depth_premium)).length;
+      return [];
     }
-    const priced = top.map(p => {
-      const freshMe = p.steps.map(st => S2.rescore(st.state, me).me);
-      const fresh = freshMe.map(r => metricOf(r, objective));
-      const re = repricePlan(p, fresh);
-      let v = confirmVerdict(pathExpectation(p.steps), pathExpectation(re.steps));
-      // CAP-1C: a premium step must still raise lineup points and title odds on fresh dice, or the card goes.
-      re.steps = re.steps.map((st, i) => {
-        if (!st.depth_premium) return st;
-        const h = premiumHolds(freshMe[i], i ? freshMe[i - 1] : null);
-        if (!h.ok) v = { ...v, verdict: 'failed', premium_failed: h.why };
-        return { ...st, depth_premium: { ...st.depth_premium, confirmed: h.ok ? { points_delta: h.points_delta, title_delta: h.title_delta } : null } };
-      });
-      if (v.premium_failed && active) premium.confirm_failed++;
-      const scored = rankPlans([re], mode, { ...tolM, max_downside_per_step: Infinity }, { ...ctxM, core: null }).ranked[0];
-      return { ...re, score: scored?.score ?? -Infinity, mode, confirm: v, planned_on: p };
-    });
-    const kept = priced.filter(p => p.confirm.verdict !== 'failed' && p.score > 0);
+    const priced = top.map(p => priceOnConfirm(p, mode, tolM, ctxM, active));
+    const kept = priced.filter(beatsNoTrade);
     if (active) {
       const failed = priced.filter(p => p.confirm.verdict === 'failed').length;
       confirmCounts = { checked: top.length, failed, not_above_no_trade: priced.length - failed - kept.length };
     }
     return kept.sort((a, b) => b.score - a.score).slice(0, DECK_SIZE);
+  };
+  // integration-7: backups, BATNAs and catch-up moves come only from plans that beat doing nothing on the
+  // confirm dice under the active mode (memoised; null when they do not, or when there are no confirm dice).
+  const confirmMemo = new Map();
+  const confirmedActive = p => {
+    if (!S2) return null;
+    if (!confirmMemo.has(p)) { const c = priceOnConfirm(p, objective.risk_mode, tol, ctx, false); confirmMemo.set(p, beatsNoTrade(c) ? c : null); }
+    return confirmMemo.get(p);
   };
   const deck = confirmDeck(ranked, objective.risk_mode, tol, ctx);
   // Each mode's pick on the same fresh dice; the active mode's is the served deck itself.
@@ -313,10 +326,10 @@ export function planLeague(adapter, settings) {
   if (S2) confirm = { seed: cSeed, plan_seed: adapter.seed, status: 'ok', rescores: S2.count() };
   mark('confirm_rescore');
   const best = deck[0] ?? null;
-  // CAP-1C: a backup never proposes a premium step that did not pass its own fresh-dice check (only deck cards did).
-  const onDeck = new Set(deck.map(p => (p.planned_on ?? p).steps.map(dealKey).join('>')));
-  const backupPool = ranked.filter(p => !p.steps.some(st => st.depth_premium) || onDeck.has(p.steps.map(dealKey).join('>')));
-  const backups = best ? backupBranches(best.planned_on ?? best, backupPool) : [];
+  // CAP-1C + integration-7: a backup is re-priced on the confirm dice (premium steps re-checked there) and
+  // must beat doing nothing, like a deck card.
+  const backupPool = ranked;
+  const backups = best ? backupBranches(best.planned_on ?? best, backupPool, confirmedActive) : [];
 
   // Playbook for every step of the chosen plan, and for each deck card's first step.
   const managers = adapter.managers;
@@ -366,7 +379,7 @@ export function planLeague(adapter, settings) {
     if (!allSteps) return { plan: p, playbook: j === 0 ? playbook[0]
       : playbookFor(p, 0, deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) };
     if (j === 0) return { plan: p, playbook: playbook[0], playbooks: playbook };
-    const br = p.steps.length > 1 ? backupBranches(p.planned_on ?? p, backupPool) : [];
+    const br = p.steps.length > 1 ? backupBranches(p.planned_on ?? p, backupPool, confirmedActive) : [];
     const pbs = p.steps.map((_, i) => playbookFor(p, i, i === 0
       ? (deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) : br[i] ?? null));
     return { plan: p, playbook: pbs[0], playbooks: pbs };
@@ -440,14 +453,26 @@ export function planLeague(adapter, settings) {
   const behind = isBehind(now.title, L.team_count ?? adapter.rosters.size);
   const free = freeMoves(adapter.freeAgents ?? [], roster.filter(p => p.starter));
   const sellers = sellersRead(managers);
-  const desperate = desperateMoves(ranked, sellers, { names,
+  // integration-7: each seller's move is the first plan through him that beats doing nothing on the confirm dice.
+  const desperatePool = sellers.map(sl => { for (const p of ranked) if (String(p.steps[0]?.team) === sl.team) { const c = confirmedActive(p); if (c) return c; } return null; }).filter(Boolean);
+  const desperate = desperateMoves(desperatePool, sellers, { names,
     playerValue: id => adapter.players.get(id)?.value, pResponds: t => pResponds(managers.get(t)).p });
+  // integration-7: a flip in the catch-up list is priced on the confirm dice (both legs), or not listed.
+  const flipOnConfirm = f => {
+    if (!S2) return null;
+    const gx = f.legs.give_a_ids ?? [f.legs.give_a], gy = f.legs.get_b_ids ?? [f.legs.get_b];
+    const s1 = S2.applyTrade(new Map(), me, f.a, gx, [f.player]);
+    const s2 = S2.applyTrade(s1, me, f.b, [f.player], gy);
+    const r1 = S2.rescore(s1, me, f.a), r2 = S2.rescore(s2, me, f.b);
+    return pathExpectation([{ p: f.legs.p1, delta: r1.me.title_delta }, { p: f.legs.p2, delta: r2.me.title_delta, se: r2.me.title_delta_se }]).expected;
+  };
   const items = [
     ...free,
-    ...flip.realised.filter(f => f.legs && f.legs.expected > 0).map(f => ({ kind: 'flip', gain: f.legs.expected,
+    ...flip.realised.map(f => (f.legs ? { ...f, confirmed_expected: flipOnConfirm(f) } : f))
+      .filter(f => f.legs && f.confirmed_expected > 0).map(f => ({ kind: 'flip', gain: f.confirmed_expected,
       text: `Buy ${names(f.player)} from Team ${f.a}, sell to Team ${f.b}.`, player: f.player })),
     ...desperate.items,
-    ...(behind ? byMode.all_in.slice(0, 1).map(p => ({ kind: 'swing', gain: p.expected, steps: p.steps.length, plan_key: firstKey(p),
+    ...(behind ? [confirmedBest.all_in].filter(Boolean).map(p => ({ kind: 'swing', gain: p.expected, steps: p.steps.length, plan_key: firstKey(p),
       text: `You are behind: the all-in plan reaches +${(p.delta_final * 100).toFixed(1)} pts if it lands.` })) : []),
     ...playbook.filter(pb => pb.wait.flag === 'wait').map(pb => ({ kind: 'timing', gain: pb.wait.option_value, text: `Wait ${pb.wait.days} days: ${pb.wait.reason}.` })),
     ...(Number.isInteger(L.deadline_week) ? [{ kind: 'timing', gain: null, text: `Trade deadline: week ${L.deadline_week} (${Math.max(0, L.deadline_week - L.week)} weeks left).` }] : []),

@@ -9,7 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const search = await import('../server/services/campaign/search.js');
-const { makeScorer, searchTarget, overpayPct, DEPTH_PREMIUM_MAX, BLUE_CHIP_SCORE, NEVER_DEPTH, depthPremiumOf, boardOf, isDepth, depthOnlyTwoForOne,
+const { makeScorer, searchTarget, overpayPct, DEPTH_PREMIUM_MAX, BLUE_CHIP_SCORE, DEPTH_BELOW, NEVER_DEPTH, depthPremiumOf, boardOf, isDepth, depthOnlyTwoForOne,
   newPremiumSink, premiumHolds } = search;
 const { planLeague } = await import('../server/services/campaign/planner.js');
 const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
@@ -43,6 +43,9 @@ test('depth: an explicit score below 83, never an unscored player, never 160 / 8
   const board = new Map([['1', 70], ['2', 83], ['160', 50], ['80', 50], ['277', 60]]);
   assert.equal(isDepth(1, { board }), true);
   assert.equal(isDepth(2, { board }), false, '83 is a blue chip');
+  assert.equal(DEPTH_BELOW, 80, 'the board labels 80+ Blue chip and protects them: a give must be below 80');
+  assert.equal(isDepth('a', { board: new Map([['a', 80]]) }), false);
+  assert.equal(isDepth('a', { board: new Map([['a', 79]]) }), true);
   assert.equal(isDepth(3, { board }), false, 'unscored is never depth');
   for (const id of ['160', '80', '277']) {
     assert.ok(NEVER_DEPTH.has(id));
@@ -300,4 +303,61 @@ test('planner: above 0%, the opening and walk-away are only the planned premium 
 test('planner: no backup step is an unconfirmed premium step', () => {
   const { res } = plan({ flipConfirm: true });
   for (const b of res.backups) if (b) assert.ok(!b.step.depth_premium);
+});
+
+/* ------------------------------------------- on by default (Nick 9/24: hard rules are never behind a flag) */
+
+const { blueChipBoard } = await import('../scripts/campaign/league-adapter.mjs');
+
+test('default: no flag, no setting -> cap 0, premium +12%, and the premium works from the board', () => {
+  const a = makeAdapter();
+  delete a.maxOverpay; // the real adapter carries no cap of its own
+  a.board = FIXTURE_BOARD;
+  const saved = Object.fromEntries(Object.keys(process.env).filter(k => k.startsWith('GRIDIRON_')).map(k => [k, process.env[k]]));
+  for (const k of Object.keys(saved)) delete process.env[k];
+  try {
+    const res = planLeague(a, { objective: normaliseObjective({}) });
+    assert.equal(res.tolerances.max_overpay, 0);
+    assert.equal(res.tolerances.depth_premium, 0.12);
+    assert.equal(res.no_overpay.depth_premium.board, 'on');
+    const v = id => a.players.get(id)?.value ?? 0;
+    const sum = ids => ids.reduce((x, id) => x + v(id), 0);
+    for (const c of res.deck) for (const st of c.plan.steps) {
+      const pct = overpayPct(sum(st.give), sum(st.get));
+      if (pct > 1e-9) assert.ok(st.depth_premium?.confirmed && pct <= 0.12 + 1e-9, 'anything past 0% is a confirmed premium step');
+    }
+    assert.ok(premiumSteps(res).length > 0);
+  } finally { Object.assign(process.env, saved); }
+});
+
+// The adapter's depth scores: a fake service with this league's draft (made-up ids).
+const fakeSvc = (picks = [[101, 1], [102, 2], [103, 3], [104, 4]]) => ({
+  db: {
+    row: () => ({ ok: 1 }),
+    rows: () => picks.map(([player_id, overall_pick]) => ({ player_id, overall_pick })),
+  },
+});
+const ADAPTER_PLAYERS = [1, 2, 3, 4].map(i => ({ id: i, name: `W${i}`, position: 'WR', espn_id: 100 + i, ros_ppg: 20 - i * 3,
+  value: 1000, team_abbr: 'AAA', ros_basis: { games: 2 } }));
+
+test('adapter: the display flag off still scores every player for the depth check (nothing served or protected)', () => {
+  const players = new Map(ADAPTER_PLAYERS.map(p => [p.id, p]));
+  const b = blueChipBoard(fakeSvc(), { id: 4, season: 2026 }, { rosters: new Map([['5', [1, 2]], ['7', [3, 4]]]), players,
+    assets: players, me: '5', env: {} });
+  assert.equal(b.served.status, 'off');
+  assert.equal(b.protect.size, 0);
+  assert.equal(b.scores.size, 4);
+  assert.ok(b.scores.get('1') >= DEPTH_BELOW, 'first pick and top producer is a blue chip, never depth');
+  assert.ok(b.scores.get('4') < DEPTH_BELOW);
+  // The same scores as the display board when it is on.
+  const on = blueChipBoard(fakeSvc(), { id: 4, season: 2026 }, { rosters: new Map([['5', [1, 2]], ['7', [3, 4]]]), players,
+    assets: players, me: '5', env: { GRIDIRON_PLAYER_SCORE: '1' } });
+  assert.deepEqual([...on.scores].sort(), [...b.scores].sort());
+});
+
+test('adapter: no draft on file -> no scores (every player would read as depth), so the premium stays off', () => {
+  const players = new Map(ADAPTER_PLAYERS.map(p => [p.id, p]));
+  const b = blueChipBoard(fakeSvc([]), { id: 4, season: 2026 }, { rosters: new Map([['5', [1, 2]]]), players, assets: players, me: '5', env: {} });
+  assert.equal(b.scores.size, 0);
+  assert.equal(boardOf({ board: b.scores }), null);
 });

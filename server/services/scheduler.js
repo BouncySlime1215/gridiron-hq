@@ -1259,6 +1259,23 @@ async function refreshFantasyCalcValues() {
 }
 
 /**
+ * DATA-FC (redraft): FantasyCalc's redraft value + 30-day trend into player_metrics
+ * ('fc_value', 'fc_trend30', 'fc_adp'). The League Hub's roster strength, rankings,
+ * the edge board and the NFL data market column all read 'fc_value', but only the
+ * manual sync button ever ran this, so on a SCHEDULER_DISABLED=1 install every one
+ * of those said "no FantasyCalc values" (0 of 173 league-4 players priced, 9/24).
+ * Same terms as the dynasty job: daily, the documented /values/current endpoint only.
+ * syncFantasyCalc records its own 'fantasycalc_values' sync_log row, so a button press
+ * counts as the day's run.
+ */
+async function refreshFantasyCalcRedraft() {
+  const { syncFantasyCalc } = await import('../routes/aggregates.js');
+  const leagues = row('SELECT COUNT(*) AS n FROM leagues')?.n ?? 0;
+  if (!leagues) return { skipped: 'no connected leagues, so no format to price' };
+  return syncFantasyCalc();
+}
+
+/**
  * The standing start/sit gate (plan item C12): the projection the app served against ESPN's
  * weekly projection (the plan's rule, the verdict), with "start the higher season-to-date
  * average" replayed over 2024-2025 and this season as a floor check; stored in
@@ -1333,6 +1350,9 @@ export const JOBS = {
   fantasycalc_dynasty: {
     run: refreshFantasyCalcValues, maxAgeMinutes: MARKET_MAX_AGE_MINUTES, tier: 'growth', offThread: true,
     label: 'FantasyCalc market values per connected league format (daily; appends the value history)' },
+  fantasycalc_values: {
+    run: refreshFantasyCalcRedraft, maxAgeMinutes: MARKET_MAX_AGE_MINUTES, tier: 'growth', offThread: true,
+    label: 'FantasyCalc redraft value + 30-day trend (daily; League Hub, rankings, edge board)' },
   espn_rosters: { run: refreshEspnRosters, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
     label: 'ESPN per-team roster feed (cuts, signings, practice-squad moves)' },
   league_rosters: { run: refreshLeagueRosters, maxAgeMinutes: 60, tier: 'live', offThread: true,

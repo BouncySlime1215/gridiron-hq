@@ -55,3 +55,20 @@ Each finding got a fix and a test that pins it. The tests were written alongside
 
 Minors taken: objectives-file untouchables join the depth check, and backups never
 propose a premium step that did not pass its own fresh-dice check.
+
+## On by default (Nick, 2026-09-25: hard rules are filters, never behind an off-by-default flag)
+
+#375 (the board) is now on main, merged into this branch. The cap (0) and the premium
+(+12%) had no flag already. The one thing still off by default was the premium's input:
+the adapter built scores only when `GRIDIRON_PLAYER_SCORE` was on. Now
+`blueChipBoard` scores the same universe against the same draft whatever that flag
+says. The display flag still decides only what is served and protected, and the depth
+check reads `adapter.board` on every run.
+
+Fail-closed additions: a given player is depth only below 80 (`DEPTH_BELOW`; the board
+labels 80+ "Blue chip" and protects Nick's 80+), and with no draft on file the adapter
+serves no scores, because production-only scores top out near 50 and would read every
+player as depth.
+
+Tests: `default: no flag, no setting -> cap 0, premium +12% ...`, `adapter: the display
+flag off still scores every player ...`, `adapter: no draft on file -> no scores ...`.

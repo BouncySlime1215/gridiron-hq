@@ -58,12 +58,17 @@ export function newOverpaySink(max = DEFAULT_MAX_OVERPAY) {
  * give) may give up to +12% market value, and is planned only if Nick's weekly starting-lineup points
  * AND his title odds both rise on the step (paired dice), and again on the confirm pass (fresh dice).
  * Depth is read from the adapter's player board (adapter.board: id -> board score, the PLAYER-SCORE
- * scale): a given player is depth only with an explicit score below BLUE_CHIP_SCORE. It fails closed:
+ * scale): a given player is depth only with an explicit score below DEPTH_BELOW. It fails closed:
  * no board or an empty one turns the premium off, and an unscored player is never depth.
  */
 export const DEPTH_PREMIUM_MAX = 0.12;
-/** Blue chip = board score 83+ (Nick's decision 2). */
+/** Blue chip = board score 83+ for what Nick GETS (decision 2). */
 export const BLUE_CHIP_SCORE = 83;
+/**
+ * A GIVEN player is depth only below 80: the board labels 80+ "Blue chip" and protects Nick's 80+
+ * (people/player-score.js PROTECT_SCORE), so the stricter line wins on the give side.
+ */
+export const DEPTH_BELOW = 80;
 /** Nick's rules: Nico Collins (160), Chase Brown (80) and A.J. Brown (277) are never depth, whatever their score. */
 export const NEVER_DEPTH = Object.freeze(new Set(['160', '80', '277']));
 
@@ -82,11 +87,11 @@ export function boardOf(adapter) {
   return out.size ? out : null;
 }
 
-/** Whether a given player is depth: scored on the board below a blue chip, not untouchable, not one of NEVER_DEPTH. */
+/** Whether a given player is depth: scored on the board below DEPTH_BELOW, not untouchable, not one of NEVER_DEPTH. */
 export function isDepth(id, { board, untouchable = null }) {
   const k = String(id);
   const score = board?.get(k);
-  return score != null && score < BLUE_CHIP_SCORE && !NEVER_DEPTH.has(k) && !untouchable?.has(k);
+  return score != null && score < DEPTH_BELOW && !NEVER_DEPTH.has(k) && !untouchable?.has(k);
 }
 
 /** Whether a step is a depth-only 2-for-1: two given for one, both depth (needs a board). */

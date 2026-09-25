@@ -1,0 +1,17 @@
+import { createContext, useContext } from 'react';
+import type { WarRoomView } from '../components/warroom/types';
+
+/**
+ * The app-wide Coach (components/AppCoach.tsx): one drawer on every area, opened from the
+ * header or from a page ("Ask Coach about this"). `view` is the active league's War Room
+ * view when the server serves one (it carries title odds and the health reports the header
+ * shows), else null.
+ */
+export interface CoachApi {
+  enabled: boolean;
+  open: (question?: string) => void;
+  openHealth: () => void;
+  view: WarRoomView | null;
+}
+export const CoachContext = createContext<CoachApi>({ enabled: false, open() {}, openHealth() {}, view: null });
+export const useCoach = () => useContext(CoachContext);

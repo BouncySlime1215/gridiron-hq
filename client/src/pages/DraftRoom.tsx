@@ -154,7 +154,7 @@ export default function DraftRoom() {
       <DraftRecap draft={draft} open={recapOpen} onClose={() => setRecapOpen(false)} />
       {/* ---- status bar ---- */}
       <div className="flex items-center gap-3 mb-3 flex-wrap">
-        <Link to="/drafts" className="text-xs text-slate-500 hover:text-slate-700">← drafts</Link>
+        <Link to="/draft" className="text-xs text-slate-500 hover:text-slate-700">← drafts</Link>
         <h1 className="text-lg font-bold">{draft.name}</h1>
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isMock ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700'}`}>
           {isMock ? 'MOCK' : 'LIVE'}

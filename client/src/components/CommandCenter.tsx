@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApi } from '../api';
 import { useLeague } from '../state/league';
-import { Card, Section, Skeleton, ErrorState } from './ui/DesignSystem';
+import { Button, Card, Chip, Icon, Section, Skeleton, ErrorState, type IconName } from './ui/DesignSystem';
 
 /**
  * This week, across every league (SK-01). Reads GET /api/command-center
@@ -34,10 +35,15 @@ export interface CommandCenterPayload {
   clear_checks?: ('dead_starters' | 'injury_alerts' | 'streams' | 'moves')[];
 }
 
-const TONE: Record<Tone, string> = {
-  // `!`: .card sets its own border outside Tailwind's layers, so the tone needs the important modifier to show.
-  red: '!border-l-red-600', amber: '!border-l-amber-500', green: '!border-l-emerald-600', grey: '!border-l-slate-300',
+/** The card's tone as an icon in the matching status colour (no coloured border bars). */
+const TONE_ICON: Record<Tone, { icon: IconName; cls: string }> = {
+  red: { icon: 'stop', cls: 'text-[var(--c-red)] bg-[var(--c-red-tint)]' },
+  amber: { icon: 'warn', cls: 'text-[var(--c-amber)] bg-[var(--c-amber-tint)]' },
+  green: { icon: 'ok', cls: 'text-[var(--c-green)] bg-[var(--c-green-tint)]' },
+  grey: { icon: 'clock', cls: 'text-[var(--c-muted)] bg-[var(--c-soft)]' },
 };
+/** Cards shown before "Show more". */
+export const FIRST_CARDS = 4;
 const CHECK_LABEL: Record<string, string> = {
   dead_starters: 'dead starters', injury_alerts: 'injury alerts', streams: 'defense streaming', moves: 'weekly moves',
 };
@@ -81,16 +87,20 @@ export function missingChecks(p: CommandCenterPayload) {
 }
 
 export function CommandCard({ item, onAct }: { item: CommandItem; onAct: (item: CommandItem) => void }) {
-  return <Card as="article" className={`!border-l-4 ${TONE[item.tone]} p-4`}>
-    <div className="font-bold text-slate-900">{item.what}</div>
-    <p className="mt-1 text-sm text-slate-600">{item.why}</p>
-    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-      <button type="button" className="btn-primary min-h-[44px]" onClick={() => onAct(item)}
-        aria-label={`${item.action.label} in ${item.league.name}`}>{item.action.label}</button>
-      <span className="text-xs text-slate-500">
-        {item.league.name} · {due(item.deadline, item.deadline_basis)}
-        {item.deadline_guess && <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800" title="ESPN does not say which time zone its waiver hour is in; Eastern is assumed.">guess</span>}
-      </span>
+  const tone = TONE_ICON[item.tone] ?? TONE_ICON.grey;
+  return <Card as="article" lift className="!p-4 flex gap-3" >
+    <span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full ${tone.cls}`}><Icon name={tone.icon} size={16} /></span>
+    <div className="min-w-0 flex-1">
+      <div className="font-semibold text-slate-900">{item.what}</div>
+      <p className="mt-1 text-sm text-slate-600">{item.why}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <Button variant="primary" className="min-h-[40px]" onClick={() => onAct(item)}
+          aria-label={`${item.action.label} in ${item.league.name}`}>{item.action.label}</Button>
+        <span className="text-xs text-slate-500">
+          {item.league.name} · {due(item.deadline, item.deadline_basis)}
+          {item.deadline_guess && <span className="ml-1"><Chip tone="warn" title="ESPN does not say which time zone its waiver hour is in; Eastern is assumed.">guess</Chip></span>}
+        </span>
+      </div>
     </div>
   </Card>;
 }
@@ -98,6 +108,8 @@ export function CommandCard({ item, onAct }: { item: CommandItem; onAct: (item: 
 export function CommandCenterView({ data, onAct }: { data: CommandCenterPayload; onAct: (item: CommandItem) => void }) {
   const missing = missingChecks(data);
   const checked = data.leagues.length;
+  const [all, setAll] = useState(false);
+  const shown = all ? data.items : data.items.slice(0, FIRST_CARDS);
   return <div className="space-y-3">
     {data.empty_reason === 'no_leagues'
       ? <Card className="p-5 text-center">
@@ -109,8 +121,15 @@ export function CommandCenterView({ data, onAct }: { data: CommandCenterPayload;
             <div className="font-bold text-slate-800">{(data.clear_checks ?? []).length === Object.keys(CLEAR_ZERO).length ? 'Nothing needs you this week' : 'Nothing found in the checks that ran'}</div>
             <p className="mt-1 text-sm text-slate-500">{clearSentence(data)}{missing.length ? ' The rest could not run; see below.' : ''}</p>
           </Card>
-        : data.items.map((it, i) => <CommandCard key={`${it.league.id}-${it.kind}-${i}`} item={it} onAct={onAct} />)}
-    {missing.length > 0 && <div role="note" className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+        : <>
+            <div className="grid gap-3 md:grid-cols-2 ds-stagger">
+              {shown.map((it, i) => <CommandCard key={`${it.league.id}-${it.kind}-${i}`} item={it} onAct={onAct} />)}
+            </div>
+            {data.items.length > shown.length && (
+              <Button className="w-full" onClick={() => setAll(true)}>Show {data.items.length - shown.length} more</Button>
+            )}
+          </>}
+    {missing.length > 0 && <div role="note" className="ds-card ds-card-warn p-3 text-xs">
       <div className="font-semibold">Not checked, so not shown as clear:</div>
       <ul className="mt-1 list-disc space-y-0.5 pl-4">
         {missing.slice(0, 5).map(m => <li key={m.check}>{m.check} in {m.leagues} of {checked} league{checked === 1 ? '' : 's'}: {m.message ?? m.state.replace(/_/g, ' ')}</li>)}

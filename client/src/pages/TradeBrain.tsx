@@ -98,7 +98,7 @@ export default function TradeBrain() {
         <EmptyState
           title="Connect a league to read your leaguemates"
           description="The Trade Brain is about the people in your league — who answers, what they value, and what to send them. It needs a synced league before any of that exists."
-          actionLabel="Connect a league" actionTo="/league?view=connections"
+          actionLabel="Connect a league" actionTo="/league"
         />
       </Shell>
     );

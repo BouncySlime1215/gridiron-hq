@@ -26,7 +26,7 @@ export default function Teams() {
                   <h2 className="text-sm font-bold text-slate-600 mb-3 tracking-wide">{div.toUpperCase()}</h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {ts.map(t => (
-                      <Link key={t.abbr} to={`/teams/${t.abbr}`}
+                      <Link key={t.abbr} to={`/players/teams/${t.abbr}`}
                         className="rounded-lg p-3 border border-slate-200 hover:border-slate-500 transition-colors"
                         style={{ background: `linear-gradient(135deg, ${t.primary_color}22, transparent)` }}>
                         <div className="flex items-center gap-2">

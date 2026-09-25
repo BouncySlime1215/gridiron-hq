@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { PlayerCardProvider } from './components/PlayerCard';
 import { LeagueProvider } from './state/league';
 import LeagueSwitcher from './components/LeagueSwitcher';
@@ -15,13 +15,18 @@ import { Skeleton } from './components/ui/DesignSystem';
 import { PageExplainContext, type PageExplainInfo } from './components/PageExplainContext';
 import { PageExplainAssistant } from './components/PageExplainAssistant';
 import { Icon, type IconName } from './components/ui/DesignSystem';
+import { MovedTo } from './components/Redirects';
+import { AppCoachProvider, HeaderFacts } from './components/AppCoach';
 
 /** One icon per destination (the design system's Lucide set, via DesignSystem's Icon). */
 const NAV_ICON: Record<string, IconName> = {
-  '/my-team': 'trophy', '/league': 'house', '/lineup': 'lineup', '/trade-lab': 'swap', '/trade-brain': 'target',
-  '/draft': 'layers', '/news': 'news', '/settings': 'sliders',
+  '/': 'today', '/trades': 'swap', '/my-team': 'trophy', '/league': 'house', '/players': 'search',
+  '/draft': 'layers', '/settings': 'sliders',
 };
 
+const Today = lazy(() => import('./pages/Today'));
+const Trades = lazy(() => import('./pages/Trades'));
+const Players = lazy(() => import('./pages/Players'));
 const Teams = lazy(() => import('./pages/Teams'));
 const TeamDetail = lazy(() => import('./pages/TeamDetail'));
 const DraftRoom = lazy(() => import('./pages/DraftRoom'));
@@ -30,10 +35,6 @@ const DraftHub = lazy(() => import('./pages/DraftHub'));
 const LeagueHub = lazy(() => import('./pages/LeagueHub'));
 const MyTeam = lazy(() => import('./pages/MyTeam'));
 const PlayerDetail = lazy(() => import('./pages/PlayerDetail'));
-const TradeLab = lazy(() => import('./pages/TradeLab'));
-const TradeBrain = lazy(() => import('./pages/TradeBrain'));
-const Lineup = lazy(() => import('./pages/Lineup'));
-const News = lazy(() => import('./pages/News'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Pair = lazy(() => import('./pages/Pair'));
 const SignIn = lazy(() => import('./pages/SignIn'));
@@ -96,7 +97,7 @@ export default function App() {
     </Routes></Suspense>;
   }
 
-  return <LeagueProvider><PlayerCardProvider>
+  return <LeagueProvider><AppCoachProvider><PlayerCardProvider>
     <PageExplainContext.Provider value={pageExplain}>
     <div className="flex min-h-screen bg-white">
       {drawerOpen && <div className="fixed inset-0 z-40 bg-slate-900/40" aria-hidden="true" onClick={() => setCollapsed(true)} />}
@@ -135,37 +136,32 @@ export default function App() {
           <span className="app-crumb hidden min-w-0 truncate sm:block">{inBetting ? 'Betting' : 'Gridiron HQ'} <span className="mx-1 opacity-40">/</span> <b>{pageLabel}</b></span>
           {/* On a phone the league select gives up width to the buttons instead of pushing them off-screen. */}
           {!inBetting && <div className="min-w-0 flex-1 sm:flex-none [&_select]:w-full [&_select]:max-w-full sm:[&_select]:w-auto sm:[&_select]:max-w-[200px]"><LeagueSwitcher /></div>}
-          <div className="ml-auto flex shrink-0 items-center gap-2"><span className="hidden lg:inline-flex"><QuickJump /></span><RefreshAll onDone={() => window.dispatchEvent(new Event('gridiron:refreshed'))} /><span className="hidden sm:inline-flex"><DevHub /></span><PageExplainAssistant info={pageInfo} /></div>
+          <div className="ml-auto flex shrink-0 items-center gap-2"><HeaderFacts /><span className="hidden xl:inline-flex"><QuickJump /></span><RefreshAll onDone={() => window.dispatchEvent(new Event('gridiron:refreshed'))} /><span className="hidden lg:inline-flex"><DevHub /></span><PageExplainAssistant info={pageInfo} /></div>
         </header>
         <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8"><Suspense fallback={<RouteSkeleton />}><Routes>
-          <Route path="/" element={<Navigate to="/league" replace />} />
-          <Route path="/league" element={<LeagueHub />} />
+          {/* The seven areas (docs/ui/CONSOLIDATION-MAP.md). */}
+          <Route path="/" element={<Today />} />
+          <Route path="/trades" element={<Trades />} />
           <Route path="/my-team" element={<MyTeam />} />
-          <Route path="/draft" element={<DraftHub />} />
-          <Route path="/teams" element={<Teams />} /><Route path="/teams/:abbr" element={<TeamDetail />} />
+          <Route path="/league" element={<LeagueHub />} />
+          <Route path="/players" element={<Players />} />
+          <Route path="/players/teams" element={<Teams />} /><Route path="/players/teams/:abbr" element={<TeamDetail />} />
           <Route path="/players/:id" element={<PlayerDetail />} />
-          <Route path="/trade-lab" element={<TradeLab />} /><Route path="/trade-brain" element={<TradeBrain />} />
-          <Route path="/lineup" element={<Lineup />} /><Route path="/news" element={<News />} />
+          <Route path="/draft" element={<DraftHub />} />
+          <Route path="/draft/:id" element={<DraftRoom />} /><Route path="/draft/live/:id" element={<LiveDraft />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/pair" element={<Pair />} />
-          {/* One MLB hub instead of six routes, two of which were named "legacy"
-              and all of which were reachable with nothing saying which was current. */}
 
-          {/* Compatibility: old bookmarks resolve to the new domain hubs. */}
-          <Route path="/leagues" element={<Navigate to="/league?view=connections" replace />} />
-          <Route path="/live-draft" element={<Navigate to="/draft?view=live" replace />} /><Route path="/live-draft/:id" element={<LiveDraft />} />
-          <Route path="/drafts" element={<Navigate to="/draft" replace />} /><Route path="/drafts/:id" element={<DraftRoom />} />
-          <Route path="/rankings" element={<Navigate to="/league" replace />} /><Route path="/projections" element={<Navigate to="/league" replace />} />
-          {/* The `/props/*` pages were MLB pages standing outside the MLB hub,
-              linked from nowhere and reachable only by typing the URL — yet all
-              four of their endpoints still return live data (the proxied board
-              answers with 31 rows and 120 projections). Two of them,
-              PropsPicks and PropsModel, were already the hub's own ledger and
-              proof-room views rendered a second time without the workspace
-              chrome, so they are pure duplicates and simply redirect. The other
-              two are the proxied half of the first-party/proxied overlap and
-              are now a source toggle inside the hub's slate and forward views,
-              rather than deleted or left orphaned. */}
+          {/* Every URL from before the seven areas lands on its new home (components/Redirects.tsx). */}
+          <Route path="/leagues" element={<MovedTo from="/leagues" />} />
+          <Route path="/lineup" element={<MovedTo from="/lineup" />} />
+          <Route path="/trade-lab" element={<MovedTo from="/trade-lab" />} />
+          <Route path="/trade-brain" element={<MovedTo from="/trade-brain" />} />
+          <Route path="/teams" element={<MovedTo from="/teams" />} /><Route path="/teams/:abbr" element={<MovedTo from="/teams/:abbr" />} />
+          <Route path="/news" element={<MovedTo from="/news" />} />
+          <Route path="/rankings" element={<MovedTo from="/rankings" />} /><Route path="/projections" element={<MovedTo from="/projections" />} />
+          <Route path="/drafts" element={<MovedTo from="/drafts" />} /><Route path="/drafts/:id" element={<MovedTo from="/drafts/:id" />} />
+          <Route path="/live-draft" element={<MovedTo from="/live-draft" />} /><Route path="/live-draft/:id" element={<MovedTo from="/live-draft/:id" />} />
           <Route path="*" element={<NotFound />} />
         </Routes></Suspense></main>
         {/* The data licences ask for a visible credit; it sits under every page. */}
@@ -173,5 +169,5 @@ export default function App() {
       </div>
     </div>
     </PageExplainContext.Provider>
-  </PlayerCardProvider></LeagueProvider>;
+  </PlayerCardProvider></AppCoachProvider></LeagueProvider>;
 }

@@ -47,7 +47,7 @@ const rt = createRequire(${JSON.stringify(rtPath)})(${JSON.stringify(rtPath)});
 export const jsx = rt.jsx; export const jsxs = rt.jsxs; export const Fragment = rt.Fragment;`);
 const reactUrl = write('react.mjs', `import { createRequire } from 'node:module';
 const R = createRequire(${JSON.stringify(rtPath)})(${JSON.stringify(repoRequire.resolve('react'))});
-export default R; export const { useState, useEffect, useMemo, useRef, useCallback, createContext, useContext } = R;`);
+export default R; export const { useState, useEffect, useMemo, useRef, useCallback, createContext, useContext, forwardRef } = R;`);
 
 /** Compile a TSX/TS file and point each listed import at a replacement URL. Every relative import must be mapped. */
 function compile(rel, name, map) {
@@ -126,7 +126,7 @@ const nullComp = n => `export function ${n}() { return null; }`;
 const stubUrl = (name, names, dflt = true) =>
   write(name, names.map(nullComp).join('\n') + (dflt ? '\nexport default function Stub() { return null; }' : ''));
 const copyUrl = compile('client/src/copy-constants.ts', 'copy-constants.mjs', {});
-const routerUrl = write('router.mjs', nullComp('Link'));
+const routerUrl = write('router.mjs', nullComp('Link') + '\nexport function useSearchParams() { return [new URLSearchParams(), () => {}]; }');
 // UX-08b/08c route alert() through the real errorSanitize (pure; compiled, not stubbed).
 const errorSanitizeUrl = compile('client/src/lib/errorSanitize.ts', 'errorSanitize.mjs', {});
 
@@ -137,7 +137,12 @@ const modelUrl = compile('client/src/pages/Model.tsx', 'Model.mjs', {
   "'../components/MedianGameNotice'": noticeUrl,
   "'../lib/errorSanitize'": errorSanitizeUrl,
 });
+// My team draws its tabs with the design system (compiled for real) and hosts Start/Sit (stubbed).
+const iconsUrl = compile('client/src/components/warroom/icons.tsx', 'icons.mjs', {});
+const designUrl = compile('client/src/components/ui/DesignSystem.tsx', 'DesignSystem.mjs', { "'../warroom/icons'": iconsUrl });
 const myTeamUrl = compile('client/src/pages/MyTeam.tsx', 'MyTeam.mjs', {
+  "'../components/ui/DesignSystem'": designUrl,
+  "'./Lineup'": stubUrl('Lineup.mjs', []),
   "'react-router-dom'": routerUrl, "'../api'": apiUrl, "'../state/league'": leagueUrl, "'../copy-constants'": copyUrl,
   "'../components/FormationView'": stubUrl('FormationView.mjs', []),
   "'../components/TeamScout'": stubUrl('TeamScout.mjs', []),

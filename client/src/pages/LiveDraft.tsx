@@ -98,7 +98,7 @@ function ConnectLeague() {
     setBusy(id); setErr(null);
     try {
       const out = await api('/drafts/live/link', { method: 'POST', body: JSON.stringify({ league_row_id: id }) });
-      nav(`/live-draft/${out.draft_id}`);
+      nav(`/draft/live/${out.draft_id}`);
     } catch (e: any) { setErr(e.message); }
     finally { setBusy(null); }
   };
@@ -423,7 +423,7 @@ function Room({ id }: { id: string }) {
       )}
       {/* ---------------------------------------------------------- header */}
       <div className="flex items-center gap-3 flex-wrap mb-3">
-        <Link to="/live-draft" className="text-xs text-slate-500 hover:text-slate-700">← hub</Link>
+        <Link to="/draft?view=live" className="text-xs text-slate-500 hover:text-slate-700">← hub</Link>
         <h1 className="text-lg font-bold">{d.name}</h1>
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${espnLive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
           {espnLive ? 'LIVE · ESPN' : d.draft_at ? `ESPN draft ${new Date(d.draft_at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : 'ESPN · not started'}

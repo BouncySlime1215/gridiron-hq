@@ -51,12 +51,12 @@ function Slot({ name, children }: { name: string; children: ReactNode }) {
   return <span className="wr-person-slot"><span className="wr-l">{name}</span> {children}</span>;
 }
 
-function Tile({ t, big, focused, onFocus }: { t: PersonTile; big: boolean; focused: boolean; onFocus: (team: string) => void }) {
+function Tile({ t, big, focused, onFocus, tapLabel }: { t: PersonTile; big: boolean; focused: boolean; onFocus: (team: string) => void; tapLabel: string }) {
   const grey = t.standing !== 'live';
   const market = isOk(t.in_market) ? t.in_market.value : null;
   return (
     <button type="button" className={`wr-person${grey ? ' wr-person-grey' : ''}`} data-team={t.team} data-standing={t.standing}
-      aria-pressed={focused} aria-label={`${t.label}: show the moves with him`} onClick={() => onFocus(t.team)}>
+      aria-pressed={focused} aria-label={`${t.label}: ${tapLabel}`} onClick={() => onFocus(t.team)}>
       <span className="wr-row">
         <b>{t.label}</b>
         {t.standing === 'never' && <span className="wr-pill wr-pill-warn">never a partner</span>}
@@ -89,23 +89,25 @@ function Tile({ t, big, focused, onFocus }: { t: PersonTile; big: boolean; focus
   );
 }
 
-export default function PeopleBoard({ view, big, focus, onFocus }: {
+export default function PeopleBoard({ view, big, focus, onFocus, hint = 'Who to work this week · tap for his moves', tapLabel = 'show the moves with him', pageSize }: {
   view: WarRoomView; big: boolean; focus: string | null; onFocus: (team: string) => void;
+  /** WAR-ROOM-UI v2 (League screen): its own hint, tap label and page size. */
+  hint?: string; tapLabel?: string; pageSize?: number;
 }) {
   const field: Field<PersonTile[]> = view.people ?? { status: 'unknown', source: 'campaign.plan', reason: 'The people board has not loaded.' };
   const list = isOk(field) ? field.value : [];
-  const pg = usePager(list.length, big ? 6 : 4);
+  const pg = usePager(list.length, pageSize ?? (big ? 6 : 4));
   return (
     <FieldBlock f={field} label="People board">
       {tiles => (
         <>
           <div className="wr-row wr-sub">
-            <span>Who to work this week · tap for his moves</span>
+            <span>{hint}</span>
             <span className="wr-sp" />{pg.control}
           </div>
           <ul className="wr-people">
             {tiles.slice(pg.a, pg.b).map(t => (
-              <li key={t.team}><Tile t={t} big={big} focused={focus === t.team} onFocus={onFocus} /></li>
+              <li key={t.team}><Tile t={t} big={big} focused={focus === t.team} onFocus={onFocus} tapLabel={tapLabel} /></li>
             ))}
           </ul>
         </>

@@ -55,12 +55,37 @@ export function espnPlayer(entry, season) {
   };
 }
 
-/** Best legal lineup: dedicated slots first, then FLEX from what is left (optimal for nested slot sets). */
-export function bestLineup(players) {
+/**
+ * ESPN lineupSlotId -> [slot, eligible positions], dedicated slots first and flex slots
+ * most restrictive first, the order bestLineup fills them in. Bench (20) and IR (21)
+ * are not starting slots; TQB (1) is not a slot any ESPN league here uses.
+ */
+const ESPN_SLOTS = Object.freeze([
+  [0, 'QB', ['QB']], [2, 'RB', ['RB']], [4, 'WR', ['WR']], [6, 'TE', ['TE']],
+  [17, 'K', ['K']], [16, 'D/ST', ['D/ST']],
+  [3, 'RB/WR', ['RB', 'WR']], [5, 'WR/TE', ['WR', 'TE']], [23, 'FLEX', ['RB', 'WR', 'TE']],
+  [7, 'OP', ['QB', 'RB', 'WR', 'TE']],
+]);
+
+/**
+ * A league's own lineup from ESPN's settings.rosterSettings.lineupSlotCounts ({ slotId: n }),
+ * in LINEUP's shape. Null when the counts name no starting slot (the caller then says why).
+ */
+export function lineupFromSlotCounts(counts) {
+  if (!counts || typeof counts !== 'object') return null;
+  const out = ESPN_SLOTS.map(([id, slot, ok]) => [slot, ok, Number(counts[id]) || 0]).filter(([, , n]) => n > 0);
+  return out.length ? Object.freeze(out) : null;
+}
+
+/**
+ * Best legal lineup: dedicated slots first, then FLEX from what is left (optimal for nested
+ * slot sets). `lineup` defaults to league 4's; SOURCE-TABLES passes each league's own.
+ */
+export function bestLineup(players, lineup = LINEUP) {
   const pool = players.filter(p => p.position && Number.isFinite(p.points)).sort((a, b) => b.points - a.points);
   const used = new Set();
   const starters = [];
-  for (const [slot, ok, n] of LINEUP) {
+  for (const [slot, ok, n] of lineup) {
     let k = 0;
     for (const p of pool) {
       if (k >= n) break;

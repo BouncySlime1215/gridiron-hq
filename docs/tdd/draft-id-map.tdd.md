@@ -39,3 +39,17 @@ with the current owner taken from the producer's own roster.
 `server/services/campaign/draft-capital.js` (one reader), wired into
 `scripts/campaign/league-adapter.mjs` (`adapter.draft`, flag-gated) and
 `scripts/campaign/produce-plans.mjs` (`_run.inputs.draft_id_map`). 13 of 13 pass.
+
+## Guard (review note 1, Batch B)
+
+RED `eeaddf9` · GREEN follows · 4 new cases, 17 in all.
+
+The adapter called `draftCapital` unguarded, so with the flag on any SQL error
+there threw out of `buildAdapter` and took the whole league entry, served
+plans included, down with a shadow read. `draftCapitalGuarded` catches it and
+returns `status: 'error'` with the message and an empty `by_player`; the
+producer writes that to `_run.inputs.draft_id_map`, so the error is recorded,
+not swallowed, and the served fields stay deep-equal to flag off.
+
+RED: `draftCapitalGuarded` is not exported (3 cases), and the adapter still
+calls `draftCapital(` directly (1 case). GREEN: 17 of 17 pass.

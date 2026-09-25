@@ -17,7 +17,7 @@
 import { chatLabels } from '../../server/services/campaign/partners.js';
 import { resolveUntouchables, untouchableIds } from '../../server/services/people/profile-reader.js';
 import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
-import { draftCapital, draftIdMapEnabled } from '../../server/services/campaign/draft-capital.js';
+import { draftCapitalGuarded, draftIdMapEnabled } from '../../server/services/campaign/draft-capital.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
 import { fpRosFor, syncIfStale } from '../../server/services/people/fantasypros-ros.js';
 import { executedTrades } from '../../server/services/campaign/trade-memory.js';
@@ -435,7 +435,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     boardOf: id => { const r = board.byId?.get(String(id)); return r ? { score: r.score, label: r.label, hurt: r.hurt, gaps: r.gaps, protected: r.protected } : null; },
     ...(finder ? { finderBest } : {}),
     // DRAFT-ID-MAP (shadow, GRIDIRON_DRAFT_ID_MAP=1): draft capital by players.espn_id, owner from these rosters.
-    ...(draftIdMap ? { draft: draftCapital(svc.db, { leagueId, season, rosters }) } : {}),
+    // Guarded: a SQL error is recorded as status 'error' in _run.inputs, never a dead league entry.
+    ...(draftIdMap ? { draft: draftCapitalGuarded(svc.db, { leagueId, season, rosters }) } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     teams: () => teamNames(payload, new Map([...(svc.identity?.identityMap(leagueId) ?? [])].map(([r, i]) => [String(r), i.chat_name]))),

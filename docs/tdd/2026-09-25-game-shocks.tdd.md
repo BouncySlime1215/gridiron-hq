@@ -117,6 +117,9 @@ above their own quantile q, Gaussian copula vs grouped-t nu 6:
 The pre-registration's "Gaussian ~0.024 at rho 0.3" was an estimate; the measured
 value is 0.0216 (the test's tolerance, 0.004, covers both).
 
+Full checks on the GREEN tree (after `npm ci`): `npm test` 5,862 tests, 5,816 pass,
+0 fail, 46 skipped; `npm run typecheck`, `npm run lint`, `npm run check:wiring` exit 0.
+
 ## Needs local measurement (decides the flag)
 
 ```

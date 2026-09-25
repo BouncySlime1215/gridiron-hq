@@ -131,7 +131,7 @@ test('reader: weeks < as-of only, joins ffopportunity (gsis) with usage (players
   assert.equal(absent.reads.get('7').status, 'no_baseline');
 });
 
-const flagged = (score, role = 'confirmed') => ({ status: 'ok', role, buy_low: true, score, gap_shrunk: score, games: 3, usage_delta: 0.1, through_week: 5 });
+const flagged = (score, role = 'confirmed', position = 'WR') => ({ status: 'ok', position, role, buy_low: true, score, gap_shrunk: score, games: 3, usage_delta: 0.1, through_week: 5 });
 const plain = { status: 'ok', role: 'none', buy_low: false, score: 0 };
 
 test('tie-breaker only: equal rank scores reorder, different ones never swap', () => {
@@ -207,4 +207,15 @@ test('flag on: targets carry buy_low, same target set, contract holds, summary i
   // The deck (next move, alternatives) is the planner's, untouched by a tie-breaker on targets.
   assert.deepEqual(on.next_move, off.next_move);
   assert.deepEqual(on.alternatives, off.alternatives);
+});
+
+test('served positions: only QB/RB/WR (backtest passed); a flagged TE is listed in shadow, never served or tie-broken', () => {
+  assert.deepEqual([...BUY_LOW_RULE.served_positions], ['QB', 'RB', 'WR']);
+  const res = { me: '1', suggestions: [{ player: 21, rank_score: 0.3 }, { player: 22, rank_score: 0.3 }] };
+  const reads = new Map([['21', plain], ['22', flagged(6, 'confirmed', 'TE')]]);
+  const out = applyBuyLow(res, reads, { others: [21, 22] });
+  assert.deepEqual(out.res.suggestions.map(s => s.player), [21, 22]);
+  assert.equal(out.res.suggestions[1].buy_low, undefined);
+  assert.deepEqual(out.summary.others_top.map(r => [r.player, r.position, r.served]), [['22', 'TE', false]]);
+  assert.equal(annotateEntryTargets({ targets: { status: 'ok', value: [{ player: '22' }] } }, reads).targets.value[0].buy_low, undefined);
 });

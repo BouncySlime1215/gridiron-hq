@@ -34,7 +34,13 @@ export const BUY_LOW_RULE = Object.freeze({
   last_regular_week: 18,
   // A game is "usage up" when usage minus the baseline mean is at least this much.
   usage_up: Object.freeze({ WR: 0.03, TE: 0.03, RB: 2.0, QB: 2.0 }),
+  // Positions whose pre-registered CI lower bound cleared 0 (docs/tdd/BUY-LOW-results.md). Only these
+  // are served or break ties; TE (27 rows, too few) is read and listed in shadow only.
+  served_positions: Object.freeze(['QB', 'RB', 'WR']),
 });
+
+/** A read that may be served / break a tie: flagged, at a position the backtest passed. */
+export const servedRead = r => r?.buy_low === true && BUY_LOW_RULE.served_positions.includes(r.position);
 
 const finite = x => typeof x === 'number' && Number.isFinite(x);
 const mean = xs => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
@@ -66,7 +72,7 @@ export const shrinkGap = (gap, n) => (finite(gap) && n > 0 ? gap * n / (n + BUY_
  */
 export function scoreBuyLow({ position, games }, { season, week }) {
   const R = BUY_LOW_RULE;
-  const none = status => ({ status, role: 'none', buy_low: false, score: 0 });
+  const none = status => ({ status, position, role: 'none', buy_low: false, score: 0 });
   if (!(position in R.usage_up)) return none('no_usage_rule');
   const prior = priorGames(games, { season, week });
   const cur = prior.filter(g => g.season === season).sort((a, b) => a.week - b.week);
@@ -90,7 +96,7 @@ export function scoreBuyLow({ position, games }, { season, week }) {
   const buyLow = eligible && role !== 'none' && gapShrunk >= R.min_gap_ppg;
   const tMean = mean(tU.filter(finite));
   return {
-    status: 'ok', role, buy_low: buyLow, score: buyLow ? gapShrunk : 0, eligible,
+    status: 'ok', position, role, buy_low: buyLow, score: buyLow ? gapShrunk : 0, eligible,
     gap, gap_shrunk: gapShrunk, games: n, xfp_ppg: xfpPpg, act_ppg: actPpg,
     usage_delta: finite(tMean) ? tMean - base : null, ups: nUp, through_week: T[T.length - 1].week,
   };
@@ -101,12 +107,12 @@ const r3 = x => (finite(x) ? Math.round(x * 1000) / 1000 : null);
 
 /** The served buy_low value for a flagged player (plans-schema.js target.buy_low), or null. */
 export function buyLowRow(read) {
-  if (!read?.buy_low) return null;
+  if (!servedRead(read)) return null;
   return { role: read.role, points_below_expected: r1(read.gap_shrunk), games: read.games,
     usage_change: r3(read.usage_delta), through_week: read.through_week };
 }
 
-const scoreOfRead = r => (r?.buy_low ? r.score : 0);
+const scoreOfRead = r => (servedRead(r) ? r.score : 0);
 
 /**
  * Tie-breaker only: suggestions are already sorted by rank_score (planner.js). Among rows whose
@@ -146,7 +152,7 @@ export function applyBuyLow(res, reads, { others = [], floorOf = () => null, top
     targets_flagged: withField.filter(s => s.buy_low).map(s => String(s.player)),
     tie_break_moved: moved,
     others_flagged: board.length,
-    others_top: board.slice(0, top).map(({ id, r }) => ({ player: id, role: r.role,
+    others_top: board.slice(0, top).map(({ id, r }) => ({ player: id, position: r.position, served: servedRead(r), role: r.role,
       points_below_expected: r1(r.gap_shrunk), games: r.games, passes_floor: floorOf(id) })),
   };
   return { res: { ...res, suggestions: withField }, summary };

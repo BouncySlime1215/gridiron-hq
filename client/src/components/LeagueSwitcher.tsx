@@ -26,7 +26,7 @@ export default function LeagueSwitcher() {
     return (
       <span
         className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 whitespace-nowrap"
-        title="Only one league connected — add more on the My Leagues page">
+        title="Only one league connected: add more in League → Your leagues">
         <span className={`text-[9px] font-black px-1 rounded ${active?.platform === 'sleeper' ? 'bg-violet-100 text-violet-700' : 'bg-rose-100 text-rose-700'}`}>
           {active?.platform?.toUpperCase()}
         </span>

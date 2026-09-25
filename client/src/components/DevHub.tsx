@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
 
 const fmt = (n?: number | null) =>
@@ -15,8 +15,12 @@ const ago = (iso?: string | null) => {
   return `${Math.round(mins / 1440)}d ago`;
 };
 
-export default function DevHub() {
-  const [open, setOpen] = useState(false);
+/**
+ * Settings → AI & developer: the Anthropic API key, the workspace id, usage (today and 30 days, by
+ * feature) and the player identity audit. The key is shown masked only (server `masked`), and the
+ * key field is a password input.
+ */
+export function DevPanel() {
   const { data, refetch } = useApi<any>('/dev/status');
   const [keyInput, setKeyInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -26,12 +30,6 @@ export default function DevHub() {
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [workspaceMsg, setWorkspaceMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    window.addEventListener('keydown', esc);
-    return () => window.removeEventListener('keydown', esc);
-  }, [open]);
 
   const saveKey = async () => {
     setBusy(true); setMsg(null);
@@ -73,170 +71,153 @@ export default function DevHub() {
   const today = data?.usage?.today;
 
   return (
-    <>
-      <button
-        onClick={() => { setOpen(true); refetch(); }}
-        title="Dev Hub — API key and usage"
-        className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 hover:border-slate-300 hover:bg-slate-50 transition-colors">
-        <span className={`w-2 h-2 rounded-full ${configured ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-        <span className="text-xs font-semibold text-slate-600">Dev</span>
-        {today?.calls > 0 && (
-          <span className="text-[10px] font-mono text-slate-400 tabular-nums">{money(today.cost)}</span>
+    <div className="space-y-5" data-testid="dev-panel">
+      {/* API key */}
+      <div>
+        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Anthropic API key</h3>
+        {configured ? (
+          <div className="flex items-center gap-2">
+            <code className="text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1 font-mono text-slate-600">
+              {data.api_key.masked}
+            </code>
+            <button onClick={removeKey} className="text-xs text-rose-600 hover:underline ml-auto">remove</button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <input
+              type="password"
+              value={keyInput}
+              onChange={e => setKeyInput(e.target.value)}
+              placeholder="sk-ant-…"
+              className="input flex-1 font-mono text-xs" />
+            <button className="btn-primary" onClick={saveKey} disabled={busy || !keyInput}>
+              {busy ? 'Saving…' : 'Save'}
+            </button>
+          </div>
         )}
-      </button>
+        {msg && <p className="text-xs text-amber-600 mt-2">{msg}</p>}
+        <p className="text-[11px] text-slate-400 mt-2">
+          Stored locally in <code className="font-mono">.env</code> (gitignored). Powers buy/sell verdicts,
+          news explanations, the camp roundup and team-outlook refreshes.
+        </p>
+      </div>
 
-      {open && createPortal(
-        <div className="fixed inset-0 z-[100] flex items-start justify-end p-4 sm:p-6 overflow-y-auto"
-          style={{ background: 'rgba(15,23,42,0.35)' }} onClick={() => setOpen(false)}>
-          <section
-            onClick={e => e.stopPropagation()}
-            aria-label="Developer hub"
-            className="card w-full max-w-md shadow-xl">
-            <header className="flex items-center gap-2 px-5 py-3 border-b border-slate-200">
-              <h2 className="font-bold text-slate-800">Dev Hub</h2>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${configured ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                {configured ? 'AI ENABLED' : 'AI OFF'}
-              </span>
-              <button onClick={() => setOpen(false)} className="ml-auto text-slate-400 hover:text-slate-700 text-lg leading-none">✕</button>
-            </header>
+      {/* Workspace ID — only needed for identity-linked keys */}
+      <div>
+        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
+          Workspace ID <span className="font-normal normal-case text-slate-400">(only if your key needs one)</span>
+        </h3>
+        {workspaceConfigured ? (
+          <div className="flex items-center gap-2">
+            <code className="text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1 font-mono text-slate-600">
+              {data.workspace_id.value}
+            </code>
+            <button onClick={removeWorkspace} className="text-xs text-rose-600 hover:underline ml-auto">remove</button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={workspaceInput}
+              onChange={e => setWorkspaceInput(e.target.value)}
+              placeholder="wrkspc-…"
+              className="input flex-1 font-mono text-xs" />
+            <button className="btn-primary" onClick={saveWorkspace} disabled={workspaceBusy || !workspaceInput}>
+              {workspaceBusy ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        )}
+        {workspaceMsg && <p className="text-xs text-amber-600 mt-2">{workspaceMsg}</p>}
+        <p className="text-[11px] text-slate-400 mt-2">
+          Only needed if AI features error with something like <em>"anthropic-workspace-id is
+          required"</em> — that means your key is Anthropic Console's newer per-person type,
+          which has to be told which workspace to act in. Find it in the Console under Settings →
+          the workspace's name. A plain API key never needs this — leave it blank.
+        </p>
+      </div>
 
-            <div className="p-5 space-y-5">
-              {/* API key */}
-              <div>
-                <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Anthropic API key</h3>
-                {configured ? (
-                  <div className="flex items-center gap-2">
-                    <code className="text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1 font-mono text-slate-600">
-                      {data.api_key.masked}
-                    </code>
-                    <button onClick={removeKey} className="text-xs text-rose-600 hover:underline ml-auto">remove</button>
-                  </div>
-                ) : (
-                  <div className="flex gap-2">
-                    <input
-                      type="password"
-                      value={keyInput}
-                      onChange={e => setKeyInput(e.target.value)}
-                      placeholder="sk-ant-…"
-                      className="input flex-1 font-mono text-xs" />
-                    <button className="btn-primary" onClick={saveKey} disabled={busy || !keyInput}>
-                      {busy ? 'Saving…' : 'Save'}
-                    </button>
-                  </div>
-                )}
-                {msg && <p className="text-xs text-amber-600 mt-2">{msg}</p>}
-                <p className="text-[11px] text-slate-400 mt-2">
-                  Stored locally in <code className="font-mono">.env</code> (gitignored). Powers buy/sell verdicts,
-                  news explanations, the camp roundup and team-outlook refreshes.
-                </p>
-              </div>
-
-              {/* Workspace ID — only needed for identity-linked keys */}
-              <div>
-                <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                  Workspace ID <span className="font-normal normal-case text-slate-400">(only if your key needs one)</span>
-                </h3>
-                {workspaceConfigured ? (
-                  <div className="flex items-center gap-2">
-                    <code className="text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1 font-mono text-slate-600">
-                      {data.workspace_id.value}
-                    </code>
-                    <button onClick={removeWorkspace} className="text-xs text-rose-600 hover:underline ml-auto">remove</button>
-                  </div>
-                ) : (
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={workspaceInput}
-                      onChange={e => setWorkspaceInput(e.target.value)}
-                      placeholder="wrkspc-…"
-                      className="input flex-1 font-mono text-xs" />
-                    <button className="btn-primary" onClick={saveWorkspace} disabled={workspaceBusy || !workspaceInput}>
-                      {workspaceBusy ? 'Saving…' : 'Save'}
-                    </button>
-                  </div>
-                )}
-                {workspaceMsg && <p className="text-xs text-amber-600 mt-2">{workspaceMsg}</p>}
-                <p className="text-[11px] text-slate-400 mt-2">
-                  Only needed if AI features error with something like <em>"anthropic-workspace-id is
-                  required"</em> — that means your key is Anthropic Console's newer per-person type,
-                  which has to be told which workspace to act in. Find it in the Console under Settings →
-                  the workspace's name. A plain API key never needs this — leave it blank.
-                </p>
-              </div>
-
-              {/* usage */}
-              <div>
-                <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Usage</h3>
-                <div className="grid grid-cols-3 gap-2 mb-3">
-                  {[
-                    ['Today', money(today?.cost), `${today?.calls ?? 0} calls`],
-                    ['30 days', money(data?.usage?.period_cost), `${fmt(data?.usage?.daily?.reduce((s: number, d: any) => s + d.calls, 0))} calls`],
-                    ['Model', 'Haiku 4.5', `$${data?.pricing?.in}/$${data?.pricing?.out} per Mtok`]
-                  ].map(([label, big, sub], i) => (
-                    <div key={i} className="rounded-lg border border-slate-200 p-2">
-                      <div className="text-[10px] uppercase tracking-wide text-slate-400">{label}</div>
-                      <div className="text-sm font-bold text-slate-800 truncate">{big}</div>
-                      <div className="text-[10px] text-slate-400 truncate">{sub}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {data?.usage?.by_feature?.length > 0 ? (
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-[10px] uppercase tracking-wide text-slate-400">
-                        <th className="text-left font-medium pb-1">Feature</th>
-                        <th className="text-right font-medium pb-1">Calls</th>
-                        <th className="text-right font-medium pb-1">Tokens</th>
-                        <th className="text-right font-medium pb-1">Cost</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {data.usage.by_feature.map((f: any) => (
-                        <tr key={f.feature}>
-                          <td className="py-1 text-slate-700">{f.feature}</td>
-                          <td className="py-1 text-right tabular-nums text-slate-500">{f.calls}</td>
-                          <td className="py-1 text-right tabular-nums text-slate-500">{fmt(f.input_tokens + f.output_tokens)}</td>
-                          <td className="py-1 text-right tabular-nums font-medium text-slate-700">{money(f.cost)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <p className="text-xs text-slate-500">No AI calls yet.</p>
-                )}
-              </div>
-
-              {/* data freshness */}
-              <div>
-                <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Live data</h3>
-                <ul className="space-y-1">
-                  {Object.entries(data?.data ?? {}).map(([k, v]: any) => (
-                    <li key={k} className="flex items-center gap-2 text-xs">
-                      <span className="capitalize text-slate-600 w-20">{k}</span>
-                      <span className="text-slate-400 tabular-nums">{fmt(v.n)} rows</span>
-                      <span className="ml-auto text-slate-400">{ago(v.at)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div>
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">Player identity audit</h3>
-                  <button className="btn-ghost text-xs" onClick={async () => setRepair(await api('/dev/player-identity/repair-plan'))}>Run dry-run</button>
-                </div>
-                {!repair ? <p className="text-[11px] text-slate-400">Scans duplicate names without changing any draft, roster or player row.</p> : <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-                  <div className="grid grid-cols-3 gap-2 text-center"><div><b className="block text-lg text-slate-900">{repair.duplicate_groups}</b>duplicate</div><div><b className="block text-lg text-emerald-700">{repair.safe_groups}</b>safe</div><div><b className="block text-lg text-amber-700">{repair.review_groups}</b>review</div></div>
-                  <p className="mt-2 text-[10px] leading-4 text-slate-500">{repair.note}</p>
-                </div>}
-              </div>
+      {/* usage */}
+      <div>
+        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Usage</h3>
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          {[
+            ['Today', money(today?.cost), `${today?.calls ?? 0} calls`],
+            ['30 days', money(data?.usage?.period_cost), `${fmt(data?.usage?.daily?.reduce((s: number, d: any) => s + d.calls, 0))} calls`],
+            ['Model', 'Haiku 4.5', `$${data?.pricing?.in}/$${data?.pricing?.out} per Mtok`]
+          ].map(([label, big, sub], i) => (
+            <div key={i} className="rounded-lg border border-slate-200 p-2">
+              <div className="text-[10px] uppercase tracking-wide text-slate-400">{label}</div>
+              <div className="text-sm font-bold text-slate-800 truncate">{big}</div>
+              <div className="text-[10px] text-slate-400 truncate">{sub}</div>
             </div>
-          </section>
-        </div>,
-        document.body
-      )}
-    </>
+          ))}
+        </div>
+
+        {data?.usage?.by_feature?.length > 0 ? (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wide text-slate-400">
+                <th className="text-left font-medium pb-1">Feature</th>
+                <th className="text-right font-medium pb-1">Calls</th>
+                <th className="text-right font-medium pb-1">Tokens</th>
+                <th className="text-right font-medium pb-1">Cost</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {data.usage.by_feature.map((f: any) => (
+                <tr key={f.feature}>
+                  <td className="py-1 text-slate-700">{f.feature}</td>
+                  <td className="py-1 text-right tabular-nums text-slate-500">{f.calls}</td>
+                  <td className="py-1 text-right tabular-nums text-slate-500">{fmt(f.input_tokens + f.output_tokens)}</td>
+                  <td className="py-1 text-right tabular-nums font-medium text-slate-700">{money(f.cost)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="text-xs text-slate-500">No AI calls yet.</p>
+        )}
+      </div>
+
+      {/* data freshness */}
+      <div>
+        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Live data</h3>
+        <ul className="space-y-1">
+          {Object.entries(data?.data ?? {}).map(([k, v]: any) => (
+            <li key={k} className="flex items-center gap-2 text-xs">
+              <span className="capitalize text-slate-600 w-20">{k}</span>
+              <span className="text-slate-400 tabular-nums">{fmt(v.n)} rows</span>
+              <span className="ml-auto text-slate-400">{ago(v.at)}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">Player identity audit</h3>
+          <button className="btn-ghost text-xs" onClick={async () => setRepair(await api('/dev/player-identity/repair-plan'))}>Run dry-run</button>
+        </div>
+        {!repair ? <p className="text-[11px] text-slate-400">Scans duplicate names without changing any draft, roster or player row.</p> : <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+          <div className="grid grid-cols-3 gap-2 text-center"><div><b className="block text-lg text-slate-900">{repair.duplicate_groups}</b>duplicate</div><div><b className="block text-lg text-emerald-700">{repair.safe_groups}</b>safe</div><div><b className="block text-lg text-amber-700">{repair.review_groups}</b>review</div></div>
+          <p className="mt-2 text-[10px] leading-4 text-slate-500">{repair.note}</p>
+        </div>}
+      </div>
+    </div>
+  );
+}
+
+/** The header's "Dev" button: its status dot and today's spend; it opens Settings → AI & developer. */
+export default function DevHub() {
+  const { data } = useApi<any>('/dev/status');
+  const configured = data?.api_key?.configured;
+  const today = data?.usage?.today;
+  return (
+    <Link to="/settings?view=dev" title="AI & developer: API key and usage"
+      className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 transition-colors hover:border-slate-300 hover:bg-slate-50">
+      <span className={`h-2 w-2 rounded-full ${configured ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+      <span className="text-xs font-semibold text-slate-600">Dev</span>
+      {today?.calls > 0 && <span className="font-mono text-[10px] tabular-nums text-slate-500">{money(today.cost)}</span>}
+    </Link>
   );
 }

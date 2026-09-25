@@ -366,8 +366,10 @@ test('badge and Blue chips panel render: score + label, hurt, filters for others
 });
 
 test('the War Room mounts the Blue chips panel only when the board is served', () => {
-  const src = fs.readFileSync(path.join(REPO, 'client', 'src', 'components', 'warroom', 'WarRoom.tsx'), 'utf8');
-  assert.match(src, /view\.blue_chips && view\.blue_chips\.status === 'ok' && <BlueChipBoard/);
+  // The classic dashboard (WarRoom.tsx) is retired; the board lives on the Go get screen.
+  const src = fs.readFileSync(path.join(REPO, 'client', 'src', 'components', 'warroom', 'ScreenGoGet.tsx'), 'utf8');
+  assert.match(src, /view\.blue_chips && isOk\(view\.blue_chips\) && \(/);
+  assert.match(src, /<BlueChipBoard field=\{view\.blue_chips\} big \/>/);
 });
 
 // Nick's 9/23 ruling: the consensus (FantasyPros) rank is internal only. The board never shows it and the

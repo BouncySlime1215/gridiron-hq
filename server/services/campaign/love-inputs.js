@@ -20,6 +20,10 @@ function hasTable(db, name) {
   return !!db.row(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, name);
 }
 
+function hasColumn(db, table, column) {
+  return db.rows(`SELECT name FROM pragma_table_info(?)`, table).some(c => c.name === column);
+}
+
 const mean = xs => {
   const v = xs.filter(x => typeof x === 'number' && Number.isFinite(x));
   return v.length ? +(v.reduce((s, x) => s + x, 0) / v.length).toFixed(3) : null;
@@ -47,7 +51,13 @@ export function readLoveInputs(db, { season, week, ids, draft = null, lookback =
   const players = new Map();
   if (!want.length) return { players, sources };
 
-  const base = db.rows(`SELECT id, position, gsis_id FROM players WHERE id IN (${IN(want)})`, ...want);
+  // The player's NFL team (players.team_id -> nfl_teams.abbr): a partly published week-N
+  // injury report only covers the teams that have filed (Thursday teams first).
+  const teamRead = hasTable(db, 'nfl_teams') && hasColumn(db, 'players', 'team_id');
+  const base = teamRead
+    ? db.rows(`SELECT p.id, p.position, p.gsis_id, t.abbr AS team_abbr FROM players p
+               LEFT JOIN nfl_teams t ON t.id = p.team_id WHERE p.id IN (${IN(want)})`, ...want)
+    : db.rows(`SELECT id, position, gsis_id, NULL AS team_abbr FROM players WHERE id IN (${IN(want)})`, ...want);
   const from = Math.max(1, week - lookback);
 
   const usage = new Map();
@@ -82,6 +92,7 @@ export function readLoveInputs(db, { season, week, ids, draft = null, lookback =
     missing_gsis: sources.ffopportunity.missing_gsis };
 
   const injury = new Map();
+  let reportedTeams = new Set();
   if (hasTable(db, 'nfl_injuries')) {
     // Injury reports expire: only THIS week's report (week N) counts. Last week's is stale, so a
     // player Out in an earlier week is not still Out. With no week-N report (not published yet, or
@@ -93,6 +104,17 @@ export function readLoveInputs(db, { season, week, ids, draft = null, lookback =
           : `nfl_injuries' latest ${season} report is week ${latest}, not this week (${week})` };
     } else {
       sources.injuries.report_week = latest;
+      // Which NFL teams have filed a week-N report. MAX(week) = N is met by the first team's
+      // rows, so early in the week most teams have not filed yet: a player whose team has no
+      // week-N row is 'unknown', never 'healthy' (#393 review, partly published week).
+      if (hasColumn(db, 'nfl_injuries', 'team')) {
+        reportedTeams = new Set(db.rows(`SELECT DISTINCT team FROM nfl_injuries WHERE season = ? AND week = ? AND team IS NOT NULL`,
+          season, latest).map(r => String(r.team)));
+        sources.injuries.teams_reported = reportedTeams.size;
+      } else {
+        sources.injuries.teams_reported = null;
+        sources.injuries.team_reason = 'nfl_injuries has no team column: no player can be called healthy';
+      }
       if (gsisIds.length) {
         const rows = db.rows(`SELECT gsis_id, week, report_status FROM nfl_injuries
                               WHERE season = ? AND week = ? AND gsis_id IN (${IN(gsisIds)})`, season, latest, ...gsisIds);
@@ -109,7 +131,12 @@ export function readLoveInputs(db, { season, week, ids, draft = null, lookback =
     const inj = p.gsis_id ? injury.get(p.gsis_id) ?? null : null;
     const report = inj?.report_status ?? null;
     // A healthy role needs a current report; no row on a current report is "not on the report".
-    const injuriesRead = sources.injuries.status === 'ok' && !!p.gsis_id;
+    // ...and his team must have filed this week's report: else nobody can say he is healthy.
+    const teamFiled = !!p.team_abbr && reportedTeams.has(String(p.team_abbr));
+    const injuriesRead = sources.injuries.status === 'ok' && !!p.gsis_id && (teamFiled || !!inj);
+    if (sources.injuries.status === 'ok' && p.gsis_id && !injuriesRead) {
+      sources.injuries.team_not_filed = (sources.injuries.team_not_filed ?? 0) + 1;
+    }
     const role = !injuriesRead ? { status: 'unknown', report_status: null, radar: null }
       : { status: report && UNHEALTHY.has(report.toLowerCase()) ? 'unhealthy' : 'healthy', report_status: report, radar: null };
     const pick = draft?.get(p.id)?.overall_pick ?? null;

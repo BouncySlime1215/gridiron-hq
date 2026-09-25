@@ -131,15 +131,16 @@ test('LOVE_RULE thresholds are frozen and labelled a guess', () => {
 });
 
 /** A db with the { row, rows } shape of server/db/index.js over an in-memory sqlite. */
-function makeDb({ tables = ['players', 'player_week_usage', 'nfl_ffopportunity_weekly', 'nfl_injuries'] } = {}) {
+function makeDb({ tables = ['players', 'nfl_teams', 'player_week_usage', 'nfl_ffopportunity_weekly', 'nfl_injuries'] } = {}) {
   const raw = new DatabaseSync(':memory:');
   const ddl = {
-    players: `CREATE TABLE players (id INTEGER PRIMARY KEY, name TEXT, position TEXT, gsis_id TEXT)`,
+    players: `CREATE TABLE players (id INTEGER PRIMARY KEY, name TEXT, position TEXT, gsis_id TEXT, team_id INTEGER)`,
+    nfl_teams: `CREATE TABLE nfl_teams (id INTEGER PRIMARY KEY, abbr TEXT)`,
     player_week_usage: `CREATE TABLE player_week_usage (player_id INTEGER, season INTEGER, week INTEGER, position TEXT,
       target_share REAL, passing_tds REAL, rushing_tds REAL, receiving_tds REAL, PRIMARY KEY (player_id, season, week))`,
     nfl_ffopportunity_weekly: `CREATE TABLE nfl_ffopportunity_weekly (season INTEGER, week INTEGER, player_gsis_id TEXT,
       expected_fantasy_points REAL, actual_fantasy_points REAL, expected_touchdowns REAL, PRIMARY KEY (season, week, player_gsis_id))`,
-    nfl_injuries: `CREATE TABLE nfl_injuries (season INTEGER, week INTEGER, gsis_id TEXT, report_status TEXT,
+    nfl_injuries: `CREATE TABLE nfl_injuries (season INTEGER, week INTEGER, gsis_id TEXT, report_status TEXT, team TEXT,
       PRIMARY KEY (season, week, gsis_id))`,
   };
   for (const t of tables) raw.exec(ddl[t]);
@@ -151,7 +152,8 @@ function makeDb({ tables = ['players', 'player_week_usage', 'nfl_ffopportunity_w
 }
 
 function seed(db) {
-  db.run(`INSERT INTO players VALUES (1, 'Made Up One', 'WR', 'G1'), (2, 'Made Up Two', 'RB', 'G2'), (3, 'Made Up Three', 'WR', NULL)`);
+  db.run(`INSERT INTO nfl_teams VALUES (1, 'AAA'), (2, 'BBB'), (3, 'CCC')`);
+  db.run(`INSERT INTO players VALUES (1, 'Made Up One', 'WR', 'G1', 1), (2, 'Made Up Two', 'RB', 'G2', 2), (3, 'Made Up Three', 'WR', NULL, 1)`);
   for (const w of [1, 2, 3, 4]) {
     db.run(`INSERT INTO player_week_usage VALUES (1, 2026, ?, 'WR', ?, 0, 0, 1)`, w, 0.2 + w / 100);
     db.run(`INSERT INTO player_week_usage VALUES (2, 2026, ?, 'RB', 0.05, 0, 1, 0)`, w);
@@ -159,7 +161,9 @@ function seed(db) {
     db.run(`INSERT INTO nfl_ffopportunity_weekly VALUES (2026, ?, 'G2', 13, 11, 0.6)`, w);
   }
   db.run(`INSERT INTO player_week_usage VALUES (1, 2025, 17, 'WR', 0.9, 0, 0, 5)`);
-  db.run(`INSERT INTO nfl_injuries VALUES (2026, 4, 'G2', 'Out')`);
+  db.run(`INSERT INTO nfl_injuries VALUES (2026, 4, 'G2', 'Out', 'BBB')`);
+  // Team AAA has filed its week-4 report (another made-up player is on it), so player 1 can read healthy.
+  db.run(`INSERT INTO nfl_injuries VALUES (2026, 4, 'G9', 'Questionable', 'AAA')`);
 }
 
 test('reader: strictly prior weeks of this season, averaged; week N itself is never read', () => {
@@ -180,7 +184,7 @@ test('reader: strictly prior weeks of this season, averaged; week N itself is ne
 
 test('reader: an old injury report does not stick (Out in week 1, off the report since -> healthy)', () => {
   const db = makeDb(); seed(db);
-  db.run(`INSERT INTO nfl_injuries VALUES (2026, 1, 'G1', 'Out')`);
+  db.run(`INSERT INTO nfl_injuries VALUES (2026, 1, 'G1', 'Out', 'AAA')`);
   const r = readLoveInputs(db, { season: 2026, week: 4, ids: [1] });
   assert.equal(r.sources.injuries.report_week, 4);
   assert.equal(r.players.get(1).role.status, 'healthy');
@@ -226,7 +230,7 @@ test('reader: a player with no gsis id has no expected points, and the tag says 
 
 test('reader: absent tables are reported per source, not thrown and not an empty ok', () => {
   const db = makeDb({ tables: ['players'] });
-  db.run(`INSERT INTO players VALUES (1, 'Made Up One', 'WR', 'G1')`);
+  db.run(`INSERT INTO players VALUES (1, 'Made Up One', 'WR', 'G1', NULL)`);
   const r = readLoveInputs(db, { season: 2026, week: 4, ids: [1] });
   assert.equal(r.sources.usage.status, 'table_absent');
   assert.equal(r.sources.ffopportunity.status, 'table_absent');
@@ -284,4 +288,16 @@ test('producer: flag on -> only _run.inputs.love is added; LOVE is never a searc
   assert.deepEqual(strip(on), strip(off), 'shadow: no served number moves');
   delete on._run.inputs.love;
   assert.deepEqual(on._run, off._run);
+});
+
+test('reader: a partly published week: a player whose NFL team has not filed week N is unknown, not healthy', () => {
+  const db = makeDb(); seed(db);
+  // Only BBB has filed week 4 (Thursday team first); AAA's report is not in yet.
+  db.run(`DELETE FROM nfl_injuries WHERE team = 'AAA'`);
+  const r = readLoveInputs(db, { season: 2026, week: 4, ids: [1, 2] });
+  assert.equal(r.sources.injuries.status, 'ok', 'MAX(week) = 4 is met by BBB\'s rows');
+  assert.equal(r.sources.injuries.teams_reported, 1);
+  assert.equal(r.players.get(1).role.status, 'unknown', 'AAA has no week-4 row: nobody can say player 1 is healthy');
+  assert.equal(r.sources.injuries.team_not_filed, 1);
+  assert.equal(r.players.get(2).role.status, 'unhealthy', 'a player on the report is read from his own row');
 });

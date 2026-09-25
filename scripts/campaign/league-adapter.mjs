@@ -328,7 +328,11 @@ export function executedTradeRows(svc, { leagueId, season }) {
  */
 export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
   rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env), love = loveEnabled(env),
-  claims = searchWideFlag() === 'on' } = {}) {
+  searchWide = searchWideFlag(env) } = {}) {
+  // #406 finding 2: SEARCH-WIDE is read ONCE, here, from the env the producer passes; the adapter carries
+  // it (adapter.searchWide) and the planner follows the adapter, so the world (claim universe) and the
+  // planner can never disagree about the flag.
+  const claims = searchWide === 'on';
   const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg) throw new Error(`league ${leagueId} not found`);
   const payload = JSON.parse(lg.payload ?? '{}');
@@ -538,7 +542,9 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       unpriced: [...players.keys()].filter(id => players.get(id).value == null).map(String) },
     // LIVE-BLEND: which P(yes) was served and, for the blend, each model's weight and record (plans.json p_yes_basis).
     pYesBasis: svc.pyes.pYesBasis(pyTable),
-    // SEARCH-WIDE: the free agents this world simulates; the planner builds claims only from these.
+    // SEARCH-WIDE: the one read of its flag (the planner follows this), and the free agents this world
+    // simulates; the planner builds claims only from these.
+    searchWide,
     ...(claimIds.length ? { claimUniverse: new Set(claimIds.map(String)) } : {}),
     tradeLedger: tradeLedger(svc, { leagueId, season, formatKey: svc.format?.deriveFormat(lg).formatKey ?? null, assets, now }),
     // RADAR-WIRE: fcTrendOf / fcHistoryDays / newsOf / newsAlive for the flip rows' why-now label.

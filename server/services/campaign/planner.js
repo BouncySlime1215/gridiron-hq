@@ -272,7 +272,9 @@ export function planLeague(adapter, settings) {
 
   // SEARCH-WIDE (flag GRIDIRON_SEARCH_WIDE=1 only; default off): a league-wide node budget split across the
   // targets, a wider depth 3, laterals held to the floor, claims as steps (search-wide.js). Off: today's search.
-  const wideOn = searchWideFlag(env) === 'on';
+  // #406 finding 2: one read of the flag. A real adapter carries it (league-adapter.mjs#buildAdapter read it
+  // from the producer's env and built the world on it); the planner follows. Fixtures without it read env.
+  const wideOn = (adapter.searchWide ?? searchWideFlag(env)) === 'on';
   const wideSink = wideOn ? newWideSink(wideBudget(env)) : null;
   // Fresh rescores: PRODUCER-FAST cache misses when the adapter has the cache (hits are free), else memo misses.
   const fresh = () => adapter.cacheStats?.()?.misses ?? S.count();

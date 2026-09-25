@@ -333,3 +333,14 @@ test('claim P(yes) < 1 is what the path\'s expected value is priced on', async (
     assert.notEqual(p.expected, sure, 'the chance of losing the claim moves the path\'s value');
   }
 });
+
+/* --------------------------------------- #406 finding 2: one read of the flag */
+
+test('one flag read: the planner follows the adapter\'s searchWide, whatever its own env says', () => {
+  const offAdapter = Object.assign(claimAdapter(), { searchWide: 'off' });
+  const r1 = planLeague(offAdapter, { objective: OBJ, env: ON });
+  assert.equal('search_wide' in r1, false, 'the world was built without claims: the planner must not widen');
+  const onAdapter = Object.assign(claimAdapter(), { searchWide: 'on' });
+  const r2 = planLeague(onAdapter, { objective: OBJ, env: OFF });
+  assert.equal(r2.search_wide?.flag, 'on', 'the world was built for it: the planner widens');
+});

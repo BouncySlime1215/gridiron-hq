@@ -505,7 +505,7 @@ async function main() {
         const ta = Date.now();
         const rescoreCache = fast ? leagueCache(cacheIn.leagues[String(id)] ?? {}) : null;
         if (rescoreCache) caches.set(String(id), rescoreCache);
-        const adapter = buildAdapter(svc, id, { chat: chat.rows, finder: opts.finder, fast, rescoreCache });
+        const adapter = buildAdapter(svc, id, { chat: chat.rows, finder: opts.finder, fast, rescoreCache, env });
         let counterpart = { status: 'off', reason: 'GRIDIRON_COUNTERPART unset and the preview switch off (or =0)' };
         let people = null;
         if (counterpartOn && !adapter.fail) {

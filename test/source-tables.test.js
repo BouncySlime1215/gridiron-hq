@@ -139,6 +139,19 @@ test('plannerArm: served first step, "none" when the planner served nothing, err
   assert.equal(P.plannerArm({}).state, 'error');
 });
 
+test('plannerArm: a planner that failed closed is ungraded (error), never "did nothing" (#395 review)', () => {
+  const unknown = { status: 'unknown', reason: 'No move this run: the trade ledger could not be read.' };
+  const ledger = P.plannerArm({ next_move: unknown, _run: { confirm: { status: 'ok' }, dropped_by_reason: { trade_ledger_missing: 3 } } });
+  assert.equal(ledger.state, 'error');
+  assert.match(ledger.why, /trade ledger missing/);
+  const dice = P.plannerArm({ next_move: unknown, _run: { confirm: { status: 'failed', reason: 'confirm world failed' } } });
+  assert.equal(dice.state, 'error');
+  assert.match(dice.why, /confirm dice failed/);
+  const chose = P.plannerArm({ next_move: { status: 'unknown', reason: 'None clears.' },
+    _run: { confirm: { status: 'ok' }, dropped_by_reason: { trade_memory: 2 } } });
+  assert.equal(chose.state, 'none', 'a real "nothing clears" week is still graded as doing nothing');
+});
+
 test('pickFinderBest: highest p x delta, with its move; finderArm wraps it', () => {
   const served = [
     { partner_id: '3', i_give: [{ id: 1 }], i_get: [{ id: 9 }], title_delta: 0.02, title_delta_se: 0.01 },

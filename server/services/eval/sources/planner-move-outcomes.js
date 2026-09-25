@@ -85,7 +85,20 @@ export function plannerArm(entry) {
     if (!s || s.partner == null) return armError('served next move has no first step');
     return armMove(moveOf(s.partner, s.give, s.get));
   }
-  if (nm?.status === 'unknown') return armNone(nm.reason ?? 'the planner served no move');
+  if (nm?.status === 'unknown') {
+    // A planner that REFUSED to plan (failed closed for lack of inputs) did not choose "do
+    // nothing": grading that week as gain 0 would compare a baseline against a refusal.
+    // Those weeks are ungraded (#395 review): the trade ledger was missing, or the fresh
+    // confirm dice did not run.
+    const run = entry._run ?? null;
+    if (Number(run?.dropped_by_reason?.trade_ledger_missing) > 0) {
+      return armError('planner failed closed: trade ledger missing, so it did not plan this week');
+    }
+    if (run?.confirm && run.confirm.status !== 'ok') {
+      return armError(`planner failed closed: confirm dice ${run.confirm.status}${run.confirm.reason ? ` (${run.confirm.reason})` : ''}`);
+    }
+    return armNone(nm.reason ?? 'the planner served no move');
+  }
   return armError('plans entry has no next_move');
 }
 

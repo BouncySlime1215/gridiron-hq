@@ -69,3 +69,14 @@ takes him; blocked, it does not.
   deleted; `greedyMove` defaults to `PINNED_NEVER_GIVE` / `PINNED_NEVER_GET` from main. 22 of 22 pass.
 - Items 2 and 3 of the plan (no market values = "not graded"; no `settled_at` on a reprice error)
   were already fixed in `2ab19d5` and are unchanged.
+
+## Integration-9 follow-ups (#395 review)
+
+- **Fail-closed weeks are ungraded.** `plannerArm` returns an error arm (not "none", gain 0)
+  when the planner refused to plan: `_run.dropped_by_reason.trade_ledger_missing > 0` or
+  `_run.confirm.status !== 'ok'`. E4-live grades only rows where all three gains are numbers,
+  so such a week drops out instead of scoring the planner as "did nothing".
+- **E4 note on the greedy arm.** Greedy applies only the pinned never-give / never-get lists
+  (never-give.js), not the gets floor, the whole-season no-buy-back or the overpay cap. It is a
+  baseline, not a legal-move oracle: a week where greedy "wins" is not evidence the planner
+  missed a legal move, because greedy's move may break one of Nick's rules.

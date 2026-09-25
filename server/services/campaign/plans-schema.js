@@ -51,9 +51,9 @@ export const TOLERANCE_KEYS = Object.freeze([
 export const STOP_STATUSES = Object.freeze(['next', 'waiting', 'done', 'dropped', 'blocked']);
 export const REASONING_SLOTS = Object.freeze(['case_for', 'his_side', 'devils_advocate', 'news_check', 'confidence', 'counter']);
 /** Report-card check ids: E1-E7 plus the graders' sub-checks (E3-live on main; E4-live #294 and E3-ESPN #322 pending),
- *  and C8 (REASON-02 #271, reasoning/grade.js in eval GRADERS).
+ *  C8 (REASON-02 #271, reasoning/grade.js in eval GRADERS), and L01B-ACT / L01B-SIM / L01B-GATE (eval/living-gate.js).
  *  A grader that adds a new id must add it here, or every league's plan fails its contract check (9/24 incident). */
-export const BRAIN_CHECK_IDS = Object.freeze(['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E3-live', 'E4-live', 'E3-ESPN', 'C8']);
+export const BRAIN_CHECK_IDS = Object.freeze(['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E3-live', 'E4-live', 'E3-ESPN', 'C8', 'L01B-ACT', 'L01B-SIM', 'L01B-GATE']);
 export const MAX_ALTERNATIVES = 5;
 /** Why Nick skipped a deck card: the War Room deck, Coach and the producer's skip weights share these ids. */
 export const SKIP_REASONS = Object.freeze(['player', 'cost', 'manager', 'not_now']);

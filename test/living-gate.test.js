@@ -308,3 +308,35 @@ test('optional modules: a missing module resolves to null; any other import faul
   assert.equal(typeof await REC.optionalExport('./living-gate.js', 'run'), 'function');
   await assert.rejects(() => REC.optionalExport('data:text/javascript,export const = ;', 'x'), SyntaxError);
 });
+
+// ------------------------------------------------------------------ served output unchanged
+test('a failing shadow gate never lowers the risk mode or reaches the War Room; the same row without shadow_only does', async () => {
+  const { brainReportRule } = await import('../server/services/eval/brain-rule.js');
+  const { applyBrainReport } = await import('../server/services/campaign/brain-gate.js');
+  const mult = truth();
+  const rows = G.run(makeDb({ tx: txRows(mult), sim: simRows({ good: false }) }), { intensityFor: byLeague(mult) });
+  assert.equal(rowOf(rows, 'L01B-GATE').status, 'failing');
+  for (const r of rows) assert.equal(r.detail.shadow_only, true, r.check);
+  const now = new Date('2026-10-01T00:00:00Z');
+  const served = { check: 'E3', name: 'E3', status: 'passing', detail: {} };
+  const report = checks => ({ computed_at: now.toISOString(), run_id: 'r', checks });
+  const rule = brainReportRule({ requestedMode: 'all_in', now, report: report([served, ...rows]) });
+  assert.deepEqual([rule.mode, rule.fell_back, rule.blocking], ['all_in', false, []]);
+  assert.deepEqual(rule.shadow.map(s => s.check), ['L01B-SIM', 'L01B-GATE']);
+  const objective = { risk_mode: 'all_in', tolerances: {} };
+  const withGate = applyBrainReport({ objective, report: report([served, ...rows]), now });
+  const without = applyBrainReport({ objective, report: report([served]), now });
+  assert.deepEqual(withGate.section, without.section, 'the War Room section is byte-identical with the gate rows');
+  assert.deepEqual(withGate.objective, without.objective);
+  // control: the same failing row, not marked shadow, does fall back
+  const plain = rows.map(r => ({ ...r, detail: { ...r.detail, shadow_only: false } }));
+  assert.equal(brainReportRule({ requestedMode: 'all_in', now, report: report([served, ...plain]) }).mode, 'balanced');
+  // a shadow grader that throws is marked too, so it cannot lower the mode either
+  const { runAll } = await import('../server/services/eval/index.js');
+  assert.equal(G.SHADOW_ONLY, true);
+  const broken = { prepare() { throw new Error('db gone'); } };
+  const { results } = runAll(broken);
+  const err = results.find(r => r.check === 'L01B-GATE');
+  assert.equal(err.detail.shadow_only, true);
+  assert.match(err.detail.grader_error, /db gone/);
+});

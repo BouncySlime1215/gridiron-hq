@@ -206,7 +206,7 @@ function txIndex(leagueId, season) {
  * than one ADD), so the ADD items are counted, not the rows. On the 2026 rows
  * (local copy, 2026-09-23) the two agree: 134 executed rows, 134 ADD items.
  */
-function addsByTeam(all) {
+export function addsByTeam(all) {
   const out = new Map();
   for (const t of all) {
     if ((t.type !== 'WAIVER' && t.type !== 'FREEAGENT') || t.status !== 'EXECUTED') continue;
@@ -224,6 +224,28 @@ function addsByTeam(all) {
 }
 
 /**
+ * Players dropped, per team, as scoring periods: the DROP items on EXECUTED
+ * WAIVER or FREEAGENT rows (a claim's drop and a drop-only move alike), keyed
+ * by the team that let the player go. Same reading rules as addsByTeam.
+ */
+export function dropsByTeam(all) {
+  const out = new Map();
+  for (const t of all) {
+    if ((t.type !== 'WAIVER' && t.type !== 'FREEAGENT') || t.status !== 'EXECUTED') continue;
+    let items;
+    try { items = JSON.parse(t.items_json || '[]'); } catch (err) {
+      throw new Error(`league_transactions_raw ${t.tx_id}: items_json is not JSON (${err.message})`);
+    }
+    for (const i of items) {
+      if (i?.type !== 'DROP' || !(Number(i.fromTeamId) > 0)) continue;
+      const k = Number(i.fromTeamId);
+      (out.get(k) ?? out.set(k, []).get(k)).push(Number(t.scoring_period));
+    }
+  }
+  return out;
+}
+
+/**
  * Completed trades as { period, parties }: the league PROCESSED them. ESPN
  * writes TRADE_ACCEPT / PROCESS with status EXECUTED, under the proposer, when
  * a trade goes through (CANCEL if it is vetoed), and that row carries the
@@ -232,7 +254,7 @@ function addsByTeam(all) {
  * EXECUTE rows have no proposal row to take the parties from, while all 9
  * PROCESS / EXECUTED rows carry their items.
  */
-function completedTrades(all) {
+export function completedTrades(all) {
   const out = [];
   for (const t of all) {
     if (t.type !== 'TRADE_ACCEPT' || t.execution_type !== 'PROCESS' || t.status !== 'EXECUTED') continue;

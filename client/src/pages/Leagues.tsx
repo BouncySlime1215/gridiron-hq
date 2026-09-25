@@ -4,6 +4,7 @@ import { useLeague } from '../state/league';
 import { PlayerName } from '../components/PlayerCard';
 import { PageError, PageLoading } from '../components/PageState';
 import { Button, Card, Chip, EmptyState } from '../components/ui/DesignSystem';
+import EspnConnect from '../components/EspnConnect';
 
 const POS_ORDER = ['QB', 'RB', 'WR', 'TE'];
 
@@ -48,7 +49,7 @@ export default function Leagues({ view = 'leagues' }: { view?: 'leagues' | 'rost
   // analysis also makes it the active league on My Team, Trade Lab, etc.
   const { leagues, loading: leaguesLoading, error: leaguesError, refetch, activeId: sel, setActiveId: setSel } = useLeague();
   const { data: analysis, refetch: refetchAnalysis } = useApi<any>(sel && view === 'rosters' ? `/leagues/${sel}/analysis` : null);
-  const [form, setForm] = useState({ platform: 'sleeper', league_id: '', season: 2026, espn_s2: '', swid: '' });
+  const [form, setForm] = useState({ platform: 'sleeper', league_id: '', season: 2026 });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [removal, setRemoval] = useState<null | { id: number; name: string; drafts: number; draft_picks: number; draft_names: string[] }>(null);
@@ -60,7 +61,7 @@ export default function Leagues({ view = 'leagues' }: { view?: 'leagues' | 'rost
       const lg = await api('/leagues', { method: 'POST', body: JSON.stringify(form) });
       const s = await api(`/leagues/${lg.id}/sync`, { method: 'POST' });
       setMsg(`Added and synced — ${s.teams} teams${s.fell_back ? `, using ${s.season_used} rosters (this season hasn’t drafted yet)` : ''}.${scoringNote(s.scoring)}`);
-      setForm(f => ({ ...f, league_id: '', espn_s2: '', swid: '' }));
+      setForm(f => ({ ...f, league_id: '' }));
       refetch();
       setSel(lg.id);
     } catch (e: any) { setMsg(e.message); }
@@ -103,7 +104,7 @@ export default function Leagues({ view = 'leagues' }: { view?: 'leagues' | 'rost
       {view === 'leagues' && <>
       <Card>
         <h2 className="ds-h">Connect a league</h2>
-        <p className="ds-note mt-0.5">Sleeper needs only the league id; a private ESPN league also needs its two cookies.</p>
+        <p className="ds-note mt-0.5">Sleeper needs only the league id. ESPN connects once, then lists your leagues.</p>
         <div className="mt-4 flex flex-wrap items-end gap-3">
           <label className="text-xs text-slate-600">Platform
             <select className="input block mt-1" value={form.platform}
@@ -112,6 +113,7 @@ export default function Leagues({ view = 'leagues' }: { view?: 'leagues' | 'rost
               <option value="espn">ESPN</option>
             </select>
           </label>
+          {form.platform === 'sleeper' && <>
           <label className="text-xs text-slate-600">League ID
             <input className="input block mt-1 w-48" placeholder={form.platform === 'sleeper' ? '1124...' : '1234567'}
               value={form.league_id} onChange={e => setForm(f => ({ ...f, league_id: e.target.value }))} />
@@ -120,21 +122,13 @@ export default function Leagues({ view = 'leagues' }: { view?: 'leagues' | 'rost
             <input type="number" className="input block mt-1 w-24" value={form.season}
               onChange={e => setForm(f => ({ ...f, season: Number(e.target.value) }))} />
           </label>
-          {form.platform === 'espn' && (
-            <>
-              <label className="text-xs text-slate-600">espn_s2
-                <input className="input block mt-1 w-56 max-w-full font-mono" value={form.espn_s2}
-                  onChange={e => setForm(f => ({ ...f, espn_s2: e.target.value }))} />
-              </label>
-              <label className="text-xs text-slate-600">SWID
-                <input className="input block mt-1 w-48 max-w-full font-mono" value={form.swid}
-                  onChange={e => setForm(f => ({ ...f, swid: e.target.value }))} />
-              </label>
-            </>
-          )}
           <Button variant="primary" icon="refresh" onClick={add} disabled={busy || !form.league_id}
             title={!form.league_id ? 'Enter a league id first' : undefined}>{busy ? 'Working…' : 'Add and sync'}</Button>
+          </>}
         </div>
+        {/* ESPN goes through the one connect flow (the same one as Settings and the first-run prompt):
+            no cookie fields here, a league not listed is added by ID inside it. */}
+        {form.platform === 'espn' && <div className="mt-4"><EspnConnect variant="bare" /></div>}
         {msg && <p role="status" className="ds-note mt-3">{msg}</p>}
       </Card>
 

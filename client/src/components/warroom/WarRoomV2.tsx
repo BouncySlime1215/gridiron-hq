@@ -134,7 +134,8 @@ export default function WarRoomV2({ view, leagues, activeId, onLeague, onExit, d
   const players = usePlayerHeadshots();
   const headshots = useMemo(() => {
     const out: Record<string, string> = {};
-    for (const p of players.data ?? []) if (p.headshot) out[String(p.id)] = p.headshot;
+    // ESPN has no headshot for a negative (team defence) id; those get initials without a failed request.
+    for (const p of players.data ?? []) if (p.headshot && !/\/-\d+\.png$/.test(p.headshot)) out[String(p.id)] = p.headshot;
     return out;
   }, [players.data]);
 

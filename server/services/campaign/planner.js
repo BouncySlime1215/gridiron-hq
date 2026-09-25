@@ -58,6 +58,22 @@ const firstKey = p => dealKey(p.steps[0]);
  * moves pass; they move the ranking and the shown P(yes) only. The verdict's shown numbers stay on
  * the served p; `gate` says which p decided 'failed'.
  */
+export const STEP_REGRET_ENV = 'GRIDIRON_STEP_REGRET';
+
+/**
+ * STEP-REGRET: the index of the first step whose own gain on the confirm dice (its cumulative delta
+ * minus the step before's) is not above 0, or -1 when every step gains. A step with no finite delta fails.
+ */
+export function stepRegretIndex(steps) {
+  let before = 0;
+  for (let i = 0; i < steps.length; i++) {
+    const d = Number(steps[i].delta);
+    if (!Number.isFinite(d) || !(d - before > 0)) return i;
+    before = d;
+  }
+  return -1;
+}
+
 export function confirmGate(planned, reconfirmed) {
   const shown = confirmVerdict(pathExpectation(planned.steps), pathExpectation(reconfirmed.steps));
   // The clone path carries no p_gate: the verdict is today's, object and all.
@@ -144,6 +160,8 @@ export function planLeague(adapter, settings) {
   const waitEnabled = waitOrActOn(env);
   // RISK-RULE (shadow, GRIDIRON_RISK_RULE=1): each mode's own decision rule ranks the plans; off, unchanged.
   const rule = riskRuleOn(env);
+  // STEP-REGRET: on unless GRIDIRON_STEP_REGRET=0 (a kill switch for one release, not a model choice).
+  const stepRegretOn = env?.[STEP_REGRET_ENV] !== '0';
   const budget = { flipTopPer: 3, flipRealise: 6, targets: 3, ...(settings.budget ?? {}) };
   const L = adapter.league;
   const me = L.me;
@@ -418,7 +436,14 @@ export function planLeague(adapter, settings) {
       ? rankPlans([{ ...re, steps: re.steps.map(st => (st.p_gate != null ? { ...st, p: st.p_gate } : st)) }], mode,
         { ...tolM, max_downside_per_step: Infinity }, { ...ctxM, core: null }, { rule }).ranked[0]
       : scored;
-    return { ...re, score: scored?.score ?? -Infinity, beats_no_trade: beatsNoTradeUnder(onGate, mode, { rule }), mode, confirm: v, planned_on: p };
+    // STEP-REGRET (Nick 2026-09-25, "every move beats doing nothing", per step): each step must itself gain on the
+    // confirm dice given the state after the steps before it. Step deltas are cumulative, so its own gain is
+    // delta_i - delta_(i-1); a path with any step at or below 0 is dropped whole (a truncated prefix would leave
+    // Nick holding a flip leg the floor never cleared as a final get).
+    const regretAt = stepRegretOn ? stepRegretIndex(re.steps) : -1;
+    return { ...re, score: scored?.score ?? -Infinity,
+      beats_no_trade: regretAt < 0 && beatsNoTradeUnder(onGate, mode, { rule }), mode, confirm: v, planned_on: p,
+      ...(regretAt >= 0 ? { step_regret: regretAt } : {}) };
   };
   // Nick's rule, kept apart from the ranking score: the move must beat doing nothing on the confirm dice.
   const beatsNoTrade = p => p.confirm.verdict !== 'failed' && p.beats_no_trade;
@@ -441,7 +466,8 @@ export function planLeague(adapter, settings) {
     const kept = priced.filter(beatsNoTrade);
     if (active) {
       const failed = priced.filter(p => p.confirm.verdict === 'failed').length;
-      confirmCounts = { checked: top.length, failed, not_above_no_trade: priced.length - failed - kept.length };
+      const regret = priced.filter(p => p.confirm.verdict !== 'failed' && p.step_regret != null).length;
+      confirmCounts = { checked: top.length, failed, not_above_no_trade: priced.length - failed - kept.length - regret, step_regret: regret };
     }
     return kept.sort((a, b) => (b.score - a.score) || (rule ? b.expected - a.expected : 0)).slice(0, DECK_SIZE);
   };

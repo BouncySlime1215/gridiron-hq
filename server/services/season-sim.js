@@ -870,9 +870,10 @@ function playSeasons(prep, teams, runs, keepRuns, rawPointsFor) {
       roster_id: s.roster_id, owner: s.owner,
       playoff_odds: +(s.playoffs / runs).toFixed(4),
       playoff_odds_95: binomial95(s.playoffs, runs),
-      title_odds: +((rbMode === 'on' ? c.mean : s.title / runs)).toFixed(4),
+      // U1c: title odds at 6 decimals (0.0001 is a whole 0.01 point, too coarse at 0.1-0.2% odds).
+      title_odds: +((rbMode === 'on' ? c.mean : s.title / runs)).toFixed(TITLE_DP),
       title_odds_95: rbMode === 'on' ? c.ci : binomial95(s.title, runs),
-      ...(rbMode === 'shadow' ? { title_odds_rb: +c.mean.toFixed(4), title_odds_rb_se: +c.se.toFixed(4) } : {}),
+      ...(rbMode === 'shadow' ? { title_odds_rb: +c.mean.toFixed(TITLE_DP), title_odds_rb_se: +c.se.toFixed(TITLE_DP) } : {}),
       finals_odds: +(s.finals / runs).toFixed(4),
       expected_wins: +(s.wins / runs).toFixed(2),
       expected_points: +(s.points / runs).toFixed(1)
@@ -954,6 +955,9 @@ function rbTitleState(prep, teams, runs, rawPointsFor, perRun) {
   };
 }
 
+/** U1c: decimals every title-odds number and its SE is carried at, end to end. */
+export const TITLE_DP = 6;
+
 /** A title-odds delta is shown as real only past this many paired standard errors. */
 export const TRADE_DELTA_NOISE_SE = 2;
 
@@ -961,14 +965,14 @@ export const TRADE_DELTA_NOISE_SE = 2;
  * Standard error of mean(after_i - before_i) over paired runs: the textbook
  * paired-difference SE. Both arms are indicator arrays of the same length.
  */
-function pairedSe(before, after) {
+function pairedSe(before, after, dp = 4) {
   const n = before.length;
   if (n < 2) return null;
   let sum = 0, sq = 0;
   for (let i = 0; i < n; i++) { const d = after[i] - before[i]; sum += d; sq += d * d; }
   const mean = sum / n;
   const variance = Math.max(0, (sq - n * mean * mean) / (n - 1));
-  return +Math.sqrt(variance / n).toFixed(4);
+  return +Math.sqrt(variance / n).toFixed(dp);
 }
 
 /**
@@ -976,7 +980,7 @@ function pairedSe(before, after) {
  * U1b: with RB-TITLE on, `seOf` reads the arm's batch means instead (rb-title.js#batchSe), which
  * carry the shared error of the pooled playoff-week scores that the per-run values leave out.
  */
-const seOf = arm => (arm.title_batches ? +batchSe(arm.title_batches).toFixed(4) : levelSe(arm.title));
+const seOf = arm => (arm.title_batches ? +batchSe(arm.title_batches).toFixed(TITLE_DP) : levelSe(arm.title));
 
 function levelSe(perRun) {
   const n = perRun.length;
@@ -984,7 +988,7 @@ function levelSe(perRun) {
   let sum = 0, sq = 0;
   for (let i = 0; i < n; i++) { sum += perRun[i]; sq += perRun[i] * perRun[i]; }
   const mean = sum / n;
-  return +Math.sqrt(Math.max(0, (sq - n * mean * mean) / (n - 1)) / n).toFixed(4);
+  return +Math.sqrt(Math.max(0, (sq - n * mean * mean) / (n - 1)) / n).toFixed(TITLE_DP);
 }
 
 /**
@@ -1252,11 +1256,11 @@ export function tradeImpact(lg, {
   const delta = id => {
     const b = pick(before, id), a = pick(after, id);
     const rb = before.per_run.get(id), ra = after.per_run.get(id);
-    const title_delta = +(a.title_odds - b.title_odds).toFixed(4);
+    const title_delta = +(a.title_odds - b.title_odds).toFixed(TITLE_DP);
     const playoff_delta = +(a.playoff_odds - b.playoff_odds).toFixed(4);
     // U1b: under RB-TITLE the paired SE comes from the batch means (the pooled-score error included).
     const title_delta_se = rb.title_batches && ra.title_batches
-      ? +batchPairedSe(rb.title_batches, ra.title_batches).toFixed(4) : pairedSe(rb.title, ra.title);
+      ? +batchPairedSe(rb.title_batches, ra.title_batches).toFixed(TITLE_DP) : pairedSe(rb.title, ra.title, TITLE_DP);
     const playoff_delta_se = pairedSe(rb.playoffs, ra.playoffs);
     return {
       roster_id: id, owner: b.owner,
@@ -1271,9 +1275,9 @@ export function tradeImpact(lg, {
       wins_delta: +(a.expected_wins - b.expected_wins).toFixed(2),
       // RB-TITLE shadow: the conditional delta beside the served one, never served.
       ...(rb.title_rb && ra.title_rb ? {
-        title_delta_rb: +(a.title_odds_rb - b.title_odds_rb).toFixed(4),
+        title_delta_rb: +(a.title_odds_rb - b.title_odds_rb).toFixed(TITLE_DP),
         title_delta_rb_se: rb.title_rb_batches && ra.title_rb_batches
-          ? +batchPairedSe(rb.title_rb_batches, ra.title_rb_batches).toFixed(4) : pairedSe(rb.title_rb, ra.title_rb)
+          ? +batchPairedSe(rb.title_rb_batches, ra.title_rb_batches).toFixed(TITLE_DP) : pairedSe(rb.title_rb, ra.title_rb, TITLE_DP)
       } : {})
     };
   };

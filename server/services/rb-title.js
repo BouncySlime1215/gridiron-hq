@@ -14,10 +14,9 @@
  *
  * Each game's win probability is P(S_a - S_b > offset gap) over the same-run score
  * differences of the two teams in that round's NFL weeks (all runs, so same-game
- * correlations between the two lineups are kept). Games are combined across the
- * bracket as independent. Rounds are different NFL weeks, which the sim draws
- * independently; games inside one round share a week, and treating them as independent
- * is the one approximation (the r50 harness in test/rb-title.test.js checks it for bias).
+ * correlations between the two lineups are kept). U1c: the games of one round are
+ * integrated jointly from the same runs (they share NFL weeks); rounds are different NFL
+ * weeks, which the sim draws independently, so they combine as independent.
  *
  * The expectation is unchanged (it is E[1{title} | regular season]), the variance only
  * drops. Measured r50 (2026-09-24): SE 0.40x on title levels, 0.34x on paired deltas.
@@ -51,16 +50,6 @@ function bracketOrder(size) {
   return order;
 }
 
-/** Count of sorted values < x and <= x. */
-function ranks(sorted, x) {
-  let lo = 0, hi = sorted.length;
-  while (lo < hi) { const m = (lo + hi) >> 1; if (sorted[m] < x) lo = m + 1; else hi = m; }
-  const below = lo;
-  hi = sorted.length;
-  while (lo < hi) { const m = (lo + hi) >> 1; if (sorted[m] <= x) lo = m + 1; else hi = m; }
-  return [below, lo];
-}
-
 /**
  * @param ids        every team that can make the field
  * @param runs       number of simulated runs whose playoff weeks are pooled
@@ -69,6 +58,11 @@ function ranks(sorted, x) {
  * @param rawPoints  (id, week, run) -> that team's lineup points WITHOUT its team offset
  * @returns { probs(field, offsets) -> Map<id, P(title)> }; `offsets` is the run's
  *          per-week team offset Map, or null when there is none.
+ *
+ * U1c: each round's games are integrated JOINTLY. A round's games share NFL weeks (same-game
+ * copula, game shocks), so their winners are not independent; the probability of each pattern
+ * of winners is counted over the same-run outcomes of every game in the round (2^games patterns,
+ * one pass over the runs). Rounds are different NFL weeks and stay independent.
  */
 export function conditionalTitle({ ids, runs, roundWeeks, reseed, rawPoints }) {
   // Each team's round total per run: round -> Float64Array[run].
@@ -81,44 +75,33 @@ export function conditionalTitle({ ids, runs, roundWeeks, reseed, rawPoints }) {
     }
     return arr;
   })]));
-  const diffs = new Map();
-  /** Sorted same-run differences a - b in round r. */
-  const diffOf = (a, b, r) => {
-    const key = `${a}\u0001${b}\u0001${r}`;
-    let d = diffs.get(key);
-    if (!d) {
-      const xa = totals.get(a)[r], xb = totals.get(b)[r];
-      d = new Float64Array(runs);
-      for (let k = 0; k < runs; k++) d[k] = xa[k] - xb[k];
-      d.sort();
-      diffs.set(key, d);
-    }
-    return d;
-  };
-  // U1b: with no team offsets (the gap is 0, the live setting) only the counts of same-run
-  // differences below / at 0 are needed: one O(runs) pass per pair, no sort.
-  const zeroCounts = new Map();
-  const countsAtZero = (a, b, r) => {
-    const key = `${a}\u0001${b}\u0001${r}`;
-    let c = zeroCounts.get(key);
-    if (!c) {
-      const xa = totals.get(a)[r], xb = totals.get(b)[r];
-      let below = 0, atOrBelow = 0;
-      for (let k = 0; k < runs; k++) { const d = xa[k] - xb[k]; if (d < 0) below++; if (d <= 0) atOrBelow++; }
-      c = [below, atOrBelow];
-      zeroCounts.set(key, c);
-    }
-    return c;
-  };
-  /** P(a beats b in round r): its score beats b's by more than the offset gap; a tie goes to the better seed. */
-  const winProb = (a, b, r, gap, aBetter) => {
-    const [below, atOrBelow] = gap === 0 ? countsAtZero(a, b, r) : ranks(diffOf(a, b, r), gap);
-    return (runs - atOrBelow + (aBetter ? atOrBelow - below : 0)) / runs;
-  };
 
   const size = 2 ** roundWeeks.length;
   const order = bracketOrder(size);
   const memo = new Map();
+  const patternMemo = new Map();
+
+  /**
+   * P(each pattern of winners) for one round's games, over the same runs. games: [[a, b, gap, aBetter]];
+   * bit g of a pattern is 1 when game g's first team wins (its score beats b's by more than the
+   * gap; a tie goes to the better seed).
+   */
+  function patterns(r, games, cacheKey) {
+    if (cacheKey != null && patternMemo.has(cacheKey)) return patternMemo.get(cacheKey);
+    const counts = new Float64Array(2 ** games.length);
+    const xs = games.map(([a, b]) => [totals.get(a)[r], totals.get(b)[r]]);
+    for (let k = 0; k < runs; k++) {
+      let bits = 0;
+      for (let g = 0; g < games.length; g++) {
+        const d = xs[g][0][k] - xs[g][1][k], gap = games[g][2];
+        if (d > gap || (d === gap && games[g][3])) bits |= 1 << g;
+      }
+      counts[bits]++;
+    }
+    for (let i = 0; i < counts.length; i++) counts[i] /= runs;
+    if (cacheKey != null) patternMemo.set(cacheKey, counts);
+    return counts;
+  }
 
   function probs(field, offsets) {
     const key = offsets ? null : field.join('\u0001');
@@ -140,15 +123,25 @@ export function conditionalTitle({ ids, runs, roundWeeks, reseed, rawPoints }) {
         if (alive.length) slots.push(alive[0], null);
       }
       const nWeeks = roundWeeks[r].length;
-      const game = (i, next, w) => {
-        if (i >= slots.length) { round(next, r + 1, w); return; }
+      const games = [];
+      for (let i = 0; i < slots.length; i += 2) {
         const a = slots[i], b = slots[i + 1];
-        if (!a || !b) { game(i + 2, [...next, a ?? b ?? null], w); return; }
-        const p = winProb(a, b, r, (off(b) - off(a)) * nWeeks, seedOf.get(a) < seedOf.get(b));
-        if (p > 0) game(i + 2, [...next, a], w * p);
-        if (p < 1) game(i + 2, [...next, b], w * (1 - p));
-      };
-      game(0, [], weight);
+        if (a && b) games.push([a, b, (off(b) - off(a)) * nWeeks, seedOf.get(a) < seedOf.get(b)]);
+      }
+      // Seeds only break ties, so with no offsets the pattern table depends on the pairings alone.
+      const cacheKey = offsets ? null : `${r}\u0001${games.map(g => `${g[0]}\u0002${g[1]}\u0002${g[3] ? 1 : 0}`).join('\u0001')}`;
+      const dist = patterns(r, games, cacheKey);
+      for (let bits = 0; bits < dist.length; bits++) {
+        const p = dist[bits];
+        if (!p) continue;
+        const next = [];
+        let g = 0;
+        for (let i = 0; i < slots.length; i += 2) {
+          const a = slots[i], b = slots[i + 1];
+          if (a && b) { next.push((bits >> g) & 1 ? a : b); g++; } else next.push(a ?? b ?? null);
+        }
+        round(next, r + 1, weight * p);
+      }
     };
     round(order.map(seed => (seed <= field.length ? field[seed - 1] : null)), 0, 1);
     if (key != null) memo.set(key, out);

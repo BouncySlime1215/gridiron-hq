@@ -5,7 +5,8 @@
  * server/services/trade-outcomes.js#recordScreenshotOffer. Nothing else writes them.
  *
  * A finalize or pending-offer screen counts as a SENT offer (sent_at = posted_at, Nick 9/25); its
- * outcome is paired from ESPN (orphan answer, executed trade, or 'expired' after 7 days).
+ * outcome is paired from ESPN (orphan answer or executed trade); none within 7 days = 'declined'
+ * (screenshot_not_executed: a trade that didn't get done is a confirmed no, Nick 9/25).
  *
  * Input: `screenshot_trades` in the local chat DB (scripts/chat/screenshot_offers.py): rows
  * with source 'ocr', kind offer|finalize|accepted|declined, needs_review = 0. Hypothetical
@@ -104,6 +105,7 @@ export async function feed({ chatDbPath, migrate = false, dryRun = false } = {})
     if (res.state === 'recorded') {
       if (res.paired === 'orphan') counts.paired_orphan_answer++;
       if (res.paired === 'executed') counts.paired_executed_trade++;
+      if (res.paired === 'not_executed') counts.declined_not_executed = (counts.declined_not_executed ?? 0) + 1;
       const k = String(s.league_id);
       counts.by_league[k] = (counts.by_league[k] ?? 0) + 1;
       if ([...give, ...get].every(i => i.fc_value != null)) counts.with_fc_values++;

@@ -822,7 +822,8 @@ export function settleOfferLoop(leagueId, season, opts = {}) {
  *     was still 'proposed', nothing new is written.
  * A FINALIZE or pending OFFER screen is a SENT offer (Nick, 9/25: he knows his league), with sent_at
  * = when it was posted. Its outcome comes from ESPN (screenshotOutcomeOf): a paired orphan answer, an
- * executed trade with the same players, or 'expired' once SCREENSHOT_SETTLE_DAYS pass with neither.
+ * executed trade with the same players, or 'declined' (screenshot_not_executed) once SCREENSHOT_SETTLE_DAYS
+ * pass with neither.
  * An ESPN answer or close whose proposal row ESPN no longer serves (an orphan, which the
  * grader cannot place in time) is not a duplicate: it SETTLES the screenshot row, and the
  * row gains the proposal time the orphan lacks. `matched_tx_id` then names that proposal.
@@ -895,6 +896,8 @@ function espnTraceOf(o) {
 export const SCREENSHOT_PAIR_HOURS = 72;
 /** Days after the screenshot within which an executed trade can settle it, and after which silence is 'expired'. */
 export const SCREENSHOT_SETTLE_DAYS = 7;
+/** settle_reason prefix of a screenshot offer that never became a trade: a confirmed no (Nick, 9/25). */
+export const SCREENSHOT_NOT_EXECUTED = 'screenshot_not_executed';
 
 /**
  * What became of a screenshot offer ESPN has no proposal row for (Nick, 9/25: a finalize or pending
@@ -905,7 +908,8 @@ export const SCREENSHOT_SETTLE_DAYS = 7;
  *      SCREENSHOT_NEAR_JACCARD. A veto after an accept stays 'accepted' (the receiver said yes).
  *   2. an EXECUTED trade between the two teams within SCREENSHOT_SETTLE_DAYS with at least 60% of
  *      the players: 'accepted'.
- *   3. neither, once the collector has looked past SCREENSHOT_SETTLE_DAYS: 'expired' (no answer).
+ *   3. neither, once the collector has looked past SCREENSHOT_SETTLE_DAYS: 'declined', settle_reason
+ *      'screenshot_not_executed' (Nick, 9/25: a screenshot trade that doesn't get done is a confirmed no).
  * Null while the window is open. `claimed`: proposal ids other rows already paired with.
  * o = { league_id, season, from, to, players (sorted espn ids), seen (ms) }.
  */
@@ -969,10 +973,11 @@ function screenshotOutcomeOf(o, claimed = new Set()) {
   }
   const seen = tx.map(t => Date.parse(t.last_seen_at)).filter(Number.isFinite);
   const lastLooked = seen.length ? Math.max(...seen) : null;
+  // Nick (9/25): "screenshots that are trades that don't get done = confirmed nos."
   if (lastLooked != null && lastLooked >= settleEnd) {
-    return { kind: 'expired', tx_id: null, status: 'expired', at: new Date(settleEnd).toISOString(),
-      reason: `no ESPN answer paired within ${SCREENSHOT_PAIR_HOURS} h and no executed trade within ${SCREENSHOT_SETTLE_DAYS} days `
-        + `(collector last looked ${new Date(lastLooked).toISOString()})` };
+    return { kind: 'not_executed', tx_id: null, status: 'declined', at: new Date(settleEnd).toISOString(),
+      reason: `${SCREENSHOT_NOT_EXECUTED}: no ESPN answer paired within ${SCREENSHOT_PAIR_HOURS} h and no executed trade with these `
+        + `players within ${SCREENSHOT_SETTLE_DAYS} days (collector last looked ${new Date(lastLooked).toISOString()})` };
   }
   return null;
 }
@@ -1056,7 +1061,8 @@ export function recordScreenshotOffer(o) {
   const resolvedAt = screenDecided ? (outcome && outcome.status === o.status ? outcome.at : o.seen_at) : (outcome?.at ?? null);
   const statusFrom = screenDecided ? `the ${o.status} screen (posted ${o.seen_at})` : (outcome?.reason ?? 'pending: no ESPN answer paired yet');
   const matched = outcome && (!screenDecided || outcome.status === o.status) ? outcome.tx_id : null;
-  const reason = `observed_screenshot: read off a chat screenshot (${o.kind ?? 'offer'} screen, parse confidence `
+  const reason = `${outcome?.kind === 'not_executed' && !screenDecided ? `${SCREENSHOT_NOT_EXECUTED}; ` : ''}`
+    + `observed_screenshot: read off a chat screenshot (${o.kind ?? 'offer'} screen, parse confidence `
     + `${o.confidence ?? 'n/a'}); sent_at = when it was posted; proposed_at from `
     + `${o.proposed_at ? (o.proposed_at_basis ?? 'the screen') : 'nothing (no time on the screen)'}; `
     + `status from ${statusFrom}; no model prediction: this offer was never scored when it was sent`;
@@ -1107,7 +1113,7 @@ export function settleScreenshotOffers(leagueId, season) {
     if (!outcome) { out.pending++; continue; }
     run(`UPDATE trade_outcomes SET status = ?, resolved_at = ?, matched_tx_id = COALESCE(?, matched_tx_id), settle_reason = ?
          WHERE id = ? AND status = 'proposed'`, outcome.status, outcome.at, outcome.tx_id,
-    `${s.settle_reason ?? 'observed_screenshot:'}; settled later from ${outcome.reason}`, s.id);
+    `${outcome.kind === 'not_executed' ? `${SCREENSHOT_NOT_EXECUTED}; ` : ''}${s.settle_reason ?? 'observed_screenshot:'}; settled later from ${outcome.reason}`, s.id);
     out.settled++;
     out.by_status[outcome.status] = (out.by_status[outcome.status] ?? 0) + 1;
   }

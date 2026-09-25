@@ -142,15 +142,16 @@ test('pairing: only the receiving team\'s answer, only within 72 h, each orphan 
   assert.notEqual(r2.matched_tx_id, 'p-fin');
 });
 
-test('an executed trade with 60% of the players settles accepted; silence past 7 days settles expired', () => {
+test('an executed trade with 60% of the players settles accepted; not done in 7 days settles declined', () => {
   raw({ tx_id: 'x-1', type: 'TRADE_ACCEPT', status: 'EXECUTED', execution_type: 'PROCESS', team_id: 2, related_tx_id: null,
     proposed_at: '2026-09-04T10:00:00Z', items_json: JSON.stringify([{ fromTeamId: 1, toTeamId: 2, playerId: 9731 },
       { fromTeamId: 2, toTeamId: 1, playerId: 9732 }, { fromTeamId: 2, toTeamId: 1, playerId: 9733 }]) });
   const acc = recordScreenshotOffer({ ...shot('g-x', 9731, 9732, '2026-09-02T10:00:00Z'),
     get: [{ playerId: 9732 }, { playerId: 9733 }, { playerId: 9734 }] });
   assert.deepEqual([acc.status, acc.paired], ['accepted', 'executed']);
-  const exp = recordScreenshotOffer(shot('g-exp', 9741, 9742, '2026-09-03T10:00:00Z'));
-  assert.deepEqual([exp.status, exp.paired], ['expired', 'expired'], 'the collector looked past 7 days and saw no answer');
+  const no = recordScreenshotOffer(shot('g-exp', 9741, 9742, '2026-09-03T10:00:00Z'));
+  assert.deepEqual([no.status, no.paired], ['declined', 'not_executed'], 'not done in 7 days: a confirmed no (Nick, 9/25)');
+  assert.match(outcomesFor(L, S).find(x => x.id === no.id).settle_reason, /^screenshot_not_executed/);
 });
 
 test('an app offer Nick marked sent is the same deal: app_duplicate', () => {
@@ -319,4 +320,24 @@ test('feed: a league-mate\'s draft and analyzer screens become interest rows; Ni
   const again = await feed({ chatDbPath: chatPath });
   assert.equal(again.chat_trade_interest.already_recorded, 2);
   assert.equal(rows(`SELECT COUNT(*) AS n FROM chat_trade_interest WHERE roster_id = 4`)[0].n, 2);
+});
+
+test('migration 110 relabels an earlier build\'s expired screenshot rows to declined; ESPN-backed rows untouched', async () => {
+  const M110 = await import('../server/migrations/110_screenshot_not_executed.js');
+  const ins = (st, m) => run(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id, status,
+    matched_tx_id, settle_reason, idea_id, proposed_at, give_json, get_json, created_at)
+    VALUES (?, ?, 'observed_screenshot', '7', '8', ?, ?, 'old', ?, '2026-09-01T10:00:00Z', ?, ?, 'x')`,
+  L, S, st, m, `shot:m110-${st}-${m ?? 'none'}`, JSON.stringify([{ playerId: 9901 }]), JSON.stringify([{ playerId: 9902 }]));
+  ins('expired', null); ins('expired', 'p-kept');
+  const n0 = loadDecidedOffers(db).offers.length;
+  M110.up(db);
+  const rel = outcomesFor(L, S).filter(o => o.idea_id?.startsWith('shot:m110'));
+  assert.deepEqual(rel.map(o => [String(o.matched_tx_id), o.status]).sort(), [['null', 'declined'], ['p-kept', 'expired']]);
+  assert.match(rel.find(o => o.matched_tx_id == null).settle_reason, /^screenshot_not_executed/);
+  // the relabelled decline is a graded no; the ESPN-backed 'expired' one was already graded (expired = 0)
+  const after = loadDecidedOffers(db).offers;
+  assert.equal(after.length, n0);
+  assert.equal(after.find(o => o.idea_id === 'shot:m110-expired-none')?.y, 0);
+  M110.down(db);
+  assert.equal(outcomesFor(L, S).find(o => o.idea_id === 'shot:m110-expired-none').status, 'expired');
 });

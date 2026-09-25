@@ -26,8 +26,18 @@ function ageText(hours: number): string {
   return `${Math.floor(hours / 24)} days old`;
 }
 
-export default function MarketAsOf({ asOf }: { asOf?: MarketAsOfInfo | null }) {
+/** `compact` (Trades' context bar): one chip, "Values: 29 h old", linking FantasyCalc.com, the sentence on hover. */
+export default function MarketAsOf({ asOf, compact = false }: { asOf?: MarketAsOfInfo | null; compact?: boolean }) {
   if (!asOf) return null;
+  if (compact) {
+    const at0 = asOf.fetched_at ? asDate(asOf.fetched_at) : null;
+    const h = asOf.age_hours;
+    const label = !at0 || h == null ? 'Values: not fetched' : `Values: ${h < 1 ? '<1 h' : h < 48 ? `${Math.round(h)} h` : `${Math.floor(h / 24)} d`} old`;
+    const title = !at0 || h == null ? 'Trade values from FantasyCalc.com have not been fetched for this format yet'
+      : `Market as of ${at0.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })} (${ageText(h)}), trade values from FantasyCalc.com${asOf.state === 'stale' ? '. Older than a day: prices may have moved since.' : ''}`;
+    return <a href={asOf.source_url} target="_blank" rel="noreferrer" title={title} data-testid="values-chip"
+      className={`ds-chip ${asOf.state === 'stale' || !at0 ? 'ds-chip-warn' : ''}`}>{label}</a>;
+  }
   const link = (
     <a href={asOf.source_url} target="_blank" rel="noreferrer"
        className="underline decoration-slate-300 underline-offset-2 hover:text-slate-700">FantasyCalc.com</a>

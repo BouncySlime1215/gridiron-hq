@@ -82,5 +82,5 @@ test('nav is 7 items and App.tsx gains no War Room route', () => {
   assert.doesNotMatch(app, /war-room|warroom/i);
   // Trade Brain's tabs are gone; the planner is Trades → Next move, drawn only when the view is enabled.
   const trades = fs.readFileSync(path.join(REPO, 'client', 'src', 'pages', 'Trades.tsx'), 'utf8');
-  assert.match(trades, /if \(view === 'planner' && warOn && activeId && warRoom\.data\) \{/, 'the planner is drawn only when the view is enabled');
+  assert.match(trades, /\{view === 'planner' && \(warOn && activeId && warRoom\.data\s*\?\s*<TradesPlanner part="next"/, 'the planner is drawn only when the view is enabled');
 });

@@ -90,6 +90,29 @@ test('POST /evaluate: a 2-for-1 carries lineup_value on both sides, the freed sp
   assert.equal(me.weeks, 14);
 });
 
+test('POST /evaluate carries a read-only rule verdict for your side (Trades → Build)', async () => {
+  // Priced by the fixture so the value rules pass: a small, even deal passes; the verdict names reasons when not.
+  const even = await call('/api/trades/301/evaluate', { my_team_id: '1', their_team_id: '2', give: [rb[0].id], get: [wr[3].id] });
+  assert.equal(even.status, 200, JSON.stringify(even.body));
+  assert.ok(even.body.rules && even.body.rules.applies === true, `a verdict rides along: ${JSON.stringify(even.body.rules)}`);
+  assert.equal(typeof even.body.rules.ok, 'boolean');
+  assert.ok(Array.isArray(even.body.rules.reasons));
+  // Known-nonzero control: a get the rules cannot price (a wire QB the fixture gave no FantasyCalc value)
+  // fails closed, with its reason named.
+  const wire = players('QB', 12)[10];
+  const saved = rows(`SELECT value FROM player_metrics WHERE player_id = ? AND source = 'fc_value'`, wire.id)[0]?.value;
+  run(`DELETE FROM player_metrics WHERE player_id = ? AND source = 'fc_value'`, wire.id);
+  const unpriced = await call('/api/trades/301/evaluate', { my_team_id: '1', their_team_id: '2', give: [rb[0].id], get: [wire.id] });
+  assert.equal(unpriced.status, 200, JSON.stringify(unpriced.body));
+  assert.equal(unpriced.body.rules.ok, false, JSON.stringify(unpriced.body.rules));
+  assert.ok(unpriced.body.rules.reasons.includes('no_fc_value'), `and it says why: ${unpriced.body.rules.reasons}`);
+  if (saved != null) run(`INSERT INTO player_metrics (player_id, source, value) VALUES (?, 'fc_value', ?)`, wire.id, saved);
+  // Not Nick's team: no verdict is claimed for a team the rules are not about.
+  const other = await call('/api/trades/301/evaluate', { my_team_id: '3', their_team_id: '2', give: [rb[6].id], get: [wr[3].id] });
+  assert.equal(other.status, 200, JSON.stringify(other.body));
+  assert.equal(other.body.rules?.applies, false, 'the rules are Nick\'s; another team gets no verdict');
+});
+
 /**
  * The finder. GET /find is findTrades(); the seed carries no projections (every
  * ppg is 0), so over HTTP it returns no deal to read (checked: considered 0). The

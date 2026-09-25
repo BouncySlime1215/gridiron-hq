@@ -1299,6 +1299,21 @@ async function refreshEspnWeeklyProjectionCapture() {
   return runEspnWeeklyProjectionCapture();
 }
 
+/**
+ * E-XGB phase 2 (GRIDIRON_EXGB=1 only; shadow, nothing served): the locked models' forecast
+ * at each capture window (exgb-shadow.js), and the weekly pre-registered grade against
+ * frozen ESPN and our weekly projection (exgb-grader.js). Both return `skipped` with the
+ * flag off. See docs/tdd/EXGB-PREREG.md and its addendum 1.
+ */
+async function refreshExgbShadowPredict() {
+  const { runExgbShadowPredict } = await import('./exgb-shadow.js');
+  return runExgbShadowPredict();
+}
+async function refreshExgbWeeklyGrade() {
+  const { runExgbWeeklyGrade } = await import('./exgb-grader.js');
+  return runExgbWeeklyGrade();
+}
+
 export const JOBS = {
   player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60, tier: 'live', offThread: true,
     label: 'Player team assignments — the actual fix for stale roster spots' },
@@ -1372,6 +1387,10 @@ export const JOBS = {
   // usable closing reference for settlement and so finals land within the hour.
   espn_weekly_projection_capture: { run: refreshEspnWeeklyProjectionCapture, maxAgeMinutes: 15, tier: 'live',
     offThread: true, label: 'Frozen pre-kickoff ESPN weekly projections (E-XGB; append-only)' },
+  exgb_shadow_predict: { run: refreshExgbShadowPredict, maxAgeMinutes: 15, tier: 'live', offThread: true,
+    label: 'E-XGB shadow forecasts at each capture window (GRIDIRON_EXGB; nothing served)' },
+  exgb_weekly_grade: { run: refreshExgbWeeklyGrade, maxAgeMinutes: 6 * 60, tier: 'live', offThread: true,
+    label: 'E-XGB weekly pre-registered grade vs frozen ESPN and our projection (GRIDIRON_EXGB)' },
   nfl_lines: { run: refreshNflLines, maxAgeMinutes: 60, tier: 'live', label: 'NFL betting lines and finals (ESPN, free)' },
   nfl_forward_settle: { run: refreshForwardSettlement, maxAgeMinutes: 30, tier: 'live',
     label: 'Settle forward picks (CLV grading) shortly after a game goes final' },

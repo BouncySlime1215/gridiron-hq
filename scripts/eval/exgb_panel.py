@@ -217,7 +217,9 @@ def _mean(vals):
     return float(np.mean(v)) if v else np.nan
 
 
-def build_panel(t, seasons):
+def build_panel(t, seasons, predict=None):
+    """predict=(season, week): also emit that week's rows for forecasting - features only, no
+    same-week data even if it exists, target NaN and played = -1."""
     obs = _observations(t)
     allowed = _defense_allowed(obs)
     team_weeks = defaultdict(list)
@@ -237,15 +239,18 @@ def build_panel(t, seasons):
             cur = by_season.get(s, [])
             prev = by_season.get(s - 1, [])
             played_weeks = {o['week']: o for o in cur}
-            candidate = set(played_weeks)
+            after = set()
             for o in cur:  # the 3 team-game weeks after each played game
-                later = [w for w in team_weeks.get((s, o['team']), []) if w > o['week']][:3]
-                candidate.update(later)
+                after.update([w for w in team_weeks.get((s, o['team']), []) if w > o['week']][:3])
+            candidate = set(played_weeks) | after
             for w in sorted(candidate):
-                if (s, w) not in final_weeks:
+                is_pred = predict is not None and (s, w) == tuple(predict)
+                if (s, w) not in final_weeks and not is_pred:
                     continue
+                if is_pred and w not in after:
+                    continue  # a forecast row cannot be selected by having played that week
                 prior = [o for o in cur if o['week'] < w]
-                this = played_weeks.get(w)
+                this = None if is_pred else played_weeks.get(w)
                 team = this['team'] if this else (prior[-1]['team'] if prior else None)
                 pos = (this or (prior[-1] if prior else None) or {}).get('position')
                 if pos not in POSITIONS or team is None or (s, w, team) not in t['games']:
@@ -270,8 +275,8 @@ def build_panel(t, seasons):
                         _mean([v for v in opp_hist if v is not None]),
                         _mean([v for v in opp_prev if v is not None]), float(w)]
                 X.append(row)
-                y.append(this['ppr'] if this else 0.0)
-                played.append(1 if this else 0)
+                y.append(np.nan if is_pred else (this['ppr'] if this else 0.0))
+                played.append(-1 if is_pred else (1 if this else 0))
                 k = kickoff_utc(g['gameday'], g['gametime'])
                 meta.append((pid, t['players'].get(pid, {}).get('espn_id') or -1, s, w, POSITIONS.index(pos),
                              k.timestamp() if k else np.nan))

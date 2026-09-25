@@ -139,7 +139,10 @@ export function pYesBasis(table) {
 /** The War Room step shape ({ p, band, basis }) from pYesFor's result. */
 export function stepPYes(a) {
   const b = a.band;
-  return { p: b?.mid ?? 0, band: b && !a.point ? { low: b.low, high: b.high } : null, basis: a.basis,
+  // The offer ledger (I sent it) requires the acceptance model's band basis; a served baseline/blend band carries the
+  // clone's basis from its challenger arm, which is the model the ledger logs (trade-outcomes.js#acceptanceFields).
+  const bandBasis = b?.basis ?? a.challenger?.basis ?? a.challenger?.band?.basis ?? null;
+  return { p: b?.mid ?? 0, band: b && !a.point ? { low: b.low, high: b.high, ...(bandBasis ? { basis: bandBasis } : {}) } : null, basis: a.basis,
     ...(a.point ? { label: a.label, n: a.n } : {}),
     ...(a.p_gate != null ? { p_gate: a.p_gate } : {}), ...(a.probe != null ? { probe: a.probe } : {}) };
 }

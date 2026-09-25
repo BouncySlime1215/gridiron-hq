@@ -17,6 +17,10 @@
  *   blueChips     ids scoring 83+ (CAP-1C #382's board).
  *   tradeLedger   this season's executed trades, { now, trades: [{ tx_id, at, moves }], valueAt }
  *                 (TRADE-MEMORY #379's shape).
+ *   claims        (option, FLIP-CLAIMS) a free-agent pool for SEARCH-WIDE: CLAIM_FAS free agents
+ *                 "P3000".. drawn from their own RNG (so every other draw of the seed is unchanged),
+ *                 simulated as the world's claim universe, and a waiver record for the claim P(yes).
+ *                 One of them is sometimes a player Nick sold this season (never claimable).
  */
 export const NICO_COLLINS = 160;
 export const CHASE_BROWN = 80;
@@ -24,6 +28,8 @@ export const AJ_BROWN = 277;
 /** The planner id #394 pins for Olave; the oracle also matches the name. */
 export const OLAVE_ID = 290;
 export const BLUE_CHIP = 83;
+/** FLIP-CLAIMS: free agents in a claims league (ids 3000..). */
+export const CLAIM_FAS = 10;
 const DAY = 864e5;
 const NOW = Date.parse('2026-09-24T12:00:00Z');
 
@@ -165,6 +171,23 @@ export function makeFuzzLeague(seed, opts = {}) {
     const p = Math.max(0.02, Math.min(0.97, (0.3 + 0.9 * (ratio - 1)) * rr));
     return { p, band: { low: Math.max(0, p - 0.08), high: Math.min(1, p + 0.08) }, basis: 'heuristic_unanchored' };
   };
+  // FLIP-CLAIMS: the free-agent pool, from its own RNG (the league's other draws are the seed's as before).
+  const freeAgents = [];
+  if (opts.claims) {
+    const r2 = rng((seed * 7919 + 17) >>> 0);
+    const b2 = (lo, hi) => lo + (hi - lo) * r2();
+    for (let i = 0; i < CLAIM_FAS; i++) {
+      const id = 3000 + i;
+      const score = Math.round(b2(35, 92));
+      const value = Math.round(Math.max(20, (score - 30) ** 2 * b2(1.2, 1.6)));
+      const power = Math.max(1, value / 400 + b2(-2, 2));
+      players.set(id, { id, name: `P${id}`, position: POS[Math.floor(r2() * POS.length)], value, power, ros_ppg: power, score,
+        consistent: r2() < 0.3, injury: 0, bye: null, trend_kind: null });
+      freeAgents.push(id);
+    }
+    // Sometimes Nick sold one of them earlier this season (since released): never claimable.
+    if (withLedger && r2() < 0.5) trades.push({ tx_id: `tx-${seed}-fa`, at: NOW - 12 * DAY, moves: [{ player: 3000, from: me, to: others[0] }] });
+  }
   const scoreOf = id => {
     const p = players.get(Number(id));
     return p ? { score: p.score, label: labelOf(p.score), consistent: p.consistent } : null;
@@ -178,7 +201,8 @@ export function makeFuzzLeague(seed, opts = {}) {
     scoreOf,
     blueChips: new Set([...players.values()].filter(p => p.score >= BLUE_CHIP).map(p => String(p.id))),
     tradeLedger: withLedger ? { now: NOW, trades, valueAt: id => priceThen.get(Number(id)) ?? null } : null,
-    freeAgents: [],
+    freeAgents: freeAgents.map(id => ({ id, name: players.get(id).name, position: players.get(id).position, ros_ppg: players.get(id).ros_ppg })),
+    ...(opts.claims ? { claimUniverse: new Set(freeAgents.map(String)), waiverRecord: { won: 14, lost: 6 } } : {}),
     priceStep, priceOf: (team, id) => ({ mult: 1, price: players.get(id)?.value ?? 0 }),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     teams: () => Object.fromEntries([...rosters.keys()].map(t => [t, { name: `Team ${t}` }])),

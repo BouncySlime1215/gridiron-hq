@@ -113,6 +113,9 @@ test('P25: a step carries the acceptance band it was priced with', () => {
   const st = entry.next_move.value.steps[0];
   assert.ok(st.p_yes_band, 'p_yes_band');
   assert.ok(st.p_yes_band.low <= st.p_yes.value && st.p_yes.value <= st.p_yes_band.high);
+  // I sent it: the offer ledger refuses a band without the acceptance model's basis (live 9/25: 0/6 cards).
+  assert.ok(['no_information', 'heuristic_unanchored', 'heuristic_anchored'].includes(st.p_yes_band.basis),
+    `p_yes_band.basis must be a ledger basis, got ${st.p_yes_band.basis}`);
 });
 
 test('P20: stop_tradeoffs are keyed by tradeoffKey, for stops and for the other risk modes', () => {

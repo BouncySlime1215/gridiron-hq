@@ -27,7 +27,11 @@ import RulesHidden from '../trade/RulesHidden';
  *    the only one that is about the league rather than about us.
  */
 
-const COST_NOTE = 'This runs the trade finder, then pays for one Sonnet call against a $0.50/day '
+/** The one-line note beside the button (Nick's cleanup: no model or dollar figures in the main view). */
+const COST_NOTE_SHORT = 'Uses the AI budget; written only when you press it, and checked against the ideas before it is shown.';
+
+/** The full note, shown in Settings → AI & developer. */
+export const COST_NOTE = 'This runs the trade finder, then pays for one Sonnet call against a $0.50/day '
   + 'budget shared across all your leagues. An unchanged slate is served from cache and costs nothing.';
 
 function SourceBadge({ source }: { source: ProposalsResponse['source'] }) {
@@ -250,22 +254,14 @@ export default function ProposalSlate({ leagueId }: { leagueId: number }) {
 
   return (
     <div className="space-y-4">
-      <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-        <h2 className="text-sm font-black uppercase tracking-wide text-slate-700">
-          Proposals are written on request, not on page load
-        </h2>
-        <p className="mt-1.5 text-sm leading-6 text-slate-700">{COST_NOTE}</p>
-        <p className="mt-1 text-[12px] leading-5 text-slate-600">
-          Every proposal is checked after the model answers: one that names a player or a number the
-          underlying ideas do not contain is thrown away whole, so what you see below is traceable
-          to a package that already passed the edge test.
-        </p>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button type="button" className="btn-primary text-sm" onClick={write} disabled={busy}>
-            {busy ? 'Writing…' : result ? '✨ Write them again' : '✨ Write the proposals'}
-          </button>
-          {result && <SourceBadge source={result.source} />}
-        </div>
+      {/* One button with a one-line cost note; the full cost and model detail is in Settings → AI & developer. */}
+      <section className="flex flex-wrap items-center gap-3" data-testid="write-proposals">
+        <button type="button" className="ds-btn ds-btn-quiet" onClick={write} disabled={busy}
+          title={busy ? 'Writing the proposals' : 'Write sendable openers for the best ideas (uses the AI budget)'}>
+          {busy ? 'Writing…' : result ? 'Write them again' : 'Write proposals'}
+        </button>
+        <span className="ds-note">{COST_NOTE_SHORT}</span>
+        {result && <SourceBadge source={result.source} />}
       </section>
 
       {error && <PageError message={error} onRetry={write} />}
@@ -289,12 +285,7 @@ export default function ProposalSlate({ leagueId }: { leagueId: number }) {
         </>
       )}
 
-      {!result && !error && !busy && (
-        <p className="text-sm leading-6 text-slate-500">
-          Nothing has been asked for yet, which is why this is empty — it is not a claim that there
-          are no trades to make.
-        </p>
-      )}
+      {/* Before the button is pressed the button and its note say it all; nothing else is drawn. */}
     </div>
   );
 }

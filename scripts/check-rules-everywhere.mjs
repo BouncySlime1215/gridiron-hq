@@ -15,7 +15,7 @@
  * The rules are re-stated here on purpose, from the raw tables, rather than read from
  * campaign/never-give.js: the check must not be graded by the code it checks.
  *   never give 160, 80, 277 | never get 290 or a player Nick traded away this season (any team)
- *   every get with a served blue-chip score scores 83+ | every player priced by FantasyCalc (fc_value)
+ *   every get scores 83+ on the served blue-chip board (unscored fails) | every player priced by FantasyCalc (fc_value)
  *   Nick never gives more fc_value than he gets (the +12% depth-only 2-for-1 exception needs lineup
  *   points and title odds, which no surface here carries, so it never applies)
  *
@@ -87,7 +87,8 @@ function violations(give, get) {
   for (const id of r) {
     if (NEVER_GET.has(id)) v.push(`gets ${id}`);
     if (sold.has(id)) v.push(`gets sold ${id}`);
-    if (score.has(id) && score.get(id) < 83) v.push(`gets ${id} scored ${score.get(id)}`);
+    if (!score.has(id)) v.push(`gets ${id} unscored`);
+    else if (score.get(id) < 83) v.push(`gets ${id} scored ${score.get(id)}`);
   }
   const unpriced = [...g, ...r].filter(id => !fc.has(id));
   if (unpriced.length) v.push(`no fc_value ${unpriced.join(',')}`);

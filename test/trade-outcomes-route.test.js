@@ -120,7 +120,7 @@ insertLeague(42, null);
 insertLeague(43, 2026, '5');
 insertLeague(44, 2026, '5');
 // RULES-EVERYWHERE: the stub ideas' players priced so Nick's rule gate keeps them (rules: own test).
-priceForRules(db, { mine: [102, 103, 104], theirs: [202, 203, 204] });
+for (const leagueId of [41, 42, 43, 44]) priceForRules(db, { leagueId, mine: [102, 103, 104], theirs: [202, 203, 204] });
 
 const app = express();
 app.use(express.json());

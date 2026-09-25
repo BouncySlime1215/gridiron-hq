@@ -70,10 +70,10 @@ function account(subject, token) {
 }
 run(`INSERT INTO leagues (id, platform, league_id, season, name, payload, team_count, my_team_id, fetched_at)
      VALUES (1, 'espn', 'neg-1', 2026, 'League A', '{"teams":[]}', 12, '1', '2026-09-24T05:00:00Z')`);
-// RULES-EVERYWHERE: the made-up league priced for Nick's rule gate (Nick's P1-P7 low, the rest high), and
-// no served plans file, so the gate reads no blue-chip score from this machine (rules: own test).
+// RULES-EVERYWHERE: the made-up league priced and scored for Nick's rule gate (Nick's P1-P7 low, the rest
+// high, every player on a test-only served board), never this machine's plans file (rules: own test).
 process.env.GRIDIRON_WARROOM_PLANS = path.join(temp, 'no-plans.json');
-priceForRules(db, { mine: [1, 2, 3, 4, 5, 6, 7], theirs: [11, 12, 13, 14, 15, 21, 22, 23, 24, 25, 31, 32, 33, 34, 35] });
+priceForRules(db, { leagueId: 1, mine: [1, 2, 3, 4, 5, 6, 7], theirs: [11, 12, 13, 14, 15, 21, 22, 23, 24, 25, 31, 32, 33, 34, 35] });
 const owner = account('owner', 'owner-token');
 account('stranger', 'stranger-token');
 run(`INSERT INTO league_memberships (league_id, user_id, role) VALUES (1, ?, 'commissioner')`, owner);

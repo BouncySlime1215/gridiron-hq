@@ -366,9 +366,13 @@ export function runCoachTool(name, input, { ledger } = {}) {
   if (tool.kind === 'ui_action') {
     const { action } = tool.run(input);
     // RULES-EVERYWHERE: a drafted message that names a player Nick's hard rules keep out of a trade is dropped.
-    if (action.type === 'draft_message' && draftNamesBlocked({ row: dbRow, rows: dbRows }, action.text).length) {
-      return { entry: null, dropped_by_rule: 1,
-        summary: { refused: "That draft names a player Nick's hard rules keep out of any trade, so it was not put in the message box.", dropped_by_rule: 1 } };
+    const blocked = action.type === 'draft_message' ? draftNamesBlocked({ row: dbRow, rows: dbRows }, action.text) : [];
+    if (blocked.length) {
+      // Logged with the blocked ids (never the draft text), so a name-match false positive can be found.
+      console.warn(`[rules-everywhere] coach draft dropped: names blocked player id(s) ${blocked.join(',')}`);
+      return { entry: null, dropped_by_rule: 1, blocked_ids: blocked,
+        summary: { refused: "That draft names a player Nick's hard rules keep out of any trade, so it was not put in the message box.",
+          dropped_by_rule: 1, blocked_ids: blocked } };
     }
     return { entry: null, action,
       summary: { action, note: PLAN_CHANGING.includes(action.type)

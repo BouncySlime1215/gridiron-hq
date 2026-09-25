@@ -114,7 +114,7 @@ test('findTrades (GET /find): every returned deal carries lineup_value next to v
   const wire = [P('Free WR', 'WR', 7, 600), P('Free RB', 'RB', 6, 500)];
   const assets = new Map([...me.players, ...them.players, ...wire].map(p => [p.id, p]));
   // RULES-EVERYWHERE: the override players priced for Nick's rule gate (rules: own test).
-  priceForRules(db, { mine: me.players.map(p => p.id), theirs: [...them.players, ...wire].map(p => p.id) });
+  priceForRules(db, { leagueId: 301, mine: me.players.map(p => p.id), theirs: [...them.players, ...wire].map(p => p.id) });
   const lg = rows('SELECT * FROM leagues WHERE id = 301')[0];
   const out = findTrades(lg, { myTeamId: '1', requireMutual: false, limit: 50, counterparty: false,
     teamsOverride: [me, them], assetsOverride: assets, playoffOdds: 0.5, playoffOddsSource: 'fixture' });

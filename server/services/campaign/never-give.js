@@ -83,7 +83,7 @@ const S = x => String(x);
 const EPS = 1e-9;
 /** Why a suggestion was dropped (counted per surface under dropped_by_rule). */
 export const RULE_REASONS = Object.freeze(['never_give', 'never_get', 'sold_this_season', 'below_blue_chip',
-  'no_fc_value', 'overpay', 'rules_unreadable']);
+  'unscored', 'no_fc_value', 'overpay', 'rules_unreadable']);
 
 /**
  * A.J. Brown (277) may move only for a Blue chip (83+) who is a consistent weekly scorer now. The
@@ -121,8 +121,11 @@ export function ruleVerdict(rules, { give = [], get = [], premium = null }) {
   for (const id of r) {
     if (rules.neverGet.has(id)) reasons.add('never_get');
     if (rules.sold.has(id)) reasons.add('sold_this_season');
+    // The Blue chip floor, as the War Room planner (GETS-FLOOR): everything Nick gets must score 83+ on the
+    // served board; a player the board does not score is unscored and fails closed, never certified.
     const s = rules.scoreOf(id);
-    if (s != null && s < BLUE_CHIP_SCORE) reasons.add('below_blue_chip');
+    if (s == null) reasons.add('unscored');
+    else if (s < BLUE_CHIP_SCORE) reasons.add('below_blue_chip');
   }
   const priced = [...g, ...r].every(id => rules.fc.has(id));
   let over = null;
@@ -183,21 +186,21 @@ export function soldThisSeason(db, { leagueId, season, me, now = Date.now() }) {
   }
 }
 
-let plansCache = { file: null, mtime: null, doc: null };
+let plansCache = { file: null, mtime: null, size: null, doc: null };
 /** The served War Room plans (read-only, cached by mtime), or null when there is no file. */
 function servedPlans(file) {
   let st;
   try { st = fs.statSync(file); } catch { return null; }
-  if (plansCache.file === file && plansCache.mtime === st.mtimeMs) return plansCache.doc;
+  if (plansCache.file === file && plansCache.mtime === st.mtimeMs && plansCache.size === st.size) return plansCache.doc;
   const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
-  plansCache = { file, mtime: st.mtimeMs, doc };
+  plansCache = { file, mtime: st.mtimeMs, size: st.size, doc };
   return doc;
 }
 
 /**
  * The blue-chip score (PLAYER-SCORE, people/player-score.js) per player for one league, as the War Room
  * last served it (entry.blue_chips). -> { status, byId: Map id -> score }. No file, no entry or the board
- * off: an empty map, so the "83+" rule applies only where a player score exists.
+ * off: an empty map, so every get is unscored and the gate fails closed on it (coordinator decision 5).
  */
 export function servedScores(leagueId, { plansPath = warRoomPlansPath() } = {}) {
   const doc = servedPlans(path.resolve(plansPath));

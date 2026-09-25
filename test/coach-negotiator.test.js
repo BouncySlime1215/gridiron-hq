@@ -76,7 +76,7 @@ run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, tea
      VALUES (${LEAGUE}, 'espn', 'neg-4', 2026, 'Fixture', '1', 4, 1, '{}', '2026-09-23 01:00:00')`);
 // RULES-EVERYWHERE: the made-up league priced for Nick's rule gate (Nick's P1-P7 low, the rest high);
 // the rules themselves are covered by test/rules-everywhere.test.js.
-priceForRules(db, { mine: [1, 2, 3, 4, 5, 6, 7], theirs: [11, 12, 13, 14, 15, 21, 22, 23, 24, 25, 31, 32, 33, 34, 35] });
+priceForRules(db, { leagueId: LEAGUE, mine: [1, 2, 3, 4, 5, 6, 7], theirs: [11, 12, 13, 14, 15, 21, 22, 23, 24, 25, 31, 32, 33, 34, 35] });
 
 /* The engine: the made-up league's adapter, with every call counted. */
 const ADAPTER = makeAdapter();

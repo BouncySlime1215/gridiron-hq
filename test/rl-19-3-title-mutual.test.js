@@ -144,7 +144,7 @@ run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, tea
 JSON.stringify(['QB', 'RB', 'WR']), JSON.stringify(payload()));
 const league = () => db.prepare('SELECT * FROM leagues WHERE id = 1931').get();
 // RULES-EVERYWHERE: FantasyCalc values so Nick's rule gate does not empty this fixture (rules: own test).
-priceForRules(db, { mine: teamPlayers.get(1), theirs: [...teamPlayers].filter(([t]) => t !== 1).flatMap(([, ids]) => ids) });
+priceForRules(db, { leagueId: 1931, mine: teamPlayers.get(1), theirs: [...teamPlayers].filter(([t]) => t !== 1).flatMap(([, ids]) => ids) });
 
 const withEnv = (vars, fn) => {
   const prior = Object.fromEntries(Object.keys(vars).map(k => [k, process.env[k]]));

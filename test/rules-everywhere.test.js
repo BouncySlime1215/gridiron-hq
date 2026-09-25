@@ -5,7 +5,8 @@
  * League 4, Nick's team 5 (leagues.my_team_id). Rules:
  *   never give 160 / 80 / 277 (277 only for a consistent Blue chip, which nothing measures yet);
  *   never get 290 or a player Nick traded away this season (the ledger: here he sold 105);
- *   every get with a served blue-chip score scores 83+ (here 103 scores 70);
+ *   everything Nick gets scores 83+ on the served blue-chip board (here 103 scores 70); a get the board
+ *   does not score is unscored and fails closed (here 110 and 290 are off the board);
  *   no fc_value -> fail closed (here 110 is unpriced);
  *   no overpay by FantasyCalc value, except +12% on a depth-only 2-for-1 when lineup points AND
  *   title odds both rise (and only where the surface computed both).
@@ -68,9 +69,9 @@ db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
 run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status, execution_type, processed_at, items_json, first_seen_at, last_seen_at)
      VALUES (?, 2026, 'tx1', 'TRADE_ACCEPT', 'EXECUTED', 'PROCESS', '2026-09-10T12:00:00Z', ?, 'now', 'now')`, L,
 JSON.stringify([{ playerId: 7105, fromTeamId: 5, toTeamId: 2, type: 'TRADE' }, { playerId: 7107, fromTeamId: 2, toTeamId: 5, type: 'TRADE' }]));
-// The served blue-chip board: 101 and 102 are Blue chips, 103 is not, 104 and 106 are depth.
+// The served blue-chip board: 101, 102 and 107 are Blue chips, 103 is not, 104 and 106 are depth.
 fs.writeFileSync(plansFile, JSON.stringify({ schema: 'warroom-plans/1', leagues: [{ league: L, me: ME,
-  blue_chips: { status: 'ok', value: { rows: [[101, 90], [102, 86], [103, 70], [104, 50], [106, 45], [80, 88], [160, 93]]
+  blue_chips: { status: 'ok', value: { rows: [[101, 90], [102, 86], [103, 70], [104, 50], [106, 45], [107, 85], [80, 88], [160, 93]]
     .map(([player, score]) => ({ player: String(player), score })) } } }] }));
 
 const lg = row('SELECT id, my_team_id, season, payload FROM leagues WHERE id = ?', L);
@@ -96,10 +97,12 @@ test('ruleVerdict: each rule, and the +12% depth-only 2-for-1 exception only wit
   const r = t => g.check(t).reasons;
   assert.deepEqual(r({ give: [80], get: [101] }), ['never_give', 'overpay']);
   assert.deepEqual(r({ give: [277], get: [101] }), ['never_give'], '277 stays pinned: nothing measures a consistent scorer');
-  assert.deepEqual(r({ give: [107], get: [290] }), ['never_get']);
-  assert.deepEqual(r({ give: [107], get: [105] }), ['sold_this_season']);
+  assert.deepEqual(r({ give: [107], get: [290] }), ['never_get', 'unscored']);
+  assert.deepEqual(r({ give: [107], get: [105] }), ['sold_this_season', 'unscored']);
   assert.deepEqual(r({ give: [107], get: [103] }), ['below_blue_chip']);
   assert.deepEqual(r({ give: [110], get: [101] }), ['no_fc_value']);
+  assert.deepEqual(r({ give: [104], get: [110] }), ['unscored', 'no_fc_value'], 'off the board: unscored fails closed');
+  assert.deepEqual(r({ give: [104], get: [105] }), ['sold_this_season', 'unscored']);
   assert.deepEqual(r({ give: [101], get: [102] }), ['overpay']);
   // 104 + 106 (depth, 2100) for 107 (2000, unscored): +5%, a depth-only 2-for-1.
   assert.deepEqual(r({ give: [104, 106], get: [107] }), ['overpay'], 'no premium read: the exception does not apply');
@@ -250,11 +253,20 @@ test('surface War Room negotiation threads: a reply-table branch whose package b
 });
 
 test('surface Coach drafted message: a draft naming a pinned or sold player is never put in the box', () => {
-  for (const name of ['Rb Pinned', 'Wr Sold', 'Echo Sold']) {
-    const out = coachTools.runCoachTool('warroom_draft_message', { type: 'draft_message', text: `Would you do Golf Mine for ${name}?` }, {});
-    assert.equal(out.action, undefined, `${name} must not reach the dock`);
-    assert.equal(out.dropped_by_rule, 1);
-  }
+  const logged = [];
+  const warn = console.warn;
+  console.warn = m => logged.push(String(m));
+  try {
+    for (const [name, id] of [['Rb Pinned', '80'], ['Wr Sold', '290'], ['Echo Sold', '105']]) {
+      const out = coachTools.runCoachTool('warroom_draft_message', { type: 'draft_message', text: `Would you do Golf Mine for ${name}?` }, {});
+      assert.equal(out.action, undefined, `${name} must not reach the dock`);
+      assert.equal(out.dropped_by_rule, 1);
+      assert.deepEqual(out.blocked_ids, [id]);
+    }
+  } finally { console.warn = warn; }
+  // Each drop is logged with the blocked ids (never the draft text), to find name-match false positives.
+  assert.deepEqual(logged.filter(m => m.includes('coach draft dropped')).map(m => m.match(/id\(s\) (.*)$/)[1]), ['80', '290', '105']);
+  assert.ok(!logged.some(m => m.includes('Golf Mine')));
   const ok = coachTools.runCoachTool('warroom_draft_message', { type: 'draft_message', text: 'Would you do Golf Mine for Bravo Chip?' }, {});
   assert.equal(ok.action.type, 'draft_message');
 });
@@ -277,6 +289,7 @@ function breaks({ give, get }) {
   const g = give.map(Number), t = get.map(Number);
   if (g.some(id => [80, 160, 277].includes(id))) return true;
   if (t.some(id => [290, 105].includes(id))) return true;
+  if (t.some(id => ![101, 102, 107].includes(id) && ![103, 104, 106, 80, 160].includes(id))) return true; // unscored
   if (t.includes(103)) return true;
   if ([...g, ...t].some(id => FC[id] == null)) return true;
   return g.reduce((s, id) => s + FC[id], 0) > t.reduce((s, id) => s + FC[id], 0);

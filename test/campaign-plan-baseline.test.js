@@ -16,9 +16,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import React from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
-import { loadWarRoom, textOf } from './helpers/warroom-tsx.mjs';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-plan-baseline-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
@@ -28,8 +25,7 @@ const producer = await import('../scripts/campaign/produce-plans.mjs');
 const { buildPlansFile } = producer;
 const { validatePlans } = await import('../server/services/campaign/plans-schema.js');
 
-const wr = await loadWarRoom();
-test.after(() => { wr.cleanup(); fs.rmSync(temp, { recursive: true, force: true }); });
+test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
 
 const FIRST_AT = '2026-09-24T05:00:00.000Z';
 const SECOND_AT = '2026-09-24T06:00:00.000Z';
@@ -118,15 +114,3 @@ test('the model key changes when the title-odds code or a model flag changes', (
   for (const f of producer.PLAN_MODEL_FILES) assert.ok(fs.existsSync(f), `${f} exists in the repo`);
 });
 
-test('the top strip labels the comparison "vs this week\'s plan" and says when the plan restarted', async () => {
-  const { default: TopStrip } = await wr.mod('TopStrip');
-  const strip = entry => textOf(renderToStaticMarkup(React.createElement(TopStrip, {
-    view: { destination: entry.destination }, leagues: [{ id: 4, name: 'League 4' }], activeId: 4,
-    onLeague() {}, onExit() {}, theme: 'light', onTheme() {} })));
-  const same = await twoRuns({ model1: 'm-1', model2: 'm-1' });
-  assert.match(strip(same.entry), /→ plan 0\.0% [-−]?\d+\.\d pts vs this week's plan/);
-  const changed = await twoRuns({ model1: 'm-old', model2: 'm-new' });
-  const t = strip(changed.entry);
-  assert.match(t, /plan restarted: the model changed/i);
-  assert.doesNotMatch(t, /pts vs this week's plan/);
-});

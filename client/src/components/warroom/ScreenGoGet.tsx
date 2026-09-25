@@ -12,6 +12,7 @@ import type { CurrentMove } from './NextMoveDeck';
 import { isGuess } from './heroStatus';
 import Icon, { EmptyState } from './icons';
 import BlueChipBoard from './BlueChipBoard';
+import ChanceStat from './ChanceStat';
 
 const FIT: Record<string, string> = { fits: 'fits your mode', needs_all_in: 'needs all-in', too_risky_for_safe: 'too risky for safe' };
 
@@ -146,7 +147,8 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest, someon
                             <Faces ids={s.give} n={n} /> <span className="wr-muted">for</span> <Faces ids={s.get} n={n} />
                           </span>
                           <span className="wr-tl-nums">
-                            chance <Val f={s.p_yes} fmt={v => pct(v)} />{isGuess(s.p_yes) && <span className="wr-pill2 wr-pill2-amber">guess</span>}
+                            {isOk(s.p_yes) ? <ChanceStat label="chance" value={s.p_yes.value} guess={isGuess(s.p_yes)} />
+                              : <>chance <Val f={s.p_yes} fmt={v => pct(v)} /></>}
                             {' · '}gain <Val f={s.title_odds_delta} fmt={pts} />
                           </span>
                         </span>

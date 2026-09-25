@@ -9,6 +9,7 @@ import HisScreen from './warroom/HisScreen';
 import SentOfferButton from './trade/SentOfferButton';
 import { hasEvidence } from './trade/types';
 import { logServerDetail, sanitizedMessage } from '../lib/errorSanitize';
+import TradeSides from './warroom/TradeSides';
 
 /** UX-08b: `sense.error`/`impact.error` are the raw server/fetch message — never rendered, only logged. */
 export function TradeSectionError({ where, error }: { where: string; error: string }) {
@@ -206,6 +207,9 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
     finally { setBusy(false); }
   };
 
+  const openPlayer = usePlayerCard();
+  const sidePlayer = (p: any) => ({ id: p.id, name: p.name, pos: p.position, team: p.team_abbr, headshot: headshotUrl(p),
+    title: `Week ${p.matchup?.week ?? '?'}: ${p.blend_week ?? p.current_week_ppg ?? p.adj_ppg ?? '?'} pts · ROS ${p.ros_ppg ?? p.ppg ?? '?'} ppg · market ${p.value?.toLocaleString() ?? '?'}` });
   const give = deal.i_give ?? deal.me?.gives ?? [];
   const get = deal.i_get ?? deal.me?.gets ?? [];
 
@@ -274,16 +278,10 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
         </div>
       )}
 
+      {/* The one give/get block (TradeSides), the same as the planner's hero card; a chip opens the player card. */}
+      <TradeSides size="compact" give={give.map(sidePlayer)} get={get.map(sidePlayer)} onOpen={sp => openPlayer(Number(sp.id))} />
       <div className="space-y-1.5 mb-3">
-        <div className="flex items-start gap-2 flex-wrap">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-crit w-14 shrink-0 pt-1.5">You give</span>
-          <div className="flex gap-1.5 flex-wrap">{give.map((p: any) => <PlayerPill key={p.id} p={p} tone="give" />)}</div>
-        </div>
         <EvidenceRows players={give} tone="give" />
-        <div className="flex items-start gap-2 flex-wrap">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-good w-14 shrink-0 pt-1.5">You get</span>
-          <div className="flex gap-1.5 flex-wrap">{get.map((p: any) => <PlayerPill key={p.id} p={p} tone="get" />)}</div>
-        </div>
         <EvidenceRows players={get} tone="get" />
       </div>
 

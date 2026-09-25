@@ -5,7 +5,7 @@ import { useCoach } from '../state/coach';
 import { useWarRoom } from '../components/warroom/useWarRoom';
 import TodayPanel from '../components/warroom/TodayPanel';
 import CommandCenter from '../components/CommandCenter';
-import { EmptyState, PageHeader } from '../components/ui/DesignSystem';
+import { Card, EmptyState, PageHeader, Skeleton } from '../components/ui/DesignSystem';
 import { PageError, PageLoading } from '../components/PageState';
 
 /**
@@ -31,7 +31,29 @@ export default function Today() {
       {wr.data?.enabled === true && activeId != null && (
         <div className="mb-8"><TodayPanel view={wr.data} leagueId={activeId} onAsk={coach.open} /></div>
       )}
+      {/* The plans take a few seconds after a server restart: hold the hero's place at its final
+          height so it does not pop in above the week's actions. */}
+      {activeId != null && wr.loading && !wr.data && <TodaySkeleton />}
       <CommandCenter />
+    </div>
+  );
+}
+
+/** "Do this now" and the Watching / season rows, as placeholders at the size they arrive at (ui.css .today-skel). */
+function TodaySkeleton() {
+  return (
+    <div className="today-skel mb-8" aria-busy="true" aria-label="Loading your next move" data-testid="today-skeleton">
+      <Card className="today-skel-hero">
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="mt-4 h-8 w-3/4" />
+        <Skeleton className="mt-3 h-4 w-full max-w-xl" />
+        <Skeleton className="mt-2 h-4 w-2/3 max-w-md" />
+        <div className="mt-6 flex gap-3"><Skeleton className="h-10 w-36 !rounded-full" /><Skeleton className="h-10 w-28 !rounded-full" /></div>
+      </Card>
+      <div className="today-skel-rows">
+        <Card><Skeleton className="h-4 w-28" /><Skeleton className="mt-4 h-4 w-full" /><Skeleton className="mt-2 h-4 w-5/6" /></Card>
+        <Card><Skeleton className="h-4 w-28" /><Skeleton className="mt-4 h-4 w-full" /><Skeleton className="mt-2 h-4 w-4/6" /></Card>
+      </div>
     </div>
   );
 }

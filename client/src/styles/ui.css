@@ -191,3 +191,13 @@ button.ds-chip:active { transform: scale(.97); }
 .ds-menu-list > button[aria-checked="true"] { color: var(--c-accent); font-weight: 600; }
 .ds-menu-note { padding: 6px 10px 4px; font: 600 var(--type-label)/1.2 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--c-muted); }
 @media (prefers-reduced-motion: reduce) { .ds-menu-list { animation: none; } }
+
+/* ---------- Today: placeholders at the War Room panel's measured size (pages/Today.tsx TodaySkeleton) ----------
+   Measured on the snapshot: hero 807 px on a phone, 540 px from 700 px up; the Watching / season row
+   is two stacked cards below 900 px and one row of two above it. */
+.today-skel { display: flex; flex-direction: column; gap: 16px; }
+.today-skel-hero { min-height: 807px; }
+.today-skel-rows { display: grid; gap: 16px; }
+.today-skel-rows > * { min-height: 217px; }
+@media (min-width: 700px) { .today-skel-hero { min-height: 540px; } }
+@media (min-width: 900px) { .today-skel-rows { grid-template-columns: 1fr 1fr; } .today-skel-rows > * { min-height: 240px; } }

@@ -9397,7 +9397,7 @@
         "his_side": "Team 2's roster read lists WR as thin.",
         "devils_advocate": "A path fits the current risk mode; landing him still takes every step saying yes.",
         "news_check": "Not checked for targets: the news read runs on the offers in a plan.",
-        "confidence": "The path lands 7% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "confidence": "The path lands 7% of the time, on blend of activity baseline and clone, weights earned on graded offers (E1 pending).",
         "counter": "No offer yet, so no counter plan.",
         "cites": [
          "gain_if_landed",
@@ -9444,7 +9444,7 @@
         "his_side": "Team 2's roster read lists WR as thin.",
         "devils_advocate": "A path fits the current risk mode; landing him still takes every step saying yes.",
         "news_check": "Not checked for targets: the news read runs on the offers in a plan.",
-        "confidence": "The path lands 7% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "confidence": "The path lands 7% of the time, on blend of activity baseline and clone, weights earned on graded offers (E1 pending).",
         "counter": "No offer yet, so no counter plan.",
         "cites": [
          "gain_if_landed",
@@ -9491,7 +9491,7 @@
         "his_side": "Team 2's roster read lists WR as thin.",
         "devils_advocate": "A path fits the current risk mode; landing him still takes every step saying yes.",
         "news_check": "Not checked for targets: the news read runs on the offers in a plan.",
-        "confidence": "The path lands 1% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "confidence": "The path lands 1% of the time, on blend of activity baseline and clone, weights earned on graded offers (E1 pending).",
         "counter": "No offer yet, so no counter plan.",
         "cites": [
          "gain_if_landed",

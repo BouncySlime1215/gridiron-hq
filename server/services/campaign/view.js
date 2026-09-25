@@ -42,6 +42,10 @@ const pSrc = basis => (basis === PYES_BASIS ? 'activity.accept' : basis === BLEN
 /** LIVE-BLEND: the source id a p_yes_basis section names. */
 const pSrcOf = b => (['activity.accept', 'blend.accept', 'clone.accept'].includes(b.source) ? b.source : 'clone.accept');
 const PYES_NOTE = `${PYES_LABEL}: every offer to one manager gets the same number, so ladder rungs differ by your gain, not by P(yes), until E1 grades a model that reads the offer`;
+/** integration-8: the label for a P(yes), by the basis that served it (LIVE-BLEND is on by default). */
+const pLabelOf = basis => (basis === PYES_BASIS ? PYES_NOTE : basis === BLEND_BASIS ? BLEND_LABEL : P_ACCEPT_LABEL);
+/** The same by a plans.json source ('blend.accept' | 'activity.accept' | 'clone.accept'). */
+const pLabelOfSource = src => (src === 'activity.accept' ? PYES_NOTE : src === 'blend.accept' ? BLEND_LABEL : P_ACCEPT_LABEL);
 
 export const PRODUCER = 'campaign-producer';
 export const PRODUCER_VERSION = '2';
@@ -165,7 +169,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
             : 'The gain clears the noise but was not re-checked on fresh dice.',
       news_check: pb?.wait ? (pb.wait.flag === 'wait' ? `Wait ${pb.wait.days} days: ${pb.wait.reason}.` : `Act now: ${pb.wait.reason}.`)
         : 'Not checked: this offer has no playbook yet.',
-      confidence: `Chance he says yes is ${pct(p)}, from ${pBasis === PYES_BASIS ? PYES_NOTE : pBasis === BLEND_BASIS ? BLEND_LABEL : P_ACCEPT_LABEL}.`,
+      confidence: `Chance he says yes is ${pct(p)}, from ${pLabelOf(pBasis)}.`,
       counter: (() => {
         const row = pb?.replies?.find(r => r.kind === 'counter');
         return row?.counter_rules ? `If he counters, counter with ${row.counter_rules.counter_with}.` : row?.do ?? 'No counter plan: decline any counter that adds players on your side.';
@@ -275,7 +279,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       p_complete: num(plan.p_complete, 'plan.path', { prob: true, unit: 'probability', guess: true }),
       delta_final: num(plan.delta_final, 'sim.title', { unit }),
       expected: num(plan.expected, 'plan.path', { se: plan.expected_se, unit }),
-      reasoning: reasoning({ team: s0.team, p: s0.p, delta: s0.delta, clears: s0.clears, pb: c.playbook, verdict: c.confirm,
+      reasoning: reasoning({ team: s0.team, p: s0.p, pBasis: s0.p_basis, delta: s0.delta, clears: s0.clears, pb: c.playbook, verdict: c.confirm,
         whole: `If all ${plan.steps.length} step(s) land you gain ${fmt(plan.delta_final)}; across yes and no outcomes that is ${fmt(plan.expected)} expected, and the path completes ${pct(plan.p_complete)} of the time.` }),
     };
   });
@@ -423,7 +427,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       devils_advocate: t.mode_fit === 'fits' ? 'A path fits the current risk mode; landing him still takes every step saying yes.'
         : t.mode_fit === 'needs_all_in' ? 'Only an all-in plan reaches him.' : 'No plan inside the sliders reaches him.',
       news_check: 'Not checked for targets: the news read runs on the offers in a plan.',
-      confidence: fin(t.p_reach) ? `The path lands ${pct(t.p_reach)} of the time, on ${P_ACCEPT_LABEL}.` : 'No path, so no landing chance.',
+      confidence: fin(t.p_reach) ? `The path lands ${pct(t.p_reach)} of the time, on ${pLabelOfSource(res.p_yes_basis?.source)}.` : 'No path, so no landing chance.',
       counter: 'No offer yet, so no counter plan.',
       cites: ['gain_if_landed', 'p_reach'], check_first: t.mode_fit !== 'fits',
     }, 'plan.template'),
@@ -454,7 +458,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
         his_side: f.chat_hint ? 'From chat: one side is louder about him than the other.' : 'No chat read on either side.',
         devils_advocate: f.clears ? 'The spread clears the noise; both legs still have to land.' : 'The spread does not clear two standard errors of noise.',
         news_check: 'Not checked for flips: the news read runs on the offers in a plan.',
-        confidence: r?.legs && isProb(r.legs.p_complete) ? `Both legs land ${pct(r.legs.p_complete)} of the time, on ${P_ACCEPT_LABEL}.` : 'The two legs were not priced.',
+        confidence: r?.legs && isProb(r.legs.p_complete) ? `Both legs land ${pct(r.legs.p_complete)} of the time, on ${pLabelOf(r.legs.p_basis)}.` : 'The two legs were not priced.',
         counter: 'Each leg is a separate offer; decline a counter that breaks the other leg.',
         cites: ['spread', 'legs.p_both'], check_first: !f.clears,
       }, 'plan.template');

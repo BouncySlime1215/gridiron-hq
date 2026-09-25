@@ -62,3 +62,24 @@ test('LIVE-BLEND x NEGOTIATOR: the second package is gated on its OWN baseline p
   }
   assert.ok(served > 0, 'second packages are still served without X');
 });
+
+test('LIVE-BLEND labels: a blended P(yes) is never called "today\'s model" on a card, target or flip', async () => {
+  const { toEntry } = await import('../server/services/campaign/view.js');
+  const { makeAdapter } = await import('./fixtures/campaign-league.mjs');
+  const { BLEND_LABEL, P_ACCEPT_LABEL } = { ...(await import('../server/services/p-yes.js')), ...(await import('../server/services/campaign/playbook.js')) };
+  const a = makeAdapter();
+  const base = a.priceStep;
+  a.priceStep = (t, g, h) => { const r = base(t, g, h); return { ...r, basis: BLEND_BASIS, p_gate: r.p }; };
+  a.pYesBasis = { mode: 'blend', source: 'blend.accept', label: BLEND_LABEL };
+  const res = planLeague(a, { objective: normaliseObjective({ risk_mode: 'balanced' }) });
+  const entry = toEntry(res, { names: a.names(), as_of: '2026-10-01T00:00:00Z' });
+  const lines = [];
+  const walk = v => { if (typeof v === 'string') { if (/^(Chance he says yes|The path lands|Both legs land)/.test(v)) lines.push(v); }
+    else if (v && typeof v === 'object') for (const x of Object.values(v)) walk(x); };
+  walk(entry);
+  assert.ok(lines.some(l => l.startsWith('The path lands')), 'a target confidence line is served');
+  assert.ok(lines.some(l => l.startsWith('Chance he says yes')), 'a card confidence line is served');
+  const wrong = lines.filter(l => l.includes(P_ACCEPT_LABEL));
+  assert.deepEqual(wrong, [], 'blend-served numbers labelled as the clone band');
+  assert.ok(lines.every(l => l.includes(BLEND_LABEL)), 'each line names the blend');
+});

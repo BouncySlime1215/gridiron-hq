@@ -68,6 +68,20 @@ receptiveness and P(yes) dropping for a manager who lost last week (no post-loss
    planner through `settings.env` and the adapter through its `env` option, never `process.env` inside
    the campaign modules. Test: "the flag in process.env alone does nothing".
 
+## 2b. Batch B (on main decf7ebf)
+
+The "Or X for Y" package now passes what a served plan passes, with no second copy of any gate:
+`planner.js#confirmAlt` rebuilds the plan with step i's give swapped (planning dice), then applies
+the overpay cap (`altWithinCap`), the held floor (main's `failsHeld`, GETS-FLOOR on), trade memory
+(main's `applyTradeMemory`, path-level reversals included) and main's confirm-dice gate
+(`priceOnConfirm` + `beatsNoTrade`). Never-give ids and the objectives' untouchables never reach
+the ladder (`vals.tradable`, `objUntouch`). `alt_dropped` is one of `ALT_DROP_REASONS`.
+Tests: "the second package never offers a never-give player or an objectives untouchable",
+"the plan with the second package swapped in is a valid path, holds no player under the floor",
+"a second package that would break the path is dropped as path_conflict". The confirm-dice test
+fails with the `beatsNoTrade` line removed (verified). The fixture has no case where only the
+floor line drops a package, so that line is not mutation-proven.
+
 ## 3. Hand-set, not fitted
 
 `ANCHOR_FLOOR_PCT` 5 (messages.js `EVEN_PCT`), `OFFER_HOURS` 48 (`SWITCH_HOURS`),

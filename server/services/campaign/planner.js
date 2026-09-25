@@ -25,7 +25,7 @@ import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink } from './search.js';
-import { tradeMemory, applyTradeMemory, memorySummary } from './trade-memory.js';
+import { tradeMemory, applyTradeMemory, memorySummary, stepPasses, floorOn } from './trade-memory.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
 
 /** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
@@ -127,10 +127,16 @@ export function planLeague(adapter, settings) {
       positionOf: id => adapter.players.get(id)?.position ?? null,
       holderOf: id => [...adapter.rosters].find(([, ids]) => ids.some(x => String(x) === String(id)))?.[0] ?? null })
     : null;
-  const tmCount = { targets: 0, flips: 0 };
-  // (a) a flip that buys a player Nick just sold is a buy-back like any other.
-  const flipBuysSold = f => !!TM?.excluded(f.player);
-  const flip = TM ? { ...flipAll, top: flipAll.top.filter(f => !flipBuysSold(f)), realised: flipAll.realised.filter(f => !flipBuysSold(f)) } : flipAll;
+  const tmCount = { targets: 0, flips: 0, ladderRows: 0, refused: [] };
+  const tmFloor = floorOn(env);
+  // (a) a flip that buys a player Nick just sold is a buy-back like any other; (c) neither leg may undo a trade.
+  const flipFails = f => {
+    if (TM.excluded(f.player)) return true;
+    if (!f.legs) return false;
+    const gx = f.legs.give_a_ids ?? [f.legs.give_a], gy = f.legs.get_b_ids ?? [f.legs.get_b];
+    return !stepPasses(TM, { team: f.a, give: gx, get: [f.player] }, tmFloor) || !stepPasses(TM, { team: f.b, give: [f.player], get: gy }, tmFloor);
+  };
+  const flip = TM ? { ...flipAll, top: flipAll.top.filter(f => !flipFails(f)), realised: flipAll.realised.filter(f => !flipFails(f)) } : flipAll;
   if (TM) tmCount.flips = flipAll.realised.length - flip.realised.length;
 
   mark('flip');
@@ -150,7 +156,7 @@ export function planLeague(adapter, settings) {
     if (pid == null) return;
     if (untouchable.has(String(pid))) { if (!refused.includes(String(pid))) refused.push(String(pid)); return; }
     if (wanted.some(w => String(w) === String(pid))) return;
-    if (soldOut(pid)) return;
+    if (soldOut(pid)) { if (!tmCount.refused.includes(String(pid))) tmCount.refused.push(String(pid)); return; }
     if (!wanted.some(w => String(w) === String(pid))) wanted.push(pid);
   };
   const idOf = s => [...adapter.players.keys()].find(k => String(k) === String(s)) ?? null;
@@ -214,7 +220,11 @@ export function planLeague(adapter, settings) {
     // Nick's "hard" read is applied ONCE (RULINGS 17): FIX-02c's hard shift when the adapter carries his block
     // (m.nick, the real producer); otherwise the counterpart's cap at fair on his screen (the same reader flag).
     const cap = CP && !m.nick?.hard ? priceCap(CP.get(String(st.team))) : null;
-    const curve = cap ? priced.curve.filter(c => c.his_pct <= cap.max_his_pct) : priced.curve;
+    const capped = cap ? priced.curve.filter(c => c.his_pct <= cap.max_his_pct) : priced.curve;
+    // TRADE-MEMORY: the ladder (opening, walk-away, the counters the reply table names) is held to the
+    // same rules as the planned step: no package that undoes a trade, none under his floor with the flag on.
+    const curve = TM ? capped.filter(c => stepPasses(TM, { team: st.team, give: c.give, get: st.get }, tmFloor)) : capped;
+    if (TM) tmCount.ladderRows += capped.length - curve.length;
     const basis = cap ? `${priced.basis}; capped at ${cap.max_his_pct}% on his screen (nick_override)` : priced.basis;
     const ladder = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode, hard: !!m.nick?.hard });
     const offer = ladder.opening ? { ...st, give: ladder.opening.give } : st;
@@ -359,7 +369,7 @@ export function planLeague(adapter, settings) {
     risk_modes: compareModes(plans, ctxFor), catch_up: catchUp, partners,
     untouchable: { ids: [...untouchable], refused_targets: refused },
     trade_memory: memorySummary(TM, { dropped: tmApplied?.dropped ?? {}, shadow: tmApplied?.shadow ?? {}, floorOn: tmApplied?.floor_on ?? false,
-      targets: tmCount.targets, flips: tmCount.flips, unmapped: adapter.tradeLedger?.unmapped ?? 0 }),
+      targets: tmCount.targets, flips: tmCount.flips, ladderRows: tmCount.ladderRows, refused: tmCount.refused, unmapped: adapter.tradeLedger?.unmapped ?? 0 }),
     ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
     sellers: { read: sellers, unreached: desperate.unreached.map(s => s.team) },
     speed_levers: sideLevers({ free, waits: playbook.map(pb => pb.wait) }),

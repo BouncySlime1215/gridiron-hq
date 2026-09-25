@@ -176,7 +176,7 @@ test('planner: a player Nick sold 10 days ago is no longer a target, a get or a 
     assert.ok(!res.targets.map(Number).includes(11), `${mode}: P11 is not a target`);
     assert.ok(!gets(res).includes(11), `${mode}: no card gets P11`);
     assert.ok(!res.flip.realised.some(f => Number(f.player) === 11), `${mode}: no flip buys P11`);
-    assert.ok(res.trade_memory.dropped.targets >= 1);
+    assert.ok(res.trade_memory.removed.targets >= 1);
     assert.ok(res.trade_memory.dropped_total >= 1);
     // (c): P4 back to team 3 for P22 is the f2 trade undone.
     for (const c of res.deck) for (const s of c.plan.steps) {
@@ -245,4 +245,56 @@ test('league-adapter tradeLedger: reads executed trades and the price on the tra
   // No transaction table: no ledger.
   const none = { db: { row: () => null, rows: () => { throw new Error('must not read'); } } };
   assert.equal(tradeLedger(none, { leagueId: 4, season: 2026, formatKey: 'fmt', assets, now: NOW }), null);
+});
+
+/* ------------------------------------------------ review fixes (PR #379) */
+
+test('(a) no price now (missing or 0) is unknown, never a 100% fall: he stays excluded', () => {
+  const mem = tradeMemory(ledger({ 1: 5000 }), { me: '1', valueNow: id => (id === 1 ? 0 : P.get(id)?.value ?? 0), positionOf: id => P.get(id)?.position ?? null });
+  assert.equal(mem.excluded(1), 'sold_recently');
+  assert.equal(mem.buyBack(1), null);
+  const missing = tradeMemory(ledger({ 1: 5000 }), { me: '1', valueNow: id => (id === 1 ? undefined : P.get(id)?.value ?? 0), positionOf: id => P.get(id)?.position ?? null });
+  assert.equal(missing.excluded(1), 'sold_recently');
+});
+
+// Nick sent P21 to team 3 for P4 last week. A planned 'get P21 for P6 + P7' passes, but the ladder
+// builds its own packages from the whole roster: an opening of 'P4 + P7 for P21' undoes that trade.
+const ladderLedger = { now: NOW, valueAt: () => null,
+  trades: [{ tx_id: 'l1', at: ago(7), moves: [{ player: 21, from: '1', to: '3' }, { player: 4, from: '3', to: '1' }] }] };
+const reverses = (a, team, give, get) => String(team) === '3' && give.map(Number).includes(4) && get.map(Number).includes(21);
+
+test('the offer ladder (opening, walk-away, curve) never serves a reversal', () => {
+  const { stepPasses } = tm;
+  let checked = 0, removed = 0;
+  for (const mode of ['balanced', 'all_in']) {
+    for (const buyBack of [false, true]) {
+      // With a 10%+ fall P21 is a buy-back, so the planner does build P21 cards; the ladder must still not give P4.
+      const L = { ...ladderLedger, valueAt: id => (buyBack && id === 21 ? 5000 : null) };
+      const { res } = plan(mode, { tradeLedger: L });
+      for (const c of res.deck) {
+        for (const pb of [c.playbook, ...(c.playbooks ?? [])].filter(Boolean)) {
+          const st = c.plan.steps[pb.step_index];
+          for (const row of [pb.opening, pb.walk_away, pb.ladder?.indifference, ...(pb.ladder?.ladder ?? [])].filter(r => r?.give)) {
+            assert.ok(!reverses(null, st.team, row.give, st.get), `${mode}: ladder gives P4 back for P21`);
+            checked++;
+          }
+        }
+      }
+      removed += res.trade_memory.removed.ladder_rows;
+    }
+  }
+  assert.ok(checked > 0);
+  assert.ok(removed >= 1, 'the fixture ladder had reversal rows to remove');
+  assert.equal(typeof stepPasses, 'function');
+});
+
+test('a sold player set as the goal is refused with a reason, and dropped_total counts paths only', () => {
+  const a = makeAdapter();
+  a.tradeLedger = fixtureLedger();
+  const res = planLeague(a, { objective: normaliseObjective({ kind: 'player', target: '11' }), env: {} });
+  assert.deepEqual(res.trade_memory.refused_targets, ['11']);
+  assert.ok(!res.targets.map(Number).includes(11));
+  const d = res.trade_memory.dropped;
+  assert.equal(res.trade_memory.dropped_total, d.sold_recently + d.reversal + d.below_his_floor + d.wrong_currency);
+  assert.ok(res.trade_memory.removed.targets >= 1);
 });

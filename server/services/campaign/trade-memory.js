@@ -109,7 +109,8 @@ export function tradeMemory(ledger, { me, valueNow, positionOf, holderOf = null,
       if (m.from !== String(me) || now - t.at > windowDays * DAY) continue;
       const was = then(m.player, t.at);
       const cur = valueNow(m.player);
-      const fell = was != null && was > 0 && Number.isFinite(cur) ? (was - cur) / was : null;
+      // No price now (missing or 0) is unknown, not a 100% fall: he stays excluded.
+      const fell = was != null && was > 0 && Number.isFinite(cur) && cur > 0 ? (was - cur) / was : null;
       const buyback = fell != null && fell >= fall - 1e-12;
       sold.set(String(m.player), { player: m.player, at: t.at, to: m.to, was, now: cur, fell, buyback,
         text: buyback ? `buy-back: price fell from ${fmt(was)} to ${fmt(cur)}` : null });
@@ -175,10 +176,20 @@ export function applyTradeMemory(plans, mem, { env = {} } = {}) {
   return { plans: kept, dropped, shadow, floor_on: on };
 }
 
-/** The summary the planner returns (and the view puts under `_run.trade_memory`). Ids only, no names. */
-export function memorySummary(mem, { dropped, shadow, floorOn: on, targets = 0, flips = 0, unmapped = 0 }) {
+/** A step passes memory: no hard reason, and no shadow reason when the floor flag is on. */
+export function stepPasses(mem, step, on) {
+  const v = stepMemory(mem, step);
+  return !v.hard.length && !(on && v.shadow.length);
+}
+
+/**
+ * The summary the planner returns (and the view puts under `_run.trade_memory`). Ids only, no names.
+ * dropped_total counts candidate PATHS only (one unit); targets, flips and ladder rows are removed
+ * before or after path search and are reported beside it, never summed into it.
+ */
+export function memorySummary(mem, { dropped, shadow, floorOn: on, targets = 0, flips = 0, ladderRows = 0, refused = [], unmapped = 0 }) {
   if (!mem) return { status: 'no_ledger', dropped_total: 0 };
-  const d = { targets, flips, ...dropped };
+  const d = { ...dropped };
   return {
     status: 'on', window_days: mem.windowDays, buyback_fall: mem.fall, trades: mem.trades, unmapped,
     floor: on ? 'filter' : 'shadow',
@@ -186,7 +197,7 @@ export function memorySummary(mem, { dropped, shadow, floorOn: on, targets = 0, 
     buy_backs: [...mem.sold.values()].filter(s => s.buyback).map(s => ({ player: String(s.player), was: s.was, now: s.now, text: s.text })),
     floors: [...mem.floors].map(([k, f]) => ({ key: k, floor: f.floor, basis: f.basis })),
     currency: Object.fromEntries(mem.currency),
-    dropped: d, shadow,
+    dropped: d, shadow, removed: { targets, flips, ladder_rows: ladderRows }, refused_targets: refused.map(String),
     dropped_total: Object.values(d).reduce((s, x) => s + x, 0),
   };
 }

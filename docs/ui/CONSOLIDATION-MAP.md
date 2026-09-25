@@ -251,6 +251,15 @@ Replaced components are deleted in the PR that replaces them. No dead duplicates
 
 ## 7. Duplicate numbers: for a server unit
 
+**P0 (server, routed by the coordinator): FantasyPros rank fields must stop reaching the browser.**
+Nick's rule is that FantasyPros data is never displayed or committed, and an unused
+client payload counts. Today the War Room view's `blue_chips` rows carry `fp_ros_rank`,
+`fp_pos_rank`, `fp_rank` and `fp_prev_rank`, typed in `client/src/components/warroom/types.ts`
+and produced by `server/services/people/player-score.js`, reaching the client through the
+producer and `war-room-view.js`. LiveDraft's Claude `/advice` prompt also compiles
+FantasyPros takes in `server/services/draft-assist.js` (`analystNotes`). The UI PRs do not
+touch server code. Once the server stops sending the rank fields, the client type drops them.
+
 The UI shows each number once, from the canonical producer below. Changing producers is not in this plan; these rows are handed to a server unit.
 The number audit (`server/services/number-audit.js`) already flags A to D.
 
@@ -292,9 +301,11 @@ Each PR must:
 - carry before/after shots;
 - include a Measured section with a "before → after" line and the tree sha.
 
-## 9. Decisions for Nick
+## 9. Decisions (coordinator, on Nick's consolidation request; Nick can veto)
 
-1. **Cut Edge's unreachable boards** (boom/bust, efficiency, breakouts, playoff schedule, season simulator)? They duplicate live views (section 4, Players). The VOR column is kept.
-2. **Seven sidebar items instead of eight:** the eight-item test pin changes with it.
-3. **The classic War Room dashboard is retired** when Trades lands.
-4. **News lives under Players**, with my players' headlines on Today, rather than as its own area.
+Each cut lands in its own commit so it is easy to revert.
+
+1. **Edge's five unreachable boards are cut.** The VOR column is kept.
+2. **Seven sidebar items.** The eight-item test pin changes in the first area PR.
+3. **The classic War Room dashboard is retired when Trades lands.** It stays reachable, with a redirect note, until then.
+4. **News lives under Players,** with my players' headlines on Today.

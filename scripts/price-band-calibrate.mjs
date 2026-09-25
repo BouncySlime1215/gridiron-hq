@@ -9,19 +9,23 @@
  * week, r, r_ros, n_get, n_give). Any row with season >= 2025 is a hard error: 2025
  * is never used.
  *   --emit   also print the FITTED_BAND literal for server/services/price-band.js
- *   --check  exit 1 unless (a) pooled 2023-24 V2 coverage is within 0.80 +/- 0.05 and
- *            (b) the refit equals the FITTED_BAND constants the server serves.
+ *   --check  exit 1 unless (a) pooled 2023-24 V2 coverage is within 0.80 +/- 0.05,
+ *            (b) PRICE-BAND-02: 2023-24 coverage of each GATED_SHAPES shape band is within
+ *            0.80 +/- 0.05, and (c) both refits equal the constants the server serves.
  * Output is aggregate JSON only (no league keys).
  */
 import fs from 'node:fs';
 import {
-  FITTED_BAND, LEGACY_BAND, bandFromFit, fitConformalBand, bandCoverage, clusteredShareCI
+  FITTED_BAND, FITTED_SHAPE_BANDS, LEGACY_BAND, TRADE_SHAPES, bandFromFit, fitConformalBand,
+  fitShapeBands, tradeShape, bandCoverage, clusteredShareCI
 } from '../server/services/price-band.js';
 
 export const FIT_SEASONS = [2021];
 export const CAL_SEASONS = [2022];
 export const GRADE_SEASONS = [2023, 2024];
 export const TARGET = { nominal: 0.80, tol: 0.05 };
+/** PRICE-BAND-02: the shapes the offer ladders mostly send, each held to TARGET. */
+export const GATED_SHAPES = ['1for1', '2for1', '3for2plus'];
 
 export function parseTrades(text) {
   const [head, ...lines] = text.trim().split(/\r?\n/);
@@ -78,6 +82,40 @@ export function calibrate(trades) {
     uneven_counts: { legacy: grade(uneven, LEGACY_BAND), v2: grade(uneven, band) },
     realized_ros_sensitivity: { legacy: grade(graded, LEGACY_BAND, 'r_ros'), v2: grade(graded, band, 'r_ros') }
   };
+  // PRICE-BAND-02: Mondrian bands, one per shape, fit and graded on the same splits.
+  const shapeFit = fitShapeBands(pick(FIT_SEASONS), pick(CAL_SEASONS), FITTED_BAND.alpha);
+  const shapeBand = Object.fromEntries(TRADE_SHAPES.map(k => [k,
+    shapeFit[k] ? bandFromFit({ ...shapeFit[k], version: `refit/${k}` }) : band]));
+  const bandOf = t => shapeBand[tradeShape(t.n_get, t.n_give)];
+  const gradeMondrian = rows => {
+    const ci = pred => {
+      const c = clusteredShareCI(rows.map(t => ({ key: t.key, hit: pred(t.r, bandOf(t)) ? 1 : 0 })));
+      return [r3(c.est), r3(c.lo), r3(c.hi)];
+    };
+    return { n: rows.length, leagues: new Set(rows.map(t => t.key)).size,
+      inside: ci((r, b) => r >= b.lo && r <= b.hi), below: ci((r, b) => r < b.lo), above: ci((r, b) => r > b.hi) };
+  };
+  out.shape_fit = shapeFit;
+  out.shape_bands = Object.fromEntries(TRADE_SHAPES.map(k => [k,
+    { lo: shapeBand[k].lo, center: shapeBand[k].center, hi: shapeBand[k].hi, pooled_fallback: !shapeFit[k] }]));
+  out.by_shape_2023_24 = {};
+  for (const k of [...TRADE_SHAPES, 'uneven_counts', 'all']) {
+    const rows = graded.filter(t => k === 'all' || (k === 'uneven_counts'
+      ? t.n_get !== t.n_give : tradeShape(t.n_get, t.n_give) === k));
+    out.by_shape_2023_24[k] = { pooled_v2: grade(rows, band), shape_v2: gradeMondrian(rows),
+      by_season: Object.fromEntries(GRADE_SEASONS.map(s => [s, gradeMondrian(rows.filter(t => t.season === s)).inside[0]])) };
+  }
+  out.shape_target = Object.fromEntries(GATED_SHAPES.map(k => {
+    const v = out.by_shape_2023_24[k].shape_v2.inside[0];
+    return [k, { inside: v, met: v != null && Math.abs(v - TARGET.nominal) <= TARGET.tol }];
+  }));
+  out.matches_served_shape_constants = TRADE_SHAPES.every(k => {
+    const a = shapeFit[k], b = FITTED_SHAPE_BANDS[k];
+    if (!a || !b) return !a && !b;
+    return a.log_center === b.log_center && a.width_lo === b.width_lo && a.width_hi === b.width_hi
+      && a.half_width === b.half_width && a.fit_n === b.fit_n && a.cal_n === b.cal_n;
+  });
+
   const pooled = out.splits['2023-24 pooled (HEADLINE)'].v2.inside[0];
   out.target = { ...TARGET, pooled_v2: pooled, met: Math.abs(pooled - TARGET.nominal) <= TARGET.tol };
   out.matches_served_constants = fit.log_center === FITTED_BAND.log_center
@@ -98,9 +136,20 @@ function main(argv) {
     console.log(`\nexport const FITTED_BAND = Object.freeze({\n  version: 'v2-conformal-2021-22', alpha: ${f.alpha},\n`
       + `  log_center: ${f.log_center}, half_width: ${f.half_width},\n`
       + `  fit_n: ${f.fit_n}, cal_n: ${f.cal_n}, fit_seasons: ${JSON.stringify(FIT_SEASONS)}, cal_seasons: ${JSON.stringify(CAL_SEASONS)}\n});`);
+    const lines = TRADE_SHAPES.map(k => {
+      const s = out.shape_fit[k];
+      const w = s?.direction_free ? `half_width: ${s.half_width}, direction_free: true` : `width_lo: ${s?.width_lo}, width_hi: ${s?.width_hi}`;
+      return s ? `  ${k}: Object.freeze({ alpha: ${s.alpha}, log_center: ${s.log_center}, ${w}, fit_n: ${s.fit_n}, cal_n: ${s.cal_n} })`
+        : `  ${k}: null`;
+    });
+    console.log(`\nexport const FITTED_SHAPE_BANDS = Object.freeze({\n${lines.join(',\n')}\n});`);
   }
-  if (argv.includes('--check') && !(out.target.met && out.matches_served_constants)) {
-    console.error(`CHECK FAILED: target met=${out.target.met}, served constants match refit=${out.matches_served_constants}`);
+  const shapesMet = Object.values(out.shape_target).every(s => s.met);
+  if (argv.includes('--check') && !(out.target.met && shapesMet
+    && out.matches_served_constants && out.matches_served_shape_constants)) {
+    console.error(`CHECK FAILED: target met=${out.target.met}, shape targets met=${shapesMet}, `
+      + `served constants match refit=${out.matches_served_constants}, `
+      + `served shape constants match refit=${out.matches_served_shape_constants}`);
     process.exit(1);
   }
 }

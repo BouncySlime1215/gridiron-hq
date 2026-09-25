@@ -52,15 +52,73 @@ export const FITTED_BAND = Object.freeze({
  * "might say yes"). The yes point belongs to the counterpart model (FIELD-REGISTRY).
  */
 export function bandFromFit(fit) {
-  const lo = +Math.exp(fit.log_center - fit.half_width).toFixed(3);
-  const hi = +Math.exp(fit.log_center + fit.half_width).toFixed(3);
+  // PRICE-BAND-02 shape bands are equal-tailed: separate widths below and above the centre.
+  const lo = +Math.exp(fit.log_center - (fit.width_lo ?? fit.half_width)).toFixed(3);
+  const hi = +Math.exp(fit.log_center + (fit.width_hi ?? fit.half_width)).toFixed(3);
   return Object.freeze({
     version: fit.version, window_lo: lo, window_hi: hi, yes_point: LEGACY_BAND.yes_point,
     lo, hi, center: +Math.exp(fit.log_center).toFixed(3), nominal: +(1 - fit.alpha).toFixed(2)
   });
 }
 
-export const V2_BAND = bandFromFit(FITTED_BAND);
+/**
+ * PRICE-BAND-02: one split-conformal band per trade shape (Mondrian conformal), same
+ * splits and alpha as FITTED_BAND. Shape is read from the target owner's side:
+ * n_get = players he receives (the package), n_give = players he gives (the targets).
+ * On the 2021-22 splits the shapes clear at very different prices (median r: 1-for-1
+ * 0.83, 2-for-1 1.43, 3+-for-fewer ~1.3), so one pooled band covered 89.6% of 1-for-1s
+ * and 57.4% of uneven trades. Held-out 2023-24 with these bands: 1-for-1 73.6%, 2-for-1
+ * 75.7%, 3-for-2+ 83.8%, all uneven 81.4%. A shape with too few trades to fit
+ * (fitShapeBands minN) falls back to the pooled band; none does today.
+ * Written by `scripts/price-band-calibrate.mjs --emit`.
+ */
+export const TRADE_SHAPES = Object.freeze(['1for1', '2for1', '3for2plus', 'even', 'fewer_for_more']);
+
+/** The shape of a trade: nGet players to the target's owner for nGive of his. */
+export function tradeShape(nGet, nGive) {
+  if (!(Number.isInteger(nGet) && Number.isInteger(nGive) && nGet > 0 && nGive > 0)) {
+    throw new Error(`tradeShape: bad counts ${nGet}-for-${nGive}`);
+  }
+  if (nGet === 1 && nGive === 1) return '1for1';
+  if (nGet === 2 && nGive === 1) return '2for1';
+  if (nGet >= 3 && nGet > nGive) return '3for2plus';
+  if (nGet === nGive) return 'even';
+  return 'fewer_for_more';
+}
+
+export const FITTED_SHAPE_BANDS = Object.freeze({
+  '1for1': Object.freeze({ alpha: 0.2, log_center: 0, half_width: 0.425413, direction_free: true, fit_n: 279, cal_n: 361 }),
+  '2for1': Object.freeze({ alpha: 0.2, log_center: 0.343893, width_lo: 0.2325, width_hi: 0.186102, fit_n: 127, cal_n: 188 }),
+  '3for2plus': Object.freeze({ alpha: 0.2, log_center: 0.26026, width_lo: 0.258092, width_hi: 0.442499, fit_n: 81, cal_n: 135 }),
+  'even': Object.freeze({ alpha: 0.2, log_center: -0.111118, width_lo: 0.228924, width_hi: 0.194967, fit_n: 189, cal_n: 243 }),
+  'fewer_for_more': Object.freeze({ alpha: 0.2, log_center: -0.655618, width_lo: 0.339567, width_hi: 0.389703, fit_n: 89, cal_n: 139 })
+});
+
+export const V2_BAND = Object.freeze({
+  ...bandFromFit(FITTED_BAND),
+  by_shape: Object.freeze(Object.fromEntries(TRADE_SHAPES.map(k => [k,
+    FITTED_SHAPE_BANDS[k] ? bandFromFit({ ...FITTED_SHAPE_BANDS[k], version: `${FITTED_BAND.version}/${k}` }) : null])))
+});
+
+/**
+ * The band for one package: nGet players offered for nGive targets. Legacy has one band
+ * for every shape. V2 serves the shape's own band, or the pooled band when that shape
+ * has no fit.
+ */
+export function bandForShape(served, nGet, nGive) {
+  if (!served.by_shape) return served;
+  const shape = tradeShape(nGet, nGive);
+  const b = served.by_shape[shape];
+  if (b) return { ...b, shape };
+  const { by_shape: _all, ...pooled } = served;
+  return { ...pooled, shape };
+}
+
+/** The outermost [window_lo, window_hi] over package sizes `sizes` for nGive targets. */
+export function windowSpan(served, sizes, nGive) {
+  const bs = sizes.map(n => bandForShape(served, n, nGive));
+  return { lo: Math.min(...bs.map(b => b.window_lo)), hi: Math.max(...bs.map(b => b.window_hi)) };
+}
 
 /** Same precedence as season-sim.js#rosBasisFlag: '1' on, '0' vetoes preview, else preview. */
 export function priceBandV2Flag() {
@@ -91,15 +149,60 @@ const median = xs => {
 };
 
 /**
- * Split-conformal band on log r. `fitR` sets the centre, `calR` sets the width.
+ * Split-conformal band on log r. `fitR` sets the centre (unless `logCenter` fixes it), `calR` sets the width.
  * Finite-sample rank k = ceil((n+1)(1-alpha)); k > n means the band is unbounded.
  */
-export function fitConformalBand(fitR, calR, alpha = 0.2) {
+/**
+ * Mondrian split conformal: fitEqualTailedBand within each trade shape. rows carry
+ * { r, n_get, n_give }. A shape with fewer than `minN` rows in either split gets no
+ * band (callers fall back to the pooled one).
+ */
+export function fitShapeBands(fitRows, calRows, alpha = 0.2, minN = 30) {
+  const byShape = rows => {
+    const m = new Map(TRADE_SHAPES.map(k => [k, []]));
+    for (const t of rows) m.get(tradeShape(t.n_get, t.n_give)).push(t.r);
+    return m;
+  };
+  const f = byShape(fitRows), c = byShape(calRows);
+  const out = {};
+  for (const k of TRADE_SHAPES) {
+    if (f.get(k).length < minN || c.get(k).length < minN) { out[k] = null; continue; }
+    // A Sleeper 1-for-1 does not say which side asked, and its extract framing forces
+    // r <= 1; the ladder asks target-first, where r > 1 is a real package. So the 1-for-1
+    // band is direction-free: centred on even value (r = 1), width from |log r|.
+    out[k] = k === '1for1'
+      ? { ...fitConformalBand(f.get(k), c.get(k), alpha, { logCenter: 0 }), direction_free: true }
+      : fitEqualTailedBand(f.get(k), c.get(k), alpha);
+  }
+  return out;
+}
+
+/**
+ * Equal-tailed split conformal on log r: the centre from `fitR`, then one conformal rank
+ * per tail on `calR` at alpha/2 each (scores c - log r below, log r - c above). Used for
+ * the shape bands because clearing prices are skewed within a shape: a Sleeper 1-for-1 is
+ * framed so r <= 1, and a symmetric band there spends half its width above 1.
+ */
+export function fitEqualTailedBand(fitR, calR, alpha = 0.2) {
+  const clean = xs => xs.filter(r => Number.isFinite(r) && r > 0);
+  const f = clean(fitR), c = clean(calR);
+  if (!f.length || !c.length) throw new Error('fitEqualTailedBand: empty fit or calibration split');
+  if (!(alpha > 0 && alpha < 1)) throw new Error(`fitEqualTailedBand: alpha ${alpha} outside (0,1)`);
+  const logCenter = median(f.map(Math.log));
+  const k = Math.ceil((c.length + 1) * (1 - alpha / 2));
+  const rank = scores => (k > scores.length ? Infinity : scores.sort((a, b) => a - b)[k - 1]);
+  const widthLo = rank(c.map(r => logCenter - Math.log(r)));
+  const widthHi = rank(c.map(r => Math.log(r) - logCenter));
+  return { alpha, log_center: +logCenter.toFixed(6), width_lo: +widthLo.toFixed(6), width_hi: +widthHi.toFixed(6),
+    fit_n: f.length, cal_n: c.length };
+}
+
+export function fitConformalBand(fitR, calR, alpha = 0.2, { logCenter: fixedCenter = null } = {}) {
   const clean = xs => xs.filter(r => Number.isFinite(r) && r > 0);
   const f = clean(fitR), c = clean(calR);
   if (!f.length || !c.length) throw new Error('fitConformalBand: empty fit or calibration split');
   if (!(alpha > 0 && alpha < 1)) throw new Error(`fitConformalBand: alpha ${alpha} outside (0,1)`);
-  const logCenter = median(f.map(Math.log));
+  const logCenter = fixedCenter ?? median(f.map(Math.log));
   const scores = c.map(r => Math.abs(Math.log(r) - logCenter)).sort((a, b) => a - b);
   const k = Math.ceil((scores.length + 1) * (1 - alpha));
   const halfWidth = k > scores.length ? Infinity : scores[k - 1];

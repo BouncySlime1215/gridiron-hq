@@ -70,7 +70,8 @@ test('legacy band is exactly the served numbers before PRICE-BAND-01', () => {
 
 test('trade-engine reads the band from price-band.js: no hand-set 0.70 / 1.65 / 1.0 price literals left in the ladders', () => {
   const src = fs.readFileSync(path.join(REPO, 'server/services/trade-engine.js'), 'utf8');
-  assert.equal((src.match(/ratio < band\.window_lo \|\| ratio > band\.window_hi/g) ?? []).length, 2);
+  assert.equal((src.match(/ratio < shapeBand\.window_lo \|\| ratio > shapeBand\.window_hi/g) ?? []).length, 2);
+  assert.equal((src.match(/const shapeBand = bandForShape\(band, give\.length, /g) ?? []).length, 2);
   assert.equal((src.match(/p\.ratio >= band\.yes_point/g) ?? []).length, 2);
   assert.doesNotMatch(src, /ratio < 0\.70 \|\| ratio > 1\.65/);
   assert.doesNotMatch(src, /p\.ratio >= 1\.0\b/);
@@ -175,6 +176,7 @@ test('calibrate is unaffected by grade-season prices (no leakage from 2023-24 in
   const trades = cal.parseTrades(fs.readFileSync(FIXTURE, 'utf8'));
   const shifted = trades.map(t => (t.season >= 2023 ? { ...t, r: t.r * 3 } : t));
   assert.deepEqual(cal.calibrate(shifted).fit, cal.calibrate(trades).fit);
+  assert.deepEqual(cal.calibrate(shifted).shape_fit, cal.calibrate(trades).shape_fit, 'PRICE-BAND-02 shape fits too');
   // And the grade does move, which is the known-nonzero control for the line above.
   assert.notEqual(cal.calibrate(shifted).target.pooled_v2, cal.calibrate(trades).target.pooled_v2);
 });
@@ -188,4 +190,106 @@ test('CLI --check exits 1 when the refit does not match the served constants, 2 
   const emit = spawnSync(process.execPath, [CLI, '--trades', FIXTURE, '--emit'], { encoding: 'utf8' });
   assert.equal(emit.status, 0, emit.stderr);
   assert.match(emit.stdout, /export const FITTED_BAND = Object\.freeze/);
+});
+
+/* ---------------------------------------------- PRICE-BAND-02: bands per trade shape */
+
+test('tradeShape partitions every count pair, read from the target owner\'s side', () => {
+  assert.equal(pb.tradeShape(1, 1), '1for1');
+  assert.equal(pb.tradeShape(2, 1), '2for1');
+  for (const [g, v] of [[3, 1], [3, 2], [4, 2], [4, 3]]) assert.equal(pb.tradeShape(g, v), '3for2plus', `${g}x${v}`);
+  for (const n of [2, 3, 4]) assert.equal(pb.tradeShape(n, n), 'even');
+  for (const [g, v] of [[1, 2], [1, 3], [2, 3]]) assert.equal(pb.tradeShape(g, v), 'fewer_for_more', `${g}x${v}`);
+  assert.throws(() => pb.tradeShape(0, 1), /bad counts/);
+  assert.throws(() => pb.tradeShape(1.5, 1), /bad counts/);
+});
+
+test('bandForShape: legacy is one band for every shape; V2 serves the shape band', () => {
+  for (const [g, v] of [[1, 1], [2, 1], [3, 1], [2, 2], [1, 2]]) assert.equal(pb.bandForShape(pb.LEGACY_BAND, g, v), pb.LEGACY_BAND);
+  const b21 = pb.bandForShape(pb.V2_BAND, 2, 1);
+  assert.equal(b21.shape, '2for1');
+  assert.equal(b21.lo, pb.V2_BAND.by_shape['2for1'].lo);
+  assert.equal(b21.yes_point, pb.LEGACY_BAND.yes_point, 'FIX-303-2: yes point stays legacy per shape too');
+  assert.ok(!('by_shape' in b21));
+  // The C2 finding the shapes fix: 2-for-1s clear above 1-for-1s.
+  assert.ok(pb.V2_BAND.by_shape['2for1'].center > pb.V2_BAND.by_shape['1for1'].center);
+  // Preview labels ride on the served object; the shape band is looked up from it.
+  const prev = { ...pb.V2_BAND, preview: true };
+  assert.equal(pb.bandForShape(prev, 3, 2).shape, '3for2plus');
+  // A shape with no fit falls back to the pooled band, labelled with the shape.
+  const holey = { ...pb.V2_BAND, by_shape: { ...pb.V2_BAND.by_shape, even: null } };
+  const fb = pb.bandForShape(holey, 2, 2);
+  assert.deepEqual([fb.lo, fb.hi, fb.shape, 'by_shape' in fb], [pb.V2_BAND.lo, pb.V2_BAND.hi, 'even', false]);
+});
+
+test('windowSpan is the outer hull of the package-size bands, and exactly legacy with the flag off', () => {
+  assert.deepEqual(pb.windowSpan(pb.LEGACY_BAND, [1, 2, 3], 1), { lo: 0.70, hi: 1.65 });
+  const s = pb.windowSpan(pb.V2_BAND, [1, 2, 3], 1);
+  const bs = [[1, 1], [2, 1], [3, 1]].map(([g, v]) => pb.bandForShape(pb.V2_BAND, g, v));
+  assert.equal(s.lo, Math.min(...bs.map(b => b.lo)));
+  assert.equal(s.hi, Math.max(...bs.map(b => b.hi)));
+});
+
+test('the 1-for-1 band is direction-free around even value and contains the legacy yes point', () => {
+  const f = pb.FITTED_SHAPE_BANDS['1for1'];
+  assert.equal(f.log_center, 0);
+  assert.equal(f.direction_free, true);
+  const b = pb.V2_BAND.by_shape['1for1'];
+  assert.ok(Math.abs(b.lo * b.hi - 1) < 0.01, `lo ${b.lo} x hi ${b.hi} should be ~1`);
+  assert.ok(b.lo < 1 && b.hi > 1);
+  assert.equal(pb.priceSaysYes(1.0, b), true);
+});
+
+test('fitEqualTailedBand: one conformal rank per tail at alpha/2', () => {
+  // Centre log 0; 19 calibration points at log r = -0.9..0.9 step 0.1.
+  const calR = Array.from({ length: 19 }, (_, i) => Math.exp((i - 9) / 10));
+  const f = pb.fitEqualTailedBand([1], calR, 0.2);
+  // k = ceil(20 * 0.9) = 18 -> 18th smallest of each one-sided score list.
+  // Lower scores -log r = -0.9..0.9, 18th smallest = 0.8; same above.
+  assert.equal(f.log_center, 0);
+  assert.equal(f.width_lo, 0.8);
+  assert.equal(f.width_hi, 0.8);
+  // Skewed calibration moves only the side it is skewed on.
+  const skew = pb.fitEqualTailedBand([1], calR.map(r => (r > 1 ? r * r : r)), 0.2);
+  assert.equal(skew.width_lo, 0.8);
+  assert.equal(skew.width_hi, 1.6);
+  const b = pb.bandFromFit({ ...skew, version: 't' });
+  assert.equal(b.lo, +Math.exp(-0.8).toFixed(3));
+  assert.equal(b.hi, +Math.exp(1.6).toFixed(3));
+  assert.equal(pb.fitEqualTailedBand([1], [1, 2], 0.2).width_hi, Infinity);
+  assert.throws(() => pb.fitEqualTailedBand([], [1]), /empty/);
+});
+
+test('fitShapeBands: fits per shape, leaves thin shapes unfitted, and never mixes shapes', () => {
+  const mk = (n, g, v, r) => Array.from({ length: n }, (_, i) => ({ n_get: g, n_give: v, r: r * Math.exp((i % 7 - 3) / 20) }));
+  const fit = [...mk(40, 1, 1, 0.8), ...mk(40, 2, 1, 1.4), ...mk(5, 2, 2, 0.9)];
+  const cal = [...mk(40, 1, 1, 0.8), ...mk(40, 2, 1, 1.4), ...mk(40, 2, 2, 0.9)];
+  const out = pb.fitShapeBands(fit, cal, 0.2);
+  assert.deepEqual(Object.keys(out), [...pb.TRADE_SHAPES]);
+  assert.equal(out.even, null, 'only 5 fit rows');
+  assert.equal(out['3for2plus'], null);
+  assert.equal(out['2for1'].fit_n, 40);
+  assert.ok(Math.abs(Math.exp(out['2for1'].log_center) - 1.4) < 0.01);
+  assert.equal(out['1for1'].log_center, 0, '1-for-1 is direction-free');
+  assert.equal(out['1for1'].direction_free, true);
+});
+
+test('calibrate reports per-shape coverage and gates the three ladder shapes', () => {
+  const out = cal.calibrate(cal.parseTrades(fs.readFileSync(FIXTURE, 'utf8')));
+  assert.deepEqual(cal.GATED_SHAPES, ['1for1', '2for1', '3for2plus']);
+  assert.deepEqual(Object.keys(out.shape_target), cal.GATED_SHAPES);
+  // Fixture has only 1x1 and 2x1 trades: the other shapes are unfitted and fall back.
+  assert.equal(out.shape_bands['3for2plus'].pooled_fallback, true);
+  assert.equal(out.shape_bands['2for1'].pooled_fallback, false);
+  const s = out.by_shape_2023_24;
+  assert.equal(s['1for1'].shape_v2.n + s['2for1'].shape_v2.n, s.all.shape_v2.n);
+  assert.equal(s['2for1'].shape_v2.n, s.uneven_counts.shape_v2.n);
+  assert.equal(out.matches_served_shape_constants, false, 'fixture is not the real data');
+});
+
+test('CLI --emit prints the FITTED_SHAPE_BANDS literal', () => {
+  const emit = spawnSync(process.execPath, [CLI, '--trades', FIXTURE, '--emit'], { encoding: 'utf8' });
+  assert.equal(emit.status, 0, emit.stderr);
+  assert.match(emit.stdout, /export const FITTED_SHAPE_BANDS = Object\.freeze/);
+  assert.match(emit.stdout, /2for1: Object\.freeze\(\{ alpha: 0\.2, log_center: [-\d.]+, width_lo: /);
 });

@@ -28,7 +28,7 @@
  */
 import { STATUS, result, readSource, waiting } from './common.js';
 import { bootstrapCI, mean, round } from './stats.js';
-import { addsByTeam, completedTrades, dropsByTeam } from '../manager-signals.js';
+import { addsByTeam, completedTrades, dropsByTeam } from '../tx-moves.js';
 
 export const CHECK = 'L01B-GATE';
 export const ACT_CHECK = 'L01B-ACT';

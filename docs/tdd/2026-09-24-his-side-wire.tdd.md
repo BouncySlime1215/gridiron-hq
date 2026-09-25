@@ -79,3 +79,22 @@ the signal ... emitted only when the league has transaction rows at all"). The
 pricing path reads `tx_adds_per_week` (n = weeks) and `tx_completed_trades`
 (n = weeks), not those counts (`counterparty-pricing.js:532-555`). Writing NULL
 would turn "did nothing" into "unknown" and move P(yes). Left for Nick to rule on.
+
+## Batch B (item 9): rebase, unmapped-id log, seller floor source
+
+- Merged origin/main `6eb3aed` (past `decf7eb`). Conflicts in `league-adapter.mjs`,
+  `planner.js` and `view.js` were both-sides keeps: main's `tradeLedger`,
+  `reach` and `trade_memory` next to this unit's `tradeBlock`, `trade_block` and
+  `_run.inputs.his_side`. With #379 now in main, `res.trade_memory` is live and its
+  `memorySummary` shape (`floors[].key = 'team:player'`, `currency`) is the one
+  `his-side.js` reads.
+- RED `99a6656`: "producer log: one line per league names the ESPN block status and its
+  unmapped id count" fails (no such line). GREEN: `his-side.js#hisSideLine`, logged by
+  `produce-plans.mjs#buildPlansFile` next to the reach line, e.g.
+  `[warroom] league 4: his_side shadow, ESPN trade block ok, 4 unmapped ids, 5 of 5 targets read ok`.
+- Seller floor value is FantasyCalc, checked in code: `trade-memory.js#tradeMemory` prices
+  the floor with `ledger.valueAt` (`league-adapter.mjs#tradeLedger`: `dynasty_value_history`,
+  FantasyCalc's daily capture, basis `value_at_trade`) or, when that day has no row,
+  `valueNow` = `adapter.players.value` = `trade-engine.js#buildAssetUniverse`
+  `value: m?.value` from `currentMarket` (`dynasty_values`, FantasyCalc), basis `value_now`.
+  No other price source reaches `floors[].floor`.

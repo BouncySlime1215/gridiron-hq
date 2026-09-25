@@ -84,7 +84,7 @@ import { skipWeights } from '../../server/services/campaign/partners.js';
 import { diffNextMove } from '../../server/services/campaign/replan.js';
 import { rankAttention } from '../../server/services/campaign/attention.js';
 import { toEntry, failedEntry, plansFile, PRODUCER_VERSION } from '../../server/services/campaign/view.js';
-import { hisSideOn } from '../../server/services/campaign/his-side.js';
+import { hisSideOn, hisSideLine } from '../../server/services/campaign/his-side.js';
 import { versionWithFlags } from '../../server/services/campaign/model-flags.js';
 import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
 import { applyCoachMessages, coachMessagesOn } from '../../server/services/campaign/messages.js';
@@ -386,6 +386,7 @@ export async function buildPlansFile(leagues, {
     log(`[warroom] league ${id}: ${entry.error ? `FAILED ${entry.error}`
       : `ok, next ${entry._run.changed.next_key}, changed ${entry._run.changed.changed}`} (${Math.round((clock() - t0) / 1000)} s, ${entry._run?.rescores ?? 0} rescores, phases ms ${JSON.stringify(entry._run?.phases_ms ?? {})})`);
     if (entry._run?.inputs?.reach) log(`[warroom] league ${id}: ${droppedLine(entry._run.inputs.reach.drops_by_gate)}`);
+    if (entry._run?.inputs?.his_side) log(`[warroom] league ${id}: ${hisSideLine(entry._run.inputs.his_side)}`);
   }
 
   // Attention budget across the leagues (north-star row 19): each league carries its own row.

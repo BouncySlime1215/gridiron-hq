@@ -226,10 +226,11 @@ function Faces({ ids, n }: { ids: string[]; n: ReturnType<typeof namer> }) {
 
 /** BUY-LOW: served only with its flag on; the War Room's own pill (as "in the plan"), a plain-words title, no numbers on the card. */
 export function BuyLowChip({ b }: { b: BuyLow }) {
-  const role = b.role === 'confirmed' ? `usage up in ${b.games} recent games` : 'usage up in his latest game';
+  const role = b.role === 'confirmed' ? `usage up in ${b.games} recent games, `
+    : b.role === 'detected' ? 'usage up in his latest game, ' : '';
   return (
     <span className="wr-tcard-bl" data-testid="target-buy-low">
-      <span className="wr-pill2 wr-pill2-green" title={`Buy-low (a guess): ${role}, scoring about ${b.points_below_expected} pts/game below what his usage predicts.`}>Buy-low</span>
+      <span className="wr-pill2 wr-pill2-green" title={`Buy-low (a guess): ${role}scoring about ${b.points_below_expected} pts/game below what his usage predicts over his last ${b.games} games.`}>Buy-low</span>
     </span>
   );
 }

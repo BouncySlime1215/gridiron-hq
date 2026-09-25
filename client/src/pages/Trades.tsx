@@ -11,6 +11,9 @@ import { useWarRoom } from '../components/warroom/useWarRoom';
 import ManagerBoard from '../components/brain/ManagerBoard';
 import ProposalSlate from '../components/brain/ProposalSlate';
 import NewsEdge from '../components/trade/NewsEdge';
+import OfferBudgetLine from '../components/brain/OfferBudgetLine';
+import { teamLabelIn } from '../components/warroom/types';
+import { isOk } from '../components/warroom/format';
 import type { ProfilesResponse, SignalsResponse } from '../components/brain/types';
 import { FindDeals, MockTrade, TargetMany, TargetPlayer, TitleTrades, TradeDeskHeader, useTradeDesk } from './TradeLab';
 
@@ -137,6 +140,8 @@ export default function Trades() {
       {view === 'news' && activeId && <NewsEdge leagueId={activeId} teamId={desk.me} />}
 
       {view === 'people' && activeId && <div className="space-y-5">
+        <OfferBudgetLine view={warOn ? warRoom.data : null}
+          nameOf={team => teamLabelIn(isOk(warRoom.data?.teams) ? warRoom.data!.teams!.value : null, team)} />
         <ManagerBoard leagueId={activeId} profiles={profiles} signals={signals} />
         <ProposalSlate leagueId={activeId} />
       </div>}

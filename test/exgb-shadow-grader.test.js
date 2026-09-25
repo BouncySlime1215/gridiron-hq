@@ -191,3 +191,57 @@ test('both jobs are live, off-thread scheduler jobs on the refresh loop, after t
   assert.ok(L.indexOf('espn_weekly_projection_capture') < L.indexOf('exgb_shadow_predict'));
   assert.ok(L.indexOf('exgb_shadow_predict') < L.indexOf('exgb_weekly_grade'));
 });
+
+test('U0: a frozen ESPN capture outside every window still gets a forecast (after_capture), once', async () => {
+  // Its own season: one Sunday 13:00 ET game, no forecast yet. A manual capture Saturday 23:00 ET
+  // (after the Saturday window, before the 2 h pre-kick window), forecast an hour later.
+  const S3 = 2034;
+  run('INSERT INTO game_lines (season, week, team, gameday, gametime) VALUES (?,?,?,?,?)', S3, 1, 'AAA', '2034-09-10', '13:00');
+  const kickIso = nflKickoffDate('2034-09-10', '13:00').toISOString();
+  const kick = Date.parse(kickIso);
+  const capAt = new Date(kick - 14 * 3600e3).toISOString();
+  const now = new Date(kick - 13 * 3600e3);
+  const { captureWindows } = await import('../server/services/espn-weekly-projection-capture.js');
+  assert.ok(!captureWindows([kickIso]).some(w => w.opens_at <= now.toISOString() && now.toISOString() < w.closes_at),
+    'the fixture time is outside every capture window');
+  process.env.GRIDIRON_EXGB = '1';
+  const calls = [];
+  const spawn = (cmd, args) => {
+    calls.push(args);
+    fs.writeFileSync(args[args.indexOf('--out') + 1], JSON.stringify({ ...modelPayload(11, 0.25), season: S3, week: 1 }));
+    return { status: 0, stdout: '{}', stderr: '' };
+  };
+  try {
+    const none = await shadow.runExgbShadowPredict({ now, season: S3, spawn });
+    assert.equal(none.attempted, 0, 'no capture and no window: nothing to forecast');
+    run(`INSERT INTO espn_weekly_projection_captures (capture_id, season, week, scoring_key, window_key, captured_at,
+           source_url_hash, n_players, n_rows, n_late, status) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    'manual-2034-w1', S3, 1, 'ppr', 'manual', capAt, 'h', 8, 8, 0, 'ok');
+    const r = await shadow.runExgbShadowPredict({ now, season: S3, spawn });
+    assert.equal(r.runs, 1);
+    assert.equal(calls[0][calls[0].indexOf('--week') + 1], '1');
+    assert.equal(rows(`SELECT window_key FROM exgb_shadow_runs WHERE season = ? AND status = 'ok'`, S3)[0].window_key, 'after_capture');
+    const again = await shadow.runExgbShadowPredict({ now: new Date(now.getTime() + 15 * 60e3), season: S3, spawn });
+    assert.equal(again.runs, 0, 'a capture already forecast is not forecast again');
+  } finally { delete process.env.GRIDIRON_EXGB; }
+});
+
+test('U0: exgbShadowHealth is broken for a frozen week without forecasts, ok once they exist, off without the flag', () => {
+  const S2 = 2033;
+  run(`INSERT INTO espn_weekly_projection_snapshots (season, week, player_id, espn_id, position, pro_team, projected_pts,
+         scoring_key, captured_at, kickoff_at, late, window_key, capture_id, source_url_hash)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, S2, 1, 1, 1001, 'QB', 'AAA', 10, 'ppr', '2033-09-01T00:00:00.000Z',
+  '2033-09-08T17:00:00.000Z', 0, 'manual', 'h-1', 'h');
+  assert.equal(shadow.exgbShadowHealth({ season: S2 }).status, 'off');
+  process.env.GRIDIRON_EXGB = '1';
+  try {
+    const h = shadow.exgbShadowHealth({ season: S2 });
+    assert.equal(h.status, 'broken');
+    assert.deepEqual(h.missing, [1]);
+    shadow.ingestPredictions({ season: S2, week: 1, rows: [{ player_id: 1, position: 'QB', arm: 'B2', prediction: 12,
+      kickoff_at: '2033-09-08T17:00:00.000Z' }] }, { now: new Date('2033-09-02T00:00:00Z'), windowKey: 'after_capture' });
+    const ok = shadow.exgbShadowHealth({ season: S2 });
+    assert.equal(ok.status, 'ok');
+    assert.deepEqual(ok.weeks, [{ week: 1, frozen: 1, shadow: 1 }]);
+  } finally { delete process.env.GRIDIRON_EXGB; }
+});

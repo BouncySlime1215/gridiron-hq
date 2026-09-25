@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
 import TradeCard, { PlayerPill, num } from '../components/TradeCard';
@@ -9,20 +8,9 @@ import EvidenceTable from '../components/draft/EvidenceTable';
 import StreakChips from '../components/draft/StreakChips';
 import { statHeadline } from '../components/draft/types';
 import { hasEvidence } from '../components/trade/types';
-import { usePageExplain } from '../components/PageExplainContext';
 import { PageLoading, PageError, EmptyState } from '../components/PageState';
 import RulesHidden from '../components/trade/RulesHidden';
 
-const TABS = [
-  { id: 'news', label: 'News edge', hint: 'Act on news your league has not seen yet' },
-  { id: 'find', label: 'Find deals', hint: 'Every realistic trade in your league, ranked' },
-  { id: 'title', label: 'Title impact', hint: 'Ranked by championship odds, not points' },
-  { id: 'target', label: 'Target a player', hint: 'Name him — get the offer that lands him' },
-  { id: 'targetMany', label: 'Go get them', hint: 'Pick multiple players — build the packages that land them' },
-  { id: 'mock', label: 'Mock a trade', hint: 'Build any deal, see who wins' },
-  { id: 'matchups', label: 'Matchups', hint: 'Defence vs position, and head-to-head history' }
-] as const;
-type Tab = typeof TABS[number]['id'];
 
 /** Reads/writes the untouchable-player list for one league from localStorage. */
 const untouchableKey = (leagueId: number) => `gh:untouchable:${leagueId}`;
@@ -32,23 +20,20 @@ const loadUntouchable = (leagueId: number | null): number[] => {
   catch { return []; }
 };
 
-/* ------------------------------------------------------------------ shell */
-// `initialTab` lets a route land directly on one tab — the sidebar's own
-// "Matchups" destination points here now, since the DvP / head-to-head
-// content already lived on this page's `matchups` tab with no direct link in.
-export default function TradeLab({ initialTab }: { initialTab?: Tab } = {}) {
-  // Which league is active now lives in the header, shared with My Team and the
-  // Prediction Engine — this page just follows it rather than keeping its own.
-  const { leagues, activeId: active, loading: leaguesLoading, error: leaguesError, refetch: refetchLeagues } = useLeague();
-  const [tab, setTab] = useState<Tab>(initialTab ?? 'find');
+/* ------------------------------------------------------------ shared state */
+/**
+ * The trade tools' shared state for the active league (Trades → Go get, Find deals, Build):
+ * rosters, which team is mine, and the untouchable list (per league, in this browser). The Trade
+ * Lab page and its tab strip are gone; the Trades area (pages/Trades.tsx) hosts these tools.
+ */
+export function useTradeDesk() {
+  const { activeId: active } = useLeague();
   const { data: rosters, loading: rostersLoading, error: rostersError, refetch: refetchRosters } = useApi<any>(active ? `/trades/${active}/rosters` : null);
   const [teamId, setTeamId] = useState<string | null>(null);
   // A "which team is me" pick only means something within the league it was made in.
   useEffect(() => { setTeamId(null); }, [active]);
   const me = teamId ?? rosters?.my_team_id ?? rosters?.teams?.[0]?.roster_id ?? null;
-
-  // Players marked untouchable are never offered by Find Deals or Target a Player —
-  // saved per league, since "don't trade him" only means something within one roster.
+  // Players marked untouchable are never offered by Find deals or Go get: saved per league.
   const [untouchable, setUntouchable] = useState<number[]>(() => loadUntouchable(active));
   useEffect(() => { setUntouchable(loadUntouchable(active)); }, [active]);
   const toggleUntouchable = (id: number) => {
@@ -58,109 +43,34 @@ export default function TradeLab({ initialTab }: { initialTab?: Tab } = {}) {
       return next;
     });
   };
-  const myPlayers = rosters?.teams?.find((t: any) => t.roster_id === me)?.players ?? [];
-  // Resolved once here and handed to every TradeCard, so the AI writing a pitch
-  // knows never to suggest one of these as a sweetener — see server/routes/trades.js.
+  const myPlayers: any[] = rosters?.teams?.find((t: any) => t.roster_id === me)?.players ?? [];
+  // Handed to every TradeCard, so the AI writing a pitch never suggests one of these as a sweetener.
   const untouchableNames = myPlayers.filter((p: any) => untouchable.includes(p.id)).map((p: any) => p.name);
+  return { active, rosters, rostersLoading, rostersError, refetchRosters, me, setTeamId, untouchable, toggleUntouchable, myPlayers, untouchableNames };
+}
 
-  // Otherwise the floating assistant never learns what this page shows and
-  // falls back to a generic non-answer on every visit.
-  usePageExplain('trade lab', tab, {
-    tab, team_selected: !!me, roster_size: myPlayers.length, untouchable_count: untouchable.length
-  });
-
-  if (leaguesLoading && !leagues.length) {
-    return (
-      <div>
-        <h1 className="text-2xl font-bold mb-4">Trade Lab</h1>
-        <PageLoading label="Loading your leagues…" />
-      </div>
-    );
-  }
-  if (leaguesError && !leagues.length) {
-    return (
-      <div>
-        <h1 className="text-2xl font-bold mb-4">Trade Lab</h1>
-        <PageError message={leaguesError} onRetry={refetchLeagues} />
-      </div>
-    );
-  }
-  if (!leagues.length) {
-    return (
-      <div>
-        <h1 className="text-2xl font-bold mb-4">Trade Lab</h1>
-        <EmptyState title="Connect a league to start proposing trades"
-          description="Trade Lab needs a synced roster to find deals, price targets, and simulate mock trades."
-          actionLabel="Connect a league" actionTo="/leagues" />
-      </div>
-    );
-  }
-
+/** The strip above the trade tools: which team is mine, market freshness, the model week, untouchables. */
+export function TradeDeskHeader({ desk }: { desk: ReturnType<typeof useTradeDesk> }) {
+  const { rosters, me, setTeamId, myPlayers, untouchable, toggleUntouchable } = desk;
   return (
-    <div>
-      <div className="flex items-center gap-3 mb-1 flex-wrap">
-        <h1 className="text-2xl font-bold">Trade Lab</h1>
+    <div className="mb-4 space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
         {rosters?.teams && (
-          <select className="input" value={me ?? ''} onChange={e => setTeamId(e.target.value)}>
-            {rosters.teams.map((t: any) => (
-              <option key={t.roster_id} value={t.roster_id}>{t.owner}</option>
-            ))}
-          </select>
+          <label className="text-xs text-slate-600">Trading as
+            <select className="input league-select ml-2 w-[12rem] max-w-full" value={me ?? ''} onChange={e => setTeamId(e.target.value)}>
+              {rosters.teams.map((t: any) => <option key={t.roster_id} value={t.roster_id}>{t.owner}</option>)}
+            </select>
+          </label>
         )}
+        <MarketAsOf asOf={rosters?.market_as_of} />
+        {rosters?.model_context && <span className="ds-chip">Week {rosters.model_context.week} · cutoff {rosters.model_context.cutoff}</span>}
       </div>
-      <p className="text-sm text-slate-500 mb-4">
-        Every deal is rebuilt for the live NFL week from the shared player model, injury availability,
-        current matchup and remaining schedule. Market value is a separate price check, not the projection.
-      </p>
-      <div className="-mt-3 mb-4"><MarketAsOf asOf={rosters?.market_as_of} /></div>
-      {/* This page is about a deal; who will actually sign one is a different
-          question and now has its own surface. */}
-      <p className="text-sm text-slate-500 mb-4">
-        Who actually trades with you — your read of each manager, the signals we measured about them,
-        and an AI-written opener you can paste into the league chat — is in{' '}
-        <Link className="font-semibold text-emerald-700" to="/trade-brain">Trade Brain</Link>.
-      </p>
-      {rosters?.model_context && <div className="mb-4 inline-flex rounded-full bg-sky-50 px-3 py-1 text-[11px] font-bold text-sky-800 ring-1 ring-sky-200">
-        Week {rosters.model_context.week} · cutoff {rosters.model_context.cutoff} · refreshes after every completed week
-      </div>}
-
-      {myPlayers.length > 0 && (
-        <Untouchables players={myPlayers} ids={untouchable} onToggle={toggleUntouchable} />
-      )}
-
-      <div className="flex flex-wrap gap-1 border-b border-slate-200 mb-4">
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} title={t.hint}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
-              tab === t.id ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {!active && tab !== 'matchups' && <PageLoading label="Loading your leagues…" />}
-
-      {active && !rosters && rostersLoading && tab !== 'matchups' && <PageLoading label="Loading your roster…" />}
-      {active && !rosters && !rostersLoading && rostersError && tab !== 'matchups' && (
-        <PageError message={rostersError} onRetry={refetchRosters} />
-      )}
-      {active && rosters && !rosters.teams?.length && tab !== 'matchups' && (
-        <EmptyState title="No rosters found for this league"
-          description="This league hasn't synced any teams yet. Sync it from League Hub, then come back."
-          actionLabel="Go to League Hub" actionTo="/league" />
-      )}
-
-      {active && rosters && !!rosters.teams?.length && tab === 'news' && <NewsEdge leagueId={active} teamId={me} />}
-      {active && rosters && !!rosters.teams?.length && tab === 'find' && <FindDeals leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
-      {active && rosters && !!rosters.teams?.length && tab === 'title' && <TitleTrades leagueId={active} teamId={me} />}
-      {active && rosters && !!rosters.teams?.length && tab === 'target' && <TargetPlayer leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
-      {active && rosters && !!rosters.teams?.length && tab === 'targetMany' && <TargetMany leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
-      {active && rosters && !!rosters.teams?.length && tab === 'mock' && <MockTrade leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
-      {active && tab === 'matchups' && <Matchups />}
+      {myPlayers.length > 0 && <Untouchables players={myPlayers} ids={untouchable} onToggle={toggleUntouchable} />}
     </div>
   );
 }
+
+export { NewsEdge, FindDeals, TitleTrades, TargetPlayer, TargetMany, MockTrade, Matchups };
 
 /**
  * News the league has not priced in yet.

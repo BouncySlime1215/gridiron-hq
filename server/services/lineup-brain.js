@@ -44,7 +44,8 @@ import { careerLine } from './player-career.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
 import { availabilityDegradation } from './contingency.js';
-import { deadStarters } from './dead-starters.js';
+import { claimInactiveHook } from './availability-claims.js';
+import { deadStarters, mergeInactiveHooks } from './dead-starters.js';
 import { espnZeroInactive } from './espn-zero-inactive.js';
 
 const r1 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(1));
@@ -453,11 +454,19 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // a decision about one Sunday, which is the only thing a single week's line
   // describes. startSitWeekPoints() is the one construction, shared with the
   // matchup card.
-  // RL-10-1: the one inactive producer (ESPN projects 0; default-off) unless the caller
-  // supplies a hook. Read once: the dead-starter card AND the solver use the same flag, so
-  // the card can never say "likely inactive" about a player the lineup below still starts.
-  const inactiveHook = inactive ?? espnZeroInactive(lg.id, { season, week });
-  const flaggedInactive = p => !!(inactiveHook?.covered && inactiveHook.ids?.has(p.id));
+  // RL-10-1: the ESPN-projects-0 producer (default-off) unless the caller supplies a hook.
+  // Read once: the dead-starter card AND the solver use the same flag, so the card can
+  // never say "likely inactive" about a player the lineup below still starts.
+  const heldOutHook = inactive ?? espnZeroInactive(lg.id, { season, week });
+  const flaggedInactive = p => !!(heldOutHook?.covered && heldOutHook.ids?.has(p.id));
+  // RL-3-2 / FIX-184-2: the second covered source, the latest pre-kickoff claim from a
+  // watched public post or verified news (availability-claims.js; default-off behind
+  // live-inactive-flag.js). ONE set: the dead-starter card reads it through the merged
+  // hook and the Start/Sit "live_inactive" warnings below read the same object. It warns
+  // rather than holding the player out of the solve: a public post is not the official
+  // list, so the call stays the user's (the warning says "swap him before kickoff").
+  const claimHook = claimInactiveHook({ season, week, players: me.players, now });
+  const inactiveHook = mergeInactiveHooks(heldOutHook, claimHook);
   const annotated = me.players.filter(p => !irReason.has(p.id)).map(p => {
     const { week_points: weekPoints, vegas } = startSitWeekPoints(p, season, week);
     // A flagged player is held out of the solve the way season-ending players are
@@ -561,8 +570,8 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
     .map(p => ({ name: p.name, position: p.position, team_abbr: p.team_abbr,
       adj_ppg: p.adj_ppg, injury: p.injury_status ?? null,
       why: p.inactive_flag
-        ? `${inactiveHook.sentence ?? 'Likely gameday inactive'}, so the solver will not start him.` +
-          (inactiveHook.label ? ` ${inactiveHook.label}` : '')
+        ? `${heldOutHook.sentence ?? 'Likely gameday inactive'}, so the solver will not start him.` +
+          (heldOutHook.label ? ` ${heldOutHook.label}` : '')
         : 'Flagged out for the season or released, so the solver will not start him.' }));
 
   // No touchdown-luck flag (RL-8-1). "Running hot" / "Due to score" read a board the
@@ -691,7 +700,16 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   const coinFlips = calls.filter(c => c.confidence === 'coin flip');
   // Slots where an eligible bench player existed but carried no projection.
   const unprojected = calls.filter(c => c.confidence === 'no projection');
-  const risky = calls.filter(c => (c.player.active_probability ?? 1) < 0.75 || c.player.bye === week);
+  // Starters whose latest pre-kickoff claim (a watched public post or verified news,
+  // availability-claims.js) says inactive. The Friday report and active_probability
+  // cannot see this: a Questionable starter sits at ~0.85 to play right up until the
+  // inactive list comes out at T-90. One warning per starter. When he is flagged here,
+  // the probability/bye warning for him is dropped, because this one is the stronger and
+  // more specific statement. Read from claimHook, the set the dead-starter card uses
+  // (FIX-184-2). Default off, read per call: live-inactive-flag.js.
+  const liveInactiveStarters = calls.filter(c => claimHook.ids.has(c.player.id));
+  const risky = calls.filter(c => !claimHook.ids.has(c.player.id) &&
+    ((c.player.active_probability ?? 1) < 0.75 || c.player.bye === week));
 
   // Which availability model priced every chance to play on this page, and — when it is
   // not the validated role layer — why not. Honest degradation over a confident wrong
@@ -765,7 +783,30 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
     // projection, so no comparison happened. Counted separately from coin
     // flips: one is a close call, the other is no call at all.
     not_compared: unprojected.length,
-    warnings: risky.map(c => ({
+    warnings: [...liveInactiveStarters.map(c => {
+      const claim = claimHook.claims.get(c.player.id);
+      const post = claim.source === 'live_inactive_claims';
+      return {
+        player: c.player.name,
+        kind: 'live_inactive',
+        // No trailing full stop: Lineup.tsx appends one.
+        issue: `reported ${post ? 'inactive' : 'out'} for this week's game by ${claim.source_name} at ${etClock(claim.at)}` +
+          `. Swap him before kickoff. This is ${post ? 'a public post' : 'a news report'}, not the official inactive list`,
+        source: claim.source_name,
+        // Which producer won (availability-claims.js): live_inactive_claims | nfl_news_signals.
+        source_table: claim.source,
+        source_url: claim.source_url,
+        reported_at: claim.at,
+        ...(claimHook.preview ? { preview: true, preview_reason: claimHook.preview_reason } : {}),
+        // Checked on stored 2026 W1-W2 and 2024 W11-17 posts
+        // (docs/tdd/2026-09-23-live-inactive-monitor.tdd.md). The forward W3-W5 test
+        // against a T-75 ESPN sync has not run yet.
+        confirmation: 'unconfirmed forward',
+        availability_basis: null,
+        slot: c.slot
+      };
+    }), ...risky.map(c => ({
+      kind: c.player.bye === week ? 'bye' : 'availability',
       player: c.player.name,
       issue: c.player.bye === week ? 'on bye this week'
         // active_probability is THIS week's chance to play (the injury report and the
@@ -793,7 +834,7 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
       // 'role' | 'pooled' | 'constants', so a reader of one warning can see it too.
       availability_basis: c.player.bye === week ? null : availabilityBasis?.basis ?? null,
       slot: c.slot
-    })),
+    }))],
     objectives: [
       { id: 'mean', label: 'Highest average',
         when: 'The default, and right when the matchup is close.' },
@@ -816,6 +857,13 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
           'projection, so no comparison was made for them. That is missing data, not a clear call.'
         : 'Every call this week has a real margin behind it.'
   };
+}
+
+const ET_CLOCK = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', minute: '2-digit' });
+/** "Sun 11:31 AM ET" for an ISO instant; the raw value when it does not parse. */
+function etClock(iso) {
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? `${ET_CLOCK.format(t)} ET` : String(iso);
 }
 
 /** Which positions a slot will accept, matching the solver's own rules. */

@@ -1446,6 +1446,21 @@ export const JOBS = {
   // it stores also sharpens the team profiles the pregame model runs on.
   nfl_play_by_play: { run: () => import('./nfl-espn-pbp.js').then(m => m.pollLiveGames({})),
     maxAgeMinutes: 3, tier: 'live', label: 'Live NFL play-by-play (free, no quota)' },
+  // Free, keyless, read-only (Jetstream: "No authentication is required for the live
+  // tail"). It overlaps nfl_news_signals (nfl-news-signal.js STATUS_RULES 'out'), which
+  // reads the same kind of post for the News page; availability-claims.js is the one
+  // reader over both (FIX-184-6). The Start/Sit live-inactive warning and the dead-starter
+  // card read it (lineup-brain.js lineupCall, default off behind live-inactive-flag.js).
+  // The claim's season/week is tradeWeekContext(), the reader's context
+  // (test/live-inactives-job.test.js). Each run
+  // replays the last 30 minutes of about 19 watched accounts' posts, filtered on the
+  // server by DID, and then closes the socket. Rows are keyed on the post URI, so the
+  // overlap between runs is harmless.
+  // Off-thread: every run holds its socket open for at least idleMs (4 s), and the
+  // request-thread count may only go down (test/growth-jobs-off-thread.test.js).
+  live_inactives: { run: () => Promise.all([import('./live-inactive-monitor.js'), import('./trade-engine.js')])
+    .then(([m, te]) => { const { season, week } = te.tradeWeekContext(); return m.pollJetstream({ season, week }); }),
+  maxAgeMinutes: 3, tier: 'live', offThread: true, label: 'Live gameday inactives from public Bluesky posts (free, no key)' },
   // Free and unauthenticated, like the ESPN feeds. Kalshi is an order book
   // rather than a bookmaker's number, and its trade tape carries size and
   // aggressor side — information no sportsbook feed exposes.

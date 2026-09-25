@@ -20,7 +20,7 @@ test('Today draws the hero placeholder while the plans are loading, and only the
 
 test('the header draws the title-odds chip placeholder while the plans are loading', () => {
   const coach = read('client/src/components/AppCoach.tsx');
-  assert.match(coach, /const loading = activeId != null && wr\.loading && !wr\.data;/);
+  assert.match(coach, /const loading = \(leaguesLoading && !leagues\.length\) \|\| \(activeId != null && wr\.loading && !wr\.data\);/);
   assert.match(coach, /\{loading && <>[\s\S]*data-testid="app-odds-skeleton"[\s\S]*<\/>\}/);
   assert.match(read('client/src/state/coach.tsx'), /loading\?: boolean;/);
 });

@@ -283,7 +283,7 @@ test('the credit takes no props, calls no hooks and reads no browser state, so n
   // 3. The source uses no hook and names no browser global. Control: the same
   //    pattern finds useState and sessionStorage in the banner.
   const stateful = /\buse[A-Z]\w*\s*\(|\b(?:sessionStorage|localStorage|window|document|globalThis|navigator|location|matchMedia)\b/g;
-  assert.deepEqual([...new Set(banner.default.toString().match(stateful))].sort(), ['sessionStorage', 'useApi(', 'useState('],
+  assert.deepEqual([...new Set(banner.default.toString().match(stateful))].sort(), ['localStorage', 'sessionStorage', 'useApi(', 'useCallback(', 'useEffect(', 'useState('],
     'control: the pattern does not find the hooks and storage the banner uses');
   assert.deepEqual(banner.DataCredit.toString().match(stateful), null, 'DataCredit reads a hook or a browser global');
 

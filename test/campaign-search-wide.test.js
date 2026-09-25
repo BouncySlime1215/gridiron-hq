@@ -280,7 +280,7 @@ const stepsIn = entry => {
   return out;
 };
 
-test('W8: flag on, the plans file passes its contract with a served claim step', async () => {
+test('W8 (#406 finding 3): flag on, the file passes its contract and NO served step is a claim; the best claim is shadow', async () => {
   const file = await produce(ON, claimTeAdapter, { 99: { risk_mode: 'all_in' } });
   assert.deepEqual(validatePlans(file).errors ?? [], []);
   const entry = file.leagues[0];
@@ -288,13 +288,13 @@ test('W8: flag on, the plans file passes its contract with a served claim step',
   const sw = entry._run.inputs.search_wide;
   assert.equal(sw.flag, 'on');
   for (const k of ['budget', 'used', 'budget_hit', 'laterals', 'claims', 'modes_first_steps', 'modes_differ']) assert.ok(k in sw, k);
-  const claims = stepsIn(entry).filter(s => s.partner === FREE_AGENT);
-  assert.ok(claims.length > 0, 'a claim step is served');
-  for (const c of claims) {
-    assert.equal(c.p_yes.source, 'plan.path', 'a claim\'s 1 is the planner\'s assumption, not the acceptance model');
-    assert.equal(c.p_yes.guess, true);
-  }
-  assert.ok(sw.claims.kept > 0);
+  assert.equal(stepsIn(entry).filter(s => s.partner === FREE_AGENT).length, 0, 'the UI never gets a "send to free_agent" step');
+  const all = JSON.stringify([entry.next_move, entry.alternatives, entry.itinerary, entry.targets]);
+  assert.equal(all.includes(`"partner":"${FREE_AGENT}"`), false);
+  assert.ok(sw.claims.kept > 0, 'claims were still found and kept by the hard filters');
+  assert.equal(sw.claims.served, false);
+  assert.ok(sw.claims.shadow_best?.steps.some(st => st.claim && st.partner === FREE_AGENT), 'the best claim path is reported as shadow');
+  assert.ok(sw.claims.shadow_best.steps.at(-1).p < 1);
 });
 
 test('W8: flag off, the producer writes no search_wide key', async () => {

@@ -325,6 +325,20 @@ export function planLeague(adapter, settings) {
   if (tmApplied) plans = tmApplied.plans;
   // SEARCH-WIDE: claim paths left after the hard filters (GETS-FLOOR holds the claimed player to 83+ too).
   if (wideSink) wideSink.claims.kept = plans.filter(p => p.steps.some(isClaim)).length;
+  // #406 finding 3: the War Room has no claim step yet (NextMoveDeck, HeroCard, Negotiate and the
+  // "I sent it" flow treat every partner as a team), so a served claim would read "send to free_agent"
+  // with send buttons. Until a UI unit renders "Claim X, drop Y", claim paths are SHADOW: scored and
+  // reported (search_wide.claims.shadow_best), never ranked into the deck, next move or any served number.
+  if (wideSink) {
+    const claimPlans = plans.filter(p => p.steps.some(isClaim));
+    plans = plans.filter(p => !p.steps.some(isClaim));
+    const top = claimPlans.reduce((b, p) => (b == null || p.expected > b.expected ? p : b), null);
+    wideSink.claims.served = false;
+    wideSink.claims.why_not_served = 'the War Room has no claim step yet, so claim paths are shadow (never in the deck)';
+    wideSink.claims.shadow_best = top ? { expected: top.expected, dice: 'planning', target: String(top.target),
+      steps: top.steps.map(st => ({ partner: String(st.team), give: st.give.map(String), get: st.get.map(String), p: st.p,
+        ...(st.claim ? { claim: true } : {}) })) } : null;
+  }
   mark('search');
 
   // Sliders and context per mode.

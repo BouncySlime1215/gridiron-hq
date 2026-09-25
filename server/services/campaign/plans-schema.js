@@ -159,7 +159,10 @@ const step = obj({
   reasoning: field(reasoning),
   // The acceptance band p_yes is the midpoint of; "I sent it" grades against it (#239 recordSentOffer).
   p_yes_band: obj({ low: prob, high: prob }, { basis: oneOf(['no_information', 'heuristic_unanchored', 'heuristic_anchored']) }),
-  counterpart: field(stepCounterpart)
+  counterpart: field(stepCounterpart),
+  // CAP-1C: the premium over the 0 cap on a depth-only 2-for-1, and the lineup / title gains that allowed it.
+  depth_premium: field(obj({ pct: num, cap: num, lineup_points_delta: num, title_odds_delta: num, text: str },
+    { confirmed_lineup_points_delta: num, confirmed_title_odds_delta: num }))
 });
 
 /** A plan: one deck card. */
@@ -272,6 +275,9 @@ export const SECTIONS = Object.freeze({
   risk_modes: field(arr(obj({
     mode: oneOf(RISK_MODES), label: str, active: bool, expected: numF, if_complete: numF, p_complete: probF,
     first_step: nullable(obj({ partner: id, give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }) }))
+  }, {
+    // NO-TRADE-SHRINK: the do-nothing option beside the mode's best plan, and which one the mode's objective picks.
+    no_trade: obj({ expected: numF, p_complete: probF, pick: oneOf(['plan', 'no_trade']), why: str })
   }))),
   // Who to deal with: P(responds) from activity x the best edge through him. Labels and counts only.
   partners: field(arr(obj({ team: id, p_responds: prob, basis: str, edge: numF }, {
@@ -322,6 +328,10 @@ const run = obj({
   changed: obj({ changed: bool, reason: str }, { previous_key: nullable(str), next_key: str }),
   roster_key: nullable(str), confirm: json, outlook: json, feasibility_detail: json, feasibility_points_detail: json,
   candidates_scored: int(0), rescores: int(0), runtime_ms: num, phases_ms: json, inputs: json
+}, {
+  dropped_by_reason: json, trade_memory: json,
+  // NO-TRADE-SHRINK: the shadow pre-rank shrinkage report (modes.js#shadowShrink). Optional: older files validate.
+  shrink: json
 });
 
 const league = obj(

@@ -337,6 +337,16 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     return { mult, price: (players.get(id)?.value ?? 0) * mult };
   };
 
+  // IS-TITLE (shadow): Nick's title odds importance-sampled on w0's seed, run count, pools
+  // and copula (season-sim.js#titleWorldIS). A second world build; only the producer's
+  // `_run.inputs.is_title` reads it, behind GRIDIRON_IS_TITLE.
+  const isTitle = () => {
+    const w = svc.sim.titleWorldIS(lg, { teamId: me, seed: w0.key.seed, runs: w0.runs,
+      projections: w0.projections, universe: w0.universe });
+    if (w.fail) return { status: 'error', error: String(w.fail?.error ?? w.fail) };
+    return svc.sim.titleOddsIS(w, me);
+  };
+
   const slots = w0.prep.slots;
   const starters = startersOf(rosters.get(me).map(id => players.get(id)).filter(Boolean), slots);
   const dl = deadlineWeek(svc, lg, payload);
@@ -346,7 +356,7 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       days_left_in_week: daysLeftInWeek(svc, lg, week, now), team_count: rosters.size, season },
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
-    rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
+    rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity, isTitle,
     // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
     // His notes on his OWN roster ("untouchable: Nico Collins") protect his players the same way:
     // they are never given (vals.tradable excludes this set). Nick 9/24: blue chips are not for sale.

@@ -88,6 +88,7 @@ import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
 import { applyCoachMessages, coachMessagesOn } from '../../server/services/campaign/messages.js';
 import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
+import { isTitleFlag } from '../../server/services/is-title.js';
 
 process.env.SCHEDULER_DISABLED = '1';
 
@@ -266,6 +267,21 @@ export function takeLock(file) {
   return () => { try { fs.unlinkSync(lock); } catch (e) { if (e.code !== 'ENOENT') throw e; } };
 }
 
+/**
+ * IS-TITLE: the shadow row for `_run.inputs.is_title`. The served `title_now` (the plain
+ * estimate) is copied beside it, never replaced. A failure is recorded with its message.
+ */
+export function isTitleShadow(adapter, res, clock = Date.now) {
+  if (typeof adapter.isTitle !== 'function') return { status: 'not_available', reason: 'adapter has no isTitle()' };
+  const t0 = clock();
+  try {
+    const s = adapter.isTitle();
+    return { ...s, served_title_now: res?.now?.title ?? null, runtime_ms: clock() - t0 };
+  } catch (e) {
+    return { status: 'error', error: String(e.message ?? e), runtime_ms: clock() - t0 };
+  }
+}
+
 /** The objectives/skips files alone (CLI, tests, the contract fixture): no DB, nothing to consume. */
 export function fileInputs(id, { objectiveRow = null, fileSkips = [] } = {}) {
   const raw = objectiveRow ?? {};
@@ -359,6 +375,8 @@ export async function buildPlansFile(leagues, {
         if (entry._run) entry._run.inputs.coach_messages = { status: 'on', profiles: profiles?.size ?? 0, steps: msg.stats.steps,
           grounded: msg.stats.grounded, fallback: msg.stats.fallback, unpriced: msg.stats.unpriced, errors: msg.stats.errors.length };
       } else if (entry._run) entry._run.inputs.coach_messages = { status: 'off', reason: 'GRIDIRON_COACH_MESSAGES unset and preview off' };
+      // IS-TITLE (shadow): the importance-sampled title_now beside the served plain one. Off, the entry is unchanged.
+      if (entry._run && isTitleFlag().on) entry._run.inputs.is_title = isTitleShadow(adapter, res, clock);
       const v = validateLeague(entry);
       if (!v.ok) throw new Error(`plans JSON failed its contract check: ${v.errors.slice(0, 3).map(e => `${e.path} ${e.message}`).join('; ')}`);
       if (res.best) best.set(String(id), res.best.expected);

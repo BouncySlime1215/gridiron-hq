@@ -1,8 +1,8 @@
 /**
  * IS-TITLE measurement (pre-registered in server/services/is-title.js): M1-M4.
  *
- * Skipped unless IS_TITLE_BENCH=1: it plays ~200,000 simulated seasons (a few
- * minutes), too slow for the CI suite. Run it with:
+ * Skipped unless IS_TITLE_BENCH=1: it plays ~300,000 simulated seasons (74 s on
+ * the cloud box), too slow for the CI suite. Run it with:
  *
  *   IS_TITLE_BENCH=1 GRIDIRON_DB_PATH=/tmp/ist.sqlite SCHEDULER_DISABLED=1 \
  *     node --experimental-test-module-mocks --test test/is-title-bench.test.js

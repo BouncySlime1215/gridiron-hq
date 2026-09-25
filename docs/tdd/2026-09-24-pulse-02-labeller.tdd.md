@@ -62,3 +62,18 @@ chosen on it.
 
 Bootstrap on the WANT_PLAYER test F1 (2,000 resamples): 90% CI 0.62–0.80. 28% of resamples fall
 below 0.7. Micro F1 over all types, whole slice: 0.449 (rules) -> 0.508.
+
+## 2026-09-25 rebase (batch D, night 9: grading only)
+
+Rebased onto main `790a748c` (both commits cherry-picked, no conflicts). The plan files #369 as
+"grading only", so every served change now sits behind its own flag, `GRIDIRON_PULSE_02=1`
+(default off; `GRIDIRON_PREVIEW_UNCONFIRMED` never turns it on). Off, the live tick is PULSE-01:
+the old lexicon, `new Date(ts_utc)`, no proposal-only trades, no pulse Jev read or call, no
+replan gate, `labeller_version` pulse-1. The grader and `jev-pulse.mjs` always run the PULSE-02
+path, so the numbers above are reproducible with the flag off.
+
+- RED: test `PULSE-02 is grading only until GRIDIRON_PULSE_02=1` plus flag-off assertions in the
+  lexicon and ownership tests (3 failing on the rebased tree).
+- GREEN: `pulse.js` (`PULSE_02_FLAG`, `pulse02On`, `pulse02` option on `buildLexicon`,
+  `ownershipTimeline`, `pulseTick`), `pulse.mjs` (Jev step and gate only when on; grader forced
+  on), `jev-pulse.mjs` (forced on). `test/people-pulse.test.js` 26/26.

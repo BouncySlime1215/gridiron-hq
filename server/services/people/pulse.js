@@ -24,7 +24,8 @@
  * the ones league chats use). It is graded against the PEOPLE-LAB hand labels by
  * `scripts/people/pulse.mjs --grade` (per-type precision / recall; counts only).
  *
- * PULSE-02: with GRIDIRON_PULSE_JEV=1 the pulse also asks Jev its own questions per message
+ * PULSE-02 (all of this paragraph only with GRIDIRON_PULSE_02=1; off, the tick is PULSE-01
+ * and PULSE-02 is grading only): with GRIDIRON_PULSE_JEV=1 the pulse also asks Jev its own questions per message
  * (pulse-jev.js, scripts/people/jev-pulse.mjs), with the thread's last lines and whose team
  * every named player is on; WANT_PLAYER / SHOP / URGENCY / REFUSAL then need the rules and
  * Jev to agree (PULSE_CUTS). A type asks for a replan only when its label is proven on the
@@ -41,7 +42,9 @@ import { previewUnconfirmed } from '../preview-mode.js';
 import { TRUSTED_CONFIDENCE } from '../manager-identity.js';
 import { threadContext, pulseJevFeatures } from './pulse-jev.js';
 
-export const PULSE_VERSION = 'pulse-2';
+export const PULSE_VERSION = 'pulse-1';
+/** labeller_version of rows written with GRIDIRON_PULSE_02=1. */
+export const PULSE_02_VERSION = 'pulse-2';
 export const STATEMENT_TYPES = Object.freeze(['WANT_PLAYER', 'SHOP', 'UNTOUCHABLE', 'HYPE', 'FRUSTRATED', 'URGENCY',
   'REFUSAL', 'ACCEPT_TALK', 'TRADE_REACTION', 'WANT_POS']);
 /** A statement whose follow-through is at least this multiple of the base rate is credible. */
@@ -88,6 +91,14 @@ export function replanGate(type, source = 'rules', quality = LABEL_QUALITY, minF
   return { ok: true, f1, reason: null };
 }
 export const PULSE_FLAG = 'GRIDIRON_PULSE_ENABLED';
+/**
+ * PULSE-02 is grading only until this flag is on (its own flag; preview mode never turns it
+ * on). Off, the live tick labels, stores and replans exactly as PULSE-01: no new aliases, no
+ * proposal-only trades, no zone fix, no pulse Jev answers, no replan gate. The grader
+ * (`pulse.mjs --grade`) and the Jev step always measure the PULSE-02 path. Read per call.
+ */
+export const PULSE_02_FLAG = 'GRIDIRON_PULSE_02';
+export const pulse02On = (env = process.env) => env[PULSE_02_FLAG] === '1';
 
 /** Default off (RULES §3): on with GRIDIRON_PULSE_ENABLED=1 or local preview mode. Read per call. */
 export const pulseEnabled = (env = process.env) => env[PULSE_FLAG] === '1' || previewUnconfirmed();
@@ -141,7 +152,7 @@ export function initialism(name) {
  * runtime from league_member_identity, so talking TO someone is not talking about a player).
  * Returns {aliases: [{re, ids}], owner: Map(espn_id -> roster_id), pos: Map(espn_id -> pos)}.
  */
-export function buildLexicon(players, { firstNameCounts = null, excludeWords = [] } = {}) {
+export function buildLexicon(players, { firstNameCounts = null, excludeWords = [], pulse02 = pulse02On() } = {}) {
   const excluded = new Set([...excludeWords].map(w => String(w).toLowerCase()));
   const byAlias = new Map();
   const add = (alias, id, kind) => {
@@ -166,16 +177,18 @@ export function buildLexicon(players, { firstNameCounts = null, excludeWords = [
     const w = words(p.name);
     if (w.length < 2) continue;
     add(w.join(' ').toLowerCase(), id, 'word');
-    // PULSE-02: the spellings chats use for the same full name: "aj brown" (no dots), "amonra"
-    // (hyphenated first name run together), "st brown" (the last two words of a 3-word name).
-    const dotless = norm(p.name).replace(/\./g, '').replace(/\b(jr|sr|ii|iii|iv|v)$/i, '').trim().toLowerCase();
-    const dw = dotless.split(/[\s-]+/).filter(Boolean);
-    if (dw.length >= 2) add(dw.join(' '), id, 'word');
-    const firstRaw = norm(p.name).split(/\s+/)[0];
-    if (firstRaw.includes('-')) add(firstRaw.replace(/[-.]/g, '').toLowerCase(), id, 'word');
-    if (dw.length >= 3) add(dw.slice(-2).join(' '), id, 'word');
-    // "DK", "CJ": an all-capitals first name is how that player is called; it aliases alone when unique.
-    if (/^[A-Z]{2,3}$/.test(firstRaw.replace(/\./g, '')) && dw.length === 2) add(firstRaw.replace(/\./g, '').toLowerCase(), id, 'first');
+    if (pulse02) {
+      // PULSE-02: the spellings chats use for the same full name: "aj brown" (no dots), "amonra"
+      // (hyphenated first name run together), "st brown" (the last two words of a 3-word name).
+      const dotless = norm(p.name).replace(/\./g, '').replace(/\b(jr|sr|ii|iii|iv|v)$/i, '').trim().toLowerCase();
+      const dw = dotless.split(/[\s-]+/).filter(Boolean);
+      if (dw.length >= 2) add(dw.join(' '), id, 'word');
+      const firstRaw = norm(p.name).split(/\s+/)[0];
+      if (firstRaw.includes('-')) add(firstRaw.replace(/[-.]/g, '').toLowerCase(), id, 'word');
+      if (dw.length >= 3) add(dw.slice(-2).join(' '), id, 'word');
+      // "DK", "CJ": an all-capitals first name is how that player is called; it aliases alone when unique.
+      if (/^[A-Z]{2,3}$/.test(firstRaw.replace(/\./g, '')) && dw.length === 2) add(firstRaw.replace(/\./g, '').toLowerCase(), id, 'first');
+    }
     const last = w.at(-1).toLowerCase(); const first = w[0].toLowerCase().replace(/\./g, '');
     if (last.length >= 4 && surnameCount.get(last) === 1 && !COMMON_WORDS.has(last) && !excluded.has(last)) add(last, id, 'word');
     const rareFirst = firstNameCounts ? (firstNameCounts.get(first) ?? 0) <= 1 : firstCount.get(first) === 1;
@@ -188,7 +201,7 @@ export function buildLexicon(players, { firstNameCounts = null, excludeWords = [
       // PULSE-02: chats type "ajb", "cmc", "jsn" in lower case too. Only vowel-less ones (never an
       // English word) that are not chat shorthand.
       const lower = ini.toLowerCase();
-      if (/^[aeiou]?[^aeiouy]+$/.test(lower) && !CHAT_ACRONYMS.has(lower)) add(lower, id, 'word');
+      if (pulse02 && /^[aeiou]?[^aeiouy]+$/.test(lower) && !CHAT_ACRONYMS.has(lower)) add(lower, id, 'word');
     }
   }
   const aliases = [...byAlias.values()].filter(a => a.ids.size === 1)
@@ -397,7 +410,7 @@ export function chatTime(ts) {
  * ESPN feed misses some trades (PEOPLE-LAB: 17 players), so a player the replay never saw
  * falls back to the snapshot owner. Returns {at(ts) -> Map(espn_id -> roster_id)}.
  */
-export function ownershipTimeline(leagueId, database = appDb) {
+export function ownershipTimeline(leagueId, database = appDb, { pulse02 = pulse02On() } = {}) {
   const snap = leaguePlayers(leagueId, database);
   const snapOwner = new Map(snap.filter(p => p.roster_id != null).map(p => [Number(p.espn_id), Number(p.roster_id)]));
   const season = database.prepare('SELECT MAX(season) AS s FROM league_roster_snapshots WHERE league_id = ?').get(leagueId)?.s;
@@ -424,11 +437,11 @@ export function ownershipTimeline(leagueId, database = appDb) {
   // player on the receiving team and no executed move ever took him there. The move is dated
   // at the latest such proposal (its processing time when it has one).
   const executedTo = new Set(moves.map(([, pid, to]) => `${pid}:${to}`));
-  const seenOn = new Set(season == null ? [] : database.prepare(`SELECT DISTINCT espn_player_id AS p, team_id AS t
+  const seenOn = new Set(!pulse02 || season == null ? [] : database.prepare(`SELECT DISTINCT espn_player_id AS p, team_id AS t
       FROM league_roster_snapshots WHERE league_id = ? AND season = ? AND on_roster = 1`).all(leagueId, season)
     .map(r => `${r.p}:${r.t}`));
   const inferred = new Map();
-  const proposals = season == null || !hasTx ? [] : database.prepare(`SELECT COALESCE(processed_at, proposed_at) AS t, items_json
+  const proposals = !pulse02 || season == null || !hasTx ? [] : database.prepare(`SELECT COALESCE(processed_at, proposed_at) AS t, items_json
       FROM league_transactions_raw WHERE league_id = ? AND season = ? AND type IN ('TRADE_PROPOSAL', 'TRADE_ACCEPT')
         AND status <> 'EXECUTED'`).all(leagueId, season);
   for (const r of proposals) {
@@ -447,7 +460,7 @@ export function ownershipTimeline(leagueId, database = appDb) {
   const replayed = new Set(moves.map(mv => mv[1]));
   return {
     at(ts) {
-      const iso = chatTime(ts).toISOString();
+      const iso = (pulse02 ? chatTime(ts) : new Date(ts)).toISOString();
       const fromSnap = snapAt != null && iso >= snapAt;
       const m = fromSnap ? new Map(snapOwner) : new Map();
       for (const [t, pid, to] of moves) {
@@ -501,8 +514,9 @@ export function lastCursor(leagueId, database = appDb) {
  * on the first pass, from `backfillSince`, marked backfill: they never trigger a replan),
  * labels them and appends people_pulse rows plus one people_pulse_runs row.
  * Returns {read, statements, credible, liveCredible: [row], gated: [row], with_jev, run_id, from, to, backfill}.
- * A credible live statement whose type fails replanGate (PULSE-02) is stored and counted in
- * `gated`, never in liveCredible: it cannot ask for a replan.
+ * With GRIDIRON_PULSE_02=1 (`pulse02`), a credible live statement whose type fails replanGate
+ * is stored and counted in `gated`, never in liveCredible: it cannot ask for a replan. Off,
+ * `gated` is empty and every row is labelled as PULSE-01 (labeller_version pulse-1).
  * nickByRoster (FIX-316-3): Map roster -> Nick's block (profile-reader.js#nickBlocksFrom). A
  * statement from a manager Nick marked unreachable or not trading is stored, never credible,
  * and never asks for a replan (Nick's read beats every chat signal, PEOPLE-FLOW).
@@ -514,7 +528,7 @@ export function nickMuted(block) {
 }
 
 export function pulseTick({ database = appDb, chat, leagueId, now = new Date(), credibility = null,
-  backfillSince = null, maxMessages = 5000, nickByRoster = null } = {}) {
+  backfillSince = null, maxMessages = 5000, nickByRoster = null, env = process.env, pulse02 = pulse02On(env) } = {}) {
   if (!chat) throw new Error('pulseTick: chat DB is required');
   const speakers = speakerMap(leagueId, database);
   const cursor = lastCursor(leagueId, database);
@@ -527,8 +541,9 @@ export function pulseTick({ database = appDb, chat, leagueId, now = new Date(), 
         AND ${backfill ? 'ts_utc >= ?' : 'msg_id > ?'}
       ORDER BY msg_id LIMIT ?`).all(...names, backfill ? since : cursor, maxMessages) : [];
   const lexicon = buildLexicon(leaguePlayers(leagueId, database),
-    { firstNameCounts: firstNameCounts(database), excludeWords: memberWords(leagueId, database) });
-  const ownership = ownershipTimeline(leagueId, database);
+    { firstNameCounts: firstNameCounts(database), excludeWords: memberWords(leagueId, database), pulse02 });
+  const ownership = ownershipTimeline(leagueId, database, { pulse02 });
+  const version = pulse02 ? PULSE_02_VERSION : PULSE_VERSION;
   const insert = database.prepare(`INSERT OR IGNORE INTO people_pulse (league_id, roster_id, msg_id, chat_kind, as_of,
       statement_type, stmt_key, player_ids_json, pos, own, style, conf, weight, weight_basis, credible, live,
       labeller_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
@@ -539,25 +554,25 @@ export function pulseTick({ database = appDb, chat, leagueId, now = new Date(), 
   try {
     for (const m of msgs) {
       const roster = speakers.get(m.name);
-      const pulse = pulseJevFeatures(chat, m.msg_id);
+      const pulse = pulse02 ? pulseJevFeatures(chat, m.msg_id) : null;
       if (pulse) withJev += 1;
       const labels = labelMessage(m.text, { speakerRoster: roster, lexicon, owners: ownership.at(m.ts_utc),
-        jev: jevFeatures(chat, m.msg_id), pulse, contextPlayers: contextPlayers(chat, m, lexicon) });
+        jev: jevFeatures(chat, m.msg_id), pulse, contextPlayers: pulse02 ? contextPlayers(chat, m, lexicon) : [] });
       for (const s of labels) {
         const raw = statementWeight(s.type, roster, credibility);
         const muted = nickMuted(nickByRoster?.get(String(roster)));
         const w = muted ? { weight: raw.weight, basis: muted, credible: false } : raw;
         const playersJson = JSON.stringify([...s.players].sort((a, b) => a - b));
-        const r = insert.run(leagueId, roster, m.msg_id, m.chat_kind ?? null, chatTime(m.ts_utc).toISOString(), s.type,
+        const r = insert.run(leagueId, roster, m.msg_id, m.chat_kind ?? null, (pulse02 ? chatTime(m.ts_utc) : new Date(m.ts_utc)).toISOString(), s.type,
           `${s.type}|${playersJson}|${s.pos ?? ''}`, playersJson, s.pos, s.own, s.style ?? s.reaction, s.conf,
-          w.weight, w.basis, w.credible ? 1 : 0, backfill ? 0 : 1, PULSE_VERSION);
+          w.weight, w.basis, w.credible ? 1 : 0, backfill ? 0 : 1, version);
         if (!r.changes) continue;
         statements += 1;
         if (w.credible) {
           credible += 1;
           if (!backfill) {
             const row = { id: Number(r.lastInsertRowid), roster_id: roster, type: s.type, weight: w.weight, source: s.source };
-            const gate = replanGate(s.type, s.source);
+            const gate = pulse02 ? replanGate(s.type, s.source) : { ok: true };
             if (gate.ok) liveCredible.push(row); else gated.push({ ...row, reason: gate.reason });
           }
         }
@@ -567,7 +582,7 @@ export function pulseTick({ database = appDb, chat, leagueId, now = new Date(), 
     const run = database.prepare(`INSERT INTO people_pulse_runs (league_id, ran_at, from_msg_id, to_msg_id, messages_read,
         statements, credible, backfill, labeller_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(leagueId, new Date(now).toISOString(), msgs[0]?.msg_id ?? null, to, msgs.length, statements, credible,
-        backfill ? 1 : 0, PULSE_VERSION);
+        backfill ? 1 : 0, version);
     database.exec('COMMIT');
     return { read: msgs.length, statements, credible, liveCredible, gated, with_jev: withJev, run_id: Number(run.lastInsertRowid),
       from: msgs[0]?.msg_id ?? null, to, backfill, speakers: speakers.size };

@@ -11,7 +11,7 @@
  * without it nothing is sent and the labeller runs on its rules alone.
  *
  * pulse.mjs calls `classifyPending` for the new messages on every pulse tick when
- * GRIDIRON_PULSE_JEV=1 (a paid call: opt-in, like the league_chat step's Jev stage). Without it the
+ * GRIDIRON_PULSE_02=1 and GRIDIRON_PULSE_JEV=1 (a paid call: opt-in, like the league_chat step's Jev stage). Without it the
  * labeller runs on rules alone, and rules-only labels are gated from replanning (pulse.js#replanGate).
  * By hand (the grading slice, on a COPY of the chat DB):
  *   GRIDIRON_DB_PATH=<copy> GRIDIRON_CHAT_DB_PATH=<copy> node --env-file=.env.local scripts/people/jev-pulse.mjs --since 2026-07-01
@@ -46,8 +46,9 @@ export async function classifyPulse({ chat, database, leagueId, msgs, evaluate, 
   const nickRoster = database.prepare('SELECT my_team_id AS t FROM leagues WHERE id = ?').get(leagueId)?.t ?? null;
   const players = P.leaguePlayers(leagueId, database);
   const nameOf = new Map(players.map(p => [Number(p.espn_id), p.name]));
-  const lexicon = P.buildLexicon(players, { firstNameCounts: P.firstNameCounts(database), excludeWords: P.memberWords(leagueId, database) });
-  const ownership = P.ownershipTimeline(leagueId, database);
+  const lexicon = P.buildLexicon(players, { firstNameCounts: P.firstNameCounts(database), excludeWords: P.memberWords(leagueId, database),
+    pulse02: true });
+  const ownership = P.ownershipTimeline(leagueId, database, { pulse02: true });
   const doneRow = chat.prepare('SELECT ok, attempts FROM jev_pulse_done WHERE msg_id = ? AND version = ?');
   const todo = [];
   let skipped = 0;

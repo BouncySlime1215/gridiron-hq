@@ -91,15 +91,20 @@ export async function requestReplan(leagueId, { env = process.env, root = ROOT, 
 
 export async function runPulse({ leagueId = DEFAULT_LEAGUE, env = process.env, now = new Date(), log = console.log,
   replan = requestReplan, classify = null } = {}) {
-  classify ??= (await import('./jev-pulse.mjs')).classifyPending;
   const { db } = await import('../../server/db/index.js');
   const { openChatDb } = await import('../../server/services/manager-signals.js');
-  const { pulseTick, recordReplan, lastCursor, TICKER_HOURS } = await import('../../server/services/people/pulse.js');
-  // PULSE-02: the pulse's own Jev answers for the messages this tick will label (before the
-  // read-only handle opens, so it sees them). A gateway failure is recorded and retried next tick.
-  const cursor = lastCursor(leagueId, db);
-  const jevRun = await classify({ leagueId, database: db, env, afterMsgId: cursor,
-    since: cursor == null ? new Date(now.getTime() - TICKER_HOURS * 3600e3).toISOString() : null });
+  const { pulseTick, recordReplan, lastCursor, TICKER_HOURS, pulse02On } = await import('../../server/services/people/pulse.js');
+  const pulse02 = pulse02On(env);
+  // PULSE-02 (GRIDIRON_PULSE_02=1 only): the pulse's own Jev answers for the messages this tick
+  // will label (before the read-only handle opens, so it sees them). A gateway failure is
+  // recorded and retried next tick. Off, no Jev call is made and the tick is PULSE-01.
+  let jevRun = { status: 'off' };
+  if (pulse02) {
+    classify ??= (await import('./jev-pulse.mjs')).classifyPending;
+    const cursor = lastCursor(leagueId, db);
+    jevRun = await classify({ leagueId, database: db, env, afterMsgId: cursor,
+      since: cursor == null ? new Date(new Date(now).getTime() - TICKER_HOURS * 3600e3).toISOString() : null });
+  }
   const chat = openChatDb();
   if (!chat) {
     log(`people_pulse: ${JSON.stringify({ league: leagueId, status: 'no_chat_db' })}`);
@@ -111,7 +116,7 @@ export async function runPulse({ leagueId = DEFAULT_LEAGUE, env = process.env, n
     const { nickBlocksFrom } = await import('../../server/services/people/profile-reader.js');
     const { identityMap } = await import('../../server/services/manager-identity.js');
     const nick = nickBlocksFrom(chat, identityMap(leagueId));
-    const r = pulseTick({ database: db, chat, leagueId, now, credibility: cred.fn, nickByRoster: nick.byRoster });
+    const r = pulseTick({ database: db, chat, leagueId, now, credibility: cred.fn, nickByRoster: nick.byRoster, pulse02 });
     let asked = { status: 'not_needed', detail: null };
     if (r.liveCredible.length) {
       asked = await replan(leagueId, { env });
@@ -214,8 +219,9 @@ export async function grade(dir, { leagueId = DEFAULT_LEAGUE, since = '2026-07-0
         AND text IS NOT NULL AND length(trim(text)) > 0 AND ts_utc >= ? AND name IN (${names.map(() => '?').join(',')})`)
       .all(since, ...names);
     const lexicon = P.buildLexicon(P.leaguePlayers(leagueId, db),
-      { firstNameCounts: P.firstNameCounts(db), excludeWords: P.memberWords(leagueId, db) });
-    const ownership = P.ownershipTimeline(leagueId, db);
+      { firstNameCounts: P.firstNameCounts(db), excludeWords: P.memberWords(leagueId, db), pulse02: true });
+    // The grader always measures the PULSE-02 path, whatever GRIDIRON_PULSE_02 says.
+    const ownership = P.ownershipTimeline(leagueId, db, { pulse02: true });
     const items = msgs.map((m) => {
       const base = { speakerRoster: speakers.get(m.name), lexicon, owners: ownership.at(m.ts_utc),
         jev: P.jevFeatures(chat, m.msg_id), contextPlayers: P.contextPlayers(chat, m, lexicon) };

@@ -1,3 +1,4 @@
+import { useEffect, useMemo } from 'react';
 import { useApi } from '../../api';
 import type { WarRoomView } from './types';
 import type { Negotiations } from './negotiateModel';
@@ -28,4 +29,28 @@ export function useHisScreen(path: string | null) {
  */
 export function usePlayerHeadshots() {
   return useApi<{ id: number | string; headshot?: string | null }[]>('/players');
+}
+
+/** How long a failed player-list read waits before it asks again (a cold server, a 429). */
+export const HEADSHOT_RETRY_MS = 4000;
+
+/**
+ * id -> ESPN headshot for every mount (Today, Trades). ESPN pictures only; a team defence
+ * (negative id) gets none. A failed read is retried a few times instead of leaving initials
+ * for the rest of the visit: the live app showed initials after a restart while the list
+ * was briefly unavailable.
+ */
+export function useHeadshotMap(retryMs = HEADSHOT_RETRY_MS): Record<string, string> {
+  const players = usePlayerHeadshots();
+  const { error, refetch } = players as typeof players & { error?: string | null; refetch?: () => unknown };
+  useEffect(() => {
+    if (!error || !refetch) return;
+    const t = setTimeout(() => { void refetch(); }, retryMs);
+    return () => clearTimeout(t);
+  }, [error, refetch, retryMs]);
+  return useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const p of players.data ?? []) if (p.headshot && p.headshot.startsWith('https://a.espncdn.com/') && !/\/-\d+\.png$/.test(p.headshot)) out[String(p.id)] = p.headshot;
+    return out;
+  }, [players.data]);
 }

@@ -185,3 +185,22 @@ test('planner: flag off is byte-identical; flag on logs _run.inputs.wants and mo
   const entryOff = toEntry(off, { names: makeAdapter().names(), as_of: '2026-09-24T00:00:00Z' });
   assert.equal(entryOff._run.inputs.wants, undefined);
 });
+
+test('grader inputs: revealed from screen rows, stated from dated chat mentions, ids only', async () => {
+  const { revealedSignals, statedSignals } = await import('../server/services/campaign/wants-grade.js');
+  const { valuesTalk } = await import('../server/services/people/counterpart.js');
+  const toMs = v => { const t = Date.parse(v ?? ''); return Number.isFinite(t) ? t : null; };
+  const r = revealedSignals({ status: 'ok', rows: [{ roster_id: 7, kind: 'finalize', seen_at: '2026-09-01T00:00:00Z', confidence: 0.9,
+    wants: [{ player_id: 1, espn_id: 901 }], would_give: [{ player_id: 2, espn_id: 902 }, { player_id: 3, espn_id: null }] }] }, toMs);
+  assert.deepEqual(r.signals.map(s => [s.roster, s.player, s.side, s.family]), [['7', '901', 'wants', 'revealed'], ['7', '902', 'gives', 'revealed']]);
+  assert.equal(r.unmapped, 1);
+  assert.equal(revealedSignals({ status: 'absent' }, toMs).status, 'absent');
+  const people = { available: true, byRoster: new Map([['7', { status: 'ok', built_at: '2026-09-02T00:00:00Z',
+    profile: { values_talk: { wants: [{ player: 'Alpha Beta', at: '2026-09-01T00:00:00Z' }, 'Gamma Delta', 'Nobody Known'], shopping: ['Gamma Delta'] } } }]]) };
+  const resolve = n => ({ 'Alpha Beta': 901, 'Gamma Delta': 903 })[n] ?? null;
+  const s = statedSignals(people, { valuesTalk, resolve, toMs });
+  assert.deepEqual(s.signals.map(x => [x.player, x.side, x.source]), [['901', 'wants', 'chat_ask'], ['903', 'wants', 'chat_ask'], ['903', 'gives', 'chat_shop']]);
+  assert.equal(s.unresolved, 1);
+  assert.equal(s.undated, 2);
+  assert.equal(statedSignals({ available: false, reason: 'no chat' }, { valuesTalk, resolve, toMs }).status, 'unknown');
+});

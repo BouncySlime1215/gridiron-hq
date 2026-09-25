@@ -39,6 +39,7 @@ import { tradeMemory, applyTradeMemory, memorySummary, stepPasses, floorOn as tm
 import { searchWideFlag, wideBudget, newWideSink, makeDropOk, claimPoolOf, modesFirstSteps, isClaim, claimProbability,
   claimRule, strandedBranch, CLAIM_CONFIRM_MAX } from './search-wide.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
+import { wantsOn, wantsShadow } from './wants.js';
 
 /** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
 const yesPoint = curve => {
@@ -794,6 +795,9 @@ export function planLeague(adapter, settings) {
     trade_block: adapter.tradeBlock ?? null,
     // CHAT-TRADE-INTEREST (shadow): the adapter's read of chat_trade_interest (null: not read).
     chat_interest: adapter.chatInterest ?? null,
+    // U8 WANTS-MENU (flag GRIDIRON_WANTS=1 only, SHADOW): stated vs revealed menus and the tie-break it would make; nothing served reads it.
+    ...(wantsOn(env) ? { wants: wantsShadow(adapter, { me, ranked, models: CP ? [...CP.values()].map(publicModel) : null,
+      sold: TM ? new Set([...TM.sold.keys()]) : null }) } : {}),
     ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
     sellers: { read: sellers, unreached: desperate.unreached.map(s => s.team) },
     speed_levers: sideLevers({ free, waits: playbook.map(pb => pb.wait) }),

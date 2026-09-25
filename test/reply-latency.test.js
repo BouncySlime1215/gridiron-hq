@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 import {
   replyLatencyTable, followUpHints, gradeHint, loadReplyLatency, quantile, HINT_BAR, MIN_N, REPLY_LATENCY_FLAG,
 } from '../server/services/eval/reply-latency.js';
@@ -71,14 +71,15 @@ test('hint: wait under N, follow up past N, withdraw-or-resend past 2N; no basis
 
 test('grade: time-forward, thresholds from earlier offers only; bar is pre-registered', () => {
   assert.deepEqual(HINT_BAR, { min_graded: 30, max_late_rate: 0.15 });
-  // 40 answers from one manager, all within 2-4 h: after the first MIN_N, none is late.
-  const offers = Array.from({ length: 40 }, (_, i) => answered(7, i * 10, 2 + (i % 3)));
+  // 40 answers from one manager, alternating 2 h and 3 h: after the first MIN_N, none is late.
+  const offers = Array.from({ length: 40 }, (_, i) => answered(7, i * 10, 2 + (i % 2)));
   const g = gradeHint(offers);
   assert.equal(g.n_graded, 40 - MIN_N);
   assert.equal(g.n_late, 0);
   assert.equal(g.pass, true);
-  // The same, but every 4th answer arrives at 50 h: late rate 0.25 fails.
-  const slow = offers.map((o, i) => (i % 4 === 3 ? answered(7, i * 10, 50) : o));
+  // The manager slows down: from the 26th offer on, every answer takes 60 h. The
+  // earlier fast answers set N, so the slow ones read late until N catches up.
+  const slow = offers.map((o, i) => (i >= 25 ? answered(7, i * 10, 60) : o));
   const s = gradeHint(slow);
   assert.ok(s.late_rate > HINT_BAR.max_late_rate);
   assert.equal(s.pass, false);
@@ -107,7 +108,7 @@ test('fixture: the pairing now carries who and when for silent offers, counts un
 });
 
 test('loader: reads the db, lists pending sent offers and unanswered ESPN offers, dedupes the ESPN copy', () => {
-  const db = new Database(':memory:');
+  const db = new DatabaseSync(':memory:');
   db.exec(`CREATE TABLE trade_outcomes (league_id INTEGER, season INTEGER, source TEXT, proposer_team_id TEXT, counterparty_team_id TEXT,
     proposed_at TEXT, model_p_accept REAL, status TEXT, espn_tx_id TEXT, idea_id TEXT, resolved_at TEXT, sent_at TEXT, matched_tx_id TEXT);
     CREATE TABLE league_transactions_raw (league_id INTEGER, season INTEGER, tx_id TEXT, type TEXT, execution_type TEXT, team_id INTEGER,

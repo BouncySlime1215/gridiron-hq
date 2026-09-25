@@ -226,6 +226,9 @@ test('adapter board: off -> nothing served or protected; on -> this league\'s dr
   assert.equal(on.served.rows.find(r => r.player === '5').owner, null);
   assert.ok(on.protect.has('1'));
   assert.equal(on.served.fp.status, 'unknown');
+  // GETS-FLOOR is always on, so the scores exist with the board off too (same numbers, nothing served or protected).
+  assert.equal(off.byId.size, on.byId.size);
+  for (const [id, r] of on.byId) assert.equal(off.byId.get(id)?.score, r.score, `score for ${id} with the board off`);
   assert.equal(draftPicks(fakeSvc({ picks: [] }), lg).n, 0);
 });
 

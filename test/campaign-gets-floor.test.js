@@ -3,13 +3,14 @@
  * the floor on the blue-chip score (PLAYER-SCORE, adapter.scoreOf). Nick 9/24: final gets are Blue
  * chip, 83+. The floor applies to the GET only; what Nick pays with is never floored.
  *
- * Flag GRIDIRON_GETS_FLOOR: '1' enforces, 'shadow' counts what it would drop and moves nothing
- * served, unset or '0' is off. Made-up league (test/fixtures/campaign-league.mjs); no DB, no simulation.
+ * Always on, no flag (Nick 9/24: his rules are hard filters, on by default). With no score
+ * source the floor fails closed. Made-up league (test/fixtures/campaign-league.mjs); no DB, no simulation.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { DEFAULT_GET_FLOOR, getsFloorFlag, getFloorOf, floorRead, floorName } = await import('../server/services/campaign/gets-floor.js');
+const floorMod = await import('../server/services/campaign/gets-floor.js');
+const { DEFAULT_GET_FLOOR, getFloorOf, floorRead, floorName } = floorMod;
 const { PINNED_NEVER_GIVE } = await import('../server/services/campaign/never-give.js');
 const { makeScorer, playerValues, searchTarget } = await import('../server/services/campaign/search.js');
 const { planLeague } = await import('../server/services/campaign/planner.js');
@@ -31,12 +32,14 @@ test('the floor: 83 by default, a destination may only raise it', () => {
   assert.equal(floorName(88), 'Blue chip floor (88+)');
 });
 
-test('the flag: unset is off, 1 enforces, shadow counts', () => {
-  assert.equal(getsFloorFlag({}), 'off');
-  assert.equal(getsFloorFlag({ GRIDIRON_GETS_FLOOR: '1' }), 'on');
-  assert.equal(getsFloorFlag({ GRIDIRON_GETS_FLOOR: 'shadow' }), 'shadow');
-  assert.equal(getsFloorFlag({ GRIDIRON_GETS_FLOOR: '0' }), 'off');
-  assert.equal(getsFloorFlag(undefined), 'off');
+test('no flag: the floor has no switch, and no env value turns it off', () => {
+  assert.equal('getsFloorFlag' in floorMod, false);
+  assert.equal('GETS_FLOOR_ENV' in floorMod, false);
+  for (const env of [{}, { GRIDIRON_GETS_FLOOR: '0' }, { GRIDIRON_GETS_FLOOR: 'shadow' }, { GRIDIRON_PREVIEW_UNCONFIRMED: '0' }]) {
+    const { res } = plan(env);
+    assert.equal(res.gets_floor.mode, 'on');
+    assert.deepEqual(res.targets.map(String), ['11', '22'], JSON.stringify(env));
+  }
 });
 
 test('a read: at the floor passes, under it fails, unscored and no source fail closed', () => {
@@ -55,16 +58,19 @@ test('a read: at the floor passes, under it fails, unscored and no source fail c
 // Only 11 (90) and 22 (85) are Blue chip.
 const SCORES = { 11: 90, 12: 75, 13: 60, 22: 85, 32: 70 };
 const scoreOf = id => (SCORES[id] != null ? { score: SCORES[id], label: SCORES[id] >= 80 ? 'Blue chip' : 'Level below' } : { score: 20, label: 'Bench' });
+// scored: true = the scores above; 'all' = every player 99 (the floor removes nothing: the baseline); false = no source.
 const plan = (env, { mode = 'balanced', obj = {}, scored = true, searchOpts = null } = {}) => {
   const a = makeAdapter();
-  if (scored) a.scoreOf = scoreOf;
+  if (scored === 'all') a.scoreOf = () => ({ score: 99, label: 'Elite blue chip' });
+  else if (scored) a.scoreOf = scoreOf;
+  else delete a.scoreOf;
   if (searchOpts) a.searchOpts = searchOpts;
   return { a, res: planLeague(a, { objective: normaliseObjective({ risk_mode: mode, ...obj }), env }) };
 };
-const ON = { GRIDIRON_GETS_FLOOR: '1' };
+const ON = {};
 const finalTargets = res => [...res.deck.map(c => c.plan), res.best].filter(Boolean).map(p => String(p.target));
 
-test('on: every final get is 83+, below-floor targets are replaced before the top-N slice', () => {
+test('every final get is 83+, below-floor targets are replaced before the top-N slice', () => {
   for (const mode of ['safe', 'balanced', 'all_in']) {
     const { res } = plan(ON, { mode });
     assert.deepEqual(res.targets.map(String), ['11', '22'], `${mode}: the two Blue chips are the targets`);
@@ -81,24 +87,16 @@ test('on: every final get is 83+, below-floor targets are replaced before the to
   assert.ok(res.best, 'a plan clears with the floor on');
 });
 
-test('shadow: served plans are byte-identical to off, and the would-drop count is printed', () => {
+test('the floor passes everything when every player is a Blue chip: served plans are the unfloored ones', () => {
   for (const mode of ['balanced', 'all_in']) {
-    const off = plan({}, { mode }).res;
-    const shadow = plan({ GRIDIRON_GETS_FLOOR: 'shadow' }, { mode }).res;
-    assert.equal(off.gets_floor.mode, 'off');
-    assert.equal(shadow.gets_floor.mode, 'shadow');
-    const served = r => JSON.stringify({ targets: r.targets, best: r.best, deck: r.deck, suggestions: r.suggestions });
-    assert.equal(served(shadow), served(off), `${mode}: shadow moves nothing served`);
-    assert.deepEqual(shadow.targets.map(String), ['11', '12', '13']);
-    const on = plan(ON, { mode }).res;
-    assert.ok(shadow.gets_floor.would_drop >= 2, '12 and 13 at least would be dropped');
-    assert.equal(shadow.gets_floor.would_drop, on.gets_floor.dropped, 'shadow counts what on drops, no fewer');
-    assert.equal(shadow.gets_floor.dropped, 0);
-    assert.equal(off.gets_floor.would_drop, 0, 'off reads nothing');
+    const all = plan({}, { mode, scored: 'all' }).res;
+    assert.deepEqual(all.targets.map(String), ['11', '12', '13']);
+    assert.equal(all.gets_floor.dropped, 0);
+    assert.ok(plan({}, { mode }).res.gets_floor.dropped >= 2, '12 and 13 at least are dropped with real scores');
   }
 });
 
-test('on with no score source: fails closed, no target searched, and the card says why', () => {
+test('no score source: the floor fails closed, no target searched, and the card says why', () => {
   const { a, res } = plan(ON, { scored: false });
   assert.deepEqual(res.targets, []);
   assert.equal(res.best, null);
@@ -110,7 +108,7 @@ test('on with no score source: fails closed, no target searched, and the card sa
   assert.deepEqual(validateLeague(entry).errors, []);
 });
 
-test('on: a below-floor player Nick asked for is refused as a target, and named', () => {
+test('a below-floor player Nick asked for is refused as a target, and named', () => {
   const { a, res } = plan(ON, { obj: { kind: 'player', target: '12' } });
   assert.ok(!res.targets.map(String).includes('12'));
   assert.ok(res.gets_floor.refused.some(r => r.player === '12' && r.why === 'below_floor'));
@@ -120,8 +118,8 @@ test('on: a below-floor player Nick asked for is refused as a target, and named'
 });
 
 test('the floored plan still validates against the contract', () => {
-  for (const env of [ON, { GRIDIRON_GETS_FLOOR: 'shadow' }, {}]) {
-    const { a, res } = plan(env);
+  for (const scored of [true, 'all', false]) {
+    const { a, res } = plan({}, { scored });
     const entry = toEntry(res, { names: a.names(), as_of: '2026-09-24T00:00:00Z' });
     assert.deepEqual(validateLeague(entry).errors, []);
     const doc = plansFile([entry], { generated_at: '2026-09-24T00:00:00Z' });
@@ -137,8 +135,8 @@ const finalGets = res => [...res.deck.map(c => c.plan), res.best].filter(Boolean
 const score = id => SCORES[id] ?? 20;
 
 test('flip legs: the player Nick ends a flip holding (leg 2) passes the floor', () => {
-  // Off, the fixture's flips end with Nick holding 12 (75) and 32 (70): the test has teeth.
-  assert.ok(legB(plan({}, { searchOpts: WIDE }).res).some(id => score(id) < 83));
+  // With every player passing, the fixture's flips end with Nick holding 12 (75) and 32 (70): the test has teeth.
+  assert.ok(legB(plan({}, { scored: 'all', searchOpts: WIDE }).res).some(id => score(id) < 83));
   for (const mode of ['safe', 'balanced', 'all_in']) {
     const { res } = plan(ON, { mode, searchOpts: WIDE });
     for (const id of legB(res)) assert.ok(score(id) >= 83, `${mode}: flip leg 2 gives Nick ${id} (${score(id)})`);
@@ -149,8 +147,8 @@ test('flip legs: the player Nick ends a flip holding (leg 2) passes the floor', 
 });
 
 test('2-for-1 fillers: every player in the final leg passes the floor, not only the target', () => {
-  // Off, safe mode's final leg takes filler 15 (score 20) with the target.
-  assert.ok(finalGets(plan({}, { mode: 'safe', searchOpts: WIDE }).res).some(id => score(id) < 83));
+  // With every player passing, safe mode's final leg takes filler 15 (score 20) with the target.
+  assert.ok(finalGets(plan({}, { mode: 'safe', scored: 'all', searchOpts: WIDE }).res).some(id => score(id) < 83));
   for (const mode of ['safe', 'balanced', 'all_in']) {
     const gets = finalGets(plan(ON, { mode, searchOpts: WIDE }).res);
     assert.ok(gets.length > 0, `${mode}: something is served`);

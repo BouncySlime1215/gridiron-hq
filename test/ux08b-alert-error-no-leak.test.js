@@ -180,7 +180,8 @@ test('control: AnswerBlock still renders the real paragraph for a normal answer'
 const managerBoardSwaps = () => [
   ["'../../lib/errorSanitize'", errorSanitizeUrl()],
   ["'../PageState'", namedStub(['PageError', 'PageLoading'])],
-  ["'../../api'", namedStub(['api'])],
+  ["'../../api'", namedStub(['api', 'useApi'])],
+  ["'../ui/DesignSystem'", namedStub(['Avatar', 'Chip'])],
   ["'./types'", namedStub(['TIERS', 'TIER_SHORT', 'TIER_STYLE', 'MIN_OBSERVATIONS', 'isThin', 'asText', 'metricLabel'])],
   ["'react-router-dom'", linkUrl],
 ];

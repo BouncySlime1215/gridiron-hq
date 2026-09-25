@@ -3059,6 +3059,11 @@
     "source": "plan.path",
     "reason": "Ladder cards are off (GRIDIRON_LADDER)."
    },
+   "p_yes_basis": {
+    "status": "unknown",
+    "source": "clone.accept",
+    "reason": "This run read no P(yes) table, so the steps carry the adapter's own p."
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 595842253,
@@ -7025,6 +7030,11 @@
     "source": "plan.path",
     "reason": "Ladder cards are off (GRIDIRON_LADDER)."
    },
+   "p_yes_basis": {
+    "status": "unknown",
+    "source": "clone.accept",
+    "reason": "This run read no P(yes) table, so the steps carry the adapter's own p."
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 1212727519,
@@ -10309,6 +10319,43 @@
     "source": "plan.path",
     "reason": "Ladder cards are off (GRIDIRON_LADDER)."
    },
+   "p_yes_basis": {
+    "status": "ok",
+    "value": {
+     "mode": "blend",
+     "source": "blend.accept",
+     "label": "blend of activity baseline and clone, weights earned on graded offers (E1 pending)",
+     "models": [
+      {
+       "id": "baseline",
+       "weight": 0.7261,
+       "prior_weight": 0.75,
+       "n": 6,
+       "log_loss": 0.753
+      },
+      {
+       "id": "clone",
+       "weight": 0.2739,
+       "prior_weight": 0.25,
+       "n": 6,
+       "log_loss": 0.7803,
+       "wins": 3,
+       "losses": 3
+      }
+     ],
+     "n_graded": 6,
+     "league_n": 4,
+     "lambda": 0.1667,
+     "shrink_k": 20,
+     "clamp": [
+      0.05,
+      0.95
+     ],
+     "as_of": "2026-09-24T00:00:00.000Z",
+     "activity": "ACTIVITY-01 (#334) is not merged, so the activity-intensity term is not blended"
+    },
+    "source": "blend.accept"
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 1458790284,
@@ -12160,6 +12207,16 @@
     "status": "unknown",
     "source": "plan.path",
     "reason": "Ladder cards are off (GRIDIRON_LADDER)."
+   },
+   "p_yes_basis": {
+    "status": "ok",
+    "value": {
+     "mode": "blend",
+     "source": "clone.accept",
+     "label": "clone band (no graded offers to blend)",
+     "fallback": "no decided offers resolved before now, so the baseline is an empty prior"
+    },
+    "source": "clone.accept"
    },
    "_run": {
     "seed": 12345,
@@ -15620,6 +15677,11 @@
     "source": "plan.path",
     "reason": "Ladder cards are off (GRIDIRON_LADDER)."
    },
+   "p_yes_basis": {
+    "status": "unknown",
+    "source": "clone.accept",
+    "reason": "This run read no P(yes) table, so the steps carry the adapter's own p."
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 2141467936,
@@ -15901,6 +15963,71 @@
      "finder_and_sanity": 0
     },
     "inputs": {
+     "his_side": {
+      "flag": "shadow",
+      "espn_block": {
+       "status": "unread"
+      },
+      "ok": 5,
+      "of": 5,
+      "targets": [
+       {
+        "player": "32",
+        "owner": "4",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "ok"
+        }
+       },
+       {
+        "player": "12",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "ok"
+        }
+       },
+       {
+        "player": "13",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "ok"
+        }
+       },
+       {
+        "player": "21",
+        "owner": "3",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "ok"
+        }
+       },
+       {
+        "player": "31",
+        "owner": "4",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "ok"
+        }
+       }
+      ]
+     },
      "chat": {
       "status": "not_read"
      },

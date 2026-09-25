@@ -2,9 +2,10 @@
  * NEVER-GIVE: Nick's players no plan may offer, pinned by id so the rule holds even when his
  * 'untouchable:' notes are missing or unread (the notes-derived set fails open). Nick 9/24 (ONE-PLAN
  * 10b.3): Nico Collins (160) and Chase Brown (80) stay untouchable in every mode. A.J. Brown (277)
- * may move only for a Blue chip who is a consistent weekly scorer now; nothing measures "consistent"
- * yet, so until AJ-HEALTHY prices him (ONE-PLAN night 5: "until coded 277 stays untouchable") he is
- * pinned here too. Applies to Nick's own roster only: these ids are never a give, walk-away or flip leg.
+ * may move only for a Blue chip who is a consistent weekly scorer now. AJ-HEALTHY measures that
+ * (consistent-now.js, pre-registered) behind its own flag, GRIDIRON_AJ_HEALTHY=1; until the flag is on
+ * he stays pinned here, and even with it on the War Room planner keeps him pinned (only the gate below
+ * reads the check). Applies to Nick's own roster only: these ids are never a give, walk-away or flip leg.
  *
  * RULES-EVERYWHERE: this file is also the ONE rule gate every other trade-suggesting surface calls
  * (trade finder, post-draft plan, proposals, offers, sequences, Trade Lab, edge, execution slate,
@@ -17,6 +18,7 @@ import { overpayPct, DEPTH_PREMIUM_MAX, BLUE_CHIP_SCORE, NEVER_DEPTH } from './s
 import { executedTrades, tradeMemory } from './trade-memory.js';
 import { warRoomPlansPath } from '../warroom-flag.js';
 import { fcValues } from '../fc-value.js';
+import { ajHealthyOn, readConsistency } from './consistent-now.js';
 
 export const PINNED_NEVER_GIVE = Object.freeze(['160', '80', '277']);
 
@@ -53,9 +55,9 @@ export const RULE_REASONS = Object.freeze(['never_give', 'never_get', 'sold_this
   'unscored', 'no_fc_value', 'overpay', 'rules_unreadable']);
 
 /**
- * A.J. Brown (277) may move only for a Blue chip (83+) who is a consistent weekly scorer now. The
- * planner's check is the pin above (nothing measures "consistent" yet), so this is false until a
- * consistency reader exists: fail closed. `consistentOf` is the hook for AJ-HEALTHY.
+ * A.J. Brown (277) may move only for a Blue chip (83+) who is a consistent weekly scorer now.
+ * `consistentOf` is AJ-HEALTHY's measured check (consistencyGate below), supplied only with
+ * GRIDIRON_AJ_HEALTHY=1; without it this is false: fail closed.
  */
 export function ajMayMove(get, { scoreOf, consistentOf = null }) {
   if (typeof consistentOf !== 'function') return false;
@@ -217,6 +219,7 @@ export function ruleGate(db, { leagueId, teamId = null, plansPath = warRoomPlans
   if (sold.status === 'ledger_missing' || sold.status === 'error') closed.push(sold.reason);
   let scores;
   try { scores = servedScores(leagueId, { plansPath }); } catch (e) { scores = { status: 'error', byId: new Map() }; closed.push(`served plans unreadable (${e.message})`); }
+  const consistency = consistencyGate(db, nick, env);
   const rules = {
     neverGive: new Set([...PINNED_NEVER_GIVE, ...extra]),
     neverGet: new Set(PINNED_NEVER_GET),
@@ -224,6 +227,8 @@ export function ruleGate(db, { leagueId, teamId = null, plansPath = warRoomPlans
     fc: fc.byId,
     scoreOf: id => scores.byId.get(S(id)) ?? null,
     closed: closed.length ? closed.join('; ') : null,
+    consistentOf: consistency.of,
+    get consistency() { return consistency.status; },
     sources: { fc_value: fc.status, ledger: sold.status, scores: scores.status },
   };
   const forNick = teamId == null || S(teamId) === me;
@@ -243,6 +248,34 @@ export function ruleGate(db, { leagueId, teamId = null, plansPath = warRoomPlans
   /** One package from the suggesting team's side: whether it may be shown. */
   const ok = (give, get, partner = null, premium = null) => filter([0], () => ({ give: idsOf(give), get: idsOf(get), partner, premium })).kept.length === 1;
   return { applies: true, me, forNick, rules, check, filter, ok };
+}
+
+/**
+ * AJ-HEALTHY: the "consistent weekly scorer now" check for 277's gets, at the league's current week.
+ * Off unless GRIDIRON_AJ_HEALTHY=1 (never via GRIDIRON_PREVIEW_UNCONFIRMED). No current week, or a
+ * read that fails, leaves 277 locked and says so in rules.consistency ('no_week' | 'error: ...'); it never closes
+ * the rest of the gate. -> { status: 'off' | 'ok' | 'no_week' | 'error: ...', of: (id) -> boolean | null }
+ */
+function consistencyGate(db, nick, env) {
+  if (!ajHealthyOn(env)) return { status: 'off', of: null };
+  const gate = { status: 'ok', of: null };
+  let week;
+  try { week = Number(db.row('SELECT current_week FROM leagues WHERE id = ?', nick.leagueId)?.current_week); } catch (e) {
+    return { status: `error: ${e?.message ?? String(e)}`, of: null };
+  }
+  if (!Number.isInteger(week) || week < 1) return { status: 'no_week', of: null };
+  const cache = new Map();
+  gate.of = id => {
+    const k = S(id);
+    if (!cache.has(k)) {
+      try { cache.set(k, readConsistency(db, { season: nick.season, week, ids: [k] }).byId.get(k)?.consistent === true); } catch (e) {
+        gate.status = `error: ${e?.message ?? String(e)}`;
+        cache.set(k, false);
+      }
+    }
+    return cache.get(k);
+  };
+  return gate;
 }
 
 function passThrough() {

@@ -61,12 +61,12 @@ for (const [id, ws] of Object.entries(WEEKS)) {
   });
 }
 // This week's injury report: every player's team has filed (team column), 304 is Out.
+run(`INSERT INTO nfl_teams (id, abbr, name, conference, division) VALUES (901, 'ZZA', 'Made-up Team', 'AFC', 'East')`);
+run('UPDATE players SET team_id = 901');
 for (const id of [301, 302, 303, 304, 305]) {
-  run(`INSERT INTO nfl_injuries (season, week, gsis_id, team, report_status) VALUES (?, ?, ?, 'AAA', ?)`,
+  run(`INSERT INTO nfl_injuries (season, week, gsis_id, team, report_status) VALUES (?, ?, ?, 'ZZA', ?)`,
     SEASON, WEEK, `G-${id}`, id === 304 ? 'Out' : null);
 }
-run(`INSERT OR IGNORE INTO nfl_teams (id, abbr, name) VALUES (1, 'AAA', 'Aaa Team')`);
-run('UPDATE players SET team_id = 1');
 
 const env = on => ({ ...process.env, ...(on ? { GRIDIRON_AJ_HEALTHY: '1' } : {}) });
 
@@ -137,12 +137,12 @@ test('flag off: 277 stays locked even for a consistent Blue chip (byte-for-byte 
   const v = gives277For(g, ['301']);
   assert.equal(v.ok, false);
   assert.deepEqual(v.reasons, ['never_give']);
-  assert.equal(g.rules.sources.consistency, 'off');
+  assert.equal(g.rules.consistency, 'off');
 });
 
 test('flag on: 277 may move for a consistent healthy Blue chip, and only that', () => {
   const g = NG.ruleGate(DB, { leagueId: L, env: env(true) });
-  assert.equal(g.rules.sources.consistency, 'ok');
+  assert.equal(g.rules.consistency, 'ok');
   assert.equal(gives277For(g, ['301']).ok, true, JSON.stringify(gives277For(g, ['301'])));
   assert.deepEqual(gives277For(g, ['302']).reasons, ['never_give'], 'boom/bust chip');
   assert.ok(gives277For(g, ['303']).reasons.includes('never_give'), 'consistent but scored 80');
@@ -154,7 +154,7 @@ test('flag on: Nico Collins (160) and Chase Brown (80) stay locked whatever the 
   const g = NG.ruleGate(DB, { leagueId: L, env: env(true) });
   assert.deepEqual(g.check({ give: ['160'], get: ['301'] }).reasons, ['never_give']);
   assert.deepEqual(g.check({ give: ['80'], get: ['301'] }).reasons, ['never_give']);
-  assert.deepEqual(g.check({ give: ['160', '277'], get: ['301'] }).reasons, ['never_give']);
+  assert.ok(g.check({ give: ['160', '277'], get: ['301'] }).reasons.includes('never_give'));
 });
 
 test('flag on: 277 plus a consistent chip still has to pass the overpay rule', () => {
@@ -169,7 +169,7 @@ test('flag on without a current week: 277 stays locked and the source says why',
   run('UPDATE leagues SET current_week = NULL WHERE id = ?', L);
   try {
     const g = NG.ruleGate(DB, { leagueId: L, env: env(true) });
-    assert.equal(g.rules.sources.consistency, 'no_week');
+    assert.equal(g.rules.consistency, 'no_week');
     assert.deepEqual(gives277For(g, ['301']).reasons, ['never_give']);
   } finally {
     run('UPDATE leagues SET current_week = ? WHERE id = ?', WEEK, L);

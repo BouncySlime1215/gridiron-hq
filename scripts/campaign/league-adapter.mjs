@@ -22,6 +22,7 @@ import { tradeBlockRead, chatInterestRead } from '../../server/services/campaign
 import { readChatTradeInterest } from '../../server/services/people/chat-trade-interest.js';
 import { loveEnabled } from '../../server/services/campaign/love.js';
 import { readLoveInputs } from '../../server/services/campaign/love-inputs.js';
+import { readVetoHistory, vetoRiskFlag } from '../../server/services/veto-risk.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
 import { fpRosFor, syncIfStale } from '../../server/services/people/fantasypros-ros.js';
 import { executedTrades } from '../../server/services/campaign/trade-memory.js';
@@ -329,7 +330,7 @@ export function executedTradeRows(svc, { leagueId, season }) {
  */
 export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
   rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env), love = loveEnabled(env),
-  searchWide = searchWideFlag(env) } = {}) {
+  searchWide = searchWideFlag(env), vetoRisk = vetoRiskFlag(env).mode } = {}) {
   // #406 finding 2: SEARCH-WIDE is read ONCE, here, from the env the producer passes; the adapter carries
   // it (adapter.searchWide) and the planner follows the adapter, so the world (claim universe) and the
   // planner can never disagree about the flag.
@@ -525,6 +526,10 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   // espn_id 0 is a placeholder on historical rows (ONE-PLAN 4b row 5), never a real id.
   for (const a of assets.values()) if (Number(a?.espn_id) > 0) byEspn.set(Number(a.espn_id), a.id);
   const tradeBlock = tradeBlockRead(tradeBlocks(payload), e => byEspn.get(Number(e)) ?? null);
+  // VETO-RISK (shadow, GRIDIRON_VETO_RISK): the league's review history priced at today's market value
+  // (an unpriced player leaves that deal on the base rate); the producer writes _run.inputs.veto_risk.
+  const veto = vetoRisk === 'shadow' ? readVetoHistory(svc.db.db, lg, {
+    priceOfEspn: e => players.get(byEspn.get(Number(e)))?.value ?? undefined }) : null;
   // CHAT-TRADE-INTEREST (shadow): what each manager's own draft / analyzer screens say he'd give and wants.
   const chatInterest = chatInterestRead(readChatTradeInterest(svc.db, Number(leagueId), Number(season)), e => byEspn.get(Number(e)) ?? null);
 
@@ -577,6 +582,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     // Guarded: a SQL error is recorded as status 'error' in _run.inputs, never a dead league entry.
     ...(draftIdMap ? { draft: draftCapitalGuarded(svc.db, { leagueId, season, rosters }) } : {}),
     // LOVE-RULE (shadow, GRIDIRON_LOVE_TAG=1): the tag's inputs for ids the producer asks about, weeks < this week.
+    ...(veto ? { vetoRisk: { table: veto.table, counts: veto.counts, status: veto.status, deals: veto.deals,
+      valueOf: id => players.get(id)?.value ?? undefined } } : {}),
     ...(love ? { love: (ids, { draft = null } = {}) => readLoveInputs(svc.db, { season, week, ids, draft }) } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api';
 import { PageError, PageLoading } from '../PageState';
+import TargetBoard from './TargetBoard';
 import { logServerDetail, sanitizedMessage } from '../../lib/errorSanitize';
 import {
   TIERS, TIER_SHORT, TIER_STYLE, MIN_OBSERVATIONS, isThin, asText, metricLabel
@@ -98,9 +99,9 @@ function ReceptivenessFactors({ factors }: { factors: BoardFactor[] }) {
   );
 }
 
-function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive }: {
+function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive, thinBelow }: {
   profile: ProfileManager; signal: SignalManager | null; leagueId: number;
-  onSaved: () => void; signalsLive: boolean;
+  onSaved: () => void; signalsLive: boolean; thinBelow?: number;
 }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -155,6 +156,8 @@ function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive }: {
       )}
 
       {profile.notes && <p className="mt-1.5 text-[12px] leading-5 text-slate-600">{profile.notes}</p>}
+
+      {profile.target_board && <TargetBoard board={profile.target_board} thinBelow={thinBelow} />}
 
       {/* The measured layer. Only rendered as a panel when there is something
           in it; otherwise the row says what is missing in one line, which is
@@ -348,10 +351,18 @@ export default function ManagerBoard({ leagueId, profiles, signals }: {
         </section>
       )}
 
+      {p?.target_board_meta?.error && (
+        <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-[12px] leading-5 text-amber-900">
+          {sanitizedMessage('ManagerBoard.targetBoard', 'The target board could not be built', p.target_board_meta.error)}
+          {' '}The tiers below still work.
+        </p>
+      )}
+
       {!!others.length && (
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
           {others.map(m => (
             <ManagerRow key={m.roster_id} profile={m} leagueId={leagueId} signalsLive={signalsLive}
+              thinBelow={p?.target_board_meta?.thin_below}
               signal={byRoster.get(String(m.roster_id)) ?? null}
               onSaved={profiles.refetch} />
           ))}

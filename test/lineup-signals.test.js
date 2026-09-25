@@ -317,7 +317,9 @@ test('route: GET /brain/managers carries lineup_signals beside the typed tiers, 
   assert.equal(res.status, 200);
   const body = await res.json();
   // The extension must not replace or trim the typed-tier payload TradeBrain.tsx reads.
-  const { lineup_signals: _ls, ...rest } = body;
+  // TM-03's target_board / target_board_meta are the other extension on this route.
+  const { lineup_signals: _ls, target_board_meta: _tbm, ...rest } = body;
+  rest.managers = rest.managers.map(({ target_board: _tb, ...m }) => m);
   assert.deepEqual(rest, JSON.parse(JSON.stringify(managerProfiles(LEAGUE))), 'typed-tier payload unchanged');
   assert.deepEqual(body.managers.map(m => m.roster_id).sort(), ['1', '2', '3']);
   for (const k of ['league', 'my_roster_id', 'tiers', 'managers', 'note']) assert.ok(k in body, `key ${k} kept`);

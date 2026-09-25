@@ -182,6 +182,7 @@ const managerBoardSwaps = () => [
   ["'../PageState'", namedStub(['PageError', 'PageLoading'])],
   ["'../../api'", namedStub(['api'])],
   ["'./types'", namedStub(['TIERS', 'TIER_SHORT', 'TIER_STYLE', 'MIN_OBSERVATIONS', 'isThin', 'asText', 'metricLabel'])],
+  ["'./TargetBoard'", namedStub([])], // TM-03 panel, not under test here
   ["'react-router-dom'", linkUrl],
 ];
 

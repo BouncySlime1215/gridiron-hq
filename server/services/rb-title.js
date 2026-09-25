@@ -95,9 +95,24 @@ export function conditionalTitle({ ids, runs, roundWeeks, reseed, rawPoints }) {
     }
     return d;
   };
+  // U1b: with no team offsets (the gap is 0, the live setting) only the counts of same-run
+  // differences below / at 0 are needed: one O(runs) pass per pair, no sort.
+  const zeroCounts = new Map();
+  const countsAtZero = (a, b, r) => {
+    const key = `${a}\u0001${b}\u0001${r}`;
+    let c = zeroCounts.get(key);
+    if (!c) {
+      const xa = totals.get(a)[r], xb = totals.get(b)[r];
+      let below = 0, atOrBelow = 0;
+      for (let k = 0; k < runs; k++) { const d = xa[k] - xb[k]; if (d < 0) below++; if (d <= 0) atOrBelow++; }
+      c = [below, atOrBelow];
+      zeroCounts.set(key, c);
+    }
+    return c;
+  };
   /** P(a beats b in round r): its score beats b's by more than the offset gap; a tie goes to the better seed. */
   const winProb = (a, b, r, gap, aBetter) => {
-    const [below, atOrBelow] = ranks(diffOf(a, b, r), gap);
+    const [below, atOrBelow] = gap === 0 ? countsAtZero(a, b, r) : ranks(diffOf(a, b, r), gap);
     return (runs - atOrBelow + (aBetter ? atOrBelow - below : 0)) / runs;
   };
 
@@ -143,14 +158,39 @@ export function conditionalTitle({ ids, runs, roundWeeks, reseed, rawPoints }) {
   return { probs };
 }
 
-/** Mean, its standard error and a normal 95% interval for per-run probabilities. */
-export function meanInterval(sum, sq, n) {
-  if (!n) return { mean: null, se: null, ci: [null, null] };
-  const mean = sum / n;
-  const variance = n > 1 ? Math.max(0, (sq - n * mean * mean) / (n - 1)) : 0;
-  const se = Math.sqrt(variance / n);
-  return {
-    mean, se,
-    ci: [+Math.max(0, mean - 1.96 * se).toFixed(4), +Math.min(1, mean + 1.96 * se).toFixed(4)]
-  };
+/**
+ * U1b RB-SE: the number of independent batches behind the conditional estimate's SE.
+ * Every run's conditional probability is computed from one pooled set of playoff-week scores,
+ * whose error is shared across runs, so meanInterval's independent-runs SE understates (1.0x on
+ * 4-team brackets to 2.75x on 8-team; docs/tdd/2026-09-25-u1-rb-title-on.tdd.md). Each batch
+ * instead builds its OWN pool from its own runs; the batch means are independent, and
+ * sd(batch means) / sqrt(B) is the SE of the full-pool mean (both variance parts scale 1/n).
+ */
+export const RB_SE_BATCHES = 20;
+
+/** Which batch run k of `runs` falls in (contiguous, near-equal batches). */
+export const batchOf = (k, runs, batches) => Math.floor((k * batches) / runs);
+
+/** SE of a mean from B independent batch means: sd(batch means) / sqrt(B). */
+export function batchSe(batchMeans) {
+  const b = batchMeans.length;
+  if (b < 2) return null;
+  let sum = 0, sq = 0;
+  for (const v of batchMeans) { sum += v; sq += v * v; }
+  const m = sum / b;
+  return Math.sqrt(Math.max(0, (sq - b * m * m) / (b - 1)) / b);
+}
+
+/** SE of a paired difference from the two arms' batch means (same runs, same batches). */
+export function batchPairedSe(before, after) {
+  if (!before || !after || before.length !== after.length) return null;
+  return batchSe(Float64Array.from(after, (v, i) => v - before[i]));
+}
+
+/** The served interval: full-pool mean, batch SE, normal 95% interval. */
+export function batchInterval(mean, batchMeans) {
+  const se = batchSe(batchMeans);
+  if (se == null) return { mean, se: null, ci: [null, null] };
+  return { mean, se,
+    ci: [+Math.max(0, mean - 1.96 * se).toFixed(4), +Math.min(1, mean + 1.96 * se).toFixed(4)] };
 }

@@ -41,6 +41,7 @@ test('denylist comes from the teams map, skips generic labels and very short tok
   assert.deepEqual(rosters, ['1:manager', '1:team', '7:manager', '7:team']);
   assert.equal(genericLabel('Team 3'), true);
   assert.equal(genericLabel('Team 12'), true);
+  assert.equal(genericLabel('Manager B'), true);
   assert.equal(genericLabel('Marmot Mayhem'), false);
 });
 
@@ -81,7 +82,7 @@ test('committed plans-shaped fixtures carry only generic team labels (no real te
       const map = e?.teams?.value ?? {};
       for (const [r, t] of Object.entries(map)) {
         for (const k of ['name', 'manager']) {
-          if (t?.[k] != null) assert.ok(genericLabel(t[k]), `${f} roster ${r} ${k} is not a generic 'Team N' label`);
+          if (t?.[k] != null) assert.ok(genericLabel(t[k]), `${f} roster ${r} ${k} is not a generic 'Team N' / 'Manager X' label`);
         }
       }
     }

@@ -11,13 +11,13 @@
  * Same mechanics as 105 (server/db/trade-outcomes-withdrawn.js), for the same reason:
  * SQLite cannot ALTER a CHECK, and trade_outcomes is a foreign-key PARENT, so an existing
  * database is widened by the preflight repair (FK suspended, outside any transaction)
- * and a fresh one by migration 106. Every row, column, index and trigger is copied
+ * and a fresh one by migration 107. Every row, column, index and trigger is copied
  * through unchanged; only the source list gains one value.
  */
 
 export const TABLE = 'trade_outcomes';
 export const SCREENSHOT_SOURCE = 'observed_screenshot';
-const REBUILD = 'trade_outcomes_rebuild_106';
+const REBUILD = 'trade_outcomes_rebuild_107';
 const SOURCE_LIST = /(CHECK\s*\(\s*source\s+IN\s*\([^)]*'considered_only')(\s*\))/;
 
 const tableSql = database =>

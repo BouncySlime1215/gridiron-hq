@@ -1,4 +1,4 @@
-export const name = '106_trade_outcomes_screenshot_source';
+export const name = '107_trade_outcomes_screenshot_source';
 /**
  * trade_outcomes.source may be 'observed_screenshot' (SCREENSHOT-OFFERS): an offer read off
  * an ESPN screenshot in the league chat, with no ESPN tx id and no prediction recorded at
@@ -15,7 +15,7 @@ export function up(db) {
   const exists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'trade_outcomes'`).get();
   if (!exists || allowsScreenshotSource(db)) return;
   if (childRows(db) > 0) {
-    console.warn('[db] 106_trade_outcomes_screenshot_source: child rows reference trade_outcomes; the preflight repair widens it on the next boot');
+    console.warn('[db] 107_trade_outcomes_screenshot_source: child rows reference trade_outcomes; the preflight repair widens it on the next boot');
     return;
   }
   widenTradeOutcomesSource(db);

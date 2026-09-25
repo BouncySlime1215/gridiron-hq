@@ -952,7 +952,7 @@ export function recordScreenshotOffer(o) {
   }
   if (!screenshotReady()) {
     return { state: 'ledger_not_widened',
-      reason: "trade_outcomes.source does not allow 'observed_screenshot' here — migration 106 / its preflight repair has not run" };
+      reason: "trade_outcomes.source does not allow 'observed_screenshot' here — migration 107 / its preflight repair has not run" };
   }
   const ideaId = `shot:${o.attachment_guid}`;
   const mine = row(`SELECT id FROM trade_outcomes WHERE league_id = ? AND season = ? AND idea_id = ? AND source = ?`,

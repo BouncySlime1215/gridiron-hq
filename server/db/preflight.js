@@ -65,7 +65,7 @@ const REBUILD_TABLE = 'nfl_execution_opportunities_preflight_027';
 
 export const OPPORTUNITY_CASCADE_REPAIR = 'preflight_027_execution_opportunity_cascade';
 export const TRADE_OUTCOMES_WITHDRAWN_REPAIR = 'preflight_105_trade_outcomes_withdrawn';
-export const TRADE_OUTCOMES_SCREENSHOT_REPAIR = 'preflight_106_trade_outcomes_screenshot_source';
+export const TRADE_OUTCOMES_SCREENSHOT_REPAIR = 'preflight_107_trade_outcomes_screenshot_source';
 
 /** The vocabulary 027 widens `status` to. Kept here in full so the rebuilt table is byte-comparable with 027's own. */
 const STATUS_VOCABULARY = ['offered', 'observed', 'decision', 'refreshed', 'accepted', 'settled',

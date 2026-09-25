@@ -19,6 +19,7 @@ import { resolveUntouchables, untouchableIds } from '../../server/services/peopl
 import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
 import { fpRosFor, syncIfStale } from '../../server/services/people/fantasypros-ros.js';
+import { executedTrades } from '../../server/services/campaign/trade-memory.js';
 
 /**
  * PRODUCER-FAST: each week's starters picked once instead of once per run
@@ -94,6 +95,7 @@ export async function loadServices({ env = process.env } = {}) {
     horizon: await import('../../server/services/trade-horizon.js'),
     titleOdds: await import('../../server/services/title-odds-trades.js'),
     identity: await import('../../server/services/manager-identity.js'),
+    format: await import('../../server/services/format.js'),
   };
 }
 
@@ -188,6 +190,40 @@ export function sentThisWeek(svc, leagueId, season, me, now) {
     out.set(String(o.counterparty_team_id), (out.get(String(o.counterparty_team_id)) ?? 0) + 1);
   }
   return out;
+}
+
+const hasTable = (svc, name) => !!svc.db.row(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?`, name);
+
+/**
+ * TRADE-MEMORY (ONE-PLAN 4c): this season's executed trades for the planner, with the FantasyCalc
+ * price on a given day (dynasty_value_history: the last capture on or before that day, this league's
+ * format). assets: the sim's asset universe (Map id -> { espn_id }). No transaction table -> null
+ * (the planner then says 'no_ledger'); no history table -> every past price is unknown, so nothing
+ * Nick sold qualifies as a buy-back and floors fall back to today's value (labelled 'value_now').
+ */
+export function tradeLedger(svc, { leagueId, season, formatKey, assets, now }) {
+  if (!hasTable(svc, 'league_transactions_raw')) return null;
+  const rows = svc.db.rows(`SELECT tx_id, type, status, execution_type, items_json, proposed_at, processed_at
+    FROM league_transactions_raw WHERE league_id = ? AND season = ? AND type = 'TRADE_ACCEPT'`, leagueId, season);
+  const byEspn = new Map();
+  for (const a of assets.values()) if (a?.espn_id != null) byEspn.set(String(a.espn_id), a.id);
+  const { trades, unmapped } = executedTrades(rows, { idOfEspn: e => byEspn.get(String(e)) ?? null });
+  const history = formatKey != null && hasTable(svc, 'dynasty_value_history');
+  const valueAt = (id, at) => {
+    if (!history) return null;
+    const day = new Date(at).toISOString().slice(0, 10);
+    const r = svc.db.row(`SELECT value FROM dynasty_value_history WHERE format_key = ? AND player_id = ? AND captured_on <= ?
+      ORDER BY captured_on DESC LIMIT 1`, formatKey, Number(id), day);
+    return Number.isFinite(r?.value) ? r.value : null;
+  };
+  return { now, trades, unmapped, valueAt, history };
+}
+
+/** Executed TRADE_ACCEPT rows this season in league_transactions_raw (0 when the table is missing). */
+export function executedTradeRows(svc, { leagueId, season }) {
+  if (!hasTable(svc, 'league_transactions_raw')) return 0;
+  return svc.db.row(`SELECT COUNT(DISTINCT tx_id) AS n FROM league_transactions_raw WHERE league_id = ? AND season = ?
+    AND type = 'TRADE_ACCEPT' AND execution_type = 'PROCESS' AND status = 'EXECUTED'`, leagueId, season)?.n ?? 0;
 }
 
 /**
@@ -380,6 +416,10 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
+    tradeLedger: tradeLedger(svc, { leagueId, season, formatKey: svc.format?.deriveFormat(lg).formatKey ?? null, assets, now }),
+    // integration-7: how many executed trades the raw table holds this season, so the planner can fail
+    // closed when that ledger comes back missing or empty (never plan without Nick's trade memory).
+    executedTradeRows: executedTradeRows(svc, { leagueId, season }),
     cacheStats: () => (fast && rescoreCache ? { ...rescoreCache.stats } : null),
     // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
     // Nick's word: other managers' notes, his OWN 'untouchable:' notes (#373, always) and, with the
@@ -387,6 +427,9 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     untouchable,
     // PLAYER-SCORE: the served board (typed; 'off' when the flag is off) and per-player reads for ROADMAP-TIERS.
     blueChips: () => board.served,
+    // CAP-1C (integration-7): the board as id -> score, the depth test for the +12% depth-only 2-for-1 premium
+    // (search.js#boardOf). Absent when the board is off or empty, so the premium stays off (fails closed).
+    ...(board.byId?.size ? { board: new Map([...board.byId].map(([k, r]) => [String(k), r.score])) } : {}),
     scoreOf: id => board.byId?.get(String(id)) ?? null,
     boardOf: id => { const r = board.byId?.get(String(id)); return r ? { score: r.score, label: r.label, hurt: r.hurt, gaps: r.gaps, protected: r.protected } : null; },
     ...(finder ? { finderBest } : {}),

@@ -126,7 +126,8 @@ export function planLeague(adapter, settings) {
   const reachMode = reachFlag(env);
   const reachOn = reachMode !== 'off';
   const objTol = objective.tolerances ?? tolerancesFor(objective.risk_mode);
-  const chainGive = reachOn ? Math.max(2, Number(objTol.max_give_per_step) || 2) : 2;
+  // Capped at 3: the search never builds a package bigger than that (combos, maxGiveFinal).
+  const chainGive = reachOn ? Math.min(3, Math.max(2, Number(objTol.max_give_per_step) || 2)) : 2;
   const flip = flipMap(S, adapter, vals, { topPer: budget.flipTopPer, realise: budget.flipRealise, maxOverpay, maxGive: chainGive,
     daysLeft: Number.isInteger(L.deadline_week) ? Math.max(1, (L.deadline_week - L.week) * 7) : 1 });
 
@@ -375,7 +376,9 @@ export function planLeague(adapter, settings) {
     // REACH-01: diagnostics only (no number is priced here); the producer writes them to _run.inputs.reach.
     reach: { flag: reachMode, targets_budget: budget.targets, chain_give: chainGive,
       bound: { direct: bound.direct, chain: bound.chain, best: bound.best }, targets: reachRows,
-      dropped_by_reason: droppedByReason({ candidates: plans.length, byMode: rankedByMode, objectiveMode: objective.risk_mode,
+      // The objective mode counts the pool its deck was ranked from (a get-player objective keeps only that target's paths).
+      dropped_by_reason: droppedByReason({ candidates: plans.length, byMode: { ...rankedByMode, [objective.risk_mode]: { ranked, dropped } },
+        objectiveMode: objective.risk_mode, notObjectiveTarget: plans.length - pool.length,
         confirm: confirmCounts, noOverpay: overpay.rejected, outOfReach: reachRows.filter(r => !r.in_reach).length }) },
     ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
     sellers: { read: sellers, unreached: desperate.unreached.map(s => s.team) },

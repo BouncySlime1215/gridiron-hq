@@ -3506,6 +3506,7 @@
           "untouchable": 0
          },
          "p_complete_floor": 0,
+         "not_objective_target": 0,
          "confirm": {
           "checked": 7,
           "failed": 0
@@ -3522,6 +3523,7 @@
           "untouchable": 10
          },
          "p_complete_floor": 0,
+         "not_objective_target": 0,
          "confirm": null
         },
         "all_in": {
@@ -3535,6 +3537,7 @@
           "untouchable": 34
          },
          "p_complete_floor": 15,
+         "not_objective_target": 0,
          "confirm": null
         }
        }
@@ -7092,6 +7095,7 @@
           "untouchable": 0
          },
          "p_complete_floor": 0,
+         "not_objective_target": 0,
          "confirm": null
         },
         "balanced": {
@@ -7105,6 +7109,7 @@
           "untouchable": 0
          },
          "p_complete_floor": 0,
+         "not_objective_target": 0,
          "confirm": {
           "checked": 7,
           "failed": 0
@@ -7121,6 +7126,7 @@
           "untouchable": 0
          },
          "p_complete_floor": 29,
+         "not_objective_target": 0,
          "confirm": null
         }
        }
@@ -10244,19 +10250,21 @@
           "untouchable": 0
          },
          "p_complete_floor": 0,
+         "not_objective_target": 0,
          "confirm": null
         },
         "balanced": {
-         "kept": 54,
+         "kept": 9,
          "tolerance": {
-          "max_assets": 60,
+          "max_assets": 23,
           "max_offers_per_manager_week": 0,
-          "max_give_per_step": 5,
+          "max_give_per_step": 0,
           "max_downside_per_step": 2,
           "core_starter": 0,
           "untouchable": 0
          },
          "p_complete_floor": 0,
+         "not_objective_target": 87,
          "confirm": {
           "checked": 7,
           "failed": 0
@@ -10273,6 +10281,7 @@
           "untouchable": 0
          },
          "p_complete_floor": 48,
+         "not_objective_target": 0,
          "confirm": null
         }
        }
@@ -11690,6 +11699,7 @@
           "untouchable": 0
          },
          "p_complete_floor": 0,
+         "not_objective_target": 0,
          "confirm": null
         },
         "balanced": {
@@ -11703,6 +11713,7 @@
           "untouchable": 0
          },
          "p_complete_floor": 0,
+         "not_objective_target": 0,
          "confirm": {
           "checked": 0,
           "failed": 0
@@ -11719,6 +11730,7 @@
           "untouchable": 0
          },
          "p_complete_floor": 45,
+         "not_objective_target": 0,
          "confirm": null
         }
        }

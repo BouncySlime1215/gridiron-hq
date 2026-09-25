@@ -192,9 +192,9 @@ function readPrevious(file) {
   }
 }
 
-function args(argv) {
-  // REACH-01: with GRIDIRON_REACH=1 the default search covers 8 targets, else 3 (default off).
-  const out = { leagues: null, flipTop: 3, targets: reachFlag() !== 'off' ? REACH_TARGETS : 3, finder: true, tick: false };
+/** The producer's command line. REACH-01: with GRIDIRON_REACH=1 the default search covers 8 targets, else 3 (default off). */
+export function producerArgs(argv, env = process.env) {
+  const out = { leagues: null, flipTop: 3, targets: reachFlag(env) !== 'off' ? REACH_TARGETS : 3, finder: true, tick: false };
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === '--leagues') {
       const raw = argv[++i];
@@ -396,7 +396,7 @@ export function pushesOf(file) {
 
 async function main() {
   const t0 = Date.now();
-  const opts = args(process.argv);
+  const opts = producerArgs(process.argv);
   const env = process.env;
   const out = plansPath();
   fs.mkdirSync(path.dirname(out), { recursive: true });

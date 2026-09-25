@@ -9,7 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const { REACH_ENV, REACH_TARGETS, reachFlag, reachBound, targetReach } = await import('../server/services/campaign/reach.js');
-const { makeScorer, searchTarget, newOverpaySink, flipReach } = await import('../server/services/campaign/search.js');
+const { makeScorer, searchTarget, newOverpaySink, flipReach, flipLegs } = await import('../server/services/campaign/search.js');
 const { toleranceCheck, toleranceViolation, rankPlans, tolerancesFor, MODES } = await import('../server/services/campaign/modes.js');
 const { planLeague } = await import('../server/services/campaign/planner.js');
 const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
@@ -101,7 +101,7 @@ test('M1: dropped_by_reason sums to candidates_scored in every mode', () => {
       for (const m of MODES) {
         const r = d.modes[m];
         const tol = Object.values(r.tolerance).reduce((s, n) => s + n, 0);
-        assert.equal(r.kept + tol + r.p_complete_floor, res.candidates_scored, `${mode}/${m}`);
+        assert.equal(r.kept + tol + r.p_complete_floor + r.not_objective_target, res.candidates_scored, `${mode}/${m}`);
       }
       assert.equal(d.search.no_overpay, res.no_overpay.rejected);
       const confirmed = d.modes[mode].confirm;
@@ -214,4 +214,98 @@ test('M5: flag off, targets and chain width are the incumbent\'s', () => {
   const on = planOn(ON, { mode: 'all_in' });
   assert.equal(on.reach.chain_give, 3, 'on: all_in chains up to its max give (3)');
   assert.equal(planOn(ON, { mode: 'balanced' }).reach.chain_give, 2, 'on: balanced stays at 2');
+});
+
+/* ------------------------------------------- review follow-ups (65dfc30) */
+
+test('M1, get-player objective: the objective mode counts its pool; the rest are not_objective_target', () => {
+  const a = makeAdapter();
+  const res = planLeague(a, { objective: normaliseObjective({ kind: 'player', target: 21, risk_mode: 'balanced' }), env: ON });
+  const d = res.reach.dropped_by_reason;
+  const r = d.modes.balanced;
+  const tol = Object.values(r.tolerance).reduce((x, n) => x + n, 0);
+  const pool = res.candidates_scored - r.not_objective_target;
+  assert.ok(r.not_objective_target > 0, 'other targets were searched too');
+  assert.ok(pool > 0, 'target 21 has paths');
+  assert.equal(r.kept + tol + r.p_complete_floor, pool);
+  assert.equal(d.modes.all_in.not_objective_target, 0);
+});
+
+// chainWorld as a whole planner league: T (21) is worth ten times its value to Nick, so it is the top upgrade.
+function chainLeague(tValue) {
+  const w = chainWorld(tValue);
+  return { ...w.adapter, maxOverpay: 0, seed: 7, world: () => ({ rescore: (state, a = 1, b = null) => {
+    const r = w.S.rescore(state, a, b); return { me: r.me && { ...r.me, playoff_before: 0.5 }, them: r.them };
+  } }),
+  league: { id: 77, me: 1, week: 4, deadline_week: 8, days_left_in_week: 3, team_count: 3, fetched_at: 'fixture' },
+  starters: new Set([1, 2]), freeAgents: [], priceOf: (t, id) => ({ mult: 1, price: w.adapter.players.get(id)?.value ?? 0 }),
+  names: () => ({}) };
+}
+const lastGives = res => res.deck.map(c => c.plan).filter(p => String(p.target) === '21').map(p => p.steps.at(-1).give.length);
+
+test('planner, all_in: flag on finds the chip-then-3-for-1 chain through searchTarget; off does not', () => {
+  const run = env => planLeague(chainLeague(345), { objective: normaliseObjective({ risk_mode: 'all_in' }), env });
+  const on = run(ON), off = run(OFF);
+  assert.equal(on.reach.chain_give, 3);
+  assert.ok(lastGives(on).includes(3), `on: a deck card ends with a 3-give finish (${JSON.stringify(lastGives(on))})`);
+  assert.deepEqual(lastGives(off), [], 'off: no card reaches the target');
+  const bal = planLeague(chainLeague(345), { objective: normaliseObjective({ risk_mode: 'balanced' }), env: ON });
+  assert.equal(bal.reach.chain_give, 2);
+  assert.deepEqual(lastGives(bal), [], 'balanced: the chained finish stays at 2 gives');
+});
+
+test('planner: flipMap gets the chained give (flip reach package is the top 3 in all_in, flag on)', () => {
+  const run = (env, mode) => {
+    const a = makeAdapter();
+    a.searchOpts = { flipLegs: true };
+    return planLeague(a, { objective: normaliseObjective({ risk_mode: mode }), env }).flip.reach_value;
+  };
+  // Nick's fixture values: 3000, 2600, 2200, ...
+  assert.equal(run(ON, 'all_in'), 3000 + 2600 + 2200);
+  assert.equal(run(OFF, 'all_in'), 3000 + 2600);
+  assert.equal(run(ON, 'balanced'), 3000 + 2600);
+});
+
+test('chain give is capped at 3 even if a mode allows more', () => {
+  const res = planLeague(makeAdapter(), { objective: normaliseObjective({ risk_mode: 'all_in', tolerances: { max_give_per_step: 5 } }), env: ON });
+  assert.equal(res.reach.chain_give, 3);
+});
+
+test('flip leg 1 may be a three-player package at max give 3, and only then', () => {
+  const V = { 1: 40, 2: 35, 3: 30, 9: 110, 20: 100 };
+  const val = id => V[id] ?? 0;
+  const args = { player: 9, myIds: [1, 2, 3], bIds: [20], val, lossN: new Map(), addN: new Map() };
+  // 40 + 35 + 30 = 105: inside 110's band [96.8, 129.8], under the 0 cap; no single or pair reaches 96.8.
+  assert.equal(flipLegs(args).legX, null);
+  assert.deepEqual(flipLegs({ ...args, maxGive: 3 }).legX.map(Number).sort(), [1, 2, 3]);
+});
+
+test('producer args: 8 targets by default only with GRIDIRON_REACH=1', async () => {
+  const { producerArgs } = await import('../scripts/campaign/produce-plans.mjs');
+  assert.equal(producerArgs(['node', 'x'], {}).targets, 3);
+  assert.equal(producerArgs(['node', 'x'], { GRIDIRON_PREVIEW_UNCONFIRMED: '1' }).targets, 3);
+  assert.equal(producerArgs(['node', 'x'], ON).targets, REACH_TARGETS);
+  assert.equal(producerArgs(['node', 'x', '--targets', '5'], ON).targets, 5, 'an explicit --targets wins');
+});
+
+test('refresh loop: launches the producer with --targets 8 only with GRIDIRON_REACH=1', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const LOOP = await import('../scripts/refresh-live-data.mjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reach-loop-'));
+  try {
+    const launchWith = extra => {
+      const files = { plans: path.join(dir, 'plans.json'), lock: path.join(dir, 'lock'), log: path.join(dir, 'log') };
+      const env = { ...extra };
+      const got = [];
+      LOOP.warRoomPlans({ launch: (cmd, argv) => { got.push(argv); return 1; }, log: () => {}, record: () => {}, env, files,
+        flag: () => ({ enabled: true, preview: false }) });
+      return got[0];
+    };
+    assert.ok(!launchWith({}).includes('--targets'));
+    assert.ok(!launchWith({ GRIDIRON_PREVIEW_UNCONFIRMED: '1' }).includes('--targets'));
+    const on = launchWith(ON);
+    assert.deepEqual(on.slice(on.indexOf('--targets'), on.indexOf('--targets') + 2), ['--targets', String(REACH_TARGETS)]);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

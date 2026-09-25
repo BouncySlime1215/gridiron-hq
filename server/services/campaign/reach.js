@@ -92,10 +92,12 @@ export function targetReach(value, bound) {
 }
 
 /**
- * dropped_by_reason. byMode: { mode: rankPlans result } over the same candidates; confirm:
- * { checked, failed } for the objective mode (null when the confirm world failed).
+ * dropped_by_reason. byMode: { mode: rankPlans result } over the same candidates (the objective mode's
+ * over its pool: a get-player objective ranks only that target's paths, and the rest are counted as
+ * not_objective_target); confirm: { checked, failed } for the objective mode (null when the confirm
+ * world failed). Per mode: kept + tolerance + p_complete_floor + not_objective_target == candidates.
  */
-export function droppedByReason({ candidates, byMode, objectiveMode, confirm = null, noOverpay = 0, outOfReach = 0 }) {
+export function droppedByReason({ candidates, byMode, objectiveMode, confirm = null, noOverpay = 0, outOfReach = 0, notObjectiveTarget = 0 }) {
   const modes = {};
   for (const m of MODES) {
     const r = byMode[m];
@@ -105,7 +107,8 @@ export function droppedByReason({ candidates, byMode, objectiveMode, confirm = n
       if (d.code === 'p_complete_floor') floor++;
       else tolerance[d.code] = (tolerance[d.code] ?? 0) + 1;
     }
-    modes[m] = { kept: r?.ranked.length ?? 0, tolerance, p_complete_floor: floor, confirm: m === objectiveMode ? confirm : null };
+    modes[m] = { kept: r?.ranked.length ?? 0, tolerance, p_complete_floor: floor,
+      not_objective_target: m === objectiveMode ? notObjectiveTarget : 0, confirm: m === objectiveMode ? confirm : null };
   }
   return { candidates, search: { no_overpay: noOverpay, out_of_reach: outOfReach }, modes };
 }

@@ -2,7 +2,7 @@
 
 <!-- prereg: docs/tdd/BUY-LOW-PREREG.md -->
 
-Pre-registration: `docs/tdd/BUY-LOW-PREREG.md` (committed first, 73243895). Run: `node scripts/rnd/buy-low-backtest.mjs --db <copy>`
+Pre-registration: `docs/tdd/BUY-LOW-PREREG.md` (committed first: it is the earliest commit of this branch, checked by `npm run check:prereg-order`). Run: `node scripts/rnd/buy-low-backtest.mjs --db <copy>`
 on a `.backup` copy of the local DB taken 2026-09-25 16:13 EDT (deleted after). Raw output: `BUY-LOW-results.json`.
 
 Universe: 6,924 eligible player-weeks (2023-2025, as-of weeks 4-15); 367 flagged (295 confirmed, 72 detected);

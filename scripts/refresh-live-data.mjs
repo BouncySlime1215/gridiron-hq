@@ -88,6 +88,11 @@ export const FANTASY_LIVE_JOBS = [
   // capture window (Tue after waivers, Sat morning, 2 h before each kickoff) it fetches
   // nothing. The loop is the only thing that runs it while SCHEDULER_DISABLED=1.
   'espn_weekly_projection_capture',
+  // E-XGB phase 2: with GRIDIRON_EXGB=1 only (otherwise both return 'skipped' at once). The
+  // forecast follows the capture so it can use the ESPN number frozen in the same window;
+  // the grade scores finished weeks against frozen ESPN and our weekly projection.
+  'exgb_shadow_predict',
+  'exgb_weekly_grade',
   // PROJ-ESPN (#446): the served weekly projection is the frozen ESPN capture above; this logs
   // our own number as a shadow, the weekly ranges' realised coverage (+ the Tuesday k refit
   // rule) and the per-offer value-gain features. Hourly by its own maxAge.

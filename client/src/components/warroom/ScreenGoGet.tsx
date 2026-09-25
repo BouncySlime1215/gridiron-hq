@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { Move, Target, WarRoomView } from './types';
 import { namer, teamLabel } from './types';
 import { FieldBlock, Val } from './FieldState';
@@ -27,9 +27,13 @@ export function pathsTo(moves: Move[], player: string): Move[] {
  * plan's stops sit under it. Approve writes one target.approve request, as the classic
  * Targets panel does; nothing else is written here.
  */
-export default function ScreenGoGet({ view, leagueId, current, onRequest }: {
+export default function ScreenGoGet({ view, leagueId, current, onRequest, someoneElse, compact = false }: {
   view: WarRoomView; leagueId: number; current: CurrentMove | null;
   onRequest?: (req: WarRoomRequest) => Promise<unknown>;
+  /** Trades → Go get: "Someone else?" (a name search) closes the target list. */
+  someoneElse?: ReactNode;
+  /** Trades → Go get: one plan shown (the rest behind Show more) and the offer folded until a plan is picked. */
+  compact?: boolean;
 }) {
   const n = namer(view.names);
   const field = view.targets;
@@ -65,7 +69,7 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest }: {
   // Two plans side by side on a wide screen, one on a phone; the rest behind "Show more".
   const [allPaths, setAllPaths] = useState(false);
   const [phone] = useState(() => typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 699px)').matches);
-  const shownPaths = allPaths ? paths : paths.slice(0, phone ? 1 : 2);
+  const shownPaths = allPaths ? paths : paths.slice(0, phone || compact ? 1 : 2);
 
   const [asked, setAsked] = useState<Record<string, 'saving' | 'saved'>>({});
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +85,7 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest }: {
   };
 
   return (
-    <div className="wr-goget">
+    <div className={`wr-goget${compact ? ' wr-goget-compact' : ''}`}>
       <section className="wr-card2" data-panel="targets" aria-label="Pick a target">
         <h3 className="wr-card2-h"><span className="wr-stepno">1</span>Pick who to go get</h3>
         <FieldBlock f={field} label="Suggested targets">
@@ -110,6 +114,7 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest }: {
             </>
           )}
         </FieldBlock>
+        {someoneElse && <div className="wr-someone" data-testid="goget-someone-else">{someoneElse}</div>}
       </section>
 
       <section className="wr-card2" data-panel="paths" aria-label="Paths">
@@ -160,15 +165,33 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest }: {
       </section>
 
       {!rest && <div className="wr-card2 wr-defer" aria-hidden><span className="wr-skel wr-skel-line" /><span className="wr-skel wr-skel-line wr-skel-short" /></div>}
-      {rest && path && (
+      {rest && path && (compact ? (
+        // Folded until a plan is picked: the view opens on who to go get and the best plan.
+        <details className="wr-card2 wr-fold" data-panel="composer" aria-label="The offer" open={!!pathId} key={pathId ?? 'none'}>
+          <summary><span className="wr-card2-h"><span className="wr-stepno">3</span>The offer to {teamLabel(path.steps[0].partner)}</span>
+            <span className="wr-h-note">message, when to send, walk-away, if he says…</span><Icon name="down" size={16} className="wr-acc-chev" /></summary>
+          <MoveDetails move={path} view={view} leagueId={leagueId}
+            onReply={current?.move.move_id === path.move_id ? current.onReply : undefined}
+            negotiating={current?.move.move_id === path.move_id ? current.negotiating : false} />
+        </details>
+      ) : (
         <section className="wr-card2" data-panel="composer" aria-label="The offer">
           <h3 className="wr-card2-h"><span className="wr-stepno">3</span>The offer to {teamLabel(path.steps[0].partner)}</h3>
           <MoveDetails move={path} view={view} leagueId={leagueId}
             onReply={current?.move.move_id === path.move_id ? current.onReply : undefined}
             negotiating={current?.move.move_id === path.move_id ? current.negotiating : false} />
         </section>
-      )}
+      ))}
 
+      {rest && compact ? (
+        // Trades: one fold for the reference lists, so the view opens on the decision.
+        <details className="wr-card2 wr-fold" data-panel="more" aria-label="Blue chips and your plan">
+          <summary><span className="wr-card2-h">Blue chips and your plan</span>
+            <span className="wr-h-note">who to go get, risers, protected players; {isOk(view.itinerary) ? `${view.itinerary.value.stops_left} stops left` : 'the plan'}</span><Icon name="down" size={16} className="wr-acc-chev" /></summary>
+          {view.blue_chips && isOk(view.blue_chips) && <div data-panel="blue_chips"><BlueChipBoard field={view.blue_chips} big /></div>}
+          <div data-panel="stops" className="mt-4"><Itinerary field={view.itinerary} big /></div>
+        </details>
+      ) : <>
       {rest && view.blue_chips && isOk(view.blue_chips) && (
         <details className="wr-card2 wr-fold" data-panel="blue_chips" aria-label="Blue chips">
           <summary><span className="wr-card2-h">Blue chips</span><span className="wr-h-note">who to go get, risers, your protected players</span><Icon name="down" size={16} className="wr-acc-chev" /></summary>
@@ -181,6 +204,7 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest }: {
           <span className="wr-h-note">{isOk(view.itinerary) ? `${view.itinerary.value.stops_left} left` : ''}</span><Icon name="down" size={16} className="wr-acc-chev" /></summary>
         <Itinerary field={view.itinerary} big />
       </details>}
+      </>}
     </div>
   );
 }

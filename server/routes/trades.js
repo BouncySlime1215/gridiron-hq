@@ -1012,8 +1012,19 @@ r.post('/:leagueId/evaluate', (req, res, next) => {
       : teams.find(t => t.roster_id !== meId && gets.some(g => t.players.some(p => p.id === g.id)));
     if (!them) return res.status(400).json({ error: 'could not work out who you are trading with — pass their_team_id' });
 
-    res.json({ ...evaluate({ team: me, gives }, { team: them, gives: gets }, slots,
-      { lineupValue: lineupValueContext(lg, assets, teams) }), slots });
+    const out = evaluate({ team: me, gives }, { team: them, gives: gets }, slots,
+      { lineupValue: lineupValueContext(lg, assets, teams) });
+    // RULES-EVERYWHERE, read-only: Build shows whether this hand-built deal passes Nick's hard rules and,
+    // if not, why. Nothing is dropped here (a deal you build is yours to see); the verdict rides along.
+    let rules = null;
+    try {
+      const gate = ruleGate({ row, rows }, { leagueId: lg.id, teamId: me.roster_id });
+      if (gate.applies !== false && gate.forNick) {
+        const v = gate.check({ give: gives.map(p => String(p.id)), get: gets.map(p => String(p.id)), premium: null });
+        rules = { applies: true, ok: v.ok, reasons: v.reasons, overpay: v.overpay };
+      } else rules = { applies: false };
+    } catch { rules = null; }
+    res.json({ ...out, slots, rules });
   } catch (e) { next(e); }
 });
 

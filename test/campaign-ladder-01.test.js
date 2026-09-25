@@ -8,8 +8,8 @@
  * the PLAYER-SCORE score; no rung gives Nico Collins (160), Chase Brown (80) or A.J. Brown (277, until
  * AJ-HEALTHY prices him) or anything in adapter.untouchable; no rung gets Chris Olave (290); no rung
  * gives more market value than it gets past the cap; in Fuck-it a ladder is at most 2 rungs while p is
- * the guess. Flag GRIDIRON_LADDER ('1'); off (default) the producer's entry is byte for byte today's;
- * on, the section is added and nothing else in the entry moves (shadow).
+ * the guess. Flag GRIDIRON_LADDER ('1', default off). Every section is always written (the contract's rule), so
+ * on, the section fills and nothing else in the entry moves (shadow); off it is 'unknown' with the reason.
  *
  * Made-up leagues only (a tiny linear world, and test/fixtures/campaign-league.mjs).
  */
@@ -195,18 +195,19 @@ const run = (env, mode = 'balanced') => {
   return { a, res, entry: toEntry(res, { names: a.names(), as_of: '2026-09-25T00:00:00Z' }) };
 };
 
-test('flag off: no ladders key anywhere (the producer entry is today\'s)', () => {
+test('flag off: the planner builds no cards; the section is unknown and says the flag is off', () => {
   const { res, entry } = run({});
   assert.equal('ladders' in res, false);
-  assert.equal('ladders' in entry, false);
+  assert.deepEqual(entry.ladders, { status: 'unknown', source: 'plan.path', reason: 'Ladder cards are off (GRIDIRON_LADDER).' });
 });
 
 test('flag on: the entry validates, carries the ladders section, and nothing else moves', () => {
   for (const mode of ['safe', 'balanced', 'all_in']) {
     const off = run({}, mode), on = run({ GRIDIRON_LADDER: '1' }, mode);
     const { ladders, ...rest } = on.entry;
+    const { ladders: _off, ...offRest } = off.entry;
     assert.ok(ladders, `${mode}: section present`);
-    assert.deepEqual(rest, off.entry, `${mode}: every other section is byte for byte the flag-off entry`);
+    assert.deepEqual(rest, offRest, `${mode}: every other section is byte for byte the flag-off entry`);
     const errs = validateLeague(on.entry).errors;
     assert.deepEqual(errs, [], `${mode}: ${JSON.stringify(errs.slice(0, 3))}`);
     assert.equal(ladders.status, 'ok');

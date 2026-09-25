@@ -21,7 +21,7 @@
  *
  * SHADOW: the cards never re-rank, filter or re-price the deck, the next move or any served number;
  * they are one extra section. Flag GRIDIRON_LADDER ('1' on; anything else off, and preview does
- * not turn it on). Off, the planner does not call this module and the producer's entry is today's.
+ * not turn it on). Off, the planner does not call this module and the section is 'unknown' with the reason.
  */
 import { dealKey, isChained, pathExpectation } from './paths.js';
 import { nickOverpays, DEFAULT_MAX_OVERPAY } from './search.js';

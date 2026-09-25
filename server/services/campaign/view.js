@@ -500,8 +500,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     risk_modes, partners,
     teams: teams && Object.keys(teams).length ? ok(teams, 'campaign.plan') : unknown('The league adapter read no team or manager names.', 'campaign.plan'),
     blue_chips: blueChipsSection(board, res),
-    // LADDER-01: only when the planner built cards (flag on); off, the entry is byte for byte today's.
-    ...(res.ladders ? { ladders: ladderSection(res.ladders, { names, unit }) } : {}),
+    // LADDER-01: the planner's ladder cards (flag GRIDIRON_LADDER); off, 'unknown' with the reason.
+    ladders: ladderSection(res.ladders ?? null, { names, unit }),
     _run: {
       seed: res.seed ?? null, confirm_seed: res.confirm?.seed ?? null, week: w, deadline_week: week(res.deadline_week),
       behind: !!res.behind, objective_version: o.version, objective_source: o.source, risk_mode: o.risk_mode,

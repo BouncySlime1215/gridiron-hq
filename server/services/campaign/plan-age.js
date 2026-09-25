@@ -56,3 +56,14 @@ export function planAge(entry, { entries = [], now = Date.now(), maxHours = PLAN
   return { status: 'out_of_date', planned_at: entry.planned_at, age_hours, ...base,
     reason: `Plan out of date: this league was last planned ${age_hours} h ago (plans go out of date after ${maxHours} h), so it is not actionable. It comes back on this league's next replan.` };
 }
+
+/**
+ * integration-10a: the one staleness gate for every reader of a plans entry that is not the War Room
+ * view (Coach's plan_read, starter answers, the brief), so Coach never states a move the War Room hides
+ * as out of date. -> the out-of-date reason (string) or null (fresh, undated file, or the flag off).
+ */
+export function outOfDateReason(entry, entries = [], { env = process.env, now = Date.now() } = {}) {
+  if (plansExpireFlag(env) !== 'on') return null;
+  const age = planAge(entry, { entries, now });
+  return age.status === 'out_of_date' ? age.reason : null;
+}

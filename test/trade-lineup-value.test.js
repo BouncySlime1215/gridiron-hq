@@ -218,3 +218,19 @@ test('one pool: the Waivers page builds its wire from league-wire.js, not its ow
   assert.doesNotMatch(src, /function rosteredAssetIds|function rosteredNames/, 'no second roster join in waiver-wire.js');
 });
 
+
+test('the note names the gate that declined it: RL-8-2b declined 2026-09-23 (L166), status still not yet validated (FIX-207-3)', () => {
+  const ev = evaluate({ team: teamA, gives: [aStar] }, { team: teamB, gives: [bMid1, bMid2] }, SLOTS,
+    { lineupValue: { wire: WIRE, weeksLeft: WEEKS } });
+  const lv = ev.me.lineup_value;
+  assert.equal(lv.status, 'not yet validated');
+  assert.match(lv.note, /RL-8-2b declined 2026-09-23 \(L166\)/);
+  assert.doesNotMatch(lv.note, /pending/, 'the gate ran; it is not pending');
+  // The id is the ledger's arm (b) row, the lineup-value arm, on this branch's ledger.
+  const ledger = fs.readFileSync(new URL('../docs/evidence/HOLDOUT-LEDGER.md', import.meta.url), 'utf8');
+  const row = ledger.split('\n').find(l => l.startsWith('| L166 |'));
+  assert.ok(row, 'L166 is in the ledger');
+  assert.match(row, /RL-8-2b/);
+  assert.match(row, /lineup value/);
+  assert.match(row, /FAILED/);
+});

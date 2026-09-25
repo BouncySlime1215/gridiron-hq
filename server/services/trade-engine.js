@@ -1420,7 +1420,7 @@ const LINEUP_VALUE_NOTE = 'per_week: the change in the best lineup on adj_ppg (t
   + 'roster spot charged. total: lineup points over the weeks left, this week counted once on its own projection '
   + '(byes, injuries) and the weekly rate after. A freed spot '
   + 'is filled by the best free agent on this league\'s wire, a needed spot costs the least-missed player. '
-  + 'Not yet validated (gate RL-8-2b pending); no recommendation reads it.';
+  + 'Not yet validated: RL-8-2b declined 2026-09-23 (L166); no recommendation reads it.';
 
 /**
  * A deal's value to ONE team in lineup points, charging the roster spot.

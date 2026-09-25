@@ -1,0 +1,52 @@
+# command: nice -n 10 python3 scripts/rnd/trade_split_2025.py --local-db .local-db/data.sqlite   (tree 5f165b6c, run 2026-09-23T15:53Z)
+local copy, not production (nfl_ffopportunity_weekly read from a .backup of data.sqlite)
+replacement PPG from the 2021-22 curve at ranks {'QB': 13, 'RB': 30, 'WR': 36, 'TE': 13} -> {'QB': 13.26, 'RB': 8.73, 'WR': 8.33, 'TE': 6.31}
+== C1 reproduction (1-for-1, 2023-24, player ROS points, league-clustered): n=210 of 723, leagues=160: 0.576 [0.515, 0.633]  (r8 printed n=210 of 723, 0.576 [0.515, 0.633])
+== 2025 trades on the board: {'1for1': 299, '2for1': 173, '2for2': 110}, leagues=230
+== C2 linkage: linked 568 of 582; unlinked {'trade_sides ambiguous': 2, 'sides_ext missing or no horizon week': 12}
+== C2 team_weeks.pts_trade >= recv_started_pts: 509 of 509 (1.000); must be >= 0.95
+== ARM (a) 1-for-1 2025, disagreement trades 98 of 294
+   P2b outcome-permutation null (1000, seed 5): mean 0.502, 5th 0.423, 95th 0.588
+   (a) PRIMARY [x_con -> y_L]: n=98 (nonzero 97, ties 0.010), chains=76
+      model side wins 0.505  chain [0.422, 0.594]  week [0.412, 0.597]  league [0.422, 0.594]  MDE80 0.128 (chain SE 0.051)
+      pts/week to model side -0.021  chain [-1.172, +1.142]  MDE80 1.781
+== VERDICT (a): FAIL  (rate 0.505 > 0.55; chain lo 0.422 > 0.50)
+   decision win rate: consensus pick 0.505 vs season-to-date pick 0.495 (same trades)
+   (a) S1 whole-roster rule lineups [x_con -> y_R]: n=98 (nonzero 98, ties 0.000), chains=76
+      model side wins 0.520  chain [0.435, 0.604]  week [0.437, 0.578]  league [0.435, 0.604]  MDE80 0.130 (chain SE 0.052)
+      pts/week to model side +0.528  chain [-1.026, +2.053]  MDE80 2.329
+   (a) S3 all 1-for-1 incl. agreement [x_con -> y_L]: n=294 (nonzero 270, ties 0.036), chains=152
+      model side wins 0.570  chain [0.516, 0.623]  week [0.536, 0.602]  league [0.516, 0.623]  MDE80 0.080 (chain SE 0.032)
+      pts/week to model side +0.945  chain [+0.133, +1.722]  MDE80 1.169
+   P1 placebo (random same-position 1-for-1 received player, same week): pairs=28
+   (a) P1 placebo [x_con -> y_L]: n=28 (nonzero 28, ties 0.000), chains=27
+      model side wins 0.607  chain [0.448, 0.750]  week [0.552, 0.682]  league [0.448, 0.750]  MDE80 0.226 (chain SE 0.091)
+      pts/week to model side +0.908  chain [-0.988, +2.885]  MDE80 2.894
+== ARM (b) 2-for-1 + 2-for-2 2025: modelled 274 of 274 linked; skipped {}
+== C3 model non-degenerate: graded 263 (y_L, D_LV, x_con all non-zero); LV and x_con picks differ on 45; sides where the roster-spot charge fired (fill or drop) = 342; unfilled spots = 0; wire size median 197
+   P2b outcome-permutation null (1000, seed 5): mean 0.501, 5th 0.452, 95th 0.551
+   (b) PRIMARY lineup value [D_LV -> y_L]: n=263 (nonzero 263, ties 0.000), chains=147
+      model side wins 0.551  chain [0.504, 0.600]  week [0.513, 0.593]  league [0.504, 0.600]  MDE80 0.073 (chain SE 0.029)
+      pts/week to model side +0.282  chain [-0.720, +1.295]  MDE80 1.542
+   (b) baseline summed consensus x_con [x_con -> y_L]: n=263 (nonzero 263, ties 0.000), chains=147
+      model side wins 0.517  chain [0.470, 0.569]  week [0.484, 0.552]  league [0.470, 0.569]  MDE80 0.075 (chain SE 0.030)
+      pts/week to model side -0.100  chain [-1.084, +0.961]  MDE80 1.538
+== VERDICT (b): FAIL  (LV rate 0.551 > 0.55; chain lo 0.504 > 0.50; x_con rate 0.517 <= 0.50)
+   decision win rate: LV pick 0.551 vs x_con pick 0.517 (same 263 trades)
+   (b) decision subset (LV and x_con picks differ) [D_LV -> y_L]: n=45 (nonzero 45, ties 0.000), chains=37
+      model side wins 0.600  chain [0.477, 0.729]  week [0.486, 0.680]  league [0.477, 0.729]  MDE80 0.193 (chain SE 0.078)
+      pts/week to model side +1.116  chain [-1.619, +4.019]  MDE80 4.267
+   (b) 2-for-1 only [D_LV -> y_L]: n=164 (nonzero 164, ties 0.000), chains=109
+      model side wins 0.591  chain [0.529, 0.653]  week [0.520, 0.673]  league [0.529, 0.653]  MDE80 0.094 (chain SE 0.038)
+      pts/week to model side +0.680  chain [-0.623, +1.974]  MDE80 1.979
+      x_con on the same 2-for-1: 0.524
+   (b) 2-for-2 only [D_LV -> y_L]: n=99 (nonzero 99, ties 0.000), chains=72
+      model side wins 0.485  chain [0.414, 0.561]  week [0.425, 0.544]  league [0.414, 0.561]  MDE80 0.110 (chain SE 0.044)
+      pts/week to model side -0.377  chain [-1.884, +1.213]  MDE80 2.390
+      x_con on the same 2-for-2: 0.505
+   (b) S1 whole-roster rule lineups [D_LV -> y_R]: n=263 (nonzero 263, ties 0.000), chains=147
+      model side wins 0.559  chain [0.504, 0.611]  week [0.517, 0.612]  league [0.504, 0.611]  MDE80 0.082 (chain SE 0.033)
+      pts/week to model side +1.595  chain [+0.520, +2.712]  MDE80 1.661
+   (b) S2 frozen-roster E_L pick (no spot charge): 0.500; raw summed consensus: 0.540
+== SUMMARY: (a) FAIL; (b) FAIL. 2025 opened once by this run; 2026 forward check not run (no 2026 Sleeper trade outcomes pulled). Season graded: 2025.
+# exit 0

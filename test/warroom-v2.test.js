@@ -3,7 +3,7 @@
  *
  * Same harness as warroom-e2e.test.js: the plans file is written by the REAL producer
  * (make-producer-plans.mjs, five made-up leagues), served by the REAL route, read by the
- * REAL useWarRoom hook and drawn by the REAL WarRoomShell (TradeBrain's mount) on a small
+ * REAL useWarRoom hook and drawn by the REAL WarRoomV2 (Trades → Next move's mount) on a small
  * DOM, so buttons are really pressed and every write goes through the real routes.
  *
  * Behaviours (one test each):
@@ -92,21 +92,20 @@ globalThis.__warRoomApiCall = api;
 const { loadWarRoom } = await import('./helpers/warroom-tsx.mjs');
 const wr = await loadWarRoom();
 const { React, mount } = await domRenderer();
-const { default: WarRoomShell } = await wr.mod('WarRoomShell');
+const { default: WarRoomV2 } = await wr.mod('WarRoomV2');
 const { useWarRoom } = await wr.mod('useWarRoom');
 const { hisScreenPath } = await wr.mod('HisScreen');
 const { heroStatus, valueEdgeText, playerParts, SAFE_TO_SEND } = await wr.mod('heroStatus');
-const { readLayout, writeLayout, LAYOUT_KEY } = await wr.mod('layoutPref');
 const { FIXED_QUESTIONS } = await wr.mod('coach/CoachDrawer');
 const { watchItems, WATCH_MAX } = await wr.mod('today');
 const { tradeWith } = await wr.mod('WarRoomV2');
 
-/** What TradeBrain.tsx does: useWarRoom(activeId), then the War Room (now WarRoomShell). */
+/** What Trades → Next move does (pages/Trades.tsx): useWarRoom(activeId), then WarRoomV2. */
 function Host({ initial }) {
   const [id, setId] = React.useState(initial);
   const { data } = useWarRoom(id);
   if (!data) return React.createElement('p', null, 'loading');
-  return React.createElement(WarRoomShell, { view: data, activeId: id, onLeague: setId, onExit() {},
+  return React.createElement(WarRoomV2, { view: data, activeId: id, onLeague: setId, onExit() {},
     leagues: [...LEAGUES, 7].map(l => ({ id: l, name: null })) });
 }
 
@@ -401,31 +400,34 @@ test('V8: Coach drawer: fixed questions; "Ask Coach about this" answers the next
   }
 });
 
-test('V9: "Classic layout" swaps in the old dashboard, "New layout" swaps back; the choice persists', async () => {
-  const mem = new Map();
-  const store = { getItem: k => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v) };
-  assert.equal(readLayout(store), 'v2', 'default');
-  assert.equal(writeLayout('classic', store), true);
-  assert.equal(mem.get(LAYOUT_KEY), 'classic');
-  assert.equal(readLayout(store), 'classic');
-  const broken = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); } };
-  assert.equal(readLayout(broken), 'v2', 'blocked storage keeps the default');
-  assert.equal(writeLayout('classic', broken), false);
+test('V9: the classic dashboard is retired: no "Classic layout" entry, and the War Room menu leads to People', async () => {
+  const ui = await open();
+  assert.equal(one(ui.container, 'data-testid', 'layout-toggle'), null, 'no Classic layout toggle');
+  assert.equal(one(ui.container, 'data-testid', 'war-room-grid'), null, 'no classic grid');
+  assert.ok(one(ui.container, 'data-testid', 'war-room-v2'), 'the War Room (v2) is what renders');
+});
 
-  const saved = [];
-  const ls = globalThis.window.localStorage;
-  const setItem = ls.setItem;
-  ls.setItem = (k, v) => saved.push([k, v]);
+// B1, kept from the retired classic War Room's end-to-end test (warroom-e2e.test.js): the route
+// itself, which Trades → Next move reads.
+test('B1: the War Room route answers under 2 s warm; flag off answers { enabled: false }', async () => {
+  const warm = [];
+  for (let i = 0; i < 5; i++) { const t0 = performance.now(); await api('/trades/4/war-room'); warm.push(performance.now() - t0); }
+  const worst = Math.max(...warm);
+  console.log(`# route ms: warm max ${worst.toFixed(1)}`);
+  assert.ok(worst < 2000, `route took ${worst.toFixed(0)} ms`);
+  const v = await api('/trades/4/war-room');
+  assert.equal(v.enabled, true);
+  assert.equal(v.league, 4);
+  const saved = process.env.GRIDIRON_WARROOM_ENABLED;
+  delete process.env.GRIDIRON_WARROOM_ENABLED;
+  const savedPreview = process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+  delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
   try {
-    const ui = await open();
-    click(one(ui.container, 'data-testid', 'layout-toggle'));
-    await waitFor(() => one(ui.container, 'data-testid', 'war-room-grid'), 2000, 'the classic grid');
-    assert.equal(one(ui.container, 'data-testid', 'war-room-v2'), null);
-    assert.deepEqual(saved.at(-1), [LAYOUT_KEY, 'classic']);
-    click(one(ui.container, 'data-testid', 'layout-toggle'));
-    await waitFor(() => one(ui.container, 'data-testid', 'war-room-v2'), 2000, 'back to v2');
-    assert.deepEqual(saved.at(-1), [LAYOUT_KEY, 'v2']);
-  } finally { ls.setItem = setItem; }
+    assert.deepEqual(await api('/trades/4/war-room'), { enabled: false });
+  } finally {
+    if (saved != null) process.env.GRIDIRON_WARROOM_ENABLED = saved;
+    if (savedPreview != null) process.env.GRIDIRON_PREVIEW_UNCONFIRMED = savedPreview;
+  }
 });
 
 test('V10: the plan switcher: › skips to the next plan, ‹ goes back', async () => {

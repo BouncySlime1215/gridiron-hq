@@ -82,7 +82,6 @@ mock.module('../server/services/matchups.js', {
   }
 });
 
-const { ceilingLineup } = await import('../server/services/ceiling-lineup.js');
 // `?after-mocks` is load order, not decoration. Since 2026-09-18 trade-engine.js
 // imports season-sim.js (tradeIdeas reads this roster's real playoff odds), so
 // importing trade-engine above ALSO loaded season-sim — holding a live binding to
@@ -91,7 +90,17 @@ const { ceilingLineup } = await import('../server/services/ceiling-lineup.js');
 // to be requested under a URL that has not been loaded yet; its own
 // `./trade-engine.js` then resolves to the mock. Without this the spy records
 // nothing and both J4 season-sim tests fail on an empty universe.
-const { simulateSeason } = await import('../server/services/season-sim.js?after-mocks');
+const simMod = await import('../server/services/season-sim.js?after-mocks');
+const { simulateSeason } = simMod;
+// WEEKLY-RANGE-ONE: the ceiling lineup scores on the league's one world
+// (league-world.js), so it must reach THIS season-sim copy, not the real one the
+// trade-engine import loaded: the same re-pointing, one level up (test/ea-07-one-world.test.js).
+mock.module('../server/services/season-sim.js', { namedExports: { ...simMod } });
+const leagueWorldMod = await import('../server/services/league-world.js?after-mocks');
+mock.module('../server/services/league-world.js', { namedExports: { ...leagueWorldMod } });
+const { ceilingLineup } = await import('../server/services/ceiling-lineup.js');
+// The world is held per league snapshot; each spy test needs its draws made again.
+const freshCeiling = (...a) => { leagueWorldMod.clearLeagueWorlds(); return ceilingLineup(...a); };
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -135,7 +144,7 @@ function byVenue() {
 
 test('J4 ceiling-lineup: home and away weeks are drawn with the same multiplier (no signal)', () => {
   calls.length = 0; gmOverride = null;
-  const out = ceilingLineup(801, { week: 2, trials: 50 });
+  const out = freshCeiling(801, { week: 2 });
   assert.ifError(out.error);
   const { home, away } = byVenue();
   for (const c of [...home, ...away]) {
@@ -146,7 +155,7 @@ test('J4 ceiling-lineup: home and away weeks are drawn with the same multiplier 
 
 test('J4 ceiling-lineup: the matchup factor is matchups.js#gameMultiplier, not a local literal', () => {
   calls.length = 0; gmOverride = (_opp, home) => (home ? 1.5 : 0.5);
-  try { ceilingLineup(801, { week: 2, trials: 50 }); } finally { gmOverride = null; }
+  try { freshCeiling(801, { week: 2 }); } finally { gmOverride = null; }
   const { home, away } = byVenue();
   assert.ok(home.every(c => close(c.mult.pass, 1.5 * 1.1)), 'home draws follow gameMultiplier');
   assert.ok(away.every(c => close(c.mult.rush, 0.5 * 0.9)), 'away draws follow gameMultiplier');
@@ -190,7 +199,7 @@ test('J1d ceiling-lineup never starts a player on IR (ESPN IR slot or injured re
        VALUES (802, 'espn', 'home-away-ir', 2026, 'Home away IR', '1', 10, 1, ?, ?)`,
   JSON.stringify(['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX']), JSON.stringify(withIr));
   for (const objective of ['ceiling', 'mean']) {
-    const out = ceilingLineup(802, { week: 2, trials: 50, objective });
+    const out = freshCeiling(802, { week: 2, objective });
     assert.ifError(out.error);
     const names = [...out.lineup.map(x => x.player), ...out.versus_highest_mean.lineup.map(x => x.player)];
     assert.ok(!names.includes(irSlot.name) && !names.includes(reserve.name),

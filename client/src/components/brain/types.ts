@@ -112,6 +112,8 @@ export interface RejectedProposal {
 
 export interface ProposalsResponse {
   proposals: Proposal[];
+  /** RULES-EVERYWHERE: ideas the server dropped for breaking a hard rule (never shown). */
+  dropped_by_rule?: number;
   rejected: RejectedProposal[];
   reason: string | null;
   /** 'none' = never asked the model; 'cache' = free; 'model' = money was spent. */

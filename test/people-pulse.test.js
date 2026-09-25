@@ -323,7 +323,8 @@ test('wiring: the refresh loop runs the pulse after the chat step; the ticker ro
   const trades = fs.readFileSync(path.join(root, 'server/routes/trades.js'), 'utf8');
   const route = trades.slice(trades.indexOf("r.get('/:leagueId/people/pulse'"));
   assert.match(route.slice(0, 400), /league\(req, res\)/, 'the route checks league membership');
-  const ticker = fs.readFileSync(path.join(root, 'client/src/pages/TradeBrain.tsx'), 'utf8');
+  // Trade Brain's tabs became Trades → People, which shows the pulse ticker.
+  const ticker = fs.readFileSync(path.join(root, 'client/src/pages/Trades.tsx'), 'utf8');
   assert.match(ticker, /<PulseTicker leagueId=\{activeId\} \/>/);
 });
 

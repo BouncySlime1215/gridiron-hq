@@ -37,7 +37,7 @@ const { PREVIEW_ENV, PREVIEW_PREFIX } = await import('../server/services/preview
 
 const wr = await loadWarRoom();
 test.after(() => wr.cleanup());
-const { default: WarRoom, PANELS, panelsFor, ROOT_STYLE, rootStyle } = await wr.mod('WarRoom');
+const { default: WarRoom } = await wr.mod('WarRoomV2'); // the classic dashboard is retired; the War Room is WarRoomV2
 const { default: PeopleBoard, focusView, DeckFocusBar } = await wr.mod('PeopleBoard');
 
 async function withEnv(vars, fn) {
@@ -329,49 +329,9 @@ test("board render: every slot, P(responds) as a percent, Nick's word on the fac
   assert.match(missing, /has not loaded/);
 });
 
-test('a tap focuses the deck on his moves; All moves clears it', () => {
-  const v = served();
-  const f = focusView(v, '7');
-  assert.deepEqual(f.alternatives.value.map(m => m.steps.map(s => s.partner)), [['7', '2']]);
-  assert.equal(focusView(v, '4').alternatives.value.length, 0);
-  assert.equal(focusView(v, '2').alternatives.value.length, 2);
-  let cleared = false;
-  const bar = DeckFocusBar({ view: v, team: '7', onClear: () => { cleared = true; } });
-  assert.match(textOf(markup(bar)), /Moves with Team 7: 1/);
-  const find = n => (n && typeof n === 'object' && n.props?.onClick ? n : [].concat(n?.props?.children ?? []).map(find).find(Boolean));
-  find(bar).props.onClick();
-  assert.equal(cleared, true);
-  // The room with a focused manager: the bar above the deck, the deck on his one move.
-  const html = markup(React.createElement(WarRoom, { view: v, leagues: [{ id: 1, name: 'L1' }], activeId: 1, onLeague() {}, onExit() {}, initialFocus: '7' }));
-  const next = textOf(html.slice(html.indexOf('data-panel="next"'), html.indexOf('data-panel="people"')));
-  assert.match(next, /Moves with Team 7: 1/);
-  assert.match(next, /1 of 1/);
-});
-
 /* ------------------------------------------------------------- the grid */
 
 const renderRoom = v => markup(React.createElement(WarRoom, { view: v, leagues: [{ id: 1, name: 'L1' }], activeId: 1, onLeague() {}, onExit() {} }));
-
-test('flag on: the people rail sits right of the panels, left of Coach, and is a phone deck page', () => {
-  const html = renderRoom(served());
-  assert.match(html, /data-panel="people"[^>]*style="grid-area:people"/);
-  assert.match(html, /class="wr-root wr-app wr-people-on"/);
-  const style = rootStyle(true);
-  assert.equal(style.height, '100vh');
-  assert.equal(style.overflow, 'hidden');
-  for (const row of style.gridTemplateAreas.match(/"[^"]+"/g).slice(1)) assert.match(row, /people coach"$/);
-  assert.deepEqual(panelsFor(true).map(p => p.id).slice(0, 2), ['next', 'people']);
-});
-
-test('flag off: no rail, and the grid is exactly the one before', () => {
-  for (const v of [{ ...served(), people_board: { enabled: false, preview: false } }, view()]) {
-    const html = renderRoom(v);
-    assert.doesNotMatch(html, /data-panel="people"/);
-    assert.doesNotMatch(html, /wr-people-on/);
-  }
-  assert.deepEqual(rootStyle(false), ROOT_STYLE);
-  assert.deepEqual(panelsFor(false), PANELS);
-});
 
 /* ------------------------------------------------------------ one reader */
 

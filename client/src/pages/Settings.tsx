@@ -9,6 +9,7 @@ import { DevPanel } from '../components/DevHub';
 import { api } from '../api';
 import { sanitizedMessage } from '../lib/errorSanitize';
 import { Button, Card, PageHeader, Tabs } from '../components/ui/DesignSystem';
+import { useCoach } from '../state/coach';
 
 /**
  * The Settings area (docs/ui/CONSOLIDATION-MAP.md): Connections (sign-in, the one ESPN flow, phone
@@ -52,6 +53,7 @@ export default function Settings() {
       </div>}
 
       {view === 'health' && <div className="space-y-4">
+        <BrainCheck />
         <NumberHealthCard />
         <Card className="!p-4">
           <h2 className="ds-h mb-1">Data freshness</h2>
@@ -83,6 +85,19 @@ function PlayerDatabase() {
           finally { setSyncing(false); }
         }}>{syncing ? 'Pulling…' : 'Pull player database'}</Button>
       {msg && <p role="status" className="ds-note mt-2">{msg}</p>}
+    </Card>
+  );
+}
+
+/** The planner's brain check and number audit (the War Room health sheet), opened from here; the header chip lands on this view. */
+function BrainCheck() {
+  const { view, openHealth } = useCoach();
+  if (!view) return null;
+  return (
+    <Card className="!p-4">
+      <h2 className="ds-h">Brain check</h2>
+      <p className="ds-note mt-1">Whether the planner that picks your next move is working: its brain report and the number audit.</p>
+      <Button size="sm" variant="quiet" className="mt-3" onClick={openHealth} data-testid="open-brain-check">Open the brain check</Button>
     </Card>
   );
 }

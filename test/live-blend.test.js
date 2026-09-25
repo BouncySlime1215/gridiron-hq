@@ -98,6 +98,9 @@ test('served p = weight x baseline + weight x clone; p_gate is the baseline; the
   assert.equal(st.p, a.band.mid);
   assert.equal(st.p_gate, base);
   assert.ok(st.probe >= 0);
+  // "I sent it" (trade-outcomes) refuses a band without the acceptance model's basis: the served card band must carry it.
+  assert.equal(st.band.basis, clone.basis, 'the card band carries the clone basis the offer ledger logs');
+  assert.ok(['no_information', 'heuristic_unanchored', 'heuristic_anchored'].includes(st.band.basis));
 });
 
 test('no decided offer: the blend fails closed to the clone band, never a 0.5', () => {

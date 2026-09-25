@@ -167,6 +167,14 @@ export function applyTradeMemory(plans, mem, { env = {} } = {}) {
   const kept = [];
   for (const p of plans) {
     const verdicts = p.steps.map(s => stepMemory(mem, s));
+    // integration-7: a path can undo a trade across steps (send him X in one step, take Y back in another);
+    // its net swap with each team is checked for a reversal too.
+    const net = new Map();
+    for (const s of p.steps) {
+      const t = net.get(String(s.team)) ?? { team: s.team, give: [], get: [] };
+      t.give.push(...s.give); t.get.push(...s.get); net.set(String(s.team), t);
+    }
+    if (p.steps.length > 1) for (const t of net.values()) if (stepMemory(mem, t).hard.includes('reversal')) verdicts.push({ hard: ['reversal'], shadow: [] });
     const hard = HARD.find(k => verdicts.some(v => v.hard.includes(k)));
     const soft = SHADOW.filter(k => verdicts.some(v => v.shadow.includes(k)));
     for (const k of soft) shadow[k]++;

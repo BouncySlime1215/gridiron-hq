@@ -169,15 +169,21 @@ export function planLeague(adapter, settings) {
     const gx = f.legs.give_a_ids ?? [f.legs.give_a], gy = f.legs.get_b_ids ?? [f.legs.get_b];
     return !stepPasses(TM, { team: f.a, give: gx, get: [f.player] }, tmFloor) || !stepPasses(TM, { team: f.b, give: [f.player], get: gy }, tmFloor);
   };
-  const flip = TM ? { ...flipAll, top: flipAll.top.filter(f => !flipFails(f)), realised: flipAll.realised.filter(f => !flipFails(f)) } : flipAll;
-  if (TM) tmCount.flips = flipAll.realised.length - flip.realised.length;
+  // integration-7: the destination's untouchables (objectives file) are never a flip's leg-1 give either.
+  const objUntouch = new Set((objective.untouchables ?? []).map(String));
+  const flipUntouched = f => !f.legs || !(f.legs.give_a_ids ?? [f.legs.give_a]).some(id => objUntouch.has(String(id)));
+  const flipKeep = f => flipUntouched(f) && !(TM && flipFails(f));
+  const flip = TM || objUntouch.size ? { ...flipAll, top: flipAll.top.filter(flipKeep), realised: flipAll.realised.filter(flipKeep) } : flipAll;
+  if (TM) tmCount.flips = flipAll.realised.filter(f => flipUntouched(f) && flipFails(f)).length;
 
   mark('flip');
   // Targets: the objective's player, Nick's "get" stops, then the biggest single-player upgrades.
   const skipP = settings.skips?.player ?? new Map();
   const myIds = adapter.rosters.get(me);
   const tiltOf = pid => (CP ? targetTilt(CP, vals.lossO.get(pid)?.team, pid, myIds) : { tilt: 1, exclude: false, features: [] });
-  const soldOut = pid => { const x = !!TM?.excluded(pid); if (x) tmCount.targets++; return x; };
+  // integration-7: each sold player is counted once, however many times the target list asks about him.
+  const soldCounted = new Set();
+  const soldOut = pid => { const x = !!TM?.excluded(pid); if (x && !soldCounted.has(String(pid))) { soldCounted.add(String(pid)); tmCount.targets++; } return x; };
   const upgrades = [...vals.addN.entries()].filter(([pid]) => !adapter.managers.get(vals.lossO.get(pid)?.team)?.blocked && !tiltOf(pid).exclude && !soldOut(pid))
     .sort((x, y) => y[1] * (skipP.get(String(y[0])) ?? 1) * tiltOf(y[0]).tilt - x[1] * (skipP.get(String(x[0])) ?? 1) * tiltOf(x[0]).tilt)
     .map(([pid]) => pid);
@@ -345,8 +351,9 @@ export function planLeague(adapter, settings) {
     const capped = cap ? priced.curve.filter(c => c.his_pct <= cap.max_his_pct) : priced.curve;
     // TRADE-MEMORY: the ladder (opening, walk-away, the counters the reply table names) is held to the
     // same rules as the planned step: no package that undoes a trade, none under his floor with the flag on.
-    const curve = TM ? capped.filter(c => stepPasses(TM, { team: st.team, give: c.give, get: st.get }, tmFloor)) : capped;
-    if (TM) tmCount.ladderRows += capped.length - curve.length;
+    const allowed = objUntouch.size ? capped.filter(c => !c.give.some(id => objUntouch.has(String(id)))) : capped;
+    const curve = TM ? allowed.filter(c => stepPasses(TM, { team: st.team, give: c.give, get: st.get }, tmFloor)) : allowed;
+    if (TM) tmCount.ladderRows += allowed.length - curve.length;
     const basis = cap ? `${priced.basis}; capped at ${cap.max_his_pct}% on his screen (nick_override)` : priced.basis;
     const ladder = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode, hard: !!m.nick?.hard });
     const offer = ladder.opening ? { ...st, give: ladder.opening.give } : st;

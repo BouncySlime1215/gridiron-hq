@@ -301,3 +301,16 @@ test('a sold player set as the goal is refused with a reason, and dropped_total 
   assert.equal(res.trade_memory.dropped_total, d.sold_recently + d.reversal + d.below_his_floor + d.wrong_currency);
   assert.ok(res.trade_memory.removed.targets >= 1);
 });
+
+test('integration-7: a path that undoes a trade across two steps with the same team is a reversal', () => {
+  const mem = memOf(); // 28-day window here, so player 6 (sold 40 days ago) is not a sold-recently get
+  // t0: Nick sent 6 to team 3 for 7. Step A gives 7 back for 5; step B takes 6 back for 4. Neither step alone undoes it.
+  const plan = { steps: [{ team: '3', give: [7], get: [5] }, { team: '3', give: [4], get: [6] }] };
+  assert.deepEqual(stepMemory(mem, plan.steps[0]).hard, []);
+  assert.deepEqual(stepMemory(mem, plan.steps[1]).hard, []);
+  const r = applyTradeMemory([plan], mem);
+  assert.equal(r.plans.length, 0);
+  assert.equal(r.dropped.reversal, 1);
+  const split = { steps: [{ team: '3', give: [7], get: [5] }, { team: '7', give: [4], get: [6] }] };
+  assert.equal(applyTradeMemory([split], mem).dropped.reversal, 0, 'different teams: no net reversal');
+});

@@ -187,18 +187,22 @@ test('reader: an old injury report does not stick (Out in week 1, off the report
   assert.equal(r.players.get(1).role.report_status, null);
 });
 
-test('reader: last week\'s report counts when this week\'s is not out yet', () => {
+test('reader: injury reports expire: only THIS week\'s report counts, last week\'s is stale', () => {
   const db = makeDb(); seed(db);
-  const r = readLoveInputs(db, { season: 2026, week: 5, ids: [2] });
-  assert.equal(r.sources.injuries.report_week, 4);
-  assert.equal(r.players.get(2).role.status, 'unhealthy');
+  // Week 4 has a report (player 2 Out); a week-5 run must not reuse it.
+  const r = readLoveInputs(db, { season: 2026, week: 5, ids: [1, 2] });
+  assert.equal(r.sources.injuries.status, 'stale');
+  assert.match(r.sources.injuries.reason, /week 4, not this week \(5\)/);
+  assert.equal(r.players.get(1).role.status, 'unknown');
+  assert.equal(r.players.get(2).role.status, 'unknown');
+  assert.equal(r.players.get(2).role.report_status, null);
 });
 
 test('reader: a stale injuries table fails closed: role unknown, BUY capped at PASS, reason named', () => {
   const db = makeDb(); seed(db);
   const none = readLoveInputs(db, { season: 2026, week: 7, ids: [1] });
   assert.equal(none.sources.injuries.status, 'stale');
-  assert.match(none.sources.injuries.reason, /week 4, older than week 6/);
+  assert.match(none.sources.injuries.reason, /week 4, not this week \(7\)/);
   assert.equal(none.players.get(1).role.status, 'unknown');
   const empty = makeDb(); seed(empty);
   empty.run(`DELETE FROM nfl_injuries`);

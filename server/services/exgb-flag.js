@@ -4,7 +4,7 @@
  * GRIDIRON_EXGB=1 turns on the SHADOW pipeline only: forecasting each week with the locked
  * models (exgb-shadow.js) and grading them against frozen ESPN and our weekly projection
  * (exgb-grader.js). Nothing it produces is served. It is default off, and on purpose it
- * does NOT follow preview mode (GRIDIRON_PREVIEW_UNCONFIRMED): the pre-registration says
+ * does NOT follow preview mode (server/services/preview-mode.js): the pre-registration says
  * only this flag may ever switch E-XGB on.
  *
  * This file is the only reader of GRIDIRON_EXGB, GRIDIRON_EXGB_PYTHON and

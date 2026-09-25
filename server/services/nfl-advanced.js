@@ -357,12 +357,13 @@ const INJURY_LIVE_CAPTURE_WINDOW_MS = 10 * 24 * 60 * 60 * 1000;
  */
 export async function syncInjuries(seasons) {
   const stmt = db.prepare(`INSERT INTO nfl_injuries
-      (season, week, gsis_id, team, full_name, position, report_status, practice_status, injury,modified_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?)
+      (season, week, gsis_id, team, full_name, position, report_status, practice_status, injury,modified_at,
+       available_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(season, week, gsis_id) DO UPDATE SET
       report_status=excluded.report_status, practice_status=excluded.practice_status,
-      injury=excluded.injury,modified_at=excluded.modified_at`);
-  const existingStmt = db.prepare(`SELECT report_status, practice_status, injury
+      injury=excluded.injury,modified_at=excluded.modified_at,available_at=excluded.available_at`);
+  const existingStmt = db.prepare(`SELECT report_status, practice_status, injury, available_at
     FROM nfl_injuries WHERE season=? AND week=? AND gsis_id=?`);
   let total = 0;
   let revised = 0;
@@ -395,8 +396,13 @@ export async function syncInjuries(seasons) {
       for (const b of batch) {
         const [rSeason, rWeek, gsisId, , , , reportStatus, practiceStatus, injury, dateModified] = b;
         const existing = existingStmt.get(rSeason, rWeek, gsisId);
-        if (!existing || existing.report_status !== reportStatus
-          || existing.practice_status !== practiceStatus || existing.injury !== injury) {
+        const changed = !existing || existing.report_status !== reportStatus
+          || existing.practice_status !== practiceStatus || existing.injury !== injury;
+        // BITEMPORAL: the availability clock. A changed value was first held now; an
+        // unchanged one keeps its earlier stamp; a legacy row with none gets now,
+        // which is late, never early, so an as-of read gated on it cannot leak.
+        const availableAt = changed ? observedAt : (existing.available_at ?? observedAt);
+        if (changed) {
           try {
             // No date_modified (the audit's own finding: some rows carry
             // none) leaves this machine's own capture instant as the only
@@ -424,7 +430,7 @@ export async function syncInjuries(seasons) {
             revisionFailures.push({ season: rSeason, week: rWeek, gsis_id: gsisId, error: revisionError.message });
           }
         }
-        stmt.run(...b);
+        stmt.run(...b, availableAt);
       }
       db.exec('COMMIT');
     }

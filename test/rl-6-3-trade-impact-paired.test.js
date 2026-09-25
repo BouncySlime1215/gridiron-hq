@@ -103,7 +103,7 @@ mock.module('../server/services/contingency.js', {
   namedExports: { ...realContingency, weeklyAvailability: () => new Map() }
 });
 const simModule = await import('../server/services/season-sim.js?rl63');
-const { simulateSeason, tradeImpact } = simModule;
+const { simulateSeason, tradeImpact, tradeImpactWorld } = simModule;
 // trade-engine.js imports season-sim.js, so the plain season-sim instance was
 // loaded (unmocked) by the `realTradeEngine` import above. Point the Title-impact
 // tab at the mocked instance, or its deals are simulated on empty projections
@@ -323,5 +323,28 @@ test('RL-6-3: one run count, one seed and the league\'s scoring behind every tit
       assert.doesNotMatch(call, /\bseed\s*:/, `${f}: tradeImpact called with its own seed`);
       assert.doesNotMatch(call, /\bscoring\s*:/, `${f}: tradeImpact called with its own scoring`);
     }
+  }
+});
+
+test('SEARCH-WIDE (#406, integration-9): a world built with a claim universe is REUSED when the caller names it', () => {
+  // The producer's adapter builds its world with the top free agents simulated (the claim universe)
+  // and rescores every candidate on it. Without naming that universe, worldFits refused the world
+  // (its extras are not in the deal) and tradeImpact silently rebuilt one per call: ~100x slower on
+  // league 4, and a rebuilt world from the league, not the caller's world.
+  const saved = process.env.GRIDIRON_ONE_WORLD;
+  process.env.GRIDIRON_ONE_WORLD = '1';
+  try {
+    const world = tradeImpactWorld(league(), { runs: RUNS, seed: 12, universe: [FA] });
+    assert.deepEqual(world.extras, [FA]);
+    const give = teamPlayers.get(1)[1], get = teamPlayers.get(2)[2];
+    const args = { myTeamId: 1, theirTeamId: 2, iGive: [give], iGet: [get], runs: RUNS, seed: 12, world };
+    const unnamed = tradeImpact(league(), args);
+    assert.equal(unnamed.world_reused, false, 'control: the extras are not named, so the world is rebuilt');
+    const named = tradeImpact(league(), { ...args, universe: world.extras });
+    assert.equal(named.world_reused, true, 'the claim-universe world is reused');
+    const full = tradeImpact(league(), { ...args, world: null, universe: [FA] });
+    assert.deepEqual(named.me, full.me, 'same numbers as a fresh world with the same universe');
+  } finally {
+    if (saved === undefined) delete process.env.GRIDIRON_ONE_WORLD; else process.env.GRIDIRON_ONE_WORLD = saved;
   }
 });

@@ -70,6 +70,17 @@ export function tierOf(score, floor = DEFAULT_GET_FLOOR) {
   return 'depth';
 }
 
+/**
+ * One player's tier, read the same way everywhere (#406 review finding 5b). LADDER-01 owns the
+ * depth / level-below / Blue chip classification; SEARCH-WIDE's lateral rule (search-wide.js
+ * isLateral / lateralOk, via planner.js) calls this rather than keep its own reading of the floor,
+ * so the two units never disagree about what "depth" is. Paths have ONE producer, search.js: SEARCH-WIDE
+ * widens that search (depth 3, laterals held to the floor) and LADDER-01's cards only read its ranked output.
+ */
+export function tierOfPlayer(scoreOf, id, floor = DEFAULT_GET_FLOOR) {
+  return tierOf(floorRead(scoreOf, id, floor).score, floor);
+}
+
 /** Whether a rung's P(yes) is still the guess (no fitted basis on it). */
 const pGuess = s => s.p_basis !== 'fitted';
 

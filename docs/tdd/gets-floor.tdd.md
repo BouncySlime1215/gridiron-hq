@@ -32,11 +32,9 @@ list ranked in its top 3 was searched and served.
 
 ## Flag
 
-`GRIDIRON_GETS_FLOOR`: `1` enforces, `shadow` counts, unset or `0` is off.
-Shadow reads every searched target, counts `would_drop`, and moves nothing
-served; a test checks targets, best, deck and suggestions are byte-identical to
-off. Off, the producer's entry is byte for byte the incumbent's (the committed
-contract fixture, checked by two existing tests).
+None, since round 2 below. The first two rounds shipped behind `GRIDIRON_GETS_FLOOR`
+(off by default). Nick, 2026-09-24 night: his rules are hard filters, on by
+default, never behind a flag.
 
 ## Measured on the made-up fixture league (before -> after)
 
@@ -69,3 +67,23 @@ on the first GREEN, pass after.
 - `min_get_score` can only raise the floor above 83. Shadow scans the same
   candidates as on, so `would_drop` equals on's `dropped`. The card wording
   comes from one `floorName`.
+
+## Round 2: always on (Nick's rule, 2026-09-24 night)
+
+RED `1ceb43c` · GREEN follows.
+
+- The flag and shadow mode are gone. No env value turns the floor off, and a
+  test proves it for `0`, `shadow`, unset, and preview off.
+- `league-adapter.mjs#blueChipBoard` computes scores even with PLAYER-SCORE's
+  board off: draft pick + production, never FantasyPros. With the board off,
+  nothing is served and no blue chip is added to his untouchables; only the
+  floor reads the scores. A test checks the scores match with the board on and
+  off.
+- No score source still fails closed: nothing is searched, and the card says
+  there is no player score this run.
+- Fixtures: the made-up campaign league scores every player 90, so it plans as
+  before; `producer-plans.json` changes only by the added
+  `_run.inputs.gets_floor` blocks (regenerated with its script). The made-up
+  speed league gets a made-up draft in value order, so its best players score
+  83+. Without that draft nobody could reach 83, and the floor correctly
+  emptied its deck: the 2 failures in the first full run.

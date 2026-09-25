@@ -3479,6 +3479,16 @@
       ],
       "refused_targets": []
      },
+     "gets_floor": {
+      "mode": "on",
+      "floor": 83,
+      "source": "player_score",
+      "checked": 7,
+      "passed": 7,
+      "dropped": 0,
+      "below": [],
+      "refused": []
+     },
      "requests": {
       "status": "not_read",
       "reason": "files only (no warroom_requests read)"
@@ -7004,6 +7014,16 @@
       "ids": [],
       "refused_targets": []
      },
+     "gets_floor": {
+      "mode": "on",
+      "floor": 83,
+      "source": "player_score",
+      "checked": 6,
+      "passed": 6,
+      "dropped": 0,
+      "below": [],
+      "refused": []
+     },
      "requests": {
       "status": "not_read",
       "reason": "files only (no warroom_requests read)"
@@ -10095,6 +10115,16 @@
       "ids": [],
       "refused_targets": []
      },
+     "gets_floor": {
+      "mode": "on",
+      "floor": 83,
+      "source": "player_score",
+      "checked": 7,
+      "passed": 7,
+      "dropped": 0,
+      "below": [],
+      "refused": []
+     },
      "requests": {
       "status": "not_read",
       "reason": "files only (no warroom_requests read)"
@@ -11479,6 +11509,16 @@
      "untouchable": {
       "ids": [],
       "refused_targets": []
+     },
+     "gets_floor": {
+      "mode": "on",
+      "floor": 83,
+      "source": "player_score",
+      "checked": 6,
+      "passed": 6,
+      "dropped": 0,
+      "below": [],
+      "refused": []
      },
      "requests": {
       "status": "not_read",

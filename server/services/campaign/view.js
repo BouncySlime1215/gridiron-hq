@@ -255,8 +255,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   const op = res.no_overpay ?? null;
   const cl = op?.closest && fin(op.closest.pct) ? op.closest : null;
   const closestText = cl ? `the closest is ${cl.give.map(nm).join(' + ')} for ${cl.get.map(nm).join(' + ')} at +${Math.max(1, Math.round(cl.pct * 100))}% market value (your cap: +${Math.round((op.max_overpay ?? 0) * 100)}%)` : null;
-  // GETS-FLOOR: with the floor on and no move, say first that the floor is what emptied the deck.
-  const gf = res.gets_floor?.mode === 'on' ? res.gets_floor : null;
+  // GETS-FLOOR (always on): with no move, say first when the floor is what emptied the deck.
+  const gf = res.gets_floor ?? null;
   const floorName = gf ? getsFloorName(gf.floor) : null;
   const floorText = !gf ? null
     : gf.source === 'none' ? `The ${floorName} is on but there is no player score this run, so no get can be certified.`

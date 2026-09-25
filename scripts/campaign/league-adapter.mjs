@@ -424,11 +424,11 @@ export function draftPicks(svc, lg) {
  * PLAYER-SCORE board for one league: every rostered player plus the top free agents, scored
  * (people/player-score.js), with the engine's market value (the value the planner prices
  * with) and FantasyPros' rest-of-season rank (people/fantasypros-ros.js, cached). Off: the
- * served section says so and nothing is protected.
+ * served section says so and nothing is protected, but byId still carries every score for the
+ * always-on GETS-FLOOR (campaign/gets-floor.js).
  */
 export function blueChipBoard(svc, lg, { rosters, players, assets, me, untouchable = new Set(), env = process.env }) {
   const flag = playerScoreFlag(env);
-  if (flag === 'off') return { served: { status: 'off', flag }, protect: new Set(), byId: new Map() };
   const owner = new Map();
   for (const [t, ids] of rosters) for (const id of ids) owner.set(String(id), t);
   const rostered = [...players.values()].filter(p => SCORE_SKILL.has(p.position)).map(p => ({ ...p, owner: owner.get(String(p.id)) ?? null }));
@@ -438,10 +438,17 @@ export function blueChipBoard(svc, lg, { rosters, players, assets, me, untouchab
       injury: p.injury, available: p.available, espn_id: p.espn_id ?? null, team_abbr: p.team_abbr ?? null, ros_basis: p.ros_basis ?? null, owner: null }));
   const universe = [...rostered, ...fa];
   const { picks, n, reason: pickReason } = draftPicks(svc, lg);
+  const allValues = [...assets.values()].filter(p => SCORE_SKILL.has(p.position)).map(p => ({ id: p.id, position: p.position, value: Number(p.value) || 0 }));
+  // GETS-FLOOR: the score (draft pick + production; FantasyPros never enters it) is always computed, because
+  // Nick's 83+ floor on every final get is always on. Off, nothing else happens: no FantasyPros read, no board
+  // served, and no blue chip added to his untouchables.
+  if (flag === 'off') {
+    const b = buildBoard(universe, { picks, nPicks: n, allValues, fp: { status: 'off', byId: new Map() }, me, untouchable });
+    return { served: { status: 'off', flag }, protect: new Set(), byId: new Map(b.rows.map(r => [r.player, r])) };
+  }
   let fp;
   try { fp = fpRosFor(svc.db, universe); } catch (e) { fp = { status: 'failed', reason: `FantasyPros read failed (${e.message})`, byId: new Map() }; }
   if (fp.status !== 'ok' && svc.fpSync?.status === 'failed') fp = { ...fp, reason: `${fp.reason} ${svc.fpSync.reason}` };
-  const allValues = [...assets.values()].filter(p => SCORE_SKILL.has(p.position)).map(p => ({ id: p.id, position: p.position, value: Number(p.value) || 0 }));
   const b = buildBoard(universe, { picks, nPicks: n, allValues, fp, me, untouchable });
   return {
     protect: b.protect,

@@ -112,6 +112,12 @@ export async function setupLeague({ teams = 10, perTeam = 16, regularWeeks = 14,
   leagueId, teams, JSON.stringify(['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX', ...(kdst ? ['K', 'D/ST'] : []), 'BE', 'BE']),
   JSON.stringify(payload), currentWeek);
 
+  // GETS-FLOOR (always on) needs a blue-chip score, which reads this league's draft: a made-up draft in value
+  // order, so the league's best players score 83+ and it plans as before.
+  db.exec('CREATE TABLE IF NOT EXISTS league_draft_picks (league_id INTEGER, season INTEGER, overall_pick INTEGER, player_id INTEGER)');
+  [...assets.values()].filter(p => p.position !== 'K' && p.position !== 'DEF').sort((a, b) => b.value - a.value)
+    .forEach((p, i) => run('INSERT INTO league_draft_picks (league_id, season, overall_pick, player_id) VALUES (?, 2026, ?, ?)', leagueId, i + 1, p.espn_id));
+
   // A fresh season-sim instance that sees the mocks (the plain one was loaded, unmocked, by
   // the trade-engine import above), then point everything else at it (RL-19-2's recipe).
   const sim = await import('../../server/services/season-sim.js?producer-speed');

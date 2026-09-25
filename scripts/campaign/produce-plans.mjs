@@ -343,8 +343,8 @@ export async function buildPlansFile(leagues, {
           counterpart: counterpart ? { ...counterpart, models: res.counterpart?.models ?? [] } : { status: 'not_read' },
           // Nick's untouchables (the reader's nick block): ids excluded from targets, gets and flip legs.
           untouchable: res.untouchable ?? { ids: [], refused_targets: [] },
-          // GETS-FLOOR (on or shadow): the final-get floor, its score source and what it dropped or would drop.
-          ...(res.gets_floor && res.gets_floor.mode !== 'off' ? { gets_floor: res.gets_floor } : {}),
+          // GETS-FLOOR (always on): the final-get floor, its score source and what it dropped.
+          ...(res.gets_floor ? { gets_floor: res.gets_floor } : {}),
           requests: ins.summary,
           deadline: adapter.league?.deadline_source ?? null, objective: objective.source,
           // Off and untriggered, the entry is byte-for-byte the incumbent's (the committed contract fixture).

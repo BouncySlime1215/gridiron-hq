@@ -8,25 +8,15 @@
  * validated cutoff). With no score source, or no score for a player, the floor fails closed: an
  * unscored player is never certified as a Blue chip.
  *
- * Flag GRIDIRON_GETS_FLOOR: '1' enforces (targets under the floor are dropped before the top-N
- * slice, so the next Blue chip takes the slot); 'shadow' reads every searched target and counts it
- * as would-drop while nothing served moves; unset or '0' is off (the producer's entry stays byte for
- * byte the incumbent's, the committed contract fixture). Pure: the env arrives as planner settings.
+ * Always on, no flag (Nick 9/24: his rules are hard filters, on by default, never behind a
+ * flag). Targets under the floor are dropped before the top-N slice, so the next Blue chip takes
+ * the slot. Pure: the planner hands in the adapter and the destination's tolerances.
  */
 
-export const GETS_FLOOR_ENV = 'GRIDIRON_GETS_FLOOR';
 /** Nick's floor for the final get: Blue chip, 83+ (10b.2). */
 export const DEFAULT_GET_FLOOR = 83;
 /** How many under-floor reads the run keeps by name (the counts cover all of them). */
 const BELOW_KEPT = 20;
-
-/** 'on' | 'shadow' | 'off'. */
-export function getsFloorFlag(env = {}) {
-  const v = env?.[GETS_FLOOR_ENV];
-  if (v === '1') return 'on';
-  if (v === 'shadow') return 'shadow';
-  return 'off';
-}
 
 /** The destination's min_get_score may only RAISE the floor (Nick's 83 is the least); anything else is the default. */
 export function getFloorOf(tol) {
@@ -50,16 +40,14 @@ export function floorRead(scoreOf, pid, floor) {
 
 /**
  * The planner's floor for one league run. keep(pid): whether a player may be a final get (a target,
- * a 1-for-2 filler on the final leg, a flip's leg-2 player); always true unless the flag is on. Every
- * read is counted once per player, so `dropped` (on) and `would_drop` (shadow, which reads the same
- * candidates as on) count every candidate get the floor skipped. refuse(pid): a target Nick named.
+ * a 1-for-2 filler on the final leg, a flip's leg-2 player). Every read is counted once per player,
+ * so `dropped` counts every candidate get the floor skipped. refuse(pid): a target Nick named.
  */
-export function makeGetsFloor(adapter, { env = {}, tolerances = null } = {}) {
-  const mode = getsFloorFlag(env);
+export function makeGetsFloor(adapter, { tolerances = null } = {}) {
   const floor = getFloorOf(tolerances);
   const scoreOf = typeof adapter?.scoreOf === 'function' ? adapter.scoreOf : null;
-  const sink = { mode, floor, source: scoreOf ? 'player_score' : 'none', checked: 0, passed: 0,
-    dropped: 0, would_drop: 0, below: [], refused: [] };
+  const sink = { mode: 'on', floor, source: scoreOf ? 'player_score' : 'none', checked: 0, passed: 0,
+    dropped: 0, below: [], refused: [] };
   const seen = new Map();
   const read = pid => {
     const k = String(pid);
@@ -70,7 +58,7 @@ export function makeGetsFloor(adapter, { env = {}, tolerances = null } = {}) {
       if (r.passes) sink.passed++;
       else {
         if (sink.below.length < BELOW_KEPT) sink.below.push(r);
-        if (mode === 'on') sink.dropped++; else sink.would_drop++;
+        sink.dropped++;
       }
     }
     return seen.get(k);
@@ -78,10 +66,10 @@ export function makeGetsFloor(adapter, { env = {}, tolerances = null } = {}) {
   return {
     sink,
     read,
-    keep: pid => (mode === 'off' ? true : read(pid).passes || mode !== 'on'),
+    keep: pid => read(pid).passes,
     refuse: pid => {
       const r = read(pid);
-      if (mode === 'on' && !r.passes && !sink.refused.some(x => x.player === r.player)) sink.refused.push(r);
+      if (!r.passes && !sink.refused.some(x => x.player === r.player)) sink.refused.push(r);
     },
   };
 }

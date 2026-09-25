@@ -120,12 +120,11 @@ export function planLeague(adapter, settings) {
   // An adapter may carry its own cap (adapter.maxOverpay; the pre-cap test fixtures set Infinity); the destination's wins.
   const maxOverpay = maxOverpayOf({ max_overpay: objective.tolerances?.max_overpay ?? adapter.maxOverpay });
   const overpay = newOverpaySink(maxOverpay);
-  // GETS-FLOOR (flag GRIDIRON_GETS_FLOOR: 1 on, shadow, unset off): the final get must score 83+ on the blue-chip
-  // score. On, a target under the floor is never searched and the next one that passes takes its slot.
-  const floor = makeGetsFloor(adapter, { env, tolerances: objective.tolerances });
-  const floorOn = floor.sink.mode === 'on';
-  // Every final get (targets, final-leg fillers, flip leg 2) passes through this; null when off.
-  const getOk = floor.sink.mode === 'off' ? null : floor.keep;
+  // GETS-FLOOR (always on, Nick's rule): every final get must score 83+ on the blue-chip score. A target
+  // under the floor is never searched and the next one that passes takes its slot; no score fails closed.
+  const floor = makeGetsFloor(adapter, { tolerances: objective.tolerances });
+  // Every final get (targets, final-leg fillers, flip leg 2) passes through this.
+  const getOk = floor.keep;
   const vals = playerValues(S, adapter, objective);
   mark('values');
   const flip = flipMap(S, adapter, vals, { topPer: budget.flipTopPer, realise: budget.flipRealise, maxOverpay, getOk,
@@ -143,25 +142,21 @@ export function planLeague(adapter, settings) {
   const untouchable = adapter.untouchable ?? new Set();
   const refused = [];
   const wanted = [];
-  // Shadow scans the same candidates as on (so would_drop matches on's dropped) and serves the unfloored list.
   const floored = n => {
-    if (floor.sink.mode === 'off') return upgrades.slice(0, n);
     const out = [];
-    for (const pid of upgrades) { if (out.length >= n) break; if (floor.read(pid).passes) out.push(pid); }
-    return floorOn ? out : upgrades.slice(0, n);
+    for (const pid of upgrades) { if (out.length >= n) break; if (floor.keep(pid)) out.push(pid); }
+    return out;
   };
   const want = (pid, named = false) => {
     if (pid == null) return;
     if (untouchable.has(String(pid))) { if (!refused.includes(String(pid))) refused.push(String(pid)); return; }
-    if (named && floorOn && !floor.keep(pid)) { floor.refuse(pid); return; }
+    if (named && !floor.keep(pid)) { floor.refuse(pid); return; }
     if (!wanted.some(w => String(w) === String(pid))) wanted.push(pid);
   };
   const idOf = s => [...adapter.players.keys()].find(k => String(k) === String(s)) ?? null;
   if (objective.kind === 'player') want(idOf(objective.target), true);
   for (const st of objective.stops) if (st.kind === 'get') want(idOf(st.player), true);
   for (const pid of floored(budget.targets)) want(pid);
-  // Shadow: read what is searched, count what the floor would drop, change nothing.
-  if (floor.sink.mode === 'shadow') for (const pid of wanted) floor.keep(pid);
 
   let plans = [];
   for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay, getOk }));

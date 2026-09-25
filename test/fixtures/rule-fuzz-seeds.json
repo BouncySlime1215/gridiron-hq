@@ -5,6 +5,11 @@
     "count": 300
   },
   "gate_seed": 20260925,
+  "claims_sweep": {
+    "about": "FLIP-CLAIMS: seeds planned with SEARCH-WIDE on over leagues with a free-agent pool (makeFuzzLeague(seed, { claims: true })).",
+    "base": 1,
+    "count": 40
+  },
   "recorded": [
     {
       "seed": 1,

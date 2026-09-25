@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react';
+import { useApi } from '../../api';
+import { Avatar, Chip } from '../ui/DesignSystem';
 import { Link } from 'react-router-dom';
 import { api } from '../../api';
 import { PageError, PageLoading } from '../PageState';
 import { logServerDetail, sanitizedMessage } from '../../lib/errorSanitize';
 import {
-  TIERS, TIER_SHORT, TIER_STYLE, MIN_OBSERVATIONS, isThin, asText, metricLabel
+  TIERS, TIER_SHORT, MIN_OBSERVATIONS, isThin, asText, metricLabel
 } from './types';
 import type {
   ManagerSignal, ProfileManager, ProfilesResponse, SignalManager, SignalsResponse, Tier
@@ -22,9 +24,33 @@ import type {
  * every missing layer names itself and says what would produce it.
  */
 
-const CHAT_FIX = 'The chat layer comes from the private league-chat database. Pull it from '
-  + 'Settings; the archetype and outcome metrics come from the manager-archetype build '
-  + '(scripts/build-manager-archetypes.mjs) and refresh on the normal league sync.';
+const TIER_TINY: Record<Tier, string> = { fair: 'Fair', hard: 'Hard', never: 'Never' };
+
+type PulseItem = { id: number; roster_id: number; phrase: string; credible: boolean; ago: string };
+
+/** The measured answers worth one line: only a basis that read him (not a prior), in plain words. */
+const LEAN: Record<string, string> = { rb_heavy: 'likes RBs', wr_heavy: 'likes WRs', qb_early: 'takes QBs early', te_early: 'takes TEs early', balanced: 'balanced drafter' };
+function oneLine(signal: SignalManager | null): string | null {
+  const answers = ((signal as any)?.model_read?.answers ?? []) as { question: string; measured?: boolean; top?: { outcome: string } }[];
+  const bits: string[] = [];
+  const lean = answers.find(a => a.question === 'position_bias' && a.measured && a.top);
+  if (lean?.top && LEAN[lean.top.outcome]) bits.push(LEAN[lean.top.outcome]);
+  const style = answers.find(a => a.question === 'trade_style' && a.measured && a.top);
+  if (style?.top) bits.push(style.top.outcome === 'never' ? 'rarely trades' : style.top.outcome === 'often' ? 'trades often' : `trades ${style.top.outcome}`);
+  const rec = (signal?.receptiveness ?? {}) as Record<string, any>;
+  if (typeof rec.accept_rate === 'number' && rec.accept_rate_n > 0) bits.push(`accepted ${Math.round(rec.accept_rate * 100)}% of ${rec.accept_rate_n} offers`);
+  if (signal?.corpus && typeof rec.trade_talk_pct === 'number' && rec.chat_msgs > 0) bits.push(rec.trade_talk_pct > 0.5 ? 'talks trade in chat' : 'quiet in chat');
+  return bits.length ? bits.join(' · ') : null;
+}
+
+/** How readily he says yes, from receptiveness (1 = league average), with what it rests on. */
+function yesTendency(signal: SignalManager | null): { label: string; basis: string } | null {
+  const rec = (signal?.receptiveness ?? {}) as Record<string, any>;
+  if (typeof rec.value !== 'number') return null;
+  const label = rec.value >= 1.1 ? 'says yes more than most' : rec.value <= 0.9 ? 'says yes less than most' : 'says yes about as often as most';
+  const basis = rec.priced_by === 'default' || rec.tier_is_assumption ? 'assumed' : String(rec.priced_by ?? 'measured');
+  return { label, basis };
+}
 
 /** One measured number, or an honest statement that it is not one yet. */
 function SignalRow({ signal }: { signal: ManagerSignal }) {
@@ -98,9 +124,9 @@ function ReceptivenessFactors({ factors }: { factors: BoardFactor[] }) {
   );
 }
 
-function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive }: {
+function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive, pulse }: {
   profile: ProfileManager; signal: SignalManager | null; leagueId: number;
-  onSaved: () => void; signalsLive: boolean;
+  onSaved: () => void; signalsLive: boolean; pulse: PulseItem[] | null;
 }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -127,26 +153,38 @@ function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive }: {
   const factors = (Array.isArray(rawFactors) ? rawFactors : []) as BoardFactor[];
   const priceable = shown.filter(s => !isThin(s));
 
+  const read = oneLine(signal);
+  const yes = yesTendency(signal);
+  const chatter = (pulse ?? []).filter(p => String(p.roster_id) === String(profile.roster_id)).slice(0, 2);
   return (
-    <div className="border-b border-slate-100 p-3 last:border-0">
+    <article className="px-4 py-3" data-testid="manager-card">
       <div className="flex flex-wrap items-center gap-3">
+        <Avatar name={owner} size={36} />
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-bold text-slate-900">{owner}</div>
-          <div className="text-[11px] text-slate-400">
-            {profile.is_set ? 'Set by you' : 'Default — assumed tradeable'}
-          </div>
+          <div className="truncate font-semibold">{owner}</div>
+          <div className="ds-note truncate">{read ?? (profile.is_set ? 'Your read, set by you' : 'No measured read yet')}</div>
         </div>
-        <div className="flex flex-wrap gap-1" role="group" aria-label={`Tradeability for ${owner}`}>
+        {/* One segmented control: how Nick reads him. Drives the finder and the planner's partners. */}
+        <div className="ds-tabs" role="radiogroup" aria-label={`Tradeability for ${owner}`}>
           {TIERS.map(t => (
-            <button key={t} type="button" onClick={() => set(t)} disabled={saving}
-              aria-pressed={profile.tradeability === t}
-              className={`rounded-lg px-2.5 py-1.5 text-xs font-bold ring-1 transition disabled:opacity-50 ${
-                profile.tradeability === t ? TIER_STYLE[t] : 'bg-white text-slate-500 ring-slate-200 hover:bg-slate-50'}`}>
-              {TIER_SHORT[t]}
-            </button>
+            <button key={t} type="button" role="radio" aria-checked={profile.tradeability === t} onClick={() => set(t)} disabled={saving}
+              className="ds-tab !px-3 !text-xs" aria-selected={profile.tradeability === t}
+              title={saving ? 'Saving your read' : `Mark ${owner}: ${TIER_SHORT[t].toLowerCase()}`}>
+              <span className="hidden sm:inline">{TIER_SHORT[t]}</span><span className="sm:hidden">{TIER_TINY[t]}</span></button>
           ))}
         </div>
       </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2 pl-12 text-xs">
+        {yes && <span className="text-slate-700">{yes.label}</span>}
+        {yes && <Chip tone={yes.basis === 'assumed' ? 'neutral' : 'accent'} title="What this read rests on">{yes.basis}</Chip>}
+        {profile.notes && <span className="ds-note">· {profile.notes}</span>}
+      </div>
+      {chatter.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5 pl-12" aria-label={`Recent chatter from ${owner}`} data-testid="manager-chatter">
+          {chatter.map(c => <li key={c.id} className="truncate text-xs text-slate-600" title={c.credible ? 'Credible: he has followed through before' : 'A label only; no proven follow-through'}>
+            “{c.phrase}” <span className="text-slate-500">· {c.ago}</span></li>)}
+        </ul>
+      )}
 
       {saveError && (
         <div className="mt-2">
@@ -154,17 +192,11 @@ function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive }: {
         </div>
       )}
 
-      {profile.notes && <p className="mt-1.5 text-[12px] leading-5 text-slate-600">{profile.notes}</p>}
-
-      {/* The measured layer. Only rendered as a panel when there is something
-          in it; otherwise the row says what is missing in one line, which is
-          the honest answer for four of the five leagues. */}
+      {/* The measured layer, folded into the card: what was read about him, with its sample. */}
       {signalsLive && signal && (signal.corpus || shown.length || signal.archetype) ? (
-        // Folded by default (Trades → People): one line per manager, the measured detail opens under it.
-        <details className="ds-fold mt-2.5" data-testid="manager-measured">
-          <summary className="ds-fold-s !py-2.5"><span className="ds-fold-t !text-sm">What we measured</span>
-            <span className="ds-fold-h">{[signal.archetype && 'archetype', signal.receptiveness && 'receptiveness', shown.length ? `${shown.length} signal${shown.length === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ') || 'no measured signal yet'}</span></summary>
-        <div className="ds-fold-b">
+        <details className="mt-2 pl-12" data-testid="manager-measured">
+          <summary className="ds-note cursor-pointer">What we measured · {[signal.archetype && 'archetype', signal.receptiveness && 'receptiveness', shown.length ? `${shown.length} signal${shown.length === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ') || 'no measured signal yet'}</summary>
+          <div className="mt-2 rounded-[var(--r-tile)] bg-[var(--c-soft)] p-3">
           <div className="grid gap-3 sm:grid-cols-3">
             <Read label="Archetype" value={signal.archetype} />
             <div>
@@ -195,15 +227,15 @@ function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive }: {
               {MIN_OBSERVATIONS} observations or marked descriptive-only.
             </p>
           )}
-        </div>
+          </div>
         </details>
       ) : (
-        <p className="mt-2 text-[11px] leading-5 text-slate-500">
+        <p className="mt-2 pl-12 text-[11px] leading-5 text-slate-500">
           Nothing measured about this manager. The tier above is the only read we have,
           and it is yours, not a measurement.
         </p>
       )}
-    </div>
+    </article>
   );
 }
 
@@ -241,7 +273,7 @@ function SignalsGap({ title, reason, onRetry }: { title: string; reason: string;
       <p className="mt-1 text-sm leading-6 text-slate-600">
         The tiers below still work and still drive the trade finder — they are hand-set, not measured.
       </p>
-      <p className="mt-1 text-xs leading-5 text-slate-500">To fix: {CHAT_FIX}</p>
+      <p className="mt-1 text-xs leading-5 text-slate-500">What fills it, and where each read comes from: Settings → AI &amp; developer.</p>
       <p className="mt-1 text-xs leading-5 text-slate-500">
         Four of the five connected leagues have no chat corpus at all, so this is the normal
         state for most of them rather than a fault.
@@ -257,6 +289,9 @@ export default function ManagerBoard({ leagueId, profiles, signals }: {
   signals: { data: SignalsResponse | null; loading: boolean; error: string | null; refetch: () => void };
 }) {
   const signalsLive = !!signals.data && signals.data.available === true && !signals.data.error;
+  const [allManagers, setAllManagers] = useState(false);
+  // The chat pulse, per manager (their recent statements), instead of a strip across the page.
+  const pulse = useApi<{ enabled: boolean; items?: PulseItem[] }>(`/trades/${leagueId}/people/pulse`, { staleTime: 60_000 });
   const byRoster = useMemo(() => new Map(
     (signals.data?.managers ?? []).map(m => [String(m.roster_id), m])
   ), [signals.data]);
@@ -266,13 +301,7 @@ export default function ManagerBoard({ leagueId, profiles, signals }: {
 
   return (
     <div className="space-y-4">
-      <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700">
-        You know things about these people that no model can find in the data — no fantasy league
-        holds enough trade history to learn it. Set each one here and the trade finder re-ranks
-        around it. Anyone marked <b>never trades</b> is dropped from planning entirely rather than
-        shown at the bottom of a list. Beside your read is the measured one, with the sample size
-        it rests on.
-      </p>
+      <p className="ds-note">Your read of each manager re-ranks the finder; anyone you mark <b>never trades</b> is left out of planning.</p>
 
       {/* Two independent reads: a missing or degraded signals layer must never
           take the hand-set tiers, which are the half that always works, off
@@ -301,39 +330,11 @@ export default function ManagerBoard({ leagueId, profiles, signals }: {
       )}
 
       {signalsLive && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-4">
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-700">Where these numbers come from</h2>
-          <p className="mt-1 text-[12px] leading-5 text-slate-500">
-            Computed {signals.data?.computed_at ?? 'at an unrecorded time'} ·{' '}
-            {byRoster.size} manager{byRoster.size === 1 ? '' : 's'} read ·{' '}
-            {[...byRoster.values()].filter(m => m.corpus).length} with a chat corpus
-          </p>
-          {!!signals.data?.sources && Object.keys(signals.data.sources).length > 0 && (
-            <ul className="mt-2 space-y-0.5">
-              {Object.entries(signals.data.sources).map(([key, meta]) => (
-                <li key={key} className="text-[11px] leading-5 text-slate-600">
-                  <b className="text-slate-800">{key}</b> — {asText(meta)}
-                </li>
-              ))}
-            </ul>
-          )}
-          {!!signals.data?.identity_warnings?.length && (
-            <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
-              <div className="text-[11px] font-black uppercase tracking-wide text-amber-900">
-                Identity is not certain for every manager
-              </div>
-              <ul className="mt-1 space-y-0.5">
-                {signals.data.identity_warnings.map((w, i) => (
-                  <li key={i} className="text-[11px] leading-5 text-amber-900">{asText(w)}</li>
-                ))}
-              </ul>
-              <p className="mt-1 text-[11px] leading-5 text-amber-800">
-                A chat signal attached to the wrong person is worse than no signal, so these are
-                named rather than quietly priced.
-              </p>
-            </div>
-          )}
-        </section>
+        <p className="ds-note" data-testid="people-source">
+          Measured from rosters, results, drafts{[...byRoster.values()].some(m => m.corpus) ? ' and league chat' : ''}
+          {signals.data?.computed_at ? ` · updated ${new Date(signals.data.computed_at).toLocaleDateString()}` : ''}
+          {(signals.data?.identity_warnings?.length ?? 0) > 0 ? ' · some names matched by hand' : ''}
+        </p>
       )}
 
       {/* The hand-set tiers. */}
@@ -354,12 +355,14 @@ export default function ManagerBoard({ leagueId, profiles, signals }: {
       )}
 
       {!!others.length && (
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-          {others.map(m => (
+        <div className="ds-card ds-rows overflow-hidden">
+          {(allManagers ? others : others.slice(0, 5)).map(m => (
             <ManagerRow key={m.roster_id} profile={m} leagueId={leagueId} signalsLive={signalsLive}
-              signal={byRoster.get(String(m.roster_id)) ?? null}
+              signal={byRoster.get(String(m.roster_id)) ?? null} pulse={pulse.data?.enabled ? pulse.data.items ?? [] : null}
               onSaved={profiles.refetch} />
           ))}
+          {others.length > 5 && <button type="button" className="w-full py-2 text-xs font-semibold text-[var(--c-accent)]" onClick={() => setAllManagers(v => !v)}>
+            {allManagers ? 'Show fewer' : `Show all ${others.length} managers`}</button>}
         </div>
       )}
 

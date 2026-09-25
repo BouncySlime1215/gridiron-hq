@@ -1,0 +1,392 @@
+{
+ "version": "exgb-lock-v1",
+ "selected_at": "2026-09-25T15:35:21+00:00",
+ "rule": "rolling-origin folds validate 2023/2024/2025 on earlier seasons; lowest mean validation MAE",
+ "seed": 20260925,
+ "learning_rate": 0.05,
+ "fixed": "subsample 0.8, colsample 0.8, hist, n_jobs 2",
+ "grids": {
+  "xgb": [
+   {
+    "objective": "reg:squarederror",
+    "max_depth": 3,
+    "min_child_weight": 5
+   },
+   {
+    "objective": "reg:squarederror",
+    "max_depth": 3,
+    "min_child_weight": 20
+   },
+   {
+    "objective": "reg:squarederror",
+    "max_depth": 4,
+    "min_child_weight": 5
+   },
+   {
+    "objective": "reg:squarederror",
+    "max_depth": 4,
+    "min_child_weight": 20
+   },
+   {
+    "objective": "reg:squarederror",
+    "max_depth": 5,
+    "min_child_weight": 5
+   },
+   {
+    "objective": "reg:squarederror",
+    "max_depth": 5,
+    "min_child_weight": 20
+   },
+   {
+    "objective": "reg:absoluteerror",
+    "max_depth": 3,
+    "min_child_weight": 5
+   },
+   {
+    "objective": "reg:absoluteerror",
+    "max_depth": 3,
+    "min_child_weight": 20
+   },
+   {
+    "objective": "reg:absoluteerror",
+    "max_depth": 4,
+    "min_child_weight": 5
+   },
+   {
+    "objective": "reg:absoluteerror",
+    "max_depth": 4,
+    "min_child_weight": 20
+   },
+   {
+    "objective": "reg:absoluteerror",
+    "max_depth": 5,
+    "min_child_weight": 5
+   },
+   {
+    "objective": "reg:absoluteerror",
+    "max_depth": 5,
+    "min_child_weight": 20
+   }
+  ],
+  "lgbm": [
+   {
+    "objective": "l2",
+    "num_leaves": 7,
+    "min_child_samples": 20
+   },
+   {
+    "objective": "l2",
+    "num_leaves": 7,
+    "min_child_samples": 50
+   },
+   {
+    "objective": "l2",
+    "num_leaves": 15,
+    "min_child_samples": 20
+   },
+   {
+    "objective": "l2",
+    "num_leaves": 15,
+    "min_child_samples": 50
+   },
+   {
+    "objective": "l2",
+    "num_leaves": 31,
+    "min_child_samples": 20
+   },
+   {
+    "objective": "l2",
+    "num_leaves": 31,
+    "min_child_samples": 50
+   },
+   {
+    "objective": "l1",
+    "num_leaves": 7,
+    "min_child_samples": 20
+   },
+   {
+    "objective": "l1",
+    "num_leaves": 7,
+    "min_child_samples": 50
+   },
+   {
+    "objective": "l1",
+    "num_leaves": 15,
+    "min_child_samples": 20
+   },
+   {
+    "objective": "l1",
+    "num_leaves": 15,
+    "min_child_samples": 50
+   },
+   {
+    "objective": "l1",
+    "num_leaves": 31,
+    "min_child_samples": 20
+   },
+   {
+    "objective": "l1",
+    "num_leaves": 31,
+    "min_child_samples": 50
+   }
+  ]
+ },
+ "features": [
+  "lag1_ppr",
+  "trail3_ppr",
+  "trail5_ppr",
+  "lag1_targets",
+  "trail3_targets",
+  "trail5_targets",
+  "lag1_carries",
+  "trail3_carries",
+  "trail5_carries",
+  "lag1_receptions",
+  "trail3_receptions",
+  "trail5_receptions",
+  "lag1_target_share",
+  "trail3_target_share",
+  "trail5_target_share",
+  "lag1_air_yards_share",
+  "trail3_air_yards_share",
+  "trail5_air_yards_share",
+  "lag1_wopr",
+  "trail3_wopr",
+  "trail5_wopr",
+  "lag1_receiving_air_yards",
+  "trail3_receiving_air_yards",
+  "trail5_receiving_air_yards",
+  "lag1_attempts",
+  "trail3_attempts",
+  "trail5_attempts",
+  "lag1_snap_pct",
+  "trail3_snap_pct",
+  "trail5_snap_pct",
+  "lag1_rz_share",
+  "trail3_rz_share",
+  "trail5_rz_share",
+  "lag1_xfp",
+  "trail3_xfp",
+  "trail5_xfp",
+  "std_ppr",
+  "n_games_std",
+  "prev_season_ppg",
+  "prev_season_games",
+  "missed_last_team_game",
+  "team_implied",
+  "team_spread",
+  "game_total",
+  "line_src",
+  "home",
+  "inj_status",
+  "inj_dnp",
+  "opp_allowed_pos_trail",
+  "opp_allowed_pos_prev_season",
+  "week"
+ ],
+ "b2_extra_feature": "espn_proj",
+ "b2_pretraining": "RETROSPECTIVE ESPN 2022-2025 (labelled proxy, fetched 2026-09-25)",
+ "code_sha256": {
+  "exgb_panel.py": "df91a3ee2e43bfc9a091298990ed2bb2dd87c90e465a3fc07e03f2c8d1d85300",
+  "exgb_arms.py": "3e64869db47d62f85fc29052dd846ccdd8b3df6dc0996155170cefde76ea3fbd",
+  "exgb_shadow.py": "8e96b9b3036c45a8225a83807061d03ecbbaba5894bcd20e8b9e088fc59ceda0"
+ },
+ "positions": {
+  "QB": {
+   "A_xgb": {
+    "params": {
+     "objective": "reg:absoluteerror",
+     "max_depth": 4,
+     "min_child_weight": 5
+    },
+    "n_estimators": 167,
+    "mean_val_mae": 5.1047,
+    "fold_mae": [
+     5.2999,
+     4.9672,
+     5.0469
+    ]
+   },
+   "A_lgbm": {
+    "params": {
+     "objective": "l1",
+     "num_leaves": 7,
+     "min_child_samples": 20
+    },
+    "n_estimators": 117,
+    "mean_val_mae": 4.9177,
+    "fold_mae": [
+     5.0925,
+     4.7839,
+     4.8768
+    ]
+   },
+   "B2_residual_xgb": {
+    "params": {
+     "objective": "reg:absoluteerror",
+     "max_depth": 3,
+     "min_child_weight": 20
+    },
+    "n_estimators": 13,
+    "mean_val_mae": 4.0392,
+    "fold_mae": [
+     4.1639,
+     3.9348,
+     4.0187
+    ]
+   },
+   "espn_retro_val_mae_by_season": {
+    "2023": 4.1781,
+    "2024": 3.9495,
+    "2025": 4.019
+   }
+  },
+  "RB": {
+   "A_xgb": {
+    "params": {
+     "objective": "reg:absoluteerror",
+     "max_depth": 4,
+     "min_child_weight": 5
+    },
+    "n_estimators": 179,
+    "mean_val_mae": 3.7293,
+    "fold_mae": [
+     3.779,
+     3.6969,
+     3.7121
+    ]
+   },
+   "A_lgbm": {
+    "params": {
+     "objective": "l1",
+     "num_leaves": 15,
+     "min_child_samples": 20
+    },
+    "n_estimators": 109,
+    "mean_val_mae": 3.641,
+    "fold_mae": [
+     3.6816,
+     3.6033,
+     3.6381
+    ]
+   },
+   "B2_residual_xgb": {
+    "params": {
+     "objective": "reg:absoluteerror",
+     "max_depth": 3,
+     "min_child_weight": 5
+    },
+    "n_estimators": 59,
+    "mean_val_mae": 3.3436,
+    "fold_mae": [
+     3.3595,
+     3.2339,
+     3.4375
+    ]
+   },
+   "espn_retro_val_mae_by_season": {
+    "2023": 3.4627,
+    "2024": 3.3145,
+    "2025": 3.5351
+   }
+  },
+  "WR": {
+   "A_xgb": {
+    "params": {
+     "objective": "reg:absoluteerror",
+     "max_depth": 4,
+     "min_child_weight": 20
+    },
+    "n_estimators": 150,
+    "mean_val_mae": 3.7307,
+    "fold_mae": [
+     3.8103,
+     3.8544,
+     3.5275
+    ]
+   },
+   "A_lgbm": {
+    "params": {
+     "objective": "l1",
+     "num_leaves": 15,
+     "min_child_samples": 50
+    },
+    "n_estimators": 158,
+    "mean_val_mae": 3.6424,
+    "fold_mae": [
+     3.7534,
+     3.7533,
+     3.4206
+    ]
+   },
+   "B2_residual_xgb": {
+    "params": {
+     "objective": "reg:absoluteerror",
+     "max_depth": 3,
+     "min_child_weight": 5
+    },
+    "n_estimators": 107,
+    "mean_val_mae": 3.4223,
+    "fold_mae": [
+     3.5713,
+     3.443,
+     3.2525
+    ]
+   },
+   "espn_retro_val_mae_by_season": {
+    "2023": 3.6959,
+    "2024": 3.5476,
+    "2025": 3.4066
+   }
+  },
+  "TE": {
+   "A_xgb": {
+    "params": {
+     "objective": "reg:absoluteerror",
+     "max_depth": 3,
+     "min_child_weight": 5
+    },
+    "n_estimators": 202,
+    "mean_val_mae": 2.8882,
+    "fold_mae": [
+     2.8966,
+     2.877,
+     2.891
+    ]
+   },
+   "A_lgbm": {
+    "params": {
+     "objective": "l1",
+     "num_leaves": 7,
+     "min_child_samples": 20
+    },
+    "n_estimators": 172,
+    "mean_val_mae": 2.8109,
+    "fold_mae": [
+     2.8345,
+     2.7874,
+     2.8108
+    ]
+   },
+   "B2_residual_xgb": {
+    "params": {
+     "objective": "reg:absoluteerror",
+     "max_depth": 3,
+     "min_child_weight": 20
+    },
+    "n_estimators": 58,
+    "mean_val_mae": 2.6812,
+    "fold_mae": [
+     2.6459,
+     2.6407,
+     2.7569
+    ]
+   },
+   "espn_retro_val_mae_by_season": {
+    "2023": 2.7356,
+    "2024": 2.6795,
+    "2025": 2.8286
+   }
+  }
+ }
+}

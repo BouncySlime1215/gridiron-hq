@@ -37,3 +37,35 @@ export function fcValues(db) {
 
 /** One player's FantasyCalc value, or null (fail closed: never a fallback number). */
 export const fcValueOf = (fc, id) => (fc?.byId?.has(String(id)) ? fc.byId.get(String(id)) : null);
+
+/**
+ * RADAR-WIRE (#405 review finding 2): the FORMAT-AWARE FantasyCalc value and 30-day trend for one
+ * league format (`dynasty_values`, written per league format by routes/aggregates.js). The
+ * `player_metrics` fc_value / fc_trend30 rows are one league-agnostic set priced for the FIRST
+ * league's settings, so a label read from them in another league (8 vs 10 teams, 1QB vs SF) is
+ * another format's trend. Same fail-closed rules as fcValues: no row, no value; never a fallback.
+ * value = redraft_value (the number player_metrics' fc_value holds for league 1's format).
+ *
+ * -> { status: 'ok' | 'empty' | 'table_absent' | 'no_format' | 'error', reason?, format_key, byId: Map<id, { value, trend30 }> }
+ */
+export function fcFormatValues(db, formatKey) {
+  const base = { source: "FantasyCalc value by league format (dynasty_values)", format_key: formatKey ?? null, byId: new Map() };
+  if (formatKey == null) return { ...base, status: 'no_format', reason: 'no league format key, so no format-aware value' };
+  try {
+    const t = db.rows(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'dynasty_values'`);
+    if (!t.length) return { ...base, status: 'table_absent', reason: 'dynasty_values is not on this database' };
+    const rows = db.rows(`SELECT player_id, redraft_value, trend30 FROM dynasty_values
+      WHERE format_key = ? AND retired_at IS NULL`, formatKey);
+    const byId = new Map();
+    for (const r of rows) {
+      const v = Number(r.redraft_value);
+      if (r.redraft_value == null || !Number.isFinite(v) || v < 0) continue;
+      const t30 = r.trend30 == null ? null : Number(r.trend30);
+      byId.set(String(r.player_id), { value: v, trend30: Number.isFinite(t30) ? t30 : null });
+    }
+    if (!byId.size) return { ...base, status: 'empty', reason: `no FantasyCalc values on file for format ${formatKey}` };
+    return { ...base, status: 'ok', byId };
+  } catch (e) {
+    return { ...base, status: 'error', reason: `FantasyCalc format read failed: ${e?.message ?? String(e)}` };
+  }
+}

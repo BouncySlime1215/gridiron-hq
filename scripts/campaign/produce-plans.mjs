@@ -90,8 +90,11 @@ import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
 import { applyCoachMessages, coachMessagesOn } from '../../server/services/campaign/messages.js';
 import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
+import { loveIdsOf, loveSummary } from '../../server/services/campaign/love.js';
 import { reachFlag, REACH_TARGETS, droppedLine } from '../../server/services/campaign/reach.js';
 import { draftSummary } from '../../server/services/campaign/draft-capital.js';
+import { radarWireFlag, applyWhyNow, gradeLedger, newServeRows } from '../../server/services/campaign/why-now.js';
+import { fcFormatValues } from '../../server/services/fc-value.js';
 
 process.env.SCHEDULER_DISABLED = '1';
 
@@ -299,13 +302,16 @@ export function fileInputs(id, { objectiveRow = null, fileSkips = [] } = {}) {
  *         brain (FIX-05, optional): { read: readBrainReport result, applyBrainReport, numberHealth: id -> readNumberHealth result },
  *         leagueInputs (FIX-07, optional): (id, { objectiveRow, fileSkips }) -> { objective, weights, consume, summary }
  *           (requests.js#leagueInputs; default: the objectives/skips files alone),
- *         consumed (optional array): each league that ships pushes its `consume` here for requests.js#consumeWith }
+ *         consumed (optional array): each league that ships pushes its `consume` here for requests.js#consumeWith,
+ *         radarLedger (optional array): RADAR-WIRE's ledger rows (why-now.js#applyWhyNow) for each league that ships }
  * Without `brain`, brain_report and number_health are unknown "not read" and the requested mode is planned.
  */
 export async function buildPlansFile(leagues, {
   generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, env = {}, log = () => {},
   flags = null, brain = null, leagueInputs = fileInputs, consumed = null, twoForOne = 'off', trigger = null, model = null,
+  radarLedger = null,
 } = {}) {
+  const whyNow = radarWireFlag(env);
   const entries = [], best = new Map();
   for (const { id, load } of leagues) {
     const t0 = clock();
@@ -352,6 +358,8 @@ export async function buildPlansFile(leagues, {
           ...(res.gets_floor ? { gets_floor: res.gets_floor } : {}),
           // REACH-01: why every path died (per mode) and which targets the reach filter skipped.
           ...(res.reach ? { reach: res.reach } : {}),
+          // SEARCH-WIDE (GRIDIRON_SEARCH_WIDE=1 only): budget, what it used, what bound, laterals, claims, modes' first steps.
+          ...(res.search_wide ? { search_wide: res.search_wide } : {}),
           // CAP-1C: the depth-only 2-for-1 premium (screened, gated out by reason, confirm failures). Written only
           // when a blue-chip board turned it on, so with no board the entry is byte-for-byte the incumbent's.
           ...(res.no_overpay?.depth_premium?.board === 'on' ? { depth_premium: res.no_overpay.depth_premium } : {}),
@@ -367,6 +375,9 @@ export async function buildPlansFile(leagues, {
           ...(adapter.cacheStats?.() ? { rescore_cache: adapter.cacheStats() } : {}),
           // DRAFT-ID-MAP (shadow): join counts, only when GRIDIRON_DRAFT_ID_MAP gave the adapter a draft read.
           ...(adapter.draft ? { draft_id_map: draftSummary(adapter.draft) } : {}),
+          // LOVE-RULE (shadow, GRIDIRON_LOVE_TAG=1): BUY / PASS / AVOID on the players this entry shows.
+          // Read after planning, so it can never constrain the search; nothing served reads it.
+          ...(adapter.love ? { love: loveSummary(adapter.love(loveIdsOf(entry), { draft: adapter.draft?.by_player ?? null })) } : {}),
         };
       }
       // COACH-MSG (#306): grounded messages into the contract's existing slots, before the contract check.
@@ -376,10 +387,13 @@ export async function buildPlansFile(leagues, {
         if (entry._run) entry._run.inputs.coach_messages = { status: 'on', profiles: profiles?.size ?? 0, steps: msg.stats.steps,
           grounded: msg.stats.grounded, fallback: msg.stats.fallback, unpriced: msg.stats.unpriced, errors: msg.stats.errors.length };
       } else if (entry._run) entry._run.inputs.coach_messages = { status: 'off', reason: 'GRIDIRON_COACH_MESSAGES unset and preview off' };
+      // RADAR-WIRE: why-now labels on the flip rows (off: nothing written, byte-for-byte the incumbent).
+      const served = whyNow !== 'off' ? applyWhyNow(entry, adapter, { as_of: generated_at, flag: whyNow }) : [];
       const v = validateLeague(entry);
       if (!v.ok) throw new Error(`plans JSON failed its contract check: ${v.errors.slice(0, 3).map(e => `${e.path} ${e.message}`).join('; ')}`);
       if (res.best) best.set(String(id), res.best.expected);
       if (consumed && ins.consume) consumed.push(ins.consume);
+      if (radarLedger) radarLedger.push(...served);
     } catch (e) {
       log(`[warroom] league ${id}: ${e.stack ?? e}`);
       entry = failedEntry({ league: id, me: res?.me ?? prev?.me ?? null, error: String(e.message ?? e) });
@@ -400,6 +414,27 @@ export async function buildPlansFile(leagues, {
   const v = validatePlans(file);
   if (!v.ok) throw new Error(`plans file failed its contract check: ${v.errors.slice(0, 3).map(e => `${e.path} ${e.message}`).join('; ')}`);
   return file;
+}
+
+/**
+ * RADAR-WIRE: append this run's served rows to the RADAR-GRADE ledger (JSONL), then grade every row
+ * that is 14+ days old and append the grade rows. Unreadable lines are counted and reported, not hidden.
+ */
+export function appendRadarLedger(file, served, { valueNow, now = Date.now() } = {}) {
+  const rows = [];
+  let bad = 0;
+  if (fs.existsSync(file)) {
+    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      try { rows.push(JSON.parse(line)); } catch { bad++; }
+    }
+  }
+  // #405 finding 3: one serve row per flip per ISO week; a repeat run the same week appends nothing.
+  const fresh = newServeRows(rows, served);
+  const { graded, summary } = gradeLedger([...rows, ...fresh], { valueNow, now });
+  const out = [...fresh, ...graded];
+  if (out.length) fs.appendFileSync(file, out.map(r => JSON.stringify(r)).join('\n') + '\n');
+  return { served: fresh.length, repeats: served.length - fresh.length, graded: graded.length, bad, summary };
 }
 
 /** One push row per league whose next move changed. */
@@ -470,7 +505,7 @@ async function main() {
         const ta = Date.now();
         const rescoreCache = fast ? leagueCache(cacheIn.leagues[String(id)] ?? {}) : null;
         if (rescoreCache) caches.set(String(id), rescoreCache);
-        const adapter = buildAdapter(svc, id, { chat: chat.rows, finder: opts.finder, fast, rescoreCache });
+        const adapter = buildAdapter(svc, id, { chat: chat.rows, finder: opts.finder, fast, rescoreCache, env });
         let counterpart = { status: 'off', reason: 'GRIDIRON_COUNTERPART unset and the preview switch off (or =0)' };
         let people = null;
         if (counterpartOn && !adapter.fail) {
@@ -497,10 +532,12 @@ async function main() {
       : brainRead.report ? `run ${brainRead.report.run_id} computed ${brainRead.report.computed_at}` : 'none stored yet'}`);
     const brain = { read: brainRead, applyBrainReport, numberHealth: id => readNumberHealth(svc.db.db, id, { read: readNumberAudit }) };
     const consumed = [];
+    const radarLedger = [];
     // Checked with validatePlans inside; a file that fails throws here and the previous file stays.
     const file = await buildPlansFile(leagues, { generated_at, objectives, skips: skips.rows, previous,
       inputs: { skips: { status: skips.status, bad_lines: skips.bad } }, leagueInputs, consumed,
       budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags, brain, twoForOne, trigger, env,
+      radarLedger,
       // PLAN-BASELINE: "this week's plan" compares only with a plan made under this same model.
       model: planModelKey({ flags }),
       log: line => (line.includes('FAILED') || line.includes('\n') ? console.error(line) : console.log(line)) });
@@ -534,6 +571,18 @@ async function main() {
     const pushes = pushesOf(file);
     if (pushes.length) {
       fs.appendFileSync(sibling(env, 'GRIDIRON_WARROOM_PUSHES', 'pushes.jsonl'), pushes.map(p => JSON.stringify(p)).join('\n') + '\n');
+    }
+    // RADAR-WIRE: the served why-now rows go to the RADAR-GRADE ledger; rows 14+ days old are graded here.
+    if (radarLedger.length) {
+      // #405 finding 2: graded in each row's own league format (the format its value_at was read in).
+      const formats = new Map();
+      const fcNow = (id, r) => {
+        const k = r?.format_key ?? null;
+        if (!formats.has(k)) formats.set(k, fcFormatValues(svc.db, k));
+        return formats.get(k).byId.get(String(id))?.value;
+      };
+      const g = appendRadarLedger(sibling(env, 'GRIDIRON_RADAR_LEDGER', 'radar-ledger.jsonl'), radarLedger, { valueNow: fcNow, now: Date.now() });
+      console.log(`[warroom] radar ledger +${g.served} served (${g.repeats} repeats this week skipped), +${g.graded} graded${g.bad ? `, ${g.bad} unreadable lines skipped` : ''}; gate ${JSON.stringify(g.summary)}`);
     }
     const entries = file.leagues;
     const failed = entries.filter(e => e.error).length;

@@ -29,11 +29,12 @@ import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink,
   depthPremiumOf, boardOf, newPremiumSink, premiumHolds } from './search.js';
 import { makeGetsFloor, heldAtEnd } from './gets-floor.js';
-import { ladderFlag, ladderCards } from './ladder.js';
+import { ladderFlag, ladderCards, tierOfPlayer } from './ladder.js';
 import { withNeverGive } from './never-give.js';
 import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
 import { excluded } from './partners.js';
 import { tradeMemory, applyTradeMemory, memorySummary, stepPasses, floorOn as tmFloorOn, tradeMemoryOn } from './trade-memory.js';
+import { searchWideFlag, wideBudget, newWideSink, makeDropOk, claimPoolOf, modesFirstSteps, isClaim, claimProbability } from './search-wide.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
 
 /** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
@@ -268,9 +269,39 @@ export function planLeague(adapter, settings) {
   // Shadow: read what is searched, count what the floor would drop, change nothing.
   if (floor.sink.mode === 'shadow') for (const pid of wanted) floor.keep(pid);
 
+  // SEARCH-WIDE (flag GRIDIRON_SEARCH_WIDE=1 only; default off): a league-wide node budget split across the
+  // targets, a wider depth 3, laterals held to the floor, claims as steps (search-wide.js). Off: today's search.
+  // #406 finding 2: one read of the flag. A real adapter carries it (league-adapter.mjs#buildAdapter read it
+  // from the producer's env and built the world on it); the planner follows. Fixtures without it read env.
+  const wideOn = (adapter.searchWide ?? searchWideFlag(env)) === 'on';
+  const wideSink = wideOn ? newWideSink(wideBudget(env)) : null;
+  // Fresh rescores: PRODUCER-FAST cache misses when the adapter has the cache (hits are free), else memo misses.
+  const fresh = () => adapter.cacheStats?.()?.misses ?? S.count();
+  const fresh0 = wideOn ? fresh() : 0;
+  let wideBase = null;
+  if (wideOn) {
+    const tierFloor = floor.sink.floor;
+    const scoreOf = typeof adapter.scoreOf === 'function' ? adapter.scoreOf : null;
+    const neverDrop = new Set([...untouchable, ...(objective.untouchables ?? [])].map(String));
+    // #406 finding 1: a claim carries the league's waiver-win rate as its p; no rate, no claims.
+    const claimP = claimProbability(adapter.waiverRecord);
+    wideSink.claims.p_yes = claimP;
+    const claimPool = claimP.status === 'ok' ? claimPoolOf(adapter, neverDrop) : [];
+    wideSink.claims.pool = claimPool.length;
+    wideBase = { beam: wideSink.budget.beam, sink: wideSink, claimPool, claimP: claimP.p,
+      // #406 finding 5b: LADDER-01 owns the tier; the lateral rule reads it (one classification, not two).
+      tierOk: id => tierOfPlayer(scoreOf, id, tierFloor) === 'blue_chip',
+      dropOk: makeDropOk({ scoreOf, floor: tierFloor, untouchable: neverDrop }),
+      rescoresLeft: () => wideSink.budget.rescores - (fresh() - fresh0) };
+  }
   let plans = [];
-  for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay, getOk, chainGive,
-    depthPremium, board, premiumSink: premium, untouchables: objective.untouchables }));
+  wanted.forEach((target, i) => {
+    const wide = wideOn ? { ...wideBase, candidates: wideSink.used.extras
+      + Math.floor((wideSink.budget.candidates - wideSink.used.extras) / (wanted.length - i)) } : null;
+    plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay, getOk, chainGive,
+      depthPremium, board, premiumSink: premium, untouchables: objective.untouchables, wide }));
+  });
+  if (wideOn) wideSink.used.rescores = fresh() - fresh0;
   const skipW = { player: settings.skips?.player ?? new Map(), manager: settings.skips?.manager ?? new Map() };
   plans = plans.map(p => ({ ...p, skip_weight: planSkipWeight(p, skipW) }));
   // FC-VALUE (integration-8): every player a served move gives or gets must carry a FantasyCalc value (the one
@@ -292,6 +323,22 @@ export function planLeague(adapter, settings) {
   // (a) sold players, (c) reversals: dropped; (b) floor + currency: shadow unless its flag is on.
   const tmApplied = TM ? applyTradeMemory(plans, TM, { env }) : null;
   if (tmApplied) plans = tmApplied.plans;
+  // SEARCH-WIDE: claim paths left after the hard filters (GETS-FLOOR holds the claimed player to 83+ too).
+  if (wideSink) wideSink.claims.kept = plans.filter(p => p.steps.some(isClaim)).length;
+  // #406 finding 3: the War Room has no claim step yet (NextMoveDeck, HeroCard, Negotiate and the
+  // "I sent it" flow treat every partner as a team), so a served claim would read "send to free_agent"
+  // with send buttons. Until a UI unit renders "Claim X, drop Y", claim paths are SHADOW: scored and
+  // reported (search_wide.claims.shadow_best), never ranked into the deck, next move or any served number.
+  if (wideSink) {
+    const claimPlans = plans.filter(p => p.steps.some(isClaim));
+    plans = plans.filter(p => !p.steps.some(isClaim));
+    const top = claimPlans.reduce((b, p) => (b == null || p.expected > b.expected ? p : b), null);
+    wideSink.claims.served = false;
+    wideSink.claims.why_not_served = 'the War Room has no claim step yet, so claim paths are shadow (never in the deck)';
+    wideSink.claims.shadow_best = top ? { expected: top.expected, dice: 'planning', target: String(top.target),
+      steps: top.steps.map(st => ({ partner: String(st.team), give: st.give.map(String), get: st.get.map(String), p: st.p,
+        ...(st.claim ? { claim: true } : {}) })) } : null;
+  }
   mark('search');
 
   // Sliders and context per mode.
@@ -445,6 +492,8 @@ export function planLeague(adapter, settings) {
   const who = id => { const p = adapter.players.get(id) ?? adapter.players.get(Number(id)); return { name: p?.name ?? `player ${id}`, position: p?.position ?? null }; };
   const playbookFor = (plan, i, backup) => {
     const st = plan.steps[i];
+    // SEARCH-WIDE: a free-agent claim has nobody to ask, so no price ladder, message or reply table.
+    if (isClaim(st)) return claimPlaybook(st, i, plan.steps.length);
     const stateBefore = i === 0 ? new Map() : plan.steps[i - 1].state ?? (plan.planned_on?.steps[i - 1].state) ?? new Map();
     const priced = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta, maxOverpay);
     const m = managers.get(st.team) ?? {};
@@ -487,6 +536,13 @@ export function planLeague(adapter, settings) {
       })() : {}),
     };
   };
+  const claimPlaybook = (st, i, n) => ({
+    step_index: i, of_steps: n, claim: true,
+    message: { text: `Claim ${names(st.get[0])} off free agency and drop ${names(st.give[0])}.`, facts: [] },
+    ladder: { opening: null, walk_away: null, reason: 'a free-agent claim has no price', basis: 'free agent: no counterpart' },
+    nick_shift: null, opening: null, walk_away: null, replies: [], send_when: null,
+    wait: waitOrAct(st, adapter.players, { enabled: waitEnabled }),
+  });
   const playbook = best ? best.steps.map((_, i) => playbookFor(best, i, i === 0 ? (deck[1] ? { step: deck[1].steps[0], expected: deck[1].expected } : backups[0]) : backups[i])) : [];
   // A card's BATNA is the next card: swiping past a card means the ones before it were skipped.
   // MSG-WIRE-2 (gated on coachMessagesOn): every step of every card gets its playbook, so Coach can
@@ -635,6 +691,7 @@ export function planLeague(adapter, settings) {
       drops_by_gate: droppedByReason({ candidates: plans.length, byMode: { ...rankedByMode, [objective.risk_mode]: { ranked, dropped } },
         objectiveMode: objective.risk_mode, notObjectiveTarget: plans.length - pool.length,
         confirm: confirmCounts, noOverpay: overpay.rejected, outOfReach: reachRows.filter(r => !r.in_reach).length }) },
+    ...(wideSink ? { search_wide: { ...wideSink, ...modesFirstSteps(confirmedBest, dealKey) } } : {}),
     ...(ledgerSkipped ? { trade_ledger_missing: { executed_rows: Number(adapter.executedTradeRows), ...ledgerSkipped } } : {}),
     // FC-VALUE: rostered players with no FantasyCalc value (never searched) and paths dropped for one.
     no_fc_value: { players: (adapter.valueSource?.unpriced ?? []).length, paths: fcDropped,

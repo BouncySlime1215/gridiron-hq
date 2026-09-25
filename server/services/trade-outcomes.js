@@ -20,7 +20,12 @@
  * different fixes, and a caller that cannot tell them apart will report the
  * first as the second.
  */
-import { rows, row, run } from '../db/index.js';
+import { rows, row, run, db as appDb } from '../db/index.js';
+import { rawOfferGroups } from './eval/decided-offers.js';
+import { allowsWithdrawn } from '../db/trade-outcomes-withdrawn.js';
+
+/** ESPN's own expiry close; any other actor closing a proposal is its proposer withdrawing it (decided-offers.js). */
+const EXPIRY_ACTOR = /^TradeTaskProcessor/;
 
 const tableExists = name =>
   rows(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`, name).length > 0;
@@ -102,6 +107,36 @@ function sidesOf(tx) {
 }
 
 /**
+ * What ESPN decided about one proposal, from E1's own pairing
+ * (`decided-offers.js#rawOfferGroups`), as a ledger status. Null = no answer
+ * and no close yet, so the row stays 'proposed'.
+ *
+ * There is no 'vetoed' status. Accepted then vetoed stays 'accepted', as E1
+ * counts it (the receiver said yes). ESPN's expiry is 'expired' (the other
+ * manager let it lapse). A proposer's withdrawal is 'withdrawn' (migration 105 /
+ * preflight): it is NOT the other manager's silence, so Coach and E2 must not read
+ * it as a reply. On a database not yet widened, a withdrawal is left 'proposed'
+ * (never written as 'expired'), with the reason saying so.
+ * Every reason starts `backfill_observed:`, so a reader can tell these from a
+ * sent offer's settle and knows no prediction was recorded for them.
+ */
+function observedVerdict(g, txId, { withdrawnOk = true } = {}) {
+  if (!g) return null;
+  if (g.excluded === 'expired') {
+    return { status: 'expired', at: g.closed_at ?? null,
+      reason: `backfill_observed: ESPN expired proposal ${txId} (CANCEL ${g.close_tx_id}) with no answer` };
+  }
+  if (g.excluded === 'withdrawn') {
+    const reason = `backfill_observed: proposal ${txId} withdrawn by the proposer (CANCEL ${g.close_tx_id}) before any answer`;
+    return withdrawnOk ? { status: 'withdrawn', at: g.closed_at ?? null, reason } : { status: 'proposed', at: null, reason };
+  }
+  if (g.excluded || !ANSWER_TYPE[g.status]) return null;
+  return { status: g.status, at: g.decided_at ?? null,
+    reason: `backfill_observed: ESPN ${ANSWER_TYPE[g.status]} ${g.decision_tx_id}${g.vetoed ? ', then vetoed' : ''}` };
+}
+const ANSWER_TYPE = Object.freeze({ accepted: 'TRADE_ACCEPT', declined: 'TRADE_DECLINE' });
+
+/**
  * Turn the ESPN rows this league has collected into observed outcome rows.
  *
  * Idempotent on (league_id, season, espn_tx_id), which is the raw table's own
@@ -109,15 +144,23 @@ function sidesOf(tx) {
  * nothing: re-running the collector is a normal thing to do and must not double
  * every outcome, and an outcome that has already been settled is not re-settled
  * with today's clock.
+ *
+ * LEDGER-BACKFILL: an observed row written while its offer was still pending
+ * is settled once the answer (or ESPN's close) is collected. Before, the row
+ * stayed 'proposed' forever. Only rows still 'proposed' are updated; a settled
+ * row and every app row are never touched. The verdict comes from the pairing
+ * E1 grades, so the ledger and the grader cannot disagree about an offer.
  */
 export function settleObservedOutcomes(leagueId, season) {
-  const result = { state: 'settled', written: 0, skipped: 0, skips: [], reason: null };
+  const result = { state: 'settled', written: 0, updated: 0, skipped: 0, skips: [], by_status: {}, reason: null };
   if (!tableExists(RAW_TABLE)) {
     return { ...result, state: 'raw_table_absent', reason: RAW_ABSENT_REASON };
   }
 
+  // member_id tells ESPN's expiry close (TradeTaskProcessor) from a withdrawal; decided-offers reads it as optional.
+  const memberCol = rows(`PRAGMA table_info(${RAW_TABLE})`).some(c => c.name === 'member_id') ? 'member_id' : 'NULL AS member_id';
   const tx = rows(
-    `SELECT tx_id, type, execution_type, team_id, related_tx_id, proposed_at, items_json
+    `SELECT league_id, season, tx_id, type, execution_type, team_id, ${memberCol}, related_tx_id, proposed_at, items_json
      FROM ${RAW_TABLE} WHERE league_id = ? AND season = ?`, leagueId, season);
 
   const proposals = tx.filter(t => t.type === PROPOSAL && t.execution_type === EXECUTED);
@@ -126,23 +169,25 @@ export function settleObservedOutcomes(leagueId, season) {
   // An answer points at the proposal it answers. An answer whose proposal is
   // not in these rows is NOT an outcome: there is no deal to attach it to, and
   // inventing one from the answer alone would be a deal nobody proposed.
-  const answer = new Map();
   for (const t of tx) {
-    const verdict = ANSWERS[t.type];
-    if (!verdict || t.execution_type !== EXECUTED) continue;
+    if (!ANSWERS[t.type] || t.execution_type !== EXECUTED) continue;
     const target = t.related_tx_id == null ? null : String(t.related_tx_id);
-    if (!target || !proposalIds.has(target)) {
-      result.skipped++;
-      result.skips.push({
-        tx_id: String(t.tx_id),
-        reason: target
-          ? `its related_tx_id ${target} names a proposal that is not in the collected rows`
-          : 'it carries no related_tx_id, so the proposal it answers is unknown',
-      });
-      continue;
-    }
-    answer.set(target, { verdict, at: t.proposed_at ?? null });
+    if (target && proposalIds.has(target)) continue;
+    result.skipped++;
+    result.skips.push({
+      tx_id: String(t.tx_id),
+      reason: target
+        ? `its related_tx_id ${target} names a proposal that is not in the collected rows`
+        : 'it carries no related_tx_id, so the proposal it answers is unknown',
+    });
   }
+
+  const groups = rawOfferGroups({ raw: tx });
+  const groupOf = txId => groups.get([leagueId, season, txId].map(String).join(':'));
+  const hasReason = rows(`PRAGMA table_info(trade_outcomes)`).some(c => c.name === 'settle_reason');
+  const withdrawnOk = allowsWithdrawn(appDb);
+  result.resettled = 0;
+  result.disagree = [];
 
   const now = new Date().toISOString();
   for (const p of proposals) {
@@ -152,17 +197,49 @@ export function settleObservedOutcomes(leagueId, season) {
       result.skips.push({ tx_id: String(p.tx_id), reason: sides.error });
       continue;
     }
-    const a = answer.get(String(p.tx_id));
     // An unanswered offer is 'proposed', never 'declined'. Scoring silence as a
     // rejection is the cheapest way to make every P(accept) read low forever,
     // and it is wrong about the manager rather than about the model.
-    const status = a ? a.verdict : 'proposed';
-    const resolvedAt = a ? a.at : null;
+    const v = observedVerdict(groupOf(p.tx_id), String(p.tx_id), { withdrawnOk });
 
     const existing = row(
-      `SELECT id FROM trade_outcomes WHERE league_id = ? AND season = ? AND espn_tx_id = ?`,
+      `SELECT id, status, ${hasReason ? 'settle_reason' : 'NULL AS settle_reason'} FROM trade_outcomes
+       WHERE league_id = ? AND season = ? AND espn_tx_id = ?`,
       leagueId, season, String(p.tx_id));
-    if (existing) continue;
+    if (existing) {
+      // #409 review finding 2: a row an OLDER settler wrote (settle_reason NULL) or an earlier
+      // backfill wrote (e.g. a withdrawal as 'expired') is re-settled from E1's pairing when it
+      // disagrees. Idempotent: once it agrees, nothing is written again. A row E1's pairing
+      // cannot settle (no answer, or not an offer) is never guessed at: it is listed in
+      // `disagree` for a one-off look instead.
+      const ours = existing.settle_reason == null || String(existing.settle_reason).startsWith('backfill_observed:');
+      if (existing.status !== 'proposed') {
+        if (v && v.status !== 'proposed' && v.status !== existing.status && ours) {
+          run(`UPDATE trade_outcomes SET status = ?, resolved_at = ?${hasReason ? ', settle_reason = ?' : ''} WHERE id = ?`,
+            ...[v.status, v.at, ...(hasReason ? [`${v.reason} (re-settled from ${existing.status})`] : []), existing.id]);
+          result.resettled++;
+        } else if (!v && ours && existing.settle_reason == null) {
+          result.disagree.push({ id: existing.id, espn_tx_id: String(p.tx_id), status: existing.status,
+            why: 'settled by the old settler, but E1\'s pairing finds no answer or close for it' });
+        }
+        continue;
+      }
+      if (!v || v.status === 'proposed') {
+        if (v && hasReason && existing.settle_reason !== v.reason) {
+          run(`UPDATE trade_outcomes SET settle_reason = ? WHERE id = ?`, v.reason, existing.id);
+        }
+        continue;
+      }
+      if (hasReason) {
+        run(`UPDATE trade_outcomes SET status = ?, resolved_at = ?, settle_reason = ? WHERE id = ? AND status = 'proposed'`,
+          v.status, v.at, v.reason, existing.id);
+      } else {
+        run(`UPDATE trade_outcomes SET status = ?, resolved_at = ? WHERE id = ? AND status = 'proposed'`,
+          v.status, v.at, existing.id);
+      }
+      result.updated++;
+      continue;
+    }
 
     run(`INSERT INTO trade_outcomes
            (league_id, season, source, proposer_team_id, counterparty_team_id,
@@ -170,8 +247,16 @@ export function settleObservedOutcomes(leagueId, season) {
          VALUES (?, ?, 'observed', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     leagueId, season, sides.proposer, sides.counterparty,
     JSON.stringify(sides.give), JSON.stringify(sides.get),
-    p.proposed_at ?? null, status, String(p.tx_id), resolvedAt, now);
+    p.proposed_at ?? null, v ? v.status : 'proposed', String(p.tx_id), v ? v.at : null, now);
+    if (v && hasReason) {
+      run(`UPDATE trade_outcomes SET settle_reason = ? WHERE league_id = ? AND season = ? AND espn_tx_id = ?`,
+        v.reason, leagueId, season, String(p.tx_id));
+    }
     result.written++;
+  }
+  for (const r of rows(`SELECT status, COUNT(*) AS n FROM trade_outcomes
+      WHERE league_id = ? AND season = ? AND source = 'observed' GROUP BY status ORDER BY status`, leagueId, season)) {
+    result.by_status[r.status] = r.n;
   }
   return result;
 }
@@ -537,7 +622,7 @@ export function unmarkSentOffer(id) {
 }
 
 /** What ESPN recorded against one proposal, most decisive first. */
-function replyTo(txId, related, counterparty) {
+function replyTo(txId, related, counterparty, { withdrawnOk = false } = {}) {
   const after = related.get(txId) ?? [];
   for (const t of after) {
     const verdict = ANSWERS[t.type];
@@ -554,8 +639,17 @@ function replyTo(txId, related, counterparty) {
   }
   const cancel = after.find(t => t.type === PROPOSAL && t.execution_type === 'CANCEL');
   if (cancel) {
+    // #409: a CANCEL by ESPN's expiry task is 'expired'; by anyone else it is Nick withdrawing
+    // his own offer, which is not the other manager's silence. Unknown actor: as before.
+    const actor = cancel.member_id ?? null;
+    if (actor != null && !EXPIRY_ACTOR.test(actor) && withdrawnOk) {
+      return { status: 'withdrawn', at: cancel.proposed_at ?? null,
+        reason: `ESPN proposal ${txId} withdrawn by the proposer (CANCEL ${cancel.tx_id}) before any answer` };
+    }
     return { status: 'expired', at: cancel.proposed_at ?? null,
-      reason: `ESPN closed proposal ${txId} (CANCEL ${cancel.tx_id}) with no answer — withdrawn or expired` };
+      reason: actor != null && EXPIRY_ACTOR.test(actor)
+        ? `ESPN expired proposal ${txId} (CANCEL ${cancel.tx_id}) with no answer`
+        : `ESPN closed proposal ${txId} (CANCEL ${cancel.tx_id}) with no answer — withdrawn or expired` };
   }
   return null;
 }
@@ -594,7 +688,9 @@ export function settleSentOffers(leagueId, season, { now = null,
     return { ...out, state: 'raw_table_absent', pending: open.length, reason: RAW_ABSENT_REASON };
   }
 
-  const tx = rows(`SELECT tx_id, type, execution_type, team_id, related_tx_id, proposed_at, items_json,
+  const memberCol = rows(`PRAGMA table_info(${RAW_TABLE})`).some(c => c.name === 'member_id') ? 'member_id' : 'NULL AS member_id';
+  const withdrawnOk = allowsWithdrawn(appDb);
+  const tx = rows(`SELECT tx_id, type, execution_type, team_id, ${memberCol}, related_tx_id, proposed_at, items_json,
                           last_seen_at
                    FROM ${RAW_TABLE} WHERE league_id = ? AND season = ?`, leagueId, season);
   const related = new Map();
@@ -656,7 +752,7 @@ export function settleSentOffers(leagueId, season, { now = null,
     }
 
     if (txId) {
-      const reply = replyTo(txId, related, counterparty);
+      const reply = replyTo(txId, related, counterparty, { withdrawnOk });
       if (reply) {
         run(`UPDATE trade_outcomes SET status = ?, resolved_at = ?, counter_json = ?, settle_reason = ?
              WHERE id = ?`, reply.status, reply.at, reply.counter ? JSON.stringify(reply.counter) : null,

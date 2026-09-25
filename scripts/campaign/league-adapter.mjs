@@ -19,12 +19,15 @@ import { resolveUntouchables, untouchableIds } from '../../server/services/peopl
 import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
 import { tradeBlocks } from '../../server/services/espn-trade-block.js';
 import { tradeBlockRead } from '../../server/services/campaign/his-side.js';
+import { loveEnabled } from '../../server/services/campaign/love.js';
+import { readLoveInputs } from '../../server/services/campaign/love-inputs.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
 import { fpRosFor, syncIfStale } from '../../server/services/people/fantasypros-ros.js';
 import { executedTrades } from '../../server/services/campaign/trade-memory.js';
-import { fcValues, fcValueOf } from '../../server/services/fc-value.js';
+import { fcValues, fcValueOf, fcFormatValues } from '../../server/services/fc-value.js';
 import { negotiatorDefaultsOn, coolOff } from '../../server/services/campaign/negotiator-defaults.js';
 import { draftCapitalGuarded, draftIdMapEnabled } from '../../server/services/campaign/draft-capital.js';
+import { searchWideFlag, CLAIM_POOL_SIZE } from '../../server/services/campaign/search-wide.js';
 
 /**
  * PRODUCER-FAST: each week's starters picked once instead of once per run
@@ -37,6 +40,12 @@ export const producerFastEnabled = (env = process.env) => env[PRODUCER_FAST_ENV]
   || (env[PRODUCER_FAST_ENV] !== '0' && env[PREVIEW_ENV] === '1');
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
+
+/** Free agents: unrostered, available, scored positions with a positive ros_ppg, best first. */
+export function freeAgentPool(assets, rostered) {
+  return [...assets.values()].filter(p => !rostered.has(p.id) && SCORED.has(p.position) && p.available !== false
+    && Number.isFinite(p.ros_ppg) && p.ros_ppg > 0).sort((a, b) => b.ros_ppg - a.ros_ppg);
+}
 /** The engagement field LIVING-01a writes (engine_state; FIELD-REGISTRY `activity.manager`). */
 export const ACTIVITY_FIELD = 'activity.manager';
 const LIVING01A_FLAG = 'GRIDIRON_LIVING01A_ENABLED';
@@ -118,6 +127,27 @@ export async function loadServices({ env = process.env } = {}) {
     identity: await import('../../server/services/manager-identity.js'),
     format: await import('../../server/services/format.js'),
   };
+}
+
+/**
+ * The Trade Lab finder's best single offer: served title-odds deals x the finder's own
+ * acceptance midpoint, highest expected first. The one rule for the producer's finder
+ * baseline (finderBest below) and SOURCE-TABLES' finder arm
+ * (scripts/eval/produce-source-tables.mjs). -> { expected, se, n, move: { partner, give, get } } | { error }
+ */
+export function pickFinderBest(servedDeals, foundDeals) {
+  const same = (a, b) => a.map(p => p.id).join() === b.map(p => p.id).join();
+  let best = null, n = 0;
+  for (const d of servedDeals ?? []) {
+    const f = (foundDeals ?? []).find(x => x.partner_id === d.partner_id && same(x.i_give, d.i_give) && same(x.i_get, d.i_get));
+    const p = f?.acceptance?.band?.mid;
+    if (!Number.isFinite(p) || !Number.isFinite(d.title_delta)) continue;
+    n++;
+    const e = { expected: p * d.title_delta, se: Number.isFinite(d.title_delta_se) ? p * d.title_delta_se : null,
+      move: { partner: String(d.partner_id), give: d.i_give.map(x => String(x.id)), get: d.i_get.map(x => String(x.id)) } };
+    if (!best || e.expected > best.expected) best = e;
+  }
+  return best ? { ...best, n } : { error: `no served deal carried a finder acceptance price (${(servedDeals ?? []).length} served)` };
 }
 
 /** Nick's starters by rest-of-season rate: dedicated slots first, then flex (mirrors lineupPoints). */
@@ -240,7 +270,51 @@ export function tradeLedger(svc, { leagueId, season, formatKey, assets, now }) {
   return { now, trades, unmapped, valueAt, history };
 }
 
+/**
+ * RADAR-WIRE reads (why-now.js#applyWhyNow). The trend is FantasyCalc's own 30-day move for this
+ * league's format (dynasty_values via fc-value.js#fcFormatValues), next to that format's value.
+ * historyDays: capture days in dynasty_value_history for this format (the trend is a watch label below 7).
+ * News: typed signals (nfl_news_signals, players.id as text); alive = any signal written in the window.
+ * A missing table reads as no data; the served label says which input was missing.
+ */
+export function radarReads(svc, { formatKey = null, windowHours = 48 } = {}) {
+  const history = formatKey != null && hasTable(svc, 'dynasty_value_history');
+  const news = hasTable(svc, 'nfl_news_signals');
+  const since = now => new Date(now - windowHours * 3600e3).toISOString();
+  // #405 finding 2: value and trend from THIS league's format (fc-value.js#fcFormatValues), the same
+  // format dynasty_value_history is counted in; never player_metrics' league-1-format set.
+  let fmt = null;
+  const format = () => (fmt ??= fcFormatValues(svc.db, formatKey));
+  return {
+    fcFormatKey: formatKey,
+    fcTrendOf: id => {
+      const r = format().byId.get(String(id));
+      return r && Number.isFinite(r.value) && Number.isFinite(r.trend30) ? { value: r.value, trend30: r.trend30 } : null;
+    },
+    fcHistoryDays: () => (history
+      ? svc.db.row('SELECT COUNT(DISTINCT captured_on) AS n FROM dynasty_value_history WHERE format_key = ?', formatKey)?.n ?? 0 : 0),
+    newsOf: (id, now) => (news ? svc.db.rows(`SELECT signal_type, status, unavailable_probability, role_delta, published_at
+      FROM nfl_news_signals WHERE player_id = ? AND datetime(published_at) >= datetime(?)
+      ORDER BY published_at DESC`, String(id), since(now)) : []),
+    newsAlive: now => (news ? !!svc.db.row('SELECT 1 AS ok FROM nfl_news_signals WHERE datetime(created_at) >= datetime(?) LIMIT 1', since(now)) : false),
+  };
+}
+
 /** Executed TRADE_ACCEPT rows this season in league_transactions_raw (0 when the table is missing). */
+/**
+ * SEARCH-WIDE (#406 finding 1): this league's processed waiver claims this season, all teams:
+ * won = ESPN executed the claim; lost = another team got the player (FAILED_INVALIDPLAYERSOURCE).
+ * Other failures (the drop already gone), cancels and pending claims say nothing about competition.
+ * No transaction table: null (claims then fail closed).
+ */
+export function waiverRecord(svc, { leagueId, season }) {
+  if (!hasTable(svc, 'league_transactions_raw')) return null;
+  const r = svc.db.row(`SELECT SUM(status = 'EXECUTED') AS won, SUM(status = 'FAILED_INVALIDPLAYERSOURCE') AS lost
+    FROM league_transactions_raw WHERE league_id = ? AND season = ? AND type = 'WAIVER' AND execution_type = 'PROCESS'`,
+  leagueId, season);
+  return { won: Number(r?.won ?? 0), lost: Number(r?.lost ?? 0) };
+}
+
 export function executedTradeRows(svc, { leagueId, season }) {
   if (!hasTable(svc, 'league_transactions_raw')) return 0;
   return svc.db.row(`SELECT COUNT(DISTINCT tx_id) AS n FROM league_transactions_raw WHERE league_id = ? AND season = ?
@@ -253,18 +327,31 @@ export function executedTradeRows(svc, { leagueId, season }) {
  * label 'unknown').
  */
 export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
-  rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env) } = {}) {
+  rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env), love = loveEnabled(env),
+  searchWide = searchWideFlag(env) } = {}) {
+  // #406 finding 2: SEARCH-WIDE is read ONCE, here, from the env the producer passes; the adapter carries
+  // it (adapter.searchWide) and the planner follows the adapter, so the world (claim universe) and the
+  // planner can never disagree about the flag.
+  const claims = searchWide === 'on';
   const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg) throw new Error(`league ${leagueId} not found`);
   const payload = JSON.parse(lg.payload ?? '{}');
   const me = String(lg.my_team_id);
   const { tradeImpactWorld, tradeImpact, __test: { lineupPoints } } = svc.sim;
-  const w0 = tradeImpactWorld(lg, { fastLineups: fast });
+  const wBase = tradeImpactWorld(lg, { fastLineups: fast });
+  if (wBase.fail) return { fail: String(wBase.fail?.error ?? wBase.fail) };
+  // SEARCH-WIDE (GRIDIRON_SEARCH_WIDE=1 only): the top free agents are simulated as the world's universe, so
+  // a claim step is priced on the same dice as the trades. That is a different world (season-sim.js:940), so
+  // every number moves a little: the reason the flag is off until measured. Off, the world is today's.
+  const claimIds = claims
+    ? freeAgentPool(wBase.prep.assets, new Set(wBase.prep.teams.flatMap(t => t.players.map(p => p.id)))).slice(0, CLAIM_POOL_SIZE).map(p => p.id)
+    : [];
+  const w0 = claimIds.length ? tradeImpactWorld(lg, { fastLineups: fast, universe: claimIds, projections: wBase.projections }) : wBase;
   if (w0.fail) return { fail: String(w0.fail?.error ?? w0.fail) };
   const assets = w0.prep.assets;
   const worlds = new Map([[w0.key.seed, w0]]);
   const worldFor = seed => {
-    if (!worlds.has(seed)) worlds.set(seed, tradeImpactWorld(lg, { seed, projections: w0.projections, fastLineups: fast }));
+    if (!worlds.has(seed)) worlds.set(seed, tradeImpactWorld(lg, { seed, projections: w0.projections, fastLineups: fast, universe: claimIds }));
     return worlds.get(seed);
   };
 
@@ -300,7 +387,10 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       const points = new Map(w.points);
       for (const t of teams) if (state.has(t.roster_id)) points.set(t.roster_id, teamPoints(w, t.players));
       const other = otherOf(state, a, b);
-      const r = tradeImpact(lg, { myTeamId: a, theirTeamId: other, iGive: [], iGet: [], seed: w.key.seed, world: { ...w, prep: { ...w.prep, teams }, points } });
+      // SEARCH-WIDE: name the world's extra free agents (the claim universe), or tradeImpact rebuilds a world
+      // without them on every rescore: ~100x slower, and the rebuilt world ignores `state` (delta 0).
+      const r = tradeImpact(lg, { myTeamId: a, theirTeamId: other, iGive: [], iGet: [], seed: w.key.seed,
+        world: { ...w, prep: { ...w.prep, teams }, points }, universe: w.extras ?? [] });
       if (r.error) throw new Error(r.error);
       if (a === me) {
         const after = state.has(me) ? seasonAvg(points.get(me), w.runs) : baseAvg;
@@ -338,9 +428,10 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       espn_id: p.espn_id ?? null, team_abbr: p.team_abbr ?? null, ros_basis: p.ros_basis ?? null });
   };
   for (const ids of rosters.values()) ids.forEach(addPlayer);
+  // SEARCH-WIDE: a claimable free agent is a player a step can name, so he is in players (and names).
+  claimIds.forEach(addPlayer);
   const rostered = new Set([...rosters.values()].flat());
-  const freeAgents = [...assets.values()].filter(p => !rostered.has(p.id) && SCORED.has(p.position) && p.available !== false
-    && Number.isFinite(p.ros_ppg) && p.ros_ppg > 0).sort((a, b) => b.ros_ppg - a.ros_ppg).slice(0, 40)
+  const freeAgents = freeAgentPool(assets, rostered).slice(0, 40)
     .map(p => ({ id: p.id, name: p.name, position: p.position, ros_ppg: p.ros_ppg }));
 
   const nameToId = name => [...players.values()].find(p => p.name === name)?.id ?? null;
@@ -402,17 +493,9 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       const served = svc.titleOdds.titleOddsTrades(leagueId, { teamId: me });
       if (served.error) return { error: String(served.error) };
       const found = svc.engine.findTrades(lg, { myTeamId: me, requireMutual: true, limit: 8 * 3 });
-      const same = (a, b) => a.map(p => p.id).join() === b.map(p => p.id).join();
-      let best = null, n = 0;
-      for (const d of served.deals ?? []) {
-        const f = (found.deals ?? []).find(x => x.partner_id === d.partner_id && same(x.i_give, d.i_give) && same(x.i_get, d.i_get));
-        const p = f?.acceptance?.band?.mid;
-        if (!Number.isFinite(p) || !Number.isFinite(d.title_delta)) continue;
-        n++;
-        const e = { expected: p * d.title_delta, se: Number.isFinite(d.title_delta_se) ? p * d.title_delta_se : null };
-        if (!best || e.expected > best.expected) best = e;
-      }
-      return best ? { ...best, n } : { error: `no served deal carried a finder acceptance price (${(served.deals ?? []).length} served)` };
+      // The plans file carries the number only; SOURCE-TABLES reads the move from pickFinderBest itself.
+      const { move, ...best } = pickFinderBest(served.deals, found.deals);
+      return best;
     } catch (e) {
       return { error: String(e.message ?? e) };
     }
@@ -462,10 +545,18 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       unpriced: [...players.keys()].filter(id => players.get(id).value == null).map(String) },
     // LIVE-BLEND: which P(yes) was served and, for the blend, each model's weight and record (plans.json p_yes_basis).
     pYesBasis: svc.pyes.pYesBasis(pyTable),
+    // SEARCH-WIDE: the one read of its flag (the planner follows this), and the free agents this world
+    // simulates; the planner builds claims only from these.
+    searchWide,
+    ...(claimIds.length ? { claimUniverse: new Set(claimIds.map(String)) } : {}),
     tradeLedger: tradeLedger(svc, { leagueId, season, formatKey: svc.format?.deriveFormat(lg).formatKey ?? null, assets, now }),
+    // RADAR-WIRE: fcTrendOf / fcHistoryDays / newsOf / newsAlive for the flip rows' why-now label.
+    ...radarReads(svc, { formatKey: svc.format?.deriveFormat(lg).formatKey ?? null }),
     // integration-7: how many executed trades the raw table holds this season, so the planner can fail
     // closed when that ledger comes back missing or empty (never plan without Nick's trade memory).
     executedTradeRows: executedTradeRows(svc, { leagueId, season }),
+    // SEARCH-WIDE: the waiver-claim record a claim's P(yes) is priced on (search-wide.js#claimProbability).
+    ...(claimIds.length ? { waiverRecord: waiverRecord(svc, { leagueId, season }) } : {}),
     cacheStats: () => (fast && rescoreCache ? { ...rescoreCache.stats } : null),
     // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
     // Nick's word: other managers' notes, his OWN 'untouchable:' notes (#373, always) and, with the
@@ -482,6 +573,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     // DRAFT-ID-MAP (shadow, GRIDIRON_DRAFT_ID_MAP=1): draft capital by players.espn_id, owner from these rosters.
     // Guarded: a SQL error is recorded as status 'error' in _run.inputs, never a dead league entry.
     ...(draftIdMap ? { draft: draftCapitalGuarded(svc.db, { leagueId, season, rosters }) } : {}),
+    // LOVE-RULE (shadow, GRIDIRON_LOVE_TAG=1): the tag's inputs for ids the producer asks about, weeks < this week.
+    ...(love ? { love: (ids, { draft = null } = {}) => readLoveInputs(svc.db, { season, week, ids, draft }) } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     teams: () => teamNames(payload, new Map([...(svc.identity?.identityMap(leagueId) ?? [])].map(([r, i]) => [String(r), i.chat_name]))),

@@ -9,9 +9,9 @@
  *     §10.2). The same number is computed in more than one place; each copy is
  *     read here and a disagreement past a tolerance is a 'broken' row naming the
  *     pages on both sides.
- *       A projection_basis   the title sim's last-season projections vs the finder's
- *                            rest-of-season rate (season-sim.js prepareSeason vs
- *                            trade-engine.js buildAssetUniverse)
+ *       A projection_basis   the rate the title sim's world centres each player on vs
+ *                            the finder's rest-of-season rate (season-sim.js
+ *                            prepareSeason vs trade-engine.js buildAssetUniverse; BASIS-02)
  *       B title_odds_paths   My team's /simulate, Trade Lab/TradeCard's tradeImpact
  *                            world, the finder's horizon sim (myPlayoffOdds)
  *       C weekly_range       one lineup-week's range from the four samplers
@@ -62,7 +62,7 @@ export const CHECKS = Object.freeze({
   },
   projection_basis: {
     row: 'A', title: 'Title tab and trade finder rank players differently',
-    cause: 'The title simulator prices players on last season\'s projections; the trade finder uses this season\'s rest-of-season rate.',
+    cause: 'The title simulator prices players on last season\'s projections (rescaled only when the rest-of-season basis is on, and players with no last-season projection are not simulated); the trade finder uses this season\'s rest-of-season rate.',
     trust: 'For who helps you, trust the trade finder\'s rest-of-season numbers; read title odds as last-season-based until EA-07.',
   },
   weekly_range: {
@@ -175,7 +175,8 @@ function projectionBasisRow(snap, tol) {
   const bad = b.rank_corr < tol.rank_corr_min;
   return row('projection_basis', bad ? 'broken' : 'ok',
     `Rank agreement between the title simulator's and the trade finder's player rates is ${b.rank_corr.toFixed(2)} `
-    + `over ${b.n} rostered players (needs ${tol.rank_corr_min}); average gap ${finite(b.mean_abs_ppg_diff) ? b.mean_abs_ppg_diff.toFixed(1) : '?'} pts/game.`,
+    + `over ${b.n} rostered players (needs ${tol.rank_corr_min}); average gap ${finite(b.mean_abs_ppg_diff) ? b.mean_abs_ppg_diff.toFixed(1) : '?'} pts/game.`
+    + (b.unsimulated ? ` ${b.unsimulated} of them are not in the title simulator at all.` : ''),
     { pages: bad ? pages : [], values: b });
 }
 
@@ -467,6 +468,27 @@ const oddsMap = (teams, key) => Object.fromEntries((teams ?? []).map(t => [Strin
 const errorText = e => String(e?.message ?? e).slice(0, 200);
 
 /** Run one producer; an error answer or a throw becomes `{ error }` on the entry. */
+/**
+ * Row A's numbers. BASIS-02: the pair is the rate the served world actually centres
+ * each rostered player on (sim-basis.js#simPlayerRates, per game played) against the
+ * finder's ros_ppg. A rostered player the finder rates but the sim does not simulate
+ * scores 0 in every simulated week, so he counts as 0 (and in `unsimulated`). The old
+ * pair, last season's raw projection vs ros_ppg, is kept as `last_season_rank_corr`:
+ * it never moved when the sim's scale did, which is why the row stayed broken.
+ */
+export function projectionBasisSnapshot({ rates, rostered, lastSeason }) {
+  const rated = rostered.filter(p => finite(p.ros_ppg));
+  const pairs = rated.map(p => [rates.get(p.id) ?? 0, p.ros_ppg]);
+  const unsimulated = rated.filter(p => !rates.has(p.id)).map(p => p.id);
+  const diff = pairs.length ? pairs.reduce((s, [a, b]) => s + Math.abs(a - b), 0) / pairs.length : NaN;
+  const old = rated.map(p => [lastSeason?.get(p.id)?.ppg, p.ros_ppg]).filter(([a]) => finite(a));
+  return {
+    rank_corr: spearman(pairs.map(x => x[0]), pairs.map(x => x[1])), n: pairs.length, mean_abs_ppg_diff: diff,
+    basis: 'sim_world', unsimulated: unsimulated.length, unsimulated_ids: unsimulated.slice(0, 5),
+    last_season_rank_corr: old.length ? spearman(old.map(x => x[0]), old.map(x => x[1])) : NaN,
+  };
+}
+
 function attempt(fn) {
   try {
     const out = fn();
@@ -481,11 +503,11 @@ function attempt(fn) {
  * in the refresh loop. Every producer is attempted independently.
  */
 export async function collectLeagueSnapshot(lg, { now = Date.now() } = {}) {
-  const [sim, te, ceiling, posture, weekMod, proj, contingency, pricing, preview, scoring, fmt, scheduler] = await Promise.all([
+  const [sim, te, ceiling, posture, weekMod, proj, contingency, pricing, preview, scoring, fmt, scheduler, simBasis] = await Promise.all([
     import('./season-sim.js'), import('./trade-engine.js'), import('./ceiling-lineup.js'),
     import('./lineup-posture.js'), import('./league-week.js'), import('./projections.js'),
     import('./contingency.js'), import('./counterparty-pricing.js'), import('./preview-mode.js'),
-    import('./scoring.js'), import('./format.js'), import('./scheduler.js'),
+    import('./scoring.js'), import('./format.js'), import('./scheduler.js'), import('./sim-basis.js'),
   ]);
   const SEASON = Number(process.env.NFL_SEASON) || 2026;
   const me = String(lg.my_team_id ?? '');
@@ -528,12 +550,10 @@ export async function collectLeagueSnapshot(lg, { now = Date.now() } = {}) {
 
   snap.projection_basis = (() => {
     if (teams.error) return { error: teams.error };
+    if (world.error || world.fail) return { error: world.error ?? world.fail?.error ?? 'no world' };
     const base = attempt(() => proj.buildProjections({ through: SEASON - 1, scoring: leagueScoring }));
     if (base.error) return { error: base.error };
-    const pairs = rostered.map(p => [base.get(p.id)?.ppg, p.ros_ppg]).filter(([a, b]) => finite(a) && finite(b));
-    const diff = pairs.length ? pairs.reduce((s, [a, b]) => s + Math.abs(a - b), 0) / pairs.length : NaN;
-    return { rank_corr: spearman(pairs.map(x => x[0]), pairs.map(x => x[1])), n: pairs.length,
-      mean_abs_ppg_diff: diff };
+    return projectionBasisSnapshot({ rates: simBasis.simPlayerRates(world), rostered, lastSeason: base });
   })();
 
   snap.p_play = (() => {

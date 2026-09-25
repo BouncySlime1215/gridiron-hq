@@ -56,9 +56,9 @@ export const TOLERANCE_KEYS = Object.freeze([
 export const STOP_STATUSES = Object.freeze(['next', 'waiting', 'done', 'dropped', 'blocked']);
 export const REASONING_SLOTS = Object.freeze(['case_for', 'his_side', 'devils_advocate', 'news_check', 'confidence', 'counter']);
 /** Report-card check ids: E1-E7 plus the graders' sub-checks (E3-live on main; E4-live #294 and E3-ESPN #322 pending),
- *  and C8 (REASON-02 #271, reasoning/grade.js in eval GRADERS).
+ *  C8 (REASON-02 #271, reasoning/grade.js in eval GRADERS), and L01B-ACT / L01B-SIM / L01B-GATE (eval/living-gate.js).
  *  A grader that adds a new id must add it here, or every league's plan fails its contract check (9/24 incident). */
-export const BRAIN_CHECK_IDS = Object.freeze(['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E3-live', 'E4-live', 'E3-ESPN', 'C8']);
+export const BRAIN_CHECK_IDS = Object.freeze(['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E3-live', 'E4-live', 'E3-ESPN', 'C8', 'L01B-ACT', 'L01B-SIM', 'L01B-GATE']);
 export const MAX_ALTERNATIVES = 5;
 /** Why Nick skipped a deck card: the War Room deck, Coach and the producer's skip weights share these ids. */
 export const SKIP_REASONS = Object.freeze(['player', 'cost', 'manager', 'not_now']);
@@ -228,7 +228,14 @@ const flip = obj({
   legs: nullable(obj({ give_a: pid, get_b: pid, p1: probF, p2: probF, p_both: probF, nick_after: numF },
     // FLIP-LEGS-2: the whole packages (give_a / get_b stay the lead id); served only when the planner priced packages.
     { give_a_ids: arr(pid, { min: 1 }), get_b_ids: arr(pid, { min: 1 }) }))
-}, { legs_why_not: str, reasoning: field(reasoning) });
+}, { legs_why_not: str, reasoning: field(reasoning),
+  // RADAR-WIRE (GRIDIRON_RADAR_WIRE, default off): why this flip is worth a look this week; a label, moves no number.
+  why_now: obj({
+    status: oneOf(['act', 'watch', 'check_first', 'none']), kind: oneOf(['validated_cell', 'fc_trend', 'watch_cell', 'none']),
+    direction: nullable(oneOf(['up', 'down'])), text: str,
+    sources: obj({ radar: oneOf(['validated', 'watch', 'none', 'off', 'not_merged']), trend: oneOf(['ok', 'label_only', 'small', 'missing']),
+      news: oneOf(['contradiction', 'quiet', 'dead']) })
+  }, { n: int(0), ci: arr(num, { min: 2, max: 2 }), check_first: bool }) });
 
 const readStatus = oneOf(['ok', 'none', 'unknown', 'unread']);
 const players = obj({ players: arr(pid), n: int(0) });

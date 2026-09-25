@@ -152,7 +152,9 @@ export function planLeague(adapter, settings) {
   mark('world');
   const S = makeScorer(W, adapter);
   const base = S.rescore(new Map(), me);
-  const now = { title: base.me.title_before, playoff: base.me.playoff_before, metric: metricOf(base.me, objective).before };
+  // U1: title_now's run-to-run SE rides with it when the rescore reports one (null otherwise, never invented).
+  const now = { title: base.me.title_before, title_se: Number.isFinite(base.me.title_before_se) ? base.me.title_before_se : null,
+    playoff: base.me.playoff_before, metric: metricOf(base.me, objective).before };
 
   // NO-OVERPAY: Nick's cap on market value given (destination tolerance max_overpay; default 0).
   // An adapter may carry its own cap (adapter.maxOverpay; the pre-cap test fixtures set Infinity); the destination's wins.

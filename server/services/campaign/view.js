@@ -339,7 +339,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     tolerances: ok(tolerances, 'campaign.plan'),
     arrive_by: week(o.arrive_by) ? ok(o.arrive_by, 'campaign.plan') : unknown('No arrive-by week is set.', 'campaign.plan'),
     eta_week: week(res.eta_week) ? ok(res.eta_week, 'plan.path') : unknown('No plan, so no arrival week.', 'plan.path'),
-    title_now: num(res.now.title, 'sim.title', { prob: true, unit: 'title_odds' }),
+    title_now: num(res.now.title, 'sim.title', { prob: true, unit: 'title_odds', se: res.now.title_se }),
     title_planned_now: metric !== 'title' ? unknown(`The plan is tracked in ${LABEL[metric]}, not title odds.`, 'plan.path')
       : num(plannedNow ?? nowMetric, 'plan.path', { prob: true, unit: 'title_odds' }),
     path: path.length ? ok(path, 'plan.path') : unknown('The current week is unknown, so there is no path.', 'plan.path'),

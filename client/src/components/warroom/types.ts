@@ -96,6 +96,16 @@ export interface Target {
   /** Batch 4: on his owner's untouchable list (the view drops these rows; kept for safety). */
   untouchable?: boolean | Field<boolean> | { label?: string };
   untouchable_label?: string;
+  /** BUY-LOW (GRIDIRON_BUY_LOW=1 only): usage up, points below expected. A guess (rule v1). */
+  buy_low?: Field<BuyLow>;
+}
+
+export interface BuyLow {
+  role: 'detected' | 'confirmed';
+  points_below_expected: number;
+  games: number;
+  usage_change: number | null;
+  through_week: number;
 }
 
 export interface Flip {

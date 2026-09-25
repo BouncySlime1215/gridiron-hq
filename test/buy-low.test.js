@@ -273,3 +273,23 @@ test('position-aware flag: GRIDIRON_BUY_LOW=1 serves QB/RB/WR; TE only with GRID
   const teOn = (await run(withReader(te), { GRIDIRON_BUY_LOW_TE: '1' })).leagues[0];
   assert.equal(teOn.targets.value.every(t => t.buy_low?.status === 'ok'), true);
 });
+
+/* ---------------------------------------------------------------- Go get chip */
+
+test('Go get card: the Buy-low chip is the War Room pill, plain words, a guess, no numbers on the card', async () => {
+  const React = (await import('react')).default;
+  const { renderToStaticMarkup } = await import('react-dom/server');
+  const { loadWarRoom, textOf } = await import('./helpers/warroom-tsx.mjs');
+  const w = await loadWarRoom();
+  try {
+    const { BuyLowChip } = await w.mod('ScreenGoGet');
+    const html = renderToStaticMarkup(React.createElement(BuyLowChip, { b: { role: 'confirmed', points_below_expected: 2.6, games: 2, usage_change: 0.05, through_week: 2 } }));
+    assert.equal(textOf(html).trim(), 'Buy-low');
+    assert.match(html, /class="wr-pill2 wr-pill2-green"/);
+    assert.match(html, /data-testid="target-buy-low"/);
+    assert.match(html, /title="Buy-low \(a guess\): usage up in 2 recent games, scoring about 2\.6 pts\/game below what his usage predicts\."/);
+    assert.doesNotMatch(html, /usage\.xfp|buy_low|points_below_expected/);
+    const det = renderToStaticMarkup(React.createElement(BuyLowChip, { b: { role: 'detected', points_below_expected: 2.2, games: 2, usage_change: null, through_week: 2 } }));
+    assert.match(det, /usage up in his latest game/);
+  } finally { w.cleanup?.(); }
+});

@@ -275,9 +275,13 @@ test('PREVIEW-01 on: the terms move the score, each carries preview:true and its
     assert.equal(f.preview, true);
     assert.equal(f.preview_reason, 'default-off: 2024 held-out AUC 0.644 missed its 0.645 bar; unconfirmed forward');
     assert.match(f.why, /^Preview \(unconfirmed forward\): /);
-    const c = factor(layer.get('4'), 'checked_out');
-    assert.ok(Number.isFinite(c.effect), 'the checked-out term is applied too');
-    assert.equal(c.preview, true);
+    // BROKEN-H: under preview the checked-out term is activity.manager's, never the dead-start
+    // factor beside it. This fixture has no activity.manager row, so it is withheld with that reason.
+    const cs = layer.get('4').receptiveness_factors.filter(x => x.source === 'checked_out');
+    assert.equal(cs.length, 1, 'one checked-out signal');
+    assert.equal(cs[0].engine?.field, 'activity.manager');
+    assert.equal(cs[0].effect, null);
+    assert.match(cs[0].why, /no activity\.manager row/);
   });
 });
 
@@ -328,9 +332,10 @@ test('PREVIEW-01 on: GET /api/trades/:leagueId/managers/signals (ManagerRead) se
     assert.ok(f.effect > 0);
     assert.equal(f.preview, true);
     assert.match(f.preview_reason, /unconfirmed forward/);
+    // BROKEN-H: the page's checked-out term under preview is activity.manager's (withheld here: no row).
     const c = routeFactor(body, '4', 'checked_out');
-    assert.ok(Number.isFinite(c.effect));
-    assert.equal(c.preview, true);
+    assert.equal(c.effect, null);
+    assert.match(c.why, /no activity\.manager row/);
   } finally {
     if (saved === undefined) delete process.env[PREVIEW_ENV]; else process.env[PREVIEW_ENV] = saved;
   }

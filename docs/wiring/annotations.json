@@ -108,7 +108,9 @@
     "server/services/tells/refit.js",
     "server/services/trend-watch.js",
     "server/services/vegas-fantasy.js",
-    "server/services/week-postmortem.js"
+    "server/services/week-postmortem.js",
+    "server/services/campaign/plans-schema.js",
+    "server/services/engine/backfill.js"
   ],
   "_ORPHAN_README": "Modules that exist today and reach no live surface. Every one was checked on 2026-09-19: they are deliberate research, a measured-and-declined experiment, or half of a split that never finished. They are listed so the build fails on the NEXT one, not on these. Adding to this list is how you say out loud that a module is landing unwired on purpose - put the reason in the review, not here.",
   "_NEWLY_BASELINED_2026_09_19": {

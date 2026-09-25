@@ -202,3 +202,34 @@ test('review 3: compareModes keeps pickFor as its third argument and the rule as
   const rows = compareModes([X], () => ({ tol: OPEN, ctx }), () => ({ best: null, confirmed: true }), { rule: true });
   for (const r of rows) { assert.equal(r.first_step, null); assert.equal(r.no_trade.pick, 'no_trade'); }
 });
+
+test('batch B: Safe (rule on) beats doing nothing only if no ending leaves Nick below today', () => {
+  // Expected gain > 0, but a yes on the first offer and a no on the second strands Nick at -0.02.
+  const strand = { steps: [step('2', 0.9, -0.02), step('3', 0.9, 0.20)] };
+  const sure = { steps: [step('4', 0.4, 0.03)] };
+  assert.ok(worstCase(strand.steps) < 0);
+  for (const mode of M.MODES) {
+    const r = rankPlans([strand], mode, OPEN, ctx, { rule: true }).ranked[0];
+    assert.ok(r.expected > 0, mode);
+    // Balanced and Fuck-it judge by the expected gain; Safe by the worst case, which doing nothing (0) beats.
+    assert.equal(M.beatsNoTrade(r, mode, { rule: true }), mode !== 'safe', mode);
+  }
+  const s = rankPlans([sure], 'safe', OPEN, ctx, { rule: true }).ranked[0];
+  assert.equal(M.beatsNoTrade(s, 'safe', { rule: true }), true);
+  // Only the unstrandable plan can be Safe's pick on the sheet.
+  const row = compareModes([strand, sure], () => ({ tol: OPEN, ctx }), null, { rule: true }).find(x => x.mode === 'safe');
+  assert.equal(row.no_trade.pick, 'plan');
+  assert.equal(row.first_step.team, '4');
+  const only = compareModes([strand], () => ({ tol: OPEN, ctx }), null, { rule: true }).find(x => x.mode === 'safe');
+  assert.equal(only.no_trade.pick, 'no_trade');
+});
+
+test('batch B: planner, rule on: every served card beats doing nothing under its own mode on the confirm dice', () => {
+  for (const mode of M.MODES) {
+    const { res } = planWith(mode, ON);
+    for (const c of res.deck) {
+      assert.ok(c.plan.expected > 0, `${mode}: served card with expected ${c.plan.expected}`);
+      if (mode === 'safe') assert.ok(worstCase(c.plan.steps) >= 0, 'Safe served a card that can strand Nick below today');
+    }
+  }
+});

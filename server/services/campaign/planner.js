@@ -24,7 +24,8 @@ import { rankPartners, planSkipWeight, pResponds } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
-import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink } from './search.js';
+import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink,
+  depthPremiumOf, boardOf, newPremiumSink, premiumHolds } from './search.js';
 import { makeGetsFloor } from './gets-floor.js';
 import { withNeverGive } from './never-give.js';
 import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
@@ -39,6 +40,7 @@ const yesPoint = curve => {
 };
 
 export const DECK_SIZE = 5;
+const sameIds = (a, b) => a.length === b.length && a.map(String).sort().join() === b.map(String).sort().join();
 /** P(accept) curve window on his screen, wider than the finder's so the curve has a shape. */
 const CURVE_WINDOW = { low: -35, high: 45 };
 
@@ -82,13 +84,15 @@ function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta, ma
     const his = screenPct(gv, getV);
     if (his == null || his < CURVE_WINDOW.low || his > CURVE_WINDOW.high) continue;
     // NO-OVERPAY: the ladder (opening, walk-away) never climbs past Nick's cap on market value given.
-    if (nickOverpays(gv, getV, maxOverpay)) continue;
+    // CAP-1C: above the cap, only the planned premium package itself (the one pair gated on points and title odds).
+    if (nickOverpays(gv, getV, maxOverpay) && !(step.depth_premium && sameIds(give, step.give))) continue;
     const p = adapter.priceStep(step.team, step.get, give).p;
     const delta = lin(S.applyTrade(stateBefore, me, step.team, give, step.get)) * scale;
     out.push({ give, his_pct: his, p, delta, nick_gain: p * delta });
   }
   return { curve: out.sort((a, b) => a.his_pct - b.his_pct).slice(0, 60),
-    basis: `linear single-player values, rescaled to the exact rescore of the planned package; never past +${Math.round(maxOverpay * 100)}% market value given` };
+    basis: `linear single-player values, rescaled to the exact rescore of the planned package; never past +${Math.round(maxOverpay * 100)}% market value given`
+      + (step.depth_premium ? ` (a depth-only 2-for-1 up to its planned +${Math.max(1, Math.round(step.depth_premium.pct * 100))}%)` : '') };
 }
 
 /**
@@ -129,6 +133,11 @@ export function planLeague(adapter, settings) {
   const floorOn = floor.sink.mode === 'on';
   // Every final get (targets, final-leg fillers, flip leg 2) passes through this; null when off.
   const getOk = floor.sink.mode === 'off' ? null : floor.keep;
+  // CAP-1C: up to +12% on a depth-only 2-for-1 (destination tolerance depth_premium; an adapter may carry its own).
+  const depthPremium = depthPremiumOf({ depth_premium: objective.tolerances?.depth_premium ?? adapter.depthPremium });
+  const board = boardOf(adapter);
+  const premium = newPremiumSink(depthPremium, board);
+  overpay.depth_premium = premium;
   const vals = playerValues(S, adapter, objective);
   mark('values');
   // REACH-01 (flag GRIDIRON_REACH=1 only; default off): off, the chained finish and flipReach stay at 2 gives
@@ -216,7 +225,8 @@ export function planLeague(adapter, settings) {
   if (floor.sink.mode === 'shadow') for (const pid of wanted) floor.keep(pid);
 
   let plans = [];
-  for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay, getOk, chainGive }));
+  for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay, getOk, chainGive,
+    depthPremium, board, premiumSink: premium, untouchables: objective.untouchables }));
   const skipW = { player: settings.skips?.player ?? new Map(), manager: settings.skips?.manager ?? new Map() };
   plans = plans.map(p => ({ ...p, skip_weight: planSkipWeight(p, skipW) }));
   // (a) sold players, (c) reversals: dropped; (b) floor + currency: shadow unless its flag is on.
@@ -247,9 +257,18 @@ export function planLeague(adapter, settings) {
     const S2 = makeScorer(W2, adapter);
     const checked = deck.length;
     deck = deck.map(p => {
-      const fresh = p.steps.map(st => metricOf(S2.rescore(st.state, me).me, objective));
+      const freshMe = p.steps.map(st => S2.rescore(st.state, me).me);
+      const fresh = freshMe.map(r => metricOf(r, objective));
       const re = repricePlan(p, fresh);
-      const v = confirmVerdict(pathExpectation(p.steps), pathExpectation(re.steps));
+      let v = confirmVerdict(pathExpectation(p.steps), pathExpectation(re.steps));
+      // CAP-1C: a premium step must still raise lineup points and title odds on fresh dice, or the card goes.
+      re.steps = re.steps.map((st, i) => {
+        if (!st.depth_premium) return st;
+        const h = premiumHolds(freshMe[i], i ? freshMe[i - 1] : null);
+        if (!h.ok) v = { ...v, verdict: 'failed', premium_failed: h.why };
+        return { ...st, depth_premium: { ...st.depth_premium, confirmed: h.ok ? { points_delta: h.points_delta, title_delta: h.title_delta } : null } };
+      });
+      if (v.premium_failed) premium.confirm_failed++;
       const scored = rankPlans([re], objective.risk_mode, { ...tol, max_downside_per_step: Infinity }, { ...ctx, core: null }).ranked[0];
       return { ...re, score: scored?.score ?? -Infinity, mode: objective.risk_mode, confirm: v, planned_on: p };
     }).filter(p => p.confirm.verdict !== 'failed');
@@ -257,11 +276,19 @@ export function planLeague(adapter, settings) {
     deck = deck.sort((a, b) => b.score - a.score).slice(0, DECK_SIZE);
     confirm = { seed: cSeed, plan_seed: adapter.seed, status: 'ok', rescores: S2.count() };
   } else {
-    deck = deck.slice(0, DECK_SIZE);
+    // CAP-1C: with no fresh dice, a premium card cannot pass its confirm check, so it is not served.
+    deck = deck.filter(p => {
+      const prem = p.steps.some(st => st.depth_premium);
+      if (prem) premium.confirm_failed++;
+      return !prem;
+    }).slice(0, DECK_SIZE);
   }
   mark('confirm_rescore');
   const best = deck[0] ?? null;
-  const backups = best ? backupBranches(best.planned_on ?? best, ranked) : [];
+  // CAP-1C: a backup never proposes a premium step that did not pass its own fresh-dice check (only deck cards did).
+  const onDeck = new Set(deck.map(p => (p.planned_on ?? p).steps.map(dealKey).join('>')));
+  const backupPool = ranked.filter(p => !p.steps.some(st => st.depth_premium) || onDeck.has(p.steps.map(dealKey).join('>')));
+  const backups = best ? backupBranches(best.planned_on ?? best, backupPool) : [];
 
   // Playbook for every step of the chosen plan, and for each deck card's first step.
   const managers = adapter.managers;
@@ -311,7 +338,7 @@ export function planLeague(adapter, settings) {
     if (!allSteps) return { plan: p, playbook: j === 0 ? playbook[0]
       : playbookFor(p, 0, deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) };
     if (j === 0) return { plan: p, playbook: playbook[0], playbooks: playbook };
-    const br = p.steps.length > 1 ? backupBranches(p.planned_on ?? p, ranked) : [];
+    const br = p.steps.length > 1 ? backupBranches(p.planned_on ?? p, backupPool) : [];
     const pbs = p.steps.map((_, i) => playbookFor(p, i, i === 0
       ? (deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) : br[i] ?? null));
     return { plan: p, playbook: pbs[0], playbooks: pbs };
@@ -412,7 +439,7 @@ export function planLeague(adapter, settings) {
   mark('finder_and_sanity');
 
   return {
-    league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: { ...tol, max_overpay: maxOverpay },
+    league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: { ...tol, max_overpay: maxOverpay, depth_premium: depthPremium },
     no_overpay: overpay,
     gets_floor: floor.sink,
     now, behind, week: L.week, deadline_week: L.deadline_week ?? null,

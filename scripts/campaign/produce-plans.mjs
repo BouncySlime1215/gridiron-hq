@@ -349,6 +349,9 @@ export async function buildPlansFile(leagues, {
           ...(res.gets_floor && res.gets_floor.mode !== 'off' ? { gets_floor: res.gets_floor } : {}),
           // REACH-01: why every path died (per mode) and which targets the reach filter skipped.
           ...(res.reach ? { reach: res.reach } : {}),
+          // CAP-1C: the depth-only 2-for-1 premium (screened, gated out by reason, confirm failures). Written only
+          // when a blue-chip board turned it on, so with no board the entry is byte-for-byte the incumbent's.
+          ...(res.no_overpay?.depth_premium?.board === 'on' ? { depth_premium: res.no_overpay.depth_premium } : {}),
           requests: ins.summary,
           deadline: adapter.league?.deadline_source ?? null, objective: objective.source,
           // Off and untriggered, the entry is byte-for-byte the incumbent's (the committed contract fixture).

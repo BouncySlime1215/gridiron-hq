@@ -33,7 +33,7 @@ const row = (o) => ({ id: 'x', better: 'higher', tolerance: 0, baseline: 10, com
 test('compare: higher/lower/target directions, tolerance, unmeasured and missing', () => {
   const rows = [
     row({ id: 'h', better: 'higher', baseline: 53, tolerance: 0 }),
-    row({ id: 'l', better: 'lower', baseline: 97918, tolerance: 0.25 }),
+    row({ id: 'l', better: 'lower', baseline: 97918, tolerance: 0, tolerance_pct: 25 }),
     row({ id: 't', better: 'target:0.8', baseline: 0.76, tolerance: 0.01 }),
     row({ id: 'u', baseline: null }),
     row({ id: 'm', baseline: 3 })

@@ -27,11 +27,11 @@ const ctx = { originalIds: [1, 2, 3, 4, 5] };
 const step = (team, p, delta, give = [1], get = [9]) => ({ team, give, get, p, delta, se: 0.001 });
 const top = (plans, mode, rule) => rankPlans(plans, mode, OPEN, ctx, { rule }).ranked[0].steps[0].team;
 
-function withEnv(v, fn) {
-  const prev = process.env[RISK_RULE_ENV];
-  if (v == null) delete process.env[RISK_RULE_ENV]; else process.env[RISK_RULE_ENV] = v;
-  try { return fn(); } finally { if (prev == null) delete process.env[RISK_RULE_ENV]; else process.env[RISK_RULE_ENV] = prev; }
-}
+const ON = { [RISK_RULE_ENV]: '1' };
+const planWith = (mode, env, adapter = makeAdapter()) => {
+  const res = planLeague(adapter, { objective: normaliseObjective({ risk_mode: mode }), env });
+  return { res, json: JSON.stringify(toEntry(res, { names: adapter.names(), as_of: '2026-09-24T00:00:00Z' })) };
+};
 
 test('the flag is off unless GRIDIRON_RISK_RULE=1', () => {
   assert.equal(RISK_RULE_ENV, 'GRIDIRON_RISK_RULE');
@@ -107,39 +107,98 @@ test('Fuck-it (rule on) maximises expected title odds, not the landing', () => {
   assert.equal(scorePlan(longShot, 'all_in', { rule: true }).eligible, false);
 });
 
-test('rule off: rankPlans and compareModes are identical with the flag unset, "0", or rule:false', () => {
+test('rule off: rankPlans and compareModes are identical with no option and with rule:false', () => {
   const plans = [
     { steps: [step('2', 0.5, 0.08)] }, { steps: [step('3', 0.95, 0.01)] },
     { steps: [step('4', 0.5, -0.002), step('2', 0.5, 0.30, [2], [8])] }, { steps: [step('3', 0.1, 0.2, [3], [7])] },
   ];
   const ctxFor = () => ({ tol: OPEN, ctx });
-  const legacy = withEnv(null, () => ({ r: M.MODES.map(m => rankPlans(plans, m, OPEN, ctx)), c: compareModes(plans, ctxFor) }));
-  const zero = withEnv('0', () => ({ r: M.MODES.map(m => rankPlans(plans, m, OPEN, ctx)), c: compareModes(plans, ctxFor) }));
-  const explicit = { r: M.MODES.map(m => rankPlans(plans, m, OPEN, ctx, { rule: false })), c: compareModes(plans, ctxFor, { rule: false }) };
-  assert.deepEqual(zero, legacy);
+  const legacy = { r: M.MODES.map(m => rankPlans(plans, m, OPEN, ctx)), c: compareModes(plans, ctxFor) };
+  const explicit = { r: M.MODES.map(m => rankPlans(plans, m, OPEN, ctx, { rule: false })), c: compareModes(plans, ctxFor, null, { rule: false }) };
   assert.deepEqual(explicit, legacy);
 });
 
-test('rule on through the env: the three modes pick three different first steps on one pool', () => {
+test('rule on: the three modes pick three different first steps on one pool', () => {
   const X = { steps: [step('2', 0.3, 0.10)] };                                  // regret winner
   const Y = { steps: [step('3', 0.8, 0.03), step('4', 0.8, 0.06, [2], [8])] }; // best expected
   const W = { steps: [step('4', 1, 0.02, [3], [7])] };                          // best worst case
-  const rows = withEnv('1', () => compareModes([X, Y, W], () => ({ tol: OPEN, ctx })));
+  const rows = compareModes([X, Y, W], () => ({ tol: OPEN, ctx }), null, { rule: true });
   assert.deepEqual(rows.map(r => r.first_step.team), ['4', '2', '3']);
+  // Every pick beats doing nothing on its expected gain, whatever its rule score (regret is 0 here).
+  for (const r of rows) assert.equal(r.no_trade.pick, 'plan');
 });
 
-test('planner end to end: flag off is byte-identical to unset; flag on still validates', () => {
-  const plan = mode => {
-    const a = makeAdapter();
-    const res = planLeague(a, { objective: normaliseObjective({ risk_mode: mode }) });
-    return { a, res, json: JSON.stringify(toEntry(res, { names: a.names(), as_of: '2026-09-24T00:00:00Z' })) };
-  };
+test('review 1: "beats doing nothing" is its own test (expected > 0), not the rule score', () => {
+  const X = { steps: [step('2', 0.3, 0.10)] };
+  const lose = { steps: [step('3', 0.9, -0.01)] };
+  const r = rankPlans([X], 'balanced', OPEN, ctx, { rule: true }).ranked[0];
+  close(r.score, 0);                                  // regret 0: not above 0 ...
+  assert.equal(M.beatsNoTrade(r, 'balanced', { rule: true }), true); // ... yet it beats doing nothing
+  assert.equal(M.beatsNoTrade(r, 'balanced', { rule: false }), false);
+  const s = rankPlans([lose], 'safe', OPEN, ctx, { rule: true }).ranked[0];
+  assert.equal(M.beatsNoTrade(s, 'safe', { rule: true }), false);
+  // All plans lose title odds: every mode's row is "no trade", rule on.
+  const rows = compareModes([lose, { steps: [step('4', 0.5, -0.02)] }], () => ({ tol: OPEN, ctx }), null, { rule: true });
+  for (const row of rows) { assert.equal(row.no_trade.pick, 'no_trade'); }
+});
+
+test('review 4: the rule reads the planner settings env only, never process.env', () => {
+  const prev = process.env[RISK_RULE_ENV];
+  process.env[RISK_RULE_ENV] = '1';
+  try {
+    for (const mode of M.MODES) assert.equal(planWith(mode, {}).json, planWith(mode, undefined).json);
+    const X = { steps: [step('2', 0.3, 0.10)] }, Y = { steps: [step('3', 0.8, 0.03), step('4', 0.8, 0.06, [2], [8])] };
+    assert.equal(top([X, Y], 'balanced', undefined), '3', 'no option = legacy, even with the process flag set');
+  } finally { if (prev == null) delete process.env[RISK_RULE_ENV]; else process.env[RISK_RULE_ENV] = prev; }
+});
+
+test('planner: flag "0" is byte-identical to no flag; flag on validates and serves a deck in every mode', () => {
   for (const mode of M.MODES) {
-    const unset = withEnv(null, () => plan(mode));
-    const off = withEnv('0', () => plan(mode));
-    assert.equal(off.json, unset.json, `${mode}: flag "0" changed the plans entry`);
-    const on = withEnv('1', () => plan(mode));
+    assert.equal(planWith(mode, { [RISK_RULE_ENV]: '0' }).json, planWith(mode, {}).json, `${mode}: flag "0" changed the entry`);
+    const on = planWith(mode, ON);
     assert.deepEqual(validateLeague(JSON.parse(on.json)).errors, [], `${mode}: rule-on entry fails the schema`);
-    assert.equal(on.res.risk_modes.length, 3);
+    assert.ok(on.res.deck.length >= 1, `${mode}: rule on serves no card`);
+    for (const c of on.res.deck) assert.ok(c.plan.expected > 0, `${mode}: a served card does not beat doing nothing`);
+    const row = on.res.risk_modes.find(r => r.mode === mode);
+    assert.equal(row.no_trade.pick, 'plan');
   }
+});
+
+test('review 1: rule on, every plan loses on the confirm dice -> empty deck and "no trade" in every mode', () => {
+  for (const mode of M.MODES) {
+    const a = makeAdapter();
+    const w0 = a.world;
+    a.world = s => {
+      const w = w0(s);
+      if (s === a.seed) return w;
+      return { ...w, rescore(state, x, y) {
+        const r = w.rescore(state, x, y);
+        const d = -Math.abs(r.me.title_delta) - 0.01;
+        return { ...r, me: { ...r.me, title_delta: d, title_after: r.me.title_before + d } };
+      } };
+    };
+    const { res } = planWith(mode, ON, a);
+    assert.equal(res.confirm.status, 'ok');
+    assert.deepEqual(res.deck, [], `${mode}: a card was served that loses on the confirm dice`);
+    for (const row of res.risk_modes) assert.equal(row.no_trade.pick, 'no_trade', `${mode}/${row.mode}`);
+  }
+});
+
+test('review 2: the confirmed Balanced deck is ordered by regret against the surviving cards', () => {
+  const { res } = planWith('balanced', ON);
+  const deck = res.deck.map(c => c.plan);
+  assert.ok(deck.length >= 2, `the fixture yields a deck of at least two cards (got ${deck.length})`);
+  for (let i = 1; i < deck.length; i++) assert.ok(deck[i - 1].score >= deck[i].score, `card ${i} outranks card ${i - 1}`);
+  for (const p of deck) {
+    assert.ok(p.score <= 0, `a regret score is never positive (got ${p.score})`);
+    assert.ok(-p.score >= maxRegret(p, deck) - 1e-12, 'regret is scored against the deck, not the card alone');
+  }
+  // Not collapsed to the lone-card regret: at least one card regrets against another.
+  assert.ok(deck.some(p => p.score < 0), 'every card scored 0: regret was measured against itself alone');
+});
+
+test('review 3: compareModes keeps pickFor as its third argument and the rule as the fourth', () => {
+  const X = { steps: [step('2', 0.3, 0.10)] };
+  const rows = compareModes([X], () => ({ tol: OPEN, ctx }), () => ({ best: null, confirmed: true }), { rule: true });
+  for (const r of rows) { assert.equal(r.first_step, null); assert.equal(r.no_trade.pick, 'no_trade'); }
 });

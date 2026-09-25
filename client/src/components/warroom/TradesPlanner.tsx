@@ -1,14 +1,17 @@
-import { useCallback, useMemo, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import './warroom.css';
 import './warroom-v2.css';
 import { setTeamNames, type WarRoomView } from './types';
 import { isOk } from './format';
 import { SourcesContext } from './FieldState';
 import { PanelBoundary } from './Panel';
-import NextMoveDeck from './NextMoveDeck';
+import NextMoveDeck, { type CurrentMove } from './NextMoveDeck';
+import { MoveDetails } from './HeroCard';
+import { teamLabel } from './types';
+import Icon from './icons';
 import ScreenGoGet from './ScreenGoGet';
 import ScreenMarket from './ScreenMarket';
-import { useNegotiations, usePlayerHeadshots } from './useWarRoom';
+import { useHeadshotMap, useNegotiations } from './useWarRoom';
 import { HeadshotContext } from './Avatar';
 import { FIXED_QUESTIONS } from './coach/CoachDrawer';
 import { postWarRoomRequest, type WarRoomRequest } from './requests';
@@ -27,14 +30,12 @@ export default function TradesPlanner({ part, view, leagueId, onAsk, someoneElse
 }) {
   setTeamNames(isOk(view.teams) ? view.teams.value : null);
   const negotiations = useNegotiations(leagueId);
-  const players = usePlayerHeadshots();
-  const headshots = useMemo(() => {
-    const out: Record<string, string> = {};
-    // ESPN has no headshot for a negative (team defence) id; those get initials without a failed request.
-    for (const p of players.data ?? []) if (p.headshot && !/\/-\d+\.png$/.test(p.headshot)) out[String(p.id)] = p.headshot;
-    return out;
-  }, [players.data]);
+  const headshots = useHeadshotMap();
   const send = useCallback((req: WarRoomRequest) => postWarRoomRequest(leagueId, req), [leagueId]);
+  // The deck's current card: its offer (message, walk-away, "If he says…") folds under the deck, and
+  // once the card is picked the reply buttons log his answer (offer.reply) from here.
+  const [current, setCurrent] = useState<CurrentMove | null>(null);
+  const onCurrent = useCallback((c: CurrentMove | null) => setCurrent(c), []);
 
   return (
     <SourcesContext.Provider value={view.sources ?? {}}>
@@ -42,8 +43,17 @@ export default function TradesPlanner({ part, view, leagueId, onAsk, someoneElse
         <div className="wr-root wr-v2 wr-inline" data-testid={`trades-planner-${part}`}>
           <PanelBoundary name={part === 'next' ? 'Next move' : part === 'goget' ? 'Go get' : 'Market'}>
             {part === 'next' && (
-              <NextMoveDeck key={`${leagueId}:${view.snapshot?.id ?? ''}`} view={view} big variant="hero"
-                negotiation={negotiations.data} onAskCoach={() => onAsk(FIXED_QUESTIONS[0])} onAsk={q => onAsk(q)} />
+              <>
+                <NextMoveDeck key={`${leagueId}:${view.snapshot?.id ?? ''}`} view={view} big variant="hero"
+                  negotiation={negotiations.data} onCurrent={onCurrent} onAskCoach={() => onAsk(FIXED_QUESTIONS[0])} onAsk={q => onAsk(q)} />
+                {current && (
+                  <details className="wr-card2 wr-fold" data-panel="composer" aria-label="The offer" style={{ marginTop: 16 }}>
+                    <summary><span className="wr-card2-h">The offer to {teamLabel(current.move.steps[0].partner)}</span>
+                      <span className="wr-h-note">message, when to send, walk-away, if he says…</span><Icon name="down" size={16} className="wr-acc-chev" /></summary>
+                    <MoveDetails move={current.move} view={view} leagueId={leagueId} onReply={current.onReply} negotiating={current.negotiating} />
+                  </details>
+                )}
+              </>
             )}
             {part === 'goget' && <ScreenGoGet view={view} leagueId={leagueId} current={null} onRequest={send} someoneElse={someoneElse} compact />}
             {part === 'market' && <ScreenMarket view={view} />}

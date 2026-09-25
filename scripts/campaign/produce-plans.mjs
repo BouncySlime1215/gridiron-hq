@@ -91,6 +91,7 @@ import { applyCoachMessages, coachMessagesOn } from '../../server/services/campa
 import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
 import { loveIdsOf, loveSummary } from '../../server/services/campaign/love.js';
+import { buyLowPositions, buyLowForRun, annotateEntryTargets } from '../../server/services/campaign/buy-low.js';
 import { reachFlag, REACH_TARGETS, droppedLine } from '../../server/services/campaign/reach.js';
 import { draftSummary } from '../../server/services/campaign/draft-capital.js';
 import { radarWireFlag, applyWhyNow, gradeLedger, newServeRows } from '../../server/services/campaign/why-now.js';
@@ -334,6 +335,10 @@ export async function buildPlansFile(leagues, {
       const objective = gate ? gate.objective : requested;
       if (gate?.rule.fell_back) log(`[warroom] league ${id}: ${gate.rule.reason}`);
       res = planLeague(adapter, { objective, skips: ins.weights, budget, env });
+      // BUY-LOW (shadow, GRIDIRON_BUY_LOW=1 only, never preview): buy_low on Go get targets, a tie-breaker only.
+      const blPositions = buyLowPositions(env);
+      const buyLow = blPositions.length > 0 && typeof adapter.buyLow === 'function' && !res.error ? buyLowForRun(res, adapter, { positions: blPositions }) : null;
+      if (buyLow) res = buyLow.res;
       const rosterKey = res.error ? null : adapter.rosterKey?.() ?? null;
       const changed = diffNextMove(prev?._run ?? null, { next_step: res.best?.steps[0] ?? null,
         objective_version: objective.version, risk_mode: objective.risk_mode, roster_key: rosterKey });
@@ -379,6 +384,11 @@ export async function buildPlansFile(leagues, {
           // Read after planning, so it can never constrain the search; nothing served reads it.
           ...(adapter.love ? { love: loveSummary(adapter.love(loveIdsOf(entry), { draft: adapter.draft?.by_player ?? null })) } : {}),
         };
+      }
+      if (buyLow) {
+        entry = annotateEntryTargets(entry, buyLow.reads, blPositions);
+        if (entry._run) entry._run.inputs.buy_low = buyLow.summary;
+        if (buyLow.summary.status === 'error') log(`[warroom] league ${id}: buy_low read failed: ${buyLow.summary.reason}`);
       }
       // COACH-MSG (#306): grounded messages into the contract's existing slots, before the contract check.
       if (coachMessagesOn()) {

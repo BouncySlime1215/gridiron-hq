@@ -31,6 +31,7 @@ const rt = createRequire(${rtPath})(${rtPath});
 export const jsx = rt.jsx; export const jsxs = rt.jsxs; export const Fragment = rt.Fragment;`);
   const apiUrl = write('api.mjs', `export function useApi(p) {
   (globalThis.__warRoomPaths ??= []).push(p);
+  if (globalThis.__warRoomUseApi) return globalThis.__warRoomUseApi(p); // a test that needs loading / error / refetch
   const d = (globalThis.__warRoomApi ?? {})[p] ?? null;
   return { data: d, loading: false, refreshing: false, error: null, refetch() {} };
 }

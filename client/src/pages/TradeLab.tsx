@@ -11,6 +11,7 @@ import { statHeadline } from '../components/draft/types';
 import { hasEvidence } from '../components/trade/types';
 import { usePageExplain } from '../components/PageExplainContext';
 import { PageLoading, PageError, EmptyState } from '../components/PageState';
+import RulesHidden from '../components/trade/RulesHidden';
 
 const TABS = [
   { id: 'news', label: 'News edge', hint: 'Act on news your league has not seen yet' },
@@ -272,6 +273,7 @@ function TitleTrades({ leagueId, teamId }: { leagueId: number; teamId: string | 
 
   return (
     <div>
+      <RulesHidden n={data?.dropped_by_rule} className="mb-3" />
       <div className={`card p-4 mb-3 ${data?.objectives_disagree ? 'border-amber-300 bg-amber-50/50' : ''}`}>
         <h2 className="text-sm font-bold text-slate-800 mb-1">
           {data?.simulated ?? 0} deals simulated · ranked by championship odds
@@ -498,6 +500,7 @@ function FindDeals({ leagueId, teamId, rosters, untouchable, untouchableNames }:
 
   return (
     <div>
+      <RulesHidden n={data?.dropped_by_rule} className="mb-3" />
       <div className="flex items-center gap-3 mb-3 flex-wrap text-xs">
         <label className="flex items-center gap-1.5 cursor-pointer">
           <input type="checkbox" checked={mutual} onChange={e => setMutual(e.target.checked)} className="accent-emerald-600" />
@@ -640,6 +643,7 @@ function TradeSequences({ leagueId, teamId, mutual, size, exclude, untouchableNa
 
   return (
     <div className="mt-6">
+      <RulesHidden n={data?.dropped_by_rule} className="mb-2" />
       <h3 className="text-sm font-bold text-slate-800 mb-1">Do this, then this opens up</h3>
       <p className="text-xs text-slate-500 mb-3">
         Every deal above is priced against your roster as it is right now. These only become live
@@ -688,6 +692,7 @@ function TargetPlayer({ leagueId, teamId, rosters, untouchable, untouchableNames
 
   return (
     <div className="grid lg:grid-cols-[1fr_340px] gap-4 items-start">
+      <RulesHidden n={offer?.dropped_by_rule} className="mb-3 lg:col-span-2" />
       <div>
         <div className="card p-4 mb-3">
           <label className="text-xs font-bold uppercase tracking-wide text-slate-400">Who do you want?</label>
@@ -805,6 +810,7 @@ function TargetMany({ leagueId, teamId, rosters, untouchable, untouchableNames }
 
   return (
     <div>
+      <RulesHidden n={result?.dropped_by_rule} className="mb-3" />
       <div className="card p-4 mb-3">
         <label className="text-xs font-bold uppercase tracking-wide text-slate-400">Trade with a specific manager? (optional)</label>
         <select className="input w-full mt-1.5" value={partnerId} onChange={e => setPartnerId(e.target.value)}>

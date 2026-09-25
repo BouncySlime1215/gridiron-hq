@@ -91,9 +91,10 @@ mock.module('../server/services/projections.js', {
   namedExports: {
     ...realProjections,
     buildProjections: () => projMap,
-    sampleWeeks: (params, n, _scoring, mult = 1) => {
+    // Mean = mu x volume multiplier on the weeks he plays, 0 otherwise, as the real sampler's.
+    sampleWeeks: (params, n, _scoring, mult = 1, activeProbability = 1) => {
       const m = typeof mult === 'object' ? mult.pass : mult;
-      return Array.from({ length: n }, () => params.mu * m * (0.2 + 1.6 * random()));
+      return Array.from({ length: n }, () => (random() > activeProbability ? 0 : params.mu * m * (0.2 + 1.6 * random())));
     }
   }
 });
@@ -207,7 +208,9 @@ test('BASIS-02 M3: a replay of an earlier week keeps the as-of level and borrows
   assert.ok(simStartWeek(league()) >= 2, 'fixture: the league is at week 2');
   const off = arm(null, () => tradeImpactWorld(league(), { runs: RUNS, seed: 7, fromWeek: 1 }));
   const on = arm('1', () => tradeImpactWorld(league(), { runs: RUNS, seed: 7, fromWeek: 1 }));
-  assert.deepEqual(on.base, off.base, 'week-1 replay: same season with the flag on');
+  const { basis_02, ros_finder_level, ros_template, ros_no_pool, ...onBase } = on.base;
+  assert.equal(basis_02, true, 'labelled, so a reader can see the flag was on');
+  assert.deepEqual(onBase, off.base, 'week-1 replay: same season with the flag on');
   assert.equal(on.prep.basisFields.ros_template, 0);
   assert.equal(on.prep.basisFields.ros_finder_level, 0);
 });

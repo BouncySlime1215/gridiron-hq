@@ -24,7 +24,8 @@
  *   all_in    expected title odds across yes/no outcomes (risk-neutral)
  * balanced and all_in both refuse a plan under ALL_IN_MIN_COMPLETE to land. Ties: expected.
  * "Beats doing nothing" is NOT the rule score under the rule (regret is never positive, a declinable
- * worst case is 0): `beatsNoTrade(scored, mode, { rule: true })` is expected > 0, applied on the confirm dice.
+ * worst case is 0): `beatsNoTrade(scored, mode, { rule: true })` is expected > 0, and for Safe also worst case
+ * >= 0 (no ending below today), applied on the confirm dice.
  */
 import { pathExpectation, pathOutcomes, assetsSpent } from './paths.js';
 
@@ -203,8 +204,14 @@ export function rankPlans(plans, mode, tol, ctx = {}, { rule = false } = {}) {
  */
 export function beatsNoTrade(scored, mode, { rule = false } = {}) {
   if (!scored || !Number.isFinite(scored.score)) return false;
-  // RISK-RULE: the rule scores are not on the no-trade scale (regret <= 0), so the test is the expected gain.
-  if (rule) return scored.expected > 0;
+  // RISK-RULE: the rule scores are not on the no-trade scale (regret <= 0), so each mode's own rule is
+  // asked against doing nothing: the expected gain above 0, and for Safe (worst case) also no ending below
+  // today, since doing nothing's worst case is 0. Never looser than the rule-off gate: worst case >= 0
+  // makes downside_sd 0, so Safe's legacy test reduces to expected > 0.
+  if (rule) {
+    if (!(scored.expected > 0)) return false;
+    return normaliseMode(mode) !== 'safe' || (Array.isArray(scored.steps) && worstCase(scored.steps) >= 0);
+  }
   if (normaliseMode(mode) !== 'safe') return scored.score > 0;
   const down = Number.isFinite(scored.downside_sd) ? scored.downside_sd : scored.sd;
   return scored.expected - SAFE_LAMBDA * down > 0;

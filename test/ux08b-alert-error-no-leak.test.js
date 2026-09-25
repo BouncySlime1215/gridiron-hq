@@ -133,6 +133,7 @@ const tradeCardSwaps = () => [
   ["'./trade/PlayerEvidence'", namedStub([])],
   ["'./trade/RiskStrip'", namedStub([])],
   ["'./warroom/HisScreen'", namedStub([])],
+  ["'./warroom/TradeSides'", namedStub([])],
   ["'./trade/SentOfferButton'", namedStub([])],
   ["'./trade/types'", namedStub(['hasEvidence'])],
 ];

@@ -564,3 +564,16 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
 .chance-line { font-size: 12px; color: var(--c-muted); }
 .chance-line b { font-weight: 600; color: var(--c-ink); }
 .chance-line .chance-rest { color: var(--c-subtle); }
+/* TradeSides outside the War Room scope (the finder's trade card): the same chips, compact. */
+.trade-side-k { display: block; font: 600 12px/1.2 var(--font-body); letter-spacing: .06em; text-transform: uppercase; color: var(--c-muted); }
+.trade-sides button.wr-pchip { border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; width: 100%; }
+.trade-sides-compact { gap: 8px; margin-bottom: 12px; }
+.trade-sides-compact .wr-pchips { gap: 6px; }
+.trade-sides-compact .wr-pchip { gap: 8px; padding: 4px 10px 4px 4px; }
+.trade-sides-compact .wr-pchip-n { font-size: 14px; }
+.trade-sides-compact .wr-hero-arrow { width: 26px; height: 26px; margin-bottom: 6px; }
+.trade-sides { --f-display: var(--font-display); }
+@media (max-width: 639px) {
+  .trade-sides-compact { grid-template-columns: minmax(0, 1fr); }
+  .trade-sides-compact .wr-hero-arrow { transform: rotate(90deg); margin: 0 auto; }
+}

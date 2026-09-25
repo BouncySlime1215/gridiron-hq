@@ -25,6 +25,7 @@ import { P_ACCEPT_LABEL, teamLabel, acceptDo, declineDo } from './playbook.js';
 import { dealKey } from './paths.js';
 import { M6_REPLY_PRIOR } from '../people/counterpart.js';
 import { hash } from './confirm.js';
+import { floorName as getsFloorName } from './gets-floor.js';
 
 const M6_MIX = Object.freeze({ ignore: M6_REPLY_PRIOR.ignore, counter: M6_REPLY_PRIOR.counter, decline: M6_REPLY_PRIOR.decline, accept: M6_REPLY_PRIOR.accept });
 /** One counterpart feature for the plans file: named, typed, no names or note text. */
@@ -205,6 +206,17 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       }, 'plan.path');
       out.reasoning = reasoning({ team: st.team, p: st.p, delta: st.delta - before, clears: st.clears, pb, verdict });
     }
+    // CAP-1C: a depth-only 2-for-1 planned above the 0 cap says so, with the lineup and title gains that allowed it.
+    const dp = st.depth_premium;
+    if (dp) {
+      const c = dp.confirmed ?? null;
+      out.depth_premium = ok({ pct: dp.pct, cap: dp.cap, lineup_points_delta: dp.points_delta, title_odds_delta: dp.title_delta,
+        ...(c ? { confirmed_lineup_points_delta: c.points_delta, confirmed_title_odds_delta: c.title_delta } : {}),
+        text: `Depth-only 2-for-1 at +${Math.max(1, Math.round(dp.pct * 100))}% market value (cap +${Math.round(dp.cap * 100)}%): `
+          + `your lineup gains ${dp.points_delta.toFixed(1)} pts a week and your title odds ${(dp.title_delta * 100).toFixed(2)} pts on the same dice`
+          + (c ? `, and ${c.points_delta.toFixed(1)} pts a week and ${(c.title_delta * 100).toFixed(2)} pts on fresh dice.` : '; not yet re-checked on fresh dice.'),
+      }, 'plan.path', { unit: 'market_value' });
+    }
     if (st.band && isProb(st.band.low) && isProb(st.band.high)) {
       out.p_yes_band = { low: st.band.low, high: st.band.high };
       // The acceptance model's own basis (trade-acceptance.js): the offer ledger refuses a band without one.
@@ -253,12 +265,28 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   // NO-OVERPAY: with no move, say when the cap on market value given is what stopped it, and name the closest overpay.
   const op = res.no_overpay ?? null;
   const cl = op?.closest && fin(op.closest.pct) ? op.closest : null;
-  const closestText = cl ? `the closest is ${cl.give.map(nm).join(' + ')} for ${cl.get.map(nm).join(' + ')} at +${Math.max(1, Math.round(cl.pct * 100))}% market value (your cap: +${Math.round((op.max_overpay ?? 0) * 100)}%)` : null;
-  const next_move = best ? ok(best, 'plan.path')
-    : unknown(res.candidates_scored
-      ? `None of the ${res.candidates_scored} paths searched clears the sliders and the fresh-dice check this week.${closestText ? ` Nothing clears without overpaying; ${closestText}.` : ''} Try another target or risk mode.`
-      : closestText ? `Nothing clears without overpaying; ${closestText}.`
-        : 'The planner found no trade path worth sending this week.', 'plan.path');
+  // REACH-01: a chained miss prints its whole chain (the legs before the overpaying finish), in order.
+  const legs = (cl?.chain ?? []).map(x => `${x.give.map(nm).join(' + ')} for ${x.get.map(nm).join(' + ')} (Team ${x.team})`);
+  const finish = cl ? `${cl.give.map(nm).join(' + ')} for ${cl.get.map(nm).join(' + ')}` : '';
+  const closestText = cl ? `the closest is ${legs.length ? `${legs.join(', then ')}, then ${finish}` : finish} at +${Math.max(1, Math.round(cl.pct * 100))}% market value (your cap: +${Math.round((op.max_overpay ?? 0) * 100)}%)` : null;
+  // NO-TRADE-SHRINK: with no move, say that keeping the roster is the active mode's pick (its no-trade row).
+  const keepRow = (res.risk_modes ?? []).find(m => m.mode === o.risk_mode)?.no_trade;
+  const keepText = keepRow?.pick === 'no_trade' ? ` Keeping your roster is the pick in ${MODE_LABELS[o.risk_mode]} mode.` : '';
+  // GETS-FLOOR: with the floor on and no move, say first that the floor is what emptied the deck.
+  const gf = res.gets_floor?.mode === 'on' ? res.gets_floor : null;
+  const floorName = gf ? getsFloorName(gf.floor) : null;
+  const floorText = !gf ? null
+    : gf.source === 'none' ? `The ${floorName} is on but there is no player score this run, so no get can be certified.`
+      : gf.refused.length ? `${gf.refused.map(r => `${nm(r.player)} ${r.score == null ? 'has no score' : `scores ${Math.round(r.score)}`}`).join('; ')}, under the ${floorName}.`
+        : gf.dropped ? `${gf.dropped} candidate get${gf.dropped === 1 ? '' : 's'} under the ${floorName} ${gf.dropped === 1 ? 'was' : 'were'} skipped.` : null;
+  // integration-7: no move because the trade ledger is missing (the planner failed closed).
+  const tlm = res.trade_ledger_missing ?? null;
+  const ledgerText = tlm ? `No move this run: the league has ${tlm.executed_rows} executed trade${tlm.executed_rows === 1 ? '' : 's'} this season but the trade ledger could not be read, so Nick's no-buy-back and no-reversal rules cannot be checked.` : null;
+  const why = res.candidates_scored
+    ? `None of the ${res.candidates_scored} paths searched clears the sliders and the fresh-dice check this week.${keepText}${closestText ? ` Nothing clears without overpaying; ${closestText}.` : ''} Try another target or risk mode.`
+    : closestText ? `Nothing clears without overpaying; ${closestText}.`
+      : floorText || ledgerText ? null : 'The planner found no trade path worth sending this week.';
+  const next_move = best ? ok(best, 'plan.path') : unknown([ledgerText, floorText, why].filter(Boolean).join(' '), 'plan.path');
 
   /* ------------------------------------------------------- destination */
   // PLAN-BASELINE: an earlier trajectory is compared with only when it was made under this run's model.
@@ -333,12 +361,14 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     if (TRADEOFF_KEY.test(key)) tradeoffs[key] = row(p);
   });
   const cur = res.risk_modes.find(m => m.mode === o.risk_mode);
+  // integration-7: a mode whose pick is keeping the roster is worth exactly 0 (no move), not unpriced.
+  const expOf = m => (fin(m?.expected) ? m.expected : m?.no_trade?.pick === 'no_trade' ? 0 : null);
   for (const m of res.risk_modes) {
-    if (m.mode === o.risk_mode || !cur || !fin(cur.expected) || !fin(m.expected)) continue;
-    const cost = cur.expected - m.expected;
+    if (m.mode === o.risk_mode || !cur || !fin(expOf(cur)) || !fin(expOf(m))) continue;
+    const cost = expOf(cur) - expOf(m);
     const verdict = verdictOf(-cost, res.best?.expected_se);
     tradeoffs[tradeoffKey({ type: 'set_risk_mode', mode: m.mode })] = row({
-      stop_label: `Switch to ${MODE_LABELS[m.mode]}`, cost, extra_steps: (m.steps ?? 0) - (cur.steps ?? 0), gain: 0, net: -cost, verdict,
+      stop_label: `Switch to ${MODE_LABELS[m.mode]}`, cost, extra_steps: (m.steps ?? 0) - (cur.steps ?? 0), gain: 0, net: 0 - cost, verdict,
       because: verdict === 'close' ? 'the difference in expected gain is inside the simulation noise'
         : verdict === 'worth_it' ? 'it raises the expected gain' : 'it gives up expected gain',
       new_next_move_changes: dealKey(m.first_step) !== dealKey(cur.first_step),
@@ -430,6 +460,10 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     if_complete: num(m.if_complete, 'plan.path', { unit, missing: 'No plan fits this mode.' }),
     p_complete: num(m.p_complete, 'plan.path', { prob: true, unit: 'probability', guess: true, missing: 'No plan fits this mode.' }),
     first_step: m.first_step ? { partner: String(m.first_step.team), give: ids(m.first_step.give), get: ids(m.first_step.get) } : null,
+    // NO-TRADE-SHRINK: keeping today's roster, scored by the same objective (exactly 0 gain, lands for sure).
+    ...(m.no_trade ? { no_trade: { expected: num(m.no_trade.expected, 'plan.path', { unit }),
+      p_complete: num(m.no_trade.p_complete, 'plan.path', { prob: true, unit: 'probability' }),
+      pick: m.no_trade.pick, why: m.no_trade.why } } : {}),
   })), 'plan.path');
 
   const chatLabels = c => (c?.status === 'ok'
@@ -513,6 +547,13 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       candidates_scored: res.candidates_scored, rescores: res.rescores ?? 0, runtime_ms: res.runtime_ms ?? 0, phases_ms: res.phases_ms ?? {},
       // PLAN-BASELINE: the model this run's trajectory was made under (the contract keeps `_run` keys fixed; inputs is free-form).
       inputs: model != null ? { model } : {},
+      // TRADE-MEMORY: paths the season's trade ledger removed, and the memory itself (ids only).
+      dropped_by_reason: { trade_memory: res.trade_memory?.dropped_total ?? 0,
+        // integration-7: targets (and flips) not searched because the season's trade ledger was missing.
+        ...(res.trade_ledger_missing ? { trade_ledger_missing: res.trade_ledger_missing.targets + res.trade_ledger_missing.flips } : {}) },
+      trade_memory: res.trade_memory ?? { status: 'no_ledger', dropped_total: 0 },
+      // NO-TRADE-SHRINK: the shadow pre-rank shrinkage report (modes.js#shadowShrink); bookkeeping only.
+      ...(res.shrink ? { shrink: res.shrink } : {}),
     },
   };
 }

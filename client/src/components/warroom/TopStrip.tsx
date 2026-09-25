@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { WarRoomView } from './types';
 import { Val } from './FieldState';
 import { HealthDot } from './BrainCheckCard';
@@ -14,9 +15,11 @@ const MODES: Record<string, string> = { safe: 'Safe', balanced: 'Balanced', all_
  * (goal, ETA vs plan, title odds now vs plan, risk mode), the `brain_report` and
  * number-health dots, and the way back to the other tabs.
  */
-export default function TopStrip({ view, leagues, activeId, onLeague, onExit, theme, onTheme }: {
+export default function TopStrip({ view, leagues, activeId, onLeague, onExit, theme, onTheme, extra }: {
   view: WarRoomView; leagues: LeagueChoice[]; activeId: number; onLeague: (id: number) => void;
   onExit: (tab: 'managers' | 'proposals') => void; theme: 'light' | 'dark'; onTheme: () => void;
+  /** WAR-ROOM-UI v2: the layout switch, next to the theme toggle. */
+  extra?: ReactNode;
 }) {
   // Audit defect 1: a rank outside 1..of is never drawn (the view already fails it).
   const rawAtt = isOk(view.attention) ? view.attention.value : null;
@@ -59,6 +62,7 @@ export default function TopStrip({ view, leagues, activeId, onLeague, onExit, th
         </span></div>
       </div>
       {view.preview && <span className="wr-tag wr-prev" title={view.preview_reason}>Preview, unconfirmed</span>}
+      {extra}
       <button type="button" className="wr-chip" onClick={onTheme} aria-label="Switch light or dark">{theme === 'dark' ? 'Light' : 'Dark'}</button>
       <div className="wr-exit">
         <button type="button" className="wr-chip" onClick={() => onExit('managers')}>Who trades with you</button>

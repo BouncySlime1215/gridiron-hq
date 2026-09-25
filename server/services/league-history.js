@@ -140,7 +140,32 @@ export function saveScores(lg, season, payload) {
   return n;
 }
 
-export function saveTeams(lg, season, payload) {
+/**
+ * TELLS-01b: ESPN's per-team season counters (mTeam `transactionCounter`) as
+ * `league.team_counter` engine events. Plain objects: this module never imports
+ * the engine (the web and refresh processes may not write it), so saveTeams hands
+ * them to an emitter its caller supplies (an engine-role script passes
+ * appendEvents); no table is edited. A team with no counter emits nothing: an
+ * absent count is unknown, never 0 trades.
+ */
+export function teamCounterEvents(lg, season, payload, { capturedAt = now() } = {}) {
+  const out = [];
+  for (const t of payload?.teams ?? []) {
+    const c = t?.transactionCounter;
+    if (!c || t.id == null) continue;
+    const num = v => (Number.isFinite(Number(v)) && v !== null ? Number(v) : null);
+    out.push({
+      event_type: 'league.team_counter', as_of: capturedAt, as_of_quality: 'first_seen', provenance: 'captured',
+      source: 'espn_mteam', league_id: lg.id, team_id: String(t.id),
+      natural_key: `league.team_counter:${lg.id}:${season}:${t.id}`,
+      entities: [{ type: 'league_team', id: `${lg.id}:${t.id}`, role: 'subject' }],
+      payload: { season: Number(season), trades: num(c.trades), acquisitions: num(c.acquisitions), drops: num(c.drops) },
+    });
+  }
+  return out;
+}
+
+export function saveTeams(lg, season, payload, { emit = null } = {}) {
   const teams = payload?.teams ?? [];
   if (!teams.length) return 0;
   const memberName = new Map((payload.members ?? []).map(m =>
@@ -168,6 +193,9 @@ export function saveTeams(lg, season, payload) {
     }
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
+  // After the commit: an emitter failure must not undo the standings, and it throws
+  // to the caller (the per-league-season catch counts it as failed).
+  if (emit) emit(teamCounterEvents(lg, season, payload));
   return teams.length;
 }
 
@@ -205,7 +233,7 @@ async function liveDraft() {
  */
 export async function backfillLeagueHistory({
   leagueIds = null, seasons = null, force = false, paceMs = PACE_MS,
-  checkLiveDraft = true, log = null,
+  checkLiveDraft = true, log = null, emitCounters = null,
 } = {}) {
   const draft = checkLiveDraft ? await liveDraft() : { active: false, reason: null };
   if (draft.active) {
@@ -237,7 +265,7 @@ export async function backfillLeagueHistory({
           continue;
         }
         const teamWeeks = saveScores(lg, season, payload);
-        const teams = saveTeams(lg, season, payload);
+        const teams = saveTeams(lg, season, payload, { emit: emitCounters });
         out.ok++; out.team_weeks += teamWeeks; out.teams += teams;
         out.league_seasons.push({ league_id: lg.id, season, team_weeks: teamWeeks, teams });
         log?.(`  ${lg.id}/${season} ${String(lg.name).trim().slice(0, 20).padEnd(21)}`

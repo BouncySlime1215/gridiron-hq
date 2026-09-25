@@ -26,6 +26,8 @@ import { decidedOffers, loadDecidedOffers, OUTCOME } from './decided-offers.js';
 
 export { OUTCOME };
 export const ANCHOR_MIN_DECISIONS = 5;
+/** trade_proposal_snapshots columns TELLS-01b reads offer terms from (snapshot first, #247). */
+export const SNAPSHOT_COLS = Object.freeze(['league_id', 'season', 'proposal_tx_id', 'proposer_team_id', 'proposed_at', 'items_json']);
 
 const t = s => (s == null ? NaN : Date.parse(s));
 const key = (...xs) => xs.map(String).join(':');
@@ -106,6 +108,12 @@ export function loadLeagueOffers(database) {
   const appArm = built.sources.includes('trade_outcomes') && !cols.has('sent_at')
     ? 'source table trade_outcomes lacks column(s) sent_at; CLONE-01b (#239) adds it, so no app offer can be shown to have been sent'
     : null;
+  // Which source each offer's terms came from (decided-offers.js: proposal, snapshot, close, answer, trade_outcomes).
+  const termsSources = {};
+  for (const o of built.offers) {
+    const from = o.terms_source ?? 'none';
+    termsSources[from] = (termsSources[from] ?? 0) + 1;
+  }
   return { offers: built.offers, excluded: built.excluded, by_league: built.by_league, sources: built.sources,
-    app_arm: appArm, reason: built.reason };
+    app_arm: appArm, terms_sources: termsSources, reason: built.reason };
 }

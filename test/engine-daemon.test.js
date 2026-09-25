@@ -133,7 +133,9 @@ test('RED (2): two ticks over the same source rows append the events once (idemp
   assert.ok(row(`SELECT COUNT(*) AS n FROM engine_runs WHERE producer = 'engine-adapters' AND tick_id = ?`, second.tick_id).n
     >= cursorsMod.DAEMON_ADAPTERS.length);
   // The first pass of a stream is a backfill; the daemon's own heartbeat never becomes a coverage event.
-  assert.equal(row(`SELECT COUNT(*) AS n FROM engine_events WHERE source = 'league_transactions_raw' AND provenance = 'reconstructed'`).n, 1);
+  // One espn.transaction per raw row; TELLS-01b's tells_transactions stream reads the same row as league.transaction.
+  assert.equal(row(`SELECT COUNT(*) AS n FROM engine_events WHERE source = 'league_transactions_raw' AND provenance = 'reconstructed'
+    AND event_type = 'espn.transaction'`).n, 1);
   assert.equal(row(`SELECT COUNT(*) AS n FROM engine_events WHERE event_type = 'source.coverage' AND natural_key = 'engine_daemon'`).n, 0);
 });
 
@@ -200,9 +202,15 @@ test('RED (3), (4): one new transaction gives 1 event and 1 dispatch per learner
          scoring_period, items_json, first_seen_at, last_seen_at)
        VALUES (81, 2026, 'fx-2', 'FREEAGENT', 'EXECUTED', '2026-09-22T07:00:00.000Z', '2026-09-22T07:00:01.000Z', 1, 3,
          '[]', '2026-09-22T21:00:00.000Z', '2026-09-22T21:00:00.000Z')`);
-    const before = count('engine_events');
+    const byType = () => Object.fromEntries(rows(`SELECT event_type, COUNT(*) AS n FROM engine_events
+      WHERE source = 'league_transactions_raw' GROUP BY event_type`).map(r => [r.event_type, r.n]));
+    const before = byType();
     const t = await tick({ learnerBudgetMs: 100 });
-    assert.equal(count('engine_events') - before, 1);
+    const after = byType();
+    // The one row is one espn.transaction (what learners subscribe to) and, through TELLS-01b's
+    // tells_transactions stream, one league.transaction.
+    assert.equal((after['espn.transaction'] ?? 0) - (before['espn.transaction'] ?? 0), 1);
+    assert.equal((after['league.transaction'] ?? 0) - (before['league.transaction'] ?? 0), 1);
     assert.deepEqual(calls, { a: 1, b: 1, thrower: 1 });
     assert.equal(t.learners.dispatched, 4);
     const failed = t.learners.failures.map(f => `${f.learner}: ${f.error}`).sort();

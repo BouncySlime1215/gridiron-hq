@@ -31,7 +31,10 @@
  *                        synced; once per league sync, at most hourly. Never run by the web server.
  *   6. brain_report      EVAL-01 graders E1-E7 (scripts/eval/run-graders.mjs), after the audit,
  *                        so they grade this tick's rows; stores one run in brain_report
- *   7. warroom_plans     the War Room campaign producer (scripts/campaign/produce-plans.mjs),
+ *   7. tells             TELLS-01b producer 'tells' (scripts/engine-tells.mjs, role engine):
+ *                        the tells card, prior trades and checkout risk into engine_state,
+ *                        so the tells route only reads. This loop never imports the engine.
+ *   8. warroom_plans     the War Room campaign producer (scripts/campaign/produce-plans.mjs),
  *                        only when the War Room flag is on (server/services/warroom-flag.js:
  *                        its own switch or preview mode); launched detached every tick
  *                        (skipped while the previous run holds its lock) so each league's
@@ -388,6 +391,23 @@ export function brainReport({ spawn = spawnSync, log = console.log, record = rec
   log(`${stamp()} ${'brain_report'.padEnd(18)} ${r.status === 0 ? 'ok' : 'ERROR'} ${text.slice(0, 300)} (${Date.now() - t0} ms)`);
 }
 
+// TELLS-01b: the tells producer, off the request thread. The child is the engine writer; the
+// loop records only a failure to start, as for the brain report.
+export function tellsStep({ spawn = spawnSync, log = console.log, record = recordSync } = {}) {
+  const t0 = Date.now();
+  const r = spawn(process.execPath, ['--env-file-if-exists=.env', 'scripts/engine-tells.mjs'],
+    { cwd: ROOT, env: process.env, encoding: 'utf8', timeout: 5 * 60 * 1000 });
+  const failed = spawnFailure(r);
+  if (failed) {
+    record('tells', 'error', { error: failed.slice(0, 300), spawn_failed: true });
+    log(`${stamp()} ${'tells'.padEnd(18)} ERROR ${failed.slice(0, 160)} (${Date.now() - t0} ms)`);
+    return;
+  }
+  const lines = outputLines(r);
+  const summary = lines.filter(l => /^tells: /.test(l)).at(-1) ?? lines.at(-1) ?? `exit ${r.status}`;
+  log(`${stamp()} ${'tells'.padEnd(18)} ${r.status === 0 ? 'ok' : 'ERROR'} ${summary.slice(0, 300)} (${Date.now() - t0} ms)`);
+}
+
 /**
  * BROKEN-01a: the number audit, in this process only. `memo` lives for the loop's
  * life so a league is re-audited when its sync changes or an hour has passed; a
@@ -439,6 +459,7 @@ export async function tick({ jobs = FANTASY_LIVE_JOBS, spawn = spawnSync, log = 
     log(`${stamp()} ${'number_audit'.padEnd(18)} THREW ${String(e?.message ?? e).slice(0, 160)}`);
   }
   step('brain_report', () => brainReport({ spawn, log, record }));
+  step('tells', () => tellsStep({ spawn, log, record }));
   step('warroom_plans', () => warRoomPlans({ log, record, ...(warRoomLaunch ? { launch: warRoomLaunch } : {}) }));
   log(`${stamp()} tick done in ${Math.round((Date.now() - started) / 1000)} s`);
 }
@@ -475,7 +496,7 @@ async function refresh(args) {
     return;
   }
   console.log(`${stamp()} refresh-live-data loop every ${loopSeconds} s — jobs: ${FANTASY_LIVE_JOBS.join(', ')}`
-    + ', then league_tx, roster_snapshots, league_chat, people_pulse, manager_signals, number_audit, brain_report'
+    + ', then league_tx, roster_snapshots, league_chat, people_pulse, manager_signals, number_audit, brain_report, tells'
     + (warRoomFlag().enabled ? `, warroom_plans${warRoomFlag().preview ? ' (preview)' : ''}` : ''));
   while (!stopping) {
     await tick({ force, managerSignals, numberAudit });

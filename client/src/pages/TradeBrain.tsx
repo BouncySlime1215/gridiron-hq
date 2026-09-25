@@ -6,6 +6,7 @@ import { usePageExplain } from '../components/PageExplainContext';
 import { PageLoading, PageError, EmptyState } from '../components/PageState';
 import ManagerBoard from '../components/brain/ManagerBoard';
 import ProposalSlate from '../components/brain/ProposalSlate';
+import TellsCard from '../components/brain/TellsCard';
 import PulseTicker from '../components/brain/PulseTicker';
 import type { ProfilesResponse, SignalsResponse } from '../components/brain/types';
 import WarRoom from '../components/warroom/WarRoom';
@@ -146,7 +147,11 @@ export default function TradeBrain() {
           </div>
 
           {tab === 'managers' && (
-            <ManagerBoard leagueId={activeId} profiles={profiles} signals={signals} />
+            <>
+              <TellsCard leagueId={activeId} names={Object.fromEntries(
+                (profiles.data?.managers ?? []).filter(m => m.owner).map(m => [m.roster_id, m.owner as string]))} />
+              <ManagerBoard leagueId={activeId} profiles={profiles} signals={signals} />
+            </>
           )}
           {tab === 'proposals' && <ProposalSlate leagueId={activeId} />}
           {tab === 'war-room' && warRoom.loading && !warRoom.data && <PageLoading label="Loading the War Room…" />}

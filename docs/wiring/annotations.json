@@ -43,7 +43,8 @@
     "column-read-never-written league_draft_picks.member_id",
     "column-read-never-written league_draft_picks.overall_pick",
     "column-read-never-written league_draft_picks.pick_id",
-    "column-read-never-written league_draft_picks.round"
+    "column-read-never-written league_draft_picks.round",
+    "table-never-written trade_proposal_snapshots"
   ],
   "_ACCEPTED_README": "accepted_missing_feeds is a RATCHET, not approval. Each entry is a gap that already existed when the check was turned on, so CI fails on anything NEW rather than on day one. Fixing one means deleting its line here. Nothing should ever be added to this list to make a build pass — add it only when turning the check on over existing debt. Entries with a rule name in front come from the should-wire family: a column nothing writes, or a producer nothing calls. They are real and they are pre-existing; the gate exists so the eleventh does not become the twelfth silently.",
   "accepted_orphan_modules": [
@@ -105,6 +106,8 @@
     "server/services/td-features.js",
     "server/services/td-regression.js",
     "server/services/tells/library.js",
+    "server/services/tells/clone-features.js",
+    "server/services/tells/producer.js",
     "server/services/tells/refit.js",
     "server/services/trend-watch.js",
     "server/services/vegas-fantasy.js",
@@ -170,5 +173,8 @@
     "server/services/coach/people/lexicons.js": "Owner: Coach. The word lists the person variables count against. Same group as context.js. RETIRES WHEN: a route, job or page reaches it.",
     "server/services/coach/people/variables.js": "Owner: Coach. Every counted variable for one person, measured against the private chat corpus. It cannot be wired to a live surface on this machine at all: the corpus lives on Nick's Mac (chatDbPath()) and openCorpus() returns null when the file is absent, which is the normal state in CI and on Fly. RETIRES WHEN: a route, job or page reaches it.",
     "server/services/coach/stat-names.js": "Owner: Coach. Maps stat ids to the names a person actually says, so a grounded answer can name a column the way the question named it. Imported by one module that no surface reaches. RETIRES WHEN: a route, job or page reaches it."
+  },
+  "_NEWLY_BASELINED_2026_09_24": {
+    "_why": "Baselined when PR #268 (TELLS-01b) merged origin/main, NOT because the gap is fine. main's server/services/eval/decided-offers.js already reads trade_proposal_snapshots on a handle the map could not name; TELLS-01b hands it the app handle (scripts/engine-tells.mjs, scripts/eval/tells-clone-e1.mjs), so the map now sees an app read with no writer. The writer is PR #247 (OFFER-SNAPSHOT, open): its migration creates the table and its collector fills it. Every reader goes through readSource and treats an absent table as a named reason (offer terms fall back to league_transactions_raw.items_json), so nothing breaks without it. Remove this entry when #247 lands."
   }
 }

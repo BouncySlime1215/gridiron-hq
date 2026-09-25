@@ -368,7 +368,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     const cost = expOf(cur) - expOf(m);
     const verdict = verdictOf(-cost, res.best?.expected_se);
     tradeoffs[tradeoffKey({ type: 'set_risk_mode', mode: m.mode })] = row({
-      stop_label: `Switch to ${MODE_LABELS[m.mode]}`, cost, extra_steps: (m.steps ?? 0) - (cur.steps ?? 0), gain: 0, net: -cost, verdict,
+      stop_label: `Switch to ${MODE_LABELS[m.mode]}`, cost, extra_steps: (m.steps ?? 0) - (cur.steps ?? 0), gain: 0, net: 0 - cost, verdict,
       because: verdict === 'close' ? 'the difference in expected gain is inside the simulation noise'
         : verdict === 'worth_it' ? 'it raises the expected gain' : 'it gives up expected gain',
       new_next_move_changes: dealKey(m.first_step) !== dealKey(cur.first_step),

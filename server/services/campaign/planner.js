@@ -23,6 +23,7 @@ import { speedCurve, concededPlan, sideLevers } from './speed.js';
 import { orderCatchUp, freeMoves, isBehind, sellersRead, desperateMoves } from './catchup.js';
 import { rankPartners, planSkipWeight, pResponds } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
+import { probesOn } from '../p-yes-blend.js';
 import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink,
@@ -47,6 +48,23 @@ const sameIds = (a, b) => a.length === b.length && a.map(String).sort().join() =
 const CURVE_WINDOW = { low: -35, high: 45 };
 
 const firstKey = p => dealKey(p.steps[0]);
+
+/**
+ * LIVE-BLEND: Nick's rule "a served move must beat doing nothing on the confirm dice", read on the
+ * GATE p (each step's p_gate: the activity baseline, what GRIDIRON_PYES_BLEND=0 serves; the served
+ * p when a step has none, i.e. the clone path). The blend's weights therefore cannot change which
+ * moves pass; they move the ranking and the shown P(yes) only. The verdict's shown numbers stay on
+ * the served p; `gate` says which p decided 'failed'.
+ */
+export function confirmGate(planned, reconfirmed) {
+  const shown = confirmVerdict(pathExpectation(planned.steps), pathExpectation(reconfirmed.steps));
+  // The clone path carries no p_gate: the verdict is today's, object and all.
+  if (!planned.steps.some(s => s.p_gate != null)) return shown;
+  const gate = steps => steps.map(s => (s.p_gate != null ? { ...s, p: s.p_gate } : s));
+  const g = confirmVerdict(pathExpectation(gate(planned.steps)), pathExpectation(gate(reconfirmed.steps)));
+  const verdict = g.verdict === 'failed' ? 'failed' : shown.verdict === 'failed' ? g.verdict : shown.verdict;
+  return { ...shown, verdict, gate_expected: g.confirmed_expected, gate: 'p_gate' };
+}
 
 /** Top plans with distinct first moves (the swipe deck). */
 export function deckOf(ranked, n = DECK_SIZE) {
@@ -271,7 +289,7 @@ export function planLeague(adapter, settings) {
   const sentThisWeek = new Map([...adapter.managers].map(([t, m]) => [String(t), m.sent_this_week ?? 0]));
   const ctxFor = mode => ({
     tol: mode === objective.risk_mode ? objective.tolerances : tolerancesFor(mode),
-    ctx: { originalIds: adapter.rosters.get(me), sentThisWeek, core, untouchables: objective.untouchables },
+    ctx: { originalIds: adapter.rosters.get(me), sentThisWeek, core, untouchables: objective.untouchables, probes: probesOn(env) },
   });
   const pool = objective.kind === 'player' ? plans.filter(p => String(p.target) === String(objective.target)) : plans;
   const { tol, ctx } = ctxFor(objective.risk_mode);
@@ -293,7 +311,8 @@ export function planLeague(adapter, settings) {
     const freshMe = p.steps.map(st => S2.rescore(st.state, me).me);
     const fresh = freshMe.map(r => metricOf(r, objective));
     const re = repricePlan(p, fresh);
-    let v = confirmVerdict(pathExpectation(p.steps), pathExpectation(re.steps));
+    // LIVE-BLEND: the verdict that can fail a plan reads each step's gate p (planner.js#confirmGate).
+    let v = confirmGate(p, re);
     // CAP-1C: a premium step must still raise lineup points and title odds on fresh dice, or the card goes.
     re.steps = re.steps.map((st, i) => {
       if (!st.depth_premium) return st;
@@ -303,7 +322,12 @@ export function planLeague(adapter, settings) {
     });
     if (v.premium_failed && active) premium.confirm_failed++;
     const scored = rankPlans([re], mode, { ...tolM, max_downside_per_step: Infinity }, { ...ctxM, core: null }, { rule }).ranked[0];
-    return { ...re, score: scored?.score ?? -Infinity, beats_no_trade: beatsNoTradeUnder(scored, mode, { rule }), mode, confirm: v, planned_on: p };
+    // LIVE-BLEND: "beats doing nothing" is Nick's rule, so it is decided on the gate p too (the served p ranks).
+    const onGate = re.steps.some(st => st.p_gate != null)
+      ? rankPlans([{ ...re, steps: re.steps.map(st => (st.p_gate != null ? { ...st, p: st.p_gate } : st)) }], mode,
+        { ...tolM, max_downside_per_step: Infinity }, { ...ctxM, core: null }, { rule }).ranked[0]
+      : scored;
+    return { ...re, score: scored?.score ?? -Infinity, beats_no_trade: beatsNoTradeUnder(onGate, mode, { rule }), mode, confirm: v, planned_on: p };
   };
   // Nick's rule, kept apart from the ranking score: the move must beat doing nothing on the confirm dice.
   const beatsNoTrade = p => p.confirm.verdict !== 'failed' && p.beats_no_trade;
@@ -583,6 +607,8 @@ export function planLeague(adapter, settings) {
     shrink: shadowShrink(plans, ctxFor),
     untouchable: { ids: [...untouchable], refused_targets: refused },
     ...(ladders ? { ladders } : {}),
+    // LIVE-BLEND: which P(yes) the adapter served, with each model's weight and record (plans.json p_yes_basis).
+    p_yes_basis: adapter.pYesBasis ?? null,
     // REACH-01: diagnostics only (no number is priced here); the producer writes them to _run.inputs.reach.
     reach: { flag: reachMode, targets_budget: budget.targets, chain_give: chainGive,
       bound: { direct: bound.direct, chain: bound.chain, best: bound.best }, targets: reachRows,

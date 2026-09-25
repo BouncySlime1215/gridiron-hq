@@ -40,11 +40,12 @@ const CPS = [
   { counterparty_data: true, receptiveness: 1.3, perception_delta: -0.1 },
 ];
 
-test('flag: on only when the env says exactly 1', () => {
-  assert.equal(pYesFlag({}).on, false);
-  assert.equal(pYesFlag({ [PYES_ENV]: '0' }).on, false);
-  assert.equal(pYesFlag({ [PYES_ENV]: 'true' }).on, false);
-  assert.equal(pYesFlag({ [PYES_ENV]: '1' }).on, true);
+// LIVE-BLEND changed the default (Nick, 2026-09-24: live use): on unless told otherwise; '0' = baseline only.
+test('flag: blend by default, baseline only when the env says exactly 0', () => {
+  assert.deepEqual(pYesFlag({}), { on: true, mode: 'blend' });
+  assert.deepEqual(pYesFlag({ [PYES_ENV]: '1' }), { on: true, mode: 'blend' });
+  assert.deepEqual(pYesFlag({ [PYES_ENV]: 'false' }), { on: true, mode: 'blend' });
+  assert.deepEqual(pYesFlag({ [PYES_ENV]: '0' }), { on: true, mode: 'baseline' });
 });
 
 test('metric 2: flag off, pYesFor IS acceptanceBand, in both caller shapes', () => {

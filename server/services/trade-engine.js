@@ -1822,7 +1822,7 @@ function findTradesKey(lg, opts = {}, ctx = null) {
   return `findTrades:${lg.id}:${formatKey}:${target.season}:${target.week}:` +
     `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:` +
     `${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}:z${zeroKey}:` +
-    `tm${tm.on ? (tm.preview ? 'p' : 1) : 0}:py${py.on ? 1 : 0}`;
+    `tm${tm.on ? (tm.preview ? 'p' : 1) : 0}:py${py.on ? py.mode : 0}`;
 }
 
 /**

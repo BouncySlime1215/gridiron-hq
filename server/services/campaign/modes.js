@@ -135,6 +135,11 @@ export function toleranceCheck(plan, tol, ctx = {}, mode = DEFAULT_MODE) {
  * `plan.steps[i]` carries p, delta, se; `skipWeight` (0-1] from the skip log multiplies the score's
  * positive part so a skipped option sinks without being hidden.
  */
+/** P(every step lands) on the gate p: each step's p_gate when present, else its p. */
+export function gateComplete(steps) {
+  return steps.length ? steps.reduce((a, s) => a * (s.p_gate ?? s.p), 1) : 0;
+}
+
 export function scorePlan(plan, mode, { rule = false, pool = [plan] } = {}) {
   const e = pathExpectation(plan.steps);
   const w = plan.skip_weight ?? 1;
@@ -145,7 +150,9 @@ export function scorePlan(plan, mode, { rule = false, pool = [plan] } = {}) {
       return { ...e, score: tilt(e.expected - SAFE_LAMBDA * e.sd), eligible: true,
         why: 'expected gain minus one spread of the yes/no outcomes' };
     case 'all_in':
-      if (e.p_complete < ALL_IN_MIN_COMPLETE) {
+      // LIVE-BLEND: the floor is a filter, so it reads the gate p (p_gate, the baseline) when steps carry one;
+      // the blend's weights move the score, never whether a plan is eligible.
+      if (gateComplete(plan.steps) < ALL_IN_MIN_COMPLETE) {
         return { ...e, score: -Infinity, eligible: false,
           why: `lands under ${(ALL_IN_MIN_COMPLETE * 100).toFixed(0)}% of the time` };
       }
@@ -157,7 +164,8 @@ export function scorePlan(plan, mode, { rule = false, pool = [plan] } = {}) {
 
 /** RISK-RULE scoring. Regret is a pool-relative number: `pool` is what the plan is compared against. */
 function ruleScore(plan, mode, e, tilt, pool) {
-  if (mode !== 'safe' && e.p_complete < ALL_IN_MIN_COMPLETE) {
+  // LIVE-BLEND (integration-8): the landing floor is a filter, so it reads the gate p, never the blend.
+  if (mode !== 'safe' && gateComplete(plan.steps) < ALL_IN_MIN_COMPLETE) {
     return { ...e, score: -Infinity, eligible: false,
       why: `lands under ${(ALL_IN_MIN_COMPLETE * 100).toFixed(0)}% of the time` };
   }
@@ -167,6 +175,11 @@ function ruleScore(plan, mode, e, tilt, pool) {
   if (mode === 'all_in') return { ...e, score: tilt(e.expected), eligible: true, why: 'expected title odds across yes/no outcomes' };
   return { ...e, score: -maxRegret(plan, pool), eligible: true,
     why: 'minimax regret: smallest shortfall against the best option if the offers stop anywhere' };
+}
+
+/** LIVE-BLEND: a plan's probe score, the sum of its steps' expected information gain (0 without probes). */
+export function probeOf(plan) {
+  return (plan.steps ?? []).reduce((a, s) => a + (Number.isFinite(s.probe) ? s.probe : 0), 0);
 }
 
 /**
@@ -183,14 +196,17 @@ export function rankPlans(plans, mode, tol, ctx = {}, { rule = false } = {}) {
     if (bad) { dropped.push({ plan: p, why: bad.why, code: bad.code }); continue; }
     fits.push(p);
   }
-  const floor = p => pathExpectation(p.steps).p_complete >= ALL_IN_MIN_COMPLETE;
+  const floor = p => gateComplete(p.steps) >= ALL_IN_MIN_COMPLETE;
   const pool = rule && m === 'balanced' ? (ctx.regretPool ?? fits.filter(floor)) : undefined;
   for (const p of fits) {
     const s = scorePlan(p, m, { rule, pool });
     if (!s.eligible) { dropped.push({ plan: p, why: s.why, code: 'p_complete_floor' }); continue; }
     kept.push({ ...p, ...s, mode: m });
   }
-  kept.sort((a, b) => (b.score - a.score) || (b.expected - a.expected) || (a.steps.length - b.steps.length));
+  // LIVE-BLEND probes (shadow, ctx.probes from GRIDIRON_PYES_PROBES=1): only between plans that already passed
+  // every rule above and tie on score; never a filter.
+  kept.sort((a, b) => (b.score - a.score) || (ctx.probes ? probeOf(b) - probeOf(a) : 0)
+    || (b.expected - a.expected) || (a.steps.length - b.steps.length));
   return { ranked: kept, dropped };
 }
 

@@ -28,7 +28,8 @@ const pkg = team => {
   return [a, a.rosters.get(team).slice(0, 1), a.rosters.get('1').slice(0, 1)];
 };
 
-test('flag off: the War Room adapter serves the clone band', () => {
+// LIVE-BLEND: the default is now the blend; with no decided offer it fails closed to the clone, shape unchanged.
+test('default, no decided offers: the War Room adapter serves the clone band', () => {
   delete process.env[PYES_ENV];
   for (const t of partners) {
     const [a, theyGive, theyGet] = pkg(t);
@@ -39,8 +40,8 @@ test('flag off: the War Room adapter serves the clone band', () => {
   }
 });
 
-test('flag on, no decided offers: the War Room adapter falls back to the clone (#384 review, finding 2)', () => {
-  process.env[PYES_ENV] = '1';
+test('baseline only, no decided offers: the War Room adapter falls back to the clone (#384 review, finding 2)', () => {
+  process.env[PYES_ENV] = '0';
   try {
     for (const t of partners) {
       const [a, theyGive, theyGet] = pkg(t);
@@ -63,9 +64,9 @@ const seedDecided = () => {
     ins.run(leagueId, team, at(d), at(d), at(d + 1), `fx-${i}`, status, at(d)));
 };
 
-test('flag on: the War Room adapter serves the E1 baseline table, row by row', () => {
+test('baseline only (GRIDIRON_PYES_BLEND=0): the War Room adapter serves the E1 baseline table, row by row', () => {
   seedDecided();
-  process.env[PYES_ENV] = '1';
+  process.env[PYES_ENV] = '0';
   try {
     const table = pYesTable(db, leagueId, partners, { now: NOW });
     for (const t of partners) {
@@ -85,7 +86,7 @@ test('trade finder: the flag is part of the cache fingerprint, so flipping it re
   const { tradeIdeasFingerprint } = svc.engine;
   delete process.env[PYES_ENV];
   const off = tradeIdeasFingerprint(lg(), { myTeamId: '1' });
-  process.env[PYES_ENV] = '1';
+  process.env[PYES_ENV] = '0';
   try {
     assert.notEqual(tradeIdeasFingerprint(lg(), { myTeamId: '1' }), off);
   } finally {

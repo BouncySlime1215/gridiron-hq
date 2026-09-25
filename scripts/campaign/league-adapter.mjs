@@ -22,6 +22,10 @@ import { tradeBlockRead, chatInterestRead } from '../../server/services/campaign
 import { readChatTradeInterest } from '../../server/services/people/chat-trade-interest.js';
 import { loveEnabled } from '../../server/services/campaign/love.js';
 import { readLoveInputs } from '../../server/services/campaign/love-inputs.js';
+import { sellHighEnabled } from '../../server/services/campaign/sell-high.js';
+import { readSellHighInputs } from '../../server/services/campaign/sell-high-inputs.js';
+import { buyLowEnabled } from '../../server/services/campaign/buy-low.js';
+import { readBuyLow } from '../../server/services/campaign/buy-low-inputs.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
 import { fpRosFor, syncIfStale } from '../../server/services/people/fantasypros-ros.js';
 import { executedTrades } from '../../server/services/campaign/trade-memory.js';
@@ -127,6 +131,7 @@ export async function loadServices({ env = process.env } = {}) {
     titleOdds: await import('../../server/services/title-odds-trades.js'),
     identity: await import('../../server/services/manager-identity.js'),
     format: await import('../../server/services/format.js'),
+    radar: await import('../../server/services/opportunity-radar.js'),
   };
 }
 
@@ -169,10 +174,22 @@ export function startersOf(players, slots) {
   return used;
 }
 
+/** ESPN's trade deadline in ms (TM-34 deadline mode reads the exact time); null when the settings carry none. */
+export function deadlineMs(payload) {
+  const ms = Number(payload?.settings?.tradeSettings?.deadlineDate);
+  return ms > 0 ? ms : null;
+}
+
+/** The league's trade review window in hours (ESPN revisionHours); null when the settings carry none. */
+export function reviewHours(payload) {
+  const h = payload?.settings?.tradeSettings?.revisionHours;
+  return Number.isFinite(h) && h >= 0 ? h : null;
+}
+
 /** The trade deadline as a week, from ESPN's deadlineDate and the NFL schedule; null when unknown. */
 function deadlineWeek(svc, lg, payload) {
-  const ms = Number(payload?.settings?.tradeSettings?.deadlineDate);
-  if (!(ms > 0)) return null;
+  const ms = deadlineMs(payload);
+  if (ms == null) return null;
   const day = new Date(ms).toISOString().slice(0, 10);
   const r = svc.db.row(`SELECT MAX(week) AS w FROM (SELECT week, MIN(date) AS start FROM schedule_games
                         WHERE season = ? GROUP BY week) WHERE start <= ?`, lg.season, day);
@@ -328,7 +345,7 @@ export function executedTradeRows(svc, { leagueId, season }) {
  * label 'unknown').
  */
 export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
-  rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env), love = loveEnabled(env),
+  rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env), love = loveEnabled(env), sellHigh = sellHighEnabled(env), buyLow = buyLowEnabled(env),
   searchWide = searchWideFlag(env) } = {}) {
   // #406 finding 2: SEARCH-WIDE is read ONCE, here, from the env the producer passes; the adapter carries
   // it (adapter.searchWide) and the planner follows the adapter, so the world (claim universe) and the
@@ -464,6 +481,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       checked_out: activity.get(String(t))?.checked_out ?? false,
       checked_out_source: activity.get(String(t))?.source ?? null,
       p_checked_out: activity.get(String(t))?.p ?? null,
+      // TM-34: his last own move in the league (timing read), for deadline mode's who-goes-quiet read.
+      last_action_at: tm?.last_action_at ?? null,
       title_now: titleByTeam.get(t) ?? null,
       sent_this_week: sent.get(t) ?? 0,
       send_when: send,
@@ -539,7 +558,9 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   return {
     league: { id: leagueId, me, fetched_at: lg.fetched_at ?? '', week, deadline_week: dl,
       deadline_source: dl == null ? 'unknown (no deadlineDate in league settings)' : 'league settings',
-      days_left_in_week: daysLeftInWeek(svc, lg, week, now), team_count: rosters.size, season },
+      days_left_in_week: daysLeftInWeek(svc, lg, week, now), team_count: rosters.size, season,
+      // TM-34: the exact deadline and review window for deadline mode (planner reads them only with its flag on).
+      deadline_at: deadlineMs(payload) == null ? null : new Date(deadlineMs(payload)).toISOString(), review_hours: reviewHours(payload) },
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity, tradeBlock, chatInterest,
@@ -561,6 +582,11 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     // SEARCH-WIDE: the waiver-claim record a claim's P(yes) is priced on (search-wide.js#claimProbability).
     ...(claimIds.length ? { waiverRecord: waiverRecord(svc, { leagueId, season }) } : {}),
     cacheStats: () => (fast && rescoreCache ? { ...rescoreCache.stats } : null),
+    // O1 radar: events + net validated opportunity change for this NFL week. Present only while
+    // GRIDIRON_OPP_RADAR=1; otherwise opportunityRadar 'off', which why-now.js prints as "O1 radar off".
+    ...(svc.radar?.radarFlag().on
+      ? { opportunityOf: id => svc.radar.opportunityOf(id, { season: Number(season), week: Number(week) }) }
+      : { opportunityRadar: 'off' }),
     // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
     // Nick's word: other managers' notes, his OWN 'untouchable:' notes (#373, always) and, with the
     // board on, his blue chips (80+). vals.tradable excludes this set: never a give, walk-away or flip leg.
@@ -578,6 +604,10 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     ...(draftIdMap ? { draft: draftCapitalGuarded(svc.db, { leagueId, season, rosters }) } : {}),
     // LOVE-RULE (shadow, GRIDIRON_LOVE_TAG=1): the tag's inputs for ids the producer asks about, weeks < this week.
     ...(love ? { love: (ids, { draft = null } = {}) => readLoveInputs(svc.db, { season, week, ids, draft }) } : {}),
+    // SELL-HIGH (shadow, GRIDIRON_SELL_HIGH=1): TD rate vs expected TD rate on Nick's roster, weeks < this week.
+    ...(sellHigh ? { sellHigh: () => readSellHighInputs(svc.db, { season, week, ids: rosters.get(me) ?? [] }) } : {}),
+    // BUY-LOW (shadow, GRIDIRON_BUY_LOW=1 only): usage-up / points-down reads for ids, weeks < this week.
+    ...(buyLow ? { buyLow: ids => readBuyLow(svc.db, { season, week, ids }) } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     teams: () => teamNames(payload, new Map([...(svc.identity?.identityMap(leagueId) ?? [])].map(([r, i]) => [String(r), i.chat_name]))),

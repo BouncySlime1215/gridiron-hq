@@ -96,6 +96,18 @@ export interface Target {
   /** Batch 4: on his owner's untouchable list (the view drops these rows; kept for safety). */
   untouchable?: boolean | Field<boolean> | { label?: string };
   untouchable_label?: string;
+  /** BUY-LOW (GRIDIRON_BUY_LOW=1 only): usage up, points below expected. A guess (rule v1). */
+  buy_low?: Field<BuyLow>;
+}
+
+export interface BuyLow {
+  /** 2: gap only (served since 2026-09-25); 1: usage up + gap. */
+  rule: 1 | 2;
+  role?: 'detected' | 'confirmed';
+  points_below_expected: number;
+  games: number;
+  usage_change: number | null;
+  through_week: number;
 }
 
 export interface Flip {
@@ -239,18 +251,23 @@ export function namer(names: Record<string, string> | undefined) {
   return { one, text };
 }
 
-/** The loaded view's roster names; WarRoom fills it (setTeamNames) so every teamLabel call site reads it. */
+/** The loaded view's roster names; TodayPanel / TradesPlanner fill it (setTeamNames) so every teamLabel call site reads it. */
 let teamNames: Record<string, TeamName> = {};
 export function setTeamNames(teams: Record<string, TeamName> | null | undefined) { teamNames = teams ?? {}; }
 
-/** 'Manager (Team name)' when known, else whichever is known, else 'Team N'. */
-export function teamLabel(id: string | null | undefined): string {
+/** 'Manager (Team name)' when known, else whichever is known, else 'Team N', from a given teams map. */
+export function teamLabelIn(teams: Record<string, TeamName> | null | undefined, id: string | null | undefined): string {
   if (id == null) return '';
-  const t = teamNames[String(id)];
+  const t = teams?.[String(id)];
   const manager = t?.manager?.trim();
   const name = t?.name?.trim();
   if (manager && name) return `${manager} (${name})`;
   return manager || name || `Team ${id}`;
+}
+
+/** teamLabelIn over the loaded view's registry (setTeamNames). */
+export function teamLabel(id: string | null | undefined): string {
+  return teamLabelIn(teamNames, id);
 }
 
 /** The contract's `partners` entry: who to deal with. Labels and counts only. */

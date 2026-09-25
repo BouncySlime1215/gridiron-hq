@@ -60,6 +60,8 @@ const PENDING = [
     path: /^leagues\[\]\.flip_map\.value\[\]\.legs\.(give_a_ids|get_b_ids)(\[\])?$/ },
   { unit: 'HIS-SIDE-WIRE (flag)', why: 'targets[].his_side is served only with GRIDIRON_HIS_SIDE=1; the fixture producer runs flag-off (test/campaign-his-side.test.js validates the served shape)',
     path: /^leagues\[\]\.targets\.value\[\]\.his_side(\..+)?$/ },
+  { unit: 'BUY-LOW (GRIDIRON_BUY_LOW flag)', why: 'targets[].buy_low is served only with GRIDIRON_BUY_LOW=1; the fixture producer runs flag-off (test/buy-low.test.js validates the served shape)',
+    path: /^leagues\[\]\.targets\.value\[\]\.buy_low(\..+)?$/ },
   { unit: 'RADAR-WIRE (GRIDIRON_RADAR_WIRE flag)', why: 'the why-now label is served only with its flag on; the fixture producer runs flag-off',
     path: /^leagues\[\]\.flip_map\.value\[\]\.why_now(\..+)?$/ },
   { unit: 'PLAYER-SCORE (GRIDIRON_PLAYER_SCORE flag)', why: 'the blue-chip board is served only with its flag on; the fixture producer runs flag-off',
@@ -69,7 +71,11 @@ const PENDING = [
   { unit: 'PLAYER-SCORE (#375) blue-chip board', why: 'CAP-1C premium steps need a blue-chip board on the adapter; the fixture producer has none, so the premium stays off',
     path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.depth_premium(\..+)?$/ },
   { unit: 'NEGOTIATOR-DEFAULTS (flag)', why: 'the negotiation block is served only with GRIDIRON_NEGOTIATOR_DEFAULTS on; the fixture producer runs flag-off',
-    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.negotiation(\..*)?$/ }
+    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.negotiation(\..*)?$/ },
+  { unit: 'PLANS-EXPIRE', why: 'planned_at is stamped by the producer\'s main() (plan-age.js#stampPlannedAt), not buildPlansFile, so the contract fixture stays byte-identical; test/plans-expire.test.js validates it',
+    path: /^leagues\[\]\.planned_at$/ },
+  { unit: 'NEGOTIATOR-SAFETY (flag)', why: 'the safety block is served only with GRIDIRON_NEGOTIATOR_SAFETY on; the fixture producer runs flag-off (test/campaign-negotiator-safety.test.js validates the served shape)',
+    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.safety(\..*)?$/ }
 ];
 const pending = p => PENDING.some(x => x.path.test(p));
 

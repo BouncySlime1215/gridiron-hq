@@ -1,0 +1,323 @@
+{
+  "prereg": "docs/tdd/BUY-LOW-V2-PREREG.md",
+  "held_out": [
+    2021,
+    2022
+  ],
+  "margin": 0.5,
+  "bootstrap": {
+    "resamples": 2000,
+    "seed": 20260925,
+    "cluster": "player-season"
+  },
+  "primary": {
+    "player_weeks": 4688,
+    "v1": {
+      "pooled": {
+        "n": 211,
+        "clusters": 138,
+        "estimate": 0.84,
+        "lo": 0.02,
+        "hi": 1.68,
+        "dropped": 0,
+        "flagged_rows": 211
+      },
+      "per_position": {
+        "QB": {
+          "n": 62,
+          "clusters": 37,
+          "estimate": 0.39,
+          "lo": -0.99,
+          "hi": 1.81,
+          "too_few": false
+        },
+        "RB": {
+          "n": 43,
+          "clusters": 25,
+          "estimate": 0.83,
+          "lo": -1.41,
+          "hi": 3.17,
+          "too_few": false
+        },
+        "WR": {
+          "n": 84,
+          "clusters": 57,
+          "estimate": 0.83,
+          "lo": -0.42,
+          "hi": 2.11,
+          "too_few": false
+        },
+        "TE": {
+          "n": 22,
+          "clusters": 19,
+          "estimate": 2.19,
+          "lo": 0.27,
+          "hi": 4.35,
+          "too_few": true
+        }
+      }
+    },
+    "v2": {
+      "pooled": {
+        "n": 570,
+        "clusters": 245,
+        "estimate": 1.98,
+        "lo": 1.37,
+        "hi": 2.6,
+        "dropped": 22,
+        "flagged_rows": 592
+      },
+      "per_position": {
+        "QB": {
+          "n": 167,
+          "clusters": 57,
+          "estimate": 1.38,
+          "lo": 0.32,
+          "hi": 2.41,
+          "too_few": false
+        },
+        "RB": {
+          "n": 105,
+          "clusters": 49,
+          "estimate": 2.56,
+          "lo": 0.81,
+          "hi": 4.25,
+          "too_few": false
+        },
+        "WR": {
+          "n": 245,
+          "clusters": 108,
+          "estimate": 2.03,
+          "lo": 1.19,
+          "hi": 2.94,
+          "too_few": false
+        },
+        "TE": {
+          "n": 53,
+          "clusters": 31,
+          "estimate": 2.55,
+          "lo": 1.17,
+          "hi": 4.17,
+          "too_few": false
+        }
+      }
+    },
+    "diff_v2_minus_v1": {
+      "pooled": {
+        "estimate": 1.14,
+        "lo": 0.5,
+        "hi": 1.82,
+        "resamples_used": 2000
+      },
+      "per_position": {
+        "QB": {
+          "estimate": 0.98,
+          "lo": -0.28,
+          "hi": 2.19,
+          "resamples_used": 2000
+        },
+        "RB": {
+          "estimate": 1.73,
+          "lo": 0.16,
+          "hi": 3.34,
+          "resamples_used": 2000
+        },
+        "WR": {
+          "estimate": 1.2,
+          "lo": 0.24,
+          "hi": 2.21,
+          "resamples_used": 2000
+        },
+        "TE": {
+          "estimate": 0.36,
+          "lo": -1.07,
+          "hi": 1.7,
+          "resamples_used": 2000
+        }
+      }
+    },
+    "v2_pass": true,
+    "non_inferior": true,
+    "replace_v1": true,
+    "v2_served_positions": [
+      "QB",
+      "RB",
+      "WR",
+      "TE"
+    ]
+  },
+  "secondary": {
+    "seen_2023_2025_not_new_evidence": {
+      "player_weeks": 6924,
+      "v1": {
+        "pooled": {
+          "n": 361,
+          "clusters": 216,
+          "estimate": 1.91,
+          "lo": 1.18,
+          "hi": 2.63,
+          "dropped": 6,
+          "flagged_rows": 367
+        },
+        "per_position": {
+          "QB": {
+            "n": 86,
+            "clusters": 53,
+            "estimate": 1.7,
+            "lo": 0.38,
+            "hi": 2.93,
+            "too_few": false
+          },
+          "RB": {
+            "n": 96,
+            "clusters": 58,
+            "estimate": 2.24,
+            "lo": 0.98,
+            "hi": 3.56,
+            "too_few": false
+          },
+          "WR": {
+            "n": 152,
+            "clusters": 85,
+            "estimate": 1.89,
+            "lo": 0.71,
+            "hi": 3.17,
+            "too_few": false
+          },
+          "TE": {
+            "n": 27,
+            "clusters": 20,
+            "estimate": 1.44,
+            "lo": -0.64,
+            "hi": 4.1,
+            "too_few": true
+          }
+        }
+      },
+      "v2": {
+        "pooled": {
+          "n": 751,
+          "clusters": 332,
+          "estimate": 2.48,
+          "lo": 1.97,
+          "hi": 3.04,
+          "dropped": 32,
+          "flagged_rows": 783
+        },
+        "per_position": {
+          "QB": {
+            "n": 175,
+            "clusters": 77,
+            "estimate": 2.34,
+            "lo": 1.19,
+            "hi": 3.44,
+            "too_few": false
+          },
+          "RB": {
+            "n": 191,
+            "clusters": 82,
+            "estimate": 2.75,
+            "lo": 1.81,
+            "hi": 3.81,
+            "too_few": false
+          },
+          "WR": {
+            "n": 333,
+            "clusters": 140,
+            "estimate": 2.58,
+            "lo": 1.77,
+            "hi": 3.47,
+            "too_few": false
+          },
+          "TE": {
+            "n": 52,
+            "clusters": 33,
+            "estimate": 1.43,
+            "lo": -0.22,
+            "hi": 3.26,
+            "too_few": false
+          }
+        }
+      },
+      "diff_v2_minus_v1": {
+        "pooled": {
+          "estimate": 0.58,
+          "lo": 0.11,
+          "hi": 1.03,
+          "resamples_used": 2000
+        },
+        "per_position": {
+          "QB": {
+            "estimate": 0.63,
+            "lo": -0.28,
+            "hi": 1.57,
+            "resamples_used": 2000
+          },
+          "RB": {
+            "estimate": 0.51,
+            "lo": -0.33,
+            "hi": 1.39,
+            "resamples_used": 2000
+          },
+          "WR": {
+            "estimate": 0.68,
+            "lo": -0.06,
+            "hi": 1.39,
+            "resamples_used": 2000
+          },
+          "TE": {
+            "estimate": -0.02,
+            "lo": -1.95,
+            "hi": 1.5,
+            "resamples_used": 2000
+          }
+        }
+      }
+    },
+    "v2_xfp_matched_held_out": {
+      "pooled": {
+        "n": 363,
+        "clusters": 210,
+        "estimate": 1.06,
+        "lo": 0.3,
+        "hi": 1.85,
+        "dropped": 229,
+        "flagged_rows": 592
+      },
+      "per_position": {
+        "QB": {
+          "n": 67,
+          "clusters": 42,
+          "estimate": 1.94,
+          "lo": 0.25,
+          "hi": 3.67,
+          "too_few": false
+        },
+        "RB": {
+          "n": 68,
+          "clusters": 40,
+          "estimate": 1.28,
+          "lo": -1.08,
+          "hi": 3.82,
+          "too_few": false
+        },
+        "WR": {
+          "n": 189,
+          "clusters": 101,
+          "estimate": 0.66,
+          "lo": -0.3,
+          "hi": 1.58,
+          "too_few": false
+        },
+        "TE": {
+          "n": 39,
+          "clusters": 27,
+          "estimate": 1.08,
+          "lo": -0.62,
+          "hi": 2.93,
+          "too_few": false
+        }
+      }
+    }
+  }
+}

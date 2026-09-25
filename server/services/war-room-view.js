@@ -29,6 +29,7 @@ import fs from 'node:fs/promises';
 import { previewFields, previewText } from './preview-mode.js';
 import { warRoomFlag, warRoomPlansPath, WARROOM_PREVIEW_REASON } from './warroom-flag.js';
 import { SECTIONS, SOURCE_IDS, STATUSES, validateLeague } from './campaign/plans-schema.js';
+import { planAge, plansExpireFlag } from './campaign/plan-age.js';
 
 /** Labels for every contract SourceId (WAR-ROOM-UI.md 2.3). Only the market value is calibrated today. */
 const SOURCE_LABELS = {
@@ -61,7 +62,7 @@ const SECTION_SOURCE = {
   finder_best_expected: 'plan.path', flip_map: 'sim.title', brain_report: 'eval.check', number_health: 'audit.numbers'
 };
 const sourceOf = k => SECTION_SOURCE[k] ?? 'campaign.plan';
-const HEAD_KEYS = ['league', 'me', 'names', 'error', 'sanity_composed_equals_direct'];
+const HEAD_KEYS = ['league', 'me', 'names', 'error', 'sanity_composed_equals_direct', 'planned_at'];
 const HIDDEN = new Set(['failed', 'unknown']);
 
 const BANNER = 'These plans come from the campaign producer, run ahead of time. Every chance and every odds change is a guess until the brain check passes.';
@@ -170,9 +171,11 @@ function sections(entry) {
 
 /**
  * Pure: the view for one league from an already-loaded plans result.
- * `plans` is loadPlans()'s return; `flag` is warRoomFlag()'s.
+ * `plans` is loadPlans()'s return; `flag` is warRoomFlag()'s. PLANS-EXPIRE: `now` and `env`
+ * decide whether the entry is out of date (campaign/plan-age.js); an out-of-date entry has every
+ * section hidden with the reason and carries `plan_out_of_date` for the UI.
  */
-export function buildWarRoomView(leagueId, plans, flag) {
+export function buildWarRoomView(leagueId, plans, flag, { now = Date.now(), env = process.env } = {}) {
   if (!flag?.enabled) return { enabled: false };
   const base = {
     enabled: true, league_id: Number(leagueId),
@@ -206,6 +209,13 @@ export function buildWarRoomView(leagueId, plans, flag) {
   if (entry.sanity_composed_equals_direct === false) {
     const r = 'The planner failed its own check (its composed rescore did not match the served trade impact), so its numbers are hidden. Trust Trade Lab meanwhile.';
     return finalize({ ...view, ...allHidden('failed', r) }, flag);
+  }
+  if (plansExpireFlag(env) === 'on') {
+    const age = planAge(entry, { entries: plans.entries, now });
+    if (age.status === 'out_of_date') {
+      const plan_out_of_date = { planned_at: age.planned_at, age_hours: age.age_hours, max_hours: age.max_hours, reason: age.reason };
+      return finalize({ ...view, ...allHidden('unknown', age.reason), plan_out_of_date }, flag);
+    }
   }
   guardAttention(view);
   hideUntouchableTargets(view, entry);

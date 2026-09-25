@@ -106,70 +106,7 @@ export function decidedOffers({ outcomes = [], raw = [], snapshots = [] } = {}) 
   };
   const exclude = (row, rule) => { league(row.league_id).excluded[rule] += 1; };
 
-  // ---- raw: group every trade event under the proposal it belongs to
-  const proposals = new Map();
-  const children = new Map();
-  const nonProposals = new Map(); // tx id -> a row that is not a proposal
-  for (const r of raw) {
-    if (r.type === 'TRADE_PROPOSAL' && r.execution_type === 'EXECUTE') {
-      proposals.set(key(r.league_id, r.season, r.tx_id), r);
-      continue;
-    }
-    nonProposals.set(key(r.league_id, r.season, r.tx_id), r);
-    if (r.related_tx_id != null) {
-      const k = key(r.league_id, r.season, r.related_tx_id);
-      (children.get(k) ?? children.set(k, []).get(k)).push(r);
-    }
-  }
-  for (const [k, r] of nonProposals) {
-    if (r.related_tx_id == null && ANSWER[r.type] && r.execution_type === 'EXECUTE' && !children.has(k)) exclude(r, 'unlinked_answer');
-  }
-  const snaps = new Map(snapshots.map(s => [key(s.league_id, s.season, s.proposal_tx_id), s]));
-
-  const fromRaw = new Map(); // key -> offer, orphan or { excluded: rule }
-  for (const k of new Set([...proposals.keys(), ...children.keys()])) {
-    const p = proposals.get(k);
-    if (!p && nonProposals.has(k)) { exclude(nonProposals.get(k), 'answer_to_non_proposal'); continue; }
-    const kids = (children.get(k) ?? []).slice().sort((a, b) => (t(a.proposed_at) || 0) - (t(b.proposed_at) || 0));
-    const anchor = p ?? kids[0];
-    const [lid, season, txId] = [anchor.league_id, anchor.season, String(p ? p.tx_id : anchor.related_tx_id)];
-    const snap = snaps.get(k);
-    const close = kids.find(x => x.type === 'TRADE_PROPOSAL' && x.execution_type === 'CANCEL');
-    // A decline also writes a CANCEL of the proposal; its team_id is the proposer.
-    const proposer = p?.team_id ?? snap?.proposer_team_id ?? close?.team_id ?? null;
-    const answer = kids.find(x => ANSWER[x.type] && x.execution_type === 'EXECUTE'
-      && (proposer == null || String(x.team_id) !== String(proposer)));
-    // Only an offer ESPN itself knows the proposal of is a candidate: a group
-    // made of nothing but a PROCESS/UPHOLD row is bookkeeping, not an offer.
-    if (!p && !answer && !close) continue;
-    const base = { league_id: lid, season, espn_tx_id: txId };
-    if (!answer) {
-      const rule = close ? (EXPIRY_ACTOR.test(close.member_id ?? '') ? 'expired' : 'withdrawn') : 'unanswered';
-      fromRaw.set(k, { ...base, excluded: rule });
-      continue;
-    }
-    const sources = [[p?.items_json, 'proposal'], [snap?.items_json, 'snapshot'], [close?.items_json, 'close'], [answer.items_json, 'answer']];
-    const found = sources.map(([j, s]) => [parseItems(j), s]).find(([v]) => v);
-    const terms = found?.[0] ?? null;
-    const others = teamsIn(terms).filter(x => x !== String(proposer));
-    // An answer with no proposal, no snapshot and no close row has no proposer
-    // on record; it is still an orphan (missing_proposal), not unreadable.
-    if (others.length > 1 || (proposer != null && others.length === 1 && others[0] !== String(answer.team_id))) {
-      fromRaw.set(k, { ...base, excluded: 'unreadable' });
-      continue;
-    }
-    const proposedAt = p?.proposed_at ?? snap?.proposed_at ?? null;
-    fromRaw.set(k, {
-      ...base, source: 'observed', offer_id: txId,
-      proposer_team_id: proposer == null ? null : String(proposer), counterparty_team_id: String(answer.team_id),
-      proposed_at: proposedAt, proposal_basis: p ? 'proposal_row' : (snap?.proposed_at ? 'snapshot' : null),
-      proposal_seen_at: p?.first_seen_at ?? null,
-      resolved_at: answer.proposed_at ?? null, decided_at: answer.proposed_at ?? null, decision_tx_id: String(answer.tx_id),
-      decision_seen_at: answer.first_seen_at ?? null,
-      status: ANSWER[answer.type], vetoed: kids.some(x => x.type === 'TRADE_VETO'),
-      terms, terms_source: found?.[1] ?? null, model_p_accept: null, idea_id: null,
-    });
-  }
+  const fromRaw = rawOfferGroups({ raw, snapshots, exclude });
 
   // ---- trade_outcomes rows
   const all = [];
@@ -240,6 +177,82 @@ export function decidedOffers({ outcomes = [], raw = [], snapshots = [] } = {}) 
   for (const L of byLeague.values()) for (const r of EXCLUSION_RULES) excluded[r] += L.excluded[r];
   const by_league = Object.fromEntries([...byLeague].sort(([a], [b]) => Number(a) - Number(b) || a.localeCompare(b)));
   return { offers, orphans, excluded, by_league };
+}
+
+/**
+ * The raw ESPN rows grouped under the proposal each belongs to, one entry per
+ * (league, season, proposal tx id): an answered offer, an orphan (answered, no
+ * proposal row), or `{ excluded: rule }` for withdrawn / expired / unanswered /
+ * unreadable. Exported so the trade_outcomes settler reads the SAME pairing
+ * E1 grades, rather than a second one (LEDGER-BACKFILL). `exclude(row, rule)`
+ * is called for the answers that attach to no offer at all.
+ */
+export function rawOfferGroups({ raw = [], snapshots = [], exclude = () => {} } = {}) {
+  const proposals = new Map();
+  const children = new Map();
+  const nonProposals = new Map(); // tx id -> a row that is not a proposal
+  for (const r of raw) {
+    if (r.type === 'TRADE_PROPOSAL' && r.execution_type === 'EXECUTE') {
+      proposals.set(key(r.league_id, r.season, r.tx_id), r);
+      continue;
+    }
+    nonProposals.set(key(r.league_id, r.season, r.tx_id), r);
+    if (r.related_tx_id != null) {
+      const k = key(r.league_id, r.season, r.related_tx_id);
+      (children.get(k) ?? children.set(k, []).get(k)).push(r);
+    }
+  }
+  for (const [k, r] of nonProposals) {
+    if (r.related_tx_id == null && ANSWER[r.type] && r.execution_type === 'EXECUTE' && !children.has(k)) exclude(r, 'unlinked_answer');
+  }
+  const snaps = new Map(snapshots.map(s => [key(s.league_id, s.season, s.proposal_tx_id), s]));
+
+  const fromRaw = new Map(); // key -> offer, orphan or { excluded: rule }
+  for (const k of new Set([...proposals.keys(), ...children.keys()])) {
+    const p = proposals.get(k);
+    if (!p && nonProposals.has(k)) { exclude(nonProposals.get(k), 'answer_to_non_proposal'); continue; }
+    const kids = (children.get(k) ?? []).slice().sort((a, b) => (t(a.proposed_at) || 0) - (t(b.proposed_at) || 0));
+    const anchor = p ?? kids[0];
+    const [lid, season, txId] = [anchor.league_id, anchor.season, String(p ? p.tx_id : anchor.related_tx_id)];
+    const snap = snaps.get(k);
+    const close = kids.find(x => x.type === 'TRADE_PROPOSAL' && x.execution_type === 'CANCEL');
+    // A decline also writes a CANCEL of the proposal; its team_id is the proposer.
+    const proposer = p?.team_id ?? snap?.proposer_team_id ?? close?.team_id ?? null;
+    const answer = kids.find(x => ANSWER[x.type] && x.execution_type === 'EXECUTE'
+      && (proposer == null || String(x.team_id) !== String(proposer)));
+    // Only an offer ESPN itself knows the proposal of is a candidate: a group
+    // made of nothing but a PROCESS/UPHOLD row is bookkeeping, not an offer.
+    if (!p && !answer && !close) continue;
+    const base = { league_id: lid, season, espn_tx_id: txId };
+    if (!answer) {
+      const rule = close ? (EXPIRY_ACTOR.test(close.member_id ?? '') ? 'expired' : 'withdrawn') : 'unanswered';
+      fromRaw.set(k, { ...base, excluded: rule, closed_at: close?.proposed_at ?? null, close_tx_id: close ? String(close.tx_id) : null });
+      continue;
+    }
+    const sources = [[p?.items_json, 'proposal'], [snap?.items_json, 'snapshot'], [close?.items_json, 'close'], [answer.items_json, 'answer']];
+    const found = sources.map(([j, s]) => [parseItems(j), s]).find(([v]) => v);
+    const terms = found?.[0] ?? null;
+    const others = teamsIn(terms).filter(x => x !== String(proposer));
+    // An answer with no proposal, no snapshot and no close row has no proposer
+    // on record; it is still an orphan (missing_proposal), not unreadable.
+    if (others.length > 1 || (proposer != null && others.length === 1 && others[0] !== String(answer.team_id))) {
+      fromRaw.set(k, { ...base, excluded: 'unreadable' });
+      continue;
+    }
+    const proposedAt = p?.proposed_at ?? snap?.proposed_at ?? null;
+    fromRaw.set(k, {
+      ...base, source: 'observed', offer_id: txId,
+      proposer_team_id: proposer == null ? null : String(proposer), counterparty_team_id: String(answer.team_id),
+      proposed_at: proposedAt, proposal_basis: p ? 'proposal_row' : (snap?.proposed_at ? 'snapshot' : null),
+      proposal_seen_at: p?.first_seen_at ?? null,
+      resolved_at: answer.proposed_at ?? null, decided_at: answer.proposed_at ?? null, decision_tx_id: String(answer.tx_id),
+      decision_seen_at: answer.first_seen_at ?? null,
+      status: ANSWER[answer.type], vetoed: kids.some(x => x.type === 'TRADE_VETO'),
+      terms, terms_source: found?.[1] ?? null, model_p_accept: null, idea_id: null,
+    });
+  }
+
+  return fromRaw;
 }
 
 function termsOfRow(o) {

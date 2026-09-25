@@ -13,7 +13,7 @@
  * Room JSON.
  */
 import { dealKey, pathExpectation, combos, linearNick, screenPct } from './paths.js';
-import { rankPlans, compareModes, tolerancesFor, MODES, shadowShrink } from './modes.js';
+import { rankPlans, compareModes, tolerancesFor, MODES, shadowShrink, beatsNoTrade as beatsNoTradeUnder } from './modes.js';
 import { metricOf, pointsFeasibility, targetFeasibility, weeklySummary } from './objectives.js';
 import { priceLadder, stepMessage, replyTable } from './playbook.js';
 import { coachMessagesOn } from './messages.js';
@@ -297,9 +297,9 @@ export function planLeague(adapter, settings) {
     });
     if (v.premium_failed && active) premium.confirm_failed++;
     const scored = rankPlans([re], mode, { ...tolM, max_downside_per_step: Infinity }, { ...ctxM, core: null }).ranked[0];
-    return { ...re, score: scored?.score ?? -Infinity, mode, confirm: v, planned_on: p };
+    return { ...re, score: scored?.score ?? -Infinity, beats_no_trade: beatsNoTradeUnder(scored, mode), mode, confirm: v, planned_on: p };
   };
-  const beatsNoTrade = p => p.confirm.verdict !== 'failed' && p.score > 0;
+  const beatsNoTrade = p => p.confirm.verdict !== 'failed' && p.beats_no_trade;
   const confirmDeck = (rankedM, mode, tolM, ctxM) => {
     const active = mode === objective.risk_mode;
     const top = deckOf(rankedM, DECK_SIZE + 2);

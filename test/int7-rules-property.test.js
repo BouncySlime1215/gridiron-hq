@@ -198,7 +198,9 @@ test('rule 5: no step reverses a trade with the same counterparty', () => {
 test('rule 6: every served move beats doing nothing on the confirm dice', () => {
   const bad = [];
   for (const { seed, mode, res } of runs) {
-    for (const [j, c] of res.deck.entries()) if (!(c.plan.score > 0) || c.confirm?.verdict === 'failed') bad.push({ seed, mode, where: `deck[${j}]`, score: c.plan.score });
+    // Balanced / all-in: the mode score > 0; Safe: expected minus one downside deviation > 0 (a decline is the no-trade outcome).
+    const beats = p => (mode === 'safe' ? p.expected - p.downside_sd > 0 : p.score > 0);
+    for (const [j, c] of res.deck.entries()) if (!beats(c.plan) || c.confirm?.verdict === 'failed') bad.push({ seed, mode, where: `deck[${j}]`, score: c.plan.score });
     res.backups.forEach((b, i) => { if (b && !(b.expected > 0)) bad.push({ seed, mode, where: `backups[${i}]`, expected: b.expected }); });
     for (const m of res.risk_modes) if (m.first_step && m.no_trade?.pick === 'no_trade') bad.push({ seed, mode, where: `risk_modes.${m.mode}`, why: 'first_step shown while no_trade is the pick', expected: m.expected });
     for (const c of res.catch_up) if (['swing', 'desperate', 'flip'].includes(c.kind) && c.gain != null && !(c.gain > 0)) bad.push({ seed, mode, where: `catch_up.${c.kind}`, gain: c.gain });

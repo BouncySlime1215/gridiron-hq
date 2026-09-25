@@ -22,6 +22,7 @@ import { tradeBlockRead } from '../../server/services/campaign/his-side.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
 import { fpRosFor, syncIfStale } from '../../server/services/people/fantasypros-ros.js';
 import { executedTrades } from '../../server/services/campaign/trade-memory.js';
+import { fcValues, fcValueOf } from '../../server/services/fc-value.js';
 import { negotiatorDefaultsOn, coolOff } from '../../server/services/campaign/negotiator-defaults.js';
 import { draftCapitalGuarded, draftIdMapEnabled } from '../../server/services/campaign/draft-capital.js';
 
@@ -324,10 +325,15 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   const rosters = new Map(w0.prep.teams.map(t => [t.roster_id, t.players.map(p => p.id)]));
   const players = new Map();
   const slim = id => { const p = assets.get(id); return { id, name: p?.name, position: p?.position, value: p?.value }; };
+  // FC-VALUE (integration-8): Nick's rules price on FantasyCalc value through the one reader
+  // (server/services/fc-value.js). No fc_value row -> value null: never given, got or flipped (fail closed).
+  // market_value keeps the engine's format price for trade memory, whose trade-day prices are on that scale.
+  const fc = fcValues(svc.db);
   const addPlayer = id => {
     const p = assets.get(id);
     if (!p) return;
-    players.set(id, { id, name: p.name, position: p.position, value: Math.max(0, Number(p.value) || 0),
+    const fcv = fcValueOf(fc, id);
+    players.set(id, { id, name: p.name, position: p.position, value: fcv, market_value: Math.max(0, Number(p.value) || 0),
       ros_ppg: p.ros_ppg, injury: p.injury, bye: p.bye, trend_kind: p.trend_kind, available: p.available,
       espn_id: p.espn_id ?? null, team_abbr: p.team_abbr ?? null, ros_basis: p.ros_basis ?? null });
   };
@@ -451,6 +457,9 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity, tradeBlock,
+    // FC-VALUE: which value Nick's rules read, and how many rostered players it could not price.
+    valueSource: { status: fc.status, source: fc.source, fetched_at: fc.fetched_at, ...(fc.reason ? { reason: fc.reason } : {}),
+      unpriced: [...players.keys()].filter(id => players.get(id).value == null).map(String) },
     // LIVE-BLEND: which P(yes) was served and, for the blend, each model's weight and record (plans.json p_yes_basis).
     pYesBasis: svc.pyes.pYesBasis(pyTable),
     tradeLedger: tradeLedger(svc, { leagueId, season, formatKey: svc.format?.deriveFormat(lg).formatKey ?? null, assets, now }),

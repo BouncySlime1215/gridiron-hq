@@ -586,9 +586,12 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       feasibility_points_detail: sp ?? null,
       candidates_scored: res.candidates_scored, rescores: res.rescores ?? 0, runtime_ms: res.runtime_ms ?? 0, phases_ms: res.phases_ms ?? {},
       // PLAN-BASELINE: the model this run's trajectory was made under (the contract keeps `_run` keys fixed; inputs is free-form).
-      inputs: { ...(model != null ? { model } : {}), his_side: hisSideSummary(hisRows, hisSideServed, res.trade_block ?? null) },
+      inputs: { ...(model != null ? { model } : {}), his_side: hisSideSummary(hisRows, hisSideServed, res.trade_block ?? null),
+        ...(res.no_fc_value?.source ? { value_source: { status: res.no_fc_value.status, source: res.no_fc_value.source, unpriced_players: res.no_fc_value.players, paths_dropped: res.no_fc_value.paths, ...(res.no_fc_value.reason ? { reason: res.no_fc_value.reason } : {}) } } : {}) },
       // TRADE-MEMORY: paths the season's trade ledger removed, and the memory itself (ids only).
       dropped_by_reason: { trade_memory: res.trade_memory?.dropped_total ?? 0,
+        // FC-VALUE: rostered players with no FantasyCalc value (never given, got or flipped) plus paths dropped for one.
+        ...(res.no_fc_value && (res.no_fc_value.players || res.no_fc_value.paths) ? { no_fc_value: res.no_fc_value.players + res.no_fc_value.paths } : {}),
         // integration-7: targets (and flips) not searched because the season's trade ledger was missing.
         ...(res.trade_ledger_missing ? { trade_ledger_missing: res.trade_ledger_missing.targets + res.trade_ledger_missing.flips } : {}) },
       trade_memory: res.trade_memory ?? { status: 'no_ledger', dropped_total: 0 },

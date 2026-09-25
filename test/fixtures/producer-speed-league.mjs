@@ -112,6 +112,13 @@ export async function setupLeague({ teams = 10, perTeam = 16, regularWeeks = 14,
   leagueId, teams, JSON.stringify(['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX', ...(kdst ? ['K', 'D/ST'] : []), 'BE', 'BE']),
   JSON.stringify(payload), currentWeek);
 
+  // FC-VALUE (integration-8): the planner prices Nick's rules on FantasyCalc value (player_metrics 'fc_value',
+  // server/services/fc-value.js). Made-up prices equal to each asset's value, so the fixture plans as before.
+  // The asset universe is mocked (no players rows), so the foreign key is off for these rows only.
+  db.exec('PRAGMA foreign_keys = OFF');
+  for (const [id, a] of assets) run(`INSERT OR REPLACE INTO player_metrics (player_id, source, value) VALUES (?, 'fc_value', ?)`, id, a.value);
+  db.exec('PRAGMA foreign_keys = ON');
+
   // A fresh season-sim instance that sees the mocks (the plain one was loaded, unmocked, by
   // the trade-engine import above), then point everything else at it (RL-19-2's recipe).
   const sim = await import('../../server/services/season-sim.js?producer-speed');

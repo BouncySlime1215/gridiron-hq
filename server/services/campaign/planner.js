@@ -183,7 +183,8 @@ export function planLeague(adapter, settings) {
   // On by default (Nick's rules); only GRIDIRON_TRADE_MEMORY=0 turns it off, and the summary then warns.
   const tmOn = tradeMemoryOn(env);
   const TM = tmOn && adapter.tradeLedger
-    ? tradeMemory(adapter.tradeLedger, { me, valueNow: id => Math.max(0, Number(adapter.players.get(id)?.value) || 0),
+    ? // FC-VALUE: trade memory compares with trade-day prices on the engine's format scale, so it reads market_value.
+    tradeMemory(adapter.tradeLedger, { me, valueNow: id => { const pl = adapter.players.get(id); return Math.max(0, Number(pl?.market_value ?? pl?.value) || 0); },
       positionOf: id => adapter.players.get(id)?.position ?? null,
       holderOf: id => [...adapter.rosters].find(([, ids]) => ids.some(x => String(x) === String(id)))?.[0] ?? null })
     : null;
@@ -272,6 +273,13 @@ export function planLeague(adapter, settings) {
     depthPremium, board, premiumSink: premium, untouchables: objective.untouchables }));
   const skipW = { player: settings.skips?.player ?? new Map(), manager: settings.skips?.manager ?? new Map() };
   plans = plans.map(p => ({ ...p, skip_weight: planSkipWeight(p, skipW) }));
+  // FC-VALUE (integration-8): every player a served move gives or gets must carry a FantasyCalc value (the one
+  // reader, fc-value.js); none -> the path is not served (fail closed). search.js#playerValues already keeps
+  // unpriced players out of targets, gives and flips; this is the backstop and the count.
+  const unpricedId = id => { const v = adapter.players.get(id)?.value ?? adapter.players.get(Number(id))?.value; return !(Number.isFinite(v) && v >= 0); };
+  const noFc = p => p.steps.some(st => [...st.give, ...st.get].some(unpricedId));
+  const fcDropped = plans.filter(noFc).length;
+  if (fcDropped) plans = plans.filter(p => !noFc(p));
   // GETS-FLOOR (integration-7): a chip picked up on the way and never given on is a final get too. With the
   // floor on, every player Nick still holds at the end of the path (gets minus later gives) must pass it;
   // shadow counts the paths it would drop.
@@ -628,6 +636,10 @@ export function planLeague(adapter, settings) {
         objectiveMode: objective.risk_mode, notObjectiveTarget: plans.length - pool.length,
         confirm: confirmCounts, noOverpay: overpay.rejected, outOfReach: reachRows.filter(r => !r.in_reach).length }) },
     ...(ledgerSkipped ? { trade_ledger_missing: { executed_rows: Number(adapter.executedTradeRows), ...ledgerSkipped } } : {}),
+    // FC-VALUE: rostered players with no FantasyCalc value (never searched) and paths dropped for one.
+    no_fc_value: { players: (adapter.valueSource?.unpriced ?? []).length, paths: fcDropped,
+      ...(adapter.valueSource ? { status: adapter.valueSource.status, source: adapter.valueSource.source,
+        ...(adapter.valueSource.reason ? { reason: adapter.valueSource.reason } : {}) } : {}) },
     trade_memory: memorySummary(tmOn ? (ledgerMissing ? 'ledger_missing' : TM) : 'off', { dropped: tmApplied?.dropped ?? {}, shadow: tmApplied?.shadow ?? {}, floorOn: tmApplied?.floor_on ?? false,
       targets: tmCount.targets, flips: tmCount.flips, ladderRows: tmCount.ladderRows, refused: tmCount.refused, unmapped: adapter.tradeLedger?.unmapped ?? 0 }),
     // HIS-SIDE-WIRE: ESPN's trade block as the adapter read it (null: not read); the view reads it per target.

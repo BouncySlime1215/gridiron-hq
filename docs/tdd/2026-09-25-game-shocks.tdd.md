@@ -31,8 +31,10 @@ implied upper-tail dependence at the fitted same-team QB-WR correlation (~0.3) i
 about 0.09 (Gaussian: 0), and about 0.03 for an uncorrelated same-game pair. A
 different nu is a NEW registration with its own date and reason; this result stays.
 
-**Flag.** `GRIDIRON_GAME_SHOCKS`: `1` on, `0` off (vetoes preview), unset = off unless
-preview mode (`GRIDIRON_PREVIEW_UNCONFIRMED=1`). Off, the sim is byte-identical to main.
+**Flag.** `GRIDIRON_GAME_SHOCKS`: `1` on; `0` or unset off. Preview mode
+(`GRIDIRON_PREVIEW_UNCONFIRMED=1`) does not turn it on (changed 2026-09-25 after the
+coordinator's Batch B review: preview is on on the Mac, so the served odds would move
+before M1 passed). Off, the sim is byte-identical to main.
 Nothing Nick sees moves until the local measurement below passes and Nick turns it on.
 
 **Metrics and bars.**

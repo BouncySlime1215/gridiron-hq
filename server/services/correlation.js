@@ -24,7 +24,6 @@
  */
 import { db, rows } from '../db/index.js';
 import { servedTableState } from './data-freshness.js';
-import { previewUnconfirmed } from './preview-mode.js';
 import { PPR, scoreLine } from './scoring.js';
 import { cholesky, correlatedNormals, keyedNormal, keyedSeed, normalCdf, randn, mean } from './stats-util.js';
 
@@ -222,8 +221,8 @@ export function correlationMatrix(players) {
 export const GAME_SHOCK_NU = 6;
 
 /**
- * GRIDIRON_GAME_SHOCKS: '1' on, '0' off (vetoes preview), unset = off unless preview
- * mode. Read by the season sim (the one title-odds producer) and league-world.js's
+ * GRIDIRON_GAME_SHOCKS: '1' on; '0' or unset off, and preview mode does not turn it
+ * on. Read by the season sim (the one title-odds producer) and league-world.js's
  * snapshot key; no other sampler caller passes the shock.
  */
 export const GAME_SHOCKS_ENV = 'GRIDIRON_GAME_SHOCKS';
@@ -234,9 +233,9 @@ const GAME_SHOCKS_PREVIEW_REASON =
 export function gameShocksFlag() {
   const v = process.env[GAME_SHOCKS_ENV];
   if (v === '1') return { on: true, preview: false };
-  if (v === '0') return { on: false, preview: false };
-  const preview = previewUnconfirmed();
-  return { on: preview, preview };
+  // Unset = off, preview mode included: served title odds must not move before M1
+  // passes on local data (preview is on on the Mac). '0' stays accepted as off.
+  return { on: false, preview: false };
 }
 
 /** What a sim result says about the shock: null when off (the result is unchanged). */

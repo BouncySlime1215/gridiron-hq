@@ -44,6 +44,7 @@
  */
 import { row, rows } from '../db/index.js';
 import { pprPoints } from './offseason-data.js';
+import { tradeBlocks } from './espn-trade-block.js';
 
 export const LINEUP_SIGNAL_TYPES = Object.freeze({
   benched_intact_usage: 'benched a player he had been starting while that player\'s snap share held',
@@ -83,20 +84,6 @@ const isStarter = r => r.is_starter === 1;
 
 const NO_SNAPSHOTS_REASON = 'no rows in league_roster_snapshots for this league and season — ' +
   'scripts/collect-roster-snapshots.mjs has not captured it';
-
-function tradeBlocks(payload) {
-  const out = new Map();
-  let parsed = null;
-  try { parsed = typeof payload === 'string' ? JSON.parse(payload) : payload; } catch (e) {
-    // A stored payload that is not JSON cannot carry a trade block; say so rather than guess.
-    return { blocks: out, error: `stored league payload is not JSON: ${e.message}` };
-  }
-  for (const t of parsed?.teams ?? []) {
-    const players = t?.tradeBlock?.players ?? {};
-    out.set(String(t.id), new Map(Object.entries(players).map(([id, s]) => [Number(id), s])));
-  }
-  return { blocks: out, error: null };
-}
 
 function snapIndex(season, playerIds) {
   const idx = new Map();

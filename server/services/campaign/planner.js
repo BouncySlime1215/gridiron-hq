@@ -13,20 +13,23 @@
  * Room JSON.
  */
 import { dealKey, pathExpectation, combos, linearNick, screenPct } from './paths.js';
-import { rankPlans, compareModes, tolerancesFor, MODES, shadowShrink, beatsNoTrade as beatsNoTradeUnder } from './modes.js';
+import { rankPlans, compareModes, tolerancesFor, MODES, shadowShrink, riskRuleOn, beatsNoTrade as beatsNoTradeUnder } from './modes.js';
 import { metricOf, pointsFeasibility, targetFeasibility, weeklySummary } from './objectives.js';
 import { priceLadder, stepMessage, replyTable } from './playbook.js';
 import { coachMessagesOn } from './messages.js';
+import { negotiatorDefaultsOn, defensibleLadder, secondPackage, firmOfferText, negotiationFor, altWithinCap } from './negotiator-defaults.js';
 import { buildItinerary, stopTradeOff, arrivalWeek } from './itinerary.js';
 import { speedCurve, concededPlan, sideLevers } from './speed.js';
 import { orderCatchUp, freeMoves, isBehind, sellersRead, desperateMoves } from './catchup.js';
 import { rankPartners, planSkipWeight, pResponds } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
+import { probesOn } from '../p-yes-blend.js';
 import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink,
   depthPremiumOf, boardOf, newPremiumSink, premiumHolds } from './search.js';
-import { makeGetsFloor } from './gets-floor.js';
+import { makeGetsFloor, heldAtEnd } from './gets-floor.js';
+import { ladderFlag, ladderCards } from './ladder.js';
 import { withNeverGive } from './never-give.js';
 import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
 import { excluded } from './partners.js';
@@ -45,6 +48,23 @@ const sameIds = (a, b) => a.length === b.length && a.map(String).sort().join() =
 const CURVE_WINDOW = { low: -35, high: 45 };
 
 const firstKey = p => dealKey(p.steps[0]);
+
+/**
+ * LIVE-BLEND: Nick's rule "a served move must beat doing nothing on the confirm dice", read on the
+ * GATE p (each step's p_gate: the activity baseline, what GRIDIRON_PYES_BLEND=0 serves; the served
+ * p when a step has none, i.e. the clone path). The blend's weights therefore cannot change which
+ * moves pass; they move the ranking and the shown P(yes) only. The verdict's shown numbers stay on
+ * the served p; `gate` says which p decided 'failed'.
+ */
+export function confirmGate(planned, reconfirmed) {
+  const shown = confirmVerdict(pathExpectation(planned.steps), pathExpectation(reconfirmed.steps));
+  // The clone path carries no p_gate: the verdict is today's, object and all.
+  if (!planned.steps.some(s => s.p_gate != null)) return shown;
+  const gate = steps => steps.map(s => (s.p_gate != null ? { ...s, p: s.p_gate } : s));
+  const g = confirmVerdict(pathExpectation(gate(planned.steps)), pathExpectation(gate(reconfirmed.steps)));
+  const verdict = g.verdict === 'failed' ? 'failed' : shown.verdict === 'failed' ? g.verdict : shown.verdict;
+  return { ...shown, verdict, gate_expected: g.confirmed_expected, gate: 'p_gate' };
+}
 
 /** Top plans with distinct first moves (the swipe deck). */
 export function deckOf(ranked, n = DECK_SIZE) {
@@ -90,9 +110,12 @@ function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta, ma
     // NO-OVERPAY: the ladder (opening, walk-away) never climbs past Nick's cap on market value given.
     // CAP-1C: above the cap, only the planned premium package itself (the one pair gated on points and title odds).
     if (nickOverpays(gv, getV, maxOverpay) && !(step.depth_premium && sameIds(give, step.give))) continue;
-    const p = adapter.priceStep(step.team, step.get, give).p;
+    const pr = adapter.priceStep(step.team, step.get, give);
+    const p = pr.p;
     const delta = lin(S.applyTrade(stateBefore, me, step.team, give, step.get)) * scale;
-    out.push({ give, his_pct: his, p, delta, nick_gain: p * delta });
+    // LIVE-BLEND (integration-8): each package keeps its own gate p, so a rule that re-checks a ladder package
+    // (the second package's confirm-dice gate) reads that package's baseline, never the planned give's.
+    out.push({ give, his_pct: his, p, ...(pr.p_gate != null ? { p_gate: pr.p_gate } : {}), delta, nick_gain: p * delta });
   }
   return { curve: out.sort((a, b) => a.his_pct - b.his_pct).slice(0, 60),
     basis: `linear single-player values, rescaled to the exact rescore of the planned package; never past +${Math.round(maxOverpay * 100)}% market value given`
@@ -117,6 +140,8 @@ export function planLeague(adapter, settings) {
   const { objective } = settings;
   const env = settings.env ?? {};
   const waitEnabled = waitOrActOn(env);
+  // RISK-RULE (shadow, GRIDIRON_RISK_RULE=1): each mode's own decision rule ranks the plans; off, unchanged.
+  const rule = riskRuleOn(env);
   const budget = { flipTopPer: 3, flipRealise: 6, targets: 3, ...(settings.budget ?? {}) };
   const L = adapter.league;
   const me = L.me;
@@ -158,7 +183,8 @@ export function planLeague(adapter, settings) {
   // On by default (Nick's rules); only GRIDIRON_TRADE_MEMORY=0 turns it off, and the summary then warns.
   const tmOn = tradeMemoryOn(env);
   const TM = tmOn && adapter.tradeLedger
-    ? tradeMemory(adapter.tradeLedger, { me, valueNow: id => Math.max(0, Number(adapter.players.get(id)?.value) || 0),
+    ? // FC-VALUE: trade memory compares with trade-day prices on the engine's format scale, so it reads market_value.
+    tradeMemory(adapter.tradeLedger, { me, valueNow: id => { const pl = adapter.players.get(id); return Math.max(0, Number(pl?.market_value ?? pl?.value) || 0); },
       positionOf: id => adapter.players.get(id)?.position ?? null,
       holderOf: id => [...adapter.rosters].find(([, ids]) => ids.some(x => String(x) === String(id)))?.[0] ?? null })
     : null;
@@ -247,15 +273,18 @@ export function planLeague(adapter, settings) {
     depthPremium, board, premiumSink: premium, untouchables: objective.untouchables }));
   const skipW = { player: settings.skips?.player ?? new Map(), manager: settings.skips?.manager ?? new Map() };
   plans = plans.map(p => ({ ...p, skip_weight: planSkipWeight(p, skipW) }));
+  // FC-VALUE (integration-8): every player a served move gives or gets must carry a FantasyCalc value (the one
+  // reader, fc-value.js); none -> the path is not served (fail closed). search.js#playerValues already keeps
+  // unpriced players out of targets, gives and flips; this is the backstop and the count.
+  const unpricedId = id => { const v = adapter.players.get(id)?.value ?? adapter.players.get(Number(id))?.value; return !(Number.isFinite(v) && v >= 0); };
+  const noFc = p => p.steps.some(st => [...st.give, ...st.get].some(unpricedId));
+  const fcDropped = plans.filter(noFc).length;
+  if (fcDropped) plans = plans.filter(p => !noFc(p));
   // GETS-FLOOR (integration-7): a chip picked up on the way and never given on is a final get too. With the
   // floor on, every player Nick still holds at the end of the path (gets minus later gives) must pass it;
   // shadow counts the paths it would drop.
+  const failsHeld = p => [...heldAtEnd(p.steps)].some(id => !floor.read(id).passes);
   if (floor.sink.mode !== 'off') {
-    const failsHeld = p => {
-      const held = new Set();
-      for (const st of p.steps) { for (const id of st.give) held.delete(String(id)); for (const id of st.get) held.add(String(id)); }
-      return [...held].some(id => !floor.read(id).passes);
-    };
     const bad = plans.filter(failsHeld).length;
     floor.sink[floorOn ? 'paths_dropped' : 'paths_would_drop'] = bad;
     if (floorOn && bad) plans = plans.filter(p => !failsHeld(p));
@@ -271,11 +300,11 @@ export function planLeague(adapter, settings) {
   const sentThisWeek = new Map([...adapter.managers].map(([t, m]) => [String(t), m.sent_this_week ?? 0]));
   const ctxFor = mode => ({
     tol: mode === objective.risk_mode ? objective.tolerances : tolerancesFor(mode),
-    ctx: { originalIds: adapter.rosters.get(me), sentThisWeek, core, untouchables: objective.untouchables },
+    ctx: { originalIds: adapter.rosters.get(me), sentThisWeek, core, untouchables: objective.untouchables, probes: probesOn(env) },
   });
   const pool = objective.kind === 'player' ? plans.filter(p => String(p.target) === String(objective.target)) : plans;
   const { tol, ctx } = ctxFor(objective.risk_mode);
-  const { ranked, dropped } = rankPlans(pool, objective.risk_mode, tol, ctx);
+  const { ranked, dropped } = rankPlans(pool, objective.risk_mode, tol, ctx, { rule });
 
   // Confirm on fresh dice: re-price the deck on an independent seed, show those numbers, drop failures.
   // NO-TRADE-SHRINK: a card must also beat keeping the roster (score 0) under its mode on the fresh dice.
@@ -293,7 +322,8 @@ export function planLeague(adapter, settings) {
     const freshMe = p.steps.map(st => S2.rescore(st.state, me).me);
     const fresh = freshMe.map(r => metricOf(r, objective));
     const re = repricePlan(p, fresh);
-    let v = confirmVerdict(pathExpectation(p.steps), pathExpectation(re.steps));
+    // LIVE-BLEND: the verdict that can fail a plan reads each step's gate p (planner.js#confirmGate).
+    let v = confirmGate(p, re);
     // CAP-1C: a premium step must still raise lineup points and title odds on fresh dice, or the card goes.
     re.steps = re.steps.map((st, i) => {
       if (!st.depth_premium) return st;
@@ -302,10 +332,23 @@ export function planLeague(adapter, settings) {
       return { ...st, depth_premium: { ...st.depth_premium, confirmed: h.ok ? { points_delta: h.points_delta, title_delta: h.title_delta } : null } };
     });
     if (v.premium_failed && active) premium.confirm_failed++;
-    const scored = rankPlans([re], mode, { ...tolM, max_downside_per_step: Infinity }, { ...ctxM, core: null }).ranked[0];
-    return { ...re, score: scored?.score ?? -Infinity, beats_no_trade: beatsNoTradeUnder(scored, mode), mode, confirm: v, planned_on: p };
+    const scored = rankPlans([re], mode, { ...tolM, max_downside_per_step: Infinity }, { ...ctxM, core: null }, { rule }).ranked[0];
+    // LIVE-BLEND: "beats doing nothing" is Nick's rule, so it is decided on the gate p too (the served p ranks).
+    const onGate = re.steps.some(st => st.p_gate != null)
+      ? rankPlans([{ ...re, steps: re.steps.map(st => (st.p_gate != null ? { ...st, p: st.p_gate } : st)) }], mode,
+        { ...tolM, max_downside_per_step: Infinity }, { ...ctxM, core: null }, { rule }).ranked[0]
+      : scored;
+    return { ...re, score: scored?.score ?? -Infinity, beats_no_trade: beatsNoTradeUnder(onGate, mode, { rule }), mode, confirm: v, planned_on: p };
   };
+  // Nick's rule, kept apart from the ranking score: the move must beat doing nothing on the confirm dice.
   const beatsNoTrade = p => p.confirm.verdict !== 'failed' && p.beats_no_trade;
+  // RISK-RULE: Balanced regret is scored against the other cards that beat doing nothing on the confirm dice.
+  const regretRescore = (priced, mode, tolM, ctxM) => {
+    if (!rule || mode !== 'balanced') return priced;
+    const regretPool = priced.filter(beatsNoTrade);
+    const tolR = { ...tolM, max_downside_per_step: Infinity }, ctxR = { ...ctxM, core: null, regretPool };
+    return priced.map(q => ({ ...q, score: rankPlans([q], mode, tolR, ctxR, { rule }).ranked[0]?.score ?? -Infinity }));
+  };
   const confirmDeck = (rankedM, mode, tolM, ctxM) => {
     const active = mode === objective.risk_mode;
     const top = deckOf(rankedM, DECK_SIZE + 2);
@@ -314,13 +357,13 @@ export function planLeague(adapter, settings) {
       if (active) premium.confirm_failed += top.filter(p => p.steps.some(st => st.depth_premium)).length;
       return [];
     }
-    const priced = top.map(p => priceOnConfirm(p, mode, tolM, ctxM, active));
+    const priced = regretRescore(top.map(p => priceOnConfirm(p, mode, tolM, ctxM, active)), mode, tolM, ctxM);
     const kept = priced.filter(beatsNoTrade);
     if (active) {
       const failed = priced.filter(p => p.confirm.verdict === 'failed').length;
       confirmCounts = { checked: top.length, failed, not_above_no_trade: priced.length - failed - kept.length };
     }
-    return kept.sort((a, b) => b.score - a.score).slice(0, DECK_SIZE);
+    return kept.sort((a, b) => (b.score - a.score) || (rule ? b.expected - a.expected : 0)).slice(0, DECK_SIZE);
   };
   // integration-7: backups, BATNAs and catch-up moves come only from plans that beat doing nothing on the
   // confirm dice under the active mode (memoised; null when they do not, or when there are no confirm dice).
@@ -335,10 +378,19 @@ export function planLeague(adapter, settings) {
   const confirmedBest = Object.fromEntries(MODES.map(mode => {
     if (mode === objective.risk_mode) return [mode, deck[0] ?? null];
     const c = ctxFor(mode);
-    return [mode, confirmDeck(rankPlans(plans, mode, c.tol, c.ctx).ranked, mode, c.tol, c.ctx)[0] ?? null];
+    return [mode, confirmDeck(rankPlans(plans, mode, c.tol, c.ctx, { rule }).ranked, mode, c.tol, c.ctx)[0] ?? null];
   }));
   if (S2) confirm = { seed: cSeed, plan_seed: adapter.seed, status: 'ok', rescores: S2.count() };
   mark('confirm_rescore');
+  // LADDER-01 (flag GRIDIRON_LADDER, default off): ladder cards read the ranked paths (already floored and
+  // filtered by trade memory); shadow, they move nothing served. Built after the confirm counts are taken, so
+  // their extra confirm rescores change no served count. A backup at a "no" is main's confirmedActive: it must
+  // beat doing nothing on the confirm dice, like a deck card; no confirm dice, no backup.
+  const ladders = ladderFlag(env) === 'on'
+    ? ladderCards(ranked, { mode: objective.risk_mode, scoreOf: adapter.scoreOf ?? null, floor: floor.sink.floor,
+      players: adapter.players, untouchable: adapter.untouchable ?? new Set(), objectiveUntouchables: objective.untouchables ?? [],
+      memory: TM, env, confirmed: confirmedActive, maxOverpay })
+    : null;
   const best = deck[0] ?? null;
   // CAP-1C + integration-7: a backup is re-priced on the confirm dice (premium steps re-checked there) and
   // must beat doing nothing, like a deck card.
@@ -348,6 +400,49 @@ export function planLeague(adapter, settings) {
   // Playbook for every step of the chosen plan, and for each deck card's first step.
   const managers = adapter.managers;
   const names = id => adapter.players.get(id)?.name ?? `player ${id}`;
+  const ND = negotiatorDefaultsOn(env);
+  // NEGOTIATOR-DEFAULTS: the "Or X for Y" package is the plan with step i's give swapped, and goes out only when
+  // that whole plan passes the same rules as a served plan: the overpay cap (above it, only the planned premium
+  // package), the held floor (GETS-FLOOR on), trade memory (no buy-back, no reversal) and main's confirm-dice
+  // gate (priceOnConfirm + beatsNoTrade: it must beat doing nothing). Returns { alt, dropped }, dropped one of
+  // null, 'over_cap', 'path_conflict', 'floor', 'trade_memory', 'confirm_dice'.
+  const altValue = id => adapter.players.get(id)?.value;
+  const altPlanOf = (plan, i, give, p, pGate) => {
+    const base = plan.planned_on ?? plan;
+    const steps = [];
+    let state = i === 0 ? new Map() : base.steps[i - 1].state;
+    for (let k = 0; k < base.steps.length; k++) {
+      if (k < i) { steps.push(base.steps[k]); continue; }
+      // LIVE-BLEND: the swapped step carries the second package's own gate p (none on the clone path), never
+      // the planned give's, so "beats doing nothing" is decided on the right baseline.
+      const swapped = () => {
+        const { p_gate: _planned, ...rest } = base.steps[k];
+        return { ...rest, give, p, ...(pGate != null ? { p_gate: pGate } : {}),
+          depth_premium: sameIds(give, base.steps[k].give) ? base.steps[k].depth_premium : undefined };
+      };
+      const st = k === i ? swapped() : base.steps[k];
+      const mine = new Set(S.rosterOf(state, me).map(String));
+      if (st.give.some(id => !mine.has(String(id)))) return null;
+      state = S.applyTrade(state, me, st.team, st.give, st.get);
+      const r = metricOf(S.rescore(state, me).me, objective);
+      steps.push({ ...st, state, delta: r.delta, se: r.se, clears: r.clears });
+    }
+    return { ...base, steps, ...pathExpectation(steps) };
+  };
+  const confirmAlt = (alt, plan, i) => {
+    if (!alt) return { alt: null, dropped: null };
+    const st = plan.steps[i];
+    if (!altWithinCap({ give: alt.give, step: st, valueOf: altValue, maxOverpay })) return { alt: null, dropped: 'over_cap' };
+    const ap = altPlanOf(plan, i, alt.give, alt.p, alt.p_gate);
+    if (!ap) return { alt: null, dropped: 'path_conflict' };
+    if (floorOn && failsHeld(ap)) return { alt: null, dropped: 'floor' };
+    if (TM && !applyTradeMemory([ap], TM, { env }).plans.length) return { alt: null, dropped: 'trade_memory' };
+    if (!S2) return { alt: null, dropped: 'confirm_dice' };
+    const c = priceOnConfirm(ap, objective.risk_mode, tol, ctx, false);
+    if (!beatsNoTrade(c)) return { alt: null, dropped: 'confirm_dice' };
+    return { alt: { ...alt, confirm_expected: c.expected }, dropped: null };
+  };
+  const who = id => { const p = adapter.players.get(id) ?? adapter.players.get(Number(id)); return { name: p?.name ?? `player ${id}`, position: p?.position ?? null }; };
   const playbookFor = (plan, i, backup) => {
     const st = plan.steps[i];
     const stateBefore = i === 0 ? new Map() : plan.steps[i - 1].state ?? (plan.planned_on?.steps[i - 1].state) ?? new Map();
@@ -363,9 +458,16 @@ export function planLeague(adapter, settings) {
     const curve = TM ? allowed.filter(c => stepPasses(TM, { team: st.team, give: c.give, get: st.get }, tmFloor)) : allowed;
     if (TM) tmCount.ladderRows += allowed.length - curve.length;
     const basis = cap ? `${priced.basis}; capped at ${cap.max_his_pct}% on his screen (nick_override)` : priced.basis;
-    const ladder = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode, hard: !!m.nick?.hard });
+    const priced0 = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode, hard: !!m.nick?.hard });
+    // NEGOTIATOR-DEFAULTS (flag, default off): a defensible opening, a second genuine package, the firm text.
+    const ladder = ND ? defensibleLadder(priced0) : priced0;
     const offer = ladder.opening ? { ...st, give: ladder.opening.give } : st;
-    const message = stepMessage(offer, { players: adapter.players, needs: m.needs ?? null });
+    const altChecked = ND ? confirmAlt(secondPackage(ladder), plan, i) : { alt: null, dropped: null };
+    const alt = altChecked.alt;
+    const holes = Array.isArray(m.needs) ? m.needs : m.needs ? Object.keys(m.needs) : [];
+    const message = ND
+      ? { text: firmOfferText({ who, give: offer.give, get: st.get, alt: alt?.give ?? null, holes }), facts: [], checked: true, source: 'template' }
+      : stepMessage(offer, { players: adapter.players, needs: m.needs ?? null });
     const next = plan.steps[i + 1] ?? null;
     return {
       step_index: i, of_steps: plan.steps.length,
@@ -376,6 +478,7 @@ export function planLeague(adapter, settings) {
       replies: replyTable(st, { next, backup, ladder, nudge: `Still open to ${st.give.map(names).join(' + ')} for ${st.get.map(names).join(' + ')}?` }),
       send_when: m.send_when ?? null,
       wait: waitOrAct(st, adapter.players, { enabled: waitEnabled }),
+      ...(ND ? { negotiation: negotiationFor({ who, give: offer.give, get: st.get, ladder, alt, altDropped: altChecked.dropped, holes, sendWhen: m.send_when, message: message.text }) } : {}),
       ...(CP ? (() => {
         const ps = adapter.priceStep(offer.team, offer.get, offer.give);
         return { counterpart: { reply_mix: { ...M6_REPLY_PRIOR }, label: M6_LABEL, p_accept_challenger: ps.p,
@@ -401,7 +504,7 @@ export function planLeague(adapter, settings) {
   });
 
   // Suggested targets: gain if landed x P(reach) x skip weight, with mode fit.
-  const rankedByMode = Object.fromEntries(MODES.map(mode => { const c = ctxFor(mode); return [mode, rankPlans(plans, mode, c.tol, c.ctx)]; }));
+  const rankedByMode = Object.fromEntries(MODES.map(mode => { const c = ctxFor(mode); return [mode, rankPlans(plans, mode, c.tol, c.ctx, { rule })]; }));
   const byMode = Object.fromEntries(MODES.map(mode => [mode, rankedByMode[mode].ranked]));
   const suggestions = floored(5).map(pid => {
     const mine = byMode[objective.risk_mode].find(p => String(p.target) === String(pid));
@@ -517,10 +620,13 @@ export function planLeague(adapter, settings) {
     best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook, ...(c.playbooks ? { playbooks: c.playbooks } : {}) })),
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
     suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, feasibility_points, outlook,
-    risk_modes: compareModes(plans, ctxFor, mode => ({ best: confirmedBest[mode], confirmed: !!S2 })), catch_up: catchUp, partners,
+    risk_modes: compareModes(plans, ctxFor, mode => ({ best: confirmedBest[mode], confirmed: !!S2 }), { rule }), catch_up: catchUp, partners,
     // NO-TRADE-SHRINK: pre-rank shrinkage, SHADOW (reported under _run.shrink; nothing served reads it).
     shrink: shadowShrink(plans, ctxFor),
     untouchable: { ids: [...untouchable], refused_targets: refused },
+    ...(ladders ? { ladders } : {}),
+    // LIVE-BLEND: which P(yes) the adapter served, with each model's weight and record (plans.json p_yes_basis).
+    p_yes_basis: adapter.pYesBasis ?? null,
     // REACH-01: diagnostics only (no number is priced here); the producer writes them to _run.inputs.reach.
     reach: { flag: reachMode, targets_budget: budget.targets, chain_give: chainGive,
       bound: { direct: bound.direct, chain: bound.chain, best: bound.best }, targets: reachRows,
@@ -530,8 +636,14 @@ export function planLeague(adapter, settings) {
         objectiveMode: objective.risk_mode, notObjectiveTarget: plans.length - pool.length,
         confirm: confirmCounts, noOverpay: overpay.rejected, outOfReach: reachRows.filter(r => !r.in_reach).length }) },
     ...(ledgerSkipped ? { trade_ledger_missing: { executed_rows: Number(adapter.executedTradeRows), ...ledgerSkipped } } : {}),
+    // FC-VALUE: rostered players with no FantasyCalc value (never searched) and paths dropped for one.
+    no_fc_value: { players: (adapter.valueSource?.unpriced ?? []).length, paths: fcDropped,
+      ...(adapter.valueSource ? { status: adapter.valueSource.status, source: adapter.valueSource.source,
+        ...(adapter.valueSource.reason ? { reason: adapter.valueSource.reason } : {}) } : {}) },
     trade_memory: memorySummary(tmOn ? (ledgerMissing ? 'ledger_missing' : TM) : 'off', { dropped: tmApplied?.dropped ?? {}, shadow: tmApplied?.shadow ?? {}, floorOn: tmApplied?.floor_on ?? false,
       targets: tmCount.targets, flips: tmCount.flips, ladderRows: tmCount.ladderRows, refused: tmCount.refused, unmapped: adapter.tradeLedger?.unmapped ?? 0 }),
+    // HIS-SIDE-WIRE: ESPN's trade block as the adapter read it (null: not read); the view reads it per target.
+    trade_block: adapter.tradeBlock ?? null,
     ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
     sellers: { read: sellers, unreached: desperate.unreached.map(s => s.team) },
     speed_levers: sideLevers({ free, waits: playbook.map(pb => pb.wait) }),

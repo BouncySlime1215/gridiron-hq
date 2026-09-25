@@ -71,6 +71,52 @@ function numericTokens(text) {
   return [...String(text ?? '').matchAll(NUMBER)].map(match => match[0]);
 }
 
+/**
+ * COACH-PARTNER: small whole numbers that only structure Coach's own answer.
+ *
+ * "step 2 of 3", "Card 2 of 4", "leg 1 of 2", "3 steps", a "1." list marker:
+ * these place or count the parts of the plan Coach is walking through, and
+ * tracing them to a cell rejected good answers ("could not trace 3 numbers").
+ * Exempt only when ALL of these hold: an unsigned integer <= ORDINAL_MAX with no
+ * decimal and no unit after it, and one of these shapes:
+ *   - right after step / option / alternative / card / leg / path ("step 2")
+ *   - the M of "<noun> N of M" ("step 2 of 3")
+ *   - N or M of "N of M <noun>" ("1 of 3 steps")
+ *   - a count of steps / options / alternatives / cards / legs / paths ("3 steps")
+ *   - a line-start list marker ("1. ")
+ * Nothing else: a rank ("#1 RB", "3rd in targets", "number 2 WR"), a count of
+ * people or players ("4 managers asked", "2 of 3 starters"), points,
+ * percentages, odds, values, weeks and dates are all checked as before.
+ */
+const ORDINAL_MAX = 10;
+const PART = '(?:steps?|options?|alternatives?|cards?|legs?|paths?)';
+const PART_NOUN = new RegExp(`^\\s+${PART}\\b`, 'i');
+const AFTER_PART = new RegExp(`\\b${PART}\\s+$`, 'i');
+const AFTER_PART_N_OF = new RegExp(`\\b${PART}\\s+(\\d+)\\s+of\\s+$`, 'i');
+const N_OF_M_PART = new RegExp(`^\\s+of\\s+(\\d+)\\s+${PART}\\b`, 'i');
+const N_OF_BEFORE = /\b(\d+)\s+of\s+$/i;
+
+/** Is this match a step, card or leg position or count in Coach's own text (and nothing that measures anything)? */
+function isStructural(text, match) {
+  const token = match[0];
+  if (!/^\d+$/.test(token) || Number(token) > ORDINAL_MAX) return false;
+  const before = text.slice(0, match.index);
+  const after = text.slice(match.index + token.length);
+  if (/^(?:\s*(?:%|pts?\b|points?\b|percent|x\b)|\.\d|st\b|nd\b|rd\b|th\b)/i.test(after)) return false;
+  if (/[-+$#]$/.test(before)) return false;
+  const small = n => Number(n) <= ORDINAL_MAX;
+  if (AFTER_PART.test(before)) return true;
+  const partOf = before.match(AFTER_PART_N_OF);
+  if (partOf && small(partOf[1])) return true;
+  const nOfM = after.match(N_OF_M_PART);
+  if (nOfM && small(nOfM[1])) return true;
+  const mOf = before.match(N_OF_BEFORE);
+  if (mOf && small(mOf[1]) && PART_NOUN.test(after)) return true;
+  if (PART_NOUN.test(after)) return true;
+  if (/(?:^|\n)\s*$/.test(before) && /^[.)]\s/.test(after)) return true;
+  return false;
+}
+
 function asNumber(token) {
   const value = Number(String(token).replace(/,/g, ''));
   return Number.isFinite(value) ? value : null;
@@ -193,8 +239,10 @@ export function verifyAnswer({ answer, ledger, question = '' } = {}) {
       cells.push(cell);
     }
 
-    for (const token of numericTokens(text)) {
+    for (const match of String(text).matchAll(NUMBER)) {
+      const token = match[0];
       numbersChecked += 1;
+      if (isStructural(text, match)) continue;
       if (cells.some(cell => grounds(cell.value, token, BRAIN_TOOL_NAMES.includes(toolOf(cell))))) continue;
       violations.push({
         kind: VIOLATIONS.UNGROUNDED_NUMBER, claim_index: claimIndex, number: token, text,

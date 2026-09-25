@@ -19,7 +19,10 @@ import { blueChipsSection } from '../../server/services/campaign/view.js';
 let bump = Date.now() / 1000;
 const boards = new Map();
 
-/** Score every id 90 on league `leagueId`'s served board, in the plans file the gate reads. */
+/**
+ * Score players on league `leagueId`'s served board, in the plans file the gate reads. `ids`: a list
+ * (each scored `score`) or a Map id -> score.
+ */
 export function scoreForRules(leagueId, ids, score = 90) {
   if (!process.env.GRIDIRON_WARROOM_PLANS) {
     process.env.GRIDIRON_WARROOM_PLANS = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'rule-gate-plans-')), 'plans.json');
@@ -33,7 +36,7 @@ export function scoreForRules(leagueId, ids, score = 90) {
   // so a test that validates the plans file (Coach, the War Room) still reads it.
   if (entry.blue_chips?.status !== 'ok') boards.delete(String(leagueId));
   const board = boards.get(String(leagueId)) ?? new Map();
-  for (const id of ids) board.set(String(id), score);
+  for (const [id, sc] of ids instanceof Map ? ids : ids.map(id => [id, score])) board.set(String(id), sc);
   boards.set(String(leagueId), board);
   entry.blue_chips = blueChipsSection({
     status: 'ok', weights: { pick: 0.5, production: 0.5, basis: 'rule-gate fixture' }, labels: ['Blue chip'],

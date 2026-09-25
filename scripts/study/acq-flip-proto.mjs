@@ -167,7 +167,7 @@ async function main() {
   const { rows, row } = await import('../../server/db/index.js');
   const sim = await import('../../server/services/season-sim.js');
   const { counterpartyLayer, readDeal, playerValuation } = await import('../../server/services/counterparty-pricing.js');
-  const { acceptanceBand } = await import('../../server/services/trade-acceptance.js');
+  const { pYesFor } = await import('../../server/services/p-yes.js');
   const { findTrades, tradeWeekContext } = await import('../../server/services/trade-engine.js');
   const { titleOddsTrades } = await import('../../server/services/title-odds-trades.js');
   const { tradeImpactWorld, tradeImpact, __test: { lineupPoints } } = sim;
@@ -272,7 +272,7 @@ async function main() {
       const counterparty = m
         ? { ...readDeal({ theirGive: theyGive.map(slim), theirGet: theyGet.map(slim), managerProfile: m }), counterparty_data: true }
         : { receptiveness: 1, perception_delta: null, counterparty_data: false };
-      const band = acceptanceBand({ counterparty, edge: { passes: true }, profile: m?.negotiation ?? null });
+      const band = pYesFor({ counterparty, edge: { passes: true }, profile: m?.negotiation ?? null });
       return { p: band.band?.mid ?? 0, basis: band.basis, informed: !!counterparty.perception_informed };
     };
     const priceOf = (team, id) => {

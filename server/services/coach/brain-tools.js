@@ -107,13 +107,59 @@ try {
   if (e?.code !== 'ERR_MODULE_NOT_FOUND' || !String(e.message).includes('profile-reader')) throw e;
 }
 
+/** A list of player mentions from the stored profile: [{ player }], from strings or { player } objects. */
+const mentions = list => (Array.isArray(list)
+  ? list.map(m => (typeof m === 'string' ? { player: m } : m?.player ? { player: String(m.player) } : null)).filter(Boolean)
+  : null);
+
+/**
+ * What the stored profile says about players: values_talk when it carries the
+ * lists (its shape is not fixed by the builder), else the roster read.
+ */
+function valuesTalk(profile) {
+  const vt = profile?.values_talk && typeof profile.values_talk === 'object' ? profile.values_talk : {};
+  const rr = profile?.roster_read ?? {};
+  const wants = mentions(vt.wants);
+  const shopping = mentions(vt.shopping) ?? mentions(rr.quietly_available);
+  const untouchable = mentions(vt.untouchable) ?? mentions(rr.really_untouchable);
+  if (!wants && !shopping && !untouchable) return { status: 'unknown', reason: 'the profile names no players' };
+  return { status: 'ok', source: wants || mentions(vt.shopping) ? 'values_talk' : 'roster_read',
+    wants: wants ?? [], shopping: shopping ?? [], untouchable: untouchable ?? [] };
+}
+
+/**
+ * people_read's input from the one reader (profile-reader.js#peopleProfileFromChat).
+ * #390: this called profileReader.readProfiles, which the ONE-READER merge
+ * removed, so every people_read threw a TypeError and the ask returned 500.
+ * The reader carries no chat-openness number, so p_open_to_trade is unknown.
+ */
+export function profilesFromReader(read, asOf = Date.now()) {
+  if (!read?.available) return { status: 'unknown', reason: read?.reason ?? 'no counterpart profiles for this league' };
+  const byRoster = new Map();
+  for (const [rosterId, e] of read.byRoster) {
+    const n = e.nick;
+    const override = n
+      ? { status: 'ok', exclude: n.unreachable === true, deprioritize: n.deprioritised === true, toughen: n.hard === true }
+      : { status: 'none', exclude: false, deprioritize: false, toughen: false };
+    const negotiation = e.status === 'ok'
+      ? { status: 'ok', messages_read: e.messages_read, confidence: e.profile?.confidence ?? null, values_talk: valuesTalk(e.profile) }
+      : { status: 'unknown', reason: e.reason };
+    byRoster.set(String(rosterId), { roster_id: String(rosterId), status: e.status, reason: e.reason, negotiation, override,
+      chat: { status: 'unknown', reason: 'the profile reader carries no chat-openness read' } });
+  }
+  return { status: 'ok', reason: null, as_of: asOf, byRoster };
+}
+
 function defaultProfiles(leagueId) {
   if (!profileReader) return null;
+  const ids = identityMap(leagueId);
+  if (!ids.size) return { status: 'unknown', reason: 'no confirmed chat identities for this league' };
   const myTeam = db.prepare('SELECT my_team_id FROM leagues WHERE id = ?').get(leagueId)?.my_team_id ?? null;
   const chat = openChatDb();
+  if (!chat) return { status: 'unknown', reason: 'the league chat database is not on this computer' };
   try {
-    return profileReader.readProfiles({ chat, ids: identityMap(leagueId), asOf: Date.now(), myTeam });
-  } finally { chat?.close(); }
+    return profilesFromReader(profileReader.peopleProfileFromChat(chat, { leagueId, ids, myTeam }));
+  } finally { chat.close(); }
 }
 
 const sources = { profiles: defaultProfiles };

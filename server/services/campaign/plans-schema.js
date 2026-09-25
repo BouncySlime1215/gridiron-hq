@@ -35,7 +35,12 @@ export const SOURCE_IDS = Object.freeze([
   'plan.template', 'chat.labels', 'asset.ros',
   // PLAYER-SCORE: people.score = the blue-chip score (draft pick x production, people/player-score.js);
   // fp.ros = FantasyPros' rest-of-season rank via the public DynastyProcess scrape (people/fantasypros-ros.js).
-  'people.score', 'fp.ros'
+  'people.score', 'fp.ros',
+  // PYES-ONE: P(yes) from the E1 activity baseline (p-yes.js, GRIDIRON_PYES_BASELINE=1),
+  // "activity baseline (E1 pending)"; clone.accept stays the source with the flag off.
+  'activity.accept',
+  // LIVE-BLEND: P(yes) from the online-weighted blend of the activity baseline and the clone (p-yes-blend.js).
+  'blend.accept'
 ]);
 
 export const UNITS = Object.freeze(['title_odds', 'playoff_odds', 'points_per_week', 'probability', 'market_value']);
@@ -61,10 +66,17 @@ export const SKIP_REASONS = Object.freeze(['player', 'cost', 'manager', 'not_now
 export const DECLINE_REASONS = Object.freeze(['wants_more', 'likes_his_player', 'not_interested', 'not_now', 'other']);
 /** Catch-up kinds (campaign/catchup.js#CATCHUP_ORDER) and speed levers (campaign/speed.js#CURVE_LEVERS). */
 export const CATCHUP_KINDS = Object.freeze(['free', 'flip', 'desperate', 'swing', 'timing']);
+/** NEGOTIATOR-DEFAULTS levers (negotiator-defaults.js reads this list). */
+export const NEGOTIATION_LEVERS = Object.freeze(['defensible_anchor', 'two_packages', 'firm_wording', 'why_line', 'expiry',
+  'withdraw_on_news', 'feeler_first', 'no_pressure_tactics', 'cool_off']);
+/** Why a second package was not served (planner.js confirmAlt): the rules a served plan must pass. */
+export const ALT_DROP_REASONS = Object.freeze(['over_cap', 'path_conflict', 'floor', 'trade_memory', 'confirm_dice']);
 export const SPEED_LEVERS = Object.freeze(['sequential', 'parallel', 'concede', 'package', 'all_in']);
 /** PLAYER-SCORE vocabularies (people/player-score.js LABEL_NAMES / GAP_TYPES; a test pins them equal). */
 export const SCORE_LABELS = Object.freeze(['Elite blue chip', 'Blue chip', 'Level below', 'Solid starter', 'Flex', 'Depth', 'Bench']);
 export const SCORE_GAPS = Object.freeze(['undervalued_blue_chip', 'fading_blue_chip', 'riser', 'we_value_lower', 'we_value_higher']);
+/** LADDER-01 rung tiers (campaign/ladder.js TIERS; a test pins them equal). */
+export const LADDER_TIERS = Object.freeze(['blue_chip', 'level_below', 'depth', 'unscored']);
 export const NUMBER_HEALTH_STATUSES = Object.freeze(['ok', 'warn', 'broken']);
 
 /**
@@ -140,6 +152,16 @@ const stepCounterpart = obj({
   reason_chain: arr(cpFeature)
 }, { reply_mix_label: str });
 
+/* NEGOTIATOR-DEFAULTS: the levers an offer uses (for grading by lever once offers are logged), the interest
+ * check sent before it, how long it stands, when it is withdrawn, the second package and the anchor lift. */
+const stepNegotiation = obj({
+  levers: arr(oneOf(NEGOTIATION_LEVERS), { min: 1 }), feeler: str, expires_hours: int(1), withdraw_if: str
+}, {
+  alt_package: obj({ give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }) }, { his_pct: num, dice: oneOf(['confirm']), expected: num }),
+  anchor: obj({ lifted: bool, floor_pct: num, from_pct: num, to_pct: num, defensible: bool }),
+  cool_off: bool, alt_dropped: oneOf(ALT_DROP_REASONS)
+});
+
 /** One offer in a plan, with its playbook. */
 const step = obj({
   partner: id,
@@ -160,7 +182,9 @@ const step = obj({
   counterpart: field(stepCounterpart),
   // CAP-1C: the premium over the 0 cap on a depth-only 2-for-1, and the lineup / title gains that allowed it.
   depth_premium: field(obj({ pct: num, cap: num, lineup_points_delta: num, title_odds_delta: num, text: str },
-    { confirmed_lineup_points_delta: num, confirmed_title_odds_delta: num }))
+    { confirmed_lineup_points_delta: num, confirmed_title_odds_delta: num })),
+  // NEGOTIATOR-DEFAULTS (GRIDIRON_NEGOTIATOR_DEFAULTS, default off): how this offer is made, tagged by lever.
+  negotiation: field(stepNegotiation)
 });
 
 /** A plan: one deck card. */
@@ -206,11 +230,27 @@ const flip = obj({
     { give_a_ids: arr(pid, { min: 1 }), get_b_ids: arr(pid, { min: 1 }) }))
 }, { legs_why_not: str, reasoning: field(reasoning) });
 
+const readStatus = oneOf(['ok', 'none', 'unknown', 'unread']);
+const players = obj({ players: arr(pid), n: int(0) });
+/** HIS-SIDE-WIRE (campaign/his-side.js): the owner's needs, shops and blocks, each with its n. */
+const hisSide = obj({
+  reads: obj({ needs: readStatus, chat: readStatus, espn_block: readStatus, ledger: readStatus }),
+  needs: arr(str), target_protected: bool, text: str
+}, {
+  espn_block: players, target_on_block: bool,
+  shops: obj({ players: arr(pid), n: int(0), source: lit('chat') }),
+  protects: obj({ players: arr(pid), n: int(0), credibility: nullable(obj({ value: num, n: int(0) })) }),
+  wants: arr(pid),
+  // The seller's floor (TRADE-MEMORY ledger): what he paid for this player this season, market value.
+  floor: obj({ value: num, basis: str }),
+  currency: obj({ wants: arr(str), sells: arr(str) })
+});
+
 const target = obj({
   player: pid, owner: id, gain_if_landed: numF, p_reach: probF,
   mode_fit: field(oneOf(['fits', 'needs_all_in', 'too_risky_for_safe'])),
   why: field(str), approved: bool, is_plan_target: bool
-}, { reasoning: field(reasoning) });
+}, { reasoning: field(reasoning), his_side: field(hisSide) });
 
 const brainReport = obj({
   overall: oneOf(['passing', 'not_enough_data', 'failing']),
@@ -297,11 +337,35 @@ export const SECTIONS = Object.freeze({
     coverage: obj({ rostered: int(0), board: int(0), score: prob, model_value: prob, fp_ros_rank: prob }),
     fp: obj({ status: oneOf(STATUSES), sync: str }, { reason: str, scrape_date: str, prev_date: str }),
     draft: obj({ season: int(2000, 2100), picks: int(0) }, { reason: str })
+  })),
+  // LADDER-01 (flag GRIDIRON_LADDER, default off): chained paths depth -> level below -> blue chip, P(yes)
+  // per rung (a guess), what a "no" leaves at each rung. Shadow: never re-ranks the deck. Optional.
+  ladders: field(obj({
+    mode: oneOf(RISK_MODES), floor: num, rank_basis: str, dice: oneOf(['planning']), basis: str, considered: int(0),
+    dropped_by_reason: map(/^[a-z_]{1,40}$/, int(0)),
+    cards: arr(obj({
+      target: pid, owner: id, climb: arr(oneOf(LADDER_TIERS), { min: 2 }), rank_basis: str,
+      rungs: arr(obj({
+        partner: id, give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }), get_tier: oneOf(LADDER_TIERS), p: probF, if_yes: numF,
+        on_no: obj({ kind: oneOf(['backup', 'stop']) }, { partner: id, give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }), expected: numF, keep: numF,
+          dice: oneOf(['confirm']) })
+      }), { min: 2 }),
+      p_complete: probF, if_complete: numF, expected: numF, confirmed_expected: numF
+    }), { max: 5 })
+  })),
+  // LIVE-BLEND: which P(yes) the steps serve. Blend: per model its served weight, prior, n, mean log
+  // loss and wins/losses vs the baseline over every league's graded offers ("clone 3-1 vs baseline,
+  // 30% weight"). Fallback: why the clone band is served. Optional (OPTIONAL_SECTIONS).
+  p_yes_basis: field(obj({ mode: oneOf(['blend', 'baseline']), source: str, label: str }, {
+    fallback: str, n_graded: int(0), league_n: int(0), lambda: prob, shrink_k: num, clamp: arr(prob, { min: 2, max: 2 }),
+    as_of: str, activity: str,
+    models: arr(obj({ id: oneOf(['baseline', 'clone']), weight: prob, prior_weight: prob, n: int(0), log_loss: nullable(num) },
+      { wins: int(0), losses: int(0) }))
   }))
 });
 
 /** Sections an entry may leave out; the view then reads them as unknown. */
-export const OPTIONAL_SECTIONS = Object.freeze(['teams', 'blue_chips']);
+export const OPTIONAL_SECTIONS = Object.freeze(['teams', 'blue_chips', 'ladders', 'p_yes_basis']);
 
 /** Run bookkeeping: the producer's own memory between runs. No consumer reads it. */
 const run = obj({

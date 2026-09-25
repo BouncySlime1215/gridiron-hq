@@ -7,7 +7,7 @@
  *                     under that seed; the planning seed is tradeImpactSeed(lg),
  *                     the same dice every other title-odds surface uses
  *   priceStep         today's model: counterparty-pricing.js#readDeal ->
- *                     trade-acceptance.js#acceptanceBand midpoint (edge assumed
+ *                     p-yes.js#pYesFor (LIVE-BLEND: baseline x clone blend by default, GRIDIRON_PYES_BLEND=0 baseline; edge assumed
  *                     passed for every step, as in the ACQ-FLIP prototype)
  *   managers          counterparty layer (activity, needs) + timing read + chat labels
  *   finderBest        the Trade Lab finder's best single offer (title-odds-trades.js x
@@ -17,9 +17,14 @@
 import { chatLabels } from '../../server/services/campaign/partners.js';
 import { resolveUntouchables, untouchableIds } from '../../server/services/people/profile-reader.js';
 import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
+import { tradeBlocks } from '../../server/services/espn-trade-block.js';
+import { tradeBlockRead } from '../../server/services/campaign/his-side.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
 import { fpRosFor, syncIfStale } from '../../server/services/people/fantasypros-ros.js';
 import { executedTrades } from '../../server/services/campaign/trade-memory.js';
+import { fcValues, fcValueOf } from '../../server/services/fc-value.js';
+import { negotiatorDefaultsOn, coolOff } from '../../server/services/campaign/negotiator-defaults.js';
+import { draftCapitalGuarded, draftIdMapEnabled } from '../../server/services/campaign/draft-capital.js';
 
 /**
  * PRODUCER-FAST: each week's starters picked once instead of once per run
@@ -66,6 +71,22 @@ export function activityReads(rows, timing, leagueId) {
 }
 
 /** activity.manager rows for one league, newest first: live lane, plus shadow when the flag or preview is on. */
+/** Older than this, last week's margin is not last week's any more: no cool-off from it (hand-set). */
+export const MARGIN_MAX_AGE_DAYS = 7;
+
+/**
+ * NEGOTIATOR-DEFAULTS: last week's scoring margin per roster (manager_signals), for the cool-off.
+ * Only rows computed within MARGIN_MAX_AGE_DAYS of `now`; an older margin starts no cool-off.
+ */
+export function lastWeekMargins(svc, leagueId, now) {
+  const has = svc.db.row(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'manager_signals'`);
+  if (!has) return new Map();
+  const since = new Date(now - MARGIN_MAX_AGE_DAYS * DAY).toISOString().replace('T', ' ').slice(0, 19);
+  return new Map(svc.db.rows(`SELECT roster_id, value FROM manager_signals
+      WHERE league_id = ? AND metric = 'last_week_margin' AND computed_at >= ?`, leagueId, since)
+    .filter(r => Number.isFinite(Number(r.value))).map(r => [String(r.roster_id), Number(r.value)]));
+}
+
 function activityRows(svc, leagueId, env = process.env) {
   const has = svc.db.row(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'engine_state'`);
   if (!has) return [];
@@ -88,7 +109,7 @@ export async function loadServices({ env = process.env } = {}) {
     db, fpSync,
     sim: await import('../../server/services/season-sim.js'),
     cp: await import('../../server/services/counterparty-pricing.js'),
-    acc: await import('../../server/services/trade-acceptance.js'),
+    pyes: await import('../../server/services/p-yes.js'),
     engine: await import('../../server/services/trade-engine.js'),
     tactics: await import('../../server/services/trade-tactics.js'),
     week: await import('../../server/services/league-week.js'),
@@ -232,7 +253,7 @@ export function executedTradeRows(svc, { leagueId, season }) {
  * label 'unknown').
  */
 export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
-  rescoreCache = null } = {}) {
+  rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env) } = {}) {
   const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg) throw new Error(`league ${leagueId} not found`);
   const payload = JSON.parse(lg.payload ?? '{}');
@@ -304,10 +325,15 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   const rosters = new Map(w0.prep.teams.map(t => [t.roster_id, t.players.map(p => p.id)]));
   const players = new Map();
   const slim = id => { const p = assets.get(id); return { id, name: p?.name, position: p?.position, value: p?.value }; };
+  // FC-VALUE (integration-8): Nick's rules price on FantasyCalc value through the one reader
+  // (server/services/fc-value.js). No fc_value row -> value null: never given, got or flipped (fail closed).
+  // market_value keeps the engine's format price for trade memory, whose trade-day prices are on that scale.
+  const fc = fcValues(svc.db);
   const addPlayer = id => {
     const p = assets.get(id);
     if (!p) return;
-    players.set(id, { id, name: p.name, position: p.position, value: Math.max(0, Number(p.value) || 0),
+    const fcv = fcValueOf(fc, id);
+    players.set(id, { id, name: p.name, position: p.position, value: fcv, market_value: Math.max(0, Number(p.value) || 0),
       ros_ppg: p.ros_ppg, injury: p.injury, bye: p.bye, trend_kind: p.trend_kind, available: p.available,
       espn_id: p.espn_id ?? null, team_abbr: p.team_abbr ?? null, ros_basis: p.ros_basis ?? null });
   };
@@ -320,7 +346,11 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   const nameToId = name => [...players.values()].find(p => p.name === name)?.id ?? null;
   const week = svc.week.leagueCurrentWeek(lg);
   const season = lg.season ?? payload.seasonId;
-  const layer = svc.cp.counterpartyLayer(leagueId, { season, week });
+  // NEGOTIATOR-DEFAULTS (flag, default off): no post-loss "tilt window". His loss no longer raises
+  // P(yes); it means a day to cool off, then a fair offer (coolOff on the send window below).
+  const ND = negotiatorDefaultsOn(env);
+  const layer = svc.cp.counterpartyLayer(leagueId, { season, week, ...(ND ? { zero: ['recency_post_loss'] } : {}) });
+  const margins = ND ? lastWeekMargins(svc, leagueId, now) : new Map();
   const timing = svc.tactics.timingRead(leagueId, { season });
   const blocked = new Set(svc.db.rows(`SELECT roster_id FROM manager_profiles WHERE league_id = ? AND tradeability = 'never'`, leagueId)
     .map(r => String(r.roster_id)));
@@ -334,7 +364,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     if (t === me) continue;
     const m = layer.get(t) ?? null;
     const tm = timing.get(t) ?? null;
-    const send = svc.tactics.sendWindow(tm, { now });
+    const send0 = svc.tactics.sendWindow(tm, { now });
+    const send = ND ? coolOff(send0, { margin: margins.get(String(t)) ?? null, now }) : send0;
     managers.set(t, {
       receptiveness: m?.receptiveness ?? null, tier: m?.tier ?? null, needs: m?.needs ?? null,
       blocked: blocked.has(t),
@@ -351,14 +382,17 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     });
   }
 
+  // PYES-ONE: P(yes) comes from p-yes.js, the module Trade Lab reads too. Flag off it is the clone
+  // band exactly as before; flag on, the E1 activity baseline per partner (table read once per build).
+  const py = svc.pyes.pYesFlag();
+  const pyTable = py.on ? svc.pyes.pYesTable(svc.db.db, leagueId, [...rosters.keys()].filter(t => t !== me), { now }) : null;
   const priceStep = (team, theyGive, theyGet) => {
     const m = layer.get(String(team)) ?? null;
     const counterparty = m
       ? { ...svc.cp.readDeal({ theirGive: theyGive.map(slim), theirGet: theyGet.map(slim), managerProfile: m }), counterparty_data: true }
       : { receptiveness: 1, perception_delta: null, counterparty_data: false };
-    const band = svc.acc.acceptanceBand({ counterparty, edge: { passes: true }, profile: m?.negotiation ?? null });
-    const b = band.band;
-    return { p: b?.mid ?? 0, band: b ? { low: b.low, high: b.high } : null, basis: band.basis };
+    return svc.pyes.stepPYes(svc.pyes.pYesFor({ counterparty, edge: { passes: true }, profile: m?.negotiation ?? null,
+      team, table: pyTable, on: py.on }));
   };
 
   // The Trade Lab finder's best single offer (the ACQ-FLIP study's baseline, same world and seed):
@@ -401,6 +435,13 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     return { mult, price: (players.get(id)?.value ?? 0) * mult };
   };
 
+  // HIS-SIDE-WIRE (TM-10): ESPN's trade block from this league's payload, as planner ids (the sim's
+  // asset universe carries each player's ESPN id; an unmapped one is counted, never guessed).
+  const byEspn = new Map();
+  // espn_id 0 is a placeholder on historical rows (ONE-PLAN 4b row 5), never a real id.
+  for (const a of assets.values()) if (Number(a?.espn_id) > 0) byEspn.set(Number(a.espn_id), a.id);
+  const tradeBlock = tradeBlockRead(tradeBlocks(payload), e => byEspn.get(Number(e)) ?? null);
+
   // PLAYER-SCORE (flag GRIDIRON_PLAYER_SCORE / preview): the blue-chip board, and Nick's blue chips
   // join his untouchables so no step ever gives one away without his approval.
   const board = blueChipBoard(svc, lg, { rosters, players, assets, me, untouchable: untouchableIds([myNick]) });
@@ -415,7 +456,12 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       days_left_in_week: daysLeftInWeek(svc, lg, week, now), team_count: rosters.size, season },
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
-    rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
+    rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity, tradeBlock,
+    // FC-VALUE: which value Nick's rules read, and how many rostered players it could not price.
+    valueSource: { status: fc.status, source: fc.source, fetched_at: fc.fetched_at, ...(fc.reason ? { reason: fc.reason } : {}),
+      unpriced: [...players.keys()].filter(id => players.get(id).value == null).map(String) },
+    // LIVE-BLEND: which P(yes) was served and, for the blend, each model's weight and record (plans.json p_yes_basis).
+    pYesBasis: svc.pyes.pYesBasis(pyTable),
     tradeLedger: tradeLedger(svc, { leagueId, season, formatKey: svc.format?.deriveFormat(lg).formatKey ?? null, assets, now }),
     // integration-7: how many executed trades the raw table holds this season, so the planner can fail
     // closed when that ledger comes back missing or empty (never plan without Nick's trade memory).
@@ -433,6 +479,9 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     scoreOf: id => board.byId?.get(String(id)) ?? null,
     boardOf: id => { const r = board.byId?.get(String(id)); return r ? { score: r.score, label: r.label, hurt: r.hurt, gaps: r.gaps, protected: r.protected } : null; },
     ...(finder ? { finderBest } : {}),
+    // DRAFT-ID-MAP (shadow, GRIDIRON_DRAFT_ID_MAP=1): draft capital by players.espn_id, owner from these rosters.
+    // Guarded: a SQL error is recorded as status 'error' in _run.inputs, never a dead league entry.
+    ...(draftIdMap ? { draft: draftCapitalGuarded(svc.db, { leagueId, season, rosters }) } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     teams: () => teamNames(payload, new Map([...(svc.identity?.identityMap(leagueId) ?? [])].map(([r, i]) => [String(r), i.chat_name]))),

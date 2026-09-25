@@ -22,10 +22,13 @@ import { SCHEMA_VERSION, TOLERANCE_KEYS, TRADEOFF_KEY, tradeoffKey } from './pla
 import { metricKey, objectiveLabel } from './objectives.js';
 import { MODE_LABELS } from './modes.js';
 import { P_ACCEPT_LABEL, teamLabel, acceptDo, declineDo } from './playbook.js';
+import { PYES_BASIS, PYES_LABEL, BLEND_BASIS, BLEND_LABEL } from '../p-yes.js';
 import { dealKey } from './paths.js';
 import { M6_REPLY_PRIOR } from '../people/counterpart.js';
 import { hash } from './confirm.js';
+import { ladderSection } from './ladder.js';
 import { floorName as getsFloorName } from './gets-floor.js';
+import { hisSide, hisSideSummary } from './his-side.js';
 
 const M6_MIX = Object.freeze({ ignore: M6_REPLY_PRIOR.ignore, counter: M6_REPLY_PRIOR.counter, decline: M6_REPLY_PRIOR.decline, accept: M6_REPLY_PRIOR.accept });
 /** One counterpart feature for the plans file: named, typed, no names or note text. */
@@ -34,6 +37,15 @@ const featureOut = f => ({ feature: String(f.feature), effect: String(f.effect ?
   ...(f.player != null ? { player: String(f.player) } : {}), ...(Number.isFinite(f.n) ? { n: f.n } : {}) });
 /** The acceptance-model bases trade_outcomes accepts (migration 067 CHECK on model_basis). */
 const BAND_BASES = ['no_information', 'heuristic_unanchored', 'heuristic_anchored'];
+/** PYES-ONE: where a served P(yes) came from. The E1 activity baseline (p-yes.js, flag on) is its own source. */
+const pSrc = basis => (basis === PYES_BASIS ? 'activity.accept' : basis === BLEND_BASIS ? 'blend.accept' : 'clone.accept');
+/** LIVE-BLEND: the source id a p_yes_basis section names. */
+const pSrcOf = b => (['activity.accept', 'blend.accept', 'clone.accept'].includes(b.source) ? b.source : 'clone.accept');
+const PYES_NOTE = `${PYES_LABEL}: every offer to one manager gets the same number, so ladder rungs differ by your gain, not by P(yes), until E1 grades a model that reads the offer`;
+/** integration-8: the label for a P(yes), by the basis that served it (LIVE-BLEND is on by default). */
+const pLabelOf = basis => (basis === PYES_BASIS ? PYES_NOTE : basis === BLEND_BASIS ? BLEND_LABEL : P_ACCEPT_LABEL);
+/** The same by a plans.json source ('blend.accept' | 'activity.accept' | 'clone.accept'). */
+const pLabelOfSource = src => (src === 'activity.accept' ? PYES_NOTE : src === 'blend.accept' ? BLEND_LABEL : P_ACCEPT_LABEL);
 
 export const PRODUCER = 'campaign-producer';
 export const PRODUCER_VERSION = '2';
@@ -118,7 +130,8 @@ export function failedEntry(res, { names = {} } = {}) {
  *   teams (league-adapter.mjs#teamNames: roster -> { name, manager }; none -> 'unknown') }
  * FIX-05: without `brain` / `number_health` the two sections are 'unknown' and say they were not read.
  */
-export function toEntry(res, { names = {}, as_of, previous = null, changed = null, brain = null, number_health: health = null, model = null, teams = null, blue_chips: board = null } = {}) {
+export function toEntry(res, { names = {}, as_of, previous = null, changed = null, brain = null, number_health: health = null, model = null, teams = null, blue_chips: board = null,
+  his_side_on: hisSideServed = false } = {}) {
   if (res.error) return failedEntry(res, { names });
   const o = res.objective;
   const metric = metricKey(o);
@@ -142,7 +155,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
   const moveIds = deck.map(c => moveId(res.league, c.plan));
   const idByFirstKey = new Map(deck.map((c, j) => [dealKey(c.plan.steps[0]), moveIds[j]]));
 
-  const reasoning = ({ team, p, delta, clears, pb, verdict, whole }) => {
+  const reasoning = ({ team, p, pBasis, delta, clears, pb, verdict, whole }) => {
     const needs = needsOf(team);
     const shrank = verdict?.verdict === 'shrank';
     return ok({
@@ -156,7 +169,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
             : 'The gain clears the noise but was not re-checked on fresh dice.',
       news_check: pb?.wait ? (pb.wait.flag === 'wait' ? `Wait ${pb.wait.days} days: ${pb.wait.reason}.` : `Act now: ${pb.wait.reason}.`)
         : 'Not checked: this offer has no playbook yet.',
-      confidence: `Chance he says yes is ${pct(p)}, from ${P_ACCEPT_LABEL}.`,
+      confidence: `Chance he says yes is ${pct(p)}, from ${pLabelOf(pBasis)}.`,
       counter: (() => {
         const row = pb?.replies?.find(r => r.kind === 'counter');
         return row?.counter_rules ? `If he counters, counter with ${row.counter_rules.counter_with}.` : row?.do ?? 'No counter plan: decline any counter that adds players on your side.';
@@ -174,7 +187,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     const before = i === 0 ? 0 : plan.steps[i - 1].delta;
     const out = {
       partner: String(st.team), give: ids(st.give), get: ids(st.get),
-      p_yes: num(st.p, 'clone.accept', { prob: true, unit: 'probability', guess: true }),
+      p_yes: num(st.p, pSrc(st.p_basis), { prob: true, unit: 'probability', guess: true }),
       title_odds_delta: num(st.delta - before, 'sim.title', { se: st.se, clears: st.clears, unit }),
       title_after: metric === 'title' ? num(nowMetric + st.delta, 'sim.title', { prob: true, unit: 'title_odds' })
         : unknown(`This plan is scored on ${LABEL[metric]}; title odds after the step are not computed.`, 'sim.title'),
@@ -204,7 +217,17 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
         counter: replyField(row('counter'), r => ({ do: r.do, ...(r.counter_rules ? { counter_rules: r.counter_rules } : {}) })),
         silence: replyField(row('silence'), r => ({ do: r.do, when: r.when, message: r.message })),
       }, 'plan.path');
-      out.reasoning = reasoning({ team: st.team, p: st.p, delta: st.delta - before, clears: st.clears, pb, verdict });
+      out.reasoning = reasoning({ team: st.team, p: st.p, pBasis: st.p_basis, delta: st.delta - before, clears: st.clears, pb, verdict });
+      // NEGOTIATOR-DEFAULTS (flag, default off): the levers this offer uses, its feeler, expiry and withdraw rule.
+      if (pb.negotiation) {
+        const n = pb.negotiation;
+        out.negotiation = ok({ levers: [...n.levers], feeler: n.feeler, expires_hours: n.expires_hours, withdraw_if: n.withdraw_if,
+          ...(n.alt_package ? { alt_package: { give: ids(n.alt_package.give), get: ids(n.alt_package.get),
+            ...(fin(n.alt_package.his_pct) ? { his_pct: n.alt_package.his_pct } : {}),
+            ...(n.alt_package.dice === 'confirm' && fin(n.alt_package.expected) ? { dice: 'confirm', expected: n.alt_package.expected } : {}) } } : {}),
+          ...(n.anchor ? { anchor: { ...n.anchor } } : {}),
+          ...(n.cool_off ? { cool_off: true } : {}), ...(n.alt_dropped ? { alt_dropped: n.alt_dropped } : {}) }, 'plan.template');
+      }
     }
     // CAP-1C: a depth-only 2-for-1 planned above the 0 cap says so, with the lineup and title gains that allowed it.
     const dp = st.depth_premium;
@@ -256,7 +279,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       p_complete: num(plan.p_complete, 'plan.path', { prob: true, unit: 'probability', guess: true }),
       delta_final: num(plan.delta_final, 'sim.title', { unit }),
       expected: num(plan.expected, 'plan.path', { se: plan.expected_se, unit }),
-      reasoning: reasoning({ team: s0.team, p: s0.p, delta: s0.delta, clears: s0.clears, pb: c.playbook, verdict: c.confirm,
+      reasoning: reasoning({ team: s0.team, p: s0.p, pBasis: s0.p_basis, delta: s0.delta, clears: s0.clears, pb: c.playbook, verdict: c.confirm,
         whole: `If all ${plan.steps.length} step(s) land you gain ${fmt(plan.delta_final)}; across yes and no outcomes that is ${fmt(plan.expected)} expected, and the path completes ${pct(plan.p_complete)} of the time.` }),
     };
   });
@@ -328,7 +351,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       // itinerary.js#planStopLabel wrote ' from Team N' (the planner has no teams map): name him here.
       const tail = ` from ${teamLabel(null, st.team)}`;
       if (out.label.endsWith(tail)) out.label = `${out.label.slice(0, -tail.length)} from ${tl(st.team)}`;
-      out.p_yes = num(st.p, 'clone.accept', { prob: true, unit: 'probability', guess: true });
+      out.p_yes = num(st.p, pSrc(st.p_basis), { prob: true, unit: 'probability', guess: true });
       out.title_odds_delta = num(st.delta - before, 'sim.title', { se: st.se, clears: st.clears, unit });
     }
     const ni = /^nick-(\d+)$/.exec(s.id);
@@ -381,7 +404,17 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
 
   /* ------------------------------------------------ targets and flips */
   const bestTarget = res.best?.target != null ? String(res.best.target) : null;
-  const targetList = res.suggestions.filter(t => t.owner != null && inNames(t.player)).map(t => ({
+  // HIS-SIDE-WIRE: the owner's side, read for every target; served only with GRIDIRON_HIS_SIDE=1.
+  const hisRows = [];
+  const hisOf = t => {
+    const hs = hisSide({ player: t.player, owner: t.owner, partner: res.partners.find(p => p.team === String(t.owner)) ?? null,
+      model: (res.counterpart?.models ?? []).find(m => String(m.team) === String(t.owner)) ?? null,
+      block: res.trade_block ?? null, memory: res.trade_memory ?? null, inNames, nm, tl });
+    hisRows.push({ player: String(t.player), owner: String(t.owner), hs });
+    return hs;
+  };
+  const hisField = hs => (hs.status === 'ok' ? ok(hs.value, 'plan.template') : unknown(hs.reason, 'plan.template'));
+  const targetList = res.suggestions.filter(t => t.owner != null && inNames(t.player)).map(t => ({ t, hs: hisOf(t) })).map(({ t, hs }) => ({
     player: String(t.player), owner: String(t.owner),
     gain_if_landed: num(t.gain_if_landed, 'sim.title', { se: t.gain_se, unit }),
     p_reach: num(t.p_reach, 'plan.path', { prob: true, unit: 'probability', guess: true, missing: 'No path to him fits any risk mode yet.' }),
@@ -389,14 +422,16 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     approved: !!t.approved, is_plan_target: bestTarget === String(t.player),
     reasoning: ok({
       case_for: relabel(t.why),
-      his_side: needsOf(t.owner).length ? `${tl(t.owner)}'s roster read lists ${needsOf(t.owner).join(', ')} as thin.` : `There is no read of ${tl(t.owner)}'s needs.`,
+      his_side: hisSideServed && hs.status === 'ok' ? hs.value.text
+        : needsOf(t.owner).length ? `${tl(t.owner)}'s roster read lists ${needsOf(t.owner).join(', ')} as thin.` : `There is no read of ${tl(t.owner)}'s needs.`,
       devils_advocate: t.mode_fit === 'fits' ? 'A path fits the current risk mode; landing him still takes every step saying yes.'
         : t.mode_fit === 'needs_all_in' ? 'Only an all-in plan reaches him.' : 'No plan inside the sliders reaches him.',
       news_check: 'Not checked for targets: the news read runs on the offers in a plan.',
-      confidence: fin(t.p_reach) ? `The path lands ${pct(t.p_reach)} of the time, on ${P_ACCEPT_LABEL}.` : 'No path, so no landing chance.',
+      confidence: fin(t.p_reach) ? `The path lands ${pct(t.p_reach)} of the time, on ${pLabelOfSource(res.p_yes_basis?.source)}.` : 'No path, so no landing chance.',
       counter: 'No offer yet, so no counter plan.',
       cites: ['gain_if_landed', 'p_reach'], check_first: t.mode_fit !== 'fits',
     }, 'plan.template'),
+    ...(hisSideServed ? { his_side: hisField(hs) } : {}),
   }));
   const targets = targetList.length ? ok(targetList, 'plan.path') : unknown('No single-player upgrade found on the other rosters.', 'plan.path');
 
@@ -410,9 +445,9 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
         give_a: String(r.legs.give_a), get_b: String(r.legs.get_b),
         ...(Array.isArray(r.legs.give_a_ids) && r.legs.give_a_ids.length ? { give_a_ids: r.legs.give_a_ids.map(String) } : {}),
         ...(Array.isArray(r.legs.get_b_ids) && r.legs.get_b_ids.length ? { get_b_ids: r.legs.get_b_ids.map(String) } : {}),
-        p1: num(r.legs.p1, 'clone.accept', { prob: true, unit: 'probability', guess: true }),
-        p2: num(r.legs.p2, 'clone.accept', { prob: true, unit: 'probability', guess: true }),
-        p_both: num(r.legs.p_complete, 'clone.accept', { prob: true, unit: 'probability', guess: true }),
+        p1: num(r.legs.p1, pSrc(r.legs.p_basis), { prob: true, unit: 'probability', guess: true }),
+        p2: num(r.legs.p2, pSrc(r.legs.p_basis), { prob: true, unit: 'probability', guess: true }),
+        p_both: num(r.legs.p_complete, pSrc(r.legs.p_basis), { prob: true, unit: 'probability', guess: true }),
         nick_after: num(r.legs.d2, 'sim.title', { se: r.legs.se2, clears: r.legs.clears2, unit: 'title_odds' }),
       } : null,
     };
@@ -423,7 +458,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
         his_side: f.chat_hint ? 'From chat: one side is louder about him than the other.' : 'No chat read on either side.',
         devils_advocate: f.clears ? 'The spread clears the noise; both legs still have to land.' : 'The spread does not clear two standard errors of noise.',
         news_check: 'Not checked for flips: the news read runs on the offers in a plan.',
-        confidence: r?.legs && isProb(r.legs.p_complete) ? `Both legs land ${pct(r.legs.p_complete)} of the time, on ${P_ACCEPT_LABEL}.` : 'The two legs were not priced.',
+        confidence: r?.legs && isProb(r.legs.p_complete) ? `Both legs land ${pct(r.legs.p_complete)} of the time, on ${pLabelOf(r.legs.p_basis)}.` : 'The two legs were not priced.',
         counter: 'Each leg is a separate offer; decline a counter that breaks the other leg.',
         cites: ['spread', 'legs.p_both'], check_first: !f.clears,
       }, 'plan.template');
@@ -533,6 +568,11 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     risk_modes, partners,
     teams: teams && Object.keys(teams).length ? ok(teams, 'campaign.plan') : unknown('The league adapter read no team or manager names.', 'campaign.plan'),
     blue_chips: blueChipsSection(board, res),
+    // LADDER-01: the planner's ladder cards (flag GRIDIRON_LADDER); off, 'unknown' with the reason.
+    ladders: ladderSection(res.ladders ?? null, { names, unit }),
+    // LIVE-BLEND: which P(yes) the steps serve; unknown when the adapter read no table (a fixture).
+    p_yes_basis: res.p_yes_basis ? ok(res.p_yes_basis, pSrcOf(res.p_yes_basis))
+      : unknown('This run read no P(yes) table, so the steps carry the adapter\'s own p.', 'clone.accept'),
     _run: {
       seed: res.seed ?? null, confirm_seed: res.confirm?.seed ?? null, week: w, deadline_week: week(res.deadline_week),
       behind: !!res.behind, objective_version: o.version, objective_source: o.source, risk_mode: o.risk_mode,
@@ -546,9 +586,12 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       feasibility_points_detail: sp ?? null,
       candidates_scored: res.candidates_scored, rescores: res.rescores ?? 0, runtime_ms: res.runtime_ms ?? 0, phases_ms: res.phases_ms ?? {},
       // PLAN-BASELINE: the model this run's trajectory was made under (the contract keeps `_run` keys fixed; inputs is free-form).
-      inputs: model != null ? { model } : {},
+      inputs: { ...(model != null ? { model } : {}), his_side: hisSideSummary(hisRows, hisSideServed, res.trade_block ?? null),
+        ...(res.no_fc_value?.source ? { value_source: { status: res.no_fc_value.status, source: res.no_fc_value.source, unpriced_players: res.no_fc_value.players, paths_dropped: res.no_fc_value.paths, ...(res.no_fc_value.reason ? { reason: res.no_fc_value.reason } : {}) } } : {}) },
       // TRADE-MEMORY: paths the season's trade ledger removed, and the memory itself (ids only).
       dropped_by_reason: { trade_memory: res.trade_memory?.dropped_total ?? 0,
+        // FC-VALUE: rostered players with no FantasyCalc value (never given, got or flipped) plus paths dropped for one.
+        ...(res.no_fc_value && (res.no_fc_value.players || res.no_fc_value.paths) ? { no_fc_value: res.no_fc_value.players + res.no_fc_value.paths } : {}),
         // integration-7: targets (and flips) not searched because the season's trade ledger was missing.
         ...(res.trade_ledger_missing ? { trade_ledger_missing: res.trade_ledger_missing.targets + res.trade_ledger_missing.flips } : {}) },
       trade_memory: res.trade_memory ?? { status: 'no_ledger', dropped_total: 0 },

@@ -67,6 +67,10 @@ test('no future leak: an answer resolved at or after the cutoff is not read', ()
   // An unresolved offer (no y) is never counted.
   const open = E.fitPooled([{ league_id: '4', counterparty_team_id: '2', proposed_at: day(1) }], { now: NOW });
   assert.equal(open.global.n, 0);
+  // now = Infinity (every answer ever known) fits all of them and has no as-of time.
+  const all = E.fitPooled(offers, { now: Infinity });
+  assert.equal(all.global.n, 2);
+  assert.equal(all.as_of, null);
 });
 
 test('fitted kappa tracks the data: split managers fit a smaller kappa than identical ones', () => {

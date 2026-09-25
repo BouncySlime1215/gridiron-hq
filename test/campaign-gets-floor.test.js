@@ -9,22 +9,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { DEFAULT_GET_FLOOR, getsFloorFlag, getFloorOf, floorRead } = await import('../server/services/campaign/gets-floor.js');
+const { DEFAULT_GET_FLOOR, getsFloorFlag, getFloorOf, floorRead, floorName } = await import('../server/services/campaign/gets-floor.js');
+const { PINNED_NEVER_GIVE } = await import('../server/services/campaign/never-give.js');
+const { makeScorer, playerValues, searchTarget } = await import('../server/services/campaign/search.js');
 const { planLeague } = await import('../server/services/campaign/planner.js');
 const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
 const { toEntry, plansFile } = await import('../server/services/campaign/view.js');
 const { validateLeague, validatePlans } = await import('../server/services/campaign/plans-schema.js');
-const { makeAdapter } = await import('./fixtures/campaign-league.mjs');
+const { makeAdapter, makePlayers } = await import('./fixtures/campaign-league.mjs');
 
 /* ---------------------------------------------------------------- the rule */
 
-test('the floor: 83 by default, a destination may raise or lower it', () => {
+test('the floor: 83 by default, a destination may only raise it', () => {
   assert.equal(DEFAULT_GET_FLOOR, 83);
   assert.equal(getFloorOf({}), 83);
   assert.equal(getFloorOf(null), 83);
   assert.equal(getFloorOf({ min_get_score: 'x' }), 83);
   assert.equal(getFloorOf({ min_get_score: -1 }), 83);
-  assert.equal(getFloorOf({ min_get_score: 74 }), 74);
+  assert.equal(getFloorOf({ min_get_score: 74 }), 83, 'never lowered under Nick\'s 83');
+  assert.equal(getFloorOf({ min_get_score: 88 }), 88);
+  assert.equal(floorName(88), 'Blue chip floor (88+)');
 });
 
 test('the flag: unset is off, 1 enforces, shadow counts', () => {
@@ -51,9 +55,10 @@ test('a read: at the floor passes, under it fails, unscored and no source fail c
 // Only 11 (90) and 22 (85) are Blue chip.
 const SCORES = { 11: 90, 12: 75, 13: 60, 22: 85, 32: 70 };
 const scoreOf = id => (SCORES[id] != null ? { score: SCORES[id], label: SCORES[id] >= 80 ? 'Blue chip' : 'Level below' } : { score: 20, label: 'Bench' });
-const plan = (env, { mode = 'balanced', obj = {}, scored = true } = {}) => {
+const plan = (env, { mode = 'balanced', obj = {}, scored = true, searchOpts = null } = {}) => {
   const a = makeAdapter();
   if (scored) a.scoreOf = scoreOf;
+  if (searchOpts) a.searchOpts = searchOpts;
   return { a, res: planLeague(a, { objective: normaliseObjective({ risk_mode: mode, ...obj }), env }) };
 };
 const ON = { GRIDIRON_GETS_FLOOR: '1' };
@@ -85,7 +90,9 @@ test('shadow: served plans are byte-identical to off, and the would-drop count i
     const served = r => JSON.stringify({ targets: r.targets, best: r.best, deck: r.deck, suggestions: r.suggestions });
     assert.equal(served(shadow), served(off), `${mode}: shadow moves nothing served`);
     assert.deepEqual(shadow.targets.map(String), ['11', '12', '13']);
-    assert.equal(shadow.gets_floor.would_drop, 2, '12 and 13 would be dropped');
+    const on = plan(ON, { mode }).res;
+    assert.ok(shadow.gets_floor.would_drop >= 2, '12 and 13 at least would be dropped');
+    assert.equal(shadow.gets_floor.would_drop, on.gets_floor.dropped, 'shadow counts what on drops, no fewer');
     assert.equal(shadow.gets_floor.dropped, 0);
     assert.equal(off.gets_floor.would_drop, 0, 'off reads nothing');
   }
@@ -119,5 +126,80 @@ test('the floored plan still validates against the contract', () => {
     assert.deepEqual(validateLeague(entry).errors, []);
     const doc = plansFile([entry], { generated_at: '2026-09-24T00:00:00Z' });
     assert.equal(validatePlans(doc).ok, true, JSON.stringify(validatePlans(doc).errors));
+  }
+});
+
+/* --------------------------------- every final get: flip leg 2 and fillers */
+
+const WIDE = { flipLegs: true, twoForOne: true, fillers: 4 };
+const legB = res => res.flip.realised.filter(f => f.legs).flatMap(f => f.legs.get_b_ids ?? [f.legs.get_b]).map(String);
+const finalGets = res => [...res.deck.map(c => c.plan), res.best].filter(Boolean).flatMap(p => p.steps[p.steps.length - 1].get).map(String);
+const score = id => SCORES[id] ?? 20;
+
+test('flip legs: the player Nick ends a flip holding (leg 2) passes the floor', () => {
+  // Off, the fixture's flips end with Nick holding 12 (75) and 32 (70): the test has teeth.
+  assert.ok(legB(plan({}, { searchOpts: WIDE }).res).some(id => score(id) < 83));
+  for (const mode of ['safe', 'balanced', 'all_in']) {
+    const { res } = plan(ON, { mode, searchOpts: WIDE });
+    for (const id of legB(res)) assert.ok(score(id) >= 83, `${mode}: flip leg 2 gives Nick ${id} (${score(id)})`);
+    const floored = res.flip.realised.filter(f => f.why_code === 'no_leg_floor');
+    assert.ok(floored.length > 0, `${mode}: a flip the floor emptied says so`);
+    assert.match(floored[0].why, /under your get floor/);
+  }
+});
+
+test('2-for-1 fillers: every player in the final leg passes the floor, not only the target', () => {
+  // Off, safe mode's final leg takes filler 15 (score 20) with the target.
+  assert.ok(finalGets(plan({}, { mode: 'safe', searchOpts: WIDE }).res).some(id => score(id) < 83));
+  for (const mode of ['safe', 'balanced', 'all_in']) {
+    const gets = finalGets(plan(ON, { mode, searchOpts: WIDE }).res);
+    assert.ok(gets.length > 0, `${mode}: something is served`);
+    for (const id of gets) assert.ok(score(id) >= 83, `${mode}: final get ${id} (${score(id)})`);
+  }
+});
+
+test('2-for-1 fillers: the search never adds a below-floor filler to the final leg', () => {
+  const a = makeAdapter();
+  a.searchOpts = { twoForOne: true, fillers: 4 };
+  const S = makeScorer(a.world(a.seed), a);
+  const obj = normaliseObjective({ risk_mode: 'safe' });
+  const vals = playerValues(S, a, obj);
+  const fills = getOk => searchTarget(S, a, vals, obj, 22, { getOk }).map(p => p.steps[p.steps.length - 1].get.map(String))
+    .filter(g => g.length > 1).flat().filter(id => id !== '22');
+  assert.ok(fills(null).some(id => score(id) < 83), 'unfloored, target 22 comes with fillers 24 / 25 (score 20)');
+  assert.deepEqual(fills(id => score(id) >= 83), [], 'floored, no filler under 83 rides the final leg');
+});
+
+/* ------------------------------------------------ never give 160, 80, 277 */
+
+const withIds = ids => {
+  const players = makePlayers();
+  const add = (id, value, power) => players.set(id, { id, name: `P${id}`, position: 'WR', value, power, ros_ppg: power, injury: 0, bye: null, trend_kind: null });
+  add(ids[0], 4700, 22); add(ids[1], 5700, 20); add(ids[2], 2300, 12);
+  const a = makeAdapter({ players });
+  a.rosters.get('1').push(...ids);
+  a.searchOpts = WIDE;
+  return a;
+};
+const givenAnywhere = res => new Set([
+  ...res.deck.flatMap(c => [...c.plan.steps.flatMap(s => s.give), ...(c.playbook?.walk_away?.give ?? [])]),
+  ...res.flip.realised.filter(f => f.legs).flatMap(f => f.legs.give_a_ids ?? [f.legs.give_a]),
+].map(String));
+
+test('never give: Nico Collins (160), Chase Brown (80) and A.J. Brown (277) are pinned, with no notes at all', () => {
+  assert.deepEqual([...PINNED_NEVER_GIVE], ['160', '80', '277']);
+  // The same three players under other ids are given away: the pin is what protects them.
+  const open = [161, 81, 278];
+  const openGiven = [...givenAnywhere(planLeague(withIds(open), { objective: normaliseObjective({ risk_mode: 'all_in' }), env: {} }))];
+  assert.ok(openGiven.some(id => open.map(String).includes(id)), `unpinned ids are given: ${openGiven}`);
+  for (const mode of ['safe', 'balanced', 'all_in']) {
+    for (const env of [{}, ON]) {
+      const a = withIds([160, 80, 277]);
+      assert.equal(a.untouchable?.size ?? 0, 0, 'no notes: the adapter protects nothing itself');
+      const res = planLeague(a, { objective: normaliseObjective({ risk_mode: mode }), env });
+      const given = givenAnywhere(res);
+      for (const id of PINNED_NEVER_GIVE) assert.ok(!given.has(id), `${mode}: ${id} is never given`);
+      for (const id of PINNED_NEVER_GIVE) assert.ok(res.untouchable.ids.includes(id), `${mode}: ${id} is listed untouchable`);
+    }
   }
 });

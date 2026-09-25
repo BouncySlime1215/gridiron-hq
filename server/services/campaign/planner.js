@@ -19,6 +19,7 @@ import { priceLadder, stepMessage, replyTable } from './playbook.js';
 import { coachMessagesOn } from './messages.js';
 import { negotiatorDefaultsOn, defensibleLadder, secondPackage, firmOfferText, negotiationFor, altWithinCap } from './negotiator-defaults.js';
 import { buildItinerary, stopTradeOff, arrivalWeek } from './itinerary.js';
+import { stopsMode, findHoles, priceHoles } from './stops.js';
 import { speedCurve, concededPlan, sideLevers } from './speed.js';
 import { orderCatchUp, freeMoves, isBehind, sellersRead, desperateMoves } from './catchup.js';
 import { rankPartners, planSkipWeight, pResponds } from './partners.js';
@@ -622,6 +623,16 @@ export function planLeague(adapter, settings) {
       arrive_week: arrivalWeek(p, L.week, { daysLeftInWeek: clock.daysLeftInWeek }), weeks: weeklyOf(p.steps[p.steps.length - 1].state),
       give: [...new Set(p.steps.flatMap(s => s.give))], steps: p.steps.length })) });
   const outlook = nowWeeks ? weeklySummary(nowWeeks, 0) : null;
+  // STOPS-01 (GRIDIRON_STOPS: 1 serves, shadow reports, default off): bye / injury holes in Nick's weekly lineup,
+  // each priced as a plan-added stop on the ranked (rule-filtered) plans; off, nothing is computed.
+  const stopsM = stopsMode(env);
+  let stops;
+  if (stopsM !== 'off') {
+    const holes = nowWeeks ? findHoles({ weeks: nowWeeks, roster, currentWeek: L.week }) : [];
+    const blocked = new Set([...(adapter.untouchable ?? []), ...(objective.untouchables ?? [])].map(String));
+    stops = { mode: stopsM, holes, rows: priceHoles({ holes, ranked, nowWeeks, currentWeek: L.week, daysLeftInWeek: clock.daysLeftInWeek,
+      weeklyOf: p => weeklyOf(p.steps[p.steps.length - 1].state), names: id => names(idOf(id)), blocked }) };
+  }
 
   // Catch-up list.
   const behind = isBehind(now.title, L.team_count ?? adapter.rosters.size);
@@ -675,7 +686,7 @@ export function planLeague(adapter, settings) {
     flip, targets: wanted, candidates_scored: plans.length, dropped: dropped.slice(0, 20).map(d => ({ first: d.plan.steps[0], why: d.why })),
     best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook, ...(c.playbooks ? { playbooks: c.playbooks } : {}) })),
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
-    suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, feasibility_points, outlook,
+    suggestions, itinerary, stop_previews: stopPreviews, ...(stops ? { stops } : {}), speed, feasibility, feasibility_points, outlook,
     risk_modes: compareModes(plans, ctxFor, mode => ({ best: confirmedBest[mode], confirmed: !!S2 }), { rule }), catch_up: catchUp, partners,
     // NO-TRADE-SHRINK: pre-rank shrinkage, SHADOW (reported under _run.shrink; nothing served reads it).
     shrink: shadowShrink(plans, ctxFor),

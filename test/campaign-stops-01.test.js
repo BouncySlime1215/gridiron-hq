@@ -80,11 +80,11 @@ const plan = (score, lift11, steps = 1) => ({ score, expected: score, expected_s
 test('S3 pricing: the best-ranked plan that fills half the hole and lands in time is the cover; cost is the score gap', () => {
   const now = weeksOf(w => (w === 11 ? 100 : 120));
   const hole = findHoles({ weeks: now, roster: ROSTER, currentWeek: 4 })[0];
-  const ranked = [plan(0.030, 2), plan(0.025, 15, 20), plan(0.020, 12), plan(0.010, 18)];
+  const ranked = [plan(0.030, 2), plan(0.025, 15, 30), plan(0.020, 12), plan(0.010, 18)];
   const weeklyOf = p => weeksOf(w => (w === 11 ? 100 + p.lift11 : 120));
   const [row] = priceHoles({ holes: [hole], ranked, nowWeeks: now, weeklyOf, currentWeek: 4, daysLeftInWeek: 3 });
   assert.equal(row.status, 'ok');
-  // ranked[1] fills 15 but its 20 chained steps land long after week 11; ranked[2] is the cover.
+  // ranked[1] fills 15 but its 30 chained steps land long after week 11; ranked[2] is the cover.
   assert.equal(row.cover.score, 0.020);
   assert.ok(Math.abs(row.cost - 0.010) < 1e-12);
   assert.ok(Math.abs(row.net + 0.010) < 1e-12);
@@ -102,6 +102,7 @@ test('S3 pricing: when the best plan already covers, the stop costs 0 and is wor
   assert.equal(row.cost, 0);
   assert.equal(row.verdict, 'close', 'net 0 sits inside the noise');
   assert.equal(row.new_next_move_changes, false);
+  assert.match(row.because, /on bye; your best path already fills this week$/);
 });
 
 test('S3 pricing: no plan fills the hole -> unreachable with the reason, never a made-up cost', () => {
@@ -175,7 +176,7 @@ test('S5 shadow: holes and priced rows go to _run.inputs.stops only; stop_tradeo
 
 test('S5 on: every priced hole is served under its Coach key, the league passes its contract, unreachable ones are counted', () => {
   const { res, entry } = run({ [STOPS_ENV]: '1' });
-  assert.deepEqual(validateLeague(entry), [], 'contract');
+  assert.deepEqual(validateLeague(entry).errors, [], 'contract');
   const s = entry._run.inputs.stops;
   assert.equal(s.mode, 'on');
   assert.equal(s.priced + s.unreachable, s.holes.length);

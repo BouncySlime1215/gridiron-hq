@@ -30,7 +30,7 @@ import { makeGetsFloor } from './gets-floor.js';
 import { withNeverGive } from './never-give.js';
 import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
 import { excluded } from './partners.js';
-import { tradeMemory, applyTradeMemory, memorySummary, stepPasses, floorOn as tmFloorOn } from './trade-memory.js';
+import { tradeMemory, applyTradeMemory, memorySummary, stepPasses, floorOn as tmFloorOn, tradeMemoryOn } from './trade-memory.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
 
 /** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
@@ -155,7 +155,9 @@ export function planLeague(adapter, settings) {
   const flipAll = flipMap(S, adapter, vals, { topPer: budget.flipTopPer, realise: budget.flipRealise, maxOverpay, maxGive: chainGive, getOk,
     daysLeft: Number.isInteger(L.deadline_week) ? Math.max(1, (L.deadline_week - L.week) * 7) : 1 });
   // TRADE-MEMORY (ONE-PLAN 4c): this season's executed trades, when the adapter carries the ledger.
-  const TM = adapter.tradeLedger
+  // On by default (Nick's rules); only GRIDIRON_TRADE_MEMORY=0 turns it off, and the summary then warns.
+  const tmOn = tradeMemoryOn(env);
+  const TM = tmOn && adapter.tradeLedger
     ? tradeMemory(adapter.tradeLedger, { me, valueNow: id => Math.max(0, Number(adapter.players.get(id)?.value) || 0),
       positionOf: id => adapter.players.get(id)?.position ?? null,
       holderOf: id => [...adapter.rosters].find(([, ids]) => ids.some(x => String(x) === String(id)))?.[0] ?? null })
@@ -520,7 +522,7 @@ export function planLeague(adapter, settings) {
       dropped_by_reason: droppedByReason({ candidates: plans.length, byMode: { ...rankedByMode, [objective.risk_mode]: { ranked, dropped } },
         objectiveMode: objective.risk_mode, notObjectiveTarget: plans.length - pool.length,
         confirm: confirmCounts, noOverpay: overpay.rejected, outOfReach: reachRows.filter(r => !r.in_reach).length }) },
-    trade_memory: memorySummary(TM, { dropped: tmApplied?.dropped ?? {}, shadow: tmApplied?.shadow ?? {}, floorOn: tmApplied?.floor_on ?? false,
+    trade_memory: memorySummary(tmOn ? TM : 'off', { dropped: tmApplied?.dropped ?? {}, shadow: tmApplied?.shadow ?? {}, floorOn: tmApplied?.floor_on ?? false,
       targets: tmCount.targets, flips: tmCount.flips, ladderRows: tmCount.ladderRows, refused: tmCount.refused, unmapped: adapter.tradeLedger?.unmapped ?? 0 }),
     ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
     sellers: { read: sellers, unreached: desperate.unreached.map(s => s.team) },

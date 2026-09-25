@@ -8,10 +8,11 @@
  * validated cutoff). With no score source, or no score for a player, the floor fails closed: an
  * unscored player is never certified as a Blue chip.
  *
- * Flag GRIDIRON_GETS_FLOOR: '1' enforces (targets under the floor are dropped before the top-N
- * slice, so the next Blue chip takes the slot); 'shadow' reads every searched target and counts it
- * as would-drop while nothing served moves; unset or '0' is off (the producer's entry stays byte for
- * byte the incumbent's, the committed contract fixture). Pure: the env arrives as planner settings.
+ * Flag GRIDIRON_GETS_FLOOR: ON BY DEFAULT (integration-7: Nick's rule is a hard filter, not an
+ * experiment). Unset or '1' enforces (targets under the floor are dropped before the top-N slice, and
+ * a path is dropped unless everything Nick holds at its end passes); 'shadow' only counts; only an
+ * explicit '0' turns it off, and the run then carries a loud warning. Pure: the env arrives as
+ * planner settings.
  */
 
 export const GETS_FLOOR_ENV = 'GRIDIRON_GETS_FLOOR';
@@ -20,13 +21,16 @@ export const DEFAULT_GET_FLOOR = 83;
 /** How many under-floor reads the run keeps by name (the counts cover all of them). */
 const BELOW_KEPT = 20;
 
-/** 'on' | 'shadow' | 'off'. */
+/** 'on' (default) | 'shadow' | 'off' (only an explicit '0'). */
 export function getsFloorFlag(env = {}) {
   const v = env?.[GETS_FLOOR_ENV];
-  if (v === '1') return 'on';
+  if (v === '0') return 'off';
   if (v === 'shadow') return 'shadow';
-  return 'off';
+  return 'on';
 }
+
+/** The loud line a run carries when Nick's floor is switched off by hand. */
+export const GETS_FLOOR_OFF_WARNING = `WARNING: ${GETS_FLOOR_ENV}=0 turns OFF Nick's Blue chip floor (83+): served gets are not checked.`;
 
 /** The destination's min_get_score may only RAISE the floor (Nick's 83 is the least); anything else is the default. */
 export function getFloorOf(tol) {
@@ -59,7 +63,7 @@ export function makeGetsFloor(adapter, { env = {}, tolerances = null } = {}) {
   const floor = getFloorOf(tolerances);
   const scoreOf = typeof adapter?.scoreOf === 'function' ? adapter.scoreOf : null;
   const sink = { mode, floor, source: scoreOf ? 'player_score' : 'none', checked: 0, passed: 0,
-    dropped: 0, would_drop: 0, below: [], refused: [] };
+    dropped: 0, would_drop: 0, below: [], refused: [], ...(mode === 'off' ? { warning: GETS_FLOOR_OFF_WARNING } : {}) };
   const seen = new Map();
   const read = pid => {
     const k = String(pid);

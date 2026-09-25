@@ -20,6 +20,10 @@ export const TRADE_MEMORY_WINDOW_DAYS = Infinity;
 /** Nick 9/24 (integration-7): no buy-back exception at any price fall. Kept as null so older readers see it is gone. */
 export const BUYBACK_FALL = null;
 export const FLOOR_FLAG = 'GRIDIRON_TRADE_MEMORY_FLOOR';
+/** (a) no buy-backs and (c) no reversals are ON by default; only an explicit GRIDIRON_TRADE_MEMORY=0 turns them off (loudly). */
+export const TRADE_MEMORY_ENV = 'GRIDIRON_TRADE_MEMORY';
+export const tradeMemoryOn = env => (env ?? {})[TRADE_MEMORY_ENV] !== '0';
+export const TRADE_MEMORY_OFF_WARNING = `WARNING: ${TRADE_MEMORY_ENV}=0 turns OFF Nick's no-buy-back and no-reversal rules: sold players and reversals can be served.`;
 const DAY = 864e5;
 const HARD = ['sold_recently', 'reversal'];
 const SHADOW = ['below_his_floor', 'wrong_currency'];
@@ -178,8 +182,7 @@ export function applyTradeMemory(plans, mem, { env = {} } = {}) {
     for (const k of soft) shadow[k]++;
     const why = hard ?? (on ? soft[0] : undefined);
     if (why) { dropped[why]++; continue; }
-    const bb = [...new Set(p.steps.flatMap(s => s.get.map(String)))].map(id => mem.buyBack(id)).filter(Boolean);
-    kept.push(bb.length ? { ...p, buy_back: bb } : p);
+    kept.push(p);
   }
   return { plans: kept, dropped, shadow, floor_on: on };
 }
@@ -196,6 +199,7 @@ export function stepPasses(mem, step, on) {
  * before or after path search and are reported beside it, never summed into it.
  */
 export function memorySummary(mem, { dropped, shadow, floorOn: on, targets = 0, flips = 0, ladderRows = 0, refused = [], unmapped = 0 }) {
+  if (mem === 'off') return { status: 'off', warning: TRADE_MEMORY_OFF_WARNING, dropped_total: 0 };
   if (!mem) return { status: 'no_ledger', dropped_total: 0 };
   const d = { ...dropped };
   return {

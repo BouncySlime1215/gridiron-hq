@@ -253,9 +253,6 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       target: plan.target != null ? String(plan.target) : null,
       target_owner: plan.owner != null ? String(plan.owner) : null,
       chained: !!plan.chained, steps,
-      // TRADE-MEMORY (a): a player Nick sold inside the window is on a card only as a buy-back, and says so.
-      ...(Array.isArray(plan.buy_back) && plan.buy_back.length
-        ? { buy_back: plan.buy_back.map(b => ({ player: String(b.player), was: b.was, now: b.now, text: b.text })) } : {}),
       p_complete: num(plan.p_complete, 'plan.path', { prob: true, unit: 'probability', guess: true }),
       delta_final: num(plan.delta_final, 'sim.title', { unit }),
       expected: num(plan.expected, 'plan.path', { se: plan.expected_se, unit }),

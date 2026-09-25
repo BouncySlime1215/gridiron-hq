@@ -239,7 +239,9 @@ function chainLeague(tValue) {
   } }),
   league: { id: 77, me: 1, week: 4, deadline_week: 8, days_left_in_week: 3, team_count: 3, fetched_at: 'fixture' },
   starters: new Set([1, 2]), freeAgents: [], priceOf: (t, id) => ({ mult: 1, price: w.adapter.players.get(id)?.value ?? 0 }),
-  names: () => ({}) };
+  names: () => ({}),
+  // GETS-FLOOR is on by default: every made-up player here is a Blue chip, so the chain search is what is tested.
+  scoreOf: () => ({ score: 90, label: 'fixture default' }) };
 }
 const lastGives = res => res.deck.map(c => c.plan).filter(p => String(p.target) === '21').map(p => p.steps.at(-1).give.length);
 

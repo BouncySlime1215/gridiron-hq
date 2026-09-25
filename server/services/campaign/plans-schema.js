@@ -175,9 +175,6 @@ const move = obj({
   delta_final: numF,
   expected: numF,
   reasoning: field(reasoning)
-}, {
-  // TRADE-MEMORY (a): retired (integration-7: no buy-backs, no exceptions); kept optional so older files validate.
-  buy_back: arr(obj({ player: pid, was: num, now: num, text: str }), { min: 1 })
 });
 
 const destination = obj({

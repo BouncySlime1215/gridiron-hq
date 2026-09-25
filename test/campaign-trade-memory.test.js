@@ -326,3 +326,14 @@ test('integration-7: a path that undoes a trade across two steps with the same t
   const split = { steps: [{ team: '3', give: [7], get: [5] }, { team: '7', give: [4], get: [6] }] };
   assert.equal(applyTradeMemory([split], mem).dropped.reversal, 0, 'different teams: no net reversal');
 });
+
+test('integration-7: no-buy-back / no-reversal is on by default; only GRIDIRON_TRADE_MEMORY=0 turns it off, loudly', () => {
+  const on = plan('balanced', { tradeLedger: fixtureLedger() }).res;
+  assert.equal(on.trade_memory.status, 'on');
+  const off = planLeague(Object.assign(makeAdapter(), { tradeLedger: fixtureLedger() }),
+    { objective: normaliseObjective({ risk_mode: 'balanced' }), env: { GRIDIRON_TRADE_MEMORY: '0' } });
+  assert.equal(off.trade_memory.status, 'off');
+  assert.match(off.trade_memory.warning, /^WARNING: GRIDIRON_TRADE_MEMORY=0 turns OFF/);
+  assert.equal(tm.tradeMemoryOn({}), true);
+  assert.equal(tm.tradeMemoryOn({ GRIDIRON_TRADE_MEMORY: '1' }), true);
+});

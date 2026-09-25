@@ -9,6 +9,7 @@ import DraftBoardRail from '../components/draft/DraftBoardRail';
 import { pprSeries, statHeadline } from '../components/draft/types';
 import { usePageExplain } from '../components/PageExplainContext';
 import { EmptyState, PageError, PageLoading } from '../components/PageState';
+import { sanitizedMessage } from '../lib/errorSanitize';
 
 /* --------------------------------------------------------------- primitives */
 
@@ -99,18 +100,18 @@ function ConnectLeague() {
     try {
       const out = await api('/drafts/live/link', { method: 'POST', body: JSON.stringify({ league_row_id: id }) });
       nav(`/draft/live/${out.draft_id}`);
-    } catch (e: any) { setErr(e.message); }
+    } catch (e: any) { setErr(sanitizedMessage('LiveDraft.link', "Couldn't open that draft", e.message)); }
     finally { setBusy(null); }
   };
 
   const espn = (leagues ?? []).filter(l => l.platform === 'espn');
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-1">Live Draft Hub</h1>
-      <p className="text-sm text-slate-600 mb-6">
-        Mirrors your ESPN draft board pick-by-pick and tells you who to take while you're on the clock.
+      <h2 className="ds-h">Link an ESPN draft</h2>
+      <p className="ds-note mt-0.5 mb-4">
+        Mirrors your ESPN draft board pick by pick and tells you who to take while you're on the clock.
       </p>
-      {err && <p className="text-sm text-rose-600 mb-3">{err}</p>}
+      {err && <p role="alert" className="text-sm text-crit mb-3">{err}</p>}
       {loading && !leagues ? <PageLoading label="Loading your leagues…" /> : loadError && !leagues ? (
         <PageError message={loadError} onRetry={refetch} />
       ) : !espn.length ? (
@@ -118,13 +119,13 @@ function ConnectLeague() {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {espn.map(l => (
-            <button key={l.id} onClick={() => link(l.id)} disabled={busy === l.id}
-              className="card p-4 text-left hover:border-sky-300 disabled:opacity-50">
+            <button key={l.id} onClick={() => link(l.id)} disabled={busy === l.id} title={busy === l.id ? 'Connecting to this draft' : 'Open the live draft room for this league'}
+              className="ds-card ds-lift p-4 text-left disabled:opacity-50">
               <div className="font-semibold">{l.name ?? `ESPN ${l.league_id}`}</div>
               <div className="text-xs text-slate-500 mt-1">
                 {l.season} · {l.team_count ?? '?'} teams · league {l.league_id}
               </div>
-              <div className="text-xs font-medium text-sky-700 mt-2">
+              <div className="text-sm font-semibold text-[var(--c-accent)] mt-2">
                 {busy === l.id ? 'Connecting…' : 'Open draft room →'}
               </div>
             </button>

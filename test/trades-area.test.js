@@ -29,8 +29,9 @@ test('RULES-EVERYWHERE: every suggestion list shows how many ideas the rules hid
 });
 
 test('an ungated suggestion surface is not rendered: News edge is not a Trades view', () => {
-  // The news-edge route (news-lag-trader.js) suggests buys without passing the rule gate, so Trades
-  // does not draw it until the server gates it.
+  // The news-edge route (news-lag-trader.js) suggested buys without passing the rule gate, so Trades
+  // does not draw it. The server gates it now (test/news-edge-rules.test.js, with dropped_by_rule);
+  // drawing it again is the Trades cleanup's call, and this pin moves with that change.
   const t = read('client/src/pages/Trades.tsx');
   assert.doesNotMatch(t, /<NewsEdge/);
   assert.doesNotMatch(t, /news-edge/);

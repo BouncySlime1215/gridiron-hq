@@ -140,3 +140,23 @@ test('the served route answer is the gated one: dropped_by_rule rides on every a
   assert.equal(through.opportunities.length, 1);
   assert.equal(through.dropped_by_rule, 0);
 });
+
+test('end to end: served rows carry app player ids, and a claim of 290 is dropped while a clean claim is served', () => {
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    const put = db.prepare(`INSERT INTO nfl_news_signals (news_id, player_key, player_id, player_name, team, signal_type, status,
+      confidence, published_at, evidence_span, extractor_version, verification_state, verification_reason)
+      VALUES (?, ?, ?, ?, 'XXX', 'availability', 'active', 0.9, datetime('now', '-1 hours'), 'made-up clause', 'test', 'verified', 'test')`);
+    put.run(1, 'k290', '290', 'Wr Sold');
+    put.run(2, 'k103', '103', 'Charlie Low');
+    const out = news.newsOpportunities(L, { myTeamId: ME, hours: 24 });
+    assert.equal(out.signals_considered, 2);
+    assert.deepEqual(kinds(out), ['claim_waiver:103'], 'unrostered positive news is a claim; 290 never comes back');
+    assert.equal(out.dropped_by_rule, 1);
+    const raw = news.newsOpportunitiesRaw(L, { myTeamId: ME, hours: 24 });
+    assert.deepEqual(raw.opportunities.map(o => o.action.target_id).sort(), ['103', '290'], 'the raw rows carry players.id');
+  } finally {
+    // nfl_news_signals is append-only (a trigger refuses deletes); this is the file's last test and the DB is a temp file.
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+});

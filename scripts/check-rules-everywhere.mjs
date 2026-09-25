@@ -44,6 +44,7 @@ const proposals = await import('../server/services/trade-proposals.js');
 const negotiate = await import('../server/services/warroom-negotiate.js');
 const negotiateRoute = await import('../server/routes/warroom-negotiate.js');
 const coachTools = await import('../server/services/coach/tools.js');
+const newsLag = await import('../server/services/news-lag-trader.js');
 const neverGive = await import('../server/services/campaign/never-give.js');
 const { warRoomPlansPath, WARROOM_ENV } = await import('../server/services/warroom-flag.js');
 db.exec('PRAGMA query_only = ON');
@@ -139,6 +140,17 @@ surface('offer-many (290 + best priced)', () => {
   const pick = others.find(id => !NEVER_GET.has(id) && !sold.has(id) && id !== '290') ?? null;
   const out = engine.offerForMany(lgFull, { myTeamId: ME, targetIds: [290, ...(pick ? [Number(pick)] : [])] });
   return { packages: (out.ladders ?? []).flatMap(l => fromLadder(l, ids(l.targets))), dropped: out.dropped_by_rule };
+});
+surface('news-edge (buys and claims)', () => {
+  const out = newsLag.newsOpportunities(LEAGUE, { myTeamId: ME, hours: 24 * 21 });
+  if (out.error) return { skip: `not run: ${out.error}` };
+  // A buy is a trade: every rule. A claim is not: only never get and no buy-back apply, so its
+  // package is checked with those two alone (a get of 290 or of a sold player is still a violation).
+  const buys = (out.opportunities ?? []).filter(o => ['buy_beneficiary', 'buy_low'].includes(o.action?.kind));
+  const claims = (out.opportunities ?? []).filter(o => o.action?.kind === 'claim_waiver');
+  const bad = claims.map(o => S(o.action.target_id)).filter(id => NEVER_GET.has(id) || sold.has(id));
+  return { packages: [...buys.map(o => ({ give: [], get: ids([o.action.target_id]) })),
+    ...bad.map(id => ({ give: [], get: [id] }))], dropped: out.dropped_by_rule };
 });
 surface('title-trades', () => {
   const out = titleOddsTrades(LEAGUE, { teamId: ME, shortlist: 4, runs: 200 });

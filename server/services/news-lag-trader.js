@@ -27,6 +27,7 @@ import { rows, row } from '../db/index.js';
 import { deriveFormat } from './format.js';
 import { assetUniverse, loadRosters } from './trade-engine.js';
 import { normalizePlayerName } from './player-identity.js';
+import { ruleGate } from './campaign/never-give.js';
 
 const HOUR = 3600e3;
 
@@ -111,6 +112,60 @@ function priorDiscount(playerName, before) {
  * @param myTeamId  which roster is "mine"; everything is framed from that seat
  */
 export function newsOpportunities(leagueId, { myTeamId = null, hours = 72 } = {}) {
+  const out = newsOpportunitiesRaw(leagueId, { myTeamId, hours });
+  if (out?.error) return out;
+  return gateNews(ruleGate({ row, rows }, { leagueId, teamId: out.my_roster_id ?? myTeamId }), out);
+}
+
+/* ------------------------------------------------------------------ Nick's rules */
+
+// A claim is not a trade: only the "never bring him back" rules apply (never get, no buy-back),
+// plus failing closed when the rules cannot be read. A hold-or-sell proposes no package: only
+// never give. The Blue chip floor, pricing and overpay are rules on a trade's gets and gives.
+const CLAIM_RULES = new Set(['never_get', 'sold_this_season', 'rules_unreadable']);
+const SELL_RULES = new Set(['never_give', 'rules_unreadable']);
+const BUYS = new Set(['buy_beneficiary', 'buy_low']);
+const idOf = x => (x == null || x === '' ? null : String(x));
+
+/** Whether one news row may be shown, from the rule gate's seat (gate.forNick / gate.me). */
+function newsRowAllowed(gate, o) {
+  const a = o?.action ?? {};
+  if (a.kind === 'already_held') return true; // no move: start him
+  if (BUYS.has(a.kind)) {
+    // A trade: get the target from his owner. For another team's seat it binds only when Nick
+    // owns the target (the gate reads it from Nick's side: he would be giving him).
+    const partner = idOf(a.target_owner_roster_id);
+    const target = idOf(a.target_id);
+    if (target == null) return !(gate.forNick || partner === gate.me); // unresolved: fails closed where a rule reads it
+    return gate.filter([o], () => ({ give: [], get: [target], partner })).kept.length === 1;
+  }
+  if (!gate.forNick) return a.kind === 'claim_waiver' || a.kind === 'hold_or_sell'; // another team's own moves
+  if (a.kind === 'claim_waiver') {
+    const target = idOf(a.target_id);
+    return target != null && !gate.check({ give: [], get: [target] }).reasons.some(r => CLAIM_RULES.has(r));
+  }
+  if (a.kind === 'hold_or_sell') {
+    const subject = idOf(o.subject?.player_id);
+    return subject != null && !gate.check({ give: [subject], get: [] }).reasons.some(r => SELL_RULES.has(r));
+  }
+  return false; // a kind this gate does not know is never shown unchecked
+}
+
+/**
+ * RULES-EVERYWHERE for the news edge: every served row passes Nick's rule gate
+ * (campaign/never-give.js#ruleGate), and rows that break a rule are dropped, never shown with a
+ * warning. `dropped_by_rule` counts them so the page can say "N ideas hidden by your rules".
+ * `considered_and_dismissed` rows are not suggestions ("no edge") and are left as they are.
+ */
+export function gateNews(gate, out) {
+  if (!out || !Array.isArray(out.opportunities)) return out;
+  if (!gate?.applies) return { ...out, dropped_by_rule: 0 };
+  const kept = out.opportunities.filter(o => newsRowAllowed(gate, o));
+  return { ...out, opportunities: kept, dropped_by_rule: out.opportunities.length - kept.length };
+}
+
+/** The ungated rows (newsOpportunities is the served, gated answer). */
+export function newsOpportunitiesRaw(leagueId, { myTeamId = null, hours = 72 } = {}) {
   const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg?.payload) return { error: 'league not synced yet' };
 
@@ -121,7 +176,7 @@ export function newsOpportunities(leagueId, { myTeamId = null, hours = 72 } = {}
      WHERE verification_state='verified' AND published_at >= datetime('now', ?)
      ORDER BY published_at DESC`, `-${hours} hours`);
   if (!signals.length) {
-    return { league: lg.name, signals_considered: 0, opportunities: [],
+    return { league: lg.name, my_roster_id: null, signals_considered: 0, opportunities: [],
       note: `No typed signals in the last ${hours} hours.` };
   }
 
@@ -137,6 +192,10 @@ export function newsOpportunities(leagueId, { myTeamId = null, hours = 72 } = {}
   }
   const owned = name => ownerOf.get(normalizePlayerName(name)) ?? null;
   const valueOf = name => owned(name)?.player?.value ?? null;
+  // App player ids (players.id), the ids Nick's rule gate reads. null when a name does not resolve:
+  // the gate then fails closed on that row wherever a rule reads it.
+  const sid = v => (v == null || v === '' ? null : String(v));
+  const idByEspn = espnId => (espnId == null ? null : sid(row('SELECT id FROM players WHERE espn_id = ?', espnId)?.id));
 
   const now = Date.now();
   const opportunities = [];
@@ -152,7 +211,8 @@ export function newsOpportunities(leagueId, { myTeamId = null, hours = 72 } = {}
 
     // The headline player. Usually NOT the trade — his price has already moved.
     const subject = {
-      name: s.player_name, team: s.team, status: s.status,
+      name: s.player_name, player_id: sid(held?.player?.id) ?? sid(s.player_id),
+      owner_roster_id: held ? held.team.roster_id : null, team: s.team, status: s.status,
       unavailable_probability: s.unavailable_probability,
       owned_by: held ? held.team.owner : 'free agent',
       is_mine: !!mine, market_value: held?.player?.value ?? null
@@ -167,6 +227,8 @@ export function newsOpportunities(leagueId, { myTeamId = null, hours = 72 } = {}
         action = {
           kind: !benOwned ? 'claim_waiver' : benMine ? 'already_held' : 'buy_beneficiary',
           target: ben.name, target_position: ben.position,
+          target_id: sid(benOwned?.player?.id) ?? idByEspn(ben.espn_id),
+          target_owner_roster_id: benOwned ? benOwned.team.roster_id : null,
           target_owned_by: benOwned ? benOwned.team.owner : 'free agent',
           target_value: valueOf(ben.name),
           why: !benOwned
@@ -176,7 +238,8 @@ export function newsOpportunities(leagueId, { myTeamId = null, hours = 72 } = {}
               : `${ben.name} inherits the ${ben.slot} snaps and is on ${benOwned.team.owner}'s roster, still priced as a backup.`
         };
       } else if (mine) {
-        action = { kind: 'hold_or_sell', target: s.player_name,
+        action = { kind: 'hold_or_sell', target: s.player_name, target_id: subject.player_id,
+          target_owner_roster_id: subject.owner_roster_id,
           why: 'No clear inheritor on the depth chart, so there is no beneficiary to buy. This is a hold-or-sell call on the player himself.' };
       }
     } else if (positive && held && !mine) {
@@ -195,7 +258,8 @@ export function newsOpportunities(leagueId, { myTeamId = null, hours = 72 } = {}
       // before the rest of the league notices. No prior injury, no trade.
       const discount = priorDiscount(s.player_name, s.published_at);
       if (discount) {
-        action = { kind: 'buy_low', target: s.player_name,
+        action = { kind: 'buy_low', target: s.player_name, target_id: subject.player_id,
+          target_owner_roster_id: held.team.roster_id,
           target_owned_by: held.team.owner, target_value: held.player.value,
           discounted_by: discount.status, discounted_at: discount.published_at,
           discount_age_days: r2((new Date(s.published_at).getTime()
@@ -205,14 +269,15 @@ export function newsOpportunities(leagueId, { myTeamId = null, hours = 72 } = {}
       } else {
         // Worth saying out loud rather than dropping silently, because "why
         // isn't this player here" is the obvious next question.
-        action = { kind: 'no_edge', target: s.player_name,
+        action = { kind: 'no_edge', target: s.player_name, target_id: subject.player_id,
+          target_owner_roster_id: held.team.roster_id,
           target_owned_by: held.team.owner, target_value: held.player.value,
           why: 'Good news, but he was never marked down — no prior injury tag to recover from, ' +
             'so there is no discount to exploit. His owner is not selling cheap.' };
       }
     } else if (positive && !held) {
-      action = { kind: 'claim_waiver', target: s.player_name,
-        target_owned_by: 'free agent',
+      action = { kind: 'claim_waiver', target: s.player_name, target_id: subject.player_id,
+        target_owner_roster_id: null, target_owned_by: 'free agent',
         why: 'Positive availability news on an unrostered player.' };
     }
 
@@ -237,7 +302,7 @@ export function newsOpportunities(leagueId, { myTeamId = null, hours = 72 } = {}
   const actionable = opportunities.filter(o => o.action.kind !== 'no_edge');
 
   return {
-    league: lg.name, my_team: me?.owner ?? null,
+    league: lg.name, my_team: me?.owner ?? null, my_roster_id: me?.roster_id ?? null,
     signals_considered: signals.length,
     opportunities: actionable,
     considered_and_dismissed: dismissed,

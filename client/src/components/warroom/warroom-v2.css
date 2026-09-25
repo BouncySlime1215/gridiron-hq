@@ -1,6 +1,6 @@
 /*
- * WAR-ROOM-UI v2 (WarRoomV2.tsx: Today / Go get / Market / League), scoped to .wr-v2. The classic
- * dashboard (warroom.css, .wr-app) is untouched. Colour, edges, elevation, radius and motion come
+ * WAR-ROOM-UI v2 (TodayPanel.tsx on Today; TradesPlanner.tsx's Next move / Go get / Market inside
+ * Trades), scoped to .wr-v2. Colour, edges, elevation, radius and motion come
  * from the app's design tokens (styles/tokens.css, docs/ui/DESIGN-SYSTEM.md); the type from the
  * app's --font-* tokens. Dark mode is the tokens' [data-theme="dark"] set, which this root carries.
  */

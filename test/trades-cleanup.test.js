@@ -20,6 +20,10 @@ test('1. no nested app: the planner draws inside the Trades frame, with no War R
   assert.match(planner, /className="wr-root wr-v2 wr-inline"/);
   assert.doesNotMatch(planner, /TopBarV2|CoachDrawer |HealthSheet|role="tablist"/, 'no second top bar, Coach, health chip or tabs');
   assert.match(trades, /<TradesPlanner part="market"/, 'Market is part of Find deals');
+  // Part 2: the shell itself is deleted, not just unmounted.
+  for (const f of ['WarRoomV2.tsx', 'TopBarV2.tsx', 'TopStrip.tsx', 'LeagueRail.tsx', 'PeopleBoard.tsx', 'ScreenLeague.tsx', 'useDocTheme.ts']) {
+    assert.ok(!fs.existsSync(new URL(`../client/src/components/warroom/${f}`, import.meta.url)), `${f} is gone`);
+  }
 });
 
 test('2. one Go get: the planner\'s target cards, with "Someone else?" closing the list', () => {

@@ -2,7 +2,7 @@
  * TEAM-NAMES: the War Room names the people, not numbers. The league adapter reads each
  * roster's ESPN team name and manager from the league payload at run time (Nick's trusted
  * chat name wins over ESPN's first name), the producer writes it as the optional `teams`
- * section, the view passes it through, and WarRoom.tsx fills the registry every teamLabel
+ * section, the view passes it through, and TodayPanel and TradesPlanner fill the registry every teamLabel
  * call site reads: 'Manager (Team name)' when known, else 'Team N'.
  *
  * PUBLIC REPO: every name here is synthetic ('Manager A', 'Team 7'), and the last test
@@ -13,17 +13,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { plannerRenderer } from './helpers/warroom-planner.mjs';
 import { loadWarRoom } from './helpers/warroom-tsx.mjs';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-team-names-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.SCHEDULER_DISABLED = '1';
-
-const require = createRequire(import.meta.url);
-const React = require('react');
-const { renderToStaticMarkup } = require('react-dom/server');
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const { teamNames } = await import('../scripts/campaign/league-adapter.mjs');
@@ -33,13 +29,13 @@ const { buildWarRoomView } = await import('../server/services/war-room-view.js')
 const wr = await loadWarRoom();
 test.after(() => { wr.cleanup(); fs.rmSync(temp, { recursive: true, force: true }); });
 const types = await wr.mod('types');
-const { default: WarRoom } = await wr.mod('WarRoomV2'); // the classic dashboard is retired; the War Room is WarRoomV2
+const planner = await plannerRenderer(wr);
 
 const FIXTURE = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'warroom-contract', 'producer-plans.json'), 'utf8'));
 const ON = { enabled: true, preview: false };
 const plansOf = (...entries) => ({ status: 'ok', entries: structuredClone(entries), as_of: '2026-09-24T07:29:00.000Z', id: 'plans@1' });
-const LEAGUES = [1, 2, 3, 4, 5].map(id => ({ id, name: `League ${id}` }));
-const room = view => renderToStaticMarkup(React.createElement(WarRoom, { view, leagues: LEAGUES, activeId: view.league, onLeague() {}, onExit() {} }));
+/** Today, Next move, Go get and Market as the app mounts them (the shell is retired). */
+const room = view => planner(view, { leagueId: view.league });
 
 /** Every roster the entry mentions (flip legs, target owners, deck partners). */
 function rostersIn(entry) {

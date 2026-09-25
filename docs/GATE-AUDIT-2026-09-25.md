@@ -17,7 +17,9 @@ League-mates appear only as roster ids.
 
 So a gate has **5 Tuesday grades before the freeze** and **9 before the last send**. A "2 consecutive passes" rule can promote a unit on 10/6 at the earliest and 11/24 at the latest.
 
-The data we already hold for 2026, as stated in Nick's queue message and not re-measured in this PR: 5 leagues, 46 team-seasons, 1,666 moves, 286 trades. Two numbers were measured elsewhere and are cited: **37 decided offers** across 3 ESPN leagues, 21 of them in league 4 (E1-DATA, `server/services/eval/decided-offers.js` header, and PR #319); about **20 decided offers a week** league-wide (PR #263 body). Nick has sent **0 app offers** (`trade_outcomes.sent_at` is written 0 times out of 94 rows, ONE-PLAN 4b row 14).
+The data we already hold for 2026, as stated in Nick's queue message and not re-measured in this PR: 5 leagues, 46 team-seasons, 1,666 moves, 286 trades. **37 decided offers** across 3 ESPN leagues, 21 of them in league 4 (E1-DATA, `server/services/eval/decided-offers.js` header, and PR #319). Nick has sent **0 app offers** (`trade_outcomes.sent_at` is written 0 times out of 94 rows, ONE-PLAN 4b row 14).
+
+**Integration-9 re-measure (9/24 snapshot copy, `loadDecidedOffers`).** Still 37 decided offers (league 2: 9, league 3: 7, league 4: 21). By the week they were decided (week of Monday): 7/27 1, 8/17 3, 8/24 7, 8/31 3, 9/07 4, 9/14 13, 9/21 6. That is **about 6 a week** over the 6 weeks from 8/17 (range 3 to 13), not the ~20 a week PR #263 quoted. Every power estimate below is re-derived from 6 a week: about 37 + 9 × 6 ≈ **90 decided offers by 11/24** (range ~65 to ~150).
 
 ## 2. Rules shared by every weekly gate below
 
@@ -44,7 +46,7 @@ Rows are ordered by how much served behaviour each one holds back.
   - Pass: the lower bound is above 0 **and** the mean is at least `MIN_GAIN` (0.01) on 2 consecutive Tuesdays. The pooled slope is reported next to it, and a slope CI wholly outside 0.8 to 1.2 blocks the pass.
   - Arms graded side by side on the same offers: the activity baseline (#319/#384), clone v2 (#288), the receptiveness activity term (`GRIDIRON_RECEPTIVENESS_ACTIVITY`, which missed its 2024 bar at AUC 0.644 against 0.645), and TELLS prior_trades (#268).
   - If nothing passes, the baseline stays served, which is also today's safe default.
-  - Power (a guess): at n ≈ 150 to 220 with a per-offer SD of about 0.3, the CI half-width is about 0.035 to 0.04. Only a gain of about 0.04 or more is likely to pass. The PR that adopts this has to state that honestly.
+  - Power (re-derived on integration-9 from the measured ~6 decided offers a week, section 1): at n ≈ 90 by 11/24 with a per-offer SD of about 0.3, the 90% CI half-width is about 1.645 × 0.3 / √90 ≈ 0.05. Only a gain of about 0.05 or more is likely to pass (at the optimistic ~150, about 0.04). The PR that adopts this has to state that honestly.
 
 ### 3.2 E2 price accuracy: blocks promotion of `counterparty-pricing.js` from GUESS (13 factors `fitted: false`) and L5b "his price"
 
@@ -53,6 +55,7 @@ Rows are ordered by how much served behaviour each one holds back.
 - **Weekly gate proposed: E2-league (price from real trades).**
   - Evidence: every decided offer and every executed trade in the 5 leagues. That is the 286 trades plus the declines already in `decidedOffers()`.
   - Model: for each offer, "his screen" is computed as of the proposal, both ways: (a) raw FantasyCalc value given versus received; (b) FantasyCalc × the `playerValuation` multiplier (`league-adapter.mjs:334-338`).
+  - **As-of values (integration-9 rewrite).** The only as-of FantasyCalc source is `dynasty_value_history` (migration 073, keyed by the league's `format_key`). An offer is scored **only if a history row exists for its league's format at or before its `proposed_at`**; every other offer is dropped, never priced on today's value (that would leak). On the 9/24 snapshot the history holds **one capture day** (2026-09-24) per format, and all 80 collected proposals are earlier, so **n = 0 today**. The evidence starts with offers proposed from 9/24 on: at ~6 decided a week, about **55 by 11/24**. Report n every Tuesday; the gate stays `not_enough_data` until then.
   - Metric: the log-loss gain of accept ~ (b) over accept ~ (a), fit on offers before week w and graded on week w, cumulative. A 90% CI clustered by responder, with a lower bound above 0 on 2 consecutive Tuesdays.
   - Pass: the multiplier loses its GUESS label and becomes BLEND. Fail: `playerValuation` is capped toward 1, the same way `outscoring_usage` was capped (ONE-PLAN section 7).
   - What this does NOT test: the "at the yes point" calibration that E2 was built for. That part stays `not_enough_data` and is not a gate this season.
@@ -62,18 +65,22 @@ Rows are ordered by how much served behaviour each one holds back.
 - **Gate today.** `e3.js`: `MIN_TEAM_SEASONS` 40 of **finished** team-seasons, read from the `title_odds_snapshots` view (migration 083). That view only admits a season once every team has a `final_rank` and a playoff week has been scored.
 - **Why it cannot pass.** It is structurally 0 before 12/2. No 2026 season finishes before the NFL playoffs, and the view needs served snapshots, which past seasons do not have. Even after the season, 46 team-seasons is one draw per league for "who won the title".
 - **Weekly gate: already drafted in the LIVING-01b thread** (coordinator comment on #261, 9/25). That draft has two parts: activity intensity against each team's trailing rate, and the sim with league-mates against a static sim on next-week lineup-points error, with 2 consecutive passes. This audit does not duplicate it. It only adds a third row that the title number itself needs:
-- **E3-weekly (matchup calibration of the served sim).**
-  - Before each week's first kickoff, snapshot the sim's head-to-head win probability for every matchup in the 5 leagues. That is about 23 matchups a week, so about 115 by the freeze and about 207 by 11/24. `served_numbers` with `trigger = 'weekly'` is already the store.
-  - Metric: Brier score against two baselines, ESPN's projected-points favourite and a standings-only baseline, with a 90% CI clustered by league-week, plus the reliability slope.
-  - Pass (2 consecutive): `title_now` moves from GUESS to BLEND. This does **not** make the title number PROVEN. Title calibration stays an end-of-season question, and the historical E3 row (906 league-seasons) stays its structural evidence.
+- **E3-weekly (matchup calibration of the served sim), integration-9 rewrite.** The first draft asked to snapshot "the sim's head-to-head win probability". `simulateSeason` outputs no per-matchup win probability, and the weekly `served_numbers` job stores only `title_odds`, `title_trades` and `trade_find` (serve-log.js); a new sim output would be a new producer and its own unit. So the gate is re-based on numbers the app already stores:
+  - Prediction: L01B-SIM's per-team next-week starting-lineup points from the served (static) sim, recorded **before** the week in `living_gate_sim_predictions` (migration 103, `pred_static`). A matchup's P(home wins) = Φ((pred_home − pred_away) / σ), with σ the SD of pred-minus-actual on **earlier** graded weeks only (as-of; no σ before 2 graded weeks, so the first grade is week 5).
+  - Baselines, from tables we hold: ESPN's projected-points favourite (`league_roster_snapshots.projected_points` summed over each team's starters, same Φ form with its own as-of σ) and a standings-only baseline (win share to date).
+  - Evidence: the matchups of the leagues L01B-SIM records (all 5 when its recorder covers them; about 23 matchups a week), outcomes from `league_week_scores`.
+  - Metric: Brier score against both baselines, 90% CI clustered by league-week, plus the reliability slope. Pass (2 consecutive): `title_now` moves from GUESS to BLEND. This does **not** make the title number PROVEN. Title calibration stays an end-of-season question, and the historical E3 row (906 league-seasons) stays its structural evidence.
+  - A per-matchup win probability from the sim itself (to grade the copula, e.g. GAME-SHOCKS) is a **new producer and its own unit**, not part of this gate (section 7).
 
 ### 3.4 E4-live planner vs baselines: blocks the shrinkage promotion in NO-TRADE-SHRINK #383 and REACH/SEARCH-WIDE ranking claims
 
 - **Gate today.** `e4-planner.js` `live()` needs `LIVE_MIN_WEEKS` 4 rows in `planner_move_outcomes`, and that table is not built: #395 SOURCE-TABLES is off. The metric is realized **title** gain, planner minus the best baseline, with the lower bound of a league-clustered 95% CI above 0.
 - **Why it cannot pass.** It covers one league (league 4, Nick's team only), so there is 1 row a week and at most about 7 by 11/24 even if #395 lands on night 7. Title gains per move are 0.0006 to 0.0018 (ONE-PLAN section 4), against SEs of about 0.015. A CI over 7 clusters cannot exclude 0.
-- **Weekly gate proposed: E4-points.**
-  - Rows: one per week for **Nick's team in each of the 5 leagues** (the producer already takes `GRIDIRON_WARROOM_LEAGUES`). That is 5 rows a week, so 25 by the freeze and 45 by 11/24.
-  - Arms: the planner's served move (or its no-trade row), the finder's best, do nothing, and greedy.
+- **Weekly gate proposed: E4-points (integration-9 rewrite: planner rows are league 4 only).**
+  - The first draft assumed the producer runs for all 5 leagues. Nick set `GRIDIRON_WARROOM_LEAGUES=4`, and the Mac has 8 GB; five-league producer runs are a cost decision for Nick, not something this gate may assume.
+  - Rows as run today: **planner arm, league 4 only**, one row a week, so about 5 by the freeze and 9 by 11/24. **Finder, greedy and do-nothing arms on all 5 leagues** (no planner needed: the finder is the Trade Lab's served best and greedy is pure, `planner-move-outcomes.js#greedyMove`), 5 rows a week, graded the same way so the baselines' own spread is known.
+  - With 9 planner rows a 90% CI clustered by league-week cannot exclude 0 at the gains measured so far, so this gate **cannot promote before 12/2 on league 4 alone**. It reports planner minus the best baseline each Tuesday; promotion needs either the planner on more leagues (Nick's call) or a larger effect.
+  - Arms: the planner's served move (or its no-trade row; a week the planner failed closed is ungraded, #395 fix on integration-9), the finder's best, do nothing, and greedy.
   - Each arm is scored on **realized starting-lineup points over the next 2 weeks**, using the players' real points and the same lineup rule for every arm. That scoring is weekly observable, whereas the title result is not.
   - Pass: planner minus the best baseline, 90% CI clustered by league-week, lower bound above 0 on 2 consecutive Tuesdays. The shrinkage in #383 is promoted only on a pass.
   - The title-gain E4-live row stays as the season-end check.
@@ -85,6 +92,7 @@ Rows are ordered by how much served behaviour each one holds back.
 - **Weekly gate proposed: E5-league (trade valuation on every executed trade).**
   - Evidence: each executed 2026 trade in the 5 leagues, about 286 minus vetoes.
   - Model: price both sides as of the accept time with the served sim on paired seeds, as a predicted rest-of-season starting-lineup points change for each roster.
+  - **As-of rosters and projections (integration-9 rewrite).** The source is `league_roster_snapshots` (per league, per scoring period, with ESPN `projected_points`); ESPN returns past scoring periods, so the 9/24 snapshot holds weeks 1 and 2 as `final` and week 3 `live` for all 5 leagues. A trade is graded only if its accept falls in a scoring period with a `final` snapshot of both rosters; its "as of" roster is that period's snapshot and the projection is ESPN's for it. Trades accepted before week 1 (July/August) have no as-of roster and are dropped, with n stated. A replay from `league_transactions_raw` is not used: it records moves, not lineups or projections.
   - Outcome: the realized lineup-points change over the weeks since, pro-rated per week.
   - Metric: the realized-minus-predicted mean with a 90% CI clustered by trade containing 0, and a realized-on-predicted slope with a CI touching 1. Graded cumulatively each Tuesday.
   - This tests the one piece every step's "+X if he says yes" depends on, using trades we did not have to send.
@@ -99,7 +107,7 @@ Rows are ordered by how much served behaviour each one holds back.
 
 | unit | gate today | why it cannot pass | proposal |
 |---|---|---|---|
-| REP-01 #264 (offer fatigue / reputation) | about 40 settled **app** offers, accept rate against prior lopsidedness | 0 sent | **REP-league weekly**: the same regression on every decided offer in the 5 leagues (proposer's prior lopsidedness from their own earlier 2026 offers), 90% CI clustered by proposer, 2 consecutive Tuesdays. Then it applies as a capped factor to Nick's offers |
+| REP-01 #264 (offer fatigue / reputation) | about 40 settled **app** offers, accept rate against prior lopsidedness | 0 sent | **REP-league weekly**: the same regression on every decided offer in the 5 leagues (proposer's prior lopsidedness from their own earlier 2026 offers), 90% CI clustered by proposer, 2 consecutive Tuesdays. Then it applies as a capped factor to Nick's offers. **Integration-9:** lopsidedness is FantasyCalc as of each offer, so it has E2-league's rule: an offer (and each prior offer) counts only with a `dynasty_value_history` row at or before its `proposed_at`; n = 0 today, and it grows only from 9/24 |
 | M5 pitch bandit #263 | at least 20 settled offers per arm (ONE-PLAN section 7, a guess) | 0 sent; ESPN offers carry no pitch text, so league data cannot stand in | **Park past 12/2.** NEGOTIATOR-DEFAULTS #386 stays on its external-evidence labels (ONE-PLAN spot-check row 18) |
 | NEGOTIATOR-DEFAULTS #386 acceptance effect | "0 graded offers, so no lever is shown to raise acceptance" | same | no promotion gate needed: it moves no number. Its lever tags accrue into E1-weekly as an arm once Nick sends |
 | JEV-01b #289 blend | forward 2026 holdout log loss, blend minus incumbent; needs #248 answers | no Jev answers yet, and chat exists for league 4 only (10 teams) | **JEV-weekly on activity, not acceptance**: does a chat signal predict "roster makes a move in the next 7 days" better than the trailing move rate (from the 1,666 moves)? That is 10 team-weeks a week, so about 50 by the freeze. Thin: likely `not_enough_data` by 11/24, so it stays shadow unless the effect is large |
@@ -174,7 +182,8 @@ LIVE-BLEND (branch `claude/cloud-live-blend`) earns its weights from "E1-graded 
 ## 7. What adopting this costs
 
 - **One grader file per new row.** Each is a new check id in `eval/index.js` `GRADERS` and in `plans-schema.js` `BRAIN_CHECK_IDS`. No new job, no new producer.
-- **Snapshots that do not exist yet.** E3-weekly needs pre-kickoff matchup win probabilities in `served_numbers`, and they need to start by week 4 (Thu 10/1) to reach 5 Tuesdays before the freeze. E4-points needs the producer run for all 5 leagues.
+- **Every new grader row is `shadow_only` until its unit serves** (integration-9, as #401's L01B rows do: `detail.shadow_only`, `SHADOW_ONLY = true` on the grader). `brain-rule.js` never lowers Nick's risk mode on a shadow row and `brainReportSection` keeps it out of the War Room, so a failing new row cannot drop Nick to Balanced before the unit it grades serves anything.
+- **No new snapshots are needed (integration-9 rewrite).** E3-weekly reads L01B-SIM's stored predictions and ESPN's projected points (it must start recording by week 4, Thu 10/1, to reach 5 Tuesdays before the freeze). A sim-produced per-matchup win probability would be a **new producer and its own unit before 10/1**; it is not assumed here. E4-points grades the planner on league 4 only unless Nick chooses 5-league runs.
 - **Everything else re-reads tables that already exist:** `decidedOffers()`, `league_transactions_raw`, `league_week_scores` and the roster snapshots.
 - **Order, by what each unblocks:**
   1. E1-weekly: 5 PR units plus the `COUNTERPART` and receptiveness arms.

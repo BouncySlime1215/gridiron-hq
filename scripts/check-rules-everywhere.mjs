@@ -223,6 +223,17 @@ await fpSurface('fantasypros: coach plan_read blue_chips', async () => {
   return cols;
 });
 
+await fpSurface('fantasypros: committed server data (analyst notes -> LiveDraft prompt)', async () => {
+  const dir = new URL('../server/data/', import.meta.url);
+  const hits = new Map();
+  for (const f of fs.readdirSync(dir)) {
+    if (!/\.(json|csv|md|txt)$/i.test(f)) continue;
+    const n = (fs.readFileSync(new URL(f, dir), 'utf8').match(/fantasypros|\(FP \d+\/\d+/gi) ?? []).length;
+    if (n) hits.set(`server/data/${f}`, n);
+  }
+  return hits;
+});
+
 /* ------------------------------------------------------------ report */
 let fail = 0;
 for (const r of results) {
@@ -230,7 +241,7 @@ for (const r of results) {
   if (r.error) { fail++; console.log(`FAIL ${r.name}: error ${r.error}`); continue; }
   if (r.fp) {
     const n = [...r.fp.values()].reduce((a, b) => a + b, 0);
-    if (n) { fail++; console.log(`FAIL ${r.name}: ${n} FantasyPros keys reach the client (${[...r.fp.keys()].slice(0, 4).join(', ')})`); }
+    if (n) { fail++; console.log(`FAIL ${r.name}: ${n} FantasyPros keys or mentions reach the client or the repo (${[...r.fp.keys()].slice(0, 4).join(', ')})`); }
     else console.log(`PASS ${r.name}: 0 FantasyPros keys`);
     continue;
   }

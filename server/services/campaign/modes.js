@@ -49,7 +49,7 @@ export function tolerancesFor(mode, overrides = {}) {
   return base;
 }
 
-/** REACH-01: the gate codes toleranceCheck names (the keys of dropped_by_reason's `tolerance` counts). */
+/** REACH-01: the gate codes toleranceCheck names (the keys of reach.drops_by_gate's `tolerance` counts). */
 export const TOLERANCE_CODES = Object.freeze(['max_assets', 'max_offers_per_manager_week', 'max_give_per_step',
   'max_downside_per_step', 'core_starter', 'untouchable']);
 

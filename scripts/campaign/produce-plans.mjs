@@ -383,7 +383,7 @@ export async function buildPlansFile(leagues, {
     entries.push(entry);
     log(`[warroom] league ${id}: ${entry.error ? `FAILED ${entry.error}`
       : `ok, next ${entry._run.changed.next_key}, changed ${entry._run.changed.changed}`} (${Math.round((clock() - t0) / 1000)} s, ${entry._run?.rescores ?? 0} rescores, phases ms ${JSON.stringify(entry._run?.phases_ms ?? {})})`);
-    if (entry._run?.inputs?.reach) log(`[warroom] league ${id}: ${droppedLine(entry._run.inputs.reach.dropped_by_reason)}`);
+    if (entry._run?.inputs?.reach) log(`[warroom] league ${id}: ${droppedLine(entry._run.inputs.reach.drops_by_gate)}`);
   }
 
   // Attention budget across the leagues (north-star row 19): each league carries its own row.

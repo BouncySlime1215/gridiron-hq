@@ -3504,7 +3504,7 @@
        "best": 7800
       },
       "targets": [],
-      "dropped_by_reason": {
+      "drops_by_gate": {
        "candidates": 138,
        "search": {
         "no_overpay": 0,
@@ -7214,7 +7214,7 @@
        "best": 7800
       },
       "targets": [],
-      "dropped_by_reason": {
+      "drops_by_gate": {
        "candidates": 88,
        "search": {
         "no_overpay": 0,
@@ -10490,7 +10490,7 @@
        "best": 7800
       },
       "targets": [],
-      "dropped_by_reason": {
+      "drops_by_gate": {
        "candidates": 121,
        "search": {
         "no_overpay": 0,
@@ -12111,7 +12111,7 @@
        "best": 7800
       },
       "targets": [],
-      "dropped_by_reason": {
+      "drops_by_gate": {
        "candidates": 87,
        "search": {
         "no_overpay": 0,
@@ -15656,7 +15656,7 @@
        "best": 7800
       },
       "targets": [],
-      "dropped_by_reason": {
+      "drops_by_gate": {
        "candidates": 43,
        "search": {
         "no_overpay": 0,

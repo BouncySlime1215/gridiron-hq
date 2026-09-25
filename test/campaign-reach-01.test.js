@@ -1,5 +1,5 @@
 /**
- * REACH-01: why every path died (dropped_by_reason), the reach filter before the target slice,
+ * REACH-01: why every path died (reach.drops_by_gate), the reach filter before the target slice,
  * the chained finish up to the mode's max give, and the closest miss printed as its whole chain.
  * Pre-registration: docs/tdd/2026-09-24-reach-01.tdd.md (M1-M6).
  * Made-up leagues only (test/fixtures/campaign-league.mjs and small linear worlds); no DB, no simulation.
@@ -92,11 +92,11 @@ test('toleranceCheck names each gate with a code; toleranceViolation keeps its t
 const planOn = (env, { adapter = makeAdapter(), mode = 'balanced', targets } = {}) =>
   planLeague(adapter, { objective: normaliseObjective({ risk_mode: mode }), env, ...(targets ? { budget: { targets } } : {}) });
 
-test('M1: dropped_by_reason sums to candidates_scored in every mode', () => {
+test('M1: drops_by_gate sums to candidates_scored in every mode', () => {
   for (const mode of MODES) {
     for (const env of [ON, OFF]) {
       const res = planOn(env, { mode });
-      const d = res.reach.dropped_by_reason;
+      const d = res.reach.drops_by_gate;
       assert.equal(d.candidates, res.candidates_scored);
       for (const m of MODES) {
         const r = d.modes[m];
@@ -128,7 +128,7 @@ test('M2 + M3: out-of-reach targets are skipped (never findable) and the next on
   const on = planOn(ON, { adapter: mk(), targets: 3 });
   const skipped = on.reach.targets.filter(t => !t.in_reach).map(t => t.player);
   assert.deepEqual([...skipped].sort(), [...top3].sort(), 'on: exactly the unreachable three are skipped');
-  assert.equal(on.reach.dropped_by_reason.search.out_of_reach, 3);
+  assert.equal(on.reach.drops_by_gate.search.out_of_reach, 3);
   assert.equal(on.targets.length, 3);
   assert.ok(on.targets.every(t => !top3.includes(String(t))), 'on: three reachable targets take their slots');
   // M2: searched unfiltered (off searches only these three), the skipped targets produce no path at all.
@@ -209,7 +209,7 @@ test('M5: flag off, targets and chain width are the incumbent\'s', () => {
   const res = planOn(OFF, { targets: 3 });
   assert.equal(res.reach.flag, 'off');
   assert.equal(res.reach.chain_give, 2);
-  assert.equal(res.reach.dropped_by_reason.search.out_of_reach, 0);
+  assert.equal(res.reach.drops_by_gate.search.out_of_reach, 0);
   assert.equal(res.targets.length, 3);
   const on = planOn(ON, { mode: 'all_in' });
   assert.equal(on.reach.chain_give, 3, 'on: all_in chains up to its max give (3)');
@@ -221,7 +221,7 @@ test('M5: flag off, targets and chain width are the incumbent\'s', () => {
 test('M1, get-player objective: the objective mode counts its pool; the rest are not_objective_target', () => {
   const a = makeAdapter();
   const res = planLeague(a, { objective: normaliseObjective({ kind: 'player', target: 21, risk_mode: 'balanced' }), env: ON });
-  const d = res.reach.dropped_by_reason;
+  const d = res.reach.drops_by_gate;
   const r = d.modes.balanced;
   const tol = Object.values(r.tolerance).reduce((x, n) => x + n, 0);
   const pool = res.candidates_scored - r.not_objective_target;

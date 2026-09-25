@@ -519,7 +519,8 @@ export function planLeague(adapter, settings) {
     reach: { flag: reachMode, targets_budget: budget.targets, chain_give: chainGive,
       bound: { direct: bound.direct, chain: bound.chain, best: bound.best }, targets: reachRows,
       // The objective mode counts the pool its deck was ranked from (a get-player objective keeps only that target's paths).
-      dropped_by_reason: droppedByReason({ candidates: plans.length, byMode: { ...rankedByMode, [objective.risk_mode]: { ranked, dropped } },
+      // integration-7: named drops_by_gate so `dropped_by_reason` means one thing (the served _run count).
+      drops_by_gate: droppedByReason({ candidates: plans.length, byMode: { ...rankedByMode, [objective.risk_mode]: { ranked, dropped } },
         objectiveMode: objective.risk_mode, notObjectiveTarget: plans.length - pool.length,
         confirm: confirmCounts, noOverpay: overpay.rejected, outOfReach: reachRows.filter(r => !r.in_reach).length }) },
     trade_memory: memorySummary(tmOn ? TM : 'off', { dropped: tmApplied?.dropped ?? {}, shadow: tmApplied?.shadow ?? {}, floorOn: tmApplied?.floor_on ?? false,

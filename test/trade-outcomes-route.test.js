@@ -33,6 +33,7 @@ process.env.GRIDIRON_OFFER_LOOP = '1';
 delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
 
 const { db, rows, run } = await import('../server/db/index.js');
+const { priceForRules } = await import('./fixtures/rule-gate.mjs');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 const { hashSessionToken } = await import('../server/platform/auth.js');
@@ -118,6 +119,8 @@ insertLeague(42, null);
 // for one stamped from `?team_id=1`, which the tests above send.
 insertLeague(43, 2026, '5');
 insertLeague(44, 2026, '5');
+// RULES-EVERYWHERE: the stub ideas' players priced so Nick's rule gate keeps them (rules: own test).
+for (const leagueId of [41, 42, 43, 44]) priceForRules(db, { leagueId, mine: [102, 103, 104], theirs: [202, 203, 204] });
 
 const app = express();
 app.use(express.json());

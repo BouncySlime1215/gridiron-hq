@@ -61,7 +61,9 @@ function resultText(c) {
  */
 export function brainReportSection({ report, rule, error = null, requestedMode }) {
   const current = !!report && !error && !rule.blocking.some(b => b.check == null);
-  const rows = report && !error && Array.isArray(report.checks) ? report.checks : [];
+  // Shadow-only rows (LIVING-01b's re-gate, eval/living-gate.js) grade a unit that
+  // serves nothing yet; they stay on GET /api/brain-report and out of the War Room.
+  const rows = report && !error && Array.isArray(report.checks) ? report.checks.filter(c => c.detail?.shadow_only !== true) : [];
   const checks = rows.length
     ? rows.map(c => ({
       id: String(c.check), name: c.name || String(c.check), bar: c.pass_bar || 'not stated', status: c.status,

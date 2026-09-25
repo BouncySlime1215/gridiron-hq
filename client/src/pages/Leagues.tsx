@@ -3,6 +3,8 @@ import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
 import { PlayerName } from '../components/PlayerCard';
 import { PageError, PageLoading } from '../components/PageState';
+import { Button, Card, Chip, EmptyState } from '../components/ui/DesignSystem';
+import EspnConnect from '../components/EspnConnect';
 
 const POS_ORDER = ['QB', 'RB', 'WR', 'TE'];
 
@@ -30,24 +32,24 @@ function StatusPill({ status, ratio }: { status: string; ratio: number | null })
   // there is no ratio to show. It used to arrive as a ratio of 0, which read as
   // a bright red NEED 0% for every team at once.
   if (status === 'unknown' || ratio == null) {
-    return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-400">
-      NOT PRICED
-    </span>;
+    return <Chip>Not priced</Chip>;
   }
-  const style = status === 'need' ? 'bg-crit-tint text-crit'
-    : status === 'surplus' ? 'bg-good-tint text-good'
-    : 'bg-slate-100 text-slate-500';
-  return <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${style}`}>
-    {status === 'need' ? 'NEED' : status === 'surplus' ? 'SURPLUS' : 'OK'} {(ratio * 100).toFixed(0)}%
-  </span>;
+  return <Chip tone={status === 'need' ? 'bad' : status === 'surplus' ? 'good' : 'neutral'}>
+    {status === 'need' ? 'Need' : status === 'surplus' ? 'Surplus' : 'OK'} {(ratio * 100).toFixed(0)}%
+  </Chip>;
 }
 
-export default function Leagues() {
+/**
+ * League → Your leagues (`view="leagues"`: connect, the league cards, sync, disconnect) and
+ * League → Roster strength (`view="rosters"`: every roster's needs and surplus). LeagueHub draws
+ * the one title and the tabs; this page draws no heading of its own.
+ */
+export default function Leagues({ view = 'leagues' }: { view?: 'leagues' | 'rosters' } = {}) {
   // Shared with the header switcher — clicking a league card here to view its
   // analysis also makes it the active league on My Team, Trade Lab, etc.
   const { leagues, loading: leaguesLoading, error: leaguesError, refetch, activeId: sel, setActiveId: setSel } = useLeague();
-  const { data: analysis, refetch: refetchAnalysis } = useApi<any>(sel ? `/leagues/${sel}/analysis` : null);
-  const [form, setForm] = useState({ platform: 'sleeper', league_id: '', season: 2026, espn_s2: '', swid: '' });
+  const { data: analysis, refetch: refetchAnalysis } = useApi<any>(sel && view === 'rosters' ? `/leagues/${sel}/analysis` : null);
+  const [form, setForm] = useState({ platform: 'sleeper', league_id: '', season: 2026 });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [removal, setRemoval] = useState<null | { id: number; name: string; drafts: number; draft_picks: number; draft_names: string[] }>(null);
@@ -59,7 +61,7 @@ export default function Leagues() {
       const lg = await api('/leagues', { method: 'POST', body: JSON.stringify(form) });
       const s = await api(`/leagues/${lg.id}/sync`, { method: 'POST' });
       setMsg(`Added and synced — ${s.teams} teams${s.fell_back ? `, using ${s.season_used} rosters (this season hasn’t drafted yet)` : ''}.${scoringNote(s.scoring)}`);
-      setForm(f => ({ ...f, league_id: '', espn_s2: '', swid: '' }));
+      setForm(f => ({ ...f, league_id: '' }));
       refetch();
       setSel(lg.id);
     } catch (e: any) { setMsg(e.message); }
@@ -98,100 +100,104 @@ export default function Leagues() {
   };
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-1">My Leagues</h1>
-      <p className="text-sm text-slate-500 mb-5">Connect as many leagues as you want — Sleeper (no login needed) or ESPN (cookies for private leagues). Each one gets roster-needs analysis against real trade-market values.</p>
-
-      <div className="card p-4 mb-6 flex flex-wrap gap-3 items-end">
-        <label className="text-xs text-slate-600">Platform
-          <select className="input block mt-1" value={form.platform}
-            onChange={e => setForm(f => ({ ...f, platform: e.target.value }))}>
-            <option value="sleeper">Sleeper</option>
-            <option value="espn">ESPN</option>
-          </select>
-        </label>
-        <label className="text-xs text-slate-600">League ID
-          <input className="input block mt-1 w-48" placeholder={form.platform === 'sleeper' ? '1124...' : '1234567'}
-            value={form.league_id} onChange={e => setForm(f => ({ ...f, league_id: e.target.value }))} />
-        </label>
-        <label className="text-xs text-slate-600">Season
-          <input type="number" className="input block mt-1 w-24" value={form.season}
-            onChange={e => setForm(f => ({ ...f, season: Number(e.target.value) }))} />
-        </label>
-        {form.platform === 'espn' && (
-          <>
-            <label className="text-xs text-slate-600">espn_s2
-              <input className="input block mt-1 w-56 font-mono" value={form.espn_s2}
-                onChange={e => setForm(f => ({ ...f, espn_s2: e.target.value }))} />
-            </label>
-            <label className="text-xs text-slate-600">SWID
-              <input className="input block mt-1 w-48 font-mono" value={form.swid}
-                onChange={e => setForm(f => ({ ...f, swid: e.target.value }))} />
-            </label>
-          </>
-        )}
-        <button className="btn-primary" onClick={add} disabled={busy}>{busy ? 'Working…' : '+ Add & sync'}</button>
-        {msg && <span className="text-xs text-amber-600">{msg}</span>}
-      </div>
+    <div className="space-y-4">
+      {view === 'leagues' && <>
+      <Card>
+        <h2 className="ds-h">Connect a league</h2>
+        <p className="ds-note mt-0.5">Sleeper needs only the league id. ESPN connects once, then lists your leagues.</p>
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <label className="text-xs text-slate-600">Platform
+            <select className="input block mt-1" value={form.platform}
+              onChange={e => setForm(f => ({ ...f, platform: e.target.value }))}>
+              <option value="sleeper">Sleeper</option>
+              <option value="espn">ESPN</option>
+            </select>
+          </label>
+          {form.platform === 'sleeper' && <>
+          <label className="text-xs text-slate-600">League ID
+            <input className="input block mt-1 w-48" placeholder={form.platform === 'sleeper' ? '1124...' : '1234567'}
+              value={form.league_id} onChange={e => setForm(f => ({ ...f, league_id: e.target.value }))} />
+          </label>
+          <label className="text-xs text-slate-600">Season
+            <input type="number" className="input block mt-1 w-24" value={form.season}
+              onChange={e => setForm(f => ({ ...f, season: Number(e.target.value) }))} />
+          </label>
+          <Button variant="primary" icon="refresh" onClick={add} disabled={busy || !form.league_id}
+            title={!form.league_id ? 'Enter a league id first' : undefined}>{busy ? 'Working…' : 'Add and sync'}</Button>
+          </>}
+        </div>
+        {/* ESPN goes through the one connect flow (the same one as Settings and the first-run prompt):
+            no cookie fields here, a league not listed is added by ID inside it. */}
+        {form.platform === 'espn' && <div className="mt-4"><EspnConnect variant="bare" /></div>}
+        {msg && <p role="status" className="ds-note mt-3">{msg}</p>}
+      </Card>
 
       {leaguesLoading && !leagues.length && <PageLoading label="Loading your leagues…" />}
       {leaguesError && !leagues.length && <PageError message={leaguesError} onRetry={refetch} />}
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
-        {leagues?.map(lg => (
-          <div key={lg.id} className={`card p-4 cursor-pointer transition-colors ${sel === lg.id ? 'border-[var(--accent)]' : 'hover:border-slate-400'}`}
-            onClick={() => setSel(lg.id)}>
-            <div className="flex items-center gap-2">
-              <span className={`text-[10px] font-black px-1.5 py-0.5 rounded ${lg.platform === 'sleeper' ? 'bg-violet-100 text-violet-700' : 'bg-rose-100 text-rose-700'}`}>
-                {lg.platform.toUpperCase()}
+      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+        {leagues?.map(lg => {
+          const on = sel === lg.id;
+          return (
+          <Card key={lg.id} className={`!p-4 ${on ? '!shadow-[0_0_0_2px_var(--c-accent)]' : ''}`}>
+            <button type="button" className="block w-full min-w-0 text-left" aria-pressed={on} onClick={() => setSel(lg.id)}
+              title={on ? 'The active league' : 'Make this the active league'}>
+              <span className="flex min-w-0 items-center gap-2">
+                <Chip tone={lg.platform === 'sleeper' ? 'accent' : 'bad'}>{lg.platform === 'sleeper' ? 'Sleeper' : 'ESPN'}</Chip>
+                <span className="min-w-0 truncate font-semibold">{lg.name?.trim() ?? `League ${lg.league_id}`}</span>
+                {on && <span className="ml-auto shrink-0"><Chip tone="good">Active</Chip></span>}
               </span>
-              <span className="font-semibold text-sm truncate">{lg.name ?? `League ${lg.league_id}`}</span>
-            </div>
-            <div className="text-xs text-slate-500 mt-1">
-              {lg.team_count ?? '?'} teams · {lg.season}{lg.superflex ? ' · superflex' : ''}{lg.ppr === 1 ? ' · PPR' : lg.ppr === 0.5 ? ' · half-PPR' : ''}
-            </div>
-            <div className="text-[10px] text-slate-400 mt-0.5">{lg.fetched_at ? `synced ${lg.fetched_at}` : 'never synced'}</div>
+              <span className="ds-note mt-1 block">
+                {lg.team_count ?? '?'} teams · {lg.season}{lg.superflex ? ' · superflex' : ''}{lg.ppr === 1 ? ' · PPR' : lg.ppr === 0.5 ? ' · half-PPR' : ''}
+                {' · '}{lg.fetched_at ? `synced ${new Date(`${lg.fetched_at}Z`).toLocaleString()}` : 'never synced'}
+              </span>
+            </button>
             {lg.connection_status && lg.connection_status !== 'connected' && (
-              <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-800">
+              <p className="ds-chip ds-chip-warn mt-2 !whitespace-normal">
                 {lg.connection_status === 'needs_reconnect' ? 'Credentials disconnected — reconnect to sync' : `Sync failed${lg.sync_error ? `: ${lg.sync_error}` : ''}`}
-              </div>
+              </p>
             )}
-            <div className="flex gap-3 mt-2">
-              <button className="text-xs text-emerald-600 hover:underline"
-                onClick={e => { e.stopPropagation(); sync(lg.id); }}>↻ sync</button>
-              <button className="text-xs text-rose-600 hover:underline"
-                onClick={e => { e.stopPropagation(); inspectRemoval(lg.id, lg.name ?? `League ${lg.league_id}`); }}>disconnect</button>
+            <div className="mt-3 flex gap-2">
+              <Button size="sm" variant="quiet" icon="refresh" disabled={busy} onClick={() => sync(lg.id)}
+                title={busy ? 'Another sync is running' : 'Pull rosters, scores and settings again'}>Sync</Button>
+              <Button size="sm" disabled={busy} onClick={() => inspectRemoval(lg.id, lg.name ?? `League ${lg.league_id}`)}
+                title={busy ? 'Another sync is running' : 'Stop syncing this league (its data stays)'}>Disconnect</Button>
             </div>
-          </div>
-        ))}
-        {!leaguesLoading && !leaguesError && leagues?.length === 0 && <p className="text-sm text-slate-500">No leagues connected yet.</p>}
+          </Card>
+          );
+        })}
       </div>
+      {!leaguesLoading && !leaguesError && leagues?.length === 0 && <Card><EmptyState title="No leagues connected yet" description="Add one above; everything else in the app follows it." /></Card>}
+      </>}
 
+      {view === 'rosters' && <>
       {analysis?.league?.payload_season != null
         && analysis.league.payload_season !== analysis.league.season && (
-        <div className="card p-4 text-sm text-warn">
+        <Card className="!p-4 text-sm text-warn">
           These rosters are from the {analysis.league.payload_season} season, not {analysis.league.season}.
           ESPN returned no rosters for {analysis.league.season}, so the sync fell back to last year.
-        </div>
+        </Card>
       )}
 
       {(analysis?.empty || analysis?.values_missing) && (
-        <div className="card p-6 text-sm text-slate-500">
+        <Card className="text-sm text-slate-500">
           <p>{analysis.message}</p>
           {analysis.coverage?.rostered_in_payload > 0 && (
-            <p className="mt-2 text-xs text-slate-400">
+            <p className="mt-2 text-xs text-slate-500">
               {analysis.coverage.matched_to_player_table} of {analysis.coverage.rostered_in_payload} rostered
               players matched the local player table, {analysis.coverage.priced} of them with a trade value.
             </p>
           )}
-        </div>
+        </Card>
       )}
 
+      {!analysis && <PageLoading label="Pricing every roster…" />}
+
       {analysis && !analysis.empty && !analysis.values_missing && (
-        <div className="card overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-200">
-            <h2 className="font-bold text-sm">{analysis.league.name} — roster strength by position</h2>
-            <p className="text-xs text-slate-500">Starter value vs league average, priced off real FantasyCalc trade values. Under 80% = need, over 115% = surplus.</p>
+        <Card pad={false} className="overflow-hidden">
+          <div className="px-4 py-4 sm:px-5">
+            <h2 className="ds-h">Roster strength by position</h2>
+            <p className="ds-note mt-0.5">Starter value vs league average, priced off real FantasyCalc trade values. Under 80% = need, over 115% = surplus.</p>
             {analysis.coverage && analysis.coverage.matched_to_player_table < analysis.coverage.rostered_in_payload && (
               <p className="text-xs text-warn mt-1">
                 Only {analysis.coverage.matched_to_player_table} of {analysis.coverage.rostered_in_payload} rostered
@@ -205,17 +211,17 @@ export default function Leagues() {
               rules that out) — the sm:hidden card list below is the phone view of
               the same data, not a scroll target. */}
           <div className="hidden sm:block overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-xs text-slate-500">
+            <table className="ds-table">
+              <thead>
                 <tr>
                   <th className="text-left px-4 py-2">Team</th>
                   {POS_ORDER.map(p => <th key={p} className="text-left px-3 py-2">{p}</th>)}
                   <th className="text-left px-4 py-2">Needs</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {analysis.rosters.map((ro: any) => (
-                  <tr key={ro.roster_id} className="hover:bg-slate-50 align-top">
+                  <tr key={ro.roster_id} className="align-top">
                     <td className="px-4 py-2 font-medium whitespace-nowrap">{ro.owner}</td>
                     {POS_ORDER.map(pos => (
                       <td key={pos} className="px-3 py-2">
@@ -230,7 +236,7 @@ export default function Leagues() {
                       </td>
                     ))}
                     <td className="px-4 py-2 text-xs">
-                      {ro.needs.length ? <span className="text-crit font-medium">{ro.needs.join(', ')}</span> : <span className="text-slate-400">balanced</span>}
+                      {ro.needs.length ? <span className="text-crit font-medium">{ro.needs.join(', ')}</span> : <span className="text-slate-500">balanced</span>}
                       {ro.surplus.length > 0 && <div className="text-good">has: {ro.surplus.join(', ')}</div>}
                     </td>
                   </tr>
@@ -240,7 +246,7 @@ export default function Leagues() {
           </div>
 
           {/* Phone: one card per team, stacked, no fixed-width row to overflow. */}
-          <div className="sm:hidden divide-y divide-slate-100">
+          <div className="sm:hidden ds-rows">
             {analysis.rosters.map((ro: any) => (
               <div key={ro.roster_id} className="p-4">
                 <div className="font-medium text-sm mb-2">{ro.owner}</div>
@@ -248,7 +254,7 @@ export default function Leagues() {
                   {POS_ORDER.map(pos => (
                     <div key={pos}>
                       <div className="flex items-center gap-1.5 mb-1">
-                        <span className="text-[10px] font-bold text-slate-400">{pos}</span>
+                        <span className="text-[10px] font-bold text-slate-500">{pos}</span>
                         <StatusPill status={ro.positions[pos].status} ratio={ro.positions[pos].ratio} />
                       </div>
                       <div className="space-y-0.5">
@@ -262,23 +268,25 @@ export default function Leagues() {
                   ))}
                 </div>
                 <div className="mt-2 text-xs">
-                  {ro.needs.length ? <span className="text-crit font-medium">Needs: {ro.needs.join(', ')}</span> : <span className="text-slate-400">balanced</span>}
+                  {ro.needs.length ? <span className="text-crit font-medium">Needs: {ro.needs.join(', ')}</span> : <span className="text-slate-500">balanced</span>}
                   {ro.surplus.length > 0 && <div className="text-good">has: {ro.surplus.join(', ')}</div>}
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
+      </>}
+
       {removal && (
-        <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-900/20 p-4 backdrop-blur-sm" role="presentation" onMouseDown={() => !busy && setRemoval(null)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="disconnect-title" className="w-full max-w-lg rounded-[10px] border border-slate-200 bg-white p-6 shadow-xl" onMouseDown={e => e.stopPropagation()}>
-            <div className="text-xs font-bold uppercase tracking-wider text-amber-700">Safe disconnect</div>
-            <h2 id="disconnect-title" className="mt-1 text-xl font-extrabold text-slate-900">Disconnect {removal.name}?</h2>
+        <div className="ds-scrim grid place-items-center p-4" role="presentation" onMouseDown={() => !busy && setRemoval(null)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="disconnect-title" className="ds-card ds-card-pad w-full max-w-lg" onMouseDown={e => e.stopPropagation()}>
+            <div className="ds-eyebrow">Safe disconnect</div>
+            <h2 id="disconnect-title" className="ds-section-t">Disconnect {removal.name}?</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">ESPN cookies will be removed and live syncing will stop. The league itself stays in Gridiron HQ so nothing silently disappears.</p>
-            <div className="mt-4 rounded-[10px] border border-slate-200 bg-slate-50 p-4 text-sm">
-              <div className="font-semibold text-slate-900">What will be retained</div>
+            <div className="mt-4 rounded-[var(--r-tile)] bg-[var(--c-soft)] p-4 text-sm">
+              <div className="font-semibold">What will be retained</div>
               <ul className="mt-2 space-y-1 text-slate-600">
                 <li>League settings and cached roster data</li>
                 <li>{removal.drafts} draft{removal.drafts === 1 ? '' : 's'} and {removal.draft_picks} recorded pick{removal.draft_picks === 1 ? '' : 's'}</li>
@@ -286,8 +294,8 @@ export default function Leagues() {
               </ul>
             </div>
             <div className="mt-5 flex justify-end gap-2">
-              <button className="btn-ghost" onClick={() => setRemoval(null)} disabled={busy}>Cancel</button>
-              <button className="btn-primary" onClick={disconnect} disabled={busy}>{busy ? 'Disconnecting…' : 'Disconnect credentials'}</button>
+              <Button onClick={() => setRemoval(null)} disabled={busy}>Cancel</Button>
+              <Button variant="primary" onClick={disconnect} disabled={busy}>{busy ? 'Disconnecting…' : 'Disconnect credentials'}</Button>
             </div>
           </div>
         </div>

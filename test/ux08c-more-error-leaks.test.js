@@ -163,7 +163,8 @@ async function runCatch(varName, body, helpers, overrides = {}, error = new Erro
 const CATCH_SITES = [
   { site: 'TeamDetail.tsx:81 (refreshOutlook)', file: 'pages/TeamDetail.tsx', anchor: "'/analysis/refresh'",
     shows: 'Outlook refresh failed. Try again in a moment.' },
-  { site: 'TeamDetail.tsx:396 (ExplainButton)', file: 'pages/TeamDetail.tsx', anchor: 'newsId}/explain',
+  // Moved with the one news list (Players PR): TeamDetail, News and PlayerDetail all render NewsList.
+  { site: 'NewsList.tsx (ExplainButton)', file: 'components/NewsList.tsx', anchor: 'newsId}/explain',
     shows: "Couldn't explain that. Try again in a moment." },
   { site: 'TradeCard.tsx:175 (senseCheck)', file: 'components/TradeCard.tsx', anchor: 'sense-check',
     shows: "Couldn't run the sense check. Try again in a moment." },

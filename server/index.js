@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { assertPortAvailable } from './platform/port-guard.js';
 import { startLoopWatchdog, watchdogArmingMiddleware, armLoopWatchdog } from './platform/loop-watchdog.js';
 import { healthHandler } from './platform/health.js';
+// FP-GUARD: FantasyPros is never displayed, so no fp_* / FantasyPros key leaves in any API response.
+import { fantasyProsGuard } from './services/fantasypros-guard.js';
 
 // This process is the web server: it reads engine tables and never writes them. Set in
 // code, before any module that could reach the engine is imported (every database-opening
@@ -66,6 +68,7 @@ const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-acc
 const { default: coachRouter } = await import('./routes/coach.js');
 const { default: engineRouter } = await import('./routes/engine.js');
 const { default: warroomRouter } = await import('./routes/warroom.js');
+const { default: warroomNegotiateRouter } = await import('./routes/warroom-negotiate.js');
 
 const app = express();
 // First, so that ANY completed response arms the watchdog -- including a 404
@@ -73,6 +76,7 @@ const app = express();
 // response", not "has it served a useful one". See platform/loop-watchdog.js.
 app.use(watchdogArmingMiddleware);
 app.use(express.json());
+app.use('/api', fantasyProsGuard);
 
 seedIfEmpty();
 
@@ -141,6 +145,7 @@ app.use('/api/edge', ...legacyAuthenticated, edgeRouter);
 app.use('/api/tradelab', ...legacyAuthenticated, tradelabRouter);
 app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
 app.use('/api/grades', ...legacyAuthenticated, gradesRouter);
+app.use('/api/warroom', ...legacyAuthenticated, warroomNegotiateRouter);
 app.use('/api/command-center', ...legacyAuthenticated, commandCenterRouter);
 app.use('/api/espn-connect', espnConnectRouter);
 app.use('/api/league-chat', ...legacyAuthenticated, leagueChatRouter);

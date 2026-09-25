@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  validatePlans, validateLeague, schemaPaths, writtenPaths, tradeoffKey, TRADEOFF_KEY, SECTIONS, SCHEMA_VERSION
+  validatePlans, validateLeague, schemaPaths, writtenPaths, tradeoffKey, TRADEOFF_KEY, SECTIONS, OPTIONAL_SECTIONS, SCHEMA_VERSION
 } from '../server/services/campaign/plans-schema.js';
 import { READS } from './fixtures/warroom-contract/consumer-reads.js';
 
@@ -53,7 +53,23 @@ test('the producer fixture validates against the contract', () => {
  * them starts being written, so an entry cannot linger.
  */
 const PENDING = [
-  { unit: 'unassigned', why: 'no planner rule reads these two sliders', path: /^leagues\[\]\.destination\.value\.tolerances\.value\.(reputation_budget|ai_spend)$/ }
+  { unit: 'unassigned', why: 'no planner rule reads these two sliders', path: /^leagues\[\]\.destination\.value\.tolerances\.value\.(reputation_budget|ai_spend)$/ },
+  { unit: 'EVAL E1 (PEOPLE-03)', why: 'no per-step counterpart feature names a player until E1 grades one positive (stepAdjust returns none)',
+    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.counterpart\.value\.reason_chain\[\]\.(player|n)$/ },
+  { unit: 'FLIP-LEGS-2 (#358 flag)', why: 'the flip packages are served only with GRIDIRON_FLIP_LEGS on; the fixture producer runs flag-off',
+    path: /^leagues\[\]\.flip_map\.value\[\]\.legs\.(give_a_ids|get_b_ids)(\[\])?$/ },
+  { unit: 'HIS-SIDE-WIRE (flag)', why: 'targets[].his_side is served only with GRIDIRON_HIS_SIDE=1; the fixture producer runs flag-off (test/campaign-his-side.test.js validates the served shape)',
+    path: /^leagues\[\]\.targets\.value\[\]\.his_side(\..+)?$/ },
+  { unit: 'RADAR-WIRE (GRIDIRON_RADAR_WIRE flag)', why: 'the why-now label is served only with its flag on; the fixture producer runs flag-off',
+    path: /^leagues\[\]\.flip_map\.value\[\]\.why_now(\..+)?$/ },
+  { unit: 'PLAYER-SCORE (GRIDIRON_PLAYER_SCORE flag)', why: 'the blue-chip board is served only with its flag on; the fixture producer runs flag-off',
+    path: /^leagues\[\]\.blue_chips\.value(\.|\[|$)/ },
+  { unit: 'LADDER-01 (GRIDIRON_LADDER flag)', why: 'the ladder cards are served only with their flag on; the fixture producer runs flag-off',
+    path: /^leagues\[\]\.ladders\.value(\.|\[|$)/ },
+  { unit: 'PLAYER-SCORE (#375) blue-chip board', why: 'CAP-1C premium steps need a blue-chip board on the adapter; the fixture producer has none, so the premium stays off',
+    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.depth_premium(\..+)?$/ },
+  { unit: 'NEGOTIATOR-DEFAULTS (flag)', why: 'the negotiation block is served only with GRIDIRON_NEGOTIATOR_DEFAULTS on; the fixture producer runs flag-off',
+    path: /^leagues\[\]\.(next_move\.value|alternatives\.value\[\])\.steps\[\]\.negotiation(\..*)?$/ }
 ];
 const pending = p => PENDING.some(x => x.path.test(p));
 
@@ -146,7 +162,7 @@ test("the UI's fixture (#231) is the study's shape, and fails the contract only 
   assert.deepEqual([...offending].sort(), ['acq', 'baseline', 'flip', 'owner_mapping_present']);
   // Every campaign section is absent: the study run writes none of them. It also
   // omits `names` on a league whose run failed; the contract requires it (may be {}).
-  assert.deepEqual([...missing].sort(), [...Object.keys(SECTIONS), 'names'].sort());
+  assert.deepEqual([...missing].sort(), [...Object.keys(SECTIONS).filter(k => !OPTIONAL_SECTIONS.includes(k)), 'names'].sort());
 });
 
 test("Coach's plans (#230, after FIX-06) are a contract league and validate", () => {
@@ -193,4 +209,15 @@ test('when a consumer file is in this tree, each recorded read still appears in 
     const leaf = r.reads.replace(/(\.value|\[\]|\{\})+$/, '').split('.').pop().replace(/\W/g, '');
     assert.ok(src.includes(leaf), `${r.where} no longer mentions ${leaf}; update consumer-reads.js`);
   }
+});
+
+test("INT-4 / RULINGS 17: Nick's untouchable (league 1, team 4's P33) is never a target, a get or a flip leg", () => {
+  const L = PRODUCER.leagues.find(e => e.league === 1);
+  const moves = [L.next_move.value, ...(L.alternatives.value ?? [])].filter(Boolean);
+  assert.ok(moves.length > 0, 'league 1 still has a plan');
+  assert.ok(moves.every(m => String(m.target) !== '33' && m.steps.every(s => !s.get.includes('33'))), 'never a get');
+  assert.ok((L.targets.value ?? []).every(t => String(t.player) !== '33'), 'never a target');
+  assert.ok((L.flip_map.value ?? []).every(f => String(f.player) !== '33' && String(f.legs?.get_b ?? '') !== '33'), 'never a flip leg');
+  assert.deepEqual(L.partners.value.find(p => p.team === '4').untouchable, ['33']);
+  assert.deepEqual(L._run.inputs.untouchable.ids, ['33']);
 });

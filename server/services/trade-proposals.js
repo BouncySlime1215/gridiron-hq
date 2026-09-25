@@ -733,3 +733,30 @@ export async function proposalsFor(leagueId, { ideas = [], universe = [], call, 
   cache?.set?.(key, result);
   return { ...result, source: 'model' };
 }
+
+/**
+ * RULES-EVERYWHERE: the written-up proposals through Nick's rule gate (campaign/never-give.js#ruleGate).
+ * A proposal names players, not ids, so each name is read back to an id through the ideas it cites
+ * (the only players verifyProposals lets it name); a name that reads to no id fails closed. The
+ * partner is the cited ideas' partner. -> { kept, dropped_by_rule }
+ */
+export function gateProposals(gate, result, ideas) {
+  const list = Array.isArray(result?.proposals) ? result.proposals : [];
+  const byId = new Map((ideas ?? []).map(i => [String(i.id), i]));
+  let dropped = 0;
+  const kept = [];
+  for (const p of list) {
+    const sources = (Array.isArray(p?.idea_ids) ? p.idea_ids : []).map(id => byId.get(String(id))).filter(Boolean);
+    const idOf = new Map();
+    for (const s of sources) for (const x of [...(s.i_give ?? []), ...(s.i_get ?? [])]) if (x?.name && x.id != null) idOf.set(normalizeName(x.name), String(x.id));
+    const read = names => (Array.isArray(names) ? names : []).map(n => idOf.get(normalizeName(n)) ?? null);
+    const give = read(p?.package?.i_give), get = read(p?.package?.i_get);
+    const partner = sources[0]?.partner_id ?? null;
+    const unreadable = !sources.length || give.includes(null) || get.includes(null);
+    const ok = !unreadable && gate.filter([p], () => ({ give, get, partner })).kept.length === 1;
+    // An unreadable package is dropped only when the gate applies (Nick's team or Nick as partner).
+    if (ok || (unreadable && !gate.applies)) kept.push(p);
+    else dropped++;
+  }
+  return { kept, dropped_by_rule: dropped };
+}

@@ -31,15 +31,13 @@ export default function StreamingBoard({ data, loading, error, onRetry }: {
   data: StreamBoard | null; loading: boolean; error: string | null; onRetry: () => void;
 }) {
   return (
-    <section id="defense-streams" className="tr-rise scroll-mt-16 rounded-2xl border border-slate-200 bg-white p-4"
-      style={{ animationDelay: '220ms' }} aria-labelledby="streams-heading">
-      <h2 id="streams-heading" className="text-sm font-black uppercase tracking-wide text-slate-500">Stream a defense</h2>
-      <p className="mt-1 text-xs leading-5 text-slate-500">
-        Free-agent defenses ranked by how many points the betting market expects the offense they face to score.
+    <section id="defense-streams" className="ds-card scroll-mt-16 p-4" aria-labelledby="streams-heading">
+      <h2 id="streams-heading" className="ds-h">Stream a defense</h2>
+      <p className="ds-note mt-0.5">
+        Free-agent defenses ranked by the points the betting market expects their opponent to score.
         {data?.unconfirmed_forward ? (
-          <> Replayed on 2022-2025, swapping to the top-ranked free agent each week scored about 2.9 more points
-            than the defense it replaced (range 0.9 to 4.8) — <strong>history-tested (2022-25), not yet confirmed
-            on 2026 games</strong>.</>
+          <> Replayed on 2022-2025, the top free agent each week scored about 2.9 more points than the defense it
+            replaced (0.9 to 4.8): <strong>history-tested (2022-25), not yet confirmed on 2026 games</strong>.</>
         ) : null}
       </p>
       <Body data={data} loading={loading} error={error} onRetry={onRetry} />
@@ -62,8 +60,8 @@ function Body({ data, loading, error, onRetry }: {
   return (
     <>
       {s?.why && (
-        <div className="mt-3 rounded-xl bg-slate-50 p-3">
-          <div className="text-[10px] font-black uppercase tracking-wide text-emerald-700">
+        <div className="mt-3 rounded-xl bg-[var(--c-soft)] p-3">
+          <div className="text-sm font-semibold">
             {s.action === 'swap' ? `Swap: add ${s.add?.team}, drop ${s.drop?.team}`
               : s.action === 'add' ? `Add ${s.add?.team}`
                 : s.action === 'hold' ? 'Hold your defense' : 'No move'}
@@ -71,7 +69,7 @@ function Body({ data, loading, error, onRetry }: {
           <p className="mt-1 text-sm leading-6 text-slate-700">{s.why}</p>
           {(s.action === 'swap' || s.action === 'add') && data.espn_add_url && (
             <a href={data.espn_add_url} target="_blank" rel="noreferrer"
-              className="mt-2 inline-block rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white">
+              className="ds-btn ds-btn-quiet ds-btn-sm mt-2">
               Open ESPN free agents
             </a>
           )}

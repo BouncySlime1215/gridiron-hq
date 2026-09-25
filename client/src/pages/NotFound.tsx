@@ -7,10 +7,10 @@ import { useLocation, useNavigate, Link } from 'react-router-dom';
  * reason. This says plainly what happened and gives real ways out.
  */
 const RECOVERY_LINKS = [
-  { to: '/', label: 'Command Center', blurb: 'Home dashboard' },
-  { to: '/league', label: 'League Hub', blurb: 'Your team and league' },
-  { to: '/players', label: 'Players', blurb: 'Rankings and projections' },
-  { to: '/betting', label: 'Betting Desk', blurb: 'Market intelligence' }
+  { to: '/', label: 'Today', blurb: 'Your next move and this week' },
+  { to: '/trades', label: 'Trades', blurb: 'The planner, people and the trade finder' },
+  { to: '/my-team', label: 'My team', blurb: 'Title odds, start/sit and scouting' },
+  { to: '/players', label: 'Players', blurb: 'Board, rankings, news and teams' }
 ];
 
 export default function NotFound() {
@@ -30,7 +30,7 @@ export default function NotFound() {
         </p>
         <div className="flex flex-wrap gap-2 pt-1">
           <button className="btn-ghost" onClick={() => navigate(-1)}>Go back</button>
-          <Link to="/" className="btn-ghost">Go to Command Center</Link>
+          <Link to="/" className="btn-ghost">Go to Today</Link>
         </div>
       </div>
 

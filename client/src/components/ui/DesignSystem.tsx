@@ -1,17 +1,76 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, forwardRef, useCallback, useContext, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from 'react';
+import Icon, { type IconName } from '../warroom/icons';
+
+/**
+ * The app's primitives, on styles/tokens.css and styles/ui.css (docs/ui/DESIGN-SYSTEM.md):
+ * Card, Section, PageHeader, Button, IconButton, Chip, Stat (StatTile), Avatar, Tabs, Table
+ * (DataTable), Skeleton, EmptyState, ErrorState, Sheet, Toast, Icon. Pages build from these;
+ * a one-off look that duplicates one of them gets replaced, not kept beside it.
+ */
+export { Icon, type IconName };
 
 const cx = (...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(' ');
 
-export function Card({ children, className, as: Tag = 'div' }: { children: ReactNode; className?: string; as?: 'div' | 'section' | 'article' }) {
-  return <Tag className={cx('card', className)}>{children}</Tag>;
+export function Card({ children, className, as: Tag = 'div', lift, pad = true, tone }: {
+  children: ReactNode; className?: string; as?: 'div' | 'section' | 'article'; lift?: boolean; pad?: boolean;
+  /** A card that carries a status: a tinted fill with the matching hairline. */
+  tone?: 'warn' | 'bad' | 'good' | 'accent';
+}) {
+  return <Tag className={cx('ds-card', pad && 'ds-card-pad', lift && 'ds-lift', tone && `ds-card-${tone}`, className)}>{children}</Tag>;
+}
+
+export function Button({ variant = 'default', size = 'md', icon, children, className, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: 'default' | 'primary' | 'quiet'; size?: 'sm' | 'md' | 'lg'; icon?: IconName;
+}) {
+  return <button type="button" {...rest} className={cx('ds-btn', variant === 'primary' && 'ds-btn-primary', variant === 'quiet' && 'ds-btn-quiet',
+    size === 'sm' && 'ds-btn-sm', size === 'lg' && 'ds-btn-lg', className)}>{icon && <Icon name={icon} size={size === 'sm' ? 14 : 16} />}{children}</button>;
+}
+
+export const IconButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement> & { icon: IconName; label: string }>(
+  function IconButton({ icon, label, ...rest }, ref) {
+    return <button ref={ref} type="button" aria-label={label} title={label} {...rest} className={cx('ds-icon-btn', rest.className)}><Icon name={icon} size={18} /></button>;
+  });
+
+export type Tone = 'neutral' | 'accent' | 'good' | 'warn' | 'bad';
+export function Chip({ tone = 'neutral', on, onClick, children, title }: { tone?: Tone; on?: boolean; onClick?: () => void; children: ReactNode; title?: string }) {
+  const cls = cx('ds-chip', on && 'ds-chip-on', tone === 'accent' && 'ds-chip-accent', tone === 'good' && 'ds-chip-good', tone === 'warn' && 'ds-chip-warn', tone === 'bad' && 'ds-chip-bad');
+  return onClick ? <button type="button" className={cls} aria-pressed={on} onClick={onClick} title={title}>{children}</button> : <span className={cls} title={title}>{children}</span>;
+}
+
+const HUES = [230, 160, 25, 280, 340, 190, 45, 120];
+/** A round picture with initials on a tinted circle as the fallback (lazy, fixed size, no layout shift). */
+export function Avatar({ name, src, size = 32 }: { name: string; src?: string | null; size?: number }) {
+  const [failed, setFailed] = useState(false);
+  const words = name.replace(/\(.*?\)/g, '').trim().split(/\s+/).filter(Boolean);
+  const initials = `${words[0]?.[0] ?? '?'}${words.length > 1 ? words[words.length - 1][0] : ''}`.toUpperCase();
+  const hue = HUES[[...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % HUES.length];
+  return <span className="ds-avatar" style={{ width: size, height: size, fontSize: Math.round(size * .38), '--ds-av-h': String(hue) } as CSSProperties} aria-hidden>
+    {src && !failed ? <img src={src} alt="" width={size} height={size} loading="lazy" decoding="async" onError={() => setFailed(true)} /> : initials}
+  </span>;
+}
+
+/** A section that folds: a one-line summary (title + hint) that opens to the detail. */
+export function Fold({ title, hint, children, defaultOpen, className, testid }: {
+  title: ReactNode; hint?: ReactNode; children: ReactNode; defaultOpen?: boolean; className?: string; testid?: string;
+}) {
+  return <details className={cx('ds-fold', className)} open={defaultOpen} data-testid={testid}>
+    <summary className="ds-fold-s"><span className="ds-fold-t">{title}</span>{hint && <span className="ds-fold-h">{hint}</span>}<Icon name="down" size={16} className="ds-fold-chev" /></summary>
+    <div className="ds-fold-b">{children}</div>
+  </details>;
+}
+
+export function Tabs<T extends string>({ tabs, value, onChange, label }: { tabs: { id: T; label: ReactNode }[]; value: T; onChange: (id: T) => void; label: string }) {
+  return <div className="ds-tabs" role="tablist" aria-label={label}>
+    {tabs.map(t => <button key={t.id} type="button" role="tab" className="ds-tab" aria-selected={t.id === value} onClick={() => onChange(t.id)}>{t.label}</button>)}
+  </div>;
 }
 
 export function Section({ title, description, action, children, className }: {
   title?: string; description?: string; action?: ReactNode; children: ReactNode; className?: string;
 }) {
-  return <section className={cx('space-y-3', className)}>
-    {(title || description || action) && <div className="flex items-end justify-between gap-4">
-      <div>{title && <h2 className="text-xl font-extrabold text-slate-900">{title}</h2>}{description && <p className="mt-1 text-sm text-slate-500">{description}</p>}</div>
+  return <section className={className}>
+    {(title || description || action) && <div className="ds-section-h">
+      <div>{title && <h2 className="ds-section-t">{title}</h2>}{description && <p className="ds-section-d">{description}</p>}</div>
       {action}
     </div>}
     {children}
@@ -21,28 +80,30 @@ export function Section({ title, description, action, children, className }: {
 export function PageHeader({ eyebrow, title, description, actions, meta }: {
   eyebrow?: string; title: string; description?: string; actions?: ReactNode; meta?: ReactNode;
 }) {
-  return <header className="mb-6 border-b border-slate-200 pb-5">
+  return <header className="ds-page-h">
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div className="max-w-3xl">
-        {eyebrow && <div className="mb-1 text-xs font-extrabold uppercase tracking-[.12em] text-emerald-700">{eyebrow}</div>}
+        {eyebrow && <div className="ds-eyebrow">{eyebrow}</div>}
         <h1>{title}</h1>
-        {description && <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>}
+        {description && <p className="ds-page-d">{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
-    {meta && <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">{meta}</div>}
+    {meta && <div className="mt-3 flex flex-wrap gap-2 text-xs">{meta}</div>}
   </header>;
+}
+
+/** One number with its label: the stat block. `StatTile` is the same thing in a card. */
+export function Stat({ label, value, foot, tone = 'neutral' }: { label: string; value: ReactNode; foot?: ReactNode; tone?: 'neutral' | 'good' | 'warn' | 'danger' }) {
+  return <div><div className="ds-stat-l">{label}</div>
+    <div className={cx('ds-stat-v', tone === 'good' && 'ds-good', tone === 'warn' && 'ds-warn', tone === 'danger' && 'ds-bad')}>{value}</div>
+    {foot && <div className="ds-stat-f">{foot}</div>}</div>;
 }
 
 export function StatTile({ label, value, delta, freshness, tone = 'neutral' }: {
   label: string; value: ReactNode; delta?: ReactNode; freshness?: string; tone?: 'neutral' | 'good' | 'warn' | 'danger';
 }) {
-  const toneClass = { neutral: 'text-slate-900', good: 'text-emerald-700', warn: 'text-amber-700', danger: 'text-red-700' }[tone];
-  return <Card className="p-4">
-    <div className="text-xs font-semibold text-slate-500">{label}</div>
-    <div className={cx('mt-1 text-2xl font-extrabold tabular-nums', toneClass)}>{value}</div>
-    <div className="mt-2 flex items-center justify-between gap-2 text-xs"><span className="text-slate-600">{delta}</span>{freshness && <span className="text-slate-400">{freshness}</span>}</div>
-  </Card>;
+  return <Card className="!p-4"><Stat label={label} value={value} tone={tone} foot={(delta || freshness) ? <><span>{delta}</span>{freshness && <span>{freshness}</span>}</> : undefined} /></Card>;
 }
 
 export function Confidence({ coverage, sample, label }: { coverage: number | null; sample?: number; label?: string }) {
@@ -82,15 +143,21 @@ export function DriverBars({ baseline = 0, drivers }: { baseline?: number; drive
   </div>;
 }
 
-export function Skeleton({ className = 'h-4 w-full' }: { className?: string }) { return <div aria-hidden="true" className={cx('animate-pulse rounded-md bg-slate-200', className)} />; }
-export function EmptyState({ title, description, action }: { title: string; description?: string; action?: ReactNode }) { return <Card className="p-8 text-center"><div className="font-bold text-slate-800">{title}</div>{description && <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">{description}</p>}{action && <div className="mt-4">{action}</div>}</Card>; }
-export function ErrorState({ title = 'Could not load this', message, retry }: { title?: string; message: string; retry?: () => void }) { return <div className="card border-red-200 p-5" role="alert"><div className="font-bold text-red-800">{title}</div><p className="mt-1 text-sm text-slate-600">{message}</p>{retry && <button className="btn-ghost mt-3" onClick={retry}>Retry</button>}</div>; }
+export function Skeleton({ className = 'h-4 w-full' }: { className?: string }) { return <div aria-hidden="true" className={cx('ds-skel', className)} />; }
+export function EmptyState({ title, description, action, icon = 'inbox' }: { title: string; description?: string; action?: ReactNode; icon?: IconName }) {
+  return <Card><div className="ds-empty" role="status"><span className="ds-empty-ic"><Icon name={icon} size={20} /></span><div className="ds-empty-t">{title}</div>
+    {description && <p className="ds-empty-d">{description}</p>}{action && <div className="mt-3">{action}</div>}</div></Card>;
+}
+export function ErrorState({ title = 'Could not load this', message, retry }: { title?: string; message: string; retry?: () => void }) {
+  return <div className="ds-error" role="alert"><div className="ds-error-t">{title}</div><p className="mt-1 text-sm">{message}</p>{retry && <Button size="sm" className="mt-3" onClick={retry}>Retry</Button>}</div>;
+}
 
 export function Sheet({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: ReactNode }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (!open) return; closeRef.current?.focus(); const key = (e: KeyboardEvent) => e.key === 'Escape' && onClose(); window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key); }, [open, onClose]);
   if (!open) return null;
-  return <div className="fixed inset-0 z-[150] bg-slate-900/20 backdrop-blur-sm" onMouseDown={onClose}><aside role="dialog" aria-modal="true" aria-label={title} onMouseDown={e => e.stopPropagation()} className="ml-auto h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white p-6 shadow-2xl"><div className="mb-5 flex items-center justify-between"><h2 className="text-xl font-extrabold">{title}</h2><button ref={closeRef} className="btn-ghost" onClick={onClose} aria-label={`Close ${title}`}>Close</button></div>{children}</aside></div>;
+  return <div className="ds-scrim" onMouseDown={onClose}><aside role="dialog" aria-modal="true" aria-label={title} onMouseDown={e => e.stopPropagation()} className="ds-sheet">
+    <div className="ds-sheet-h"><h2 className="ds-section-t">{title}</h2><IconButton ref={closeRef} icon="close" label={`Close ${title}`} onClick={onClose} /></div>{children}</aside></div>;
 }
 
 export type DataColumn<T> = { key: string; label: string; value: (row: T) => ReactNode; sortValue?: (row: T) => string | number | null; className?: string };
@@ -102,9 +169,9 @@ export function DataTable<T>({ rows, columns, rowKey, height = 560, rowHeight = 
     return out;
   }, [rows, columns, filterText, searchText, sort]);
   const visible = Math.ceil(height / rowHeight) + 8, start = Math.max(0, Math.floor(scrollTop / rowHeight) - 4), slice = filtered.slice(start, start + visible);
-  return <div className="overflow-auto rounded-[10px] border border-slate-200 bg-white" style={{ height }} onScroll={e => setScrollTop(e.currentTarget.scrollTop)}>
-    <table className="w-full text-sm"><thead className="sticky top-0 z-10 bg-slate-50"><tr>{columns.map(c => <th key={c.key} className="border-b border-slate-200 px-3 py-2 text-left text-xs font-semibold text-slate-500"><button className="text-left" disabled={!c.sortValue} onClick={() => c.sortValue && setSort(s => ({ key: c.key, dir: s?.key === c.key ? (s.dir === 1 ? -1 : 1) : 1 }))}>{c.label}{sort?.key === c.key ? sort.dir === 1 ? ' ↑' : ' ↓' : ''}</button></th>)}</tr></thead>
-      <tbody><tr aria-hidden="true" style={{ height: start * rowHeight }} /><>{slice.map(row => <tr key={rowKey(row)} style={{ height: rowHeight }} className="border-b border-slate-100">{columns.map(c => <td key={c.key} className={cx('px-3 py-2', c.className)}>{c.value(row)}</td>)}</tr>)}</><tr aria-hidden="true" style={{ height: Math.max(0, filtered.length - start - slice.length) * rowHeight }} /></tbody></table>
+  return <div className="ds-table-wrap" style={{ height }} onScroll={e => setScrollTop(e.currentTarget.scrollTop)}>
+    <table className="ds-table"><thead><tr>{columns.map(c => <th key={c.key}><button disabled={!c.sortValue} title={c.sortValue ? `Sort by ${c.label}` : undefined} onClick={() => c.sortValue && setSort(s => ({ key: c.key, dir: s?.key === c.key ? (s.dir === 1 ? -1 : 1) : 1 }))}>{c.label}{sort?.key === c.key ? sort.dir === 1 ? ' ↑' : ' ↓' : ''}</button></th>)}</tr></thead>
+      <tbody><tr aria-hidden="true" style={{ height: start * rowHeight }} /><>{slice.map(row => <tr key={rowKey(row)} style={{ height: rowHeight }}>{columns.map(c => <td key={c.key} className={c.className}>{c.value(row)}</td>)}</tr>)}</><tr aria-hidden="true" style={{ height: Math.max(0, filtered.length - start - slice.length) * rowHeight }} /></tbody></table>
   </div>;
 }
 
@@ -117,6 +184,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts(current => current.some(t => t.id === id) ? current : [...current, { id, message, tone }]);
     window.setTimeout(() => setToasts(current => current.filter(t => t.id !== id)), 4500);
   }, []);
-  return <ToastContext.Provider value={push}>{children}<div aria-live="polite" className="fixed bottom-4 right-4 z-[200] space-y-2">{toasts.map(t => <div key={t.id} className={cx('rounded-[10px] border bg-white px-4 py-3 text-sm shadow-lg', t.tone === 'good' ? 'border-emerald-300' : t.tone === 'bad' ? 'border-red-300' : 'border-slate-200')}>{t.message}</div>)}</div></ToastContext.Provider>;
+  return <ToastContext.Provider value={push}>{children}<div aria-live="polite" className="ds-toasts">{toasts.map(t => <div key={t.id} className={cx('ds-toast', t.tone === 'good' && 'ds-toast-good', t.tone === 'bad' && 'ds-toast-bad')}>{t.message}</div>)}</div></ToastContext.Provider>;
 }
 export const useToast = () => useContext(ToastContext);

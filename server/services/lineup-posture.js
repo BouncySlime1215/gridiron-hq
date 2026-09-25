@@ -45,6 +45,9 @@ import { assetUniverse, tradeWeekContext, pinnedBestLineup, lineupSlots, FLEX_EL
 import { rosterLocks, lockPins } from './lineup-lock.js';
 import { deriveFormat } from './format.js';
 import { startSitWeekPoints } from './lineup-brain.js';
+import { oneWorldFlag, oneWorldPreviewFields } from './one-world.js';
+import { leagueWorld, worldRange, worldStamp } from './league-world.js';
+import { leagueLineupWeekRange } from './lineup-week-range.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
@@ -163,7 +166,10 @@ export function lineupMoments(starters) {
     // zero projection anyway; the guard stays so a future spread source cannot
     // reintroduce it.
     if (!(weekPpg(p) > 0)) continue;
-    const spread = weekPpg(p) * (POSITION_CV[p.position] ?? 0.6);
+    // EA-07: `week_sd` is the player's spread in the one world (his pool's SD, the
+    // same draws as the card's floor/ceiling and the title odds); without it, the
+    // positional CV.
+    const spread = Number.isFinite(p.week_sd) ? p.week_sd : weekPpg(p) * (POSITION_CV[p.position] ?? 0.6);
     varTotal += spread * spread;
   }
   // Variances add, then ONE fitted scale (SPREAD_SCALE) turns the sum into the
@@ -265,8 +271,15 @@ export function lineupPosture(lg, { myTeamId, week, now = Date.now() } = {}) {
   // SPREAD_SCALE was fitted on the unlifted number; the lift is clamped to
   // [0.75, 1.3] and scales a player's mean and SD together, so P(win) moves little,
   // but the fit script should be re-run on this basis (see handoff).
+  const oneWorld = oneWorldFlag();
+  const world = oneWorld.on ? leagueWorld(lg) : null;
+  const worldSd = p => {
+    if (!world || world.fail) return {};
+    const range = worldRange(lg, p, wk);
+    return range ? { week_sd: range.sd } : {};
+  };
   const price = players => players.map(p => ({
-    ...p, week_points: startSitWeekPoints(p, ctx.season, ctx.week).week_points ?? 0
+    ...p, week_points: startSitWeekPoints(p, ctx.season, ctx.week).week_points ?? 0, ...worldSd(p)
   }));
   const mine = price(rosterAssets(payload, assets, rosterId));
   if (!mine.length) return { error: 'could not price your roster' };
@@ -300,12 +313,20 @@ export function lineupPosture(lg, { myTeamId, week, now = Date.now() } = {}) {
   const starters = best.slots.map(s => s.player).filter(Boolean).map(counted);
   const startIds = new Set(starters.map(p => p.id));
   const mineMoments = lineupMoments(starters);
+  // WEEKLY-RANGE-ONE: the lineup's weekly range (p10 / p50 / p90) is the one producer's,
+  // the same numbers the trade card, My team and the ceiling lineup print for this
+  // lineup-week. my_sd above is NOT a range: it is the fitted P(win) spread
+  // (SPREAD_SCALE), a margin model, and is never turned into a floor or ceiling.
+  const weeklyRange = (({ floor, median, ceiling, coverage, percentiles, method, error }) =>
+    ({ floor, median, ceiling, coverage, percentiles, method, ...(error ? { error } : {}) }))(
+    leagueLineupWeekRange(lg, starters.map(p => p.id), wk));
 
   if (oppMoments.mean == null) {
     return {
       season: ctx.season, week: wk, roster_id: rosterId, opponent_roster_id: null,
       note: 'No opponent found for this week, so there is no posture to take. Start the highest projection.',
       my_projection: +mineMoments.mean.toFixed(1), my_sd: +mineMoments.sd.toFixed(1),
+      weekly_range: weeklyRange,
       lineup: starters.map(p => ({ player: p.name, position: p.position, ppg: weekPpg(p) })),
     };
   }
@@ -400,6 +421,7 @@ export function lineupPosture(lg, { myTeamId, week, now = Date.now() } = {}) {
   return {
     season: ctx.season, week: wk, roster_id: rosterId, opponent_roster_id: oppId,
     my_projection: +mineMoments.mean.toFixed(1), my_sd: +mineMoments.sd.toFixed(1),
+    weekly_range: weeklyRange,
     opponent_projection: +oppMoments.mean.toFixed(1), opponent_sd: +oppMoments.sd.toFixed(1),
     edge: +edge.toFixed(1),
     win_probability: +(basePwin * 100).toFixed(1),
@@ -410,7 +432,10 @@ export function lineupPosture(lg, { myTeamId, week, now = Date.now() } = {}) {
     // Where both SDs come from. There used to be a per-side "coverage" figure here
     // because two spread sources on different scales were mixed; there is one now.
     projection_basis: 'Start/Sit week points: this week\'s projection x the betting-line game-script adjustment',
-    sd_model: `projection x positional CV x ${SPREAD_SCALE} (fitted 2023-24, validated 2025: scripts/fit-posture-calibration.mjs)`,
+    sd_model: world && !world.fail
+      ? `one-world pool SD per player (EA-07; positional CV where a player has none) x ${SPREAD_SCALE} (scale fitted on the CV basis, not refitted on this one)`
+      : `projection x positional CV x ${SPREAD_SCALE} (fitted 2023-24, validated 2025: scripts/fit-posture-calibration.mjs)`,
+    ...(world && !world.fail ? { one_world: worldStamp(lg, world), ...oneWorldPreviewFields(oneWorld) } : {}),
     // Scope of the probability. lineupSlots() prices the skill slots only; every
     // synced league also starts a K and a DEF, which are in neither side's mean nor
     // variance. The omission cancels in a DIFFERENCE of two lineups but not in a

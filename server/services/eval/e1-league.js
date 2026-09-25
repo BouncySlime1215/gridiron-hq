@@ -7,33 +7,9 @@
  * season or more. Every other manager's proposal is the same question (will
  * this person say yes to this offer?) with an answer ESPN already recorded.
  *
- * SOURCES, merged, one row per offer:
- *   1. `trade_outcomes`, source 'observed' (settled from ESPN) and
- *      'app_proposed' rows that were SENT (`sent_at`, CLONE-01b #239). An
- *      app_proposed row without sent_at is a suggestion nobody sent: it has
- *      no reply to grade, and it must not hide a real ESPN offer either.
- *      There is no separate offer log (FIX-09): trade_outcomes is it.
- *   2. `league_transactions_raw`, read directly for proposals the settler has
- *      not written yet. Same reading as trade-outcomes.js#settleObservedOutcomes:
- *      a TRADE_PROPOSAL/EXECUTE row, answered by a TRADE_ACCEPT or
- *      TRADE_DECLINE EXECUTE row that names it in related_tx_id.
- *
- * EXCLUDED, and counted so the report can say so:
- *   - withdrawn: cancelled by the proposer (TRADE_PROPOSAL/CANCEL, no answer).
- *     The other side never decided, so it is not an outcome.
- *   - unanswered ('proposed', 'ignored'): silence is not a no.
- *   - no proposal time: an offer that cannot be placed in time cannot be
- *     scored as of anything.
- *   - unsent_app_offer: an app_proposed row with no sent_at (loaded rows are
- *     filtered in SQL; this counts rows handed in directly).
- *   - espn_copy_of_app_offer: an observed row that is the ESPN copy of a
- *     sent, resolved app_proposed row — the app row wins because it carries
- *     the recorded prediction. Matched first on `matched_tx_id` (the ESPN
- *     proposal the settle job tied the sent offer to); only a sent row with
- *     no match yet falls back to same league, season, proposer and
- *     counterparty with the ESPN time within 72 h after the app's, and it
- *     claims one copy, the earliest. An app row not yet resolved claims
- *     nothing, so its ESPN copy counts until the app row settles.
+ * THE SET is decided-offers.js, the one producer of "decided offers" (E1-DATA):
+ * its sources, every exclusion rule and the per-league counts live there.
+ * This file only scores that set as of each offer's proposal time.
  *
  * AS-OF SCORING. An offer with a prediction recorded when it was made uses
  * that (it cannot be improved on later without scoring a different model). Any
@@ -46,99 +22,22 @@
  * as of then; they stay inert and the row says `basis: 'replay_anchor_only'`.
  */
 import { acceptanceBand } from '../trade-acceptance.js';
-import { readSource } from './common.js';
+import { decidedOffers, loadDecidedOffers, OUTCOME } from './decided-offers.js';
 
-export const OUTCOME = Object.freeze({ accepted: 1, declined: 0, countered: 0, expired: 0 });
+export { OUTCOME };
 export const ANCHOR_MIN_DECISIONS = 5;
-const DEDUP_WINDOW_MS = 72 * 3_600_000;
-
-const TO_COLS = ['league_id', 'season', 'source', 'proposer_team_id', 'counterparty_team_id', 'proposed_at',
-  'model_p_accept', 'status', 'espn_tx_id', 'idea_id', 'resolved_at'];
-const SENT_COLS = ['sent_at', 'matched_tx_id'];
-const RAW_COLS = ['league_id', 'season', 'tx_id', 'type', 'execution_type', 'team_id', 'related_tx_id', 'proposed_at', 'items_json'];
 
 const t = s => (s == null ? NaN : Date.parse(s));
 const key = (...xs) => xs.map(String).join(':');
 
-/** Proposer and the single counterparty of a raw proposal, or null. */
-function partiesOf(tx) {
-  if (tx.team_id == null) return null;
-  let items;
-  try { items = JSON.parse(tx.items_json || '[]'); } catch { return { error: 'items_json is not valid JSON' }; }
-  if (!Array.isArray(items)) return { error: 'items_json is not a list' };
-  const proposer = String(tx.team_id);
-  const others = [...new Set(items.flatMap(i => [i?.fromTeamId, i?.toTeamId])
-    .filter(x => x != null && Number(x) > 0).map(String))].filter(x => x !== proposer);
-  return others.length === 1 ? { proposer, counterparty: others[0] } : { error: `${others.length} counterparties` };
-}
-
-/** Resolved offers straight from ESPN's raw rows. */
-export function offersFromRaw(raw) {
-  const out = [];
-  const excluded = { withdrawn: 0, unanswered: 0, unreadable: 0 };
-  const related = new Map();
-  for (const r of raw) {
-    if (r.related_tx_id == null) continue;
-    const k = key(r.league_id, r.season, r.related_tx_id);
-    (related.get(k) ?? related.set(k, []).get(k)).push(r);
-  }
-  for (const p of raw) {
-    if (p.type !== 'TRADE_PROPOSAL' || p.execution_type !== 'EXECUTE') continue;
-    const after = related.get(key(p.league_id, p.season, p.tx_id)) ?? [];
-    const answer = after.find(a => (a.type === 'TRADE_ACCEPT' || a.type === 'TRADE_DECLINE') && a.execution_type === 'EXECUTE');
-    if (!answer) {
-      if (after.some(a => a.type === 'TRADE_PROPOSAL' && a.execution_type === 'CANCEL')) excluded.withdrawn += 1;
-      else excluded.unanswered += 1;
-      continue;
-    }
-    const sides = partiesOf(p);
-    if (!sides || sides.error) { excluded.unreadable += 1; continue; }
-    out.push({
-      league_id: p.league_id, season: p.season, source: 'observed', proposer_team_id: sides.proposer,
-      counterparty_team_id: sides.counterparty, proposed_at: p.proposed_at ?? null,
-      resolved_at: answer.proposed_at ?? null, model_p_accept: null,
-      status: answer.type === 'TRADE_ACCEPT' ? 'accepted' : 'declined', espn_tx_id: String(p.tx_id),
-    });
-  }
-  return { offers: out, excluded };
-}
-
 /**
- * Merge the sources into one list of resolved offers. `rows` are
- * trade_outcomes rows, `raw` league_transactions_raw rows.
+ * The decided offers among already-read rows. `rows` are trade_outcomes rows,
+ * `raw` league_transactions_raw rows. Offers with no proposal time (orphans)
+ * are counted in `excluded.missing_proposal`, not returned.
  */
-export function mergeOffers({ rows = [], raw = [] } = {}) {
-  const excluded = { withdrawn: 0, unanswered: 0, unreadable: 0, no_proposal_time: 0, espn_copy_of_app_offer: 0, unsent_app_offer: 0 };
-  const fromRaw = offersFromRaw(raw);
-  for (const [k, v] of Object.entries(fromRaw.excluded)) excluded[k] += v;
-  const settled = new Set(rows.filter(r => r.espn_tx_id != null).map(r => key(r.league_id, r.season, r.espn_tx_id)));
-  const all = [...rows, ...fromRaw.offers.filter(o => !settled.has(key(o.league_id, o.season, o.espn_tx_id)))];
-
-  const unsent = o => o.source === 'app_proposed' && o.sent_at == null;
-  const claimants = all.filter(o => o.source === 'app_proposed' && o.sent_at != null && Object.hasOwn(OUTCOME, o.status));
-  const copies = new Set();
-  const matched = new Set(claimants.filter(a => a.matched_tx_id != null).map(a => key(a.league_id, a.season, a.matched_tx_id)));
-  const observed = all.filter(o => o.source === 'observed')
-    .sort((a, b) => (t(a.proposed_at) || 0) - (t(b.proposed_at) || 0));
-  for (const o of observed) if (o.espn_tx_id != null && matched.has(key(o.league_id, o.season, o.espn_tx_id))) copies.add(o);
-  for (const a of claimants) {
-    if (a.matched_tx_id != null || a.proposer_team_id == null) continue;
-    const copy = observed.find(o => !copies.has(o) && o.league_id === a.league_id && o.season === a.season
-      && String(a.proposer_team_id) === String(o.proposer_team_id)
-      && String(a.counterparty_team_id) === String(o.counterparty_team_id)
-      && t(o.proposed_at) >= t(a.proposed_at) && t(o.proposed_at) - t(a.proposed_at) <= DEDUP_WINDOW_MS);
-    if (copy) copies.add(copy);
-  }
-
-  const out = [];
-  for (const o of all) {
-    if (unsent(o)) { excluded.unsent_app_offer += 1; continue; }
-    if (copies.has(o)) { excluded.espn_copy_of_app_offer += 1; continue; }
-    if (!Object.hasOwn(OUTCOME, o.status)) { excluded.unanswered += 1; continue; }
-    if (!Number.isFinite(t(o.proposed_at))) { excluded.no_proposal_time += 1; continue; }
-    out.push({ ...o, y: OUTCOME[o.status] });
-  }
-  return { offers: out, excluded };
+export function mergeOffers({ rows = [], raw = [], snapshots = [] } = {}) {
+  const { offers, excluded } = decidedOffers({ outcomes: rows, raw, snapshots });
+  return { offers, excluded };
 }
 
 /**
@@ -197,30 +96,16 @@ export function scoreAsOf(offers) {
 }
 
 /**
- * Read and merge every source present. Absent sources are reasons, not errors.
- * Without sent_at (CLONE-01b, #239, not merged) no app row can be shown to have
- * been sent, so only observed rows are read and `app_arm` says why.
+ * Read every source present through the one producer. Without sent_at
+ * (CLONE-01b, #239) no app row can be shown to have been sent, and `app_arm`
+ * says why.
  */
 export function loadLeagueOffers(database) {
-  const reasons = [];
-  const sources = [];
-  let appArm = null;
-  let to = readSource(database, 'trade_outcomes', [...TO_COLS, ...SENT_COLS],
-    `SELECT ${[...TO_COLS, ...SENT_COLS].join(', ')} FROM trade_outcomes
-     WHERE source = 'observed' OR (source = 'app_proposed' AND sent_at IS NOT NULL)`);
-  if (!to.ok && /lacks column/.test(to.reason)) {
-    const observedOnly = readSource(database, 'trade_outcomes', TO_COLS,
-      `SELECT ${TO_COLS.join(', ')} FROM trade_outcomes WHERE source = 'observed'`);
-    if (observedOnly.ok) {
-      appArm = `${to.reason}; CLONE-01b (#239) adds it, so no app offer can be shown to have been sent`;
-      to = observedOnly;
-    }
-  }
-  if (to.ok) sources.push('trade_outcomes'); else reasons.push(to.reason);
-  const raw = readSource(database, 'league_transactions_raw', RAW_COLS,
-    `SELECT ${RAW_COLS.join(', ')} FROM league_transactions_raw
-     WHERE type IN ('TRADE_PROPOSAL', 'TRADE_ACCEPT', 'TRADE_DECLINE')`);
-  if (raw.ok) sources.push('league_transactions_raw'); else reasons.push(raw.reason);
-  const merged = mergeOffers({ rows: to.ok ? to.rows : [], raw: raw.ok ? raw.rows : [] });
-  return { ...merged, sources, app_arm: appArm, reason: sources.length ? null : reasons.join('; ') };
+  const built = loadDecidedOffers(database);
+  const cols = new Set(database.prepare(`SELECT name FROM pragma_table_info('trade_outcomes')`).all().map(c => c.name));
+  const appArm = built.sources.includes('trade_outcomes') && !cols.has('sent_at')
+    ? 'source table trade_outcomes lacks column(s) sent_at; CLONE-01b (#239) adds it, so no app offer can be shown to have been sent'
+    : null;
+  return { offers: built.offers, excluded: built.excluded, by_league: built.by_league, sources: built.sources,
+    app_arm: appArm, reason: built.reason };
 }

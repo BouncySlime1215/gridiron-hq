@@ -71,7 +71,7 @@ export default function TeamSchedule({ abbr }: { abbr: string }) {
                   <div className="flex flex-wrap gap-4 mb-3 text-xs text-slate-500">
                     {date && w.gametime && <span>{date} · {w.gametime.slice(0, 5)} ET</span>}
                     {w.implied_points != null && <span>Vegas implied points: <b className="text-slate-700">{w.implied_points}</b></span>}
-                    <Link to={`/teams/${w.opponent}`} className="text-[var(--accent)] hover:underline ml-auto">
+                    <Link to={`/players/teams/${w.opponent}`} className="text-[var(--accent)] hover:underline ml-auto">
                       scout {w.opponent} →
                     </Link>
                   </div>

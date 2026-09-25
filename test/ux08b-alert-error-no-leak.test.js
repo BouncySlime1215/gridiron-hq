@@ -132,6 +132,7 @@ const tradeCardSwaps = () => [
   ["'./trade/ManagerRead'", namedStub([])],
   ["'./trade/PlayerEvidence'", namedStub([])],
   ["'./trade/RiskStrip'", namedStub([])],
+  ["'./warroom/HisScreen'", namedStub([])],
   ["'./trade/SentOfferButton'", namedStub([])],
   ["'./trade/types'", namedStub(['hasEvidence'])],
 ];
@@ -285,16 +286,14 @@ test('control: the catch evaluator sees a leak in the pre-fix Model.tsx shape an
 // Each named site: file, an anchor unique to its try block, what the user must see.
 const CATCH_SITES = [
   { site: 'Model.tsx:38', file: 'pages/Model.tsx', anchor: "'/model/sync'", shows: 'Sync failed. Try again in a moment.' },
-  { site: 'TeamDetail.tsx:69', file: 'pages/TeamDetail.tsx', anchor: '/espn/sync-news?team=', shows: 'News pull failed. Try again in a moment.' },
   { site: 'MyTeam.tsx:86', file: 'pages/MyTeam.tsx', anchor: 'refetchData(); refetchLeagues()', shows: 'Sync failed. Try again in a moment.' },
   { site: 'Settings.tsx:42', file: 'pages/Settings.tsx', anchor: "'/espn/sync-players'", shows: 'Player sync failed. Try again in a moment.' },
-  { site: 'Settings.tsx:50', file: 'pages/Settings.tsx', anchor: "'/espn/sync-news'", shows: 'News sync failed. Try again in a moment.' },
   { site: 'EspnConnect.tsx:64 (silent)', file: 'components/EspnConnect.tsx', anchor: "'/espn-connect/discover'", overrides: { silent: true },
     shows: 'ESPN could not refresh your leagues. Try again in a moment.' },
   { site: 'EspnConnect.tsx:64 (not silent)', file: 'components/EspnConnect.tsx', anchor: "'/espn-connect/discover'", overrides: { silent: false },
     shows: 'ESPN league lookup failed. Try again in a moment.' },
   { site: 'EspnConnect.tsx:102', file: 'components/EspnConnect.tsx', anchor: "'/espn-connect/add'",
-    shows: 'Added, but the first sync failed. Try “Sync” in League Hub → Connections. Try again in a moment.' },
+    shows: 'Added, but the first sync failed. Try “Sync” in League → Your leagues. Try again in a moment.' },
   { site: 'SourcePill.tsx:45', file: 'components/draft/SourcePill.tsx', anchor: 'capture-bookmarklet',
     shows: 'Bookmarklet unavailable. Try again in a moment.' },
 ];

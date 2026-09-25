@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { api, headshotUrl, useApi } from '../api';
+import { Link, useSearchParams } from 'react-router-dom';
+import Lineup from './Lineup';
+import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
 import { playoffWeeksText } from '../copy-constants';
 import FormationView from '../components/FormationView';
 import TeamScout from '../components/TeamScout';
 import PostDraftPlan from '../components/PostDraftPlan';
-import { Headshot } from '../components/PlayerRow';
 import { PageError, PageLoading } from '../components/PageState';
 import { sanitizedAlert } from '../lib/errorSanitize';
 import MedianGameNotice from '../components/MedianGameNotice';
 import { leagueGate } from '../state/leagueGate';
+import { Button, Card, Chip, EmptyState, Fold, PageHeader, Skeleton, Stat, Tabs, type Tone } from '../components/ui/DesignSystem';
 
 /**
  * My Team, for whichever league is active in the header.
@@ -26,11 +27,27 @@ import { leagueGate } from '../state/leagueGate';
  * uses, and it works identically for ESPN and Sleeper, where the old page only ever
  * understood ESPN's lineup-slot codes.
  */
+/**
+ * My Team (docs/ui/CONSOLIDATION-MAP.md): one area for your team. Overview (title odds,
+ * weekly points, the post-draft plan), Lineup (Start/Sit, merged in: this week's
+ * lineup-vs-best card above the calls, the ceiling lineup under the ceiling objective, the
+ * field view), Scouting, and Waivers (the wire and defence streaming). ?view= picks one;
+ * /lineup redirects to ?view=lineup.
+ */
+type View = 'overview' | 'lineup' | 'scouting' | 'waivers';
+const VIEWS: { id: View; label: string }[] = [
+  { id: 'overview', label: 'Overview' }, { id: 'lineup', label: 'Lineup' }, { id: 'scouting', label: 'Scouting' }, { id: 'waivers', label: 'Waivers' },
+];
+const isView = (v: string | null): v is View => VIEWS.some(x => x.id === v);
+
 export default function MyTeam() {
+  const [params, setParams] = useSearchParams();
+  const q = params.get('view');
+  const view: View = isView(q) ? q : 'overview';
+  const setView = (v: View) => setParams(() => (v === 'overview' ? new URLSearchParams() : new URLSearchParams(`view=${v}`)), { replace: true });
   const { leagues, loading: leaguesLoading, error: leaguesError, active, refetch: refetchLeagues } = useLeague();
   const { data: lg, loading: lgLoading, error: lgError, refetch: refetchData } = useApi<any>(active ? `/leagues/${active.id}/data` : null);
   const [teamOverride, setTeamOverride] = useState<string | null>(null);
-  const [tab, setTab] = useState<'scout' | 'roster' | 'ceiling'>('scout');
   const [syncing, setSyncing] = useState(false);
 
   // A "my team" pick only means something within the league it was made in — carrying
@@ -64,7 +81,7 @@ export default function MyTeam() {
   // into one place before. Championship odds existed only buried in Fantasy Lab,
   // for the whole league, with no way to jump straight to your own team's numbers.
   const simUrl = active && synced ? `/model/${active.id}/simulate?runs=1500` : null;
-  const { data: sim } = useApi<any>(simUrl);
+  const { data: sim, loading: simLoading } = useApi<any>(simUrl);
   const myTwin = sim?.teams?.find((t: any) => String(t.roster_id) === String(myTeamId));
 
   // Once the engine resolves a default team (from the league's saved my_team_id, or
@@ -122,10 +139,17 @@ export default function MyTeam() {
         const mine = m.home?.teamId === myId ? m.home : m.away;
         const theirs = m.home?.teamId === myId ? m.away : m.home;
         const opp = lg.payload.teams?.find((t: any) => t.id === theirs?.teamId);
+        // ESPN marks a finished week with a winner; an unplayed week is UNDECIDED
+        // with 0 points on both sides — that is not a 0–0 game, so it never shows as one.
+        const mySide = m.home?.teamId === myId ? 'HOME' : 'AWAY';
+        const played = m.winner === 'HOME' || m.winner === 'AWAY' || m.winner === 'TIE';
+        const live = !played && ((mine?.totalPoints ?? 0) > 0 || (theirs?.totalPoints ?? 0) > 0);
         return {
           period: m.matchupPeriodId,
-          myPoints: mine?.totalPoints ?? 0,
-          oppPoints: theirs?.totalPoints ?? 0,
+          myPoints: mine?.totalPoints ?? null,
+          oppPoints: theirs?.totalPoints ?? null,
+          result: played ? (m.winner === 'TIE' ? 'T' : m.winner === mySide ? 'W' : 'L') : null,
+          state: played ? 'played' : live ? 'live' : 'upcoming',
           opp: opp ? (opp.name ?? `${opp.location} ${opp.nickname}`) : 'BYE'
         };
       })
@@ -140,188 +164,148 @@ export default function MyTeam() {
   if (gate === 'empty') {
     return (
       <div className="max-w-lg">
-        <h1 className="text-2xl font-bold mb-2">My Team</h1>
-        <div className="card p-6 text-center">
-          <div className="text-4xl mb-2">🔌</div>
-          <p className="text-sm text-slate-700 mb-3">Connect a league to see your roster, scouting report, and schedule.</p>
-          <Link to="/leagues" className="btn-primary inline-block">Connect a league →</Link>
-        </div>
+        <PageHeader eyebrow="My team" title="My Team" />
+        <EmptyState icon="house" title="Connect a league" description="Connect a league to see your roster, scouting report, and schedule."
+          action={<Link to="/leagues" className="btn-primary inline-block">Connect a league</Link>} />
       </div>
     );
   }
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-1 flex-wrap">
-        <h1 className="text-2xl font-bold">My Team</h1>
-        {teamOptions.length > 0 && (
-          <select className="input" value={myTeamId ?? ''} onChange={e => setMyTeam(e.target.value)}>
-            {teamOptions.map((t: any) => <option key={t.id} value={t.id}>{t.label}</option>)}
-          </select>
-        )}
-        <button className="btn-ghost ml-auto" onClick={sync} disabled={syncing}>
-          {syncing ? 'Syncing…' : `↻ Sync${lg?.fetched_at ? ` (last: ${lg.fetched_at})` : ''}`}
-        </button>
-      </div>
-      <p className="text-sm text-slate-500 mb-4">
-        {active?.name ?? `${active?.platform} league`}
-        {leagues.length > 1 && <span className="text-slate-400"> — switch leagues from the picker up top</span>}
-      </p>
+      <PageHeader eyebrow="My team" title="My Team"
+        description={`${active?.name ?? `${active?.platform} league`}${leagues.length > 1 ? ' · switch leagues from the picker up top' : ''}`}
+        actions={<>
+          {/* A fixed width, with a same-size placeholder while the league loads, so the header row
+              never re-wraps when the team list arrives. */}
+          {teamOptions.length > 0 ? (
+            <select className="input league-select h-9 w-[12rem] max-w-full" aria-label="Which team is yours" value={myTeamId ?? ''} onChange={e => setMyTeam(e.target.value)}>
+              {teamOptions.map((t: any) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          ) : lgLoading && <Skeleton className="h-9 w-[12rem] max-w-full" />}
+          <Button icon="refresh" onClick={sync} disabled={syncing} title={lg?.fetched_at ? `Last synced ${lg.fetched_at}` : 'Pull rosters from the platform'}>
+            {syncing ? 'Syncing…' : 'Sync'}
+          </Button>
+        </>} />
 
       {lgError && !lg && <PageError message={lgError} onRetry={refetchData} />}
 
-      {synced && myTwin && (
-        <div className="card p-4 mb-4">
-          <h3 className="text-sm font-bold text-slate-700 mb-3">Your title odds right now</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div>
-              <div className="text-[10px] uppercase tracking-wide text-slate-400">Championship</div>
-              <div className="text-xl font-bold text-slate-800 tabular-nums">{(myTwin.title_odds * 100).toFixed(1)}%</div>
-              {myTwin.title_odds_95 && (
-                <div className="text-[10px] text-slate-400 tabular-nums">
-                  {(myTwin.title_odds_95[0] * 100).toFixed(1)}–{(myTwin.title_odds_95[1] * 100).toFixed(1)}% range
-                </div>
-              )}
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-wide text-slate-400">Make playoffs</div>
-              <div className="text-xl font-bold text-slate-800 tabular-nums">{(myTwin.playoff_odds * 100).toFixed(0)}%</div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-wide text-slate-400">Expected record</div>
-              <div className="text-xl font-bold text-slate-800 tabular-nums">{myTwin.expected_wins}W</div>
-            </div>
-            {scout?.spread?.floor != null && (
-              <div>
-                <div className="text-[10px] uppercase tracking-wide text-slate-400">Weekly range</div>
-                <div className="text-sm font-bold text-slate-800 tabular-nums">
-                  <span className="text-crit">{scout.spread.floor}</span>
-                  <span className="text-slate-300 mx-1">–</span>
-                  <span className="text-good">{scout.spread.ceiling}</span>
-                </div>
-              </div>
-            )}
-          </div>
-          <p className="text-[10px] text-slate-400 mt-2">
-            {sim?.runs?.toLocaleString()} simulated seasons, correlated player outcomes, the league's own playoff bracket
-            {playoffWeeksText(sim?.playoff_weeks) ? ` in ${playoffWeeksText(sim?.playoff_weeks)}` : ''}.
-          </p>
-          <MedianGameNotice medianGame={sim?.median_game} rulesUnknown={sim?.rules_unknown} />
-        </div>
-      )}
+      <div className="mb-5">
+        <Tabs label="My team" value={view} onChange={setView} tabs={VIEWS} />
+      </div>
 
       {!lgLoading && active && !synced && (
-        <div className="card p-6 text-sm text-slate-600 mb-4">
-          This league hasn't been synced yet — hit{' '}
-          <button className="text-emerald-600 underline" onClick={sync}>Sync</button> to pull rosters from{' '}
-          {active.platform === 'espn' ? 'ESPN' : 'Sleeper'}.
+        <div className="mb-4">
+          <EmptyState icon="refresh" title="This league hasn't been synced yet"
+            description={`Sync to pull rosters from ${active.platform === 'espn' ? 'ESPN' : 'Sleeper'}.`}
+            action={<Button variant="primary" icon="refresh" onClick={sync} disabled={syncing}>{syncing ? 'Syncing…' : 'Sync'}</Button>} />
         </div>
       )}
 
-      {synced && active?.platform === 'espn' && myTeamId && (
-        <PostDraftPlan leagueId={active.id} teamId={myTeamId} />
-      )}
-
-      {synced && lineupDiff && !lineupDiff.error && (
-        <LineupDiffCard d={lineupDiff} platform={active?.platform === 'espn' ? 'ESPN' : 'Sleeper'} />
-      )}
-
-      {synced && (
-        <>
-          <div className="flex gap-1 border-b border-slate-200 mb-4">
-            {([['scout', 'Scouting report'], ['roster', 'Roster & lineup'], ['ceiling', 'Ceiling lineup']] as const).map(([id, label]) => (
-              <button key={id} onClick={() => setTab(id)}
-                className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                  tab === id ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-500 hover:text-slate-700'
-                }`}>
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {tab === 'scout' && active && <TeamScout data={scout} loading={scoutLoading} />}
-
-          {tab === 'ceiling' && active && <CeilingLineup leagueId={active.id} teamId={myTeamId} week={scout?.week ?? 1} />}
-
-          {tab === 'roster' && scout && !scout.error && (
-            <div className="grid lg:grid-cols-[1fr_320px] gap-4">
-              <div>
-                <div className="flex items-baseline gap-2 mb-2 flex-wrap">
-                  <h2 className="text-sm font-bold text-slate-700">Optimal Starting Lineup — X&apos;s &amp; O&apos;s</h2>
-                  <span className="text-xs text-slate-400">{scout.lineup.points} ppg</span>
-                </div>
-                <p className="text-xs text-slate-400 mb-2">
-                  What the engine would start this week — not necessarily what's currently set on {active?.platform === 'espn' ? 'ESPN' : 'Sleeper'}.
-                </p>
-                <FormationView phase="offense" depth={formationSlots} accent="#0f766e" />
-                <div className="grid md:grid-cols-2 gap-4 mt-4">
-                  <div className="card p-4">
-                    <h3 className="text-sm font-bold text-slate-700 mb-2">Starters</h3>
-                    <div className="space-y-1">
-                      {scout.lineup.slots.map((s: any, i: number) => (
-                        <div key={i} className="flex items-center gap-2.5 py-1">
-                          <span className="text-[var(--muted)] text-[10px] font-semibold w-10 shrink-0 uppercase tracking-wide">{s.slot}</span>
-                          {s.player ? (
-                            <>
-                              <Headshot src={headshotUrl(s.player)} pos={s.player.position} size={30} />
-                              <span className="text-sm font-medium text-[var(--ink)] truncate">{s.player.name}</span>
-                              <span className={`ml-auto text-[10px] font-semibold pos-${s.player.position}`}>{s.player.position}</span>
-                            </>
-                          ) : <span className="text-crit text-xs">— empty —</span>}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="card p-4">
-                    <h3 className="text-sm font-bold text-slate-700 mb-2">Bench</h3>
-                    <div className="space-y-1">
-                      {scout.lineup.bench.map((p: any) => (
-                        <div key={p.id} className="flex items-center gap-2.5 py-1">
-                          <Headshot src={headshotUrl(p)} pos={p.position} size={28} />
-                          <span className={`text-sm truncate ${p.available === false ? 'text-slate-400 line-through' : 'text-[var(--ink)]/85'}`}>{p.name}</span>
-                          {p.available === false && <span className="text-[9px] font-bold uppercase tracking-wide text-rose-600">Out for season</span>}
-                          <span className={`ml-auto text-[10px] font-semibold pos-${p.position}`}>{p.position}</span>
-                        </div>
-                      ))}
-                    </div>
-                    {scout.lineup.bench.length === 0 && <p className="text-xs text-slate-400">No bench depth logged yet.</p>}
-                  </div>
-                </div>
-              </div>
-              <div className="card p-4 h-fit">
-                <h3 className="text-sm font-bold text-slate-700 mb-2">Weekly Points</h3>
-                {active?.platform !== 'espn' && (
-                  <p className="text-xs text-slate-500">Game-by-game score history is ESPN-only for now.</p>
-                )}
-                {active?.platform === 'espn' && matchups.length === 0 && (
-                  <p className="text-xs text-slate-500">Season hasn&apos;t started — scores will appear here week by week.</p>
-                )}
-                {matchups.map((m: any) => (
-                  <div key={m.period} className="flex items-center gap-2 text-sm py-1 border-b border-slate-200/60 last:border-0">
-                    <span className="text-slate-500 text-xs w-8">W{m.period}</span>
-                    <span className="font-mono">{m.myPoints.toFixed(1)}</span>
-                    <span className="text-slate-400 text-xs">vs</span>
-                    <span className="font-mono text-slate-600">{m.oppPoints.toFixed(1)}</span>
-                    <span className="text-xs text-slate-500 truncate ml-auto">{m.opp}</span>
-                  </div>
-                ))}
-              </div>
+      {view === 'overview' && <>
+        {/* The simulation takes a moment: hold the card's place so nothing below it moves when it lands. */}
+        {synced && !sim && simLoading && (
+          <Card className="mb-4 min-h-[245px] sm:min-h-[219px] lg:min-h-[203px]" aria-busy="true" data-testid="odds-skeleton">
+            <h3 className="ds-h mb-4">Your title odds right now</h3>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              {[0, 1, 2, 3].map(i => <div key={i}><Skeleton className="h-4 w-24" /><Skeleton className="mt-2 h-9 w-20" /></div>)}
             </div>
-          )}
-          {tab === 'roster' && scout?.error && (
-            <div className="card p-6 text-sm text-slate-500">{scout.error}</div>
-          )}
-        </>
+            <Skeleton className="mt-4 h-4 w-full max-w-lg" />
+          </Card>
+        )}
+        {synced && myTwin && (
+          <Card className="mb-4">
+            <h3 className="ds-h mb-4">Your title odds right now</h3>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <Stat label="Championship" value={`${(myTwin.title_odds * 100).toFixed(1)}%`}
+                foot={myTwin.title_odds_95 ? <span>{(myTwin.title_odds_95[0] * 100).toFixed(1)}–{(myTwin.title_odds_95[1] * 100).toFixed(1)}% range</span> : undefined} />
+              <Stat label="Make playoffs" value={`${(myTwin.playoff_odds * 100).toFixed(0)}%`} />
+              <Stat label="Expected record" value={`${myTwin.expected_wins}W`} />
+              {scout?.spread?.floor != null && (
+                <Stat label="Weekly range" value={<span className="whitespace-nowrap text-[0.6em]"><span className="text-crit">{scout.spread.floor}</span><span className="mx-1 opacity-30">–</span><span className="text-good">{scout.spread.ceiling}</span></span>} />
+              )}
+            </div>
+            <p className="ds-note mt-4">
+              {sim?.runs?.toLocaleString()} simulated seasons, correlated player outcomes, the league's own playoff bracket
+              {playoffWeeksText(sim?.playoff_weeks) ? ` in ${playoffWeeksText(sim?.playoff_weeks)}` : ''}.
+            </p>
+            <MedianGameNotice medianGame={sim?.median_game} rulesUnknown={sim?.rules_unknown} />
+          </Card>
+        )}
+
+        {synced && lineupDiff && !lineupDiff.error && lineupDiff.basis === 'week_points' && !lineupDiff.matches && (
+          <Card tone="warn" className="mb-4 !p-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="font-semibold text-slate-900">Week {lineupDiff.week}: your lineup isn't this week's best (+{lineupDiff.gain} projected pts)</span>
+              <Button size="sm" variant="quiet" className="ml-auto" onClick={() => setView('lineup')}>See the swaps</Button>
+            </div>
+          </Card>
+        )}
+
+        {synced && active?.platform === 'espn' && myTeamId && (
+          <Fold className="mb-4" title="Post-draft action plan" hint="Self-scout, suggested trades and the best lineup" testid="post-draft-fold">
+            <PostDraftPlan leagueId={active.id} teamId={myTeamId} />
+          </Fold>
+        )}
+
+        {synced && (
+          <Card className="h-fit">
+            <h3 className="ds-h mb-2">Weekly points</h3>
+            {active?.platform !== 'espn' && (
+              <p className="text-xs text-slate-500">Game-by-game score history is ESPN-only for now.</p>
+            )}
+            {active?.platform === 'espn' && matchups.length === 0 && (
+              <p className="text-xs text-slate-500">Season hasn&apos;t started — scores will appear here week by week.</p>
+            )}
+            <div>
+              {matchups.map((m: any) => {
+                // This week's projection comes from the lineup check (same week_points basis).
+                const proj = m.state !== 'played' && lineupDiff && !lineupDiff.error && lineupDiff.basis === 'week_points'
+                  && lineupDiff.week === m.period && lineupDiff.submitted_points != null ? lineupDiff.submitted_points : null;
+                return (
+                  <div key={m.period} className="flex items-center gap-2 text-sm py-2 border-b border-slate-200 last:border-0" data-testid={`week-${m.state}`}>
+                    <span className="text-slate-500 text-xs w-8 shrink-0">W{m.period}</span>
+                    {m.state === 'played' ? <>
+                      <Chip tone={m.result === 'W' ? 'good' : m.result === 'L' ? 'bad' : 'neutral'} title={m.result === 'W' ? 'Won' : m.result === 'L' ? 'Lost' : 'Tied'}>{m.result}</Chip>
+                      <span className="font-mono">{Number(m.myPoints).toFixed(1)}</span>
+                      <span className="text-slate-400 text-xs">vs</span>
+                      <span className="font-mono text-slate-600">{Number(m.oppPoints).toFixed(1)}</span>
+                    </> : m.state === 'live' ? <>
+                      <Chip tone="accent">Live</Chip>
+                      <span className="font-mono">{Number(m.myPoints).toFixed(1)}</span>
+                      <span className="text-slate-400 text-xs">vs</span>
+                      <span className="font-mono text-slate-600">{Number(m.oppPoints).toFixed(1)}</span>
+                    </> : (
+                      <span className="text-xs text-slate-400">{proj != null ? <>upcoming · you project <span className="font-mono text-slate-600">{Number(proj).toFixed(1)}</span></> : 'upcoming'}</span>
+                    )}
+                    <span className="text-xs text-slate-500 truncate ml-auto min-w-0">{m.state === 'played' ? '' : 'vs '}{m.opp}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
+      </>}
+
+      {view === 'lineup' && (
+        <Lineup embedded
+          before={synced && lineupDiff && !lineupDiff.error ? <LineupDiffCard d={lineupDiff} platform={active?.platform === 'espn' ? 'ESPN' : 'Sleeper'} /> : undefined}
+          ceilingDetail={active ? () => <CeilingLineup leagueId={active.id} teamId={myTeamId} week={scout?.week ?? 1} /> : undefined}
+          after={scout && !scout.error ? (
+            <Fold title="Field view" hint={`${scout.lineup.points} ppg · the starters above, on the field`}>
+              <FormationView phase="offense" depth={formationSlots} accent="#0f766e" />
+            </Fold>
+          ) : undefined} />
       )}
+
+      {view === 'scouting' && active && <TeamScout data={scout} loading={scoutLoading} />}
+
+      {view === 'waivers' && <Lineup embedded view="waivers" />}
     </div>
   );
 }
 
-const URGENCY_CHIP: Record<string, string> = {
-  high: 'bg-red-100 text-red-700',
-  medium: 'bg-amber-100 text-amber-800',
-  low: 'bg-slate-100 text-slate-500'
-};
+const URGENCY_TONE: Record<string, Tone> = { high: 'bad', medium: 'warn', low: 'neutral' };
 
 /**
  * "Is the lineup I set on the platform the best one for THIS week?"
@@ -346,19 +330,13 @@ function LineupDiffCard({ d, platform }: { d: any; platform: string }) {
   const pts = (v: number | null | undefined) => (v == null ? '–' : Number(v).toFixed(1));
 
   return (
-    // Inline, not Tailwind classes: `.card` in index.css is unlayered and outranks
-    // the utilities, so `border-amber-300 bg-amber-50/50` here never rendered.
-    <div className="card p-4 mb-4" style={loud ? { borderColor: '#fcd34d', background: '#fffbeb' } : undefined}>
+    <Card className="mb-4" tone={loud ? 'warn' : undefined}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
-        <h3 className="text-sm font-bold text-slate-800">
+        <h3 className="ds-h">
           {d.matches ? `Week ${d.week} lineup: check before kickoff` : `Week ${d.week}: your ${platform} lineup isn't this week's best`}
         </h3>
         {!d.matches && <span className="text-xs text-amber-700 font-semibold">+{d.gain} projected pts this week</span>}
-        {d.urgency && (
-          <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${URGENCY_CHIP[d.urgency] ?? ''}`}>
-            {d.urgency}
-          </span>
-        )}
+        {d.urgency && <Chip tone={URGENCY_TONE[d.urgency] ?? 'neutral'}>{d.urgency}</Chip>}
       </div>
       {!d.matches && (
         <p className="text-xs text-slate-500 mb-2">
@@ -399,7 +377,7 @@ function LineupDiffCard({ d, platform }: { d: any; platform: string }) {
               )}
               <span className="ml-auto text-xs text-slate-600 whitespace-nowrap">
                 +{s.gap} · right about {pct(s.p_right)}
-                <span className={`ml-1.5 text-[10px] font-bold uppercase px-1 py-0.5 rounded ${URGENCY_CHIP[s.urgency] ?? ''}`}>{s.urgency}</span>
+                <span className="ml-1.5"><Chip tone={URGENCY_TONE[s.urgency] ?? 'neutral'}>{s.urgency}</Chip></span>
               </span>
             </div>
           ))}
@@ -436,12 +414,12 @@ function LineupDiffCard({ d, platform }: { d: any; platform: string }) {
         </ul>
       )}
 
-      <p className="text-[11px] text-slate-500 mt-2">
+      <p className="ds-note mt-3">
         Uses THIS WEEK's projection (Week {d.week}: matchup, byes, injury odds and the betting line), the same numbers as
         the Start/Sit tab, not the season average. "Right about X%" is how often the higher projection actually outscored the
         other at that gap in past seasons; under 60% is close to a coin flip. Make changes on {platform} before kickoff.
       </p>
-    </div>
+    </Card>
   );
 }
 
@@ -456,9 +434,9 @@ function CeilingLineup({ leagueId, teamId, week }: { leagueId: number; teamId: s
   const { data, loading } = useApi<any>(
     teamId ? `/trades/${leagueId}/ceiling-lineup?team_id=${teamId}&week=${week}&trials=3000` : null);
 
-  if (loading) return <div className="card p-6 text-sm text-slate-500">Simulating correlated outcomes…</div>;
+  if (loading) return <Card className="text-sm text-slate-500">Simulating correlated outcomes…</Card>;
   if (!data) return null;
-  if (data.error) return <div className="card p-6 text-sm text-amber-700">{data.error}</div>;
+  if (data.error) return <Card tone="warn" className="text-sm">{data.error}</Card>;
 
   const v = data.versus_highest_mean;
   const gained = v.hit_probability_gained ?? 0;
@@ -467,9 +445,9 @@ function CeilingLineup({ leagueId, teamId, week }: { leagueId: number; teamId: s
   return (
     <div className="grid lg:grid-cols-[1fr_320px] gap-4 items-start">
       <div>
-        <div className="card p-4 mb-3">
+        <Card className="mb-3">
           <div className="flex items-baseline gap-2 flex-wrap">
-            <h2 className="text-sm font-bold text-slate-800">Built to beat {data.target} points</h2>
+            <h2 className="ds-h">Built to beat {data.target} points</h2>
             <span className="text-[11px] text-slate-500">Week {week} · {data.trials.toLocaleString()} correlated draws</span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
@@ -477,10 +455,10 @@ function CeilingLineup({ leagueId, teamId, week }: { leagueId: number; teamId: s
             his own receiver have their good weeks together, so stacking them fattens the right tail —
             which is what wins a week you are not favoured in.
           </p>
-        </div>
+        </Card>
 
-        <div className="card overflow-hidden mb-3">
-          <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50 text-sm font-bold text-slate-800">
+        <Card pad={false} className="overflow-hidden mb-3">
+          <div className="px-4 py-3 border-b border-slate-200 ds-h">
             Ceiling lineup
           </div>
           <div className="divide-y divide-slate-100">
@@ -494,22 +472,22 @@ function CeilingLineup({ leagueId, teamId, week }: { leagueId: number; teamId: s
               </div>
             ))}
           </div>
-        </div>
+        </Card>
 
         {data.stacks?.length > 0 && (
-          <div className="card p-3 mb-3 border-emerald-200 bg-emerald-50/50">
-            <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-800 mb-1">Stacks it chose</div>
+          <Card tone="accent" className="mb-3">
+            <div className="ds-stat-l mb-1">Stacks it chose</div>
             {data.stacks.map((st: any) => (
               <div key={st.team} className="text-xs text-slate-700">
                 <b>{st.team}</b> — {st.players.join(' + ')}
               </div>
             ))}
-          </div>
+          </Card>
         )}
       </div>
 
       <div className="space-y-3">
-        <div className="card p-4">
+        <Card>
           <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-2">Outcome shape</div>
           {[['Floor (10th)', data.distribution.floor], ['Median', data.distribution.median],
             ['Ceiling (90th)', data.distribution.ceiling], ['Best case (99th)', data.distribution.p99]].map(([k, val]) => (
@@ -524,9 +502,9 @@ function CeilingLineup({ leagueId, teamId, week }: { leagueId: number; teamId: s
             </div>
             <div className="text-[11px] text-slate-500">chance of clearing {data.target}</div>
           </div>
-        </div>
+        </Card>
 
-        <div className={`card p-4 ${noLever ? '' : 'border-emerald-200'}`}>
+        <Card tone={noLever ? undefined : 'accent'}>
           <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">
             vs. the highest-average lineup
           </div>
@@ -554,7 +532,7 @@ function CeilingLineup({ leagueId, teamId, week }: { leagueId: number; teamId: s
               </div>
             </>
           )}
-        </div>
+        </Card>
       </div>
     </div>
   );

@@ -160,7 +160,11 @@ function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive }: {
           in it; otherwise the row says what is missing in one line, which is
           the honest answer for four of the five leagues. */}
       {signalsLive && signal && (signal.corpus || shown.length || signal.archetype) ? (
-        <div className="mt-2.5 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+        // Folded by default (Trades → People): one line per manager, the measured detail opens under it.
+        <details className="ds-fold mt-2.5" data-testid="manager-measured">
+          <summary className="ds-fold-s !py-2.5"><span className="ds-fold-t !text-sm">What we measured</span>
+            <span className="ds-fold-h">{[signal.archetype && 'archetype', signal.receptiveness && 'receptiveness', shown.length ? `${shown.length} signal${shown.length === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ') || 'no measured signal yet'}</span></summary>
+        <div className="ds-fold-b">
           <div className="grid gap-3 sm:grid-cols-3">
             <Read label="Archetype" value={signal.archetype} />
             <div>
@@ -192,6 +196,7 @@ function ManagerRow({ profile, signal, leagueId, onSaved, signalsLive }: {
             </p>
           )}
         </div>
+        </details>
       ) : (
         <p className="mt-2 text-[11px] leading-5 text-slate-500">
           Nothing measured about this manager. The tier above is the only read we have,

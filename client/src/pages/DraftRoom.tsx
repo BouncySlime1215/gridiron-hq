@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api, Draft, headshotUrl, useApi } from '../api';
 import PlayerRow, { Headshot, PosBadge } from '../components/PlayerRow';
 import { PlayerName } from '../components/PlayerCard';
@@ -32,8 +32,10 @@ export default function DraftRoom() {
   const [zoom, setZoom] = useState(1);   // draft-board scale
   const { data: vorBoard } = useApi<any[]>('/edge/vor');
   const vorById = useMemo(() => new Map((vorBoard ?? []).map(v => [v.id, v])), [vorBoard]);
-  const [recapOpen, setRecapOpen] = useState(false);
-  const [recapShown, setRecapShown] = useState(false);
+  // Recaps (Draft → Recaps) link here with ?recap=1: open the recap and grade straight away.
+  const [params] = useSearchParams();
+  const [recapOpen, setRecapOpen] = useState(() => params.get('recap') === '1');
+  const [recapShown, setRecapShown] = useState(() => params.get('recap') === '1');
   const busy = useRef(false);
 
   // Whose turn it is depends on order_type (snake/linear/third_round_reversal),
@@ -154,7 +156,7 @@ export default function DraftRoom() {
       <DraftRecap draft={draft} open={recapOpen} onClose={() => setRecapOpen(false)} />
       {/* ---- status bar ---- */}
       <div className="flex items-center gap-3 mb-3 flex-wrap">
-        <Link to="/drafts" className="text-xs text-slate-500 hover:text-slate-700">← drafts</Link>
+        <Link to="/draft" className="text-xs text-slate-500 hover:text-slate-700">← drafts</Link>
         <h1 className="text-lg font-bold">{draft.name}</h1>
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isMock ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700'}`}>
           {isMock ? 'MOCK' : 'LIVE'}

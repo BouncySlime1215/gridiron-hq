@@ -25,6 +25,12 @@
  * trade-off preview and Nick's Confirm tap. Plain screen commands ("show the
  * flip map for league 3", "undo") skip the model entirely (intent.js). The
  * grounding check is unchanged: a claim with an invented number still fails.
+ *
+ * COACH-ANSWERS. With the Coach brief flag on (brief.js#coachBriefFlag), the
+ * dock's four starter questions and their paraphrases (starter-answers.js) are
+ * answered from the War Room plans file with no model call: grounded, cited
+ * claims plus the screen actions that go with them. With no model key, every
+ * other question gets a refusal naming what Coach can answer. Cost $0.
  */
 import { callClaude, parseJson } from '../claude.js';
 import { catalog, readableTables } from './catalog.js';
@@ -35,6 +41,8 @@ import { verifyAnswer } from './verify.js';
 import { recordCoachAnswer } from './audit.js';
 import { warRoomEnabled } from '../warroom-actions/store.js';
 import { routeIntent } from '../warroom-actions/intent.js';
+import { coachBriefFlag } from './brief.js';
+import { starterIntent, starterAnswer, starterActions, partnerAnswer } from './starter-answers.js';
 
 /**
  * Rounds of model call. One round is one Claude turn; a round that asks for
@@ -153,7 +161,7 @@ function answerFrom(parsed) {
  * @returns {Promise<{question, answer, ledger, verification, plan, audit_id, cost_usd}>}
  */
 export async function askCoach({ question, context = null, leagueId = null,
-  onEvent = () => {}, model = COACH_MODEL } = {}) {
+  onEvent = () => {}, model = COACH_MODEL, hasModel = true } = {}) {
   const asked = String(question ?? '').trim();
   if (!asked) {
     const err = new Error('Coach was asked nothing.');
@@ -164,24 +172,55 @@ export async function askCoach({ question, context = null, leagueId = null,
   const ledger = newLedger();
   const plan = [];
   const actions = [];
+  // RULES-EVERYWHERE: suggestions a tool dropped for breaking one of Nick's hard rules, this answer.
+  const counts = { dropped_by_rule: 0 };
+  const tally = out => { counts.dropped_by_rule += Number(out?.dropped_by_rule) || 0; return out; };
   const emit = event => { plan.push(event); onEvent(event); };
   emit({ t: 'understood', question: asked });
 
   const warRoom = context?.surface === 'war_room' && warRoomEnabled();
-  if (warRoom) {
-    const fast = routeIntent(asked);
-    if (fast?.refuse) {
-      emit({ t: 'answer', claims: 0, refusals: 1, fast_path: true });
-      return { question: asked, answer: { claims: [], refusals: [fast.refuse], as_of: null }, actions: [],
-        ledger: ledger.toJson(), verification: { ok: true, violations: [], warnings: [], numbers_checked: 0, fast_path: true },
-        plan, audit_id: null, cost_usd: 0 };
+  const fast = warRoom ? routeIntent(asked) : null;
+  if (fast?.refuse) {
+    emit({ t: 'answer', claims: 0, refusals: 1, fast_path: true });
+    return { question: asked, answer: { claims: [], refusals: [fast.refuse], as_of: null }, actions: [],
+      ledger: ledger.toJson(), verification: { ok: true, violations: [], warnings: [], numbers_checked: 0, fast_path: true },
+      plan, audit_id: null, cost_usd: 0, dropped_by_rule: 0 };
+  }
+
+  // The brief flag gates the plan-read path; a screen command with no model key still runs below.
+  const planAnswers = coachBriefFlag().on;
+  const league = leagueId ?? (Number.isInteger(context?.league) ? context.league : null);
+  // COACH-PARTNER: "a trade to send to <manager>" names someone; answered from his served plans.
+  const partner = planAnswers ? await partnerAnswer({ question: asked, leagueId: league }) : null;
+  const intent = partner ? 'partner' : (planAnswers ? starterIntent(asked) : null);
+  if (intent || (planAnswers && !hasModel && !fast)) {
+    const out = partner ?? await starterAnswer({ question: asked, intent, leagueId: league, context });
+    const starterActs = [];
+    if (warRoom && intent) {
+      const acts = out.actions ?? (fast?.tool ? [[fast.tool, fast.input]] : starterActions(intent));
+      for (const [tool, input] of acts) {
+        const { action } = tally(runCoachTool(tool, input, { ledger }));
+        if (!action) continue;
+        starterActs.push(action);
+        emit({ t: 'action', action, fast_path: true });
+      }
     }
+    emit({ t: 'answer', claims: out.answer.claims.length, refusals: out.answer.refusals.length, deterministic: true });
+    const auditId = recordCoachAnswer({ question: asked, route: context?.route ?? null, leagueId: league, model: 'none:starter',
+      answer: out.answer, ledger: out.ledger, plan, verification: out.verification, costUsd: 0 });
+    return { question: asked, answer: out.answer, actions: starterActs, ledger: out.ledger, verification: out.verification,
+      dropped: out.dropped, plan, audit_id: auditId, cost_usd: 0, dropped_by_rule: counts.dropped_by_rule,
+      ...(out.partner ? { partner: out.partner } : {}),
+      ...(out.preview ? { preview: true, preview_reason: out.preview_reason } : {}) };
+  }
+
+  if (warRoom) {
     if (fast) {
-      const { action } = runCoachTool(fast.tool, fast.input, { ledger });
-      emit({ t: 'action', action, fast_path: true });
-      return { question: asked, answer: { claims: [], refusals: [], as_of: null }, actions: [action],
+      const { action } = tally(runCoachTool(fast.tool, fast.input, { ledger }));
+      if (action) emit({ t: 'action', action, fast_path: true });
+      return { question: asked, answer: { claims: [], refusals: [], as_of: null }, actions: action ? [action] : [],
         ledger: ledger.toJson(), verification: { ok: true, violations: [], warnings: [], numbers_checked: 0, fast_path: true },
-        plan, audit_id: null, cost_usd: 0 };
+        plan, audit_id: null, cost_usd: 0, dropped_by_rule: counts.dropped_by_rule };
     }
   }
 
@@ -208,7 +247,7 @@ export async function askCoach({ question, context = null, leagueId = null,
     if (toolUses.length && !isFinalRound) {
       emit({ t: 'planning', tools: toolUses.map(block => block.name) });
       messages.push({ role: 'assistant', content: msg.content });
-      messages.push({ role: 'user', content: toolUses.map(block => runOne(block, { ledger, emit, actions })) });
+      messages.push({ role: 'user', content: toolUses.map(block => runOne(block, { ledger, emit, actions, tally })) });
       continue;
     }
 
@@ -265,7 +304,7 @@ export async function askCoach({ question, context = null, leagueId = null,
   });
 
   return { question: asked, answer, actions, ledger: ledgerJson, verification, plan,
-    audit_id: auditId, cost_usd: costUsd };
+    audit_id: auditId, cost_usd: costUsd, dropped_by_rule: counts.dropped_by_rule };
 }
 
 /**
@@ -276,11 +315,11 @@ export async function askCoach({ question, context = null, leagueId = null,
  * act on, and hiding it would just make the next round guess again. Anything
  * that is not one of those is a real fault and is left to throw.
  */
-function runOne(block, { ledger, emit, actions = [] }) {
+function runOne(block, { ledger, emit, actions = [], tally = x => x }) {
   const started = Date.now();
   emit({ t: 'query', id: null, tool: block.name, status: 'running', input: block.input ?? {} });
   try {
-    const { entry, summary, action } = runCoachTool(block.name, block.input ?? {}, { ledger });
+    const { entry, summary, action } = tally(runCoachTool(block.name, block.input ?? {}, { ledger }));
     if (action) {
       actions.push(action);
       emit({ t: 'action', action });

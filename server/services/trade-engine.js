@@ -51,7 +51,9 @@
  * consumers call `tradeIdeas`.
  */
 import crypto from 'node:crypto';
-import { rows } from '../db/index.js';
+import { db, row, rows } from '../db/index.js';
+// RULES-EVERYWHERE: Nick's hard rules, the one gate every trade idea passes before it is returned.
+import { ruleGate, idsOf } from './campaign/never-give.js';
 import { vorBoard, volatility } from '../routes/edge.js';
 import { deriveFormat } from './format.js';
 import { pickInventory } from './picks.js';
@@ -73,14 +75,15 @@ import { dynastyAgeAdjustment } from './dynasty-age-curve.js';
 // this week identically), the normal CDF behind a swap's probability, and the
 // write that retires a lineup recommendation lineupDiff() itself published.
 import { vegasLift } from './waiver-brain.js';
+import { blendWeek, blendWeekFlag, horizonPpg, servedBlendWeek } from './blend-week.js';
 // The league's wire, for lineupValue()'s replacement level (one producer with the
 // Waivers page's waiverBoard()).
 import { leagueWire } from './league-wire.js';
 import { normalCdf, withRandomSeed } from './stats-util.js';
-// lineupSpread() only: each starter's played-week draws and the fitted archetype
-// correlations, for the lineup-total floor/ceiling.
-import { sampleWeeks } from './projections.js';
-import { correlationMatrix, correlationBasis } from './correlation.js';
+import { buildProjections } from './projections.js';
+import { correlationBasis } from './correlation.js';
+// WEEKLY-RANGE-ONE: the one producer of a lineup's weekly range.
+import { lineupWeekRange, leagueLineupWeekRange } from './lineup-week-range.js';
 import { servedTableState } from './data-freshness.js';
 import { currentMarket } from './dynasty-value-history.js';
 import { run as dbRun } from '../db/index.js';
@@ -99,7 +102,8 @@ import { counterpartyLayer, readDeal, counterpartyDataKey, playerValuation, self
 // thinks of it (master plan 00 D4, "a gift, not a trade").
 import { edgeTest, tacticsForDeal, timingRead, vetoClimate } from './trade-tactics.js';
 import { LOST_IDEAS } from './rec-ledger.js';
-import { acceptanceBand } from './trade-acceptance.js';
+import { pYesFlag, pYesFor, pYesTable } from './p-yes.js';
+import { servedAcceptBand } from './price-band.js';
 // tradeIdeas() only: this roster's real P(make playoffs), which is what turns the
 // horizon from a 0.5 prior into a number. season-sim.js imports assetUniverse /
 // loadRosters / lineupSlots from THIS file, so the two modules form a cycle.
@@ -118,7 +122,9 @@ import { acceptanceBand } from './trade-acceptance.js';
 // playoff odds"), which does not exist yet. When it ships, myPlayoffOdds() should
 // read it and this import goes away. Until then the alternative was leaving the
 // live /find route on the 0.5 prior, which is the bug this item exists to fix.
-import { simulateSeason, simStartWeek, tradeImpact, tradeImpactWorld } from './season-sim.js';
+import { simulateSeason, simStartWeek, tradeImpact, tradeImpactWorld, worldPoolFor } from './season-sim.js';
+import { oneWorldFlag, rangeFromPool } from './one-world.js';
+import { leagueWorld, worldStamp } from './league-world.js';
 import { titleMutualMode, titleCandidate, titleMutualDeals } from './title-mutual.js';
 import { horizonWeights, horizonGain, horizonNote, leagueSchedule, leagueShape } from './trade-horizon.js';
 // ros_ppg / playoff_ppg (and so adj_ppg): the gated rest-of-season model. This
@@ -133,11 +139,12 @@ export const FLEX_ELIGIBLE = { FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'],
 // Positions we model. K and D/ST are near-random week to week and roughly
 // interchangeable, so including them adds noise to every lineup comparison.
 const SCORED = new Set(SKILL);
-// Per-player weekly-model inputs for lineupSpread() (see there), attached to every
-// asset under this symbol by buildAssetUniverse(). A symbol, not a field: object
-// spread copies it, JSON.stringify and Object.keys skip it.
-// Exported so a test can attach a weekly model to a fixture (test/lineup-spread.test.js).
-export const WEEK_MARGINAL = Symbol('weekMarginal');
+// Which league-week an asset was priced for ({ league_id, week }), attached to every
+// asset by buildAssetUniverse() so lineupSpread() can find the league's one world
+// (lineup-week-range.js). A symbol, not a field: object spread copies it,
+// JSON.stringify and Object.keys skip it. Exported so a test can attach it to a fixture;
+// a registry symbol, so a second instance of this module reads the same key.
+export const LINEUP_WEEK = Symbol.for('gridiron.lineupWeek');
 /**
  * What handing over market value costs, per 20% of the value you send.
  *
@@ -242,8 +249,8 @@ export const ASSET_INPUT_TABLES = [
   // The Sleeper sync clears an injury flag with an UPDATE (RL-12-2), so the row count
   // never moves; every player_metrics writer re-stamps fetched_at.
   { table: 'player_metrics', stamp: 'fetched_at' }, 'schedule_games',
-  // Not read by buildAssetUniverse, but by lineupSpread inside findTrades, whose cache
-  // keys on this list. A refit rewrites fitted_at on the same 20-odd rows.
+  // Not read by buildAssetUniverse, but by the league world's copula behind
+  // lineupSpread inside findTrades, whose cache keys on this list. A refit rewrites fitted_at on the same 20-odd rows.
   { table: 'correlation_estimates', stamp: 'fitted_at' }
 ];
 
@@ -255,7 +262,7 @@ export const ASSET_INPUT_TABLES = [
  *   trending_players       every asset's trend_kind / trend_count; written only by
  *                          POST /api/tradelab/trending/sync. Empty, `trend_kind: null`
  *                          is "nothing fetched", not "not trending".
- *   correlation_estimates  lineupSpread's copula; written only by POST /api/model/sync.
+ *   correlation_estimates  the league world's copula (lineupSpread's draws); written only by POST /api/model/sync.
  *                          Empty, every archetype is correlation.js's DEFAULTS.
  */
 const handFedInputs = () => ({ trending_players: servedTableState('trending_players'),
@@ -292,7 +299,7 @@ const assetInputsKey = (lg, formatKey, target) =>
   `${lg.id}:${formatKey}:${target.season}:${target.week}:` +
   `w${activeWeeklyWeightSet({ season: target.season, week: target.week }).id}:` +
   `d${servedInputsDigest(target.season, target.week)}:h${handFedKey(handFedInputs())}:` +
-  `i${injuryFlagKey()}`;
+  `i${injuryFlagKey()}:bw${blendWeekFlag().on ? 1 : 0}`;
 
 // A flag goes stale by the clock alone (injury-flags.js), with no table write, so the
 // active set itself is part of the key (RL-12-2).
@@ -302,7 +309,8 @@ const injuryFlagKey = () => crypto.createHash('sha1')
 export function assetUniverse(lg, formatKey, requested = null) {
   const target = requested ?? tradeWeekContext();
   return cached(
-    `assets:${lg.id}:${formatKey}:${target.season}:${target.week}`,
+    // EA-07: the one world changes every floor/ceiling, so a flip is a different universe.
+    `assets:${lg.id}:${formatKey}:${target.season}:${target.week}${oneWorldFlag().on ? ':one-world' : ''}`,
     fingerprint(ASSET_INPUT_TABLES, assetInputsKey(lg, formatKey, target)),
     () => buildAssetUniverse(lg, formatKey, target));
 }
@@ -313,10 +321,21 @@ function buildAssetUniverse(lg, formatKey, target) {
   // evidence cache should refresh on, so it is dropped here rather than on a TTL.
   evidenceCache.clear();
   const scoring = scoringFor(lg);
+  // EA-07: with the one world on, a player's weekly range is his pool in this NFL
+  // week's world (season-sim.js#worldPoolFor: the draw the title odds index), not a
+  // pool of its own. Built once per universe: the projection the world samples and
+  // this week's availability.
+  const oneWorld = oneWorldFlag().on;
+  const worldProj = oneWorld ? buildProjections({ through: target.season - 1, scoring }) : null;
+  const worldAvail = oneWorld ? weeklyAvailability(target.season, target.week) : null;
   // This league's own playoff weeks, so playoff_ppg is priced on the weeks that
   // actually decide ITS title (see trade-horizon.js#leagueSchedule).
   const { playoffWeeks } = leagueSchedule(lg);
   const playoffWeeksLeft = playoffWeeks.filter(w => w >= target.week).length;
+  // BROKEN-G: with the flag on, every asset carries the one this-week number
+  // (blend-week.js#blendWeek) and adj_ppg is derived from it. Read once per build;
+  // the flag is part of assetInputsKey so a flip rebuilds.
+  const blendFlag = blendWeekFlag();
   // formatKey is `dyn_...`/`rd_...` per deriveFormat (format.js) — the age
   // decay only makes sense for a dynasty/keeper valuation, never redraft.
   const isDynasty = formatKey.startsWith('dyn_');
@@ -363,6 +382,8 @@ function buildAssetUniverse(lg, formatKey, target) {
     .map(t => [t.player_id, t]));
 
   const out = new Map();
+  // One object shared by every asset of this universe (see LINEUP_WEEK).
+  const lineupWeek = Object.freeze({ league_id: lg.id, week: target.week });
   for (const p of rows(`SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, p.gsis_id, t.abbr AS team_abbr
                         FROM players p LEFT JOIN nfl_teams t ON t.id = p.team_id`)) {
     const v = board.get(p.id), w = vol.get(p.id), m = market.get(p.id);
@@ -416,7 +437,7 @@ function buildAssetUniverse(lg, formatKey, target) {
     // unknown is not a bye.
     const hasSchedule = Boolean(p.team_abbr && SCORED.has(p.position));
     // Same bye detector as currentWeekPpg (:359): no game this week, known from the
-    // schedule, not a forecast. Gates weekDist, WEEK_MARGINAL and the served
+    // schedule, not a forecast. Gates weekDist and the served
     // floor/ceiling/avg below so a bye-week starter's weekly range is 0, not a full
     // distribution he cannot play. Players with no schedule on file keep the
     // model's number — unknown is not a bye (see the comment above hasSchedule).
@@ -431,7 +452,13 @@ function buildAssetUniverse(lg, formatKey, target) {
     // A trade is a rest-of-season decision, not DFS. The live week matters, but
     // it cannot erase the remaining schedule or turn a bye into a player-value
     // collapse. The weekly engine itself refreshes from every completed week.
-    const decisionPpg = 0.25 * currentWeekPpg + 0.75 * rosPpg;
+    // Flag off: the unlifted week number, exactly as before. Flag on: blend.week, the
+    // same number Start/Sit and the lineup card print (BROKEN-G).
+    const bw = blendFlag.on
+      ? blendWeek({ current_week_ppg: +currentWeekPpg.toFixed(2), team_abbr: p.team_abbr, position: p.position },
+        target.season, target.week)
+      : null;
+    const decisionPpg = horizonPpg(bw ? bw.value : currentWeekPpg, rosPpg);
     // 2,000 draws, playerWeekDistribution's own default. This used to override it
     // down to 400, and at 400 the percentiles are not stable enough to print, let
     // alone difference across the two sides of a trade: measured over 200 re-draws
@@ -443,27 +470,23 @@ function buildAssetUniverse(lg, formatKey, target) {
     // accurate — and because the key includes activeProbability and mult, a small
     // availability change re-rolls the whole draw. These per-player numbers are for
     // display; a trade's floor_delta/ceiling_delta no longer adds them up — it comes
-    // from lineupSpread()'s lineup-total percentiles.
+    // from lineupSpread()'s lineup-total percentiles (lineup-week-range.js).
     // No draw for a player who cannot play this week — a bye is a known 0, not a
     // distribution to sample (see onBye above).
-    const weekDist = weekProjection && !onBye
-      ? playerWeekDistribution(weekProjection, { runs: 2000, activeProbability, mult: thisGame?.mult ?? 1 })
+    // The world pool reads ros_ppg as served (rounded), as the world itself does.
+    const worldPool = worldProj && !onBye
+      ? worldPoolFor({ ...p, ros_ppg: +rosPpg.toFixed(2) }, target.week, { scoring, proj: worldProj, activeChance: worldAvail })
       : null;
+    const worldDist = worldPool ? rangeFromPool(worldPool, p.position) : null;
+    const weekDist = worldDist ?? (weekProjection && !onBye
+      ? playerWeekDistribution(weekProjection, { runs: 2000, activeProbability, mult: thisGame?.mult ?? 1 })
+      : null);
 
     out.set(p.id, {
-      // What lineupSpread() needs to put this player's week into a lineup total: the
-      // same week inputs as weekDist above. Symbol-keyed so it survives the
+      // Where lineupSpread() finds this player's week: the league's one world for
+      // this NFL week (lineup-week-range.js). Symbol-keyed so it survives the
       // `{ ...p }` copies the trade search makes and never reaches a JSON response.
-      // activeProbability 0 on a bye zeroes both the mean and the variance
-      // spreadInput() derives from this (trade-engine.js#spreadInput), so a bye-week
-      // starter contributes nothing to a lineup's weekly floor/ceiling/avg.
-      [WEEK_MARGINAL]: weekProjection ? {
-        params: weekProjection.params, shift: weekProjection.ensemble_shift ?? 0,
-        activeProbability: onBye ? 0 : activeProbability, mult: thisGame?.mult ?? 1, scoring,
-        seed: `${target.season}:${target.week}:${p.id}:${activeProbability}:${thisGame?.mult ?? 1}:${weekProjection.ensemble_shift ?? 0}`,
-        meta: { id: p.id, position: p.position, team: p.team_abbr, opponent: thisGame?.opponent ?? null,
-          target_share: weekProjection.volume?.target_share ?? null }
-      } : null,
+      [LINEUP_WEEK]: lineupWeek,
       id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
       espn_id: p.espn_id, sleeper_id: p.sleeper_id,
       proj: +(weeklyPpg * Math.max(1, 18 - target.week)).toFixed(1),
@@ -496,6 +519,9 @@ function buildAssetUniverse(lg, formatKey, target) {
       ceiling: onBye ? 0 : weekDist?.p90 ?? w?.ceiling ?? null,
       avg: onBye ? 0 : weekDist?.mean ?? w?.avg ?? null,
       boom: weekDist?.boom_rate ?? w?.boom_rate ?? null, bust: weekDist?.bust_rate ?? w?.bust_rate ?? null,
+      // EA-07 only: which sampler this floor/ceiling came from ('world' = the one world;
+      // 'week_engine' = a player the world does not simulate, e.g. no last-season shape).
+      ...(oneWorld ? { range_source: worldDist ? 'world' : onBye ? 'bye' : weekDist ? 'week_engine' : null } : {}),
       consistency: w?.consistency ?? null, logged_games: w?.games ?? null,
       injury: injured.has(p.id) || !!(availability?.report_status && !/probable/i.test(availability.report_status)) ? 1 : 0,
       available: !(p.espn_id && seasonEnding.has(p.espn_id)),
@@ -507,6 +533,10 @@ function buildAssetUniverse(lg, formatKey, target) {
       schedule_signal: scheduleTilt, schedule_reason: scheduleTilt ? null : (sched.reason ?? MATCHUP_SIGNAL_REASON),
       adj_ppg: +decisionPpg.toFixed(2),
       current_week_ppg: +currentWeekPpg.toFixed(2),
+      // BROKEN-G: present only with the flag on. The one this-week number the three
+      // pages read; current_week_ppg above stays as its input (proj.week).
+      ...(bw ? { blend_week: bw.value, blend_week_vegas: bw.vegas,
+        week_basis: { field: 'blend.week', producer: 'blend-week.js#blendWeek', preview: blendFlag.preview } } : {}),
       // His team has no game in the target week (onBye above, the same detector
       // current_week_ppg uses). weekLineup() reads it so selfScout and a trade card's
       // weekly floor/ceiling solve this week's lineup without him (RL-5-3).
@@ -627,10 +657,20 @@ export function loadRosters(lg, assets) {
   return teams;
 }
 
-/** Starting slots for this league, defaulted sanely when the sync didn't record them. */
-export function lineupSlots(lg) {
+/** A league's kicker / team-defence slot names, as the season sim scores them. */
+export const KDST_SLOT = { K: 'K', DEF: 'DEF', 'D/ST': 'DEF', DST: 'DEF' };
+
+/**
+ * Starting slots for this league, defaulted sanely when the sync didn't record them.
+ *
+ * By default only the skill and flex slots (every lineup solver here models those).
+ * `{ kdst: true }` (SIM-KDST: the season sim only) also keeps the league's K and
+ * D/ST slots, normalised to 'K' / 'DEF', so the sim plays every real starter.
+ */
+export function lineupSlots(lg, { kdst = false } = {}) {
   const rp = lg.roster_positions ? JSON.parse(lg.roster_positions)
     : ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX'];
+  if (kdst) return rp.map(s => KDST_SLOT[s] ?? s).filter(s => SCORED.has(s) || FLEX_ELIGIBLE[s] || s === 'K' || s === 'DEF');
   return rp.filter(s => SCORED.has(s) || FLEX_ELIGIBLE[s]);
 }
 
@@ -829,131 +869,32 @@ export function pinnedBestLineup(players, slots, key = 'adj_ppg', pins = new Map
  *
  * Two rosters can project identically and have very different variance; a win-now
  * team wants floor, a longshot wants ceiling. The question is what the starting
- * lineup scores in a bad week and in a good one.
+ * lineup scores in a bad week (p10) and in a good one (p90).
  *
- * This used to answer it with the SUM of each starter's own p10 as the lineup
- * "floor" and the sum of p90s as the "ceiling". A sum of quantiles is not the
- * quantile of a sum: nine starters do not all have their 1-in-10 week together.
- * Measured by the 2026-09-17 audit on a nine-starter lineup (40,000 joint draws):
- * sum of p10 5.2 against a true lineup p10 of 73.6; sum of p90 245.4 against a
- * true 159.5. The "floor" was the everyone-busts week, which never happens, and
- * floor_delta / ceiling_delta in every trade verdict were differences of those.
+ * WEEKLY-RANGE-ONE: the answer is lineup-week-range.js, the one producer every page
+ * reads: the lineup total in each run of the league's one world (the correlated
+ * draws the title odds are played on), p10 / p50 / p90 of those totals. It used to
+ * be a sampler of its own here (per-player pools from this week's model, summed as a
+ * normal approximation with the archetype correlations), a sum of quantiles before
+ * that; the number audit's weekly_range check found it 15 pts off the title odds'
+ * own week for the same lineup. A trade's before and after lineups are scored on
+ * the same runs, so floor_delta / ceiling_delta differ only by who plays.
  *
- * Now the floor and ceiling are the 10th and 90th percentiles of the lineup total,
- * from each starter's weekly model:
+ * The league-week comes from the starters' LINEUP_WEEK (every asset of a universe
+ * carries it); a caller with its own world passes `{ world, week }`.
  *
- *   One starter's week. With probability 1 - active_probability he does not play
- *   and scores exactly 0. Otherwise one played week from projections.js
- *   #sampleWeeks (this week's usage/efficiency params and the mean-preserving
- *   weekly shock) plus the ensemble shift, clamped at 0 — the same inputs, and the
- *   same 0 for a week he sits, as player-week-engine.js#playerWeekDistribution, so
- *   this lineup floor and the per-player floor on the asset agree. Each starter's
- *   mean and variance come from a fixed, seeded pool of 2,000 played weeks plus
- *   that 0 for the weeks he sits.
- *
- *   Together. The lineup total's mean is the sum of the means; its variance is the
- *   sum of the variances plus 2 rho sd sd for every pair in the same game (the
- *   fitted archetype correlations, correlation.js: QB-WR same team ~0.18, opposing
- *   QBs ~0.16; every other pair is independent, which is what most drafted
- *   lineups are). Floor and ceiling = mean -/+ 1.2816 sd.
- *
- * That last step is a normal approximation, and it was chosen by a pre-registered
- * check, not by taste (scratch step1/trade-consumers/GATE.md, 2026-09-18). Truth
- * was a brute-force joint simulation — 200,000 draws per player through the
- * library copula sampler (correlation.js#correlatedSampler) — on all 46 lineups in
- * the five synced leagues plus every post-trade lineup findTrades returned (150
- * lineups, 142 before/after pairs). Pass: level error <= 2.5 pts max and <= 1.0
- * mean, trade deltas within 1.0 pt for 95% of pairs and within 2.0 for all.
- *
- *                         p10 err max/mean   p90 err max/mean   deltas within 1.0 (floor / ceiling)
- *   old sum of quantiles    48.2 / 29.8        81.3 / 65.0        30% / 37%
- *   joint draws (10,000)     1.4 / 0.46         2.7 / 0.68        96.5% / 92.3%   FAILED
- *   normal approximation     1.2 / 0.46         2.0 / 0.59        100% / 99.3%    passed
- *
- * The joint simulation (10,000 draws of the same per-player pools) was the first
- * choice and failed narrowly: a lineup's 90th percentile wandered up to 2.7 pts
- * and ceiling deltas were within a point only 92% of the time. The normal
- * approximation, on the same pools, passed on every count; its own bias is small
- * and known — about 0.4 pts low at both ends, because a lineup total is slightly
- * skewed. Where the true change in floor or ceiling was a point or more, its sign
- * agreed with the brute force every time (206 of 206).
- *
- * Cost: ~3 ms per player the first time he enters any spread (his pool), then
- * microseconds per lineup. evaluate() computes floor_delta/ceiling_delta only when
- * they are read (see there), so the trade search does not pay for the thousands of
- * candidate deals nobody ever sees.
+ * @returns {{ floor, median, ceiling, mean, sd, coverage, runs, percentiles, method } | { floor: null, ceiling: null, error }}
  */
-const SPREAD_POOL = 2000;     // played weeks per player — the per-player distribution's own size
-const Z90 = 1.2815516;        // standard-normal 90th percentile
-
-const seedOf = text => {
-  let h = 2166136261;
-  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
-  return h >>> 0;
-};
-
-/**
- * One starter's weekly mean and variance: `model` from his weekly model (memoised
- * on the WEEK_MARGINAL object, which lives exactly as long as its asset universe),
- * `approx` from the floor/ceiling he carries when he has no weekly model (a normal
- * with that 10th-90th range, unclamped), or `constant` at his average.
- */
-function spreadInput(p) {
-  const m = p[WEEK_MARGINAL];
-  if (m?.params) {
-    if (!m.moments) {
-      const played = withRandomSeed(seedOf(`${m.seed}:pool`), () =>
-        sampleWeeks(m.params, SPREAD_POOL, m.scoring, m.mult, 1));
-      const ap = Math.max(0, Math.min(1, Number(m.activeProbability) || 0));
-      let s1 = 0, s2 = 0;
-      for (const v of played) { const x = Math.max(0, v + m.shift); s1 += x; s2 += x * x; }
-      const mean = ap * (s1 / played.length);
-      m.moments = { mean, variance: Math.max(0, ap * (s2 / played.length) - mean * mean) };
-    }
-    return { kind: 'model', meta: m.meta, ...m.moments };
-  }
-  if (p.floor != null && p.ceiling != null) {
-    const sd = Math.max(0, p.ceiling - p.floor) / (2 * Z90);
-    return { kind: 'approx', mean: p.avg ?? (p.floor + p.ceiling) / 2, variance: sd * sd };
-  }
-  return { kind: 'constant', mean: Number(p.avg ?? p.adj_ppg ?? 0) || 0, variance: 0 };
-}
-
-/**
- * The starting lineup's weekly floor (p10) and ceiling (p90) TOTAL. See the note
- * above for the model and the check behind it.
- *
- * @returns {{ floor, ceiling, mean, sd, coverage, method, correlated_pairs }}
- */
-export function lineupSpread(lineup) {
+export function lineupSpread(lineup, { world = null, week = null } = {}) {
   const starters = (lineup?.slots ?? []).map(s => s.player).filter(Boolean);
-  const inputs = starters.map(spreadInput);
-  if (!inputs.some(x => x.kind !== 'constant')) return { floor: null, ceiling: null, coverage: 0 };
-  let mean = 0, variance = 0;
-  for (const x of inputs) { mean += x.mean; variance += x.variance; }
-  // Same-game pairs among the starters with a weekly model: 2 rho sd_i sd_j each.
-  const modeled = inputs.filter(x => x.kind === 'model');
-  let correlatedPairs = 0;
-  if (modeled.length > 1) {
-    const R = correlationMatrix(modeled.map(x => x.meta));
-    for (let i = 0; i < modeled.length; i++) {
-      for (let j = i + 1; j < modeled.length; j++) {
-        if (!R[i][j]) continue;
-        correlatedPairs++;
-        variance += 2 * R[i][j] * Math.sqrt(modeled[i].variance * modeled[j].variance);
-      }
-    }
-  }
-  const sd = Math.sqrt(Math.max(0, variance));
-  return {
-    floor: +Math.max(0, mean - Z90 * sd).toFixed(1),
-    ceiling: +(mean + Z90 * sd).toFixed(1),
-    mean: +mean.toFixed(1),
-    sd: +sd.toFixed(1),
-    coverage: +(modeled.length / inputs.length).toFixed(2),
-    method: 'normal approximation of the lineup total',
-    correlated_pairs: correlatedPairs
-  };
+  if (!starters.length) return { floor: null, median: null, ceiling: null, coverage: 0, error: 'no starters' };
+  const ref = starters.map(p => p[LINEUP_WEEK]).find(Boolean);
+  const wk = week ?? ref?.week;
+  const ids = starters.map(p => p.id);
+  if (world) return lineupWeekRange(world, ids, wk);
+  const lg = ref ? row('SELECT * FROM leagues WHERE id = ?', ref.league_id) : null;
+  if (!lg?.payload) return { floor: null, median: null, ceiling: null, coverage: 0, error: 'no league world for this lineup' };
+  return leagueLineupWeekRange(lg, ids, wk);
 }
 
 /* --------------------------------------------------------------- evidence */
@@ -1481,7 +1422,10 @@ export function lineupSpan(beforePlayers, afterPlayers, slots, weeksLeft) {
   if (weeksLeft <= 0) return 0;
   const leg = (players, field) => bestLineup(players.map(p =>
     ({ ...p, span_leg: p[field] ?? p.adj_ppg ?? 0 })), slots, 'span_leg').points;
-  const now = leg(afterPlayers, 'current_week_ppg') - leg(beforePlayers, 'current_week_ppg');
+  // This week's leg is blend.week when the asset carries it (BROKEN-G flag on).
+  const nowLeg = players => bestLineup(players.map(p =>
+    ({ ...p, span_leg: servedBlendWeek(p) ?? p.current_week_ppg ?? p.adj_ppg ?? 0 })), slots, 'span_leg').points;
+  const now = nowLeg(afterPlayers) - nowLeg(beforePlayers);
   const rate = weeksLeft > 1 ? leg(afterPlayers, 'ros_ppg') - leg(beforePlayers, 'ros_ppg') : 0;
   return +(now + (weeksLeft - 1) * rate).toFixed(1);
 }
@@ -1505,9 +1449,10 @@ const slim = p => ({
   value: p.value, proj: p.proj, ppg: p.ppg, adj_ppg: p.adj_ppg,
   age: p.age, bye: p.bye, injury: p.injury, available: p.available !== false,
   floor: p.floor, ceiling: p.ceiling, consistency: p.consistency,
+  ...(p.range_source ? { range_source: p.range_source } : {}),
   // sos / playoff_sos are left off: 1 with no validated signal behind them
   // (matchups.js), and a card or prompt that shows them invites reading a schedule.
-  current_week_ppg: p.current_week_ppg, bye_this_week: p.bye_this_week === true, ros_ppg: p.ros_ppg, fantasy_coordinator: p.fantasy_coordinator,
+  current_week_ppg: p.current_week_ppg, ...(servedBlendWeek(p) != null ? { blend_week: p.blend_week } : {}), bye_this_week: p.bye_this_week === true, ros_ppg: p.ros_ppg, fantasy_coordinator: p.fantasy_coordinator,
   active_probability: p.active_probability, injury_status: p.injury_status,
   practice_status: p.practice_status, model_cutoff: p.model_cutoff,
   role_change: p.role_change, matchup: p.matchup,
@@ -1641,6 +1586,18 @@ export function myPlayoffOdds(lg, myTeamId = null, print = null) {
   // night and the next sync (B-01 review). target stays for the asset print only.
   const start = simStartWeek(lg);
   const { formatKey } = deriveFormat(lg);
+  // EA-07: the snapshot's one title.odds, the row the twin and the Title tab show.
+  if (oneWorldFlag().on) {
+    const world = leagueWorld(lg);
+    if (world.fail) return prior(`the season simulation could not run (${world.fail.error})`);
+    const mine = world.base.teams.find(t => String(t.roster_id) === rosterId);
+    if (!Number.isFinite(mine?.playoff_odds)) return prior('your roster is not in this league\'s simulated standings');
+    const stamp = worldStamp(lg, world);
+    return {
+      value: +mine.playoff_odds.toFixed(2), roster_id: rosterId, interval: mine.playoff_odds_95 ?? null,
+      source: `season simulation, ${world.base.runs} runs from week ${world.base.from_week} (one world ${stamp.snapshot_id})`
+    };
+  }
   return cached(
     `playoffOdds:${lg.id}:${rosterId}:${target.season}:${start}`,
     print ?? assetPrint(lg, formatKey, target),
@@ -1755,10 +1712,12 @@ function findTradesKey(lg, opts = {}, ctx = null) {
   const zeroKey = [...zero].sort().join(',');
   // RL-19-3: flipping the title-mutual flag (or preview mode) is a different answer.
   const tm = titleMutualMode();
+  // PYES-ONE: the served P(yes) flag is a different answer too.
+  const py = pYesFlag();
   return `findTrades:${lg.id}:${formatKey}:${target.season}:${target.week}:` +
     `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:` +
     `${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}:z${zeroKey}:` +
-    `tm${tm.on ? (tm.preview ? 'p' : 1) : 0}`;
+    `tm${tm.on ? (tm.preview ? 'p' : 1) : 0}:py${py.on ? py.mode : 0}`;
 }
 
 /**
@@ -1786,6 +1745,62 @@ export function tradeIdeasFingerprint(lg, opts = {}, ctx = null) {
 }
 
 export function findTrades(lg, opts = {}) {
+  return gateIdeas(lg, findTradesRaw(lg, opts), opts.myTeamId);
+}
+
+/**
+ * RULES-EVERYWHERE: Nick's hard rules (campaign/never-give.js#ruleGate) on findTrades' result.
+ * Ideas that break a rule are dropped, never shown with a warning; `dropped_by_rule` counts them.
+ * A new object, so the cached search result is never mutated; the LOST_IDEAS symbol rides along.
+ */
+const gatedMemo = new WeakMap();
+export function gateIdeas(lg, out, myTeamId) {
+  if (!out || !Array.isArray(out.deals)) return out;
+  const gate = ruleGate({ row, rows }, { leagueId: lg.id, teamId: out.me?.roster_id ?? myTeamId ?? lg.my_team_id });
+  const sides = d => ({ give: idsOf(d.i_give), get: idsOf(d.i_get), partner: d.partner_id, premium: d.title?.me ?? null });
+  const deals = gate.filter(out.deals, sides);
+  const tm = Array.isArray(out.title_mutual?.deals) ? gate.filter(out.title_mutual.deals, sides) : null;
+  // A cache hit stays a cache hit: the same search result with the same rule outcome is the same object.
+  const key = [deals.kept.length, deals.dropped_by_rule, tm?.kept.length ?? -1, tm?.dropped_by_rule ?? -1,
+    ...deals.kept.map(d => out.deals.indexOf(d)), ...(tm?.kept ?? []).map(d => out.title_mutual.deals.indexOf(d))].join(',');
+  const memo = gatedMemo.get(out);
+  if (memo?.key === key) return memo.gated;
+  const gated = { ...out, deals: deals.kept,
+    ...(tm ? { title_mutual: { ...out.title_mutual, deals: tm.kept } } : {}),
+    dropped_by_rule: deals.dropped_by_rule + (tm?.dropped_by_rule ?? 0) };
+  if (out[LOST_IDEAS]) Object.defineProperty(gated, LOST_IDEAS, { value: out[LOST_IDEAS], enumerable: false });
+  gatedMemo.set(out, { key, gated });
+  return gated;
+}
+
+/**
+ * RULES-EVERYWHERE: the same gate on one offer ladder (offerFor, and each offerForMany ladder). The get
+ * is the target(s); every rung, the opening ask, the fair price, the ceiling and the alternatives are
+ * checked, and a rung that fails is dropped (a single slot that fails is null).
+ */
+export function gateLadder(lg, out, myTeamId) {
+  if (!out || typeof out !== 'object') return out;
+  const get = idsOf(out.targets ?? (out.target ? [out.target] : []));
+  const gate = ruleGate({ row, rows }, { leagueId: lg.id, teamId: out.me?.roster_id ?? myTeamId ?? lg.my_team_id });
+  const sides = p => ({ give: idsOf(p.i_give), get, partner: out.owner_id });
+  let dropped = 0;
+  const list = key => {
+    if (!Array.isArray(out[key])) return {};
+    const r = gate.filter(out[key], sides);
+    dropped += r.dropped_by_rule;
+    return { [key]: r.kept };
+  };
+  const one = key => {
+    if (!out[key] || !Array.isArray(out[key].i_give)) return {};
+    const r = gate.filter([out[key]], sides);
+    dropped += r.dropped_by_rule;
+    return { [key]: r.kept[0] ?? null };
+  };
+  return { ...out, ...list('offers'), ...list('alternatives'), ...one('open_with'), ...one('fair'), ...one('max'),
+    dropped_by_rule: dropped };
+}
+
+function findTradesRaw(lg, opts = {}) {
   if (opts.teamsOverride || opts.assetsOverride) return findTradesUncached(lg, opts);
   // Playoff odds for MY team, resolved BEFORE the key so two searches with
   // different odds can never share a cache entry. Without them the horizon used
@@ -2141,7 +2156,7 @@ function findTradesUncached(lg, {
   // candidate in the combinatorial search, which would multiply the cost of the
   // inner loop by the price of a valuation lookup for nothing.
   const tacticsStartedAt = Date.now();
-  attachTactics(lg, shown, { deals, counterparties, weekNow, assets, teams, zero, ideaKey });
+  attachTactics(lg, shown, { deals, counterparties, weekNow, assets, teams, zero, ideaKey, meId: me.roster_id });
   const tacticsMs = Date.now() - tacticsStartedAt;
 
   const out = { mode: 'league', me: { roster_id: me.roster_id, owner: me.owner }, slots,
@@ -2206,8 +2221,12 @@ function findTradesUncached(lg, {
  * `playerValuation` the valuation map and the trade card use — injected, not
  * re-derived — so a tactic and the card it sits on cannot disagree.
  */
-function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, teams, zero, ideaKey }) {
+function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, teams, zero, ideaKey, meId = null }) {
   if (!shown.length) return;
+  // RULES-EVERYWHERE: the anchor ladder's ask / fair / floor quote other variants by name; a variant
+  // that breaks one of Nick's rules is never one of them.
+  const gate = ruleGate({ row, rows }, { leagueId: lg.id, teamId: meId ?? lg.my_team_id });
+  const variantOk = v => gate.filter([v], d => ({ give: idsOf(d.i_give), get: idsOf(d.i_get), partner: d.partner_id })).kept.length === 1;
   const byEspn = new Map();
   for (const a of assets.values()) if (a.espn_id != null) byEspn.set(String(a.espn_id), a);
   const valueOfEspn = espnId => byEspn.get(String(espnId))?.value ?? null;
@@ -2248,6 +2267,9 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
     return [pos, sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2];
   }));
 
+  // PYES-ONE: one decided-offer table per search, read only when the flag is on.
+  const py = pYesFlag();
+  const pyTable = py.on ? pYesTable(db, lg.id) : null;
   for (const d of shown) {
     const cp = counterparties.get(String(d.partner_id)) ?? null;
     // The rungs of the ladder are the packages that land EXACTLY THIS RETURN
@@ -2258,7 +2280,7 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
     const sameReturn = list => list.map(p => p.id).sort((a, b) => a - b).join(',');
     const returning = sameReturn(d.i_get);
     const variants = deals
-      .filter(v => v.partner_id === d.partner_id && v.edge.passes && sameReturn(v.i_get) === returning)
+      .filter(v => v.partner_id === d.partner_id && v.edge.passes && sameReturn(v.i_get) === returning && variantOk(v))
       .map(v => ({ give_value: v.i_give.reduce((s, p) => s + (p.value ?? 0), 0),
         get_value: v.i_get.reduce((s, p) => s + (p.value ?? 0), 0),
         perception_delta: v.counterparty?.perception_delta ?? null,
@@ -2304,8 +2326,12 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
     // `says_no_holds`, which is read straight off the negotiation profile and
     // has no valuation-source name — stated here rather than implied by a
     // parameter that cannot do it.
-    d.acceptance = acceptanceBand({ counterparty: d.counterparty, edge: d.edge,
-      profile: cp?.negotiation ?? null });
+    //
+    // PYES-ONE: served through p-yes.js, the module the War Room reads too. Flag
+    // off this is acceptanceBand's own object; flag on it is the E1 activity
+    // baseline for this partner, with the band kept as `challenger`.
+    d.acceptance = pYesFor({ counterparty: d.counterparty, edge: d.edge,
+      profile: cp?.negotiation ?? null, team: d.partner_id, table: pyTable, on: py.on });
   }
 }
 
@@ -2399,7 +2425,9 @@ export function findTradeSequences(lg, opts = {}) {
     })
     .slice(0, 5);
 
-  return { ...first, step1, sequences: unlocked.map(d => ({ ...d, unlocked_by: step1Key })) };
+  // RULES-EVERYWHERE: both searches are gated (findTrades); the count covers both.
+  return { ...first, step1, sequences: unlocked.map(d => ({ ...d, unlocked_by: step1Key })),
+    dropped_by_rule: (first.dropped_by_rule ?? 0) + (second.dropped_by_rule ?? 0) };
 }
 
 /**
@@ -2530,7 +2558,11 @@ function rungCounterparty(counterparties, owner, tier, { theirGive, theirGet }) 
  * Offer ladder for a specific target: the cheapest package that plausibly gets it
  * done, a fair-market version, and the point past which you are overpaying.
  */
-export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdds }) {
+export function offerFor(lg, opts) {
+  return gateLadder(lg, offerForRaw(lg, opts), opts?.myTeamId);
+}
+
+function offerForRaw(lg, { myTeamId, targetId, excludeIds = null, playoffOdds }) {
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   const teams = loadRosters(lg, assets);
@@ -2546,6 +2578,9 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
   if (tier === 'never') return { error: `${owner.owner} is marked "Never trades," so the engine did not generate fake offers for this player.` };
   const ownerCtx = rosterContext(lg).get(String(owner.roster_id));
   const { weekNow, odds, horizon, counterparties } = ladderInputs(lg, myTeamId, playoffOdds);
+  // The price range he would say yes to (PRICE-BAND-01). Legacy [1.00, 1.65] unless
+  // GRIDIRON_PRICE_BAND_V2 / preview mode serves the fitted 80% band.
+  const band = servedAcceptBand();
 
   // How motivated is the seller? A team with surplus at his position and a hole
   // elsewhere is a much cheaper negotiation than one starting him with no cover.
@@ -2581,6 +2616,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
     upside_playoff_leg: addCeiling.playoff_leg,
     counterparty: ownerRead(counterparties, owner, tier),
     target_stance: targetStance(counterparties, owner, [target]),
+    ...(band.version === 'legacy' ? {} : { accept_band: band }),
     leverage: replaceable
       ? `${owner.owner} can cover him — losing him only costs their lineup ${theirCost} ppg. Start low.`
       : `He is load-bearing for ${owner.owner} (${theirCost} ppg of their lineup). Expect to pay a premium or get refused.`
@@ -2610,7 +2646,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
   for (const give of packages) {
     const giveValue = give.reduce((s, p) => s + Math.max(0, p.value), 0);
     const ratio = target.value ? giveValue / target.value : 0;
-    if (ratio < 0.70 || ratio > 1.65) continue;
+    if (ratio < band.window_lo || ratio > band.window_hi) continue;
     const ev = evaluate({ team: me, gives: give }, { team: owner, gives: [target] }, slots,
       { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
     const gain = ladderGain(ev, horizon);
@@ -2632,7 +2668,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
     return {
       ...context,
       error: 'He would help, but nothing on your roster prices out.',
-      reason: `Adding him is worth ${upsideHorizon} ppg to your lineup horizon-weighted (${upside} this week), but every package in his price range (${Math.round(target.value * 0.7)}–${Math.round(target.value * 1.65)}) costs you more than he returns. You need a third team, or a cheaper player at the same position.`
+      reason: `Adding him is worth ${upsideHorizon} ppg to your lineup horizon-weighted (${upside} this week), but every package in his price range (${Math.round(target.value * band.window_lo)}–${Math.round(target.value * band.window_hi)}) costs you more than he returns. You need a third team, or a cheaper player at the same position.`
         + (excludeIds?.size ? ` This search also left out the player(s) you've marked untouchable.` : '')
     };
   }
@@ -2640,7 +2676,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
   // "He might say yes": his lineup improves, or he wins on market value, or —
   // the counterparty read findTrades has always had and this ladder did not —
   // the package reads as a win from HIS side of the table.
-  const acceptable = priced.filter(p => p.them.ppg_delta > 0 || p.ratio >= 1.0
+  const acceptable = priced.filter(p => p.them.ppg_delta > 0 || p.ratio >= band.yes_point
     || (p.counterparty.perception_delta ?? 0) > 0);
   const pool = acceptable.length ? acceptable : priced;
   // Cheapest first, but among packages that cost the same never open with the one
@@ -2689,7 +2725,15 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
  * two players on different rosters come back as two separate ladders, one per
  * owner, rather than pretending a single package could land both.
  */
-export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playoffOdds }) {
+export function offerForMany(lg, opts) {
+  const out = offerForManyRaw(lg, opts);
+  if (!Array.isArray(out?.ladders)) return out;
+  const ladders = out.ladders.map(l => gateLadder(lg, { ...l, me: out.me }, opts?.myTeamId));
+  return { ...out, ladders: ladders.map(({ me: _me, dropped_by_rule: _d, ...l }) => l),
+    dropped_by_rule: ladders.reduce((s, l) => s + (l.dropped_by_rule ?? 0), 0) };
+}
+
+function offerForManyRaw(lg, { myTeamId, targetIds, excludeIds = null, playoffOdds }) {
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   const teams = loadRosters(lg, assets);
@@ -2698,6 +2742,7 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
   if (!me) return { error: 'your team not found in this league' };
   // Same horizon and same counterparty layer as the league-wide search (G6).
   const { weekNow, odds, horizon, counterparties } = ladderInputs(lg, myTeamId, playoffOdds);
+  const band = servedAcceptBand();   // PRICE-BAND-01, as in offerFor
 
   const targets = [...new Set((targetIds ?? []).map(Number))]
     .map(id => resolvePlayer(id, assets, teams)).filter(Boolean);
@@ -2771,7 +2816,7 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
     for (const give of packages) {
       const giveValue = give.reduce((s, p) => s + Math.max(0, p.value), 0);
       const ratio = targetsValue ? giveValue / targetsValue : 0;
-      if (ratio < 0.70 || ratio > 1.65) continue;
+      if (ratio < band.window_lo || ratio > band.window_hi) continue;
       const ev = evaluate({ team: me, gives: give }, { team: owner, gives: theirTargets }, slots,
         { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
       const gain = ladderGain(ev, horizon);
@@ -2786,12 +2831,12 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
     }
     if (!priced.length) {
       ladders.push({ ...base, error: 'Nothing on your roster prices out for this package.',
-        reason: `Every combination in range (${Math.round(targetsValue * 0.7)}–${Math.round(targetsValue * 1.65)}) costs you more lineup value than it returns. Try fewer targets, or a third team.`
+        reason: `Every combination in range (${Math.round(targetsValue * band.window_lo)}–${Math.round(targetsValue * band.window_hi)}) costs you more lineup value than it returns. Try fewer targets, or a third team.`
           + (excludeIds?.size ? ` This search also left out your untouchable player(s).` : '') });
       continue;
     }
 
-    const acceptable = priced.filter(p => p.them.ppg_delta > 0 || p.ratio >= 1.0
+    const acceptable = priced.filter(p => p.them.ppg_delta > 0 || p.ratio >= band.yes_point
       || (p.counterparty.perception_delta ?? 0) > 0);
     const pool = acceptable.length ? acceptable : priced;
     const headline = list => list.slice().sort((x, y) => y.value - x.value)[0]?.id;
@@ -2813,7 +2858,8 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
 
   return { mode: 'targets',
     context: ideaContext(lg, { me, assets, odds, horizon, counterparties, useCounterparty: true, week: weekNow }),
-    me: { roster_id: me.roster_id, owner: me.owner }, model_context: assets.context, ladders };
+    me: { roster_id: me.roster_id, owner: me.owner }, model_context: assets.context,
+    ...(band.version === 'legacy' ? {} : { accept_band: band }), ladders };
 }
 
 /* --------------------------------------------------------------- self scout */
@@ -3005,7 +3051,10 @@ const ESPN_PLAYING = new Set(['ACTIVE', 'QUESTIONABLE', 'DAY_TO_DAY', 'PROBABLE'
  * never on a real 0 (a bye), same as weekPpg() in lineup-posture.js and
  * waiver-wire.js (commit fe38e93).
  */
-function lineupDiffWeekPoints(p, season, week) {
+export function lineupDiffWeekPoints(p, season, week) {
+  // BROKEN-G flag on: the served blend.week, never a second lift on its own call.
+  const served = servedBlendWeek(p);
+  if (served != null) return served;
   const base = p.current_week_ppg ?? p.adj_ppg ?? p.ppg ?? 0;
   const lift = vegasLift(p, season, week);
   const v = base * (lift.applied ? lift.multiplier : 1);

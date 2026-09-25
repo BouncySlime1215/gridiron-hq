@@ -712,6 +712,33 @@ async function refreshManagerArchetypes() {
 }
 
 /**
+ * CRED-01 nightly: per-manager credibility (follow-through lift per statement
+ * type x manager, 7d/21d, shrunk to the league, as-of versioned) into
+ * people_credibility. A child process like the archetype build, so the
+ * transaction replay stays off this thread.
+ *
+ * Behind GRIDIRON_PEOPLE_CREDIBILITY=1 (default off): its statement labels
+ * (GRIDIRON_PEOPLE_LABELS_DIR) and the chat DB exist only on Nick's Mac. With
+ * the flag off the job records a skip, never an empty table that reads as
+ * "every manager is noise". The script itself skips when an input is missing.
+ */
+async function refreshPeopleCredibility() {
+  if (process.env.GRIDIRON_PEOPLE_CREDIBILITY !== '1') return { skipped: 'flag off (GRIDIRON_PEOPLE_CREDIBILITY)' };
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const path = await import('node:path');
+  const { PROJECT_ROOT } = await import('../platform/paths.js');
+  const script = path.join(PROJECT_ROOT, 'scripts/people/credibility.mjs');
+  const league = process.env.GRIDIRON_PEOPLE_CREDIBILITY_LEAGUE || '4';
+  const { stdout } = await promisify(execFile)(process.execPath, [script, '--league', league, '--json'],
+    { cwd: PROJECT_ROOT, env: process.env, encoding: 'utf8', timeout: 5 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+  const report = JSON.parse(stdout.trim().split('\n').at(-1));
+  if (report.status === 'error') throw new Error(`people credibility: ${report.error}`);
+  return { status: report.status, reason: report.reason ?? null, as_of: report.as_of ?? null,
+    rows: report.stored ?? 0, by_status: report.by_status ?? null };
+}
+
+/**
  * The historical facts the manager layer stands on: each league-season's final
  * standings (`league_season_teams`) and weekly scores (`league_week_scores`).
  *
@@ -1232,6 +1259,23 @@ async function refreshFantasyCalcValues() {
 }
 
 /**
+ * DATA-FC (redraft): FantasyCalc's redraft value + 30-day trend into player_metrics
+ * ('fc_value', 'fc_trend30', 'fc_adp'). The League Hub's roster strength, rankings,
+ * the edge board and the NFL data market column all read 'fc_value', but only the
+ * manual sync button ever ran this, so on a SCHEDULER_DISABLED=1 install every one
+ * of those said "no FantasyCalc values" (0 of 173 league-4 players priced, 9/24).
+ * Same terms as the dynasty job: daily, the documented /values/current endpoint only.
+ * syncFantasyCalc records its own 'fantasycalc_values' sync_log row, so a button press
+ * counts as the day's run.
+ */
+async function refreshFantasyCalcRedraft() {
+  const { syncFantasyCalc } = await import('../routes/aggregates.js');
+  const leagues = row('SELECT COUNT(*) AS n FROM leagues')?.n ?? 0;
+  if (!leagues) return { skipped: 'no connected leagues, so no format to price' };
+  return syncFantasyCalc();
+}
+
+/**
  * The standing start/sit gate (plan item C12): the projection the app served against ESPN's
  * weekly projection (the plan's rule, the verdict), with "start the higher season-to-date
  * average" replayed over 2024-2025 and this season as a floor check; stored in
@@ -1242,6 +1286,17 @@ async function refreshFantasyCalcValues() {
 async function refreshStartSitGate() {
   const { refreshStartSitGate: run } = await import('./gates/start-sit-gate.js');
   return run();
+}
+
+/**
+ * E-XGB phase 1: freeze ESPN's weekly projections before kickoff
+ * (server/services/espn-weekly-projection-capture.js, migration 106). Ticks every
+ * 15 minutes and does nothing outside a capture window (Tuesday after waivers,
+ * Saturday morning, 2 h before each kickoff); a missed window is lost for good.
+ */
+async function refreshEspnWeeklyProjectionCapture() {
+  const { runEspnWeeklyProjectionCapture } = await import('./espn-weekly-projection-capture.js');
+  return runEspnWeeklyProjectionCapture();
 }
 
 export const JOBS = {
@@ -1306,12 +1361,17 @@ export const JOBS = {
   fantasycalc_dynasty: {
     run: refreshFantasyCalcValues, maxAgeMinutes: MARKET_MAX_AGE_MINUTES, tier: 'growth', offThread: true,
     label: 'FantasyCalc market values per connected league format (daily; appends the value history)' },
+  fantasycalc_values: {
+    run: refreshFantasyCalcRedraft, maxAgeMinutes: MARKET_MAX_AGE_MINUTES, tier: 'growth', offThread: true,
+    label: 'FantasyCalc redraft value + 30-day trend (daily; League Hub, rankings, edge board)' },
   espn_rosters: { run: refreshEspnRosters, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
     label: 'ESPN per-team roster feed (cuts, signings, practice-squad moves)' },
   league_rosters: { run: refreshLeagueRosters, maxAgeMinutes: 60, tier: 'live', offThread: true,
     label: "Each connected league's own roster (trades, waivers, drops) — was manual-only" },
   // Free (ESPN scoreboard). Hourly, so the last stored line before kickoff is a
   // usable closing reference for settlement and so finals land within the hour.
+  espn_weekly_projection_capture: { run: refreshEspnWeeklyProjectionCapture, maxAgeMinutes: 15, tier: 'live',
+    offThread: true, label: 'Frozen pre-kickoff ESPN weekly projections (E-XGB; append-only)' },
   nfl_lines: { run: refreshNflLines, maxAgeMinutes: 60, tier: 'live', label: 'NFL betting lines and finals (ESPN, free)' },
   nfl_forward_settle: { run: refreshForwardSettlement, maxAgeMinutes: 30, tier: 'live',
     label: 'Settle forward picks (CLV grading) shortly after a game goes final' },
@@ -1573,6 +1633,8 @@ export const JOBS = {
     label: 'League history: final standings and weekly scores per league-season (ESPN, paced)' },
   manager_archetypes: { run: refreshManagerArchetypes, maxAgeMinutes: 24 * 60, tier: 'heavy', timeoutMs: 10 * 60_000,
     label: 'Manager archetypes: draft-revealed preference and all-play/luck outcomes (child process)' },
+  people_credibility: { run: refreshPeopleCredibility, maxAgeMinutes: 24 * 60, tier: 'heavy', timeoutMs: 6 * 60_000,
+    label: 'People credibility: follow-through lift per statement type x manager, nightly (CRED-01, flagged, child process)' },
   /*
    * Prop quote capture. Every hour during a slate, because a prop line that is
    * only observed once cannot yield closing-line value — CLV needs the price

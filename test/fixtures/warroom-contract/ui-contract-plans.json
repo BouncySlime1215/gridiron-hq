@@ -20,6 +20,27 @@
     "702": "N. Whitfield (WR)",
     "604b": "B. Lowe (WR)"
    },
+   "teams": {
+    "status": "ok",
+    "value": {
+     "2": {
+      "name": "Team 2"
+     },
+     "3": {
+      "name": "Team 3"
+     },
+     "5": {
+      "name": "Team 5"
+     },
+     "7": {
+      "name": "Team 7"
+     },
+     "8": {
+      "name": "Team 8"
+     }
+    },
+    "source": "campaign.plan"
+   },
    "attention": {
     "status": "ok",
     "value": {
@@ -135,6 +156,11 @@
      "cost_text": "Needs both steps of the top plan."
     },
     "source": "campaign.plan"
+   },
+   "feasibility_points": {
+    "status": "unknown",
+    "source": "sim.title",
+    "reason": "This league is already planned on points: see feasibility."
    },
    "finder_best_expected": {
     "status": "ok",
@@ -1399,12 +1425,64 @@
     "status": "unknown",
     "source": "campaign.plan",
     "reason": "No partner read in this fixture."
+   },
+   "blue_chips": {
+    "status": "unknown",
+    "source": "people.score",
+    "reason": "Blue-chip scores are off (GRIDIRON_PLAYER_SCORE; on under preview)."
+   },
+   "ladders": { "status": "unknown", "source": "plan.path", "reason": "Ladder cards are off (GRIDIRON_LADDER)." },
+   "p_yes_basis": {
+    "status": "ok",
+    "value": {
+     "mode": "blend",
+     "source": "blend.accept",
+     "label": "blend of activity baseline and clone, weights earned on graded offers (E1 pending)",
+     "models": [
+      {
+       "id": "baseline",
+       "weight": 0.7261,
+       "prior_weight": 0.75,
+       "n": 6,
+       "log_loss": 0.753
+      },
+      {
+       "id": "clone",
+       "weight": 0.2739,
+       "prior_weight": 0.25,
+       "n": 6,
+       "log_loss": 0.7803,
+       "wins": 3,
+       "losses": 3
+      }
+     ],
+     "n_graded": 6,
+     "league_n": 4,
+     "lambda": 0.1667,
+     "shrink_k": 20,
+     "clamp": [
+      0.05,
+      0.95
+     ],
+     "as_of": "2026-09-24T00:00:00.000Z",
+     "activity": "ACTIVITY-01 (#334) is not merged, so the activity-intensity term is not blended"
+    },
+    "source": "blend.accept"
    }
   },
   {
    "league": 2,
    "me": "1",
    "names": {},
+   "teams": {
+    "status": "ok",
+    "value": {
+     "1": {
+      "name": "Team 1"
+     }
+    },
+    "source": "campaign.plan"
+   },
    "error": "world failed"
   },
   {
@@ -1412,6 +1490,15 @@
    "me": "4",
    "names": {
     "701": "D. Harlow (WR)"
+   },
+   "teams": {
+    "status": "ok",
+    "value": {
+     "4": {
+      "name": "Team 4"
+     }
+    },
+    "source": "campaign.plan"
    },
    "attention": {
     "status": "unknown",
@@ -1478,6 +1565,11 @@
     "reason": "No points objective set.",
     "source": "campaign.plan"
    },
+   "feasibility_points": {
+    "status": "unknown",
+    "source": "sim.title",
+    "reason": "Points side panel is off (GRIDIRON_POINTS_FEASIBILITY), or the world has no weekly lineup points."
+   },
    "finder_best_expected": {
     "status": "unknown",
     "reason": "The served finder had no priced single offer in this run.",
@@ -1542,6 +1634,17 @@
     "status": "unknown",
     "source": "campaign.plan",
     "reason": "No partner read in this fixture."
+   },
+   "blue_chips": {
+    "status": "unknown",
+    "source": "people.score",
+    "reason": "Blue-chip scores are off (GRIDIRON_PLAYER_SCORE; on under preview)."
+   },
+   "ladders": { "status": "unknown", "source": "plan.path", "reason": "Ladder cards are off (GRIDIRON_LADDER)." },
+   "p_yes_basis": {
+    "status": "unknown",
+    "source": "clone.accept",
+    "reason": "This run read no P(yes) table, so the steps carry the adapter's own p."
    }
   }
  ]

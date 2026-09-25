@@ -1,86 +1,101 @@
+/* The design tokens (colour, edges, elevation, radius, motion): docs/ui/DESIGN-SYSTEM.md. */
+@import './styles/tokens.css';
+@import './styles/ui.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --bg: #ffffff;
-  --surface: #f8fafc;
-  --line: #e2e8f0;
-  --ink: #0f172a;
-  --muted: #64748b;
-  --subtle: #94a3b8;
-  --accent: #059669;
-  --warn: #b45309;
-  --danger: #b91c1c;
-  --info: #0369a1;
+  /* These names predate styles/tokens.css and now read from it, so every page moves with
+     the brand without being edited. New code reads the --c-* tokens directly. */
+  --bg: var(--c-card);
+  --surface: var(--c-soft);
+  --line: var(--c-line);
+  --ink: var(--c-ink);
+  --muted: var(--c-muted);
+  --subtle: var(--c-subtle);
+  --accent: var(--c-accent);
+  --warn: var(--c-amber);
+  --danger: var(--c-red);
+  --info: var(--c-accent);
   --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
   --space-6: 24px; --space-8: 32px; --space-12: 48px; --space-16: 64px;
-  --radius-control: 6px; --radius-card: 10px; --radius-pill: 999px;
-  --shadow-card: 0 1px 2px rgb(15 23 42 / .05);
-  --shadow-overlay: 0 24px 64px rgb(15 23 42 / .16);
+  --radius-control: var(--r-ctl); --radius-card: var(--r-card); --radius-pill: 999px;
+  --shadow-card: var(--e1);
+  --shadow-overlay: var(--e2);
 
   /* Compatibility aliases while legacy surfaces move onto the shared system. */
   --bg-0: var(--bg); --bg-1: var(--surface); --bg-2: var(--surface);
   --card-bg: var(--bg); --edge: var(--line);
-  --accent-strong: #047857; --accent-tint: #ecfdf5;
+  --accent-strong: var(--c-accent-hover); --accent-tint: var(--c-accent-tint);
   /* Deep surfaces for structural panels. Not pure black and not the accent — a
      near-neutral carrying a faint green bias, so a dark header sits in the same
      world as the accent without becoming a second block of it. */
-  --panel: #0c1613; --panel-soft: #18241f;
-  --good: var(--accent); --good-tint: #ecfdf5;
-  --crit: var(--danger); --crit-tint: #fef2f2;
+  --panel: #12141a; --panel-soft: #1a1d25;
+  /* Good stays green: the accent is a brand colour now, and "this number is good" must not follow it. */
+  --good: var(--c-green); --good-tint: var(--c-green-tint);
+  --crit: var(--danger); --crit-tint: var(--c-red-tint);
 }
-html { background: var(--bg-0); }
+html { background: var(--c-bg); }
 body {
   @apply antialiased;
   margin: 0;
-  background: var(--bg);
+  background: var(--page), var(--c-bg);
+  background-attachment: fixed;
   color: var(--ink);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
   letter-spacing: -0.012em;
 }
 button, input, select { font: inherit; }
-button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
-  outline: 2px solid var(--accent);
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--c-accent);
   outline-offset: 2px;
 }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { @apply bg-slate-100; }
-::-webkit-scrollbar-thumb { @apply bg-slate-300 rounded; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--c-line-strong); border-radius: 8px; }
 
 .card {
   background: var(--card-bg);
-  border: 1px solid var(--edge);
+  border: 1px solid var(--c-line);
   border-radius: var(--radius-card);
-  box-shadow: var(--shadow-card);
-  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+  box-shadow: var(--shadow-card), var(--c-edge);
+  transition: transform var(--t) var(--ease-out);
 }
-a.card:hover { border-color: rgb(0 0 0 / .16); box-shadow: 0 8px 28px rgb(0 0 0 / .06); transform: translateY(-1px); }
+/* A clickable card lifts; its hover shadow is a pre-painted layer that fades in (opacity only). */
+a.card { position: relative; }
+a.card::after { content: ''; position: absolute; inset: -1px; border-radius: inherit; box-shadow: var(--e2); opacity: 0; pointer-events: none; transition: opacity var(--t) var(--ease-out); }
+a.card:hover { transform: translateY(-2px); }
+a.card:hover::after { opacity: 1; }
 .btn {
-  @apply px-3 py-1.5 text-sm font-medium transition-colors;
+  @apply px-3 py-1.5 text-sm font-medium;
   border-radius: var(--radius-control);
+  transition: background-color var(--t), transform var(--t-fast) var(--ease-out);
 }
+.btn:active:not(:disabled) { transform: scale(.98); }
 .btn-primary {
   @apply btn;
-  color: #fff;
+  color: var(--c-accent-ink);
   background: var(--accent);
   border: 1px solid var(--accent);
   border-radius: var(--radius-control);
+  box-shadow: 0 1px 0 rgb(255 255 255 / .18) inset, 0 6px 16px -6px var(--c-accent-ring);
 }
 .btn-primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
 .btn-ghost {
   @apply btn;
   color: var(--ink);
-  background: rgb(255 255 255 / .72);
-  border: 1px solid var(--edge);
+  background: var(--c-card);
+  border: 1px solid var(--c-line);
   border-radius: var(--radius-control);
 }
+.btn-ghost:hover:not(:disabled) { background: var(--c-soft); }
 .input {
   @apply px-3 py-1.5 text-sm;
   color: var(--ink);
-  background: rgb(255 255 255 / .82);
-  border: 1px solid var(--edge);
+  background: var(--c-card);
+  border: 1px solid var(--c-line-strong);
   border-radius: var(--radius-control);
 }
 .input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
@@ -109,7 +124,7 @@ main h3 { font-weight: 600 !important; letter-spacing: -0.015em; }
 main table { font-variant-numeric: tabular-nums; }
 main thead { color: var(--muted); }
 main tbody tr { transition: background-color 140ms ease; }
-main tbody tr:hover { background: rgb(0 0 0 / .025); }
+main tbody tr:hover { background: var(--c-hover); }
 
 /* One real accent everywhere, mapped from the Tailwind classes components already
    use rather than a token they don't reference. Solid/dark variants (a primary CTA,
@@ -118,7 +133,7 @@ main tbody tr:hover { background: rgb(0 0 0 / .025); }
    made "selected" and "primary action" stop reading as prominent anywhere in the
    app. Pale tint classes (-50/-100) stay pale; that part was already right. */
 .text-emerald-600, .text-emerald-700, .text-emerald-800 { color: var(--accent) !important; }
-.bg-emerald-500, .bg-emerald-600 { background-color: var(--accent) !important; color: #fff !important; }
+.bg-emerald-500, .bg-emerald-600 { background-color: var(--accent) !important; color: var(--c-accent-ink) !important; }
 .bg-emerald-500 *, .bg-emerald-600 * { color: inherit; }
 .bg-emerald-50, .bg-emerald-100 { background-color: var(--accent-tint) !important; color: var(--accent) !important; }
 /* -200/-300 are almost always a pale decorative/hover border — stay neutral.
@@ -143,7 +158,7 @@ main tbody tr:hover { background: rgb(0 0 0 / .025); }
 button.bg-slate-700, button.bg-slate-800, button.bg-slate-900, button.bg-slate-950,
 a.bg-slate-700, a.bg-slate-800, a.bg-slate-900, a.bg-slate-950 {
   background-color: var(--accent) !important;
-  color: #fff !important;
+  color: var(--c-accent-ink) !important;
   border-color: var(--accent) !important;
 }
 button.bg-slate-700 *, button.bg-slate-800 *, button.bg-slate-900 *, button.bg-slate-950 *,
@@ -166,16 +181,16 @@ a.bg-slate-700 *, a.bg-slate-800 *, a.bg-slate-900 *, a.bg-slate-950 * { color: 
 button.border-slate-800, button.border-slate-900,
 a.border-slate-800, a.border-slate-900 { border-color: var(--accent) !important; }
 .hover\:bg-slate-800:hover, .hover\:bg-slate-900:hover, .hover\:bg-slate-950:hover { background-color: var(--accent-strong) !important; }
-.bg-sky-600, .bg-blue-500 { background-color: var(--accent) !important; color: #fff !important; }
+.bg-sky-600, .bg-blue-500 { background-color: var(--accent) !important; color: var(--c-accent-ink) !important; }
 .bg-sky-600 *, .bg-blue-500 * { color: inherit; }
 .border-sky-600 { border-color: var(--accent) !important; }
 
 .quick-jump-button {
   display: inline-flex; align-items: center; gap: .55rem; border: 1px solid var(--edge);
-  background: rgb(255 255 255 / .72); color: var(--muted); border-radius: 999px;
+  background: color-mix(in srgb, var(--c-card) 72%, transparent); color: var(--muted); border-radius: 999px;
   padding: .4rem .55rem .4rem .8rem; font-size: .75rem; font-weight: 600;
 }
-.quick-jump-button:hover { background: #fff; border-color: var(--accent); }
+.quick-jump-button:hover { background: var(--c-card); border-color: var(--accent); }
 .quick-jump-button kbd { border: 1px solid var(--edge); background: var(--bg-1); border-radius: 6px; padding: .08rem .35rem; font-size: .62rem; color: var(--muted); }
 .quick-jump-backdrop { position: fixed; inset: 0; z-index: 200; display: grid; place-items: start center; padding: 12vh 1rem 1rem; background: rgb(28 30 26 / .18); backdrop-filter: blur(12px); }
 .quick-jump-panel { width: min(620px, 100%); overflow: hidden; border: 1px solid var(--edge); border-radius: 22px; background: var(--bg-1); box-shadow: 0 28px 80px rgb(28 30 26 / .18); }

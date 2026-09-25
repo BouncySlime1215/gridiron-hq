@@ -37,8 +37,10 @@ import { counterpartyLayer, valuationMap, playerValuation, RECEPTIVENESS_RANGE, 
 // Every other route in this file is a read behind a bearer session; the one that
 // triggers work needs the administrator grant on top (server/platform/legacy-access.js).
 import { requirePlatformAdmin } from '../platform/legacy-access.js';
-import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE, PROMPT_VERSION }
+import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE, PROMPT_VERSION, gateProposals }
   from '../services/trade-proposals.js';
+// RULES-EVERYWHERE: Nick's hard rules, the one gate (campaign/never-give.js).
+import { ruleGate, idsOf } from '../services/campaign/never-give.js';
 import { recordProposalSlate, recordSentOffer } from '../services/trade-outcomes.js';
 import { recordRoute } from '../services/rec-ledger.js';
 import { offerLoopFields } from '../services/offer-loop-flag.js';
@@ -47,10 +49,13 @@ import { lineupSignals } from '../services/lineup-signals.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
 import { tradeImpact, TRADE_IMPACT_RUNS } from '../services/season-sim.js';
+import { oneWorldFlag } from '../services/one-world.js';
+import { leagueWorld, ONE_WORLD_RUNS } from '../services/league-world.js';
 // IDEA-001: served trade-card and title-trade numbers, queued for served_numbers.
 import { recordServed, readServed, serveLogState } from '../services/serve-log.js';
 // TM-09: historical revealed trade prices (aggregate table), read-only, default-off.
 import { marketForPlayer } from '../services/trade-market.js';
+import { recentPulse, pulseEnabled, PULSE_FLAG } from '../services/people/pulse.js';
 import { playerHype } from '../services/hype.js';
 import { warRoomView, loadPlans } from '../services/war-room-view.js';
 import { logWarRoomShown } from '../services/war-room-log.js';
@@ -58,6 +63,7 @@ import { warRoomFlag } from '../services/warroom-flag.js';
 import {
   proposeVerifyRetryTrade, judgeTradeVerdict, tradeChallengeText, SENSE_CHECK_SIM_RUNS
 } from '../services/trade-verify.js';
+import { hisScreenFor } from '../services/campaign/his-screen.js';
 
 const r = Router();
 
@@ -105,6 +111,21 @@ function league(req, res) {
 }
 
 /* ------------------------------------------------------------ self scouting */
+/**
+ * HIS-SCREEN: one offer as the partner sees it (his roster before/after, his
+ * clone's value view, what he gives up, his title-odds change, the fair badge).
+ * `?partner=7&give=1,2&get=10` in Nick's terms. Default-off behind
+ * GRIDIRON_HIS_SCREEN (or preview mode); off, it answers { enabled: false, reason }.
+ */
+r.get('/:leagueId/his-screen', async (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const partner = String(req.query.partner ?? '').trim();
+    if (!partner) return res.status(400).json({ error: 'partner required' });
+    res.json(await hisScreenFor(lg, { partner, give: idList(req.query.give), get: idList(req.query.get) }));
+  } catch (e) { next(e); }
+});
+
 r.get('/:leagueId/scout', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
@@ -152,7 +173,9 @@ r.get('/:leagueId/post-draft-plan', (req, res, next) => {
       // selfScout already runs bestLineup() under the SCORED (K/DEF-excluded) slot
       // set — reuse its lineup rather than recomputing it.
       lineup: scout.lineup,
-      trades
+      trades,
+      // RULES-EVERYWHERE: ideas findTrades dropped for breaking one of Nick's hard rules.
+      dropped_by_rule: trades?.dropped_by_rule ?? 0
     });
   } catch (e) { next(e); }
 });
@@ -557,6 +580,19 @@ r.get('/:leagueId/managers/signals', async (req, res, next) => {
 });
 
 /**
+ * PULSE-01 ticker: the league-mates' labelled chat statements from the last 72 h (labels
+ * only, never a quote). Default off: `{enabled: false}` until GRIDIRON_PULSE_ENABLED=1 or
+ * preview mode, so the War Room shows nothing rather than an empty strip that looks live.
+ */
+r.get('/:leagueId/people/pulse', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    if (!pulseEnabled()) return res.json({ enabled: false, reason: `${PULSE_FLAG} is not 1`, items: [] });
+    res.json({ enabled: true, ...recentPulse(lg.id) });
+  } catch (e) { next(e); }
+});
+
+/**
  * REBUILD THE LAYER — the only route in this file that makes work happen, so the
  * only one behind the administrator grant (`/api/trades` mounts
  * legacyAuthenticated, which is a valid session and nothing more).
@@ -656,8 +692,8 @@ r.get('/:leagueId/ceiling-lineup', (req, res, next) => {
       teamId: req.query.team_id,
       week: Math.min(18, Math.max(1, Number(req.query.week) || leagueCurrentWeek(lg))),
       objective: req.query.objective === 'mean' ? 'mean' : 'ceiling',
-      target: req.query.target ? Number(req.query.target) : null,
-      trials: Math.min(8000, Number(req.query.trials) || 3000)
+      target: req.query.target ? Number(req.query.target) : null
+      // No `trials`: every lineup is scored on the league world's runs (WEEKLY-RANGE-ONE).
     }));
   } catch (e) { next(e); }
 });
@@ -821,6 +857,11 @@ r.get('/:leagueId/proposals', async (req, res, next) => {
     const result = await proposalsFor(lg.id, {
       ideas, universe, call: liveCaller(callClaude), cache: dbCache(lg.id),
     });
+    // RULES-EVERYWHERE: a written-up proposal can combine the ideas it cites, so it is gated again on
+    // its own package (names read back to ids through those ideas; an unreadable name fails closed).
+    // Gated before the ledger write, so the ledger records what was served.
+    const gated = gateProposals(ruleGate({ row, rows }, { leagueId: lg.id, teamId: found?.me?.roster_id ?? req.query.team_id ?? lg.my_team_id }), result, ideas);
+    const served = Array.isArray(result?.proposals) ? { ...result, proposals: gated.kept } : result;
     // THE LEDGER WRITE, HERE AND NOWHERE DOWNSTREAM. This is the only layer that
     // holds both the whole slate that passed the edge test and the model's answer,
     // so it is the only layer that can see which candidates were considered and
@@ -841,12 +882,13 @@ r.get('/:leagueId/proposals', async (req, res, next) => {
     let ledger = null;
     try {
       ledger = recordProposalSlate(lg.id, lg.season ?? null, {
-        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: found?.me?.roster_id ?? null,
+        ideas, result: served, modelVersion: PROMPT_VERSION, proposerTeamId: found?.me?.roster_id ?? null,
       });
     } catch (e) {
       ledger = { state: 'write_failed', reason: String(e?.message ?? e) };
     }
-    res.json({ ...result, outcome_ledger: ledger });
+    res.json({ ...served, outcome_ledger: ledger,
+      dropped_by_rule: (found?.dropped_by_rule ?? 0) + gated.dropped_by_rule });
   } catch (e) { next(e); }
 });
 
@@ -1314,7 +1356,10 @@ Respond with ONLY JSON:
         if (!simArgs) return null;
         try {
           const started = Date.now();
-          const impact = tradeImpact(lg, { ...simArgs, runs });
+          // EA-07: on the snapshot's world (its runs), the same "before" as the twin.
+          const impact = oneWorldFlag().on
+            ? tradeImpact(lg, { ...simArgs, runs: ONE_WORLD_RUNS, world: leagueWorld(lg) })
+            : tradeImpact(lg, { ...simArgs, runs });
           return impact?.error ? impact : { ...impact, compute_ms: Date.now() - started };
         } catch (e) {
           console.warn(`[trade-sense-check] season simulation unavailable: ${e.message}`);
@@ -1398,6 +1443,12 @@ r.post('/:leagueId/explain', async (req, res, next) => {
     const lg = league(req, res); if (!lg) return;
     const d = req.body?.deal;
     if (!d?.me || !d?.them) return res.status(400).json({ error: 'deal required' });
+    // RULES-EVERYWHERE: no message is drafted for a deal that breaks one of Nick's hard rules.
+    const gate = ruleGate({ row, rows }, { leagueId: lg.id, teamId: req.body?.team_id ?? lg.my_team_id });
+    const ruled = gate.filter([d], x => ({ give: idsOf(x.me.gives), get: idsOf(x.me.gets), partner: x.partner_id }));
+    if (!ruled.kept.length) {
+      return res.status(422).json({ error: "This deal breaks one of Nick's hard rules, so no message is drafted.", dropped_by_rule: 1 });
+    }
 
     const fmtSide = s => `${s.owner}: sends ${s.gives.map(p => p.name).join(' + ') || 'nothing'}; ` +
       `lineup ${s.lineup_before} -> ${s.lineup_after} ppg (${s.ppg_delta > 0 ? '+' : ''}${s.ppg_delta}), ` +
@@ -1414,6 +1465,13 @@ r.post('/:leagueId/explain', async (req, res, next) => {
     // more piece" suggestion in the counter-read could name exactly the player you
     // marked protected.
     const untouchables = Array.isArray(req.body?.untouchables) ? req.body.untouchables.filter(Boolean) : [];
+    // RULES-EVERYWHERE: Nick's pinned never-give players are untouchable in the free text too.
+    if (gate.applies) {
+      for (const id of gate.rules.neverGive) {
+        const nm = row('SELECT name FROM players WHERE id = ?', Number(id))?.name;
+        if (nm && !untouchables.includes(nm)) untouchables.push(nm);
+      }
+    }
 
     const msg = await callClaude({
       feature: 'trade-explain',
@@ -1436,7 +1494,7 @@ Respond with ONLY JSON:
  "walk_away":"one sentence — the point at which I decline",
  "risk":"one sentence — the single way this deal goes badly for me"}`
     });
-    res.json(parseJson(msg));
+    res.json({ ...parseJson(msg), dropped_by_rule: 0 });
   } catch (e) { next(e); }
 });
 

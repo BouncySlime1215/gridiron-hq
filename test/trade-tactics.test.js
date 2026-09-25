@@ -48,6 +48,7 @@ const LEAGUE = 31;          // the chat league the engine really searches
 const BARE = 32;            // same shape, no chat corpus and no veto history
 
 const { db, rows, run } = await import('../server/db/index.js');
+const { priceLeagueForRules } = await import('./fixtures/rule-gate.mjs');
 const { runMigrations } = await import('../server/db/migrate.js');
 const { seedIfEmpty } = await import('../server/db/seed/index.js');
 // Side-effect imports: the same "~40 files create tables on import" wiring the
@@ -152,6 +153,8 @@ function insertLeague(id, payload, myTeamId = '1') {
        VALUES (?, 'espn', ?, ?, ?, ?, ?, ?, ?, 'secret-s2', 'secret-swid', 'connected')`,
   id, `espn-tt-${id}`, SEASON, `TT${id}`, JSON.stringify(payload), payload.teams.length, myTeamId,
   JSON.stringify(['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX']));
+  // RULES-EVERYWHERE: FantasyCalc values so Nick's rule gate does not empty this fixture (rules: own test).
+  if (payload) priceLeagueForRules(db, rows('SELECT id, payload, my_team_id FROM leagues WHERE id = ?', id)[0]);
 }
 insertLeague(LEAGUE, leaguePayload());
 // The bare league: same rosters, a DIFFERENT veto threshold from its own ESPN

@@ -1,73 +1,103 @@
 import { useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import EspnConnect from '../components/EspnConnect';
 import PhoneAccess from '../components/PhoneAccess';
 import LeagueChatPull from '../components/LeagueChatPull';
 import NumberHealthCard from '../components/NumberHealth';
+import { DataFreshnessDetail } from '../components/DataFreshnessBanner';
+import { DevPanel } from '../components/DevHub';
 import { api } from '../api';
 import { sanitizedMessage } from '../lib/errorSanitize';
+import { Button, Card, PageHeader, Tabs } from '../components/ui/DesignSystem';
+import { useCoach } from '../state/coach';
 
 /**
- * This page used to also carry a manual "League ID / season / espn_s2 / SWID" form
- * that saved into a single global settings row — from before the app supported more
- * than one league. Nothing has read that row since My Team/Trade Lab/the draft tools
- * moved onto the real `leagues` table (see routes/leagues.js), so editing it here had
- * quietly stopped doing anything anywhere else in the app. Removed rather than left
- * as a control that looks like it works and doesn't — manual private-league cookie
- * entry still exists, correctly wired, on the My Leagues page's "Add" form.
+ * The Settings area (docs/ui/CONSOLIDATION-MAP.md): Connections (sign-in, the one ESPN flow, phone
+ * access, league chat, the player database), Health (number health and data freshness, one view),
+ * and AI & developer (API key, workspace, usage, identity audit).
+ *
+ * Model diagnostics (the map's fourth view) is not here: the server no longer serves the routes
+ * Model.tsx reads (/model/status, /accuracy, /correlations, /gamescript, /availability, /handcuffs
+ * all 404), so reviving it needs a server unit first.
+ *
+ * This page used to also carry a manual "League ID / season / espn_s2 / SWID" form that saved into
+ * a single global settings row nothing read any more; it was removed earlier. ESPN news is pulled in
+ * one place, Players → News, so this page no longer has its own "Pull ESPN news".
  */
+type View = 'connections' | 'health' | 'dev';
+const VIEWS: { id: View; label: string }[] = [
+  { id: 'connections', label: 'Connections' }, { id: 'health', label: 'Health' },
+  { id: 'dev', label: 'AI & developer' }
+];
+
 export default function Settings() {
-  const [msg, setMsg] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const q = params.get('view');
+  const view: View = VIEWS.some(v => v.id === q) ? q as View : 'connections';
+  const setView = (v: View) => setParams(() => (v === 'connections' ? new URLSearchParams() : new URLSearchParams(`view=${v}`)), { replace: true });
 
   return (
-    <div className="max-w-2xl">
-      <div className="card p-5 mb-4 space-y-3">
-        <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-emerald-600" /><h1 className="text-xl font-bold">Local sign-in is automatic</h1></div>
-        <p className="text-xs leading-5 text-slate-600">Gridiron HQ provisions this browser when it connects from your own Mac. There is no bearer token to copy or paste. Protected league, draft, trade and Model Lab calls still require a real session; the server only issues it over the loopback interface.</p>
-      </div>
-      <NumberHealthCard />
-      <PhoneAccess />
-      <LeagueChatPull />
-      <EspnConnect />
-      <h1 className="text-2xl font-bold mb-1">ESPN Settings</h1>
-      <p className="text-sm text-slate-600 mb-6">
-        League connections live in the <a href="/league?view=connections" className="text-[var(--accent)] underline">League Hub</a> now.
-        What's here is global ESPN data, not tied to any one league.
-      </p>
+    <div className="max-w-3xl">
+      <PageHeader eyebrow="Settings" title="Settings" description="Connections, the health of every number, and AI and developer settings." />
+      <div className="mb-5"><Tabs label="Settings views" value={view} onChange={setView} tabs={VIEWS} /></div>
 
-      <div className="card p-5 space-y-4">
-        <div className="flex gap-2 flex-wrap">
-          <button className="btn-ghost" disabled={syncing} onClick={async () => {
-            setSyncing(true); setMsg(null);
-            try {
-              const r = await api('/espn/sync-players', { method: 'POST' });
-              setMsg(`Player database pulled from ESPN — ${r.fetched} players (${r.added} new, ${r.updated} updated). Rookies included.`);
-            } catch (e: any) { setMsg(sanitizedMessage('Settings.pullPlayers', 'Player sync failed', e.message)); }
-            finally { setSyncing(false); }
-          }}>Pull player database</button>
-          <button className="btn-ghost" disabled={syncing} onClick={async () => {
-            setSyncing(true); setMsg(null);
-            try {
-              const r = await api('/espn/sync-news', { method: 'POST' });
-              setMsg(`Pulled ${r.added} new ESPN headlines into Camp News.`);
-            } catch (e: any) { setMsg(sanitizedMessage('Settings.pullNews', 'News sync failed', e.message)); }
-            finally { setSyncing(false); }
-          }}>Pull ESPN news</button>
-        </div>
-        {msg && <p className="text-sm text-amber-600">{msg}</p>}
-        <p className="text-[11px] text-slate-500">“Pull player database” works even before you connect a league — it grabs ESPN&apos;s top-800 fantasy players (rookies included) and becomes the source of truth for rosters. Re-run it any time rosters change.</p>
-      </div>
+      {view === 'connections' && <div className="space-y-4">
+        <Card className="!p-4">
+          <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-[var(--c-green)]" /><h2 className="ds-h">Local sign-in is automatic</h2></div>
+          <p className="ds-note mt-1">Gridiron HQ provisions this browser when it connects from your own Mac. There is no token to copy or paste; the server only issues a session over the loopback interface.</p>
+        </Card>
+        <EspnConnect />
+        <PlayerDatabase />
+        <PhoneAccess />
+        <LeagueChatPull />
+      </div>}
 
-      <div className="card p-5 mt-4 text-sm text-slate-700 space-y-2">
-        <h2 className="font-bold text-slate-800">Private league not showing up? Add it manually</h2>
-        <p className="text-xs text-slate-600">The "Connect ESPN" bookmarklet above handles most accounts automatically. If a private league still doesn't appear, add it by hand in the <a href="/league?view=connections" className="text-[var(--accent)] underline">League Hub</a>:</p>
-        <ol className="list-decimal list-inside space-y-1 text-xs text-slate-600">
-          <li>Log in to <span className="text-slate-800">fantasy.espn.com</span> and open your league. The URL contains <span className="font-mono text-slate-800">leagueId=XXXXXXX</span> — that&apos;s your League ID.</li>
-          <li>In Chrome/Safari, open DevTools (⌥⌘I) → Application/Storage → Cookies → espn.com.</li>
-          <li>Copy the value of <span className="font-mono text-slate-800">espn_s2</span> (long string) and <span className="font-mono text-slate-800">SWID</span> (including the curly braces).</li>
-          <li>In League Hub → Connections, pick ESPN, paste the League ID and both cookies, then Add &amp; sync. These are read-only session cookies — never your password.</li>
-        </ol>
-      </div>
+      {view === 'health' && <div className="space-y-4">
+        <BrainCheck />
+        <NumberHealthCard />
+        <Card className="!p-4">
+          <h2 className="ds-h mb-1">Data freshness</h2>
+          <DataFreshnessDetail />
+        </Card>
+      </div>}
+
+      {view === 'dev' && <Card><DevPanel /></Card>}
+
     </div>
+  );
+}
+
+/** ESPN's top-800 fantasy players (rookies included): the source of truth for rosters. News lives in Players → News. */
+function PlayerDatabase() {
+  const [msg, setMsg] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  return (
+    <Card className="!p-4">
+      <h2 className="ds-h">Player database</h2>
+      <p className="ds-note mt-1">Works before you connect a league: it pulls ESPN&apos;s top-800 fantasy players, rookies included. Re-run it when rosters change. News is pulled in <Link to="/players?view=news" className="text-[var(--c-accent)] underline">Players → News</Link>.</p>
+      <Button size="sm" icon="refresh" className="mt-3" disabled={syncing} title={syncing ? 'Pulling from ESPN' : 'Pull the player database from ESPN'}
+        onClick={async () => {
+          setSyncing(true); setMsg(null);
+          try {
+            const r = await api('/espn/sync-players', { method: 'POST' });
+            setMsg(`Player database pulled from ESPN: ${r.fetched} players (${r.added} new, ${r.updated} updated).`);
+          } catch (e: any) { setMsg(sanitizedMessage('Settings.pullPlayers', 'Player sync failed', e.message)); }
+          finally { setSyncing(false); }
+        }}>{syncing ? 'Pulling…' : 'Pull player database'}</Button>
+      {msg && <p role="status" className="ds-note mt-2">{msg}</p>}
+    </Card>
+  );
+}
+
+/** The planner's brain check and number audit (the War Room health sheet), opened from here; the header chip lands on this view. */
+function BrainCheck() {
+  const { view, openHealth } = useCoach();
+  if (!view) return null;
+  return (
+    <Card className="!p-4">
+      <h2 className="ds-h">Brain check</h2>
+      <p className="ds-note mt-1">Whether the planner that picks your next move is working: its brain report and the number audit.</p>
+      <Button size="sm" variant="quiet" className="mt-3" onClick={openHealth} data-testid="open-brain-check">Open the brain check</Button>
+    </Card>
   );
 }

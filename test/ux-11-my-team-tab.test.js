@@ -24,12 +24,17 @@ import fs from 'node:fs';
 
 const read = rel => fs.readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
 
-test('nav has exactly 8 items with My team first', async () => {
+// UI consolidation (docs/ui/CONSOLIDATION-MAP.md, decision 2): seven areas, Today first,
+// My team still its own top-level route (it was first of eight before).
+test('nav has exactly 7 areas with Today first and My team a top-level item', async () => {
   const { NAV_GROUPS } = await import('../client/src/navigation.ts');
   const items = NAV_GROUPS.flatMap(g => g.items);
-  assert.equal(items.length, 8, `expected 8 nav items, got ${items.length}: ${items.map(i => i.label).join(', ')}`);
-  assert.equal(items[0].label, 'My team', `expected 'My team' first, got '${items[0].label}'`);
-  assert.equal(items[0].to, '/my-team');
+  assert.equal(items.length, 7, `expected 7 nav items, got ${items.length}: ${items.map(i => i.label).join(', ')}`);
+  assert.equal(items[0].label, 'Today', `expected 'Today' first, got '${items[0].label}'`);
+  assert.equal(items[0].to, '/');
+  const mine = items.find(i => i.to === '/my-team');
+  assert.ok(mine, 'My team is still a nav item');
+  assert.equal(mine.label, 'My team');
 });
 
 test('App.tsx routes /my-team to MyTeam, not a redirect', () => {
@@ -77,7 +82,7 @@ test('the old inner-tab deep link (/league?view=team) redirects via legacyLeague
   // a loose text regex still passed. The predicate is now tested as a function
   // above; here the call site must hand its result straight to <Navigate>.
   const src = read('client/src/pages/LeagueHub.tsx');
-  assert.match(src, /const \[params\] = useSearchParams\(\);/);
+  assert.match(src, /const \[params(?:, setParams)?\] = useSearchParams\(\);/);
   assert.match(
     src,
     /const (\w+) = legacyLeagueRedirect\(params\);\s*if \(\1\) return <Navigate to=\{\1\} replace \/>;/,

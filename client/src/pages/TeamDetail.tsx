@@ -5,10 +5,11 @@ import { Headshot } from '../components/PlayerRow';
 import FormationView, { type SlotPlayer } from '../components/FormationView';
 import { usePlayerCard } from '../components/PlayerCard';
 import OffseasonPanel from '../components/OffseasonPanel';
+import NewsList from '../components/NewsList';
 import TeamSchedule from '../components/TeamSchedule';
 import SidePanel from '../components/SidePanel';
 import { EmptyState, PageError, PageLoading } from '../components/PageState';
-import { sanitizedAlert, sanitizedMessage } from '../lib/errorSanitize';
+import { sanitizedMessage } from '../lib/errorSanitize';
 
 type Phase = 'offense' | 'defense' | 'special_teams' | 'schedule' | 'offseason';
 
@@ -60,16 +61,9 @@ export default function TeamDetail() {
   const openCard = usePlayerCard();
   const { data: team, loading, error, refetch: refetchTeam } = useApi<Team>(`/teams/${abbr}`);
   const { data: teamNews, loading: newsLoading, error: newsError, refetch: refetchNews } = useApi<any[]>(`/news?team=${abbr}`);
-  const [newsBusy, setNewsBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMsg, setAiMsg] = useState<string | null>(null);
 
-  const pullTeamNews = async () => {
-    setNewsBusy(true);
-    try { await api(`/espn/sync-news?team=${abbr}`, { method: 'POST' }); refetchNews(); }
-    catch (e: any) { sanitizedAlert('TeamDetail.pullTeamNews', 'News pull failed', e.message); }
-    finally { setNewsBusy(false); }
-  };
 
   const refreshOutlook = async () => {
     setAiBusy(true); setAiMsg(null);
@@ -106,7 +100,7 @@ export default function TeamDetail() {
   return (
     <div className="flex flex-col xl:flex-row gap-6">
       <div className="flex-1 min-w-0">
-        <Link to="/teams" className="text-xs text-slate-500 hover:text-slate-700">← all teams</Link>
+        <Link to="/players/teams" className="text-xs text-slate-500 hover:text-slate-700">← all teams</Link>
         <div className="flex items-center gap-3 mt-1 mb-4">
           <span className="w-12 h-12 rounded-full grid place-items-center text-sm font-black text-white"
             style={{ background: team.primary_color }}>{team.abbr}</span>
@@ -152,14 +146,14 @@ export default function TeamDetail() {
             <span className="w-3 h-3 rounded-full" style={{ background: 'rgba(166,58,50,0.2)', border: '1.5px solid #a63a32' }} />
             weak spot (pulsing)
           </span>
-          <span className="text-slate-400">green = Pro Bowl / All-Pro / 1st-round / top-50 market · red = AI stat review</span>
+          <span className="text-slate-500">green = Pro Bowl / All-Pro / 1st-round / top-50 market · red = AI stat review</span>
         </div>
 
         {(() => {
           const bench = benchFor((team as any).depth_multi, phase as Phase);
           return bench.length > 0 && (
             <div className="card p-3 mt-3">
-              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2">Bench / depth</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Bench / depth</h3>
               <div className="flex flex-wrap gap-2">
                 {bench.map(p => (
                   <button key={p.player_id} onClick={() => p.player_id && openCard(p.player_id)}
@@ -168,7 +162,7 @@ export default function TeamDetail() {
                     <Headshot src={headshotUrl(p)} pos={p.position ?? ''} size={26} />
                     <span>
                       <span className="block text-xs font-semibold text-slate-800 leading-tight">{p.name}</span>
-                      <span className="block text-[10px] text-slate-400 leading-tight">{p.position}</span>
+                      <span className="block text-[10px] text-slate-500 leading-tight">{p.position}</span>
                     </span>
                   </button>
                 ))}
@@ -253,9 +247,7 @@ export default function TeamDetail() {
         <div className="card p-4 mt-4">
           <div className="flex items-center gap-2 mb-2">
             <h3 className="text-sm font-bold text-slate-700">{team.abbr} News</h3>
-            <button className="btn-ghost ml-auto text-xs" onClick={pullTeamNews} disabled={newsBusy}>
-              {newsBusy ? 'Pulling…' : '↻ Pull latest from ESPN'}
-            </button>
+            <Link to={`/players?view=news&team=${team.abbr}`} className="ml-auto text-xs font-semibold text-[var(--c-accent)] hover:underline" title="Every story, the filters and the one pull action live in Players → News">All {team.abbr} news →</Link>
             <button className="btn-ghost text-xs" onClick={refreshOutlook} disabled={aiBusy}
               title="Ask AI: did any new news change this team's outlook?">
               {aiBusy ? 'Thinking…' : '✨ Re-check outlook'}
@@ -265,38 +257,8 @@ export default function TeamDetail() {
           {newsLoading && !teamNews ? <PageLoading label="Loading team news…" /> : newsError && !teamNews ? (
             <PageError message={newsError} onRetry={refetchNews} />
           ) : (teamNews ?? []).length === 0 ? (
-            <EmptyState title={`No stories for ${team.abbr} yet`} description="Pull the latest from ESPN's team feed." actionLabel={newsBusy ? 'Pulling…' : '↻ Pull latest from ESPN'} onAction={pullTeamNews} />
-          ) : (teamNews ?? []).slice(0, 8).map(n => (
-            <div key={n.id} className="py-3 border-b border-slate-100 last:border-0">
-              <div className="flex items-center gap-2 text-[11px] mb-1">
-                <span className="text-slate-500">{n.date}{n.source && ` · ${n.source}`}</span>
-                {n.importance === 3 && <span className="text-crit font-bold">MAJOR</span>}
-                <button className="text-slate-500 hover:text-crit ml-auto"
-                  onClick={async () => { await api(`/news/${n.id}`, { method: 'DELETE' }); refetchNews(); }}>✕</button>
-              </div>
-              <h4 className="text-sm font-semibold text-slate-800">{n.headline}</h4>
-              {n.body && <p className="text-sm text-slate-600 mt-1">{n.body}</p>}
-              {(n.ai_analysis || n.fantasy_impact) && (
-                <div className="mt-2 space-y-1.5">
-                  {n.ai_analysis && (
-                    <div className="border-l-2 border-slate-300 pl-3">
-                      <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">What it means for {team.abbr}</div>
-                      <p className="text-sm text-slate-700">{n.ai_analysis}</p>
-                    </div>
-                  )}
-                  {n.fantasy_impact && (
-                    <div className="border-l-2 border-[var(--accent)] pl-3">
-                      <div className="text-[10px] font-bold uppercase tracking-wide text-[var(--accent)]">Fantasy impact</div>
-                      <p className="text-sm text-slate-700">{n.fantasy_impact}</p>
-                    </div>
-                  )}
-                </div>
-              )}
-              {!n.ai_analysis && (
-                <ExplainButton newsId={n.id} onDone={refetchNews} />
-              )}
-            </div>
-          ))}
+            <EmptyState title={`No stories for ${team.abbr} yet`} description="Pull the latest in Players → News." actionLabel="Open News" actionTo={`/players?view=news&team=${team.abbr}`} />
+          ) : <NewsList items={teamNews ?? []} onChanged={refetchNews} canDelete max={8} teamLinks={false} />}
         </div>
         </>)}
       </div>
@@ -328,7 +290,7 @@ function Tendencies({ abbr }: { abbr: string }) {
     <div className="card p-4 mt-3">
       <div className="flex items-baseline gap-2 flex-wrap mb-2">
         <h3 className="text-sm font-bold text-slate-700">Measured identity</h3>
-        <span className="text-[11px] text-slate-400">
+        <span className="text-[11px] text-slate-500">
           {data.weeks_measured} weeks of play-by-play · {data.season}
           {data.is_prior_season && <span className="text-amber-600"> (prior season)</span>}
         </span>
@@ -344,7 +306,7 @@ function Tendencies({ abbr }: { abbr: string }) {
               <div className="min-w-0">
                 <div className="text-xs font-semibold text-slate-800 truncate">
                   {t.reads_as}
-                  <span className="font-normal text-slate-400"> · {t.label}</span>
+                  <span className="font-normal text-slate-500"> · {t.label}</span>
                 </div>
                 <div className="h-1.5 rounded-full bg-slate-100 mt-1 overflow-hidden">
                   <div className={`h-full rounded-full ${t.percentile >= 0.5 ? 'bg-emerald-500' : 'bg-sky-500'}`}
@@ -353,7 +315,7 @@ function Tendencies({ abbr }: { abbr: string }) {
               </div>
               <div className="text-right tabular-nums">
                 <div className="text-sm font-black text-slate-900">{t.value}{t.unit}</div>
-                <div className="text-[10px] text-slate-400">#{t.rank}/{t.of} · lg {t.league_mean}{t.unit}</div>
+                <div className="text-[10px] text-slate-500">#{t.rank}/{t.of} · lg {t.league_mean}{t.unit}</div>
               </div>
             </div>
           ))}
@@ -362,7 +324,7 @@ function Tendencies({ abbr }: { abbr: string }) {
         <div className="space-y-3">
           {Object.entries(data.groups).map(([group, items]: any) => (
             <div key={group}>
-              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">{group}</div>
+              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1">{group}</div>
               <div className="space-y-0.5">
                 {items.map((t: any) => (
                   <div key={t.key} className="flex items-center gap-2 text-xs">
@@ -372,7 +334,7 @@ function Tendencies({ abbr }: { abbr: string }) {
                         style={{ width: `${bar(t.percentile)}%` }} />
                     </div>
                     <span className="w-16 text-right tabular-nums font-semibold text-slate-800">{t.value}{t.unit}</span>
-                    <span className="w-14 text-right tabular-nums text-[10px] text-slate-400">#{t.rank}/{t.of}</span>
+                    <span className="w-14 text-right tabular-nums text-[10px] text-slate-500">#{t.rank}/{t.of}</span>
                   </div>
                 ))}
               </div>
@@ -380,27 +342,8 @@ function Tendencies({ abbr }: { abbr: string }) {
           ))}
         </div>
       )}
-      <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">{data.note}</p>
+      <p className="text-[10px] text-slate-500 mt-2 leading-relaxed">{data.note}</p>
     </div>
   );
 }
 
-/** Per-story "what does this mean" — same /news/:id/explain endpoint the main News page uses. */
-function ExplainButton({ newsId, onDone }: { newsId: number; onDone: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  return (
-    <div className="mt-2">
-      <button className="btn-ghost text-xs" disabled={busy}
-        onClick={async () => {
-          setBusy(true); setErr(null);
-          try { await api(`/news/${newsId}/explain`, { method: 'POST' }); onDone(); }
-          catch (e: any) { setErr(sanitizedMessage('TeamDetail.ExplainButton', "Couldn't explain that", e.message)); }
-          finally { setBusy(false); }
-        }}>
-        {busy ? 'Reading…' : '✨ What does this mean?'}
-      </button>
-      {err && <span className="text-xs text-crit ml-2">{err}</span>}
-    </div>
-  );
-}

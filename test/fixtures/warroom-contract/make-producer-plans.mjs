@@ -6,15 +6,22 @@
  * data.
  *
  * Two refreshes, as the refresh loop runs it: the file is the second run, read
- * against the first (so `ground_lost` and the change diff are real). Five
+ * against the first (so `ground_lost` and the change diff are real). Six
  * leagues, so the file exercises every branch a consumer reads:
  *   1  title, Nick's stops (get / sell an untouchable / bye / custom),
- *      a safe-until-week-6 mode, an arrive-by week, chat labels on team 3
+ *      a safe-until-week-6 mode, an arrive-by week, chat labels on team 3,
+ *      the ONE-COUNTERPART model on (team 3 wants Nick's P2), and Nick's
+ *      'untouchable: P33' note on team 4 (never a target, a get or a flip leg)
  *   2  a league whose world failed: the contract's { league, me, names, error }
  *   3  points objective, team 3 nearly out of it (a "desperate" catch-up move
  *      that is also a deck card) and team 4 checked out
- *   4  go get player 21
+ *   4  go get player 21, points side panel at 105 a week (reachable under the FIX-05 balanced fallback: by_week is ok)
  *   5  sliders at zero assets: nothing clears, so next_move is unknown with its reason
+ *   8  a made-up season trade ledger (TRADE-MEMORY): a sold player whose price fell (still never a get), a sold player and a
+ *      reversal dropped, the count in _run.dropped_by_reason
+ *
+ * The FEAS-140 points side panel is switched on (ENV below, never the process env), so
+ * every non-points league writes feasibility_points; league 3 writes it as unknown.
  *
  * FIX-05: every league goes through the brain gate (campaign/brain-gate.js) on a
  * made-up report card with E1 failing, so league 4's all_in falls back to
@@ -24,15 +31,19 @@
  *
  *   node test/fixtures/warroom-contract/make-producer-plans.mjs   # rewrites producer-plans.json
  */
+import { pYesBasis, pYesTableFrom } from '../../../server/services/p-yes.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { makeAdapter } from '../campaign-league.mjs';
 import { buildPlansFile } from '../../../scripts/campaign/produce-plans.mjs';
 import { applyBrainReport, readNumberHealth } from '../../../server/services/campaign/brain-gate.js';
+import { nickBlock, resolveUntouchables, untouchableIds } from '../../../server/services/people/profile-reader.js';
+import { buildCounterparts } from '../../../server/services/people/counterpart.js';
 
 const FIRST_AT = '2026-09-24T05:00:00.000Z';
 const GENERATED_AT = '2026-09-24T06:00:00.000Z';
+const ENV = { GRIDIRON_POINTS_FEASIBILITY: '1' };
 const CHAT_OK = { engagement: 'high', tone: 'friendly', open_to_trade: 'high', no_holds: 'no', loves: [], hates: [], messages: 40, source: 'chat', status: 'ok' };
 
 const leagueOf = (id, opts = {}) => {
@@ -45,7 +56,7 @@ export const OBJECTIVES = {
   1: { risk_mode: 'safe', risk_until_week: 6, arrive_by: 6, untouchables: ['2'], version: 3,
     stops: [{ kind: 'get', player: '21' }, { kind: 'sell', player: '2' }, { kind: 'cover_bye', week: 6 }, { kind: 'custom', label: 'Keep a TE' }] },
   3: { kind: 'points', points_per_week: 95 },
-  4: { kind: 'player', target: '21', risk_mode: 'all_in' },
+  4: { kind: 'player', target: '21', risk_mode: 'all_in', side_points_per_week: 105 },
   5: { tolerances: { max_assets: 0 } },
 };
 
@@ -75,17 +86,54 @@ const fakeAudit = leagueId => {
 export const BRAIN = { read: { report: BRAIN_REPORT, error: null }, applyBrainReport,
   numberHealth: id => readNumberHealth(null, id, { read: fakeAudit }) };
 
+/** League 1's people: Nick's untouchable note on team 4 and a counterpart model per team (no real data). */
+function withPeople(a) {
+  const nick4 = resolveUntouchables(nickBlock(null, [{ note: 'untouchable: P33 (fixture)', source: 'nick-chat-2026-09-24' }]),
+    a.rosters.get('4').map(id => a.players.get(id)));
+  a.managers.set('4', { ...a.managers.get('4'), nick: nick4 });
+  a.untouchable = untouchableIds([nick4]);
+  const at = Date.parse(FIRST_AT);
+  const profile = { values_talk: { wants: [{ player: 'P2', at, n: 4 }], untouchable: [], shopping: [], talks_up: [], talks_down: [] } };
+  // Team 3: Nick reads him as hard to deal with (the counterpart caps the price at fair on his screen).
+  const nick3 = nickBlock({ difficulty: 'hard to deal with' });
+  a.counterparts = buildCounterparts({ profiles: new Map([['3', { status: 'ok', profile, built_at: FIRST_AT, nick: nick3 }]]),
+    players: a.players, now: at, teams: [...a.managers.keys()] });
+  return a;
+}
+
+// LIVE-BLEND: made-up decided offers across two leagues, all answered before PYES_NOW.
+const PYES_NOW = Date.UTC(2026, 8, 24);
+const pyDay = d => new Date(Date.UTC(2026, 8, d)).toISOString();
+const PYES_OFFERS = [[4, '2', 1, 1], [4, '2', 3, 0], [4, '3', 5, 0], [4, '3', 7, 0], [1, '2', 2, 1], [1, '4', 4, 1]]
+  .map(([league, team, d, y]) => ({ league_id: league, counterparty_team_id: team, proposed_at: pyDay(d), resolved_at: pyDay(d + 1), y }));
+/**
+ * League 8's season ledger (TRADE-MEMORY, made up): Nick sold P11 to team 2 twelve days ago at 5,000
+ * (4,200 now, a 16% fall: still never a get, no buy-backs) and P22 to team 3 for P4 (a reversal is never served).
+ */
+function withLedger(a) {
+  const at = Date.parse(FIRST_AT) - 12 * 864e5;
+  a.tradeLedger = { now: Date.parse(FIRST_AT), unmapped: 0, valueAt: id => (id === 11 ? 5000 : null),
+    trades: [{ tx_id: 'fx1', at, moves: [{ player: 11, from: '1', to: '2' }, { player: 6, from: '2', to: '1' }] },
+      { tx_id: 'fx2', at, moves: [{ player: 22, from: '1', to: '3' }, { player: 4, from: '3', to: '1' }] }] };
+  return a;
+}
+
 export async function makeProducerPlans() {
   const leagues = [
-    { id: 1, load: async () => ({ adapter: leagueOf(1, { managerExtra: { 3: { chat: CHAT_OK } } }) }) },
+    { id: 1, load: async () => ({ adapter: withPeople(leagueOf(1, { managerExtra: { 3: { chat: CHAT_OK } } })),
+      counterpart: { status: 'ok', reason: null, field: 'people.counterpart' } }) },
     { id: 2, load: async () => { const a = leagueOf(2); a.world = () => ({ fail: 'no schedule for this season' }); return { adapter: a }; } },
     { id: 3, load: async () => ({ adapter: leagueOf(3, { managerExtra: { 3: { title_now: 0.01 }, 4: { checked_out: true } } }) }) },
-    { id: 4, load: async () => ({ adapter: leagueOf(4) }) },
-    { id: 5, load: async () => ({ adapter: leagueOf(5) }) },
+    // LIVE-BLEND: league 4 serves the blend (made-up graded offers), league 5 falls back to the clone (none).
+    { id: 4, load: async () => { const a = leagueOf(4); a.pYesBasis = pYesBasis(pYesTableFrom(PYES_OFFERS, 4, ['2', '3'], { now: PYES_NOW, mode: 'blend' })); return { adapter: a }; } },
+    // TEAM-NAMES: league 5 also names one manager (synthetic), so the file writes every teams path.
+    { id: 5, load: async () => { const a = leagueOf(5); const t = a.teams(); a.teams = () => ({ ...t, 2: { ...t[2], manager: 'Manager B' } });
+      a.pYesBasis = pYesBasis(pYesTableFrom([], 5, ['2'], { now: PYES_NOW, mode: 'blend' })); return { adapter: a }; } },
+    { id: 8, load: async () => ({ adapter: withLedger(leagueOf(8)) }) },
   ];
-  const first = await buildPlansFile(leagues, { generated_at: FIRST_AT, objectives: OBJECTIVES, clock: () => 0, brain: BRAIN });
+  const first = await buildPlansFile(leagues, { generated_at: FIRST_AT, objectives: OBJECTIVES, clock: () => 0, brain: BRAIN, env: ENV });
   const previous = new Map(first.leagues.map(e => [String(e.league), e]));
-  return buildPlansFile(leagues, { generated_at: GENERATED_AT, objectives: OBJECTIVES, previous, clock: () => 0, brain: BRAIN });
+  return buildPlansFile(leagues, { generated_at: GENERATED_AT, objectives: OBJECTIVES, previous, clock: () => 0, brain: BRAIN, env: ENV });
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

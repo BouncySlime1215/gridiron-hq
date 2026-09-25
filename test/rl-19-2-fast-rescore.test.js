@@ -221,3 +221,28 @@ test('RL-19-2: the Title-impact tab (shared world) shows the old path\'s numbers
   assert.ok(on.deals.length === 1, 'control: the fixture deal was simulated');
   assert.deepEqual(on.deals, off.deals);
 });
+
+test('RB-TITLE: fast rescore equals the old path under shadow and on; shadow leaves served numbers alone', () => {
+  const withRb = (value, fn) => {
+    const prior = process.env.GRIDIRON_RB_TITLE;
+    if (value == null) delete process.env.GRIDIRON_RB_TITLE; else process.env.GRIDIRON_RB_TITLE = value;
+    try { return fn(); } finally {
+      if (prior == null) delete process.env.GRIDIRON_RB_TITLE; else process.env.GRIDIRON_RB_TITLE = prior;
+    }
+  };
+  const args = { ...DEALS[1], runs: RUNS, seed: 17 };
+  const off = withRb(null, () => fast(args));
+  for (const mode of ['shadow', '1']) {
+    assert.deepEqual(withRb(mode, () => fast(args)), withRb(mode, () => old(args)), `mode ${mode}`);
+  }
+  const shadow = withRb('shadow', () => fast(args));
+  for (const side of ['me', 'them']) {
+    const { title_delta_rb, title_delta_rb_se, ...served } = shadow[side];
+    assert.deepEqual(served, off[side], `${side}: shadow does not move a served field`);
+    assert.equal(typeof title_delta_rb, 'number');
+    assert.equal(typeof title_delta_rb_se, 'number');
+  }
+  // A world built with the flag off is not reused once it is on (the base odds differ).
+  const world = withRb(null, () => tradeImpactWorld(league(), { runs: RUNS, seed: 17 }));
+  assert.deepEqual(withRb('1', () => fast({ ...args, world })), withRb('1', () => old(args)));
+});

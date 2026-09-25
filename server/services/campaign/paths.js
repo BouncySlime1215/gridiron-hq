@@ -52,11 +52,13 @@ export function pathOutcomes(steps) {
  *   score      = p_complete x final delta
  *   expected   = sum over stopping points of prob x delta (the honest number)
  *   stranded   = the part of `expected` from paths that stopped after a done step
- *   sd         = spread of the ending delta across accept/decline outcomes (for SAFE)
+ *   sd         = spread of the ending delta across accept/decline outcomes (SAFE's ranking penalty)
+ *   downside_sd = root mean square of the outcomes that end BELOW today (delta < 0); a decline that
+ *                leaves Nick where he started is the no-trade outcome, not downside (SAFE's no-trade gate)
  */
 export function pathExpectation(steps) {
   if (!steps.length) {
-    return { p_complete: 0, delta_final: 0, score: 0, expected: 0, stranded: 0, expected_se: null, sd: 0 };
+    return { p_complete: 0, delta_final: 0, score: 0, expected: 0, stranded: 0, expected_se: null, sd: 0, downside_sd: 0 };
   }
   const outs = pathOutcomes(steps);
   let expected = 0, stranded = 0, var_ = 0, seKnown = true;
@@ -68,11 +70,12 @@ export function pathExpectation(steps) {
     }
   }
   let spread = 0;
-  for (const o of outs) spread += o.prob * (o.delta - expected) ** 2;
+  let down = 0;
+  for (const o of outs) { spread += o.prob * (o.delta - expected) ** 2; if (o.delta < 0) down += o.prob * o.delta ** 2; }
   const last = steps[steps.length - 1];
   const p_complete = outs[outs.length - 1].prob;
   return { p_complete, delta_final: last.delta, score: p_complete * last.delta, expected, stranded,
-    expected_se: seKnown ? Math.sqrt(var_) : null, sd: Math.sqrt(spread) };
+    expected_se: seKnown ? Math.sqrt(var_) : null, sd: Math.sqrt(spread), downside_sd: Math.sqrt(down) };
 }
 
 /** Whether some later step hands on a player an earlier step brought in. */
@@ -129,3 +132,59 @@ export function assetsSpent(steps, originalIds) {
   for (const s of steps) for (const id of s.give) if (orig.has(String(id))) spent.add(String(id));
   return spent.size;
 }
+
+/* ------------------------------------------------------------------ value bands (ONE-PLANNER)
+ * Moved in from ACQ-01 (PR #267, server/services/acq/value-band.js) so the campaign
+ * producer is the one planner. A package is fair on his screen when what he gets is
+ * inside SCREEN_WINDOW of what he gives; `fairBand` turns that into the range Nick's
+ * side must sum to. IDEA-038 (R&D r23): a pair of mid-value players whose SUM lands in
+ * the band is a normal 2-for-1 he reads as fair, found when no single piece fits.
+ */
+
+/** The range Nick's side must sum to for a package worth `theyGiveValue` to read fair. Null when unpriced. */
+export function fairBand(theyGiveValue, window = SCREEN_WINDOW) {
+  if (!(theyGiveValue > 0)) return null;
+  return { lo: theyGiveValue * (1 + window.low / 100), hi: theyGiveValue * (1 + window.high / 100) };
+}
+
+const byValue = (a, b) => a.value - b.value || String(a.id).localeCompare(String(b.id));
+
+/** Single items ({ id, value }) whose value lies in the band, as one-id gives. */
+export function onesInBand(items, band) {
+  if (!band) return [];
+  return items.filter(x => x.value >= band.lo && x.value <= band.hi).sort(byValue).map(x => [x.id]);
+}
+
+function lowerBound(vals, x, from) {
+  let lo = from, hi = vals.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (vals[m] < x) lo = m + 1; else hi = m; }
+  return lo;
+}
+
+/**
+ * Unordered pairs whose summed value lies in the band, each once. Sorted sweep: for item i the
+ * partners j > i that fit are one contiguous run, found by binary search. `limit` keeps the pairs
+ * nearest the band's centre.
+ */
+export function pairsInBand(items, band, { limit = Infinity } = {}) {
+  if (!band) return [];
+  const s = items.filter(x => x.value > 0).sort(byValue);
+  const vals = s.map(x => x.value);
+  const out = [];
+  for (let i = 0; i < s.length; i++) {
+    for (let j = lowerBound(vals, band.lo - vals[i], i + 1); j < s.length && vals[i] + vals[j] <= band.hi; j++) {
+      out.push({ ids: [s[i].id, s[j].id], sum: vals[i] + vals[j] });
+    }
+  }
+  if (out.length > limit) {
+    const mid = (band.lo + band.hi) / 2;
+    out.sort((a, b) => Math.abs(a.sum - mid) - Math.abs(b.sum - mid));
+    out.length = limit;
+  }
+  return out.map(p => p.ids);
+}
+
+/** A step's shape: '1-for-1', '2-for-1' (Nick gives two), '1-for-2' (Nick gets two), ... */
+export const shapeOf = s => `${s.give.length}-for-${s.get.length}`;
+/** A path the one-for-one search could have found: every step is 1-for-1. */
+export const oneForOneOnly = steps => steps.every(s => s.give.length === 1 && s.get.length === 1);

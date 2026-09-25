@@ -16,6 +16,7 @@ process.env.SCHEDULER_DISABLED = '1';
 process.env.NFL_WEEK = '4';
 
 const { db, rows, run } = await import('../server/db/index.js');
+const { priceLeagueForRules, priceForRules } = await import('./fixtures/rule-gate.mjs');
 const { runMigrations } = await import('../server/db/migrate.js');
 const { seedIfEmpty } = await import('../server/db/seed/index.js');
 // Side-effect imports: the tables other suites rely on (see test/find-trades.test.js).
@@ -43,6 +44,8 @@ for (let i = 0; i < 6; i++) {
 run(`INSERT INTO leagues(id, platform, league_id, season, name, payload, team_count, my_team_id, roster_positions)
      VALUES (301, 'espn', 'espn-lv-301', 2026, 'LV League', ?, 6, '1', ?)`,
 JSON.stringify({ teams, settings: { name: 'LV League' } }), JSON.stringify(['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX']));
+// RULES-EVERYWHERE: FantasyCalc values so Nick's rule gate does not empty this fixture (rules: own test).
+priceLeagueForRules(db, rows('SELECT id, payload, my_team_id FROM leagues WHERE id = 301')[0]);
 // Market values, so the finder's value prune has something to sum (the seed has none).
 const { deriveFormat } = await import('../server/services/format.js');
 const { formatKey } = deriveFormat(rows('SELECT * FROM leagues WHERE id = 301')[0]);
@@ -110,6 +113,8 @@ test('findTrades (GET /find): every returned deal carries lineup_value next to v
     P('T TE', 'TE', 8, 1400), P('T RB3', 'RB', 5, 500)] };
   const wire = [P('Free WR', 'WR', 7, 600), P('Free RB', 'RB', 6, 500)];
   const assets = new Map([...me.players, ...them.players, ...wire].map(p => [p.id, p]));
+  // RULES-EVERYWHERE: the override players priced for Nick's rule gate (rules: own test).
+  priceForRules(db, { leagueId: 301, mine: me.players.map(p => p.id), theirs: [...them.players, ...wire].map(p => p.id) });
   const lg = rows('SELECT * FROM leagues WHERE id = 301')[0];
   const out = findTrades(lg, { myTeamId: '1', requireMutual: false, limit: 50, counterparty: false,
     teamsOverride: [me, them], assetsOverride: assets, playoffOdds: 0.5, playoffOddsSource: 'fixture' });

@@ -19,7 +19,7 @@ export default function SidePanel() {
       <div className="card p-4">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-bold text-slate-700">My Team</h3>
-          {active && <Link to={`/drafts/${active.id}`} className="text-xs text-emerald-600 hover:underline">draft room →</Link>}
+          {active && <Link to={`/draft/${active.id}`} className="text-xs text-emerald-600 hover:underline">draft room →</Link>}
         </div>
         {myPicks.length === 0 ? (
           <p className="text-xs text-slate-500">{active ? 'No picks yet.' : 'No active draft. Start one in the Draft Room.'}</p>
@@ -53,7 +53,7 @@ export default function SidePanel() {
             ))}
           </ul>
         )}
-        <Link to="/rankings" className="block mt-3 text-xs text-emerald-600 hover:underline">edit rankings →</Link>
+        <Link to="/players?view=rankings" className="block mt-3 text-xs text-emerald-600 hover:underline">edit rankings →</Link>
       </div>
     </div>
   );

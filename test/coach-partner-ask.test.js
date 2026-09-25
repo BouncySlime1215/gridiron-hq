@@ -1,0 +1,322 @@
+/**
+ * COACH-PARTNER: "gimme a trade to send to <manager>" is a request for a trade
+ * IDEA aimed at one league-mate, not a request for Coach to send anything.
+ *
+ * Pinned here:
+ *   - the send refusal fires only when Coach is asked to do the sending
+ *     ("send it for me", "submit it", "propose it on ESPN"), never when "send"
+ *     is what Nick will do ("a trade to send to <manager>")
+ *   - a partner-scoped question resolves the manager by ESPN name, first name
+ *     or team name from the identity table (league_member_identity), never a
+ *     hard-coded list, and answers from the War Room plans file: the best
+ *     served plan through him, else the best flip leg with him, else the
+ *     partners read of him plus an honest "nothing clears with him"
+ *   - every claim is cited and grounded, $0, no model call
+ *   - "what else u got" / "next one" / "something else" answer the next
+ *     alternative in the deck, in full, and move the deck with it
+ * Names below are made up (public repo). Plans from the producer fixture (FIX-03).
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import express from 'express';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
+
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-coach-partner-'));
+process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
+delete process.env.GRIDIRON_ANTHROPIC_API_KEY;
+delete process.env.ANTHROPIC_API_KEY;
+delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
+process.env.GRIDIRON_COACH_BRIEF_ENABLED = '1';
+process.env.GRIDIRON_WARROOM_ENABLED = '1';
+
+const FIXTURE = new URL('./fixtures/warroom-contract/producer-plans.json', import.meta.url);
+const PLANS = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
+const plans = () => structuredClone(PLANS);
+const PLANS_FILE = path.join(temp, 'plans.json');
+const writePlans = file => fs.writeFileSync(PLANS_FILE, JSON.stringify(file));
+process.env.GRIDIRON_WARROOM_PLANS = PLANS_FILE;
+writePlans(plans());
+
+const { run } = await import('../server/db/index.js');
+await (await import('../server/db/migrate.js')).runMigrations();
+const { setAnthropicClientForTesting } = await import('../server/services/claude.js');
+const { default: coachRouter } = await import('../server/routes/coach.js');
+const { hashSessionToken } = await import('../server/platform/auth.js');
+const { routeIntent } = await import('../server/services/warroom-actions/intent.js');
+const { resolvePartner } = await import('../server/services/coach/partner.js');
+
+/* ------------------------------------------------ made-up identity table */
+run(`INSERT OR IGNORE INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, payload, fetched_at)
+     VALUES (4, 'espn', 'fx-4', 2026, 'Fixture', '1', 4, 1, '{}', '2026-09-23 01:00:00')`);
+const IDENTITIES = [
+  ['1', 'Nico Tester', 'Tester Tigers', null],
+  ['2', 'Barnaby Finch', 'Finch Falcons', null],
+  ['3', 'Quincy Marlowe', 'Marlowe Mariners', 'Q Marlowe'],
+  ['4', 'Delphine Oakes', 'Oakes Owls', null]
+];
+for (const [roster, espn, team, chat] of IDENTITIES) {
+  run(`INSERT OR REPLACE INTO league_member_identity (league_id, roster_id, espn_name, team_name, chat_name, match_method, confidence)
+       VALUES (4, ?, ?, ?, ?, 'fixture', 'confirmed')`, roster, espn, team, chat);
+}
+
+const READERS = 40;
+for (let i = 0; i < READERS; i++) {
+  run(`INSERT OR IGNORE INTO users(id, subject, display_name) VALUES (?, ?, 'Reader')`, 9601 + i, `coach-partner-${i}`);
+  run(`INSERT OR REPLACE INTO auth_sessions(user_id, token_hash, expires_at)
+       VALUES (?, ?, datetime('now','+1 day'))`, 9601 + i, hashSessionToken(`partner-token-${i}`));
+}
+let reader = 0;
+let modelCalls = 0;
+setAnthropicClientForTesting({ messages: { create: async () => { modelCalls += 1; throw new Error('no model in this test'); } } });
+
+const app = express();
+app.use(express.json());
+app.use('/api/coach', coachRouter);
+const server = app.listen(0);
+const base = `http://127.0.0.1:${server.address().port}/api/coach`;
+test.after(() => { server.close(); setAnthropicClientForTesting(null); fs.rmSync(temp, { recursive: true, force: true }); });
+
+const ask = async (question, leagueId = 4, extra = {}) => (await fetch(`${base}/ask`, {
+  method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer partner-token-${reader++ % READERS}` },
+  body: JSON.stringify({ question, league_id: leagueId,
+    context: { surface: 'war_room', route: '/trade-brain?view=war-room', league: leagueId, ...extra } }) })).json();
+const texts = body => (body.answer?.claims ?? []).map(c => c.text).join('\n');
+
+function citesResolve(body) {
+  const cells = new Set();
+  for (const q of body.ledger?.queries ?? []) (q.rows ?? []).forEach((row, i) => Object.keys(row).forEach(k => cells.add(`${q.id}#${i}.${k}`)));
+  for (const d of body.ledger?.derived ?? []) cells.add(d.id);
+  return (body.answer?.claims ?? []).every(c => c.cites.length && c.cites.every(x => cells.has(x)));
+}
+const grounded = body => {
+  assert.equal(body.verification?.ok, true, JSON.stringify(body.verification));
+  assert.equal(body.verification?.dropped ?? 0, 0, JSON.stringify(body.dropped));
+  assert.ok(citesResolve(body), 'every cite resolves');
+  assert.equal(body.cost_usd, 0);
+};
+
+/* ------------------------------------------------------ send refusal */
+
+test('Coach refuses only when asked to do the sending itself', () => {
+  for (const q of ['send it for me', 'Send it for me please', 'submit it', 'propose it on ESPN',
+    'send the offer to team 7', 'can you send it to him', 'go ahead and send it', 'message him for me',
+    'i want you to send it', 'you should send it', 'go send it', 'hit send', "i'd like you to submit the offer"]) {
+    assert.ok(routeIntent(q)?.refuse, `should refuse: ${q}`);
+  }
+  for (const q of ['gimme a trade to send to Quincy', "what's a trade you like to send to Quincy",
+    'what should I send to Delphine', 'what trade would you send to the Oakes Owls', 'any offer I can send Barnaby?',
+    'what trade would you send to Quincy for me', 'what should we propose on ESPN', 'send me a trade idea for Quincy']) {
+    assert.equal(routeIntent(q)?.refuse, undefined, `should not refuse: ${q}`);
+  }
+});
+
+/* -------------------------------------------------- partner resolution */
+
+test('the partner is resolved from the identity rows by name, first name or team name; Nick himself never', () => {
+  const entry = PLANS.leagues.find(e => e.league === 4);
+  const identities = IDENTITIES.map(([roster_id, espn_name, team_name, chat_name]) => ({ roster_id, espn_name, team_name, chat_name }));
+  const r = q => resolvePartner(q, { entry, identities });
+  assert.equal(r('gimme a trade to send to quincy').roster, '3');
+  assert.equal(r('a trade for Quincy Marlowe?').roster, '3');
+  assert.equal(r("what would the Marlowe Mariners take").roster, '3');
+  assert.equal(r("what's Delphine's price").roster, '4');
+  assert.equal(r('trade with team 2').roster, '2');
+  assert.equal(r('a trade to send to Nico'), null, 'Nick is not a partner');
+  assert.equal(r('a trade to send to Zebulon'), null, 'an unknown name resolves to nobody');
+  // People name players by last name: a manager token that is any player's name token names nobody.
+  const clash = { ...entry, names: { ...entry.names, 99: 'Harlow Quincy (WR)' } };
+  assert.equal(resolvePartner('a trade to send to Quincy', { entry: clash, identities }), null);
+  assert.equal(resolvePartner('a trade to send to Quincy Marlowe', { entry: clash, identities }).roster, '3', 'the full name still counts');
+  // Two managers named at the same tier are ambiguous, however long each name is.
+  const both = r('a trade with Quincy or Delphine');
+  assert.equal(both.roster, null);
+  assert.equal(both.ambiguous.length, 2);
+  // A team name that contains another manager's full name is one mention, of that team.
+  const nested = identities.map(x => (x.roster_id === '2' ? { ...x, team_name: 'Quincy Marlowe Fan Club' } : x));
+  assert.equal(resolvePartner('a trade to send to the Quincy Marlowe Fan Club', { entry, identities: nested }).roster, '2');
+  assert.equal(resolvePartner('a trade to send to Quincy Marlowe', { entry, identities: nested }).roster, '3');
+  // A chat name counts only for a confirmed identity row.
+  const unconfirmed = identities.map(x => (x.roster_id === '4' ? { ...x, chat_name: 'Dee Zephyr', confidence: 'likely' } : { ...x, confidence: 'confirmed' }));
+  assert.equal(resolvePartner('a trade to send to Zephyr', { entry, identities: unconfirmed }), null);
+  assert.equal(resolvePartner('a trade to send to Zephyr', { entry,
+    identities: unconfirmed.map(x => (x.roster_id === '4' ? { ...x, confidence: 'confirmed' } : x)) }).roster, '4');
+});
+
+/* ------------------------------------------------------- partner answer */
+
+test('"gimme a trade to send to <manager>" answers with the served plan through him, not a refusal', async () => {
+  const body = await ask('gimme a trade to send to Quincy');
+  const t = texts(body);
+  assert.deepEqual(body.answer.refusals, []);
+  assert.doesNotMatch(t, /never sends/i);
+  assert.match(t, /Quincy Marlowe \(Marlowe Mariners\)/);
+  assert.match(t, /P4 \(WR\) \+ P6 \(RB\) for P21 \(WR\)/);
+  assert.match(t, /Chance he says yes: 53%, a guess/);
+  assert.match(t, /\+11\.6 pts/);
+  grounded(body);
+  assert.equal(modelCalls, 0);
+});
+
+test('"what\'s a trade you like to send to <team name>" resolves the team name the same way', async () => {
+  const body = await ask("what's a trade you like to send to the marlowe mariners");
+  assert.match(texts(body), /P4 \(WR\) \+ P6 \(RB\) for P21 \(WR\)/);
+  grounded(body);
+});
+
+test('no served plan through him: the best flip leg with him', async () => {
+  const body = await ask('gimme a trade to send to Delphine');
+  const t = texts(body);
+  assert.match(t, /No served plan goes through Delphine Oakes/);
+  assert.match(t, /flip/i);
+  assert.match(t, /P22 \(QB\)/);
+  grounded(body);
+});
+
+test('nothing with him at all: his partners read and an honest "nothing clears with him"', async () => {
+  const file = plans();
+  const e = file.leagues.find(x => x.league === 4);
+  e.flip_map.value = e.flip_map.value.filter(f => f.buy_from !== '2' && f.sell_to !== '2');
+  writePlans(file);
+  try {
+    const body = await ask('any trade I can send to Barnaby?');
+    const t = texts(body);
+    assert.match(t, /No fair trade with Barnaby Finch \(Finch Falcons\) clears your rules right now/);
+    assert.match(t, /15% chance he responds/);
+    assert.match(t, /needs WR/i);
+    grounded(body);
+  } finally { writePlans(plans()); }
+});
+
+/* ---------------------------------------- review 5825030366 (batch B) */
+
+const RAW_LABEL = /receptiveness|basis:|\b[a-z]+(_[a-z]+)*:[a-z]|step\(s\)|\bM6\b|edge with him/;
+
+test('the partners read speaks plain words: no engine labels, no chat tags, no edge line', async () => {
+  const file = plans();
+  const e = file.leagues.find(x => x.league === 4);
+  e.flip_map.value = e.flip_map.value.filter(f => f.buy_from !== '2' && f.sell_to !== '2');
+  const pa = e.partners.value.find(x => String(x.team) === '2');
+  pa.chat_labels = ['engagement:high', 'tone:friendly', 'open_to_trade:high', 'no_holds:yes', 'mystery_key:odd'];
+  pa.basis = 'activity read (receptiveness 0.30); ranked x1.10 by the partner kernel';
+  writePlans(file);
+  try {
+    const body = await ask('any trade I can send to Barnaby?');
+    const t = texts(body);
+    assert.match(t, /15% chance he responds, based on how active he has been lately\./);
+    assert.doesNotMatch(t, /chat reads|engagement|friendly/, 'chat labels are not shown');
+    assert.doesNotMatch(t, RAW_LABEL);
+    assert.doesNotMatch(t, /mystery|odd/);
+    grounded(body);
+  } finally { writePlans(plans()); }
+  for (const q of ['gimme a trade to send to Quincy', 'gimme a trade to send to Delphine', 'any trade I can send to Barnaby?']) {
+    assert.doesNotMatch(texts(await ask(q)), RAW_LABEL, q);
+  }
+});
+
+test('a flip that loses title odds, or was never priced, is never pitched', async () => {
+  const withFlips = mutate => {
+    const file = plans();
+    const e = file.leagues.find(x => x.league === 4);
+    mutate(e.flip_map.value.filter(f => f.buy_from === '4' || f.sell_to === '4'));
+    writePlans(file);
+  };
+  try {
+    // Every priced flip with him loses: none is pitched, the partners read answers.
+    withFlips(fs2 => fs2.forEach(f => { if (f.legs?.nick_after) f.legs.nick_after.value = -0.02; }));
+    let body = await ask('gimme a trade to send to Delphine');
+    assert.doesNotMatch(texts(body), /flip leg with him/);
+    assert.match(texts(body), /No fair trade with Delphine Oakes \(Oakes Owls\) clears your rules right now/);
+    grounded(body);
+    // The first priced flip loses and a later one wins: the winning one is pitched.
+    withFlips(fs2 => { const p22 = fs2.find(f => String(f.player) === '22' && f.legs?.nick_after); p22.legs.nick_after.value = -0.02; });
+    body = await ask('gimme a trade to send to Delphine');
+    assert.match(texts(body), /Best flip leg with him: .*P32/);
+    assert.doesNotMatch(texts(body), /change -/);
+    grounded(body);
+    // A flip past the noise bar outranks one inside it, whatever the producer order.
+    withFlips(fs2 => { fs2.find(f => String(f.player) === '22' && f.legs?.nick_after).legs.nick_after.clears_2se = false; });
+    body = await ask('gimme a trade to send to Delphine');
+    assert.match(texts(body), /Best flip leg with him: .*P32/);
+  } finally { writePlans(plans()); }
+});
+
+test('naming him without asking for a trade idea goes the ordinary way, not to his plan', async () => {
+  for (const q of ['why did Quincy reject my trade', "is Quincy's offer to me fair", 'what did Delphine say about my deal']) {
+    const body = await ask(q);
+    assert.equal(body.partner, undefined, q);
+    assert.doesNotMatch(texts(body), /Quincy Marlowe|Delphine Oakes/, q);
+  }
+  for (const q of ['what would Quincy take', 'what should I send Delphine', 'a deal with the Oakes Owls?']) {
+    assert.ok((await ask(q)).partner, q);
+  }
+});
+
+test('a name nobody has falls through to the ordinary answer, never a guess', async () => {
+  const body = await ask("what's the best trade to send to Zebulon");
+  assert.doesNotMatch(texts(body), /Zebulon/);
+  assert.equal(body.cost_usd, 0);
+});
+
+/* ---------------------------------------------------------- what else */
+
+test('"what else u got" with the card the War Room shows: the card after it, in full, and the deck move', async () => {
+  const body = await ask("i don't like that, what else u got", 4, { deck_index: 0 });
+  const t = texts(body);
+  assert.deepEqual(body.answer.refusals, []);
+  assert.match(t, /P4 \(WR\) \+ P5 \(TE\) for P21 \(WR\)/, 'card 2, not the next move again');
+  assert.match(t, /Card 2 of 5 in the deck/);
+  assert.match(t, /Chance he says yes: 53%/);
+  assert.deepEqual(body.actions.map(a => a.type), ['next']);
+  grounded(body);
+  const again = await ask('next one', 4, { deck_index: 1 });
+  assert.match(texts(again), /P5 \(TE\) \+ P7 \(WR\) for P21 \(WR\)/);
+  grounded(again);
+  const byMove = await ask('something else?', 4, { move_id: PLANS.leagues.find(e => e.league === 4).alternatives.value[2].move_id });
+  assert.match(texts(byMove), /P6 \(RB\) \+ P7 \(WR\) for P21 \(WR\)/);
+  grounded(byMove);
+});
+
+test('"what else" with no card from the War Room: the card after the served next move, said so, deck not moved', async () => {
+  for (let i = 0; i < 2; i++) {
+    const body = await ask('what else u got');
+    const t = texts(body);
+    assert.match(t, /P4 \(WR\) \+ P5 \(TE\) for P21 \(WR\)/, 'no server cursor: the same card every time');
+    assert.match(t, /did not say which card it shows/);
+    assert.deepEqual(body.actions, []);
+    grounded(body);
+  }
+});
+
+test('past the last card: says so, and sends no deck move', async () => {
+  const body = await ask('what else', 4, { deck_index: 4 });
+  assert.match(texts(body), /last alternative in the deck/);
+  assert.deepEqual(body.actions, []);
+});
+
+/* --------------------------------- the real plans file, when it is here */
+
+const LOCAL = new URL('../.local-plans/plans.json', import.meta.url);
+test('real plans copy (local only, never committed): every partner in every league gets a grounded answer', { skip: !fs.existsSync(LOCAL) }, async () => {
+  const { partnerClaimsFor } = await import('../server/services/coach/partner.js');
+  const { groundStarter } = await import('../server/services/coach/starter-answers.js');
+  const { newLedger } = await import('../server/services/coach/ledger.js');
+  const file = JSON.parse(fs.readFileSync(LOCAL, 'utf8'));
+  const shapes = {};
+  let answered = 0;
+  let total = 0;
+  for (const entry of file.leagues) {
+    for (const p of entry.partners?.value ?? []) {
+      total += 1;
+      const ledger = newLedger();
+      const out = partnerClaimsFor({ entry, roster: String(p.team), label: `Team ${p.team}`, ledger });
+      const g = groundStarter(out.claims, ledger);
+      assert.deepEqual(g.dropped, [], `league ${entry.league} roster ${p.team}`);
+      assert.ok(g.claims.length >= 1);
+      shapes[out.source] = (shapes[out.source] ?? 0) + 1;
+      answered += 1;
+    }
+  }
+  console.log('# LOCAL ' + JSON.stringify({ answered: `${answered}/${total}`, shapes }));
+});

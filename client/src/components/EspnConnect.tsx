@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, useApi } from '../api';
 import { sanitizedMessage } from '../lib/errorSanitize';
+import { Button, Chip } from './ui/DesignSystem';
 
 /**
  * One-click ESPN connection.
@@ -18,7 +19,17 @@ import { sanitizedMessage } from '../lib/errorSanitize';
  *   - When already connected, leagues are looked up automatically. There is nothing
  *     to click for the common case; the button only matters the first time.
  */
-export default function EspnConnect() {
+/**
+ * The one ESPN connect flow (docs/ui/CONSOLIDATION-MAP.md section 6): Settings → Connections, the
+ * first-run prompt (EspnConnectGate) and League → Your leagues all render this component.
+ *   variant 'card' draws its own card; 'bare' draws only the content (a host supplies the frame).
+ *   autoAddAll (the first-run prompt): once connected, add and sync every league found, then onDone.
+ * Credentials: the pasted cookie field is masked and never echoed back; nothing here logs or renders
+ * a cookie value. Disconnect asks before it removes the stored cookies.
+ */
+export default function EspnConnect({ variant = 'card', autoAddAll = false, onDone }: {
+  variant?: 'card' | 'bare'; autoAddAll?: boolean; onDone?: (message: string) => void;
+} = {}) {
   const { data: status, refetch } = useApi<any>('/espn-connect/status');
   const { data: bm } = useApi<any>('/espn-connect/bookmarklet');
   const [discovered, setDiscovered] = useState<any[] | null>(null);
@@ -28,6 +39,8 @@ export default function EspnConnect() {
   const [showHelp, setShowHelp] = useState(false);
   const [paste, setPaste] = useState('');
   const [pasteErr, setPasteErr] = useState<string | null>(null);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [byId, setById] = useState({ league_id: '', season: new Date().getFullYear() });
   const autoRan = useRef(false);
 
   /**
@@ -48,7 +61,7 @@ export default function EspnConnect() {
         ? `Connected! Found ${r.leagues_found} league${r.leagues_found === 1 ? '' : 's'} on your ESPN account below.`
         : 'Connected to ESPN. No leagues showed up yet — try "Find my leagues" below.');
       refetch();
-      discover(true);
+      if (autoAddAll) await addAll(); else discover(true);
     } catch (e: any) {
       // UX-08c: POST /espn-connect/cookies answers 400/401 with its own plain copy
       // (missing cookie, validateCookies() reason) — show that verbatim. Anything
@@ -69,6 +82,7 @@ export default function EspnConnect() {
       const d = await api<any>('/espn-connect/discover');
       setDiscovered(d.leagues);
       if (!silent && !d.leagues.length) setMsg('Connected, but no fantasy football leagues found on this account for this season.');
+      return d.leagues as any[];
     } catch (e: any) {
       setMsg(sanitizedMessage('EspnConnect.discover', silent ? 'ESPN could not refresh your leagues' : 'ESPN league lookup failed', e.message));
     }
@@ -106,186 +120,193 @@ export default function EspnConnect() {
         body: JSON.stringify({ league_id: l.league_id, season: l.season, my_team_id: l.team_id, name: l.name })
       });
       await api(`/leagues/${r.id}/sync`, { method: 'POST' });
-      setMsg(`Added and synced ${l.name}.`);
+      setMsg(`Added and synced ${l.name ?? `league ${l.league_id}`}.`);
       refetch();
-    } catch (e: any) { setMsg(sanitizedMessage('EspnConnect.add', 'Added, but the first sync failed. Try “Sync” in League Hub → Connections', e.message)); }
+      return true;
+    } catch (e: any) { setMsg(sanitizedMessage('EspnConnect.add', 'Added, but the first sync failed. Try “Sync” in League → Your leagues', e.message)); return false; }
     finally { setBusy(false); }
   };
 
+  /** First-run: add and sync every league on the account (discover + add, the same calls as below), then one sentence. */
+  const addAll = async () => {
+    const leagues: any[] = (await discover(true)) ?? [];
+    let ok = 0;
+    for (const l of leagues) if (await add(l)) ok += 1;
+    const failed = leagues.length - ok;
+    onDone?.(failed
+      ? `ESPN is connected. ${ok} league${ok === 1 ? '' : 's'} synced; ${failed} can be retried from League → Your leagues.`
+      : `ESPN is connected and ${ok} league${ok === 1 ? '' : 's'} ${ok === 1 ? 'is' : 'are'} ready.`);
+  };
+
+  /** A league the lookup did not list (or a public one): add it by id, then sync. */
+  const addById = async () => {
+    if (!byId.league_id.trim()) return;
+    await add({ league_id: byId.league_id.trim(), season: byId.season, team_id: null, name: null });
+    setById(b => ({ ...b, league_id: '' }));
+  };
+
   const disconnect = async () => {
+    setConfirmDisconnect(false);
     await api('/espn-connect/cookies', { method: 'DELETE' });
     setDiscovered(null); autoRan.current = false;
     refetch();
   };
 
-  return (
-    <div className="card p-4">
-      <div className="flex items-center gap-2 mb-1">
-        <h3 className="text-sm font-bold text-slate-700">Connect ESPN</h3>
-        {status?.connected && (
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-300">
-            CONNECTED
-          </span>
-        )}
+  const body = (
+    <>
+      <div className="mb-1 flex items-center gap-2">
+        <h3 className="ds-h">Connect ESPN</h3>
+        {status?.connected && <Chip tone="good">Connected</Chip>}
       </div>
 
-      {banner && (
-        <div className="mb-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs px-3 py-2">
-          {banner}
-        </div>
-      )}
+      {banner && <p role="status" className="ds-chip ds-chip-good mb-3 !whitespace-normal">{banner}</p>}
 
       {!status?.connected && (
         <>
-          <p className="text-xs text-slate-600 mb-3">
-            Private ESPN leagues need you to be signed in to ESPN so this app can see your leagues.
-            Three steps, no copying anything:
+          <p className="ds-note mb-3">
+            Private ESPN leagues need you signed in to ESPN so this app can see them. Three steps, nothing to copy:
           </p>
-          <ol className="text-xs text-slate-600 space-y-2 mb-3 list-decimal list-inside">
-            <li>Drag the green button below up to your browser's bookmarks bar.</li>
+          <ol className="mb-3 list-inside list-decimal space-y-2 text-sm text-slate-700">
+            <li>Drag the button below up to your browser's bookmarks bar.</li>
             <li>
               Open{' '}
               <a href="https://www.espn.com/fantasy/football/" target="_blank" rel="noreferrer"
-                className="text-emerald-600 underline">espn.com</a>{' '}
+                className="text-[var(--c-accent)] underline">espn.com</a>{' '}
               and make sure you're signed in.
             </li>
-            <li>Click that bookmark. It'll bring you right back here, connected.</li>
+            <li>Click that bookmark. It brings you back here, connected.</li>
           </ol>
 
-          <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex flex-wrap items-center gap-3">
             {bm?.href && (
               // A real anchor so it can be dragged to the bookmarks bar; clicking it here
               // would run the script against this page, where the ESPN cookies do not exist.
-              <a href={bm.href} onClick={e => e.preventDefault()}
-                draggable
+              <a href={bm.href} onClick={e => e.preventDefault()} draggable
                 title="Drag me to your bookmarks bar"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold cursor-grab active:cursor-grabbing select-none">
+                className="ds-btn ds-btn-primary cursor-grab select-none active:cursor-grabbing">
                 Connect Gridiron HQ
               </a>
             )}
-            <span className="text-[11px] text-slate-400">← drag this up to your bookmarks bar</span>
+            <span className="ds-note">← drag this up to your bookmarks bar</span>
           </div>
-
-          <p className="text-[11px] text-slate-400 mt-2">
-            Don't see a bookmarks bar? Press <kbd className="px-1 py-0.5 rounded border border-slate-300 bg-slate-50 text-slate-600">⌘⇧B</kbd>{' '}
-            (Mac) or <kbd className="px-1 py-0.5 rounded border border-slate-300 bg-slate-50 text-slate-600">Ctrl⇧B</kbd>{' '}
-            (Windows) to show it, then try again. On a trackpad, click and hold the button until it lifts, then drag.
+          <p className="ds-note mt-2">
+            No bookmarks bar? Press <kbd className="rounded border border-slate-300 px-1">⌘⇧B</kbd> (Mac) or{' '}
+            <kbd className="rounded border border-slate-300 px-1">Ctrl⇧B</kbd> (Windows), then try again.
           </p>
 
-          {/* The fallback that works everywhere. Not hidden behind a link: bookmarklets
-              fail for enough people (Safari, mobile, work laptops, browsers that block
-              the cross-origin post) that burying this just strands them. */}
-          <div className="mt-4 pt-3 border-t border-slate-200">
-            <p className="text-xs font-semibold text-slate-700 mb-1">Or paste it instead</p>
-            <ol className="text-xs text-slate-600 space-y-1.5 mb-2 list-decimal list-inside">
+          {/* The fallback that works everywhere (Safari, mobile, work laptops). The field is masked:
+              what is pasted here is a credential and is never shown back. */}
+          <div className="mt-4 border-t border-slate-200 pt-3">
+            <p className="mb-1 text-sm font-semibold">Or paste it instead</p>
+            <ol className="mb-2 list-inside list-decimal space-y-1.5 text-sm text-slate-700">
               <li>
-                On{' '}
-                <a href="https://www.espn.com/fantasy/football/" target="_blank" rel="noreferrer"
-                  className="text-emerald-600 underline">espn.com</a>, signed in, press{' '}
-                <kbd className="px-1 py-0.5 rounded border border-slate-300 bg-slate-50 text-slate-600">F12</kbd>{' '}
-                (or right-click → <b>Inspect</b>) and open the <b>Console</b> tab.
+                On <a href="https://www.espn.com/fantasy/football/" target="_blank" rel="noreferrer"
+                  className="text-[var(--c-accent)] underline">espn.com</a>, signed in, press{' '}
+                <kbd className="rounded border border-slate-300 px-1">F12</kbd> and open the <b>Console</b> tab.
               </li>
-              {/* Not flex: `display:flex` on an <li> suppresses its list marker, which
-                  silently renumbered these steps 1, _, 2. */}
               <li>
                 Paste this, press Enter:{' '}
-                <code className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-[11px] text-slate-700 whitespace-nowrap">
-                  copy(document.cookie)
-                </code>{' '}
-                <button type="button"
-                  className="text-[10px] text-emerald-600 bg-white border border-slate-200 rounded px-1.5 py-0.5 align-middle"
+                <code className="whitespace-nowrap rounded bg-[var(--c-soft)] px-1.5 py-0.5 text-xs">copy(document.cookie)</code>{' '}
+                <button type="button" className="ds-chip !py-0 align-middle" title="Copy the console line"
                   onClick={() => navigator.clipboard?.writeText('copy(document.cookie)')}>copy</button>
               </li>
-              <li>Come back here, paste in the box, and hit Connect.</li>
+              <li>Come back, paste into the box, and press Connect.</li>
             </ol>
-            <textarea
-              value={paste}
+            <input type="password" autoComplete="off" spellCheck={false} value={paste}
               onChange={e => { setPaste(e.target.value); setPasteErr(null); }}
-              rows={3}
-              spellCheck={false}
-              aria-label="Paste your ESPN cookies"
-              placeholder="Paste here — the whole cookie string is fine, we'll find the two bits we need."
-              className="w-full text-[11px] font-mono rounded-lg border border-slate-300 p-2 text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-            {pasteErr && (
-              <p role="alert" className="text-[11px] text-rose-600 mt-1">{pasteErr}</p>
-            )}
-            <button
-              className="btn-primary text-xs mt-2"
-              disabled={busy || !paste.trim()}
-              onClick={connectFromPaste}>
+              aria-label="Paste your ESPN cookies" data-testid="espn-cookie-paste"
+              placeholder="Paste here; the whole cookie string is fine"
+              className="input w-full font-mono text-xs" />
+            {pasteErr && <p role="alert" className="mt-1 text-xs text-crit">{pasteErr}</p>}
+            <Button variant="primary" size="sm" className="mt-2" disabled={busy || !paste.trim()} onClick={connectFromPaste}
+              title={!paste.trim() ? 'Paste the cookie string first' : busy ? 'Checking with ESPN' : undefined}>
               {busy ? 'Checking with ESPN…' : 'Connect'}
-            </button>
+            </Button>
           </div>
 
-          <button onClick={() => setShowHelp(s => !s)}
-            className="text-[11px] text-slate-500 hover:text-slate-700 underline mt-3">
+          <button type="button" onClick={() => setShowHelp(v => !v)} className="mt-3 text-xs text-slate-500 underline hover:text-slate-700">
             {showHelp ? 'Hide advanced' : 'Advanced: run the connect script in the console'}
           </button>
           {showHelp && bm?.console_snippet && (
             <div className="mt-2">
-              <p className="text-[11px] text-slate-500 mb-1">
-                Same thing the bookmark does — paste this into the console on espn.com instead:
-              </p>
+              <p className="ds-note mb-1">Same thing the bookmark does: paste this into the console on espn.com instead.</p>
               <div className="relative">
-                <pre className="text-[10px] bg-slate-50 border border-slate-200 rounded-lg p-2 overflow-x-auto max-h-32 text-slate-600">
-                  {bm.console_snippet}
-                </pre>
-                <button className="absolute top-1 right-1 text-[10px] text-emerald-600 bg-white border border-slate-200 rounded px-1.5 py-0.5"
+                <pre className="max-h-32 overflow-x-auto rounded-lg bg-[var(--c-soft)] p-2 text-[10px] text-slate-600">{bm.console_snippet}</pre>
+                <button type="button" className="ds-chip absolute right-1 top-1 !py-0" title="Copy the script"
                   onClick={() => navigator.clipboard?.writeText(bm.console_snippet)}>copy</button>
               </div>
             </div>
           )}
-          <p className="text-[10px] text-slate-400 mt-3">
-            Your cookies are checked against ESPN and stored only on this machine. Nothing is
-            sent anywhere else, and a failed attempt never touches a connection that already works.
+          <p className="ds-note mt-3">
+            Your cookies are checked against ESPN and stored only on this machine. Nothing is sent anywhere else,
+            and a failed attempt never touches a connection that already works.
           </p>
         </>
       )}
 
       {status?.connected && (
         <>
-          <p className="text-xs text-slate-600 mb-3">
+          <p className="ds-note mb-3">
             {discovered === null
               ? 'Looking up the leagues on your ESPN account…'
               : discovered.length
                 ? 'Add any league below, or re-sync one you already added.'
                 : 'Connected, but no leagues showed up for this account this season.'}
           </p>
-          <div className="flex gap-2 flex-wrap">
-            <button className="btn-primary text-xs" onClick={() => discover(false)} disabled={busy}>
-              {busy ? 'Working…' : '↻ Find my leagues again'}
-            </button>
-            <button className="btn-ghost text-xs" onClick={disconnect}>
-              Disconnect
-            </button>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="quiet" icon="refresh" onClick={() => discover(false)} disabled={busy}
+              title={busy ? 'Working' : 'Look up the leagues on this ESPN account again'}>{busy ? 'Working…' : 'Find my leagues again'}</Button>
+            {!confirmDisconnect
+              ? <Button size="sm" onClick={() => setConfirmDisconnect(true)} title="Remove the stored ESPN cookies from this Mac">Disconnect</Button>
+              : <span className="flex flex-wrap items-center gap-2" role="group" aria-label="Confirm disconnect">
+                  <span className="text-sm">Remove the ESPN cookies from this Mac?</span>
+                  <Button size="sm" variant="primary" onClick={disconnect}>Remove</Button>
+                  <Button size="sm" onClick={() => setConfirmDisconnect(false)}>Cancel</Button>
+                </span>}
           </div>
         </>
       )}
 
-      {msg && <p className="text-xs text-slate-600 mt-2">{msg}</p>}
+      {msg && <p role="status" className="ds-note mt-2">{msg}</p>}
 
       {discovered && discovered.length > 0 && (
-        <div className="mt-3 border border-slate-200 rounded-lg divide-y divide-slate-100">
+        <div className="ds-rows mt-3 rounded-[var(--r-tile)] shadow-[0_0_0_1px_var(--c-line)]">
           {discovered.map((l: any) => {
             const already = (status?.leagues ?? []).some((x: any) => String(x.league_id) === String(l.league_id));
             return (
-              <div key={l.league_id} className="px-3 py-2 flex items-center gap-2 text-xs">
+              <div key={l.league_id} className="flex items-center gap-2 px-3 py-2 text-sm">
                 <div className="min-w-0">
-                  <div className="font-semibold text-slate-800 truncate">{l.name}</div>
-                  <div className="text-[10px] text-slate-400">
-                    {l.team_name ? `your team: ${l.team_name}` : `id ${l.league_id}`}
-                  </div>
+                  <div className="truncate font-semibold">{l.name}</div>
+                  <div className="ds-note">{l.team_name ? `your team: ${l.team_name}` : `id ${l.league_id}`}</div>
                 </div>
-                <button className={`ml-auto text-xs ${already ? 'btn-ghost' : 'btn-primary'}`}
-                  disabled={busy} onClick={() => add(l)}>
+                <Button size="sm" variant={already ? 'default' : 'primary'} className="ml-auto" disabled={busy} onClick={() => add(l)}
+                  title={already ? 'Pull this league again' : 'Add this league and sync it'}>
                   {already ? 'Re-sync' : 'Add'}
-                </button>
+                </Button>
               </div>
             );
           })}
         </div>
       )}
-    </div>
+
+      {status?.connected && (
+        // A league the lookup does not list, or a public league: by id, with the cookies already stored.
+        <div className="mt-3 flex flex-wrap items-end gap-2" data-testid="espn-add-by-id">
+          <label className="text-xs text-slate-600">League not listed? League ID
+            <input className="input mt-1 block w-40" inputMode="numeric" value={byId.league_id} placeholder="1234567"
+              onChange={e => setById(b => ({ ...b, league_id: e.target.value }))} />
+          </label>
+          <label className="text-xs text-slate-600">Season
+            <input type="number" className="input mt-1 block w-24" value={byId.season}
+              onChange={e => setById(b => ({ ...b, season: Number(e.target.value) }))} />
+          </label>
+          <Button size="sm" disabled={busy || !byId.league_id.trim()} onClick={addById}
+            title={!byId.league_id.trim() ? 'Type the league id from the ESPN URL (leagueId=…)' : 'Add this league and sync it'}>Add by ID</Button>
+        </div>
+      )}
+    </>
   );
+
+  return variant === 'bare' ? <div data-testid="espn-connect">{body}</div>
+    : <div className="ds-card p-4" data-testid="espn-connect">{body}</div>;
 }

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../api';
 import { ConnectedNewsHub } from '../features/news/NewsHub';
 import { PageLoading, PageError, EmptyState } from '../components/PageState';
+import NewsList from '../components/NewsList';
+import { Tabs } from '../components/ui/DesignSystem';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -64,7 +66,7 @@ function SignalFeed() {
       <TwitterStatus />
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold">News → Fantasy Model Tracker</h1>
+          <h2 className="ds-h">Model tracker</h2>
           <p className="text-xs text-slate-500 mt-0.5">
             Every sourced claim gets a cutoff-safe next-game scenario, projected usage, and a real outcome check.
             {data?.scope === 'my_roster' && <> Scoped to your {data.roster_size} rostered players.</>}
@@ -113,18 +115,18 @@ function SignalFeed() {
           <div key={i} className={`card p-4 border-l-4 ${SIGNAL_TONE[s.status] ?? 'border-slate-300'}`}>
             <div className="flex items-center gap-2 text-xs mb-1.5 flex-wrap">
               <span className="font-bold text-slate-800">{s.player_name}</span>
-              {s.team && <span className="text-slate-400">· {s.team}</span>}
+              {s.team && <span className="text-slate-500">· {s.team}</span>}
               <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-white/60 border border-current">
                 {SIGNAL_LABEL[s.status] ?? s.status}
               </span>
               {s.body_part && <span className="text-slate-500">{s.body_part}</span>}
-              <span className="text-slate-400 ml-auto">{Math.round(s.confidence * 100)}% confidence</span>
-              <span className="text-slate-400">{s.published_at?.slice(0, 10)}</span>
+              <span className="text-slate-500 ml-auto">{Math.round(s.confidence * 100)}% confidence</span>
+              <span className="text-slate-500">{s.published_at?.slice(0, 10)}</span>
             </div>
             <blockquote className="text-sm text-slate-700 italic border-l-2 border-slate-200 pl-2">
               "{s.evidence_span}"
             </blockquote>
-            <div className="text-[11px] text-slate-400 mt-1.5">
+            <div className="text-[11px] text-slate-500 mt-1.5">
               {s.source}{s.story_url && <> · <a href={s.story_url} target="_blank" rel="noreferrer" className="text-[var(--accent)] hover:underline">source</a></>}
             </div>
             {s.fantasy_model?.available ? (
@@ -163,7 +165,7 @@ function SignalFeed() {
                     {s.tracking?.actual && <> · {s.tracking.actual.fantasy_points} pts · {usageLine(s.tracking.actual)}</>}
                   </div>
                 </div>
-                <p className="text-[10px] leading-4 text-slate-400 lg:col-span-3">
+                <p className="text-[10px] leading-4 text-slate-500 lg:col-span-3">
                   Model cutoff: {s.fantasy_model.cutoff}. {s.fantasy_model.note}
                 </p>
               </div>
@@ -178,9 +180,12 @@ function SignalFeed() {
 }
 
 export default function News() {
-  const [view, setView] = useState<'log' | 'feed' | 'signals'>('signals');
+  // A team page links here with ?team=ABC: open the archive already filtered to that team.
+  const [params] = useSearchParams();
+  const linkedTeam = params.get('team') ?? '';
+  const [view, setView] = useState<'log' | 'feed' | 'signals'>(linkedTeam ? 'log' : 'signals');
   const [date, setDate] = useState<string>('');
-  const [teamFilter, setTeamFilter] = useState('');
+  const [teamFilter, setTeamFilter] = useState(linkedTeam);
   const { data: dates, refetch: refetchDates } = useApi<string[]>('/news/dates');
   const { data: teams } = useApi<any[]>('/teams');
   const query = `/news?${date ? `date=${date}&` : ''}${teamFilter ? `team=${teamFilter}&` : ''}limit=160`;
@@ -201,10 +206,6 @@ export default function News() {
   const [roundup, setRoundup] = useState<any>(null);
   const [roundupBusy, setRoundupBusy] = useState(false);
   const [roundupErr, setRoundupErr] = useState<string | null>(null);
-  const [explaining, setExplaining] = useState<number | null>(null);
-  const [explainErr, setExplainErr] = useState<string | null>(null);
-  const [deleteErr, setDeleteErr] = useState<string | null>(null);
-  const [lastDeleteId, setLastDeleteId] = useState<number | null>(null);
 
   const refresh = () => { refetch(); refetchDates(); };
 
@@ -234,12 +235,6 @@ export default function News() {
     finally { setRoundupBusy(false); }
   };
 
-  const explain = async (id: number) => {
-    setExplaining(id); setExplainErr(null);
-    try { await api(`/news/${id}/explain`, { method: 'POST' }); refresh(); }
-    catch (e: any) { setExplainErr(e.message); }
-    finally { setExplaining(null); }
-  };
 
   const analyze = async () => {
     const lines = aiText.split('\n').map(l => l.trim()).filter(Boolean);
@@ -271,37 +266,18 @@ export default function News() {
     }
   };
 
-  const deleteNews = async (id: number) => {
-    setLastDeleteId(id); setDeleteErr(null);
-    try {
-      await api(`/news/${id}`, { method: 'DELETE' });
-      refresh();
-    } catch (e: any) {
-      setDeleteErr(e.message || 'Failed to delete story.');
-    }
-  };
 
   return (
     <div>
-      <div className="mb-3 flex gap-1 border-b border-slate-200" role="tablist" aria-label="News view">
-        <button role="tab" aria-selected={view === 'log'}
-          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${view === 'log' ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-          onClick={() => setView('log')}>Archive & Tools</button>
-        <button role="tab" aria-selected={view === 'feed'}
-          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${view === 'feed' ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-          onClick={() => setView('feed')}>Intelligence Desk</button>
-        <button role="tab" aria-selected={view === 'signals'}
-          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${view === 'signals' ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-          onClick={() => setView('signals')} title="Projected fantasy impact and forward outcome tracking">Model Tracker</button>
-        {/* X's & O's lives here per Nick's 2026-09-23 IA decision (nav stays at
-            8 tabs, so it dropped out of the sidebar) rather than as its own
-            top-level tab. The page itself (Teams.tsx) is unchanged and still
-            routes at /teams — this is a link into it, not a rebuild. */}
-        <Link to="/teams" className="ml-auto self-center px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-700">X's &amp; O's &rarr;</Link>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <Tabs label="News view" value={view} onChange={setView} tabs={[
+          { id: 'signals', label: 'Model tracker' }, { id: 'feed', label: 'Intelligence desk' }, { id: 'log', label: 'Archive & tools' }]} />
+        {/* X's & O's (Nick's 2026-09-23 IA decision): team schemes live under Players → NFL teams. */}
+        <Link to="/players?view=teams" className="ml-auto text-sm font-medium text-slate-600 hover:text-[var(--c-accent)]">X's &amp; O's &rarr;</Link>
       </div>
       {view === 'feed' ? <ConnectedNewsHub /> : view === 'signals' ? <SignalFeed /> : <>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
-        <div><h1 className="text-2xl font-bold">News archive and tools</h1><p className="mt-0.5 text-xs text-slate-500">Manual research, source pulls and historical stories. The ranked live desk is the default view.</p></div>
+        <div><h2 className="ds-h">Archive and tools</h2><p className="ds-note mt-0.5">Manual research, source pulls and historical stories.</p></div>
         <select className="input" value={date} onChange={e => setDate(e.target.value)}>
           <option value="">All days</option>
           {dates?.map(d => <option key={d} value={d}>{d}</option>)}
@@ -326,16 +302,11 @@ export default function News() {
       {pullErr && <div className="mb-3"><PageError message={pullErr} onRetry={pullNews} /></div>}
       {roundupErr && <div className="mb-3"><PageError message={roundupErr} onRetry={roundupNow} /></div>}
       {ingestErr && <div className="mb-3"><PageError message={ingestErr} onRetry={ingestRss} /></div>}
-      {deleteErr && (
-        <div className="mb-3">
-          <PageError message={deleteErr} onRetry={() => lastDeleteId != null && deleteNews(lastDeleteId)} />
-        </div>
-      )}
       {roundup && (
         <div className="card p-5 mb-6 border-emerald-200 bg-emerald-50/30">
           <div className="flex items-center gap-2 mb-2">
             <h2 className="font-bold text-slate-800">Camp Roundup</h2>
-            <button className="text-xs text-slate-400 hover:text-slate-700 ml-auto" onClick={() => setRoundup(null)}>dismiss</button>
+            <button className="text-xs text-slate-500 hover:text-slate-700 ml-auto" onClick={() => setRoundup(null)}>dismiss</button>
           </div>
           <p className="text-sm text-slate-700 leading-relaxed">{roundup.summary}</p>
           {roundup.battles?.length > 0 && (
@@ -359,7 +330,7 @@ export default function News() {
               <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Most affected</h3>
               <ul className="text-xs text-slate-600 space-y-0.5">
                 {roundup.teams_affected.map((t: any, i: number) => (
-                  <li key={i}><Link to={`/teams/${t.team}`} className="font-bold text-slate-800 hover:text-emerald-700">{t.team}</Link> — {t.why}</li>
+                  <li key={i}><Link to={`/players/teams/${t.team}`} className="font-bold text-slate-800 hover:text-emerald-700">{t.team}</Link> — {t.why}</li>
                 ))}
               </ul>
             </div>
@@ -419,48 +390,7 @@ export default function News() {
         />
       )}
 
-      <div className="space-y-3">
-        {items?.map((n: any) => (
-          <div key={n.id} className="card p-4">
-            <div className="flex items-center gap-2 text-xs mb-1">
-              {n.team_abbr && (
-                <Link to={`/teams/${n.team_abbr}`} className="font-black px-1.5 py-0.5 rounded text-white text-[10px]"
-                  style={{ background: n.primary_color }}>{n.team_abbr}</Link>
-              )}
-              <span className="text-slate-500">{n.date}</span>
-              {n.importance === 3 && <span className="text-rose-600 font-bold">MAJOR</span>}
-              {n.importance === 1 && <span className="text-slate-400">minor</span>}
-              {n.source && <span className="text-slate-400 ml-auto">{n.source}</span>}
-              <button className="text-slate-700 hover:text-rose-600"
-                onClick={() => deleteNews(n.id)}>✕</button>
-            </div>
-            <h3 className="font-semibold">{n.headline}</h3>
-            {n.body && <p className="text-sm text-slate-600 mt-1">{n.body}</p>}
-
-            {(n.ai_analysis || n.fantasy_impact) ? (
-              <div className="mt-3 space-y-2">
-                {n.ai_analysis && (
-                  <div className="border-l-2 border-slate-300 pl-3">
-                    <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">What it means for {n.team_abbr ?? 'the team'}</div>
-                    <p className="text-sm text-slate-700">{n.ai_analysis}</p>
-                  </div>
-                )}
-                {n.fantasy_impact && (
-                  <div className="border-l-2 border-emerald-500 pl-3">
-                    <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-600">What it means for my team</div>
-                    <p className="text-sm text-slate-700">{n.fantasy_impact}</p>
-                  </div>
-                )}
-              </div>
-            ) : null}
-
-            <button className="btn-ghost text-xs mt-3" onClick={() => explain(n.id)} disabled={explaining === n.id}>
-              {explaining === n.id ? 'Reading…' : n.ai_analysis ? '↻ Re-analyze' : '✨ What does this mean?'}
-            </button>
-            {explainErr && explaining === null && <span className="text-xs text-rose-600 ml-2">{explainErr}</span>}
-          </div>
-        ))}
-      </div>
+      {items && items.length > 0 && <div className="ds-card ds-card-pad"><NewsList items={items} onChanged={refresh} canDelete /></div>}
       </>}
     </div>
   );
@@ -479,7 +409,7 @@ function usageLine(actual: any) {
 
 function TrackerMetric({ label, value, tone }: { label: string; value: number; tone?: 'good' | 'bad' }) {
   return <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-    <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</div>
+    <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{label}</div>
     <div className={`text-lg font-black ${tone === 'good' ? 'text-emerald-700' : tone === 'bad' ? 'text-rose-700' : 'text-slate-900'}`}>{value}</div>
   </div>;
 }

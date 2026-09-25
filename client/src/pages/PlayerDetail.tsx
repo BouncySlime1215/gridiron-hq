@@ -6,6 +6,7 @@ import { Headshot } from '../components/PlayerRow';
 import { usePlayerCard } from '../components/PlayerCard';
 import { PageLoading, PageError } from '../components/PageState';
 import AdvancedStatsPanel from '../components/AdvancedStatsPanel';
+import NewsList from '../components/NewsList';
 
 // Which unit analysis matters for this position
 const UNIT_FOR_POS: Record<string, { key: string; label: string }> = {
@@ -40,8 +41,8 @@ export default function PlayerDetail() {
   return (
     <div className="max-w-4xl">
       {p.team_abbr
-        ? <Link to={`/teams/${p.team_abbr}`} className="text-xs text-slate-500 hover:text-slate-700">← {p.team_name}</Link>
-        : <Link to="/rankings" className="text-xs text-slate-500 hover:text-slate-700">← rankings</Link>}
+        ? <Link to={`/players/teams/${p.team_abbr}`} className="text-xs text-slate-500 hover:text-slate-700">← {p.team_name}</Link>
+        : <Link to="/players?view=rankings" className="text-xs text-slate-500 hover:text-slate-700">← rankings</Link>}
       <div className="flex items-center gap-3 mt-1 mb-4">
         <Headshot src={headshotUrl(p)} pos={p.position} size={52} />
         <div>
@@ -99,15 +100,9 @@ export default function PlayerDetail() {
       </div>
 
       {p.news?.length > 0 && (
-        <div className="card p-4 mt-4">
-          <h3 className="text-sm font-bold text-slate-700 mb-2">News about {p.name}</h3>
-          {p.news.map((n: any) => (
-            <div key={n.id} className="py-2 border-b border-slate-200/60 last:border-0">
-              <div className="text-xs text-slate-500">{n.date} {n.team_abbr && `· ${n.team_abbr}`}</div>
-              <div className="text-sm font-medium">{n.headline}</div>
-              {n.fantasy_impact && <div className="text-xs text-amber-600 mt-0.5">{n.fantasy_impact}</div>}
-            </div>
-          ))}
+        <div className="ds-card ds-card-pad mt-4">
+          <h3 className="ds-h mb-3">News about {p.name}</h3>
+          <NewsList items={p.news} onChanged={refetch} />
         </div>
       )}
     </div>

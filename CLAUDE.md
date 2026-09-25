@@ -58,11 +58,15 @@ takes `defaultExport`. The wrong key was accepted in silence, the mocked
 module's default became an empty object, and the SDK reported its own
 `TypeError` as a connection failure. It was never the key.
 
-**The live task list is on `main`.** `TASKS.md` was added to `main` by
-`d9b4a90d` on 2026-09-19 and is tracked there — a fresh clone of `main` has
-it. It also exists on `cursor/betting-model-audit-fixes-1c85` (PR #6); as of
-`654ff93` the two copies are byte-identical, not one behind the other. Don't
-assume the two have diverged without diffing them.
+**The one plan is `docs/handoff/local/ONE-PLAN.md`** on the branch
+`claude/handoff-package-2026-09-22` (read it with `git fetch origin
+claude/handoff-package-2026-09-22 && git show
+origin/claude/handoff-package-2026-09-22:docs/handoff/local/ONE-PLAN.md`).
+It superseded every earlier plan on 2026-09-24. **Stale, do not follow:**
+`TASKS.md`, `docs/FANTASY-ENGINE-MASTER-PLAN.md`, `docs/CLAUDE-NEXT-STEPS.md`,
+and the historical records under `docs/evidence/`, `docs/tdd/` and
+`docs/betting-model/` (read them only when a task names one). The product is
+the local app; the hosted Fly deploy is not maintained.
 
 **Run `npm ci` before trusting any suite number.** A fresh clone has no
 `node_modules`, and the offline-guard tests fail with `ERR_MODULE_NOT_FOUND`
@@ -85,6 +89,31 @@ worth arguing about, not a hard gate.
 
 **Commits.** `<type>: <description>` — feat, fix, refactor, docs, test, chore,
 perf, ci. Attribution footers stay on; see section 3.
+
+## 2b. UI rules (any change under `client/`)
+
+The app is one design system and seven areas (docs/ui/DESIGN-SYSTEM.md, docs/ui/CONSOLIDATION-MAP.md).
+A client change that breaks these is refused at integration:
+
+- **Primitives only.** Card, Button, Chip, Stat, Avatar, Tabs, Table, Skeleton, EmptyState, Sheet
+  (`components/ui/DesignSystem.tsx`) and the tokens in `client/src/styles/tokens.css`. No stock
+  Tailwind blues/greys, ad-hoc radii or shadows, no second copy of a card that already exists.
+- **Seven areas, no new top-level pages.** New features live inside Today, Trades, My team, League,
+  Players, Draft or Settings. No nested app shell (one header, one tab row per area).
+- **No layout defects** at 375 / 768 / 1024 / 1440 / 1920 px, light and dark: no horizontal overflow,
+  no clipped text without an ellipsis, no fixed/sticky element over text or a button, no control
+  whose visible text is empty. Page height at 375 stays reasonable (fold long sections, "Show more").
+- **No dev text on screen.** No raw engine field names, file paths, script names, model names,
+  dollar budgets or internal ids. Every number has a label; a guess says it is a guess.
+- **One number, one producer.** A screen shows the served value from its single producer
+  (plans.json / the one service), never a locally recomputed copy.
+- **Nick's rules are shown, never bypassed.** Trade suggestions render only rule-filtered output
+  (never-give.js) and show the "N ideas hidden by your rules" count; nothing rule-breaking is drawn.
+- **Motion and speed.** Transform/opacity only, respect reduced motion, no long task > 50 ms on a
+  view switch; skeletons at final size (no layout jump).
+- **Privacy.** No league-mate names, chat text or credentials in committed fixtures or screenshots.
+
+PR bodies for client changes list before -> after screenshots (paths) and the scan result.
 
 ## 3. Deliberately not adopted
 

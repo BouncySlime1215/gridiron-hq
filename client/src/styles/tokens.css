@@ -1,0 +1,54 @@
+/*
+ * Gridiron HQ design tokens: the one source for colour, edges, elevation, radius and motion.
+ * docs/ui/DESIGN-SYSTEM.md explains each choice. index.css maps its older names (--accent,
+ * --line, --radius-card, ...) onto these, and the War Room (warroom-v2.css) reads them
+ * directly, so the app and the War Room are one system.
+ *
+ * Light is the default; [data-theme="dark"] is the hand-tuned dark set. <html> carries it app-wide
+ * (state/theme.tsx: the system setting, or the choice in the header's More menu).
+ */
+:root {
+  /* Brand: one accent ("signal", a cobalt-violet), tuned cool neutrals. */
+  --c-accent: #4b5bff; --c-accent-hover: #3a49f0; --c-accent-ink: #ffffff;
+  --c-accent-tint: rgb(75 91 255 / .08); --c-accent-ring: rgb(75 91 255 / .35);
+  /* Status: only for status marks (good / warn / bad), never for brand. */
+  --c-green: #12803f; --c-green-tint: rgb(18 128 63 / .09);
+  --c-amber: #a15c00; --c-amber-tint: rgb(214 138 0 / .12);
+  --c-red: #c2262e; --c-red-tint: rgb(194 38 46 / .08);
+  /* Surfaces and ink. */
+  --c-bg: #f6f7f9; --c-card: #ffffff; --c-soft: #f2f3f6; --c-raised: #ffffff;
+  --c-ink: #0b0d12; --c-ink2: #3a4150; --c-muted: #676f80; --c-subtle: #7a8293;
+  /* Edges: 1px alpha hairlines, never solid grey. */
+  --c-line: rgb(12 16 28 / .08); --c-line-strong: rgb(12 16 28 / .14); --c-hover: rgb(12 16 28 / .035);
+  --c-edge: inset 0 0 0 0 transparent;
+  --page: radial-gradient(1100px 560px at 8% -14%, rgb(75 91 255 / .10), transparent 62%),
+    radial-gradient(900px 520px at 108% 2%, rgb(18 170 120 / .06), transparent 60%),
+    radial-gradient(1200px 800px at 50% 125%, rgb(120 100 255 / .05), transparent 60%);
+  --bar: rgb(255 255 255 / .72);
+  /* Elevation: two steps. */
+  --e1: 0 1px 1px rgb(12 16 28 / .03), 0 2px 6px rgb(12 16 28 / .04);
+  --e2: 0 2px 4px rgb(12 16 28 / .04), 0 12px 32px -4px rgb(12 16 28 / .12);
+  /* Radius hierarchy (inner = outer - inset): hero 24 / card 18 / tile + control 12 / badge 8; pills round. */
+  --r-hero: 24px; --r-card: 18px; --r-ctl: 12px; --r-tile: 12px; --r-badge: 8px;
+  /* Motion: transform + opacity only. */
+  --ease-spring: cubic-bezier(.2, 1.3, .35, 1);
+  --t-fast: 140ms; --t: 180ms; --t-slow: 240ms;
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --c-accent: #8e99ff; --c-accent-hover: #a3acff; --c-accent-ink: #0a0c1f;
+  --c-accent-tint: rgb(142 153 255 / .12); --c-accent-ring: rgb(142 153 255 / .45);
+  --c-green: #4ade80; --c-green-tint: rgb(74 222 128 / .10);
+  --c-amber: #fbbf24; --c-amber-tint: rgb(251 191 36 / .12);
+  --c-red: #f87171; --c-red-tint: rgb(248 113 113 / .12);
+  --c-bg: #0a0b0f; --c-card: #121419; --c-soft: #191c23; --c-raised: #161920;
+  --c-ink: #eceef3; --c-ink2: #c6cad4; --c-muted: #8c93a2; --c-subtle: #747b8a;
+  --c-line: rgb(255 255 255 / .075); --c-line-strong: rgb(255 255 255 / .14); --c-hover: rgb(255 255 255 / .04);
+  --c-edge: inset 0 1px 0 rgb(255 255 255 / .05);
+  --page: radial-gradient(1100px 560px at 8% -14%, rgb(142 153 255 / .12), transparent 62%),
+    radial-gradient(900px 520px at 108% 2%, rgb(74 222 128 / .05), transparent 60%),
+    radial-gradient(1200px 800px at 50% 125%, rgb(120 100 255 / .06), transparent 60%);
+  --bar: rgb(14 16 21 / .72);
+  --e1: 0 1px 2px rgb(0 0 0 / .35);
+  --e2: 0 2px 6px rgb(0 0 0 / .35), 0 16px 40px -6px rgb(0 0 0 / .55);
+}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useApi } from '../api';
 
 interface TableFreshness {
@@ -96,12 +96,23 @@ function behindSentence(t: TableFreshness): string {
     : 'This table does not hold current data.';
 }
 
+const BAR_KEY = 'gh:freshness-bar-h';
+
 export default function DataFreshnessBanner() {
   const { data: report, error } = useApi<FreshnessReport>('/data-freshness');
   const [open, setOpen] = useState(false);
   const [dismissed, setDismissed] = useState(() => {
     try { return sessionStorage.getItem('data-freshness-dismissed') === '1'; } catch { return false; }
   });
+
+  // No first-draw jump: the bar sits above the header, so arriving ~100 ms after the page it pushed
+  // everything down. Its last height is remembered per browser and held while the check runs.
+  const [reserved] = useState(() => { try { return Number(localStorage.getItem(BAR_KEY)) || 0; } catch { return 0; } });
+  // Stable, so it runs when the bar mounts (detail closed), not on every re-render.
+  const remember = useCallback((el: HTMLDivElement | null) => { if (el) try { localStorage.setItem(BAR_KEY, String(el.offsetHeight)); } catch { /* private mode */ } }, []);
+  useEffect(() => {
+    if (report && (report.all_fresh || dismissed)) try { localStorage.setItem(BAR_KEY, '0'); } catch { /* private mode */ }
+  }, [report, dismissed]);
 
   const close = () => {
     try { sessionStorage.setItem('data-freshness-dismissed', '1'); } catch { /* private mode */ }
@@ -115,20 +126,25 @@ export default function DataFreshnessBanner() {
   // so the failure gets said out loud instead of swallowed.
   if (error && !dismissed) {
     return (
-      <div className="w-full border-b border-slate-300 bg-slate-100 text-slate-800">
-        <div className="flex w-full flex-wrap items-center gap-2 px-4 py-1.5 text-xs">
-          <span aria-hidden>●</span>
-          <span className="font-semibold">Data freshness could not be checked.</span>
-          <span className="text-slate-600">
-            No warning on this page does not mean your data is current — nothing was read.
+      <div ref={remember} className="w-full border-b border-slate-300 bg-slate-100 text-slate-800">
+        <div className="flex w-full flex-nowrap items-center gap-2 px-4 py-1.5 text-xs">
+          <span aria-hidden className="shrink-0">●</span>
+          <span className="min-w-0 flex-1 truncate" title="Data freshness could not be checked. No warning on this page does not mean your data is current — nothing was read.">
+            <span className="font-semibold">Data freshness could not be checked.</span>{' '}
+            <span className="text-slate-600">
+              No warning on this page does not mean your data is current — nothing was read.
+            </span>
           </span>
           <button onClick={close} aria-label="Dismiss for now"
-            className="ml-auto text-slate-400 hover:text-slate-700">✕</button>
+            className="shrink-0 text-slate-500 hover:text-slate-700">✕</button>
         </div>
       </div>
     );
   }
 
+  if (!report && !error && !dismissed && reserved > 0) {
+    return <div className="w-full border-b border-amber-200 bg-amber-50" style={{ height: reserved }} aria-hidden="true" data-testid="freshness-bar-placeholder" />;
+  }
   if (!report || report.all_fresh || dismissed) return null;
 
   // Counted apart, because they are different problems: `behind` is data that
@@ -144,16 +160,20 @@ export default function DataFreshnessBanner() {
     ? `, and ${unchecked.length} more could not be checked`
     : '';
   return (
-    <div className="w-full border-b border-amber-200 bg-amber-50 text-amber-900">
-      <div className="flex w-full flex-wrap items-center gap-2 px-4 py-1.5 text-xs">
-        <span aria-hidden>⚠</span>
-        <span className="font-semibold">{headline}{tail}</span>
-        <span className="text-amber-700">({flagged.map(t => t.label).join(', ')})</span>
+    <div ref={remember} className="w-full border-b border-amber-200 bg-amber-50 text-amber-900">
+      {/* One line at every width: the sentence truncates with an ellipsis (full text on hover and in
+          the detail), the buttons never wrap under it, so the bar's height never changes. */}
+      <div className="flex w-full flex-nowrap items-center gap-2 px-4 py-1.5 text-xs">
+        <span aria-hidden className="shrink-0">⚠</span>
+        <span className="min-w-0 flex-1 truncate" title={`${headline}${tail} (${flagged.map(t => t.label).join(', ')})`}>
+          <span className="font-semibold">{headline}{tail}</span>{' '}
+          <span className="text-amber-700">({flagged.map(t => t.label).join(', ')})</span>
+        </span>
         <button onClick={() => setOpen(v => !v)}
-          className="ml-1 rounded-md border border-amber-300 bg-white px-2 py-0.5 font-bold text-amber-900 transition hover:bg-amber-100">
+          className="shrink-0 whitespace-nowrap rounded-md border border-amber-300 bg-white px-2 py-0.5 font-bold text-amber-900 transition hover:bg-amber-100">
           {open ? 'Hide detail' : behind.length > 0 ? 'What is behind' : 'What was not checked'}
         </button>
-        <button onClick={close} aria-label="Dismiss for now" className="ml-auto text-amber-500 hover:text-amber-800">✕</button>
+        <button onClick={close} aria-label="Dismiss for now" className="shrink-0 text-amber-500 hover:text-amber-800">✕</button>
       </div>
       {open && (
         <div className="border-t border-amber-200 bg-white px-4 py-3 text-xs text-slate-700">
@@ -161,40 +181,60 @@ export default function DataFreshnessBanner() {
             Why this matters: a working connection is not the same as current data. This reads the rows on file, not
             whether a download ran, so a table that fetched successfully but holds nothing for this week still shows as behind.
           </p>
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wide text-slate-400">
-                <th className="py-1 pr-3 font-semibold">Data</th>
-                <th className="py-1 pr-3 font-semibold">On file</th>
-                <th className="py-1 pr-3 font-semibold">Should have</th>
-                <th className="py-1 font-semibold">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {report.tables.map(t => {
-                const s = STATUS_STYLE[t.status];
-                return (
-                  <tr key={t.table} className="border-t border-slate-100 align-top">
-                    <td className="py-1.5 pr-3 font-semibold text-slate-800">{t.label}</td>
-                    <td className="py-1.5 pr-3 text-slate-600">
-                      {span(t)}
-                      {t.status !== 'fresh' && (
-                        <div className="mt-0.5 text-[11px] text-amber-700">{behindSentence(t)}</div>
-                      )}
-                    </td>
-                    <td className="py-1.5 pr-3 text-slate-500">{t.current_rule ?? '—'}</td>
-                    <td className="py-1.5">
-                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${s.chip}`}>{s.word}</span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <FreshnessTable report={report} />
         </div>
       )}
     </div>
   );
+}
+
+/** Every tracked table: what is on file, what should be, and its status (used by the bar and Settings → Health). */
+export function FreshnessTable({ report }: { report: FreshnessReport }) {
+  return (
+    <div className="overflow-x-auto">
+    <table className="w-full border-collapse">
+      <thead>
+        <tr className="text-left text-[11px] uppercase tracking-wide text-slate-400">
+          <th className="py-1 pr-3 font-semibold">Data</th>
+          <th className="py-1 pr-3 font-semibold">On file</th>
+          <th className="py-1 pr-3 font-semibold">Should have</th>
+          <th className="py-1 font-semibold">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {report.tables.map(t => {
+          const s = STATUS_STYLE[t.status];
+          return (
+            <tr key={t.table} className="border-t border-slate-100 align-top">
+              <td className="py-1.5 pr-3 font-semibold text-slate-800">{t.label}</td>
+              <td className="py-1.5 pr-3 text-slate-600">
+                {span(t)}
+                {t.status !== 'fresh' && (
+                  <div className="mt-0.5 text-[11px] text-amber-700">{behindSentence(t)}</div>
+                )}
+              </td>
+              <td className="py-1.5 pr-3 text-slate-500">{t.current_rule ?? '—'}</td>
+              <td className="py-1.5">
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${s.chip}`}>{s.word}</span>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+    </div>
+  );
+}
+
+/** Settings → Health: the freshness table on its own, not only behind the bar's "What is behind". */
+export function DataFreshnessDetail() {
+  const { data: report, error } = useApi<FreshnessReport>('/data-freshness');
+  if (error && !report) return <p className="text-sm text-slate-600">Data freshness could not be checked. No warning here does not mean your data is current.</p>;
+  if (!report) return <p className="ds-note">Reading the tables on file…</p>;
+  return <>
+    <p className="ds-note mb-2">{report.all_fresh ? `Every tracked source is current for ${report.season} week ${report.week}.` : `For ${report.season} week ${report.week}.`}</p>
+    <FreshnessTable report={report} />
+  </>;
 }
 
 interface DataCreditEntry {

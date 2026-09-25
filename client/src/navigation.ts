@@ -25,25 +25,19 @@ export type NavItem = { to: string; label: string; icon: string; end?: boolean; 
 export type NavGroup = { label: string; question: string; items: NavItem[] };
 
 /**
- * UX-11 (2026-09-23, Nick: "my team good"): My team promotes out of League
- * Hub's inner tab to its own top-level route (`/my-team`, first in this
- * group) per docs/handoff/local/ui/UX-02-ia.md. Nav stays at 8 items, so
- * something had to fold: Nick decided X's & O's is not one of the 8 and
- * "lives as a section of News" (Intelligence group) instead of a sidebar
- * slot — its page (Teams.tsx) and route (`/teams`) are untouched, only the
- * nav entry moved; News.tsx links into it.
+ * UI consolidation (docs/ui/CONSOLIDATION-MAP.md): seven areas instead of eight pages.
+ * Today leads. Trades holds the War Room planner, the manager reads, proposals and Trade
+ * Lab; My Team holds Start/Sit; Players holds the board, rankings, news and NFL teams.
+ * Every old URL redirects (App.tsx, components/Redirects.tsx; test/ui-redirects.test.js).
  */
 export const NAV_GROUPS: NavGroup[] = [
-  { label: 'My team', question: 'Win this week', items: [
+  { label: 'Play', question: 'Win this week and the title', items: [
+    { to: '/', label: 'Today', icon: 'T', end: true },
+    { to: '/trades', label: 'Trades', icon: 'X' },
     { to: '/my-team', label: 'My team', icon: 'M', end: true },
-    { to: '/league', label: 'League Hub', icon: 'L', end: true },
-    { to: '/lineup', label: 'Start/Sit', icon: 'S' },
-    { to: '/trade-lab', label: 'Trade Lab', icon: 'T' },
-    { to: '/trade-brain', label: 'Trade Brain', icon: 'B' },
+    { to: '/league', label: 'League', icon: 'L', end: true },
+    { to: '/players', label: 'Players', icon: 'P' },
     { to: '/draft', label: 'Draft', icon: 'D', live: true }
-  ]},
-  { label: 'Intelligence', question: 'Understand football', items: [
-    { to: '/news', label: 'News', icon: 'N' }
   ]},
   { label: 'Setup', question: '', items: [
     { to: '/settings', label: 'Settings', icon: 'S' }
@@ -52,14 +46,13 @@ export const NAV_GROUPS: NavGroup[] = [
 
 /** A one-line description per nav route, for the palette's second line. */
 const NAV_NOTES: Record<string, string> = {
-  '/my-team': 'Title-odds ladder, doomsday cards, luck ledger and risk across your leagues',
-  '/league': 'Roster, sync health and league-wide analysis',
+  '/': 'The next move, this week across every league, and what to watch',
+  '/trades': 'The planner, who trades with you, proposals, and the trade finder',
+  '/my-team': 'Title odds, start/sit, scouting report and the ceiling lineup',
+  '/league': 'Your leagues, sync health and every roster',
+  '/players': 'Market board, your rankings, news and NFL teams',
   '/draft': 'Mock, live and recap modes',
-  '/trade-lab': 'Trade construction and impact',
-  '/trade-brain': 'Who actually trades with you, and the message to send them',
-  '/lineup': 'Weekly start/sit calls with the reasoning',
-  '/news': 'Attributed news and fantasy impact',
-  '/settings': 'Connections and local API configuration'
+  '/settings': 'Connections, health and local API configuration'
 };
 
 /**
@@ -76,11 +69,13 @@ const NAV_NOTES: Record<string, string> = {
  * both land on League Hub without a view of their own.
  */
 export const DEEP_DESTINATIONS: readonly (readonly [string, string, string])[] = [
-  ['Rankings', '/rankings', 'Your rankings and tiers'],
-  ['Projections', '/projections', 'Weekly and rest-of-season projections'],
-  ['Saved Drafts', '/drafts', 'Past mock and live draft recaps'],
-  ['Live Draft Room', '/live-draft', 'Mirror an in-progress ESPN draft'],
-  ["X's & O's", '/teams', 'Whiteboard schemes and team context']
+  ['Start/Sit', '/my-team?view=lineup', 'Weekly start/sit calls with the reasoning'],
+  ['Trade finder', '/trades?view=find', 'Trade construction, title impact and targets'],
+  ['Who trades with you', '/trades?view=managers', 'Your read of each manager, beside the measured one'],
+  ['Rankings', '/players?view=rankings', 'Your rankings and tiers'],
+  ['News', '/players?view=news', 'Attributed news and fantasy impact'],
+  ["X's & O's", '/players/teams', 'Whiteboard schemes and team context'],
+  ['Live Draft Room', '/draft?view=live', 'Mirror an in-progress ESPN draft']
 ] as const;
 
 /** Every palette destination: the sidebar, in nav order, then the deep pages. */

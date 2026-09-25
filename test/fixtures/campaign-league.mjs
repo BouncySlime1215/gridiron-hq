@@ -92,7 +92,7 @@ export function makeAdapter({ seed = 12345, receptiveness = { 2: 0.3, 3: 1.3, 4:
     const ratio = v(theyGet) / Math.max(1, v(theyGive));
     const r = managers.get(String(team))?.receptiveness ?? 1;
     const p = Math.max(0.02, Math.min(0.97, (0.3 + 0.9 * (ratio - 1)) * r));
-    return { p, band: { low: Math.max(0, p - 0.08), high: Math.min(1, p + 0.08) }, basis: 'fixture' };
+    return { p, band: { low: Math.max(0, p - 0.08), high: Math.min(1, p + 0.08) }, basis: 'heuristic_unanchored' };
   };
   // The fake "Trade Lab finder": the best p x title delta over every one-for-one swap, on the planning seed.
   const finderBest = () => {
@@ -118,11 +118,19 @@ export function makeAdapter({ seed = 12345, receptiveness = { 2: 0.3, 3: 1.3, 4:
     return build(seed).rescore(state, '1', '2').me.title_after === build(seed).rescore(new Map(state), '1', '2').me.title_after;
   };
   return {
+    // NO-OVERPAY: this fixture's worlds predate Nick's cap on market value given; they plan uncapped
+    // (the cap itself is covered by test/campaign-no-overpay.test.js).
+    maxOverpay: Infinity,
     league: { id: 99, me: '1', fetched_at: 'fixture', week: 4, deadline_week: 8, days_left_in_week: 3, team_count: 4 },
     seed, world, worldsBuilt, rosters, players, managers,
     starters: new Set([1, 2, 3, 4, 5]),
     freeAgents: [{ id: 41, name: 'P41', position: 'WR', ros_ppg: 9.5 }, { id: 42, name: 'P42', position: 'TE', ros_ppg: 4 }],
     priceStep, finderBest, sanity, priceOf: (team, id) => ({ mult: 1, price: players.get(id)?.value ?? 0 }),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
+    // integration-7: GETS-FLOOR is on by default, so the made-up league scores every player a Blue chip (90)
+    // unless a test sets its own scoreOf (or deletes it to test the no-score-source path).
+    scoreOf: () => ({ score: 90, label: 'fixture default' }),
+    // TEAM-NAMES: synthetic only (public repo); a label of 'Team N' renders exactly as before.
+    teams: () => Object.fromEntries([...rosters.keys()].map(t => [t, { name: `Team ${t}` }])),
   };
 }

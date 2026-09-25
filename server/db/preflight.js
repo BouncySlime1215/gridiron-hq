@@ -56,11 +56,14 @@
  * these tables at all.
  */
 
+import { inspectWithdrawn, widenTradeOutcomesStatus } from './trade-outcomes-withdrawn.js';
+
 const OPPORTUNITY_TABLE = 'nfl_execution_opportunities';
 const LIFECYCLE_TABLE = 'nfl_execution_lifecycle_events';
 const REBUILD_TABLE = 'nfl_execution_opportunities_preflight_027';
 
 export const OPPORTUNITY_CASCADE_REPAIR = 'preflight_027_execution_opportunity_cascade';
+export const TRADE_OUTCOMES_WITHDRAWN_REPAIR = 'preflight_105_trade_outcomes_withdrawn';
 
 /** The vocabulary 027 widens `status` to. Kept here in full so the rebuilt table is byte-comparable with 027's own. */
 const STATUS_VOCABULARY = ['offered', 'observed', 'decision', 'refreshed', 'accepted', 'settled',
@@ -201,6 +204,13 @@ const REPAIRS = [{
   summarize: finding => `widening ${OPPORTUNITY_TABLE}.status ahead of 027 so its rebuild cannot cascade into `
     + `${finding.lifecycle_events} append-only lifecycle event(s)`,
   run: rebuildOpportunityParent,
+}, {
+  // #409: trade_outcomes.status gains 'withdrawn'. trade_outcomes is a foreign-key parent, so
+  // an existing database is rebuilt here, with foreign keys suspended (trade-outcomes-withdrawn.js).
+  name: TRADE_OUTCOMES_WITHDRAWN_REPAIR,
+  inspect: inspectWithdrawn,
+  summarize: finding => `widening ${finding.table}.status with 'withdrawn' (${finding.rows} row(s) copied through)`,
+  run: database => widenTradeOutcomesStatus(database),
 }];
 
 function ensureLedger(database) {

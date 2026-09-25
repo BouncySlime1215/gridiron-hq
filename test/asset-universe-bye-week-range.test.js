@@ -35,10 +35,9 @@ process.env.NFL_WEEK = '6';
 // from the underlying model. Real player-week-engine.js knows nothing about byes; this
 // mock reproduces that honestly (same shape for the bye player as the healthy one) so
 // the test cannot pass just because the mock "knows" who is on bye.
-// `params` is a real WR params shape (copied from test/lineup-spread.test.js), not a
-// placeholder: lineupSpread() samples it through the real projections.js#sampleWeeks,
-// and a shape it cannot read samples to 0 for EVERY player, which would hide whether
-// the bye branch on WEEK_MARGINAL.activeProbability does anything (skeptic, RL-5-3).
+// `params` is a real WR params shape, not a placeholder. The lineup-level range
+// (lineupSpread) is lineup-week-range.js's since WEEKLY-RANGE-ONE; its bye case (a
+// player with no draw that week adds 0) is in test/weekly-range-one.test.js.
 const wrParams = targets => ({
   position: 'WR', attempts: 0, carries: 0, targets, dispersion: 10,
   ypa: 7, pass_td_rate: 0.045, int_rate: 0.025, ypc: 4.2, rush_td_rate: 0.03,
@@ -67,7 +66,7 @@ mock.module('../server/services/player-week-engine.js', {
 const { db, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
-const { assetUniverse, lineupSpread, selfScout, evaluate } = await import('../server/services/trade-engine.js');
+const { assetUniverse, selfScout } = await import('../server/services/trade-engine.js');
 const { deriveFormat } = await import('../server/services/format.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -119,20 +118,11 @@ test('RED: a bye-week starter\'s floor/ceiling/avg must be zero, not the full di
   assert.equal(bye.avg, 0, `bye-week avg must be 0, got ${bye.avg}`);
 });
 
-/* ------------------------------------------ the consumers: lineupSpread / selfScout / evaluate */
+/* ------------------------------------------------------ the consumer: selfScout */
 
 // MyTeam's 'Weekly range' and a trade card's floor_delta/ceiling_delta are lineupSpread()
-// over a lineup. For a player with a weekly model it reads WEEK_MARGINAL, not the served
-// floor/ceiling/avg above, so the fields test cannot see that path.
-test('control + RED: lineupSpread() over a bye starter is 0; over a playing starter it is positive', () => {
-  const u = universe();
-  const plays = lineupSpread({ slots: [{ player: u.get(902) }] });
-  assert.ok(plays.mean > 0 && plays.ceiling > 0,
-    `control: a playing starter's lineup must have a positive mean/ceiling, got ${plays.mean}/${plays.ceiling}`);
-  const bye = lineupSpread({ slots: [{ player: u.get(901) }] });
-  assert.equal(bye.mean, 0, `bye lineup mean must be 0, got ${bye.mean}`);
-  assert.equal(bye.ceiling, 0, `bye lineup ceiling must be 0, got ${bye.ceiling}`);
-});
+// over a lineup, which reads the league world (lineup-week-range.js). The bye cases of
+// that range, including a trade that fills a bye hole, are test/weekly-range-one.test.js's.
 
 const espnEntry = (name, id) => ({ playerPoolEntry: { player: { id, fullName: name, defaultPositionId: 3 } } });
 const oneWrLeague = () => ({
@@ -157,18 +147,7 @@ test('RED: selfScout must not start a bye-week player; he stays on the bench', (
   const starter = scout.lineup.slots[0].player;
   assert.equal(starter?.name, 'Depth Guy', `the WR slot must go to the player who plays, got ${starter?.name}`);
   assert.ok(scout.lineup.bench.some(p => p.name === 'Bye Star'), 'the bye star must still be listed on the bench');
-  assert.ok(scout.spread.mean > 0, `the weekly range must cover the player who plays, got mean ${scout.spread.mean}`);
   // The rank beside the range uses the same lineup: my lineup points are the depth WR's.
   const depth = universe().get(904).adj_ppg;
   assert.equal(scout.lineup.points, depth, `lineup points must be the playing starter's (${depth}), got ${scout.lineup.points}`);
-});
-
-test('RED: a trade that fills a bye hole this week gets weekly-range credit on the card', () => {
-  const u = universe();
-  const mine = { roster_id: '1', owner: 'Mine', players: [u.get(903), u.get(904)] };
-  const theirs = { roster_id: '2', owner: 'Rival', players: [u.get(902)] };
-  const res = evaluate({ team: mine, gives: [] }, { team: theirs, gives: [u.get(902)] }, ['WR']);
-  const side = res.me;
-  assert.ok(side.ceiling_delta > 0,
-    `adding a WR who plays this week over a depth WR must raise my weekly ceiling, got ${side.ceiling_delta}`);
 });

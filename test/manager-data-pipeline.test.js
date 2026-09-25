@@ -112,6 +112,7 @@ buildChatFixture(CHAT_PATH);
 
 // ------------------------------------------------------------------ app setup
 const { db, rows, run } = await import('../server/db/index.js');
+const { priceLeagueForRules } = await import('./fixtures/rule-gate.mjs');
 const { runMigrations } = await import('../server/db/migrate.js');
 const { seedIfEmpty } = await import('../server/db/seed/index.js');
 await import('../server/routes/stats.js');
@@ -160,6 +161,8 @@ function insertLeague(id, payload, { myTeamId = '1', name = `L${id}` } = {}) {
        VALUES (?, 'espn', ?, 2026, ?, ?, ?, ?, ?, 'secret-s2', 'secret-swid', 'connected')`,
   id, `espn-md-${id}`, name, payload == null ? null : JSON.stringify(payload),
   payload?.teams?.length ?? 0, myTeamId, JSON.stringify(['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX']));
+  // RULES-EVERYWHERE: FantasyCalc values so Nick's rule gate does not empty this fixture (rules: own test).
+  if (payload) priceLeagueForRules(db, rows('SELECT id, payload, my_team_id FROM leagues WHERE id = ?', id)[0]);
 }
 
 // League 11: the chat league. Roster 2 is the real-world trap in miniature —
@@ -607,7 +610,7 @@ test('pricing: one validated loader for negotiation profiles; ME is Nick\'s self
 
 test('pricing: the profile validator accepts the stored shape and names each violation', () => {
   assert.deepEqual(pricing.negotiationProfileErrors(validProfile()), []);
-  const errs = pricing.negotiationProfileErrors(validProfile({ confidence: 'certain', extra: 1 }));
+  const errs = pricing.negotiationProfileErrors(validProfile({ confidence: 7, extra: 1 }));
   assert.ok(errs.some(e => /confidence/.test(e)));
   assert.ok(errs.some(e => /unexpected key/.test(e)));
   assert.ok(pricing.negotiationProfileErrors({}).some(e => /headline: missing/.test(e)));

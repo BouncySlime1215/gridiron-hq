@@ -26,20 +26,24 @@
  * The app has even been TELLING the user to do this — self-scout emits "you
  * need variance, target boom-rate players" — while providing no way to act on
  * it. This is the missing half.
+ *
+ * WEEKLY-RANGE-ONE: the draws are the league's one world (league-world.js), the
+ * correlated runs the title odds are played on, and a lineup's floor, median and
+ * ceiling are lineup-week-range.js's p10 / p50 / p90 of its run totals, the same
+ * numbers every other page prints for that lineup-week. This module used to build
+ * its own outcome pools and its own copula over the candidates (outcomePools /
+ * worldOutcomePools); those are gone. What stays its own is the objective: the
+ * search for the lineup that maximises P(total >= target) on those runs.
  */
-import { rows, row } from '../db/index.js';
-import { PPR } from './scoring.js';
-import { buildProjections, sampleWeeks } from './projections.js';
-import { correlatedSampler } from './correlation.js';
-import { gameMultiplier, matchupModel } from './matchups.js';
-import { gameScriptFor } from './gamescript.js';
+import { row } from '../db/index.js';
 import { deriveFormat } from './format.js';
 import { assetUniverse, loadRosters, lineupSlots } from './trade-engine.js';
 import { irOnRoster } from './lineup-brain.js';
-import { WEEKLY_ROLE_RECENCY } from './weekly-ensemble.js';
+import { oneWorldFlag, oneWorldPreviewFields } from './one-world.js';
+import { leagueWorld, worldStamp } from './league-world.js';
+import { lineupWeekTotals, rangeOfTotals, quantileAt, worldWeekMeans } from './lineup-week-range.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
-const POOL = 600;          // outcomes sampled per player, then indexed by the copula
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 const FLEX_ELIGIBLE = { FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'], WRRB_FLEX: ['RB', 'WR'],
   SUPER_FLEX: ['QB', 'RB', 'WR', 'TE'], OP: ['QB', 'RB', 'WR', 'TE'] };
@@ -48,75 +52,16 @@ const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 
 /**
- * Build each candidate's weekly outcome pool for one week, with matchup and
- * game-script context applied — the same construction the season simulator
- * uses, so a ceiling here is comparable to a title probability there.
+ * Each candidate who plays in the world's week, with his mean there (the number
+ * the title odds set lineups on). A player on bye or without a pool has no draw
+ * that week and is not a candidate.
  */
-function outcomePools(players, season, week, scoring) {
-  // The weekly engine's configuration, BOTH halves of it. Either one alone
-  // describes a different player.
-  //
-  // The cutoff: mid-season, not a season-boundary one. `through: season - 1`
-  // alone ignores every game already played THIS season — a hot streak, a role
-  // change, an injury — and always builds off last season's snapshot no matter
-  // how far into the current season `week` actually is. `throughWeek: week - 1`
-  // mirrors the walk-forward-safe cutoff player-week-engine.js:271-274 uses.
-  //
-  // The recency: `roleRecency` was missing here for as long as the cutoff has
-  // been right, and the comment that used to sit here explained the cutoff at
-  // length while saying nothing about it — so a reader who checked the comment
-  // instead of the argument list concluded the configuration was complete.
-  // Omitted, buildProjections falls back to RECENCY (seasonDecay 0.35) where
-  // the weekly engine passes WEEKLY_ROLE_RECENCY (0.05): a season-old game
-  // counted SEVEN TIMES more toward volume here than it did in Start/Sit, for
-  // the same player in the same week.
-  //
-  // It also cost this caller the fitted volume k. shrinkage-fit.js
-  // #activeKVectorFor withholds the fitted volume entries from any recency they
-  // were not estimated under — correctly, since a k is only meaningful in its
-  // own evidence units — so this module silently fell back to hand-picked
-  // constants that shrinkage-fit.js itself calls "not claimed to be right, only
-  // untested with the fitted k". It is listed there among the season-long
-  // callers and does not belong in that list: it passes a mid-season
-  // throughWeek, exactly like the weekly engine. It was being classified by an
-  // argument it forgot to pass rather than by the cutoff it actually uses. That
-  // list is in another module and is a separate one-line correction.
-  //
-  // Passed explicitly rather than through a shared helper because there is no
-  // such helper yet; when a server-side `production()` lands in projections.js
-  // this call should migrate to it, so the two engines cannot drift apart again
-  // by omission.
-  const proj = buildProjections({
-    through: season, throughWeek: week - 1, scoring, roleRecency: WEEKLY_ROLE_RECENCY
-  });
-  const { schedule } = matchupModel();
-  const entries = [];
-  for (const p of players) {
-    if (!SCORED.has(p.position)) continue;
-    const pr = proj.get(p.id);
-    const game = schedule.get(p.team_abbr)?.find(g => g.week === week);
-    // On a bye, or with no projection, a player cannot contribute. Excluded
-    // rather than zero-filled: a zero would silently drag a lineup's mean down
-    // while still occupying a slot the optimiser could have used.
-    if (!pr || !game) continue;
-    // The matchup factor is matchups.js's own, which is exactly 1 in its tested
-    // state: neither home/away nor defense-vs-position beat no adjustment on the
-    // 2026-09-17 weekly walk-forward test (matchups.js MATCHUP_EVIDENCE). This used to
-    // hard-code `dvpFor(...).mult * (home ? 1.02 : 0.98)`, so every home week here was
-    // drawn 4% richer than the same player's away week after the signal was retired.
-    const base = gameMultiplier(game.opponent_abbr, game.home, p.position);
-    const gs = gameScriptFor(p.team_abbr, season, week);
-    const samples = sampleWeeks(pr.params, POOL, scoring,
-      { pass: base * gs.pass_mult, rush: base * gs.rush_mult }, 1).sort((a, b) => a - b);
-    entries.push({
-      player: p,
-      meta: { id: p.id, position: p.position, team: p.team_abbr, opponent: game.opponent_abbr,
-        target_share: pr.volume?.target_share ?? null },
-      samples,
-      mean: samples.reduce((s, v) => s + v, 0) / samples.length
-    });
-  }
-  return entries;
+function worldCandidates(world, players, week) {
+  const means = worldWeekMeans(world, week);
+  if (!means) return [];
+  return players
+    .filter(p => SCORED.has(p.position) && means.has(p.id))
+    .map(p => ({ player: p, mean: means.get(p.id) }));
 }
 
 /** Every legal assignment of a candidate set to the league's slots, greedily. */
@@ -138,27 +83,18 @@ function fillSlots(chosen, slots) {
 }
 
 /**
- * Score one lineup on the joint distribution.
- *
- * Returns the full shape, not a point estimate: mean, the ceiling percentiles,
- * and P(score >= target). The last is the objective a tournament actually pays.
+ * Score one lineup on the world's runs: its weekly range from the one producer
+ * (lineup-week-range.js), its mean, its 99th percentile off the same run totals,
+ * and P(score >= target) — the objective a tournament actually pays.
  */
-function scoreLineup(entries, draws, target) {
-  const n = entries.length;
-  const totals = new Array(draws.length);
-  for (let d = 0; d < draws.length; d++) {
-    const v = draws[d];
-    let sum = 0;
-    for (let i = 0; i < n; i++) sum += v[entries[i].index];
-    totals[d] = sum;
-  }
-  totals.sort((a, b) => a - b);
-  const q = p => totals[Math.min(totals.length - 1, Math.floor(p * totals.length))];
-  const mean = totals.reduce((s, v) => s + v, 0) / totals.length;
-  const hit = target == null ? null
-    : totals.filter(t => t >= target).length / totals.length;
-  return { mean: r2(mean), floor: r2(q(0.10)), median: r2(q(0.50)),
-    ceiling: r2(q(0.90)), p99: r2(q(0.99)), hit_probability: r4(hit) };
+function scoreLineup(world, week, picks, target) {
+  const { totals } = lineupWeekTotals(world, picks.map(c => c.player.id), week);
+  const range = rangeOfTotals(totals);
+  const sorted = Float64Array.from(totals).sort();
+  let hits = 0;
+  if (target != null) for (const t of totals) if (t >= target) hits++;
+  return { mean: range.mean, floor: range.floor, median: range.median, ceiling: range.ceiling,
+    p99: r2(quantileAt(sorted, 0.99)), hit_probability: target == null ? null : r4(hits / totals.length) };
 }
 
 /**
@@ -169,9 +105,9 @@ function scoreLineup(entries, draws, target) {
  *   kept so the two can be compared side by side, which is the whole point.
  * @param target the score to beat. The default is NOT "a stretch above the
  *   team's own median", which this line claimed for as long as it existed: it
- *   is `naiveScore.ceiling` (:211), and `ceiling` is `q(0.90)` (:132) — the
- *   90th percentile of the highest-mean lineup, scored on the same draws every
- *   candidate lineup is scored on. So the bar is "a good week from the lineup
+ *   is `naiveScore.ceiling`, the one producer's p90 (lineup-week-range.js) of
+ *   the highest-mean lineup, scored on the same world runs every candidate
+ *   lineup is scored on. So the bar is "a good week from the lineup
  *   you would have started anyway", which is a harder and more useful question
  *   than beating a median.
  *
@@ -184,7 +120,7 @@ function scoreLineup(entries, draws, target) {
  */
 export function ceilingLineup(leagueId, {
   teamId = null, week = 1, season = SEASON, objective = 'ceiling',
-  target = null, trials = 3000, candidates = 14
+  target = null, candidates = 14
 } = {}) {
   const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg?.payload) return { error: 'league not synced yet' };
@@ -201,32 +137,34 @@ export function ceilingLineup(leagueId, {
   // and the League Hub card all use. This solved on every rostered player, so on the
   // 2026-W2 live check league 4's lineup put Zach Charbonnet (IR slot, OUT) at FLEX.
   const irReason = irOnRoster(lg, me.roster_id, me.players);
-  const pools = outcomePools(me.players.filter(p => !irReason.has(p.id)), season, week, PPR)
+  const oneWorld = oneWorldFlag();
+  const world = leagueWorld(lg);
+  if (world.fail) return world.fail;
+  const wk = Number(week);
+  if (!worldWeekMeans(world, wk)) return { error: `week ${week} is not one of the simulated weeks` };
+  const playable = me.players.filter(p => !irReason.has(p.id));
+  const pools = worldCandidates(world, playable, wk)
     .sort((a, b) => b.mean - a.mean)
     .slice(0, candidates);
   if (pools.length < slots.length) {
     return { error: `only ${pools.length} playable candidates for ${slots.length} slots in week ${week}` };
   }
-  pools.forEach((e, i) => { e.index = i; });
-
-  // One correlated sampler over the whole candidate pool, drawn once. Every
-  // lineup is then scored against the SAME draws, so two lineups differ only
-  // by who is in them and never by sampling luck.
-  const draw = correlatedSampler(pools.map(e => e.meta), pools.map(e => e.samples));
-  const draws = Array.from({ length: trials }, () => draw());
+  // Every lineup is scored on the world's SAME runs, so two lineups differ only by
+  // who is in them and never by sampling luck.
+  const score = (picks, tgt) => scoreLineup(world, wk, picks, tgt);
 
   // A default target set from the team's own top-heavy lineup: beating your own
   // median is not a goal, beating a strong week is.
   const naive = fillSlots([...pools].sort((a, b) => b.mean - a.mean), slots)
     .map(f => f.pick).filter(Boolean);
-  const naiveScore = scoreLineup(naive, draws, null);
-  const effectiveTarget = target ?? r2(naiveScore.ceiling);
+  const naiveScore = score(naive, null);
+  const effectiveTarget = target ?? naiveScore.ceiling;
 
   // Search: start from the highest-mean lineup and try single swaps until no
   // swap improves the objective. Exhaustive enumeration is factorial and
   // unnecessary — the objective is smooth in one substitution at a time.
   const objectiveOf = picks => {
-    const s = scoreLineup(picks, draws, effectiveTarget);
+    const s = score(picks, effectiveTarget);
     return objective === 'mean' ? s.mean : s.hit_probability;
   };
 
@@ -250,9 +188,9 @@ export function ceilingLineup(leagueId, {
   }
 
   const bestFilled = fillSlots(best, slots);
-  const bestScore = scoreLineup(best, draws, effectiveTarget);
+  const bestScore = score(best, effectiveTarget);
   const naiveFilled = fillSlots(naive, slots);
-  const naiveFull = scoreLineup(naive, draws, effectiveTarget);
+  const naiveFull = score(naive, effectiveTarget);
 
   // Which stacks the optimiser actually chose — the mechanism behind any
   // ceiling gain, surfaced so the recommendation is inspectable rather than
@@ -269,7 +207,8 @@ export function ceilingLineup(leagueId, {
 
   return {
     league: lg.name, team: me.owner, season, week,
-    objective, target: effectiveTarget, trials, candidates_considered: pools.length,
+    // `trials` is the world's run count: every lineup is scored on the title odds' runs.
+    objective, target: effectiveTarget, trials: world.runs, candidates_considered: pools.length,
     // Left out because they are on IR, with why.
     on_ir: me.players.filter(p => irReason.has(p.id))
       .map(p => ({ name: p.name, position: p.position, why: irReason.get(p.id) })),
@@ -288,8 +227,10 @@ export function ceilingLineup(leagueId, {
       hit_probability_gained: r4((bestScore.hit_probability ?? 0) - (naiveFull.hit_probability ?? 0))
     },
     stacks,
-    note: 'Scored on a Gaussian copula over fitted archetype correlations, so a quarterback and ' +
+    one_world: worldStamp(lg, world), ...oneWorldPreviewFields(oneWorld),
+    note: 'Scored on the league world\'s correlated runs (the title odds\' own draws), so a quarterback and ' +
       'his own receiver have their good weeks together. Every lineup is evaluated against the ' +
-      'same draws, so a difference between them is never sampling luck.'
+      'same runs, so a difference between them is never sampling luck. Floor / median / ceiling are ' +
+      'the lineup total\'s p10 / p50 / p90.'
   };
 }

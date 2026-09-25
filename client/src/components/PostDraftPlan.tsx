@@ -39,7 +39,7 @@ export default function PostDraftPlan({ leagueId, teamId }: { leagueId: number; 
       {!loading && !error && data?.drafted && (
         <div className="grid md:grid-cols-3 gap-4">
           <SelfScoutSection scout={data.self_scout} />
-          <TradesSection trades={data.trades} />
+          <TradesPointer />
           <LineupSection lineup={data.lineup} />
         </div>
       )}
@@ -70,28 +70,17 @@ function SelfScoutSection({ scout }: { scout: any }) {
   );
 }
 
-function TradesSection({ trades }: { trades: any }) {
-  const deals = trades?.deals ?? [];
-  logServerDetail('PostDraftPlan trades', trades?.error);
+/**
+ * Suggested trades used to be listed here (up to 3, from the same finder as Trades → Find deals).
+ * Cut as a duplicate (docs/ui/CONSOLIDATION-MAP.md, Trades): one place lists trade ideas, with the
+ * count your rules hid beside it. A plain anchor, so this component needs no router.
+ */
+function TradesPointer() {
   return (
     <div>
-      <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Suggested Trades</h4>
-      {trades?.error && <p className="text-xs text-slate-400">Trade suggestions aren&rsquo;t available right now.</p>}
-      {!trades?.error && deals.length === 0 && (
-        <p className="text-xs text-slate-400">No trade suggestions right now.</p>
-      )}
-      {!trades?.error && deals.length > 0 && (
-        <div className="space-y-2">
-          {deals.slice(0, 3).map((d: any, i: number) => (
-            <div key={i} className="text-xs">
-              <div className="font-medium text-slate-700">{d.partner}</div>
-              <div className="text-slate-500">
-                {(d.i_give ?? []).map((p: any) => p.name).join(' + ')} for {(d.i_get ?? []).map((p: any) => p.name).join(' + ')}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Trades</h4>
+      <p className="text-xs text-slate-600">Every trade idea, ranked, with how many your rules hid, is in{' '}
+        <a href="/trades?view=find" className="font-semibold text-[var(--c-accent)] underline">Trades → Find deals</a>.</p>
     </div>
   );
 }

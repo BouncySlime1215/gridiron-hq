@@ -192,11 +192,15 @@ export function settleObservedOutcomes(leagueId, season) {
  * to take the band apart to record it.
  */
 function predictionOf(o, { required = true } = {}) {
-  const band = o?.acceptance?.band ?? null;
+  // PYES-ONE: with GRIDIRON_PYES_BASELINE=1 the served acceptance is the activity baseline and the
+  // clone band rides on `challenger`. The ledger keeps logging the clone (its basis is what the
+  // model_basis CHECK allows, and model_version names the clone) until a migration adds the baseline.
+  const acc = o?.acceptance?.challenger ?? o?.acceptance ?? null;
+  const band = acc?.band ?? null;
   const mid = o?.model_p_accept ?? band?.mid ?? null;
   const low = o?.model_p_accept_low ?? band?.low ?? null;
   const high = o?.model_p_accept_high ?? band?.high ?? null;
-  const basis = o?.model_basis ?? o?.acceptance?.basis ?? null;
+  const basis = o?.model_basis ?? acc?.basis ?? null;
   if (mid == null) {
     if (!required) return { mid: null, low: null, high: null, basis: null };
     throw new Error('trade-outcomes: model_p_accept is required and was not given');

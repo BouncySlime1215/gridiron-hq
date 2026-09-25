@@ -59,17 +59,36 @@ export function pYesTableFrom(offers, leagueId, teams = null, { now = Date.now()
 /** The same table, reading decided offers from a database handle (node:sqlite). */
 export function pYesTable(database, leagueId, teams = null, { now = Date.now() } = {}) {
   const { offers, reason } = loadLeagueOffers(database);
-  return { ...pYesTableFrom(offers, leagueId, teams, { now }), league: String(leagueId), reason: reason ?? null };
+  const table = { ...pYesTableFrom(offers, leagueId, teams, { now }), league: String(leagueId), reason: reason ?? null };
+  const why = fallbackReason(table);
+  // Logged once per table read (per adapter build / finder search), not per offer.
+  if (why) console.warn(`[p-yes] league ${leagueId}: serving the clone band, not the activity baseline: ${why}`);
+  return table;
+}
+
+/**
+ * Why a table cannot be served (null when it can). With no decided offer the baseline
+ * is the pooled prior of an empty pool, 0.5 for everyone, and labelling that "activity
+ * baseline" would be a number with nothing behind it: fail closed to the clone.
+ */
+export function fallbackReason(table) {
+  if (!table) return 'no decided-offer table was read';
+  if (table.reason) return `the decided-offer loader said: ${table.reason}`;
+  if (!(table.pooled?.n > 0)) return 'no decided offers resolved before now, so the baseline is an empty prior';
+  return null;
 }
 
 /**
  * The served acceptance for one offer, in acceptanceBand's shape.
  * table: pYesTable(...) or null; on: pYesFlag().on. With no table or the flag
- * off this IS acceptanceBand's return value, untouched.
+ * off this IS acceptanceBand's return value, untouched. Flag on with a table that
+ * cannot be served (fallbackReason), it is the clone plus `pyes_fallback` saying why.
  */
 export function pYesFor({ counterparty = null, edge = null, profile = null, team = null, table = null, on = false } = {}) {
   const clone = acceptanceBand({ counterparty, edge, profile });
   if (!on || !table || !clone.band) return clone;
+  const why = fallbackReason(table);
+  if (why) return { ...clone, pyes_fallback: why };
   const row = table.byTeam.get(String(team)) ?? table.unseen;
   // A point, not a band: the baseline has no width. low = high = mid says so on the
   // existing band readers; `point` and `label` say it in words.

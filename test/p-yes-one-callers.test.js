@@ -39,7 +39,32 @@ test('flag off: the War Room adapter serves the clone band', () => {
   }
 });
 
+test('flag on, no decided offers: the War Room adapter falls back to the clone (#384 review, finding 2)', () => {
+  process.env[PYES_ENV] = '1';
+  try {
+    for (const t of partners) {
+      const [a, theyGive, theyGet] = pkg(t);
+      const s = a.priceStep(t, theyGive, theyGet);
+      assert.notEqual(s.basis, PYES_BASIS, `team ${t} must not be served an empty-pool 0.5`);
+      assert.ok(s.band, 'the clone carries a band');
+    }
+  } finally {
+    delete process.env[PYES_ENV];
+  }
+});
+
+// Made-up decided offers, sent app offers answered before NOW: team 2 says yes twice, team 3 no twice.
+const seedDecided = () => {
+  const ins = db.prepare(`INSERT INTO trade_outcomes (league_id, season, source, proposer_team_id, counterparty_team_id,
+    proposed_at, sent_at, resolved_at, model_p_accept, model_p_accept_low, model_p_accept_high, model_basis, model_version,
+    idea_id, status, created_at) VALUES (?, 2026, 'app_proposed', '1', ?, ?, ?, ?, 0.3, 0.1, 0.5, 'no_information', 'fixture', ?, ?, ?)`);
+  const at = d => new Date(Date.UTC(2026, 8, d)).toISOString();
+  [['2', 1, 'accepted'], ['2', 3, 'accepted'], ['3', 5, 'declined'], ['3', 7, 'declined']].forEach(([team, d, status], i) =>
+    ins.run(leagueId, team, at(d), at(d), at(d + 1), `fx-${i}`, status, at(d)));
+};
+
 test('flag on: the War Room adapter serves the E1 baseline table, row by row', () => {
+  seedDecided();
   process.env[PYES_ENV] = '1';
   try {
     const table = pYesTable(db, leagueId, partners, { now: NOW });
@@ -50,6 +75,7 @@ test('flag on: the War Room adapter serves the E1 baseline table, row by row', (
       assert.equal(s.band, null);
       assert.ok(Math.abs(s.p - table.byTeam.get(t).p) < 1e-12, `War Room, team ${t}`);
     }
+    assert.ok(table.byTeam.get('2').p > table.byTeam.get('3').p, 'the rows differ by record');
   } finally {
     delete process.env[PYES_ENV];
   }

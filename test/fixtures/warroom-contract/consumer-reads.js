@@ -91,6 +91,9 @@ export const READS = [
   { pr: 231, where: `${TGT}:43`, reads: 'leagues[].targets.value[].why' },
   { pr: 231, where: `${TGT}:50`, reads: 'leagues[].targets.value[].approved', scalar: true },
   { pr: 231, where: `${TGT}:49`, reads: 'leagues[].targets.value[].is_plan_target', scalar: true },
+  // BUY-LOW: the Go get card's chip (served only with GRIDIRON_BUY_LOW=1; PENDING in the contract test).
+  { pr: 460, where: `${WRC}/ScreenGoGet.tsx:TargetCard`, reads: 'leagues[].targets.value[].buy_low.value.role', scalar: true },
+  { pr: 460, where: `${WRC}/ScreenGoGet.tsx:TargetCard`, reads: 'leagues[].targets.value[].buy_low.value.points_below_expected', scalar: true },
   { pr: 231, where: `${WR}:131`, reads: 'leagues[].flip_map.value' },
   { pr: 231, where: `${FLIP}:27`, reads: 'leagues[].flip_map.value[].player', scalar: true },
   { pr: 231, where: `${FLIP}:28`, reads: 'leagues[].flip_map.value[].buy_from', scalar: true },

@@ -1,6 +1,6 @@
 /*
- * WAR-ROOM-UI v2 (WarRoomV2.tsx: Today / Go get / Market / League), scoped to .wr-v2. The classic
- * dashboard (warroom.css, .wr-app) is untouched. Colour, edges, elevation, radius and motion come
+ * WAR-ROOM-UI v2 (TodayPanel.tsx on Today; TradesPlanner.tsx's Next move / Go get / Market inside
+ * Trades), scoped to .wr-v2. Colour, edges, elevation, radius and motion come
  * from the app's design tokens (styles/tokens.css, docs/ui/DESIGN-SYSTEM.md); the type from the
  * app's --font-* tokens. Dark mode is the tokens' [data-theme="dark"] set, which this root carries.
  */
@@ -271,6 +271,7 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
 .wr-tcard-t { display: flex; flex-direction: column; min-width: 0; }
 .wr-tcard-n { font: 600 15px/1.3 var(--f-display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wr-tcard-o { font-size: 12px; color: var(--c-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wr-tcard-bl { display: flex; margin-top: 4px; }
 .wr-tcard-nums, .wr-fcard-nums { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .wr-tcard-nums b { font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
 .wr-tcard-nums .wr-unk, .wr-fcard-nums .wr-unk { font: 500 13px/1.4 var(--f-text); letter-spacing: 0; }
@@ -559,4 +560,21 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
   .wr-goget-compact .wr-timeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
   .wr-goget-compact .wr-timeline li { padding-bottom: 0; }
   .wr-goget-compact .wr-timeline li:not(:last-child)::after { display: none; }
+}
+/* ChanceStat, line size: the same look inside the War Room scope and outside it (TradeCard, People). */
+.chance-line { font-size: 12px; color: var(--c-muted); }
+.chance-line b { font-weight: 600; color: var(--c-ink); }
+.chance-line .chance-rest { color: var(--c-subtle); }
+/* TradeSides outside the War Room scope (the finder's trade card): the same chips, compact. */
+.trade-side-k { display: block; font: 600 12px/1.2 var(--font-body); letter-spacing: .06em; text-transform: uppercase; color: var(--c-muted); }
+.trade-sides button.wr-pchip { border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; width: 100%; }
+.trade-sides-compact { gap: 8px; margin-bottom: 12px; }
+.trade-sides-compact .wr-pchips { gap: 6px; }
+.trade-sides-compact .wr-pchip { gap: 8px; padding: 4px 10px 4px 4px; }
+.trade-sides-compact .wr-pchip-n { font-size: 14px; }
+.trade-sides-compact .wr-hero-arrow { width: 26px; height: 26px; margin-bottom: 6px; }
+.trade-sides { --f-display: var(--font-display); }
+@media (max-width: 639px) {
+  .trade-sides-compact { grid-template-columns: minmax(0, 1fr); }
+  .trade-sides-compact .wr-hero-arrow { transform: rotate(90deg); margin: 0 auto; }
 }

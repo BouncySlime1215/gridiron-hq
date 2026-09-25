@@ -60,6 +60,8 @@ const PENDING = [
     path: /^leagues\[\]\.flip_map\.value\[\]\.legs\.(give_a_ids|get_b_ids)(\[\])?$/ },
   { unit: 'HIS-SIDE-WIRE (flag)', why: 'targets[].his_side is served only with GRIDIRON_HIS_SIDE=1; the fixture producer runs flag-off (test/campaign-his-side.test.js validates the served shape)',
     path: /^leagues\[\]\.targets\.value\[\]\.his_side(\..+)?$/ },
+  { unit: 'BUY-LOW (GRIDIRON_BUY_LOW flag)', why: 'targets[].buy_low is served only with GRIDIRON_BUY_LOW=1; the fixture producer runs flag-off (test/buy-low.test.js validates the served shape)',
+    path: /^leagues\[\]\.targets\.value\[\]\.buy_low(\..+)?$/ },
   { unit: 'RADAR-WIRE (GRIDIRON_RADAR_WIRE flag)', why: 'the why-now label is served only with its flag on; the fixture producer runs flag-off',
     path: /^leagues\[\]\.flip_map\.value\[\]\.why_now(\..+)?$/ },
   { unit: 'PLAYER-SCORE (GRIDIRON_PLAYER_SCORE flag)', why: 'the blue-chip board is served only with its flag on; the fixture producer runs flag-off',

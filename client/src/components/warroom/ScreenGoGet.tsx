@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import type { Move, Target, WarRoomView } from './types';
+import type { BuyLow, Move, Target, WarRoomView } from './types';
 import { namer, teamLabel } from './types';
 import { FieldBlock, Val } from './FieldState';
 import { pct, pts, isOk } from './format';
@@ -12,6 +12,7 @@ import type { CurrentMove } from './NextMoveDeck';
 import { isGuess } from './heroStatus';
 import Icon, { EmptyState } from './icons';
 import BlueChipBoard from './BlueChipBoard';
+import ChanceStat from './ChanceStat';
 
 const FIT: Record<string, string> = { fits: 'fits your mode', needs_all_in: 'needs all-in', too_risky_for_safe: 'too risky for safe' };
 
@@ -146,7 +147,8 @@ export default function ScreenGoGet({ view, leagueId, current, onRequest, someon
                             <Faces ids={s.give} n={n} /> <span className="wr-muted">for</span> <Faces ids={s.get} n={n} />
                           </span>
                           <span className="wr-tl-nums">
-                            chance <Val f={s.p_yes} fmt={v => pct(v)} />{isGuess(s.p_yes) && <span className="wr-pill2 wr-pill2-amber">guess</span>}
+                            {isOk(s.p_yes) ? <ChanceStat label="chance" value={s.p_yes.value} guess={isGuess(s.p_yes)} />
+                              : <>chance <Val f={s.p_yes} fmt={v => pct(v)} /></>}
                             {' · '}gain <Val f={s.title_odds_delta} fmt={pts} />
                           </span>
                         </span>
@@ -222,6 +224,16 @@ function Faces({ ids, n }: { ids: string[]; n: ReturnType<typeof namer> }) {
   );
 }
 
+/** BUY-LOW: served only with its flag on; the War Room's own pill (as "in the plan"), a plain-words title, no numbers on the card. */
+export function BuyLowChip({ b }: { b: BuyLow }) {
+  const role = b.role === 'confirmed' ? `usage up in ${b.games} recent games` : 'usage up in his latest game';
+  return (
+    <span className="wr-tcard-bl" data-testid="target-buy-low">
+      <span className="wr-pill2 wr-pill2-green" title={`Buy-low (a guess): ${role}, scoring about ${b.points_below_expected} pts/game below what his usage predicts.`}>Buy-low</span>
+    </span>
+  );
+}
+
 function TargetCard({ t, name, on, onPick, state, onApprove }: {
   t: Target; name: string; on: boolean; onPick: () => void;
   state: 'plan' | 'approved' | 'saving' | null; onApprove?: () => void;
@@ -234,6 +246,7 @@ function TargetCard({ t, name, on, onPick, state, onApprove }: {
         <span className="wr-tcard-t">
           <b className="wr-tcard-n" title={name}>{name}</b>
           <span className="wr-tcard-o">{teamLabel(t.owner)}</span>
+          {isOk(t.buy_low) && t.buy_low.value && <BuyLowChip b={t.buy_low.value} />}
         </span>
       </button>
       <div className="wr-tcard-nums">

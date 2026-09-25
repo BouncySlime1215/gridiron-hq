@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { loadWarRoom, textOf, WARROOM_DIR } from './helpers/warroom-tsx.mjs';
+import { plannerRenderer } from './helpers/warroom-planner.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -27,20 +28,24 @@ const { buildWarRoomView } = await import('../server/services/war-room-view.js')
 
 const wr = await loadWarRoom();
 test.after(() => wr.cleanup());
-const { default: WarRoom } = await wr.mod('WarRoomV2'); // the classic dashboard is retired; the War Room is WarRoomV2
 const { useWarRoom } = await wr.mod('useWarRoom');
+const room = await plannerRenderer(wr);
 
 const plans = { status: 'ok', entries: structuredClone(producer.leagues), as_of: producer.generated_at, id: 'y' };
 const view = buildWarRoomView(1, plans, { enabled: true, preview: true });
-const html = renderToStaticMarkup(React.createElement(WarRoom, {
-  view, leagues: [{ id: 1, name: 'League 1' }, { id: 2, name: 'League 2' }], activeId: 1, onLeague() {}, onExit() {},
-}));
+const html = room(view, { leagueId: 1 });
 const css = fs.readFileSync(path.join(WARROOM_DIR, 'warroom.css'), 'utf8');
 /** Declarations of the first rule whose selector is exactly `sel` (outside media blocks). */
 const rule = sel => {
   const m = css.match(new RegExp(`(^|\\n)${sel.replace(/[.[\]"=]/g, c => `\\${c}`)}\\s*\\{([^}]*)\\}`));
   return m ? m[2] : null;
 };
+
+test('the planner mounts (Today, Next move, Go get, Market) draw one view with no War Room shell', () => {
+  for (const id of ['today-panel', 'trades-planner-next', 'trades-planner-goget', 'trades-planner-market']) assert.ok(html.includes(`data-testid="${id}"`), id);
+  assert.doesNotMatch(html, /wr-bar2|wr-nav|wr-tabbar|wr-coach-btn|war-room-v2/, 'no second top bar, tabs or Coach button');
+  assert.doesNotMatch(textOf(html), /NaN|undefined/);
+});
 
 test('dark tokens: system dark and the explicit toggle both define every token', () => {
   const light = [...rule('.wr-root').matchAll(/(--wr-[\w-]+):/g)].map(m => m[1]).sort();

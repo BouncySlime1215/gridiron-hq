@@ -27,7 +27,7 @@ export default function Today() {
   }
   return (
     <div>
-      <PageHeader eyebrow="Today" title="Today" description={active?.name ? `Your next move in ${active.name}, and what every league needs this week.` : undefined} />
+      <PageHeader eyebrow="Today" title="Today" description={active?.name?.trim() ? `Your next move in ${active.name.trim()}, and what every league needs this week.` : undefined} />
       {wr.data?.enabled === true && activeId != null && (
         <div className="mb-8"><TodayPanel view={wr.data} leagueId={activeId} onAsk={coach.open} /></div>
       )}

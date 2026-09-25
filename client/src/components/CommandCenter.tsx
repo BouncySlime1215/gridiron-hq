@@ -94,7 +94,8 @@ export function CommandCard({ item, onAct }: { item: CommandItem; onAct: (item: 
       <div className="font-semibold text-slate-900">{item.what}</div>
       <p className="mt-1 text-sm text-slate-600">{item.why}</p>
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <Button variant="primary" className="min-h-[40px]" onClick={() => onAct(item)}
+        {/* Tonal, not filled: the next move on Today is the one primary action on the page. */}
+        <Button variant="quiet" className="min-h-[40px]" onClick={() => onAct(item)}
           aria-label={`${item.action.label} in ${item.league.name}`}>{item.action.label}</Button>
         <span className="text-xs text-slate-500">
           {item.league.name} · {due(item.deadline, item.deadline_basis)}

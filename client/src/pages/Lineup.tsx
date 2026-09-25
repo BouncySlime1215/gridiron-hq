@@ -39,7 +39,17 @@ const CONF: Record<string, { label: string; bar: string; chip: string }> = {
   locked: { label: 'Locked', bar: 'bg-slate-300', chip: 'bg-slate-200 text-slate-700 ring-slate-300' }
 };
 
-export default function Lineup() {
+/**
+ * My Team hosts this page (docs/ui/CONSOLIDATION-MAP.md): `embedded` drops the page header
+ * (My Team's header and tabs stand above it); `view` shows the start/sit calls ('lineup') or
+ * the waiver wire and defence streaming ('waivers'); `before` / `after` place My Team's own
+ * pieces (this week's lineup-vs-best card, the field view) around the calls; `ceilingDetail`
+ * renders under the calls while the ceiling objective is picked (the ceiling lineup's detail).
+ * Every request is made the same way in both views, in the same order.
+ */
+export default function Lineup({ embedded = false, view = 'lineup', before, after, ceilingDetail }: {
+  embedded?: boolean; view?: 'lineup' | 'waivers'; before?: ReactNode; after?: ReactNode; ceilingDetail?: () => ReactNode;
+} = {}) {
   const { activeId: leagueId } = useLeague();
   const [objective, setObjective] = useState<'mean' | 'ceiling' | 'floor'>('mean');
   const { data: d, loading, error, refetch } = useApi<any>(
@@ -113,9 +123,21 @@ export default function Lineup() {
     );
   }
 
+  if (view === 'waivers') {
+    return (
+      <Shell>
+        <WaiverWire key={leagueId} data={waivers.data} loading={waivers.loading} error={waivers.error}
+          onRetry={waivers.refetch} out={out} />
+        <StreamingBoard key={`streams-${leagueId}`} data={streams.data} loading={streams.loading} error={streams.error}
+          onRetry={streams.refetch} />
+      </Shell>
+    );
+  }
+
   return (
     <Shell>
-      <header className="tr-rise">
+      {before}
+      {!embedded && <header className="tr-rise">
         <div className="text-[11px] font-black uppercase tracking-[.16em] text-emerald-700">This week</div>
         <h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950">Who to start</h1>
         <p className="mt-1.5 max-w-3xl text-sm leading-6 text-slate-600">
@@ -123,7 +145,7 @@ export default function Lineup() {
           6 are the same instruction in most tools and they are not the same decision — the first is
           inside the projection's own error, and it is labelled as a tie here rather than dressed up.
         </p>
-      </header>
+      </header>}
 
       {/* SS-01 dead-starter guard: shown only when a starter set on ESPN will score zero.
           A suggestion; nothing is changed on ESPN from here. */}
@@ -194,6 +216,8 @@ export default function Lineup() {
       )}
 
       {loading && !d && <PageLoading label="Solving the lineup…" />}
+
+      {objective === 'ceiling' && ceilingDetail?.()}
 
       <MatchupPosture data={posture.data} loading={posture.loading} error={posture.error}
         onRetry={posture.refetch} opponentName={opponentName} />
@@ -308,11 +332,16 @@ export default function Lineup() {
           one weekly gate run, stored and read. */}
       <StartSitGate />
 
-      <WaiverWire key={leagueId} data={waivers.data} loading={waivers.loading} error={waivers.error}
-        onRetry={waivers.refetch} out={out} />
+      {after}
 
-      <StreamingBoard key={`streams-${leagueId}`} data={streams.data} loading={streams.loading} error={streams.error}
-        onRetry={streams.refetch} />
+      {/* Embedded in My Team, the waiver wire and streaming are their own view (Waivers). */}
+      {!embedded && <>
+        <WaiverWire key={leagueId} data={waivers.data} loading={waivers.loading} error={waivers.error}
+          onRetry={waivers.refetch} out={out} />
+
+        <StreamingBoard key={`streams-${leagueId}`} data={streams.data} loading={streams.loading} error={streams.error}
+          onRetry={streams.refetch} />
+      </>}
     </Shell>
   );
 }

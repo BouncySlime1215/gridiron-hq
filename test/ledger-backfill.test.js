@@ -49,7 +49,7 @@ function raw(o) {
        VALUES (@league_id,@season,@tx_id,@type,@status,@execution_type,@proposed_at,@processed_at,
         @team_id,@member_id,@related_tx_id,@scoring_period,@bid_amount,@is_pending,
         @items_json,@raw_json,@first_seen_at,@last_seen_at)`, {
-    league_id: L, season: S, status: 'PENDING', execution_type: 'EXECUTE',
+    league_id: L, season: S, type: 'TRADE_PROPOSAL', status: 'PENDING', execution_type: 'EXECUTE',
     processed_at: null, member_id: null, related_tx_id: null, scoring_period: 3,
     bid_amount: null, is_pending: 0, items_json: items(1, 2), raw_json: '{}',
     first_seen_at: '2025-10-01T00:00:00Z', last_seen_at: '2025-10-01T00:00:00Z',

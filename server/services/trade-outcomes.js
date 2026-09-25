@@ -21,6 +21,7 @@
  * first as the second.
  */
 import { rows, row, run } from '../db/index.js';
+import { rawOfferGroups } from './eval/decided-offers.js';
 
 const tableExists = name =>
   rows(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`, name).length > 0;
@@ -102,6 +103,32 @@ function sidesOf(tx) {
 }
 
 /**
+ * What ESPN decided about one proposal, from E1's own pairing
+ * (`decided-offers.js#rawOfferGroups`), as a ledger status. Null = no answer
+ * and no close yet, so the row stays 'proposed'.
+ *
+ * The 067 CHECK has no 'vetoed' or 'withdrawn' status. Accepted then vetoed
+ * stays 'accepted', as E1 counts it (the receiver said yes). Closed with no
+ * answer is 'expired', as `replyTo` already settles a sent offer, and the
+ * reason says whether ESPN expired it or the proposer withdrew it.
+ * Every reason starts `backfill_observed:`, so a reader can tell these from a
+ * sent offer's settle and knows no prediction was recorded for them.
+ */
+function observedVerdict(g, txId) {
+  if (!g) return null;
+  if (g.excluded === 'expired' || g.excluded === 'withdrawn') {
+    const how = g.excluded === 'expired'
+      ? `ESPN expired proposal ${txId} (CANCEL ${g.close_tx_id}) with no answer`
+      : `proposal ${txId} withdrawn by the proposer (CANCEL ${g.close_tx_id}) before any answer`;
+    return { status: 'expired', at: g.closed_at ?? null, reason: `backfill_observed: ${how}` };
+  }
+  if (g.excluded || !ANSWER_TYPE[g.status]) return null;
+  return { status: g.status, at: g.decided_at ?? null,
+    reason: `backfill_observed: ESPN ${ANSWER_TYPE[g.status]} ${g.decision_tx_id}${g.vetoed ? ', then vetoed' : ''}` };
+}
+const ANSWER_TYPE = Object.freeze({ accepted: 'TRADE_ACCEPT', declined: 'TRADE_DECLINE' });
+
+/**
  * Turn the ESPN rows this league has collected into observed outcome rows.
  *
  * Idempotent on (league_id, season, espn_tx_id), which is the raw table's own
@@ -109,15 +136,21 @@ function sidesOf(tx) {
  * nothing: re-running the collector is a normal thing to do and must not double
  * every outcome, and an outcome that has already been settled is not re-settled
  * with today's clock.
+ *
+ * LEDGER-BACKFILL: an observed row written while its offer was still pending
+ * is settled once the answer (or ESPN's close) is collected. Before, the row
+ * stayed 'proposed' forever. Only rows still 'proposed' are updated; a settled
+ * row and every app row are never touched. The verdict comes from the pairing
+ * E1 grades, so the ledger and the grader cannot disagree about an offer.
  */
 export function settleObservedOutcomes(leagueId, season) {
-  const result = { state: 'settled', written: 0, skipped: 0, skips: [], reason: null };
+  const result = { state: 'settled', written: 0, updated: 0, skipped: 0, skips: [], by_status: {}, reason: null };
   if (!tableExists(RAW_TABLE)) {
     return { ...result, state: 'raw_table_absent', reason: RAW_ABSENT_REASON };
   }
 
   const tx = rows(
-    `SELECT tx_id, type, execution_type, team_id, related_tx_id, proposed_at, items_json
+    `SELECT league_id, season, tx_id, type, execution_type, team_id, member_id, related_tx_id, proposed_at, items_json
      FROM ${RAW_TABLE} WHERE league_id = ? AND season = ?`, leagueId, season);
 
   const proposals = tx.filter(t => t.type === PROPOSAL && t.execution_type === EXECUTED);
@@ -126,23 +159,22 @@ export function settleObservedOutcomes(leagueId, season) {
   // An answer points at the proposal it answers. An answer whose proposal is
   // not in these rows is NOT an outcome: there is no deal to attach it to, and
   // inventing one from the answer alone would be a deal nobody proposed.
-  const answer = new Map();
   for (const t of tx) {
-    const verdict = ANSWERS[t.type];
-    if (!verdict || t.execution_type !== EXECUTED) continue;
+    if (!ANSWERS[t.type] || t.execution_type !== EXECUTED) continue;
     const target = t.related_tx_id == null ? null : String(t.related_tx_id);
-    if (!target || !proposalIds.has(target)) {
-      result.skipped++;
-      result.skips.push({
-        tx_id: String(t.tx_id),
-        reason: target
-          ? `its related_tx_id ${target} names a proposal that is not in the collected rows`
-          : 'it carries no related_tx_id, so the proposal it answers is unknown',
-      });
-      continue;
-    }
-    answer.set(target, { verdict, at: t.proposed_at ?? null });
+    if (target && proposalIds.has(target)) continue;
+    result.skipped++;
+    result.skips.push({
+      tx_id: String(t.tx_id),
+      reason: target
+        ? `its related_tx_id ${target} names a proposal that is not in the collected rows`
+        : 'it carries no related_tx_id, so the proposal it answers is unknown',
+    });
   }
+
+  const groups = rawOfferGroups({ raw: tx });
+  const groupOf = txId => groups.get([leagueId, season, txId].map(String).join(':'));
+  const hasReason = rows(`PRAGMA table_info(trade_outcomes)`).some(c => c.name === 'settle_reason');
 
   const now = new Date().toISOString();
   for (const p of proposals) {
@@ -152,17 +184,26 @@ export function settleObservedOutcomes(leagueId, season) {
       result.skips.push({ tx_id: String(p.tx_id), reason: sides.error });
       continue;
     }
-    const a = answer.get(String(p.tx_id));
     // An unanswered offer is 'proposed', never 'declined'. Scoring silence as a
     // rejection is the cheapest way to make every P(accept) read low forever,
     // and it is wrong about the manager rather than about the model.
-    const status = a ? a.verdict : 'proposed';
-    const resolvedAt = a ? a.at : null;
+    const v = observedVerdict(groupOf(p.tx_id), String(p.tx_id));
 
     const existing = row(
-      `SELECT id FROM trade_outcomes WHERE league_id = ? AND season = ? AND espn_tx_id = ?`,
+      `SELECT id, status FROM trade_outcomes WHERE league_id = ? AND season = ? AND espn_tx_id = ?`,
       leagueId, season, String(p.tx_id));
-    if (existing) continue;
+    if (existing) {
+      if (!v || existing.status !== 'proposed') continue;
+      if (hasReason) {
+        run(`UPDATE trade_outcomes SET status = ?, resolved_at = ?, settle_reason = ? WHERE id = ? AND status = 'proposed'`,
+          v.status, v.at, v.reason, existing.id);
+      } else {
+        run(`UPDATE trade_outcomes SET status = ?, resolved_at = ? WHERE id = ? AND status = 'proposed'`,
+          v.status, v.at, existing.id);
+      }
+      result.updated++;
+      continue;
+    }
 
     run(`INSERT INTO trade_outcomes
            (league_id, season, source, proposer_team_id, counterparty_team_id,
@@ -170,8 +211,16 @@ export function settleObservedOutcomes(leagueId, season) {
          VALUES (?, ?, 'observed', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     leagueId, season, sides.proposer, sides.counterparty,
     JSON.stringify(sides.give), JSON.stringify(sides.get),
-    p.proposed_at ?? null, status, String(p.tx_id), resolvedAt, now);
+    p.proposed_at ?? null, v ? v.status : 'proposed', String(p.tx_id), v ? v.at : null, now);
+    if (v && hasReason) {
+      run(`UPDATE trade_outcomes SET settle_reason = ? WHERE league_id = ? AND season = ? AND espn_tx_id = ?`,
+        v.reason, leagueId, season, String(p.tx_id));
+    }
     result.written++;
+  }
+  for (const r of rows(`SELECT status, COUNT(*) AS n FROM trade_outcomes
+      WHERE league_id = ? AND season = ? AND source = 'observed' GROUP BY status ORDER BY status`, leagueId, season)) {
+    result.by_status[r.status] = r.n;
   }
   return result;
 }

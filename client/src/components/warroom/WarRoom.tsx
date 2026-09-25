@@ -18,6 +18,7 @@ import { CoachDock, useWarRoomCoach, type Panel as CoachPanel } from './coach';
 import { useNegotiations } from './useWarRoom';
 import PeopleBoard, { DeckFocusBar, focusView } from './PeopleBoard';
 import BlueChipBoard from './BlueChipBoard';
+import { useDocTheme } from './useDocTheme';
 
 /**
  * The War Room: ONE dashboard, no page scroll (WAR-ROOM-UI.md v2).
@@ -106,7 +107,7 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
   const [swap, setSwap] = useState<PanelId | null>(null);
   const [focus, setFocus] = useState<string | null>(initialFocus ?? null);
   const [coachOpen, setCoachOpen] = useState(false);
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [theme, toggleTheme] = useDocTheme();
   const [phone, setPhone] = useState(false);
   const [deckPos, setDeckPos] = useState(0);
   const deckRef = useRef<HTMLElement | null>(null);
@@ -114,10 +115,9 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
   const coach = useWarRoomCoach({ leagueId: activeId, leagues: leagues.map(l => l.id), plans: view, onLeagueChange: onLeague });
   const coachMain = coach.ui.main;
 
-  // Theme starts from the system; the toggle overrides. Phone = < 700 px.
+  // Theme follows the app's (useDocTheme). Phone = < 700 px.
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return;
-    if (window.matchMedia('(prefers-color-scheme: dark)').matches) setTheme('dark');
     const mq = window.matchMedia('(max-width: 699px)');
     const on = () => setPhone(mq.matches);
     on();
@@ -188,7 +188,7 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
     <SourcesContext.Provider value={view.sources ?? {}}>
       <div className={`wr-root wr-app${people ? ' wr-people-on' : ''}`} data-theme={theme} data-testid="war-room-grid" style={rootStyle(people)}>
         <TopStrip view={view} leagues={leagues} activeId={activeId} onLeague={onLeague} onExit={onExit}
-          theme={theme} onTheme={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))} extra={layoutToggle} />
+          theme={theme} onTheme={toggleTheme} extra={layoutToggle} />
 
         <main className="wr-panels" ref={deckRef} aria-label="War Room panels"
           onScroll={e => {

@@ -133,7 +133,7 @@ main tbody tr:hover { background: var(--c-hover); }
    made "selected" and "primary action" stop reading as prominent anywhere in the
    app. Pale tint classes (-50/-100) stay pale; that part was already right. */
 .text-emerald-600, .text-emerald-700, .text-emerald-800 { color: var(--accent) !important; }
-.bg-emerald-500, .bg-emerald-600 { background-color: var(--accent) !important; color: #fff !important; }
+.bg-emerald-500, .bg-emerald-600 { background-color: var(--accent) !important; color: var(--c-accent-ink) !important; }
 .bg-emerald-500 *, .bg-emerald-600 * { color: inherit; }
 .bg-emerald-50, .bg-emerald-100 { background-color: var(--accent-tint) !important; color: var(--accent) !important; }
 /* -200/-300 are almost always a pale decorative/hover border — stay neutral.
@@ -158,7 +158,7 @@ main tbody tr:hover { background: var(--c-hover); }
 button.bg-slate-700, button.bg-slate-800, button.bg-slate-900, button.bg-slate-950,
 a.bg-slate-700, a.bg-slate-800, a.bg-slate-900, a.bg-slate-950 {
   background-color: var(--accent) !important;
-  color: #fff !important;
+  color: var(--c-accent-ink) !important;
   border-color: var(--accent) !important;
 }
 button.bg-slate-700 *, button.bg-slate-800 *, button.bg-slate-900 *, button.bg-slate-950 *,
@@ -181,16 +181,16 @@ a.bg-slate-700 *, a.bg-slate-800 *, a.bg-slate-900 *, a.bg-slate-950 * { color: 
 button.border-slate-800, button.border-slate-900,
 a.border-slate-800, a.border-slate-900 { border-color: var(--accent) !important; }
 .hover\:bg-slate-800:hover, .hover\:bg-slate-900:hover, .hover\:bg-slate-950:hover { background-color: var(--accent-strong) !important; }
-.bg-sky-600, .bg-blue-500 { background-color: var(--accent) !important; color: #fff !important; }
+.bg-sky-600, .bg-blue-500 { background-color: var(--accent) !important; color: var(--c-accent-ink) !important; }
 .bg-sky-600 *, .bg-blue-500 * { color: inherit; }
 .border-sky-600 { border-color: var(--accent) !important; }
 
 .quick-jump-button {
   display: inline-flex; align-items: center; gap: .55rem; border: 1px solid var(--edge);
-  background: rgb(255 255 255 / .72); color: var(--muted); border-radius: 999px;
+  background: color-mix(in srgb, var(--c-card) 72%, transparent); color: var(--muted); border-radius: 999px;
   padding: .4rem .55rem .4rem .8rem; font-size: .75rem; font-weight: 600;
 }
-.quick-jump-button:hover { background: #fff; border-color: var(--accent); }
+.quick-jump-button:hover { background: var(--c-card); border-color: var(--accent); }
 .quick-jump-button kbd { border: 1px solid var(--edge); background: var(--bg-1); border-radius: 6px; padding: .08rem .35rem; font-size: .62rem; color: var(--muted); }
 .quick-jump-backdrop { position: fixed; inset: 0; z-index: 200; display: grid; place-items: start center; padding: 12vh 1rem 1rem; background: rgb(28 30 26 / .18); backdrop-filter: blur(12px); }
 .quick-jump-panel { width: min(620px, 100%); overflow: hidden; border: 1px solid var(--edge); border-radius: 22px; background: var(--bg-1); box-shadow: 0 28px 80px rgb(28 30 26 / .18); }

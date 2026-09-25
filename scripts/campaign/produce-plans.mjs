@@ -70,8 +70,26 @@
  * the only field that can change, and only when its rank moved.
  * Pushes, the failed count and the summary line count only the leagues that ran.
  *
+ * REPRO-01 (reproducible runs; CLI only, the defaults behave as before):
+ *   --as-of <ISO>        one run clock (server/services/campaign/run-clock.js) for every world
+ *                        question: this week's offers, days left in the week, "not now" skip fade,
+ *                        send windows, the brain report's staleness, and the timing rows read
+ *                        (capped at the as-of). Default: the wall clock read once at start.
+ *                        Recorded in each entry's `_run.inputs.run.as_of` (`inputs` is the
+ *                        contract's free-form bookkeeping slot) and used as every value's `as_of`.
+ *   --db-snapshot [file] read ONLY a snapshot. Bare: a VACUUM INTO copy of GRIDIRON_DB_PATH taken
+ *                        at start. With a file: a working copy of that file (the given file is
+ *                        never written). Either copy sits next to the plans file and is deleted
+ *                        at exit; a sync landing mid-run can no longer change the answer. War Room
+ *                        requests are then stamped consumed only in that copy (a replay does not
+ *                        consume live requests).
+ *   --seed <n>           the planning world's seed (default tradeImpactSeed(lg), the served one).
+ *   Two runs with the same --as-of, --seed and snapshot write the same plans.json apart from
+ *   generated_at and the timing fields (_run.runtime_ms, _run.phases_ms): test/campaign-repro.test.js.
+ *
  * Usage:
  *   SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<db> node scripts/campaign/produce-plans.mjs [--leagues 1,2] [--flip-top 3] [--targets 3] [--no-finder] [--tick]
+ *     [--as-of 2026-09-24T12:00:00Z] [--db-snapshot [file]] [--seed 7]
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -86,6 +104,7 @@ import { rankAttention } from '../../server/services/campaign/attention.js';
 import { toEntry, failedEntry, plansFile, PRODUCER_VERSION } from '../../server/services/campaign/view.js';
 import { versionWithFlags } from '../../server/services/campaign/model-flags.js';
 import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
+import { runClock, stopwatch } from '../../server/services/campaign/run-clock.js';
 import { applyCoachMessages, coachMessagesOn } from '../../server/services/campaign/messages.js';
 import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
@@ -137,8 +156,10 @@ export const NIGHTLY_MINUTES = 24 * 60;
 export const NEWS_GAP_MINUTES = 60;
 
 /** Whether a --tick runs now. Pure. lastAt: the previous plans file's generated_at. */
-export function decideRun({ lastAt, now = Date.now(), newsHits = 0, force = false }) {
+export function decideRun({ lastAt, now = null, newsHits = 0, force = false }) {
+  // REPRO-01: "is a tick due" is a world question; the producer passes its run clock (ms).
   if (force) return { run: true, trigger: 'manual' };
+  if (!Number.isFinite(now)) throw new Error('decideRun: now (the run clock, ms) is required');
   const ageMin = lastAt ? (now - Date.parse(lastAt)) / 60_000 : Infinity;
   if (!(ageMin < NIGHTLY_MINUTES)) return { run: true, trigger: 'nightly' };
   if (newsHits > 0 && ageMin >= NEWS_GAP_MINUTES) return { run: true, trigger: 'news' };
@@ -192,13 +213,21 @@ function readPrevious(file) {
   }
 }
 
-function args(argv) {
-  const out = { leagues: null, flipTop: 3, targets: 3, finder: true, tick: false };
+export function args(argv) {
+  const out = { leagues: null, flipTop: 3, targets: 3, finder: true, tick: false, asOf: null, seed: null, snapshot: null };
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === '--leagues') {
       const raw = argv[++i];
       out.leagues = parseLeagueList(raw);
       if (!out.leagues && String(raw ?? '').trim().toLowerCase() !== 'all') out.leaguesBad = String(raw ?? '').slice(0, 40);
+    }
+    else if (argv[i] === '--as-of') out.asOf = argv[++i] ?? '';
+    else if (argv[i] === '--seed') {
+      out.seed = Number(argv[++i]);
+      if (!Number.isInteger(out.seed)) throw new Error('--seed: expected an integer');
+    } else if (argv[i] === '--db-snapshot') {
+      // Bare flag: take one at start. With a value (not another --flag): read (a copy of) that file.
+      out.snapshot = argv[i + 1] != null && !argv[i + 1].startsWith('--') ? { file: argv[++i] } : { take: true };
     }
     else if (argv[i] === '--flip-top') out.flipTop = Number(argv[++i]);
     else if (argv[i] === '--targets') out.targets = Number(argv[++i]);
@@ -267,10 +296,10 @@ export function takeLock(file) {
   return () => { try { fs.unlinkSync(lock); } catch (e) { if (e.code !== 'ENOENT') throw e; } };
 }
 
-/** The objectives/skips files alone (CLI, tests, the contract fixture): no DB, nothing to consume. */
-export function fileInputs(id, { objectiveRow = null, fileSkips = [] } = {}) {
+/** The objectives/skips files alone (CLI, tests, the contract fixture): no DB, nothing to consume. now: the run clock (ms). */
+export function fileInputs(id, { objectiveRow = null, fileSkips = [], now = null } = {}) {
   const raw = objectiveRow ?? {};
-  return { objective: normaliseObjective(raw, { leagueGoal: raw.goal ?? 'title' }), weights: skipWeights(fileSkips, id),
+  return { objective: normaliseObjective(raw, { leagueGoal: raw.goal ?? 'title' }), weights: skipWeights(fileSkips, id, now),
     consume: null, summary: { status: 'not_read', reason: 'files only (no warroom_requests read)' } };
 }
 
@@ -288,21 +317,27 @@ export function fileInputs(id, { objectiveRow = null, fileSkips = [] } = {}) {
 /**
  * leagues: [{ id, load: async () => ({ adapter, chat?, adapterMs? }) }]
  * opts: { generated_at, objectives ({ id: raw objective }), skips (rows), previous (Map id -> last entry),
- *         inputs ({ skips } read status), clock, budget, env (FEAS-140 flags; main() passes process.env), log,
+ *         inputs ({ skips } read status), clock (elapsed-time stopwatch, ms), budget, env (FEAS-140 flags; main() passes process.env), log,
+ *         asOf (REPRO-01: the run clock's ISO instant; default generated_at), run (recorded as
+ *         `_run.inputs.run` when given: { as_of, as_of_source, seed, db }),
  *         flags (FIX-02b, optional): model-flags.js#modelFlags() for the head's producer_version,
  *         model (PLAN-BASELINE, optional): planModelKey() for this run, stamped on `_run.inputs.model`; a previous
  *           trajectory made under another key is not compared with (view.js#planBaseline),
  *         brain (FIX-05, optional): { read: readBrainReport result, applyBrainReport, numberHealth: id -> readNumberHealth result },
- *         leagueInputs (FIX-07, optional): (id, { objectiveRow, fileSkips }) -> { objective, weights, consume, summary }
+ *         leagueInputs (FIX-07, optional): (id, { objectiveRow, fileSkips, now }) -> { objective, weights, consume, summary }
  *           (requests.js#leagueInputs; default: the objectives/skips files alone),
  *         consumed (optional array): each league that ships pushes its `consume` here for requests.js#consumeWith }
  * Without `brain`, brain_report and number_health are unknown "not read" and the requested mode is planned.
  */
 export async function buildPlansFile(leagues, {
-  generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, env = {}, log = () => {},
+  generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = stopwatch, budget = {}, env = {}, log = () => {},
   flags = null, brain = null, leagueInputs = fileInputs, consumed = null, twoForOne = 'off', trigger = null, model = null,
+  asOf = null, run = null,
 } = {}) {
   const entries = [], best = new Map();
+  // REPRO-01: the world's time for every league (skip fade, brain staleness, each value's as_of).
+  const as_of = asOf ?? generated_at;
+  const asOfMs = Date.parse(as_of);
   for (const { id, load } of leagues) {
     const t0 = clock();
     const prev = previous.get(String(id)) ?? null;
@@ -316,18 +351,18 @@ export async function buildPlansFile(leagues, {
         adapter.searchStats = newSearchStats(true);
       }
       // FIX-07: War Room requests fold into the objective and skip weights (files as fallback).
-      const ins = leagueInputs(id, { objectiveRow: objectives[String(id)] ?? null, fileSkips: skips });
+      const ins = leagueInputs(id, { objectiveRow: objectives[String(id)] ?? null, fileSkips: skips, now: asOfMs });
       const requested = ins.objective;
       // FIX-05: the brain report gates the risk mode before planning; the plan is built on the effective mode.
       const gate = brain ? brain.applyBrainReport({ objective: requested, report: brain.read.report, error: brain.read.error,
-        now: new Date(generated_at) }) : null;
+        now: new Date(asOfMs) }) : null;
       const objective = gate ? gate.objective : requested;
       if (gate?.rule.fell_back) log(`[warroom] league ${id}: ${gate.rule.reason}`);
       res = planLeague(adapter, { objective, skips: ins.weights, budget, env });
       const rosterKey = res.error ? null : adapter.rosterKey?.() ?? null;
       const changed = diffNextMove(prev?._run ?? null, { next_step: res.best?.steps[0] ?? null,
         objective_version: objective.version, risk_mode: objective.risk_mode, roster_key: rosterKey });
-      entry = toEntry(res, { names: adapter.names(), teams: adapter.teams?.() ?? null, as_of: generated_at, previous: prev, changed, model,
+      entry = toEntry(res, { names: adapter.names(), teams: adapter.teams?.() ?? null, as_of, previous: prev, changed, model,
         brain: gate, number_health: brain ? brain.numberHealth(id) : null, blue_chips: adapter.blueChips?.() ?? null });
       if (entry._run) {
         entry._run.roster_key = rosterKey;
@@ -353,6 +388,7 @@ export async function buildPlansFile(leagues, {
             read_error: brain.read.error } : { status: 'not_read' },
           // PRODUCER-FAST: hits / misses of the rescore cache, only when the flag gave the run one.
           ...(adapter.cacheStats?.() ? { rescore_cache: adapter.cacheStats() } : {}),
+          ...(run ? { run } : {}),
         };
       }
       // COACH-MSG (#306): grounded messages into the contract's existing slots, before the contract check.
@@ -392,18 +428,51 @@ export function pushesOf(file) {
     .map(e => ({ league: e.league, at: file.generated_at, reason: e._run.changed.reason, next: e._run.changed.next_key }));
 }
 
+/** The DB the producer would read: db/index.js's own default when GRIDIRON_DB_PATH is unset. */
+const liveDbPath = env => path.resolve(env.GRIDIRON_DB_PATH
+  || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'server', 'data.sqlite'));
+
+/**
+ * REPRO-01 --db-snapshot -> the working copy the run reads, at `dest`. { take: true }: VACUUM INTO a
+ * consistent copy of `src` (one read transaction, so a sync landing mid-copy is all in or all out).
+ * { file }: a copy of that snapshot (VACUUM INTO as well), so the given file is never written and two
+ * replays of it start from the same bytes. Returns { file, source, from, cleanup } or null (no flag).
+ * Must run before the DB module is first imported (loadServices).
+ */
+export async function prepareSnapshot(spec, { src, dest }) {
+  if (!spec) return null;
+  const from = path.resolve(spec.file ?? src);
+  if (!fs.existsSync(from)) throw new Error(`--db-snapshot: ${spec.file ? 'snapshot' : 'live DB'} ${from} not found`);
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(from, { readOnly: true });
+  try { db.exec(`VACUUM INTO '${dest.replace(/'/g, "''")}'`); } finally { db.close(); }
+  const cleanup = () => {
+    for (const f of [dest, `${dest}-wal`, `${dest}-shm`]) { try { fs.unlinkSync(f); } catch (e) { if (e.code !== 'ENOENT') throw e; } }
+  };
+  return { file: dest, source: spec.file ? 'given' : 'taken at start', from, cleanup };
+}
+
 async function main() {
-  const t0 = Date.now();
+  const t0 = stopwatch();
   const opts = args(process.argv);
   const env = process.env;
+  // REPRO-01: the one run clock. Every world question below reads clock.ms; nothing reads the wall clock again.
+  const clock = runClock(opts.asOf);
   const out = plansPath();
   fs.mkdirSync(path.dirname(out), { recursive: true });
   const release = takeLock(out);
   if (!release) { console.log('warroom_plans skipped: another run holds the lock'); return; }
+  let snapshot = null;
   try {
+    snapshot = await prepareSnapshot(opts.snapshot, { src: liveDbPath(env), dest: `${out}.snapshot-${process.pid}.sqlite` });
+    // server/db/index.js reads GRIDIRON_DB_PATH once, when first imported (loadServices / the dynamic imports below).
+    if (snapshot) env.GRIDIRON_DB_PATH = snapshot.file;
+    console.log(`warroom_plans started as_of ${clock.iso}${clock.explicit ? ' (--as-of)' : ''} pid ${process.pid}`
+      + `${snapshot ? ` db snapshot (${snapshot.source})` : ''}${opts.seed != null ? ` seed ${opts.seed}` : ''}`);
     const { loadServices, buildAdapter, producerFastEnabled } = await import('./league-adapter.mjs');
     const { readRescoreCache, writeRescoreCache, leagueCache } = await import('./rescore-cache.mjs');
-    const svc = await loadServices();
+    // REPRO-01: FantasyPros staleness at the run clock; a replay (--as-of / --db-snapshot) never syncs.
+    const svc = await loadServices({ env, now: clock.ms, sync: !(clock.explicit || snapshot) });
     const allIds = svc.db.rows('SELECT id FROM leagues ORDER BY id').map(r => r.id);
     if (opts.leaguesBad) console.log(`[warroom] --leagues ${JSON.stringify(opts.leaguesBad)} is not a comma list of league ids; planning every league`);
     if (opts.leagues) console.log(`[warroom] leagues ${opts.leagues.join(',')} only; the others keep their previous entries`);
@@ -414,12 +483,13 @@ async function main() {
       try { lastAt = fs.existsSync(out) ? JSON.parse(fs.readFileSync(out, 'utf8')).generated_at ?? null : null; } catch { lastAt = null; }
       const { normalizePlayerName } = await import('../../server/services/player-identity.js');
       const newsHits = lastAt ? newsHitsSince(svc.db, leagueIds, lastAt, normalizePlayerName) : 0;
-      const d = decideRun({ lastAt, newsHits });
+      // REPRO-01: whether a tick is due is a world question -> the run clock.
+      const d = decideRun({ lastAt, now: clock.ms, newsHits });
       if (!d.run) { console.log(`warroom_plans skipped: ${d.reason}`); return; }
       trigger = d.trigger;
     }
     const twoForOne = twoForOneFlag(env);
-    console.log(`warroom_plans started ${new Date().toISOString()} pid ${process.pid} trigger ${trigger} two_for_one ${twoForOne}`);
+    console.log(`[warroom] trigger ${trigger} two_for_one ${twoForOne}`);
     const { chatRowsFor } = await import('./chat-labels.mjs');
     // ONE-COUNTERPART (RULINGS 17): GRIDIRON_COUNTERPART=1, or the local preview switch; =0 vetoes.
     const { flagOn, counterpartsFor } = await import('./counterpart-inputs.mjs');
@@ -446,14 +516,16 @@ async function main() {
     const leagues = leagueIds
       .map(id => ({ id, load: async () => {
         const chat = await chatRowsFor(id);
-        const ta = Date.now();
+        const ta = stopwatch();
         const rescoreCache = fast ? leagueCache(cacheIn.leagues[String(id)] ?? {}) : null;
         if (rescoreCache) caches.set(String(id), rescoreCache);
-        const adapter = buildAdapter(svc, id, { chat: chat.rows, finder: opts.finder, fast, rescoreCache });
+        const adapter = buildAdapter(svc, id, { chat: chat.rows, finder: opts.finder,
+          now: clock.ms, timingCutoff: clock.explicit ? clock.iso : null, seed: opts.seed, fast, rescoreCache });
         let counterpart = { status: 'off', reason: 'GRIDIRON_COUNTERPART unset and the preview switch off (or =0)' };
         let people = null;
         if (counterpartOn && !adapter.fail) {
-          const cp = await counterpartsFor(svc, id, adapter);
+          // REPRO-01: counterpart trade events are read as of the run clock, not the wall clock.
+          const cp = await counterpartsFor(svc, id, adapter, { now: clock.ms });
           adapter.counterparts = cp.counterparts;
           counterpart = cp.summary;
           people = cp.people ?? null;
@@ -466,10 +538,15 @@ async function main() {
           profiles = new Map([...(people.byRoster ?? new Map())].filter(([, e]) => e.status === 'ok' && e.profile)
             .map(([r, e]) => [String(r), e.profile]));
         }
-        return { adapter, chat, adapterMs: Date.now() - ta, counterpart, profiles };
+        return { adapter, chat, adapterMs: stopwatch() - ta, counterpart, profiles };
       } }));
 
-    const generated_at = new Date().toISOString();
+    // generated_at is when the file was written (the reader's freshness stamp). Default: the run clock
+    // (read once at start), so as_of == generated_at as before. With --as-of it is the one justified
+    // wall-clock read: a replay is written now, about an earlier world; comparisons exclude it.
+    const generated_at = clock.explicit ? new Date().toISOString() : clock.iso;
+    const run = { as_of: clock.iso, as_of_source: clock.explicit ? '--as-of' : 'wall clock at start',
+      seed: opts.seed ?? 'tradeImpactSeed', db: snapshot ? `snapshot (${snapshot.source})` : 'live' };
     // FIX-05: one report card for the whole run; every league is gated on the same read.
     const brainRead = readBrainReport(svc.db.db);
     console.log(`[warroom] brain report: ${brainRead.error ? `UNREADABLE ${brainRead.error}`
@@ -477,7 +554,7 @@ async function main() {
     const brain = { read: brainRead, applyBrainReport, numberHealth: id => readNumberHealth(svc.db.db, id, { read: readNumberAudit }) };
     const consumed = [];
     // Checked with validatePlans inside; a file that fails throws here and the previous file stays.
-    const file = await buildPlansFile(leagues, { generated_at, objectives, skips: skips.rows, previous,
+    const file = await buildPlansFile(leagues, { generated_at, asOf: clock.iso, run, objectives, skips: skips.rows, previous,
       inputs: { skips: { status: skips.status, bad_lines: skips.bad } }, leagueInputs, consumed,
       budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags, brain, twoForOne, trigger, env,
       // PLAN-BASELINE: "this week's plan" compares only with a plan made under this same model.
@@ -486,7 +563,13 @@ async function main() {
     // FIX-08: reasoning goes into each move before the one atomic write. Both gates
     // off (or either) -> no call, and every move says why its panel is missing.
     const { reasonPlans } = await import('../reasoning/reason-plans.mjs');
-    const reasoning = await reasonPlans({ plans: file, plansFile: out, env, log: l => console.log(JSON.stringify(l)) });
+    // REPRO-01: plan-reasoning.js stamps each move's reasoning with plans.generated_at; under --as-of
+    // it sees the run clock instead (the same as_of as every other value), and the write stamp is restored.
+    const writtenAt = file.generated_at;
+    file.generated_at = clock.iso;
+    let reasoning;
+    try { reasoning = await reasonPlans({ plans: file, plansFile: out, env, log: l => console.log(JSON.stringify(l)) }); }
+    finally { file.generated_at = writtenAt; }
     if (reasoning.result.status === 'failed') console.error(`[warroom] reasoning step failed: ${reasoning.result.error}`);
     console.log(`[warroom] reasoning ${JSON.stringify(reasoning.summary)}`);
     // A --leagues run keeps every other league's previous entry untouched.
@@ -517,9 +600,11 @@ async function main() {
     const entries = file.leagues;
     const failed = entries.filter(e => e.error).length;
     const keptNote = written === file ? '' : ` kept ${written.leagues.length - entries.length}`;
-    console.log(`warroom_plans ${failed ? 'PARTIAL' : 'ok'} leagues ${entries.length} failed ${failed} changed ${pushes.length}${keptNote} (${Math.round((Date.now() - t0) / 1000)} s) -> ${out}`);
+    console.log(`warroom_plans ${failed ? 'PARTIAL' : 'ok'} leagues ${entries.length} failed ${failed} changed ${pushes.length}${keptNote} (${Math.round((stopwatch() - t0) / 1000)} s) -> ${out}`);
     if (failed === entries.length && entries.length) process.exitCode = 1;
-  } finally { release(); }
+  } finally {
+    try { snapshot?.cleanup(); } finally { release(); }
+  }
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

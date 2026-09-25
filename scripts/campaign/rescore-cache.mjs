@@ -14,6 +14,7 @@
  * Each run keeps only the worlds it used (`next`), so the file never grows past one run.
  */
 import fs from 'node:fs';
+import { stopwatch } from '../../server/services/campaign/run-clock.js';
 
 export const CACHE_VERSION = 1;
 
@@ -93,7 +94,7 @@ export function leagueCache(prev = {}) {
   const stats = { hits: 0, misses: 0, print_ms: 0, worlds: 0 };
   return {
     next, stats,
-    wrap(w, lg, rescore, resolveB, now = () => Date.now()) {
+    wrap(w, lg, rescore, resolveB, now = stopwatch) {
       const t0 = now();
       const fp = worldPrint(w, lg);
       stats.print_ms += now() - t0;

@@ -15,6 +15,7 @@
  *   sanity            composed rescore == served tradeImpact on one one-for-one deal
  */
 import { chatLabels } from '../../server/services/campaign/partners.js';
+import { stopwatch } from '../../server/services/campaign/run-clock.js';
 import { resolveUntouchables, untouchableIds } from '../../server/services/people/profile-reader.js';
 import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
@@ -77,12 +78,16 @@ const FLEX = { FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'], WRRB_FLEX: ['RB
   SUPER_FLEX: ['QB', 'RB', 'WR', 'TE'], OP: ['QB', 'RB', 'WR', 'TE'] };
 const DAY = 864e5;
 
-export async function loadServices({ env = process.env } = {}) {
+export async function loadServices({ env = process.env, now = undefined, sync = true } = {}) {
   const db = await import('../../server/db/index.js');
   // PLAYER-SCORE: refresh the FantasyPros rest-of-season cache (a read-only GET of the public
   // DynastyProcess file, at most once a day) only when the board is on. A failure is carried to
   // the board as its reason, never thrown.
-  const fpSync = playerScoreFlag(env) !== 'off' ? await syncIfStale(db) : { status: 'off' };
+  // REPRO-01: the producer passes its run clock (staleness is judged at the as-of) and sync: false
+  // for a replay (--as-of / --db-snapshot), which reads the DB as it is and never fetches into it.
+  const fpSync = playerScoreFlag(env) === 'off' ? { status: 'off' }
+    : !sync ? { status: 'skipped', reason: 'replay (--as-of / --db-snapshot): the FantasyPros cache is read as stored' }
+      : await syncIfStale(db, Number.isFinite(now) ? { now } : {});
   return {
     db, fpSync,
     sim: await import('../../server/services/season-sim.js'),
@@ -194,15 +199,19 @@ export function sentThisWeek(svc, leagueId, season, me, now) {
  * Build the adapter for one league. chat: Map roster -> { profile, negotiation, sentiment: [{ player
  * (name), sentiment_mean, n }], nick } from scripts/campaign/chat-labels.mjs, or null (no chat -> every
  * label 'unknown').
+ * REPRO-01: now is the producer's run clock in ms (run-clock.js; required, no wall-clock default);
+ * timingCutoff: the explicit --as-of (ISO) or null (timing rows read uncapped, as before);
+ * seed: --seed, the planning world's seed, or null for tradeImpactSeed(lg).
  */
-export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
-  rescoreCache = null } = {}) {
+export function buildAdapter(svc, leagueId, { chat = null, now = null, timingCutoff = null, seed = null, finder = true,
+  fast = producerFastEnabled(), rescoreCache = null } = {}) {
+  if (!Number.isFinite(now)) throw new Error('buildAdapter: now (the run clock, ms) is required');
   const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg) throw new Error(`league ${leagueId} not found`);
   const payload = JSON.parse(lg.payload ?? '{}');
   const me = String(lg.my_team_id);
   const { tradeImpactWorld, tradeImpact, __test: { lineupPoints } } = svc.sim;
-  const w0 = tradeImpactWorld(lg, { fastLineups: fast });
+  const w0 = tradeImpactWorld(lg, { ...(seed == null ? {} : { seed }), fastLineups: fast });
   if (w0.fail) return { fail: String(w0.fail?.error ?? w0.fail) };
   const assets = w0.prep.assets;
   const worlds = new Map([[w0.key.seed, w0]]);
@@ -285,7 +294,7 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   const week = svc.week.leagueCurrentWeek(lg);
   const season = lg.season ?? payload.seasonId;
   const layer = svc.cp.counterpartyLayer(leagueId, { season, week });
-  const timing = svc.tactics.timingRead(leagueId, { season });
+  const timing = svc.tactics.timingRead(leagueId, { season, now: timingCutoff });
   const blocked = new Set(svc.db.rows(`SELECT roster_id FROM manager_profiles WHERE league_id = ? AND tradeability = 'never'`, leagueId)
     .map(r => String(r.roster_id)));
   const sent = sentThisWeek(svc, leagueId, season, me, now);
@@ -298,7 +307,9 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     if (t === me) continue;
     const m = layer.get(t) ?? null;
     const tm = timing.get(t) ?? null;
-    const send = svc.tactics.sendWindow(tm, { now });
+    // A Date, not ms: sendWindow reads now through toTime, which parses strings and Dates only; a bare
+    // number there is null and sendWindow falls back to the wall clock (REPRO-01 review).
+    const send = svc.tactics.sendWindow(tm, { now: new Date(now) });
     managers.set(t, {
       receptiveness: m?.receptiveness ?? null, tier: m?.tier ?? null, needs: m?.needs ?? null,
       blocked: blocked.has(t),
@@ -390,7 +401,10 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     scoreOf: id => board.byId?.get(String(id)) ?? null,
     boardOf: id => { const r = board.byId?.get(String(id)); return r ? { score: r.score, label: r.label, hurt: r.hurt, gaps: r.gaps, protected: r.protected } : null; },
     ...(finder ? { finderBest } : {}),
-    now: () => Date.now(),
+    // planner.js times its phases with adapter.now (runtime_ms / phases_ms): elapsed time, not the world.
+    now: stopwatch,
+    // REPRO-01: the run clock (ms) for world questions the planner asks (the partner kernel's cutoff).
+    asOfMs: now,
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     teams: () => teamNames(payload, new Map([...(svc.identity?.identityMap(leagueId) ?? [])].map(([r, i]) => [String(r), i.chat_name]))),
     rosterKey: () => [...rosters.entries()].map(([t, ids]) => `${t}:${[...ids].sort((a, b) => a - b).join(',')}`).join('|'),

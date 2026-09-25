@@ -10,7 +10,9 @@ import { counterpartFlag } from '../../server/services/people/counterpart.js';
 export const flagOn = (env = process.env) => counterpartFlag(env).on;
 
 /** adapter: scripts/campaign/league-adapter.mjs#buildAdapter result. */
-export async function counterpartsFor(svc, leagueId, adapter, { now = Date.now() } = {}) {
+export async function counterpartsFor(svc, leagueId, adapter, { now = null } = {}) {
+  // REPRO-01: the producer's run clock (ms); no wall-clock default, so a replay reads the same trades.
+  if (!Number.isFinite(now)) throw new Error('counterpartsFor: now (the run clock, ms) is required');
   const { peopleProfile } = await import('../../server/services/people/profile-reader.js');
   const { counterpartsFromPeople, peopleCounterpart, tradeEvents } = await import('../../server/services/people/counterpart.js');
   const playersByRoster = new Map([...adapter.rosters].map(([t, ids]) => [String(t), ids.map(id => adapter.players.get(id)).filter(Boolean)]));

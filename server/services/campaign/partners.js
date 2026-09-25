@@ -140,10 +140,13 @@ export function shadowResponds(pr, labels) {
  * from that league's completed trades as of opts.now (leagueKernel; opts.readRows replaces the DB read).
  */
 export function rankPartners(managers, edgeByTeam, people = null,
-  { kernel = null, league = null, now = Date.now(), readRows, flag = partnerKernelFlag() } = {}) {
+  { kernel = null, league = null, now = null, readRows, flag = partnerKernelFlag() } = {}) {
   let kernelStatus = kernel ? 'ok' : null;
   if (flag?.on && !kernel && league) {
-    const built = leagueKernel({ league, candidates: [...managers.keys()].map(String), now, ...(readRows ? { readRows } : {}) });
+    // REPRO-01: the producer passes its run clock (planner.js <- adapter.asOfMs); a caller without one
+    // (fixtures, the web route) gets leagueKernel's own default, as before.
+    const built = leagueKernel({ league, candidates: [...managers.keys()].map(String),
+      ...(Number.isFinite(now) ? { now } : {}), ...(readRows ? { readRows } : {}) });
     kernel = built.kernel;
     kernelStatus = built.status;
   }
@@ -191,12 +194,15 @@ const nickSummary = n => ({ unreachable: !!n.unreachable, active: !!n.in_active_
 /**
  * The skip log for one league -> weights. skips: [{ league, player?, manager?, reason, at }].
  * Returns { player: Map id -> w, manager: Map team -> w }; weights multiply (two skips sink more).
+ * now: the producer's run clock in ms (REPRO-01, run-clock.js). There is no wall-clock default:
+ * a "not now" skip fades against the run's as-of, so a replay at the same --as-of reads the same.
  */
-export function skipWeights(skips, leagueId, now = Date.now()) {
+export function skipWeights(skips, leagueId, now = null) {
   const player = new Map(), manager = new Map();
   for (const s of skips ?? []) {
     if (String(s.league) !== String(leagueId)) continue;
     const reason = SKIP_WEIGHT[s.reason] != null ? s.reason : 'other';
+    if (reason === 'not_now' && !Number.isFinite(now)) throw new Error('skipWeights: a "not now" skip needs the run clock (now, ms)');
     if (reason === 'not_now' && Number.isFinite(Date.parse(s.at)) && now - Date.parse(s.at) > NOT_NOW_DAYS * 864e5) continue;
     const w = SKIP_WEIGHT[reason];
     if (s.player != null) player.set(String(s.player), (player.get(String(s.player)) ?? 1) * w);

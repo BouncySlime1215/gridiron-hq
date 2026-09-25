@@ -52,7 +52,6 @@
     "client/src/components/coach/coach.types.ts",
     "client/src/features/model-lab/ModelRegistryPanel.tsx",
     "client/src/pages/Edge.tsx",
-    "client/src/pages/Model.tsx",
     "client/src/pages/Projections.tsx",
     "client/src/pages/Rankings.tsx",
     "scripts/_recheck-variance-only.mjs",
@@ -115,7 +114,7 @@
   "_NEWLY_BASELINED_2026_09_19": {
     "_why": "Baselined at the moment PR #36 was rebased onto merged main (791b131), NOT because it is fine. A gate that is red the day it arrives gets switched off. Found by the post-merge delta run, verified by hand in the merged tree, and sent to its owning thread as work. Remove the entry when the work lands. Distinct from _PERMANENT_ORPHAN_REASONS below, which are modules that are SUPPOSED to reach nothing.",
     "league_season_teams": "Read at manager-archetypes.js:243/:819/:831, reached from the trades surface. Only writer is scripts/backfill-league-history.mjs:112, run by hand. Owner: whoever landed the league-history work.",
-    "client/src/pages/*.tsx (Edge, Model, Projections, Rankings)": "Found by the UI-rebuild thread, verified independently: none of the four is imported by any file under client/src and none is lazy-routed in App.tsx. Fallout from commit 1694694, the nine-tab removal, which deleted the pages Nick named and left these behind. NO USER-FACING LOSS: App.tsx:145 redirects /rankings and /projections to /league, and MyTeam.tsx:62 calls the same /model/:id/simulate endpoint Model.tsx used, so the championship odds are still reachable through League Hub. Dead code, not a missing surface. Baselined rather than deleted because removing four page files is the UI thread's call and not this one's. Owner: the UI-rebuild thread. Remove these entries when the files go.",
+    "client/src/pages/*.tsx (Edge, Projections, Rankings)": "Model.tsx, the fourth, was deleted in batch D 8c (its six /model/* routes were gone, so it could only draw errors). Found by the UI-rebuild thread, verified independently: none of the four is imported by any file under client/src and none is lazy-routed in App.tsx. Fallout from commit 1694694, the nine-tab removal, which deleted the pages Nick named and left these behind. NO USER-FACING LOSS: App.tsx:145 redirects /rankings and /projections to /league, and MyTeam.tsx:62 calls the same /model/:id/simulate endpoint Model.tsx used, so the championship odds are still reachable through League Hub. Dead code, not a missing surface. Baselined rather than deleted because removing four page files is the UI thread's call and not this one's. Owner: the UI-rebuild thread. Remove these entries when the files go.",
     "module-imported-by-nothing (11 pre-existing)": "Baselined when module-imported-by-nothing joined the gating set. Until then a new module imported by a TEST failed the build while one imported by NOTHING AT ALL passed — the strictly worse case got through. These 11 predate the rule gating and are listed so it fails on the next one. Not a verdict that any is fine: server/services/espn-market.js is the syncEspnMarket file, already grandfathered in source under producer-with-no-caller and owned by the feature-audit thread; the three scripts/_*.mjs are throwaway harnesses; the rest are unreviewed. Remove an entry when its module is wired or deleted."
   },
   "_PERMANENT_ORPHAN_REASONS": {

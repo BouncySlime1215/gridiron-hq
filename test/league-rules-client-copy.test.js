@@ -23,7 +23,7 @@ test('CE-05: playoffWeeksText says nothing rather than guess when the weeks are 
   assert.equal(playoffWeeksText([]), null);
 });
 
-for (const page of ['client/src/pages/Model.tsx', 'client/src/pages/MyTeam.tsx']) {
+for (const page of ['client/src/pages/MyTeam.tsx']) { // Model.tsx was retired (batch D 8c)
   test(`CE-05: ${page} renders the sim's playoff_weeks, not hard-coded weeks`, () => {
     const src = fs.readFileSync(page, 'utf8');
     assert.doesNotMatch(src, /15[–-]17/, 'no hard-coded "weeks 15–17"');

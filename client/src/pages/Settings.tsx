@@ -16,9 +16,9 @@ import { useCoach } from '../state/coach';
  * access, league chat, the player database), Health (number health and data freshness, one view),
  * and AI & developer (API key, workspace, usage, identity audit).
  *
- * Model diagnostics (the map's fourth view) is not here: the server no longer serves the routes
- * Model.tsx reads (/model/status, /accuracy, /correlations, /gamescript, /availability, /handcuffs
- * all 404), so reviving it needs a server unit first.
+ * Model diagnostics (the map's fourth view) is retired (batch D 8c): the server no longer served the
+ * routes Model.tsx read (/model/status, /accuracy, /correlations, /gamescript, /availability,
+ * /handcuffs all 404) and nothing imported the page, so it was deleted. Title odds live on My team.
  *
  * This page used to also carry a manual "League ID / season / espn_s2 / SWID" form that saved into
  * a single global settings row nothing read any more; it was removed earlier. ESPN news is pulled in

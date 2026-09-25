@@ -908,10 +908,12 @@ test('a page is an orphan only when nothing imports it, tabs included', () => {
 test('every page-never-routed finding is baselined or the gate would be red on arrival', async () => {
   const ann = JSON.parse(await readFile(new URL('../docs/wiring/annotations.json', import.meta.url)));
   const accepted = ann.accepted_orphan_modules ?? [];
-  for (const f of ['Edge', 'Model', 'Projections', 'Rankings']) {
+  for (const f of ['Edge', 'Projections', 'Rankings']) {
     assert.ok(accepted.includes(`client/src/pages/${f}.tsx`),
       `${f}.tsx is a known unrouted page and must be baselined, not left to fail the build on arrival`);
   }
+  // Model.tsx was deleted (batch D 8c), so its baseline entry went with it: a stale accept entry is a defect.
+  assert.ok(!accepted.includes('client/src/pages/Model.tsx'), 'the retired Model.tsx is no longer baselined');
 });
 
 

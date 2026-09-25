@@ -62,6 +62,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { warRoomFlag, warRoomPlansPath } from '../server/services/warroom-flag.js';
 import { sourceTablesEnabled } from '../server/services/eval/sources/flag.js';
+import { reachFlag, REACH_TARGETS } from '../server/services/campaign/reach.js';
 
 // Before any server module is imported: the scheduler must never start in this process.
 process.env.SCHEDULER_DISABLED = '1';
@@ -256,8 +257,10 @@ export function warRoomPlans({ launch = launchDetached, log = console.log, recor
     return;
   }
   const only = warRoomLeagues(env);
+  // REACH-01: with GRIDIRON_REACH=1 (default off) the loop searches 8 targets (ONE-PLAN night 1), else the producer's 3.
+  const reach = reachFlag(env) !== 'off';
   const pid = launch(process.execPath, ['--env-file-if-exists=.env', 'scripts/campaign/produce-plans.mjs',
-    ...(only ? ['--leagues', only] : [])], { cwd: ROOT, env, log: files.log });
+    ...(only ? ['--leagues', only] : []), ...(reach ? ['--targets', String(REACH_TARGETS)] : [])], { cwd: ROOT, env, log: files.log });
   log(`${stamp()} ${'warroom_plans'.padEnd(18)} launched (pid ${pid}${only ? `, leagues ${only}` : ''}); last: ${(last ?? 'none yet').slice(0, 160)}`);
 }
 

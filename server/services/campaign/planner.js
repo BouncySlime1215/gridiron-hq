@@ -13,7 +13,7 @@
  * Room JSON.
  */
 import { dealKey, pathExpectation, combos, linearNick, screenPct } from './paths.js';
-import { rankPlans, compareModes, tolerancesFor, MODES, shadowShrink, beatsNoTrade as beatsNoTradeUnder } from './modes.js';
+import { rankPlans, compareModes, tolerancesFor, MODES, shadowShrink, riskRuleOn, beatsNoTrade as beatsNoTradeUnder } from './modes.js';
 import { metricOf, pointsFeasibility, targetFeasibility, weeklySummary } from './objectives.js';
 import { priceLadder, stepMessage, replyTable } from './playbook.js';
 import { coachMessagesOn } from './messages.js';
@@ -119,6 +119,8 @@ export function planLeague(adapter, settings) {
   const { objective } = settings;
   const env = settings.env ?? {};
   const waitEnabled = waitOrActOn(env);
+  // RISK-RULE (shadow, GRIDIRON_RISK_RULE=1): each mode's own decision rule ranks the plans; off, unchanged.
+  const rule = riskRuleOn(env);
   const budget = { flipTopPer: 3, flipRealise: 6, targets: 3, ...(settings.budget ?? {}) };
   const L = adapter.league;
   const me = L.me;
@@ -273,7 +275,7 @@ export function planLeague(adapter, settings) {
   });
   const pool = objective.kind === 'player' ? plans.filter(p => String(p.target) === String(objective.target)) : plans;
   const { tol, ctx } = ctxFor(objective.risk_mode);
-  const { ranked, dropped } = rankPlans(pool, objective.risk_mode, tol, ctx);
+  const { ranked, dropped } = rankPlans(pool, objective.risk_mode, tol, ctx, { rule });
 
   // Confirm on fresh dice: re-price the deck on an independent seed, show those numbers, drop failures.
   // NO-TRADE-SHRINK: a card must also beat keeping the roster (score 0) under its mode on the fresh dice.
@@ -300,10 +302,18 @@ export function planLeague(adapter, settings) {
       return { ...st, depth_premium: { ...st.depth_premium, confirmed: h.ok ? { points_delta: h.points_delta, title_delta: h.title_delta } : null } };
     });
     if (v.premium_failed && active) premium.confirm_failed++;
-    const scored = rankPlans([re], mode, { ...tolM, max_downside_per_step: Infinity }, { ...ctxM, core: null }).ranked[0];
-    return { ...re, score: scored?.score ?? -Infinity, beats_no_trade: beatsNoTradeUnder(scored, mode), mode, confirm: v, planned_on: p };
+    const scored = rankPlans([re], mode, { ...tolM, max_downside_per_step: Infinity }, { ...ctxM, core: null }, { rule }).ranked[0];
+    return { ...re, score: scored?.score ?? -Infinity, beats_no_trade: beatsNoTradeUnder(scored, mode, { rule }), mode, confirm: v, planned_on: p };
   };
+  // Nick's rule, kept apart from the ranking score: the move must beat doing nothing on the confirm dice.
   const beatsNoTrade = p => p.confirm.verdict !== 'failed' && p.beats_no_trade;
+  // RISK-RULE: Balanced regret is scored against the other cards that beat doing nothing on the confirm dice.
+  const regretRescore = (priced, mode, tolM, ctxM) => {
+    if (!rule || mode !== 'balanced') return priced;
+    const regretPool = priced.filter(beatsNoTrade);
+    const tolR = { ...tolM, max_downside_per_step: Infinity }, ctxR = { ...ctxM, core: null, regretPool };
+    return priced.map(q => ({ ...q, score: rankPlans([q], mode, tolR, ctxR, { rule }).ranked[0]?.score ?? -Infinity }));
+  };
   const confirmDeck = (rankedM, mode, tolM, ctxM) => {
     const active = mode === objective.risk_mode;
     const top = deckOf(rankedM, DECK_SIZE + 2);
@@ -312,13 +322,13 @@ export function planLeague(adapter, settings) {
       if (active) premium.confirm_failed += top.filter(p => p.steps.some(st => st.depth_premium)).length;
       return [];
     }
-    const priced = top.map(p => priceOnConfirm(p, mode, tolM, ctxM, active));
+    const priced = regretRescore(top.map(p => priceOnConfirm(p, mode, tolM, ctxM, active)), mode, tolM, ctxM);
     const kept = priced.filter(beatsNoTrade);
     if (active) {
       const failed = priced.filter(p => p.confirm.verdict === 'failed').length;
       confirmCounts = { checked: top.length, failed, not_above_no_trade: priced.length - failed - kept.length };
     }
-    return kept.sort((a, b) => b.score - a.score).slice(0, DECK_SIZE);
+    return kept.sort((a, b) => (b.score - a.score) || (rule ? b.expected - a.expected : 0)).slice(0, DECK_SIZE);
   };
   // integration-7: backups, BATNAs and catch-up moves come only from plans that beat doing nothing on the
   // confirm dice under the active mode (memoised; null when they do not, or when there are no confirm dice).
@@ -333,7 +343,7 @@ export function planLeague(adapter, settings) {
   const confirmedBest = Object.fromEntries(MODES.map(mode => {
     if (mode === objective.risk_mode) return [mode, deck[0] ?? null];
     const c = ctxFor(mode);
-    return [mode, confirmDeck(rankPlans(plans, mode, c.tol, c.ctx).ranked, mode, c.tol, c.ctx)[0] ?? null];
+    return [mode, confirmDeck(rankPlans(plans, mode, c.tol, c.ctx, { rule }).ranked, mode, c.tol, c.ctx)[0] ?? null];
   }));
   if (S2) confirm = { seed: cSeed, plan_seed: adapter.seed, status: 'ok', rescores: S2.count() };
   mark('confirm_rescore');
@@ -452,7 +462,7 @@ export function planLeague(adapter, settings) {
   });
 
   // Suggested targets: gain if landed x P(reach) x skip weight, with mode fit.
-  const rankedByMode = Object.fromEntries(MODES.map(mode => { const c = ctxFor(mode); return [mode, rankPlans(plans, mode, c.tol, c.ctx)]; }));
+  const rankedByMode = Object.fromEntries(MODES.map(mode => { const c = ctxFor(mode); return [mode, rankPlans(plans, mode, c.tol, c.ctx, { rule })]; }));
   const byMode = Object.fromEntries(MODES.map(mode => [mode, rankedByMode[mode].ranked]));
   const suggestions = floored(5).map(pid => {
     const mine = byMode[objective.risk_mode].find(p => String(p.target) === String(pid));
@@ -568,7 +578,7 @@ export function planLeague(adapter, settings) {
     best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook, ...(c.playbooks ? { playbooks: c.playbooks } : {}) })),
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
     suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, feasibility_points, outlook,
-    risk_modes: compareModes(plans, ctxFor, mode => ({ best: confirmedBest[mode], confirmed: !!S2 })), catch_up: catchUp, partners,
+    risk_modes: compareModes(plans, ctxFor, mode => ({ best: confirmedBest[mode], confirmed: !!S2 }), { rule }), catch_up: catchUp, partners,
     // NO-TRADE-SHRINK: pre-rank shrinkage, SHADOW (reported under _run.shrink; nothing served reads it).
     shrink: shadowShrink(plans, ctxFor),
     untouchable: { ids: [...untouchable], refused_targets: refused },

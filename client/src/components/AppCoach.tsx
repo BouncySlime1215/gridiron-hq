@@ -6,6 +6,8 @@ import { CoachDrawer, useWarRoomCoach } from './warroom/coach';
 import HealthSheet, { healthTone } from './warroom/HealthSheet';
 import { SourcesContext } from './warroom/FieldState';
 import { Icon } from './ui/DesignSystem';
+// The drawer's styles: without this, a page opened directly (not via Today) drew the closed drawer unstyled, in the page flow.
+import './warroom/warroom-v2.css';
 import { isOk } from './warroom/format';
 
 /**

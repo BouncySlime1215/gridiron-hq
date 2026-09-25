@@ -254,18 +254,23 @@ export function namer(names: Record<string, string> | undefined) {
   return { one, text };
 }
 
-/** The loaded view's roster names; WarRoom fills it (setTeamNames) so every teamLabel call site reads it. */
+/** The loaded view's roster names; TodayPanel / TradesPlanner fill it (setTeamNames) so every teamLabel call site reads it. */
 let teamNames: Record<string, TeamName> = {};
 export function setTeamNames(teams: Record<string, TeamName> | null | undefined) { teamNames = teams ?? {}; }
 
-/** 'Manager (Team name)' when known, else whichever is known, else 'Team N'. */
-export function teamLabel(id: string | null | undefined): string {
+/** 'Manager (Team name)' when known, else whichever is known, else 'Team N', from a given teams map. */
+export function teamLabelIn(teams: Record<string, TeamName> | null | undefined, id: string | null | undefined): string {
   if (id == null) return '';
-  const t = teamNames[String(id)];
+  const t = teams?.[String(id)];
   const manager = t?.manager?.trim();
   const name = t?.name?.trim();
   if (manager && name) return `${manager} (${name})`;
   return manager || name || `Team ${id}`;
+}
+
+/** teamLabelIn over the loaded view's registry (setTeamNames). */
+export function teamLabel(id: string | null | undefined): string {
+  return teamLabelIn(teamNames, id);
 }
 
 /** The contract's `partners` entry: who to deal with. Labels and counts only. */

@@ -64,6 +64,7 @@ import {
   proposeVerifyRetryTrade, judgeTradeVerdict, tradeChallengeText, SENSE_CHECK_SIM_RUNS
 } from '../services/trade-verify.js';
 import { hisScreenFor } from '../services/campaign/his-screen.js';
+import { withValueGainHint } from '../services/offer-value-gain.js';
 
 const r = Router();
 
@@ -801,7 +802,11 @@ r.get('/:leagueId/lineup-diff', (req, res, next) => {
 r.get('/:leagueId/find', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    const out = findTrades(lg, {
+    // PROJ-ESPN Q3, opt-in: ?value_gain=1 adds the counterparty's FantasyCalc gain to each idea
+    // as an info-only hint and ?sort=value_gain also orders by it (offer-value-gain.js). Without
+    // either the response is the finder's, unchanged. Rule-gated ideas only, as before.
+    const sortByGain = req.query.sort === 'value_gain';
+    const found = findTrades(lg, {
       myTeamId: req.query.team_id,
       maxPerSide: Math.min(3, Number(req.query.max_per_side) || 2),
       // Off by default in the UI's "aggressive" mode: deals that only help me are
@@ -817,6 +822,8 @@ r.get('/:leagueId/find', (req, res, next) => {
       targetId: req.query.target_id || null,
       excludeIds: excludeSet(req)
     });
+    const out = sortByGain || req.query.value_gain === '1'
+      ? withValueGainHint(found, { sort: sortByGain ? 'value_gain' : null }) : found;
     recordRoute('find', lg, out);
     // Queued before res.json, extracted at flush — after serialisation has already
     // settled the lazy floor_delta/ceiling_delta, so logging them costs nothing extra.

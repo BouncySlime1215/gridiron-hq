@@ -25,6 +25,9 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.GRIDIRON_DB_INTEGRITY_CHECK = 'off';
 process.env.SCHEDULER_DISABLED = '1';
 process.env.NFL_WEEK = '6';
+// PROJ-ESPN: this file tests OUR weekly producer (the path GRIDIRON_PROJ_ESPN=0 serves; with
+// the flag on, ours is the shadow and test/proj-espn.test.js covers the served ESPN number).
+process.env.GRIDIRON_PROJ_ESPN = '0';
 delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
 delete process.env.GRIDIRON_BLEND_WEEK;
 

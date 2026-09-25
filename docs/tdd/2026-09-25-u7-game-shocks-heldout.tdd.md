@@ -103,10 +103,54 @@ Commit `test: RED for U7 ...`: `test/game-shocks-heldout.test.js` fails to load
   the minimum-games count); `archetypeCorrelations` and `pairArchetype` extracted from
   `fitCorrelations` (which now calls them; its output is unchanged); `clampCorrelation`
   and `CORRELATION_DEFAULTS` exported.
-- `server/services/game-shocks-heldout.js`: `nflverseWeekRow`, `heldOutTailCheck`,
-  `heldOutVerdict`. Measurement only; nothing is served.
+- `scripts/lib/game-shocks-heldout.mjs`: `nflverseWeekRow`, `heldOutTailCheck`,
+  `heldOutVerdict`. Measurement only; nothing is served (it lives under scripts/ so
+  `check:wiring` does not read it as an unwired server module).
 - `scripts/measure-game-shocks-heldout.mjs`: the run, from nflverse CSVs or the database.
 
-## Measured
+## Measured (held-out 2025, the registered decider)
+
+```
+node scripts/measure-game-shocks-heldout.mjs --csv stats_player_week_2021.csv,...,stats_player_week_2025.csv
+```
+
+nflverse `stats_player_week_<season>.csv`, fetched 2026-09-25 (sha256 prefixes 2021
+`41915fb49238902a`, 2022 `ad426c3fe5bf1cc3`, 2023 `f19cb71a5de0dce7`, 2024
+`3ddc45a84f759aa3`, 2025 `e5e0615b3d96a3ea`); 29,376 regular-season QB/RB/WR/TE rows.
+Train 2021-2024, test 2025: 272 games, 400 simulated season copies per arm, 2,000
+bootstrap resamples, no Cholesky fallbacks.
+
+q = 0.9 (decides), P(U_j > 0.9 | U_i > 0.9):
+
+| group | pairs | tail events | held-out | Gaussian (off) | shocks on | improvement | 95% interval | verdict |
+|---|---|---|---|---|---|---|---|---|
+| QB-WR same team | 2,349 | 273 | 0.1319 | 0.0929 | 0.1259 | +0.0330 | -0.0340 to +0.0356 | fail |
+| every same-game pair | 53,987 | 6,198 | 0.0703 | 0.0655 | 0.0924 | -0.0172 | -0.0277 to +0.0143 | fail |
+
+**U7 FAIL. `GRIDIRON_GAME_SHOCKS` stays off.**
+
+q = 0.8, context only (does not decide): QB-WR held-out 0.3040, off 0.2314, on 0.2511,
+improvement +0.0197 (0.0172 to 0.0217); every same-game pair held-out 0.1804, off
+0.1795, on 0.1998, improvement -0.0184 (-0.0210 to +0.0116).
+
+What it says, beyond the verdict:
+
+- QB-WR: the point estimate favours the shock (2025 QB-WR tails co-occurred more than
+  the Gaussian copula predicts, at both q), but 273 tail events cannot separate the two
+  at q 0.9. This is the power note playing out.
+- Every same-game pair: the Gaussian copula is already close (0.0655 vs 0.0703), and
+  one shock shared by the whole game overshoots (0.0924, +31%). The overshoot guard
+  would fail it even with a tighter interval. Most same-game pairs are opponents or
+  low-correlation teammates, and a game-wide shock lifts them all together.
+- Read together: the tail dependence 2025 shows is team-level (a QB and his receivers),
+  not game-level. A per-team shock would be a different model and a NEW registration;
+  this record does not change GRIDIRON_GAME_SHOCKS or propose turning it on.
 
 ## Needs local measurement
+
+The local confirmation on the app's own weekly log (does not decide; a PASS there
+would not override this FAIL):
+
+```
+SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=<copy of the live db> node scripts/measure-game-shocks-heldout.mjs --train 2021-2024 --test 2025
+```

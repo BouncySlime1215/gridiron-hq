@@ -37,7 +37,7 @@ if (csvs && !process.env.GRIDIRON_DB_PATH) {
   process.env.SCHEDULER_DISABLED = '1';
 }
 const { sameGameResiduals, residualsFromLog } = await import('../server/services/correlation.js');
-const { heldOutTailCheck, nflverseWeekRow } = await import('../server/services/game-shocks-heldout.js');
+const { heldOutTailCheck, nflverseWeekRow } = await import('./lib/game-shocks-heldout.mjs');
 const { parseCsv } = await import('../server/services/nflverse.js');
 
 let train, test, source;

@@ -14,8 +14,8 @@
  */
 import {
   archetypeCorrelations, clampCorrelation, pairArchetype, gameShockScale, CORRELATION_DEFAULTS, GAME_SHOCK_NU
-} from './correlation.js';
-import { cholesky, correlatedNormals, keyedNormal, keyedSeed } from './stats-util.js';
+} from '../../server/services/correlation.js';
+import { cholesky, correlatedNormals, keyedNormal, keyedSeed } from '../../server/services/stats-util.js';
 
 const SKILL = new Set(['QB', 'RB', 'WR', 'TE']);
 

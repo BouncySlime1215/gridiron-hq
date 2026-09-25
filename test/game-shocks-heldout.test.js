@@ -20,7 +20,7 @@ process.env.SCHEDULER_DISABLED = '1';
 
 const { db } = await import('../server/db/index.js');
 const C = await import('../server/services/correlation.js');
-const H = await import('../server/services/game-shocks-heldout.js');
+const H = await import('../scripts/lib/game-shocks-heldout.mjs');
 const { keyedNormal, keyedSeed } = await import('../server/services/stats-util.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });

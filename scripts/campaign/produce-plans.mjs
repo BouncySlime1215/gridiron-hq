@@ -356,6 +356,8 @@ export async function buildPlansFile(leagues, {
           untouchable: res.untouchable ?? { ids: [], refused_targets: [] },
           // GETS-FLOOR (on by default): the final-get floor, its score source, what it dropped, and a warning when =0.
           ...(res.gets_floor ? { gets_floor: res.gets_floor } : {}),
+          // FLIP-STRANDED (on by default): the floor on every holding between legs, what it dropped, a warning when =0.
+          ...(res.flip_stranded ? { flip_stranded: res.flip_stranded } : {}),
           // REACH-01: why every path died (per mode) and which targets the reach filter skipped.
           ...(res.reach ? { reach: res.reach } : {}),
           // SEARCH-WIDE (GRIDIRON_SEARCH_WIDE=1 only): budget, what it used, what bound, laterals, claims, modes' first steps.
@@ -471,9 +473,10 @@ async function main() {
     }
     const twoForOne = twoForOneFlag(env);
     // integration-7: Nick's hard rules are on by default; switching one off by hand is logged loudly.
-    const { getsFloorFlag, GETS_FLOOR_OFF_WARNING } = await import('../../server/services/campaign/gets-floor.js');
+    const { getsFloorFlag, GETS_FLOOR_OFF_WARNING, flipStrandedFlag, FLIP_STRANDED_OFF_WARNING } = await import('../../server/services/campaign/gets-floor.js');
     const { tradeMemoryOn, TRADE_MEMORY_OFF_WARNING } = await import('../../server/services/campaign/trade-memory.js');
     if (getsFloorFlag(env) === 'off') console.error(`[warroom] ${GETS_FLOOR_OFF_WARNING}`);
+    if (flipStrandedFlag(env) === 'off') console.error(`[warroom] ${FLIP_STRANDED_OFF_WARNING}`);
     if (!tradeMemoryOn(env)) console.error(`[warroom] ${TRADE_MEMORY_OFF_WARNING}`);
     console.log(`warroom_plans started ${new Date().toISOString()} pid ${process.pid} trigger ${trigger} two_for_one ${twoForOne}`);
     const { chatRowsFor } = await import('./chat-labels.mjs');

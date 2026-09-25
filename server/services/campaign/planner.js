@@ -28,7 +28,7 @@ import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink,
   depthPremiumOf, boardOf, newPremiumSink, premiumHolds } from './search.js';
-import { makeGetsFloor, heldAtEnd } from './gets-floor.js';
+import { makeGetsFloor, heldAtEnd, makeStranded } from './gets-floor.js';
 import { ladderFlag, ladderCards, tierOfPlayer } from './ladder.js';
 import { withNeverGive } from './never-give.js';
 import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
@@ -164,6 +164,10 @@ export function planLeague(adapter, settings) {
   const floorOn = floor.sink.mode === 'on';
   // Every final get (targets, final-leg fillers, flip leg 2) passes through this; null when off.
   const getOk = floor.sink.mode === 'off' ? null : floor.keep;
+  // FLIP-STRANDED (flag GRIDIRON_FLIP_STRANDED, on by default): what Nick holds after every leg but the last
+  // (a chained path's chip, a flip's leg-1 player) passes the same floor, so a "no" on the next leg never
+  // strands him under it. Shadow counts; '0' is off, loudly.
+  const stranded = makeStranded(adapter, { env, tolerances: objective.tolerances });
   // CAP-1C: up to +12% on a depth-only 2-for-1 (destination tolerance depth_premium; an adapter may carry its own).
   const depthPremium = depthPremiumOf({ depth_premium: objective.tolerances?.depth_premium ?? adapter.depthPremium });
   const board = boardOf(adapter);
@@ -206,9 +210,12 @@ export function planLeague(adapter, settings) {
   // integration-7: FAIL CLOSED when the league has executed trades this season but the ledger came back
   // missing or empty: Nick's no-buy-back / no-reversal rules cannot be checked, so no move is served.
   const ledgerMissing = tmOn && Number(adapter.executedTradeRows) > 0 && !(adapter.tradeLedger?.trades?.length > 0);
-  const flip = ledgerMissing ? { ...flipAll, top: [], realised: [] }
+  const flipRuled = ledgerMissing ? { ...flipAll, top: [], realised: [] }
     : TM || objUntouch.size ? { ...flipAll, top: flipAll.top.filter(flipKeep), realised: flipAll.realised.filter(flipKeep) } : flipAll;
   if (TM) tmCount.flips = flipAll.realised.filter(f => flipUntouched(f) && flipFails(f)).length;
+  // FLIP-STRANDED: leg 1 buys the player; if leg 2 is turned down Nick keeps him, so he must pass the floor.
+  const unstranded = list => list.filter(f => !stranded.flipStrands(f) || !stranded.on);
+  const flip = { ...flipRuled, top: unstranded(flipRuled.top), realised: unstranded(flipRuled.realised) };
 
   mark('flip');
   // Targets: the objective's player, Nick's "get" stops, then the biggest single-player upgrades.
@@ -352,6 +359,8 @@ export function planLeague(adapter, settings) {
     if (floorOn && claimDrops) claimDrops.floor += plans.filter(p => failsHeld(p) && hasClaim(p)).length;
     if (floorOn) plans = plans.filter(p => !failsHeld(p));
   }
+  // FLIP-STRANDED: every holding between legs, too (off: no read; shadow: counted, nothing dropped).
+  if (stranded.sink.mode !== 'off') plans = plans.filter(p => !stranded.pathStrands(p) || !stranded.on);
   // (a) sold players, (c) reversals: dropped; (b) floor + currency: shadow unless its flag is on.
   // FLIP-CLAIMS: claim paths go through trade memory on their own, so the served counts are today's.
   const tmApplied = TM ? applyTradeMemory(plans.filter(p => !hasClaim(p)), TM, { env }) : null;
@@ -729,6 +738,7 @@ export function planLeague(adapter, settings) {
     league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: { ...tol, max_overpay: maxOverpay, depth_premium: depthPremium },
     no_overpay: overpay,
     gets_floor: floor.sink,
+    flip_stranded: stranded.sink,
     now, behind, week: L.week, deadline_week: L.deadline_week ?? null,
     eta_week: best ? arrivalWeek(best, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) : null,
     finder_best, sanity,

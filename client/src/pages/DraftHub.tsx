@@ -1,23 +1,58 @@
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import Drafts from './Drafts';
 import LiveDraft from './LiveDraft';
-import { PageHeader } from '../components/ui/DesignSystem';
+import { Chip, PageHeader, Tabs } from '../components/ui/DesignSystem';
 import { useApi } from '../api';
-import { PageData } from '../components/PageState';
+import { EmptyState, PageData } from '../components/PageState';
 
-type View = 'mock' | 'survival' | 'live' | 'recap';
+type View = 'boards' | 'survival' | 'live' | 'recaps';
+const VIEWS: { id: View; label: string }[] = [
+  { id: 'boards', label: 'Boards' }, { id: 'survival', label: 'Who survives' }, { id: 'live', label: 'Live' }, { id: 'recaps', label: 'Recaps' }
+];
+// Older links: ?view=mock was the boards tab, ?view=recap the recaps tab.
+const viewOf = (v: string | null): View => (v === 'mock' ? 'boards' : v === 'recap' ? 'recaps' : VIEWS.some(x => x.id === v) ? v as View : 'boards');
+
+/**
+ * The Draft area (docs/ui/CONSOLIDATION-MAP.md): Boards (mock drafts and manual trackers),
+ * Who survives, Live (link an ESPN draft) and Recaps (finished drafts and their grade), one
+ * title, views on ?view=. A draft itself opens at /draft/:id, a live one at /draft/live/:id.
+ */
 export default function DraftHub() {
-  const [params] = useSearchParams();
-  const requested = params.get('view');
-  const [view, setView] = useState<View>(requested === 'live' || requested === 'recap' ? requested : 'mock');
+  const [params, setParams] = useSearchParams();
+  const view = viewOf(params.get('view'));
+  const setView = (v: View) => setParams(() => (v === 'boards' ? new URLSearchParams() : new URLSearchParams(`view=${v}`)), { replace: true });
   return <div>
-    <PageHeader eyebrow="Fantasy" title="Draft" description="Mock preparation, live ESPN tracking and completed draft recaps live in one workflow." />
-    <div role="tablist" aria-label="Draft modes" className="mb-5 flex gap-1 border-b border-slate-200">
-      {([['mock','Mock & boards'],['survival','Who survives'],['live','Live'],['recap','Recaps']] as const).map(([id,label]) => <button key={id} role="tab" aria-selected={view === id} onClick={() => setView(id)} className={`border-b-2 px-3 py-2 text-sm font-semibold ${view === id ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-slate-500'}`}>{label}</button>)}
-    </div>
-    {view === 'live' ? <LiveDraft /> : view === 'survival' ? <DraftSurvival /> : <Drafts />}
+    <PageHeader eyebrow="Draft" title="Draft" description="Practice with mock drafts, see who lasts to your next pick, mirror a live ESPN draft, and read the grade afterwards." />
+    <div className="mb-5"><Tabs label="Draft views" value={view} onChange={setView} tabs={VIEWS} /></div>
+    {view === 'live' ? <LiveDraft /> : view === 'survival' ? <DraftSurvival /> : view === 'recaps' ? <Recaps /> : <Drafts />}
   </div>;
+}
+
+/** Finished drafts, newest first, each opening its recap and grade (DraftRecap on /draft/:id?recap=1). */
+function Recaps() {
+  const { data, loading, error, refetch } = useApi<any[]>('/drafts');
+  const done = (data ?? []).filter(d => d.team_count && d.rounds && d.picks_made >= d.team_count * d.rounds);
+  return (
+    <PageData data={data} loading={loading} error={error} onRetry={refetch} loadingLabel="Loading drafts…"
+      isEmpty={() => done.length === 0}
+      empty={<EmptyState title="No finished drafts yet" description="Finish a mock draft (or sim it to the end) and its recap and grade show up here." />}>
+      {() => (
+        <div className="grid gap-3 md:grid-cols-2">
+          {done.map(d => (
+            <Link key={d.id} to={`/draft/${d.id}?recap=1`} className="ds-card ds-lift block p-4">
+              <span className="flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate font-semibold">{d.name}</span>
+                <Chip tone="good">Finished</Chip>
+              </span>
+              <span className="ds-note mt-1 block">{d.team_count} teams · {d.rounds} rounds · pick {d.my_slot}</span>
+              <span className="mt-2 block text-sm font-semibold text-[var(--c-accent)]">Recap and grade →</span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </PageData>
+  );
 }
 
 /**
@@ -35,17 +70,17 @@ function DraftSurvival() {
 
   return (
     <div>
-      <div className="card p-4 mb-3">
+      <div className="ds-card p-4 mb-3">
         <div className="flex items-center gap-4 flex-wrap">
-          <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
             League size
-            <select className="input text-sm" value={teams} onChange={e => setTeams(Number(e.target.value))}>
+            <select className="input w-20 text-sm" value={teams} onChange={e => setTeams(Number(e.target.value))}>
               {[8, 10, 12, 14].map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </label>
-          <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
             Your seat
-            <select className="input text-sm" value={seat} onChange={e => setSeat(Number(e.target.value))}>
+            <select className="input w-20 text-sm" value={seat} onChange={e => setSeat(Number(e.target.value))}>
               {Array.from({ length: teams }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </label>
@@ -60,30 +95,30 @@ function DraftSurvival() {
       <PageData data={data} loading={loading} error={error} onRetry={refetch}
         loadingLabel="Simulating the rest of the draft…">
         {(data) => (
-          data.error ? <div className="card p-6 text-sm text-rose-600">{data.error}</div> : (
+          data.error ? <div className="ds-card p-6 text-sm text-crit">{data.error}</div> : (
             <>
-              <div className="card p-4 mb-3 border-emerald-200 bg-emerald-50/40">
+              <div className="ds-card p-4 mb-3">
                 <p className="text-sm text-slate-800">{data.guidance}</p>
               </div>
               <div className="grid md:grid-cols-2 gap-3">
                 {([['take_now', 'Take now — gone by your next pick', 'rose'],
                    ['can_wait', 'Can wait — comes back to you', 'emerald']] as const).map(([key, title, tone]) => (
-                  <div key={key} className="card overflow-hidden">
-                    <div className={`px-4 py-2.5 border-b border-slate-200 text-sm font-bold ${
-                      tone === 'rose' ? 'bg-rose-50 text-rose-800' : 'bg-emerald-50 text-emerald-800'}`}>
-                      {title}
+                  <div key={key} className="ds-card overflow-hidden">
+                    <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-2.5">
+                      <Chip tone={tone === 'rose' ? 'bad' : 'good'}>{tone === 'rose' ? 'Take now' : 'Can wait'}</Chip>
+                      <span className="text-sm font-semibold">{title.split(' — ')[1]}</span>
                     </div>
                     <div className="divide-y divide-slate-100">
                       {(data[key] ?? []).map((p: any) => (
                         <div key={p.id} className="flex items-center gap-2 px-4 py-2 text-sm">
                           <span className={`text-[9px] font-black pos-${p.position}`}>{p.position}</span>
                           <span className="font-semibold text-slate-800 truncate">{p.name}</span>
-                          <span className="text-[11px] text-slate-400">{p.team_abbr}</span>
+                          <span className="text-[11px] text-slate-500">{p.team_abbr}</span>
                           <span className="ml-auto text-right tabular-nums">
                             <span className="block text-xs font-bold text-slate-800">
                               {Math.round((p.survives_pick_after ?? 0) * 100)}%
                             </span>
-                            <span className="block text-[10px] text-slate-400">back at your next</span>
+                            <span className="block text-[10px] text-slate-500">back at your next</span>
                           </span>
                         </div>
                       ))}
@@ -94,7 +129,7 @@ function DraftSurvival() {
                   </div>
                 ))}
               </div>
-              <p className="text-[11px] text-slate-400 mt-3 leading-relaxed">{data.note}</p>
+              <p className="text-[11px] text-slate-500 mt-3 leading-relaxed">{data.note}</p>
             </>
           )
         )}

@@ -36,6 +36,9 @@ export const FIELD_LABELS: Record<string, string> = {
   flip_map: 'Flips',
   'brain_report.checks': 'Brain checks',
 };
+/** Fields that are probabilities: shown as a percent (formatting only). */
+const PERCENT_FIELDS = new Set(['destination.title_now']);
+const unwrapNum = (v: any): number | null => (typeof v === 'number' ? v : typeof v?.value === 'number' ? v.value : null);
 const plain = (id: string) => FIELD_LABELS[id] ?? id.split('.').pop()!.replace(/_/g, ' ');
 /** Coach's own title when it is words; a dotted or snake_case id becomes the plain name. */
 export const cardTitle = (card: { field: string; title?: string | null }) =>
@@ -46,7 +49,7 @@ export default function PlugInCard({ card, plans, onRemove }: { card: PlugCard; 
   const rows = Array.isArray(value) ? value : null;
   let body;
   if (value === undefined || value === null) body = <p className="text-sm text-slate-500">Not computed yet.</p>;
-  else if (card.view === 'number') body = <div className="text-2xl font-bold">{label(value)}</div>;
+  else if (card.view === 'number') body = <div className="text-2xl font-bold tabular-nums">{PERCENT_FIELDS.has(card.field) && typeof unwrapNum(value) === 'number' ? `${(unwrapNum(value)! * 100).toFixed(1)}%` : label(value)}</div>;
   else if (card.view === 'sparkline') body = rows ? <Spark values={pointsOf(rows)} /> : <p className="text-sm text-slate-500">This field is not a series.</p>;
   else if (card.view === 'list') body = rows ? <ul className="text-sm">{rows.slice(0, 5).map((r, i) => <li key={i}>{label(r)}</li>)}{rows.length > 5 && <li className="text-slate-500">{rows.length - 5} more</li>}</ul> : <div>{label(value)}</div>;
   else {

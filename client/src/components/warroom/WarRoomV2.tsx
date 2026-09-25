@@ -92,7 +92,12 @@ export default function WarRoomV2({ view, leagues, activeId, onLeague, onExit, d
     const prev = document.body.style.overflow, prevHtml = document.documentElement.style.overflow;
     document.body.style.overflow = 'hidden';
     document.documentElement.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; document.documentElement.style.overflow = prevHtml; };
+    // The app's floating page explainer moves into the War Room's menu (warroom-v2.css hides its button).
+    document.body.classList?.add('wr-v2-open');
+    return () => {
+      document.body.style.overflow = prev; document.documentElement.style.overflow = prevHtml;
+      document.body.classList?.remove('wr-v2-open');
+    };
   }, []);
 
   // Esc closes whatever sheet is open.
@@ -152,16 +157,28 @@ export default function WarRoomV2({ view, leagues, activeId, onLeague, onExit, d
     </PanelBoundary>
   );
 
-  const nav = (
-    <nav className="wr-nav" role="tablist" aria-label="War Room screens">
+  const coachIcon = (
+    <svg viewBox="0 0 24 24" aria-hidden width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z" /></svg>
+  );
+  const coachOn = coach.enabled !== false;
+  // One switcher, drawn twice: in the top bar on a wide screen, as the bottom tab bar (with a Coach tab) on a phone.
+  const tabs = (where: 'top' | 'bottom') => (
+    <nav className={where === 'top' ? 'wr-nav' : 'wr-tabbar'} role="tablist" aria-label="War Room screens"
+      data-nav={where}>
       {SCREENS.map(s => (
-        <button key={s.id} type="button" role="tab" aria-selected={screen === s.id} data-screen={s.id}
+        <button key={s.id} type="button" role="tab" aria-selected={screen === s.id} data-screen={where === 'top' ? s.id : undefined}
+          data-tab-screen={where === 'bottom' ? s.id : undefined}
           className={screen === s.id ? 'wr-on' : undefined} onClick={() => go(s.id)}>
           <svg viewBox="0 0 24 24" aria-hidden width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8"
             strokeLinecap="round" strokeLinejoin="round">{ICONS[s.id]}</svg>
           <span>{s.name}</span>
         </button>
       ))}
+      {where === 'bottom' && coachOn && (
+        <button type="button" className={`wr-tab-coach${coachOpen ? ' wr-on' : ''}`} onClick={() => setCoachOpen(true)}
+          aria-label="Open Coach" data-testid="coach-tab">{coachIcon}<span>Coach</span></button>
+      )}
     </nav>
   );
 
@@ -169,16 +186,21 @@ export default function WarRoomV2({ view, leagues, activeId, onLeague, onExit, d
     <SourcesContext.Provider value={view.sources ?? {}}>
       <HeadshotContext.Provider value={headshots}>
         <div className="wr-root wr-v2" data-theme={theme} data-testid="war-room-v2" data-screen-on={screen}>
+          <TopBarV2 view={view} leagues={leagues} activeId={activeId} onLeague={onLeague} onExit={onExit}
+            theme={theme} onTheme={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))} onClassic={onClassic}
+            nav={tabs('top')}
+            health={
+              <button type="button" className={`wr-health-chip wr-hc-${health.tone}`} onClick={() => setHealthOpen(true)}
+                data-testid="health-chip" aria-haspopup="dialog" title={`${health.label}. Is the brain working? Brain check and number audit`}>
+                <span className="wr-hc-dot" aria-hidden /><span className="wr-hc-t">{health.label}</span><span className="wr-hc-s">{health.short}</span>
+              </button>
+            }
+            coach={coachOn ? (
+              <button type="button" className="wr-btn wr-coach-btn" onClick={() => setCoachOpen(true)} aria-label="Open Coach" data-testid="coach-fab">
+                {coachIcon}Coach
+              </button>
+            ) : null} />
           <div className="wr-v2-scroll" ref={scroller}>
-            <TopBarV2 view={view} leagues={leagues} activeId={activeId} onLeague={onLeague} onExit={onExit}
-              theme={theme} onTheme={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))} onClassic={onClassic}
-              nav={nav}
-              health={
-                <button type="button" className={`wr-health-chip wr-hc-${health.tone}`} onClick={() => setHealthOpen(true)}
-                  data-testid="health-chip" aria-haspopup="dialog" title="Is the brain working? Brain check and number audit">
-                  <span className="wr-hc-dot" aria-hidden /><span className="wr-hc-t">{health.label}</span>
-                </button>
-              } />
             <main className="wr-v2-main">
               {/* Today stays mounted so the deck keeps its place while Nick looks at other screens. */}
               <div className="wr-screen" data-screen-panel="today" hidden={screen !== 'today'}>
@@ -195,14 +217,7 @@ export default function WarRoomV2({ view, leagues, activeId, onLeague, onExit, d
               )}
             </main>
           </div>
-
-          {!coachOpen && coach.enabled !== false && (
-            <button type="button" className="wr-coach-fab" onClick={() => setCoachOpen(true)} aria-label="Open Coach" data-testid="coach-fab">
-              <svg viewBox="0 0 24 24" aria-hidden width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"
-                strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z" /></svg>
-              Coach
-            </button>
-          )}
+          {tabs('bottom')}
           <HealthSheet view={view} open={healthOpen} onClose={() => setHealthOpen(false)} />
           <CoachDrawer coach={coach} plans={view} open={coachOpen} onClose={() => setCoachOpen(false)}
             autoAsk={autoAsk} onAutoAsked={() => setAutoAsk(null)}

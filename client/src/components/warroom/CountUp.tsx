@@ -8,6 +8,9 @@ import { useEffect, useRef } from 'react';
  */
 export const COUNT_MS = 450;
 
+/** Each value counts up once per page load; later renders (a screen switch, a plan revisited) show it still. */
+const counted = new Set<string>();
+
 const reduced = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 export default function CountUp({ to, fmt }: { to: number; fmt: (v: number) => string }) {
@@ -16,7 +19,8 @@ export default function CountUp({ to, fmt }: { to: number; fmt: (v: number) => s
   useEffect(() => {
     const el = ref.current;
     const raf = typeof window !== 'undefined' ? window.requestAnimationFrame : undefined;
-    if (!el || !raf || reduced() || !Number.isFinite(to) || to === 0) return;
+    if (!el || !raf || reduced() || !Number.isFinite(to) || to === 0 || counted.has(final)) return;
+    counted.add(final);
     let id = 0;
     const start = performance.now();
     const frame = (now: number) => {

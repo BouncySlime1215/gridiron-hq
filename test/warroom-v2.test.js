@@ -175,6 +175,11 @@ test('V1: the new layout is the default and opens on Today; Coach is closed', as
   assert.equal(drawer.getAttribute('aria-hidden'), 'true');
   assert.equal(one(ui.container, 'data-testid', 'health-sheet'), null, 'health is a chip until tapped');
   assert.match(textOf(one(ui.container, 'data-testid', 'deck-count')), new RegExp(`^1 of ${L4.alternatives.value.length}$`));
+  // One league picker (target first), no floating Coach button over the page.
+  const picker = one(ui.container, 'data-testid', 'league-picker');
+  assert.deepEqual(byAttr(picker, 'data-league').map(e => e.getAttribute('data-league')), ['4', '7']);
+  assert.equal(one(ui.container, 'class', 'wr-coach-fab'), null);
+  assert.ok(one(ui.container, 'data-testid', 'coach-tab'), 'phones get Coach as a tab');
 });
 
 test('V2: the hero shows partner, give / get chips, chance with its guess pill, title odds and value edge', async () => {

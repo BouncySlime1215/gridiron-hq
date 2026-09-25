@@ -4,15 +4,19 @@ import { isOk } from './format';
 import BrainCheckCard from './BrainCheckCard';
 
 /** The top bar's health chip: one dot for the brain check and the number audit together (worst wins). */
-export function healthTone(view: WarRoomView): { tone: 'green' | 'amber' | 'red' | 'grey'; label: string } {
+export function healthTone(view: WarRoomView): { tone: 'green' | 'amber' | 'red' | 'grey'; label: string; short: string } {
   const brain = isOk(view.brain_report) ? view.brain_report.value.overall : null;
-  const nums = isOk(view.number_health) ? view.number_health.value.overall ?? view.number_health.value.status ?? null : null;
+  const nh = isOk(view.number_health) ? view.number_health.value : null;
+  const nums = nh ? nh.overall ?? nh.status ?? null : null;
+  // How many open issues the served reports list (counted, not computed): number checks not ok, plus a failing brain check.
+  const open = (nh?.checks ? nh.checks.filter(c => c.status !== 'ok').length : (nh?.open ?? []).length) + (brain === 'failing' ? 1 : 0);
+  const short = open ? `${open} issue${open === 1 ? '' : 's'}` : null;
   if (brain === 'failing' || nums === 'broken' || view.brain_report?.status === 'failed' || view.number_health?.status === 'failed') {
-    return { tone: 'red', label: nums === 'broken' ? 'Numbers broken' : 'Check failing' };
+    return { tone: 'red', label: nums === 'broken' ? 'Numbers broken' : 'Check failing', short: short ?? 'Check failed' };
   }
-  if (nums === 'warn') return { tone: 'amber', label: 'Numbers: warnings' };
-  if (brain === 'passing' && nums === 'ok') return { tone: 'green', label: 'Healthy' };
-  return { tone: 'grey', label: brain === 'not_enough_data' ? 'Brain: not enough data' : 'Health' };
+  if (nums === 'warn') return { tone: 'amber', label: 'Numbers: warnings', short: short ?? 'Warnings' };
+  if (brain === 'passing' && nums === 'ok') return { tone: 'green', label: 'Healthy', short: 'Healthy' };
+  return { tone: 'grey', label: brain === 'not_enough_data' ? 'Brain: not enough data' : 'Health', short: 'Health' };
 }
 
 /** WAR-ROOM-UI v2: the brain report and number health, in a sheet over the page. */

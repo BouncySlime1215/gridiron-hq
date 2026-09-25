@@ -45,7 +45,7 @@ export default function HeroCard({ move, view, leagueId, chosen, isSent, thread,
     <article className="wr-hero-card" data-testid="hero-card" aria-label="Next move">
       <div className="wr-hero-head">
         <div className="wr-hero-partner">
-          <span className="wr-k">Next move · send to</span>
+          <span className="wr-k">Send to</span>
           <h2 className="wr-hero-who">{partner}</h2>
         </div>
         <span className={`wr-status wr-status-${status.tone}`} data-testid="hero-status" data-tone={status.tone}

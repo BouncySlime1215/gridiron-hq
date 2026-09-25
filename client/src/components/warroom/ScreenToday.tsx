@@ -44,10 +44,7 @@ export default function ScreenToday({ view, negotiations, deck }: {
           <h3 className="wr-card2-h">Season progress</h3>
           <dl className="wr-prog">
             <div><dt>Goal</dt><dd><Val f={goal} fmt={g => g.label} /></dd></div>
-            <div><dt>Title odds</dt><dd className="wr-num">
-              <Val f={d?.title_now} fmt={v => pct(v, 1)} />
-              {d?.title_planned_now?.status === 'ok' && <span className="wr-muted"> → plan <Val f={d.title_planned_now} fmt={v => pct(v, 1)} /></span>}
-            </dd></div>
+            <div><dt>Title odds plan</dt><dd className="wr-num"><Val f={d?.title_planned_now} fmt={v => pct(v, 1)} /></dd></div>
             <div><dt>Stops</dt><dd>{stops ? `${stops.done} done · ${stops.left} left` : <Val f={view.itinerary} fmt={() => ''} />}</dd></div>
           </dl>
         </section>

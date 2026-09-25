@@ -16,7 +16,7 @@ test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
 
 const {
   scoreBuyLow, shrinkGap, buyLowEnabled, buyLowPositions, BUY_LOW_TE_ENV, BUY_LOW_ENV, BUY_LOW_RULE, tieBreakSuggestions, applyBuyLow,
-  annotateEntryTargets, buyLowForRun, usageOf,
+  annotateEntryTargets, buyLowForRun, usageOf, scoreBuyLowV2, BUY_LOW_V2_RULE, SERVED_POSITIONS, SERVED_RULE,
 } = await import('../server/services/campaign/buy-low.js');
 const { readBuyLow } = await import('../server/services/campaign/buy-low-inputs.js');
 const { makeAdapter } = await import('./fixtures/campaign-league.mjs');
@@ -120,13 +120,15 @@ test('reader: weeks < as-of only, joins ffopportunity (gsis) with usage (players
     d.prepare('INSERT INTO player_week_usage VALUES (?, ?, ?, ?, ?, ?)').run(7, g.season, g.week, g.target_share, 0, 0);
   }
   const db = { row: (q, ...a) => d.prepare(q).get(...a), rows: (q, ...a) => d.prepare(q).all(...a) };
-  const { reads, sources } = readBuyLow(db, { season: S, week: 6, ids: [7, 8] });
+  const { reads, sources } = readBuyLow(db, { season: S, week: 6, ids: [7, 8], rule: 1 });
   assert.deepEqual(reads.get('7'), scoreBuyLow({ position: 'WR', games: wrGames() }, { season: S, week: 6 }));
   assert.equal(reads.get('8').status, 'no_games');
   assert.equal(sources.ffopportunity.rows, 11);
   assert.equal(sources.ffopportunity.missing_gsis, 1);
   d.exec('DROP TABLE player_week_usage');
-  const absent = readBuyLow(db, { season: S, week: 6, ids: [7] });
+  // The served rule (v2, the default) needs no usage table and no baseline.
+  assert.deepEqual(readBuyLow(db, { season: S, week: 6, ids: [7] }).reads.get('7'), scoreBuyLowV2({ position: 'WR', games: wrGames() }, { season: S, week: 6 }));
+  const absent = readBuyLow(db, { season: S, week: 6, ids: [7], rule: 1 });
   assert.equal(absent.sources.usage.status, 'table_absent');
   assert.equal(absent.reads.get('7').status, 'no_baseline');
 });
@@ -170,7 +172,7 @@ test('annotateEntryTargets: typed field, source usage.xfp, a guess', () => {
   const e = { targets: { status: 'ok', source: 'plan.path', value: [{ player: '5' }, { player: '6' }] } };
   const out = annotateEntryTargets(e, new Map([['5', flagged(3.2)]]));
   assert.deepEqual(out.targets.value[0].buy_low, { status: 'ok', source: 'usage.xfp', unit: 'points_per_week', guess: true,
-    value: { role: 'confirmed', points_below_expected: 3.2, games: 3, usage_change: 0.1, through_week: 5 } });
+    value: { rule: 1, role: 'confirmed', points_below_expected: 3.2, games: 3, usage_change: 0.1, through_week: 5 } });
   assert.equal(out.targets.value[1].buy_low, undefined);
   assert.equal(e.targets.value[0].buy_low, undefined, 'input untouched');
 });
@@ -195,7 +197,7 @@ test('flag off = byte-identical plans, even with a reader on the adapter or prev
 
 test('flag on: targets carry buy_low, same target set, contract holds, summary in _run', async () => {
   const off = (await run(makeAdapter(), {})).leagues[0];
-  const on = (await run(withReader(() => flagged(4)), { GRIDIRON_BUY_LOW: '1' })).leagues[0];
+  const on = (await run(withReader(() => ({ ...flagged(4), rule: 1 })), { GRIDIRON_BUY_LOW: '1' })).leagues[0];
   assert.equal(validateLeague(on).ok, true, JSON.stringify(validateLeague(on).errors?.slice(0, 3)));
   const ids = l => l.targets.value.map(t => t.player).sort();
   assert.deepEqual(ids(on), ids(off), 'never adds or drops a target');
@@ -209,15 +211,20 @@ test('flag on: targets carry buy_low, same target set, contract holds, summary i
   assert.deepEqual(on.alternatives, off.alternatives);
 });
 
-test('served positions: only QB/RB/WR (backtest passed); a flagged TE is listed in shadow, never served or tie-broken', () => {
-  assert.deepEqual([...BUY_LOW_RULE.served_positions], ['QB', 'RB', 'WR']);
+test('served positions: v2 serves QB/RB/WR/TE; a vetoed TE is listed in shadow, never served or tie-broken', () => {
+  assert.deepEqual([...SERVED_POSITIONS], ['QB', 'RB', 'WR', 'TE']);
+  assert.equal(SERVED_RULE, 2);
   const res = { me: '1', suggestions: [{ player: 21, rank_score: 0.3 }, { player: 22, rank_score: 0.3 }] };
   const reads = new Map([['21', plain], ['22', flagged(6, 'confirmed', 'TE')]]);
-  const out = applyBuyLow(res, reads, { others: [21, 22] });
+  const noTe = ['QB', 'RB', 'WR'];
+  const out = applyBuyLow(res, reads, { others: [21, 22], positions: noTe });
   assert.deepEqual(out.res.suggestions.map(s => s.player), [21, 22]);
   assert.equal(out.res.suggestions[1].buy_low, undefined);
   assert.deepEqual(out.summary.others_top.map(r => [r.player, r.position, r.served]), [['22', 'TE', false]]);
-  assert.equal(annotateEntryTargets({ targets: { status: 'ok', value: [{ player: '22' }] } }, reads).targets.value[0].buy_low, undefined);
+  assert.equal(annotateEntryTargets({ targets: { status: 'ok', value: [{ player: '22' }] } }, reads, noTe).targets.value[0].buy_low, undefined);
+  // Default (v2): TE is served and breaks the tie.
+  const on = applyBuyLow(res, reads, { others: [21, 22] });
+  assert.deepEqual(on.res.suggestions.map(s => s.player), [22, 21]);
 });
 
 /* ---------------------------------------------------------------- RULE-FUZZ, flag on */
@@ -253,25 +260,22 @@ test('RULE-FUZZ with BUY-LOW on: random buy-low reads never add a rule violation
   assert.ok(flaggedTargets > 0 && moved > 0, 'the fuzz exercised the tie-breaker');
 });
 
-test('position-aware flag: GRIDIRON_BUY_LOW=1 serves QB/RB/WR; TE only with GRIDIRON_BUY_LOW_TE=1', async () => {
+test('position-aware flag: GRIDIRON_BUY_LOW=1 serves QB/RB/WR/TE under v2; GRIDIRON_BUY_LOW_TE=0 vetoes TE', async () => {
   assert.equal(BUY_LOW_TE_ENV, 'GRIDIRON_BUY_LOW_TE');
   assert.deepEqual(buyLowPositions({}), []);
   assert.deepEqual(buyLowPositions({ GRIDIRON_PREVIEW_UNCONFIRMED: '1' }), []);
-  assert.deepEqual(buyLowPositions({ GRIDIRON_BUY_LOW: '1' }), ['QB', 'RB', 'WR']);
-  assert.deepEqual(buyLowPositions({ GRIDIRON_BUY_LOW_TE: '1' }), ['TE']);
-  assert.deepEqual(buyLowPositions({ GRIDIRON_BUY_LOW: '1', GRIDIRON_BUY_LOW_TE: '1' }), ['QB', 'RB', 'WR', 'TE']);
-  assert.equal(buyLowEnabled({ GRIDIRON_BUY_LOW_TE: '1' }), true);
-  const reads = new Map([['22', flagged(6, 'confirmed', 'TE')]]);
-  const e = { targets: { status: 'ok', value: [{ player: '22' }] } };
-  assert.equal(annotateEntryTargets(e, reads, buyLowPositions({ GRIDIRON_BUY_LOW: '1' })).targets.value[0].buy_low, undefined);
-  assert.equal(annotateEntryTargets(e, reads, buyLowPositions({ GRIDIRON_BUY_LOW_TE: '1' })).targets.value[0].buy_low.value.role, 'confirmed');
-  // Producer: a TE-only reader serves nothing under GRIDIRON_BUY_LOW=1, and serves under the TE flag.
-  const te = () => flagged(4, 'confirmed', 'TE');
-  const main = (await run(withReader(te), { GRIDIRON_BUY_LOW: '1' })).leagues[0];
-  assert.equal(main.targets.value.some(t => t.buy_low), false);
-  assert.deepEqual(main._run.inputs.buy_low.positions, ['QB', 'RB', 'WR']);
-  const teOn = (await run(withReader(te), { GRIDIRON_BUY_LOW_TE: '1' })).leagues[0];
-  assert.equal(teOn.targets.value.every(t => t.buy_low?.status === 'ok'), true);
+  assert.deepEqual(buyLowPositions({ GRIDIRON_BUY_LOW: '1' }), ['QB', 'RB', 'WR', 'TE']);
+  assert.deepEqual(buyLowPositions({ GRIDIRON_BUY_LOW: '1', GRIDIRON_BUY_LOW_TE: '0' }), ['QB', 'RB', 'WR']);
+  assert.deepEqual(buyLowPositions({ GRIDIRON_BUY_LOW_TE: '1' }), [], 'the TE flag alone turns nothing on');
+  assert.equal(buyLowEnabled({ GRIDIRON_BUY_LOW_TE: '1' }), false);
+  const te = () => ({ ...flagged(4, undefined, 'TE'), rule: 2, role: undefined, usage_delta: undefined });
+  const on = (await run(withReader(te), { GRIDIRON_BUY_LOW: '1' })).leagues[0];
+  assert.equal(validateLeague(on).ok, true, JSON.stringify(validateLeague(on).errors?.slice(0, 3)));
+  assert.equal(on.targets.value.every(t => t.buy_low?.value.rule === 2 && t.buy_low.value.role === undefined), true);
+  assert.deepEqual(on._run.inputs.buy_low.positions, ['QB', 'RB', 'WR', 'TE']);
+  assert.equal(on._run.inputs.buy_low.rule_version, 2);
+  const veto = (await run(withReader(te), { GRIDIRON_BUY_LOW: '1', GRIDIRON_BUY_LOW_TE: '0' })).leagues[0];
+  assert.equal(veto.targets.value.some(t => t.buy_low), false);
 });
 
 /* ---------------------------------------------------------------- Go get chip */
@@ -283,13 +287,33 @@ test('Go get card: the Buy-low chip is the War Room pill, plain words, a guess, 
   const w = await loadWarRoom();
   try {
     const { BuyLowChip } = await w.mod('ScreenGoGet');
-    const html = renderToStaticMarkup(React.createElement(BuyLowChip, { b: { role: 'confirmed', points_below_expected: 2.6, games: 2, usage_change: 0.05, through_week: 2 } }));
+    const html = renderToStaticMarkup(React.createElement(BuyLowChip, { b: { rule: 1, role: 'confirmed', points_below_expected: 2.6, games: 2, usage_change: 0.05, through_week: 2 } }));
     assert.equal(textOf(html).trim(), 'Buy-low');
     assert.match(html, /class="wr-pill2 wr-pill2-green"/);
     assert.match(html, /data-testid="target-buy-low"/);
-    assert.match(html, /title="Buy-low \(a guess\): usage up in 2 recent games, scoring about 2\.6 pts\/game below what his usage predicts\."/);
+    assert.match(html, /title="Buy-low \(a guess\): usage up in 2 recent games, scoring about 2\.6 pts\/game below what his usage predicts over his last 2 games\."/);
+    const v2 = renderToStaticMarkup(React.createElement(BuyLowChip, { b: { rule: 2, points_below_expected: 3.1, games: 3, usage_change: null, through_week: 3 } }));
+    assert.match(v2, /title="Buy-low \(a guess\): scoring about 3\.1 pts\/game below what his usage predicts over his last 3 games\."/);
     assert.doesNotMatch(html, /usage\.xfp|buy_low|points_below_expected/);
-    const det = renderToStaticMarkup(React.createElement(BuyLowChip, { b: { role: 'detected', points_below_expected: 2.2, games: 2, usage_change: null, through_week: 2 } }));
+    const det = renderToStaticMarkup(React.createElement(BuyLowChip, { b: { rule: 1, role: 'detected', points_below_expected: 2.2, games: 2, usage_change: null, through_week: 2 } }));
     assert.match(det, /usage up in his latest game/);
   } finally { w.cleanup?.(); }
+});
+
+/* ---------------------------------------------------------------- v2 (gap-only), evaluation only */
+
+test('v2 gap-only: shrunk gap alone, no baseline or usage needed, never reads the as-of week', () => {
+  assert.equal(BUY_LOW_V2_RULE.version, 2);
+  // No last season and no usage at all: v1 cannot score it, v2 can.
+  const games = [3, 4, 5].map(w => ({ season: S, week: w, xfp: 16, act: 8 }));
+  assert.equal(scoreBuyLow({ position: 'WR', games }, { season: S, week: 6 }).status, 'no_baseline');
+  const r = scoreBuyLowV2({ position: 'WR', games }, { season: S, week: 6 });
+  assert.equal(r.buy_low, true);
+  assert.ok(Math.abs(r.gap_shrunk - 8 * 3 / 5) < 1e-9);
+  const poisoned = [...games, { season: S, week: 6, xfp: 0, act: 99 }, { season: S, week: 7, xfp: 0, act: 99 }];
+  assert.deepEqual(scoreBuyLowV2({ position: 'WR', games: poisoned }, { season: S, week: 6 }), r);
+  // One game at gap 5 shrinks to 1.67: not flagged. xFP under 5: not flagged.
+  assert.equal(scoreBuyLowV2({ position: 'RB', games: [{ season: S, week: 1, xfp: 15, act: 10 }] }, { season: S, week: 2 }).buy_low, false);
+  assert.equal(scoreBuyLowV2({ position: 'RB', games: [1, 2, 3].map(w => ({ season: S, week: w, xfp: 4.5, act: 0 })) }, { season: S, week: 4 }).buy_low, false);
+  assert.equal(scoreBuyLowV2({ position: 'RB', games: [] }, { season: S, week: 4 }).status, 'no_games');
 });

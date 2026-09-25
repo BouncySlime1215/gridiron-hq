@@ -38,7 +38,9 @@ export const SOURCE_IDS = Object.freeze([
   'people.score', 'fp.ros',
   // PYES-ONE: P(yes) from the E1 activity baseline (p-yes.js, GRIDIRON_PYES_BASELINE=1),
   // "activity baseline (E1 pending)"; clone.accept stays the source with the flag off.
-  'activity.accept'
+  'activity.accept',
+  // LIVE-BLEND: P(yes) from the online-weighted blend of the activity baseline and the clone (p-yes-blend.js).
+  'blend.accept'
 ]);
 
 export const UNITS = Object.freeze(['title_odds', 'playoff_odds', 'points_per_week', 'probability', 'market_value']);
@@ -294,11 +296,20 @@ export const SECTIONS = Object.freeze({
     coverage: obj({ rostered: int(0), board: int(0), score: prob, model_value: prob, fp_ros_rank: prob }),
     fp: obj({ status: oneOf(STATUSES), sync: str }, { reason: str, scrape_date: str, prev_date: str }),
     draft: obj({ season: int(2000, 2100), picks: int(0) }, { reason: str })
+  })),
+  // LIVE-BLEND: which P(yes) the steps serve. Blend: per model its served weight, prior, n, mean log
+  // loss and wins/losses vs the baseline over every league's graded offers ("clone 3-1 vs baseline,
+  // 30% weight"). Fallback: why the clone band is served. Optional (OPTIONAL_SECTIONS).
+  p_yes_basis: field(obj({ mode: oneOf(['blend', 'baseline']), source: str, label: str }, {
+    fallback: str, n_graded: int(0), league_n: int(0), lambda: prob, shrink_k: num, clamp: arr(prob, { min: 2, max: 2 }),
+    as_of: str, activity: str,
+    models: arr(obj({ id: oneOf(['baseline', 'clone']), weight: prob, prior_weight: prob, n: int(0), log_loss: nullable(num) },
+      { wins: int(0), losses: int(0) }))
   }))
 });
 
 /** Sections an entry may leave out; the view then reads them as unknown. */
-export const OPTIONAL_SECTIONS = Object.freeze(['teams', 'blue_chips']);
+export const OPTIONAL_SECTIONS = Object.freeze(['teams', 'blue_chips', 'p_yes_basis']);
 
 /** Run bookkeeping: the producer's own memory between runs. No consumer reads it. */
 const run = obj({

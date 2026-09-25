@@ -22,7 +22,7 @@ import { SCHEMA_VERSION, TOLERANCE_KEYS, TRADEOFF_KEY, tradeoffKey } from './pla
 import { metricKey, objectiveLabel } from './objectives.js';
 import { MODE_LABELS } from './modes.js';
 import { P_ACCEPT_LABEL, teamLabel, acceptDo, declineDo } from './playbook.js';
-import { PYES_BASIS, PYES_LABEL } from '../p-yes.js';
+import { PYES_BASIS, PYES_LABEL, BLEND_BASIS, BLEND_LABEL } from '../p-yes.js';
 import { dealKey } from './paths.js';
 import { M6_REPLY_PRIOR } from '../people/counterpart.js';
 import { hash } from './confirm.js';
@@ -35,7 +35,9 @@ const featureOut = f => ({ feature: String(f.feature), effect: String(f.effect ?
 /** The acceptance-model bases trade_outcomes accepts (migration 067 CHECK on model_basis). */
 const BAND_BASES = ['no_information', 'heuristic_unanchored', 'heuristic_anchored'];
 /** PYES-ONE: where a served P(yes) came from. The E1 activity baseline (p-yes.js, flag on) is its own source. */
-const pSrc = basis => (basis === PYES_BASIS ? 'activity.accept' : 'clone.accept');
+const pSrc = basis => (basis === PYES_BASIS ? 'activity.accept' : basis === BLEND_BASIS ? 'blend.accept' : 'clone.accept');
+/** LIVE-BLEND: the source id a p_yes_basis section names. */
+const pSrcOf = b => (['activity.accept', 'blend.accept', 'clone.accept'].includes(b.source) ? b.source : 'clone.accept');
 const PYES_NOTE = `${PYES_LABEL}: every offer to one manager gets the same number, so ladder rungs differ by your gain, not by P(yes), until E1 grades a model that reads the offer`;
 
 export const PRODUCER = 'campaign-producer';
@@ -159,7 +161,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
             : 'The gain clears the noise but was not re-checked on fresh dice.',
       news_check: pb?.wait ? (pb.wait.flag === 'wait' ? `Wait ${pb.wait.days} days: ${pb.wait.reason}.` : `Act now: ${pb.wait.reason}.`)
         : 'Not checked: this offer has no playbook yet.',
-      confidence: `Chance he says yes is ${pct(p)}, from ${pBasis === PYES_BASIS ? PYES_NOTE : P_ACCEPT_LABEL}.`,
+      confidence: `Chance he says yes is ${pct(p)}, from ${pBasis === PYES_BASIS ? PYES_NOTE : pBasis === BLEND_BASIS ? BLEND_LABEL : P_ACCEPT_LABEL}.`,
       counter: (() => {
         const row = pb?.replies?.find(r => r.kind === 'counter');
         return row?.counter_rules ? `If he counters, counter with ${row.counter_rules.counter_with}.` : row?.do ?? 'No counter plan: decline any counter that adds players on your side.';
@@ -503,6 +505,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     risk_modes, partners,
     teams: teams && Object.keys(teams).length ? ok(teams, 'campaign.plan') : unknown('The league adapter read no team or manager names.', 'campaign.plan'),
     blue_chips: blueChipsSection(board, res),
+    p_yes_basis: res.p_yes_basis ? ok(res.p_yes_basis, pSrcOf(res.p_yes_basis)) : unknown('This run served no P(yes) table (a fixture or the clone path).', 'clone.accept'),
     _run: {
       seed: res.seed ?? null, confirm_seed: res.confirm?.seed ?? null, week: w, deadline_week: week(res.deadline_week),
       behind: !!res.behind, objective_version: o.version, objective_source: o.source, risk_mode: o.risk_mode,

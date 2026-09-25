@@ -19,6 +19,16 @@ import { metricOf } from './objectives.js';
 import { excluded } from './partners.js';
 import { previewUnconfirmed } from '../preview-mode.js';
 
+/** A served basis of p-yes.js's own (activity baseline, LIVE-BLEND blend), not the clone's. */
+const servedBasis = b => b === 'activity_baseline' || b === 'pyes_blend';
+/**
+ * LIVE-BLEND: what a priced step carries beside p. p_basis when p-yes.js served it; p_gate = the
+ * baseline p that Nick's rules read (planner.js#confirmGate), so the blend can only move ranking;
+ * probe = the shadow information-gain tie-breaker. All absent on the clone path.
+ */
+export const stepPExtras = pr => ({ ...(servedBasis(pr.basis ?? pr.p_basis) ? { p_basis: pr.basis ?? pr.p_basis } : {}),
+  ...(pr.p_gate != null ? { p_gate: pr.p_gate } : {}), ...(pr.probe != null ? { probe: pr.probe } : {}) });
+
 export const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
 /**
@@ -227,7 +237,7 @@ export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 
     const lead = ids => [...ids].sort((x, y) => val(y) - val(x))[0];
     realised.push({ ...f, legs: { give_a: lead(gx), get_b: lead(gy),
       ...(legsOn ? { give_a_ids: gx, get_b_ids: gy, shape_1: `${gx.length}-for-1`, shape_2: `1-for-${gy.length}` } : {}),
-      p1, p2, ...(pr1.basis === 'activity_baseline' ? { p_basis: pr1.basis } : {}), d1: r1.me.title_delta, d2: r2.me.title_delta,
+      p1, p2, ...(servedBasis(pr1.basis) ? { p_basis: pr1.basis } : {}), d1: r1.me.title_delta, d2: r2.me.title_delta,
       se2: r2.me.title_delta_se, clears2: r2.me.title_delta_clears_noise, ...e } });
   }
   const rankOf = f => {
@@ -348,8 +358,9 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
   const withP = (state, st) => {
     const pr = adapter.priceStep(st.team, st.get, st.give);
     // PYES-ONE: a baseline p carries no band, so its basis rides on the step (absent with the flag off).
+    // LIVE-BLEND: p_gate (the baseline p the rules read) and probe (shadow tie-breaker) ride along too.
     return { ...st, p: pr.p, band: pr.band ? { ...pr.band, basis: pr.basis ?? null } : null,
-      ...(pr.basis === 'activity_baseline' ? { p_basis: pr.basis } : {}), state: S.applyTrade(state, me, st.team, st.give, st.get) };
+      ...stepPExtras(pr), state: S.applyTrade(state, me, st.team, st.give, st.get) };
   };
   const h = steps => pathExpectation(steps.map(x => ({ p: x.p, delta: lin(x.state) })));
   const direct = stepsFrom(new Map(), owner, target, maxGiveFinal).map(st => [withP(new Map(), st)]);
@@ -397,7 +408,7 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
   const plans = short.map(c => {
     const steps = c.steps.map(st => {
       const m = metricOf(S.rescore(st.state, me).me, objective);
-      return { team: st.team, give: st.give, get: st.get, p: st.p, band: st.band, ...(st.p_basis ? { p_basis: st.p_basis } : {}),
+      return { team: st.team, give: st.give, get: st.get, p: st.p, band: st.band, ...stepPExtras(st),
         delta: m.delta, se: m.se, clears: m.clears, state: st.state };
     });
     const oneOnly = oneForOneOnly(steps);

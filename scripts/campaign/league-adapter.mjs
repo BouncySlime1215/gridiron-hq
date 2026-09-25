@@ -7,7 +7,7 @@
  *                     under that seed; the planning seed is tradeImpactSeed(lg),
  *                     the same dice every other title-odds surface uses
  *   priceStep         today's model: counterparty-pricing.js#readDeal ->
- *                     p-yes.js#pYesFor (acceptanceBand midpoint unless GRIDIRON_PYES_BASELINE=1; edge assumed
+ *                     p-yes.js#pYesFor (LIVE-BLEND: baseline x clone blend by default, GRIDIRON_PYES_BLEND=0 baseline; edge assumed
  *                     passed for every step, as in the ACQ-FLIP prototype)
  *   managers          counterparty layer (activity, needs) + timing read + chat labels
  *   finderBest        the Trade Lab finder's best single offer (title-odds-trades.js x
@@ -383,6 +383,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
+    // LIVE-BLEND: which P(yes) was served and, for the blend, each model's weight and record (plans.json p_yes_basis).
+    pYesBasis: svc.pyes.pYesBasis(pyTable),
     cacheStats: () => (fast && rescoreCache ? { ...rescoreCache.stats } : null),
     // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
     // Nick's word: other managers' notes, his OWN 'untouchable:' notes (#373, always) and, with the

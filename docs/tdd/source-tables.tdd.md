@@ -57,3 +57,15 @@ one-RB lineup function could never reward (the starter at 18 points kept the
 slot). The test was wrong, not the code: the lineup function now fills two RB
 slots, like the league. The Olave case was also strengthened: unblocked, greedy
 takes him; blocked, it does not.
+
+## Batch B item 8 (2026-09-25)
+
+- STEP 0: merged origin/main (6eb3aed, contains decf7ebf). One conflict, an import line in
+  `scripts/refresh-live-data.mjs` (both imports kept). `never-give.js` is now main's own file; this
+  branch no longer adds it.
+- RED `ac4dad3`: greedy must export no never-give list of its own and must block Olave by id only.
+  2 of 22 fail.
+- GREEN: `GREEDY_NEVER_GIVE`, `GREEDY_NEVER_GET` and the name list `GREEDY_NEVER_GET_NAMES` are
+  deleted; `greedyMove` defaults to `PINNED_NEVER_GIVE` / `PINNED_NEVER_GET` from main. 22 of 22 pass.
+- Items 2 and 3 of the plan (no market values = "not graded"; no `settled_at` on a reprice error)
+  were already fixed in `2ab19d5` and are unchanged.

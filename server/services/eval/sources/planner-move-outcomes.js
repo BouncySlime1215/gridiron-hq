@@ -37,15 +37,6 @@ export const TABLE = 'planner_move_outcomes';
 export const ARMS = Object.freeze(['planner', 'finder', 'greedy']);
 /** The greedy baseline's fairness window on the market screen (e4-planner-replay.mjs#greedyMove). */
 export const GREEDY_SCREEN = Object.freeze({ low: -12, high: 18 });
-/**
- * Nick's hard filters, applied to the greedy baseline so it is a move he could actually make.
- * The ids are the one pinned list (campaign/never-give.js, #398): never give Nico Collins (160),
- * Chase Brown (80) or A.J. Brown (277); never get Chris Olave (290). The name check on Olave
- * also holds when a roster's ids do not resolve.
- */
-export const GREEDY_NEVER_GIVE = PINNED_NEVER_GIVE;
-export const GREEDY_NEVER_GET = PINNED_NEVER_GET;
-export const GREEDY_NEVER_GET_NAMES = Object.freeze(['chris olave']);
 /** Ticks a week may retry a failed re-price before it settles as ungraded. */
 export const MAX_SETTLE_ATTEMPTS = 4;
 
@@ -110,15 +101,15 @@ export function finderArm(best) {
  * Greedy baseline (pure). teams: [{ roster_id, players: [{ id, name, position, value }] }];
  * lineupPoints(players) -> Nick's projected lineup points; me: his roster id.
  * Best 1-for-1 inside GREEDY_SCREEN (screen = (give - get) / get, market value) that raises
- * his lineup points, never touching GREEDY_NEVER_GIVE or getting GREEDY_NEVER_GET_NAMES.
+ * his lineup points. Nick's hard filters are main's one pinned list (campaign/never-give.js): never
+ * give PINNED_NEVER_GIVE (160, 80, 277), never get PINNED_NEVER_GET (290), both by id.
  */
 export function greedyMove({ teams, me, lineupPoints, positions = ['QB', 'RB', 'WR', 'TE'],
-  neverGive = GREEDY_NEVER_GIVE, neverGet = GREEDY_NEVER_GET, neverGetNames = GREEDY_NEVER_GET_NAMES, screen = GREEDY_SCREEN }) {
+  neverGive = PINNED_NEVER_GIVE, neverGet = PINNED_NEVER_GET, screen = GREEDY_SCREEN }) {
   const mine = teams.find(t => String(t.roster_id) === String(me));
   if (!mine) return armError(`team ${me} not in the league's rosters`);
   const blockGive = new Set(neverGive.map(String));
   const blockGetIds = new Set(neverGet.map(String));
-  const blockGet = new Set(neverGetNames.map(n => n.toLowerCase()));
   const tradable = p => positions.includes(p.position) && Number(p.value) > 0;
   // No market value on any of his players means the values failed to load, not that no fair
   // deal exists: that is an ungradable arm, never a "do nothing" that would settle as gain 0.
@@ -131,7 +122,7 @@ export function greedyMove({ teams, me, lineupPoints, positions = ['QB', 'RB', '
   for (const t of teams) {
     if (String(t.roster_id) === String(me)) continue;
     for (const get of t.players) {
-      if (!tradable(get) || blockGetIds.has(String(get.id)) || blockGet.has(String(get.name ?? '').toLowerCase())) continue;
+      if (!tradable(get) || blockGetIds.has(String(get.id))) continue;
       for (const give of gives) {
         const pct = (Number(give.value) - Number(get.value)) / Number(get.value) * 100;
         if (!(pct >= screen.low && pct <= screen.high)) continue;

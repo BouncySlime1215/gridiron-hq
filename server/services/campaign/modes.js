@@ -161,13 +161,16 @@ export function compareModes(plans, ctxFor, pickFor = null) {
     const { tol, ctx } = ctxFor(mode);
     const best = rankPlans(plans, mode, tol, ctx).ranked[0] ?? null;
     const pk = pickFor ? pickFor(mode) : { best: best && best.score > 0 ? best : null, confirmed: false };
+    // integration-7: with the confirm pass (pickFor), every field is the mode's served pick on the confirm
+    // dice, so the sheet never shows a planning-dice move that does not beat keeping the roster.
+    const shown = pickFor ? pk.best : best;
     return {
       mode, label: MODE_LABELS[mode],
-      expected: best ? best.expected : null,
-      if_complete: best ? best.delta_final : null,
-      p_complete: best ? best.p_complete : null,
-      first_step: best ? best.steps[0] : null,
-      steps: best ? best.steps.length : null,
+      expected: shown ? shown.expected : null,
+      if_complete: shown ? shown.delta_final : null,
+      p_complete: shown ? shown.p_complete : null,
+      first_step: shown ? shown.steps[0] : null,
+      steps: shown ? shown.steps.length : null,
       no_trade: noTradeRow(pk.best, { confirmed: pk.confirmed, mode }),
     };
   });

@@ -361,9 +361,11 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     if (TRADEOFF_KEY.test(key)) tradeoffs[key] = row(p);
   });
   const cur = res.risk_modes.find(m => m.mode === o.risk_mode);
+  // integration-7: a mode whose pick is keeping the roster is worth exactly 0 (no move), not unpriced.
+  const expOf = m => (fin(m?.expected) ? m.expected : m?.no_trade?.pick === 'no_trade' ? 0 : null);
   for (const m of res.risk_modes) {
-    if (m.mode === o.risk_mode || !cur || !fin(cur.expected) || !fin(m.expected)) continue;
-    const cost = cur.expected - m.expected;
+    if (m.mode === o.risk_mode || !cur || !fin(expOf(cur)) || !fin(expOf(m))) continue;
+    const cost = expOf(cur) - expOf(m);
     const verdict = verdictOf(-cost, res.best?.expected_se);
     tradeoffs[tradeoffKey({ type: 'set_risk_mode', mode: m.mode })] = row({
       stop_label: `Switch to ${MODE_LABELS[m.mode]}`, cost, extra_steps: (m.steps ?? 0) - (cur.steps ?? 0), gain: 0, net: -cost, verdict,

@@ -57,12 +57,14 @@ function drawAll(sampler) {
 const bothTop = (draws, i, j, k = 10) => draws.filter(d => d[i] >= 100 - k && d[j] >= 100 - k).length / draws.length;
 const bothBottom = (draws, i, j, k = 10) => draws.filter(d => d[i] < k && d[j] < k).length / draws.length;
 
-test('nu is the pre-registered 6 and only the flag turns the shock on', () => {
+test('nu is the pre-registered 6 and only the flag turns the shock on (preview mode does not)', () => {
   assert.equal(C.GAME_SHOCK_NU, 6);
   withEnv({ [S.GAME_SHOCKS_ENV]: null, [PREVIEW_ENV]: null }, () => assert.deepEqual(S.gameShocksFlag(), { on: false, preview: false }));
   withEnv({ [S.GAME_SHOCKS_ENV]: '1', [PREVIEW_ENV]: null }, () => assert.deepEqual(S.gameShocksFlag(), { on: true, preview: false }));
   withEnv({ [S.GAME_SHOCKS_ENV]: '0', [PREVIEW_ENV]: '1' }, () => assert.deepEqual(S.gameShocksFlag(), { on: false, preview: false }));
-  withEnv({ [S.GAME_SHOCKS_ENV]: null, [PREVIEW_ENV]: '1' }, () => assert.deepEqual(S.gameShocksFlag(), { on: true, preview: true }));
+  // Preview is on on the Mac; served title odds must not move before M1 passes there.
+  withEnv({ [S.GAME_SHOCKS_ENV]: null, [PREVIEW_ENV]: '1' }, () => assert.deepEqual(S.gameShocksFlag(), { on: false, preview: false }));
+  withEnv({ [S.GAME_SHOCKS_ENV]: '1', [PREVIEW_ENV]: '1' }, () => assert.deepEqual(S.gameShocksFlag(), { on: true, preview: false }));
 });
 
 test('studentTCdf matches tabled t quantiles', () => {

@@ -45,7 +45,7 @@ export const positionLabel = (index: number, total: number) => (index >= total ?
 
 interface Exit<T> { card: T; index: number; from: number; seq: number }
 
-export default function SwipeDeck<T extends { move_id: string }>({ cards, index, onNext, onOpen, onBack, canBack, renderCard, overlay, end, bar }: {
+export default function SwipeDeck<T extends { move_id: string }>({ cards, index, onNext, onOpen, onBack, canBack, renderCard, overlay, end, bar, arrows }: {
   cards: T[];
   index: number;
   onNext: () => void;
@@ -59,6 +59,8 @@ export default function SwipeDeck<T extends { move_id: string }>({ cards, index,
   end: ReactNode;
   /** Extra items on the bar, after the position indicator. */
   bar?: ReactNode;
+  /** WAR-ROOM-UI v2: a small "‹ 1 of N ›" switcher (‹ = Back, › = Next) instead of the "← back" link. */
+  arrows?: boolean;
 }) {
   const total = cards.length;
   const at = Math.min(Math.max(index, 0), total);
@@ -124,11 +126,22 @@ export default function SwipeDeck<T extends { move_id: string }>({ cards, index,
 
   return (
     <div className="wr-swipe" data-testid="swipe-deck">
-      <div className="wr-swipe-bar">
-        <span className="wr-count wr-swipe-pos" data-testid="deck-count" aria-live="polite">{positionLabel(at, total)}</span>
-        {canBack && <button type="button" className="wr-link" onClick={onBack}>← back</button>}
-        {bar}
-      </div>
+      {arrows ? (
+        <div className="wr-swipe-bar wr-plan-switch" role="group" aria-label="Plans">
+          <button type="button" className="wr-arrow" aria-label="Previous plan" disabled={!canBack} onClick={onBack}
+            title={canBack ? 'Back to the plan you skipped' : 'This is the first plan'}>‹</button>
+          <span className="wr-count wr-swipe-pos" data-testid="deck-count" aria-live="polite">{positionLabel(at, total)}</span>
+          <button type="button" className="wr-arrow" aria-label="Next plan (skips this one)" title={card ? 'Skip to the next plan. The planner hears that you passed.' : 'That was the last plan'}
+            disabled={!card} onClick={() => next()}>›</button>
+          {bar}
+        </div>
+      ) : (
+        <div className="wr-swipe-bar">
+          <span className="wr-count wr-swipe-pos" data-testid="deck-count" aria-live="polite">{positionLabel(at, total)}</span>
+          {canBack && <button type="button" className="wr-link" onClick={onBack}>← back</button>}
+          {bar}
+        </div>
+      )}
       <div className="wr-swipe-stage">
         {card ? (
           <div className="wr-movecard wr-swipe-card" key={card.move_id} data-testid="move-card" data-move={card.move_id}

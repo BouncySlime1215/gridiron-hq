@@ -24,7 +24,7 @@ const { planPreflightRepairs, applyPreflightRepairs, TRADE_OUTCOMES_SCREENSHOT_R
 const { widenTradeOutcomesStatus } = await import('../server/db/trade-outcomes-withdrawn.js');
 const M067 = await import('../server/migrations/067_outcome_ledgers.js');
 const M080 = await import('../server/migrations/080_trade_outcomes_offer_loop.js');
-const M107 = await import('../server/migrations/107_trade_outcomes_screenshot_source.js');
+const M108 = await import('../server/migrations/108_trade_outcomes_screenshot_source.js');
 const { feed } = await import('../scripts/chat/feed_screenshot_offers.mjs');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -53,7 +53,7 @@ const shot = (guid, a, b, at, extra = {}) => ({
   give: [{ playerId: a, fromTeamId: 1, toTeamId: 2 }], get: [{ playerId: b, fromTeamId: 2, toTeamId: 1 }],
   proposed_at: at, proposed_at_basis: 'posted_at_upper_bound', seen_at: at, confidence: 0.9, ...extra });
 
-test('a fresh database allows the observed_screenshot source (migration 107)', () => {
+test('a fresh database allows the observed_screenshot source (migration 108)', () => {
   assert.equal(allowsScreenshotSource(db), true);
 });
 
@@ -66,7 +66,7 @@ test('an existing database with child rows is widened by the preflight repair, r
           VALUES (1, 2026, 'observed', '1', '2', 'declined', 'tx-1', 'x'), (1, 2026, 'observed', '1', '3', 'accepted', 'tx-2', 'x')`);
   d.exec(`DELETE FROM trade_outcomes WHERE id = 2`);
   d.exec(`INSERT INTO child VALUES (1, 1)`);
-  d.exec('BEGIN IMMEDIATE'); M107.up(d); d.exec('COMMIT');     // child rows: 107 leaves it to preflight
+  d.exec('BEGIN IMMEDIATE'); M108.up(d); d.exec('COMMIT');     // child rows: 108 leaves it to preflight
   assert.equal(allowsScreenshotSource(d), false);
   const plan = planPreflightRepairs(d);
   assert.deepEqual(plan.map(r => r.name), [TRADE_OUTCOMES_SCREENSHOT_REPAIR]);

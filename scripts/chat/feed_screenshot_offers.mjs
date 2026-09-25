@@ -15,7 +15,7 @@
  * no price that old is on file. It writes back ledger_state / ledger_id / matched_tx_id.
  *
  *   GRIDIRON_DB_PATH=<app db> node scripts/chat/feed_screenshot_offers.mjs [--chat-db <path>]
- *       [--migrate]   run the app's migrations first (preflight repair + 107), with the
+ *       [--migrate]   run the app's migrations first (preflight repair + 108), with the
  *                     runner's own pre-migration backup
  *       [--dry-run]   read and match only; write nothing to either DB
  *

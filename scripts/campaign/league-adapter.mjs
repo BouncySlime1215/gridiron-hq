@@ -24,7 +24,7 @@ import { readLoveInputs } from '../../server/services/campaign/love-inputs.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
 import { fpRosFor, syncIfStale } from '../../server/services/people/fantasypros-ros.js';
 import { executedTrades } from '../../server/services/campaign/trade-memory.js';
-import { fcValues, fcValueOf } from '../../server/services/fc-value.js';
+import { fcValues, fcValueOf, fcFormatValues } from '../../server/services/fc-value.js';
 import { negotiatorDefaultsOn, coolOff } from '../../server/services/campaign/negotiator-defaults.js';
 import { draftCapitalGuarded, draftIdMapEnabled } from '../../server/services/campaign/draft-capital.js';
 import { searchWideFlag, CLAIM_POOL_SIZE } from '../../server/services/campaign/search-wide.js';
@@ -271,24 +271,25 @@ export function tradeLedger(svc, { leagueId, season, formatKey, assets, now }) {
 }
 
 /**
- * RADAR-WIRE reads (why-now.js#applyWhyNow). fc_trend30 is FantasyCalc's own 30-day move, written by
- * DATA-FC into player_metrics next to fc_value (routes/aggregates.js); the campaign adapter never read it.
+ * RADAR-WIRE reads (why-now.js#applyWhyNow). The trend is FantasyCalc's own 30-day move for this
+ * league's format (dynasty_values via fc-value.js#fcFormatValues), next to that format's value.
  * historyDays: capture days in dynasty_value_history for this format (the trend is a watch label below 7).
  * News: typed signals (nfl_news_signals, players.id as text); alive = any signal written in the window.
  * A missing table reads as no data; the served label says which input was missing.
  */
 export function radarReads(svc, { formatKey = null, windowHours = 48 } = {}) {
-  const metrics = hasTable(svc, 'player_metrics');
   const history = formatKey != null && hasTable(svc, 'dynasty_value_history');
   const news = hasTable(svc, 'nfl_news_signals');
   const since = now => new Date(now - windowHours * 3600e3).toISOString();
+  // #405 finding 2: value and trend from THIS league's format (fc-value.js#fcFormatValues), the same
+  // format dynasty_value_history is counted in; never player_metrics' league-1-format set.
+  let fmt = null;
+  const format = () => (fmt ??= fcFormatValues(svc.db, formatKey));
   return {
+    fcFormatKey: formatKey,
     fcTrendOf: id => {
-      if (!metrics) return null;
-      const r = svc.db.row(`SELECT MAX(CASE WHEN source = 'fc_value' THEN value END) AS value,
-        MAX(CASE WHEN source = 'fc_trend30' THEN value END) AS trend30
-        FROM player_metrics WHERE player_id = ? AND source IN ('fc_value', 'fc_trend30')`, Number(id));
-      return Number.isFinite(r?.value) && Number.isFinite(r?.trend30) ? { value: r.value, trend30: r.trend30 } : null;
+      const r = format().byId.get(String(id));
+      return r && Number.isFinite(r.value) && Number.isFinite(r.trend30) ? { value: r.value, trend30: r.trend30 } : null;
     },
     fcHistoryDays: () => (history
       ? svc.db.row('SELECT COUNT(DISTINCT captured_on) AS n FROM dynasty_value_history WHERE format_key = ?', formatKey)?.n ?? 0 : 0),

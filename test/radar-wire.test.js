@@ -238,12 +238,17 @@ test('appendRadarLedger: serve rows land with as_of; a second run 14 days later 
   assert.ok(rows.every(r => typeof r.as_of === 'string'));
 });
 
-test('radarReads: fc_trend30 from player_metrics, history days, 48 h news and news alive, from the DB', async () => {
+test('radarReads: the trend from THIS league\'s format (dynasty_values), history days, 48 h news and news alive', async () => {
   const { DatabaseSync } = await import('node:sqlite');
   const { radarReads } = await import('../scripts/campaign/league-adapter.mjs');
   const raw = new DatabaseSync(':memory:');
   raw.exec(`CREATE TABLE player_metrics (player_id INTEGER, source TEXT, value REAL, fetched_at TEXT, PRIMARY KEY (player_id, source));
     CREATE TABLE dynasty_value_history (format_key TEXT, player_id INTEGER, value INTEGER, captured_on TEXT);
+    CREATE TABLE dynasty_values (format_key TEXT, player_id INTEGER, value INTEGER, redraft_value INTEGER, trend30 INTEGER,
+      retired_at TEXT);
+    -- League 1's format (what player_metrics holds) says +1000; this league's format 'f1' says -300.
+    INSERT INTO dynasty_values VALUES ('f1', 7, 4900, 4800, -300, NULL), ('f1', 8, 3000, 2900, NULL, NULL),
+      ('f2', 7, 5100, 5000, 1000, NULL);
     CREATE TABLE nfl_news_signals (player_id TEXT, signal_type TEXT, status TEXT, unavailable_probability REAL, role_delta REAL,
       published_at TEXT, created_at TEXT);
     INSERT INTO player_metrics VALUES (7, 'fc_value', 5000, ''), (7, 'fc_trend30', 1000, ''), (8, 'fc_value', 3000, '');
@@ -253,8 +258,11 @@ test('radarReads: fc_trend30 from player_metrics, history days, 48 h news and ne
   ins.run('7', 'availability', 'out', 0.9, null, new Date(NOW - 80 * HOUR).toISOString(), '2026-09-20 20:00:00');
   const svc = { db: { row: (q, ...p) => raw.prepare(q).get(...p), rows: (q, ...p) => raw.prepare(q).all(...p) } };
   const r = radarReads(svc, { formatKey: 'f1' });
-  assert.deepEqual(r.fcTrendOf(7), { value: 5000, trend30: 1000 });
+  assert.deepEqual(r.fcTrendOf(7), { value: 4800, trend30: -300 }, 'this format\'s redraft value and trend, not player_metrics\'');
   assert.equal(r.fcTrendOf(8), null, 'no trend row: no trend');
+  assert.equal(r.fcFormatKey, 'f1');
+  assert.deepEqual(radarReads(svc, { formatKey: 'f2' }).fcTrendOf(7), { value: 5000, trend30: 1000 });
+  assert.equal(radarReads(svc, { formatKey: null }).fcTrendOf(7), null, 'no format: no trend (fail closed)');
   assert.equal(r.fcHistoryDays(), 2);
   assert.equal(r.newsOf(7, NOW).length, 1, 'only the 48 h window');
   assert.equal(r.newsAlive(NOW), true);
@@ -283,4 +291,15 @@ test('FlipMap prints the why-now line with its status word, and nothing when the
       assert.doesNotMatch(render(flip, big), /Why now|Check first|Watch:/);
     }
   } finally { wr.cleanup(); }
+});
+
+test('RADAR-GRADE: a row is graded in its own league format (#405 finding 2)', () => {
+  const as_of = new Date(NOW - 15 * DAY).toISOString();
+  const rows = [
+    { as_of, league: '4', player: '1', buy_from: '2', sell_to: '3', direction: 'up', value_at: 100, format_key: 't10' },
+    { as_of, league: '1', player: '1', buy_from: '2', sell_to: '3', direction: 'up', value_at: 100, format_key: 't8' },
+  ];
+  const byFormat = { t10: 90, t8: 130 };
+  const g = W.gradeLedger(rows, { valueNow: (id, r) => byFormat[r.format_key], now: NOW });
+  assert.deepEqual(g.graded.map(r => [r.league, r.move]).sort(), [['1', 'up'], ['4', 'down']]);
 });

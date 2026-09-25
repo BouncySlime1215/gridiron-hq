@@ -94,6 +94,7 @@ import { loveIdsOf, loveSummary } from '../../server/services/campaign/love.js';
 import { reachFlag, REACH_TARGETS, droppedLine } from '../../server/services/campaign/reach.js';
 import { draftSummary } from '../../server/services/campaign/draft-capital.js';
 import { radarWireFlag, applyWhyNow, gradeLedger } from '../../server/services/campaign/why-now.js';
+import { fcFormatValues } from '../../server/services/fc-value.js';
 
 process.env.SCHEDULER_DISABLED = '1';
 
@@ -571,7 +572,13 @@ async function main() {
     }
     // RADAR-WIRE: the served why-now rows go to the RADAR-GRADE ledger; rows 14+ days old are graded here.
     if (radarLedger.length) {
-      const fcNow = id => svc.db.row(`SELECT value FROM player_metrics WHERE player_id = ? AND source = 'fc_value'`, Number(id))?.value;
+      // #405 finding 2: graded in each row's own league format (the format its value_at was read in).
+      const formats = new Map();
+      const fcNow = (id, r) => {
+        const k = r?.format_key ?? null;
+        if (!formats.has(k)) formats.set(k, fcFormatValues(svc.db, k));
+        return formats.get(k).byId.get(String(id))?.value;
+      };
       const g = appendRadarLedger(sibling(env, 'GRIDIRON_RADAR_LEDGER', 'radar-ledger.jsonl'), radarLedger, { valueNow: fcNow, now: Date.now() });
       console.log(`[warroom] radar ledger +${radarLedger.length} served, +${g.graded} graded${g.bad ? `, ${g.bad} unreadable lines skipped` : ''}; gate ${JSON.stringify(g.summary)}`);
     }

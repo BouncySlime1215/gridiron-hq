@@ -3,7 +3,7 @@
  *
  * Each flip row gets one `why_now` label, from the first source that has something to say:
  *   1. a validated O1 radar cell (adapter.opportunityOf, PR #377) with its n and CI;
- *   2. FantasyCalc's own 30-day move (`player_metrics fc_trend30`, adapter.fcTrendOf) when it
+ *   2. FantasyCalc's own 30-day move for this league's format (`dynasty_values`, adapter.fcTrendOf) when it
  *      is at least TREND_MIN_PCT of the value 30 days ago. Until `dynasty_value_history` holds
  *      TREND_MIN_DAYS capture days the trend is a watch label only (ONE-PLAN 4b row 10);
  *   3. a watch-only radar event (below the #377 gate): 'watch', never 'act'.
@@ -125,6 +125,7 @@ export function applyWhyNow(entry, adapter, { as_of, flag = 'on' } = {}) {
     counts[w.status]++;
     ledger.push({ type: 'serve', as_of, league: String(entry.league), player: r.player, buy_from: r.buy_from, sell_to: r.sell_to,
       status: w.status, kind: w.kind, direction: w.direction, value_at: fin(trend?.value) ? trend.value : null,
+      format_key: adapter.fcFormatKey ?? null,
       grade_after: new Date(now + GRADE_AFTER_DAYS * DAY).toISOString() });
   }
   if (entry._run) entry._run.inputs = { ...entry._run.inputs,
@@ -138,14 +139,15 @@ const moveOf = (at, then) => (then > at ? 'up' : then < at ? 'down' : 'flat');
 
 /**
  * Grade every serve row at least GRADE_AFTER_DAYS old that has no grade row yet.
- * valueNow(player) -> today's FantasyCalc value. Returns the new grade rows and the gate summary
+ * valueNow(player, row) -> today's FantasyCalc value in the row's league format (row.format_key).
+ * Returns the new grade rows and the gate summary
  * over every grade row (old and new).
  */
 export function gradeLedger(rows, { valueNow, now = Date.now() } = {}) {
   const done = new Set(rows.filter(r => r.type === 'grade').map(r => r.key));
   const due = rows.filter(r => r.type !== 'grade' && !done.has(keyOf(r)) && fin(r.value_at)
-    && now - Date.parse(r.as_of) >= GRADE_AFTER_DAYS * DAY && fin(valueNow(r.player)));
-  const moved = due.map(r => ({ r, move: moveOf(r.value_at, valueNow(r.player)) }));
+    && now - Date.parse(r.as_of) >= GRADE_AFTER_DAYS * DAY && fin(valueNow(r.player, r)));
+  const moved = due.map(r => ({ r, move: moveOf(r.value_at, valueNow(r.player, r)) }));
   const byWeek = new Map();
   for (const m of moved) {
     const w = weekOf(m.r.as_of);

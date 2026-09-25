@@ -69,3 +69,13 @@ actual points appear only in the luck sentence. Flagged in the PR under "Not con
    reason, and every role is `unknown`, which caps BUY at PASS.
 
 RED: the 3 new reader tests fail against the round-0 reader (21 pass, 3 fail). GREEN: 24 of 24.
+
+## Batch B item 7 (Nick: "injury reports expire, latest report for THIS week only")
+
+Round 1 still let last week's report stand in when week N was not published. Now only the week-N
+report counts. With no week-N report (N not out yet, or none this season) `sources.injuries` is
+`stale` with the latest week and a reason, and every role is `unknown` (caps BUY at PASS). A player
+with no row on this week's report is healthy; no report at all this season is unknown, never healthy.
+
+RED `47e3b89`: the reworded "last week's report" test and the stale-table test fail against the
+round-1 reader (22 pass, 2 fail). GREEN: 24 of 24.

@@ -4,8 +4,8 @@
  *   usage          player_week_usage (keyed on players.id): mean target_share, summed actual TDs
  *   ffopportunity  nfl_ffopportunity_weekly (keyed on players.gsis_id): mean expected and actual
  *                  points per game, summed expected TDs ("usage through week N")
- *   injuries       nfl_injuries, the week-N report (N-1 if N is not out): the healthy-role read;
- *                  older or missing reports make every role 'unknown', never 'healthy'
+ *   injuries       nfl_injuries, the week-N report only (reports expire): the healthy-role read;
+ *                  an older or missing report makes every role 'unknown', never 'healthy'
  *   draft          DRAFT-ID-MAP's `by_player` map when the producer has one, else 'not_read'
  *
  * A missing table is reported per source as 'table_absent' ("we cannot look"), never thrown and
@@ -83,14 +83,14 @@ export function readLoveInputs(db, { season, week, ids, draft = null, lookback =
 
   const injury = new Map();
   if (hasTable(db, 'nfl_injuries')) {
-    // Only the current report counts: week N, or N-1 when N is not published yet. An older report is
-    // stale, so a player Out in week 1 and off the report since is not still Out. A table with nothing
-    // for N or N-1 cannot say who is healthy: every role reads 'unknown' (caps the tag at PASS).
+    // Injury reports expire: only THIS week's report (week N) counts. Last week's is stale, so a
+    // player Out in an earlier week is not still Out. With no week-N report (not published yet, or
+    // nothing this season) nobody can be called healthy: every role reads 'unknown' (caps at PASS).
     const latest = db.row(`SELECT MAX(week) AS w FROM nfl_injuries WHERE season = ? AND week <= ?`, season, week)?.w ?? null;
-    if (latest == null || latest < week - 1) {
+    if (latest !== week) {
       sources.injuries = { status: 'stale', max_week: latest, rows: 0,
         reason: latest == null ? `nfl_injuries has no ${season} report at or before week ${week}`
-          : `nfl_injuries' latest ${season} report is week ${latest}, older than week ${week - 1}` };
+          : `nfl_injuries' latest ${season} report is week ${latest}, not this week (${week})` };
     } else {
       sources.injuries.report_week = latest;
       if (gsisIds.length) {

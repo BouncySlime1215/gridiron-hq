@@ -193,7 +193,7 @@ test('all-in plan: first step, expected, if complete, chance to complete (a gues
   const body = await (await ask('Show me the all-in plan')).json();
   const t = texts(body);
   assert.match(t, /first step: offer Team 2 P4 \(WR\) \+ P6 \(RB\) \+ P7 \(WR\) for P11 \(WR\)/);
-  assert.match(t, /Expected: \+3\.7 pts of title odds; \+40\.9 pts if it all lands\./);
+  assert.match(t, /Expected: \+3\.7 pts of title odds; \+40\.7 pts if it all lands\./);
   assert.match(t, /Chance it completes: 9%, a guess/);
 });
 

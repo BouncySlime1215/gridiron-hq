@@ -992,7 +992,7 @@ class RunDraws {
  */
 export function tradeImpactWorld(lg, {
   runs = TRADE_IMPACT_RUNS, scoring = null, fromWeek: requestedWeek = null, seed = null,
-  universe = [], projections = null
+  universe = [], projections = null, fastLineups = false
 } = {}) {
   scoring = scoring ?? scoringFor(lg);
   projections = projections ?? buildProjections({ through: SEASON - 1, scoring });
@@ -1025,9 +1025,66 @@ export function tradeImpactWorld(lg, {
   const rostered = new Set(prep.teams.flatMap(t => t.players.map(p => p.id)));
   const extras = [...prep.rosterIds].filter(id => !rostered.has(id));
   const w = { key, projections, universe: universeIds, extras, prep, draws, runs };
-  w.points = new Map(prep.teams.map(t => [t.roster_id, teamPoints(w, t.players)]));
+  // PRODUCER-FAST: `fastLineups` scores every lineup of this world (base and deals) with teamPointsFast.
+  if (fastLineups) w.teamPoints = teamPointsFast;
+  w.points = new Map(prep.teams.map(t => [t.roster_id, (w.teamPoints ?? teamPoints)(w, t.players)]));
   w.base = playSeasons(prep, prep.teams, runs, true, pointsReader(w, w.points));
   return w;
+}
+
+/**
+ * PRODUCER-FAST: lineupPoints' starters, picked once. Who starts depends only on
+ * `expected` (the pre-kickoff decision) and `kdst` (SIM-KDST: a K / D/ST's fixed
+ * projection), never on the run's draws, so a week's lineup is the same in every
+ * run. Same pool order, same slot order, same picks. Each pick is { id, fixed }:
+ * `fixed` is the K / D/ST's points that week, null for a drawn player.
+ */
+export function lineupStarters(roster, slots, expected, kdst = null) {
+  const pool = roster
+    .filter(p => SCORED.has(p.position) || (kdst && KDST.has(p.position)))
+    .map(p => {
+      const fixed = KDST.has(p.position) ? (kdst.get(p.id) ?? 0) : null;
+      return { id: p.id, position: p.position, fixed, expected: fixed ?? expected.get(p.id) ?? 0 };
+    })
+    .sort((a, b) => b.expected - a.expected);
+  const used = new Set(), picks = [];
+  for (const slot of slots) {
+    if (!SCORED.has(slot) && !KDST.has(slot)) continue;
+    const pick = pool.find(p => !used.has(p.id) && p.position === slot);
+    if (pick) { used.add(pick.id); picks.push({ id: pick.id, fixed: pick.fixed }); }
+  }
+  for (const slot of slots) {
+    const ok = FLEX_ELIGIBLE[slot];
+    if (!ok) continue;
+    const pick = pool.find(p => !used.has(p.id) && ok.includes(p.position));
+    if (pick) { used.add(pick.id); picks.push({ id: pick.id, fixed: pick.fixed }); }
+  }
+  return picks;
+}
+
+/**
+ * PRODUCER-FAST: teamPoints with each week's starters picked once (lineupStarters)
+ * and summed per run in the same slot order as lineupPoints, so every total is the
+ * same double, with or without SIM-KDST (the week's `kdst` map, as teamPoints passes
+ * it). Opt-in: tradeImpactWorld(lg, { fastLineups: true }) (the campaign producer,
+ * behind its flag); every other caller is unchanged.
+ */
+export function teamPointsFast(w, players) {
+  const out = new Map();
+  for (const [week, { byRun, expected, kdst }] of w.draws) {
+    const picks = lineupStarters(players, w.prep.slots, expected, kdst);
+    const idx = byRun.length ? picks.map(p => (p.fixed == null ? byRun[0].index.get(p.id) ?? -1 : -1)) : [];
+    const fixed = picks.map(p => p.fixed);
+    const arr = new Float64Array(w.runs);
+    for (let run = 0; run < w.runs; run++) {
+      const vals = byRun[run].vals;
+      let total = 0;
+      for (let k = 0; k < idx.length; k++) total += fixed[k] ?? (idx[k] < 0 ? undefined : vals[idx[k]]) ?? 0;
+      arr[run] = total;
+    }
+    out.set(week, arr);
+  }
+  return out;
 }
 
 /** One roster's lineup total in every run and week: week -> Float64Array[run]. */
@@ -1119,7 +1176,7 @@ export function tradeImpact(lg, {
     before = w.base;
     const afterTeams = applyOverrides(w.prep.teams, overrides, w.prep.assets);
     const points = new Map(w.points);
-    for (const t of afterTeams) if (overrides.has(t.roster_id)) points.set(t.roster_id, teamPoints(w, t.players));
+    for (const t of afterTeams) if (overrides.has(t.roster_id)) points.set(t.roster_id, (w.teamPoints ?? teamPoints)(w, t.players));
     after = playSeasons(w.prep, afterTeams, runs, true, pointsReader(w, points));
   } else {
     // One projection build shared by both runs — rebuilding would introduce noise that

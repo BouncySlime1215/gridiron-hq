@@ -9,6 +9,7 @@
 export { useWarRoomCoach, type WarRoomCoach, type CoachMessage } from './useWarRoomCoach';
 export { default as CoachDock } from './CoachDock';
 export { default as PlugInCard } from './PlugInCard';
+export { default as CoachDrawer, FIXED_QUESTIONS } from './CoachDrawer';
 export {
   validateAction, dispatch, confirm, cancel, undo, coachFooter, previewFor, readField, tradeoffKey,
   ACTION_TYPES, PLAN_CHANGING, PANELS, PLUG_IN_FIELDS,

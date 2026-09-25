@@ -64,6 +64,8 @@ export const CATCHUP_KINDS = Object.freeze(['free', 'flip', 'desperate', 'swing'
 /** NEGOTIATOR-DEFAULTS levers (negotiator-defaults.js reads this list). */
 export const NEGOTIATION_LEVERS = Object.freeze(['defensible_anchor', 'two_packages', 'firm_wording', 'why_line', 'expiry',
   'withdraw_on_news', 'feeler_first', 'no_pressure_tactics', 'cool_off']);
+/** Why a second package was not served (planner.js confirmAlt): the rules a served plan must pass. */
+export const ALT_DROP_REASONS = Object.freeze(['over_cap', 'path_conflict', 'floor', 'trade_memory', 'confirm_dice']);
 export const SPEED_LEVERS = Object.freeze(['sequential', 'parallel', 'concede', 'package', 'all_in']);
 /** PLAYER-SCORE vocabularies (people/player-score.js LABEL_NAMES / GAP_TYPES; a test pins them equal). */
 export const SCORE_LABELS = Object.freeze(['Elite blue chip', 'Blue chip', 'Level below', 'Solid starter', 'Flex', 'Depth', 'Bench']);
@@ -150,7 +152,7 @@ const stepNegotiation = obj({
 }, {
   alt_package: obj({ give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }) }, { his_pct: num }),
   anchor: obj({ lifted: bool, floor_pct: num, from_pct: num, to_pct: num, defensible: bool }),
-  cool_off: bool, alt_dropped: oneOf(['confirm_dice', 'over_cap'])
+  cool_off: bool, alt_dropped: oneOf(ALT_DROP_REASONS)
 });
 
 /** One offer in a plan, with its playbook. */

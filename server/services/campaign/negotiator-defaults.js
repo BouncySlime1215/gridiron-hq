@@ -6,8 +6,9 @@
  *                     door-in-the-face). The walk-away never moves.
  *   secondPackage     a second genuine package: a different give, within ANCHOR_FLOOR_PCT of the
  *                     opening on his screen, that also beats the backup (every ladder rung does).
- *                     The planner serves it only after it beats doing nothing on the confirm dice
- *                     and passes the overpay cap (planner.js confirmAlt); else `alt_dropped` says why.
+ *                     The planner serves it only when the plan with that give passes the same rules as a
+ *                     served plan: overpay cap, held floor, trade memory and main's confirm-dice gate
+ *                     (planner.js confirmAlt); else `alt_dropped` says why.
  *   whyLine           one line on why it helps HIM (his engine-read hole, else what the player adds).
  *   firmOfferText     plain and firm: the why line, the package(s), "fair for both of us", the
  *                     expiry, an easy no. Never "open to tweaking".

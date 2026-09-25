@@ -10,8 +10,9 @@
  *   interest first      a short feeler before the formal proposal
  *   no pressure tricks  no door-in-the-face, no fake scarcity in any outgoing text
  *   cool-off            he just lost: wait, then a fair offer (no post-loss P(yes) boost)
- *   alt on confirm dice the "Or X for Y" package is served only when it beats doing nothing on the
- *                       confirm dice and stays inside the overpay cap (else alt_dropped says why)
+ *   alt, same rules     the "Or X for Y" package is served only when the plan with that give passes
+ *                       what a served plan passes: never-give lists and untouchables, overpay cap,
+ *                       held floor, trade memory, and main's confirm-dice gate (else alt_dropped says why)
  * The no-trade row per risk mode is NO-TRADE-SHRINK's (modes.js#noTradeRow), not this unit's.
  *
  * Made-up league in test/fixtures/campaign-league.mjs, no DB.
@@ -24,7 +25,7 @@ const { makeAdapter } = await import('./fixtures/campaign-league.mjs');
 const { planLeague } = await import('../server/services/campaign/planner.js');
 const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
 const { toEntry } = await import('../server/services/campaign/view.js');
-const { validateLeague } = await import('../server/services/campaign/plans-schema.js');
+const { validateLeague, ALT_DROP_REASONS } = await import('../server/services/campaign/plans-schema.js');
 const { applyCoachMessages } = await import('../server/services/campaign/messages.js');
 const { checkMessage, factsFor } = await import('../server/services/campaign/message-check.js');
 
@@ -259,7 +260,7 @@ test('flag on: a served second package beats doing nothing on the confirm dice a
       for (const pb of res.deck.flatMap(c => c.playbooks ?? [c.playbook]).filter(Boolean)) {
         const n = pb.negotiation;
         if (n?.alt_package) assert.equal(n.alt_dropped, undefined);
-        if (n?.alt_dropped) assert.ok(['confirm_dice', 'over_cap'].includes(n.alt_dropped));
+        if (n?.alt_dropped) assert.ok(ALT_DROP_REASONS.includes(n.alt_dropped), n.alt_dropped);
       }
     }
   });
@@ -313,4 +314,65 @@ test('cap rule for the second package: over the cap only as the planned premium 
     valueOf, maxOverpay: 0 }), true);
   // A different over-cap package beside a confirmed premium step: over.
   assert.equal(ND.altWithinCap({ give: [2, 3], step: { ...step, depth_premium: { pct: 0.075, confirmed: {} } }, valueOf, maxOverpay: 0 }), false);
+});
+
+/* ------------------------------------------------------------------ the second package passes the served plan's rules */
+
+// Each served second package with the plan it sits in: [{ plan, i, give }].
+const servedAlts = res => res.deck.flatMap(c => (c.playbooks ?? [c.playbook]).map((pb, i) => ({ plan: c.plan, i, pb })))
+  .filter(x => x.pb?.negotiation?.alt_package).map(x => ({ plan: x.plan, i: x.i, give: x.pb.negotiation.alt_package.give.map(String) }));
+
+test('flag on: the second package never offers a never-give player or an objectives untouchable', () => {
+  withEnv({ GRIDIRON_COACH_MESSAGES: '1' }, () => {
+    const base = servedAlts(run({}, {}, ND_ON).res);
+    const ids = [...new Set(base.flatMap(a => a.give))];
+    assert.ok(ids.length >= 2, 'the fixture serves second packages to test against');
+    const [pinned, untouch] = ids;
+    // adapter.untouchable is where never-give.js#withNeverGive puts PINNED_NEVER_GIVE; objective.untouchables is the file's list.
+    const wrap = a => ({ ...a, untouchable: new Set([...(a.untouchable ?? [])].map(String).concat(pinned)) });
+    for (const obj of OBJECTIVES) {
+      const { res } = run({ ...obj, untouchables: [untouch] }, {}, ND_ON, wrap);
+      for (const a of servedAlts(res)) {
+        assert.equal(a.give.includes(pinned), false, `never-give ${pinned} offered in "Or X for Y"`);
+        assert.equal(a.give.includes(untouch), false, `untouchable ${untouch} offered in "Or X for Y"`);
+      }
+    }
+  });
+});
+
+test('flag on: the plan with the second package swapped in is a valid path, holds no player under the floor', () => {
+  withEnv({ GRIDIRON_COACH_MESSAGES: '1' }, () => {
+    const low = new Set(['21', '22']);
+    const wrap = a => ({ ...a, scoreOf: pid => ({ score: low.has(String(pid)) ? 50 : 90, label: 'test' }) });
+    let checked = 0;
+    for (const obj of OBJECTIVES) {
+      const { res } = run(obj, {}, { ...ND_ON, GRIDIRON_GETS_FLOOR: '1' }, wrap);
+      for (const pb of res.deck.flatMap(c => c.playbooks ?? [c.playbook]).filter(Boolean)) {
+        const d = pb.negotiation?.alt_dropped;
+        if (d) assert.ok(ALT_DROP_REASONS.includes(d), d);
+      }
+      for (const { plan, i, give } of servedAlts(res)) {
+        const steps = plan.steps.map((s, k) => (k === i ? { ...s, give } : s));
+        const held = new Set();
+        for (const s of steps) {
+          for (const id of s.give.map(String)) held.delete(id);
+          for (const id of s.get.map(String)) held.add(id);
+        }
+        for (const id of held) assert.equal(low.has(id), false, `"Or X for Y" leaves Nick holding ${id}, under the floor`);
+        // No later step hands on a player the swapped give already sent.
+        const sent = new Set(give);
+        for (const s of steps.slice(i + 1)) assert.equal(s.give.some(id => sent.has(String(id))), false);
+        checked++;
+      }
+    }
+    assert.ok(checked > 0, 'at least one second package is served and checked');
+  });
+});
+
+test('flag on: a second package that would break the path is dropped as path_conflict, never served', () => {
+  withEnv({ GRIDIRON_COACH_MESSAGES: '1' }, () => {
+    const reasons = OBJECTIVES.flatMap(obj => run(obj, {}, ND_ON).res.deck.flatMap(c => c.playbooks ?? [c.playbook])
+      .filter(Boolean).map(pb => pb.negotiation?.alt_dropped).filter(Boolean));
+    assert.ok(reasons.includes('path_conflict'), `the fixture has a second package whose give a later step needs (${reasons})`);
+  });
 });

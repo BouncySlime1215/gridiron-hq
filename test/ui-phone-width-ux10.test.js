@@ -55,12 +55,19 @@ test('Leagues.tsx: the roster table has a mobile card fallback, not just overflo
   assert.equal((code.match(/analysis\.rosters\.map/g) || []).length, 2, 'roster data must be rendered twice: desktop table + phone cards');
 });
 
-test('Trades: the view tabs wrap instead of relying on horizontal scroll (Trade Lab\'s strip is gone)', () => {
-  // UI consolidation: Trade Lab's 6-tab strip was retired; its tools are views of the Trades area.
+test('Trades: the view tabs are one row that scrolls sideways with a fade edge (never a second line)', () => {
+  // Coordinator (#457 review): at 375 "People" wrapped onto a second line beside the plan pager.
+  // Every tab stays reachable: the row scrolls, the edge hiding tabs fades, the selected tab scrolls into view.
   const src = read('client/src/pages/Trades.tsx');
-  assert.match(src, /<div className="mb-5 ds-tabs-wrap"><Tabs label="Trades views"/, 'the Trades tab row opts into wrapping');
-  assert.match(read('client/src/styles/ui.css'), /\.ds-tabs-wrap \.ds-tabs \{ flex-wrap: wrap;[^}]*overflow-x: visible; \}/,
-    'tab bar should wrap tabs onto more than one line instead of scrolling (UX-01-audit.md: 6 tabs truncate to 4 at 375px)');
+  assert.match(src, /<div className="mb-5"><Tabs label="Trades views"/, 'the Trades tab row is the plain DS row');
+  const css = read('client/src/styles/ui.css');
+  assert.doesNotMatch(css, /ds-tabs-wrap|\.ds-tabs \{[^}]*flex-wrap: wrap/, 'no wrapping tab row');
+  assert.match(css, /\.ds-tabs \{[^}]*overflow-x: auto;/);
+  for (const f of ['end', 'start', 'both']) assert.match(css, new RegExp(`\\.ds-tabs\\[data-fade="${f}"\\] \\{[^}]*mask-image`), `fade ${f}`);
+  const ds = read('client/src/components/ui/DesignSystem.tsx');
+  assert.match(ds, /data-fade=\{fade\}/);
+  assert.match(ds, /querySelector<HTMLElement>\('\[aria-selected="true"\]'\)/, 'the selected tab is scrolled into view');
+  assert.match(read('client/src/components/warroom/warroom-v2.css'), /\.wr-inline \.wr-plan-switch \{ margin: 0 0 8px auto; \}/, 'the pager has its own line on a phone');
 });
 
 test('Teams.tsx: the per-division team grid reflows to one column on phones', () => {
@@ -95,10 +102,7 @@ for (const file of ['client/src/pages/Leagues.tsx', 'client/src/pages/TradeLab.t
   });
 }
 
-test('Trades/Teams: wrapping containers do not opt back into nowrap', () => {
-  const tabBar = read('client/src/pages/Trades.tsx').match(/<div className="([^"]*ds-tabs-wrap[^"]*)">/);
-  assert.ok(tabBar);
-  assert.doesNotMatch(tabBar[1], /whitespace-nowrap|flex-nowrap/, 'the tab bar itself must wrap');
+test('Teams: wrapping containers do not opt back into nowrap', () => {
   const name = read('client/src/pages/Teams.tsx').match(/<div className="([^"]*)">\{t\.name\}<\/div>/);
   assert.ok(name);
   assert.doesNotMatch(name[1], /whitespace-nowrap/, 'team names must be allowed to wrap');

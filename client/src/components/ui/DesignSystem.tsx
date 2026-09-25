@@ -59,8 +59,35 @@ export function Fold({ title, hint, children, defaultOpen, className, testid }: 
   </details>;
 }
 
+/**
+ * One row of tabs. On a narrow screen the row scrolls sideways instead of wrapping: an edge that
+ * hides more tabs fades (data-fade), and the selected tab is scrolled into view, so every tab
+ * stays one swipe away and the row is always one line tall.
+ */
 export function Tabs<T extends string>({ tabs, value, onChange, label }: { tabs: { id: T; label: ReactNode }[]; value: T; onChange: (id: T) => void; label: string }) {
-  return <div className="ds-tabs" role="tablist" aria-label={label}>
+  const row = useRef<HTMLDivElement>(null);
+  const [fade, setFade] = useState<'none' | 'start' | 'end' | 'both'>('none');
+  const measure = useCallback(() => {
+    const el = row.current; if (!el) return;
+    const more = el.scrollWidth - el.clientWidth > 1;
+    const atStart = el.scrollLeft <= 1, atEnd = el.scrollLeft >= el.scrollWidth - el.clientWidth - 1;
+    setFade(!more ? 'none' : atStart ? 'end' : atEnd ? 'start' : 'both');
+  }, []);
+  useEffect(() => {
+    const el = row.current; if (!el) return;
+    const on = el.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (on && el.scrollWidth > el.clientWidth) {
+      const left = on.offsetLeft - el.offsetLeft, right = left + on.offsetWidth;
+      if (left < el.scrollLeft || right > el.scrollLeft + el.clientWidth) el.scrollLeft = Math.max(0, left - 24);
+    }
+    measure();
+  }, [value, measure]);
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined' || !row.current) return;
+    const ro = new ResizeObserver(measure); ro.observe(row.current);
+    return () => ro.disconnect();
+  }, [measure]);
+  return <div ref={row} className="ds-tabs" role="tablist" aria-label={label} data-fade={fade} onScroll={measure}>
     {tabs.map(t => <button key={t.id} type="button" role="tab" className="ds-tab" aria-selected={t.id === value} onClick={() => onChange(t.id)}>{t.label}</button>)}
   </div>;
 }

@@ -79,7 +79,9 @@ test('CLI exits 1 on a regression and 0 when every measured row holds', () => {
   assert.equal(code, 1);
   assert.match(out, /REGRESSED plans\.candidates_scored/);
   const good = path.join(dir, 'good.json');
-  fs.writeFileSync(good, JSON.stringify({ 'plans.candidates_scored': 53 }));
+  // The committed baseline, read from BENCHMARKS.md (it moves on a reset), so this checks the CLI, not a number.
+  const base = parseBenchmarks(MD).find(r => r.id === 'plans.candidates_scored').baseline;
+  fs.writeFileSync(good, JSON.stringify({ 'plans.candidates_scored': base }));
   out = execFileSync(process.execPath, ['scripts/check-benchmarks.mjs', '--current', good], { cwd: ROOT, encoding: 'utf8' });
   assert.match(out, /PASS plans\.candidates_scored/);
   assert.match(out, /NOT RUN/);

@@ -29,6 +29,7 @@ import { hash } from './confirm.js';
 import { ladderSection } from './ladder.js';
 import { floorName as getsFloorName } from './gets-floor.js';
 import { hisSide, hisSideSummary } from './his-side.js';
+import { deadlineSummary } from './deadline-mode.js';
 
 const M6_MIX = Object.freeze({ ignore: M6_REPLY_PRIOR.ignore, counter: M6_REPLY_PRIOR.counter, decline: M6_REPLY_PRIOR.decline, accept: M6_REPLY_PRIOR.accept });
 /** One counterpart feature for the plans file: named, typed, no names or note text. */
@@ -129,6 +130,15 @@ export function moveId(league, plan) {
 /** The contract's failed-run shape: nothing but the error. */
 export function failedEntry(res, { names = {} } = {}) {
   return { league: res.league, me: res.me != null ? String(res.me) : 'unknown', names, error: String(res.error) };
+}
+
+/** STOPS-01: the stops run for `_run.inputs.stops` (ids and numbers only). */
+function stopsSummary(st) {
+  return { mode: st.mode, priced: st.rows.filter(r => r.status === 'ok').length, unreachable: st.rows.filter(r => r.status !== 'ok').length,
+    holes: st.holes.map(h => ({ week: h.week, kind: h.kind, drop: h.drop, se: h.se, players: h.players })),
+    rows: st.rows.map(r => ({ week: r.week, kind: r.hole_kind, status: r.status, stop_label: r.stop_label, because: r.because,
+      ...(r.status === 'ok' ? { cost: r.cost, net: r.net, verdict: r.verdict, extra_steps: r.extra_steps, gain_text: r.gain_text,
+        new_next_move_changes: r.new_next_move_changes, cover: r.cover } : {}) })) };
 }
 
 /**
@@ -391,6 +401,14 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       week: st.week, label: st.label ?? p.stop_label } });
     if (TRADEOFF_KEY.test(key)) tradeoffs[key] = row(p);
   });
+  // STOPS-01: the planner's bye / injury stops, served only when GRIDIRON_STOPS=1 (shadow: _run.inputs.stops).
+  if (res.stops?.mode === 'on') {
+    for (const r of res.stops.rows) {
+      if (r.status !== 'ok' || !fin(r.cost) || !fin(r.net)) continue;
+      const key = tradeoffKey({ type: 'add_stop', stop: r.stop });
+      if (TRADEOFF_KEY.test(key) && !tradeoffs[key]) tradeoffs[key] = row(r);
+    }
+  }
   const cur = res.risk_modes.find(m => m.mode === o.risk_mode);
   // integration-7: a mode whose pick is keeping the roster is worth exactly 0 (no move), not unpriced.
   const expOf = m => (fin(m?.expected) ? m.expected : m?.no_trade?.pick === 'no_trade' ? 0 : null);
@@ -595,6 +613,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       candidates_scored: res.candidates_scored, rescores: res.rescores ?? 0, runtime_ms: res.runtime_ms ?? 0, phases_ms: res.phases_ms ?? {},
       // PLAN-BASELINE: the model this run's trajectory was made under (the contract keeps `_run` keys fixed; inputs is free-form).
       inputs: { ...(model != null ? { model } : {}), his_side: hisSideSummary(hisRows, hisSideServed, res.trade_block ?? null, res.chat_interest ?? null),
+        ...(res.stops ? { stops: stopsSummary(res.stops) } : {}),
+        ...(res.deadline ? { deadline_mode: deadlineSummary(res.deadline) } : {}),
         ...(res.no_fc_value?.source ? { value_source: { status: res.no_fc_value.status, source: res.no_fc_value.source, unpriced_players: res.no_fc_value.players, paths_dropped: res.no_fc_value.paths, ...(res.no_fc_value.reason ? { reason: res.no_fc_value.reason } : {}) } } : {}) },
       // TRADE-MEMORY: paths the season's trade ledger removed, and the memory itself (ids only).
       dropped_by_reason: { trade_memory: res.trade_memory?.dropped_total ?? 0,

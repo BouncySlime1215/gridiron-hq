@@ -56,7 +56,7 @@ const credText = c => (c?.n > 0 ? ` (kept ${c.kept ?? 0} of ${c.n} such claims)`
 export function hisSide({ player, owner, partner = null, model = null, block = null, memory = null, inNames, nm, tl }) {
   const p = String(player), team = String(owner);
   const keep = ids => [...new Set((ids ?? []).map(String))].filter(inNames);
-  const needs = (partner?.needs ?? []).map(String);
+  const needs = (partner?.needs_read ?? partner?.needs ?? []).map(String);
   const chatOk = model?.status === 'ok';
   const blockOk = block?.status === 'ok';
   const ledgerOk = memory?.status === 'on';

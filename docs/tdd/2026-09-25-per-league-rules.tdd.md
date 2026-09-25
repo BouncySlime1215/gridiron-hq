@@ -42,3 +42,14 @@ not ok 10 - planner: a tighter cap or floor never serves more than the default
 # pass 4
 # fail 6
 ```
+
+GREEN: `test/per-league-rules.test.js` 10 pass, 0 fail. Full `npm test`: 6457 tests, 6408 pass, 0 fail,
+49 skipped. typecheck, lint, check:wiring exit 0. No test edited after RED except expectation fixes
+in tests 5 and 6 found while writing (fixture arithmetic: the league-1 cases also tripped the tighter
+cap or floor, so those asserts now check `includes(reason)`); no bar was moved.
+
+## Removal checks (does each test fail without its code?)
+
+- `ruleVerdict` floor back to the constant 83 -> test 5 fails.
+- `withNeverGive` ignoring the league's never_give -> test 9 fails.
+- `resolveLeagueRules` accepting loosening values -> tests 2, 7, 9 fail.

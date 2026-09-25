@@ -47,7 +47,7 @@ test('an existing database with child rows is widened by the preflight repair, r
   assert.equal(allowsWithdrawn(d), false);
   assert.throws(() => d.exec(`UPDATE trade_outcomes SET status = 'withdrawn' WHERE id = 1`), /CHECK/);
   const plan = planPreflightRepairs(d);
-  // A database at 067 also predates 107's 'observed_screenshot' source: both widenings are planned, in order.
+  // A database at 067 also predates 108's 'observed_screenshot' source: both widenings are planned, in order.
   assert.deepEqual(plan.map(r => r.name), [TRADE_OUTCOMES_WITHDRAWN_REPAIR, TRADE_OUTCOMES_SCREENSHOT_REPAIR]);
   applyPreflightRepairs(d, plan);
   assert.equal(allowsWithdrawn(d), true);

@@ -52,7 +52,7 @@ mock.module('../server/services/projections.js', {
 const { db, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
-const { assetUniverse, lineupSpread } = await import('../server/services/trade-engine.js');
+const { assetUniverse } = await import('../server/services/trade-engine.js');
 const { worldPoolFor } = await import('../server/services/season-sim.js');
 const { rangeFromPool, ONE_WORLD_ENV } = await import('../server/services/one-world.js');
 const { deriveFormat } = await import('../server/services/format.js');
@@ -97,9 +97,7 @@ test('EA-07 RED (row C): on, the card\'s floor/ceiling/avg are the player\'s poo
     assert.equal(plays.ceiling, range.p90);
     assert.equal(plays.avg, range.mean);
     assert.equal(plays.boom, range.boom_rate);
-    // The lineup total's spread reads the same pool's moments.
-    const spread = lineupSpread({ slots: [{ player: plays }] });
-    assert.equal(spread.mean, +range.mean.toFixed(1));
+    // The lineup total's range is lineup-week-range.js's (test/weekly-range-one.test.js).
     // A bye stays a known zero.
     const bye = u.get(901);
     assert.equal(bye.floor, 0);

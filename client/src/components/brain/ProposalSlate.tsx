@@ -4,6 +4,7 @@ import { PageError } from '../PageState';
 import CopyLine from './CopyLine';
 import { asText } from './types';
 import type { Proposal, ProposalsResponse, RejectedProposal } from './types';
+import RulesHidden from '../trade/RulesHidden';
 
 /**
  * The AI-written slate: proposals in a form that can be pasted into a group chat.
@@ -268,6 +269,8 @@ export default function ProposalSlate({ leagueId }: { leagueId: number }) {
       </section>
 
       {error && <PageError message={error} onRetry={write} />}
+
+      <RulesHidden n={result?.dropped_by_rule} />
 
       {result && !proposals.length && <NoProposals result={result} />}
 

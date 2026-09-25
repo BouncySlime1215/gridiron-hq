@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { useLeague } from '../state/league';
 import { CoachContext, useCoach } from '../state/coach';
 import { useWarRoom } from './warroom/useWarRoom';
@@ -54,7 +55,7 @@ export function AppCoachProvider({ children }: { children: ReactNode }) {
 
 /** The header's title odds, health chip and Coach button (the War Room top bar's pieces, app-wide). */
 export function HeaderFacts() {
-  const { enabled, open, openHealth, view, loading } = useCoach();
+  const { enabled, open, view, loading } = useCoach();
   const d = view && isOk(view.destination) ? view.destination.value : null;
   const odds = d && isOk(d.title_now) ? `${(d.title_now.value * 100).toFixed(1)}%` : null;
   const h = view ? healthTone(view) : null;
@@ -68,11 +69,12 @@ export function HeaderFacts() {
         <span className="hidden sm:inline-flex" aria-hidden="true"><Skeleton className="app-health-skel h-[26px] w-[74px] !rounded-full xl:w-[150px]" /></span>
       </>}
       {h && (
-        <button type="button" className={`ds-chip ${tone} app-health hidden sm:inline-flex`} onClick={openHealth} data-testid="app-health-chip"
-          aria-haspopup="dialog" title={`${h.label}. Is the brain working? Brain check and number audit`}>
+        // The chip opens Settings → Health (number health, data freshness and the brain check), one view.
+        <Link to="/settings?view=health" className={`ds-chip ${tone} app-health hidden sm:inline-flex`} data-testid="app-health-chip"
+          title={`${h.label}. Is the brain working? Open Settings → Health`}>
           <Icon name={h.tone === 'green' ? 'ok' : h.tone === 'grey' ? 'pulse' : 'warn'} size={14} />
           <span className="hidden xl:inline">{h.label}</span><span className="xl:hidden">{h.short}</span>
-        </button>
+        </Link>
       )}
       {enabled && (
         <button type="button" className="ds-btn ds-btn-quiet app-coach-btn" onClick={() => open()} aria-label="Open Coach" data-testid="app-coach-btn">

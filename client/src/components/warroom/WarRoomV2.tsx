@@ -9,7 +9,7 @@ import { SourcesContext } from './FieldState';
 import { PanelBoundary } from './Panel';
 import type { LeagueChoice } from './TopStrip';
 import TopBarV2 from './TopBarV2';
-import { openingLeague, TARGET_LEAGUE_ID } from './LeagueRail';
+import { markOpenedOnTarget, openingLeague, TARGET_LEAGUE_ID, wasOpenedOnTarget } from './LeagueRail';
 import NextMoveDeck, { type CurrentMove } from './NextMoveDeck';
 import ScreenToday from './ScreenToday';
 import ScreenGoGet from './ScreenGoGet';
@@ -19,12 +19,11 @@ import HealthSheet, { healthTone } from './HealthSheet';
 import { CoachDrawer, FIXED_QUESTIONS, useWarRoomCoach, type Panel as CoachPanel } from './coach';
 import { useNegotiations, usePlayerHeadshots } from './useWarRoom';
 import { HeadshotContext } from './Avatar';
-import { wasOpenedOnTarget, markOpenedOnTarget } from './WarRoom';
 import Icon, { type IconName } from './icons';
 import { useDocTheme } from './useDocTheme';
 
 /**
- * WAR-ROOM-UI v2: the War Room as four calm screens (WarRoomShell's default).
+ * WAR-ROOM-UI v2: the War Room as four calm screens (Trades → Next move).
  *
  *   TODAY    "Do this now" (the next move as a hero card), WATCHING (max 5), season progress
  *   GO GET   pick a target -> its paths as step timelines -> the offer composer; the plan's stops
@@ -34,7 +33,7 @@ import { useDocTheme } from './useDocTheme';
  * A segmented switcher sits in the top bar (a bottom tab bar on a phone). Health (brain
  * report + number audit) is a chip that opens a sheet. Coach is a right-side drawer on
  * every screen. It draws the same view (the plans contract) with the same pieces as the
- * classic dashboard (WarRoom.tsx); nothing here fetches a plan or computes a value.
+ * retired classic dashboard; nothing here fetches a plan or computes a value.
  */
 export type ScreenId = 'today' | 'goget' | 'market' | 'league';
 export const SCREENS: { id: ScreenId; name: string }[] = [
@@ -55,7 +54,7 @@ export const tradeWith = (team: string) => `Find a trade for ${teamLabel(team)}`
 
 const ICONS: Record<ScreenId, IconName> = { today: 'today', goget: 'target', market: 'trend', league: 'users' };
 
-export default function WarRoomV2({ view, leagues, activeId, onLeague, onExit, deckInitial, onDeckLog, post, initialFocus, onClassic }: {
+export default function WarRoomV2({ view, leagues, activeId, onLeague, onExit, deckInitial, onDeckLog, post, initialFocus }: {
   view: WarRoomView;
   leagues: LeagueChoice[];
   activeId: number;
@@ -65,7 +64,6 @@ export default function WarRoomV2({ view, leagues, activeId, onLeague, onExit, d
   onDeckLog?: (log: DeckLogEntry[]) => void;
   post?: Poster;
   initialFocus?: string;
-  onClassic?: () => void;
 }) {
   setTeamNames(isOk(view.teams) ? view.teams.value : null);
   const [screen, setScreen] = useState<ScreenId>('today');
@@ -176,7 +174,7 @@ export default function WarRoomV2({ view, leagues, activeId, onLeague, onExit, d
       <HeadshotContext.Provider value={headshots}>
         <div className="wr-root wr-v2" data-theme={theme} data-testid="war-room-v2" data-screen-on={screen}>
           <TopBarV2 view={view} leagues={leagues} activeId={activeId} onLeague={onLeague} onExit={onExit}
-            theme={theme} onTheme={toggleTheme} onClassic={onClassic}
+            theme={theme} onTheme={toggleTheme}
             nav={tabs('top')}
             health={
               <button type="button" className={`wr-health-chip wr-hc-${health.tone}`} onClick={() => setHealthOpen(true)}

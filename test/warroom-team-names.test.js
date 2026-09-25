@@ -33,7 +33,7 @@ const { buildWarRoomView } = await import('../server/services/war-room-view.js')
 const wr = await loadWarRoom();
 test.after(() => { wr.cleanup(); fs.rmSync(temp, { recursive: true, force: true }); });
 const types = await wr.mod('types');
-const { default: WarRoom } = await wr.mod('WarRoom');
+const { default: WarRoom } = await wr.mod('WarRoomV2'); // the classic dashboard is retired; the War Room is WarRoomV2
 
 const FIXTURE = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures', 'warroom-contract', 'producer-plans.json'), 'utf8'));
 const ON = { enabled: true, preview: false };

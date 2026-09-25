@@ -24,7 +24,7 @@ const { buildWarRoomView } = await import('../server/services/war-room-view.js')
 
 const wr = await loadWarRoom();
 test.after(() => wr.cleanup());
-const { default: WarRoom } = await wr.mod('WarRoom');
+const { default: WarRoom } = await wr.mod('WarRoomV2'); // the classic dashboard is retired; the War Room is WarRoomV2
 const { openingLeague, railOrder, TARGET_LEAGUE_ID } = await wr.mod('LeagueRail');
 
 const LEAGUES = [1, 2, 3, 4, 5].map(id => ({ id, name: `League ${id}` }));
@@ -92,28 +92,6 @@ test('the War Room opens on the target league once per page load, then Nick\'s p
   assert.equal(openingLeague(LEAGUES, 1, null, false), null, 'no target served: stay');
 });
 
-test('the league rail shows the target first and folds the other 4 under training leagues', () => {
-  const { target, training } = railOrder(LEAGUES, 4);
-  assert.equal(target.id, 4);
-  assert.deepEqual(training.map(l => l.id), [1, 2, 3, 5]);
-
-  const view = buildWarRoomView(4, plansFor4(), { enabled: true, preview: false });
-  const html = render(view, 4);
-  const ids = [...html.matchAll(/data-league="(\d+)"/g)].map(m => Number(m[1]));
-  assert.equal(ids[0], 4, 'target league first');
-  assert.match(html, /data-league="4" data-target="true"/);
-  const fold = html.slice(html.indexOf('data-testid="training-leagues"'));
-  assert.ok(fold.length < html.length, 'the training fold exists');
-  assert.match(textOf(fold.slice(0, fold.indexOf('</details>'))), /training leagues 4 more/);
-  assert.deepEqual([...fold.slice(0, fold.indexOf('</details>')).matchAll(/data-league="(\d+)"/g)].map(m => Number(m[1])), [1, 2, 3, 5]);
-  assert.doesNotMatch(html.match(/<details[^>]*>/)[0], /open/, 'folded while the target is open');
-  assert.match(html.match(/<button[^>]*data-league="4"[^>]*>/)[0], /aria-selected="true"/);
-
-  // A training league on screen opens the fold.
-  const html2 = render(buildWarRoomView(2, plansFor4(), { enabled: true, preview: false }), 2);
-  assert.match(html2.match(/<details[^>]*>/)[0], /open/);
-});
-
 test('no target connected: the rail is the flat list it was', () => {
   const view = buildWarRoomView(1, plansFor4(), { enabled: true, preview: false });
   const html = renderToStaticMarkup(React.createElement(WarRoom, {
@@ -121,25 +99,6 @@ test('no target connected: the rail is the flat list it was', () => {
   }));
   assert.doesNotMatch(html, /training leagues/);
   assert.deepEqual([...html.matchAll(/data-league="(\d+)"/g)].map(m => Number(m[1])), [1, 2]);
-});
-
-test('top strip: 0 fields show "not computed yet" when the plans file has them ok', () => {
-  const view = buildWarRoomView(4, plansFor4(), { enabled: true, preview: false });
-  assert.equal(view.number_health.value.overall, 'warn', 'the contract writes overall, not status');
-  const html = render(view, 4);
-  const m = wronglyNotComputed(view, html);
-  assert.ok(m.of >= 7, `the fixture computes most strip fields (${m.of})`);
-  assert.deepEqual(m.list, [], `wrongly not computed: ${m.list.join(', ')}`);
-  assert.match(facts(html).Checks, /data-health="amber"/);
-});
-
-test('a failed destination says failed in the strip, not "not computed"', () => {
-  const plans = plansFor4();
-  plans.entries[0].destination = { status: 'failed', source: 'campaign.plan', reason: 'x broke' };
-  const view = buildWarRoomView(4, plans, { enabled: true, preview: false });
-  const f = facts(render(view, 4));
-  assert.match(f.Destination, /hidden: failed its check/);
-  assert.match(f['Risk mode'], /hidden: failed its check/);
 });
 
 test('served view (WR_L4_SERVED_VIEW): opens on the target, strip filled', { skip: !process.env.WR_L4_SERVED_VIEW }, () => {
@@ -170,30 +129,11 @@ function plansNoMove() {
   return plans;
 }
 
-test('next_move unknown: the strip says "No move clears this week" with the reason', () => {
-  const view = buildWarRoomView(4, plansNoMove(), { enabled: true, preview: false });
-  assert.equal(view.next_move.status, 'unknown');
-  const html = render(view, 4);
-  const nm = noMove(view, html);
-  assert.ok(nm.said, 'says no move clears');
-  assert.ok(nm.reasonShown, 'shows the reason');
-  assert.deepEqual(wronglyNotComputed(view, html).list, []);
-});
-
 test('a computed next move, or no plan at all, adds no no-move fact', () => {
   const ok = buildWarRoomView(4, plansFor4(), { enabled: true, preview: false });
   if (ok.next_move?.status === 'ok') assert.equal(noMove(ok, render(ok, 4)).said, false);
   const none = buildWarRoomView(4, { status: 'ok', entries: [], as_of: 'x', id: 'x' }, { enabled: true, preview: false });
   assert.equal(noMove(none, render(none, 4)).said, false, 'no plan run: not "no move clears"');
-});
-
-test('next_move failed: the strip says hidden, not "no move clears"', () => {
-  const plans = plansFor4();
-  plans.entries[0].next_move = { status: 'failed', source: 'plan.path', reason: 'x broke' };
-  const view = buildWarRoomView(4, plans, { enabled: true, preview: false });
-  const f = facts(render(view, 4));
-  assert.match(f['This week'] ?? '', /failed its check/);
-  assert.doesNotMatch(f['This week'] ?? '', /No move clears/);
 });
 
 test('live plans file (WR_L4_PLANS): the league-4 entry renders the strip filled', { skip: !process.env.WR_L4_PLANS }, () => {

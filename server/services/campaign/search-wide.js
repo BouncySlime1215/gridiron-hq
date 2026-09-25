@@ -25,7 +25,7 @@
  * it moves served numbers (more paths ranked), so it stays off until measured on league 4.
  * Nick's hard rules sit outside this module and apply to every path it adds.
  */
-import { floorRead, heldAtEnd } from './gets-floor.js';
+import { floorRead, heldAtEnd, isFlipPieceClaim } from './gets-floor.js';
 import { NEVER_DEPTH, nickOverpays } from './search.js';
 import { PINNED_NEVER_GET } from './never-give.js';
 import { pathOutcomes } from './paths.js';
@@ -177,10 +177,11 @@ export function pickDrop({ roster, add, dropOk, valueOf, starters = new Set(), a
  */
 export function claimRule(steps, { dropOk, valueOf, maxOverpay = 0, sold = new Set() }) {
   const soldS = new Set([...PINNED_NEVER_GET, ...[...sold].map(String)]);
-  for (const [i, st] of steps.entries()) {
+  for (const st of steps) {
     if (!isClaim(st)) continue;
     const add = st.get.map(String), drop = st.give.map(String);
-    if (!add.every(id => steps.slice(i + 1).some(s => !isClaim(s) && s.give.map(String).includes(id)))) return 'claim_not_flipped';
+    // gets-floor.js#isFlipPieceClaim: the one flip-piece rule, shared with FLIP-STRANDED (#432).
+    if (!isFlipPieceClaim(st, steps)) return 'claim_not_flipped';
     if (!drop.length || !drop.every(id => dropOk(id))) return 'protected_drop';
     if (add.some(id => soldS.has(id))) return 'claim_sold';
     const dv = drop.map(valueOf), av = add.map(valueOf);

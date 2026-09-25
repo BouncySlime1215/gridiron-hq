@@ -67,6 +67,21 @@ test('F2: a claimed player never given on drops the path (claim_not_flipped); fl
   assert.equal(res.search_wide.claims.dropped_by_reason.claim_not_flipped, 0, 'the search builds only flipped claims');
 });
 
+test('F2: gets-floor.js#isFlipPieceClaim is the one flip-piece rule (shared with FLIP-STRANDED #432)', async () => {
+  const { isFlipPieceClaim } = await import('../server/services/campaign/gets-floor.js');
+  const c = claim(7, 45);
+  const direct = [c, trade('3', [45], [21])];
+  assert.equal(isFlipPieceClaim(c, direct), true);
+  assert.equal(isFlipPieceClaim(c, { steps: direct }), true, 'a plan carrying steps');
+  assert.equal(isFlipPieceClaim(c, [c, trade('2', [45], [13]), trade('3', [13], [21])]), true, 'flipped as a chip');
+  assert.equal(isFlipPieceClaim(c, [c, trade('3', [3], [21])]), false, 'claimed and kept');
+  assert.equal(isFlipPieceClaim(c, [trade('3', [45], [21]), c]), false, 'given before it was claimed');
+  assert.equal(isFlipPieceClaim(c, [c, { ...claim(45, 41) }]), false, 'a later claim\'s drop is not a flip');
+  assert.equal(isFlipPieceClaim(trade('3', [45], [21]), direct), false, 'not a claim');
+  assert.equal(isFlipPieceClaim({ ...c }, direct), false, 'a step not in the path fails closed');
+  assert.equal(isFlipPieceClaim(c, null), false);
+});
+
 /* ----------------------------------------------------- F3: protected drop */
 
 test('F3: the drop is never 160 / 80 / 277, an untouchable, a Blue chip or unscored (protected_drop)', () => {

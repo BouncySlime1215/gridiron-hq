@@ -417,6 +417,9 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     untouchable,
     // PLAYER-SCORE: the served board (typed; 'off' when the flag is off) and per-player reads for ROADMAP-TIERS.
     blueChips: () => board.served,
+    // CAP-1C (integration-7): the board as id -> score, the depth test for the +12% depth-only 2-for-1 premium
+    // (search.js#boardOf). Absent when the board is off or empty, so the premium stays off (fails closed).
+    ...(board.byId?.size ? { board: new Map([...board.byId].map(([k, r]) => [String(k), r.score])) } : {}),
     scoreOf: id => board.byId?.get(String(id)) ?? null,
     boardOf: id => { const r = board.byId?.get(String(id)); return r ? { score: r.score, label: r.label, hurt: r.hurt, gaps: r.gaps, protected: r.protected } : null; },
     ...(finder ? { finderBest } : {}),

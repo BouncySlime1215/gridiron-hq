@@ -15,7 +15,7 @@ process.env.SCHEDULER_DISABLED = '1';
 test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
 
 const {
-  scoreBuyLow, shrinkGap, buyLowEnabled, BUY_LOW_ENV, BUY_LOW_RULE, tieBreakSuggestions, applyBuyLow,
+  scoreBuyLow, shrinkGap, buyLowEnabled, buyLowPositions, BUY_LOW_TE_ENV, BUY_LOW_ENV, BUY_LOW_RULE, tieBreakSuggestions, applyBuyLow,
   annotateEntryTargets, buyLowForRun, usageOf,
 } = await import('../server/services/campaign/buy-low.js');
 const { readBuyLow } = await import('../server/services/campaign/buy-low-inputs.js');
@@ -251,4 +251,25 @@ test('RULE-FUZZ with BUY-LOW on: random buy-low reads never add a rule violation
     }
   }
   assert.ok(flaggedTargets > 0 && moved > 0, 'the fuzz exercised the tie-breaker');
+});
+
+test('position-aware flag: GRIDIRON_BUY_LOW=1 serves QB/RB/WR; TE only with GRIDIRON_BUY_LOW_TE=1', async () => {
+  assert.equal(BUY_LOW_TE_ENV, 'GRIDIRON_BUY_LOW_TE');
+  assert.deepEqual(buyLowPositions({}), []);
+  assert.deepEqual(buyLowPositions({ GRIDIRON_PREVIEW_UNCONFIRMED: '1' }), []);
+  assert.deepEqual(buyLowPositions({ GRIDIRON_BUY_LOW: '1' }), ['QB', 'RB', 'WR']);
+  assert.deepEqual(buyLowPositions({ GRIDIRON_BUY_LOW_TE: '1' }), ['TE']);
+  assert.deepEqual(buyLowPositions({ GRIDIRON_BUY_LOW: '1', GRIDIRON_BUY_LOW_TE: '1' }), ['QB', 'RB', 'WR', 'TE']);
+  assert.equal(buyLowEnabled({ GRIDIRON_BUY_LOW_TE: '1' }), true);
+  const reads = new Map([['22', flagged(6, 'confirmed', 'TE')]]);
+  const e = { targets: { status: 'ok', value: [{ player: '22' }] } };
+  assert.equal(annotateEntryTargets(e, reads, buyLowPositions({ GRIDIRON_BUY_LOW: '1' })).targets.value[0].buy_low, undefined);
+  assert.equal(annotateEntryTargets(e, reads, buyLowPositions({ GRIDIRON_BUY_LOW_TE: '1' })).targets.value[0].buy_low.value.role, 'confirmed');
+  // Producer: a TE-only reader serves nothing under GRIDIRON_BUY_LOW=1, and serves under the TE flag.
+  const te = () => flagged(4, 'confirmed', 'TE');
+  const main = (await run(withReader(te), { GRIDIRON_BUY_LOW: '1' })).leagues[0];
+  assert.equal(main.targets.value.some(t => t.buy_low), false);
+  assert.deepEqual(main._run.inputs.buy_low.positions, ['QB', 'RB', 'WR']);
+  const teOn = (await run(withReader(te), { GRIDIRON_BUY_LOW_TE: '1' })).leagues[0];
+  assert.equal(teOn.targets.value.every(t => t.buy_low?.status === 'ok'), true);
 });

@@ -19,8 +19,18 @@
  */
 
 export const BUY_LOW_ENV = 'GRIDIRON_BUY_LOW';
-/** Only an explicit '1'. Preview mode never turns this on. */
-export const buyLowEnabled = (env = {}) => env?.[BUY_LOW_ENV] === '1';
+/** TE is served only with its own flag: its backtest had too few rows to pass (27 < 30). */
+export const BUY_LOW_TE_ENV = 'GRIDIRON_BUY_LOW_TE';
+/**
+ * Position-aware, explicit '1' only; preview mode never turns either on.
+ * GRIDIRON_BUY_LOW=1 serves QB/RB/WR (the positions whose pre-registered CI cleared 0);
+ * GRIDIRON_BUY_LOW_TE=1 adds TE. Neither: [] (off).
+ */
+export function buyLowPositions(env = {}) {
+  return [...(env?.[BUY_LOW_ENV] === '1' ? BUY_LOW_RULE.served_positions : []), ...(env?.[BUY_LOW_TE_ENV] === '1' ? ['TE'] : [])];
+}
+/** Whether the read runs at all (either flag). */
+export const buyLowEnabled = (env = {}) => buyLowPositions(env).length > 0;
 
 export const BUY_LOW_RULE = Object.freeze({
   version: 1,
@@ -39,8 +49,8 @@ export const BUY_LOW_RULE = Object.freeze({
   served_positions: Object.freeze(['QB', 'RB', 'WR']),
 });
 
-/** A read that may be served / break a tie: flagged, at a position the backtest passed. */
-export const servedRead = r => r?.buy_low === true && BUY_LOW_RULE.served_positions.includes(r.position);
+/** A read that may be served / break a tie: flagged, at a served position (default: the ones the backtest passed). */
+export const servedRead = (r, positions = BUY_LOW_RULE.served_positions) => r?.buy_low === true && positions.includes(r.position);
 
 const finite = x => typeof x === 'number' && Number.isFinite(x);
 const mean = xs => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
@@ -106,13 +116,13 @@ const r1 = x => (finite(x) ? Math.round(x * 10) / 10 : null);
 const r3 = x => (finite(x) ? Math.round(x * 1000) / 1000 : null);
 
 /** The served buy_low value for a flagged player (plans-schema.js target.buy_low), or null. */
-export function buyLowRow(read) {
-  if (!servedRead(read)) return null;
+export function buyLowRow(read, positions) {
+  if (!servedRead(read, positions)) return null;
   return { role: read.role, points_below_expected: r1(read.gap_shrunk), games: read.games,
     usage_change: r3(read.usage_delta), through_week: read.through_week };
 }
 
-const scoreOfRead = r => (servedRead(r) ? r.score : 0);
+const scoreOfRead = (r, positions) => (servedRead(r, positions) ? r.score : 0);
 
 /**
  * Tie-breaker only: suggestions are already sorted by rank_score (planner.js). Among rows whose
@@ -120,10 +130,10 @@ const scoreOfRead = r => (servedRead(r) ? r.score : 0);
  * different rank_score never swap, and nothing is added or dropped. Returns a new array and the
  * number of rows whose position moved.
  */
-export function tieBreakSuggestions(suggestions, reads) {
+export function tieBreakSuggestions(suggestions, reads, positions) {
   const list = suggestions ?? [];
   const idx = new Map(list.map((s, i) => [s, i]));
-  const sc = s => scoreOfRead(reads?.get(String(s.player)));
+  const sc = s => scoreOfRead(reads?.get(String(s.player)), positions);
   const out = [...list].sort((a, b) => (b.rank_score - a.rank_score) || (sc(b) - sc(a)) || (idx.get(a) - idx.get(b)));
   const moved = out.filter((s, i) => s !== list[i]).length;
   return { suggestions: out, moved };
@@ -136,10 +146,10 @@ export function tieBreakSuggestions(suggestions, reads) {
  *   summary (for _run.inputs.buy_low): counts, flagged target ids, the other rosters' top reads.
  * floorOf(id): whether a player clears Nick's Blue chip floor (null when unknown); shown, never used to add.
  */
-export function applyBuyLow(res, reads, { others = [], floorOf = () => null, top = 10 } = {}) {
-  const { suggestions, moved } = tieBreakSuggestions(res.suggestions, reads);
+export function applyBuyLow(res, reads, { others = [], floorOf = () => null, top = 10, positions = BUY_LOW_RULE.served_positions } = {}) {
+  const { suggestions, moved } = tieBreakSuggestions(res.suggestions, reads, positions);
   const withField = suggestions.map(s => {
-    const row = buyLowRow(reads.get(String(s.player)));
+    const row = buyLowRow(reads.get(String(s.player)), positions);
     return row ? { ...s, buy_low: row } : s;
   });
   const statusCounts = {};
@@ -147,12 +157,12 @@ export function applyBuyLow(res, reads, { others = [], floorOf = () => null, top
   const board = others.map(String).map(id => ({ id, r: reads.get(id) })).filter(x => x.r?.buy_low)
     .sort((a, b) => (b.r.score - a.r.score) || a.id.localeCompare(b.id));
   const summary = {
-    flag: 'on', rule_version: BUY_LOW_RULE.version, prereg: BUY_LOW_RULE.prereg,
+    flag: 'on', positions: [...positions], rule_version: BUY_LOW_RULE.version, prereg: BUY_LOW_RULE.prereg,
     read: reads.size, by_status: statusCounts,
     targets_flagged: withField.filter(s => s.buy_low).map(s => String(s.player)),
     tie_break_moved: moved,
     others_flagged: board.length,
-    others_top: board.slice(0, top).map(({ id, r }) => ({ player: id, position: r.position, served: servedRead(r), role: r.role,
+    others_top: board.slice(0, top).map(({ id, r }) => ({ player: id, position: r.position, served: servedRead(r, positions), role: r.role,
       points_below_expected: r1(r.gap_shrunk), games: r.games, passes_floor: floorOf(id) })),
   };
   return { res: { ...res, suggestions: withField }, summary };
@@ -164,7 +174,7 @@ export function applyBuyLow(res, reads, { others = [], floorOf = () => null, top
  * A reader fault is recorded as status 'error' on the summary and logged by the caller; the plan
  * is then served exactly as planned (shadow must never kill a league).
  */
-export function buyLowForRun(res, adapter, { floor = 83 } = {}) {
+export function buyLowForRun(res, adapter, { floor = 83, positions = BUY_LOW_RULE.served_positions } = {}) {
   const me = String(res.me ?? adapter.league?.me);
   const others = [...(adapter.rosters ?? [])].filter(([t]) => String(t) !== me).flatMap(([, ids]) => ids.map(String));
   const ids = [...new Set([...others, ...(res.suggestions ?? []).map(s => String(s.player))])];
@@ -176,7 +186,7 @@ export function buyLowForRun(res, adapter, { floor = 83 } = {}) {
     const r = typeof adapter.scoreOf === 'function' ? adapter.scoreOf(id) : null;
     return r?.score == null || !finite(Number(r.score)) ? null : Number(r.score) >= floor;
   };
-  const out = applyBuyLow(res, read.reads, { others, floorOf });
+  const out = applyBuyLow(res, read.reads, { others, floorOf, positions });
   return { res: out.res, reads: read.reads, summary: { status: 'ok', ...out.summary, sources: read.sources } };
 }
 
@@ -184,11 +194,11 @@ export function buyLowForRun(res, adapter, { floor = 83 } = {}) {
  * The served entry's targets get the buy_low typed field (a guess: rule v1, not graded as an edge
  * unless the pre-registered backtest passed). entry is returned new; rows without a read are unchanged.
  */
-export function annotateEntryTargets(entry, reads) {
+export function annotateEntryTargets(entry, reads, positions) {
   const t = entry?.targets;
   if (t?.status !== 'ok' || !Array.isArray(t.value)) return entry;
   const value = t.value.map(row => {
-    const b = buyLowRow(reads.get(String(row.player)));
+    const b = buyLowRow(reads.get(String(row.player)), positions);
     return b ? { ...row, buy_low: { status: 'ok', source: 'usage.xfp', unit: 'points_per_week', guess: true, value: b } } : row;
   });
   return { ...entry, targets: { ...t, value } };

@@ -91,7 +91,7 @@ import { applyCoachMessages, coachMessagesOn } from '../../server/services/campa
 import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
 import { loveIdsOf, loveSummary } from '../../server/services/campaign/love.js';
-import { buyLowEnabled, buyLowForRun, annotateEntryTargets } from '../../server/services/campaign/buy-low.js';
+import { buyLowPositions, buyLowForRun, annotateEntryTargets } from '../../server/services/campaign/buy-low.js';
 import { reachFlag, REACH_TARGETS, droppedLine } from '../../server/services/campaign/reach.js';
 import { draftSummary } from '../../server/services/campaign/draft-capital.js';
 import { radarWireFlag, applyWhyNow, gradeLedger, newServeRows } from '../../server/services/campaign/why-now.js';
@@ -336,7 +336,8 @@ export async function buildPlansFile(leagues, {
       if (gate?.rule.fell_back) log(`[warroom] league ${id}: ${gate.rule.reason}`);
       res = planLeague(adapter, { objective, skips: ins.weights, budget, env });
       // BUY-LOW (shadow, GRIDIRON_BUY_LOW=1 only, never preview): buy_low on Go get targets, a tie-breaker only.
-      const buyLow = buyLowEnabled(env) && typeof adapter.buyLow === 'function' && !res.error ? buyLowForRun(res, adapter) : null;
+      const blPositions = buyLowPositions(env);
+      const buyLow = blPositions.length > 0 && typeof adapter.buyLow === 'function' && !res.error ? buyLowForRun(res, adapter, { positions: blPositions }) : null;
       if (buyLow) res = buyLow.res;
       const rosterKey = res.error ? null : adapter.rosterKey?.() ?? null;
       const changed = diffNextMove(prev?._run ?? null, { next_step: res.best?.steps[0] ?? null,
@@ -385,7 +386,7 @@ export async function buildPlansFile(leagues, {
         };
       }
       if (buyLow) {
-        entry = annotateEntryTargets(entry, buyLow.reads);
+        entry = annotateEntryTargets(entry, buyLow.reads, blPositions);
         if (entry._run) entry._run.inputs.buy_low = buyLow.summary;
         if (buyLow.summary.status === 'error') log(`[warroom] league ${id}: buy_low read failed: ${buyLow.summary.reason}`);
       }

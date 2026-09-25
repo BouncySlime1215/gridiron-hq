@@ -90,6 +90,7 @@ import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
 import { applyCoachMessages, coachMessagesOn } from '../../server/services/campaign/messages.js';
 import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
+import { loveIdsOf, loveSummary } from '../../server/services/campaign/love.js';
 import { reachFlag, REACH_TARGETS, droppedLine } from '../../server/services/campaign/reach.js';
 import { draftSummary } from '../../server/services/campaign/draft-capital.js';
 
@@ -367,6 +368,9 @@ export async function buildPlansFile(leagues, {
           ...(adapter.cacheStats?.() ? { rescore_cache: adapter.cacheStats() } : {}),
           // DRAFT-ID-MAP (shadow): join counts, only when GRIDIRON_DRAFT_ID_MAP gave the adapter a draft read.
           ...(adapter.draft ? { draft_id_map: draftSummary(adapter.draft) } : {}),
+          // LOVE-RULE (shadow, GRIDIRON_LOVE_TAG=1): BUY / PASS / AVOID on the players this entry shows.
+          // Read after planning, so it can never constrain the search; nothing served reads it.
+          ...(adapter.love ? { love: loveSummary(adapter.love(loveIdsOf(entry), { draft: adapter.draft?.by_player ?? null })) } : {}),
         };
       }
       // COACH-MSG (#306): grounded messages into the contract's existing slots, before the contract check.

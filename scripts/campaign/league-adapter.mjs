@@ -19,6 +19,8 @@ import { resolveUntouchables, untouchableIds } from '../../server/services/peopl
 import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
 import { tradeBlocks } from '../../server/services/espn-trade-block.js';
 import { tradeBlockRead } from '../../server/services/campaign/his-side.js';
+import { loveEnabled } from '../../server/services/campaign/love.js';
+import { readLoveInputs } from '../../server/services/campaign/love-inputs.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
 import { fpRosFor, syncIfStale } from '../../server/services/people/fantasypros-ros.js';
 import { executedTrades } from '../../server/services/campaign/trade-memory.js';
@@ -253,7 +255,7 @@ export function executedTradeRows(svc, { leagueId, season }) {
  * label 'unknown').
  */
 export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
-  rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env) } = {}) {
+  rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env), love = loveEnabled(env) } = {}) {
   const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg) throw new Error(`league ${leagueId} not found`);
   const payload = JSON.parse(lg.payload ?? '{}');
@@ -482,6 +484,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     // DRAFT-ID-MAP (shadow, GRIDIRON_DRAFT_ID_MAP=1): draft capital by players.espn_id, owner from these rosters.
     // Guarded: a SQL error is recorded as status 'error' in _run.inputs, never a dead league entry.
     ...(draftIdMap ? { draft: draftCapitalGuarded(svc.db, { leagueId, season, rosters }) } : {}),
+    // LOVE-RULE (shadow, GRIDIRON_LOVE_TAG=1): the tag's inputs for ids the producer asks about, weeks < this week.
+    ...(love ? { love: (ids, { draft = null } = {}) => readLoveInputs(svc.db, { season, week, ids, draft }) } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     teams: () => teamNames(payload, new Map([...(svc.identity?.identityMap(leagueId) ?? [])].map(([r, i]) => [String(r), i.chat_name]))),

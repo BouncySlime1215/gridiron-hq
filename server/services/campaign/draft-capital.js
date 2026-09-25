@@ -29,7 +29,7 @@ const empty = (status, reason, season) => ({
 /**
  * @param db { row, rows } (server/db/index.js shape)
  * @param rosters Map roster id -> app player ids (the producer's roster); may be empty
- * @returns { status: 'ok'|'table_absent'|'no_picks', reason, season, picks, joined,
+ * @returns { status: 'ok'|'table_absent'|'no_picks' ('error' only via draftCapitalGuarded), reason, season, picks, joined,
  *   joined_via_players_id, unjoined: [{ overall_pick, espn_id, why }], drafting_rosters,
  *   by_player: Map app id -> { espn_id, overall_pick, round, drafting_roster, current_roster } }
  */
@@ -78,6 +78,19 @@ export function draftCapital(db, { leagueId, season, rosters = new Map() }) {
     drafting_rosters: new Set(picks.map(p => String(p.team_id))).size,
     by_player: byPlayer,
   };
+}
+
+/**
+ * The adapter's read: draftCapital with a failure recorded, not thrown. A shadow read must not take
+ * the league's served plans down with it, and it must not look like "no picks" either: the error
+ * is status 'error' with its message, and it reaches `_run.inputs.draft_id_map` through draftSummary.
+ */
+export function draftCapitalGuarded(db, opts) {
+  try {
+    return draftCapital(db, opts);
+  } catch (e) {
+    return empty('error', `draft capital read failed: ${e?.message ?? e}`, opts?.season);
+  }
 }
 
 /** Counts only, for `_run.inputs.draft_id_map`: no names, no per-player rows. */

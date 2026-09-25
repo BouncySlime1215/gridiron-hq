@@ -47,7 +47,7 @@ function fmt(f: any, signed = false): string {
   return `${text}${f.guess ? ' (guess)' : ''}`;
 }
 
-function PreviewPanel({ coach }: { coach: WarRoomCoach }) {
+export function PreviewPanel({ coach }: { coach: WarRoomCoach }) {
   const p = coach.pending;
   if (!p) return null;
   const v = p.preview.value;

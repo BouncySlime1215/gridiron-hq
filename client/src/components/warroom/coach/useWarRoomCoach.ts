@@ -28,6 +28,12 @@ export interface CoachMessage {
   outcomes?: Outcome[];
   refusals?: string[];
   footer?: string;
+  /** WAR-ROOM-UI v2: the grounded claims with their cites, and the ledger they cite (the route's own). */
+  claims?: { text: string; cites: string[]; footer?: boolean }[];
+  ledger?: { queries: { id: string; tool?: string | null; tables?: string[]; rows: Record<string, unknown>[] }[];
+    derived: { id: string; op?: string; value?: unknown; inputs?: string[]; label?: string }[] };
+  /** The question this reply answers. */
+  question?: string;
 }
 
 interface Options {
@@ -151,22 +157,29 @@ export function useWarRoomCoach({ leagueId, leagues, plans, onLeagueChange }: Op
   }, [leagueId]);
 
   /** Ask Coach. Screen commands come back as actions; the reply always ends with the footer. */
-  const ask = useCallback(async (question: string) => {
+  const ask = useCallback(async (question: string, extra?: { deck_index?: number; move_id?: string }): Promise<CoachMessage | null> => {
     const q = question.trim();
-    if (!q) return;
+    if (!q) return null;
     say({ who: 'nick', text: q });
     setBusy(true);
     try {
       const res = await api<any>('/coach/ask', { method: 'POST', body: JSON.stringify({
         question: q, league_id: leagueId ?? undefined,
-        context: { surface: 'war_room', route: '/trade-brain?view=war-room', league: ref.current.ui.league } }) });
+        context: { surface: 'war_room', route: '/trade-brain?view=war-room', league: ref.current.ui.league, ...(extra ?? {}) } }) });
       const outcomes = (Array.isArray(res.actions) ? res.actions : []).map((a: unknown) => apply(a, q));
-      const claims: string[] = (res.answer?.claims ?? []).map((c: { text: string }) => c.text);
+      const grounded: { text: string; cites: string[]; footer?: boolean }[] = (res.answer?.claims ?? [])
+        .map((c: { text: string; cites?: string[]; footer?: boolean }) => ({ text: c.text, cites: Array.isArray(c.cites) ? c.cites : [],
+          ...(c.footer === true ? { footer: true } : {}) }));
+      const claims: string[] = grounded.map(c => c.text);
       const text = [...claims, ...outcomes.map((o: Outcome) => o.message)].join(' ')
         || (res.answer?.refusals?.length ? '' : 'Nothing changed.');
-      say({ who: 'coach', text, outcomes, refusals: res.answer?.refusals ?? [], footer: coachFooter(plans, ref.current.ui).text });
+      const reply: CoachMessage = { who: 'coach', text, outcomes, refusals: res.answer?.refusals ?? [], footer: coachFooter(plans, ref.current.ui).text,
+        claims: grounded, ledger: res.ledger ?? undefined, question: q };
+      say(reply);
+      return reply;
     } catch (e) {
       report('Coach could not answer')(e);
+      return null;
     } finally {
       setBusy(false);
     }

@@ -52,6 +52,69 @@ export function newOverpaySink(max = DEFAULT_MAX_OVERPAY) {
   return { max_overpay: max, rejected: 0, closest: null };
 }
 
+/**
+ * CAP-1C (Nick's decision 1c, 2026-09-24): the one exception to the cap. A depth-only 2-for-1
+ * consolidation (exactly two of Nick's players for one of theirs, no blue chip or untouchable in the
+ * give) may give up to +12% market value, and is planned only if Nick's weekly starting-lineup points
+ * AND his title odds both rise on the step (paired dice), and again on the confirm pass (fresh dice).
+ * Depth is read from the adapter's player board (adapter.board: id -> board score, the PLAYER-SCORE
+ * scale): a given player is depth only with an explicit score below BLUE_CHIP_SCORE. It fails closed:
+ * no board or an empty one turns the premium off, and an unscored player is never depth.
+ */
+export const DEPTH_PREMIUM_MAX = 0.12;
+/** Blue chip = board score 83+ (Nick's decision 2). */
+export const BLUE_CHIP_SCORE = 83;
+/** Nick's rules: Nico Collins (160), Chase Brown (80) and A.J. Brown (277) are never depth, whatever their score. */
+export const NEVER_DEPTH = Object.freeze(new Set(['160', '80', '277']));
+
+/** The destination's depth_premium when it is a number >= 0 (clamped to +12%), else +12%. */
+export function depthPremiumOf(tol) {
+  const v = Number(tol?.depth_premium);
+  return tol?.depth_premium != null && Number.isFinite(v) && v >= 0 ? Math.min(v, DEPTH_PREMIUM_MAX) : DEPTH_PREMIUM_MAX;
+}
+
+/** The board as a Map of id string -> finite score (a Map or a plain object), or null when there is none or it is empty. */
+export function boardOf(adapter) {
+  const b = adapter?.board;
+  if (b == null) return null;
+  const entries = b instanceof Map ? [...b] : typeof b === 'object' ? Object.entries(b) : [];
+  const out = new Map(entries.filter(([, v]) => v != null && Number.isFinite(Number(v))).map(([k, v]) => [String(k), Number(v)]));
+  return out.size ? out : null;
+}
+
+/** Whether a given player is depth: scored on the board below a blue chip, not untouchable, not one of NEVER_DEPTH. */
+export function isDepth(id, { board, untouchable = null }) {
+  const k = String(id);
+  const score = board?.get(k);
+  return score != null && score < BLUE_CHIP_SCORE && !NEVER_DEPTH.has(k) && !untouchable?.has(k);
+}
+
+/** Whether a step is a depth-only 2-for-1: two given for one, both depth (needs a board). */
+export function depthOnlyTwoForOne(st, { board, untouchable = null }) {
+  if (!board || st.give.length !== 2 || st.get.length !== 1) return false;
+  return st.give.every(id => isDepth(id, { board, untouchable }));
+}
+
+/**
+ * Whether a premium step holds: its own change in lineup points and in title odds are both > 0.
+ * me / prev: the rescore's `me` block after this step and after the step before (null for the first).
+ */
+export function premiumHolds(me, prev) {
+  const pts = Number(me?.points_delta) - (prev ? Number(prev.points_delta) : 0);
+  const title = Number(me?.title_delta) - (prev ? Number(prev.title_delta) : 0);
+  if (!Number.isFinite(pts)) return { ok: false, why: 'no_lineup_points' };
+  if (!(pts > 0)) return { ok: false, why: 'lineup_points', points_delta: pts, title_delta: title };
+  if (!(title > 0)) return { ok: false, why: 'title_odds', points_delta: pts, title_delta: title };
+  return { ok: true, points_delta: pts, title_delta: title };
+}
+
+/** A fresh sink for the premium: how many steps rode it, how many the gates turned away, and why. */
+export function newPremiumSink(cap = DEPTH_PREMIUM_MAX, board = null) {
+  return { cap, board: cap > 0 && board ? 'on' : 'none', screened: 0,
+    gated_out: { lineup_points: 0, title_odds: 0, no_lineup_points: 0 }, confirm_failed: 0,
+    reason: cap <= 0 ? 'premium set to 0' : board ? null : 'no blue-chip board: depth-only cannot be checked, so the cap stays 0' };
+}
+
 /** A rescore wrapper with a memo, a counter and a budget. */
 export function makeScorer(W, adapter) {
   const baseRoster = adapter.rosters;
@@ -115,12 +178,13 @@ export function flipLegsFlag(env = process.env) {
 }
 
 /**
- * FLIP-LEGS: the value of the best package of one or two of Nick's players he can give, and the
- * highest player value that package still reads fair for on the other screen (the planner's
- * fairBand: a player is in reach when his band's floor is at or under that package).
+ * FLIP-LEGS: the value of the best package of up to `k` of Nick's players he can give (2 by default;
+ * REACH-01 with its flag on passes the risk mode's max give), and the highest player value that
+ * package still reads fair for on the other screen (the planner's fairBand: a player is in reach
+ * when his band's floor is at or under that package).
  */
-export function flipReach(myValues) {
-  const top = [...myValues].filter(v => v > 0).sort((a, b) => b - a).slice(0, 2);
+export function flipReach(myValues, k = 2) {
+  const top = [...myValues].filter(v => v > 0).sort((a, b) => b - a).slice(0, k);
   const pkg = top.reduce((s, v) => s + v, 0);
   return { package_value: pkg, reaches: v => { const b = fairBand(v); return !!b && b.lo <= pkg; } };
 }
@@ -133,20 +197,26 @@ export function flipReach(myValues) {
  * the one that adds most to Nick. Returns the ids or null per leg.
  */
 export function flipLegs({ player, myIds, bIds, val, lossN, addN, pairLimit = SEARCH_DEFAULTS.pairLimit,
-  maxOverpay = DEFAULT_MAX_OVERPAY }) {
+  maxOverpay = DEFAULT_MAX_OVERPAY, getOk = null, maxGive = 2 }) {
   const pv = val(player);
   const band = fairBand(pv);
   const items = myIds.filter(id => id !== player).map(id => ({ id, value: val(id) }));
   const sum = (ids, m) => ids.reduce((s, id) => s + (m.get(id) ?? 0), 0);
   const worth = ids => ids.reduce((s, id) => s + val(id), 0);
-  const fairGives = [...onesInBand(items, band), ...pairsInBand(items, band, { limit: pairLimit })];
+  // REACH-01: with a max give of 3 (flag on, all-in), leg 1 may also be a three-player package.
+  const triples = maxGive >= 3 && band
+    ? combos(items.map(x => x.id), 3).filter(ids => ids.length === 3 && worth(ids) >= band.lo && worth(ids) <= band.hi) : [];
+  const fairGives = [...onesInBand(items, band), ...pairsInBand(items, band, { limit: pairLimit }), ...triples];
   // NO-OVERPAY: leg 1 never gives more market value than the player is worth; leg 2 never gives him for less.
   const gives = fairGives.filter(ids => !nickOverpays(worth(ids), pv, maxOverpay));
   const legX = gives.sort((x, y) => sum(y, lossN) - sum(x, lossN) || x.length - y.length)[0] ?? null;
   const fairGets = combos(bIds.filter(id => id !== player), 2).filter(ids => screenFair(pv, worth(ids)));
-  const gets = fairGets.filter(ids => !nickOverpays(pv, worth(ids), maxOverpay));
+  const uncapped = fairGets.filter(ids => !nickOverpays(pv, worth(ids), maxOverpay));
+  // GETS-FLOOR: leg 2 is what Nick ends up holding, so every player in it must pass the get floor.
+  const gets = getOk ? uncapped.filter(ids => ids.every(getOk)) : uncapped;
   const legY = gets.sort((x, y) => sum(y, addN) - sum(x, addN) || x.length - y.length)[0] ?? null;
-  return { legX, legY, capped: { a: !legX && fairGives.length > 0, b: !legY && fairGets.length > 0 } };
+  return { legX, legY, capped: { a: !legX && fairGives.length > 0, b: !legY && fairGets.length > 0 && !uncapped.length },
+    floored: { b: !legY && uncapped.length > 0 } };
 }
 
 /**
@@ -159,7 +229,7 @@ export function flipLegs({ player, myIds, bIds, val, lossN, addN, pairLimit = SE
  * adapter.untouchable and each manager's nick.untouchable); a leg may be 2-for-1 (flipLegs); a flip
  * that still does not realise says which leg is missing (why, why_code).
  */
-export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 1, maxOverpay = DEFAULT_MAX_OVERPAY } = {}) {
+export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 1, maxOverpay = DEFAULT_MAX_OVERPAY, getOk = null, maxGive = 2 } = {}) {
   const me = adapter.league.me;
   const P = adapter.players;
   const val = id => Math.max(0, Number(P.get(id)?.value) || 0);
@@ -168,7 +238,7 @@ export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 
   for (const m of adapter.managers.values()) for (const id of m?.nick?.untouchable ?? []) untouchable.add(String(id));
   const flipOk = legsOn ? id => vals.tradable(id) && !untouchable.has(String(id)) : vals.tradable;
   const myIds = S.rosterOf(new Map(), me).filter(flipOk);
-  const reach = legsOn ? flipReach(myIds.map(val)) : null;
+  const reach = legsOn ? flipReach(myIds.map(val), maxGive) : null;
   const flips = [];
   for (const [aId, ids] of adapter.rosters) {
     if (aId === me || excluded(adapter.managers.get(aId))) continue;
@@ -196,8 +266,12 @@ export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 
     let gx, gy;
     if (legsOn) {
       const legs = flipLegs({ player: f.player, myIds, bIds: adapter.rosters.get(f.b).filter(flipOk), val,
-        lossN: vals.lossN, addN: vals.addN, pairLimit, maxOverpay });
+        lossN: vals.lossN, addN: vals.addN, pairLimit, maxOverpay, getOk, maxGive });
       gx = legs.legX; gy = legs.legY;
+      if (gx && !gy && legs.floored.b) {
+        realised.push({ ...f, legs: null, why: `every fair package from Team ${f.b} for him is under your get floor`, why_code: 'no_leg_floor' });
+        continue;
+      }
       if (!gx || !gy) {
         // NO-OVERPAY: a leg that only the cap removed says so (every fair package gives more than it gets).
         const cappedOnly = (!gx ? legs.capped.a : true) && (!gy ? legs.capped.b : true);
@@ -212,8 +286,8 @@ export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 
     } else {
       const legX = myIds.filter(x => screenFair(val(x), pv) && !nickOverpays(val(x), pv, maxOverpay))
         .sort((x, y) => (vals.lossN.get(y) ?? 0) - (vals.lossN.get(x) ?? 0))[0];
-      const legY = adapter.rosters.get(f.b).filter(vals.tradable).filter(y => screenFair(pv, val(y)) && !nickOverpays(pv, val(y), maxOverpay))
-        .sort((x, y) => (vals.addN.get(y) ?? 0) - (vals.addN.get(x) ?? 0))[0];
+      const legY = adapter.rosters.get(f.b).filter(vals.tradable).filter(y => screenFair(pv, val(y)) && !nickOverpays(pv, val(y), maxOverpay)
+        && (!getOk || getOk(y))).sort((x, y) => (vals.addN.get(y) ?? 0) - (vals.addN.get(x) ?? 0))[0];
       if (legX == null || legY == null) { realised.push({ ...f, legs: null, why: 'no fair one-player leg on both screens' }); continue; }
       gx = [legX]; gy = [legY];
     }
@@ -278,10 +352,17 @@ export function twoForOneSummary(stats) {
  * two-player side) so each arm is scored on its own merits. Off, the incumbent search runs
  * unchanged. Either way a target whose owner Nick marked unreachable (or never trading) gets no
  * path: that manager is never a step (FIX-02c nick block).
+ *
+ * REACH-01: `chainGive` caps the gives on a chained finish (2, today's; the planner passes the risk
+ * mode's max_give_per_step with GRIDIRON_REACH on). The direct finish keeps maxGiveFinal (3).
  */
 export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal = 3, shortlist = [8, 12, 8],
-  maxOverpay = DEFAULT_MAX_OVERPAY, overpaySink = null } = {}) {
+  maxOverpay = DEFAULT_MAX_OVERPAY, overpaySink = null, getOk = null, chainGive = 2,
+  depthPremium = 0, board = null, premiumSink = null, untouchables = null } = {}) {
   const me = adapter.league.me;
+  // CAP-1C: the premium's ceiling on a depth-only 2-for-1 (never below the plain cap); off with no board.
+  const premiumCap = depthPremium > 0 && board ? Math.max(maxOverpay, depthPremium) : maxOverpay;
+  const untouchable = new Set([...(adapter.untouchable ?? []), ...(untouchables ?? [])].map(String));
   const P = adapter.players;
   const o = { ...SEARCH_DEFAULTS, ...(adapter.searchOpts ?? {}) };
   const two = !!o.twoForOne;
@@ -294,7 +375,7 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     && !adapter.managers.get(id)?.checked_out);
   const lin = state => linearNick(S.rosterOf(state, me), origMine, vals.addN, vals.lossN);
   const count = (bucket, st) => { if (stats) { const k = shapeOf(st); stats[bucket][k] = (stats[bucket][k] ?? 0) + 1; } };
-  const stepsFrom = (state, team, onlyGet = null, maxGive = 2) => {
+  const stepsFrom = (state, team, onlyGet = null, maxGive = 2, prefix = null) => {
     const mine = S.rosterOf(state, me).filter(vals.tradable);
     const theirs = onlyGet != null ? [onlyGet] : S.rosterOf(state, team).filter(vals.tradable);
     const out = [];
@@ -302,12 +383,20 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     // the sink keeps the closest such offer for the target so the deck can say what it would have cost.
     const push = st => {
       const pct = overpayPct(st.give.reduce((s, id) => s + val(id), 0), st.get.reduce((s, id) => s + val(id), 0));
+      if (pct > maxOverpay + OVERPAY_EPS && pct <= premiumCap + OVERPAY_EPS && depthOnlyTwoForOne(st, { board, untouchable })) {
+        // CAP-1C: planned at a premium; the exact rescore below keeps it only if points and title odds rise.
+        if (premiumSink) premiumSink.screened++;
+        count('screened', st); out.push({ ...st, premium_pct: pct });
+        return;
+      }
       if (pct > maxOverpay + OVERPAY_EPS) {
         if (overpaySink) {
           overpaySink.rejected++;
           const c = overpaySink.closest;
           if (st.get.some(id => String(id) === String(target)) && Number.isFinite(pct) && (!c || pct < c.pct)) {
-            overpaySink.closest = { team: st.team, give: [...st.give], get: [...st.get], pct };
+            overpaySink.closest = { team: st.team, give: [...st.give], get: [...st.get], pct,
+              // REACH-01: a chained finish keeps the steps before it, so the miss prints as its whole chain.
+              ...(prefix?.length ? { chain: prefix.map(x => ({ team: x.team, give: [...x.give], get: [...x.get] })) } : {}) };
           }
         }
         return;
@@ -336,7 +425,8 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     }
     if (onlyGet != null && o.fillers > 0) {
       // 1-for-2: the target plus a filler from his owner, for one of Nick's (ACQ-01).
-      const fillers = S.rosterOf(state, team).filter(id => id !== onlyGet && vals.tradable(id))
+      // GETS-FLOOR: a filler rides the final leg, so it is a final get too and must pass the floor.
+      const fillers = S.rosterOf(state, team).filter(id => id !== onlyGet && vals.tradable(id) && (!getOk || getOk(id)))
         .sort((x, y) => (vals.addN.get(y) ?? 0) - (vals.addN.get(x) ?? 0)).slice(0, o.fillers);
       for (const f of fillers) {
         for (const give of onesInBand(items, fairBand(val(onlyGet) + val(f)))) push({ team, give, get: [onlyGet, f] });
@@ -366,7 +456,7 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     const own = S.ownerOf(state, target);
     if (own == null || own === me) return null;
     let best = null;
-    for (const st of stepsFrom(state, own, target, 2)) {
+    for (const st of stepsFrom(state, own, target, chainGive, prefix)) {
       const steps = [...prefix, withP(state, st)];
       const e = h(steps);
       if (!best || e.expected > best.e.expected) best = { steps, e };
@@ -392,15 +482,30 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     seen.add(k); return true;
   });
   const plans = short.map(c => {
+    let prev = null, gated = null;
     const steps = c.steps.map(st => {
-      const m = metricOf(S.rescore(st.state, me).me, objective);
-      return { team: st.team, give: st.give, get: st.get, p: st.p, band: st.band, delta: m.delta, se: m.se, clears: m.clears, state: st.state };
+      const r = S.rescore(st.state, me).me;
+      const m = metricOf(r, objective);
+      const out = { team: st.team, give: st.give, get: st.get, p: st.p, band: st.band, delta: m.delta, se: m.se, clears: m.clears, state: st.state };
+      if (st.premium_pct != null) {
+        // CAP-1C: a premium step stays only if its own lineup points and title odds both rise (paired dice).
+        const h = premiumHolds(r, prev);
+        if (!h.ok) gated = gated ?? h.why;
+        else out.depth_premium = { pct: st.premium_pct, cap: premiumCap, points_delta: h.points_delta, title_delta: h.title_delta,
+          points_se: r.points_delta_se ?? null, title_se: r.title_delta_se ?? null };
+      }
+      prev = r;
+      return out;
     });
+    if (gated) {
+      if (premiumSink) premiumSink.gated_out[gated] = (premiumSink.gated_out[gated] ?? 0) + 1;
+      return null;
+    }
     const oneOnly = oneForOneOnly(steps);
     if (stats) { const k = oneOnly ? 'one_for_one_only' : 'two_side'; stats.shortlisted[k] = (stats.shortlisted[k] ?? 0) + 1; }
     return { target, owner, depth: steps.length, heuristic: c.e.expected, chained: isChained(steps), steps,
       ...pathExpectation(steps) };
-  });
+  }).filter(Boolean);
   if (stats) {
     const best = f => plans.filter(f).reduce((b, p) => (b == null || p.expected > b ? p.expected : b), null);
     const one = best(p => oneForOneOnly(p.steps)), withTwo = best(p => !oneForOneOnly(p.steps));

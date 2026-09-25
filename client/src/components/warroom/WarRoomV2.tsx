@@ -21,6 +21,7 @@ import { useNegotiations, usePlayerHeadshots } from './useWarRoom';
 import { HeadshotContext } from './Avatar';
 import { wasOpenedOnTarget, markOpenedOnTarget } from './WarRoom';
 import Icon, { type IconName } from './icons';
+import { useDocTheme } from './useDocTheme';
 
 /**
  * WAR-ROOM-UI v2: the War Room as four calm screens (WarRoomShell's default).
@@ -71,16 +72,11 @@ export default function WarRoomV2({ view, leagues, activeId, onLeague, onExit, d
   const [coachOpen, setCoachOpen] = useState(false);
   const [healthOpen, setHealthOpen] = useState(false);
   const [autoAsk, setAutoAsk] = useState<string | null>(null);
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [theme, toggleTheme] = useDocTheme();
   const [current, setCurrent] = useState<CurrentMove | null>(null);
   const coach = useWarRoomCoach({ leagueId: activeId, leagues: leagues.map(l => l.id), plans: view, onLeagueChange: onLeague });
   const coachMain = coach.ui.main;
   const scroller = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    if (window.matchMedia('(prefers-color-scheme: dark)').matches) setTheme('dark');
-  }, []);
 
   // The page behind the War Room never scrolls while it is open (the War Room scrolls itself).
   useEffect(() => {
@@ -180,7 +176,7 @@ export default function WarRoomV2({ view, leagues, activeId, onLeague, onExit, d
       <HeadshotContext.Provider value={headshots}>
         <div className="wr-root wr-v2" data-theme={theme} data-testid="war-room-v2" data-screen-on={screen}>
           <TopBarV2 view={view} leagues={leagues} activeId={activeId} onLeague={onLeague} onExit={onExit}
-            theme={theme} onTheme={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))} onClassic={onClassic}
+            theme={theme} onTheme={toggleTheme} onClassic={onClassic}
             nav={tabs('top')}
             health={
               <button type="button" className={`wr-health-chip wr-hc-${health.tone}`} onClick={() => setHealthOpen(true)}

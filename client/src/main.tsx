@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import './index.css';
 import { ToastProvider } from './components/ui/DesignSystem';
+import { ThemeProvider } from './state/theme';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -14,7 +15,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         2026-09-07). Off until whatever hangs is found and fixed; a route that
         can't render now shows RouteSkeleton, not last week's page. */}
     <BrowserRouter future={{ v7_relativeSplatPath: true }}>
-      <ToastProvider><App /></ToastProvider>
+      <ThemeProvider><ToastProvider><App /></ToastProvider></ThemeProvider>
     </BrowserRouter>
   </React.StrictMode>
 );

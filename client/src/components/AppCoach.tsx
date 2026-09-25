@@ -5,7 +5,7 @@ import { useWarRoom } from './warroom/useWarRoom';
 import { CoachDrawer, useWarRoomCoach } from './warroom/coach';
 import HealthSheet, { healthTone } from './warroom/HealthSheet';
 import { SourcesContext } from './warroom/FieldState';
-import { Icon } from './ui/DesignSystem';
+import { Icon, Skeleton } from './ui/DesignSystem';
 // The drawer's styles: without this, a page opened directly (not via Today) drew the closed drawer unstyled, in the page flow.
 import './warroom/warroom-v2.css';
 import { isOk } from './warroom/format';
@@ -33,8 +33,9 @@ export function AppCoachProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const openCoach = useCallback((q?: string) => { if (q) setAutoAsk(q); setOpen(true); }, []);
-  const api = useMemo(() => ({ enabled: coach.enabled !== false, open: openCoach, openHealth: () => setHealth(true), view }),
-    [coach.enabled, openCoach, view]);
+  const loading = activeId != null && wr.loading && !wr.data;
+  const api = useMemo(() => ({ enabled: coach.enabled !== false, open: openCoach, openHealth: () => setHealth(true), view, loading }),
+    [coach.enabled, openCoach, view, loading]);
 
   return (
     <CoachContext.Provider value={api}>
@@ -52,7 +53,7 @@ export function AppCoachProvider({ children }: { children: ReactNode }) {
 
 /** The header's title odds, health chip and Coach button (the War Room top bar's pieces, app-wide). */
 export function HeaderFacts() {
-  const { enabled, open, openHealth, view } = useCoach();
+  const { enabled, open, openHealth, view, loading } = useCoach();
   const d = view && isOk(view.destination) ? view.destination.value : null;
   const odds = d && isOk(d.title_now) ? `${(d.title_now.value * 100).toFixed(1)}%` : null;
   const h = view ? healthTone(view) : null;
@@ -60,6 +61,11 @@ export function HeaderFacts() {
   return (
     <>
       {odds && <span className="app-fact hidden xl:inline-flex" title="Your title odds now (the plan's read)"><span>Title odds</span><b>{odds}</b></span>}
+      {/* While the plans load: the chips at their final size, so nothing in the header moves when they land. */}
+      {loading && <>
+        <span className="app-fact hidden xl:inline-flex" aria-busy="true" data-testid="app-odds-skeleton"><span>Title odds</span><Skeleton className="h-4 w-11" /></span>
+        <span className="hidden sm:inline-flex" aria-hidden="true"><Skeleton className="app-health-skel h-[26px] w-[74px] !rounded-full xl:w-[150px]" /></span>
+      </>}
       {h && (
         <button type="button" className={`ds-chip ${tone} app-health hidden sm:inline-flex`} onClick={openHealth} data-testid="app-health-chip"
           aria-haspopup="dialog" title={`${h.label}. Is the brain working? Brain check and number audit`}>

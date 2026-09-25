@@ -17,6 +17,7 @@ import { PageExplainAssistant } from './components/PageExplainAssistant';
 import { Icon, type IconName } from './components/ui/DesignSystem';
 import { MovedTo } from './components/Redirects';
 import { AppCoachProvider, HeaderFacts } from './components/AppCoach';
+import MoreMenu from './components/MoreMenu';
 
 /** One icon per destination (the design system's Lucide set, via DesignSystem's Icon). */
 const NAV_ICON: Record<string, IconName> = {
@@ -136,7 +137,7 @@ export default function App() {
           <span className="app-crumb hidden min-w-0 truncate sm:block">{inBetting ? 'Betting' : 'Gridiron HQ'} <span className="mx-1 opacity-40">/</span> <b>{pageLabel}</b></span>
           {/* On a phone the league select gives up width to the buttons instead of pushing them off-screen. */}
           {!inBetting && <div className="min-w-0 flex-1 sm:flex-none [&_select]:w-full [&_select]:max-w-full sm:[&_select]:w-auto sm:[&_select]:max-w-[200px]"><LeagueSwitcher /></div>}
-          <div className="ml-auto flex shrink-0 items-center gap-2"><HeaderFacts /><span className="hidden xl:inline-flex"><QuickJump /></span><RefreshAll onDone={() => window.dispatchEvent(new Event('gridiron:refreshed'))} /><span className="hidden lg:inline-flex"><DevHub /></span><PageExplainAssistant info={pageInfo} /></div>
+          <div className="ml-auto flex shrink-0 items-center gap-2"><HeaderFacts /><span className="hidden xl:inline-flex"><QuickJump /></span><RefreshAll onDone={() => window.dispatchEvent(new Event('gridiron:refreshed'))} /><span className="hidden lg:inline-flex"><DevHub /></span><PageExplainAssistant info={pageInfo} /><MoreMenu /></div>
         </header>
         <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8"><Suspense fallback={<RouteSkeleton />}><Routes>
           {/* The seven areas (docs/ui/CONSOLIDATION-MAP.md). */}

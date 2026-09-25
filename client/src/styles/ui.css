@@ -178,3 +178,26 @@ button.ds-chip:active { transform: scale(.97); }
 .app-fact b { font: 600 15px/1 var(--font-display); color: var(--c-ink); font-variant-numeric: tabular-nums; }
 .app-health, .app-coach-btn { white-space: nowrap; }
 .app-coach-btn { padding: 6px 12px; }
+
+/* ---------- More (…) menu: a details dropdown (components/MoreMenu.tsx) ---------- */
+.ds-menu { position: relative; }
+.ds-menu > summary { list-style: none; }
+.ds-menu > summary::-webkit-details-marker { display: none; }
+.ds-menu-list { position: absolute; right: 0; top: calc(100% + 6px); z-index: 60; min-width: 190px; display: flex; flex-direction: column; padding: 6px;
+  background: var(--c-raised); border-radius: var(--r-tile); box-shadow: 0 0 0 1px var(--c-line), var(--e2); animation: ds-in var(--t) var(--ease-out); }
+.ds-menu-list > button { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 0; background: none; text-align: left;
+  padding: 8px 10px; border-radius: 8px; font: 500 14px/1.3 var(--font-body); color: var(--c-ink); cursor: pointer; transition: background-color var(--t-fast); }
+.ds-menu-list > button:hover { background: var(--c-hover); }
+.ds-menu-list > button[aria-checked="true"] { color: var(--c-accent); font-weight: 600; }
+.ds-menu-note { padding: 6px 10px 4px; font: 600 var(--type-label)/1.2 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--c-muted); }
+@media (prefers-reduced-motion: reduce) { .ds-menu-list { animation: none; } }
+
+/* ---------- Today: placeholders at the War Room panel's measured size (pages/Today.tsx TodaySkeleton) ----------
+   Measured on the snapshot: hero 807 px on a phone, 540 px from 700 px up; the Watching / season row
+   is two stacked cards below 900 px and one row of two above it. */
+.today-skel { display: flex; flex-direction: column; gap: 16px; }
+.today-skel-hero { min-height: 807px; }
+.today-skel-rows { display: grid; gap: 16px; }
+.today-skel-rows > * { min-height: 217px; }
+@media (min-width: 700px) { .today-skel-hero { min-height: 540px; } }
+@media (min-width: 900px) { .today-skel-rows { grid-template-columns: 1fr 1fr; } .today-skel-rows > * { min-height: 240px; } }

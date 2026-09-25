@@ -4,8 +4,8 @@
  * --line, --radius-card, ...) onto these, and the War Room (warroom-v2.css) reads them
  * directly, so the app and the War Room are one system.
  *
- * Light is the default; [data-theme="dark"] (the War Room sets it; the app shell can) is the
- * hand-tuned dark set.
+ * Light is the default; [data-theme="dark"] is the hand-tuned dark set. <html> carries it app-wide
+ * (state/theme.tsx: the system setting, or the choice in the header's More menu).
  */
 :root {
   /* Brand: one accent ("signal", a cobalt-violet), tuned cool neutrals. */
@@ -35,13 +35,14 @@
   --t-fast: 140ms; --t: 180ms; --t-slow: 240ms;
 }
 [data-theme="dark"] {
+  color-scheme: dark;
   --c-accent: #8e99ff; --c-accent-hover: #a3acff; --c-accent-ink: #0a0c1f;
   --c-accent-tint: rgb(142 153 255 / .12); --c-accent-ring: rgb(142 153 255 / .45);
   --c-green: #4ade80; --c-green-tint: rgb(74 222 128 / .10);
   --c-amber: #fbbf24; --c-amber-tint: rgb(251 191 36 / .12);
   --c-red: #f87171; --c-red-tint: rgb(248 113 113 / .12);
   --c-bg: #0a0b0f; --c-card: #121419; --c-soft: #191c23; --c-raised: #161920;
-  --c-ink: #eceef3; --c-ink2: #c6cad4; --c-muted: #8c93a2; --c-subtle: #5d6472;
+  --c-ink: #eceef3; --c-ink2: #c6cad4; --c-muted: #8c93a2; --c-subtle: #747b8a;
   --c-line: rgb(255 255 255 / .075); --c-line-strong: rgb(255 255 255 / .14); --c-hover: rgb(255 255 255 / .04);
   --c-edge: inset 0 1px 0 rgb(255 255 255 / .05);
   --page: radial-gradient(1100px 560px at 8% -14%, rgb(142 153 255 / .12), transparent 62%),

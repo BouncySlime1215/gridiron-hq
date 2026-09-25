@@ -51,14 +51,20 @@ const surface = [page, board, slate, brainTypes].join('\n');
 /* ------------------------------------------------------ 1. it is reachable */
 
 test('the Trade Brain page is a lazy route and a registered destination', () => {
-  assert.match(app, /lazy\(\(\) => import\('\.\/pages\/TradeBrain'\)\)/,
-    'TradeBrain is code-split like every other page');
-  assert.match(app, /path="\/trade-brain"/, 'and mounted at a route, or it resolves to NotFound');
+  // UI consolidation: the Trades area is the code-split route and it imports Trade Brain.
+  assert.match(app, /lazy\(\(\) => import\('\.\/pages\/Trades'\)\)/,
+    'the Trades area (which holds TradeBrain) is code-split like every other page');
+  assert.match(read('client/src/pages/Trades.tsx'), /import TradeBrain from '\.\/TradeBrain'/);
+  assert.match(app, /path="\/trades"/, 'the Trades area is mounted at a route');
+  assert.match(app, /path="\/trade-brain"/, 'and the old URL is still a route (a redirect), not NotFound');
   // NAV_GROUPS is the single constant that feeds the sidebar, the command
   // palette and the header breadcrumb. A page missing from it renders a
   // breadcrumb of "Workspace" and cannot be reached from ⌘K.
-  assert.match(nav, /to: '\/trade-brain'/, 'registered in NAV_GROUPS');
-  assert.match(nav, /'\/trade-brain':/, 'with a palette note of its own');
+  // UI consolidation: Trade Brain lives in the Trades area (/trades, which renders it) and
+  // /trade-brain redirects there, so the nav and the palette name /trades.
+  assert.match(nav, /to: '\/trades'/, 'the Trades area is registered in NAV_GROUPS');
+  assert.match(nav, /'\/trades':/, 'with a palette note of its own');
+  assert.match(read('client/src/pages/Trades.tsx'), /<TradeBrain \/>/, 'the Trades area renders Trade Brain');
 });
 
 test('Trade Lab points at it, since building a deal and reading a manager are different jobs', () => {

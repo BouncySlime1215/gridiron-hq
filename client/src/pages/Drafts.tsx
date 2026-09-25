@@ -19,7 +19,7 @@ export default function Drafts() {
         method: 'POST',
         body: JSON.stringify({ ...form, ranking_set_id: form.ranking_set_id || sets?.[0]?.id || null })
       });
-      nav(`/drafts/${d.id}`);
+      nav(`/draft/${d.id}`);
     } catch (e: any) {
       setCreateError(e.message || 'Failed to create draft');
     }
@@ -83,7 +83,7 @@ export default function Drafts() {
         {(drafts) => (
           <div className="grid md:grid-cols-2 gap-3">
             {drafts.map(d => (
-              <Link key={d.id} to={`/drafts/${d.id}`} className="card p-4 hover:border-slate-500 transition-colors block">
+              <Link key={d.id} to={`/draft/${d.id}`} className="card p-4 hover:border-slate-500 transition-colors block">
                 <div className="flex items-center justify-between">
                   <span className="font-semibold">{d.name}</span>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full ${d.type === 'mock' ? 'bg-sky-100 text-sky-700' : 'bg-amber-900 text-amber-600'}`}>

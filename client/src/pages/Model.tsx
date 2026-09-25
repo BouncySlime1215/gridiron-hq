@@ -241,7 +241,7 @@ function Odds() {
   const { activeId: id } = useLeague();
   const { data, loading, error, refetch } = useApi<any>(id ? `/model/${id}/simulate?runs=2000` : null);
 
-  if (!id) return <EmptyState title="Connect a league first" description="Championship odds are simulated against a real league's rosters and schedule." actionLabel="Connect a league" actionTo="/league?view=connections" />;
+  if (!id) return <EmptyState title="Connect a league first" description="Championship odds are simulated against a real league's rosters and schedule." actionLabel="Connect a league" actionTo="/league" />;
   if (loading && !data) return <PageLoading label="Simulating the season 2,000 times…" />;
   if (error && !data) return <PageError message={error} onRetry={refetch} />;
   if (data?.error) return <EmptyState title="Championship odds not available" description={data.error} />;

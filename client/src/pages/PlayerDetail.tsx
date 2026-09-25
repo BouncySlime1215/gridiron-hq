@@ -40,8 +40,8 @@ export default function PlayerDetail() {
   return (
     <div className="max-w-4xl">
       {p.team_abbr
-        ? <Link to={`/teams/${p.team_abbr}`} className="text-xs text-slate-500 hover:text-slate-700">← {p.team_name}</Link>
-        : <Link to="/rankings" className="text-xs text-slate-500 hover:text-slate-700">← rankings</Link>}
+        ? <Link to={`/players/teams/${p.team_abbr}`} className="text-xs text-slate-500 hover:text-slate-700">← {p.team_name}</Link>
+        : <Link to="/players?view=rankings" className="text-xs text-slate-500 hover:text-slate-700">← rankings</Link>}
       <div className="flex items-center gap-3 mt-1 mb-4">
         <Headshot src={headshotUrl(p)} pos={p.position} size={52} />
         <div>

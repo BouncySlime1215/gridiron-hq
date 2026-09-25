@@ -119,7 +119,7 @@ function Card({ id, onClose }: { id: number; onClose: () => void }) {
                 <h2 className="text-xl font-bold leading-tight">{p.name}</h2>
                 <div className="text-xs text-slate-500 mt-0.5">
                   <span className={`font-bold pos-${p.position}`}>{p.position}</span>
-                  {p.team_abbr && <> · <Link to={`/teams/${p.team_abbr}`} onClick={onClose}
+                  {p.team_abbr && <> · <Link to={`/players/teams/${p.team_abbr}`} onClick={onClose}
                     className="hover:text-emerald-700 hover:underline">{p.team_name}</Link></>}
                   {p.head_coach && <> · HC {p.head_coach}</>}
                 </div>

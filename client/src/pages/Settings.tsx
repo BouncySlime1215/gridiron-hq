@@ -31,7 +31,7 @@ export default function Settings() {
       <EspnConnect />
       <h1 className="text-2xl font-bold mb-1">ESPN Settings</h1>
       <p className="text-sm text-slate-600 mb-6">
-        League connections live in the <a href="/league?view=connections" className="text-[var(--accent)] underline">League Hub</a> now.
+        League connections live in the <a href="/league" className="text-[var(--accent)] underline">League Hub</a> now.
         What's here is global ESPN data, not tied to any one league.
       </p>
 
@@ -60,7 +60,7 @@ export default function Settings() {
 
       <div className="card p-5 mt-4 text-sm text-slate-700 space-y-2">
         <h2 className="font-bold text-slate-800">Private league not showing up? Add it manually</h2>
-        <p className="text-xs text-slate-600">The "Connect ESPN" bookmarklet above handles most accounts automatically. If a private league still doesn't appear, add it by hand in the <a href="/league?view=connections" className="text-[var(--accent)] underline">League Hub</a>:</p>
+        <p className="text-xs text-slate-600">The "Connect ESPN" bookmarklet above handles most accounts automatically. If a private league still doesn't appear, add it by hand in the <a href="/league" className="text-[var(--accent)] underline">League Hub</a>:</p>
         <ol className="list-decimal list-inside space-y-1 text-xs text-slate-600">
           <li>Log in to <span className="text-slate-800">fantasy.espn.com</span> and open your league. The URL contains <span className="font-mono text-slate-800">leagueId=XXXXXXX</span> — that&apos;s your League ID.</li>
           <li>In Chrome/Safari, open DevTools (⌥⌘I) → Application/Storage → Cookies → espn.com.</li>

@@ -542,3 +542,10 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
   .wr-v2 .wr-nmh-h { font-size: 24px; }
   .wr-acc-h { display: none; }
 }
+
+/* ---------- inline: War Room pieces inside the app (Today, the app-wide Coach) ----------
+   The same scoped styles without the full-screen frame: no fixed position, no own scroll,
+   no page gradient, and the app's own width. */
+.wr-v2.wr-inline { position: static; inset: auto; z-index: auto; display: block; overflow: visible; background: none; max-width: none; }
+.wr-v2.wr-app-layer { display: contents; }
+.wr-v2.wr-inline .wr-hero { min-height: 0; }

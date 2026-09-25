@@ -11,10 +11,12 @@ export { Icon, type IconName };
 
 const cx = (...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(' ');
 
-export function Card({ children, className, as: Tag = 'div', lift, pad = true }: {
+export function Card({ children, className, as: Tag = 'div', lift, pad = true, tone }: {
   children: ReactNode; className?: string; as?: 'div' | 'section' | 'article'; lift?: boolean; pad?: boolean;
+  /** A card that carries a status: a tinted fill with the matching hairline. */
+  tone?: 'warn' | 'bad' | 'good' | 'accent';
 }) {
-  return <Tag className={cx('ds-card', pad && 'ds-card-pad', lift && 'ds-lift', className)}>{children}</Tag>;
+  return <Tag className={cx('ds-card', pad && 'ds-card-pad', lift && 'ds-lift', tone && `ds-card-${tone}`, className)}>{children}</Tag>;
 }
 
 export function Button({ variant = 'default', size = 'md', icon, children, className, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -45,6 +47,16 @@ export function Avatar({ name, src, size = 32 }: { name: string; src?: string | 
   return <span className="ds-avatar" style={{ width: size, height: size, fontSize: Math.round(size * .38), '--ds-av-h': String(hue) } as CSSProperties} aria-hidden>
     {src && !failed ? <img src={src} alt="" width={size} height={size} loading="lazy" decoding="async" onError={() => setFailed(true)} /> : initials}
   </span>;
+}
+
+/** A section that folds: a one-line summary (title + hint) that opens to the detail. */
+export function Fold({ title, hint, children, defaultOpen, className, testid }: {
+  title: ReactNode; hint?: ReactNode; children: ReactNode; defaultOpen?: boolean; className?: string; testid?: string;
+}) {
+  return <details className={cx('ds-fold', className)} open={defaultOpen} data-testid={testid}>
+    <summary className="ds-fold-s"><span className="ds-fold-t">{title}</span>{hint && <span className="ds-fold-h">{hint}</span>}<Icon name="down" size={16} className="ds-fold-chev" /></summary>
+    <div className="ds-fold-b">{children}</div>
+  </details>;
 }
 
 export function Tabs<T extends string>({ tabs, value, onChange, label }: { tabs: { id: T; label: ReactNode }[]; value: T; onChange: (id: T) => void; label: string }) {

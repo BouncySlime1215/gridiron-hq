@@ -13,7 +13,7 @@ export default function LeagueSwitcher() {
 
   if (!leagues.length) {
     return (
-      <Link to="/leagues"
+      <Link to="/league"
         className="text-xs text-slate-500 hover:text-emerald-700 px-2.5 py-1.5 rounded-lg border border-dashed border-slate-300 hover:border-emerald-400 whitespace-nowrap transition-colors">
         + Connect a league
       </Link>
@@ -34,9 +34,9 @@ export default function LeagueSwitcher() {
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-0 items-center gap-2">
     {active?.connection_status && active.connection_status !== 'connected' && (
-      <Link to="/leagues" className="rounded-full border border-amber-300 bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800">
+      <Link to="/league" className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800" title="This league's connection needs attention">
         Reconnect
       </Link>
     )}
@@ -44,10 +44,10 @@ export default function LeagueSwitcher() {
       value={activeId ?? ''}
       onChange={e => setActiveId(Number(e.target.value))}
       title="Switch which league you're viewing — applies across My Team, Trade Lab and the Prediction Engine"
-      className="input py-1.5 text-xs max-w-[200px] font-medium">
+      className="input min-w-0 w-full py-1.5 text-xs max-w-[200px] font-medium">
       {leagues.map(l => (
         <option key={l.id} value={l.id}>
-          {l.platform === 'sleeper' ? '🟣 ' : '🔴 '}{l.name ?? `League ${l.league_id}`}
+          {l.name ?? `League ${l.league_id}`}{l.platform === 'sleeper' ? ' (Sleeper)' : ''}
         </option>
       ))}
     </select>

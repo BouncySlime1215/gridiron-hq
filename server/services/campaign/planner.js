@@ -457,14 +457,14 @@ export function planLeague(adapter, settings) {
     const cd = wideSink.claims.dropped_by_reason;
     const byPlan = [...claimPlans].sort((a, b) => b.expected - a.expected);
     cd.not_confirmed += Math.max(0, byPlan.length - CLAIM_CONFIRM_MAX);
-    const kept = [];
+    const kept = [], stranded = [];
     for (const p of byPlan.slice(0, CLAIM_CONFIRM_MAX)) {
       // No confirm dice, no claim (fails closed, as a served card).
       if (!S2) { cd.confirm_failed++; continue; }
       const c = priceOnConfirm(p, objective.risk_mode, tol, ctx, false);
       // confirm.js#confirmVerdict fails exactly when the confirm-dice expected is <= 0: it does not beat doing nothing.
       if (c.confirm.verdict !== 'failed' && !Number.isFinite(c.score)) { cd.mode_tolerance++; continue; }
-      if (c.confirm.verdict === 'failed' || !(c.beats_no_trade && c.expected > 0)) { cd.claim_stranded++; continue; }
+      if (c.confirm.verdict === 'failed' || !(c.beats_no_trade && c.expected > 0)) { cd.claim_stranded++; stranded.push(c); continue; }
       kept.push(c);
     }
     kept.sort((a, b) => b.expected - a.expected);
@@ -474,6 +474,9 @@ export function planLeague(adapter, settings) {
     wideSink.claims.kept = kept.length;
     wideSink.claims.paths = kept.slice(0, 10).map(pathOf);
     wideSink.claims.shadow_best = wideSink.claims.paths[0] ?? null;
+    // The closest claim path that lost on the confirm dice (why no claim survives, when none does). Never served.
+    const miss = stranded.reduce((b, c) => (b == null || c.expected > b.expected ? c : b), null);
+    wideSink.claims.best_stranded = miss ? { ...pathOf(miss), why: 'claim_stranded' } : null;
   }
   // LADDER-01 (flag GRIDIRON_LADDER, default off): ladder cards read the ranked paths (already floored and
   // filtered by trade memory); shadow, they move nothing served. Built after the confirm counts are taken, so

@@ -162,6 +162,10 @@ test('F6: kept claim paths beat doing nothing on the confirm dice with the stran
   const c2 = r2.search_wide.claims;
   assert.equal(c2.kept, 0, `no claim path kept: ${JSON.stringify(c2.paths)}`);
   assert.ok(c2.dropped_by_reason.claim_stranded + c2.dropped_by_reason.mode_tolerance > 0, JSON.stringify(c2.dropped_by_reason));
+  if (c2.dropped_by_reason.claim_stranded) {
+    assert.equal(c2.best_stranded.why, 'claim_stranded', 'the closest loser is reported (shadow)');
+    assert.ok(!(c2.best_stranded.expected > 0) || c2.best_stranded.dice === 'confirm');
+  }
 });
 
 test('F6: strandedBranch is the claim-done, flip-declined outcome', () => {

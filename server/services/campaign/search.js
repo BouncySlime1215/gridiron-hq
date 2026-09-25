@@ -597,7 +597,9 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
       return out;
     });
     if (gated) {
-      if (premiumSink) premiumSink.gated_out[gated] = (premiumSink.gated_out[gated] ?? 0) + 1;
+      // FLIP-CLAIMS: a claim path's premium miss is counted with the claims (shadow), not the served premium sink.
+      if (wide && c.steps.some(st => st.claim)) wide.sink.claims.dropped_by_reason.premium_gate++;
+      else if (premiumSink) premiumSink.gated_out[gated] = (premiumSink.gated_out[gated] ?? 0) + 1;
       return null;
     }
     const oneOnly = oneForOneOnly(steps);

@@ -107,13 +107,14 @@ export function lateralOk(steps, tierOk) {
 
 /**
  * Why a claim path is dropped. The first five are claimRule's (the one rule check below); the rest are
- * the planner's other gates as they fall on claim paths (FC value, GETS-FLOOR, trade memory, the active
+ * the planner's other gates as they fall on claim paths (CAP-1C's premium gate on a flip leg, FC value,
+ * GETS-FLOOR, trade memory, the active
  * mode's tolerances, the confirm dice: `claim_stranded` = does not beat doing nothing with the stranded
  * branch priced in, `confirm_failed` = no confirm dice at all) and the confirm pass's cap
  * (`not_confirmed`: more claim paths than it re-prices).
  */
 export const CLAIM_DROP_REASONS = Object.freeze(['claim_not_flipped', 'protected_drop', 'claim_overpay', 'claim_sold',
-  'no_fc_value', 'floor', 'trade_memory', 'mode_tolerance', 'claim_stranded', 'confirm_failed', 'not_confirmed']);
+  'premium_gate', 'no_fc_value', 'floor', 'trade_memory', 'mode_tolerance', 'claim_stranded', 'confirm_failed', 'not_confirmed']);
 /** Claim paths re-priced on the confirm dice per league, best planning expected first. */
 export const CLAIM_CONFIRM_MAX = 24;
 /** Claimed players tried per target, and chips kept per claim before the finish (the search's own cap). */

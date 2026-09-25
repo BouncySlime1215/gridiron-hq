@@ -243,9 +243,9 @@ test('the check reports how many numbers it examined, so an empty check is visib
 test('a list position, step count or ordinal in Coach\'s own text is not a quantity to trace', () => {
   const ledger = ledgerWithUsage();
   const ok = text => verifyAnswer({ ledger, answer: { claims: [{ text, cites: ['r1#0.name'] }] } });
-  for (const text of ['It is step 1 of 2 toward A Player.', 'Of the 9 managers, he answers fastest.',
-    'This is option #2.', 'Alternative 1 of 3 in the deck.', 'The 2nd card is the safer one.',
-    '1. Offer him the package.', 'It takes 3 steps.']) {
+  for (const text of ['It is step 1 of 2 toward A Player.', 'It is step 2 of 3: the steps before it go first.',
+    'Card 2 of 4 in the deck.', 'His is leg 1 of 2; each leg is a separate offer.', 'Alternative 1 of 3 in the deck.',
+    'It is 1 of 3 steps.', '1. Offer him the package.', 'It takes 3 steps.']) {
     const r = ok(text);
     assert.equal(r.ok, true, `${text}: ${JSON.stringify(r.violations)}`);
   }
@@ -256,7 +256,11 @@ test('a real quantity is still checked, however small: points, percentages, odds
   const bad = text => verifyAnswer({ ledger, answer: { claims: [{ text, cites: ['r1#0.name'] }] } });
   for (const text of ['Title odds move +4.2 pts.', 'It is step 1 of 2 and adds +4.2 pts.', 'Chance he says yes: 9%.',
     'He scores 7 points a game.', 'He saw 2 targets.', 'Week 5 is his bye.', 'Worth 3 managers\' +2 pts.',
-    'He has 8 wins.', '2 of 3 of his offers were accepted at 4.5 points.']) {
+    'He has 8 wins.', '2 of 3 of his offers were accepted at 4.5 points.',
+    // Ranks and counts of people or players are claims, not structure.
+    'He is the #1 RB.', 'He ranks 3rd in targets.', 'He is the number 2 WR in the league.', 'He is the 2nd-best WR.',
+    'He is 1st in snaps.', '2 of 3 starters are hurt.', '7 of 10 starters play.', '3 teams want him.',
+    '4 managers asked about him.', 'Of the 9 managers, he answers fastest.', 'This is option #2.']) {
     const r = bad(text);
     assert.equal(r.ok, false, `${text} must not pass`);
   }

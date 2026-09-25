@@ -25,6 +25,8 @@ const COMMON = new Set(['the', 'team', 'and', 'for', 'with', 'from', 'trade', 's
 function norm(s) {
   return ` ${String(s ?? '').toLowerCase().replace(/[’‘]/g, "'").replace(/'s\b/g, '').replace(/[^a-z0-9]+/g, ' ').trim()} `;
 }
+/** A chat name stands for a roster only when Nick confirmed the match (manager-identity.js: likely/uncertain go wrong). */
+const chatName = r => (r?.confidence === 'confirmed' ? clean(r.chat_name) : null);
 const generic = name => /^team \d+$/i.test(String(name ?? '').trim());
 const clean = s => (typeof s === 'string' && s.trim() ? s.trim() : null);
 
@@ -39,73 +41,96 @@ export function withIdentityTeams(entry, identities = []) {
   for (const r of identities ?? []) {
     const id = String(r.roster_id);
     const t = map[id] ?? {};
-    const manager = clean(t.manager) ?? clean(r.espn_name) ?? clean(r.chat_name);
+    const manager = clean(t.manager) ?? clean(r.espn_name) ?? chatName(r);
     const name = (clean(t.name) && !generic(t.name) ? clean(t.name) : null) ?? clean(r.team_name) ?? clean(t.name);
     map[id] = { ...t, ...(manager ? { manager } : {}), ...(name ? { name } : {}) };
   }
   return { ...entry, teams: { status: 'ok', value: map, source: entry?.teams?.source ?? 'league_member_identity' } };
 }
 
-/**
- * Player names in the plan by token. A manager's first or last name that is
- * also part of a player's name ("trade for <Firstname Lastname>") counts only
- * when the question does not name that player in full.
- */
-function playerNames(entry) {
-  const out = new Map();
+/** Every token of every player name in the plan: people name players by last name, so none of them names a manager. */
+function playerTokens(entry) {
+  const out = new Set();
   for (const n of Object.values(entry?.names ?? {})) {
-    const full = norm(String(n).replace(/\([^)]*\)/g, '').replace(/\b[a-z]\.\s*/gi, ''));
-    for (const w of full.trim().split(' ')) if (w.length >= 3) out.set(w, [...(out.get(w) ?? []), full]);
+    for (const w of norm(String(n).replace(/\([^)]*\)/g, '')).trim().split(' ')) if (w.length >= 3) out.add(w);
   }
   return out;
 }
 
+/** How strongly a phrase names a roster: "team N", a full name or team name, a lone first or last name. */
+const TIER = Object.freeze({ id: 3, full: 2, token: 1 });
+
 /**
- * Who in this league the question names, or null.
+ * Who in this league the question names, or null. Two rosters named at the
+ * same tier are ambiguous (never "the longer string wins"), unless one match
+ * lies inside the other, which is one mention.
  *
  * @param {string} question
  * @param {{entry: object, identities?: object[]}} args identities: league_member_identity rows
- * @returns {{roster: string, label: string, matched: string}|{roster: null, ambiguous: string[]}|null}
+ * @returns {{roster: string, label: string, matched: string}|{roster: null, ambiguous: string[], matched: string[]}|null}
  */
 export function resolvePartner(question, { entry, identities = [] } = {}) {
   const q = norm(question);
   const me = entry?.me == null ? null : String(entry.me);
   const named = withIdentityTeams(entry, identities);
-  const players = playerNames(entry);
+  const players = playerTokens(entry);
   const rosters = new Set([...Object.keys(named.teams.value), ...((entry?.partners?.value ?? []).map(p => String(p.team)))]);
   const best = new Map();
-  const hit = (roster, phrase, score) => {
+  const hit = (roster, phrase, tier) => {
     const p = norm(phrase);
     if (p.trim().length < 3 || !q.includes(p)) return;
-    if ((best.get(roster)?.score ?? 0) < score) best.set(roster, { score, matched: p.trim() });
+    const had = best.get(roster);
+    if (!had || had.tier < tier || (had.tier === tier && had.matched.length < p.trim().length)) best.set(roster, { tier, matched: p.trim() });
   };
   for (const roster of rosters) {
     if (roster === me) continue;
     const t = named.teams.value[roster] ?? {};
     const ident = (identities ?? []).find(r => String(r.roster_id) === roster) ?? {};
-    const people = [t.manager, ident.espn_name, ident.chat_name].map(clean).filter(Boolean);
+    const people = [t.manager, ident.espn_name, chatName(ident)].map(clean).filter(Boolean);
     const teams = [t.name, ident.team_name].map(clean).filter(x => x && !generic(x));
-    for (const full of [...people, ...teams]) hit(roster, full, 100 + norm(full).length);
+    for (const full of [...people, ...teams]) hit(roster, full, TIER.full);
     for (const person of people) {
       const words = norm(person).trim().split(' ');
       for (const w of new Set([words[0], words.at(-1)])) {
-        if (w.length < 3 || COMMON.has(w) || (players.get(w) ?? []).some(full => full.trim().includes(' ') && q.includes(full))) continue;
-        hit(roster, w, w.length);
+        if (w.length < 3 || COMMON.has(w) || players.has(w)) continue;
+        hit(roster, w, TIER.token);
       }
     }
     const byId = q.match(/ team (\d{1,2}) /);
-    if (byId && byId[1] === roster) best.set(roster, { score: 1000, matched: `team ${roster}` });
+    if (byId && byId[1] === roster) best.set(roster, { tier: TIER.id, matched: `team ${roster}` });
   }
   if (!best.size) return null;
-  const top = Math.max(...[...best.values()].map(b => b.score));
-  const winners = [...best.entries()].filter(([, b]) => b.score === top);
+  const top = Math.max(...[...best.values()].map(b => b.tier));
+  // A match lying inside a longer match at the same tier is part of that one mention
+  // (a team name that contains another manager's name), not a second manager.
+  const tied = [...best.entries()].filter(([, b]) => b.tier === top);
+  const winners = tied.filter(([, b]) => !tied.some(([, o]) => o.matched !== b.matched && o.matched.includes(b.matched)));
   const teamOfNamed = id => {
     const t = named.teams.value[id] ?? {};
     return t.manager && t.name ? `${t.manager} (${t.name})` : (t.manager || t.name || `Team ${id}`);
   };
-  if (winners.length > 1) return { roster: null, ambiguous: winners.map(([id]) => teamOfNamed(id)) };
+  if (winners.length > 1) return { roster: null, ambiguous: winners.map(([id]) => teamOfNamed(id)), matched: winners.map(([, b]) => b.matched) };
   const [roster, b] = winners[0];
   return { roster, label: teamOfNamed(roster), matched: b.matched };
+}
+
+const esc = x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Is the question asking for a trade IDEA aimed at the named partner? "a trade
+ * to send to X", "offer for X", "deal with X", "what would X take", "what
+ * should I send X". Not "why did X reject my trade" or "is X's offer to me
+ * fair": those name him but ask something else, and go the ordinary way.
+ */
+export function requestsIdea(question, matched) {
+  const q = norm(question);
+  const m = `(?:the )?${esc(matched)}`;
+  return [
+    new RegExp(` (?:trades?|offers?|deals?|packages?|ideas?|pitch)(?: [a-z0-9]+){0,6}? (?:to|for|with) ${m} `),
+    new RegExp(` what (?:would|will|does|might|could) ${m} (?:take|want|accept|do|say yes to) `),
+    new RegExp(` what (?:should|could|can|do) (?:i|we) (?:send|offer|give|pitch|propose)(?: to)? ${m} `),
+    new RegExp(` (?:send|pitch|propose|offer)(?: to)? ${m} `)
+  ].some(rx => rx.test(q));
 }
 
 /**

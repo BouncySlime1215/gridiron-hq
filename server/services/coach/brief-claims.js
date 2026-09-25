@@ -586,10 +586,13 @@ function servedMoveClaims(entry, ledger, section, move, k) {
   const out = [...draft];
   const step = move.steps[k];
   const msg = val(step?.message);
-  // A draft that does not name every player in the step is about some other deal: not shown.
+  // A draft that does not name every player in the step, or names a player who is
+  // not in it, is about some other deal: not shown.
   const core = pid => String((entry.names ?? {})[pid] ?? '').replace(/\s*\([^)]*\)\s*$/, '').trim();
-  const fits = typeof msg === 'string' && [...(step?.give ?? []), ...(step?.get ?? [])]
-    .every(pid => core(pid) && new RegExp(`(^|[^A-Za-z0-9])${core(pid).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Za-z0-9]|$)`).test(msg));
+  const says = (text, pid) => !!core(pid) && new RegExp(`(^|[^A-Za-z0-9])${core(pid).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Za-z0-9]|$)`).test(text);
+  const inStep = new Set([...(step?.give ?? []), ...(step?.get ?? [])].map(String));
+  const fits = typeof msg === 'string' && [...inStep].every(pid => says(msg, pid))
+    && !Object.keys(entry.names ?? {}).some(pid => !inStep.has(String(pid)) && says(msg, pid));
   if (fits && msg.trim()) {
     const m = record(ledger, 'plan_message', [{ move_id: String(move.move_id), message: msg }]);
     out.splice(1, 0, { section, text: `Draft to copy and send yourself: "${msg}"`, cites: [m(0, 'message')] });

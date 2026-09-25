@@ -78,10 +78,10 @@ const server = app.listen(0);
 const base = `http://127.0.0.1:${server.address().port}/api/coach`;
 test.after(() => { server.close(); setAnthropicClientForTesting(null); fs.rmSync(temp, { recursive: true, force: true }); });
 
-const ask = async (question, leagueId = 4) => (await fetch(`${base}/ask`, {
+const ask = async (question, leagueId = 4, extra = {}) => (await fetch(`${base}/ask`, {
   method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer partner-token-${reader++ % READERS}` },
   body: JSON.stringify({ question, league_id: leagueId,
-    context: { surface: 'war_room', route: '/trade-brain?view=war-room', league: leagueId } }) })).json();
+    context: { surface: 'war_room', route: '/trade-brain?view=war-room', league: leagueId, ...extra } }) })).json();
 const texts = body => (body.answer?.claims ?? []).map(c => c.text).join('\n');
 
 function citesResolve(body) {
@@ -101,11 +101,13 @@ const grounded = body => {
 
 test('Coach refuses only when asked to do the sending itself', () => {
   for (const q of ['send it for me', 'Send it for me please', 'submit it', 'propose it on ESPN',
-    'send the offer to team 7', 'can you send it to him', 'go ahead and send it', 'message him for me']) {
+    'send the offer to team 7', 'can you send it to him', 'go ahead and send it', 'message him for me',
+    'i want you to send it', 'you should send it', 'go send it', 'hit send', "i'd like you to submit the offer"]) {
     assert.ok(routeIntent(q)?.refuse, `should refuse: ${q}`);
   }
   for (const q of ['gimme a trade to send to Quincy', "what's a trade you like to send to Quincy",
-    'what should I send to Delphine', 'what trade would you send to the Oakes Owls', 'any offer I can send Barnaby?']) {
+    'what should I send to Delphine', 'what trade would you send to the Oakes Owls', 'any offer I can send Barnaby?',
+    'what trade would you send to Quincy for me', 'what should we propose on ESPN', 'send me a trade idea for Quincy']) {
     assert.equal(routeIntent(q)?.refuse, undefined, `should not refuse: ${q}`);
   }
 });
@@ -123,10 +125,23 @@ test('the partner is resolved from the identity rows by name, first name or team
   assert.equal(r('trade with team 2').roster, '2');
   assert.equal(r('a trade to send to Nico'), null, 'Nick is not a partner');
   assert.equal(r('a trade to send to Zebulon'), null, 'an unknown name resolves to nobody');
-  // A manager who shares a first name with a player: the player named in full is not the manager.
-  const clash = { ...entry, names: { ...entry.names, 99: 'Quincy Harlow (WR)' } };
-  assert.equal(resolvePartner('a trade for Quincy Harlow', { entry: clash, identities }), null);
-  assert.equal(resolvePartner('a trade to send to Quincy', { entry: clash, identities }).roster, '3');
+  // People name players by last name: a manager token that is any player's name token names nobody.
+  const clash = { ...entry, names: { ...entry.names, 99: 'Harlow Quincy (WR)' } };
+  assert.equal(resolvePartner('a trade to send to Quincy', { entry: clash, identities }), null);
+  assert.equal(resolvePartner('a trade to send to Quincy Marlowe', { entry: clash, identities }).roster, '3', 'the full name still counts');
+  // Two managers named at the same tier are ambiguous, however long each name is.
+  const both = r('a trade with Quincy or Delphine');
+  assert.equal(both.roster, null);
+  assert.equal(both.ambiguous.length, 2);
+  // A team name that contains another manager's full name is one mention, of that team.
+  const nested = identities.map(x => (x.roster_id === '2' ? { ...x, team_name: 'Quincy Marlowe Fan Club' } : x));
+  assert.equal(resolvePartner('a trade to send to the Quincy Marlowe Fan Club', { entry, identities: nested }).roster, '2');
+  assert.equal(resolvePartner('a trade to send to Quincy Marlowe', { entry, identities: nested }).roster, '3');
+  // A chat name counts only for a confirmed identity row.
+  const unconfirmed = identities.map(x => (x.roster_id === '4' ? { ...x, chat_name: 'Dee Zephyr', confidence: 'likely' } : { ...x, confidence: 'confirmed' }));
+  assert.equal(resolvePartner('a trade to send to Zephyr', { entry, identities: unconfirmed }), null);
+  assert.equal(resolvePartner('a trade to send to Zephyr', { entry,
+    identities: unconfirmed.map(x => (x.roster_id === '4' ? { ...x, confidence: 'confirmed' } : x)) }).roster, '4');
 });
 
 /* ------------------------------------------------------- partner answer */
@@ -174,6 +189,17 @@ test('nothing with him at all: his partners read and an honest "nothing clears w
   } finally { writePlans(plans()); }
 });
 
+test('naming him without asking for a trade idea goes the ordinary way, not to his plan', async () => {
+  for (const q of ['why did Quincy reject my trade', "is Quincy's offer to me fair", 'what did Delphine say about my deal']) {
+    const body = await ask(q);
+    assert.equal(body.partner, undefined, q);
+    assert.doesNotMatch(texts(body), /Quincy Marlowe|Delphine Oakes/, q);
+  }
+  for (const q of ['what would Quincy take', 'what should I send Delphine', 'a deal with the Oakes Owls?']) {
+    assert.ok((await ask(q)).partner, q);
+  }
+});
+
 test('a name nobody has falls through to the ordinary answer, never a guess', async () => {
   const body = await ask("what's the best trade to send to Zebulon");
   assert.doesNotMatch(texts(body), /Zebulon/);
@@ -182,27 +208,37 @@ test('a name nobody has falls through to the ordinary answer, never a guess', as
 
 /* ---------------------------------------------------------- what else */
 
-test('"what else u got" answers the next alternative in the deck, in full, and moves the deck', async () => {
-  await ask("What's my next move and why?");
-  const body = await ask("i don't like that, what else u got");
+test('"what else u got" with the card the War Room shows: the card after it, in full, and the deck move', async () => {
+  const body = await ask("i don't like that, what else u got", 4, { deck_index: 0 });
   const t = texts(body);
   assert.deepEqual(body.answer.refusals, []);
-  assert.match(t, /P4 \(WR\) \+ P5 \(TE\) for P21 \(WR\)/, 'alternative 2, not the next move again');
+  assert.match(t, /P4 \(WR\) \+ P5 \(TE\) for P21 \(WR\)/, 'card 2, not the next move again');
+  assert.match(t, /Card 2 of 5 in the deck/);
   assert.match(t, /Chance he says yes: 53%/);
   assert.deepEqual(body.actions.map(a => a.type), ['next']);
   grounded(body);
-  const again = await ask('next one');
+  const again = await ask('next one', 4, { deck_index: 1 });
   assert.match(texts(again), /P5 \(TE\) \+ P7 \(WR\) for P21 \(WR\)/);
   grounded(again);
-  const more = await ask('something else?');
-  assert.match(texts(more), /P6 \(RB\) \+ P7 \(WR\) for P21 \(WR\)/);
+  const byMove = await ask('something else?', 4, { move_id: PLANS.leagues.find(e => e.league === 4).alternatives.value[2].move_id });
+  assert.match(texts(byMove), /P6 \(RB\) \+ P7 \(WR\) for P21 \(WR\)/);
+  grounded(byMove);
+});
+
+test('"what else" with no card from the War Room: the card after the served next move, said so, deck not moved', async () => {
+  for (let i = 0; i < 2; i++) {
+    const body = await ask('what else u got');
+    const t = texts(body);
+    assert.match(t, /P4 \(WR\) \+ P5 \(TE\) for P21 \(WR\)/, 'no server cursor: the same card every time');
+    assert.match(t, /did not say which card it shows/);
+    assert.deepEqual(body.actions, []);
+    grounded(body);
+  }
 });
 
 test('past the last card: says so, and sends no deck move', async () => {
-  await ask("What's my next move and why?");
-  for (let i = 0; i < 4; i++) await ask('what else');
-  const body = await ask('what else');
-  assert.match(texts(body) + body.answer.refusals.join(' '), /last (move|alternative) in the deck/);
+  const body = await ask('what else', 4, { deck_index: 4 });
+  assert.match(texts(body), /last alternative in the deck/);
   assert.deepEqual(body.actions, []);
 });
 

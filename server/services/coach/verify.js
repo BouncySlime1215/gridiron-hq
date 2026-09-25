@@ -72,39 +72,47 @@ function numericTokens(text) {
 }
 
 /**
- * COACH-PARTNER: small whole numbers that only structure Coach's own sentence.
+ * COACH-PARTNER: small whole numbers that only structure Coach's own answer.
  *
- * "step 1 of 2", "#2", "the 2nd card", "1 of 3", "9 managers", a "1." list
- * marker: these count or order the things Coach is talking about, and tracing
- * them to a cell rejected good answers ("could not trace 3 numbers (9, 1, 2)").
+ * "step 2 of 3", "Card 2 of 4", "leg 1 of 2", "3 steps", a "1." list marker:
+ * these place or count the parts of the plan Coach is walking through, and
+ * tracing them to a cell rejected good answers ("could not trace 3 numbers").
  * Exempt only when ALL of these hold: an unsigned integer <= ORDINAL_MAX with no
- * decimal, not followed by a unit (%, pts, points, x, a unit word), and in one
- * of the structural shapes below. Every other number (points, percentages,
- * odds, values, dates, weeks, a count of anything on the field) is checked
- * exactly as before.
+ * decimal and no unit after it, and one of these shapes:
+ *   - right after step / option / alternative / card / leg / path ("step 2")
+ *   - the M of "<noun> N of M" ("step 2 of 3")
+ *   - N or M of "N of M <noun>" ("1 of 3 steps")
+ *   - a count of steps / options / alternatives / cards / legs / paths ("3 steps")
+ *   - a line-start list marker ("1. ")
+ * Nothing else: a rank ("#1 RB", "3rd in targets", "number 2 WR"), a count of
+ * people or players ("4 managers asked", "2 of 3 starters"), points,
+ * percentages, odds, values, weeks and dates are all checked as before.
  */
 const ORDINAL_MAX = 10;
-/** Nouns that count the structure of the league or of Coach's own answer, never a football stat. */
-const STRUCTURE_NOUN = /^\s+(?:(?:other|more|served|listed|reachable|possible|remaining|trade|flip)\s+)?(?:managers?|teams?|leagues?|league-mates|steps?|options?|alternatives?|ideas?|cards?|legs?|paths?|choices?)\b/i;
-const BEFORE_ORDINAL = /(?:\b(?:step|option|alternative|idea|card|leg|choice|number|no\.)\s*|#)$/i;
-const OF_N = /^\s+of\s+(\d+)\b(?!\s*(?:%|pts?\b|points?\b|percent))/i;
-const SUFFIX = /^(?:st|nd|rd|th)\b/i;
+const PART = '(?:steps?|options?|alternatives?|cards?|legs?|paths?)';
+const PART_NOUN = new RegExp(`^\\s+${PART}\\b`, 'i');
+const AFTER_PART = new RegExp(`\\b${PART}\\s+$`, 'i');
+const AFTER_PART_N_OF = new RegExp(`\\b${PART}\\s+(\\d+)\\s+of\\s+$`, 'i');
+const N_OF_M_PART = new RegExp(`^\\s+of\\s+(\\d+)\\s+${PART}\\b`, 'i');
+const N_OF_BEFORE = /\b(\d+)\s+of\s+$/i;
 
-/** Is this match a list position, step count or ordinal (and nothing that measures anything)? */
+/** Is this match a step, card or leg position or count in Coach's own text (and nothing that measures anything)? */
 function isStructural(text, match) {
   const token = match[0];
   if (!/^\d+$/.test(token) || Number(token) > ORDINAL_MAX) return false;
   const before = text.slice(0, match.index);
   const after = text.slice(match.index + token.length);
-  if (/^\s*(?:%|pts?\b|points?\b|percent|x\b|\.\d)/i.test(after)) return false;
-  if (/[-+$]$/.test(before)) return false;
-  if (SUFFIX.test(after)) return true;
-  if (BEFORE_ORDINAL.test(before)) return true;
-  const of = after.match(OF_N);
-  if (of && Number(of[1]) <= ORDINAL_MAX) return true;
-  // "1 of 3": the 3 is the count the first one is out of.
-  if (/\b\d+\s+of\s+$/i.test(before) && Number(before.match(/(\d+)\s+of\s+$/)[1]) <= ORDINAL_MAX) return true;
-  if (STRUCTURE_NOUN.test(after)) return true;
+  if (/^(?:\s*(?:%|pts?\b|points?\b|percent|x\b)|\.\d|st\b|nd\b|rd\b|th\b)/i.test(after)) return false;
+  if (/[-+$#]$/.test(before)) return false;
+  const small = n => Number(n) <= ORDINAL_MAX;
+  if (AFTER_PART.test(before)) return true;
+  const partOf = before.match(AFTER_PART_N_OF);
+  if (partOf && small(partOf[1])) return true;
+  const nOfM = after.match(N_OF_M_PART);
+  if (nOfM && small(nOfM[1])) return true;
+  const mOf = before.match(N_OF_BEFORE);
+  if (mOf && small(mOf[1]) && PART_NOUN.test(after)) return true;
+  if (PART_NOUN.test(after)) return true;
   if (/(?:^|\n)\s*$/.test(before) && /^[.)]\s/.test(after)) return true;
   return false;
 }

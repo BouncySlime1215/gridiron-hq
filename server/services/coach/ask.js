@@ -191,7 +191,7 @@ export async function askCoach({ question, context = null, leagueId = null,
   const partner = planAnswers ? await partnerAnswer({ question: asked, leagueId: league }) : null;
   const intent = partner ? 'partner' : (planAnswers ? starterIntent(asked) : null);
   if (intent || (planAnswers && !hasModel && !fast)) {
-    const out = partner ?? await starterAnswer({ question: asked, intent, leagueId: league });
+    const out = partner ?? await starterAnswer({ question: asked, intent, leagueId: league, context });
     const starterActs = [];
     if (warRoom && intent) {
       const acts = out.actions ?? (fast?.tool ? [[fast.tool, fast.input]] : starterActions(intent));

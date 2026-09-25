@@ -32,9 +32,17 @@ const POS_WORDS = [
  */
 const SEND_VERBS = '(?:send|submit|propose|post|message|text|dm)';
 const POLITE = /^(?:(?:ok(?:ay)?|yes|yeah|yep|sure|please|pls|plz|just|now|then|so|alright|hey|coach|go ahead and|can you|could you|would you|will you|can u|could u|would u|will u|you|u)[\s,]+)+/;
+/** A question asking for a trade idea ("what trade would you send to X for me"): never a send request. */
+const IDEA_QUESTION = /^(?:what|which|any|anything|gimme|give me|find|show me|is there|are there|got)\b/;
+const IDEA_WORDS = /\b(?:trades?|offers?|deals?|packages?|ideas?)\b/;
+
 export function asksCoachToSend(t) {
+  if (IDEA_QUESTION.test(t) && IDEA_WORDS.test(t) && !/\b(?:send|submit|propose|post) (?:it|this|that|them)\b/.test(t)) return false;
+  if (/\b(?:i want|i'?d like|i would like|i need) (?:you|u|coach) to (?:send|submit|propose|post|message|text|dm)\b/.test(t)) return true;
+  if (/\b(?:you|u) should (?:send|submit|propose|post)\b/.test(t)) return true;
+  if (/\bgo (?:send|submit|propose|post)\b/.test(t) || /\bhit send\b/.test(t)) return true;
   if (/\b(?:send|submit|propose|post|message|text|dm)(?: (?:it|this|that|them|him|her|the (?:offer|trade|deal|message|text)|my (?:offer|trade)))?(?: (?:to|over to) [\w' ]{1,30}?)? (?:for me|on my behalf)\b/.test(t)) return true;
-  if (/\b(?:send|submit|propose|post)\b[^.?!]*\b(?:on|in|through|via|to) espn\b/.test(t) && !/\bi\b/.test(t)) return true;
+  if (/\b(?:send|submit|propose|post)\b[^.?!]*\b(?:on|in|through|via|to) espn\b/.test(t) && !/\b(?:i|we)\b/.test(t)) return true;
   const bare = t.replace(POLITE, '');
   if (/^send me\b/.test(bare)) return false; // "send me a trade idea": Coach sends Nick an answer, not an offer.
   if (new RegExp(`^${SEND_VERBS}\\b`).test(bare) && bare !== t) return true;

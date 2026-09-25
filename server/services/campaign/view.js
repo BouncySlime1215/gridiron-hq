@@ -29,6 +29,7 @@ import { hash } from './confirm.js';
 import { ladderSection } from './ladder.js';
 import { floorName as getsFloorName } from './gets-floor.js';
 import { hisSide, hisSideSummary } from './his-side.js';
+import { deadlineSummary } from './deadline-mode.js';
 
 const M6_MIX = Object.freeze({ ignore: M6_REPLY_PRIOR.ignore, counter: M6_REPLY_PRIOR.counter, decline: M6_REPLY_PRIOR.decline, accept: M6_REPLY_PRIOR.accept });
 /** One counterpart feature for the plans file: named, typed, no names or note text. */
@@ -613,6 +614,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       // PLAN-BASELINE: the model this run's trajectory was made under (the contract keeps `_run` keys fixed; inputs is free-form).
       inputs: { ...(model != null ? { model } : {}), his_side: hisSideSummary(hisRows, hisSideServed, res.trade_block ?? null, res.chat_interest ?? null),
         ...(res.stops ? { stops: stopsSummary(res.stops) } : {}),
+        ...(res.deadline ? { deadline_mode: deadlineSummary(res.deadline) } : {}),
         ...(res.no_fc_value?.source ? { value_source: { status: res.no_fc_value.status, source: res.no_fc_value.source, unpriced_players: res.no_fc_value.players, paths_dropped: res.no_fc_value.paths, ...(res.no_fc_value.reason ? { reason: res.no_fc_value.reason } : {}) } } : {}) },
       // TRADE-MEMORY: paths the season's trade ledger removed, and the memory itself (ids only).
       dropped_by_reason: { trade_memory: res.trade_memory?.dropped_total ?? 0,

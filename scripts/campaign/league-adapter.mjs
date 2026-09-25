@@ -169,10 +169,22 @@ export function startersOf(players, slots) {
   return used;
 }
 
+/** ESPN's trade deadline in ms (TM-34 deadline mode reads the exact time); null when the settings carry none. */
+export function deadlineMs(payload) {
+  const ms = Number(payload?.settings?.tradeSettings?.deadlineDate);
+  return ms > 0 ? ms : null;
+}
+
+/** The league's trade review window in hours (ESPN revisionHours); null when the settings carry none. */
+export function reviewHours(payload) {
+  const h = payload?.settings?.tradeSettings?.revisionHours;
+  return Number.isFinite(h) && h >= 0 ? h : null;
+}
+
 /** The trade deadline as a week, from ESPN's deadlineDate and the NFL schedule; null when unknown. */
 function deadlineWeek(svc, lg, payload) {
-  const ms = Number(payload?.settings?.tradeSettings?.deadlineDate);
-  if (!(ms > 0)) return null;
+  const ms = deadlineMs(payload);
+  if (ms == null) return null;
   const day = new Date(ms).toISOString().slice(0, 10);
   const r = svc.db.row(`SELECT MAX(week) AS w FROM (SELECT week, MIN(date) AS start FROM schedule_games
                         WHERE season = ? GROUP BY week) WHERE start <= ?`, lg.season, day);
@@ -464,6 +476,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       checked_out: activity.get(String(t))?.checked_out ?? false,
       checked_out_source: activity.get(String(t))?.source ?? null,
       p_checked_out: activity.get(String(t))?.p ?? null,
+      // TM-34: his last own move in the league (timing read), for deadline mode's who-goes-quiet read.
+      last_action_at: tm?.last_action_at ?? null,
       title_now: titleByTeam.get(t) ?? null,
       sent_this_week: sent.get(t) ?? 0,
       send_when: send,
@@ -539,7 +553,9 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
   return {
     league: { id: leagueId, me, fetched_at: lg.fetched_at ?? '', week, deadline_week: dl,
       deadline_source: dl == null ? 'unknown (no deadlineDate in league settings)' : 'league settings',
-      days_left_in_week: daysLeftInWeek(svc, lg, week, now), team_count: rosters.size, season },
+      days_left_in_week: daysLeftInWeek(svc, lg, week, now), team_count: rosters.size, season,
+      // TM-34: the exact deadline and review window for deadline mode (planner reads them only with its flag on).
+      deadline_at: deadlineMs(payload) == null ? null : new Date(deadlineMs(payload)).toISOString(), review_hours: reviewHours(payload) },
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity, tradeBlock, chatInterest,

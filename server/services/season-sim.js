@@ -36,7 +36,7 @@ import { oneWorldFlag, oneWorldSeed, rosFactor } from './one-world.js';
 import { projectionAsOf } from './projection-asof.js';
 import { basis02Flag, applyBasis02, poolBasisFor } from './sim-basis.js';
 import { availHorizonFlag, availHorizonPreviewFields } from './availability-return.js';
-import { rbTitleMode, conditionalTitle, meanInterval } from './rb-title.js';
+import { rbTitleMode, conditionalTitle, RB_SE_BATCHES, batchOf, batchSe, batchPairedSe, batchInterval } from './rb-title.js';
 import { standingsCheckField } from './standings-reconcile.js';
 import { espnProjections } from './espn-league-projections.js';
 
@@ -918,22 +918,39 @@ function rbTitleState(prep, teams, runs, rawPointsFor, perRun) {
     for (const w of weeks) for (const t of teams) raw.get(t.roster_id).get(w)[k] = rawPointsFor(t, k, w);
   }
   const ids = teams.map(t => t.roster_id);
-  const ct = conditionalTitle({
-    ids, runs, roundWeeks, reseed: prep.rules.schedule.reseed, rawPoints: (id, w, k) => raw.get(id).get(w)[k]
-  });
-  const sum = new Map(ids.map(id => [id, 0])), sq = new Map(ids.map(id => [id, 0]));
+  const reseed = prep.rules.schedule.reseed;
+  const ct = conditionalTitle({ ids, runs, roundWeeks, reseed, rawPoints: (id, w, k) => raw.get(id).get(w)[k] });
+  // U1b RB-SE: B batches, each with its OWN playoff-week pool (its own runs only); SE from their means.
+  const B = Math.min(RB_SE_BATCHES, runs);
+  const starts = Array.from({ length: B + 1 }, (_, b) => Math.ceil((b * runs) / B));
+  const cts = Array.from({ length: B }, (_, b) => conditionalTitle({
+    ids, runs: starts[b + 1] - starts[b], roundWeeks, reseed,
+    rawPoints: (id, w, k) => raw.get(id).get(w)[starts[b] + k]
+  }));
+  const sum = new Map(ids.map(id => [id, 0]));
+  const bsum = new Map(ids.map(id => [id, new Float64Array(B)]));
   const served = (prep.rbTitle ?? rbTitleMode()) === 'on';
   const arrays = perRun ? new Map(ids.map(id => [id, new Float64Array(runs)])) : null;
   if (perRun) for (const id of ids) perRun.get(id)[served ? 'title' : 'title_rb'] = arrays.get(id);
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    for (const id of ids) { const a = bsum.get(id); for (let b = 0; b < B; b++) a[b] /= starts[b + 1] - starts[b]; }
+    // The batch means ride with the per-run values, so a paired delta's SE is read from them.
+    if (perRun) for (const id of ids) perRun.get(id)[served ? 'title_batches' : 'title_rb_batches'] = bsum.get(id);
+  };
   return {
     add(run, field, offsets) {
       for (const [id, p] of ct.probs(field, offsets)) {
         if (!p) continue;
-        sum.set(id, sum.get(id) + p); sq.set(id, sq.get(id) + p * p);
+        sum.set(id, sum.get(id) + p);
         if (arrays) arrays.get(id)[run] = p;
       }
+      const b = batchOf(run, runs, B);
+      for (const [id, p] of cts[b].probs(field, offsets)) if (p) bsum.get(id)[b] += p;
     },
-    result: id => meanInterval(sum.get(id), sq.get(id), runs)
+    result: id => { finish(); return batchInterval(sum.get(id) / runs, bsum.get(id)); }
   };
 }
 
@@ -955,11 +972,12 @@ function pairedSe(before, after) {
 }
 
 /**
- * U1: run-to-run standard error of one arm's title odds, from its per-run values (0/1
- * indicators, or RB-TITLE's conditional probabilities when it is on). For the conditional
- * estimate this excludes the shared error of the pooled playoff-week scores (rb-title.js),
- * so it understates on large brackets (docs/tdd/2026-09-25-u1-rb-title-on.tdd.md).
+ * U1: run-to-run standard error of one arm's title odds from its per-run 0/1 indicators (flag off).
+ * U1b: with RB-TITLE on, `seOf` reads the arm's batch means instead (rb-title.js#batchSe), which
+ * carry the shared error of the pooled playoff-week scores that the per-run values leave out.
  */
+const seOf = arm => (arm.title_batches ? +batchSe(arm.title_batches).toFixed(4) : levelSe(arm.title));
+
 function levelSe(perRun) {
   const n = perRun.length;
   if (n < 2) return null;
@@ -1044,7 +1062,9 @@ export function tradeImpactWorld(lg, {
   const key = {
     league: lg.id, fetched_at: lg.fetched_at ?? null, runs, fromWeek: simStartWeek(lg, requestedWeek),
     scoring: JSON.stringify(scoring), seed: pairedSeed, basis: basisKey(basisFlag, asofFlag), mode, kdst: kdstKey(kdstFlag),
-    teamMeanSd: teamMeanSd(horizonFlag), rbTitle: rbTitleMode()
+    teamMeanSd: teamMeanSd(horizonFlag), rbTitle: rbTitleMode(),
+    // U1b: a flag-on world's rescores carry batch SEs; its key (and the rescore cache's hash) says so.
+    ...(rbTitleMode() !== 'off' ? { rbSe: `batch${RB_SE_BATCHES}` } : {})
   };
   if (prep.fail) return { key, projections, universe: universeIds, fail: prep.fail };
 
@@ -1234,13 +1254,15 @@ export function tradeImpact(lg, {
     const rb = before.per_run.get(id), ra = after.per_run.get(id);
     const title_delta = +(a.title_odds - b.title_odds).toFixed(4);
     const playoff_delta = +(a.playoff_odds - b.playoff_odds).toFixed(4);
-    const title_delta_se = pairedSe(rb.title, ra.title);
+    // U1b: under RB-TITLE the paired SE comes from the batch means (the pooled-score error included).
+    const title_delta_se = rb.title_batches && ra.title_batches
+      ? +batchPairedSe(rb.title_batches, ra.title_batches).toFixed(4) : pairedSe(rb.title, ra.title);
     const playoff_delta_se = pairedSe(rb.playoffs, ra.playoffs);
     return {
       roster_id: id, owner: b.owner,
       title_before: b.title_odds, title_after: a.title_odds,
       // U1: each arm's own SE (the served title_now reads title_before_se).
-      title_before_se: levelSe(rb.title), title_after_se: levelSe(ra.title),
+      title_before_se: seOf(rb), title_after_se: seOf(ra),
       title_delta, title_delta_se,
       title_delta_clears_noise: title_delta_se != null && Math.abs(title_delta) > TRADE_DELTA_NOISE_SE * title_delta_se,
       playoff_before: b.playoff_odds, playoff_after: a.playoff_odds,
@@ -1250,7 +1272,8 @@ export function tradeImpact(lg, {
       // RB-TITLE shadow: the conditional delta beside the served one, never served.
       ...(rb.title_rb && ra.title_rb ? {
         title_delta_rb: +(a.title_odds_rb - b.title_odds_rb).toFixed(4),
-        title_delta_rb_se: pairedSe(rb.title_rb, ra.title_rb)
+        title_delta_rb_se: rb.title_rb_batches && ra.title_rb_batches
+          ? +batchPairedSe(rb.title_rb_batches, ra.title_rb_batches).toFixed(4) : pairedSe(rb.title_rb, ra.title_rb)
       } : {})
     };
   };

@@ -91,6 +91,30 @@ test("add_stop on a league with stop_tradeoffs['add:get:<id>'] renders the produ
   assert.match(text, /Confirm/);
 });
 
+/* The real producer's output (FIX-03's producer-plans.json), served through #287's contract view. */
+const REAL = JSON.parse(fs.readFileSync(new URL('./fixtures/warroom-contract/producer-plans.json', import.meta.url), 'utf8'));
+const realView = id => buildWarRoomView(id, { status: 'ok', entries: structuredClone(REAL.leagues), as_of: REAL.generated_at, id: 'p' },
+  { enabled: true, preview: false });
+
+test("FIX-282-1: add_stop on the producer fixture, through the contract view, shows the producer's own trade-off in points", () => {
+  const view = realView(1);
+  const t = view.stop_tradeoffs.value['add:get:21'];
+  assert.ok(t, "the producer priced league 1's get-P21 stop");
+  assert.equal(t.cost.unit, 'title_odds', 'the producer tags the trade-off with its unit, not source sim.title');
+  const add = { type: 'add_stop', stop: { kind: 'get', label: t.stop_label, player_id: '21' } };
+  const { session, outcome } = client.dispatch(client.newSession(), add, { leagues: [1], plans: view });
+  assert.equal(outcome.status, 'previewed');
+  assert.equal(session.pending.preview.status, 'ok');
+  assert.equal(session.pending.preview.key, 'add:get:21');
+  const coach = { ...mountCoach(view), session, pending: session.pending, log: session.log };
+  const text = textOf(renderToStaticMarkup(React.createElement(CoachDock, { coach })));
+  const p = v => (v * 100).toFixed(1);
+  assert.match(text, new RegExp(`Costs: ${p(Math.abs(t.cost.value))} pts, ${t.extra_steps} extra step\\(s\\)`));
+  assert.match(text, new RegExp(`Gains: ${p(Math.abs(t.gain.value))} pts`));
+  assert.match(text, new RegExp(`Net: [+±]?-?${p(Math.abs(t.net.value))} pts: ${t.verdict.replace(/_/g, ' ')}`));
+  assert.doesNotMatch(text, /not computed yet|NaN|undefined/);
+});
+
 test('Confirm writes exactly one stop.add request with confirmed = 1', async () => {
   process.env.GRIDIRON_WARROOM_ENABLED = '1';
   try {

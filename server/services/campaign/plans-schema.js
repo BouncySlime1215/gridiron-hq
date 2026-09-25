@@ -35,7 +35,10 @@ export const SOURCE_IDS = Object.freeze([
   'plan.template', 'chat.labels', 'asset.ros',
   // PLAYER-SCORE: people.score = the blue-chip score (draft pick x production, people/player-score.js);
   // fp.ros = FantasyPros' rest-of-season rank via the public DynastyProcess scrape (people/fantasypros-ros.js).
-  'people.score', 'fp.ros'
+  'people.score', 'fp.ros',
+  // PYES-ONE: P(yes) from the E1 activity baseline (p-yes.js, GRIDIRON_PYES_BASELINE=1),
+  // "activity baseline (E1 pending)"; clone.accept stays the source with the flag off.
+  'activity.accept'
 ]);
 
 export const UNITS = Object.freeze(['title_odds', 'playoff_odds', 'points_per_week', 'probability', 'market_value']);

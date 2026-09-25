@@ -48,6 +48,7 @@ const BASIS_NOTE: Record<string, string> = {
   heuristic_anchored: 'anchored on his own accept rate',
   heuristic_unanchored: 'no decided offers with him yet, so it is unanchored',
   no_information: 'a declared starting point, not a measurement',
+  activity_baseline: 'activity baseline (E1 pending): the same for every offer to him',
 };
 
 const TIER_NOTE: Record<string, string> = {
@@ -88,6 +89,15 @@ function Band({ a }: { a?: Acceptance | null }) {
     );
   }
   const note = BASIS_NOTE[a.basis ?? ''] ?? words(a.basis);
+  // PYES-ONE: the activity baseline is one number, not a band; printing "40%–40%" would read as certainty.
+  if (a.point) {
+    return (
+      <span className="text-[11px] tabular-nums text-[var(--muted)]" title={a.why ?? undefined}>
+        P(accept) <b className="font-semibold text-[var(--ink)]">{pct(a.band.mid)}</b>
+        <span className="text-[var(--subtle)]"> · {note}{a.n != null ? ` (n=${a.n})` : ''}</span>
+      </span>
+    );
+  }
   return (
     <span className="text-[11px] tabular-nums text-[var(--muted)]"
       title={`${a.why ?? ''}${a.anchor?.why ? ` · ${a.anchor.why}` : ''}`}>

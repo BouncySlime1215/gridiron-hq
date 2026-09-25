@@ -51,7 +51,7 @@
  * consumers call `tradeIdeas`.
  */
 import crypto from 'node:crypto';
-import { rows } from '../db/index.js';
+import { db, rows } from '../db/index.js';
 import { vorBoard, volatility } from '../routes/edge.js';
 import { deriveFormat } from './format.js';
 import { pickInventory } from './picks.js';
@@ -100,7 +100,7 @@ import { counterpartyLayer, readDeal, counterpartyDataKey, playerValuation, self
 // thinks of it (master plan 00 D4, "a gift, not a trade").
 import { edgeTest, tacticsForDeal, timingRead, vetoClimate } from './trade-tactics.js';
 import { LOST_IDEAS } from './rec-ledger.js';
-import { acceptanceBand } from './trade-acceptance.js';
+import { pYesFlag, pYesFor, pYesTable } from './p-yes.js';
 import { servedAcceptBand } from './price-band.js';
 // tradeIdeas() only: this roster's real P(make playoffs), which is what turns the
 // horizon from a 0.5 prior into a number. season-sim.js imports assetUniverse /
@@ -1817,10 +1817,12 @@ function findTradesKey(lg, opts = {}, ctx = null) {
   const zeroKey = [...zero].sort().join(',');
   // RL-19-3: flipping the title-mutual flag (or preview mode) is a different answer.
   const tm = titleMutualMode();
+  // PYES-ONE: the served P(yes) flag is a different answer too.
+  const py = pYesFlag();
   return `findTrades:${lg.id}:${formatKey}:${target.season}:${target.week}:` +
     `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:` +
     `${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}:z${zeroKey}:` +
-    `tm${tm.on ? (tm.preview ? 'p' : 1) : 0}`;
+    `tm${tm.on ? (tm.preview ? 'p' : 1) : 0}:py${py.on ? 1 : 0}`;
 }
 
 /**
@@ -2310,6 +2312,9 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
     return [pos, sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2];
   }));
 
+  // PYES-ONE: one decided-offer table per search, read only when the flag is on.
+  const py = pYesFlag();
+  const pyTable = py.on ? pYesTable(db, lg.id) : null;
   for (const d of shown) {
     const cp = counterparties.get(String(d.partner_id)) ?? null;
     // The rungs of the ladder are the packages that land EXACTLY THIS RETURN
@@ -2366,8 +2371,12 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
     // `says_no_holds`, which is read straight off the negotiation profile and
     // has no valuation-source name — stated here rather than implied by a
     // parameter that cannot do it.
-    d.acceptance = acceptanceBand({ counterparty: d.counterparty, edge: d.edge,
-      profile: cp?.negotiation ?? null });
+    //
+    // PYES-ONE: served through p-yes.js, the module the War Room reads too. Flag
+    // off this is acceptanceBand's own object; flag on it is the E1 activity
+    // baseline for this partner, with the band kept as `challenger`.
+    d.acceptance = pYesFor({ counterparty: d.counterparty, edge: d.edge,
+      profile: cp?.negotiation ?? null, team: d.partner_id, table: pyTable, on: py.on });
   }
 }
 

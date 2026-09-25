@@ -294,13 +294,14 @@ export function flipMap(S, adapter, vals, { topPer = 3, realise = 6, daysLeft = 
     const s1 = S.applyTrade(new Map(), me, f.a, gx, [f.player]);
     const s2 = S.applyTrade(s1, me, f.b, [f.player], gy);
     const r1 = S.rescore(s1, me, f.a), r2 = S.rescore(s2, me, f.b);
-    const p1 = adapter.priceStep(f.a, [f.player], gx).p, p2 = adapter.priceStep(f.b, gy, [f.player]).p;
+    const pr1 = adapter.priceStep(f.a, [f.player], gx), pr2 = adapter.priceStep(f.b, gy, [f.player]);
+    const p1 = pr1.p, p2 = pr2.p;
     const e = pathExpectation([{ p: p1, delta: r1.me.title_delta }, { p: p2, delta: r2.me.title_delta, se: r2.me.title_delta_se }]);
     // give_a / get_b stay one id (the package's most valuable player) for the served contract; the ids are the package.
     const lead = ids => [...ids].sort((x, y) => val(y) - val(x))[0];
     realised.push({ ...f, legs: { give_a: lead(gx), get_b: lead(gy),
       ...(legsOn ? { give_a_ids: gx, get_b_ids: gy, shape_1: `${gx.length}-for-1`, shape_2: `1-for-${gy.length}` } : {}),
-      p1, p2, d1: r1.me.title_delta, d2: r2.me.title_delta,
+      p1, p2, ...(pr1.basis === 'activity_baseline' ? { p_basis: pr1.basis } : {}), d1: r1.me.title_delta, d2: r2.me.title_delta,
       se2: r2.me.title_delta_se, clears2: r2.me.title_delta_clears_noise, ...e } });
   }
   const rankOf = f => {
@@ -436,7 +437,9 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
   };
   const withP = (state, st) => {
     const pr = adapter.priceStep(st.team, st.get, st.give);
-    return { ...st, p: pr.p, band: pr.band ? { ...pr.band, basis: pr.basis ?? null } : null, state: S.applyTrade(state, me, st.team, st.give, st.get) };
+    // PYES-ONE: a baseline p carries no band, so its basis rides on the step (absent with the flag off).
+    return { ...st, p: pr.p, band: pr.band ? { ...pr.band, basis: pr.basis ?? null } : null,
+      ...(pr.basis === 'activity_baseline' ? { p_basis: pr.basis } : {}), state: S.applyTrade(state, me, st.team, st.give, st.get) };
   };
   const h = steps => pathExpectation(steps.map(x => ({ p: x.p, delta: lin(x.state) })));
   const direct = stepsFrom(new Map(), owner, target, maxGiveFinal).map(st => [withP(new Map(), st)]);
@@ -486,7 +489,7 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     const steps = c.steps.map(st => {
       const r = S.rescore(st.state, me).me;
       const m = metricOf(r, objective);
-      const out = { team: st.team, give: st.give, get: st.get, p: st.p, band: st.band, delta: m.delta, se: m.se, clears: m.clears, state: st.state };
+      const out = { team: st.team, give: st.give, get: st.get, p: st.p, band: st.band, ...(st.p_basis ? { p_basis: st.p_basis } : {}), delta: m.delta, se: m.se, clears: m.clears, state: st.state };
       if (st.premium_pct != null) {
         // CAP-1C: a premium step stays only if its own lineup points and title odds both rise (paired dice).
         const h = premiumHolds(r, prev);

@@ -47,16 +47,18 @@ const SCORED = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'D/ST', 'DST']);
 
 /** The real simulator and pricing (the bench script reuses them). */
 export async function defaultDeps() {
-  const [sim, cp, acc, week] = await Promise.all([
+  const [sim, cp, pyes, week] = await Promise.all([
     import('../season-sim.js'), import('../counterparty-pricing.js'),
-    import('../trade-acceptance.js'), import('../league-week.js')
+    import('../p-yes.js'), import('../league-week.js')
   ]);
   return {
     world: lg => sim.tradeImpactWorld(lg),
     impact: (lg, opts) => sim.tradeImpact(lg, opts),
     layer: lg => cp.counterpartyLayer(lg.id, { season: lg.season, week: week.leagueCurrentWeek(lg) }),
     readDeal: cp.readDeal,
-    band: acc.acceptanceBand,
+    // PYES-ONE: through the one module, with no baseline table: the counter builder prices
+    // package CONTENT, which the content-blind activity baseline cannot, so it keeps the clone band.
+    band: args => pyes.pYesFor(args),
     now: () => performance.now()
   };
 }

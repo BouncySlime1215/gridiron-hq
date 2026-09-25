@@ -125,10 +125,10 @@ export default function App() {
           <button onClick={() => setCollapsed(v => !v)} aria-label={collapsed ? (isMobile ? 'Open menu' : 'Expand sidebar') : (isMobile ? 'Close menu' : 'Collapse sidebar')} className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50">
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><rect x="1" y="2" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.4" /><line x1="5.5" y1="2" x2="5.5" y2="13" stroke="currentColor" strokeWidth="1.4" /></svg>
           </button>
-          <span className="hidden text-sm font-semibold text-slate-500 sm:inline">{inBetting ? 'Betting' : 'Gridiron HQ'} <span className="mx-1 text-slate-300">/</span> <span className="text-slate-800">{pageLabel}</span></span>
+          <span className="hidden min-w-0 truncate text-sm font-semibold text-slate-500 sm:block">{inBetting ? 'Betting' : 'Gridiron HQ'} <span className="mx-1 text-slate-300">/</span> <span className="text-slate-800">{pageLabel}</span></span>
           {/* On a phone the league select gives up width to the buttons instead of pushing them off-screen. */}
           {!inBetting && <div className="min-w-0 flex-1 sm:flex-none [&_select]:w-full [&_select]:max-w-full sm:[&_select]:w-auto sm:[&_select]:max-w-[200px]"><LeagueSwitcher /></div>}
-          <div className="ml-auto flex shrink-0 items-center gap-2"><span className="hidden sm:inline-flex"><QuickJump /></span><RefreshAll onDone={() => window.dispatchEvent(new Event('gridiron:refreshed'))} /><span className="hidden sm:inline-flex"><DevHub /></span></div>
+          <div className="ml-auto flex shrink-0 items-center gap-2"><span className="hidden lg:inline-flex"><QuickJump /></span><RefreshAll onDone={() => window.dispatchEvent(new Event('gridiron:refreshed'))} /><span className="hidden sm:inline-flex"><DevHub /></span></div>
         </header>
         <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8"><Suspense fallback={<RouteSkeleton />}><Routes>
           <Route path="/" element={<Navigate to="/league" replace />} />

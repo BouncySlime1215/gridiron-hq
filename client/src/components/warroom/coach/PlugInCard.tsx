@@ -26,26 +26,43 @@ function Spark({ values }: { values: number[] }) {
   return <svg viewBox="0 0 200 40" className="h-10 w-full" role="img" aria-label="sparkline"><polyline points={d} fill="none" stroke="var(--ink)" strokeWidth="1.5" /></svg>;
 }
 
+/** Plain names for the whitelisted fields (warroomCoach.ts PLUG_IN_FIELDS); a dotted id is never shown. */
+export const FIELD_LABELS: Record<string, string> = {
+  'destination.title_now': 'Title odds now',
+  'destination.path': 'Title odds path',
+  'itinerary.stops': 'Plan stops',
+  targets: 'Suggested targets',
+  speed_curve: 'Speed curve',
+  flip_map: 'Flips',
+  'brain_report.checks': 'Brain checks',
+};
+/** Fields that are probabilities: shown as a percent (formatting only). */
+const PERCENT_FIELDS = new Set(['destination.title_now']);
+const unwrapNum = (v: any): number | null => (typeof v === 'number' ? v : typeof v?.value === 'number' ? v.value : null);
+const plain = (id: string) => FIELD_LABELS[id] ?? id.split('.').pop()!.replace(/_/g, ' ');
+/** Coach's own title when it is words; a dotted or snake_case id becomes the plain name. */
+export const cardTitle = (card: { field: string; title?: string | null }) =>
+  (card.title && !/[._]/.test(card.title) && card.title !== card.field ? card.title : plain(card.field));
+
 export default function PlugInCard({ card, plans, onRemove }: { card: PlugCard; plans: any; onRemove?: () => void }) {
   const value = readField(plans, card.field);
   const rows = Array.isArray(value) ? value : null;
   let body;
-  if (value === undefined || value === null) body = <p className="text-sm text-slate-500">Not computed yet: the engine has not written {card.field}.</p>;
-  else if (card.view === 'number') body = <div className="text-2xl font-bold">{label(value)}</div>;
+  if (value === undefined || value === null) body = <p className="text-sm text-slate-500">Not computed yet.</p>;
+  else if (card.view === 'number') body = <div className="text-2xl font-bold tabular-nums">{PERCENT_FIELDS.has(card.field) && typeof unwrapNum(value) === 'number' ? `${(unwrapNum(value)! * 100).toFixed(1)}%` : label(value)}</div>;
   else if (card.view === 'sparkline') body = rows ? <Spark values={pointsOf(rows)} /> : <p className="text-sm text-slate-500">This field is not a series.</p>;
   else if (card.view === 'list') body = rows ? <ul className="text-sm">{rows.slice(0, 5).map((r, i) => <li key={i}>{label(r)}</li>)}{rows.length > 5 && <li className="text-slate-500">{rows.length - 5} more</li>}</ul> : <div>{label(value)}</div>;
   else {
     const cols = rows && rows.length && typeof rows[0] === 'object' ? Object.keys(rows[0]).filter(k => typeof rows[0][k] !== 'object').slice(0, 4) : [];
     body = rows && cols.length
-      ? <table className="w-full text-sm"><thead><tr>{cols.map(c => <th key={c} className="text-left font-semibold">{c}</th>)}</tr></thead>
+      ? <table className="w-full text-sm"><thead><tr>{cols.map(c => <th key={c} className="text-left font-semibold">{c.replace(/_/g, ' ')}</th>)}</tr></thead>
           <tbody>{rows.slice(0, 6).map((r, i) => <tr key={i}>{cols.map(c => <td key={c}>{label(r[c])}</td>)}</tr>)}</tbody></table>
       : <div>{label(value)}</div>;
   }
   return (
     <div className="card p-3" data-plug-field={card.field}>
       <div className="mb-1 flex items-center gap-2">
-        <span className="text-xs font-semibold uppercase text-slate-500">{card.title ?? card.field}</span>
-        <span className="rounded-full border px-2 text-[11px] text-slate-500" title="Coach picked the field and the view; the engine wrote the numbers">engine field</span>
+        <span className="text-xs font-semibold uppercase text-slate-500" title="Coach picked what to show; the planner wrote the numbers">{cardTitle(card)}</span>
         <span className="flex-1" />
         {onRemove && <button className="btn-ghost text-xs" onClick={onRemove} aria-label="Remove card">Remove</button>}
       </div>

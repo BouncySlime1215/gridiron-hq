@@ -20,6 +20,7 @@ import { coachMessagesOn } from './messages.js';
 import { negotiatorDefaultsOn, defensibleLadder, secondPackage, firmOfferText, negotiationFor, altWithinCap } from './negotiator-defaults.js';
 import { buildItinerary, stopTradeOff, arrivalWeek } from './itinerary.js';
 import { speedCurve, concededPlan, sideLevers } from './speed.js';
+import { deadlineMode, deadlineReport } from './deadline-mode.js';
 import { orderCatchUp, freeMoves, isBehind, sellersRead, desperateMoves } from './catchup.js';
 import { rankPartners, planSkipWeight, pResponds } from './partners.js';
 import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
@@ -599,6 +600,13 @@ export function planLeague(adapter, settings) {
   // ladder) and the all-in mode's best plan are the two re-priced routes (speed.js).
   const conceded = best && playbook[0] ? concededPlan(best.planned_on ?? best, playbook[0].ladder) : null;
   const speed = speedCurve({ ranked, conceded, allIn: byMode.all_in[0] ?? null }, clock);
+  // TM-34 DEADLINE MODE (GRIDIRON_DEADLINE_MODE, shadow only, default off): countdown, send_by per deck step,
+  // last-call offer per partner, hold list, who goes quiet and the cost of waiting, all on the ranked paths.
+  const dlM = deadlineMode(env);
+  const deadline = dlM === 'off' ? undefined : deadlineReport({ mode: dlM, deadlineAt: L.deadline_at ?? null,
+    reviewHours: L.review_hours ?? null, now: settings.now ?? clockNow(), currentWeek: L.week, deadlineWeek: L.deadline_week ?? null,
+    ranked, deck, managers, roster: adapter.rosters.get(me) ?? [], excluded,
+    blocked: new Set([...(adapter.untouchable ?? []), ...(objective.untouchables ?? [])].map(String)) });
 
   // Feasibility (row 9): points objective in full; player objective by path; weekly outlook always.
   let feasibility = null;
@@ -675,7 +683,7 @@ export function planLeague(adapter, settings) {
     flip, targets: wanted, candidates_scored: plans.length, dropped: dropped.slice(0, 20).map(d => ({ first: d.plan.steps[0], why: d.why })),
     best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook, ...(c.playbooks ? { playbooks: c.playbooks } : {}) })),
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
-    suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, feasibility_points, outlook,
+    suggestions, itinerary, stop_previews: stopPreviews, ...(deadline ? { deadline } : {}), speed, feasibility, feasibility_points, outlook,
     risk_modes: compareModes(plans, ctxFor, mode => ({ best: confirmedBest[mode], confirmed: !!S2 }), { rule }), catch_up: catchUp, partners,
     // NO-TRADE-SHRINK: pre-rank shrinkage, SHADOW (reported under _run.shrink; nothing served reads it).
     shrink: shadowShrink(plans, ctxFor),

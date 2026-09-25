@@ -83,6 +83,22 @@ test('bracket probabilities: a tie goes to the better seed, byes pass through, o
   assert.equal(p.get('B'), 1);
 });
 
+test('U1c: a round\'s games are integrated jointly from the same runs, not as independent', () => {
+  // Round 1 (week 5): run 0 both favourites win, run 1 both underdogs win (perfectly correlated games).
+  // Final (week 6): A beats everyone; D beats B and C.
+  // Independent games would give A 0.5, D 0.5 x 0.5 = 0.25 (+ D-vs-C paths); jointly A 0.5, D 0.5.
+  const pts = {
+    A: { 5: [110, 90], 6: [200, 200] }, D: { 5: [100, 100], 6: [150, 150] },
+    B: { 5: [110, 90], 6: [100, 100] }, C: { 5: [100, 100], 6: [100, 100] }
+  };
+  const ct = RB.conditionalTitle({ ids: ['A', 'B', 'C', 'D'], runs: 2, roundWeeks: [[5], [6]], reseed: false,
+    rawPoints: (id, week, k) => pts[id][week][k] });
+  const p = ct.probs(['A', 'B', 'C', 'D'], null);
+  assert.equal(p.get('A'), 0.5);
+  assert.equal(p.get('D'), 0.5);
+  assert.equal(p.get('B') + p.get('C'), 0);
+});
+
 test('reseed: later rounds pair the best remaining seed with the worst', () => {
   // 6-team field, byes for seeds 1-2. Week 5: 5 upsets 4, 6 upsets 3.
   // Reseeded week 6: 1 v 6 (1 wins), 2 v 5 (5 wins); final 1 v 5 -> 5.

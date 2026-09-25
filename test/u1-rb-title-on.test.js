@@ -191,3 +191,23 @@ test('U1b: batch SE helpers', () => {
   assert.equal(ci.se, 0);
   assert.deepEqual(ci.ci, [0.01, 0.01]);
 });
+
+/* ------------------------------------------------ U1c: step regret and 6-decimal title numbers */
+
+test('U1c: stepRegretIndex finds the first step that does not gain on its own', async () => {
+  const { stepRegretIndex } = await import('../server/services/campaign/planner.js');
+  assert.equal(stepRegretIndex([{ delta: 0.003 }, { delta: 0.005 }]), -1);
+  assert.equal(stepRegretIndex([{ delta: 0.003 }, { delta: -0.0001 }]), 1);   // own gain -0.31%
+  assert.equal(stepRegretIndex([{ delta: 0.003 }, { delta: 0.003 }]), 1);     // no gain is not a gain
+  assert.equal(stepRegretIndex([{ delta: -0.001 }, { delta: 0.01 }]), 0);
+  assert.equal(stepRegretIndex([{ delta: null }]), 0);
+});
+
+test('U1c: title odds and deltas are carried at 6 decimals', () => {
+  const lg = fuzzLeague(4);
+  const r = S.__test.playSeasons({ ...lg.prep, rbTitle: 'on' }, lg.teams, 1200, true, lg.points(0));
+  const t = r.teams.find(x => x.roster_id === lg.nick).title_odds;
+  assert.equal(S.TITLE_DP, 6);
+  assert.equal(t, +t.toFixed(6));
+  assert.notEqual(t, +t.toFixed(4), `a longshot's odds keep digits past the 4th (${t})`);
+});

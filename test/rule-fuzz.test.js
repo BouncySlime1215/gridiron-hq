@@ -50,6 +50,7 @@ const ENFORCED = [
   { rule: 'no_undo', name: 'no trade made this season is undone' },
   { rule: 'stranded_hold', name: 'every holding between legs scores 83+ (FLIP-STRANDED)' },
   { rule: 'beats_no_trade', name: 'every served card, backup, catch-up deal, ladder and second package beats doing nothing on the confirm dice' },
+  { rule: 'step_regret', name: 'every step of a served path beats doing nothing on its own, after the steps before it (U1c)' },
 ];
 /** Rules whose enforcement is not on main yet: { rule, name, todo: 'the PR that enforces it' }. None today. */
 const PENDING = [];
@@ -313,7 +314,21 @@ test('finalGets: a chip picked up and spent is not final; one kept is', () => {
   assert.deepEqual(finalGets({ steps }, [1, 2, 3]), ['99']);
   assert.deepEqual(finalGets({ steps: [{ give: [1], get: [50] }, { give: [2], get: [99] }] }, [1, 2, 3]).sort(), ['50', '99']);
   assert.deepEqual(RULES, ['never_give', 'aj_brown', 'final_get', 'overpay', 'no_olave', 'no_buyback', 'no_undo', 'beats_no_trade',
-    'claim_not_flipped', 'claim_protected_drop', 'claim_stranded', 'stranded_hold']);
+    'claim_not_flipped', 'claim_protected_drop', 'claim_stranded', 'stranded_hold', 'step_regret']);
+});
+
+test('step_regret: the oracle catches a later step that loses, and passes a path where every step gains', () => {
+  const a = makeFuzzLeague(7, { notes: false, ledger: true });
+  const me = a.league.me;
+  const other = [...a.rosters.keys()].find(t => t !== me);
+  const [x] = a.rosters.get(me);
+  const [u, v] = a.rosters.get(other);
+  const path = deltas => ({ steps: deltas.map((d, i) => ({ team: other, give: [i ? u : x], get: [i ? v : u], p: 0.5, delta: d })), expected: 0.01 });
+  const res = { deck: [], suggestions: [], targets: [], flip: { realised: [] } };
+  // Step 2 takes the path from +0.30% to -0.01%: its own gain is -0.31% (the U1b league-4 shape).
+  assert.equal(countByRule(ruleViolations(a, { ...res, best: path([0.003, -0.0001]) })).step_regret, 1);
+  assert.equal(countByRule(ruleViolations(a, { ...res, deck: [{ plan: path([0.003, 0.003]), confirm: { verdict: 'holds' } }] })).step_regret, 1);
+  assert.equal(countByRule(ruleViolations(a, { ...res, best: path([0.003, 0.005]) })).step_regret, 0);
 });
 
 /* ------------------------------ FLIP-CLAIMS: claims as flip pieces, SEARCH-WIDE on */

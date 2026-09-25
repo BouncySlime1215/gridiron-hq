@@ -29,6 +29,9 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.GRIDIRON_DB_INTEGRITY_CHECK = 'off';
 process.env.SCHEDULER_DISABLED = '1';
 process.env.NFL_WEEK = '6';
+// PROJ-ESPN: this file tests OUR weekly producer (the path GRIDIRON_PROJ_ESPN=0 serves; with
+// the flag on, ours is the shadow and test/proj-espn.test.js covers the served ESPN number).
+process.env.GRIDIRON_PROJ_ESPN = '0';
 
 // A fixed, made-up projection for 901 and 902 — deliberately identical, so a
 // difference in the served floor/ceiling/avg can only come from the bye branch, never

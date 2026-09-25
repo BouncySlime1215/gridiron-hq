@@ -201,7 +201,8 @@ test('A4: a dead starter left in last week is a checked-out factor; unknown snap
 });
 
 test('A5: the Brain managers board lists receptiveness factors', () => {
-  const src = fs.readFileSync(path.join(REPO, 'client/src/components/brain/ManagerBoard.tsx'), 'utf8');
+  // Part 2: the board renders the one manager card, which lists the factors in its measured fold.
+  const src = fs.readFileSync(path.join(REPO, 'client/src/components/brain/ManagerCard.tsx'), 'utf8');
   assert.match(src, /function ReceptivenessFactors/);
   assert.match(src, /<ReceptivenessFactors /);
 });

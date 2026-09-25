@@ -138,6 +138,8 @@ export function chooseClaimCut(active, fa, slots, weekBase, rosBase) {
  * So: week decisions rank on `weekPpg`, season/trade decisions on `adj_ppg`.
  */
 function weekPpg(p) {
+  // PROJ-ESPN: an unknown served week (stale ESPN capture) ranks as 0, never on a fallback.
+  if (p.week_projection?.status === 'unknown') return 0;
   return p.current_week_ppg ?? p.adj_ppg ?? p.ppg ?? 0;
 }
 

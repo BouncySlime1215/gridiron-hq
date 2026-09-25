@@ -133,6 +133,7 @@ const tradeCardSwaps = () => [
   ["'./trade/PlayerEvidence'", namedStub([])],
   ["'./trade/RiskStrip'", namedStub([])],
   ["'./warroom/HisScreen'", namedStub([])],
+  ["'./warroom/TradeSides'", namedStub([])],
   ["'./trade/SentOfferButton'", namedStub([])],
   ["'./trade/types'", namedStub(['hasEvidence'])],
 ];
@@ -180,8 +181,10 @@ test('control: AnswerBlock still renders the real paragraph for a normal answer'
 const managerBoardSwaps = () => [
   ["'../../lib/errorSanitize'", errorSanitizeUrl()],
   ["'../PageState'", namedStub(['PageError', 'PageLoading'])],
-  ["'../../api'", namedStub(['api'])],
-  ["'./types'", namedStub(['TIERS', 'TIER_SHORT', 'TIER_STYLE', 'MIN_OBSERVATIONS', 'isThin', 'asText', 'metricLabel'])],
+  ["'../../api'", namedStub(['api', 'useApi'])],
+  ["'./ManagerCard'", namedStub([])],
+  ["'../../state/coach'", namedStub(['useCoach'])],
+  // (types are type-only imports now; the card's helpers moved to ManagerCard.tsx, stubbed above)
   ["'react-router-dom'", linkUrl],
 ];
 

@@ -35,8 +35,9 @@ const CHAT = path.join(temp, 'chat.sqlite');
 process.env.GRIDIRON_CHAT_DB_PATH = CHAT;
 
 const { run, rows } = await import('../server/db/index.js');
-const { gradeVariables, GRADE_MIN_PEOPLE, GRADE_SPLIT, VERDICTS, applyGrades } =
-  await import('../server/services/coach/people/grading.js');
+const { gradeVariables, GRADE_MIN_PEOPLE, GRADE_SPLIT, VERDICTS, PREDICTIVE, PREDICTIVE_MIN_SUPPORT,
+  CONSTANT_IN_TIME, applyGrades } = await import('../server/services/coach/people/grading.js');
+const { addPersonContext } = await import('../server/services/coach/people/context.js');
 
 /**
  * A corpus built so the answer is known in advance.
@@ -217,7 +218,9 @@ test('too few people is "not enough data", never a pass and never a fail', () =>
   assert.deepEqual(report.failed, [], 'nothing may fail on a sample the harness itself calls too small');
   // The extractor's own aggregates stay ungradeable whatever the sample is —
   // that verdict is about the storage, not about how many people there are.
-  for (const grade of report.graded.filter(g => g.source !== 'extractor')) {
+  // Constant-in-time columns are refused whatever the sample is, for the same
+  // reason: the verdict is about what the column reads, not about how many.
+  for (const grade of report.graded.filter(g => g.source !== 'extractor' && !CONSTANT_IN_TIME[g.id])) {
     assert.equal(grade.verdict, VERDICTS.NOT_ENOUGH_DATA, `${grade.id} was judged on too few people`);
     assert.match(grade.reason, /people|sample|tell apart/i);
   }
@@ -260,10 +263,38 @@ test('the split is on time, not on message count, and the report says where it f
     'the cut fell inside the opening burst, which is where a count cut falls');
 });
 
-test('only a pass may make a variable priceable, and it is a deliberate second step', () => {
+test('repeatable with no outcome evidence stays unpriceable, predictive untestable', () => {
   const db = corpus();
   const report = gradeVariables({ corpus: db });
   db.close();
+
+  const latency = report.graded.find(g => g.id === 'reply_latency_p50');
+  assert.equal(latency.repeatable, VERDICTS.PASS);
+  assert.equal(latency.predictive, PREDICTIVE.UNTESTABLE);
+  assert.match(latency.predictive_reason, /no tell|outcome/i);
+  assert.equal(report.priceable.includes('reply_latency_p50'), false,
+    'a variable with no outcome evidence was made priceable on repeatability alone');
+  // Every chat variable is untestable against outcomes: ten people, 37 decisions.
+  for (const grade of report.graded) assert.equal(grade.predictive, PREDICTIVE.UNTESTABLE, grade.id);
+  assert.deepEqual(report.priceable, []);
+  assert.doesNotMatch(JSON.stringify(report), /predicts nothing/i);
+  assert.match(report.predictive_summary, /unproven/i);
+});
+
+test('only repeatable AND predictive makes a variable priceable, and it is a deliberate second step', () => {
+  const db = corpus();
+  // A synthetic tell for the fixture only: no chat variable maps to a tell in
+  // production. This is what the pass path looks like when one does.
+  const screen = { tells: [
+    { arm: 'A', id: 'FIXTURE|latency|w16', outcome: 'adds', verdict: 'confirmed', support_chains: 400 },
+    { arm: 'A', id: 'FIXTURE|caps|w16', outcome: 'adds', verdict: 'confirmed', support_chains: 400 }
+  ] };
+  const report = gradeVariables({ corpus: db, screen,
+    tellMap: { reply_latency_p50: 'FIXTURE|latency|w16', all_caps_rate: 'FIXTURE|caps|w16' } });
+  db.close();
+  assert.equal(report.graded.find(g => g.id === 'reply_latency_p50').predictive, PREDICTIVE.PASS);
+  assert.deepEqual(report.priceable, ['reply_latency_p50'],
+    'all_caps_rate is predictive in this fixture but not repeatable, so it may not be priced');
 
   run(`CREATE TABLE IF NOT EXISTS coach_person_variables (
     person TEXT NOT NULL, variable TEXT NOT NULL, display_name TEXT NOT NULL,
@@ -276,12 +307,72 @@ test('only a pass may make a variable priceable, and it is a deliberate second s
   }
 
   const applied = applyGrades(report);
-  assert.ok(applied.priceable > 0, 'a passing variable was never made priceable');
+  assert.ok(applied.priceable > 0, 'a variable passing both tests was never made priceable');
   const priceable = new Set(rows(`SELECT variable FROM coach_person_variables WHERE priceable = 1`)
     .map(r => r.variable));
   assert.equal(priceable.has('reply_latency_p50'), true);
   assert.equal(priceable.has('all_caps_rate'), false, 'a failed variable was made priceable');
   assert.equal(priceable.has('night_share'), false, 'an ungraded variable was made priceable');
+});
+
+test('a confirmed tell below the support floor is untestable, a dead one is a fail', () => {
+  const db = corpus();
+  const screen = { tells: [
+    { arm: 'A', id: 'FIXTURE|thin|w16', outcome: 'checkout', verdict: 'confirmed',
+      support_chains: PREDICTIVE_MIN_SUPPORT - 1 },
+    { arm: 'A', id: 'FIXTURE|dead|w16', outcome: 'adds', verdict: 'dead', dead_reason: 'fdr',
+      support_chains: 900 }
+  ] };
+  const report = gradeVariables({ corpus: db, screen,
+    tellMap: { reply_latency_p50: 'FIXTURE|thin|w16', reply_latency_p90: 'FIXTURE|dead|w16' } });
+  db.close();
+  const thin = report.graded.find(g => g.id === 'reply_latency_p50');
+  assert.equal(thin.predictive, PREDICTIVE.UNTESTABLE);
+  assert.match(thin.predictive_reason, /support/);
+  const dead = report.graded.find(g => g.id === 'reply_latency_p90');
+  assert.equal(dead.predictive, PREDICTIVE.FAIL);
+  assert.match(dead.predictive_reason, /fdr/);
+  assert.doesNotMatch(dead.predictive_reason, /predicts nothing/i);
+});
+
+test('a constant-in-time column is refused, not passed', () => {
+  // context_rules is read from coach_person_context, not from the window: the
+  // same count lands in both halves, so it would "repeat" perfectly while
+  // measuring nothing about time. Give people different counts so that,
+  // unrefused, it passes with skill 1 and rank 1.
+  for (const [index, person] of PEOPLE.entries()) {
+    for (let r = 0; r <= index; r++) {
+      addPersonContext({ person: person.name, scope: 'other', rule: `fixture rule ${r}`, author: 'test' });
+    }
+  }
+  const db = corpus();
+  const report = gradeVariables({ corpus: db });
+  db.close();
+  const rules = report.graded.find(g => g.id === 'context_rules');
+  assert.equal(rules.repeatable, VERDICTS.NOT_GRADEABLE, rules.reason);
+  assert.match(rules.reason, /constant in time|does not change with the window/i);
+  assert.equal(report.passed.includes('context_rules'), false);
+});
+
+test('early and late windows share no message, including one at the cut itself', () => {
+  const db = corpus();
+  const report = gradeVariables({ corpus: db });
+  db.close();
+  assert.equal(report.windows.shared, 0, 'a message was measured in both halves');
+  assert.equal(report.windows.early + report.windows.late, report.windows.total,
+    'a message fell in neither half');
+});
+
+test('the repeatable verdict is today\'s verdict, unchanged', () => {
+  const db = corpus();
+  const report = gradeVariables({ corpus: db });
+  db.close();
+  for (const grade of report.graded) assert.equal(grade.repeatable, grade.verdict, grade.id);
+  const byId = Object.fromEntries(report.graded.map(g => [g.id, g.repeatable]));
+  assert.equal(byId.reply_latency_p50, VERDICTS.PASS);
+  assert.equal(byId.all_caps_rate, VERDICTS.FAIL);
+  assert.equal(byId.night_share, VERDICTS.NOT_GRADEABLE);
+  assert.equal(byId.dm_share, VERDICTS.NOT_ENOUGH_DATA);
 });
 
 test('a person too thin in either half is left out of the grade entirely', () => {
@@ -346,7 +437,7 @@ test('the runner prints a grade for every variable and applies nothing by defaul
   const printed = spawnSync(process.execPath, ['scripts/grade-person-profiles.mjs'],
     { encoding: 'utf8', env });
   assert.equal(printed.status, 0, printed.stderr);
-  assert.match(printed.stdout, /reply_latency_p50\s+pass/);
+  assert.match(printed.stdout, /reply_latency_p50\s+pass\s+untestable/);
   assert.match(printed.stdout, /all_caps_rate\s+fail/);
   assert.match(printed.stdout, /night_share\s+not_gradeable/);
   assert.match(printed.stdout, /Nothing was applied/);

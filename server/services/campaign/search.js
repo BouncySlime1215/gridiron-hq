@@ -18,7 +18,7 @@ import { screenFair, flipSpread, linearNick, combos, pathExpectation, isChained,
 import { metricOf } from './objectives.js';
 import { excluded } from './partners.js';
 import { previewUnconfirmed } from '../preview-mode.js';
-import { isLateral, lateralOk, bestClaim, FREE_AGENT } from './search-wide.js';
+import { isLateral, lateralOk, pickDrop, FREE_AGENT, CLAIM_FLIPS_PER } from './search-wide.js';
 
 /** A served basis of p-yes.js's own (activity baseline, LIVE-BLEND blend), not the clone's. */
 const servedBasis = b => b === 'activity_baseline' || b === 'pyes_blend';
@@ -378,7 +378,8 @@ export function twoForOneSummary(stats) {
  * SEARCH-WIDE (search-wide.js; `wide` null = off, today's search): after today's shortlist, the
  * rest of the enumerated paths (a wider depth 3, plus a free-agent claim ending the best 1- and
  * 2-trade paths) are scored in heuristic order until wide.candidates extras or wide.rescoresLeft()
- * runs out. wide: { candidates, rescoresLeft, beam, tierOk, dropOk, claimPool, claimP, sink }. Laterals
+ * runs out (both are this target's share; wide.target_hit is set to the one that bound, or null).
+ * wide: { candidates, rescoresLeft, beam, tierOk, dropOk, claimPool, claimP, sink }. Laterals
  * are held to the floor on every candidate, today's shortlist included.
  */
 export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal = 3, shortlist = [8, 12, 8],
@@ -400,7 +401,9 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     && !adapter.managers.get(id)?.checked_out);
   const lin = state => linearNick(S.rosterOf(state, me), origMine, vals.addN, vals.lossN);
   const count = (bucket, st) => { if (stats) { const k = shapeOf(st); stats[bucket][k] = (stats[bucket][k] ?? 0) + 1; } };
-  const stepsFrom = (state, team, onlyGet = null, maxGive = 2, prefix = null) => {
+  // quiet (FLIP-CLAIMS): a claim-prefixed step is shadow, so it never feeds a served count or the overpay
+  // sink's closest miss (a served line that would name a free agent Nick does not hold).
+  const stepsFrom = (state, team, onlyGet = null, maxGive = 2, prefix = null, quiet = false) => {
     const mine = S.rosterOf(state, me).filter(vals.tradable);
     const theirs = onlyGet != null ? [onlyGet] : S.rosterOf(state, team).filter(vals.tradable);
     const out = [];
@@ -410,12 +413,13 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
       const pct = overpayPct(st.give.reduce((s, id) => s + val(id), 0), st.get.reduce((s, id) => s + val(id), 0));
       if (pct > maxOverpay + OVERPAY_EPS && pct <= premiumCap + OVERPAY_EPS && depthOnlyTwoForOne(st, { board, untouchable })) {
         // CAP-1C: planned at a premium; the exact rescore below keeps it only if points and title odds rise.
-        if (premiumSink) premiumSink.screened++;
-        count('screened', st); out.push({ ...st, premium_pct: pct });
+        if (premiumSink && !quiet) premiumSink.screened++;
+        if (!quiet) count('screened', st);
+        out.push({ ...st, premium_pct: pct });
         return;
       }
       if (pct > maxOverpay + OVERPAY_EPS) {
-        if (overpaySink) {
+        if (overpaySink && !quiet) {
           overpaySink.rejected++;
           const c = overpaySink.closest;
           if (st.get.some(id => String(id) === String(target)) && Number.isFinite(pct) && (!c || pct < c.pct)) {
@@ -426,7 +430,8 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
         }
         return;
       }
-      count('screened', st); out.push(st);
+      if (!quiet) count('screened', st);
+      out.push(st);
     };
     if (!two) {
       for (const get of theirs) for (const give of combos(mine, maxGive)) {
@@ -479,12 +484,12 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     }
     return next;
   };
-  const finish = prefix => {
+  const finish = (prefix, quiet = false) => {
     const state = prefix[prefix.length - 1].state;
     const own = S.ownerOf(state, target);
     if (own == null || own === me) return null;
     let best = null;
-    for (const st of stepsFrom(state, own, target, chainGive, prefix)) {
+    for (const st of stepsFrom(state, own, target, chainGive, prefix, quiet)) {
       const steps = [...prefix, withP(state, st)];
       const e = h(steps);
       if (!best || e.expected > best.e.expected) best = { steps, e };
@@ -520,21 +525,29 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
       if (firsts.length >= wide.beam) break;
     }
     const d3w = chipLayer(firsts, 2).map(finish).filter(Boolean);
-    // Claims as steps: the best claim ending each of today's 1- and 2-trade paths, then the rest.
+    // FLIP-CLAIMS (Nick 2026-09-25): a claim is a step only as a flip piece. Claim a pool free agent first
+    // (drop the lowest-value droppable bench piece, pickDrop), then give him away: straight to the target's
+    // owner, or as a chip that a finish follows. A claim is never the last step; planner.js#claimRule
+    // re-checks every claim path (claim_not_flipped and the rest) after the search.
     const claimed = [];
     if (wide.claimPool?.length && Number.isFinite(wide.claimP) && wide.claimP > 0 && wide.claimP < 1) {
-      for (const c of [...short, ...d1, ...d2].filter(x => x.steps.length < 3)) {
-        const last = c.steps[c.steps.length - 1];
-        const roster = S.rosterOf(last.state, me);
-        const acquired = new Set(c.steps.flatMap(st => st.get.map(String)));
-        const cl = bestClaim({ roster, pool: wide.claimPool, playerOf: id => P.get(id), dropOk: wide.dropOk, acquired });
-        if (!cl) continue;
+      const roster = S.rosterOf(new Map(), me);
+      const top = list => list.map(steps => ({ steps, e: h(steps) })).sort(byExp).slice(0, CLAIM_FLIPS_PER);
+      for (const fa of wide.claimPool) {
+        const add = P.has(fa.id) ? fa.id : [...P.keys()].find(k => String(k) === String(fa.id));
+        if (add == null || !vals.tradable(add)) continue;
+        const drop = pickDrop({ roster, add, dropOk: wide.dropOk, valueOf: id => P.get(id)?.value ?? null,
+          starters: adapter.starters ?? new Set(), maxOverpay });
+        if (drop == null) continue;
         // #406 finding 1: p is the league's waiver-win rate (search-wide.js#claimProbability), never 1,
         // so a claim path's expected value and "beats doing nothing" price the chance of losing the claim.
-        const st = { team: FREE_AGENT, claim: true, give: [cl.drop], get: [cl.add], p: wide.claimP, band: null,
-          state: S.applyClaim(last.state, me, [cl.drop], [cl.add]) };
-        const steps = [...c.steps, st];
-        claimed.push({ steps, e: h(steps) });
+        const cl = { team: FREE_AGENT, claim: true, give: [drop], get: [add], p: wide.claimP, band: null,
+          state: S.applyClaim(new Map(), me, [drop], [add]) };
+        const flips = st => st.give.some(id => String(id) === String(add));
+        const direct = stepsFrom(cl.state, owner, target, maxGiveFinal, null, true).filter(flips).map(st => [cl, withP(cl.state, st)]);
+        const chips = partners.flatMap(team => stepsFrom(cl.state, team, null, 2, null, true)
+          .filter(st => flips(st) && !st.get.some(id => id === target)).map(st => [cl, withP(cl.state, st)]));
+        claimed.push(...top(direct), ...top(chips).map(c => finish(c.steps, true)).filter(Boolean));
       }
     }
     const out = [];
@@ -544,7 +557,8 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
       seen.add(k); out.push(c);
     }
     wide.sink.enumerated += out.length;
-    wide.sink.claims.built += claimed.length;
+    // Built = distinct claim paths handed to scoring; every one ends scored or counted under a drop reason.
+    wide.sink.claims.built += out.filter(c => c.steps.some(st => st.claim)).length;
     return out;
   }
   // SEARCH-WIDE: a lateral (depth for depth) survives only when the path ends at the floor.
@@ -554,18 +568,29 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     wide.sink.laterals.seen++;
     if (lateralOk(c.steps, wide.tierOk)) return true;
     wide.sink.laterals.dropped++;
+    if (c.steps.some(st => st.claim)) wide.sink.claims.dropped_by_reason.lateral++;
     return false;
   };
   // Today's shortlist first, whole; then the extras until the budget runs out.
   const scored = short.filter(lateralKeep).map(scoreCandidate);
-  for (const c of extras) {
-    if (wide.sink.used.extras >= wide.candidates) { wide.sink.budget_hit ??= 'candidates'; break; }
-    if (wide.rescoresLeft() <= 0) { wide.sink.budget_hit ??= 'rescores'; break; }
+  // Budget fix (#435): each target has its own share of both budgets (planner.js); whichever binds is
+  // recorded for this target, and every claim path the budget leaves unscored is counted ('budget').
+  let hit = null;
+  for (const [i, c] of extras.entries()) {
+    if (wide.sink.used.extras >= wide.candidates) hit = 'candidates';
+    else if (wide.rescoresLeft() <= 0) hit = 'rescores';
+    if (hit) {
+      wide.sink.budget_hit ??= hit;
+      wide.sink.budget_hits[hit]++;
+      wide.sink.claims.dropped_by_reason.budget += extras.slice(i).filter(x => x.steps.some(st => st.claim)).length;
+      break;
+    }
     if (!lateralKeep(c)) continue;
     wide.sink.used.extras++;
     if (c.steps.some(st => st.claim)) wide.sink.claims.scored++;
     scored.push(scoreCandidate(c));
   }
+  if (wide) wide.target_hit = hit;
   const plans = scored.filter(Boolean);
   function scoreCandidate(c) {
     let prev = null, gated = null;
@@ -585,16 +610,19 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
       return out;
     });
     if (gated) {
-      if (premiumSink) premiumSink.gated_out[gated] = (premiumSink.gated_out[gated] ?? 0) + 1;
+      // FLIP-CLAIMS: a claim path's premium miss is counted with the claims (shadow), not the served premium sink.
+      if (wide && c.steps.some(st => st.claim)) wide.sink.claims.dropped_by_reason.premium_gate++;
+      else if (premiumSink) premiumSink.gated_out[gated] = (premiumSink.gated_out[gated] ?? 0) + 1;
       return null;
     }
     const oneOnly = oneForOneOnly(steps);
-    if (stats) { const k = oneOnly ? 'one_for_one_only' : 'two_side'; stats.shortlisted[k] = (stats.shortlisted[k] ?? 0) + 1; }
+    // FLIP-CLAIMS: claim paths are shadow, so they stay out of the IDEA-038 counts.
+    if (stats && !steps.some(st => st.claim)) { const k = oneOnly ? 'one_for_one_only' : 'two_side'; stats.shortlisted[k] = (stats.shortlisted[k] ?? 0) + 1; }
     return { target, owner, depth: steps.length, heuristic: c.e.expected, chained: isChained(steps), steps,
       ...pathExpectation(steps) };
   }
   if (stats) {
-    const best = f => plans.filter(f).reduce((b, p) => (b == null || p.expected > b ? p.expected : b), null);
+    const best = f => plans.filter(p => !p.steps.some(st => st.claim)).filter(f).reduce((b, p) => (b == null || p.expected > b ? p.expected : b), null);
     const one = best(p => oneForOneOnly(p.steps)), withTwo = best(p => !oneForOneOnly(p.steps));
     stats.targets.push({ target: String(target), owner: String(owner), best_one_for_one: one, best_with_two: withTwo,
       gain: withTwo == null ? null : withTwo - (one ?? 0), best_is_two: withTwo != null && (one == null || withTwo > one) });

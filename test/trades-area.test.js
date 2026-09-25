@@ -12,7 +12,8 @@ test('Trades views, with the planner as the source of the next move', () => {
   const t = read('client/src/pages/Trades.tsx');
   assert.match(t, /\{ id: 'planner', label: 'Next move' \}, \{ id: 'goget', label: 'Go get' \}, \{ id: 'find', label: 'Find deals' \}/);
   assert.match(t, /\{ id: 'build', label: 'Build' \}, \{ id: 'people', label: 'People' \}/);
-  assert.match(t, /return <WarRoomV2 view=\{warRoom\.data\}/, 'Next move is the War Room planner');
+  assert.match(t, /<TradesPlanner part="next" view=\{warRoom\.data\}/, 'Next move is the War Room planner, inside the Trades frame');
+  assert.doesNotMatch(t, /<WarRoomV2/, 'no nested War Room shell (its own top bar, tabs, Coach) inside Trades');
   for (const [old, now] of [['war-room', 'planner'], ['managers', 'people'], ['proposals', 'people'], ['target', 'goget'], ['targetMany', 'goget'], ['title', 'find'], ['mock', 'build']]) {
     assert.match(t, new RegExp(`'?${old}'?: '${now}'`), `old ?view=${old} lands on ${now}`);
   }
@@ -38,11 +39,11 @@ test('an ungated suggestion surface is not rendered: News edge is not a Trades v
 
 test('retired: the Trade Lab page, Trade Brain, the classic War Room', () => {
   for (const p of ['client/src/pages/TradeBrain.tsx', 'client/src/components/warroom/WarRoom.tsx',
-    'client/src/components/warroom/WarRoomShell.tsx', 'client/src/components/warroom/layoutPref.ts']) assert.ok(!exists(p), `${p} is gone`);
+    'client/src/components/warroom/WarRoomShell.tsx', 'client/src/components/warroom/layoutPref.ts',
+    'client/src/components/warroom/WarRoomV2.tsx', 'client/src/components/warroom/TopBarV2.tsx']) assert.ok(!exists(p), `${p} is gone`);
   const lab = read('client/src/pages/TradeLab.tsx');
   assert.doesNotMatch(lab, /export default function TradeLab/, 'no Trade Lab page');
   assert.doesNotMatch(lab, /const TABS = \[/, 'no Trade Lab tab strip');
-  assert.doesNotMatch(read('client/src/components/warroom/TopBarV2.tsx'), /Classic layout/);
   const r = read('client/src/components/Redirects.tsx');
   assert.match(r, /'\/trade-lab': \(\) => '\/trades\?view=find'/);
   assert.match(r, /'\/trade-brain':/);

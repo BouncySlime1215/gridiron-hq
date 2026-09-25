@@ -70,10 +70,11 @@ test('pre-paint script, store and menu agree', () => {
   assert.match(app, /<MoreMenu \/>/, 'the header shows the More menu');
 });
 
-test('the War Room follows the app theme instead of keeping its own', () => {
-  for (const f of ['WarRoomV2.tsx']) { // the classic WarRoom.tsx is retired
+test('the War Room planner follows the app theme and keeps none of its own', () => {
+  // The full-screen shell (WarRoomV2 + useDocTheme) is retired; its parts render inside the app frame.
+  for (const f of ['WarRoomV2.tsx', 'useDocTheme.ts']) assert.ok(!fs.existsSync(path.join(REPO, 'client/src/components/warroom', f)), `${f} is gone`);
+  for (const f of fs.readdirSync(path.join(REPO, 'client/src/components/warroom')).filter(x => /\.tsx$/.test(x))) {
     const src = fs.readFileSync(path.join(REPO, 'client/src/components/warroom', f), 'utf8');
-    assert.match(src, /useDocTheme\(\)/, `${f} reads the app theme`);
-    assert.doesNotMatch(src, /useState<'light' \| 'dark'>/, `${f} has no theme state of its own`);
+    assert.doesNotMatch(src, /useState<'light' \| 'dark'>|data-theme=/, `${f} has no theme state of its own`);
   }
 });

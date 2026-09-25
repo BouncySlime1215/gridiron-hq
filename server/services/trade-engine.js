@@ -75,7 +75,10 @@ import { dynastyAgeAdjustment } from './dynasty-age-curve.js';
 // this week identically), the normal CDF behind a swap's probability, and the
 // write that retires a lineup recommendation lineupDiff() itself published.
 import { vegasLift } from './waiver-brain.js';
-import { blendWeek, blendWeekFlag, horizonPpg, servedBlendWeek } from './blend-week.js';
+import { blendWeek, blendWeekFlag, horizonPpg, servedBlendWeek, ESPN_NO_LIFT } from './blend-week.js';
+import { projEspnFlag, espnWeekProjections, servedWeekFor, ESPN_CAPTURED_POSITIONS } from './espn-week-projection.js';
+import { currentK } from './range-calibration.js';
+import { playerWeekRange } from './range-residuals.js';
 // The league's wire, for lineupValue()'s replacement level (one producer with the
 // Waivers page's waiverBoard()).
 import { leagueWire } from './league-wire.js';
@@ -123,6 +126,7 @@ import { servedAcceptBand } from './price-band.js';
 // read it and this import goes away. Until then the alternative was leaving the
 // live /find route on the 0.5 prior, which is the bug this item exists to fix.
 import { simulateSeason, simStartWeek, tradeImpact, tradeImpactWorld, worldPoolFor } from './season-sim.js';
+import { espnProjections } from './espn-league-projections.js';
 import { oneWorldFlag, rangeFromPool } from './one-world.js';
 import { leagueWorld, worldStamp } from './league-world.js';
 import { titleMutualMode, titleCandidate, titleMutualDeals } from './title-mutual.js';
@@ -145,6 +149,8 @@ const SCORED = new Set(SKILL);
 // JSON.stringify and Object.keys skip it. Exported so a test can attach it to a fixture;
 // a registry symbol, so a second instance of this module reads the same key.
 export const LINEUP_WEEK = Symbol.for('gridiron.lineupWeek');
+/** PROJ-ESPN: our own week number beside the served ESPN one (shadow only; espn-week-projection.js). */
+export const WEEK_SHADOW = Symbol.for('gridiron.weekShadow');
 /**
  * What handing over market value costs, per 20% of the value you send.
  *
@@ -251,7 +257,11 @@ export const ASSET_INPUT_TABLES = [
   { table: 'player_metrics', stamp: 'fetched_at' }, 'schedule_games',
   // Not read by buildAssetUniverse, but by the league world's copula behind
   // lineupSpread inside findTrades, whose cache keys on this list. A refit rewrites fitted_at on the same 20-odd rows.
-  { table: 'correlation_estimates', stamp: 'fitted_at' }
+  { table: 'correlation_estimates', stamp: 'fitted_at' },
+  // PROJ-ESPN: the served week number is the frozen ESPN capture (append-only, a new
+  // capture is a new row) and the per-player range reads the fitted width k.
+  { table: 'espn_weekly_projection_snapshots', stamp: 'captured_at' },
+  { table: 'range_calibration', stamp: 'id' }
 ];
 
 /**
@@ -299,7 +309,15 @@ const assetInputsKey = (lg, formatKey, target) =>
   `${lg.id}:${formatKey}:${target.season}:${target.week}:` +
   `w${activeWeeklyWeightSet({ season: target.season, week: target.week }).id}:` +
   `d${servedInputsDigest(target.season, target.week)}:h${handFedKey(handFedInputs())}:` +
-  `i${injuryFlagKey()}:bw${blendWeekFlag().on ? 1 : 0}`;
+  `i${injuryFlagKey()}:bw${blendWeekFlag().on ? 1 : 0}:pe${projEspnKey(lg, target)}`;
+
+// PROJ-ESPN: the flag, and whether the week's capture has gone stale, which the clock alone
+// moves (no row changes when a capture turns 8 days old).
+const projEspnKey = (lg, target) => {
+  if (!projEspnFlag().on) return 0;
+  const w = espnWeekProjections({ season: target.season, week: target.week, leagueRowId: lg.id, statusOnly: true });
+  return `${w.status}:${w.scoring_key}`;
+};
 
 // A flag goes stale by the clock alone (injury-flags.js), with no table write, so the
 // active set itself is part of the key (RL-12-2).
@@ -336,6 +354,14 @@ function buildAssetUniverse(lg, formatKey, target) {
   // (blend-week.js#blendWeek) and adj_ppg is derived from it. Read once per build;
   // the flag is part of assetInputsKey so a flip rebuilds.
   const blendFlag = blendWeekFlag();
+  // PROJ-ESPN: the served week number is frozen pre-kickoff ESPN (espn-week-projection.js);
+  // our own number is computed as before and kept as a SHADOW (the WEEK_SHADOW symbol below,
+  // logged by range-calibration's job), never served. Flag '0' serves ours.
+  const projEspn = projEspnFlag();
+  const espnWeek = projEspn.on
+    ? espnWeekProjections({ season: target.season, week: target.week, leagueRowId: lg.id }) : null;
+  const kdstEspn = projEspn.on ? espnProjections(lg) : null;
+  const rangeK = projEspn.on ? currentK() : null;
   // formatKey is `dyn_...`/`rd_...` per deriveFormat (format.js) — the age
   // decay only makes sense for a dynasty/keeper valuation, never redraft.
   const isDynasty = formatKey.startsWith('dyn_');
@@ -420,7 +446,14 @@ function buildAssetUniverse(lg, formatKey, target) {
     // thisGame.mult is exactly 1 while the matchup signal is off (matchups.js#
     // gameMultiplier); kept as a factor so this line needs no edit if a multiplier
     // ever passes the harness. thisGame itself is the bye detector: no game, 0.
-    const currentWeekPpg = thisGame ? currentWeekBasePpg * thisGame.mult * activeProbability : 0;
+    const oursWeekPpg = thisGame ? currentWeekBasePpg * thisGame.mult * activeProbability : 0;
+    // PROJ-ESPN: the served number. null = unknown (stale capture, or ESPN published none
+    // before his kickoff) and never ours in its place; a bye stays a known 0.
+    const kdstPts = kdstEspn && p.espn_id != null ? kdstEspn.get(String(p.espn_id))?.weeks.get(target.week) : undefined;
+    const servedWeek = projEspn.on
+      ? servedWeekFor(p, espnWeek, { onBye: !thisGame, ours: oursWeekPpg, kdst: kdstPts })
+      : null;
+    const currentWeekPpg = servedWeek ? servedWeek.value : oursWeekPpg;
     // Rest-of-season weekly rate. No schedule tilt (see scheduleTilt above), no
     // availability term — per game played, the same basis it has always had. It used
     // to BE weeklyPpg, which at week 2 is 80% the week-1 score (Coker 29.9 after a
@@ -454,11 +487,16 @@ function buildAssetUniverse(lg, formatKey, target) {
     // collapse. The weekly engine itself refreshes from every completed week.
     // Flag off: the unlifted week number, exactly as before. Flag on: blend.week, the
     // same number Start/Sit and the lineup card print (BROKEN-G).
-    const bw = blendFlag.on
+    // PROJ-ESPN on: blend.week is always carried and is the frozen ESPN number itself (no
+    // betting-line lift: ESPN's projection already prices the game), so Start/Sit, the lineup
+    // card and the trade card all read the served number whatever GRIDIRON_BLEND_WEEK says.
+    const weekKnown = Number.isFinite(currentWeekPpg);
+    const bw = (blendFlag.on || projEspn.on) && weekKnown
       ? blendWeek({ current_week_ppg: +currentWeekPpg.toFixed(2), team_abbr: p.team_abbr, position: p.position },
-        target.season, target.week)
+        target.season, target.week, projEspn.on ? { lift: ESPN_NO_LIFT } : {})
       : null;
-    const decisionPpg = horizonPpg(bw ? bw.value : currentWeekPpg, rosPpg);
+    // An unknown week leaves the horizon on the rest-of-season rate alone (labelled on the asset).
+    const decisionPpg = weekKnown ? horizonPpg(bw ? bw.value : currentWeekPpg, rosPpg) : rosPpg;
     // 2,000 draws, playerWeekDistribution's own default. This used to override it
     // down to 400, and at 400 the percentiles are not stable enough to print, let
     // alone difference across the two sides of a trade: measured over 200 re-draws
@@ -478,7 +516,13 @@ function buildAssetUniverse(lg, formatKey, target) {
       ? worldPoolFor({ ...p, ros_ppg: +rosPpg.toFixed(2) }, target.week, { scoring, proj: worldProj, activeChance: worldAvail })
       : null;
     const worldDist = worldPool ? rangeFromPool(worldPool, p.position) : null;
-    const weekDist = worldDist ?? (weekProjection && !onBye
+    // PROJ-ESPN: a skill player's own p10 / p90 is his served ESPN mean plus the calibrated
+    // positional residual quantiles (range-calibration.js), the same marginal the lineup range
+    // (lineup-week-range.js) draws him on.
+    const espnRange = projEspn.on && weekKnown && !onBye && ESPN_CAPTURED_POSITIONS.has(p.position)
+      && servedWeek?.source === 'espn_frozen'
+      ? playerWeekRange(currentWeekPpg, p.position, rangeK.k) : null;
+    const weekDist = espnRange ?? worldDist ?? (weekProjection && !onBye
       ? playerWeekDistribution(weekProjection, { runs: 2000, activeProbability, mult: thisGame?.mult ?? 1 })
       : null);
 
@@ -521,7 +565,7 @@ function buildAssetUniverse(lg, formatKey, target) {
       boom: weekDist?.boom_rate ?? w?.boom_rate ?? null, bust: weekDist?.bust_rate ?? w?.bust_rate ?? null,
       // EA-07 only: which sampler this floor/ceiling came from ('world' = the one world;
       // 'week_engine' = a player the world does not simulate, e.g. no last-season shape).
-      ...(oneWorld ? { range_source: worldDist ? 'world' : onBye ? 'bye' : weekDist ? 'week_engine' : null } : {}),
+      ...(oneWorld || espnRange ? { range_source: espnRange ? 'espn_calibrated' : worldDist ? 'world' : onBye ? 'bye' : weekDist ? 'week_engine' : null } : {}),
       consistency: w?.consistency ?? null, logged_games: w?.games ?? null,
       injury: injured.has(p.id) || !!(availability?.report_status && !/probable/i.test(availability.report_status)) ? 1 : 0,
       available: !(p.espn_id && seasonEnding.has(p.espn_id)),
@@ -532,11 +576,21 @@ function buildAssetUniverse(lg, formatKey, target) {
       sos: sched.sos, playoff_sos: sched.playoff_sos, bye: sched.bye,
       schedule_signal: scheduleTilt, schedule_reason: scheduleTilt ? null : (sched.reason ?? MATCHUP_SIGNAL_REASON),
       adj_ppg: +decisionPpg.toFixed(2),
-      current_week_ppg: +currentWeekPpg.toFixed(2),
+      current_week_ppg: weekKnown ? +currentWeekPpg.toFixed(2) : null,
       // BROKEN-G: present only with the flag on. The one this-week number the three
       // pages read; current_week_ppg above stays as its input (proj.week).
       ...(bw ? { blend_week: bw.value, blend_week_vegas: bw.vegas,
-        week_basis: { field: 'blend.week', producer: 'blend-week.js#blendWeek', preview: blendFlag.preview } } : {}),
+        week_basis: projEspn.on
+          ? { field: 'blend.week', producer: 'espn-week-projection.js (frozen pre-kickoff ESPN)', preview: false }
+          : { field: 'blend.week', producer: 'blend-week.js#blendWeek', preview: blendFlag.preview } } : {}),
+      // PROJ-ESPN: where the served week number came from, and why it is missing when it is.
+      ...(servedWeek ? { week_projection: {
+        source: servedWeek.source, status: servedWeek.status, reason: servedWeek.reason ?? null,
+        captured_at: servedWeek.captured_at ?? null, scoring_key: espnWeek.scoring_key,
+        ...(weekKnown ? {} : { horizon: 'rest-of-season rate only (this week is unknown)' }) } } : {}),
+      // Our own week number, for the shadow log only. Symbol-keyed: never in a response.
+      ...(servedWeek ? { [WEEK_SHADOW]: { ours: +oursWeekPpg.toFixed(2), espn: servedWeek.source === 'espn_frozen' ? servedWeek.value : null,
+        captured_at: servedWeek.captured_at ?? null, kickoff_at: servedWeek.kickoff_at ?? null, served: servedWeek.source } } : {}),
       // His team has no game in the target week (onBye above, the same detector
       // current_week_ppg uses). weekLineup() reads it so selfScout and a trade card's
       // weekly floor/ceiling solve this week's lineup without him (RL-5-3).
@@ -578,6 +632,11 @@ function buildAssetUniverse(lg, formatKey, target) {
     season: target.season, week: target.week,
     cutoff: `${target.season}-W${Math.max(0, target.week - 1)}`,
     engine: 'player-week-v2.1 + weekly availability + current/remaining schedule',
+    // PROJ-ESPN: the served week number's source for the whole universe.
+    week_projection: projEspn.on
+      ? { source: 'espn_frozen', status: espnWeek.status, reason: espnWeek.reason ?? null, scoring_key: espnWeek.scoring_key,
+        newest_capture_at: espnWeek.newest_capture_at, range_k: rangeK }
+      : { source: 'ours', status: 'ok', reason: 'GRIDIRON_PROJ_ESPN=0' },
     decision_horizon: '25% current week, 75% rest-of-season rate; dynasty market value remains a separate price axis',
     // Byes count; opponent strength does not (no validated signal — matchups.js).
     schedule_signal: matchupSignalActive(),
@@ -3052,6 +3111,8 @@ const ESPN_PLAYING = new Set(['ACTIVE', 'QUESTIONABLE', 'DAY_TO_DAY', 'PROBABLE'
  * waiver-wire.js (commit fe38e93).
  */
 export function lineupDiffWeekPoints(p, season, week) {
+  // PROJ-ESPN: an unknown served week is null, never a fallback number.
+  if (p?.week_projection?.status === 'unknown') return null;
   // BROKEN-G flag on: the served blend.week, never a second lift on its own call.
   const served = servedBlendWeek(p);
   if (served != null) return served;

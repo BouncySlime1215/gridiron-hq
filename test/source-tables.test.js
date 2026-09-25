@@ -170,15 +170,15 @@ test('greedyMove: best fair 1-for-1 that raises the lineup; never gives 160/80/2
   const teams = [
     { roster_id: '5', players: [player(160, 'WR', 100, 20), player(80, 'RB', 100, 18), player(277, 'WR', 100, 19),
       player(11, 'QB', 50, 15), player(12, 'RB', 100, 5), player(13, 'WR', 100, 4)] },
-    { roster_id: '2', players: [player(21, 'WR', 95, 40, 'Chris Olave'), player(22, 'RB', 100, 12), player(23, 'WR', 300, 30)] },
+    { roster_id: '2', players: [player(290, 'WR', 95, 40, 'Chris Olave'), player(22, 'RB', 100, 12), player(23, 'WR', 300, 30)] },
   ];
   const g = P.greedyMove({ teams, me: '5', lineupPoints: lineupPts });
   // 12 (RB 5 ppg) for 22 (RB 12 ppg) at par: +7. Olave for 13 (+21) is refused; 23 is outside the screen.
   assert.deepEqual(g, { state: 'move', move: { partner: '2', give: ['12'], get: ['22'] } });
   for (const id of ['160', '80', '277']) assert.ok(!g.move.give.includes(id));
   // The filters are what stop the bigger gains: unblocked, greedy takes Olave (+21) or gives an untouchable.
-  const open = P.greedyMove({ teams, me: '5', lineupPoints: lineupPts, neverGetNames: [], neverGive: [] });
-  assert.deepEqual(open.move.get, ['21']);
+  const open = P.greedyMove({ teams, me: '5', lineupPoints: lineupPts, neverGet: [], neverGive: [] });
+  assert.deepEqual(open.move.get, ['290']);
   // Only untouchables to give: nothing.
   const bare = [{ roster_id: '5', players: teams[0].players.slice(0, 3) }, teams[1]];
   assert.equal(P.greedyMove({ teams: bare, me: '5', lineupPoints: lineupPts }).state, 'none');
@@ -386,8 +386,11 @@ test('greedyMove: no market values on his players is an error, never a "do nothi
 
 test('greedyMove: the never-give / never-get ids are the one pinned list (never-give.js), Olave by id too', async () => {
   const NG = await import('../server/services/campaign/never-give.js');
-  assert.equal(P.GREEDY_NEVER_GIVE, NG.PINNED_NEVER_GIVE);
-  assert.equal(P.GREEDY_NEVER_GET, NG.PINNED_NEVER_GET);
+  // No second copy: greedy exports no list of its own (GREEDY_NEVER_GIVE and the Olave name list are gone).
+  for (const k of ['GREEDY_NEVER_GIVE', 'GREEDY_NEVER_GET', 'GREEDY_NEVER_GET_NAMES']) assert.equal(P[k], undefined, k);
+  const src = await import('node:fs').then(fs => fs.readFileSync(new URL('../server/services/eval/sources/planner-move-outcomes.js', import.meta.url), 'utf8'));
+  assert.doesNotMatch(src, /Object\.freeze\(\[\s*'160'/, 'no literal never-give ids outside never-give.js');
+  assert.doesNotMatch(src, /olave/i, 'Olave is blocked by id through PINNED_NEVER_GET, not by name');
   const teams = [
     { roster_id: '5', players: [player(11, 'QB', 50, 15), player(12, 'RB', 100, 5), player(13, 'WR', 100, 4)] },
     // 290 under another name (ids resolve, names may not): still never a get.

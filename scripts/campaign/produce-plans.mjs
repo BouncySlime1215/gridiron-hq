@@ -93,6 +93,7 @@ import { newSearchStats, twoForOneSummary } from '../../server/services/campaign
 import { loveIdsOf, loveSummary } from '../../server/services/campaign/love.js';
 import { reachFlag, REACH_TARGETS, droppedLine } from '../../server/services/campaign/reach.js';
 import { draftSummary } from '../../server/services/campaign/draft-capital.js';
+import { radarWireFlag, applyWhyNow, gradeLedger } from '../../server/services/campaign/why-now.js';
 
 process.env.SCHEDULER_DISABLED = '1';
 
@@ -300,13 +301,16 @@ export function fileInputs(id, { objectiveRow = null, fileSkips = [] } = {}) {
  *         brain (FIX-05, optional): { read: readBrainReport result, applyBrainReport, numberHealth: id -> readNumberHealth result },
  *         leagueInputs (FIX-07, optional): (id, { objectiveRow, fileSkips }) -> { objective, weights, consume, summary }
  *           (requests.js#leagueInputs; default: the objectives/skips files alone),
- *         consumed (optional array): each league that ships pushes its `consume` here for requests.js#consumeWith }
+ *         consumed (optional array): each league that ships pushes its `consume` here for requests.js#consumeWith,
+ *         radarLedger (optional array): RADAR-WIRE's ledger rows (why-now.js#applyWhyNow) for each league that ships }
  * Without `brain`, brain_report and number_health are unknown "not read" and the requested mode is planned.
  */
 export async function buildPlansFile(leagues, {
   generated_at, objectives = {}, skips = [], previous = new Map(), inputs = {}, clock = Date.now, budget = {}, env = {}, log = () => {},
   flags = null, brain = null, leagueInputs = fileInputs, consumed = null, twoForOne = 'off', trigger = null, model = null,
+  radarLedger = null,
 } = {}) {
+  const whyNow = radarWireFlag(env);
   const entries = [], best = new Map();
   for (const { id, load } of leagues) {
     const t0 = clock();
@@ -382,10 +386,13 @@ export async function buildPlansFile(leagues, {
         if (entry._run) entry._run.inputs.coach_messages = { status: 'on', profiles: profiles?.size ?? 0, steps: msg.stats.steps,
           grounded: msg.stats.grounded, fallback: msg.stats.fallback, unpriced: msg.stats.unpriced, errors: msg.stats.errors.length };
       } else if (entry._run) entry._run.inputs.coach_messages = { status: 'off', reason: 'GRIDIRON_COACH_MESSAGES unset and preview off' };
+      // RADAR-WIRE: why-now labels on the flip rows (off: nothing written, byte-for-byte the incumbent).
+      const served = whyNow !== 'off' ? applyWhyNow(entry, adapter, { as_of: generated_at, flag: whyNow }) : [];
       const v = validateLeague(entry);
       if (!v.ok) throw new Error(`plans JSON failed its contract check: ${v.errors.slice(0, 3).map(e => `${e.path} ${e.message}`).join('; ')}`);
       if (res.best) best.set(String(id), res.best.expected);
       if (consumed && ins.consume) consumed.push(ins.consume);
+      if (radarLedger) radarLedger.push(...served);
     } catch (e) {
       log(`[warroom] league ${id}: ${e.stack ?? e}`);
       entry = failedEntry({ league: id, me: res?.me ?? prev?.me ?? null, error: String(e.message ?? e) });
@@ -406,6 +413,25 @@ export async function buildPlansFile(leagues, {
   const v = validatePlans(file);
   if (!v.ok) throw new Error(`plans file failed its contract check: ${v.errors.slice(0, 3).map(e => `${e.path} ${e.message}`).join('; ')}`);
   return file;
+}
+
+/**
+ * RADAR-WIRE: append this run's served rows to the RADAR-GRADE ledger (JSONL), then grade every row
+ * that is 14+ days old and append the grade rows. Unreadable lines are counted and reported, not hidden.
+ */
+export function appendRadarLedger(file, served, { valueNow, now = Date.now() } = {}) {
+  const rows = [];
+  let bad = 0;
+  if (fs.existsSync(file)) {
+    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      try { rows.push(JSON.parse(line)); } catch { bad++; }
+    }
+  }
+  const { graded, summary } = gradeLedger([...rows, ...served], { valueNow, now });
+  const out = [...served, ...graded];
+  if (out.length) fs.appendFileSync(file, out.map(r => JSON.stringify(r)).join('\n') + '\n');
+  return { served: served.length, graded: graded.length, bad, summary };
 }
 
 /** One push row per league whose next move changed. */
@@ -503,10 +529,12 @@ async function main() {
       : brainRead.report ? `run ${brainRead.report.run_id} computed ${brainRead.report.computed_at}` : 'none stored yet'}`);
     const brain = { read: brainRead, applyBrainReport, numberHealth: id => readNumberHealth(svc.db.db, id, { read: readNumberAudit }) };
     const consumed = [];
+    const radarLedger = [];
     // Checked with validatePlans inside; a file that fails throws here and the previous file stays.
     const file = await buildPlansFile(leagues, { generated_at, objectives, skips: skips.rows, previous,
       inputs: { skips: { status: skips.status, bad_lines: skips.bad } }, leagueInputs, consumed,
       budget: { flipTopPer: opts.flipTop, targets: opts.targets }, flags, brain, twoForOne, trigger, env,
+      radarLedger,
       // PLAN-BASELINE: "this week's plan" compares only with a plan made under this same model.
       model: planModelKey({ flags }),
       log: line => (line.includes('FAILED') || line.includes('\n') ? console.error(line) : console.log(line)) });
@@ -540,6 +568,12 @@ async function main() {
     const pushes = pushesOf(file);
     if (pushes.length) {
       fs.appendFileSync(sibling(env, 'GRIDIRON_WARROOM_PUSHES', 'pushes.jsonl'), pushes.map(p => JSON.stringify(p)).join('\n') + '\n');
+    }
+    // RADAR-WIRE: the served why-now rows go to the RADAR-GRADE ledger; rows 14+ days old are graded here.
+    if (radarLedger.length) {
+      const fcNow = id => svc.db.row(`SELECT value FROM player_metrics WHERE player_id = ? AND source = 'fc_value'`, Number(id))?.value;
+      const g = appendRadarLedger(sibling(env, 'GRIDIRON_RADAR_LEDGER', 'radar-ledger.jsonl'), radarLedger, { valueNow: fcNow, now: Date.now() });
+      console.log(`[warroom] radar ledger +${radarLedger.length} served, +${g.graded} graded${g.bad ? `, ${g.bad} unreadable lines skipped` : ''}; gate ${JSON.stringify(g.summary)}`);
     }
     const entries = file.leagues;
     const failed = entries.filter(e => e.error).length;

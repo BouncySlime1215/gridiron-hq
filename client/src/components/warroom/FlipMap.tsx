@@ -44,6 +44,11 @@ export default function FlipMap({ field, names, big }: { field: Field<Flip[]> | 
     const get = n.text(f.legs.get_b_ids?.length ? f.legs.get_b_ids : [f.legs.get_b]);
     return <span className="wr-muted" data-testid="flip-legs">give {give} → get {get}</span>;
   };
+  // RADAR-WIRE: the why-now label, with its status word first ("Check first" / "Why now" / "Watch").
+  const WHY_WORD: Record<string, string> = { act: 'Why now', watch: 'Watch', check_first: 'Check first', none: 'Why now' };
+  const whyNow = (f: Flip) => (f.why_now
+    ? <div className="wr-sub" data-testid="flip-why-now" data-why-status={f.why_now.status}>{WHY_WORD[f.why_now.status] ?? 'Why now'}: {f.why_now.text}</div>
+    : null);
   const more = (g: FlipGroup) => (g.rows.length > 1 ? ` · +${g.rows.length - 1} other buyer${g.rows.length > 2 ? 's' : ''}` : '');
   const toggle = hiddenCount > 0 ? (
     <button type="button" className="wr-link" onClick={() => setAll(a => !a)} aria-expanded={all} data-testid="flip-show-all">
@@ -69,7 +74,7 @@ export default function FlipMap({ field, names, big }: { field: Field<Flip[]> | 
               <tbody>
                 {shown.slice(pg.a, pg.b).map(({ best: f, ...g }) => (
                   <tr key={g.player} data-flip-player={g.player}>
-                    <td><Avatar id={f.player} name={n.one(f.player).name} size={32} /><b>{n.one(f.player).name}</b>{g.rows.length > 1 && <span className="wr-muted"> ×{g.rows.length}</span>}{f.legs && <div>{legText(f)}</div>}</td>
+                    <td><Avatar id={f.player} name={n.one(f.player).name} size={32} /><b>{n.one(f.player).name}</b>{g.rows.length > 1 && <span className="wr-muted"> ×{g.rows.length}</span>}{f.legs && <div>{legText(f)}</div>}{whyNow(f)}</td>
                     <td>{teamLabel(f.buy_from)}</td><td>{teamLabel(f.sell_to)}</td>
                     <td className="wr-num"><Val f={f.spread} fmt={pts} showSe /></td>
                     <td className="wr-num"><Val f={f.price_a} fmt={whole} /> vs <Val f={f.price_b} fmt={whole} /></td>
@@ -89,6 +94,7 @@ export default function FlipMap({ field, names, big }: { field: Field<Flip[]> | 
                       Buy {teamLabel(f.buy_from)} → sell {teamLabel(f.sell_to)} · {f.legs ? <>both yes <Val f={f.legs.p_both} fmt={v => pct(v)} /></> : <span title={whyNot(f)}>no fair legs yet</span>}{more(g)}
                     </div>
                     {f.legs && <div className="wr-sub">{legText(f)}</div>}
+                    {whyNow(f)}
                   </li>
                 );
               })}

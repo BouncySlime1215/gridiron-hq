@@ -228,7 +228,14 @@ const flip = obj({
   legs: nullable(obj({ give_a: pid, get_b: pid, p1: probF, p2: probF, p_both: probF, nick_after: numF },
     // FLIP-LEGS-2: the whole packages (give_a / get_b stay the lead id); served only when the planner priced packages.
     { give_a_ids: arr(pid, { min: 1 }), get_b_ids: arr(pid, { min: 1 }) }))
-}, { legs_why_not: str, reasoning: field(reasoning) });
+}, { legs_why_not: str, reasoning: field(reasoning),
+  // RADAR-WIRE (GRIDIRON_RADAR_WIRE, default off): why this flip is worth a look this week; a label, moves no number.
+  why_now: obj({
+    status: oneOf(['act', 'watch', 'check_first', 'none']), kind: oneOf(['validated_cell', 'fc_trend', 'watch_cell', 'none']),
+    direction: nullable(oneOf(['up', 'down'])), text: str,
+    sources: obj({ radar: oneOf(['validated', 'watch', 'none', 'off', 'not_merged']), trend: oneOf(['ok', 'label_only', 'small', 'missing']),
+      news: oneOf(['contradiction', 'quiet', 'dead']) })
+  }, { n: int(0), ci: arr(num, { min: 2, max: 2 }), check_first: bool }) });
 
 const readStatus = oneOf(['ok', 'none', 'unknown', 'unread']);
 const players = obj({ players: arr(pid), n: int(0) });

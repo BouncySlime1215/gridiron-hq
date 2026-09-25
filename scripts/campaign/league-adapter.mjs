@@ -270,6 +270,35 @@ export function tradeLedger(svc, { leagueId, season, formatKey, assets, now }) {
   return { now, trades, unmapped, valueAt, history };
 }
 
+/**
+ * RADAR-WIRE reads (why-now.js#applyWhyNow). fc_trend30 is FantasyCalc's own 30-day move, written by
+ * DATA-FC into player_metrics next to fc_value (routes/aggregates.js); the campaign adapter never read it.
+ * historyDays: capture days in dynasty_value_history for this format (the trend is a watch label below 7).
+ * News: typed signals (nfl_news_signals, players.id as text); alive = any signal written in the window.
+ * A missing table reads as no data; the served label says which input was missing.
+ */
+export function radarReads(svc, { formatKey = null, windowHours = 48 } = {}) {
+  const metrics = hasTable(svc, 'player_metrics');
+  const history = formatKey != null && hasTable(svc, 'dynasty_value_history');
+  const news = hasTable(svc, 'nfl_news_signals');
+  const since = now => new Date(now - windowHours * 3600e3).toISOString();
+  return {
+    fcTrendOf: id => {
+      if (!metrics) return null;
+      const r = svc.db.row(`SELECT MAX(CASE WHEN source = 'fc_value' THEN value END) AS value,
+        MAX(CASE WHEN source = 'fc_trend30' THEN value END) AS trend30
+        FROM player_metrics WHERE player_id = ? AND source IN ('fc_value', 'fc_trend30')`, Number(id));
+      return Number.isFinite(r?.value) && Number.isFinite(r?.trend30) ? { value: r.value, trend30: r.trend30 } : null;
+    },
+    fcHistoryDays: () => (history
+      ? svc.db.row('SELECT COUNT(DISTINCT captured_on) AS n FROM dynasty_value_history WHERE format_key = ?', formatKey)?.n ?? 0 : 0),
+    newsOf: (id, now) => (news ? svc.db.rows(`SELECT signal_type, status, unavailable_probability, role_delta, published_at
+      FROM nfl_news_signals WHERE player_id = ? AND datetime(published_at) >= datetime(?)
+      ORDER BY published_at DESC`, String(id), since(now)) : []),
+    newsAlive: now => (news ? !!svc.db.row('SELECT 1 AS ok FROM nfl_news_signals WHERE datetime(created_at) >= datetime(?) LIMIT 1', since(now)) : false),
+  };
+}
+
 /** Executed TRADE_ACCEPT rows this season in league_transactions_raw (0 when the table is missing). */
 export function executedTradeRows(svc, { leagueId, season }) {
   if (!hasTable(svc, 'league_transactions_raw')) return 0;
@@ -497,6 +526,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     // SEARCH-WIDE: the free agents this world simulates; the planner builds claims only from these.
     ...(claimIds.length ? { claimUniverse: new Set(claimIds.map(String)) } : {}),
     tradeLedger: tradeLedger(svc, { leagueId, season, formatKey: svc.format?.deriveFormat(lg).formatKey ?? null, assets, now }),
+    // RADAR-WIRE: fcTrendOf / fcHistoryDays / newsOf / newsAlive for the flip rows' why-now label.
+    ...radarReads(svc, { formatKey: svc.format?.deriveFormat(lg).formatKey ?? null }),
     // integration-7: how many executed trades the raw table holds this season, so the planner can fail
     // closed when that ledger comes back missing or empty (never plan without Nick's trade memory).
     executedTradeRows: executedTradeRows(svc, { leagueId, season }),

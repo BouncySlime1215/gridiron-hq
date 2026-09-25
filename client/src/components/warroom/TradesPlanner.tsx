@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import './warroom.css';
 import './warroom-v2.css';
 import { setTeamNames, type WarRoomView } from './types';
@@ -11,7 +11,7 @@ import { teamLabel } from './types';
 import Icon from './icons';
 import ScreenGoGet from './ScreenGoGet';
 import ScreenMarket from './ScreenMarket';
-import { useNegotiations, usePlayerHeadshots } from './useWarRoom';
+import { useHeadshotMap, useNegotiations } from './useWarRoom';
 import { HeadshotContext } from './Avatar';
 import { FIXED_QUESTIONS } from './coach/CoachDrawer';
 import { postWarRoomRequest, type WarRoomRequest } from './requests';
@@ -30,13 +30,7 @@ export default function TradesPlanner({ part, view, leagueId, onAsk, someoneElse
 }) {
   setTeamNames(isOk(view.teams) ? view.teams.value : null);
   const negotiations = useNegotiations(leagueId);
-  const players = usePlayerHeadshots();
-  const headshots = useMemo(() => {
-    const out: Record<string, string> = {};
-    // ESPN has no headshot for a negative (team defence) id; those get initials without a failed request.
-    for (const p of players.data ?? []) if (p.headshot && !/\/-\d+\.png$/.test(p.headshot)) out[String(p.id)] = p.headshot;
-    return out;
-  }, [players.data]);
+  const headshots = useHeadshotMap();
   const send = useCallback((req: WarRoomRequest) => postWarRoomRequest(leagueId, req), [leagueId]);
   // The deck's current card: its offer (message, walk-away, "If he says…") folds under the deck, and
   // once the card is picked the reply buttons log his answer (offer.reply) from here.

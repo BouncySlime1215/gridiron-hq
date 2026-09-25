@@ -1,4 +1,4 @@
-import { useContext, type ReactNode } from 'react';
+import { useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Field, Move, ReplyKind, WarRoomView } from './types';
 import { REASONING_SLOTS, namer, teamLabel } from './types';
 import { Val } from './FieldState';
@@ -184,21 +184,37 @@ function BigVal({ f, fmt }: { f: Field<number> | undefined; fmt: (v: number) => 
   return isOk(f) ? <CountUp to={f.value} fmt={fmt} /> : <Val f={f} fmt={fmt} />;
 }
 
-/** Value edge: the offer's market read from the his-screen route (precomputed for deck moves). */
-function ValueEdge({ leagueId, offer }: { leagueId: number; offer: { partner: string; give: string[]; get: string[] } }) {
-  const { data, loading, error } = useHisScreen(hisScreenPath(leagueId, offer));
+/** How long the value edge may load before it says so instead of a skeleton. */
+export const VALUE_EDGE_WAIT_MS = 10_000;
+
+/**
+ * Value edge: the offer's market read from the his-screen route (precomputed for deck moves).
+ * A read that has not answered in VALUE_EDGE_WAIT_MS reads "not available" with the reason,
+ * never an endless skeleton; a late answer still replaces it.
+ */
+export function ValueEdge({ leagueId, offer, waitMs = VALUE_EDGE_WAIT_MS }: { leagueId: number; offer: { partner: string; give: string[]; get: string[] }; waitMs?: number }) {
+  const path = hisScreenPath(leagueId, offer);
+  const { data, loading, error } = useHisScreen(path);
+  const [timedOut, setTimedOut] = useState<string | null>(null);
+  useEffect(() => {
+    if (data || error) return;
+    const t = setTimeout(() => setTimedOut(path), waitMs);
+    return () => clearTimeout(t);
+  }, [path, data, error, waitMs]);
   const market = data?.enabled && !data.error ? data.market : undefined;
+  const slow = timedOut === path && !data && !error;
   const reason = error ?? data?.error ?? (data && !data.enabled ? data.reason : undefined)
-    ?? (market && market.pct == null ? 'He gives nothing with a market value.' : undefined);
+    ?? (market && market.pct == null ? 'He gives nothing with a market value.' : undefined)
+    ?? (slow ? `His screen has not answered in ${Math.round(waitMs / 1000)} s; open His screen to try again.` : undefined);
   const edge = market && market.pct != null ? valueEdgeText(market.pct) : null;
   return (
     <div className="wr-metric" data-testid="hero-value">
       <div className="wr-metric-l">Value edge</div>
       <div className={`wr-metric-v${edge ? ` wr-tone-${edge.tone}` : ''}`}>
-        {edge ? edge.big : loading && !data ? <span className="wr-skel" role="status" aria-label="Loading the value edge" />
-          : <span className="wr-unk" data-state="unknown" title={reason}>{NOT_COMPUTED}</span>}
+        {edge ? edge.big : loading && !data && !slow ? <span className="wr-skel" role="status" aria-label="Loading the value edge" />
+          : <span className="wr-unk" data-state="unknown" title={reason}>{slow ? 'not available' : NOT_COMPUTED}</span>}
       </div>
-      <div className="wr-metric-s">{edge ? edge.note : null}</div>
+      <div className="wr-metric-s">{edge ? edge.note : slow ? 'still working it out' : null}</div>
     </div>
   );
 }

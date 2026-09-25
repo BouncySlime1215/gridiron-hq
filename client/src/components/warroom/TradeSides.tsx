@@ -18,11 +18,12 @@ const initials = (name: string) => {
 };
 
 function Face({ p, size }: { p: SidePlayer; size: number }) {
-  const [failed, setFailed] = useState(false);
-  const src = p.headshot && !failed ? p.headshot : null;
+  // Remember WHICH picture failed, so a new one (the list arriving late, a retry) is tried again.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const src = p.headshot && p.headshot !== failedSrc ? p.headshot : null;
   return (
     <span className="wr-av" style={{ width: size, height: size, '--wr-av-h': String(hueOf(p.name)) } as CSSProperties} aria-hidden>
-      {src ? <img src={src} alt="" width={size} height={size} loading="lazy" decoding="async" onError={() => setFailed(true)} />
+      {src ? <img src={src} alt="" width={size} height={size} loading="lazy" decoding="async" onError={() => setFailedSrc(src)} />
         : <span className="wr-av-i" style={{ fontSize: Math.round(size * 0.38) }}>{initials(p.name)}</span>}
     </span>
   );

@@ -348,7 +348,6 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
 .wr-faces { display: inline-flex; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
 .wr-face { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
 .wr-face-n { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.wr-goget [data-panel="composer"], .wr-goget [data-panel="stops"], .wr-goget [data-panel="blue_chips"] { content-visibility: auto; contain-intrinsic-size: auto 640px; }
 
 /* Shared pieces inside v2 cards: the message, ladder, replies, reasoning, stops, tables. */
 .wr-v2 .wr-msg { background: var(--c-soft); border-radius: var(--r-tile); padding: 16px; margin: 8px 0; }
@@ -541,3 +540,61 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
 .wr-v2 .wr-chip.wr-on { background: var(--c-accent); color: var(--c-accent-ink); }
 .wr-defer { display: flex; flex-direction: column; gap: 12px; min-height: 240px; }
 .wr-defer + .wr-card2, .wr-card2 + .wr-defer { margin-top: 16px; }
+
+/* ---------- no move: a calm hero ---------- */
+.wr-nomove-hero { position: relative; background: var(--c-card); border-radius: var(--r-hero); padding: 40px 32px 28px; text-align: center;
+  box-shadow: 0 0 0 1px var(--c-line), var(--e2), var(--c-edge); display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.wr-nmh-ic { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: var(--c-green-tint); color: var(--c-green); margin-bottom: 4px; }
+.wr-v2 .wr-nmh-h { font: 700 28px/1.15 var(--f-display); letter-spacing: -.025em; }
+.wr-nmh-why { max-width: 52ch; color: var(--c-muted); font-size: 15px; overflow-wrap: anywhere; }
+.wr-nmh-acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
+.wr-nmh-more { width: 100%; margin-top: 12px; text-align: left; }
+.wr-nmh-more > summary { list-style: none; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--c-accent); font-weight: 600; font-size: 14px; padding: 8px; border-radius: 10px; }
+.wr-nmh-more > summary::-webkit-details-marker { display: none; }
+.wr-nmh-chev, .wr-acc-chev { flex: none; color: var(--c-muted); transition: transform var(--t) var(--ease-out); }
+.wr-nmh-more[open] .wr-nmh-chev, .wr-acc-i[open] > summary .wr-acc-chev, .wr-fold[open] > summary .wr-acc-chev { transform: rotate(180deg); }
+.wr-nmh-body { margin-top: 12px; animation: wr2-in var(--t-slow) var(--ease-out); }
+.wr-v2 .wr-nmh-body .wr-nomove { background: none; box-shadow: none; padding: 0; border-radius: 0; }
+.wr-v2 .wr-nmh-body .wr-nomove-head { display: none; }
+.wr-nmh-note { margin-top: 12px !important; font-size: 13px; color: var(--c-muted); background: var(--c-soft); border-radius: var(--r-tile); padding: 12px 14px; overflow-wrap: anywhere; }
+
+/* ---------- accordions and "show more" ---------- */
+.wr-acc { display: flex; flex-direction: column; margin-top: 12px; border-radius: var(--r-tile); box-shadow: 0 0 0 1px var(--c-line); overflow: hidden; }
+.wr-acc-i + .wr-acc-i { box-shadow: 0 -1px 0 var(--c-line); }
+.wr-acc-i > summary { list-style: none; display: flex; align-items: center; gap: 12px; padding: 14px 16px; min-width: 0; transition: background-color var(--t-fast); }
+.wr-acc-i > summary:hover { background: var(--c-hover); }
+.wr-acc-i > summary::-webkit-details-marker { display: none; }
+.wr-acc-t { flex: none; font-weight: 600; }
+.wr-acc-h { flex: 1; min-width: 0; font-size: 13px; color: var(--c-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+.wr-acc-b { padding: 4px 16px 16px; animation: wr2-in var(--t) var(--ease-out); overflow-x: auto; }
+.wr-fold > summary { list-style: none; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.wr-fold > summary::-webkit-details-marker { display: none; }
+.wr-fold > summary .wr-card2-h { margin: 0; }
+.wr-fold > summary .wr-acc-chev { margin-left: auto; align-self: center; }
+.wr-fold[open] > summary { margin-bottom: 16px; }
+.wr-v2 .wr-more { display: block; width: 100%; margin-top: 12px; border: 0; background: var(--c-soft); color: var(--c-ink2); border-radius: var(--r-tile); padding: 10px 14px;
+  font-size: 14px; font-weight: 600; transition: background-color var(--t), transform var(--t-fast); }
+.wr-v2 .wr-more:hover { background: var(--c-hover); }
+.wr-v2 .wr-more:active { transform: scale(.99); }
+@media (max-width: 699px) {
+  /* Target cards become compact rows on a phone: who and the action, then the two numbers. */
+  .wr-tcard { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "main act" "nums nums"; gap: 6px 12px; padding: 12px; align-items: center; }
+  .wr-tcard-main { grid-area: main; }
+  .wr-tcard-main .wr-av { width: 40px !important; height: 40px !important; }
+  .wr-tcard-f { grid-area: act; margin: 0; }
+  .wr-tcard-f > .wr-muted { display: none; }
+  .wr-tcard-nums { grid-area: nums; display: flex; gap: 16px; padding-left: 52px; }
+  .wr-tcard-nums > span { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+  .wr-tcard-nums b { font-size: 15px; }
+  .wr-tcard-nums .wr-l2 { display: inline; margin: 0; }
+  .wr-face .wr-av { width: 24px !important; height: 24px !important; }
+  .wr-face .wr-av-i { font-size: 10px !important; }
+  .wr-timeline li { padding-bottom: 12px; }
+  .wr-tl-b { gap: 4px; }
+  .wr-acc-chev { margin-left: auto; }
+  .wr-v2 .wr-more { padding: 8px 14px; margin-top: 8px; }
+  .wr-acc-i > summary { padding: 12px 14px; }
+  .wr-nomove-hero { padding: 32px 20px 20px; }
+  .wr-v2 .wr-nmh-h { font-size: 24px; }
+  .wr-acc-h { display: none; }
+}

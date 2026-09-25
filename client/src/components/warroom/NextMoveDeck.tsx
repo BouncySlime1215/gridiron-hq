@@ -10,6 +10,7 @@ import Negotiate from './Negotiate';
 import type { Negotiations, Thread, ThreadResponse } from './negotiateModel';
 import { HisScreenToggle } from './HisScreen';
 import NoMoveCard from './NoMoveCard';
+import NoMoveHero from './NoMoveHero';
 import SwipeDeck from './SwipeDeck';
 import HeroCard from './HeroCard';
 import { CopyBlock, Ladder, messageLabel } from './cardParts';
@@ -133,7 +134,7 @@ export default function NextMoveDeck({ view, big, initialState, onLog, post, neg
   }
   if (!total) {
     // Audit defect 2: the reason, then the closest path and the all-in option, never a blank slot.
-    return <div className="wr-deck"><NoMoveCard view={view} onAsk={onAsk} /></div>;
+    return <div className="wr-deck">{hero ? <NoMoveHero view={view} onAsk={onAsk} /> : <NoMoveCard view={view} onAsk={onAsk} />}</div>;
   }
 
   const skipRow = deck.asking != null ? (

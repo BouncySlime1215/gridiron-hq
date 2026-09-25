@@ -194,3 +194,33 @@ test('F7: a player Nick sold this season, and 290, are never claimed', () => {
   assert.equal(res.search_wide.claims.pool, 0);
   assert.equal(res.search_wide.claims.kept, 0);
 });
+
+/* ------------------------------------- #435 budget fix: rescores per target, no silent claim skip */
+
+const sumReasons = c => Object.values(c.dropped_by_reason).reduce((s, n) => s + n, 0);
+
+test('budget: the rescore budget is split per target like candidates, and each target reports what bound', () => {
+  const a = flipLeague();
+  const res = planLeague(a, { objective: OBJ, env: { ...ON, GRIDIRON_SEARCH_WIDE_RESCORES: '40' } });
+  const sw = res.search_wide;
+  assert.equal(sw.per_target.length, res.targets.length, 'one row per searched target');
+  assert.ok(sw.per_target.length >= 2, 'the fixture searches several targets');
+  // Shares: each target gets floor(what is left / targets left); none takes the whole budget.
+  for (const r of sw.per_target) assert.ok(r.rescores < 40, JSON.stringify(r));
+  assert.ok(sw.budget_hits.rescores > 0, `rescore hits counted: ${JSON.stringify(sw.budget_hits)}`);
+  assert.equal(sw.budget_hits.rescores + sw.budget_hits.candidates, sw.per_target.filter(r => r.budget_hit).length);
+  assert.ok(sw.per_target.some(r => r.budget_hit === 'rescores'));
+  assert.equal(sw.budget_hit, sw.per_target.find(r => r.budget_hit)?.budget_hit, 'budget_hit stays the first that bound');
+  assert.ok(sw.per_target.every(r => Number.isInteger(r.rescores_used) && Number.isInteger(r.extras)));
+});
+
+test('budget: every built claim path is scored or counted by reason (unscored ones under "budget")', () => {
+  for (const rescores of ['1', '40', '100000']) {
+    const res = planLeague(flipLeague(), { objective: OBJ, env: { ...ON, GRIDIRON_SEARCH_WIDE_RESCORES: rescores } });
+    const c = res.search_wide.claims;
+    assert.ok(c.built > 0, `claims built at rescores ${rescores}`);
+    assert.equal(c.kept + sumReasons(c), c.built, `rescores ${rescores}: ${c.built} built, ${c.kept} kept, ${JSON.stringify(c.dropped_by_reason)}`);
+    if (rescores === '1') assert.ok(c.dropped_by_reason.budget > 0, 'a spent budget leaves claims unscored, and says so');
+    if (rescores === '100000') assert.equal(c.dropped_by_reason.budget, 0);
+  }
+});

@@ -378,7 +378,8 @@ export function twoForOneSummary(stats) {
  * SEARCH-WIDE (search-wide.js; `wide` null = off, today's search): after today's shortlist, the
  * rest of the enumerated paths (a wider depth 3, plus a free-agent claim ending the best 1- and
  * 2-trade paths) are scored in heuristic order until wide.candidates extras or wide.rescoresLeft()
- * runs out. wide: { candidates, rescoresLeft, beam, tierOk, dropOk, claimPool, claimP, sink }. Laterals
+ * runs out (both are this target's share; wide.target_hit is set to the one that bound, or null).
+ * wide: { candidates, rescoresLeft, beam, tierOk, dropOk, claimPool, claimP, sink }. Laterals
  * are held to the floor on every candidate, today's shortlist included.
  */
 export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal = 3, shortlist = [8, 12, 8],
@@ -556,7 +557,8 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
       seen.add(k); out.push(c);
     }
     wide.sink.enumerated += out.length;
-    wide.sink.claims.built += claimed.length;
+    // Built = distinct claim paths handed to scoring; every one ends scored or counted under a drop reason.
+    wide.sink.claims.built += out.filter(c => c.steps.some(st => st.claim)).length;
     return out;
   }
   // SEARCH-WIDE: a lateral (depth for depth) survives only when the path ends at the floor.
@@ -566,18 +568,29 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     wide.sink.laterals.seen++;
     if (lateralOk(c.steps, wide.tierOk)) return true;
     wide.sink.laterals.dropped++;
+    if (c.steps.some(st => st.claim)) wide.sink.claims.dropped_by_reason.lateral++;
     return false;
   };
   // Today's shortlist first, whole; then the extras until the budget runs out.
   const scored = short.filter(lateralKeep).map(scoreCandidate);
-  for (const c of extras) {
-    if (wide.sink.used.extras >= wide.candidates) { wide.sink.budget_hit ??= 'candidates'; break; }
-    if (wide.rescoresLeft() <= 0) { wide.sink.budget_hit ??= 'rescores'; break; }
+  // Budget fix (#435): each target has its own share of both budgets (planner.js); whichever binds is
+  // recorded for this target, and every claim path the budget leaves unscored is counted ('budget').
+  let hit = null;
+  for (const [i, c] of extras.entries()) {
+    if (wide.sink.used.extras >= wide.candidates) hit = 'candidates';
+    else if (wide.rescoresLeft() <= 0) hit = 'rescores';
+    if (hit) {
+      wide.sink.budget_hit ??= hit;
+      wide.sink.budget_hits[hit]++;
+      wide.sink.claims.dropped_by_reason.budget += extras.slice(i).filter(x => x.steps.some(st => st.claim)).length;
+      break;
+    }
     if (!lateralKeep(c)) continue;
     wide.sink.used.extras++;
     if (c.steps.some(st => st.claim)) wide.sink.claims.scored++;
     scored.push(scoreCandidate(c));
   }
+  if (wide) wide.target_hit = hit;
   const plans = scored.filter(Boolean);
   function scoreCandidate(c) {
     let prev = null, gated = null;

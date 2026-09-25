@@ -298,14 +298,25 @@ export function planLeague(adapter, settings) {
     wideBase = { beam: wideSink.budget.beam, sink: wideSink, claimPool, claimP: claimP.p,
       // #406 finding 5b: LADDER-01 owns the tier; the lateral rule reads it (one classification, not two).
       tierOk: id => tierOfPlayer(scoreOf, id, tierFloor) === 'blue_chip',
-      dropOk, rescoresLeft: () => wideSink.budget.rescores - (fresh() - fresh0) };
+      dropOk };
   }
   let plans = [];
   wanted.forEach((target, i) => {
-    const wide = wideOn ? { ...wideBase, candidates: wideSink.used.extras
-      + Math.floor((wideSink.budget.candidates - wideSink.used.extras) / (wanted.length - i)) } : null;
+    // Budget fix (#435): both budgets are split across the targets left, as candidates always were, so an
+    // early target can no longer spend the whole rescore budget and leave the rest silently unscored.
+    let wide = null, r0 = 0, e0 = 0, rShare = 0;
+    if (wideOn) {
+      r0 = fresh(); e0 = wideSink.used.extras;
+      rShare = Math.floor((wideSink.budget.rescores - (r0 - fresh0)) / (wanted.length - i));
+      wide = { ...wideBase, candidates: e0 + Math.floor((wideSink.budget.candidates - e0) / (wanted.length - i)),
+        rescoresLeft: () => rShare - (fresh() - r0) };
+    }
     plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay, getOk, chainGive,
       depthPremium, board, premiumSink: premium, untouchables: objective.untouchables, wide }));
+    if (wide) {
+      wideSink.per_target.push({ target: String(target), candidates: wide.candidates - e0, rescores: rShare,
+        extras: wideSink.used.extras - e0, rescores_used: fresh() - r0, budget_hit: wide.target_hit ?? null });
+    }
   });
   if (wideOn) wideSink.used.rescores = fresh() - fresh0;
   // FLIP-CLAIMS: every claim path passes the one claim rule (search-wide.js#claimRule) or is dropped by reason.

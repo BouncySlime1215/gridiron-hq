@@ -84,6 +84,7 @@ export function wideBudget(env = process.env) {
 /** A fresh sink for one league's wide search. */
 export function newWideSink(budget = WIDE_DEFAULTS) {
   return { flag: 'on', budget: { ...budget }, used: { extras: 0, rescores: 0 }, budget_hit: null,
+    budget_hits: { candidates: 0, rescores: 0 }, per_target: [],
     enumerated: 0, laterals: { seen: 0, dropped: 0 }, claims: { pool: 0, built: 0, scored: 0, kept: 0, dropped_by_reason: Object.fromEntries(CLAIM_DROP_REASONS.map(k => [k, 0])) } };
 }
 
@@ -106,14 +107,15 @@ export function lateralOk(steps, tierOk) {
 }
 
 /**
- * Why a claim path is dropped. The first five are claimRule's (the one rule check below); the rest are
+ * Why a claim path is dropped. `budget`: built but left unscored when this target's share of the node
+ * budget ran out; `lateral`: its flip leg was a lateral that does not end at the floor. The next five are claimRule's (the one rule check below); the rest are
  * the planner's other gates as they fall on claim paths (CAP-1C's premium gate on a flip leg, FC value,
  * GETS-FLOOR, trade memory, the active
  * mode's tolerances, the confirm dice: `claim_stranded` = does not beat doing nothing with the stranded
  * branch priced in, `confirm_failed` = no confirm dice at all) and the confirm pass's cap
  * (`not_confirmed`: more claim paths than it re-prices).
  */
-export const CLAIM_DROP_REASONS = Object.freeze(['claim_not_flipped', 'protected_drop', 'claim_overpay', 'claim_sold',
+export const CLAIM_DROP_REASONS = Object.freeze(['budget', 'lateral', 'claim_not_flipped', 'protected_drop', 'claim_overpay', 'claim_sold',
   'premium_gate', 'no_fc_value', 'floor', 'trade_memory', 'mode_tolerance', 'claim_stranded', 'confirm_failed', 'not_confirmed']);
 /** Claim paths re-priced on the confirm dice per league, best planning expected first. */
 export const CLAIM_CONFIRM_MAX = 24;

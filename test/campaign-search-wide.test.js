@@ -363,3 +363,26 @@ test('a claim step\'s P(yes) is never labelled an acceptance model\'s, even if i
   assert.ok(claimSteps.length > 0);
   for (const st of claimSteps) assert.deepEqual([st.p_basis, st.p_gate, st.probe], [undefined, undefined, undefined]);
 });
+
+/* ------------------------------- #406 finding 5b: laterals read LADDER-01's tier */
+
+test('laterals and LADDER-01 share one tier: a lateral is a step with no Blue chip by ladder.js#tierOfPlayer', async () => {
+  const { tierOfPlayer, tierOf } = await import('../server/services/campaign/ladder.js');
+  const { heldAtEnd } = await import('../server/services/campaign/gets-floor.js');
+  assert.equal(typeof wide.heldAtEnd, 'undefined', 'search-wide keeps no copy of heldAtEnd');
+  const scoreOf = scoreFrom(DEPTH, { 8: null });
+  assert.equal(tierOfPlayer(scoreOf, 1, 83), 'blue_chip');
+  assert.equal(tierOfPlayer(scoreOf, 4, 83), tierOf(70, 83));
+  assert.equal(tierOfPlayer(scoreOf, 8, 83), 'unscored');
+  assert.equal(tierOfPlayer(null, 1, 83), 'unscored', 'no score source fails closed');
+  const ok = id => tierOfPlayer(scoreOf, id, 83) === 'blue_chip';
+  const lat = { team: '2', give: [4], get: [14] };
+  assert.equal(isLateral(lat, ok), true);
+  assert.deepEqual([...heldAtEnd([lat, { team: '3', give: [14], get: [21] }])], ['21']);
+  assert.equal(lateralOk([lat, { team: '3', give: [14], get: [21] }], ok), true);
+  assert.equal(lateralOk([lat, { team: '3', give: [4], get: [8] }], ok), false, 'ends holding an unscored piece: fails closed');
+  // The planner wires exactly this: on the fixture, every served lateral path ends at the floor.
+  const a = claimAdapter();
+  const res = planLeague(a, { objective: OBJ, env: ON });
+  for (const c of res.deck) assert.ok(lateralOk(c.plan.steps, id => tierOfPlayer(a.scoreOf, id, 83) === 'blue_chip'));
+});

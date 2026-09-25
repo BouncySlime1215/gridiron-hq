@@ -12,6 +12,7 @@
  *   laterals     a trade step where every player given and got is below the Blue chip floor
  *                (depth for depth) is kept only when the path ends at the floor: everything
  *                Nick acquires and still holds at the end passes it. Unscored fails closed.
+ *                The tier is LADDER-01's (ladder.js#tierOfPlayer); this module keeps no copy.
  *   claims       a path of 1 or 2 trades may end with one free-agent claim (partner
  *                FREE_AGENT): add a pool free agent, drop Nick's same-position depth piece,
  *                only when the free agent's ros_ppg beats the dropped piece's.
@@ -20,7 +21,7 @@
  * it moves served numbers (more paths ranked), so it stays off until measured on league 4.
  * Nick's hard rules sit outside this module and apply to every path it adds.
  */
-import { floorRead } from './gets-floor.js';
+import { floorRead, heldAtEnd } from './gets-floor.js';
 import { NEVER_DEPTH } from './search.js';
 import { PINNED_NEVER_GET } from './never-give.js';
 
@@ -89,17 +90,14 @@ export function isLateral(st, tierOk) {
   return [...st.give, ...st.get].every(id => !tierOk(id));
 }
 
-/** Everything Nick acquires on the path and still holds at its end. */
-export function heldAtEnd(steps) {
-  const held = new Set();
-  for (const st of steps) { for (const id of st.give) held.delete(String(id)); for (const id of st.get) held.add(String(id)); }
-  return [...held];
-}
-
-/** A path with a lateral is kept only when everything held at its end passes the floor. */
+/**
+ * A path with a lateral is kept only when everything held at its end passes the floor. "Held at the
+ * end" is gets-floor.js#heldAtEnd (the planner's GETS-FLOOR and LADDER-01 read the same one), and
+ * tierOk is LADDER-01's classification (ladder.js#tierOfPlayer === 'blue_chip', wired in planner.js).
+ */
 export function lateralOk(steps, tierOk) {
   if (!steps.some(st => isLateral(st, tierOk))) return true;
-  return heldAtEnd(steps).every(id => tierOk(id));
+  return [...heldAtEnd(steps)].every(id => tierOk(id));
 }
 
 /**

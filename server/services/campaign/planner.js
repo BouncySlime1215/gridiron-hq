@@ -29,13 +29,12 @@ import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
 import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink,
   depthPremiumOf, boardOf, newPremiumSink, premiumHolds } from './search.js';
 import { makeGetsFloor, heldAtEnd } from './gets-floor.js';
-import { ladderFlag, ladderCards } from './ladder.js';
+import { ladderFlag, ladderCards, tierOfPlayer } from './ladder.js';
 import { withNeverGive } from './never-give.js';
 import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
 import { excluded } from './partners.js';
 import { tradeMemory, applyTradeMemory, memorySummary, stepPasses, floorOn as tmFloorOn, tradeMemoryOn } from './trade-memory.js';
 import { searchWideFlag, wideBudget, newWideSink, makeDropOk, claimPoolOf, modesFirstSteps, isClaim, claimProbability } from './search-wide.js';
-import { floorRead } from './gets-floor.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
 
 /** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
@@ -290,7 +289,8 @@ export function planLeague(adapter, settings) {
     const claimPool = claimP.status === 'ok' ? claimPoolOf(adapter, neverDrop) : [];
     wideSink.claims.pool = claimPool.length;
     wideBase = { beam: wideSink.budget.beam, sink: wideSink, claimPool, claimP: claimP.p,
-      tierOk: id => floorRead(scoreOf, id, tierFloor).passes,
+      // #406 finding 5b: LADDER-01 owns the tier; the lateral rule reads it (one classification, not two).
+      tierOk: id => tierOfPlayer(scoreOf, id, tierFloor) === 'blue_chip',
       dropOk: makeDropOk({ scoreOf, floor: tierFloor, untouchable: neverDrop }),
       rescoresLeft: () => wideSink.budget.rescores - (fresh() - fresh0) };
   }

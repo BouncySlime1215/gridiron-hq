@@ -6,8 +6,10 @@
  *   3. backup QB starting fires for pass-catchers when the starter who played last week is out;
  *   4. the baseline is strictly prior (the graded week's own box score never reaches it);
  *   5. only events that passed the gate reach net_validated_change; nothing moves a projection;
- *   6. the flag is default off, GRIDIRON_OPP_RADAR=0 vetoes preview, preview mode turns it on;
- *   7. the effect fitter recovers a planted slope and the gate needs both CIs.
+ *   6. the flag is default off and only GRIDIRON_OPP_RADAR=1 turns it on (never preview mode);
+ *   7. the effect fitter recovers a planted slope and the gate needs both CIs;
+ *   8. P(OUT)-FIX: serving decides who is "out" with the same 2021-23 cells the effects were fitted
+ *      with, never the 2021-24 role-layer table (the 0.506 served vs 0.496 fitted mismatch).
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -115,7 +117,7 @@ test('only gated events reach net_validated_change; watch events never move a nu
   assert.equal(s.projection_moved, false, 'O1c writes projections, not this unit');
 });
 
-test('flag: default off, 0 vetoes preview, 1 or preview mode turns it on', () => {
+test('flag: default off; only GRIDIRON_OPP_RADAR=1 turns it on, preview mode never does', () => {
   const before = { ...process.env };
   try {
     delete process.env.GRIDIRON_OPP_RADAR;
@@ -123,16 +125,16 @@ test('flag: default off, 0 vetoes preview, 1 or preview mode turns it on', () =>
     assert.equal(R.radarFlag().on, false);
     assert.equal(R.opportunityOf(2, { season: SEASON, week: 5 }), null);
     process.env.GRIDIRON_PREVIEW_UNCONFIRMED = '1';
-    const pv = R.radarFlag();
-    assert.equal(pv.on, true);
-    assert.equal(pv.preview, true);
+    assert.equal(R.radarFlag().on, false, 'preview mode alone never switches the radar on');
+    assert.equal(R.opportunityOf(2, { season: SEASON, week: 5 }), null);
     process.env.GRIDIRON_OPP_RADAR = '0';
-    assert.equal(R.radarFlag().on, false, 'site flag 0 vetoes preview');
+    assert.equal(R.radarFlag().on, false);
     process.env.GRIDIRON_OPP_RADAR = '1';
     delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
     R.__test.clearCache();
     const o = R.opportunityOf(2, { season: SEASON, week: 5 });
     assert.ok(o, 'served when on');
+    assert.equal(o.preview, undefined, 'no preview label: it is on by its own flag');
     assert.ok(o.opportunity_events.some(e => e.type === 'teammate_out'));
     assert.equal(typeof o.net_validated_change.value, 'number');
   } finally {
@@ -183,4 +185,91 @@ test('study P(out) cells come from the fit seasons only (the graded season never
   assert.ok(Math.abs(p('Questionable', 'Did Not Participate In Practice', 'WR') - (5 + 10 * 0.25) / 15) < 1e-9);
   assert.equal(p('Questionable', 'Did Not Participate In Practice', 'RB'), 0.25, 'no RB cell: default');
   assert.throws(() => R.fitPOut([]));
+});
+
+// ---------------------------------------------------------------- P(OUT)-FIX (train/serve mismatch)
+
+const FIXTURE_ROLE_DDL = `CREATE TABLE IF NOT EXISTS nfl_availability_role_rates (
+  report_status TEXT NOT NULL, practice_status TEXT NOT NULL, position TEXT NOT NULL, tier TEXT NOT NULL,
+  gap TEXT NOT NULL, p_active REAL NOT NULL, n INTEGER NOT NULL, raw_rate REAL, config TEXT NOT NULL,
+  fitted_at TEXT NOT NULL, PRIMARY KEY (report_status, practice_status, position, tier, gap))`;
+
+/**
+ * The live case the fix is about. The role layer (fitted 2021-24) puts questionable|DNP|WR at
+ * P(out) 0.506; the 2021-23 cells the effects were fitted with put it below 0.5 (here 0.275:
+ * 10 made-up 2021 WRs, 7 played). Delta is questionable and did not practice in week 3.
+ */
+let seeded = false;
+function seedMismatch() {
+  R.__test.resetOutDefinition?.();
+  if (seeded) return;
+  seeded = true;
+  run(FIXTURE_ROLE_DDL);
+  run(`INSERT OR REPLACE INTO nfl_availability_role_rates VALUES ('questionable','dnp','WR','*','*',0.494,500,0.494,'{"fitSeasons":[2021,2022,2023,2024]}','2026-09-01')`);
+  for (let i = 0; i < 10; i++) {
+    const id = 200 + i, gsis = `00-00210${String(i).padStart(2, '0')}`;
+    run('INSERT OR IGNORE INTO players (id, name, position, gsis_id, fantasy_relevant) VALUES (?,?,?,?,1)', id, `Fit Wideout ${i}`, 'WR', gsis);
+    run(`INSERT INTO nfl_injuries (season, week, gsis_id, team, full_name, position, report_status, practice_status)
+         VALUES (?,?,?,?,?,?,?,?)`, 2021, 2, gsis, 'ZZZ', gsis, 'WR', 'Questionable', 'Did Not Participate In Practice');
+    if (i < 7) {
+      run(`INSERT INTO player_week_usage (player_id, season, week, team, opponent, position, attempts, carries, targets, receptions)
+           VALUES (?,?,?,?,?,?,?,?,?,?)`, id, 2021, 2, 'ZZZ', 'YYY', 'WR', 0, 0, 4, 2);
+    }
+  }
+  injury(3, P[3].gsis, 'Questionable', 'Did Not Participate In Practice');
+}
+
+test('P(OUT)-FIX: the role layer and the fit disagree on questionable|DNP|WR (the fixture reproduces 0.506 vs 0.496)', () => {
+  seedMismatch();
+  const fit = R.fitPOut([2021, 2022, 2023]);
+  assert.ok(fit('Questionable', 'Did Not Participate In Practice', 'WR') < R.OUT_THRESHOLD, 'fit cell below the bar');
+  assert.ok(R.loadPOut()('Questionable', 'Did Not Participate In Practice', 'WR') >= R.OUT_THRESHOLD, 'role-layer cell above it');
+});
+
+test('P(OUT)-FIX: serving classifies "out" exactly as the study did, cell for cell', () => {
+  seedMismatch();
+  const fit = R.fitPOut([2021, 2022, 2023]);
+  const served = R.outDefinition();
+  let cells = 0, disagree = 0;
+  for (const report of ['Out', 'Doubtful', 'Questionable', '']) {
+    for (const practice of ['Did Not Participate In Practice', 'Limited Participation in Practice', 'Full Participation in Practice', '']) {
+      for (const pos of R.POSITIONS) {
+        cells++;
+        if ((served(report, practice, pos) >= R.OUT_THRESHOLD) !== (fit(report, practice, pos) >= R.OUT_THRESHOLD)) disagree++;
+      }
+    }
+  }
+  assert.equal(cells, 64);
+  assert.equal(disagree, 0, 'pre-registered bar: 0 of 64 cells classified differently in serving and in the fit');
+});
+
+test('P(OUT)-FIX: a questionable|DNP WR teammate is pending in serving, as he was in the fit (no teammate_out)', () => {
+  seedMismatch();
+  const study = R.buildRadarRows(SEASON, { startWeek: 3, endWeek: 3, pOut: R.fitPOut([2021, 2022, 2023]) });
+  const served = R.buildRadarRows(SEASON, { startWeek: 3, endWeek: 3 });
+  const s = find(study, 3, 3), v = find(served, 3, 3);
+  assert.equal(s.events.filter(e => e.type === 'teammate_out').length, 0, 'study: not out');
+  assert.equal(v.events.filter(e => e.type === 'teammate_out').length, 0, 'serving: not out either');
+  assert.deepEqual(v.events.map(e => e.type), s.events.map(e => e.type), 'same events in train and serve');
+  assert.equal(v.pending.length, 1);
+  assert.equal(v.pending[0].who, 'Delta Wideout');
+  const q = R.serveRow(v).opportunity_events.find(e => e.type === 'teammate_questionable');
+  assert.doesNotMatch(q.evidence, /P\(out\)/, 'no second P(out) number: the role layer is its one producer');
+  assert.match(q.evidence, /questionable, did not practice/i);
+  assert.match(q.evidence, /2021-23/);
+});
+
+test('P(OUT)-FIX: the served row says which "out" definition it used, and when it is only the report defaults', () => {
+  const before = process.env.GRIDIRON_OPP_RADAR;
+  try {
+    process.env.GRIDIRON_OPP_RADAR = '1';
+    R.__test.clearCache();
+    R.__test.resetOutDefinition?.();
+    const o = R.opportunityOf(2, { season: SEASON, week: 5 });
+    assert.equal(o.out_definition.seasons, '2021-2023');
+    assert.equal(typeof o.out_definition.cells, 'number');
+    assert.equal(o.out_definition.defaults_only, o.out_definition.cells === 0);
+  } finally {
+    if (before === undefined) delete process.env.GRIDIRON_OPP_RADAR; else process.env.GRIDIRON_OPP_RADAR = before;
+  }
 });

@@ -1,7 +1,8 @@
 /**
  * TRADE-MEMORY (ONE-PLAN 4c): the planner remembers this season's executed trades.
  *
- *  (a) a player Nick gave away in the last TRADE_MEMORY_WINDOW_DAYS is never a target, a get or a flip
+ *  (a) a player Nick gave away this season (TRADE_MEMORY_WINDOW_DAYS: the whole season ledger; integration-7,
+ *      Nick's rule is "this season", not 4 weeks) is never a target, a get or a flip
  *      buy, unless his market value fell BUYBACK_FALL or more since the trade; then he is a buy-back and
  *      the card says "buy-back: price fell from X to Y". No price on the trade day: no fall can be shown,
  *      so he stays excluded.
@@ -16,7 +17,8 @@
  * Pure: the ledger (trades, the clock, the price-on-a-day reader) comes in from the adapter
  * (scripts/campaign/league-adapter.mjs#tradeLedger; tests hand one in). No DB, env or clock here.
  */
-export const TRADE_MEMORY_WINDOW_DAYS = 28;
+/** The whole season: the ledger holds only this season's trades, so no day cut-off applies. */
+export const TRADE_MEMORY_WINDOW_DAYS = Infinity;
 export const BUYBACK_FALL = 0.10;
 export const FLOOR_FLAG = 'GRIDIRON_TRADE_MEMORY_FLOOR';
 const DAY = 864e5;
@@ -191,7 +193,7 @@ export function memorySummary(mem, { dropped, shadow, floorOn: on, targets = 0, 
   if (!mem) return { status: 'no_ledger', dropped_total: 0 };
   const d = { ...dropped };
   return {
-    status: 'on', window_days: mem.windowDays, buyback_fall: mem.fall, trades: mem.trades, unmapped,
+    status: 'on', window_days: Number.isFinite(mem.windowDays) ? mem.windowDays : null, window: Number.isFinite(mem.windowDays) ? 'days' : 'season', buyback_fall: mem.fall, trades: mem.trades, unmapped,
     floor: on ? 'filter' : 'shadow',
     sold_recently: [...mem.sold.values()].filter(s => !s.buyback).map(s => String(s.player)),
     buy_backs: [...mem.sold.values()].filter(s => s.buyback).map(s => ({ player: String(s.player), was: s.was, now: s.now, text: s.text })),

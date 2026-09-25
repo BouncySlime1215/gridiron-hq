@@ -68,14 +68,17 @@ const ledger = (then = {}) => ({
   ],
   valueAt: (id, at) => (id in then ? then[id] : P.get(id)?.value ?? null),
 });
-const memOf = (then) => tradeMemory(ledger(then), { me: '1', valueNow: id => P.get(id)?.value ?? 0, positionOf: id => P.get(id)?.position ?? null });
+// The unit cases below isolate one reason each, so they keep a 28-day window (the 40-day-old trade stays a pure
+// reversal case); the default (the whole season) is asserted in the first (a) test.
+const memOf = (then, windowDays = 28) => tradeMemory(ledger(then), { me: '1', valueNow: id => P.get(id)?.value ?? 0, positionOf: id => P.get(id)?.position ?? null, windowDays });
 
-test('(a) a player Nick sold inside the window is excluded; outside it he is not', () => {
-  assert.equal(TRADE_MEMORY_WINDOW_DAYS, 28);
-  const mem = memOf();
+test('(a) a player Nick sold this season is excluded, however long ago (integration-7: the whole season)', () => {
+  assert.equal(TRADE_MEMORY_WINDOW_DAYS, Infinity);
+  const mem = memOf(undefined, TRADE_MEMORY_WINDOW_DAYS);
   assert.equal(mem.excluded(1), 'sold_recently');
   assert.equal(mem.buyBack(1), null);
-  assert.equal(mem.excluded(6), null, 'sold 40 days ago: outside the 4-week window');
+  assert.equal(mem.excluded(6), 'sold_recently', 'sold 40 days ago: still this season');
+  assert.equal(memOf(undefined, 28).excluded(6), null, 'an explicit day window still cuts off');
   assert.equal(mem.excluded(5), null, 'never sold');
 });
 

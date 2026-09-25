@@ -187,14 +187,17 @@ test('end to end: a --leagues 4 run over a stamped previous file and a legacy on
 /* ------------------------------------------------------------------ metric 3: the UI */
 
 const LEAGUES = [1, 2, 3, 4, 5].map(id => ({ id, name: `League ${id}` }));
-const { default: WarRoom } = await wr.mod('WarRoom');
+// integration-10a: the classic WarRoom.tsx was retired by #427 (Trades area); the live screen is the Trades
+// page's TradesPlanner (the "next" part draws the next-move deck), and WarRoomV2 is kept in the tree.
 const { default: WarRoomV2 } = await wr.mod('WarRoomV2');
+const { default: TradesPlanner } = await wr.mod('TradesPlanner');
+const Trades = props => React.createElement(TradesPlanner, { part: 'next', view: props.view, leagueId: props.view.league_id, onAsk() {} });
 const draw = (C, v) => textOf(renderToStaticMarkup(React.createElement(C, { view: v, leagues: LEAGUES, activeId: v.league_id,
   onLeague() {}, onExit() {} })));
 
-test('metric 3: both layouts say "Plan out of date" with the reason, and offer no send action', () => {
+test('metric 3: the live Trades planner and v2 say "Plan out of date" with the reason, and offer no send action', () => {
   const stale = view(1, plansWith({ 4: iso(NOW), 1: iso(NOW - 30 * H) }));
-  for (const [name, C] of [['classic', WarRoom], ['v2', WarRoomV2]]) {
+  for (const [name, C] of [['trades', Trades], ['v2', WarRoomV2]]) {
     const text = draw(C, stale);
     assert.match(text, /Plan out of date/, name);
     assert.match(text, /last planned 30 h ago/, name);
@@ -204,7 +207,7 @@ test('metric 3: both layouts say "Plan out of date" with the reason, and offer n
 
 test('metric 3: a fresh view shows no out-of-date notice', () => {
   const fresh = view(4, plansWith({ 4: iso(NOW) }));
-  for (const C of [WarRoom, WarRoomV2]) assert.doesNotMatch(draw(C, fresh), /Plan out of date/);
+  for (const C of [Trades, WarRoomV2]) assert.doesNotMatch(draw(C, fresh), /Plan out of date/);
 });
 
 /* ------------------------------------------------------------------ metric 4: nightly all-league replan */

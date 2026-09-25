@@ -37,17 +37,32 @@ const args = process.argv.slice(2);
 const flag = n => args.includes(n);
 const opt = (n, d) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : d; };
 const REPS = Number(opt('--reps', 1000));
-const FIT = [2021, 2022, 2023];
 const GRADE = 2024;
-if ([...FIT, GRADE].includes(2025)) throw new Error('2025 is closed');
-
 const R = await import('../server/services/opportunity-radar.js');
+const FIT = [...R.FIT_SEASONS];
+if ([...FIT, GRADE].includes(2025)) throw new Error('2025 is closed');
 const { solveLinear } = await import('../server/services/forecast-combination.js');
 const { EVENT_TYPES, OUTCOMES, fitEffect, pairedGain, passesGate, pairAccuracy, magnitude, residual, ewma } = R;
 
 const t0 = Date.now();
 // P(out) cells from the fit seasons only: the role-layer table includes 2024 (review of #377).
-const pOut = R.fitPOut(FIT);
+// outDefinition() is the same lookup serving classifies with (P(OUT)-FIX), so train and serve agree.
+const pOut = R.outDefinition();
+{
+  // P(OUT)-FIX diagnostic: cells where the 2021-24 role layer would have classified differently.
+  const role = R.loadPOut();
+  const flips = [];
+  for (const rep of ['Out', 'Doubtful', 'Questionable']) {
+    for (const pr of ['Did Not Participate In Practice', 'Limited Participation in Practice', 'Full Participation in Practice', '']) {
+      for (const pos of R.POSITIONS) {
+        const a = pOut(rep, pr, pos), b = role(rep, pr, pos);
+        if ((a >= R.OUT_THRESHOLD) !== (b >= R.OUT_THRESHOLD)) flips.push(`${rep}|${pr || 'none'}|${pos} fit=${a.toFixed(3)} role=${b.toFixed(3)}`);
+      }
+    }
+  }
+  console.error(`out-definition cells the role layer would flip (served before P(OUT)-FIX, now unused): ${flips.length}`);
+  for (const f of flips) console.error(`  ${f}`);
+}
 console.error('P(out) cells (fit seasons only) at or above ' + R.OUT_THRESHOLD + ' or near it:');
 for (const [key, c] of Object.entries(pOut.cells).sort()) {
   if (c.p_out >= 0.4 && !key.startsWith('out|')) console.error(`  ${key} n=${c.n} p_out=${c.p_out}`);

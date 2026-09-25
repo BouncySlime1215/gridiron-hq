@@ -15,23 +15,26 @@
  *  - Rosters come from PRIOR weeks. A player ruled out has no box-score row the week he
  *    misses; searching the graded week finds nobody (the 0-of-5,336 bug the 9/19 study
  *    pinned in test/opportunity-model.test.js).
- *  - "Out" is P(out) clearing OUT_THRESHOLD. Serving reads the role layer (nfl_availability_role_rates);
- *    the study uses fitPOut(fit seasons) so the graded season never defines who is out.
+ *  - "Out" is P(out) clearing OUT_THRESHOLD under ONE definition, used by the study and by serving
+ *    alike: fitPOut(FIT_SEASONS), the 2021-23 cells the effects were fitted with (outDefinition()).
+ *    The role layer (nfl_availability_role_rates) is fitted on 2021-24, so it can neither define
+ *    the study's events nor the served ones: questionable|DNP|WR is 0.506 there and 0.496 in the
+ *    fit, and serving on it fired events the fit never saw (P(OUT)-FIX). The radar prints no P(out)
+ *    number of its own; the role layer stays that number's one producer.
  *    A questionable teammate gives no bump: he is surfaced as a pending watch item only.
  *  - An event moves a number only if it passed the pre-registered gate (FITTED_EFFECTS
  *    below, passes_gate). Everything else is served as 'watch' with its evidence.
  *  - Nothing here writes into projections.js / player-week-engine.js. That is O1c.
  *
- * Served behind GRIDIRON_OPP_RADAR (default off), which preview mode (PREVIEW_ENV) also
- * turns on (preview-mode.js is the only reader of that variable).
+ * Served behind GRIDIRON_OPP_RADAR (default off). Only its own flag turns it on; preview mode does not.
  */
 import { rows } from '../db/index.js';
 import { detectRoleChange } from './role-changepoint.js';
-import { previewUnconfirmed, previewFields } from './preview-mode.js';
 
 export const RADAR_FLAG = 'GRIDIRON_OPP_RADAR';
 export const EWMA_ALPHA = 0.4;          // the 9/19 winner's recency weight
 export const OUT_THRESHOLD = 0.5;       // P(out) at or above this counts as out
+export const FIT_SEASONS = Object.freeze([2021, 2022, 2023]); // effects fitted here; graded on 2024
 export const MIN_PRIOR_GAMES = 2;
 export const POSITIONS = Object.freeze(['QB', 'RB', 'WR', 'TE']);
 export const GROUPS = Object.freeze({ QB: 'QB', RB: 'RB', WR: 'WRTE', TE: 'WRTE' });
@@ -113,15 +116,16 @@ function pOutLookup(cells) {
   };
 }
 
-/** P(out) lookup from the role layer's fitted cells (tier and gap pooled). Used for serving. */
+/**
+ * P(out) lookup from the role layer's fitted cells (tier and gap pooled). Diagnostic only: it
+ * shows how far the served role layer sits from outDefinition(); the radar never classifies with it.
+ */
 export function loadPOut() {
   const cells = new Map();
-  try {
-    for (const r of rows(`SELECT report_status, practice_status, position, p_active FROM nfl_availability_role_rates
-                          WHERE tier = '*' AND gap = '*'`)) {
-      cells.set(`${r.report_status}|${r.practice_status}|${r.position}`, 1 - r.p_active);
-    }
-  } catch { /* table absent in a bare test DB: report-status defaults below */ }
+  for (const r of rows(`SELECT report_status, practice_status, position, p_active FROM nfl_availability_role_rates
+                        WHERE tier = '*' AND gap = '*'`)) {
+    cells.set(`${r.report_status}|${r.practice_status}|${r.position}`, 1 - r.p_active);
+  }
   return pOutLookup(cells);
 }
 
@@ -165,6 +169,17 @@ export function fitPOut(seasons, { k = POUT_SHRINK_K } = {}) {
   const lookup = pOutLookup(cells);
   lookup.cells = Object.fromEntries([...agg].map(([key, a]) => [key, { n: a.n, p_out: +cells.get(key).toFixed(3) }]));
   return lookup;
+}
+
+let outDef = null;
+/**
+ * The one "out" definition, for the study and for serving: fitPOut(FIT_SEASONS). The 2021-23 rows
+ * do not change, so it is fitted once per process. With no 2021-23 injury history in the DB it
+ * is the report-status defaults, and the served row says so (out_definition.defaults_only).
+ */
+export function outDefinition() {
+  if (!outDef) outDef = fitPOut(FIT_SEASONS);
+  return outDef;
 }
 
 // ---------------------------------------------------------------- season loaders
@@ -254,7 +269,7 @@ function coachChangeWeek(list) {
 export function buildRadarRows(season, { startWeek = 3, endWeek = 18, live = false, data = null,
   newsSignals = null, trades = null, pOut = null } = {}) {
   const d = data ?? loadSeason(season);
-  const P = pOut ?? loadPOut();
+  const P = pOut ?? outDefinition();
   const byWeek = new Map();
   for (const r of d.usage) {
     if (!byWeek.has(r.week)) byWeek.set(r.week, []);
@@ -281,7 +296,12 @@ export function buildRadarRows(season, { startWeek = 3, endWeek = 18, live = fal
     const inj = gsis ? d.injuries.get(`${week}|${gsis}`) : null;
     return inj ? P(inj.report_status, inj.practice_status, position) : 0;
   };
-  const statusOf = (week, gsis) => (gsis ? d.injuries.get(`${week}|${gsis}`)?.report_status ?? null : null);
+  const statusOf = (week, gsis) => {
+    const inj = gsis ? d.injuries.get(`${week}|${gsis}`) : null;
+    if (!inj?.report_status) return null;
+    const pr = { dnp: 'did not practice', limited: 'limited in practice', full: 'full practice' }[PRACTICE(inj.practice_status)];
+    return `${String(inj.report_status).toLowerCase()}${pr ? `, ${pr}` : ''}`;
+  };
   const prevTeamWeek = (team, week) => {
     const w = teamGames.get(team) ?? [];
     for (let i = w.length - 1; i >= 0; i--) if (w[i] < week) return w[i];
@@ -402,7 +422,7 @@ export function buildRadarRows(season, { startWeek = 3, endWeek = 18, live = fal
           }
         }
         // 2: QB switch (for pass-catchers and backs).
-        if (group !== 'QB' && ctx.qbEvent) events.push({ type: ctx.qbEvent.type, m: 1, who: ctx.qbEvent.qb, p_out: +ctx.qbEvent.p_out.toFixed(2) });
+        if (group !== 'QB' && ctx.qbEvent) events.push({ type: ctx.qbEvent.type, m: 1, who: ctx.qbEvent.qb, p_out: +ctx.qbEvent.p_out.toFixed(2), status: ctx.qbEvent.status ?? null });
         // 3: O-line.
         if (ctx.ol.length) events.push({ type: 'oline_out', m: ctx.ol.length, who: ctx.ol.map(o => `${o.name} (${o.slot})`).join(', ') });
         // 4: trades.
@@ -726,16 +746,13 @@ export const FITTED_EFFECTS = Object.freeze({
   'news_role|RB': {"beta": null, "ci": null, "n": 0, "players": 0, "opp3": null, "ppr1": null, "ppr1_ci": null, "eff1": null, "eff1_ci": null, "graded": null, "passes_gate": false},
   'news_role|WRTE': {"beta": null, "ci": null, "n": 0, "players": 0, "opp3": null, "ppr1": null, "ppr1_ci": null, "eff1": null, "eff1_ci": null, "graded": null, "passes_gate": false},
 });
-export const FITTED_PROVENANCE = Object.freeze({ fit: '2021-2023', graded: '2024', script: 'scripts/fit-opportunity-radar.mjs', p_out: 'fitPOut(2021-2023): study-only cells, the role-layer table includes 2024', tree: 'fix commit after 24235c40 (review of #377)' });
+export const FITTED_PROVENANCE = Object.freeze({ fit: '2021-2023', graded: '2024', script: 'scripts/fit-opportunity-radar.mjs', p_out: 'outDefinition() = fitPOut(2021-2023), the same cells in the study and in serving (P(OUT)-FIX); the role-layer table includes 2024', tree: 'fix commit after 24235c40 (review of #377)' });
 
 // ---------------------------------------------------------------- serving
 
-/** Flag read per call: GRIDIRON_OPP_RADAR=1 on, =0 off (vetoes preview), else preview mode. */
+/** Flag read per call: only GRIDIRON_OPP_RADAR=1 turns it on (never preview mode). */
 export function radarFlag(env = process.env) {
-  if (env[RADAR_FLAG] === '0') return { on: false };
-  if (env[RADAR_FLAG] === '1') return { on: true };
-  if (previewUnconfirmed()) return { on: true, ...previewFields('O1 opportunity radar: event effects measured 2021-23, graded 2024; nothing written into projections until O1c') };
-  return { on: false };
+  return { on: env[RADAR_FLAG] === '1' };
 }
 
 const fmt = (v, d = 1) => `${v >= 0 ? '+' : ''}${v.toFixed(d)}`;
@@ -758,7 +775,7 @@ export function serveEvent(e, group, effects = FITTED_EFFECTS) {
     n: f?.n ?? 0, ci: ci ? ci.map(v => +v.toFixed(2)) : null,
     passes_gate: passes, status: passes ? 'validated' : 'watch',
     basis: 'position-group pooled (not player-specific)',
-    evidence: `${e.who}${e.p_out != null ? ` (P(out) ${e.p_out})` : ''}. ${measured}.`
+    evidence: `${e.who}${e.status ? ` (${e.status})` : ''}. ${measured}.`
       + (passes ? (f.robust === false ? ` Marginal: ${f.robust_note}.` : '') : ' Below the bar: a watch flag, not a projection change.')
   };
 }
@@ -770,8 +787,8 @@ export function serveRow(row, effects = FITTED_EFFECTS) {
     opportunity_events.push({
       type: 'teammate_questionable', label: 'Same-position teammate questionable', direction: 'up',
       effect: null, unit: `${OPP_UNIT[row.group]} per game`, n: 0, ci: null, passes_gate: false, status: 'watch',
-      basis: 'no bump until he clears the out threshold',
-      evidence: `${p.who} is ${p.status ?? 'on the report'} (P(out) ${p.p_out} < ${OUT_THRESHOLD}); he averaged ${p.would_vacate} ${OPP_UNIT[row.group]}. No bump until ruled out, so his absence is never counted twice.`
+      basis: 'no bump until he counts as out',
+      evidence: `${p.who} is ${p.status ?? 'on the report'}; that does not count as out under the 2021-23 injury-report rates the effects were fitted with. He averaged ${p.would_vacate} ${OPP_UNIT[row.group]}. No bump until ruled out, so his absence is never counted twice.`
     });
   }
   const validated = opportunity_events.filter(e => e.passes_gate && e.effect != null);
@@ -823,7 +840,12 @@ export function radarWeek(season, week, { effects = FITTED_EFFECTS, now = Date.n
   if (hit && now - hit.at < CACHE_MS) return hit.value;
   const built = buildRadarRows(season, { startWeek: week, endWeek: week, live: true,
     newsSignals: liveNewsSignals(), trades: liveTrades() }).filter(r => r.week === week);
-  const value = new Map(built.map(r => [r.player_id, serveRow(r, effects)]));
+  const def = outDefinition();
+  const cells = Object.keys(def.cells ?? {}).length;
+  const out_definition = { seasons: `${FIT_SEASONS[0]}-${FIT_SEASONS.at(-1)}`, cells, defaults_only: cells === 0,
+    basis: cells ? 'injury-report rates fitted on the same seasons as the effects'
+      : 'no 2021-23 injury history in this database: report-status defaults only' };
+  const value = new Map(built.map(r => [r.player_id, { ...serveRow(r, effects), out_definition }]));
   cache.set(k, { at: now, value });
   return value;
 }
@@ -835,9 +857,7 @@ export function radarWeek(season, week, { effects = FITTED_EFFECTS, now = Date.n
 export function opportunityOf(playerId, { season, week, env = process.env } = {}) {
   const flag = radarFlag(env);
   if (!flag.on || !Number.isInteger(season) || !Number.isInteger(week)) return null;
-  const row = radarWeek(season, week).get(Number(playerId));
-  if (!row) return null;
-  return flag.preview ? { ...row, preview: flag.preview, preview_reason: flag.preview_reason } : row;
+  return radarWeek(season, week).get(Number(playerId)) ?? null;
 }
 
-export const __test = { loadSeason, clearCache: () => cache.clear() };
+export const __test = { loadSeason, clearCache: () => cache.clear(), resetOutDefinition: () => { outDef = null; } };

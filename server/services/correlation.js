@@ -39,17 +39,27 @@ const MIN_PAIRS = 200;
  * fewer than `minGames` weeks are left out. The one reader of the weekly log for
  * dependence work: fitCorrelations and the GAME-SHOCKS tail measurement share it.
  */
-export function sameGameResiduals({ scoring = PPR, minGames = 6 } = {}) {
+export function sameGameResiduals({ scoring = PPR, minGames = 6, from = null, until = null } = {}) {
   const log = rows(`SELECT u.player_id, u.season, u.week, u.team, u.opponent, p.position,
                            u.passing_yards, u.passing_tds, u.interceptions,
                            u.rushing_yards, u.rushing_tds,
                            u.receptions, u.receiving_yards, u.receiving_tds, u.fumbles_lost
                     FROM player_week_usage u JOIN players p ON p.id = u.player_id
                     WHERE p.position IN ('QB','RB','WR','TE') AND u.team IS NOT NULL`);
+  return residualsFromLog(log, { scoring, minGames, from, until });
+}
+
+/**
+ * sameGameResiduals over rows already read (the database or a public weekly file).
+ * `from` / `until` bound the seasons BEFORE anything is computed, so a train window's
+ * means, SDs and minimum-games count never see a held-out season (U7).
+ */
+export function residualsFromLog(log, { scoring = PPR, minGames = 6, from = null, until = null } = {}) {
+  const inWindow = log.filter(u => (from == null || u.season >= from) && (until == null || u.season <= until));
 
   // Per-player mean and spread, for residuals.
   const byPlayer = new Map();
-  const scored = log.map(u => ({ ...u, pts: Number(scoreLine(u, scoring)) }));
+  const scored = inWindow.map(u => ({ ...u, pts: Number(scoreLine(u, scoring)) }));
   for (const u of scored) {
     const a = byPlayer.get(u.player_id) ?? { pts: [] };
     a.pts.push(u.pts);
@@ -74,16 +84,17 @@ export function sameGameResiduals({ scoring = PPR, minGames = 6 } = {}) {
   return games;
 }
 
-/**
- * Fit archetype correlations from historical weekly boxscores.
- *
- * Correlation is measured on *residuals* — each player's score minus his own mean —
- * because otherwise the estimate is dominated by the fact that good players outscore
- * bad ones every week, which is not correlation in any useful sense.
- */
-export function fitCorrelations({ scoring = PPR, minGames = 6 } = {}) {
-  const games = sameGameResiduals({ scoring, minGames });
+/** The archetype of a same-game pair: sorted positions and same team | opponents ('QB|WR|team'). */
+export function pairArchetype(a, b) {
+  const [p1, p2] = [a.position, b.position].sort();
+  return `${p1}|${p2}|${a.team === b.team ? 'team' : 'opp'}`;
+}
 
+/**
+ * Pooled residual correlation per archetype over every same-game pair: key -> { r, n }.
+ * Unclamped and unfiltered; fitCorrelations applies MIN_PAIRS and the clamp.
+ */
+export function archetypeCorrelations(games) {
   const buckets = new Map();  // key -> { sxy, sxx, syy, n }
   const add = (key, a, b) => {
     const s = buckets.get(key) ?? { sxy: 0, sxx: 0, syy: 0, n: 0 };
@@ -96,10 +107,8 @@ export function fitCorrelations({ scoring = PPR, minGames = 6 } = {}) {
       for (let j = i + 1; j < list.length; j++) {
         const a = list[i], b = list[j];
         if (a.player_id === b.player_id) continue;
-        const rel = a.team === b.team ? 'team' : 'opp';
-        // Sort the position pair so QB|WR and WR|QB land in one bucket.
-        const [p1, p2] = [a.position, b.position].sort();
-        const key = `${p1}|${p2}|${rel}`;
+        // Sorted position pair, so QB|WR and WR|QB land in one bucket.
+        const key = pairArchetype(a, b);
         // Residuals are already standardised, so this is a correlation directly.
         if (a.position <= b.position) add(key, a.z, b.z);
         else add(key, b.z, a.z);
@@ -107,17 +116,31 @@ export function fitCorrelations({ scoring = PPR, minGames = 6 } = {}) {
     }
   }
 
+  return new Map([...buckets].map(([key, s]) => [key, { r: s.sxx && s.syy ? s.sxy / Math.sqrt(s.sxx * s.syy) : 0, n: s.n }]));
+}
+
+/** Clamp a fitted correlation so a degenerate estimate cannot make the matrix unusable later. */
+export const clampCorrelation = r => Math.max(-0.6, Math.min(0.85, r));
+
+/**
+ * Fit archetype correlations from historical weekly boxscores.
+ *
+ * Correlation is measured on *residuals* — each player's score minus his own mean —
+ * because otherwise the estimate is dominated by the fact that good players outscore
+ * bad ones every week, which is not correlation in any useful sense.
+ */
+export function fitCorrelations({ scoring = PPR, minGames = 6 } = {}) {
+  const games = sameGameResiduals({ scoring, minGames });
+
   const out = [];
   const stmt = db.prepare(`INSERT INTO correlation_estimates (key, correlation, pairs, fitted_at)
     VALUES (?,?,?,datetime('now'))
     ON CONFLICT(key) DO UPDATE SET correlation=excluded.correlation, pairs=excluded.pairs, fitted_at=excluded.fitted_at`);
-  for (const [key, s] of buckets) {
-    if (s.n < MIN_PAIRS) continue;
-    const r = s.sxx && s.syy ? s.sxy / Math.sqrt(s.sxx * s.syy) : 0;
-    // Guard against a degenerate estimate making the matrix unusable later.
-    const clamped = Math.max(-0.6, Math.min(0.85, r));
-    stmt.run(key, clamped, s.n);
-    out.push({ key, correlation: +clamped.toFixed(4), pairs: s.n });
+  for (const [key, { r, n }] of archetypeCorrelations(games)) {
+    if (n < MIN_PAIRS) continue;
+    const clamped = clampCorrelation(r);
+    stmt.run(key, clamped, n);
+    out.push({ key, correlation: +clamped.toFixed(4), pairs: n });
   }
   _cache = null;
   return out.sort((a, b) => b.correlation - a.correlation);
@@ -136,6 +159,8 @@ function table() {
 
 /** Fallbacks used when an archetype was never fitted, so the matrix is always complete. */
 const DEFAULTS = { team: 0.05, opp: 0.02 };
+/** The same defaults, for a measurement that must price an unfitted archetype as the sim does. */
+export const CORRELATION_DEFAULTS = Object.freeze({ ...DEFAULTS });
 
 /**
  * What the correlated draws are built from, for a surface that shows a spread, a

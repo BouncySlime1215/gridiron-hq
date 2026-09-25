@@ -107,9 +107,12 @@ test('heldOutVerdict: the interval must clear 0 and shocks-on may not overshoot 
 });
 
 test('heldOutTailCheck: passes on a shocked world, fails on a Gaussian one (fixed keys)', { timeout: 240_000 }, () => {
-  const opts = { q: 0.9, draws: 60_000, B: 400, key: 5 };
+  const opts = { q: 0.9, reps: 60, B: 400, key: 5 };
   const run = nu => {
-    const log = syntheticLog({ seasons: [2021, 2022, 2023, 2024, 2025, 2026, 2027], nu, key: nu ?? 0 });
+    // Twelve held-out seasons: one season of QB-WR pairs is too few tail events for the
+    // interval to clear 0 even when the shock is real (see the TDD record's power note).
+    const seasons = Array.from({ length: 16 }, (_, i) => 2021 + i);
+    const log = syntheticLog({ seasons, nu, key: nu ?? 0 });
     const train = C.residualsFromLog(log, { minGames: 6, until: 2024 });
     const test = C.residualsFromLog(log, { minGames: 6, from: 2025 });
     return H.heldOutTailCheck(train, test, opts);

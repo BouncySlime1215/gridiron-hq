@@ -3,7 +3,7 @@
  *
  * Same harness as warroom-e2e.test.js: the plans file is written by the REAL producer
  * (make-producer-plans.mjs, five made-up leagues), served by the REAL route, read by the
- * REAL useWarRoom hook and drawn by the REAL WarRoomV2 (Trades → Next move's mount) on a small
+ * REAL useWarRoom hook and drawn by the REAL TodayPanel / TradesPlanner / CoachDrawer (the pages' mounts) on a small
  * DOM, so buttons are really pressed and every write goes through the real routes.
  *
  * Behaviours (one test each):
@@ -92,21 +92,44 @@ globalThis.__warRoomApiCall = api;
 const { loadWarRoom } = await import('./helpers/warroom-tsx.mjs');
 const wr = await loadWarRoom();
 const { React, mount } = await domRenderer();
-const { default: WarRoomV2 } = await wr.mod('WarRoomV2');
+const { default: TodayPanel } = await wr.mod('TodayPanel');
+const { default: TradesPlanner } = await wr.mod('TradesPlanner');
+const { default: HealthSheet } = await wr.mod('HealthSheet');
+const { CoachDrawer, useWarRoomCoach } = await wr.mod('coach/index');
 const { useWarRoom } = await wr.mod('useWarRoom');
 const { hisScreenPath } = await wr.mod('HisScreen');
 const { heroStatus, valueEdgeText, playerParts, SAFE_TO_SEND } = await wr.mod('heroStatus');
 const { FIXED_QUESTIONS } = await wr.mod('coach/CoachDrawer');
 const { watchItems, WATCH_MAX } = await wr.mod('today');
-const { tradeWith } = await wr.mod('WarRoomV2');
 
-/** What Trades → Next move does (pages/Trades.tsx): useWarRoom(activeId), then WarRoomV2. */
+/**
+ * The app's composition of the planner, as the pages draw it now that the full-screen War Room shell
+ * is gone: Today (TodayPanel: the hero deck, Watching, season progress), Trades → Go get and Find deals
+ * → Flips (TradesPlanner), the health sheet (Settings → Health's brain check) and the one Coach drawer.
+ * A small switcher stands in for the app's navigation: a button per screen (data-screen) and a panel
+ * per screen (data-screen-panel), so the tests press real buttons.
+ */
+const SCREENS = ['today', 'next', 'goget', 'market'];
 function Host({ initial }) {
-  const [id, setId] = React.useState(initial);
+  const [id] = React.useState(initial);
+  const [screen, setScreen] = React.useState('today');
+  const [coachOpen, setCoachOpen] = React.useState(false);
+  const [healthOpen, setHealthOpen] = React.useState(false);
+  const [autoAsk, setAutoAsk] = React.useState(null);
   const { data } = useWarRoom(id);
+  const coach = useWarRoomCoach({ leagueId: id, leagues: [id], plans: data?.enabled ? data : undefined, onLeagueChange() {} });
   if (!data) return React.createElement('p', null, 'loading');
-  return React.createElement(WarRoomV2, { view: data, activeId: id, onLeague: setId, onExit() {},
-    leagues: [...LEAGUES, 7].map(l => ({ id: l, name: null })) });
+  const ask = q => { if (q) setAutoAsk(q); setCoachOpen(true); };
+  const h = React.createElement;
+  return h('div', { 'data-testid': 'planner-host' },
+    h('nav', null, ...SCREENS.map(s => h('button', { key: s, type: 'button', 'data-screen': s, 'aria-selected': String(screen === s), onClick: () => setScreen(s) }, s)),
+      h('button', { type: 'button', 'data-testid': 'health-chip', onClick: () => setHealthOpen(true) }, 'health')),
+    h('div', { 'data-screen-panel': 'today', hidden: screen !== 'today' }, h(TodayPanel, { view: data, leagueId: id, onAsk: ask })),
+    screen === 'next' && h('div', { 'data-screen-panel': 'next' }, h(TradesPlanner, { part: 'next', view: data, leagueId: id, onAsk: ask })),
+    screen === 'goget' && h('div', { 'data-screen-panel': 'goget' }, h(TradesPlanner, { part: 'goget', view: data, leagueId: id, onAsk: ask })),
+    screen === 'market' && h('div', { 'data-screen-panel': 'market' }, h(TradesPlanner, { part: 'market', view: data, leagueId: id, onAsk: ask })),
+    h(HealthSheet, { view: data, open: healthOpen, onClose: () => setHealthOpen(false) }),
+    h(CoachDrawer, { coach, plans: data, open: coachOpen, onClose: () => setCoachOpen(false), autoAsk, onAutoAsked: () => setAutoAsk(null) }));
 }
 
 globalThis.__warRoomApi = {};
@@ -128,7 +151,7 @@ const mounted = [];
 async function open(id = 4) {
   const ui = mount(React.createElement(Host, { initial: id }));
   mounted.push(ui);
-  await waitFor(() => one(ui.container, 'data-testid', 'hero-card') || one(ui.container, 'data-testid', 'war-room-v2'), 3000, 'the War Room v2');
+  await waitFor(() => one(ui.container, 'data-testid', 'hero-card') || one(ui.container, 'data-testid', 'no-move-hero'), 3000, 'the planner');
   await waitFor(() => calls.some(c => c.path === '/warroom/layout'), 3000, 'the Coach layout read');
   await new Promise(r => setTimeout(r, 20));
   return ui;
@@ -153,13 +176,11 @@ test.after(() => {
   fs.rmSync(temp, { recursive: true, force: true });
 });
 
-test('V1: the new layout is the default and opens on Today; Coach is closed', async () => {
+test('V1: the planner opens on Today (hero, Watching, season progress) with no War Room shell; Coach is closed', async () => {
   const ui = await open();
-  assert.ok(one(ui.container, 'data-testid', 'war-room-v2'), 'v2 root');
-  assert.equal(one(ui.container, 'data-testid', 'war-room-grid'), null, 'not the classic grid');
+  assert.equal(one(ui.container, 'data-testid', 'war-room-v2'), null, 'no full-screen War Room shell');
+  assert.equal(one(ui.container, 'class', 'wr-bar2'), null, 'no War Room top bar');
   assert.equal(screenBtn(ui, 'today').getAttribute('aria-selected'), 'true');
-  assert.deepEqual(byAttr(ui.container, 'data-screen').filter(e => e.localName === 'button').map(e => e.getAttribute('data-screen')),
-    ['today', 'goget', 'market', 'league']);
   const card = one(ui.container, 'data-testid', 'move-card');
   assert.equal(card.getAttribute('data-move'), nm.move_id, 'the hero is next_move');
   assert.ok(one(card, 'data-testid', 'hero-card'));
@@ -168,17 +189,12 @@ test('V1: the new layout is the default and opens on Today; Coach is closed', as
   assert.ok(prog.includes(L4.destination.value.goal.value.label), 'the goal');
   const st = L4.itinerary.value;
   assert.ok(prog.includes(`${st.stops.filter(x => x.status === 'done').length} done · ${st.stops_left} left`), prog);
-  for (const other of ['goget', 'market', 'league']) assert.equal(one(ui.container, 'data-screen-panel', other), null, `${other} is not drawn`);
+  for (const other of ['next', 'goget', 'market']) assert.equal(one(ui.container, 'data-screen-panel', other), null, `${other} is not drawn`);
   const drawer = one(ui.container, 'data-testid', 'coach-drawer');
   assert.doesNotMatch(drawer.getAttribute('class'), /wr-open/, 'Coach is closed by default');
   assert.equal(drawer.getAttribute('aria-hidden'), 'true');
   assert.equal(one(ui.container, 'data-testid', 'health-sheet'), null, 'health is a chip until tapped');
   assert.match(textOf(one(ui.container, 'data-testid', 'deck-count')), new RegExp(`^1 of ${L4.alternatives.value.length}$`));
-  // One league picker (target first), no floating Coach button over the page.
-  const picker = one(ui.container, 'data-testid', 'league-picker');
-  assert.deepEqual(byAttr(picker, 'data-league').map(e => e.getAttribute('data-league')), ['4', '7']);
-  assert.equal(one(ui.container, 'class', 'wr-coach-fab'), null);
-  assert.ok(one(ui.container, 'data-testid', 'coach-tab'), 'phones get Coach as a tab');
 });
 
 test('V2: the hero shows partner, give / get chips, chance with its guess pill, title odds and value edge', async () => {
@@ -290,18 +306,19 @@ test('V5: Go get: target -> paths -> the offer composer; a picked deck card logs
   if (s1.walk_away.status === 'ok') assert.ok(textOf(comp).includes(`${n(s1.walk_away.value.max_give)} for ${n(s1.get)}`), 'walk-away package');
   assert.ok(one(comp, 'aria-label', 'If he says'), 'the reply table');
   if (s1.message.status === 'ok') assert.ok(textOf(comp).includes(s1.message.value), 'the message text');
-  // Replies log only for the deck's picked card: pick it on Today, then log from Go get.
-  if (firstPath.move_id === nm.move_id) {
-    assert.equal(button(comp, 'He did this'), null, 'replies log only once the card is picked');
-    await go(ui, 'today');
-    click(button(ui.container, /^Copy (message|blocked)$/));
-    await waitFor(() => button(ui.container, 'I sent it'), 2000, 'picked');
-    const p2 = await go(ui, 'goget');
-    if (withPath) pickTarget(p2, withPath.player);
-    await waitFor(() => button(one(p2, 'data-panel', 'composer'), 'He did this'), 2000, 'the reply buttons');
-    click(button(one(p2, 'data-panel', 'composer'), 'He did this'));
+  // Replies log only for the deck's picked card, from Trades → Next move's offer fold (the War Room
+  // shell used to relay the picked card to Go get; the deck and its offer now sit together).
+  {
+    const nx = await go(ui, 'next');
+    const fold = await waitFor(() => one(nx, 'data-panel', 'composer'), 2000, 'the offer fold under the deck');
+    assert.equal(button(fold, 'He did this'), null, 'replies log only once the card is picked');
+    click(button(nx, /^Copy (message|blocked)$/));
+    await waitFor(() => button(nx, 'I sent it'), 2000, 'picked');
+    await waitFor(() => button(one(nx, 'data-panel', 'composer'), 'He did this'), 2000, 'the reply buttons');
+    click(button(one(nx, 'data-panel', 'composer'), 'He did this'));
     await waitFor(() => requestsOf(4, 'offer.reply').length === 1, 3000, 'the offer.reply row');
     assert.equal(requestsOf(4, 'offer.reply')[0].payload.move_id, nm.move_id);
+    await go(ui, 'goget');
   }
   // Approve on a target that is not in the plan posts one target.approve.
   const p3 = one(ui.container, 'data-screen-panel', 'goget');
@@ -335,9 +352,7 @@ test('V6: every screen draws its contract sections', async () => {
   if (L4.speed_curve.status === 'ok') {
     assert.ok(all(one(ui.container, 'data-panel', 'catch'), e => e.localName === 'svg' && e.getAttribute('role') === 'img').length, 'speed curve draws');
   }
-  const league = await go(ui, 'league');
-  assert.ok(one(league, 'data-panel', 'people'), 'the League screen');
-  // Health: the chip opens the brain report sheet.
+  // Health: the chip opens the brain report sheet (Settings → Health's brain check in the app).
   click(one(ui.container, 'data-testid', 'health-chip'));
   const sheet = await waitFor(() => one(ui.container, 'data-testid', 'health-sheet'), 2000, 'the health sheet');
   const brain = one(sheet, 'data-panel', 'brain_report');
@@ -356,7 +371,7 @@ test('V7: untouchable targets stay hidden with their label; FantasyPros is never
   assert.equal(textOf(one(ui.container, 'data-testid', 'targets-untouchable')), `1 hidden: ${name} (Team ${t0.owner}, on his untouchable list)`);
   assert.equal(one(ui.container, 'data-target-player', t0.player), null, 'the untouchable player is not a target card');
   let seen = textOf(ui.container);
-  for (const id of ['today', 'goget', 'market', 'league']) {
+  for (const id of ['today', 'goget', 'market']) {
     await go(ui, id);
     seen += ` ${textOf(ui.container)}`;
   }
@@ -386,25 +401,14 @@ test('V8: Coach drawer: fixed questions; "Ask Coach about this" answers the next
   assert.ok(all(drawer, e => e.localName === 'input' && e.getAttribute('aria-label') === 'Ask Coach')[0], 'free text stays, below');
   click(one(drawer, 'aria-label', 'Close Coach'));
   await waitFor(() => !/wr-open/.test(drawer.getAttribute('class')), 2000, 'the drawer closes');
-  // A League card opens Coach already asked about a trade with that manager.
-  const league = await go(ui, 'league');
-  const tile = all(league, e => e.localName === 'button' && e.hasAttribute('data-team'))[0];
-  assert.ok(tile, 'a manager card');
-  {
-    const team = tile.getAttribute('data-team');
-    click(tile);
-    await waitFor(() => /wr-open/.test(drawer.getAttribute('class')), 2000, 'the drawer opens from League');
-    await waitFor(() => asks().at(-1)?.body?.question === tradeWith(team), 3000, 'the pre-asked question');
-    assert.equal(textOf(all(one(drawer, 'data-testid', 'coach-custom-q'), e => e.localName === 'button')[0]), tradeWith(team));
-    assert.deepEqual(asks().at(-1).body.context.move_id, nm.move_id, 'the plan on screen rides along as context');
-  }
+  // A manager's 'Ask Coach' (Trades → People, ManagerCard) is tested at the source in trades-cleanup.test.js.
 });
 
-test('V9: the classic dashboard is retired: no "Classic layout" entry, and the War Room menu leads to People', async () => {
+test('V9: the War Room shell is gone: no top bar, no screen tabs of its own, no second Coach button', async () => {
   const ui = await open();
-  assert.equal(one(ui.container, 'data-testid', 'layout-toggle'), null, 'no Classic layout toggle');
-  assert.equal(one(ui.container, 'data-testid', 'war-room-grid'), null, 'no classic grid');
-  assert.ok(one(ui.container, 'data-testid', 'war-room-v2'), 'the War Room (v2) is what renders');
+  for (const cls of ['wr-bar2', 'wr-nav', 'wr-tabbar', 'wr-coach-btn']) assert.equal(one(ui.container, 'class', cls), null, cls);
+  assert.equal(one(ui.container, 'data-testid', 'coach-fab'), null);
+  assert.equal(one(ui.container, 'data-testid', 'layout-toggle'), null);
 });
 
 // B1, kept from the retired classic War Room's end-to-end test (warroom-e2e.test.js): the route
@@ -481,5 +485,5 @@ test('V12: no move clears: a calm hero, the closest misses folded, friendly mode
   const more = all(hero, e => e.localName === 'details')[0];
   assert.equal(more.hasAttribute('open'), false, 'the closest misses start folded');
   assert.ok(one(more, 'data-testid', 'near-miss') && one(more, 'data-testid', 'all-in'), 'both cards are inside');
-  assert.doesNotMatch(textOf(one(ui.container, 'data-fact', 'risk')), /Fuck it/);
+  assert.doesNotMatch(textOf(hero), /Fuck it/, 'the hero uses friendly mode names (the top strip that also did is gone with the shell)');
 });

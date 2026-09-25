@@ -133,6 +133,7 @@ const tradeCardSwaps = () => [
   ["'./trade/PlayerEvidence'", namedStub([])],
   ["'./trade/RiskStrip'", namedStub([])],
   ["'./warroom/HisScreen'", namedStub([])],
+  ["'./warroom/TradeSides'", namedStub([])],
   ["'./trade/SentOfferButton'", namedStub([])],
   ["'./trade/types'", namedStub(['hasEvidence'])],
 ];
@@ -181,8 +182,9 @@ const managerBoardSwaps = () => [
   ["'../../lib/errorSanitize'", errorSanitizeUrl()],
   ["'../PageState'", namedStub(['PageError', 'PageLoading'])],
   ["'../../api'", namedStub(['api', 'useApi'])],
-  ["'../ui/DesignSystem'", namedStub(['Avatar', 'Chip'])],
-  ["'./types'", namedStub(['TIERS', 'TIER_SHORT', 'TIER_STYLE', 'MIN_OBSERVATIONS', 'isThin', 'asText', 'metricLabel'])],
+  ["'./ManagerCard'", namedStub([])],
+  ["'../../state/coach'", namedStub(['useCoach'])],
+  // (types are type-only imports now; the card's helpers moved to ManagerCard.tsx, stubbed above)
   ["'react-router-dom'", linkUrl],
 ];
 

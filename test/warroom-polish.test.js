@@ -6,12 +6,12 @@
  * audit saw: next_move unknown with a reason, an empty deck, a flip map that repeats one
  * player four times with no fair legs, catch_up's all-in line and a broken number audit.
  *
- *  1. the league rail never reads "rank 6 of 5": out-of-range ranks are failed by the view;
+ *  1. no "rank 6 of 5": out-of-range ranks are failed by the view;
  *  2. NEXT MOVE with nothing cleared shows the reason, then the closest path and the all-in
  *     option, each labelled "did not clear the fresh-dice check";
  *  3. the flip map shows one row per player (its best leg); rows with no fair legs sit
  *     behind "Show all";
- *  4. the top strip keeps title odds now -> planned, the risk dial and both dots on their own row;
+ *  4. (retired with the War Room top strip: the Trades header and Settings -> Health carry these now);
  *  5. an empty Coach dock greets and offers four prompts that send on click;
  *  6. the Coach footer says "none clears this week" + the reason, not "not computed yet";
  *  7. number health reads the audit (the contract shape, and the live number_audit when
@@ -25,7 +25,8 @@ import os from 'node:os';
 import path from 'node:path';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { loadWarRoom, textOf, WARROOM_DIR } from './helpers/warroom-tsx.mjs';
+import { loadWarRoom, textOf } from './helpers/warroom-tsx.mjs';
+import { plannerRenderer } from './helpers/warroom-planner.mjs';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-wr-polish-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
@@ -45,10 +46,7 @@ const LEAGUE4 = {"league":4,"me":"5","names":{"2":"Player 2 (RB)","4":"Player 4 
 const ON = { enabled: true, preview: false };
 const plansOf = (...entries) => ({ status: 'ok', entries: structuredClone(entries), as_of: '2026-09-24T07:29:00.000Z', id: 'plans@1' });
 const viewOf = (entry = LEAGUE4) => buildWarRoomView(entry.league, plansOf(entry), ON);
-const LEAGUES = [1, 2, 3, 4, 5].map(id => ({ id, name: `League ${id}` }));
 
-const { default: WarRoom } = await wr.mod('WarRoomV2'); // the classic dashboard is retired; the War Room is WarRoomV2
-const { default: TopStrip, rankInRange } = await wr.mod('TopStrip');
 const { default: FlipMap, groupFlips } = await wr.mod('FlipMap');
 const { default: NoMoveCard, NOT_CLEARED } = await wr.mod('NoMoveCard');
 const { default: TargetPicker } = await wr.mod('TargetPicker');
@@ -58,13 +56,9 @@ const coachLib = await wr.mod('coach/warroomCoach');
 const { useWarRoomCoach } = await wr.mod('coach/useWarRoomCoach');
 
 const render = el => renderToStaticMarkup(el);
-const room = (view, activeId = 4) => render(React.createElement(WarRoom, { view, leagues: LEAGUES, activeId, onLeague() {}, onExit() {} }));
-const panel = (html, id) => {
-  const at = html.indexOf(`data-panel="${id}"`);
-  assert.ok(at > 0, `panel ${id}`);
-  const next = html.indexOf('data-panel="', at + 12);
-  return html.slice(at, next > 0 ? next : html.indexOf('class="wr-dots"'));
-};
+const planner = await plannerRenderer(wr);
+/** The Next move part as Trades mounts it. */
+const nextMove = view => planner(view, { parts: ['next'] });
 
 test('the fixture is a valid league entry with the audit-time shape', () => {
   assert.deepEqual(validateLeague(LEAGUE4, '$').errors, []);
@@ -86,14 +80,12 @@ test('1: rankAttention ranks 1..of with one row per league', () => {
   assert.equal(attentionProblem({ rank: 6, of: 5 }), 'rank 6 of 5 is out of range');
   assert.equal(attentionProblem({ rank: 5, of: 5 }), null);
   assert.equal(attentionProblem({ rank: 0, of: 5 }), 'rank 0 of 5 is out of range');
-  assert.equal(rankInRange(6, 5), false);
-  assert.equal(rankInRange(5, 5), true);
 });
 
 /* ------------------------------------------------------- 2. next move */
 
 test('2: NEXT MOVE with nothing cleared: the reason, then the closest path and the all-in option', () => {
-  const html = panel(room(viewOf()), 'next');
+  const html = nextMove(viewOf());
   const text = textOf(html);
   const why = text.indexOf('None of the 116 paths searched clears the sliders and the fresh-dice check this week');
   const near = text.indexOf('Closest path');
@@ -126,18 +118,6 @@ test('2: the no-move card asks Coach, and says so when the plan wrote nothing to
 });
 
 /* -------------------------------------------------------- 3. flip map */
-
-/* ------------------------------------------------------- 4. top strip */
-
-test('4: the top strip keeps title odds now -> planned, the risk dial and both dots', () => {
-  const html = render(React.createElement(TopStrip, { view: viewOf(), leagues: LEAGUES, activeId: 4, onLeague() {}, onExit() {}, theme: 'light', onTheme() {} }));
-  const text = textOf(html);
-  assert.match(text, /Title odds 0\.1% → plan 0\.0%/);
-  assert.match(html, /data-fact="risk"[\s\S]*Balanced/);
-  assert.match(html, /data-fact="checks"[\s\S]*wr-dot-grey[\s\S]*brain[\s\S]*data-health="red"/);
-  const css = fs.readFileSync(path.join(WARROOM_DIR, 'warroom.css'), 'utf8');
-  assert.match(css, /\.wr-top \.wr-facts \{ order: 10; flex: 1 1 100%; overflow: visible;/, 'the facts row is never squeezed out');
-});
 
 /* ----------------------------------------------------------- 5. coach */
 

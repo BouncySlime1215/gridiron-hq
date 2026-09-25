@@ -32,9 +32,56 @@
  * fails if another module computes a lineup-week percentile on its own.
  */
 import { leagueWorld } from './league-world.js';
+import { projEspnFlag, ESPN_CAPTURED_POSITIONS } from './espn-week-projection.js';
+import { playerDraw, hashUniform, residuals, REPLAY_RUNS, REPLAY_SEED } from './range-residuals.js';
 
 export const WEEKLY_RANGE_PERCENTILES = Object.freeze({ floor: 0.10, median: 0.50, ceiling: 0.90 });
 export const WEEKLY_RANGE_METHOD = 'percentiles of the lineup total over the league world\'s correlated runs';
+/**
+ * PROJ-ESPN Q2 (GRIDIRON_PROJ_ESPN on, the served week): each QB/RB/WR/TE starter scores
+ * max(0, served ESPN mean + k x Q_pos(u)) in every run, u being his draw's rank in his own
+ * world column (so the copula's same-game correlation and the paired runs across a trade's two
+ * sides are kept, only the centre and the width change); K / D/ST keep the world's fixed
+ * projection. k is range-calibration.js's fitted width (80% p10-p90 coverage).
+ */
+export const WEEKLY_RANGE_METHOD_ESPN = 'percentiles of the lineup total: served ESPN mean + k x positional residual quantiles, ranked on the league world\'s correlated runs';
+
+/**
+ * The served-week centres for a world's week under PROJ-ESPN, from the world's own asset
+ * universe (trade-engine.js, the one weekly producer): null when the flag is off or `week` is
+ * not the universe's served week (ESPN captures only that week; other weeks keep the world).
+ */
+function espnCentres(world, week) {
+  if (!projEspnFlag().on) return null;
+  const assets = world?.prep?.assets;
+  const ctx = assets?.context;
+  if (ctx?.week_projection?.source !== 'espn_frozen' || Number(ctx.week) !== Number(week)) return null;
+  return { status: ctx.week_projection.status, reason: ctx.week_projection.reason, k: ctx.week_projection.range_k?.k,
+    assets };
+}
+
+// Per world-week: each column's run ranks as uniforms, built on first use.
+const rankCache = new WeakMap();
+function columnUniforms(wk, col, runs) {
+  let byCol = rankCache.get(wk);
+  if (!byCol) { byCol = new Map(); rankCache.set(wk, byCol); }
+  let u = byCol.get(col);
+  if (u) return u;
+  const vals = new Float64Array(runs);
+  for (let r = 0; r < runs; r++) vals[r] = wk.byRun[r].vals[col];
+  const order = Array.from({ length: runs }, (_, i) => i).sort((a, b) => vals[a] - vals[b]);
+  u = new Float64Array(runs);
+  // Ties share their mid-rank, so the result does not depend on sort stability.
+  for (let i = 0; i < runs;) {
+    let j = i;
+    while (j + 1 < runs && vals[order[j + 1]] === vals[order[i]]) j++;
+    const mid = ((i + j) / 2 + 0.5) / runs;
+    for (let t = i; t <= j; t++) u[order[t]] = mid;
+    i = j + 1;
+  }
+  byCol.set(col, u);
+  return u;
+}
 
 /** The value at quantile q of an ascending array, at index floor(q x n). */
 export function quantileAt(sorted, q) {
@@ -57,23 +104,65 @@ export function lineupWeekTotals(world, starterIds, week) {
   const index = wk.byRun[0]?.index;
   // Player ids are the asset universe's; a caller may hold them as strings.
   const lookup = (map, id) => map?.get(id) ?? map?.get(String(id)) ?? map?.get(Number(id));
-  // Each starter is a draw column, a fixed K / D/ST projection, or nothing (0).
+  const espn = espnCentres(world, week);
+  if (espn && espn.status !== 'ok') return { error: `the served weekly projection is unknown: ${espn.reason}` };
+  // Each starter is a draw column, a fixed K / D/ST projection, or nothing (0); under
+  // PROJ-ESPN a skill starter is his served ESPN mean plus k x his residual at the column's rank.
   const cols = [];
-  let fixed = 0, covered = 0;
+  const calibrated = [];
+  let fixed = 0, covered = 0, unknown = 0;
+  const table = espn ? residuals() : null;
   for (const id of ids) {
+    const a = espn ? lookup(espn.assets, id) : null;
+    if (a && ESPN_CAPTURED_POSITIONS.has(a.position) && a.week_projection) {
+      if (!Number.isFinite(a.current_week_ppg)) { unknown++; continue; }
+      const i = lookup(index, id);
+      calibrated.push({ mean: a.current_week_ppg, position: a.position, id: Number(a.id),
+        u: i !== undefined ? columnUniforms(wk, i, world.runs) : null });
+      covered++;
+      continue;
+    }
     const i = lookup(index, id);
     if (i !== undefined) { cols.push(i); covered++; continue; }
     const k = lookup(wk.kdst, id);
     if (k != null) { fixed += k; covered++; }
   }
+  const seed = Number(world.key?.seed ?? 0) >>> 0;
   const totals = new Float64Array(world.runs);
   for (let run = 0; run < world.runs; run++) {
     const vals = wk.byRun[run].vals;
     let t = fixed;
     for (let c = 0; c < cols.length; c++) t += vals[cols[c]];
+    for (let c = 0; c < calibrated.length; c++) {
+      const s = calibrated[c];
+      // A starter the world does not simulate still gets a reproducible draw keyed on his id.
+      const u = s.u ? s.u[run] : hashUniform(seed, s.id, Number(week), run);
+      t += playerDraw(s.mean, s.position, u, espn.k, table);
+    }
     totals[run] = t;
   }
-  return { totals, covered, starters: ids.length };
+  return { totals, covered, starters: ids.length,
+    ...(espn ? { basis: 'espn_calibrated', k: espn.k, unknown } : {}) };
+}
+
+/**
+ * The same marginal on independent seeded uniforms: p10 / p50 / p90 of a lineup total from its
+ * starters' means ([{ position, mean }]). Used ONLY to replay finished weeks for the width fit
+ * and the weekly coverage log (range-calibration.js); `key` makes a team-week reproducible.
+ */
+export function replayBand(starters, k, { runs = REPLAY_RUNS, seed = REPLAY_SEED, key = 0, table = residuals() } = {}) {
+  const totals = new Float64Array(runs);
+  for (let r = 0; r < runs; r++) {
+    let t = 0;
+    for (let j = 0; j < starters.length; j++) {
+      const s = starters[j];
+      t += playerDraw(s.mean, s.position, hashUniform(seed, key, j, r), k, table);
+    }
+    totals[r] = t;
+  }
+  totals.sort();
+  return { p10: quantileAt(totals, WEEKLY_RANGE_PERCENTILES.floor), p50: quantileAt(totals, WEEKLY_RANGE_PERCENTILES.median),
+    p90: quantileAt(totals, WEEKLY_RANGE_PERCENTILES.ceiling) };
 }
 
 /**
@@ -83,7 +172,18 @@ export function lineupWeekTotals(world, starterIds, week) {
  */
 export function worldWeekMeans(world, week) {
   if (!world || world.fail) return null;
-  return world.draws?.get(Number(week))?.expected ?? null;
+  const expected = world.draws?.get(Number(week))?.expected ?? null;
+  const espn = expected ? espnCentres(world, week) : null;
+  if (!espn || espn.status !== 'ok') return expected;
+  // PROJ-ESPN: a skill player's mean is his served ESPN number (an unknown one is left out).
+  const out = new Map();
+  for (const [id, m] of expected) {
+    const a = espn.assets.get(id) ?? espn.assets.get(Number(id));
+    if (a && ESPN_CAPTURED_POSITIONS.has(a.position) && a.week_projection) {
+      if (Number.isFinite(a.current_week_ppg)) out.set(id, a.current_week_ppg);
+    } else out.set(id, m);
+  }
+  return out;
 }
 
 /** The weekly range of a set of run totals (unsorted is fine). */
@@ -116,7 +216,8 @@ export function lineupWeekRange(world, starterIds, week) {
     coverage: t.starters ? +(t.covered / t.starters).toFixed(2) : 0,
     week: Number(week),
     percentiles: 'p10 / p50 / p90',
-    method: WEEKLY_RANGE_METHOD
+    method: t.basis ? WEEKLY_RANGE_METHOD_ESPN : WEEKLY_RANGE_METHOD,
+    ...(t.basis ? { basis: t.basis, k: t.k, unknown_starters: t.unknown } : {})
   };
 }
 

@@ -40,7 +40,9 @@ export const SOURCE_IDS = Object.freeze([
   // "activity baseline (E1 pending)"; clone.accept stays the source with the flag off.
   'activity.accept',
   // LIVE-BLEND: P(yes) from the online-weighted blend of the activity baseline and the clone (p-yes-blend.js).
-  'blend.accept'
+  'blend.accept',
+  // BUY-LOW: usage-up / points-down read from ffopportunity xFP and usage (campaign/buy-low.js).
+  'usage.xfp'
 ]);
 
 export const UNITS = Object.freeze(['title_odds', 'playoff_odds', 'points_per_week', 'probability', 'market_value']);
@@ -265,11 +267,16 @@ const hisSide = obj({
   currency: obj({ wants: arr(str), sells: arr(str) })
 });
 
+/** BUY-LOW (GRIDIRON_BUY_LOW=1 only): campaign/buy-low.js#buyLowRow. */
+const buyLowRead = obj({
+  role: oneOf(['detected', 'confirmed']), points_below_expected: num, games: int(1), usage_change: nullable(num), through_week: int(1)
+});
+
 const target = obj({
   player: pid, owner: id, gain_if_landed: numF, p_reach: probF,
   mode_fit: field(oneOf(['fits', 'needs_all_in', 'too_risky_for_safe'])),
   why: field(str), approved: bool, is_plan_target: bool
-}, { reasoning: field(reasoning), his_side: field(hisSide) });
+}, { reasoning: field(reasoning), his_side: field(hisSide), buy_low: field(buyLowRead) });
 
 const brainReport = obj({
   overall: oneOf(['passing', 'not_enough_data', 'failing']),

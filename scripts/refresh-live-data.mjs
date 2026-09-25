@@ -97,6 +97,10 @@ export const FANTASY_LIVE_JOBS = [
   // the grade scores finished weeks against frozen ESPN and our weekly projection.
   'exgb_shadow_predict',
   'exgb_weekly_grade',
+  // PROJ-ESPN (#446): the served weekly projection is the frozen ESPN capture above; this logs
+  // our own number as a shadow, the weekly ranges' realised coverage (+ the Tuesday k refit
+  // rule) and the per-offer value-gain features. Hourly by its own maxAge.
+  'proj_espn',
   // 2026-09-18 structural relook: both fully configured in scheduler.js already
   // (refreshNflModelGrowth, refreshFfOpportunity) but scheduler-only, so player_week_usage
   // was stuck at the season's first week while SCHEDULER_DISABLED=1 — silently inverting

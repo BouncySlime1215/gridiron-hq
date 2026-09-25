@@ -301,6 +301,20 @@ export function radarReads(svc, { formatKey = null, windowHours = 48 } = {}) {
 }
 
 /** Executed TRADE_ACCEPT rows this season in league_transactions_raw (0 when the table is missing). */
+/**
+ * SEARCH-WIDE (#406 finding 1): this league's processed waiver claims this season, all teams:
+ * won = ESPN executed the claim; lost = another team got the player (FAILED_INVALIDPLAYERSOURCE).
+ * Other failures (the drop already gone), cancels and pending claims say nothing about competition.
+ * No transaction table: null (claims then fail closed).
+ */
+export function waiverRecord(svc, { leagueId, season }) {
+  if (!hasTable(svc, 'league_transactions_raw')) return null;
+  const r = svc.db.row(`SELECT SUM(status = 'EXECUTED') AS won, SUM(status = 'FAILED_INVALIDPLAYERSOURCE') AS lost
+    FROM league_transactions_raw WHERE league_id = ? AND season = ? AND type = 'WAIVER' AND execution_type = 'PROCESS'`,
+  leagueId, season);
+  return { won: Number(r?.won ?? 0), lost: Number(r?.lost ?? 0) };
+}
+
 export function executedTradeRows(svc, { leagueId, season }) {
   if (!hasTable(svc, 'league_transactions_raw')) return 0;
   return svc.db.row(`SELECT COUNT(DISTINCT tx_id) AS n FROM league_transactions_raw WHERE league_id = ? AND season = ?
@@ -532,6 +546,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     // integration-7: how many executed trades the raw table holds this season, so the planner can fail
     // closed when that ledger comes back missing or empty (never plan without Nick's trade memory).
     executedTradeRows: executedTradeRows(svc, { leagueId, season }),
+    // SEARCH-WIDE: the waiver-claim record a claim's P(yes) is priced on (search-wide.js#claimProbability).
+    ...(claimIds.length ? { waiverRecord: waiverRecord(svc, { leagueId, season }) } : {}),
     cacheStats: () => (fast && rescoreCache ? { ...rescoreCache.stats } : null),
     // Nick's word (the one reader's nick block): never a target, a get or a flip leg (RULINGS 17).
     // Nick's word: other managers' notes, his OWN 'untouchable:' notes (#373, always) and, with the

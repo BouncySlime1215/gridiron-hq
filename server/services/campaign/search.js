@@ -378,7 +378,7 @@ export function twoForOneSummary(stats) {
  * SEARCH-WIDE (search-wide.js; `wide` null = off, today's search): after today's shortlist, the
  * rest of the enumerated paths (a wider depth 3, plus a free-agent claim ending the best 1- and
  * 2-trade paths) are scored in heuristic order until wide.candidates extras or wide.rescoresLeft()
- * runs out. wide: { candidates, rescoresLeft, beam, tierOk, dropOk, claimPool, sink }. Laterals
+ * runs out. wide: { candidates, rescoresLeft, beam, tierOk, dropOk, claimPool, claimP, sink }. Laterals
  * are held to the floor on every candidate, today's shortlist included.
  */
 export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal = 3, shortlist = [8, 12, 8],
@@ -522,14 +522,16 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     const d3w = chipLayer(firsts, 2).map(finish).filter(Boolean);
     // Claims as steps: the best claim ending each of today's 1- and 2-trade paths, then the rest.
     const claimed = [];
-    if (wide.claimPool?.length) {
+    if (wide.claimPool?.length && Number.isFinite(wide.claimP) && wide.claimP > 0 && wide.claimP < 1) {
       for (const c of [...short, ...d1, ...d2].filter(x => x.steps.length < 3)) {
         const last = c.steps[c.steps.length - 1];
         const roster = S.rosterOf(last.state, me);
         const acquired = new Set(c.steps.flatMap(st => st.get.map(String)));
         const cl = bestClaim({ roster, pool: wide.claimPool, playerOf: id => P.get(id), dropOk: wide.dropOk, acquired });
         if (!cl) continue;
-        const st = { team: FREE_AGENT, claim: true, give: [cl.drop], get: [cl.add], p: 1, band: null,
+        // #406 finding 1: p is the league's waiver-win rate (search-wide.js#claimProbability), never 1,
+        // so a claim path's expected value and "beats doing nothing" price the chance of losing the claim.
+        const st = { team: FREE_AGENT, claim: true, give: [cl.drop], get: [cl.add], p: wide.claimP, band: null,
           state: S.applyClaim(last.state, me, [cl.drop], [cl.add]) };
         const steps = [...c.steps, st];
         claimed.push({ steps, e: h(steps) });

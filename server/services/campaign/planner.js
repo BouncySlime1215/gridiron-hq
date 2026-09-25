@@ -34,7 +34,7 @@ import { withNeverGive } from './never-give.js';
 import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
 import { excluded } from './partners.js';
 import { tradeMemory, applyTradeMemory, memorySummary, stepPasses, floorOn as tmFloorOn, tradeMemoryOn } from './trade-memory.js';
-import { searchWideFlag, wideBudget, newWideSink, makeDropOk, claimPoolOf, modesFirstSteps, isClaim } from './search-wide.js';
+import { searchWideFlag, wideBudget, newWideSink, makeDropOk, claimPoolOf, modesFirstSteps, isClaim, claimProbability } from './search-wide.js';
 import { floorRead } from './gets-floor.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
 
@@ -282,9 +282,12 @@ export function planLeague(adapter, settings) {
     const tierFloor = floor.sink.floor;
     const scoreOf = typeof adapter.scoreOf === 'function' ? adapter.scoreOf : null;
     const neverDrop = new Set([...untouchable, ...(objective.untouchables ?? [])].map(String));
-    const claimPool = claimPoolOf(adapter, neverDrop);
+    // #406 finding 1: a claim carries the league's waiver-win rate as its p; no rate, no claims.
+    const claimP = claimProbability(adapter.waiverRecord);
+    wideSink.claims.p_yes = claimP;
+    const claimPool = claimP.status === 'ok' ? claimPoolOf(adapter, neverDrop) : [];
     wideSink.claims.pool = claimPool.length;
-    wideBase = { beam: wideSink.budget.beam, sink: wideSink, claimPool,
+    wideBase = { beam: wideSink.budget.beam, sink: wideSink, claimPool, claimP: claimP.p,
       tierOk: id => floorRead(scoreOf, id, tierFloor).passes,
       dropOk: makeDropOk({ scoreOf, floor: tierFloor, untouchable: neverDrop }),
       rescoresLeft: () => wideSink.budget.rescores - (fresh() - fresh0) };

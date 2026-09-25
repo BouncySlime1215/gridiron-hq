@@ -20,6 +20,9 @@ const { SEARCH_WIDE_ENV, searchWideFlag, wideBudget, WIDE_DEFAULTS, FREE_AGENT, 
 const ON = { [SEARCH_WIDE_ENV]: '1' };
 const OFF = {};
 const AS_OF = '2026-09-25T00:00:00.000Z';
+/** A made-up season of processed waiver claims: 22 won, 7 lost to another team -> p = 23/31. */
+const WAIVERS = { won: 22, lost: 7 };
+const CLAIM_P = +(23 / 31).toFixed(4);
 
 /** Depth pieces (scored below 83) on every roster; everyone else is a Blue chip (90). */
 const DEPTH = new Set(['4', '7', '14', '15', '24', '25', '34', '35', '42']);
@@ -41,6 +44,7 @@ const claimAdapter = ({ pool = ['41', '42'], extraPlayers = [], scoreOf = scoreF
   a.freeAgents = [...a.freeAgents, ...extraFa];
   a.claimUniverse = new Set(pool);
   a.scoreOf = scoreOf;
+  a.waiverRecord = WAIVERS;
   return a;
 };
 
@@ -58,7 +62,7 @@ const searchOne = (a, target, wideOpts = null) => {
 const wideOpts = (a, over = {}) => {
   const sink = newWideSink(WIDE_DEFAULTS);
   return { candidates: 100000, rescoresLeft: () => Infinity, beam: WIDE_DEFAULTS.beam, tierOk: tierOkOf(a.scoreOf),
-    dropOk: () => false, claimPool: [], sink, ...over };
+    dropOk: () => false, claimPool: [], claimP: CLAIM_P, sink, ...over };
 };
 
 /* ------------------------------------------------------------------ flag */
@@ -193,7 +197,7 @@ test('W5: a claim ends a 1- or 2-trade path, drops same-position depth with lowe
     assert.ok(i >= 1 && p.steps.length <= 3, 'after 1 or 2 trades');
     const st = p.steps[i];
     assert.equal(st.team, FREE_AGENT);
-    assert.equal(st.p, 1);
+    assert.equal(st.p, CLAIM_P, 'the league\'s waiver-win rate, never 1');
     assert.equal(st.give.length, 1); assert.equal(st.get.length, 1);
     const drop = a.players.get(st.give[0]), add = a.players.get(st.get[0]);
     assert.equal(drop.position, add.position);
@@ -297,4 +301,35 @@ test('W8: flag off, the producer writes no search_wide key', async () => {
   const file = await produce(OFF, () => claimAdapter());
   assert.equal(validatePlans(file).ok, true);
   assert.equal(file.leagues[0]._run.inputs.search_wide, undefined);
+});
+
+/* ---------------------------------------------- #406 finding 1: claim P(yes) */
+
+test('claim P(yes): the league\'s waiver-win rate, smoothed; too few claims or none -> no claims at all', () => {
+  assert.deepEqual(wide.claimProbability({ won: 22, lost: 7 }), { status: 'ok', basis: 'waiver.league_rate', p: CLAIM_P, won: 22, lost: 7, n: 29 });
+  assert.equal(wide.claimProbability({ won: 2, lost: 1 }).status, 'not_enough_data');
+  assert.equal(wide.claimProbability(null).status, 'no_history');
+  const a = claimAdapter();
+  delete a.waiverRecord;
+  const res = planLeague(a, { objective: OBJ, env: ON });
+  assert.equal(res.search_wide.claims.p_yes.status, 'no_history');
+  assert.equal(res.search_wide.claims.pool, 0, 'no rate: no claim is built (fails closed)');
+  assert.equal(res.search_wide.claims.built, 0);
+  const b = planLeague(claimAdapter(), { objective: OBJ, env: ON });
+  assert.equal(b.search_wide.claims.p_yes.p, CLAIM_P);
+});
+
+test('claim P(yes) < 1 is what the path\'s expected value is priced on', async () => {
+  const { pathExpectation } = await import('../server/services/campaign/paths.js');
+  const a = claimAdapter();
+  const pool = a.freeAgents.filter(f => a.claimUniverse.has(String(f.id)));
+  const drop = makeDropOk({ scoreOf: a.scoreOf, floor: 83, untouchable: new Set() });
+  const half = claimsOf([11, 21, 31].flatMap(t => searchOne(a, t, wideOpts(a, { claimPool: pool, dropOk: drop, claimP: 0.5 })).plans));
+  assert.ok(half.length > 0);
+  for (const p of half) {
+    assert.equal(p.steps.at(-1).p, 0.5);
+    assert.equal(p.expected, pathExpectation(p.steps).expected);
+    const sure = pathExpectation(p.steps.map((st, i) => (i === p.steps.length - 1 ? { ...st, p: 1 } : st))).expected;
+    assert.notEqual(p.expected, sure, 'the chance of losing the claim moves the path\'s value');
+  }
 });

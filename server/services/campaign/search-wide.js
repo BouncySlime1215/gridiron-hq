@@ -35,6 +35,26 @@ export const SEARCH_WIDE_BEAM_ENV = 'GRIDIRON_SEARCH_WIDE_BEAM';
  * 14:23Z); a guess until league 4 is timed. beam: distinct first steps the second chip extends.
  */
 export const WIDE_DEFAULTS = Object.freeze({ candidates: 2400, rescores: 2400, beam: 24 });
+/**
+ * #406 review finding 1: a claim's P(yes) is the chance Nick WINS it on waivers, never 1. The
+ * estimate is this league's own record of processed waiver claims this season (all teams):
+ * won = claims ESPN executed, lost = claims that failed because another team got the player
+ * (FAILED_INVALIDPLAYERSOURCE). Laplace-smoothed, (won + 1) / (won + lost + 2). Fewer than
+ * CLAIM_MIN_N decided claims: no estimate, so no claim is built (fails closed). A player who is
+ * a plain free agent (no waiver) is easier than this, so the estimate is conservative.
+ */
+export const CLAIM_MIN_N = 5;
+export const CLAIM_P_BASIS = 'waiver.league_rate';
+export function claimProbability(record) {
+  const won = Number(record?.won), lost = Number(record?.lost);
+  if (!Number.isInteger(won) || !Number.isInteger(lost) || won < 0 || lost < 0) {
+    return { status: 'no_history', reason: 'no waiver-claim record for this league', p: null };
+  }
+  const n = won + lost;
+  if (n < CLAIM_MIN_N) return { status: 'not_enough_data', reason: `${n} decided waiver claims this season (needs ${CLAIM_MIN_N})`, n, p: null };
+  return { status: 'ok', basis: CLAIM_P_BASIS, p: +((won + 1) / (n + 2)).toFixed(4), won, lost, n };
+}
+
 /** Free agents the adapter simulates as claimable (the sim's `universe`), best ros_ppg first. */
 export const CLAIM_POOL_SIZE = 10;
 /** The partner id of a claim step. */

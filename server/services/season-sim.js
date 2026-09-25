@@ -1185,7 +1185,7 @@ function worldFits(w, lg, { runs, scoring, fromWeek, seed, dealIds }) {
  */
 export function tradeImpact(lg, {
   myTeamId, theirTeamId, iGive = [], iGet = [], runs = TRADE_IMPACT_RUNS,
-  scoring = null, fromWeek: requestedWeek = null, seed = null, world = null
+  scoring = null, fromWeek: requestedWeek = null, seed = null, world = null, universe: extraUniverse = []
 }) {
   // Callers no longer pick these: one seed, one run count and the league's own
   // scoring, so every surface shows the same delta for the same deal.
@@ -1208,7 +1208,10 @@ export function tradeImpact(lg, {
   const pairedSeed = seed == null ? tradeImpactSeed(lg) : Number(seed);
   // One shared player universe for both arms: a received player nobody rosters
   // today (a free agent in a claim ladder) is simulated in the "before" arm too.
-  const universe = [...give, ...get];
+  // SEARCH-WIDE (#406, integration-9): a caller rescoring on a world built with extra free agents
+  // (the claim universe) names them here, so that world is reused instead of silently rebuilt
+  // without them on every call (worldFits refuses a world whose extras the deal does not name).
+  const universe = [...new Set([...give, ...get, ...[...extraUniverse].map(Number)])];
   let before, after, reused = null;
   if (fastRescoreEnabled()) {
     let w = world;

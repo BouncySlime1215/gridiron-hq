@@ -387,7 +387,10 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       const points = new Map(w.points);
       for (const t of teams) if (state.has(t.roster_id)) points.set(t.roster_id, teamPoints(w, t.players));
       const other = otherOf(state, a, b);
-      const r = tradeImpact(lg, { myTeamId: a, theirTeamId: other, iGive: [], iGet: [], seed: w.key.seed, world: { ...w, prep: { ...w.prep, teams }, points } });
+      // SEARCH-WIDE: name the world's extra free agents (the claim universe), or tradeImpact rebuilds a world
+      // without them on every rescore: ~100x slower, and the rebuilt world ignores `state` (delta 0).
+      const r = tradeImpact(lg, { myTeamId: a, theirTeamId: other, iGive: [], iGet: [], seed: w.key.seed,
+        world: { ...w, prep: { ...w.prep, teams }, points }, universe: w.extras ?? [] });
       if (r.error) throw new Error(r.error);
       if (a === me) {
         const after = state.has(me) ? seasonAvg(points.get(me), w.runs) : baseAvg;

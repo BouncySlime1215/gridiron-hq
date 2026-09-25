@@ -27,7 +27,9 @@
  * capped at 8 s, so the event loop is never held.
  */
 import { Router } from 'express';
-import { row } from '../db/index.js';
+import { row, rows } from '../db/index.js';
+// RULES-EVERYWHERE: Nick's hard rules, the one gate (campaign/never-give.js).
+import { ruleGate } from '../services/campaign/never-give.js';
 import { assertLeagueMember } from '../platform/auth.js';
 import { previewFields, previewText } from '../services/preview-mode.js';
 import { negotiateFlag, NEGOTIATE_PREVIEW_REASON } from '../services/warroom-flag.js';
@@ -58,6 +60,31 @@ function undoSent(userId, leagueId, t) {
     unmarkSentOffer(t.trade_outcome_id);
   }
 }
+/**
+ * RULES-EVERYWHERE: a reply-table branch suggests packages (a backup deal { give, get }, the next rung and
+ * the walk-away give against the step's get). A branch any of whose packages breaks one of Nick's hard
+ * rules is dropped (typed unknown, source 'rules'); the count rides on the thread as dropped_by_rule.
+ */
+export function gateThreadView(gate, v) {
+  let dropped = 0;
+  const stepGet = v.get ?? [];
+  const packagesIn = (node, out = []) => {
+    if (!node || typeof node !== 'object') return out;
+    if (Array.isArray(node)) { for (const x of node) packagesIn(x, out); return out; }
+    if (Array.isArray(node.give) && Array.isArray(node.get)) out.push({ give: node.give, get: node.get });
+    for (const key of ['next_rung_give', 'walk_away_give']) if (Array.isArray(node[key])) out.push({ give: node[key], get: stepGet });
+    for (const [k, x] of Object.entries(node)) if (k !== 'give' && k !== 'get' && x && typeof x === 'object') packagesIn(x, out);
+    return out;
+  };
+  const branches = (v.branches ?? []).map(b => {
+    if (b.plan?.status !== 'ok') return b;
+    if (packagesIn(b.plan.value).every(p => gate.ok(p.give, p.get))) return b;
+    dropped++;
+    return { ...b, plan: { status: 'unknown', source: 'rules', reason: "Dropped: this branch's package breaks one of Nick's hard rules." } };
+  });
+  return { ...v, branches, dropped_by_rule: dropped };
+}
+
 const idList = v => (Array.isArray(v) && v.every(x => /^[A-Za-z0-9_.:-]{1,64}$/.test(String(x))) ? v.map(String) : null);
 
 export function negotiateRouter({
@@ -78,7 +105,7 @@ export function negotiateRouter({
 
   async function render(lg, flag, t) {
     const dist = await times(lg.id, String(lg.my_team_id), t.partner);
-    const v = threadView(t, eventsOf(t.id), dist, clock());
+    const v = gateThreadView(ruleGate({ row, rows }, { leagueId: lg.id }), threadView(t, eventsOf(t.id), dist, clock()));
     if (flag.preview && v.countdown) {
       v.countdown.basis = previewText(v.countdown.basis);
       if (v.countdown.reason) v.countdown.reason = previewText(v.countdown.reason);
@@ -103,7 +130,8 @@ export function negotiateRouter({
       const list = threadsFor(L.lg.id, { now: clock() });
       // An open thread means the builder may be opened soon: start its build off-thread now.
       if (L.lg.payload && list.some(t => t.status === 'open' && t.sent_at != null)) engine.warm(L.lg);
-      res.json({ ...meta(L.flag), threads: await Promise.all(list.map(t => render(L.lg, L.flag, t))) });
+      const threads = await Promise.all(list.map(t => render(L.lg, L.flag, t)));
+      res.json({ ...meta(L.flag), threads, dropped_by_rule: threads.reduce((n, t) => n + (t.dropped_by_rule ?? 0), 0) });
     } catch (e) { next(e); }
   });
 
@@ -116,6 +144,10 @@ export function negotiateRouter({
       const v = await view(L.lg.id);
       const found = findStep(v, moveId, stepIndex);
       if (!found) return res.status(409).json({ error: 'That move is not on the current plan any more; refresh the War Room.' });
+      // RULES-EVERYWHERE: no thread for a move that breaks one of Nick's hard rules.
+      if (!ruleGate({ row, rows }, { leagueId: L.lg.id }).ok(found.step?.give ?? [], found.step?.get ?? [])) {
+        return res.status(422).json({ ...meta(L.flag), error: "That move breaks one of Nick's hard rules, so it is not served.", dropped_by_rule: 1 });
+      }
       // A thread whose sent mark was taken back elsewhere closes first; the new send gets a new thread.
       closeIfUnsent(L.lg.id, moveId, stepIndex, new Date(clock()).toISOString());
       // The one "I sent it" store. Already marked (the deck posted it first) is the same row.
@@ -202,7 +234,10 @@ export function negotiateRouter({
       const give = idList(req.body?.give), get = idList(req.body?.get);
       if (!give || !get) return bad(res, 'give and get must be lists of player ids');
       const step = JSON.parse(t.step_json);
-      const wa = step.walk_away;
+      // RULES-EVERYWHERE: the walk-away is a suggested package too; one that breaks a hard rule is not priced or shown.
+      const waRaw = step.walk_away;
+      const waBreaks = waRaw?.status === 'ok' && !ruleGate({ row, rows }, { leagueId: L.lg.id }).ok(waRaw.value?.max_give ?? [], JSON.parse(t.get_json));
+      const wa = waBreaks ? { status: 'unknown', reason: "The walk-away package breaks one of Nick's hard rules, so it is not shown." } : waRaw;
       const E = await engine.rescore(L.lg, { partner: t.partner, give, get, rosters: !!req.body?.rosters,
         ...(wa?.status === 'ok' ? { walkGive: wa.value.max_give ?? [], walkGet: JSON.parse(t.get_json) } : {}) });
       if (E.status !== 'ok') {
@@ -221,7 +256,7 @@ export function negotiateRouter({
       res.json({
         ...meta(L.flag), status: 'ok', partner: t.partner, give, get, names: E.labels,
         ms: scored.ms, build_ms: E.build_ms, runs: scored.runs, axis: E.axis,
-        nick: scored.nick, his: scored.his, walk_away,
+        nick: scored.nick, his: scored.his, walk_away, dropped_by_rule: waBreaks ? 1 : 0,
         ...(E.rosters ? { rosters: E.rosters } : {})
       });
     } catch (e) { next(e); }

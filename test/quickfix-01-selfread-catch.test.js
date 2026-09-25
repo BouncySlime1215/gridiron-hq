@@ -61,6 +61,7 @@ process.env.SCHEDULER_DISABLED = '1';
 process.env.NFL_WEEK = '2';
 
 const { db, rows, run } = await import('../server/db/index.js');
+const { priceLeagueForRules } = await import('./fixtures/rule-gate.mjs');
 const { runMigrations } = await import('../server/db/migrate.js');
 const { seedIfEmpty } = await import('../server/db/seed/index.js');
 await import('../server/routes/stats.js');
@@ -150,6 +151,8 @@ function insertLeague(id, payload) {
        roster_positions, espn_s2, swid, connection_status)
        VALUES (?, 'espn', ?, 2026, 'QF01 League', ?, 6, '1', ?, 'x', 'y', 'connected')`,
     id, `espn-qf01-${id}`, JSON.stringify(payload), JSON.stringify(SLOTS));
+  // RULES-EVERYWHERE: FantasyCalc values so Nick's rule gate does not empty this fixture (rules: own test).
+  if (payload) priceLeagueForRules(db, rows('SELECT id, payload, my_team_id FROM leagues WHERE id = ?', id)[0]);
   return rows('SELECT * FROM leagues WHERE id = ?', id)[0];
 }
 

@@ -56,7 +56,9 @@
  */
 import fs from 'node:fs';
 import { Worker, MessageChannel, receiveMessageOnPort } from 'node:worker_threads';
-import { row } from '../../db/index.js';
+import { row, rows } from '../../db/index.js';
+// RULES-EVERYWHERE: Nick's hard rules, the one gate (campaign/never-give.js).
+import { ruleGate } from '../campaign/never-give.js';
 import { previewUnconfirmed } from '../preview-mode.js';
 import { validateAction } from '../warroom-actions/schema.js';
 import { planRead, plansPath } from './brain-tools.js';
@@ -535,13 +537,15 @@ export function negotiate({ leagueId, reply = '', replyKind = null, stepIndex = 
   const brain = readSection(ledger, id, 'brain_report');
   const claims = [];
   const refusals = [];
+  // RULES-EVERYWHERE: a take or a counter that breaks one of Nick's hard rules becomes a walk; counted here.
+  let droppedByRule = 0;
   const done = (extra = {}) => {
     const generatedAt = book.row.plans_generated_at ?? null;
     const draftAnswer = { claims, refusals, as_of: generatedAt ? `plans file generated ${generatedAt}` : null };
     const verification = verifyAnswer({ answer: draftAnswer, ledger, question: String(reply ?? '') });
     const answer = verification.ok ? draftAnswer : groundAnswer(draftAnswer, verification);
     return { kind: null, recommendation: null, reprice: [], draft: null, actions: [], ...extra,
-      answer, verification, sends: 0 };
+      answer, verification, sends: 0, dropped_by_rule: droppedByRule };
   };
 
   const P = `next_move_playbook_steps_${i}_`;
@@ -651,6 +655,13 @@ export function negotiate({ leagueId, reply = '', replyKind = null, stepIndex = 
   };
 
   if (kind === 'accept') {
+    // RULES-EVERYWHERE: never draft an acceptance of a step that breaks one of Nick's hard rules.
+    if (!ruleGate({ row, rows }, { leagueId: id }).ok(step.give, step.get)) {
+      droppedByRule = 1;
+      claims.push({ text: "Recommendation: walk. The step breaks one of Nick's hard rules, so Coach will not accept it.",
+        cites: [citeOf(book, `${P}partner`)].filter(Boolean) });
+      return finish({ do: 'walk', because: "the step breaks one of Nick's hard rules" }, "Can't do this one after all, so I'll pass. Thanks for looking.");
+    }
     return finish({ do: 'take', because: 'he said yes to the step as offered' }, 'Deal. Accepting on my end now.');
   }
   if (kind === 'decline') {
@@ -710,6 +721,10 @@ export function negotiate({ leagueId, reply = '', replyKind = null, stepIndex = 
   if (richer) decision = 'walk';
   else if (givesStep && (beatsBackup ?? true)) decision = 'take';
   else decision = 'counter';
+  // RULES-EVERYWHERE: never recommend taking, or countering with, a package that breaks one of Nick's hard rules.
+  const gate = ruleGate({ row, rows }, { leagueId: id });
+  const ruleWalk = (decision === 'take' && !gate.ok(pkg.give, pkg.get)) || (decision === 'counter' && !gate.ok(ours.give, ours.get));
+  if (ruleWalk) { decision = 'walk'; droppedByRule = 1; }
   const ourPrice = decision === 'counter' ? addPrice('counter_with', ours) : null;
 
   // The packages as read (Nick's paste, parsed; ids and names only), then the engine's
@@ -745,7 +760,13 @@ export function negotiate({ leagueId, reply = '', replyKind = null, stepIndex = 
   const ruleCite = citeOf(book, `${R}value_counter_rules_${decision === 'walk' ? 'walk_away_if' : decision === 'take' ? 'accept_if' : 'counter_with'}`);
   let draft;
   const recommendation = { do: decision };
-  if (decision === 'walk') {
+  if (decision === 'walk' && ruleWalk) {
+    recommendation.because = "the package breaks one of Nick's hard rules";
+    claims.push({ text: "Recommendation: walk. That package breaks one of Nick's hard rules, so Coach will not take it or counter with it.",
+      cites: [...pkgCites(0, pkg)].filter(Boolean) });
+    walkLine();
+    draft = "Can't go that far on my end, so I'll pass on this one. Thanks for looking.";
+  } else if (decision === 'walk') {
     recommendation.because = 'his ask is richer than the walk-away package';
     claims.push({ text: `Recommendation: walk. ${book.row[`${R}value_counter_rules_walk_away_if`] ?? 'He asks for more than the walk-away package.'}`,
       cites: [ruleCite, ...walkNameCites(), ...pkgCites(0, pkg)].filter(Boolean) });

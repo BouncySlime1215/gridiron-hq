@@ -216,3 +216,28 @@ button.ds-chip:active { transform: scale(.97); }
 /* Trades → Build: the summary bar, above the two cards (in the flow; nothing floats over the rows). */
 .build-bar { margin-bottom: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
   padding: 10px 14px; border-radius: var(--r-card); background: var(--c-raised); box-shadow: 0 0 0 1px var(--c-line), var(--e2); }
+
+/* Draft room (/draft/:id): the panels, the clock and the board cells on the design system's tokens. */
+.dr-panel { display: flex; flex-direction: column; max-height: 68vh; overflow: hidden; border-radius: var(--r-card); background: var(--c-card); box-shadow: 0 0 0 1px var(--c-line), var(--e1); }
+.dr-panel-h { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--c-line); background: var(--c-raised); }
+.dr-panel-b { overflow-y: auto; }
+.dr-clock { overflow: hidden; border-radius: var(--r-card); box-shadow: 0 0 0 2px var(--c-accent), var(--e2); background: var(--c-card); }
+.dr-clock-urgent { box-shadow: 0 0 0 2px var(--c-red), var(--e2); }
+.dr-clock-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 20px; background: var(--c-accent); color: var(--c-accent-ink); }
+.dr-clock-urgent .dr-clock-bar { background: var(--c-red); color: #fff; }
+.dr-clock-t { font: 700 18px/1.2 var(--font-display); letter-spacing: -.01em; }
+.dr-clock-time { font: 800 28px/1 var(--font-mono); }
+.dr-clock-s { margin-left: auto; font-size: 12px; opacity: .9; }
+.dr-clock-body { padding: 16px 20px; }
+.dr-mini { display: grid; place-items: center; min-width: 24px; height: 24px; padding: 0 4px; border-radius: 6px; border: 0; font: 700 12px/1 var(--font-body); background: var(--c-soft); color: var(--c-ink2); box-shadow: 0 0 0 1px var(--c-line); cursor: pointer; }
+.dr-mini:hover:not([disabled]) { background: var(--c-hover); color: var(--c-ink); }
+.dr-mini-on { background: var(--c-accent); color: var(--c-accent-ink); box-shadow: none; }
+.dr-mini[disabled], .dr-pick[disabled] { opacity: .5; cursor: not-allowed; }
+.dr-pick { border: 0; border-radius: 6px; padding: 4px 8px; font: 700 11px/1 var(--font-body); background: var(--c-soft); color: var(--c-ink2); box-shadow: 0 0 0 1px var(--c-line); cursor: pointer; }
+.dr-pick:hover:not([disabled]) { background: var(--c-hover); color: var(--c-ink); }
+.dr-pick-go { background: var(--c-accent); color: var(--c-accent-ink); box-shadow: none; }
+.dr-pick-go:hover:not([disabled]) { background: var(--c-accent-hover); color: var(--c-accent-ink); }
+.dr-you { background: var(--c-accent); color: var(--c-accent-ink); }
+.dr-cell { background: var(--c-soft); border-color: var(--c-line); }
+.dr-cell-empty { background: transparent; border-style: dashed; border-color: var(--c-line-strong); }
+.dr-cell-mine { border-color: var(--c-accent-ring); }

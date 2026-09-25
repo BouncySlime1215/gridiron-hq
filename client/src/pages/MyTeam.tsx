@@ -139,10 +139,17 @@ export default function MyTeam() {
         const mine = m.home?.teamId === myId ? m.home : m.away;
         const theirs = m.home?.teamId === myId ? m.away : m.home;
         const opp = lg.payload.teams?.find((t: any) => t.id === theirs?.teamId);
+        // ESPN marks a finished week with a winner; an unplayed week is UNDECIDED
+        // with 0 points on both sides — that is not a 0–0 game, so it never shows as one.
+        const mySide = m.home?.teamId === myId ? 'HOME' : 'AWAY';
+        const played = m.winner === 'HOME' || m.winner === 'AWAY' || m.winner === 'TIE';
+        const live = !played && ((mine?.totalPoints ?? 0) > 0 || (theirs?.totalPoints ?? 0) > 0);
         return {
           period: m.matchupPeriodId,
-          myPoints: mine?.totalPoints ?? 0,
-          oppPoints: theirs?.totalPoints ?? 0,
+          myPoints: mine?.totalPoints ?? null,
+          oppPoints: theirs?.totalPoints ?? null,
+          result: played ? (m.winner === 'TIE' ? 'T' : m.winner === mySide ? 'W' : 'L') : null,
+          state: played ? 'played' : live ? 'live' : 'upcoming',
           opp: opp ? (opp.name ?? `${opp.location} ${opp.nickname}`) : 'BYE'
         };
       })
@@ -203,7 +210,7 @@ export default function MyTeam() {
               <Stat label="Make playoffs" value={`${(myTwin.playoff_odds * 100).toFixed(0)}%`} />
               <Stat label="Expected record" value={`${myTwin.expected_wins}W`} />
               {scout?.spread?.floor != null && (
-                <Stat label="Weekly range" value={<><span className="text-crit">{scout.spread.floor}</span><span className="mx-1 opacity-30">–</span><span className="text-good">{scout.spread.ceiling}</span></>} />
+                <Stat label="Weekly range" value={<span className="whitespace-nowrap text-[0.6em]"><span className="text-crit">{scout.spread.floor}</span><span className="mx-1 opacity-30">–</span><span className="text-good">{scout.spread.ceiling}</span></span>} />
               )}
             </div>
             <p className="ds-note mt-4">
@@ -238,15 +245,32 @@ export default function MyTeam() {
             {active?.platform === 'espn' && matchups.length === 0 && (
               <p className="text-xs text-slate-500">Season hasn&apos;t started — scores will appear here week by week.</p>
             )}
-            {matchups.map((m: any) => (
-              <div key={m.period} className="flex items-center gap-2 text-sm py-2 border-b border-slate-200 last:border-0">
-                <span className="text-slate-500 text-xs w-8">W{m.period}</span>
-                <span className="font-mono">{m.myPoints.toFixed(1)}</span>
-                <span className="text-slate-400 text-xs">vs</span>
-                <span className="font-mono text-slate-600">{m.oppPoints.toFixed(1)}</span>
-                <span className="text-xs text-slate-500 truncate ml-auto">{m.opp}</span>
-              </div>
-            ))}
+            <div>
+              {matchups.map((m: any) => {
+                // This week's projection comes from the lineup check (same week_points basis).
+                const proj = m.state !== 'played' && lineupDiff && !lineupDiff.error && lineupDiff.basis === 'week_points'
+                  && lineupDiff.week === m.period && lineupDiff.submitted_points != null ? lineupDiff.submitted_points : null;
+                return (
+                  <div key={m.period} className="flex items-center gap-2 text-sm py-2 border-b border-slate-200 last:border-0" data-testid={`week-${m.state}`}>
+                    <span className="text-slate-500 text-xs w-8 shrink-0">W{m.period}</span>
+                    {m.state === 'played' ? <>
+                      <Chip tone={m.result === 'W' ? 'good' : m.result === 'L' ? 'bad' : 'neutral'} title={m.result === 'W' ? 'Won' : m.result === 'L' ? 'Lost' : 'Tied'}>{m.result}</Chip>
+                      <span className="font-mono">{Number(m.myPoints).toFixed(1)}</span>
+                      <span className="text-slate-400 text-xs">vs</span>
+                      <span className="font-mono text-slate-600">{Number(m.oppPoints).toFixed(1)}</span>
+                    </> : m.state === 'live' ? <>
+                      <Chip tone="accent">Live</Chip>
+                      <span className="font-mono">{Number(m.myPoints).toFixed(1)}</span>
+                      <span className="text-slate-400 text-xs">vs</span>
+                      <span className="font-mono text-slate-600">{Number(m.oppPoints).toFixed(1)}</span>
+                    </> : (
+                      <span className="text-xs text-slate-400">{proj != null ? <>upcoming · you project <span className="font-mono text-slate-600">{Number(proj).toFixed(1)}</span></> : 'upcoming'}</span>
+                    )}
+                    <span className="text-xs text-slate-500 truncate ml-auto min-w-0">{m.state === 'played' ? '' : 'vs '}{m.opp}</span>
+                  </div>
+                );
+              })}
+            </div>
           </Card>
         )}
       </>}
@@ -256,7 +280,7 @@ export default function MyTeam() {
           before={synced && lineupDiff && !lineupDiff.error ? <LineupDiffCard d={lineupDiff} platform={active?.platform === 'espn' ? 'ESPN' : 'Sleeper'} /> : undefined}
           ceilingDetail={active ? () => <CeilingLineup leagueId={active.id} teamId={myTeamId} week={scout?.week ?? 1} /> : undefined}
           after={scout && !scout.error ? (
-            <Fold title="Field view" hint={`${scout.lineup.points} ppg · the engine's starters drawn on the field; the calls above list them with their margins`}>
+            <Fold title="Field view" hint={`${scout.lineup.points} ppg · the starters above, on the field`}>
               <FormationView phase="offense" depth={formationSlots} accent="#0f766e" />
             </Fold>
           ) : undefined} />

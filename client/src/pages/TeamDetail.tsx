@@ -106,7 +106,7 @@ export default function TeamDetail() {
   return (
     <div className="flex flex-col xl:flex-row gap-6">
       <div className="flex-1 min-w-0">
-        <Link to="/teams" className="text-xs text-slate-500 hover:text-slate-700">← all teams</Link>
+        <Link to="/players/teams" className="text-xs text-slate-500 hover:text-slate-700">← all teams</Link>
         <div className="flex items-center gap-3 mt-1 mb-4">
           <span className="w-12 h-12 rounded-full grid place-items-center text-sm font-black text-white"
             style={{ background: team.primary_color }}>{team.abbr}</span>

@@ -126,10 +126,11 @@ test('no arithmetic on producer values in components (formatters only)', () => {
   }
 });
 
-test('nav stays 8 items and App.tsx gains no route', () => {
+// UI consolidation (docs/ui/CONSOLIDATION-MAP.md, decision 2): the nav is seven areas now.
+test('nav is 7 items and App.tsx gains no War Room route', () => {
   const nav = fs.readFileSync(path.join(REPO, 'client', 'src', 'navigation.ts'), 'utf8');
   const groups = nav.slice(nav.indexOf('export const NAV_GROUPS'), nav.indexOf('];', nav.indexOf('export const NAV_GROUPS')));
-  assert.equal((groups.match(/\{ to: '/g) ?? []).length, 8);
+  assert.equal((groups.match(/\{ to: '/g) ?? []).length, 7);
   const app = fs.readFileSync(path.join(REPO, 'client', 'src', 'App.tsx'), 'utf8');
   assert.doesNotMatch(app, /war-room|warroom/i);
   const brain = fs.readFileSync(path.join(REPO, 'client', 'src', 'pages', 'TradeBrain.tsx'), 'utf8');

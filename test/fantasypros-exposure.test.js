@@ -101,4 +101,30 @@ test('Coach plan_read of the blue-chip board (its ledger reaches the client) car
   assert.deepEqual(Object.keys(rows[0]).filter(k => /(^|_)fp(_|$)|fantasypros/i.test(k)), []);
 });
 
+/* Committed data: Nick's rule is "never committed" too. Every file the app ships as data (data/,
+ * server/data/) and the compiled analyst-consensus evidence must carry no FantasyPros-sourced
+ * content: no take attributed to it, no link to it, no mention of it. */
+const { execFileSync } = await import('node:child_process');
+const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const DATA_PATHS = ['data', 'server/data', 'docs/evidence/historical/ANALYST_CONSENSUS_2026_09_06.md'];
+const BANNED = /fantasypros|fantasy pros|\(FP \d+\/\d+|\bFP \d+\/\d+/i;
+
+test('committed data files carry no FantasyPros-sourced content', () => {
+  const files = execFileSync('git', ['ls-files', '--', ...DATA_PATHS], { cwd: REPO, encoding: 'utf8' }).split('\n').filter(Boolean);
+  assert.ok(files.length >= 5, `scanned the committed data (${files.length} files)`);
+  const hits = files.filter(f => BANNED.test(fs.readFileSync(path.join(REPO, f), 'utf8')));
+  assert.deepEqual(hits, []);
+});
+
+test('the analyst notes the LiveDraft prompt and dossiers read drop any take naming the banned source', async () => {
+  const { withoutBannedSource } = await import('../server/services/draft-assist.js');
+  const out = withoutBannedSource({
+    _strategy: [{ source: 'Outlet A', note: 'x' }, { source: 'FantasyPros — someone', note: 'y' }],
+    'Some Player': { takes: [{ source: 'Outlet B', url: 'https://b.example/x' }, { source: 'Outlet C', url: 'https://www.fantasypros.com/x' }], consensus: 'fine' },
+  });
+  assert.deepEqual(out._strategy.map(t => t.source), ['Outlet A']);
+  assert.deepEqual(out['Some Player'].takes.map(t => t.source), ['Outlet B']);
+  assert.equal(out['Some Player'].consensus, 'fine');
+});
+
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });

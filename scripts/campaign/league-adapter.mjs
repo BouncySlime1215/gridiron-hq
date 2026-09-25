@@ -22,6 +22,8 @@ import { tradeBlockRead, chatInterestRead } from '../../server/services/campaign
 import { readChatTradeInterest } from '../../server/services/people/chat-trade-interest.js';
 import { loveEnabled } from '../../server/services/campaign/love.js';
 import { readLoveInputs } from '../../server/services/campaign/love-inputs.js';
+import { sellHighEnabled } from '../../server/services/campaign/sell-high.js';
+import { readSellHighInputs } from '../../server/services/campaign/sell-high-inputs.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
 import { fpRosFor, syncIfStale } from '../../server/services/people/fantasypros-ros.js';
 import { executedTrades } from '../../server/services/campaign/trade-memory.js';
@@ -340,7 +342,7 @@ export function executedTradeRows(svc, { leagueId, season }) {
  * label 'unknown').
  */
 export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
-  rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env), love = loveEnabled(env),
+  rescoreCache = null, env = process.env, draftIdMap = draftIdMapEnabled(env), love = loveEnabled(env), sellHigh = sellHighEnabled(env),
   searchWide = searchWideFlag(env) } = {}) {
   // #406 finding 2: SEARCH-WIDE is read ONCE, here, from the env the producer passes; the adapter carries
   // it (adapter.searchWide) and the planner follows the adapter, so the world (claim universe) and the
@@ -594,6 +596,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     ...(draftIdMap ? { draft: draftCapitalGuarded(svc.db, { leagueId, season, rosters }) } : {}),
     // LOVE-RULE (shadow, GRIDIRON_LOVE_TAG=1): the tag's inputs for ids the producer asks about, weeks < this week.
     ...(love ? { love: (ids, { draft = null } = {}) => readLoveInputs(svc.db, { season, week, ids, draft }) } : {}),
+    // SELL-HIGH (shadow, GRIDIRON_SELL_HIGH=1): TD rate vs expected TD rate on Nick's roster, weeks < this week.
+    ...(sellHigh ? { sellHigh: () => readSellHighInputs(svc.db, { season, week, ids: rosters.get(me) ?? [] }) } : {}),
     now: () => Date.now(),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
     teams: () => teamNames(payload, new Map([...(svc.identity?.identityMap(leagueId) ?? [])].map(([r, i]) => [String(r), i.chat_name]))),

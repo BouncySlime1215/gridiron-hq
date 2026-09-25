@@ -26,7 +26,9 @@ const { db, run, rows, row } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 const P = await import('../server/services/people/pulse.js');
+const J = await import('../server/services/people/pulse-jev.js');
 const cli = await import('../scripts/people/pulse.mjs');
+const jevCli = await import('../scripts/people/jev-pulse.mjs');
 
 const LEAGUE = 4;
 // Fictional players: espn id, name, position, owner roster.
@@ -55,7 +57,8 @@ seed();
 
 const lexicon = () => P.buildLexicon(P.leaguePlayers(LEAGUE, db), { excludeWords: P.memberWords(LEAGUE, db) });
 
-function makeChat(messages) {
+// pulse: {msg_id: {want_player, shop, urgency, refusal}} stored as the pulse's own Jev answers.
+function makeChat(messages, pulse = {}) {
   if (fs.existsSync(CHAT_PATH)) fs.rmSync(CHAT_PATH);
   const chat = new DatabaseSync(CHAT_PATH);
   chat.exec(`CREATE TABLE messages (msg_id INTEGER, chat_kind TEXT, chat_name TEXT, handle TEXT, name TEXT, is_from_me INTEGER,
@@ -64,6 +67,11 @@ function makeChat(messages) {
       probability REAL, evaluated_at TEXT NOT NULL, PRIMARY KEY (msg_id, question));`);
   const ins = chat.prepare('INSERT INTO messages VALUES (?, ?, ?, NULL, ?, ?, ?, ?, 0, 0)');
   for (const m of messages) ins.run(m.id, m.kind ?? 'group', 'fixture chat', m.name, m.me ? 1 : 0, m.ts, m.text);
+  J.ensurePulseJevTables(chat);
+  const sig = chat.prepare('INSERT INTO jev_pulse_signals VALUES (?, ?, ?, ?, ?)');
+  for (const [id, answers] of Object.entries(pulse)) {
+    for (const [q, p] of Object.entries(answers)) sig.run(Number(id), q, p, J.PULSE_JEV_VERSION, '2026-09-21T00:00:00Z');
+  }
   chat.close();
   return new DatabaseSync(CHAT_PATH, { readOnly: true });
 }
@@ -161,24 +169,33 @@ const BASE = [
 test('pulseTick: first pass is a backfill (never replans); a new credible statement is live; re-runs add nothing', () => {
   const chat = makeChat(BASE);
   try {
-    const first = P.pulseTick({ database: db, chat, leagueId: LEAGUE, now: T0 });
+    const first = P.pulseTick({ database: db, chat, leagueId: LEAGUE, now: T0, pulse02: true });
     assert.equal(first.backfill, true);
     assert.equal(first.read, 2, "a non-member and Nick's own message are never read");
     assert.equal(first.liveCredible.length, 0, 'a backfill never triggers a replan');
     assert.ok(first.statements >= 2);
-    const again = P.pulseTick({ database: db, chat, leagueId: LEAGUE, now: T0 });
+    const again = P.pulseTick({ database: db, chat, leagueId: LEAGUE, now: T0, pulse02: true });
     assert.equal(again.read, 0);
     assert.equal(again.statements, 0);
   } finally { chat.close(); }
 
-  const chat2 = makeChat([...BASE, { id: 104, name: 'Speaker Three', ts: '2026-09-21T13:00:00Z', text: 'I want Merrowind, what do you want for him' }]);
+  // 104 has the pulse's Jev answer (the proven path); 106 has none, so rules alone label it and
+  // the replan gate holds it back (rules-only WANT_PLAYER F1 < REPLAN_MIN_F1).
+  const chat2 = makeChat([...BASE, { id: 104, name: 'Speaker Three', ts: '2026-09-21T13:00:00Z', text: 'I want Merrowind, what do you want for him' },
+    { id: 106, name: 'Speaker Two', ts: '2026-09-21T13:01:00Z', text: 'I want Merrowind too, what would it take' }],
+  { 104: { want_player: 0.9, shop: 0.05, urgency: 0.05, refusal: 0.05 } });
   try {
-    const live = P.pulseTick({ database: db, chat: chat2, leagueId: LEAGUE, now: '2026-09-21T13:05:00Z' });
+    const live = P.pulseTick({ database: db, chat: chat2, leagueId: LEAGUE, now: '2026-09-21T13:05:00Z', pulse02: true });
     assert.equal(live.backfill, false);
-    assert.equal(live.read, 1);
+    assert.equal(live.read, 2);
+    assert.equal(live.with_jev, 1);
     assert.equal(live.liveCredible.length, 1);
     assert.equal(live.liveCredible[0].type, 'WANT_PLAYER');
     assert.equal(live.liveCredible[0].roster_id, 3);
+    assert.equal(live.liveCredible[0].source, 'jev');
+    assert.equal(live.gated.length, 1, 'the rules-only want is gated');
+    assert.equal(live.gated[0].roster_id, 2);
+    assert.match(live.gated[0].reason, /F1 0\.651 < 0\.7 \(WANT_PLAYER, rules\)/);
   } finally { chat2.close(); }
 
   const stored = rows('SELECT * FROM people_pulse WHERE league_id = ? ORDER BY id', LEAGUE);
@@ -188,6 +205,7 @@ test('pulseTick: first pass is a backfill (never replans); a new credible statem
   assert.equal(want.credible, 1);
   assert.equal(want.live, 1);
   assert.equal(stored.find(r => r.msg_id === 100).live, 0);
+  assert.equal(stored.find(r => r.msg_id === 106).credible, 1, 'a gated statement is still stored with its weight');
 });
 
 test('people_pulse holds labels only: no text column and no message text in any value', () => {
@@ -268,13 +286,27 @@ test('requestReplan: no planner / War Room off are statuses; else it launches th
 
 test('runPulse: a live credible statement asks for a replan and the run row records the outcome', async () => {
   const chat = makeChat([...BASE, { id: 104, name: 'Speaker Three', ts: '2026-09-21T13:00:00Z', text: 'I want Merrowind, what do you want for him' },
-    { id: 105, name: 'Speaker Two', ts: '2026-09-21T16:00:00Z', text: 'how much for AJO?' }]);
+    { id: 107, name: 'Speaker Two', ts: '2026-09-21T16:00:00Z', text: 'how much for AJO?' }]);
   chat.close();
   const lines = [];
   const asks = [];
   const replan = async (league, { env }) => { asks.push({ league, env }); return { status: 'launched', detail: 'pid 1' }; };
-  const summary = await cli.runPulse({ leagueId: LEAGUE, env: {}, now: '2026-09-21T16:05:00Z', log: l => lines.push(l), replan });
+  const states = [];
+  const evaluate = async ({ state, questions }) => {
+    states.push(state);
+    const want = /how much/.test(state.split('>>>')[1] ?? '') ? 0.9 : 0.05;
+    return { answers: Object.fromEntries(Object.keys(questions).map(q => [q, { type: 'boolean', probability: q === 'want_player' ? want : 0.05 }])),
+      usage: { inputTokens: 600, outputTokens: 70 } };
+  };
+  const classify = args => jevCli.classifyPending({ ...args, env: { GRIDIRON_PULSE_JEV: '1' }, evaluate });
+  const summary = await cli.runPulse({ leagueId: LEAGUE, env: { GRIDIRON_PULSE_02: '1' }, now: '2026-09-21T16:05:00Z', log: l => lines.push(l), replan, classify });
   assert.equal(summary.status, 'ok');
+  assert.equal(summary.jev.status, 'ok');
+  assert.equal(summary.jev.ok, 1, 'the one new message was classified before labelling');
+  assert.equal(summary.with_jev, 1);
+  for (const st of states) assert.ok(!/Speaker (One|Two|Three)/.test(st), 'no league-mate name is sent to Jev');
+  assert.match(states[0], />>> SPEAKER: how much for AJO\?/);
+  assert.match(states[0], /A\.J\. Oxleybrook \(on another team\)/);
   assert.equal(summary.live_credible, 1);
   assert.equal(summary.replan, 'launched');
   assert.deepEqual(asks.map(a => a.league), [LEAGUE], 'one replan request for the target league');
@@ -282,7 +314,7 @@ test('runPulse: a live credible statement asks for a replan and the run row reco
   const runRow = row('SELECT replan_status, replan_detail FROM people_pulse_runs WHERE league_id = ? ORDER BY id DESC LIMIT 1', LEAGUE);
   assert.equal(runRow.replan_status, summary.replan);
   assert.match(runRow.replan_detail, /1 credible \(WANT_PLAYER\)/);
-  const quiet = await cli.runPulse({ leagueId: LEAGUE, env: {}, now: '2026-09-21T16:10:00Z', log: () => {}, replan });
+  const quiet = await cli.runPulse({ leagueId: LEAGUE, env: { GRIDIRON_PULSE_02: '1' }, now: '2026-09-21T16:10:00Z', log: () => {}, replan, classify });
   assert.equal(quiet.replan, 'not_needed');
   assert.equal(asks.length, 1, 'no new credible statement, no replan');
 });
@@ -352,4 +384,148 @@ test('FIX-316-2: loadCredibility reads CRED-01 through readCredibility + pulseCr
   const real = await cli.loadCredibility(LEAGUE, db);
   assert.match(real.source, /^pooled_prior \(no people_credibility (run stored yet|table)/);
   assert.equal(real.fn, null);
+});
+
+/* ------------------------------------------------------------- PULSE-02 */
+
+test('PULSE-02 gate: only a type proven at F1 >= 0.7 on the held-out labels may replan, per labelling path', () => {
+  assert.equal(P.REPLAN_MIN_F1, 0.7);
+  assert.deepEqual(P.replanGate('WANT_PLAYER', 'jev'), { ok: true, f1: P.LABEL_QUALITY.jev.WANT_PLAYER, reason: null });
+  assert.equal(P.replanGate('WANT_PLAYER', 'rules').ok, false, 'rules alone are not proven for WANT_PLAYER');
+  for (const type of ['SHOP', 'URGENCY']) {
+    for (const source of ['jev', 'rules']) assert.equal(P.replanGate(type, source).ok, false, `${type} (${source}) is gated`);
+  }
+  assert.match(P.replanGate('NEW_TYPE', 'jev').reason, /unmeasured/);
+  for (const source of ['jev', 'rules']) {
+    for (const [type, f1] of Object.entries(P.LABEL_QUALITY[source])) {
+      assert.equal(P.replanGate(type, source).ok, f1 >= 0.7, `${type} ${source} gate matches its measured F1`);
+    }
+  }
+  // A proven type that later re-measures below the bar is gated again.
+  const worse = { jev: { ...P.LABEL_QUALITY.jev, WANT_PLAYER: 0.69 } };
+  assert.equal(P.replanGate('WANT_PLAYER', 'jev', worse).ok, false);
+});
+
+test('PULSE-02 labeller: a rule hit needs the Jev answer >= lo; Jev alone needs >= hi; a bare reply takes the thread\'s player', () => {
+  const lex = lexicon();
+  const cuts = { ...P.PULSE_CUTS, WANT_PLAYER: { lo: 0.35, hi: 0.9 }, SHOP: { lo: 0.5, hi: 0.6 } };
+  const ask = 'would you trade Pembrose-Vantly?';
+  const q = p => ({ want_player: p, shop: 0.05, urgency: 0.05, refusal: 0.05 });
+  const wants = (text, pulse, extra = {}) => P.labelMessage(text, { speakerRoster: 1, lexicon: lex, pulse, cuts, ...extra })
+    .filter(s => s.type === 'WANT_PLAYER');
+  assert.equal(wants(ask, q(0.5))[0]?.source, 'jev');
+  assert.deepEqual(wants(ask, q(0.2)), [], 'a rule hit Jev disagrees with is dropped');
+  assert.deepEqual(wants('Pembrose-Vantly hmm', q(0.5)), [], 'no rule, Jev below hi');
+  assert.deepEqual(wants('Pembrose-Vantly hmm', q(0.95))[0]?.players, [9003], 'Jev alone above hi');
+  assert.deepEqual(wants('me', q(0.95), { contextPlayers: [9003, 9001] })[0]?.players, [9003],
+    'a bare "me" takes the players named just before it that the speaker does not own');
+  assert.equal(P.labelMessage(ask, { speakerRoster: 1, lexicon: lex }).find(s => s.type === 'WANT_PLAYER')?.source, 'rules',
+    'no Jev answer: rules alone, as PULSE-01');
+  const shop = P.labelMessage('anyone want him?', { speakerRoster: 1, lexicon: lex, cuts,
+    pulse: { want_player: 0.05, shop: 0.8, urgency: 0.05, refusal: 0.05 }, contextPlayers: [9001] });
+  assert.deepEqual(shop.find(s => s.type === 'SHOP')?.players, [9001]);
+});
+
+test('PULSE-02 lexicon: dotless full names, run-together hyphenated first names, lower-case consonant initialisms', () => {
+  const four = [
+    { espn_id: 1, name: 'A.J. Quillfeather', pos: 'WR', roster_id: 1 },
+    { espn_id: 2, name: 'Amon-Ra St. Dorrance', pos: 'WR', roster_id: 2 },
+    { espn_id: 3, name: 'Brock Tuvelle', pos: 'TE', roster_id: 3 },
+    { espn_id: 4, name: 'DK Marrowgate', pos: 'WR', roster_id: 3 },
+  ];
+  const lex = P.buildLexicon(four, { pulse02: true });
+  const off = P.buildLexicon(four, { pulse02: false });
+  assert.deepEqual(P.resolvePlayers('gimme amonra', off), [], 'flag off: PULSE-01 aliases only');
+  assert.deepEqual(P.resolvePlayers('ajq for bt?', off), [], 'flag off: no lower-case initialisms');
+  assert.deepEqual(P.resolvePlayers('aj quillfeather for you', lex), [1]);
+  assert.deepEqual(P.resolvePlayers('gimme amonra', lex), [2]);
+  assert.deepEqual(P.resolvePlayers('st dorrance is a stud', lex), [2]);
+  assert.deepEqual(P.resolvePlayers('ajq for bt?', lex), [1], 'ajq: one leading vowel, then consonants');
+  assert.deepEqual(P.resolvePlayers('dk for ajq', lex).sort(), [1, 4]);
+  assert.deepEqual(P.resolvePlayers('lol idk tbh', lex), [], 'chat shorthand never aliases');
+});
+
+test('PULSE-02 chatTime: the chat DB\'s zone-less ts_utc is UTC on every machine', () => {
+  assert.equal(P.chatTime('2026-09-15T16:39:43').toISOString(), '2026-09-15T16:39:43.000Z');
+  assert.equal(P.chatTime('2026-09-15 16:39:43').toISOString(), '2026-09-15T16:39:43.000Z');
+  assert.equal(P.chatTime('2026-09-15T16:39:43Z').toISOString(), '2026-09-15T16:39:43.000Z');
+  assert.equal(P.chatTime('2026-09-15T12:39:43-04:00').toISOString(), '2026-09-15T16:39:43.000Z');
+});
+
+test('PULSE-02 ownership: a trade the feed logged only as a proposal counts when a weekly snapshot shows it landed', () => {
+  run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status, proposed_at, processed_at, items_json, first_seen_at, last_seen_at)
+       VALUES (?, 2026, 'd4', 'DRAFT', 'EXECUTED', '2026-07-30T01:00:00Z', '2026-07-30T01:00:00Z', ?, 'x', 'x')`,
+  LEAGUE, JSON.stringify([{ type: 'DRAFT', playerId: 9004, toTeamId: 3 }]));
+  run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status, proposed_at, processed_at, items_json, first_seen_at, last_seen_at)
+       VALUES (?, 2026, 'p4', 'TRADE_PROPOSAL', 'CANCELED', '2026-09-10T00:00:00Z', NULL, ?, 'x', 'x')`,
+  LEAGUE, JSON.stringify([{ type: 'TRADE', playerId: 9004, fromTeamId: 3, toTeamId: 2 }]));
+  run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status, proposed_at, processed_at, items_json, first_seen_at, last_seen_at)
+       VALUES (?, 2026, 'p5', 'TRADE_PROPOSAL', 'CANCELED', '2026-09-15T00:00:00Z', NULL, ?, 'x', 'x')`,
+  LEAGUE, JSON.stringify([{ type: 'TRADE', playerId: 9004, fromTeamId: 2, toTeamId: 1 }]));
+  const tl = P.ownershipTimeline(LEAGUE, db, { pulse02: true });
+  assert.equal(P.ownershipTimeline(LEAGUE, db, { pulse02: false }).at('2026-09-12T00:00:00Z').get(9004), 3,
+    'flag off: a proposal-only trade is not inferred (PULSE-01 behaviour)');
+  assert.equal(tl.at('2026-09-05T00:00:00Z').get(9004), 3, 'drafted by roster 3');
+  assert.equal(tl.at('2026-09-12T00:00:00Z').get(9004), 2, 'the snapshot shows roster 2: the 09-10 proposal happened');
+  assert.equal(tl.at('2026-09-18T00:00:00Z').get(9004), 2, 'no snapshot ever shows roster 1: that proposal did not');
+});
+
+test('PULSE-02 Jev state: SPEAKER / NICK / OTHER and whose team each player is on; spend stops at the daily cap', async () => {
+  assert.equal(J.ownerTag(1, 1, 5), "on SPEAKER's team");
+  assert.equal(J.ownerTag(5, 1, 5), "on NICK's team");
+  assert.equal(J.ownerTag(2, 1, 5), 'on another team');
+  assert.equal(J.ownerTag(undefined, 1, 5), 'not on a team');
+  const st = J.pulseJevState({ chat_kind: 'dm', text: 'me' }, [{ who: 'NICK', text: 'anyone want X?' }], [{ name: 'X Y', tag: "on NICK's team" }]);
+  assert.match(st, /private DM with NICK/);
+  assert.match(st, /^NICK: anyone want X\?$/m);
+  assert.match(st, /^>>> SPEAKER: me$/m);
+
+  const chat = makeChat([{ id: 500, name: 'Speaker One', ts: '2026-09-22T10:00:00Z', text: 'hello' },
+    { id: 501, name: 'Speaker Two', ts: '2026-09-22T10:01:00Z', text: 'hi' },
+    { id: 502, name: 'Speaker Two', ts: '2026-09-22T10:02:00Z', text: 'hey' }]);
+  chat.close();
+  const w = new DatabaseSync(CHAT_PATH);
+  let calls = 0;
+  const evaluate = async () => { calls += 1; return { answers: { want_player: { probability: 0.1 } }, usage: { inputTokens: 1e6, outputTokens: 0 } }; };
+  const at = () => new Date('2026-09-22T12:00:00Z');
+  const first = await jevCli.classifyPulse({ chat: w, database: db, leagueId: LEAGUE, evaluate, now: at,
+    msgs: jevCli.pendingMessages(w, ['Speaker One', 'Speaker Two'], { afterMsgId: 499 }).slice(0, 2), env: { GRIDIRON_PULSE_JEV_USD_DAY: '1' } });
+  assert.equal(first.ok, 2);
+  assert.equal(J.spentOn(w, '2026-09-22'), 0.084, 'two $0.042 calls are on the day\'s ledger');
+  const second = await jevCli.classifyPulse({ chat: w, database: db, leagueId: LEAGUE, evaluate, now: at,
+    msgs: jevCli.pendingMessages(w, ['Speaker One', 'Speaker Two'], { afterMsgId: 499 }), env: { GRIDIRON_PULSE_JEV_USD_DAY: '0.1' } });
+  assert.equal(second.skipped_done, 2, 'answered messages are never re-sent');
+  assert.equal(calls, 2, 'one more $0.042 call would pass the $0.10 cap: nothing is sent');
+  assert.match(second.stopped, /daily cap/);
+  w.close();
+  assert.deepEqual(await jevCli.classifyPending({ leagueId: LEAGUE, database: db, env: {} }), { status: 'off' }, 'a paid call is opt-in');
+  assert.deepEqual(await jevCli.classifyPending({ leagueId: LEAGUE, database: db, env: { GRIDIRON_PULSE_JEV: '1' } }), { status: 'no_key' });
+  const quiet = await cli.runPulse({ leagueId: LEAGUE, env: { GRIDIRON_PULSE_02: '1' }, now: '2026-09-22T12:00:00Z', log: () => {}, replan: async () => ({ status: 'x' }) });
+  assert.equal(quiet.jev.status, 'off', 'the pulse without the opt-in sends nothing');
+});
+
+test('PULSE-02 is grading only until GRIDIRON_PULSE_02=1: flag off, the tick labels and replans exactly as PULSE-01', () => {
+  assert.equal(P.PULSE_02_FLAG, 'GRIDIRON_PULSE_02');
+  assert.equal(P.pulse02On({}), false, 'default off');
+  assert.equal(P.pulse02On({ GRIDIRON_PREVIEW_UNCONFIRMED: '1' }), false, 'preview mode never turns it on');
+  assert.equal(P.pulse02On({ GRIDIRON_PULSE_02: '1' }), true);
+  // 110: rules-only want (PULSE-02 would gate it). 111: a stored Jev answer that disagrees
+  // (PULSE-02 would drop the rule hit); flag off never reads it.
+  const cursor = P.lastCursor(LEAGUE, db);
+  const chat = makeChat([...BASE,
+    { id: cursor + 10, name: 'Speaker Two', ts: '2026-09-22T13:00:00Z', text: 'I want Merrowind, what would it take' },
+    { id: cursor + 11, name: 'Speaker Three', ts: '2026-09-22T13:01:00Z', text: 'I want Quendrick, what do you want for him' }],
+  { [cursor + 11]: { want_player: 0.05, shop: 0.05, urgency: 0.05, refusal: 0.05 } });
+  try {
+    const r = P.pulseTick({ database: db, chat, leagueId: LEAGUE, now: '2026-09-22T13:05:00Z', env: {} });
+    assert.equal(r.read, 2);
+    assert.equal(r.with_jev, 0, 'flag off: the pulse Jev answers are not read');
+    assert.deepEqual(r.gated, [], 'flag off: no replan gate');
+    assert.deepEqual(r.liveCredible.map(x => x.type), ['WANT_PLAYER', 'WANT_PLAYER'], 'both credible wants replan, as PULSE-01');
+  } finally { chat.close(); }
+  const stored = rows('SELECT labeller_version FROM people_pulse WHERE league_id = ? AND msg_id > ?', LEAGUE, cursor);
+  assert.ok(stored.length >= 2);
+  for (const s of stored) assert.equal(s.labeller_version, 'pulse-1');
+  assert.equal(P.PULSE_VERSION, 'pulse-1');
+  assert.equal(P.PULSE_02_VERSION, 'pulse-2');
 });

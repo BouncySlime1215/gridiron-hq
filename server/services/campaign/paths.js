@@ -52,11 +52,13 @@ export function pathOutcomes(steps) {
  *   score      = p_complete x final delta
  *   expected   = sum over stopping points of prob x delta (the honest number)
  *   stranded   = the part of `expected` from paths that stopped after a done step
- *   sd         = spread of the ending delta across accept/decline outcomes (for SAFE)
+ *   sd         = spread of the ending delta across accept/decline outcomes (SAFE's ranking penalty)
+ *   downside_sd = root mean square of the outcomes that end BELOW today (delta < 0); a decline that
+ *                leaves Nick where he started is the no-trade outcome, not downside (SAFE's no-trade gate)
  */
 export function pathExpectation(steps) {
   if (!steps.length) {
-    return { p_complete: 0, delta_final: 0, score: 0, expected: 0, stranded: 0, expected_se: null, sd: 0 };
+    return { p_complete: 0, delta_final: 0, score: 0, expected: 0, stranded: 0, expected_se: null, sd: 0, downside_sd: 0 };
   }
   const outs = pathOutcomes(steps);
   let expected = 0, stranded = 0, var_ = 0, seKnown = true;
@@ -68,11 +70,12 @@ export function pathExpectation(steps) {
     }
   }
   let spread = 0;
-  for (const o of outs) spread += o.prob * (o.delta - expected) ** 2;
+  let down = 0;
+  for (const o of outs) { spread += o.prob * (o.delta - expected) ** 2; if (o.delta < 0) down += o.prob * o.delta ** 2; }
   const last = steps[steps.length - 1];
   const p_complete = outs[outs.length - 1].prob;
   return { p_complete, delta_final: last.delta, score: p_complete * last.delta, expected, stranded,
-    expected_se: seKnown ? Math.sqrt(var_) : null, sd: Math.sqrt(spread) };
+    expected_se: seKnown ? Math.sqrt(var_) : null, sd: Math.sqrt(spread), downside_sd: Math.sqrt(down) };
 }
 
 /** Whether some later step hands on a player an earlier step brought in. */

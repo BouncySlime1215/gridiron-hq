@@ -127,6 +127,9 @@ export function makeAdapter({ seed = 12345, receptiveness = { 2: 0.3, 3: 1.3, 4:
     freeAgents: [{ id: 41, name: 'P41', position: 'WR', ros_ppg: 9.5 }, { id: 42, name: 'P42', position: 'TE', ros_ppg: 4 }],
     priceStep, finderBest, sanity, priceOf: (team, id) => ({ mult: 1, price: players.get(id)?.value ?? 0 }),
     names: () => Object.fromEntries([...players.values()].map(p => [String(p.id), `${p.name} (${p.position})`])),
+    // integration-7: GETS-FLOOR is on by default, so the made-up league scores every player a Blue chip (90)
+    // unless a test sets its own scoreOf (or deletes it to test the no-score-source path).
+    scoreOf: () => ({ score: 90, label: 'fixture default' }),
     // TEAM-NAMES: synthetic only (public repo); a label of 'Team N' renders exactly as before.
     teams: () => Object.fromEntries([...rosters.keys()].map(t => [t, { name: `Team ${t}` }])),
   };

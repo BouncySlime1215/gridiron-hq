@@ -126,12 +126,13 @@ test('flag off, engine removed: the same counter is judged on the walk-away alon
   } finally { withEngine(); }
 });
 
-test('(b) the lowball\'s counter-with is checked against the backup: the verdict and the filter agree', () => {
+test('(b) the lowball\'s counter-with is checked against the backup: the verdict and the filter agree', t => {
   withEngine();
   const s = ask(LOWBALL).summary;
   const ours = s.reprice.find(p => p.package === 'counter_with');
   assert.ok(ours, 'the engine priced the counter Coach considered');
   const backup = 0.4879062333328974; // the fixture plan's decline row odds_after
+  t.diagnostic(`METRIC lowball counter_with title_after=${ours.title_after} backup=${backup} -> ${s.recommendation.do}`);
   if (ours.title_after < backup) assert.equal(s.recommendation.do, 'walk');
   else assert.equal(s.recommendation.do, 'counter');
 });

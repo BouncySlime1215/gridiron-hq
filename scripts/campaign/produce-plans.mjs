@@ -88,6 +88,8 @@ import { hisSideOn, hisSideLine } from '../../server/services/campaign/his-side.
 import { versionWithFlags } from '../../server/services/campaign/model-flags.js';
 import { warRoomPlansPath } from '../../server/services/warroom-flag.js';
 import { applyCoachMessages, coachMessagesOn } from '../../server/services/campaign/messages.js';
+import { applyNegotiatorSafety, blockedIds, negotiatorSafetyOn } from '../../server/services/campaign/negotiator-safety.js';
+import { withNeverGive } from '../../server/services/campaign/never-give.js';
 import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
 import { loveIdsOf, loveSummary } from '../../server/services/campaign/love.js';
@@ -387,6 +389,15 @@ export async function buildPlansFile(leagues, {
         if (entry._run) entry._run.inputs.coach_messages = { status: 'on', profiles: profiles?.size ?? 0, steps: msg.stats.steps,
           grounded: msg.stats.grounded, fallback: msg.stats.fallback, unpriced: msg.stats.unpriced, errors: msg.stats.errors.length };
       } else if (entry._run) entry._run.inputs.coach_messages = { status: 'off', reason: 'GRIDIRON_COACH_MESSAGES unset and preview off' };
+      // NEGOTIATOR-SAFETY (GRIDIRON_NEGOTIATOR_SAFETY=1 only): every step's message opens with a why line for
+      // the partner, and a text that names a blocked player (never-give.js) or gives more than the plan is held back.
+      if (negotiatorSafetyOn(env)) {
+        const me = adapter.league?.me;
+        const mine = adapter.rosters?.get(me) ?? adapter.rosters?.get(String(me)) ?? adapter.rosters?.get(Number(me)) ?? [];
+        const safe = applyNegotiatorSafety(entry, { env, mine, blocked: blockedIds({ neverGive: withNeverGive(adapter).untouchable }) });
+        entry = safe.entry;
+        if (entry._run) entry._run.inputs.negotiator_safety = { status: 'on', ...safe.stats };
+      }
       // RADAR-WIRE: why-now labels on the flip rows (off: nothing written, byte-for-byte the incumbent).
       const served = whyNow !== 'off' ? applyWhyNow(entry, adapter, { as_of: generated_at, flag: whyNow }) : [];
       const v = validateLeague(entry);

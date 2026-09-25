@@ -27,3 +27,13 @@ upper bound below 0 demotes. Fewer than 20 graded direction rows = `not_enough_d
 ## Record
 
 RED and GREEN commits and results are appended below as they land.
+
+- RED `ec589523`: `test/radar-wire.test.js` fails with `ERR_MODULE_NOT_FOUND` (`why-now.js` missing): pass 0, fail 1.
+- GREEN (the commit after it): `server/services/campaign/why-now.js`, the adapter reads (`league-adapter.mjs#radarReads`),
+  the producer wiring and ledger (`produce-plans.mjs#appendRadarLedger`), the schema field, and the Flip map line.
+  `test/radar-wire.test.js` 17/17. Full `npm test`: 5,957 tests, 5,910 pass, 46 skipped, 1 fail before the contract
+  registry entry below; after it that file plus `radar-wire.test.js` pass 31/31 (CI re-runs the whole suite). The one fail was `warroom-plans-contract.test.js` "writes every path": the
+  new `why_now` paths are declared but the flag-off fixture producer never writes them. Fix: a PENDING entry, the same
+  shape as FLIP-LEGS-2's flag-off entry; its companion test fails the day the fixture starts writing them.
+- Tests added after RED (same GREEN commit): `appendRadarLedger` file round-trip, `radarReads` against an in-memory
+  SQLite, and the FlipMap render.

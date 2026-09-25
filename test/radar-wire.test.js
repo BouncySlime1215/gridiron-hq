@@ -217,3 +217,69 @@ test('RADAR-GRADE: the weekly gate passes only with a CI lower bound above 0 on 
   const coin = rows.map(r => (r.direction ? { ...r, hit: Number(r.player.split('-')[1]) % 2 === 0 } : r));
   assert.notEqual(W.gateSummary(coin).status, 'passing');
 });
+
+test('appendRadarLedger: serve rows land with as_of; a second run 14 days later grades them once', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { appendRadarLedger } = await import('../scripts/campaign/produce-plans.mjs');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'radar-ledger-')), 'radar-ledger.jsonl');
+  const served = [{ type: 'serve', as_of: AS_OF, league: '4', player: '7', buy_from: '2', sell_to: '3', direction: 'up', value_at: 100 }];
+  const first = appendRadarLedger(file, served, { valueNow: () => 130, now: NOW });
+  assert.deepEqual([first.served, first.graded, first.bad], [1, 0, 0]);
+  fs.appendFileSync(file, 'not json\n');
+  const later = appendRadarLedger(file, [], { valueNow: () => 130, now: NOW + 15 * DAY });
+  assert.deepEqual([later.graded, later.bad], [1, 1]);
+  const again = appendRadarLedger(file, [], { valueNow: () => 130, now: NOW + 16 * DAY });
+  assert.equal(again.graded, 0);
+  const rows = fs.readFileSync(file, 'utf8').split('\n').filter(l => l.startsWith('{')).map(l => JSON.parse(l));
+  assert.equal(rows.filter(r => r.type === 'grade').length, 1);
+  assert.ok(rows.every(r => typeof r.as_of === 'string'));
+});
+
+test('radarReads: fc_trend30 from player_metrics, history days, 48 h news and news alive, from the DB', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const { radarReads } = await import('../scripts/campaign/league-adapter.mjs');
+  const raw = new DatabaseSync(':memory:');
+  raw.exec(`CREATE TABLE player_metrics (player_id INTEGER, source TEXT, value REAL, fetched_at TEXT, PRIMARY KEY (player_id, source));
+    CREATE TABLE dynasty_value_history (format_key TEXT, player_id INTEGER, value INTEGER, captured_on TEXT);
+    CREATE TABLE nfl_news_signals (player_id TEXT, signal_type TEXT, status TEXT, unavailable_probability REAL, role_delta REAL,
+      published_at TEXT, created_at TEXT);
+    INSERT INTO player_metrics VALUES (7, 'fc_value', 5000, ''), (7, 'fc_trend30', 1000, ''), (8, 'fc_value', 3000, '');
+    INSERT INTO dynasty_value_history VALUES ('f1', 7, 1, '2026-09-23'), ('f1', 7, 1, '2026-09-24'), ('f2', 7, 1, '2026-09-20');`);
+  const ins = raw.prepare('INSERT INTO nfl_news_signals VALUES (?, ?, ?, ?, ?, ?, ?)');
+  ins.run('7', 'availability', 'out', 0.9, null, new Date(NOW - 5 * HOUR).toISOString(), '2026-09-23 20:00:00');
+  ins.run('7', 'availability', 'out', 0.9, null, new Date(NOW - 80 * HOUR).toISOString(), '2026-09-20 20:00:00');
+  const svc = { db: { row: (q, ...p) => raw.prepare(q).get(...p), rows: (q, ...p) => raw.prepare(q).all(...p) } };
+  const r = radarReads(svc, { formatKey: 'f1' });
+  assert.deepEqual(r.fcTrendOf(7), { value: 5000, trend30: 1000 });
+  assert.equal(r.fcTrendOf(8), null, 'no trend row: no trend');
+  assert.equal(r.fcHistoryDays(), 2);
+  assert.equal(r.newsOf(7, NOW).length, 1, 'only the 48 h window');
+  assert.equal(r.newsAlive(NOW), true);
+  assert.equal(r.newsAlive(NOW + 3 * DAY), false);
+  const bare = radarReads({ db: { row: () => undefined, rows: () => [] } }, { formatKey: 'f1' });
+  assert.deepEqual([bare.fcTrendOf(7), bare.fcHistoryDays(), bare.newsOf(7, NOW).length, bare.newsAlive(NOW)], [null, 0, 0, false]);
+});
+
+test('FlipMap prints the why-now line with its status word, and nothing when the flag is off', async () => {
+  const React = (await import('react')).default;
+  const { renderToStaticMarkup } = await import('react-dom/server');
+  const { loadWarRoom, textOf } = await import('./helpers/warroom-tsx.mjs');
+  const wr = await loadWarRoom();
+  try {
+    const { default: FlipMap } = await wr.mod('FlipMap');
+    const gap = { status: 'ok', value: 0.05, source: 'sim.title', se: 0.01, clears_2se: true, unit: 'title_odds' };
+    const price = { status: 'ok', value: 100, source: 'clone.price', unit: 'market_value' };
+    const p = v => ({ status: 'ok', value: v, source: 'clone.accept', unit: 'probability', guess: true });
+    const flip = { player: '1', buy_from: '3', sell_to: '4', spread: gap, price_a: price, price_b: price,
+      legs: { give_a: '11', get_b: '21', p1: p(0.5), p2: p(0.4), p_both: p(0.2), nick_after: { status: 'ok', value: 0.01, source: 'sim.title', unit: 'title_odds' } } };
+    const names = { 1: 'Player 1 (WR)', 11: 'Player 11 (RB)', 21: 'Player 21 (QB)' };
+    const render = (f, big) => textOf(renderToStaticMarkup(React.createElement(FlipMap, { field: { status: 'ok', value: [f], source: 'sim.title' }, names, big })));
+    const w = W.whyNowOf({ radar: 'not_merged', trend: null, news: [badNews(2)], newsAlive: true, now: NOW });
+    for (const big of [true, false]) {
+      assert.match(render({ ...flip, why_now: w }, big), /Check first: .*news in the last 48 h/);
+      assert.doesNotMatch(render(flip, big), /Why now|Check first|Watch:/);
+    }
+  } finally { wr.cleanup(); }
+});

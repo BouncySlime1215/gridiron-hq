@@ -104,6 +104,17 @@ export interface Flip {
   legs: { give_a: string; get_b: string; give_a_ids?: string[]; get_b_ids?: string[]; p1: Num; p2: Num; p_both: Num; nick_after: Num } | null;
   legs_why_not?: string;
   reasoning?: Field<Reasoning>;
+  /** RADAR-WIRE (GRIDIRON_RADAR_WIRE, default off): why this flip is worth a look this week. A label, no number. */
+  why_now?: WhyNow;
+}
+
+export interface WhyNow {
+  status: 'act' | 'watch' | 'check_first' | 'none';
+  kind: 'validated_cell' | 'fc_trend' | 'watch_cell' | 'none';
+  direction: 'up' | 'down' | null;
+  text: string;
+  n?: number; ci?: [number, number]; check_first?: boolean;
+  sources: { radar: string; trend: string; news: string };
 }
 
 export interface CatchUpItem { text: string; gain: Num; steps: number; move_id?: string }

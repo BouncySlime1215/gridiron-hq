@@ -257,8 +257,8 @@ const hisSide = obj({
 
 /** BUY-LOW (GRIDIRON_BUY_LOW=1 only): campaign/buy-low.js#buyLowRow. */
 const buyLowRead = obj({
-  role: oneOf(['detected', 'confirmed']), points_below_expected: num, games: int(1), usage_change: nullable(num), through_week: int(1)
-});
+  rule: int(1, 2), points_below_expected: num, games: int(1), usage_change: nullable(num), through_week: int(1)
+}, { role: oneOf(['detected', 'confirmed']) });
 
 const target = obj({
   player: pid, owner: id, gain_if_landed: numF, p_reach: probF,

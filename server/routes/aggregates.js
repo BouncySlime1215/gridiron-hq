@@ -139,7 +139,7 @@ export async function syncFantasyCalc() {
       matched++;
     }
     const history = historyReady() ? recordFcCapture({ run }, capturedAt, captured) : null;
-    const result = { fetched: data.length, matched, history_rows: history ?? 'fc_value_history absent (migration 106)' };
+    const result = { fetched: data.length, matched, history_rows: history ?? 'fc_value_history absent (migration 111)' };
     recordSync('fantasycalc_values', 'ok', result);
     return result;
   } catch (e) { recordSync('fantasycalc_values', 'error', e.message); throw e; }

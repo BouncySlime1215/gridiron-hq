@@ -1,4 +1,4 @@
-export const name = '106_e_data';
+export const name = '111_e_data';
 /**
  * E-DATA (Batch D item 2). Additive only: three new tables, nothing existing is altered.
  *
@@ -24,8 +24,9 @@ export const name = '106_e_data';
  * `player_metrics` keeps only the latest; `dynasty_value_history` (073) keeps one row per
  * UTC day per league format, first capture wins. Read by fc-value.js#fcValuesAsOf.
  *
- * Numbered 106: the next free number after 105 (docs/handoff/local/MIGRATIONS.md gets its row
- * on merge; 084 stays #247's reservation until that PR is closed).
+ * Numbered 111: 106 is main's espn_weekly_projection_snapshots (#431) and 107-110 are claimed
+ * by #438/#433 (coordinator, 2026-09-25). docs/handoff/local/MIGRATIONS.md gets its row on
+ * merge; 084 stays #247's reservation until that PR is closed.
  */
 export function up(db) {
   db.exec(`
@@ -91,7 +92,7 @@ export function down(db) {
   for (const t of ['trade_proposal_snapshots', 'offer_first_sight', 'fc_value_history']) {
     const exists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(t);
     if (exists && db.prepare(`SELECT 1 FROM ${t} LIMIT 1`).get()) {
-      throw new Error(`106 down refused: ${t} holds rows that cannot be fetched or recomputed again`);
+      throw new Error(`111 down refused: ${t} holds rows that cannot be fetched or recomputed again`);
     }
   }
   db.exec('DROP INDEX IF EXISTS idx_fc_value_history_at');

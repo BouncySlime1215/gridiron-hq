@@ -279,8 +279,9 @@ async function unwindTo(name) {
   const latest = () => row('SELECT name FROM schema_migrations WHERE name <> ? ORDER BY rowid DESC LIMIT 1',
     LEGACY_SCHEMA_MIGRATION)?.name;
   for (let guard = 0; latest() && latest() !== name; guard++) {
-    // A loop guard, not a schema limit: 21 migrations sit above 071 once E-DATA's 106 lands.
-    assert.ok(guard < 100 && latest() > name, `cannot unwind to ${name}: latest is ${latest()}`);
+    // A runaway-loop guard, not a claim about how many migrations follow 071: 20 was
+    // exactly reached when 106 landed (E-XGB), which failed this test on a new file alone.
+    assert.ok(guard < 200 && latest() > name, `cannot unwind to ${name}: latest is ${latest()}`);
     await rollbackMigration(latest());
   }
   assert.equal(latest(), name);

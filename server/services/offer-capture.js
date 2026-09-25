@@ -1,11 +1,11 @@
 /**
  * E-DATA (Batch D item 2): every ESPN trade offer captured the moment it appears, with every
- * model's P(yes) as it stood at that moment. Migration 106 explains the tables.
+ * model's P(yes) as it stood at that moment. Migration 111 explains the tables.
  *
  * WRITERS (called by scripts/collect-league-transactions.mjs in the same pass as the raw rows):
  *   captureOffers      the offers in one ESPN response -> trade_proposal_snapshots, first write
  *                      wins, before the raw upsert can overwrite a proposal's items.
- *   backfillSnapshots  raw proposal rows written before 106 -> snapshots ('raw_backfill').
+ *   backfillSnapshots  raw proposal rows written before 111 -> snapshots ('raw_backfill').
  *   recordFirstSight   each offer first seen live -> offer_first_sight: baseline, clone, blend
  *                      and served p, from the same modules the served number comes from
  *                      (p-yes.js#pYesTableFrom, p-yes-blend.js, eval/e1-league.js#replayAsOf).
@@ -32,7 +32,7 @@ export const POLL_DEFAULTS = Object.freeze({ active: 120, idle: 600, hours: [7, 
 
 const PROPOSAL = 'TRADE_PROPOSAL';
 const TABLES = ['trade_proposal_snapshots', 'offer_first_sight'];
-const ABSENT = 'trade_proposal_snapshots / offer_first_sight are not on this database: migration 106 has not run '
+const ABSENT = 'trade_proposal_snapshots / offer_first_sight are not on this database: migration 111 has not run '
   + '(the web server runs migrations at start)';
 
 const iso = ms => (ms ? new Date(ms).toISOString() : null);

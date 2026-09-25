@@ -65,14 +65,14 @@ for (const lg of leagues) {
         });
       }
       // E-DATA (a): the offer terms from this response, first write wins, before a later
-      // sighting can overwrite items_json above (migration 106).
+      // sighting can overwrite items_json above (migration 111).
       snap = captureOffers(db, { leagueId: lg.id, season: lg.season, transactions: all, now });
       db.exec('COMMIT');
     } catch (e) { db.exec('ROLLBACK'); throw e; }
     const after = rows(`SELECT COUNT(*) AS n FROM league_transactions_raw WHERE league_id = ? AND season = ?`, lg.id, lg.season)[0].n;
     totalNew += after - before; totalSeen += all.length;
     console.log(`league ${lg.id} ${String(lg.name).trim()}: ${all.length} in window, ${after - before} new, ${after} stored`);
-    // E-DATA (a, b): raw proposals from before 106 get their snapshot; each offer first seen live
+    // E-DATA (a, b): raw proposals from before 111 get their snapshot; each offer first seen live
     // in this pass gets every model's P(yes) as of now. Its own failure is its own line.
     try {
       const back = backfillSnapshots(db, { leagueId: lg.id, season: lg.season, now });

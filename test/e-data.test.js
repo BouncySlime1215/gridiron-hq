@@ -170,11 +170,11 @@ test('E-DATA a5: a close record (TRADE_PROPOSAL / CANCEL) and non-trade rows are
   assert.equal(row(`SELECT COUNT(*) AS n FROM trade_proposal_snapshots`).n, 0);
 });
 
-test('E-DATA a6: without migration 106 the capture says table_absent instead of failing silently', () => {
+test('E-DATA a6: without migration 111 the capture says table_absent instead of failing silently', () => {
   const fake = { prepare: sql => ({ get: () => (/sqlite_master/.test(sql) ? undefined : null), all: () => [], run: () => ({ changes: 0 }) }) };
   const r = CAP.captureOffers(fake, { leagueId: L, season: S, now: '2025-10-06T00:00:00.000Z', transactions: [espn({ id: 'z' })] });
   assert.equal(r.state, 'table_absent');
-  assert.match(r.reason, /106/);
+  assert.match(r.reason, /111/);
 });
 
 // ---------------------------------------------------------------- (a) cadence
@@ -412,4 +412,35 @@ test('E-DATA a10: one watcher pass runs the collector and reports its offers lin
   assert.doesNotMatch(logs.join('\n'), /secret/);
   const bad = W.watchOnce({ spawn: () => ({ status: 0, stdout: 'transactions: seen 0, new 0, failed 2\n', stderr: '' }), log: l => logs.push(l) });
   assert.equal(bad.ok, false);
+});
+
+test('E-DATA b8: with GRIDIRON_PYES_FORWARD off, the plans.json entry is byte-identical to the pre-E-DATA path, even with first-sight rows on file', async () => {
+  const { planLeague } = await import('../server/services/campaign/planner.js');
+  const { normaliseObjective } = await import('../server/services/campaign/objectives.js');
+  const { toEntry } = await import('../server/services/campaign/view.js');
+  const { makeAdapter } = await import('./fixtures/campaign-league.mjs');
+  const { loadLeagueOffers } = await import('../server/services/eval/e1-league.js');
+  clear();
+  history();
+  // First-sight rows that would move the weights if they were read: the clone called every answer right.
+  for (const [i, tx] of history().entries()) {
+    run(`INSERT OR REPLACE INTO offer_first_sight (league_id, season, proposal_tx_id, recorded_at, seen_state,
+      p_baseline, p_clone, p_served, served_basis) VALUES (?, ?, ?, '2025-09-01T00:00:00Z', 'pending', 0.5, ?, 0.5, 'pyes_blend')`,
+    L, S, tx, i < 5 || i === 6 ? 0.97 : 0.03);
+  }
+  const now = ms('2025-10-01T10:00:00Z');
+  const entryFor = table => {
+    const a = makeAdapter();
+    a.pYesBasis = PYES.pYesBasis(table);
+    const res = planLeague(a, { objective: normaliseObjective({ risk_mode: 'balanced' }) });
+    const served = ['2', '3'].map(team => PYES.stepPYes(PYES.pYesFor({ team, table, on: true,
+      counterparty: { counterparty_data: true, accept_rate: null, accept_rate_n: 0 }, edge: { passes: true } })));
+    return JSON.stringify({ entry: toEntry(res, { names: a.names(), as_of: '2026-10-01T00:00:00Z' }), served });
+  };
+  // Main's computation, before this PR: the table from the decided offers alone.
+  const before = entryFor({ ...PYES.pYesTableFrom(loadLeagueOffers(db).offers, L, ['2', '3'], { now, mode: 'blend' }), league: String(L), reason: null });
+  const off = entryFor(PYES.pYesTable(db, L, ['2', '3'], { now, mode: 'blend', env: {} }));
+  const on = entryFor(PYES.pYesTable(db, L, ['2', '3'], { now, mode: 'blend', env: { GRIDIRON_PYES_FORWARD: '1' } }));
+  assert.equal(off, before, 'flag off: byte-identical');
+  assert.notEqual(on, before, 'flag on reads the first-sight rows (so the comparison above can fail)');
 });

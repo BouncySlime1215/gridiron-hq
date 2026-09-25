@@ -119,7 +119,7 @@ test('PostDraftPlan: a failed fetch is logged, not rendered', async () => {
   assert.ok(seen.some(s => s.includes('nfl_availability_role_rates')));
 });
 
-test('PostDraftPlan: self_scout.error and trades.error are logged, not rendered', async () => {
+test('PostDraftPlan: self_scout.error is logged, not rendered; trades are not listed here (Trades → Find deals)', async () => {
   const C = await loadPostDraftPlan();
   globalThis.__api = { data: { drafted: true, self_scout: { error: LEAKY }, trades: { error: LEAKY }, lineup: null },
     loading: false, error: null, refetch: () => {} };
@@ -127,8 +127,10 @@ test('PostDraftPlan: self_scout.error and trades.error are logged, not rendered'
   globalThis.__api = null;
   assertNoLeak(html, 'PostDraftPlan (section errors)');
   assert.match(html, /Self-scout isn/);
-  assert.match(html, /Trade suggestions aren/);
-  assert.equal(seen.filter(s => s.includes('nfl_availability_role_rates')).length >= 2, true);
+  // Suggested trades were cut from the post-draft plan (a duplicate of Find deals): nothing of them renders.
+  assert.doesNotMatch(html, /Trade suggestions aren|Suggested Trades/);
+  assert.match(html, /Trades → Find deals/);
+  assert.equal(seen.filter(s => s.includes('nfl_availability_role_rates')).length >= 1, true);
 });
 
 test('ModelRegistryPanel: a failed fetch is logged, not rendered', async () => {

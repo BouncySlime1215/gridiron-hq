@@ -102,10 +102,10 @@ export function forwardGraded(offers, firstSight, { now = Date.now() } = {}) {
 
 const FIRST_SIGHT_COLS = ['league_id', 'season', 'proposal_tx_id', 'seen_state', 'p_baseline', 'p_clone'];
 
-/** offer_first_sight rows for forwardGraded; [] with a reason when the table is not built (106). */
+/** offer_first_sight rows for forwardGraded; [] with a reason when the table is not built (111). */
 export function loadFirstSight(database) {
   const has = database.prepare(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'offer_first_sight'`).get();
-  if (!has) return { rows: [], reason: 'offer_first_sight is not on this database (migration 106)' };
+  if (!has) return { rows: [], reason: 'offer_first_sight is not on this database (migration 111)' };
   return { rows: database.prepare(`SELECT ${FIRST_SIGHT_COLS.join(', ')} FROM offer_first_sight`).all(), reason: null };
 }
 

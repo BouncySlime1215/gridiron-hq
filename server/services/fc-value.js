@@ -72,7 +72,7 @@ export function fcFormatValues(db, formatKey) {
 
 /**
  * E-DATA (c): the FantasyCalc value HISTORY. `player_metrics` keeps only the latest capture, so
- * every capture syncFantasyCalc makes is also appended to `fc_value_history` (migration 106): one
+ * every capture syncFantasyCalc makes is also appended to `fc_value_history` (migration 111): one
  * row per player, source and capture instant, first write wins. `dynasty_value_history` (073) is
  * the per-format, one-row-per-day record; this one is the league-agnostic value Nick's rules read,
  * at every capture.
@@ -114,7 +114,7 @@ export function fcValuesAsOf(db, at, { source = FC_VALUE_SOURCE } = {}) {
   const asOf = fcStamp(at);
   const base = { source: `${FC_VALUE_LABEL}, history as of ${asOf}`, as_of: asOf, captured_at: null, byId: new Map() };
   try {
-    if (historyAbsent(db)) return { ...base, status: 'table_absent', reason: 'fc_value_history is not on this database (migration 106)' };
+    if (historyAbsent(db)) return { ...base, status: 'table_absent', reason: 'fc_value_history is not on this database (migration 111)' };
     const rows = db.rows(`SELECT h.player_id, h.value, h.captured_at FROM fc_value_history h
       WHERE h.source = ? AND h.captured_at = (SELECT MAX(captured_at) FROM fc_value_history
         WHERE player_id = h.player_id AND source = h.source AND captured_at <= ?)`, source, asOf);

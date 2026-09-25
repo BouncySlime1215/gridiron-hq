@@ -187,3 +187,34 @@ test('gate: fails below n 30, and when the wire does not beat the unwired projec
   assert.equal(g.passes, false);
   assert.match(g.reason, /unwired/);
 });
+
+// ---------------------------------------------------------------- the grader's row assembly
+
+test('grader: only played weeks where a registered validated cell fired; errors on the same player-week', async () => {
+  const { assembleCellRows } = await import('../scripts/rnd/o1c-grade.mjs');
+  const radarRows = [
+    { player_id: 9001, position: 'WR', week: 5, played: true, ppr1: 10 },
+    { player_id: 9001, position: 'WR', week: 6, played: false },
+    { player_id: 9002, position: 'RB', week: 5, played: true, ppr1: 20 },
+    { player_id: 9003, position: 'WR', week: 5, played: true, ppr1: 8 }
+  ];
+  const served = {
+    9001: opp(9001, [ev('usage_rise', -0.78), ev('usage_drop', 1.1, false)]),
+    9002: opp(9002, [ev('teammate_out', 3.6)]),
+    9003: opp(9003, [ev('usage_rise', -0.78)])
+  };
+  const projections = new Map([[9001, wr()], [9002, rb()]]);
+  const { byCell, missing } = assembleCellRows(radarRows, {
+    serve: r => served[r.player_id], projectionAt: () => projections,
+    wire: (p, s) => opportunityWire(p, s, { env: { [O1C_FLAG]: 'shadow' } }),
+    espnOf: r => (r.player_id === 9001 ? 11 : null)
+  });
+  assert.equal(missing.projection, 1, 'player 9003 has no projection and is counted, not dropped silently');
+  const wrRows = byCell.get('usage_rise|WRTE');
+  assert.equal(wrRows.length, 1);
+  assert.equal(wrRows[0].err_base, Math.abs(12.85 - 10));
+  assert.ok(wrRows[0].err_wired < wrRows[0].err_base);
+  assert.equal(wrRows[0].err_espn, 1);
+  assert.equal(byCell.get('teammate_out|RB').length, 1);
+  assert.equal(byCell.get('teammate_out|RB')[0].err_espn, null);
+});

@@ -71,7 +71,7 @@ test('pre-paint script, store and menu agree', () => {
 });
 
 test('the War Room follows the app theme instead of keeping its own', () => {
-  for (const f of ['WarRoomV2.tsx', 'WarRoom.tsx']) {
+  for (const f of ['WarRoomV2.tsx']) { // the classic WarRoom.tsx is retired
     const src = fs.readFileSync(path.join(REPO, 'client/src/components/warroom', f), 'utf8');
     assert.match(src, /useDocTheme\(\)/, `${f} reads the app theme`);
     assert.doesNotMatch(src, /useState<'light' \| 'dark'>/, `${f} has no theme state of its own`);

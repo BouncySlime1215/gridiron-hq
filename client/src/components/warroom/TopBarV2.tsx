@@ -13,11 +13,11 @@ const EXPLAINER = 'button[aria-label="What am I looking at?"], button[aria-label
 /**
  * WAR-ROOM-UI v2 top bar: the league (one select, target league first, never cut mid-word),
  * title odds and the risk mode, the four-screen switcher (desktop), health, Coach, and a
- * small menu (theme, the other Trade Brain tabs, the page explainer, Classic layout).
+ * small menu (theme, Trades → People, the page explainer).
  */
-export default function TopBarV2({ view, leagues, activeId, onLeague, onExit, theme, onTheme, onClassic, nav, health, coach }: {
+export default function TopBarV2({ view, leagues, activeId, onLeague, onExit, theme, onTheme, nav, health, coach }: {
   view: WarRoomView; leagues: LeagueChoice[]; activeId: number; onLeague: (id: number) => void;
-  onExit: (tab: 'managers' | 'proposals') => void; theme: 'light' | 'dark'; onTheme: () => void; onClassic?: () => void;
+  onExit: (tab: 'managers' | 'proposals') => void; theme: 'light' | 'dark'; onTheme: () => void;
   /** The four-screen switcher (desktop; the phone gets the bottom tab bar). */
   nav?: ReactNode;
   /** The health chip (opens the brain report sheet). */
@@ -76,7 +76,6 @@ export default function TopBarV2({ view, leagues, activeId, onLeague, onExit, th
           <button type="button" onClick={explain}>What am I looking at?</button>
           <button type="button" onClick={() => onExit('managers')}>Who trades with you</button>
           <button type="button" onClick={() => onExit('proposals')}>Sendable proposals</button>
-          {onClassic && <button type="button" data-testid="layout-toggle" onClick={onClassic}>Classic layout</button>}
           {view.preview && <span className="wr-menu-note" title={view.preview_reason}>Preview, unconfirmed</span>}
         </div>
       </details>

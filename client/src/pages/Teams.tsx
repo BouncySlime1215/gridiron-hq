@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Team, useApi } from '../api';
 import { PageData, EmptyState } from '../components/PageState';
+import DefenceVsPosition from '../components/DefenceVsPosition';
 
 /** Black or white text on a team colour, whichever reads (a gold or yellow badge gets dark ink). */
 function inkOn(hex?: string | null) {
@@ -52,6 +53,7 @@ export default function Teams() {
           );
         }}
       </PageData>
+      <DefenceVsPosition />
     </div>
   );
 }

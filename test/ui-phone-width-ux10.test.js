@@ -55,12 +55,12 @@ test('Leagues.tsx: the roster table has a mobile card fallback, not just overflo
   assert.equal((code.match(/analysis\.rosters\.map/g) || []).length, 2, 'roster data must be rendered twice: desktop table + phone cards');
 });
 
-test('TradeLab.tsx: the 6-tab strip does not rely on horizontal scroll to reach hidden tabs', () => {
-  const src = read('client/src/pages/TradeLab.tsx');
-  const tabBar = src.match(/<div className="([^"]*)">\s*\{TABS\.map/);
-  assert.ok(tabBar, 'expected to find the TABS.map tab bar container');
-  assert.doesNotMatch(tabBar[1], /overflow-x-auto/, 'tab bar must not depend on horizontal scroll (UX-01-audit.md: 6 tabs truncate to 4 at 375px)');
-  assert.match(tabBar[1], /flex-wrap/, 'tab bar should wrap tabs onto more than one line instead of scrolling');
+test('Trades: the view tabs wrap instead of relying on horizontal scroll (Trade Lab\'s strip is gone)', () => {
+  // UI consolidation: Trade Lab's 6-tab strip was retired; its tools are views of the Trades area.
+  const src = read('client/src/pages/Trades.tsx');
+  assert.match(src, /<div className="mb-5 ds-tabs-wrap"><Tabs label="Trades views"/, 'the Trades tab row opts into wrapping');
+  assert.match(read('client/src/styles/ui.css'), /\.ds-tabs-wrap \.ds-tabs \{ flex-wrap: wrap;[^}]*overflow-x: visible; \}/,
+    'tab bar should wrap tabs onto more than one line instead of scrolling (UX-01-audit.md: 6 tabs truncate to 4 at 375px)');
 });
 
 test('Teams.tsx: the per-division team grid reflows to one column on phones', () => {
@@ -95,8 +95,8 @@ for (const file of ['client/src/pages/Leagues.tsx', 'client/src/pages/TradeLab.t
   });
 }
 
-test('TradeLab/Teams: wrapping containers do not opt back into nowrap', () => {
-  const tabBar = read('client/src/pages/TradeLab.tsx').match(/<div className="([^"]*)">\s*\{TABS\.map/);
+test('Trades/Teams: wrapping containers do not opt back into nowrap', () => {
+  const tabBar = read('client/src/pages/Trades.tsx').match(/<div className="([^"]*ds-tabs-wrap[^"]*)">/);
   assert.ok(tabBar);
   assert.doesNotMatch(tabBar[1], /whitespace-nowrap|flex-nowrap/, 'the tab bar itself must wrap');
   const name = read('client/src/pages/Teams.tsx').match(/<div className="([^"]*)">\{t\.name\}<\/div>/);

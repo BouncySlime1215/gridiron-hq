@@ -27,7 +27,7 @@ const { buildWarRoomView } = await import('../server/services/war-room-view.js')
 
 const wr = await loadWarRoom();
 test.after(() => wr.cleanup());
-const { default: WarRoom, ROOT_STYLE, PANELS } = await wr.mod('WarRoom');
+const { default: WarRoom } = await wr.mod('WarRoomV2'); // the classic dashboard is retired; the War Room is WarRoomV2
 const { useWarRoom } = await wr.mod('useWarRoom');
 
 const plans = { status: 'ok', entries: structuredClone(producer.leagues), as_of: producer.generated_at, id: 'y' };
@@ -42,41 +42,6 @@ const rule = sel => {
   return m ? m[2] : null;
 };
 
-test('the grid container is fixed, 100vh tall and overflow hidden', () => {
-  assert.equal(ROOT_STYLE.height, '100vh');
-  assert.equal(ROOT_STYLE.overflow, 'hidden');
-  assert.equal(ROOT_STYLE.position, 'fixed');
-  const root = html.match(/^<div class="wr-root wr-app"[^>]*data-testid="war-room-grid"[^>]*style="([^"]*)"/);
-  assert.ok(root, 'the outermost element is the grid');
-  assert.match(root[1], /position:fixed/);
-  assert.match(root[1], /height:100vh/);
-  assert.match(root[1], /overflow:hidden/);
-  const app = rule('.wr-app');
-  assert.ok(app, 'the .wr-app rule exists');
-  assert.match(app, /display:\s*grid/);
-  assert.doesNotMatch(css, /\.wr-app\s*\{[^}]*overflow(-y)?:\s*(auto|scroll)/, 'the grid never scrolls');
-  assert.match(css, /@supports \(height: 100dvh\) \{ \.wr-app \{ height: 100dvh !important; \} \}/, 'phones use the visible viewport');
-});
-
-test('every panel and the Coach dock sit in the one grid, each in a named area', () => {
-  for (const p of PANELS) assert.match(html, new RegExp(`data-panel="${p.id}"[^>]*style="grid-area:${p.id}"`), p.id);
-  assert.match(html, /class="wr-coach/);
-  assert.match(css, /\.wr-coach \{ grid-area: coach;/);
-  for (const a of ['top', 'next', 'stops', 'flip_map', 'targets', 'catch', 'brain_report', 'coach']) assert.ok(ROOT_STYLE.gridTemplateAreas.includes(a), a);
-  // Panels clip; their bodies are the only thing allowed to scroll, inside the panel.
-  assert.match(rule('.wr-panel'), /overflow:\s*hidden/);
-  assert.match(rule('.wr-panel'), /min-height:\s*0/);
-});
-
-test('phone (< 700 px) is a one-screen swipe deck: horizontal scroll-snap, no vertical scroll', () => {
-  const phone = css.split('@media (max-width: 699px)')[1];
-  assert.ok(phone, 'phone block exists');
-  assert.match(phone, /\.wr-panels \{[^}]*overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory/);
-  assert.match(phone, /\.wr-panels > \.wr-panel \{ flex: 0 0 100%; scroll-snap-align: start/);
-  assert.match(phone, /grid-template-areas: "top" "deck" "dots" !important/, 'the phone areas override the inline desktop areas');
-  assert.match(html, /<nav class="wr-dots"/);
-});
-
 test('dark tokens: system dark and the explicit toggle both define every token', () => {
   const light = [...rule('.wr-root').matchAll(/(--wr-[\w-]+):/g)].map(m => m[1]).sort();
   assert.ok(light.length >= 15);
@@ -86,24 +51,6 @@ test('dark tokens: system dark and the explicit toggle both define every token',
     assert.ok(sys.includes(`${t}:`), `system dark sets ${t}`);
     assert.ok(forced.includes(`${t}:`), `forced dark sets ${t}`);
   }
-});
-
-test('flag-on view renders every contract section from the producer, never 0', () => {
-  const text = textOf(html);
-  for (const s of ['War Room', 'Next move', 'Stops', 'Flip map', 'Suggested targets', 'Catch-up', 'Is the brain working?', 'Coach',
-    'Preview, unconfirmed', '1 of 2', 'Send this to Team 7',
-    // destination, attention, speed curve, catch-up, brain report and targets are the producer's, not "not built"
-    '11.8%', 'rank 1 of 3', 'Offer Team 9 the bench receiver', 'wk 5', 'D. Harlow (WR)', 'not enough data']) assert.ok(text.includes(s), s);
-  assert.doesNotMatch(text, /\b0\.0%|\b0%|NaN|undefined/);
-  for (const id of ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7']) assert.ok(text.includes(id), id);
-  // WarRoom wires the request route into the target picker (the call site of target.approve).
-  assert.match(html, /<button type="button" class="wr-btn wr-sm">Approve<\/button>/);
-  // A league with nothing produced still draws every panel, each saying why.
-  const empty = renderToStaticMarkup(React.createElement(WarRoom, {
-    view: buildWarRoomView(99, plans, { enabled: true, preview: false }), leagues: [{ id: 99, name: null }], activeId: 99, onLeague() {}, onExit() {},
-  }));
-  assert.match(textOf(empty), /No plan has been run for this league yet/);
-  assert.match(textOf(empty), /not ranked yet/);
 });
 
 test('only useWarRoom.ts reads and only requests.ts writes, each to its one route', () => {
@@ -133,6 +80,7 @@ test('nav is 7 items and App.tsx gains no War Room route', () => {
   assert.equal((groups.match(/\{ to: '/g) ?? []).length, 7);
   const app = fs.readFileSync(path.join(REPO, 'client', 'src', 'App.tsx'), 'utf8');
   assert.doesNotMatch(app, /war-room|warroom/i);
-  const brain = fs.readFileSync(path.join(REPO, 'client', 'src', 'pages', 'TradeBrain.tsx'), 'utf8');
-  assert.match(brain, /TABS\.filter\(t => t\.id !== 'war-room' \|\| warOn\)/, 'the tab is drawn only when the view is enabled');
+  // Trade Brain's tabs are gone; the planner is Trades → Next move, drawn only when the view is enabled.
+  const trades = fs.readFileSync(path.join(REPO, 'client', 'src', 'pages', 'Trades.tsx'), 'utf8');
+  assert.match(trades, /if \(view === 'planner' && warOn && activeId && warRoom\.data\) \{/, 'the planner is drawn only when the view is enabled');
 });

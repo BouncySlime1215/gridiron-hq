@@ -18,6 +18,7 @@ import { screenFair, flipSpread, linearNick, combos, pathExpectation, isChained,
 import { metricOf } from './objectives.js';
 import { excluded } from './partners.js';
 import { previewUnconfirmed } from '../preview-mode.js';
+import { isLateral, lateralOk, bestClaim, FREE_AGENT } from './search-wide.js';
 
 /** A served basis of p-yes.js's own (activity baseline, LIVE-BLEND blend), not the clone's. */
 const servedBasis = b => b === 'activity_baseline' || b === 'pyes_blend';
@@ -144,11 +145,18 @@ export function makeScorer(W, adapter) {
     s.set(y, [...rosterOf(state, y).filter(id => !gy.has(id)), ...xGives]);
     return s;
   };
+  // SEARCH-WIDE: a free-agent claim changes only Nick's roster (drop out, free agent in).
+  const applyClaim = (state, x, drop, add) => {
+    const s = new Map(state);
+    const d = new Set(drop);
+    s.set(x, [...rosterOf(state, x).filter(id => !d.has(id)), ...add]);
+    return s;
+  };
   const ownerOf = (state, pid) => {
     for (const id of baseRoster.keys()) if (rosterOf(state, id).includes(pid)) return id;
     return null;
   };
-  return { rescore, rosterOf, applyTrade, ownerOf, count: () => count };
+  return { rescore, rosterOf, applyTrade, applyClaim, ownerOf, count: () => count };
 }
 
 /** Single-player values on the objective: what each outside player adds to Nick, what each of his costs. */
@@ -366,10 +374,16 @@ export function twoForOneSummary(stats) {
  *
  * REACH-01: `chainGive` caps the gives on a chained finish (2, today's; the planner passes the risk
  * mode's max_give_per_step with GRIDIRON_REACH on). The direct finish keeps maxGiveFinal (3).
+ *
+ * SEARCH-WIDE (search-wide.js; `wide` null = off, today's search): after today's shortlist, the
+ * rest of the enumerated paths (a wider depth 3, plus a free-agent claim ending the best 1- and
+ * 2-trade paths) are scored in heuristic order until wide.candidates extras or wide.rescoresLeft()
+ * runs out. wide: { candidates, rescoresLeft, beam, tierOk, dropOk, claimPool, sink }. Laterals
+ * are held to the floor on every candidate, today's shortlist included.
  */
 export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal = 3, shortlist = [8, 12, 8],
   maxOverpay = DEFAULT_MAX_OVERPAY, overpaySink = null, getOk = null, chainGive = 2,
-  depthPremium = 0, board = null, premiumSink = null, untouchables = null } = {}) {
+  depthPremium = 0, board = null, premiumSink = null, untouchables = null, wide = null } = {}) {
   const me = adapter.league.me;
   // CAP-1C: the premium's ceiling on a depth-only 2-for-1 (never below the plain cap); off with no board.
   const premiumCap = depthPremium > 0 && board ? Math.max(maxOverpay, depthPremium) : maxOverpay;
@@ -495,12 +509,69 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     if (seen.has(k)) return false;
     seen.add(k); return true;
   });
-  const plans = short.map(c => {
+  const extras = wide ? wideExtras() : [];
+  function wideExtras() {
+    // Depth 3, wider: the top `beam` distinct first steps, and a second chip of up to 2 gives.
+    const firsts = [], firstSeen = new Set();
+    for (const c of [...d2].sort(byExp)) {
+      const k = dealKey(c.steps[0]);
+      if (firstSeen.has(k)) continue;
+      firstSeen.add(k); firsts.push(c.steps.slice(0, 1));
+      if (firsts.length >= wide.beam) break;
+    }
+    const d3w = chipLayer(firsts, 2).map(finish).filter(Boolean);
+    // Claims as steps: the best claim ending each of today's 1- and 2-trade paths, then the rest.
+    const claimed = [];
+    if (wide.claimPool?.length) {
+      for (const c of [...short, ...d1, ...d2].filter(x => x.steps.length < 3)) {
+        const last = c.steps[c.steps.length - 1];
+        const roster = S.rosterOf(last.state, me);
+        const acquired = new Set(c.steps.flatMap(st => st.get.map(String)));
+        const cl = bestClaim({ roster, pool: wide.claimPool, playerOf: id => P.get(id), dropOk: wide.dropOk, acquired });
+        if (!cl) continue;
+        const st = { team: FREE_AGENT, claim: true, give: [cl.drop], get: [cl.add], p: 1, band: null,
+          state: S.applyClaim(last.state, me, [cl.drop], [cl.add]) };
+        const steps = [...c.steps, st];
+        claimed.push({ steps, e: h(steps) });
+      }
+    }
+    const out = [];
+    for (const c of [...claimed.sort(byExp), ...[...d1, ...d2, ...d3, ...d3w].sort(byExp)]) {
+      const k = c.steps.map(dealKey).join('>');
+      if (seen.has(k)) continue;
+      seen.add(k); out.push(c);
+    }
+    wide.sink.enumerated += out.length;
+    wide.sink.claims.built += claimed.length;
+    return out;
+  }
+  // SEARCH-WIDE: a lateral (depth for depth) survives only when the path ends at the floor.
+  const lateralKeep = c => {
+    if (!wide) return true;
+    if (!c.steps.some(st => isLateral(st, wide.tierOk))) return true;
+    wide.sink.laterals.seen++;
+    if (lateralOk(c.steps, wide.tierOk)) return true;
+    wide.sink.laterals.dropped++;
+    return false;
+  };
+  // Today's shortlist first, whole; then the extras until the budget runs out.
+  const scored = short.filter(lateralKeep).map(scoreCandidate);
+  for (const c of extras) {
+    if (wide.sink.used.extras >= wide.candidates) { wide.sink.budget_hit ??= 'candidates'; break; }
+    if (wide.rescoresLeft() <= 0) { wide.sink.budget_hit ??= 'rescores'; break; }
+    if (!lateralKeep(c)) continue;
+    wide.sink.used.extras++;
+    if (c.steps.some(st => st.claim)) wide.sink.claims.scored++;
+    scored.push(scoreCandidate(c));
+  }
+  const plans = scored.filter(Boolean);
+  function scoreCandidate(c) {
     let prev = null, gated = null;
     const steps = c.steps.map(st => {
       const r = S.rescore(st.state, me).me;
       const m = metricOf(r, objective);
-      const out = { team: st.team, give: st.give, get: st.get, p: st.p, band: st.band, ...stepPExtras(st), delta: m.delta, se: m.se, clears: m.clears, state: st.state };
+      const out = { team: st.team, give: st.give, get: st.get, p: st.p, band: st.band, ...stepPExtras(st), delta: m.delta, se: m.se, clears: m.clears, state: st.state,
+        ...(st.claim ? { claim: true } : {}) };
       if (st.premium_pct != null) {
         // CAP-1C: a premium step stays only if its own lineup points and title odds both rise (paired dice).
         const h = premiumHolds(r, prev);
@@ -519,7 +590,7 @@ export function searchTarget(S, adapter, vals, objective, target, { maxGiveFinal
     if (stats) { const k = oneOnly ? 'one_for_one_only' : 'two_side'; stats.shortlisted[k] = (stats.shortlisted[k] ?? 0) + 1; }
     return { target, owner, depth: steps.length, heuristic: c.e.expected, chained: isChained(steps), steps,
       ...pathExpectation(steps) };
-  }).filter(Boolean);
+  }
   if (stats) {
     const best = f => plans.filter(f).reduce((b, p) => (b == null || p.expected > b ? p.expected : b), null);
     const one = best(p => oneForOneOnly(p.steps)), withTwo = best(p => !oneForOneOnly(p.steps));

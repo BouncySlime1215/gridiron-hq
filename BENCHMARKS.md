@@ -25,7 +25,7 @@ after every merge and **refuses a regression** on any row that has a baseline.
 <!-- benchmarks:begin -->
 | id | model | metric | better | tolerance | baseline | measured | command |
 |---|---|---|---|---|---|---|---|
-| plans.candidates_scored | search (planner.js -> search.js) | paths scored for league 4 on one run | higher | 0 | 53 | 2026-09-24T14:23:43Z plans.json, ONE-PLAN.md 2 | `node scripts/check-benchmarks.mjs --plans ~/gridiron-local/warroom/plans.json --league 4` |
+| plans.candidates_scored | search (planner.js -> search.js) | paths scored for league 4 on one run | higher | 0 | 31 | 2026-09-25 integration-10a (#463), live-DB copy: reset by hand from 53 because FLIP-STRANDED (#432, a rule) drops paths that strand Nick under the floor between legs (main 52 -> 31 on the same snapshot), not a search regression | `node scripts/check-benchmarks.mjs --plans ~/gridiron-local/warroom/plans.json --league 4` |
 | plans.runtime_ms | producer (produce-plans.mjs) | one league-4 plan, wall time, machine idle | lower | 25% | 97918 | 2026-09-24T14:23:43Z plans.json (2,221 s under load: not comparable) | `node scripts/check-benchmarks.mjs --plans ~/gridiron-local/warroom/plans.json --league 4` |
 | plans.number_health_broken | number audit (brain-gate.js readNumberHealth) | checks at status broken | lower | 0 | 2 | 2026-09-24T14:23:43Z plans.json: projection_basis, weekly_range | `node scripts/check-benchmarks.mjs --plans ~/gridiron-local/warroom/plans.json --league 4` |
 | sim.se_ratio_median | title sim, RB-TITLE (rb-title.js) | r50 harness median SE ratio on title levels | lower | 0.02 | 0.488 | 2026-09-25 tree a090712b, deterministic | `node --test test/rb-title.test.js 2>&1 \| node scripts/check-benchmarks.mjs --log -` |

@@ -15,6 +15,7 @@
  */
 import { row, rows, run } from '../db/index.js';
 import { NUDGE_HOURS, SWITCH_HOURS } from './campaign/playbook.js';
+import { offerState } from './campaign/negotiator-safety.js';
 
 export const REPLY_KINDS = Object.freeze(['accept', 'decline', 'counter', 'silence']);
 export const CLOSE_REASONS = Object.freeze(['accepted', 'declined', 'walked_away', 'undone']);
@@ -251,11 +252,26 @@ const BRANCH_LABELS = { accept: 'He accepts', decline: 'He declines', counter: '
 const CLOSES = { accept: 'accepted', decline: 'declined' };
 export const closesOn = kind => CLOSES[kind] ?? null;
 
+/** The latest send on a thread: "I sent it" (null once taken back), or Nick's latest counter. */
+export function lastSendOf(t, events) {
+  const unsent = t.sent_at == null;
+  return [...(unsent ? [] : [t.sent_at]), ...events.filter(e => e.kind === 'counter_sent').map(e => e.at)].sort().pop() ?? null;
+}
+
+/** Every player a thread's deal names: the step, Nick's counters and his logged asks. */
+export function dealIdsOf(t, events) {
+  const out = new Set([...parse(t.give_json), ...parse(t.get_json)].map(String));
+  for (const e of events) for (const x of [...(parse(e.give_json) ?? []), ...(parse(e.get_json) ?? [])]) out.add(String(x));
+  return [...out];
+}
+
 /**
  * The thread as the client draws it. `dist` is replyTimes()'s result for the partner.
  * The latest logged reply picks the live branch; before any reply the countdown runs.
+ * NEGOTIATOR-SAFETY: with `news` (campaign/deal-news.js#dealNews since the last send) an open thread also
+ * carries `offer`: when it expires and whether news on a player in the deal says to withdraw it now.
  */
-export function threadView(t, events, dist, now) {
+export function threadView(t, events, dist, now, { news = null } = {}) {
   const step = parse(t.step_json);
   const replies = events.filter(e => e.kind === 'reply');
   const last = replies[replies.length - 1] ?? null;
@@ -272,7 +288,7 @@ export function threadView(t, events, dist, now) {
   const status = unsent ? 'closed' : t.status;
   const closedReason = unsent && t.status === 'open' ? 'undone' : t.closed_reason;
   // The clock restarts when Nick sends a counter; an answer after the latest send stops it.
-  const lastSend = [...(unsent ? [] : [t.sent_at]), ...events.filter(e => e.kind === 'counter_sent').map(e => e.at)].sort().pop();
+  const lastSend = lastSendOf(t, events);
   const answered = replies.find(e => e.reply !== 'silence' && e.at >= lastSend) ?? null;
   const sentMs = unsent ? NaN : Date.parse(t.sent_at);
   return {
@@ -287,6 +303,7 @@ export function threadView(t, events, dist, now) {
       title_after: step.title_after, message: step.message, walk_away: step.walk_away },
     branches,
     events: events.map(e => ({ kind: e.kind, reply: e.reply, give: parse(e.give_json), get: parse(e.get_json), note: e.note, at: e.at })),
-    countdown: status === 'open' ? { ...countdown(dist, lastSend, now, { answeredAt: answered?.at ?? null }), from: lastSend } : null
+    countdown: status === 'open' ? { ...countdown(dist, lastSend, now, { answeredAt: answered?.at ?? null }), from: lastSend } : null,
+    ...(news && status === 'open' && lastSend ? { offer: offerState({ lastSend, now, ids: dealIdsOf(t, events), news }) } : {})
   };
 }

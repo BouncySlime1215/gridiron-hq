@@ -107,13 +107,15 @@ export function whyNowOf({ radar = 'not_merged', opp = null, trend = null, histo
 
 /**
  * Label every flip row of a produced entry (in place, before the contract check) and return the
- * RADAR-GRADE ledger rows. adapter reads: opportunityOf (absent until #377), fcTrendOf, fcHistoryDays,
+ * RADAR-GRADE ledger rows. adapter reads: opportunityOf (absent while the radar is off) / opportunityRadar, fcTrendOf, fcHistoryDays,
  * newsOf, newsAlive; any read that is missing counts as no data, and the label says which.
  */
 export function applyWhyNow(entry, adapter, { as_of, flag = 'on' } = {}) {
   const rows = entry?.flip_map?.status === 'ok' && Array.isArray(entry.flip_map.value) ? entry.flip_map.value : [];
   const now = Date.parse(as_of);
-  const radar = typeof adapter.opportunityOf !== 'function' ? 'not_merged' : 'on';
+  // opportunityOf is present only while GRIDIRON_OPP_RADAR is on; opportunityRadar 'off' says the radar
+  // is built but switched off (league-adapter.mjs), so the label prints "O1 radar off", never a silent none.
+  const radar = typeof adapter.opportunityOf === 'function' ? 'on' : adapter.opportunityRadar === 'off' ? 'off' : 'not_merged';
   const historyDays = adapter.fcHistoryDays?.() ?? 0;
   const newsAlive = !!adapter.newsAlive?.(now);
   const ledger = [];

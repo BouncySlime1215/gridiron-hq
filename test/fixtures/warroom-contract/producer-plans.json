@@ -3565,6 +3565,13 @@
       "refused": [],
       "paths_dropped": 0
      },
+     "flip_stranded": {
+      "mode": "on",
+      "floor": 83,
+      "paths_dropped": 0,
+      "flips_dropped": 0,
+      "examples": []
+     },
      "reach": {
       "flag": "off",
       "targets_budget": 3,
@@ -7350,6 +7357,13 @@
       "refused": [],
       "paths_dropped": 0
      },
+     "flip_stranded": {
+      "mode": "on",
+      "floor": 83,
+      "paths_dropped": 0,
+      "flips_dropped": 0,
+      "examples": []
+     },
      "reach": {
       "flag": "off",
       "targets_budget": 3,
@@ -10733,6 +10747,13 @@
       "refused": [],
       "paths_dropped": 0
      },
+     "flip_stranded": {
+      "mode": "on",
+      "floor": 83,
+      "paths_dropped": 0,
+      "flips_dropped": 0,
+      "examples": []
+     },
      "reach": {
       "flag": "off",
       "targets_budget": 3,
@@ -12433,6 +12454,13 @@
       "below": [],
       "refused": [],
       "paths_dropped": 0
+     },
+     "flip_stranded": {
+      "mode": "on",
+      "floor": 83,
+      "paths_dropped": 0,
+      "flips_dropped": 0,
+      "examples": []
      },
      "reach": {
       "flag": "off",
@@ -16053,6 +16081,13 @@
       "below": [],
       "refused": [],
       "paths_dropped": 0
+     },
+     "flip_stranded": {
+      "mode": "on",
+      "floor": 83,
+      "paths_dropped": 0,
+      "flips_dropped": 0,
+      "examples": []
      },
      "reach": {
       "flag": "off",

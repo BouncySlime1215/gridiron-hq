@@ -69,6 +69,8 @@ export const DECLINE_REASONS = Object.freeze(['wants_more', 'likes_his_player', 
 /** Catch-up kinds (campaign/catchup.js#CATCHUP_ORDER) and speed levers (campaign/speed.js#CURVE_LEVERS). */
 export const CATCHUP_KINDS = Object.freeze(['free', 'flip', 'desperate', 'swing', 'timing']);
 /** NEGOTIATOR-DEFAULTS levers (negotiator-defaults.js reads this list). */
+/** Why the message filter held a text back (negotiator-safety.js SAFETY_REASONS; a test pins them equal). */
+export const SAFETY_REASONS = Object.freeze(['blocked_player', 'gives_more', 'pressure', 'worse_than_plan']);
 export const NEGOTIATION_LEVERS = Object.freeze(['defensible_anchor', 'two_packages', 'firm_wording', 'why_line', 'expiry',
   'withdraw_on_news', 'feeler_first', 'no_pressure_tactics', 'cool_off']);
 /** Why a second package was not served (planner.js confirmAlt): the rules a served plan must pass. */
@@ -164,6 +166,14 @@ const stepNegotiation = obj({
   cool_off: bool, alt_dropped: oneOf(ALT_DROP_REASONS)
 });
 
+/* NEGOTIATOR-SAFETY: whether the message opens with a why line for the partner, which texts the message
+ * filter held back and why, and how long the offer stands before it is withdrawn. */
+const stepSafety = obj({
+  why_line: bool,
+  filtered: arr(obj({ text: oneOf(['message', 'accept', 'decline', 'counter', 'silence']), reasons: arr(oneOf(SAFETY_REASONS), { min: 1 }) })),
+  expires_hours: int(1), withdraw_if: str
+});
+
 /** One offer in a plan, with its playbook. */
 const step = obj({
   partner: id,
@@ -186,7 +196,9 @@ const step = obj({
   depth_premium: field(obj({ pct: num, cap: num, lineup_points_delta: num, title_odds_delta: num, text: str },
     { confirmed_lineup_points_delta: num, confirmed_title_odds_delta: num })),
   // NEGOTIATOR-DEFAULTS (GRIDIRON_NEGOTIATOR_DEFAULTS, default off): how this offer is made, tagged by lever.
-  negotiation: field(stepNegotiation)
+  negotiation: field(stepNegotiation),
+  // NEGOTIATOR-SAFETY (GRIDIRON_NEGOTIATOR_SAFETY, default off): the why line, the texts the filter held back, the expiry.
+  safety: field(stepSafety)
 });
 
 /** A plan: one deck card. */
@@ -397,7 +409,8 @@ const run = obj({
 
 const league = obj(
   { league: int(1), me: id, names: map(/^[A-Za-z0-9_.:-]{1,64}$/, str) },
-  { error: str, sanity_composed_equals_direct: bool, _run: run, ...SECTIONS }
+  // PLANS-EXPIRE: when this league was planned (plan-age.js); a kept entry keeps its own. Optional: older files validate.
+  { error: str, sanity_composed_equals_direct: bool, planned_at: iso, _run: run, ...SECTIONS }
 );
 
 const HEAD = { schema: lit(SCHEMA_VERSION), generated_at: iso, producer: str, producer_version: str };

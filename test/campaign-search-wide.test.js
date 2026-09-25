@@ -344,3 +344,22 @@ test('one flag read: the planner follows the adapter\'s searchWide, whatever its
   const r2 = planLeague(onAdapter, { objective: OBJ, env: OFF });
   assert.equal(r2.search_wide?.flag, 'on', 'the world was built for it: the planner widens');
 });
+
+/* ------------------------- #406 finding 5: the claim's P(yes) label vs LIVE-BLEND (#404) */
+
+test('a claim step\'s P(yes) is never labelled an acceptance model\'s, even if it carried a blend basis', async () => {
+  const { stepPSource } = await import('../server/services/campaign/view.js');
+  assert.equal(stepPSource({ claim: true }), 'plan.path');
+  assert.equal(stepPSource({ claim: true, p_basis: 'pyes_blend' }), 'plan.path');
+  assert.equal(stepPSource({ claim: true, p_basis: 'activity_baseline' }), 'plan.path');
+  assert.equal(stepPSource({ p_basis: 'pyes_blend' }), 'blend.accept');
+  assert.equal(stepPSource({ p_basis: 'activity_baseline' }), 'activity.accept');
+  assert.equal(stepPSource({}), 'clone.accept');
+  // And the search never gives a claim step a blend basis or a gate p (so LIVE-BLEND cannot re-blend it).
+  const a = claimAdapter();
+  const pool = a.freeAgents.filter(f => a.claimUniverse.has(String(f.id)));
+  const o = wideOpts(a, { claimPool: pool, dropOk: makeDropOk({ scoreOf: a.scoreOf, floor: 83, untouchable: new Set() }) });
+  const claimSteps = claimsOf([11, 21, 31].flatMap(t => searchOne(a, t, o).plans)).map(p => p.steps.at(-1));
+  assert.ok(claimSteps.length > 0);
+  for (const st of claimSteps) assert.deepEqual([st.p_basis, st.p_gate, st.probe], [undefined, undefined, undefined]);
+});

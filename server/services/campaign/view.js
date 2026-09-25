@@ -39,6 +39,13 @@ const featureOut = f => ({ feature: String(f.feature), effect: String(f.effect ?
 const BAND_BASES = ['no_information', 'heuristic_unanchored', 'heuristic_anchored'];
 /** PYES-ONE: where a served P(yes) came from. The E1 activity baseline (p-yes.js, flag on) is its own source. */
 const pSrc = basis => (basis === PYES_BASIS ? 'activity.accept' : basis === BLEND_BASIS ? 'blend.accept' : 'clone.accept');
+/**
+ * A step's P(yes) source. SEARCH-WIDE x LIVE-BLEND (#406 finding 5 / #404): a free-agent claim asks
+ * nobody, so its p is never an acceptance model's (clone, activity baseline or blend): it is the
+ * planner's waiver-win rate (search-wide.js#claimProbability), labelled 'plan.path', whatever
+ * p_basis a step object might carry. Every place a step's p_yes is shown reads this one helper.
+ */
+export const stepPSource = st => (st?.claim ? 'plan.path' : pSrc(st?.p_basis));
 /** LIVE-BLEND: the source id a p_yes_basis section names. */
 const pSrcOf = b => (['activity.accept', 'blend.accept', 'clone.accept'].includes(b.source) ? b.source : 'clone.accept');
 const PYES_NOTE = `${PYES_LABEL}: every offer to one manager gets the same number, so ladder rungs differ by your gain, not by P(yes), until E1 grades a model that reads the offer`;
@@ -187,8 +194,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     const before = i === 0 ? 0 : plan.steps[i - 1].delta;
     const out = {
       partner: String(st.team), give: ids(st.give), get: ids(st.get),
-      // SEARCH-WIDE: a free-agent claim asks nobody; its p is the planner's waiver prior, not a clone read.
-      p_yes: num(st.p, st.claim ? 'plan.path' : pSrc(st.p_basis), { prob: true, unit: 'probability', guess: true }),
+      // SEARCH-WIDE: a free-agent claim asks nobody; its p is the waiver-win rate (stepPSource), never a clone or blend read.
+      p_yes: num(st.p, stepPSource(st), { prob: true, unit: 'probability', guess: true }),
       title_odds_delta: num(st.delta - before, 'sim.title', { se: st.se, clears: st.clears, unit }),
       title_after: metric === 'title' ? num(nowMetric + st.delta, 'sim.title', { prob: true, unit: 'title_odds' })
         : unknown(`This plan is scored on ${LABEL[metric]}; title odds after the step are not computed.`, 'sim.title'),
@@ -352,7 +359,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       // itinerary.js#planStopLabel wrote ' from Team N' (the planner has no teams map): name him here.
       const tail = ` from ${teamLabel(null, st.team)}`;
       if (out.label.endsWith(tail)) out.label = `${out.label.slice(0, -tail.length)} from ${tl(st.team)}`;
-      out.p_yes = num(st.p, pSrc(st.p_basis), { prob: true, unit: 'probability', guess: true });
+      out.p_yes = num(st.p, stepPSource(st), { prob: true, unit: 'probability', guess: true });
       out.title_odds_delta = num(st.delta - before, 'sim.title', { se: st.se, clears: st.clears, unit });
     }
     const ni = /^nick-(\d+)$/.exec(s.id);

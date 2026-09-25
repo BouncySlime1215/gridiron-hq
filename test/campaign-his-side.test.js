@@ -208,3 +208,16 @@ test('producer: GRIDIRON_HIS_SIDE=1 in the run env serves the field; unset leave
   assert.equal(on._run.inputs.his_side.flag, 'on');
   assert.equal(on.targets.value.every(t => t.his_side?.status === 'ok'), true);
 });
+
+test('needs: the live layer hands a Set (counterparty-pricing.js#deriveRosterNeeds); the his-side read still sees it', () => {
+  const a = league();
+  a.managers.set('3', { ...a.managers.get('3'), needs: new Set(['RB', 'TE']) });
+  const res = planOf(a);
+  const p3 = res.partners.find(p => p.team === '3');
+  assert.deepEqual(p3.needs_read, ['RB', 'TE']);
+  const on = toEntry(res, { names: a.names(), as_of: '2026-09-24T06:00:00.000Z', his_side_on: true });
+  for (const t of on.targets.value.filter(x => x.owner === '3')) {
+    assert.deepEqual(t.his_side.value.needs, ['RB', 'TE']);
+    assert.equal(t.his_side.value.reads.needs, 'ok');
+  }
+});

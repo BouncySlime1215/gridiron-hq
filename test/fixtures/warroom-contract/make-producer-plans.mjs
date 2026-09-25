@@ -31,6 +31,7 @@
  *
  *   node test/fixtures/warroom-contract/make-producer-plans.mjs   # rewrites producer-plans.json
  */
+import { pYesBasis, pYesTableFrom } from '../../../server/services/p-yes.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -100,6 +101,11 @@ function withPeople(a) {
   return a;
 }
 
+// LIVE-BLEND: made-up decided offers across two leagues, all answered before PYES_NOW.
+const PYES_NOW = Date.UTC(2026, 8, 24);
+const pyDay = d => new Date(Date.UTC(2026, 8, d)).toISOString();
+const PYES_OFFERS = [[4, '2', 1, 1], [4, '2', 3, 0], [4, '3', 5, 0], [4, '3', 7, 0], [1, '2', 2, 1], [1, '4', 4, 1]]
+  .map(([league, team, d, y]) => ({ league_id: league, counterparty_team_id: team, proposed_at: pyDay(d), resolved_at: pyDay(d + 1), y }));
 /**
  * League 8's season ledger (TRADE-MEMORY, made up): Nick sold P11 to team 2 twelve days ago at 5,000
  * (4,200 now, a 16% fall: still never a get, no buy-backs) and P22 to team 3 for P4 (a reversal is never served).
@@ -118,9 +124,11 @@ export async function makeProducerPlans() {
       counterpart: { status: 'ok', reason: null, field: 'people.counterpart' } }) },
     { id: 2, load: async () => { const a = leagueOf(2); a.world = () => ({ fail: 'no schedule for this season' }); return { adapter: a }; } },
     { id: 3, load: async () => ({ adapter: leagueOf(3, { managerExtra: { 3: { title_now: 0.01 }, 4: { checked_out: true } } }) }) },
-    { id: 4, load: async () => ({ adapter: leagueOf(4) }) },
+    // LIVE-BLEND: league 4 serves the blend (made-up graded offers), league 5 falls back to the clone (none).
+    { id: 4, load: async () => { const a = leagueOf(4); a.pYesBasis = pYesBasis(pYesTableFrom(PYES_OFFERS, 4, ['2', '3'], { now: PYES_NOW, mode: 'blend' })); return { adapter: a }; } },
     // TEAM-NAMES: league 5 also names one manager (synthetic), so the file writes every teams path.
-    { id: 5, load: async () => { const a = leagueOf(5); const t = a.teams(); a.teams = () => ({ ...t, 2: { ...t[2], manager: 'Manager B' } }); return { adapter: a }; } },
+    { id: 5, load: async () => { const a = leagueOf(5); const t = a.teams(); a.teams = () => ({ ...t, 2: { ...t[2], manager: 'Manager B' } });
+      a.pYesBasis = pYesBasis(pYesTableFrom([], 5, ['2'], { now: PYES_NOW, mode: 'blend' })); return { adapter: a }; } },
     { id: 8, load: async () => ({ adapter: withLedger(leagueOf(8)) }) },
   ];
   const first = await buildPlansFile(leagues, { generated_at: FIRST_AT, objectives: OBJECTIVES, clock: () => 0, brain: BRAIN, env: ENV });

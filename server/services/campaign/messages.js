@@ -38,6 +38,7 @@ import { previewUnconfirmed } from '../preview-mode.js';
 import { NUDGE_HOURS, SWITCH_HOURS, teamLabel } from './playbook.js';
 import { checkMessage, checkBursts, factsFor, splitName, surname, numberTokens, MAX_CHARS } from './message-check.js';
 import { nickVoiceOn, resolveProfile, styleText, surnamePairs, loadNickVoice } from '../coach/voice.js';
+import { firmOfferText } from './negotiator-defaults.js';
 
 export const COACH_MESSAGES_ENV = 'GRIDIRON_COACH_MESSAGES';
 export const COACH_SOURCE = 'coach.text';
@@ -217,6 +218,9 @@ export function coachStep(step, { names, partnerByTeam, profiles, plan, i, moveB
 
   const give = opening ? ids(opening.give) : ids(step.give);
   const get = ids(step.get);
+  // NEGOTIATOR-DEFAULTS: the producer wrote this step's levers (flag on there); the texts follow them.
+  const nego = okv(step.negotiation);
+  const alt = nego?.alt_package ? ids(nego.alt_package.give) : [];
   const maxGive = walk ? ids(walk.max_give) : ids(step.give);
   const pctOpen = opening ? screenPct(opening.text) : null;
   const pctWalk = counterRules ? screenPct(counterRules.accept_if) : null;
@@ -232,7 +236,7 @@ export function coachStep(step, { names, partnerByTeam, profiles, plan, i, moveB
   for (const s of [okv(step.send_when)]) if (typeof s === 'string') numbers.push(...numberTokens(s));
   const facts = factsFor({ names, ids: allowIds, holes: partner?.roster_holes ?? [], numbers });
   // Outgoing texts (what the partner reads) get a stricter fact set: players and positions only.
-  const outFacts = factsFor({ names, ids: [...give, ...get, ...maxGive, ...rung], holes: partner?.roster_holes ?? [], numbers: [] });
+  const outFacts = factsFor({ names, ids: [...give, ...get, ...maxGive, ...rung, ...alt], holes: partner?.roster_holes ?? [], numbers: [] });
 
   const prof = profileLabels(profiles?.get?.(String(step.partner)) ?? null, { giveIds: give, getIds: get, names });
   const seed = seedOf(step.partner, ...give, ...get, i);
@@ -264,7 +268,9 @@ export function coachStep(step, { names, partnerByTeam, profiles, plan, i, moveB
   };
 
   // 1. The message.
-  const msg = say(phrase({ names, partner, prof, give, get, even: pctOpen != null ? Math.abs(pctOpen) <= EVEN_PCT : null, seed }), 'message');
+  const firm = () => firmOfferText({ who: id => who(names, id), give, get, alt: alt.length ? alt : null,
+    holes: partner?.roster_holes ?? [], maxChars: MAX_CHARS });
+  const msg = say(nego ? firm() : phrase({ names, partner, prof, give, get, even: pctOpen != null ? Math.abs(pctOpen) <= EVEN_PCT : null, seed }), 'message');
   if (msg) out.message = { status: 'ok', value: msg, source: COACH_SOURCE };
 
   if (!priced) return { step: out, grounded: !!msg, priced, errors, voiced };
@@ -317,7 +323,7 @@ export function coachStep(step, { names, partnerByTeam, profiles, plan, i, moveB
   row('silence', {
     when: `no reply in ${NUDGE_HOURS} h`,
     do: `${slow ? 'He tends to take a while. ' : ''}Send one nudge after ${NUDGE_HOURS} h. After ${SWITCH_HOURS} h with no answer, withdraw${backup ? ` and offer Team ${backup.partner} ${deal(backup)}` : '; the plan is redone on the next refresh'}.`,
-    message: `Any thoughts on ${joinNames(names, give)} for ${joinNames(names, get)}? Happy to tweak it.`,
+    message: `Any thoughts on ${joinNames(names, give)} for ${joinNames(names, get)}?${nego ? ' It stands until tomorrow.' : ' Happy to tweak it.'}`,
   });
   if (['accept', 'decline', 'counter', 'silence'].every(k => rows[k])) {
     out.reply_table = { status: 'ok', value: rows, source: step.reply_table.source };

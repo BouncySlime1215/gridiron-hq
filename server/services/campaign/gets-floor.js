@@ -41,6 +41,13 @@ export function getFloorOf(tol) {
 /** How a card names the floor: "Blue chip floor (83+)", "Blue chip floor (88+)". */
 export const floorName = floor => `Blue chip floor (${floor}+)`;
 
+/** Players Nick holds at the end of a path: every get, minus what a later step gives on (all final gets). */
+export function heldAtEnd(steps) {
+  const held = new Set();
+  for (const st of steps) { for (const id of st.give) held.delete(String(id)); for (const id of st.get) held.add(String(id)); }
+  return held;
+}
+
 /** One player against the floor. scoreOf: adapter.scoreOf (id -> { score, label } | null), or null. */
 export function floorRead(scoreOf, pid, floor) {
   const player = String(pid);

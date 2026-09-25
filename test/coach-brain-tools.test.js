@@ -475,7 +475,9 @@ test('verify: a text cell from a non-brain tool grounds no number (flag-off beha
   const v = verifyAnswer({ ledger, answer: { claims: [
     { text: 'He scored 11 touchdowns in 2024.', cites: ['r1#0.game_date'] },
     { text: 'Send step 2 to Team 2.', cites: ['r1#0.team'] }] } });
-  assert.deepEqual(v.violations.map(x => [x.claim_index, x.number]), [[0, '11'], [0, '2024'], [1, '2'], [1, '2']]);
+  // COACH-PARTNER: "step 2" is an ordinal in Coach's own sentence, not a quantity (verify.js#isStructural);
+  // "Team 2" still grounds nothing from a non-brain text cell.
+  assert.deepEqual(v.violations.map(x => [x.claim_index, x.number]), [[0, '11'], [0, '2024'], [1, '2']]);
 });
 
 test('verify: a player the claim did not cite, or one no tool returned, is rejected', noBrain, async () => {

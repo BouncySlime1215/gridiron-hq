@@ -159,6 +159,10 @@ export interface Acceptance {
   anchor?: { accept_rate: number | null; n: number; usable: boolean; why?: string | null } | null;
   factors?: { source: string; label: string; effect: number; why?: string | null }[];
   inert?: { source: string; reason: string }[];
+  /** PYES-ONE (server/services/p-yes.js, flag on): a point estimate with no width, and its label. */
+  point?: boolean;
+  label?: string;
+  n?: number;
 }
 
 /** One suggested approach (server/services/trade-tactics.js). */

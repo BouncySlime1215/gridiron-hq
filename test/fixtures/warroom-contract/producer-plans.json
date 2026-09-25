@@ -3054,6 +3054,16 @@
     "source": "people.score",
     "reason": "The blue-chip board was not built for this run."
    },
+   "ladders": {
+    "status": "unknown",
+    "source": "plan.path",
+    "reason": "Ladder cards are off (GRIDIRON_LADDER)."
+   },
+   "p_yes_basis": {
+    "status": "unknown",
+    "source": "clone.accept",
+    "reason": "This run read no P(yes) table, so the steps carry the adapter's own p."
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 595842253,
@@ -3328,6 +3338,71 @@
      "finder_and_sanity": 0
     },
     "inputs": {
+     "his_side": {
+      "flag": "shadow",
+      "espn_block": {
+       "status": "unread"
+      },
+      "ok": 5,
+      "of": 5,
+      "targets": [
+       {
+        "player": "22",
+        "owner": "3",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "ok",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "21",
+        "owner": "3",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "ok",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "11",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "12",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "13",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       }
+      ]
+     },
      "chat": {
       "status": "not_read"
      },
@@ -6950,6 +7025,16 @@
     "source": "people.score",
     "reason": "The blue-chip board was not built for this run."
    },
+   "ladders": {
+    "status": "unknown",
+    "source": "plan.path",
+    "reason": "Ladder cards are off (GRIDIRON_LADDER)."
+   },
+   "p_yes_basis": {
+    "status": "unknown",
+    "source": "clone.accept",
+    "reason": "This run read no P(yes) table, so the steps carry the adapter's own p."
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 1212727519,
@@ -7174,6 +7259,71 @@
      "finder_and_sanity": 0
     },
     "inputs": {
+     "his_side": {
+      "flag": "shadow",
+      "espn_block": {
+       "status": "unread"
+      },
+      "ok": 5,
+      "of": 5,
+      "targets": [
+       {
+        "player": "22",
+        "owner": "3",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "11",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "12",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "32",
+        "owner": "4",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "21",
+        "owner": "3",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       }
+      ]
+     },
      "chat": {
       "status": "not_read"
      },
@@ -9247,7 +9397,7 @@
         "his_side": "Team 2's roster read lists WR as thin.",
         "devils_advocate": "A path fits the current risk mode; landing him still takes every step saying yes.",
         "news_check": "Not checked for targets: the news read runs on the offers in a plan.",
-        "confidence": "The path lands 7% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "confidence": "The path lands 7% of the time, on blend of activity baseline and clone, weights earned on graded offers (E1 pending).",
         "counter": "No offer yet, so no counter plan.",
         "cites": [
          "gain_if_landed",
@@ -9294,7 +9444,7 @@
         "his_side": "Team 2's roster read lists WR as thin.",
         "devils_advocate": "A path fits the current risk mode; landing him still takes every step saying yes.",
         "news_check": "Not checked for targets: the news read runs on the offers in a plan.",
-        "confidence": "The path lands 7% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "confidence": "The path lands 7% of the time, on blend of activity baseline and clone, weights earned on graded offers (E1 pending).",
         "counter": "No offer yet, so no counter plan.",
         "cites": [
          "gain_if_landed",
@@ -9341,7 +9491,7 @@
         "his_side": "Team 2's roster read lists WR as thin.",
         "devils_advocate": "A path fits the current risk mode; landing him still takes every step saying yes.",
         "news_check": "Not checked for targets: the news read runs on the offers in a plan.",
-        "confidence": "The path lands 1% of the time, on today's model (trade-acceptance.js band midpoint; unvalidated, E1 pending).",
+        "confidence": "The path lands 1% of the time, on blend of activity baseline and clone, weights earned on graded offers (E1 pending).",
         "counter": "No offer yet, so no counter plan.",
         "cites": [
          "gain_if_landed",
@@ -10164,6 +10314,48 @@
     "source": "people.score",
     "reason": "The blue-chip board was not built for this run."
    },
+   "ladders": {
+    "status": "unknown",
+    "source": "plan.path",
+    "reason": "Ladder cards are off (GRIDIRON_LADDER)."
+   },
+   "p_yes_basis": {
+    "status": "ok",
+    "value": {
+     "mode": "blend",
+     "source": "blend.accept",
+     "label": "blend of activity baseline and clone, weights earned on graded offers (E1 pending)",
+     "models": [
+      {
+       "id": "baseline",
+       "weight": 0.7261,
+       "prior_weight": 0.75,
+       "n": 6,
+       "log_loss": 0.753
+      },
+      {
+       "id": "clone",
+       "weight": 0.2739,
+       "prior_weight": 0.25,
+       "n": 6,
+       "log_loss": 0.7803,
+       "wins": 3,
+       "losses": 3
+      }
+     ],
+     "n_graded": 6,
+     "league_n": 4,
+     "lambda": 0.1667,
+     "shrink_k": 20,
+     "clamp": [
+      0.05,
+      0.95
+     ],
+     "as_of": "2026-09-24T00:00:00.000Z",
+     "activity": "ACTIVITY-01 (#334) is not merged, so the activity-intensity term is not blended"
+    },
+    "source": "blend.accept"
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 1458790284,
@@ -10450,6 +10642,71 @@
      "finder_and_sanity": 0
     },
     "inputs": {
+     "his_side": {
+      "flag": "shadow",
+      "espn_block": {
+       "status": "unread"
+      },
+      "ok": 5,
+      "of": 5,
+      "targets": [
+       {
+        "player": "11",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "12",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "13",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "22",
+        "owner": "3",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "32",
+        "owner": "4",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       }
+      ]
+     },
      "chat": {
       "status": "not_read"
      },
@@ -11946,6 +12203,21 @@
     "source": "people.score",
     "reason": "The blue-chip board was not built for this run."
    },
+   "ladders": {
+    "status": "unknown",
+    "source": "plan.path",
+    "reason": "Ladder cards are off (GRIDIRON_LADDER)."
+   },
+   "p_yes_basis": {
+    "status": "ok",
+    "value": {
+     "mode": "blend",
+     "source": "clone.accept",
+     "label": "clone band (no graded offers to blend)",
+     "fallback": "no decided offers resolved before now, so the baseline is an empty prior"
+    },
+    "source": "clone.accept"
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 20513169,
@@ -12071,6 +12343,71 @@
      "finder_and_sanity": 0
     },
     "inputs": {
+     "his_side": {
+      "flag": "shadow",
+      "espn_block": {
+       "status": "unread"
+      },
+      "ok": 5,
+      "of": 5,
+      "targets": [
+       {
+        "player": "11",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "12",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "13",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "22",
+        "owner": "3",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       },
+       {
+        "player": "32",
+        "owner": "4",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "unread"
+        }
+       }
+      ]
+     },
      "chat": {
       "status": "not_read"
      },
@@ -15335,6 +15672,16 @@
     "source": "people.score",
     "reason": "The blue-chip board was not built for this run."
    },
+   "ladders": {
+    "status": "unknown",
+    "source": "plan.path",
+    "reason": "Ladder cards are off (GRIDIRON_LADDER)."
+   },
+   "p_yes_basis": {
+    "status": "unknown",
+    "source": "clone.accept",
+    "reason": "This run read no P(yes) table, so the steps carry the adapter's own p."
+   },
    "_run": {
     "seed": 12345,
     "confirm_seed": 2141467936,
@@ -15616,6 +15963,71 @@
      "finder_and_sanity": 0
     },
     "inputs": {
+     "his_side": {
+      "flag": "shadow",
+      "espn_block": {
+       "status": "unread"
+      },
+      "ok": 5,
+      "of": 5,
+      "targets": [
+       {
+        "player": "32",
+        "owner": "4",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "ok"
+        }
+       },
+       {
+        "player": "12",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "ok"
+        }
+       },
+       {
+        "player": "13",
+        "owner": "2",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "ok"
+        }
+       },
+       {
+        "player": "21",
+        "owner": "3",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "ok"
+        }
+       },
+       {
+        "player": "31",
+        "owner": "4",
+        "status": "ok",
+        "reads": {
+         "needs": "ok",
+         "chat": "unknown",
+         "espn_block": "unread",
+         "ledger": "ok"
+        }
+       }
+      ]
+     },
      "chat": {
       "status": "not_read"
      },

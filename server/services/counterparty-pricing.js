@@ -534,6 +534,10 @@ function leagueActivityMean(list) {
   return {
     adds: have.reduce((a, s) => a + s.metrics.tx_adds_per_week, 0) / have.length,
     traded: have.reduce((a, s) => a + (s.metrics.tx_completed_trades > 0 ? 1 : 0), 0) / have.length,
+    // ACTIVITY-01: the self-exciting intensity, centred on its own mean, only
+    // when every manager has one (manager-signals emits it for all or none).
+    intensity: have.every(s => Number.isFinite(s.metrics.tx_adds_intensity))
+      ? have.reduce((a, s) => a + s.metrics.tx_adds_intensity, 0) / have.length : null,
     managers: have.length,
   };
 }
@@ -549,18 +553,26 @@ function leagueActivityMean(list) {
 // TEST SEAM: exported so scripts/rnd/grade-activity-receptiveness.mjs grades
 // exactly this function on the corpus; its production reader is counterpartyLayer.
 export function activityFactor(metrics, samples, mean) {
-  const rate = metrics?.tx_adds_per_week;
-  if (!Number.isFinite(rate) || !mean) return null;
+  const flat = metrics?.tx_adds_per_week;
+  if (!Number.isFinite(flat) || !mean) return null;
+  // ACTIVITY-01: when the build emitted the self-exciting intensity (flagged in
+  // manager-signals.js), it replaces the constant season rate as "how active".
+  const intensity = Number.isFinite(metrics.tx_adds_intensity) && Number.isFinite(mean.intensity);
+  const rate = intensity ? metrics.tx_adds_intensity : flat;
+  const centre = intensity ? mean.intensity : mean.adds;
   const weeks = samples?.tx_adds_per_week ?? 0;
   const traded = metrics.tx_completed_trades > 0 ? 1 : 0;
   const label = 'How active he is (chance he completes a trade)';
-  const facts = `${rate.toFixed(2)} pickups a week over ${weeks} week${weeks === 1 ? '' : 's'} `
-    + `(league ${mean.adds.toFixed(2)}), ${traded ? 'has' : 'has not'} completed a trade this season`;
+  const facts = (intensity
+    ? `about ${rate.toFixed(2)} pickups expected next week from his recent run (league ${centre.toFixed(2)}; `
+      + `${flat.toFixed(2)} a week over ${weeks} week${weeks === 1 ? '' : 's'})`
+    : `${rate.toFixed(2)} pickups a week over ${weeks} week${weeks === 1 ? '' : 's'} (league ${centre.toFixed(2)})`)
+    + `, ${traded ? 'has' : 'has not'} completed a trade this season`;
   if (weeks < ACTIVITY_MIN_WEEKS) {
     return { source: 'trade_activity', label, effect: null, n: weeks, cap: ACTIVITY_CAP, fitted: true,
       why: `withheld until ${ACTIVITY_MIN_WEEKS} weeks of pickups: ${weeks} of ${ACTIVITY_MIN_WEEKS} weeks so far; ${facts}` };
   }
-  const relative = (ACTIVITY_FIT.adds * (rate - mean.adds) + ACTIVITY_FIT.traded * (traded - mean.traded))
+  const relative = (ACTIVITY_FIT.adds * (rate - centre) + ACTIVITY_FIT.traded * (traded - mean.traded))
     / ACTIVITY_FIT.base;
   const effect = Math.max(-ACTIVITY_CAP, Math.min(ACTIVITY_CAP, relative * SCORE_PER_RELATIVE));
   return { source: 'trade_activity', label, effect: +effect.toFixed(4), n: weeks, cap: ACTIVITY_CAP, fitted: true,

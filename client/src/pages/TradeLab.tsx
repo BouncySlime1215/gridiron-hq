@@ -70,7 +70,7 @@ export function TradeDeskHeader({ desk }: { desk: ReturnType<typeof useTradeDesk
   );
 }
 
-export { NewsEdge, FindDeals, TitleTrades, TargetPlayer, TargetMany, MockTrade, Matchups };
+export { NewsEdge, FindDeals, TitleTrades, TargetPlayer, TargetMany, MockTrade };
 
 /**
  * News the league has not priced in yet.
@@ -1038,60 +1038,3 @@ function MockTrade({ leagueId, teamId, rosters, untouchable, untouchableNames }:
 }
 
 /* --------------------------------------------------------------- matchups */
-function Matchups() {
-  const [pos, setPos] = useState('WR');
-  const { data, loading, error, refetch } = useApi<any>(`/trades/dvp?position=${pos}`);
-  const open = usePlayerCard();
-
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-3 text-xs flex-wrap">
-        <span className="text-slate-500">Points allowed to</span>
-        {['QB', 'RB', 'WR', 'TE'].map(p => (
-          <button key={p} onClick={() => setPos(p)}
-            className={`px-2.5 py-1 rounded-lg font-bold border transition-colors ${
-              pos === p ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}`}>
-            {p}
-          </button>
-        ))}
-        {data && <span className="text-slate-400 ml-auto">from {data.seasons?.join(', ')} boxscores</span>}
-      </div>
-
-      {loading && !data && <PageLoading label="Loading matchup history…" />}
-      {error && !data && <PageError message={error} onRetry={refetch} />}
-
-      {data && (
-      <div className="grid md:grid-cols-2 gap-4">
-        {[['Softest defences — target these', 0, 8, true], ['Toughest defences — fade these', -8, undefined, false]].map(
-          ([title, from, to, isGood]: any) => {
-            const list = to != null ? (data?.table ?? []).slice(from, to) : (data?.table ?? []).slice(from).reverse();
-            return (
-              <div key={title} className="card overflow-hidden">
-                <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
-                  <h3 className="text-sm font-bold text-slate-700">{title}</h3>
-                </div>
-                <div className="divide-y divide-slate-100">
-                  {list.map((d: any) => (
-                    <div key={d.opponent} className="px-3 py-1.5 flex items-center gap-2 text-xs">
-                      <span className="font-bold text-slate-700 w-10">{d.opponent}</span>
-                      <span className="tabular-nums text-slate-600">{d.allowed} ppg allowed</span>
-                      <span className="text-[10px] text-slate-400">{d.games}g</span>
-                      <span className={`ml-auto font-bold tabular-nums ${isGood ? "text-good" : "text-crit"}`}>
-                        {d.mult > 1 ? '+' : ''}{((d.mult - 1) * 100).toFixed(0)}%
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-      </div>
-      )}
-
-      <p className="text-[11px] text-slate-400 mt-3">
-        Weighted so recent seasons count more, and computed only over players who actually cleared a startable score —
-        including every WR5 who played six snaps flattens every defence toward the same number.
-      </p>
-    </div>
-  );
-}

@@ -117,6 +117,9 @@ export function titleOddsTrades(leagueId, {
   const value = {
     league: lg.name,
     considered: found.deals?.length ?? 0,
+    // RULES-EVERYWHERE: the candidates come from findTrades, which already dropped every idea that
+    // breaks one of Nick's hard rules (campaign/never-give.js#ruleGate); this is its count.
+    dropped_by_rule: found.dropped_by_rule ?? 0,
     simulated: scored.length,
     runs_each: runs,
     deals: scored,

@@ -172,6 +172,9 @@ export async function askCoach({ question, context = null, leagueId = null,
   const ledger = newLedger();
   const plan = [];
   const actions = [];
+  // RULES-EVERYWHERE: suggestions a tool dropped for breaking one of Nick's hard rules, this answer.
+  const counts = { dropped_by_rule: 0 };
+  const tally = out => { counts.dropped_by_rule += Number(out?.dropped_by_rule) || 0; return out; };
   const emit = event => { plan.push(event); onEvent(event); };
   emit({ t: 'understood', question: asked });
 
@@ -181,7 +184,7 @@ export async function askCoach({ question, context = null, leagueId = null,
     emit({ t: 'answer', claims: 0, refusals: 1, fast_path: true });
     return { question: asked, answer: { claims: [], refusals: [fast.refuse], as_of: null }, actions: [],
       ledger: ledger.toJson(), verification: { ok: true, violations: [], warnings: [], numbers_checked: 0, fast_path: true },
-      plan, audit_id: null, cost_usd: 0 };
+      plan, audit_id: null, cost_usd: 0, dropped_by_rule: 0 };
   }
 
   // The brief flag gates the plan-read path; a screen command with no model key still runs below.
@@ -196,7 +199,8 @@ export async function askCoach({ question, context = null, leagueId = null,
     if (warRoom && intent) {
       const acts = out.actions ?? (fast?.tool ? [[fast.tool, fast.input]] : starterActions(intent));
       for (const [tool, input] of acts) {
-        const { action } = runCoachTool(tool, input, { ledger });
+        const { action } = tally(runCoachTool(tool, input, { ledger }));
+        if (!action) continue;
         starterActs.push(action);
         emit({ t: 'action', action, fast_path: true });
       }
@@ -205,17 +209,18 @@ export async function askCoach({ question, context = null, leagueId = null,
     const auditId = recordCoachAnswer({ question: asked, route: context?.route ?? null, leagueId: league, model: 'none:starter',
       answer: out.answer, ledger: out.ledger, plan, verification: out.verification, costUsd: 0 });
     return { question: asked, answer: out.answer, actions: starterActs, ledger: out.ledger, verification: out.verification,
-      dropped: out.dropped, plan, audit_id: auditId, cost_usd: 0, ...(out.partner ? { partner: out.partner } : {}),
+      dropped: out.dropped, plan, audit_id: auditId, cost_usd: 0, dropped_by_rule: counts.dropped_by_rule,
+      ...(out.partner ? { partner: out.partner } : {}),
       ...(out.preview ? { preview: true, preview_reason: out.preview_reason } : {}) };
   }
 
   if (warRoom) {
     if (fast) {
-      const { action } = runCoachTool(fast.tool, fast.input, { ledger });
-      emit({ t: 'action', action, fast_path: true });
-      return { question: asked, answer: { claims: [], refusals: [], as_of: null }, actions: [action],
+      const { action } = tally(runCoachTool(fast.tool, fast.input, { ledger }));
+      if (action) emit({ t: 'action', action, fast_path: true });
+      return { question: asked, answer: { claims: [], refusals: [], as_of: null }, actions: action ? [action] : [],
         ledger: ledger.toJson(), verification: { ok: true, violations: [], warnings: [], numbers_checked: 0, fast_path: true },
-        plan, audit_id: null, cost_usd: 0 };
+        plan, audit_id: null, cost_usd: 0, dropped_by_rule: counts.dropped_by_rule };
     }
   }
 
@@ -242,7 +247,7 @@ export async function askCoach({ question, context = null, leagueId = null,
     if (toolUses.length && !isFinalRound) {
       emit({ t: 'planning', tools: toolUses.map(block => block.name) });
       messages.push({ role: 'assistant', content: msg.content });
-      messages.push({ role: 'user', content: toolUses.map(block => runOne(block, { ledger, emit, actions })) });
+      messages.push({ role: 'user', content: toolUses.map(block => runOne(block, { ledger, emit, actions, tally })) });
       continue;
     }
 
@@ -299,7 +304,7 @@ export async function askCoach({ question, context = null, leagueId = null,
   });
 
   return { question: asked, answer, actions, ledger: ledgerJson, verification, plan,
-    audit_id: auditId, cost_usd: costUsd };
+    audit_id: auditId, cost_usd: costUsd, dropped_by_rule: counts.dropped_by_rule };
 }
 
 /**
@@ -310,11 +315,11 @@ export async function askCoach({ question, context = null, leagueId = null,
  * act on, and hiding it would just make the next round guess again. Anything
  * that is not one of those is a real fault and is left to throw.
  */
-function runOne(block, { ledger, emit, actions = [] }) {
+function runOne(block, { ledger, emit, actions = [], tally = x => x }) {
   const started = Date.now();
   emit({ t: 'query', id: null, tool: block.name, status: 'running', input: block.input ?? {} });
   try {
-    const { entry, summary, action } = runCoachTool(block.name, block.input ?? {}, { ledger });
+    const { entry, summary, action } = tally(runCoachTool(block.name, block.input ?? {}, { ledger }));
     if (action) {
       actions.push(action);
       emit({ t: 'action', action });

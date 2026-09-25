@@ -32,6 +32,8 @@
  * All SELECTs through lazy imports; nothing is computed that a producer did not write, and
  * a slot whose producer has no row is typed unknown with the reason, never 0.
  */
+// FP-GUARD: FantasyPros fields never leave the server (fantasypros-guard.js).
+import { stripFantasyPros } from './fantasypros-guard.js';
 import fs from 'node:fs/promises';
 import { previewFields, previewText } from './preview-mode.js';
 import { warRoomFlag, peopleBoardFlag, warRoomPlansPath, WARROOM_PREVIEW_REASON } from './warroom-flag.js';
@@ -318,7 +320,8 @@ export async function warRoomView(leagueId) {
     view.people = finalize({ x: buildPeopleBoard(view, await cachedPeopleInputs(leagueId)) }, people).x;
     view.sources = { ...view.sources, ...PEOPLE_SOURCES };
   }
-  return view;
+  // FP-GUARD: the blue-chip board's FantasyPros ranks and its `fp` sync block stay on the server.
+  return stripFantasyPros(view, { also: ['fp'] });
 }
 
 /* ----------------------------------------------------------- PEOPLE-BOARD */

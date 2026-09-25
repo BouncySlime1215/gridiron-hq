@@ -297,7 +297,7 @@ export default function News() {
             8 tabs, so it dropped out of the sidebar) rather than as its own
             top-level tab. The page itself (Teams.tsx) is unchanged and still
             routes at /teams — this is a link into it, not a rebuild. */}
-        <Link to="/teams" className="ml-auto self-center px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-700">X's &amp; O's &rarr;</Link>
+        <Link to="/players/teams" className="ml-auto self-center px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-700">X's &amp; O's &rarr;</Link>
       </div>
       {view === 'feed' ? <ConnectedNewsHub /> : view === 'signals' ? <SignalFeed /> : <>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -359,7 +359,7 @@ export default function News() {
               <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Most affected</h3>
               <ul className="text-xs text-slate-600 space-y-0.5">
                 {roundup.teams_affected.map((t: any, i: number) => (
-                  <li key={i}><Link to={`/teams/${t.team}`} className="font-bold text-slate-800 hover:text-emerald-700">{t.team}</Link> — {t.why}</li>
+                  <li key={i}><Link to={`/players/teams/${t.team}`} className="font-bold text-slate-800 hover:text-emerald-700">{t.team}</Link> — {t.why}</li>
                 ))}
               </ul>
             </div>
@@ -424,7 +424,7 @@ export default function News() {
           <div key={n.id} className="card p-4">
             <div className="flex items-center gap-2 text-xs mb-1">
               {n.team_abbr && (
-                <Link to={`/teams/${n.team_abbr}`} className="font-black px-1.5 py-0.5 rounded text-white text-[10px]"
+                <Link to={`/players/teams/${n.team_abbr}`} className="font-black px-1.5 py-0.5 rounded text-white text-[10px]"
                   style={{ background: n.primary_color }}>{n.team_abbr}</Link>
               )}
               <span className="text-slate-500">{n.date}</span>

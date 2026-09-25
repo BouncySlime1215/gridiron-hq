@@ -34,6 +34,7 @@ delete process.env.GRIDIRON_TITLE_MUTUAL_ENABLED;
 delete process.env.GRIDIRON_PREVIEW_UNCONFIRMED;
 
 const { db, run } = await import('../server/db/index.js');
+const { priceForRules } = await import('./fixtures/rule-gate.mjs');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 
@@ -142,6 +143,8 @@ run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, tea
      payload, current_week, payload_season, fetched_at) VALUES (1931, 'espn', 'rl193', 2026, 'TM', '1', 4, 1, ?, ?, 2, 2026, '2026-09-24T08:00:00Z')`,
 JSON.stringify(['QB', 'RB', 'WR']), JSON.stringify(payload()));
 const league = () => db.prepare('SELECT * FROM leagues WHERE id = 1931').get();
+// RULES-EVERYWHERE: FantasyCalc values so Nick's rule gate does not empty this fixture (rules: own test).
+priceForRules(db, { leagueId: 1931, mine: teamPlayers.get(1), theirs: [...teamPlayers].filter(([t]) => t !== 1).flatMap(([, ids]) => ids) });
 
 const withEnv = (vars, fn) => {
   const prior = Object.fromEntries(Object.keys(vars).map(k => [k, process.env[k]]));

@@ -107,7 +107,7 @@ export default function Lineup() {
           title="No league connected"
           description="Connect a league to see this week's start/sit calls."
           actionLabel="Connect a league"
-          actionTo="/league?view=connections"
+          actionTo="/league"
         />
       </Shell>
     );
@@ -259,7 +259,7 @@ export default function Lineup() {
           title="No lineup to show"
           description="No rostered players were found for this league — sync your roster first."
           actionLabel="Manage roster"
-          actionTo="/league?view=connections"
+          actionTo="/league"
         />
       ) : (
         <div className="space-y-2">

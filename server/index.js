@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { assertPortAvailable } from './platform/port-guard.js';
 import { startLoopWatchdog, watchdogArmingMiddleware, armLoopWatchdog } from './platform/loop-watchdog.js';
 import { healthHandler } from './platform/health.js';
+// FP-GUARD: FantasyPros is never displayed, so no fp_* / FantasyPros key leaves in any API response.
+import { fantasyProsGuard } from './services/fantasypros-guard.js';
 
 // This process is the web server: it reads engine tables and never writes them. Set in
 // code, before any module that could reach the engine is imported (every database-opening
@@ -74,6 +76,7 @@ const app = express();
 // response", not "has it served a useful one". See platform/loop-watchdog.js.
 app.use(watchdogArmingMiddleware);
 app.use(express.json());
+app.use('/api', fantasyProsGuard);
 
 seedIfEmpty();
 

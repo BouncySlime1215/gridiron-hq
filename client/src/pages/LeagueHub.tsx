@@ -3,7 +3,6 @@ import Leagues from './Leagues';
 import { PageHeader } from '../components/ui/DesignSystem';
 import { useLeague } from '../state/league';
 import { PageLoading, PageError } from '../components/PageState';
-import CommandCenter from '../components/CommandCenter';
 import { leagueGate } from '../state/leagueGate';
 import { legacyLeagueRedirect } from '../navigation';
 
@@ -21,8 +20,7 @@ export default function LeagueHub() {
   if (legacyTo) return <Navigate to={legacyTo} replace />;
   const gate = leagueGate({ loading, error, leagues });
   return <div>
-    <PageHeader eyebrow="Fantasy" title="League Hub" description="One league context for roster, standings, sync health, drafts, trades and projections. Switching in the header updates the whole fantasy product." meta={<><span>{active?.name ?? 'No active league'}</span>{active?.fetched_at && <span>Roster updated {new Date(`${active.fetched_at}Z`).toLocaleString()}</span>}</>} />
-    {leagues.length > 0 && <CommandCenter />}
+    <PageHeader eyebrow="League" title="League" description="Your leagues, their sync health, and every roster's strengths and needs. This week's actions across every league are on Today." meta={<><span>{active?.name ?? 'No active league'}</span>{active?.fetched_at && <span>Roster updated {new Date(`${active.fetched_at}Z`).toLocaleString()}</span>}</>} />
     {gate === 'loading' ? <PageLoading label="Loading your leagues…" />
       : gate === 'error' ? <PageError message={error ?? 'Could not load your leagues.'} onRetry={refetch} />
       : <Leagues />}

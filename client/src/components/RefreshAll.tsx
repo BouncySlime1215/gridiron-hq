@@ -26,10 +26,10 @@ export default function RefreshAll({ onDone }: { onDone?: () => void }) {
       <button
         onClick={run}
         disabled={busy}
-        title="Repull rosters, depth charts, schedules, cap, stats, news and the NFL Top 100"
+        title="Repull rosters, depth charts, schedules, cap, stats, news and the NFL Top 100" aria-label="Refresh data"
         className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 hover:border-emerald-300 hover:bg-emerald-50 disabled:opacity-60 transition-colors">
         <span className={`text-sm leading-none ${busy ? 'animate-spin inline-block' : ''}`}>↻</span>
-        <span className="text-xs font-semibold text-slate-600">{busy ? 'Refreshing…' : 'Refresh data'}</span>
+        <span className="hidden text-xs font-semibold text-slate-600 lg:inline">{busy ? 'Refreshing…' : 'Refresh data'}</span>
       </button>
 
       {result && (

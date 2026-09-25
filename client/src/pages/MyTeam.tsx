@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import Lineup from './Lineup';
+import { Tabs } from '../components/ui/DesignSystem';
 import { api, headshotUrl, useApi } from '../api';
 import { useLeague } from '../state/league';
 import { playoffWeeksText } from '../copy-constants';
@@ -26,7 +28,26 @@ import { leagueGate } from '../state/leagueGate';
  * uses, and it works identically for ESPN and Sleeper, where the old page only ever
  * understood ESPN's lineup-slot codes.
  */
+/**
+ * My Team (docs/ui/CONSOLIDATION-MAP.md): the overview and Start/Sit, one at a time. The
+ * My Team PR merges them into one page; until then Start/Sit is its own view here, so
+ * /lineup (now a redirect to /my-team?view=lineup) keeps working.
+ */
 export default function MyTeam() {
+  const [params, setParams] = useSearchParams();
+  const view = params.get('view') === 'lineup' ? 'lineup' : 'overview';
+  return (
+    <div>
+      <div className="mb-5">
+        <Tabs label="My team" value={view} onChange={v => setParams(() => (v === 'lineup' ? new URLSearchParams('view=lineup') : new URLSearchParams()), { replace: true })}
+          tabs={[{ id: 'overview', label: 'Overview' }, { id: 'lineup', label: 'Start/Sit' }]} />
+      </div>
+      {view === 'lineup' ? <Lineup /> : <MyTeamOverview />}
+    </div>
+  );
+}
+
+function MyTeamOverview() {
   const { leagues, loading: leaguesLoading, error: leaguesError, active, refetch: refetchLeagues } = useLeague();
   const { data: lg, loading: lgLoading, error: lgError, refetch: refetchData } = useApi<any>(active ? `/leagues/${active.id}/data` : null);
   const [teamOverride, setTeamOverride] = useState<string | null>(null);
@@ -144,7 +165,7 @@ export default function MyTeam() {
         <div className="card p-6 text-center">
           <div className="text-4xl mb-2">🔌</div>
           <p className="text-sm text-slate-700 mb-3">Connect a league to see your roster, scouting report, and schedule.</p>
-          <Link to="/leagues" className="btn-primary inline-block">Connect a league →</Link>
+          <Link to="/league" className="btn-primary inline-block">Connect a league →</Link>
         </div>
       </div>
     );

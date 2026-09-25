@@ -9,6 +9,7 @@
  *   1. What does MY roster still need, against THIS league's starting lineup?
  *   2. Who will still be there at my next pick, and who definitely won't?
  */
+import { FP_KEY } from './fantasypros-guard.js';
 import { readFileSync } from 'node:fs';
 import { rows, row } from '../db/index.js';
 import { computeConsensus } from '../routes/aggregates.js';
@@ -994,10 +995,15 @@ export function playerDossier(playerId) {
 
 /**
  * What the analysts are saying: dated, attributed takes compiled from the
- * major outlets (FantasyPros, ESPN, Yahoo, CBS, PFF, ETR…) into
+ * major outlets (ESPN, Yahoo, CBS, PFF, ETR…) into
  * server/data/analyst-notes-<season>.json, keyed by player name exactly as in
  * `players`. Refreshed by hand before a draft; absent file = no notes, never
  * a fabricated one.
+ *
+ * FP-GUARD: one source is never used (Nick's rule: never displayed or committed; the
+ * committed data has none, test/fantasypros-exposure.test.js). A take whose source or
+ * link names it is dropped here too, so a hand refresh cannot put one back into the
+ * dossiers or the LiveDraft prompt.
  */
 let analystCache = null;
 export function analystNotes(season = SEASON) {
@@ -1005,10 +1011,23 @@ export function analystNotes(season = SEASON) {
   let data = {};
   try {
     const p = new URL(`../data/analyst-notes-${season}.json`, import.meta.url);
-    data = JSON.parse(readFileSync(p, 'utf8'));
+    data = withoutBannedSource(JSON.parse(readFileSync(p, 'utf8')));
   } catch { data = {}; }
   analystCache = { season, data };
   return data;
+}
+
+/** The notes without any take (or strategy line) that names the banned source. */
+export function withoutBannedSource(data) {
+  const clean = x => !FP_KEY.test(JSON.stringify(x ?? ''));
+  const out = {};
+  for (const [k, v] of Object.entries(data ?? {})) {
+    if (Array.isArray(v)) out[k] = v.filter(clean);
+    else if (v && typeof v === 'object') out[k] = { ...v, ...(Array.isArray(v.takes) ? { takes: v.takes.filter(clean) } : {}),
+      ...(v.consensus != null && !clean(v.consensus) ? { consensus: null } : {}) };
+    else out[k] = v;
+  }
+  return out;
 }
 
 /**

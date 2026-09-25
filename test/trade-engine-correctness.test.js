@@ -47,6 +47,7 @@ function buildChatFixture(file) {
 buildChatFixture(CHAT_PATH);
 
 const { db, rows, run } = await import('../server/db/index.js');
+const { priceLeagueForRules } = await import('./fixtures/rule-gate.mjs');
 const { runMigrations } = await import('../server/db/migrate.js');
 const { seedIfEmpty } = await import('../server/db/seed/index.js');
 // Side-effect imports: the same "~40 files create tables on import" wiring the
@@ -135,7 +136,10 @@ function insertLeague(id, payload) {
        roster_positions, espn_s2, swid, connection_status)
        VALUES (?, 'espn', ?, 2026, 'TC League', ?, 6, '1', ?, 'x', 'y', 'connected')`,
   id, `espn-tc-${id}`, JSON.stringify(payload), JSON.stringify(SLOTS));
-  return rows('SELECT * FROM leagues WHERE id = ?', id)[0];
+  const lg = rows('SELECT * FROM leagues WHERE id = ?', id)[0];
+  // RULES-EVERYWHERE: FantasyCalc values so Nick's rule gate does not empty this fixture (rules: own test).
+  priceLeagueForRules(db, lg);
+  return lg;
 }
 
 /** A player on somebody else's roster, chosen without going through the finder. */

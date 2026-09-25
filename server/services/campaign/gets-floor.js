@@ -96,3 +96,84 @@ export function makeGetsFloor(adapter, { env = {}, tolerances = null } = {}) {
     },
   };
 }
+
+/* ------------------------------------------------------------------ FLIP-STRANDED */
+
+/**
+ * FLIP-STRANDED (Nick 2026-09-25, Batch D item 1): the floor above reads only what Nick holds at a
+ * path's END. A chained path (a chip picked up in leg 1 and spent in leg 2) or a flip (buy from A, sell
+ * to B) leaves him holding the leg-1 player when leg 2 is turned down. So every holding after each leg
+ * but the last must pass the same floor (floorRead, the same 83+ or the destination's higher
+ * min_get_score; unscored fails closed). Each leg's own never-give, overpay and buy-back checks were
+ * already per step (search.js#nickOverpays per step, trade-memory.js#stepMemory per step, flip legs
+ * both checked), so this adds only the floor on what he holds in between.
+ *
+ * Flag GRIDIRON_FLIP_STRANDED: ON BY DEFAULT (a hard rule, as GRIDIRON_GETS_FLOOR). Unset or '1'
+ * drops the path or flip; 'shadow' only counts; only an explicit '0' turns it off, with a loud warning.
+ */
+export const FLIP_STRANDED_ENV = 'GRIDIRON_FLIP_STRANDED';
+export const FLIP_STRANDED_OFF_WARNING = `WARNING: ${FLIP_STRANDED_ENV}=0 turns OFF the floor on what Nick holds between legs: a path or flip can strand him with a player under the Blue chip floor.`;
+/** How many stranded holds the run keeps as examples (the counts cover all of them). */
+const STRANDED_KEPT = 10;
+
+/** 'on' (default) | 'shadow' | 'off' (only an explicit '0'). */
+export function flipStrandedFlag(env = {}) {
+  const v = env?.[FLIP_STRANDED_ENV];
+  if (v === '0') return 'off';
+  if (v === 'shadow') return 'shadow';
+  return 'on';
+}
+
+/** What Nick holds after each leg (gets minus later gives, as heldAtEnd): one Set per step; the last is heldAtEnd. */
+export function heldAfterEachLeg(steps) {
+  const held = new Set();
+  return (steps ?? []).map(st => {
+    for (const id of st.give) held.delete(String(id));
+    for (const id of st.get) held.add(String(id));
+    return new Set(held);
+  });
+}
+
+/** Holdings after each leg but the last that fail `passes(id)`: [{ leg (0-based), player }]. */
+export function strandedHolds(steps, passes) {
+  const after = heldAfterEachLeg(steps);
+  const out = [];
+  for (const [i, held] of after.slice(0, -1).entries()) for (const id of held) if (!passes(id)) out.push({ leg: i, player: id });
+  return out;
+}
+
+/** A flip as two legs: leg 1 buys the player from A, leg 2 sells him to B (a flip idea without legs: the player alone). */
+export const flipSteps = f => {
+  const ids = xs => (xs ?? []).filter(x => x != null);
+  return [{ give: ids(f.legs?.give_a_ids ?? [f.legs?.give_a]), get: [f.player] }, { give: [f.player], get: ids(f.legs?.get_b_ids ?? [f.legs?.get_b]) }];
+};
+
+/**
+ * The planner's strand check for one league run. Reads the floor itself (floorRead, its own cache) so
+ * GETS-FLOOR's counts keep meaning "candidate final gets". pathStrands(p) / flipStrands(f): whether it
+ * leaves a hold under the floor between legs (always false when off); each call counts once into the
+ * sink (flips: every entry of flip.top and flip.realised).
+ */
+export function makeStranded(adapter, { env = {}, tolerances = null } = {}) {
+  const mode = flipStrandedFlag(env);
+  const floor = getFloorOf(tolerances);
+  const scoreOf = typeof adapter?.scoreOf === 'function' ? adapter.scoreOf : null;
+  const drop = mode === 'on' ? 'dropped' : 'would_drop';
+  const sink = { mode, floor, [`paths_${drop}`]: 0, [`flips_${drop}`]: 0, examples: [],
+    ...(mode === 'off' ? { warning: FLIP_STRANDED_OFF_WARNING } : {}) };
+  const reads = new Map();
+  const read = id => { if (!reads.has(id)) reads.set(id, floorRead(scoreOf, id, floor)); return reads.get(id); };
+  const check = (steps, kind) => {
+    if (mode === 'off') return false;
+    const bad = strandedHolds(steps, id => read(id).passes);
+    if (!bad.length) return false;
+    sink[`${kind}_${drop}`]++;
+    for (const b of bad) {
+      if (sink.examples.length >= STRANDED_KEPT) break;
+      const r = read(b.player);
+      sink.examples.push({ kind, leg: b.leg + 1, player: b.player, score: r.score, why: r.why });
+    }
+    return true;
+  };
+  return { sink, on: mode === 'on', pathStrands: p => check(p.steps, 'paths'), flipStrands: f => check(flipSteps(f), 'flips') };
+}

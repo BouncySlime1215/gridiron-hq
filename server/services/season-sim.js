@@ -920,14 +920,11 @@ function rbTitleState(prep, teams, runs, rawPointsFor, perRun) {
   }
   const ids = teams.map(t => t.roster_id);
   const reseed = prep.rules.schedule.reseed;
-  const ct = conditionalTitle({ ids, runs, roundWeeks, reseed, rawPoints: (id, w, k) => raw.get(id).get(w)[k] });
-  // U1b RB-SE: B batches, each with its OWN playoff-week pool (its own runs only); SE from their means.
+  // U1b RB-SE: B batches, each integrated on its OWN playoff-week pool (its own runs only); SE from their means.
+  // U1c: one recursion prices the full pool and every batch (conditionalTitle's probsAll).
   const B = Math.min(RB_SE_BATCHES, runs);
   const starts = Array.from({ length: B + 1 }, (_, b) => Math.ceil((b * runs) / B));
-  const cts = Array.from({ length: B }, (_, b) => conditionalTitle({
-    ids, runs: starts[b + 1] - starts[b], roundWeeks, reseed,
-    rawPoints: (id, w, k) => raw.get(id).get(w)[starts[b] + k]
-  }));
+  const ct = conditionalTitle({ ids, runs, roundWeeks, reseed, rawPoints: (id, w, k) => raw.get(id).get(w)[k], batches: B });
   const sum = new Map(ids.map(id => [id, 0]));
   const bsum = new Map(ids.map(id => [id, new Float64Array(B)]));
   const served = (prep.rbTitle ?? rbTitleMode()) === 'on';
@@ -943,13 +940,15 @@ function rbTitleState(prep, teams, runs, rawPointsFor, perRun) {
   };
   return {
     add(run, field, offsets) {
-      for (const [id, p] of ct.probs(field, offsets)) {
-        if (!p) continue;
-        sum.set(id, sum.get(id) + p);
-        if (arrays) arrays.get(id)[run] = p;
-      }
       const b = batchOf(run, runs, B);
-      for (const [id, p] of cts[b].probs(field, offsets)) if (p) bsum.get(id)[b] += p;
+      for (const [id, v] of ct.probsAll(field, offsets)) {
+        const p = v[0];
+        if (p) {
+          sum.set(id, sum.get(id) + p);
+          if (arrays) arrays.get(id)[run] = p;
+        }
+        if (v[1 + b]) bsum.get(id)[b] += v[1 + b];
+      }
     },
     result: id => { finish(); return batchInterval(sum.get(id) / runs, bsum.get(id)); }
   };

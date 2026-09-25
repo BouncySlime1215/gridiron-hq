@@ -184,7 +184,8 @@ test('Fuck-it: a 3-rung ladder is dropped while p is the guess; 2 rungs pass; Ba
 test('backup at a "no": the best other rung sharing the steps before it', () => {
   const a = plan('7', [step('2', ['1'], ['5'], 0.3, 0.01), step('3', ['5'], ['7'], 0.3, 0.05)]);
   const b = plan('7', [step('2', ['1'], ['5'], 0.3, 0.01), step('4', ['5'], ['7'], 0.3, 0.04)]);
-  const out = cardsFor([a, b]);
+  // Every plan beats doing nothing on the confirm dice here (confirmedActive returns it as is).
+  const out = cardsFor([a, b], { confirmed: q => q });
   const c = out.cards.find(x => x.rungs[1].partner === '3');
   assert.equal(c.rungs[1].on_no.kind, 'backup');
   assert.equal(c.rungs[1].on_no.partner, '4');
@@ -344,6 +345,8 @@ test('Batch B through the planner: GETS-FLOOR=0 does not open the ladder floor; 
   const a = makeAdapter();
   a.scoreOf = id => ({ score: SCORE_FIX[id] ?? 30 });
   const res = planLeague(a, { objective: normaliseObjective({ risk_mode: 'balanced' }), env: { GRIDIRON_LADDER: '1', GRIDIRON_GETS_FLOOR: '0' } });
+  assert.ok(res.ladders.cards.length > 0, 'control: the fixture still builds cards');
+  assert.ok(res.ladders.dropped_by_reason.final_below_floor > 0, 'the ladder floor dropped paths the planner floor let through');
   for (const c of res.ladders.cards) {
     assert.ok((SCORE_FIX[c.target] ?? 30) >= 83);
     const held = GF.heldAtEnd(c.rungs.map(r => ({ give: r.give, get: r.get })));
@@ -355,5 +358,6 @@ test('Batch B through the planner: GETS-FLOOR=0 does not open the ladder floor; 
   const world = b.world.bind(b);
   b.world = seed => (seed === b.seed ? world(seed) : { fail: 'no confirm dice (test)' });
   const r2 = planLeague(b, { objective: normaliseObjective({ risk_mode: 'balanced' }), env: { GRIDIRON_LADDER: '1' } });
+  assert.ok(r2.ladders.cards.length > 0, 'control: cards still built on the planning dice');
   for (const c of r2.ladders.cards) for (const r of c.rungs) assert.equal(r.on_no.kind, 'stop');
 });

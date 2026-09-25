@@ -310,7 +310,7 @@ export const SECTIONS = Object.freeze({
       rungs: arr(obj({
         partner: id, give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }), get_tier: oneOf(LADDER_TIERS), p: probF, if_yes: numF,
         on_no: obj({ kind: oneOf(['backup', 'stop']) }, { partner: id, give: arr(pid, { min: 1 }), get: arr(pid, { min: 1 }), expected: numF, keep: numF,
-          dice: oneOf(['planning', 'confirm']) })
+          dice: oneOf(['confirm']) })
       }), { min: 2 }),
       p_complete: probF, if_complete: numF, expected: numF
     }), { max: 5 })

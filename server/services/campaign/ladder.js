@@ -10,19 +10,23 @@
  * what Nick holds if the rung lands, and what happens at each "no" (the best other rung that shares
  * the rungs before it, else stop and keep what the rungs before it landed).
  *
- * Hard filters (Nick 9/24, ONE-PLAN 10b), each counted in dropped_by_reason:
- *   final get      Blue chip, FINAL_FLOOR (83) on the PLAYER-SCORE score; unscored fails closed.
- *                  Everything Nick still holds at the end (gets minus later gives) is held to it too.
- *   never give     NEVER_GIVE (Nico Collins 160, Chase Brown 80, A.J. Brown 277 until AJ-HEALTHY
- *                  prices him), adapter.untouchable and the destination's untouchables, on every rung
- *   never get      NEVER_GET (Chris Olave 290: sold 9/17) and the caller's sold set (trade memory: no
- *                  buy-backs of any player Nick sold, from any team), on every rung
+ * Hard filters (Nick 9/24, ONE-PLAN 10b), each counted in dropped_by_reason. Every rule is main's, read
+ * from its one home; this module keeps no copy of any list or threshold:
+ *   final get      main's floor (gets-floor.js floorRead, 83+ or the destination's higher min_get_score)
+ *                  on EVERYTHING Nick holds at the end (gets-floor.js heldAtEnd: gets minus later
+ *                  gives), the target included. Unscored fails closed, whatever GRIDIRON_GETS_FLOOR says.
+ *   never give     never-give.js PINNED_NEVER_GIVE (160, 80, 277), adapter.untouchable and the
+ *                  destination's untouchables, on every rung
+ *   never get      never-give.js PINNED_NEVER_GET (290) on every rung, and main's trade memory
+ *                  (trade-memory.js applyTradeMemory: no buy-back of any player Nick sold, from any
+ *                  team; no reversal, within a rung or across rungs)
  *   overpay        no rung gives more market value than it gets past the planner's cap
  *   Fuck-it        at most ALL_IN_GUESS_MAX_RUNGS (2) rungs while any rung's p is the guess (a
  *                  3-rung ladder at 0.30 each lands 2.7% of the time, under ALL_IN_MIN_COMPLETE)
  *
  * Dice: every card number is the planning seed's (LADDER_BASIS). A backup at a "no" is offered only when
- * it beats doing nothing on the confirm dice (the caller's `confirmed`), and then shows that number.
+ * the planner's confirmedActive (main's confirm-dice gate) returns it re-priced, i.e. it beats doing
+ * nothing on the confirm dice; it then shows that number. No confirm dice, no backup: the rung says stop.
  *
  * SHADOW: the cards never re-rank, filter or re-price the deck, the next move or any served number;
  * they are one extra section. Flag GRIDIRON_LADDER ('1' on; anything else off, and preview does
@@ -31,54 +35,36 @@
 import { dealKey, isChained, pathExpectation } from './paths.js';
 import { nickOverpays, DEFAULT_MAX_OVERPAY } from './search.js';
 import { normaliseMode } from './modes.js';
+import { PINNED_NEVER_GIVE, PINNED_NEVER_GET } from './never-give.js';
+import { DEFAULT_GET_FLOOR, floorRead, heldAtEnd } from './gets-floor.js';
+import { applyTradeMemory } from './trade-memory.js';
 
 export const LADDER_ENV = 'GRIDIRON_LADDER';
-/** Nick's floor for the final get: Blue chip, 83+ (10b.2). */
-export const FINAL_FLOOR = 83;
 /** "Level below" starts here on Nick's board (ONE-PLAN 4: Bucky Irving 74). A display tier only. */
 export const LEVEL_BELOW = 74;
-/** Pinned by id so the rule holds when his notes are missing (the notes-derived set fails open). */
-export const NEVER_GIVE = Object.freeze(['160', '80', '277']);
-export const NEVER_GET = Object.freeze(['290']);
 /** Fuck-it ladder length while P(yes) is the unfitted guess (ONE-PLAN 4, cause 5). */
 export const ALL_IN_GUESS_MAX_RUNGS = 2;
 export const MAX_CARDS = 5;
 export const TIERS = Object.freeze(['blue_chip', 'level_below', 'depth', 'unscored']);
-export const DROP_REASONS = Object.freeze(['not_a_ladder', 'never_get', 'sold', 'gives_untouchable', 'overpay',
-  'final_unscored', 'final_below_floor', 'held_unscored', 'held_below_floor', 'all_in_rungs_p_guess', 'duplicate']);
+export const DROP_REASONS = Object.freeze(['not_a_ladder', 'never_get', 'sold', 'reversal', 'memory_floor', 'gives_untouchable',
+  'overpay', 'final_unscored', 'final_below_floor', 'held_unscored', 'held_below_floor', 'all_in_rungs_p_guess', 'duplicate']);
+/** trade-memory.js reasons -> this module's drop reasons (the shadow ones drop only with its floor flag on). */
+const MEMORY_REASON = Object.freeze({ sold_recently: 'sold', reversal: 'reversal', below_his_floor: 'memory_floor', wrong_currency: 'memory_floor' });
 /** What every number on a card is priced on: the planning seed (the cards are built before the confirm pass). */
 export const LADDER_BASIS = 'planning dice: deltas and P(yes) from the planning seed, not confirmed on fresh dice';
 
-/** Players Nick holds at the end of a path: every get, minus what a later rung gives on. */
-export function heldAtEnd(steps) {
-  const held = new Set();
-  for (const s of steps) { for (const id of s.give) held.delete(String(id)); for (const id of s.get) held.add(String(id)); }
-  return held;
-}
 
 /** 'on' | 'off'. */
 export function ladderFlag(env = {}) {
   return env?.[LADDER_ENV] === '1' ? 'on' : 'off';
 }
 
-/** A score's display tier. */
-export function tierOf(score) {
+/** A score's display tier (floor: main's Blue chip floor for this run). */
+export function tierOf(score, floor = DEFAULT_GET_FLOOR) {
   if (typeof score !== 'number' || !Number.isFinite(score)) return 'unscored';
-  if (score >= FINAL_FLOOR) return 'blue_chip';
+  if (score >= floor) return 'blue_chip';
   if (score >= LEVEL_BELOW) return 'level_below';
   return 'depth';
-}
-
-/**
- * The planner's score reader: adapter.scoreOf (id -> { score } | null) when the adapter has one,
- * else the PLAYER-SCORE board's rows (adapter.blueChips(), off -> no scores), else null.
- */
-export function scoreReader(adapter) {
-  if (typeof adapter?.scoreOf === 'function') return adapter.scoreOf;
-  const board = typeof adapter?.blueChips === 'function' ? adapter.blueChips() : null;
-  if (!board || board.status !== 'ok' || !Array.isArray(board.rows)) return null;
-  const byId = new Map(board.rows.map(r => [String(r.player), r]));
-  return id => byId.get(String(id)) ?? null;
 }
 
 /** Whether a rung's P(yes) is still the guess (no fitted basis on it). */
@@ -86,44 +72,52 @@ const pGuess = s => s.p_basis !== 'fitted';
 
 /**
  * plans: candidate plans in the mode's rank order (planner.js rankPlans(...).ranked).
- * opts: { mode, scoreOf, players (Map id -> { value }), untouchable (Set: adapter.untouchable),
- *   objectiveUntouchables (the destination's list), sold (Set of ids, or id -> truthy: trade memory's
- *   sold players, never bought back), confirmed (plan -> its confirm-dice expected when it beats doing
- *   nothing, else null; absent = no confirm dice, backups labelled planning dice), maxOverpay, n }
+ * opts: { mode, scoreOf (adapter.scoreOf), floor (the run's gets-floor number, never under 83),
+ *   players (Map id -> { value }), untouchable (Set: adapter.untouchable), objectiveUntouchables (the
+ *   destination's list), memory (trade-memory.js tradeMemory(...), or null when there is no ledger),
+ *   env (the planner's env, for trade memory's floor flag), confirmed (the planner's confirmedActive:
+ *   plan -> that plan re-priced on the confirm dice when it beats doing nothing, else null; absent = no
+ *   confirm dice, so no backup), maxOverpay, n }
  * -> { mode, floor, rank_basis, considered, dropped_by_reason, cards }
  */
-export function ladderCards(plans, { mode = 'balanced', scoreOf = null, players = new Map(), untouchable = new Set(),
-  objectiveUntouchables = [], sold = null, confirmed = null, maxOverpay = DEFAULT_MAX_OVERPAY, n = MAX_CARDS } = {}) {
+export function ladderCards(plans, { mode = 'balanced', scoreOf = null, floor = DEFAULT_GET_FLOOR, players = new Map(),
+  untouchable = new Set(), objectiveUntouchables = [], memory = null, env = {}, confirmed = null,
+  maxOverpay = DEFAULT_MAX_OVERPAY, n = MAX_CARDS } = {}) {
   const m = normaliseMode(mode);
+  // Nick's floor is the least: a lower number from a caller never loosens it.
+  const F = Math.max(DEFAULT_GET_FLOOR, Number(floor) || DEFAULT_GET_FLOOR);
   const P = players instanceof Map ? players : new Map();
   const val = id => Math.max(0, Number((P.get(id) ?? P.get(String(id)) ?? P.get(Number(id)))?.value) || 0);
   const sum = ids => ids.reduce((s, id) => s + val(id), 0);
-  const score = id => {
-    if (typeof scoreOf !== 'function') return null;
-    const v = Number(scoreOf(id)?.score);
-    return scoreOf(id)?.score != null && Number.isFinite(v) ? v : null;
-  };
+  const read = id => floorRead(scoreOf, id, F);
+  const score = id => read(id).score;
   const best = ids => ids.map(score).filter(v => v != null).reduce((a, v) => (a == null || v > a ? v : a), null);
-  const never = new Set([...NEVER_GIVE, ...[...(untouchable ?? [])], ...[...(objectiveUntouchables ?? [])]].map(String));
-  const isSold = typeof sold === 'function' ? id => !!sold(String(id))
-    : id => !!sold && typeof sold.has === 'function' && (sold.has(String(id)) || sold.has(Number(id)));
+  const never = new Set([...PINNED_NEVER_GIVE, ...[...(untouchable ?? [])], ...[...(objectiveUntouchables ?? [])]].map(String));
+  // Main's trade memory on this one path: its first reason, mapped, or null.
+  const memoryWhy = p => {
+    if (!memory) return null;
+    const r = applyTradeMemory([p], memory, { env });
+    const k = Object.keys(r.dropped).find(x => r.dropped[x] > 0);
+    return k ? MEMORY_REASON[k] ?? 'sold' : null;
+  };
   const dropped = Object.fromEntries(DROP_REASONS.map(k => [k, 0]));
   const kept = [];
   const seen = new Set();
   const whyNot = p => {
     const steps = p.steps ?? [];
     if (steps.length < 2 || !isChained(steps)) return 'not_a_ladder';
-    if (steps.some(s => s.get.some(id => NEVER_GET.includes(String(id))))) return 'never_get';
-    if (steps.some(s => s.get.some(isSold))) return 'sold';
+    if (steps.some(s => s.get.some(id => PINNED_NEVER_GET.includes(String(id))))) return 'never_get';
+    const mem = memoryWhy(p);
+    if (mem) return mem;
     if (steps.some(s => s.give.some(id => never.has(String(id))))) return 'gives_untouchable';
     if (steps.some(s => nickOverpays(sum(s.give), sum(s.get), maxOverpay))) return 'overpay';
-    const fs = score(p.target);
-    if (fs == null) return 'final_unscored';
-    if (fs < FINAL_FLOOR) return 'final_below_floor';
+    const fr = read(p.target);
+    if (fr.score == null) return 'final_unscored';
+    if (!fr.passes) return 'final_below_floor';
     // Everything still held at the end is a final get too (a 1-for-2 rung's second player, say).
-    const held = [...heldAtEnd(steps)].map(score);
-    if (held.some(v => v == null)) return 'held_unscored';
-    if (held.some(v => v < FINAL_FLOOR)) return 'held_below_floor';
+    const held = [...heldAtEnd(steps)].map(read);
+    if (held.some(r => r.score == null)) return 'held_unscored';
+    if (held.some(r => !r.passes)) return 'held_below_floor';
     if (m === 'all_in' && steps.length > ALL_IN_GUESS_MAX_RUNGS && steps.some(pGuess)) return 'all_in_rungs_p_guess';
     const key = steps.map(dealKey).join('>');
     if (seen.has(key)) return 'duplicate';
@@ -138,31 +132,32 @@ export function ladderCards(plans, { mode = 'balanced', scoreOf = null, players 
   const prefixOf = (p, i) => p.steps.slice(0, i).map(dealKey).join('>');
   const onNo = (p, i, rungs) => {
     const pre = prefixOf(p, i);
-    // With confirm dice, a backup must beat doing nothing on them (and shows their number); without, it is labelled.
+    // A backup must beat doing nothing on the confirm dice (main's gate) and shows their number; no dice, no backup.
+    if (typeof confirmed !== 'function') return { kind: 'stop', keep: i === 0 ? 0 : rungs[i - 1].if_yes };
     for (const q of kept) {
       if (q === p || q.steps.length <= i || prefixOf(q, i) !== pre || dealKey(q.steps[i]) === dealKey(p.steps[i])) continue;
-      const c = typeof confirmed === 'function' ? confirmed(q) : undefined;
-      if (c === null || (c !== undefined && !(Number.isFinite(c) && c > 0))) continue;
-      const s = q.steps[i];
+      const c = confirmed(q);
+      if (!c) continue;
+      const s = c.steps[i];
       return { kind: 'backup', partner: String(s.team), give: s.give.map(String), get: s.get.map(String),
-        expected: c === undefined ? pathExpectation(q.steps).expected : c, dice: c === undefined ? 'planning' : 'confirm' };
+        expected: pathExpectation(c.steps).expected, dice: 'confirm' };
     }
     return { kind: 'stop', keep: i === 0 ? 0 : rungs[i - 1].if_yes };
   };
   const cards = kept.slice(0, n).map(p => {
     const rungs = [];
     p.steps.forEach((s, i) => {
-      const r = { partner: String(s.team), give: s.give.map(String), get: s.get.map(String), get_tier: tierOf(best(s.get)),
+      const r = { partner: String(s.team), give: s.give.map(String), get: s.get.map(String), get_tier: tierOf(best(s.get), F),
         p: s.p, p_guess: pGuess(s), if_yes: s.delta, se: Number.isFinite(s.se) ? s.se : null };
       rungs.push(r);
       r.on_no = onNo(p, i, rungs);
     });
     const e = pathExpectation(p.steps);
     return { target: String(p.target), owner: String(p.owner ?? p.steps[p.steps.length - 1].team),
-      climb: [tierOf(best(p.steps[0].give)), ...rungs.map(r => r.get_tier)], rank_basis: 'p_guess', rungs,
+      climb: [tierOf(best(p.steps[0].give), F), ...rungs.map(r => r.get_tier)], rank_basis: 'p_guess', rungs,
       p_complete: e.p_complete, if_complete: e.delta_final, expected: e.expected };
   });
-  return { mode: m, floor: FINAL_FLOOR, rank_basis: 'p_guess', dice: 'planning', basis: LADDER_BASIS,
+  return { mode: m, floor: F, rank_basis: 'p_guess', dice: 'planning', basis: LADDER_BASIS,
     considered: plans.length, dropped_by_reason: dropped, cards };
 }
 

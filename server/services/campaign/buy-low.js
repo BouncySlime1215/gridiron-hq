@@ -112,6 +112,26 @@ export function scoreBuyLow({ position, games }, { season, week }) {
   };
 }
 
+/**
+ * BUY-LOW v2 (gap-only), docs/tdd/BUY-LOW-V2-PREREG.md. Evaluation only until its held-out test says
+ * otherwise: nothing served reads it. The shrunk xFP-minus-actual gap over the last 3 games, no usage
+ * rule and no baseline. Weeks >= the as-of week are never read.
+ */
+export const BUY_LOW_V2_RULE = Object.freeze({ version: 2, prereg: 'docs/tdd/BUY-LOW-V2-PREREG.md',
+  window: BUY_LOW_RULE.window, min_gap_ppg: BUY_LOW_RULE.min_gap_ppg, min_xfp_ppg: BUY_LOW_RULE.min_xfp_ppg });
+
+export function scoreBuyLowV2({ position, games }, { season, week }) {
+  const R = BUY_LOW_V2_RULE;
+  const T = priorGames(games, { season, week }).filter(g => g.season === season).sort((a, b) => a.week - b.week).slice(-R.window);
+  if (!T.length) return { status: 'no_games', position, buy_low: false, score: 0 };
+  const xfpPpg = mean(T.map(g => g.xfp));
+  const gap = xfpPpg - mean(T.map(g => g.act));
+  const gapShrunk = shrinkGap(gap, T.length);
+  const buyLow = xfpPpg >= R.min_xfp_ppg && gapShrunk >= R.min_gap_ppg;
+  return { status: 'ok', position, buy_low: buyLow, score: buyLow ? gapShrunk : 0, gap, gap_shrunk: gapShrunk,
+    games: T.length, xfp_ppg: xfpPpg, through_week: T[T.length - 1].week };
+}
+
 const r1 = x => (finite(x) ? Math.round(x * 10) / 10 : null);
 const r3 = x => (finite(x) ? Math.round(x * 1000) / 1000 : null);
 

@@ -16,7 +16,7 @@ test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
 
 const {
   scoreBuyLow, shrinkGap, buyLowEnabled, buyLowPositions, BUY_LOW_TE_ENV, BUY_LOW_ENV, BUY_LOW_RULE, tieBreakSuggestions, applyBuyLow,
-  annotateEntryTargets, buyLowForRun, usageOf,
+  annotateEntryTargets, buyLowForRun, usageOf, scoreBuyLowV2, BUY_LOW_V2_RULE,
 } = await import('../server/services/campaign/buy-low.js');
 const { readBuyLow } = await import('../server/services/campaign/buy-low-inputs.js');
 const { makeAdapter } = await import('./fixtures/campaign-league.mjs');
@@ -292,4 +292,22 @@ test('Go get card: the Buy-low chip is the War Room pill, plain words, a guess, 
     const det = renderToStaticMarkup(React.createElement(BuyLowChip, { b: { role: 'detected', points_below_expected: 2.2, games: 2, usage_change: null, through_week: 2 } }));
     assert.match(det, /usage up in his latest game/);
   } finally { w.cleanup?.(); }
+});
+
+/* ---------------------------------------------------------------- v2 (gap-only), evaluation only */
+
+test('v2 gap-only: shrunk gap alone, no baseline or usage needed, never reads the as-of week', () => {
+  assert.equal(BUY_LOW_V2_RULE.version, 2);
+  // No last season and no usage at all: v1 cannot score it, v2 can.
+  const games = [3, 4, 5].map(w => ({ season: S, week: w, xfp: 16, act: 8 }));
+  assert.equal(scoreBuyLow({ position: 'WR', games }, { season: S, week: 6 }).status, 'no_baseline');
+  const r = scoreBuyLowV2({ position: 'WR', games }, { season: S, week: 6 });
+  assert.equal(r.buy_low, true);
+  assert.ok(Math.abs(r.gap_shrunk - 8 * 3 / 5) < 1e-9);
+  const poisoned = [...games, { season: S, week: 6, xfp: 0, act: 99 }, { season: S, week: 7, xfp: 0, act: 99 }];
+  assert.deepEqual(scoreBuyLowV2({ position: 'WR', games: poisoned }, { season: S, week: 6 }), r);
+  // One game at gap 5 shrinks to 1.67: not flagged. xFP under 5: not flagged.
+  assert.equal(scoreBuyLowV2({ position: 'RB', games: [{ season: S, week: 1, xfp: 15, act: 10 }] }, { season: S, week: 2 }).buy_low, false);
+  assert.equal(scoreBuyLowV2({ position: 'RB', games: [1, 2, 3].map(w => ({ season: S, week: w, xfp: 4.5, act: 0 })) }, { season: S, week: 4 }).buy_low, false);
+  assert.equal(scoreBuyLowV2({ position: 'RB', games: [] }, { season: S, week: 4 }).status, 'no_games');
 });

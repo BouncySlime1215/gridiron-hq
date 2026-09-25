@@ -16,7 +16,9 @@ export default function Projections() {
   const [filter, setFilter] = useState('ALL');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [limit, setLimit] = useState(100);
+  // A phone starts at 25 rows (about 1,200 px) instead of 100 (4,800 px); "Show more" adds the rest in steps.
+  const step = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 639px)').matches ? 25 : 100;
+  const [limit, setLimit] = useState(step);
 
   const sync = async () => {
     setBusy(true); setMsg(null);
@@ -111,8 +113,8 @@ export default function Projections() {
             ))}
           </Card>
           {all.length > visible.length && (
-            <Button className="mt-3 w-full" onClick={() => setLimit(l => l + 100)}>
-              Show 100 more ({all.length - visible.length} left)
+            <Button className="mt-3 w-full" onClick={() => setLimit(l => l + step)}>
+              Show {Math.min(step, all.length - visible.length)} more ({all.length - visible.length} left)
             </Button>
           )}
         </>

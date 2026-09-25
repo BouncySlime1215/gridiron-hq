@@ -47,7 +47,10 @@ const slate = read('client/src/components/brain/ProposalSlate.tsx');
 const brainTypes = read('client/src/components/brain/types.ts');
 const app = read('client/src/App.tsx');
 const nav = read('client/src/navigation.ts');
-const surface = [page, board, slate, brainTypes].join('\n');
+// Trades cleanup: the data-source detail and the full cost note moved to Settings → AI & developer.
+const sources = read('client/src/components/brain/ManagerDataSources.tsx');
+const settings = read('client/src/pages/Settings.tsx');
+const surface = [page, board, slate, brainTypes, sources].join('\n');
 
 /* ------------------------------------------------------ 1. it is reachable */
 
@@ -113,7 +116,9 @@ test('the proposals call is never fired by mounting a component', () => {
     'ProposalSlate must not use the fetch-on-mount hook');
   assert.doesNotMatch(code(page), /\/proposals/, 'and the page itself must not read it either');
   assert.match(slate, /disabled=\{busy\}/, 'the button guards against a double spend');
-  assert.match(slate, /\$0\.50\/day/, 'and states the cost implication before it is pressed');
+  assert.match(slate, /Uses the AI budget/, 'and states the cost implication before it is pressed');
+  assert.match(slate, /\$0\.50\/day/, 'the full figure is kept (Settings → AI & developer shows it)');
+  assert.match(settings, /<p className="ds-note mt-1">\{COST_NOTE\}<\/p>/);
 });
 
 /* ------------------------------------------------------------ 4. honesty */
@@ -126,8 +131,12 @@ test('a league with no chat corpus is described, not left blank', () => {
   assert.match(board, /Nothing measured about this manager/,
     'and a manager with nothing at all gets a sentence, never an empty panel');
   // "What would produce it" is half the point of saying what is missing.
-  assert.match(board, /To fix:/, 'the gap says what would produce the missing layer');
-  assert.match(board, /scripts\/build-manager-archetypes\.mjs/, 'down to the build that fills it');
+  // What fills a missing layer, down to the build, lives in Settings → AI & developer (no script names on People).
+  assert.match(sources, /To fix a missing layer:/, 'the gap says what would produce the missing layer');
+  assert.match(sources, /scripts\/build-manager-archetypes\.mjs/, 'down to the build that fills it');
+  assert.match(board, /Settings → AI &amp; developer/, 'and People points there');
+  assert.doesNotMatch(code(board), /scripts\//, 'no script path on People');
+  assert.match(settings, /<ManagerDataSources \/>/);
 });
 
 test('a thin sample reads as thin, and never as a measured neutral', () => {
@@ -145,7 +154,8 @@ test('the signal layer being absent is a named state, not a blank half-page', ()
   // still be correct and must not present the hand-set tiers as the whole story.
   assert.match(board, /404/, 'a 404 from the signals route is reported as "nothing there to read"');
   assert.match(board, /available === false/, 'and so is an explicit available: false');
-  assert.match(board, /identity_warnings/, 'an uncertain identity is surfaced, not quietly priced');
+  assert.match(sources, /identity_warnings/, 'an uncertain identity is surfaced (Settings), not quietly priced');
+  assert.match(board, /some names matched by hand/, 'and People says so in its one source line');
   assert.match(board, /signals\.data\.reason/, 'the server\'s own reason is rendered, not swallowed');
 });
 

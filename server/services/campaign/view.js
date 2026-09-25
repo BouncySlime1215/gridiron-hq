@@ -594,7 +594,7 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
       feasibility_points_detail: sp ?? null,
       candidates_scored: res.candidates_scored, rescores: res.rescores ?? 0, runtime_ms: res.runtime_ms ?? 0, phases_ms: res.phases_ms ?? {},
       // PLAN-BASELINE: the model this run's trajectory was made under (the contract keeps `_run` keys fixed; inputs is free-form).
-      inputs: { ...(model != null ? { model } : {}), his_side: hisSideSummary(hisRows, hisSideServed, res.trade_block ?? null),
+      inputs: { ...(model != null ? { model } : {}), his_side: hisSideSummary(hisRows, hisSideServed, res.trade_block ?? null, res.chat_interest ?? null),
         ...(res.no_fc_value?.source ? { value_source: { status: res.no_fc_value.status, source: res.no_fc_value.source, unpriced_players: res.no_fc_value.players, paths_dropped: res.no_fc_value.paths, ...(res.no_fc_value.reason ? { reason: res.no_fc_value.reason } : {}) } } : {}) },
       // TRADE-MEMORY: paths the season's trade ledger removed, and the memory itself (ids only).
       dropped_by_reason: { trade_memory: res.trade_memory?.dropped_total ?? 0,

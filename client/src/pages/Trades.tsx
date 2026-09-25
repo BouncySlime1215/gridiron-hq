@@ -5,23 +5,24 @@ import { useLeague } from '../state/league';
 import { usePageExplain } from '../components/PageExplainContext';
 import { PageLoading, PageError, EmptyState } from '../components/PageState';
 import { Chip, PageHeader, Tabs } from '../components/ui/DesignSystem';
-import WarRoomV2 from '../components/warroom/WarRoomV2';
+import TradesPlanner from '../components/warroom/TradesPlanner';
+import { useCoach } from '../state/coach';
 import { useWarRoom } from '../components/warroom/useWarRoom';
 import ManagerBoard from '../components/brain/ManagerBoard';
 import ProposalSlate from '../components/brain/ProposalSlate';
-import PulseTicker from '../components/brain/PulseTicker';
 import type { ProfilesResponse, SignalsResponse } from '../components/brain/types';
 import { FindDeals, MockTrade, TargetMany, TargetPlayer, TitleTrades, TradeDeskHeader, useTradeDesk } from './TradeLab';
 
 /**
  * Trades (docs/ui/CONSOLIDATION-MAP.md, area 7): one trade area.
- *   Next move  the War Room planner (the plans contract): today's move, Go get, Market and League
- *              screens, full screen as before. It is the source of the next move.
+ *   Next move  the War Room planner's next-move deck (the plans contract): the source of the next move.
  *   Go get     name one player, or several, and get the packages that land them.
  *   Find deals every realistic trade, ranked overall or by title impact (the same finder).
  *   Build      any two-sided deal, evaluated.
  *   People     who trades with you (the chat pulse, your read beside the measured one) and
  *              "Write proposals" (paid, on request).
+ * The planner's screens draw inside this frame (components/warroom/TradesPlanner): one header, one
+ * tab row, the app-wide Coach. Market is Find deals → Flips; League is the League area.
  * Every suggestion comes from the server after RULES-EVERYWHERE's gate; each list says how many
  * ideas your rules hid (components/trade/RulesHidden). Trade Lab's tab strip, Trade Brain's tabs and
  * the classic War Room dashboard are gone; their old URLs redirect here.
@@ -39,7 +40,8 @@ const LEGACY: Record<string, View> = {
 const viewOf = (v: string | null): View | null => (v && (VIEWS.some(x => x.id === v) ? v as View : LEGACY[v])) || null;
 
 export default function Trades() {
-  const { leagues, activeId, active, setActiveId, loading: leaguesLoading, error: leaguesError, refetch: refetchLeagues } = useLeague();
+  const { leagues, activeId, active, loading: leaguesLoading, error: leaguesError, refetch: refetchLeagues } = useLeague();
+  const coach = useCoach();
   const [params, setParams] = useSearchParams();
   const warRoom = useWarRoom(activeId);
   const warOn = warRoom.data?.enabled === true;
@@ -48,7 +50,7 @@ export default function Trades() {
   const view: View = asked === 'planner' ? (warOn || warRoom.loading ? 'planner' : 'find') : asked ?? (warOn ? 'planner' : 'find');
   const setView = (v: View) => setParams(() => new URLSearchParams(`view=${v}`), { replace: true });
   const [goGetMany, setGoGetMany] = useState(false);
-  const [byTitle, setByTitle] = useState(params.get('view') === 'title');
+  const [rank, setRank] = useState<'best' | 'title' | 'flips'>(params.get('view') === 'title' ? 'title' : 'best');
   const desk = useTradeDesk();
 
   // Two independent requests on the People view: the measured signal layer may not exist on this
@@ -69,25 +71,20 @@ export default function Trades() {
         actionLabel="Connect a league" actionTo="/league?view=leagues" /></div>;
   }
 
-  // The planner draws full screen, as the War Room always has; its menu returns to People.
-  if (view === 'planner' && warOn && activeId && warRoom.data) {
-    return <WarRoomV2 view={warRoom.data} activeId={activeId} onLeague={setActiveId} onExit={() => setView('people')}
-      leagues={leagues.map(l => ({ id: l.id, name: l.name }))} />;
-  }
-
   const tools = view === 'goget' || view === 'find' || view === 'build';
   const ready = !!desk.active && !!desk.rosters?.teams?.length;
   return (
     <div className="mx-auto max-w-[1100px]">
-      <PageHeader eyebrow="Trades" title="Trades" description="The planner's next move, the players you want, every realistic deal, and the people on the other side." />
+      <PageHeader eyebrow="Trades" title="Trades" actions={<TradeDeskHeader desk={desk} />} />
       <div className="mb-5 ds-tabs-wrap"><Tabs label="Trades views" value={view} onChange={setView} tabs={VIEWS} /></div>
 
-      {view === 'planner' && (warRoom.loading ? <PageLoading label="Loading the planner…" />
+      {view === 'planner' && (warOn && activeId && warRoom.data
+        ? <TradesPlanner part="next" view={warRoom.data} leagueId={activeId} onAsk={coach.open} />
+        : warRoom.loading ? <PageLoading label="Loading the planner…" />
         : warRoom.error ? <PageError message={warRoom.error} onRetry={warRoom.refetch} />
         : <EmptyState title="The planner is off for this league" description="Find deals, Go get and People still work." actionLabel="Find deals" onAction={() => setView('find')} />)}
 
       {tools && <>
-        <TradeDeskHeader desk={desk} />
         {desk.active && !desk.rosters && desk.rostersLoading && <PageLoading label="Loading your roster…" />}
         {desk.active && !desk.rosters && !desk.rostersLoading && desk.rostersError && <PageError message={desk.rostersError} onRetry={desk.refetchRosters} />}
         {desk.active && desk.rosters && !desk.rosters.teams?.length && (
@@ -95,32 +92,47 @@ export default function Trades() {
         )}
       </>}
 
-      {view === 'goget' && ready && <>
-        <div className="mb-3 flex gap-1.5" role="group" aria-label="How many targets">
-          <Chip on={!goGetMany} onClick={() => setGoGetMany(false)}>One player</Chip>
-          <Chip on={goGetMany} onClick={() => setGoGetMany(true)}>Several players</Chip>
-        </div>
-        {goGetMany
-          ? <TargetMany leagueId={desk.active!} teamId={desk.me} rosters={desk.rosters} untouchable={desk.untouchable} untouchableNames={desk.untouchableNames} />
-          : <TargetPlayer leagueId={desk.active!} teamId={desk.me} rosters={desk.rosters} untouchable={desk.untouchable} untouchableNames={desk.untouchableNames} />}
-      </>}
+      {view === 'goget' && ready && (() => {
+        // "Someone else": the name search (one or several players) closes the planner's target list.
+        const someoneElse = <>
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold">Someone else?</h3>
+            <div className="flex gap-1.5" role="group" aria-label="How many targets">
+              <Chip on={!goGetMany} onClick={() => setGoGetMany(false)}>One player</Chip>
+              <Chip on={goGetMany} onClick={() => setGoGetMany(true)}>Several players</Chip>
+            </div>
+          </div>
+          {goGetMany
+            ? <TargetMany leagueId={desk.active!} teamId={desk.me} rosters={desk.rosters} untouchable={desk.untouchable} untouchableNames={desk.untouchableNames} />
+            : <TargetPlayer leagueId={desk.active!} teamId={desk.me} rosters={desk.rosters} untouchable={desk.untouchable} untouchableNames={desk.untouchableNames} />}
+        </>;
+        return warOn && activeId && warRoom.data
+          ? <TradesPlanner part="goget" view={warRoom.data} leagueId={activeId} onAsk={coach.open} someoneElse={someoneElse} />
+          : someoneElse;
+      })()}
 
-      {view === 'find' && ready && <>
-        <div className="mb-3 flex gap-1.5" role="group" aria-label="Rank deals by">
-          <Chip on={!byTitle} onClick={() => setByTitle(false)}>Best overall</Chip>
-          <Chip on={byTitle} onClick={() => setByTitle(true)}>Title impact</Chip>
-        </div>
-        {byTitle
-          ? <TitleTrades leagueId={desk.active!} teamId={desk.me} />
-          : <FindDeals leagueId={desk.active!} teamId={desk.me} rosters={desk.rosters} untouchable={desk.untouchable} untouchableNames={desk.untouchableNames} />}
-      </>}
+      {view === 'find' && ready && (() => {
+        const controls = (
+          <div className="ds-tabs" role="tablist" aria-label="Rank deals by">
+            {([['best', 'Best overall'], ['title', 'Title impact'], ...(warOn ? [['flips', 'Flips']] : [])] as [typeof rank, string][]).map(([id, label]) => (
+              <button key={id} type="button" role="tab" className="ds-tab" aria-selected={rank === id} onClick={() => setRank(id)}>{label}</button>
+            ))}
+          </div>
+        );
+        if (rank === 'title') return <TitleTrades leagueId={desk.active!} teamId={desk.me} controls={controls} />;
+        if (rank === 'flips' && warOn && activeId && warRoom.data) return <>
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs" data-testid="find-controls">{controls}</div>
+          <TradesPlanner part="market" view={warRoom.data} leagueId={activeId} onAsk={coach.open} />
+        </>;
+        return <FindDeals leagueId={desk.active!} teamId={desk.me} rosters={desk.rosters} untouchable={desk.untouchable}
+          untouchableNames={desk.untouchableNames} controls={controls} onGoGet={() => setView('goget')} />;
+      })()}
 
       {view === 'build' && ready && (
         <MockTrade leagueId={desk.active!} teamId={desk.me} rosters={desk.rosters} untouchable={desk.untouchable} untouchableNames={desk.untouchableNames} />
       )}
 
       {view === 'people' && activeId && <div className="space-y-5">
-        <PulseTicker leagueId={activeId} />
         <ManagerBoard leagueId={activeId} profiles={profiles} signals={signals} />
         <ProposalSlate leagueId={activeId} />
       </div>}

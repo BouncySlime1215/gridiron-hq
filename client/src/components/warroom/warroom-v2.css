@@ -549,3 +549,14 @@ body.wr-v2-open [role="dialog"][aria-label="Page explainer"] { z-index: 70 !impo
 .wr-v2.wr-inline { position: static; inset: auto; z-index: auto; display: block; overflow: visible; background: none; max-width: none; }
 .wr-v2.wr-app-layer { display: contents; }
 .wr-v2.wr-inline .wr-hero { min-height: 0; }
+
+/* Trades → Go get: "Someone else?" closes the target list, a quiet row under the cards. */
+.wr-someone { margin-top: 12px; padding-top: 12px; box-shadow: 0 -1px 0 var(--c-line); }
+.wr-someone .card { box-shadow: none; border: 0; padding: 0; margin: 0; background: none; }
+/* Trades → Go get (compact): the one plan shown runs full width, its steps side by side. */
+.wr-goget-compact .wr-paths { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) {
+  .wr-goget-compact .wr-timeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .wr-goget-compact .wr-timeline li { padding-bottom: 0; }
+  .wr-goget-compact .wr-timeline li:not(:last-child)::after { display: none; }
+}

@@ -100,7 +100,7 @@ test('produceWeeklyAutopsy: one row per team-week, idempotent, and E7 reads it',
   const before = E7.run(db);
   assert.match(before.needs_text, /weekly_autopsy is not built yet/);
   const r1 = A.produceWeeklyAutopsy(db, { now: () => '2026-09-25T00:00:00Z' });
-  assert.deepEqual(r1, { weeks: 2, rows: 4, skipped_teams: 0 });
+  assert.deepEqual(r1, { weeks: 2, rows: 4, skipped_teams: 0, unscored_teams: 0 });
   const first = db.prepare('SELECT * FROM weekly_autopsy ORDER BY week, team_id').all();
   A.produceWeeklyAutopsy(db, { now: () => '2026-09-25T00:00:00Z' });
   assert.deepEqual(db.prepare('SELECT * FROM weekly_autopsy ORDER BY week, team_id').all(), first, 'same input, same rows');
@@ -117,7 +117,7 @@ test('produceWeeklyAutopsy: one row per team-week, idempotent, and E7 reads it',
 test('produceWeeklyAutopsy: live rows are never autopsied; a league filter holds', () => {
   const db = snapshotDb({ weeks: [1] });
   db.exec(`UPDATE league_roster_snapshots SET source = 'live'`);
-  assert.deepEqual(A.produceWeeklyAutopsy(db), { weeks: 0, rows: 0, skipped_teams: 0 });
+  assert.deepEqual(A.produceWeeklyAutopsy(db), { weeks: 0, rows: 0, skipped_teams: 0, unscored_teams: 0 });
   const db2 = snapshotDb({ weeks: [1] });
   assert.equal(A.produceWeeklyAutopsy(db2, { leagueIds: [9] }).rows, 0);
 });
@@ -252,9 +252,53 @@ test('settle: a move whose players left the rosters, or a failed capture, is NUL
   assert.equal(E4.live(db).n, 0, 'an ungraded week is not counted');
   const db2 = snapshotDb({ weeks: [1] });
   P.captureWeek(db2, { ...KEY, me: '5', arms: ARMS_FIX, seed: 1 });
-  const r2 = P.settleRow(db2, P.dueRows(db2)[0], { teams: () => ROSTERS, reprice: () => ({ error: 'both teams required' }) });
+  const r2 = P.settleRow(db2, P.dueRows(db2)[0], { teams: () => ROSTERS, reprice: () => ({ error: 'both teams required' }), maxAttempts: 1 });
   assert.equal(r2.graded, false);
   assert.match(db2.prepare('SELECT settle_note FROM planner_move_outcomes').get().settle_note, /reprice failed \(both teams required\)/);
+});
+
+// Review finding 2: one failed re-price must not drop the week for good.
+test('settle: a failed re-price is retried on later ticks, then settles; the week is graded once it works', () => {
+  const db = snapshotDb({ weeks: [1] });
+  P.captureWeek(db, { ...KEY, me: '5', arms: ARMS_FIX, seed: 1 });
+  let calls = 0;
+  const flaky = () => { calls++; if (calls <= 2) throw new Error('sim blew up'); return { title_delta: 0.01, title_delta_se: 0.001 }; };
+  const first = P.settleRow(db, P.dueRows(db)[0], { teams: () => ROSTERS, reprice: flaky });
+  assert.equal(first.retry, true);
+  let row = db.prepare('SELECT * FROM planner_move_outcomes').get();
+  assert.equal(row.settled_at, null, 'not settled: the next tick retries it');
+  assert.equal(row.settle_attempts, 1);
+  assert.equal(row.planner_gain, null);
+  assert.match(row.settle_note, /attempt 1 of 4: planner: reprice failed \(sim blew up\)/);
+  assert.equal(P.dueRows(db).length, 1, 'still due');
+  const second = P.settleRow(db, P.dueRows(db)[0], { teams: () => ROSTERS, reprice: flaky, now: () => 'z' });
+  assert.equal(second.retry, false);
+  assert.equal(second.graded, true);
+  row = db.prepare('SELECT * FROM planner_move_outcomes').get();
+  assert.equal(row.settle_attempts, 2);
+  assert.equal(row.settled_at, 'z');
+  assert.equal(row.planner_gain, 0.01);
+  assert.equal(row.settle_note, null);
+  assert.equal(E4.live(db).n, 1);
+  // A re-price that never works settles NULL after MAX_SETTLE_ATTEMPTS ticks, and is not counted.
+  const db2 = snapshotDb({ weeks: [1] });
+  P.captureWeek(db2, { ...KEY, me: '5', arms: ARMS_FIX, seed: 1 });
+  const dead = () => ({ error: 'no world' });
+  for (let i = 1; i < P.MAX_SETTLE_ATTEMPTS; i++) {
+    assert.equal(P.settleRow(db2, P.dueRows(db2)[0], { teams: () => ROSTERS, reprice: dead }).retry, true);
+  }
+  const last = P.settleRow(db2, P.dueRows(db2)[0], { teams: () => ROSTERS, reprice: dead });
+  assert.equal(last.retry, false);
+  assert.equal(P.dueRows(db2).length, 0);
+  assert.equal(db2.prepare('SELECT settle_attempts FROM planner_move_outcomes').get().settle_attempts, P.MAX_SETTLE_ATTEMPTS);
+  assert.equal(E4.live(db2).n, 0);
+});
+
+test('settleAll: a retrying row is counted as retrying, not settled', () => {
+  const db = snapshotDb({ weeks: [1] });
+  P.captureWeek(db, { ...KEY, me: '5', arms: ARMS_FIX, seed: 1 });
+  const deps = { ...fakeDeps(), reprice: () => ({ error: 'no world' }) };
+  assert.deepEqual(settleAll(db, P, { deps, now: () => 'n' }), { settled: 0, graded: 0, retrying: 1, failed: [] });
 });
 
 // ---------------------------------------------------------------- the CLI's loops (fake deps)
@@ -290,7 +334,7 @@ test('captureAll: captures a planned week once, skips a final week and unknown l
 test('settleAll: settles due rows through the deps', () => {
   const db = snapshotDb({ weeks: [] });
   captureAll(db, P, { entries: [ENTRY], deps: fakeDeps(), now: () => 'n' });
-  assert.deepEqual(settleAll(db, P, { deps: fakeDeps(), now: () => 'n' }), { settled: 0, graded: 0, failed: [] });
+  assert.deepEqual(settleAll(db, P, { deps: fakeDeps(), now: () => 'n' }), { settled: 0, graded: 0, retrying: 0, failed: [] });
   db.prepare(`INSERT INTO league_roster_snapshots (league_id, season, scoring_period_id, team_id, espn_player_id, lineup_slot_id,
     is_starter, source, first_seen_at, changed_at) VALUES (4, 2026, 1, 1, 1, 0, 1, 'final', 't', 't')`).run();
   const s = settleAll(db, P, { deps: fakeDeps(), now: () => 'n' });
@@ -327,4 +371,44 @@ test('tick step: off starts no process; on runs the producer and records its lin
   assert.equal(records[0][0], 'source_tables');
   assert.equal(records[0][1], 'ok');
   assert.match(logs[0], /source_tables\s+ok source_tables: autopsy 1 weeks/);
+});
+
+// ---------------------------------------------------------------- review findings 1, 3, 4
+test('greedyMove: no market values on his players is an error, never a "do nothing" that grades as 0', () => {
+  const teams = [
+    { roster_id: '5', players: [player(12, 'RB', 0, 5), player(13, 'WR', 0, 4)] },
+    { roster_id: '2', players: [player(22, 'RB', 100, 12)] },
+  ];
+  const g = P.greedyMove({ teams, me: '5', lineupPoints: lineupPts });
+  assert.equal(g.state, 'error');
+  assert.match(g.why, /no market values/);
+});
+
+test('greedyMove: the never-give / never-get ids are the one pinned list (never-give.js), Olave by id too', async () => {
+  const NG = await import('../server/services/campaign/never-give.js');
+  assert.equal(P.GREEDY_NEVER_GIVE, NG.PINNED_NEVER_GIVE);
+  assert.equal(P.GREEDY_NEVER_GET, NG.PINNED_NEVER_GET);
+  const teams = [
+    { roster_id: '5', players: [player(11, 'QB', 50, 15), player(12, 'RB', 100, 5), player(13, 'WR', 100, 4)] },
+    // 290 under another name (ids resolve, names may not): still never a get.
+    { roster_id: '2', players: [player(290, 'WR', 95, 40, 'C. Olave'), player(22, 'RB', 100, 12)] },
+  ];
+  const g = P.greedyMove({ teams, me: '5', lineupPoints: lineupPts });
+  assert.deepEqual(g.move.get, ['22']);
+  const open = P.greedyMove({ teams, me: '5', lineupPoints: lineupPts, neverGet: [] });
+  assert.deepEqual(open.move.get, ['290'], 'unblocked, 290 was the best gain');
+});
+
+test('autopsy: a starter with no stat line counts 0 (as ESPN scores him) and is counted, not hidden', () => {
+  const rows = teamA();
+  rows[4].actual_points = null;
+  const a = A.autopsyTeamWeek(rows, lineupFromSlotCounts(LEAGUE4_COUNTS));
+  assert.equal(a.unscored_starters, 1);
+  assert.equal(a.actual_points, sum(rows.map(r => ({ ...r, actual_points: r.actual_points ?? 0 })), 'actual_points'));
+  const db = snapshotDb({ weeks: [1] });
+  db.exec(`UPDATE league_roster_snapshots SET actual_points = NULL WHERE team_id = 1 AND is_starter = 1 AND espn_position_id = 5`);
+  const r = A.produceWeeklyAutopsy(db);
+  assert.equal(r.unscored_teams, 1);
+  assert.deepEqual(db.prepare('SELECT team_id, unscored_starters FROM weekly_autopsy ORDER BY team_id').all().map(x => ({ ...x })),
+    [{ team_id: 1, unscored_starters: 1 }, { team_id: 2, unscored_starters: 0 }]);
 });

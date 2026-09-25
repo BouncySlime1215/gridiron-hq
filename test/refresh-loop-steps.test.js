@@ -315,6 +315,24 @@ test('G7: the start/sit gate job is on the loop, after the jobs that settle the 
   assert.ok(ran.indexOf('start_sit_gate') > ran.indexOf('nfl_weekly_learning'), 'after the snapshot settlement');
 });
 
+test('DATA-FC: the FantasyCalc market job is on the loop, daily, before the served-number snapshot', async () => {
+  // With SCHEDULER_DISABLED=1 this loop is the only runner of scheduler jobs; off it, the
+  // trade-card price aged 5 days and dynasty_value_history held no rows.
+  assert.ok(LOOP.FANTASY_LIVE_JOBS.includes('fantasycalc_dynasty'), 'the FantasyCalc job must be on the live loop');
+  const { JOBS } = await import('../server/services/scheduler.js');
+  assert.ok(JOBS.fantasycalc_dynasty.maxAgeMinutes >= 24 * 60, 'no more than one fetch a day');
+  const ran = [];
+  await LOOP.tick({ jobs: LOOP.FANTASY_LIVE_JOBS, runJob: async name => { ran.push(name); return { skipped: true }; },
+    spawn: fakeSpawn({ 'extract_league_chat.py': { stdout: STATUS({ failed_outstanding: 0 }) } }).spawn,
+    log: quiet, record: quiet, inputsKey: () => 'k' });
+  assert.ok(ran.indexOf('fantasycalc_dynasty') > ran.indexOf('player_rosters'), 'after the espn_id join key is filled');
+  assert.ok(ran.indexOf('fantasycalc_dynasty') < ran.indexOf('served_numbers_weekly'), 'before the trade cards are snapshotted');
+  // The redraft half: 'fc_value' (League Hub roster strength, rankings, edge board) had no runner at all.
+  assert.ok(LOOP.FANTASY_LIVE_JOBS.includes('fantasycalc_values'), 'the redraft FantasyCalc job must be on the live loop');
+  assert.ok(JOBS.fantasycalc_values.maxAgeMinutes >= 24 * 60, 'redraft: no more than one fetch a day');
+  assert.ok(ran.indexOf('fantasycalc_values') > ran.indexOf('player_rosters'), 'redraft: after the join keys are filled');
+});
+
 // ---------------------------------------------------------------- warroom plans (CAMPAIGN-01)
 test('CAMPAIGN-01: the War Room producer is launched after manager signals only when the War Room flag is on (GRIDIRON_WARROOM_ENABLED=1)', async () => {
   const chat = { 'extract_league_chat.py': { stdout: 'league_chat_status {"failed_this_run":0,"failed_outstanding":0}\n' } };

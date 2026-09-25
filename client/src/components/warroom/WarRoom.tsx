@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import './warroom.css';
 import { setTeamNames, type PanelId, type WarRoomView } from './types';
 import type { DeckLogEntry, DeckState } from './deck';
@@ -66,6 +66,9 @@ export const COACH_PANEL_AREA: Record<CoachPanel, PanelId | null> = {
 let openedOnTarget = false;
 /** Test hook: forget that this page load already opened on the target league. */
 export function __resetOpening() { openedOnTarget = false; }
+/** WAR-ROOM-UI v2 shares the once-per-page-load opening with this layout. */
+export const wasOpenedOnTarget = () => openedOnTarget;
+export function markOpenedOnTarget() { openedOnTarget = true; }
 
 /** The same grid with the People rail between the panels and Coach. */
 export const GRID_AREAS_PEOPLE = [
@@ -84,7 +87,7 @@ export const rootStyle = (people: boolean) => (people ? ROOT_STYLE_PEOPLE : ROOT
 const PANELS_PEOPLE = [PANELS[0], { id: 'people' as const, name: 'People' }, ...PANELS.slice(1)];
 export const panelsFor = (people: boolean) => (people ? PANELS_PEOPLE : PANELS);
 
-export default function WarRoom({ view, leagues, activeId, onLeague, onExit, deckInitial, onDeckLog, post, initialFocus }: {
+export default function WarRoom({ view, leagues, activeId, onLeague, onExit, deckInitial, onDeckLog, post, initialFocus, layoutToggle }: {
   view: WarRoomView;
   leagues: LeagueChoice[];
   activeId: number;
@@ -95,6 +98,8 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
   post?: Poster;
   /** A manager the deck starts focused on (a People Board tap). */
   initialFocus?: string;
+  /** WAR-ROOM-UI v2: the "New layout" switch (WarRoomShell), drawn in the top strip. */
+  layoutToggle?: ReactNode;
 }) {
   // TEAM-NAMES: before any panel renders, so every teamLabel reads this view's names.
   setTeamNames(isOk(view.teams) ? view.teams.value : null);
@@ -183,7 +188,7 @@ export default function WarRoom({ view, leagues, activeId, onLeague, onExit, dec
     <SourcesContext.Provider value={view.sources ?? {}}>
       <div className={`wr-root wr-app${people ? ' wr-people-on' : ''}`} data-theme={theme} data-testid="war-room-grid" style={rootStyle(people)}>
         <TopStrip view={view} leagues={leagues} activeId={activeId} onLeague={onLeague} onExit={onExit}
-          theme={theme} onTheme={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))} />
+          theme={theme} onTheme={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))} extra={layoutToggle} />
 
         <main className="wr-panels" ref={deckRef} aria-label="War Room panels"
           onScroll={e => {

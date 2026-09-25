@@ -19,7 +19,7 @@ type Kind = 'morning' | 'weekly';
 interface Claim { section?: string; text: string; cites: string[] }
 interface LedgerQuery { id: string; tool?: string | null; tables?: string[]; rows: Record<string, unknown>[] }
 interface LedgerDerived { id: string; op?: string; value?: unknown; inputs?: string[]; label?: string }
-interface Ledger { queries: LedgerQuery[]; derived: LedgerDerived[] }
+export interface Ledger { queries: LedgerQuery[]; derived: LedgerDerived[] }
 interface Brief {
   status: 'ok' | 'off' | 'unknown' | 'failed';
   reason?: string;
@@ -91,8 +91,30 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-function ClaimLine({ claim, heading, ledger, open, onCite }: {
-  claim: Claim; heading: string | null; ledger?: Ledger; open: string | null; onCite: (cite: string) => void;
+/**
+ * WAR-ROOM-UI v2: one small "sources" toggle per line instead of a row of numbered chips.
+ * Open, it lists every cite's ledger line (each still carries its data-cite).
+ */
+export function SourcesToggle({ cites, ledger, testid = 'coach-sources' }: { cites: string[]; ledger?: Ledger; testid?: string }) {
+  const [open, setOpen] = useState(false);
+  if (!cites.length) return null;
+  return (
+    <>
+      <button type="button" className={`wr-srcs${open ? ' wr-on' : ''}`} aria-expanded={open} data-testid={testid}
+        title={cites.map(c => citeSource(ledger, c)).join('\n')} onClick={() => setOpen(o => !o)}>
+        sources{cites.length > 1 ? ` (${cites.length})` : ''}
+      </button>
+      {open && (
+        <ul className="wr-srcs-list" data-testid={`${testid}-list`}>
+          {cites.map(c => <li key={c} data-cite={c}>{citeSource(ledger, c)}</li>)}
+        </ul>
+      )}
+    </>
+  );
+}
+
+function ClaimLine({ claim, heading, ledger, open, onCite, compact }: {
+  claim: Claim; heading: string | null; ledger?: Ledger; open: string | null; onCite: (cite: string) => void; compact?: boolean;
 }) {
   const unknown = UNKNOWN.test(claim.text);
   return (
@@ -100,24 +122,31 @@ function ClaimLine({ claim, heading, ledger, open, onCite }: {
       data-unknown={unknown ? 'true' : 'false'} data-section={claim.section ?? ''}>
       {heading && <span className="wr-brief-h">{heading}</span>}
       <span>{claim.text}</span>
-      {claim.cites.map((cite, i) => (
+      {compact && <SourcesToggle cites={claim.cites} ledger={ledger} testid="coach-brief-sources" />}
+      {!compact && claim.cites.map((cite, i) => (
         <button key={cite} type="button" className={`wr-cite${open === cite ? ' wr-on' : ''}`} data-cite={cite}
           title={citeSource(ledger, cite)} aria-expanded={open === cite} aria-label={`Source ${i + 1}: ${cite}`}
           onClick={() => onCite(cite)}>{i + 1}</button>
       ))}
-      {open && claim.cites.includes(open) && (
+      {!compact && open && claim.cites.includes(open) && (
         <div className="wr-brief-src" data-testid="coach-brief-source">{citeSource(ledger, open)}</div>
       )}
     </li>
   );
 }
 
-export default function CoachBrief({ leagueId, timeoutMs = BRIEF_TIMEOUT_MS }: { leagueId?: number | null; timeoutMs?: number }) {
+export default function CoachBrief({ leagueId, timeoutMs = BRIEF_TIMEOUT_MS, citeStyle = 'chips', startHidden = false }: {
+  leagueId?: number | null; timeoutMs?: number;
+  /** 'chips' (classic dock): numbered cite buttons; 'sources' (v2 drawer): one small sources toggle per line. */
+  citeStyle?: 'chips' | 'sources';
+  /** v2 drawer: the brief starts folded under its heading. */
+  startHidden?: boolean;
+}) {
   const [kind, setKind] = useState<Kind>('morning');
   const [state, setState] = useState<State>({ phase: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [open, setOpen] = useState<{ claim: number; cite: string } | null>(null);
-  const [hidden, setHidden] = useState(false);
+  const [hidden, setHidden] = useState(startHidden);
 
   useEffect(() => {
     if (!leagueId) return;
@@ -172,7 +201,7 @@ export default function CoachBrief({ leagueId, timeoutMs = BRIEF_TIMEOUT_MS }: {
               <ul className="wr-brief-list">
                 {claims.map((c, i) => (
                   <ClaimLine key={i} claim={c} heading={headings[i] !== headings[i - 1] ? headings[i] : null} ledger={brief.ledger}
-                    open={open?.claim === i ? open.cite : null}
+                    open={open?.claim === i ? open.cite : null} compact={citeStyle === 'sources'}
                     onCite={cite => setOpen(o => (o?.claim === i && o.cite === cite ? null : { claim: i, cite }))} />
                 ))}
               </ul>

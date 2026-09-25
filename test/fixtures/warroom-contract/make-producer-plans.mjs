@@ -6,7 +6,7 @@
  * data.
  *
  * Two refreshes, as the refresh loop runs it: the file is the second run, read
- * against the first (so `ground_lost` and the change diff are real). Five
+ * against the first (so `ground_lost` and the change diff are real). Six
  * leagues, so the file exercises every branch a consumer reads:
  *   1  title, Nick's stops (get / sell an untouchable / bye / custom),
  *      a safe-until-week-6 mode, an arrive-by week, chat labels on team 3,
@@ -17,6 +17,8 @@
  *      that is also a deck card) and team 4 checked out
  *   4  go get player 21, points side panel at 105 a week (reachable under the FIX-05 balanced fallback: by_week is ok)
  *   5  sliders at zero assets: nothing clears, so next_move is unknown with its reason
+ *   8  a made-up season trade ledger (TRADE-MEMORY): a sold player whose price fell (still never a get), a sold player and a
+ *      reversal dropped, the count in _run.dropped_by_reason
  *
  * The FEAS-140 points side panel is switched on (ENV below, never the process env), so
  * every non-points league writes feasibility_points; league 3 writes it as unknown.
@@ -104,6 +106,17 @@ const PYES_NOW = Date.UTC(2026, 8, 24);
 const pyDay = d => new Date(Date.UTC(2026, 8, d)).toISOString();
 const PYES_OFFERS = [[4, '2', 1, 1], [4, '2', 3, 0], [4, '3', 5, 0], [4, '3', 7, 0], [1, '2', 2, 1], [1, '4', 4, 1]]
   .map(([league, team, d, y]) => ({ league_id: league, counterparty_team_id: team, proposed_at: pyDay(d), resolved_at: pyDay(d + 1), y }));
+/**
+ * League 8's season ledger (TRADE-MEMORY, made up): Nick sold P11 to team 2 twelve days ago at 5,000
+ * (4,200 now, a 16% fall: still never a get, no buy-backs) and P22 to team 3 for P4 (a reversal is never served).
+ */
+function withLedger(a) {
+  const at = Date.parse(FIRST_AT) - 12 * 864e5;
+  a.tradeLedger = { now: Date.parse(FIRST_AT), unmapped: 0, valueAt: id => (id === 11 ? 5000 : null),
+    trades: [{ tx_id: 'fx1', at, moves: [{ player: 11, from: '1', to: '2' }, { player: 6, from: '2', to: '1' }] },
+      { tx_id: 'fx2', at, moves: [{ player: 22, from: '1', to: '3' }, { player: 4, from: '3', to: '1' }] }] };
+  return a;
+}
 
 export async function makeProducerPlans() {
   const leagues = [
@@ -116,6 +129,7 @@ export async function makeProducerPlans() {
     // TEAM-NAMES: league 5 also names one manager (synthetic), so the file writes every teams path.
     { id: 5, load: async () => { const a = leagueOf(5); const t = a.teams(); a.teams = () => ({ ...t, 2: { ...t[2], manager: 'Manager B' } });
       a.pYesBasis = pYesBasis(pYesTableFrom([], 5, ['2'], { now: PYES_NOW, mode: 'blend' })); return { adapter: a }; } },
+    { id: 8, load: async () => ({ adapter: withLedger(leagueOf(8)) }) },
   ];
   const first = await buildPlansFile(leagues, { generated_at: FIRST_AT, objectives: OBJECTIVES, clock: () => 0, brain: BRAIN, env: ENV });
   const previous = new Map(first.leagues.map(e => [String(e.league), e]));

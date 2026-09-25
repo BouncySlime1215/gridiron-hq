@@ -13,7 +13,7 @@
  * Room JSON.
  */
 import { dealKey, pathExpectation, combos, linearNick, screenPct } from './paths.js';
-import { rankPlans, compareModes, tolerancesFor, MODES } from './modes.js';
+import { rankPlans, compareModes, tolerancesFor, MODES, shadowShrink, beatsNoTrade as beatsNoTradeUnder } from './modes.js';
 import { metricOf, pointsFeasibility, targetFeasibility, weeklySummary } from './objectives.js';
 import { priceLadder, stepMessage, replyTable } from './playbook.js';
 import { coachMessagesOn } from './messages.js';
@@ -25,7 +25,13 @@ import { confirmSeed, confirmVerdict, repricePlan } from './confirm.js';
 import { probesOn } from '../p-yes-blend.js';
 import { waitOrAct, waitOrActOn } from './wait-or-act.js';
 import { sidePanelFeasibility, SIDE_OPTIONS } from './feasibility.js';
-import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink } from './search.js';
+import { makeScorer, playerValues, flipMap, searchTarget, publicPlan, maxOverpayOf, nickOverpays, newOverpaySink,
+  depthPremiumOf, boardOf, newPremiumSink, premiumHolds } from './search.js';
+import { makeGetsFloor } from './gets-floor.js';
+import { withNeverGive } from './never-give.js';
+import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
+import { excluded } from './partners.js';
+import { tradeMemory, applyTradeMemory, memorySummary, stepPasses, floorOn as tmFloorOn, tradeMemoryOn } from './trade-memory.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
 
 /** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
@@ -35,6 +41,7 @@ const yesPoint = curve => {
 };
 
 export const DECK_SIZE = 5;
+const sameIds = (a, b) => a.length === b.length && a.map(String).sort().join() === b.map(String).sort().join();
 /** P(accept) curve window on his screen, wider than the finder's so the curve has a shape. */
 const CURVE_WINDOW = { low: -35, high: 45 };
 
@@ -70,12 +77,16 @@ export function deckOf(ranked, n = DECK_SIZE) {
 }
 
 /** For each step i of `best`: the best other plan sharing steps 0..i-1 with a different step i. */
-export function backupBranches(best, ranked) {
+export function backupBranches(best, ranked, ok = null) {
   return best.steps.map((_, i) => {
     const prefix = best.steps.slice(0, i).map(dealKey).join('>');
-    const alt = ranked.find(p => p !== best && p.steps.length > i
-      && p.steps.slice(0, i).map(dealKey).join('>') === prefix && dealKey(p.steps[i]) !== dealKey(best.steps[i]));
-    return alt ? { step: alt.steps[i], expected: alt.expected, plan: alt } : null;
+    // integration-7: ok(plan) -> the plan re-priced on the confirm dice when it still beats doing nothing, else null.
+    for (const p of ranked) {
+      if (p === best || p.steps.length <= i || p.steps.slice(0, i).map(dealKey).join('>') !== prefix || dealKey(p.steps[i]) === dealKey(best.steps[i])) continue;
+      const alt = ok ? ok(p) : p;
+      if (alt) return { step: alt.steps[i], expected: alt.expected, plan: alt };
+    }
+    return null;
   });
 }
 
@@ -95,13 +106,15 @@ function priceCurve(adapter, S, vals, step, stateBefore, maxGive, exactDelta, ma
     const his = screenPct(gv, getV);
     if (his == null || his < CURVE_WINDOW.low || his > CURVE_WINDOW.high) continue;
     // NO-OVERPAY: the ladder (opening, walk-away) never climbs past Nick's cap on market value given.
-    if (nickOverpays(gv, getV, maxOverpay)) continue;
+    // CAP-1C: above the cap, only the planned premium package itself (the one pair gated on points and title odds).
+    if (nickOverpays(gv, getV, maxOverpay) && !(step.depth_premium && sameIds(give, step.give))) continue;
     const p = adapter.priceStep(step.team, step.get, give).p;
     const delta = lin(S.applyTrade(stateBefore, me, step.team, give, step.get)) * scale;
     out.push({ give, his_pct: his, p, delta, nick_gain: p * delta });
   }
   return { curve: out.sort((a, b) => a.his_pct - b.his_pct).slice(0, 60),
-    basis: `linear single-player values, rescaled to the exact rescore of the planned package; never past +${Math.round(maxOverpay * 100)}% market value given` };
+    basis: `linear single-player values, rescaled to the exact rescore of the planned package; never past +${Math.round(maxOverpay * 100)}% market value given`
+      + (step.depth_premium ? ` (a depth-only 2-for-1 up to its planned +${Math.max(1, Math.round(step.depth_premium.pct * 100))}%)` : '') };
 }
 
 /**
@@ -112,6 +125,8 @@ export function planLeague(adapter, settings) {
   // ONE-COUNTERPART (flag GRIDIRON_COUNTERPART or preview, set by the producer): absent -> today's plan, unchanged.
   const CP = adapter.counterparts ?? null;
   if (CP) adapter = withCounterparts(adapter, CP);
+  // NEVER-GIVE: Nico Collins, Chase Brown and A.J. Brown are never offered, notes or no notes.
+  adapter = withNeverGive(adapter);
   const clockNow = () => adapter.now?.() ?? 0;
   const t0 = clockNow();
   const phases = {};
@@ -134,37 +149,138 @@ export function planLeague(adapter, settings) {
   // An adapter may carry its own cap (adapter.maxOverpay; the pre-cap test fixtures set Infinity); the destination's wins.
   const maxOverpay = maxOverpayOf({ max_overpay: objective.tolerances?.max_overpay ?? adapter.maxOverpay });
   const overpay = newOverpaySink(maxOverpay);
+  // GETS-FLOOR (flag GRIDIRON_GETS_FLOOR: 1 on, shadow, unset off): the final get must score 83+ on the blue-chip
+  // score. On, a target under the floor is never searched and the next one that passes takes its slot.
+  const floor = makeGetsFloor(adapter, { env, tolerances: objective.tolerances });
+  const floorOn = floor.sink.mode === 'on';
+  // Every final get (targets, final-leg fillers, flip leg 2) passes through this; null when off.
+  const getOk = floor.sink.mode === 'off' ? null : floor.keep;
+  // CAP-1C: up to +12% on a depth-only 2-for-1 (destination tolerance depth_premium; an adapter may carry its own).
+  const depthPremium = depthPremiumOf({ depth_premium: objective.tolerances?.depth_premium ?? adapter.depthPremium });
+  const board = boardOf(adapter);
+  const premium = newPremiumSink(depthPremium, board);
+  overpay.depth_premium = premium;
   const vals = playerValues(S, adapter, objective);
   mark('values');
-  const flip = flipMap(S, adapter, vals, { topPer: budget.flipTopPer, realise: budget.flipRealise, maxOverpay,
+  // REACH-01 (flag GRIDIRON_REACH=1 only; default off): off, the chained finish and flipReach stay at 2 gives
+  // and every top-N upgrade is searched, as before. On, both follow the risk mode's max give and a
+  // target no package could read fair for is skipped before the top-N slice (reach.js).
+  const reachMode = reachFlag(env);
+  const reachOn = reachMode !== 'off';
+  const objTol = objective.tolerances ?? tolerancesFor(objective.risk_mode);
+  // Capped at 3: the search never builds a package bigger than that (combos, maxGiveFinal).
+  const chainGive = reachOn ? Math.min(3, Math.max(2, Number(objTol.max_give_per_step) || 2)) : 2;
+  const flipAll = flipMap(S, adapter, vals, { topPer: budget.flipTopPer, realise: budget.flipRealise, maxOverpay, maxGive: chainGive, getOk,
     daysLeft: Number.isInteger(L.deadline_week) ? Math.max(1, (L.deadline_week - L.week) * 7) : 1 });
+  // TRADE-MEMORY (ONE-PLAN 4c): this season's executed trades, when the adapter carries the ledger.
+  // On by default (Nick's rules); only GRIDIRON_TRADE_MEMORY=0 turns it off, and the summary then warns.
+  const tmOn = tradeMemoryOn(env);
+  const TM = tmOn && adapter.tradeLedger
+    ? tradeMemory(adapter.tradeLedger, { me, valueNow: id => Math.max(0, Number(adapter.players.get(id)?.value) || 0),
+      positionOf: id => adapter.players.get(id)?.position ?? null,
+      holderOf: id => [...adapter.rosters].find(([, ids]) => ids.some(x => String(x) === String(id)))?.[0] ?? null })
+    : null;
+  const tmCount = { targets: 0, flips: 0, ladderRows: 0, refused: [] };
+  const tmFloor = tmFloorOn(env);
+  // (a) a flip that buys a player Nick just sold is a buy-back like any other; (c) neither leg may undo a trade.
+  const flipFails = f => {
+    if (TM.excluded(f.player)) return true;
+    if (!f.legs) return false;
+    const gx = f.legs.give_a_ids ?? [f.legs.give_a], gy = f.legs.get_b_ids ?? [f.legs.get_b];
+    return !stepPasses(TM, { team: f.a, give: gx, get: [f.player] }, tmFloor) || !stepPasses(TM, { team: f.b, give: [f.player], get: gy }, tmFloor);
+  };
+  // integration-7: the destination's untouchables (objectives file) are never a flip's leg-1 give either.
+  const objUntouch = new Set((objective.untouchables ?? []).map(String));
+  const flipUntouched = f => !f.legs || !(f.legs.give_a_ids ?? [f.legs.give_a]).some(id => objUntouch.has(String(id)));
+  const flipKeep = f => flipUntouched(f) && !(TM && flipFails(f));
+  // integration-7: FAIL CLOSED when the league has executed trades this season but the ledger came back
+  // missing or empty: Nick's no-buy-back / no-reversal rules cannot be checked, so no move is served.
+  const ledgerMissing = tmOn && Number(adapter.executedTradeRows) > 0 && !(adapter.tradeLedger?.trades?.length > 0);
+  const flip = ledgerMissing ? { ...flipAll, top: [], realised: [] }
+    : TM || objUntouch.size ? { ...flipAll, top: flipAll.top.filter(flipKeep), realised: flipAll.realised.filter(flipKeep) } : flipAll;
+  if (TM) tmCount.flips = flipAll.realised.filter(f => flipUntouched(f) && flipFails(f)).length;
 
   mark('flip');
   // Targets: the objective's player, Nick's "get" stops, then the biggest single-player upgrades.
   const skipP = settings.skips?.player ?? new Map();
   const myIds = adapter.rosters.get(me);
   const tiltOf = pid => (CP ? targetTilt(CP, vals.lossO.get(pid)?.team, pid, myIds) : { tilt: 1, exclude: false, features: [] });
-  const upgrades = [...vals.addN.entries()].filter(([pid]) => !adapter.managers.get(vals.lossO.get(pid)?.team)?.blocked && !tiltOf(pid).exclude)
+  // integration-7: each sold player is counted once, however many times the target list asks about him.
+  const soldCounted = new Set();
+  const soldOut = pid => { const x = !!TM?.excluded(pid); if (x && !soldCounted.has(String(pid))) { soldCounted.add(String(pid)); tmCount.targets++; } return x; };
+  const upgrades = [...vals.addN.entries()].filter(([pid]) => !adapter.managers.get(vals.lossO.get(pid)?.team)?.blocked && !tiltOf(pid).exclude && !soldOut(pid))
     .sort((x, y) => y[1] * (skipP.get(String(y[0])) ?? 1) * tiltOf(y[0]).tilt - x[1] * (skipP.get(String(x[0])) ?? 1) * tiltOf(x[0]).tilt)
     .map(([pid]) => pid);
   // Nick's untouchables (the reader's nick block via the adapter) are never a target, even when asked for.
   const untouchable = adapter.untouchable ?? new Set();
   const refused = [];
   const wanted = [];
-  const want = pid => {
+  // Shadow scans the same candidates as on (so would_drop matches on's dropped) and serves the unfloored list.
+  const floored = n => {
+    if (floor.sink.mode === 'off') return upgrades.slice(0, n);
+    const out = [];
+    for (const pid of upgrades) { if (out.length >= n) break; if (floor.read(pid).passes) out.push(pid); }
+    return floorOn ? out : upgrades.slice(0, n);
+  };
+  const want = (pid, named = false) => {
     if (pid == null) return;
     if (untouchable.has(String(pid))) { if (!refused.includes(String(pid))) refused.push(String(pid)); return; }
+    if (wanted.some(w => String(w) === String(pid))) return;
+    if (soldOut(pid)) { if (!tmCount.refused.includes(String(pid))) tmCount.refused.push(String(pid)); return; }
+    if (named && floorOn && !floor.keep(pid)) { floor.refuse(pid); return; }
     if (!wanted.some(w => String(w) === String(pid))) wanted.push(pid);
   };
   const idOf = s => [...adapter.players.keys()].find(k => String(k) === String(s)) ?? null;
-  if (objective.kind === 'player') want(idOf(objective.target));
-  for (const st of objective.stops) if (st.kind === 'get') want(idOf(st.player));
-  for (const pid of upgrades.slice(0, budget.targets)) want(pid);
+  if (objective.kind === 'player') want(idOf(objective.target), true);
+  for (const st of objective.stops) if (st.kind === 'get') want(idOf(st.player), true);
+  const pval = id => Math.max(0, Number(adapter.players.get(id)?.value) || 0);
+  const bound = reachBound({ mine: myIds.filter(vals.tradable).map(pval),
+    outside: [...adapter.rosters].filter(([t]) => t !== me && !excluded(adapter.managers.get(t))).flatMap(([, ids]) => ids.filter(vals.tradable).map(pval)),
+    maxGiveDirect: 3, maxGiveChain: chainGive, maxOverpay });
+  const reachRows = [];
+  const inReach = pid => {
+    const r = targetReach(pval(pid), bound);
+    reachRows.push({ player: String(pid), owner: vals.lossO.get(pid)?.team != null ? String(vals.lossO.get(pid).team) : null,
+      value: pval(pid), need: r.need, in_reach: r.in_reach, min_gives: r.min_gives });
+    return r.in_reach;
+  };
+  // Filtered lazily, so only the upgrades the slice reaches (and the ones it skipped) are reported.
+  // integration-7: with REACH on, GETS-FLOOR (on) also skips an under-floor upgrade before the slice.
+  const auto = [];
+  for (const pid of upgrades) {
+    if (auto.length >= budget.targets) break;
+    if (untouchable.has(String(pid)) || wanted.some(w => String(w) === String(pid))) continue;
+    if (reachOn && !inReach(pid)) continue;
+    if (floorOn && !floor.read(pid).passes) continue;
+    auto.push(pid);
+  }
+  for (const pid of reachOn ? auto : floored(budget.targets)) want(pid);
+  const ledgerSkipped = ledgerMissing ? { targets: wanted.length, flips: flipAll.realised.length } : null;
+  if (ledgerMissing) wanted.length = 0;
+  // Shadow: read what is searched, count what the floor would drop, change nothing.
+  if (floor.sink.mode === 'shadow') for (const pid of wanted) floor.keep(pid);
 
   let plans = [];
-  for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay }));
+  for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay, getOk, chainGive,
+    depthPremium, board, premiumSink: premium, untouchables: objective.untouchables }));
   const skipW = { player: settings.skips?.player ?? new Map(), manager: settings.skips?.manager ?? new Map() };
   plans = plans.map(p => ({ ...p, skip_weight: planSkipWeight(p, skipW) }));
+  // GETS-FLOOR (integration-7): a chip picked up on the way and never given on is a final get too. With the
+  // floor on, every player Nick still holds at the end of the path (gets minus later gives) must pass it;
+  // shadow counts the paths it would drop.
+  if (floor.sink.mode !== 'off') {
+    const failsHeld = p => {
+      const held = new Set();
+      for (const st of p.steps) { for (const id of st.give) held.delete(String(id)); for (const id of st.get) held.add(String(id)); }
+      return [...held].some(id => !floor.read(id).passes);
+    };
+    const bad = plans.filter(failsHeld).length;
+    floor.sink[floorOn ? 'paths_dropped' : 'paths_would_drop'] = bad;
+    if (floorOn && bad) plans = plans.filter(p => !failsHeld(p));
+  }
+  // (a) sold players, (c) reversals: dropped; (b) floor + currency: shadow unless its flag is on.
+  const tmApplied = TM ? applyTradeMemory(plans, TM, { env }) : null;
+  if (tmApplied) plans = tmApplied.plans;
   mark('search');
 
   // Sliders and context per mode.
@@ -180,28 +296,78 @@ export function planLeague(adapter, settings) {
   const { ranked, dropped } = rankPlans(pool, objective.risk_mode, tol, ctx);
 
   // Confirm on fresh dice: re-price the deck on an independent seed, show those numbers, drop failures.
-  let deck = deckOf(ranked, DECK_SIZE + 2);
+  // NO-TRADE-SHRINK: a card must also beat keeping the roster (score 0) under its mode on the fresh dice.
   const cSeed = confirmSeed(adapter.seed, L.id, L.fetched_at ?? '');
   const W2 = adapter.world(cSeed);
   mark('confirm_world');
   let confirm = { seed: cSeed, plan_seed: adapter.seed, status: 'failed', reason: 'confirm world failed' };
-  if (W2 && !W2.fail) {
-    const S2 = makeScorer(W2, adapter);
-    deck = deck.map(p => {
-      const fresh = p.steps.map(st => metricOf(S2.rescore(st.state, me).me, objective));
-      const re = repricePlan(p, fresh);
-      const v = confirmGate(p, re);
-      const scored = rankPlans([re], objective.risk_mode, { ...tol, max_downside_per_step: Infinity }, { ...ctx, core: null }).ranked[0];
-      return { ...re, score: scored?.score ?? -Infinity, mode: objective.risk_mode, confirm: v, planned_on: p };
-    }).filter(p => p.confirm.verdict !== 'failed')
-      .sort((a, b) => b.score - a.score).slice(0, DECK_SIZE);
-    confirm = { seed: cSeed, plan_seed: adapter.seed, status: 'ok', rescores: S2.count() };
-  } else {
-    deck = deck.slice(0, DECK_SIZE);
-  }
+  const S2 = W2 && !W2.fail ? makeScorer(W2, adapter) : null;
+  // REACH-01: the objective mode's confirm counts (null when the confirm world failed).
+  let confirmCounts = null;
+  // integration-7: one confirm pass for every mode (NO-TRADE-SHRINK) that keeps CAP-1C's premium re-check
+  // (a premium step must raise lineup points and title odds on the fresh dice too; no fresh dice, no premium card).
+  // One plan re-priced on the confirm dice under a mode (S2 required).
+  const priceOnConfirm = (p, mode, tolM, ctxM, active) => {
+    const freshMe = p.steps.map(st => S2.rescore(st.state, me).me);
+    const fresh = freshMe.map(r => metricOf(r, objective));
+    const re = repricePlan(p, fresh);
+    // LIVE-BLEND: the verdict that can fail a plan reads each step's gate p (planner.js#confirmGate).
+    let v = confirmGate(p, re);
+    // CAP-1C: a premium step must still raise lineup points and title odds on fresh dice, or the card goes.
+    re.steps = re.steps.map((st, i) => {
+      if (!st.depth_premium) return st;
+      const h = premiumHolds(freshMe[i], i ? freshMe[i - 1] : null);
+      if (!h.ok) v = { ...v, verdict: 'failed', premium_failed: h.why };
+      return { ...st, depth_premium: { ...st.depth_premium, confirmed: h.ok ? { points_delta: h.points_delta, title_delta: h.title_delta } : null } };
+    });
+    if (v.premium_failed && active) premium.confirm_failed++;
+    const scored = rankPlans([re], mode, { ...tolM, max_downside_per_step: Infinity }, { ...ctxM, core: null }).ranked[0];
+    // LIVE-BLEND: "beats doing nothing" is Nick's rule, so it is decided on the gate p too (the served p ranks).
+    const onGate = re.steps.some(st => st.p_gate != null)
+      ? rankPlans([{ ...re, steps: re.steps.map(st => (st.p_gate != null ? { ...st, p: st.p_gate } : st)) }], mode,
+        { ...tolM, max_downside_per_step: Infinity }, { ...ctxM, core: null }).ranked[0]
+      : scored;
+    return { ...re, score: scored?.score ?? -Infinity, beats_no_trade: beatsNoTradeUnder(onGate, mode), mode, confirm: v, planned_on: p };
+  };
+  const beatsNoTrade = p => p.confirm.verdict !== 'failed' && p.beats_no_trade;
+  const confirmDeck = (rankedM, mode, tolM, ctxM) => {
+    const active = mode === objective.risk_mode;
+    const top = deckOf(rankedM, DECK_SIZE + 2);
+    // integration-7: no confirm dice, no served move (Nick's rule: a move must beat doing nothing on them).
+    if (!S2) {
+      if (active) premium.confirm_failed += top.filter(p => p.steps.some(st => st.depth_premium)).length;
+      return [];
+    }
+    const priced = top.map(p => priceOnConfirm(p, mode, tolM, ctxM, active));
+    const kept = priced.filter(beatsNoTrade);
+    if (active) {
+      const failed = priced.filter(p => p.confirm.verdict === 'failed').length;
+      confirmCounts = { checked: top.length, failed, not_above_no_trade: priced.length - failed - kept.length };
+    }
+    return kept.sort((a, b) => b.score - a.score).slice(0, DECK_SIZE);
+  };
+  // integration-7: backups, BATNAs and catch-up moves come only from plans that beat doing nothing on the
+  // confirm dice under the active mode (memoised; null when they do not, or when there are no confirm dice).
+  const confirmMemo = new Map();
+  const confirmedActive = p => {
+    if (!S2) return null;
+    if (!confirmMemo.has(p)) { const c = priceOnConfirm(p, objective.risk_mode, tol, ctx, false); confirmMemo.set(p, beatsNoTrade(c) ? c : null); }
+    return confirmMemo.get(p);
+  };
+  const deck = confirmDeck(ranked, objective.risk_mode, tol, ctx);
+  // Each mode's pick on the same fresh dice; the active mode's is the served deck itself.
+  const confirmedBest = Object.fromEntries(MODES.map(mode => {
+    if (mode === objective.risk_mode) return [mode, deck[0] ?? null];
+    const c = ctxFor(mode);
+    return [mode, confirmDeck(rankPlans(plans, mode, c.tol, c.ctx).ranked, mode, c.tol, c.ctx)[0] ?? null];
+  }));
+  if (S2) confirm = { seed: cSeed, plan_seed: adapter.seed, status: 'ok', rescores: S2.count() };
   mark('confirm_rescore');
   const best = deck[0] ?? null;
-  const backups = best ? backupBranches(best.planned_on ?? best, ranked) : [];
+  // CAP-1C + integration-7: a backup is re-priced on the confirm dice (premium steps re-checked there) and
+  // must beat doing nothing, like a deck card.
+  const backupPool = ranked;
+  const backups = best ? backupBranches(best.planned_on ?? best, backupPool, confirmedActive) : [];
 
   // Playbook for every step of the chosen plan, and for each deck card's first step.
   const managers = adapter.managers;
@@ -214,7 +380,12 @@ export function planLeague(adapter, settings) {
     // Nick's "hard" read is applied ONCE (RULINGS 17): FIX-02c's hard shift when the adapter carries his block
     // (m.nick, the real producer); otherwise the counterpart's cap at fair on his screen (the same reader flag).
     const cap = CP && !m.nick?.hard ? priceCap(CP.get(String(st.team))) : null;
-    const curve = cap ? priced.curve.filter(c => c.his_pct <= cap.max_his_pct) : priced.curve;
+    const capped = cap ? priced.curve.filter(c => c.his_pct <= cap.max_his_pct) : priced.curve;
+    // TRADE-MEMORY: the ladder (opening, walk-away, the counters the reply table names) is held to the
+    // same rules as the planned step: no package that undoes a trade, none under his floor with the flag on.
+    const allowed = objUntouch.size ? capped.filter(c => !c.give.some(id => objUntouch.has(String(id)))) : capped;
+    const curve = TM ? allowed.filter(c => stepPasses(TM, { team: st.team, give: c.give, get: st.get }, tmFloor)) : allowed;
+    if (TM) tmCount.ladderRows += allowed.length - curve.length;
     const basis = cap ? `${priced.basis}; capped at ${cap.max_his_pct}% on his screen (nick_override)` : priced.basis;
     const ladder = priceLadder(curve, { batna: Math.max(0, backup?.expected ?? 0), mode: objective.risk_mode, hard: !!m.nick?.hard });
     const offer = ladder.opening ? { ...st, give: ladder.opening.give } : st;
@@ -247,15 +418,16 @@ export function planLeague(adapter, settings) {
     if (!allSteps) return { plan: p, playbook: j === 0 ? playbook[0]
       : playbookFor(p, 0, deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) };
     if (j === 0) return { plan: p, playbook: playbook[0], playbooks: playbook };
-    const br = p.steps.length > 1 ? backupBranches(p.planned_on ?? p, ranked) : [];
+    const br = p.steps.length > 1 ? backupBranches(p.planned_on ?? p, backupPool, confirmedActive) : [];
     const pbs = p.steps.map((_, i) => playbookFor(p, i, i === 0
       ? (deck[j + 1] ? { step: deck[j + 1].steps[0], expected: deck[j + 1].expected } : null) : br[i] ?? null));
     return { plan: p, playbook: pbs[0], playbooks: pbs };
   });
 
   // Suggested targets: gain if landed x P(reach) x skip weight, with mode fit.
-  const byMode = Object.fromEntries(MODES.map(mode => { const c = ctxFor(mode); return [mode, rankPlans(plans, mode, c.tol, c.ctx).ranked]; }));
-  const suggestions = upgrades.slice(0, 5).map(pid => {
+  const rankedByMode = Object.fromEntries(MODES.map(mode => { const c = ctxFor(mode); return [mode, rankPlans(plans, mode, c.tol, c.ctx)]; }));
+  const byMode = Object.fromEntries(MODES.map(mode => [mode, rankedByMode[mode].ranked]));
+  const suggestions = floored(5).map(pid => {
     const mine = byMode[objective.risk_mode].find(p => String(p.target) === String(pid));
     const any = MODES.map(md => byMode[md].find(p => String(p.target) === String(pid))).find(Boolean) ?? null;
     const reach = mine ?? any;
@@ -320,14 +492,26 @@ export function planLeague(adapter, settings) {
   const behind = isBehind(now.title, L.team_count ?? adapter.rosters.size);
   const free = freeMoves(adapter.freeAgents ?? [], roster.filter(p => p.starter));
   const sellers = sellersRead(managers);
-  const desperate = desperateMoves(ranked, sellers, { names,
+  // integration-7: each seller's move is the first plan through him that beats doing nothing on the confirm dice.
+  const desperatePool = sellers.map(sl => { for (const p of ranked) if (String(p.steps[0]?.team) === sl.team) { const c = confirmedActive(p); if (c) return c; } return null; }).filter(Boolean);
+  const desperate = desperateMoves(desperatePool, sellers, { names,
     playerValue: id => adapter.players.get(id)?.value, pResponds: t => pResponds(managers.get(t)).p });
+  // integration-7: a flip in the catch-up list is priced on the confirm dice (both legs), or not listed.
+  const flipOnConfirm = f => {
+    if (!S2) return null;
+    const gx = f.legs.give_a_ids ?? [f.legs.give_a], gy = f.legs.get_b_ids ?? [f.legs.get_b];
+    const s1 = S2.applyTrade(new Map(), me, f.a, gx, [f.player]);
+    const s2 = S2.applyTrade(s1, me, f.b, [f.player], gy);
+    const r1 = S2.rescore(s1, me, f.a), r2 = S2.rescore(s2, me, f.b);
+    return pathExpectation([{ p: f.legs.p1, delta: r1.me.title_delta }, { p: f.legs.p2, delta: r2.me.title_delta, se: r2.me.title_delta_se }]).expected;
+  };
   const items = [
     ...free,
-    ...flip.realised.filter(f => f.legs && f.legs.expected > 0).map(f => ({ kind: 'flip', gain: f.legs.expected,
+    ...flip.realised.map(f => (f.legs ? { ...f, confirmed_expected: flipOnConfirm(f) } : f))
+      .filter(f => f.legs && f.confirmed_expected > 0).map(f => ({ kind: 'flip', gain: f.confirmed_expected,
       text: `Buy ${names(f.player)} from Team ${f.a}, sell to Team ${f.b}.`, player: f.player })),
     ...desperate.items,
-    ...(behind ? byMode.all_in.slice(0, 1).map(p => ({ kind: 'swing', gain: p.expected, steps: p.steps.length, plan_key: firstKey(p),
+    ...(behind ? [confirmedBest.all_in].filter(Boolean).map(p => ({ kind: 'swing', gain: p.expected, steps: p.steps.length, plan_key: firstKey(p),
       text: `You are behind: the all-in plan reaches +${(p.delta_final * 100).toFixed(1)} pts if it lands.` })) : []),
     ...playbook.filter(pb => pb.wait.flag === 'wait').map(pb => ({ kind: 'timing', gain: pb.wait.option_value, text: `Wait ${pb.wait.days} days: ${pb.wait.reason}.` })),
     ...(Number.isInteger(L.deadline_week) ? [{ kind: 'timing', gain: null, text: `Trade deadline: week ${L.deadline_week} (${Math.max(0, L.deadline_week - L.week)} weeks left).` }] : []),
@@ -347,8 +531,9 @@ export function planLeague(adapter, settings) {
   mark('finder_and_sanity');
 
   return {
-    league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: { ...tol, max_overpay: maxOverpay },
+    league: L.id, me, seed: adapter.seed, confirm, objective, tolerances: { ...tol, max_overpay: maxOverpay, depth_premium: depthPremium },
     no_overpay: overpay,
+    gets_floor: floor.sink,
     now, behind, week: L.week, deadline_week: L.deadline_week ?? null,
     eta_week: best ? arrivalWeek(best, L.week, { daysLeftInWeek: clock.daysLeftInWeek }) : null,
     finder_best, sanity,
@@ -356,10 +541,23 @@ export function planLeague(adapter, settings) {
     best: publicPlan(best), deck: deckCards.map(c => ({ plan: publicPlan(c.plan), confirm: c.plan.confirm ?? null, playbook: c.playbook, ...(c.playbooks ? { playbooks: c.playbooks } : {}) })),
     backups: backups.map(b => (b ? { step: b.step, expected: b.expected } : null)), playbook,
     suggestions, itinerary, stop_previews: stopPreviews, speed, feasibility, feasibility_points, outlook,
-    risk_modes: compareModes(plans, ctxFor), catch_up: catchUp, partners,
+    risk_modes: compareModes(plans, ctxFor, mode => ({ best: confirmedBest[mode], confirmed: !!S2 })), catch_up: catchUp, partners,
+    // NO-TRADE-SHRINK: pre-rank shrinkage, SHADOW (reported under _run.shrink; nothing served reads it).
+    shrink: shadowShrink(plans, ctxFor),
     untouchable: { ids: [...untouchable], refused_targets: refused },
     // LIVE-BLEND: which P(yes) the adapter served, with each model's weight and record (plans.json p_yes_basis).
     p_yes_basis: adapter.pYesBasis ?? null,
+    // REACH-01: diagnostics only (no number is priced here); the producer writes them to _run.inputs.reach.
+    reach: { flag: reachMode, targets_budget: budget.targets, chain_give: chainGive,
+      bound: { direct: bound.direct, chain: bound.chain, best: bound.best }, targets: reachRows,
+      // The objective mode counts the pool its deck was ranked from (a get-player objective keeps only that target's paths).
+      // integration-7: named drops_by_gate so `dropped_by_reason` means one thing (the served _run count).
+      drops_by_gate: droppedByReason({ candidates: plans.length, byMode: { ...rankedByMode, [objective.risk_mode]: { ranked, dropped } },
+        objectiveMode: objective.risk_mode, notObjectiveTarget: plans.length - pool.length,
+        confirm: confirmCounts, noOverpay: overpay.rejected, outOfReach: reachRows.filter(r => !r.in_reach).length }) },
+    ...(ledgerSkipped ? { trade_ledger_missing: { executed_rows: Number(adapter.executedTradeRows), ...ledgerSkipped } } : {}),
+    trade_memory: memorySummary(tmOn ? (ledgerMissing ? 'ledger_missing' : TM) : 'off', { dropped: tmApplied?.dropped ?? {}, shadow: tmApplied?.shadow ?? {}, floorOn: tmApplied?.floor_on ?? false,
+      targets: tmCount.targets, flips: tmCount.flips, ladderRows: tmCount.ladderRows, refused: tmCount.refused, unmapped: adapter.tradeLedger?.unmapped ?? 0 }),
     ...(CP ? { counterpart: { status: 'on', models: [...CP.values()].map(publicModel) } } : {}),
     sellers: { read: sellers, unreached: desperate.unreached.map(s => s.team) },
     speed_levers: sideLevers({ free, waits: playbook.map(pb => pb.wait) }),

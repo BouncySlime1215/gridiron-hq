@@ -1,5 +1,11 @@
 # PEOPLE-BOARD v3: War Room people rail on the one reader + hub (TDD record)
 
+> RETIRED 2026-09-25. The client rail went with the War Room shell (#457); its server payload
+> (`view.people`, `buildPeopleBoard`, `peopleBoardFlag`, `GRIDIRON_WARROOM_PEOPLE_ENABLED`), its
+> study script and `test/warroom-people-board.test.js` were dropped after (nothing read them).
+> Trades -> People (ManagerCard) reads the manager-profile routes; the weekly offer budget line
+> reads the plan's partners directly. Kept as the record of what was built.
+
 Branch `claude/local-people-board-v3`. Base: `origin/claude/local-integration-4` (#340 = main +
 batch 4: PEOPLE-01 reader, PULSE-01, CRED-01, HUB-PUBLISH-PEOPLE) with #305's two commits
 (`e58be5aa` RED, `31f96e88` GREEN) replayed on top. Replaces #305. Spec: WAR-ROOM-UI.md v3

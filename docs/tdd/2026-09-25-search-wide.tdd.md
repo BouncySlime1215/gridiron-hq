@@ -68,4 +68,18 @@ need the live DB and are listed in the PR under "Needs local measurement".
 
 ## Results (GREEN, after the pre-registration above)
 
-Filled in by the GREEN commit.
+RED `d03ebdbf`: `test/campaign-search-wide.test.js` failed (no `search-wide.js`). GREEN: the commit after it,
+15/15 pass. One test-only change after RED: W8's first fixture served no claim (the claim paths it built
+ranked below the balanced deck, or broke balanced's `max_assets` 3, since a drop spends a player), so W8
+now uses a strong free-agent TE over Nick's depth TE in all-in; the pass bar is unchanged.
+
+Fixture league (4 teams, made-up players), same seed, off -> on:
+
+| mode | candidates_scored | rescores | best path expected |
+|---|---|---|---|
+| safe | 87 -> 1,579 | 218 -> 1,694 | 0.0067 -> 0.0923 |
+| balanced | 87 -> 1,579 | 218 -> 1,694 | 0.1058 -> 0.1058 (same path) |
+| all_in | 87 -> 1,579 | 218 -> 1,694 | 0.0368 -> 0.0368 (same path) |
+
+`modes_first_steps` on: safe and balanced pick the same first step, all_in a different one (`modes_differ: true`).
+No best got worse (W2 holds by construction: today's shortlist is scored first and whole).

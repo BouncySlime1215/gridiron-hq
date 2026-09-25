@@ -174,7 +174,8 @@ export function toEntry(res, { names = {}, as_of, previous = null, changed = nul
     const before = i === 0 ? 0 : plan.steps[i - 1].delta;
     const out = {
       partner: String(st.team), give: ids(st.give), get: ids(st.get),
-      p_yes: num(st.p, 'clone.accept', { prob: true, unit: 'probability', guess: true }),
+      // SEARCH-WIDE: a free-agent claim asks nobody; its 1 is the planner's assumption (waiver competition unpriced).
+      p_yes: num(st.p, st.claim ? 'plan.path' : 'clone.accept', { prob: true, unit: 'probability', guess: true }),
       title_odds_delta: num(st.delta - before, 'sim.title', { se: st.se, clears: st.clears, unit }),
       title_after: metric === 'title' ? num(nowMetric + st.delta, 'sim.title', { prob: true, unit: 'title_odds' })
         : unknown(`This plan is scored on ${LABEL[metric]}; title odds after the step are not computed.`, 'sim.title'),

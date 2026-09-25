@@ -20,6 +20,7 @@ import { PREVIEW_ENV } from '../../server/services/preview-mode.js';
 import { buildBoard, playerScoreFlag, WEIGHTS as SCORE_WEIGHTS, LABEL_NAMES } from '../../server/services/people/player-score.js';
 import { fpRosFor, syncIfStale } from '../../server/services/people/fantasypros-ros.js';
 import { executedTrades } from '../../server/services/campaign/trade-memory.js';
+import { searchWideFlag, CLAIM_POOL_SIZE } from '../../server/services/campaign/search-wide.js';
 
 /**
  * PRODUCER-FAST: each week's starters picked once instead of once per run
@@ -32,6 +33,12 @@ export const producerFastEnabled = (env = process.env) => env[PRODUCER_FAST_ENV]
   || (env[PRODUCER_FAST_ENV] !== '0' && env[PREVIEW_ENV] === '1');
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
+
+/** Free agents: unrostered, available, scored positions with a positive ros_ppg, best first. */
+export function freeAgentPool(assets, rostered) {
+  return [...assets.values()].filter(p => !rostered.has(p.id) && SCORED.has(p.position) && p.available !== false
+    && Number.isFinite(p.ros_ppg) && p.ros_ppg > 0).sort((a, b) => b.ros_ppg - a.ros_ppg);
+}
 /** The engagement field LIVING-01a writes (engine_state; FIELD-REGISTRY `activity.manager`). */
 export const ACTIVITY_FIELD = 'activity.manager';
 const LIVING01A_FLAG = 'GRIDIRON_LIVING01A_ENABLED';
@@ -232,18 +239,26 @@ export function executedTradeRows(svc, { leagueId, season }) {
  * label 'unknown').
  */
 export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), finder = true, fast = producerFastEnabled(),
-  rescoreCache = null } = {}) {
+  rescoreCache = null, claims = searchWideFlag() === 'on' } = {}) {
   const lg = svc.db.row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg) throw new Error(`league ${leagueId} not found`);
   const payload = JSON.parse(lg.payload ?? '{}');
   const me = String(lg.my_team_id);
   const { tradeImpactWorld, tradeImpact, __test: { lineupPoints } } = svc.sim;
-  const w0 = tradeImpactWorld(lg, { fastLineups: fast });
+  const wBase = tradeImpactWorld(lg, { fastLineups: fast });
+  if (wBase.fail) return { fail: String(wBase.fail?.error ?? wBase.fail) };
+  // SEARCH-WIDE (GRIDIRON_SEARCH_WIDE=1 only): the top free agents are simulated as the world's universe, so
+  // a claim step is priced on the same dice as the trades. That is a different world (season-sim.js:940), so
+  // every number moves a little: the reason the flag is off until measured. Off, the world is today's.
+  const claimIds = claims
+    ? freeAgentPool(wBase.prep.assets, new Set(wBase.prep.teams.flatMap(t => t.players.map(p => p.id)))).slice(0, CLAIM_POOL_SIZE).map(p => p.id)
+    : [];
+  const w0 = claimIds.length ? tradeImpactWorld(lg, { fastLineups: fast, universe: claimIds, projections: wBase.projections }) : wBase;
   if (w0.fail) return { fail: String(w0.fail?.error ?? w0.fail) };
   const assets = w0.prep.assets;
   const worlds = new Map([[w0.key.seed, w0]]);
   const worldFor = seed => {
-    if (!worlds.has(seed)) worlds.set(seed, tradeImpactWorld(lg, { seed, projections: w0.projections, fastLineups: fast }));
+    if (!worlds.has(seed)) worlds.set(seed, tradeImpactWorld(lg, { seed, projections: w0.projections, fastLineups: fast, universe: claimIds }));
     return worlds.get(seed);
   };
 
@@ -312,9 +327,10 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       espn_id: p.espn_id ?? null, team_abbr: p.team_abbr ?? null, ros_basis: p.ros_basis ?? null });
   };
   for (const ids of rosters.values()) ids.forEach(addPlayer);
+  // SEARCH-WIDE: a claimable free agent is a player a step can name, so he is in players (and names).
+  claimIds.forEach(addPlayer);
   const rostered = new Set([...rosters.values()].flat());
-  const freeAgents = [...assets.values()].filter(p => !rostered.has(p.id) && SCORED.has(p.position) && p.available !== false
-    && Number.isFinite(p.ros_ppg) && p.ros_ppg > 0).sort((a, b) => b.ros_ppg - a.ros_ppg).slice(0, 40)
+  const freeAgents = freeAgentPool(assets, rostered).slice(0, 40)
     .map(p => ({ id: p.id, name: p.name, position: p.position, ros_ppg: p.ros_ppg }));
 
   const nameToId = name => [...players.values()].find(p => p.name === name)?.id ?? null;
@@ -416,6 +432,8 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
     seed: w0.key.seed,
     world: seed => wrap(worldFor(seed)),
     rosters, players, managers, starters, freeAgents, priceStep, priceOf, sanity,
+    // SEARCH-WIDE: the free agents this world simulates; the planner builds claims only from these.
+    ...(claimIds.length ? { claimUniverse: new Set(claimIds.map(String)) } : {}),
     tradeLedger: tradeLedger(svc, { leagueId, season, formatKey: svc.format?.deriveFormat(lg).formatKey ?? null, assets, now }),
     // integration-7: how many executed trades the raw table holds this season, so the planner can fail
     // closed when that ledger comes back missing or empty (never plan without Nick's trade memory).

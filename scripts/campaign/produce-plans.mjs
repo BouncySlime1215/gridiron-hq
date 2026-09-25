@@ -349,6 +349,8 @@ export async function buildPlansFile(leagues, {
           ...(res.gets_floor ? { gets_floor: res.gets_floor } : {}),
           // REACH-01: why every path died (per mode) and which targets the reach filter skipped.
           ...(res.reach ? { reach: res.reach } : {}),
+          // SEARCH-WIDE (GRIDIRON_SEARCH_WIDE=1 only): budget, what it used, what bound, laterals, claims, modes' first steps.
+          ...(res.search_wide ? { search_wide: res.search_wide } : {}),
           // CAP-1C: the depth-only 2-for-1 premium (screened, gated out by reason, confirm failures). Written only
           // when a blue-chip board turned it on, so with no board the entry is byte-for-byte the incumbent's.
           ...(res.no_overpay?.depth_premium?.board === 'on' ? { depth_premium: res.no_overpay.depth_premium } : {}),

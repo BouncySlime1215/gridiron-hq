@@ -31,6 +31,8 @@ import { withNeverGive } from './never-give.js';
 import { reachFlag, reachBound, targetReach, droppedByReason } from './reach.js';
 import { excluded } from './partners.js';
 import { tradeMemory, applyTradeMemory, memorySummary, stepPasses, floorOn as tmFloorOn, tradeMemoryOn } from './trade-memory.js';
+import { searchWideFlag, wideBudget, newWideSink, makeDropOk, claimPoolOf, modesFirstSteps, isClaim } from './search-wide.js';
+import { floorRead } from './gets-floor.js';
 import { withCounterparts, targetTilt, priceCap, publicModel, M6_REPLY_PRIOR, M6_LABEL } from '../people/counterpart.js';
 
 /** The his-screen % where the curve's P(yes) first reaches one half (the counterpart's yes point), or null. */
@@ -242,9 +244,33 @@ export function planLeague(adapter, settings) {
   // Shadow: read what is searched, count what the floor would drop, change nothing.
   if (floor.sink.mode === 'shadow') for (const pid of wanted) floor.keep(pid);
 
+  // SEARCH-WIDE (flag GRIDIRON_SEARCH_WIDE=1 only; default off): a league-wide node budget split across the
+  // targets, a wider depth 3, laterals held to the floor, claims as steps (search-wide.js). Off: today's search.
+  const wideOn = searchWideFlag(env) === 'on';
+  const wideSink = wideOn ? newWideSink(wideBudget(env)) : null;
+  // Fresh rescores: PRODUCER-FAST cache misses when the adapter has the cache (hits are free), else memo misses.
+  const fresh = () => adapter.cacheStats?.()?.misses ?? S.count();
+  const fresh0 = wideOn ? fresh() : 0;
+  let wideBase = null;
+  if (wideOn) {
+    const tierFloor = floor.sink.floor;
+    const scoreOf = typeof adapter.scoreOf === 'function' ? adapter.scoreOf : null;
+    const neverDrop = new Set([...untouchable, ...(objective.untouchables ?? [])].map(String));
+    const claimPool = claimPoolOf(adapter, neverDrop);
+    wideSink.claims.pool = claimPool.length;
+    wideBase = { beam: wideSink.budget.beam, sink: wideSink, claimPool,
+      tierOk: id => floorRead(scoreOf, id, tierFloor).passes,
+      dropOk: makeDropOk({ scoreOf, floor: tierFloor, untouchable: neverDrop }),
+      rescoresLeft: () => wideSink.budget.rescores - (fresh() - fresh0) };
+  }
   let plans = [];
-  for (const target of wanted) plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay, getOk, chainGive,
-    depthPremium, board, premiumSink: premium, untouchables: objective.untouchables }));
+  wanted.forEach((target, i) => {
+    const wide = wideOn ? { ...wideBase, candidates: wideSink.used.extras
+      + Math.floor((wideSink.budget.candidates - wideSink.used.extras) / (wanted.length - i)) } : null;
+    plans.push(...searchTarget(S, adapter, vals, objective, target, { maxOverpay, overpaySink: overpay, getOk, chainGive,
+      depthPremium, board, premiumSink: premium, untouchables: objective.untouchables, wide }));
+  });
+  if (wideOn) wideSink.used.rescores = fresh() - fresh0;
   const skipW = { player: settings.skips?.player ?? new Map(), manager: settings.skips?.manager ?? new Map() };
   plans = plans.map(p => ({ ...p, skip_weight: planSkipWeight(p, skipW) }));
   // GETS-FLOOR (integration-7): a chip picked up on the way and never given on is a final get too. With the
@@ -263,6 +289,8 @@ export function planLeague(adapter, settings) {
   // (a) sold players, (c) reversals: dropped; (b) floor + currency: shadow unless its flag is on.
   const tmApplied = TM ? applyTradeMemory(plans, TM, { env }) : null;
   if (tmApplied) plans = tmApplied.plans;
+  // SEARCH-WIDE: claim paths left after the hard filters (GETS-FLOOR holds the claimed player to 83+ too).
+  if (wideSink) wideSink.claims.kept = plans.filter(p => p.steps.some(isClaim)).length;
   mark('search');
 
   // Sliders and context per mode.
@@ -350,6 +378,8 @@ export function planLeague(adapter, settings) {
   const names = id => adapter.players.get(id)?.name ?? `player ${id}`;
   const playbookFor = (plan, i, backup) => {
     const st = plan.steps[i];
+    // SEARCH-WIDE: a free-agent claim has nobody to ask, so no price ladder, message or reply table.
+    if (isClaim(st)) return claimPlaybook(st, i, plan.steps.length);
     const stateBefore = i === 0 ? new Map() : plan.steps[i - 1].state ?? (plan.planned_on?.steps[i - 1].state) ?? new Map();
     const priced = priceCurve(adapter, S, vals, st, stateBefore, tol.max_give_per_step, st.delta, maxOverpay);
     const m = managers.get(st.team) ?? {};
@@ -384,6 +414,13 @@ export function planLeague(adapter, settings) {
       })() : {}),
     };
   };
+  const claimPlaybook = (st, i, n) => ({
+    step_index: i, of_steps: n, claim: true,
+    message: { text: `Claim ${names(st.get[0])} off free agency and drop ${names(st.give[0])}.`, facts: [] },
+    ladder: { opening: null, walk_away: null, reason: 'a free-agent claim has no price', basis: 'free agent: no counterpart' },
+    nick_shift: null, opening: null, walk_away: null, replies: [], send_when: null,
+    wait: waitOrAct(st, adapter.players, { enabled: waitEnabled }),
+  });
   const playbook = best ? best.steps.map((_, i) => playbookFor(best, i, i === 0 ? (deck[1] ? { step: deck[1].steps[0], expected: deck[1].expected } : backups[0]) : backups[i])) : [];
   // A card's BATNA is the next card: swiping past a card means the ones before it were skipped.
   // MSG-WIRE-2 (gated on coachMessagesOn): every step of every card gets its playbook, so Coach can
@@ -529,6 +566,7 @@ export function planLeague(adapter, settings) {
       drops_by_gate: droppedByReason({ candidates: plans.length, byMode: { ...rankedByMode, [objective.risk_mode]: { ranked, dropped } },
         objectiveMode: objective.risk_mode, notObjectiveTarget: plans.length - pool.length,
         confirm: confirmCounts, noOverpay: overpay.rejected, outOfReach: reachRows.filter(r => !r.in_reach).length }) },
+    ...(wideSink ? { search_wide: { ...wideSink, ...modesFirstSteps(confirmedBest, dealKey) } } : {}),
     ...(ledgerSkipped ? { trade_ledger_missing: { executed_rows: Number(adapter.executedTradeRows), ...ledgerSkipped } } : {}),
     trade_memory: memorySummary(tmOn ? (ledgerMissing ? 'ledger_missing' : TM) : 'off', { dropped: tmApplied?.dropped ?? {}, shadow: tmApplied?.shadow ?? {}, floorOn: tmApplied?.floor_on ?? false,
       targets: tmCount.targets, flips: tmCount.flips, ladderRows: tmCount.ladderRows, refused: tmCount.refused, unmapped: adapter.tradeLedger?.unmapped ?? 0 }),

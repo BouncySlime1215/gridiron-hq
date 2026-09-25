@@ -73,6 +73,7 @@ test('flag: only GRIDIRON_SEARCH_WIDE=1 turns it on; budgets read from env with 
   assert.equal(wideBudget({ GRIDIRON_SEARCH_WIDE_RESCORES: '7' }).rescores, 7);
   assert.equal(wideBudget({ GRIDIRON_SEARCH_WIDE_CANDIDATES: '-3' }).candidates, WIDE_DEFAULTS.candidates);
   assert.equal(wideBudget({ GRIDIRON_SEARCH_WIDE_CANDIDATES: 'lots' }).candidates, WIDE_DEFAULTS.candidates);
+  assert.equal(wideBudget({ GRIDIRON_SEARCH_WIDE_BEAM: '8' }).beam, 8);
   assert.ok(WIDE_DEFAULTS.candidates >= 2000, 'the plan asks for >= 2,000 candidates scored');
 });
 
@@ -151,6 +152,7 @@ test('W4: a lateral path survives only when everything held at the end passes 83
   const a = claimAdapter();
   const o = wideOpts(a);
   const on = [11, 21, 31].flatMap(t => searchOne(a, t, o).plans);
+  assert.ok(o.sink.laterals.seen > 0, 'the fixture has lateral paths to judge');
   const ok = tierOkOf(a.scoreOf);
   const withLat = on.filter(p => p.steps.some(st => isLateral(st, ok)));
   for (const p of withLat) assert.ok(lateralOk(p.steps, ok), `${keyOf(p)} ends below the floor`);
@@ -253,11 +255,15 @@ test('W7: flag off is today: no search_wide key, same output as the variable uns
 
 /* ------------------------------------------------------------- W8: contract */
 
-const produce = async (env, adapterFn) => {
+const produce = async (env, adapterFn, objectives = {}) => {
   const file = await buildPlansFile([{ id: 99, load: async () => ({ adapter: adapterFn() }) }],
-    { generated_at: AS_OF, clock: () => 0, env });
+    { generated_at: AS_OF, clock: () => 0, env, objectives });
   return file;
 };
+/** A strong free-agent TE (ros 14) over Nick's depth TE 5 (ros 9): a claim worth serving in all-in. */
+const claimTeAdapter = () => claimAdapter({ pool: ['44'],
+  extraPlayers: [{ id: 44, name: 'P44', position: 'TE', value: 800, power: 14, ros_ppg: 14, injury: 0, bye: null, trend_kind: null }],
+  extraFa: [{ id: 44, name: 'P44', position: 'TE', ros_ppg: 14 }], scoreOf: scoreFrom(new Set([...DEPTH, '5'])) });
 const stepsIn = entry => {
   const out = [];
   const walk = x => {
@@ -271,14 +277,20 @@ const stepsIn = entry => {
 };
 
 test('W8: flag on, the plans file passes its contract with a served claim step', async () => {
-  const file = await produce(ON, () => claimAdapter());
+  const file = await produce(ON, claimTeAdapter, { 99: { risk_mode: 'all_in' } });
   assert.deepEqual(validatePlans(file).errors ?? [], []);
   const entry = file.leagues[0];
   assert.ok(!entry.error, entry.error);
   const sw = entry._run.inputs.search_wide;
   assert.equal(sw.flag, 'on');
   for (const k of ['budget', 'used', 'budget_hit', 'laterals', 'claims', 'modes_first_steps', 'modes_differ']) assert.ok(k in sw, k);
-  assert.ok(stepsIn(entry).some(s => s.partner === FREE_AGENT), 'a claim step is served');
+  const claims = stepsIn(entry).filter(s => s.partner === FREE_AGENT);
+  assert.ok(claims.length > 0, 'a claim step is served');
+  for (const c of claims) {
+    assert.equal(c.p_yes.source, 'plan.path', 'a claim\'s 1 is the planner\'s assumption, not the acceptance model');
+    assert.equal(c.p_yes.guess, true);
+  }
+  assert.ok(sw.claims.kept > 0);
 });
 
 test('W8: flag off, the producer writes no search_wide key', async () => {

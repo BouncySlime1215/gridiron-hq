@@ -236,3 +236,53 @@ test('feed: confident real offers go through the ledger with as-of values; revie
   assert.ok(out.decided_offers.after.offers >= out.decided_offers.before.offers);
   assert.ok(loadDecidedOffers(db).offers.length >= 1);
 });
+
+/* ---------------------------------------- CHAT-TRADE-INTEREST: wants / would-give, shadow only */
+const { recordChatTradeInterest, readChatTradeInterest } = await import('../server/services/people/chat-trade-interest.js');
+const { chatInterestRead, chatInterestShadow, hisSideSummary } = await import('../server/services/campaign/his-side.js');
+
+test('chat_trade_interest: one row per screen, ids only, refused without players or a known kind', () => {
+  const o = { league_id: L, season: S, roster_id: 3, wants_ids: [70001], would_give_ids: [70002, 70002], kind: 'finalize',
+    seen_at: '2026-09-20T10:00:00Z', confidence: 0.9, source_key: 'ci-1' };
+  assert.equal(recordChatTradeInterest(o).state, 'recorded');
+  assert.equal(recordChatTradeInterest(o).state, 'already_recorded');
+  assert.equal(recordChatTradeInterest({ ...o, source_key: 'ci-2', wants_ids: [], would_give_ids: [] }).state, 'refused');
+  assert.equal(recordChatTradeInterest({ ...o, source_key: 'ci-3', kind: 'offer' }).state, 'refused');
+  const r = readChatTradeInterest(db, L, S);
+  assert.equal(r.status, 'ok');
+  const mine = r.rows.find(x => x.roster_id === 3);
+  assert.deepEqual(mine.would_give, [{ player_id: 70002, espn_id: 9602 }], 'deduplicated, with the ESPN id to map by');
+  assert.deepEqual(Object.keys(mine).sort(), ['confidence', 'kind', 'roster_id', 'seen_at', 'wants', 'would_give']);
+});
+
+test('his-side lens: the chat interest is a shadow read in _run.inputs.his_side, per target, ids only', () => {
+  const read = chatInterestRead(readChatTradeInterest(db, L, S), e => (e === 9601 ? 'p1' : e === 9602 ? 'p2' : null));
+  assert.equal(read.status, 'ok');
+  assert.deepEqual(chatInterestShadow(read, 3, 'p2'), { owner_would_give: true, owner_wants: false, n: read.by_team['3'].n });
+  assert.deepEqual(chatInterestShadow(read, 9, 'p2'), { owner_would_give: false, owner_wants: false, n: 0 });
+  const rows = [{ player: 'p2', owner: '3', hs: { status: 'unknown', reads: {} } }];
+  const s = hisSideSummary(rows, false, null, read);
+  assert.equal(s.chat_interest.status, 'ok');
+  assert.deepEqual(s.chat_interest.targets[0], { player: 'p2', owner: '3', owner_would_give: true, owner_wants: false, n: read.by_team['3'].n });
+  assert.deepEqual(Object.keys(s.targets[0]).sort(), ['owner', 'player', 'reads', 'status'], 'the served per-target shape is unchanged');
+  assert.equal(hisSideSummary(rows, false, null).chat_interest, undefined, 'no read, no field');
+  assert.equal(hisSideSummary(rows, false, null, chatInterestRead({ status: 'absent', reason: 'x' }, () => null)).chat_interest.status, 'absent');
+});
+
+test('feed: a league-mate\'s draft and analyzer screens become interest rows; Nick\'s own do not', async () => {
+  run('UPDATE leagues SET my_team_id = 1 WHERE id = ?', L);
+  const chatPath = path.join(temp, 'chat.sqlite');
+  const c = new DatabaseSync(chatPath);
+  const ins = c.prepare(`INSERT INTO screenshot_trades (source, attachment_guid, kind, league_id, season, from_roster, to_roster,
+    give_ids, get_ids, proposed_at, proposed_at_basis, posted_at, confidence, needs_review) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  ins.run('ocr', 'ci-f', 'finalize', L, S, 4, 1, '[70003]', '[70001]', '2026-09-21T10:00:00Z', 'posted_at_upper_bound', '2026-09-21T10:00:00Z', 0.9, 0);
+  ins.run('ocr', 'ci-h', 'hypothetical', L, S, 4, 2, '[70004]', '[70002]', '2026-09-21T11:00:00Z', 'posted_at_upper_bound', '2026-09-21T11:00:00Z', 0.8, 0);
+  ins.run('ocr', 'ci-r', 'hypothetical', L, S, 4, 2, '[70004]', '[70002]', null, null, '2026-09-21T11:00:00Z', 0.4, 1);
+  c.close();
+  const out = await feed({ chatDbPath: chatPath });
+  // f-2 (hypothetical) and f-4 (finalize) from the earlier fixture are roster 1, Nick's team here: skipped
+  assert.deepEqual([out.chat_trade_interest.recorded, out.chat_trade_interest.nicks_own], [2, 2]);
+  const again = await feed({ chatDbPath: chatPath });
+  assert.equal(again.chat_trade_interest.already_recorded, 2);
+  assert.equal(rows(`SELECT COUNT(*) AS n FROM chat_trade_interest WHERE roster_id = 4`)[0].n, 2);
+});

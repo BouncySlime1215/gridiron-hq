@@ -29,6 +29,10 @@
  *                        served numbers, into `number_audit` (number-audit.js).
  *                        After the chat and signals, so it reads what this tick
  *                        synced; once per league sync, at most hourly. Never run by the web server.
+ *   5b. source_tables    SOURCE-TABLES (scripts/eval/produce-source-tables.mjs): E7's weekly_autopsy
+ *                        and E4-live's planner_move_outcomes, so step 6 grades them. Only with
+ *                        GRIDIRON_SOURCE_TABLES=1 (server/services/eval/sources/flag.js); off, the
+ *                        step does nothing and starts no process
  *   6. brain_report      EVAL-01 graders E1-E7 (scripts/eval/run-graders.mjs), after the audit,
  *                        so they grade this tick's rows; stores one run in brain_report
  *   7. warroom_plans     the War Room campaign producer (scripts/campaign/produce-plans.mjs),
@@ -57,6 +61,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { warRoomFlag, warRoomPlansPath } from '../server/services/warroom-flag.js';
+import { sourceTablesEnabled } from '../server/services/eval/sources/flag.js';
 import { reachFlag, REACH_TARGETS } from '../server/services/campaign/reach.js';
 
 // Before any server module is imported: the scheduler must never start in this process.
@@ -383,6 +388,23 @@ export function createManagerSignalsStep({ spawn = spawnSync, log = console.log,
   };
 }
 
+// SOURCE-TABLES: the graders' source tables, right before the graders read them. Off by default.
+export function sourceTables({ spawn = spawnSync, log = console.log, record = recordSync, env = process.env } = {}) {
+  if (!sourceTablesEnabled(env)) return;
+  const t0 = Date.now();
+  const r = spawn(process.execPath, ['--env-file-if-exists=.env', 'scripts/eval/produce-source-tables.mjs'],
+    { cwd: ROOT, env, encoding: 'utf8', timeout: 10 * 60 * 1000 });
+  const failed = spawnFailure(r);
+  if (failed) {
+    record('source_tables', 'error', { error: failed.slice(0, 300), spawn_failed: true });
+    log(`${stamp()} ${'source_tables'.padEnd(18)} ERROR ${failed.slice(0, 160)} (${Date.now() - t0} ms)`);
+    return;
+  }
+  const line = outputLines(r).filter(l => /^source_tables: /.test(l)).at(-1) ?? `exit ${r.status}`;
+  record('source_tables', r.status === 0 ? 'ok' : 'error', { summary: line.slice(0, 300) });
+  log(`${stamp()} ${'source_tables'.padEnd(18)} ${r.status === 0 ? 'ok' : 'ERROR'} ${line.slice(0, 300)} (${Date.now() - t0} ms)`);
+}
+
 // EVAL-01: the brain's report card. Last in the tick so it grades what this tick wrote.
 // The runner writes its own brain_report rows; the loop records only a failure to start.
 export function brainReport({ spawn = spawnSync, log = console.log, record = recordSync } = {}) {
@@ -451,6 +473,7 @@ export async function tick({ jobs = FANTASY_LIVE_JOBS, spawn = spawnSync, log = 
   try { await (numberAudit ?? createNumberAuditStep({ log }))(); } catch (e) {
     log(`${stamp()} ${'number_audit'.padEnd(18)} THREW ${String(e?.message ?? e).slice(0, 160)}`);
   }
+  step('source_tables', () => sourceTables({ spawn, log, record }));
   step('brain_report', () => brainReport({ spawn, log, record }));
   step('warroom_plans', () => warRoomPlans({ log, record, ...(warRoomLaunch ? { launch: warRoomLaunch } : {}) }));
   log(`${stamp()} tick done in ${Math.round((Date.now() - started) / 1000)} s`);

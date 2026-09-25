@@ -122,6 +122,27 @@ export async function loadServices({ env = process.env } = {}) {
   };
 }
 
+/**
+ * The Trade Lab finder's best single offer: served title-odds deals x the finder's own
+ * acceptance midpoint, highest expected first. The one rule for the producer's finder
+ * baseline (finderBest below) and SOURCE-TABLES' finder arm
+ * (scripts/eval/produce-source-tables.mjs). -> { expected, se, n, move: { partner, give, get } } | { error }
+ */
+export function pickFinderBest(servedDeals, foundDeals) {
+  const same = (a, b) => a.map(p => p.id).join() === b.map(p => p.id).join();
+  let best = null, n = 0;
+  for (const d of servedDeals ?? []) {
+    const f = (foundDeals ?? []).find(x => x.partner_id === d.partner_id && same(x.i_give, d.i_give) && same(x.i_get, d.i_get));
+    const p = f?.acceptance?.band?.mid;
+    if (!Number.isFinite(p) || !Number.isFinite(d.title_delta)) continue;
+    n++;
+    const e = { expected: p * d.title_delta, se: Number.isFinite(d.title_delta_se) ? p * d.title_delta_se : null,
+      move: { partner: String(d.partner_id), give: d.i_give.map(x => String(x.id)), get: d.i_get.map(x => String(x.id)) } };
+    if (!best || e.expected > best.expected) best = e;
+  }
+  return best ? { ...best, n } : { error: `no served deal carried a finder acceptance price (${(servedDeals ?? []).length} served)` };
+}
+
 /** Nick's starters by rest-of-season rate: dedicated slots first, then flex (mirrors lineupPoints). */
 export function startersOf(players, slots) {
   const pool = players.filter(p => SCORED.has(p.position)).sort((a, b) => (b.ros_ppg ?? 0) - (a.ros_ppg ?? 0));
@@ -404,17 +425,9 @@ export function buildAdapter(svc, leagueId, { chat = null, now = Date.now(), fin
       const served = svc.titleOdds.titleOddsTrades(leagueId, { teamId: me });
       if (served.error) return { error: String(served.error) };
       const found = svc.engine.findTrades(lg, { myTeamId: me, requireMutual: true, limit: 8 * 3 });
-      const same = (a, b) => a.map(p => p.id).join() === b.map(p => p.id).join();
-      let best = null, n = 0;
-      for (const d of served.deals ?? []) {
-        const f = (found.deals ?? []).find(x => x.partner_id === d.partner_id && same(x.i_give, d.i_give) && same(x.i_get, d.i_get));
-        const p = f?.acceptance?.band?.mid;
-        if (!Number.isFinite(p) || !Number.isFinite(d.title_delta)) continue;
-        n++;
-        const e = { expected: p * d.title_delta, se: Number.isFinite(d.title_delta_se) ? p * d.title_delta_se : null };
-        if (!best || e.expected > best.expected) best = e;
-      }
-      return best ? { ...best, n } : { error: `no served deal carried a finder acceptance price (${(served.deals ?? []).length} served)` };
+      // The plans file carries the number only; SOURCE-TABLES reads the move from pickFinderBest itself.
+      const { move, ...best } = pickFinderBest(served.deals, found.deals);
+      return best;
     } catch (e) {
       return { error: String(e.message ?? e) };
     }

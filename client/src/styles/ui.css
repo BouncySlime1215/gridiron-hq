@@ -137,12 +137,25 @@ button.ds-chip:active { transform: scale(.97); }
 .ds-bar { height: 8px; border-radius: 999px; background: var(--c-soft); overflow: hidden; }
 .ds-bar > i { display: block; height: 100%; border-radius: inherit; background: var(--c-subtle); transform-origin: left; animation: ds-grow var(--t-slow) var(--ease-out) both; }
 .ds-bar > i.is-me { background: var(--c-accent); }
-.ds-bar > i.is-good { background: var(--c-green); } .ds-bar > i.is-bad { background: var(--c-red); }
+.ds-bar > i.is-good { background: var(--c-green); } .ds-bar > i.is-warn { background: var(--c-amber); } .ds-bar > i.is-bad { background: var(--c-red); }
 @keyframes ds-grow { from { transform: scaleX(0); } to { transform: none; } }
 .ds-stagger > * { animation: ds-in var(--t-slow) var(--ease-out) both; }
 .ds-stagger > :nth-child(2) { animation-delay: 30ms; } .ds-stagger > :nth-child(3) { animation-delay: 60ms; }
 .ds-stagger > :nth-child(4) { animation-delay: 90ms; } .ds-stagger > :nth-child(n+5) { animation-delay: 120ms; }
-@media (prefers-reduced-motion: reduce) { .ds-bar > i, .ds-stagger > *, .ds-fold-b { animation: none; } }
+/* An expandable list row: one line (summary) that opens to its detail. Inside a .ds-card.ds-rows list. */
+.ds-xrow > summary { list-style: none; display: flex; align-items: center; gap: 10px; min-width: 0; padding: 10px 14px; cursor: pointer; transition: background-color var(--t-fast); }
+.ds-xrow > summary::-webkit-details-marker { display: none; }
+.ds-xrow > summary:hover { background: var(--c-hover); }
+.ds-xrow > summary:focus-visible { outline: 2px solid var(--c-accent); outline-offset: -2px; }
+.ds-xrow-chev { flex: none; color: var(--c-muted); transition: transform var(--t) var(--ease-out); }
+.ds-xrow[open] > summary .ds-xrow-chev { transform: rotate(180deg); }
+/* A closed row's detail takes no room: Chrome still counts closed <details> content toward the page's scroll height. */
+.ds-xrow:not([open]) > .ds-xrow-b, .ds-fold:not([open]) > .ds-fold-b { display: none; }
+.ds-xrow-b { padding: 2px 14px 14px; min-width: 0; animation: ds-in var(--t) var(--ease-out); }
+.ds-rows > .ds-xrow:first-child > summary { border-radius: var(--r-card) var(--r-card) 0 0; }
+.ds-rows > .ds-xrow:last-child:not([open]) > summary { border-radius: 0 0 var(--r-card) var(--r-card); }
+.ds-num { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--c-ink); }
+@media (prefers-reduced-motion: reduce) { .ds-bar > i, .ds-stagger > *, .ds-fold-b, .ds-xrow-b { animation: none; } }
 
 /* ---------- app shell (App.tsx) ---------- */
 .app-side { background: color-mix(in srgb, var(--c-card) 70%, transparent); box-shadow: 1px 0 0 var(--c-line); }

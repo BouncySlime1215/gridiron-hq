@@ -36,8 +36,9 @@ export default function LeagueSwitcher() {
   return (
     <div className="flex min-w-0 items-center gap-2">
     {active?.connection_status && active.connection_status !== 'connected' && (
-      <Link to="/league" className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800" title="This league's connection needs attention">
-        Reconnect
+      <Link to="/league" className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800"
+        title={active.connection_status === 'needs_reconnect' ? 'ESPN credentials were removed: reconnect on League' : 'The last sync of this league failed: retry it on League'}>
+        {active.connection_status === 'needs_reconnect' ? 'Reconnect' : 'Sync failed'}
       </Link>
     )}
     <select

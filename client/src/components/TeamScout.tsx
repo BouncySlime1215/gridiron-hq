@@ -1,4 +1,5 @@
 import { PlayerPill, num } from './TradeCard';
+import { Card, Chip, Fold, Icon, Stat, type Tone } from './ui/DesignSystem';
 
 /**
  * Self-scouting report: where this roster is strong, where it breaks, and the
@@ -12,147 +13,107 @@ import { PlayerPill, num } from './TradeCard';
  * too used to fire the identical request twice, back to back, on every page load.
  */
 
-const STATUS_TONE: Record<string, string> = {
-  strength: 'bg-good-tint text-good border-good',
-  average: 'bg-slate-100 text-slate-600 border-slate-300',
-  weakness: 'bg-crit-tint text-crit border-crit'
-};
-const PRIORITY_TONE: Record<string, string> = {
-  high: 'border-rose-300 bg-rose-50/50',
-  medium: 'border-amber-300 bg-amber-50/40',
-  low: 'border-slate-200 bg-slate-50/60'
-};
+const STATUS_TONE: Record<string, Tone> = { strength: 'good', average: 'neutral', weakness: 'bad' };
+const PRIORITY_TONE: Record<string, Tone> = { high: 'bad', medium: 'warn', low: 'neutral' };
 
 export default function TeamScout({ data: s, loading }: { data: any; loading?: boolean }) {
-  if (loading) return <div className="card p-6 text-sm text-slate-500">Scouting your roster against the league…</div>;
-  if (!s || s.error) return <div className="card p-6 text-sm text-slate-500">{s?.error ?? 'No analysis available.'}</div>;
+  if (loading) return <Card className="text-sm text-slate-500">Scouting your roster against the league…</Card>;
+  if (!s || s.error) return <Card className="text-sm text-slate-500">{s?.error ?? 'No analysis available.'}</Card>;
 
   const maxLineup = Math.max(...s.league_lineups.map((l: any) => l.points));
 
   return (
-    <div className="space-y-4">
-      {/* headline */}
-      <div className="card p-4">
-        <div className="flex items-baseline gap-3 flex-wrap">
-          <div>
-            <div className="text-[10px] font-black uppercase tracking-wide text-slate-400">Projected lineup strength</div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-black tabular-nums text-slate-800">{s.lineup.points}</span>
-              <span className="text-sm text-slate-500">ppg</span>
-              <span className={`text-sm font-bold ${s.rank <= 3 ? 'text-good' : s.rank > s.of - 3 ? 'text-crit' : 'text-amber-600'}`}>
-                {s.rank}{ord(s.rank)} of {s.of}
-              </span>
-            </div>
-          </div>
-          {s.spread?.floor != null && (
-            <div className="ml-auto text-right">
-              <div className="text-[10px] font-black uppercase tracking-wide text-slate-400">Weekly range</div>
-              <div className="text-sm tabular-nums text-slate-600">
-                <span className="text-crit font-semibold">{s.spread.floor}</span>
-                <span className="text-slate-300 mx-1">—</span>
-                <span className="text-good font-semibold">{s.spread.ceiling}</span>
-              </div>
-            </div>
-          )}
+    <div className="space-y-3">
+      {/* headline: the number, where it ranks, and where every team sits */}
+      <Card>
+        <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
+          <Stat label="Projected lineup strength"
+            value={<>{s.lineup.points}<span className="ml-1 text-sm font-normal text-slate-500">ppg</span></>}
+            foot={<Chip tone={s.rank <= 3 ? 'good' : s.rank > s.of - 3 ? 'bad' : 'warn'}>{s.rank}{ord(s.rank)} of {s.of}</Chip>} />
         </div>
-
-        {/* where every team sits */}
-        <div className="mt-3 space-y-1">
+        <div className="mt-4 space-y-1.5 ds-stagger">
           {s.league_lineups.map((l: any) => (
-            <div key={l.roster_id} className="flex items-center gap-2 text-xs">
-              <span className={`w-32 truncate shrink-0 ${l.me ? 'font-bold text-emerald-700' : 'text-slate-500'}`}>{l.owner}</span>
-              <div className="flex-1 h-3 bg-slate-100 rounded overflow-hidden">
-                <div className={`h-full rounded ${l.me ? 'bg-emerald-500' : 'bg-slate-300'}`}
-                  style={{ width: `${(l.points / maxLineup) * 100}%` }} />
-              </div>
-              <span className="tabular-nums text-slate-500 w-12 text-right shrink-0">{l.points.toFixed(0)}</span>
+            <div key={l.roster_id} className="grid grid-cols-[minmax(0,9rem)_1fr_3rem] items-center gap-3 text-xs">
+              <span className={`truncate ${l.me ? 'font-semibold text-[var(--c-accent)]' : 'text-slate-500'}`} title={l.owner}>{l.owner}</span>
+              <span className="ds-bar"><i className={l.me ? 'is-me' : undefined} style={{ width: `${(l.points / maxLineup) * 100}%` }} /></span>
+              <span className="tabular-nums text-right text-slate-500">{l.points.toFixed(0)}</span>
             </div>
           ))}
         </div>
-      </div>
+      </Card>
 
-      {/* position by position */}
-      <div>
-        <h3 className="text-sm font-bold text-slate-700 mb-2">Position by position</h3>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* position by position: one row each, the players and depth open under it */}
+      <section>
+        <h3 className="ds-h mb-3">Position by position</h3>
+        <Card pad={false} className="ds-rows">
           {Object.entries(s.positions).map(([pos, v]: [string, any]) => (
-            <div key={pos} className="card p-3">
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className={`text-sm font-black pos-${pos}`}>{pos}</span>
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${STATUS_TONE[v.status]}`}>
-                  {v.status}
+            <details key={pos} className="ds-xrow">
+              <summary>
+                <span className={`w-7 shrink-0 text-sm font-bold pos-${pos}`}>{pos}</span>
+                <Chip tone={STATUS_TONE[v.status] ?? 'neutral'}>{v.status}</Chip>
+                <span className="min-w-0 flex-1 truncate text-sm">
+                  <span className="ds-num">{v.ppg.toFixed(1)}</span>
+                  <span className="ds-note"> vs {v.league_avg.toFixed(1)} avg</span>
                 </span>
-                <span className="text-[10px] text-slate-400 ml-auto">{v.rank}{ord(v.rank)}/{v.of}</span>
-              </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-xl font-black tabular-nums text-slate-800">{v.ppg.toFixed(1)}</span>
-                <span className="text-[11px] text-slate-400">vs {v.league_avg.toFixed(1)} avg</span>
-              </div>
-              <div className="h-1.5 bg-slate-100 rounded mt-1.5 overflow-hidden">
-                <div className={`h-full rounded ${v.ratio >= 1.12 ? 'bg-[var(--good)]' : v.ratio <= 0.88 ? 'bg-[var(--crit)]' : 'bg-slate-400'}`}
-                  style={{ width: `${Math.min(100, (v.ratio / 1.6) * 100)}%` }} />
-              </div>
-              <div className="mt-2 space-y-1">
-                {v.starters.map((p: any) => <div key={p.id}><PlayerPill p={p} /></div>)}
-              </div>
-              {v.depth.length > 0 && (
-                <div className="mt-1.5 pt-1.5 border-t border-slate-100">
-                  <div className="text-[9px] font-bold uppercase tracking-wide text-slate-400 mb-1">Bench</div>
-                  <div className="flex flex-wrap gap-1">
-                    {v.depth.slice(0, 3).map((p: any) => (
-                      <span key={p.id} className="text-[10px] text-slate-500">{p.name}</span>
-                    ))}
-                  </div>
+                <span className="ds-note shrink-0 tabular-nums">{v.rank}{ord(v.rank)}/{v.of}</span>
+                <Icon name="down" size={16} className="ds-xrow-chev" />
+              </summary>
+              <div className="ds-xrow-b">
+                <div className="ds-bar !h-1.5">
+                  <i className={v.ratio >= 1.12 ? 'is-good' : v.ratio <= 0.88 ? 'is-bad' : undefined} style={{ width: `${Math.min(100, (v.ratio / 1.6) * 100)}%` }} />
                 </div>
-              )}
-              <p className="text-[10px] text-slate-400 mt-1.5">
-                Lose your best {pos}: <span className="font-semibold text-slate-600">−{v.injury_dropoff} ppg</span>
-              </p>
-            </div>
+                <div className="mt-3 flex flex-wrap gap-1">
+                  {v.starters.map((p: any) => <PlayerPill key={p.id} p={p} />)}
+                </div>
+                {v.depth.length > 0 && (
+                  <p className="ds-note mt-2">Bench: {v.depth.slice(0, 3).map((p: any) => p.name).join(', ')}</p>
+                )}
+                <p className="ds-note mt-1">
+                  Lose your best {pos}: <span className="font-semibold">−{v.injury_dropoff} ppg</span>
+                </p>
+              </div>
+            </details>
           ))}
-        </div>
-      </div>
+        </Card>
+      </section>
 
       {/* what to do about it */}
-      <div>
-        <h3 className="text-sm font-bold text-slate-700 mb-2">What to fix, in order</h3>
-        <div className="space-y-2">
-          {s.fixes.map((f: any, i: number) => (
-            <div key={i} className={`rounded-xl border p-3 ${PRIORITY_TONE[f.priority]}`}>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[9px] font-black uppercase tracking-wide text-slate-500">{f.priority}</span>
-                <span className="text-sm font-bold text-slate-800">{f.area}</span>
+      <section>
+        <h3 className="ds-h mb-3">What to fix, in order</h3>
+        {s.fixes.length > 0 ? (
+          <Card pad={false} className="ds-rows">
+            {s.fixes.map((f: any, i: number) => (
+              <div key={i} className="flex gap-3 px-4 py-3">
+                <span className="pt-0.5"><Chip tone={PRIORITY_TONE[f.priority] ?? 'neutral'}>{f.priority}</Chip></span>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-slate-800">{f.area}</div>
+                  <p className="text-sm text-slate-600">{f.issue}</p>
+                  <p className="mt-1 text-sm font-medium text-slate-800">{f.action}</p>
+                </div>
               </div>
-              <p className="text-xs text-slate-600">{f.issue}</p>
-              <p className="text-xs text-slate-700 font-medium mt-1">→ {f.action}</p>
-            </div>
-          ))}
-          {s.fixes.length === 0 && <div className="card p-4 text-sm text-slate-500">No structural problems found — you are in good shape.</div>}
-        </div>
-      </div>
+            ))}
+          </Card>
+        ) : <Card className="text-sm text-slate-500">No structural problems found — you are in good shape.</Card>}
+      </section>
 
-      {/* playoff schedule */}
+      {/* playoff schedule: folded, it is a reference list */}
       {s.playoff_swing?.length > 0 && (
-        <div className="card overflow-hidden">
-          <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
-            <h3 className="text-sm font-bold text-slate-700">Your starters in Weeks 15–17</h3>
-            <p className="text-[10px] text-slate-400">How each one&apos;s playoff matchups compare to his normal week</p>
-          </div>
-          <div className="divide-y divide-slate-100">
+        <Fold title="Your starters in Weeks 15–17" hint="How each one's playoff matchups compare to his normal week">
+          <div className="ds-rows">
             {s.playoff_swing.slice().reverse().map((p: any) => (
-              <div key={p.id} className="px-3 py-2 flex items-center gap-2 text-xs">
-                <span className={`text-[9px] font-black pos-${p.position} w-6`}>{p.position}</span>
-                <span className="font-semibold text-slate-700 w-32 truncate">{p.name}</span>
-                <span className="text-slate-400 text-[10px] truncate flex-1">
+              <div key={p.id} className="flex items-center gap-2 py-2 text-xs">
+                <span className={`text-[10px] font-bold pos-${p.position} w-6`}>{p.position}</span>
+                <span className="font-semibold text-slate-700 w-32 truncate" title={p.name}>{p.name}</span>
+                <span className="text-slate-400 text-[11px] truncate flex-1" title={(p.games ?? []).map((g: any) => `${g.home ? '' : '@'}${g.opponent}`).join(' · ')}>
                   {(p.games ?? []).map((g: any) => `${g.home ? '' : '@'}${g.opponent}`).join(' · ')}
                 </span>
-                <span className={`font-bold tabular-nums shrink-0 ${p.swing > 0.3 ? 'text-good' : p.swing < -0.3 ? 'text-crit' : 'text-slate-400'}`}>
+                <span className={`font-semibold tabular-nums shrink-0 ${p.swing > 0.3 ? 'text-good' : p.swing < -0.3 ? 'text-crit' : 'text-slate-400'}`}>
                   {num(p.swing)} ppg
                 </span>
               </div>
             ))}
           </div>
-        </div>
+        </Fold>
       )}
     </div>
   );

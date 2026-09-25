@@ -127,13 +127,11 @@ export default function WaiverWire({ data, loading, error, onRetry, out }: {
   data: WaiverBoard | null; loading: boolean; error: string | null; onRetry: () => void; out: OutList;
 }) {
   return (
-    <section id="waiver-wire" className="tr-rise scroll-mt-16 rounded-2xl border border-slate-200 bg-white p-4"
-      style={{ animationDelay: '190ms' }} aria-labelledby="waivers-heading">
-      <h2 id="waivers-heading" className="text-sm font-black uppercase tracking-wide text-slate-500">Waiver wire</h2>
-      <p className="mt-1 text-xs leading-5 text-slate-500">
-        Ranked by what a claim adds to your starting lineup, not by the player's raw projection. In five replayed
-        seasons, making the best claim each week added about 2 to 3.5 percentage points of win rate against the
-        whole league (less the more of your league does it too), and it helped in all five.
+    <section id="waiver-wire" className="ds-card scroll-mt-16 p-4" aria-labelledby="waivers-heading">
+      <h2 id="waivers-heading" className="ds-h">Waiver wire</h2>
+      <p className="ds-note mt-0.5">
+        Ranked by what a claim adds to your starting lineup. In five replayed seasons the best claim each week
+        added 2 to 3.5 points of win rate against the league.
       </p>
       <Body data={data} loading={loading} error={error} onRetry={onRetry} out={out} />
     </section>
@@ -267,21 +265,24 @@ function Body({ data, loading, error, onRetry, out }: {
       </details>
 
       {/* ------------------------------------------------------------ footnote */}
-      <p className="mt-3 text-[11px] leading-4 text-slate-400">
-        {data.free_agents_considered != null && <>Checked {data.free_agents_considered} free agents. </>}
-        {data.live_players != null && data.roster_size != null && (
-          <>{data.live_players} of your {data.roster_size} active players are likely to suit up and see the ball this week. </>
-        )}
-        {(data.on_ir?.length ?? 0) > 0 && (
-          <>On IR and never suggested as a cut: {data.on_ir!.join(', ')}.</>
-        )}
-      </p>
-      {teamless > 0 && (
-        <p className="mt-1.5 text-[11px] leading-4 text-slate-500">
-          Left off: {teamless} free agent{teamless === 1 ? '' : 's'} with no NFL team. They cannot score until
-          someone signs them, so a rest-of-season number cannot describe a real role.
+      <details className="mt-3">
+        <summary className="ds-note cursor-pointer">What was checked</summary>
+        <p className="ds-note mt-1">
+          {data.free_agents_considered != null && <>Checked {data.free_agents_considered} free agents. </>}
+          {data.live_players != null && data.roster_size != null && (
+            <>{data.live_players} of your {data.roster_size} active players are likely to suit up and see the ball this week. </>
+          )}
+          {(data.on_ir?.length ?? 0) > 0 && (
+            <>On IR and never suggested as a cut: {data.on_ir!.join(', ')}.</>
+          )}
         </p>
-      )}
+        {teamless > 0 && (
+          <p className="ds-note mt-1">
+            Left off: {teamless} free agent{teamless === 1 ? '' : 's'} with no NFL team. They cannot score until
+            someone signs them, so a rest-of-season number cannot describe a real role.
+          </p>
+        )}
+      </details>
     </>
   );
 }

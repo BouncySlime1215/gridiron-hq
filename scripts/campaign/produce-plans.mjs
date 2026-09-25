@@ -91,6 +91,7 @@ import { applyCoachMessages, coachMessagesOn } from '../../server/services/campa
 import { previewUnconfirmed } from '../../server/services/preview-mode.js';
 import { newSearchStats, twoForOneSummary } from '../../server/services/campaign/search.js';
 import { loveIdsOf, loveSummary } from '../../server/services/campaign/love.js';
+import { vetoShadow } from '../../server/services/veto-risk.js';
 import { reachFlag, REACH_TARGETS, droppedLine } from '../../server/services/campaign/reach.js';
 import { draftSummary } from '../../server/services/campaign/draft-capital.js';
 import { radarWireFlag, applyWhyNow, gradeLedger, newServeRows } from '../../server/services/campaign/why-now.js';
@@ -377,6 +378,9 @@ export async function buildPlansFile(leagues, {
           ...(adapter.draft ? { draft_id_map: draftSummary(adapter.draft) } : {}),
           // LOVE-RULE (shadow, GRIDIRON_LOVE_TAG=1): BUY / PASS / AVOID on the players this entry shows.
           // Read after planning, so it can never constrain the search; nothing served reads it.
+          // VETO-RISK (shadow, GRIDIRON_VETO_RISK): P(complete) with the league's review folded in, beside
+          // the served p_complete. Read after planning; nothing served reads it.
+          ...(adapter.vetoRisk ? { veto_risk: vetoShadow(adapter.vetoRisk, res) } : {}),
           ...(adapter.love ? { love: loveSummary(adapter.love(loveIdsOf(entry), { draft: adapter.draft?.by_player ?? null })) } : {}),
         };
       }

@@ -202,3 +202,27 @@ test('producer: shadow -> only _run.inputs.veto_risk is added; no served number 
   delete on._run.inputs.veto_risk;
   assert.deepEqual(on._run, off._run);
 });
+
+test('reader: ISO text times, tx ids joined within their season, votes threshold from the league payload', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(':memory:');
+  db.exec(`CREATE TABLE league_transactions_raw (league_id INTEGER, season INTEGER, tx_id TEXT, type TEXT, status TEXT,
+    execution_type TEXT, proposed_at TEXT, processed_at TEXT, team_id INTEGER, related_tx_id TEXT, items_json TEXT)`);
+  const ins = db.prepare('INSERT INTO league_transactions_raw VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+  const iso = ms => (ms == null ? null : new Date(ms).toISOString());
+  const put = (season, rs) => rs.forEach(r => ins.run(99, season, r.tx_id, r.type, r.status, r.execution_type,
+    iso(r.proposed_at), iso(r.processed_at), r.team_id, r.related_tx_id, r.items_json));
+  seq = 0; put(2025, offer({ settle: 'landed', give: [101], get: [201] }));
+  // Same tx ids in the next season: must not join to 2025's rows.
+  seq = 0; put(2026, offer({ settle: 'killed', vetoes: 5, give: [101], get: [201], day: 400 }));
+  const lg = { id: 99, payload: JSON.stringify({ teams: new Array(10).fill({}), settings: { tradeSettings: { vetoVotesRequired: 5 } } }) };
+  const h = V.readVetoHistory(db, lg, { priceOfEspn: id => ({ 101: 40, 201: 20 })[id] });
+  assert.equal(h.status, 'ok');
+  assert.deepEqual(h.counts, { accepted: 2, landed: 1, vetoed: 1, in_review: 0, canceled_other: 0 });
+  assert.deepEqual(h.deals.map(d => [d.season, d.outcome]), [[2025, 'landed'], [2026, 'vetoed']]);
+  assert.ok(Number.isFinite(h.deals[0].decided_at) && h.deals[0].decided_at < h.deals[1].decided_at);
+  assert.equal(h.deals[0].skew_pct, 100);
+  assert.equal(h.table.votes_required, 5);
+  assert.equal(h.table.other_owners, 8);
+  assert.equal(V.readVetoHistory(new DatabaseSync(':memory:'), lg).status, 'source_table_absent');
+});

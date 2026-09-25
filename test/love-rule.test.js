@@ -178,6 +178,40 @@ test('reader: strictly prior weeks of this season, averaged; week N itself is ne
   assert.equal(r.players.get(2).role.report_status, 'Out');
 });
 
+test('reader: an old injury report does not stick (Out in week 1, off the report since -> healthy)', () => {
+  const db = makeDb(); seed(db);
+  db.run(`INSERT INTO nfl_injuries VALUES (2026, 1, 'G1', 'Out')`);
+  const r = readLoveInputs(db, { season: 2026, week: 4, ids: [1] });
+  assert.equal(r.sources.injuries.report_week, 4);
+  assert.equal(r.players.get(1).role.status, 'healthy');
+  assert.equal(r.players.get(1).role.report_status, null);
+});
+
+test('reader: last week\'s report counts when this week\'s is not out yet', () => {
+  const db = makeDb(); seed(db);
+  const r = readLoveInputs(db, { season: 2026, week: 5, ids: [2] });
+  assert.equal(r.sources.injuries.report_week, 4);
+  assert.equal(r.players.get(2).role.status, 'unhealthy');
+});
+
+test('reader: a stale injuries table fails closed: role unknown, BUY capped at PASS, reason named', () => {
+  const db = makeDb(); seed(db);
+  const none = readLoveInputs(db, { season: 2026, week: 7, ids: [1] });
+  assert.equal(none.sources.injuries.status, 'stale');
+  assert.match(none.sources.injuries.reason, /week 4, older than week 6/);
+  assert.equal(none.players.get(1).role.status, 'unknown');
+  const empty = makeDb(); seed(empty);
+  empty.run(`DELETE FROM nfl_injuries`);
+  const r = readLoveInputs(empty, { season: 2026, week: 4, ids: [1] });
+  assert.equal(r.sources.injuries.status, 'stale');
+  assert.match(r.sources.injuries.reason, /no 2026 report/);
+  assert.equal(r.players.get(1).role.status, 'unknown');
+  // Player 1 (share 22%, strong) would be BUY on a current report; stale caps it.
+  assert.equal(loveTag({ ...r.players.get(1), overall_pick: 10 }).tag, 'PASS');
+  const fresh = readLoveInputs(db, { season: 2026, week: 4, ids: [1] });
+  assert.equal(loveTag({ ...fresh.players.get(1), overall_pick: 10 }).tag, 'BUY');
+});
+
 test('reader: a player with no gsis id has no expected points, and the tag says UNRATED only where it must', () => {
   const db = makeDb(); seed(db);
   const r = readLoveInputs(db, { season: 2026, week: 4, ids: [3] });

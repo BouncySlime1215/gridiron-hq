@@ -1,0 +1,162 @@
+{
+  "about": "RULE-FUZZ recorded seeds. sweep: the seeds every CI run plans (base .. base + count - 1). gate_seed: the random-offer gate fuzz. recorded: seeds that broke a rule, replayed on every run even if the sweep moves; found_on is the main commit they were measured on.",
+  "sweep": {
+    "base": 1,
+    "count": 300
+  },
+  "gate_seed": 20260925,
+  "recorded": [
+    {
+      "seed": 1,
+      "mode": "safe",
+      "rule": "never_give",
+      "surface": "risk_modes.balanced",
+      "detail": "1003+160 for 1010 (team 2)",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 6,
+      "mode": "safe",
+      "rule": "aj_brown",
+      "surface": "deck[3].playbook[0].replies.decline",
+      "detail": "1006+277 for 1050 (team 6)",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 8,
+      "mode": "safe",
+      "rule": "final_get",
+      "surface": "suggestions",
+      "detail": "1005 scores 82",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 4,
+      "mode": "safe",
+      "rule": "no_olave",
+      "surface": "suggestions",
+      "detail": "290",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 1,
+      "mode": "safe",
+      "rule": "no_buyback",
+      "surface": "flip 1057 leg 2",
+      "detail": "1057 for 1026 (team 3) buys back 1026",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 10,
+      "mode": "safe",
+      "rule": "no_undo",
+      "surface": "deck[0].playbook[0].opening",
+      "detail": "1042+1047 for 290 (team 4) undoes a trade with team 4",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 70,
+      "mode": "safe",
+      "rule": "beats_no_trade",
+      "surface": "backup[0]",
+      "detail": "expected -0.0003308857737753892",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 1,
+      "mode": "balanced",
+      "rule": "never_give",
+      "surface": "deck[0].playbook[0].replies.accept",
+      "detail": "80 for 1024 (team 3)",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 6,
+      "mode": "balanced",
+      "rule": "aj_brown",
+      "surface": "deck[0].playbook[0].replies.decline",
+      "detail": "1006+277 for 1050 (team 6)",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 8,
+      "mode": "balanced",
+      "rule": "final_get",
+      "surface": "deck[1]",
+      "detail": "1005 scores 82",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 4,
+      "mode": "balanced",
+      "rule": "no_olave",
+      "surface": "suggestions",
+      "detail": "290",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 1,
+      "mode": "balanced",
+      "rule": "no_buyback",
+      "surface": "flip 1057 leg 2",
+      "detail": "1057 for 1026 (team 3) buys back 1026",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 10,
+      "mode": "balanced",
+      "rule": "no_undo",
+      "surface": "deck[0].playbook[0].replies.decline",
+      "detail": "1042+1044 for 290 (team 4) undoes a trade with team 4",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 1,
+      "mode": "all_in",
+      "rule": "never_give",
+      "surface": "deck[0].playbook[0].replies.accept",
+      "detail": "160 for 1011 (team 2)",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 6,
+      "mode": "all_in",
+      "rule": "aj_brown",
+      "surface": "deck[1].playbook[0].replies.decline",
+      "detail": "1006+277 for 1050 (team 6)",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 3,
+      "mode": "all_in",
+      "rule": "final_get",
+      "surface": "best",
+      "detail": "1057 scores 82",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 4,
+      "mode": "all_in",
+      "rule": "no_olave",
+      "surface": "deck[0].playbook[0].replies.accept",
+      "detail": "1016+1019 for 290 (team 4)",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 1,
+      "mode": "all_in",
+      "rule": "no_buyback",
+      "surface": "flip 1057 leg 2",
+      "detail": "1057 for 1026 (team 3) buys back 1026",
+      "found_on": "main 58ad700"
+    },
+    {
+      "seed": 10,
+      "mode": "all_in",
+      "rule": "no_undo",
+      "surface": "deck[0].playbook[0].replies.accept",
+      "detail": "1042+1044 for 290 (team 4) undoes a trade with team 4",
+      "found_on": "main 58ad700"
+    }
+  ]
+}

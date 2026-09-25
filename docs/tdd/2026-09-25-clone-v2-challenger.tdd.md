@@ -13,7 +13,7 @@ stays `fitted:false`)". Batch D item 4b: "a LIVE-BLEND challenger arm only".
 - **Metric 2 (the clone model is #288's).** B1, B1b, B1c, B1d, B3, B8, B8b, B9 (unchanged from
   #288) and S4 (P(complete) = P(accept) x (1 - P(veto)), inert with a reason when the league states
   no `vetoVotesRequired`).
-- **Metric 3 (the fits ledger).** B6, B6b, B7, B13: `manager_clone_fits` (migration 111) is
+- **Metric 3 (the fits ledger).** B6, B6b, B7, B13: `manager_clone_fits` (migration 113) is
   rewritten whole and idempotently by `settleOfferLoop`.
 - **Metric 4 (graders run).** B14 (E1 grade on raw terms) and B16 (Arm 1).
 - **Promotion is NOT decided here.** The clone becomes a LIVE-BLEND arm only if E1's forward-only
@@ -38,4 +38,4 @@ stays `fitted:false`)". Batch D item 4b: "a LIVE-BLEND challenger arm only".
 | `trade_outcomes.pitch_json` + `/offers/pitch-arms` | not carried | logging-only, separate unit; keeps this PR small |
 | TradeCard follow-up chip | not carried | Trades client files are frozen for the coordinator's cleanup |
 | terms from `trade_proposal_snapshots` first | raw rows only | the table (#247) is not on main; the wiring gate blocks a read with no writer |
-| migration 096 | 111 | 106-110 are taken by open batch-D PRs |
+| migration 096 | 113 | 106-110 are on main; 111 (#429) and 112 (#449) are taken |

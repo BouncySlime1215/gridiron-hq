@@ -1,4 +1,4 @@
-export const name = '111_manager_clone_fits';
+export const name = '113_manager_clone_fits';
 /**
  * CLONE-01b b2, manager clones: one table, additive only.
  *
@@ -11,7 +11,7 @@ export const name = '111_manager_clone_fits';
  *                        `n` is decided replies, `k` accepts, `coef_json` the
  *                        replies and the price bound a decline set.
  *
- * Numbered 096 on #288; 106-110 are taken by open batch-D PRs, so 111 here. The
+ * Numbered 096 on #288; 106-112 are on main or taken by open batch-D PRs (#429 111, #449 112), so 113 here. The
  * pitch-arm column #288 also added (trade_outcomes.pitch_json) is not carried.
  */
 export function up(db) {

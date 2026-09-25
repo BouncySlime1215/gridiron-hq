@@ -804,7 +804,7 @@ export function settleOfferLoop(leagueId, season, opts = {}) {
 /* ------------------------------------------------- the clone fits (CLONE-01b b2) */
 
 /** A settled sent offer is a decision only when he answered: accept = 1; decline or counter = 0 (EVAL E1). */
-const DECIDED = Object.freeze({ accepted: 1, declined: 0, countered: 0 });
+const CLONE_REPLY_Y = Object.freeze({ accepted: 1, declined: 0, countered: 0 });
 
 /** One side's players, or null when its JSON cannot be read (the caller records why). */
 const parseSide = json => {
@@ -863,7 +863,7 @@ function pricedSides(o, terms) {
  */
 export function refreshCloneFits(leagueId, season) {
   if (!tableExists('manager_clone_fits')) {
-    return { state: 'table_absent', managers: 0, reason: 'manager_clone_fits does not exist — migration 111 has not run here' };
+    return { state: 'table_absent', managers: 0, reason: 'manager_clone_fits does not exist — migration 113 has not run here' };
   }
   if (!hasSentColumns()) {
     return { state: 'table_absent', managers: 0, reason: 'trade_outcomes.sent_at does not exist — migration 080 has not run here' };
@@ -881,7 +881,7 @@ export function refreshCloneFits(leagueId, season) {
     const { give, get, terms } = pricedSides(o, termsBy);
     termCount[terms]++;
     const gain = give && get ? packageGainPct(give, get) : null;
-    const reply = { y: DECIDED[o.status], status: o.status, resolved_at: o.resolved_at ?? null, outcome_id: o.id,
+    const reply = { y: CLONE_REPLY_Y[o.status], status: o.status, resolved_at: o.resolved_at ?? null, outcome_id: o.id,
       gain_pct: gain, terms,
       ...(give && get ? {} : { gain_reason: 'its give_json or get_json is not valid JSON, so its price is unknown' }) };
     const id = String(o.counterparty_team_id);

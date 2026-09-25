@@ -8,7 +8,7 @@
  *
  * Gates (docs/tdd/2026-09-25-clone-v2-challenger.tdd.md):
  *  B1/B1b/B1c/B1d/B3/B8/B8b/B9 the clone model, as on #288.
- *  B6/B6b/B7 refreshCloneFits -> manager_clone_fits (migration 111), idempotent, run by settleOfferLoop.
+ *  B6/B6b/B7 refreshCloneFits -> manager_clone_fits (migration 113), idempotent, run by settleOfferLoop.
  *  B13/B14/B16 settled-reply terms, the E1 grade and the Arm 1 grade, as on #288 minus the snapshot
  *     table (#247, not on main).
  *  S1 own flag only: off by default, on by GRIDIRON_CLONE_V2=1, never by preview mode.
@@ -117,7 +117,7 @@ test('B1d a counter is not in his ESPN accept rate, so it is not taken out of th
 
 /* ------------------------------------------------------------------- B7 */
 
-test('B7 migration 111: manager_clone_fits exists; trade_outcomes gains no column', () => {
+test('B7 migration 113: manager_clone_fits exists; trade_outcomes gains no column', () => {
   const cols = rows('PRAGMA table_info(manager_clone_fits)').map(c => c.name);
   for (const c of ['league_id', 'season', 'roster_id', 'coef_json', 'n', 'k', 'fit_stamp']) assert.ok(cols.includes(c), c);
   assert.ok(!rows('PRAGMA table_info(trade_outcomes)').some(c => c.name === 'pitch_json'), 'the pitch arm is not carried');

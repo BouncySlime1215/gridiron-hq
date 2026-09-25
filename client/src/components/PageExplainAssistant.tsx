@@ -132,16 +132,19 @@ export function PageExplainAssistant({ info }: { info: PageExplainInfo }) {
   const turns = followUps[key] ?? [];
 
   return <>
-    <button onClick={() => setOpen(current => !current)}
-      aria-label={open ? 'Close page explainer' : 'What am I looking at?'}
-      className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full border border-slate-800 bg-slate-950 text-white shadow-[0_12px_30px_rgba(15,23,42,.35)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(15,23,42,.4)]">
-      {open
-        ? <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
-        : <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" /></svg>}
+    {/* The explainer is a header button (App.tsx), not a floating circle over the page. */}
+    <button onClick={() => setOpen(current => !current)} aria-expanded={open}
+      aria-label={open ? 'Close page explainer' : 'What am I looking at?'} title="What am I looking at?"
+      className="ds-icon-btn">
+      {/* Lucide help-circle / x at the design system's 1.75 stroke (kept inline so this file has no component imports). */}
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        {open ? <path d="M18 6 6 18M6 6l12 12" /> : <><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3m.08 4h.01" /></>}
+      </svg>
     </button>
 
+    {/* Anchored under the sticky header (its positioned ancestor), so it never sits over the page's own floating UI. */}
     {open && <div ref={panelRef} role="dialog" aria-label="Page explainer"
-      className="fixed bottom-24 right-5 z-40 flex max-h-[70vh] w-[min(380px,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_24px_60px_rgba(15,23,42,.25)]">
+      className="absolute right-4 top-full z-[60] mt-2 flex max-h-[70vh] w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_24px_60px_rgba(15,23,42,.25)]">
       <div className="border-b border-slate-100 bg-slate-950 px-4 py-3 text-white">
         <div className="text-[10px] font-black uppercase tracking-[.14em] text-emerald-300">What am I looking at</div>
         <div className="mt-0.5 truncate text-sm font-bold">{routeLabel(route)}</div>

@@ -1,76 +1,20 @@
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400..800&family=Inter:wght@400..700&display=swap');
 /*
- * WAR-ROOM-UI v2 design system (WarRoomV2.tsx: Today / Go get / Market / League), scoped
- * to .wr-v2. The classic dashboard (warroom.css, .wr-app) is untouched.
- *
- * Brand       one accent ("signal", a cobalt-violet), tuned cool neutrals, three status
- *             tones used only by status marks. Light and dark are both hand-tuned.
- * Type        Geist for headings and every number (tabular), Inter for running text.
- *             Scale 12 / 13 / 14 / 16 / 20 / 28 / 40.
- * Space       4 / 8 / 12 / 16 / 24 / 32.
- * Radius      a hierarchy, inner = outer - inset: hero 24 (inset 24 -> tiles 12),
- *             cards 18 (inset 16 -> tiles 10 (rounded up to --r-sm 8+2)), controls 12, badges 8,
- *             pills and avatars fully round.
- * Edges       1 px alpha hairlines (never solid grey), a top-light inner edge in dark.
- * Elevation   two steps: --e1 at rest, --e2 on hover / overlays.
- * Motion      transform + opacity only; --ease-out for entrances, --ease-spring for the
- *             drawer; 140 / 180 / 240 ms; everything off under prefers-reduced-motion.
+ * WAR-ROOM-UI v2 (WarRoomV2.tsx: Today / Go get / Market / League), scoped to .wr-v2. The classic
+ * dashboard (warroom.css, .wr-app) is untouched. Colour, edges, elevation, radius and motion come
+ * from the app's design tokens (styles/tokens.css, docs/ui/DESIGN-SYSTEM.md); the type from the
+ * app's --font-* tokens. Dark mode is the tokens' [data-theme="dark"] set, which this root carries.
  */
 .wr-v2 {
-  --c-accent: #4b5bff; --c-accent-hover: #3a49f0; --c-accent-ink: #ffffff; --c-accent-tint: rgb(75 91 255 / .08); --c-accent-ring: rgb(75 91 255 / .35);
-  --c-green: #12803f; --c-green-tint: rgb(18 128 63 / .09); --c-amber: #a15c00; --c-amber-tint: rgb(214 138 0 / .12);
-  --c-red: #c2262e; --c-red-tint: rgb(194 38 46 / .08);
-  --c-bg: #f6f7f9; --c-card: #ffffff; --c-soft: #f2f3f6; --c-raised: #ffffff;
-  --c-ink: #0b0d12; --c-ink2: #3a4150; --c-muted: #676f80; --c-subtle: #9aa1ae;
-  --c-line: rgb(12 16 28 / .08); --c-line-strong: rgb(12 16 28 / .14); --c-hover: rgb(12 16 28 / .035);
-  --c-edge: inset 0 0 0 0 transparent;
-  --page: radial-gradient(1100px 560px at 8% -14%, rgb(75 91 255 / .10), transparent 62%),
-    radial-gradient(900px 520px at 108% 2%, rgb(18 170 120 / .06), transparent 60%),
-    radial-gradient(1200px 800px at 50% 125%, rgb(120 100 255 / .05), transparent 60%);
-  --bar: rgb(255 255 255 / .70);
-  --e1: 0 1px 1px rgb(12 16 28 / .03), 0 2px 6px rgb(12 16 28 / .04);
-  --e2: 0 2px 4px rgb(12 16 28 / .04), 0 12px 32px -4px rgb(12 16 28 / .12);
-  --r-hero: 24px; --r-card: 18px; --r-ctl: 12px; --r-tile: 12px; --r-badge: 8px;
-  --ease-out: cubic-bezier(.22, 1, .36, 1); --ease-spring: cubic-bezier(.2, 1.3, .35, 1);
-  --t-fast: 140ms; --t: 180ms; --t-slow: 240ms;
-  --f-display: "Geist", "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
-  --f-text: "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --f-display: var(--font-display); --f-text: var(--font-body);
   /* The classic tokens the shared panels read, mapped onto the brand. */
   --wr-ink: var(--c-ink); --wr-muted: var(--c-muted); --wr-subtle: var(--c-subtle); --wr-line: var(--c-line); --wr-surface: var(--c-soft);
   --wr-accent: var(--c-accent); --wr-warn: var(--c-amber); --wr-danger: var(--c-red); --wr-info: var(--c-accent); --wr-bg: var(--c-card);
 }
-@media (prefers-color-scheme: dark) {
-  .wr-v2:not([data-theme="light"]) {
-    --c-accent: #8e99ff; --c-accent-hover: #a3acff; --c-accent-ink: #0a0c1f; --c-accent-tint: rgb(142 153 255 / .12); --c-accent-ring: rgb(142 153 255 / .45);
-    --c-green: #4ade80; --c-green-tint: rgb(74 222 128 / .10); --c-amber: #fbbf24; --c-amber-tint: rgb(251 191 36 / .12);
-    --c-red: #f87171; --c-red-tint: rgb(248 113 113 / .12);
-    --c-bg: #0a0b0f; --c-card: #121419; --c-soft: #191c23; --c-raised: #161920;
-    --c-ink: #eceef3; --c-ink2: #c6cad4; --c-muted: #8c93a2; --c-subtle: #5d6472;
-    --c-line: rgb(255 255 255 / .075); --c-line-strong: rgb(255 255 255 / .14); --c-hover: rgb(255 255 255 / .04);
-    --c-edge: inset 0 1px 0 rgb(255 255 255 / .05);
-    --page: radial-gradient(1100px 560px at 8% -14%, rgb(142 153 255 / .12), transparent 62%),
-      radial-gradient(900px 520px at 108% 2%, rgb(74 222 128 / .05), transparent 60%),
-      radial-gradient(1200px 800px at 50% 125%, rgb(120 100 255 / .06), transparent 60%);
-    --bar: rgb(14 16 21 / .72);
-    --e1: 0 1px 2px rgb(0 0 0 / .35); --e2: 0 2px 6px rgb(0 0 0 / .35), 0 16px 40px -6px rgb(0 0 0 / .55);
-  }
-}
-.wr-v2[data-theme="dark"] {
-  --c-accent: #8e99ff; --c-accent-hover: #a3acff; --c-accent-ink: #0a0c1f; --c-accent-tint: rgb(142 153 255 / .12); --c-accent-ring: rgb(142 153 255 / .45);
-  --c-green: #4ade80; --c-green-tint: rgb(74 222 128 / .10); --c-amber: #fbbf24; --c-amber-tint: rgb(251 191 36 / .12);
-  --c-red: #f87171; --c-red-tint: rgb(248 113 113 / .12);
-  --c-bg: #0a0b0f; --c-card: #121419; --c-soft: #191c23; --c-raised: #161920;
-  --c-ink: #eceef3; --c-ink2: #c6cad4; --c-muted: #8c93a2; --c-subtle: #5d6472;
-  --c-line: rgb(255 255 255 / .075); --c-line-strong: rgb(255 255 255 / .14); --c-hover: rgb(255 255 255 / .04);
-  --c-edge: inset 0 1px 0 rgb(255 255 255 / .05);
-  --page: radial-gradient(1100px 560px at 8% -14%, rgb(142 153 255 / .12), transparent 62%),
-    radial-gradient(900px 520px at 108% 2%, rgb(74 222 128 / .05), transparent 60%),
-    radial-gradient(1200px 800px at 50% 125%, rgb(120 100 255 / .06), transparent 60%);
-  --bar: rgb(14 16 21 / .72);
-  --e1: 0 1px 2px rgb(0 0 0 / .35); --e2: 0 2px 6px rgb(0 0 0 / .35), 0 16px 40px -6px rgb(0 0 0 / .55);
-}
 
 /* ---------- page ---------- */
+/* Both War Room roots are full-screen views: index.css's page frame (main > div, max 1440 px,
+   centred) must not narrow them on a wide screen. */
+.wr-v2, .wr-app { max-width: none; width: auto; margin: 0; }
 .wr-v2 {
   position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; overflow: hidden;
   background: var(--page), var(--c-bg); color: var(--c-ink);

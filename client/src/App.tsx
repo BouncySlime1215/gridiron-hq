@@ -14,6 +14,13 @@ import { DataCredit } from './components/DataFreshnessBanner';
 import { Skeleton } from './components/ui/DesignSystem';
 import { PageExplainContext, type PageExplainInfo } from './components/PageExplainContext';
 import { PageExplainAssistant } from './components/PageExplainAssistant';
+import { Icon, type IconName } from './components/ui/DesignSystem';
+
+/** One icon per destination (the design system's Lucide set, via DesignSystem's Icon). */
+const NAV_ICON: Record<string, IconName> = {
+  '/my-team': 'trophy', '/league': 'house', '/lineup': 'lineup', '/trade-lab': 'swap', '/trade-brain': 'target',
+  '/draft': 'layers', '/news': 'news', '/settings': 'sliders',
+};
 
 const Teams = lazy(() => import('./pages/Teams'));
 const TeamDetail = lazy(() => import('./pages/TeamDetail'));
@@ -93,27 +100,27 @@ export default function App() {
     <PageExplainContext.Provider value={pageExplain}>
     <div className="flex min-h-screen bg-white">
       {drawerOpen && <div className="fixed inset-0 z-40 bg-slate-900/40" aria-hidden="true" onClick={() => setCollapsed(true)} />}
-      <aside style={{ width: rail ? 64 : 244 }} className={`flex h-screen shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-slate-50 py-4 ${rail ? 'px-2' : 'px-3'} ${isMobile
-        ? `fixed inset-y-0 left-0 z-50 transition-transform duration-200 ${drawerOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}`
+      <aside style={{ width: rail ? 64 : 244 }} className={`app-side flex h-screen shrink-0 flex-col overflow-hidden py-4 ${rail ? 'px-2' : 'px-3'} ${isMobile
+        ? `fixed inset-y-0 left-0 z-50 bg-[var(--c-card)] transition-transform duration-200 ${drawerOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}`
         : 'sticky top-0 transition-[width] duration-200'}`}>
         <div className={`mb-4 ${rail ? 'text-center' : 'px-2'}`}>
-          <div className="text-xl font-extrabold tracking-tight text-slate-950">{rail ? 'GH' : <>Gridiron <span className="text-emerald-700">HQ</span></>}</div>
-          {!rail && <div className="text-xs text-slate-500">Fantasy + market intelligence</div>}
+          <div className="app-brand">{rail ? <>G<b>H</b></> : <>Gridiron <b>HQ</b></>}</div>
+          {!rail && <div className="app-brand-sub">Fantasy + market intelligence</div>}
         </div>
 
         <nav aria-label="Primary navigation" className="min-h-0 flex-1 overflow-y-auto">
           {NAV_GROUPS.map(group => <div key={group.label} className="mb-3">
-            {!rail && <div className="mb-1 border-t border-slate-200 px-2 pt-3"><div className="text-[10px] font-extrabold uppercase tracking-[.12em] text-slate-500">{group.label}</div><div className="text-[10px] text-slate-400">{group.question}</div></div>}
-            {rail && <div className="mx-2 my-2 border-t border-slate-200" />}
-            {group.items.map(item => <NavLink key={item.to} to={item.to} end={item.end} title={rail ? item.label : undefined} className={({ isActive }) => `mb-0.5 flex items-center gap-2 rounded-md py-2 text-sm font-semibold transition-colors ${rail ? 'justify-center px-0' : 'px-2'} ${isActive ? 'bg-white text-emerald-800 shadow-sm ring-1 ring-slate-200' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}>
-              <span className={`relative grid h-6 w-6 shrink-0 place-items-center rounded-md border text-[10px] font-extrabold ${item.live ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-white text-slate-600'}`}>{item.icon}
+            {!rail && <div className="app-group" title={group.question || undefined}>{group.label}</div>}
+            {rail && <div className="mx-2 my-2 h-px bg-[var(--c-line)]" />}
+            {group.items.map(item => <NavLink key={item.to} to={item.to} end={item.end} title={rail ? item.label : undefined} className={({ isActive }) => `app-nav-link${rail ? ' is-rail' : ''}${isActive ? ' is-active' : ''}`}>
+              <span className="app-nav-ic">{NAV_ICON[item.to] ? <Icon name={NAV_ICON[item.to]} size={18} /> : item.icon}
                 {/* BROKEN-01b: red when any number is broken for the selected league; nothing otherwise. */}
                 {item.to === '/settings' && <span className="absolute -right-1 -top-1 flex"><NumberHealthNavDot /></span>}</span>
               {!rail && <span>{item.label}</span>}
             </NavLink>)}
           </div>)}
         </nav>
-        {!rail && <div className="px-2 pt-2 text-[10px] text-slate-400">Local app · data stays on your Mac</div>}
+        {!rail && <div className="app-foot px-2 pt-2">Local app · data stays on your Mac</div>}
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -121,14 +128,14 @@ export default function App() {
             was dismissed for this sitting; the modal itself otherwise. */}
         <EspnConnectGate />
         <DataFreshnessBanner />
-        <header className="sticky top-0 z-30 flex h-12 items-center gap-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6">
-          <button onClick={() => setCollapsed(v => !v)} aria-label={collapsed ? (isMobile ? 'Open menu' : 'Expand sidebar') : (isMobile ? 'Close menu' : 'Collapse sidebar')} className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50">
-            <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><rect x="1" y="2" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.4" /><line x1="5.5" y1="2" x2="5.5" y2="13" stroke="currentColor" strokeWidth="1.4" /></svg>
+        <header className="app-header sticky top-0 z-30 flex h-14 items-center gap-3 px-4 sm:px-6">
+          <button onClick={() => setCollapsed(v => !v)} aria-label={collapsed ? (isMobile ? 'Open menu' : 'Expand sidebar') : (isMobile ? 'Close menu' : 'Collapse sidebar')} className="ds-icon-btn shrink-0">
+            <Icon name="panel" size={18} />
           </button>
-          <span className="hidden min-w-0 truncate text-sm font-semibold text-slate-500 sm:block">{inBetting ? 'Betting' : 'Gridiron HQ'} <span className="mx-1 text-slate-300">/</span> <span className="text-slate-800">{pageLabel}</span></span>
+          <span className="app-crumb hidden min-w-0 truncate sm:block">{inBetting ? 'Betting' : 'Gridiron HQ'} <span className="mx-1 opacity-40">/</span> <b>{pageLabel}</b></span>
           {/* On a phone the league select gives up width to the buttons instead of pushing them off-screen. */}
           {!inBetting && <div className="min-w-0 flex-1 sm:flex-none [&_select]:w-full [&_select]:max-w-full sm:[&_select]:w-auto sm:[&_select]:max-w-[200px]"><LeagueSwitcher /></div>}
-          <div className="ml-auto flex shrink-0 items-center gap-2"><span className="hidden lg:inline-flex"><QuickJump /></span><RefreshAll onDone={() => window.dispatchEvent(new Event('gridiron:refreshed'))} /><span className="hidden sm:inline-flex"><DevHub /></span></div>
+          <div className="ml-auto flex shrink-0 items-center gap-2"><span className="hidden lg:inline-flex"><QuickJump /></span><RefreshAll onDone={() => window.dispatchEvent(new Event('gridiron:refreshed'))} /><span className="hidden sm:inline-flex"><DevHub /></span><PageExplainAssistant info={pageInfo} /></div>
         </header>
         <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8"><Suspense fallback={<RouteSkeleton />}><Routes>
           <Route path="/" element={<Navigate to="/league" replace />} />
@@ -165,7 +172,6 @@ export default function App() {
         <DataCredit />
       </div>
     </div>
-    <PageExplainAssistant info={pageInfo} />
     </PageExplainContext.Provider>
   </PlayerCardProvider></LeagueProvider>;
 }

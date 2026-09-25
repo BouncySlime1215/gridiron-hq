@@ -77,7 +77,9 @@ Display sizes (`hero`, `stat`, `title`) take the wide width axis and weight
 
 ## 2. Colour
 
-**Unchanged from `index.css`.** `--bg`, `--surface`, `--line`, `--ink`,
+**Superseded by the UI system (docs/ui/DESIGN-SYSTEM.md, `client/src/styles/tokens.css`)**: one cobalt-violet accent, tuned cool neutrals, alpha hairlines, a dark set. `index.css`'s older colour names now read those tokens. The paragraph below is the history.
+
+**Formerly unchanged from `index.css`.** `--bg`, `--surface`, `--line`, `--ink`,
 `--muted`, `--subtle`, `--accent`, `--warn`, `--danger`, `--info`, `--panel`,
 `--good`/`--crit` and their tints all keep their meanings. The remapping layer
 that pulls stray Tailwind emerald and slate classes onto the brand tokens stays
